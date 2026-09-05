@@ -85,7 +85,7 @@ func TestTerminateRefusesAnOutsourceWorkerOnItsOwnTask(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("owner create for worker: %d %s", rec.Code, rec.Body.String())
 	}
-	task := decodeBody[taskCreateResultDTO](t, rec).Task
+	task := createdTaskView(t, api, rec)
 	// The fixture IS the premise: if the executor were not the worker, the 403
 	// below would be the stranger case wearing this test's name.
 	if got := readTask(t, api, task.ID); got.ExecutorID != "ow-1" {
@@ -169,7 +169,7 @@ func TestTerminateRefusesACallerWhoseRosterRowIsGone(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("owner create for worker: %d %s", rec.Code, rec.Body.String())
 	}
-	task := decodeBody[taskCreateResultDTO](t, rec).Task
+	task := createdTaskView(t, api, rec)
 
 	if ok, err := api.dal.HardDeleteMember("ow-1"); err != nil || !ok {
 		t.Fatalf("hard delete: ok=%v err=%v", ok, err)

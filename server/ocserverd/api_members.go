@@ -1778,7 +1778,7 @@ func (s *apiServer) HandleReportWakingApiSelfWakingPost(w http.ResponseWriter, r
 			writeResolveError(w, werr, "member", currentActor(r))
 			return
 		}
-		s.writeMemberDTO(w, *fresh)
+		s.writeSelfReportReceipt(w, *fresh)
 		return
 	}
 	m.WakingSince = nowSecs()
@@ -1805,7 +1805,7 @@ func (s *apiServer) HandleReportWakingApiSelfWakingPost(w http.ResponseWriter, r
 		internalError(w, err)
 		return
 	}
-	s.writeMemberDTO(w, *m)
+	s.writeSelfReportReceipt(w, *m)
 }
 
 // POST /api/self/stopping — stamps the caller's stopping_since IF UNSET
@@ -1822,7 +1822,7 @@ func (s *apiServer) HandleReportStoppingApiSelfStoppingPost(w http.ResponseWrite
 			writeResolveError(w, werr, "member", currentActor(r))
 			return
 		}
-		s.writeMemberDTO(w, *fresh)
+		s.writeSelfReportReceipt(w, *fresh)
 		return
 	}
 	if m.StoppingSince <= 0.0 {
@@ -1836,7 +1836,7 @@ func (s *apiServer) HandleReportStoppingApiSelfStoppingPost(w http.ResponseWrite
 		internalError(w, err)
 		return
 	}
-	s.writeMemberDTO(w, *m)
+	s.writeSelfReportReceipt(w, *m)
 }
 
 // POST /api/self/stopped — anchors stopped_since ONCE (never re-stamped).
@@ -1861,7 +1861,7 @@ func (s *apiServer) HandleReportStoppedApiSelfStoppedPost(w http.ResponseWriter,
 			writeResolveError(w, werr, "member", currentActor(r))
 			return
 		}
-		s.writeMemberDTO(w, *fresh)
+		s.writeSelfReportReceipt(w, *fresh)
 		return
 	}
 	// 🔴 A stopped-report is now ALWAYS collected (owner 2026-08-16, card
@@ -1898,7 +1898,7 @@ func (s *apiServer) HandleReportStoppedApiSelfStoppedPost(w http.ResponseWriter,
 	if recycleKill {
 		s.dispatchRobustStopNow(m.ID)
 	}
-	s.writeMemberDTO(w, *m)
+	s.writeSelfReportReceipt(w, *m)
 }
 
 // POST /api/self/refocus — restart_self(): the agent's SELF-TRIGGERED recycle
@@ -1977,7 +1977,7 @@ func (s *apiServer) HandleRestartSelfApiSelfRefocusPost(w http.ResponseWriter, r
 		} else {
 			reconcileLog("recycle: %s self-restart (restart_self)", m.ID)
 		}
-		s.writeMemberDTO(w, *fresh)
+		s.writeSelfReportReceipt(w, *fresh)
 		return
 	}
 	// Same ladder rule as the owner's refocus above. restart_self is 停止, so an
@@ -2005,5 +2005,5 @@ func (s *apiServer) HandleRestartSelfApiSelfRefocusPost(w http.ResponseWriter, r
 	} else {
 		reconcileLog("recycle: %s self-restart (restart_self)", m.ID)
 	}
-	s.writeMemberDTO(w, *m)
+	s.writeSelfReportReceipt(w, *m)
 }

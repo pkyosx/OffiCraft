@@ -269,7 +269,7 @@ func createOutsourceTask(t *testing.T, api *apiServer, typeKey, title string) ta
 	if rec.Code != http.StatusOK {
 		t.Fatalf("create outsource task: %d %s", rec.Code, rec.Body.String())
 	}
-	return decodeBody[taskCreateResultDTO](t, rec).Task
+	return createdTaskView(t, api, rec)
 }
 
 func TestOutsourceTickAssignsMintsAndBinds(t *testing.T) {

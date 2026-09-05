@@ -409,6 +409,64 @@ func (s *apiServer) writeTask(w http.ResponseWriter, t Task) {
 	writeJSON(w, http.StatusOK, dto)
 }
 
+// writeTaskWriteReceipt is the common tail of the EIGHT task-driving writes that
+// used to answer with the whole taskDTO (T-91): update_task and its title and
+// description twins, claim, reassign, terminate, mark_duplicate and
+// set_task_deps.
+//
+// 🔴 IT IS A SECOND TAIL, NOT A CHANGE TO writeTask. writeTask still serves
+// get_task — the READ — with the whole object, steps and all. Reshaping that one
+// would have taken the read face down with the writes, and the read face is
+// precisely where a caller is entitled to the whole task.
+//
+// It reads what it reports and reports only what it read: the steps for the
+// progress pair (never the step ROWS), the dep IDS (never the dep_tasks display
+// rows — those are folded in by list_tasks), and the artifact COUNT (never the
+// rows — list_task_artifacts serves those). The description rides home as a
+// size and a hash, which is what lets a caller confirm what landed WITHOUT the
+// text: it matters here because these writes TRIM and create_task does not.
+func (s *apiServer) writeTaskWriteReceipt(w http.ResponseWriter, t Task) {
+	steps, err := s.dal.ListTaskSteps(t.ID)
+	if err != nil {
+		internalError(w, err)
+		return
+	}
+	deps, err := s.dal.ListTaskDeps(t.ID)
+	if err != nil {
+		internalError(w, err)
+		return
+	}
+	if deps == nil {
+		deps = []string{}
+	}
+	arts, err := s.dal.ListTaskArtifacts(t.ID)
+	if err != nil {
+		internalError(w, err)
+		return
+	}
+	done, total := TaskProgress(steps)
+	var closedTS *float64
+	if t.ClosedTS > 0 {
+		closedTS = &t.ClosedTS
+	}
+	writeJSON(w, http.StatusOK, taskWriteReceiptDTO{
+		TaskID:               t.ID,
+		Title:                t.Title,
+		Status:               t.Status,
+		ExecutorID:           t.ExecutorID,
+		ExecutorKind:         t.ExecutorKind,
+		Lock:                 t.Lock,
+		ClosedTS:             closedTS,
+		DuplicateOf:          t.DuplicateOf,
+		Deps:                 deps,
+		ProgressDone:         done,
+		ProgressTotal:        total,
+		ArtifactCount:        len(arts),
+		DescriptionSizeChars: utf8.RuneCountInString(t.Description),
+		DescriptionSha256:    receiptSha256(t.Description),
+	})
+}
+
 // writeTaskArtifactReceipt is the common tail of the two artifact writes: the
 // artifact just touched plus the resulting set size (T-a98d — these used to
 // answer with the whole task, ~80k characters for a one-line pin).
@@ -1237,7 +1295,7 @@ func (s *apiServer) HandleTerminateTaskApiTasksTaskIdTerminatePost(w http.Respon
 		internalError(w, err)
 		return
 	}
-	s.writeTask(w, *t)
+	s.writeTaskWriteReceipt(w, *t)
 }
 
 // POST /api/tasks/{task_id}/priority — high|mid|low|frozen (freeze/unfreeze
@@ -1386,16 +1444,12 @@ func (s *apiServer) HandlePostTaskMessageApiTasksTaskIdMessagePost(w http.Respon
 	s.hub.Publish("chat", "patch", "chat", wireOwnerID+"::"+msg.ID,
 		map[string]any{"id": msg.ID, "from": msg.Sender, "to": msg.Recipient},
 		audienceMembers(msg.Sender, msg.Recipient), requestTrigger(r))
-	// THE FIFTH READ DOOR onto servedChatMessageDTO. The meta this handler builds
-	// never carries `reply_to`, so the quote join is a no-op here today — but it
-	// goes through the same one function on purpose, so the day it does carry one
-	// there is nothing to remember.
-	dto, err := s.servedChatMessageDTO(msg)
-	if err != nil {
-		internalError(w, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, dto)
+	// T-91: the receipt, not the message — the same shape post_chat answers
+	// with, through the same chatPostReceiptOf, so the two write faces onto one
+	// table cannot drift. This was the fifth read door onto servedChatMessageDTO;
+	// the four READ doors keep it, and this handler's meta never carried
+	// `reply_to` anyway, so nothing was joined here that the receipt drops.
+	writeJSON(w, http.StatusOK, chatPostReceiptOf(msg))
 }
 
 // POST /api/tasks/{task_id}/reassign — the owner/admin handover action
@@ -1830,7 +1884,7 @@ func (s *apiServer) HandleReassignTaskApiTasksTaskIdReassignPost(w http.Response
 	if kind == TaskExecutorOutsource {
 		s.outsourceTickNow()
 	}
-	s.writeTask(w, *t)
+	s.writeTaskWriteReceipt(w, *t)
 }
 
 // HandleClaimTaskApiTasksTaskIdClaimPost — the NEW executor takes over a
@@ -1874,7 +1928,7 @@ func (s *apiServer) HandleClaimTaskApiTasksTaskIdClaimPost(w http.ResponseWriter
 	if predecessorWorker != "" {
 		s.dismissOutsourceWorkerByID(predecessorWorker, now, trigger)
 	}
-	s.writeTask(w, *t)
+	s.writeTaskWriteReceipt(w, *t)
 }
 
 // executorLabel resolves a human-facing label for a task executor given its
@@ -2159,13 +2213,19 @@ func (s *apiServer) HandleCreateTaskApiTasksPost(w http.ResponseWriter, r *http.
 			return
 		}
 		if existing != nil {
-			dto, err := s.taskDTOOf(*existing)
-			if err != nil {
-				internalError(w, err)
-				return
-			}
-			writeJSON(w, http.StatusOK,
-				taskCreateResultDTO{Task: dto, Deduped: true, Warnings: warnings})
+			// 🔴 THE DEDUPE HIT KEEPS `deduped` AND THE EXISTING TICKET'S ID
+			// (T-91): the caller landed on a task it did not open, so the id is
+			// the only way it can tell WHICH ONE, and `deduped` is the only way
+			// it can tell that it landed on somebody else's ticket at all.
+			// title/status ride ONLY on this branch — on a hit the caller has
+			// never seen either, and the status decides what it does next (the
+			// ticket may already be in_progress or waiting_owner). taskDTOOf is
+			// no longer called here: nothing on this path needs the fold.
+			title, status := existing.Title, existing.Status
+			writeJSON(w, http.StatusOK, taskCreateResultDTO{
+				TaskID: existing.ID, TaskNo: TaskNo(existing.ID), Deduped: true,
+				Title: &title, Status: &status, Warnings: warnings,
+			})
 			return
 		}
 	}
@@ -2267,8 +2327,15 @@ func (s *apiServer) HandleCreateTaskApiTasksPost(w http.ResponseWriter, r *http.
 		// outsource_worker SSE deltas (reconcile-by-refetch).
 		s.outsourceTickNow()
 	}
-	writeJSON(w, http.StatusOK,
-		taskCreateResultDTO{Task: newTaskDTO(t, nil, nil, nil), Deduped: false, Warnings: warnings})
+	// T-91: no title and no status on a FRESH create. The title is the caller's
+	// own sentence coming straight back (owner 2026-09-05: 「自己發送出去的內容 …
+	// 不應該再回傳回來」) and the status is the `not_started` this handler stamped
+	// unconditionally a few dozen lines up — a constant the caller already knows.
+	// Absent rather than empty, so "no title here" cannot be read as "a ticket
+	// with a blank title".
+	writeJSON(w, http.StatusOK, taskCreateResultDTO{
+		TaskID: t.ID, TaskNo: TaskNo(t.ID), Deduped: false, Warnings: warnings,
+	})
 }
 
 // POST /api/tasks/{task_id}/plan — submit/replace the plan: every
@@ -2588,7 +2655,7 @@ func (s *apiServer) HandleMarkTaskDuplicateApiTasksTaskIdDuplicatePost(w http.Re
 		internalError(w, err)
 		return
 	}
-	s.writeTask(w, *t)
+	s.writeTaskWriteReceipt(w, *t)
 }
 
 // POST /api/tasks/{task_id}/steps/{step_id}/status — the agent-reported step
@@ -2810,7 +2877,7 @@ func (s *apiServer) HandleSetTaskDepsApiTasksTaskIdDepsPost(w http.ResponseWrite
 		return
 	}
 	s.publishTask(*t, requestTrigger(r))
-	s.writeTask(w, *t)
+	s.writeTaskWriteReceipt(w, *t)
 }
 
 // POST /api/tasks/{task_id}/closeout — the executor reports the task's

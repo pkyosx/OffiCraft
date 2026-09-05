@@ -43,8 +43,13 @@
 //   round belonged to the local action path, not to a doubled stream.
 //
 //   ⇒ The actions no longer refetch. 🔴 But they DO reconcile: each action
-//   ADOPTS the card its own write returned (`adoptWrite` below), which costs
-//   zero requests. The earlier version of this note said the delta was "the
+//   folds the transition its own write returned into the card this pane had
+//   already read (`adoptWrite` below), which costs zero requests. T-91 changed
+//   that fold from a REPLACE to a MERGE, and did NOT rename the function: it is
+//   still called `adoptWrite`, but it no longer adopts the answer wholesale —
+//   see `mergeReplyCardWrite`. The rename is deliberately out of this package's
+//   scope, so read the name as history, not as a description of what it does.
+//   The earlier version of this note said the delta was "the
 //   single reconcile trigger" for the action path too — that made the pane's
 //   correctness depend on an OPTIONAL live event, and with the EventSource down
 //   or one frame missed the server had accepted the answer while the pane (and
@@ -109,8 +114,13 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import type { ReplyCard, ReplyCardAnswerInput } from "../api/adapter";
+import type {
+  ReplyCard,
+  ReplyCardWriteReceipt,
+  ReplyCardAnswerInput,
+} from "../api/adapter";
 import { api } from "../api";
+import { mergeReplyCardWrite } from "../lib/replyCardReceipt";
 
 /** A handled card's pane stamp: answeredTs on an answered card, expiredTs on
  * an expired one (each null on the other kind). */
@@ -206,6 +216,11 @@ function useReplyCardsState(): UseReplyCards {
   //    confirmation: a pre-write snapshot lists that card with its OLD stamp).
   const heldFromWaitingRef = useRef<Set<string>>(new Set());
   const adoptedHandledRef = useRef<Map<string, ReplyCard>>(new Map());
+  // Live mirror of `handled`, for the same reason `waitingRef` mirrors
+  // `waiting`: adoptWrite has to read the row it is folding a write onto (a
+  // 重新決定 revises a card this pane READ, not one it adopted) without taking
+  // `handled` as a dependency. Written wherever `setHandled` is.
+  const handledRef = useRef<ReplyCard[]>([]);
 
   // The always-live cheap fetch: the waiting list + the counts. Runs on mount
   // and on every reply_card delta.
@@ -300,7 +315,9 @@ function useReplyCardsState(): UseReplyCards {
         }
       }
     }
-    setHandled(merged.sort((a, b) => handledTs(b) - handledTs(a)));
+    const sorted = merged.sort((a, b) => handledTs(b) - handledTs(a));
+    handledRef.current = sorted;
+    setHandled(sorted);
     setHandledLoaded(true);
     handledLoadedRef.current = true;
   }, []);
@@ -388,15 +405,28 @@ function useReplyCardsState(): UseReplyCards {
   // answered/expired → waiting edge, so the card we just closed cannot come back
   // as waiting. Both are server properties: if either changes, this hold needs a
   // TTL or a stamp comparison like the handled side's.
-  const adoptWrite = useCallback((card: ReplyCard) => {
+  const adoptWrite = useCallback((receipt: ReplyCardWriteReceipt) => {
     // Every one of the three writes settles the card (answer/re-answer → answered,
-    // expire → expired), so `card.status !== "waiting"` always holds here. There
-    // is deliberately no "still waiting" branch: the one that used to sit here was
-    // unreachable, and an unreachable branch reads like a supported case.
+    // expire → expired), so `receipt.status !== "waiting"` always holds here.
+    // There is deliberately no "still waiting" branch: the one that used to sit
+    // here was unreachable, and an unreachable branch reads like a supported case.
+    //
+    // 🔴 T-91: MERGE, DO NOT REPLACE. This used to store the write's answer as
+    // the card. The write no longer echoes the question, its options, its
+    // attachments or its task ref (they are not what it decided), so a
+    // replacement would blank those — silently, since nothing here would throw.
+    // This read "is about to" while the frontend half of T-91 went in first on
+    // purpose; the server half is in the same package, so the day is today. `mergeReplyCardWrite` folds only the transition
+    // in and keeps the rest of the card THIS pane already read. Still zero extra
+    // requests, so the reason adoption exists at all — the pane converges from
+    // the write instead of waiting for a `reply_card` frame that may never
+    // arrive, which is what once left an answered card showing 待回覆 until the
+    // next click hit a 409 — is untouched.
     const prev = waitingRef.current;
-    heldFromWaitingRef.current.add(card.id);
-    if (prev.some((c) => c.id === card.id)) {
-      const next = prev.filter((c) => c.id !== card.id);
+    heldFromWaitingRef.current.add(receipt.id);
+    const wasWaiting = prev.find((c) => c.id === receipt.id);
+    if (wasWaiting) {
+      const next = prev.filter((c) => c.id !== receipt.id);
       waitingRef.current = next;
       setWaiting(next);
       // It left the waiting pane, so the 近期已處理 header's count gained it.
@@ -408,12 +438,31 @@ function useReplyCardsState(): UseReplyCards {
     // loaded — a collapsed, never-expanded pane stays unfetched (the same gate
     // the SSE path respects), and a later expand reads POST-write anyway.
     if (handledLoadedRef.current) {
-      adoptedHandledRef.current.set(card.id, card);
-      setHandled((prevHandled) =>
-        [...prevHandled.filter((c) => c.id !== card.id), card].sort(
-          (a, b) => handledTs(b) - handledTs(a)
-        )
-      );
+      // The card to merge onto: the waiting row it just left, else the handled
+      // row already on screen (the 重新決定 path reads it from there), else our
+      // own earlier adoption.
+      //
+      // 🔴 With NONE of those, this pane never held the card and there is
+      // nothing to merge the transition into. The receipt is NOT a card — it
+      // carries no question, no options, no attachments and no task ref — so
+      // the handled list is left alone rather than gaining a blank row. The
+      // pane converges the ordinary way instead (the `reply_card` delta, or the
+      // read a later expand issues); what is given up is only the zero-request
+      // shortcut, and only for a card this pane was not showing anyway.
+      const before =
+        wasWaiting ??
+        handledRef.current.find((c) => c.id === receipt.id) ??
+        adoptedHandledRef.current.get(receipt.id);
+      if (before) {
+        const card = mergeReplyCardWrite(before, receipt);
+        adoptedHandledRef.current.set(receipt.id, card);
+        const next = [
+          ...handledRef.current.filter((c) => c.id !== receipt.id),
+          card,
+        ].sort((a, b) => handledTs(b) - handledTs(a));
+        handledRef.current = next;
+        setHandled(next);
+      }
     }
   }, []);
 

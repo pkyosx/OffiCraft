@@ -346,7 +346,12 @@ func (s *apiServer) replyCardDTOOf(c ReplyCard) (replyCardDTO, error) {
 	return dto, nil
 }
 
-// writeReplyCard is the common single-card response tail.
+// writeReplyCard is the common single-card READ response tail.
+//
+// 🔴 T-91 LEFT IT ALONE ON PURPOSE. It still serves GET /api/reply-cards/{id} —
+// the read — with the whole card: summary, body, options and all. The four
+// WRITE faces moved off it onto the two receipt tails below, so reshaping this
+// one would have taken the read face down with them.
 func (s *apiServer) writeReplyCard(w http.ResponseWriter, c ReplyCard) {
 	dto, err := s.replyCardDTOOf(c)
 	if err != nil {
@@ -354,6 +359,55 @@ func (s *apiServer) writeReplyCard(w http.ResponseWriter, c ReplyCard) {
 		return
 	}
 	writeJSON(w, http.StatusOK, dto)
+}
+
+// writeReplyCardCreateReceipt answers create_reply_card (T-91). The caller wrote
+// the summary, the body and every option; what it could not know is the two ids
+// this one write MINTED — the card's and its companion chat message's — the
+// server's stamp, and which attachments actually landed with what ids.
+func (s *apiServer) writeReplyCardCreateReceipt(w http.ResponseWriter, c ReplyCard) {
+	writeJSON(w, http.StatusOK, replyCardCreateReceiptDTO{
+		ID:            c.ID,
+		ChatMessageID: c.ChatMessageID,
+		CreatedTS:     c.CreatedTS,
+		Attachments:   attachmentDTOsFromRefs(c.Attachments),
+	})
+}
+
+// writeReplyCardTransitionReceipt answers the three card TRANSITIONS — answer,
+// reanswer and expire (T-91). One tail for three verbs, which is why both
+// timestamps and both task fields are on the shape even though no single write
+// fills all of them.
+//
+// It reads NOTHING beyond the card row it is handed. The shape it replaced
+// resolved a taskRefDTO (id, type_key, title) through a task lookup — which
+// named the TASK but not the STEP, so it could not actually say what the write
+// had released; owner caught that on rc-bf25374aa0e8, asking why answering a
+// card returns a task title. task_id + step_id say it exactly, and cost no read.
+func (s *apiServer) writeReplyCardTransitionReceipt(w http.ResponseWriter, c ReplyCard) {
+	rc := replyCardReceiptDTO{
+		ID:     c.ID,
+		Status: c.Status,
+		TaskID: c.TaskID,
+		StepID: c.TaskStepID,
+	}
+	// The same projection rule newReplyCardDTO applies, and deliberately the
+	// same: a stamp is reported only for the status it belongs to, so a card
+	// that was answered and later expired cannot report both.
+	if c.Status == replyCardStatusExpired {
+		ts := c.ExpiredTS
+		rc.ExpiredTS = &ts
+	}
+	if c.Status == replyCardStatusAnswered {
+		ts := c.AnsweredTS
+		rc.AnsweredTS = &ts
+		rc.Answer = &replyCardAnswerDTO{
+			OptionIdxs:  c.AnswerOptionIdxs,
+			Text:        c.AnswerText,
+			Attachments: attachmentDTOsFromRefs(c.AnswerAttachments),
+		}
+	}
+	writeJSON(w, http.StatusOK, rc)
 }
 
 // ── the ONE card-open entrance (T-18) ────────────────────────────────────────
@@ -491,7 +545,7 @@ func (s *apiServer) HandleCreateReplyCardApiReplyCardsPost(w http.ResponseWriter
 			return
 		}
 	}
-	s.writeReplyCard(w, *card)
+	s.writeReplyCardCreateReceipt(w, *card)
 }
 
 // replyCardListItemOf builds one LIGHT list row (T-3f31 owner ruling: 卡只需要
@@ -810,7 +864,7 @@ func (s *apiServer) applyReplyCardAnswer(w http.ResponseWriter, r *http.Request,
 		}
 	}
 	s.publishReplyCard(card, requestTrigger(r))
-	s.writeReplyCard(w, card)
+	s.writeReplyCardTransitionReceipt(w, card)
 }
 
 // releaseCardHold releases the waiting_owner HOLD a reply card placed on a
@@ -1115,5 +1169,5 @@ func (s *apiServer) HandleExpireReplyCardApiReplyCardsCardIdExpirePost(w http.Re
 		return
 	}
 	s.publishReplyCard(*card, requestTrigger(r))
-	s.writeReplyCard(w, *card)
+	s.writeReplyCardTransitionReceipt(w, *card)
 }

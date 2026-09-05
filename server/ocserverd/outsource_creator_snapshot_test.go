@@ -55,7 +55,7 @@ func createdTask(t *testing.T, api *apiServer, body map[string]any) *Task {
 	if rec.Code != 200 {
 		t.Fatalf("create: %d %s", rec.Code, rec.Body.String())
 	}
-	stored, err := api.dal.GetTask(decodeBody[taskCreateResultDTO](t, rec).Task.ID)
+	stored, err := api.dal.GetTask(createdTaskView(t, api, rec).ID)
 	if err != nil || stored == nil {
 		t.Fatalf("re-read task: %v", err)
 	}

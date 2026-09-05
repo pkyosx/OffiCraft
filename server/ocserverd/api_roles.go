@@ -7,8 +7,6 @@ package main
 // with a complete cascade.
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -62,13 +60,27 @@ func (s *apiServer) HandleReplaceGlobalContextApiGlobalContextPost(w http.Respon
 		return
 	}
 	s.hub.Publish("global_context", "patch", "global_context", wireOwnerID, nil, audienceOwnerOnly(), requestTrigger(r))
-	writeJSON(w, http.StatusOK, globalContextDTO{
-		Text:          text,
-		OwnerID:       wireOwnerID,
-		SchemaVersion: wireSchemaVersion,
-		IsDefault:     false,
-		OrgName:       s.orgNameSnapshot(),
-	})
+	// T-91: the receipt is READ BACK from the fold rather than assembled from
+	// `text`. is_default is the one field a caller cannot predict from the verb
+	// it called, and only the fold knows it — assembling it here would have to
+	// guess, which is exactly the mistake the old `IsDefault: false` made.
+	dto, err := s.foldUserContextDTO()
+	if err != nil {
+		internalError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, globalContextReceiptOf(dto))
+}
+
+// globalContextReceiptOf reduces the read face's DTO to the write face's
+// receipt. Both write verbs go through it so they cannot answer with two
+// different shapes for one document.
+func globalContextReceiptOf(dto *globalContextDTO) globalContextReceiptDTO {
+	return globalContextReceiptDTO{
+		IsDefault: dto.IsDefault,
+		SizeChars: utf8.RuneCountInString(dto.Text),
+		Sha256:    receiptSha256(dto.Text),
+	}
 }
 
 // POST /api/global-context/reset — idempotent tombstone back to empty.
@@ -85,7 +97,7 @@ func (s *apiServer) HandleResetGlobalContextApiGlobalContextResetPost(w http.Res
 		internalError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, dto)
+	writeJSON(w, http.StatusOK, globalContextReceiptOf(dto))
 }
 
 // ── role definitions ─────────────────────────────────────────────────────────
@@ -232,14 +244,15 @@ func (s *apiServer) HandleCreateRoleApiRolesPost(w http.ResponseWriter, r *http.
 		internalError(w, err)
 		return
 	}
-	roleDTO, err := s.foldRoleDefDTO(roleKey)
-	if err != nil || roleDTO == nil {
-		internalError(w, err)
-		return
-	}
+	// T-91: the two MINTED IDS and the (possibly server-CHOSEN) member name are
+	// the whole of what this write produced that the caller could not compute.
+	// The role's definition_md is the shipped CustomRoleTemplateMD every custom
+	// role starts on — a constant, readable through get_role — and the member
+	// row is readable through get_member; neither is news.
 	writeJSON(w, http.StatusOK, roleCreateResultDTO{
-		Role:   *roleDTO,
-		Member: s.newMemberDTO(member, name, "", 0),
+		RoleKey:    roleKey,
+		MemberID:   member.ID,
+		MemberName: member.Name,
 	})
 }
 
@@ -303,17 +316,36 @@ func (s *apiServer) HandleUpdateRoleApiRolesRolePost(w http.ResponseWriter, r *h
 		return
 	}
 	s.hub.Publish("role_def", "patch", "role_def", wireOwnerID+"::"+role, nil, audienceOwnerOnly(), requestTrigger(r))
-	writeJSON(w, http.StatusOK, roleDefDTO{
-		SizeChars:     utf8.RuneCountInString(definitionMD),
-		CapChars:      cap,
-		Key:           role,
-		Name:          name,
-		DefinitionMD:  definitionMD,
-		OwnerID:       wireOwnerID,
-		SchemaVersion: wireSchemaVersion,
-		IsDefault:     false,
-		IsSeed:        seedRoleName(role) != "",
+	// T-91: `definition_md` no longer rides home — the caller sent it. It is
+	// still assembled from the LOCALS rather than from a re-read, which is what
+	// the cap comment above promises: the size the caller is told is provably
+	// the number its write was judged against. `name` is the field that earns
+	// its place here, because a rename of a seed role is silently ignored a few
+	// lines up and this is the only place that says so.
+	writeJSON(w, http.StatusOK, roleDefReceiptDTO{
+		Key:       role,
+		Name:      name,
+		IsDefault: false, // an overlay now exists — FoldRoleDef reads that as not-default
+		IsSeed:    seedRoleName(role) != "",
+		SizeChars: utf8.RuneCountInString(definitionMD),
+		CapChars:  cap,
+		Sha256:    receiptSha256(definitionMD),
 	})
+}
+
+// roleDefReceiptOf reduces the read face's DTO to the write face's receipt, for
+// the verbs that ANSWER FROM A RE-READ (reset). update_role assembles its own
+// from the values it just judged — see the comment there.
+func roleDefReceiptOf(dto *roleDefDTO) roleDefReceiptDTO {
+	return roleDefReceiptDTO{
+		Key:       dto.Key,
+		Name:      dto.Name,
+		IsDefault: dto.IsDefault,
+		IsSeed:    dto.IsSeed,
+		SizeChars: dto.SizeChars,
+		CapChars:  dto.CapChars,
+		Sha256:    receiptSha256(dto.DefinitionMD),
+	}
 }
 
 // POST /api/roles/{role}/reset — tombstone the overlay back to the seed
@@ -340,7 +372,7 @@ func (s *apiServer) HandleResetRoleApiRolesRoleResetPost(w http.ResponseWriter, 
 		internalError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, dto)
+	writeJSON(w, http.StatusOK, roleDefReceiptOf(dto))
 }
 
 // DELETE /api/roles/{role} — HARD-delete a CUSTOM role + everything it owns.
@@ -793,14 +825,16 @@ func (s *apiServer) HandleReplaceLessonsApiLessonsRoleKeyPost(w http.ResponseWri
 		return
 	}
 	s.hub.Publish("lessons", "patch", "lessons", wireOwnerID+"::"+roleKey, nil, audienceOwnerOnly(), requestTrigger(r))
-	writeJSON(w, http.StatusOK, lessonsDTO{
-		SizeChars:     utf8.RuneCountInString(text),
-		CapChars:      cap,
-		RoleKey:       roleKey,
-		Text:          text,
-		OwnerID:       wireOwnerID,
-		SchemaVersion: wireSchemaVersion,
-		IsDefault:     false,
+	// T-91: `text` no longer rides home — the caller sent it, and a lessons doc
+	// was measured at 76k chars. Still assembled from the LOCALS, which is what
+	// the cap comment above promises: the size reported is the number this write
+	// was judged against. `is_default` is deliberately NOT on this shape — this
+	// face stamped it false unconditionally, so it could never say anything.
+	writeJSON(w, http.StatusOK, lessonsReceiptDTO{
+		RoleKey:   roleKey,
+		SizeChars: utf8.RuneCountInString(text),
+		CapChars:  cap,
+		Sha256:    receiptSha256(text),
 	})
 }
 
@@ -923,13 +957,12 @@ func (s *apiServer) HandlePatchLessonsApiLessonsRoleKeyPatchPost(w http.Response
 		}
 		s.hub.Publish("lessons", "patch", "lessons", wireOwnerID+"::"+roleKey, nil, audienceOwnerOnly(), requestTrigger(r))
 	}
-	sum := sha256.Sum256([]byte(next))
 	writeJSON(w, http.StatusOK, lessonsPatchResultDTO{
 		RoleKey:       roleKey,
 		AppliedEdits:  applied,
 		SizeChars:     utf8.RuneCountInString(next),
 		CapChars:      cap,
-		Sha256:        hex.EncodeToString(sum[:]),
+		Sha256:        receiptSha256(next),
 		OwnerID:       wireOwnerID,
 		SchemaVersion: wireSchemaVersion,
 		IsDefault:     false,

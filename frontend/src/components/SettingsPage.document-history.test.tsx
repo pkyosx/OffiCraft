@@ -25,8 +25,10 @@ import { I18nProvider } from "../i18n";
 import { zh } from "../i18n/locales/zh";
 import { SettingsPage } from "./SettingsPage";
 import { __resetMock, mockApi } from "../api/mock";
+import { mockApiError } from "../api/errorCodes";
 import { DOC_CAP_CHARS_DEFAULT } from "../api/docCap";
 import { runeLength } from "../api/docCap";
+import type { DocumentKind } from "../types";
 
 const s = zh.settings;
 
@@ -302,9 +304,9 @@ describe("SettingsPage · 版本紀錄", () => {
   });
 
   it("diffs a role definition against the role on screen", async () => {
-    const { role } = await mockApi.createRole({ name: "臨時角色" });
-    await mockApi.saveRole(role.key, { definitionMd: "第一版定義" });
-    await mockApi.saveRole(role.key, { definitionMd: "第二版定義" });
+    const { roleKey } = await mockApi.createRole({ name: "臨時角色" });
+    await mockApi.saveRole(roleKey, { definitionMd: "第一版定義" });
+    await mockApi.saveRole(roleKey, { definitionMd: "第二版定義" });
 
     const utils = render(
       <I18nProvider>
@@ -318,7 +320,7 @@ describe("SettingsPage · 版本紀錄", () => {
 
     const [target] = await mockApi.listDocumentHistory(
       "role_definition",
-      role.key
+      roleKey
     );
     fireEvent.click(await utils.findByTestId(`doc-history-open-${target.id}`));
     fireEvent.click(utils.getByTestId("doc-history-pane-diff"));
@@ -600,7 +602,9 @@ describe("SettingsPage · 版本紀錄", () => {
   // pinning only the negative side would let it quietly vanish from the two
   // documents whose reset it now IS.
   it("carries 初始版本 exactly where the document has a file seed", async () => {
-    const { role: custom } = await mockApi.createRole({ name: "臨時角色" });
+    const { roleKey: customKey } = await mockApi.createRole({
+      name: "臨時角色",
+    });
     const manual = await mockApi.createTaskManual("週報");
     // EVERY surface probed below must have retained revisions of its own. A
     // document with none renders the 「還沒有保留任何版本」 line instead of the
@@ -611,12 +615,12 @@ describe("SettingsPage · 版本紀錄", () => {
     await mockApi.saveGlobalContext("第一版");
     await mockApi.saveRole("assistant", { definitionMd: "第零版定義" });
     await mockApi.saveRole("assistant", { definitionMd: "第一版定義" });
-    await mockApi.saveRole(custom.key, { definitionMd: "第零版定義" });
-    await mockApi.saveRole(custom.key, { definitionMd: "第一版定義" });
-    await mockApi.saveLessons(custom.key, "第零版經驗");
-    await mockApi.saveLessons(custom.key, "第一版經驗");
-    await mockApi.saveInsight(custom.key, "第零版判準");
-    await mockApi.saveInsight(custom.key, "第一版判準");
+    await mockApi.saveRole(customKey, { definitionMd: "第零版定義" });
+    await mockApi.saveRole(customKey, { definitionMd: "第一版定義" });
+    await mockApi.saveLessons(customKey, "第零版經驗");
+    await mockApi.saveLessons(customKey, "第一版經驗");
+    await mockApi.saveInsight(customKey, "第零版判準");
+    await mockApi.saveInsight(customKey, "第一版判準");
     await mockApi.updateTaskManual(manual.typeKey, {
       sopMd: "第零版 SOP",
       learnings: "第零版經驗",
@@ -689,8 +693,8 @@ describe("SettingsPage · 版本紀錄", () => {
     fireEvent.click(await utils.findByText("臨時角色"));
     await utils.findAllByText(s.edit);
     await openHistory(utils, "role_definition");
-    expect(await probe(custom.key, "role_definition")).toEqual({
-      surface: custom.key,
+    expect(await probe(customKey, "role_definition")).toEqual({
+      surface: customKey,
       seeded: false,
     });
 
@@ -900,7 +904,9 @@ describe("SettingsPage · 版本紀錄", () => {
   // a test that only checked one surface.
   it("shows the delete-scope footnote exactly where a delete control exists", async () => {
     const created = await mockApi.createRole({ name: "臨時角色" });
-    expect(created.role.isSeed).toBe(false);
+    // T-91: the create receipt carries ids only, so the "this is a CUSTOM role"
+    // property is read back rather than taken from the write.
+    expect((await mockApi.getRole(created.roleKey)).isSeed).toBe(false);
     const manual = await mockApi.createTaskManual("週報");
 
     const utils = render(
@@ -962,7 +968,9 @@ describe("SettingsPage · 版本紀錄", () => {
           `doc-history-entry-task_manual_${entry === "definition" ? "sop" : "learnings"}`
         )
       );
-      return readNote(`${s.manuals} › ${manual.displayName} › ${entry}`, deletable);
+      // T-91: createTaskManual answers the minted type_key only, so the
+      // display name is the one this test passed in.
+      return readNote(`${s.manuals} › 週報 › ${entry}`, deletable);
     };
 
     // A seed role cannot be deleted, so the note — which says what history does
@@ -973,7 +981,7 @@ describe("SettingsPage · 版本紀錄", () => {
       noted: false,
     });
     // A custom role can be deleted whole, and that delete keeps no history.
-    expect(await probeRole("臨時角色", created.role.key)).toEqual({
+    expect(await probeRole("臨時角色", created.roleKey)).toEqual({
       surface: `${s.roles} › 臨時角色`,
       deletable: true,
       noted: true,
@@ -1095,5 +1103,266 @@ describe("SettingsPage · 版本紀錄", () => {
     // A seed role has no delete affordance, so the delete-scope footnote —
     // which states what history does NOT cover — stays off this list.
     expect(utils.queryByTestId("doc-history-scope-note")).toBeNull();
+  });
+});
+
+// ── 還原之後的兩個 await (T-91) ──────────────────────────────────────────────
+// A restore that LANDED rewrites the live document server-side. Two things then
+// have to happen on screen: re-read the document, and leave edit mode — the
+// draft in the editor is now a pending overwrite of the version just restored.
+// They are promises about two different things: the re-read may blip (T-91
+// wrapped it so a failed re-read stops being reported as 還原失敗), but leaving
+// edit mode is unconditional. Sequencing them made the blip skip the exit and
+// then get swallowed: the modal closed silently and the editor stayed open on
+// the PRE-restore draft, which the owner's next 完成編輯 writes straight over
+// the content he just restored.
+describe("SettingsPage · 版本紀錄 — 還原後的離開編輯 (T-91)", () => {
+  it("leaves edit mode even when the re-read after a landed restore fails", async () => {
+    await mockApi.saveGlobalContext("原本的內容");
+    await mockApi.saveGlobalContext("後來改壞的內容");
+    const restore = vi.spyOn(mockApi, "restoreDocumentHistory");
+
+    const utils = await openUserCustomDoc();
+    await utils.findByText("後來改壞的內容");
+
+    // Edit mode, holding a draft that is about to be superseded by the restore.
+    startEditing(utils);
+    fireEvent.change(utils.getByTestId("doc-card-editor"), {
+      target: { value: "編輯到一半的草稿" },
+    });
+    fireEvent.click(utils.getByTestId("doc-history-entry-global_context"));
+    await utils.findByTestId("doc-history-list");
+
+    const [target] = await mockApi.listDocumentHistory(
+      "global_context",
+      "global"
+    );
+    fireEvent.click(await utils.findByTestId(`doc-history-open-${target.id}`));
+    fireEvent.click(utils.getByTestId("doc-history-modal-restore"));
+
+    // The document re-read fails from here on. The restore POST itself is
+    // untouched, so it keeps landing — that is the whole premise.
+    const read = vi
+      .spyOn(mockApi, "getGlobalContext")
+      .mockRejectedValue(mockApiError("read failed", 503, ""));
+    fireEvent.click(utils.getByTestId("doc-history-restore-confirm-btn"));
+
+    await waitFor(() => expect(restore).toHaveBeenCalledTimes(1));
+    // 🔴 The assertion this case exists for: the editor is CLOSED. The restore
+    // is already on the server, so the draft above must not survive to be
+    // written back over it by the next 完成編輯.
+    await waitFor(() =>
+      expect(utils.queryByTestId("doc-card-editor")).toBeNull()
+    );
+    expect(utils.getByTestId("doc-card-edit")).toBeTruthy();
+    expect(utils.queryByText("編輯到一半的草稿")).toBeNull();
+    // …and exactly one restore, with no 還原失敗: the re-read blip is not the
+    // restore's failure (the other half of T-91, pinned above).
+    expect(restore).toHaveBeenCalledTimes(1);
+    expect(utils.queryByText(s.historyRestoreError)).toBeNull();
+
+    read.mockRestore();
+    restore.mockRestore();
+  });
+
+  // The same property on the FOUR other hosts that wire `onRestored`. Each one
+  // owns its own exit — 手冊 SOP is `cancelEdit(3)`, 手冊學習經驗 and the two
+  // journal cards are their own `setEditing(false)` / `cancelEdit()` — so the
+  // DocCard case above proves nothing about any of them: a sequenced re-read
+  // reintroduced on any single host is invisible to every other test in the
+  // tree, and its only symptom is the owner's next 完成編輯 silently writing
+  // the pre-restore draft over the version he just restored.
+  //
+  // 🔴 Each case mocks the host's OWN re-read (getTaskManual / getInsight /
+  // getLessons) and nothing else: `restoreDocumentHistory` keeps landing, which
+  // is the premise. None of those rejections drops the card from the screen —
+  // the hooks keep the last good document on a failed refetch — so "the editor
+  // is gone" is a real observation about edit mode, not about an unmounted card.
+
+  /** 設定 › 任務手冊 › 週報, on the sub-page named by `entry`. */
+  async function openManualPage(
+    typeKey: string,
+    entry: "definition" | "learnings"
+  ) {
+    const utils = render(
+      <I18nProvider>
+        <SettingsPage />
+      </I18nProvider>
+    );
+    fireEvent.click(utils.getByText(s.manuals));
+    fireEvent.click(await utils.findByTestId(`manual-open-${typeKey}`));
+    fireEvent.click(await utils.findByTestId(`manual-entry-${entry}`));
+    return utils;
+  }
+
+  /** Open one card's 版本紀錄, read its newest revision, and press 還原 —
+   * stopping at the confirmation so the caller can break the re-read first. */
+  async function armRestore(
+    utils: Utils,
+    kind: DocumentKind,
+    docKey: string
+  ) {
+    fireEvent.click(utils.getByTestId(`doc-history-entry-${kind}`));
+    await utils.findByTestId("doc-history-list");
+    const [target] = await mockApi.listDocumentHistory(kind, docKey);
+    fireEvent.click(await utils.findByTestId(`doc-history-open-${target.id}`));
+    fireEvent.click(utils.getByTestId("doc-history-modal-restore"));
+  }
+
+  it("leaves the manual's SOP block even when the re-read after a landed restore fails", async () => {
+    const manual = await mockApi.createTaskManual("週報");
+    await mockApi.updateTaskManual(manual.typeKey, { sopMd: "第零版 SOP" });
+    await mockApi.updateTaskManual(manual.typeKey, { sopMd: "第一版 SOP" });
+    const restore = vi.spyOn(mockApi, "restoreDocumentHistory");
+
+    const utils = await openManualPage(manual.typeKey, "definition");
+    // Block ③ open, holding a draft the restore is about to supersede.
+    fireEvent.click(await utils.findByTestId("manual-def-edit-3"));
+    fireEvent.change(utils.getByTestId("manual-sop-input"), {
+      target: { value: "編輯到一半的 SOP 草稿" },
+    });
+    await armRestore(utils, "task_manual_sop", manual.typeKey);
+
+    const read = vi
+      .spyOn(mockApi, "getTaskManual")
+      .mockRejectedValue(mockApiError("read failed", 503, ""));
+    fireEvent.click(utils.getByTestId("doc-history-restore-confirm-btn"));
+
+    await waitFor(() => expect(restore).toHaveBeenCalledTimes(1));
+    // 🔴 Block ③ is CLOSED — its draft cannot survive to be written back over
+    // the revision now on the server.
+    await waitFor(() =>
+      expect(utils.queryByTestId("manual-sop-input")).toBeNull()
+    );
+    expect(utils.getByTestId("manual-def-edit-3")).toBeTruthy();
+    expect(utils.queryByText("編輯到一半的 SOP 草稿")).toBeNull();
+    expect(restore).toHaveBeenCalledTimes(1);
+    expect(utils.queryByText(s.historyRestoreError)).toBeNull();
+
+    read.mockRestore();
+    restore.mockRestore();
+  });
+
+  it("leaves the manual's 學習經驗 editor even when the re-read after a landed restore fails", async () => {
+    const manual = await mockApi.createTaskManual("週報");
+    await mockApi.updateTaskManual(manual.typeKey, { learnings: "第零版經驗" });
+    await mockApi.updateTaskManual(manual.typeKey, { learnings: "第一版經驗" });
+    const restore = vi.spyOn(mockApi, "restoreDocumentHistory");
+
+    const utils = await openManualPage(manual.typeKey, "learnings");
+    fireEvent.click(await utils.findByTestId("manual-learnings-edit"));
+    fireEvent.change(utils.getByTestId("manual-learnings-input"), {
+      target: { value: "編輯到一半的經驗草稿" },
+    });
+    await armRestore(utils, "task_manual_learnings", manual.typeKey);
+
+    const read = vi
+      .spyOn(mockApi, "getTaskManual")
+      .mockRejectedValue(mockApiError("read failed", 503, ""));
+    fireEvent.click(utils.getByTestId("doc-history-restore-confirm-btn"));
+
+    await waitFor(() => expect(restore).toHaveBeenCalledTimes(1));
+    await waitFor(() =>
+      expect(utils.queryByTestId("manual-learnings-input")).toBeNull()
+    );
+    expect(utils.getByTestId("manual-learnings-edit")).toBeTruthy();
+    expect(utils.queryByText("編輯到一半的經驗草稿")).toBeNull();
+    expect(restore).toHaveBeenCalledTimes(1);
+    expect(utils.queryByText(s.historyRestoreError)).toBeNull();
+
+    read.mockRestore();
+    restore.mockRestore();
+  });
+
+  /** 設定 › 角色誌 › 助理 — the page that carries both journal cards. */
+  async function openAssistantRolePage() {
+    const utils = render(
+      <I18nProvider>
+        <SettingsPage />
+      </I18nProvider>
+    );
+    fireEvent.click(utils.getByText(s.roles));
+    fireEvent.click(await utils.findByText(zh.office.role.assistant));
+    await utils.findAllByText(s.edit);
+    return utils;
+  }
+
+  /** The journal cards are picked BY CARD, never by the position of a 編輯
+   * button: Duty, Learning and Insight all carry one, and `.mp-insight` also
+   * matches `.mp-lessons`. */
+  const journalCard = (utils: Utils, cls: string) =>
+    utils.container.querySelector(cls) as HTMLElement;
+
+  it("leaves the Insight editor even when the re-read after a landed restore fails", async () => {
+    await mockApi.saveInsight("assistant", "第零版判準");
+    await mockApi.saveInsight("assistant", "第一版判準");
+    const restore = vi.spyOn(mockApi, "restoreDocumentHistory");
+
+    const utils = await openAssistantRolePage();
+    const card = journalCard(utils, ".mp-insight");
+    fireEvent.click(within(card).getByText(s.edit));
+    fireEvent.change(within(card).getByPlaceholderText(s.editorPlaceholder), {
+      target: { value: "編輯到一半的判準草稿" },
+    });
+    await armRestore(utils, "insight", "assistant");
+
+    const read = vi
+      .spyOn(mockApi, "getInsight")
+      .mockRejectedValue(mockApiError("read failed", 503, ""));
+    fireEvent.click(utils.getByTestId("doc-history-restore-confirm-btn"));
+
+    await waitFor(() => expect(restore).toHaveBeenCalledTimes(1));
+    await waitFor(() =>
+      expect(
+        within(journalCard(utils, ".mp-insight")).queryByPlaceholderText(
+          s.editorPlaceholder
+        )
+      ).toBeNull()
+    );
+    expect(
+      within(journalCard(utils, ".mp-insight")).getByText(s.edit)
+    ).toBeTruthy();
+    expect(utils.queryByText("編輯到一半的判準草稿")).toBeNull();
+    expect(restore).toHaveBeenCalledTimes(1);
+    expect(utils.queryByText(s.historyRestoreError)).toBeNull();
+
+    read.mockRestore();
+    restore.mockRestore();
+  });
+
+  it("leaves the Lessons editor even when the re-read after a landed restore fails", async () => {
+    await mockApi.saveLessons("assistant", "第零版經驗");
+    await mockApi.saveLessons("assistant", "第一版經驗");
+    const restore = vi.spyOn(mockApi, "restoreDocumentHistory");
+
+    const utils = await openAssistantRolePage();
+    const lessons = ".mp-lessons:not(.mp-insight)";
+    const card = journalCard(utils, lessons);
+    fireEvent.click(within(card).getByText(s.edit));
+    fireEvent.change(within(card).getByPlaceholderText(s.editorPlaceholder), {
+      target: { value: "編輯到一半的經驗草稿" },
+    });
+    await armRestore(utils, "lessons", "assistant");
+
+    const read = vi
+      .spyOn(mockApi, "getLessons")
+      .mockRejectedValue(mockApiError("read failed", 503, ""));
+    fireEvent.click(utils.getByTestId("doc-history-restore-confirm-btn"));
+
+    await waitFor(() => expect(restore).toHaveBeenCalledTimes(1));
+    await waitFor(() =>
+      expect(
+        within(journalCard(utils, lessons)).queryByPlaceholderText(
+          s.editorPlaceholder
+        )
+      ).toBeNull()
+    );
+    expect(within(journalCard(utils, lessons)).getByText(s.edit)).toBeTruthy();
+    expect(utils.queryByText("編輯到一半的經驗草稿")).toBeNull();
+    expect(restore).toHaveBeenCalledTimes(1);
+    expect(utils.queryByText(s.historyRestoreError)).toBeNull();
+
+    read.mockRestore();
+    restore.mockRestore();
   });
 });

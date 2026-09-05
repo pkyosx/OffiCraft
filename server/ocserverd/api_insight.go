@@ -1,8 +1,6 @@
 package main
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -203,7 +201,21 @@ func (s *apiServer) HandleResetInsightApiInsightRoleKeyResetPost(w http.Response
 		internalError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, dto)
+	writeJSON(w, http.StatusOK, insightReceiptOf(dto))
+}
+
+// insightReceiptOf reduces the read face's fold to the write face's receipt
+// (T-91), for the verb that answers FROM A RE-READ (reset). replace_insight
+// assembles its own from the values it just judged — see the comment there.
+func insightReceiptOf(dto *insightDTO) insightReceiptDTO {
+	return insightReceiptDTO{
+		RoleKey:   dto.RoleKey,
+		IsDefault: dto.IsDefault,
+		HasSeed:   dto.HasSeed,
+		SizeChars: dto.SizeChars,
+		CapChars:  dto.CapChars,
+		Sha256:    receiptSha256(dto.Text),
+	}
 }
 
 // POST /api/insight/{role_key} — whole-doc replace. Per-role WRITE authz
@@ -263,15 +275,17 @@ func (s *apiServer) HandleReplaceInsightApiInsightRoleKeyPost(w http.ResponseWri
 		internalError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, insightDTO{
-		SizeChars:     utf8.RuneCountInString(text),
-		CapChars:      cap,
-		RoleKey:       roleKey,
-		Text:          text,
-		OwnerID:       wireOwnerID,
-		SchemaVersion: wireSchemaVersion,
-		IsDefault:     false,
-		HasSeed:       hasSeed,
+	// T-91: `text` no longer rides home — the caller sent it. Still assembled
+	// from the LOCALS rather than a re-read, which is what the cap comment above
+	// promises: the number the caller is told is provably the one its write was
+	// judged against.
+	writeJSON(w, http.StatusOK, insightReceiptDTO{
+		RoleKey:   roleKey,
+		IsDefault: false, // an overlay now exists — FoldInsight reads that as not-default
+		HasSeed:   hasSeed,
+		SizeChars: utf8.RuneCountInString(text),
+		CapChars:  cap,
+		Sha256:    receiptSha256(text),
 	})
 }
 
@@ -354,13 +368,12 @@ func (s *apiServer) HandlePatchInsightApiInsightRoleKeyPatchPost(w http.Response
 		}
 		s.hub.Publish("insight", "patch", "insight", wireOwnerID+"::"+roleKey, nil, audienceOwnerOnly(), requestTrigger(r))
 	}
-	sum := sha256.Sum256([]byte(next))
 	writeJSON(w, http.StatusOK, insightPatchResultDTO{
 		RoleKey:       roleKey,
 		AppliedEdits:  applied,
 		SizeChars:     utf8.RuneCountInString(next),
 		CapChars:      cap,
-		Sha256:        hex.EncodeToString(sum[:]),
+		Sha256:        receiptSha256(next),
 		OwnerID:       wireOwnerID,
 		SchemaVersion: wireSchemaVersion,
 		IsDefault:     false,

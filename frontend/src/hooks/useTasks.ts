@@ -258,7 +258,16 @@ export function useTasks(
   const terminate = useCallback(
     async (id: string) => {
       await api.terminateTask(id);
-      await refetch();
+      // The task is terminated; the list re-read only decides when the card
+      // catches up. Its failure is not the termination's failure.
+      try {
+        await refetch();
+      } catch (e) {
+        console.warn(
+          "useTasks: post-terminate refetch failed (the task was terminated)",
+          e
+        );
+      }
     },
     [refetch]
   );
@@ -266,7 +275,15 @@ export function useTasks(
   const markDuplicate = useCallback(
     async (id: string, duplicateOf: string) => {
       await api.markTaskDuplicate(id, duplicateOf);
-      await refetch();
+      // The duplicate mark is written — the list read that follows is separate.
+      try {
+        await refetch();
+      } catch (e) {
+        console.warn(
+          "useTasks: post-mark-duplicate refetch failed (the task was marked)",
+          e
+        );
+      }
     },
     [refetch]
   );
@@ -274,7 +291,15 @@ export function useTasks(
   const setPriority = useCallback(
     async (id: string, priority: string) => {
       await api.setTaskPriority(id, priority);
-      await refetch();
+      // Priority is written; a failed list read must not read as a refused change.
+      try {
+        await refetch();
+      } catch (e) {
+        console.warn(
+          "useTasks: post-priority refetch failed (the priority was set)",
+          e
+        );
+      }
     },
     [refetch]
   );
@@ -282,7 +307,16 @@ export function useTasks(
   const updateDescription = useCallback(
     async (id: string, description: string) => {
       await api.updateTaskDescription(id, description);
-      await refetch();
+      // The description is stored. Rejecting on the re-read here sends the editor
+      // back into edit mode holding text the server already has.
+      try {
+        await refetch();
+      } catch (e) {
+        console.warn(
+          "useTasks: post-description refetch failed (the description was saved)",
+          e
+        );
+      }
     },
     [refetch]
   );
@@ -290,7 +324,15 @@ export function useTasks(
   const updateTitle = useCallback(
     async (id: string, title: string) => {
       await api.updateTaskTitle(id, title);
-      await refetch();
+      // Same for the title: saved above, re-read below, two verdicts.
+      try {
+        await refetch();
+      } catch (e) {
+        console.warn(
+          "useTasks: post-title refetch failed (the title was saved)",
+          e
+        );
+      }
     },
     [refetch]
   );
@@ -298,7 +340,16 @@ export function useTasks(
   const reassign = useCallback(
     async (id: string, input: TaskReassignInput) => {
       await api.reassignTask(id, input);
-      await refetch();
+      // The reassign has happened — a failed list read would otherwise invite the
+      // owner to reassign the same task a second time.
+      try {
+        await refetch();
+      } catch (e) {
+        console.warn(
+          "useTasks: post-reassign refetch failed (the task was reassigned)",
+          e
+        );
+      }
     },
     [refetch]
   );
@@ -315,7 +366,15 @@ export function useTasks(
   const removeArtifact = useCallback(
     async (taskId: string, artifactId: string) => {
       await api.removeTaskArtifact(taskId, artifactId);
-      await refetch();
+      // The artifact is gone from the task whatever the list read does.
+      try {
+        await refetch();
+      } catch (e) {
+        console.warn(
+          "useTasks: post-remove-artifact refetch failed (the artifact was removed)",
+          e
+        );
+      }
     },
     [refetch]
   );

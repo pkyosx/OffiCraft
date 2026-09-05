@@ -360,7 +360,8 @@ def _matrix_task(ctx: Ctx) -> str:
         headers={"Authorization": f"Bearer {ctx.owner_token}"},
     )
     assert r.status_code == 200, f"scratch task failed: {r.status_code} {r.text}"
-    return r.json()["task"]["id"]
+    # T-91: create answers taskCreateResultDTO — the minted id, not the task.
+    return r.json()["task_id"]
 
 
 def _matrix_task_step(ctx: Ctx) -> tuple[str, str]:
@@ -438,7 +439,8 @@ def _matrix_reassigning_task(ctx: Ctx) -> str:
         headers=h,
     )
     assert r.status_code == 200, f"scratch reassign-seed failed: {r.status_code} {r.text}"
-    task_id = r.json()["task"]["id"]
+    # T-91: create answers taskCreateResultDTO — the minted id, not the task.
+    task_id = r.json()["task_id"]
     r = ctx.client.post(
         f"/api/tasks/{task_id}/reassign",
         json={"target": {"kind": "member", "member_id": ctx.agent_a.member_id}},

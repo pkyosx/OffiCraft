@@ -634,6 +634,33 @@ func (s *apiServer) writeMemberDTO(w http.ResponseWriter, m Member) {
 	writeJSON(w, http.StatusOK, s.newMemberDTO(m, roleName, "", 0))
 }
 
+// writeSelfReportReceipt is the common tail of the FOUR self-report faces —
+// report_waking, report_stopping, report_stopped and restart_self (T-91). All
+// four used to answer with the whole MemberDTO.
+//
+// 🔴 IT IS A SECOND TAIL, NOT A CHANGE TO writeMemberDTO. That one still serves
+// the dozen owner-facing member routes (hire, activate, deactivate, update,
+// relocate, refocus_member and the rest), which are outside this reshape.
+//
+// The three fields it keeps beside the id are the ones an agent reporting on
+// ITSELF cannot get anywhere else at that moment: whether the boot is still
+// wanted, which rung of the wind-down ladder it is on, and the epoch second it
+// is counting to. Everything else on MemberDTO — name, role, model, machine,
+// presence, cost, last_op — is the agent's own roster row, readable through
+// get_member whenever it actually needs it.
+func (s *apiServer) writeSelfReportReceipt(w http.ResponseWriter, m Member) {
+	writeJSON(w, http.StatusOK, selfReportReceiptDTO{
+		ID:           m.ID,
+		DesiredState: m.DesiredState,
+		RefocusOp:    m.RefocusOp,
+		// The SAME derivation newMemberDTO uses, through the same one function:
+		// 0 means "nothing is collecting this on a clock", which since T-ed79 is
+		// every cause except the two 加速停止 arms. Reading RecycleGrace straight
+		// would quote a ceiling nothing honours.
+		RefocusDeadline: winddownDeadlineOf(m, s.reconcileConfigLive()),
+	})
+}
+
 // nowSecs is the float epoch clock (time.time()).
 func nowSecs() float64 {
 	return float64(time.Now().UnixNano()) / 1e9

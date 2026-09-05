@@ -568,7 +568,8 @@ def test_list_answers_carry_sizes_but_never_the_documents(client, owner_token):
 
     r = client.post("/api/roles", json={"name": "conformance directory role"}, headers=h)
     assert r.status_code == 200, r.text
-    role_key = r.json()["role"]["key"]
+    # T-91: create answers a receipt naming the minted key, not the role.
+    role_key = r.json()["role_key"]
     r = client.post(
         f"/api/roles/{role_key}", json={"definition_md": "conf role prose"}, headers=h
     )
@@ -658,7 +659,8 @@ def test_members_default_includes_outsource_workers_and_light_preserves_kind(
         headers=_auth(hctx.agent.token),
     )
     assert created.status_code == 200, created.text
-    task_id = created.json()["task"]["id"]
+    # T-91: create answers taskCreateResultDTO — the minted id, not the task.
+    task_id = created.json()["task_id"]
     reassigned = client.post(
         f"/api/tasks/{task_id}/reassign",
         json={"target": {"kind": "outsource", "machine": fresh_machine()}},
@@ -741,7 +743,8 @@ def _happy_task(ctx: HCtx) -> str:
         headers=_auth(ctx.agent.token),
     )
     assert r.status_code == 200, f"happy task failed: {r.status_code} {r.text}"
-    return r.json()["task"]["id"]
+    # T-91: create answers taskCreateResultDTO — the minted id, not the task.
+    return r.json()["task_id"]
 
 
 def _happy_task_step(ctx: HCtx) -> tuple[str, str]:
@@ -818,7 +821,8 @@ def _happy_reassigning_task(ctx: HCtx) -> str:
         headers=_auth(ctx.owner_token),
     )
     assert r.status_code == 200, f"happy claim-seed failed: {r.status_code} {r.text}"
-    task_id = r.json()["task"]["id"]
+    # T-91: create answers taskCreateResultDTO — the minted id, not the task.
+    task_id = r.json()["task_id"]
     r = ctx.client.post(
         f"/api/tasks/{task_id}/reassign",
         json={"target": {"kind": "member", "member_id": ctx.agent.member_id}},
@@ -982,8 +986,24 @@ def _happy_manual(ctx: HCtx) -> str:
         headers=_auth(ctx.owner_token),
     )
     assert r.status_code == 200, f"happy manual failed: {r.status_code} {r.text}"
-    assert r.json()["display_name"] == type_key, (
-        f"legacy create must backfill display_name=type_key: {r.text}"
+    # T-91: the create answers taskManualReceiptDTO, which names the manual and
+    # the documents THIS call wrote — and this call wrote neither, so the two
+    # optional triples are absent (they are pointers precisely so that "not
+    # written" is expressible and is not spelled 0). Key-set equality: merely
+    # asserting type_key is present would stay green if the whole manual came
+    # back, because a manual carries a type_key too.
+    receipt = r.json()
+    assert set(receipt) == {"type_key", "updated_ts"}, receipt
+    assert receipt["type_key"] == type_key, receipt
+    # The backfill this helper exists to exercise is a stored property, so it
+    # is asserted on the READ face — the write face no longer echoes it, and
+    # deleting the assertion would silently retire the guarantee.
+    g = ctx.client.get(
+        f"/api/task-manuals/{type_key}", headers=_auth(ctx.owner_token)
+    )
+    assert g.status_code == 200, f"manual read-back failed: {g.status_code} {g.text}"
+    assert g.json()["display_name"] == type_key, (
+        f"legacy create must backfill display_name=type_key: {g.text}"
     )
     return type_key
 
@@ -1103,29 +1123,51 @@ def _check_reset_insight(ctx: HCtx, r: httpx.Response) -> None:
 
     🔴 Deliberately does NOT compare against the seed's TEXT. The suite is
     black-box and must not read seeds/insight_assistant.md; what it can state
-    order-independently is that the response is no longer the overlay
+    order-independently is that the served doc is no longer the overlay
     _reset_insight_path just wrote, that is_default flipped back to True, and
     that the doc is non-empty — the assistant is the one role that ships a seed,
     so an empty answer here would mean the fold stopped finding it.
+
+    🔴 T-91 moved the ANCHOR of that claim. The reset answers
+    insightReceiptDTO — sizes and a digest, no text — so "the seed came back"
+    can no longer be read off the write response, and the old read-back
+    compared GET's text against the write's echo, which means it went away
+    with the echo. The claim is therefore stated on the GET itself below.
+    The receipt is not merely dropped: its key set is pinned (a route that
+    went back to echoing the document reddens here), and its size_chars and
+    sha256 are reconciled against the bytes GET serves — which is what stops
+    the receipt from describing some other document than the one now stored.
     """
     d = r.json()
-    assert d["is_default"] is True, f"reset did not flip is_default: {d}"
-    assert d["text"] != _RESET_INSIGHT_OVERLAY, "reset left the custom doc in place"
-    assert d["text"].strip(), "reset served an EMPTY doc — the factory seed was not restored"
-    assert d["size_chars"] == len(d["text"]), d
-    assert d["cap_chars"] >= d["size_chars"], d
+    # Key-set equality, not presence: asserting only that is_default is there
+    # would stay green if the whole insight document came back, because the
+    # read face carries is_default too.
+    assert set(d) == {
+        "role_key", "is_default", "has_seed", "size_chars", "cap_chars", "sha256"
+    }, d
     assert d["role_key"] == "assistant", d
+    assert d["is_default"] is True, f"reset did not flip is_default: {d}"
+    assert d["cap_chars"] >= d["size_chars"], d
     # The precondition for this very route, still true after it ran (T-6501):
     # has_seed is about what SHIPS, so a reset can never consume it.
     assert d["has_seed"] is True, d
-    # The READ face agrees — the response is not a one-off projection.
+    # The READ face carries the behavioural claim now.
     g = ctx.client.get(
         "/api/insight/assistant",
         headers={"Authorization": f"Bearer {ctx.owner_token}"},
     )
     assert g.status_code == 200, f"{g.status_code} {g.text}"
-    assert g.json()["text"] == d["text"], "GET after reset disagrees with the reset response"
-    assert g.json()["is_default"] is True, g.text
+    served = g.json()
+    assert served["is_default"] is True, g.text
+    assert served["text"] != _RESET_INSIGHT_OVERLAY, (
+        "reset left the custom doc in place")
+    assert served["text"].strip(), (
+        "reset served an EMPTY doc — the factory seed was not restored")
+    # …and the receipt is about THAT document: same length, same bytes.
+    assert d["size_chars"] == len(served["text"]), (d, len(served["text"]))
+    assert d["sha256"] == hashlib.sha256(
+        served["text"].encode("utf-8")
+    ).hexdigest(), "the reset receipt's digest is not the doc GET now serves"
 
 
 # ── the two editable boot-context blocks (T-791e) ────────────────────────────
@@ -1214,8 +1256,8 @@ def _boot_doc_body(ctx: HCtx) -> dict:
     return {"body": _BOOT_DOC_EDIT}
 
 
-def _boot_doc_written(kind: str, key: str):
-    """The edit came back verbatim and the block stopped reading as default.
+def _boot_doc_written(kind: str, key: str, path: str):
+    """The edit landed verbatim and the block stopped reading as default.
 
     ``body`` is compared BYTE FOR BYTE against what was sent — that is the whole
     contract now, and it is a stronger statement than the old one: what a client
@@ -1224,17 +1266,40 @@ def _boot_doc_written(kind: str, key: str):
     stored document and is checked only for the properties the halves must have
     inside it — including whether there is a head at all, which is now per
     document and read from the shared table.
+
+    🔴 T-91 moved where that comparison happens. The write answers
+    bootDocumentReceiptDTO — an address, two sizes and a digest — so the
+    byte-for-byte claim is made against the READ face below instead of against
+    the write's echo. The receipt is still pinned, two ways: key-set equality
+    (a route that went back to serving the document reddens here) and a
+    reconciliation of its size_chars/sha256 against the bytes GET serves, so
+    the receipt cannot describe a document other than the one now stored.
     """
 
-    def check(_ctx: HCtx, r: httpx.Response) -> None:
+    def check(ctx: HCtx, r: httpx.Response) -> None:
         d = r.json()
-        assert d["body"] == _BOOT_DOC_EDIT, d
-        assert d["text"].endswith(_BOOT_DOC_EDIT), d
-        _check_head(d, kind, key)
+        assert set(d) == {
+            "kind", "key", "is_default", "size_chars", "cap_chars", "sha256"
+        }, d
+        assert d["kind"] == kind and d["key"] == key, d
         assert d["is_default"] is False, d
-        assert d["size_chars"] == len(d["text"]), d
         assert d["cap_chars"] >= d["size_chars"], d
-        assert d["has_seed"] is True, d
+
+        g = ctx.client.get(
+            path, headers={"Authorization": f"Bearer {ctx.owner_token}"}
+        )
+        assert g.status_code == 200, f"{g.status_code} {g.text}"
+        served = g.json()
+        assert served["body"] == _BOOT_DOC_EDIT, served
+        assert served["text"].endswith(_BOOT_DOC_EDIT), served
+        _check_head(served, kind, key)
+        assert served["is_default"] is False, served
+        assert served["has_seed"] is True, served
+        # The receipt is about THAT document.
+        assert d["size_chars"] == len(served["text"]), (d, len(served["text"]))
+        assert d["sha256"] == hashlib.sha256(
+            served["text"].encode("utf-8")
+        ).hexdigest(), "the write receipt's digest is not the doc GET serves"
 
     return check
 
@@ -1251,13 +1316,29 @@ def _boot_doc_reset(path: str):
 
     def check(ctx: HCtx, r: httpx.Response) -> None:
         d = r.json()
+        # T-91: the reset answers bootDocumentReceiptDTO. Key-set equality —
+        # only asserting is_default is present would stay green if the whole
+        # block came back, because the read face carries is_default too.
+        assert set(d) == {
+            "kind", "key", "is_default", "size_chars", "cap_chars", "sha256"
+        }, d
         assert d["is_default"] is True, d
-        assert d["text"] != _BOOT_DOC_EDIT, "reset left the edit in place"
-        assert d["text"].strip(), "reset served an EMPTY block — the shipped seed was not restored"
-        assert d["has_seed"] is True, d
+        assert d["cap_chars"] >= d["size_chars"], d
         g = ctx.client.get(path, headers={"Authorization": f"Bearer {ctx.owner_token}"})
         assert g.status_code == 200, f"{g.status_code} {g.text}"
-        assert g.json()["text"] == d["text"], "GET after reset disagrees with the reset response"
+        served = g.json()
+        # 🔴 The two behavioural claims, now anchored on the served block
+        # rather than on the write echo they used to read off.
+        assert served["text"] != _BOOT_DOC_EDIT, "reset left the edit in place"
+        assert served["text"].strip(), (
+            "reset served an EMPTY block — the shipped seed was not restored")
+        assert served["is_default"] is True, served
+        assert served["has_seed"] is True, served
+        # …and the receipt is about THAT block.
+        assert d["size_chars"] == len(served["text"]), (d, len(served["text"]))
+        assert d["sha256"] == hashlib.sha256(
+            served["text"].encode("utf-8")
+        ).hexdigest(), "the reset receipt's digest is not the block GET serves"
 
     return check
 
@@ -1279,6 +1360,324 @@ def _boot_doc_read(kind: str, key: str):
         assert d["has_seed"] is True, d
 
     return check
+
+
+# ── T-91 receipt guards ──────────────────────────────────────────────────────
+# Forty-four write routes stopped echoing the object they wrote and started
+# answering a bounded receipt. Every check below states the receipt's shape as
+# KEY-SET EQUALITY, following the closeout row's precedent: asserting only that
+# the interesting fields are PRESENT would stay green if a route went back to
+# serving the whole object, because the object carries those fields too. Where
+# the old check made a BEHAVIOURAL claim off the echo, the claim is not deleted
+# — it is re-anchored on the read face, or on the size/digest the receipt
+# reports, so that nothing the suite used to guarantee is quietly given up.
+
+# The nine task-driving writes share one shape: the task's CARD plus the two
+# free-text fields reduced to a size and a digest.
+# The three card transitions (answer / re-answer / expire) share one shape.
+_CARD_RECEIPT_KEYS = {
+    "id", "status", "answered_ts", "expired_ts", "answer", "task_id", "step_id",
+}
+
+# create_scheduled_message and update_scheduled_message share one shape.
+# 🔴 Only ONE of the four custom sets is here: custom_months, the one the
+# server RESOLVES. The other three come back exactly as they were sent, so
+# echoing them would say nothing. "All four are always on the response" is
+# therefore a READ-face convention now — pinned in test_scheduled_messages.py.
+_SCHEDULE_RECEIPT_KEYS = {
+    "id", "member_id", "label", "body_size_chars", "cadence", "custom_months",
+    "day_of_month", "day_of_week", "status", "last_fired_slot",
+    "last_fired_ts", "created_ts",
+}
+
+# update_role and reset_role share one shape.
+_ROLE_DEF_RECEIPT_KEYS = {
+    "key", "name", "is_default", "is_seed", "size_chars", "cap_chars", "sha256",
+}
+
+_TASK_WRITE_RECEIPT_KEYS = {
+    "task_id", "title", "status", "executor_id", "executor_kind", "lock",
+    "closed_ts", "duplicate_of", "deps", "progress_done", "progress_total",
+    "artifact_count", "description_size_chars", "description_sha256",
+}
+
+
+def _sha(text: str) -> str:
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def _chat_post_receipt(ctx: HCtx, r: httpx.Response, peer: str) -> dict:
+    """Pin the post receipt's shape; answer the message from the READ face.
+
+    POST /api/chat and POST /api/tasks/{task_id}/message answer
+    chatPostReceiptDTO: the server-minted id and timestamp, plus the attachment
+    list the server resolved. The sentence the caller just sent does not ride
+    home any more, so `from`/`to`/`body` are asserted on GET /api/chat instead
+    of being dropped.
+
+    `attachments` is asserted PRESENT and empty rather than allowed to vanish:
+    a field that appears only sometimes forces every reader to tell "this post
+    carried no files" apart from "this server does not report files", which are
+    answers to two different questions.
+    """
+    d = r.json()
+    assert set(d) == {"id", "ts", "attachments"}, d
+    assert d["attachments"] == [], d
+    assert d["id"] and d["ts"] > 0, d
+    msgs = ctx.client.get(
+        f"/api/chat?with={peer}&limit=-1",
+        headers={"Authorization": f"Bearer {ctx.owner_token}"},
+    )
+    assert msgs.status_code == 200, f"{msgs.status_code} {msgs.text}"
+    posted = {m["id"]: m for m in msgs.json()["messages"]}.get(d["id"])
+    assert posted, f"the posted message {d['id']} is not on the chat read face"
+    return posted
+
+
+def _check_chat_post(ctx: HCtx, r: httpx.Response) -> None:
+    posted = _chat_post_receipt(ctx, r, ctx.agent.member_id)
+    assert posted["from"] == "owner", posted
+    assert posted["to"] == ctx.agent.member_id, posted
+    assert posted["body"] == "happy ping", posted
+
+
+def _check_task_message(ctx: HCtx, r: httpx.Response) -> None:
+    posted = _chat_post_receipt(ctx, r, ctx.agent.member_id)
+    assert posted["from"] == "owner", posted
+    assert posted["to"] == ctx.agent.member_id, posted
+    # The visible body is prefixed with the task's display number, so the
+    # executor's message is self-identifying (owner 2026-07-14) — the sentence
+    # sent is a SUFFIX of what was stored, not equal to it.
+    assert posted["body"].endswith("conf happy task message"), posted
+    # The task binding is what makes this route different from plain chat.
+    assert posted["meta"]["task_id"], posted
+    # task_no IS the id (T-5291), so the prefix is computable from the binding.
+    assert posted["body"].startswith(f"[{posted['meta']['task_id']}] "), posted
+
+
+def _check_card_opened(ctx: HCtx, r: httpx.Response) -> None:
+    """create answers replyCardCreateReceiptDTO — the two ids and the resolved
+    attachment list, never the card. The card's opening state is asserted on
+    GET /api/reply-cards/{id}, which is where a card has always been readable.
+    `attachments` present-and-empty for the same reason as on the chat post."""
+    d = r.json()
+    assert set(d) == {"id", "chat_message_id", "created_ts", "attachments"}, d
+    assert d["attachments"] == [], d
+    assert d["chat_message_id"], d
+    g = ctx.client.get(
+        f"/api/reply-cards/{d['id']}",
+        headers={"Authorization": f"Bearer {ctx.owner_token}"},
+    )
+    assert g.status_code == 200, f"{g.status_code} {g.text}"
+    card = g.json()
+    assert card["status"] == "waiting", card
+    assert card["answer"] is None, card
+    assert card["answered_ts"] is None, card
+    assert card["chat_message_id"] == d["chat_message_id"], (card, d)
+
+
+def _check_global_context_written(ctx: HCtx, r: httpx.Response) -> None:
+    d = r.json()
+    assert set(d) == {"is_default", "size_chars", "sha256"}, d
+    assert d["is_default"] is False, d
+    g = ctx.client.get(
+        "/api/global-context",
+        headers={"Authorization": f"Bearer {ctx.owner_token}"},
+    )
+    assert g.status_code == 200, f"{g.status_code} {g.text}"
+    served = g.json()
+    assert served["text"] == "conformance happy user-custom block", served
+    # The receipt describes THAT document — it is read back from the same fold.
+    assert d["size_chars"] == len(served["text"]), (d, served["text"])
+    assert d["sha256"] == _sha(served["text"]), d
+
+
+def _check_global_context_reset(ctx: HCtx, r: httpx.Response) -> None:
+    d = r.json()
+    assert set(d) == {"is_default", "size_chars", "sha256"}, d
+    assert d["is_default"] is True, d
+    g = ctx.client.get(
+        "/api/global-context",
+        headers={"Authorization": f"Bearer {ctx.owner_token}"},
+    )
+    assert g.status_code == 200, f"{g.status_code} {g.text}"
+    served = g.json()
+    assert served["is_default"] is True, served
+    assert d["size_chars"] == len(served["text"]), (d, served["text"])
+    assert d["sha256"] == _sha(served["text"]), d
+
+
+_HAPPY_LESSONS_DOC = "conformance happy lessons doc"
+
+
+def _check_lessons_written(ctx: HCtx, r: httpx.Response) -> None:
+    d = r.json()
+    assert set(d) == {"role_key", "size_chars", "cap_chars", "sha256"}, d
+    assert d["role_key"] == "assistant", d
+    # The text is gone from the wire, so what proves the server took THIS doc
+    # (and not an empty body, and not a truncation) is the pair it reports:
+    # the character count and the digest of exactly what was sent.
+    assert d["size_chars"] == len(_HAPPY_LESSONS_DOC), d
+    assert d["sha256"] == _sha(_HAPPY_LESSONS_DOC), d
+    assert d["cap_chars"] >= d["size_chars"], d
+    # …and it was STORED, not merely measured.
+    g = ctx.client.get(
+        "/api/lessons/assistant",
+        headers={"Authorization": f"Bearer {ctx.owner_token}"},
+    )
+    assert g.status_code == 200, f"{g.status_code} {g.text}"
+    assert _HAPPY_LESSONS_DOC in g.json()["text"], g.text
+
+
+_HAPPY_INSIGHT_DOC = "conformance happy insight doc"
+
+
+def _check_insight_written(ctx: HCtx, r: httpx.Response) -> None:
+    d = r.json()
+    assert set(d) == {
+        "role_key", "is_default", "has_seed", "size_chars", "cap_chars", "sha256"
+    }, d
+    assert d["role_key"] == "assistant", d
+    # The write flips is_default off. Since T-e1e3 a role MAY have a factory
+    # seed behind it, so this flip is what distinguishes authored text from
+    # shipped text — it is no longer interchangeable with "the doc is
+    # non-empty".
+    assert d["is_default"] is False, d
+    # T-6501: has_seed asks whether seeds/insight_assistant.md SHIPS, which no
+    # write in this suite can change, and it is the field the cockpit gates the
+    # reset row on.
+    assert d["has_seed"] is True, d
+    assert d["size_chars"] == len(_HAPPY_INSIGHT_DOC), d
+    assert d["sha256"] == _sha(_HAPPY_INSIGHT_DOC), d
+    assert d["cap_chars"] >= d["size_chars"], d
+    g = ctx.client.get(
+        "/api/insight/assistant",
+        headers={"Authorization": f"Bearer {ctx.owner_token}"},
+    )
+    assert g.status_code == 200, f"{g.status_code} {g.text}"
+    assert g.json()["text"] == _HAPPY_INSIGHT_DOC, g.text
+
+
+def _check_scheduled_created(ctx: HCtx, r: httpx.Response) -> None:
+    """The create answers scheduledMessageReceiptDTO.
+
+    🔴 The four custom sets are NOT all on this shape any more: only
+    ``custom_months`` is, because it is the one the server RESOLVES; the other
+    three come back exactly as they were sent. The "all four are always on the
+    response" convention therefore now binds the READ face only — it is
+    asserted there in test_scheduled_messages.py, not weakened away.
+
+    🔴 The statements below are separate ``assert`` lines, not one ``and``
+    chain. The old chain put ``timezone`` (which this receipt does not carry)
+    in front of ``last_fired_slot``, so the last_fired_slot claim — that a new
+    schedule does not fire the slot it was born after — was never reached and
+    never ran. It is the whole reason this row has a check.
+    """
+    d = r.json()
+    assert set(d) == {
+        "id", "member_id", "label", "body_size_chars", "cadence",
+        "custom_months", "day_of_month", "day_of_week", "status",
+        "last_fired_slot", "last_fired_ts", "created_ts",
+    }, d
+    assert d["status"] == "enabled", d
+    assert d["id"].startswith("sch-"), d
+    assert d["member_id"] == ctx.agent.member_id, d
+    assert d["label"] == "conf happy create", d
+    assert d["body_size_chars"] == len("conformance scheduled create"), d
+    # last_fired_slot is seeded at creation, which is the wire-visible form of
+    # "a new schedule does not fire the slot it was born after". An empty
+    # cursor here would mean the next tick delivers immediately. The suffix
+    # also carries the hour and the zone the create was given, which is how
+    # this row still pins a timezone the receipt no longer names as a field.
+    assert d["last_fired_slot"].endswith("T09:00+08:00"), d
+    # The zone itself is stored, so it is asserted where it is now readable.
+    lst = ctx.client.get(
+        f"/api/members/{ctx.agent.member_id}/scheduled-messages",
+        headers={"Authorization": f"Bearer {ctx.owner_token}"},
+    )
+    assert lst.status_code == 200, f"{lst.status_code} {lst.text}"
+    row = next((x for x in lst.json() if x["id"] == d["id"]), None)
+    assert row is not None, lst.text
+    assert row["timezone"] == "Asia/Taipei", row
+    assert row["hour"] == 9 and row["minute"] == 0, row
+
+
+# The note the "POST …/steps/{step_id}/note" row writes. Named because the
+# check now has to state its length and its digest, and two copies of the same
+# string in a check that compares them is not a check.
+_HAPPY_STEP_NOTE_ROW = "conf happy note — 做到哪、下一步接什麼"
+
+
+def _check_task_created(ctx: HCtx, r: httpx.Response) -> None:
+    d = r.json()
+    assert set(d) == {"task_id", "task_no", "deduped"}, d
+    assert d["deduped"] is False, d
+    # task_no IS the id (T-5291) — before that it was a separately derived
+    # display value (same wording as test_tasks.py; the old shape is
+    # deliberately not named there either).
+    assert d["task_no"] == d["task_id"], d
+    # The task the create opened is asserted on the read face, because the
+    # create no longer serves it: a route that minted an id and stored nothing,
+    # or stored it against the wrong executor, cannot pass this.
+    g = ctx.client.get(
+        f"/api/tasks/{d['task_id']}",
+        headers={"Authorization": f"Bearer {ctx.agent.token}"},
+    )
+    assert g.status_code == 200, f"{g.status_code} {g.text}"
+    task = g.json()
+    assert task["status"] == "not_started", task
+    assert task["executor_id"] == ctx.agent.member_id, task
+    assert task["task_no"] == task["id"] == d["task_id"], task
+
+
+def _check_manual_minted(ctx: HCtx, r: httpx.Response) -> None:
+    """T-fa76 mint path: the caller sends display_name only and the server
+    mints the tm- key. The receipt names the manual and the documents THIS
+    call wrote — it wrote neither, so both optional triples are absent."""
+    d = r.json()
+    assert set(d) == {"type_key", "updated_ts"}, d
+    assert d["type_key"].startswith("tm-"), d
+    assert len(d["type_key"]) == len("tm-") + 12, d
+    g = ctx.client.get(
+        f"/api/task-manuals/{d['type_key']}",
+        headers={"Authorization": f"Bearer {ctx.owner_token}"},
+    )
+    assert g.status_code == 200, f"{g.status_code} {g.text}"
+    manual = g.json()
+    assert manual["display_name"].startswith("conf 顯示名 "), manual
+    assert manual["fields"] == [], manual
+    assert manual["assignee"] == {}, manual
+
+
+def _check_manual_edited(ctx: HCtx, r: httpx.Response) -> None:
+    d = r.json()
+    assert set(d) == {"type_key", "updated_ts"}, d
+    g = ctx.client.get(
+        f"/api/task-manuals/{d['type_key']}",
+        headers={"Authorization": f"Bearer {ctx.owner_token}"},
+    )
+    assert g.status_code == 200, f"{g.status_code} {g.text}"
+    manual = g.json()
+    assert manual["purpose"] == "conf happy purpose", manual
+    assert manual["fields"][0]["is_key"] is True, manual
+
+
+_HAPPY_MANUAL_LEARNINGS = "conf happy learnings"
+
+
+def _check_manual_learnings_written(ctx: HCtx, r: httpx.Response) -> None:
+    d = r.json()
+    assert set(d) == {"type_key", "size_chars", "cap_chars", "sha256"}, d
+    assert d["size_chars"] == len(_HAPPY_MANUAL_LEARNINGS), d
+    assert d["sha256"] == _sha(_HAPPY_MANUAL_LEARNINGS), d
+    assert d["cap_chars"] >= d["size_chars"], d
+    g = ctx.client.get(
+        f"/api/task-manuals/{d['type_key']}",
+        headers={"Authorization": f"Bearer {ctx.owner_token}"},
+    )
+    assert g.status_code == 200, f"{g.status_code} {g.text}"
+    assert g.json()["learnings"] == _HAPPY_MANUAL_LEARNINGS, g.text
+
 
 
 HAPPY: dict[str, Happy] = {
@@ -1523,25 +1922,20 @@ HAPPY: dict[str, Happy] = {
             "minute": 0,
             "timezone": "Asia/Taipei",
         },
-        # last_fired_slot is seeded at creation, which is the wire-visible form
-        # of "a new schedule does not fire the slot it was born after". An empty
-        # cursor here would mean the next tick delivers immediately.
-        check=lambda _c, r: _expect(
-            r,
-            lambda d: d["status"] == "enabled"
-            and d["id"].startswith("sch-")
-            and d["timezone"] == "Asia/Taipei"
-            and d["last_fired_slot"].endswith("T09:00+08:00"),
-        ),
+        check=_check_scheduled_created,
     ),
     "PATCH /api/members/{member_id}/scheduled-messages/{schedule_id}": Happy(
         path=lambda ctx: "/api/members/{}/scheduled-messages/{}".format(
             *_happy_scheduled_message(ctx)
         ),
         body={"status": "disabled", "label": "conf happy patched"},
+        # T-91: the patch answers the same scheduledMessageReceiptDTO as the
+        # create. Key-set equality: asserting only that `status` and `label`
+        # are present would stay green if the whole schedule came back.
         check=lambda _c, r: _expect(
             r,
-            lambda d: d["status"] == "disabled"
+            lambda d: set(d) == _SCHEDULE_RECEIPT_KEYS
+            and d["status"] == "disabled"
             and d["label"] == "conf happy patched",
         ),
     ),
@@ -1549,7 +1943,15 @@ HAPPY: dict[str, Happy] = {
         path=lambda ctx: "/api/members/{}/scheduled-messages/{}".format(
             *_happy_scheduled_message(ctx)
         ),
-        check=lambda _c, r: _expect(r, lambda d: d["id"].startswith("sch-")),
+        # T-91: the delete answers scheduledMessageDeleteReceiptDTO — which
+        # schedule, on whose row, and that it is gone. Key-set equality: `id`
+        # alone would stay green if the deleted schedule came back whole.
+        check=lambda _c, r: _expect(
+            r,
+            lambda d: set(d) == {"id", "member_id", "deleted"}
+            and d["id"].startswith("sch-")
+            and d["deleted"] is True,
+        ),
     ),
     # T-8b0d: the SAME bounded wake snapshot as /api/resume-summary, for a
     # TARGET member (this file's own scratch agent) instead of the caller.
@@ -1577,27 +1979,52 @@ HAPPY: dict[str, Happy] = {
     "POST /api/self/waking": Happy(
         identity="agent",
         body={},
-        check=lambda ctx, r: _expect(r, lambda d: d["id"] == ctx.agent.member_id),
+        # T-91: the four self-report faces answer selfReportReceiptDTO — who
+        # reported and what the station now wants of it. Key-set equality:
+        # asserting only that `id` is present would stay green if the whole
+        # member came back, because a member carries an id too.
+        check=lambda ctx, r: _expect(
+            r,
+            lambda d: set(d) == {
+                "id", "desired_state", "refocus_op", "refocus_deadline"
+            }
+            and d["id"] == ctx.agent.member_id,
+        ),
     ),
     "POST /api/self/stopping": Happy(
         identity="agent",
         body={},
-        check=lambda ctx, r: _expect(r, lambda d: d["id"] == ctx.agent.member_id),
+        # T-91: the four self-report faces answer selfReportReceiptDTO — who
+        # reported and what the station now wants of it. Key-set equality:
+        # asserting only that `id` is present would stay green if the whole
+        # member came back, because a member carries an id too.
+        check=lambda ctx, r: _expect(
+            r,
+            lambda d: set(d) == {
+                "id", "desired_state", "refocus_op", "refocus_deadline"
+            }
+            and d["id"] == ctx.agent.member_id,
+        ),
     ),
     "POST /api/self/stopped": Happy(
         identity="agent",
         body={},
-        check=lambda ctx, r: _expect(r, lambda d: d["id"] == ctx.agent.member_id),
+        # T-91: the four self-report faces answer selfReportReceiptDTO — who
+        # reported and what the station now wants of it. Key-set equality:
+        # asserting only that `id` is present would stay green if the whole
+        # member came back, because a member carries an id too.
+        check=lambda ctx, r: _expect(
+            r,
+            lambda d: set(d) == {
+                "id", "desired_state", "refocus_op", "refocus_deadline"
+            }
+            and d["id"] == ctx.agent.member_id,
+        ),
     ),
     # ── chat ─────────────────────────────────────────────────────────────────
     "POST /api/chat": Happy(
         body=lambda ctx: {"to": ctx.agent.member_id, "body": "happy ping"},
-        check=lambda ctx, r: _expect(
-            r,
-            lambda d: d["from"] == "owner"
-            and d["to"] == ctx.agent.member_id
-            and d["body"] == "happy ping",
-        ),
+        check=_check_chat_post,
     ),
     "GET /api/chat": Happy(
         path=_seeded_chat_path("/api/chat"), check=_nonempty_chat_page
@@ -1637,13 +2064,7 @@ HAPPY: dict[str, Happy] = {
         identity="agent",
         body={"kind": "action", "summary": "conf happy open card",
               "options": [{"text": "done, continue"}], "linked_task": None},
-        check=lambda _c, r: _expect(
-            r,
-            lambda d: d["status"] == "waiting"
-            and d["answer"] is None
-            and d["answered_ts"] is None
-            and d["chat_message_id"],
-        ),
+        check=_check_card_opened,
     ),
     "GET /api/reply-cards": Happy(
         path=_seeded_reply_cards_path, check=_nonempty_list
@@ -1660,9 +2081,14 @@ HAPPY: dict[str, Happy] = {
     "POST /api/reply-cards/{card_id}/answer": Happy(
         path=lambda ctx: f"/api/reply-cards/{_happy_card(ctx)}/answer",
         body={"option_idxs": [0]},
+        # T-91: the three card TRANSITIONS answer replyCardReceiptDTO — the
+        # state the card is now in, not the card. Key-set equality: asserting
+        # only that `status` is present would stay green if the whole card came
+        # back, because a card carries a status too.
         check=lambda _c, r: _expect(
             r,
-            lambda d: d["status"] == "answered"
+            lambda d: set(d) == _CARD_RECEIPT_KEYS
+            and d["status"] == "answered"
             and d["answer"]["option_idxs"] == [0]
             and d["answered_ts"],
         ),
@@ -1672,7 +2098,8 @@ HAPPY: dict[str, Happy] = {
         body={"text": "conf happy revised"},
         check=lambda _c, r: _expect(
             r,
-            lambda d: d["status"] == "answered"
+            lambda d: set(d) == _CARD_RECEIPT_KEYS
+            and d["status"] == "answered"
             and d["answer"]["text"] == "conf happy revised"
             and d["answer"]["option_idxs"] is None,
         ),
@@ -1681,7 +2108,8 @@ HAPPY: dict[str, Happy] = {
         path=lambda ctx: f"/api/reply-cards/{_happy_card(ctx)}/expire",
         check=lambda _c, r: _expect(
             r,
-            lambda d: d["status"] == "expired"
+            lambda d: set(d) == _CARD_RECEIPT_KEYS
+            and d["status"] == "expired"
             and d["expired_ts"]
             and d["answer"] is None
             and d["answered_ts"] is None,
@@ -1810,14 +2238,10 @@ HAPPY: dict[str, Happy] = {
     "GET /api/global-context": Happy(),
     "POST /api/global-context": Happy(
         body={"text": "conformance happy user-custom block"},
-        check=lambda _c, r: _expect(
-            r,
-            lambda d: d["text"] == "conformance happy user-custom block"
-            and d["is_default"] is False,
-        ),
+        check=_check_global_context_written,
     ),
     "POST /api/global-context/reset": Happy(
-        check=lambda _c, r: _expect(r, lambda d: d["is_default"] is True),
+        check=_check_global_context_reset,
     ),
     # ── the boot context's other two blocks, editable since T-791e ───────────
     # The reset rows run against a block the replace rows may or may not have
@@ -1827,7 +2251,9 @@ HAPPY: dict[str, Happy] = {
         check=lambda _c, r: _boot_doc_read("system_interaction", "global")(_c, r)
     ),
     "POST /api/system-interaction": Happy(
-        body=_boot_doc_body, check=_boot_doc_written("system_interaction", "global")
+        body=_boot_doc_body, check=_boot_doc_written(
+            "system_interaction", "global", "/api/system-interaction"
+        )
     ),
     "POST /api/system-interaction/reset": Happy(
         check=_boot_doc_reset("/api/system-interaction")
@@ -1839,7 +2265,9 @@ HAPPY: dict[str, Happy] = {
     "POST /api/boot-sequence/{runtime_key}": Happy(
         path="/api/boot-sequence/codex",
         body=_boot_doc_body,
-        check=_boot_doc_written("boot_sequence", "codex"),
+        check=_boot_doc_written(
+            "boot_sequence", "codex", "/api/boot-sequence/codex"
+        ),
     ),
     "POST /api/boot-sequence/{runtime_key}/reset": Happy(
         path="/api/boot-sequence/codex/reset",
@@ -1852,7 +2280,7 @@ HAPPY: dict[str, Happy] = {
         check=lambda _c, r: _boot_doc_read("offboard", "global")(_c, r)
     ),
     "POST /api/offboard": Happy(
-        body=_boot_doc_body, check=_boot_doc_written("offboard", "global")
+        body=_boot_doc_body, check=_boot_doc_written("offboard", "global", "/api/offboard")
     ),
     "POST /api/offboard/reset": Happy(check=_boot_doc_reset("/api/offboard")),
     # ── the GENERIC face of all of the above, plus the six event procedures
@@ -1870,7 +2298,10 @@ HAPPY: dict[str, Happy] = {
     "POST /api/boot-docs/{kind}/{key}": Happy(
         path="/api/boot-docs/accelerated_stop/global",
         body=_boot_doc_body,
-        check=_boot_doc_written("accelerated_stop", "global"),
+        check=_boot_doc_written(
+            "accelerated_stop", "global",
+            "/api/boot-docs/accelerated_stop/global",
+        ),
     ),
     "POST /api/boot-docs/{kind}/{key}/reset": Happy(
         path="/api/boot-docs/accelerated_stop/global/reset",
@@ -1920,7 +2351,17 @@ HAPPY: dict[str, Happy] = {
     ),
     "POST /api/roles": Happy(
         body=lambda _ctx: {"name": f"Conf Happy Role {uuid.uuid4().hex[:8]}"},
-        check=lambda _c, r: _expect(r, lambda d: d["role"]["key"]),
+        # T-91: creating a role also hires its member, so the receipt names
+        # BOTH minted identities — the two things the caller cannot compute.
+        # Key-set equality: asserting only that role_key is present would stay
+        # green if the whole role object came back.
+        check=lambda _c, r: _expect(
+            r,
+            lambda d: set(d) == {"role_key", "member_id", "member_name"}
+            and d["role_key"]
+            and d["member_id"]
+            and d["member_name"],
+        ),
     ),
     "GET /api/roles/{role}": Happy(
         path="/api/roles/assistant",
@@ -1929,11 +2370,25 @@ HAPPY: dict[str, Happy] = {
     "POST /api/roles/{role}": Happy(
         path=lambda ctx: f"/api/roles/{ctx.fresh_role()}",
         body={"name": "Conf Happy Renamed"},
-        check=lambda _c, r: _expect(r, lambda d: d["name"] == "Conf Happy Renamed"),
+        # T-91: update_role and reset_role share roleDefReceiptDTO. Key-set
+        # equality: `name` alone would stay green if the whole role came back.
+        check=lambda _c, r: _expect(
+            r,
+            lambda d: set(d) == _ROLE_DEF_RECEIPT_KEYS
+            and d["name"] == "Conf Happy Renamed"
+            and d["cap_chars"] >= d["size_chars"],
+        ),
     ),
     "POST /api/roles/{role}/reset": Happy(
         path="/api/roles/assistant/reset",
-        check=lambda _c, r: _expect(r, lambda d: d["key"] == "assistant"),
+        check=lambda _c, r: _expect(
+            r,
+            lambda d: set(d) == _ROLE_DEF_RECEIPT_KEYS
+            and d["key"] == "assistant"
+            # The reset is the way back to the SHIPPED definition, so the flag
+            # that says "this is the shipped one" is the point of the verb.
+            and d["is_default"] is True,
+        ),
     ),
     "DELETE /api/roles/{role}": Happy(
         path=lambda ctx: f"/api/roles/{ctx.fresh_role()}",
@@ -1943,10 +2398,8 @@ HAPPY: dict[str, Happy] = {
     ),
     "POST /api/lessons/{role_key}": Happy(
         path="/api/lessons/assistant",
-        body={"text": "conformance happy lessons doc"},
-        check=lambda _c, r: _expect(
-            r, lambda d: d["text"] == "conformance happy lessons doc"
-        ),
+        body={"text": _HAPPY_LESSONS_DOC},
+        check=_check_lessons_written,
     ),
     "POST /api/lessons/{role_key}/patch": Happy(
         # Anchor-addressed patch (T-8327): an APPEND edit (empty old) always
@@ -2005,18 +2458,8 @@ HAPPY: dict[str, Happy] = {
     ),
     "POST /api/insight/{role_key}": Happy(
         path="/api/insight/assistant",
-        body={"text": "conformance happy insight doc"},
-        check=lambda _c, r: _expect(
-            r,
-            lambda d: d["text"] == "conformance happy insight doc"
-            # The write flips is_default off. Since T-e1e3 a role MAY have a
-            # factory seed behind it, so this flip is what distinguishes
-            # authored text from shipped text — it is no longer interchangeable
-            # with "the doc is non-empty".
-            and d["is_default"] is False
-            and d["size_chars"] == len("conformance happy insight doc")
-            and d["cap_chars"] >= d["size_chars"],
-        ),
+        body={"text": _HAPPY_INSIGHT_DOC},
+        check=_check_insight_written,
     ),
     "POST /api/insight/{role_key}/patch": Happy(
         # An APPEND edit (empty `old`) always lands regardless of the doc's
@@ -2069,16 +2512,13 @@ HAPPY: dict[str, Happy] = {
         identity="agent",
         body=lambda ctx: {"title": "conf happy create",
                           "executor_member_id": ctx.agent.member_id},
-        check=lambda ctx, r: _expect(
-            r,
-            lambda d: d["deduped"] is False
-            and d["task"]["status"] == "not_started"
-            and d["task"]["executor_id"] == ctx.agent.member_id
-            # task_no IS the id (T-5291) — before that it was a separately
-            # derived display value (same wording as test_tasks.py; the old
-            # shape is deliberately not named there either).
-            and d["task"]["task_no"] == d["task"]["id"],
-        ),
+        # T-91: create answers taskCreateResultDTO. On a FRESH create the
+        # title and status are absent — the caller sent the one and this
+        # handler stamps the other unconditionally, so neither is news (owner
+        # ruling 2026-09-05). Key-set equality is what pins that absence:
+        # asserting only that task_id is present would stay green if the whole
+        # task rode home beside it again.
+        check=_check_task_created,
     ),
     "GET /api/tasks/count": Happy(
         path=_seeded_task_count_path,
@@ -2090,8 +2530,14 @@ HAPPY: dict[str, Happy] = {
     ),
     "POST /api/tasks/{task_id}/terminate": Happy(
         path=lambda ctx: f"/api/tasks/{_happy_task(ctx)}/terminate",
+        # T-91: the nine task-driving writes answer taskWriteReceiptDTO. Key-set
+        # equality in every one of them: asserting only that `status` is present
+        # would stay green if the route went back to serving the whole task.
         check=lambda _c, r: _expect(
-            r, lambda d: d["status"] == "terminated" and d["closed_ts"]
+            r,
+            lambda d: set(d) == _TASK_WRITE_RECEIPT_KEYS
+            and d["status"] == "terminated"
+            and d["closed_ts"],
         ),
     ),
     "POST /api/tasks/{task_id}/priority": Happy(
@@ -2104,12 +2550,7 @@ HAPPY: dict[str, Happy] = {
     "POST /api/tasks/{task_id}/message": Happy(
         path=lambda ctx: f"/api/tasks/{_happy_task(ctx)}/message",
         body={"body": "conf happy task message"},
-        check=lambda ctx, r: _expect(
-            r,
-            lambda d: d["from"] == "owner"
-            and d["to"] == ctx.agent.member_id
-            and d["meta"]["task_id"],
-        ),
+        check=_check_task_message,
     ),
     "POST /api/tasks/{task_id}/reassign": Happy(
         # T-35e0: reassign to outsource lands the task UNASSIGNED (発包 → an
@@ -2123,7 +2564,8 @@ HAPPY: dict[str, Happy] = {
         # (the fresh task has no steps → not_started).
         check=lambda _c, r: _expect(
             r,
-            lambda d: d["lock"] == "reassigning"
+            lambda d: set(d) == _TASK_WRITE_RECEIPT_KEYS
+            and d["lock"] == "reassigning"
             and d["executor_kind"] == "outsource"
             and d["executor_id"] == "",
         ),
@@ -2146,15 +2588,18 @@ HAPPY: dict[str, Happy] = {
         # agent (executor-guarded), so the happy agent claims it → lock cleared.
         identity="agent",
         path=lambda ctx: f"/api/tasks/{_happy_reassigning_task(ctx)}/claim",
-        check=lambda _c, r: _expect(r, lambda d: d["lock"] == ""),
+        check=lambda _c, r: _expect(
+            r, lambda d: set(d) == _TASK_WRITE_RECEIPT_KEYS and d["lock"] == ""
+        ),
     ),
     "POST /api/tasks/{task_id}": Happy(
         # T-646a: the executor corrects its own task's title AND description in
         # ONE call — the case its two predecessors could not express, and the
         # reason this route exists. Aimed at the same CLOSED task as the two
         # rows below and for the same reason: a terminal task stays correctable,
-        # and a 200 echoing both new values on a card whose artifact set is
-        # frozen is the wire statement of that.
+        # and a 200 on a card whose artifact set is frozen is the wire statement
+        # of that. Since T-91 only `title` rides home; the description is
+        # reported as a size and a digest.
         #
         # The check reads BOTH fields back rather than only asserting 200 — a
         # route that accepted the body and wrote nothing, or wrote one field and
@@ -2164,10 +2609,26 @@ HAPPY: dict[str, Happy] = {
         identity="agent",
         path=lambda ctx: f"/api/tasks/{_happy_closed_task(ctx)}",
         body={"title": "one call", "description": "both fields"},
+        # T-91 note: `description` no longer rides home (a description can be
+        # arbitrarily long). The size and the DIGEST take its place, and they
+        # are stronger than presence: a handler that wrote NOTHING, or wrote
+        # the title into the description, cannot pass.
+        #
+        # 🔴 BE EXACT ABOUT THE LIMIT — an earlier version of this note claimed
+        # a TRUNCATION could not pass either, and that is false. MEASURED: make
+        # the store persist a different string (the value plus one trailing
+        # space) and this row, and the whole suite, stay GREEN at rc=0. The
+        # handler assigns the sent value onto the in-memory task and the digest
+        # is taken from THAT, so it never travelled through the store and back.
+        # What this pins is "the handler answered for the text you sent", not
+        # "the store holds it unchanged". See taskWriteReceiptDTO's comment.
+        # `title` is short and stayed on the receipt.
         check=lambda _c, r: _expect(
             r,
-            lambda d: d["title"] == "one call"
-            and d["description"] == "both fields"
+            lambda d: set(d) == _TASK_WRITE_RECEIPT_KEYS
+            and d["title"] == "one call"
+            and d["description_size_chars"] == len("both fields")
+            and d["description_sha256"] == _sha("both fields")
             and d["status"] == "done"
             and d["closed_ts"] is not None,
         ),
@@ -2175,16 +2636,24 @@ HAPPY: dict[str, Happy] = {
     "POST /api/tasks/{task_id}/description": Happy(
         # T-e271: the executor corrects its own task's wording. Aimed at a
         # CLOSED (done) task deliberately — owner ruling 2 says a terminal task
-        # stays correctable, and the response echoing the new text on a task
-        # whose artifact set is frozen is the wire statement of that. The check
-        # reads the description back rather than only asserting 200: a route
-        # that accepted the body and wrote nothing would pass a status check.
+        # stays correctable, and a 200 on a task whose artifact set is frozen
+        # is the wire statement of that. Since T-91 the new text does NOT ride
+        # back; the check pins its size and digest rather than only asserting
+        # 200, so a route that accepted the body and wrote nothing cannot
+        # pass.
         identity="agent",
         path=lambda ctx: f"/api/tasks/{_happy_closed_task(ctx)}/description",
         body={"description": "corrected wording"},
         check=lambda _c, r: _expect(
             r,
-            lambda d: d["description"] == "corrected wording"
+            lambda d: set(d) == _TASK_WRITE_RECEIPT_KEYS
+            # The text is gone from the wire; the size and digest of exactly
+            # what was sent take its place, and a route that accepted the body
+            # and wrote nothing still cannot pass. It does NOT catch a store
+            # that persists something different — see the twin row above for
+            # the measurement.
+            and d["description_size_chars"] == len("corrected wording")
+            and d["description_sha256"] == _sha("corrected wording")
             and d["status"] == "done"
             and d["closed_ts"] is not None,
         ),
@@ -2203,7 +2672,8 @@ HAPPY: dict[str, Happy] = {
         body={"title": "corrected title"},
         check=lambda _c, r: _expect(
             r,
-            lambda d: d["title"] == "corrected title"
+            lambda d: set(d) == _TASK_WRITE_RECEIPT_KEYS
+            and d["title"] == "corrected title"
             and d["status"] == "done"
             and d["closed_ts"] is not None,
         ),
@@ -2216,7 +2686,8 @@ HAPPY: dict[str, Happy] = {
         body=lambda ctx: {"duplicate_of": _happy_task(ctx)},
         check=lambda _c, r: _expect(
             r,
-            lambda d: d["status"] == "duplicated"
+            lambda d: set(d) == _TASK_WRITE_RECEIPT_KEYS
+            and d["status"] == "duplicated"
             and bool(d["duplicate_of"])
             and d["closed_ts"] is not None,
         ),
@@ -2236,16 +2707,24 @@ HAPPY: dict[str, Happy] = {
         # T-cc3e. Written against a PENDING step on purpose: _happy_task_step
         # always leaves the step pending, and the note being writable
         # with no status report first is the ticket's whole claim (waiting_reason
-        # is the one bound to a status; this one is not). The check reads the
-        # receipt's echoed note, so a handler that 200s without storing anything
-        # cannot pass.
+        # is the one bound to a status; this one is not).
+        #
+        # T-91: the note no longer rides home. Its size and DIGEST do, which is
+        # what still stops a handler that 200s without storing anything — and
+        # it is a note-length-independent statement, which the echo was not.
         identity="agent",
         path=lambda ctx: "/api/tasks/{}/steps/{}/note".format(
             *_happy_task_step(ctx)),
-        body={"note": "conf happy note — 做到哪、下一步接什麼"},
+        body={"note": _HAPPY_STEP_NOTE_ROW},
         check=lambda _c, r: _expect(
             r,
-            lambda d: d["note"] == "conf happy note — 做到哪、下一步接什麼"
+            lambda d: set(d) == {
+                "task_id", "step_id", "step_status",
+                "size_chars", "cap_chars", "sha256",
+            }
+            and d["size_chars"] == len(_HAPPY_STEP_NOTE_ROW)
+            and d["sha256"] == _sha(_HAPPY_STEP_NOTE_ROW)
+            and d["cap_chars"] >= d["size_chars"]
             and d["step_status"] == "pending"
             and bool(d["task_id"]) and bool(d["step_id"]),
         ),
@@ -2253,16 +2732,23 @@ HAPPY: dict[str, Happy] = {
     "POST /api/tasks/{task_id}/steps/{step_id}/note/patch": Happy(
         # T-1667. Appends onto a step whose note is still empty (each Happy row
         # gets its own scratch task/step), so the check reads BOTH halves of the
-        # receipt: applied_edits proves the engine ran, and the echoed note
-        # proves what landed — a handler that 200s without storing cannot pass.
+        # receipt: applied_edits proves the engine ran, and the DIGEST proves
+        # what landed — a handler that 200s without storing cannot pass. T-91
+        # replaced the echoed note with that digest; it is the same statement
+        # about the same bytes, made in a bounded number of them.
         identity="agent",
         path=lambda ctx: "/api/tasks/{}/steps/{}/note/patch".format(
             *_happy_task_step(ctx)),
         body={"edits": [{"old": "", "new": "conf happy note patch"}]},
         check=lambda _c, r: _expect(
             r,
-            lambda d: d["applied_edits"] == 1
-            and d["note"] == "conf happy note patch",
+            lambda d: set(d) == {
+                "task_id", "step_id", "step_status", "applied_edits",
+                "size_chars", "cap_chars", "sha256",
+            }
+            and d["applied_edits"] == 1
+            and d["sha256"] == _sha("conf happy note patch")
+            and d["size_chars"] == len("conf happy note patch"),
         ),
     ),
     "GET /api/tasks/{task_id}/steps/{step_id}": Happy(
@@ -2286,7 +2772,10 @@ HAPPY: dict[str, Happy] = {
         identity="agent",
         path=lambda ctx: f"/api/tasks/{_happy_task(ctx)}/deps",
         body=lambda ctx: {"blocked_by": [_happy_task(ctx)]},
-        check=lambda _c, r: _expect(r, lambda d: len(d["deps"]) == 1),
+        check=lambda _c, r: _expect(
+            r,
+            lambda d: set(d) == _TASK_WRITE_RECEIPT_KEYS and len(d["deps"]) == 1
+        ),
     ),
     "POST /api/tasks/{task_id}/closeout": Happy(
         identity="agent",
@@ -2403,14 +2892,7 @@ HAPPY: dict[str, Happy] = {
         # via _happy_manual above.
         identity="agent",
         body=lambda _ctx: {"display_name": f"conf 顯示名 {uuid.uuid4().hex[:8]}"},
-        check=lambda _c, r: _expect(
-            r,
-            lambda d: d["type_key"].startswith("tm-")
-            and len(d["type_key"]) == len("tm-") + 12
-            and d["display_name"].startswith("conf 顯示名 ")
-            and d["fields"] == []
-            and d["assignee"] == {},
-        ),
+        check=_check_manual_minted,
     ),
     "GET /api/task-manuals/{type_key}": Happy(
         path=lambda ctx: f"/api/task-manuals/{_happy_manual(ctx)}",
@@ -2455,11 +2937,7 @@ HAPPY: dict[str, Happy] = {
         path=lambda ctx: f"/api/task-manuals/{_happy_manual(ctx)}",
         body={"purpose": "conf happy purpose",
               "fields": [{"name": "pr", "required": True, "is_key": True}]},
-        check=lambda _c, r: _expect(
-            r,
-            lambda d: d["purpose"] == "conf happy purpose"
-            and d["fields"][0]["is_key"] is True,
-        ),
+        check=_check_manual_edited,
     ),
     "DELETE /api/task-manuals/{type_key}": Happy(
         path=lambda ctx: f"/api/task-manuals/{_happy_manual(ctx)}",
@@ -2468,10 +2946,8 @@ HAPPY: dict[str, Happy] = {
     "POST /api/task-manuals/{type_key}/learnings": Happy(
         identity="agent",
         path=lambda ctx: f"/api/task-manuals/{_happy_manual(ctx)}/learnings",
-        body={"text": "conf happy learnings"},
-        check=lambda _c, r: _expect(
-            r, lambda d: d["learnings"] == "conf happy learnings"
-        ),
+        body={"text": _HAPPY_MANUAL_LEARNINGS},
+        check=_check_manual_learnings_written,
     ),
     "POST /api/task-manuals/{type_key}/learnings/patch": Happy(
         identity="agent",
@@ -3496,14 +3972,36 @@ def test_chat_reply_to_is_the_servers_link_not_the_callers(hctx: HCtx) -> None:
     and ask about it is the use case, and it was the one thing the refusal made
     impossible.
     """
+    def posted(r: httpx.Response, token: str) -> dict:
+        """The STORED message this post created.
+
+        🔴 T-91: POST /api/chat answers chatPostReceiptDTO — the minted id, the
+        timestamp and the resolved attachments — so none of this test's claims
+        can be read off the write response any more. That is not a loss here:
+        this test already said so itself two paragraphs down ("the POST
+        response is built from the row the handler just made, so it would look
+        right even if nothing were stored"), and it is the READ face that
+        builds ``reply_to_chat`` at all. So every claim below is made against
+        the read face, and the receipt's shape is pinned on the way past.
+        """
+        assert r.status_code == 200, r.text
+        d = r.json()
+        assert set(d) == {"id", "ts", "attachments"}, d
+        g = hctx.client.get(f"/api/chat?ids={d['id']}", headers=_auth(token))
+        assert g.status_code == 200, g.text
+        rows = chat_messages(g)
+        assert len(rows) == 1, g.text
+        assert rows[0]["id"] == d["id"], (rows[0], d)
+        return rows[0]
+
     quoted = hctx.client.post(
         "/api/chat",
         json={"to": hctx.agent.member_id, "body": "reply-to-target"},
         headers=_auth(hctx.owner_token),
     )
-    assert quoted.status_code == 200, quoted.text
-    quoted_id = quoted.json()["id"]
-    assert quoted.json()["reply_to"] == "", "a plain post carries no link"
+    quoted_row = posted(quoted, hctx.owner_token)
+    quoted_id = quoted_row["id"]
+    assert quoted_row["reply_to"] == "", "a plain post carries no link"
 
     # The commonest shape: answering what the other party sent you — a reply
     # travelling the opposite way to the message it quotes.
@@ -3512,21 +4010,13 @@ def test_chat_reply_to_is_the_servers_link_not_the_callers(hctx: HCtx) -> None:
         json={"to": "owner", "body": "reply-to-answer", "reply_to": quoted_id},
         headers=_auth(hctx.agent.token),
     )
-    assert reply.status_code == 200, reply.text
-    assert reply.json()["reply_to"] == quoted_id
-
-    # Read it back off the wire — the POST response is built from the row the
-    # handler just made, so it would look right even if nothing were stored.
-    served = hctx.client.get(
-        f"/api/chat?ids={reply.json()['id']}", headers=_auth(hctx.agent.token)
-    )
-    assert served.status_code == 200, served.text
-    assert chat_messages(served)[0]["reply_to"] == quoted_id
+    reply_row = posted(reply, hctx.agent.token)
+    assert reply_row["reply_to"] == quoted_id
     # …and the QUOTE came with it, built by the server on this read. This is the
     # half that makes the link usable: without it the browser would have to go
     # and fetch what the id names, which is the design this replaced.
-    quote = chat_messages(served)[0].get("reply_to_chat")
-    assert quote is not None, f"every read must carry the quote: {served.text}"
+    quote = reply_row.get("reply_to_chat")
+    assert quote is not None, f"every read must carry the quote: {reply_row}"
     assert quote["id"] == quoted_id
     assert quote["from"] == "owner"
     assert quote["to"] == hctx.agent.member_id
@@ -3542,21 +4032,21 @@ def test_chat_reply_to_is_the_servers_link_not_the_callers(hctx: HCtx) -> None:
         json={"to": third, "body": "another-thread"},
         headers=_auth(hctx.owner_token),
     )
-    assert elsewhere.status_code == 200, elsewhere.text
+    elsewhere_row = posted(elsewhere, hctx.owner_token)
     sideways = hctx.client.post(
         "/api/chat",
         json={
             "to": "owner",
             "body": "quoting sideways",
-            "reply_to": elsewhere.json()["id"],
+            "reply_to": elsewhere_row["id"],
         },
         headers=_auth(hctx.agent.token),
     )
-    assert sideways.status_code == 200, sideways.text
-    assert sideways.json()["reply_to"] == elsewhere.json()["id"]
-    sideways_quote = sideways.json().get("reply_to_chat")
+    sideways_row = posted(sideways, hctx.agent.token)
+    assert sideways_row["reply_to"] == elsewhere_row["id"]
+    sideways_quote = sideways_row.get("reply_to_chat")
     assert sideways_quote is not None, (
-        f"a cross-conversation reply must still carry its quote: {sideways.text}"
+        f"a cross-conversation reply must still carry its quote: {sideways_row}"
     )
     assert sideways_quote["content"] == "another-thread"
     # THE ADDRESSEE IS THE QUOTED MESSAGE'S OWN. This reply travels agent→owner
@@ -3593,10 +4083,10 @@ def test_chat_reply_to_is_the_servers_link_not_the_callers(hctx: HCtx) -> None:
         },
         headers=_auth(hctx.agent.token),
     )
-    assert forged.status_code == 200, forged.text
-    assert forged.json()["reply_to"] == "", "a meta-supplied link must not stand"
-    assert forged.json()["meta"].get("keepme") == "yes"
-    assert forged.json().get("reply_to_chat") is None, (
+    forged_row = posted(forged, hctx.agent.token)
+    assert forged_row["reply_to"] == "", "a meta-supplied link must not stand"
+    assert forged_row["meta"].get("keepme") == "yes"
+    assert forged_row.get("reply_to_chat") is None, (
         "no link ⇒ no quote — a forged meta.reply_to must not conjure one either"
     )
 
@@ -3617,7 +4107,7 @@ def test_chat_reply_to_is_the_servers_link_not_the_callers(hctx: HCtx) -> None:
     assert chat_messages(plain)[0].get("reply_to_chat") is None, (
         "a message that answers nothing must carry no quote: " + plain.text
     )
-    assert "reply_to" not in forged.json()["meta"]
+    assert "reply_to" not in forged_row["meta"]
 
 
 def test_chat_recipient_validation_preserves_offline_mailbox(hctx: HCtx) -> None:

@@ -72,7 +72,7 @@ func TestConcurrentCreatesMintDistinctIncrementalIDs(t *testing.T) {
 			if rec.Code == http.StatusOK {
 				var out taskCreateResultDTO
 				if err := json.Unmarshal(rec.Body.Bytes(), &out); err == nil {
-					ids = append(ids, out.Task.ID)
+					ids = append(ids, out.TaskID)
 				}
 			}
 		}(i)

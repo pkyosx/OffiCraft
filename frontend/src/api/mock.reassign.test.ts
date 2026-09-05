@@ -121,10 +121,14 @@ describe("mock reassign — member target", () => {
     });
     __injectMockTask(task);
 
-    const after = await mockApi.reassignTask(task.id, {
+    // T-91: reassign answers a receipt, so the task it left behind is READ
+    // BACK. Every property below is about the STORED task, which is where the
+    // cockpit reads it too.
+    await mockApi.reassignTask(task.id, {
       target: { kind: "member", memberId: "mira" },
       note: "先看 PR #12",
     });
+    const after = await mockApi.getTask(task.id);
 
     // T-9ca5: reassigning is an ORTHOGONAL lock now, not a status — the task
     // keeps an honest derived status (in flight through the handover) and the
@@ -232,9 +236,10 @@ describe("mock reassign — outsource target", () => {
     __injectMockTask(task);
     __injectMockOutsourceWorker(mkWorker({ taskId: task.id }));
 
-    const after = await mockApi.reassignTask(task.id, {
+    await mockApi.reassignTask(task.id, {
       target: { kind: "outsource", model: "opus", effort: "high", machine: "mach-a" },
     });
+    const after = await mockApi.getTask(task.id);
 
     expect(after.status).toBe("in_progress");
     expect(after.lock).toBe("reassigning");
@@ -275,9 +280,10 @@ describe("mock reassign — outsource target", () => {
     const task = mkTask({});
     __injectMockTask(task);
 
-    const after = await mockApi.reassignTask(task.id, {
+    await mockApi.reassignTask(task.id, {
       target: { kind: "outsource", model: "", effort: "", machine: "mach-a" },
     });
+    const after = await mockApi.getTask(task.id);
     const workers = await mockApi.listOutsourceWorkers();
     expect(workers.find((w) => w.id === after.executorId)?.effort).toBe("medium");
     // A blank model keeps the honest X family (no model → no family letter).

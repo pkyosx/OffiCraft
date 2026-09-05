@@ -551,7 +551,7 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			Handler:  w.HandleReportWakingApiSelfWakingPost,
 			Auth:     authGated,
 			Requires: principalMachine,
-			Summary:  "report_waking(): stamp the caller's waking + clear recycle markers.",
+			Summary:  "report_waking(): stamp the caller's waking + clear recycle markers. Answers with a bounded receipt (``id``, ``desired_state``, ``refocus_op``, ``refocus_deadline``), not the member row — call ``get_member`` when you need the rest.",
 			MCPTool:  "report_waking",
 		},
 		{
@@ -560,7 +560,7 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			Handler:  w.HandleReportStoppingApiSelfStoppingPost,
 			Auth:     authGated,
 			Requires: principalMachine,
-			Summary:  "report_stopping(): stamp the caller's stopping_since (graceful stop).",
+			Summary:  "report_stopping(): stamp the caller's stopping_since (graceful stop). Answers with a bounded receipt (``id``, ``desired_state``, ``refocus_op``, ``refocus_deadline``), not the member row — call ``get_member`` when you need the rest.",
 			MCPTool:  "report_stopping",
 		},
 		{
@@ -569,7 +569,7 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			Handler:  w.HandleReportStoppedApiSelfStoppedPost,
 			Auth:     authGated,
 			Requires: principalMachine,
-			Summary:  "report_stopped(): anchor the caller's stopped; fire recycle kill.",
+			Summary:  "report_stopped(): anchor the caller's stopped; fire recycle kill. Answers with a bounded receipt (``id``, ``desired_state``, ``refocus_op``, ``refocus_deadline``), not the member row — call ``get_member`` when you need the rest.",
 			MCPTool:  "report_stopped",
 		},
 		{
@@ -578,7 +578,7 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			Handler:  w.HandleRestartSelfApiSelfRefocusPost,
 			Auth:     authGated,
 			Requires: principalMachine,
-			Summary:  "restart_self(): self-triggered recycle (online-only 409; min-liveness 429; wind-down-ladder 409).",
+			Summary:  "restart_self(): self-triggered recycle (online-only 409; min-liveness 429; wind-down-ladder 409). Answers with a bounded receipt (``id``, ``desired_state``, ``refocus_op``, ``refocus_deadline``), not the member row — call ``get_member`` when you need the rest.",
 			MCPTool:  "restart_self",
 		},
 		{
@@ -713,7 +713,7 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			Handler:  w.HandleCreateScheduledMessageApiMembersMemberIdScheduledMessagesPost,
 			Auth:     authGated,
 			Requires: principalAdminAgent,
-			Summary:  "Create a scheduled message on one member — 定期訊息, the mechanism for waking a member on a repeating wall-clock slot: at each due slot the server delivers `body` verbatim down the ORDINARY chat path, from the synthetic sender `sched:<schedule_id>`. admin_agent floor: the owner, or an admin assistant setting one up on the owner's behalf; an ordinary agent gets 403 even for its own member_id. The recipient follows chat's rule, so an `ow-` outsource worker is a legal target as well as a staff member. `body`, `cadence` and `timezone` are always required; `hour`/`minute` are required by `daily`/`weekly`/`monthly` and ignored by `custom` FOR SCHEDULING — their range is still checked under every cadence, so `hour: 99` is a 422 even for `custom`, which instead requires `custom_days`/`custom_hours`/`custom_minutes` (`custom_months` may be omitted to mean all twelve; an explicit empty set is a 422). Those conditional rules are NOT expressible in this schema — a wrong combination comes back as a 422 rather than folding into a silent midnight. TWO fields are the exception and they fail SILENTLY: `day_of_week` (used by `weekly`) and `day_of_month` (used by `monthly`) are NOT required — omit either one and the create returns 200 having defaulted it to 0 (Sunday) and 1 (the first of the month). 'Every Friday at 09:00' sent without `day_of_week` is a Sunday alarm and nothing reports it, so send the field explicitly whenever the cadence reads it. `timezone` must NAME A PLACE: `Local` and the empty string are refused with 422 even though they resolve, because they hand \"what time is it\" to wherever the server happens to run. Missed slots are never backfilled — only the slot most recently elapsed is ever considered — and the cursor starts at creation time, so a `daily` 09:00 schedule created at 10:00 does not fire today. 404 if the member is absent or soft-removed.",
+			Summary:  "Create a scheduled message on one member — 定期訊息, the mechanism for waking a member on a repeating wall-clock slot: at each due slot the server delivers `body` verbatim down the ORDINARY chat path, from the synthetic sender `sched:<schedule_id>`. admin_agent floor: the owner, or an admin assistant setting one up on the owner's behalf; an ordinary agent gets 403 even for its own member_id. The recipient follows chat's rule, so an `ow-` outsource worker is a legal target as well as a staff member. `body`, `cadence` and `timezone` are always required; `hour`/`minute` are required by `daily`/`weekly`/`monthly` and ignored by `custom` FOR SCHEDULING — their range is still checked under every cadence, so `hour: 99` is a 422 even for `custom`, which instead requires `custom_days`/`custom_hours`/`custom_minutes` (`custom_months` may be omitted to mean all twelve; an explicit empty set is a 422). Those conditional rules are NOT expressible in this schema — a wrong combination comes back as a 422 rather than folding into a silent midnight. TWO fields are the exception and they fail SILENTLY: `day_of_week` (used by `weekly`) and `day_of_month` (used by `monthly`) are NOT required — omit either one and the create returns 200 having defaulted it to 0 (Sunday) and 1 (the first of the month). 'Every Friday at 09:00' sent without `day_of_week` is a Sunday alarm and nothing reports it, so send the field explicitly whenever the cadence reads it. `timezone` must NAME A PLACE: `Local` and the empty string are refused with 422 even though they resolve, because they hand \"what time is it\" to wherever the server happens to run. Missed slots are never backfilled — only the slot most recently elapsed is ever considered — and the cursor starts at creation time, so a `daily` 09:00 schedule created at 10:00 does not fire today. 404 if the member is absent or soft-removed. Answers with a bounded receipt (``id``, ``member_id``, ``label``, ``body_size_chars``, ``cadence``, ``custom_months``, ``day_of_month``, ``day_of_week``, ``status``, ``last_fired_slot``, ``last_fired_ts``, ``created_ts``), not the schedule — call ``list_scheduled_messages`` when you need the rest.",
 			MCPTool:  "create_scheduled_message",
 		},
 		{
@@ -722,7 +722,7 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			Handler:  w.HandleUpdateScheduledMessageApiMembersMemberIdScheduledMessagesScheduleIdPatch,
 			Auth:     authGated,
 			Requires: principalAdminAgent,
-			Summary:  "Update one scheduled message, including the enabled/disabled toggle (`status`) — 定期訊息, the wall-clock wake-up for one member. admin_agent floor: the owner, or an admin assistant acting on the owner's behalf; an ordinary agent gets 403 even for its own member_id. PATCH semantics: only the fields you send change, and `id`/`member_id` are immutable. The create-side validation applies unchanged — `hour`/`minute` required by `daily`/`weekly`/`monthly` and ignored by `custom` for scheduling though still range-checked under every cadence, the custom sets never empty, `timezone` never `Local` or the empty string — all 422. Editing a timing field to a DIFFERENT value re-aims the delivery cursor to the slot most recently elapsed, so the edit never retroactively fires the slot it crossed; re-sending a value the schedule already holds moves nothing, which is what makes a whole-form save safe. `disabled` suspends firing and is reversible — it is not a lifecycle state; delete_scheduled_message is the permanent removal. 404 if the member or the schedule is absent.",
+			Summary:  "Update one scheduled message, including the enabled/disabled toggle (`status`) — 定期訊息, the wall-clock wake-up for one member. admin_agent floor: the owner, or an admin assistant acting on the owner's behalf; an ordinary agent gets 403 even for its own member_id. PATCH semantics: only the fields you send change, and `id`/`member_id` are immutable. The create-side validation applies unchanged — `hour`/`minute` required by `daily`/`weekly`/`monthly` and ignored by `custom` for scheduling though still range-checked under every cadence, the custom sets never empty, `timezone` never `Local` or the empty string — all 422. Editing a timing field to a DIFFERENT value re-aims the delivery cursor to the slot most recently elapsed, so the edit never retroactively fires the slot it crossed; re-sending a value the schedule already holds moves nothing, which is what makes a whole-form save safe. `disabled` suspends firing and is reversible — it is not a lifecycle state; delete_scheduled_message is the permanent removal. 404 if the member or the schedule is absent. Answers with a bounded receipt (``id``, ``member_id``, ``label``, ``body_size_chars``, ``cadence``, ``custom_months``, ``day_of_month``, ``day_of_week``, ``status``, ``last_fired_slot``, ``last_fired_ts``, ``created_ts``), not the schedule — call ``list_scheduled_messages`` when you need the rest.",
 			MCPTool:  "update_scheduled_message",
 		},
 		{
@@ -731,7 +731,7 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			Handler:  w.HandleDeleteScheduledMessageApiMembersMemberIdScheduledMessagesScheduleIdDelete,
 			Auth:     authGated,
 			Requires: principalAdminAgent,
-			Summary:  "Delete one scheduled message — 定期訊息, permanent and not undoable. admin_agent floor: the owner, or an admin assistant acting on the owner's behalf; an ordinary agent gets 403 even for its own member_id. When the schedule should merely STOP firing, call update_scheduled_message with `status: disabled` instead — that is the reversible half and this one is not. 404 if the member or the schedule is absent.",
+			Summary:  "Delete one scheduled message — 定期訊息, permanent and not undoable. admin_agent floor: the owner, or an admin assistant acting on the owner's behalf; an ordinary agent gets 403 even for its own member_id. When the schedule should merely STOP firing, call update_scheduled_message with `status: disabled` instead — that is the reversible half and this one is not. 404 if the member or the schedule is absent. Answers with a bounded receipt (``id``, ``member_id``, ``deleted``), not the deleted row — call ``list_scheduled_messages`` when you need the rest.",
 			MCPTool:  "delete_scheduled_message",
 		},
 		// T-8b0d (owner 2026-08-02): the SAME bounded wake snapshot as
@@ -772,7 +772,7 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			Handler:  w.HandlePostChatApiChatPost,
 			Auth:     authGated,
 			Requires: principalMachine,
-			Summary:  "Post a chat message (sender = verified JWT sub; auto SSE fan-out). ``to`` must name the owner or an active AI member; unknown, removed, and machine ids are rejected. Presence is not a gate: an offline member keeps its durable mailbox.",
+			Summary:  "Post a chat message (sender = verified JWT sub; auto SSE fan-out). ``to`` must name the owner or an active AI member; unknown, removed, and machine ids are rejected. Presence is not a gate: an offline member keeps its durable mailbox. Answers with a bounded receipt (``id``, ``ts``, ``attachments``), not the message — call ``get_chat`` when you need the rest.",
 		},
 		{
 			Method:   "GET",
@@ -861,7 +861,7 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			Handler:  w.HandleCreateReplyCardApiReplyCardsPost,
 			Auth:     authGated,
 			Requires: principalMachine,
-			Summary:  "Open a reply card: an ask the owner must answer (options ≤4 on a single card, ≤20 on a multi card, each carrying its own ai_pick flag; select_mode single|multi). linked_task is REQUIRED and has no default — every card must SAY whether it is about a task, because the server no longer infers one. Send linked_task={\"task_id\": ..., \"step_id\": ...} to bind the ask to the step it is about: that step (and its task) enters waiting_owner until the owner answers. Send linked_task=null when the ask is not about a task — it opens as a plain unbound 請示. BOTH ids are required in the object form: a task_id with NO step_id is a 400, because a card bound to a task but to no step places no 等我回覆 hold, so the task would finish underneath your question and the owner's answer would then be rejected for good. Omitting linked_task entirely is a 400 that names both legal shapes. Optional attachments ride the question (same shape as post_chat: {id} from `ocagent upload` / POST /api/chat/attachments, or inline data_b64).",
+			Summary:  "Open a reply card: an ask the owner must answer (options ≤4 on a single card, ≤20 on a multi card, each carrying its own ai_pick flag; select_mode single|multi). linked_task is REQUIRED and has no default — every card must SAY whether it is about a task, because the server no longer infers one. Send linked_task={\"task_id\": ..., \"step_id\": ...} to bind the ask to the step it is about: that step (and its task) enters waiting_owner until the owner answers. Send linked_task=null when the ask is not about a task — it opens as a plain unbound 請示. BOTH ids are required in the object form: a task_id with NO step_id is a 400, because a card bound to a task but to no step places no 等我回覆 hold, so the task would finish underneath your question and the owner's answer would then be rejected for good. Omitting linked_task entirely is a 400 that names both legal shapes. Optional attachments ride the question (same shape as post_chat: {id} from `ocagent upload` / POST /api/chat/attachments, or inline data_b64). Answers with a bounded receipt (``id``, ``chat_message_id``, ``created_ts``, ``attachments``), not the card — call ``get_reply_card`` when you need the rest.",
 			MCPTool:  "create_reply_card",
 		},
 		{
@@ -940,7 +940,7 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			Handler:  w.HandleAnswerReplyCardApiReplyCardsCardIdAnswerPost,
 			Auth:     authGated,
 			Requires: principalAdminAgent,
-			Summary:  "Answer a waiting reply card — the only positive close.",
+			Summary:  "Answer a waiting reply card — the only positive close. Answers with a bounded receipt (``id``, ``status``, ``answered_ts``, ``expired_ts``, ``answer``, ``task_id``, ``step_id``), not the whole card — call ``get_reply_card`` when you need the rest.",
 			MCPTool:  "answer_reply_card",
 		},
 		{
@@ -949,7 +949,7 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			Handler:  w.HandleReanswerReplyCardApiReplyCardsCardIdAnswerPut,
 			Auth:     authGated,
 			Requires: principalAdminAgent,
-			Summary:  "Revise an answered card's answer (重新決定): stays answered.",
+			Summary:  "Revise an answered card's answer (重新決定): stays answered. Answers with a bounded receipt (``id``, ``status``, ``answered_ts``, ``expired_ts``, ``answer``, ``task_id``, ``step_id``), not the whole card — call ``get_reply_card`` when you need the rest.",
 			MCPTool:  "reanswer_reply_card",
 		},
 		// T-1b88 (owner 2026-08-07, card rc-3ff94b116970) REVISES the T-6020
@@ -974,7 +974,7 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			Handler:  w.HandleExpireReplyCardApiReplyCardsCardIdExpirePost,
 			Auth:     authGated,
 			Requires: principalAgent,
-			Summary:  "Mark a waiting card expired (標為過期): its author, owner, or admin agent; terminal, not an answer.",
+			Summary:  "Mark a waiting card expired (標為過期): its author, owner, or admin agent; terminal, not an answer. Answers with a bounded receipt (``id``, ``status``, ``answered_ts``, ``expired_ts``, ``answer``, ``task_id``, ``step_id``), not the whole card — call ``get_reply_card`` when you need the rest.",
 			MCPTool:  "expire_reply_card",
 		},
 		// ── Agent context gauge + monitoring ─────────────────────────────────
@@ -1183,7 +1183,7 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			Handler:  w.HandleReplaceGlobalContextApiGlobalContextPost,
 			Auth:     authGated,
 			Requires: principalAdminAgent,
-			Summary:  "Whole-block replace of the user-custom additive block ({text}). text is REQUIRED; unknown keys are rejected. Replacing existing content with an empty block needs allow_shrink=true (or use reset_global_context).",
+			Summary:  "Whole-block replace of the user-custom additive block ({text}). text is REQUIRED; unknown keys are rejected. Replacing existing content with an empty block needs allow_shrink=true (or use reset_global_context). Answers with a bounded receipt (``is_default``, ``size_chars``, ``sha256``), not the block — call ``get_global_context`` when you need the rest.",
 			MCPTool:  "replace_global_context",
 		},
 		{
@@ -1192,7 +1192,7 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			Handler:  w.HandleResetGlobalContextApiGlobalContextResetPost,
 			Auth:     authGated,
 			Requires: principalAdminAgent,
-			Summary:  "Reset the user-custom block to empty (idempotent tombstone).",
+			Summary:  "Reset the user-custom block to empty (idempotent tombstone). Answers with a bounded receipt (``is_default``, ``size_chars``, ``sha256``), not the block — call ``get_global_context`` when you need the rest.",
 			MCPTool:  "reset_global_context",
 		},
 		// ── the two boot-context document kinds that became editable (T-791e) ──
@@ -1224,7 +1224,7 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			Handler:  w.HandleReplaceSystemInteractionApiSystemInteractionPost,
 			Auth:     authGated,
 			Requires: principalAdminAgent,
-			Summary:  "Replace the EDITABLE HALF of the 系統互動 block of the boot context ({body}) — the handbook every agent reads at boot. body is REQUIRED and unknown keys are rejected; emptying a body that had content needs allow_shrink=true. This document carries NO read-only head today (T-6f44, owner's decision 4 removed it), so the body IS the whole document; the head machinery still exists for the kinds that do carry one, and there is no way to write a head on any face. The stored result is judged against the doc.cap_chars.system_interaction cap unconditionally, and the refusal tells you what you wrote, the cap, and what is already stored. The shipped seed is never overwritten, so reset_system_interaction always gets the factory text back; the version this write replaces is retained in the document history (a save that changes nothing retains nothing). Owner or admin assistant only.",
+			Summary:  "Replace the EDITABLE HALF of the 系統互動 block of the boot context ({body}) — the handbook every agent reads at boot. body is REQUIRED and unknown keys are rejected; emptying a body that had content needs allow_shrink=true. This document carries NO read-only head today (T-6f44, owner's decision 4 removed it), so the body IS the whole document; the head machinery still exists for the kinds that do carry one, and there is no way to write a head on any face. The stored result is judged against the doc.cap_chars.system_interaction cap unconditionally, and the refusal tells you what you wrote, the cap, and what is already stored. The shipped seed is never overwritten, so reset_system_interaction always gets the factory text back; the version this write replaces is retained in the document history (a save that changes nothing retains nothing). Owner or admin assistant only. Answers with a bounded receipt (``kind``, ``key``, ``is_default``, ``size_chars``, ``cap_chars``, ``sha256``), not the document — call ``get_system_interaction`` when you need the rest.",
 			MCPTool:  "replace_system_interaction",
 		},
 		{
@@ -1233,7 +1233,7 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			Handler:  w.HandleResetSystemInteractionApiSystemInteractionResetPost,
 			Auth:     authGated,
 			Requires: principalAdminAgent,
-			Summary:  "Restore the 系統互動 block to the FACTORY text shipped with this build (idempotent tombstone of the overlay). No length cap is applied on this path — the factory text is part of the product, so no setting can block the way back to it. The overlay being discarded is retained in the document history, so the reset is itself recoverable. Owner or admin assistant only.",
+			Summary:  "Restore the 系統互動 block to the FACTORY text shipped with this build (idempotent tombstone of the overlay). No length cap is applied on this path — the factory text is part of the product, so no setting can block the way back to it. The overlay being discarded is retained in the document history, so the reset is itself recoverable. Owner or admin assistant only. Answers with a bounded receipt (``kind``, ``key``, ``is_default``, ``size_chars``, ``cap_chars``, ``sha256``), not the document — call ``get_system_interaction`` when you need the rest.",
 			MCPTool:  "reset_system_interaction",
 		},
 		{
@@ -1251,7 +1251,7 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			Handler:  w.HandleReplaceBootSequenceApiBootSequenceRuntimeKeyPost,
 			Auth:     authGated,
 			Requires: principalAdminAgent,
-			Summary:  "Replace the EDITABLE HALF of the 啟動步驟 block of ONE runtime ({runtime_key, body}). runtime_key is 'claude' or 'codex' and the two are separate documents whose step 3 contradicts each other, so writing the wrong one leaves those agents unable to come online — and nothing that never boots reports it. body is REQUIRED and unknown keys are rejected; emptying a body that had content needs allow_shrink=true. Neither runtime's document carries a read-only head today (T-6f44, owner's decision 4 removed it), so the body IS the whole document; the head machinery still exists for the kinds that do carry one, and there is no way to write a head on any face. The stored result is judged against the doc.cap_chars.boot_sequence cap (one cap, both runtimes, each measured on its own text); the refusal tells you what you wrote, the cap, and what is stored. The shipped seed is never overwritten, so reset_boot_sequence always gets the factory text back. Owner or admin assistant only.",
+			Summary:  "Replace the EDITABLE HALF of the 啟動步驟 block of ONE runtime ({runtime_key, body}). runtime_key is 'claude' or 'codex' and the two are separate documents whose step 3 contradicts each other, so writing the wrong one leaves those agents unable to come online — and nothing that never boots reports it. body is REQUIRED and unknown keys are rejected; emptying a body that had content needs allow_shrink=true. Neither runtime's document carries a read-only head today (T-6f44, owner's decision 4 removed it), so the body IS the whole document; the head machinery still exists for the kinds that do carry one, and there is no way to write a head on any face. The stored result is judged against the doc.cap_chars.boot_sequence cap (one cap, both runtimes, each measured on its own text); the refusal tells you what you wrote, the cap, and what is stored. The shipped seed is never overwritten, so reset_boot_sequence always gets the factory text back. Owner or admin assistant only. Answers with a bounded receipt (``kind``, ``key``, ``is_default``, ``size_chars``, ``cap_chars``, ``sha256``), not the document — call ``get_boot_sequence`` when you need the rest.",
 			MCPTool:  "replace_boot_sequence",
 		},
 		{
@@ -1260,7 +1260,7 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			Handler:  w.HandleResetBootSequenceApiBootSequenceRuntimeKeyResetPost,
 			Auth:     authGated,
 			Requires: principalAdminAgent,
-			Summary:  "Restore ONE runtime's 啟動步驟 block to the FACTORY text shipped with this build (idempotent tombstone of the overlay). runtime_key is 'claude' or 'codex'; anything else is a 404. No length cap is applied on this path — the factory text is part of the product, so no setting can block the way back to it, which is what makes this the recovery route when a bad edit has stopped agents from booting. The overlay being discarded is retained in the document history. Owner or admin assistant only.",
+			Summary:  "Restore ONE runtime's 啟動步驟 block to the FACTORY text shipped with this build (idempotent tombstone of the overlay). runtime_key is 'claude' or 'codex'; anything else is a 404. No length cap is applied on this path — the factory text is part of the product, so no setting can block the way back to it, which is what makes this the recovery route when a bad edit has stopped agents from booting. The overlay being discarded is retained in the document history. Owner or admin assistant only. Answers with a bounded receipt (``kind``, ``key``, ``is_default``, ``size_chars``, ``cap_chars``, ``sha256``), not the document — call ``get_boot_sequence`` when you need the rest.",
 			MCPTool:  "reset_boot_sequence",
 		},
 		// 〈停止〉 (T-c9c0) — the fourth owner-editable global document, and the
@@ -1283,7 +1283,7 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			Handler:  w.HandleReplaceOffboardApiOffboardPost,
 			Auth:     authGated,
 			Requires: principalAdminAgent,
-			Summary:  "Replace the EDITABLE HALF of the 〈停止〉 block ({body}) — the wrap-up checklist an agent is handed when its session is being collected. body is REQUIRED and unknown keys are rejected; emptying a body that had content needs allow_shrink=true. This document carries NO read-only head today (T-6f44, owner's decision 4 removed it), so the body IS the whole document; the head machinery still exists for the kinds that do carry one, and there is no way to write a head on any face. The stored result is judged against the doc.cap_chars.offboard cap unconditionally, and the refusal tells you what you wrote, the cap, and what is already stored. The shipped seed is never overwritten, so reset_offboard always gets the factory text back; the version this write replaces is retained in the document history (a save that changes nothing retains nothing). Owner or admin assistant only.",
+			Summary:  "Replace the EDITABLE HALF of the 〈停止〉 block ({body}) — the wrap-up checklist an agent is handed when its session is being collected. body is REQUIRED and unknown keys are rejected; emptying a body that had content needs allow_shrink=true. This document carries NO read-only head today (T-6f44, owner's decision 4 removed it), so the body IS the whole document; the head machinery still exists for the kinds that do carry one, and there is no way to write a head on any face. The stored result is judged against the doc.cap_chars.offboard cap unconditionally, and the refusal tells you what you wrote, the cap, and what is already stored. The shipped seed is never overwritten, so reset_offboard always gets the factory text back; the version this write replaces is retained in the document history (a save that changes nothing retains nothing). Owner or admin assistant only. Answers with a bounded receipt (``kind``, ``key``, ``is_default``, ``size_chars``, ``cap_chars``, ``sha256``), not the document — call ``get_offboard`` when you need the rest.",
 			MCPTool:  "replace_offboard",
 		},
 		{
@@ -1292,7 +1292,7 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			Handler:  w.HandleResetOffboardApiOffboardResetPost,
 			Auth:     authGated,
 			Requires: principalAdminAgent,
-			Summary:  "Restore the 〈停止〉 block to the FACTORY text shipped with this build (idempotent tombstone of the overlay). No length cap is applied on this path — the factory text is part of the product, so no setting can block the way back to it. The overlay being discarded is retained in the document history, so the reset is itself recoverable. Owner or admin assistant only.",
+			Summary:  "Restore the 〈停止〉 block to the FACTORY text shipped with this build (idempotent tombstone of the overlay). No length cap is applied on this path — the factory text is part of the product, so no setting can block the way back to it. The overlay being discarded is retained in the document history, so the reset is itself recoverable. Owner or admin assistant only. Answers with a bounded receipt (``kind``, ``key``, ``is_default``, ``size_chars``, ``cap_chars``, ``sha256``), not the document — call ``get_offboard`` when you need the rest.",
 			MCPTool:  "reset_offboard",
 		},
 		// ── The GENERIC face of the same documents (T-3201) ─────────────────
@@ -1339,7 +1339,7 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			Handler:  w.HandleReplaceBootDocApiBootDocsKindKeyPost,
 			Auth:     authGated,
 			Requires: principalAdminAgent,
-			Summary:  "Replace the EDITABLE HALF of one boot-context block ({kind, key, body}) — text every agent reads at boot, or is sent when a lifecycle event happens to it. body is REQUIRED and unknown keys are rejected; emptying a body that had content needs allow_shrink=true. The stored result is judged against that block's own cap. A read-only block refuses with 405 for every caller. The read-only head is NOT sent and cannot be: the server joins the shipped head back on, so no caller has any way to write it. Owner or admin assistant only.",
+			Summary:  "Replace the EDITABLE HALF of one boot-context block ({kind, key, body}) — text every agent reads at boot, or is sent when a lifecycle event happens to it. body is REQUIRED and unknown keys are rejected; emptying a body that had content needs allow_shrink=true. The stored result is judged against that block's own cap. A read-only block refuses with 405 for every caller. The read-only head is NOT sent and cannot be: the server joins the shipped head back on, so no caller has any way to write it. Owner or admin assistant only. Answers with a bounded receipt (``kind``, ``key``, ``is_default``, ``size_chars``, ``cap_chars``, ``sha256``), not the document — call ``get_boot_doc`` when you need the rest.",
 			MCPTool:  "replace_boot_doc",
 		},
 		{
@@ -1348,7 +1348,7 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			Handler:  w.HandleResetBootDocApiBootDocsKindKeyResetPost,
 			Auth:     authGated,
 			Requires: principalAdminAgent,
-			Summary:  "Restore one boot-context block to the FACTORY text shipped with this build (idempotent tombstone of the overlay). No length cap applies on this path — the way back to factory text is never blocked by a setting, which is what makes it the recovery route after an edit that stopped agents from booting. The discarded overlay is retained in the document history. Owner or admin assistant only.",
+			Summary:  "Restore one boot-context block to the FACTORY text shipped with this build (idempotent tombstone of the overlay). No length cap applies on this path — the way back to factory text is never blocked by a setting, which is what makes it the recovery route after an edit that stopped agents from booting. The discarded overlay is retained in the document history. Owner or admin assistant only. Answers with a bounded receipt (``kind``, ``key``, ``is_default``, ``size_chars``, ``cap_chars``, ``sha256``), not the document — call ``get_boot_doc`` when you need the rest.",
 			MCPTool:  "reset_boot_doc",
 		},
 		{
@@ -1379,7 +1379,7 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			Handler:  w.HandleCreateRoleApiRolesPost,
 			Auth:     authGated,
 			Requires: principalAdminAgent,
-			Summary:  "Create a custom role + its founding member (one pair per call). runtime is claude/codex; absent = stored UNSET and resolved at the founding member's first placement from the host's reported capabilities, not written as claude.",
+			Summary:  "Create a custom role + its founding member (one pair per call). runtime is claude/codex; absent = stored UNSET and resolved at the founding member's first placement from the host's reported capabilities, not written as claude. Answers with a bounded receipt (``role_key``, ``member_id``, ``member_name``), not the role and member objects — call ``get_role`` when you need the rest.",
 			MCPTool:  "create_role",
 		},
 		{
@@ -1397,7 +1397,7 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			Handler:  w.HandleUpdateRoleApiRolesRolePost,
 			Auth:     authGated,
 			Requires: principalAdminAgent,
-			Summary:  "Edit a role definition ({name?, definition_md?}; locked names skip).",
+			Summary:  "Edit a role definition ({name?, definition_md?}; locked names skip). Answers with a bounded receipt (``key``, ``name``, ``is_default``, ``is_seed``, ``size_chars``, ``cap_chars``, ``sha256``), not the duty document — call ``get_role`` when you need the rest.",
 			MCPTool:  "update_role",
 		},
 		{
@@ -1406,7 +1406,7 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			Handler:  w.HandleResetRoleApiRolesRoleResetPost,
 			Auth:     authGated,
 			Requires: principalAdminAgent,
-			Summary:  "Reset a role definition to seed (idempotent tombstone overlay).",
+			Summary:  "Reset a role definition to seed (idempotent tombstone overlay). Answers with a bounded receipt (``key``, ``name``, ``is_default``, ``is_seed``, ``size_chars``, ``cap_chars``, ``sha256``), not the duty document — call ``get_role`` when you need the rest.",
 			MCPTool:  "reset_role",
 		},
 		{
@@ -1446,7 +1446,7 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			// role_key (classifyMember), so it cannot write insight even if it
 			// carries one — the same delineation the lessons rows document.
 			Requires: principalAgent,
-			Summary:  "Whole-doc replace of a per-role insight doc ({text}). text is REQUIRED; unknown keys are rejected. Replacing existing content with an empty doc needs allow_shrink=true. Only the role's own agents (and admin) may WRITE it.",
+			Summary:  "Whole-doc replace of a per-role insight doc ({text}). text is REQUIRED; unknown keys are rejected. Replacing existing content with an empty doc needs allow_shrink=true. Only the role's own agents (and admin) may WRITE it. Answers with a bounded receipt (``role_key``, ``is_default``, ``has_seed``, ``size_chars``, ``cap_chars``, ``sha256``), not the folded doc — call ``get_insight`` when you need the rest.",
 			MCPTool:  "replace_insight",
 		},
 		{
@@ -1471,7 +1471,7 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			// gate to fall back on, insight does, and a role's own agent may
 			// already replace this document wholesale.
 			Requires: principalAgent,
-			Summary:  "Reset a per-role insight doc back to its factory seed (idempotent tombstone of the overlay) - the counterpart of reset_role on the Duty block. A role with NO seed file (seeds/insight_<role_key>.md) returns 404: there must be a factory version to reset TO. No length cap is applied on this path, matching reset_role - the factory text is part of the product. The overlay you are discarding is retained as a document-history revision, so the reset is recoverable. Only the role's own agents (and admin) may do it.",
+			Summary:  "Reset a per-role insight doc back to its factory seed (idempotent tombstone of the overlay) - the counterpart of reset_role on the Duty block. A role with NO seed file (seeds/insight_<role_key>.md) returns 404: there must be a factory version to reset TO. No length cap is applied on this path, matching reset_role - the factory text is part of the product. The overlay you are discarding is retained as a document-history revision, so the reset is recoverable. Only the role's own agents (and admin) may do it. Answers with a bounded receipt (``role_key``, ``is_default``, ``has_seed``, ``size_chars``, ``cap_chars``, ``sha256``), not the folded doc — call ``get_insight`` when you need the rest.",
 			MCPTool:  "reset_insight",
 		},
 		{
@@ -1516,7 +1516,7 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			// Per-ROLE authz stays in the handler (lessonsWriteAuthz) — the
 			// ladder cannot express "own role only".
 			Requires: principalAgent,
-			Summary:  "Replace the WHOLE per-role lessons document. text is REQUIRED and unknown keys are rejected; only that role's agent or an admin may write it; role_key must be addressable — a role that folds (list_roles), or a member carrying that role_key (list_members) — or the write is refused 404, so a lessons doc can no longer be created under a name nothing on this station could ever read; emptying or sharply shrinking it needs allow_shrink=true; and the result is still judged against the lessons cap.",
+			Summary:  "Replace the WHOLE per-role lessons document. text is REQUIRED and unknown keys are rejected; only that role's agent or an admin may write it; role_key must be addressable — a role that folds (list_roles), or a member carrying that role_key (list_members) — or the write is refused 404, so a lessons doc can no longer be created under a name nothing on this station could ever read; emptying or sharply shrinking it needs allow_shrink=true; and the result is still judged against the lessons cap. Answers with a bounded receipt (``role_key``, ``size_chars``, ``cap_chars``, ``sha256``), not the journal — call ``get_lessons`` when you need the rest.",
 			MCPTool:  "replace_lessons",
 		},
 		{
@@ -1578,7 +1578,7 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			Handler:  w.HandleCreateTaskApiTasksPost,
 			Auth:     authGated,
 			Requires: principalAgent,
-			Summary:  "Create a task (dedupes on the manual's key; ad-hoc when type_key omitted). Pass target.kind=outsource to drop the task as an unassigned outsource task (發包); target.runtime is claude/codex (absent = claude). The existing outsource scheduler then spawns workers against the global concurrency cap (outsourceParallelCap) — below the cap it starts immediately, at the cap it queues for capacity and is picked up automatically when a slot frees. No owner-approval card and no per-task approval; the owner may reassign a still-queued task at any time. Caller authorization (正職授權矩陣, T-23cf): an outsource worker may never create a task; a 發包 create is open to any 正職 (owner/admin included); a typed task the manual assigns to member X may be created only by X (owner/admin NOT exempt); an ad-hoc task with a member executor may name only the caller itself unless the caller is owner/admin (a 一般正職 may self-execute or 發包, never assign another member).",
+			Summary:  "Create a task (dedupes on the manual's key; ad-hoc when type_key omitted). Pass target.kind=outsource to drop the task as an unassigned outsource task (發包); target.runtime is claude/codex (absent = claude). The existing outsource scheduler then spawns workers against the global concurrency cap (outsourceParallelCap) — below the cap it starts immediately, at the cap it queues for capacity and is picked up automatically when a slot frees. No owner-approval card and no per-task approval; the owner may reassign a still-queued task at any time. Caller authorization (正職授權矩陣, T-23cf): an outsource worker may never create a task; a 發包 create is open to any 正職 (owner/admin included); a typed task the manual assigns to member X may be created only by X (owner/admin NOT exempt); an ad-hoc task with a member executor may name only the caller itself unless the caller is owner/admin (a 一般正職 may self-execute or 發包, never assign another member). Answers with a bounded receipt (``task_id``, ``task_no``, ``deduped``, ``title``, ``status``, ``warnings``), not the task — call ``get_task`` when you need the rest.",
 			MCPTool:  "create_task",
 		},
 		{
@@ -1609,7 +1609,7 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			Handler:  w.HandleTerminateTaskApiTasksTaskIdTerminatePost,
 			Auth:     authGated,
 			Requires: principalAgent,
-			Summary:  "Terminate a task — close it as terminated, the only status change that does not go through the task's own step reports. WHO: the owner, an admin agent, or the task's OWN executor when that executor is a 正職 member (T-b56e, owner 2026-08-20 card rc-b896e3f641e7). A member terminating SOMEONE ELSE's task is a flat 403. An OUTSOURCE worker is refused HERE even on its own task — the owner's ruling named 執行者 and did not reach the contractor lifecycle, so this door stays shut until one does. ⚠️ THAT IS A FACT ABOUT THIS ROUTE, NOT A SYSTEM-WIDE GUARANTEE that a worker cannot close its own task: mark_duplicate sits at the same principalAgent floor, gates on callerMayDriveTask with no such subtraction, and reaches the same closeTask — measured 2026-08-20, 200 duplicated. Shutting that door too needs its own ruling. Non-terminal only (already closed → 409).",
+			Summary:  "Terminate a task — close it as terminated, the only status change that does not go through the task's own step reports. WHO: the owner, an admin agent, or the task's OWN executor when that executor is a 正職 member (T-b56e, owner 2026-08-20 card rc-b896e3f641e7). A member terminating SOMEONE ELSE's task is a flat 403. An OUTSOURCE worker is refused HERE even on its own task — the owner's ruling named 執行者 and did not reach the contractor lifecycle, so this door stays shut until one does. ⚠️ THAT IS A FACT ABOUT THIS ROUTE, NOT A SYSTEM-WIDE GUARANTEE that a worker cannot close its own task: mark_duplicate sits at the same principalAgent floor, gates on callerMayDriveTask with no such subtraction, and reaches the same closeTask — measured 2026-08-20, 200 duplicated. Shutting that door too needs its own ruling. Non-terminal only (already closed → 409). Answers with a bounded receipt (``artifact_count``, ``closed_ts``, ``deps``, ``description_sha256``, ``description_size_chars``, ``duplicate_of``, ``executor_id``, ``executor_kind``, ``lock``, ``progress_done``, ``progress_total``, ``status``, ``task_id``, ``title``), not the task — call ``get_task`` when you need the rest.",
 			MCPTool:  "terminate_task",
 		},
 		{
@@ -1629,7 +1629,7 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			Handler:  w.HandlePostTaskMessageApiTasksTaskIdMessagePost,
 			Auth:     authGated,
 			Requires: principalAdminAgent,
-			Summary:  "Message the task's executor (owner/admin agent; task context auto-attached).",
+			Summary:  "Message the task's executor (owner/admin agent; task context auto-attached). Answers with a bounded receipt (``id``, ``ts``, ``attachments``), not the message — call ``get_chat`` when you need the rest.",
 			MCPTool:  "post_task_message",
 		},
 		{
@@ -1663,7 +1663,7 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			Handler:  w.HandleUpdateTaskApiTasksTaskIdPost,
 			Auth:     authGated,
 			Requires: principalAgent,
-			Summary:  "Correct THIS task's own TEXT — its title, its description, or both in one write (T-646a). Replaces `update_task_title` and `update_task_description`, which documented the same rules twice and could not be applied together: changing both meant two calls, two transactions and two SSE deltas, with room for someone else's write to land in between. WHO: the task's own executor, or an admin/owner; anyone else is a flat 403. Creating a task grants NO standing to keep rewriting it — if you handed the task over, it is the new executor's text now. ⚠️ ONE STRUCTURAL EXCEPTION (T-52, owner 2026-09-02): while the task has NO executor AT ALL (`executor_id` empty — where a 發包票 sits between create_task and the moment the scheduler binds a worker to it), its CREATOR may correct the text here, because otherwise nobody who is awake could fix the brief the contractor reads on arrival and that window has no upper bound. It SHUTS the instant an executor is bound — from then on the creator is a flat 403 again, even though it opened the ticket. TEXT ONLY: the same window opens add_task_artifact, remove_task_artifact, replace_task_artifact, update_step_note, patch_step_note and the task_title / task_description restores, and nothing else — never freeze, terminate, reassign, claim, plan, step status, deps or closeout. `replace_task_artifact` sits in the same window as add/remove by owner ruling (card rc-09367ed77bc2, 2026-09-03, option [0]), given with these facts in front of him: replace OVERWRITES in place what someone else pinned, and remove_task_artifact deletes that artifact's every retained version together with their blobs. PARTIAL: only the fields you NAME are touched, so omitting a field is a legal no-op for it that versions nothing and fans nothing. ⚠️ THE TWO FIELDS TREAT AN EXPLICIT BLANK DIFFERENTLY, and that is an owner ruling rather than an inconsistency (card rc-796541192519, 2026-08-11, option ①): a blank `title` (\"\" or whitespace-only) is REFUSED with 400 and does NOT clear the field, because create_task refuses a blank title too and an edit door looser than the create door would let a caller reach a task-list row with nothing in it; a blank `description` IS accepted and DOES clear the text, because plenty of cards legitimately have no prose. VALIDATION IS WHOLE-BODY AND HAPPENS FIRST: a request carrying a blank title alongside a perfectly good description writes NEITHER — a 400 leaves the task exactly as it was, never half-applied. Both values are trimmed of surrounding whitespace before they are stored AND before they are compared with what is there, so re-sending the same text with a stray trailing space is correctly seen as no change rather than spending one of the retained revisions saying nothing moved. ⚠️ THAT HOLDS ONLY WHILE THE STORED TEXT IS ALREADY TRIMMED. Whenever the stored description carries untrimmed whitespace, the next edit here normalises it and therefore DOES spend a revision — even when you re-send exactly what you read back. TWO things can put untrimmed text in that column, so this is not a one-time settling: create_task, which never trims the description (it does trim the title), and a RESTORE of a revision that holds untrimmed text, which is written back verbatim. Before this ticket both doors stored it raw and agreed; this tool trims and create still does not, which is a divergence awaiting a ruling rather than a promise about the system. The write is wholesale within each field: send the full corrected text, not a fragment. ⚠️ Division of labour with update_step_note: the DESCRIPTION says what this task IS (stable); the step NOTE says where a step is RIGHT NOW (volatile, handover-facing) — do not put progress here. A CLOSED task (completed / terminated / duplicated) is STILL editable, on the same terms — unlike its artifact set, which freezes at close: artifacts record what the task PRODUCED and must stop moving, while a ticket worded wrongly is usually found to be wrong after it closed, and freezing the text would preserve a known falsehood in the permanent record. Every change that actually alters a field retains the previous value as a document version — kind `task_title` / `task_description`, key = the task id — so a correction is recoverable through list_document_history and the older wording is never simply gone.",
+			Summary:  "Correct THIS task's own TEXT — its title, its description, or both in one write (T-646a). Replaces `update_task_title` and `update_task_description`, which documented the same rules twice and could not be applied together: changing both meant two calls, two transactions and two SSE deltas, with room for someone else's write to land in between. WHO: the task's own executor, or an admin/owner; anyone else is a flat 403. Creating a task grants NO standing to keep rewriting it — if you handed the task over, it is the new executor's text now. ⚠️ ONE STRUCTURAL EXCEPTION (T-52, owner 2026-09-02): while the task has NO executor AT ALL (`executor_id` empty — where a 發包票 sits between create_task and the moment the scheduler binds a worker to it), its CREATOR may correct the text here, because otherwise nobody who is awake could fix the brief the contractor reads on arrival and that window has no upper bound. It SHUTS the instant an executor is bound — from then on the creator is a flat 403 again, even though it opened the ticket. TEXT ONLY: the same window opens add_task_artifact, remove_task_artifact, replace_task_artifact, update_step_note, patch_step_note and the task_title / task_description restores, and nothing else — never freeze, terminate, reassign, claim, plan, step status, deps or closeout. `replace_task_artifact` sits in the same window as add/remove by owner ruling (card rc-09367ed77bc2, 2026-09-03, option [0]), given with these facts in front of him: replace OVERWRITES in place what someone else pinned, and remove_task_artifact deletes that artifact's every retained version together with their blobs. PARTIAL: only the fields you NAME are touched, so omitting a field is a legal no-op for it that versions nothing and fans nothing. ⚠️ THE TWO FIELDS TREAT AN EXPLICIT BLANK DIFFERENTLY, and that is an owner ruling rather than an inconsistency (card rc-796541192519, 2026-08-11, option ①): a blank `title` (\"\" or whitespace-only) is REFUSED with 400 and does NOT clear the field, because create_task refuses a blank title too and an edit door looser than the create door would let a caller reach a task-list row with nothing in it; a blank `description` IS accepted and DOES clear the text, because plenty of cards legitimately have no prose. VALIDATION IS WHOLE-BODY AND HAPPENS FIRST: a request carrying a blank title alongside a perfectly good description writes NEITHER — a 400 leaves the task exactly as it was, never half-applied. Both values are trimmed of surrounding whitespace before they are stored AND before they are compared with what is there, so re-sending the same text with a stray trailing space is correctly seen as no change rather than spending one of the retained revisions saying nothing moved. ⚠️ THAT HOLDS ONLY WHILE THE STORED TEXT IS ALREADY TRIMMED. Whenever the stored description carries untrimmed whitespace, the next edit here normalises it and therefore DOES spend a revision — even when you re-send exactly what you read back. TWO things can put untrimmed text in that column, so this is not a one-time settling: create_task, which never trims the description (it does trim the title), and a RESTORE of a revision that holds untrimmed text, which is written back verbatim. Before this ticket both doors stored it raw and agreed; this tool trims and create still does not, which is a divergence awaiting a ruling rather than a promise about the system. The write is wholesale within each field: send the full corrected text, not a fragment. ⚠️ Division of labour with update_step_note: the DESCRIPTION says what this task IS (stable); the step NOTE says where a step is RIGHT NOW (volatile, handover-facing) — do not put progress here. A CLOSED task (completed / terminated / duplicated) is STILL editable, on the same terms — unlike its artifact set, which freezes at close: artifacts record what the task PRODUCED and must stop moving, while a ticket worded wrongly is usually found to be wrong after it closed, and freezing the text would preserve a known falsehood in the permanent record. Every change that actually alters a field retains the previous value as a document version — kind `task_title` / `task_description`, key = the task id — so a correction is recoverable through list_document_history and the older wording is never simply gone. Answers with a bounded receipt (``artifact_count``, ``closed_ts``, ``deps``, ``description_sha256``, ``description_size_chars``, ``duplicate_of``, ``executor_id``, ``executor_kind``, ``lock``, ``progress_done``, ``progress_total``, ``status``, ``task_id``, ``title``), not the task — call ``get_task`` when you need the rest.",
 			MCPTool:  "update_task",
 		},
 		// T-e271: the ticket's own TEXT is correctable after the fact. Until
@@ -1712,7 +1712,7 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			Handler:  w.HandleMarkTaskDuplicateApiTasksTaskIdDuplicatePost,
 			Auth:     authGated,
 			Requires: principalAgent,
-			Summary:  "Mark a not-yet-terminal task duplicated, pointing at an existing final original (executor/owner). A blank original, an original that cannot be found, a self-reference, a chained duplicate and a target that is already pointed at are all refused. Closing across executors creates a handoff_follow_up, and no dependency is added.",
+			Summary:  "Mark a not-yet-terminal task duplicated, pointing at an existing final original (executor/owner). A blank original, an original that cannot be found, a self-reference, a chained duplicate and a target that is already pointed at are all refused. Closing across executors creates a handoff_follow_up, and no dependency is added. Answers with a bounded receipt (``artifact_count``, ``closed_ts``, ``deps``, ``description_sha256``, ``description_size_chars``, ``duplicate_of``, ``executor_id``, ``executor_kind``, ``lock``, ``progress_done``, ``progress_total``, ``status``, ``task_id``, ``title``), not the task — call ``get_task`` when you need the rest.",
 			MCPTool:  "mark_duplicate",
 		},
 		{
@@ -1742,7 +1742,7 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			// executor-or-admin gate — the handler shares it verbatim, so the two
 			// faces onto one field can never disagree about who may write.
 			Requires: principalAgent,
-			Summary:  "Patch this step's working note by unique anchors ({edits:[{old,new}]}) — send only the part that changed, instead of re-typing the whole note. USE THIS WHENEVER YOU ARE AMENDING A NOTE THAT ALREADY HAS CONTENT. update_step_note is a wholesale replace, so if anyone else wrote to the step between your read and your write, your copy is stale and the replace silently deletes their text — and because your stale copy is usually the LONGER one, no guard fires and nothing tells you. A patch cannot do that: a non-empty old must match the current note EXACTLY ONCE (0 or >1 hits reject the WHOLE batch with a 400 that names which edit failed and which tool to re-read with, zero writes), so a concurrent write turns into a refusal you can see. Edits apply in order; an empty old appends. Wiping the note, or shrinking it below a tenth, needs allow_shrink=true — for an honest rewrite from scratch use update_step_note. Same executor/admin gate, same any-step-status generality, same closed-task 409 as update_step_note. Re-read with get_task_step after a refusal — get_task reports each step's note SIZE (note_size_chars) but since T-66 no longer carries its text.",
+			Summary:  "Patch this step's working note by unique anchors ({edits:[{old,new}]}) — send only the part that changed, instead of re-typing the whole note. USE THIS WHENEVER YOU ARE AMENDING A NOTE THAT ALREADY HAS CONTENT. update_step_note is a wholesale replace, so if anyone else wrote to the step between your read and your write, your copy is stale and the replace silently deletes their text — and because your stale copy is usually the LONGER one, no guard fires and nothing tells you. A patch cannot do that: a non-empty old must match the current note EXACTLY ONCE (0 or >1 hits reject the WHOLE batch with a 400 that names which edit failed and which tool to re-read with, zero writes), so a concurrent write turns into a refusal you can see. Edits apply in order; an empty old appends. Wiping the note, or shrinking it below a tenth, needs allow_shrink=true — for an honest rewrite from scratch use update_step_note. Same executor/admin gate, same any-step-status generality, same closed-task 409 as update_step_note. Re-read with get_task_step after a refusal — get_task reports each step's note SIZE (note_size_chars) but since T-66 no longer carries its text. Answers with a bounded receipt (``task_id``, ``step_id``, ``step_status``, ``applied_edits``, ``size_chars``, ``cap_chars``, ``sha256``), not the note — call ``get_task_step`` when you need the rest.",
 			MCPTool:  "patch_step_note",
 		},
 		// T-66: the READ half of the step-note split. Its POSITION here is a wire
@@ -1771,7 +1771,7 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			Handler:  w.HandleSetTaskDepsApiTasksTaskIdDepsPost,
 			Auth:     authGated,
 			Requires: principalAgent,
-			Summary:  "Replace the blocking-deps list wholesale.",
+			Summary:  "Replace the blocking-deps list wholesale. Answers with a bounded receipt (``artifact_count``, ``closed_ts``, ``deps``, ``description_sha256``, ``description_size_chars``, ``duplicate_of``, ``executor_id``, ``executor_kind``, ``lock``, ``progress_done``, ``progress_total``, ``status``, ``task_id``, ``title``), not the task — call ``get_task`` when you need the rest.",
 			MCPTool:  "set_task_deps",
 		},
 		{
@@ -1793,7 +1793,7 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			Handler:  w.HandleReassignTaskApiTasksTaskIdReassignPost,
 			Auth:     authGated,
 			Requires: principalAgent,
-			Summary:  "Reassign a task to a member or a fresh outsource worker (executor-guarded: a plain agent may reassign only a task it executes; owner/admin drive any task). Caller authorization (正職授權矩陣, T-23cf): owner/admin may hand a task to any active member or 發包 it to a fresh outsource worker; a 一般正職 may only turn its own task into a 發包 (a member target is 403); an outsource worker may not reassign at all. An outsource target uses target.runtime claude/codex (absent = claude), lands the task unassigned for the scheduler to spawn under the global parallel cap, and enters the reassigning handover state.",
+			Summary:  "Reassign a task to a member or a fresh outsource worker (executor-guarded: a plain agent may reassign only a task it executes; owner/admin drive any task). Caller authorization (正職授權矩陣, T-23cf): owner/admin may hand a task to any active member or 發包 it to a fresh outsource worker; a 一般正職 may only turn its own task into a 發包 (a member target is 403); an outsource worker may not reassign at all. An outsource target uses target.runtime claude/codex (absent = claude), lands the task unassigned for the scheduler to spawn under the global parallel cap, and enters the reassigning handover state. Answers with a bounded receipt (``artifact_count``, ``closed_ts``, ``deps``, ``description_sha256``, ``description_size_chars``, ``duplicate_of``, ``executor_id``, ``executor_kind``, ``lock``, ``progress_done``, ``progress_total``, ``status``, ``task_id``, ``title``), not the task — call ``get_task`` when you need the rest.",
 			MCPTool:  "reassign_task",
 		},
 		{
@@ -1808,7 +1808,7 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			Handler:  w.HandleClaimTaskApiTasksTaskIdClaimPost,
 			Auth:     authGated,
 			Requires: principalAgent,
-			Summary:  "Take over a reassigned task (the new executor claims it): clears the reassigning lock and fires the predecessor worker. The task status stays derived from its steps; only the lock is cleared. 409 if the task is not under the reassigning lock.",
+			Summary:  "Take over a reassigned task (the new executor claims it): clears the reassigning lock and fires the predecessor worker. The task status stays derived from its steps; only the lock is cleared. 409 if the task is not under the reassigning lock. Answers with a bounded receipt (``artifact_count``, ``closed_ts``, ``deps``, ``description_sha256``, ``description_size_chars``, ``duplicate_of``, ``executor_id``, ``executor_kind``, ``lock``, ``progress_done``, ``progress_total``, ``status``, ``task_id``, ``title``), not the task — call ``get_task`` when you need the rest.",
 			MCPTool:  "claim_task",
 		},
 		{
@@ -1980,7 +1980,7 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			Handler:  w.HandleRestartOutsourceWorkerApiOutsourceWorkersIdRestartPost,
 			Auth:     authGated,
 			Requires: principalAdminAgent,
-			Summary:  "Restart (重啟) an outsource worker (owner/admin agent; a live worker is displaced, not refused).",
+			Summary:  "Restart (重啟) an outsource worker (owner/admin agent; a live worker is displaced, not refused). Answers with a bounded receipt (``id``, ``activation_pending``, ``last_op_reason``), not the worker — call ``list_outsource_workers`` when you need the rest.",
 			MCPTool:  "restart_outsource_worker",
 		},
 		// ⚠️ set_outsource_worker_model sits at the machine FLOOR since T-ed79,
@@ -2034,7 +2034,7 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			Handler:  w.HandleCreateTaskManualApiTaskManualsPost,
 			Auth:     authGated,
 			Requires: principalAgent,
-			Summary:  "Create a task type: pass display_name; the server mints and returns the tm- type_key id (legacy explicit type_key still accepted; duplicate → 409; assignee = owner/admin agent). An outsource assignee may select runtime claude/codex; absent = claude.",
+			Summary:  "Create a task type: pass display_name; the server mints and returns the tm- type_key id (legacy explicit type_key still accepted; duplicate → 409; assignee = owner/admin agent). An outsource assignee may select runtime claude/codex; absent = claude. Answers with a bounded receipt (``type_key``, ``updated_ts``, ``learnings_chars``, ``learnings_cap_chars``, ``learnings_sha256``, ``sop_md_chars``, ``sop_md_cap_chars``, ``sop_md_sha256``), not the manual — call ``get_task_manual`` when you need the rest.",
 			MCPTool:  "create_task_manual",
 		},
 		{
@@ -2052,7 +2052,7 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			Handler:  w.HandleUpdateTaskManualApiTaskManualsTypeKeyPost,
 			Auth:     authGated,
 			Requires: principalAgent,
-			Summary:  "Edit a task manual (partial; content fields agent-editable; assignee = owner/admin agent). An outsource assignee may select runtime claude/codex; absent = claude. Only the fields you name change, so omitting a field is safe — but unknown keys are rejected rather than dropped: the learnings doc goes in learnings (NOT text — that is write_task_learnings' field name). The SOP and the learnings are judged by two SEPARATE caps: read sop_md_cap_chars and learnings_cap_chars. The older cap_chars is DEPRECATED — it carries the LEARNINGS cap only and says nothing about sop_md, so read sop_md_cap_chars for the SOP.",
+			Summary:  "Edit a task manual (partial; content fields agent-editable; assignee = owner/admin agent). An outsource assignee may select runtime claude/codex; absent = claude. Only the fields you name change, so omitting a field is safe — but unknown keys are rejected rather than dropped: the learnings doc goes in learnings (NOT text — that is write_task_learnings' field name). The SOP and the learnings are judged by two SEPARATE caps: read sop_md_cap_chars and learnings_cap_chars. The older cap_chars is DEPRECATED — it carries the LEARNINGS cap only and says nothing about sop_md, so read sop_md_cap_chars for the SOP. Answers with a bounded receipt (``type_key``, ``updated_ts``, ``learnings_chars``, ``learnings_cap_chars``, ``learnings_sha256``, ``sop_md_chars``, ``sop_md_cap_chars``, ``sop_md_sha256``), not the manual — call ``get_task_manual`` when you need the rest.",
 			MCPTool:  "update_task_manual",
 		},
 		{
@@ -2071,7 +2071,7 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			Handler:  w.HandleWriteTaskLearningsApiTaskManualsTypeKeyLearningsPost,
 			Auth:     authGated,
 			Requires: principalAgent,
-			Summary:  "Whole-doc replace of a type's learnings (task-close write-back). The doc text goes in text (NOT learnings — that is update_task_manual's field name); text is REQUIRED and unknown keys are rejected. Wiping existing learnings needs allow_shrink=true.",
+			Summary:  "Whole-doc replace of a type's learnings (task-close write-back). The doc text goes in text (NOT learnings — that is update_task_manual's field name); text is REQUIRED and unknown keys are rejected. Wiping existing learnings needs allow_shrink=true. Answers with a bounded receipt (``type_key``, ``size_chars``, ``cap_chars``, ``sha256``), not the learnings text — call ``get_task_manual`` when you need the rest.",
 			MCPTool:  "write_task_learnings",
 		},
 		{

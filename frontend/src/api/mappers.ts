@@ -79,6 +79,7 @@ import type {
   WireChatRead,
   WireChatGalleryEntry,
   WireReplyCard,
+  WireReplyCardReceipt,
   WireReplyCardOption,
   WireWebhookEndpoint,
   WireWebhookRequestLog,
@@ -110,6 +111,7 @@ import type {
   ChatReadReceipt,
   GalleryAttachment,
   ReplyCard,
+  ReplyCardWriteReceipt,
   ReplyCardOption,
   ServerSettingsView,
   OnboardingReportView,
@@ -446,6 +448,42 @@ export function toReplyCard(w: WireReplyCard): ReplyCard {
           title: w.task.title ?? "",
         }
       : null,
+    answer: w.answer
+      ? {
+          optionIdxs: w.answer.option_idxs,
+          text: w.answer.text ?? "",
+          attachments: (w.answer.attachments ?? []).map((a) => ({
+            id: a.id,
+            url: a.url,
+            filename: a.filename ?? "",
+            mime: a.mime ?? "",
+            isImage: a.is_image ?? false,
+          })),
+        }
+      : null,
+  };
+}
+
+/** Map the reply-card WRITE receipt → `ReplyCardWriteReceipt` (T-91).
+ *
+ * NOT `toReplyCard`. The receipt carries only what answer / re-answer / expire
+ * DECIDED; every other field of a card is absent from it, so mapping it through
+ * the card mapper would fabricate empty options / attachments / body and hand
+ * the caller something that renders as a blank card. The `task_id` / `step_id`
+ * the wire also carries are deliberately dropped: nothing in the cockpit reads
+ * them (the card already on screen holds the task ref it was read with), and a
+ * field nobody reads is a field that rots.
+ *
+ * `answer` is mapped with the same honesty as the card mapper — an absent
+ * attachment list reads as [], never as fabricated content. */
+export function toReplyCardWriteReceipt(
+  w: WireReplyCardReceipt
+): ReplyCardWriteReceipt {
+  return {
+    id: w.id,
+    status: w.status as ReplyCardWriteReceipt["status"],
+    answeredTs: w.answered_ts,
+    expiredTs: w.expired_ts,
     answer: w.answer
       ? {
           optionIdxs: w.answer.option_idxs,

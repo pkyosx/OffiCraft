@@ -20,6 +20,7 @@ package main
 import (
 	"testing"
 	"time"
+	"unicode/utf8"
 )
 
 const (
@@ -106,15 +107,27 @@ func TestUpdateScheduledMessageWholeFormSaveReAimsOnlyOnAChangedTime(t *testing.
 
 	// The same whole form with only the TEXT edited: a real edit, still not a
 	// re-aim. This is also what stops the assertion above from passing on a
-	// handler that quietly persists nothing — the body must come back changed.
+	// handler that quietly persists nothing — the body must actually change.
+	//
+	// T-91: the update receipt no longer echoes the body (the caller sent it);
+	// it reports body_size_chars instead. The anti-vacuity check is therefore
+	// made against the STORED ROW, which is a stronger place for it — the whole
+	// worry this line exists for is a handler that persists nothing.
+	const editedBody = "09:00 站立會議(改)"
 	status, saved = doJSON(t, "PATCH", path, ownerTok,
-		`{"label":"晨會提醒","body":"09:00 站立會議(改)","cadence":"weekly","day_of_week":3,"hour":9,"minute":0,"timezone":"Asia/Taipei"}`)
+		`{"label":"晨會提醒","body":"`+editedBody+`","cadence":"weekly","day_of_week":3,"hour":9,"minute":0,"timezone":"Asia/Taipei"}`)
 	if status != 200 {
 		t.Fatalf("saving an edited body: %d %v", status, saved)
 	}
-	if got, _ := saved["body"].(string); got != "09:00 站立會議(改)" {
-		t.Fatalf("the edit did not land: body is %q — the cursor assertions above "+
-			"were measuring a write that never happened", got)
+	if stored, err := api.dal.GetScheduledMessage(id); err != nil || stored == nil {
+		t.Fatalf("load the edited schedule: %v %v", stored, err)
+	} else if stored.Body != editedBody {
+		t.Fatalf("the edit did not land: stored body is %q — the cursor assertions "+
+			"above were measuring a write that never happened", stored.Body)
+	}
+	if got, _ := saved["body_size_chars"].(float64); int(got) != utf8.RuneCountInString(editedBody) {
+		t.Fatalf("the receipt must report the stored body's size in RUNES: got %v, want %d",
+			saved["body_size_chars"], utf8.RuneCountInString(editedBody))
 	}
 	slot, ts = cursorOf(t, saved)
 	if slot != plantedSlot || ts != plantedTS {

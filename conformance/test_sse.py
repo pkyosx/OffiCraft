@@ -1259,7 +1259,8 @@ def test_gate_arm_emits_reply_card_frame_to_owner(
         headers=h,
     )
     assert r.status_code == 200, r.text
-    task_id = r.json()["task"]["id"]
+    # T-91: create answers taskCreateResultDTO — the minted id, not the task.
+    task_id = r.json()["task_id"]
     r = client.post(
         f"/api/tasks/{task_id}/plan",
         json={"steps": [{"name": "approve", "dod": "go", "is_gate": True}]},

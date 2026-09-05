@@ -1,8 +1,6 @@
 package main
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"net/http"
 	"strconv"
 	"unicode/utf8"
@@ -55,8 +53,9 @@ func (s *apiServer) HandleUpdateTaskStepNoteApiTasksTaskIdStepsStepIdNotePost(w 
 		return
 	}
 	writeJSON(w, http.StatusOK, taskStepNoteReceiptDTO{
-		TaskID: t.ID, StepID: step.ID, StepStatus: step.Status, Note: step.Note,
+		TaskID: t.ID, StepID: step.ID, StepStatus: step.Status,
 		SizeChars: utf8.RuneCountInString(step.Note), CapChars: chatBodyMaxChars,
+		Sha256: receiptSha256(step.Note),
 	})
 }
 
@@ -170,16 +169,14 @@ func (s *apiServer) HandlePatchTaskStepNoteApiTasksTaskIdStepsStepIdNotePatchPos
 	if !s.storeStepNote(w, r, t, step, next, next != step.Note) {
 		return
 	}
-	sum := sha256.Sum256([]byte(next))
 	writeJSON(w, http.StatusOK, taskStepNotePatchResultDTO{
 		TaskID:       t.ID,
 		StepID:       step.ID,
 		StepStatus:   step.Status,
-		Note:         step.Note,
 		AppliedEdits: applied,
 		SizeChars:    utf8.RuneCountInString(next),
 		CapChars:     chatBodyMaxChars,
-		Sha256:       hex.EncodeToString(sum[:]),
+		Sha256:       receiptSha256(next),
 	})
 }
 

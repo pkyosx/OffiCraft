@@ -50,34 +50,69 @@ func chatFields(t *testing.T, raw string) (id string, replyTo string) {
 	return msg.ID, msg.ReplyTo
 }
 
+// postedChatRead posts a chat message and returns the SERVED message — the row
+// read straight back through GET /api/chat?ids=<the id the receipt minted>.
+//
+// 🔴 T-91 IS WHY THIS EXISTS, AND THE TESTS BELOW GOT STRONGER FOR IT. post_chat
+// used to answer with the whole chatMessageDTO, so every assertion here could be
+// made against the write's own echo — which is exactly the reading this file
+// already warned about in its own words ("the POST response is built from the
+// in-memory row the handler just made, so it would still look right if the link
+// were never persisted"). The write now answers {id, ts, attachments}: the id it
+// minted, the stamp only the server can make, and the attachment ids a caller
+// that uploaded inline learns here or nowhere. Everything else is read back, so
+// the round trip this file is named for is the only path left.
+func postedChatRead(t *testing.T, srvURL, tok, body string) (string, string) {
+	t.Helper()
+	status, raw := postedChat(t, srvURL, tok, body)
+	if status != 200 {
+		t.Fatalf("post chat: %d %s", status, raw)
+	}
+	var receipt struct {
+		ID string  `json:"id"`
+		TS float64 `json:"ts"`
+	}
+	if err := json.Unmarshal([]byte(raw), &receipt); err != nil {
+		t.Fatalf("decode post receipt: %v — %s", err, raw)
+	}
+	if receipt.ID == "" || receipt.TS <= 0 {
+		t.Fatalf("the post receipt must carry the minted id and the server stamp: %s", raw)
+	}
+	status, listed := doRaw(t, "GET", srvURL+"/api/chat?ids="+receipt.ID, tok, "", nil)
+	if status != 200 {
+		t.Fatalf("re-read %s: %d %s", receipt.ID, status, listed)
+	}
+	rows := chatEnvelopeMessages(t, []byte(listed))
+	var served []json.RawMessage
+	if err := json.Unmarshal(rows, &served); err != nil {
+		t.Fatalf("decode message list: %v — %s", err, listed)
+	}
+	if len(served) != 1 {
+		t.Fatalf("?ids=%s served %d rows, want 1: %s", receipt.ID, len(served), listed)
+	}
+	return receipt.ID, string(served[0])
+}
+
 // ① ROUND TRIP. Posted, stored, served — and served again on a SECOND read, so
 // a handler that merely echoed back what it was handed cannot pass.
 func TestChatReplyTo_RoundTripsThroughStorage(t *testing.T) {
 	srv, secret, _ := newWiredTestServerWithDB(t)
 	tok, _ := mintJWT("mira", "agent", 300, secret, time.Now().Unix(), "")
 
-	status, raw := postedChat(t, srv.URL, tok, `{"to":"owner","body":"the question"}`)
-	if status != 200 {
-		t.Fatalf("seed post: %d %s", status, raw)
-	}
-	quotedID, quotedReplyTo := chatFields(t, raw)
-	if quotedReplyTo != "" {
+	quotedID, quotedServed := postedChatRead(t, srv.URL, tok, `{"to":"owner","body":"the question"}`)
+	if _, quotedReplyTo := chatFields(t, quotedServed); quotedReplyTo != "" {
 		t.Fatalf("a plain post must carry no link, got %q", quotedReplyTo)
 	}
 
-	status, raw = postedChat(t, srv.URL, tok,
+	replyID, replyServed := postedChatRead(t, srv.URL, tok,
 		`{"to":"owner","body":"the answer","reply_to":"`+quotedID+`"}`)
-	if status != 200 {
-		t.Fatalf("reply post: %d %s", status, raw)
-	}
-	replyID, replyTo := chatFields(t, raw)
-	if replyTo != quotedID {
-		t.Fatalf("the POST response must carry the link, got %q want %q", replyTo, quotedID)
+	if _, replyTo := chatFields(t, replyServed); replyTo != quotedID {
+		t.Fatalf("the served message must carry the link, got %q want %q", replyTo, quotedID)
 	}
 
-	// The decisive half: read it back off the wire. The POST response is built
-	// from the in-memory row the handler just made, so it would still look right
-	// if the link were never persisted.
+	// The decisive half: read it back off the wire a SECOND time, through the
+	// raw listing, so a serving path that resolved the link only on the first
+	// read cannot pass either.
 	status, listed := doRaw(t, "GET", srv.URL+"/api/chat?ids="+replyID, tok, "", nil)
 	if status != 200 {
 		t.Fatalf("re-read: %d %s", status, listed)
@@ -150,12 +185,8 @@ func TestChatReplyTo_QuotingAnotherConversationIsAccepted(t *testing.T) {
 		{"c-otherthread", "a line in another thread"},
 		{"c-bystanders", "the sentence worth stepping in about"},
 	} {
-		status, raw := postedChat(t, srv.URL, tok,
+		_, raw := postedChatRead(t, srv.URL, tok,
 			`{"to":"owner","body":"stepping in about `+tc.id+`","reply_to":"`+tc.id+`"}`)
-		if status != 200 {
-			t.Fatalf("reply_to=%s must be ACCEPTED since 2026-08-21, got %d %s",
-				tc.id, status, raw)
-		}
 		if _, replyTo := chatFields(t, raw); replyTo != tc.id {
 			t.Fatalf("the cross-conversation link must be stored, got %q want %q",
 				replyTo, tc.id)
@@ -193,12 +224,8 @@ func TestChatReplyTo_ReplyingToWhatTheOtherPartySentYou(t *testing.T) {
 		t.Fatalf("seed: %v", err)
 	}
 
-	status, raw := postedChat(t, srv.URL, tok,
+	_, raw := postedChatRead(t, srv.URL, tok,
 		`{"to":"owner","body":"好，我接","reply_to":"c-fromowner"}`)
-	if status != 200 {
-		t.Fatalf("replying to what the peer sent you must be accepted, got %d %s",
-			status, raw)
-	}
 	if _, replyTo := chatFields(t, raw); replyTo != "c-fromowner" {
 		t.Fatalf("the link must be stored, got %q", replyTo)
 	}

@@ -375,7 +375,34 @@ func openPlainCard(t *testing.T, api *apiServer, actor string) replyCardDTO {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("create card: %d %s", rec.Code, rec.Body.String())
 	}
-	return decodeBody[replyCardDTO](t, rec)
+	return createdCardView(t, api, rec)
+}
+
+// createdCardView turns a create_reply_card recorder into the full card view.
+//
+// 🔴 T-91 RESHAPED create_reply_card's ANSWER, and this helper is where the
+// tests absorb it. The write answers a receipt — {id, chat_message_id,
+// created_ts, attachments} — because the summary, body and options were all
+// the caller's own bytes one line earlier. The two ids ARE news (both minted
+// here) and so are the attachment ids (an inline upload has none until the
+// server mints one), which is why those four survive.
+//
+// Every helper below that used to read the whole card off the create response
+// now reads it through get_reply_card, which is the door the cockpit's own
+// per-card refetch uses. Tests that were reaching into the create response for
+// body/options/task were not pinning the create SHAPE — they were using it as
+// a free read, and this keeps that read honest by making it a read.
+func createdCardView(t *testing.T, api *apiServer, rec *httptest.ResponseRecorder) replyCardDTO {
+	t.Helper()
+	receipt := decodeBody[replyCardCreateReceiptDTO](t, rec)
+	if receipt.ID == "" {
+		t.Fatalf("create receipt carried no card id: %s", rec.Body.String())
+	}
+	fresh := getReplyCardRaw(t, api, receipt.ID)
+	if fresh.Code != http.StatusOK {
+		t.Fatalf("get_reply_card %s: %d %s", receipt.ID, fresh.Code, fresh.Body.String())
+	}
+	return decodeBody[replyCardDTO](t, fresh)
 }
 
 // openPlainCardRaw is openPlainCard without the 200 assertion — the REFUSAL
@@ -404,7 +431,7 @@ func openBoundCard(t *testing.T, api *apiServer, actor, taskID, stepID string) r
 	if rec.Code != http.StatusOK {
 		t.Fatalf("create bound card: %d %s", rec.Code, rec.Body.String())
 	}
-	return decodeBody[replyCardDTO](t, rec)
+	return createdCardView(t, api, rec)
 }
 
 // createCardRaw posts an arbitrary create body.

@@ -143,7 +143,16 @@ export function TaskReplyCard({
       await api.answerReplyCard(replyCardId, input);
       setActionError(null);
       setAnsweredOpen(true); // you just answered — show the result, not a stub
-      await refetch();
+      // The answer is IN — the card is one-shot, so a rejection here would show
+      // answerError next to an ask that can never be answered again.
+      try {
+        await refetch();
+      } catch (e) {
+        console.warn(
+          "TaskReplyCard: post-answer refetch failed (the answer was recorded)",
+          e
+        );
+      }
     } catch (e) {
       console.warn("TaskReplyCard: answer failed", e);
       setActionError(t.replies.answerError);
@@ -155,7 +164,15 @@ export function TaskReplyCard({
     try {
       await api.reanswerReplyCard(replyCardId, input);
       setActionError(null);
-      await refetch();
+      // Same for the revision: it is recorded before this read is sent.
+      try {
+        await refetch();
+      } catch (e) {
+        console.warn(
+          "TaskReplyCard: post-re-answer refetch failed (the answer was recorded)",
+          e
+        );
+      }
     } catch (e) {
       console.warn("TaskReplyCard: re-answer failed", e);
       setActionError(t.replies.answerError);

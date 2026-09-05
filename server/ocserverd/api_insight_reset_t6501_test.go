@@ -81,15 +81,21 @@ func TestResetInsight_PutsTheFactorySeedBack(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("reset: status=%d body=%s", rec.Code, rec.Body.String())
 	}
-	var dto insightDTO
+	// T-91: reset_insight answers a RECEIPT, not the document. The claim this
+	// test makes is unchanged — the factory seed is what is now stored, verbatim
+	// — but the receipt states it with a hash instead of 2,687 characters the
+	// caller can already read through get_insight. The verbatim comparison did
+	// not weaken: sha256 over the seed is a stronger equality than the eyeball
+	// one, and size_chars still cross-checks the length independently.
+	var dto insightReceiptDTO
 	if err := json.Unmarshal(rec.Body.Bytes(), &dto); err != nil {
-		t.Fatalf("decode insightDTO: %v", err)
+		t.Fatalf("decode insightReceiptDTO: %v", err)
 	}
 	if !dto.IsDefault {
 		t.Fatal("is_default must flip to TRUE — false says a person wrote what the reset just restored, and the cockpit renders it that way")
 	}
-	if dto.Text != seed {
-		t.Fatalf("reset answered %d chars, want the %d-char factory seed verbatim", len(dto.Text), len(seed))
+	if dto.Sha256 != receiptSha256(seed) {
+		t.Fatalf("reset receipt sha256 %q is not the factory seed's", dto.Sha256)
 	}
 	if dto.SizeChars != utf8.RuneCountInString(seed) {
 		t.Fatalf("size_chars %d disagrees with the served seed (%d runes)", dto.SizeChars, utf8.RuneCountInString(seed))

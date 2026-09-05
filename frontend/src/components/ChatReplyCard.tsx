@@ -25,9 +25,14 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useI18n } from "../i18n";
-import type { ReplyCard, ReplyCardAnswerInput } from "../api/adapter";
+import type {
+  ReplyCard,
+  ReplyCardWriteReceipt,
+  ReplyCardAnswerInput,
+} from "../api/adapter";
 import { api } from "../api";
 import { useHashRoute } from "../lib/hashRoute";
+import { mergeReplyCardWrite } from "../lib/replyCardReceipt";
 import { Markdown } from "./Markdown";
 import {
   ReplyCardAnsweredBody,
@@ -97,12 +102,37 @@ export function ChatReplyCard({
   // ones a peer just opened), which is why useReplyCards holds ids instead.
   const readGenRef = useRef(0);
 
-  /** Take the newest known truth for this card: a fresh read, or the card a
-   * write of ours just returned. Both invalidate every read still in flight. */
-  const commitCard = useCallback((fresh: ReplyCard) => {
+  /** Fold OUR OWN write's answer into the card on screen — same generation
+   * bump, but a MERGE rather than a replacement (T-91).
+   *
+   * 🔴 The write no longer echoes the card. answer/re-answer/expire act
+   * on a card somebody else opened; the question, its options, its attachments
+   * and its task ref are not what these writes decide, so the receipt drops
+   * them — and this component RENDERS them (ReplyCardBody reads
+   * `card.task.title`). Replacing the card with the write's answer would blank
+   * that, with nothing thrown and nothing on screen saying so. So only the
+   * transition is taken from the write; the rest stays as this card read it.
+   * Under the OLD whole-card answer the two were the same value, which is why
+   * this half could land BEFORE the server change — that ordering is history
+   * now, both halves are in the same package. */
+  const mergeWrite = useCallback((receipt: ReplyCardWriteReceipt) => {
     ++readGenRef.current;
-    statusRef.current = fresh.status;
-    setCard(fresh);
+    statusRef.current = receipt.status;
+    // No card on screen ⇒ NOTHING TO MERGE ONTO, and the receipt is not a card:
+    // it carries no question, no options, no attachments and no task ref, so
+    // storing it would paint a blank card. Keep null rather than fabricate one.
+    //
+    // 🔴 DO NOT WRITE "the read already on its way will supply it" HERE — an
+    // earlier version of this comment did, and it was wrong: the `++readGenRef`
+    // on the first line of this callback is exactly what makes `refetch` drop
+    // its in-flight result (it compares gen against readGenRef and returns).
+    // So on this branch there is no recovery read; the card simply stays null
+    // until something mounts a new one.
+    // That costs nothing today because the branch is unreachable — the buttons
+    // that call this only exist once the card has rendered — but if it ever
+    // becomes reachable, the fix is to start a read here, not to trust one that
+    // this line has already invalidated.
+    setCard((prev) => (prev ? mergeReplyCardWrite(prev, receipt) : prev));
     setLoadError(false);
   }, []);
 
@@ -179,7 +209,7 @@ export function ChatReplyCard({
   //
   // ⚠️ The old cost of dropping the answer-path refetch — "with the SSE stream
   // down the card no longer flips in place" — no longer applies: doAnswer adopts
-  // the write's own response (via commitCard). What stayed dropped is the second
+  // the write's own response (via mergeWrite). What stayed dropped is the second
   // GET, which is all step 8 was ever about. refresh() remains the unconditional
   // path for a 409, where somebody ELSE's write means no delta of ours is coming.
   //
@@ -198,7 +228,7 @@ export function ChatReplyCard({
       // the fresh card, so this card flips in place even with the stream down —
       // and it still costs ZERO extra requests, so the one-round budget above is
       // untouched (the delta's refetch remains the only round).
-      commitCard(await api.answerReplyCard(replyCardId, input));
+      mergeWrite(await api.answerReplyCard(replyCardId, input));
       setActionError(null);
     } catch (e) {
       console.warn("ChatReplyCard: answer failed", e);
@@ -212,9 +242,19 @@ export function ChatReplyCard({
       // Adopt first (so a read in flight can no longer un-revise this card),
       // then still refetch — see the asymmetry note above: the SSE path does not
       // fire for a terminal card, and the one-round budget is spent HERE.
-      commitCard(await api.reanswerReplyCard(replyCardId, input));
+      mergeWrite(await api.reanswerReplyCard(replyCardId, input));
       setActionError(null);
-      await refetch();
+      // The revision is recorded; this refetch exists only because the terminal
+      // delta may be dropped. Its failure costs a stale card, not a lost answer —
+      // so it must not reach answerError, which claims the write did not happen.
+      try {
+        await refetch();
+      } catch (e) {
+        console.warn(
+          "ChatReplyCard: post-re-answer refetch failed (the answer was recorded)",
+          e
+        );
+      }
     } catch (e) {
       console.warn("ChatReplyCard: re-answer failed", e);
       setActionError(t.replies.answerError);

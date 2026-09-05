@@ -718,7 +718,20 @@ def test_create_reply_card_descriptor_matches_what_the_server_accepts(
         "linked_task": None,
     })
     assert result.get("isError") is not True, result
-    card = result["structuredContent"]
+    # T-91: create_reply_card answers replyCardCreateReceiptDTO — the ids the
+    # caller cannot compute plus the resolved attachment list — not the card.
+    # Key-set equality: only asserting `id` is present would stay green if the
+    # whole card came back, because a card carries an id too.
+    receipt = result["structuredContent"]
+    assert set(receipt) == {
+        "id", "chat_message_id", "created_ts", "attachments"
+    }, receipt
+    # The descriptor-parity claim is about what the server STORED from the
+    # fields the descriptor advertises, so it is read off the card itself.
+    got = client.get(f"/api/reply-cards/{receipt['id']}",
+                     headers=_auth(agent_a.token))
+    assert got.status_code == 200, f"{got.status_code} {got.text}"
+    card = got.json()
     assert card["select_mode"] == "multi", card
     assert card["options"] == [{"text": "甲", "ai_pick": True},
                                {"text": "乙", "ai_pick": False}], card

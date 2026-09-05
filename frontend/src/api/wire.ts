@@ -139,6 +139,13 @@ export type WireReplyCard = components["schemas"]["ReplyCardDTO"];
  * refs into the shared chat-attachment store. */
 export type WireReplyCardAnswer = components["schemas"]["ReplyCardAnswerDTO"];
 
+/** Mirrors `ReplyCardReceiptDTO` (T-91): what answer / re-answer / expire
+ * answer with — the transition ONLY (status + answer + the two stamps), plus
+ * the task/step the write released. NOT a card: the question, its options, its
+ * attachments and its task ref are not on it. */
+export type WireReplyCardReceipt =
+  components["schemas"]["ReplyCardReceiptDTO"];
+
 /** Mirrors `ReplyCardOptionDTO`: one frozen quick-reply choice. `ai_pick` is
  * the ONLY carrier of "this is the AI's own recommendation" — it replaced the
  * positional `options[0]` convention, so POSITION MEANS NOTHING here. */

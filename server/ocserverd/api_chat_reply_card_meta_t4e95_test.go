@@ -27,21 +27,18 @@ func TestChatPostCarriesReplyCardIDAndReplyToOnTheSameMessage(t *testing.T) {
 	srv, secret, _ := newWiredTestServerWithDB(t)
 	tok, _ := mintJWT("mira", "agent", 300, secret, time.Now().Unix(), "")
 
-	status, raw := postedChat(t, srv.URL, tok, `{"to":"owner","body":"the question"}`)
-	if status != 200 {
-		t.Fatalf("seed post: %d %s", status, raw)
-	}
-	target, _ := chatFields(t, raw)
+	target, _ := postedChatRead(t, srv.URL, tok, `{"to":"owner","body":"the question"}`)
 	if target == "" {
-		t.Fatalf("no seed id: %s", raw)
+		t.Fatalf("no seed id")
 	}
 
-	status, raw = postedChat(t, srv.URL, tok,
+	// T-91: post_chat answers {id, ts, attachments}, so the two fields this test
+	// is about are read off the SERVED message. That is the honest surface for
+	// the claim anyway — meta.reply_card_id is what the COCKPIT reads, and the
+	// cockpit reads it from a served message, never from the write's answer.
+	_, raw := postedChatRead(t, srv.URL, tok,
 		`{"to":"owner","body":"an ask that also quotes","reply_to":"`+target+
 			`","meta":{"reply_card_id":"rc-forged000000"}}`)
-	if status != 200 {
-		t.Fatalf("post with both: %d %s", status, raw)
-	}
 	// The chat DTO has NO top-level reply_card_id — `meta.reply_card_id` is
 	// the field the cockpit reads, so that is the field asserted here.
 	var msg struct {

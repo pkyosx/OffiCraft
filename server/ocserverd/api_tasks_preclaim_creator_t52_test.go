@@ -42,7 +42,7 @@ func unboundOutsourceTask(t *testing.T, api *apiServer, creator string) taskDTO 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("create 發包票: %d %s", rec.Code, rec.Body.String())
 	}
-	task := decodeBody[taskCreateResultDTO](t, rec).Task
+	task := createdTaskView(t, api, rec)
 	if task.ExecutorKind != TaskExecutorOutsource || task.ExecutorID != "" {
 		t.Fatalf("fixture broken: a 發包票 must be born unassigned, got %+v", task)
 	}

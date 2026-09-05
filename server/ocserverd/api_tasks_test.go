@@ -308,7 +308,21 @@ func createAdHocTask(t *testing.T, api *apiServer, executor string) taskDTO {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("create task: %d %s", rec.Code, rec.Body.String())
 	}
-	return decodeBody[taskCreateResultDTO](t, rec).Task
+	return createdTaskView(t, api, rec)
+}
+
+// createdTaskView turns a create_task recorder into the full task view.
+//
+// 🔴 T-91 RESHAPED create_task's ANSWER, and this helper is where the tests
+// absorb it. The write now answers with {task_id, task_no, deduped} — the same
+// posture submit_plan took at T-a98d — so a caller that wants the whole ticket
+// reads get_task, which is what an agent does too. Tests that were reaching
+// through `.Task` for a field were not pinning the create SHAPE; they were
+// using the create response as a cheap read, and this keeps that read honest by
+// making it an actual read.
+func createdTaskView(t *testing.T, api *apiServer, rec *httptest.ResponseRecorder) taskDTO {
+	t.Helper()
+	return getTaskView(t, api, decodeBody[taskCreateResultDTO](t, rec).TaskID)
 }
 
 // submitPlan replaces the plan as the executor and returns the task view. The
@@ -418,7 +432,10 @@ func TestBoundCardArmsTheGateStepAndFlipsTheTask(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("open bound card: %d %s", rec.Code, rec.Body.String())
 	}
-	card := decodeBody[replyCardDTO](t, rec)
+	// T-91: create_reply_card answers a receipt, so the CARD is read back
+	// through get_reply_card — the same door the cockpit's per-card refetch
+	// uses. The claim is unchanged: an armed card is waiting and knows its task.
+	card := createdCardView(t, api, rec)
 	if card.Status != replyCardStatusWaiting {
 		t.Fatalf("armed card must wait: %+v", card)
 	}
@@ -690,7 +707,8 @@ func TestBoundCardArmsANonGatePlainStep(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("binding a plain step must 200, got %d %s", rec.Code, rec.Body.String())
 	}
-	card := decodeBody[replyCardDTO](t, rec)
+	// T-91: read the card back — the create write now answers a receipt.
+	card := createdCardView(t, api, rec)
 	if card.Status != replyCardStatusWaiting {
 		t.Fatalf("armed card must wait: %+v", card)
 	}
@@ -810,24 +828,24 @@ func TestCreateTaskDedupesOnNonTerminalAndReopensPastTerminal(t *testing.T) {
 	}
 	// Same key while the task is open → the EXISTING task, deduped:true.
 	again, code := createTypedTask(t, api, "review-pr", "123")
-	if code != http.StatusOK || !again.Deduped || again.Task.ID != first.Task.ID {
+	if code != http.StatusOK || !again.Deduped || again.TaskID != first.TaskID {
 		t.Fatalf("dedupe hit: code=%d deduped=%v id=%s (want %s)",
-			code, again.Deduped, again.Task.ID, first.Task.ID)
+			code, again.Deduped, again.TaskID, first.TaskID)
 	}
 	// A DIFFERENT key never collides.
 	other, code := createTypedTask(t, api, "review-pr", "456")
-	if code != http.StatusOK || other.Deduped || other.Task.ID == first.Task.ID {
+	if code != http.StatusOK || other.Deduped || other.TaskID == first.TaskID {
 		t.Fatalf("different key must mint fresh: %+v", other)
 	}
 	// Close the first task; the same key then mints a FRESH task (H2).
 	rec := httptest.NewRecorder()
 	api.HandleTerminateTaskApiTasksTaskIdTerminatePost(rec,
-		taskReq(t, "POST", "/x", nil, "owner", "owner"), first.Task.ID)
+		taskReq(t, "POST", "/x", nil, "owner", "owner"), first.TaskID)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("terminate: %d %s", rec.Code, rec.Body.String())
 	}
 	reopened, code := createTypedTask(t, api, "review-pr", "123")
-	if code != http.StatusOK || reopened.Deduped || reopened.Task.ID == first.Task.ID {
+	if code != http.StatusOK || reopened.Deduped || reopened.TaskID == first.TaskID {
 		t.Fatalf("terminal twin must not block a reopen: %+v", reopened)
 	}
 }
@@ -921,8 +939,16 @@ func TestCreateTypedTaskAssignedToMemberIsThatMembersAlone(t *testing.T) {
 	if out.Deduped {
 		t.Fatalf("blocked override must not have squatted the assignee's dedupe slot: %+v", out)
 	}
-	if out.Task.ExecutorKind != TaskExecutorOutsource {
-		t.Fatalf("assignee 發包 must land outsource-tracked, got %+v", out.Task)
+	// T-91: the create receipt no longer carries the executor fields, so the
+	// track this create landed on is read off the STORED ROW. That is a
+	// stronger assertion than the old one anyway — it pins what was written,
+	// not what the handler chose to say about it.
+	stored, err := api.dal.GetTask(out.TaskID)
+	if err != nil || stored == nil {
+		t.Fatalf("load created task %q: %v", out.TaskID, err)
+	}
+	if stored.ExecutorKind != TaskExecutorOutsource {
+		t.Fatalf("assignee 發包 must land outsource-tracked, got %+v", stored)
 	}
 }
 
@@ -961,8 +987,14 @@ func TestCreateTypedTaskWithOutsourceAssigneeAdmitsAny正職(t *testing.T) {
 				tc.sub, tc.extra != nil, rec.Code, rec.Body.String())
 		}
 		out := decodeBody[taskCreateResultDTO](t, rec)
-		if out.Task.ExecutorKind != TaskExecutorOutsource || out.Task.ExecutorID != "" {
-			t.Fatalf("%s: 發包 create must land unassigned outsource, got %+v", tc.sub, out.Task)
+		// T-91: read the stored row — the create receipt carries neither
+		// executor field, and the row is what the claim is actually about.
+		stored, err := api.dal.GetTask(out.TaskID)
+		if err != nil || stored == nil {
+			t.Fatalf("%s: load created task %q: %v", tc.sub, out.TaskID, err)
+		}
+		if stored.ExecutorKind != TaskExecutorOutsource || stored.ExecutorID != "" {
+			t.Fatalf("%s: 發包 create must land unassigned outsource, got %+v", tc.sub, stored)
 		}
 	}
 }
@@ -1158,7 +1190,7 @@ func TestCreateTaskDispatchTargetMachineMustResolve(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("concrete machine target must 200, got %d %s", rec.Code, rec.Body.String())
 	}
-	stored, _ := api.dal.GetTask(decodeBody[taskCreateResultDTO](t, rec).Task.ID)
+	stored, _ := api.dal.GetTask(createdTaskView(t, api, rec).ID)
 	if stored == nil || stored.OutsourceMachine != "m-real" {
 		t.Fatalf("the target machine must land on the task row: %+v", stored)
 	}
@@ -1201,7 +1233,7 @@ func storedTaskFor(t *testing.T, api *apiServer, rec *httptest.ResponseRecorder)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("create: %d %s", rec.Code, rec.Body.String())
 	}
-	stored, err := api.dal.GetTask(decodeBody[taskCreateResultDTO](t, rec).Task.ID)
+	stored, err := api.dal.GetTask(createdTaskView(t, api, rec).ID)
 	if err != nil || stored == nil {
 		t.Fatalf("re-read task: %v", err)
 	}
@@ -1318,7 +1350,7 @@ func TestCreateTypedTaskWithManualOutsourceAssigneeIsNotADispatch(t *testing.T) 
 		if rec.Code != http.StatusOK {
 			t.Fatalf("create: %d %s", rec.Code, rec.Body.String())
 		}
-		stored, err := api.dal.GetTask(decodeBody[taskCreateResultDTO](t, rec).Task.ID)
+		stored, err := api.dal.GetTask(createdTaskView(t, api, rec).ID)
 		if err != nil || stored == nil {
 			t.Fatalf("re-read task: %v", err)
 		}
@@ -2033,8 +2065,8 @@ func TestTaskCloseNudgeIsAddressedToTheExecutorAlone(t *testing.T) {
 			}
 			// Nobody connects: the whole point is that this reaches an
 			// executor that was not there when its task closed.
-			tc.close(t, api, created.Task.ID)
-			rows := taskCloseNotices(t, api, "m-exec", created.Task.ID)
+			tc.close(t, api, created.TaskID)
+			rows := taskCloseNotices(t, api, "m-exec", created.TaskID)
 			if len(rows) != 1 {
 				t.Fatalf("executor must get exactly one durable nudge, got %d: %v",
 					len(rows), rows)
@@ -2042,7 +2074,7 @@ func TestTaskCloseNudgeIsAddressedToTheExecutorAlone(t *testing.T) {
 			if rows[0].Body == "" {
 				t.Fatalf("the nudge must carry the rendered document, not an empty body")
 			}
-			if got := taskCloseNotices(t, api, wireOwnerID, created.Task.ID); len(got) != 0 {
+			if got := taskCloseNotices(t, api, wireOwnerID, created.TaskID); len(got) != 0 {
 				t.Fatalf("the close nudge is the EXECUTOR's, never the owner's: %v", got)
 			}
 		})
@@ -2089,9 +2121,9 @@ func TestTaskCloseNudgeTextComesFromTheDocument(t *testing.T) {
 	if code != http.StatusOK {
 		t.Fatalf("create: %d", code)
 	}
-	driveTaskDone(t, api, created.Task.ID, "m-exec")
+	driveTaskDone(t, api, created.TaskID, "m-exec")
 
-	rows := taskCloseNotices(t, api, "m-exec", created.Task.ID)
+	rows := taskCloseNotices(t, api, "m-exec", created.TaskID)
 	if len(rows) != 1 {
 		t.Fatalf("executor must get exactly one nudge, got %d: %v", len(rows), rows)
 	}
@@ -2107,7 +2139,7 @@ func TestTaskCloseNudgeTextComesFromTheDocument(t *testing.T) {
 	// and it is what tells two simultaneous close-outs apart. The body now opens
 	// by telling the agent to get_task and read type_key from there.
 	wantHead := mustRender(t, spec, head, map[string]string{
-		"task_no":   TaskNo(created.Task.ID),
+		"task_no":   TaskNo(created.TaskID),
 		"closed_by": "m-exec",
 	})
 	if !strings.HasPrefix(got, wantHead) {
@@ -2155,15 +2187,15 @@ func TestTaskCloseNudgeFallsBackToTheRawKeyWhenTheManualIsGone(t *testing.T) {
 	if _, err := api.dal.DeleteTaskManual("review-pr"); err != nil {
 		t.Fatal(err)
 	}
-	driveTaskDone(t, api, created.Task.ID, "m-exec")
+	driveTaskDone(t, api, created.TaskID, "m-exec")
 
-	rows := taskCloseNotices(t, api, "m-exec", created.Task.ID)
+	rows := taskCloseNotices(t, api, "m-exec", created.TaskID)
 	if len(rows) != 1 {
 		t.Fatalf("a task whose manual is gone is still owed a nudge, got %d rows", len(rows))
 	}
 	spec, head, _ := splitSeed(t, api, docKindTaskCloseout)
 	wantHead := mustRender(t, spec, head, map[string]string{
-		"task_no":   TaskNo(created.Task.ID),
+		"task_no":   TaskNo(created.TaskID),
 		"closed_by": "m-exec",
 	})
 	if !strings.HasPrefix(rows[0].Body, wantHead) {
@@ -2194,9 +2226,9 @@ func TestTaskCloseNudgeStaysSilentWhenTheDocumentCannotRender(t *testing.T) {
 	if code != http.StatusOK {
 		t.Fatalf("create: %d", code)
 	}
-	driveTaskDone(t, api, created.Task.ID, "m-exec")
+	driveTaskDone(t, api, created.TaskID, "m-exec")
 
-	if rows := taskCloseNotices(t, api, "m-exec", created.Task.ID); len(rows) != 0 {
+	if rows := taskCloseNotices(t, api, "m-exec", created.TaskID); len(rows) != 0 {
 		t.Fatalf("an unrenderable 〈任務收尾〉 must send nothing, not an empty or "+
 			"substituted nudge; the executor received: %v", rows)
 	}
@@ -2215,8 +2247,8 @@ func TestTaskCloseNudgeStaysSilentWhenTheDocumentCannotRender(t *testing.T) {
 	if code != http.StatusOK {
 		t.Fatalf("create: %d", code)
 	}
-	driveTaskDone(t, api, second.Task.ID, "m-exec")
-	if rows := taskCloseNotices(t, api, "m-exec", second.Task.ID); len(rows) != 1 {
+	driveTaskDone(t, api, second.TaskID, "m-exec")
+	if rows := taskCloseNotices(t, api, "m-exec", second.TaskID); len(rows) != 1 {
 		t.Fatalf("positive control: an intact document must still nudge, got %d rows", len(rows))
 	}
 }
@@ -2621,7 +2653,19 @@ func TestTaskMessageBodyCarriesTaskNo(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("post message: %d %s", rec.Code, rec.Body.String())
 	}
-	msg := decodeBody[chatMessageDTO](t, rec)
+	// T-91: post_task_message answers a RECEIPT — {id, ts, attachments} — so the
+	// body and the meta are read off the STORED MESSAGE the receipt's id names.
+	// That is the right place for this claim anyway: what matters is the text
+	// the executor will READ, not what the write chose to say about it.
+	receipt := decodeBody[chatPostReceiptDTO](t, rec)
+	if receipt.ID == "" || receipt.TS <= 0 {
+		t.Fatalf("the message receipt must carry the minted id and the server stamp: %+v", receipt)
+	}
+	stored, err := api.dal.ListChatByIDs([]string{receipt.ID})
+	if err != nil || len(stored) != 1 {
+		t.Fatalf("load the message the receipt names: %v %v", stored, err)
+	}
+	msg := newChatMessageDTO(stored[0])
 	if want := "[" + TaskNo(task.ID) + "] 先做 P0 的部分"; msg.Body != want {
 		t.Fatalf("body: want %q, got %q", want, msg.Body)
 	}
@@ -2666,23 +2710,35 @@ func TestMarkDuplicateClosesTaskPointsAtOriginal(t *testing.T) {
 	if code != http.StatusOK {
 		t.Fatalf("create dup: %d", code)
 	}
-	rec := markDuplicate(t, api, dupCreated.Task.ID, original.Task.ID,
-		dupCreated.Task.ExecutorID, "agent")
+	// T-91: the executor comes off the STORED ROW, not the create receipt —
+	// which no longer carries it. Same value, honest source.
+	dupRow, err := api.dal.GetTask(dupCreated.TaskID)
+	if err != nil || dupRow == nil {
+		t.Fatalf("load duplicate task %q: %v", dupCreated.TaskID, err)
+	}
+	rec := markDuplicate(t, api, dupCreated.TaskID, original.TaskID,
+		dupRow.ExecutorID, "agent")
 	if rec.Code != http.StatusOK {
 		t.Fatalf("mark_duplicate: %d %s", rec.Code, rec.Body.String())
 	}
-	got := decodeBody[taskDTO](t, rec)
+	// T-91: mark_duplicate answers taskWriteReceiptDTO, not the whole taskDTO.
+	// The three fields this test cares about — the derived status, the fold
+	// target and the terminal stamp — are exactly what the receipt keeps, and
+	// they are on it for the reason this test states: none of them is
+	// predictable from having CALLED the verb (mark_duplicate can decline to
+	// close).
+	got := decodeBody[taskWriteReceiptDTO](t, rec)
 	if got.Status != TaskStatusDuplicated {
 		t.Fatalf("status: want duplicated, got %q", got.Status)
 	}
-	if got.DuplicateOf != original.Task.ID {
-		t.Fatalf("duplicate_of: want %q, got %q", original.Task.ID, got.DuplicateOf)
+	if got.DuplicateOf != original.TaskID {
+		t.Fatalf("duplicate_of: want %q, got %q", original.TaskID, got.DuplicateOf)
 	}
 	if got.ClosedTS == nil || *got.ClosedTS <= 0 {
 		t.Fatalf("closed_ts must stamp on the terminal transition, got %v", got.ClosedTS)
 	}
-	if rows := taskCloseNotices(t, api, dupCreated.Task.ExecutorID,
-		dupCreated.Task.ID); len(rows) != 1 {
+	if rows := taskCloseNotices(t, api, dupRow.ExecutorID,
+		dupCreated.TaskID); len(rows) != 1 {
 		t.Fatalf("a duplicated close must tell its executor the ticket is closed "+
 			"(owner ruling, T-91 — this used to assert the opposite), got %d rows", len(rows))
 	}
