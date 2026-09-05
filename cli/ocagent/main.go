@@ -238,6 +238,20 @@ func realMain(argv []string, env func(string) string, in io.Reader, out io.Write
 		return cmdVersion(out)
 
 	case "-h", "--help", "help":
+		// THE THREE ZERO-CONFIGURATION SURFACES, spelled out because a survey of
+		// this binary once concluded from the --help OUTPUT that `help` was not
+		// accepted, and proposed adding it. It has always been accepted here:
+		//
+		//	ocagent help / --help / -h   → usage on stdout, exit 0 (asking is not an error)
+		//	ocagent            (no args) → usage on stdout, exit 2 (a launch that named nothing IS)
+		//	ocagent <unknown>            → the unknown-subcommand line, then usage, exit 2
+		//
+		// `help` is absent from planeASubcommands on purpose: that list is the
+		// SYNOPSIS — the work this binary does — and a reader who is already
+		// looking at the help text does not need it advertised back. Absent from
+		// the synopsis is not the same as unhandled, and only the switch decides
+		// which. All three surfaces are pinned by tests in config_test.go; none of
+		// them reads OC_BASE, so none carries the mis-wire guard.
 		usage(out)
 		return 0
 
