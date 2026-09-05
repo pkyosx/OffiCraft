@@ -89,11 +89,20 @@ type githubReleaseAsset struct {
 
 // githubRelease is the slice of GitHub's releases list body this server reads.
 type githubRelease struct {
-	TagName    string               `json:"tag_name"`
-	HTMLURL    string               `json:"html_url"`
-	Draft      bool                 `json:"draft"`
-	Prerelease bool                 `json:"prerelease"`
-	Assets     []githubReleaseAsset `json:"assets"`
+	TagName string `json:"tag_name"`
+	HTMLURL string `json:"html_url"`
+	// TargetCommitish is the commit the tag was cut from. It arrives in the
+	// SAME response this server was already fetching, so reading it costs
+	// nothing; upgrade_notice.go needs it to name where an upgrade landed.
+	// ⚠️ GitHub types this field as "commitish", and for a release created
+	// against a branch it can be a branch NAME rather than a sha — every
+	// release this project cuts carries a full sha (verified against the live
+	// API, 2026-09-05), and the one consumer treats a non-sha as material it
+	// simply passes through to a human reader rather than as a fact it acts on.
+	TargetCommitish string               `json:"target_commitish"`
+	Draft           bool                 `json:"draft"`
+	Prerelease      bool                 `json:"prerelease"`
+	Assets          []githubReleaseAsset `json:"assets"`
 }
 
 // updateCheckState is the cached result of the last GitHub probe, guarded by

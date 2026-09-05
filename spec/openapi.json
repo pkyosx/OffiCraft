@@ -8593,6 +8593,92 @@
         "additionalProperties": false,
         "type": "object"
       },
+      "UpgradeInstructionCreateDTO": {
+        "description": "Create one 換版交代單. `body` is the whole of it — what the owner wants the assistant to do — and a blank one is refused: an instruction with no text would be handed over at every upgrade forever while telling its reader nothing.\n\nThere is deliberately NO field saying WHEN it should be delivered. Every open instruction goes out at every upgrade, so one written now and one written seconds before a release behave identically. An earlier design bound each instruction to the commit it was written for; that was dropped once instructions became durable rows, because an instruction handed to an unrelated upgrade is not lost — it is still open, and it goes out again.",
+        "properties": {
+          "body": {
+            "title": "Body",
+            "type": "string"
+          }
+        },
+        "required": [
+          "body"
+        ],
+        "title": "UpgradeInstructionCreateDTO",
+        "additionalProperties": false,
+        "type": "object"
+      },
+      "UpgradeInstructionDTO": {
+        "description": "One 換版交代單 — an instruction the owner leaves for the assistant, handed to her at every station upgrade until somebody ticks it off.\n\nIt is a ROW, not a message, and `done` is the whole difference: a message is consumed by whoever happens to read it and nothing afterwards records that the work behind it ever happened. An instruction that is still open is handed over again at the NEXT upgrade, and the one after that — which is exactly why nobody has to reason about WHICH upgrade will carry it, and why the owner may write one at any moment rather than just before a release.\n\n`done_by` and `done_ts` are zero-valued while the instruction is open. They are kept apart from `done` because \"it was ticked\" and \"who ticked it, when\" are different facts, and only the second one survives a disagreement about whether the work happened.",
+        "properties": {
+          "body": {
+            "title": "Body",
+            "type": "string"
+          },
+          "created_by": {
+            "title": "Created By",
+            "type": "string"
+          },
+          "created_ts": {
+            "title": "Created Ts",
+            "type": "number"
+          },
+          "done": {
+            "default": false,
+            "title": "Done",
+            "type": "boolean"
+          },
+          "done_by": {
+            "title": "Done By",
+            "type": "string"
+          },
+          "done_ts": {
+            "default": 0,
+            "title": "Done Ts",
+            "type": "number"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "body",
+          "created_ts",
+          "created_by",
+          "done",
+          "done_ts",
+          "done_by"
+        ],
+        "title": "UpgradeInstructionDTO",
+        "additionalProperties": false,
+        "type": "object"
+      },
+      "UpgradeInstructionsDTO": {
+        "description": "Response of `GET /api/upgrade-instructions`: every 換版交代單 this station holds, open ones first and each group oldest→newest (the hand-over order, so they read in the order they were asked for).\n\n`open_count` is NOT a convenience over the length of `instructions` — it counts the open ones only, and it is the number the cockpit shows. This design has exactly one failure mode, an instruction nobody ever acts on, and without a visible open count that failure is completely silent. That is why the count is part of the contract instead of something each client derives for itself.",
+        "properties": {
+          "instructions": {
+            "items": {
+              "$ref": "#/components/schemas/UpgradeInstructionDTO"
+            },
+            "title": "Instructions",
+            "type": "array"
+          },
+          "open_count": {
+            "default": 0,
+            "title": "Open Count",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "instructions",
+          "open_count"
+        ],
+        "title": "UpgradeInstructionsDTO",
+        "additionalProperties": false,
+        "type": "object"
+      },
       "VersionDTO": {
         "description": "Build identity: app version, git sha, and the MCP catalog hash (M1 §3.9).\n\n`version` is the single human-facing version identity: an OFFICIAL package\n(bin/release) is stamped with its GitHub Release tag; a self-build keeps the\nhonest \"0.0.0\" (the UI then falls back to git_sha + git_time as the build\nlabel).\n\n`git_time` is the commit time of the running `git_sha` (strict ISO-8601), or\nNone when unavailable (release tarball / no git).\n\n`update_available` drives the software-update card: the server periodically\nasks GitHub Releases (repo pkyosx/OffiCraft, anonymous) for the newest\npublished release (cached, refreshed in the background — unreachable GitHub\nNEVER slows this probe) and reports honestly: True iff the newest admissible\nrelease tag is STRICTLY NEWER than the running `version` under semver\nordering (`latest_version` then carries the tag); running >= latest reads\nFalse, and a version label that does not parse as semver on either side\nreads False (with a server-side log warning) — never a prompt. A\nself-build's \"0.0.0\" sorts below any published release and therefore\nstill prompts. Prereleases are admitted only when the\n`updater_receive_beta` setting is on.\n\n`update_checked_ok_at` is WHEN that check last SUCCEEDED (RFC3339, UTC).\nIt is the freshness of `update_available`, which on its own cannot tell\n\"checked a minute ago, nothing newer\" apart from \"the check has never once\nsucceeded\" (GitHub unreachable, rate-limited, or never run) — both answer\nFalse. A FAILED check NEVER moves it; absent/None means no check has ever\nsucceeded under the current channel (a channel flip resets it). It is\ndeliberately NOT the check cache's TTL anchor — that stays the last\nATTEMPT, so an unreachable GitHub is retried once per TTL, not hammered.",
         "properties": {
@@ -20806,6 +20892,268 @@
           "description": "Trigger a software upgrade to the latest GitHub release.",
           "legacy": {
             "descriptor": "{\n      \"description\": \"Trigger a software upgrade to the latest GitHub release.\",\n      \"inputSchema\": {\n        \"properties\": {},\n        \"type\": \"object\"\n      },\n      \"name\": \"upgrade_station\"\n    }"
+          }
+        }
+      }
+    },
+    "/api/upgrade-instructions": {
+      "get": {
+        "description": "List the 換版交代單 — the standing instructions the owner has left for the assistant, which the station hands over in a chat message every time it upgrades. Open ones come first, each group oldest→newest, and `open_count` counts the open ones only. admin_agent floor: the owner and the assistant; an ordinary agent gets 403. Read this to see what is still waiting — a finished instruction stays in the list, because it is the only evidence that the work was ever picked up.",
+        "operationId": "handle_list_upgrade_instructions_api_upgrade_instructions_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UpgradeInstructionsDTO"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Validation error (unified error envelope)."
+          },
+          "4XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Client error (unified error envelope)."
+          },
+          "5XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Server error (unified error envelope)."
+          }
+        },
+        "summary": "List the 換版交代單 — the standing instructions the owner has left for the assistant, which the station hands over in a chat message every time it upgrades. Open ones come first, each group oldest→newest, and `open_count` counts the open ones only. admin_agent floor: the owner and the assistant; an ordinary agent gets 403. Read this to see what is still waiting — a finished instruction stays in the list, because it is the only evidence that the work was ever picked up.",
+        "x-mcp": {
+          "include": true,
+          "order": 127,
+          "name": "list_upgrade_instructions",
+          "description": "List the 換版交代單 — the standing instructions the owner has left for the assistant, which the station hands over in a chat message every time it upgrades. Open ones come first, each group oldest→newest, and `open_count` counts the open ones only. admin_agent floor: the owner and the assistant; an ordinary agent gets 403. Read this to see what is still waiting — a finished instruction stays in the list, because it is the only evidence that the work was ever picked up.",
+          "legacy": {
+            "descriptor": "{\n        \"description\": \"List the 換版交代單 — the standing instructions the owner has left for the assistant, which the station hands over in a chat message every time it upgrades. Open ones come first, each group oldest→newest, and `open_count` counts the open ones only. admin_agent floor: the owner and the assistant; an ordinary agent gets 403. Read this to see what is still waiting — a finished instruction stays in the list, because it is the only evidence that the work was ever picked up.\",\n        \"inputSchema\": {\n          \"properties\": {},\n          \"required\": [],\n          \"additionalProperties\": false,\n          \"type\": \"object\"\n        },\n        \"name\": \"list_upgrade_instructions\"\n      }"
+          }
+        }
+      },
+      "post": {
+        "description": "Write one 換版交代單 — an instruction for the assistant that the station hands over at its next upgrade, and at every upgrade after that, until somebody ticks it off. OWNER ONLY, and that floor is the point rather than caution: the assistant authoring her own instructions would make the record meaningless. `body` is the whole instruction and a blank one is a 422. There is no delivery-time field — write it whenever you like, the answer does not depend on when you typed it. ⚠️ Nothing here schedules anything: an instruction nobody ticks is handed over again indefinitely, so withdraw a mistake with delete_upgrade_instruction rather than leaving it open.",
+        "operationId": "handle_create_upgrade_instruction_api_upgrade_instructions_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpgradeInstructionCreateDTO"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UpgradeInstructionDTO"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Validation error (unified error envelope)."
+          },
+          "4XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Client error (unified error envelope)."
+          },
+          "5XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Server error (unified error envelope)."
+          }
+        },
+        "summary": "Write one 換版交代單 — an instruction for the assistant that the station hands over at its next upgrade, and at every upgrade after that, until somebody ticks it off. OWNER ONLY, and that floor is the point rather than caution: the assistant authoring her own instructions would make the record meaningless. `body` is the whole instruction and a blank one is a 422. There is no delivery-time field — write it whenever you like, the answer does not depend on when you typed it. ⚠️ Nothing here schedules anything: an instruction nobody ticks is handed over again indefinitely, so withdraw a mistake with delete_upgrade_instruction rather than leaving it open.",
+        "x-mcp": {
+          "include": true,
+          "order": 128,
+          "name": "create_upgrade_instruction",
+          "description": "Write one 換版交代單 — an instruction for the assistant that the station hands over at its next upgrade, and at every upgrade after that, until somebody ticks it off. OWNER ONLY, and that floor is the point rather than caution: the assistant authoring her own instructions would make the record meaningless. `body` is the whole instruction and a blank one is a 422. There is no delivery-time field — write it whenever you like, the answer does not depend on when you typed it. ⚠️ Nothing here schedules anything: an instruction nobody ticks is handed over again indefinitely, so withdraw a mistake with delete_upgrade_instruction rather than leaving it open.",
+          "legacy": {
+            "descriptor": "{\n        \"description\": \"Write one 換版交代單 — an instruction for the assistant that the station hands over at its next upgrade, and at every upgrade after that, until somebody ticks it off. OWNER ONLY, and that floor is the point rather than caution: the assistant authoring her own instructions would make the record meaningless. `body` is the whole instruction and a blank one is a 422. There is no delivery-time field — write it whenever you like, the answer does not depend on when you typed it. ⚠️ Nothing here schedules anything: an instruction nobody ticks is handed over again indefinitely, so withdraw a mistake with delete_upgrade_instruction rather than leaving it open.\",\n        \"inputSchema\": {\n          \"properties\": {\n            \"body\": {\n              \"description\": \"The instruction itself — what the assistant is being asked to do. Blank is a 422.\",\n              \"type\": \"string\"\n            }\n          },\n          \"required\": [\n            \"body\"\n          ],\n          \"additionalProperties\": false,\n          \"type\": \"object\"\n        },\n        \"name\": \"create_upgrade_instruction\"\n      }"
+          }
+        }
+      }
+    },
+    "/api/upgrade-instructions/{instruction_id}": {
+      "delete": {
+        "description": "Withdraw one 換版交代單 — permanent, not undoable, OWNER ONLY. This is the author retracting something he should not have written, and it exists because ticking is the assistant's verb for \"I did this\": without a withdraw path, an instruction written in error would be handed over at every single upgrade forever and the only way to stop it would be to ask the assistant to certify work that never happened. 404 if the instruction id names nothing. Answers with the row that was removed.",
+        "operationId": "handle_delete_upgrade_instruction_api_upgrade_instructions__instruction_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "instruction_id",
+            "required": true,
+            "schema": {
+              "title": "Instruction Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UpgradeInstructionDTO"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Validation error (unified error envelope)."
+          },
+          "4XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Client error (unified error envelope)."
+          },
+          "5XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Server error (unified error envelope)."
+          }
+        },
+        "summary": "Withdraw one 換版交代單 — permanent, not undoable, OWNER ONLY. This is the author retracting something he should not have written, and it exists because ticking is the assistant's verb for \"I did this\": without a withdraw path, an instruction written in error would be handed over at every single upgrade forever and the only way to stop it would be to ask the assistant to certify work that never happened. 404 if the instruction id names nothing. Answers with the row that was removed.",
+        "x-mcp": {
+          "include": true,
+          "order": 130,
+          "name": "delete_upgrade_instruction",
+          "description": "Withdraw one 換版交代單 — permanent, not undoable, OWNER ONLY. This is the author retracting something he should not have written, and it exists because ticking is the assistant's verb for \"I did this\": without a withdraw path, an instruction written in error would be handed over at every single upgrade forever and the only way to stop it would be to ask the assistant to certify work that never happened. 404 if the instruction id names nothing. Answers with the row that was removed.",
+          "legacy": {
+            "descriptor": "{\n        \"description\": \"Withdraw one 換版交代單 — permanent, not undoable, OWNER ONLY. This is the author retracting something he should not have written, and it exists because ticking is the assistant's verb for \\\"I did this\\\": without a withdraw path, an instruction written in error would be handed over at every single upgrade forever and the only way to stop it would be to ask the assistant to certify work that never happened. 404 if the instruction id names nothing. Answers with the row that was removed.\",\n        \"inputSchema\": {\n          \"properties\": {\n            \"instruction_id\": {\n              \"description\": \"Which instruction to act on. Take it from list_upgrade_instructions — an id that names nothing is a 404 rather than a silent no-op, so a typo announces itself here.\",\n              \"type\": \"string\"\n            }\n          },\n          \"required\": [\n            \"instruction_id\"\n          ],\n          \"additionalProperties\": false,\n          \"type\": \"object\"\n        },\n        \"name\": \"delete_upgrade_instruction\"\n      }"
+          }
+        }
+      }
+    },
+    "/api/upgrade-instructions/{instruction_id}/done": {
+      "post": {
+        "description": "Tick one 換版交代單 off — record that the instruction has been carried out, so the station stops handing it over at every upgrade. The owner or the assistant may tick; an ordinary agent gets 403. THE FIRST TICK WINS: a second call answers 200 with the instruction unchanged and does NOT overwrite who did the work or when, which is what makes two sessions of the assistant racing on the same instruction safe. 404 if the instruction id names nothing. ⚠️ This verb means \"I did this\". To retract something that should never have been written, the owner uses delete_upgrade_instruction instead — ticking it would certify work that never happened.",
+        "operationId": "handle_complete_upgrade_instruction_api_upgrade_instructions__instruction_id__done_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "instruction_id",
+            "required": true,
+            "schema": {
+              "title": "Instruction Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UpgradeInstructionDTO"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Validation error (unified error envelope)."
+          },
+          "4XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Client error (unified error envelope)."
+          },
+          "5XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Server error (unified error envelope)."
+          }
+        },
+        "summary": "Tick one 換版交代單 off — record that the instruction has been carried out, so the station stops handing it over at every upgrade. The owner or the assistant may tick; an ordinary agent gets 403. THE FIRST TICK WINS: a second call answers 200 with the instruction unchanged and does NOT overwrite who did the work or when, which is what makes two sessions of the assistant racing on the same instruction safe. 404 if the instruction id names nothing. ⚠️ This verb means \"I did this\". To retract something that should never have been written, the owner uses delete_upgrade_instruction instead — ticking it would certify work that never happened.",
+        "x-mcp": {
+          "include": true,
+          "order": 129,
+          "name": "complete_upgrade_instruction",
+          "description": "Tick one 換版交代單 off — record that the instruction has been carried out, so the station stops handing it over at every upgrade. The owner or the assistant may tick; an ordinary agent gets 403. THE FIRST TICK WINS: a second call answers 200 with the instruction unchanged and does NOT overwrite who did the work or when, which is what makes two sessions of the assistant racing on the same instruction safe. 404 if the instruction id names nothing. ⚠️ This verb means \"I did this\". To retract something that should never have been written, the owner uses delete_upgrade_instruction instead — ticking it would certify work that never happened.",
+          "legacy": {
+            "descriptor": "{\n        \"description\": \"Tick one 換版交代單 off — record that the instruction has been carried out, so the station stops handing it over at every upgrade. The owner or the assistant may tick; an ordinary agent gets 403. THE FIRST TICK WINS: a second call answers 200 with the instruction unchanged and does NOT overwrite who did the work or when, which is what makes two sessions of the assistant racing on the same instruction safe. 404 if the instruction id names nothing. ⚠️ This verb means \\\"I did this\\\". To retract something that should never have been written, the owner uses delete_upgrade_instruction instead — ticking it would certify work that never happened.\",\n        \"inputSchema\": {\n          \"properties\": {\n            \"instruction_id\": {\n              \"description\": \"Which instruction to act on. Take it from list_upgrade_instructions — an id that names nothing is a 404 rather than a silent no-op, so a typo announces itself here.\",\n              \"type\": \"string\"\n            }\n          },\n          \"required\": [\n            \"instruction_id\"\n          ],\n          \"additionalProperties\": false,\n          \"type\": \"object\"\n        },\n        \"name\": \"complete_upgrade_instruction\"\n      }"
           }
         }
       }

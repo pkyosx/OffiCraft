@@ -2308,5 +2308,49 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			Summary:  "強制停止 an outsource worker: kill the session NOW and hold it down; says nothing to it. Third rung of 停止 -> 加速停止 -> 強制停止.",
 			MCPTool:  "force_stop_outsource_worker",
 		},
+		// T-79 換版交代單 — the owner's standing instructions to the assistant,
+		// handed over in a chat message at every station upgrade until they are
+		// ticked off. All four rows sit at the admin_agent floor because that is
+		// the widest any of them needs; the two OWNER-only verbs (write and
+		// withdraw) are narrowed in the handler, because the ladder has no rung
+		// for "this particular member" and the tick has to admit the assistant
+		// as well as the owner. See api_upgrade_instructions.go, which states
+		// each narrowing next to the code that enforces it.
+		{
+			Method:   "GET",
+			Path:     "/api/upgrade-instructions",
+			Handler:  w.HandleListUpgradeInstructionsApiUpgradeInstructionsGet,
+			Auth:     authGated,
+			Requires: principalAdminAgent,
+			Summary:  "List the 換版交代單 — the standing instructions the owner has left for the assistant, which the station hands over in a chat message every time it upgrades. Open ones first, each group oldest→newest, and `open_count` counts the open ones only. A finished instruction stays in the list: it is the only evidence the work was ever picked up.",
+			MCPTool:  "list_upgrade_instructions",
+		},
+		{
+			Method:   "POST",
+			Path:     "/api/upgrade-instructions",
+			Handler:  w.HandleCreateUpgradeInstructionApiUpgradeInstructionsPost,
+			Auth:     authGated,
+			Requires: principalAdminAgent,
+			Summary:  "Write one 換版交代單 for the assistant, delivered at the next station upgrade and at every upgrade after that until it is ticked off. OWNER ONLY (enforced in the handler): the assistant authoring her own instructions would make the record meaningless. `body` is the whole instruction; blank is a 422. There is no delivery-time field — the answer does not depend on when you typed it.",
+			MCPTool:  "create_upgrade_instruction",
+		},
+		{
+			Method:   "POST",
+			Path:     "/api/upgrade-instructions/{instruction_id}/done",
+			Handler:  w.HandleCompleteUpgradeInstructionApiUpgradeInstructionsInstructionIdDonePost,
+			Auth:     authGated,
+			Requires: principalAdminAgent,
+			Summary:  "Tick one 換版交代單 off so the station stops handing it over. The owner or the assistant may tick. THE FIRST TICK WINS: a second call answers 200 with the row unchanged and never overwrites who did the work — two of the assistant's sessions racing on the same instruction is the ordinary case, not an exotic one. 404 if the id names nothing.",
+			MCPTool:  "complete_upgrade_instruction",
+		},
+		{
+			Method:   "DELETE",
+			Path:     "/api/upgrade-instructions/{instruction_id}",
+			Handler:  w.HandleDeleteUpgradeInstructionApiUpgradeInstructionsInstructionIdDelete,
+			Auth:     authGated,
+			Requires: principalAdminAgent,
+			Summary:  "Withdraw one 換版交代單 — permanent, not undoable, OWNER ONLY (enforced in the handler). This is the author retracting something he should not have written: ticking means \"I did this\", so without this verb a mistaken instruction would be handed over forever unless the assistant certified work that never happened. 404 if the id names nothing.",
+			MCPTool:  "delete_upgrade_instruction",
+		},
 	}
 }

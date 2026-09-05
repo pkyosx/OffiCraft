@@ -3508,6 +3508,36 @@ type TokenDTO struct {
 	TokenType *string `json:"token_type,omitempty"`
 }
 
+// UpgradeInstructionCreateDTO Create one 換版交代單. `body` is the whole of it — what the owner wants the assistant to do — and a blank one is refused: an instruction with no text would be handed over at every upgrade forever while telling its reader nothing.
+//
+// There is deliberately NO field saying WHEN it should be delivered. Every open instruction goes out at every upgrade, so one written now and one written seconds before a release behave identically. An earlier design bound each instruction to the commit it was written for; that was dropped once instructions became durable rows, because an instruction handed to an unrelated upgrade is not lost — it is still open, and it goes out again.
+type UpgradeInstructionCreateDTO struct {
+	Body string `json:"body"`
+}
+
+// UpgradeInstructionDTO One 換版交代單 — an instruction the owner leaves for the assistant, handed to her at every station upgrade until somebody ticks it off.
+//
+// It is a ROW, not a message, and `done` is the whole difference: a message is consumed by whoever happens to read it and nothing afterwards records that the work behind it ever happened. An instruction that is still open is handed over again at the NEXT upgrade, and the one after that — which is exactly why nobody has to reason about WHICH upgrade will carry it, and why the owner may write one at any moment rather than just before a release.
+//
+// `done_by` and `done_ts` are zero-valued while the instruction is open. They are kept apart from `done` because "it was ticked" and "who ticked it, when" are different facts, and only the second one survives a disagreement about whether the work happened.
+type UpgradeInstructionDTO struct {
+	Body      string  `json:"body"`
+	CreatedBy string  `json:"created_by"`
+	CreatedTs float64 `json:"created_ts"`
+	Done      bool    `json:"done"`
+	DoneBy    string  `json:"done_by"`
+	DoneTs    float64 `json:"done_ts"`
+	Id        string  `json:"id"`
+}
+
+// UpgradeInstructionsDTO Response of `GET /api/upgrade-instructions`: every 換版交代單 this station holds, open ones first and each group oldest→newest (the hand-over order, so they read in the order they were asked for).
+//
+// `open_count` is NOT a convenience over the length of `instructions` — it counts the open ones only, and it is the number the cockpit shows. This design has exactly one failure mode, an instruction nobody ever acts on, and without a visible open count that failure is completely silent. That is why the count is part of the contract instead of something each client derives for itself.
+type UpgradeInstructionsDTO struct {
+	Instructions []UpgradeInstructionDTO `json:"instructions"`
+	OpenCount    int                     `json:"open_count"`
+}
+
 // UpgradeResultDTO Response of `POST /api/update/upgrade` (owner/admin agent — T-6020). `status` names the
 // outcome ("restarting" — the new binary is already verified and swapped
 // in place; the process re-execs right after this response) and
@@ -3957,6 +3987,9 @@ type HandleFetchThemeApiThemeFetchPostJSONRequestBody = ThemeFetchDTO
 
 // HandlePutThemeApiThemesThemeIdPutJSONRequestBody defines body for HandlePutThemeApiThemesThemeIdPut for application/json ContentType.
 type HandlePutThemeApiThemesThemeIdPutJSONRequestBody = ThemeBundleDTO
+
+// HandleCreateUpgradeInstructionApiUpgradeInstructionsPostJSONRequestBody defines body for HandleCreateUpgradeInstructionApiUpgradeInstructionsPost for application/json ContentType.
+type HandleCreateUpgradeInstructionApiUpgradeInstructionsPostJSONRequestBody = UpgradeInstructionCreateDTO
 
 // AsHandleListReplyCardsApiReplyCardsGet200JSONResponseBody0 returns the union data inside the HandleListReplyCardsApiReplyCardsGet200JSONResponseBody as a HandleListReplyCardsApiReplyCardsGet200JSONResponseBody0
 func (t HandleListReplyCardsApiReplyCardsGet200JSONResponseBody) AsHandleListReplyCardsApiReplyCardsGet200JSONResponseBody0() (HandleListReplyCardsApiReplyCardsGet200JSONResponseBody0, error) {
@@ -4560,6 +4593,18 @@ type ServerInterface interface {
 	// Trigger a software upgrade to the latest GitHub release.
 	// (POST /api/update/upgrade)
 	HandleUpgradeApiUpdateUpgradePost(w http.ResponseWriter, r *http.Request)
+	// List the 換版交代單 — the standing instructions the owner has left for the assistant, which the station hands over in a chat message every time it upgrades. Open ones come first, each group oldest→newest, and `open_count` counts the open ones only. admin_agent floor: the owner and the assistant; an ordinary agent gets 403. Read this to see what is still waiting — a finished instruction stays in the list, because it is the only evidence that the work was ever picked up.
+	// (GET /api/upgrade-instructions)
+	HandleListUpgradeInstructionsApiUpgradeInstructionsGet(w http.ResponseWriter, r *http.Request)
+	// Write one 換版交代單 — an instruction for the assistant that the station hands over at its next upgrade, and at every upgrade after that, until somebody ticks it off. OWNER ONLY, and that floor is the point rather than caution: the assistant authoring her own instructions would make the record meaningless. `body` is the whole instruction and a blank one is a 422. There is no delivery-time field — write it whenever you like, the answer does not depend on when you typed it. ⚠️ Nothing here schedules anything: an instruction nobody ticks is handed over again indefinitely, so withdraw a mistake with delete_upgrade_instruction rather than leaving it open.
+	// (POST /api/upgrade-instructions)
+	HandleCreateUpgradeInstructionApiUpgradeInstructionsPost(w http.ResponseWriter, r *http.Request)
+	// Withdraw one 換版交代單 — permanent, not undoable, OWNER ONLY. This is the author retracting something he should not have written, and it exists because ticking is the assistant's verb for "I did this": without a withdraw path, an instruction written in error would be handed over at every single upgrade forever and the only way to stop it would be to ask the assistant to certify work that never happened. 404 if the instruction id names nothing. Answers with the row that was removed.
+	// (DELETE /api/upgrade-instructions/{instruction_id})
+	HandleDeleteUpgradeInstructionApiUpgradeInstructionsInstructionIdDelete(w http.ResponseWriter, r *http.Request, instructionId string)
+	// Tick one 換版交代單 off — record that the instruction has been carried out, so the station stops handing it over at every upgrade. The owner or the assistant may tick; an ordinary agent gets 403. THE FIRST TICK WINS: a second call answers 200 with the instruction unchanged and does NOT overwrite who did the work or when, which is what makes two sessions of the assistant racing on the same instruction safe. 404 if the instruction id names nothing. ⚠️ This verb means "I did this". To retract something that should never have been written, the owner uses delete_upgrade_instruction instead — ticking it would certify work that never happened.
+	// (POST /api/upgrade-instructions/{instruction_id}/done)
+	HandleCompleteUpgradeInstructionApiUpgradeInstructionsInstructionIdDonePost(w http.ResponseWriter, r *http.Request, instructionId string)
 	// Read the build identity this station is RUNNING: version, git sha, git time and the MCP catalog hash, plus the cached update status and `update_checked_ok_at`, the time that update check last SUCCEEDED (absent = it never has, so `update_available: false` is not evidence of being up to date). Settle whether something is deployed by git sha ancestry, never by the version string.
 	// (GET /api/version)
 	HandleVersionApiVersionGet(w http.ResponseWriter, r *http.Request)
@@ -8926,6 +8971,86 @@ func (siw *ServerInterfaceWrapper) HandleUpgradeApiUpdateUpgradePost(w http.Resp
 	handler.ServeHTTP(w, r)
 }
 
+// HandleListUpgradeInstructionsApiUpgradeInstructionsGet operation middleware
+func (siw *ServerInterfaceWrapper) HandleListUpgradeInstructionsApiUpgradeInstructionsGet(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.HandleListUpgradeInstructionsApiUpgradeInstructionsGet(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// HandleCreateUpgradeInstructionApiUpgradeInstructionsPost operation middleware
+func (siw *ServerInterfaceWrapper) HandleCreateUpgradeInstructionApiUpgradeInstructionsPost(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.HandleCreateUpgradeInstructionApiUpgradeInstructionsPost(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// HandleDeleteUpgradeInstructionApiUpgradeInstructionsInstructionIdDelete operation middleware
+func (siw *ServerInterfaceWrapper) HandleDeleteUpgradeInstructionApiUpgradeInstructionsInstructionIdDelete(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "instruction_id" -------------
+	var instructionId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "instruction_id", r.PathValue("instruction_id"), &instructionId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "instruction_id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.HandleDeleteUpgradeInstructionApiUpgradeInstructionsInstructionIdDelete(w, r, instructionId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// HandleCompleteUpgradeInstructionApiUpgradeInstructionsInstructionIdDonePost operation middleware
+func (siw *ServerInterfaceWrapper) HandleCompleteUpgradeInstructionApiUpgradeInstructionsInstructionIdDonePost(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "instruction_id" -------------
+	var instructionId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "instruction_id", r.PathValue("instruction_id"), &instructionId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "instruction_id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.HandleCompleteUpgradeInstructionApiUpgradeInstructionsInstructionIdDonePost(w, r, instructionId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // HandleVersionApiVersionGet operation middleware
 func (siw *ServerInterfaceWrapper) HandleVersionApiVersionGet(w http.ResponseWriter, r *http.Request) {
 
@@ -9355,6 +9480,10 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/themes/{theme_id}", wrapper.HandleGetThemeApiThemesThemeIdGet)
 	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/api/themes/{theme_id}", wrapper.HandlePutThemeApiThemesThemeIdPut)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/update/upgrade", wrapper.HandleUpgradeApiUpdateUpgradePost)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/upgrade-instructions", wrapper.HandleListUpgradeInstructionsApiUpgradeInstructionsGet)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/upgrade-instructions", wrapper.HandleCreateUpgradeInstructionApiUpgradeInstructionsPost)
+	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/api/upgrade-instructions/{instruction_id}", wrapper.HandleDeleteUpgradeInstructionApiUpgradeInstructionsInstructionIdDelete)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/upgrade-instructions/{instruction_id}/done", wrapper.HandleCompleteUpgradeInstructionApiUpgradeInstructionsInstructionIdDonePost)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/version", wrapper.HandleVersionApiVersionGet)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/warden/binary", wrapper.HandleWardenBinaryApiWardenBinaryGet)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/health", wrapper.HandleHealthHealthGet)

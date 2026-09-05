@@ -4326,6 +4326,67 @@
         "type": "object"
       },
       "name": "replace_task_artifact"
-    }
+    },
+    {
+        "description": "List the 換版交代單 — the standing instructions the owner has left for the assistant, which the station hands over in a chat message every time it upgrades. Open ones come first, each group oldest→newest, and `open_count` counts the open ones only. admin_agent floor: the owner and the assistant; an ordinary agent gets 403. Read this to see what is still waiting — a finished instruction stays in the list, because it is the only evidence that the work was ever picked up.",
+        "inputSchema": {
+          "properties": {},
+          "required": [],
+          "additionalProperties": false,
+          "type": "object"
+        },
+        "name": "list_upgrade_instructions"
+      },
+    {
+        "description": "Write one 換版交代單 — an instruction for the assistant that the station hands over at its next upgrade, and at every upgrade after that, until somebody ticks it off. OWNER ONLY, and that floor is the point rather than caution: the assistant authoring her own instructions would make the record meaningless. `body` is the whole instruction and a blank one is a 422. There is no delivery-time field — write it whenever you like, the answer does not depend on when you typed it. ⚠️ Nothing here schedules anything: an instruction nobody ticks is handed over again indefinitely, so withdraw a mistake with delete_upgrade_instruction rather than leaving it open.",
+        "inputSchema": {
+          "properties": {
+            "body": {
+              "description": "The instruction itself — what the assistant is being asked to do. Blank is a 422.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "body"
+          ],
+          "additionalProperties": false,
+          "type": "object"
+        },
+        "name": "create_upgrade_instruction"
+      },
+    {
+        "description": "Tick one 換版交代單 off — record that the instruction has been carried out, so the station stops handing it over at every upgrade. The owner or the assistant may tick; an ordinary agent gets 403. THE FIRST TICK WINS: a second call answers 200 with the instruction unchanged and does NOT overwrite who did the work or when, which is what makes two sessions of the assistant racing on the same instruction safe. 404 if the instruction id names nothing. ⚠️ This verb means \"I did this\". To retract something that should never have been written, the owner uses delete_upgrade_instruction instead — ticking it would certify work that never happened.",
+        "inputSchema": {
+          "properties": {
+            "instruction_id": {
+              "description": "Which instruction to act on. Take it from list_upgrade_instructions — an id that names nothing is a 404 rather than a silent no-op, so a typo announces itself here.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "instruction_id"
+          ],
+          "additionalProperties": false,
+          "type": "object"
+        },
+        "name": "complete_upgrade_instruction"
+      },
+    {
+        "description": "Withdraw one 換版交代單 — permanent, not undoable, OWNER ONLY. This is the author retracting something he should not have written, and it exists because ticking is the assistant's verb for \"I did this\": without a withdraw path, an instruction written in error would be handed over at every single upgrade forever and the only way to stop it would be to ask the assistant to certify work that never happened. 404 if the instruction id names nothing. Answers with the row that was removed.",
+        "inputSchema": {
+          "properties": {
+            "instruction_id": {
+              "description": "Which instruction to act on. Take it from list_upgrade_instructions — an id that names nothing is a 404 rather than a silent no-op, so a typo announces itself here.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "instruction_id"
+          ],
+          "additionalProperties": false,
+          "type": "object"
+        },
+        "name": "delete_upgrade_instruction"
+      }
   ]
 }
