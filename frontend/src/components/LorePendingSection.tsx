@@ -29,8 +29,8 @@
 //      反,而畫面上長得一模一樣 ⇒ 現在兩種各說各的話。
 //   ② 「誰鑄出這個名字」是判斷錯字最有用的線索,而它在表裡躺了兩個 migration
 //      沒被端出來 ⇒ 現在印在名字底下。
-//   ③ 底下不只一條的時候,只看得到第一條的前 120 字 ⇒ 現在**每一條**的第 1 格
-//      都列出來,而第 1 格本來就是那一條的標題。
+//   ③ 底下不只一條的時候,只看得到第一條的前 120 字 ⇒ 現在**每一條**的標題
+//      都列出來。
 // 🔴 這三件都是**多給資訊**,不是多給出口:出口還是那兩個(核可、合併),裁決
 // 還是他的。(原句還有一截「建議還是伺服器算的」—— 2026-09-05 之後不再成立,
 // 見上面那條。能不能按還是由後端的 owner/admin 閘門決定,那一格一個字都沒動。)
@@ -173,9 +173,12 @@ function PendingRow({
         <div className="lore-pending__sample">{row.sampleShort}</div>
       )}
 
-      {/* 🔴 底下**每一條**,不是只有第一條的前 120 字。第 1 格「什麼時候要記起
-          來」本來就兼任標題,所以列第 1 格是最便宜、又真的答得了「這個名字底下
-          到底放了什麼」的做法。內容不放這裡:要看內容就打開那一條。 */}
+      {/* 🔴 底下**每一條**,不是只有第一條的前 120 字。列的是**標題** ——
+          owner ruling rc-9002654dd81c (2026-09-06) 逐字「待審畫面改顯示
+          heading」;在那之前這裡印的是 `trigger`,而列表畫面印的是 `heading`
+          ⇒ 審核者在這裡讀到的那一行,跟他在列表上讀到的同一條不是同一句話。
+          標題是設計來單獨被讀的那一格,又真的答得了「這個名字底下到底放了什麼」。
+          內容不放這裡:要看內容就打開那一條。 */}
       {row.entryRefs.length > 0 && (
         <div className="lore-pending__entries">
           <span className="lore__note">{t.lore.pendingEntryListLead}</span>
@@ -188,8 +191,8 @@ function PendingRow({
                   key={e.entryId}
                   data-testid="lore-pending-entry"
                 >
-                  <span className="lore-pending__entry-trigger">
-                    {e.trigger}
+                  <span className="lore-pending__entry-heading">
+                    {e.heading}
                   </span>
                   {status !== "" && (
                     <span className="lore-pending__entry-status">{status}</span>

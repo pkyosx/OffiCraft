@@ -133,7 +133,6 @@ export const en: Dict = {
     entryFailed: "Could not read this entry. This is what the server said:",
 
     fieldHeading: "Heading · what happened (the only line a list shows)",
-    fieldTrigger: "Trigger · subject × activity — the one path anybody finds this by",
     fieldContent: "Content · the only cell that enters an agent's memory",
     fieldRetireWhen: "Retire when · when this stops being needed",
     fieldImpact: "Impact · what we meant to achieve, and what actually happened",

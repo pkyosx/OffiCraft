@@ -126,11 +126,11 @@ describe("LorePendingSection — 一列上看得到的東西", () => {
         entriesEver: 3,
         sampleShort: "只有第一條的前 120 字",
         entryRefs: [
-          { entryId: "le-1", trigger: "我要跑整套測試", status: "active" },
-          { entryId: "le-2", trigger: "我要相信一個綠燈", status: "superseded" },
+          { entryId: "le-1", heading: "我要跑整套測試", status: "active" },
+          { entryId: "le-2", heading: "我要相信一個綠燈", status: "superseded" },
           {
             entryId: "le-3",
-            trigger: "我要加一個 migration",
+            heading: "我要加一個 migration",
             status: "underspecified",
           },
         ],
@@ -140,7 +140,7 @@ describe("LorePendingSection — 一列上看得到的東西", () => {
 
     const entries = await screen.findAllByTestId("lore-pending-entry");
     expect(entries).toHaveLength(3);
-    // 每一條的第 1 格(兼標題)跟它的 id 都要在,不然「看得到」等於看不到。
+    // 每一條的標題跟它的 id 都要在,不然「看得到」等於看不到。
     expect(entries[0].textContent).toContain("我要跑整套測試");
     expect(entries[0].textContent).toContain("le-1");
     expect(entries[2].textContent).toContain("我要加一個 migration");
@@ -164,8 +164,8 @@ describe("LorePendingSection — 一列上看得到的東西", () => {
         entries: 2,
         entriesEver: 2,
         entryRefs: [
-          { entryId: "le-1", trigger: "我要跑整套測試", status: "active" },
-          { entryId: "le-2", trigger: "我要相信一個綠燈", status: "active" },
+          { entryId: "le-1", heading: "我要跑整套測試", status: "active" },
+          { entryId: "le-2", heading: "我要相信一個綠燈", status: "active" },
         ],
       }),
     ]);

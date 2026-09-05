@@ -17,7 +17,11 @@
 // 摺起來那一列上沒有分層、信任類別、tier note、活動徽章 —— 而它們現在是**線上
 // 根本不存在**,不是這一層選擇不畫。owner 2026-09-05 裁掉了「活動」這個檢索軸
 // (「只有subject 沒有 action因為後者太多可能性」),T1/T2 分層與信任類別都是從它
-// 推導出來的,一起沒了。留下的是他認得的東西:標題、對象、來源、第 1 格。
+// 推導出來的,一起沒了。留下的是他認得的東西:標題、對象、來源。
+//
+// 🔴 摺起來那一列上也沒有副標了。它印的是 `trigger`,而 owner ruling
+// rc-9002654dd81c (2026-09-06) 逐字「合併成 heading 一格」把那一格拿掉了 ——
+// 留一個永遠是空字串的副標,讀的人會以為那條記憶少寫了一句話。
 //
 // 🔴 「證偽條件與實例都空」那個 degraded 徽章不見了,不是漏掉:owner 2026-09-03
 // 裁定 rc-1e32c690018d 把整個概念拿掉了(「第 1 格的硬擋就夠了,不要第二層」)。
@@ -205,13 +209,11 @@ export function LoreEntryCard({ entry }: { entry: LoreEntrySummaryView }) {
         aria-expanded={open}
         aria-label={open ? t.lore.entryClose : t.lore.entryOpen}
       >
-        {/* 第 1 格兼任標題。它在寫入路徑上是硬性必填(擋在 PutLoreEntry 這個
-            原始 upsert 縫上),所以這裡沒有「這條沒有名字」的退路 —— 那個退路
-            存在的前提(label 選填)已經沒有了。長度也沒有上限。 */}
-        {/* 🔴 標題坐在標題的位置，而它以前坐的是第 1 格。v8 把兩者分開之後，
-            這一行就是 owner 說的那個「決定要不要看內容」的指標
-            （2026-09-05:「title 應該就是 agent 透過 target 會看到的列表
-            因為這會決定他們要不要看內容」）。 */}
+        {/* 🔴 標題是這一列唯一被讀到的東西 —— owner 2026-09-05:「title 應該
+            就是 agent 透過 target 會看到的列表 因為這會決定他們要不要看內容」。
+            它在寫入路徑上是硬性必填(擋在 PutLoreEntry 這個原始 upsert 縫上),
+            所以這裡沒有「這條沒有名字」的退路;合併之前寫的條目也不是空的,
+            migration 00084 把它們原本的 `trigger` 抄了進來。 */}
         <div className="lore-entry__title">{entry.heading}</div>
         <div className="lore-entry__axes">
           {entry.subjects.map((s) => (
@@ -223,11 +225,12 @@ export function LoreEntryCard({ entry }: { entry: LoreEntrySummaryView }) {
             {t.lore.entryOriginLabel} {entry.origin}
           </span>
         </div>
-        {/* 第 1 格坐在副標的位置：它是這條**為什麼在這份清單裡**的理由（對象），
-            不是給人讀的那一行。
-            🔴 這裡以前印的是第 2 格「內容」。拿掉它是這一層存在的理由：清單那一
-            層倒出整段內容，正是這張票在治的病。內容要點開才讀得到（深度③）。 */}
-        <div className="lore-entry__short">{entry.trigger}</div>
+        {/* 🔴 這裡曾經有一行副標：先是第 2 格「內容」，後來換成 `trigger`。兩
+            個都沒有了 —— 內容拿掉是這一層存在的理由（清單那一層倒出整段內容，
+            正是這張票在治的病，內容要點開才讀得到，深度③）；`trigger` 則是
+            owner ruling rc-9002654dd81c (2026-09-06) 把它併進了標題。
+            ⚠️ 不要拿標題再印一次當副標：同一句話印兩遍，讀的人只會以為其中一行
+            接錯了格。 */}
       </button>
 
       {open && (
@@ -251,7 +254,6 @@ export function LoreEntryCard({ entry }: { entry: LoreEntrySummaryView }) {
                     把它排在第 1 格後面，會讓讀的人以為第 1 格才是這條的名字 ——
                     那正是 v8 推翻掉的 v7 說法。 */}
                 <Field name={t.lore.fieldHeading} value={detail.heading} />
-                <Field name={t.lore.fieldTrigger} value={detail.trigger} />
                 <Field name={t.lore.fieldContent} value={detail.content} />
                 <Field
                   name={t.lore.fieldRetireWhen}

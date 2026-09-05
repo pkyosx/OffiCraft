@@ -192,7 +192,6 @@ export const MESSAGE_KEYS: readonly string[] = [
   "lore.fieldImpact",
   "lore.fieldImpactStars",
   "lore.fieldRetireWhen",
-  "lore.fieldTrigger",
   "lore.fieldsNote",
   "lore.listEmpty",
   "lore.listFailed",

@@ -2986,9 +2986,11 @@ export interface LoreSearchInput {
   /** A subject key, `type:name`. A key that names nothing is NOT an error and
    * NOT an empty result: the answer comes back `subjectResolved: false`. */
   subject?: string;
-  /** A LITERAL, case-insensitive substring over 第 1 格 (`trigger`) and 第 2 格
-   * (`content`) — the two cells that took over the three 六格 scanned
-   * (label/short/symptoms), none of which exists any more. Not semantic — two
+  /** A LITERAL, case-insensitive substring over 標題 (`heading`) and 內容
+   * (`content`) — owner ruling rc-9002654dd81c (2026-09-06), verbatim
+   * 「合併成 heading 一格（同時把搜尋改成掃 heading＋內容…）」. Before that the
+   * scanned axis was `trigger`, which is the cell the list did NOT show ⇒ the
+   * line a reader saw was not the line search searched. Not semantic — two
    * entries describing the same situation in different words will not find
    * each other. */
   query?: string;

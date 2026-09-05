@@ -1059,10 +1059,6 @@ export interface LoreEntrySummaryView {
   /** 🔴 星等 0..3 — the entry's importance, so a list of titles can be read by
    * weight rather than by order. 0 is 還沒判, not 「lightest」. */
   impactStars: number;
-  /** 第 1 格「什麼時候要記起來」— 對象 × 活動, the axis this entry was found by.
-   * ⚠️ It no longer doubles as the title: v8 pulled 標題 out into its own cell,
-   * which overturned the earlier implementation judgement that said it did. */
-  trigger: string;
   /** Subject keys (`repo:officraft`) this entry is filed under. THE ONLY
    * retrieval axis: owner removed the 活動 axis on 2026-09-05, and the T1/T2
    * tier plus the trust class went with it — both were computed FROM it. */
@@ -1141,9 +1137,7 @@ export interface LoreEventView {
 /** One entry in full, plus the original preserved beside it. */
 export interface LoreEntryDetailView {
   entryId: string;
-  /** 第 1 格, required, and the entry's title. */
-  trigger: string;
-  /** 第 2 格, required — the only cell that enters a boot context. */
+  /** 內容格, required — the only cell that enters a boot context. */
   content: string;
   /** 第 3 格「什麼時候不需要了」— free text, no closed value set. May be empty
    * — and an EMPTY one is rendered as an empty field with its name printed,
@@ -1153,10 +1147,14 @@ export interface LoreEntryDetailView {
    * `problem`，問的是起因。Optional as a field while being the substance of
    * the entry. May be empty, same rendering rule. */
   impact: string;
-  /** 🔴 標題格 (v8) — 這條在講的是「發生了什麼」。它不是裝飾：它是「列出來」
-   * 那一層唯一被讀到的東西，決定一個 agent 要不要載入 `content`
-   * (owner 2026-09-05:「title 應該就是 agent 透過 target 會看到的列表
-   * 因為這會決定他們要不要看內容」)。空字串代表這條是在標題成為一格之前寫的。 */
+  /** 🔴 標題格 — 這條在講的是「發生了什麼」，同時是讀者找到它的那一軸。它不是
+   * 裝飾：它是「列出來」那一層唯一被讀到的東西，決定一個 agent 要不要載入
+   * `content` (owner 2026-09-05:「title 應該就是 agent 透過 target 會看到的列表
+   * 因為這會決定他們要不要看內容」)。
+   * 🔴 `trigger` 那一格沒有了 —— owner ruling rc-9002654dd81c (2026-09-06) 逐字
+   * 「合併成 heading 一格」。合併之前寫的條目不是被留成空標題：migration 00084
+   * 在 DROP 掉 `trigger` 之前先把它複製進空的 `heading`，所以那些條目帶的是它們
+   * 原本那句「什麼時候要記起來」。 */
   heading: string;
   /** 🔴 第 4 格的星等 0..3 — **它就是這條條目的重要性**
    * (owner 2026-09-05:「評分也改了不用 用星等取代 因為 impact 本就是重要性」)。
@@ -1222,10 +1220,11 @@ export interface LoreEntitySimilarView {
  * 截斷規則、自己的排序,以及跟正牌讀取路徑吵架的機會。 */
 export interface LoreEntryRefView {
   entryId: string;
-  /** 第 1 格「什麼時候要記起來」。⚠️ v8 起它**不再**兼任這一條的標題:標題是獨立
-   * 的 `heading` 格,而那一格有 140 個字元(Unicode rune)的上限;`trigger` 自己
-   * 沒有長度上限。 */
-  trigger: string;
+  /** 標題格「發生了什麼」,上限 140 個字元(Unicode rune)。⚠️ 這一行以前帶的是
+   * `trigger`,而列表畫面帶的是 `heading` ⇒ 審核者在待審佇列上看到的那一行,跟
+   * 他在列表上看到的同一條記憶不是同一句話。owner ruling rc-9002654dd81c
+   * (2026-09-06) 把兩格合併,這一行跟著改成標題。 */
+  heading: string;
   /** `active` / `superseded` / `underspecified`。**不會是** `retired` —— 這份
    * 清單跟 `entries` 用同一個判準,退役的根本不在裡面。 */
   status: string;

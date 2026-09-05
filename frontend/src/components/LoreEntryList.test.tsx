@@ -19,11 +19,8 @@ import { LoreEntryList } from "./LoreEntryList";
 function entry(over: Partial<LoreEntrySummaryView> = {}): LoreEntrySummaryView {
   return {
     entryId: "lore-1",
-    // 標題與第 1 格刻意不是同一句話：一個把兩格接反的元件，兩邊值相同時會看起來
-    // 完全正確。
     heading: "整套測試綠燈，而它跑過的分母是零",
     impactStars: 2,
-    trigger: "整套測試回 PASS，而我正要拿這個結果去說這一包沒問題。",
     subjects: ["repo:officraft"],
     origin: "agent:Kyle",
     ...over,
@@ -75,7 +72,7 @@ describe("LoreEntryList", () => {
         entry({ entryId: "a", subjects: ["repo:officraft"] }),
         entry({
           entryId: "b",
-          trigger: "複製資料庫等於複製設定",
+          heading: "複製資料庫等於複製設定",
           subjects: ["tool:sqlite"],
         }),
       ]),
@@ -110,7 +107,7 @@ describe("LoreEntryList", () => {
     const many = Array.from({ length: 20 }, (_, i) =>
       entry({
         entryId: `e${i}`,
-        trigger: i === 3 ? "複製資料庫等於複製設定" : `條目 ${i}`,
+        heading: i === 3 ? "複製資料庫等於複製設定" : `條目 ${i}`,
         subjects: [i === 3 ? "tool:sqlite" : "repo:officraft"],
       }),
     );

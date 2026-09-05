@@ -450,10 +450,11 @@ export type WireLoreSearchRequest = components["schemas"]["LoreSearchDTO"];
 export type WireLoreSearchResult =
   components["schemas"]["LoreSearchResultDTO"];
 
-/** Mirrors `LoreSearchHitDTO` — one retrieved entry: the title a reader
- * decides on, its 第 1 格, its subjects, its origin and its 星等. There is no
- * tier and no trust class any more — owner removed the 活動 axis they were
- * computed from on 2026-09-05. */
+/** Mirrors `LoreSearchHitDTO` — one retrieved entry: the 標題 a reader decides
+ * on, its subjects, its origin and its 星等. There is no tier and no trust class
+ * any more — owner removed the 活動 axis they were computed from on 2026-09-05,
+ * and no `trigger` either — owner ruling rc-9002654dd81c (2026-09-06) merged it
+ * into `heading`. */
 export type WireLoreSearchHit = components["schemas"]["LoreSearchHitDTO"];
 
 /** Mirrors `LoreEntryDetailDTO` — one entry in full, plus the preserved

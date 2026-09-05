@@ -1912,7 +1912,6 @@ export function toLoreEntrySummary(w: WireLoreSearchHit): LoreEntrySummaryView {
     entryId: w.entry_id,
     heading: w.heading,
     impactStars: w.impact_stars,
-    trigger: w.trigger,
     subjects: [...w.subjects],
     origin: w.origin,
   };
@@ -1972,11 +1971,15 @@ export function toLoreEvent(w: WireLoreEvent): LoreEventView {
 
 /** Map one entry detail → the view model.
  *
- * Every body cell is mapped verbatim, empty string included. 第 1、2 格
- * (`trigger` / `content`) cannot be blank — the write path refuses them at the
- * upsert seam — so a blank one here means the entry predates 五格. 第 3、4 格
- * are optional and a blank one is ordinary, which is exactly why it is mapped
- * rather than dropped.
+ * Every body cell is mapped verbatim, empty string included. 標題與內容
+ * (`heading` / `content`) cannot be blank — the write path refuses them at the
+ * upsert seam. `retire_when` / `impact` are optional and a blank one is
+ * ordinary, which is exactly why it is mapped rather than dropped.
+ *
+ * ⚠️ There is no `trigger` any more: owner ruling rc-9002654dd81c (2026-09-06)
+ * merged it into `heading`, and migration 00084 copied each row's `trigger`
+ * into an empty `heading` before dropping the column — so a pre-merge entry
+ * carries its old 「什麼時候要記起來」 line as its 標題 rather than a blank.
  *
  * The surface prints an empty cell WITH its name; substituting a placeholder
  * here would make 「the writer left this blank」 and 「this entry has no such
@@ -1988,7 +1991,6 @@ export function toLoreEvent(w: WireLoreEvent): LoreEventView {
 export function toLoreEntryDetail(w: WireLoreEntryDetail): LoreEntryDetailView {
   return {
     entryId: w.entry_id,
-    trigger: w.trigger,
     content: w.content,
     retireWhen: w.retire_when,
     impact: w.impact,
@@ -2036,7 +2038,7 @@ export function toLorePendingEntity(
     entriesEver: w.entries_ever,
     entryRefs: (w.entry_refs ?? []).map((e) => ({
       entryId: e.entry_id,
-      trigger: e.trigger,
+      heading: e.heading,
       status: e.status,
     })),
     similar: (w.similar ?? []).map((r) => ({

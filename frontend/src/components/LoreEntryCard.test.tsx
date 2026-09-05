@@ -32,11 +32,8 @@ function summary(
 ): LoreEntrySummaryView {
   return {
     entryId: "lore-1",
-    // 標題與第 1 格刻意不是同一句話：一個把兩格接反的元件，兩邊值相同時會看起來
-    // 完全正確。
     heading: "整套測試綠燈，而它跑過的分母是零",
     impactStars: 2,
-    trigger: "整套測試回 PASS，而我正要拿這個結果去說這一包沒問題。",
     subjects: ["repo:officraft"],
     origin: "agent:Kyle",
     ...over,
@@ -49,7 +46,6 @@ function detail(over: Partial<LoreEntryDetailView> = {}): LoreEntryDetailView {
     heading: "整套測試綠燈，而它跑過的分母是零",
     impactStars: 2,
     reviewed: false,
-    trigger: "整套測試回 PASS，而我正要拿這個結果去說這一包沒問題。",
     content: "綠燈只證明它看得到的那些東西沒問題。",
     retireWhen: "",
     impact: "",
@@ -57,7 +53,7 @@ function detail(over: Partial<LoreEntryDetailView> = {}): LoreEntryDetailView {
     subjects: ["repo:officraft"],
     origin: "agent:Kyle",
     status: "active",
-    original: "trigger:\n…\n\ncontent:\n…\n\nretire_when:\n\n\nimpact:\n\n\nevents:\n\n",
+    original: "heading:\n…\n\ncontent:\n…\n\nretire_when:\n\n\nimpact:\n\n\nevents:\n\n",
     sha256: "a".repeat(64),
     supersedes: "",
     writtenBy: "agent:Kyle",
@@ -76,7 +72,7 @@ function renderCard(over: Partial<LoreEntrySummaryView> = {}) {
 
 async function open() {
   fireEvent.click(screen.getByRole("button", { name: zh.lore.entryOpen }));
-  await screen.findByText(zh.lore.fieldTrigger);
+  await screen.findByText(zh.lore.fieldHeading);
 }
 
 beforeEach(() => {
@@ -91,7 +87,6 @@ describe("LoreEntryCard 五格", () => {
 
     for (const name of [
       zh.lore.fieldHeading,
-      zh.lore.fieldTrigger,
       zh.lore.fieldContent,
       zh.lore.fieldRetireWhen,
       zh.lore.fieldImpact,
@@ -105,6 +100,10 @@ describe("LoreEntryCard 五格", () => {
     // 六格時代的欄位名一個都不准回來。
     expect(screen.queryByText(/證偽條件/)).toBeNull();
     expect(screen.queryByText(/殘餘風險/)).toBeNull();
+    // 🔴 `trigger` 那一格被 owner ruling rc-9002654dd81c (2026-09-06) 併進標題
+    // ⇒ 它的欄位名也不准回來。少了這一句，一個把空字串印成「什麼時候要記起來：
+    // （空白）」的元件會通過，而畫面上那是「寫的人漏填了」，不是「沒有這一格」。
+    expect(screen.queryByText(/什麼時候要記起來/)).toBeNull();
   });
 
   it("一筆事件都沒有的時候，事件那一節照樣在並且說出來", async () => {
@@ -172,7 +171,7 @@ describe("LoreEntryCard 五格", () => {
   // 「title 應該就是 agent 透過 target 會看到的列表 因為這會決定他們要不要看內容」。
   // ⇒ 摺起來那一列印的是**標題**，內容要點開才讀得到。
   it("摺起來那一列印的是標題，不是內容 —— 內容要點開才拿得到", async () => {
-    renderCard();
+    const { container } = renderCard();
     expect(screen.getByText("整套測試綠燈，而它跑過的分母是零")).toBeTruthy();
     // 🔴 陰性對照，而它是這支測試的重點：內容**不可以**出現在摺起來的那一列。
     // 少了這一句，一個把標題與內容都印出來的元件也會通過 —— 而那正是這一層要
@@ -180,10 +179,13 @@ describe("LoreEntryCard 五格", () => {
     expect(
       screen.queryByText("綠燈只證明它看得到的那些東西沒問題。"),
     ).toBeNull();
-    // 第 1 格在副標的位置：它說的是這條**為什麼在這份清單裡**。
+    // 🔴 副標整個沒有了（`trigger` 併進標題，rc-9002654dd81c）—— 不是印成空白。
+    // 一個空的副標在畫面上讀起來是「這條少寫了一句」。
+    expect(container.querySelector(".lore-entry__short")).toBeNull();
+    // 而標題也只出現一次：把它再印一次當副標，讀的人會以為其中一行接錯了格。
     expect(
-      screen.getByText("整套測試回 PASS，而我正要拿這個結果去說這一包沒問題。"),
-    ).toBeTruthy();
+      screen.getAllByText("整套測試綠燈，而它跑過的分母是零"),
+    ).toHaveLength(1);
     expect(screen.queryByText("證偽條件與實例都空")).toBeNull();
   });
 });

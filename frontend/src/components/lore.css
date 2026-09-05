@@ -45,12 +45,10 @@
   color: var(--color-text-muted);
   font-size: 12px;
 }
-.lore-entry__short {
-  margin-top: 6px;
-  color: var(--color-text-muted);
-  font-size: 12.5px;
-  line-height: 1.6;
-}
+/* 🔴 `.lore-entry__short` 曾經在這裡 —— 摺起來那一列的副標。它先印第 2 格
+   「內容」,後來改印 `trigger`,而 owner ruling rc-9002654dd81c (2026-09-06) 把
+   `trigger` 併進了標題 ⇒ 沒有元素再用它。留著一條沒有元素會用到的規則,下一個人
+   只會拿它去猜一個已經不存在的副標。 */
 .lore-entry__body {
   border-top: 1px solid var(--color-border);
 }
@@ -310,11 +308,11 @@
   gap: 8px;
 }
 
-.lore-pending__entry-trigger {
+.lore-pending__entry-heading {
   color: var(--color-text);
 }
 
-/* superseded / underspecified 要看得出來,但不能搶走第 1 格的位置:一列上真正
+/* superseded / underspecified 要看得出來,但不能搶走標題的位置:一列上真正
    要讀的是「這一條是幹嘛的」,狀態是旁註。 */
 .lore-pending__entry-status {
   font-size: 0.85em;

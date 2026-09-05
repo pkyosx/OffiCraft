@@ -2459,19 +2459,20 @@ let relocationDeferredNext = false;
 //
 // 🔴 The 六格 cells that 五格 dropped (`label` / `falsify` / `residual_risk`) are
 // GONE from this fixture rather than parked in an unused field: `symptoms` →
-// `trigger`, `short` → `content`, `instance` → `impact`（v8 之前這一格叫
+// `trigger` → `heading`（owner ruling rc-9002654dd81c (2026-09-06) 把 `trigger`
+// 併進 `heading`）, `short` → `content`, `instance` → `impact`（v8 之前這一格叫
 // `problem`）, and `retire_when` is
 // a cell nobody had when these were written, so it is blank. Keeping the dropped
 // text around in a field no route serves would put words on a screen the station
 // cannot produce.
 interface MockLoreEntry {
   entryId: string;
-  /** 🔴 標題格 (v8). BLANK ON ALL FIVE, and that is the honest value rather than
-   * a gap: these five were written by the owner before 標題 became a cell, so
-   * the real station has nothing there either. Inventing a title here would put
-   * words on a screen the station cannot produce — the rule this whole fixture
-   * is written under. What it demonstrates instead is the real thing a reader
-   * will meet on a pre-v8 entry: a named, empty field. */
+  /** 🔴 標題格 —— 這五條在 owner ruling rc-9002654dd81c (2026-09-06) 之前寫下,
+   * 當時它們的那一句話坐在 `trigger` 這一格。合併把 `trigger` 拿掉了,而
+   * migration 00084 在 DROP 之前先把每一列的 `trigger` 抄進空的 `heading`,所以
+   * 這裡帶的就是那五句原話 —— 不是空白、也不是新編的標題。⚠️ 它們是祈使／情境
+   * 句而不是 v8 要求的「發生了什麼」,那也是真的:存量條目就長這樣,替它們重寫
+   * 一個漂亮的標題,等於在畫面上放一句站上沒有的話。 */
   heading: string;
   /** 🔴 星等 0..3. 0 on all five = 還沒判, which is again what the station holds:
    * nobody has judged these. It is NOT 「lightest」. */
@@ -2479,10 +2480,7 @@ interface MockLoreEntry {
   /** false on all five, and it is false for EVERY entry on every station today:
    * no route can write it. */
   reviewed: boolean;
-  /** 第 1 格 — 對象 × 活動, the axis a reader finds this by.
-   * ⚠️ It no longer doubles as the title (v8 pulled 標題 out into its own cell). */
-  trigger: string;
-  /** 第 2 格 — the only cell that enters a boot context. */
+  /** 內容格 — the only cell that enters a boot context. */
   content: string;
   /** 第 3 格 — free text. Blank on all five: the cell did not exist yet. */
   retireWhen: string;
@@ -2500,10 +2498,9 @@ interface MockLoreEntry {
 const MOCK_LORE_ENTRIES: MockLoreEntry[] = [
   {
     entryId: "lore-31274bbb892c",
-    heading: "",
     impactStars: 0,
     reviewed: false,
-    trigger: "整套測試回 PASS／ok，而我正要拿這個結果去說「這一包沒問題」。",
+    heading: "整套測試回 PASS／ok，而我正要拿這個結果去說「這一包沒問題」。",
     content:
       "綠燈只證明「它看得到的那些東西沒問題」。go test -run 配一個匹配不到任何東西的正則，輸出跟真的全部通過逐字相同（唯一訊號 no tests to run 常被 grep 濾掉）。⇒ 跑完之後要問的是「這一次的量法，看得到的範圍是什麼」——而且要在跑過之後問，不是在寫的時候。",
     retireWhen: "",
@@ -2518,10 +2515,9 @@ const MOCK_LORE_ENTRIES: MockLoreEntry[] = [
   },
   {
     entryId: "lore-3a8f02e14c10",
-    heading: "",
     impactStars: 0,
     reviewed: false,
-    trigger:
+    heading:
       "我正要拿「它有自動備份／有守衛／有檢查」去對別人保證這一次是安全的。",
     content:
       "機制存在只證明那條路上有那段碼，不證明這一次走的是那條路。實例：升級前備份只掛在 serve 開機那條路（backupBeforeMigrations 全樹一個呼叫者），而 bin/migrate 走的是沒有它的那條 ⇒ 用 migrate 升級的人沒有退路，而畫面上跟有退路一模一樣。⇒ 保證要講「這一次」，不是「有機制」。",
@@ -2537,10 +2533,9 @@ const MOCK_LORE_ENTRIES: MockLoreEntry[] = [
   },
   {
     entryId: "lore-b97ced3313a6",
-    heading: "",
     impactStars: 0,
     reviewed: false,
-    trigger: "我剛驗完一台機器的狀態，正要把結果當成「現在就是這樣」回報出去。",
+    heading: "我剛驗完一台機器的狀態，正要把結果當成「現在就是這樣」回報出去。",
     content:
       "對一台會自己動的機器（有更新器、有排程、有 KeepAlive），驗證是瞬時的而狀態不是。⇒ 驗完要多問一句「有什麼東西會在我不看的時候改變它」，並把答案變成可觀察的（掛一個定期查、或關掉那個會動的東西）。",
     retireWhen: "",
@@ -2555,10 +2550,9 @@ const MOCK_LORE_ENTRIES: MockLoreEntry[] = [
   },
   {
     entryId: "lore-dab4e84475b4",
-    heading: "",
     impactStars: 0,
     reviewed: false,
-    trigger:
+    heading:
       "我把一個站的 DB 複製到另一個站，然後預期新站會照我在新站上做的設定跑。",
     content:
       "OffiCraft 的站台設定存在 DB 的 setting 表裡（updater.auto_update、receive_beta、JWT 簽章金鑰等），所以複製 DB 會一起搬過去。後果一：新站會照舊站的自動更新設定把你剛裝的 binary 換掉。後果二：舊站簽出來的 token 在新站也通。⇒ 複製 DB 之後、開機之前，先把那些跟「這台該怎麼行為」有關的設定改掉。",
@@ -2574,10 +2568,9 @@ const MOCK_LORE_ENTRIES: MockLoreEntry[] = [
   },
   {
     entryId: "lore-76fba702e52a",
-    heading: "",
     impactStars: 0,
     reviewed: false,
-    trigger: "我剛說完「我收回那句話」，覺得這件事已經處理完了。",
+    heading: "我剛說完「我收回那句話」，覺得這件事已經處理完了。",
     content:
       "收回只對聽到的人生效，幾秒鐘；真正的工作是把那句話從每一個會被再讀一次的地方拔掉（記憶檔、步驟筆記、票面、已送出的卡、產物、PR 描述）。⇒ 真正會發生的失敗不是不願意更正，是只做了便宜的那一半，而做完那半的人主觀上覺得自己已經更正過了。",
     retireWhen: "",
@@ -2617,7 +2610,7 @@ const MOCK_LORE_ENTRIES: MockLoreEntry[] = [
 function mockLoreOriginal(e: MockLoreEntry): string {
   let body = "";
   for (const [name, value] of [
-    ["trigger", e.trigger],
+    ["heading", e.heading],
     ["content", e.content],
     ["retire_when", e.retireWhen],
     ["impact", e.impact],
@@ -2676,12 +2669,12 @@ let mockPendingEntities: LorePendingEntityView[] = [
     entryRefs: [
       {
         entryId: "le-mock-a1",
-        trigger: "我要判斷一個綠燈能不能當證據",
+        heading: "我要判斷一個綠燈能不能當證據",
         status: "active",
       },
       {
         entryId: "le-mock-a2",
-        trigger: "我要在地端跑測試",
+        heading: "我要在地端跑測試",
         status: "superseded",
       },
     ],
@@ -2706,17 +2699,17 @@ let mockPendingEntities: LorePendingEntityView[] = [
     entryRefs: [
       {
         entryId: "le-mock-b1",
-        trigger: "我要複製一份資料庫來測",
+        heading: "我要複製一份資料庫來測",
         status: "active",
       },
       {
         entryId: "le-mock-b2",
-        trigger: "我要改 schema",
+        heading: "我要改 schema",
         status: "active",
       },
       {
         entryId: "le-mock-b3",
-        trigger: "我要開一個新的連線池",
+        heading: "我要開一個新的連線池",
         status: "underspecified",
       },
     ],
@@ -2735,7 +2728,7 @@ let mockPendingEntities: LorePendingEntityView[] = [
     entryRefs: [
       {
         entryId: "le-mock-c1",
-        trigger: "我要加一個 migration",
+        heading: "我要加一個 migration",
         status: "active",
       },
     ],
@@ -6714,14 +6707,14 @@ export const mockApi: Api = {
       : MOCK_LORE_ENTRIES.filter((e) => {
           if (subject !== "" && !e.subjects.includes(subject)) return false;
           if (needle === "") return true;
-          // The station's literal matcher scans 第 1、2 格 and nothing else
-          // (loreEntryMatchesLiteral). 第 3、4 格 are deliberately NOT scanned
-          // there, so scanning them here would make the mock answer a wider
-          // question than the route does.
+          // The station's literal matcher scans 標題＋內容 and nothing else
+          // (loreEntryMatchesLiteral; owner ruling rc-9002654dd81c 2026-09-06,
+          // 逐字「同時把搜尋改成掃 heading＋內容」). retire_when / impact are
+          // deliberately NOT scanned there, so scanning them here would make the
+          // mock answer a wider question than the route does.
           return (
-            e.trigger.toLowerCase().includes(needle) ||
-            e.content.toLowerCase().includes(needle) ||
-            e.heading.toLowerCase().includes(needle)
+            e.heading.toLowerCase().includes(needle) ||
+            e.content.toLowerCase().includes(needle)
           );
         });
     const limit = input.limit ?? 20;
@@ -6735,7 +6728,6 @@ export const mockApi: Api = {
         // real route deliberately makes you ask for.
         heading: e.heading,
         impactStars: e.impactStars,
-        trigger: e.trigger,
         subjects: [...e.subjects],
         origin: e.origin,
       }));
@@ -6769,7 +6761,6 @@ export const mockApi: Api = {
       heading: e.heading,
       impactStars: e.impactStars,
       reviewed: e.reviewed,
-      trigger: e.trigger,
       content: e.content,
       retireWhen: e.retireWhen,
       impact: e.impact,
