@@ -818,13 +818,13 @@ func (s *apiServer) servedChatMessageDTO(m ChatMessage) (chatMessageDTO, error) 
 // until someone fixes the data", on purpose. That is the ruling; it is not an
 // accident and it is not free.
 //
-// 🔴 TWO OF THE SIX MEASURED DOORS THAT SERVE A QUOTE HAVE NO WITNESS ROW IN
+// 🔴 ONE OF THE FIVE REMAINING DOORS THAT SERVE A QUOTE HAS NO WITNESS ROW IN
 // THAT TEST,
-// AND THE REASON IS NOT AN OVERSIGHT. Their error branch is UNREACHABLE for a
-// single-row fault, because each one hits the same bad row through a read of its
+// AND THE REASON IS NOT AN OVERSIGHT. Its error branch is UNREACHABLE for a
+// single-row fault, because it hits the same bad row through a read of its
 // own FIRST (verified by mutating this function to swallow the error and
-// re-running all six — the four in the table above plus these two: these two
-// still 500, the other four turn 200):
+// re-running all five — the four in the table above plus this one: this one
+// still 500s, the other four turn 200):
 //   - GET /api/chat?with= — the cursorless page reads and scans every row it
 //     serves (s.dal.ListChatLatest since T-48; it was a whole-table
 //     s.dal.ListChat() when this was measured, and the reachability argument is
@@ -832,12 +832,21 @@ func (s *apiServer) servedChatMessageDTO(m ChatMessage) (chatMessageDTO, error) 
 //     OLDER than the window is no longer read by this door at all, which would
 //     make its quote-join branch reachable — if that case is ever worth a
 //     witness row, this is the one to add).
-//   - POST /api/chat echo — the reply_to EXISTENCE gate above calls
-//     ListChatByIDs on that very id before anything is stored, and 500s there.
 //
-// A row for either would pass against a swallowing mutant, which is a guard that
-// proves nothing. If the POST gate is ever batched or relaxed, its echo branch
-// becomes reachable and needs its own row.
+// A row for it would pass against a swallowing mutant, which is a guard that
+// proves nothing.
+//
+// ⚠️ THIS USED TO SAY "TWO OF THE SIX", AND THE SECOND ONE WAS THE POST
+// /api/chat ECHO. That sentence was true when it was written and is not any
+// more: T-91 made POST /api/chat answer a bounded receipt that reads no quote
+// at all, so that door no longer serves a quote and the branch it named is
+// DELETED, not merely unreachable (see the receipt call site above, which says
+// the same thing and tells you not to reintroduce the read). The old text also
+// carried an instruction — "if the POST gate is ever batched or relaxed, its
+// echo branch becomes reachable and needs its own row" — which would now send
+// someone to write a witness row for code that does not exist. Do not restore
+// it; if POST /api/chat is ever made to serve a quote again, that is a new
+// door and it needs measuring from scratch.
 //
 // ⚠️ AND THERE IS A SEVENTH DOOR THAT NOBODY MEASURED: GET
 // /api/members/{member_id}/resume-summary. It calls the identical
