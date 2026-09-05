@@ -248,7 +248,14 @@ describe("LorePendingSection — 合併走單一入口", () => {
     expect(picked[3].textContent).toContain(zh.lore.reasonEditDistance1);
     expect(picked[4].textContent).toContain(zh.lore.reasonEditDistance2);
     // 五個理由不可以印成同一句話,否則「看得出弱匹配」就是假的。
-    expect(new Set(picked.map((p) => p.textContent)).size).toBe(5);
+    // 🔴 比對之前要先把候選的名字從文字裡拿掉。`textContent` 是「名字＋理由」
+    // 的串接,而五個 canonical 本來就兩兩相異 —— 直接對整段做集合大小,五種
+    // 理由全部塌成同一句它照樣通過。這一行原本就是那樣寫的,由 2026-09-05 的
+    // 增量審查實測抓到:一條看起來在守、實際上永遠不會紅的斷言。
+    const shownReasons = picked.map((p, i) =>
+      (p.textContent ?? "").replace(CANDIDATES[i].canonical, ""),
+    );
+    expect(new Set(shownReasons).size).toBe(5);
   });
 
   // ⚠️ 這支的名字刻意寫窄。它守住的是**送出鈕停用**,不是「送不出去」——
@@ -292,7 +299,8 @@ describe("LorePendingSection — 合併走單一入口", () => {
     // 降級成別名。假話的方向很具體:相信名字會消失的人不敢按合併,會改去按核
     // 可,而核可才是把重複名字送進開機目錄、且之後再也 merge 不動的那個動作。
     expect(body.textContent).toContain("別名");
-    expect(body.textContent).not.toContain("消失");
+    // 釘整句,不釘「消失」兩個字:那是常用詞,正文哪天正當地用到它就會誤傷。
+    expect(body.textContent).not.toContain("名字會就此消失");
     // 🔴 英文那句也要有字面斷言。只鎖中文的話,刪掉 `en.ts` 裡的
     // "This cannot be undone" 是一個 token 的編輯,而 vitest / tsc / drift gate
     // 全綠、零訊號 —— 全樹沒有第二個東西碰這個畫面。
