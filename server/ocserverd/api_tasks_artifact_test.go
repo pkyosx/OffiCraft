@@ -10,6 +10,7 @@ package main
 import (
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -47,7 +48,9 @@ func getTaskArtifacts(t *testing.T, api *apiServer, taskID string) taskArtifactL
 	return decodeBody[taskArtifactListDTO](t, rec)
 }
 
-// getTaskView reads the full task view (folds the artifact INDEX since T-66).
+// getTaskView reads the full task view. It carries NO artifact rows at all
+// since T-92 — only artifact_count — so an assertion about the SET reads
+// view.ArtifactCount, and an assertion about a ROW belongs on getTaskArtifacts.
 func getTaskView(t *testing.T, api *apiServer, taskID string) taskDTO {
 	t.Helper()
 	rec := httptest.NewRecorder()
@@ -123,7 +126,7 @@ func TestAddLinkArtifact(t *testing.T) {
 	task := createAdHocTask(t, api, "m-exec")
 	rec := addArtifact(t, api, task.ID,
 		map[string]any{"kind": "link", "url": "https://github.com/x/y/pull/123",
-			"label": "PR #123"}, "m-exec", "agent")
+			"name": "PR #123"}, "m-exec", "agent")
 	if rec.Code != http.StatusOK {
 		t.Fatalf("add link: %d %s", rec.Code, rec.Body.String())
 	}
@@ -133,21 +136,25 @@ func TestAddLinkArtifact(t *testing.T) {
 		t.Fatalf("add receipt wrong shape: %+v", receipt)
 	}
 	view := getTaskView(t, api, task.ID)
-	if len(view.Artifacts) != 1 {
-		t.Fatalf("expected 1 artifact, got %+v", view.Artifacts)
+	if view.ArtifactCount != 1 {
+		t.Fatalf("expected artifact_count 1, got %d", view.ArtifactCount)
 	}
-	if view.Artifacts[0].ID != receipt.ArtifactID {
-		t.Fatalf("receipt must name the artifact it pinned: %q vs %q",
-			receipt.ArtifactID, view.Artifacts[0].ID)
-	}
-	// The METADATA lives on the T-66 artifacts read, not on the task view.
+	// The ROWS — and since T-92 the ids too — live on the T-66 artifacts read,
+	// not on the task view, so that is where the receipt is checked against the
+	// artifact it claims to have pinned.
 	full := getTaskArtifacts(t, api, task.ID)
 	if len(full.Artifacts) != 1 {
 		t.Fatalf("expected 1 full artifact, got %+v", full.Artifacts)
 	}
 	a := full.Artifacts[0]
+	if a.ID != receipt.ArtifactID {
+		t.Fatalf("receipt must name the artifact it pinned: %q vs %q",
+			receipt.ArtifactID, a.ID)
+	}
+	// A link's url is read back out of the text/uri-list blob T-92 mints for it,
+	// so the caller sees the address it sent and never the blob behind it.
 	if a.Kind != "link" || a.URL != "https://github.com/x/y/pull/123" ||
-		a.Label != "PR #123" || a.AttachmentID != "" || a.IsImage {
+		a.Name != "PR #123" || a.Description != "" {
 		t.Fatalf("link artifact wrong shape: %+v", a)
 	}
 	if a.CreatedBy != "m-exec" {
@@ -171,12 +178,12 @@ func TestAddFileAndImageArtifactResolveBlobMetadata(t *testing.T) {
 		t.Fatalf("seed file blob: %v", err)
 	}
 	if rec := addArtifact(t, api, task.ID,
-		map[string]any{"kind": "image", "attachment_id": "att-img1"},
+		map[string]any{"kind": "image", "attachment_id": "att-img1", "name": "架構圖"},
 		"m-exec", "agent"); rec.Code != http.StatusOK {
 		t.Fatalf("add image: %d %s", rec.Code, rec.Body.String())
 	}
 	if rec := addArtifact(t, api, task.ID,
-		map[string]any{"kind": "file", "attachment_id": "att-file1"},
+		map[string]any{"kind": "file", "attachment_id": "att-file1", "name": "design"},
 		"m-exec", "agent"); rec.Code != http.StatusOK {
 		t.Fatalf("add file: %d %s", rec.Code, rec.Body.String())
 	}
@@ -185,12 +192,17 @@ func TestAddFileAndImageArtifactResolveBlobMetadata(t *testing.T) {
 		t.Fatalf("expected 2 artifacts, got %+v", full.Artifacts)
 	}
 	img, file := full.Artifacts[0], full.Artifacts[1]
-	if img.Kind != "image" || !img.IsImage || img.Mime != "image/png" ||
-		img.Filename != "diagram.png" || img.URL != "/api/chat/attachment/att-img1" {
+	// T-92 narrowed the row: is_image went because it is mime's prefix and
+	// filename went because the NAME derives from it. What is left of the blob
+	// resolve is the serve path and the mime — the one field that separates a
+	// .md from a .pdf from a .zip, which kind cannot do — so those are what the
+	// resolve is still asserted through.
+	if img.Kind != "image" || img.Mime != "image/png" ||
+		img.URL != "/api/chat/attachment/att-img1" || img.Name != "架構圖" {
 		t.Fatalf("image artifact metadata wrong: %+v", img)
 	}
-	if file.Kind != "file" || file.IsImage || file.Mime != "text/markdown" ||
-		file.Filename != "design.md" || file.URL != "/api/chat/attachment/att-file1" {
+	if file.Kind != "file" || file.Mime != "text/markdown" ||
+		file.URL != "/api/chat/attachment/att-file1" || file.Name != "design" {
 		t.Fatalf("file artifact metadata wrong: %+v", file)
 	}
 }
@@ -203,11 +215,22 @@ func TestAddArtifactInputGuards(t *testing.T) {
 		body map[string]any
 		want int
 	}{
-		{"bad kind", map[string]any{"kind": "video", "url": "x"}, http.StatusBadRequest},
-		{"link no url", map[string]any{"kind": "link"}, http.StatusBadRequest},
-		{"link blank url", map[string]any{"kind": "link", "url": "  "}, http.StatusBadRequest},
-		{"file no attachment", map[string]any{"kind": "file"}, http.StatusBadRequest},
-		{"file dangling attachment", map[string]any{"kind": "file", "attachment_id": "att-nope"}, http.StatusBadRequest},
+		{"bad kind", map[string]any{"kind": "video", "url": "x", "name": "n"}, http.StatusBadRequest},
+		{"link no url", map[string]any{"kind": "link", "name": "n"}, http.StatusBadRequest},
+		{"link blank url", map[string]any{"kind": "link", "url": "  ", "name": "n"}, http.StatusBadRequest},
+		{"file no attachment", map[string]any{"kind": "file", "name": "n"}, http.StatusBadRequest},
+		{"file dangling attachment", map[string]any{"kind": "file", "attachment_id": "att-nope", "name": "n"}, http.StatusBadRequest},
+		// T-92, owner rc-85b07ab98651「現在開始任務產物都需要有個名字」: name is
+		// REQUIRED on this door, and both caps REFUSE rather than truncate — a
+		// silently shortened name is a deliverable that no longer says what its
+		// author said it was. Each case is otherwise a perfectly good request,
+		// so the 400 can only be about the text.
+		{"no name", map[string]any{"kind": "link", "url": "https://x/pr/1"}, http.StatusBadRequest},
+		{"blank name", map[string]any{"kind": "link", "url": "https://x/pr/1", "name": "   "}, http.StatusBadRequest},
+		{"name over the cap", map[string]any{"kind": "link", "url": "https://x/pr/1",
+			"name": strings.Repeat("界", artifactNameMaxChars+1)}, http.StatusBadRequest},
+		{"description over the cap", map[string]any{"kind": "link", "url": "https://x/pr/1",
+			"name": "n", "description": strings.Repeat("界", artifactDescriptionMaxChars+1)}, http.StatusBadRequest},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -217,15 +240,15 @@ func TestAddArtifactInputGuards(t *testing.T) {
 		})
 	}
 	// None of the rejected attempts persisted.
-	if got := getTaskView(t, api, task.ID); len(got.Artifacts) != 0 {
-		t.Fatalf("rejected attempts must not persist, got %+v", got.Artifacts)
+	if got := getTaskView(t, api, task.ID); got.ArtifactCount != 0 {
+		t.Fatalf("rejected attempts must not persist, got artifact_count %d", got.ArtifactCount)
 	}
 }
 
 func TestAddArtifactExecutorGuard(t *testing.T) {
 	api := newTasksTestServer(t)
 	task := createAdHocTask(t, api, "m-exec")
-	link := map[string]any{"kind": "link", "url": "https://x/pr/1"}
+	link := map[string]any{"kind": "link", "url": "https://x/pr/1", "name": "PR #1"}
 	// A different agent (not the executor, no admin capability) is a flat 403.
 	if rec := addArtifact(t, api, task.ID, link, "m-other", "agent"); rec.Code != http.StatusForbidden {
 		t.Fatalf("non-executor agent must 403, got %d %s", rec.Code, rec.Body.String())
@@ -246,7 +269,7 @@ func TestAddArtifactOnTerminalTaskIs409(t *testing.T) {
 		t.Fatalf("terminate: %d %s", rec.Code, rec.Body.String())
 	}
 	if rec := addArtifact(t, api, task.ID,
-		map[string]any{"kind": "link", "url": "https://x/pr/1"},
+		map[string]any{"kind": "link", "url": "https://x/pr/1", "name": "PR #1"},
 		"m-exec", "agent"); rec.Code != http.StatusConflict {
 		t.Fatalf("terminal task add must 409, got %d %s", rec.Code, rec.Body.String())
 	}
@@ -261,7 +284,7 @@ func TestAddArtifactOnTerminalTaskIs409(t *testing.T) {
 func TestRemoveArtifactOnTerminalTaskIs409(t *testing.T) {
 	api := newTasksTestServer(t)
 	task := createAdHocTask(t, api, "m-exec")
-	link := map[string]any{"kind": "link", "url": "https://x/pr/1"}
+	link := map[string]any{"kind": "link", "url": "https://x/pr/1", "name": "PR #1"}
 
 	// Positive control: while the task is still open, un-pin works as before.
 	openArt := decodeBody[taskArtifactReceiptDTO](t, addArtifact(t, api, task.ID, link, "m-exec", "agent")).ArtifactID
@@ -288,8 +311,8 @@ func TestRemoveArtifactOnTerminalTaskIs409(t *testing.T) {
 		t.Fatalf("terminal task remove by owner must 409, got %d %s", rec.Code, rec.Body.String())
 	}
 	// The rejected attempts must leave the deliverable pinned.
-	if got := getTaskView(t, api, task.ID); len(got.Artifacts) != 1 {
-		t.Fatalf("frozen artifact must survive, got %+v", got.Artifacts)
+	if got := getTaskView(t, api, task.ID); got.ArtifactCount != 1 {
+		t.Fatalf("frozen artifact must survive, got artifact_count %d", got.ArtifactCount)
 	}
 }
 
@@ -297,7 +320,7 @@ func TestRemoveArtifact(t *testing.T) {
 	api := newTasksTestServer(t)
 	task := createAdHocTask(t, api, "m-exec")
 	rec := addArtifact(t, api, task.ID,
-		map[string]any{"kind": "link", "url": "https://x/pr/1"}, "m-exec", "agent")
+		map[string]any{"kind": "link", "url": "https://x/pr/1", "name": "PR #1"}, "m-exec", "agent")
 	artID := decodeBody[taskArtifactReceiptDTO](t, rec).ArtifactID
 
 	// Unknown artifact → 404; wrong-task ownership → 400.
@@ -317,8 +340,8 @@ func TestRemoveArtifact(t *testing.T) {
 	if receipt.TaskID != task.ID || receipt.ArtifactID != artID || receipt.ArtifactCount != 0 {
 		t.Fatalf("remove receipt wrong shape: %+v", receipt)
 	}
-	if got := getTaskView(t, api, task.ID); len(got.Artifacts) != 0 {
-		t.Fatalf("artifact must be gone, got %+v", got.Artifacts)
+	if got := getTaskView(t, api, task.ID); got.ArtifactCount != 0 {
+		t.Fatalf("artifact must be gone, got artifact_count %d", got.ArtifactCount)
 	}
 }
 
@@ -331,7 +354,7 @@ func TestRemoveArtifact(t *testing.T) {
 func TestRemoveArtifactExecutorGuard(t *testing.T) {
 	api := newTasksTestServer(t)
 	task := createAdHocTask(t, api, "m-exec")
-	link := map[string]any{"kind": "link", "url": "https://x/pr/1"}
+	link := map[string]any{"kind": "link", "url": "https://x/pr/1", "name": "PR #1"}
 
 	// A different agent (not the executor, no admin capability) is a flat 403 —
 	// and the artifact must survive the rejected attempt.
@@ -339,8 +362,8 @@ func TestRemoveArtifactExecutorGuard(t *testing.T) {
 	if rec := removeArtifact(t, api, task.ID, artID, "m-other", "agent"); rec.Code != http.StatusForbidden {
 		t.Fatalf("non-executor agent must 403, got %d %s", rec.Code, rec.Body.String())
 	}
-	if got := getTaskView(t, api, task.ID); len(got.Artifacts) != 1 {
-		t.Fatalf("rejected remove must not un-pin, got %+v", got.Artifacts)
+	if got := getTaskView(t, api, task.ID); got.ArtifactCount != 1 {
+		t.Fatalf("rejected remove must not un-pin, got artifact_count %d", got.ArtifactCount)
 	}
 	// The executing agent removes its own deliverable.
 	if rec := removeArtifact(t, api, task.ID, artID, "m-exec", "agent"); rec.Code != http.StatusOK {
@@ -354,10 +377,10 @@ func TestRemoveArtifactExecutorGuard(t *testing.T) {
 }
 
 // TestArtifactCountEmptyThenPopulated is the 「0 個產物 → 標籤不出現」 backing
-// assertion. The empty task must report count 0 on the light list AND an empty
-// artifacts array on the full view; the positive control (add one → count 1)
-// proves the count is actually wired (guards a hard-coded-0 or hard-coded-N
-// mutant).
+// assertion. The empty task must report count 0 on the light list AND on the
+// full view — which since T-92 is the ONLY thing either of them says about the
+// artifact set; the positive control (add one → count 1) proves the count is
+// actually wired (guards a hard-coded-0 or hard-coded-N mutant).
 func TestArtifactCountEmptyThenPopulated(t *testing.T) {
 	api := newTasksTestServer(t)
 	task := createAdHocTask(t, api, "m-exec")
@@ -365,12 +388,12 @@ func TestArtifactCountEmptyThenPopulated(t *testing.T) {
 	if it := listItemFor(t, api, task.ID); it.ArtifactCount != 0 {
 		t.Fatalf("empty task must report artifact_count 0, got %d", it.ArtifactCount)
 	}
-	if view := getTaskView(t, api, task.ID); len(view.Artifacts) != 0 {
-		t.Fatalf("empty task full view must have [] artifacts, got %+v", view.Artifacts)
+	if view := getTaskView(t, api, task.ID); view.ArtifactCount != 0 {
+		t.Fatalf("empty task full view must report artifact_count 0, got %d", view.ArtifactCount)
 	}
 
 	if rec := addArtifact(t, api, task.ID,
-		map[string]any{"kind": "link", "url": "https://x/pr/1"},
+		map[string]any{"kind": "link", "url": "https://x/pr/1", "name": "PR #1"},
 		"m-exec", "agent"); rec.Code != http.StatusOK {
 		t.Fatalf("add: %d %s", rec.Code, rec.Body.String())
 	}

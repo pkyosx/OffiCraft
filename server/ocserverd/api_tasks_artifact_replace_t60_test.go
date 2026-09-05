@@ -55,11 +55,14 @@ func seedArtifactBlob(t *testing.T, api *apiServer, id string) {
 	}
 }
 
-// fileArtifactOn pins one file deliverable carrying blob attID and answers its id.
+// fileArtifactOn pins one file deliverable carrying blob attID and answers its
+// id. The name is required since T-92, and is the blob id so that a row mixed up
+// with another one is visible in a failure message.
 func fileArtifactOn(t *testing.T, api *apiServer, taskID, attID string) string {
 	t.Helper()
 	rec := addArtifact(t, api, taskID,
-		map[string]any{"kind": "file", "attachment_id": attID}, "m-exec", "agent")
+		map[string]any{"kind": "file", "attachment_id": attID, "name": attID},
+		"m-exec", "agent")
 	if rec.Code != http.StatusOK {
 		t.Fatalf("add file artifact: %d %s", rec.Code, rec.Body.String())
 	}
@@ -70,7 +73,7 @@ func TestReplaceArtifactKeepsTheIdAndRetainsTheReplacedVersion(t *testing.T) {
 	api := newTasksTestServer(t)
 	task := createAdHocTask(t, api, "m-exec")
 	rec := addArtifact(t, api, task.ID,
-		map[string]any{"kind": "link", "url": "https://x/pr/1", "label": "PR #1"},
+		map[string]any{"kind": "link", "url": "https://x/pr/1", "name": "PR #1"},
 		"m-exec", "agent")
 	artID := decodeBody[taskArtifactReceiptDTO](t, rec).ArtifactID
 
@@ -80,7 +83,7 @@ func TestReplaceArtifactKeepsTheIdAndRetainsTheReplacedVersion(t *testing.T) {
 	}
 
 	rec = replaceArtifact(t, api, task.ID, artID,
-		map[string]any{"url": "https://x/pr/2", "label": "PR #2"}, "m-exec", "agent")
+		map[string]any{"url": "https://x/pr/2", "name": "PR #2"}, "m-exec", "agent")
 	if rec.Code != http.StatusOK {
 		t.Fatalf("replace: %d %s", rec.Code, rec.Body.String())
 	}
@@ -100,7 +103,7 @@ func TestReplaceArtifactKeepsTheIdAndRetainsTheReplacedVersion(t *testing.T) {
 	if live.ID != artID {
 		t.Fatalf("the artifact id must never move: %q became %q", artID, live.ID)
 	}
-	if live.URL != "https://x/pr/2" || live.Label != "PR #2" ||
+	if live.URL != "https://x/pr/2" || live.Name != "PR #2" ||
 		live.Kind != "link" || live.VersionCount != 2 {
 		t.Fatalf("live artifact wrong shape after replace: %+v", live)
 	}
@@ -114,7 +117,7 @@ func TestReplaceArtifactKeepsTheIdAndRetainsTheReplacedVersion(t *testing.T) {
 	if len(versions) != 1 {
 		t.Fatalf("expected exactly the replaced version, got %+v", versions)
 	}
-	if versions[0].URL != "https://x/pr/1" || versions[0].Label != "PR #1" ||
+	if versions[0].URL != "https://x/pr/1" || versions[0].Name != "PR #1" ||
 		versions[0].Kind != "link" || versions[0].CreatedBy != "m-exec" {
 		t.Fatalf("retained version wrong shape: %+v", versions[0])
 	}
@@ -130,7 +133,7 @@ func TestReplaceArtifactOnTerminalTaskIs409(t *testing.T) {
 	api := newTasksTestServer(t)
 	task := createAdHocTask(t, api, "m-exec")
 	artID := decodeBody[taskArtifactReceiptDTO](t, addArtifact(t, api, task.ID,
-		map[string]any{"kind": "link", "url": "https://x/pr/1"},
+		map[string]any{"kind": "link", "url": "https://x/pr/1", "name": "PR #1"},
 		"m-exec", "agent")).ArtifactID
 
 	if rec := replaceArtifact(t, api, task.ID, artID,
@@ -172,7 +175,7 @@ func TestReplaceArtifactRefusesACrossKindReplacement(t *testing.T) {
 	seedArtifactBlob(t, api, "att-v2")
 	fileID := fileArtifactOn(t, api, task.ID, "att-v1")
 	linkID := decodeBody[taskArtifactReceiptDTO](t, addArtifact(t, api, task.ID,
-		map[string]any{"kind": "link", "url": "https://x/pr/1"},
+		map[string]any{"kind": "link", "url": "https://x/pr/1", "name": "PR #1"},
 		"m-exec", "agent")).ArtifactID
 
 	for _, tc := range []struct {
@@ -198,7 +201,10 @@ func TestReplaceArtifactRefusesACrossKindReplacement(t *testing.T) {
 		if a.VersionCount != 1 {
 			t.Fatalf("a refused replace must retain no version: %+v", a)
 		}
-		if a.ID == fileID && (a.Kind != "file" || a.AttachmentID != "att-v1") {
+		// The live row no longer carries attachment_id (T-92): the blob id is the
+		// tail of the url, which is the ONE field that says where this
+		// deliverable's content is on every kind.
+		if a.ID == fileID && (a.Kind != "file" || a.URL != "/api/chat/attachment/att-v1") {
 			t.Fatalf("file artifact moved: %+v", a)
 		}
 		if a.ID == linkID && (a.Kind != "link" || a.URL != "https://x/pr/1") {
@@ -304,8 +310,13 @@ func TestRemoveArtifactCollectsEveryRetainedVersion(t *testing.T) {
 	// untouched deliverable is not collateral.
 	mustBlobAlive(t, api.dal, "att-live", "the live blob's exemption predates T-60")
 	mustBlobAlive(t, api.dal, "att-other", "pinned by an artifact nobody removed")
-	if got := getTaskView(t, api, task.ID).Artifacts; len(got) != 1 || got[0].ID != otherID {
+	// The ids come from list_task_artifacts since T-92 — the task view answers a
+	// count and carries none — so the "which one survived" check reads that.
+	if got := getTaskArtifacts(t, api, task.ID).Artifacts; len(got) != 1 || got[0].ID != otherID {
 		t.Fatalf("only the removed artifact may disappear, got %+v", got)
+	}
+	if got := getTaskView(t, api, task.ID).ArtifactCount; got != 1 {
+		t.Fatalf("the task view must count the one survivor, got %d", got)
 	}
 }
 
@@ -318,7 +329,7 @@ func TestArtifactHistoryGuards(t *testing.T) {
 	task := createAdHocTask(t, api, "m-exec")
 	other := createAdHocTask(t, api, "m-exec")
 	artID := decodeBody[taskArtifactReceiptDTO](t, addArtifact(t, api, task.ID,
-		map[string]any{"kind": "link", "url": "https://x/pr/1"},
+		map[string]any{"kind": "link", "url": "https://x/pr/1", "name": "PR #1"},
 		"m-exec", "agent")).ArtifactID
 	if rec := replaceArtifact(t, api, task.ID, artID,
 		map[string]any{"url": "https://x/pr/2"}, "m-exec", "agent"); rec.Code != http.StatusOK {
@@ -340,7 +351,7 @@ func TestArtifactHistoryGuards(t *testing.T) {
 		t.Fatalf("a non-executor must not un-pin, got %d %s", rec.Code, rec.Body.String())
 	}
 	if rec := addArtifact(t, api, task.ID,
-		map[string]any{"kind": "link", "url": "https://x/pr/4"},
+		map[string]any{"kind": "link", "url": "https://x/pr/4", "name": "PR #4"},
 		"m-stranger", "agent"); rec.Code != http.StatusForbidden {
 		t.Fatalf("a non-executor must not pin, got %d %s", rec.Code, rec.Body.String())
 	}
@@ -387,11 +398,13 @@ func TestArtifactHistoryGuards(t *testing.T) {
 // deliverable this journal mostly holds: an agent-uploaded .md report arrives
 // under application/octet-stream, so the NAME is the only remaining witness.
 //
-// A version's label is optional and usually absent (nothing makes an agent pass
-// one), so a wire that carries only the label leaves exactly that class of
-// version nameless — and permanently un-diffable. The filename is resolved from
-// the version's OWN retained blob, the same read the live projection does, so
-// neither side of the comparison is named more generously than the other.
+// A version's NAME cannot answer it either, and T-92 making the name required
+// did not change that: the name is a display title its author chose ("週報
+// v3"), and a title says nothing about what the bytes ARE. The two are separate
+// fields carrying separate facts, which this case asserts by giving them
+// different values. The filename is resolved from the version's OWN retained
+// blob, the same read the live projection does, so neither side of the
+// comparison is named more generously than the other.
 func TestArtifactHistoryCarriesEachVersionsOwnFilename(t *testing.T) {
 	api := newTasksTestServer(t)
 	task := createAdHocTask(t, api, "m-exec")
@@ -403,8 +416,15 @@ func TestArtifactHistoryCarriesEachVersionsOwnFilename(t *testing.T) {
 			t.Fatalf("seed blob %s: %v", id, err)
 		}
 	}
-	// No label anywhere — the case the label-only wire could not name.
-	artID := fileArtifactOn(t, api, task.ID, "att-old")
+	// The display name is deliberately NOT the file's name — the case a
+	// name-only wire could not diff.
+	rec := addArtifact(t, api, task.ID,
+		map[string]any{"kind": "file", "attachment_id": "att-old", "name": "週報 v3"},
+		"m-exec", "agent")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("add file artifact: %d %s", rec.Code, rec.Body.String())
+	}
+	artID := decodeBody[taskArtifactReceiptDTO](t, rec).ArtifactID
 	if rec := replaceArtifact(t, api, task.ID, artID,
 		map[string]any{"attachment_id": "att-new"}, "m-exec", "agent"); rec.Code != http.StatusOK {
 		t.Fatalf("replace: %d %s", rec.Code, rec.Body.String())
@@ -415,8 +435,9 @@ func TestArtifactHistoryCarriesEachVersionsOwnFilename(t *testing.T) {
 	if len(versions) != 1 {
 		t.Fatalf("expected exactly the replaced version, got %+v", versions)
 	}
-	if versions[0].Label != "" {
-		t.Fatalf("this case is about a version with NO label, got %+v", versions[0])
+	if versions[0].Name != "週報 v3" {
+		t.Fatalf("a retained version keeps the name that version was written under, got %+v",
+			versions[0])
 	}
 	if versions[0].Filename != "report.md" {
 		t.Fatalf("a retained version must carry its own blob's filename, got %+v", versions[0])
@@ -424,7 +445,7 @@ func TestArtifactHistoryCarriesEachVersionsOwnFilename(t *testing.T) {
 
 	// A link version has no blob, so it has no filename to borrow either.
 	linkID := decodeBody[taskArtifactReceiptDTO](t, addArtifact(t, api, task.ID,
-		map[string]any{"kind": "link", "url": "https://x/pr/1"},
+		map[string]any{"kind": "link", "url": "https://x/pr/1", "name": "PR #1"},
 		"m-exec", "agent")).ArtifactID
 	if rec := replaceArtifact(t, api, task.ID, linkID,
 		map[string]any{"url": "https://x/pr/2"}, "m-exec", "agent"); rec.Code != http.StatusOK {
@@ -432,8 +453,10 @@ func TestArtifactHistoryCarriesEachVersionsOwnFilename(t *testing.T) {
 	}
 	linkVersions := decodeBody[[]taskArtifactVersionDTO](t,
 		artifactHistory(t, api, task.ID, linkID, "m-exec", "agent"))
+	// A link's blob is a text/uri-list holding the target and nothing else
+	// (T-92), so it is still a version with no filename to borrow.
 	if len(linkVersions) != 1 || linkVersions[0].Filename != "" {
-		t.Fatalf("a link version has no blob and so no filename, got %+v", linkVersions)
+		t.Fatalf("a link version has no filename to borrow, got %+v", linkVersions)
 	}
 }
 
@@ -492,7 +515,7 @@ func TestArtifactHistoryServesAFileVersionsBlobEndpoint(t *testing.T) {
 	seed("att-shot-old", "image/png", "shot.png")
 	seed("att-shot-new", "image/png", "shot.png")
 	imgID := decodeBody[taskArtifactReceiptDTO](t, addArtifact(t, api, task.ID,
-		map[string]any{"kind": "image", "attachment_id": "att-shot-old"},
+		map[string]any{"kind": "image", "attachment_id": "att-shot-old", "name": "shot"},
 		"m-exec", "agent")).ArtifactID
 	if rec := replaceArtifact(t, api, task.ID, imgID,
 		map[string]any{"attachment_id": "att-shot-new"},
@@ -513,7 +536,7 @@ func TestArtifactHistoryServesAFileVersionsBlobEndpoint(t *testing.T) {
 	// A link version keeps the row's own external url, and has no blob to
 	// describe — the control that stops the rewrite from applying to every kind.
 	linkID := decodeBody[taskArtifactReceiptDTO](t, addArtifact(t, api, task.ID,
-		map[string]any{"kind": "link", "url": "https://x/pr/1"},
+		map[string]any{"kind": "link", "url": "https://x/pr/1", "name": "PR #1"},
 		"m-exec", "agent")).ArtifactID
 	if rec := replaceArtifact(t, api, task.ID, linkID,
 		map[string]any{"url": "https://x/pr/2"}, "m-exec", "agent"); rec.Code != http.StatusOK {
@@ -528,16 +551,24 @@ func TestArtifactHistoryServesAFileVersionsBlobEndpoint(t *testing.T) {
 	}
 }
 
-// An OMITTED label carries the pinned one forward (owner ruling 2026-09-05):
-// updating a deliverable's content should not cost it its display name, which
-// is what happened while an absent label was stored as the empty string. The
-// three arms are the whole contract — absent keeps, explicit replaces, explicit
-// blank clears — so a mutant that collapses any two of them reddens.
-func TestReplaceArtifactLabelAbsentKeepsExplicitReplacesBlankClears(t *testing.T) {
+// An OMITTED name or description carries the pinned one forward (owner ruling
+// 2026-09-05): updating a deliverable's content should not cost it its display
+// name, which is what happened while an absent value was stored as the empty
+// string.
+//
+// ⚠️ T-92 SPLIT THE OLD `label` IN TWO, AND THE TWO HALVES DIVERGE ON A BLANK.
+// The absent-keeps and explicit-replaces arms are shared, but a blank NAME is
+// REFUSED — every deliverable has a name — while a blank DESCRIPTION CLEARS,
+// because plenty of deliverables need no explanation. That asymmetry is the
+// thing most likely to be collapsed by a mutant (or by a well-meaning
+// simplification), so both halves are walked here and a mutant that collapses
+// any two arms of either reddens.
+func TestReplaceArtifactTextAbsentKeepsExplicitReplacesBlankSplits(t *testing.T) {
 	api := newTasksTestServer(t)
 	task := createAdHocTask(t, api, "m-exec")
 	rec := addArtifact(t, api, task.ID,
-		map[string]any{"kind": "link", "url": "https://x/pr/1", "label": "PR #1"},
+		map[string]any{"kind": "link", "url": "https://x/pr/1",
+			"name": "PR #1", "description": "the first cut"},
 		"m-exec", "agent")
 	artID := decodeBody[taskArtifactReceiptDTO](t, rec).ArtifactID
 
@@ -554,24 +585,39 @@ func TestReplaceArtifactLabelAbsentKeepsExplicitReplacesBlankClears(t *testing.T
 	}
 
 	replace(map[string]any{"url": "https://x/pr/2"})
-	if got := live().Label; got != "PR #1" {
-		t.Fatalf("an omitted label must keep the pinned one, got %q", got)
+	if got := live(); got.Name != "PR #1" || got.Description != "the first cut" {
+		t.Fatalf("an omitted name/description must keep the pinned ones, got %+v", got)
 	}
 
-	replace(map[string]any{"url": "https://x/pr/3", "label": "PR #3"})
-	if got := live().Label; got != "PR #3" {
-		t.Fatalf("an explicit label must replace, got %q", got)
+	replace(map[string]any{"url": "https://x/pr/3", "name": "PR #3", "description": "the second cut"})
+	if got := live(); got.Name != "PR #3" || got.Description != "the second cut" {
+		t.Fatalf("an explicit name/description must replace, got %+v", got)
 	}
 
-	replace(map[string]any{"url": "https://x/pr/4", "label": ""})
-	if got := live().Label; got != "" {
-		t.Fatalf("an explicit blank label must clear, got %q", got)
+	// A blank NAME is refused outright, and the refusal must not half-apply:
+	// the description sent alongside it does not land either.
+	r := replaceArtifact(t, api, task.ID, artID,
+		map[string]any{"url": "https://x/pr/4", "name": "  ", "description": "never written"},
+		"m-exec", "agent")
+	if r.Code != http.StatusBadRequest {
+		t.Fatalf("a blank name must 400, got %d %s", r.Code, r.Body.String())
+	}
+	if got := live(); got.Name != "PR #3" || got.Description != "the second cut" ||
+		got.URL != "https://x/pr/3" {
+		t.Fatalf("a refused replace must change nothing, got %+v", got)
 	}
 
-	// Once cleared, an omitted label keeps it cleared — inheritance is of what
-	// is pinned, not of the last non-empty label anyone ever set.
-	replace(map[string]any{"url": "https://x/pr/5"})
-	if got := live().Label; got != "" {
-		t.Fatalf("an omitted label must keep the pinned empty one, got %q", got)
+	// A blank DESCRIPTION clears — the half of the old label that is allowed to
+	// be nothing.
+	replace(map[string]any{"url": "https://x/pr/5", "description": ""})
+	if got := live(); got.Description != "" || got.Name != "PR #3" {
+		t.Fatalf("an explicit blank description must clear and leave the name alone, got %+v", got)
+	}
+
+	// Once cleared, an omitted description keeps it cleared — inheritance is of
+	// what is pinned, not of the last non-empty prose anyone ever set.
+	replace(map[string]any{"url": "https://x/pr/6"})
+	if got := live().Description; got != "" {
+		t.Fatalf("an omitted description must keep the pinned empty one, got %q", got)
 	}
 }

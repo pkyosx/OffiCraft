@@ -493,6 +493,12 @@ var identityGateExpectedCount = map[string]int{
 	// handler does, not this one. The check found the second site and the second
 	// site is what showed the reason was wrong. See the entry itself.
 	"api_tasks.go :: HandleReassignTaskApiTasksTaskIdReassignPost :: kind == TaskExecutorOutsource": 2,
+	// T-92 gave a LINK a blob of its own, and the projection now asks the same
+	// question twice for two different fields: once to read the link target out
+	// of that blob into `url`, and once to take the blob's mime — the branch
+	// artifactBlobFacts serves for every other kind. Both are the same artifact
+	// content kind and the ledger's single reason covers both.
+	"wire.go :: newTaskArtifactDTO :: a.Kind == ArtifactKindLink": 2,
 }
 
 // identityGateLedger is THE LIST. Every identity gate in the package's
@@ -1055,6 +1061,9 @@ var identityGateLedger = map[string]string{
 	"api_tasks.go :: HandleReplaceTaskArtifactApiTasksTaskIdArtifactArtifactIdReplacePost :: Kind: art.Kind": "" +
 		"NOT an identity gate — the replacement row carries the pinned artifact's own " +
 		"kind forward verbatim; that carry IS the immutability rule, not a population.",
+	"api_tasks_artifact_upload.go :: HandleUploadReplaceTaskArtifactApiTasksTaskIdArtifactArtifactIdReplaceUploadPost :: Kind: art.Kind": "" +
+		"NOT an identity gate — the same carry on the T-92 raw-body replace door, which " +
+		"is the same write with a different transport.",
 
 	// ── NOT identity gates at all ──────────────────────────────────────────
 	//
@@ -1067,9 +1076,6 @@ var identityGateLedger = map[string]string{
 		"NOT an identity gate — `Kind` here is a DOCUMENT kind (boot sequence, " +
 		"offboard, task closeout…), an unrelated vocabulary that happens to reuse the " +
 		"field name. Kept listed rather than filtered out of the scan.",
-	"api_tasks.go :: taskArtifactDTOs :: a.Kind != ArtifactKindLink": "" +
-		"NOT an identity gate — ARTIFACT kind (file / image / link). Same overloaded " +
-		"field name, same reason for keeping it visible.",
 	"api_tasks.go :: HandleListTaskArtifactHistoryApiTasksTaskIdArtifactArtifactIdHistoryGet :: v.Kind != ArtifactKindLink": "" +
 		"NOT an identity gate — the same artifact kind read off a RETAINED VERSION row " +
 		"(T-60 history), deciding whether that version has a blob to resolve a filename " +
@@ -1083,6 +1089,24 @@ var identityGateLedger = map[string]string{
 		"(a link carries a url, a file carries an attachment).",
 	"wire.go :: newTaskArtifactDTO :: a.Kind != ArtifactKindLink": "" +
 		"NOT an identity gate — the wire twin of the artifact-kind test above.",
+	"wire.go :: newTaskArtifactDTO :: a.Kind == ArtifactKindLink": "" +
+		"NOT an identity gate — the positive arm of the same artifact-kind test, which " +
+		"T-92 needed once a link carried a blob too: it reads the link target out of " +
+		"that blob and takes the blob's mime. TWO sites, pinned at 2 in " +
+		"identityGateExpectedCount.",
+	"wire.go :: newTaskArtifactVersionDTO :: h.Kind == ArtifactKindLink": "" +
+		"NOT an identity gate — the same positive arm on a RETAINED VERSION's row, " +
+		"resolving that version's link target out of its own retained blob.",
+	"wire.go :: artifactDisplayName :: a.Kind == ArtifactKindLink": "" +
+		"NOT an identity gate — the same artifact kind choosing which FALLBACK names a " +
+		"row whose name column is empty (T-92): a link falls back to its target, a " +
+		"file/image to its blob's filename. No population is on either side.",
+	"api_tasks_artifact_upload.go :: HandleUploadReplaceTaskArtifactApiTasksTaskIdArtifactArtifactIdReplaceUploadPost :: art.Kind == ArtifactKindLink": "" +
+		"NOT an identity gate — the pinned artifact's content kind closing the raw-body " +
+		"replace door to a link, whose content is a url rather than bytes.",
+	"api_tasks_artifact_upload.go :: HandleUploadReplaceTaskArtifactApiTasksTaskIdArtifactArtifactIdReplaceUploadPost :: k != art.Kind": "" +
+		"NOT an identity gate — the kind SNIFFED from the uploaded bytes versus the " +
+		"pinned one: the T-60 immutability rule read through the T-92 upload transport.",
 	"wire.go :: newTaskArtifactVersionDTO :: h.Kind != ArtifactKindLink": "" +
 		"NOT an identity gate — the same artifact kind read off a RETAINED VERSION " +
 		"row (T-60), deciding whether that version has a blob whose filename and mime " +

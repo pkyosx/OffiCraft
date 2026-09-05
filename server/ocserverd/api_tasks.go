@@ -3306,12 +3306,20 @@ func (s *apiServer) HandleListTaskArtifactHistoryApiTasksTaskIdArtifactArtifactI
 	}
 	out := make([]taskArtifactVersionDTO, 0, len(versions))
 	for _, v := range versions {
-		// The SAME blob resolution the live projection does (taskArtifactDTOs):
-		// link kinds have no attachment, a missing blob resolves to nil and the
-		// version's filename stays honest-empty.
+		// The SAME blob resolution the live projection does (taskArtifactDTOs),
+		// and since T-92 that means EVERY kind — a link version's target lives in
+		// its own text/uri-list blob, so skipping links here served every retained
+		// link version a url of "". A missing blob still resolves to nil and the
+		// version stays honest-empty.
+		//
+		// 🔴 THE LINE ABOVE ONCE SAID "the SAME resolution" WHILE DOING SOMETHING
+		// ELSE. The live projection lost its kind test in this same ticket and
+		// this copy kept one, so the sentence claiming they matched was the only
+		// thing still saying they did. Caught by a test that refused to be
+		// weakened, not by anything in this file.
 		var att *ChatAttachment
-		if v.Kind != ArtifactKindLink && v.AttachmentID != "" {
-			att, err = s.dal.GetChatAttachment(v.AttachmentID)
+		if v.AttachmentID != "" {
+			att, err = s.dal.GetTaskArtifactBlob(v.AttachmentID)
 			if err != nil {
 				internalError(w, err)
 				return

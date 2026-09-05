@@ -1,13 +1,21 @@
 package main
 
-// api_write_length_cap_t66_test.go — T-66 ②: the two SHORT NAMING fields are
-// capped at 128 CHARACTERS on the write side.
+// api_write_length_cap_t66_test.go — T-66 ②: the SHORT NAMING fields are capped
+// on the write side.
 //
 // Owner, verbatim: 「過去先不管 新的都要限制長度」 (c-5d058a53ef74),
 // 「128字元」 (c-92c734ef561e), 「不用在錯誤訊息寫」 (c-b9bb4cfde26a).
-// 執行者判斷 (T-66) picked the two fields the cap binds — a task artifact's
-// label and a chat attachment's filename — and the shape of the guard (copied
-// from the chatBodyMaxChars refusal in api_chat.go).
+// 執行者判斷 (T-66) picked the fields the cap binds — a task artifact's text and
+// a chat attachment's filename — and the shape of the guard (copied from the
+// chatBodyMaxChars refusal in api_chat.go).
+//
+// ⚠️ THE ARTIFACT SIDE IS NO LONGER ONE FIELD AT 128. T-92 split the single
+// `label` into a display `name` and a prose `description`, and the owner set
+// them their own caps in the same breath (c-0d0a576f68af: 48 / 256,
+// 「舊資料不截斷」). The 128 belongs to the attachment filename now and to
+// nothing else. Everything else on this list survived the split unchanged,
+// which is why the cases below are the same five assertions against two caps
+// instead of one.
 //
 // 🔴 WHAT THIS FILE PINS, and why each part is load-bearing:
 //
@@ -54,6 +62,14 @@ func t66AssertCapCorpus(t *testing.T) {
 		t.Fatalf("owner said 128 字元 (c-92c734ef561e); the constant is %d",
 			shortLabelMaxChars)
 	}
+	// The artifact side has its own two numbers since T-92 (owner
+	// c-0d0a576f68af: 48 / 256). They are asserted here rather than inlined
+	// below so a constant that quietly moves cannot take the boundary case with
+	// it and stay green.
+	if artifactNameMaxChars != 48 || artifactDescriptionMaxChars != 256 {
+		t.Fatalf("owner said 48 / 256 (c-0d0a576f68af); the constants are %d / %d",
+			artifactNameMaxChars, artifactDescriptionMaxChars)
+	}
 	cjk := t66Runes('字', shortLabelMaxChars)
 	if utf8.RuneCountInString(cjk) != 128 {
 		t.Fatalf("語料不合格:CJK 樣本不是 128 個字,而是 %d",
@@ -66,99 +82,138 @@ func t66AssertCapCorpus(t *testing.T) {
 	}
 }
 
-// ── the artifact label ──────────────────────────────────────────────────────
+// ── the artifact name and description ───────────────────────────────────────
 
-// t66AddLabel pins one link artifact carrying `label` and returns the recorder.
-func t66AddLabel(t *testing.T, api *apiServer, taskID, label string) *httptest.ResponseRecorder {
+// t66AddArtifactText pins one link artifact carrying the given name and
+// description and returns the recorder. Both are always sent, because since
+// T-92 the name is REQUIRED and a request that omits it is refused for that
+// rather than for the length this file is about.
+func t66AddArtifactText(t *testing.T, api *apiServer, taskID, name, description string) *httptest.ResponseRecorder {
 	t.Helper()
 	return addArtifact(t, api, taskID, map[string]any{
-		"kind": "link", "url": "https://github.com/x/y/pull/1", "label": label,
+		"kind": "link", "url": "https://github.com/x/y/pull/1",
+		"name": name, "description": description,
 	}, "m-exec", "agent")
 }
 
-// TestArtifactLabelCapIsOneHundredTwentyEightRunes pins the boundary on the
-// artifact label: 128 in, 129 out, in ASCII and in CJK.
-func TestArtifactLabelCapIsOneHundredTwentyEightRunes(t *testing.T) {
+// TestArtifactNameAndDescriptionCapsArePinnedAtFortyEightAndTwoFiftySix pins the
+// boundary on BOTH halves of the split text: 48 in / 49 out for the name, 256 in
+// / 257 out for the description, in ASCII and in CJK. Two caps in one case
+// because a mutant that applies one constant to both fields passes either half
+// alone.
+func TestArtifactNameAndDescriptionCapsArePinnedAtFortyEightAndTwoFiftySix(t *testing.T) {
 	t66AssertCapCorpus(t)
 	for _, tc := range []struct {
 		name string
 		r    rune
 	}{{"ascii", 'a'}, {"cjk", '字'}} {
 		t.Run(tc.name, func(t *testing.T) {
-			api := newTasksTestServer(t)
-			task := createAdHocTask(t, api, "m-exec")
-
-			atCap := t66Runes(tc.r, shortLabelMaxChars)
-			rec := t66AddLabel(t, api, task.ID, atCap)
-			if rec.Code != http.StatusOK {
-				t.Fatalf("%d 個字的 label 應該過,得到 %d %s",
-					shortLabelMaxChars, rec.Code, rec.Body.String())
-			}
-			// 而且是原樣存下,沒有被偷偷截短。
-			view := getTaskView(t, api, task.ID)
-			if len(view.Artifacts) != 1 || view.Artifacts[0].Label != atCap {
-				t.Fatalf("剛好在上限的 label 應原樣存下(%d 字),得到 %d 字",
-					utf8.RuneCountInString(atCap),
-					utf8.RuneCountInString(view.Artifacts[0].Label))
-			}
-
-			over := t66Runes(tc.r, shortLabelMaxChars+1)
-			rec = t66AddLabel(t, api, task.ID, over)
-			if rec.Code != http.StatusBadRequest {
-				t.Fatalf("%d 個字的 label 應該被擋(400),得到 %d %s",
-					shortLabelMaxChars+1, rec.Code, rec.Body.String())
-			}
-			// 拒絕就是拒絕:不得靜默截斷後照樣寫進去。
-			if got := getTaskView(t, api, task.ID); len(got.Artifacts) != 1 {
-				t.Fatalf("被拒的 label 不該留下任何一列:artifacts=%d",
-					len(got.Artifacts))
-			}
-			// 訊息要說長度與上限 —— 而且只說這個(owner c-b9bb4cfde26a
-			// 「不用在錯誤訊息寫」該把字放哪)。
-			body := rec.Body.String()
-			for _, want := range []string{
-				strconv.Itoa(shortLabelMaxChars + 1), strconv.Itoa(shortLabelMaxChars),
+			for _, f := range []struct {
+				field string
+				cap   int
+				// send builds a request whose FIELD is n runes long and whose
+				// other field is comfortably short, so a refusal can only be
+				// about the field under test.
+				send func(api *apiServer, taskID string, n int) *httptest.ResponseRecorder
+				// got reads the stored value of the field under test.
+				got func(a taskArtifactDTO) string
+			}{
+				{"name", artifactNameMaxChars,
+					func(api *apiServer, taskID string, n int) *httptest.ResponseRecorder {
+						return t66AddArtifactText(t, api, taskID, t66Runes(tc.r, n), "短說明")
+					},
+					func(a taskArtifactDTO) string { return a.Name }},
+				{"description", artifactDescriptionMaxChars,
+					func(api *apiServer, taskID string, n int) *httptest.ResponseRecorder {
+						return t66AddArtifactText(t, api, taskID, "短名字", t66Runes(tc.r, n))
+					},
+					func(a taskArtifactDTO) string { return a.Description }},
 			} {
-				if !strings.Contains(body, want) {
-					t.Fatalf("拒絕訊息該說出 %q,得到 %s", want, body)
-				}
-			}
-			for _, forbidden := range []string{"attachment (", "ocagent", "instead"} {
-				if strings.Contains(body, forbidden) {
-					t.Fatalf("拒絕訊息不該教人把字寫去哪(出現 %q):%s", forbidden, body)
-				}
+				t.Run(f.field, func(t *testing.T) {
+					api := newTasksTestServer(t)
+					task := createAdHocTask(t, api, "m-exec")
+
+					atCap := t66Runes(tc.r, f.cap)
+					if rec := f.send(api, task.ID, f.cap); rec.Code != http.StatusOK {
+						t.Fatalf("%d 個字的 %s 應該過,得到 %d %s",
+							f.cap, f.field, rec.Code, rec.Body.String())
+					}
+					// 而且是原樣存下,沒有被偷偷截短。
+					arts := getTaskArtifacts(t, api, task.ID).Artifacts
+					if len(arts) != 1 || f.got(arts[0]) != atCap {
+						t.Fatalf("剛好在上限的 %s 應原樣存下(%d 字),得到 %d 字",
+							f.field, utf8.RuneCountInString(atCap),
+							utf8.RuneCountInString(f.got(arts[0])))
+					}
+
+					rec := f.send(api, task.ID, f.cap+1)
+					if rec.Code != http.StatusBadRequest {
+						t.Fatalf("%d 個字的 %s 應該被擋(400),得到 %d %s",
+							f.cap+1, f.field, rec.Code, rec.Body.String())
+					}
+					// 拒絕就是拒絕:不得靜默截斷後照樣寫進去。
+					if got := getTaskArtifacts(t, api, task.ID).Artifacts; len(got) != 1 {
+						t.Fatalf("被拒的 %s 不該留下任何一列:artifacts=%d", f.field, len(got))
+					}
+					// 訊息要說長度與上限 —— 而且只說這個(owner c-b9bb4cfde26a
+					// 「不用在錯誤訊息寫」該把字放哪),並且要說是哪一個欄位,
+					// 因為現在有兩個上限,只印數字的訊息指不出是哪一個超了。
+					body := rec.Body.String()
+					for _, want := range []string{
+						strconv.Itoa(f.cap + 1), strconv.Itoa(f.cap), f.field,
+					} {
+						if !strings.Contains(body, want) {
+							t.Fatalf("拒絕訊息該說出 %q,得到 %s", want, body)
+						}
+					}
+					for _, forbidden := range []string{"attachment (", "ocagent", "instead"} {
+						if strings.Contains(body, forbidden) {
+							t.Fatalf("拒絕訊息不該教人把字寫去哪(出現 %q):%s", forbidden, body)
+						}
+					}
+				})
 			}
 		})
 	}
 }
 
-// TestArtifactLabelCapLeavesExistingRowsAlone pins 「過去先不管」: a row written
-// before the cap existed (here: straight through the DAL, which the cap does not
-// bind) still reads back IN FULL. Nothing migrates, backfills or truncates it.
-func TestArtifactLabelCapLeavesExistingRowsAlone(t *testing.T) {
+// TestArtifactTextCapsLeaveExistingRowsAlone pins 「過去先不管」/「舊資料不截斷」:
+// a row written before the caps existed (here: straight through the DAL, which
+// they do not bind) still reads back IN FULL. Nothing migrates, backfills or
+// truncates it — and on the live store 313 such rows really do carry a
+// description longer than 256, so this is not a hypothetical.
+//
+// The legacy row also has an EMPTY name, which is what nearly every migrated
+// row looks like, so it doubles as the acceptance for the read-time derivation:
+// the wire's `name` is never empty even when the column is.
+func TestArtifactTextCapsLeaveExistingRowsAlone(t *testing.T) {
 	api := newTasksTestServer(t)
 	task := createAdHocTask(t, api, "m-exec")
-	legacy := t66Runes('舊', shortLabelMaxChars*3)
+	legacy := t66Runes('舊', artifactDescriptionMaxChars*3)
 	if err := api.dal.PutTaskArtifact(TaskArtifact{
 		ID: "ta-legacy0001", TaskID: task.ID, Kind: ArtifactKindLink,
-		URL: "https://example.invalid/old", Label: legacy,
-		CreatedTS: 1000, CreatedBy: "m-exec",
+		Description: legacy, CreatedTS: 1000, CreatedBy: "m-exec",
 	}); err != nil {
 		t.Fatal(err)
 	}
-	view := getTaskView(t, api, task.ID)
-	if len(view.Artifacts) != 1 {
-		t.Fatalf("語料不合格:舊列沒有種進去,artifacts=%d", len(view.Artifacts))
+	arts := getTaskArtifacts(t, api, task.ID).Artifacts
+	if len(arts) != 1 {
+		t.Fatalf("語料不合格:舊列沒有種進去,artifacts=%d", len(arts))
 	}
-	if got := view.Artifacts[0].Label; got != legacy {
+	if got := arts[0].Description; got != legacy {
 		t.Fatalf("既有資料不得被動到:讀回 %d 字,原本 %d 字",
 			utf8.RuneCountInString(got), utf8.RuneCountInString(legacy))
 	}
+	// 名字欄是空的,但 wire 上不會是空的 —— 這一列連 blob 都沒有,所以掉到
+	// 最後一段 fallback:「#」+ 去掉 ta- 前綴的 id。
+	if got := arts[0].Name; got != "#legacy0001" {
+		t.Fatalf("沒有名字的舊列要在讀取時衍生出一個,得到 %q", got)
+	}
 	// 反恆真:同一台 server 上,新的寫入確實還是被擋著 —— 否則「舊的沒動」
 	// 也可能只是守衛整條沒生效。
-	if rec := t66AddLabel(t, api, task.ID,
-		t66Runes('新', shortLabelMaxChars+1)); rec.Code != http.StatusBadRequest {
-		t.Fatalf("對照組壞了:新的超長 label 也沒被擋(%d)— 這一跑什麼都沒證明",
+	if rec := t66AddArtifactText(t, api, task.ID, "短名字",
+		t66Runes('新', artifactDescriptionMaxChars+1)); rec.Code != http.StatusBadRequest {
+		t.Fatalf("對照組壞了:新的超長 description 也沒被擋(%d)— 這一跑什麼都沒證明",
 			rec.Code)
 	}
 }
