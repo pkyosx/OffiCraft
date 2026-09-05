@@ -801,28 +801,39 @@ func cmdListen(cfg Config, env func(string) string, once bool, out io.Writer) in
 	stamper := &eventStamper{clock: time.Now}
 	out = &stampWriter{inner: out, stamp: stamper.suffix}
 
-	// OC_BASE CLASSIFICATION: NOT GUARDED IN THIS PACKAGE, AND THIS IS THE
-	// ONE CASE WHERE THAT IS A DEFERRAL RATHER THAN AN EXEMPTION. Say so plainly,
-	// because listen is the subcommand with the MOST at stake here: cfg.Base is
-	// what the SSE connection below is opened against, holding it is what makes
-	// the server call this agent online, and nothing in this file asks whether
-	// that address was ever configured. suicide and clean are exempt because they
-	// reach no station at all; listen reaches one for as long as it runs.
+	// OC_BASE CLASSIFICATION: ANNOUNCED, NEVER REFUSED — AND THIS IS THE ONLY
+	// SUBCOMMAND IN THAT CATEGORY. listen has the MOST at stake of any of them:
+	// cfg.Base is what the SSE connection below is opened against, holding that
+	// connection is what makes the server call this agent online, and loadConfig
+	// will have substituted a loopback address in silence if nobody set OC_BASE.
+	// suicide and clean are exempt because they reach no station at all; listen
+	// reaches one for as long as it runs.
 	//
-	// It was left alone for two reasons, neither of which is "it does not
-	// matter":
-	//   1. The refusal T-86 adds elsewhere is an exit. Here an exit is the
-	//      failure mode itself — a member that stops holding its downlink is
-	//      indistinguishable from a dead one — and this file's refusal policy is
-	//      already a deliberate, debounced one (cli/CLAUDE.md §5: tmux gone twice,
-	//      unknown eight times across ten minutes, 409 four times across two
-	//      minutes). A new immediate refusal would sit outside that policy.
-	//   2. T-86's own scope forbids changing what config_test.go pins about the
-	//      mis-wire arm directly below.
+	// 🔴 IT DOES NOT REFUSE, AND THAT IS THE RULING, NOT AN OMISSION. This block
+	// previously recorded a DEFERRAL and named two candidate answers — fold it
+	// into the debounced refusal policy, or make it a launch-time refusal. The
+	// owner answered on 2026-09-05 (rc-55a969718c98, option [1]) and the answer
+	// was NEITHER, because both candidates are refusals and a refusal here is an
+	// exit: a member that stops holding its downlink is indistinguishable, from
+	// the outside, from a dead one — no error, no signal, just a member that
+	// stopped answering. The debounced policy is worse still, not better: its
+	// terminal state is selfTerminate(), which kills the tmux session this member
+	// lives in. So T-89 added a line of TEXT and nothing else. See
+	// baseAddressOrigin: an unconfigured base is named on the connect line and on
+	// the disconnect notice, both of which already exist and are already
+	// debounced, and no control flow anywhere branches on it.
 	//
-	// What it would take: a ruling on whether an unconfigured OC_BASE belongs in
-	// the debounced refusal policy or is a launch-time refusal, which is a
-	// question about this file's contract rather than about the guard T-86 added.
+	// ⇒ Anyone "finishing the job" by turning this into the refusal the other
+	// three subcommands use is REVERSING an owner ruling.
+	// TestUnconfiguredBase_KeepsRetryingAndNeverGoesQuiet is the only thing that
+	// says so mechanically — the three tests that read the message all stay green
+	// against a mutant that prints the line and then leaves.
+	//
+	// ⚠️ NOTE FOR ANYONE GREPPING requireBase TO FIND WHO CARES ABOUT OC_BASE:
+	// this subcommand is NOT among its callers and never will be (requireBase
+	// writes a refusal message and reports "you must stop"). It reads
+	// cfg.BaseConfigured directly instead. The requireBase caller list is not the
+	// list of subcommands that care.
 	if cfg.ID == "" || cfg.Token == "" {
 		fmt.Fprint(out, "[ocagent] listen: no OC_ID/OC_TOKEN — nothing to do; exiting.\n")
 		return 0
