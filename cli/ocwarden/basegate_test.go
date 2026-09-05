@@ -8,6 +8,7 @@ import (
 	"bytes"
 	"context"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -181,6 +182,38 @@ func TestGateBlockIsWiredToTheRealBlocker(t *testing.T) {
 			"swaps it out — so nothing else can notice. An unconfigured warden would then EXIT\n" +
 			"instead of halting, which under the plist's KeepAlive is the silent relaunch loop\n" +
 			"this package exists to avoid.")
+	}
+}
+
+// TestNotifyContextIsWiredToTheRealNotifier (T-88, B-4) is the SAME assertion one
+// level down, and its existence is the lesson.
+//
+// Fixing B-3 introduced notifyContext — and introducing a seam introduces a new
+// blind face, because every test that USES a seam swaps it out and is therefore
+// blind to its default. Review found the hole immediately: wrap the real
+// signal.NotifyContext and call cancel() before returning, and blockUntilSignal
+// returns without any signal — 23 PASS, identical to the unmutated baseline, go
+// vet clean. Same production outcome as B-2 and B-3: the warden exits instead of
+// halting.
+//
+// ⚠️ This closes THAT hole; it does not close the SHAPE. There are exactly two
+// seams in this file today (`grep '^var ' basegate.go`) and now exactly two
+// identity guards. A third seam added later starts blind again, and no scanning
+// guard is written for it on purpose — the repo forbids that class. The only
+// defences are: do not add a seam without an identity guard, and prefer not
+// adding one.
+//
+// DEFEATED BY: rebinding notifyContext to anything that is not
+// signal.NotifyContext — INCLUDING a wrapper around it, since a wrapper is a
+// different code address.
+func TestNotifyContextIsWiredToTheRealNotifier(t *testing.T) {
+	got := reflect.ValueOf(notifyContext).Pointer()
+	want := reflect.ValueOf(signal.NotifyContext).Pointer()
+	if got != want {
+		t.Fatal("notifyContext is not bound to signal.NotifyContext.\n" +
+			"Every test that uses this seam replaces it, so nothing else in the package can\n" +
+			"see its default. A wrapper that cancels early makes blockUntilSignal return with\n" +
+			"no signal — the halt silently becomes an exit, and the suite stays green.")
 	}
 }
 
