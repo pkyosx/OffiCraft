@@ -115,11 +115,11 @@ func (s *apiServer) HandleGetLoreEntryApiLoreEntriesEntryIdGet(
 	}, loreAnchorFromRoster)
 
 	writeJSON(w, http.StatusOK, LoreEntryDetailDTO{
-		EntryId:    entry.ID,
-		Heading:    entry.Heading,
-		Content:    entry.Content,
-		RetireWhen: entry.RetireWhen,
-		Impact:     entry.Impact,
+		EntryId:     entry.ID,
+		Heading:     entry.Heading,
+		Content:     entry.Content,
+		RevisitWhen: entry.RevisitWhen,
+		Impact:      entry.Impact,
 		// 🔴 星等與審核旗標都原樣送出，而 0 就是 0 —— 這一層不會把「還沒判」
 		// 折成 1，也不會把它藏起來。讀的人要分得出「沒有人判過」與「判為最輕」，
 		// 而唯一能讓他分得出來的，就是這裡不去動它。

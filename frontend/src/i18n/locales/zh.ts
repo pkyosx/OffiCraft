@@ -145,7 +145,7 @@ export const zh = {
     // 「發生了什麼」寫進第 1 格，而第 1 格是索引鍵，寫成事實敘述就撈不到了。
     fieldHeading: "標題 · 發生了什麼（清單上只看得到這一行）",
     fieldContent: "內容 · 只有這一段會進 agent 的記憶",
-    fieldRetireWhen: "什麼時候不需要了",
+    fieldRevisitWhen: "什麼情況出現時要重新判一次",
     // 🔴 v8 把第 4 格從 problem（之前發生過什麼問題）改成 impact，因為問的東西
     // 換了：前者問起因，這一格問後果。
     fieldImpact: "impact · 原本想達成什麼，實際變成什麼",

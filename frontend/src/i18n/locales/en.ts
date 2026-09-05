@@ -134,7 +134,7 @@ export const en: Dict = {
 
     fieldHeading: "Heading · what happened (the only line a list shows)",
     fieldContent: "Content · the only cell that enters an agent's memory",
-    fieldRetireWhen: "Retire when · when this stops being needed",
+    fieldRevisitWhen: "Revisit when · what would make you judge this again",
     fieldImpact: "Impact · what we meant to achieve, and what actually happened",
     fieldImpactStars: "Importance · what it broke",
     fieldEvents: "Events · when / what / who / where / what was touched",

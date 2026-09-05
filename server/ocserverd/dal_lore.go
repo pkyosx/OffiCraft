@@ -74,10 +74,10 @@ type LoreEntry struct {
 	// 假話上，而檔案裡沒有東西會告訴他往哪裡走。留著的理由是上面那句——用一個
 	// 可讀性的改善去換「正式庫對不上一支跑過的 migration」的風險，不划算。
 	// **這一行就是那個補償，而它只在這裡，不在他會打開的那個檔案裡。**
-	Heading    string // 標題：發生了什麼。必填，上限 140 個 rune。也是檢索與搜尋的那一軸
-	Content    string // 內容 — THIS is what enters a context
-	RetireWhen string // 什麼時候不需要了（選填，自由文字，非封閉值域）
-	Impact     string // 原本想達成什麼、實際變成什麼（選填，但它是主體）
+	Heading     string // 標題：發生了什麼。必填，上限 140 個 rune。也是檢索與搜尋的那一軸
+	Content     string // 內容 — THIS is what enters a context
+	RevisitWhen string // 什麼情況出現時要把這一條拿出來重判（選填，自由文字，非封閉值域）
+	Impact      string // 原本想達成什麼、實際變成什麼（選填，但它是主體）
 
 	// ImpactStars 是 impact 的星等，而 0 **不是一個星等**：它是「還沒判」。
 	// 既有列的預設值只能是 0，把 0 當成 1（沒弄壞任何東西）等於替它們做了一次
@@ -125,7 +125,7 @@ type LoreEntry struct {
 // 🔴 所以真正的狀況是：**這一欄今天沒有守衛。** v8 要的是一個旗標，「誰能蓋、蓋了
 // 要不要留紀錄」還沒有人裁定（卡在 rc-37f10fec50d1）。等有人裁定了，**那道門要有人
 // 在這一層或它上面補上**，不能靠「反正沒有路由送得進來」。
-const loreEntryColumns = `id, heading, content, retire_when, impact,
+const loreEntryColumns = `id, heading, content, revisit_when, impact,
 	impact_stars, reviewed,
 	status, supersedes, editable_by, origin,
 	created_ts, updated_ts`
@@ -133,7 +133,7 @@ const loreEntryColumns = `id, heading, content, retire_when, impact,
 func scanLoreEntry(row interface{ Scan(...any) error }) (LoreEntry, error) {
 	var e LoreEntry
 	err := row.Scan(
-		&e.ID, &e.Heading, &e.Content, &e.RetireWhen, &e.Impact,
+		&e.ID, &e.Heading, &e.Content, &e.RevisitWhen, &e.Impact,
 		&e.ImpactStars, &e.Reviewed,
 		&e.Status, &e.Supersedes, &e.EditableBy, &e.Origin,
 		&e.CreatedTS, &e.UpdatedTS,
@@ -427,12 +427,12 @@ func (d *DAL) PutLoreEntry(e LoreEntry) error {
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT (id) DO UPDATE SET
 			heading = excluded.heading, content = excluded.content,
-			retire_when = excluded.retire_when, impact = excluded.impact,
+			revisit_when = excluded.revisit_when, impact = excluded.impact,
 			impact_stars = excluded.impact_stars, reviewed = excluded.reviewed,
 			status = excluded.status,
 			supersedes = excluded.supersedes, editable_by = excluded.editable_by,
 			origin = excluded.origin, updated_ts = excluded.updated_ts`,
-		e.ID, e.Heading, e.Content, e.RetireWhen, e.Impact,
+		e.ID, e.Heading, e.Content, e.RevisitWhen, e.Impact,
 		e.ImpactStars, e.Reviewed,
 		e.Status, e.Supersedes, e.EditableBy, e.Origin,
 		e.CreatedTS, e.UpdatedTS)

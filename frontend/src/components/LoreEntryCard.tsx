@@ -256,8 +256,8 @@ export function LoreEntryCard({ entry }: { entry: LoreEntrySummaryView }) {
                 <Field name={t.lore.fieldHeading} value={detail.heading} />
                 <Field name={t.lore.fieldContent} value={detail.content} />
                 <Field
-                  name={t.lore.fieldRetireWhen}
-                  value={detail.retireWhen}
+                  name={t.lore.fieldRevisitWhen}
+                  value={detail.revisitWhen}
                 />
                 <Field name={t.lore.fieldImpact} value={detail.impact} />
                 {/* 星等：owner 2026-09-05「評分也改了不用 用星等取代 因為 impact

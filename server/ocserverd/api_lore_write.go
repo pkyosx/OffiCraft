@@ -97,10 +97,10 @@ func (s *apiServer) HandleWriteLoreEntryApiLoreEntriesPost(w http.ResponseWriter
 		return
 	}
 	write := LoreWrite{
-		Heading:    body.Heading,
-		Content:    body.Content,
-		RetireWhen: strOrEmpty(body.RetireWhen),
-		Impact:     strOrEmpty(body.Impact),
+		Heading:     body.Heading,
+		Content:     body.Content,
+		RevisitWhen: strOrEmpty(body.RevisitWhen),
+		Impact:      strOrEmpty(body.Impact),
 		// 🔴 這一格從 2026-09-06 起是必填，所以產生出來的型別是 int 而不是 *int，
 		// 也就沒有「沒送」這個狀態要折 —— 漏送在上面的 decodeJSONBodyStrict 就被
 		// 擋掉了。**這一層不准替任何人補一個星等**：真的送了 0 交給

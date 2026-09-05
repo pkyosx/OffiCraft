@@ -114,7 +114,7 @@ func (s *apiServer) HandleProposeLoreChangeApiLoreEntriesEntryIdProposalsPost(w 
 		// 不到，核可寫下的原文因此宣稱條目沒有標題。
 		Heading:     strOrEmpty(body.Heading),
 		Content:     strOrEmpty(body.Content),
-		RetireWhen:  strOrEmpty(body.RetireWhen),
+		RevisitWhen: strOrEmpty(body.RevisitWhen),
 		Impact:      strOrEmpty(body.Impact),
 		ImpactStars: intOr(body.ImpactStars, 0),
 		Events:      loreProposeEvents(body.Events),
@@ -176,7 +176,7 @@ func (s *apiServer) HandleListLoreProposalsApiLoreEntriesEntryIdProposalsGet(w h
 			Stale:          p.Stale,
 			Heading:        p.Heading,
 			Content:        p.Content,
-			RetireWhen:     p.RetireWhen,
+			RevisitWhen:    p.RevisitWhen,
 			Impact:         p.Impact,
 			ImpactStars:    p.ImpactStars,
 			Events:         loreEventDTOs(p.Events),

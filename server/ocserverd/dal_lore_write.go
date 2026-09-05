@@ -78,10 +78,10 @@ const LoreGovSupersede = "supersede"
 // what a human told an agent, which is the origin class the assembler treats as
 // exempt from the count cap.
 type LoreWrite struct {
-	Heading    string
-	Content    string
-	RetireWhen string
-	Impact     string
+	Heading     string
+	Content     string
+	RevisitWhen string
+	Impact      string
 
 	// ImpactStars 是寫入者的**提案**，不是裁定。0 = 還沒判，1..3 見
 	// loreImpactStarsError。這裡沒有 Reviewed：蓋章的那一欄不由寫入者帶進來，
@@ -199,7 +199,7 @@ func loreRevisionBody(e LoreEntry, events []LoreEvent) string {
 	for _, f := range []struct{ name, value string }{
 		{"heading", e.Heading},
 		{"content", e.Content},
-		{"retire_when", e.RetireWhen},
+		{"revisit_when", e.RevisitWhen},
 		{"impact", e.Impact},
 		// 🔴 星等進 body，理由跟 heading 一模一樣，而且 owner 的裁定同時涵蓋
 		// 兩者：「任何修改都是提案的一環」(rc-bbccbeb3d9e6)。一條星等被從 1 改
@@ -353,7 +353,7 @@ func loreResolveSubject(tx *sql.Tx, key, actorID string, nowTS float64) (string,
 // `rc-9002654dd81c`（2026-09-06）把它併進 heading ⇒ 那個「撈得到」的角色沒有
 // 消失，它整個搬到 heading 身上了。
 //
-// 🔴 `retire_when` `retire_when` 與`impact` `impact` 是**選填**，這一層不會替它們補
+// 🔴 `revisit_when` 與 `impact` 是**選填**，這一層不會替它們補
 // 任何東西。`impact`「它是主體」是寫作上的重量，不是欄位上的必填——把它變成必填
 // 會把填不出來的人逼去掰一個後果，而掰的跟真的長得一模一樣。
 //
@@ -404,7 +404,7 @@ func (d *DAL) CreateLoreEntry(w LoreWrite, nowTS float64) (LoreWriteResult, erro
 		// 🔴 Reviewed 沒有出現在這裡，而不是被設成 false：這個 struct 的零值就是
 		// false，寫出來反而會讀成「這條路做過一個關於審核的決定」。它做過的決定
 		// 是**不碰**。
-		RetireWhen:  w.RetireWhen,
+		RevisitWhen: w.RevisitWhen,
 		Impact:      w.Impact,
 		ImpactStars: w.ImpactStars,
 		Status:      "active",
@@ -424,7 +424,7 @@ func (d *DAL) CreateLoreEntry(w LoreWrite, nowTS float64) (LoreWriteResult, erro
 		if _, err := tx.Exec(`
 			INSERT INTO lore_entry (`+loreEntryColumns+`)
 			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-			entry.ID, entry.Heading, entry.Content, entry.RetireWhen,
+			entry.ID, entry.Heading, entry.Content, entry.RevisitWhen,
 			entry.Impact, entry.ImpactStars, entry.Reviewed,
 			entry.Status, entry.Supersedes,
 			entry.EditableBy, entry.Origin, entry.CreatedTS, entry.UpdatedTS); err != nil {

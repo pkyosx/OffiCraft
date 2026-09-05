@@ -27,7 +27,7 @@ func t33Entry(id string) LoreEntry {
 		Heading:     "前端畫面接的是假資料，而畫面上看不出來",
 		Origin:      "agent:O-197",
 		Content:     "the fold happens in one place",
-		RetireWhen:  "等前端不再有假資料模式",
+		RevisitWhen: "等前端不再有假資料模式",
 		Impact:      "T-33 slot 3：兩個區塊對同一件事說法不一樣",
 		ImpactStars: 2,
 		CreatedTS:   100,
@@ -359,7 +359,7 @@ func TestLoreEntryCellsRoundTripByName(t *testing.T) {
 		ID:          "me-five",
 		Heading:     "HD",
 		Content:     "CO",
-		RetireWhen:  "RW",
+		RevisitWhen: "RW",
 		Impact:      "IM",
 		ImpactStars: 3,
 		Reviewed:    true,
@@ -368,7 +368,7 @@ func TestLoreEntryCellsRoundTripByName(t *testing.T) {
 	t33Put(t, d, e)
 	got := t33Get(t, d, "me-five")
 	if got.Heading != "HD" || got.Content != "CO" ||
-		got.RetireWhen != "RW" || got.Impact != "IM" ||
+		got.RevisitWhen != "RW" || got.Impact != "IM" ||
 		got.ImpactStars != 3 || !got.Reviewed {
 		t.Fatalf("a body cell was lost or transposed: %+v", *got)
 	}

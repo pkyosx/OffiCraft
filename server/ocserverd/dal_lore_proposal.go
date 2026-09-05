@@ -120,9 +120,9 @@ type LoreProposal struct {
 	// 新版本，包含所有事件」。
 	// ⚠️ 這裡以前是四格，多的那一格是 `Trigger`；`rc-9002654dd81c`（2026-09-06）
 	// 把它併進 Heading（宣告在下面那一段）。
-	Content    string
-	RetireWhen string
-	Impact     string
+	Content     string
+	RevisitWhen string
+	Impact      string
 
 	// 🔴 這裡叫 Impact，而 lore_proposal 那一欄仍然叫 `problem`，兩邊的 SQL 也照
 	// 樣寫 `problem`。00084 只把 lore_entry 的那一欄改了名，沒有動提案表，而那是
@@ -176,7 +176,7 @@ type LoreProposalRow struct {
 	Evidence       string
 	Heading        string
 	Content        string
-	RetireWhen     string
+	RevisitWhen    string
 	Impact         string
 	ImpactStars    int
 	Body           string
@@ -247,7 +247,7 @@ func loreProposalEntry(p LoreProposal) LoreEntry {
 	return LoreEntry{
 		Heading:     p.Heading,
 		Content:     p.Content,
-		RetireWhen:  p.RetireWhen,
+		RevisitWhen: p.RevisitWhen,
 		Impact:      p.Impact,
 		ImpactStars: p.ImpactStars,
 	}
@@ -284,7 +284,7 @@ func loreProposalShapeError(p LoreProposal) error {
 		// A removal proposes no new version. Carrying one would put a version on
 		// the reviewer's screen that no accept path would ever write — the
 		// description/result gap in miniature, inside the shape built to close it.
-		for _, f := range []string{p.Heading, p.Content, p.RetireWhen, p.Impact} {
+		for _, f := range []string{p.Heading, p.Content, p.RevisitWhen, p.Impact} {
 			if strings.TrimSpace(f) != "" {
 				return ErrLoreProposalRemoveBody
 			}
@@ -407,12 +407,12 @@ func (d *DAL) CreateLoreProposal(p LoreProposal, nowTS float64) (LoreProposalRes
 			INSERT INTO lore_proposal (
 				id, entry_id, kind, base_revision_id, base_sha256,
 				encountered, fault, evidence,
-				heading, content, retire_when, problem, impact_stars,
+				heading, content, revisit_when, problem, impact_stars,
 				body, sha256, actor_id, created_ts)
 			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 			out.ProposalID, p.EntryID, p.Kind, base.ID, base.SHA256,
 			p.Encountered, p.Fault, p.Evidence,
-			p.Heading, p.Content, p.RetireWhen, p.Impact, p.ImpactStars,
+			p.Heading, p.Content, p.RevisitWhen, p.Impact, p.ImpactStars,
 			body, sum, p.ActorID, nowTS); err != nil {
 			return err
 		}
@@ -474,7 +474,7 @@ func (d *DAL) ListLoreProposals(entryID string) (LoreProposalList, error) {
 	rows, err := d.rdb.Query(`
 		SELECT id, entry_id, kind, base_revision_id, base_sha256,
 		       encountered, fault, evidence,
-		       heading, content, retire_when, problem, impact_stars,
+		       heading, content, revisit_when, problem, impact_stars,
 		       body, sha256, actor_id, created_ts
 		FROM lore_proposal WHERE entry_id = ? ORDER BY created_ts DESC, id DESC`, entryID)
 	if err != nil {
@@ -486,7 +486,7 @@ func (d *DAL) ListLoreProposals(entryID string) (LoreProposalList, error) {
 		if err := rows.Scan(
 			&p.ID, &p.EntryID, &p.Kind, &p.BaseRevisionID, &p.BaseSHA256,
 			&p.Encountered, &p.Fault, &p.Evidence,
-			&p.Heading, &p.Content, &p.RetireWhen, &p.Impact, &p.ImpactStars,
+			&p.Heading, &p.Content, &p.RevisitWhen, &p.Impact, &p.ImpactStars,
 			&p.Body, &p.SHA256, &p.ActorID, &p.CreatedTS,
 		); err != nil {
 			return LoreProposalList{}, err
@@ -602,12 +602,12 @@ func (d *DAL) GetLoreProposal(proposalID string) (*LoreProposalRow, error) {
 	err := d.rdb.QueryRow(`
 		SELECT id, entry_id, kind, base_revision_id, base_sha256,
 		       encountered, fault, evidence,
-		       heading, content, retire_when, problem, impact_stars,
+		       heading, content, revisit_when, problem, impact_stars,
 		       body, sha256, actor_id, created_ts
 		FROM lore_proposal WHERE id = ?`, proposalID).Scan(
 		&p.ID, &p.EntryID, &p.Kind, &p.BaseRevisionID, &p.BaseSHA256,
 		&p.Encountered, &p.Fault, &p.Evidence,
-		&p.Heading, &p.Content, &p.RetireWhen, &p.Impact, &p.ImpactStars,
+		&p.Heading, &p.Content, &p.RevisitWhen, &p.Impact, &p.ImpactStars,
 		&p.Body, &p.SHA256, &p.ActorID, &p.CreatedTS)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
@@ -657,7 +657,7 @@ func (d *DAL) GetLoreProposal(proposalID string) (*LoreProposalRow, error) {
 //
 // 🔴 「完整的新版本」這句話在 v8 之後**不再涵蓋整條條目**，而這是這個函式現在
 // 最容易被誤讀的地方：UPDATE 只碰當時的四個本體格（`trigger` / `content` /
-// `retire_when` / `impact`），`heading` 與 `impact_stars` 原封不動留在
+// `revisit_when` / `impact`），`heading` 與 `impact_stars` 原封不動留在
 // 條目上。**這一版起不再是這樣**：owner 2026-09-05 於 rc-bbccbeb3d9e6 逐字裁
 // 「任何修改都是提案的一環」⇒ lore_proposal 補上了 heading 與 impact_stars
 // （00084 的兩支 ALTER TABLE），而這裡把它們一起寫回條目。
@@ -725,10 +725,10 @@ func (d *DAL) ApplyLoreProposal(proposalID, actorID string, nowTS float64) (Lore
 	err = d.inTx(func(tx *sql.Tx) error {
 		res, err := tx.Exec(`
 			UPDATE lore_entry
-			SET heading = ?, content = ?, retire_when = ?,
+			SET heading = ?, content = ?, revisit_when = ?,
 			    impact = ?, impact_stars = ?, updated_ts = ?
 			WHERE id = ?`,
-			p.Heading, p.Content, p.RetireWhen,
+			p.Heading, p.Content, p.RevisitWhen,
 			p.Impact, p.ImpactStars, nowTS, p.EntryID)
 		if err != nil {
 			return err

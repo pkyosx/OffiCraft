@@ -17,7 +17,7 @@ func t33Write() LoreWrite {
 		// 一格」）之後只剩一格。
 		Heading:     "開機脈絡在兩個地方各組了一次，兩份內容不一樣",
 		Content:     "the fold happens in one place",
-		RetireWhen:  "等組裝路徑不只一條",
+		RevisitWhen: "等組裝路徑不只一條",
 		Impact:      "T-33 slot 3：兩個區塊對同一件事說法不一樣",
 		ImpactStars: 2,
 		Origin:      "agent:O-197",
@@ -102,7 +102,7 @@ func TestLoreCreateWritesEntrySubjectsAndOriginal(t *testing.T) {
 // which is the collapse this ticket exists to prevent.
 func TestLoreRevisionBodyNamesEveryFieldEvenWhenBlank(t *testing.T) {
 	body := loreRevisionBody(LoreEntry{Content: "only this one is set"}, nil)
-	for _, name := range []string{"content", "retire_when", "impact", "events"} {
+	for _, name := range []string{"content", "revisit_when", "impact", "events"} {
 		if !strings.Contains(body, name+":\n") {
 			t.Fatalf("the rendered original drops the %q section:\n%s", name, body)
 		}
@@ -188,10 +188,10 @@ func TestLoreCreateRefusesTheTwoCellsThatMakeAnEntryReadable(t *testing.T) {
 		t.Fatalf("a refused write left %d entries behind", n)
 	}
 
-	// 🔴 `retire_when`與`impact`是**選填**，空著必須寫得進去。少了這一半，一個把兩格
+	// 🔴 `revisit_when`與`impact`是**選填**，空著必須寫得進去。少了這一半，一個把兩格
 	// 也變成必填的實作會讓上面全綠——而那就是擅自把選填改成必填。
 	optional := t33Write()
-	optional.RetireWhen = ""
+	optional.RevisitWhen = ""
 	optional.Impact = ""
 	// ⚠️ 星等**不會**跟著歸零。負責人 2026-09-06 裁定「不允許給 0」之後，0 在新
 	// 條目上不再是一個合法的值，所以「第 3、4 格是選填」這件事只能用一個真的星等
@@ -208,8 +208,8 @@ func TestLoreCreateRefusesTheTwoCellsThatMakeAnEntryReadable(t *testing.T) {
 	if landed == nil {
 		t.Fatal("第 3、4 格空著的條目沒有落地")
 	}
-	if landed.RetireWhen != "" || landed.Impact != "" {
-		t.Fatalf("空著的第 3、4 格被發明了預設值: retire_when=%q impact=%q", landed.RetireWhen, landed.Impact)
+	if landed.RevisitWhen != "" || landed.Impact != "" {
+		t.Fatalf("空著的第 3、4 格被發明了預設值: revisit_when=%q impact=%q", landed.RevisitWhen, landed.Impact)
 	}
 	// 🔴 送進來的星等必須原樣落地。把它換成別的值等於替寫入者做了一次他沒做的
 	// 判定，而之後沒有任何人查得出來原本判的是幾。
@@ -329,7 +329,7 @@ func TestLoreEntriesWrittenBeforeTheRequirementStillReadBack(t *testing.T) {
 		t.Fatal("an entry written before the requirement stopped being readable")
 	}
 	if got.Content != legacy.Content ||
-		got.RetireWhen != "" || got.Impact != "" {
+		got.RevisitWhen != "" || got.Impact != "" {
 		t.Fatalf("a pre-requirement entry did not read back as written: %+v", got)
 	}
 	// 🔴 v8 加的三格在一列 v8 之前的條目上讀回來是零值，而且**讀得回來**：

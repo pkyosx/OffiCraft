@@ -46,7 +46,7 @@ func TestLoreReadRouteHandsBackWhatContentCompressedAway(t *testing.T) {
 	// the erosion this ticket exists to make visible.
 	// 五格：heading + 三個欄位 + `events:` 區塊。`events:` 也在這一行裡，因為一條
 	// 沒有事件的條目跟一條事件被改寫弄丟的條目在原文裡必須不一樣。
-	for _, f := range []string{"heading:", "content:", "retire_when:", "impact:", "events:"} {
+	for _, f := range []string{"heading:", "content:", "revisit_when:", "impact:", "events:"} {
 		if !strings.Contains(got.Original, f) {
 			t.Fatalf("the original drops %q:\n%s", f, got.Original)
 		}

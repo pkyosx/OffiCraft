@@ -35,7 +35,7 @@ func loreWriteBody(t *testing.T, body string) LoreWriteReceiptDTO {
 const loreWriteJSON = `{
 	"heading": "two blocks disagreed and nobody noticed for a week",
 	"content": "the fold happens in one place",
-	"retire_when": "等只剩一個組裝器",
+	"revisit_when": "等只剩一個組裝器",
 	"impact": "T-33 slot 3",
 	"impact_stars": 2,
 	"events": [

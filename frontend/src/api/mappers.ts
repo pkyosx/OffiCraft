@@ -1973,7 +1973,7 @@ export function toLoreEvent(w: WireLoreEvent): LoreEventView {
  *
  * Every body cell is mapped verbatim, empty string included. 標題與內容
  * (`heading` / `content`) cannot be blank — the write path refuses them at the
- * upsert seam. `retire_when` / `impact` are optional and a blank one is
+ * upsert seam. `revisit_when` / `impact` are optional and a blank one is
  * ordinary, which is exactly why it is mapped rather than dropped.
  *
  * ⚠️ There is no `trigger` any more: owner ruling rc-9002654dd81c (2026-09-06)
@@ -1992,7 +1992,7 @@ export function toLoreEntryDetail(w: WireLoreEntryDetail): LoreEntryDetailView {
   return {
     entryId: w.entry_id,
     content: w.content,
-    retireWhen: w.retire_when,
+    revisitWhen: w.revisit_when,
     impact: w.impact,
     heading: w.heading,
     impactStars: w.impact_stars,

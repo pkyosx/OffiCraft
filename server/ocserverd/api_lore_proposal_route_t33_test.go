@@ -28,7 +28,7 @@ func loreProposalSeed(t *testing.T, url, tok string) (string, string) {
 	st, body := rosterREST(t, url, tok, "POST", "/api/lore/entries", `{
 		"heading":"兩個區塊對同一件事給了不同答案","impact_stars":2,
 		"content":"the fold happens in one place",
-		"retire_when":"等只剩一個組裝器",
+		"revisit_when":"等只剩一個組裝器",
 		"impact":"T-33 slot 3",
 		"origin":"agent:O-197",
 		"subjects":["agent:O-197"]}`)
@@ -63,7 +63,7 @@ func loreProposalBody(base string) string {
 		"evidence":"the entry names a file that moved in 8282fdef",
 		"heading":"兩個區塊對同一件事給了不同答案","impact_stars":2,
 		"content":"the fold happens in lore_fold.go and nowhere else",
-		"retire_when":"等只剩一個組裝器",
+		"revisit_when":"等只剩一個組裝器",
 		"impact":"T-33 slot 3",
 		"events":[]}`
 }
@@ -302,7 +302,7 @@ func TestLoreProposalRouteCarriesEventsAndSaysWhichOnesMoved(t *testing.T) {
 			"encountered":"讀到它的時候","fault":"stale","evidence":"events 串錯了",
 			"heading":"兩個區塊對同一件事給了不同答案","impact_stars":2,
 			"content":"the fold happens in lore_fold.go and nowhere else",
-			"retire_when":"等只剩一個組裝器","impact":"T-33 slot 3",
+			"revisit_when":"等只剩一個組裝器","impact":"T-33 slot 3",
 			"events":[
 				{"happened_ts":1700000000,"what":"留著不動的那一筆"},
 				{"happened_ts":1700000100,"what":"人工修好的那一筆"}]}`)

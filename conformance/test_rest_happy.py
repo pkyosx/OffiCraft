@@ -1296,7 +1296,7 @@ def _lore_entry(ctx: HCtx) -> str:
         json={
             "trigger": "a route answers 200 and nothing was written",
             "content": "the entry and its original are one transaction",
-            "retire_when": "a second route turns out to write entries too",
+            "revisit_when": "a second route turns out to write entries too",
             "impact": "the conformance suite seeding this very entry",
             # 🔴 ONE EVENT, AND ITS 人／地／物 ARE DELIBERATELY LEFT OFF. 第 5 格
             # only says something if the wire can carry an event whose optional
@@ -1364,7 +1364,7 @@ def _check_lore_read(_ctx: HCtx, r: httpx.Response) -> None:
     # `residual_risk` are GONE — not renamed, removed — so this list is the four
     # named cells plus the `events:` block, and it is the assertion that would
     # fail first if the renderer ever quietly went back to the old shape.
-    for field in ("trigger", "content", "retire_when", "impact", "events"):
+    for field in ("trigger", "content", "revisit_when", "impact", "events"):
         assert f"{field}:" in d["original"], (
             f"the original drops the {field!r} section — a renderer that skips blanks "
             f"cannot tell 'never written' from 'deleted': {d['original']!r}"
@@ -1471,7 +1471,7 @@ def _lore_pending_entity(ctx: HCtx, subject: str) -> str:
         json={
             "trigger": "a subject key is minted and no route can reach it",
             "content": "an unreviewed name is invisible to every agent's boot",
-            "retire_when": "the pending entity is listed before anyone approves it",
+            "revisit_when": "the pending entity is listed before anyone approves it",
             "impact": "the conformance suite seeding this very entity",
             "origin": f"agent:{ctx.agent.member_id}",
             "subjects": [subject],
@@ -1629,7 +1629,7 @@ def _lore_propose_body(ctx: HCtx) -> dict[str, str]:
         # 第 5 格 where no reviewer would see it.
         "trigger": "a route answers 200 and nothing was written",
         "content": "the entry, its original and its axes are ONE transaction",
-        "retire_when": "an entry turns up with no revision behind it",
+        "revisit_when": "an entry turns up with no revision behind it",
         "impact": "the conformance suite proposing this very change",
         "events": [
             {
@@ -1723,7 +1723,7 @@ def _lore_accept_path(ctx: HCtx) -> str:
             "evidence": "the entry is retrieved for a situation it does not describe",
             "trigger": "a proposal is accepted and the entry does not move",
             "content": "accepting writes the proposal's own bytes onto the entry",
-            "retire_when": "an accept route turns out to re-render the version",
+            "revisit_when": "an accept route turns out to re-render the version",
             "impact": "the conformance suite accepting this very proposal",
             # 🔴 第 5 格 IS REPLACED WHOLESALE, so this ONE event is the entry's
             # whole event list afterwards — the seeded entry carried one of its
@@ -1814,7 +1814,7 @@ HAPPY: dict[str, Happy] = {
         body=lambda ctx: {
             "trigger": "a route answers 200 and nothing was written",
             "content": "the entry and its original are one transaction",
-            "retire_when": "a second route turns out to write entries too",
+            "revisit_when": "a second route turns out to write entries too",
             "impact": "the conformance suite writing this very row",
             "origin": f"agent:{ctx.agent.member_id}",
             "subjects": [_lore_fresh_subject(ctx)],

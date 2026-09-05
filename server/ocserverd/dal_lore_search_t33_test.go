@@ -115,30 +115,30 @@ func TestLoreSearchQueryIsLiteralAndSaysNothingAboutMeaning(t *testing.T) {
 }
 
 // 🔴 `query` 只掃標題格（heading）與內容格（content）。第 3、4 格
-// （retire_when / impact）是**刻意**不進來的：「要不要能搜到後果那一格」
+// （revisit_when / impact）是**刻意**不進來的：「要不要能搜到後果那一格」
 // 是沒有人做過的決定，在比對清單裡多加兩格等於替別人把它做掉，而症狀是
 // 多出來的 hit —— 跟正確的 hit 長得一模一樣，沒有任何東西會叫。
 //
 // dal_lore_search.go 的註解一直寫著這條規則，而 2026-09-04 的陰性對照
-// 證明**沒有任何測試在看它**：把 e.RetireWhen 與 e.Impact 加進
+// 證明**沒有任何測試在看它**：把 e.RevisitWhen 與 e.Impact 加進
 // loreEntryMatchesLiteral 的比對清單，整套 go test ./... 仍然 rc=0。
 // 這一支就是補上的那道守衛。
 func TestLoreSearchQueryDoesNotReachTheThirdOrFourthCell(t *testing.T) {
 	d := newTestDAL(t)
 	t33SearchSeed(t, d)
 
-	// 只有`retire_when`帶著那個字。
+	// 只有`revisit_when`帶著那個字。
 	t33Filed(t, d, "lore-r", "e-repo", func(e *LoreEntry) {
 		e.Heading = "標題格沒有那個字"
 		e.Content = "內容格也沒有"
-		e.RetireWhen = "zebrafish"
+		e.RevisitWhen = "zebrafish"
 		e.Impact = "`impact`沒有"
 	})
 	// 只有`impact`帶著那個字。
 	t33Filed(t, d, "lore-p", "e-repo", func(e *LoreEntry) {
 		e.Heading = "標題格一樣沒有"
 		e.Content = "內容格一樣沒有"
-		e.RetireWhen = "`retire_when`沒有"
+		e.RevisitWhen = "`revisit_when`沒有"
 		e.Impact = "zebrafish"
 	})
 	// 🔑 陽性對照：同一個字放進`content`就搜得到。少了它，下面的「只命中一筆」
@@ -146,7 +146,7 @@ func TestLoreSearchQueryDoesNotReachTheThirdOrFourthCell(t *testing.T) {
 	t33Filed(t, d, "lore-c", "e-repo", func(e *LoreEntry) {
 		e.Heading = "標題格沒有那個字"
 		e.Content = "zebrafish 在內容格"
-		e.RetireWhen = "`retire_when`沒有"
+		e.RevisitWhen = "`revisit_when`沒有"
 		e.Impact = "`impact`沒有"
 	})
 

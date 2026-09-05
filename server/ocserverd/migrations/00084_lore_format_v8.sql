@@ -4,7 +4,11 @@
 -- owner 2026-09-05 逐字「用這個去做吧」，對象是規則 v8（ta-091e7a9cb434）。v8 的
 -- 六格是：標題／1 對象×活動／2 內容（機制→實例→動作）／3 射程邊界／4 impact／
 -- 5 相關事件。第 5 格已經是 lore_event 那張表，1～3 格已經是 trigger / content /
--- retire_when，所以這一支只動三件事：補上標題、把第 4 格改名、給第 4 格兩個欄位。
+-- retire_when，所以這一支原本只動三件事：補上標題、把第 4 格改名、給第 4 格兩個欄位。
+-- ⚠️「只動三件事」這句話後來被兩道裁定推翻，說在這裡是因為讀的人會拿它去數這一支
+-- 到底改了什麼：rc-9002654dd81c（2026-09-06）把 `trigger` 併進 `heading`，
+-- 而 owner 2026-09-06 逐字「retire_when -> revisit_when」又改了第 3 格的名字
+-- （見檔尾那一段）。今天這一支動的是五件事，第 1 與第 3 格都在裡面。
 --
 -- ── 為什麼是 ALTER，而 00081 當初是直接改欄位宣告 ─────────────────────────────
 --
@@ -194,6 +198,22 @@ ALTER TABLE lore_proposal ADD COLUMN impact_stars INTEGER NOT NULL DEFAULT 0
 -- 一旦有任何站台套用過 84，就地改就會讓「升級過的站」與「全新安裝的站」帶著不同
 -- 的 schema，而兩邊都會認為自己是對的（這正是這個檔頭上面那一大段在講的事）。
 --
+-- 🔴 第二次重量（2026-09-06，seth-m5 一台機器 31 顆 DB，全部 mode=ro 唯讀開啟），
+-- 為了下面那一段 retire_when → revisit_when 的就地改：
+--   1. goose 版本：站台庫最高仍是 **83**。
+--   2. `lore_entry.heading` 欄：**31 顆全部零命中**。
+--   陽性對照（沒有它，零命中不算數）：同一個查法在 9 顆 83 的庫上查得到
+--   `lore_entry` 這張表、以及 `trigger` / `content` / `retire_when` 三欄各 1 命中，
+--   `revisit_when` 0 命中 —— 量具會分辨，不是對什麼都回 0。
+-- ⚠️ 有兩顆 DB 的 goose MAX 是 **85**，而它們**不是**反例，值得寫下來，因為下一個
+--   人照著量會再撞到同一顆：它們在 `.../t79-impl/trash/.../binary-migrate/fresh.db`，
+--   goose 表裡只有 {80, 85} 兩列、一張 lore 表都沒有。那個 85 是 **T-79 分支的
+--   00085（交代單）**，跟這條分支的 00084 只是撞號。
+-- 🔴 所以「MAX >= 84」這個量法本身會誤報 —— 它量的是號碼，不是這一支跑過沒有。
+--   會把誤報擋下來的是第 2 條（欄位真的在嗎），這也正是這兩條當初被要求「不是同一個
+--   量法量兩次」的用處：第一條紅了、第二條綠了的時候，去看第二條。
+-- ⚠️ 這兩顆 DB 我沒有動、也沒有刪。
+--
 -- ── 🔴 下面那兩行 UPDATE 是**承重的**，不是保險 ────────────────────────────
 --
 -- 套用這一支之前，所有既有列的 `heading` 都是空字串（上面那兩支 ADD COLUMN 的
@@ -249,7 +269,49 @@ ALTER TABLE lore_proposal DROP COLUMN trigger;
 -- 這句話只在合併前為真，讀到這裡的人請自己重新量一次。
 DROP TABLE lore_action;
 
+-- ── 第 3 格改名：retire_when → revisit_when ─────────────────────────────────
+-- owner 2026-09-06 逐字「retire_when -> revisit_when」（訊息 c-8fa8e792218d）。
+-- 他只說了那六個字，所以下面這段語意是我寫的，不是他裁的 —— 可以被推翻。
+--
+-- 🔴 不是換個好聽的說法，是換一個問題。`retire_when` 問的是「什麼時候它會是錯的」，
+-- 而那個問題幾乎沒有人答得出來：一條記憶失效的那一刻沒有訊號，等到有人發現它錯了，
+-- 它已經被拿去用過很多次。`revisit_when` 問的是「什麼情況出現的時候，要把這一條拿
+-- 出來**重新判一次**」—— 條件成立**不代表這一條已經失效**，只代表在下一次相信它
+-- 之前得先看一眼。
+-- ⚠️ 差別在誰承擔舉證：退役語意要寫的人預言終點，重判語意只要他指出一個看得見的
+-- 觸發條件。後者答得出來，前者答不出來，而答不出來的那一格會被留白。
+-- 🔴 留白的代價不是少一格資訊：這一條會一直被撈出來給人，而沒有任何人知道該在什麼
+-- 時候回頭看它一眼 —— 包括它早就不成立之後。
+--
+-- ⚠️ 這一支同時讓 00081 與 00083 各一段話從此是**錯的**，不是舊的 —— 一樣不能就地
+-- 改（sha256 在 migration.lock 的中段），所以更正接續寫在這裡：
+--   1. 00081 的 lore_entry 欄位註解：
+--      「🔴 `retire_when` 是自由文字，不是封閉值域，而且刻意沒有 CHECK。『什麼時候
+--        不需要了』可能是『等 X 上線』『等某人回答』『這個 repo 不再用 goose』」
+--      以及那一行行末的「-- 什麼時候不需要了（選填，自由文字）」
+--      ⇒ 欄位名與問題都換了。**「自由文字、沒有 CHECK、任何列舉都會逼人挑一個最接近
+--        的錯答案」這個理由完全沒有變，而且更站得住腳**：重判的觸發條件比退役的時點
+--        還要開放。變的只有那一格在問什麼。上面舉的三個例子仍然是合法的值，只是現在
+--        讀成「這三件事任何一件發生時回頭重判」，而不是「發生了就丟掉」。
+--   2. 00083 的 lore_proposal 欄位註解：
+--      「舊的 label / symptoms / short / falsify / instance / residual_risk 六格
+--        換成 trigger / content / retire_when / problem 四格 + lore_event 一張表」
+--      ⇒ 那四格今天一格都不叫那個名字了：`trigger` 併進 `heading`（rc-9002654dd81c）、
+--        `problem` 改名 `impact`（本支上面那段）、`retire_when` 改名 `revisit_when`
+--        （這一段）。那句話記的是一段歷史沿革，它描述的**過去**沒有錯，但拿它去對照
+--        今天的 schema 會四格對不上三格。
+--
+-- 🔴 兩張表都要改。只改 lore_entry 不會報錯 —— lore_proposal 的欄位是照著
+-- lore_entry 的形狀寫的，但沒有任何 FK 或約束把兩邊綁在一起，所以漏掉一張的症狀
+-- 是「提案送得出去、核可時寫不進去」，而那要等到有人真的按下核可才會出現。
+ALTER TABLE lore_entry    RENAME COLUMN retire_when TO revisit_when;
+ALTER TABLE lore_proposal RENAME COLUMN retire_when TO revisit_when;
+
 -- +goose Down
+-- 🔴 逐項反面，順序是 Up 的逆序。
+ALTER TABLE lore_proposal RENAME COLUMN revisit_when TO retire_when;
+ALTER TABLE lore_entry    RENAME COLUMN revisit_when TO retire_when;
+
 -- 🔴 只還原結構，不還原資料 —— 見上面那段。欄位宣告與索引與 00081 逐字相同，
 -- 否則「升級過的站」與「down 過再 up 的站」會帶著不同的 schema。
 CREATE TABLE lore_action (

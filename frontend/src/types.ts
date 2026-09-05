@@ -1139,10 +1139,12 @@ export interface LoreEntryDetailView {
   entryId: string;
   /** 內容格, required — the only cell that enters a boot context. */
   content: string;
-  /** 第 3 格「什麼時候不需要了」— free text, no closed value set. May be empty
+  /** 第 3 格「什麼情況出現時要把這一條拿出來重新判一次」— ⚠️ 問的不是「什麼時候
+   * 它會是錯的」：條件成立不代表這條已經失效,只代表在下一次相信它之前得先看一
+   * 眼。free text, no closed value set. May be empty
    * — and an EMPTY one is rendered as an empty field with its name printed,
    * never omitted: 「blank」 and 「no such section」 must not look the same. */
-  retireWhen: string;
+  revisitWhen: string;
   /** 第 4 格「impact」— 原本想達成什麼、實際變成什麼。v8 之前這一格叫
    * `problem`，問的是起因。Optional as a field while being the substance of
    * the entry. May be empty, same rendering rule. */

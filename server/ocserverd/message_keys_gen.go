@@ -192,7 +192,7 @@ var messageKeys = map[string]bool{
 	"lore.fieldHeading":                                true,
 	"lore.fieldImpact":                                 true,
 	"lore.fieldImpactStars":                            true,
-	"lore.fieldRetireWhen":                             true,
+	"lore.fieldRevisitWhen":                            true,
 	"lore.fieldsNote":                                  true,
 	"lore.listEmpty":                                   true,
 	"lore.listFailed":                                  true,
