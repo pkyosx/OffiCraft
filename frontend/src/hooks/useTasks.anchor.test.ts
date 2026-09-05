@@ -150,7 +150,7 @@ describe("useTasks single-task anchor (owner 2026-08-01)", () => {
     // Without this case the `e.status === 404` half of the predicate is never
     // exercised: an untyped rejection short-circuits on the instanceof.
     h.getTask.mockRejectedValueOnce(
-      new ApiError("http 500 for GET /api/tasks/t-boom", 500, "internal", "")
+      new ApiError("http 500 for GET /api/tasks/t-boom", 500, "internal_error", "")
     );
     const boom = renderHook(() => useTasks(NON_TERMINAL, "t-boom"));
     await waitFor(() => expect(boom.result.current.anchorPending).toBe(false));
@@ -170,7 +170,7 @@ describe("useTasks single-task anchor (owner 2026-08-01)", () => {
     // Following one dead link and then a live one must not paint the load error
     // over the second card while its own request is still in flight.
     h.getTask.mockRejectedValueOnce(
-      new ApiError("http 500 for GET /api/tasks/t-a", 500, "internal", "")
+      new ApiError("http 500 for GET /api/tasks/t-a", 500, "internal_error", "")
     );
     const { result, rerender } = renderHook(
       ({ id }) => useTasks(NON_TERMINAL, id),
