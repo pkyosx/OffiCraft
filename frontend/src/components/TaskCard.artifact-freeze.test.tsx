@@ -14,11 +14,12 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { render, fireEvent, waitFor, screen } from "@testing-library/react";
 import { I18nProvider } from "../i18n";
 import { TaskCard } from "./TaskCard";
-import type { TaskView } from "../api/adapter";
+import type { TaskArtifactView, TaskView } from "../api/adapter";
 
-// T-66: the artifact rows come from the SERVER when the panel opens, not from
-// the card's `onHydrate` (the task read carries an id+label index now — owner
-// c-cd063427fb2f), so the fixture has to be handed in through this stub.
+// T-66 / T-92: the artifact rows come from the SERVER when the panel opens, not
+// from the card's `onHydrate` (the task read carries a COUNT now and nothing
+// else — owner rc-15016959ad4d), so the fixture has to be handed in through
+// this stub.
 const { listTaskArtifacts } = vi.hoisted(() => ({ listTaskArtifacts: vi.fn() }));
 vi.mock("../api", () => ({
   api: {
@@ -61,17 +62,16 @@ function mkTask(over: Partial<TaskView>): TaskView {
 
 const NOOP = async () => {};
 
-const ARTIFACT = {
+const ARTIFACT: TaskArtifactView = {
   id: "ta-1",
   kind: "link",
   url: "https://example.com/pr/1",
-  label: "PR #1",
-  filename: "",
+  name: "PR #1",
+  description: "",
   mime: "",
-  isImage: false,
-  attachmentId: "",
   createdTs: 0,
   createdBy: "mira",
+  versionCount: 1,
 };
 
 function renderCard(task: TaskView) {
@@ -88,7 +88,7 @@ function renderCard(task: TaskView) {
         onSetPriority={NOOP as never}
         onReassign={NOOP as never}
         onSendMessage={NOOP as never}
-        onHydrate={(async () => ({ artifacts: [{ id: ARTIFACT.id, label: ARTIFACT.label }] })) as never}
+        onHydrate={(async () => ({ artifactCount: 1 })) as never}
         onRemoveArtifact={NOOP as never}
       />
     </I18nProvider>

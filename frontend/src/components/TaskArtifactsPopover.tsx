@@ -17,8 +17,9 @@
 // this component talks to the server. T-66 took url / filename / mime / kind /
 // is_image / attachment_id / created_by / created_ts off the task read (owner
 // c-cd063427fb2f:「我覺得任務產物，只需要預設給標題跟ID, 有需要再透過另一隻去拿
-// 就好了」), so a hydrated task carries an id+label INDEX and nothing this file
-// can draw a row from. `api.listTaskArtifacts` is 「另一隻」, and it answers the
+// 就好了」), and T-92 took the id and the name off it too (owner
+// rc-15016959ad4d:「只有 ID 好像也沒用」), so a hydrated task carries a COUNT and
+// nothing this file can draw a row from. `api.listTaskArtifacts` is 「另一隻」, and it answers the
 // WHOLE ticket in one call (owner c-f2d0fecb1168:「應該是指名任務？」) — which is
 // exactly the shape this panel needs, because it opens onto every row at once.
 //

@@ -40,16 +40,17 @@ const mockedApi = api as unknown as {
 
 const realFetch = globalThis.fetch;
 
+// The LIVE artifact row, T-92 shape: `name` (never empty on the wire — the
+// server derives one from the blob's filename when the row has no stored one)
+// plus `description`, and no filename/is_image/attachment_id of its own.
 function mkArtifact(over: Partial<TaskArtifactView>): TaskArtifactView {
   return {
     id: "ta-1",
     kind: "file",
     url: "/api/chat/attachment/att-live",
-    label: "spec.txt",
-    filename: "spec.txt",
+    name: "spec.txt",
+    description: "",
     mime: "text/plain",
-    isImage: false,
-    attachmentId: "att-live",
     createdTs: 2000,
     createdBy: "mira",
     versionCount: 2,
@@ -57,12 +58,16 @@ function mkArtifact(over: Partial<TaskArtifactView>): TaskArtifactView {
   };
 }
 
+// A retained VERSION, which T-92 deliberately did NOT narrow: it still carries
+// its own filename/is_image/attachment_id, and its `name` is the stored column
+// rather than a derivation — so unlike the live row's it can be empty.
 function mkVersion(over: Partial<TaskArtifactVersionView>): TaskArtifactVersionView {
   return {
     id: 1,
     kind: "file",
     url: "/api/chat/attachment/att-old",
-    label: "spec.txt",
+    name: "spec.txt",
+    description: "",
     filename: "spec.txt",
     mime: "text/plain",
     isImage: false,
@@ -200,10 +205,10 @@ describe("TaskArtifactVersionsModal", () => {
   // every .md / log / spec to the 前/後 toggle, where it can never be diffed.
   it("diffs an octet-stream .md report the mime alone would call opaque", async () => {
     mockedApi.listTaskArtifactVersions.mockResolvedValue([
-      mkVersion({ label: "recon.md", filename: "" }),
+      mkVersion({ name: "recon.md", filename: "" }),
     ]);
     mockedApi.listTaskArtifacts.mockResolvedValue(
-      mkArtifacts([mkArtifact({ label: "recon.md", filename: "recon.md", mime: "application/octet-stream" })]),
+      mkArtifacts([mkArtifact({ name: "recon.md", mime: "application/octet-stream" })]),
     );
     stubFetch({
       "/api/chat/attachment/att-old": {
@@ -222,17 +227,20 @@ describe("TaskArtifactVersionsModal", () => {
     expect(diffLinesOnScreen()).toEqual(["alpha", "beta", "gamma"]);
   });
 
-  // 🔴 The same report, with the name the wire ACTUALLY carries for it: nothing
-  // makes an agent pass a label, so a retained version's label is usually empty
-  // and its only name is the filename resolved from its own retained blob. A
-  // reader that consults the label alone leaves this — the ticket's own
-  // motivating artifact — permanently on the 前/後 toggle.
-  it("diffs a label-less octet-stream version its filename names as .md", async () => {
+  // 🔴 The same report, with the name the wire ACTUALLY carries for it: a
+  // retained version's `name` is the stored column and is usually empty (nothing
+  // makes an agent pass one), so its only name is the filename resolved from its
+  // own retained blob. The LIVE side has no such gap — the server derives its
+  // `name` from that same blob filename — and this asymmetry is exactly why the
+  // version row kept its `filename` when T-92 narrowed the live one. A reader
+  // that consults `name` alone leaves this — the ticket's own motivating
+  // artifact — permanently on the 前/後 toggle.
+  it("diffs a name-less octet-stream version its own filename names as .md", async () => {
     mockedApi.listTaskArtifactVersions.mockResolvedValue([
-      mkVersion({ label: "", filename: "recon.md" }),
+      mkVersion({ name: "", filename: "recon.md" }),
     ]);
     mockedApi.listTaskArtifacts.mockResolvedValue(
-      mkArtifacts([mkArtifact({ label: "", filename: "recon.md", mime: "application/octet-stream" })]),
+      mkArtifacts([mkArtifact({ name: "recon.md", mime: "application/octet-stream" })]),
     );
     stubFetch({
       "/api/chat/attachment/att-old": {
@@ -263,7 +271,8 @@ describe("TaskArtifactVersionsModal", () => {
         id: 1,
         kind: "file",
         url: "/api/chat/attachment/att-old",
-        label: "",
+        name: "",
+        description: "",
         filename: "report.md",
         mime: "application/octet-stream",
         is_image: false,
@@ -275,8 +284,7 @@ describe("TaskArtifactVersionsModal", () => {
     mockedApi.listTaskArtifacts.mockResolvedValue(
       mkArtifacts([
         mkArtifact({
-          label: "",
-          filename: "report.md",
+          name: "report.md",
           mime: "application/octet-stream",
         }),
       ]),
@@ -302,10 +310,10 @@ describe("TaskArtifactVersionsModal", () => {
   // extensions, not "octet-stream means try reading it".
   it("calls an octet-stream .bin opaque and reads none of its bytes", async () => {
     mockedApi.listTaskArtifactVersions.mockResolvedValue([
-      mkVersion({ label: "core.bin", filename: "" }),
+      mkVersion({ name: "core.bin", filename: "" }),
     ]);
     mockedApi.listTaskArtifacts.mockResolvedValue(
-      mkArtifacts([mkArtifact({ label: "core.bin", filename: "core.bin", mime: "application/octet-stream" })]),
+      mkArtifacts([mkArtifact({ name: "core.bin", mime: "application/octet-stream" })]),
     );
     const { cancel, readText } = stubFetch({
       "/api/chat/attachment/att-old": { mime: "application/octet-stream" },
@@ -327,9 +335,8 @@ describe("TaskArtifactVersionsModal", () => {
         mkArtifact({
           kind: "link",
           url: "https://x/pr/2",
-          attachmentId: "",
+          name: "https://x/pr/2",
           mime: "",
-          filename: "",
         }),
       ]),
     );
@@ -369,7 +376,7 @@ describe("TaskArtifactVersionsModal", () => {
       mkArtifacts([
         mkArtifact({
           kind: "image",
-          isImage: true,
+          name: "shot2.png",
           mime: "image/png",
           url: "/api/chat/attachment/att-shot2",
         }),
@@ -427,17 +434,19 @@ describe("TaskArtifactVersionsModal", () => {
     // from an open diff — no test here says a word.
   });
 
-  // `label` is optional on the wire and nothing makes an agent send one, so the
-  // common deliverable arrives label-less and named only by its blob. Reading the
-  // left column under the label alone printed a row of 「未命名」 beneath a named
-  // current version — and lost the one fact two file versions most often differ
-  // by, which is the name the file was re-filed under.
-  it("names a label-less version by its own filename, not as unnamed", async () => {
+  // A version's `name` is the stored column and nothing makes an agent send one,
+  // so the common deliverable arrives name-less and is named only by its blob.
+  // Reading the left column under `name` alone printed a row of 「未命名」 beneath
+  // a named current version — and lost the one fact two file versions most often
+  // differ by, which is the name the file was re-filed under. The live side needs
+  // no such fallback since T-92: the server derives its `name` from that same
+  // blob filename before it reaches here.
+  it("names a name-less version by its own filename, not as unnamed", async () => {
     mockedApi.listTaskArtifactVersions.mockResolvedValue([
-      mkVersion({ id: 2, label: "", filename: "report.md", url: "/api/chat/attachment/att-v2" }),
+      mkVersion({ id: 2, name: "", filename: "report.md", url: "/api/chat/attachment/att-v2" }),
     ]);
     mockedApi.listTaskArtifacts.mockResolvedValue(
-      mkArtifacts([mkArtifact({ label: "", filename: "report-final.md" })]),
+      mkArtifacts([mkArtifact({ name: "report-final.md" })]),
     );
     stubFetch({
       "/api/chat/attachment/att-v2": { mime: "text/plain", text: "old" },
