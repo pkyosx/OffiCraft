@@ -176,6 +176,13 @@ func TestLoreWriteRouteRefusesAnEntryNobodyCouldRead(t *testing.T) {
 	for _, tc := range []struct{ name, body, want string }{
 		{"heading absent", `{"trigger":"x","content":"y","origin":"agent:O-197","subjects":["repo:officraft"]}`, "heading"},
 		{"blank heading", `{"heading":"  ","trigger":"x","content":"y","origin":"agent:O-197","subjects":["repo:officraft"]}`, "heading"},
+		// 🔴 第三種拒絕：標題超過 140 個字元。它在這裡而不是只在 DAL 那一層，
+		// 是因為**這一段是它變成 422 的地方**：沒有被 writeLoreWriteError 列舉
+		// 的錯誤會掉到 internalError 變成 500，而 500 的意思是「重試」，重試永遠
+		// 會失敗。141 個中文字＝141 個 rune、423 個 byte —— 用中文送，是為了讓
+		// 一個用 len() 數位元組的實作在錯誤訊息裡報出 423 而被下面那句抓到。
+		{"over-long heading", `{"heading":"` + strings.Repeat("記", 141) +
+			`","trigger":"x","content":"y","origin":"agent:O-197","subjects":["repo:officraft"]}`, "heading"},
 		{"blank trigger", `{"heading":"h","trigger":"  ","content":"x","origin":"agent:O-197","subjects":["repo:officraft"]}`, "trigger"},
 		{"blank content", `{"heading":"h","trigger":"x","content":"","origin":"agent:O-197","subjects":["repo:officraft"]}`, "content"},
 		{"no subject", `{"heading":"h","trigger":"x","content":"y","origin":"agent:O-197","subjects":[]}`, "subject"},
@@ -194,6 +201,17 @@ func TestLoreWriteRouteRefusesAnEntryNobodyCouldRead(t *testing.T) {
 		}
 		if !strings.Contains(body, tc.want) {
 			t.Fatalf("%s: the refusal does not name %q: %s", tc.name, tc.want, body)
+		}
+		// 🔴 超長那一列多要一件事：訊息裡的長度必須是 141（字元），不是 423
+		// （位元組）。少了這一句，一個用 len() 的實作也會回 422 並提到 heading，
+		// 而寫的人會看著「我明明只寫了 141 個字」的訊息去查一個不存在的問題。
+		if tc.name == "over-long heading" {
+			if !strings.Contains(body, "141") || !strings.Contains(body, "140") {
+				t.Fatalf("%s: 訊息沒有同時說出上限 140 與送來的 141: %s", tc.name, body)
+			}
+			if strings.Contains(body, "423") {
+				t.Fatalf("%s: 訊息報的是位元組數（423）而不是字元數: %s", tc.name, body)
+			}
 		}
 	}
 }

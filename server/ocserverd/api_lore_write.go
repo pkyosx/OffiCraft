@@ -30,6 +30,11 @@ import (
 func writeLoreWriteError(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, ErrLoreHeadingBlank),
+		// 🔴 標題超過 140 個字元是 422 而不是 500：送太長標題的人自己改得掉，
+		// 而訊息指名了是 heading 這一格、上限多少、他送來的是多少。漏掉這一行
+		// 的代價不是「錯誤碼難看」—— 沒有列舉的錯誤會掉到 internalError 變成
+		// 500，而 500 的意思是「伺服器壞了，你重試」，重試永遠會失敗。
+		errors.Is(err, ErrLoreHeadingTooLong),
 		errors.Is(err, ErrLoreTriggerBlank),
 		errors.Is(err, ErrLoreContentBlank),
 		// 🔴 星等超出 0..3 是 422 而不是 500。資料庫的 CHECK 也會擋，但它回來的是

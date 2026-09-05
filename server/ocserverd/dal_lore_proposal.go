@@ -701,10 +701,19 @@ func (d *DAL) ApplyLoreProposal(proposalID, actorID string, nowTS float64) (Lore
 	// 的標題清成空的 —— 用「沒有人送」冒充「有人主張要清掉」。
 	// ⚠️ 這一道擋的是既有資料，不是使用者的輸入，所以它會永遠存在而不是過渡措施：
 	// 只要 lore_proposal 留著那 27 列，這條路就永遠可能被走到。
+	// 🔴 標題超長也擋在**同一個**呼叫裡，而它不是「順便」：核可會把 p.Heading
+	// 寫回 lore_entry（下面那支 UPDATE），所以這一步就是一次寫入 —— 只擋新寫入
+	// 而不擋這裡，等於替 140 字元上限留了一條繞得過去的路。
+	// ⚠️ 兩種拒絕的說明不能共用一句：空白是「這份提案沒有主張標題」（那 27 份
+	// 舊提案），超長是「這份提案主張了一個寫不進去的標題」。把後者套上前者那句
+	// 話，會叫寫的人去補一個他其實已經有的東西。
 	if err := loreHeadingError(p.Heading); err != nil {
-		return out, fmt.Errorf("%w — proposal %s carries no 標題, so accepting it would blank "+
-			"the entry's own. It was filed before 標題 became a cell; rewrite it against the "+
-			"current version instead", err, p.ID)
+		if errors.Is(err, ErrLoreHeadingBlank) {
+			return out, fmt.Errorf("%w — proposal %s carries no 標題, so accepting it would blank "+
+				"the entry's own. It was filed before 標題 became a cell; rewrite it against the "+
+				"current version instead", err, p.ID)
+		}
+		return out, fmt.Errorf("%w（proposal %s）", err, p.ID)
 	}
 
 	// shrink_chars records how much a rewrite REMOVED, measured in runes against

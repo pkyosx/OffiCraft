@@ -1222,7 +1222,9 @@ export interface LoreEntitySimilarView {
  * 截斷規則、自己的排序,以及跟正牌讀取路徑吵架的機會。 */
 export interface LoreEntryRefView {
   entryId: string;
-  /** 第 1 格「什麼時候要記起來」,同時就是這一條的標題,沒有長度上限。 */
+  /** 第 1 格「什麼時候要記起來」。⚠️ v8 起它**不再**兼任這一條的標題:標題是獨立
+   * 的 `heading` 格,而那一格有 140 個字元(Unicode rune)的上限;`trigger` 自己
+   * 沒有長度上限。 */
   trigger: string;
   /** `active` / `superseded` / `underspecified`。**不會是** `retired` —— 這份
    * 清單跟 `entries` 用同一個判準,退役的根本不在裡面。 */

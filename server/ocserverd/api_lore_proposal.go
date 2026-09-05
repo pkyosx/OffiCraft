@@ -75,6 +75,10 @@ func writeLoreProposalError(w http.ResponseWriter, err error) {
 		// 呼叫者收到 500，而 500 的意思是「伺服器壞了，你重試」，那會讓一個
 		// 補得好的提案永遠不被補。
 		errors.Is(err, ErrLoreHeadingBlank),
+		// 🔴 標題超長走同一條路，而且它有**兩個**進入點：送出時的形狀檢查，以及
+		// 核可時 ApplyLoreProposal 再擋的那一次。只擋前者等於留一條繞過的路 ——
+		// 核可一份提案會把 heading 寫回條目，所以那一步就是一次寫入。
+		errors.Is(err, ErrLoreHeadingTooLong),
 		errors.Is(err, ErrLoreImpactStarsRange),
 		errors.Is(err, ErrLoreTriggerBlank),
 		errors.Is(err, ErrLoreContentBlank):

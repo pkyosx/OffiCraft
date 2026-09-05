@@ -25,6 +25,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"unicode/utf8"
 )
 
 // LoreEntry mirrors the lore_entry table — the L1
@@ -138,7 +139,11 @@ func scanLoreEntry(row interface{ Scan(...any) error }) (LoreEntry, error) {
 // loreTriggerError enforces 第 1 格必填 —— 空值被拒絕，不是被補一個預設值。
 //
 // 🔴 這一格取代了舊的 `label`，而且**沒有長度上限**。舊的 40 runes 上限跟著
-// `label` 一起走了：負責人自己示範的好例子是把第一格當標題寫的
+// `label` 一起走了：
+// ⚠️ 射程要講準：沒有上限的是**這一格**。v8 起標題是獨立的 `heading` 格，而
+// 那一格自 owner 2026-09-05 的裁定起有 140 個字元的上限（loreHeadingMaxRunes）。
+// 下面那句「第一格兼任標題」是 v8 之前的狀況，留著是為了說明上限當初為什麼被
+// 拿掉，不是在描述今天。負責人自己示範的好例子是把第一格當標題寫的
 // （「【什麼時候要記起來】我要確認一個 OffiCraft 前端畫面接的是真後端，還是假
 // 資料」），那一行遠超過 40 runes。留著上限就是讓示範用的寫法寫不進來。
 // ⚠️ 「第一格兼任標題、因此拿掉 label 與上限」是實作判斷，不是負責人的裁定。
@@ -154,7 +159,10 @@ func loreTriggerError(trigger string) error {
 	return nil
 }
 
-// loreHeadingError enforces v8 的標題格必填。
+// loreHeadingError enforces v8 的標題格必填**與 140 個字元的硬上限**。
+//
+// 🔴 兩種拒絕、兩個具名錯誤（ErrLoreHeadingBlank / ErrLoreHeadingTooLong），
+// 因為寫入者要做的事不一樣：一個是去補一句，一個是去把一句砍短。
 //
 // 🔴 空值被拒絕，不是被補一個預設值——理由跟 trigger 一模一樣，而且不是同一個
 // 理由的複製：trigger 空著的話沒有人撈得到這條，heading 空著的話撈得到、但它在
@@ -170,8 +178,30 @@ func loreHeadingError(heading string) error {
 	if strings.TrimSpace(heading) == "" {
 		return ErrLoreHeadingBlank
 	}
+	if n := utf8.RuneCountInString(heading); n > loreHeadingMaxRunes {
+		return fmt.Errorf("%w：送來的標題是 %d 個字元，上限 %d（heading is %d characters, the cap is %d）",
+			ErrLoreHeadingTooLong, n, loreHeadingMaxRunes, n, loreHeadingMaxRunes)
+	}
 	return nil
 }
+
+// loreHeadingMaxRunes 是標題格的硬上限：**140 個 Unicode rune**。
+//
+// 🔴 負責人 2026-09-05 逐字：「我們標題規定 140 字元好了」。「字元」在這裡是
+// rune，不是 byte —— 一個中文字算 1。所以量法是 utf8.RuneCountInString，
+// **不是 len()**：一句 141 個中文字的標題用 len() 數是 423，會在寫入者眼前變成
+// 一個他看不懂的拒絕；而一句 141 個英文字母的標題兩種數法都是 141，所以只用
+// 英文測是**分不出來**這裡用的是哪一種。守衛見
+// TestLoreHeadingCapRefusesOneRuneOverInChinese。
+//
+// 🔴 這個上限在射程內，不是裝飾。實測（2026-09-05）：站上 27 條舊格式原文最長
+// 79 個 rune；照 v8 新格式重寫的 24 條標題最長 130 個 rune。⇒ 今天沒有任何一條
+// 會被擋下來，但最長的那一條離上限只剩 10 個 rune。
+//
+// 🔴 這是**拒絕**，不是截斷。截斷會讓一條標題在寫入者不知情的狀況下少掉尾巴，
+// 而列表上那一條看起來仍然像寫完了 —— 正是 heading 這一格存在要擋掉的那件事。
+// 既有資料一律不動：這道門只擋新的寫入與新的提案，不會回頭改任何一列。
+const loreHeadingMaxRunes = 140
 
 // loreImpactStarsError 擋 0..3 以外的值。
 //
@@ -319,6 +349,13 @@ var (
 	// 看起來已經寫完了。訊息要能告訴寫入者他漏的是哪一種。
 	ErrLoreHeadingBlank = errors.New(
 		"lore: `heading` is blank — 標題（發生了什麼）？沒有它，這條在清單上跟寫好的一模一樣")
+	// 🔴 標題超過 140 個字元（rune）。它跟 ErrLoreHeadingBlank 是**兩個**錯誤，
+	// 因為寫入者要做的事不一樣：一個是去補一句，一個是去把一句砍短。訊息裡一定
+	// 要有三件事 —— **是哪一格**、上限多少、送來的是多少 —— 而「哪一格」正是
+	// 00084 說明過 CHECK 講不出來的那一件（SQLite 只會回一句 CHECK constraint
+	// failed），也就是這道門為什麼在 DAL 而不在 CHECK 的理由。
+	ErrLoreHeadingTooLong = errors.New(
+		"lore: `heading` is over the cap — 標題（heading）這一格太長了")
 	ErrLoreImpactStarsRange = errors.New(
 		"lore: `impact_stars` is outside 0..3 — 0=還沒判、1=沒弄壞任何東西、2=弄壞的只有你動的那個、3=弄壞的包含你沒動的")
 	ErrLoreEventTimeMissing = errors.New(

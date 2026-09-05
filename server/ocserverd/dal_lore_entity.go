@@ -71,7 +71,9 @@ var (
 // the one that already exists.
 type LorePendingEntryRef struct {
 	EntryID string
-	Trigger string // 第 1 格 — 「什麼時候要記起來」, 兼任標題, no length cap
+	// Trigger 第 1 格 — 「什麼時候要記起來」。⚠️ v8 起它**不再兼任標題**（標題是
+	// 獨立的 heading 格，而那一格有 140 個 rune 的上限）；trigger 自己沒有上限。
+	Trigger string
 	Status  string // 'active' | 'superseded' | 'underspecified' (never 'retired')
 }
 
@@ -158,7 +160,8 @@ type LorePendingEntity struct {
 	// question a reviewer actually has is 「what is filed under this name」, and for
 	// a subject with five entries the sample showed him one twenty-fifth of it with
 	// no way to see the rest. 第 1 格 is the cell that was designed to be read
-	// alone — 「什麼時候要記起來」, no length cap, 兼任標題 — so a list of triggers
+	// alone — 「什麼時候要記起來」, no length cap（有上限的是 heading：140 個
+	// rune；trigger 自 v8 起也不再兼任標題）— so a list of triggers
 	// is the cheapest thing that answers the real question.
 	//
 	// 🔴 `Status` RIDES ALONG because the list is NOT all-active: retired rows are
@@ -640,8 +643,10 @@ const loreFuzzyMinRunes = 3
 // let a reviewer see what the subject is about without opening it, so trimming it
 // costs nothing — as long as the trim is visible. A truncated sample ends in an
 // ellipsis so nobody mistakes it for the entry.
-// ⚠️ 五格 has NO length cap on any cell (the old 40-rune `label` cap went away
-// with `label` itself), so this is the only truncation left in the lore surface.
+// ⚠️ 射程要講準：**內容那幾格**沒有長度上限（舊的 40-rune `label` 上限跟著
+// `label` 一起走了），所以這裡是 lore 這一面**唯一**的截斷。標題格 `heading`
+// 自 owner 2026-09-05 的裁定起**有**上限（140 個 rune），但那一道是**拒絕**、
+// 不是截斷 —— 兩件事不要混：拒絕會回到寫入者手上，截斷不會。
 const loreSampleShortRunes = 120
 
 // LoreEntitySimilar is one existing subject that resembles a pending one, WITH
