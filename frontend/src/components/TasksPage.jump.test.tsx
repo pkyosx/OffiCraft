@@ -5,7 +5,9 @@
 //   2. Clicking 查看任務詳情 routes to #tasks/<taskId>.
 //   3. Arriving at #tasks/<id> FILTERS the list down to that one task in the
 //      normal layout (a closed target auto-expands 已結束); the same 清除篩選
-//      returns to the full list; an unknown id self-heals.
+//      returns to the full list; an unknown id KEEPS its anchor and the page
+//      answers 沒有符合篩選條件的任務 (owner 2026-09-05, rc-428906235337 — it
+//      used to strip the anchor and return to the full list with nothing said).
 //   4. The chat's inline card (ChatReplyCard) carries the same task row.
 
 import { describe, it, expect, beforeEach } from "vitest";
@@ -277,12 +279,24 @@ describe("TasksPage 單一任務 filter (#tasks/<id>)", () => {
     );
   });
 
-  it("an unknown/stale target self-heals (anchor stripped, full list)", async () => {
+  it("an unknown/stale target KEEPS its anchor and says 沒有符合篩選條件的任務", async () => {
+    // Direction changed by owner ruling 2026-09-05 (rc-428906235337). This test
+    // used to assert the opposite — the anchor stripped itself back to #tasks
+    // and the full list came back, silently. That made a broken link and a link
+    // that was never filtering look identical on screen, which is the whole
+    // complaint the id-filter work exists to answer.
     __injectMockTask(mkTask({ id: "t-1" }));
     window.location.hash = "#tasks/t-gone";
-    const { findByTestId } = renderTasks();
-    await waitFor(() => expect(window.location.hash).toBe("#tasks"));
+    const { findByTestId, getByTestId } = renderTasks();
+
+    const empty = await findByTestId("tasks-empty-filtered");
+    expect(empty.textContent).toBe("沒有符合篩選條件的任務");
+    // The anchor stays put — that is the visible difference from before.
+    expect(window.location.hash).toBe("#tasks/t-gone");
+    // 清除篩選 is the way back, and it restores the list AND the hash.
+    fireEvent.click(getByTestId("clear-filters"));
     await findByTestId("open-list");
+    expect(window.location.hash).toBe("#tasks");
   });
 });
 

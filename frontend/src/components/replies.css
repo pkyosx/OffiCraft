@@ -636,3 +636,29 @@
 .reply-card__task-jump:hover {
   text-decoration: underline;
 }
+
+/* ── 篩選列 (T-93) ──────────────────────────────────────────────────────────
+ * The same row shape the 任務頁 uses (.tasks__filters), restated here because
+ * the two pages do not share a stylesheet. The ID field itself carries its own
+ * look (idFilter.css). */
+.replies__filters {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 14px;
+}
+.replies__clear-filters {
+  padding: 6px 4px;
+  border: none;
+  background: transparent;
+  color: var(--color-text-muted);
+  font-size: 12.5px;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  transition: color 0.15s;
+}
+.replies__clear-filters:hover {
+  color: var(--color-text);
+}

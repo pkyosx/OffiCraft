@@ -19,7 +19,21 @@ paths:
 
 useTasks 把 statusFilter 轉成重複的 ?statuses=；執行者與類型篩選仍在前端。清除狀態篩選才送空集合，代表使用者要完整清單。不要為 dependencies 再拉全歷史，也不要把每個 task SSE 變成全歷史下載。
 
-跳到 #tasks/<id> 時，清單仍保留原篩選，另以 GET /api/tasks/{id} 補單張錨點。anchor id 是 effect 的參數；anchorPending 在補抓成功或失敗前都阻止自癒與空狀態誤判，失敗後誠實回一般清單。合併時清單列優先，因為輕量列才有 dep_tasks；單張 DTO 沒有時不可覆蓋它。篩選未包含錨點時，depTasks===undefined 表示未知，不表示沒有依賴。
+跳到 #tasks/<id> 時，清單仍保留原篩選，另以 GET /api/tasks/{id} 補單張錨點。anchor id 是 effect 的參數；anchorPending 在補抓落定前擋住兩個空狀態，否則還在路上的那張會被說成不存在。
+
+**補抓落定後有三種結局，話不一樣，不要合併（owner 2026-09-05 `rc-428906235337`）**：抓到就顯示那一張；**404 ⇒ 錨點留著**，畫面答「沒有符合篩選條件的任務」，出口是「清除篩選」（`anyFilter` 已含 taskIdFilter，所以按鈕本來就在，`clearFilters` 連 hash 一起還原）；**其他失敗（500／離線）⇒ `anchorFailed`**，顯示載入錯誤並壓住兩個空狀態——沒問出口的問題不得給答案。錨點**不再自己把 hash 拿掉**；釘住這三格的是 TasksPage.test.tsx、TasksPage.jump.test.tsx 與 TasksPage.anchor-fetch.test.tsx 各一支。合併時清單列優先，因為輕量列才有 dep_tasks；單張 DTO 沒有時不可覆蓋它。篩選未包含錨點時，depTasks===undefined 表示未知，不表示沒有依賴。
+
+## 任務頁的 ID 篩選欄位（T-93 第二輪，owner 2026-09-06 `rc-44347fc49338`）
+
+第一輪只把欄位做在請示卡頁，owner 在試用站上回「任務沒有出現同樣的filter」——他的交辦逐字是「任務列表**跟**請示卡列表，是不是**都**可以有一個ID的filter」，所以那是漏做，而**全套測試當時是綠的**。
+
+🔴 **這一頁上有兩條 by-id 的路，它們不是同一條，不要合併**：
+- **`taskIdFilter`（hash 錨點）**：單獨抓 `GET /api/tasks/{id}`，**蓋過狀態集合**（連結指向已完成任務也跳得到），三種結局的話術見上一節。
+- **`idQuery`（打字）**：只篩已載入的那批，**不發任何請求**。獨立審查在請示卡頁把「一個字元一個請求」列為必須改；`TasksPage.id-filter.test.tsx` 有一支專門盯著 `api.getTask` 沒被呼叫。
+
+⚠️ **`anyFilter` 裡 `idQuery !== ""` 是獨立一句，不要以為 `taskIdFilter` 涵蓋它。** 它看起來可以刪，因為狀態預設非空 ⇒ `anyFilter` 恆真 ⇒ 刪掉之後**八支測試全綠**（實測）。唯一打得到它的是**先按清除篩選（狀態集合也清空）再打字**那條路：少了它，畫面窄掉而唯一能放寬的按鈕不在了。那支測試就叫 `after 清除篩選 empties every OTHER axis, typing an id brings the button BACK`。
+
+**欄位寬度取自要裝的編號長度**，透過 `--id-filter-ch`；`.id-filter` 刻意用 `content-box` 對抗全域 `border-box`，否則 padding 會吃掉字數（實測 15 字元的 id 在 15ch 的欄位裡差 13px 裝不下）。
 
 ## TaskCard
 

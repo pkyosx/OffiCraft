@@ -87,6 +87,7 @@ export const en: Dict = {
     emptyNone: "No tasks yet",
     emptyFiltered: "No tasks match the current filters",
     loadError: "Failed to load tasks. Please try again.",
+    filterIdLabel: "Task ID",
     clearFilters: "Clear filters",
     filterExecutorAll: "Everyone",
     filterTypeAll: "All types",
@@ -299,6 +300,9 @@ export const en: Dict = {
     handledHint:
       "Items answered or expired · answers can still be changed",
     empty: "✓ No pending asks",
+    emptyFiltered: "No asks match the current filter",
+    filterIdLabel: "Reply-card id",
+    clearFilters: "Clear filter",
     loadError: "Failed to load your asks. Please try again.",
     waitedLabel: "Waiting",
     // Opened/answered stamps are always absolute with the date (e.g. 7/13

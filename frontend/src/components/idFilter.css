@@ -1,0 +1,33 @@
+/* The ID 篩選 field. Same pill as the 篩選列's other controls
+ * (.tasks__filter), restated here so the component carries its own look to
+ * whichever page hosts it instead of depending on that page's stylesheet.
+ * Colours are theme tokens only — no literal colour lives in this file. */
+.id-filter {
+  padding: 7px 10px;
+  border-radius: var(--radius-pill);
+  border: 1px solid color-mix(in srgb, var(--color-overlay) 10%, transparent);
+  background: var(--color-card);
+  color: var(--color-text);
+  font-size: 13px;
+  /* The caller sets `--id-filter-ch` to the LENGTH OF THE ID this field holds
+   * (see IdFilterInput's widthCh); no literal width lives here, because one
+   * would freeze one page's id shape onto every page that hosts this field.
+   *
+   * 🔴 `content-box` against the app's global `border-box` is deliberate and
+   * load-bearing: the count is meant to be the TEXT area, and under border-box
+   * the padding and border eat into it — measured, a 15-character id came up
+   * 13px short of fitting in a 15ch field, which is exactly the clipping the
+   * guard in visual-guards/reply-id-filter.ct.spec.tsx exists to catch. Here
+   * the padding below adds ON TOP, so the number keeps meaning what it says
+   * even if that padding changes. */
+  box-sizing: content-box;
+  width: calc(var(--id-filter-ch) * 1ch);
+  max-width: 100%;
+}
+.id-filter::placeholder {
+  color: var(--color-text-muted);
+}
+.id-filter:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--color-overlay) 35%, transparent);
+  outline-offset: 1px;
+}

@@ -20,6 +20,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { renderHook, waitFor, act } from "@testing-library/react";
 import type { TaskView } from "../api/adapter";
+import { ApiError } from "../api/errors";
 
 const h = vi.hoisted(() => ({
   listTasks: vi.fn<(opts?: { statuses?: string[] }) => Promise<unknown[]>>(),
@@ -123,18 +124,71 @@ describe("useTasks single-task anchor (owner 2026-08-01)", () => {
   });
 
   it("a REJECTED hydrate resolves pending and adds no row (no stuck spinner)", async () => {
-    // 補抓失敗 must terminate. anchorPending is what the page's self-heal waits
-    // on, so a catch that forgot to resolve it would freeze the page on a
-    // 載入中 that never ends. MUTANT: drop the setAnchor from the catch → red.
+    // 補抓失敗 must terminate. anchorPending is what the page's empty state and
+    // error banner both wait on, so a catch that forgot to resolve it would
+    // freeze the page on a 載入中 that never ends. MUTANT: drop the setAnchor
+    // from the catch → red.
     h.getTask.mockRejectedValue(new Error("boom"));
     const { result } = renderHook(() => useTasks(NON_TERMINAL, "t-gone"));
     await waitFor(() => expect(result.current.anchorPending).toBe(false));
     expect(result.current.tasks).toEqual([]);
   });
 
+  it("a 404 is 不存在 (anchorFailed stays false); any OTHER rejection is 載不到", async () => {
+    // The two outcomes leave `tasks` identically empty and the page says
+    // OPPOSITE things about them: a 404 is an answer, so 沒有符合篩選條件的任務
+    // is true; a 500 is the absence of one, so saying it would answer a
+    // question nobody got to put. Only `anchorFailed` separates them.
+    h.getTask.mockRejectedValueOnce(
+      new ApiError("http 404 for GET /api/tasks/t-gone", 404, "not_found", "")
+    );
+    const gone = renderHook(() => useTasks(NON_TERMINAL, "t-gone"));
+    await waitFor(() => expect(gone.result.current.anchorPending).toBe(false));
+    expect(gone.result.current.anchorFailed).toBe(false);
+
+    // 🔴 A TYPED 500 — not the untyped Error the other failure test throws.
+    // Without this case the `e.status === 404` half of the predicate is never
+    // exercised: an untyped rejection short-circuits on the instanceof.
+    h.getTask.mockRejectedValueOnce(
+      new ApiError("http 500 for GET /api/tasks/t-boom", 500, "internal_error", "")
+    );
+    const boom = renderHook(() => useTasks(NON_TERMINAL, "t-boom"));
+    await waitFor(() => expect(boom.result.current.anchorPending).toBe(false));
+    expect(boom.result.current.anchorFailed).toBe(true);
+
+    // …and an untyped rejection (a dropped connection) counts as 載不到 too.
+    h.getTask.mockRejectedValueOnce(new TypeError("Failed to fetch"));
+    const off = renderHook(() => useTasks(NON_TERMINAL, "t-offline"));
+    await waitFor(() => expect(off.result.current.anchorPending).toBe(false));
+    expect(off.result.current.anchorFailed).toBe(true);
+  });
+
+  it("anchorFailed does not carry a PREVIOUS anchor's failure into the next one", async () => {
+    // 🔴 Found by independent review as a surviving mutant: dropping the
+    // `!anchorPending` guard from anchorFailed left 58 assertions green. It is
+    // not an equivalent mutant — this is the case that tells them apart.
+    // Following one dead link and then a live one must not paint the load error
+    // over the second card while its own request is still in flight.
+    h.getTask.mockRejectedValueOnce(
+      new ApiError("http 500 for GET /api/tasks/t-a", 500, "internal_error", "")
+    );
+    const { result, rerender } = renderHook(
+      ({ id }) => useTasks(NON_TERMINAL, id),
+      { initialProps: { id: "t-a" } }
+    );
+    await waitFor(() => expect(result.current.anchorFailed).toBe(true));
+
+    // The second anchor's fetch never settles, so the ONLY thing that can make
+    // anchorFailed false here is the pending guard.
+    h.getTask.mockReturnValueOnce(new Promise(() => {}));
+    rerender({ id: "t-b" });
+    expect(result.current.anchorPending).toBe(true);
+    expect(result.current.anchorFailed).toBe(false);
+  });
+
   it("is PENDING until the hydrate lands — the page must not call it missing yet", async () => {
     // The distinction 「還沒載到」 vs 「不存在」. It has to be true in the very
-    // first render (the page's self-heal effect runs on the first commit), so a
+    // first render (the page decides its empty state on the first commit), so a
     // flag set from inside an effect would already be too late.
     let release!: (v: unknown) => void;
     h.getTask.mockReturnValue(new Promise((r) => (release = r)));
