@@ -2886,7 +2886,7 @@ export interface Api {
    * absent delta MUST be read as "something in this topic changed, refetch the
    * lot", never as "nothing changed".
    */
-  // ── T-33 傳承 (lore) — READ ONLY, and that is the whole surface ─────────
+  // ── T-33 傳承 (lore) — reads, plus two owner-only entity actions ───────
   //
   // 🔴 THE TWO PARAGRAPHS THAT USED TO STAND HERE WERE FALSE, AND THEY WERE
   // FALSE IN THE MOST EXPENSIVE WAY: they asserted a COUNT ("six lore routes")
@@ -2894,8 +2894,8 @@ export interface Api {
   // contains `entit` exists at all"), both in the voice of something checked
   // against routes.go on this branch. The station serves TWELVE lore routes,
   // three of them entity routes, and this very interface declares
-  // `listPendingLoreEntities`, `approveLoreEntity` and `mergeLoreEntity` about
-  // thirty lines below where the denial sat.
+  // `listPendingLoreEntities`, `approveLoreEntity` and `mergeLoreEntity`
+  // further down this same block.
   //
   // The correction is kept rather than swapped for a fresh count because the
   // lesson is not the number: an absence claim is the one kind of comment that
