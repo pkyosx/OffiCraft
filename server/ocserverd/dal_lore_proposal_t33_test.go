@@ -38,7 +38,6 @@ func t33Propose(entryID string) LoreProposal {
 		Encountered: "T-33 slot 4, wiring the proposal route",
 		Fault:       "stale",
 		Evidence:    "the entry names dal_lore.go, and the function moved to dal_lore_write.go in 8282fdef",
-		Trigger:     "我要確認開機脈絡是在哪一個檔案組起來的",
 		Content:     "the fold happens in one place, and that place is lore_fold.go",
 		RetireWhen:  "等組裝路徑不只一條",
 		Impact:      "T-33 slot 3：條目指到 dal_lore.go，函式其實已經搬走",
@@ -199,7 +198,7 @@ func TestLoreProposalStoresTheWholeVersionUnderTheSharedRenderer(t *testing.T) {
 		t.Fatalf("list events: %v", evErr)
 	}
 	want := loreRevisionBody(LoreEntry{
-		Heading: p.Heading, Trigger: p.Trigger, Content: p.Content,
+		Heading: p.Heading, Content: p.Content,
 		RetireWhen: p.RetireWhen, Impact: p.Impact, ImpactStars: p.ImpactStars,
 	}, seededEvents)
 	if row.Body != want {
@@ -212,7 +211,7 @@ func TestLoreProposalStoresTheWholeVersionUnderTheSharedRenderer(t *testing.T) {
 	// satisfied by a renderer that printed six headings over six blanks — which
 	// is the shape a dropped field actually has.
 	for _, f := range []struct{ section, value string }{
-		{"trigger:", p.Trigger}, {"content:", p.Content},
+		{"heading:", p.Heading}, {"content:", p.Content},
 		{"retire_when:", p.RetireWhen}, {"impact:", p.Impact},
 	} {
 		if !strings.Contains(row.Body, f.section+"\n"+f.value+"\n") {
@@ -275,7 +274,10 @@ func TestLoreProposalUpdateIsHeldToTheWritePathsFieldRules(t *testing.T) {
 		edit func(*LoreProposal)
 		want error
 	}{
-		{"blank trigger", func(p *LoreProposal) { p.Trigger = " " }, ErrLoreTriggerBlank},
+		// ⚠️ 這一列以前是 {"blank trigger", …, ErrLoreTriggerBlank}。`trigger` 那一格
+		// 被 `rc-9002654dd81c`（2026-09-06）併進 heading，而它守的東西沒有跟著走：
+		// 「提案的第一格空白要被寫入路徑自己的錯誤擋下來」現在指的是 heading。
+		{"blank heading", func(p *LoreProposal) { p.Heading = " " }, ErrLoreHeadingBlank},
 		{"blank content", func(p *LoreProposal) { p.Content = "" }, ErrLoreContentBlank},
 		{"unknown kind", func(p *LoreProposal) { p.Kind = "patch" }, ErrLoreProposalKindUnknown},
 		{"unknown fault", func(p *LoreProposal) { p.Fault = "bad" }, ErrLoreProposalFaultUnknown},
@@ -309,7 +311,7 @@ func TestLoreProposalRefusesAVersionIdenticalToTheBase(t *testing.T) {
 	entry := t33Get(t, d, entryID)
 	same := t33Propose(entryID)
 	same.BaseSHA256 = sha
-	same.Heading, same.Trigger, same.Content = entry.Heading, entry.Trigger, entry.Content
+	same.Heading, same.Content = entry.Heading, entry.Content
 	same.RetireWhen, same.Impact = entry.RetireWhen, entry.Impact
 	// 🔴 星等也要抄過來，而它是這一批新加的一格。漏抄它的話這份提案就**不是**
 	// 「一模一樣」了，摘要會不同、ErrLoreProposalNoChange 不會觸發，而測試會紅
@@ -470,7 +472,7 @@ func TestLoreProposalBodyCarriesTheProposalsOwnEventsNotTheEntrysCurrentOnes(t *
 	}
 	// 而且不是靠「事件根本不在 body 裡」蒙混過去的：拿掉事件的渲染必須不一樣。
 	if loreSHA256(body) == loreSHA256(loreRevisionBody(LoreEntry{
-		Trigger: p.Trigger, Content: p.Content, RetireWhen: p.RetireWhen, Impact: p.Impact,
+		Heading: p.Heading, Content: p.Content, RetireWhen: p.RetireWhen, Impact: p.Impact,
 	}, nil)) {
 		t.Fatal("帶事件與不帶事件渲染出同一串 —— 第 5 格不在 digest 裡")
 	}
@@ -499,7 +501,7 @@ func TestLoreProposalThatOnlyMovesEventsIsNotNoChange(t *testing.T) {
 		EntryID: seeded.EntryID, Kind: "update", BaseSHA256: seeded.SHA256,
 		Encountered: "在讀這條的時候發現第 5 格串錯了", Fault: "never-true",
 		Evidence: "那台機器當天根本沒有被碰過",
-		Heading:  w.Heading, Trigger: w.Trigger, Content: w.Content,
+		Heading:  w.Heading, Content: w.Content,
 		RetireWhen: w.RetireWhen, Impact: w.Impact, ImpactStars: w.ImpactStars,
 		Events:  []LoreEvent{t33Event(1700000000, "人工修好的那一筆")},
 		ActorID: "ow-e27260b9ed05",

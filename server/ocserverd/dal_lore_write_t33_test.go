@@ -12,10 +12,10 @@ import (
 
 func t33Write() LoreWrite {
 	return LoreWrite{
-		// 標題格與第 1 格刻意不是同一句話：v8 的標題寫「發生了什麼」，第 1 格
-		// 寫「我要做 X」。寫成同一句，一個把兩格接反的錯誤就沒有任何測試看得見。
+		// ⚠️ 這裡以前還有一格 `Trigger`，跟 Heading 刻意寫成不同的句子，好讓一個
+		// 把兩格接反的錯誤露出來。`rc-9002654dd81c`（2026-09-06「合併成 heading
+		// 一格」）之後只剩一格。
 		Heading:     "開機脈絡在兩個地方各組了一次，兩份內容不一樣",
-		Trigger:     "我要確認開機脈絡是在哪裡組起來的",
 		Content:     "the fold happens in one place",
 		RetireWhen:  "等組裝路徑不只一條",
 		Impact:      "T-33 slot 3：兩個區塊對同一件事說法不一樣",
@@ -102,7 +102,7 @@ func TestLoreCreateWritesEntrySubjectsAndOriginal(t *testing.T) {
 // which is the collapse this ticket exists to prevent.
 func TestLoreRevisionBodyNamesEveryFieldEvenWhenBlank(t *testing.T) {
 	body := loreRevisionBody(LoreEntry{Content: "only this one is set"}, nil)
-	for _, name := range []string{"trigger", "content", "retire_when", "impact", "events"} {
+	for _, name := range []string{"content", "retire_when", "impact", "events"} {
 		if !strings.Contains(body, name+":\n") {
 			t.Fatalf("the rendered original drops the %q section:\n%s", name, body)
 		}
@@ -155,14 +155,15 @@ func TestLoreRevisionBodyNamesEveryFieldEvenWhenBlank(t *testing.T) {
 	}
 }
 
-// 🔴 三格空白都被拒：v8 的標題格、第 1 格 trigger 與第 2 格 content，而且每一格
-// 是它自己的具名錯誤——沒有哪一格會被折進別格的錯誤裡，不然寫的人只會知道
-// 「被擋了」而不知道要補哪一格。
+// 🔴 兩格空白都被拒：標題格 heading 與內容格 content，而且每一格是它自己的具名
+// 錯誤——沒有哪一格會被折進別格的錯誤裡，不然寫的人只會知道「被擋了」而不知道
+// 要補哪一格。
 //
-// ⚠️ 標題格被拒的理由跟另外兩格**不一樣**，而這個測試的名字現在只講得出其中一種：
-// 少了 trigger／content 這條撈不到，少了 heading 這條撈得到、但在清單上跟一條寫完
-// 的長得一模一樣。兩種都是「沒有人會回來補」，路徑不同。
-func TestLoreCreateRefusesTheThreeCellsThatMakeAnEntryReadable(t *testing.T) {
+// ⚠️ 這裡以前是三格，第三格是 `trigger`；`rc-9002654dd81c`（2026-09-06）把它併進
+// heading。少的是一個**欄位**，不是一道門：合併之後空的 heading 同時意味著「這條
+// 撈不到」（它是搜尋唯一掃得到的那一軸）與「它在清單上跟一條寫完的長得一模一樣」，
+// 兩種都是「沒有人會回來補」。
+func TestLoreCreateRefusesTheTwoCellsThatMakeAnEntryReadable(t *testing.T) {
 	d := newTestDAL(t)
 	t33Entity(t, d, "e-repo", "repo", "repo:officraft")
 
@@ -173,8 +174,6 @@ func TestLoreCreateRefusesTheThreeCellsThatMakeAnEntryReadable(t *testing.T) {
 	}{
 		{"blank heading", func(w *LoreWrite) { w.Heading = "" }, ErrLoreHeadingBlank},
 		{"whitespace heading", func(w *LoreWrite) { w.Heading = " \t " }, ErrLoreHeadingBlank},
-		{"blank trigger", func(w *LoreWrite) { w.Trigger = "" }, ErrLoreTriggerBlank},
-		{"whitespace trigger", func(w *LoreWrite) { w.Trigger = "  \t " }, ErrLoreTriggerBlank},
 		{"blank content", func(w *LoreWrite) { w.Content = "" }, ErrLoreContentBlank},
 		{"whitespace content", func(w *LoreWrite) { w.Content = "   " }, ErrLoreContentBlank},
 	} {
@@ -300,7 +299,7 @@ func TestLoreEntriesWrittenBeforeTheRequirementStillReadBack(t *testing.T) {
 	t33Entity(t, d, "e-repo", "repo", "repo:officraft")
 
 	legacy := LoreEntry{
-		ID: "lore-legacy-01", Trigger: "我要做某件事", Content: "y",
+		ID: "lore-legacy-01", Content: "y",
 		Origin: "agent:O-197", CreatedTS: 1000, UpdatedTS: 1000,
 	}
 	// 🔴 這一列是用**原始 INSERT** 種下去的，不是 PutLoreEntry，而那正是它要模擬
@@ -308,10 +307,10 @@ func TestLoreEntriesWrittenBeforeTheRequirementStillReadBack(t *testing.T) {
 	// PutLoreEntry 就種不出一列 v8 之前的條目，只種得出一列今天合法的條目——
 	// 那樣這支測試就不再是在問它宣稱要問的問題。
 	if _, err := d.wdb.Exec(`
-		INSERT INTO lore_entry (id, trigger, content, origin, status, editable_by,
+		INSERT INTO lore_entry (id, content, origin, status, editable_by,
 			created_ts, updated_ts)
-		VALUES (?, ?, ?, ?, 'active', 'agent', ?, ?)`,
-		legacy.ID, legacy.Trigger, legacy.Content, legacy.Origin,
+		VALUES (?, ?, ?, 'active', 'agent', ?, ?)`,
+		legacy.ID, legacy.Content, legacy.Origin,
 		legacy.CreatedTS, legacy.UpdatedTS); err != nil {
 		t.Fatalf("seed a pre-requirement entry: %v", err)
 	}
@@ -319,13 +318,16 @@ func TestLoreEntriesWrittenBeforeTheRequirementStillReadBack(t *testing.T) {
 	if got == nil {
 		t.Fatal("an entry written before the requirement stopped being readable")
 	}
-	if got.Trigger != legacy.Trigger || got.Content != legacy.Content ||
+	if got.Content != legacy.Content ||
 		got.RetireWhen != "" || got.Impact != "" {
 		t.Fatalf("a pre-requirement entry did not read back as written: %+v", got)
 	}
 	// 🔴 v8 加的三格在一列 v8 之前的條目上讀回來是零值，而且**讀得回來**：
 	// 空標題不會讓這一列讀不到（必填只擋新寫入），星等是 0＝還沒判，章沒蓋過。
 	// 少了這三行，一個對舊列直接爆掉、或把 0 當成 1 的讀取路徑會讓上面全綠。
+	// ⚠️ 這一列以前是靠種一個 `trigger` 來模擬「v8 之前的條目」的。那一格已經被
+	// `rc-9002654dd81c` 併進 heading ⇒ 現在種的是一列**連 heading 都空著**的條目，
+	// 而那仍然是這支測試要問的形狀：一列擋不住今天的必填、卻必須照樣讀得回來。
 	if got.Heading != "" || got.ImpactStars != 0 || got.Reviewed {
 		t.Fatalf("一列 v8 之前的條目讀回來時被補了 v8 的欄位: heading=%q stars=%d reviewed=%v",
 			got.Heading, got.ImpactStars, got.Reviewed)
@@ -561,25 +563,13 @@ func TestLoreCreateWillNotSupersedeARetiredEntryBackIntoView(t *testing.T) {
 	}
 }
 
-// 🔴 舊的 TestLoreCreateRefusesAnOverlongLabelRatherThanTrimmingIt 沒了，跟著
-// `label` 與它的 40 runes 上限一起。取而代之的是反面：第 1 格**沒有上限**，
-// 一個很長的 trigger 必須整段寫進去，見這裡與 dal_lore_t33_test.go 的
-// TestLoreTriggerHasNoLengthCap。
-func TestLoreCreateAcceptsALongTriggerWholeRatherThanTrimmingIt(t *testing.T) {
-	d := newTestDAL(t)
-	t33Entity(t, d, "e-repo", "repo", "repo:officraft")
-	w := t33Write()
-	w.Trigger = strings.Repeat("字", 200)
-
-	res, err := d.CreateLoreEntry(w, 1000)
-	if err != nil {
-		t.Fatalf("a long trigger must be accepted: %v", err)
-	}
-	entry := t33Get(t, d, res.EntryID)
-	if entry == nil || entry.Trigger != w.Trigger {
-		t.Fatalf("第 1 格被截斷或改寫了: %+v", entry)
-	}
-}
+// 🔴 這裡曾經有一支 TestLoreCreateAcceptsALongTriggerWholeRatherThanTrimmingIt，
+// 它守的是「第 1 格沒有長度上限，長的要整段寫進去不截斷」。它跟著 `trigger` 那一格
+// 一起沒了（`rc-9002654dd81c`，2026-09-06「合併成 heading 一格」），而**它守的性質
+// 真的消失了**：合併之後第一格就是 heading，而 heading 有 140 個 rune 的硬上限。
+// ⚠️ 沒有留一支改寫成 heading 的替身，因為那會變成另一支測試：heading 的上限與
+// 「拒絕而不是截斷」已經由 lore_heading_cap_t33_test.go 守著，在這裡再寫一次只會
+// 讓兩份各自漂移。
 
 // An entry with no subject is refused. It would exist, be counted, and be
 // reachable by nothing — the boot directory is indexed by subject.
@@ -709,7 +699,6 @@ func TestHeadingChangeMovesTheRevisionDigest(t *testing.T) {
 	base := LoreEntry{
 		ID:      "le-heading-digest",
 		Heading: "遷移在沒有設定檔的情況下打到了正式庫",
-		Trigger: "我要在工作目錄裡跑一個 server 的執行檔",
 		Content: "零參數等於 serve，serve 啟動就跑 migration。",
 		Impact:  "14 張表進了正式庫。",
 		Origin:  "agent:O-197",

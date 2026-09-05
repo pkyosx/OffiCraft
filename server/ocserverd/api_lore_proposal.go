@@ -80,7 +80,6 @@ func writeLoreProposalError(w http.ResponseWriter, err error) {
 		// 核可一份提案會把 heading 寫回條目，所以那一步就是一次寫入。
 		errors.Is(err, ErrLoreHeadingTooLong),
 		errors.Is(err, ErrLoreImpactStarsRange),
-		errors.Is(err, ErrLoreTriggerBlank),
 		errors.Is(err, ErrLoreContentBlank):
 		writeError(w, http.StatusUnprocessableEntity, err.Error())
 	default:
@@ -114,7 +113,6 @@ func (s *apiServer) HandleProposeLoreChangeApiLoreEntriesEntryIdProposalsPost(w 
 		// 🔴「完整」現在對整條條目是真的成立的，而在此之前它不是：標題與星等收
 		// 不到，核可寫下的原文因此宣稱條目沒有標題。
 		Heading:     strOrEmpty(body.Heading),
-		Trigger:     strOrEmpty(body.Trigger),
 		Content:     strOrEmpty(body.Content),
 		RetireWhen:  strOrEmpty(body.RetireWhen),
 		Impact:      strOrEmpty(body.Impact),
@@ -177,7 +175,6 @@ func (s *apiServer) HandleListLoreProposalsApiLoreEntriesEntryIdProposalsGet(w h
 			BaseSha256:     p.BaseSHA256,
 			Stale:          p.Stale,
 			Heading:        p.Heading,
-			Trigger:        p.Trigger,
 			Content:        p.Content,
 			RetireWhen:     p.RetireWhen,
 			Impact:         p.Impact,

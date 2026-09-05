@@ -33,9 +33,12 @@ import (
 )
 
 var (
-	// 🔴 三格必填：標題格（heading）、第 1 格（trigger）與第 2 格（content）。
-	// 前兩者的錯誤值在 dal_lore.go（ErrLoreHeadingBlank / ErrLoreTriggerBlank），
-	// 因為它們擋在 PutLoreEntry 那個原始 upsert 縫上，不是只擋在這一層。
+	// 🔴 兩格必填：標題格（heading）與內容格（content）。
+	// 前者的錯誤值在 dal_lore.go（ErrLoreHeadingBlank / ErrLoreHeadingTooLong），
+	// 因為它擋在 PutLoreEntry 那個原始 upsert 縫上，不是只擋在這一層。
+	// ⚠️ 這裡以前寫「三格」，第三格是 `trigger`；`rc-9002654dd81c`（2026-09-06）
+	// 把它併進 heading ⇒ 少的是一個**欄位**，不是一道門：heading 現在同時扛著
+	// 「撈得到」與「看得懂」兩件事。
 	// 舊的 ErrLoreSymptomsBlank /
 	// ErrLoreShortBlank / ErrLoreFalsifyBlank / ErrLoreInstanceBlank 都沒了，
 	// 連同它們的欄位一起——五格裡沒有 falsify、沒有 instance。
@@ -61,9 +64,12 @@ var (
 // pointed it and WHEN.
 const LoreGovSupersede = "supersede"
 
-// LoreWrite is one request to create an entry — 六格（標題 + 四個欄位 + 0..N 筆
+// LoreWrite is one request to create an entry — 五格（heading + 三個欄位 + 0..N 筆
 // 事件）、the axes it is filed under, and the verified identity of whoever is
 // writing.
+//
+// ⚠️ 這裡以前是六格，多的那一格是 `trigger`；`rc-9002654dd81c`（2026-09-06）逐字
+// 「合併成 heading 一格」把它併掉了。
 //
 // 🔴 ActorID IS NOT A BODY FIELD ANYWHERE ABOVE THIS. It comes from the verified
 // token subject. `Origin` is a different thing and IS caller-supplied: origin
@@ -73,7 +79,6 @@ const LoreGovSupersede = "supersede"
 // exempt from the count cap.
 type LoreWrite struct {
 	Heading    string
-	Trigger    string
 	Content    string
 	RetireWhen string
 	Impact     string
@@ -193,7 +198,6 @@ func loreRevisionBody(e LoreEntry, events []LoreEvent) string {
 	var b strings.Builder
 	for _, f := range []struct{ name, value string }{
 		{"heading", e.Heading},
-		{"trigger", e.Trigger},
 		{"content", e.Content},
 		{"retire_when", e.RetireWhen},
 		{"impact", e.Impact},
@@ -340,11 +344,14 @@ func loreResolveSubject(tx *sql.Tx, key, actorID string, nowTS float64) (string,
 // reach it by. Half of this write is not a smaller version of it; it is a row
 // that looks finished and is not.
 //
-// 🔴 三格在空白時被拒：標題格 `heading`、第 1 格 `trigger` 與第 2 格 `content`。
-// 前兩者被拒的理由**不一樣**，而分開講是有用的：`content` 是唯一會進開機脈絡的
-// 一格、`trigger`（什麼時候要記起來）是讀者找到它的那一軸——少了任一個這一列
-// 誰都讀不到；`heading` 少了的話這一列讀得到，但它在任何清單上跟一條寫完的條目
-// 長得一模一樣，沒有人會知道要回來補。
+// 🔴 兩格在空白時被拒：標題格 `heading` 與內容格 `content`。兩者被拒的理由
+// **不一樣**，而分開講是有用的：`content` 是唯一會進開機脈絡的一格，少了它這一列
+// 就沒有任何東西可以交出去；`heading` 少了的話這一列**同時**撈不到（它是搜尋唯一
+// 掃得到的那一軸）而且在任何清單上跟一條寫完的條目長得一模一樣，沒有人會知道要
+// 回來補。
+// ⚠️ 這裡以前是三格，第三格是 `trigger`（讀者找到它的那一軸）。
+// `rc-9002654dd81c`（2026-09-06）把它併進 heading ⇒ 那個「撈得到」的角色沒有
+// 消失，它整個搬到 heading 身上了。
 //
 // 🔴 第 3 格 `retire_when` 與第 4 格 `impact` 是**選填**，這一層不會替它們補
 // 任何東西。第 4 格「它是主體」是寫作上的重量，不是欄位上的必填——把它變成必填
@@ -369,9 +376,6 @@ func (d *DAL) CreateLoreEntry(w LoreWrite, nowTS float64) (LoreWriteResult, erro
 	if err := loreHeadingError(w.Heading); err != nil {
 		return out, err
 	}
-	if err := loreTriggerError(w.Trigger); err != nil {
-		return out, err
-	}
 	if strings.TrimSpace(w.Content) == "" {
 		return out, ErrLoreContentBlank
 	}
@@ -393,7 +397,6 @@ func (d *DAL) CreateLoreEntry(w LoreWrite, nowTS float64) (LoreWriteResult, erro
 	entry := LoreEntry{
 		ID:      "lore-" + newHexID(12),
 		Heading: w.Heading,
-		Trigger: w.Trigger,
 		Content: w.Content,
 		// 🔴 Reviewed 沒有出現在這裡，而不是被設成 false：這個 struct 的零值就是
 		// false，寫出來反而會讀成「這條路做過一個關於審核的決定」。它做過的決定
@@ -417,8 +420,8 @@ func (d *DAL) CreateLoreEntry(w LoreWrite, nowTS float64) (LoreWriteResult, erro
 	err := d.inTx(func(tx *sql.Tx) error {
 		if _, err := tx.Exec(`
 			INSERT INTO lore_entry (`+loreEntryColumns+`)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-			entry.ID, entry.Heading, entry.Trigger, entry.Content, entry.RetireWhen,
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			entry.ID, entry.Heading, entry.Content, entry.RetireWhen,
 			entry.Impact, entry.ImpactStars, entry.Reviewed,
 			entry.Status, entry.Supersedes,
 			entry.EditableBy, entry.Origin, entry.CreatedTS, entry.UpdatedTS); err != nil {

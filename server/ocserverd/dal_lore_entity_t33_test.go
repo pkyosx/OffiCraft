@@ -16,7 +16,6 @@ func t33Mint(t *testing.T, d *DAL, subjects ...string) LoreWriteResult {
 	t.Helper()
 	got, err := d.CreateLoreEntry(LoreWrite{
 		Heading:  "the pending queue filled up and nobody read it",
-		Trigger:  "the queue is full and nothing reads it",
 		Content:  "the pending column had no exit",
 		Origin:   "agent:O-197",
 		Subjects: subjects,
@@ -446,14 +445,14 @@ func TestPendingLoreEntityIgnoresSubjectsAReviewerCouldNotMergeInto(t *testing.T
 func TestPendingLoreEntityCarriesTheFirstEntrysContentAsASample(t *testing.T) {
 	d := newTestDAL(t)
 	first, err := d.CreateLoreEntry(LoreWrite{
-		Heading: "h", Trigger: "t", Content: "the fold happens in exactly one place",
+		Heading: "h", Content: "the fold happens in exactly one place",
 		Origin: "agent:O-197", Subjects: []string{"repo:offcraft"}, ActorID: "m-writer",
 	}, 100)
 	if err != nil {
 		t.Fatalf("first write: %v", err)
 	}
 	if _, err := d.CreateLoreEntry(LoreWrite{
-		Heading: "h", Trigger: "t", Content: "a later entry that must NOT be the sample",
+		Heading: "h", Content: "a later entry that must NOT be the sample",
 		Origin: "agent:O-197", Subjects: []string{"repo:offcraft"}, ActorID: "m-writer",
 	}, 200); err != nil {
 		t.Fatalf("second write: %v", err)
@@ -466,7 +465,7 @@ func TestPendingLoreEntityCarriesTheFirstEntrysContentAsASample(t *testing.T) {
 	// rather than a sentence invented here.
 	long := strings.Repeat("長", loreSampleShortRunes+40)
 	if _, err := d.CreateLoreEntry(LoreWrite{
-		Heading: "h", Trigger: "t", Content: long, Origin: "agent:O-197",
+		Heading: "h", Content: long, Origin: "agent:O-197",
 		Subjects: []string{"repo:verbose"}, ActorID: "m-writer",
 	}, 300); err != nil {
 		t.Fatalf("long write: %v", err)
@@ -599,7 +598,7 @@ func TestPendingLoreEntityReportsAFamilyResemblanceWithItsOwnReason(t *testing.T
 func TestListPendingLoreEntitiesNamesWhoMintedTheKey(t *testing.T) {
 	d := newTestDAL(t)
 	if _, err := d.CreateLoreEntry(LoreWrite{
-		Heading: "h", Trigger: "t", Content: "c", Origin: "agent:O-197",
+		Heading: "h", Content: "c", Origin: "agent:O-197",
 		Subjects: []string{"repo:offcraft"}, ActorID: "m-someone-else",
 	}, 100); err != nil {
 		t.Fatalf("write: %v", err)
@@ -625,14 +624,14 @@ func TestListPendingLoreEntitiesNamesWhoMintedTheKey(t *testing.T) {
 // would then disagree with the list.
 func TestListPendingLoreEntitiesCarriesEveryEntryNotJustTheSample(t *testing.T) {
 	d := newTestDAL(t)
-	write := func(trigger, content string, ts float64) LoreWriteResult {
+	write := func(heading, content string, ts float64) LoreWriteResult {
 		t.Helper()
 		got, err := d.CreateLoreEntry(LoreWrite{
-			Heading: "h", Trigger: trigger, Content: content, Origin: "agent:O-197",
+			Heading: heading, Content: content, Origin: "agent:O-197",
 			Subjects: []string{"repo:offcraft"}, ActorID: "m-writer",
 		}, ts)
 		if err != nil {
-			t.Fatalf("write %q: %v", trigger, err)
+			t.Fatalf("write %q: %v", heading, err)
 		}
 		return got
 	}
@@ -652,9 +651,13 @@ func TestListPendingLoreEntitiesCarriesEveryEntryNotJustTheSample(t *testing.T) 
 		t.Fatalf("entry_refs order = %+v, want oldest first, the same order the sample's "+
 			"「first」 means everywhere else in this tree", row.EntryRefs)
 	}
-	if row.EntryRefs[0].Trigger != "I am about to run the full suite locally" {
-		t.Fatalf("entry_refs[0].trigger = %q — 第 1 格 is what tells the reviewer which "+
-			"entry this is", row.EntryRefs[0].Trigger)
+	// 🔴 待審佇列上帶的是 `heading`，不是 `trigger` —— owner 2026-09-06 於
+	// `rc-9002654dd81c` 逐字「待審畫面改顯示 heading」。這一行不是換個欄位名：
+	// 換之前這個畫面顯示 trigger、而列表畫面顯示 heading，審核者要判斷的
+	// 「這是不是我剛剛在列表上看到的那一條」在兩個畫面上讀到的是兩句不同的話。
+	if row.EntryRefs[0].Heading != "I am about to run the full suite locally" {
+		t.Fatalf("entry_refs[0].heading = %q — 標題格 is what tells the reviewer which "+
+			"entry this is", row.EntryRefs[0].Heading)
 	}
 	if row.EntryRefs[0].Status != "active" {
 		t.Fatalf("entry_refs[0].status = %q, want active", row.EntryRefs[0].Status)

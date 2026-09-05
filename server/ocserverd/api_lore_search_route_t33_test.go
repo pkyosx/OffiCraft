@@ -24,7 +24,6 @@ func loreSearchSeed(t *testing.T, url, tok, subject, content string) string {
 	t.Helper()
 	st, body := rosterREST(t, url, tok, "POST", "/api/lore/entries", `{
 		"heading": "something became visible that had not been",
-		"trigger": "something is visible",
 		"content": "`+content+`",
 		"retire_when": "等只剩一個組裝器", "impact": "T-33 slot 3",
 		"origin": "agent:O-197",

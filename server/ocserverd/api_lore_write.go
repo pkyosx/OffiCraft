@@ -35,7 +35,6 @@ func writeLoreWriteError(w http.ResponseWriter, err error) {
 		// 的代價不是「錯誤碼難看」—— 沒有列舉的錯誤會掉到 internalError 變成
 		// 500，而 500 的意思是「伺服器壞了，你重試」，重試永遠會失敗。
 		errors.Is(err, ErrLoreHeadingTooLong),
-		errors.Is(err, ErrLoreTriggerBlank),
 		errors.Is(err, ErrLoreContentBlank),
 		// 🔴 星等超出 0..3 是 422 而不是 500。資料庫的 CHECK 也會擋，但它回來的是
 		// 一句 driver 訊息，只能被報成「伺服器出事了」——而送 star=7 的人是可以
@@ -80,16 +79,18 @@ func writeLoreWriteError(w http.ResponseWriter, err error) {
 // to be one subject.
 func (s *apiServer) HandleWriteLoreEntryApiLoreEntriesPost(w http.ResponseWriter, r *http.Request) {
 	var body LoreWriteDTO
-	// 🔴 標題格與第 1、2 格在這裡被要求「必須出現」。第 3、4 格是選填，第 5 格是
+	// 🔴 標題格與內容格在這裡被要求「必須出現」。第 3、4 格是選填，第 5 格是
 	// 0..N——把它們列進來會讓「這條沒有後果可以寫」變成一個送不出去的請求。
+	// ⚠️ 這份清單以前還有 "trigger"。`rc-9002654dd81c`（2026-09-06）把那一格併進
+	// heading 之後它不再是一個合法的 key —— 送它會被 422 指名擋下來，而那是對的：
+	// 一個被靜默忽略的 body key 會讓寫入者以為他寫下了一句沒有人存下來的話。
 	// ⚠️ `impact_stars` 也不在這裡：省略它得到 0＝「還沒判」，那是一個合法的狀態，
 	// 而要求它出現等於逼每一個寫入者當場判一個他還沒判的東西。
-	if !decodeJSONBodyStrict(w, r, &body, "heading", "trigger", "content", "origin", "subjects") {
+	if !decodeJSONBodyStrict(w, r, &body, "heading", "content", "origin", "subjects") {
 		return
 	}
 	write := LoreWrite{
 		Heading:    body.Heading,
-		Trigger:    body.Trigger,
 		Content:    body.Content,
 		RetireWhen: strOrEmpty(body.RetireWhen),
 		Impact:     strOrEmpty(body.Impact),

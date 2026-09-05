@@ -19,13 +19,12 @@ func t33Entity(t *testing.T, d *DAL, id, typ, canonical string) {
 func t33Entry(id string) LoreEntry {
 	return LoreEntry{
 		ID: id,
-		// 🔴 標題格照 v8 的要求寫「發生了什麼」，而不是「我要做 X」——那是第 1 格
-		// 的形狀。兩格在這個 fixture 裡刻意寫成不同的句子，否則一個把 heading 接到
-		// trigger 上的錯誤會被兩個相同的字串蓋掉。
-		Heading: "前端畫面接的是假資料，而畫面上看不出來",
-		// 🔴 第 1 格照負責人示範的寫法：一整句「我要做 X」，遠超過舊的 40 runes
-		// 上限。它**不再**兼任標題（v8）。
-		Trigger:     "我要確認一個 OffiCraft 前端畫面接的是真後端，還是假資料",
+		// 🔴 標題格照 v8 的要求寫「發生了什麼」，而不是「我要做 X」。
+		// ⚠️ 這裡以前還有一格 `Trigger`，刻意寫成跟 Heading 不同的句子，好讓一個
+		// 「把 heading 接到 trigger 上」的錯誤露出來。`rc-9002654dd81c`
+		// （2026-09-06「合併成 heading 一格」）之後只剩一格，那個對調的錯誤在構造
+		// 上不存在了 —— 不是這個 fixture 放鬆了守衛。
+		Heading:     "前端畫面接的是假資料，而畫面上看不出來",
 		Origin:      "agent:O-197",
 		Content:     "the fold happens in one place",
 		RetireWhen:  "等前端不再有假資料模式",
@@ -163,46 +162,17 @@ func TestLoreOriginTypesComeFromTheEntityTypeTable(t *testing.T) {
 	}
 }
 
-// 🔴 第 1 格必填，空值被拒絕——而且是在最底層的 upsert 縫就被拒絕，不是只在
-// 寫入路徑上。空的 trigger 條目躺在表裡誰都撈不到，而它從外面看起來跟一條寫好
-// 的條目一模一樣：那正是這張票要消滅的無聲損失。
-func TestLoreTriggerIsRequiredAndBlankIsRefusedAtTheRowSeam(t *testing.T) {
-	d := newTestDAL(t)
-	for _, blank := range []string{"", "   ", "\n\t"} {
-		e := t33Entry("me-notrigger")
-		e.Trigger = blank
-		err := d.PutLoreEntry(e)
-		if !errors.Is(err, ErrLoreTriggerBlank) {
-			t.Fatalf("trigger = %q: err = %v, want ErrLoreTriggerBlank", blank, err)
-		}
-		if got := t33Get(t, d, "me-notrigger"); got != nil {
-			t.Fatalf("a refused write must not land, got %+v", got)
-		}
-	}
-}
-
-// 🔴 第 1 格**沒有長度上限**，而且這一條就是那個上限被拿掉的理由：負責人自己
-// 示範的好例子超過舊的 40 runes 很多。留著上限等於讓示範用的寫法寫不進來。
-func TestLoreTriggerHasNoLengthCap(t *testing.T) {
-	d := newTestDAL(t)
-	e := t33Entry("me-longtrigger")
-	e.Trigger = "【什麼時候要記起來】我要確認一個 OffiCraft 前端畫面接的是真後端，還是假資料"
-	if n := len([]rune(e.Trigger)); n <= 40 {
-		t.Fatalf("這一條要證明的是「超過 40 runes 也收」，但範例只有 %d runes", n)
-	}
-	if err := d.PutLoreEntry(e); err != nil {
-		t.Fatalf("負責人示範的第 1 格寫法被拒絕了: %v", err)
-	}
-	got := t33Get(t, d, "me-longtrigger")
-	if got == nil || got.Trigger != e.Trigger {
-		t.Fatalf("第 1 格必須原封不動落地（不截斷）, got %+v", got)
-	}
-	// 更長也一樣：沒有「其實還是有一個上限」這種東西。
-	e.Trigger = strings.Repeat("界", 500)
-	if err := d.PutLoreEntry(e); err != nil {
-		t.Fatalf("500 runes 的第 1 格被拒絕了，表示還有一個沒說出來的上限: %v", err)
-	}
-}
+// 🔴 這裡曾經有兩支 trigger 的守衛，它們跟著那一格一起被 `rc-9002654dd81c`
+// （2026-09-06「合併成 heading 一格」）拿掉了，而兩支的下場**不一樣**，所以分開講：
+//
+//   * TestLoreTriggerIsRequiredAndBlankIsRefusedAtTheRowSeam 守的是「第一格空白要
+//     在最底層的 upsert 縫被拒、而且拒絕的那一筆不可以落地」。那件事**還在**，
+//     只是那一格現在叫 heading ⇒ 它整支併進了下面的
+//     TestPutLoreEntryRefusesABlankHeading（三種空白 ＋ 不落地的檢查都搬過去了）。
+//   * TestLoreTriggerHasNoLengthCap 守的是「第一格沒有長度上限」。那個性質
+//     **真的消失了**，不是搬家：合併之後這一格就是 heading，而 heading 有 140 個
+//     rune 的硬上限（owner 2026-09-05）。這裡沒有留一支恆真的替身，因為一支永遠
+//     為真的測試在畫面上跟一支真的守衛長得一模一樣。
 
 // origin is L1, which means it must be readable through the ordinary entry read
 // — the one the assembler uses. A field that could only be reached through a
@@ -388,7 +358,6 @@ func TestLoreEntryCellsRoundTripByName(t *testing.T) {
 	e := LoreEntry{
 		ID:          "me-five",
 		Heading:     "HD",
-		Trigger:     "TR",
 		Content:     "CO",
 		RetireWhen:  "RW",
 		Impact:      "IM",
@@ -398,7 +367,7 @@ func TestLoreEntryCellsRoundTripByName(t *testing.T) {
 	}
 	t33Put(t, d, e)
 	got := t33Get(t, d, "me-five")
-	if got.Heading != "HD" || got.Trigger != "TR" || got.Content != "CO" ||
+	if got.Heading != "HD" || got.Content != "CO" ||
 		got.RetireWhen != "RW" || got.Impact != "IM" ||
 		got.ImpactStars != 3 || !got.Reviewed {
 		t.Fatalf("a body cell was lost or transposed: %+v", *got)
@@ -430,14 +399,23 @@ func TestLoreImpactStarsRefusesWhatIsNotAStar(t *testing.T) {
 
 // 🔴 標題格空白被拒，而且是在**這個原始的 upsert 縫**上，不只在 CreateLoreEntry
 // 上。只擋在寫入路徑等於留一個側門，而從側門進來的無標題條目跟正門進來的長得
-// 一模一樣。錯誤是它自己的具名錯誤，不是被折進 ErrLoreTriggerBlank：兩格空著的
-// 後果不同，補的方法也不同。
+// 一模一樣。
+//
+// 🔴 合併之後（`rc-9002654dd81c`）這一支同時扛著原本 trigger 那支守的東西：一條
+// 空標題的條目**既撈不到**（heading 是搜尋唯一掃得到的那一軸）**又在清單上跟一條
+// 寫完的長得一樣**。所以三種空白與「被拒的那一筆不可以落地」都在這裡驗，而不是
+// 只驗一種空白就算數。
 func TestPutLoreEntryRefusesABlankHeading(t *testing.T) {
 	d := newTestDAL(t)
-	e := t33Entry("me-noheading")
-	e.Heading = "   "
-	if err := d.PutLoreEntry(e); !errors.Is(err, ErrLoreHeadingBlank) {
-		t.Fatalf("一條沒有標題的條目從側門進來了: %v", err)
+	for _, blank := range []string{"", "   ", "\n\t"} {
+		e := t33Entry("me-noheading")
+		e.Heading = blank
+		if err := d.PutLoreEntry(e); !errors.Is(err, ErrLoreHeadingBlank) {
+			t.Fatalf("heading = %q: err = %v, want ErrLoreHeadingBlank", blank, err)
+		}
+		if got := t33Get(t, d, "me-noheading"); got != nil {
+			t.Fatalf("被拒的寫入不可以落地, got %+v", got)
+		}
 	}
 }
 

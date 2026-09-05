@@ -156,7 +156,7 @@ func (s *apiServer) HandleListPendingLoreEntitiesApiLoreEntitiesPendingGet(w htt
 		refs := make([]LoreEntryRefDTO, 0, len(row.EntryRefs))
 		for _, e := range row.EntryRefs {
 			refs = append(refs, LoreEntryRefDTO{
-				EntryId: e.EntryID, Trigger: e.Trigger, Status: e.Status,
+				EntryId: e.EntryID, Heading: e.Heading, Status: e.Status,
 			})
 		}
 		out = append(out, LorePendingEntityRowDTO{

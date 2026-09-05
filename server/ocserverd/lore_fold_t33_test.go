@@ -97,14 +97,13 @@ func TestDirectoryCarriesNoEntryBody(t *testing.T) {
 	seedLoreDirectoryFixture(t, s)
 
 	// 🔴 這一支不能拿 t33Entry 的原文當搜尋標的，而它原本就是這樣做的。
-	// t33Entry 的第 1 格逐字出現在 seeds/system_interaction.md 的「一條寫成的
+	// t33Entry 的標題格逐字出現在 seeds/system_interaction.md 的「一條寫成的
 	// 樣子」裡（owner 2026-09-04 於 rc-d4eec95e18ea 裁「開機檔只放一條最短的好
 	// 例子」而落地）。開機檔本來就含 global context ⇒ 搜得到那句話是因為**說明
 	// 文件在講它**，不是因為目錄洩漏了正文，而**兩者長得一模一樣**。
 	// ⇒ 改用只可能從資料庫來的哨兵字串。這讓這道守衛變強不是變弱：命中就一定
 	// 是洩漏，不可能是有人在文件裡引用了同一句話。
 	body := t33Entry("me-probe")
-	body.Trigger = "SENTINEL-TRIGGER-4f1c9a"
 	body.Content = "SENTINEL-CONTENT-4f1c9a"
 	body.RetireWhen = "SENTINEL-RETIRE-4f1c9a"
 	body.Impact = "SENTINEL-IMPACT-4f1c9a"
@@ -133,7 +132,7 @@ func TestDirectoryCarriesNoEntryBody(t *testing.T) {
 			t.Fatalf("%s boot context has no 對象目錄 — the checks below would be vacuous", name)
 		}
 		for field, text := range map[string]string{
-			"trigger": body.Trigger, "content": body.Content,
+			"content":     body.Content,
 			"retire_when": body.RetireWhen, "impact": body.Impact,
 			"heading": body.Heading,
 		} {

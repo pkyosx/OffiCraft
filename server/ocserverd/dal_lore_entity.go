@@ -64,16 +64,22 @@ var (
 // what a reviewer can read on a queue row.
 //
 // 🔴 IT IS A REFERENCE, NOT AN ENTRY, AND THE NAME SAYS SO. It carries the id
-// so the reviewer can open the real thing, 第 1 格 so he knows which one to
+// so the reviewer can open the real thing, 標題格 so he knows which one to
 // open, and the status so he knows what he is counting. Adding `content` here
 // would turn the queue into a second reader of the memory table — with its own
 // truncation rule, its own ordering, and its own opportunity to disagree with
 // the one that already exists.
+//
+// 🔴 這一行帶的是 `Heading`，以前帶的是 `Trigger`，而換掉它是 owner 2026-09-06
+// 於 `rc-9002654dd81c` 逐字裁定的一部分：「待審畫面改顯示 heading」。修的不是
+// 用詞：待審畫面顯示 trigger、列表顯示 heading、搜尋結果兩格都回 ⇒ **同一條記憶
+// 在三個畫面上用不同的話代表自己**，而審核者比對的正是「這是不是我剛剛在列表上
+// 看到的那一條」。
 type LorePendingEntryRef struct {
 	EntryID string
-	// Trigger 第 1 格 — 「什麼時候要記起來」。⚠️ v8 起它**不再兼任標題**（標題是
-	// 獨立的 heading 格，而那一格有 140 個 rune 的上限）；trigger 自己沒有上限。
-	Trigger string
+	// Heading 標題格 — 「發生了什麼」。上限 140 個 rune，見 loreHeadingMaxRunes。
+	// 合併之後它同時是這條的名字、也是搜尋掃得到的那一軸。
+	Heading string
 	Status  string // 'active' | 'superseded' | 'underspecified' (never 'retired')
 }
 
@@ -152,17 +158,18 @@ type LorePendingEntity struct {
 	CreatedBy string
 
 	// EntryRefs is EVERY entry the count in `Entries` counted — same predicate,
-	// same ordering, one line each: id, 第 1 格 (`Trigger`, which is also the
-	// title), and status.
+	// same ordering, one line each: id, 標題格 (`Heading`), and status.
 	//
 	// 🔴 IT IS THE ANSWER TO 「我根本無從審核起」 AND `SampleShort` IS NOT. A single
 	// 120-rune sample of the FIRST entry answers 「what is one of these about」; the
 	// question a reviewer actually has is 「what is filed under this name」, and for
 	// a subject with five entries the sample showed him one twenty-fifth of it with
-	// no way to see the rest. 第 1 格 is the cell that was designed to be read
-	// alone — 「什麼時候要記起來」, no length cap（有上限的是 heading：140 個
-	// rune；trigger 自 v8 起也不再兼任標題）— so a list of triggers
-	// is the cheapest thing that answers the real question.
+	// no way to see the rest. 標題格 is the cell that was designed to be read
+	// alone — 「發生了什麼」, capped at 140 runes so it fits on one line — so a
+	// list of headings is the cheapest thing that answers the real question.
+	// ⚠️ 這裡以前列的是 `Trigger`，而列表畫面列的是 `Heading` ⇒ 審核者在這裡看到
+	// 的那一行，跟他在列表上看到的同一條記憶不是同一句話。owner 2026-09-06
+	// (`rc-9002654dd81c`) 逐字「待審畫面改顯示 heading」把兩邊對齊了。
 	//
 	// 🔴 `Status` RIDES ALONG because the list is NOT all-active: retired rows are
 	// excluded (that is the shared predicate), but `superseded` and
@@ -170,7 +177,7 @@ type LorePendingEntity struct {
 	// reviewer counting 「三條」 that are all superseded is looking at a different
 	// subject from one with three active entries.
 	//
-	// ⚠️ THE BODIES ARE NOT HERE. `Trigger` plus `SampleShort` is what fits on a
+	// ⚠️ THE BODIES ARE NOT HERE. `Heading` plus `SampleShort` is what fits on a
 	// queue row; whoever wants the text opens the entry. This is a review packet,
 	// not a second reader.
 	EntryRefs []LorePendingEntryRef
@@ -339,7 +346,7 @@ func (d *DAL) loreEntryRefsForSubject(entityID string) ([]LorePendingEntryRef, e
 	refs := make([]LorePendingEntryRef, 0, len(entries))
 	for _, e := range entries {
 		refs = append(refs, LorePendingEntryRef{
-			EntryID: e.ID, Trigger: e.Trigger, Status: e.Status,
+			EntryID: e.ID, Heading: e.Heading, Status: e.Status,
 		})
 	}
 	return refs, nil

@@ -22,7 +22,7 @@ package main
 //
 // 🔴 WHAT THIS FILE DOES AND DOES NOT DO ABOUT ACCEPTING, said plainly because a
 // reader will look for it. ApplyLoreProposal (檔案末尾) is the MECHANISM: 核可
-// 一份提案時，四格被寫上去、lore_event 被**整批**換成提案帶的那一份、L0 多一列
+// 一份提案時，本體那幾格被寫上去、lore_event 被**整批**換成提案帶的那一份、L0 多一列
 // 記著審核者核可的那串位元組。它**不判斷誰可以核可**，也不寫裁決紀錄。
 //
 // 誰有資格核可這一格**已經裁定了**：負責人於 rc-a896af93d4f9 圈選「你 ＋ 銀月
@@ -94,7 +94,7 @@ var (
 // 2026-09-02: 過時（當時對現在不對）／本來就錯／害他走錯路. They are three
 // different repairs — a stale entry wants rewriting against today, an entry that
 // was never true wants retiring with `falsified`, and one that MISLED wants its
-// 第 1 格（trigger）fixed so it stops being retrieved for situations it does not describe
+// 標題格（heading）fixed so it stops being retrieved for situations it does not describe
 // — so an undifferentiated 「這條不好」 tells a reviewer nothing about what to do.
 var (
 	loreProposalKinds  = map[string]bool{"update": true, "remove": true}
@@ -115,10 +115,11 @@ type LoreProposal struct {
 	Fault       string
 	Evidence    string
 
-	// 🔴 提案帶的是**完整的新版本**：四格 + 第 5 格的整份事件清單。
+	// 🔴 提案帶的是**完整的新版本**：三格 + 第 5 格的整份事件清單。
 	// 負責人 2026-09-03 裁定（卡 rc-e5c34500face）：「改得動 —— 提案就該帶完整的
 	// 新版本，包含所有事件」。
-	Trigger    string
+	// ⚠️ 這裡以前是四格，多的那一格是 `Trigger`；`rc-9002654dd81c`（2026-09-06）
+	// 把它併進 Heading（宣告在下面那一段）。
 	Content    string
 	RetireWhen string
 	Impact     string
@@ -174,7 +175,6 @@ type LoreProposalRow struct {
 	Fault          string
 	Evidence       string
 	Heading        string
-	Trigger        string
 	Content        string
 	RetireWhen     string
 	Impact         string
@@ -229,7 +229,7 @@ type LoreProposalList struct {
 	Proposals []LoreProposalRow
 }
 
-// loreProposalEntry 把一份提案的四格包成 LoreEntry，好讓**共用的**渲染器摘要
+// loreProposalEntry 把一份提案的本體幾格包成 LoreEntry，好讓**共用的**渲染器摘要
 // 它。第 5 格不在 LoreEntry 裡（見 dal_lore.go），它是 loreRevisionBody 的第二
 // 個參數，呼叫處傳的是提案自己帶的那一份。
 //
@@ -246,7 +246,6 @@ type LoreProposalList struct {
 func loreProposalEntry(p LoreProposal) LoreEntry {
 	return LoreEntry{
 		Heading:     p.Heading,
-		Trigger:     p.Trigger,
 		Content:     p.Content,
 		RetireWhen:  p.RetireWhen,
 		Impact:      p.Impact,
@@ -285,7 +284,7 @@ func loreProposalShapeError(p LoreProposal) error {
 		// A removal proposes no new version. Carrying one would put a version on
 		// the reviewer's screen that no accept path would ever write — the
 		// description/result gap in miniature, inside the shape built to close it.
-		for _, f := range []string{p.Heading, p.Trigger, p.Content, p.RetireWhen, p.Impact} {
+		for _, f := range []string{p.Heading, p.Content, p.RetireWhen, p.Impact} {
 			if strings.TrimSpace(f) != "" {
 				return ErrLoreProposalRemoveBody
 			}
@@ -313,9 +312,6 @@ func loreProposalShapeError(p LoreProposal) error {
 	if err := loreHeadingError(p.Heading); err != nil {
 		return err
 	}
-	if err := loreTriggerError(p.Trigger); err != nil {
-		return err
-	}
 	if strings.TrimSpace(p.Content) == "" {
 		return ErrLoreContentBlank
 	}
@@ -340,10 +336,10 @@ func (d *DAL) CreateLoreProposal(p LoreProposal, nowTS float64) (LoreProposalRes
 	if err := loreProposalShapeError(p); err != nil {
 		return out, err
 	}
-	// 🔴 事件的逐列檢查跟寫入路徑用**同一個** loreEventError，理由跟四格用寫入
+	// 🔴 事件的逐列檢查跟寫入路徑用**同一個** loreEventError，理由跟本體幾格用寫入
 	// 路徑自己的錯誤是同一個：核可一份提案等於走一次普通寫入，所以寫入會拒絕的
 	// 事件在這裡就要被拒絕，否則它會躺在佇列裡，看起來跟一份可以被核可的提案
-	// 一模一樣。它排在形狀檢查之後、過期檢查之前，跟四格同一層。
+	// 一模一樣。它排在形狀檢查之後、過期檢查之前，跟本體幾格同一層。
 	for _, ev := range p.Events {
 		if err := d.loreEventError(ev); err != nil {
 			return out, err
@@ -382,7 +378,7 @@ func (d *DAL) CreateLoreProposal(p LoreProposal, nowTS float64) (LoreProposalRes
 	if p.Kind == "update" {
 		// 🔴 用**提案自己帶的那份事件清單**渲染，不是條目目前的。
 		// loreRevisionBody 把第 5 格也算進 sha256（見 dal_lore_write.go），所以
-		// 審核者比對的那串位元組，就是核可時會落地的那一份 —— 四格與事件都是。
+		// 審核者比對的那串位元組，就是核可時會落地的那一份 —— 本體幾格與事件都是。
 		// 負責人 2026-09-03 裁定（卡 rc-e5c34500face）：「改得動 —— 提案就該帶
 		// 完整的新版本，包含所有事件」。
 		//
@@ -395,7 +391,7 @@ func (d *DAL) CreateLoreProposal(p LoreProposal, nowTS float64) (LoreProposalRes
 		// The digests are comparable because ONE renderer produced both — see
 		// loreProposalEntry. A proposal that changes nothing is refused rather
 		// than stored: it costs a reviewer a read and can end in no change.
-		// ⚠️ 「什麼都沒改」現在也把第 5 格算進去：只動了事件、四格一字未改的提案
+		// ⚠️ 「什麼都沒改」現在也把第 5 格算進去：只動了事件、本體幾格一字未改的提案
 		// 會摘要成不同的一串，所以它不會被這一行誤殺。
 		if sum == base.SHA256 {
 			return out, ErrLoreProposalNoChange
@@ -411,12 +407,12 @@ func (d *DAL) CreateLoreProposal(p LoreProposal, nowTS float64) (LoreProposalRes
 			INSERT INTO lore_proposal (
 				id, entry_id, kind, base_revision_id, base_sha256,
 				encountered, fault, evidence,
-				heading, trigger, content, retire_when, problem, impact_stars,
+				heading, content, retire_when, problem, impact_stars,
 				body, sha256, actor_id, created_ts)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 			out.ProposalID, p.EntryID, p.Kind, base.ID, base.SHA256,
 			p.Encountered, p.Fault, p.Evidence,
-			p.Heading, p.Trigger, p.Content, p.RetireWhen, p.Impact, p.ImpactStars,
+			p.Heading, p.Content, p.RetireWhen, p.Impact, p.ImpactStars,
 			body, sum, p.ActorID, nowTS); err != nil {
 			return err
 		}
@@ -478,7 +474,7 @@ func (d *DAL) ListLoreProposals(entryID string) (LoreProposalList, error) {
 	rows, err := d.rdb.Query(`
 		SELECT id, entry_id, kind, base_revision_id, base_sha256,
 		       encountered, fault, evidence,
-		       heading, trigger, content, retire_when, problem, impact_stars,
+		       heading, content, retire_when, problem, impact_stars,
 		       body, sha256, actor_id, created_ts
 		FROM lore_proposal WHERE entry_id = ? ORDER BY created_ts DESC, id DESC`, entryID)
 	if err != nil {
@@ -490,7 +486,7 @@ func (d *DAL) ListLoreProposals(entryID string) (LoreProposalList, error) {
 		if err := rows.Scan(
 			&p.ID, &p.EntryID, &p.Kind, &p.BaseRevisionID, &p.BaseSHA256,
 			&p.Encountered, &p.Fault, &p.Evidence,
-			&p.Heading, &p.Trigger, &p.Content, &p.RetireWhen, &p.Impact, &p.ImpactStars,
+			&p.Heading, &p.Content, &p.RetireWhen, &p.Impact, &p.ImpactStars,
 			&p.Body, &p.SHA256, &p.ActorID, &p.CreatedTS,
 		); err != nil {
 			return LoreProposalList{}, err
@@ -606,12 +602,12 @@ func (d *DAL) GetLoreProposal(proposalID string) (*LoreProposalRow, error) {
 	err := d.rdb.QueryRow(`
 		SELECT id, entry_id, kind, base_revision_id, base_sha256,
 		       encountered, fault, evidence,
-		       heading, trigger, content, retire_when, problem, impact_stars,
+		       heading, content, retire_when, problem, impact_stars,
 		       body, sha256, actor_id, created_ts
 		FROM lore_proposal WHERE id = ?`, proposalID).Scan(
 		&p.ID, &p.EntryID, &p.Kind, &p.BaseRevisionID, &p.BaseSHA256,
 		&p.Encountered, &p.Fault, &p.Evidence,
-		&p.Heading, &p.Trigger, &p.Content, &p.RetireWhen, &p.Impact, &p.ImpactStars,
+		&p.Heading, &p.Content, &p.RetireWhen, &p.Impact, &p.ImpactStars,
 		&p.Body, &p.SHA256, &p.ActorID, &p.CreatedTS)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
@@ -660,7 +656,8 @@ func (d *DAL) GetLoreProposal(proposalID string) (*LoreProposalRow, error) {
 // 核可的人。
 //
 // 🔴 「完整的新版本」這句話在 v8 之後**不再涵蓋整條條目**，而這是這個函式現在
-// 最容易被誤讀的地方：UPDATE 只碰四格，`heading` 與 `impact_stars` 原封不動留在
+// 最容易被誤讀的地方：UPDATE 只碰當時的四個本體格（`trigger` / `content` /
+// `retire_when` / `impact`），`heading` 與 `impact_stars` 原封不動留在
 // 條目上。**這一版起不再是這樣**：owner 2026-09-05 於 rc-bbccbeb3d9e6 逐字裁
 // 「任何修改都是提案的一環」⇒ lore_proposal 補上了 heading 與 impact_stars
 // （00084 的兩支 ALTER TABLE），而這裡把它們一起寫回條目。
@@ -728,10 +725,10 @@ func (d *DAL) ApplyLoreProposal(proposalID, actorID string, nowTS float64) (Lore
 	err = d.inTx(func(tx *sql.Tx) error {
 		res, err := tx.Exec(`
 			UPDATE lore_entry
-			SET heading = ?, trigger = ?, content = ?, retire_when = ?,
+			SET heading = ?, content = ?, retire_when = ?,
 			    impact = ?, impact_stars = ?, updated_ts = ?
 			WHERE id = ?`,
-			p.Heading, p.Trigger, p.Content, p.RetireWhen,
+			p.Heading, p.Content, p.RetireWhen,
 			p.Impact, p.ImpactStars, nowTS, p.EntryID)
 		if err != nil {
 			return err

@@ -191,24 +191,30 @@ func (d *DAL) SearchLore(s LoreSearch) (LoreSearchResult, error) {
 }
 
 // loreEntryMatchesLiteral is the `query` filter, and it is a LITERAL,
-// case-insensitive substring over 第 1 格 (`trigger`) and 第 2 格 (`content`).
+// case-insensitive substring over 標題格 (`heading`) and 內容格 (`content`).
 //
 // 🔴 IT IS NOT SEMANTIC AND MUST NOT BE DESCRIBED AS SEARCH. Two entries about
-// the same thing were measured to write their 第 1 格 with almost no words in
+// the same thing were measured to write their 標題 with almost no words in
 // common, so a literal filter reports them as unrelated while looking exactly
 // like a filter that worked. The wire says which kind it is (`query_match`)
 // precisely so a caller never has to guess.
 //
-// 🔴 IT IS EXACTLY THE OLD THREE FIELDS' SUCCESSORS AND NOTHING MORE. 六格
-// scanned label / short / symptoms — a name, a body and an axis; in 五格 the
-// name and the axis are both `trigger` and the body is `content`, so the same
-// three readings map onto these two cells. 第 3、4 格 (`retire_when`, `problem`)
-// are deliberately NOT added: making them searchable would widen what `query`
-// answers, and 「要不要能搜到問題那一格」 is a decision nobody has made. Widening
-// it here would make it by accident, and the symptom would be extra hits that
-// look exactly like correct ones.
+// 🔴 掃描面是 `heading`，不是 `trigger`，而那是這一支修掉的 bug 的一半。
+// 這段註解以前逐字寫著「in 五格 the name and the axis are both `trigger`」——
+// 那句話從 `rc-9002654dd81c`（2026-09-06 owner 逐字「合併成 heading 一格（同時把
+// 搜尋改成掃 heading＋內容、待審畫面改顯示 heading）」）起是假的，所以就地改掉
+// 而不是加註：兩句相反的話擺在同一段裡，讀的人只會挑一句信。
+// ⚠️ 合併前這裡掃的是 `trigger`＋`content`，而列表上顯示的是 `heading` ⇒
+// **使用者看到的那一行，搜尋搜不到**，而且搜不到跟「站上真的沒有這條」長得一模
+// 一樣。名字與軸現在是同一格，所以那個落差在構造上消失了，不是被補起來的。
+//
+// 🔴 第 3、4、5 格 (`retire_when`, `impact`, events) are deliberately NOT added:
+// making them searchable would widen what `query` answers, and 「要不要能搜到
+// 影響那一格」 is a decision nobody has made. Widening it here would make it by
+// accident, and the symptom would be extra hits that look exactly like correct
+// ones.
 func loreEntryMatchesLiteral(e LoreEntry, lowerNeedle string) bool {
-	for _, f := range []string{e.Trigger, e.Content} {
+	for _, f := range []string{e.Heading, e.Content} {
 		if strings.Contains(strings.ToLower(f), lowerNeedle) {
 			return true
 		}

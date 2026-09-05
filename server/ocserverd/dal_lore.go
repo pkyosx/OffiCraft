@@ -45,7 +45,7 @@ import (
 type LoreEntry struct {
 	ID string
 
-	// 🔴 標題格 ＋ 前四格，固定。第五格（相關的完整資訊）不在這個 struct 裡，
+	// 🔴 標題格 ＋ 其餘的本體格，固定。第五格（相關的完整資訊）不在這個 struct 裡，
 	// 它是 lore_event 的 0..N 列——見 LoreEvent / ListLoreEvents 底下。
 	//
 	// 🔴 這裡刻意沒有 Events []LoreEvent 欄位。LoreEntry 目前是可比較的
@@ -55,9 +55,14 @@ type LoreEntry struct {
 	//
 	// 🔴 Heading 是 v8 加的獨立標題格，而它**推翻**了這個檔案原本寫的
 	// 「第一格兼任標題、五格裡根本沒有名字這一格」——那句話當初就是被寫下來
-	// （而不是默默做掉）等著被推翻的。Trigger 仍然是讀者找到這條的那一軸，
-	// 但它不再是這條的名字：v8 對標題有 Trigger 沒有的要求（寫「發生了什麼」、
-	// 不得是祈使句），兩格說的不是同一句話。
+	// （而不是默默做掉）等著被推翻的。
+	//
+	// 🔴 而 v8 之後又走了一步：負責人 2026-09-06 於 `rc-9002654dd81c` 逐字裁定
+	// 「合併成 heading 一格」⇒ **`Trigger` 這個欄位整個沒有了**，heading 同時是
+	// 標題、也是讀者找到這條的那一軸。理由是兩格的分工實際上已經壞掉：搜尋只掃
+	// trigger＋content（heading 掃不到），而待審畫面只顯示 trigger ⇒ 同一條記憶
+	// 在列表上、在搜尋裡、在待審畫面上用**三句不同的話**代表自己。一格之後，
+	// 使用者看到的那一行就是搜尋掃的那一行。
 	//
 	// 🔴 而 `00081_lore.sql` 裡那段話**沒有被就地更正，而且不會被更正**。它現在是
 	// 假的，但那支 migration 不能改：`migration.lock` 對每支 migration 的檔案內容做
@@ -69,8 +74,7 @@ type LoreEntry struct {
 	// 假話上，而檔案裡沒有東西會告訴他往哪裡走。留著的理由是上面那句——用一個
 	// 可讀性的改善去換「正式庫對不上一支跑過的 migration」的風險，不划算。
 	// **這一行就是那個補償，而它只在這裡，不在他會打開的那個檔案裡。**
-	Heading    string // 標題：發生了什麼。必填，無長度上限
-	Trigger    string // 什麼時候要記起來；形狀是「我要做 X」。無長度上限
+	Heading    string // 標題：發生了什麼。必填，上限 140 個 rune。也是檢索與搜尋的那一軸
 	Content    string // 內容 — THIS is what enters a context
 	RetireWhen string // 什麼時候不需要了（選填，自由文字，非封閉值域）
 	Impact     string // 原本想達成什麼、實際變成什麼（選填，但它是主體）
@@ -97,8 +101,9 @@ type LoreEntry struct {
 //
 // 負責人 2026-09-03 在卡 rc-1e32c690018d 裁定「拿掉這個標記 —— 第 1 格的硬擋就夠
 // 了，不要第二層」。理由是入口已經有門：第 1 格填不出來的條目**根本寫不進來**
-// （loreTriggerError 擋在 PutLoreEntry 這個原始 upsert 縫上），所以再掛一個「寫進
-// 來了但品質可疑」的軟標記，是在一道硬擋後面再放一道軟擋。
+// （當時是 loreTriggerError 擋在 PutLoreEntry 這個原始 upsert 縫上；trigger 併進
+// heading 之後，站在同一個縫上的是 loreHeadingError），所以再掛一個「寫進來了但
+// 品質可疑」的軟標記，是在一道硬擋後面再放一道軟擋。
 //
 // 連帶移除的東西：LoreEntry.IsDegraded()、線上三個 `degraded` 欄位（entry detail /
 // write receipt / search hit）、以及它們在 spec/openapi.json 裡的宣告。
@@ -120,7 +125,7 @@ type LoreEntry struct {
 // 🔴 所以真正的狀況是：**這一欄今天沒有守衛。** v8 要的是一個旗標，「誰能蓋、蓋了
 // 要不要留紀錄」還沒有人裁定（卡在 rc-37f10fec50d1）。等有人裁定了，**那道門要有人
 // 在這一層或它上面補上**，不能靠「反正沒有路由送得進來」。
-const loreEntryColumns = `id, heading, trigger, content, retire_when, impact,
+const loreEntryColumns = `id, heading, content, retire_when, impact,
 	impact_stars, reviewed,
 	status, supersedes, editable_by, origin,
 	created_ts, updated_ts`
@@ -128,7 +133,7 @@ const loreEntryColumns = `id, heading, trigger, content, retire_when, impact,
 func scanLoreEntry(row interface{ Scan(...any) error }) (LoreEntry, error) {
 	var e LoreEntry
 	err := row.Scan(
-		&e.ID, &e.Heading, &e.Trigger, &e.Content, &e.RetireWhen, &e.Impact,
+		&e.ID, &e.Heading, &e.Content, &e.RetireWhen, &e.Impact,
 		&e.ImpactStars, &e.Reviewed,
 		&e.Status, &e.Supersedes, &e.EditableBy, &e.Origin,
 		&e.CreatedTS, &e.UpdatedTS,
@@ -136,37 +141,23 @@ func scanLoreEntry(row interface{ Scan(...any) error }) (LoreEntry, error) {
 	return e, err
 }
 
-// loreTriggerError enforces 第 1 格必填 —— 空值被拒絕，不是被補一個預設值。
-//
-// 🔴 這一格取代了舊的 `label`，而且**沒有長度上限**。舊的 40 runes 上限跟著
-// `label` 一起走了：
-// ⚠️ 射程要講準：沒有上限的是**這一格**。v8 起標題是獨立的 `heading` 格，而
-// 那一格自 owner 2026-09-05 的裁定起有 140 個字元的上限（loreHeadingMaxRunes）。
-// 下面那句「第一格兼任標題」是 v8 之前的狀況，留著是為了說明上限當初為什麼被
-// 拿掉，不是在描述今天。負責人自己示範的好例子是把第一格當標題寫的
-// （「【什麼時候要記起來】我要確認一個 OffiCraft 前端畫面接的是真後端，還是假
-// 資料」），那一行遠超過 40 runes。留著上限就是讓示範用的寫法寫不進來。
-// ⚠️ 「第一格兼任標題、因此拿掉 label 與上限」是實作判斷，不是負責人的裁定。
-//
-// 🔴 舊的 loreLabelError 對**空的** label 是放行的（「條目可以先寫下再命名」）。
-// 這裡相反：空的 trigger 是拒絕。差別是這一格不只是名字——「什麼時候要記起來」
-// 是這條條目唯一會被撈出來的那一軸，空著的話它躺在表裡，誰都撈不到，而且從外面
-// 看起來跟一條寫好的條目一模一樣。
-func loreTriggerError(trigger string) error {
-	if strings.TrimSpace(trigger) == "" {
-		return ErrLoreTriggerBlank
-	}
-	return nil
-}
+// 🔴 這裡曾經有一個 loreTriggerError()，它被移除了，而它是被**裁定**掉的：
+// 負責人 2026-09-06 於 `rc-9002654dd81c` 逐字「合併成 heading 一格」⇒ `trigger`
+// 這一格整個沒有了，它原本的**必填**角色由 loreHeadingError 接手。
+// ⚠️ 那個角色不能跟著欄位一起消失：trigger 當初被拒絕空值的理由是「空著的話
+// 誰都撈不到這條，而從外面看起來跟一條寫好的條目一模一樣」—— 合併之後撈不到
+// 的那一軸就是 heading，所以那個理由現在整個落在下面這個函式身上。
+// ⚠️ 舊的 loreLabelError 對**空的** label 是放行的（「條目可以先寫下再命名」）。
+// 兩次裁定之後都不是那樣了，不要照著 label 的先例把空值放行回來。
 
-// loreHeadingError enforces v8 的標題格必填**與 140 個字元的硬上限**。
+// loreHeadingError enforces 標題格必填**與 140 個字元的硬上限**。
 //
 // 🔴 兩種拒絕、兩個具名錯誤（ErrLoreHeadingBlank / ErrLoreHeadingTooLong），
 // 因為寫入者要做的事不一樣：一個是去補一句，一個是去把一句砍短。
 //
-// 🔴 空值被拒絕，不是被補一個預設值——理由跟 trigger 一模一樣，而且不是同一個
-// 理由的複製：trigger 空著的話沒有人撈得到這條，heading 空著的話撈得到、但它在
-// 任何一份清單上跟一條寫好的條目長得一模一樣，讀的人不會知道要回來補。
+// 🔴 空值被拒絕，不是被補一個預設值，而合併之後這一格空著會**同時**發生兩件
+// 壞事：這條撈不到（heading 是搜尋唯一掃得到的那一軸），而且它在任何一份清單
+// 上跟一條寫好的條目長得一模一樣，讀的人不會知道要回來補。
 //
 // 🔴 檢查在這裡而不在 CHECK constraint 裡，是 migration 00084 明講的判斷：
 // SQLite 的 CHECK 只會回一句「CHECK constraint failed」，說不出是哪一格空了。
@@ -340,15 +331,12 @@ func (d *DAL) loreOriginError(origin string) error {
 // matching on something nobody promised to keep stable.
 var (
 	ErrLoreEntryIDBlank = errors.New("lore: the entry id is blank")
-	// 🔴 第 1 格必填。舊的 ErrLoreLabelTooLong 沒了：`label` 連同它的 40 runes
-	// 上限一起被移除，兩格都不設上限。
-	ErrLoreTriggerBlank = errors.New(
-		"lore: `trigger` is blank — 什麼時候要記起來？沒有它，這條沒有任何人撈得到")
-	// 🔴 標題格必填（v8）。它跟 ErrLoreTriggerBlank 是**兩個**錯誤而不是一個，
-	// 因為兩格空著的後果不一樣：trigger 空著是撈不到，heading 空著是撈得到但
-	// 看起來已經寫完了。訊息要能告訴寫入者他漏的是哪一種。
+	// 🔴 標題格必填。這裡曾經有一個 ErrLoreTriggerBlank，它跟著 `trigger` 那一格
+	// 一起被 `rc-9002654dd81c`（2026-09-06「合併成 heading 一格」）裁掉了。
+	// ⚠️ 它守的那件事沒有跟著走：合併之後空的 heading 同時是「撈不到」與「看起來
+	// 已經寫完了」，所以訊息兩句都要說，而不是只留下原本 heading 那半句。
 	ErrLoreHeadingBlank = errors.New(
-		"lore: `heading` is blank — 標題（發生了什麼）？沒有它，這條在清單上跟寫好的一模一樣")
+		"lore: `heading` is blank — 標題（發生了什麼）？沒有它，這條沒有任何人撈得到，而且在清單上跟寫好的一模一樣")
 	// 🔴 標題超過 140 個字元（rune）。它跟 ErrLoreHeadingBlank 是**兩個**錯誤，
 	// 因為寫入者要做的事不一樣：一個是去補一句，一個是去把一句砍短。訊息裡一定
 	// 要有三件事 —— **是哪一格**、上限多少、送來的是多少 —— 而「哪一格」正是
@@ -387,13 +375,12 @@ func (d *DAL) PutLoreEntry(e LoreEntry) error {
 	if e.EditableBy == "" {
 		e.EditableBy = "agent"
 	}
-	// 🔴 第 1 格與標題格的必填檢查在**這裡**，不只在 CreateLoreEntry 裡。這是
-	// 原始的 upsert 縫，任何繞過寫入路徑的呼叫者都會經過它；只擋在上層等於留一個
-	// 側門，而從側門進來的空條目跟正門進來的長得一模一樣。
+	// 🔴 標題格的必填檢查在**這裡**，不只在 CreateLoreEntry 裡。這是原始的 upsert
+	// 縫，任何繞過寫入路徑的呼叫者都會經過它；只擋在上層等於留一個側門，而從側門
+	// 進來的空條目跟正門進來的長得一模一樣。
+	// ⚠️ 這裡原本有兩道（heading ＋ trigger）。trigger 併進 heading 之後只剩一道，
+	// 那是因為只剩一格，不是因為門變鬆了 —— 不要因為「只有一行」就把它移到上層。
 	if err := loreHeadingError(e.Heading); err != nil {
-		return err
-	}
-	if err := loreTriggerError(e.Trigger); err != nil {
 		return err
 	}
 	if err := loreImpactStarsError(e.ImpactStars); err != nil {
@@ -410,16 +397,15 @@ func (d *DAL) PutLoreEntry(e LoreEntry) error {
 	// 不會替它擋。
 	_, err := d.wdb.Exec(`
 		INSERT INTO lore_entry (`+loreEntryColumns+`)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT (id) DO UPDATE SET
-			heading = excluded.heading,
-			trigger = excluded.trigger, content = excluded.content,
+			heading = excluded.heading, content = excluded.content,
 			retire_when = excluded.retire_when, impact = excluded.impact,
 			impact_stars = excluded.impact_stars, reviewed = excluded.reviewed,
 			status = excluded.status,
 			supersedes = excluded.supersedes, editable_by = excluded.editable_by,
 			origin = excluded.origin, updated_ts = excluded.updated_ts`,
-		e.ID, e.Heading, e.Trigger, e.Content, e.RetireWhen, e.Impact,
+		e.ID, e.Heading, e.Content, e.RetireWhen, e.Impact,
 		e.ImpactStars, e.Reviewed,
 		e.Status, e.Supersedes, e.EditableBy, e.Origin,
 		e.CreatedTS, e.UpdatedTS)
@@ -543,7 +529,7 @@ func (d *DAL) loreStrings(query string, args ...any) ([]string, error) {
 //
 // 🔴 THERE IS NO BODY FIELD ON THIS STRUCT, AND THAT IS THE POINT. The boot
 // context gets a DIRECTORY — "these subjects exist, this many entries each" —
-// and never a `trigger` / `content` / `problem` cell. Carrying a body field here
+// and never a `heading` / `content` / `impact` cell. Carrying a body field here
 // would put the entries themselves one careless `+=` away from every boot
 // document in the fleet, which is a size decision nobody has made. An agent that
 // wants an entry reads it deliberately.

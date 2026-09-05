@@ -105,8 +105,12 @@ func TestLoreHeadingCapRefusesOneRuneOverAndNamesTheCell(t *testing.T) {
 				"他送來的是多少。訊息是：%s", want, msg)
 		}
 	}
-	// 🔴 是哪一格不能靠猜：訊息不可以只說「太長了」而讓人以為是 content 或 trigger。
-	if strings.Contains(msg, "trigger") || strings.Contains(msg, "content") {
+	// 🔴 是哪一格不能靠猜：訊息不可以只說「太長了」而讓人以為是 content。
+	// ⚠️ 這一行以前還檢查 "trigger"。那一格已經不存在（`rc-9002654dd81c`），所以
+	// 那半個檢查會是**恆真**的 —— 拿掉而不是留著，因為一個永遠通過的檢查在畫面上
+	// 跟一個真的守衛長得一模一樣。剩下的 "content" 那半仍然是有效的：它是今天
+	// 另一個可能被誤指的格。
+	if strings.Contains(msg, "content") {
 		t.Errorf("錯誤訊息同時提到了別的格，指名就失效了：%s", msg)
 	}
 	// 一筆被拒的寫入不留任何東西。

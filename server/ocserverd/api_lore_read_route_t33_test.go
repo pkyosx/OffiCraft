@@ -44,9 +44,9 @@ func TestLoreReadRouteHandsBackWhatContentCompressedAway(t *testing.T) {
 	// 🔴 EVERY SECTION IS NAMED, blank ones included: a renderer that skipped
 	// blanks would make "never written" and "deleted" the same bytes, which is
 	// the erosion this ticket exists to make visible.
-	// 五格：四個欄位 + `events:` 區塊。`events:` 也在這一行裡，因為一條沒有事件
-	// 的條目跟一條事件被改寫弄丟的條目在原文裡必須不一樣。
-	for _, f := range []string{"trigger:", "content:", "retire_when:", "impact:", "events:"} {
+	// 五格：heading + 三個欄位 + `events:` 區塊。`events:` 也在這一行裡，因為一條
+	// 沒有事件的條目跟一條事件被改寫弄丟的條目在原文裡必須不一樣。
+	for _, f := range []string{"heading:", "content:", "retire_when:", "impact:", "events:"} {
 		if !strings.Contains(got.Original, f) {
 			t.Fatalf("the original drops %q:\n%s", f, got.Original)
 		}
@@ -54,8 +54,10 @@ func TestLoreReadRouteHandsBackWhatContentCompressedAway(t *testing.T) {
 	if got.Sha256 != loreSHA256(got.Original) {
 		t.Fatalf("the digest does not hash the served text")
 	}
-	// 🔴 v8 加的三格在線上讀得回來。標題與第 1 格在 seed 裡刻意是兩句不同的話：
-	// 值相同的話，一個把兩格接反的 handler 會讀回來完全正確。
+	// 🔴 v8 加的三格在線上讀得回來。
+	// ⚠️ 這一段以前還靠「標題與第 1 格是兩句不同的話」來抓一個把兩格接反的
+	// handler。`trigger` 被 `rc-9002654dd81c`（2026-09-06）併進 heading 之後只剩
+	// 一格，那個對調的錯誤在構造上不存在了 —— 不是這支測試放鬆了。
 	// ⚠️ 星等在這裡是 0，而那是 seed 沒有送 `impact_stars` 的結果——0 = 還沒判。
 	// 它斷言的是「沒送不會被補成 1」，不是「星等接上了」；星等接上了那一半由
 	// TestLoreEntryCellsRoundTripByName 與寫入路由那支的 422 撐著。

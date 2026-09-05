@@ -285,7 +285,7 @@ func TestLoreEntityPendingRouteCarriesTheReviewPacket(t *testing.T) {
 	url, dal, _, adminTok, _ := loreEntityStack(t)
 	t33Entity(t, dal, "en-real", "repo", "repo:officraft")
 	if _, err := dal.CreateLoreEntry(LoreWrite{
-		Heading: "h", Trigger: "t", Content: "the fold happens in exactly one place",
+		Heading: "h", Content: "the fold happens in exactly one place",
 		Origin: "agent:O-197", Subjects: []string{"repo:OffiCraft"}, ActorID: "m-writer",
 	}, 100); err != nil {
 		t.Fatalf("write: %v", err)
@@ -351,8 +351,7 @@ func TestLoreEntityPendingRouteCarriesTheEmptinessAndTheEntries(t *testing.T) {
 	// was minted and never used again. On the old wire both would have shown a
 	// count and a sample and nothing to tell them apart.
 	kept, err := dal.CreateLoreEntry(LoreWrite{
-		Heading: "the queue showed one sample and hid the rest",
-		Trigger: "I am about to review a name I cannot see behind",
+		Heading: "I am about to review a name I cannot see behind",
 		Content: "the queue showed one sample and no way to open the rest",
 		Origin:  "agent:O-197", Subjects: []string{"repo:used"}, ActorID: "m-minter",
 	}, 100)
@@ -360,7 +359,7 @@ func TestLoreEntityPendingRouteCarriesTheEmptinessAndTheEntries(t *testing.T) {
 		t.Fatalf("write: %v", err)
 	}
 	gone, err := dal.CreateLoreEntry(LoreWrite{
-		Heading: "this one got retired", Trigger: "I am about to be retired", Content: "c",
+		Heading: "this one got retired", Content: "c",
 		Origin: "agent:O-197", Subjects: []string{"repo:used"}, ActorID: "m-minter",
 	}, 200)
 	if err != nil {
@@ -395,10 +394,13 @@ func TestLoreEntityPendingRouteCarriesTheEmptinessAndTheEntries(t *testing.T) {
 		t.Fatalf("repo:used = %d now / %d ever, want 1/2", used.Entries, used.EntriesEver)
 	}
 	if len(used.EntryRefs) != 1 || used.EntryRefs[0].EntryId != kept.EntryID ||
-		used.EntryRefs[0].Trigger != "I am about to review a name I cannot see behind" ||
+		used.EntryRefs[0].Heading != "I am about to review a name I cannot see behind" ||
 		used.EntryRefs[0].Status != "active" {
+		// 🔴 帶的是 `heading`，不是 `trigger` —— owner 2026-09-06 `rc-9002654dd81c`
+		// 逐字「待審畫面改顯示 heading」。換之前這個畫面與列表畫面對同一條記憶
+		// 說的是兩句不同的話。
 		t.Fatalf("repo:used entry_refs = %+v — every retrievable entry, identified by id and "+
-			"by 第 1 格, is what makes the row reviewable at all", used.EntryRefs)
+			"by 標題格, is what makes the row reviewable at all", used.EntryRefs)
 	}
 
 	if never.Entries != 0 || never.EntriesEver != 0 {

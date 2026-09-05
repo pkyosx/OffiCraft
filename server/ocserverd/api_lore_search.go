@@ -92,10 +92,12 @@ func (s *apiServer) HandleSearchLoreEntriesApiLoreSearchPost(w http.ResponseWrit
 			// ⚠️ 破壞性改變。射程內沒有真的使用者（origin/main 上 lore 的檔案數
 			// 是 0），所以代價是量得到的零，不是「應該還好」。
 			//
-			// ⚠️ `trigger` 留著是我的判斷，不是他講的：它是這條被撈出來的**理由**
-			// （對象 × 活動），少了它，一串標題說不出自己為什麼在這裡。它很短，
-			// 跟 content 不同一個量級。可以推翻。
-			Trigger: h.Entry.Trigger,
+			// 🔴 這一列以前**同時**帶 `trigger` 與 `heading`，而那是壞的：兩格
+			// 是同一條記憶的兩句自我介紹，而搜尋掃的是 `trigger`、列表顯示的是
+			// `heading` ⇒ 使用者讀到的那一行搜不到。owner 2026-09-06 於
+			// `rc-9002654dd81c` 逐字「合併成 heading 一格（同時把搜尋改成掃
+			// heading＋內容、待審畫面改顯示 heading）」⇒ 只剩這一格，而它就是
+			// 被掃的那一格。
 			Heading: h.Entry.Heading,
 			// 星等要在這一層，因為它就是重要性（owner：「評分也改了不用 用星等
 			// 取代 因為 impact 本就是重要性」）—— 一串標題如果不帶重要性，agent

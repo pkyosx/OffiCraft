@@ -84,7 +84,6 @@ func loreAcceptUpdateBody(base, marker string) string {
 		"fault":"misled",
 		"evidence":"the entry is retrieved for a situation it does not describe",
 		"heading":"兩個區塊對同一件事給了不同答案","impact_stars":2,
-		"trigger":"two blocks disagree about the same fact",
 		"content":"` + marker + `",
 		"retire_when":"等只剩一個組裝器",
 		"impact":"T-33 slot 3",

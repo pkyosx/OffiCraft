@@ -117,7 +117,6 @@ func (s *apiServer) HandleGetLoreEntryApiLoreEntriesEntryIdGet(
 	writeJSON(w, http.StatusOK, LoreEntryDetailDTO{
 		EntryId:    entry.ID,
 		Heading:    entry.Heading,
-		Trigger:    entry.Trigger,
 		Content:    entry.Content,
 		RetireWhen: entry.RetireWhen,
 		Impact:     entry.Impact,

@@ -88,18 +88,23 @@ func TestLoreSearchTellsAnEmptySubjectApartFromAMissingOne(t *testing.T) {
 func TestLoreSearchQueryIsLiteralAndSaysNothingAboutMeaning(t *testing.T) {
 	d := newTestDAL(t)
 	t33SearchSeed(t, d)
+	// 🔴 這兩筆把字放在 **heading** 上，而那是這一支現在同時在守的第二件事：
+	// 掃描面是 `heading`＋`content`（owner 2026-09-06 `rc-9002654dd81c` 逐字
+	// 「同時把搜尋改成掃 heading＋內容」）。換之前掃的是 `trigger`，而列表上顯示
+	// 的是 `heading` ⇒ 使用者讀到的那一行搜不到。這兩筆如果改回 trigger，這支測試
+	// 會紅在「命中 0 筆」。
 	t33Filed(t, d, "lore-x", "e-repo", func(e *LoreEntry) {
-		e.Trigger = "two blocks disagree about the same fact"
+		e.Heading = "two blocks disagree about the same fact"
 	})
 	t33Filed(t, d, "lore-y", "e-repo", func(e *LoreEntry) {
-		e.Trigger = "the assembler and the roster report different numbers"
+		e.Heading = "the assembler and the roster report different numbers"
 	})
 
 	hit := t33Search(t, d, LoreSearch{Query: "DISAGREE"})
 	if ids := t33IDs(hit); len(ids) != 1 || ids[0] != "lore-x" {
 		t.Fatalf("case-insensitive literal match: %v", ids)
 	}
-	// 🔴 The two 第 1 格 above describe the same situation. A literal filter
+	// 🔴 The two 標題格 above describe the same situation. A literal filter
 	// finds one and not the other, and that is the documented limit — if this
 	// assertion ever starts failing, somebody made the filter semantic and the
 	// wire's `query_match` value became a lie.
@@ -109,7 +114,7 @@ func TestLoreSearchQueryIsLiteralAndSaysNothingAboutMeaning(t *testing.T) {
 	}
 }
 
-// 🔴 `query` 只掃第 1 格（trigger）與第 2 格（content）。第 3、4 格
+// 🔴 `query` 只掃標題格（heading）與內容格（content）。第 3、4 格
 // （retire_when / impact）是**刻意**不進來的：「要不要能搜到後果那一格」
 // 是沒有人做過的決定，在比對清單裡多加兩格等於替別人把它做掉，而症狀是
 // 多出來的 hit —— 跟正確的 hit 長得一模一樣，沒有任何東西會叫。
@@ -124,23 +129,23 @@ func TestLoreSearchQueryDoesNotReachTheThirdOrFourthCell(t *testing.T) {
 
 	// 只有第 3 格帶著那個字。
 	t33Filed(t, d, "lore-r", "e-repo", func(e *LoreEntry) {
-		e.Trigger = "第 1 格沒有那個字"
-		e.Content = "第 2 格也沒有"
+		e.Heading = "標題格沒有那個字"
+		e.Content = "內容格也沒有"
 		e.RetireWhen = "zebrafish"
 		e.Impact = "第 4 格沒有"
 	})
 	// 只有第 4 格帶著那個字。
 	t33Filed(t, d, "lore-p", "e-repo", func(e *LoreEntry) {
-		e.Trigger = "第 1 格一樣沒有"
-		e.Content = "第 2 格一樣沒有"
+		e.Heading = "標題格一樣沒有"
+		e.Content = "內容格一樣沒有"
 		e.RetireWhen = "第 3 格沒有"
 		e.Impact = "zebrafish"
 	})
 	// 🔑 陽性對照：同一個字放進第 2 格就搜得到。少了它，下面的「只命中一筆」
 	// 也可能是因為查法整個失效 —— 零命中與規則成立長得一模一樣。
 	t33Filed(t, d, "lore-c", "e-repo", func(e *LoreEntry) {
-		e.Trigger = "第 1 格沒有那個字"
-		e.Content = "zebrafish 在第 2 格"
+		e.Heading = "標題格沒有那個字"
+		e.Content = "zebrafish 在內容格"
 		e.RetireWhen = "第 3 格沒有"
 		e.Impact = "第 4 格沒有"
 	})
@@ -148,7 +153,7 @@ func TestLoreSearchQueryDoesNotReachTheThirdOrFourthCell(t *testing.T) {
 	got := t33Search(t, d, LoreSearch{Query: "zebrafish"})
 	ids := t33IDs(got)
 	if len(ids) != 1 || ids[0] != "lore-c" {
-		t.Fatalf("query 掃到了第 3 或第 4 格（只有第 2 格那一筆該命中）: %v", ids)
+		t.Fatalf("query 掃到了第 3 或第 4 格（只有內容格那一筆該命中）: %v", ids)
 	}
 }
 

@@ -168,6 +168,53 @@ ALTER TABLE lore_proposal ADD COLUMN heading TEXT NOT NULL DEFAULT '';
 ALTER TABLE lore_proposal ADD COLUMN impact_stars INTEGER NOT NULL DEFAULT 0
     CHECK (impact_stars BETWEEN 0 AND 3);
 
+-- ── 🔴 標題與第 1 格合併成一格：`trigger` 沒了，只留 `heading` ────────────────
+--
+-- 負責人 2026-09-06 於 `rc-9002654dd81c` 圈 [0] 逐字裁定：
+--   「合併成 heading 一格（同時把搜尋改成掃 heading＋內容、待審畫面改顯示 heading）」
+--
+-- 理由不是「少一格比較乾淨」，是兩格的分工**已經壞掉而且在漂移**：
+--   * 搜尋（dal_lore_search.go 的 loreEntryMatchesLiteral）只掃 `trigger`＋
+--     `content`，`heading` 一個字都掃不到 ⇒ 使用者在列表上讀到的那一行，
+--     搜尋搜不到，而「搜不到」跟「站上真的沒有這條」長得一模一樣。
+--   * 待審對象畫面（api_lore_entity.go / dal_lore_entity.go）只顯示 `trigger`，
+--     而搜尋結果兩格都回 ⇒ **同一條記憶在三個畫面上用三句不同的話代表自己**，
+--     而審核者要做的判斷正是「這是不是我剛剛在列表上看到的那一條」。
+-- 合併之後名字與檢索軸是同一格，那個落差在構造上消失，不是靠誰記得去對齊。
+--
+-- ── 🔴 為什麼是**就地改這一支**，不是新開 00085 ──────────────────────────────
+--
+-- 因為 00084 **還沒有被任何一個站台套用過**，所以「加了一欄又拿掉」這段歷史不需要
+-- 存在，也沒有任何一個資料庫會因此對不上它跑過的東西。兩條獨立證據（Kyle 掃三台
+-- 機器 25 顆 DB，2026-09-06，唯讀）：
+--   1. 25 顆 DB 的 goose 版本最高是 **83**，沒有一顆到 84。
+--   2. 對同一批 DB 直接查 `heading` 欄，**零命中** —— 這一支加的欄位一個都不存在。
+-- 兩條分別回答「goose 說它跑過嗎」與「欄位真的在嗎」，所以不是同一個量法量兩次。
+-- ⚠️ 這兩句話只在此刻為真。讀到這裡而準備再改這一支的人，**自己重新量一次**：
+-- 一旦有任何站台套用過 84，就地改就會讓「升級過的站」與「全新安裝的站」帶著不同
+-- 的 schema，而兩邊都會認為自己是對的（這正是這個檔頭上面那一大段在講的事）。
+--
+-- ── 🔴 下面那兩行 UPDATE 是**承重的**，不是保險 ────────────────────────────
+--
+-- 套用這一支之前，所有既有列的 `heading` 都是空字串（上面那兩支 ADD COLUMN 的
+-- DEFAULT ''），這一條記憶的身分**整個活在 `trigger` 裡**。實測：試用站 63 列
+-- `trigger` 全部非空、而 `heading` 欄根本還不存在。
+-- ⇒ 少了那兩行 UPDATE，DROP COLUMN 之後會產生一批**沒有標題的條目**，而標題是
+--    別人決定要不要把內容載進脈絡的唯一依據。
+-- 🔴 而且**不會報錯**：欄位是 NOT NULL DEFAULT ''，空字串完全合法，migration 全綠、
+--    測試全綠，症狀只會出現在幾個月後某個人打開列表看到一排空白的那一刻。
+-- ⚠️ `WHERE heading = ''` 不是「小心一點」，它是在說：只有還沒有人寫過標題的列才
+--    從 trigger 借。已經照 v8 寫好標題的列不會被 trigger 蓋掉。
+UPDATE lore_entry    SET heading = trigger WHERE heading = '';
+UPDATE lore_proposal SET heading = trigger WHERE heading = '';
+ALTER TABLE lore_entry    DROP COLUMN trigger;
+ALTER TABLE lore_proposal DROP COLUMN trigger;
+
+-- ⚠️ 已經 checkout 過 `t-33/lore-format-v8` 這條分支、並在本機跑過 migrate 的人：
+-- **你的本機 DB 要重建。** 你那顆庫的 goose 已經把 84 記成 is_applied=1，所以這一支
+-- 改過的內容它不會再跑一次 —— 你會停在一顆「有 trigger 欄、heading 全空」的舊 84，
+-- 而程式碼已經不認得那個形狀了。這不是一個會自己好的狀態，也不會有訊號告訴你。
+
 -- ── 🔴 拿掉「活動」這一個檢索軸：DROP TABLE lore_action ──────────────────────
 --
 -- owner 2026-09-05 逐字：「第一個欄位 subject 就這樣 不用爭辯了」「只有subject
@@ -211,6 +258,16 @@ CREATE TABLE lore_action (
     PRIMARY KEY (entry_id, action)
 );
 CREATE INDEX idx_lore_action_action ON lore_action (action, entry_id);
+-- 🔴 `trigger` 兩張表都要**先加回來、再把 heading 抄回去**，順序不能顛倒，而且這
+-- 三步是 Up 那三步的逐項反面。欄位宣告與 00081／00083 逐字相同（TEXT NOT NULL
+-- DEFAULT ''），否則「down 過再 up 的站」會帶著跟「一路升上來的站」不同的 schema。
+-- ⚠️ 這裡還原得了的只有「一格變兩格」這個形狀，還原不了**兩格說的是兩句話**：
+-- Up 把 trigger 併進 heading 是不可逆的，down 之後兩格會是同一串字。合併之前
+-- heading 與 trigger 各自不同的那些列，down 救不回它們的差別。
+ALTER TABLE lore_entry    ADD COLUMN trigger TEXT NOT NULL DEFAULT '';
+ALTER TABLE lore_proposal ADD COLUMN trigger TEXT NOT NULL DEFAULT '';
+UPDATE lore_entry    SET trigger = heading;
+UPDATE lore_proposal SET trigger = heading;
 ALTER TABLE lore_proposal DROP COLUMN impact_stars;
 ALTER TABLE lore_proposal DROP COLUMN heading;
 ALTER TABLE lore_entry DROP COLUMN reviewed;
