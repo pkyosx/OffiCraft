@@ -2883,7 +2883,7 @@ type TaskArtifactReplaceReceiptDTO struct {
 	VersionCount  int    `json:"version_count"`
 }
 
-// TaskArtifactVersionDTO ONE retained PREVIOUS version of a pinned deliverable (T-60, fields tracked to T-92). Unlike a document revision this row carries the version WHOLE rather than a size summary: an artifact version is a pointer (a blob id or a url) plus its name and its prose, so there is nothing to hold back and the listing IS the content. “id“ is the version's own row id, ascending with the age of the write; “kind“ always equals the live artifact's kind, which cannot change across versions; “created_ts“/“created_by“ are when THAT version was written and by whom. “name“/“description“ are that version's own — T-92 split the single “label“ this row used to carry into the two of them, here as well as on the live artifact, because the history table stores those two columns now. A file/image version's “attachment_id“ still resolves — the blob is kept alive for as long as the version is retained, and collected when the version falls off the end — and “url“/“mime“/“filename“/“is_image“ echo that blob, resolved read-time exactly like the live artifact's. ⚠️ THIS ROW IS DELIBERATELY WIDER THAN THE LIVE “TaskArtifactDTO“, which T-92 narrowed: this is a cockpit-only read of a bounded handful of rows rather than a cost paid on every ticket read, and narrowing it was outside what the owner approved.
+// TaskArtifactVersionDTO ONE retained PREVIOUS version of a pinned deliverable (T-60, fields tracked to T-92). Unlike a document revision this row carries the version WHOLE rather than a size summary: an artifact version is a pointer (a blob id — every kind is blob-backed since T-92) plus its name and its prose, and the prose is bounded, so there is nothing to hold back and the listing IS the content. “id“ is the version's own row id, ascending with the age of the write; “kind“ always equals the live artifact's kind, which cannot change across versions; “created_ts“/“created_by“ are when THAT version was written and by whom. “name“/“description“ are that version's own — T-92 split the single “label“ this row used to carry into the two of them, here as well as on the live artifact, because the history table stores those two columns now. EVERY version's “attachment_id“ still resolves, a link's included — the blob is kept alive for as long as the version is retained, and collected when the version falls off the end. “url“/“mime“/“filename“/“is_image“ are resolved read-time from that blob exactly like the live artifact's, EXCEPT that on this row the blob facts are read only for a file/image: a link version's “url“ is the blob's BYTES (the uri-list target it pointed at) and its “mime“/“filename“ stay empty, unlike the live artifact's link, which does report “text/uri-list“. ⚠️ THIS ROW IS DELIBERATELY WIDER THAN THE LIVE “TaskArtifactDTO“, which T-92 narrowed: this is a cockpit-only read of a bounded handful of rows rather than a cost paid on every ticket read, and narrowing it was outside what the owner approved.
 type TaskArtifactVersionDTO struct {
 	AttachmentId *string  `json:"attachment_id,omitempty"`
 	CreatedBy    *string  `json:"created_by,omitempty"`
@@ -2896,7 +2896,7 @@ type TaskArtifactVersionDTO struct {
 	Filename *string `json:"filename,omitempty"`
 	Id       int64   `json:"id"`
 
-	// IsImage Whether this version's blob is an image (its mime starts with ``image/``) — the same read the live artifact's ``is_image`` is, so a reader shows a retained image version the way it shows the current one. additive-optional (absent reads as false for older servers).
+	// IsImage Whether this version's blob is an image (its mime starts with ``image/``). The live ``TaskArtifactDTO`` no longer carries this field at all (T-92 narrowed it away, since it is a prefix test on ``mime``); it survives here because this cockpit-only row was left wide, so a reader shows a retained image version without re-deriving it. additive-optional (absent reads as false for older servers).
 	IsImage *bool  `json:"is_image,omitempty"`
 	Kind    string `json:"kind"`
 
@@ -2906,7 +2906,7 @@ type TaskArtifactVersionDTO struct {
 	// Name This version's display name AS STORED (T-92). Unlike the live artifact's ``name`` this one is NOT derived — it is the column, so it is empty on a version written before names existed.
 	Name *string `json:"name,omitempty"`
 
-	// Url Where THIS version's content is. For a file/image it is the retained blob's serve path (``/api/chat/attachment/{attachment_id}``), exactly as on the live artifact — NOT the row's ``url`` column, which is empty for those kinds; for a link it is the external url that version pointed at.
+	// Url Where THIS version's content is. For a file/image it is the retained blob's serve path (``/api/chat/attachment/{attachment_id}``), exactly as on the live artifact; for a link it is the external url that version pointed at, read out of that version's ``text/uri-list`` blob. There is no stored ``url`` column on either artifact table — every kind's url is computed read-time.
 	Url *string `json:"url,omitempty"`
 }
 

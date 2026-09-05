@@ -908,8 +908,10 @@ def _happy_replaced_file_artifact(ctx: HCtx) -> tuple[str, str]:
     _REPLACED_FILE["attachment_id"] = blobs[0]
 
     # The link shape stays covered on the real wire even though the row now
-    # checks a file: a link version's url IS the row's own external url, which
-    # is the control that stops the blob rewrite from applying to every kind.
+    # checks a file: a link version's url is its TARGET, read out of its own
+    # text/uri-list blob (T-92 — there is no `url` column on either artifact
+    # table any more), which is the control that stops the file/image serve-path
+    # rewrite from applying to every kind.
     link_task, link_art = _happy_replaced_artifact(ctx)
     r = ctx.client.get(
         f"/api/tasks/{link_task}/artifact/{link_art}/history",
@@ -923,7 +925,10 @@ def _happy_replaced_file_artifact(ctx: HCtx) -> tuple[str, str]:
         and link_versions[0]["url"] == "https://example.com/pr/1"
         and link_versions[0]["mime"] == ""
         and link_versions[0]["is_image"] is False
-    ), f"a link version keeps its external url and describes no blob: {link_versions}"
+    ), (
+        f"a link version serves its target url and, unlike the LIVE link row, "
+        f"reports no mime: {link_versions}"
+    )
 
     return task_id, artifact_id
 
@@ -2507,12 +2512,14 @@ HAPPY: dict[str, Happy] = {
         # T-60: the version list of an artifact that has just been replaced —
         # exactly one retained version, carrying what the live row held before.
         #
-        # The seed is a FILE deliverable on purpose. A link version's url is the
-        # row's own column and passes on a projection that copies the row; a
-        # file's is NOT — the column is empty for file/image, and the reachable
-        # address is the retained blob's serve path. Running this row against a
-        # link therefore proved nothing about the class this journal mostly
-        # holds, and every retained report read as gone on the real wire.
+        # The seed is a FILE deliverable on purpose. A link version's url used
+        # to be the row's own `url` column and passed on a projection that
+        # copied the row; a file's did NOT — that column was empty for
+        # file/image, and the reachable address is the retained blob's serve
+        # path. (T-92's 00086 has since dropped the column outright, so both
+        # kinds are computed now.) Running this row against a link therefore
+        # proved nothing about the class this journal mostly holds, and every
+        # retained report read as gone on the real wire.
         identity="agent",
         path=lambda ctx: "/api/tasks/{}/artifact/{}/history".format(
             *_happy_replaced_file_artifact(ctx)),

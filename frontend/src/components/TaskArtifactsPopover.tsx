@@ -123,9 +123,10 @@ export function TaskArtifactsBadge({
   task,
   onRemoveArtifact,
 }: {
-  /** Only the id and the COUNT are read here. The card's own `artifacts` are an
-   * id+label index since T-66 and carry nothing a row could be drawn from, so
-   * this component deliberately does not take them — it fetches. */
+  /** Only the id and the COUNT are read here. The card carries NO artifact
+   * rows at all since T-92 (T-66 had already cut them to an id+label index),
+   * so there is nothing a row could be drawn from and this component
+   * deliberately does not take them — it fetches. */
   task: { id: string; artifactCount?: number };
   /** Owner/admin un-pin. Absent ⇒ the popover is display-only (no × affordance). */
   onRemoveArtifact?: (taskId: string, artifactId: string) => Promise<void>;
@@ -302,9 +303,10 @@ function ArtifactsPopover({
     // here rather than inside AttachmentStrip so the image branch (and its
     // click-to-preview) stays untouched. It gives the image row the SAME
     // three-part shape as a file/link row, and the same hover-for-full-name.
-    // Both filename and label are optional server-side, so fall back the way
-    // the file branch does — an image row must never lose its chip, or it
-    // stops matching the other two kinds.
+    // The chip reads the blob's filename, which is optional server-side (the
+    // live row's `name` is never empty, but the filename this strip carries can
+    // be), so fall back the way the file branch does — an image row must never
+    // lose its chip, or it stops matching the other two kinds.
     const imageName =
       art?.kind === "image" ? att.filename || t.tasks.artifacts.imageName : "";
     return (

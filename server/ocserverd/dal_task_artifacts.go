@@ -48,8 +48,10 @@ func scanTaskArtifact(row interface{ Scan(...any) error }) (TaskArtifact, error)
 }
 
 // ListTaskArtifacts returns one task's artifacts, oldest→newest (the curated
-// pin order — created_ts, id tiebreak for determinism). The full-task read
-// face folds these; the light list only needs the count (see CountArtifacts...).
+// pin order — created_ts, id tiebreak for determinism). GET
+// /api/tasks/{task_id}/artifacts (list_task_artifacts) is the ONLY read face
+// that folds these since T-92; both the full task read and the light list carry
+// a bare count (see CountArtifacts...).
 func (d *DAL) ListTaskArtifacts(taskID string) ([]TaskArtifact, error) {
 	rows, err := d.rdb.Query(`
 		SELECT `+taskArtifactColumns+` FROM task_artifact

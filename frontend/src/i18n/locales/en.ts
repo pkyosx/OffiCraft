@@ -256,7 +256,8 @@ export const en: Dict = {
     collapseReply: "Collapse reply card",
     // Artifact set (T-3dc5): the deliverables (file/image/link) pinned onto a
     // task card. The 「Artifacts N」 count badge sits in the coloured badge row;
-    // clicking opens a popover with three gallery-style tabs. 0 ⇒ badge hidden.
+    // clicking opens a popover with ONE gallery-style list, grouped
+    // file → image → link (T-49fb removed the three tabs). 0 ⇒ badge hidden.
     artifacts: {
       badge: "Artifacts",
       open: "View artifacts",

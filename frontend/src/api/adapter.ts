@@ -574,13 +574,16 @@ export interface TaskView {
   artifactCount?: number;
 }
 
-/** ONE pinned deliverable on a task's artifact set (T-3dc5), in view-model
- * form. `kind` is the closed set file|image|link. For file/image, `url` is the
- * blob serve path and `mime`/`filename`/`isImage` echo the shared
- * chat-attachment blob (render it exactly like a chat attachment). For link,
- * `url` is a bare external URL (a PR link), `attachmentId`/`mime`/`filename`
- * empty and `isImage` false. `label` is the display name (a link's title, or a
- * filename override). Honest passthrough — never fabricated. */
+/** ONE pinned deliverable on a task's artifact set (T-3dc5, narrowed by T-92),
+ * in view-model form. `kind` is the closed set file|image|link, and EVERY kind
+ * is backed by a chat-attachment blob. For file/image, `url` is the blob serve
+ * path and `mime` is that blob's content type (render it exactly like a chat
+ * attachment). For link, `url` is the external address read out of that link's
+ * `text/uri-list` blob, whose `mime` is `text/uri-list`. `filename`, `isImage`,
+ * `attachmentId` and the old single `label` are all GONE from this row: `name`
+ * replaces the label (server-derived, never empty), the filename is what that
+ * derivation reads, and isImage is a prefix test on `mime`. Honest passthrough —
+ * never fabricated. */
 export interface TaskArtifactView {
   id: string;
   kind: "file" | "image" | "link";
@@ -615,7 +618,8 @@ export interface TaskArtifactView {
 /** ONE retained PREVIOUS version of a pinned deliverable (T-60), in view-model
  * form — what the artifact pointed at before a replace, newest first.
  *
- * It carries the version WHOLE (a blob id or a url, plus its name and prose);
+ * It carries the version WHOLE (a blob id — every kind is blob-backed since
+ * T-92 — plus its name and prose);
  * `id` is the
  * version's own row id and `kind` always equals the live artifact's, which
  * cannot change across versions. `url`, `mime`, `filename` and `isImage` are

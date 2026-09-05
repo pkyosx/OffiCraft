@@ -1507,7 +1507,8 @@ type taskStepStatusReceiptDTO struct {
 // the write answers with what the write did — the artifact it touched and the
 // resulting set size — not with the whole task. Full task detail remains
 // available through get_task, and the artifact SET through list_task_artifacts
-// — since T-66 get_task carries only an id+label index of the artifacts.
+// — since T-92 get_task carries only artifact_count, not a single artifact row
+// (not even an id), so list_task_artifacts is the ONLY way to read the set.
 type taskArtifactReceiptDTO struct {
 	TaskID        string `json:"task_id"`
 	ArtifactID    string `json:"artifact_id"`
@@ -1742,8 +1743,9 @@ type taskArtifactDTO struct {
 
 // taskArtifactVersionDTO is one RETAINED previous version of an artifact. It
 // carries the version whole rather than a size summary the way
-// DocumentHistoryDTO does: an artifact version is a pointer plus a label, so
-// there is no prose a listing would have to hold back.
+// DocumentHistoryDTO does: an artifact version is a pointer plus a name and a
+// bounded Description, so the prose is small enough to serve whole — unlike a
+// document revision's body, which is the thing the size summary stands in for.
 type taskArtifactVersionDTO struct {
 	ID           int64   `json:"id"`
 	Kind         string  `json:"kind"`
@@ -1759,20 +1761,24 @@ type taskArtifactVersionDTO struct {
 }
 
 // newTaskArtifactVersionDTO projects one retained version onto the wire. att is
-// the resolved chat_attachment for a file/image version (nil for a link, or
-// when the blob is gone) — its url/mime/filename/is_image ride along through
+// the resolved chat_attachment for the version — EVERY kind is blob-backed
+// since T-92, so a link needs it too (its target is read out of the blob's
+// bytes by linkTargetOf); att is nil only when the blob is gone. For a
+// file/image the url/mime/filename/is_image ride along through
 // artifactBlobFacts, the SAME resolution the live projection does, honest-empty
 // when absent and never fabricated.
 //
-// 🔴 The url has to be rewritten here, not copied. `task_artifact.url` is the
-// external link for a link kind and the EMPTY STRING for a file/image, so a
-// version that carried the row's url handed the cockpit nothing to fetch and
-// every file version read as gone.
+// 🔴 The url is COMPUTED here; there is nothing to copy. T-92's 00086 dropped
+// the `url` column from task_artifact AND task_artifact_history, so both sides
+// derive it: the blob serve path for a file/image, the blob's own bytes for a
+// link. Before that drop this projection served the row's url, which was empty
+// for a file/image, and every file version read as gone.
 //
 // 🔴 The filename is here because a reader deciding whether a version's bytes
 // are TEXT asks the name when the mime cannot say, and `application/octet-stream`
 // is what the agent upload path says about the .md reports this journal mostly
-// holds. Without it a version whose label is empty has no name at all, and that
+// holds. Without it a version whose stored `name` is empty has no name at all
+// (this row does NOT derive one the way the live artifact does), and that
 // deliverable class could never reach the diff.
 func newTaskArtifactVersionDTO(h TaskArtifactHistory, att *ChatAttachment) taskArtifactVersionDTO {
 	dto := taskArtifactVersionDTO{
@@ -1796,8 +1802,9 @@ func newTaskArtifactVersionDTO(h TaskArtifactHistory, att *ChatAttachment) taskA
 // taskArtifactListDTO is the answer of GET /api/tasks/{task_id}/artifacts: one
 // task's artifact set IN FULL, oldest→newest. It is a wrapped list rather than
 // a bare array so the response can say what it is — ArtifactsDetailLevel here
-// is "full", the counterpart of the "index" the task projection declares, the
-// same way taskStepDetailDTO answers "full" against taskDTO's "summary".
+// is "full", a self-description WITHOUT a counterpart since T-92: the task
+// projection declares no detail level for artifacts at all any more, only a
+// count. See taskArtifactsDetailLevelFull.
 type taskArtifactListDTO struct {
 	TaskID               string            `json:"task_id"`
 	ArtifactsDetailLevel string            `json:"artifacts_detail_level"`
@@ -1962,8 +1969,9 @@ type taskListItemDTO struct {
 	CurrentStepName string `json:"current_step_name"`
 	// ArtifactCount is the number of pinned deliverables (T-3dc5) — the collapsed
 	// card's 「產物 N」 badge; 0 (the zero value) when none, so the badge hides.
-	// The light list never loads the artifact rows themselves (get_task folds
-	// the full set).
+	// The light list never loads the artifact rows themselves — and since T-92
+	// neither does get_task, which folds this same count. The rows come only
+	// from list_task_artifacts.
 	ArtifactCount int `json:"artifact_count"`
 }
 
@@ -2379,8 +2387,10 @@ func newTaskDTO(t Task, steps []TaskStep, deps []string, cardStatus map[string]s
 		// slimming HERE rather than in each handler.
 		DetailLevel:   taskDetailLevelSummary,
 		NotesIncluded: false,
-		// T-66 / owner c-cd063427fb2f: the artifact rows are an INDEX on every
-		// one of those same nine responses. EXECUTOR JUDGEMENT, not an owner
+		// T-66 / owner c-cd063427fb2f cut the artifact rows down to an index on
+		// those same nine responses; T-92 (owner rc-15016959ad4d) took the last
+		// of them away, so all nine now carry ArtifactCount and not one row.
+		// EXECUTOR JUDGEMENT, not an owner
 		// ruling: the owner said what the default payload should carry, not
 		// which layer should do the slimming. It is done HERE, on the shared
 		// builder, for the same reason the step note was — a per-handler
@@ -2395,7 +2405,8 @@ func newTaskDTO(t Task, steps []TaskStep, deps []string, cardStatus map[string]s
 		// a CLAIM rather than an empty container, and it is true of the one
 		// caller that skips taskDTOOf: the create result, whose task cannot yet
 		// have a deliverable pinned to it.
-		// Blocking defaults to [] for the same reason Artifacts does: resolving
+		// Blocking defaults to [] for the same reason ArtifactCount defaults to
+		// 0: resolving
 		// the reverse edge is a DAL read, and this builder is pure. taskDTOOf
 		// folds the real set in; a projection built without it (the create
 		// result) honestly says "nobody is waiting", which is true of a task
@@ -2414,10 +2425,12 @@ func newTaskDTO(t Task, steps []TaskStep, deps []string, cardStatus map[string]s
 }
 
 // newTaskArtifactDTO projects one artifact row onto the wire. att is the
-// resolved chat_attachment for a file/image kind (nil for link, or when the
-// referenced blob is gone) — its mime/filename/is_image ride along honest-empty
-// when absent, never fabricated. A link's url is the row's own external url; a
-// file/image's url is the blob serve path (the chatAttachmentDTO convention).
+// resolved chat_attachment for EVERY kind — a link is blob-backed too since
+// T-92 — and is nil only when the referenced blob is gone; its mime rides along
+// honest-empty when absent, never fabricated. A link's url is read out of that
+// blob's text/uri-list bytes; a file/image's url is the blob serve path (the
+// chatAttachmentDTO convention). Filename and IsImage are no longer on this DTO
+// at all: Name derives from the former, Mime carries the latter.
 // versionCount is the retained-version count of THIS artifact plus the live
 // row (the caller counts the history rows; the +1 is here so no caller can
 // forget it).
@@ -2492,17 +2505,20 @@ type artifactBlobFields struct {
 }
 
 // artifactBlobFacts resolves that half: the serve path, the mime, the blob's
-// own name and whether it is an image. ok is false for a link kind and for a
-// file/image whose blob is gone, and the caller then keeps the row's own values
-// — honest-empty, never fabricated.
+// own name and whether it is an image. ok is false exactly when att is nil —
+// i.e. when the blob is gone — and the caller then keeps the row's own values,
+// honest-empty and never fabricated. The kind test is the CALLER's: both
+// projections skip these facts for a link (see the note at the bottom of this
+// comment).
 //
 // 🔴 IT IS SHARED BECAUSE THE TWO PROJECTIONS ARE ONE FACT. The live artifact
 // and a retained version of it are the same deliverable read at two moments; a
 // reader that can open one must be able to open the other. When the version
 // side had its own (shorter) answer it served the ROW's url, which for a
-// file/image is the empty string by construction — so every file version was
-// unreachable and unreadable on the real wire, while both sides' tests passed
-// against fixtures that carried a url of their own.
+// file/image WAS the empty string by construction (the column is gone entirely
+// since T-92's 00086) — so every file version was unreachable and unreadable on
+// the real wire, while both sides' tests passed against fixtures that carried a
+// url of their own.
 // The artifact-kind test deliberately lives at each CALL SITE rather than in
 // here. The identity scanners (authz_surface_gate_test's mentionsIdentity and
 // lifecycle_identity_gate_t170e) recognise a `.Kind` SELECTOR inside a

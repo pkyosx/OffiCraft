@@ -5,8 +5,9 @@
 // itself is the narrowed T-92 shape (`name` + `description` in place of the
 // single `label`, and no filename/is_image/attachment_id — those are derived
 // from `name`/`mime`/`url` at the one place that draws a row). An unknown kind
-// still falls back to "link" (the no-blob shape) rather than fabricating a
-// file/image.
+// still falls back to "link" — the kind whose url is an external address rather
+// than a blob serve path — instead of fabricating a file/image. (Every kind is
+// blob-backed since T-92; what separates them on this row is what `url` means.)
 
 import { describe, it, expect } from "vitest";
 import {
@@ -229,8 +230,8 @@ describe("toTaskArtifact", () => {
     // blob's filename, the link target, or the id). The `?? ""` here is for an
     // OLDER server or a hand-built fixture, and what it must not do is
     // fabricate: deciding what a nameless artifact LOOKS like is the renderer's
-    // job (TaskArtifactsPopover.artifactDisplayName), on the full row it
-    // fetched through listTaskArtifacts.
+    // job (TaskArtifactsPopover's own `artifactDisplayName` fallback), on the
+    // full row it fetched through listTaskArtifacts.
     const { name: _n, description: _d, ...withoutTheFields } = wireArtifact({});
     const view = toTaskArtifact(withoutTheFields as WireTaskArtifact);
     expect([view.name, view.description]).toEqual(["", ""]);

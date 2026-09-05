@@ -185,8 +185,9 @@ export const MIRA = { id: "mira", name: "Mira", kind: "agent" } as unknown as Me
 export const NOOP = async () => {};
 export const WORKERS: OutsourceWorkerView[] = [];
 
-// T-3dc5 artifact-set fixtures. WITH_ARTIFACTS carries all three kinds so the
-// popover's 檔案/圖片/連結 tabs each have a row; NO_ARTIFACTS asserts the
+// T-3dc5 artifact-set fixtures. WITH_ARTIFACTS carries all three kinds so each
+// of the popover's 檔案/圖片/連結 GROUPS has a row (T-49fb folded the three tabs
+// into one grouped list); NO_ARTIFACTS asserts the
 // empty-set case (count 0 ⇒ the badge must NOT render at all).
 export const WITH_ARTIFACTS: MockTaskRow = serveArtifacts(mkTask({
   id: "t-3dc55291a020",

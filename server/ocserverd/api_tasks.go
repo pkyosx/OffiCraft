@@ -2909,8 +2909,10 @@ func mintLinkTargetBlob(url string) (string, *ChatAttachment) {
 // POST /api/tasks/{task_id}/artifact — the executing agent pins one deliverable
 // onto the task's artifact set (MCP add_task_artifact). This verb only ADDS and
 // is repeatable; swapping what an existing pin points at is ReplaceTaskArtifact. file/image reference a chat_attachment blob (attachment_id from a
-// prior POST /api/chat/attachments — one blob mechanism, not two); link carries
-// a bare url (no upload). Guard order: 400 closed-set kind → 404 task → 403 not
+// prior POST /api/chat/attachments — one blob mechanism, not two); a link sends
+// a `url` and the server MINTS a text/uri-list blob for it, so every kind ends
+// up blob-backed (T-92, owner c-59fc5834d967) even though only file/image
+// require an upload first. Guard order: 400 closed-set kind → 404 task → 403 not
 // the executor (admin excepted, §14) → 409 terminal → 400 missing/dangling ref.
 func (s *apiServer) HandleAddTaskArtifactApiTasksTaskIdArtifactPost(w http.ResponseWriter, r *http.Request, taskId string) {
 	var body TaskArtifactInputDTO
@@ -3007,8 +3009,10 @@ func (s *apiServer) HandleAddTaskArtifactApiTasksTaskIdArtifactPost(w http.Respo
 		return
 	}
 	// The artifact set rides the EXISTING task topic (recon §4: no 13th SSE
-	// topic) — the read face folds artifacts, so a plain task patch re-hydrates
-	// the card's count + popover. The task row itself is unchanged (artifacts
+	// topic) — the task read face folds the artifact COUNT, so a plain task
+	// patch re-hydrates the card's badge; since T-92 it carries no artifact rows,
+	// so an OPEN popover has to re-fetch list_task_artifacts on this signal
+	// rather than read the rows off the patch. The task row itself is unchanged (artifacts
 	// are their own rows), so updated_ts is deliberately NOT bumped.
 	s.publishTask(*t, requestTrigger(r))
 	s.writeTaskArtifactReceipt(w, *t, art.ID)
@@ -3074,12 +3078,14 @@ const (
 // 🔴 READ AND WRITE ARE DELIBERATELY ASYMMETRIC (owner ruling, T-60), and this
 // sentence is here so the next reader does not "finish the job" by making them
 // match. artifactRead runs NEITHER the executor guard NOR the freeze:
-//   - no executor guard, because CONSISTENCY IS NOT LOOSENING. The main task
-//     read (HandleGetTaskApiTasksTaskIdGet) makes no caller distinction at all
-//     and its response already carries the artifact set. Gating the version
-//     history on being the executor would mean the same deliverable is readable
-//     through one door and refused through the other — two doors disagreeing
-//     about one set of rows is the very defect this line of work is treating.
+//   - no executor guard, because CONSISTENCY IS NOT LOOSENING. The artifact-set
+//     read (list_task_artifacts, GET /api/tasks/{task_id}/artifacts) makes no
+//     caller distinction at all and hands over every artifact row — since T-92
+//     it is the ONLY door that does, because the main task read answers a bare
+//     artifact_count. Gating the version history on being the executor would
+//     mean the same deliverable is readable through one door and refused
+//     through the other — two doors disagreeing about one set of rows is the
+//     very defect this line of work is treating.
 //   - no 409, because reading a finished task's deliverables is exactly when a
 //     reader wants to.
 //

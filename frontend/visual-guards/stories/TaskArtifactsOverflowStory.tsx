@@ -21,10 +21,13 @@ import { mkTask, serveArtifacts, MIRA, NOOP, WORKERS } from "./taskFixtures";
 // The owner's actual card: a link artifact whose NAME is a long, barely
 // breakable branch name.
 //
-// ⚠️ 48 runes is the WRITE cap on a stored name (T-92), and this one is 61 — a
-// legitimate shape, because that cap binds new writes only and 339 migrated
-// link rows are over it. The overflow this story guards is exactly what those
-// rows look like.
+// ⚠️ 48 runes is the WRITE cap on a STORED name (T-92) and this one is 62, which
+// is legitimate because the cap gates writes and says nothing about what a read
+// returns. It is NOT the migration that produces such rows: 00086 set a link's
+// name to `substr(label, 1, 48)`, so all 339 over-length migrated link labels
+// came out CUT to 48. What is genuinely uncapped is the DERIVED name — a row
+// with no stored name falls back to the link's target url, which is any length
+// at all — and that is the class of row this overflow story stands in for.
 // Served from the mock store: since T-66 the popover fetches its rows rather
 // than reading them off the card (see serveArtifacts).
 const OWNER_LINK = serveArtifacts(

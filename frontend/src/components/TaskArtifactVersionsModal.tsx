@@ -16,8 +16,8 @@
 // 🔴 THE ONE CRITERION, inherited verbatim from DocumentHistoryModal: what the
 // diff says must equal the actual state. So the 「目前」 side is read from the
 // SERVER when this modal opens (`api.listTaskArtifacts` — `api.getTask`
-// carries only id+label since T-66, and a version diff needs
-// kind/url/filename/mime), NOT from the artifact rows the popover is
+// carries only `artifact_count` since T-92, not one artifact row, and a
+// version diff needs kind/url/mime), NOT from the artifact rows the popover is
 // holding. Those rows are an SSE-driven cache: they are refetched when a
 // `task` event fans, which means they are right most of the time and
 // silently stale exactly when they are not — a replace that landed while the
@@ -116,8 +116,9 @@ const TEXTUAL_EXTENSIONS = new Set([
 ]);
 
 /** Whether a deliverable's NAME says its bytes are text. The name is the blob's
- * filename, falling back to the label — on a retained version exactly as on the
- * live artifact; a deliverable with neither simply falls through to the mime
+ * filename, falling back to the stored `name` — on a retained version exactly
+ * as on the live artifact, whose `name` IS that server-side derivation from the
+ * filename; a deliverable with neither simply falls through to the mime
  * answer. */
 export function looksTextualByName(name: string): boolean {
   const dot = name.lastIndexOf(".");
@@ -219,8 +220,9 @@ export function TaskArtifactVersionsModal({
 
   // 🔴 The `+` side comes from the SERVER, in the same breath as the journal —
   // see the header. `listTaskArtifacts` is the cockpit's own FULL artifact read
-  // (T-66 left `getTask` carrying an id+label index a version reader cannot be
-  // drawn from); the popover's rows are not consulted here at all.
+  // (T-66 cut `getTask` down to an id+label index and T-92 removed even that,
+  // leaving a bare count a version reader cannot be drawn from); the popover's
+  // rows are not consulted here at all.
   useEffect(() => {
     let alive = true;
     Promise.all([
@@ -254,11 +256,11 @@ export function TaskArtifactVersionsModal({
       ? (versions?.find((v) => v.id === selected) ?? null)
       : null;
 
-  // The NAME each side is read under — the blob's own filename first, the label
-  // second, on BOTH sides. A retained version's filename is that version's own
-  // fact (the wire resolves it from its `attachment_id`), so neither side is
-  // named more generously than the other: a label-less .md report is still a
-  // .md on the older side. It is a fallback for the mime, never a substitute:
+  // The NAME each side is read under — the blob's own filename first, the
+  // stored `name` second, on BOTH sides. A retained version's filename is that
+  // version's own fact (the wire resolves it from its `attachment_id`), so
+  // neither side is named more generously than the other: a name-less .md
+  // report is still a .md on the older side. It is a fallback for the mime, never a substitute:
   // see loadArtifactPayload.
   //
   // ⚠️ THE TWO SIDES READ DIFFERENT FIELDS SINCE T-92, and that asymmetry is
@@ -303,8 +305,10 @@ export function TaskArtifactVersionsModal({
   }, [diffable]);
 
   // Word-for-word the live side's fallback chain below, and that is the point:
-  // a version's `label` is empty unless an agent chose to send one, while its
-  // `filename` is on the wire for every retained file. Reading only the label
+  // a version's stored `name` is empty unless an agent chose to send one (T-92
+  // split the old single `label` into name + description, and the history
+  // table's `name` is NOT derived the way the live row's is), while its
+  // `filename` is on the wire for every retained file. Reading only the name
   // rendered the whole older column as "unnamed" underneath a named live row,
   // and hid the one difference between two versions a reader most needs to see —
   // that the deliverable was re-filed under a new name.

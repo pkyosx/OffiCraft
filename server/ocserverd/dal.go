@@ -1731,7 +1731,9 @@ func collectSurvivingBlobRefs(tx *sql.Tx, into map[string]bool) error {
 	//    which costs nothing to keep refusing.
 	//
 	//    COALESCE, not a bare `attachment_id <> ''`: the column is today
-	//    NOT NULL DEFAULT '' so NULL cannot occur — but if anyone ever makes
+	//    NOT NULL (00086 dropped its DEFAULT '' along with the `url` column;
+	//    only that migration's Down block puts the default back) so NULL
+	//    cannot occur — but if anyone ever makes
 	//    it nullable, `NULL <> ''` is NULL, the row silently stops voting,
 	//    and THE ORIGINAL DEFECT COMES BACK with nothing going red. The
 	//    fail-safe direction of this predicate is "vote", so write it so a

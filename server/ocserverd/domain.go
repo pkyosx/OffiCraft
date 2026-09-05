@@ -1407,9 +1407,11 @@ const (
 	WorkerStatusReleased = "released"
 )
 
-// The task_artifact kind closed set (schema CHECK; T-3dc5). file/image
-// reference a chat_attachment blob (one blob mechanism, not two); link is a
-// bare URL with no blob (the part the chat-attachment model cannot express).
+// The task_artifact kind closed set (schema CHECK; T-3dc5). EVERY kind
+// references a chat_attachment blob since T-92 (owner c-59fc5834d967): file and
+// image point at the uploaded bytes, and a link's target is stored as a
+// `text/uri-list` blob of its own. kind is what distinguishes them now, not
+// whether a blob exists.
 const (
 	ArtifactKindFile  = "file"
 	ArtifactKindImage = "image"

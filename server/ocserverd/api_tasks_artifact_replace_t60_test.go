@@ -443,7 +443,9 @@ func TestArtifactHistoryCarriesEachVersionsOwnFilename(t *testing.T) {
 		t.Fatalf("a retained version must carry its own blob's filename, got %+v", versions[0])
 	}
 
-	// A link version has no blob, so it has no filename to borrow either.
+	// A link version HAS a blob since T-92 (a text/uri-list), but that blob is
+	// stored with no filename, and the version projection skips blob facts for
+	// a link kind anyway — so there is still no filename to borrow.
 	linkID := decodeBody[taskArtifactReceiptDTO](t, addArtifact(t, api, task.ID,
 		map[string]any{"kind": "link", "url": "https://x/pr/1", "name": "PR #1"},
 		"m-exec", "agent")).ArtifactID
@@ -462,14 +464,17 @@ func TestArtifactHistoryCarriesEachVersionsOwnFilename(t *testing.T) {
 
 // TestArtifactHistoryServesAFileVersionsBlobEndpoint — the version list is read
 // by a cockpit that has to FETCH what it lists, and for a file/image the only
-// address that resolves is the blob serve path. `task_artifact.url` is not it:
-// that column holds the external link for a link kind and the EMPTY STRING for
-// a file/image, so a version projection that copies the row hands the reader
-// nothing, and a client that treats a url-less version as gone is right to.
+// address that resolves is the blob serve path. There is no `url` column to
+// copy any more — T-92's 00086 dropped it from both artifact tables — and when
+// there was one it held the external link for a link kind and the EMPTY STRING
+// for a file/image, so a version projection that copied the row handed the
+// reader nothing, and a client that treats a url-less version as gone is right
+// to.
 //
 // The mime rides along for the same reason the live artifact's does — it is the
-// first word on what the bytes ARE, and is_image is the read every surface that
-// shows a deliverable makes. Asserted through the real handler rather than the
+// first word on what the bytes ARE. is_image rides along too, on this row only:
+// T-92 dropped it from the live TaskArtifactDTO (it is a prefix test on mime)
+// and left this cockpit-only row wide. Asserted through the real handler rather than the
 // projection function, because copying the row's url was exactly the kind of
 // mistake a DTO-level fixture (which carries a url of its own) cannot see.
 func TestArtifactHistoryServesAFileVersionsBlobEndpoint(t *testing.T) {
@@ -533,8 +538,9 @@ func TestArtifactHistoryServesAFileVersionsBlobEndpoint(t *testing.T) {
 			imgVersions[0])
 	}
 
-	// A link version keeps the row's own external url, and has no blob to
-	// describe — the control that stops the rewrite from applying to every kind.
+	// A link version's url is its target read out of its own text/uri-list blob
+	// (not a serve path), and the projection describes no blob facts for a link
+	// — the control that stops the file/image rewrite applying to every kind.
 	linkID := decodeBody[taskArtifactReceiptDTO](t, addArtifact(t, api, task.ID,
 		map[string]any{"kind": "link", "url": "https://x/pr/1", "name": "PR #1"},
 		"m-exec", "agent")).ArtifactID
