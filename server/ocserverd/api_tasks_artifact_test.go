@@ -401,3 +401,114 @@ func TestArtifactCountEmptyThenPopulated(t *testing.T) {
 		t.Fatalf("after one add, artifact_count must be 1, got %d", it.ArtifactCount)
 	}
 }
+
+// ── the read-time name derivation, middle two rungs (T-92) ──────────────────
+//
+// artifactDisplayName has four rungs: the stored name, the blob's own filename
+// (file/image), the link target (link), then "#" + the id. Only the first and
+// the last were pinned — the stored name by every add test above, the "#"+id
+// tail by TestArtifactTextCapsLeaveExistingRowsAlone. The two rungs IN BETWEEN
+// had nothing on them, and they are the ones nearly every LIVE row walks:
+// migration 00086 moved the old label wholesale into `description` and left
+// `name` empty, so an existing file/image row reaches the wire with a blank
+// column and its name comes from the blob or from nowhere.
+//
+// Both tests seed straight through the DAL with Name: "" — the shape a migrated
+// row actually has, which the write face can no longer produce because it now
+// derives a name at write time.
+
+// TestMigratedFileArtifactTakesItsNameFromTheBlobFilename pins rung 2: a
+// file/image row with an empty name column reads back as the BLOB's filename,
+// not as "#"+id and not as empty.
+func TestMigratedFileArtifactTakesItsNameFromTheBlobFilename(t *testing.T) {
+	api := newTasksTestServer(t)
+	task := createAdHocTask(t, api, "m-exec")
+
+	fileName := "季報.pdf"
+	if err := api.dal.PutChatAttachment(ChatAttachment{
+		ID: "att-legacyfile", Mime: "application/pdf", Data: []byte("%PDF"),
+		Filename: &fileName,
+	}); err != nil {
+		t.Fatalf("seed file blob: %v", err)
+	}
+	imgName := "screenshot.png"
+	if err := api.dal.PutChatAttachment(ChatAttachment{
+		ID: "att-legacyimg", Mime: "image/png", Data: []byte("PNG"),
+		Filename: &imgName,
+	}); err != nil {
+		t.Fatalf("seed image blob: %v", err)
+	}
+	for _, seed := range []TaskArtifact{
+		{ID: "ta-legacyfile", TaskID: task.ID, Kind: ArtifactKindFile,
+			AttachmentID: "att-legacyfile", Name: "", Description: "舊 label 的散文那半",
+			CreatedTS: 1000, CreatedBy: "m-exec"},
+		{ID: "ta-legacyimg", TaskID: task.ID, Kind: ArtifactKindImage,
+			AttachmentID: "att-legacyimg", Name: "", Description: "",
+			CreatedTS: 1001, CreatedBy: "m-exec"},
+	} {
+		if err := api.dal.PutTaskArtifact(seed); err != nil {
+			t.Fatalf("seed artifact %s: %v", seed.ID, err)
+		}
+	}
+
+	arts := getTaskArtifacts(t, api, task.ID).Artifacts
+	if len(arts) != 2 {
+		t.Fatalf("語料不合格:舊列沒有種進去,artifacts=%+v", arts)
+	}
+	// 反恆真:兩列的名字要各自來自各自的 blob,所以拿錯 blob 的 mutant 也紅。
+	for _, want := range []struct {
+		id, name string
+	}{{"ta-legacyfile", fileName}, {"ta-legacyimg", imgName}} {
+		var got taskArtifactDTO
+		for _, a := range arts {
+			if a.ID == want.id {
+				got = a
+			}
+		}
+		if got.ID == "" {
+			t.Fatalf("%s 沒有讀回來:%+v", want.id, arts)
+		}
+		if got.Name != want.name {
+			t.Fatalf("name 欄是空的舊 %s 列,讀回來的 name 應是 blob 的檔名 %q,得到 %q",
+				got.Kind, want.name, got.Name)
+		}
+	}
+}
+
+// TestMigratedLinkArtifactTakesItsNameFromTheUriListTarget pins rung 3: a link
+// row with an empty name column reads back as the TARGET URL held in its
+// text/uri-list blob — the same string the row's `url` serves — and never as
+// "#"+id.
+func TestMigratedLinkArtifactTakesItsNameFromTheUriListTarget(t *testing.T) {
+	api := newTasksTestServer(t)
+	task := createAdHocTask(t, api, "m-exec")
+
+	const target = "https://github.com/officraft/oc/pull/92"
+	if err := api.dal.PutChatAttachment(ChatAttachment{
+		ID: "att-legacylink", Mime: linkTargetMime, Data: []byte(target + "\n"),
+	}); err != nil {
+		t.Fatalf("seed link blob: %v", err)
+	}
+	if err := api.dal.PutTaskArtifact(TaskArtifact{
+		ID: "ta-legacylink", TaskID: task.ID, Kind: ArtifactKindLink,
+		AttachmentID: "att-legacylink", Name: "", Description: "搬遷後只剩散文",
+		CreatedTS: 1000, CreatedBy: "m-exec",
+	}); err != nil {
+		t.Fatalf("seed link artifact: %v", err)
+	}
+
+	arts := getTaskArtifacts(t, api, task.ID).Artifacts
+	if len(arts) != 1 {
+		t.Fatalf("語料不合格:舊列沒有種進去,artifacts=%+v", arts)
+	}
+	a := arts[0]
+	if a.Name != target {
+		t.Fatalf("name 欄是空的舊 link 列,讀回來的 name 應是 uri-list 裡的目標 %q,得到 %q",
+			target, a.Name)
+	}
+	// 目標網址本身還是要照舊服在 url 上 —— 否則「name 等於 url」也可能是
+	// 兩邊一起壞掉。
+	if a.URL != target {
+		t.Fatalf("link 的 url 仍應是 uri-list 裡的目標 %q,得到 %q", target, a.URL)
+	}
+}
