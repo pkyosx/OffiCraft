@@ -298,8 +298,14 @@ func (d *DAL) DeleteTaskArtifact(id string) (bool, error) {
 		}
 		removed = n > 0
 		// The live blob keeps its standing exemption even when a retained
-		// version happened to point at the same one — EXCEPT for a link,
-		// whose blob nothing else can be pointing at (owner rc-27107ca914a7).
+		// version happened to point at the same one — EXCEPT for a link
+		// (owner rc-27107ca914a7). The exemption's REASON is that an uploaded
+		// blob may also be riding a chat message; a uri-list blob never is, so
+		// a link does not qualify for it. That is the whole of it — this is NOT
+		// a claim that nothing else points at a link's blob: migration 00086
+		// deduped identical targets, so 705 live link rows share 642 distinct
+		// blobs and two artifacts CAN share one. Sharing is exactly why the
+		// verdict has to be left to the collector rather than decided here.
 		// It is not deleted here either: it joins the candidate list, and
 		// collectOrphanBlobs still asks collectSurvivingBlobRefs whether any
 		// still-stored record references it, across all six sources. A blob
