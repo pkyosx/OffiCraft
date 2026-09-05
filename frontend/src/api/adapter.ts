@@ -2886,7 +2886,7 @@ export interface Api {
    * absent delta MUST be read as "something in this topic changed, refetch the
    * lot", never as "nothing changed".
    */
-  // ── T-33 傳承 (lore) — reads, plus two owner-only entity actions ───────
+  // ── T-33 傳承 (lore) — reads, plus two entity actions ──────────────────
   //
   // 🔴 THE TWO PARAGRAPHS THAT USED TO STAND HERE WERE FALSE, AND THEY WERE
   // FALSE IN THE MOST EXPENSIVE WAY: they asserted a COUNT ("six lore routes")
