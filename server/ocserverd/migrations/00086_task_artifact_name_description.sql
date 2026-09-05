@@ -78,7 +78,8 @@
 -- ── 1. One text/uri-list blob per DISTINCT link target ───────────────────────
 -- RFC 2483: a uri-list is one URI per line. These carry exactly the url's bytes,
 -- so the blob can say what it is without a second field somewhere else saying it.
--- DEDUPED on purpose: 704+9 link rows point at 641 distinct urls, and a blob that
+-- DEDUPED on purpose: 705+9 link rows point at 642 distinct urls (the 09-06 column of
+-- the header above; 704/641 was the 09-05 measure and this line used to quote it), and a blob that
 -- two artifacts share is collected only when BOTH stop pointing at it — which is
 -- what the collector already computes (dal.go collectSurvivingBlobRefs asks six
 -- sources, and source ④ `task_artifact.attachment_id` has NO kind filter, so link

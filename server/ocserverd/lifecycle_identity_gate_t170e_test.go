@@ -1097,7 +1097,8 @@ var identityGateLedger = map[string]string{
 		"NOT an identity gate — the same artifact kind deciding whether the live row's " +
 		"blob is SPARED on un-pin or handed to the collector (owner rc-27107ca914a7). " +
 		"The exemption's reason is that an uploaded blob may also be riding a chat " +
-		"message; a link's blob is minted for that one pin, so nothing else can be. " +
+		"message. A link's blob is minted for that one pin, but NOT exclusively its own: " +
+		"migration 00086 deduped identical targets, so link artifacts can share one. " +
 		"Neither arm deletes anything itself — the link arm only adds a candidate, and " +
 		"collectSurvivingBlobRefs still has the last word. No population is on either " +
 		"side.",
