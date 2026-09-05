@@ -2937,7 +2937,11 @@ export interface Api {
   // 🔴 這裡沒有 `rejectLoreEntity`。「駁回」這個出口 owner 從來沒有裁定過,補一
   // 個等於替他決定。
 
-  /** 待審佇列。每一列自己帶著伺服器算出的建議與依據。 */
+  /** 待審佇列。每一列自己帶著審核要用的依據 —— 誰鑄的（`createdBy`）、底下現在
+   * 有幾條記憶、連退役都算進去是幾條（`entries` / `entriesEver`）、那些記憶逐條
+   * 是什麼（`entryRefs`）、第一條的樣本（`sampleShort`），以及像哪些既有名字、
+   * 每一個為什麼像（`similar`）。這條路由只給依據、不給判斷：owner 2026-09-05
+   * 裁掉了伺服器算出來的「你該按哪顆鈕」，裁決是人的事。 */
   listPendingLoreEntities(): Promise<LorePendingEntityView[]>;
 
   /** 核可一個待審對象。 */

@@ -1519,21 +1519,14 @@ def _check_lore_queue(_ctx: HCtx, r: httpx.Response) -> None:
     for ref in row["entry_refs"]:
         assert ref["entry_id"] and ref["trigger"], row
         assert ref["status"] != "retired", row
-    # 🔴 THE SUGGESTION IS PINNED TO THE ONE BRANCH THIS FIXTURE FORCES, not to
-    # the closed vocabulary. `suggestion in {"", "approve", "merge"}` is the
-    # complete enumeration of the legal values, so it passes against every
-    # possible answer including a handler that never computes anything — zero
-    # discriminating power. The fixture makes the branch determinate: the
-    # subject is `repo:conf-queue-<random hex>`, a name no approved subject can
-    # fold onto (`same_normalized`) and none is within 2 edits / a prefix / a
-    # substring of — the suite's own sibling subjects (`conf-approve-`,
-    # `conf-survivor-`, `conf-folded-`) diverge at the 6th character and are
-    # nowhere near. So `similar` is EMPTY, and the rule's first clause — no
-    # candidate at all ⇒ `approve`, with no merge target — is the only reachable
-    # answer here.
+    # 🔴 `similar` IS PINNED TO THE ONE BRANCH THIS FIXTURE FORCES, not merely
+    # well-typed. The fixture makes the branch determinate: the subject is
+    # `repo:conf-queue-<random hex>`, a name no approved subject can fold onto
+    # (`same_normalized`) and none is within 2 edits / a prefix / a substring
+    # of — the suite's own sibling subjects (`conf-approve-`, `conf-survivor-`,
+    # `conf-folded-`) diverge at the 6th character and are nowhere near. So
+    # `similar` is EMPTY, and that is the only reachable answer here.
     assert row["similar"] == [], row
-    assert row["suggestion"] == "approve", row
-    assert row["merge_target"] == "", row
 
 
 def _lore_approve_path(ctx: HCtx) -> str:
