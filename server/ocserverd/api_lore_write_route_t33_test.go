@@ -42,8 +42,7 @@ const loreWriteJSON = `{
 		 "actor": "agent:O-197", "place": "machine:seth-m5"}
 	],
 	"origin": "agent:O-197",
-	"subjects": ["repo:officraft"],
-	"actions": ["read-code"]
+	"subjects": ["repo:officraft"]
 }`
 
 // An ordinary agent can write, and what comes back is READ BACK from the store.

@@ -36,7 +36,6 @@ type loreRecallRow struct {
 	Entries       []string `json:"entries"`
 	QueryText     string   `json:"query"`
 	SubjectKey    string   `json:"subject"`
-	Actions       []string `json:"actions"`
 	Total         int      `json:"total"`
 	Truncated     bool     `json:"truncated"`
 }
@@ -447,7 +446,7 @@ func TestLoreSearchRouteJournalsTheRetrieval(t *testing.T) {
 	url, tok, dal, entryID := loreRecallStack(t, 4321)
 
 	st, body := rosterREST(t, url, tok, "POST", "/api/lore/search",
-		`{"subject":"repo:officraft","query":"fold","actions":["build"],"limit":5}`)
+		`{"subject":"repo:officraft","query":"fold","limit":5}`)
 	if st != 200 {
 		t.Fatalf("search: %d %s", st, body)
 	}
@@ -469,10 +468,9 @@ func TestLoreSearchRouteJournalsTheRetrieval(t *testing.T) {
 		t.Errorf("entries = %v, want [%s] — 「撈到哪幾條」 is the whole point; a count "+
 			"could never answer whether ONE entry is ever used", r.Entries, entryID)
 	}
-	if r.QueryText != "fold" || r.SubjectKey != "repo:officraft" ||
-		len(r.Actions) != 1 || r.Actions[0] != "build" {
-		t.Errorf("asked-for axes = %q/%q/%v — a hit list nobody can interpret",
-			r.QueryText, r.SubjectKey, r.Actions)
+	if r.QueryText != "fold" || r.SubjectKey != "repo:officraft" {
+		t.Errorf("asked-for axis = %q/%q — a hit list nobody can interpret",
+			r.QueryText, r.SubjectKey)
 	}
 	if r.SubjectID == "" {
 		t.Errorf("subject_id is empty — the subject RESOLVED, and the entity it " +

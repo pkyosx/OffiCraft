@@ -2447,11 +2447,6 @@ let relocationDeferredNext = false;
 // real entry from a plausible one — a mock full of lorem ipsum would make the
 // screens look right while proving nothing about what they render.
 //
-// 🔴 `actions` is EMPTY on every one of them, and that is the export, not a
-// shortcut: the write path those five went through never carried an action
-// name. So the mock cannot demonstrate action-axis tiering, and no screen may
-// pretend it can.
-//
 // 🔴 `events` (第 5 格) IS EMPTY ON EVERY ONE OF THEM FOR THE SAME REASON, and
 // this one is worth stating out loud because it is tempting to fix: these five
 // were written on 2026-09-01, against 六格, through a write path that had no
@@ -2496,7 +2491,6 @@ interface MockLoreEntry {
   /** 第 5 格 — see the note above on why every one of these is empty. */
   events: LoreEventView[];
   subjects: string[];
-  actions: string[];
   origin: string;
   status: string;
   supersedes: string;
@@ -2517,7 +2511,6 @@ const MOCK_LORE_ENTRIES: MockLoreEntry[] = [
       '2026-09-01：-run 的正則打錯字，26 顆 mutant 一顆都沒跑，回報 PASS。分母改成可驗的做法是逐一 grep -c "^func <name>("。',
     events: [],
     subjects: ["repo:officraft"],
-    actions: [],
     origin: "agent:O-197",
     status: "active",
     supersedes: "",
@@ -2537,7 +2530,6 @@ const MOCK_LORE_ENTRIES: MockLoreEntry[] = [
       "2026-09-01 分站換版：因此改成走 serve 開機而不是 migrate，並另外手拍一份驗過的備份。",
     events: [],
     subjects: ["repo:officraft"],
-    actions: [],
     origin: "agent:O-197",
     status: "active",
     supersedes: "",
@@ -2556,7 +2548,6 @@ const MOCK_LORE_ENTRIES: MockLoreEntry[] = [
       "2026-09-01：我回報 trial 站跑 feab5437，90 秒後它自己 [upgrade] 換成 v0.5.281。成因是我複製的 DB 帶著 updater.auto_update=true。",
     events: [],
     subjects: ["repo:officraft"],
-    actions: [],
     origin: "agent:O-197",
     status: "active",
     supersedes: "",
@@ -2576,7 +2567,6 @@ const MOCK_LORE_ENTRIES: MockLoreEntry[] = [
       "2026-09-01：分站換版後 90 秒自己升級（auto_update 跟著 DB 過去）；另外我主站的 agent token 打分站 /api/members 回 200，改一個字元回 401 ⇒ 簽章金鑰也跟著過去了。",
     events: [],
     subjects: ["repo:officraft"],
-    actions: [],
     origin: "agent:O-197",
     status: "active",
     supersedes: "",
@@ -2595,7 +2585,6 @@ const MOCK_LORE_ENTRIES: MockLoreEntry[] = [
       "2026-09-01：Kyle 收回一句關於部署路徑的錯誤結論，而那句話已經被我寫進步驟筆記（下一代開機第一件要讀的東西）。掃描結果：步驟筆記命中 1、卡零、產物零、waiting_reason 零。",
     events: [],
     subjects: ["repo:officraft"],
-    actions: [],
     origin: "agent:O-197",
     status: "active",
     supersedes: "",
@@ -6748,14 +6737,7 @@ export const mockApi: Api = {
         impactStars: e.impactStars,
         trigger: e.trigger,
         subjects: [...e.subjects],
-        actions: [...e.actions],
         origin: e.origin,
-        // Every fixture entry matches on the axes actually asked about, so
-        // nothing here reaches the caller across an axis it did not ask for.
-        tier: "T1",
-        tierNote: "",
-        trustScope: "method",
-        trustFellBack: false,
       }));
     return {
       entries,
@@ -6765,15 +6747,10 @@ export const mockApi: Api = {
       unresolvedSubject: subjectResolved ? "" : subject,
       applied: {
         subject,
-        actions: input.actions ? [...input.actions] : [],
         query,
         queryMatch: "literal-substring",
         limit,
-        // No fixture entry carries an action, so no tiering axis was ever
-        // exercised — reporting one would be the mock inventing evidence.
-        tieredBy: [],
       },
-      unmappedActions: [],
     };
   },
 
@@ -6798,7 +6775,6 @@ export const mockApi: Api = {
       impact: e.impact,
       events: e.events.map((ev) => ({ ...ev })),
       subjects: [...e.subjects],
-      actions: [...e.actions],
       origin: e.origin,
       status: e.status,
       original,

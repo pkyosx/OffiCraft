@@ -3075,12 +3075,8 @@ export const httpApi: Api = {
     // through would turn "I did not choose" into a rejected request.
     const body: Partial<WireLoreSearchRequest> = {};
     if (input.subject !== undefined) body.subject = input.subject;
-    if (input.actions !== undefined) body.actions = input.actions;
     if (input.query !== undefined) body.query = input.query;
     if (input.limit !== undefined) body.limit = input.limit;
-    if (input.forceTrustAnalogy !== undefined) {
-      body.force_trust_analogy = input.forceTrustAnalogy;
-    }
     const wire = unwrap(
       // The generator marks every defaulted field REQUIRED, so the partial
       // body the route actually accepts does not fit the generated type. The

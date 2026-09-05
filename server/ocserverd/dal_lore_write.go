@@ -1,7 +1,7 @@
 package main
 
 // dal_lore_write.go — T-33. The write seam: turning one agent's experience into
-// a lore entry, its subjects, its actions and the L0 original that outlives
+// a lore entry, its subjects and the L0 original that outlives
 // every later rewrite.
 //
 // 🔴 WHY THIS IS NOT IN dal_lore.go. That file is the L1 row seam — PutLoreEntry
@@ -47,7 +47,6 @@ var (
 	ErrLoreSubjectMalformed   = errors.New("lore: a subject key is not `type:name`")
 	ErrLoreSubjectUnknownType = errors.New("lore: a subject key names an unapproved type prefix")
 	ErrLoreSubjectsEmpty      = errors.New("lore: the entry names no subject")
-	ErrLoreActionBlank        = errors.New("lore: an action name is blank")
 	ErrLoreEntityMergeCycle   = errors.New("lore: the subject's merge chain does not end")
 	ErrLoreSupersedesSelf     = errors.New("lore: an entry cannot supersede itself")
 )
@@ -91,7 +90,6 @@ type LoreWrite struct {
 	Origin     string
 	Supersedes string
 	Subjects   []string
-	Actions    []string
 
 	ActorID string
 }
@@ -386,11 +384,6 @@ func (d *DAL) CreateLoreEntry(w LoreWrite, nowTS float64) (LoreWriteResult, erro
 	if len(w.Subjects) == 0 {
 		return out, ErrLoreSubjectsEmpty
 	}
-	for _, a := range w.Actions {
-		if strings.TrimSpace(a) == "" {
-			return out, ErrLoreActionBlank
-		}
-	}
 	for _, ev := range w.Events {
 		if err := d.loreEventError(ev); err != nil {
 			return out, err
@@ -467,14 +460,6 @@ func (d *DAL) CreateLoreEntry(w LoreWrite, nowTS float64) (LoreWriteResult, erro
 				return err
 			}
 			out.SubjectIDs = append(out.SubjectIDs, entityID)
-		}
-
-		for _, action := range w.Actions {
-			if _, err := tx.Exec(`
-				INSERT INTO lore_action (entry_id, action) VALUES (?, ?)
-				ON CONFLICT (entry_id, action) DO NOTHING`, entry.ID, action); err != nil {
-				return err
-			}
 		}
 
 		// 🔴 shrink_chars IS 0 HERE AND THAT IS NOT A PLACEHOLDER. It records how

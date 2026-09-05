@@ -1063,35 +1063,24 @@ export interface LoreEntrySummaryView {
    * ⚠️ It no longer doubles as the title: v8 pulled 標題 out into its own cell,
    * which overturned the earlier implementation judgement that said it did. */
   trigger: string;
-  /** Subject keys (`repo:officraft`) this entry is filed under. */
+  /** Subject keys (`repo:officraft`) this entry is filed under. THE ONLY
+   * retrieval axis: owner removed the 活動 axis on 2026-09-05, and the T1/T2
+   * tier plus the trust class went with it — both were computed FROM it. */
   subjects: string[];
-  actions: string[];
   /** Whose knowledge this is (`human:Seth`, `agent:Kyle`). */
   origin: string;
-  /** `T1` matched every axis asked on; `T2` reached the caller across an axis
-   * that was NOT asked about. Meaningless without `tieredBy` — read together. */
-  tier: string;
-  tierNote: string;
-  /** `method` / `trust` / `cognitive`. */
-  trustScope: string;
-  /** True when the class was reached by FAILING CLOSED on an action name
-   * nothing recognised, rather than by the mapping table. A guessed class must
-   * not look identical to a known one. */
-  trustFellBack: boolean;
 }
 
-/** What the server ACTUALLY applied, echoed back. Required beside the tiers:
- * a tier without its axes is read under a meaning it no longer has. */
+/** What the server ACTUALLY applied, echoed back. Required, not a debugging
+ * extra: it is the only way to tell 「this condition was applied」 from 「this
+ * condition was dropped on the floor」, and a dropped condition returns
+ * memories that look exactly like the right ones. */
 export interface LoreSearchAppliedView {
   subject: string;
-  actions: string[];
   query: string;
   /** How `query` was matched. Today always `literal-substring`. */
   queryMatch: string;
   limit: number;
-  /** The axes the tier was computed over. Empty ⇒ nothing in the answer
-   * reached the caller across an axis it did not ask about. */
-  tieredBy: string[];
 }
 
 /** One search answer, with every honesty marker the wire carries. */
@@ -1107,9 +1096,6 @@ export interface LoreSearchView {
   /** The subject key that named nothing, echoed so a typo is visible. */
   unresolvedSubject: string;
   applied: LoreSearchAppliedView;
-  /** Action names the trust table did not recognise — non-empty means at least
-   * one entry was classified by failing closed. */
-  unmappedActions: string[];
 }
 
 /** One catalogue line of an entry's revision history — no text at all. */
@@ -1185,7 +1171,6 @@ export interface LoreEntryDetailView {
    * carries none, which the surface states rather than omits. */
   events: LoreEventView[];
   subjects: string[];
-  actions: string[];
   origin: string;
   /** `active`, `superseded`, `retired` or `underspecified`. */
   status: string;

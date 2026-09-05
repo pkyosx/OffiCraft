@@ -138,16 +138,15 @@ func (s *apiServer) recordLoreRecall(r LoreRecall, mode loreRecallAnchorMode) {
 // entry is ever used, which is the question the whole governance side of this
 // feature is built on.
 //
-// The asked-for axes ride along because a hit list without them cannot be
+// The asked-for axis rides along because a hit list without it cannot be
 // interpreted: the same four ids mean something different when they came back
 // from a bare "everything" than from a named subject.
 type loreRecallReturned struct {
 	Entries []string `json:"entries"`
 	// Query is the caller's LITERAL search text, empty on the read paths. It is
 	// here and not in the `query` column because that column names the door.
-	Query   string   `json:"query,omitempty"`
-	Subject string   `json:"subject,omitempty"`
-	Actions []string `json:"actions,omitempty"`
+	Query   string `json:"query,omitempty"`
+	Subject string `json:"subject,omitempty"`
 	// Total and Truncated say whether the ids listed are the whole answer. A
 	// truncated retrieval that reads as complete would make an entry look
 	// unreached when it was merely cut off.

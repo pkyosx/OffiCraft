@@ -346,31 +346,6 @@ func TestLoreOnlyRetiredIsFilteredFromRetrieval(t *testing.T) {
 	}
 }
 
-// The action axis is OPEN: an unrecognised name must be storable, because
-// refusing it would block exactly the writes this mechanism exists to capture.
-// The safety is at read time (memoryTrustScope), and it is checked here end to
-// end so the two halves cannot drift apart.
-func TestLoreActionsAreOpenAndClassifiedOnRead(t *testing.T) {
-	d := newTestDAL(t)
-	t33Put(t, d, t33Entry("me-fff"))
-	for _, a := range []string{"deploy", "an-action-nobody-mapped"} {
-		if err := d.PutLoreAction("me-fff", a); err != nil {
-			t.Fatalf("file action %q: %v", a, err)
-		}
-	}
-	actions, err := d.ListLoreActions("me-fff")
-	if err != nil {
-		t.Fatalf("list actions: %v", err)
-	}
-	if len(actions) != 2 {
-		t.Fatalf("actions = %v, want both stored", actions)
-	}
-	v := memoryTrustScope(actions)
-	if v.Scope != TrustScopeTrust || !v.FellBack() {
-		t.Fatalf("a stored unmapped action must fail closed and say so: %+v", v)
-	}
-}
-
 // The count and the list answer the same question, so they must never disagree.
 func TestLoreCountAgreesWithList(t *testing.T) {
 	d := newTestDAL(t)

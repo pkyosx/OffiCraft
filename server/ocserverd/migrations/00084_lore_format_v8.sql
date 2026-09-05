@@ -151,7 +151,49 @@ ALTER TABLE lore_proposal ADD COLUMN heading TEXT NOT NULL DEFAULT '';
 ALTER TABLE lore_proposal ADD COLUMN impact_stars INTEGER NOT NULL DEFAULT 0
     CHECK (impact_stars BETWEEN 0 AND 3);
 
+-- ── 🔴 拿掉「活動」這一個檢索軸：DROP TABLE lore_action ──────────────────────
+--
+-- owner 2026-09-05 逐字：「第一個欄位 subject 就這樣 不用爭辯了」「只有subject
+-- 沒有 action因為後者太多可能性」。
+--
+-- 理由不是「用不到」，是**它從來不是索引**：`actions` 是開放集合（00081 自己
+-- 寫著「every new kind of experience can mint a new action name」），寫的人各寫
+-- 各的，而讀取端沒有任何一處拿它做收斂。一個不會收斂的軸，看起來像檢索條件、
+-- 實際上是自由文字。
+--
+-- 🔴 這一支同時讓 00081 的三段話從此是**錯的**，不是舊的 —— 一樣不能就地改
+-- （sha256 在 lock 中段），所以更正接續寫在這裡：
+--   1.「TWO TABLES, NOT ONE TAG BAG … that is the T1/T2 distinction」
+--      ⇒ T1/T2 分級一起拿掉了。機制是 `matched == askedAxes → T1`，只剩一個軸
+--        之後 `matched < askedAxes` 永遠不成立 ⇒ T2 永遠不會出現，那個分級變成
+--        一個永遠只有一個值的裝飾。
+--   2.「AND THE TWO AXES ARE DIFFERENT SHAPES ON PURPOSE: … actions do NOT
+--      [saturate]」⇒ 這句話是對的，而且正是拿掉它的理由。
+--   3. 檔頭那段「`trust_scope` … is derived from the entry's actions at read
+--      time by memoryTrustScope()」⇒ **那個推導的輸入沒有了**。memoryTrustScope
+--      連同 trust_scope / trust_fell_back / unmapped_actions /
+--      force_trust_analogy 一起拿掉：留著的話每一條的 trust_scope 都會是常數
+--      "trust"、trust_fell_back 都會是常數 false —— 一個永遠不會分辨任何東西的
+--      分類器，比沒有分類器危險。
+--   ⚠️ 隨之消失的是**跨對象牆**（trust 類條目預設不跨到別的對象）。它掛在類比
+--      層上，而類比層是 owner 裁掉的，所以它不是被繞過，是失去了它作用的那一層。
+--      今天沒有別的東西在守這件事。
+--
+-- ⚠️ 破壞性且不可逆：Down 段只還原得了**表結構**，還原不了列。已寫進 lore_action
+-- 的 (entry_id, action) 在 Up 之後就不存在了，goose down 會給你一張空表。射程內
+-- 沒有真的資料（origin/main 上 lore 的檔案數是 0），所以代價是量得到的零 —— 但
+-- 這句話只在合併前為真，讀到這裡的人請自己重新量一次。
+DROP TABLE lore_action;
+
 -- +goose Down
+-- 🔴 只還原結構，不還原資料 —— 見上面那段。欄位宣告與索引與 00081 逐字相同，
+-- 否則「升級過的站」與「down 過再 up 的站」會帶著不同的 schema。
+CREATE TABLE lore_action (
+    entry_id TEXT NOT NULL REFERENCES lore_entry(id),
+    action   TEXT NOT NULL,
+    PRIMARY KEY (entry_id, action)
+);
+CREATE INDEX idx_lore_action_action ON lore_action (action, entry_id);
 ALTER TABLE lore_proposal DROP COLUMN impact_stars;
 ALTER TABLE lore_proposal DROP COLUMN heading;
 ALTER TABLE lore_entry DROP COLUMN reviewed;

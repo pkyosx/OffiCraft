@@ -2986,7 +2986,6 @@ export interface LoreSearchInput {
   /** A subject key, `type:name`. A key that names nothing is NOT an error and
    * NOT an empty result: the answer comes back `subjectResolved: false`. */
   subject?: string;
-  actions?: string[];
   /** A LITERAL, case-insensitive substring over 第 1 格 (`trigger`) and 第 2 格
    * (`content`) — the two cells that took over the three 六格 scanned
    * (label/short/symptoms), none of which exists any more. Not semantic — two
@@ -2994,6 +2993,4 @@ export interface LoreSearchInput {
    * each other. */
   query?: string;
   limit?: number;
-  /** Let `trust`-class entries appear in the analogy tier. */
-  forceTrustAnalogy?: boolean;
 }

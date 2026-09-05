@@ -25,12 +25,7 @@ function entry(over: Partial<LoreEntrySummaryView> = {}): LoreEntrySummaryView {
     impactStars: 2,
     trigger: "整套測試回 PASS，而我正要拿這個結果去說這一包沒問題。",
     subjects: ["repo:officraft"],
-    actions: [],
     origin: "agent:Kyle",
-    tier: "T1",
-    tierNote: "",
-    trustScope: "method",
-    trustFellBack: false,
     ...over,
   };
 }
@@ -44,13 +39,10 @@ function searchView(entries: LoreEntrySummaryView[]): LoreSearchView {
     unresolvedSubject: "",
     applied: {
       subject: "",
-      actions: [],
-      query: "",
+        query: "",
       queryMatch: "literal-substring",
       limit: 100,
-      tieredBy: [],
     },
-    unmappedActions: [],
   };
 }
 

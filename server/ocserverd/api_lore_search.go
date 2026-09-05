@@ -11,14 +11,12 @@ package main
 // Moving a condition to the query string, for any reason, removes that
 // protection while leaving the verb unchanged and the tests green.
 //
-// 🔴 WHY THE ANSWER CARRIES `applied`. The tier labels this route emits mean
-// "matched every axis you asked on" — a meaning that only exists beside the
-// axes that were asked. The design's own words are "both axes intersect", and
-// under the commonest call (one axis) those two readings disagree. Shipping the
-// label without the axes would let the older reading survive as a silent
-// misinterpretation, so `applied` is a required part of every response and not
-// a debugging extra. ⚠️ The change of meaning is Kyle's ruling of 2026-09-01,
-// not the design's text, and it can be overturned.
+// 🔴 WHY THE ANSWER STILL CARRIES `applied`. It no longer explains a tier —
+// owner removed the action axis and the T1/T2 tier with it on 2026-09-05 — but
+// it is still the only way a caller can tell "this filter was applied" from
+// "this filter was dropped on the floor", and `query_match` in particular says
+// the `query` filter is LITERAL rather than semantic. It is a required part of
+// every response, not a debugging extra.
 
 import (
 	"errors"
@@ -38,7 +36,6 @@ const loreQueryMatchLiteral = "literal-substring"
 func writeLoreSearchError(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, ErrLoreSearchLimitRange),
-		errors.Is(err, ErrLoreSearchActionBlank),
 		errors.Is(err, ErrLoreSearchSubjectBlank),
 		errors.Is(err, ErrLoreEntityMergeCycle):
 		writeError(w, http.StatusUnprocessableEntity, err.Error())
@@ -57,14 +54,8 @@ func (s *apiServer) HandleSearchLoreEntriesApiLoreSearchPost(w http.ResponseWrit
 		SubjectKey: strOrEmpty(body.Subject),
 		Query:      strOrEmpty(body.Query),
 	}
-	if body.Actions != nil {
-		search.Actions = *body.Actions
-	}
 	if body.Limit != nil {
 		search.Limit = *body.Limit
-	}
-	if body.ForceTrustAnalogy != nil {
-		search.ForceTrustAnalogy = *body.ForceTrustAnalogy
 	}
 
 	got, err := s.dal.SearchLore(search)
@@ -73,23 +64,6 @@ func (s *apiServer) HandleSearchLoreEntriesApiLoreSearchPost(w http.ResponseWrit
 		return
 	}
 
-	// `tiered_by` is built from the SAME predicate the DAL tiers on, read off the
-	// request that was actually decoded. Recomputing it from the DTO by hand here
-	// would be a second answer to "which axes counted", and the two would drift
-	// the first time an axis is added — with the symptom being a tier label that
-	// disagrees with the axes printed beside it.
-	tieredSubject, tieredAction := search.suppliedAxes()
-	tieredBy := []string{}
-	if tieredSubject {
-		tieredBy = append(tieredBy, "subject")
-	}
-	if tieredAction {
-		tieredBy = append(tieredBy, "actions")
-	}
-	appliedActions := search.Actions
-	if appliedActions == nil {
-		appliedActions = []string{}
-	}
 	limit := search.Limit
 	if limit == 0 {
 		limit = loreSearchLimitDefault
@@ -100,10 +74,6 @@ func (s *apiServer) HandleSearchLoreEntriesApiLoreSearchPost(w http.ResponseWrit
 		subjects := h.Subjects
 		if subjects == nil {
 			subjects = []string{}
-		}
-		actions := h.Actions
-		if actions == nil {
-			actions = []string{}
 		}
 		entries = append(entries, LoreSearchHitDTO{
 			EntryId: h.Entry.ID,
@@ -130,19 +100,10 @@ func (s *apiServer) HandleSearchLoreEntriesApiLoreSearchPost(w http.ResponseWrit
 			// 星等要在這一層，因為它就是重要性（owner：「評分也改了不用 用星等
 			// 取代 因為 impact 本就是重要性」）—— 一串標題如果不帶重要性，agent
 			// 只能照順序看，而順序不是重要性。
-			ImpactStars:   h.Entry.ImpactStars,
-			Origin:        h.Entry.Origin,
-			Subjects:      subjects,
-			Actions:       actions,
-			Tier:          h.Tier,
-			TierNote:      h.TierNote,
-			TrustScope:    h.TrustScope,
-			TrustFellBack: h.TrustFellBack,
+			ImpactStars: h.Entry.ImpactStars,
+			Origin:      h.Entry.Origin,
+			Subjects:    subjects,
 		})
-	}
-	unmapped := got.UnmappedActions
-	if unmapped == nil {
-		unmapped = []string{}
 	}
 	// 🔴 JOURNALLED AFTER THE ANSWER IS BUILT AND BEFORE IT IS WRITTEN, and only
 	// on a search that really ran — every refusal above returned already. This is
@@ -161,7 +122,6 @@ func (s *apiServer) HandleSearchLoreEntriesApiLoreSearchPost(w http.ResponseWrit
 			Entries:   loreSearchHitIDs(got.Hits),
 			Query:     search.Query,
 			Subject:   search.SubjectKey,
-			Actions:   search.Actions,
 			Total:     got.Total,
 			Truncated: got.Truncated,
 		}),
@@ -170,19 +130,15 @@ func (s *apiServer) HandleSearchLoreEntriesApiLoreSearchPost(w http.ResponseWrit
 	writeJSON(w, http.StatusOK, LoreSearchResultDTO{
 		Entries: entries,
 		Applied: LoreSearchAppliedDTO{
-			Subject:           search.SubjectKey,
-			Actions:           appliedActions,
-			Query:             search.Query,
-			QueryMatch:        loreQueryMatchLiteral,
-			Limit:             limit,
-			ForceTrustAnalogy: search.ForceTrustAnalogy,
-			TieredBy:          tieredBy,
+			Subject:    search.SubjectKey,
+			Query:      search.Query,
+			QueryMatch: loreQueryMatchLiteral,
+			Limit:      limit,
 		},
 		Total:             got.Total,
 		Truncated:         got.Truncated,
 		SubjectResolved:   got.SubjectResolved,
 		UnresolvedSubject: got.UnresolvedSubject,
-		UnmappedActions:   unmapped,
 	})
 }
 

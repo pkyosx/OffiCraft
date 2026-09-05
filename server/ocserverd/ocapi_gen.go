@@ -1261,9 +1261,6 @@ type LoreEntitySimilarDTO struct {
 
 // LoreEntryDetailDTO One lore entry in full — 六格 — plus the original preserved beside it.
 type LoreEntryDetailDTO struct {
-	// Actions The entry's action names.
-	Actions []string `json:"actions"`
-
 	// Content 第 2 格「內容」— the compressed body, and the only cell that enters a boot context.
 	Content string `json:"content"`
 
@@ -1643,12 +1640,6 @@ type LoreReviveDTO struct {
 
 // LoreSearchAppliedDTO What the server ACTUALLY applied, echoed back condition by condition. 🔴 It is a required part of every answer, not an optional debugging extra: the tier labels mean 「matched every axis you asked on」, which is only interpretable beside the axes that were asked. A tier that travelled without its axes would be read under the older meaning (「both axes matched」) and quietly mean something else.
 type LoreSearchAppliedDTO struct {
-	// Actions The action filter applied.
-	Actions []string `json:"actions"`
-
-	// ForceTrustAnalogy Whether trust-class analogies were allowed through.
-	ForceTrustAnalogy bool `json:"force_trust_analogy"`
-
 	// Limit The count cap applied, after defaulting.
 	Limit int `json:"limit"`
 
@@ -1660,19 +1651,10 @@ type LoreSearchAppliedDTO struct {
 
 	// Subject The subject key applied, empty when none.
 	Subject string `json:"subject"`
-
-	// TieredBy 🔴 The axes the tier was computed over — some subset of `subject` and `actions`. Empty means no axis was supplied, so nothing in the answer reached you across an axis you did not ask about.
-	TieredBy []string `json:"tiered_by"`
 }
 
 // LoreSearchDTO Retrieve lore entries: the selection conditions, all optional, all in the BODY. The field set is CLOSED — an unknown key is a 422 naming it, never a silent drop, because a selection condition that is quietly ignored produces a plausible wrong answer.
 type LoreSearchDTO struct {
-	// Actions Filter to entries carrying any of these action names. Combined with `subject` this is the second tiering axis: an entry matching both is `T1`, one matching only this axis is an analogy.
-	Actions *[]string `json:"actions,omitempty"`
-
-	// ForceTrustAnalogy Let `trust`-class entries appear in the analogy tier. Off by default because 「how far X could be relied on」 is a fact about X and does not travel to another subject; when on, each such entry's `tier_note` names whose situation it actually describes.
-	ForceTrustAnalogy *bool `json:"force_trust_analogy,omitempty"`
-
 	// Limit How many entries to return, 1..100, default 20. Out of range is REFUSED, never clamped: a caller that asked for 500 and silently got 100 believes it has seen everything. Entries whose origin is a `human:` key do not count against it.
 	Limit *int `json:"limit,omitempty"`
 
@@ -1685,9 +1667,6 @@ type LoreSearchDTO struct {
 
 // LoreSearchHitDTO One retrieved entry, plus why it is in the answer.
 type LoreSearchHitDTO struct {
-	// Actions The entry's action names.
-	Actions []string `json:"actions"`
-
 	// EntryId The entry's id — what `get_lore_entry` addresses.
 	EntryId string `json:"entry_id"`
 
@@ -1703,20 +1682,8 @@ type LoreSearchHitDTO struct {
 	// Subjects The subject keys this entry is filed under.
 	Subjects []string `json:"subjects"`
 
-	// Tier `T1` — this matched every axis you asked on. `T2` — 類比: it reached you across an axis you did NOT ask about, so it is a guess about your case rather than a rule for it. 🔴 Read this together with `applied.tiered_by`; alone it does not say what it matched.
-	Tier string `json:"tier"`
-
-	// TierNote The tier in words, including — for a forced trust-class analogy — whose situation the entry actually describes.
-	TierNote string `json:"tier_note"`
-
 	// Trigger 第 1 格「什麼時候要記起來」— the situation this entry applies to, and the line that doubles as its title (there is no separate name field). It and `content` are the two cells `query` matches against.
 	Trigger string `json:"trigger"`
-
-	// TrustFellBack 🔴 True when this entry's `trust_scope` was reached by FAILING CLOSED on an action name nothing recognised, rather than by the mapping table. The mapping table is hand-written and provisional (its own header says so), so a class that was guessed must not look identical to one that was known.
-	TrustFellBack bool `json:"trust_fell_back"`
-
-	// TrustScope `method` (how to do a thing — crosses subjects as an ordinary analogy), `trust` (how far something can be relied on — does not cross, and the fail-closed answer for anything unrecognised) or `cognitive` (a failure mode of thinking).
-	TrustScope string `json:"trust_scope"`
 }
 
 // LoreSearchResultDTO The retrieved entries plus everything needed to tell a real empty answer from a question that never got asked properly.
@@ -1736,18 +1703,12 @@ type LoreSearchResultDTO struct {
 	// Truncated True when the cap dropped some of them.
 	Truncated bool `json:"truncated"`
 
-	// UnmappedActions Every action name in this answer that the trust table did not recognise. Non-empty means at least one entry was classified by failing closed — which changes what the trust filter did — so it rides back with the answer instead of only reaching a log.
-	UnmappedActions []string `json:"unmapped_actions"`
-
 	// UnresolvedSubject The subject key that named nothing, echoed back so a typo is visible. Empty otherwise.
 	UnresolvedSubject string `json:"unresolved_subject"`
 }
 
 // LoreWriteDTO Create one lore entry: 六格 (a heading, four body cells plus 0..N events) and the axes it is filed under. The field set is CLOSED — an unknown key is a 422, never a silent drop.
 type LoreWriteDTO struct {
-	// Actions The action names this entry is about — an OPEN set, mint a new one whenever a new kind of experience turns up. They are not checked against a list here on purpose; the safety is at read time, where an unrecognised action fails closed and says so.
-	Actions *[]string `json:"actions,omitempty"`
-
 	// Content REQUIRED. 第 2 格「內容」— the mechanism, and why. THIS is the only cell that ever enters a boot context, so an entry with a blank `content` contributes literally nothing to anybody and is refused.
 	Content string `json:"content"`
 
@@ -4828,7 +4789,7 @@ type ServerInterface interface {
 	// Fold ONE pending subject entity into an existing APPROVED one — owner or admin agent only (owner ruling rc-139a5ab99a19). This is the repair approve cannot make: two names for one thing. The source keeps existing (nothing in this schema deletes) with `merged_into` pointing at the survivor, and its `type:name` key is registered as an ALIAS of the survivor — so every later write and search naming the old key resolves onto the surviving subject instead of minting it a second time. 404 when either id names nothing; 409 when the source is not pending; 422 when the target is itself still pending, has itself been merged away, or IS the source — each refused BY NAME rather than silently succeeding, because a merge into a subject the directory also hides parks the source somewhere no reader can follow. `reason` is optional prose recorded in the governance journal.
 	// (POST /api/lore/entities/{entity_id}/merge)
 	HandleMergeLoreEntityApiLoreEntitiesEntityIdMergePost(w http.ResponseWriter, r *http.Request, entityId string)
-	// Write ONE lore entry — 六格, the subjects it is filed under, the actions it is about, and the FULL ORIGINAL that outlives every later rewrite, all in one transaction. The six cells are `heading` (標題 — 發生了什麼), `trigger` (什麼時候要記起來), `content` (內容), `retire_when` (什麼時候不需要了), `impact` (原本想達成什麼、實際變成什麼) and `events` (相關的完整資訊 — 0..N 筆 時／事／人／地／物); `impact_stars` hangs off 第 4 格 as YOUR proposed severity, and `reviewed` — the flag that says somebody stamped it — is NOT writable here at all. 🔴 `heading`, `trigger` and `content` are the three that are REQUIRED: `content` is the only cell that ever enters a boot context, `trigger` is the axis a reader finds the entry by, and `heading` is the line a human reads in a list — an entry missing any of them is not thin, it is either unreachable or indistinguishable from a finished one. ⚠️ `trigger` NO LONGER doubles as the title: v8 pulled the 標題 out into its own `heading`, which overturns the implementation judgement 「第 1 格兼任標題、因此拿掉 `label` 與 40 runes 上限」 — that judgement was written down rather than done quietly precisely so it could be overturned. Neither cell has a length cap; v8's own worked example writes the 標題 as a whole sentence. `retire_when` and `impact` are OPTIONAL and nothing is invented for them; `impact` is optional as a field while being the substance of the entry, because a hard requirement pushes a writer who genuinely has none into inventing one and an invented case reads exactly like a real one. ⚠️ Owner ruling rc-714eea33c6ed (2026-09-02), which made `falsify` and `instance` purely required, has NO LANDING PLACE in this format — neither cell exists any more. It was not overturned; the format change left it with no field to apply to, and whether 五格 should carry a cell meaning either of those things is the owner's call. `events` is 第 5 格: every event needs `happened_ts` (when it HAPPENED, not when it was written down) and `what` (active voice, so the 人 is always the one doing it), while `actor` / `place` / `object` are sent only when you actually know them and are NEVER back-filled with 「未知」 — 「查不出是誰」 and 「還沒有人去查」 must not end up looking the same. Zero events is legal, and a bad event refuses the WHOLE write rather than leaving an entry half-written. `subjects` are subject keys shaped `type:name` (`repo:officraft`, `agent:Kyle`): an alias resolves, a merged-away subject follows to the survivor, an unapproved type prefix is refused BY NAME, and a key nobody has used yet MINTS a new subject parked for review and names it back to you in `pending_entities` — so a typo surfaces in this response instead of in the ontology a month later. `origin` says WHOSE knowledge this is (`human:Seth` for something the owner told you) and is not the same question as who is writing: the actor is taken from your verified token and cannot be asserted here. `supersedes` names the entry this one takes over from: it is re-statused `superseded` and the act is written to the governance journal, while an id that names nothing refuses the WHOLE write rather than leaving a pointer into empty space. ⚠️ There is NO `degraded` flag on the receipt any more: owner ruling rc-1e32c690018d (2026-09-03) removed it, because 第 1 格 is already a hard refusal at the door and a second, softer quality mark behind it earns nothing.
+	// Write ONE lore entry — 六格, the subjects it is filed under, and the FULL ORIGINAL that outlives every later rewrite, all in one transaction. The six cells are `heading` (標題 — 發生了什麼), `trigger` (什麼時候要記起來), `content` (內容), `retire_when` (什麼時候不需要了), `impact` (原本想達成什麼、實際變成什麼) and `events` (相關的完整資訊 — 0..N 筆 時／事／人／地／物); `impact_stars` hangs off 第 4 格 as YOUR proposed severity, and `reviewed` — the flag that says somebody stamped it — is NOT writable here at all. 🔴 `heading`, `trigger` and `content` are the three that are REQUIRED: `content` is the only cell that ever enters a boot context, `trigger` is the axis a reader finds the entry by, and `heading` is the line a human reads in a list — an entry missing any of them is not thin, it is either unreachable or indistinguishable from a finished one. ⚠️ `trigger` NO LONGER doubles as the title: v8 pulled the 標題 out into its own `heading`, which overturns the implementation judgement 「第 1 格兼任標題、因此拿掉 `label` 與 40 runes 上限」 — that judgement was written down rather than done quietly precisely so it could be overturned. Neither cell has a length cap; v8's own worked example writes the 標題 as a whole sentence. `retire_when` and `impact` are OPTIONAL and nothing is invented for them; `impact` is optional as a field while being the substance of the entry, because a hard requirement pushes a writer who genuinely has none into inventing one and an invented case reads exactly like a real one. ⚠️ Owner ruling rc-714eea33c6ed (2026-09-02), which made `falsify` and `instance` purely required, has NO LANDING PLACE in this format — neither cell exists any more. It was not overturned; the format change left it with no field to apply to, and whether 五格 should carry a cell meaning either of those things is the owner's call. `events` is 第 5 格: every event needs `happened_ts` (when it HAPPENED, not when it was written down) and `what` (active voice, so the 人 is always the one doing it), while `actor` / `place` / `object` are sent only when you actually know them and are NEVER back-filled with 「未知」 — 「查不出是誰」 and 「還沒有人去查」 must not end up looking the same. Zero events is legal, and a bad event refuses the WHOLE write rather than leaving an entry half-written. `subjects` are subject keys shaped `type:name` (`repo:officraft`, `agent:Kyle`): an alias resolves, a merged-away subject follows to the survivor, an unapproved type prefix is refused BY NAME, and a key nobody has used yet MINTS a new subject parked for review and names it back to you in `pending_entities` — so a typo surfaces in this response instead of in the ontology a month later. `origin` says WHOSE knowledge this is (`human:Seth` for something the owner told you) and is not the same question as who is writing: the actor is taken from your verified token and cannot be asserted here. `supersedes` names the entry this one takes over from: it is re-statused `superseded` and the act is written to the governance journal, while an id that names nothing refuses the WHOLE write rather than leaving a pointer into empty space. ⚠️ There is NO `degraded` flag on the receipt any more: owner ruling rc-1e32c690018d (2026-09-03) removed it, because 第 1 格 is already a hard refusal at the door and a second, softer quality mark behind it earns nothing.
 	// (POST /api/lore/entries)
 	HandleWriteLoreEntryApiLoreEntriesPost(w http.ResponseWriter, r *http.Request)
 	// Read ONE lore entry in full, together with the ORIGINAL that was preserved beside it — hop ③ of the design, and the reason 「原始資訊可以保留讓我們可以重新判定」 is a mechanism rather than a sentence. `content` (第 2 格) is the compressed line that enters a boot context; `original` is the complete text of the entry as it was last written — all four cells AND the `events:` block, each named, blank ones included — so an agent that has stopped believing the compressed version has somewhere to go, and so that 第 5 格 is inside `sha256` too. `events` comes back in the order the events HAPPENED (`happened_ts`), not in the order anybody wrote them down, and 人／地／物 that nobody knew come back EMPTY rather than filled in with 「未知」. `sha256` digests that original, so a reader can tell that what it is holding is what was stored. `revisions` is a CATALOGUE — id, when, who, and how many characters that write REMOVED — and carries no text at all, because a list is how you choose a revision and choosing does not need the prose; fetch one by id from `/api/lore/entries/{entry_id}/revisions/{revision_id}`. 🔴 ADDRESSING IS ENTIRELY IN THE PATH AND THERE ARE NO QUERY PARAMETERS, deliberately: an undeclared query parameter is silently ignored on every route this station serves, so `?revision=3` would have been a way to ask for a specific revision and quietly receive the latest one. A wrong path is a 404, which is loud. 404 when no entry carries that id.
@@ -4852,7 +4813,7 @@ type ServerInterface interface {
 	// Bring a retired lore entry back into retrieval — owner only, and it is what makes retirement reversible rather than a delete. 404 when no entry carries that id; 409 when the entry is not retired, because answering `done` would confirm a belief about its state that is wrong. `reason` is optional prose recorded in the governance journal beside the revival.
 	// (POST /api/lore/entries/{entry_id}/revive)
 	HandleReviveLoreEntryApiLoreEntriesEntryIdRevivePost(w http.ResponseWriter, r *http.Request, entryId string)
-	// Retrieve lore entries — hop ② of the design: you have seen the subject directory at wake and now want what is actually filed under one of those subjects. 🔴 EVERY SELECTION CONDITION GOES IN THE REQUEST BODY AND NONE IN THE QUERY STRING, and that is load-bearing rather than stylistic: an undeclared body key is refused 422 by name, while an undeclared QUERY parameter is silently ignored on every route this station serves — so a mistyped condition on the query side would hand you a plausible answer that is not the one you asked for, and nothing would report it. All fields are optional; sending none asks for everything still retrievable. `subject` is a subject key (`repo:officraft`); an alias resolves and a merged-away subject follows to the survivor, and a key that names NOTHING comes back as `subject_resolved: false` rather than as an empty result — 「this subject has nothing on it」 and 「this subject does not exist」 are different answers and you need to tell them apart. Every entry carries a `tier`: `T1` matched every axis you asked on, `T2` (類比) reached you across an axis you did NOT ask about and is a guess rather than a rule for your case. 🔴 `tier` is meaningless without `applied.tiered_by`, which names the axes the tier was computed over — read them together. A `trust`-class entry (how far something can be relied on) is WITHHELD from the analogy tier unless you set `force_trust_analogy`, because 「X was reliable」 is a fact about X; when you do force it, the note says whose situation the entry actually describes. `trust_fell_back` on an entry means its class came from failing closed on an action name nothing recognised, not from the table — the class is a guess, and the names are listed in `unmapped_actions`. `query` is a LITERAL, case-insensitive substring over 第 1 格 (`trigger`) and 第 2 格 (`content`) and `applied.query_match` says so: it is not semantic, and two entries describing the same situation in different words will not find each other. 🔴 第 3、4、5 格 (`retire_when`, `impact` and the events), 以及 v8 的標題格 (`heading`), are NEITHER searched NOR returned on a hit — a hit carries `trigger` and `content`, and the rest is read with `get_lore_entry`. There is no parameter, table or index for them here, which is why de-duplication and conflict-finding cannot be done through this route yet.
+	// Retrieve lore entries — hop ② of the design: you have seen the subject directory at wake and now want what is actually filed under one of those subjects. 🔴 EVERY SELECTION CONDITION GOES IN THE REQUEST BODY AND NONE IN THE QUERY STRING, and that is load-bearing rather than stylistic: an undeclared body key is refused 422 by name, while an undeclared QUERY parameter is silently ignored on every route this station serves — so a mistyped condition on the query side would hand you a plausible answer that is not the one you asked for, and nothing would report it. All fields are optional; sending none asks for everything still retrievable. `subject` is a subject key (`repo:officraft`); an alias resolves and a merged-away subject follows to the survivor, and a key that names NOTHING comes back as `subject_resolved: false` rather than as an empty result — 「this subject has nothing on it」 and 「this subject does not exist」 are different answers and you need to tell them apart. 🔴 THERE IS EXACTLY ONE RETRIEVAL AXIS: `subject`. Owner ruled the 「活動」 (action) axis away on 2026-09-05 — 「只有subject 沒有 action因為後者太多可能性」 — because it was an OPEN set every writer minted into freely and no reader ever filtered on, so it never converged and was therefore not an index. The T1/T2 tier went with it: the tier was 「matched every axis you asked on」, and with one axis that can only ever answer T1 — a field with one possible value reads like a judgement while making none. ⚠️ Gone with it, said plainly so you do not go looking: the trust/method/cognitive class, `trust_fell_back`, `unmapped_actions`, `force_trust_analogy`, and the cross-subject wall that used to withhold trust-class entries from analogies. Every one of those was derived either from action names or from the analogy tier. Nothing guards that distinction today. `query` is a LITERAL, case-insensitive substring over 第 1 格 (`trigger`) and 第 2 格 (`content`) and `applied.query_match` says so: it is not semantic, and two entries describing the same situation in different words will not find each other. 🔴 第 3、4、5 格 (`retire_when`, `impact` and the events), 以及 v8 的標題格 (`heading`), are NEITHER searched NOR returned on a hit — a hit carries `trigger` and `content`, and the rest is read with `get_lore_entry`. There is no parameter, table or index for them here, which is why de-duplication and conflict-finding cannot be done through this route yet.
 	// (POST /api/lore/search)
 	HandleSearchLoreEntriesApiLoreSearchPost(w http.ResponseWriter, r *http.Request)
 	// List machines (active wardens): machine_id/display_name/online.

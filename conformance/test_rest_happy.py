@@ -1395,14 +1395,12 @@ def _check_lore_read(_ctx: HCtx, r: httpx.Response) -> None:
 
 def _check_lore_search(_ctx: HCtx, r: httpx.Response) -> None:
     d = r.json()
-    # 🔴 `applied` IS NOT OPTIONAL AND THIS IS WHERE THAT IS PINNED. The tier
-    # labels mean "matched every axis you asked on", which is only interpretable
-    # beside the axes that were asked — a tier that travelled alone would be read
-    # under the design's older meaning ("both axes intersect") and quietly mean
-    # something else.
+    # 🔴 `applied` IS NOT OPTIONAL AND THIS IS WHERE THAT IS PINNED. It is the
+    # only place a caller can tell 「this condition was applied」 apart from 「this
+    # condition was dropped on the floor」 — and a dropped condition returns
+    # memories that look exactly like the right ones.
     applied = d["applied"]
     assert applied["subject"] == _LORE_FRESH_SUBJECT, d
-    assert applied["tiered_by"] == ["subject"], d
     assert applied["limit"] == 5, d
     # The kind of matching is a VALUE, not a sentence in a document, so that the
     # day it becomes semantic the answer says so instead of quietly changing.
@@ -1411,11 +1409,15 @@ def _check_lore_search(_ctx: HCtx, r: httpx.Response) -> None:
     assert d["unresolved_subject"] == "", d
     # The subject was minted by the write row, which files one entry under it.
     assert d["total"] >= 1 and d["entries"], d
+    # 🔴 THE ACTION AXIS AND THE T1/T2 TIER ARE GONE (owner, 2026-09-05), AND
+    # THEIR ABSENCE IS PINNED RATHER THAN MERELY UN-ASSERTED. An un-asserted key
+    # and a key nobody looks at read the same to whoever edits this file next.
     first = d["entries"][0]
-    assert first["tier"] == "T1", first
-    assert first["tier_note"], first
-    assert first["trust_scope"] in {"method", "trust", "cognitive"}, first
-    assert isinstance(first["trust_fell_back"], bool), first
+    for gone in ("actions", "tier", "tier_note", "trust_scope", "trust_fell_back"):
+        assert gone not in first, f"`{gone}` is back on a search hit: {first}"
+    for gone in ("actions", "tiered_by", "force_trust_analogy"):
+        assert gone not in applied, f"`{gone}` is back on `applied`: {applied}"
+    assert "unmapped_actions" not in d, d
 
 
 def _check_lore_write(_ctx: HCtx, r: httpx.Response) -> None:
@@ -3959,9 +3961,19 @@ def test_lore_search_refuses_an_undeclared_condition(hctx: HCtx) -> None:
         "station serves; if that changed, the body-side rule above needs "
         f"re-justifying rather than deleting: {ignored.status_code} {ignored.text}"
     )
-    assert ignored.json()["applied"]["tiered_by"] == [], (
+    assert ignored.json()["applied"]["subject"] == "", (
         "the query-string condition must have been ignored, not applied"
     )
+
+    # 🔴 `actions` IS NOW ONE OF THE UNDECLARED CONDITIONS. Owner removed the
+    # 活動 axis on 2026-09-05; a caller still sending it must be refused BY NAME,
+    # because accepted-and-ignored would let it believe it filtered when it did
+    # not — and the wrong memories look exactly like the right ones.
+    removed = hctx.client.post(
+        "/api/lore/search", headers=head, json={"actions": ["build"]}
+    )
+    assert removed.status_code == 422, f"{removed.status_code} {removed.text}"
+    assert "actions" in removed.text, removed.text
 
 
 def test_set_password_after_set_conflicts(hctx: HCtx) -> None:

@@ -33,7 +33,6 @@ import (
 
 var (
 	ErrLoreSearchLimitRange   = errors.New("lore: `limit` is out of range")
-	ErrLoreSearchActionBlank  = errors.New("lore: an action filter is blank")
 	ErrLoreSearchSubjectBlank = errors.New("lore: the subject filter is blank")
 )
 
@@ -42,13 +41,17 @@ const (
 	loreSearchLimitMax     = 100
 )
 
-// Tier names. They are the wire's words, and the T2 one is load-bearing prose:
-// the design requires an analogy to SAY it is an analogy, because an entry that
-// crossed subjects and does not announce it reads exactly like a rule.
-const (
-	LoreTierMatch   = "T1"
-	LoreTierAnalogy = "T2"
-)
+// 🔴 THERE IS NO TIER HERE ANY MORE, AND THAT IS OWNER'S RULING OF 2026-09-05,
+// NOT A SIMPLIFICATION. T1/T2 was computed as `matched == askedAxes`, over the
+// two axes subject × action. With `action` gone there is exactly ONE axis, so
+// `matched < askedAxes` can never hold and T2 can never be produced: the label
+// would have been a field with one possible value, which reads like a judgement
+// and makes none.
+//
+// ⚠️ WHAT WENT WITH IT, said plainly so nobody looks for it: the CROSS-SUBJECT
+// WALL. A `trust`-class entry used to be withheld from the analogy tier, and the
+// class itself was derived from the action names. Both halves of that rule lost
+// their input. Nothing guards it today.
 
 // LoreSearch is one retrieval request. Every field is optional; the zero value
 // asks for "everything that is still retrievable", which is a legitimate and
@@ -64,42 +67,17 @@ const (
 // `context_labels` gets a 422 naming the field instead of a quietly different
 // answer.
 type LoreSearch struct {
-	SubjectKey        string
-	Actions           []string
-	Query             string
-	Limit             int
-	ForceTrustAnalogy bool
+	SubjectKey string
+	Query      string
+	Limit      int
 }
 
-// suppliedAxes reports which axes the CALLER actually asked on.
-//
-// 🔴 THIS IS WHAT TIERING IS COMPUTED OVER, AND IT IS A DEPARTURE FROM THE
-// DESIGN'S LITERAL WORDS — flagged, not hidden. The design defines T1 as "both
-// the subject axis and the action axis intersect". Read literally, the commonest
-// call there is — "what is filed under this subject", with no action named —
-// makes every result a T2 「這是猜的」, when in fact every one of them matched
-// everything the caller asked about. Tiering over the axes that were SUPPLIED
-// keeps the distinction the tier exists to draw: T2 means "this entry reached
-// you across an axis you did not ask about", which is the thing that has to
-// announce itself.
-func (s LoreSearch) suppliedAxes() (subject bool, action bool) {
-	return strings.TrimSpace(s.SubjectKey) != "", len(s.Actions) > 0
-}
-
-// LoreSearchHit is one entry as retrieval sees it: the row, both of its axes
-// spelled out, and WHY it is in the answer.
+// LoreSearchHit is one entry as retrieval sees it: the row and its ONE axis
+// spelled out.
 type LoreSearchHit struct {
 	Entry    LoreEntry
 	Subjects []string // canonical subject keys, not entity ids
-	Actions  []string
 
-	Tier     string
-	TierNote string
-
-	TrustScope    string
-	TrustFellBack bool
-
-	matchedAxes int
 	humanOrigin bool
 }
 
@@ -124,12 +102,6 @@ type LoreSearchResult struct {
 	// caller happened to type, which is the only form two callers asking the
 	// same question can be recognised as having done so.
 	SubjectEntityID string
-
-	// UnmappedActions lists action names the trust table did not recognise
-	// anywhere in this result. Non-empty means at least one entry was classed by
-	// FAILING CLOSED rather than by knowing, which changes what the T2 filter
-	// did — so it rides back with the answer instead of only reaching a log.
-	UnmappedActions []string
 }
 
 // SearchLore runs hop ②.
@@ -143,12 +115,7 @@ func (d *DAL) SearchLore(s LoreSearch) (LoreSearchResult, error) {
 	if s.Limit < 1 || s.Limit > loreSearchLimitMax {
 		return out, fmt.Errorf("%w: %d (1..%d)", ErrLoreSearchLimitRange, s.Limit, loreSearchLimitMax)
 	}
-	for _, a := range s.Actions {
-		if strings.TrimSpace(a) == "" {
-			return out, ErrLoreSearchActionBlank
-		}
-	}
-	wantSubject, wantAction := s.suppliedAxes()
+	wantSubject := strings.TrimSpace(s.SubjectKey) != ""
 	if strings.TrimSpace(s.SubjectKey) == "" && s.SubjectKey != "" {
 		return out, ErrLoreSearchSubjectBlank
 	}
@@ -188,11 +155,6 @@ func (d *DAL) SearchLore(s LoreSearch) (LoreSearchResult, error) {
 	}
 
 	needle := strings.ToLower(strings.TrimSpace(s.Query))
-	wantActions := map[string]bool{}
-	for _, a := range s.Actions {
-		wantActions[a] = true
-	}
-	unmapped := map[string]bool{}
 
 	var hits []LoreSearchHit
 	for _, e := range all {
@@ -200,11 +162,6 @@ func (d *DAL) SearchLore(s LoreSearch) (LoreSearchResult, error) {
 		if err != nil {
 			return out, err
 		}
-		actions, err := d.ListLoreActions(e.ID)
-		if err != nil {
-			return out, err
-		}
-
 		subjectHit := false
 		for _, id := range subjectIDs {
 			if id == subjectEntity {
@@ -212,83 +169,24 @@ func (d *DAL) SearchLore(s LoreSearch) (LoreSearchResult, error) {
 				break
 			}
 		}
-		actionHit := false
-		for _, a := range actions {
-			if wantActions[a] {
-				actionHit = true
-				break
-			}
-		}
-		// An entry reaches the answer when it intersects AT LEAST ONE axis the
-		// caller asked on. Requiring both would delete the analogy tier
-		// entirely; requiring neither would ignore the request.
-		if (wantSubject || wantAction) && !subjectHit && !actionHit {
+		// There is ONE axis now. An entry reaches the answer when it intersects
+		// the subject the caller asked on; asking on nothing asks for everything.
+		if wantSubject && !subjectHit {
 			continue
 		}
 		if needle != "" && !loreEntryMatchesLiteral(e, needle) {
 			continue
 		}
 
-		verdict := memoryTrustScope(actions)
-		for _, u := range verdict.Unmapped {
-			unmapped[u] = true
-		}
-
-		matched := 0
-		if wantSubject && subjectHit {
-			matched++
-		}
-		if wantAction && actionHit {
-			matched++
-		}
-		askedAxes := 0
-		if wantSubject {
-			askedAxes++
-		}
-		if wantAction {
-			askedAxes++
-		}
-
-		hit := LoreSearchHit{
-			Entry: e, Subjects: subjectKeys, Actions: actions,
-			TrustScope: string(verdict.Scope), TrustFellBack: verdict.FellBack(),
-			matchedAxes: matched,
+		hits = append(hits, LoreSearchHit{
+			Entry: e, Subjects: subjectKeys,
 			humanOrigin: strings.HasPrefix(e.Origin, "human:"),
-		}
-		switch {
-		case askedAxes == 0:
-			hit.Tier = LoreTierMatch
-			hit.TierNote = "no selection axis was supplied, so nothing here reached you across an axis you did not ask about"
-		case matched == askedAxes:
-			hit.Tier = LoreTierMatch
-			hit.TierNote = "matched every axis you asked on"
-		default:
-			hit.Tier = LoreTierAnalogy
-			hit.TierNote = "類比 — this entry reached you across an axis you did NOT ask about; it is a guess, not a rule for your case"
-		}
-
-		// 🔴 THE CROSS-SUBJECT WALL. A `trust` entry says how far something can
-		// be relied on, and that does not travel: "X was reliable" is about X.
-		// It is withheld from the analogy tier unless the caller says in as many
-		// words that it wants analogies of that class — and then the note has to
-		// say whose situation it actually describes.
-		if hit.Tier == LoreTierAnalogy && verdict.Scope == TrustScopeTrust {
-			if !s.ForceTrustAnalogy {
-				continue
-			}
-			hit.TierNote = "類比 — and it is a TRUST-class entry: this is the situation of " +
-				strings.Join(hit.Subjects, ", ") + "; yours is unknown"
-		}
-		hits = append(hits, hit)
+		})
 	}
 
 	sortLoreHits(hits)
 	out.Total = len(hits)
 	out.Hits, out.Truncated = loreHitsWithinLimit(hits, s.Limit)
-	for u := range unmapped {
-		out.UnmappedActions = append(out.UnmappedActions, u)
-	}
-	sort.Strings(out.UnmappedActions)
 	return out, nil
 }
 
@@ -322,16 +220,10 @@ func loreEntryMatchesLiteral(e LoreEntry, lowerNeedle string) bool {
 func sortLoreHits(hits []LoreSearchHit) {
 	sort.SliceStable(hits, func(i, j int) bool {
 		a, b := hits[i], hits[j]
-		if a.Tier != b.Tier {
-			return a.Tier == LoreTierMatch // T1 always ahead of T2
-		}
 		if a.humanOrigin != b.humanOrigin {
-			return a.humanOrigin // a human origin sorts ahead within its tier
+			return a.humanOrigin // a human origin sorts ahead
 		}
-		if a.matchedAxes != b.matchedAxes {
-			return a.matchedAxes > b.matchedAxes
-		}
-		an, bn := len(a.Subjects)+len(a.Actions), len(b.Subjects)+len(b.Actions)
+		an, bn := len(a.Subjects), len(b.Subjects)
 		if an != bn {
 			return an < bn // fewer of its own tags first: it is more specific
 		}
@@ -344,7 +236,7 @@ func sortLoreHits(hits []LoreSearchHit) {
 
 // loreHitsWithinLimit applies the count cap.
 //
-// 🔴 A HUMAN-ORIGIN ENTRY IS EXEMT FROM THE CAP, and that is the design's rule
+// 🔴 A HUMAN-ORIGIN ENTRY IS EXEMPT FROM THE CAP, and that is the design's rule
 // rather than a convenience: what a person told an agent is not competing with
 // what the agent worked out for itself. The exemption is applied AFTER sorting
 // so the order is unaffected by it — the cap decides who is dropped, never who

@@ -22,7 +22,6 @@ func t33Write() LoreWrite {
 		ImpactStars: 2,
 		Origin:      "agent:O-197",
 		Subjects:    []string{"repo:officraft"},
-		Actions:     []string{"read-code"},
 		ActorID:     "ow-e27260b9ed05",
 	}
 }
@@ -47,7 +46,7 @@ func t33CountEntries(t *testing.T, d *DAL) int {
 
 // The happy path, checked on every table the write is supposed to touch — not
 // on the receipt it returned. A receipt that agrees with itself proves nothing.
-func TestLoreCreateWritesEntrySubjectsActionsAndOriginal(t *testing.T) {
+func TestLoreCreateWritesEntrySubjectsAndOriginal(t *testing.T) {
 	d := newTestDAL(t)
 	t33Entity(t, d, "e-repo", "repo", "repo:officraft")
 
@@ -67,14 +66,6 @@ func TestLoreCreateWritesEntrySubjectsActionsAndOriginal(t *testing.T) {
 	if len(subjects) != 1 || subjects[0] != "e-repo" {
 		t.Fatalf("subject rows: got %v, want [e-repo]", subjects)
 	}
-	actions, err := d.ListLoreActions(got.EntryID)
-	if err != nil {
-		t.Fatalf("list actions: %v", err)
-	}
-	if len(actions) != 1 || actions[0] != "read-code" {
-		t.Fatalf("action rows: got %v, want [read-code]", actions)
-	}
-
 	// 🔴 THE ORIGINAL. This is the assertion the whole file exists for: an entry
 	// written with no revision behind it is invisible in every count and every
 	// context, and only shows up when somebody goes looking for the original.

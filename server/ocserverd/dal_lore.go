@@ -30,10 +30,11 @@ import (
 // LoreEntry mirrors the lore_entry table — the L1
 // layer, and the ONLY layer whose columns are ever folded into a boot context.
 //
-// 🔴 THERE IS NO TrustScope FIELD, DELIBERATELY. An entry's class is derived
-// from its action names by memoryTrustScope() at read time; a field here would
-// be a second copy that drifts the first time an entry's actions change. See
-// memory_trust_scope.go.
+// 🔴 THERE IS NO TrustScope FIELD, AND THERE IS NO LONGER ANYTHING TO DERIVE ONE
+// FROM. The class used to be computed at read time from the entry's action
+// names; owner ruled the action axis away on 2026-09-05, so memoryTrustScope()
+// and the whole trust/method/cognitive classification are gone rather than
+// answering the same constant for every entry. See 00084_lore_format_v8.sql.
 //
 // 🔴 Origin IS AN L1 FIELD, NOT AN L2 ONE, and that placement is load-bearing:
 // a human origin sorts ahead within its tier and is exempt from the count cap,
@@ -477,32 +478,10 @@ func (d *DAL) ListLoreSubjects(entryID string) ([]string, error) {
 		WHERE entry_id = ? ORDER BY entity_id`, entryID)
 }
 
-// PutLoreAction files an action name against an entry.
-//
-// 🔴 THE ACTION NAME IS NOT VALIDATED AGAINST A LIST, AND MUST NOT BE. The
-// action axis is an OPEN set — a writer mints a new name every time a new kind
-// of experience is recorded — so a closed vocabulary here would refuse exactly
-// the writes the mechanism exists to capture. The safety lives at READ time
-// instead: memoryTrustScope() fails closed on a name it does not recognise and
-// reports it. See memory_trust_scope.go.
-func (d *DAL) PutLoreAction(entryID, action string) error {
-	_, err := d.wdb.Exec(`
-		INSERT INTO lore_action (entry_id, action) VALUES (?, ?)
-		ON CONFLICT (entry_id, action) DO NOTHING`, entryID, action)
-	return err
-}
-
-// ListLoreActions returns one entry's action names, sorted. This is
-// what feeds memoryTrustScope.
-func (d *DAL) ListLoreActions(entryID string) ([]string, error) {
-	return d.loreStrings(`
-		SELECT action FROM lore_action
-		WHERE entry_id = ? ORDER BY action`, entryID)
-}
-
-// loreStrings is the shared single-column read for the two join
-// tables above — the same six lines twice is the shape that lets one of them
-// quietly forget rows.Err().
+// loreStrings is the shared single-column read used by the subject join table
+// above. ⚠️ It has ONE caller since the action axis was removed; it is kept
+// because inlining it would put rows.Err() back in the caller, and forgetting
+// rows.Err() is the failure this helper exists to make impossible.
 func (d *DAL) loreStrings(query string, args ...any) ([]string, error) {
 	rows, err := d.rdb.Query(query, args...)
 	if err != nil {

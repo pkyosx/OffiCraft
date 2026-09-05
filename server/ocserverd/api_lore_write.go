@@ -47,7 +47,6 @@ func writeLoreWriteError(w http.ResponseWriter, err error) {
 		errors.Is(err, ErrLoreSubjectBlank),
 		errors.Is(err, ErrLoreSubjectMalformed),
 		errors.Is(err, ErrLoreSubjectUnknownType),
-		errors.Is(err, ErrLoreActionBlank),
 		errors.Is(err, ErrLoreOriginBlank),
 		errors.Is(err, ErrLoreOriginMalformed),
 		errors.Is(err, ErrLoreOriginUnknownType),
@@ -97,9 +96,6 @@ func (s *apiServer) HandleWriteLoreEntryApiLoreEntriesPost(w http.ResponseWriter
 		Supersedes:  strOrEmpty(body.Supersedes),
 		Subjects:    body.Subjects,
 		ActorID:     currentActor(r),
-	}
-	if body.Actions != nil {
-		write.Actions = *body.Actions
 	}
 	// 🔴 第 5 格。人／地／物用 strOrEmpty 折成空字串，而空字串在這一層以下就是
 	// 「沒有這一格」——**不會**被補成「未知」。省略一個 key 跟送一個空字串在這裡

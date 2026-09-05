@@ -38,12 +38,7 @@ function summary(
     impactStars: 2,
     trigger: "整套測試回 PASS，而我正要拿這個結果去說這一包沒問題。",
     subjects: ["repo:officraft"],
-    actions: [],
     origin: "agent:Kyle",
-    tier: "T1",
-    tierNote: "",
-    trustScope: "method",
-    trustFellBack: false,
     ...over,
   };
 }
@@ -60,7 +55,6 @@ function detail(over: Partial<LoreEntryDetailView> = {}): LoreEntryDetailView {
     impact: "",
     events: [],
     subjects: ["repo:officraft"],
-    actions: [],
     origin: "agent:Kyle",
     status: "active",
     original: "trigger:\n…\n\ncontent:\n…\n\nretire_when:\n\n\nimpact:\n\n\nevents:\n\n",

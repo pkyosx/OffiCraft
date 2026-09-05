@@ -1903,11 +1903,10 @@ export function toMemberResumeSummary(
 
 /** Map one search hit → the summary view (snake→camel, nothing derived).
  *
- * Every honesty marker the wire carries is carried through: `tier` WITHOUT
- * `applied.tiered_by` means something different from what it says, and
- * `trust_fell_back` is what separates a class the table KNEW from one that was
- * guessed by failing closed. Dropping either here would leave the screen
- * unable to tell the two apart, and nothing would throw. */
+ * ⚠️ `tier` / `tier_note` / `trust_scope` / `trust_fell_back` / `actions` are
+ * NOT dropped here — they are no longer on the wire at all. Owner removed the
+ * 活動 axis on 2026-09-05 and the tier and the trust class, both derived from
+ * it, went with it. */
 export function toLoreEntrySummary(w: WireLoreSearchHit): LoreEntrySummaryView {
   return {
     entryId: w.entry_id,
@@ -1915,12 +1914,7 @@ export function toLoreEntrySummary(w: WireLoreSearchHit): LoreEntrySummaryView {
     impactStars: w.impact_stars,
     trigger: w.trigger,
     subjects: [...w.subjects],
-    actions: [...w.actions],
     origin: w.origin,
-    tier: w.tier,
-    tierNote: w.tier_note,
-    trustScope: w.trust_scope,
-    trustFellBack: w.trust_fell_back,
   };
 }
 
@@ -1941,13 +1935,10 @@ export function toLoreSearch(w: WireLoreSearchResult): LoreSearchView {
     unresolvedSubject: w.unresolved_subject,
     applied: {
       subject: w.applied.subject,
-      actions: [...w.applied.actions],
       query: w.applied.query,
       queryMatch: w.applied.query_match,
       limit: w.applied.limit,
-      tieredBy: [...w.applied.tiered_by],
     },
-    unmappedActions: [...w.unmapped_actions],
   };
 }
 
@@ -2006,7 +1997,6 @@ export function toLoreEntryDetail(w: WireLoreEntryDetail): LoreEntryDetailView {
     reviewed: w.reviewed,
     events: w.events.map(toLoreEvent),
     subjects: [...w.subjects],
-    actions: [...w.actions],
     origin: w.origin,
     status: w.status,
     original: w.original,

@@ -28,7 +28,7 @@ func loreSearchSeed(t *testing.T, url, tok, subject, content string) string {
 		"content": "`+content+`",
 		"retire_when": "等只剩一個組裝器", "impact": "T-33 slot 3",
 		"origin": "agent:O-197",
-		"subjects": ["`+subject+`"], "actions": ["build"]
+		"subjects": ["`+subject+`"]
 	}`)
 	if st != 200 {
 		t.Fatalf("seed write: %d %s", st, body)
@@ -36,9 +36,9 @@ func loreSearchSeed(t *testing.T, url, tok, subject, content string) string {
 	return loreWriteBody(t, body).EntryId
 }
 
-// The happy face, and the assertion that matters is `applied`: the tier label
-// means "matched every axis you asked on", which is only interpretable beside
-// the axes that were asked.
+// The happy face, and the assertion that matters is `applied`: it is the only
+// way a caller can tell 「this condition was applied」 from 「this condition was
+// dropped on the floor」.
 func TestLoreSearchRouteAnswersWithWhatItActuallyApplied(t *testing.T) {
 	url, _, agentTok, _, _ := loreGovStack(t)
 	id := loreSearchSeed(t, url, agentTok, "repo:officraft", "the fold happens in one place")
@@ -52,15 +52,9 @@ func TestLoreSearchRouteAnswersWithWhatItActuallyApplied(t *testing.T) {
 	if len(got.Entries) != 1 || got.Entries[0].EntryId != id {
 		t.Fatalf("entries: %+v", got.Entries)
 	}
-	if got.Entries[0].Tier != LoreTierMatch || got.Entries[0].TierNote == "" {
-		t.Fatalf("tier: %+v", got.Entries[0])
-	}
 	a := got.Applied
 	if a.Subject != "repo:officraft" || a.Limit != 5 || a.QueryMatch != loreQueryMatchLiteral {
 		t.Fatalf("applied: %+v", a)
-	}
-	if len(a.TieredBy) != 1 || a.TieredBy[0] != "subject" {
-		t.Fatalf("tiered_by: %v — the tier label is unreadable without it", a.TieredBy)
 	}
 	if !got.SubjectResolved || got.UnresolvedSubject != "" || got.Total != 1 || got.Truncated {
 		t.Fatalf("result envelope: %+v", got)
@@ -83,6 +77,20 @@ func TestLoreSearchRouteRefusesAConditionItDoesNotImplement(t *testing.T) {
 	if !strings.Contains(body, "context_labels") {
 		t.Fatalf("the refusal does not name the condition: %s", body)
 	}
+
+	// 🔴 `actions` IS NOW ONE OF THOSE CONDITIONS. Owner removed the 活動 axis on
+	// 2026-09-05; an agent (or a stale MCP descriptor) that keeps sending it must
+	// be TOLD, because the failure mode of accepting-and-ignoring it is a caller
+	// that believes it filtered and did not — and the wrong memories look exactly
+	// like the right ones.
+	st, body = rosterREST(t, url, agentTok, "POST", "/api/lore/search",
+		`{"subject":"repo:officraft","actions":["build"]}`)
+	if st != 422 {
+		t.Fatalf("a removed condition: want 422, got %d %s", st, body)
+	}
+	if !strings.Contains(body, "actions") {
+		t.Fatalf("the refusal does not name `actions`: %s", body)
+	}
 }
 
 // The counterpart, and it is here to keep the design note honest rather than to
@@ -98,7 +106,7 @@ func TestLoreSearchRouteShowsWhyTheConditionsAreNotInTheQueryString(t *testing.T
 		t.Fatalf("query-string condition: want it IGNORED with 200, got %d %s", st, body)
 	}
 	got := loreSearchBody(t, body)
-	if got.Applied.Subject != "" || len(got.Applied.TieredBy) != 0 {
+	if got.Applied.Subject != "" {
 		t.Fatalf("a query-string condition was APPLIED: %+v", got.Applied)
 	}
 }
@@ -153,37 +161,5 @@ func TestLoreSearchRouteRefusesAMachineAtTheDoor(t *testing.T) {
 	}
 	if !strings.Contains(body, "principal not permitted") {
 		t.Fatalf("refused by something other than the route floor: %s", body)
-	}
-}
-
-// An entry whose action name nothing recognises comes back classified by
-// failing closed AND SAYING SO — the mapping table's own header calls itself
-// "the implementer's reading, not a decision anybody made".
-func TestLoreSearchRouteSaysWhenAClassWasAGuess(t *testing.T) {
-	url, dal, agentTok, _, _ := loreGovStack(t)
-	st, body := rosterREST(t, url, agentTok, "POST", "/api/lore/entries", `{
-		"heading": "h", "trigger": "x", "content": "y", "impact": "T-33 slot 3",
-		"origin": "agent:O-197",
-		"subjects": ["repo:officraft"], "actions": ["zzz-not-in-the-table"]
-	}`)
-	if st != 200 {
-		t.Fatalf("seed: %d %s", st, body)
-	}
-	_ = dal
-
-	st, body = rosterREST(t, url, agentTok, "POST", "/api/lore/search",
-		`{"subject":"repo:officraft"}`)
-	if st != 200 {
-		t.Fatalf("search: %d %s", st, body)
-	}
-	got := loreSearchBody(t, body)
-	if len(got.Entries) != 1 || !got.Entries[0].TrustFellBack {
-		t.Fatalf("a guessed class did not announce itself: %+v", got.Entries)
-	}
-	if got.Entries[0].TrustScope != string(TrustScopeTrust) {
-		t.Fatalf("fail-closed class is %q, want the strictest", got.Entries[0].TrustScope)
-	}
-	if len(got.UnmappedActions) != 1 || got.UnmappedActions[0] != "zzz-not-in-the-table" {
-		t.Fatalf("the unrecognised name is not reported: %v", got.UnmappedActions)
 	}
 }
