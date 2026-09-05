@@ -249,7 +249,7 @@ func TestBuildWorkerBootContext_RuntimeGuidanceIsTheSeedsOwnAndItIsLast(t *testi
 // TestWorkerBootContextIsTheStaffFoldMinusThePersona — T-4595, the whole ruling
 // in one equality.
 //
-// 「外包的 boot context ＝ 正職的 boot context 扣掉第 3 格（角色說明→判準→長期筆記）。
+// 「外包的 boot context ＝ 正職的 boot context 扣掉`retire_when`（角色說明→判準→長期筆記）。
 // 一個字都不為外包另寫。」
 //
 // 🔴 T-33 MOVED THE LINE OF THE SUBTRACTION, AND ONLY THE LINE. 外包的 slot 3
@@ -371,7 +371,7 @@ func TestWorkerBootContextIsTheStaffFoldMinusThePersona(t *testing.T) {
 	if worker != want {
 		t.Errorf("outsource boot context is not the staff fold minus the role documents\n"+
 			"got  %d bytes\nwant %d bytes\n"+
-			"外包的 boot context ＝ 正職的扣掉第 3 格裡的角色專屬文件（角色說明→判準→長期筆記），"+
+			"外包的 boot context ＝ 正職的扣掉`retire_when`裡的角色專屬文件（角色說明→判準→長期筆記），"+
 			"記憶那一段兩邊都保留，一個字都不為外包另寫（T-4595 ＋ T-33）\n"+
 			"⚠️ 這顆守的是【組裝結構】，不是 seed 的文字內容：want 由正職那份實際產出"+
 			"切出來，所以改 seed 會讓兩邊一起移動、這顆不會紅。",

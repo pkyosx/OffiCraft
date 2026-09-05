@@ -13,9 +13,9 @@ package main
 // bytes that would be written, so there is no intermediate version for the two
 // to disagree about.
 //
-// 🔴 提案帶的是**完整的新版本，包含第 5 格的整份事件清單**（負責人 2026-09-03
+// 🔴 提案帶的是**完整的新版本，包含`events`的整份事件清單**（負責人 2026-09-03
 // 的裁定，卡 rc-e5c34500face：「改得動 —— 提案就該帶完整的新版本，包含所有
-// 事件」）。他推翻的講法是「第 5 格是機器串出來的事實，提案只是意見，意見不該
+// 事件」）。他推翻的講法是「`events`是機器串出來的事實，提案只是意見，意見不該
 // 改得動事實」，而那個講法的洞是：**機器串錯的時候，就沒有任何一條路修得了它**。
 // 「重跑一次」不成立 —— 沒有經過 API 的動作蓋不到記錄者，那些格只能空著，所以
 // 重跑會把人工補上的東西一起沖掉。⇒ 提案改得動事件，才是唯一修得了的路。
@@ -69,14 +69,14 @@ var (
 	ErrLoreProposalEvidence     = errors.New("lore: `evidence` is blank — say what you actually saw, not what you think")
 	ErrLoreProposalBaseBlank    = errors.New("lore: `base_sha256` is blank — a proposal has to name the version it was written against")
 	ErrLoreProposalRemoveBody   = errors.New("lore: a `remove` proposal carries body fields — a removal proposes no new version, and a version nobody will ever write is exactly the description/result gap this shape exists to remove")
-	ErrLoreProposalRemoveEvents = errors.New("lore: a `remove` proposal carries events — a removal proposes no new version at all, 第 5 格 included")
+	ErrLoreProposalRemoveEvents = errors.New("lore: a `remove` proposal carries events — a removal proposes no new version at all, `events` included")
 	// 🔴 「沒送 events」跟「送了一份空的 events」被分開，而且前者是拒絕。
-	// 兩者長得一樣的話，一次漏填就會在審核者完全看不見的地方把第 5 格清空 ——
+	// 兩者長得一樣的話，一次漏填就會在審核者完全看不見的地方把`events`清空 ——
 	// 而那正是這張表存在要消滅的描述／結果落差。空陣列是一個看得見的主張
 	//（「這條條目不該有事件」），漏填不是主張，是漏填。
 	ErrLoreProposalEventsMissing = errors.New(
 		"lore: an `update` proposal must carry `events` — 提案帶的是完整的新版本，" +
-			"第 5 格也在裡面。要主張「這條不該有事件」請明白送一個空陣列 `[]`；" +
+			"`events`也在裡面。要主張「這條不該有事件」請明白送一個空陣列 `[]`；" +
 			"省略它會讓一次漏填跟一次刪除長得一模一樣")
 	ErrLoreProposalNotUpdate = errors.New(
 		"lore: only an `update` proposal carries a version to apply — the act a `remove` asks for is retire_lore_entry")
@@ -115,7 +115,7 @@ type LoreProposal struct {
 	Fault       string
 	Evidence    string
 
-	// 🔴 提案帶的是**完整的新版本**：三格 + 第 5 格的整份事件清單。
+	// 🔴 提案帶的是**完整的新版本**：三格 + `events`的整份事件清單。
 	// 負責人 2026-09-03 裁定（卡 rc-e5c34500face）：「改得動 —— 提案就該帶完整的
 	// 新版本，包含所有事件」。
 	// ⚠️ 這裡以前是四格，多的那一格是 `Trigger`；`rc-9002654dd81c`（2026-09-06）
@@ -140,15 +140,15 @@ type LoreProposal struct {
 	Heading     string
 	ImpactStars int
 
-	// Events 是提案主張的**整份**第 5 格，不是增量。核可時 lore_event 會被整批
+	// Events 是提案主張的**整份**`events`，不是增量。核可時 lore_event 會被整批
 	// 換成這一份。
 	//
 	// 🔴 nil 跟 []LoreEvent{} 在這裡是**兩件不同的事**，而且必須是：
-	//   nil            — 提案沒提到第 5 格 ⇒ 在 `update` 上是拒絕
+	//   nil            — 提案沒提到`events` ⇒ 在 `update` 上是拒絕
 	//                    （ErrLoreProposalEventsMissing）
 	//   []LoreEvent{}  — 提案主張「這條條目不該有事件」⇒ 合法，而且審核者在
 	//                    events_removed 裡看得到它要刪掉哪幾筆
-	// 把兩者折成同一件事，等於讓一次漏填在沒有人主張過的情況下清空第 5 格。
+	// 把兩者折成同一件事，等於讓一次漏填在沒有人主張過的情況下清空`events`。
 	Events []LoreEvent
 
 	ActorID string
@@ -184,7 +184,7 @@ type LoreProposalRow struct {
 	ActorID        string
 	CreatedTS      float64
 
-	// Events 是這份提案主張的**整份**第 5 格，讀回來的順序是事情發生的順序。
+	// Events 是這份提案主張的**整份**`events`，讀回來的順序是事情發生的順序。
 	// 一份 `remove` 提案沒有事件，因為它沒有主張任何版本。
 	Events []LoreEvent
 
@@ -221,7 +221,7 @@ type LoreProposalList struct {
 	CurrentRevisionID int64
 	CurrentSHA256     string
 
-	// CurrentEvents 是條目**現在**的第 5 格，跟 CurrentSHA256 同一個理由旅行在
+	// CurrentEvents 是條目**現在**的`events`，跟 CurrentSHA256 同一個理由旅行在
 	// 一起：每一列的 EventsAdded / EventsRemoved 都是一次比較，而一次比較送出來
 	// 卻不附上被比較的那一邊，讀的人只能相信它。
 	CurrentEvents []LoreEvent
@@ -230,7 +230,7 @@ type LoreProposalList struct {
 }
 
 // loreProposalEntry 把一份提案的本體幾格包成 LoreEntry，好讓**共用的**渲染器摘要
-// 它。第 5 格不在 LoreEntry 裡（見 dal_lore.go），它是 loreRevisionBody 的第二
+// 它。`events`不在 LoreEntry 裡（見 dal_lore.go），它是 loreRevisionBody 的第二
 // 個參數，呼叫處傳的是提案自己帶的那一份。
 //
 // 🔴 ONE RENDERER, AND THAT IS LOAD-BEARING. loreRevisionBody is what the L0
@@ -294,9 +294,9 @@ func loreProposalShapeError(p LoreProposal) error {
 		if p.ImpactStars != 0 {
 			return ErrLoreProposalRemoveBody
 		}
-		// 第 5 格同理。一份 `remove` 帶著事件，會讓審核者看到一份沒有任何核可
-		// 路徑會寫下去的第 5 格。⚠️ 這裡拒絕的是**非空**，不是 nil：`remove`
-		// 沒有「必須明白說第 5 格」的問題，因為它整份版本都不主張。
+		// `events`同理。一份 `remove` 帶著事件，會讓審核者看到一份沒有任何核可
+		// 路徑會寫下去的`events`。⚠️ 這裡拒絕的是**非空**，不是 nil：`remove`
+		// 沒有「必須明白說`events`」的問題，因為它整份版本都不主張。
 		if len(p.Events) > 0 {
 			return ErrLoreProposalRemoveEvents
 		}
@@ -318,9 +318,9 @@ func loreProposalShapeError(p LoreProposal) error {
 	if err := loreImpactStarsError(p.ImpactStars); err != nil {
 		return err
 	}
-	// 🔴 第 5 格在 `update` 上是**必填**，而空陣列就滿足它。理由跟上面那兩格
+	// 🔴 `events`在 `update` 上是**必填**，而空陣列就滿足它。理由跟上面那兩格
 	// 「空白就拒絕」不一樣：這一格不是不能空，是不能**沒說**。提案帶的是完整的
-	// 新版本，核可時 lore_event 會被整批換成它 —— 所以一份沒說第 5 格的提案，
+	// 新版本，核可時 lore_event 會被整批換成它 —— 所以一份沒說`events`的提案，
 	// 落地時等於在沒有人主張過的情況下清空事件。空陣列是主張，nil 不是。
 	if p.Events == nil {
 		return ErrLoreProposalEventsMissing
@@ -377,12 +377,12 @@ func (d *DAL) CreateLoreProposal(p LoreProposal, nowTS float64) (LoreProposalRes
 	var body, sum string
 	if p.Kind == "update" {
 		// 🔴 用**提案自己帶的那份事件清單**渲染，不是條目目前的。
-		// loreRevisionBody 把第 5 格也算進 sha256（見 dal_lore_write.go），所以
+		// loreRevisionBody 把`events`也算進 sha256（見 dal_lore_write.go），所以
 		// 審核者比對的那串位元組，就是核可時會落地的那一份 —— 本體幾格與事件都是。
 		// 負責人 2026-09-03 裁定（卡 rc-e5c34500face）：「改得動 —— 提案就該帶
 		// 完整的新版本，包含所有事件」。
 		//
-		// 🔴 他推翻的講法是「第 5 格是機器串出來的事實，意見不該改得動事實」，
+		// 🔴 他推翻的講法是「`events`是機器串出來的事實，意見不該改得動事實」，
 		// 而那個講法的洞是：**機器串錯的時候沒有任何一條路修得了它**。重跑會把
 		// 人工補上的東西一起沖掉（沒經過 API 的動作蓋不到記錄者，那些格只能空著），
 		// 所以提案改得動事件，是唯一修得了的路。
@@ -391,7 +391,7 @@ func (d *DAL) CreateLoreProposal(p LoreProposal, nowTS float64) (LoreProposalRes
 		// The digests are comparable because ONE renderer produced both — see
 		// loreProposalEntry. A proposal that changes nothing is refused rather
 		// than stored: it costs a reviewer a read and can end in no change.
-		// ⚠️ 「什麼都沒改」現在也把第 5 格算進去：只動了事件、本體幾格一字未改的提案
+		// ⚠️ 「什麼都沒改」現在也把`events`算進去：只動了事件、本體幾格一字未改的提案
 		// 會摘要成不同的一串，所以它不會被這一行誤殺。
 		if sum == base.SHA256 {
 			return out, ErrLoreProposalNoChange
@@ -400,7 +400,7 @@ func (d *DAL) CreateLoreProposal(p LoreProposal, nowTS float64) (LoreProposalRes
 
 	out.ProposalID = "lp-" + newHexID(12)
 	// 🔴 提案本體與它的事件是**一個 transaction**。分開寫的失敗模式是一份存在、
-	// 讀得到、但第 5 格只有一半的提案 —— 而那在審核者的畫面上跟一份完整的提案
+	// 讀得到、但`events`只有一半的提案 —— 而那在審核者的畫面上跟一份完整的提案
 	// 長得一模一樣，正是這整張票在治的病。
 	err = d.inTx(func(tx *sql.Tx) error {
 		if _, err := tx.Exec(`
@@ -462,7 +462,7 @@ func (d *DAL) ListLoreProposals(entryID string) (LoreProposalList, error) {
 	}
 	out.CurrentRevisionID = current.ID
 	out.CurrentSHA256 = current.SHA256
-	// 現況的第 5 格。每一列的 EventsAdded / EventsRemoved 都是拿它比出來的，所以
+	// 現況的`events`。每一列的 EventsAdded / EventsRemoved 都是拿它比出來的，所以
 	// 它跟 CurrentSHA256 一起旅行 —— 讀的人要重算得出來，才不必相信。
 	currentEvents, err := d.ListLoreEvents(entryID)
 	if err != nil {
@@ -512,7 +512,7 @@ func (d *DAL) ListLoreProposals(entryID string) (LoreProposalList, error) {
 		}
 		out.Proposals[i].Events = evs
 		// 一份 `remove` 不主張任何版本，所以它的差異是空的 —— 不是「刪掉全部
-		// 事件」。它要求的是 retire，而 retire 不動第 5 格。
+		// 事件」。它要求的是 retire，而 retire 不動`events`。
 		if out.Proposals[i].Kind != "update" {
 			out.Proposals[i].EventsAdded = []LoreEvent{}
 			out.Proposals[i].EventsRemoved = []LoreEvent{}
@@ -561,7 +561,7 @@ func loreEventKeySet(evs []LoreEvent) map[string]bool {
 	return out
 }
 
-// listLoreProposalEvents 讀回一份提案主張的整份第 5 格，**按事情發生的順序**
+// listLoreProposalEvents 讀回一份提案主張的整份`events`，**按事情發生的順序**
 // （happened_ts，seq 只是同一刻的 tie-break）—— 跟 ListLoreEvents 同一條規則，
 // 因為審核者是把兩份清單擺在一起看的，兩邊用不同的順序就會逼他自己排。
 func (d *DAL) listLoreProposalEvents(proposalID string) ([]LoreEvent, error) {
@@ -740,7 +740,7 @@ func (d *DAL) ApplyLoreProposal(proposalID, actorID string, nowTS float64) (Lore
 		}
 		// 🔴 整批換掉：先清空再寫入提案帶的那一份。這是這個函式的重點，其他每
 		// 一行都是它周圍的安排。刪掉的那幾筆事件不是消失無蹤 —— 舊的 L0 原文
-		// （lore_revision）把它們原封不動留著，那正是 loreRevisionBody 把第 5 格
+		// （lore_revision）把它們原封不動留著，那正是 loreRevisionBody 把`events`
 		// 算進 body 的理由。
 		if _, err := tx.Exec(`DELETE FROM lore_event WHERE entry_id = ?`, p.EntryID); err != nil {
 			return err

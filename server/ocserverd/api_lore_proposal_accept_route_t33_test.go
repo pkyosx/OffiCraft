@@ -74,7 +74,7 @@ func loreAcceptStack(t *testing.T) (srvURL string, dal *DAL, agentTok, adminTok,
 }
 
 // loreAcceptUpdateBody is a WHOLE new version, as an `update` proposal must be:
-// 四格 plus the entire 第 5 格. `marker` distinguishes one seed from another so a
+// 四格 plus the entire `events`. `marker` distinguishes one seed from another so a
 // test can say WHICH version landed rather than that something did.
 func loreAcceptUpdateBody(base, marker string) string {
 	return `{
@@ -243,7 +243,7 @@ func TestLoreProposalAcceptRouteRefusesAProposalFiledAgainstAnotherEntry(t *test
 }
 
 // TestLoreProposalAcceptRouteWritesTheProposedVersionSignedByTheAccepter is what
-// 「核可」 actually means, on the wire: the entry becomes the proposal, 第 5 格 is
+// 「核可」 actually means, on the wire: the entry becomes the proposal, `events` is
 // replaced WHOLESALE rather than merged, and the one record of the verdict — the
 // new revision's actor_id — names the ACCEPTER.
 func TestLoreProposalAcceptRouteWritesTheProposedVersionSignedByTheAccepter(t *testing.T) {
@@ -291,10 +291,10 @@ func TestLoreProposalAcceptRouteWritesTheProposedVersionSignedByTheAccepter(t *t
 		t.Fatalf("the read route and the acceptance disagree about the digest: %q vs %q",
 			after.Sha256, applied.Sha256)
 	}
-	// 第 5 格 整批換掉：the entry's own seeded event is GONE, not merged with.
+	// `events` 整批換掉：the entry's own seeded event is GONE, not merged with.
 	if len(after.Events) != 1 ||
 		after.Events[0].What != "the fold happens in lore_fold.go was proposed" {
-		t.Fatalf("第 5 格 was merged rather than replaced wholesale: %+v", after.Events)
+		t.Fatalf("`events` was merged rather than replaced wholesale: %+v", after.Events)
 	}
 	// 🔴 THE ACCEPTER SIGNS IT. A revision carrying the PROPOSER's id would mean
 	// the only record this station keeps of a verdict names the wrong person —

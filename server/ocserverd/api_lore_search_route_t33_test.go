@@ -26,6 +26,7 @@ func loreSearchSeed(t *testing.T, url, tok, subject, content string) string {
 		"heading": "something became visible that had not been",
 		"content": "`+content+`",
 		"retire_when": "等只剩一個組裝器", "impact": "T-33 slot 3",
+		"impact_stars": 2,
 		"origin": "agent:O-197",
 		"subjects": ["`+subject+`"]
 	}`)

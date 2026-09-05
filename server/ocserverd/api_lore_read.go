@@ -72,7 +72,7 @@ func (s *apiServer) HandleGetLoreEntryApiLoreEntriesEntryIdGet(
 	if subjects == nil {
 		subjects = []string{}
 	}
-	// 🔴 第 5 格是一次**明確的**讀取，不是 GetLoreEntry 順手帶回來的。LoreEntry
+	// 🔴 `events`是一次**明確的**讀取，不是 GetLoreEntry 順手帶回來的。LoreEntry
 	// 裡刻意沒有 Events 欄位（見 dal_lore.go），所以每一個想要事件的呼叫者都必須
 	// 自己說一次要——包括這一條。
 	events, err := s.dal.ListLoreEvents(entryID)

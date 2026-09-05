@@ -20,7 +20,7 @@ import (
 // cannot accidentally pass.
 //
 // 🔴 Events IS AN EMPTY SLICE, NOT nil, AND THAT IS NOT COSMETIC. nil means
-// 「這份提案沒說第 5 格」 and is refused; an empty slice is the claim 「這條條目
+// 「這份提案沒說`events`」 and is refused; an empty slice is the claim 「這條條目
 // 不該有事件」. The default seed (t33Write) writes an entry with no events, so
 // this baseline proposes exactly the fifth cell that is already there.
 func t33Propose(entryID string) LoreProposal {
@@ -28,8 +28,8 @@ func t33Propose(entryID string) LoreProposal {
 		Events:  []LoreEvent{},
 		EntryID: entryID,
 		Kind:    "update",
-		// 🔴 標題與第 1 格刻意不是同一句話，跟 t33Write() 同樣的理由：v8 的標題
-		// 寫「發生了什麼」，第 1 格寫「我要做 X」。寫成同一句，一個把兩格接反的
+		// 🔴 標題與`heading`刻意不是同一句話，跟 t33Write() 同樣的理由：v8 的標題
+		// 寫「發生了什麼」，`heading`寫「我要做 X」。寫成同一句，一個把兩格接反的
 		// 錯誤就沒有任何測試看得見。
 		// ⚠️ 它也刻意跟 t33Write() 的標題**不一樣**：核可之後條目上的標題必須
 		// 變成這一句，而如果兩邊一樣，「核可有沒有寫回標題」就無從分辨。
@@ -191,7 +191,7 @@ func TestLoreProposalStoresTheWholeVersionUnderTheSharedRenderer(t *testing.T) {
 	// of this test did, and a mutant that blanked a cell in the mapping walked
 	// straight past it.
 	//
-	// 🔴 第二個參數是條目**目前**的事件，不是 nil：提案帶不動第 5 格，語意是
+	// 🔴 第二個參數是條目**目前**的事件，不是 nil：提案帶不動`events`，語意是
 	// 「事件維持現狀」。用 nil 建期望值會讓「提案悄悄清空事件」變成通過的行為。
 	seededEvents, evErr := d.ListLoreEvents(entryID)
 	if evErr != nil {
@@ -423,7 +423,7 @@ func TestLoreProposalListsNewestFirstWhenIdOrderContradictsTime(t *testing.T) {
 	}
 }
 
-// ── 第 5 格：提案帶得動它，而且核可時整批換掉 ────────────────────────────────
+// ── `events`：提案帶得動它，而且核可時整批換掉 ────────────────────────────────
 //
 // 🔴 這一段取代了先前那支釘住暫定行為的測試
 // （TestLoreProposalKeepsTheEntrysEventsRatherThanSilentlyClearingThem）。那支
@@ -474,7 +474,7 @@ func TestLoreProposalBodyCarriesTheProposalsOwnEventsNotTheEntrysCurrentOnes(t *
 	if loreSHA256(body) == loreSHA256(loreRevisionBody(LoreEntry{
 		Heading: p.Heading, Content: p.Content, RetireWhen: p.RetireWhen, Impact: p.Impact,
 	}, nil)) {
-		t.Fatal("帶事件與不帶事件渲染出同一串 —— 第 5 格不在 digest 裡")
+		t.Fatal("帶事件與不帶事件渲染出同一串 —— `events`不在 digest 裡")
 	}
 	// 讀回來的那一份就是送進去的那一份。
 	if got := list.Proposals[0].Events; len(got) != 1 || got[0].What != "Kyle 把畫面接回真後端" {
@@ -482,10 +482,10 @@ func TestLoreProposalBodyCarriesTheProposalsOwnEventsNotTheEntrysCurrentOnes(t *
 	}
 }
 
-// 🔴 只動第 5 格、四格一字未改的提案，**不是**「什麼都沒改」。
+// 🔴 只動`events`、四格一字未改的提案，**不是**「什麼都沒改」。
 //
 // ErrLoreProposalNoChange 比的是摘要，而摘要含事件，所以這種提案會活下來。它是
-// 這整條路存在的理由：機器串錯了一筆事件，四格是對的，唯一要改的就是第 5 格。
+// 這整條路存在的理由：機器串錯了一筆事件，四格是對的，唯一要改的就是`events`。
 func TestLoreProposalThatOnlyMovesEventsIsNotNoChange(t *testing.T) {
 	d := newTestDAL(t)
 	t33Entity(t, d, "e-repo", "repo", "repo:officraft")
@@ -499,7 +499,7 @@ func TestLoreProposalThatOnlyMovesEventsIsNotNoChange(t *testing.T) {
 	// 四格原封不動 —— 用寫入時的那一份。
 	p := LoreProposal{
 		EntryID: seeded.EntryID, Kind: "update", BaseSHA256: seeded.SHA256,
-		Encountered: "在讀這條的時候發現第 5 格串錯了", Fault: "never-true",
+		Encountered: "在讀這條的時候發現`events`串錯了", Fault: "never-true",
 		Evidence: "那台機器當天根本沒有被碰過",
 		Heading:  w.Heading, Content: w.Content,
 		RetireWhen: w.RetireWhen, Impact: w.Impact, ImpactStars: w.ImpactStars,
@@ -507,7 +507,7 @@ func TestLoreProposalThatOnlyMovesEventsIsNotNoChange(t *testing.T) {
 		ActorID: "ow-e27260b9ed05",
 	}
 	if _, err := d.CreateLoreProposal(p, 2000); err != nil {
-		t.Fatalf("一份只改第 5 格的提案被當成「什麼都沒改」擋掉了 —— "+
+		t.Fatalf("一份只改`events`的提案被當成「什麼都沒改」擋掉了 —— "+
 			"機器串錯事件就沒有任何一條路修得了: %v", err)
 	}
 
@@ -520,7 +520,7 @@ func TestLoreProposalThatOnlyMovesEventsIsNotNoChange(t *testing.T) {
 	}
 }
 
-// 🔴 一份 `update` 提案**沒說**第 5 格是拒絕，送一個空陣列是合法的主張。
+// 🔴 一份 `update` 提案**沒說**`events`是拒絕，送一個空陣列是合法的主張。
 //
 // 兩者長得一樣的話，一次漏填就會在審核者完全看不見的地方清空事件 —— 而核可時
 // 事件是整批換掉的，所以那次漏填會真的落地。
@@ -532,7 +532,7 @@ func TestLoreProposalUpdateMustSayWhatTheFifthCellShouldBe(t *testing.T) {
 	missing.BaseSHA256 = sha
 	missing.Events = nil
 	if _, err := d.CreateLoreProposal(missing, 2000); !errors.Is(err, ErrLoreProposalEventsMissing) {
-		t.Fatalf("一份沒提到第 5 格的 update 被收下了: %v", err)
+		t.Fatalf("一份沒提到`events`的 update 被收下了: %v", err)
 	}
 
 	// 空陣列是主張，不是漏填 —— 它必須被收下。沒有這一半，上面那條就會被一個
@@ -545,7 +545,7 @@ func TestLoreProposalUpdateMustSayWhatTheFifthCellShouldBe(t *testing.T) {
 	}
 }
 
-// 一份 `remove` 不主張任何版本，第 5 格也一樣。
+// 一份 `remove` 不主張任何版本，`events`也一樣。
 func TestLoreProposalRemoveCarriesNoEvents(t *testing.T) {
 	d := newTestDAL(t)
 	entryID, sha := t33SeedForProposal(t, d)
@@ -680,7 +680,7 @@ func TestApplyLoreProposalReplacesTheEntrysEventsWholesale(t *testing.T) {
 		t.Fatalf("events: %v", err)
 	}
 	if len(events) != 2 {
-		t.Fatalf("核可後第 5 格不是提案帶的那一份: %+v", events)
+		t.Fatalf("核可後`events`不是提案帶的那一份: %+v", events)
 	}
 	for _, ev := range events {
 		if ev.What == wrong.What {
@@ -708,7 +708,7 @@ func TestApplyLoreProposalReplacesTheEntrysEventsWholesale(t *testing.T) {
 		t.Fatalf("落地的那一版不是審核者看到的那一版: rev=%+v filed=%+v", rev, filed)
 	}
 	// 🔴 被刪掉的那一筆沒有消失無蹤：舊的 L0 原文原封不動留著它。這是
-	// loreRevisionBody 把第 5 格算進 body 的理由，也是「整批換掉」可以被接受的
+	// loreRevisionBody 把`events`算進 body 的理由，也是「整批換掉」可以被接受的
 	// 前提 —— 換掉的是現況，不是紀錄。
 	old, err := d.GetLoreRevision(seeded.EntryID, seeded.RevisionID)
 	if err != nil || old == nil {

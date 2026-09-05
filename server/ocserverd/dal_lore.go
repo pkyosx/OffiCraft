@@ -5,7 +5,7 @@ package main
 // explicit per-table methods, no generic repository.
 //
 // 🔴 SCOPE: THIS IS THE L1 SEAM, THE TWO JOIN TABLES AND THE EVENTS TABLE
-// (第 5 格) THAT HANGS OFF L1, NOTHING MORE. The
+// (`events`) THAT HANGS OFF L1, NOTHING MORE. The
 // revision journal (L0), the governance counters (L2), the recall log, feedback
 // and governance events all have tables in 00063 and NO functions here yet —
 // they belong to the rounds that write the paths that use them. An empty seam is
@@ -99,8 +99,8 @@ type LoreEntry struct {
 
 // 🔴 這裡曾經有一個 IsDegraded()，它被移除了，而它是被**裁定**掉的，不是被清掉的。
 //
-// 負責人 2026-09-03 在卡 rc-1e32c690018d 裁定「拿掉這個標記 —— 第 1 格的硬擋就夠
-// 了，不要第二層」。理由是入口已經有門：第 1 格填不出來的條目**根本寫不進來**
+// 負責人 2026-09-03 在卡 rc-1e32c690018d 裁定「拿掉這個標記 —— `heading`的硬擋就夠
+// 了，不要第二層」。理由是入口已經有門：`heading`填不出來的條目**根本寫不進來**
 // （當時是 loreTriggerError 擋在 PutLoreEntry 這個原始 upsert 縫上；trigger 併進
 // heading 之後，站在同一個縫上的是 loreHeadingError），所以再掛一個「寫進來了但
 // 品質可疑」的軟標記，是在一道硬擋後面再放一道軟擋。
@@ -200,7 +200,9 @@ const loreHeadingMaxRunes = 140
 // 成一個 driver 錯誤，上層只能把它報成 500，而送 star=7 的人是可以自己修好的。
 // 這一層存在的理由就是讓那個回覆是 422 而且指名是哪一格。
 //
-// 🔴 0 是合法的，而且它的意思是「還沒判」，不是「最輕」。
+// 🔴 0 在**這一道**是合法的，而它的意思是「還沒判」，不是「最輕」。存量列的預設
+// 值只能是 0，而 PutLoreEntry 要放得回那些列 —— 一道連既有資料都放不回去的門，
+// 會讓「讀得到但改不動」變成一種沒有人預期的狀態。**新條目那道門在下面。**
 func loreImpactStarsError(stars int) error {
 	if stars < 0 || stars > 3 {
 		return fmt.Errorf("%w: impact_stars=%d", ErrLoreImpactStarsRange, stars)
@@ -208,7 +210,27 @@ func loreImpactStarsError(stars int) error {
 	return nil
 }
 
-// LoreEvent 是第 5 格的一列：一條條目底下的一次事件。時／事／人／地／物。
+// loreImpactStarsRequired 是**新條目**那一道：0..3 之外照樣擋，而且 0 也擋。
+//
+// 🔴 負責人 2026-09-06 逐字：「因為我們一定會有 impact 所以不會是 0」「不允許給
+// 0」。⇒ 一條值得被寫下來的傳承一定有它的下場，所以「還沒判」不是一個新條目送得
+// 出去的答案。
+//
+// 🔴 為什麼是兩道門而不是把 loreImpactStarsError 改嚴：0 在**存量**列上是真的、
+// 而且必須讀得回來也放得回去（v8 之前寫下的條目全部是 0）。把 0 一路擋到底，等於
+// 宣告那些列非法，而它們就在資料庫裡。這道門只擋**新的**，不回頭改任何一列 ——
+// 跟 loreHeadingError 上面那句「既有資料一律不動」是同一個理由。
+func loreImpactStarsRequired(stars int) error {
+	if err := loreImpactStarsError(stars); err != nil {
+		return err
+	}
+	if stars == 0 {
+		return fmt.Errorf("%w: impact_stars=0", ErrLoreImpactStarsUnjudged)
+	}
+	return nil
+}
+
+// LoreEvent 是`events`的一列：一條條目底下的一次事件。時／事／人／地／物。
 //
 // 🔴 人／地／物空著是合法的，而且「空著」必須看得出來。這三格是空字串，
 // **不要**用「未知」「n/a」「unknown」之類的字串把它填滿：「查不出是誰」跟
@@ -236,7 +258,7 @@ type LoreEvent struct {
 //
 // 🔴 時與事必填；人／地／物只在**非空**時才檢查前綴。對空字串做前綴檢查就等於
 // 把選填變成必填，而那會把寫入者逼去編一個「人」出來——編出來的跟查出來的長得
-// 一模一樣，這正是第 5 格最不能出的錯。
+// 一模一樣，這正是`events`最不能出的錯。
 //
 // 🔴 前綴的值域讀 entity_type，跟 origin／subject 同一份清單。Go 裡再抄一份會在
 // 第一個新型別被核准的那天悄悄跟資料庫不一致。
@@ -273,7 +295,7 @@ func (d *DAL) loreEventError(ev LoreEvent) error {
 
 // ListLoreEvents 回傳一條條目的事件，**按事情發生的順序**（happened_ts，id 只是
 // 同一刻的 tie-break）。不是按誰先被寫進來的順序：補記的事件排在它真正發生的
-// 位置，否則第 5 格讀起來會是一份寫作順序的紀錄而不是一份事情的紀錄。
+// 位置，否則`events`讀起來會是一份寫作順序的紀錄而不是一份事情的紀錄。
 func (d *DAL) ListLoreEvents(entryID string) ([]LoreEvent, error) {
 	rows, err := d.rdb.Query(`
 		SELECT id, entry_id, happened_ts, what, actor, place, object
@@ -345,7 +367,12 @@ var (
 	ErrLoreHeadingTooLong = errors.New(
 		"lore: `heading` is over the cap — 標題（heading）這一格太長了")
 	ErrLoreImpactStarsRange = errors.New(
-		"lore: `impact_stars` is outside 0..3 — 0=還沒判、1=沒弄壞任何東西、2=弄壞的只有你動的那個、3=弄壞的包含你沒動的")
+		"lore: `impact_stars` is outside 0..3 — 1=做白工，原本要完成的目的沒達到、2=弄壞的只有你動的那個、3=把其他東西弄壞了（0 只存在於 v8 之前的存量條目，意思是還沒有人判過）")
+	// 🔴 它跟 ErrLoreImpactStarsRange 是**兩個**錯誤，因為寫入者要做的事不一樣：
+	// 一個是把 7 改成 1..3，一個是去判一件他還沒判的事。共用一句訊息會讓後者
+	// 讀起來像「你打錯數字了」，而他根本沒打。
+	ErrLoreImpactStarsUnjudged = errors.New(
+		"lore: `impact_stars` is 0 — 星等是必填的，而 0 是「還沒判」不是一個等級：1=做白工，原本要完成的目的沒達到、2=弄壞的只有你動的那個、3=把其他東西弄壞了。三級不是累加：把自己動的那個修好了卻炸了其他人，那是 3 不是 2")
 	ErrLoreEventTimeMissing = errors.New(
 		"lore: an event has no `happened_ts` — 事件發生的時間（不是寫下的時間）")
 	ErrLoreEventWhatBlank = errors.New(

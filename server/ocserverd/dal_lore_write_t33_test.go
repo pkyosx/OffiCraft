@@ -137,12 +137,12 @@ func TestLoreRevisionBodyNamesEveryFieldEvenWhenBlank(t *testing.T) {
 	if loreSHA256(body) == loreSHA256(loreRevisionBody(LoreEntry{}, nil)) {
 		t.Fatal("an entry with a body and an entirely empty one hash the same")
 	}
-	// 🔴 第 5 格也在雜湊裡。少了這一條，事件可以被一次改寫整批弄掉而 digest
-	// 不動——L0 原文層就對第 5 格失效了，而且沒有任何東西會報。
+	// 🔴 `events`也在雜湊裡。少了這一條，事件可以被一次改寫整批弄掉而 digest
+	// 不動——L0 原文層就對`events`失效了，而且沒有任何東西會報。
 	withEvent := loreRevisionBody(LoreEntry{Content: "only this one is set"},
 		[]LoreEvent{{HappenedTS: 1700000000, What: "Seth 換掉了那個檔案"}})
 	if loreSHA256(withEvent) == loreSHA256(body) {
-		t.Fatal("加了一筆事件之後 digest 沒變 —— 第 5 格不在 L0 原文層裡")
+		t.Fatal("加了一筆事件之後 digest 沒變 —— `events`不在 L0 原文層裡")
 	}
 	// 同一組事件、不同送進來的順序，必須雜湊出同一串：否則 base_sha256 會因為
 	// 一個沒有人看得見的差異報「過期」。
@@ -188,14 +188,14 @@ func TestLoreCreateRefusesTheTwoCellsThatMakeAnEntryReadable(t *testing.T) {
 		t.Fatalf("a refused write left %d entries behind", n)
 	}
 
-	// 🔴 第 3 格與第 4 格是**選填**，空著必須寫得進去。少了這一半，一個把兩格
+	// 🔴 `retire_when`與`impact`是**選填**，空著必須寫得進去。少了這一半，一個把兩格
 	// 也變成必填的實作會讓上面全綠——而那就是擅自把選填改成必填。
 	optional := t33Write()
 	optional.RetireWhen = ""
 	optional.Impact = ""
-	// 🔴 星等也一起歸零，而 0 是一個合法的值：它的意思是「還沒判」。這一行讓
-	// 「把沒填的星等補成 1」那種實作在下面被抓到。
-	optional.ImpactStars = 0
+	// ⚠️ 星等**不會**跟著歸零。負責人 2026-09-06 裁定「不允許給 0」之後，0 在新
+	// 條目上不再是一個合法的值，所以「第 3、4 格是選填」這件事只能用一個真的星等
+	// 來問；0 被拒的那一半移到下面它自己的斷言。
 	optRes, err := d.CreateLoreEntry(optional, 1000)
 	if err != nil {
 		t.Fatalf("第 3、4 格是選填，空著必須收: %v", err)
@@ -211,10 +211,20 @@ func TestLoreCreateRefusesTheTwoCellsThatMakeAnEntryReadable(t *testing.T) {
 	if landed.RetireWhen != "" || landed.Impact != "" {
 		t.Fatalf("空著的第 3、4 格被發明了預設值: retire_when=%q impact=%q", landed.RetireWhen, landed.Impact)
 	}
-	// 🔴 0 必須原樣落地。把它補成 1（沒弄壞任何東西）等於替寫入者做了一次他沒做
-	// 的判定，而之後沒有任何人查得出來誰漏填。
-	if landed.ImpactStars != 0 {
-		t.Fatalf("沒有填的星等被判了一個等級: impact_stars=%d —— 0 是「還沒判」，不是「最輕」", landed.ImpactStars)
+	// 🔴 送進來的星等必須原樣落地。把它換成別的值等於替寫入者做了一次他沒做的
+	// 判定，而之後沒有任何人查得出來原本判的是幾。
+	if landed.ImpactStars != optional.ImpactStars {
+		t.Fatalf("落地的星等不是送進來的那個: impact_stars=%d, want %d", landed.ImpactStars, optional.ImpactStars)
+	}
+
+	// 🔴 負責人 2026-09-06「不允許給 0」，這一段從「省略折成 0」改成「0 被拒」：
+	// 這支測試以前把 ImpactStars 歸零然後斷言它原樣落地，那個前提已經被推翻。
+	// 錯誤必須是 ErrLoreImpactStarsUnjudged 而不是 ErrLoreImpactStarsRange：
+	// 「我判了 0」跟「我送了 7」要修的東西不一樣，而 0 那個人要回去重新想一次。
+	unjudged := t33Write()
+	unjudged.ImpactStars = 0
+	if _, err := d.CreateLoreEntry(unjudged, 1000); !errors.Is(err, ErrLoreImpactStarsUnjudged) {
+		t.Fatalf("impact_stars=0 被新條目收下了（或報成了別的錯）: %v", err)
 	}
 	// 🔴 `reviewed` 不由寫入者帶進來，所以一條剛寫好的條目一定是沒蓋過章的。
 	// 少了這一行，一個把 reviewed 接上請求體的實作會讓 agent 自己蓋自己的章，
@@ -230,7 +240,7 @@ func TestLoreCreateRefusesTheTwoCellsThatMakeAnEntryReadable(t *testing.T) {
 	}
 }
 
-// 🔴 第 5 格：每一筆事件的**時**與**事**都必填，而且每一格是它自己的具名錯誤。
+// 🔴 `events`：每一筆事件的**時**與**事**都必填，而且每一格是它自己的具名錯誤。
 // 一筆壞事件會讓整筆寫入被拒，條目本體一列都不留——事件跟條目是一起進去或一起
 // 不進去。
 func TestLoreCreateRefusesAnEventWithoutItsTimeOrItsWhat(t *testing.T) {
@@ -280,7 +290,7 @@ func TestLoreCreateRefusesAnEventWithoutItsTimeOrItsWhat(t *testing.T) {
 		t.Fatalf("事件沒有落地: %+v %v", evs, err)
 	}
 
-	// 0 筆事件也是合法的：第 5 格是選填。
+	// 0 筆事件也是合法的：`events`是選填。
 	none := t33Write()
 	none.Events = nil
 	if _, err := d.CreateLoreEntry(none, 1000); err != nil {
@@ -564,7 +574,7 @@ func TestLoreCreateWillNotSupersedeARetiredEntryBackIntoView(t *testing.T) {
 }
 
 // 🔴 這裡曾經有一支 TestLoreCreateAcceptsALongTriggerWholeRatherThanTrimmingIt，
-// 它守的是「第 1 格沒有長度上限，長的要整段寫進去不截斷」。它跟著 `trigger` 那一格
+// 它守的是「`heading`沒有長度上限，長的要整段寫進去不截斷」。它跟著 `trigger` 那一格
 // 一起沒了（`rc-9002654dd81c`，2026-09-06「合併成 heading 一格」），而**它守的性質
 // 真的消失了**：合併之後第一格就是 heading，而 heading 有 140 個 rune 的硬上限。
 // ⚠️ 沒有留一支改寫成 heading 的替身，因為那會變成另一支測試：heading 的上限與

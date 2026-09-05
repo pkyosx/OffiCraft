@@ -333,7 +333,7 @@ func TestMigration00083DownRetreatsExactlyOneStage(t *testing.T) {
 func m83SeedEntryAtPreviousStage(t *testing.T, db *sql.DB) LoreWriteResult {
 	t.Helper()
 	w := t33Write()
-	// 第 4 格在 00082 那一階的欄名還是 `problem`（00084 才改成 `impact`）。
+	// `impact`在 00082 那一階的欄名還是 `problem`（00084 才改成 `impact`）。
 	// 摘要用的是 HEAD 的渲染器，而那正確：sha256 比的是那串位元組，不是欄名。
 	entry := LoreEntry{
 		ID: "lore-m83-seed", Heading: w.Heading, Content: w.Content,

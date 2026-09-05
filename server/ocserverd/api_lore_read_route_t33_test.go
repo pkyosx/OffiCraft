@@ -24,7 +24,7 @@ func loreDetail(t *testing.T, body string) LoreEntryDetailDTO {
 	return dto
 }
 
-// The whole point, over the wire: 第 2 格 (`content`) is lossy, `original` is not.
+// The whole point, over the wire: `content` (`content`) is lossy, `original` is not.
 func TestLoreReadRouteHandsBackWhatContentCompressedAway(t *testing.T) {
 	url, _, agentTok, _, _ := loreGovStack(t)
 	id := loreSearchSeed(t, url, agentTok, "repo:officraft", "the fold happens in one place")
@@ -55,16 +55,17 @@ func TestLoreReadRouteHandsBackWhatContentCompressedAway(t *testing.T) {
 		t.Fatalf("the digest does not hash the served text")
 	}
 	// 🔴 v8 加的三格在線上讀得回來。
-	// ⚠️ 這一段以前還靠「標題與第 1 格是兩句不同的話」來抓一個把兩格接反的
+	// ⚠️ 這一段以前還靠「標題與`heading`是兩句不同的話」來抓一個把兩格接反的
 	// handler。`trigger` 被 `rc-9002654dd81c`（2026-09-06）併進 heading 之後只剩
 	// 一格，那個對調的錯誤在構造上不存在了 —— 不是這支測試放鬆了。
-	// ⚠️ 星等在這裡是 0，而那是 seed 沒有送 `impact_stars` 的結果——0 = 還沒判。
-	// 它斷言的是「沒送不會被補成 1」，不是「星等接上了」；星等接上了那一半由
-	// TestLoreEntryCellsRoundTripByName 與寫入路由那支的 422 撐著。
+	// ⚠️ 星等在這裡是 2，因為 seed 現在**一定**送得出一個星等：負責人 2026-09-06
+	// 「不允許給 0」之後，一個沒送 `impact_stars` 的 seed 根本寫不進來（422）。
+	// 這一行斷言的是「送進去的那個等級讀得回來」，不是「沒送會被折成幾」——後者
+	// 已經不是這條路徑上存在得了的狀態。
 	if got.Heading != "something became visible that had not been" {
 		t.Fatalf("heading = %q — 標題格沒有被接到讀取路徑上", got.Heading)
 	}
-	if got.Impact != "T-33 slot 3" || got.ImpactStars != 0 {
+	if got.Impact != "T-33 slot 3" || got.ImpactStars != 2 {
 		t.Fatalf("impact = %q / stars = %d", got.Impact, got.ImpactStars)
 	}
 	// ⚠️ `reviewed` 一定是 false，而那不是這支測出來的性質，是這一版**沒有任何

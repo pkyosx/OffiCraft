@@ -40,7 +40,10 @@ func writeLoreWriteError(w http.ResponseWriter, err error) {
 		// 一句 driver 訊息，只能被報成「伺服器出事了」——而送 star=7 的人是可以
 		// 自己修好的。這裡的 422 指名了是哪一格、以及三級各是什麼意思。
 		errors.Is(err, ErrLoreImpactStarsRange),
-		// 第 5 格的四種拒絕。它們是 422 而不是 500：一筆事件缺時間、缺主動語態的
+		// 🔴 星等是 0 也是 422，而且是**另一個**錯誤：送 0 的人沒有打錯數字，他
+		// 是沒有判。訊息因此給的是那把尺，不是「合法範圍是 0..3」。
+		errors.Is(err, ErrLoreImpactStarsUnjudged),
+		// `events`的四種拒絕。它們是 422 而不是 500：一筆事件缺時間、缺主動語態的
 		// 「事」，或人／地／物寫成不是 `type:name`／型別沒被核准，都是寫入者可以
 		// 自己修好的東西，而且錯誤訊息會指名是哪一格。
 		errors.Is(err, ErrLoreEventTimeMissing),
@@ -79,14 +82,18 @@ func writeLoreWriteError(w http.ResponseWriter, err error) {
 // to be one subject.
 func (s *apiServer) HandleWriteLoreEntryApiLoreEntriesPost(w http.ResponseWriter, r *http.Request) {
 	var body LoreWriteDTO
-	// 🔴 標題格與內容格在這裡被要求「必須出現」。第 3、4 格是選填，第 5 格是
+	// 🔴 標題格與內容格在這裡被要求「必須出現」。第 3、4 格是選填，`events`是
 	// 0..N——把它們列進來會讓「這條沒有後果可以寫」變成一個送不出去的請求。
 	// ⚠️ 這份清單以前還有 "trigger"。`rc-9002654dd81c`（2026-09-06）把那一格併進
 	// heading 之後它不再是一個合法的 key —— 送它會被 422 指名擋下來，而那是對的：
 	// 一個被靜默忽略的 body key 會讓寫入者以為他寫下了一句沒有人存下來的話。
-	// ⚠️ `impact_stars` 也不在這裡：省略它得到 0＝「還沒判」，那是一個合法的狀態，
-	// 而要求它出現等於逼每一個寫入者當場判一個他還沒判的東西。
-	if !decodeJSONBodyStrict(w, r, &body, "heading", "content", "origin", "subjects") {
+	// 🔴 `impact_stars` 從 2026-09-06 起在這裡（負責人逐字：「因為我們一定會有
+	// impact 所以不會是 0」「不允許給 0」）。它以前刻意不在，理由是「不要逼人判一
+	// 個他還沒判的東西」—— 那條理由被推翻了：一條值得寫下來的傳承一定有下場。
+	// ⚠️ 這一行只擋**漏送**。明明送了、送的是 0，是 CreateLoreEntry 擋的
+	// （ErrLoreImpactStarsUnjudged）—— 兩件事要分開，否則「我沒填」跟「我填了 0」
+	// 會拿到同一句話，而後者才是需要重新去想的那個人。
+	if !decodeJSONBodyStrict(w, r, &body, "heading", "content", "origin", "subjects", "impact_stars") {
 		return
 	}
 	write := LoreWrite{
@@ -94,16 +101,18 @@ func (s *apiServer) HandleWriteLoreEntryApiLoreEntriesPost(w http.ResponseWriter
 		Content:    body.Content,
 		RetireWhen: strOrEmpty(body.RetireWhen),
 		Impact:     strOrEmpty(body.Impact),
-		// 🔴 省略 impact_stars 折成 0，而 0 的意思是「還沒判」——**不是**「最輕」。
-		// 這一層不替沒送的人補一個 1：那會讓「沒有人判過」與「判為沒弄壞任何東西」
-		// 在資料庫裡永遠分不開，而 v8 的自檢正是靠這個差別找出誰漏填。
-		ImpactStars: intOr(body.ImpactStars, 0),
+		// 🔴 這一格從 2026-09-06 起是必填，所以產生出來的型別是 int 而不是 *int，
+		// 也就沒有「沒送」這個狀態要折 —— 漏送在上面的 decodeJSONBodyStrict 就被
+		// 擋掉了。**這一層不准替任何人補一個星等**：真的送了 0 交給
+		// CreateLoreEntry 擋成 422（ErrLoreImpactStarsUnjudged），在這裡偷偷改成
+		// 1 會讓「沒有人判過」跟「判為做白工」在資料庫裡永遠分不開。
+		ImpactStars: body.ImpactStars,
 		Origin:      body.Origin,
 		Supersedes:  strOrEmpty(body.Supersedes),
 		Subjects:    body.Subjects,
 		ActorID:     currentActor(r),
 	}
-	// 🔴 第 5 格。人／地／物用 strOrEmpty 折成空字串，而空字串在這一層以下就是
+	// 🔴 `events`。人／地／物用 strOrEmpty 折成空字串，而空字串在這一層以下就是
 	// 「沒有這一格」——**不會**被補成「未知」。省略一個 key 跟送一個空字串在這裡
 	// 刻意是同一件事：兩者都是「我不知道」，而讓它們變成兩種不同的狀態只會逼下游
 	// 去猜哪一種才算數。

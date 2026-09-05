@@ -54,11 +54,11 @@ func writeLoreProposalError(w http.ResponseWriter, err error) {
 		errors.Is(err, ErrLoreProposalRemoveBody),
 		errors.Is(err, ErrLoreProposalRemoveEvents),
 		// 🔴 漏了 `events` 是 422，跟少了一格 `content` 同一個層級 —— 而它是
-		// 一個**很容易被讀成成功**的錯誤：不擋的話，一份沒提到第 5 格的提案會
+		// 一個**很容易被讀成成功**的錯誤：不擋的話，一份沒提到`events`的提案會
 		// 主張把事件全刪掉，而那個主張沒有任何人寫下來過。
 		errors.Is(err, ErrLoreProposalEventsMissing),
 		errors.Is(err, ErrLoreProposalNoChange),
-		// 第 5 格逐列的四種拒絕，跟寫入路徑用**同一組**錯誤值：核可一份提案等於
+		// `events`逐列的四種拒絕，跟寫入路徑用**同一組**錯誤值：核可一份提案等於
 		// 走一次普通寫入，所以寫入會拒絕的事件在這裡就要被拒絕，否則它會躺在
 		// 佇列裡，看起來跟一份可以被核可的提案一模一樣。
 		errors.Is(err, ErrLoreEventTimeMissing),
@@ -107,7 +107,7 @@ func (s *apiServer) HandleProposeLoreChangeApiLoreEntriesEntryIdProposalsPost(w 
 		Encountered: body.Encountered,
 		Fault:       body.Fault,
 		Evidence:    body.Evidence,
-		// 提案帶的是**完整的新版本**：六格 + 第 5 格的整份事件清單（負責人
+		// 提案帶的是**完整的新版本**：六格 + `events`的整份事件清單（負責人
 		// 2026-09-03 裁定，卡 rc-e5c34500face；2026-09-05 rc-bbccbeb3d9e6 逐字
 		// 「任何修改都是提案的一環」把標題與星等一併收進來）。
 		// 🔴「完整」現在對整條條目是真的成立的，而在此之前它不是：標題與星等收
@@ -265,7 +265,7 @@ func (s *apiServer) HandleAcceptLoreProposalApiLoreEntriesEntryIdProposalsPropos
 //
 // 🔴 nil in ⇒ nil out, and that is the whole point of this function existing
 // instead of a `range` at the call site. A missing key means the proposal never
-// said anything about 第 5 格, and CreateLoreProposal refuses an `update` like
+// said anything about `events`, and CreateLoreProposal refuses an `update` like
 // that (ErrLoreProposalEventsMissing). An empty array is a CLAIM — 「這條不該有
 // 事件」 —— and it is accepted, with events_removed showing the reviewer exactly
 // what it would delete. Folding the two into one empty slice here would make a

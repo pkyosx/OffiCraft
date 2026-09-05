@@ -250,7 +250,7 @@ func TestLoreProposalRouteRefusesAnUndeclaredBodyKey(t *testing.T) {
 	}
 }
 
-// 🔴 第 5 格在線上：提案帶得動它，而審核者從**同一個回應**就看得出它動了哪幾筆。
+// 🔴 `events`在線上：提案帶得動它，而審核者從**同一個回應**就看得出它動了哪幾筆。
 //
 // 這一支是負責人裁定「提案改得動事件」之後必須配上的那一面。DAL 那一層已經有
 // 對應的斷言，但這裡問的是不一樣的問題：這些事實有沒有真的走到線上，還是只活在
@@ -284,13 +284,13 @@ func TestLoreProposalRouteCarriesEventsAndSaysWhichOnesMoved(t *testing.T) {
 	}
 	sha := loreSHA256(moved)
 
-	// 🔴 一份沒說第 5 格的 `update` 是 422 —— 在線上也是。少了這一條，一次漏填
+	// 🔴 一份沒說`events`的 `update` 是 422 —— 在線上也是。少了這一條，一次漏填
 	// 會在審核者看不見的地方主張刪光所有事件，而核可是整批換掉的，那個主張會
 	// 真的落地。
 	if st, body := rosterREST(t, url, agentTok, "POST",
 		"/api/lore/entries/"+entryID+"/proposals", `{
 			"kind":"update","base_sha256":"`+sha+`",
-			"encountered":"讀到它的時候","fault":"stale","evidence":"第 5 格串錯了",
+			"encountered":"讀到它的時候","fault":"stale","evidence":"events 串錯了",
 			"heading":"兩個區塊對同一件事給了不同答案","impact_stars":2,
 			"content":"the fold happens in lore_fold.go and nowhere else"}`); st != 422 {
 		t.Fatalf("一份沒帶 events 的 update：want 422, got %d %s", st, body)
@@ -299,7 +299,7 @@ func TestLoreProposalRouteCarriesEventsAndSaysWhichOnesMoved(t *testing.T) {
 	st, body := rosterREST(t, url, agentTok, "POST",
 		"/api/lore/entries/"+entryID+"/proposals", `{
 			"kind":"update","base_sha256":"`+sha+`",
-			"encountered":"讀到它的時候","fault":"stale","evidence":"第 5 格串錯了",
+			"encountered":"讀到它的時候","fault":"stale","evidence":"events 串錯了",
 			"heading":"兩個區塊對同一件事給了不同答案","impact_stars":2,
 			"content":"the fold happens in lore_fold.go and nowhere else",
 			"retire_when":"等只剩一個組裝器","impact":"T-33 slot 3",
@@ -321,7 +321,7 @@ func TestLoreProposalRouteCarriesEventsAndSaysWhichOnesMoved(t *testing.T) {
 	}
 	row := list.Proposals[0]
 	if len(row.Events) != 2 {
-		t.Fatalf("提案自己的第 5 格沒有走到線上: %s", body)
+		t.Fatalf("提案自己的`events`沒有走到線上: %s", body)
 	}
 	if len(row.EventsAdded) != 1 || row.EventsAdded[0].What != "人工修好的那一筆" {
 		t.Fatalf("events_added 沒有說他加了哪一筆: %s", body)
@@ -333,7 +333,7 @@ func TestLoreProposalRouteCarriesEventsAndSaysWhichOnesMoved(t *testing.T) {
 	// 🔴 被比較的另一邊也在同一個回應裡，所以審核者可以自己重算這個差異，而不是
 	// 只能相信它 —— 跟 `stale` 附上 current_sha256 是同一條規則。
 	if len(list.CurrentEvents) != 2 {
-		t.Fatalf("現況的第 5 格沒有跟差異一起送出來: %s", body)
+		t.Fatalf("現況的`events`沒有跟差異一起送出來: %s", body)
 	}
 	// 空陣列而不是 null：一個要把兩者當同一件事處理的讀者，遲早會有一邊處理錯。
 	if !strings.Contains(body, `"events_removed":[`) || !strings.Contains(body, `"current_events":[`) {

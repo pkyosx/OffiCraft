@@ -1675,7 +1675,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * List the subject entities parked for review, each with the homework already done — the `type:name` key it was minted under, its type, its name, when it was created, WHO MINTED IT (`created_by`), HOW MANY lore entries are filed under it (`entries`) and how many were EVER filed under it including retired ones (`entries_ever`), EVERY one of those entries by id and 第 1 格 (`entry_refs`), a SAMPLE of the first one's `content` (第 2 格; the wire field is still called `sample_short`), and the existing subjects it resembles WITH the reason each was offered. 🔴 A pending entity is a name an agent INVENTED while writing lore: minting is deliberately ungated (gating it is what pushes a writer into forcing a near-miss key onto an existing subject), so this queue is the only place a typo like `repo:offcraft` is caught before it becomes part of the ontology. `entries` is counted with the SAME predicate the boot subject directory and `search_lore_entries` use — retired entries are not counted — and `entry_refs` is exactly the list that count counted. 🔴 `entries: 0` MEANS TWO OPPOSITE THINGS AND `entries_ever` IS WHAT SEPARATES THEM: `0`/`0` is a name minted once and never used again, which is the shape of a typo the writer corrected on its next attempt; `0`/`2` is a name that was genuinely used and has since been emptied by retirement, which says nothing about the name at all. 🔴 THIS QUEUE OFFERS EVIDENCE AND NO VERDICT. It also carried `suggestion` / `merge_target` — a mechanical rule's answer to 「which button should I press」 — until the owner removed them on 2026-09-05: that rule's strongest signal was two names differing only in case, full/half width or `_`/`-`, and the writers minting these names do not in fact make that mistake. A judgement that EXPLAINS ITSELF and that a reviewer can send back for another pass replaces it in a later ticket; until then, reading `similar`, `entries`, `entries_ever`, `entry_refs` and `created_by` is the reviewer's own job, which is what they are all there for. Nothing here approves or merges anything — both acts stay behind the owner/admin floor and the verdict is the reviewer's. 🔴 A pending entity is INVISIBLE to the boot subject directory until it is approved, so a queue nobody works is a set of lore entries no agent can reach by subject.
+         * List the subject entities parked for review, each with the homework already done — the `type:name` key it was minted under, its type, its name, when it was created, WHO MINTED IT (`created_by`), HOW MANY lore entries are filed under it (`entries`) and how many were EVER filed under it including retired ones (`entries_ever`), EVERY one of those entries by id and `heading` (`entry_refs`), a SAMPLE of the first one's `content` (the wire field is still called `sample_short`), and the existing subjects it resembles WITH the reason each was offered. 🔴 A pending entity is a name an agent INVENTED while writing lore: minting is deliberately ungated (gating it is what pushes a writer into forcing a near-miss key onto an existing subject), so this queue is the only place a typo like `repo:offcraft` is caught before it becomes part of the ontology. `entries` is counted with the SAME predicate the boot subject directory and `search_lore_entries` use — retired entries are not counted — and `entry_refs` is exactly the list that count counted. 🔴 `entries: 0` MEANS TWO OPPOSITE THINGS AND `entries_ever` IS WHAT SEPARATES THEM: `0`/`0` is a name minted once and never used again, which is the shape of a typo the writer corrected on its next attempt; `0`/`2` is a name that was genuinely used and has since been emptied by retirement, which says nothing about the name at all. 🔴 THIS QUEUE OFFERS EVIDENCE AND NO VERDICT. It also carried `suggestion` / `merge_target` — a mechanical rule's answer to 「which button should I press」 — until the owner removed them on 2026-09-05: that rule's strongest signal was two names differing only in case, full/half width or `_`/`-`, and the writers minting these names do not in fact make that mistake. A judgement that EXPLAINS ITSELF and that a reviewer can send back for another pass replaces it in a later ticket; until then, reading `similar`, `entries`, `entries_ever`, `entry_refs` and `created_by` is the reviewer's own job, which is what they are all there for. Nothing here approves or merges anything — both acts stay behind the owner/admin floor and the verdict is the reviewer's. 🔴 A pending entity is INVISIBLE to the boot subject directory until it is approved, so a queue nobody works is a set of lore entries no agent can reach by subject.
          * @description List the subject entities awaiting review, with the evidence a decision needs (T-33, owner rulings rc-139a5ab99a19 and 2026-09-02).
          *
          *     🔴 THE QUEUE EXISTS BECAUSE MINTING IS UNGATED. `write_lore_entry` creates any subject key it does not recognise and parks it `pending = 1`; that is deliberate (a gate there pushes a writer into forcing a near-miss key onto an existing subject), and it is exactly why the parked names need an exit. Until this route existed the review queue was a column nothing could read.
@@ -1753,7 +1753,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Write ONE lore entry — 六格, the subjects it is filed under, and the FULL ORIGINAL that outlives every later rewrite, all in one transaction. The six cells are `heading` (標題 — 發生了什麼), `trigger` (什麼時候要記起來), `content` (內容), `retire_when` (什麼時候不需要了), `impact` (原本想達成什麼、實際變成什麼) and `events` (相關的完整資訊 — 0..N 筆 時／事／人／地／物); `impact_stars` hangs off 第 4 格 as YOUR proposed severity, and `reviewed` — the flag that says somebody stamped it — is NOT writable here at all. 🔴 `heading`, `trigger` and `content` are the three that are REQUIRED: `content` is the only cell that ever enters a boot context, `trigger` is the axis a reader finds the entry by, and `heading` is the line a human reads in a list — an entry missing any of them is not thin, it is either unreachable or indistinguishable from a finished one. ⚠️ `trigger` NO LONGER doubles as the title: v8 pulled the 標題 out into its own `heading`, which overturns the implementation judgement 「第 1 格兼任標題、因此拿掉 `label` 與 40 runes 上限」 — that judgement was written down rather than done quietly precisely so it could be overturned. 🔴 `heading` IS CAPPED AT 140 CHARACTERS and the cap is in RUNES, not bytes — a Chinese character counts as 1 (owner ruling 2026-09-05, verbatim: 「我們標題規定 140 字元好了」). Over the cap the WHOLE write is refused 422, naming the cell, the cap and the length you sent; it is NEVER truncated, and no entry already stored is touched. The same cap closes the proposal route — filing one is refused, and so is accepting one, because accepting writes the 標題 back onto the entry. `trigger` still has no length cap. Measured 2026-09-05: the longest of the 24 headings rewritten to the v8 format is 130 runes, so nothing on the station is refused today and the longest one sits 10 runes under the cap. `retire_when` and `impact` are OPTIONAL and nothing is invented for them; `impact` is optional as a field while being the substance of the entry, because a hard requirement pushes a writer who genuinely has none into inventing one and an invented case reads exactly like a real one. ⚠️ Owner ruling rc-714eea33c6ed (2026-09-02), which made `falsify` and `instance` purely required, has NO LANDING PLACE in this format — neither cell exists any more. It was not overturned; the format change left it with no field to apply to, and whether 五格 should carry a cell meaning either of those things is the owner's call. `events` is 第 5 格: every event needs `happened_ts` (when it HAPPENED, not when it was written down) and `what` (active voice, so the 人 is always the one doing it), while `actor` / `place` / `object` are sent only when you actually know them and are NEVER back-filled with 「未知」 — 「查不出是誰」 and 「還沒有人去查」 must not end up looking the same. Zero events is legal, and a bad event refuses the WHOLE write rather than leaving an entry half-written. `subjects` are subject keys shaped `type:name` (`repo:officraft`, `agent:Kyle`): an alias resolves, a merged-away subject follows to the survivor, an unapproved type prefix is refused BY NAME, and a key nobody has used yet MINTS a new subject parked for review and names it back to you in `pending_entities` — so a typo surfaces in this response instead of in the ontology a month later. `origin` says WHOSE knowledge this is (`human:Seth` for something the owner told you) and is not the same question as who is writing: the actor is taken from your verified token and cannot be asserted here. `supersedes` names the entry this one takes over from: it is re-statused `superseded` and the act is written to the governance journal, while an id that names nothing refuses the WHOLE write rather than leaving a pointer into empty space. ⚠️ There is NO `degraded` flag on the receipt any more: owner ruling rc-1e32c690018d (2026-09-03) removed it, because 第 1 格 is already a hard refusal at the door and a second, softer quality mark behind it earns nothing.
+         * Write ONE lore entry — 五格, the subjects it is filed under, and the FULL ORIGINAL that outlives every later rewrite, all in one transaction. The five cells are `heading` (標題 — 發生了什麼，也是讀者找到它的那一軸), `content` (內容), `retire_when` (什麼時候不需要了), `impact` (沒有這條記憶的人，**最糟**會發生什麼（owner 2026-09-06 逐字定義；⚠️ 它問的不是寫的人 —— 這件事有沒有真的發生完全不相干，被當場擋下來的一樣寫得出來。而且問的是**最糟**，不是平均、也不是這次剛好的結果）) and `events` (相關的完整資訊 — 0..N 筆 時／事／人／地／物); `impact_stars` hangs off `impact` as YOUR proposed severity, and `reviewed` — the flag that says somebody stamped it — is NOT writable here at all. 🔴 `heading` and `content` are the two that are REQUIRED: `content` is the only cell that ever enters a boot context, and `heading` is BOTH the line a human reads in a list AND the axis a reader finds the entry by — an entry missing either is not thin, it is either unreachable or indistinguishable from a finished one. ⚠️ THERE IS NO `trigger` CELL ANY MORE. v8 first pulled the 標題 out of it into its own `heading`; then owner ruling rc-9002654dd81c (2026-09-06), verbatim 「合併成 heading 一格（同時把搜尋改成掃 heading＋內容、待審畫面改顯示 heading）」 merged the two back into one. The split was making the same memory introduce itself with a different sentence on each screen — the list showed `heading`, the review queue showed `trigger`, and `query` scanned `trigger` only, so the one line a user could actually see was the one line search could not find. 🔴 `heading` IS CAPPED AT 140 CHARACTERS and the cap is in RUNES, not bytes — a Chinese character counts as 1 (owner ruling 2026-09-05, verbatim: 「我們標題規定 140 字元好了」). Over the cap the WHOLE write is refused 422, naming the cell, the cap and the length you sent; it is NEVER truncated, and no entry already stored is touched. The same cap closes the proposal route — filing one is refused, and so is accepting one, because accepting writes the 標題 back onto the entry. Measured 2026-09-05: the longest of the 24 headings rewritten to the v8 format is 130 runes, so nothing on the station is refused today and the longest one sits 10 runes under the cap. `retire_when` and `impact` are OPTIONAL and nothing is invented for them; `impact` is optional as a field while being the substance of the entry, because a hard requirement pushes a writer who genuinely has none into inventing one and an invented case reads exactly like a real one. ⚠️ Owner ruling rc-714eea33c6ed (2026-09-02), which made `falsify` and `instance` purely required, has NO LANDING PLACE in this format — neither cell exists any more. It was not overturned; the format change left it with no field to apply to, and whether 五格 should carry a cell meaning either of those things is the owner's call. `events` is `events`: every event needs `happened_ts` (when it HAPPENED, not when it was written down) and `what` (active voice, so the 人 is always the one doing it), while `actor` / `place` / `object` are sent only when you actually know them and are NEVER back-filled with 「未知」 — 「查不出是誰」 and 「還沒有人去查」 must not end up looking the same. Zero events is legal, and a bad event refuses the WHOLE write rather than leaving an entry half-written. `subjects` are subject keys shaped `type:name` (`repo:officraft`, `agent:Kyle`): an alias resolves, a merged-away subject follows to the survivor, an unapproved type prefix is refused BY NAME, and a key nobody has used yet MINTS a new subject parked for review and names it back to you in `pending_entities` — so a typo surfaces in this response instead of in the ontology a month later. `origin` says WHOSE knowledge this is (`human:Seth` for something the owner told you) and is not the same question as who is writing: the actor is taken from your verified token and cannot be asserted here. `supersedes` names the entry this one takes over from: it is re-statused `superseded` and the act is written to the governance journal, while an id that names nothing refuses the WHOLE write rather than leaving a pointer into empty space. ⚠️ There is NO `degraded` flag on the receipt any more: owner ruling rc-1e32c690018d (2026-09-03) removed it, because 標題格 is already a hard refusal at the door and a second, softer quality mark behind it earns nothing.
          * @description Create ONE lore entry (T-33). This is the door every ruling of 2026-09-01 was waiting for: until it existed the station served no way to put a single entry into lore, so the directory was empty, an empty directory is not rendered, and no member had ever seen it.
          *
          *     🔴 THE ENTRY AND ITS ORIGINAL ARE ONE TRANSACTION. `content` is what enters a context; the L0 revision is what an agent reads when it stops believing the compressed version. An entry written without one looks identical in every count, which is exactly the silent loss this ticket exists to end — so either both land or neither does.
@@ -1775,7 +1775,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Read ONE lore entry in full, together with the ORIGINAL that was preserved beside it — hop ③ of the design, and the reason 「原始資訊可以保留讓我們可以重新判定」 is a mechanism rather than a sentence. `content` (第 2 格) is the compressed line that enters a boot context; `original` is the complete text of the entry as it was last written — all four cells AND the `events:` block, each named, blank ones included — so an agent that has stopped believing the compressed version has somewhere to go, and so that 第 5 格 is inside `sha256` too. `events` comes back in the order the events HAPPENED (`happened_ts`), not in the order anybody wrote them down, and 人／地／物 that nobody knew come back EMPTY rather than filled in with 「未知」. `sha256` digests that original, so a reader can tell that what it is holding is what was stored. `revisions` is a CATALOGUE — id, when, who, and how many characters that write REMOVED — and carries no text at all, because a list is how you choose a revision and choosing does not need the prose; fetch one by id from `/api/lore/entries/{entry_id}/revisions/{revision_id}`. 🔴 ADDRESSING IS ENTIRELY IN THE PATH AND THERE ARE NO QUERY PARAMETERS, deliberately: an undeclared query parameter is silently ignored on every route this station serves, so `?revision=3` would have been a way to ask for a specific revision and quietly receive the latest one. A wrong path is a 404, which is loud. 404 when no entry carries that id.
+         * Read ONE lore entry in full, together with the ORIGINAL that was preserved beside it — hop ③ of the design, and the reason 「原始資訊可以保留讓我們可以重新判定」 is a mechanism rather than a sentence. `content` is the compressed line that enters a boot context; `original` is the complete text of the entry as it was last written — all four cells AND the `events:` block, each named, blank ones included — so an agent that has stopped believing the compressed version has somewhere to go, and so that `events` is inside `sha256` too. `events` comes back in the order the events HAPPENED (`happened_ts`), not in the order anybody wrote them down, and 人／地／物 that nobody knew come back EMPTY rather than filled in with 「未知」. `sha256` digests that original, so a reader can tell that what it is holding is what was stored. `revisions` is a CATALOGUE — id, when, who, and how many characters that write REMOVED — and carries no text at all, because a list is how you choose a revision and choosing does not need the prose; fetch one by id from `/api/lore/entries/{entry_id}/revisions/{revision_id}`. 🔴 ADDRESSING IS ENTIRELY IN THE PATH AND THERE ARE NO QUERY PARAMETERS, deliberately: an undeclared query parameter is silently ignored on every route this station serves, so `?revision=3` would have been a way to ask for a specific revision and quietly receive the latest one. A wrong path is a 404, which is loud. 404 when no entry carries that id.
          * @description Read ONE lore entry plus its preserved original (T-33, hop ③).
          *
          *     🔴 THIS IS THE HOP THE TICKET WAS OPENED FOR. Everything else in this feature compresses; this is the only route that hands back what was compressed AWAY. Without it, 「原始資訊可以保留」 is true of the database and false of every agent.
@@ -1871,7 +1871,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * List the change proposals filed against ONE lore entry, newest first, each carrying the WHOLE proposed version rather than a description of it — so what a reviewer compares is the bytes that would land. Each proposal carries 四格 AND its own 第 5 格, so each `body` was rendered against THE PROPOSAL'S events — the bytes that would actually land, since accepting replaces the entry's events wholesale (owner ruling rc-e5c34500face, 2026-09-03). 🔴 `events_added` / `events_removed` ON EVERY ROW SAY WHICH EVENTS THAT PROPOSAL MOVES, so a reviewer does not have to diff two lists by eye — and a deletion, which shows up only as an absence, is the half he would otherwise miss. Both sides are still on the wire (`events` per row, `current_events` on the response) so the difference can be recomputed rather than trusted; like `stale`, it is computed on every read and never stored. `current_sha256` and `current_revision_id` say what the entry stands at RIGHT NOW, and every proposal carries the `base_sha256` it was written against. 🔴 `stale: true` MEANS THE ENTRY WAS REWRITTEN AFTER THIS PROPOSAL WAS FILED — its author argued against text that is no longer there, and applying it would discard whoever changed it in between. It is COMPUTED on every read by comparing the two digests, never stored: a stored flag would be right the day it was written and wrong every day after. The digest it was compared against travels in the same response so the comparison can be checked rather than trusted. 🔴 THIS ROUTE DECIDES NOTHING. There is no accept or decline here; a proposal is a request for review and the verdict is a separate act.
+         * List the change proposals filed against ONE lore entry, newest first, each carrying the WHOLE proposed version rather than a description of it — so what a reviewer compares is the bytes that would land. Each proposal carries 四格 AND its own `events`, so each `body` was rendered against THE PROPOSAL'S events — the bytes that would actually land, since accepting replaces the entry's events wholesale (owner ruling rc-e5c34500face, 2026-09-03). 🔴 `events_added` / `events_removed` ON EVERY ROW SAY WHICH EVENTS THAT PROPOSAL MOVES, so a reviewer does not have to diff two lists by eye — and a deletion, which shows up only as an absence, is the half he would otherwise miss. Both sides are still on the wire (`events` per row, `current_events` on the response) so the difference can be recomputed rather than trusted; like `stale`, it is computed on every read and never stored. `current_sha256` and `current_revision_id` say what the entry stands at RIGHT NOW, and every proposal carries the `base_sha256` it was written against. 🔴 `stale: true` MEANS THE ENTRY WAS REWRITTEN AFTER THIS PROPOSAL WAS FILED — its author argued against text that is no longer there, and applying it would discard whoever changed it in between. It is COMPUTED on every read by comparing the two digests, never stored: a stored flag would be right the day it was written and wrong every day after. The digest it was compared against travels in the same response so the comparison can be checked rather than trusted. 🔴 THIS ROUTE DECIDES NOTHING. There is no accept or decline here; a proposal is a request for review and the verdict is a separate act.
          * @description Read the change proposals filed against one lore entry (T-33).
          *
          *     Each row carries the WHOLE proposed version, so a reviewer compares texts rather than reading a description of a change. `stale` is computed on every read by comparing the proposal's base digest with the entry's current one — never stored, because a stored flag is correct on the day it is written and wrong every day after, which is the second-truth failure this ticket exists to kill. The digest it was compared against is served alongside, so the comparison can be re-derived by whoever reads it.
@@ -1881,7 +1881,7 @@ export interface paths {
         get: operations["handle_list_lore_proposals_api_lore_entries__entry_id__proposals_get"];
         put?: never;
         /**
-         * Propose a change to ONE lore entry — a WHOLE replacement version, not a patch, plus the account of why. 🔴 YOU SEND THE FULL NEW VERSION AND THE DIFF IS COMPUTED FROM IT (owner ruling, 2026-09-02: 「讓 agent submit new full version 即可 / diff view 我們自己產出」). A patch would leave two artefacts — what you said you were changing and what applying it actually produces — and the gap between them looks completely normal to a reviewer. With a whole version there is no second artefact: the difference a reviewer reads is the bytes that would land. 🔴 `base_sha256` IS THE VERSION YOU ACTUALLY READ, taken from `sha256` on `GET /api/lore/entries/{entry_id}`, and it is REQUIRED. If the entry has been rewritten since you read it the proposal is refused 409 naming both digests — filing against the older text would silently discard whoever changed it, which is exactly the failure a stale pull request causes and it looks correct from every side. Re-read the entry and rebuild your version on what is there now. A proposal that was fine when filed and went stale AFTERWARDS is not refused — it comes back from the list route with `stale: true`, because at that point the reviewer, not you, is the one who has to know. 🔴 THE THREE ACCOUNT FIELDS ARE ALL REQUIRED, for the same reason a write refuses a blank cell instead of defaulting it: `encountered` says what you were doing when this entry reached you, `fault` says which of three things is wrong with it (`stale` — it was right and is not any more; `never-true` — the claim never held; `misled` — it is retrieved for situations it does not describe and it sent you the wrong way, so its `trigger` wants fixing), and `evidence` is what you actually SAW. ⚠️ The cost is the same one the write path accepts and has not solved: nothing here can tell a real account from an invented one; an empty cell is all it can refuse. `kind` is `update` (the four body cells — `trigger`, `content`, `retire_when`, `impact` — PLUS `events` carry the whole new version and are held to the SAME rules a write is, so a proposal nobody could ever accept is refused now rather than sitting in the queue looking acceptable; ⚠️ v8 的標題格 (`heading`) 與星等 (`impact_stars`) **帶不動**：lore_proposal 沒有存它們的欄位，所以核可一份提案換掉的是四格與整份第 5 格，條目原本的標題與星等原封不動留在那裡。「提案帶的是完整的新版本」這句話對這兩格在這一版是不成立的，而它寫在這裡，是為了不讓審核者以為他核可的是一整條。) or `remove` (you are proposing this entry stop being retrieved and you send NO body cells and NO events; a removal that carried a version would put text on the reviewer's screen that no accept would ever write). 🔴 A PROPOSAL CARRIES 第 5 格 TOO, AND `events` IS REQUIRED ON AN `update` — the WHOLE list as it should stand afterwards, not a set of additions, because accepting replaces the entry's events wholesale (owner ruling rc-e5c34500face, 2026-09-03: 「改得動 —— 提案就該帶完整的新版本，包含所有事件」). The reasoning he overturned was 「第 5 格是機器串出來的事實，提案只是意見」, and its hole is that WHEN THE MACHINE STRINGS IT TOGETHER WRONG NOTHING CAN REPAIR IT: re-deriving washes away whatever a person filled in by hand, so a proposal that moves events is the only road that repairs one. Send `[]` to claim the entry should carry no events; OMITTING the key is a 422, never a shorthand for 「維持現狀」 — one forgotten field must not clear 第 5 格 where no reviewer can see it. Each event is held to the same rules a write is (時 and 事 required; 人／地／物 checked only when non-empty), and the order you send them in does not change the digest. Removal is not deletion — the existing act is `retire`, and `revive_lore_entry` undoes it. 🔴 NOTHING HERE ACCEPTS ANYTHING: this route files a proposal and no more.
+         * Propose a change to ONE lore entry — a WHOLE replacement version, not a patch, plus the account of why. 🔴 YOU SEND THE FULL NEW VERSION AND THE DIFF IS COMPUTED FROM IT (owner ruling, 2026-09-02: 「讓 agent submit new full version 即可 / diff view 我們自己產出」). A patch would leave two artefacts — what you said you were changing and what applying it actually produces — and the gap between them looks completely normal to a reviewer. With a whole version there is no second artefact: the difference a reviewer reads is the bytes that would land. 🔴 `base_sha256` IS THE VERSION YOU ACTUALLY READ, taken from `sha256` on `GET /api/lore/entries/{entry_id}`, and it is REQUIRED. If the entry has been rewritten since you read it the proposal is refused 409 naming both digests — filing against the older text would silently discard whoever changed it, which is exactly the failure a stale pull request causes and it looks correct from every side. Re-read the entry and rebuild your version on what is there now. A proposal that was fine when filed and went stale AFTERWARDS is not refused — it comes back from the list route with `stale: true`, because at that point the reviewer, not you, is the one who has to know. 🔴 THE THREE ACCOUNT FIELDS ARE ALL REQUIRED, for the same reason a write refuses a blank cell instead of defaulting it: `encountered` says what you were doing when this entry reached you, `fault` says which of three things is wrong with it (`stale` — it was right and is not any more; `never-true` — the claim never held; `misled` — it is retrieved for situations it does not describe and it sent you the wrong way, so its `heading` wants fixing), and `evidence` is what you actually SAW. ⚠️ The cost is the same one the write path accepts and has not solved: nothing here can tell a real account from an invented one; an empty cell is all it can refuse. `kind` is `update` (the body cells — `heading`, `content`, `retire_when`, `impact` — PLUS `impact_stars` and `events` carry the whole new version and are held to the SAME rules a write is, so a proposal nobody could ever accept is refused now rather than sitting in the queue looking acceptable; ⚠️ 這一段先前寫著標題與星等「帶不動」，那句話自 00084 給 lore_proposal 補上 heading 與 impact_stars 兩欄起就是假的 —— 核可換掉的是整條的本體格與整份`events`。⚠️ 而 `trigger` 這一格已經不存在了：owner ruling rc-9002654dd81c (2026-09-06), verbatim 「合併成 heading 一格（同時把搜尋改成掃 heading＋內容、待審畫面改顯示 heading）」。) or `remove` (you are proposing this entry stop being retrieved and you send NO body cells and NO events; a removal that carried a version would put text on the reviewer's screen that no accept would ever write). 🔴 A PROPOSAL CARRIES `events` TOO, AND `events` IS REQUIRED ON AN `update` — the WHOLE list as it should stand afterwards, not a set of additions, because accepting replaces the entry's events wholesale (owner ruling rc-e5c34500face, 2026-09-03: 「改得動 —— 提案就該帶完整的新版本，包含所有事件」). The reasoning he overturned was 「`events`是機器串出來的事實，提案只是意見」, and its hole is that WHEN THE MACHINE STRINGS IT TOGETHER WRONG NOTHING CAN REPAIR IT: re-deriving washes away whatever a person filled in by hand, so a proposal that moves events is the only road that repairs one. Send `[]` to claim the entry should carry no events; OMITTING the key is a 422, never a shorthand for 「維持現狀」 — one forgotten field must not clear `events` where no reviewer can see it. Each event is held to the same rules a write is (時 and 事 required; 人／地／物 checked only when non-empty), and the order you send them in does not change the digest. Removal is not deletion — the existing act is `retire`, and `revive_lore_entry` undoes it. 🔴 NOTHING HERE ACCEPTS ANYTHING: this route files a proposal and no more.
          * @description File one change proposal against a lore entry (T-33).
          *
          *     THE PROPOSAL IS A WHOLE VERSION, NOT A PATCH, and that is the owner's ruling of 2026-09-02 rather than a storage preference. A patch keeps two artefacts alive — the change as described and the change as applied — and a reviewer reading a plausible description has no way to see that they differ. Storing the whole version deletes the second artefact: the diff the cockpit renders is computed from the exact bytes an accept would write.
@@ -1907,7 +1907,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Accept ONE filed proposal and write it onto its lore entry — owner or admin agent only (owner ruling rc-a896af93d4f9: 「你 ＋ 銀月（沿用現有前例）」, the same floor the subject-entity review queue already carries). The four cells are replaced, 第 5 格 is replaced WHOLESALE by the events the proposal carried — not merged, because a merge would let a proposal add events and never remove one, and repairing an event the machine strung together wrongly is the reason this road exists — and ONE new revision is written carrying the EXACT BYTES the proposal stored rather than a fresh rendering, with `actor_id` = YOU, the accepter, not the proposer. 🔴 THE ADDRESS IS THE WHOLE PAIR AND BOTH HALVES ARE CHECKED: proposal ids are global, so a proposal that belongs to a DIFFERENT entry is a 404 saying so by name rather than being applied through this address — a mistyped entry id must not rewrite somebody else's entry with nothing to signal it. 404 when no proposal carries that id, and 404 when it carries it under another entry. 409 when the proposal is a `remove` — it proposes no version to write at all, and the act it asks for is `retire_lore_entry`. 409, naming BOTH digests, when the entry was rewritten after the proposal was filed: accepting then would discard whoever changed it in between, silently, and the fix is to re-read the entry and have the version rebuilt on what is there now. That check is made HERE, at the moment you press accept, not only when the list was read — the entry can move between the two. 422 when the proposed version is identical to the one it was written against, because there is nothing to review. 🔴 THERE IS DELIBERATELY NO DECLINE ROUTE BESIDE THIS ONE, AND NO ARBITRATION RECORD BEYOND THAT NEW REVISION'S `actor_id`: the owner has ruled on WHO may accept and on nothing else, so inventing a 退回 exit or a verdict journal here would decide for him what he has not decided.
+         * Accept ONE filed proposal and write it onto its lore entry — owner or admin agent only (owner ruling rc-a896af93d4f9: 「你 ＋ 銀月（沿用現有前例）」, the same floor the subject-entity review queue already carries). The four cells are replaced, `events` is replaced WHOLESALE by the events the proposal carried — not merged, because a merge would let a proposal add events and never remove one, and repairing an event the machine strung together wrongly is the reason this road exists — and ONE new revision is written carrying the EXACT BYTES the proposal stored rather than a fresh rendering, with `actor_id` = YOU, the accepter, not the proposer. 🔴 THE ADDRESS IS THE WHOLE PAIR AND BOTH HALVES ARE CHECKED: proposal ids are global, so a proposal that belongs to a DIFFERENT entry is a 404 saying so by name rather than being applied through this address — a mistyped entry id must not rewrite somebody else's entry with nothing to signal it. 404 when no proposal carries that id, and 404 when it carries it under another entry. 409 when the proposal is a `remove` — it proposes no version to write at all, and the act it asks for is `retire_lore_entry`. 409, naming BOTH digests, when the entry was rewritten after the proposal was filed: accepting then would discard whoever changed it in between, silently, and the fix is to re-read the entry and have the version rebuilt on what is there now. That check is made HERE, at the moment you press accept, not only when the list was read — the entry can move between the two. 422 when the proposed version is identical to the one it was written against, because there is nothing to review. 🔴 THERE IS DELIBERATELY NO DECLINE ROUTE BESIDE THIS ONE, AND NO ARBITRATION RECORD BEYOND THAT NEW REVISION'S `actor_id`: the owner has ruled on WHO may accept and on nothing else, so inventing a 退回 exit or a verdict journal here would decide for him what he has not decided.
          * @description Accept ONE filed change proposal onto its lore entry (T-33, owner ruling rc-a896af93d4f9).
          *
          *     🔴 THIS LAYER HOLDS THE POLICY AND THE DAL HOLDS THE MECHANISM. ApplyLoreProposal has always known what happens when a proposal lands; who is allowed to make it land is a principal class, and the route table is the only place that can be said. The floor is admin_agent — the owner and the admin agents — which is the same floor the subject-entity review queue carries, and the owner chose it by that precedent.
@@ -1933,7 +1933,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Retrieve lore entries — hop ② of the design: you have seen the subject directory at wake and now want what is actually filed under one of those subjects. 🔴 EVERY SELECTION CONDITION GOES IN THE REQUEST BODY AND NONE IN THE QUERY STRING, and that is load-bearing rather than stylistic: an undeclared body key is refused 422 by name, while an undeclared QUERY parameter is silently ignored on every route this station serves — so a mistyped condition on the query side would hand you a plausible answer that is not the one you asked for, and nothing would report it. All fields are optional; sending none asks for everything still retrievable. `subject` is a subject key (`repo:officraft`); an alias resolves and a merged-away subject follows to the survivor, and a key that names NOTHING comes back as `subject_resolved: false` rather than as an empty result — 「this subject has nothing on it」 and 「this subject does not exist」 are different answers and you need to tell them apart. 🔴 THERE IS EXACTLY ONE RETRIEVAL AXIS: `subject`. Owner ruled the 「活動」 (action) axis away on 2026-09-05 — 「只有subject 沒有 action因為後者太多可能性」 — because it was an OPEN set every writer minted into freely and no reader ever filtered on, so it never converged and was therefore not an index. The T1/T2 tier went with it: the tier was 「matched every axis you asked on」, and with one axis that can only ever answer T1 — a field with one possible value reads like a judgement while making none. ⚠️ Gone with it, said plainly so you do not go looking: the trust/method/cognitive class, `trust_fell_back`, `unmapped_actions`, `force_trust_analogy`, and the cross-subject wall that used to withhold trust-class entries from analogies. Every one of those was derived either from action names or from the analogy tier. Nothing guards that distinction today. `query` is a LITERAL, case-insensitive substring over 第 1 格 (`trigger`) and 第 2 格 (`content`) and `applied.query_match` says so: it is not semantic, and two entries describing the same situation in different words will not find each other. 🔴 第 3、4、5 格 (`retire_when`, `impact` and the events), 以及 v8 的標題格 (`heading`), are NEITHER searched NOR returned on a hit — a hit carries `trigger` and `content`, and the rest is read with `get_lore_entry`. There is no parameter, table or index for them here, which is why de-duplication and conflict-finding cannot be done through this route yet.
+         * Retrieve lore entries — hop ② of the design: you have seen the subject directory at wake and now want what is actually filed under one of those subjects. 🔴 EVERY SELECTION CONDITION GOES IN THE REQUEST BODY AND NONE IN THE QUERY STRING, and that is load-bearing rather than stylistic: an undeclared body key is refused 422 by name, while an undeclared QUERY parameter is silently ignored on every route this station serves — so a mistyped condition on the query side would hand you a plausible answer that is not the one you asked for, and nothing would report it. All fields are optional; sending none asks for everything still retrievable. `subject` is a subject key (`repo:officraft`); an alias resolves and a merged-away subject follows to the survivor, and a key that names NOTHING comes back as `subject_resolved: false` rather than as an empty result — 「this subject has nothing on it」 and 「this subject does not exist」 are different answers and you need to tell them apart. 🔴 THERE IS EXACTLY ONE RETRIEVAL AXIS: `subject`. Owner ruled the 「活動」 (action) axis away on 2026-09-05 — 「只有subject 沒有 action因為後者太多可能性」 — because it was an OPEN set every writer minted into freely and no reader ever filtered on, so it never converged and was therefore not an index. The T1/T2 tier went with it: the tier was 「matched every axis you asked on」, and with one axis that can only ever answer T1 — a field with one possible value reads like a judgement while making none. ⚠️ Gone with it, said plainly so you do not go looking: the trust/method/cognitive class, `trust_fell_back`, `unmapped_actions`, `force_trust_analogy`, and the cross-subject wall that used to withhold trust-class entries from analogies. Every one of those was derived either from action names or from the analogy tier. Nothing guards that distinction today. `query` is a LITERAL, case-insensitive substring over 標題格 (`heading`) and 內容格 (`content`) and `applied.query_match` says so: it is not semantic, and two entries describing the same situation in different words will not find each other. 🔴 第 3、4、5 格 (`retire_when`, `impact` and the events) are NEITHER searched NOR returned on a hit — a hit carries `heading` (plus `impact_stars`, `origin` and `subjects`), and the rest, `content` included, is read with `get_lore_entry`. ⚠️ 掃描面以前是 `trigger`＋`content` while the list showed `heading`, so the very line a searcher was reading matched nothing; owner ruling rc-9002654dd81c (2026-09-06), verbatim 「合併成 heading 一格（同時把搜尋改成掃 heading＋內容、待審畫面改顯示 heading）」 merged the two cells and pointed `query` at `heading`. There is no parameter, table or index for them here, which is why de-duplication and conflict-finding cannot be done through this route yet.
          * @description Retrieve lore entries (T-33, hop ②).
          *
          *     🔴 THE CONDITIONS ARE IN THE BODY BECAUSE OF WHERE THE SILENCE IS, NOT BECAUSE OF THE VERB. This station's router ignores an undeclared QUERY parameter on every route it serves and answers 200; the JSON body decoder refuses an undeclared key with a 422 naming it. `POST …?typo=1` is therefore just as silent as `GET …?typo=1` — what protects this hop is that the conditions live on the side that refuses, not that the verb is POST.
@@ -6495,7 +6495,7 @@ export interface components {
         LoreEntryDetailDTO: {
             /**
              * Content
-             * @description 第 2 格「內容」— the compressed body, and the only cell that enters a boot context.
+             * @description `content`（內容）— the compressed body, and the only cell that enters a boot context.
              */
             content: string;
             /**
@@ -6505,22 +6505,22 @@ export interface components {
             entry_id: string;
             /**
              * Events
-             * @description 第 5 格「相關的完整資訊」— the entry's events, IN THE ORDER THEY HAPPENED (`happened_ts`), not in the order anybody wrote them down: a back-filled event sorts into the place it really belongs. `[]` when the entry has none. 人／地／物 come back EMPTY when nobody knew them — they are not back-filled with 「未知」, so 「查不出是誰」 and 「還沒有人去查」 stay distinguishable.
+             * @description `events`（相關的完整資訊）— the entry's events, IN THE ORDER THEY HAPPENED (`happened_ts`), not in the order anybody wrote them down: a back-filled event sorts into the place it really belongs. `[]` when the entry has none. 人／地／物 come back EMPTY when nobody knew them — they are not back-filled with 「未知」, so 「查不出是誰」 and 「還沒有人去查」 stay distinguishable.
              */
             events: components["schemas"]["LoreEventDTO"][];
             /**
              * Heading
-             * @description 標題格 — v8 的獨立一格：這條條目在講的是「發生了什麼」。⚠️ 空字串是「還沒寫」，而它幾乎只會出現在 v8 之前寫下的條目上 —— 那時候沒有這一格，`trigger` 兼任標題，而 migration 對既有列只給得出一個空的預設值。「作者留白」與「這條比這一格還老」在這裡分不開，因為沒有任何欄位記得下來。
+             * @description 標題格 — 這條條目在講的是「發生了什麼」，同時也是讀者找到它的那一軸。🔴 `trigger` 這一格沒有了：owner ruling rc-9002654dd81c (2026-09-06), verbatim 「合併成 heading 一格（同時把搜尋改成掃 heading＋內容、待審畫面改顯示 heading）」。⚠️ 合併之前寫下的條目**不是**被留成空標題：migration 00084 在 DROP 掉 `trigger` 之前，先把每一列的 `trigger` 複製進了空的 `heading`，所以那些條目帶的是它們原本那句「什麼時候要記起來」。
              */
             heading: string;
             /**
              * Impact
-             * @description 第 4 格「impact」— 原本想達成什麼、實際變成什麼。v8 之前這一格叫 `problem`，問的是起因。May be empty; it is optional on write.
+             * @description `impact`— 沒有這條記憶的人，**最糟**會發生什麼（owner 2026-09-06 逐字定義；⚠️ 它問的不是寫的人 —— 這件事有沒有真的發生完全不相干，被當場擋下來的一樣寫得出來。而且問的是**最糟**，不是平均、也不是這次剛好的結果）。v8 之前這一格叫 `problem`，問的是起因。May be empty; it is optional on write.
              */
             impact: string;
             /**
              * Impact Stars
-             * @description 第 4 格的星等：1 = 沒弄壞任何東西｜2 = 弄壞的只有你動的那個｜3 = 弄壞的包含你沒動的。🔴 0 不是最輕的一級，是「還沒判」—— v8 之前的條目、以及沒有填星等的寫入，都是 0；把 0 讀成 1 等於替它們做了一次沒有人做過的判定。
+             * @description `impact_stars`：1 = 做白工，原本要完成的目的沒達到｜2 = 弄壞的只有你動的那個｜3 = 把其他東西弄壞了。三級不是累加：把自己動的那個修好了、卻炸了其他人，那是 3 不是 2；分界只有一條 —— 壞掉的東西在不在你動的範圍內。🔴 0 不是最輕的一級，是「還沒判」。從 2026-09-06 起新寫入不准送 0（owner 逐字：「不允許給 0」），所以**讀到 0 只有一種來源：v8 之前寫下的存量條目**。把 0 讀成 1 等於替它們做了一次沒有人做過的判定。
              */
             impact_stars: number;
             /**
@@ -6535,7 +6535,7 @@ export interface components {
             original: string;
             /**
              * Retire When
-             * @description 第 3 格「什麼時候不需要了」— free text, may be empty. Blank means nobody has said, not 「永遠都需要」.
+             * @description `retire_when`（什麼時候不需要了）— free text, may be empty. Blank means nobody has said, not 「永遠都需要」.
              */
             retire_when: string;
             /**
@@ -6569,11 +6569,6 @@ export interface components {
              */
             supersedes: string;
             /**
-             * Trigger
-             * @description 第 1 格「什麼時候要記起來」— the situation this entry applies to, and the line that doubles as its title. There is no separate name field.
-             */
-            trigger: string;
-            /**
              * Written By
              * @description Who wrote the latest revision, from the verified token. 🔴 There is deliberately no `task_id` / `chat_id` beside it: the write request has no field that could say where the knowledge came from, so those two would be permanently empty — and an empty string reads as 「we looked and there was no source」 rather than 「no path could ever fill this」.
              */
@@ -6581,7 +6576,7 @@ export interface components {
         };
         /**
          * LoreEventDTO
-         * @description ONE event under a lore entry — 第 5 格, 時／事／人／地／物. 🔴 THERE IS NO EVENT ID HERE, AND THAT IS NOT AN OVERSIGHT: nothing addresses a single event yet — no route edits one, no route deletes one — and an id nobody can use would be a handle that looks like a capability.
+         * @description ONE event under a lore entry — `events`, 時／事／人／地／物. 🔴 THERE IS NO EVENT ID HERE, AND THAT IS NOT AN OVERSIGHT: nothing addresses a single event yet — no route edits one, no route deletes one — and an id nobody can use would be a handle that looks like a capability.
          */
         LoreEventDTO: {
             /**
@@ -6591,7 +6586,7 @@ export interface components {
             actor: string;
             /**
              * Happened Ts
-             * @description REQUIRED. When the event HAPPENED, epoch seconds — not when this row was written. The two differ by days the moment somebody records last week's incident today, and a store that conflates them turns 第 5 格 into a record of the writing order rather than of what happened. Zero or negative is refused; there is no default, because 「now」 would be a claim nobody made.
+             * @description REQUIRED. When the event HAPPENED, epoch seconds — not when this row was written. The two differ by days the moment somebody records last week's incident today, and a store that conflates them turns `events` into a record of the writing order rather than of what happened. Zero or negative is refused; there is no default, because 「now」 would be a claim nobody made.
              */
             happened_ts: number;
             /**
@@ -6612,7 +6607,7 @@ export interface components {
         };
         /**
          * LoreEventInputDTO
-         * @description ONE event to file under a lore entry — 第 5 格, 時／事／人／地／物. 時 and 事 are required; 人／地／物 are sent ONLY when you actually know them. Leaving one out is the correct way to say 「我不知道」 — do not write 「未知」 / `unknown` / `n/a` into it, because that makes 「查不出來」 and 「還沒有人去查」 permanently indistinguishable. The field set is CLOSED; an unknown key is a 422.
+         * @description ONE event to file under a lore entry — `events`, 時／事／人／地／物. 時 and 事 are required; 人／地／物 are sent ONLY when you actually know them. Leaving one out is the correct way to say 「我不知道」 — do not write 「未知」 / `unknown` / `n/a` into it, because that makes 「查不出來」 and 「還沒有人去查」 permanently indistinguishable. The field set is CLOSED; an unknown key is a 422.
          */
         LoreEventInputDTO: {
             /**
@@ -6623,7 +6618,7 @@ export interface components {
             actor: string;
             /**
              * Happened Ts
-             * @description REQUIRED. When the event HAPPENED, epoch seconds — not when this row was written. The two differ by days the moment somebody records last week's incident today, and a store that conflates them turns 第 5 格 into a record of the writing order rather than of what happened. Zero or negative is refused; there is no default, because 「now」 would be a claim nobody made.
+             * @description REQUIRED. When the event HAPPENED, epoch seconds — not when this row was written. The two differ by days the moment somebody records last week's incident today, and a store that conflates them turns `events` into a record of the writing order rather than of what happened. Zero or negative is refused; there is no default, because 「now」 would be a claim nobody made.
              */
             happened_ts: number;
             /**
@@ -6827,7 +6822,7 @@ export interface components {
             entries_ever: number;
             /**
              * Entry Refs
-             * @description EVERY entry the `entries` count counted — same predicate, same order — one line each: the entry id, 第 1 格 (`trigger`, which is also the title), and the status. 🔴 IT IS WHAT `sample_short` COULD NOT BE. A 120-character sample of the FIRST entry answers 「what is one of these about」; the question a reviewer has is 「what is filed under this name」, and for a subject with five entries the sample showed one of them with no way to reach the rest. ⚠️ The BODIES are not here — the trigger says which entry to open, and opening it is the read path that already exists. Empty array when nothing is filed, which `entries: 0` also says.
+             * @description EVERY entry the `entries` count counted — same predicate, same order — one line each: the entry id, 標題格 (`heading`), and the status. 🔴 IT IS WHAT `sample_short` COULD NOT BE. A 120-character sample of the FIRST entry answers 「what is one of these about」; the question a reviewer has is 「what is filed under this name」, and for a subject with five entries the sample showed one of them with no way to reach the rest. ⚠️ The BODIES are not here — the 標題 says which entry to open, and opening it is the read path that already exists. Empty array when nothing is filed, which `entries: 0` also says.
              */
             entry_refs: components["schemas"]["LoreEntryRefDTO"][];
             /**
@@ -6842,7 +6837,7 @@ export interface components {
             name: string;
             /**
              * Sample Short
-             * @description 第 2 格 (`content`) of the FIRST lore entry filed under this subject (\u26a0\ufe0f the wire name `sample_short` is left over from the 六格 format and was NOT renamed in this round), trimmed to 120 characters with an ellipsis when it was cut. 🔴 IT IS A SAMPLE AND IT SAYS SO BY ENDING IN 「…」: it exists so a reviewer can see what the subject is actually about without opening it, and it is never the field to act on — read the entry for that. Empty when the subject carries no entry yet, which the `entries` count already says.
+             * @description `content` of the FIRST lore entry filed under this subject (\u26a0\ufe0f the wire name `sample_short` is left over from the 六格 format and was NOT renamed in this round), trimmed to 120 characters with an ellipsis when it was cut. 🔴 IT IS A SAMPLE AND IT SAYS SO BY ENDING IN 「…」: it exists so a reviewer can see what the subject is actually about without opening it, and it is never the field to act on — read the entry for that. Empty when the subject carries no entry yet, which the `entries` count already says.
              */
             sample_short: string;
             /**
@@ -6900,15 +6895,15 @@ export interface components {
              */
             entry_id: string;
             /**
+             * Heading
+             * @description 標題格 — 「發生了什麼」, capped at 140 characters (Unicode runes). This row carries the 標題 because it is the cheapest thing that answers 「what is filed under this name」 — it is the cell designed to be read alone. ⚠️ 這一行以前帶的是 `trigger`，而列表畫面帶的是 `heading` ⇒ 審核者在待審佇列上看到的那一行，跟他在列表上看到的同一條記憶不是同一句話。owner ruling rc-9002654dd81c (2026-09-06), verbatim 「合併成 heading 一格（同時把搜尋改成掃 heading＋內容、待審畫面改顯示 heading）」。
+             */
+            heading: string;
+            /**
              * Status
              * @description `active`, `superseded` or `underspecified`. NEVER `retired`: the list is built with the same predicate the boot directory and search use, so retired rows are absent. It rides along because a subject whose three entries are all `superseded` is a different thing to review from one with three active entries.
              */
             status: string;
-            /**
-             * Trigger
-             * @description 第 1 格 — 「什麼時候要記起來」. ⚠️ It USED TO double as the entry's title and since v8 it does not: 標題 is its own cell, `heading`, and that one is capped at 140 characters (Unicode runes) while `trigger` still has no length cap. This row carries `trigger` because it is the cheapest thing that answers 「what is filed under this name」 — it was designed to be read alone.
-             */
-            trigger: string;
         };
         /**
          * LoreEntityGovernanceDTO
@@ -7003,7 +6998,7 @@ export interface components {
             limit: number;
             /**
              * Query
-             * @description A LITERAL, case-insensitive substring over 第 1 格 (`trigger`) and 第 2 格 (`content`) — the two cells that took over the three 六格 scanned (label / short / symptoms), none of which exists any more. Not semantic — `applied.query_match` reports which kind it was, so nothing has to guess. 🔴 第 3、4 格 (`retire_when`, `impact`) are deliberately NOT searched, and neither is v8 的標題格 (`heading`), which did not exist when this parameter was written: widening what `query` answers is a decision nobody has made, and the symptom would be extra hits that look exactly like correct ones. ⚠️ `heading` is where that costs the most — v8 requires the 標題 to say what happened, so it is the cell a searcher is most likely to be typing at, and today it matches nothing.
+             * @description A LITERAL, case-insensitive substring over 標題格 (`heading`) and 內容格 (`content`). Not semantic — `applied.query_match` reports which kind it was, so nothing has to guess. 🔴 掃描面以前是 `trigger`＋`content`，而列表與待審畫面顯示的是 `heading` ⇒ **使用者看到的那一行，搜尋搜不到**，而搜不到跟「站上真的沒有這條」長得一模一樣。owner ruling rc-9002654dd81c (2026-09-06), verbatim 「合併成 heading 一格（同時把搜尋改成掃 heading＋內容、待審畫面改顯示 heading）」 讓名字與軸變成同一格，那個落差在構造上消失了。🔴 第 3、4、5 格 (`retire_when`, `impact`, events) are deliberately NOT searched: widening what `query` answers is a decision nobody has made, and the symptom would be extra hits that look exactly like correct ones.
              * @default
              */
             query: string;
@@ -7021,12 +7016,12 @@ export interface components {
         LoreSearchHitDTO: {
             /**
              * Heading
-             * @description 🔴 THE TITLE, AND THE POINT OF THIS HOP. A hit carries the 標題 rather than the 內容. owner 2026-09-05, verbatim: 「agent 在 resume summary 看到 target list，在做跟 target 有關的事情時查一下有跟該 target 相關的什麼記憶 (list of titles)，然後覺得有相關的或是重要的就自己再去 read 讀進來 content。」 So this list is what an agent DECIDES ON, and `GET /api/lore/entries/{entry_id}` is what it decides to load. ⚠️ `content` USED TO BE ON THIS ROW AND IS NOT ANY MORE. Carrying it made one lookup pour every matching entry's whole body into the caller's context — the very thing this ticket exists to stop. Measured: 27 real headings list in 512 characters (~130 tokens); the same 27 bodies are two orders of magnitude more.
+             * @description 🔴 THE TITLE, AND THE POINT OF THIS HOP. A hit carries the 標題 rather than the 內容. owner 2026-09-05, verbatim: 「agent 在 resume summary 看到 target list，在做跟 target 有關的事情時查一下有跟該 target 相關的什麼記憶 (list of titles)，然後覺得有相關的或是重要的就自己再去 read 讀進來 content。」 So this list is what an agent DECIDES ON, and `GET /api/lore/entries/{entry_id}` is what it decides to load. ⚠️ `content` USED TO BE ON THIS ROW AND IS NOT ANY MORE. Carrying it made one lookup pour every matching entry's whole body into the caller's context — the very thing this ticket exists to stop. Measured: 27 real headings list in 512 characters (~130 tokens); the same 27 bodies are two orders of magnitude more. 🔴 它同時是 `query` 掃描的那一格（連同 `content`）—— owner ruling rc-9002654dd81c (2026-09-06), verbatim 「合併成 heading 一格（同時把搜尋改成掃 heading＋內容、待審畫面改顯示 heading）」。在此之前這一列還帶著一格 `trigger`，而搜尋掃的是那一格、不是這一格 ⇒ 使用者在這份清單上讀到的那一行，搜尋搜不到。
              */
             heading: string;
             /**
              * Impact Stars
-             * @description 第 4 格的星等 0..3 — **the entry's importance** (owner 2026-09-05: 「評分也改了不用 用星等取代 因為 impact 本就是重要性」). It travels on this row because a list of titles with no importance can only be read in order, and order is not importance. 0 means 還沒判, not 「lightest」.
+             * @description `impact_stars` — **the entry's importance** (owner 2026-09-05: 「評分也改了不用 用星等取代 因為 impact 本就是重要性」). It travels on this row because a list of titles with no importance can only be read in order, and order is not importance. 1 = 做白工，原本要完成的目的沒達到｜2 = 弄壞的只有你動的那個｜3 = 把其他東西弄壞了。0 means 還沒判, not 「lightest」 — and since 2026-09-06 a write may not send 0 (owner: 「不允許給 0」), so a 0 on this row can only be a pre-v8 legacy entry.
              */
             impact_stars: number;
             /**
@@ -7044,11 +7039,6 @@ export interface components {
              * @description The subject keys this entry is filed under.
              */
             subjects: string[];
-            /**
-             * Trigger
-             * @description 第 1 格「什麼時候要記起來」— the situation this entry applies to, and the line that doubles as its title (there is no separate name field). It and `content` are the two cells `query` matches against.
-             */
-            trigger: string;
         };
         /**
          * LoreSearchResultDTO
@@ -7085,33 +7075,33 @@ export interface components {
         };
         /**
          * LoreWriteDTO
-         * @description Create one lore entry: 六格 (a heading, four body cells plus 0..N events) and the axes it is filed under. The field set is CLOSED — an unknown key is a 422, never a silent drop.
+         * @description Create one lore entry: 五格 (a heading, three body cells plus 0..N events) and the axes it is filed under. The field set is CLOSED — an unknown key is a 422, never a silent drop.
          */
         LoreWriteDTO: {
             /**
              * Content
-             * @description REQUIRED. 第 2 格「內容」— the mechanism, and why. THIS is the only cell that ever enters a boot context, so an entry with a blank `content` contributes literally nothing to anybody and is refused.
+             * @description REQUIRED. `content`（內容）— the mechanism, and why. THIS is the only cell that ever enters a boot context, so an entry with a blank `content` contributes literally nothing to anybody and is refused.
              */
             content: string;
             /**
              * Events
-             * @description 第 5 格「相關的完整資訊」— 0..N events, each 時／事／人／地／物. Zero events is legal, and 「沒有事件」 is a different fact from 「有事件但人地物空著」 — both stay visible. Every event needs `happened_ts` (when it HAPPENED, not when it was written down) and `what`; `actor` / `place` / `object` are sent only when you actually know them and are NEVER back-filled with 「未知」, because 「查不出是誰」 and 「還沒有人去查」 must not end up looking the same. A bad event refuses the WHOLE write — the entry body is never written half-way.
+             * @description `events`（相關的完整資訊）— 0..N events, each 時／事／人／地／物. Zero events is legal, and 「沒有事件」 is a different fact from 「有事件但人地物空著」 — both stay visible. Every event needs `happened_ts` (when it HAPPENED, not when it was written down) and `what`; `actor` / `place` / `object` are sent only when you actually know them and are NEVER back-filled with 「未知」, because 「查不出是誰」 and 「還沒有人去查」 must not end up looking the same. A bad event refuses the WHOLE write — the entry body is never written half-way.
              */
             events?: components["schemas"]["LoreEventInputDTO"][];
             /**
              * Heading
-             * @description REQUIRED. 標題格 — 這條條目在講的是「發生了什麼」。v8 把標題從 `trigger` 手上拿回來成為獨立的一格：`trigger` 說的是「我要做 X」（讀者從哪一軸找到它），標題說的是那一次實際發生了什麼，兩句話不是同一句。🔴 v8 對標題有 `trigger` 沒有的三條要求：寫發生了什麼、不得是祈使句、標題裡的名詞與數字都要在 `content` 找得到。⚠️ 這三條這一層一條都擋不住 —— 它擋得住的只有空白。空白是拒絕而不是補一個預設值，理由跟 `trigger` 一樣：一條沒有標題的條目躺在任何列表上，跟一條寫好的長得一模一樣。🔴 上限是 140 個字元，而「字元」是 Unicode rune 不是位元組 —— 中文一個字算 1（owner 2026-09-05 逐字：「我們標題規定 140 字元好了」）。超過就整筆拒絕（422），訊息會指名是 heading 這一格、上限多少、你送來的是多少；它**不會**被截斷，既有的條目也不會被改。提案那條路一樣擋：送出時擋一次，核可時再擋一次（核可會把標題寫回條目，所以那一步就是一次寫入）。⚠️ 這一行以前寫的是「沒有長度上限」，那句話已經被上面那道裁定推翻。實測 2026-09-05：照 v8 重寫的 24 條標題最長 130 個 rune ⇒ 今天沒有任何一條會被擋，但最長那條離上限只剩 10 個。
+             * @description REQUIRED. 標題格 — 這條條目在講的是「發生了什麼」，同時也是讀者找到它的那一軸（owner ruling rc-9002654dd81c (2026-09-06), verbatim 「合併成 heading 一格（同時把搜尋改成掃 heading＋內容、待審畫面改顯示 heading）」）。🔴 v8 對標題有三條要求：寫發生了什麼、不得是祈使句、標題裡的名詞與數字都要在 `content` 找得到。⚠️ 這三條這一層一條都擋不住 —— 它擋得住的只有空白。空白是拒絕而不是補一個預設值，而合併之後空著會同時發生兩件壞事：這條誰都撈不到（它是 `query` 唯一掃得到的那一軸），而且它躺在任何列表上跟一條寫好的長得一模一樣。🔴 上限是 140 個字元，而「字元」是 Unicode rune 不是位元組 —— 中文一個字算 1（owner 2026-09-05 逐字：「我們標題規定 140 字元好了」）。超過就整筆拒絕（422），訊息會指名是 heading 這一格、上限多少、你送來的是多少；它**不會**被截斷，既有的條目也不會被改。提案那條路一樣擋：送出時擋一次，核可時再擋一次（核可會把標題寫回條目，所以那一步就是一次寫入）。⚠️ 這一行以前寫的是「沒有長度上限」，那句話已經被上面那道裁定推翻。實測 2026-09-05：照 v8 重寫的 24 條標題最長 130 個 rune ⇒ 今天沒有任何一條會被擋，但最長那條離上限只剩 10 個。
              */
             heading: string;
             /**
              * Impact
-             * @description 第 4 格「impact」— 原本想達成什麼、實際變成什麼。v8 把 `problem`（之前發生過什麼問題）改名成這一格，因為問的東西換了：前者問起因，這一格問後果。🔴 那件壞事其實沒發生（護欄先擋下來了）就寫「沒有發生，因為…」，不要編一個沒發生的後果；真的填不出來就留白。Optional as a FIELD and yet the substance of the entry: one with no impact behind it is a slogan. It is deliberately not made required, because a hard requirement pushes a writer who genuinely has none into inventing one, and an invented case reads exactly like a real one. ⚠️ Nothing flags an entry for leaving this blank: the `degraded` mark that once reported 「this cell is empty」 was removed entirely by owner ruling rc-1e32c690018d (2026-09-03), so an empty 第 4 格 is visible only by reading the entry.
+             * @description `impact`— 沒有這條記憶的人，**最糟**會發生什麼（owner 2026-09-06 逐字定義；⚠️ 它問的不是寫的人 —— 這件事有沒有真的發生完全不相干，被當場擋下來的一樣寫得出來。而且問的是**最糟**，不是平均、也不是這次剛好的結果）。v8 把 `problem`（之前發生過什麼問題）改名成這一格，因為問的東西換了：前者問起因，這一格問後果。🔴 那件壞事其實沒發生（護欄先擋下來了）就寫「沒有發生，因為…」，不要編一個沒發生的後果；真的填不出來就留白。Optional as a FIELD and yet the substance of the entry: one with no impact behind it is a slogan. It is deliberately not made required, because a hard requirement pushes a writer who genuinely has none into inventing one, and an invented case reads exactly like a real one. ⚠️ Nothing flags an entry for leaving this blank: the `degraded` mark that once reported 「this cell is empty」 was removed entirely by owner ruling rc-1e32c690018d (2026-09-03), so an empty `impact` is visible only by reading the entry.
              * @default
              */
             impact: string;
             /**
              * Impact Stars
-             * @description 第 4 格的星等 —— **它就是這條條目的重要性**（owner 2026-09-05 逐字：「評分也改了不用 用星等取代 因為 impact 本就是重要性」，所以先前那個 0–5 的權重分數作廢，不要再去找它）。判法只有一個問題「弄壞了什麼？」：1 = 沒弄壞任何東西（做白工）｜2 = 弄壞的只有你動的那個｜3 = 弄壞的包含你沒動的。⚠️ 三級之間不是累加，分界只有一條：弄壞的東西在不在你動的範圍內。🔴 省略它得到 0，而 0 不是「最輕」，是「還沒判」—— 0 與 1 必須分得開，否則沒有人查得出誰漏填。0..3 以外的值是 422。⚠️ 這一段先前寫著「蓋章的是另一欄（`reviewed`），只有 owner 與 admin 動得了」——那句話宣稱了一個當時沒有人做過的決定，而 owner 後來裁的方向與它相反。它被改掉而不是靜默刪除，是為了讓引用過它的人看得見它已經死了。
+             * @description `impact_stars` —— **它就是這條條目的重要性**（owner 2026-09-05 逐字：「評分也改了不用 用星等取代 因為 impact 本就是重要性」，所以先前那個 0–5 的權重分數作廢，不要再去找它）。🔴 **必填，而且不接受 0**（owner 2026-09-06 逐字：「因為我們一定會有 impact 所以不會是 0」「不允許給 0」）—— 一條值得被寫下來的傳承一定有它的下場。判法只有一個問題「弄壞了什麼？」：1 = 做白工，原本要完成的目的沒達到｜2 = 弄壞的只有你動的那個｜3 = 把其他東西弄壞了。⚠️ 三級之間不是累加：把自己動的那個修好了、卻炸了其他人，那是 3 不是 2；分界只有一條 —— 壞掉的東西在不在你動的範圍內。🔴 兩種拒絕是**兩個**錯誤而不是一個：漏送這個 key 是「你還沒填」，送 0 是「你填了一個不是等級的值」，而 0..3 以外是「你打錯數字」。合成一句會讓沒去判的人以為自己只是打錯字。0 仍然讀得到，但只出現在 v8 之前的存量條目上，意思是「還沒有人判過」。⚠️ 這一段先前寫著「蓋章的是另一欄（`reviewed`），只有 owner 與 admin 動得了」——那句話宣稱了一個當時沒有人做過的決定，而 owner 後來裁的方向與它相反。它被改掉而不是靜默刪除，是為了讓引用過它的人看得見它已經死了。
              * @default 0
              */
             impact_stars: number;
@@ -7122,7 +7112,7 @@ export interface components {
             origin: string;
             /**
              * Retire When
-             * @description 第 3 格「什麼時候不需要了」— FREE TEXT, deliberately not a date and not a closed vocabulary: the honest answers run from 「這個 bug 修好之後」 to 「等負責人裁定 X」, and a closed field would force every one of them into a shape that loses what it meant. Optional; blank means nobody has said, which is NOT the same as 「永遠都需要」 and is never filled in for you.
+             * @description `retire_when`（什麼時候不需要了）— FREE TEXT, deliberately not a date and not a closed vocabulary: the honest answers run from 「這個 bug 修好之後」 to 「等負責人裁定 X」, and a closed field would force every one of them into a shape that loses what it meant. Optional; blank means nobody has said, which is NOT the same as 「永遠都需要」 and is never filled in for you.
              * @default
              */
             retire_when: string;
@@ -7137,15 +7127,10 @@ export interface components {
              * @default
              */
             supersedes: string;
-            /**
-             * Trigger
-             * @description REQUIRED. 第 1 格「什麼時候要記起來」— the situation you would be IN when this entry applies, written as the sentence you could have written BEFORE you knew the answer. It is the axis a reader finds the entry by, and since v8 it is NOT the entry's title: 標題 is its own cell, `heading`, and THAT one is capped at 140 characters (Unicode runes). `trigger` itself has no separate `label` field and no length cap, because the owner's own worked example writes the first cell as a full sentence far longer than the 40-rune cap `label` used to carry. Blank is REFUSED rather than defaulted — an entry without it sits in the table looking exactly like a finished one and nobody can retrieve it. ⚠️ 「第 1 格兼任標題，因此沒有 `label`、沒有長度上限」是實作判斷，不是負責人的裁定 —— 它的前半（兼任標題）已經被 v8 推翻，後半（`trigger` 這一格沒有長度上限）到今天仍然成立。有上限的是 `heading`：140 個字元。
-             */
-            trigger: string;
         };
         /**
          * LoreWriteReceiptDTO
-         * @description What the write actually did, read back from the tables rather than echoed from the request: the new entry's id, the digest of the original that was preserved beside it, the subjects it ended up filed against, and any subject it had to mint. ⚠️ There is no `degraded` field here any more — owner ruling rc-1e32c690018d (2026-09-03) removed the concept, because 第 1 格 is already refused blank at the door.
+         * @description What the write actually did, read back from the tables rather than echoed from the request: the new entry's id, the digest of the original that was preserved beside it, the subjects it ended up filed against, and any subject it had to mint. ⚠️ There is no `degraded` field here any more — owner ruling rc-1e32c690018d (2026-09-03) removed the concept, because `heading` is already refused blank at the door.
          */
         LoreWriteReceiptDTO: {
             /**
@@ -7182,7 +7167,7 @@ export interface components {
         };
         /**
          * LoreProposeDTO
-         * @description Propose one change to a lore entry: the account of what is wrong, and — for an `update` — the COMPLETE replacement version: 四格 AND 第 5 格, the whole event list. 🔴 A PROPOSAL CARRIES ITS OWN EVENTS, AND ACCEPTING IT REPLACES THE ENTRY'S WHOLESALE — not merged, not append-only. Owner ruling rc-e5c34500face (2026-09-03): 「改得動 —— 提案就該帶完整的新版本，包含所有事件」. The reasoning that ruling overturned was 「第 5 格是機器串出來的事實，提案只是意見，意見不該改得動事實」, and its hole is that WHEN THE MACHINE STRINGS IT TOGETHER WRONG NOTHING CAN REPAIR IT: re-deriving washes away whatever a person filled in by hand (an act that never went through the API cannot reach a recorder, so those cells can only be left empty), so a proposal that moves events is the only road that repairs one. 🔴 `events` IS REQUIRED ON AN `update` AND OMITTING IT IS A 422, NOT A SHORTHAND FOR 「維持現狀」: send `[]` to claim the entry should carry no events at all. If a missing key and an empty list meant the same thing, one forgotten field would clear 第 5 格 where no reviewer could see it — the exact description/result gap this whole shape exists to close. The field set is CLOSED; an unknown key is a 422, never a silent drop. ⚠️ v8 的標題格 (`heading`) 與星等 (`impact_stars`) **帶不動**：lore_proposal 沒有存它們的欄位，所以核可一份提案換掉的是四格與整份第 5 格，條目原本的標題與星等原封不動留在那裡。「提案帶的是完整的新版本」這句話對這兩格在這一版是不成立的，而它寫在這裡，是為了不讓審核者以為他核可的是一整條。
+         * @description Propose one change to a lore entry: the account of what is wrong, and — for an `update` — the COMPLETE replacement version: 四格 AND `events`, the whole event list. 🔴 A PROPOSAL CARRIES ITS OWN EVENTS, AND ACCEPTING IT REPLACES THE ENTRY'S WHOLESALE — not merged, not append-only. Owner ruling rc-e5c34500face (2026-09-03): 「改得動 —— 提案就該帶完整的新版本，包含所有事件」. The reasoning that ruling overturned was 「`events`是機器串出來的事實，提案只是意見，意見不該改得動事實」, and its hole is that WHEN THE MACHINE STRINGS IT TOGETHER WRONG NOTHING CAN REPAIR IT: re-deriving washes away whatever a person filled in by hand (an act that never went through the API cannot reach a recorder, so those cells can only be left empty), so a proposal that moves events is the only road that repairs one. 🔴 `events` IS REQUIRED ON AN `update` AND OMITTING IT IS A 422, NOT A SHORTHAND FOR 「維持現狀」: send `[]` to claim the entry should carry no events at all. If a missing key and an empty list meant the same thing, one forgotten field would clear `events` where no reviewer could see it — the exact description/result gap this whole shape exists to close. The field set is CLOSED; an unknown key is a 422, never a silent drop. ⚠️ v8 的標題格 (`heading`) 與星等 (`impact_stars`) **帶不動**：lore_proposal 沒有存它們的欄位，所以核可一份提案換掉的是四格與整份`events`，條目原本的標題與星等原封不動留在那裡。「提案帶的是完整的新版本」這句話對這兩格在這一版是不成立的，而它寫在這裡，是為了不讓審核者以為他核可的是一整條。
          */
         LoreProposeDTO: {
             /**
@@ -7192,7 +7177,7 @@ export interface components {
             base_sha256: string;
             /**
              * Content
-             * @description The proposed 第 2 格「內容」— the one cell that ever enters a boot context. REQUIRED on an `update`, blank is refused, exactly as on a write. Sent only on an `update`, where the four together with `events` are the whole new version; on a `remove` it must be absent or empty.
+             * @description The proposed `content`（內容）— the one cell that ever enters a boot context. REQUIRED on an `update`, blank is refused, exactly as on a write. Sent only on an `update`, where the body cells together with `events` are the whole new version; on a `remove` it must be absent or empty.
              * @default
              */
             content: string;
@@ -7203,7 +7188,7 @@ export interface components {
             encountered: string;
             /**
              * Events
-             * @description The COMPLETE proposed 第 5 格 — the whole event list as it should stand AFTER this proposal is accepted, NOT a set of additions. REQUIRED on an `update`: send `[]` to say 「這條不該有事件」; omitting the key is refused 422, because a forgotten field and a deliberate clear must never look the same. MUST be absent or empty on a `remove`, which proposes no version at all. Each event is held to the SAME rules a write is — 時 and 事 required, 人／地／物 validated only when non-empty — so a proposal nobody could ever accept is refused now instead of sitting in the queue looking acceptable. The order you send them in does not change the digest: the renderer sorts by (happened_ts, what, actor, place, object), so one set sent in two orders is one version.
+             * @description The COMPLETE proposed `events` — the whole event list as it should stand AFTER this proposal is accepted, NOT a set of additions. REQUIRED on an `update`: send `[]` to say 「這條不該有事件」; omitting the key is refused 422, because a forgotten field and a deliberate clear must never look the same. MUST be absent or empty on a `remove`, which proposes no version at all. Each event is held to the SAME rules a write is — 時 and 事 required, 人／地／物 validated only when non-empty — so a proposal nobody could ever accept is refused now instead of sitting in the queue looking acceptable. The order you send them in does not change the digest: the renderer sorts by (happened_ts, what, actor, place, object), so one set sent in two orders is one version.
              */
             events?: components["schemas"]["LoreEventInputDTO"][];
             /**
@@ -7213,7 +7198,7 @@ export interface components {
             evidence: string;
             /**
              * Fault
-             * @description REQUIRED. Which of three things is wrong with the entry, because the three want three different repairs: `stale` — it was right when it was written and is not any more (it wants rewriting against today); `never-true` — the claim never held (it wants retiring as `falsified`, which is the owner's call); `misled` — it is retrieved for situations it does not describe and it sent you the wrong way (its `trigger` wants fixing). An unrecognised value is refused 422 with the value named; there is no default, because an undifferentiated 「這條不好」 tells a reviewer nothing about what to do.
+             * @description REQUIRED. Which of three things is wrong with the entry, because the three want three different repairs: `stale` — it was right when it was written and is not any more (it wants rewriting against today); `never-true` — the claim never held (it wants retiring as `falsified`, which is the owner's call); `misled` — it is retrieved for situations it does not describe and it sent you the wrong way (its `heading` wants fixing). An unrecognised value is refused 422 with the value named; there is no default, because an undifferentiated 「這條不好」 tells a reviewer nothing about what to do.
              */
             fault: string;
             /**
@@ -7224,33 +7209,27 @@ export interface components {
             heading: string;
             /**
              * Impact
-             * @description The proposed 第 4 格「impact」（原本想達成什麼、實際變成什麼）. Optional, exactly as on a write. Sent only on an `update`, where the four together with `events` are the whole new version; on a `remove` it must be absent or empty.
+             * @description The proposed `impact`（沒有這條記憶的人，**最糟**會發生什麼（owner 2026-09-06 逐字定義；⚠️ 它問的不是寫的人 —— 這件事有沒有真的發生完全不相干，被當場擋下來的一樣寫得出來。而且問的是**最糟**，不是平均、也不是這次剛好的結果））. Optional, exactly as on a write. Sent only on an `update`, where the body cells together with `events` are the whole new version; on a `remove` it must be absent or empty.
              * @default
              */
             impact: string;
             /**
              * Impact Stars
-             * @description The proposed 星等 for 第 4 格 — 0..3, the same scale as on a write (0 = 還沒判、1 = 沒弄壞任何東西、2 = 弄壞的只有你動的那個、3 = 弄壞的包含你沒動的; the three are NOT cumulative — the only boundary is whether what broke was inside what you touched). 🔴 It is part of the proposed version and therefore part of the digest: an entry whose stars went from 1 to 3 must not hash to what it hashed before, or a proposal written against the old number would still read as current. ⚠️ Omitting it yields 0, and 0 means 還沒判 — so a proposal that leaves this cell out puts the entry's stars back to 0. That is a CLAIM rather than a silent wipe: it is rendered into `body` and hashed into `sha256`, so it is in the diff the reviewer reads. Sent only on an `update`; a non-zero value on a `remove` is refused.
+             * @description The proposed 星等 for `impact` — the same scale as on a write (1 = 做白工，原本要完成的目的沒達到、2 = 弄壞的只有你動的那個、3 = 把其他東西弄壞了; the three are NOT cumulative — fixing the one you touched and blowing up someone else is a 3, not a 2; the only boundary is whether what broke was inside what you touched). 🔴 A WRITE may no longer send 0 (owner 2026-09-06 逐字「不允許給 0」); an `update` proposal is a whole new version of the entry, so it should carry 1..3 for the same reason. 🔴 It is part of the proposed version and therefore part of the digest: an entry whose stars went from 1 to 3 must not hash to what it hashed before, or a proposal written against the old number would still read as current. ⚠️ Omitting it yields 0, and 0 means 還沒判 — so a proposal that leaves this cell out puts the entry's stars back to 0. That is a CLAIM rather than a silent wipe: it is rendered into `body` and hashed into `sha256`, so it is in the diff the reviewer reads. Sent only on an `update`; a non-zero value on a `remove` is refused.
              * @default 0
              */
             impact_stars: number;
             /**
              * Kind
-             * @description REQUIRED. `update` — you are proposing the entry should say something else, and the four body cells below PLUS `events` carry the whole new version; accepting it replaces 第 5 格 wholesale with what you sent. `remove` — you are proposing it stop being retrieved, and you send NO body cells and NO events at all; a removal carrying a version would put text on a reviewer's screen that no accept would ever write. Anything else is refused 422 with the value named. Note that a removal is not a deletion: the act it asks for is `retire_lore_entry`, and `revive_lore_entry` undoes it.
+             * @description REQUIRED. `update` — you are proposing the entry should say something else, and the body cells below PLUS `events` carry the whole new version; accepting it replaces `events` wholesale with what you sent. `remove` — you are proposing it stop being retrieved, and you send NO body cells and NO events at all; a removal carrying a version would put text on a reviewer's screen that no accept would ever write. Anything else is refused 422 with the value named. Note that a removal is not a deletion: the act it asks for is `retire_lore_entry`, and `revive_lore_entry` undoes it.
              */
             kind: string;
             /**
              * Retire When
-             * @description The proposed 第 3 格「什麼時候不需要了」— free text. Optional, exactly as on a write. Sent only on an `update`, where the four together with `events` are the whole new version; on a `remove` it must be absent or empty.
+             * @description The proposed `retire_when`（什麼時候不需要了）— free text. Optional, exactly as on a write. Sent only on an `update`, where the body cells together with `events` are the whole new version; on a `remove` it must be absent or empty.
              * @default
              */
             retire_when: string;
-            /**
-             * Trigger
-             * @description The proposed 第 1 格「什麼時候要記起來」— the axis a reader finds the entry by, doubling as its title. REQUIRED on an `update`, blank is refused, exactly as on a write — an `update` is held to the write's own field rules so that a proposal nobody could ever accept is refused now instead of sitting in the queue looking acceptable. Sent only on an `update`, where the four together with `events` are the whole new version; on a `remove` it must be absent or empty.
-             * @default
-             */
-            trigger: string;
         };
         /**
          * LoreProposalReceiptDTO
@@ -7280,7 +7259,7 @@ export interface components {
         };
         /**
          * LoreProposalAppliedDTO
-         * @description What an acceptance actually wrote: which proposal landed, on which entry, the ONE revision it produced, the digest of the version that is now current, and how many events 第 5 格 carries afterwards. 🔴 THE REVISION IS THE WHOLE RECORD OF THE VERDICT — its actor_id is the accepter — because nothing else is written down; there is no arbitration journal and none has been ruled on.
+         * @description What an acceptance actually wrote: which proposal landed, on which entry, the ONE revision it produced, the digest of the version that is now current, and how many events `events` carries afterwards. 🔴 THE REVISION IS THE WHOLE RECORD OF THE VERDICT — its actor_id is the accepter — because nothing else is written down; there is no arbitration journal and none has been ruled on.
          */
         LoreProposalAppliedDTO: {
             /**
@@ -7290,7 +7269,7 @@ export interface components {
             entry_id: string;
             /**
              * Events After
-             * @description How many events 第 5 格 carries NOW. The list was replaced wholesale by the proposal's own, so this is that proposal's count rather than a sum — a smaller number than before means the acceptance removed events, which is exactly what a merge could never do.
+             * @description How many events `events` carries NOW. The list was replaced wholesale by the proposal's own, so this is that proposal's count rather than a sum — a smaller number than before means the acceptance removed events, which is exactly what a merge could never do.
              */
             events_after: number;
             /**
@@ -7311,7 +7290,7 @@ export interface components {
         };
         /**
          * LoreProposalDTO
-         * @description ONE filed proposal, in full: why it was filed, which version it was written against, whether that version is still the current one, and — on an `update` — the complete proposed version: 四格 plus the whole of 第 5 格. 🔴 A PROPOSAL CARRIES ITS OWN EVENTS (Owner ruling rc-e5c34500face (2026-09-03): 「改得動 —— 提案就該帶完整的新版本，包含所有事件」.), so `body` was rendered against THE PROPOSAL'S events rather than the entry's, and accepting it replaces the entry's events wholesale. 🔴 `events_added` / `events_removed` ARE HOW A REVIEWER SEES WHICH EVENTS THIS PROPOSAL MOVES without diffing two lists by eye — and both lists are still on the wire (`events` here, `current_events` on the enclosing response), so the difference can be RECOMPUTED rather than trusted.
+         * @description ONE filed proposal, in full: why it was filed, which version it was written against, whether that version is still the current one, and — on an `update` — the complete proposed version: 四格 plus the whole of `events`. 🔴 A PROPOSAL CARRIES ITS OWN EVENTS (Owner ruling rc-e5c34500face (2026-09-03): 「改得動 —— 提案就該帶完整的新版本，包含所有事件」.), so `body` was rendered against THE PROPOSAL'S events rather than the entry's, and accepting it replaces the entry's events wholesale. 🔴 `events_added` / `events_removed` ARE HOW A REVIEWER SEES WHICH EVENTS THIS PROPOSAL MOVES without diffing two lists by eye — and both lists are still on the wire (`events` here, `current_events` on the enclosing response), so the difference can be RECOMPUTED rather than trusted.
          */
         LoreProposalDTO: {
             /**
@@ -7331,12 +7310,12 @@ export interface components {
             base_sha256: string;
             /**
              * Body
-             * @description The complete proposed version as rendered text — every cell present with its name, blank or not, plus the `events:` block, so a deleted section and a never-written one do not hash the same. 🔴 The events in it are THE PROPOSAL'S OWN, which is what makes this the bytes that would actually land: accepting replaces 第 5 格 with exactly this. Empty on a `remove`.
+             * @description The complete proposed version as rendered text — every cell present with its name, blank or not, plus the `events:` block, so a deleted section and a never-written one do not hash the same. 🔴 The events in it are THE PROPOSAL'S OWN, which is what makes this the bytes that would actually land: accepting replaces `events` with exactly this. Empty on a `remove`.
              */
             body: string;
             /**
              * Content
-             * @description The proposed 第 2 格「內容」. Empty on a `remove`.
+             * @description The proposed `content`（內容）. Empty on a `remove`.
              */
             content: string;
             /**
@@ -7351,7 +7330,7 @@ export interface components {
             encountered: string;
             /**
              * Events
-             * @description The COMPLETE proposed 第 5 格 — the event list this proposal says the entry should carry once it is accepted, in the order things HAPPENED (`happened_ts`), never the order anybody typed them. Empty on a `remove`, which proposes no version, and empty on an `update` claiming the entry should carry no events at all; `kind` tells the two apart, and on an `update` `events_removed` shows what that claim would delete.
+             * @description The COMPLETE proposed `events` — the event list this proposal says the entry should carry once it is accepted, in the order things HAPPENED (`happened_ts`), never the order anybody typed them. Empty on a `remove`, which proposes no version, and empty on an `update` claiming the entry should carry no events at all; `kind` tells the two apart, and on an `update` `events_removed` shows what that claim would delete.
              */
             events: components["schemas"]["LoreEventDTO"][];
             /**
@@ -7361,7 +7340,7 @@ export interface components {
             events_added: components["schemas"]["LoreEventDTO"][];
             /**
              * Events Removed
-             * @description The events this proposal DELETES: present in the enclosing response's `current_events`, absent from `events`. 🔴 THIS IS THE HALF A REVIEWER WOULD OTHERWISE MISS — an addition shows up in the proposed list, a deletion shows up only as an absence. Same key and same computed-not-stored rule as `events_added`. Always `[]` on a `remove`, which deletes no events: the act it asks for is `retire_lore_entry`, and retiring does not touch 第 5 格.
+             * @description The events this proposal DELETES: present in the enclosing response's `current_events`, absent from `events`. 🔴 THIS IS THE HALF A REVIEWER WOULD OTHERWISE MISS — an addition shows up in the proposed list, a deletion shows up only as an absence. Same key and same computed-not-stored rule as `events_added`. Always `[]` on a `remove`, which deletes no events: the act it asks for is `retire_lore_entry`, and retiring does not touch `events`.
              */
             events_removed: components["schemas"]["LoreEventDTO"][];
             /**
@@ -7381,12 +7360,12 @@ export interface components {
             heading: string;
             /**
              * Impact
-             * @description The proposed 第 4 格「impact」. Empty on a `remove`.
+             * @description The proposed `impact`. Empty on a `remove`.
              */
             impact: string;
             /**
              * Impact Stars
-             * @description The proposed 星等 (0..3) for 第 4 格 — the entry's importance. 0 on a `remove`, and 0 on an `update` means 還沒判.
+             * @description The proposed 星等 (0..3) for `impact` — the entry's importance. 0 on a `remove`, and 0 on an `update` means 還沒判.
              */
             impact_stars: number;
             /**
@@ -7401,7 +7380,7 @@ export interface components {
             proposal_id: string;
             /**
              * Retire When
-             * @description The proposed 第 3 格「什麼時候不需要了」. Empty on a `remove`.
+             * @description The proposed `retire_when`（什麼時候不需要了）. Empty on a `remove`.
              */
             retire_when: string;
             /**
@@ -7414,11 +7393,6 @@ export interface components {
              * @description 🔴 TRUE MEANS THE ENTRY WAS REWRITTEN AFTER THIS WAS FILED. The proposer argued against text that is no longer there, so applying it as-is would discard whoever changed it in between — silently, and the result would look entirely correct. COMPUTED on every read from the two digests, never stored.
              */
             stale: boolean;
-            /**
-             * Trigger
-             * @description The proposed 第 1 格「什麼時候要記起來」. Empty on a `remove`.
-             */
-            trigger: string;
         };
         /**
          * LoreProposalListDTO
@@ -7427,7 +7401,7 @@ export interface components {
         LoreProposalListDTO: {
             /**
              * Current Events
-             * @description The entry's 第 5 格 AS IT STANDS RIGHT NOW, in the order things happened — the other side of every proposal's `events_added` / `events_removed`. A reviewer holding both lists recomputes the difference instead of trusting it, which is the rule `current_sha256` already follows for `stale`.
+             * @description The entry's `events` AS IT STANDS RIGHT NOW, in the order things happened — the other side of every proposal's `events_added` / `events_removed`. A reviewer holding both lists recomputes the difference instead of trusting it, which is the rule `current_sha256` already follows for `stale`.
              */
             current_events: components["schemas"]["LoreEventDTO"][];
             /**

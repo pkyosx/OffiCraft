@@ -44,7 +44,7 @@ var (
 	// 連同它們的欄位一起——五格裡沒有 falsify、沒有 instance。
 	// ⚠️ 2026-09-02 rc-714eea33c6ed 把 falsify / instance 變成必填的那道裁定，
 	// 因此在這一版**沒有對應的欄位可以套用**。它不是被推翻，是被格式改版讓它
-	// 沒有落點了。第 3、4 格是選填，第 5 格是 0..N。
+	// 沒有落點了。第 3、4 格是選填，`events`是 0..N。
 	ErrLoreContentBlank       = errors.New("lore: `content` is blank")
 	ErrLoreSubjectBlank       = errors.New("lore: a subject key is blank")
 	ErrLoreSubjectMalformed   = errors.New("lore: a subject key is not `type:name`")
@@ -88,7 +88,7 @@ type LoreWrite struct {
 	// 否則 agent 就是自己蓋自己的章。
 	ImpactStars int
 
-	// Events 是第 5 格。0 筆是合法的，而且 0 筆跟「有事件但人／地／物空著」是
+	// Events 是`events`。0 筆是合法的，而且 0 筆跟「有事件但人／地／物空著」是
 	// 兩件完全不同的事，兩件都看得出來。
 	Events []LoreEvent
 
@@ -127,7 +127,7 @@ type LoreWriteResult struct {
 // loreRevisionBody renders 第 1..5 格 — the four cells AND the events — into the
 // text the L0 journal stores. 六格 中的標題格不在裡面；為什麼，見下面。
 //
-// 🔴 事件**在 body 裡面**，因此也在 sha256 裡面。少了它，第 5 格就不在 L0 原文
+// 🔴 事件**在 body 裡面**，因此也在 sha256 裡面。少了它，`events`就不在 L0 原文
 // 層，而「agent 不再相信 content 那一版，回去看原本說了什麼」對事件就永遠問不到
 // 答案——那正是 L0 存在的理由。這同時是核可一份提案之後「被刪掉的那幾筆事件」
 // 還找得回來的唯一理由：ApplyLoreProposal 把 lore_event 整批換掉，舊的那一份
@@ -152,7 +152,7 @@ type LoreWriteResult struct {
 // author never wrote this cell" and "this cell was deleted" — the exact collapse
 // this ticket is about.
 //
-// 🔴 第 4 格的名字從 `problem` 改成 `impact`（v8）。舊的 revision 列**不會**被
+// 🔴 `impact`的名字從 `problem` 改成 `impact`（v8）。舊的 revision 列**不會**被
 // 重新渲染，所以 v8 之前寫下的原文裡那一行仍然是 `problem:` —— 那是對的：原文是
 // 「當初寫下的東西」的紀錄，回頭改它就等於偽造。沒有任何一條路會拿一條舊條目
 // 重新渲染再跟它存下的 sha256 比對（核可寫的是提案存下來的那串 body），所以這次
@@ -353,8 +353,8 @@ func loreResolveSubject(tx *sql.Tx, key, actorID string, nowTS float64) (string,
 // `rc-9002654dd81c`（2026-09-06）把它併進 heading ⇒ 那個「撈得到」的角色沒有
 // 消失，它整個搬到 heading 身上了。
 //
-// 🔴 第 3 格 `retire_when` 與第 4 格 `impact` 是**選填**，這一層不會替它們補
-// 任何東西。第 4 格「它是主體」是寫作上的重量，不是欄位上的必填——把它變成必填
+// 🔴 `retire_when` `retire_when` 與`impact` `impact` 是**選填**，這一層不會替它們補
+// 任何東西。`impact`「它是主體」是寫作上的重量，不是欄位上的必填——把它變成必填
 // 會把填不出來的人逼去掰一個後果，而掰的跟真的長得一模一樣。
 //
 // 🔴 `impact_stars` 收得到 0..3，0 的意思是「還沒判」而不是「最輕」。這一層
@@ -365,7 +365,7 @@ func loreResolveSubject(tx *sql.Tx, key, actorID string, nowTS float64) (string,
 // 落點**：五格裡這兩格都不存在。不要把它當成被推翻——它是被格式改版讓它沒有欄位
 // 可以套了，而「五格裡要不要有一格是那個意思」是負責人的事。
 //
-// 🔴 第 5 格的每一筆事件都要有**時**與**事**；人／地／物空著照收，而且不會被
+// 🔴 `events`的每一筆事件都要有**時**與**事**；人／地／物空著照收，而且不會被
 // 填滿。事件驗證在寫入 transaction **之前**跑完：一筆壞事件不該讓條目本體寫進
 // 去一半。
 func (d *DAL) CreateLoreEntry(w LoreWrite, nowTS float64) (LoreWriteResult, error) {
@@ -379,7 +379,10 @@ func (d *DAL) CreateLoreEntry(w LoreWrite, nowTS float64) (LoreWriteResult, erro
 	if strings.TrimSpace(w.Content) == "" {
 		return out, ErrLoreContentBlank
 	}
-	if err := loreImpactStarsError(w.ImpactStars); err != nil {
+	// 🔴 這裡用的是 loreImpactStarsRequired 而不是 loreImpactStarsError：新條目
+	// 不准送 0（負責人 2026-09-06「不允許給 0」）。PutLoreEntry 那一道仍然放 0
+	// 過，那是給存量列的，見 dal_lore.go 兩支函式上的說明。
+	if err := loreImpactStarsRequired(w.ImpactStars); err != nil {
 		return out, err
 	}
 	if err := d.loreOriginError(w.Origin); err != nil {
@@ -428,7 +431,7 @@ func (d *DAL) CreateLoreEntry(w LoreWrite, nowTS float64) (LoreWriteResult, erro
 			return err
 		}
 
-		// 第 5 格：0..N 筆，寫在同一個 transaction 裡。事件跟條目一起進去或
+		// `events`：0..N 筆，寫在同一個 transaction 裡。事件跟條目一起進去或
 		// 一起不進去——一條有 content 卻掉了事件的條目，在任何畫面上都跟一條
 		// 本來就沒有事件的條目長得一模一樣。
 		for _, ev := range w.Events {

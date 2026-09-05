@@ -127,33 +127,33 @@ func TestLoreSearchQueryDoesNotReachTheThirdOrFourthCell(t *testing.T) {
 	d := newTestDAL(t)
 	t33SearchSeed(t, d)
 
-	// 只有第 3 格帶著那個字。
+	// 只有`retire_when`帶著那個字。
 	t33Filed(t, d, "lore-r", "e-repo", func(e *LoreEntry) {
 		e.Heading = "標題格沒有那個字"
 		e.Content = "內容格也沒有"
 		e.RetireWhen = "zebrafish"
-		e.Impact = "第 4 格沒有"
+		e.Impact = "`impact`沒有"
 	})
-	// 只有第 4 格帶著那個字。
+	// 只有`impact`帶著那個字。
 	t33Filed(t, d, "lore-p", "e-repo", func(e *LoreEntry) {
 		e.Heading = "標題格一樣沒有"
 		e.Content = "內容格一樣沒有"
-		e.RetireWhen = "第 3 格沒有"
+		e.RetireWhen = "`retire_when`沒有"
 		e.Impact = "zebrafish"
 	})
-	// 🔑 陽性對照：同一個字放進第 2 格就搜得到。少了它，下面的「只命中一筆」
+	// 🔑 陽性對照：同一個字放進`content`就搜得到。少了它，下面的「只命中一筆」
 	// 也可能是因為查法整個失效 —— 零命中與規則成立長得一模一樣。
 	t33Filed(t, d, "lore-c", "e-repo", func(e *LoreEntry) {
 		e.Heading = "標題格沒有那個字"
 		e.Content = "zebrafish 在內容格"
-		e.RetireWhen = "第 3 格沒有"
-		e.Impact = "第 4 格沒有"
+		e.RetireWhen = "`retire_when`沒有"
+		e.Impact = "`impact`沒有"
 	})
 
 	got := t33Search(t, d, LoreSearch{Query: "zebrafish"})
 	ids := t33IDs(got)
 	if len(ids) != 1 || ids[0] != "lore-c" {
-		t.Fatalf("query 掃到了第 3 或第 4 格（只有內容格那一筆該命中）: %v", ids)
+		t.Fatalf("query 掃到了第 3 或`impact`（只有內容格那一筆該命中）: %v", ids)
 	}
 }
 

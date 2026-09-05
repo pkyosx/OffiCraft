@@ -17,7 +17,7 @@ package main
 //     A subject key that names nothing comes back as "unresolved", which is a
 //     different answer from "resolved, and it has no entries" — the owner ruled
 //     (rc-455a5d3c308c) that telling those two apart is the requirement.
-//   - It does not pretend 第 1 格 is a semantic axis. It is returned and
+//   - It does not pretend `heading` is a semantic axis. It is returned and
 //     it is not a query parameter, because it has no table and no index, and
 //     because two people writing the same symptom were measured to produce text
 //     with almost no words in common — a literal match over that column would

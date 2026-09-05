@@ -204,7 +204,7 @@ type LorePendingEntity struct {
 	// ⚠️ `Similar` STAYS, AND IS THE POINT. 「像哪些既有名字，以及每一個為什麼像」
 	// is the homework; 「你該按哪顆鈕」 is what left.
 	Similar []LoreEntitySimilar
-	// SampleShort is the FIRST entry's 第 2 格 (`content`), trimmed — a sample,
+	// SampleShort is the FIRST entry's `content` (`content`), trimmed — a sample,
 	// never the field.
 	//
 	// ⚠️ THE NAME IS LEFT OVER FROM 六格. The column it reads is `content`;
@@ -607,7 +607,7 @@ func (d *DAL) GetLoreEntity(id string) (*LoreEntity, error) {
 // BACK OUT (2026-09-05): 「ai 會笨到產生大小寫不一樣的對象嗎」. What remains of
 // his sentence is the OTHER half — 「提出我一眼就可以判斷的資訊」 — and that is
 // what everything below now serves: who minted it, when, how many entries, how
-// many ever, every entry by 第 1 格, a sample, and which existing names resemble
+// many ever, every entry by `heading`, a sample, and which existing names resemble
 // it WITH the reason each was offered. A suggestion returns in another ticket as
 // an AI judgement he can agree with or send back by comment.
 //
@@ -813,7 +813,7 @@ func loreSimilarReason(pendingKey, existingKey string) string {
 // this」 is gone. The fold that lost its argument as a SUGGESTION is still the
 // right way to surface a candidate for a human to look at.
 
-// loreSampleShort trims one entry's 第 2 格 (`content`) to the sample cap, announcing the
+// loreSampleShort trims one entry's `content` (`content`) to the sample cap, announcing the
 // trim with an ellipsis so it cannot be mistaken for the whole field.
 func loreSampleShort(short string) string {
 	r := []rune(strings.TrimSpace(short))
