@@ -435,6 +435,26 @@ else
   bad "bin/tests/rule-defer-guard.sh is missing"
 fi
 
+# ── gen-migration-lock closing signal (T-75) ─────────────────────────────────
+# bin/gen-migration-lock used to end with an unconditional "migration.lock is up
+# to date." printed AFTER the generator had rewritten the file — it had compared
+# nothing, and on 2026-09-04 a reader believed it. Nothing else here looks at the
+# sentence a human reads: the wrapper only greps for the generator's end marker,
+# and migration_lock_t75_test.go only checks the lock's content. This guard
+# drives the script's reporting stage through its --report-state seam against
+# clean / dirty / untracked / no-git fixtures, so it needs no Go toolchain.
+GENLOCKSIGNAL="$HERE/gen-migration-lock-signal-guard.sh"
+echo
+if [[ -f "$GENLOCKSIGNAL" ]]; then
+  if run_guard "$GENLOCKSIGNAL"; then
+    ok "gen-migration-lock closing-signal suite passed"
+  else
+    bad "gen-migration-lock closing-signal suite FAILED (see output above)"
+  fi
+else
+  bad "bin/tests/gen-migration-lock-signal-guard.sh is missing"
+fi
+
 # ── ps field support (T-1ac8) ────────────────────────────────────────────────
 # HOST-SHAPED on purpose, and the only guard here that is. The warden's
 # cutover-effect probe asks `ps` for named output fields; the Go suite reaches
