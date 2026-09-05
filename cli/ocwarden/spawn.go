@@ -420,11 +420,30 @@ func tmuxDeliverNudge(r CmdRunner, sleep func(time.Duration), socket, session, n
 	//
 	// 🔴 T-82: THIS LOOP DOES NOT DECIDE WHETHER THE NUDGE SUCCEEDED, AND THAT IS THE
 	// WHOLE POINT OF THE TICKET. It used to end early on a `nudgeSubmitted(pane)`
-	// check that scraped claude's own status line for its context gauge — a success
-	// verdict read off A THIRD PARTY'S SCREEN, in a format nobody here controls.
-	// Upstream changed that format, so the check went permanently false and the loop
-	// silently became "press Enter 30 times, always". Nothing reported that: a guard
-	// that can no longer fire looks exactly like a guard that never needed to.
+	// check that scraped the agent's status line for a `"% context"` substring, and
+	// that check has been permanently false: the loop silently became "press Enter 30
+	// times, always". Nothing reported that — a guard that can no longer fire looks
+	// exactly like a guard that never needed to.
+	//
+	// 🔴 GET THE MECHANISM RIGHT, because an earlier draft of this comment got it
+	// wrong in a way that closes off the real design space. That status line is NOT
+	// a third party's, and NOT in a format "nobody here controls": buildStatuslineSettings
+	// (this file) is what points the agent's statusLine at `ocagent context-report`,
+	// which is OUR OWN binary in this same repo. T-51a8 — our ticket — replaced its
+	// old "🧠 N% context" rendering with "<bar> N%", which carries no "context" token
+	// at all, and nothing anywhere was watching that string.
+	//
+	// ⇒ The lesson is NOT "do not read someone else's screen". It is: TWO OF OUR OWN
+	// MODULES WERE COUPLED THROUGH AN UNCONTRACTED STRING, ACROSS A PROCESS AND A
+	// SCREEN, WITH NO LAYER GUARDING IT. Reading a marker that ocagent deliberately
+	// PUBLISHES for warden would be a legitimate design (a versioned token in the
+	// statusline, or a file ocagent drops in its workdir on start) — it is simply not
+	// what this ticket does, because the server's own receipt is a better authority
+	// than anything on a screen.
+	//
+	// (What could not be settled: history before the initial commit 8e573a7 is
+	// squashed, so whether this check EVER fired — or was dead from the white-label
+	// import onward — is unknown. The claim here is about HEAD only.)
 	//
 	// The authority is now singular and OURS: whether the server received that
 	// member's report_waking inside StartTimeout. When it does not, reconcile stamps
