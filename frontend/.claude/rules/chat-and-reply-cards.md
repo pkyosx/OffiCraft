@@ -9,6 +9,8 @@ paths:
   - "visual-guards/chat-*"
   - "visual-guards/stories/Chat*"
   - "src/components/replies.css"
+  - "src/components/IdFilterInput*"
+  - "src/components/idFilter.css"
   - "src/hooks/useChat*"
   - "src/hooks/useReplyCard*"
   - "src/hooks/useScheduledMessages.ts"

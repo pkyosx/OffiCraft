@@ -27,6 +27,7 @@ import { I18nProvider } from "../i18n";
 import { RepliesPage } from "./RepliesPage";
 import { ReplyCardsProvider } from "../hooks/useReplyCards";
 import { __resetMock, __injectMockReplyCard } from "../api/mock";
+import { api } from "../api";
 import type { ReplyCard } from "../api/adapter";
 
 function mkCard(over: Partial<ReplyCard>): ReplyCard {
@@ -143,6 +144,131 @@ describe("請示 ID 篩選", () => {
     // 🔴 The URL half: leave the id in the hash and a refresh re-applies the
     // filter, which reads as "clear is broken".
     expect(window.location.hash).toBe("#replies");
+  });
+
+  it("matches on a PREFIX and ignores case — the two things this field does that pasting a whole id does not", async () => {
+    // The headline behaviour of this control, and the one an independent
+    // review found unguarded: with only whole-id, all-lowercase specs, both
+    // `.includes` → `===` AND dropping `.toLowerCase()` stayed green.
+    __injectMockReplyCard(mkCard({ id: "rc-aaa111", summary: "第一張" }));
+    __injectMockReplyCard(mkCard({ id: "rc-bbb222", summary: "第二張" }));
+
+    const { findAllByTestId, findByTestId, findByText } = renderPage();
+    const field = await findByTestId("filter-reply-card-id");
+
+    // A half-typed id still narrows instead of collapsing to nothing.
+    fireEvent.change(field, { target: { value: "rc-bbb" } });
+    await waitFor(async () =>
+      expect(await findAllByTestId("waiting-card")).toHaveLength(1)
+    );
+    expect(await findByText("第二張")).toBeTruthy();
+
+    // And the same id shouted back matches too (ids are lower-case on the
+    // wire, so an upper-case paste must not come back empty).
+    fireEvent.change(field, { target: { value: "RC-BBB222" } });
+    await waitFor(async () =>
+      expect(await findAllByTestId("waiting-card")).toHaveLength(1)
+    );
+  });
+
+  it("a link to a WAITING card neither fetches the handled pane nor blanks its count", async () => {
+    // The most common path there is, and the one an earlier cut of this filter
+    // broke twice over: (a) it fired the auto-load during the mount window,
+    // when `waiting` is still [] and an empty list means "not known yet"; and
+    // (b) it narrowed the header count to a list nobody had loaded, printing a
+    // 0 that the section's zero-hide then turned into "the pane is gone".
+    // MUTANTS: drop the `loading` guard → the fetch assertion goes red; narrow
+    // the count while unloaded → the 「· 1」 assertion goes red.
+    const listSpy = vi.spyOn(api, "listReplyCards");
+    __injectMockReplyCard(mkCard({ id: "rc-live", summary: "還在等的" }));
+    __injectMockReplyCard(
+      mkCard({
+        id: "rc-old",
+        summary: "已經回過的",
+        status: "answered",
+        answeredTs: Date.now() / 1000 - 3600,
+        answer: { optionIdxs: [0], text: "", attachments: [] },
+      })
+    );
+
+    const { findByTestId } = renderPage("rc-live");
+    expect((await findByTestId("waiting-card")).textContent).toContain(
+      "還在等的"
+    );
+
+    // Nothing was fetched for a pane the owner never asked about.
+    expect(
+      listSpy.mock.calls.filter(([status]) => status === "answered")
+    ).toHaveLength(0);
+    // And the pane is still there, still counted by the server — the count is
+    // 「what is in the last 24h」, not 「what matched」, because nothing has been
+    // matched against yet.
+    expect((await findByTestId("answered-toggle")).textContent).toContain(
+      "近期已處理 · 1"
+    );
+  });
+
+  it("keeps 近期已處理 visible, saying 0, when it IS loaded and nothing matches", async () => {
+    // The other half of the same failure: once the pane is loaded, an empty
+    // FILTERED list is a real 0 — but hiding the section on that 0 makes "no
+    // card matched" look identical to "this pane does not exist", and takes
+    // away the handle. MUTANT: restore the bare `handledShown > 0` render
+    // condition and this goes red.
+    __injectMockReplyCard(mkCard({ id: "rc-live", summary: "還在等的" }));
+    __injectMockReplyCard(
+      mkCard({
+        id: "rc-old",
+        summary: "已經回過的",
+        status: "answered",
+        answeredTs: Date.now() / 1000 - 3600,
+        answer: { optionIdxs: [0], text: "", attachments: [] },
+      })
+    );
+
+    const { findByTestId } = renderPage();
+    // Open it first, so the pane is genuinely LOADED before the filter lands.
+    fireEvent.click(await findByTestId("answered-toggle"));
+    expect(await findByTestId("answered-card")).toBeTruthy();
+
+    fireEvent.change(await findByTestId("filter-reply-card-id"), {
+      target: { value: "rc-live" },
+    });
+
+    const toggle = await findByTestId("answered-toggle");
+    expect(toggle.textContent).toContain("近期已處理 · 0");
+  });
+
+  it("fetches the handled pane at most once however many characters are typed", async () => {
+    // `loadHandled` is two requests with no in-flight de-duplication and the
+    // loaded flag only flips when they RETURN, so the amplification only
+    // appears while they are in flight — a mock that resolves immediately
+    // hides it completely. Hence the never-settling stub: it holds the window
+    // open for the whole test.
+    // MUTANT: remove the once-per-visit latch → one pair per keystroke.
+    const listSpy = vi
+      .spyOn(api, "listReplyCards")
+      .mockImplementation((status) =>
+        status === "waiting"
+          ? Promise.resolve([])
+          : new Promise<never>(() => {})
+      );
+    __injectMockReplyCard(mkCard({ id: "rc-live", summary: "還在等的" }));
+
+    const { findByTestId } = renderPage();
+    const field = await findByTestId("filter-reply-card-id");
+
+    for (const value of ["r", "rc", "rc-", "rc-z", "rc-zz", "rc-zzz"]) {
+      fireEvent.change(field, { target: { value } });
+    }
+    await waitFor(() =>
+      expect(
+        listSpy.mock.calls.filter(([status]) => status === "answered")
+          .length
+      ).toBeGreaterThan(0)
+    );
+    expect(
+      listSpy.mock.calls.filter(([status]) => status === "answered")
+    ).toHaveLength(1);
   });
 
   it("finds a card that lives ONLY in the collapsed 近期已處理 pane", async () => {

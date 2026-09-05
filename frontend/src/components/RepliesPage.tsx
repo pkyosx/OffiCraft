@@ -29,7 +29,7 @@
 // question still matters). The nav badge (waiting count) and the chat unread
 // red dot are independent signals: answering here never touches the red dot.
 
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useI18n } from "../i18n";
 import type { ReplyCard, ReplyCardAnswerInput } from "../api/adapter";
 import { isHttpStatus } from "../api/errors";
@@ -156,13 +156,27 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
   // that silently ignored the collapsed pane would answer 「沒有符合篩選條件的
   // 請示」 for a card that is sitting right there, unfetched — a false empty,
   // which is the one failure this control must not have.
+  //
+  // 🔴 AT MOST ONCE PER VISIT. `loadHandled` is two requests with no in-flight
+  // de-duplication and `handledLoaded` only flips when they come back, so
+  // without this latch every keystroke that matches nothing fires another
+  // pair — a pasted 15-character id becomes ~30 requests, and a failing fetch
+  // never settles so the amplification lasts the whole visit (independent
+  // review, 2026-09-05). The pane's content does not depend on the query, so
+  // fetching it once is all the filter ever needs.
+  const handledAutoloadTried = useRef(false);
   useEffect(() => {
-    if (idQuery === "") return;
-    if (!waiting.some((card) => matchesId(card)) && !handledLoaded) {
-      setHandledOpen(true);
-      void loadHandled();
-    }
-  }, [idQuery, waiting, handledLoaded, loadHandled]);
+    // 🔴 `waiting` is [] until the first fetch lands, and an empty list at
+    // mount means "not known yet", NOT "nothing matched". Firing then burns
+    // the latch AND loads the handled pane on the one path that never needed
+    // it — the link-to-a-waiting-card path this whole ticket exists for.
+    if (loading || idQuery === "") return;
+    if (handledLoaded || handledAutoloadTried.current) return;
+    if (waiting.some((card) => matchesId(card))) return;
+    handledAutoloadTried.current = true;
+    setHandledOpen(true);
+    void loadHandled();
+  }, [loading, idQuery, waiting, handledLoaded, loadHandled]);
 
   useEffect(() => {
     if (!replyCardId) return;
@@ -195,11 +209,16 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
   // The header count + zero-hide: the server counts until the lists are
   // loaded, then the client-pruned visible length (so an aging-out card drops
   // the header too while the page stays open).
-  // While an ID 篩選 is on, the server-side count is the WRONG number — it
-  // counts the whole 24h pane, not the matches — so the header waits for the
-  // lists rather than printing a count the list below cannot back up.
-  const handledShown =
-    handledLoaded || idQuery !== "" ? visibleHandled.length : handledCount;
+  // 🔴 THE ZERO HERE IS LOAD-BEARING: the section below is hidden when this is
+  // 0, so a 0 that means "not fetched yet" makes the whole 近期已處理 pane —
+  // and the only handle for opening it — VANISH. An earlier cut of this filter
+  // read `handledLoaded || idQuery !== ""` and did exactly that on the most
+  // common path of all: a link to a card that IS in 待回覆 leaves the pane
+  // unfetched, so 0 rows matched something nobody had loaded (independent
+  // review, 2026-09-05). Only a LOADED list may narrow this number; unloaded
+  // falls back to the server's whole-pane count, exactly as it does with no
+  // filter at all.
+  const handledShown = handledLoaded ? visibleHandled.length : handledCount;
 
   // Outsource askers (ow- ids) get their codename from the lazy per-id read
   // rather than from `members`. Not because they are missing from it — GET
@@ -527,7 +546,12 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
         )}
       </section>
 
-      {handledShown > 0 && (
+      {/* Zero-hide, EXCEPT while a filter is on. With a filter the section is
+        * the answer to a question the owner asked, so it has to stay on screen
+        * and say 0 — hiding it there removes the only handle for opening the
+        * pane and makes "no match" indistinguishable from "nothing exists"
+        * (independent review, 2026-09-05). */}
+      {(handledShown > 0 || idQuery !== "") && (
         <section className="replies__section">
           {/* The whole title row IS the toggle (collapsed by default): the
            * handled pane only unfolds on demand, vibe-clicking style — and the
