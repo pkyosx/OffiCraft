@@ -92,10 +92,14 @@ echo "[run_all] === E2E (playwright) ==="
 # What it does when it runs: build BOTH cli binaries IN-TREE so the warden's spawn
 # shim can resolve ocagent. resolveOcAgentBin walks three parents up from the
 # ocwarden executable to find <repoRoot>/cli/ocagent/ocagent — the spec's default
-# ocwarden path (REPO_ROOT/../ocwarden) walks to /Users and symlinks a BROKEN
-# ocagent into the spawned agent's workdir (a deaf agent that only comes online if
-# claude self-rescues in time — the presence-timeout flake). In-tree builds restore
-# the dev layout the resolver is written for. Both artifacts are gitignored.
+# ocwarden path (REPO_ROOT/../ocwarden) walks to /Users, where nothing exists.
+# T-81 CHANGED WHAT HAPPENS NEXT, so do not go looking for the old symptom: the
+# spawn used to symlink that broken path into the agent's workdir and carry on,
+# producing a DEAF agent that only came online if claude self-rescued in time (the
+# presence-timeout flake). start() now REFUSES the spawn outright with
+# ocagent_not_found. Same prerequisite, but the failure is immediate and says what
+# is wrong instead of surfacing minutes later as a flaky timeout. In-tree builds
+# restore the dev layout the resolver is written for. Both artifacts are gitignored.
 #
 # Why it is conditional (T-c329): it was unconditional, which cost every caller
 # two builds for a class that, by default, does not run. It does NOT make the
