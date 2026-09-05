@@ -5660,6 +5660,64 @@
         "additionalProperties": false,
         "type": "object"
       },
+      "SelfReportReceiptDTO": {
+        "description": "Bounded receipt for the four SELF-REPORT writes an agent makes about its own lifecycle - ``POST /api/self/waking`` (report_waking), ``/api/self/stopping`` (report_stopping), ``/api/self/stopped`` (report_stopped) and ``/api/self/refocus`` (restart_self) (T-91). All four answered with the whole MemberDTO, 32 fields flattened, measured first-hand this session: a boot report came back with 30 populated fields, of which the caller needed none it could not already name. These are agent-called through MCP, so that answer lands in the model's CONTEXT WINDOW - once per boot and once per shutdown, for every agent, forever. Owner ruling 2026-09-05: what the caller sent does not come home, only ids and what it genuinely needs to learn from the reply.\n\nWHAT IS KEPT IS WHAT CHANGES WHAT THE CALLER DOES NEXT, and nothing else passed that test. ``desired_state`` is the important one and it is not bookkeeping: api_members.go:1789-1795 records that a boot which lands after the owner has already cancelled it must not paint itself green, and names this field as the one that says whether the boot is wanted; the stopped-report handler says the same for the other end (\"desired_state alone decides whether a new generation follows\"). ``refocus_op`` and ``refocus_deadline`` say which rung of the wind-down ladder the agent is on and the epoch second it is counting to.\n\nDROPPED AND WHY, since a receipt has to be able to say it: ``machine`` and ``unread_count`` were NEVER REAL on this path - api_helpers.go:628-635 (writeMemberDTO) passes a literal \"\" and 0, which frontend/src/api/dtoParity.ts recorded on 2026-08-01 with the note that it has no user-visible consequence today because the cockpit never feeds these answers back into the roster. Collapsing these four routes removes the two invented values rather than fixing them in place, which is what owner asked for (\"是bug的可以順手修掉\"). ``forced_stop_at`` looks like a deadline and is not - its own description says it is the last time this member WAS force-stopped, 0 if never, deliberately not cleared by the next boot - so it cannot change what a waking agent does. ``roster_status`` was checked and dropped for a stronger reason: dismissal sets it and ``desired_state`` TOGETHER (api_members.go:1671-1672), so it can never say anything ``desired_state`` has not already said. Everything else is the caller's own identity, its own report coming back, or state ``get_member`` serves.",
+        "properties": {
+          "id": {
+            "description": "The roster row the server credited this report to, resolved from the verified token (``resolveSelf``) rather than from the body. An agent knows its own id, so this is confirmation rather than news - kept for the same reason the telemetry receipt keeps it, and because it is the ``ID`` owner's ruling explicitly leaves in.",
+            "title": "Id",
+            "type": "string"
+          },
+          "desired_state": {
+            "description": "🔴 THE FIELD THIS RECEIPT EXISTS FOR. The owner's standing intent for this member, ``online`` or ``offline`` - and it is the answer to a question the agent cannot ask any other way at this moment: is this boot still wanted. A cancellation that lands mid-boot leaves the wake in flight, and api_members.go:1789-1795 names this field as what tells the agent apart from a member that should come up green. At the other end the stopped-report handler says it alone decides whether a new generation follows. An agent that wakes to ``offline`` should wind down, not start work.",
+            "title": "Desired State",
+            "type": "string"
+          },
+          "refocus_op": {
+            "description": "Which wind-down or handover is in flight, empty when none is. It says WHICH rung of the ladder (下線 → 加速 → 強制) the agent is on, and the handlers refuse to walk that ladder backwards - so an agent that reports stopping while already further along learns here that the slower procedure is not available to it.",
+            "title": "Refocus Op",
+            "type": "string"
+          },
+          "refocus_deadline": {
+            "description": "Epoch seconds by which an in-flight wind-down is force-collected, 0 when none is in flight. The agent is counting to this number and cannot compute it: it is the server's anchor plus the reconcile grace. This is the one number that says how much time is left to close out properly.",
+            "title": "Refocus Deadline",
+            "type": "number"
+          }
+        },
+        "required": [
+          "id",
+          "desired_state"
+        ],
+        "title": "SelfReportReceiptDTO",
+        "additionalProperties": false,
+        "type": "object"
+      },
+      "OutsourceRestartReceiptDTO": {
+        "description": "Bounded receipt for ``POST /api/outsource-workers/{id}/restart`` (restart_outsource_worker) (T-91). It answered with the whole OutsourceWorkerDTO, 41 fields flattened; measured over 24 hours of real agent sessions, 9 calls and 10,000 characters. It is agent-called, so that answer lands in a model's context.\n\nTHIS ONE CANNOT COLLAPSE TO IDS ALONE, and the reason is pinned by a test rather than inferred: worker_pending_signals_ted79_test.go:107-118 requires the restart answer to carry BOTH ``activation_pending`` and a non-empty ``last_op_reason``, and states why in its own failure message - a restart aimed at a machine that cannot take the worker used to answer a clean 200 with zero signal, and \"one bit cannot answer why\". ``activation_pending`` is additionally one of the three flags the openapi text describes as set ONLY on this kind of response and absent or null on every other read, so no follow-up query can recover it. Everything else the DTO carried is the worker's stored row, which ``list_outsource_workers`` serves.",
+        "properties": {
+          "id": {
+            "description": "The worker this restart was aimed at - the caller's own path parameter, kept because a receipt that cannot say which worker it acted on is unreadable next to a log of several.",
+            "title": "Id",
+            "type": "string"
+          },
+          "activation_pending": {
+            "description": "True when the restart was DECIDED but could not be delivered - no live SSE downstream to the target warden. The intent is stored and the reconcile cadence will retry, but nothing has been dispatched yet. Absent when the restart actually landed. It is here or nowhere: this flag is set only on responses of this kind and is absent or null on every other read of the worker, so a caller that drops it cannot ask again.",
+            "title": "Activation Pending",
+            "type": "boolean"
+          },
+          "last_op_reason": {
+            "description": "WHICH cause, as a structured ``<code>: <detail>`` line. It rides beside ``activation_pending`` because the flag is one bit and at least four different states reach it - the test that pins this pair says so in its own words. Empty when there is no refusal to report.",
+            "title": "Last Op Reason",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "title": "OutsourceRestartReceiptDTO",
+        "additionalProperties": false,
+        "type": "object"
+      },
       "SettingsDTO": {
         "description": "The org-adjustable settings surface (`GET /api/settings`; owner or admin agent). `owner_token_ttl` controls owner-login JWTs; `agent_token_ttl` controls member and outsource-worker JWTs. They are independent and apply to newly minted tokens. Existing deployments migrate their former shared `auth.token_ttl` value into both successor settings, preserving current behaviour.",
         "properties": {
@@ -16071,7 +16129,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/OutsourceWorkerDTO"
+                  "$ref": "#/components/schemas/OutsourceRestartReceiptDTO"
                 }
               }
             },
@@ -17371,7 +17429,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/MemberDTO"
+                  "$ref": "#/components/schemas/SelfReportReceiptDTO"
                 }
               }
             },
@@ -17429,7 +17487,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/MemberDTO"
+                  "$ref": "#/components/schemas/SelfReportReceiptDTO"
                 }
               }
             },
@@ -17487,7 +17545,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/MemberDTO"
+                  "$ref": "#/components/schemas/SelfReportReceiptDTO"
                 }
               }
             },
@@ -17555,7 +17613,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/MemberDTO"
+                  "$ref": "#/components/schemas/SelfReportReceiptDTO"
                 }
               }
             },
