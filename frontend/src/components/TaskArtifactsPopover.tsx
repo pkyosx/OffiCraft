@@ -71,10 +71,9 @@ import {
  *     swapping it is a behaviour change on a path nothing here tests — but it is
  *     NOT the cheapest correct thing any more. ⚠️ AND THE OBVIOUS FIX DOES NOT
  *     COMPILE TODAY: `attachmentId` is back on the WIRE, but `TaskArtifactView`
- *     has no such property — `toTaskArtifact` in adapter.ts never maps it. The
- *     hop that is missing is there, not here, so "just read the field" is two
- *     edits, not one. Left as path-parsing deliberately: swapping it is a
- *     behaviour change on a path nothing here tests. */
+ *     has no such property — `toTaskArtifact` (mappers.ts:526, NOT adapter.ts)
+ *     never maps it. The hop that is missing is there, not here, so "just read
+ *     the field" is two edits, not one. */
 function asAttachmentView(a: TaskArtifactView): ChatAttachmentView {
   return {
     id: a.id,
