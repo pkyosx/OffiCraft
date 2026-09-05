@@ -43,8 +43,13 @@
 //   round belonged to the local action path, not to a doubled stream.
 //
 //   ⇒ The actions no longer refetch. 🔴 But they DO reconcile: each action
-//   ADOPTS the card its own write returned (`adoptWrite` below), which costs
-//   zero requests. The earlier version of this note said the delta was "the
+//   folds the transition its own write returned into the card this pane had
+//   already read (`adoptWrite` below), which costs zero requests. T-91 changed
+//   that fold from a REPLACE to a MERGE, and did NOT rename the function: it is
+//   still called `adoptWrite`, but it no longer adopts the answer wholesale —
+//   see `mergeReplyCardWrite`. The rename is deliberately out of this package's
+//   scope, so read the name as history, not as a description of what it does.
+//   The earlier version of this note said the delta was "the
 //   single reconcile trigger" for the action path too — that made the pane's
 //   correctness depend on an OPTIONAL live event, and with the EventSource down
 //   or one frame missed the server had accepted the answer while the pane (and
