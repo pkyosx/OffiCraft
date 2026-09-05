@@ -1076,10 +1076,6 @@ var identityGateLedger = map[string]string{
 		"NOT an identity gate — `Kind` here is a DOCUMENT kind (boot sequence, " +
 		"offboard, task closeout…), an unrelated vocabulary that happens to reuse the " +
 		"field name. Kept listed rather than filtered out of the scan.",
-	"api_tasks.go :: HandleListTaskArtifactHistoryApiTasksTaskIdArtifactArtifactIdHistoryGet :: v.Kind != ArtifactKindLink": "" +
-		"NOT an identity gate — the same artifact kind read off a RETAINED VERSION row " +
-		"(T-60 history), deciding whether that version has a blob to resolve a filename " +
-		"from. Kept listed rather than filtered out of the scan.",
 	"api_tasks.go :: HandleReplaceTaskArtifactApiTasksTaskIdArtifactArtifactIdReplacePost :: kind != art.Kind": "" +
 		"NOT an identity gate — the artifact kind a replace body asked for versus the " +
 		"pinned artifact's own, which is the T-60 immutability rule. No population is " +
