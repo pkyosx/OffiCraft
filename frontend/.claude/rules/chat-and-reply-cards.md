@@ -11,6 +11,8 @@ paths:
   - "src/components/replies.css"
   - "src/components/IdFilterInput*"
   - "src/components/idFilter.css"
+  - "visual-guards/reply-id-filter*"
+  - "visual-guards/stories/ReplyIdFilter*"
   - "src/hooks/useChat*"
   - "src/hooks/useReplyCard*"
   - "src/hooks/useScheduledMessages.ts"
