@@ -1686,7 +1686,14 @@ type chatPostReceiptDTO struct {
 	// stored blob, which is authoritative. A caller that uploaded inline learns
 	// the handle for its own file HERE OR NOWHERE. It is also the only field on
 	// this receipt that can tell a caller its attachment silently did not land.
-	Attachments []chatAttachmentDTO `json:"attachments,omitempty"`
+	// NO omitempty: an empty list is an ANSWER ("nothing landed"), and the two
+	// lines above say this field is the only way a caller learns an attachment
+	// silently did not land — omitempty deletes exactly that signal when EVERY
+	// one failed. The read face of the same field carries no omitempty either
+	// (replyCardAnswerDTO), and conformance pins the rule that a field must not
+	// appear only sometimes. Both builders route through attachmentDTOsFromRefs,
+	// which opens with []chatAttachmentDTO{}, so this is never nil.
+	Attachments []chatAttachmentDTO `json:"attachments"`
 }
 
 // globalContextReceiptDTO answers replace_global_context and
@@ -1784,7 +1791,14 @@ type replyCardCreateReceiptDTO struct {
 	// an inline attachment has no id until the server mints one, so a caller
 	// that uploaded inline learns the handle for its own file here or nowhere,
 	// and this is the only field that can reveal one silently failing to land.
-	Attachments []chatAttachmentDTO `json:"attachments,omitempty"`
+	// NO omitempty: an empty list is an ANSWER ("nothing landed"), and the two
+	// lines above say this field is the only way a caller learns an attachment
+	// silently did not land — omitempty deletes exactly that signal when EVERY
+	// one failed. The read face of the same field carries no omitempty either
+	// (replyCardAnswerDTO), and conformance pins the rule that a field must not
+	// appear only sometimes. Both builders route through attachmentDTOsFromRefs,
+	// which opens with []chatAttachmentDTO{}, so this is never nil.
+	Attachments []chatAttachmentDTO `json:"attachments"`
 }
 
 // replyCardReceiptDTO answers the three card TRANSITIONS — answer, reanswer and
