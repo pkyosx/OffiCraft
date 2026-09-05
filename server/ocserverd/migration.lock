@@ -17,7 +17,7 @@
 # WHY EACH LINE CARRIES A CONTENT HASH. Editing an already-shipped migration is
 # invisible to goose (one row per version, never revisited): new installs get the
 # edit, upgraded stations never do, and nothing errors. Only the hash sees it.
-roll sha256:de339cbfb95c2220f56d5599f31ad33000e039bae0c16e43313c9fd21a343f00
+roll sha256:56f08e7f921ffae7743426d795ce50ed1d2e027a6a95283247e2c514e5c571a5
 00001 migrations/00001_schema.sql sha256:373a2a54ba46ba7fc3e10f592e663c639d7ca217ed9a50d4c93730c73e9f8298
 00002 migrations/00002_settings.sql sha256:800b45a9db1ba6fe7b79709f394a6990e270b4bdfda8d54f20e29f85f7ab089c
 00003 migrations/00003_reply_card.sql sha256:a5c9097852dbb2d953009b679e63c684331532648d92c229404f2b6748f78660
@@ -87,3 +87,4 @@ roll sha256:de339cbfb95c2220f56d5599f31ad33000e039bae0c16e43313c9fd21a343f00
 00075 migrations/00075_chat_message_recipient_sender_ts.sql sha256:4957db0ccb9693aebff71d3135218c3d61c0357637ab0417385853f2b85a8522
 00076 migrations/00076_member_kind_assistant_to_staff.sql sha256:f77d261b0e1c8936638ad882f40148661ac46e02871cddf36c703af00d4f72ad
 00080 migrations/00080_member_signing_key_observed.sql sha256:554904b42b27ea78ca921a58b40169b4f931ac9531f7179377ff385a68bb3b66
+00086 migrations/00086_task_artifact_name_description.sql sha256:2bc9cc56aaa0b83ae34eea9b3e9b26b2cef0e7e89b6434f00ae7b280002a46f0

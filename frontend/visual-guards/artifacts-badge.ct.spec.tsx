@@ -373,11 +373,20 @@ test("desktop 1024: every kind puts its action column on the same right edge", a
   }
 
   // Every kind renders a chip whose full name is on title= (requirement ②).
+  // Asserted against the fixture's actual names, NOT `length > 0`: the chip
+  // falls back to the generic 「下載附件」 string when the name is missing, and
+  // that fallback is non-empty — so a length check passes on exactly the shape
+  // this guard exists to catch (T-92 moved the display name onto `name`, and a
+  // row that loses it renders the fallback for every kind).
   const titles = await cmp
     .locator(".task-artifacts__item .task-artifacts__chip")
     .evaluateAll((els) => els.map((el) => el.getAttribute("title") ?? ""));
-  expect(titles.length).toBeGreaterThanOrEqual(3);
-  for (const title of titles) expect(title.length).toBeGreaterThan(0);
+  expect(titles).toEqual([
+    "a.md",
+    "2026-07-20-座艙產物彈窗列表對齊-超長檔名回歸測試用-really-long-artifact-filename.md",
+    "一張檔名也很長的截圖-artifacts-popover-alignment-before.png",
+    "PR #12345 — 一個標籤也很長的連結產物用來驗證截斷與對齊",
+  ]);
 });
 
 test("empty set: NO 產物 badge renders (the load-bearing negative)", async ({ mount, page }) => {

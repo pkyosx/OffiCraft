@@ -896,15 +896,21 @@ let replyCards: ReplyCard[] = [];
 // §5.1) — the owner creates every type. Tests inject via __injectMockTask /
 // __injectMockOutsourceWorker / __injectMockTaskType to exercise the
 // list / filter / terminate / priority / message / manual seams.
-// 🔴 THE STORE HOLDS EACH ARTIFACT WHOLE, which is why the row type is not
-// plain `TaskView`. T-66 narrowed `TaskView.artifacts` to an id+label INDEX,
-// but an index is a READ SHAPE, not what a store keeps: the server's store
-// holds the full deliverable and its two reads project from it (`get_task` →
-// the index, `list_task_artifacts` → the full rows). A mock whose store held
-// only the index could not answer the second read at all — which is exactly
-// how it came to `return []` and tell a reader 「還沒有產物」 about a task whose
-// badge had just said N.
-export type MockTaskRow = Omit<TaskView, "artifacts"> & { artifacts?: TaskArtifactView[] };
+// 🔴 THE STORE HOLDS EACH ARTIFACT WHOLE, which is why the row type EXTENDS
+// `TaskView` rather than being it. T-66 narrowed a task read to an id+label
+// index and T-92 narrowed it again to a bare count, but a read shape is not
+// what a store keeps: the server's store holds the full deliverable and its
+// reads project from it (`get_task` → the count, `list_task_artifacts` → the
+// full rows). A mock whose store held only the projection could not answer the
+// second read at all — which is exactly how it came to `return []` and tell a
+// reader 「還沒有產物」 about a task whose badge had just said N.
+//
+// ⚠️ THE COST OF EXTENDING RATHER THAN REPLACING: every read that spreads a
+// store row has to peel `artifacts` off by hand, and TypeScript cannot catch a
+// miss (excess-property checking does not apply to spreads). Both task reads
+// destructure it out in their parameter list for that reason. A third reader
+// that spreads a row must do the same.
+export type MockTaskRow = TaskView & { artifacts?: TaskArtifactView[] };
 let tasks: MockTaskRow[] = [];
 
 // The retained PREVIOUS versions of a pinned deliverable (T-60), keyed by
@@ -3624,7 +3630,7 @@ export const mockApi: Api = {
     // filter excluded. A dep with no task keeps its derived number and stays
     // title/status-less (the card's 查無此任務 row).
     const byId = new Map(tasks.map((t) => [t.id, t]));
-    return structuredClone(rows).map((t) => ({
+    return structuredClone(rows).map(({ artifacts: stored, ...t }) => ({
       ...t,
       steps: [],
       description: "",
@@ -3639,8 +3645,17 @@ export const mockApi: Api = {
       }),
       // Light list parity (T-3dc5): no artifact rows, only the count (the
       // server's grouped COUNT) — the collapsed card's 「產物 N」 badge.
-      artifacts: [],
-      artifactCount: (t.artifacts ?? []).length,
+      //
+      // 🔴 `stored` is PEELED OFF in the parameter list, exactly as getTask does
+      // it, and for the same reason: the store row keeps each artifact whole,
+      // and `...t` would hand every one of them back on the LIGHT list. This
+      // leaked for real between two T-92 commits — the explicit `artifacts: []`
+      // that used to sit here was removed once TaskView stopped declaring the
+      // field, and the spread quietly kept serving the rows. The type checker
+      // could not see it (excess properties are only checked on object
+      // literals, and these arrive through a spread), so destructuring is what
+      // makes the type system enforce this instead of a comment.
+      artifactCount: (stored ?? []).length,
     }));
   },
 
@@ -3648,7 +3663,14 @@ export const mockApi: Api = {
     // Mirrors GET /api/tasks/{id}: the FULL task (steps + description) the
     // light list omits — the per-card expand hydration path. reply_card_status
     // is a read-time join per step (server parity), never stored.
-    const task = structuredClone(findTask(id));
+    // 🔴 `stored` is PEELED OFF rather than spread. The mock's store row keeps
+    // each artifact whole; the wire has had NO artifact field on a task read
+    // since T-92, so spreading the row would make mock mode the one place a
+    // task read hands back artifact rows — the cockpit could render from it here
+    // and 404 against a real server. Peeling it is the narrowing the mapper does
+    // for real, and it is done by DESTRUCTURING rather than by assigning
+    // undefined so the type system, not a comment, is what enforces it.
+    const { artifacts: stored, ...task } = structuredClone(findTask(id));
     return {
       ...task,
       // TaskDTO carries no dep_tasks (T-a3e4 put the dep join on the LIGHT list
@@ -3658,18 +3680,8 @@ export const mockApi: Api = {
         ...st,
         replyCardStatus: mockReplyCardStatusOf(st.replyCardId || null),
       })),
-      // Full task carries the artifact INDEX (T-66: id + label per deliverable);
-      // count kept == length (server parity). The full rows are listTaskArtifacts.
-      //
-      // 🔴 PROJECTED, not passed through. The store row holds each artifact
-      // whole, and a `TaskArtifactView` is structurally a `TaskArtifactRefView`
-      // too — so handing the stored row straight back type-checks and would
-      // quietly make mock mode the ONE place a task read carries url / mime /
-      // filename. The cockpit would then render from the task read here and
-      // 404 against a real server. The mapper is the guard, so the mock has to
-      // narrow exactly like it does.
-      artifacts: (task.artifacts ?? []).map((a) => ({ id: a.id, label: a.label })),
-      artifactCount: (task.artifacts ?? []).length,
+      // A COUNT and nothing else (T-92) — server parity.
+      artifactCount: (stored ?? []).length,
     };
   },
 

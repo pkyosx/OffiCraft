@@ -418,10 +418,40 @@ def _matrix_task_artifact(ctx: Ctx) -> tuple[str, str]:
     task_id = _matrix_task(ctx)
     r = ctx.client.post(
         f"/api/tasks/{task_id}/artifact",
-        json={"kind": "link", "url": "https://example.com/pr/1", "label": "conf PR"},
+        json={"kind": "link", "url": "https://example.com/pr/1", "name": "conf PR"},
         headers={"Authorization": f"Bearer {ctx.owner_token}"},
     )
     assert r.status_code == 200, f"scratch artifact failed: {r.status_code} {r.text}"
+    return task_id, r.json()["artifact_id"]
+
+
+def _matrix_task_file_artifact(ctx: Ctx) -> tuple[str, str]:
+    """A fresh task (executed by agent A) with ONE FILE artifact pinned by the
+    owner; returns (task_id, artifact_id) — the raw-body replace face's target.
+
+    A FILE and not the link `_matrix_task_artifact` pins, because the upload
+    replace route refuses a LINK artifact outright (400: the kind is immutable
+    across versions). Aimed at a link, every at-or-above-floor cell would be a
+    400 that says nothing about the authz gate this table exists to pin.
+
+    The blob is seeded through the chat-attachment upload and bound with the
+    JSON add verb, so the route under test is never its own fixture."""
+    task_id = _matrix_task(ctx)
+    h = {"Authorization": f"Bearer {ctx.owner_token}"}
+    up = ctx.client.post(
+        "/api/chat/attachments?filename=conf-report.md&mime=application/octet-stream",
+        content=b"# conf matrix report\n",
+        headers=h,
+    )
+    assert up.status_code == 200, f"scratch blob failed: {up.status_code} {up.text}"
+    r = ctx.client.post(
+        f"/api/tasks/{task_id}/artifact",
+        json={"kind": "file", "attachment_id": up.json()["id"], "name": "conf report"},
+        headers=h,
+    )
+    assert r.status_code == 200, (
+        f"scratch file artifact failed: {r.status_code} {r.text}"
+    )
     return task_id, r.json()["artifact_id"]
 
 
@@ -869,9 +899,9 @@ MATRIX: dict[str, Route] = {
         path="/api/chat/attachments/att-conf-missing/share-link",
     ),
     "POST /api/chat/attachments": Route(
-        # the matrix harness only speaks JSON bodies; an EMPTY octet-stream
-        # body probes the authz choke (fires before the handler), and every
-        # at-floor face then hits the handler's "attachment is empty" 400.
+        # an EMPTY octet-stream body probes the authz choke (which fires before
+        # the handler), and every at-floor face then hits the handler's
+        # "attachment is empty" 400.
         # The positive upload semantics live in test_rest_happy.py.
         requires="machine",
         overrides={i: 400 for i in _IDENTITY_RANK},
@@ -1516,7 +1546,45 @@ MATRIX: dict[str, Route] = {
         requires="agent",
         overrides={"agent_other": 403},
         path=lambda ctx, _i: f"/api/tasks/{_matrix_task(ctx)}/artifact",
-        body={"kind": "link", "url": "https://example.com/pr/1", "label": "conf PR"},
+        body={"kind": "link", "url": "https://example.com/pr/1", "name": "conf PR"},
+    ),
+    "POST /api/tasks/{task_id}/artifacts/upload": Route(
+        # T-92: the one-call door — raw bytes in, a pinned deliverable out. It
+        # is the SAME WRITE as add with a different transport, so it carries
+        # add's model exactly: requires=agent plus the handler's executor guard
+        # (agent B on agent A's task → 403), admin capability (owner/admin_agent)
+        # passes on any task, warden is the derived below-floor 403.
+        #
+        # The body is RAW OCTET-STREAM, not JSON — bytes here reach the client
+        # as `content=`, the way the avatar PUT row's do. `?name=` is REQUIRED
+        # by the route, so every cell sends one: without it the at-floor faces
+        # would 400 on the body shape (which the handler checks BEFORE the
+        # executor guard) and the 403 cells would still be 403, quietly turning
+        # the positive faces into a body-validation test.
+        requires="agent",
+        overrides={"agent_other": 403},
+        path=lambda ctx, _i: (
+            f"/api/tasks/{_matrix_task(ctx)}/artifacts/upload"
+            "?name=conf%20matrix%20upload&filename=conf-upload.md"
+            "&mime=application/octet-stream"
+        ),
+        body=b"# conf matrix upload\n",
+    ),
+    "POST /api/tasks/{task_id}/artifact/{artifact_id}/replace/upload": Route(
+        # T-92: the raw-body twin of replace, and therefore the same permission
+        # model as the three JSON verbs on this set — executor-guarded, admin
+        # excepted. The target is a FILE artifact (see the fixture): a link one
+        # is refused by kind before the authz statement could be read off the
+        # status. `?name=` is optional here (omitted = carried forward), so the
+        # query only describes the new blob.
+        requires="agent",
+        overrides={"agent_other": 403},
+        path=lambda ctx, _i: (
+            "/api/tasks/{}/artifact/{}/replace/upload"
+            "?filename=conf-report-v2.md&mime=application/octet-stream".format(
+                *_matrix_task_file_artifact(ctx))
+        ),
+        body=b"# conf matrix report v2\n",
     ),
     "DELETE /api/tasks/{task_id}/artifact/{artifact_id}": Route(
         # T-3dc5 owner ruling 2026-07-18: un-pin has the SAME model as add — the
@@ -1549,15 +1617,17 @@ MATRIX: dict[str, Route] = {
         overrides={"agent_other": 403},
         path=lambda ctx, _i: "/api/tasks/{}/artifact/{}/replace".format(
             *_matrix_task_artifact(ctx)),
-        body={"url": "https://example.com/pr/2", "label": "conf PR v2"},
+        body={"url": "https://example.com/pr/2", "name": "conf PR v2"},
     ),
     "GET /api/tasks/{task_id}/artifact/{artifact_id}/history": Route(
         # T-60: the version list is cockpit-only (off MCP) and, unlike the three
         # write verbs on the same set, carries NO executor guard — agent B reads
-        # agent A's version list (200). Owner ruling: GET /api/tasks/{task_id}
-        # makes no caller distinction at all and its response already carries the
-        # artifact set, so gating the history would leave one door refusing what
-        # the other hands over. The route floor (agent) is unchanged, so the
+        # agent A's version list (200). Owner ruling: the artifact-set read
+        # (GET /api/tasks/{task_id}/artifacts) makes no caller distinction at
+        # all and hands over every artifact row — since T-92 it is the only door
+        # that does, GET /api/tasks/{task_id} answering a bare artifact_count —
+        # so gating the history would leave one door refusing what the other
+        # hands over. The route floor (agent) is unchanged, so the
         # below-floor cells are still the derived 403.
         requires="agent",
         path=lambda ctx, _i: "/api/tasks/{}/artifact/{}/history".format(

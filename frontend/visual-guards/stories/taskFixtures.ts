@@ -88,7 +88,7 @@ api.getTaskStep = async (
 // ── 產物 ──────────────────────────────────────────────────────────────────
 //
 // 🔴 THE POPOVER FETCHES ITS ROWS (T-66) — it does not read them off the card,
-// which since this ticket carries only an id+label index. So a story that wants
+// which since T-92 carries only a COUNT. So a story that wants
 // a populated panel has to land its task in the MOCK STORE, which is what `api`
 // resolves to under CT (playwright-ct.config.ts sets no VITE_USE_MOCK, so
 // src/api/index.ts hands out mockApi). A fixture the store does not know makes
@@ -185,8 +185,9 @@ export const MIRA = { id: "mira", name: "Mira", kind: "agent" } as unknown as Me
 export const NOOP = async () => {};
 export const WORKERS: OutsourceWorkerView[] = [];
 
-// T-3dc5 artifact-set fixtures. WITH_ARTIFACTS carries all three kinds so the
-// popover's 檔案/圖片/連結 tabs each have a row; NO_ARTIFACTS asserts the
+// T-3dc5 artifact-set fixtures. WITH_ARTIFACTS carries all three kinds so each
+// of the popover's 檔案/圖片/連結 GROUPS has a row (T-49fb folded the three tabs
+// into one grouped list); NO_ARTIFACTS asserts the
 // empty-set case (count 0 ⇒ the badge must NOT render at all).
 export const WITH_ARTIFACTS: MockTaskRow = serveArtifacts(mkTask({
   id: "t-3dc55291a020",
@@ -197,11 +198,12 @@ export const WITH_ARTIFACTS: MockTaskRow = serveArtifacts(mkTask({
       id: "ta-file",
       kind: "file",
       url: "/api/chat/attachment/ta-file",
-      label: "",
-      filename: "design.md",
+      // The server DERIVES this from the blob's filename when the row has no
+      // stored name (T-92), so a fixture that wants to look like a real payload
+      // carries the derived value rather than an empty string.
+      name: "design.md",
+      description: "",
       mime: "text/markdown",
-      isImage: false,
-      attachmentId: "ta-file",
       createdTs: 0,
       createdBy: "mira",
     },
@@ -209,11 +211,9 @@ export const WITH_ARTIFACTS: MockTaskRow = serveArtifacts(mkTask({
       id: "ta-img",
       kind: "image",
       url: "/api/chat/attachment/ta-img",
-      label: "",
-      filename: "shot.png",
+      name: "shot.png",
+      description: "",
       mime: "image/png",
-      isImage: true,
-      attachmentId: "ta-img",
       createdTs: 0,
       createdBy: "mira",
     },
@@ -221,11 +221,11 @@ export const WITH_ARTIFACTS: MockTaskRow = serveArtifacts(mkTask({
       id: "ta-link",
       kind: "link",
       url: "https://github.com/x/y/pull/123",
-      label: "PR #123",
-      filename: "",
-      mime: "",
-      isImage: false,
-      attachmentId: "",
+      name: "PR #123",
+      description: "",
+      // A link's blob is a text/uri-list since T-92, so its mime is no longer
+      // empty on the wire.
+      mime: "text/uri-list",
       createdTs: 0,
       createdBy: "mira",
     },
@@ -257,11 +257,12 @@ export const RAGGED_ARTIFACTS: MockTaskRow = serveArtifacts(mkTask({
       id: "ta-short",
       kind: "file",
       url: "/api/chat/attachment/ta-short",
-      label: "",
-      filename: "a.md",
+      // Since T-92 the row carries ONE display name (`name`), which the server
+      // derives from the blob's filename when nothing was stored — so the long
+      // filename this fixture is about now rides on `name`, not `filename`.
+      name: "a.md",
+      description: "",
       mime: "text/markdown",
-      isImage: false,
-      attachmentId: "ta-short",
       createdTs: 0,
       createdBy: "mira",
     },
@@ -269,12 +270,10 @@ export const RAGGED_ARTIFACTS: MockTaskRow = serveArtifacts(mkTask({
       id: "ta-long",
       kind: "file",
       url: "/api/chat/attachment/ta-long",
-      label: "",
-      filename:
+      name:
         "2026-07-20-座艙產物彈窗列表對齊-超長檔名回歸測試用-really-long-artifact-filename.md",
+      description: "",
       mime: "text/markdown",
-      isImage: false,
-      attachmentId: "ta-long",
       createdTs: 0,
       createdBy: "mira",
     },
@@ -282,11 +281,11 @@ export const RAGGED_ARTIFACTS: MockTaskRow = serveArtifacts(mkTask({
       id: "ta-img-long",
       kind: "image",
       url: "/api/chat/attachment/ta-img-long",
-      label: "",
-      filename: "一張檔名也很長的截圖-artifacts-popover-alignment-before.png",
+      name: "一張檔名也很長的截圖-artifacts-popover-alignment-before.png",
+      description: "",
+      // `isImage` is DERIVED from this prefix now (asAttachmentView), so the
+      // mime is what makes this row an image row — there is no second field.
       mime: "image/png",
-      isImage: true,
-      attachmentId: "ta-img-long",
       createdTs: 0,
       createdBy: "mira",
     },
@@ -294,11 +293,9 @@ export const RAGGED_ARTIFACTS: MockTaskRow = serveArtifacts(mkTask({
       id: "ta-link-long",
       kind: "link",
       url: "https://github.com/hardcoretech/officraft/pull/12345",
-      label: "PR #12345 — 一個標籤也很長的連結產物用來驗證截斷與對齊",
-      filename: "",
-      mime: "",
-      isImage: false,
-      attachmentId: "",
+      name: "PR #12345 — 一個標籤也很長的連結產物用來驗證截斷與對齊",
+      description: "",
+      mime: "text/uri-list",
       createdTs: 0,
       createdBy: "mira",
     },
@@ -322,11 +319,12 @@ export const SAME_NAME_ARTIFACTS: MockTaskRow = serveArtifacts(mkTask({
       id: "ta-demo1a2b3c",
       kind: "file",
       url: "/api/chat/attachment/ta-demo1a2b3c",
-      label: "",
-      filename: "DEMO-CUST_demo.mp4",
+      // The collision is on `name` since T-92 — that is the ONE field the row
+      // is drawn from, so pinning the identical string here is what makes the
+      // two rows indistinguishable apart from the per-row ref tag.
+      name: "DEMO-CUST_demo.mp4",
+      description: "",
       mime: "video/mp4",
-      isImage: false,
-      attachmentId: "ta-demo1a2b3c",
       createdTs: 1784550000,
       createdBy: "mira",
     },
@@ -334,11 +332,9 @@ export const SAME_NAME_ARTIFACTS: MockTaskRow = serveArtifacts(mkTask({
       id: "ta-demo4d5e6f",
       kind: "file",
       url: "/api/chat/attachment/ta-demo4d5e6f",
-      label: "",
-      filename: "DEMO-CUST_demo.mp4",
+      name: "DEMO-CUST_demo.mp4",
+      description: "",
       mime: "video/mp4",
-      isImage: false,
-      attachmentId: "ta-demo4d5e6f",
       createdTs: 1784550000,
       createdBy: "mira",
     },
