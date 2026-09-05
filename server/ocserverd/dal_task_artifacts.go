@@ -264,9 +264,11 @@ func (d *DAL) ReplaceTaskArtifactMintingBlob(next TaskArtifact, blob *ChatAttach
 // copied the attachment_id out of list_task_artifacts into a chat message
 // would be protected by that scan, not by this exemption.
 //
-// It is still not done here: it is a behaviour change to a delete path, so it
-// is the owner's call. Written down so the next reader inherits the finding
-// rather than the silence.
+// DONE, on the owner's ruling rc-27107ca914a7: the link exemption is lifted
+// below. He asked the right question first — "if another agent pinned that
+// same blob onto a second task, it must not be deleted, correct?" — and the
+// answer is that source 4 of collectSurvivingBlobRefs scans EVERY task's
+// artifacts, not just this one's, so that case vetoes the collection.
 //
 // Returns true iff a row was removed.
 func (d *DAL) DeleteTaskArtifact(id string) (bool, error) {
@@ -296,9 +298,19 @@ func (d *DAL) DeleteTaskArtifact(id string) (bool, error) {
 		}
 		removed = n > 0
 		// The live blob keeps its standing exemption even when a retained
-		// version happened to point at the same one.
-		if live != nil {
+		// version happened to point at the same one — EXCEPT for a link,
+		// whose blob nothing else can be pointing at (owner rc-27107ca914a7).
+		// It is not deleted here either: it joins the candidate list, and
+		// collectOrphanBlobs still asks collectSurvivingBlobRefs whether any
+		// still-stored record references it, across all six sources. A blob
+		// somebody did manage to reference — from another task's artifact, a
+		// chat message, a reply card — survives on that verdict, not on this
+		// exemption.
+		if live != nil && live.Kind != ArtifactKindLink {
 			delete(candidates, live.AttachmentID)
+		}
+		if live != nil && live.Kind == ArtifactKindLink && live.AttachmentID != "" {
+			candidates[live.AttachmentID] = true
 		}
 		_, err = collectOrphanBlobs(tx, candidates)
 		return err
