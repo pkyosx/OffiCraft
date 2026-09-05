@@ -338,12 +338,37 @@ var knownDivergences = []knownDivergence{
 	},
 
 	// ── 停止 / 加速停止 / 重新聚焦 / 改機器 / 換 model on banked_cost ────────
-	// NO ROWS, and that is a measured claim rather than an omission: on all five
-	// the outsource side takes openWorkerHandoverGrace's ONLINE arm, which fans a
-	// 預告 and returns without reaching either kill funnel (worker_spawn.go:2244-
-	// 2258), so no fold runs on either population and both cells read
-	// costUntouched. The `dispatched: dispatchedNothing` literals on those same
-	// five cases are the corroborating evidence: no kill left, so no kill banked.
+	// NO ROWS. The RESULT is measured — the three parity tests are green, so both
+	// cells really do read costUntouched on all five. The MECHANISM behind it is
+	// NOT one story, and an earlier draft of this comment told it as one. Split:
+	//
+	//  停止 / 加速停止 / 重新聚焦 — structural. The handler calls
+	//  openWorkerHandoverGrace directly (api_outsource.go:736 / :643 / :529) and
+	//  its ONLINE arm publishes a 預告 and returns without reaching either kill
+	//  funnel, so no fold can run on either population.
+	//
+	//  🔴 改機器 / 換 model — NOT structural, and do not read this row as if it
+	//  were. They never touch openWorkerHandoverGrace directly: they enter the
+	//  owner-op funnel at worker_spawn.go:1595-1604, which has THREE exits that
+	//  DO bank — workerHasStateToFlush false (:1604 → respawnWorkerForOwnerOpNow
+	//  → respawnWorkerNow → bankLiveCost at :1954), and openOwnerOpHandover's two
+	//  persist-failure fallbacks (:1836, :1842, the same respawn). The ladder
+	//  refusal (:1827) reaches no fold either way. So these two cells are
+	//  costUntouched because TODAY'S FIXTURE lands on the happy path, not because
+	//  banking is unreachable — change what workerHasStateToFlush answers and
+	//  they start banking, silently, with this comment still claiming they cannot.
+	//
+	// 🔴 AND DO NOT RE-DERIVE THIS FROM `dispatched`. An earlier draft offered the
+	// `dispatchedNothing` literals on these five as corroboration — "no kill left,
+	// so no kill banked". That inference is BACKWARDS: stopWorkerNow banks BEFORE
+	// the kill and skips the enqueue entirely when the target is empty
+	// (worker_spawn.go:1983 then :1985-1994), which is a banked-but-dispatched-
+	// nothing path. An empty dispatch cell is evidence about the FIFO and nothing
+	// at all about the money — which is the whole reason this column exists.
+	//
+	// ⚠️ Nothing mechanical guards the paragraph above: TestVerbPopulationParity-
+	// WhitelistIsExplained checks that each divergence ROW carries a why, and this
+	// is prose, not a row. It is a universal negative maintained by hand.
 
 	// ── 重新聚焦 (refocus) — CONVERGED IN T-65 包②, no rows left ────────────
 	// Both rows that stood here are DELETED rather than widened: 「重新聚焦｜
@@ -489,11 +514,19 @@ func seedParityMember(t *testing.T, api *apiServer, id string, mutate func(*Memb
 // seedParityLiveCost plants the live telemetry cost the banked_cost column is
 // measured against, on BOTH populations, through the same one writer.
 //
-// 🔴 READ-MODIFY-WRITE, not a bare Set: memStore.Set REPLACES the whole entry
-// (hub.go:1111-1115), and the fixtures put other keys on the subject's
-// telemetry. Overwriting the entry wholesale would silently change what the
-// gauge-driven passes see, which is a way to move the OTHER nine columns from
-// inside a helper that is only supposed to be about money.
+// 🔴 READ-MODIFY-WRITE, not a bare Set — and read WHY carefully, because the
+// reason is a FORECAST, not a fact on the ground. memStore.Set REPLACES the
+// whole entry (hub.go:1111-1115). Today NO fixture in this file puts any other
+// key on either subject's telemetry: measured — both populations' entries are
+// nil at the moment this helper runs, so the `entry == nil` arm is currently
+// always taken and the Get result is never used. Replacing the whole body with
+// a bare Set is green today (measured too).
+//
+// It is written this way so that the day a fixture DOES seed telemetry, this
+// helper does not silently overwrite it — that would move what the gauge-driven
+// passes see, i.e. move the OTHER nine columns from inside a helper that is
+// only supposed to be about money. Do not "simplify" it back to a bare Set on
+// the strength of the green: the green is what this shape is buying.
 func seedParityLiveCost(t *testing.T, api *apiServer, id string) {
 	t.Helper()
 	entry := api.telemetry.Get(id)
