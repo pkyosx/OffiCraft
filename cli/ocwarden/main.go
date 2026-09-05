@@ -59,8 +59,16 @@ const (
 // config (mirrors warden/config.py)
 // ---------------------------------------------------------------------------
 
-// Config is the resolved warden identity. Base always has a value; Token/ID are
-// empty when unset (a mis-wired launch must degrade, never crash).
+// Config is the resolved warden identity. Token/ID are empty when unset (a
+// mis-wired launch must degrade, never crash).
+//
+// T-88: Base is EMPTY when nobody set OC_BASE — it used to be silently filled
+// with defaultBase, which is the whole defect that ticket names. An empty Base
+// is not something any caller is expected to cope with; it is a state the
+// station-address gate (basegate.go) refuses before anything can consume it.
+// Leaving it empty rather than guessed means that if a future caller ever does
+// slip past the gate, it fails at its first request instead of succeeding
+// against whoever happens to be listening on the guessed address.
 type Config struct {
 	Base  string
 	Token string
@@ -70,10 +78,9 @@ type Config struct {
 // loadConfig resolves OC_* env into a Config. Base is stripped of a trailing
 // slash; ID defaults to the JWT `sub` claim of the token.
 func loadConfig(env func(string) string) Config {
-	base := normalizeBase(env("OC_BASE")) // T-78: keep the host, re-decide the scheme
-	if base == "" {
-		base = defaultBase
-	}
+	// T-88: no fallback here. baseFromEnv also reports WHETHER it was set; this
+	// caller only needs the value, and the gate is what acts on the other half.
+	base, _ := baseFromEnv(env)
 	base = strings.TrimRight(base, "/")
 	token := env("OC_TOKEN")
 	id := env("OC_ID")
@@ -838,6 +845,22 @@ func realMain(argv []string, env func(string) string, out io.Writer) int {
 	// the shape check below need the resolved token (the launchd warden's env
 	// carries OC_WARDEN_TOKFILE, never the token itself).
 	renv := tokfileEnv(env, os.ReadFile)
+
+	// T-88 STATION-ADDRESS GATE. Placed HERE, and the position is load-bearing:
+	// everything below either talks to the station (the poster, the SSE command
+	// reader, self-update) or decides where members will point (resolvePaths,
+	// spawn). Once any of those has run with a guessed address, the damage this
+	// gate exists to prevent has already happened, so the gate cannot be moved
+	// later "for tidiness".
+	//
+	// 🔴 THIS LINE IS THE GATE. Delete it and the package still compiles, the
+	// warden still starts, and it starts talking to whatever answers on the
+	// guessed address — which is the entire defect. basegate_reached_test.go
+	// exists solely to make that deletion red.
+	if rc, stop := stationAddressGate(renv, out, *once, time.Now, gateBlock); stop {
+		return rc
+	}
+
 	cfg := loadConfig(renv)
 	runner := newCmdRunner(subprocessBudget)
 	collect := func() map[string]any { return collectHardware(runner, runtime.GOOS) }

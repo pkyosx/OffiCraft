@@ -157,6 +157,7 @@ func TestResolvePaths_Defaults(t *testing.T) {
 	p, err := resolvePaths(envFn(map[string]string{
 		"HOME":     "/Users/seth",
 		"OC_TOKEN": "tok-abc",
+		"OC_BASE":  "https://station.example",
 	}), "/repo/bin/ocwarden", 501)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -167,8 +168,11 @@ func TestResolvePaths_Defaults(t *testing.T) {
 	if p.srcExe != "/repo/bin/ocwarden" {
 		t.Errorf("srcExe = %q, want the running binary path", p.srcExe)
 	}
-	if p.ocBase != defaultBase {
-		t.Errorf("ocBase = %q, want default %q", p.ocBase, defaultBase)
+	// T-88: there is no default any more. The address resolved here is the one the
+	// caller supplied, and nothing else; an absent OC_BASE is refused, not filled in
+	// (TestResolvePaths_RefusesWhenBaseUnset).
+	if p.ocBase != "https://station.example" {
+		t.Errorf("ocBase = %q, want the configured address", p.ocBase)
 	}
 	if p.tokfile != "/Users/seth/.officraft/warden/exec-warden.tok" {
 		t.Errorf("tokfile = %q", p.tokfile)
@@ -195,6 +199,7 @@ func TestResolvePaths_HomeRootedArbitraryBinary(t *testing.T) {
 		p, err := resolvePaths(envFn(map[string]string{
 			"HOME":     "/Users/seth",
 			"OC_TOKEN": "tok-abc",
+			"OC_BASE":  "https://station.example",
 		}), exe, 501)
 		if err != nil {
 			t.Fatalf("exe=%s: unexpected error: %v", exe, err)
@@ -741,6 +746,7 @@ func TestResolvePaths_OcAgentBinSourceAndHomeTarget(t *testing.T) {
 	p, err := resolvePaths(envFn(map[string]string{
 		"HOME":         "/Users/seth",
 		"OC_TOKEN":     "tok-abc",
+		"OC_BASE":      "https://station.example",
 		"OC_AGENT_BIN": "/run/officraft/ocagent-go/ocagent",
 	}), "/Users/seth/.officraft/warden/ocwarden", 501)
 	if err != nil {
@@ -756,7 +762,7 @@ func TestResolvePaths_OcAgentBinSourceAndHomeTarget(t *testing.T) {
 
 func TestResolvePaths_OcAgentBinOptionalAndValidated(t *testing.T) {
 	// Absent OC_AGENT_BIN ⇒ empty source (plist omits the env; warden falls back).
-	p, err := resolvePaths(envFn(map[string]string{"HOME": "/h", "OC_TOKEN": "t"}), "/r/bin/ocwarden", 1)
+	p, err := resolvePaths(envFn(map[string]string{"HOME": "/h", "OC_TOKEN": "t", "OC_BASE": "https://station.example"}), "/r/bin/ocwarden", 1)
 	if err != nil {
 		t.Fatal(err)
 	}
