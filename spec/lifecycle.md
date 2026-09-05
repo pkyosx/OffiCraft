@@ -688,8 +688,13 @@ decides that time is up.
   it records the session BEFORE this one. A 重啟 verb (重新聚焦 / 改機器 / 換 model) arriving
   while a stop is in flight (`stopping_since > 0`) is what sets the flag: the stop keeps its
   rung and its anchors, and only 「起來」 is added — 「沿用強硬下線規則 但是附加上線規則」.
-  A 重啟 verb on a member merely AT REST (no stop in flight) still only saves and answers
-  `held_down` (T-ed79 #4/#14): 「活化 it when you want it to run」.
+  A 重啟 verb on a member **nobody has ever asked to stop** — no `stopping_since` anchor was
+  ever written, in practice a never-活化'd new hire — still only saves and answers
+  `held_down` (T-ed79 #4/#14): 「活化 it when you want it to run」. The gate is
+  `aStopWasEverAskedFor` (`stopping_since > 0`), NOT 「is a stop in flight right now」:
+  nothing clears the anchor when a stop converges, so a member that was stopped last week
+  and has long since gone quiet is NOT in this case — a 重啟 verb on it queues the restart
+  and brings it back up.
 - online → the member is `stopping` and the producer dispatches **NOTHING**, indefinitely.
   The agent has been handed the offboard sequence and is working it; a clock here would
   cut off a session that was told there is no countdown.

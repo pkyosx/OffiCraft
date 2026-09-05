@@ -25,7 +25,7 @@
   下面把 `desired_state` 列為單一起停意圖的句子,要照這一段讀。**活化**仍是唯一直接取消下線的
   動作(不是排隊,是取消),那是刻意的例外。
 
-- **intent(意圖 / 身分)= durable → 存 DB。** 人或系統「設定的意圖」與穩定身分:重啟後必須記得。例:`desired_state`(online/offline)、`desired_machine_id`(希望它在哪台)、`role_key`、`name`、`kind`、`model`、`effort`、`id`、`owner_id`、`banked_cost`(歷史累積)。(`core` 曾列於此;owner 2026-07-11 裁決該意圖已退役——全鏈路零讀者,seed 成員的保護實際 key 在 `role_key` 的 seed-role 判斷——migration 0028 已將欄位移除。)
+- **intent(意圖 / 身分)= durable → 存 DB。** 人或系統「設定的意圖」與穩定身分:重啟後必須記得。例:`desired_state`(online/offline)、`restart_after_stop`(下線收斂之後要不要把人帶起來,T-14 項目 7)、`desired_machine_id`(希望它在哪台)、`role_key`、`name`、`kind`、`model`、`effort`、`id`、`owner_id`、`banked_cost`(歷史累積)。(`core` 曾列於此;owner 2026-07-11 裁決該意圖已退役——全鏈路零讀者,seed 成員的保護實際 key 在 `role_key` 的 seed-role 判斷——migration 0028 已將欄位移除。)
 - **observed(當下實況)= volatile → 只活在記憶體、隨 SSE 生滅,絕不落 DB。** 「此刻的觀測值」,由即時來源重建、不需持久。例:**在不在線上**(`online`)、**實際在哪台機器**(以連線 token 的 machine claim 為準)、CPU / RAM 等 **telemetry**。
 - **為什麼 observed 不落 DB**:存一份到 DB 的唯一效果,是多一個「會跟即時真相不同步的副本」,除了製造 bug(讀到過期值當真相)沒有任何好處。observed 的真相**就是**即時來源本身(SSE 連線狀態 / telemetry push),不需要、也不該再存一份。
 - **判準**:一條狀態「重啟後要不要記得」?要 → intent → DB;不要(重連就自然重建)→ observed → 記憶體。
