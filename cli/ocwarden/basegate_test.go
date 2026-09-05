@@ -6,8 +6,10 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -153,6 +155,77 @@ func TestRealMainHaltsRatherThanExitsOnTheLaunchdPath(t *testing.T) {
 	}
 	if strings.Contains(out.String(), "--once") {
 		t.Error("the launchd path must not print the --once branch's wording")
+	}
+}
+
+// TestGateBlockIsWiredToTheRealBlocker (T-88, B-3) asserts the seam's IDENTITY.
+//
+// TestRealMainHaltsRatherThanExitsOnTheLaunchdPath swaps gateBlock for a counting
+// closure, so it can only ever observe its own closure — it is blind to what
+// gateBlock is bound to in production. Independent review defeated it with one
+// identifier: `var gateBlock = blockUntilSignal` → `func() {}`. That compiles, it
+// makes an unconfigured warden exit instead of halting, and the package stayed
+// green pass-for-pass.
+//
+// This is the same failure the repo already documented for the updater seams —
+// a seam wired to the wrong producer is still non-nil, so "it is set" proves
+// nothing. Assert WHICH function it is set to.
+//
+// DEFEATED BY: rebinding gateBlock to anything that is not blockUntilSignal.
+func TestGateBlockIsWiredToTheRealBlocker(t *testing.T) {
+	got := reflect.ValueOf(gateBlock).Pointer()
+	want := reflect.ValueOf(blockUntilSignal).Pointer()
+	if got != want {
+		t.Fatalf("gateBlock is not bound to blockUntilSignal.\n" +
+			"A seam pointed at a no-op is still non-nil, and every other guard in this file\n" +
+			"swaps it out — so nothing else can notice. An unconfigured warden would then EXIT\n" +
+			"instead of halting, which under the plist's KeepAlive is the silent relaunch loop\n" +
+			"this package exists to avoid.")
+	}
+}
+
+// TestBlockUntilSignalActuallyBlocks (T-88, B-3) asserts the real function's BODY.
+//
+// Identity is not enough: gateBlock can point at the right function while that
+// function returns immediately. Review defeated the first guard that way too —
+// `<-ctx.Done()` → `_ = ctx`, one line, package still green, because no test ever
+// entered the production blocker.
+//
+// The notifyContext seam exists solely so this test can supply a context it
+// controls instead of a real signal — sending this process a real SIGTERM to test
+// a signal handler would be a test that can kill the run it belongs to.
+//
+// DEFEATED BY: dropping the receive on ctx.Done() (returns early), or making the
+// function ignore the cancellation (never returns → the second half times out).
+func TestBlockUntilSignalActuallyBlocks(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	orig := notifyContext
+	notifyContext = func(context.Context, ...os.Signal) (context.Context, context.CancelFunc) {
+		return ctx, func() {}
+	}
+	t.Cleanup(func() { notifyContext = orig; cancel() })
+
+	returned := make(chan struct{})
+	go func() { blockUntilSignal(); close(returned) }()
+
+	// HALF ONE: it must still be parked while nothing has been signalled. This is
+	// the half that catches a body which does not wait.
+	select {
+	case <-returned:
+		t.Fatal("blockUntilSignal returned without being signalled — the halt does not hold, " +
+			"so an unconfigured warden exits and launchd sees the job end")
+	case <-time.After(150 * time.Millisecond):
+	}
+
+	// HALF TWO is the POSITIVE CONTROL. Without it, a function that blocks forever
+	// on the wrong thing — or never returns at all — would satisfy half one, and a
+	// warden that cannot be shut down the ordinary way is its own defect.
+	cancel()
+	select {
+	case <-returned:
+	case <-time.After(2 * time.Second):
+		t.Fatal("blockUntilSignal did not return after cancellation — a halted warden must " +
+			"still end on SIGINT/SIGTERM (teardown, reboot)")
 	}
 }
 

@@ -37,19 +37,23 @@ package main
 //     gui-domain LaunchAgent job sits 'not running, last exit 0' until a manual
 //     launchctl kickstart". Its whole exec-in-place design rests on that.
 //
-// ⚠️ (1)+(2) and (3) may not even be about the same thing. Today the launchd job
-// leader is the `officraft` TCC anchor, which forks ocwarden as a CHILD and exits
-// with the child's status (cli/officraft/main.go — it starts the child once and
-// never re-forks). (3) predates that shape as far as this ticket knows, and
-// NOBODY HAS CHECKED. Settling it means killing a warden on a machine currently
-// carrying live agents, which this change is not worth.
+// ⚠️ THE OBVIOUS RECONCILIATION IS WRONG, AND IT WAS CHECKED. An earlier draft of
+// this comment guessed that (1)+(2) and (3) describe different launchd job
+// shapes. `git log -S` says otherwise: (2) and (3) were written in the SAME
+// commit, 8e573a7e (2026-07-20, the root commit), and the `officraft` anchor
+// arrived later in 5981d868 / 6d62584f (2026-07-29), which is when the plist's
+// ProgramArguments changed from `<ocwarden> run` to `<anchor>`.
 //
-// So the halt below is chosen BECAUSE IT IS CORRECT UNDER ALL THREE:
+// So (2) and (3) are contemporaries and BOTH describe the pre-anchor world,
+// where ocwarden itself was the job leader. They contradict each other outright
+// and this ticket did not settle which is right. What the anchor did change is
+// the SUBJECT of (1): KeepAlive today governs the anchor, not this process.
+// ⇒ ALL THREE ACCOUNTS PREDATE TODAY'S SHAPE, AND NOBODY HAS MEASURED UNDER IT.
 //
-//   - if launchd relaunches, staying alive means there is no crashloop to hide
-//     the signal in;
-//   - if launchd does not relaunch, staying alive costs nothing that exiting
-//     would have saved — the machine is out of service either way.
+// 🔑 Which is why the halt does not depend on resolving any of it. Parking here
+// means the anchor's Wait() never returns, so the launchd JOB never exits, so
+// KeepAlive is never consulted at all — under every one of the three accounts.
+// Exiting is the only choice that would have needed the question answered.
 //
 // ⚠️ WHAT THE SIGNAL ACTUALLY IS, corrected. An earlier draft of this file said
 // the machine "never appears on the roster". THAT IS WRONG and it would have
@@ -242,12 +246,31 @@ func haltNoBase(env func(string) string, out io.Writer, now func() time.Time, bl
 // site's ARGUMENT is asserted rather than only the gate's logic.
 var gateBlock = blockUntilSignal
 
+// notifyContext is signal.NotifyContext behind a seam, and it exists for exactly
+// one reason: WITHOUT IT, THE BODY OF blockUntilSignal IS UNTESTABLE, and an
+// untestable body is where this file's guards were caught being decorative.
+//
+// 🔴 The history, because it is the lesson. A first attempt guarded the halt by
+// swapping gateBlock for a counting closure. That test counts ITS OWN closure —
+// it is blind both to what gateBlock is bound to and to what the real function
+// does. Independent review defeated it twice, each with one token:
+// `var gateBlock = blockUntilSignal` → `func() {}`, and `<-ctx.Done()` → `_ =
+// ctx`. Both compile, both make an unconfigured warden EXIT instead of halting,
+// and the whole package stayed green pass-for-pass. The repo had already written
+// this lesson down for the updater seams — a seam wired to the wrong producer is
+// still non-nil — and this file did not apply it.
+var notifyContext = signal.NotifyContext
+
 // blockUntilSignal parks until SIGINT/SIGTERM. This is what "stays alive, does
-// nothing" means concretely: launchd sees a healthy long-lived job, no member is
-// spawned, no HTTP request is made, and `ocwarden teardown` / a reboot still ends
-// it the ordinary way.
+// nothing" means concretely: no member is spawned, no HTTP request is made, and
+// `ocwarden teardown` / a reboot still ends it the ordinary way.
+//
+// Under today's launchd shape it is also why KeepAlive never enters the picture:
+// the job leader is the `officraft` anchor, which forks this process and sits in
+// Wait(). While this parks, that Wait() does not return, the job never exits, and
+// there is nothing for KeepAlive to relaunch.
 func blockUntilSignal() {
-	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	ctx, stop := notifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 	<-ctx.Done()
 }
