@@ -4,8 +4,11 @@
 // topic ("global_context").
 //
 // 🔴 T-91: save/reset WRITE THEN RE-READ. They used to fold the write's own
-// answer into state, because that answer WAS the folded doc. It is about to stop
-// being one (GlobalContextReceiptDTO carries identity + sizes, not `text`), and
+// answer into state, because that answer WAS the folded doc. It is not one any
+// more (GlobalContextReceiptDTO carries identity + sizes, not `text`) — this
+// sentence used to read "is about to stop", written while the frontend half of
+// T-91 went in FIRST ON PURPOSE, before the server half; both are in the same
+// package now, so it is past tense. The
 // the failure mode of leaving this as it was is a page that empties itself after
 // a save with nothing thrown and nothing to show the reader. The re-read costs
 // one GET per save, on a surface a person edits by hand — and it is still the

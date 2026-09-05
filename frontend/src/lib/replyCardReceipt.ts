@@ -3,12 +3,12 @@
 //
 // answer / re-answer / expire act on a card somebody ELSE opened. The question,
 // its options, its attachments and its task reference are unchanged by the act,
-// so the write is about to stop echoing them (spec ReplyCardWriteReceiptDTO:
+// so the write no longer echoes them (spec ReplyCardWriteReceiptDTO:
 // what the write decides is `status`, `answer`, `answered_ts` / `expired_ts`,
 // plus the task/step it released). The cockpit used to REPLACE the rendered card
 // with whatever the write returned — ReplyCardBody renders `card.task.title` off
-// exactly that object — so the day the echo shrinks the card would blank itself
-// with no error to show for it.
+// exactly that object — so once the echo shrank, the card would have blanked
+// itself with no error to show for it.
 //
 // So the two adoption points MERGE instead of replacing: the transition comes
 // from the write, everything the write does not decide stays as it was read.

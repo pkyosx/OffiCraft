@@ -412,10 +412,11 @@ function useReplyCardsState(): UseReplyCards {
     // here was unreachable, and an unreachable branch reads like a supported case.
     //
     // 🔴 T-91: MERGE, DO NOT REPLACE. This used to store the write's answer as
-    // the card. The write is about to stop echoing the question, its options,
-    // its attachments and its task ref (they are not what it decided), so a
-    // replacement would blank those the day the receipt lands — silently, since
-    // nothing here would throw. `mergeReplyCardWrite` folds only the transition
+    // the card. The write no longer echoes the question, its options, its
+    // attachments or its task ref (they are not what it decided), so a
+    // replacement would blank those — silently, since nothing here would throw.
+    // This read "is about to" while the frontend half of T-91 went in first on
+    // purpose; the server half is in the same package, so the day is today. `mergeReplyCardWrite` folds only the transition
     // in and keeps the rest of the card THIS pane already read. Still zero extra
     // requests, so the reason adoption exists at all — the pane converges from
     // the write instead of waiting for a `reply_card` frame that may never

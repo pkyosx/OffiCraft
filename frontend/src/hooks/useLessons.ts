@@ -4,8 +4,10 @@
 // Mirrors useGlobalContext: mount-fetch + reconcile-by-refetch on the relevant
 // SSE topic ("lessons"). 🔴 T-91: save WRITES THEN RE-READS. It used to fold the
 // write's own answer into state because that answer WAS the folded doc; the
-// lessons receipt is about to carry size + sha256 and no `text`, and adopting
-// that would blank this journal on save without raising anything. The re-read is
+// lessons receipt carries size + sha256 and no `text`, and adopting that would
+// blank this journal on save without raising anything. (Written as "is about to"
+// while the frontend half of T-91 went in first on purpose; the server half is
+// in the same package, so it has already happened.) The re-read is
 // also what keeps the is_default flip the server's statement rather than one the
 // UI invented. Per-role-learnings step1: the
 // doc is scoped to role_key — agents sharing a role share it, but a researcher's

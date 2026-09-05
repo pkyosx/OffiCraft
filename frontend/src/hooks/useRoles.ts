@@ -210,7 +210,7 @@ interface UseRole {
  * this page: every one of them fans that topic. The page's own save does not
  * wait for that frame either — it calls `refetch` itself the moment the write
  * resolves (T-91 replaced the old `adopt(write echo)` with that re-read, since
- * the write is about to stop carrying the document) — but the subscription is
+ * the write no longer carries the document) — but the subscription is
  * what makes the page correct when the write came from somewhere else.
  *
  * `key` is `""` for "no role on screen": nothing is requested and nothing is

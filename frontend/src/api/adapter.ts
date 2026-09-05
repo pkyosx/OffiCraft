@@ -2507,8 +2507,9 @@ export interface Api {
   removeSigningKey(keyId: string): Promise<SigningKeyView[]>;
   /** The folded global-context doc (owner overlay ⊕ file seed). */
   getGlobalContext(): Promise<GlobalContextView>;
-  /** Whole-doc replace of the global context → returns the folded doc
-   * (`isDefault` flips false). */
+  /** Whole-doc replace of the global context. The write answers with a
+   * bounded receipt (T-91), not the folded doc; read it back with
+   * `getGlobalContext` (`isDefault` flips false there). */
   saveGlobalContext(text: string): Promise<void>;
   /** Reset the global context to seed (idempotent tombstone → `isDefault` true). */
   resetGlobalContext(): Promise<void>;
@@ -2528,8 +2529,9 @@ export interface Api {
    * cockpit keeps no list of which ones those are.
    */
   getBootDoc(kind: BootDocKind, key: string): Promise<BootDocView>;
-  /** Replace the EDITABLE HALF of ONE boot-context block → the folded doc
-   * (`isDefault` flips false).
+  /** Replace the EDITABLE HALF of ONE boot-context block. The write answers
+   * with a bounded receipt (T-91), not the folded doc; read it back with
+   * `getBootDoc` (`isDefault` flips false there).
    *
    * 🔴 IT TAKES `body`, NOT THE DOCUMENT (T-3201). The read-only head is not
    * something this call can get wrong — there is no field for it, and the
@@ -2546,8 +2548,9 @@ export interface Api {
     body: string
   ): Promise<void>;
   /**
-   * Restore ONE boot-context block to its FACTORY version → the folded doc
-   * (`isDefault` true).
+   * Restore ONE boot-context block to its FACTORY version. The write answers
+   * with a bounded receipt (T-91), not the folded doc; read it back with
+   * `getBootDoc` (`isDefault` true there).
    *
    * 🔴 This is the recovery path for the failure this whole surface risks: a
    * broken boot sequence means agents never attach to SSE, so they never come
@@ -2561,7 +2564,8 @@ export interface Api {
   listRoles(): Promise<RoleSummaryView[]>;
   /** The folded role definition for `key`. */
   getRole(key: string): Promise<RoleDefView>;
-  /** Partial edit of a role definition → returns the folded doc. */
+  /** Partial edit of a role definition. The write answers with a bounded
+   * receipt (T-91), not the folded doc; read it back with `getRole`. */
   saveRole(key: string, patch: RolePatch): Promise<void>;
   /** Reset a role definition to seed (idempotent tombstone → `isDefault` true). */
   resetRole(key: string): Promise<void>;
@@ -2601,8 +2605,9 @@ export interface Api {
    */
   getLessons(roleKey: string): Promise<LessonsView>;
   /**
-   * Whole-doc replace of the PER-ROLE lessons for a `roleKey` →
-   * returns the folded doc (`isDefault` flips false). Backend contract is POST
+   * Whole-doc replace of the PER-ROLE lessons for a `roleKey`. The write
+   * answers with a bounded receipt (T-91), not the folded doc; read it back
+   * with `getLessons` (`isDefault` flips false there). Backend contract is POST
    * (NOT the PUT/DELETE the global-context save uses). WRITE authz is per-role
    * and keyed on the PRINCIPAL CLASS, not the token scope (T-5336): a caller at
    * or above admin_agent — the owner (this UI's scope) and the admin agent —
@@ -2620,8 +2625,9 @@ export interface Api {
    */
   getInsight(roleKey: string): Promise<InsightView>;
   /**
-   * Whole-doc replace of the PER-ROLE insight doc → returns the folded doc
-   * (`isDefault` flips false). WRITE authz is per-role and keyed on the
+   * Whole-doc replace of the PER-ROLE insight doc. The write answers with a
+   * bounded receipt (T-91), not the folded doc; read it back with `getInsight`
+   * (`isDefault` flips false there). WRITE authz is per-role and keyed on the
    * PRINCIPAL CLASS: a caller at or above admin_agent — the owner (this UI's
    * scope) and the admin agent — may write ANY role; every other agent may
    * write only its own role, and the 403 names `insight` rather than borrowing

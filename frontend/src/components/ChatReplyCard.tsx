@@ -105,24 +105,33 @@ export function ChatReplyCard({
   /** Fold OUR OWN write's answer into the card on screen — same generation
    * bump, but a MERGE rather than a replacement (T-91).
    *
-   * 🔴 The write is about to stop echoing the card. answer/re-answer/expire act
+   * 🔴 The write no longer echoes the card. answer/re-answer/expire act
    * on a card somebody else opened; the question, its options, its attachments
    * and its task ref are not what these writes decide, so the receipt drops
    * them — and this component RENDERS them (ReplyCardBody reads
    * `card.task.title`). Replacing the card with the write's answer would blank
-   * that the day the receipt lands, with nothing thrown and nothing on screen
-   * saying so. So only the transition is taken from the write; the rest stays
-   * as this card read it. Under today's whole-card answer the two are the same
-   * value, which is why this lands safely BEFORE the server change. */
+   * that, with nothing thrown and nothing on screen saying so. So only the
+   * transition is taken from the write; the rest stays as this card read it.
+   * Under the OLD whole-card answer the two were the same value, which is why
+   * this half could land BEFORE the server change — that ordering is history
+   * now, both halves are in the same package. */
   const mergeWrite = useCallback((receipt: ReplyCardWriteReceipt) => {
     ++readGenRef.current;
     statusRef.current = receipt.status;
     // No card on screen ⇒ NOTHING TO MERGE ONTO, and the receipt is not a card:
     // it carries no question, no options, no attachments and no task ref, so
-    // storing it would paint a blank card. Keep null and let the read that is
-    // already on its way (this component always mounts one) supply the card.
-    // Unreachable in practice — the buttons that call this only exist once the
-    // card has rendered — which is exactly why it must not fabricate.
+    // storing it would paint a blank card. Keep null rather than fabricate one.
+    //
+    // 🔴 DO NOT WRITE "the read already on its way will supply it" HERE — an
+    // earlier version of this comment did, and it was wrong: the `++readGenRef`
+    // on the first line of this callback is exactly what makes `refetch` drop
+    // its in-flight result (it compares gen against readGenRef and returns).
+    // So on this branch there is no recovery read; the card simply stays null
+    // until something mounts a new one.
+    // That costs nothing today because the branch is unreachable — the buttons
+    // that call this only exist once the card has rendered — but if it ever
+    // becomes reachable, the fix is to start a read here, not to trust one that
+    // this line has already invalidated.
     setCard((prev) => (prev ? mergeReplyCardWrite(prev, receipt) : prev));
     setLoadError(false);
   }, []);
