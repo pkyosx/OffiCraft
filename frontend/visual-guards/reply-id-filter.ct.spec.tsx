@@ -169,6 +169,38 @@ for (const width of [320, 390, 1040]) {
   });
 }
 
+// The state this ticket ADDED, and the one the geometry loop above cannot
+// reach: the owner deletes the value by hand while the hash still carries the
+// id, so the field is EMPTY and 清除篩選 is still on screen. Narrowest width
+// only — that is where a row that fits when full could still break when the
+// button sits beside an empty field with a placeholder in it.
+test("width 320: the row still fits when the field is emptied by hand and 清除篩選 stays", async ({
+  mount,
+  page,
+}) => {
+  await page.setViewportSize({ width: 320, height: 900 });
+  const cmp = await mount(<ReplyIdFilterStory theme="dark" seeded />);
+
+  const clear = cmp.getByTestId("clear-filters");
+  await expect(clear).toBeVisible();
+  await expect(cmp.getByTestId("filter-reply-card-id")).toHaveValue("");
+
+  const spill = await page.evaluate(() => {
+    const row = document.querySelector(".replies__filters")!;
+    return {
+      row: row.scrollWidth - row.clientWidth,
+      page:
+        document.documentElement.scrollWidth -
+        document.documentElement.clientWidth,
+    };
+  });
+  expect(spill.row, "filter row horizontal overflow").toBeLessThanOrEqual(1);
+  expect(spill.page, "page horizontal overflow").toBeLessThanOrEqual(1);
+
+  const clearGeo = await textGeometry(clear);
+  expect(clearGeo.lines, "清除篩選 label line boxes").toBe(1);
+});
+
 // (2) The field must be distinguishable from the page behind it, in BOTH theme
 // families. This is the assertion that would have caught a field whose border
 // was deleted or whose fill collapsed into the background — the failure mode
@@ -202,7 +234,12 @@ for (const theme of ["dark", "light"] as const) {
 
     expect(
       parseFloat(colours.borderWidth),
-      "the field must keep a border at all"
+      // NOTE: this half only asks that a border WIDTH is declared. A border
+      // painted `transparent` still passes it (measured: that mutant leaves all
+      // 5 cases green) — and that is correct, because the contract below is
+      // "distinguishable by a border, a fill, or BOTH", and the fill alone
+      // satisfies it. Do not read this line as a guard on the border's COLOUR.
+      "the field must declare a border width"
     ).toBeGreaterThan(0);
     expect(
       sameColour(border, pageBg) && sameColour(fill, pageBg),

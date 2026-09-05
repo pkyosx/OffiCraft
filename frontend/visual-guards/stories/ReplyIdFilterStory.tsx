@@ -21,9 +21,17 @@ import "../../src/components/replies.css";
 export function ReplyIdFilterStory({
   theme,
   initialValue = "",
+  seeded = false,
 }: {
   theme: "light" | "dark";
   initialValue?: string;
+  /** Stands in for RepliesPage's `replyCardId` — the id the HASH carries. The
+   * shipped gate is `(idQuery !== "" || replyCardId)`, not `idQuery` alone, so
+   * a story gated on the value alone can never render the state this ticket
+   * ADDED: field emptied by hand, URL still filtering, 清除篩選 still on screen.
+   * Mirror the real gate here or the guard measures a row that no longer
+   * exists. */
+  seeded?: boolean;
 }) {
   const [value, setValue] = useState(initialValue);
   // The app stamps the choice on documentElement; do the same rather than
@@ -42,7 +50,7 @@ export function ReplyIdFilterStory({
                 label="請示卡編號"
                 testId="filter-reply-card-id"
               />
-              {value !== "" && (
+              {(value !== "" || seeded) && (
                 <button
                   type="button"
                   className="replies__clear-filters"

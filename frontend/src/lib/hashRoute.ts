@@ -136,12 +136,29 @@ export interface HashRoute {
   backTo?: "replies";
 }
 
+/** `decodeURIComponent` THROWS on a malformed escape — a lone `%`, `%zz` — and
+ * `parseHash` runs inside `useHashRoute`'s useMemo, which App calls at the root
+ * with no ErrorBoundary anywhere in src/ (measured; see http.ts). So one
+ * mangled character in a pasted URL took the whole page white instead of just
+ * failing to filter. That is the exact shape T-93 exists to prevent: the ticket
+ * is "an agent pastes a link and the owner clicks it", and a link that survives
+ * a chat client, a terminal wrap and a manual re-paste is not guaranteed to
+ * still be well-formed. An undecodable segment is passed through RAW — it then
+ * simply matches no card, which is the honest "沒有符合篩選條件" answer. */
+function decodeSegment(seg: string): string {
+  try {
+    return decodeURIComponent(seg);
+  } catch {
+    return seg;
+  }
+}
+
 export function parseHash(raw: string): HashRoute {
   const segs = raw
     .replace(/^#/, "")
     .split("/")
     .filter((s) => s !== "")
-    .map(decodeURIComponent);
+    .map(decodeSegment);
   const [head, ...rest] = segs;
 
   if (head === "settings") {
