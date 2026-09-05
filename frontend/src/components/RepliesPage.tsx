@@ -518,10 +518,13 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
           // fixed 200px was picked with no reference to that, and it read as
           // too wide because it is. This number tracks the id's LENGTH, so it
           // moves if that shape ever does.
-          // (Wording note: "derived from the id" is a retired sentence in this
-          // tree — a prose guard rejects it because TaskNo returns the id
-          // UNCHANGED and any "derived" phrasing becomes a second, contradictory
-          // account of that field. It caught this comment. Say "length".)
+          // ⚠️ Say LENGTH here, not the other word. A prose guard
+          // (TestRetiredTaskNoSentencesDoNotLiveAnywhereInTheTree) retires the
+          // phrasing that says a value comes out of the id, because TaskNo
+          // returns the id UNCHANGED and such wording becomes a second,
+          // contradictory account of that field. It is a literal scan, so it
+          // caught this comment TWICE: once for the original wording, and again
+          // for the note that quoted the banned phrase in order to explain it.
           widthCh={15}
         />
         {/* 🔴 The hash counts as an active filter even when the FIELD is empty.
