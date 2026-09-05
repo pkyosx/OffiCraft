@@ -69,8 +69,12 @@ import {
  *     `attachment_id` came BACK to the wire, so this component is now computing
  *     from `url` a value that arrives beside it. It is left as-is deliberately —
  *     swapping it is a behaviour change on a path nothing here tests — but it is
- *     NOT the cheapest correct thing any more, and the next person touching this
- *     file should read `a.attachmentId` instead of parsing the path. */
+ *     NOT the cheapest correct thing any more. ⚠️ AND THE OBVIOUS FIX DOES NOT
+ *     COMPILE TODAY: `attachmentId` is back on the WIRE, but `TaskArtifactView`
+ *     has no such property — `toTaskArtifact` in adapter.ts never maps it. The
+ *     hop that is missing is there, not here, so "just read the field" is two
+ *     edits, not one. Left as path-parsing deliberately: swapping it is a
+ *     behaviour change on a path nothing here tests. */
 function asAttachmentView(a: TaskArtifactView): ChatAttachmentView {
   return {
     id: a.id,

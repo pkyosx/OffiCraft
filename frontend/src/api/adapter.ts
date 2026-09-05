@@ -580,7 +580,10 @@ export interface TaskView {
  * path and `mime` is that blob's content type (render it exactly like a chat
  * attachment). For link, `url` is the external address read out of that link's
  * `text/uri-list` blob, whose `mime` is `text/uri-list`. `filename`, `isImage`,
- * `attachmentId` and the old single `label` are all GONE from this row: `name`
+ * `attachmentId` and the old single `label` are all GONE FROM THIS ROW — and
+ * for `attachmentId` read that literally: it is gone from THIS VIEW MODEL, not
+ * from the wire. It came back to the wire under owner rc-91e29b576ad8 and this
+ * adapter simply does not map it. The rest of the sentence is unchanged: `name`
  * replaces the label (server-derived, never empty), the filename is what that
  * derivation reads, and isImage is a prefix test on `mime`. Honest passthrough —
  * never fabricated. */
