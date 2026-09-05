@@ -2597,8 +2597,9 @@ HAPPY: dict[str, Happy] = {
         # ONE call — the case its two predecessors could not express, and the
         # reason this route exists. Aimed at the same CLOSED task as the two
         # rows below and for the same reason: a terminal task stays correctable,
-        # and a 200 echoing both new values on a card whose artifact set is
-        # frozen is the wire statement of that.
+        # and a 200 on a card whose artifact set is frozen is the wire statement
+        # of that. Since T-91 only `title` rides home; the description is
+        # reported as a size and a digest.
         #
         # The check reads BOTH fields back rather than only asserting 200 — a
         # route that accepted the body and wrote nothing, or wrote one field and
@@ -2609,10 +2610,19 @@ HAPPY: dict[str, Happy] = {
         path=lambda ctx: f"/api/tasks/{_happy_closed_task(ctx)}",
         body={"title": "one call", "description": "both fields"},
         # T-91 note: `description` no longer rides home (a description can be
-        # arbitrarily long). What replaces it is stronger than presence — the
-        # size and the DIGEST of exactly what was sent, so a handler that wrote
-        # nothing, wrote a truncation, or wrote the title into the description
-        # still cannot pass. `title` is short and stayed on the receipt.
+        # arbitrarily long). The size and the DIGEST take its place, and they
+        # are stronger than presence: a handler that wrote NOTHING, or wrote
+        # the title into the description, cannot pass.
+        #
+        # 🔴 BE EXACT ABOUT THE LIMIT — an earlier version of this note claimed
+        # a TRUNCATION could not pass either, and that is false. MEASURED: make
+        # the store persist a different string (the value plus one trailing
+        # space) and this row, and the whole suite, stay GREEN at rc=0. The
+        # handler assigns the sent value onto the in-memory task and the digest
+        # is taken from THAT, so it never travelled through the store and back.
+        # What this pins is "the handler answered for the text you sent", not
+        # "the store holds it unchanged". See taskWriteReceiptDTO's comment.
+        # `title` is short and stayed on the receipt.
         check=lambda _c, r: _expect(
             r,
             lambda d: set(d) == _TASK_WRITE_RECEIPT_KEYS
@@ -2626,10 +2636,11 @@ HAPPY: dict[str, Happy] = {
     "POST /api/tasks/{task_id}/description": Happy(
         # T-e271: the executor corrects its own task's wording. Aimed at a
         # CLOSED (done) task deliberately — owner ruling 2 says a terminal task
-        # stays correctable, and the response echoing the new text on a task
-        # whose artifact set is frozen is the wire statement of that. The check
-        # reads the description back rather than only asserting 200: a route
-        # that accepted the body and wrote nothing would pass a status check.
+        # stays correctable, and a 200 on a task whose artifact set is frozen
+        # is the wire statement of that. Since T-91 the new text does NOT ride
+        # back; the check pins its size and digest rather than only asserting
+        # 200, so a route that accepted the body and wrote nothing cannot
+        # pass.
         identity="agent",
         path=lambda ctx: f"/api/tasks/{_happy_closed_task(ctx)}/description",
         body={"description": "corrected wording"},
@@ -2638,7 +2649,9 @@ HAPPY: dict[str, Happy] = {
             lambda d: set(d) == _TASK_WRITE_RECEIPT_KEYS
             # The text is gone from the wire; the size and digest of exactly
             # what was sent take its place, and a route that accepted the body
-            # and wrote nothing still cannot pass.
+            # and wrote nothing still cannot pass. It does NOT catch a store
+            # that persists something different — see the twin row above for
+            # the measurement.
             and d["description_size_chars"] == len("corrected wording")
             and d["description_sha256"] == _sha("corrected wording")
             and d["status"] == "done"

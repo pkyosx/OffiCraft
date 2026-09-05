@@ -1631,8 +1631,15 @@ type taskStepNoteReceiptDTO struct {
 // that actually wants to READ it; that is a different caller from this one.
 //
 // The verification need that echoing the text used to serve is answered by
-// `sha256` over the text AS STORED: hash what you sent, compare 64 characters.
-// It is also the only way to notice a server-side trim.
+// `sha256`: hash what you sent, compare 64 characters. On the DOCUMENT
+// receipts the hash really is taken over the text AS STORED — each of them is
+// built from the read face's own folded DTO — so it is also how a caller
+// notices a server-side trim.
+//
+// 🔴 ONE FACE IS NOT LIKE THE OTHERS: taskWriteReceiptDTO's description digest
+// is taken from the in-memory Task the handler just assigned, never from a
+// read-back, so it answers for the text you SENT and cannot see the store
+// writing something else. Its own comment carries the measurement.
 //
 // Every field below carries its own reason to exist. A field that cannot state
 // one does not belong on a receipt.
