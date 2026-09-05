@@ -1093,6 +1093,14 @@ var identityGateLedger = map[string]string{
 	"wire.go :: newTaskArtifactVersionDTO :: h.Kind == ArtifactKindLink": "" +
 		"NOT an identity gate — the same positive arm on a RETAINED VERSION's row, " +
 		"resolving that version's link target out of its own retained blob.",
+	"dal_task_artifacts.go :: DeleteTaskArtifact :: live.Kind == ArtifactKindLink": "" +
+		"NOT an identity gate — the same artifact kind deciding whether the live row's " +
+		"blob is SPARED on un-pin or handed to the collector (owner rc-27107ca914a7). " +
+		"The exemption's reason is that an uploaded blob may also be riding a chat " +
+		"message; a link's blob is minted for that one pin, so nothing else can be. " +
+		"Neither arm deletes anything itself — the link arm only adds a candidate, and " +
+		"collectSurvivingBlobRefs still has the last word. No population is on either " +
+		"side.",
 	"wire.go :: artifactDisplayName :: a.Kind == ArtifactKindLink": "" +
 		"NOT an identity gate — the same artifact kind choosing which FALLBACK names a " +
 		"row whose name column is empty (T-92): a link falls back to its target, a " +

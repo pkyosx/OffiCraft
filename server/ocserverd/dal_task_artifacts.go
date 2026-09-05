@@ -306,11 +306,17 @@ func (d *DAL) DeleteTaskArtifact(id string) (bool, error) {
 		// somebody did manage to reference — from another task's artifact, a
 		// chat message, a reply card — survives on that verdict, not on this
 		// exemption.
-		if live != nil && live.Kind != ArtifactKindLink {
-			delete(candidates, live.AttachmentID)
-		}
-		if live != nil && live.Kind == ArtifactKindLink && live.AttachmentID != "" {
-			candidates[live.AttachmentID] = true
+		if live != nil {
+			if live.Kind == ArtifactKindLink {
+				// The link arm: its blob JOINS the candidates rather than
+				// being spared, and collectOrphanBlobs then asks the six
+				// sources whether anything still references it.
+				if live.AttachmentID != "" {
+					candidates[live.AttachmentID] = true
+				}
+			} else {
+				delete(candidates, live.AttachmentID)
+			}
 		}
 		_, err = collectOrphanBlobs(tx, candidates)
 		return err
