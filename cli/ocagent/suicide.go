@@ -57,6 +57,13 @@ func suicideSession(env func(string) string) (socket, session string, ok bool) {
 	return socket, session, true
 }
 
+// OC_BASE CLASSIFICATION (T-86): EXEMPT, and not by tolerance — by having no
+// use for it. This subcommand contacts no station: it kills a tmux session on
+// this host, named by OC_SESSION on OC_TMUX_SOCKET, and the server learns of it
+// only by watching the SSE connection drop. There is no address to be wrong
+// about, so the OC_BASE guard the other subcommands carry would refuse a run
+// that was going to work.
+//
 // cmdSuicide implements `ocagent suicide`: kill this agent's own tmux session so
 // the SSE drops and the server derives offline. Always returns 0 — a self-kill is
 // best-effort + fire-and-forget (a mis-wire / already-gone session must never be a

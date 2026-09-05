@@ -74,6 +74,19 @@ import (
 // them.
 const quarantineDirName = "trash"
 
+// OC_BASE CLASSIFICATION (T-86): EXEMPT, and the apparent contradiction in the
+// original proposal dissolves once the two variables are kept apart. clean
+// contacts no station — it moves a file into a quarantine directory on this
+// host — so OC_BASE, which is only ever a station ADDRESS, has nothing to say
+// here and the guard the other subcommands carry is not added.
+//
+// What clean does read is OC_ID / OC_TOKEN, and it reads them for IDENTITY, not
+// for an address: they are how it works out which workdir is its own. That
+// requirement is already enforced, loudly and by refusal, in cleanRoot below —
+// so clean is exempt from the OC_BASE guard and NOT exempt from naming its
+// missing identity, which is the consistent reading of "it needs configuration"
+// rather than a case of being both exempt and refusing.
+//
 // cleanRoot resolves the ONLY tree this command may touch: this agent's own
 // workdir. Same derivation as cursorPath / replyCardSeenPath /
 // reportStampPath (listen.go, contextreport.go) — one expression for "where my

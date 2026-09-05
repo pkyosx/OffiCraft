@@ -152,6 +152,21 @@ func cmdContextReport(client httpClient, cfg Config, env func(string) string, no
 	}
 	pct, havePct := statuslinePct(payload)
 
+	// The OC_BASE mis-wire signal, and DELIBERATELY the only half of the guard
+	// this subcommand takes (Kyle, T-86: option 丙). The other three subcommands
+	// refuse and exit non-zero; this one MUST NOT, because the fail-safe
+	// documented at the top of this file — always print the status line, always
+	// exit 0 — is what keeps a mis-wired agent's TUI working, and statusLine is
+	// fed by this command on EVERY turn. Loud failure here would break the
+	// status line on every turn of every conversation.
+	//
+	// So: stdout is untouched, the exit code is untouched, and the ONLY change
+	// is one line on stderr, which statusLine does not read. requireBase's
+	// return is ignored ON PURPOSE — the refusal is a signal here, not a
+	// decision — and because it fires only when OC_BASE is genuinely absent, a
+	// correctly wired agent prints nothing extra on any of those turns.
+	_ = requireBase(cfg, "context-report", errw)
+
 	if cfg.Token != "" && cfg.ID != "" {
 		stamp := reportStampPath(cfg)
 		// TWO independent gates, and they answer two different questions. The stamp

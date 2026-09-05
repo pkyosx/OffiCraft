@@ -49,7 +49,7 @@ func TestUploadStreamsFileAndPrintsIDThenRefJSON(t *testing.T) {
 	path := writeTempFile(t, "bundle.zip", blob)
 
 	var out, errOut bytes.Buffer
-	rc := cmdUpload(srv.Client(), Config{Base: srv.URL, Token: "tok-k", ID: "kyle"},
+	rc := cmdUpload(srv.Client(), Config{BaseConfigured: true, Base: srv.URL, Token: "tok-k", ID: "kyle"},
 		path, "application/zip", &out, &errOut)
 	if rc != 0 {
 		t.Fatalf("rc = %d, want 0 (stderr: %s)", rc, errOut.String())
@@ -80,7 +80,7 @@ func TestUploadOmitsMimeQueryWhenUnset(t *testing.T) {
 	path := writeTempFile(t, "shot.png", []byte("\x89PNG\r\n\x1a\nxx"))
 
 	var out, errOut bytes.Buffer
-	if rc := cmdUpload(srv.Client(), Config{Base: srv.URL, Token: "t"},
+	if rc := cmdUpload(srv.Client(), Config{BaseConfigured: true, Base: srv.URL, Token: "t"},
 		path, "", &out, &errOut); rc != 0 {
 		t.Fatalf("rc = %d (stderr: %s)", rc, errOut.String())
 	}
@@ -106,7 +106,7 @@ func TestUploadErrorExitCodes(t *testing.T) {
 
 	t.Run("no token is 3", func(t *testing.T) {
 		var out, errOut bytes.Buffer
-		if rc := cmdUpload(http.DefaultClient, Config{Base: "http://irrelevant"},
+		if rc := cmdUpload(http.DefaultClient, Config{BaseConfigured: true, Base: "http://irrelevant"},
 			path, "", &out, &errOut); rc != 3 {
 			t.Fatalf("rc = %d, want 3", rc)
 		}
@@ -125,7 +125,7 @@ func TestUploadErrorExitCodes(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			srv, _, _ := uploadServer(t, tc.status, tc.body)
 			var out, errOut bytes.Buffer
-			if rc := cmdUpload(srv.Client(), Config{Base: srv.URL, Token: "t"},
+			if rc := cmdUpload(srv.Client(), Config{BaseConfigured: true, Base: srv.URL, Token: "t"},
 				path, "", &out, &errOut); rc != tc.want {
 				t.Fatalf("rc = %d, want %d (stderr: %s)", rc, tc.want, errOut.String())
 			}
@@ -136,14 +136,14 @@ func TestUploadErrorExitCodes(t *testing.T) {
 	}
 	t.Run("missing file is 1", func(t *testing.T) {
 		var out, errOut bytes.Buffer
-		if rc := cmdUpload(http.DefaultClient, Config{Base: "http://irrelevant", Token: "t"},
+		if rc := cmdUpload(http.DefaultClient, Config{BaseConfigured: true, Base: "http://irrelevant", Token: "t"},
 			filepath.Join(t.TempDir(), "absent.bin"), "", &out, &errOut); rc != 1 {
 			t.Fatalf("rc = %d, want 1", rc)
 		}
 	})
 	t.Run("directory is 1", func(t *testing.T) {
 		var out, errOut bytes.Buffer
-		if rc := cmdUpload(http.DefaultClient, Config{Base: "http://irrelevant", Token: "t"},
+		if rc := cmdUpload(http.DefaultClient, Config{BaseConfigured: true, Base: "http://irrelevant", Token: "t"},
 			t.TempDir(), "", &out, &errOut); rc != 1 {
 			t.Fatalf("rc = %d, want 1", rc)
 		}

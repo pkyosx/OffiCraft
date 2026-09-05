@@ -81,6 +81,13 @@ func cmdDownload(client httpClient, cfg Config, attachmentID, outDir string, out
 		fmt.Fprint(errOut, "[ocagent] download: no OC_TOKEN configured — cannot make an authed fetch.\n")
 		return 3
 	}
+	// Same class of mis-wire, same exit code: without OC_BASE the fetch below
+	// would be aimed at this machine's loopback address, which on most hosts
+	// looks like "nothing happened" and on the station's own host reaches the
+	// real station.
+	if requireBase(cfg, "download", errOut) {
+		return 3
+	}
 
 	reqURL := cfg.Base + "/api/chat/attachment/" + url.PathEscape(attachmentID)
 	req, err := http.NewRequest(http.MethodGet, reqURL, nil)
