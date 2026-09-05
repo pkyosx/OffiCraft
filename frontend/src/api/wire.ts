@@ -428,7 +428,11 @@ export type WireChatInlineReplyCard =
 // none that approves or merges one, and it said so in the voice of something
 // verified. Both statements were false by the time anyone read them — the
 // entity routes landed on this branch, and `WireLorePendingEntity` /
-// `WireLoreEntityGovernance` are declared FORTY LINES BELOW the claim. Nothing
+// `WireLoreEntityGovernance` are declared BELOW IN THIS SAME FILE.
+// (That reads "in this same file" and not a line count on purpose: the first
+// draft of this correction said "FORTY LINES BELOW", and writing the
+// correction pushed the real distance to 47 — a self-expiring number grown
+// inside the very paragraph that exists because a claim expired.) Nothing
 // went red for it: a comment has no test. It is corrected in place rather than
 // deleted so the next reader can see that a "verified against routes.go"
 // sentence is a DATED measurement, not a standing fact — re-count, do not
