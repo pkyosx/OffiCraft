@@ -3101,11 +3101,20 @@ func (s *apiServer) HandleReplaceTaskArtifactApiTasksTaskIdArtifactArtifactIdRep
 		writeError(w, http.StatusBadRequest, artifactKindRefusal(art.Kind, kind))
 		return
 	}
+	// An ABSENT label carries the pinned one forward (owner ruling 2026-09-05):
+	// a replacement is a corrected version of the same deliverable, so making
+	// the caller re-type the display name every time is how a named artifact
+	// silently loses its name. An EXPLICIT label still replaces it, and an
+	// explicit blank still clears it — absent and empty stay different.
+	label := art.Label
+	if body.Label != nil {
+		label = trimmedOrEmpty(body.Label)
+	}
 	next := TaskArtifact{
 		ID:        art.ID,
 		TaskID:    art.TaskID,
 		Kind:      art.Kind,
-		Label:     trimmedOrEmpty(body.Label),
+		Label:     label,
 		CreatedTS: nowSecs(),
 		CreatedBy: currentActor(r),
 	}

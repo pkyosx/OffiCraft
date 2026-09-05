@@ -65,6 +65,7 @@ func TestResolvePaths_Namespaced(t *testing.T) {
 	p, err := resolvePaths(envFn(map[string]string{
 		"HOME":         "/Users/seth",
 		"OC_TOKEN":     "tok-abc",
+		"OC_BASE":      "https://station.example",
 		"OC_NAMESPACE": "seth",
 	}), "/repo/bin/ocwarden", 501)
 	if err != nil {
@@ -97,6 +98,7 @@ func TestResolvePaths_EmptyNamespaceHasNoSuffixAnywhere(t *testing.T) {
 	p, err := resolvePaths(envFn(map[string]string{
 		"HOME":     "/Users/seth",
 		"OC_TOKEN": "tok-abc",
+		"OC_BASE":  "https://station.example",
 	}), "/repo/bin/ocwarden", 501)
 	if err != nil {
 		t.Fatal(err)

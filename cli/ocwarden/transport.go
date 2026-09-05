@@ -533,13 +533,41 @@ func resolveRepoRoot(executable func() (string, error)) string {
 //     three-parent walk.
 //
 // exists is injected (os.Stat in production) so a test pins the branch deterministically.
-func resolveOcAgentBin(executable func() (string, error), exists func(string) bool, repoRoot string) string {
+// The second return says whether the path it chose ACTUALLY EXISTS. Before T-81 this
+// function answered a bare string and the fallback branch was never probed at all, so a
+// home-installed warden whose sibling was not downloaded yet answered
+// $HOME/cli/ocagent/ocagent — a path that has never existed on any machine — and the
+// caller symlinked to it without asking. Returning the existence bit is what lets the
+// spawn path tell "here it is" apart from "I had to guess and the guess is not there".
+// pathStatable is the production existence probe. It is a named function, not a closure
+// written at the wiring site, precisely so a mutant that guts it (`return true`) has a
+// test standing on it — see TestPathStatable_AnswersTheFilesystem.
+//
+// It is called pathStatable and not fileExists because a reviewer pointed out that the
+// shorter name promised more than the body delivers: os.Stat succeeds on a DIRECTORY too,
+// and nothing here looks at the executable bit. Named honestly, the gap is visible to the
+// next reader instead of being implied away — and for the one question this answers ("did
+// the download land yet?") a bare stat is the right amount of checking, because install
+// writes to a temp path and renames into place, so the name never exists half-written.
+func pathStatable(p string) bool { _, err := os.Stat(p); return err == nil }
+
+// newOcAgentResolver builds the per-spawn seam SpawnDeps carries. It exists so the
+// production wiring line contains a REFERENCE and no behaviour: everything it does is
+// in resolveOcAgentBin and in the probe, each of which is tested directly.
+func newOcAgentResolver(executable func() (string, error), exists func(string) bool) func() (string, bool) {
+	return func() (string, bool) {
+		return resolveOcAgentBin(executable, exists, resolveRepoRoot(executable))
+	}
+}
+
+func resolveOcAgentBin(executable func() (string, error), exists func(string) bool, repoRoot string) (string, bool) {
 	if exe, err := executable(); err == nil {
 		if sibling := filepath.Join(filepath.Dir(exe), "ocagent"); exists(sibling) {
-			return sibling
+			return sibling, true
 		}
 	}
-	return filepath.Join(repoRoot, "cli", "ocagent", "ocagent")
+	fallback := filepath.Join(repoRoot, "cli", "ocagent", "ocagent")
+	return fallback, exists(fallback)
 }
 
 // buildClaudeCredProbe wires the spawn-time claude-login gate (T-ba62), or nil
@@ -558,7 +586,13 @@ func buildClaudeCredProbe(env func(string) string, runner CmdRunner) func() clau
 	}
 }
 
-func buildCommandDeps(cfg Config, env func(string) string, runner CmdRunner) CommandDeps {
+// buildSpawnDeps is the production SpawnDeps literal, pulled out of buildCommandDeps so
+// a test can look at it (T-81). That sounds like a formality; it is not. An independent
+// reviewer showed that setting ONE field of this literal — ResolveOcAgentBin — to nil
+// restored the original T-81 defect in full, and the entire package stayed green,
+// because the line that wires the fix into production had no test anywhere near it.
+// Guarding the function is not the same as guarding its caller.
+func buildSpawnDeps(cfg Config, env func(string) string, runner CmdRunner, socket, ns string) SpawnDeps {
 	// Real spawn mechanism, fully wired (only reached with the gate ON — a PoC
 	// default-OFF build never constructs a live connection, so start() never runs).
 	// Resolve claude ROBUSTLY: a launchd daemon inherits a MINIMAL PATH (no
@@ -568,12 +602,7 @@ func buildCommandDeps(cfg Config, env func(string) string, runner CmdRunner) Com
 	claudeBin := resolveClaudeBin(env)
 	codexBin := resolveCodexBin(env)
 	wardenBin, _ := os.Executable()
-	// The instance namespace keys the tmux socket + agent home (validated at
-	// process entry — realMain refuses an invalid OC_NAMESPACE before any
-	// transport is built, so the error case here is unreachable).
-	ns, _ := namespaceFromEnv(env)
-	socket := tmuxSocketFor(ns)
-	spawnDeps := SpawnDeps{
+	return SpawnDeps{
 		Runner:    runner,
 		Base:      cfg.Base,
 		Socket:    socket,
@@ -607,10 +636,25 @@ func buildCommandDeps(cfg Config, env func(string) string, runner CmdRunner) Com
 		// the resolved exec target: a home-installed warden finds ocagent as its OWN
 		// SIBLING ($HOME/.officraft/warden/ocagent) with no env/plist injection; a dev
 		// run falls back to <repoRoot>/cli/ocagent/ocagent. resolveOcAgentBin owns both.
-		RepoRoot:   resolveRepoRoot(os.Executable),
-		OcAgentBin: resolveOcAgentBin(os.Executable, func(p string) bool { _, err := os.Stat(p); return err == nil }, resolveRepoRoot(os.Executable)),
-		WriteFile:  osWriteFile,
-		MkdirAll:   os.MkdirAll,
+		RepoRoot: resolveRepoRoot(os.Executable),
+		// T-81: a FUNCTION, deliberately — this used to be resolveOcAgentBin's answer
+		// baked in right here, while the warden was still booting. On a fresh machine
+		// ocagent is downloaded AFTER that, so the value baked in was a path that did
+		// not exist yet, and nothing ever recomputed it: every member that machine
+		// spawned got a dangling symlink and stayed silently offline. Passing the
+		// closure moves the question to spawn time, so the first spawn after the
+		// download finds the binary with no warden restart.
+		//
+		// 🔴 There is deliberately NO inline closure here any more. The second review
+		// round showed why: while the existence probe was written out on this line, a
+		// one-word edit to it (`return true`) reinstated T-81 in full — the resolver
+		// says "it is there" about a path that is not — and the whole package stayed
+		// green, because nothing testable owned that line. Both halves now live in
+		// named functions that have tests of their own, so the wiring is a reference
+		// and not a place where behaviour can be written.
+		ResolveOcAgentBin: newOcAgentResolver(os.Executable, pathStatable),
+		WriteFile:         osWriteFile,
+		MkdirAll:          os.MkdirAll,
 		// Symlink / Remove publish the workdir `ocagent` as a symlink to OcAgentBin.
 		Symlink: os.Symlink,
 		Remove:  os.Remove,
@@ -622,6 +666,15 @@ func buildCommandDeps(cfg Config, env func(string) string, runner CmdRunner) Com
 		// the seam's nil-skip contract is unchanged.
 		Pretrust: nil,
 	}
+}
+
+func buildCommandDeps(cfg Config, env func(string) string, runner CmdRunner) CommandDeps {
+	// The instance namespace keys the tmux socket + agent home (validated at
+	// process entry — realMain refuses an invalid OC_NAMESPACE before any
+	// transport is built, so the error case here is unreachable).
+	ns, _ := namespaceFromEnv(env)
+	socket := tmuxSocketFor(ns)
+	spawnDeps := buildSpawnDeps(cfg, env, runner, socket, ns)
 	// The real ~/.claude.json pre-trust target (OC_CLAUDE_JSON can redirect it).
 	claudeJSONPath := defaultClaudeJSONPath(env)
 	return CommandDeps{
@@ -630,15 +683,15 @@ func buildCommandDeps(cfg Config, env func(string) string, runner CmdRunner) Com
 		// ~/.claude.json write, mirroring pretrust_launch_cwd(self.workdir). A failing
 		// pretrust aborts the spawn inside start() (don't spawn a nudge-eaten zombie).
 		Spawn: func(p StartParams) SpawnOutcome {
-			sd := spawnDeps
-			workdir := agentWorkdir(sd.Home, p.MemberID)
-			sd.Pretrust = func() error { return pretrustWorkdir(claudeJSONPath, workdir) }
+			workdir := agentWorkdir(spawnDeps.Home, p.MemberID)
 			// T-684c: bind the trash reaper over THIS member's agents-root +
 			// workdir pair. purgeTrash re-derives and re-validates the whole shape
 			// itself (direct-child containment, symlink refusal) — passing the root
 			// is what lets it do the containment check at all.
-			sd.PurgeTrash = func() { purgeTrash(sd.Home, workdir, stderrLogf) }
-			return sd.start(p)
+			return spawnDeps.withPerSpawn(
+				func() error { return pretrustWorkdir(claudeJSONPath, workdir) },
+				func() { purgeTrash(spawnDeps.Home, workdir, stderrLogf) },
+			).start(p)
 		},
 		Stop: func(session string) (bool, bool) {
 			// The sweep seams complete the ladder's ⓪/⑤ legs: lsof-discover any
