@@ -8,6 +8,9 @@
 - bare `ocagent` 是 spawn/boot prompt 的 shim 呼叫名，`com.officraft.ocwarden` 是 launchd 介面名；兩者不是可任意改名的 folder/module，改動要連 host 端的 shim、plist、bootout/relaunch 一起對齊。
 - `OC_NAMESPACE` 是所有 per-instance host 資源的單一輸入：OffiCraft root、launchd label、tmux socket、agent home。空值是 canonical instance，輸出必須 byte-for-byte 維持舊行為；非空值只准 `[a-z0-9-]{1,16}`。非法 namespace 必須拒絕／derive 空結果，不能折回 canonical agent home。
 - namespace 軸在 `ocwarden/namespace.go`、`ocagent/config.go`、server onboarding、`bin/install.sh`、`bin/ocserver` 等獨立邊界各有鏡像；用 `bin/tests/fixtures/namespace-axes.tsv` 與 mirror guard 對齊。不要自己新增第二套 join、charset 或 fallback。
+- **`OC_BASE` 沒設定時 `loadConfig` 會回落到內建 loopback 位址，所以 `cfg.Base` 永遠非空 —— 不要用「`Base` 是不是空字串」當守衛，那個條件恆假。** 要問「有沒有被設定過」看 `Config.BaseConfigured`（`ocagent` 側），它記的是「回落有沒有被走到」，不是「這個值能不能用」；畸形值仍算已設定。它的零值是拒絕那一側，`loadConfig` 是生產碼唯一的產生點。
+- 每一支讀 `cfg.Base` 的子命令都要對 `OC_BASE` 表態，而**名冊不抄在這裡**：權威是各子命令自己的 `OC_BASE CLASSIFICATION` 註解，`grep -rn "OC_BASE CLASSIFICATION" cli/ocagent` 就是完整清單。新增一支讀 `cfg.Base` 的子命令而沒有那行標題，等於沒有表態。規則只有三條：拒絕一律指名變數並**不得回印任何值**；拒絕的離開碼跟同處的 `OC_TOKEN` 守衛一致；`context-report` **只能提示、不得拒絕**，它的 stdout 與 exit 0 是 §4 那個 fail-safe 本身，而它每輪對話都跑，改成拒絕就會在每輪炸掉狀態列。
+- **加守衛之前先問誰在靠現有的失敗自癒。** 一道拒絕在長駐子命令上等於「離開」，而離開換到的是**沒有訊號**；`listen` 現在缺 `OC_BASE` 會落進 §5 那套帶訊號的 debounce 重試，換成立即拒絕反而更糟。這不是「還沒做」，是要先決定它屬於 §5 的政策還是啟動時拒絕。
 
 ## 2. 真主機副作用與自更新
 

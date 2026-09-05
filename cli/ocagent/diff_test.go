@@ -42,7 +42,7 @@ func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) { retu
 // sides, which is what lets a member produce one while the station is
 // unreachable.
 func TestDiffPrintsTheInternalURLWithoutTalkingToTheServer(t *testing.T) {
-	rc, out, errOut := runDiff(t, Config{Base: "https://oc.example"}, beforeID, afterID)
+	rc, out, errOut := runDiff(t, Config{BaseConfigured: true, Base: "https://oc.example"}, beforeID, afterID)
 	if rc != 0 {
 		t.Fatalf("rc = %d, want 0 (%s)", rc, errOut)
 	}
@@ -57,7 +57,7 @@ func TestDiffPrintsTheInternalURLWithoutTalkingToTheServer(t *testing.T) {
 // segments the reader would resolve somewhere else entirely.
 func TestDiffEncodesADocumentSideIntoOneQueryValue(t *testing.T) {
 	doc := "doc:lessons/mira/current/text"
-	rc, out, errOut := runDiff(t, Config{Base: "https://oc.example"}, doc, afterID)
+	rc, out, errOut := runDiff(t, Config{BaseConfigured: true, Base: "https://oc.example"}, doc, afterID)
 	if rc != 0 {
 		t.Fatalf("rc = %d, want 0 (%s)", rc, errOut)
 	}
@@ -75,7 +75,7 @@ func TestDiffEncodesADocumentSideIntoOneQueryValue(t *testing.T) {
 
 func TestDiffPutsTheLabelsOnTheURLOnlyWhenGiven(t *testing.T) {
 	var out, errOut bytes.Buffer
-	rc := cmdDiff(nil, Config{Base: "https://oc.example"}, beforeID, afterID,
+	rc := cmdDiff(nil, Config{BaseConfigured: true, Base: "https://oc.example"}, beforeID, afterID,
 		"v1", "", false, &out, &errOut)
 	if rc != 0 {
 		t.Fatalf("rc = %d, want 0 (%s)", rc, errOut.String())
@@ -94,7 +94,7 @@ func TestDiffPutsTheLabelsOnTheURLOnlyWhenGiven(t *testing.T) {
 // The one error message that has to teach the new flow: `diff` never uploads,
 // so a path is refused with the two commands that DO work.
 func TestDiffRefusesAFilePathAndSaysToUploadItFirst(t *testing.T) {
-	rc, out, errOut := runDiff(t, Config{Base: "https://oc.example"}, "./before.md", afterID)
+	rc, out, errOut := runDiff(t, Config{BaseConfigured: true, Base: "https://oc.example"}, "./before.md", afterID)
 	if rc != 2 {
 		t.Fatalf("rc = %d, want 2", rc)
 	}
@@ -116,7 +116,7 @@ func TestDiffRefusesAnExistingFileEvenWithoutAPathLikeName(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Chdir(dir)
-	rc, _, errOut := runDiff(t, Config{Base: "https://oc.example"}, "notes", afterID)
+	rc, _, errOut := runDiff(t, Config{BaseConfigured: true, Base: "https://oc.example"}, "notes", afterID)
 	if rc != 2 || !strings.Contains(errOut, "does not upload files") {
 		t.Fatalf("rc = %d, want 2 with the upload-first message:\n%s", rc, errOut)
 	}
@@ -124,7 +124,7 @@ func TestDiffRefusesAnExistingFileEvenWithoutAPathLikeName(t *testing.T) {
 
 func TestDiffRefusesAnArgumentThatIsNeitherAnIDNorADocumentAddress(t *testing.T) {
 	for _, arg := range []string{"att-", "att-0123456789", "att-0123456789AB", "nonsense"} {
-		rc, _, errOut := runDiff(t, Config{Base: "https://oc.example"}, beforeID, arg)
+		rc, _, errOut := runDiff(t, Config{BaseConfigured: true, Base: "https://oc.example"}, beforeID, arg)
 		if rc != 2 {
 			t.Errorf("%q: rc = %d, want 2", arg, rc)
 		}
@@ -144,7 +144,7 @@ func TestDiffRejectsAMalformedDocumentAddress(t *testing.T) {
 		"a zero revision":   "doc:lessons/mira/0/text",
 		"a padded at":       "doc:lessons/mira/ current /text",
 	} {
-		rc, out, errOut := runDiff(t, Config{Base: "https://oc.example"}, arg, afterID)
+		rc, out, errOut := runDiff(t, Config{BaseConfigured: true, Base: "https://oc.example"}, arg, afterID)
 		if rc != 2 {
 			t.Errorf("%s (%q): rc = %d, want 2", name, arg, rc)
 		}
@@ -170,7 +170,7 @@ func TestDiffNamesADocumentEvenWhenAFileOfThatNameExists(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Chdir(dir)
-	rc, out, errOut := runDiff(t, Config{Base: "https://oc.example"}, addr, afterID)
+	rc, out, errOut := runDiff(t, Config{BaseConfigured: true, Base: "https://oc.example"}, addr, afterID)
 	if rc != 0 {
 		t.Fatalf("rc = %d, want 0 (%s)", rc, errOut)
 	}
@@ -192,7 +192,7 @@ func TestDiffExternalMintsTheSignedLinkAndAbsolutizesIt(t *testing.T) {
 	t.Cleanup(srv.Close)
 
 	var out, errOut bytes.Buffer
-	rc := cmdDiff(srv.Client(), Config{Base: srv.URL, Token: "tok"},
+	rc := cmdDiff(srv.Client(), Config{BaseConfigured: true, Base: srv.URL, Token: "tok"},
 		beforeID, afterID, "", "", true, &out, &errOut)
 	if rc != 0 {
 		t.Fatalf("rc = %d, want 0 (%s)", rc, errOut.String())
@@ -211,7 +211,7 @@ func TestDiffExternalMintsTheSignedLinkAndAbsolutizesIt(t *testing.T) {
 
 func TestDiffExternalRefusesWithoutAToken(t *testing.T) {
 	var out, errOut bytes.Buffer
-	rc := cmdDiff(nil, Config{Base: "https://oc.example"}, beforeID, afterID, "", "", true, &out, &errOut)
+	rc := cmdDiff(nil, Config{BaseConfigured: true, Base: "https://oc.example"}, beforeID, afterID, "", "", true, &out, &errOut)
 	if rc != 3 {
 		t.Fatalf("rc = %d, want 3", rc)
 	}
@@ -227,7 +227,7 @@ func TestDiffExternalReportsTheServersRefusal(t *testing.T) {
 	}))
 	t.Cleanup(srv.Close)
 	var out, errOut bytes.Buffer
-	rc := cmdDiff(srv.Client(), Config{Base: srv.URL, Token: "tok"},
+	rc := cmdDiff(srv.Client(), Config{BaseConfigured: true, Base: srv.URL, Token: "tok"},
 		beforeID, afterID, "", "", true, &out, &errOut)
 	if rc != 4 {
 		t.Fatalf("rc = %d, want 4", rc)
