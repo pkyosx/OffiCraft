@@ -920,8 +920,20 @@ function DefinitionCard({
               // A restore rewrote the SOP under the editor — leaving the draft
               // up would turn 完成編輯 into an undo of the restore.
               onRestored={async () => {
-                await onRestored?.();
-                cancelEdit(3);
+                // 🔴 `finally`, not a plain sequence: the restore has ALREADY
+                // landed by the time this runs, so the draft below is stale no
+                // matter what the re-read does. T-91 wrapped the re-read in
+                // DocumentHistoryEntry so a failed re-read stops showing as a
+                // failed restore — but that made a rejection here SKIP the
+                // line below and then get swallowed, which closed the modal
+                // silently and left the editor holding the pre-restore draft.
+                // Leaving edit mode is what the comment above promises; it
+                // must not be conditional on the re-read succeeding.
+                try {
+                  await onRestored?.();
+                } finally {
+                  cancelEdit(3);
+                }
               }}
               disabled={savingBlock === 3}
             />
@@ -1521,8 +1533,20 @@ function LearningsCard({
               currentContent={{ learnings: manual.learnings }}
               docDeletable
               onRestored={async () => {
-                await onRestored?.();
-                setEditing(false);
+                // 🔴 `finally`, not a plain sequence: the restore has ALREADY
+                // landed by the time this runs, so the draft below is stale no
+                // matter what the re-read does. T-91 wrapped the re-read in
+                // DocumentHistoryEntry so a failed re-read stops showing as a
+                // failed restore — but that made a rejection here SKIP the
+                // line below and then get swallowed, which closed the modal
+                // silently and left the editor holding the pre-restore draft.
+                // Leaving edit mode is what the comment above promises; it
+                // must not be conditional on the re-read succeeding.
+                try {
+                  await onRestored?.();
+                } finally {
+                  setEditing(false);
+                }
               }}
               disabled={busy}
             />
