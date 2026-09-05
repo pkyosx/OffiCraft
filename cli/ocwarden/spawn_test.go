@@ -252,6 +252,15 @@ func newStartDepsLinks(t *testing.T, run *recRunner, files, links map[string]str
 		Symlink:   func(oldname, newname string) error { links[newname] = oldname; return nil },
 		Remove:    func(string) error { return nil },
 
+		// 🔴 EXPLICIT NO-OP CLOCK, and it has to be explicit as of T-82. A nil Sleep
+		// used to mean "no wait"; it now falls back to time.Sleep (fail-safe, so a
+		// mis-wired production caller paces instead of firing 30 Enters in
+		// microseconds). Leaving this nil would therefore make EVERY test built on
+		// this helper spend a real nudgeMaxAttempts x nudgeSettle = 30 seconds in
+		// the boot nudge. Tests that want to observe the pacing replace this with
+		// their own recording clock.
+		Sleep: func(time.Duration) {},
+
 		ResolveOcAgentBin: fxOcAgentResolver,
 	}
 }
@@ -438,6 +447,9 @@ func TestStart_PublishesOcAgentSymlink(t *testing.T) {
 	links := map[string]string{}
 	removed := []string{}
 	deps := SpawnDeps{
+		// T-82: explicit no-op clock — a nil Sleep now falls back to time.Sleep
+		// (fail-safe for production), so leaving it out costs this test a real 30s.
+		Sleep:     func(time.Duration) {},
 		Runner:    run,
 		Base:      fxBase,
 		Socket:    fxSocket,
@@ -480,6 +492,9 @@ func TestStart_OcAgentSymlinkFailureAborts(t *testing.T) {
 	hasKey := "tmux -L officraft has-session -t member-alice"
 	run := &recRunner{err: map[string]error{hasKey: errAbsent()}}
 	deps := SpawnDeps{
+		// T-82: explicit no-op clock — a nil Sleep now falls back to time.Sleep
+		// (fail-safe for production), so leaving it out costs this test a real 30s.
+		Sleep:     func(time.Duration) {},
 		Runner:    run,
 		Base:      fxBase,
 		Socket:    fxSocket,
@@ -513,6 +528,9 @@ func TestStart_OcAgentSymlinkRemoveNotExistOK(t *testing.T) {
 	}
 	links := map[string]string{}
 	deps := SpawnDeps{
+		// T-82: explicit no-op clock — a nil Sleep now falls back to time.Sleep
+		// (fail-safe for production), so leaving it out costs this test a real 30s.
+		Sleep:     func(time.Duration) {},
 		Runner:    run,
 		Base:      fxBase,
 		Socket:    fxSocket,
@@ -733,6 +751,9 @@ func TestStart_NewSessionFailure(t *testing.T) {
 func TestStart_NoClaudeBin(t *testing.T) {
 	run := &recRunner{}
 	deps := SpawnDeps{
+		// T-82: explicit no-op clock — a nil Sleep now falls back to time.Sleep
+		// (fail-safe for production), so leaving it out costs this test a real 30s.
+		Sleep:     func(time.Duration) {},
 		Runner:    run,
 		Base:      fxBase,
 		Socket:    fxSocket,
@@ -785,6 +806,9 @@ func TestStart_ClaudeNotLoggedIn(t *testing.T) {
 	run := &recRunner{}
 	wrote := map[string]string{}
 	deps := SpawnDeps{
+		// T-82: explicit no-op clock — a nil Sleep now falls back to time.Sleep
+		// (fail-safe for production), so leaving it out costs this test a real 30s.
+		Sleep:     func(time.Duration) {},
 		Runner:    run,
 		Base:      fxBase,
 		Socket:    fxSocket,
@@ -1149,7 +1173,7 @@ func TestTmuxDeliverNudge_AlwaysRunsBoundedAttempts(t *testing.T) {
 	}
 }
 
-// TestStart_NudgeGetsARealClock (T-82, from the independent review's third mutant):
+// TestBuildSpawnDeps_NudgeClockIsRealAndWaits (T-82, from the independent review's third mutant):
 // the layer above. tmuxDeliverNudge takes its clock as a seam and falls back to a
 // NO-OP when handed nil — that fallback exists for tests. So a production call site
 // that passes nil silently turns the 30-second settle into microseconds, and the
@@ -1292,14 +1316,24 @@ func (r *recordingRunner) Run(name string, args ...string) (string, error) {
 	return "", nil
 }
 
-// TestTmuxDeliverNudge_NilSleepSafe: a nil Sleep seam must not panic (test default
-// is a no-op wait). Since T-82 there is no early exit, so the bound is the whole
-// attempt count rather than 1.
+// TestTmuxDeliverNudge_NilSleepSafe: a nil Sleep seam must not panic, and must
+// still run the whole bounded attempt count (since T-82 there is no early exit).
+//
+// ⚠️ IT NO LONGER PASSES nil, and that is not a workaround — it is the point. As of
+// T-82 a nil clock falls back to time.Sleep (fail-safe, mirroring kill.go), so a
+// test passing nil here would really wait 30 seconds. What the test is actually
+// about is "an unwired clock does not panic and does not shorten the loop", which
+// a caller-supplied no-op states without buying a 30-second test.
+//
+// The count is a LITERAL for the same reason as TestTmuxDeliverNudge_AlwaysRunsBoundedAttempts:
+// `!= nudgeMaxAttempts` is a constant compared against itself and has no
+// discrimination against a change to the constant.
 func TestTmuxDeliverNudge_NilSleepSafe(t *testing.T) {
+	const wantAttempts = 30 // literal, NOT nudgeMaxAttempts — see above
 	r := &nudgeCountingRunner{}
-	tmuxDeliverNudge(r, nil, "sock", "member-x", defaultNudge)
-	if r.enterCount != nudgeMaxAttempts {
-		t.Fatalf("nil sleep must still run the bounded %d attempts, got %d", nudgeMaxAttempts, r.enterCount)
+	tmuxDeliverNudge(r, func(time.Duration) {}, "sock", "member-x", defaultNudge)
+	if r.enterCount != wantAttempts {
+		t.Fatalf("an unwired clock must still run the bounded %d attempts, got %d", wantAttempts, r.enterCount)
 	}
 }
 

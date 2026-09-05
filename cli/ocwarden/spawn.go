@@ -50,10 +50,37 @@ const (
 	defaultNudge = "開始。"
 	// nudgeMaxAttempts / nudgeSettle bound the boot-nudge Enter-retry (STAGE-B). A
 	// cold claude REPL can take several seconds to accept input (rendering the
-	// welcome screen, dismissing startup notices), so we retry the Enter until the
-	// context gauge confirms submission. ~30×1s ≈ 30s covers a slow cold start yet
-	// stays COMFORTABLY under the reconcile start_timeout (the configured waking TTL) so a
-	// slow-but-successful boot is never miscounted as a start-failure → circuit trip.
+	// welcome screen, dismissing startup notices), so the Enter is retried.
+	//
+	// 🔴 T-82 CORRECTED ALL THREE CLAIMS THAT USED TO BE HERE, and this is the
+	// declaration every other pointer sends a reader to, so read it before changing
+	// either number:
+	//
+	//  1. MECHANISM. It used to say the retry ran "until the context gauge confirms
+	//     submission". That gauge is not some third party's: buildStatuslineSettings
+	//     (this file) points the agent's statusLine at our own `ocagent
+	//     context-report`, and T-51a8 changed its rendering. The verdict has been
+	//     permanently false, which is what this ticket removed.
+	//  2. BEHAVIOUR. There is no "until". The loop is UNCONDITIONAL: it runs all
+	//     nudgeMaxAttempts every single time, so every spawn spends 30×1s = 30
+	//     SECONDS here whether the first Enter landed or not.
+	//  3. BUDGET. It used to say this stays "comfortably under" the reconcile
+	//     start_timeout. Those 30 seconds are also spent out of the 90s
+	//     receiptDeadlineSecs in server/ocserverd/receipt_watch.go (the START
+	//     receipt is POSTed only after Spawn returns), which leaves that deadline
+	//     about 5 SECONDS of slack — not comfortable.
+	//
+	// ⚠️ NEITHER NUMBER HAS EVER BEEN MEASURED. Changing one is a behaviour change
+	// with a cross-module consequence, and TODAY NOTHING MECHANICAL ENFORCES THAT.
+	// cli/ocwarden/spawn_test.go pins both as literals, so an accidental edit is
+	// red — but a deliberate edit that also updates those literals is green on both
+	// sides while receiptDeadlineSecs silently goes over budget, because
+	// cli/ocwarden and server/ocserverd are separate Go modules with nothing in
+	// common. The repo already solves exactly this shape elsewhere
+	// (bin/tests/base-scheme-mirror-guard.sh, T-78: one hand-copied invariant across
+	// three modules, failing the build the moment they disagree); the equivalent
+	// guard for this budget does not exist yet. Until it does, the only link is a
+	// sentence — this one.
 	nudgeMaxAttempts = 30
 	nudgeSettle      = 1 * time.Second
 	// paneCols/paneRows: the FIXED wide pane geometry (AgentSpawner.PANE_COLS/ROWS)
@@ -405,8 +432,24 @@ func tmuxNewSession(r CmdRunner, socket, session, command string) error {
 // carried as an argv via set-buffer. paste-buffer keeps the -d -p flags and the
 // bare-flag fallback exactly as the origin.
 func tmuxDeliverNudge(r CmdRunner, sleep func(time.Duration), socket, session, nudge string) {
+	// 🔴 nil FALLS BACK TO time.Sleep, NOT TO A NO-OP, and the direction is the
+	// whole point (same fail-safe kill.go's sweepPIDs already uses: "a mis-wired
+	// production caller still paces, only tests inject a fake").
+	//
+	// It used to fall back to a no-op — the convenient default for tests, and a
+	// SILENT correctness hole for production. Three separate one-token edits (this
+	// call site passing nil, buildSpawnDeps leaving Sleep nil, buildCommandDeps'
+	// per-spawn closure setting sd.Sleep = nil) each turned 30 paced Enters into 30
+	// Enters in microseconds — materially the single-shot Enter this loop exists to
+	// avoid — with the whole package green every time. Each one was found only after
+	// a guard was written for the layer above it.
+	//
+	// With this fallback, forgetting to wire the clock is a PERFORMANCE bug (a spawn
+	// that paces when a test wanted it fast), never a correctness one. That closes
+	// the family instead of adding one more test per layer. Tests that want speed
+	// pass their own no-op explicitly.
 	if sleep == nil {
-		sleep = func(time.Duration) {} // test default: no real wait
+		sleep = time.Sleep
 	}
 	const buf = "oc-spawn-nudge"
 	_, _ = r.Run("tmux", "-L", socket, "set-buffer", "-b", buf, nudge)
