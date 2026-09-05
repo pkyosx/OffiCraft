@@ -1106,6 +1106,7 @@ var messageKeys = map[string]bool{
 	"tasks.expandReply":                                true,
 	"tasks.filterExecutorAll":                          true,
 	"tasks.filterExecutorNoun":                         true,
+	"tasks.filterIdLabel":                              true,
 	"tasks.filterStatusAll":                            true,
 	"tasks.filterStatusNoun":                           true,
 	"tasks.filterTypeAll":                              true,

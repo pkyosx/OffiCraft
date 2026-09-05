@@ -87,6 +87,7 @@ export const en: Dict = {
     emptyNone: "No tasks yet",
     emptyFiltered: "No tasks match the current filters",
     loadError: "Failed to load tasks. Please try again.",
+    filterIdLabel: "Task ID",
     clearFilters: "Clear filters",
     filterExecutorAll: "Everyone",
     filterTypeAll: "All types",

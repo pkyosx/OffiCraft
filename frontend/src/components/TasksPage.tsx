@@ -25,6 +25,7 @@ import { useTaskCount } from "../hooks/useTaskCount";
 import { useMembers } from "../hooks/useMembers";
 import { useHashRoute } from "../lib/hashRoute";
 import { TaskCard } from "./TaskCard";
+import { IdFilterInput } from "./IdFilterInput";
 import { MultiSelectFilter, type MultiSelectOption } from "./MultiSelectFilter";
 import { ChevronRightIcon } from "./icons";
 import "./office.css"; // chat composer classes the embedded ReplyComposer reuses
@@ -127,6 +128,34 @@ export function TasksPage() {
   const [statusFilter, setStatusFilter] = useState<Set<string>>(
     () => new Set(DEFAULT_STATUS)
   );
+  // ── ID 篩選 (T-93, second pass) ────────────────────────────────────────────
+  // owner 2026-09-06 on rc-44347fc49338: 「任務沒有出現同樣的filter」. The 任務頁
+  // had only HALF of what he asked for — the hash could seed a filter, but there
+  // was no field to type one into, while 請示卡頁 had both. His charter said
+  // 「任務列表跟請示卡列表，是不是都可以有一個ID的filter」, so this was a gap, not a
+  // design choice.
+  //
+  // 🔴 TWO PATHS MEET HERE AND THEY ARE NOT THE SAME PATH. Keep them apart:
+  //  (1) `taskIdFilter` — the HASH anchor. It fetches that ONE task from
+  //      `GET /api/tasks/{id}` and OVERRIDES the status set, so a link to a
+  //      已完成 task still lands even though the default view hides terminals.
+  //  (2) `idQuery` — what the owner TYPES. It filters the tasks already loaded
+  //      and asks the server NOTHING. It must not fetch: an independent review
+  //      already returned "一個字元一個請求" as a must-fix on 請示卡頁, and a
+  //      half-typed id names no task anyway.
+  // Consequence, stated rather than hidden: a typed id that belongs to a task
+  // outside the current status set matches nothing until 清除篩選 widens the set.
+  // That is how the three dropdowns beside it already behave — they narrow what
+  // is on screen — so the field is consistent with its neighbours rather than
+  // with the anchor.
+  const [idFilter, setIdFilter] = useState(taskIdFilter ?? "");
+  useEffect(() => {
+    if (taskIdFilter) setIdFilter(taskIdFilter);
+  }, [taskIdFilter]);
+  const idQuery = idFilter.trim().toLowerCase();
+  const matchesId = (task: TaskView) =>
+    idQuery === "" || task.id.toLowerCase().includes(idQuery);
+
   // ── 聊天 header 任務圖示 → #tasks/executor/<memberId> (T-dfae). Owner asked
   // for "that member's tasks that aren't done yet", so the seed sets BOTH axes
   // it promises rather than trusting the mount-time defaults: executor = that
@@ -149,10 +178,16 @@ export function TasksPage() {
   // a non-empty executor/type/status set or a single-task anchor. The DEFAULT
   // view counts — its status set hides the terminals, so the button shows from
   // the very first render (T-50bb).
+  // 🔴 `idQuery` is its own clause, NOT covered by `taskIdFilter`: the owner can
+  // type an id with no hash anchor at all, and he can also empty the FIELD while
+  // the hash still carries one. Both states must keep 清除篩選 on screen — the
+  // second is the hole 請示卡頁 had (an independent review found it) and 任務頁
+  // must not grow it now that it has a field of its own.
   const anyFilter =
     executorFilter.size > 0 ||
     typeFilter.size > 0 ||
     statusFilter.size > 0 ||
+    idQuery !== "" ||
     taskIdFilter !== undefined;
 
   // ── 勾什麼就問什麼 (T-a3e4) ────────────────────────────────────────────────
@@ -194,6 +229,7 @@ export function TasksPage() {
     setExecutorFilter(new Set());
     setTypeFilter(new Set());
     setStatusFilter(new Set());
+    setIdFilter("");
     if (taskIdFilter) setRoute({ page: "tasks" });
   }
 
@@ -258,7 +294,15 @@ export function TasksPage() {
     // filter set entirely, so a jump to e.g. a done task still lands even though
     // the default status filter hides terminals (T-4108 regression class).
     if (taskIdFilter) return task.id === taskIdFilter;
-    return matchesExecutor(task) && matchesType(task) && matchesStatus(task);
+    // A TYPED id narrows like any other axis — it does not override the others,
+    // because nothing was fetched on its behalf and widening the status set
+    // behind the owner's back would contradict the dropdown he can see.
+    return (
+      matchesId(task) &&
+      matchesExecutor(task) &&
+      matchesType(task) &&
+      matchesStatus(task)
+    );
   }
 
   // ── filter option models (labels + 負責人 counts) ──────────────────────────
@@ -417,6 +461,17 @@ export function TasksPage() {
 
       {/* ── 篩選列 (multi-select, T-be18) ── */}
       <div className="tasks__filters">
+        {/* 10 characters: owner 2026-09-06 set this by hand — 任務 ids are not a
+          * fixed length the way 請示卡 ids are (this station shows `T-93`; the
+          * canonical form is `t-` + 12 hex), so there is no measurement to
+          * derive it from and he picked one rather than have me invent it. */}
+        <IdFilterInput
+          value={idFilter}
+          onChange={setIdFilter}
+          label={t.tasks.filterIdLabel}
+          testId="filter-task-id"
+          widthCh={10}
+        />
         <MultiSelectFilter
           noun={t.tasks.filterExecutorNoun}
           allLabel={t.tasks.filterExecutorAll}

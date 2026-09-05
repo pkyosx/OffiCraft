@@ -22,9 +22,13 @@ export function ReplyIdFilterStory({
   theme,
   initialValue = "",
   seeded = false,
+  widthCh = 15,
 }: {
   theme: "light" | "dark";
   initialValue?: string;
+  /** Characters the field must hold — mirrors the shipped `widthCh`. Defaults
+   * to 請示卡頁's 15 (「rc-」 + 12 hex, api_replycards.go:283). */
+  widthCh?: number;
   /** Stands in for RepliesPage's `replyCardId` — the id the HASH carries. The
    * shipped gate is `(idQuery !== "" || replyCardId)`, not `idQuery` alone, so
    * a story gated on the value alone can never render the state this ticket
@@ -49,6 +53,7 @@ export function ReplyIdFilterStory({
                 onChange={setValue}
                 label="請示卡編號"
                 testId="filter-reply-card-id"
+                widthCh={widthCh}
               />
               {(value !== "" || seeded) && (
                 <button

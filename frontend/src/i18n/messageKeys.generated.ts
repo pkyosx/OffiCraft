@@ -1105,6 +1105,7 @@ export const MESSAGE_KEYS: readonly string[] = [
   "tasks.expandReply",
   "tasks.filterExecutorAll",
   "tasks.filterExecutorNoun",
+  "tasks.filterIdLabel",
   "tasks.filterStatusAll",
   "tasks.filterStatusNoun",
   "tasks.filterTypeAll",

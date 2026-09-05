@@ -513,6 +513,12 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
           onChange={setIdFilter}
           label={t.replies.filterIdLabel}
           testId="filter-reply-card-id"
+          // 15 = the length of every 請示卡 id there is: api_replycards.go:283
+          // mints "rc-" + newHexID(12). owner 2026-09-06 spotted that the old
+          // fixed 200px was picked with no reference to that, and it read as
+          // too wide because it is — this number is derived from the id, so it
+          // moves if the id shape ever does.
+          widthCh={15}
         />
         {/* 🔴 The hash counts as an active filter even when the FIELD is empty.
           * Gate this on `idQuery` alone and the owner can delete the value by

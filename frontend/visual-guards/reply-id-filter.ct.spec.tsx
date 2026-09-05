@@ -201,6 +201,69 @@ test("width 320: the row still fits when the field is emptied by hand and 清除
   expect(clearGeo.lines, "清除篩選 label line boxes").toBe(1);
 });
 
+// owner 2026-09-06 (rc-44347fc49338): 「好像太寬了」, then the reason —「請示卡的
+// ID好像都是固定長度？」. He is right: api_replycards.go:283 mints "rc-" + 12 hex,
+// so every 請示卡 id is exactly 15 characters, while the field was a flat 200px
+// chosen with no reference to that.
+//
+// This turns his aesthetic note into something MEASURABLE, which is the only
+// form it can be kept in: a whole id must be fully visible in the field, and the
+// field must not be much wider than the id it holds. A pixel number would have
+// gone stale the first time anyone touched the font; this asks about the
+// RELATIONSHIP between the box and its content, so it survives that.
+test("the field is sized to the id it holds — a whole id fits, with little to spare", async ({
+  mount,
+  page,
+}) => {
+  await page.setViewportSize({ width: 1040, height: 900 });
+  const FULL_ID = "rc-428906235337"; // 15 chars, the real shape
+  expect(FULL_ID.length, "the id shape this guard is calibrated on").toBe(15);
+  const cmp = await mount(
+    <ReplyIdFilterStory theme="dark" initialValue={FULL_ID} />
+  );
+  const field = cmp.getByTestId("filter-reply-card-id");
+
+  const m = await field.evaluate((el: HTMLInputElement) => {
+    // Measure the text the field actually holds by cloning its type face onto a
+    // detached span — the input itself reports no text metrics.
+    const cs = getComputedStyle(el);
+    const probe = document.createElement("span");
+    probe.style.font = cs.font;
+    probe.style.letterSpacing = cs.letterSpacing;
+    probe.style.whiteSpace = "pre";
+    probe.style.position = "absolute";
+    probe.style.visibility = "hidden";
+    probe.textContent = el.value;
+    document.body.appendChild(probe);
+    const textW = probe.getBoundingClientRect().width;
+    probe.remove();
+    return {
+      textW,
+      clientW: el.clientWidth, // inside the border, padding included
+      scrollW: el.scrollWidth,
+      padL: parseFloat(cs.paddingLeft),
+      padR: parseFloat(cs.paddingRight),
+    };
+  });
+
+  // (1) The whole id is visible — no clipping, nothing to scroll to. This is
+  // the half that breaks if someone shrinks the field.
+  expect(
+    m.scrollW - m.clientW,
+    "a complete id must fit without the field scrolling"
+  ).toBeLessThanOrEqual(1);
+
+  // (2) …and the box is not much wider than what it holds. This is the half
+  // owner actually complained about. The room for the text is the content box
+  // minus its padding; allow one character of slack for the caret and rounding.
+  const contentW = m.clientW - m.padL - m.padR;
+  const perChar = m.textW / FULL_ID.length;
+  expect(
+    contentW - m.textW,
+    "slack between the field and the id it holds (px)"
+  ).toBeLessThanOrEqual(perChar * 2);
+});
+
 // (2) The field must be distinguishable from the page behind it, in BOTH theme
 // families. This is the assertion that would have caught a field whose border
 // was deleted or whose fill collapsed into the background — the failure mode

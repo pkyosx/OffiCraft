@@ -90,6 +90,7 @@ export const zh = {
     emptyFiltered: "沒有符合篩選條件的任務",
     loadError: "載入任務失敗，請稍後重試",
     // 篩選列(任一生效顯「清除篩選」)
+    filterIdLabel: "任務編號",
     clearFilters: "清除篩選",
     // 「所有人」→「所有負責人」(T-17be): 這顆篩的是 executor,但「所有人」在中文
     // 有兩讀 ——「所有的人」與「所有權人(owner)」——「所有」本身就是所有權的
