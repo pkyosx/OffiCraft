@@ -2634,10 +2634,16 @@ function cmp(a: string, b: string): number {
   return a < b ? -1 : a > b ? 1 : 0;
 }
 
-/** mock 的待審佇列。刻意做成兩種形狀都有:一個算得出建議的(大小寫折疊後跟既有
- * 的完全一樣 ⇒ 建議合併)、一個沒有任何相似對象的(⇒ 建議核可)、一個只有模糊
- * 相似的(⇒ **建議是空字串**)。第三種存在的理由就是要讓「算不出來」在畫面上
- * 有東西可測 —— 那一格空著才是對的,補一個建議是這張票在治的病。 */
+/** mock 的待審佇列。刻意把**每一種形狀**都擺一個,因為這一塊的守衛全都掛在
+ * 「兩列長得不一樣」上面:
+ *   ① 折疊後跟既有的完全一樣 ⇒ 建議合併
+ *   ② 沒有任何相似對象、而且底下有記憶 ⇒ 建議核可
+ *   ③ 只有模糊相似、但底下有記憶 ⇒ **建議是空字串**(算不出來就留白)
+ *   ④ 底下 0 條、而且**從來沒有過** ＋ 只差一個字 ⇒ 建議合併(打錯字的形狀,
+ *      而且併過去搬不動任何記憶,因為根本沒有記憶)
+ *   ⑤ 底下 0 條、但**曾經有 2 條**(都退役了) ⇒ 那跟名字對不對無關
+ * ④ 跟 ⑤ 在舊的線上長得一模一樣 —— 兩列都寫「底下還沒有記憶」,而處置完全相
+ * 反。owner 2026-09-04 逐字:「為什麼核可的可見內容這麼少 我根本無從審核起」。 */
 let mockPendingEntities: LorePendingEntityView[] = [
   {
     entityId: "en-mock-1",
@@ -2645,7 +2651,21 @@ let mockPendingEntities: LorePendingEntityView[] = [
     type: "repo",
     name: "OffiCraft",
     createdTs: 1788330000,
+    createdBy: "m-o197",
     entries: 2,
+    entriesEver: 2,
+    entryRefs: [
+      {
+        entryId: "le-mock-a1",
+        trigger: "我要判斷一個綠燈能不能當證據",
+        status: "active",
+      },
+      {
+        entryId: "le-mock-a2",
+        trigger: "我要在地端跑測試",
+        status: "superseded",
+      },
+    ],
     suggestion: "merge",
     mergeTarget: "en-mock-live",
     similar: [
@@ -2663,7 +2683,26 @@ let mockPendingEntities: LorePendingEntityView[] = [
     type: "tool",
     name: "sqlite",
     createdTs: 1788330100,
-    entries: 5,
+    createdBy: "m-kyle",
+    entries: 3,
+    entriesEver: 4,
+    entryRefs: [
+      {
+        entryId: "le-mock-b1",
+        trigger: "我要複製一份資料庫來測",
+        status: "active",
+      },
+      {
+        entryId: "le-mock-b2",
+        trigger: "我要改 schema",
+        status: "active",
+      },
+      {
+        entryId: "le-mock-b3",
+        trigger: "我要開一個新的連線池",
+        status: "underspecified",
+      },
+    ],
     suggestion: "approve",
     mergeTarget: "",
     similar: [],
@@ -2675,8 +2714,18 @@ let mockPendingEntities: LorePendingEntityView[] = [
     type: "tool",
     name: "goose",
     createdTs: 1788330200,
+    createdBy: "m-kyle",
     entries: 1,
-    // 只有模糊相似 ⇒ 伺服器算不出明確結論 ⇒ 這一格就是空的。
+    entriesEver: 1,
+    entryRefs: [
+      {
+        entryId: "le-mock-c1",
+        trigger: "我要加一個 migration",
+        status: "active",
+      },
+    ],
+    // 只有模糊相似,而且**底下真的有記憶** ⇒ 伺服器算不出明確結論 ⇒ 這一格就是
+    // 空的。合併會把那條記憶搬到另一個名字底下,一個字的證據不夠付這個代價。
     suggestion: "",
     mergeTarget: "",
     similar: [
@@ -2686,6 +2735,46 @@ let mockPendingEntities: LorePendingEntityView[] = [
         reason: "edit_distance_2",
       },
     ],
+    sampleShort: "",
+  },
+  {
+    entityId: "en-mock-5",
+    canonical: "repo:offcraft",
+    type: "repo",
+    name: "offcraft",
+    createdTs: 1788330300,
+    createdBy: "m-o197",
+    // 鑄出來以後再也沒被用過 ＋ 只差一個字 ⇒ 打錯字的形狀。併過去搬不動任何記
+    // 憶(沒有記憶可搬),買到的是一個別名,擋掉同一個錯字明天再被鑄一次。
+    entries: 0,
+    entriesEver: 0,
+    entryRefs: [],
+    suggestion: "merge",
+    mergeTarget: "en-mock-live",
+    similar: [
+      {
+        entityId: "en-mock-live",
+        canonical: "repo:officraft",
+        reason: "edit_distance_1",
+      },
+    ],
+    sampleShort: "",
+  },
+  {
+    entityId: "en-mock-6",
+    canonical: "human:Mira",
+    type: "human",
+    name: "Mira",
+    createdTs: 1788330400,
+    createdBy: "",
+    // 底下 0 條,但**曾經有 2 條**,都退役了。跟上面那一列在舊線上長得一模一
+    // 樣,處置完全相反 —— 這個名字被真的用過,0 不是它的錯。
+    entries: 0,
+    entriesEver: 2,
+    entryRefs: [],
+    suggestion: "approve",
+    mergeTarget: "",
+    similar: [],
     sampleShort: "",
   },
 ];

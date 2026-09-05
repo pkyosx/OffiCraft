@@ -60,6 +60,21 @@ var (
 	ErrLoreEntityTargetMerged  = errors.New("lore: the merge target has itself been merged away")
 )
 
+// LorePendingEntryRef is ONE entry filed under a pending subject, reduced to
+// what a reviewer can read on a queue row.
+//
+// 🔴 IT IS A REFERENCE, NOT AN ENTRY, AND THE NAME SAYS SO. It carries the id
+// so the reviewer can open the real thing, 第 1 格 so he knows which one to
+// open, and the status so he knows what he is counting. Adding `content` here
+// would turn the queue into a second reader of the memory table — with its own
+// truncation rule, its own ordering, and its own opportunity to disagree with
+// the one that already exists.
+type LorePendingEntryRef struct {
+	EntryID string
+	Trigger string // 第 1 格 — 「什麼時候要記起來」, 兼任標題, no length cap
+	Status  string // 'active' | 'superseded' | 'underspecified' (never 'retired')
+}
+
 // LorePendingEntity is ONE line of the review queue.
 //
 // 🔴 THERE IS NO Display FIELD, AND ITS ABSENCE IS THE HONEST ANSWER. The
@@ -84,6 +99,72 @@ type LorePendingEntity struct {
 	// be worse than no number: a reviewer would approve a name on the strength
 	// of a count, and find nothing behind it.
 	Entries int
+
+	// EntriesEver is the SAME count with the retired predicate REMOVED — every
+	// entry ever filed under this subject, retired ones included.
+	//
+	// 🔴 IT EXISTS BECAUSE `entries: 0` HAD TWO MEANINGS AND ONE APPEARANCE, which
+	// is the owner's own complaint about this screen (2026-09-04): 「為什麼核可的可
+	// 見內容這麼少 我根本無從審核起」. A subject with zero RETRIEVABLE entries is
+	// either of two completely different things:
+	//
+	//   - NEVER USED (Entries == 0 && EntriesEver == 0) — minted once and never
+	//     written against again. That is the shape of a TYPO: the writer wrote
+	//     `repo:offcraft`, saw it was wrong, and wrote `repo:officraft` the next
+	//     time. ListPendingLoreEntities' own comment already calls this the single
+	//     most interesting row in the queue — and until this field existed the
+	//     queue could not tell a reviewer he was looking at it.
+	//   - EMPTIED BY RETIREMENT (Entries == 0 && EntriesEver > 0) — the name was
+	//     genuinely used and everything filed under it has since been retired.
+	//     Nothing there says the name is wrong, and folding it away on the
+	//     strength of a 0 would merge a real subject into another one.
+	//
+	// Two dispositions that rendered as one line. This is the number that splits
+	// them, and loreSuggestionFor reads it.
+	//
+	// 🔴 IT DELIBERATELY DOES NOT REPLACE `Entries`. `Entries` is what the subject
+	// will actually SERVE after approval and stays counted with the boot
+	// directory's predicate word for word. One number that meant either thing
+	// depending on who read it is exactly what this pair exists to end.
+	EntriesEver int
+
+	// CreatedBy is the actor id loreResolveSubject stamped on the mint — WHO wrote
+	// the entry whose subject list minted this name.
+	//
+	// 🔴 THE COLUMN HAS BEEN WRITTEN SINCE 00081 AND NOTHING SERVED IT. The review
+	// question is 「is this name a typo」, and after the name itself the most useful
+	// evidence is who minted it: a name minted by the agent that already owns the
+	// neighbouring subjects reads very differently from one minted once by a caller
+	// nothing else in the queue came from.
+	// ⚠️ IT IS SERVED RAW — an actor id, not a resolved display name. Resolving it
+	// here would be a second answer to 「who is m-…」 beside the member surfaces that
+	// already own that question, and the two would disagree the first time one was
+	// updated. ⚠️ It is "" for a row minted before the column carried anything, and
+	// "" is served as "" rather than as an invented 「unknown」.
+	CreatedBy string
+
+	// EntryRefs is EVERY entry the count in `Entries` counted — same predicate,
+	// same ordering, one line each: id, 第 1 格 (`Trigger`, which is also the
+	// title), and status.
+	//
+	// 🔴 IT IS THE ANSWER TO 「我根本無從審核起」 AND `SampleShort` IS NOT. A single
+	// 120-rune sample of the FIRST entry answers 「what is one of these about」; the
+	// question a reviewer actually has is 「what is filed under this name」, and for
+	// a subject with five entries the sample showed him one twenty-fifth of it with
+	// no way to see the rest. 第 1 格 is the cell that was designed to be read
+	// alone — 「什麼時候要記起來」, no length cap, 兼任標題 — so a list of triggers
+	// is the cheapest thing that answers the real question.
+	//
+	// 🔴 `Status` RIDES ALONG because the list is NOT all-active: retired rows are
+	// excluded (that is the shared predicate), but `superseded` and
+	// `underspecified` are returned by ListLoreEntriesBySubject on purpose, and a
+	// reviewer counting 「三條」 that are all superseded is looking at a different
+	// subject from one with three active entries.
+	//
+	// ⚠️ THE BODIES ARE NOT HERE. `Trigger` plus `SampleShort` is what fits on a
+	// queue row; whoever wants the text opens the entry. This is a review packet,
+	// not a second reader.
+	EntryRefs []LorePendingEntryRef
 
 	// ── the 功課 the owner asked for (round 2, 2026-09-02) ──────────────────
 	//
@@ -126,18 +207,28 @@ type LorePendingEntity struct {
 // ListLoreEntriesBySubject uses, so 「the first one」 means one thing in this
 // tree rather than two.
 //
-// 🔴 COST, STATED: this is TWO statements — the queue, and the approved-subject
+// 🔴 THE SAMPLE IS NO LONGER THE ONLY THING A REVIEWER SEES UNDER A NAME. It
+// stays on the row (it is on the wire and the cockpit reads it), but EntryRefs
+// beside it lists EVERY entry the count counted — see loreEntryRefsForSubject
+// for why that reuses ListLoreEntriesBySubject and what the extra query costs.
+//
+// 🔴 COST, STATED: this was TWO statements — the queue, and the approved-subject
 // list the similarity is computed against — plus O(pending × approved) fold and
-// edit-distance work in Go. That is affordable HERE and would not be on a boot
-// path: this route is an admin console's work queue, driven by a person, not by
-// every agent on every wake. It is deliberately NOT wired into
-// ListLoreSubjectRoster for that reason.
+// edit-distance work in Go. It is now 2 + N, the N being one
+// ListLoreEntriesBySubject per pending row. That is affordable HERE and would
+// not be on a boot path: this route is an admin console's work queue, driven by
+// a person who has sat down to review, not by every agent on every wake. It is
+// deliberately NOT wired into ListLoreSubjectRoster for that reason, and the
+// extra N does not change which side of that line it is on.
 func (d *DAL) ListPendingLoreEntities() ([]LorePendingEntity, error) {
 	rows, err := d.rdb.Query(`
-		SELECT n.id, n.type, n.canonical, n.created_ts,
+		SELECT n.id, n.type, n.canonical, n.created_ts, n.created_by,
 		       (SELECT COUNT(*) FROM lore_entry e
 		         JOIN lore_subject s ON s.entry_id = e.id
 		        WHERE s.entity_id = n.id AND e.status <> 'retired'),
+		       (SELECT COUNT(*) FROM lore_entry e
+		         JOIN lore_subject s ON s.entry_id = e.id
+		        WHERE s.entity_id = n.id),
 		       (SELECT e.content FROM lore_entry e
 		         JOIN lore_subject s ON s.entry_id = e.id
 		        WHERE s.entity_id = n.id AND e.status <> 'retired'
@@ -153,7 +244,8 @@ func (d *DAL) ListPendingLoreEntities() ([]LorePendingEntity, error) {
 	for rows.Next() {
 		var r LorePendingEntity
 		var short sql.NullString
-		if err := rows.Scan(&r.ID, &r.Type, &r.Canonical, &r.CreatedTS, &r.Entries, &short); err != nil {
+		if err := rows.Scan(&r.ID, &r.Type, &r.Canonical, &r.CreatedTS, &r.CreatedBy,
+			&r.Entries, &r.EntriesEver, &short); err != nil {
 			return nil, err
 		}
 		r.Name = loreEntityName(r.Canonical)
@@ -182,9 +274,51 @@ func (d *DAL) ListPendingLoreEntities() ([]LorePendingEntity, error) {
 				})
 			}
 		}
-		out[i].Suggestion, out[i].MergeTarget = loreSuggestionFor(out[i].Similar)
+		out[i].Suggestion, out[i].MergeTarget = loreSuggestionFor(
+			out[i].Similar, out[i].EntriesEver > 0)
+		refs, err := d.loreEntryRefsForSubject(out[i].ID)
+		if err != nil {
+			return nil, err
+		}
+		out[i].EntryRefs = refs
 	}
 	return out, nil
+}
+
+// loreEntryRefsForSubject reduces ListLoreEntriesBySubject to the three cells a
+// queue row can show.
+//
+// 🔴 IT REUSES THAT SEAM RATHER THAN WRITING A NARROWER QUERY BESIDE IT. The
+// retired predicate, the ordering and the ruling about `superseded` /
+// `underspecified` all live in ListLoreEntriesBySubject, and a second SELECT
+// here would be a second place for all three to drift — with the drift showing
+// up as a review packet that disagrees with the subject it describes. The price
+// is that whole entry bodies are loaded and three fields kept; that is stated
+// below and it is the cheaper mistake.
+//
+// 🔴 COST, STATED, BECAUSE IT IS THE ONE THING THIS ADDS: ListPendingLoreEntities
+// was TWO statements and is now 2 + N, one extra round trip per pending row. That
+// is affordable for the same reason the O(pending × approved) similarity fold in
+// the same function is: this route is a PERSON's work queue in an admin console,
+// entered when somebody sits down to review, NOT a boot path — no agent's wake
+// touches it, and ListLoreSubjectRoster (which every wake does touch) is
+// deliberately not wired to any of this. N is the length of the review backlog;
+// if that ever grows to where 2+N matters, the queue itself is the emergency.
+func (d *DAL) loreEntryRefsForSubject(entityID string) ([]LorePendingEntryRef, error) {
+	entries, err := d.ListLoreEntriesBySubject(entityID)
+	if err != nil {
+		return nil, err
+	}
+	// Non-nil so a subject with no entries carries an EMPTY list rather than a
+	// nil one: `[]` on the wire is 「we looked and there is nothing filed」,
+	// which is precisely the fact this round exists to make sayable.
+	refs := make([]LorePendingEntryRef, 0, len(entries))
+	for _, e := range entries {
+		refs = append(refs, LorePendingEntryRef{
+			EntryID: e.ID, Trigger: e.Trigger, Status: e.Status,
+		})
+	}
+	return refs, nil
 }
 
 // listApprovedLoreEntities is the candidate set the similarity is computed
@@ -614,23 +748,80 @@ func loreSimilarReason(pendingKey, existingKey string) string {
 // loreSuggestionFor turns the evidence into the rule's verdict, or into "".
 //
 // THE RULE, in full, so that nobody has to read the code to know what the
-// suggestion means:
+// suggestion means. It now reads TWO facts — the similarity evidence, and
+// whether this subject was EVER used (`EntriesEver > 0`, retired entries
+// included):
 //
-//	no similar candidate at all      → approve   (nothing in the ontology looks like it)
-//	EXACTLY ONE same_normalized      → merge     (it is that subject, spelled differently)
-//	anything else                    → ""        (the owner decides)
+//	ever used, no similar candidate      → approve  (nothing looks like it, and it carries lore)
+//	ever used, EXACTLY ONE same_normalized → merge   (it is that subject, spelled differently)
+//	ever used, anything else             → ""       (the owner decides)
+//
+//	NEVER USED, no similar candidate     → ""       (see 「THE SECOND FACT」 below)
+//	NEVER USED, EXACTLY ONE same_normalized → merge
+//	NEVER USED, EXACTLY ONE candidate and it is edit_distance_1/2 → merge
+//	NEVER USED, anything else            → ""
 //
 // 🔴 THE 「EXACTLY ONE」 IS NOT PEDANTRY. `canonical` is unique but the FOLD is
 // not: `repo:OffiCraft` and `repo:offi-craft` both fold onto `repo:officraft`,
 // so two existing subjects can be equally strong candidates. Picking the first
 // would be a coin toss rendered as a recommendation.
 //
-// ⚠️ AND A FUZZY-ONLY QUEUE ROW GETS NO SUGGESTION AT ALL, deliberately. One
-// edit apart is how a typo looks AND how two genuinely different names look
-// (`repo:ocagent` / `repo:ocwarden` are 2 apart); the evidence is shown and the
-// verdict is withheld, which is exactly 「我還是做最後的裁決」.
-func loreSuggestionFor(similar []LoreEntitySimilar) (string, string) {
+// ── THE SECOND FACT (T-33 round 3, owner 2026-09-04 「我根本無從審核起」) ─────
+//
+// 🔴 A NEVER-USED NAME IS EVIDENCE, AND THE FILE ALREADY SAID SO BEFORE THIS
+// FUNCTION COULD READ IT. ListPendingLoreEntities' comment: 「a subject key that
+// was minted and never used is a typo the writer corrected on its next
+// attempt」. That claim was load-bearing enough to shape the QUERY (a correlated
+// subquery instead of a join, so the row survives) and it was then thrown away
+// at the moment a verdict was formed. These are my two judgements about how it
+// enters the rule, and both are reversible in this one function:
+//
+//  1. NEVER USED + exactly one FUZZY candidate ⇒ merge, where 「used」 would
+//     withhold. The withholding rule for fuzzy evidence is right and stays right
+//     for a name that carries lore: one edit apart is how a typo looks AND how
+//     two different names look (`repo:ocagent` / `repo:ocwarden`), so the
+//     evidence is shown and the verdict withheld. What flips it is the COST of
+//     being wrong, not the strength of the evidence. Merging a subject with
+//     entries RELOCATES those entries under another name; merging a subject
+//     that never carried one moves nothing — all it writes is an alias saying
+//     「this spelling means that subject」, which is exactly the repair a typo
+//     needs and is what stops the same misspelling being minted again tomorrow.
+//     Evidence that is too weak to move knowledge is strong enough to spell a
+//     dead key onto a live one.
+//     ⚠️ AND ONLY THE EDIT-DISTANCE REASONS PROMOTE. `prefix` and `substring`
+//     are NOT typo-shaped: 「one name starts the other」 is how a FAMILY of real
+//     names looks (`repo:officraft` / `repo:officraft-web`), and a rule that
+//     suggested folding those together would be aiming the reviewer at a merge
+//     that destroys a distinction. `same_normalized` needs no promotion — it
+//     already suggests merge on its own, used or not.
+//     ⚠️ AND IT IS STILL 「EXACTLY ONE」, counted over ALL candidates rather than
+//     over the fuzzy ones: with two things it might be a typo of, which one it
+//     is remains a coin toss, and 「it carries nothing」 does not break the tie.
+//
+//  2. NEVER USED + nothing similar at all ⇒ "" where the old rule said approve.
+//     This one REMOVES a suggestion, so it is the one to argue for. `approve`
+//     was computed from a single fact — 「nothing in the ontology looks like
+//     it」 — which is evidence about DUPLICATION and says nothing about whether
+//     the name deserves publishing. Approving here writes a name into the boot
+//     subject directory that serves zero entries and can serve zero entries,
+//     and that directory is TRUNCATED: the empty name eats a slot a real
+//     subject needed, which is the identical cost api_lore_entity.go names for
+//     approving a duplicate. So the two facts now point opposite ways, and when
+//     they do this rule says so by going quiet — 「品質優於數量」 and 「我還是做
+//     最後的裁決」 both land on the same side. The row still shows him
+//     everything: zero entries, zero ever, who minted it, nothing resembling it.
+//     ⚠️ THE COST IS REAL AND IS NOT HIDDEN: he now sees a blank on rows that
+//     used to say approve, i.e. more rows to think about. That is the direction
+//     that leaves the verdict with him; the opposite direction spends his
+//     ontology to save him a click.
+func loreSuggestionFor(similar []LoreEntitySimilar, everUsed bool) (string, string) {
 	if len(similar) == 0 {
+		// Nothing resembles it. Whether that is 「a genuinely new subject」 or
+		// 「a name that was never used and never will be」 is the second fact's
+		// question, and the two answers are opposite.
+		if !everUsed {
+			return "", ""
+		}
 		return LoreSuggestApprove, ""
 	}
 	target := ""
@@ -643,10 +834,18 @@ func loreSuggestionFor(similar []LoreEntitySimilar) (string, string) {
 		}
 		target = s.EntityID
 	}
-	if target == "" {
-		return "", ""
+	if target != "" {
+		return LoreSuggestMerge, target
 	}
-	return LoreSuggestMerge, target
+	// The fuzzy promotion. It fires ONLY on a name that carries nothing, only
+	// on the two edit-distance reasons, and only when there is exactly one
+	// candidate to point at — see judgement (1) above for each of the three.
+	if !everUsed && len(similar) == 1 &&
+		(similar[0].Reason == LoreSimilarEditDistance1 ||
+			similar[0].Reason == LoreSimilarEditDistance2) {
+		return LoreSuggestMerge, similar[0].EntityID
+	}
+	return "", ""
 }
 
 // loreSampleShort trims one entry's 第 2 格 (`content`) to the sample cap, announcing the

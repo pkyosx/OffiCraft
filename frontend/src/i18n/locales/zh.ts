@@ -80,6 +80,16 @@ export const zh = {
     pendingLoading: "載入中…",
     pendingEntries: (n: number) => `底下 ${n} 條記憶`,
     pendingNoEntries: "底下還沒有記憶",
+    // 🔴 「底下 0 條」有兩種成因,處置完全相反,所以這裡是兩句話而不是一句。
+    // 從來沒被用過 ⇒ 打錯字的形狀;曾經有但都退役了 ⇒ 跟名字對不對無關。
+    pendingNeverUsed: "底下一條都沒有過 —— 這個名字鑄出來就沒再被用過",
+    pendingAllRetired: (n: number) => `底下曾經有 ${n} 條,現在全部退役了`,
+    pendingAlsoRetired: (n: number) => `(另有 ${n} 條已退役)`,
+    pendingMintedBy: (who: string) => `由 ${who} 鑄出`,
+    pendingMintedByUnknown: "沒有記錄是誰鑄出這個名字",
+    pendingEntryListLead: "底下這幾條:",
+    pendingEntryStatusSuperseded: "已被取代",
+    pendingEntryStatusUnderspecified: "資訊不足",
     pendingSuggestApprove: "建議：這是一個新的對象",
     pendingSuggestMerge: (name: string) => `建議：併進 ${name}`,
     pendingSuggestNone: "沒有明確的建議 —— 這一筆要你自己判斷",

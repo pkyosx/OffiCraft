@@ -16,6 +16,19 @@
 // 🔴 沒有「駁回」。那個出口 owner 從來沒有裁定過,補一個等於替他決定。
 // 🔴 沒有事情等他的時候整塊不出現(回 null),因為「常態就有一排等你按」本身就
 // 是設計失敗。
+//
+// ── round 3(owner 2026-09-04 逐字:「為什麼核可的可見內容這麼少 我根本無從審
+// 核起」)───────────────────────────────────────────────────────────────────
+// 上面那句「一眼可判斷」原本只兌現了一半:一列上有名字、有幾條、有第一條的前
+// 120 字。他要做的判斷是**「這是新對象還是既有對象的錯字」**,而那一列答不了:
+//   ① 「底下 0 條」有**兩種**成因(從來沒用過 / 曾經有但都退役了),處置完全相
+//      反,而畫面上長得一模一樣 ⇒ 現在兩種各說各的話。
+//   ② 「誰鑄出這個名字」是判斷錯字最有用的線索,而它在表裡躺了兩個 migration
+//      沒被端出來 ⇒ 現在印在名字底下。
+//   ③ 底下不只一條的時候,只看得到第一條的前 120 字 ⇒ 現在**每一條**的第 1 格
+//      都列出來,而第 1 格本來就是那一條的標題。
+// 🔴 這三件都是**多給資訊**,不是多給出口:按鈕還是那兩顆,建議還是伺服器算
+// 的,裁決還是他的。
 
 import { useEffect, useState } from "react";
 import { useI18n } from "../i18n";
@@ -41,6 +54,48 @@ function reasonText(t: ReturnType<typeof useI18n>["t"], reason: string) {
     default:
       return reason;
   }
+}
+
+/** 條目狀態翻成人話。`active` 不印 —— 一列上每一條都掛「正常」等於沒有訊號,
+ * 而 superseded / underspecified 是真的會改變「這個名字底下有什麼」的讀法。
+ * 認不得的原樣印出來,理由跟 reasonText 一樣。 */
+function entryStatusText(
+  t: ReturnType<typeof useI18n>["t"],
+  status: string,
+): string {
+  switch (status) {
+    case "active":
+      return "";
+    case "superseded":
+      return t.lore.pendingEntryStatusSuperseded;
+    case "underspecified":
+      return t.lore.pendingEntryStatusUnderspecified;
+    default:
+      return status;
+  }
+}
+
+/** 「底下有幾條」那一句。
+ *
+ * 🔴 0 分成兩句,而那正是這一輪的第一件事。`entries` 是**現在還讀得到幾條**,
+ * `entriesEver` 把退役的也算進去 —— 兩個都 0 ⇒ 這個名字鑄出來就沒被用過(打錯
+ * 字的形狀);現在 0 但曾經有 ⇒ 用過,只是都退役了,跟名字對不對無關。舊畫面
+ * 兩種都印同一句「底下還沒有記憶」,於是最值得看的那一列跟最不值得看的那一列
+ * 長得一模一樣。 */
+function entriesText(
+  t: ReturnType<typeof useI18n>["t"],
+  row: LorePendingEntityView,
+): string {
+  if (row.entries > 0) {
+    const base = t.lore.pendingEntries(row.entries);
+    const retired = row.entriesEver - row.entries;
+    // 退役的條數不併進主數字(主數字要跟核可後真的服務得到的量對得起來),
+    // 但也不藏起來:一個「3 條」底下其實還躺著 5 條退役的,是兩回事。
+    return retired > 0 ? `${base} ${t.lore.pendingAlsoRetired(retired)}` : base;
+  }
+  return row.entriesEver > 0
+    ? t.lore.pendingAllRetired(row.entriesEver)
+    : t.lore.pendingNeverUsed;
 }
 
 function PendingRow({
@@ -73,16 +128,52 @@ function PendingRow({
     <div className="lore-pending__row" data-testid="lore-pending-row">
       <div className="lore-pending__head">
         <span className="lore-pending__name">{row.canonical}</span>
-        <span className="lore__note">
-          {row.entries > 0
-            ? t.lore.pendingEntries(row.entries)
-            : t.lore.pendingNoEntries}
+        <span className="lore__note" data-testid="lore-pending-entries">
+          {entriesText(t, row)}
         </span>
+      </div>
+
+      {/* 誰鑄出這個名字。判斷「是不是打錯字」的時候,名字之後最有用的就是它 ——
+          原樣印 actor id,不在這裡翻成顯示名。沒有記錄就照實說沒有記錄,不要
+          印一個空白讓人以為系統沒查。 */}
+      <div className="lore__note" data-testid="lore-pending-minter">
+        {row.createdBy !== ""
+          ? t.lore.pendingMintedBy(row.createdBy)
+          : t.lore.pendingMintedByUnknown}
       </div>
 
       {/* 底下第一條在講什麼 —— 這是「一眼可判斷」最重的一格。 */}
       {row.sampleShort !== "" && (
         <div className="lore-pending__sample">{row.sampleShort}</div>
+      )}
+
+      {/* 🔴 底下**每一條**,不是只有第一條的前 120 字。第 1 格「什麼時候要記起
+          來」本來就兼任標題,所以列第 1 格是最便宜、又真的答得了「這個名字底下
+          到底放了什麼」的做法。內容不放這裡:要看內容就打開那一條。 */}
+      {row.entryRefs.length > 0 && (
+        <div className="lore-pending__entries">
+          <span className="lore__note">{t.lore.pendingEntryListLead}</span>
+          <ul className="lore-pending__entrylist">
+            {row.entryRefs.map((e) => {
+              const status = entryStatusText(t, e.status);
+              return (
+                <li
+                  className="lore-pending__entry"
+                  key={e.entryId}
+                  data-testid="lore-pending-entry"
+                >
+                  <span className="lore-pending__entry-trigger">
+                    {e.trigger}
+                  </span>
+                  {status !== "" && (
+                    <span className="lore-pending__entry-status">{status}</span>
+                  )}
+                  <span className="lore__note">{e.entryId}</span>
+                </li>
+              );
+            })}
+          </ul>
+        </div>
       )}
 
       <div className="lore-pending__suggestion">

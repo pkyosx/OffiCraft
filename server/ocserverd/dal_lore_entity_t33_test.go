@@ -475,3 +475,229 @@ func TestPendingLoreEntityCarriesTheFirstEntrysContentAsASample(t *testing.T) {
 		t.Fatalf("sample for an entry-less subject = %q, want empty", row.SampleShort)
 	}
 }
+
+// ── round 3: 「我根本無從審核起」 (owner 2026-09-04) ─────────────────────────
+//
+// Everything below exists because the queue rendered TWO different subjects
+// identically and offered no way to look further. The three additions each get
+// a test that would pass on a version that carried the field and filled it with
+// the wrong thing — a field that exists is not a field that is right.
+
+// t33Unfile removes an entry's subject filings, which is how a subject that was
+// MINTED and then never used again exists in the table: the entity row stands,
+// nothing joins to it.
+func t33Unfile(t *testing.T, d *DAL, entryID string) {
+	t.Helper()
+	if _, err := d.wdb.Exec(`DELETE FROM lore_subject WHERE entry_id = ?`, entryID); err != nil {
+		t.Fatalf("unfile %s: %v", entryID, err)
+	}
+}
+
+// TestPendingLoreEntitySeparatesNeverUsedFromEmptiedByRetirement is the whole
+// complaint in one test: two rows that BOTH say 「底下 0 條」 and mean opposite
+// things.
+//
+// 🔴 THE NEGATIVE HALF IS THE POINT. `entries` must stay 0 on both — a version
+// that "fixed" the ambiguity by counting retired rows into `entries` would make
+// this pair distinguishable and would simultaneously break the promise that
+// `entries` reconciles against what the subject serves after approval.
+func TestPendingLoreEntitySeparatesNeverUsedFromEmptiedByRetirement(t *testing.T) {
+	d := newTestDAL(t)
+
+	neverUsed := t33Mint(t, d, "repo:offcraft")
+	t33Unfile(t, d, neverUsed.EntryID)
+
+	emptied := t33Mint(t, d, "repo:emptied")
+	if err := d.RetireLoreEntry(emptied.EntryID, LoreRetireExpired, "m-writer", "", false, 200); err != nil {
+		t.Fatalf("retire: %v", err)
+	}
+
+	typo := t33PendingByKey(t, d, "repo:offcraft")
+	if typo.Entries != 0 || typo.EntriesEver != 0 {
+		t.Fatalf("repo:offcraft = %d now / %d ever, want 0/0 — this name was minted once and "+
+			"never written against again, which is the shape of a typo", typo.Entries, typo.EntriesEver)
+	}
+
+	gone := t33PendingByKey(t, d, "repo:emptied")
+	if gone.Entries != 0 {
+		t.Fatalf("repo:emptied entries = %d, want 0 — retired entries are not served, and the "+
+			"count that says what a subject will serve must not start including them",
+			gone.Entries)
+	}
+	if gone.EntriesEver != 1 {
+		t.Fatalf("repo:emptied entries_ever = %d, want 1 — the name WAS used and everything "+
+			"under it was retired since; a reviewer told only 「0」 would fold away a real "+
+			"subject on the strength of a number that meant something else", gone.EntriesEver)
+	}
+}
+
+// TestPendingLoreEntitySuggestsMergeOnANeverUsedNearMiss pins the ONE place the
+// second fact changes a verdict rather than only a display.
+//
+// The two rows carry IDENTICAL evidence — one candidate, one edit apart — and
+// get opposite answers, which is the only way to show the rule is reading
+// `entries_ever` and not the evidence twice.
+func TestPendingLoreEntitySuggestsMergeOnANeverUsedNearMiss(t *testing.T) {
+	d := newTestDAL(t)
+	t33Entity(t, d, "en-repo", "repo", "repo:ocwarden")
+	t33Entity(t, d, "en-agent", "agent", "agent:ocwarden")
+
+	dead := t33Mint(t, d, "repo:ocwardn")
+	t33Unfile(t, d, dead.EntryID)
+	t33Mint(t, d, "agent:ocwardn")
+
+	never := t33PendingByKey(t, d, "repo:ocwardn")
+	if never.Suggestion != LoreSuggestMerge || never.MergeTarget != "en-repo" {
+		t.Fatalf("repo:ocwardn suggestion = %q → %q, want merge → en-repo: the name never "+
+			"carried an entry, so folding it costs no knowledge and buys an alias that "+
+			"stops the same misspelling being minted again", never.Suggestion, never.MergeTarget)
+	}
+
+	used := t33PendingByKey(t, d, "agent:ocwardn")
+	if used.Suggestion != "" || used.MergeTarget != "" {
+		t.Fatalf("agent:ocwardn suggestion = %q → %q, want the EMPTY string on the SAME "+
+			"evidence: this one carries lore, and merging it RELOCATES that lore under "+
+			"another name — one edit apart is not enough for that",
+			used.Suggestion, used.MergeTarget)
+	}
+	if len(used.Similar) != 1 || used.Similar[0].Reason != LoreSimilarEditDistance1 {
+		t.Fatalf("agent:ocwardn similar = %+v — withholding the verdict must not withhold "+
+			"the evidence", used.Similar)
+	}
+}
+
+// TestPendingLoreEntityDoesNotPromoteAFamilyResemblance keeps the promotion to
+// the typo-shaped reasons. `prefix` and `substring` are how a FAMILY of real
+// names looks, and suggesting a merge there aims the reviewer at destroying a
+// distinction the ontology meant to make.
+func TestPendingLoreEntityDoesNotPromoteAFamilyResemblance(t *testing.T) {
+	d := newTestDAL(t)
+	t33Entity(t, d, "en-web", "repo", "repo:officraft-web")
+	unused := t33Mint(t, d, "repo:officraft")
+	t33Unfile(t, d, unused.EntryID)
+
+	row := t33PendingByKey(t, d, "repo:officraft")
+	if len(row.Similar) != 1 || row.Similar[0].Reason != LoreSimilarPrefix {
+		t.Fatalf("similar = %+v, want the prefix candidate reported", row.Similar)
+	}
+	if row.Suggestion != "" || row.MergeTarget != "" {
+		t.Fatalf("suggestion = %q → %q, want empty — 「one name starts the other」 is how "+
+			"repo:officraft and repo:officraft-web look, and they are two things",
+			row.Suggestion, row.MergeTarget)
+	}
+}
+
+// TestPendingLoreEntityWithholdsApproveOnANameNothingEverUsed is the judgement
+// that REMOVES a suggestion, so it gets the contrast case in the same test: the
+// evidence half is identical (nothing resembles either name) and only 「was it
+// ever used」 differs.
+func TestPendingLoreEntityWithholdsApproveOnANameNothingEverUsed(t *testing.T) {
+	d := newTestDAL(t)
+	orphan := t33Mint(t, d, "repo:orphan")
+	t33Unfile(t, d, orphan.EntryID)
+	t33Mint(t, d, "repo:carrier")
+
+	dead := t33PendingByKey(t, d, "repo:orphan")
+	if len(dead.Similar) != 0 {
+		t.Fatalf("repo:orphan similar = %+v, want none", dead.Similar)
+	}
+	if dead.Suggestion != "" || dead.MergeTarget != "" {
+		t.Fatalf("repo:orphan suggestion = %q → %q, want the EMPTY string: 「nothing looks "+
+			"like it」 is evidence about DUPLICATION and says nothing about whether a name "+
+			"that serves zero entries deserves a slot in a truncated boot directory",
+			dead.Suggestion, dead.MergeTarget)
+	}
+
+	live := t33PendingByKey(t, d, "repo:carrier")
+	if live.Suggestion != LoreSuggestApprove {
+		t.Fatalf("repo:carrier suggestion = %q, want approve — the withholding above must "+
+			"be about 「never used」 and NOT a blanket retreat from suggesting anything",
+			live.Suggestion)
+	}
+}
+
+// TestListPendingLoreEntitiesNamesWhoMintedTheKey — the column has been written
+// since 00081 and nothing served it. 「誰在什麼情況下鑄出這個名字」 is the most
+// useful evidence after the name itself for the question the queue asks.
+func TestListPendingLoreEntitiesNamesWhoMintedTheKey(t *testing.T) {
+	d := newTestDAL(t)
+	if _, err := d.CreateLoreEntry(LoreWrite{
+		Trigger: "t", Content: "c", Origin: "agent:O-197",
+		Subjects: []string{"repo:offcraft"}, ActorID: "m-someone-else",
+	}, 100); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	t33Mint(t, d, "repo:officraft")
+
+	if got := t33PendingByKey(t, d, "repo:offcraft").CreatedBy; got != "m-someone-else" {
+		t.Fatalf("repo:offcraft created_by = %q, want m-someone-else — the actor that MINTED "+
+			"it, not a constant and not the other writer's id", got)
+	}
+	if got := t33PendingByKey(t, d, "repo:officraft").CreatedBy; got != "m-writer" {
+		t.Fatalf("repo:officraft created_by = %q, want m-writer", got)
+	}
+}
+
+// TestListPendingLoreEntitiesCarriesEveryEntryNotJustTheSample is 「底下那幾條要
+// 看得到」. The sample answered 「what is ONE of these about」; the reviewer's
+// question is 「what is filed under this name」.
+//
+// 🔴 THE RETIRED ROW IS THE NEGATIVE CONTROL. The list must be the one the
+// `entries` count counted — a version that listed everything would show a
+// reviewer entries the subject will never serve, and the count beside the list
+// would then disagree with the list.
+func TestListPendingLoreEntitiesCarriesEveryEntryNotJustTheSample(t *testing.T) {
+	d := newTestDAL(t)
+	write := func(trigger, content string, ts float64) LoreWriteResult {
+		t.Helper()
+		got, err := d.CreateLoreEntry(LoreWrite{
+			Trigger: trigger, Content: content, Origin: "agent:O-197",
+			Subjects: []string{"repo:offcraft"}, ActorID: "m-writer",
+		}, ts)
+		if err != nil {
+			t.Fatalf("write %q: %v", trigger, err)
+		}
+		return got
+	}
+	first := write("I am about to run the full suite locally", "a", 100)
+	second := write("I am about to trust a green CI run", "b", 200)
+	gone := write("I am about to read this retired thing", "c", 300)
+	if err := d.RetireLoreEntry(gone.EntryID, LoreRetireExpired, "m-writer", "", false, 400); err != nil {
+		t.Fatalf("retire: %v", err)
+	}
+
+	row := t33PendingByKey(t, d, "repo:offcraft")
+	if len(row.EntryRefs) != 2 {
+		t.Fatalf("entry_refs = %+v, want the TWO retrievable entries — one 120-rune sample "+
+			"of the first one is what the owner said he could not review from", row.EntryRefs)
+	}
+	if row.EntryRefs[0].EntryID != first.EntryID || row.EntryRefs[1].EntryID != second.EntryID {
+		t.Fatalf("entry_refs order = %+v, want oldest first, the same order the sample's "+
+			"「first」 means everywhere else in this tree", row.EntryRefs)
+	}
+	if row.EntryRefs[0].Trigger != "I am about to run the full suite locally" {
+		t.Fatalf("entry_refs[0].trigger = %q — 第 1 格 is what tells the reviewer which "+
+			"entry this is", row.EntryRefs[0].Trigger)
+	}
+	if row.EntryRefs[0].Status != "active" {
+		t.Fatalf("entry_refs[0].status = %q, want active", row.EntryRefs[0].Status)
+	}
+	for _, ref := range row.EntryRefs {
+		if ref.EntryID == gone.EntryID {
+			t.Fatal("entry_refs carried the RETIRED entry — the list must be the one the " +
+				"`entries` count counted, or the number and the list say different things")
+		}
+	}
+	if row.Entries != len(row.EntryRefs) {
+		t.Fatalf("entries = %d but entry_refs has %d — they are built from the same "+
+			"predicate and a disagreement between them is a number nobody can reconcile",
+			row.Entries, len(row.EntryRefs))
+	}
+
+	// A subject with nothing filed carries an EMPTY list, never a nil one.
+	empty := t33Mint(t, d, "repo:unused")
+	t33Unfile(t, d, empty.EntryID)
+	if refs := t33PendingByKey(t, d, "repo:unused").EntryRefs; refs == nil || len(refs) != 0 {
+		t.Fatalf("entry_refs on an unused subject = %v, want an empty non-nil list", refs)
+	}
+}

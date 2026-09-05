@@ -325,3 +325,80 @@ func TestLoreEntityPendingRouteCarriesTheReviewPacket(t *testing.T) {
 		}
 	}
 }
+
+// TestLoreEntityPendingRouteCarriesTheEmptinessAndTheEntries is round 3 on the
+// wire (owner 2026-09-04: 「為什麼核可的可見內容這麼少 我根本無從審核起」).
+//
+// 🔴 IT ASSERTS THE THREE NEW FACTS *THROUGH THE ROUTE*, not at the DAL, because
+// the failure this round is repairing was a serving failure: the columns were in
+// the table the whole time and the row on the screen did not carry them. A DAL
+// test cannot tell a filled struct field from a served one.
+func TestLoreEntityPendingRouteCarriesTheEmptinessAndTheEntries(t *testing.T) {
+	url, dal, _, adminTok, _ := loreEntityStack(t)
+
+	// One name that was USED — two entries, one of them retired — and one that
+	// was minted and never used again. On the old wire both would have shown a
+	// count and a sample and nothing to tell them apart.
+	kept, err := dal.CreateLoreEntry(LoreWrite{
+		Trigger: "I am about to review a name I cannot see behind",
+		Content: "the queue showed one sample and no way to open the rest",
+		Origin:  "agent:O-197", Subjects: []string{"repo:used"}, ActorID: "m-minter",
+	}, 100)
+	if err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	gone, err := dal.CreateLoreEntry(LoreWrite{
+		Trigger: "I am about to be retired", Content: "c",
+		Origin: "agent:O-197", Subjects: []string{"repo:used"}, ActorID: "m-minter",
+	}, 200)
+	if err != nil {
+		t.Fatalf("second write: %v", err)
+	}
+	if err := dal.RetireLoreEntry(gone.EntryID, LoreRetireExpired, "m-minter", "", false, 300); err != nil {
+		t.Fatalf("retire: %v", err)
+	}
+	orphan := t33Mint(t, dal, "repo:orphan")
+	if _, err := dal.wdb.Exec(`DELETE FROM lore_subject WHERE entry_id = ?`, orphan.EntryID); err != nil {
+		t.Fatalf("unfile: %v", err)
+	}
+
+	var used, never LorePendingEntityRowDTO
+	for _, r := range loreEntityQueue(t, url, adminTok) {
+		switch r.Canonical {
+		case "repo:used":
+			used = r
+		case "repo:orphan":
+			never = r
+		}
+	}
+	if used.EntityId == "" || never.EntityId == "" {
+		t.Fatal("the queue did not carry both minted names")
+	}
+
+	if used.CreatedBy != "m-minter" {
+		t.Fatalf("repo:used created_by = %q, want the minting actor over the wire — the "+
+			"column has been written since 00081 and no response carried it", used.CreatedBy)
+	}
+	if used.Entries != 1 || used.EntriesEver != 2 {
+		t.Fatalf("repo:used = %d now / %d ever, want 1/2", used.Entries, used.EntriesEver)
+	}
+	if len(used.EntryRefs) != 1 || used.EntryRefs[0].EntryId != kept.EntryID ||
+		used.EntryRefs[0].Trigger != "I am about to review a name I cannot see behind" ||
+		used.EntryRefs[0].Status != "active" {
+		t.Fatalf("repo:used entry_refs = %+v — every retrievable entry, identified by id and "+
+			"by 第 1 格, is what makes the row reviewable at all", used.EntryRefs)
+	}
+
+	if never.Entries != 0 || never.EntriesEver != 0 {
+		t.Fatalf("repo:orphan = %d/%d, want 0/0", never.Entries, never.EntriesEver)
+	}
+	if never.EntryRefs == nil || len(never.EntryRefs) != 0 {
+		t.Fatalf("repo:orphan entry_refs = %v, want `[]` on the wire: null would leave a "+
+			"reader to treat 「nothing filed」 and 「not answered」 as the same thing",
+			never.EntryRefs)
+	}
+	if never.Suggestion != "" {
+		t.Fatalf("repo:orphan suggestion = %q, want empty — nothing resembles it AND nothing "+
+			"ever used it, and those two facts point opposite ways", never.Suggestion)
+	}
+}

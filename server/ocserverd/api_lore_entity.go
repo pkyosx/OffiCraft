@@ -20,10 +20,19 @@ package main
 // 🔴 THE QUEUE ROW CARRIES A SUGGESTION AND NOTHING ACTS ON IT. The owner's
 // second ruling (2026-09-02) asked for the homework, not for an automatic
 // verdict: 「我還是做最後的裁決」. So the list route computes `suggestion` /
-// `similar` / `sample_short`, and the two act routes below never read them —
+// `similar` / `sample_short` / `entries_ever` / `entry_refs`, and the two act
+// routes below never read any of them —
 // approving still needs a human on an admin token, and a row suggesting `merge`
 // changes nothing until somebody calls merge. A suggestion that could act would
 // be an auto-approve wearing a recommendation's clothes.
+//
+// 🔴 ROUND 3 (owner 2026-09-04: 「為什麼核可的可見內容這麼少 我根本無從審核
+// 起」) ADDED THREE FACTS TO THE ROW AND NO NEW ROUTE. `created_by` (who minted
+// the name), `entries_ever` (whether the empty ones were ever used) and
+// `entry_refs` (every entry under the name, not one 120-character sample) all
+// come off tables this route already reads, through seams that already exist —
+// so the review got wider without the surface getting wider, and there is still
+// exactly one way to approve and one way to merge.
 //
 // 🔴 AND THERE IS NO 「駁回」 HANDLER HERE. The owner ruled on approving and on
 // merging; nothing has been ruled about discarding a parked name. Adding that
@@ -130,13 +139,27 @@ func (s *apiServer) HandleListPendingLoreEntitiesApiLoreEntitiesPendingGet(w htt
 				EntityId: s.EntityID, Canonical: s.Canonical, Reason: s.Reason,
 			})
 		}
+		// `entry_refs` is non-nil for the same reason `similar` is, and it
+		// carries the same weight: an EMPTY list is 「we looked under this name
+		// and there is nothing filed」, which is half of what this round exists
+		// to make visible — the other half being `entries_ever`, which says
+		// whether there ever was.
+		refs := make([]LoreEntryRefDTO, 0, len(row.EntryRefs))
+		for _, e := range row.EntryRefs {
+			refs = append(refs, LoreEntryRefDTO{
+				EntryId: e.EntryID, Trigger: e.Trigger, Status: e.Status,
+			})
+		}
 		out = append(out, LorePendingEntityRowDTO{
 			EntityId:    row.ID,
 			Canonical:   row.Canonical,
 			Type:        row.Type,
 			Name:        row.Name,
 			CreatedTs:   row.CreatedTS,
+			CreatedBy:   row.CreatedBy,
 			Entries:     row.Entries,
+			EntriesEver: row.EntriesEver,
+			EntryRefs:   refs,
 			Suggestion:  row.Suggestion,
 			MergeTarget: row.MergeTarget,
 			Similar:     similar,

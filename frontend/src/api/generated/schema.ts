@@ -1675,7 +1675,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * List the subject entities parked for review, each with the homework already done — the `type:name` key it was minted under, its type, its name, when it was created, HOW MANY lore entries are filed under it, a SAMPLE of the first one's `content` (第 2 格; the wire field is still called `sample_short`), the existing subjects it resembles WITH the reason each was offered, and what the rule concludes. 🔴 A pending entity is a name an agent INVENTED while writing lore: minting is deliberately ungated (gating it is what pushes a writer into forcing a near-miss key onto an existing subject), so this queue is the only place a typo like `repo:offcraft` is caught before it becomes part of the ontology. `entries` is counted with the SAME predicate the boot subject directory and `search_lore_entries` use — retired entries are not counted. 🔴 `suggestion` IS A RULE, NOT A JUDGEMENT, AND EMPTY IS ONE OF ITS ANSWERS: nothing resembles it ⇒ `approve`; exactly one candidate is identical once case, width and `_`/`-` are folded ⇒ `merge` into the id in `merge_target`; fuzzy-only resemblance, or two equally exact candidates ⇒ empty, because a guessed suggestion looks exactly like a computed one. Nothing here approves or merges anything — both acts stay behind the owner/admin floor and the verdict is the reviewer's. 🔴 A pending entity is INVISIBLE to the boot subject directory until it is approved, so a queue nobody works is a set of lore entries no agent can reach by subject.
+         * List the subject entities parked for review, each with the homework already done — the `type:name` key it was minted under, its type, its name, when it was created, WHO MINTED IT (`created_by`), HOW MANY lore entries are filed under it (`entries`) and how many were EVER filed under it including retired ones (`entries_ever`), EVERY one of those entries by id and 第 1 格 (`entry_refs`), a SAMPLE of the first one's `content` (第 2 格; the wire field is still called `sample_short`), the existing subjects it resembles WITH the reason each was offered, and what the rule concludes. 🔴 A pending entity is a name an agent INVENTED while writing lore: minting is deliberately ungated (gating it is what pushes a writer into forcing a near-miss key onto an existing subject), so this queue is the only place a typo like `repo:offcraft` is caught before it becomes part of the ontology. `entries` is counted with the SAME predicate the boot subject directory and `search_lore_entries` use — retired entries are not counted — and `entry_refs` is exactly the list that count counted. 🔴 `entries: 0` MEANS TWO OPPOSITE THINGS AND `entries_ever` IS WHAT SEPARATES THEM: `0`/`0` is a name minted once and never used again, which is the shape of a typo the writer corrected on its next attempt; `0`/`2` is a name that was genuinely used and has since been emptied by retirement, which says nothing about the name at all. 🔴 `suggestion` IS A RULE, NOT A JUDGEMENT, AND EMPTY IS ONE OF ITS ANSWERS: for a subject that CARRIES lore — nothing resembles it ⇒ `approve`; exactly one candidate is identical once case, width and `_`/`-` are folded ⇒ `merge` into the id in `merge_target`; fuzzy-only resemblance, or two equally exact candidates ⇒ empty. For a subject NEVER used (`entries_ever: 0`) the rule reads that second fact too: exactly one candidate that is one or two edits away ⇒ `merge` as well, because folding a name that never carried an entry relocates no knowledge and buys an alias that stops the same misspelling being minted again; and nothing resembling it at all ⇒ EMPTY rather than `approve`, because approving there publishes into a truncated boot directory a name that serves nothing. `prefix` and `substring` never carry a suggestion — one name starting the other is how a family of real names looks. Empty is an answer, because a guessed suggestion looks exactly like a computed one. Nothing here approves or merges anything — both acts stay behind the owner/admin floor and the verdict is the reviewer's. 🔴 A pending entity is INVISIBLE to the boot subject directory until it is approved, so a queue nobody works is a set of lore entries no agent can reach by subject.
          * @description List the subject entities awaiting review, with the evidence a decision needs (T-33, owner rulings rc-139a5ab99a19 and 2026-09-02).
          *
          *     🔴 THE QUEUE EXISTS BECAUSE MINTING IS UNGATED. `write_lore_entry` creates any subject key it does not recognise and parks it `pending = 1`; that is deliberate (a gate there pushes a writer into forcing a near-miss key onto an existing subject), and it is exactly why the parked names need an exit. Until this route existed the review queue was a column nothing could read.
@@ -6801,10 +6801,25 @@ export interface components {
              */
             created_ts: number;
             /**
+             * Created By
+             * @description The actor id that MINTED this key — whoever wrote the entry whose subject list first named it. 🔴 It is the second-most useful thing on the row after the name itself: the review question is 「is this a typo」, and who wrote it, in what company, is what a reviewer would otherwise open another screen to find. It is an actor id served RAW, never a resolved display name — resolving it here would be a second answer to 「who is m-…」 beside the member surfaces that already own it. Empty for a row minted before the column carried anything; empty is served as empty rather than as an invented 「unknown」.
+             */
+            created_by: string;
+            /**
              * Entries
              * @description How many lore entries are filed under this subject RIGHT NOW, counted with the same predicate the boot directory and search use — retired entries are excluded, so this number reconciles against what the subject would actually serve once approved.
              */
             entries: number;
+            /**
+             * Entries Ever
+             * @description The same count with the retired predicate REMOVED — every entry EVER filed under this subject. 🔴 IT EXISTS BECAUSE `entries: 0` HAD TWO MEANINGS AND ONE APPEARANCE, and they call for opposite dispositions: `entries: 0, entries_ever: 0` is a name that was minted once and never used again — the shape of a TYPO the writer corrected on its next attempt; `entries: 0, entries_ever: 2` is a name that was genuinely used and has since been emptied by retirement, where nothing suggests the name is wrong at all. A reviewer looking at 「底下 0 條」 could not tell which he was holding. It does NOT replace `entries`: that one is what the subject will actually serve after approval, and one number meaning either thing depending on the reader is what this pair exists to end.
+             */
+            entries_ever: number;
+            /**
+             * Entry Refs
+             * @description EVERY entry the `entries` count counted — same predicate, same order — one line each: the entry id, 第 1 格 (`trigger`, which is also the title), and the status. 🔴 IT IS WHAT `sample_short` COULD NOT BE. A 120-character sample of the FIRST entry answers 「what is one of these about」; the question a reviewer has is 「what is filed under this name」, and for a subject with five entries the sample showed one of them with no way to reach the rest. ⚠️ The BODIES are not here — the trigger says which entry to open, and opening it is the read path that already exists. Empty array when nothing is filed, which `entries: 0` also says.
+             */
+            entry_refs: components["schemas"]["LoreEntryRefDTO"][];
             /**
              * Entity Id
              * @description The entity's id.
@@ -6832,7 +6847,7 @@ export interface components {
             similar: components["schemas"]["LoreEntitySimilarDTO"][];
             /**
              * Suggestion
-             * @description What the RULE concludes — `approve`, `merge`, or the EMPTY STRING. 🔴 EMPTY IS AN ANSWER, NOT A MISSING FIELD, and it is the field's most important value: the rule fills it only when it reaches a clear conclusion, because a guessed suggestion looks exactly like a computed one and 「something was decided and nothing said so」 is the failure this whole feature exists to end. The rule: no `similar` candidate at all ⇒ `approve`; exactly one `same_normalized` candidate ⇒ `merge` into it; anything else — fuzzy-only resemblance, or two equally exact candidates ⇒ empty, and the reviewer decides on the evidence in `similar`. 🔴 IT IS A SUGGESTION AND NOTHING ELSE: no route approves or merges on it, both acts stay behind the admin floor, and the verdict is the owner's.
+             * @description What the RULE concludes — `approve`, `merge`, or the EMPTY STRING. 🔴 EMPTY IS AN ANSWER, NOT A MISSING FIELD, and it is the field's most important value: the rule fills it only when it reaches a clear conclusion, because a guessed suggestion looks exactly like a computed one and 「something was decided and nothing said so」 is the failure this whole feature exists to end. The rule reads TWO facts — the evidence in `similar`, and whether the subject was EVER used (`entries_ever`). For a subject that CARRIES lore: no `similar` candidate at all ⇒ `approve`; exactly one `same_normalized` candidate ⇒ `merge` into it; anything else — fuzzy-only resemblance, or two equally exact candidates ⇒ empty. For a subject that was NEVER used (`entries_ever: 0`): exactly one `same_normalized` candidate ⇒ `merge`; exactly one candidate in total and it is `edit_distance_1`/`edit_distance_2` ⇒ `merge` as well — fuzzy evidence is too weak to RELOCATE knowledge but strong enough to alias a spelling that never carried any; anything else, INCLUDING no candidate at all ⇒ empty, because `approve` there would publish into a truncated boot directory a name that serves nothing and can serve nothing. `prefix` and `substring` never promote — 「one name starts the other」 is how a family of real names looks (`repo:officraft` / `repo:officraft-web`), not how a typo looks. Whenever the two facts point opposite ways the field is empty and the reviewer decides on the evidence in `similar`, `entries` and `entries_ever`. 🔴 IT IS A SUGGESTION AND NOTHING ELSE: no route approves or merges on it, both acts stay behind the admin floor, and the verdict is the owner's.
              */
             suggestion: string;
             /**
@@ -6873,6 +6888,27 @@ export interface components {
              * @description WHICH test fired, one of: `same_normalized` — identical once case, full-width/half-width and `_`/`-` are folded (`repo:OffiCraft` vs `repo:officraft`), the only reason strong enough to carry a suggestion; `edit_distance_1` / `edit_distance_2` — that many single-character edits apart; `prefix` — one name starts with the other; `substring` — one name contains the other. The fuzzy four are withheld for names shorter than 3 characters, where everything resembles everything. Comparison is WITHIN one type prefix, because the schema says an identical name under two prefixes is correct rather than a duplicate.
              */
             reason: string;
+        };
+        /**
+         * LoreEntryRefDTO
+         * @description ONE entry filed under a pending subject, reduced to what a review row can show: which entry it is, what it is for, and what state it is in. 🔴 IT IS A REFERENCE, NOT AN ENTRY, AND THE NAME SAYS SO — carrying `content` here would make the review queue a second reader of the memory table, with its own truncation rule and its own chance to disagree with the read path that already exists.
+         */
+        LoreEntryRefDTO: {
+            /**
+             * Entry Id
+             * @description The entry's id — what the entry read route takes to show the whole thing.
+             */
+            entry_id: string;
+            /**
+             * Status
+             * @description `active`, `superseded` or `underspecified`. NEVER `retired`: the list is built with the same predicate the boot directory and search use, so retired rows are absent. It rides along because a subject whose three entries are all `superseded` is a different thing to review from one with three active entries.
+             */
+            status: string;
+            /**
+             * Trigger
+             * @description 第 1 格 — 「什麼時候要記起來」, the cell that also serves as the entry's title. It is the cheapest thing that answers 「what is filed under this name」 because it was designed to be read alone, and it has no length cap.
+             */
+            trigger: string;
         };
         /**
          * LoreEntityGovernanceDTO

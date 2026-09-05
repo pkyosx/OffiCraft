@@ -81,6 +81,17 @@ export const en: Dict = {
     pendingLoading: "Loading…",
     pendingEntries: (n: number) => `${n} memories filed under it`,
     pendingNoEntries: "No memories filed under it yet",
+    // 🔴 "0 filed" had two causes with opposite dispositions, so it is two
+    // sentences rather than one: never used at all (the shape of a typo) versus
+    // used and since emptied by retirement (which says nothing about the name).
+    pendingNeverUsed: "Nothing was ever filed under it — minted once and never used again",
+    pendingAllRetired: (n: number) => `${n} memories were filed under it; all of them are retired`,
+    pendingAlsoRetired: (n: number) => `(${n} more retired)`,
+    pendingMintedBy: (who: string) => `Minted by ${who}`,
+    pendingMintedByUnknown: "No record of who minted this name",
+    pendingEntryListLead: "Filed under it:",
+    pendingEntryStatusSuperseded: "superseded",
+    pendingEntryStatusUnderspecified: "underspecified",
     pendingSuggestApprove: "Suggestion: this is a new subject",
     pendingSuggestMerge: (name: string) => `Suggestion: merge into ${name}`,
     pendingSuggestNone: "No clear suggestion — this one is yours to judge",

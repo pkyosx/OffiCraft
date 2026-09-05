@@ -2036,7 +2036,14 @@ export function toLorePendingEntity(
     type: w.type,
     name: w.name,
     createdTs: w.created_ts,
+    createdBy: w.created_by,
     entries: w.entries,
+    entriesEver: w.entries_ever,
+    entryRefs: (w.entry_refs ?? []).map((e) => ({
+      entryId: e.entry_id,
+      trigger: e.trigger,
+      status: e.status,
+    })),
     suggestion: w.suggestion,
     mergeTarget: w.merge_target,
     similar: (w.similar ?? []).map((r) => ({

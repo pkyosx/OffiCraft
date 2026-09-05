@@ -1501,6 +1501,24 @@ def _check_lore_queue(_ctx: HCtx, r: httpx.Response) -> None:
     assert row["entries"] >= 1, row
     assert row["sample_short"], row
     assert row["type"] == "repo" and row["name"], row
+    # 🔴 ROUND 3 (owner 2026-09-04: 「我根本無從審核起」). The sample answered
+    # 「what is ONE of these about」; these three answer the question the review
+    # actually asks — was this name ever used, who minted it, and what is filed
+    # under it. This fixture writes ONE entry through the real write seam, so
+    # all three are determinate rather than merely well-typed:
+    #   * `entries_ever` counts retired rows too and nothing here retires, so it
+    #     equals `entries` — a handler that hard-coded 0 (the interesting value,
+    #     since 0/0 is what marks a never-used name) fails here.
+    #   * `created_by` is the VERIFIED token subject of the write, never blank —
+    #     CreateLoreEntry refuses a blank actor outright.
+    #   * `entry_refs` is the list `entries` counted, so the two must agree, and
+    #     each line must identify its entry and carry 第 1 格.
+    assert row["entries_ever"] == row["entries"], row
+    assert row["created_by"], row
+    assert len(row["entry_refs"]) == row["entries"], row
+    for ref in row["entry_refs"]:
+        assert ref["entry_id"] and ref["trigger"], row
+        assert ref["status"] != "retired", row
     # 🔴 THE SUGGESTION IS PINNED TO THE ONE BRANCH THIS FIXTURE FORCES, not to
     # the closed vocabulary. `suggestion in {"", "approve", "merge"}` is the
     # complete enumeration of the legal values, so it passes against every

@@ -1210,6 +1210,20 @@ export interface LoreEntitySimilarView {
   reason: string;
 }
 
+/** 待審這一筆底下的一條記憶,縮到一列放得下的三格。
+ *
+ * 🔴 這是**指路**,不是記憶本身。內容不放在這裡:要看內容就打開那一條,那條路
+ * 早就有了。把 content 抄一份進來等於讓待審佇列變成第二個讀取路徑 —— 有自己的
+ * 截斷規則、自己的排序,以及跟正牌讀取路徑吵架的機會。 */
+export interface LoreEntryRefView {
+  entryId: string;
+  /** 第 1 格「什麼時候要記起來」,同時就是這一條的標題,沒有長度上限。 */
+  trigger: string;
+  /** `active` / `superseded` / `underspecified`。**不會是** `retired` —— 這份
+   * 清單跟 `entries` 用同一個判準,退役的根本不在裡面。 */
+  status: string;
+}
+
 /** 待審佇列的一列:對象本身 ＋ 伺服器做完的功課。 */
 export interface LorePendingEntityView {
   entityId: string;
@@ -1217,8 +1231,25 @@ export interface LorePendingEntityView {
   type: string;
   name: string;
   createdTs: number;
-  /** 這個對象底下已經有幾條記憶。 */
+  /** 鑄出這個名字的人 —— 寫下那條記憶、而那條記憶的對象欄第一次寫出這個 key 的
+   * 那個 actor id。
+   *
+   * 🔴 判斷「這是不是打錯字」的時候,名字本身之後最有用的線索就是這個。原樣印
+   * 出 id,不在這裡翻成顯示名 —— 翻譯是成員畫面的事,在這裡再翻一次就是同一個
+   * 問題的第二個答案。空字串 ⇒ 這一列鑄出來的時候還沒有記這一欄,照實留白。 */
+  createdBy: string;
+  /** 這個對象底下**現在**有幾條記憶(退役的不算)。 */
   entries: number;
+  /** 同一個數字**把退役也算進去**。
+   *
+   * 🔴 `entries: 0` 有兩種完全不同的成因,而畫面上長得一模一樣,這一格就是拿來
+   * 分辨的:`0 / 0` ＝ 鑄出來以後**再也沒被用過**,那是打錯字的形狀(寫的人下一
+   * 次就改對了);`0 / 2` ＝ 真的用過,只是底下的都退役了 —— 那跟名字對不對一
+   * 點關係都沒有。owner 2026-09-04 逐字:「為什麼核可的可見內容這麼少 我根本無
+   * 從審核起」。 */
+  entriesEver: number;
+  /** `entries` 數到的**每一條**,不是只有第一條的前 120 字。 */
+  entryRefs: LoreEntryRefView[];
   /** `approve` / `merge` / **空字串 ＝ 算不出明確結論**。空的時候畫面不准補一
    * 個 —— 硬給的建議跟算得出來的長得一模一樣。 */
   suggestion: string;
