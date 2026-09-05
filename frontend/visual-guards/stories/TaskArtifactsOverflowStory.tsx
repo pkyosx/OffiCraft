@@ -18,8 +18,13 @@ import { I18nProvider } from "../../src/i18n";
 import { TaskCard } from "../../src/components/TaskCard";
 import { mkTask, serveArtifacts, MIRA, NOOP, WORKERS } from "./taskFixtures";
 
-// The owner's actual card: a link artifact whose label is a long, barely
+// The owner's actual card: a link artifact whose NAME is a long, barely
 // breakable branch name.
+//
+// ⚠️ 48 runes is the WRITE cap on a stored name (T-92), and this one is 61 — a
+// legitimate shape, because that cap binds new writes only and 339 migrated
+// link rows are over it. The overflow this story guards is exactly what those
+// rows look like.
 // Served from the mock store: since T-66 the popover fetches its rows rather
 // than reading them off the card (see serveArtifacts).
 const OWNER_LINK = serveArtifacts(
@@ -33,11 +38,9 @@ const OWNER_LINK = serveArtifacts(
         id: "ta-link",
         kind: "link",
         url: "https://github.com/x/officraft/tree/t-23cf-drop-delegation-whitelist",
-        label: "branch t-23cf-drop-delegation-whitelist-and-reconcile-the-gate",
-        filename: "",
-        mime: "",
-        isImage: false,
-        attachmentId: "",
+        name: "branch t-23cf-drop-delegation-whitelist-and-reconcile-the-gate",
+        description: "",
+        mime: "text/uri-list",
         createdTs: 0,
         createdBy: "mira",
       },

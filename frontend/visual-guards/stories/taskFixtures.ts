@@ -88,7 +88,7 @@ api.getTaskStep = async (
 // ── 產物 ──────────────────────────────────────────────────────────────────
 //
 // 🔴 THE POPOVER FETCHES ITS ROWS (T-66) — it does not read them off the card,
-// which since this ticket carries only an id+label index. So a story that wants
+// which since T-92 carries only a COUNT. So a story that wants
 // a populated panel has to land its task in the MOCK STORE, which is what `api`
 // resolves to under CT (playwright-ct.config.ts sets no VITE_USE_MOCK, so
 // src/api/index.ts hands out mockApi). A fixture the store does not know makes
@@ -197,11 +197,12 @@ export const WITH_ARTIFACTS: MockTaskRow = serveArtifacts(mkTask({
       id: "ta-file",
       kind: "file",
       url: "/api/chat/attachment/ta-file",
-      label: "",
-      filename: "design.md",
+      // The server DERIVES this from the blob's filename when the row has no
+      // stored name (T-92), so a fixture that wants to look like a real payload
+      // carries the derived value rather than an empty string.
+      name: "design.md",
+      description: "",
       mime: "text/markdown",
-      isImage: false,
-      attachmentId: "ta-file",
       createdTs: 0,
       createdBy: "mira",
     },
@@ -209,11 +210,9 @@ export const WITH_ARTIFACTS: MockTaskRow = serveArtifacts(mkTask({
       id: "ta-img",
       kind: "image",
       url: "/api/chat/attachment/ta-img",
-      label: "",
-      filename: "shot.png",
+      name: "shot.png",
+      description: "",
       mime: "image/png",
-      isImage: true,
-      attachmentId: "ta-img",
       createdTs: 0,
       createdBy: "mira",
     },
@@ -221,11 +220,11 @@ export const WITH_ARTIFACTS: MockTaskRow = serveArtifacts(mkTask({
       id: "ta-link",
       kind: "link",
       url: "https://github.com/x/y/pull/123",
-      label: "PR #123",
-      filename: "",
-      mime: "",
-      isImage: false,
-      attachmentId: "",
+      name: "PR #123",
+      description: "",
+      // A link's blob is a text/uri-list since T-92, so its mime is no longer
+      // empty on the wire.
+      mime: "text/uri-list",
       createdTs: 0,
       createdBy: "mira",
     },
