@@ -20,7 +20,7 @@
  *                                                   override as above
  *   #replies                                      → awaiting-reply page
  *   #replies/card/<replyCardId>                   → awaiting-reply page,
- *                                                   locate that card
+ *                                                   FILTERED to that card
  *   #tasks                                        → tasks page (M3)
  *   #tasks/<taskId>                               → tasks page, located on <taskId>
  *   #tasks/executor/<memberId>                    → tasks page, filtered to that
@@ -48,7 +48,16 @@ import { useCallback, useMemo, useSyncExternalStore } from "react";
 
 export interface HashRoute {
   page: "office" | "replies" | "tasks" | "monitor" | "guide" | "settings";
-  /** replies only — locate and focus this card (e.g. a Web Push tap). */
+  /** replies only — the card to show (e.g. a Web Push tap, or a link an agent
+   * pasted into chat).
+   *
+   * T-93: this SEEDS the page's ID 篩選 — the list narrows to that one card and
+   * stays narrowed, which is the effect. The scroll-and-focus that used to be
+   * the whole of it is now secondary and happens AFTER the filter: it only
+   * saves the reader a scroll when the hit sits in the collapsed 近期已處理
+   * pane. Do not describe this as a locate mechanism; without it the filter
+   * still works, and the owner's way out is 清除篩選, not the hash clearing
+   * itself. */
   replyCardId?: string;
   /** office only — the member whose chat is open. */
   chatId?: string;
@@ -62,9 +71,15 @@ export interface HashRoute {
    * 負責人/建立者 聊天跳轉: the label routes here so the owner starts a message
    * already tagged with the task). One-shot, only seeds an empty draft. */
   composeTaskNo?: string;
-  /** tasks only — the task the page locates + highlights on open (§3.6 請示 →
-   * 任務跳轉: the reply card's 查看任務詳情 link routes here; the page
-   * guarantees visibility — auto-expands 已結束, clears hiding filters). */
+  /** tasks only — the task the page narrows to + highlights on open (§3.6 請示
+   * → 任務跳轉: the reply card's 查看任務詳情 link routes here; the page
+   * guarantees visibility — auto-expands 已結束, overrides the other filters).
+   *
+   * T-93 (owner 2026-09-05, `rc-428906235337`): when the id names NO task the
+   * anchor STAYS and the page answers 沒有符合篩選條件的任務. It used to strip
+   * itself back to `#tasks` in silence, which made a broken link and a link
+   * that was never filtering look identical. A load FAILURE that is not a 404
+   * is a third thing again — the page shows its load error. */
   taskId?: string;
   /** tasks only — seed the 執行者 filter with this member (T-dfae 聊天 header
    * 任務圖示: "show me what THIS member still owes"). A SEPARATE segment shape

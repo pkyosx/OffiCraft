@@ -146,6 +146,36 @@ describe("請示 ID 篩選", () => {
     expect(window.location.hash).toBe("#replies");
   });
 
+  it("emptying the field BY HAND keeps 清除篩選 on screen while the URL still filters", async () => {
+    // 🔴 Found by independent review. The button used to be gated on the FIELD
+    // alone, so deleting the value by hand took the button away and left the
+    // owner on #replies/card/<id> with nothing on screen that clears it — a
+    // reload, a share or a Back seeds the filter straight back. 任務頁 never
+    // had this hole (its anyFilter names the anchor explicitly), and both
+    // pages' guides promise the same behaviour.
+    __injectMockReplyCard(mkCard({ id: "rc-aaa", summary: "第一張" }));
+    __injectMockReplyCard(mkCard({ id: "rc-bbb", summary: "第二張" }));
+    window.location.hash = "#replies/card/rc-bbb";
+
+    const { findAllByTestId, findByTestId } = renderPage("rc-bbb");
+    expect(await findAllByTestId("waiting-card")).toHaveLength(1);
+
+    // Backspace the value away — NOT the clear button.
+    fireEvent.change(await findByTestId("filter-reply-card-id"), {
+      target: { value: "" },
+    });
+    await waitFor(async () =>
+      expect(await findAllByTestId("waiting-card")).toHaveLength(2)
+    );
+    // The hash is still filtering, so the way out must still be on screen.
+    expect(window.location.hash).toBe("#replies/card/rc-bbb");
+    const clear = await findByTestId("clear-filters");
+
+    // …and it still does the job it is there for.
+    fireEvent.click(clear);
+    await waitFor(() => expect(window.location.hash).toBe("#replies"));
+  });
+
   it("matches on a PREFIX and ignores case — the two things this field does that pasting a whole id does not", async () => {
     // The headline behaviour of this control, and the one an independent
     // review found unguarded: with only whole-id, all-lowercase specs, both

@@ -514,7 +514,14 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
           label={t.replies.filterIdLabel}
           testId="filter-reply-card-id"
         />
-        {idQuery !== "" && (
+        {/* 🔴 The hash counts as an active filter even when the FIELD is empty.
+          * Gate this on `idQuery` alone and the owner can delete the value by
+          * hand, lose the button, and be left on `#replies/card/<id>` with no
+          * control on screen that clears it — a reload, a share or a Back then
+          * seeds the filter straight back. 任務頁 never had this hole: its
+          * `anyFilter` names `taskIdFilter` explicitly, and both pages' docs
+          * promise the same behaviour. */}
+        {(idQuery !== "" || replyCardId) && (
           <button
             type="button"
             className="replies__clear-filters"
