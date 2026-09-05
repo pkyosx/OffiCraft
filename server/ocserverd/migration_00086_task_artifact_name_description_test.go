@@ -455,8 +455,8 @@ func TestMigration00086MintsOneDedupedBlobPerDistinctURL(t *testing.T) {
 
 // TestMigration00086LeavesNoBlankAttachmentID is claim ④. After 00086 `url` as a
 // column is GONE, so a row with a blank attachment_id points at nothing at all —
-// and the new schema deliberately ships NO `CHECK (attachment_id <> '')`, which
-// makes this test the only thing that would notice.
+// and the new schema deliberately ships no CHECK constraint rejecting a blank
+// attachment_id, which makes this test the only thing that would notice.
 func TestMigration00086LeavesNoBlankAttachmentID(t *testing.T) {
 	db := t92World(t)
 	t92Up(t, db)
