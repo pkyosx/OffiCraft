@@ -121,7 +121,16 @@ type LoreProposal struct {
 	Trigger    string
 	Content    string
 	RetireWhen string
-	Problem    string
+	Impact     string
+
+	// 🔴 這裡叫 Impact，而 lore_proposal 那一欄仍然叫 `problem`，兩邊的 SQL 也照
+	// 樣寫 `problem`。00084 只把 lore_entry 的那一欄改了名，沒有動提案表，而那是
+	// 對的：欄位名字在提案表裡只是儲存位置，改它要一次 migration，換來的是零。
+	// ⚠️ 代價寫在這裡而不是靠人記得：讀這幾段 SQL 的人會看到欄名與欄位對不上，
+	// 而那不是 bug。線上的名字（spec 與 DTO）已經全部是 `impact`。
+	//
+	// ⚠️ 沒有 Heading、沒有 ImpactStars，而那不是漏掉：提案表沒有那兩欄，所以
+	// 一份提案帶不動 v8 的標題與星等。後果寫在 ApplyLoreProposal 上。
 
 	// Events 是提案主張的**整份**第 5 格，不是增量。核可時 lore_event 會被整批
 	// 換成這一份。
@@ -160,7 +169,7 @@ type LoreProposalRow struct {
 	Trigger        string
 	Content        string
 	RetireWhen     string
-	Problem        string
+	Impact         string
 	Body           string
 	SHA256         string
 	ActorID        string
@@ -220,12 +229,17 @@ type LoreProposalList struct {
 // a second, near-identical function would produce a digest that could not be
 // compared with a revision's — and 「這份提案就是那一版」 would stop being an
 // answerable question the moment the two drifted by one newline.
+//
+// ⚠️ 回傳的 LoreEntry 的 Heading 與 ImpactStars 是零值，而這**不會**污染摘要：
+// loreRevisionBody 根本不印那兩格（它自己那段註解說明了為什麼）。這兩件事是綁在
+// 一起的 —— 哪一天有人讓渲染器印標題，這裡就會開始把空標題摘要進去，而核可之後
+// 留下的原文會宣稱這條條目沒有標題。要動其中一邊，先讀另一邊。
 func loreProposalEntry(p LoreProposal) LoreEntry {
 	return LoreEntry{
 		Trigger:    p.Trigger,
 		Content:    p.Content,
 		RetireWhen: p.RetireWhen,
-		Problem:    p.Problem,
+		Impact:     p.Impact,
 	}
 }
 
@@ -260,7 +274,7 @@ func loreProposalShapeError(p LoreProposal) error {
 		// A removal proposes no new version. Carrying one would put a version on
 		// the reviewer's screen that no accept path would ever write — the
 		// description/result gap in miniature, inside the shape built to close it.
-		for _, f := range []string{p.Trigger, p.Content, p.RetireWhen, p.Problem} {
+		for _, f := range []string{p.Trigger, p.Content, p.RetireWhen, p.Impact} {
 			if strings.TrimSpace(f) != "" {
 				return ErrLoreProposalRemoveBody
 			}
@@ -378,7 +392,7 @@ func (d *DAL) CreateLoreProposal(p LoreProposal, nowTS float64) (LoreProposalRes
 			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 			out.ProposalID, p.EntryID, p.Kind, base.ID, base.SHA256,
 			p.Encountered, p.Fault, p.Evidence,
-			p.Trigger, p.Content, p.RetireWhen, p.Problem,
+			p.Trigger, p.Content, p.RetireWhen, p.Impact,
 			body, sum, p.ActorID, nowTS); err != nil {
 			return err
 		}
@@ -452,7 +466,7 @@ func (d *DAL) ListLoreProposals(entryID string) (LoreProposalList, error) {
 		if err := rows.Scan(
 			&p.ID, &p.EntryID, &p.Kind, &p.BaseRevisionID, &p.BaseSHA256,
 			&p.Encountered, &p.Fault, &p.Evidence,
-			&p.Trigger, &p.Content, &p.RetireWhen, &p.Problem,
+			&p.Trigger, &p.Content, &p.RetireWhen, &p.Impact,
 			&p.Body, &p.SHA256, &p.ActorID, &p.CreatedTS,
 		); err != nil {
 			return LoreProposalList{}, err
@@ -573,7 +587,7 @@ func (d *DAL) GetLoreProposal(proposalID string) (*LoreProposalRow, error) {
 		FROM lore_proposal WHERE id = ?`, proposalID).Scan(
 		&p.ID, &p.EntryID, &p.Kind, &p.BaseRevisionID, &p.BaseSHA256,
 		&p.Encountered, &p.Fault, &p.Evidence,
-		&p.Trigger, &p.Content, &p.RetireWhen, &p.Problem,
+		&p.Trigger, &p.Content, &p.RetireWhen, &p.Impact,
 		&p.Body, &p.SHA256, &p.ActorID, &p.CreatedTS)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
@@ -620,6 +634,14 @@ func (d *DAL) GetLoreProposal(proposalID string) (*LoreProposalRow, error) {
 // ⚠️ 退回（decline）長什麼樣、要不要留一列裁決紀錄，**都還沒有裁定**，所以兩者
 // 都不存在。落地時唯一留下的紀錄是新的 lore_revision 那一列的 actor_id ＝
 // 核可的人。
+//
+// 🔴 「完整的新版本」這句話在 v8 之後**不再涵蓋整條條目**，而這是這個函式現在
+// 最容易被誤讀的地方：UPDATE 只碰四格，`heading` 與 `impact_stars` 原封不動留在
+// 條目上。原因是 lore_proposal 沒有那兩欄（見 LoreProposal 上的說明），所以提案
+// 從一開始就沒有主張過它們 —— 這裡不動它們是唯一誠實的選擇，把它們清成空值才是
+// 用「沒有人送」冒充「有人主張要清掉」。
+// ⚠️ 這代表 v8 的標題與星等**沒有任何修改路徑**：寫錯了只能新寫一條去 supersede。
+// 那不是這一批決定的事，但讀這個函式的人必須知道。
 func (d *DAL) ApplyLoreProposal(proposalID, actorID string, nowTS float64) (LoreProposalApplied, error) {
 	var out LoreProposalApplied
 	if actorID == "" {
@@ -662,9 +684,9 @@ func (d *DAL) ApplyLoreProposal(proposalID, actorID string, nowTS float64) (Lore
 	err = d.inTx(func(tx *sql.Tx) error {
 		res, err := tx.Exec(`
 			UPDATE lore_entry
-			SET trigger = ?, content = ?, retire_when = ?, problem = ?, updated_ts = ?
+			SET trigger = ?, content = ?, retire_when = ?, impact = ?, updated_ts = ?
 			WHERE id = ?`,
-			p.Trigger, p.Content, p.RetireWhen, p.Problem, nowTS, p.EntryID)
+			p.Trigger, p.Content, p.RetireWhen, p.Impact, nowTS, p.EntryID)
 		if err != nil {
 			return err
 		}

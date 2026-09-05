@@ -1999,7 +1999,7 @@ export function toLoreEntryDetail(w: WireLoreEntryDetail): LoreEntryDetailView {
     trigger: w.trigger,
     content: w.content,
     retireWhen: w.retire_when,
-    problem: w.problem,
+    impact: w.impact,
     events: w.events.map(toLoreEvent),
     subjects: [...w.subjects],
     actions: [...w.actions],

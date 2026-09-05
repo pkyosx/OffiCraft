@@ -26,13 +26,17 @@ func loreWriteBody(t *testing.T, body string) LoreWriteReceiptDTO {
 	return dto
 }
 
-// 五格 over the wire, 第 5 格 included: a write body that carried only the four
+// 六格 over the wire, 第 5 格 included: a write body that carried only the
 // columns would leave the event path untested by every test that seeds with it.
+// 🔴 標題格與第 1 格在這裡刻意是兩句不同的話 —— 寫成同一句，一個把兩格接反的
+// handler 會讓每一支拿這個 body 當 fixture 的測試都全綠。
 const loreWriteJSON = `{
+	"heading": "two blocks disagreed and nobody noticed for a week",
 	"trigger": "two blocks disagree about the same fact",
 	"content": "the fold happens in one place",
 	"retire_when": "等只剩一個組裝器",
-	"problem": "T-33 slot 3",
+	"impact": "T-33 slot 3",
+	"impact_stars": 2,
 	"events": [
 		{"happened_ts": 1756000000, "what": "Kyle 讀到兩個區塊互相矛盾",
 		 "actor": "agent:O-197", "place": "machine:seth-m5"}
@@ -116,7 +120,7 @@ func TestLoreWriteRouteLetsAnAgentPutAnEntryWhereTheDirectoryFindsIt(t *testing.
 func TestLoreWriteRouteRefusesABadEventAndNamesTheCell(t *testing.T) {
 	url, dal, agentTok, _, _ := loreGovStack(t)
 
-	const head = `{"trigger": "x", "content": "y", "origin": "agent:O-197",
+	const head = `{"heading": "h", "trigger": "x", "content": "y", "origin": "agent:O-197",
 		"subjects": ["repo:officraft"], "events": [`
 	for _, tc := range []struct{ name, events, want string }{
 		{"no happened_ts", `{"what": "有人踩到了"}`, "happened_ts"},
@@ -159,19 +163,31 @@ func TestLoreWriteRouteRefusesABadEventAndNamesTheCell(t *testing.T) {
 	}
 }
 
-// The two fields without which the row is unreachable are refused, and the
-// refusal names which one. 422 rather than 400 keeps it the same answer every
-// other body-validation refusal on this station gives.
+// The fields without which the row is unreachable — or reachable but
+// indistinguishable from a finished entry — are refused, and the refusal names
+// which one. 422 rather than 400 keeps it the same answer every other
+// body-validation refusal on this station gives.
+//
+// 🔴 標題格有**兩種**拒絕，而它們走的是兩條不同的路，所以兩種都列在這裡：整個
+// key 沒送是 decodeJSONBodyStrict 的「field required」，送了但是空白是 DAL 的
+// ErrLoreHeadingBlank。只測其中一種，另一條路可以整條消失而這支全綠。
 func TestLoreWriteRouteRefusesAnEntryNobodyCouldRead(t *testing.T) {
 	url, _, agentTok, _, _ := loreGovStack(t)
 
 	for _, tc := range []struct{ name, body, want string }{
-		{"blank trigger", `{"trigger":"  ","content":"x","origin":"agent:O-197","subjects":["repo:officraft"]}`, "trigger"},
-		{"blank content", `{"trigger":"x","content":"","origin":"agent:O-197","subjects":["repo:officraft"]}`, "content"},
-		{"no subject", `{"trigger":"x","content":"y","origin":"agent:O-197","subjects":[]}`, "subject"},
-		{"unknown origin type", `{"trigger":"x","content":"y","origin":"vendor:acme","subjects":["repo:officraft"]}`, "vendor"},
-		{"unknown subject type", `{"trigger":"x","content":"y","origin":"agent:O-197","subjects":["vendor:acme"]}`, "vendor"},
-		{"malformed subject", `{"trigger":"x","content":"y","origin":"agent:O-197","subjects":["officraft"]}`, "officraft"},
+		{"heading absent", `{"trigger":"x","content":"y","origin":"agent:O-197","subjects":["repo:officraft"]}`, "heading"},
+		{"blank heading", `{"heading":"  ","trigger":"x","content":"y","origin":"agent:O-197","subjects":["repo:officraft"]}`, "heading"},
+		{"blank trigger", `{"heading":"h","trigger":"  ","content":"x","origin":"agent:O-197","subjects":["repo:officraft"]}`, "trigger"},
+		{"blank content", `{"heading":"h","trigger":"x","content":"","origin":"agent:O-197","subjects":["repo:officraft"]}`, "content"},
+		{"no subject", `{"heading":"h","trigger":"x","content":"y","origin":"agent:O-197","subjects":[]}`, "subject"},
+		{"unknown origin type", `{"heading":"h","trigger":"x","content":"y","origin":"vendor:acme","subjects":["repo:officraft"]}`, "vendor"},
+		{"unknown subject type", `{"heading":"h","trigger":"x","content":"y","origin":"agent:O-197","subjects":["vendor:acme"]}`, "vendor"},
+		{"malformed subject", `{"heading":"h","trigger":"x","content":"y","origin":"agent:O-197","subjects":["officraft"]}`, "officraft"},
+		// 🔴 星等的值域也在這裡：它是**寫入者可以自己修好**的東西，所以它是 422
+		// 而不是資料庫 CHECK 撞出來的 500。少了這兩行，把 loreImpactStarsError
+		// 整個拿掉會全綠，而症狀是一個送錯星等的人收到「伺服器出事了」。
+		{"impact_stars above the scale", `{"heading":"h","trigger":"x","content":"y","impact_stars":4,"origin":"agent:O-197","subjects":["repo:officraft"]}`, "impact_stars"},
+		{"impact_stars below the scale", `{"heading":"h","trigger":"x","content":"y","impact_stars":-1,"origin":"agent:O-197","subjects":["repo:officraft"]}`, "impact_stars"},
 	} {
 		st, body := rosterREST(t, url, agentTok, "POST", "/api/lore/entries", tc.body)
 		if st != 422 {
@@ -190,7 +206,7 @@ func TestLoreWriteRouteRefusesAnUnknownFieldRatherThanDroppingIt(t *testing.T) {
 	url, dal, agentTok, _, _ := loreGovStack(t)
 
 	st, body := rosterREST(t, url, agentTok, "POST", "/api/lore/entries", `{
-		"trigger": "x", "contentt": "the typo that empties the body",
+		"heading": "h", "trigger": "x", "contentt": "the typo that empties the body",
 		"content": "y",
 		"origin": "agent:O-197", "subjects": ["repo:officraft"]
 	}`)
@@ -219,7 +235,7 @@ func TestLoreWriteRouteSupersedesOnlyAnEntryThatExists(t *testing.T) {
 	first := loreWriteBody(t, body).EntryId
 
 	st, body = rosterREST(t, url, agentTok, "POST", "/api/lore/entries", `{
-		"trigger": "x", "content": "y", "origin": "agent:O-197",
+		"heading": "h", "trigger": "x", "content": "y", "origin": "agent:O-197",
 		"subjects": ["repo:officraft"], "supersedes": "`+first+`"
 	}`)
 	if st != 200 {
@@ -242,7 +258,7 @@ func TestLoreWriteRouteSupersedesOnlyAnEntryThatExists(t *testing.T) {
 	}
 
 	st, body = rosterREST(t, url, agentTok, "POST", "/api/lore/entries", `{
-		"trigger": "x", "content": "y", "origin": "agent:O-197",
+		"heading": "h", "trigger": "x", "content": "y", "origin": "agent:O-197",
 		"subjects": ["repo:officraft"], "supersedes": "lore-nope"
 	}`)
 	if st != 404 {

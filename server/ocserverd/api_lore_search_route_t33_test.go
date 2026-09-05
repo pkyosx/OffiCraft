@@ -23,9 +23,10 @@ func loreSearchBody(t *testing.T, body string) LoreSearchResultDTO {
 func loreSearchSeed(t *testing.T, url, tok, subject, content string) string {
 	t.Helper()
 	st, body := rosterREST(t, url, tok, "POST", "/api/lore/entries", `{
+		"heading": "something became visible that had not been",
 		"trigger": "something is visible",
 		"content": "`+content+`",
-		"retire_when": "等只剩一個組裝器", "problem": "T-33 slot 3",
+		"retire_when": "等只剩一個組裝器", "impact": "T-33 slot 3",
 		"origin": "agent:O-197",
 		"subjects": ["`+subject+`"], "actions": ["build"]
 	}`)
@@ -161,7 +162,7 @@ func TestLoreSearchRouteRefusesAMachineAtTheDoor(t *testing.T) {
 func TestLoreSearchRouteSaysWhenAClassWasAGuess(t *testing.T) {
 	url, dal, agentTok, _, _ := loreGovStack(t)
 	st, body := rosterREST(t, url, agentTok, "POST", "/api/lore/entries", `{
-		"trigger": "x", "content": "y", "problem": "T-33 slot 3",
+		"heading": "h", "trigger": "x", "content": "y", "impact": "T-33 slot 3",
 		"origin": "agent:O-197",
 		"subjects": ["repo:officraft"], "actions": ["zzz-not-in-the-table"]
 	}`)

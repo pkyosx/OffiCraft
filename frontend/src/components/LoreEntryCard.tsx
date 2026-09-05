@@ -248,7 +248,10 @@ export function LoreEntryCard({ entry }: { entry: LoreEntrySummaryView }) {
                   name={t.lore.fieldRetireWhen}
                   value={detail.retireWhen}
                 />
-                <Field name={t.lore.fieldProblem} value={detail.problem} />
+                {/* ⚠️ 標籤還叫 fieldProblem，而它印的已經是 v8 的 impact
+                    （原本想達成什麼、實際變成什麼）。改名是傳承分頁那一批的事，
+                    寫在這裡是因為現在畫面上那個字是錯的，不是因為它無所謂。 */}
+                <Field name={t.lore.fieldProblem} value={detail.impact} />
 
                 {/* 第 5 格。一筆都沒有的時候這一節照樣在,並且說出來 —— 跟後端
                     永遠渲染 `events:` 是同一條規則。 */}

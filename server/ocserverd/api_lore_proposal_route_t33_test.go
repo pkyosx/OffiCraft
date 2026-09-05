@@ -26,10 +26,11 @@ import (
 func loreProposalSeed(t *testing.T, url, tok string) (string, string) {
 	t.Helper()
 	st, body := rosterREST(t, url, tok, "POST", "/api/lore/entries", `{
+		"heading":"two blocks disagreed and nobody noticed for a week",
 		"trigger":"two blocks disagree about the same fact",
 		"content":"the fold happens in one place",
 		"retire_when":"等只剩一個組裝器",
-		"problem":"T-33 slot 3",
+		"impact":"T-33 slot 3",
 		"origin":"agent:O-197",
 		"subjects":["agent:O-197"]}`)
 	if st != 200 {
@@ -64,7 +65,7 @@ func loreProposalBody(base string) string {
 		"trigger":"two blocks disagree about the same fact",
 		"content":"the fold happens in lore_fold.go and nowhere else",
 		"retire_when":"等只剩一個組裝器",
-		"problem":"T-33 slot 3",
+		"impact":"T-33 slot 3",
 		"events":[]}`
 }
 
@@ -302,7 +303,7 @@ func TestLoreProposalRouteCarriesEventsAndSaysWhichOnesMoved(t *testing.T) {
 			"encountered":"讀到它的時候","fault":"stale","evidence":"第 5 格串錯了",
 			"trigger":"two blocks disagree about the same fact",
 			"content":"the fold happens in lore_fold.go and nowhere else",
-			"retire_when":"等只剩一個組裝器","problem":"T-33 slot 3",
+			"retire_when":"等只剩一個組裝器","impact":"T-33 slot 3",
 			"events":[
 				{"happened_ts":1700000000,"what":"留著不動的那一筆"},
 				{"happened_ts":1700000100,"what":"人工修好的那一筆"}]}`)

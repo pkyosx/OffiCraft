@@ -107,7 +107,11 @@ func TestDirectoryCarriesNoEntryBody(t *testing.T) {
 	body.Trigger = "SENTINEL-TRIGGER-4f1c9a"
 	body.Content = "SENTINEL-CONTENT-4f1c9a"
 	body.RetireWhen = "SENTINEL-RETIRE-4f1c9a"
-	body.Problem = "SENTINEL-PROBLEM-4f1c9a"
+	body.Impact = "SENTINEL-IMPACT-4f1c9a"
+	// 🔴 標題格也是正文。v8 把它加進來的時候，它是最像「應該放進目錄」的一格——
+	// 它就是為了給人讀而存在的。少了這個哨兵，哪天有人順手把標題折進目錄，這道
+	// 守衛會全綠，而每一個成員的開機檔會開始多帶 N 條標題。
+	body.Heading = "SENTINEL-HEADING-4f1c9a"
 	t33Put(t, s.dal, body)
 	if err := s.dal.PutLoreSubject("me-probe", "en-repo"); err != nil {
 		t.Fatalf("file me-probe against en-repo: %v", err)
@@ -130,7 +134,8 @@ func TestDirectoryCarriesNoEntryBody(t *testing.T) {
 		}
 		for field, text := range map[string]string{
 			"trigger": body.Trigger, "content": body.Content,
-			"retire_when": body.RetireWhen, "problem": body.Problem,
+			"retire_when": body.RetireWhen, "impact": body.Impact,
+			"heading": body.Heading,
 		} {
 			if strings.Contains(doc, text) {
 				t.Errorf("%s boot context leaks an entry's %s cell — 這一段只放目錄，"+

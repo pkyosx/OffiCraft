@@ -43,17 +43,34 @@ import (
 type LoreEntry struct {
 	ID string
 
-	// 🔴 前四格，固定。第五格（相關的完整資訊）不在這個 struct 裡，它是
-	// lore_event 的 0..N 列——見 LoreEvent / ListLoreEvents 底下。
+	// 🔴 標題格 ＋ 前四格，固定。第五格（相關的完整資訊）不在這個 struct 裡，
+	// 它是 lore_event 的 0..N 列——見 LoreEvent / ListLoreEvents 底下。
 	//
 	// 🔴 這裡刻意沒有 Events []LoreEvent 欄位。LoreEntry 目前是可比較的
 	// （測試用 `*got != want` 一行比完整條目），加一個 slice 就會讓那些比較
 	// 編不過，而把它們改成 reflect.DeepEqual 會讓「多了一個欄位沒被比到」變成
 	// 一個編譯器再也抓不到的錯。事件由呼叫者明確地讀，這是刻意的。
-	Trigger    string // 什麼時候要記起來；形狀是「我要做 X」。兼任標題，無長度上限
+	//
+	// 🔴 Heading 是 v8 加的獨立標題格，而它**推翻**了這個檔案原本寫的
+	// 「第一格兼任標題、五格裡根本沒有名字這一格」——那句話當初就是被寫下來
+	// （而不是默默做掉）等著被推翻的。Trigger 仍然是讀者找到這條的那一軸，
+	// 但它不再是這條的名字：v8 對標題有 Trigger 沒有的要求（寫「發生了什麼」、
+	// 不得是祈使句），兩格說的不是同一句話。
+	Heading    string // 標題：發生了什麼。必填，無長度上限
+	Trigger    string // 什麼時候要記起來；形狀是「我要做 X」。無長度上限
 	Content    string // 內容 — THIS is what enters a context
 	RetireWhen string // 什麼時候不需要了（選填，自由文字，非封閉值域）
-	Problem    string // 之前發生過什麼問題（選填，但它是主體）
+	Impact     string // 原本想達成什麼、實際變成什麼（選填，但它是主體）
+
+	// ImpactStars 是 impact 的星等，而 0 **不是一個星等**：它是「還沒判」。
+	// 既有列的預設值只能是 0，把 0 當成 1（沒弄壞任何東西）等於替它們做了一次
+	// 沒有人做過的判定，而 v8 的自檢就再也查不出誰漏填。
+	ImpactStars int
+
+	// 🔴 Reviewed 與 ImpactStars 是兩個欄位而不是一個。星等是 agent 的提案，
+	// 這一格是別人蓋的章；合成一欄就等於讓 agent 自己蓋自己的章。
+	// ⚠️ 這一版沒有任何一條路寫得到它——見 PutLoreEntry 底下的說明。
+	Reviewed bool
 
 	Status     string // 'active' | 'superseded' | 'retired' | 'underspecified'
 	Supersedes string // id of the entry this replaces; the replaced row is re-statused, never deleted
@@ -74,17 +91,26 @@ type LoreEntry struct {
 // write receipt / search hit）、以及它們在 spec/openapi.json 裡的宣告。
 //
 // ⚠️ 不要「順手」把它加回來。它在六格時代的判準是「falsify 與 instance 皆空」，
-// 五格裡那兩格都不存在；曾經有過一個暫定判準（「problem 為空」），而那個暫定值
-// 正是這道裁定要收掉的東西。要有第二層品質訊號的話，那是一張新卡。
+// 五格裡那兩格都不存在；曾經有過一個暫定判準（「problem 為空」，即今天的
+// `impact`），而那個暫定值正是這道裁定要收掉的東西。要有第二層品質訊號的話，
+// 那是一張新卡。⚠️ v8 的 `impact_stars = 0`（還沒判）**不是**那個標記借屍還魂：
+// 它說的是「沒有人判過」，不是「判過而且品質可疑」。
 
-const loreEntryColumns = `id, trigger, content, retire_when, problem,
+// 🔴 `reviewed` 在這裡，也就是說它會被 PutLoreEntry 的 upsert 覆寫。這一欄是
+// 別人蓋的章，而唯一寫得到它的路徑（PutLoreEntry / CreateLoreEntry）永遠帶著
+// false 進來——所以它今天恆為 false。這是照實的：v8 要的是一個旗標，「誰能蓋、
+// 蓋了要不要留紀錄」還沒有人裁定，而在裁定之前先開一道門，等於讓實作把那個
+// 決定偷偷做掉。它被讀出來、不被寫進去，這件事在 spec 的欄位說明裡也寫著。
+const loreEntryColumns = `id, heading, trigger, content, retire_when, impact,
+	impact_stars, reviewed,
 	status, supersedes, editable_by, origin,
 	created_ts, updated_ts`
 
 func scanLoreEntry(row interface{ Scan(...any) error }) (LoreEntry, error) {
 	var e LoreEntry
 	err := row.Scan(
-		&e.ID, &e.Trigger, &e.Content, &e.RetireWhen, &e.Problem,
+		&e.ID, &e.Heading, &e.Trigger, &e.Content, &e.RetireWhen, &e.Impact,
+		&e.ImpactStars, &e.Reviewed,
 		&e.Status, &e.Supersedes, &e.EditableBy, &e.Origin,
 		&e.CreatedTS, &e.UpdatedTS,
 	)
@@ -106,6 +132,39 @@ func scanLoreEntry(row interface{ Scan(...any) error }) (LoreEntry, error) {
 func loreTriggerError(trigger string) error {
 	if strings.TrimSpace(trigger) == "" {
 		return ErrLoreTriggerBlank
+	}
+	return nil
+}
+
+// loreHeadingError enforces v8 的標題格必填。
+//
+// 🔴 空值被拒絕，不是被補一個預設值——理由跟 trigger 一模一樣，而且不是同一個
+// 理由的複製：trigger 空著的話沒有人撈得到這條，heading 空著的話撈得到、但它在
+// 任何一份清單上跟一條寫好的條目長得一模一樣，讀的人不會知道要回來補。
+//
+// 🔴 檢查在這裡而不在 CHECK constraint 裡，是 migration 00084 明講的判斷：
+// SQLite 的 CHECK 只會回一句「CHECK constraint failed」，說不出是哪一格空了。
+//
+// ⚠️ v8 對標題還有三條這一層擋不住的要求（寫「發生了什麼」、不得是祈使句、
+// 標題裡的名詞與數字都要在 content 找得到）。它們是規則，不是約束，而這裡不
+// 假裝成一個檢查——一個擋不住的東西被寫成 if，下一個人會以為它擋住了。
+func loreHeadingError(heading string) error {
+	if strings.TrimSpace(heading) == "" {
+		return ErrLoreHeadingBlank
+	}
+	return nil
+}
+
+// loreImpactStarsError 擋 0..3 以外的值。
+//
+// 🔴 它擋的東西 CHECK 也擋得住，重複是刻意的：CHECK 的失敗會從 d.wdb.Exec 回來
+// 成一個 driver 錯誤，上層只能把它報成 500，而送 star=7 的人是可以自己修好的。
+// 這一層存在的理由就是讓那個回覆是 422 而且指名是哪一格。
+//
+// 🔴 0 是合法的，而且它的意思是「還沒判」，不是「最輕」。
+func loreImpactStarsError(stars int) error {
+	if stars < 0 || stars > 3 {
+		return fmt.Errorf("%w: impact_stars=%d", ErrLoreImpactStarsRange, stars)
 	}
 	return nil
 }
@@ -234,9 +293,16 @@ func (d *DAL) loreOriginError(origin string) error {
 var (
 	ErrLoreEntryIDBlank = errors.New("lore: the entry id is blank")
 	// 🔴 第 1 格必填。舊的 ErrLoreLabelTooLong 沒了：`label` 連同它的 40 runes
-	// 上限一起被移除，第 1 格兼任標題且不設上限。
+	// 上限一起被移除，兩格都不設上限。
 	ErrLoreTriggerBlank = errors.New(
 		"lore: `trigger` is blank — 什麼時候要記起來？沒有它，這條沒有任何人撈得到")
+	// 🔴 標題格必填（v8）。它跟 ErrLoreTriggerBlank 是**兩個**錯誤而不是一個，
+	// 因為兩格空著的後果不一樣：trigger 空著是撈不到，heading 空著是撈得到但
+	// 看起來已經寫完了。訊息要能告訴寫入者他漏的是哪一種。
+	ErrLoreHeadingBlank = errors.New(
+		"lore: `heading` is blank — 標題（發生了什麼）？沒有它，這條在清單上跟寫好的一模一樣")
+	ErrLoreImpactStarsRange = errors.New(
+		"lore: `impact_stars` is outside 0..3 — 0=還沒判、1=沒弄壞任何東西、2=弄壞的只有你動的那個、3=弄壞的包含你沒動的")
 	ErrLoreEventTimeMissing = errors.New(
 		"lore: an event has no `happened_ts` — 事件發生的時間（不是寫下的時間）")
 	ErrLoreEventWhatBlank = errors.New(
@@ -266,25 +332,38 @@ func (d *DAL) PutLoreEntry(e LoreEntry) error {
 	if e.EditableBy == "" {
 		e.EditableBy = "agent"
 	}
-	// 🔴 第 1 格的必填檢查在**這裡**，不只在 CreateLoreEntry 裡。這是原始的
-	// upsert 縫，任何繞過寫入路徑的呼叫者都會經過它；只擋在上層等於留一個側門，
-	// 而從側門進來的空 trigger 條目跟正門進來的長得一模一樣。
+	// 🔴 第 1 格與標題格的必填檢查在**這裡**，不只在 CreateLoreEntry 裡。這是
+	// 原始的 upsert 縫，任何繞過寫入路徑的呼叫者都會經過它；只擋在上層等於留一個
+	// 側門，而從側門進來的空條目跟正門進來的長得一模一樣。
+	if err := loreHeadingError(e.Heading); err != nil {
+		return err
+	}
 	if err := loreTriggerError(e.Trigger); err != nil {
+		return err
+	}
+	if err := loreImpactStarsError(e.ImpactStars); err != nil {
 		return err
 	}
 	if err := d.loreOriginError(e.Origin); err != nil {
 		return err
 	}
+	// 🔴 `reviewed` 出現在 DO UPDATE SET 裡，跟其他每一格一樣，而這是刻意的：
+	// 這個函式的語意是「用這一份取代那一列」，把某一欄從取代裡挑掉會讓它在
+	// 「整列覆寫」的外表下悄悄保留舊值。今天沒有呼叫者帶得出 true，所以效果是
+	// 恆為 false；等有人裁定了誰能蓋章，那條路要面對的就是這裡的取代語意。
 	_, err := d.wdb.Exec(`
 		INSERT INTO lore_entry (`+loreEntryColumns+`)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT (id) DO UPDATE SET
+			heading = excluded.heading,
 			trigger = excluded.trigger, content = excluded.content,
-			retire_when = excluded.retire_when, problem = excluded.problem,
+			retire_when = excluded.retire_when, impact = excluded.impact,
+			impact_stars = excluded.impact_stars, reviewed = excluded.reviewed,
 			status = excluded.status,
 			supersedes = excluded.supersedes, editable_by = excluded.editable_by,
 			origin = excluded.origin, updated_ts = excluded.updated_ts`,
-		e.ID, e.Trigger, e.Content, e.RetireWhen, e.Problem,
+		e.ID, e.Heading, e.Trigger, e.Content, e.RetireWhen, e.Impact,
+		e.ImpactStars, e.Reviewed,
 		e.Status, e.Supersedes, e.EditableBy, e.Origin,
 		e.CreatedTS, e.UpdatedTS)
 	return err

@@ -12,14 +12,18 @@ import (
 
 func t33Write() LoreWrite {
 	return LoreWrite{
-		Trigger:    "我要確認開機脈絡是在哪裡組起來的",
-		Content:    "the fold happens in one place",
-		RetireWhen: "等組裝路徑不只一條",
-		Problem:    "T-33 slot 3：兩個區塊對同一件事說法不一樣",
-		Origin:     "agent:O-197",
-		Subjects:   []string{"repo:officraft"},
-		Actions:    []string{"read-code"},
-		ActorID:    "ow-e27260b9ed05",
+		// 標題格與第 1 格刻意不是同一句話：v8 的標題寫「發生了什麼」，第 1 格
+		// 寫「我要做 X」。寫成同一句，一個把兩格接反的錯誤就沒有任何測試看得見。
+		Heading:     "開機脈絡在兩個地方各組了一次，兩份內容不一樣",
+		Trigger:     "我要確認開機脈絡是在哪裡組起來的",
+		Content:     "the fold happens in one place",
+		RetireWhen:  "等組裝路徑不只一條",
+		Impact:      "T-33 slot 3：兩個區塊對同一件事說法不一樣",
+		ImpactStars: 2,
+		Origin:      "agent:O-197",
+		Subjects:    []string{"repo:officraft"},
+		Actions:     []string{"read-code"},
+		ActorID:     "ow-e27260b9ed05",
 	}
 }
 
@@ -107,10 +111,26 @@ func TestLoreCreateWritesEntrySubjectsActionsAndOriginal(t *testing.T) {
 // which is the collapse this ticket exists to prevent.
 func TestLoreRevisionBodyNamesEveryFieldEvenWhenBlank(t *testing.T) {
 	body := loreRevisionBody(LoreEntry{Content: "only this one is set"}, nil)
-	for _, name := range []string{"trigger", "content", "retire_when", "problem", "events"} {
+	for _, name := range []string{"trigger", "content", "retire_when", "impact", "events"} {
 		if !strings.Contains(body, name+":\n") {
 			t.Fatalf("the rendered original drops the %q section:\n%s", name, body)
 		}
+	}
+	// 🔴 這一段釘的是一個**已知的洞**，不是一個想要的性質：標題格與星等不在
+	// 原文裡。渲染器那段註解說明了為什麼（提案帶不動這兩格，印進去會讓每一次
+	// 核可留下一份宣稱「這條沒有標題」的原文）。釘住它是因為兩件事：改渲染器的
+	// 人會在這裡撞到這個決定並被送去讀那段理由，而不是自己重新推一遍；以及
+	// 「這一格沒被記錄下來」這件事本身要有人看得見，不能只活在註解裡。
+	full := loreRevisionBody(LoreEntry{Heading: "H", ImpactStars: 3}, nil)
+	for _, name := range []string{"heading", "impact_stars"} {
+		if strings.Contains(full, name+":\n") {
+			t.Fatalf("原文現在印了 %q。這不是壞事，但它會讓每一次核可（提案帶不動這一格）"+
+				"寫下一份把它記成空的原文——先讀 loreRevisionBody 上面那段，"+
+				"再決定要不要一起解掉提案那一側:\n%s", name, full)
+		}
+	}
+	if strings.Contains(full, "H") {
+		t.Fatal("標題的內容漏進了原文，但它的欄名沒有——那是最糟的一種：摘要會因為標題而變，讀的人卻不知道是哪一格變了")
 	}
 	if loreSHA256(body) == loreSHA256(loreRevisionBody(LoreEntry{}, nil)) {
 		t.Fatal("an entry with a body and an entirely empty one hash the same")
@@ -133,10 +153,14 @@ func TestLoreRevisionBodyNamesEveryFieldEvenWhenBlank(t *testing.T) {
 	}
 }
 
-// 🔴 兩格空白都被拒：第 1 格 trigger 與第 2 格 content，而且每一格是它自己的
-// 具名錯誤——沒有哪一格會被折進別格的錯誤裡，不然寫的人只會知道「被擋了」而不
-// 知道要補哪一格。
-func TestLoreCreateRefusesTheTwoCellsWithoutWhichNothingIsReachable(t *testing.T) {
+// 🔴 三格空白都被拒：v8 的標題格、第 1 格 trigger 與第 2 格 content，而且每一格
+// 是它自己的具名錯誤——沒有哪一格會被折進別格的錯誤裡，不然寫的人只會知道
+// 「被擋了」而不知道要補哪一格。
+//
+// ⚠️ 標題格被拒的理由跟另外兩格**不一樣**，而這個測試的名字現在只講得出其中一種：
+// 少了 trigger／content 這條撈不到，少了 heading 這條撈得到、但在清單上跟一條寫完
+// 的長得一模一樣。兩種都是「沒有人會回來補」，路徑不同。
+func TestLoreCreateRefusesTheThreeCellsThatMakeAnEntryReadable(t *testing.T) {
 	d := newTestDAL(t)
 	t33Entity(t, d, "e-repo", "repo", "repo:officraft")
 
@@ -145,6 +169,8 @@ func TestLoreCreateRefusesTheTwoCellsWithoutWhichNothingIsReachable(t *testing.T
 		mangle func(*LoreWrite)
 		want   error
 	}{
+		{"blank heading", func(w *LoreWrite) { w.Heading = "" }, ErrLoreHeadingBlank},
+		{"whitespace heading", func(w *LoreWrite) { w.Heading = " \t " }, ErrLoreHeadingBlank},
 		{"blank trigger", func(w *LoreWrite) { w.Trigger = "" }, ErrLoreTriggerBlank},
 		{"whitespace trigger", func(w *LoreWrite) { w.Trigger = "  \t " }, ErrLoreTriggerBlank},
 		{"blank content", func(w *LoreWrite) { w.Content = "" }, ErrLoreContentBlank},
@@ -165,7 +191,10 @@ func TestLoreCreateRefusesTheTwoCellsWithoutWhichNothingIsReachable(t *testing.T
 	// 也變成必填的實作會讓上面全綠——而那就是擅自把選填改成必填。
 	optional := t33Write()
 	optional.RetireWhen = ""
-	optional.Problem = ""
+	optional.Impact = ""
+	// 🔴 星等也一起歸零，而 0 是一個合法的值：它的意思是「還沒判」。這一行讓
+	// 「把沒填的星等補成 1」那種實作在下面被抓到。
+	optional.ImpactStars = 0
 	optRes, err := d.CreateLoreEntry(optional, 1000)
 	if err != nil {
 		t.Fatalf("第 3、4 格是選填，空著必須收: %v", err)
@@ -178,8 +207,19 @@ func TestLoreCreateRefusesTheTwoCellsWithoutWhichNothingIsReachable(t *testing.T
 	if landed == nil {
 		t.Fatal("第 3、4 格空著的條目沒有落地")
 	}
-	if landed.RetireWhen != "" || landed.Problem != "" {
-		t.Fatalf("空著的第 3、4 格被發明了預設值: retire_when=%q problem=%q", landed.RetireWhen, landed.Problem)
+	if landed.RetireWhen != "" || landed.Impact != "" {
+		t.Fatalf("空著的第 3、4 格被發明了預設值: retire_when=%q impact=%q", landed.RetireWhen, landed.Impact)
+	}
+	// 🔴 0 必須原樣落地。把它補成 1（沒弄壞任何東西）等於替寫入者做了一次他沒做
+	// 的判定，而之後沒有任何人查得出來誰漏填。
+	if landed.ImpactStars != 0 {
+		t.Fatalf("沒有填的星等被判了一個等級: impact_stars=%d —— 0 是「還沒判」，不是「最輕」", landed.ImpactStars)
+	}
+	// 🔴 `reviewed` 不由寫入者帶進來，所以一條剛寫好的條目一定是沒蓋過章的。
+	// 少了這一行，一個把 reviewed 接上請求體的實作會讓 agent 自己蓋自己的章，
+	// 而且全綠。
+	if landed.Reviewed {
+		t.Fatal("一條剛寫進來的條目就已經是 reviewed —— 蓋章的那一欄被寫入路徑碰到了")
 	}
 
 	// 完整的寫入照樣成功。少了這一半，一個把每一筆寫入都拒掉的實作也會讓上面全綠。
@@ -261,7 +301,16 @@ func TestLoreEntriesWrittenBeforeTheRequirementStillReadBack(t *testing.T) {
 		ID: "lore-legacy-01", Trigger: "我要做某件事", Content: "y",
 		Origin: "agent:O-197", CreatedTS: 1000, UpdatedTS: 1000,
 	}
-	if err := d.PutLoreEntry(legacy); err != nil {
+	// 🔴 這一列是用**原始 INSERT** 種下去的，不是 PutLoreEntry，而那正是它要模擬
+	// 的東西：v8 之前的條目沒有標題格，而 PutLoreEntry 現在會拒絕空標題。走
+	// PutLoreEntry 就種不出一列 v8 之前的條目，只種得出一列今天合法的條目——
+	// 那樣這支測試就不再是在問它宣稱要問的問題。
+	if _, err := d.wdb.Exec(`
+		INSERT INTO lore_entry (id, trigger, content, origin, status, editable_by,
+			created_ts, updated_ts)
+		VALUES (?, ?, ?, ?, 'active', 'agent', ?, ?)`,
+		legacy.ID, legacy.Trigger, legacy.Content, legacy.Origin,
+		legacy.CreatedTS, legacy.UpdatedTS); err != nil {
 		t.Fatalf("seed a pre-requirement entry: %v", err)
 	}
 	got := t33Get(t, d, legacy.ID)
@@ -269,8 +318,15 @@ func TestLoreEntriesWrittenBeforeTheRequirementStillReadBack(t *testing.T) {
 		t.Fatal("an entry written before the requirement stopped being readable")
 	}
 	if got.Trigger != legacy.Trigger || got.Content != legacy.Content ||
-		got.RetireWhen != "" || got.Problem != "" {
+		got.RetireWhen != "" || got.Impact != "" {
 		t.Fatalf("a pre-requirement entry did not read back as written: %+v", got)
+	}
+	// 🔴 v8 加的三格在一列 v8 之前的條目上讀回來是零值，而且**讀得回來**：
+	// 空標題不會讓這一列讀不到（必填只擋新寫入），星等是 0＝還沒判，章沒蓋過。
+	// 少了這三行，一個對舊列直接爆掉、或把 0 當成 1 的讀取路徑會讓上面全綠。
+	if got.Heading != "" || got.ImpactStars != 0 || got.Reviewed {
+		t.Fatalf("一列 v8 之前的條目讀回來時被補了 v8 的欄位: heading=%q stars=%d reviewed=%v",
+			got.Heading, got.ImpactStars, got.Reviewed)
 	}
 }
 

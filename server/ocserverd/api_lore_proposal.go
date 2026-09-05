@@ -99,10 +99,13 @@ func (s *apiServer) HandleProposeLoreChangeApiLoreEntriesEntryIdProposalsPost(w 
 		Evidence:    body.Evidence,
 		// 提案帶的是**完整的新版本**：四格 + 第 5 格的整份事件清單（負責人
 		// 2026-09-03 裁定，卡 rc-e5c34500face）。
+		// ⚠️ 「完整」在 v8 之後對整條條目已經不成立：標題格與星等這裡收不到，
+		// 因為 lore_proposal 沒有那兩欄，核可時它們原封不動留在條目上。線上的
+		// 欄位說明（LoreProposeDTO）把這件事寫給了提案人，這裡寫給改這支的人。
 		Trigger:    strOrEmpty(body.Trigger),
 		Content:    strOrEmpty(body.Content),
 		RetireWhen: strOrEmpty(body.RetireWhen),
-		Problem:    strOrEmpty(body.Problem),
+		Impact:     strOrEmpty(body.Impact),
 		Events:     loreProposeEvents(body.Events),
 		ActorID:    currentActor(r),
 	}, nowSecs())
@@ -163,7 +166,7 @@ func (s *apiServer) HandleListLoreProposalsApiLoreEntriesEntryIdProposalsGet(w h
 			Trigger:        p.Trigger,
 			Content:        p.Content,
 			RetireWhen:     p.RetireWhen,
-			Problem:        p.Problem,
+			Impact:         p.Impact,
 			Events:         loreEventDTOs(p.Events),
 			EventsAdded:    loreEventDTOs(p.EventsAdded),
 			EventsRemoved:  loreEventDTOs(p.EventsRemoved),

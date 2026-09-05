@@ -86,7 +86,7 @@ func loreAcceptUpdateBody(base, marker string) string {
 		"trigger":"two blocks disagree about the same fact",
 		"content":"` + marker + `",
 		"retire_when":"等只剩一個組裝器",
-		"problem":"T-33 slot 3",
+		"impact":"T-33 slot 3",
 		"events":[{"happened_ts":1788440000,"what":"` + marker + ` was proposed"}]}`
 }
 

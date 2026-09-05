@@ -2464,7 +2464,8 @@ let relocationDeferredNext = false;
 //
 // 🔴 The 六格 cells that 五格 dropped (`label` / `falsify` / `residual_risk`) are
 // GONE from this fixture rather than parked in an unused field: `symptoms` →
-// `trigger`, `short` → `content`, `instance` → `problem`, and `retire_when` is
+// `trigger`, `short` → `content`, `instance` → `impact`（v8 之前這一格叫
+// `problem`）, and `retire_when` is
 // a cell nobody had when these were written, so it is blank. Keeping the dropped
 // text around in a field no route serves would put words on a screen the station
 // cannot produce.
@@ -2477,7 +2478,7 @@ interface MockLoreEntry {
   /** 第 3 格 — free text. Blank on all five: the cell did not exist yet. */
   retireWhen: string;
   /** 第 4 格. */
-  problem: string;
+  impact: string;
   /** 第 5 格 — see the note above on why every one of these is empty. */
   events: LoreEventView[];
   subjects: string[];
@@ -2495,7 +2496,7 @@ const MOCK_LORE_ENTRIES: MockLoreEntry[] = [
     content:
       "綠燈只證明「它看得到的那些東西沒問題」。go test -run 配一個匹配不到任何東西的正則，輸出跟真的全部通過逐字相同（唯一訊號 no tests to run 常被 grep 濾掉）。⇒ 跑完之後要問的是「這一次的量法，看得到的範圍是什麼」——而且要在跑過之後問，不是在寫的時候。",
     retireWhen: "",
-    problem:
+    impact:
       '2026-09-01：-run 的正則打錯字，26 顆 mutant 一顆都沒跑，回報 PASS。分母改成可驗的做法是逐一 grep -c "^func <name>("。',
     events: [],
     subjects: ["repo:officraft"],
@@ -2512,7 +2513,7 @@ const MOCK_LORE_ENTRIES: MockLoreEntry[] = [
     content:
       "機制存在只證明那條路上有那段碼，不證明這一次走的是那條路。實例：升級前備份只掛在 serve 開機那條路（backupBeforeMigrations 全樹一個呼叫者），而 bin/migrate 走的是沒有它的那條 ⇒ 用 migrate 升級的人沒有退路，而畫面上跟有退路一模一樣。⇒ 保證要講「這一次」，不是「有機制」。",
     retireWhen: "",
-    problem:
+    impact:
       "2026-09-01 分站換版：因此改成走 serve 開機而不是 migrate，並另外手拍一份驗過的備份。",
     events: [],
     subjects: ["repo:officraft"],
@@ -2528,7 +2529,7 @@ const MOCK_LORE_ENTRIES: MockLoreEntry[] = [
     content:
       "對一台會自己動的機器（有更新器、有排程、有 KeepAlive），驗證是瞬時的而狀態不是。⇒ 驗完要多問一句「有什麼東西會在我不看的時候改變它」，並把答案變成可觀察的（掛一個定期查、或關掉那個會動的東西）。",
     retireWhen: "",
-    problem:
+    impact:
       "2026-09-01：我回報 trial 站跑 feab5437，90 秒後它自己 [upgrade] 換成 v0.5.281。成因是我複製的 DB 帶著 updater.auto_update=true。",
     events: [],
     subjects: ["repo:officraft"],
@@ -2545,7 +2546,7 @@ const MOCK_LORE_ENTRIES: MockLoreEntry[] = [
     content:
       "OffiCraft 的站台設定存在 DB 的 setting 表裡（updater.auto_update、receive_beta、JWT 簽章金鑰等），所以複製 DB 會一起搬過去。後果一：新站會照舊站的自動更新設定把你剛裝的 binary 換掉。後果二：舊站簽出來的 token 在新站也通。⇒ 複製 DB 之後、開機之前，先把那些跟「這台該怎麼行為」有關的設定改掉。",
     retireWhen: "",
-    problem:
+    impact:
       "2026-09-01：分站換版後 90 秒自己升級（auto_update 跟著 DB 過去）；另外我主站的 agent token 打分站 /api/members 回 200，改一個字元回 401 ⇒ 簽章金鑰也跟著過去了。",
     events: [],
     subjects: ["repo:officraft"],
@@ -2561,7 +2562,7 @@ const MOCK_LORE_ENTRIES: MockLoreEntry[] = [
     content:
       "收回只對聽到的人生效，幾秒鐘；真正的工作是把那句話從每一個會被再讀一次的地方拔掉（記憶檔、步驟筆記、票面、已送出的卡、產物、PR 描述）。⇒ 真正會發生的失敗不是不願意更正，是只做了便宜的那一半，而做完那半的人主觀上覺得自己已經更正過了。",
     retireWhen: "",
-    problem:
+    impact:
       "2026-09-01：Kyle 收回一句關於部署路徑的錯誤結論，而那句話已經被我寫進步驟筆記（下一代開機第一件要讀的東西）。掃描結果：步驟筆記命中 1、卡零、產物零、waiting_reason 零。",
     events: [],
     subjects: ["repo:officraft"],
@@ -2601,7 +2602,7 @@ function mockLoreOriginal(e: MockLoreEntry): string {
     ["trigger", e.trigger],
     ["content", e.content],
     ["retire_when", e.retireWhen],
-    ["problem", e.problem],
+    ["impact", e.impact],
   ] as const) {
     body += `${name}:\n${value}\n\n`;
   }
@@ -6759,7 +6760,7 @@ export const mockApi: Api = {
       trigger: e.trigger,
       content: e.content,
       retireWhen: e.retireWhen,
-      problem: e.problem,
+      impact: e.impact,
       events: e.events.map((ev) => ({ ...ev })),
       subjects: [...e.subjects],
       actions: [...e.actions],

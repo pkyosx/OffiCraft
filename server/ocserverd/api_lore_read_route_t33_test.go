@@ -46,13 +46,37 @@ func TestLoreReadRouteHandsBackWhatContentCompressedAway(t *testing.T) {
 	// the erosion this ticket exists to make visible.
 	// 五格：四個欄位 + `events:` 區塊。`events:` 也在這一行裡，因為一條沒有事件
 	// 的條目跟一條事件被改寫弄丟的條目在原文裡必須不一樣。
-	for _, f := range []string{"trigger:", "content:", "retire_when:", "problem:", "events:"} {
+	for _, f := range []string{"trigger:", "content:", "retire_when:", "impact:", "events:"} {
 		if !strings.Contains(got.Original, f) {
 			t.Fatalf("the original drops %q:\n%s", f, got.Original)
 		}
 	}
 	if got.Sha256 != loreSHA256(got.Original) {
 		t.Fatalf("the digest does not hash the served text")
+	}
+	// 🔴 v8 加的三格在線上讀得回來。標題與第 1 格在 seed 裡刻意是兩句不同的話：
+	// 值相同的話，一個把兩格接反的 handler 會讀回來完全正確。
+	// ⚠️ 星等在這裡是 0，而那是 seed 沒有送 `impact_stars` 的結果——0 = 還沒判。
+	// 它斷言的是「沒送不會被補成 1」，不是「星等接上了」；星等接上了那一半由
+	// TestLoreEntryCellsRoundTripByName 與寫入路由那支的 422 撐著。
+	if got.Heading != "something became visible that had not been" {
+		t.Fatalf("heading = %q — 標題格沒有被接到讀取路徑上", got.Heading)
+	}
+	if got.Impact != "T-33 slot 3" || got.ImpactStars != 0 {
+		t.Fatalf("impact = %q / stars = %d", got.Impact, got.ImpactStars)
+	}
+	// ⚠️ `reviewed` 一定是 false，而那不是這支測出來的性質，是這一版**沒有任何
+	// 路由蓋得了章**的結果。它被斷言在這裡，是為了讓「有人把 reviewed 接上了
+	// 寫入路徑」這件事在這裡紅掉，而不是等到 agent 開始自己蓋自己的章才被發現。
+	if got.Reviewed {
+		t.Fatal("一條剛寫進來的條目讀回來就是 reviewed —— 蓋章的那一欄被寫入路徑碰到了")
+	}
+	// 🔴 標題**不在原文裡**，而這是被知道的洞（見 loreRevisionBody 上的說明）。
+	// 釘在這裡是因為它是線上看得見的那一面：讀的人拿到 original 之後，會以為
+	// 那就是這條條目當初寫下的全部。
+	if strings.Contains(got.Original, "heading:") {
+		t.Fatalf("原文現在帶了標題格 —— 先讀 loreRevisionBody 上面那段，"+
+			"核可路徑會讓它變成一份說謊的原文:\n%s", got.Original)
 	}
 	if got.WrittenBy != "m-lore-agent" {
 		t.Fatalf("written_by = %q, want the verified token subject", got.WrittenBy)

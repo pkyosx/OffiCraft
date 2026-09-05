@@ -29,8 +29,13 @@ import (
 // reporting it as one would send a writer off to edit a body that was fine.
 func writeLoreWriteError(w http.ResponseWriter, err error) {
 	switch {
-	case errors.Is(err, ErrLoreTriggerBlank),
+	case errors.Is(err, ErrLoreHeadingBlank),
+		errors.Is(err, ErrLoreTriggerBlank),
 		errors.Is(err, ErrLoreContentBlank),
+		// 🔴 星等超出 0..3 是 422 而不是 500。資料庫的 CHECK 也會擋，但它回來的是
+		// 一句 driver 訊息，只能被報成「伺服器出事了」——而送 star=7 的人是可以
+		// 自己修好的。這裡的 422 指名了是哪一格、以及三級各是什麼意思。
+		errors.Is(err, ErrLoreImpactStarsRange),
 		// 第 5 格的四種拒絕。它們是 422 而不是 500：一筆事件缺時間、缺主動語態的
 		// 「事」，或人／地／物寫成不是 `type:name`／型別沒被核准，都是寫入者可以
 		// 自己修好的東西，而且錯誤訊息會指名是哪一格。
@@ -71,20 +76,27 @@ func writeLoreWriteError(w http.ResponseWriter, err error) {
 // to be one subject.
 func (s *apiServer) HandleWriteLoreEntryApiLoreEntriesPost(w http.ResponseWriter, r *http.Request) {
 	var body LoreWriteDTO
-	// 🔴 只有第 1、2 格在這裡被要求「必須出現」。第 3、4 格是選填，第 5 格是
-	// 0..N——把它們列進來會讓「這條沒有問題可以寫」變成一個送不出去的請求。
-	if !decodeJSONBodyStrict(w, r, &body, "trigger", "content", "origin", "subjects") {
+	// 🔴 標題格與第 1、2 格在這裡被要求「必須出現」。第 3、4 格是選填，第 5 格是
+	// 0..N——把它們列進來會讓「這條沒有後果可以寫」變成一個送不出去的請求。
+	// ⚠️ `impact_stars` 也不在這裡：省略它得到 0＝「還沒判」，那是一個合法的狀態，
+	// 而要求它出現等於逼每一個寫入者當場判一個他還沒判的東西。
+	if !decodeJSONBodyStrict(w, r, &body, "heading", "trigger", "content", "origin", "subjects") {
 		return
 	}
 	write := LoreWrite{
+		Heading:    body.Heading,
 		Trigger:    body.Trigger,
 		Content:    body.Content,
 		RetireWhen: strOrEmpty(body.RetireWhen),
-		Problem:    strOrEmpty(body.Problem),
-		Origin:     body.Origin,
-		Supersedes: strOrEmpty(body.Supersedes),
-		Subjects:   body.Subjects,
-		ActorID:    currentActor(r),
+		Impact:     strOrEmpty(body.Impact),
+		// 🔴 省略 impact_stars 折成 0，而 0 的意思是「還沒判」——**不是**「最輕」。
+		// 這一層不替沒送的人補一個 1：那會讓「沒有人判過」與「判為沒弄壞任何東西」
+		// 在資料庫裡永遠分不開，而 v8 的自檢正是靠這個差別找出誰漏填。
+		ImpactStars: intOr(body.ImpactStars, 0),
+		Origin:      body.Origin,
+		Supersedes:  strOrEmpty(body.Supersedes),
+		Subjects:    body.Subjects,
+		ActorID:     currentActor(r),
 	}
 	if body.Actions != nil {
 		write.Actions = *body.Actions

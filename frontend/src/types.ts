@@ -1158,9 +1158,14 @@ export interface LoreEntryDetailView {
    * — and an EMPTY one is rendered as an empty field with its name printed,
    * never omitted: 「blank」 and 「no such section」 must not look the same. */
   retireWhen: string;
-  /** 第 4 格「之前發生過什麼問題」— optional as a field while being the
-   * substance of the entry. May be empty, same rendering rule. */
-  problem: string;
+  /** 第 4 格「impact」— 原本想達成什麼、實際變成什麼。v8 之前這一格叫
+   * `problem`，問的是起因。Optional as a field while being the substance of
+   * the entry. May be empty, same rendering rule.
+   *
+   * ⚠️ v8 的標題格 (`heading`)、星等 (`impact_stars`) 與審核旗標 (`reviewed`)
+   * 線上都送得到，而這個 view model 還沒有它們——那是傳承分頁自己的一批，不是
+   * 這裡漏了。少了它們，畫面上會看不出一條條目有沒有標題、判過幾顆星。 */
+  impact: string;
   /** 第 5 格, IN THE ORDER THE EVENTS HAPPENED — empty array when the entry
    * carries none, which the surface states rather than omits. */
   events: LoreEventView[];

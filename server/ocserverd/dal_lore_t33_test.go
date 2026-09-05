@@ -19,15 +19,20 @@ func t33Entity(t *testing.T, d *DAL, id, typ, canonical string) {
 func t33Entry(id string) LoreEntry {
 	return LoreEntry{
 		ID: id,
+		// 🔴 標題格照 v8 的要求寫「發生了什麼」，而不是「我要做 X」——那是第 1 格
+		// 的形狀。兩格在這個 fixture 裡刻意寫成不同的句子，否則一個把 heading 接到
+		// trigger 上的錯誤會被兩個相同的字串蓋掉。
+		Heading: "前端畫面接的是假資料，而畫面上看不出來",
 		// 🔴 第 1 格照負責人示範的寫法：一整句「我要做 X」，遠超過舊的 40 runes
-		// 上限。它同時就是這條條目的標題。
-		Trigger:    "我要確認一個 OffiCraft 前端畫面接的是真後端，還是假資料",
-		Origin:     "agent:O-197",
-		Content:    "the fold happens in one place",
-		RetireWhen: "等前端不再有假資料模式",
-		Problem:    "T-33 slot 3：兩個區塊對同一件事說法不一樣",
-		CreatedTS:  100,
-		UpdatedTS:  100,
+		// 上限。它**不再**兼任標題（v8）。
+		Trigger:     "我要確認一個 OffiCraft 前端畫面接的是真後端，還是假資料",
+		Origin:      "agent:O-197",
+		Content:     "the fold happens in one place",
+		RetireWhen:  "等前端不再有假資料模式",
+		Impact:      "T-33 slot 3：兩個區塊對同一件事說法不一樣",
+		ImpactStars: 2,
+		CreatedTS:   100,
+		UpdatedTS:   100,
 	}
 }
 
@@ -396,24 +401,68 @@ func TestLoreCountAgreesWithList(t *testing.T) {
 	}
 }
 
-// 五格的前四格 survive a write and a read, by name. A column dropped from the
-// INSERT list or transposed in the scan would otherwise show up much later as an
-// entry that lost one cell.
-func TestLoreFiveCellsRoundTripByName(t *testing.T) {
+// 六格裡存在 lore_entry 上的那幾格 survive a write and a read, by name. A column
+// dropped from the INSERT list or transposed in the scan would otherwise show up
+// much later as an entry that lost one cell.
+//
+// 🔴 每一格的值都不一樣，而且**沒有一個是零值**：兩格值相同的話，把它們對調的
+// bug 會讀回來完全正確。impact_stars 用 3、reviewed 用 true，理由同上——用 0 和
+// false 的話，一個根本沒寫進去的欄位會跟一個寫對了的欄位長得一模一樣。
+func TestLoreEntryCellsRoundTripByName(t *testing.T) {
 	d := newTestDAL(t)
 	e := LoreEntry{
-		ID:         "me-five",
-		Trigger:    "TR",
-		Content:    "CO",
-		RetireWhen: "RW",
-		Problem:    "PR",
-		Origin:     "agent:O-197",
+		ID:          "me-five",
+		Heading:     "HD",
+		Trigger:     "TR",
+		Content:     "CO",
+		RetireWhen:  "RW",
+		Impact:      "IM",
+		ImpactStars: 3,
+		Reviewed:    true,
+		Origin:      "agent:O-197",
 	}
 	t33Put(t, d, e)
 	got := t33Get(t, d, "me-five")
-	if got.Trigger != "TR" || got.Content != "CO" ||
-		got.RetireWhen != "RW" || got.Problem != "PR" {
+	if got.Heading != "HD" || got.Trigger != "TR" || got.Content != "CO" ||
+		got.RetireWhen != "RW" || got.Impact != "IM" ||
+		got.ImpactStars != 3 || !got.Reviewed {
 		t.Fatalf("a body cell was lost or transposed: %+v", *got)
+	}
+}
+
+// 🔴 星等的值域擋在 DAL，不是只擋在 CHECK 上，而錯誤是具名的：CHECK 只回得出
+// 「constraint failed」，上層只能把它報成 500，而送錯星等的人是可以自己修好的。
+//
+// 0 也一起被斷言是**合法**的，而且那不是順手：0 的意思是「還沒判」，把它擋掉
+// 等於逼每一條既有條目與每一次沒填的寫入當場被判一個等級。
+func TestLoreImpactStarsRefusesWhatIsNotAStar(t *testing.T) {
+	d := newTestDAL(t)
+	for _, stars := range []int{-1, 4, 7} {
+		e := t33Entry("me-stars")
+		e.ImpactStars = stars
+		if err := d.PutLoreEntry(e); !errors.Is(err, ErrLoreImpactStarsRange) {
+			t.Fatalf("impact_stars=%d 被收下了: %v", stars, err)
+		}
+	}
+	for _, stars := range []int{0, 1, 2, 3} {
+		e := t33Entry("me-stars")
+		e.ImpactStars = stars
+		if err := d.PutLoreEntry(e); err != nil {
+			t.Fatalf("impact_stars=%d 是合法的，卻被擋了: %v", stars, err)
+		}
+	}
+}
+
+// 🔴 標題格空白被拒，而且是在**這個原始的 upsert 縫**上，不只在 CreateLoreEntry
+// 上。只擋在寫入路徑等於留一個側門，而從側門進來的無標題條目跟正門進來的長得
+// 一模一樣。錯誤是它自己的具名錯誤，不是被折進 ErrLoreTriggerBlank：兩格空著的
+// 後果不同，補的方法也不同。
+func TestPutLoreEntryRefusesABlankHeading(t *testing.T) {
+	d := newTestDAL(t)
+	e := t33Entry("me-noheading")
+	e.Heading = "   "
+	if err := d.PutLoreEntry(e); !errors.Is(err, ErrLoreHeadingBlank) {
+		t.Fatalf("一條沒有標題的條目從側門進來了: %v", err)
 	}
 }
 

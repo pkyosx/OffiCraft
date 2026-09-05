@@ -33,8 +33,10 @@ import (
 )
 
 var (
-	// 🔴 只剩兩格必填：第 1 格（trigger，錯誤在 dal_lore.go 的
-	// ErrLoreTriggerBlank）與第 2 格（content）。舊的 ErrLoreSymptomsBlank /
+	// 🔴 三格必填：標題格（heading）、第 1 格（trigger）與第 2 格（content）。
+	// 前兩者的錯誤值在 dal_lore.go（ErrLoreHeadingBlank / ErrLoreTriggerBlank），
+	// 因為它們擋在 PutLoreEntry 那個原始 upsert 縫上，不是只擋在這一層。
+	// 舊的 ErrLoreSymptomsBlank /
 	// ErrLoreShortBlank / ErrLoreFalsifyBlank / ErrLoreInstanceBlank 都沒了，
 	// 連同它們的欄位一起——五格裡沒有 falsify、沒有 instance。
 	// ⚠️ 2026-09-02 rc-714eea33c6ed 把 falsify / instance 變成必填的那道裁定，
@@ -60,8 +62,9 @@ var (
 // pointed it and WHEN.
 const LoreGovSupersede = "supersede"
 
-// LoreWrite is one request to create an entry — 五格（四個欄位 + 0..N 筆事件）、
-// the axes it is filed under, and the verified identity of whoever is writing.
+// LoreWrite is one request to create an entry — 六格（標題 + 四個欄位 + 0..N 筆
+// 事件）、the axes it is filed under, and the verified identity of whoever is
+// writing.
 //
 // 🔴 ActorID IS NOT A BODY FIELD ANYWHERE ABOVE THIS. It comes from the verified
 // token subject. `Origin` is a different thing and IS caller-supplied: origin
@@ -70,10 +73,16 @@ const LoreGovSupersede = "supersede"
 // what a human told an agent, which is the origin class the assembler treats as
 // exempt from the count cap.
 type LoreWrite struct {
+	Heading    string
 	Trigger    string
 	Content    string
 	RetireWhen string
-	Problem    string
+	Impact     string
+
+	// ImpactStars 是寫入者的**提案**，不是裁定。0 = 還沒判，1..3 見
+	// loreImpactStarsError。這裡沒有 Reviewed：蓋章的那一欄不由寫入者帶進來，
+	// 否則 agent 就是自己蓋自己的章。
+	ImpactStars int
 
 	// Events 是第 5 格。0 筆是合法的，而且 0 筆跟「有事件但人／地／物空著」是
 	// 兩件完全不同的事，兩件都看得出來。
@@ -112,8 +121,8 @@ type LoreWriteResult struct {
 	Superseded string
 }
 
-// loreRevisionBody renders 五格 — the four cells AND the events — into the text
-// the L0 journal stores.
+// loreRevisionBody renders 第 1..5 格 — the four cells AND the events — into the
+// text the L0 journal stores. 六格 中的標題格不在裡面；為什麼，見下面。
 //
 // 🔴 事件**在 body 裡面**，因此也在 sha256 裡面。少了它，第 5 格就不在 L0 原文
 // 層，而「agent 不再相信 content 那一版，回去看原本說了什麼」對事件就永遠問不到
@@ -139,13 +148,32 @@ type LoreWriteResult struct {
 // empty. A renderer that skipped blanks would hash the same bytes for "the
 // author never wrote this cell" and "this cell was deleted" — the exact collapse
 // this ticket is about.
+//
+// 🔴 第 4 格的名字從 `problem` 改成 `impact`（v8）。舊的 revision 列**不會**被
+// 重新渲染，所以 v8 之前寫下的原文裡那一行仍然是 `problem:` —— 那是對的：原文是
+// 「當初寫下的東西」的紀錄，回頭改它就等於偽造。沒有任何一條路會拿一條舊條目
+// 重新渲染再跟它存下的 sha256 比對（核可寫的是提案存下來的那串 body），所以這次
+// 改名不會讓任何既有條目變成「過期」。
+//
+// ⚠️ 這個渲染器**沒有**印 v8 的 `heading` 與 `impact_stars`，而這是一個被知道的
+// 洞，不是漏掉。理由是核可路徑：ApplyLoreProposal 寫進 lore_revision 的是提案
+// **存下來的**那串 body，而 lore_proposal 沒有 heading／impact_stars 兩欄（見
+// migration 00083／00084：這一批不動提案那張表），所以一份提案渲染得出來的標題
+// 只能是空的。把它們印進去，就會在每一次核可之後留下一份「標題是空的」的原文，
+// 而條目上的標題其實好端端地還在 —— 一份**主動說謊**的原文，比一份不提這一格的
+// 原文更糟：前者會被讀成事實，後者只是沒答案。
+// ⚠️ 我考慮過也否決了的另一條路：讓提案在渲染時去把條目**現在**的標題借過來填。
+// 那會讓摘要涵蓋標題、而且不說謊，代價是這個純函式從此要讀資料庫，而且審核者的
+// diff 裡會出現一行他沒有送、也改不動的內容。那是提案能不能帶標題這張卡的事。
+// 🔴 今天沒有任何一條路改得動 `heading`（只有建立時寫一次），所以這個洞還沒有
+// 東西可以吃。等有了那條路，它就會開始吃 —— 而且不會有人看見。
 func loreRevisionBody(e LoreEntry, events []LoreEvent) string {
 	var b strings.Builder
 	for _, f := range []struct{ name, value string }{
 		{"trigger", e.Trigger},
 		{"content", e.Content},
 		{"retire_when", e.RetireWhen},
-		{"problem", e.Problem},
+		{"impact", e.Impact},
 	} {
 		b.WriteString(f.name)
 		b.WriteString(":\n")
@@ -282,13 +310,19 @@ func loreResolveSubject(tx *sql.Tx, key, actorID string, nowTS float64) (string,
 // reach it by. Half of this write is not a smaller version of it; it is a row
 // that looks finished and is not.
 //
-// 🔴 兩格在空白時被拒：第 1 格 `trigger` 與第 2 格 `content`。理由是同一個——
-// 沒有它這一列誰都讀不到：`content` 是唯一會進開機脈絡的一格，`trigger`
-// （什麼時候要記起來）是讀者找到它的那一軸，而且兼任標題。
+// 🔴 三格在空白時被拒：標題格 `heading`、第 1 格 `trigger` 與第 2 格 `content`。
+// 前兩者被拒的理由**不一樣**，而分開講是有用的：`content` 是唯一會進開機脈絡的
+// 一格、`trigger`（什麼時候要記起來）是讀者找到它的那一軸——少了任一個這一列
+// 誰都讀不到；`heading` 少了的話這一列讀得到，但它在任何清單上跟一條寫完的條目
+// 長得一模一樣，沒有人會知道要回來補。
 //
-// 🔴 第 3 格 `retire_when` 與第 4 格 `problem` 是**選填**，這一層不會替它們補
+// 🔴 第 3 格 `retire_when` 與第 4 格 `impact` 是**選填**，這一層不會替它們補
 // 任何東西。第 4 格「它是主體」是寫作上的重量，不是欄位上的必填——把它變成必填
-// 會把填不出來的人逼去掰一個問題，而掰的跟真的長得一模一樣。
+// 會把填不出來的人逼去掰一個後果，而掰的跟真的長得一模一樣。
+//
+// 🔴 `impact_stars` 收得到 0..3，0 的意思是「還沒判」而不是「最輕」。這一層
+// **不會**把 0 補成 1：那等於替寫入者做一次他沒做的判定。`reviewed` 這個函式
+// 完全不收——它是別人蓋的章，見 LoreWrite 上的說明。
 //
 // ⚠️ 2026-09-02 rc-714eea33c6ed（falsify / instance 純 required）在這一版**沒有
 // 落點**：五格裡這兩格都不存在。不要把它當成被推翻——它是被格式改版讓它沒有欄位
@@ -302,11 +336,17 @@ func (d *DAL) CreateLoreEntry(w LoreWrite, nowTS float64) (LoreWriteResult, erro
 	if w.ActorID == "" {
 		return out, ErrLoreActorBlank
 	}
+	if err := loreHeadingError(w.Heading); err != nil {
+		return out, err
+	}
 	if err := loreTriggerError(w.Trigger); err != nil {
 		return out, err
 	}
 	if strings.TrimSpace(w.Content) == "" {
 		return out, ErrLoreContentBlank
+	}
+	if err := loreImpactStarsError(w.ImpactStars); err != nil {
+		return out, err
 	}
 	if err := d.loreOriginError(w.Origin); err != nil {
 		return out, err
@@ -326,17 +366,22 @@ func (d *DAL) CreateLoreEntry(w LoreWrite, nowTS float64) (LoreWriteResult, erro
 	}
 
 	entry := LoreEntry{
-		ID:         "lore-" + newHexID(12),
-		Trigger:    w.Trigger,
-		Content:    w.Content,
-		RetireWhen: w.RetireWhen,
-		Problem:    w.Problem,
-		Status:     "active",
-		Supersedes: w.Supersedes,
-		EditableBy: "agent",
-		Origin:     w.Origin,
-		CreatedTS:  nowTS,
-		UpdatedTS:  nowTS,
+		ID:      "lore-" + newHexID(12),
+		Heading: w.Heading,
+		Trigger: w.Trigger,
+		Content: w.Content,
+		// 🔴 Reviewed 沒有出現在這裡，而不是被設成 false：這個 struct 的零值就是
+		// false，寫出來反而會讀成「這條路做過一個關於審核的決定」。它做過的決定
+		// 是**不碰**。
+		RetireWhen:  w.RetireWhen,
+		Impact:      w.Impact,
+		ImpactStars: w.ImpactStars,
+		Status:      "active",
+		Supersedes:  w.Supersedes,
+		EditableBy:  "agent",
+		Origin:      w.Origin,
+		CreatedTS:   nowTS,
+		UpdatedTS:   nowTS,
 	}
 	if entry.Supersedes == entry.ID {
 		return out, ErrLoreSupersedesSelf
@@ -347,8 +392,9 @@ func (d *DAL) CreateLoreEntry(w LoreWrite, nowTS float64) (LoreWriteResult, erro
 	err := d.inTx(func(tx *sql.Tx) error {
 		if _, err := tx.Exec(`
 			INSERT INTO lore_entry (`+loreEntryColumns+`)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-			entry.ID, entry.Trigger, entry.Content, entry.RetireWhen, entry.Problem,
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			entry.ID, entry.Heading, entry.Trigger, entry.Content, entry.RetireWhen,
+			entry.Impact, entry.ImpactStars, entry.Reviewed,
 			entry.Status, entry.Supersedes,
 			entry.EditableBy, entry.Origin, entry.CreatedTS, entry.UpdatedTS); err != nil {
 			return err

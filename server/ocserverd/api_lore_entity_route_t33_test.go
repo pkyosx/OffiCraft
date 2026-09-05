@@ -285,7 +285,7 @@ func TestLoreEntityPendingRouteCarriesTheReviewPacket(t *testing.T) {
 	url, dal, _, adminTok, _ := loreEntityStack(t)
 	t33Entity(t, dal, "en-real", "repo", "repo:officraft")
 	if _, err := dal.CreateLoreEntry(LoreWrite{
-		Trigger: "t", Content: "the fold happens in exactly one place",
+		Heading: "h", Trigger: "t", Content: "the fold happens in exactly one place",
 		Origin: "agent:O-197", Subjects: []string{"repo:OffiCraft"}, ActorID: "m-writer",
 	}, 100); err != nil {
 		t.Fatalf("write: %v", err)
@@ -351,6 +351,7 @@ func TestLoreEntityPendingRouteCarriesTheEmptinessAndTheEntries(t *testing.T) {
 	// was minted and never used again. On the old wire both would have shown a
 	// count and a sample and nothing to tell them apart.
 	kept, err := dal.CreateLoreEntry(LoreWrite{
+		Heading: "the queue showed one sample and hid the rest",
 		Trigger: "I am about to review a name I cannot see behind",
 		Content: "the queue showed one sample and no way to open the rest",
 		Origin:  "agent:O-197", Subjects: []string{"repo:used"}, ActorID: "m-minter",
@@ -359,7 +360,7 @@ func TestLoreEntityPendingRouteCarriesTheEmptinessAndTheEntries(t *testing.T) {
 		t.Fatalf("write: %v", err)
 	}
 	gone, err := dal.CreateLoreEntry(LoreWrite{
-		Trigger: "I am about to be retired", Content: "c",
+		Heading: "this one got retired", Trigger: "I am about to be retired", Content: "c",
 		Origin: "agent:O-197", Subjects: []string{"repo:used"}, ActorID: "m-minter",
 	}, 200)
 	if err != nil {

@@ -34,7 +34,7 @@ func t33Propose(entryID string) LoreProposal {
 		Trigger:     "我要確認開機脈絡是在哪一個檔案組起來的",
 		Content:     "the fold happens in one place, and that place is lore_fold.go",
 		RetireWhen:  "等組裝路徑不只一條",
-		Problem:     "T-33 slot 3：條目指到 dal_lore.go，函式其實已經搬走",
+		Impact:      "T-33 slot 3：條目指到 dal_lore.go，函式其實已經搬走",
 		ActorID:     "ow-e27260b9ed05",
 	}
 }
@@ -193,7 +193,7 @@ func TestLoreProposalStoresTheWholeVersionUnderTheSharedRenderer(t *testing.T) {
 	}
 	want := loreRevisionBody(LoreEntry{
 		Trigger: p.Trigger, Content: p.Content,
-		RetireWhen: p.RetireWhen, Problem: p.Problem,
+		RetireWhen: p.RetireWhen, Impact: p.Impact,
 	}, seededEvents)
 	if row.Body != want {
 		t.Fatalf("stored body is not what the shared renderer produces:\n got %q\nwant %q", row.Body, want)
@@ -206,7 +206,7 @@ func TestLoreProposalStoresTheWholeVersionUnderTheSharedRenderer(t *testing.T) {
 	// is the shape a dropped field actually has.
 	for _, f := range []struct{ section, value string }{
 		{"trigger:", p.Trigger}, {"content:", p.Content},
-		{"retire_when:", p.RetireWhen}, {"problem:", p.Problem},
+		{"retire_when:", p.RetireWhen}, {"impact:", p.Impact},
 	} {
 		if !strings.Contains(row.Body, f.section+"\n"+f.value+"\n") {
 			t.Fatalf("the stored version drops the %q section or its value: %q", f.section, row.Body)
@@ -303,7 +303,7 @@ func TestLoreProposalRefusesAVersionIdenticalToTheBase(t *testing.T) {
 	same := t33Propose(entryID)
 	same.BaseSHA256 = sha
 	same.Trigger, same.Content = entry.Trigger, entry.Content
-	same.RetireWhen, same.Problem = entry.RetireWhen, entry.Problem
+	same.RetireWhen, same.Impact = entry.RetireWhen, entry.Impact
 	if _, err := d.CreateLoreProposal(same, 2000); !errors.Is(err, ErrLoreProposalNoChange) {
 		t.Fatalf("a proposal that changes nothing was filed: %v", err)
 	}
@@ -459,7 +459,7 @@ func TestLoreProposalBodyCarriesTheProposalsOwnEventsNotTheEntrysCurrentOnes(t *
 	}
 	// 而且不是靠「事件根本不在 body 裡」蒙混過去的：拿掉事件的渲染必須不一樣。
 	if loreSHA256(body) == loreSHA256(loreRevisionBody(LoreEntry{
-		Trigger: p.Trigger, Content: p.Content, RetireWhen: p.RetireWhen, Problem: p.Problem,
+		Trigger: p.Trigger, Content: p.Content, RetireWhen: p.RetireWhen, Impact: p.Impact,
 	}, nil)) {
 		t.Fatal("帶事件與不帶事件渲染出同一串 —— 第 5 格不在 digest 裡")
 	}
@@ -488,7 +488,7 @@ func TestLoreProposalThatOnlyMovesEventsIsNotNoChange(t *testing.T) {
 		EntryID: seeded.EntryID, Kind: "update", BaseSHA256: seeded.SHA256,
 		Encountered: "在讀這條的時候發現第 5 格串錯了", Fault: "never-true",
 		Evidence: "那台機器當天根本沒有被碰過",
-		Trigger:  w.Trigger, Content: w.Content, RetireWhen: w.RetireWhen, Problem: w.Problem,
+		Trigger:  w.Trigger, Content: w.Content, RetireWhen: w.RetireWhen, Impact: w.Impact,
 		Events:  []LoreEvent{t33Event(1700000000, "人工修好的那一筆")},
 		ActorID: "ow-e27260b9ed05",
 	}

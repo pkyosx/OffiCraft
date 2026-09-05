@@ -15,6 +15,7 @@ import (
 func t33Mint(t *testing.T, d *DAL, subjects ...string) LoreWriteResult {
 	t.Helper()
 	got, err := d.CreateLoreEntry(LoreWrite{
+		Heading:  "the pending queue filled up and nobody read it",
 		Trigger:  "the queue is full and nothing reads it",
 		Content:  "the pending column had no exit",
 		Origin:   "agent:O-197",
@@ -445,14 +446,14 @@ func TestPendingLoreEntityIgnoresSubjectsAReviewerCouldNotMergeInto(t *testing.T
 func TestPendingLoreEntityCarriesTheFirstEntrysContentAsASample(t *testing.T) {
 	d := newTestDAL(t)
 	first, err := d.CreateLoreEntry(LoreWrite{
-		Trigger: "t", Content: "the fold happens in exactly one place",
+		Heading: "h", Trigger: "t", Content: "the fold happens in exactly one place",
 		Origin: "agent:O-197", Subjects: []string{"repo:offcraft"}, ActorID: "m-writer",
 	}, 100)
 	if err != nil {
 		t.Fatalf("first write: %v", err)
 	}
 	if _, err := d.CreateLoreEntry(LoreWrite{
-		Trigger: "t", Content: "a later entry that must NOT be the sample",
+		Heading: "h", Trigger: "t", Content: "a later entry that must NOT be the sample",
 		Origin: "agent:O-197", Subjects: []string{"repo:offcraft"}, ActorID: "m-writer",
 	}, 200); err != nil {
 		t.Fatalf("second write: %v", err)
@@ -465,7 +466,7 @@ func TestPendingLoreEntityCarriesTheFirstEntrysContentAsASample(t *testing.T) {
 	// rather than a sentence invented here.
 	long := strings.Repeat("長", loreSampleShortRunes+40)
 	if _, err := d.CreateLoreEntry(LoreWrite{
-		Trigger: "t", Content: long, Origin: "agent:O-197",
+		Heading: "h", Trigger: "t", Content: long, Origin: "agent:O-197",
 		Subjects: []string{"repo:verbose"}, ActorID: "m-writer",
 	}, 300); err != nil {
 		t.Fatalf("long write: %v", err)
@@ -598,7 +599,7 @@ func TestPendingLoreEntityReportsAFamilyResemblanceWithItsOwnReason(t *testing.T
 func TestListPendingLoreEntitiesNamesWhoMintedTheKey(t *testing.T) {
 	d := newTestDAL(t)
 	if _, err := d.CreateLoreEntry(LoreWrite{
-		Trigger: "t", Content: "c", Origin: "agent:O-197",
+		Heading: "h", Trigger: "t", Content: "c", Origin: "agent:O-197",
 		Subjects: []string{"repo:offcraft"}, ActorID: "m-someone-else",
 	}, 100); err != nil {
 		t.Fatalf("write: %v", err)
@@ -627,7 +628,7 @@ func TestListPendingLoreEntitiesCarriesEveryEntryNotJustTheSample(t *testing.T) 
 	write := func(trigger, content string, ts float64) LoreWriteResult {
 		t.Helper()
 		got, err := d.CreateLoreEntry(LoreWrite{
-			Trigger: trigger, Content: content, Origin: "agent:O-197",
+			Heading: "h", Trigger: trigger, Content: content, Origin: "agent:O-197",
 			Subjects: []string{"repo:offcraft"}, ActorID: "m-writer",
 		}, ts)
 		if err != nil {
