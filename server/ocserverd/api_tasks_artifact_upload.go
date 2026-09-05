@@ -19,8 +19,10 @@ package main
 // They are deliberately OFF the MCP surface (x-mcp include:false), for the same
 // reason POST /api/chat/attachments is: the request body is raw bytes, which
 // cannot ride inside a JSON tool call without a 4/3× base64 detour through an
-// LLM's context. ocagent is the client. add_task_artifact stays the JSON door
-// for a link, and for pinning a blob that is ALREADY in the store.
+// LLM's context. The client is the CLI: `ocagent pin <path> --task <task-id>
+// --name <name>` drives the add door and `--replace <artifact-id>` the replace
+// twin below (cli/ocagent/pin.go). add_task_artifact stays the JSON door for a
+// link, and for pinning a blob that is ALREADY in the store.
 
 import (
 	"io"

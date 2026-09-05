@@ -31,6 +31,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 	"time"
 )
 
@@ -54,6 +55,7 @@ var planeASubcommands = []struct{ name, help string }{
 	{"suicide", "self-terminate: kill my own tmux session (OC_SESSION) → SSE drops → offline"},
 	{"download", "fetch a chat attachment blob to a local file (streaming; --out <dir>)"},
 	{"upload", "stream a local file into the attachment store (prints the att id; --mime <type>)"},
+	{"pin", "pin a local file onto a task as a deliverable in one call (--task, --name; --replace <artifact-id>)"},
 	{"diff", "print a compare-screen URL for two attachment ids / document versions (--external mints a no-login link)"},
 	{"clean", "get rid of a file or folder I made: quarantines it under my workdir (never rm)"},
 	// Listed because --help is where a person or an agent goes to ask "can this
@@ -179,6 +181,57 @@ func realMain(argv []string, env func(string) string, in io.Reader, out io.Write
 			return 2
 		}
 		return cmdUpload(newStreamingClient(), cfg, args[0], *mimeType, out, os.Stderr)
+
+	case "pin":
+		// T-92's one-call artifact doors, which nothing shipped could reach
+		// before this subcommand: stream a local file's bytes to
+		// POST /api/tasks/{task_id}/artifacts/upload (or, with --replace, to
+		// .../artifact/{artifact_id}/replace/upload) so the blob is stored and
+		// the deliverable pinned in ONE transaction — no gap where an uploaded
+		// blob sits unreferenced. MCP-excluded like the chat-attachment upload
+		// (a binary body cannot ride inside a JSON tool call). See pin.go.
+		fs := flag.NewFlagSet("ocagent pin", flag.ContinueOnError)
+		fs.SetOutput(out)
+		// `ocagent pin --help` is the ONE authority on this subcommand's
+		// spelling: --name is required for a new pin and carried forward on a
+		// replace, which the flag list alone cannot say.
+		fs.Usage = func() { pinUsage(out) }
+		taskID := fs.String("task", "", "the task to pin onto (required)")
+		name := fs.String("name", "", "display name, at most 48 runes (required when pinning a new artifact)")
+		description := fs.String("description", "", "optional prose, at most 256 runes")
+		mimeType := fs.String("mime", "", "declared media type (default: server-side sniff)")
+		replaceID := fs.String("replace", "", "swap THIS artifact's content, keeping its id")
+		if err := fs.Parse(rest); err != nil {
+			return 2
+		}
+		// Same reason as upload: stdlib flag stops at the first positional, so
+		// re-parse what follows the path so the flags work on either side of it.
+		args := fs.Args()
+		if len(args) >= 1 {
+			if err := fs.Parse(args[1:]); err != nil {
+				return 2
+			}
+		}
+		if len(args) < 1 || fs.NArg() != 0 {
+			fmt.Fprintln(out, "[ocagent] pin: exactly one <path> argument is required")
+			pinUsage(out)
+			return 2
+		}
+		if strings.TrimSpace(*taskID) == "" {
+			fmt.Fprintln(out, "[ocagent] pin: --task <task-id> is required")
+			pinUsage(out)
+			return 2
+		}
+		// The server refuses a nameless ADD with a 400; refusing locally costs
+		// no upload. On a replace an omitted name is CARRIED FORWARD, so it is
+		// only required when there is nothing to carry forward from.
+		if strings.TrimSpace(*name) == "" && strings.TrimSpace(*replaceID) == "" {
+			fmt.Fprintln(out, "[ocagent] pin: --name <name> is required (a new deliverable must be named; omit it only with --replace, which keeps the name it has)")
+			pinUsage(out)
+			return 2
+		}
+		return cmdPin(newStreamingClient(), cfg, args[0], strings.TrimSpace(*taskID),
+			strings.TrimSpace(*replaceID), *name, *description, *mimeType, out, os.Stderr)
 
 	case "diff":
 		// A comparison is a URL (T-59): two ADDRESSES in, one link out. It
