@@ -200,7 +200,15 @@ export function MonitorPage() {
         // behave identically no matter which entry opened it.
         onDeactivate={async () => {
           await api.deactivateMember(detail.id);
-          await refetchMembers();
+          // The stop is dispatched; only the refresh can still fail (NIT-4 again).
+          try {
+            await refetchMembers();
+          } catch (e) {
+            console.warn(
+              "MonitorPage: post-deactivate refetch failed (the stop was sent)",
+              e
+            );
+          }
         }}
         // Force-stop (immediate kill): the LAST rung — the robust STOP goes to
         // the warden now.
@@ -209,15 +217,39 @@ export function MonitorPage() {
         // member; it is NOT a kill, so the member can still finish early.
         onAcceleratedStop={async () => {
           await api.acceleratedStopMember(detail.id);
-          await refetchMembers();
+          // Same rung, same split: the clock is already running server-side.
+          try {
+            await refetchMembers();
+          } catch (e) {
+            console.warn(
+              "MonitorPage: post-accelerated-stop refetch failed (the stop was sent)",
+              e
+            );
+          }
         }}
         onForceStop={async () => {
           await api.forceStopMember(detail.id);
-          await refetchMembers();
+          // The kill has gone out — a failed refresh must not read as a live member.
+          try {
+            await refetchMembers();
+          } catch (e) {
+            console.warn(
+              "MonitorPage: post-force-stop refetch failed (the kill was sent)",
+              e
+            );
+          }
         }}
         onRefocus={async () => {
           await api.refocusMember(detail.id);
-          await refetchMembers();
+          // The refocus is delivered whatever the roster read does.
+          try {
+            await refetchMembers();
+          } catch (e) {
+            console.warn(
+              "MonitorPage: post-refocus refetch failed (the refocus was sent)",
+              e
+            );
+          }
         }}
         // 成本歸零 (T-53, owner-only + irreversible; the panel confirms first).
         // Both refetches: the figure the cockpit renders is folded from the
@@ -225,19 +257,52 @@ export function MonitorPage() {
         // would leave the old number on screen.
         onResetCost={async () => {
           await api.resetMemberCost(detail.id);
-          await Promise.all([refetchMembers(), refetch()]);
+          // Both, and either of them may fail without unmaking the 歸零 above — which
+          // is irreversible, so a false failure invites a second confirmation of it.
+          try {
+            await Promise.all([refetchMembers(), refetch()]);
+          } catch (e) {
+            console.warn(
+              "MonitorPage: post-cost-reset refetch failed (the cost was cleared)",
+              e
+            );
+          }
         }}
         onRename={async (name) => {
           await api.patchMember(detail.id, { name });
-          await refetchMembers();
+          // The name is stored; the roster read only repaints it.
+          try {
+            await refetchMembers();
+          } catch (e) {
+            console.warn(
+              "MonitorPage: post-rename refetch failed (the name was saved)",
+              e
+            );
+          }
         }}
         onUpdateAvatar={async (file) => {
           await api.updateMemberAvatar(detail.id, file);
-          await refetchMembers();
+          // The avatar is uploaded whatever the roster read does next.
+          try {
+            await refetchMembers();
+          } catch (e) {
+            console.warn(
+              "MonitorPage: post-avatar-upload refetch failed (the avatar was saved)",
+              e
+            );
+          }
         }}
         onRemoveAvatar={async () => {
           await api.removeMemberAvatar(detail.id);
-          await refetchMembers();
+          // And the removal is equally done before this read is sent.
+          try {
+            await refetchMembers();
+          } catch (e) {
+            console.warn(
+              "MonitorPage: post-avatar-remove refetch failed (the avatar was removed)",
+              e
+            );
+          }
         }}
       />
     );
@@ -296,7 +361,17 @@ export function MonitorPage() {
     setOnboardError(null);
     try {
       await api.onboardMachine(name);
-      await refetchMachines();
+      // The machine is on the registry from here on. A failed registry read must
+      // not land in the catch below as 新增失敗 — the owner would type the same
+      // name again and meet the machine they just onboarded.
+      try {
+        await refetchMachines();
+      } catch (e) {
+        console.warn(
+          "MonitorPage: post-onboard refetch failed (the machine was onboarded)",
+          e
+        );
+      }
       resetOnboardRow();
     } catch {
       setOnboardError(t.monitor.machine.onboardError);
@@ -337,7 +412,16 @@ export function MonitorPage() {
       const result = await api.bootstrapOnServer(machine.machineId);
       setBootstrapResult(result);
       if (result.ok) {
-        await Promise.all([refetchMachines(), refetchMembers()]);
+        // The warden is installed and `result` already says so on screen; the two
+        // refreshes are separate and must not divert into the bootstrap catch.
+        try {
+          await Promise.all([refetchMachines(), refetchMembers()]);
+        } catch (e) {
+          console.warn(
+            "MonitorPage: post-bootstrap refetch failed (the install was dispatched)",
+            e
+          );
+        }
       }
     } catch (e) {
       // Surface the server's error detail (e.g. the 503 "ocwarden binary is
@@ -387,7 +471,16 @@ export function MonitorPage() {
       setUninstallResult({ machine, result });
       setUninstallTarget(null);
       setUninstallWarnTarget(null);
-      await Promise.all([refetchMachines(), refetchMembers()]);
+      // The uninstall RPC is dispatched (and `uninstallResult` is already set), so
+      // a failed refresh must not overwrite that with 解除安裝失敗.
+      try {
+        await Promise.all([refetchMachines(), refetchMembers()]);
+      } catch (e) {
+        console.warn(
+          "MonitorPage: post-uninstall refetch failed (the uninstall was dispatched)",
+          e
+        );
+      }
     } catch {
       setUninstallError(t.monitor.machine.uninstallError);
     } finally {
@@ -410,7 +503,16 @@ export function MonitorPage() {
     try {
       await api.deleteMachine(deleteTarget.machineId);
       setDeleteTarget(null);
-      await Promise.all([refetchMachines(), refetchMembers()]);
+      // The row is deleted server-side; a failed refresh would otherwise claim it
+      // is still there AND that the delete failed, both untrue.
+      try {
+        await Promise.all([refetchMachines(), refetchMembers()]);
+      } catch (e) {
+        console.warn(
+          "MonitorPage: post-delete refetch failed (the machine was deleted)",
+          e
+        );
+      }
     } catch {
       setDeleteError(t.monitor.machine.deleteError);
     } finally {
@@ -472,7 +574,16 @@ export function MonitorPage() {
                 // is the whole point of the separation.
                 onResetCost={async () => {
                   await api.resetAccountCost(a.account);
-                  await refetch();
+                  // The account figure is already cleared — irreversible, and not undone by a
+                  // monitoring read that fails afterwards.
+                  try {
+                    await refetch();
+                  } catch (e) {
+                    console.warn(
+                      "MonitorPage: post-account-cost-reset refetch failed (the cost was cleared)",
+                      e
+                    );
+                  }
                 }}
               />
             ))}

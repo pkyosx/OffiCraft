@@ -54,14 +54,32 @@ export function useInsight(roleKey: string): UseInsight {
   const save = useCallback(
     async (text: string) => {
       await api.saveInsight(roleKey, text);
-      await refetch();
+      // 🔴 THE WRITE IS FINISHED HERE. The re-read is the second half of the
+      // T-91 shape above, and it answers a different question — InsightCard maps a
+      // rejection to 儲存失敗, so a blip on the GET would deny a saved journal.
+      try {
+        await refetch();
+      } catch (e) {
+        console.warn(
+          "useInsight: post-save refetch failed (the insight was saved)",
+          e
+        );
+      }
     },
     [roleKey, refetch]
   );
 
   const reset = useCallback(async () => {
     await api.resetInsight(roleKey);
-    await refetch();
+    // Likewise the restore: the seed is back on the server before this read runs.
+    try {
+      await refetch();
+    } catch (e) {
+      console.warn(
+        "useInsight: post-reset refetch failed (the insight was reset)",
+        e
+      );
+    }
   }, [roleKey, refetch]);
 
   useEffect(() => {

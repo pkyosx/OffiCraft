@@ -37,7 +37,16 @@ export function useLessons(roleKey: string): UseLessons {
   const save = useCallback(
     async (text: string) => {
       await api.saveLessons(roleKey, text);
-      await refetch();
+      // The journal is written above. LessonsCard turns a rejection into 儲存失敗,
+      // so the re-read that follows gets its own verdict rather than this one's.
+      try {
+        await refetch();
+      } catch (e) {
+        console.warn(
+          "useLessons: post-save refetch failed (the lessons were saved)",
+          e
+        );
+      }
     },
     [roleKey, refetch]
   );

@@ -87,7 +87,17 @@ export function useTaskManuals(): UseTaskManuals {
   const create = useCallback(
     async (displayName: string) => {
       const created = await api.createTaskManual(displayName);
-      await refetch();
+      // The manual EXISTS from here on — the directory refresh only decides how
+      // soon the new row shows. Rejecting on it would tell the caller the create
+      // failed, and the retry collides with the manual it just made.
+      try {
+        await refetch();
+      } catch (e) {
+        console.warn(
+          "useTaskManuals: post-create refetch failed (the manual was created)",
+          e
+        );
+      }
       return created;
     },
     [refetch]
@@ -96,7 +106,16 @@ export function useTaskManuals(): UseTaskManuals {
   const update = useCallback(
     async (typeKey: string, patch: TaskManualPatch) => {
       await api.updateTaskManual(typeKey, patch);
-      await refetch();
+      // The patch has landed; the list re-read is the separate step. Letting it
+      // reject here is what puts 儲存失敗 on TaskManualsPage over a saved edit.
+      try {
+        await refetch();
+      } catch (e) {
+        console.warn(
+          "useTaskManuals: post-update refetch failed (the manual was updated)",
+          e
+        );
+      }
     },
     [refetch]
   );
@@ -104,7 +123,15 @@ export function useTaskManuals(): UseTaskManuals {
   const remove = useCallback(
     async (typeKey: string) => {
       await api.deleteTaskManual(typeKey);
-      await refetch();
+      // The manual is deleted whatever the directory read does next.
+      try {
+        await refetch();
+      } catch (e) {
+        console.warn(
+          "useTaskManuals: post-delete refetch failed (the manual was deleted)",
+          e
+        );
+      }
     },
     [refetch]
   );

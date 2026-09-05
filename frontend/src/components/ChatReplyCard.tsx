@@ -235,7 +235,17 @@ export function ChatReplyCard({
       // fire for a terminal card, and the one-round budget is spent HERE.
       mergeWrite(await api.reanswerReplyCard(replyCardId, input));
       setActionError(null);
-      await refetch();
+      // The revision is recorded; this refetch exists only because the terminal
+      // delta may be dropped. Its failure costs a stale card, not a lost answer —
+      // so it must not reach answerError, which claims the write did not happen.
+      try {
+        await refetch();
+      } catch (e) {
+        console.warn(
+          "ChatReplyCard: post-re-answer refetch failed (the answer was recorded)",
+          e
+        );
+      }
     } catch (e) {
       console.warn("ChatReplyCard: re-answer failed", e);
       setActionError(t.replies.answerError);

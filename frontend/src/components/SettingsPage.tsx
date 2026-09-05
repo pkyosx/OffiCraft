@@ -613,7 +613,17 @@ export function SettingsPage({
     // SSE frame.
     const onSave = async (patch: TaskManualPatch) => {
       await manualsH.update(key, patch);
-      await manualDoc.refetch();
+      // But the RE-READ is its own promise. TaskManualsPage maps a rejection here
+      // to 儲存失敗 — for an edit the server already has — and the owner's natural
+      // retry writes it a second time. The page can be stale; it must not lie.
+      try {
+        await manualDoc.refetch();
+      } catch (e) {
+        console.warn(
+          "SettingsPage: manual re-read after save failed (the manual was saved)",
+          e
+        );
+      }
     };
     // A restore rewrites ONE of the manual's documents server-side, so this
     // page re-reads its own manual; the list follows for the row it shows.
@@ -868,7 +878,16 @@ export function SettingsPage({
           role && !role.isSeed
             ? async (name) => {
                 await rolesH.save(view.key, { name });
-                await roleDoc.refetch();
+                // The rename is stored; only the doc re-read below can still fail, and
+                // DocCard would print that as the rename's own failure.
+                try {
+                  await roleDoc.refetch();
+                } catch (e) {
+                  console.warn(
+                    "SettingsPage: role re-read after rename failed (the name was saved)",
+                    e
+                  );
+                }
               }
             : undefined
         }
@@ -935,7 +954,16 @@ export function SettingsPage({
         // is now the only thing that can supply the text.
         onSave={async (text) => {
           await rolesH.save(view.key, { definitionMd: text });
-          await roleDoc.refetch();
+          // …and it is a SEPARATE promise. DocCard prints a rejection as 儲存失敗 and
+          // reopens the editor, which is exactly wrong once the PATCH has returned.
+          try {
+            await roleDoc.refetch();
+          } catch (e) {
+            console.warn(
+              "SettingsPage: role re-read after save failed (the definition was saved)",
+              e
+            );
+          }
         }}
         // 重置 = "restore the FILE SEED" — only a seed role has one. A custom
         // role's doc IS its only truth (the server 404s its reset — verified
@@ -946,7 +974,15 @@ export function SettingsPage({
           role?.isSeed
             ? async () => {
                 await rolesH.reset(view.key);
-                await roleDoc.refetch();
+                // The seed is back server-side; the re-read only fetches it for display.
+                try {
+                  await roleDoc.refetch();
+                } catch (e) {
+                  console.warn(
+                    "SettingsPage: role re-read after reset failed (the role was reset)",
+                    e
+                  );
+                }
               }
             : undefined
         }

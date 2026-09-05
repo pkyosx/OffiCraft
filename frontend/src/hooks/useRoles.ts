@@ -82,7 +82,17 @@ export function useRoles(): UseRoles {
   const save = useCallback(
     async (key: string, patch: RolePatch) => {
       await api.saveRole(key, patch);
-      await refetch();
+      // 🔴 The PATCH has landed. The roster re-read is what supplies the text the
+      // receipt no longer carries, but it is a different promise: DocCard prints a
+      // rejection as the save's own failure, over a definition already stored.
+      try {
+        await refetch();
+      } catch (e) {
+        console.warn(
+          "useRoles: post-save refetch failed (the role was saved)",
+          e
+        );
+      }
     },
     [refetch]
   );
@@ -90,7 +100,15 @@ export function useRoles(): UseRoles {
   const reset = useCallback(
     async (key: string) => {
       await api.resetRole(key);
-      await refetch();
+      // The reset is done server-side before this read is even sent.
+      try {
+        await refetch();
+      } catch (e) {
+        console.warn(
+          "useRoles: post-reset refetch failed (the role was reset)",
+          e
+        );
+      }
     },
     [refetch]
   );
@@ -100,7 +118,16 @@ export function useRoles(): UseRoles {
       const result = await api.createRole(input);
       // The roster row comes from the LIST, not from `result.role`. The caller
       // gets the receipt back for the ids it minted; nothing renders off it.
-      await refetch();
+      // The role and its founding member exist from the line above — the ids in
+      // `result` are real. A failed roster read must not deny them to the caller.
+      try {
+        await refetch();
+      } catch (e) {
+        console.warn(
+          "useRoles: post-create refetch failed (the role was created)",
+          e
+        );
+      }
       return result;
     },
     [refetch]

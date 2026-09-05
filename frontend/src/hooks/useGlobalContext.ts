@@ -39,14 +39,33 @@ export function useGlobalContext(): UseGlobalContext {
   const save = useCallback(
     async (text: string) => {
       await api.saveGlobalContext(text);
-      await refetch();
+      // The context is already written. Re-reading it is a separate promise about
+      // a separate thing, so it may not reject this one: a blip on the GET used to
+      // put 儲存失敗 under text the server had already accepted.
+      try {
+        await refetch();
+      } catch (e) {
+        console.warn(
+          "useGlobalContext: post-save refetch failed (the context was saved)",
+          e
+        );
+      }
     },
     [refetch]
   );
 
   const reset = useCallback(async () => {
     await api.resetGlobalContext();
-    await refetch();
+    // Same for the restore: the factory context is back server-side whatever the
+    // read that follows does.
+    try {
+      await refetch();
+    } catch (e) {
+      console.warn(
+        "useGlobalContext: post-reset refetch failed (the context was reset)",
+        e
+      );
+    }
   }, [refetch]);
 
   useEffect(() => {

@@ -63,7 +63,17 @@ export function useBootDoc(kind: BootDocKind, key: string): UseBootDoc {
     async (body: string) => {
       const { kind: k, key: docKey } = target.current;
       await api.saveBootDoc(k, docKey, body);
-      await refetch();
+      // 🔴 The document is stored at this point; the re-read is what supplies the
+      // text the receipt drops. Two promises, two verdicts — a blip on the GET
+      // must not send the editor back holding a body the server already accepted.
+      try {
+        await refetch();
+      } catch (e) {
+        console.warn(
+          "useBootDoc: post-save refetch failed (the doc was saved)",
+          e
+        );
+      }
     },
     [refetch]
   );
@@ -71,7 +81,16 @@ export function useBootDoc(kind: BootDocKind, key: string): UseBootDoc {
   const reset = useCallback(async () => {
     const { kind: k, key: docKey } = target.current;
     await api.resetBootDoc(k, docKey);
-    await refetch();
+    // And the factory restore especially: it is the recovery path, so reporting
+    // a completed reset as a failure is the worst place to be wrong.
+    try {
+      await refetch();
+    } catch (e) {
+      console.warn(
+        "useBootDoc: post-reset refetch failed (the doc was reset)",
+        e
+      );
+    }
   }, [refetch]);
 
   useEffect(() => {

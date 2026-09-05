@@ -71,7 +71,15 @@ export function useScheduledMessages(memberId: string): UseScheduledMessages {
   const create = useCallback(
     async (input: ScheduledMessageCreateInput) => {
       const created = await api.createScheduledMessage(memberId, input);
-      await refetch();
+      // The schedule exists from the line above — the list read only places it.
+      try {
+        await refetch();
+      } catch (e) {
+        console.warn(
+          "useScheduledMessages: post-create refetch failed (the schedule was created)",
+          e
+        );
+      }
       return created;
     },
     [memberId, refetch]
@@ -84,7 +92,15 @@ export function useScheduledMessages(memberId: string): UseScheduledMessages {
         scheduleId,
         patch
       );
-      await refetch();
+      // The patch has landed; the list read is the separate step.
+      try {
+        await refetch();
+      } catch (e) {
+        console.warn(
+          "useScheduledMessages: post-update refetch failed (the schedule was updated)",
+          e
+        );
+      }
       return updated;
     },
     [memberId, refetch]
@@ -93,7 +109,15 @@ export function useScheduledMessages(memberId: string): UseScheduledMessages {
   const remove = useCallback(
     async (scheduleId: string) => {
       await api.deleteScheduledMessage(memberId, scheduleId);
-      await refetch();
+      // The schedule is deleted whatever the list read does next.
+      try {
+        await refetch();
+      } catch (e) {
+        console.warn(
+          "useScheduledMessages: post-delete refetch failed (the schedule was deleted)",
+          e
+        );
+      }
     },
     [memberId, refetch]
   );
