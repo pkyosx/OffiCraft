@@ -1237,6 +1237,36 @@
         "additionalProperties": false,
         "type": "object"
       },
+      "ChatPostReceiptDTO": {
+        "description": "Bounded receipt for the two chat WRITES - ``POST /api/chat`` (post_chat) and ``POST /api/tasks/{task_id}/message`` (post_task_message) (T-91). Both used to answer with the whole ChatMessageDTO, which meant the message body came straight back to whoever had just typed it: a 1,300-character message cost 1,300 characters on the way out and another 1,300 on the way home, and for an AGENT that second copy lands in its context window. Owner ruling 2026-09-05, verbatim: \u300c\u81ea\u5df1\u767c\u9001\u51fa\u53bb\u7684\u5167\u5bb9\uff0c\u9664\u4e86\u50cf\u662f ID \u9019\u985e\u7684\uff0c\u6216\u662f\u771f\u7684\u9700\u8981\u5f9e\u56de\u8986\u5f97\u77e5\u7684\uff0c\u5176\u4ed6\u90fd\u4e0d\u61c9\u8a72\u518d\u56de\u50b3\u56de\u4f86\u3002\u300d\n\nTHE COCKPIT ALREADY WORKS THIS WAY AND OWNER ALREADY RULED THAT IT SHOULD. useChat.ts:1126 awaits the post and DISCARDS the value, reconciling by refetch; useChat.sendprobe.test.ts records the ruling of 2026-08-31 that the optimistic-append fix (adopt postChat's return value) was scoped out deliberately. So this write shrinks with no frontend change - the one route in this package that needs none.\n\nFIVE OF THE FIFTEEN DROPPED FIELDS WERE ALWAYS EMPTY ON THIS PATH. newChatMessageDTO (wire.go:2863-2880) fills seven fields; servedChatMessageDTO (api_chat.go:715-753) adds reply_card_status and reply_to_chat on the READ path only. from_name, to_name, ts_display, body_omitted_chars and card were therefore serialised as zero values on every single post - the fifteen-field count was inflated before anything was cut. What is dropped for real: body, from, to, meta, reply_to, reply_to_chat, reply_card_status. All seven are either what the caller just sent or a projection rebuilt on every read; get_chat serves the message.",
+        "properties": {
+          "id": {
+            "description": "The message id, MINTED HERE (api_chat.go:660). The single thing the caller cannot know and the handle every later read, quote-reply and by-id fetch takes. This is the ``ID`` in owner's ruling.",
+            "title": "Id",
+            "type": "string"
+          },
+          "ts": {
+            "description": "The SERVER's stamp for the message, epoch seconds (api_chat.go:664). The caller does not send it and cannot backdate it - the server always stamps now - so it is news, and it is what orders the message against everything else in the room.",
+            "title": "Ts",
+            "type": "number"
+          },
+          "attachments": {
+            "description": "One entry per attachment that actually LANDED, and it is here because the ids are news, not an echo. An attachment sent INLINE as ``data_b64`` has no id until the server mints one (api_chat.go:421, ``\"att-\" + newHexID(12)``); an attachment sent by reference keeps its id but has its ``mime`` and ``filename`` overwritten by the stored blob, which is authoritative. So a caller that uploaded inline learns the handle for its own file HERE OR NOWHERE. It is also the only field on this receipt that can tell a caller its attachment silently did not land.",
+            "items": {
+              "$ref": "#/components/schemas/ChatAttachmentDTO"
+            },
+            "title": "Attachments",
+            "type": "array"
+          }
+        },
+        "required": [
+          "id",
+          "ts"
+        ],
+        "title": "ChatPostReceiptDTO",
+        "additionalProperties": false,
+        "type": "object"
+      },
       "ChatReadDTO": {
         "description": "API representation of one ``domain.ChatReadReceipt`` — a per-conversation\nread watermark (``GET /api/chat/reads``).",
         "properties": {
@@ -10565,7 +10595,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ChatMessageDTO"
+                  "$ref": "#/components/schemas/ChatPostReceiptDTO"
                 }
               }
             },
@@ -19606,7 +19636,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ChatMessageDTO"
+                  "$ref": "#/components/schemas/ChatPostReceiptDTO"
                 }
               }
             },
