@@ -35,6 +35,8 @@ import {
   __injectMockReplyCard,
 } from "../api/mock";
 import { api } from "../api";
+import { ApiError } from "../api/errors";
+import { codeForStatus } from "../api/errorCodes";
 import type { TaskView, TaskStepView, ReplyCard } from "../api/adapter";
 
 let seq = 0;
@@ -1005,6 +1007,79 @@ describe("TasksPage", () => {
       // The 規劃中 empty state must never stand in for a hydrated done task.
       expect(queryByTestId("task-transition")).toBeNull();
 
+      getTaskSpy.mockRestore();
+    });
+
+    it("KEEPS the #tasks/<id> anchor and answers 沒有符合篩選條件的任務 when the id resolves to nothing", async () => {
+      // owner 2026-09-05 (rc-428906235337, 「這一包一起改」). Before this, a
+      // link whose task does not exist stripped its OWN hash and the page
+      // settled on the ordinary list with nothing said — so a broken link and a
+      // link that was never filtering looked identical, and the owner could not
+      // tell which one he was looking at. The anchor now stays and the page
+      // answers, the same way RepliesPage answers its own id filter.
+      //
+      // ⚠️ The old behaviour WAS guarded, just not from here: deleting the
+      // stripping effect left all 35 tests in THIS file green, and the two that
+      // went red live in TasksPage.jump.test.tsx and TasksPage.anchor-fetch.
+      // Both were rewritten to the new expectation in the same commit. Recorded
+      // because "I ran the obvious file and it was green" is exactly how a
+      // deleted behaviour gets called unguarded — the denominator is every file
+      // that renders this page, not the one named after it.
+      __injectMockTask(mkTask({ title: "工作室裡確實有一張票" }));
+      // The real failure path: GET /api/tasks/{id} rejects (404 / deleted), and
+      // useTasks resolves the anchor WITH the id and a null task, so
+      // anchorPending goes false with nothing to show.
+      const getTaskSpy = vi
+        .spyOn(api, "getTask")
+        .mockRejectedValue(
+          new ApiError(
+            "http 404 for GET /api/tasks/t-does-not-exist",
+            404,
+            codeForStatus(404),
+            "task 't-does-not-exist' not found"
+          )
+        );
+      const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+      window.location.hash = "#tasks/t-does-not-exist";
+
+      const { findByTestId, getByTestId, queryByTestId } = renderPage();
+
+      // Wait for the anchor fetch to have been attempted and REJECTED, so every
+      // assertion below reads the SETTLED page rather than a frame on the way
+      // there. 🔴 This ordering is load-bearing: asserted before the settle, the
+      // empty-state half passes even against the self-heal mutant (it catches a
+      // transient frame), and only the hash half would have teeth.
+      await waitFor(() =>
+        expect(getTaskSpy).toHaveBeenCalledWith("t-does-not-exist")
+      );
+      await findByTestId("tasks-empty-filtered");
+
+      // The anchor survives: the hash still carries the id the owner clicked.
+      expect(window.location.hash).toBe("#tasks/t-does-not-exist");
+      // 沒有符合篩選條件的任務 — NOT 目前沒有任務, which would be a claim about a
+      // workshop that in fact holds a task. Read synchronously off the settled
+      // DOM, not awaited: what is pinned is that this is where the page STOPS.
+      expect(getByTestId("tasks-empty-filtered").textContent).toBe(
+        "沒有符合篩選條件的任務"
+      );
+      expect(queryByTestId("tasks-empty")).toBeNull();
+      // …and the one real task is NOT on screen: the anchor is still narrowing.
+      expect(document.querySelectorAll('[data-testid="task-card"]')).toHaveLength(
+        0
+      );
+
+      // And there is a way out — which is why keeping the anchor is not a trap:
+      // 清除篩選 shows while the anchor is set and clears it with every other
+      // axis, restoring both the list and the hash.
+      fireEvent.click(getByTestId("clear-filters"));
+      await waitFor(() =>
+        expect(
+          document.querySelectorAll('[data-testid="task-card"]')
+        ).toHaveLength(1)
+      );
+      expect(window.location.hash).toBe("#tasks");
+
+      warnSpy.mockRestore();
       getTaskSpy.mockRestore();
     });
 

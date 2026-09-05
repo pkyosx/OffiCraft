@@ -19,7 +19,9 @@ paths:
 
 useTasks 把 statusFilter 轉成重複的 ?statuses=；執行者與類型篩選仍在前端。清除狀態篩選才送空集合，代表使用者要完整清單。不要為 dependencies 再拉全歷史，也不要把每個 task SSE 變成全歷史下載。
 
-跳到 #tasks/<id> 時，清單仍保留原篩選，另以 GET /api/tasks/{id} 補單張錨點。anchor id 是 effect 的參數；anchorPending 在補抓成功或失敗前都阻止自癒與空狀態誤判，失敗後誠實回一般清單。合併時清單列優先，因為輕量列才有 dep_tasks；單張 DTO 沒有時不可覆蓋它。篩選未包含錨點時，depTasks===undefined 表示未知，不表示沒有依賴。
+跳到 #tasks/<id> 時，清單仍保留原篩選，另以 GET /api/tasks/{id} 補單張錨點。anchor id 是 effect 的參數；anchorPending 在補抓落定前擋住兩個空狀態，否則還在路上的那張會被說成不存在。
+
+**補抓落定後有三種結局，話不一樣，不要合併（owner 2026-09-05 `rc-428906235337`）**：抓到就顯示那一張；**404 ⇒ 錨點留著**，畫面答「沒有符合篩選條件的任務」，出口是「清除篩選」（`anyFilter` 已含 taskIdFilter，所以按鈕本來就在，`clearFilters` 連 hash 一起還原）；**其他失敗（500／離線）⇒ `anchorFailed`**，顯示載入錯誤並壓住兩個空狀態——沒問出口的問題不得給答案。錨點**不再自己把 hash 拿掉**；釘住這三格的是 TasksPage.test.tsx、TasksPage.jump.test.tsx 與 TasksPage.anchor-fetch.test.tsx 各一支。合併時清單列優先，因為輕量列才有 dep_tasks；單張 DTO 沒有時不可覆蓋它。篩選未包含錨點時，depTasks===undefined 表示未知，不表示沒有依賴。
 
 ## TaskCard
 

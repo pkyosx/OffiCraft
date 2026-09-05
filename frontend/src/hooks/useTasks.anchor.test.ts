@@ -123,9 +123,10 @@ describe("useTasks single-task anchor (owner 2026-08-01)", () => {
   });
 
   it("a REJECTED hydrate resolves pending and adds no row (no stuck spinner)", async () => {
-    // 補抓失敗 must terminate. anchorPending is what the page's self-heal waits
-    // on, so a catch that forgot to resolve it would freeze the page on a
-    // 載入中 that never ends. MUTANT: drop the setAnchor from the catch → red.
+    // 補抓失敗 must terminate. anchorPending is what the page's empty state and
+    // error banner both wait on, so a catch that forgot to resolve it would
+    // freeze the page on a 載入中 that never ends. MUTANT: drop the setAnchor
+    // from the catch → red.
     h.getTask.mockRejectedValue(new Error("boom"));
     const { result } = renderHook(() => useTasks(NON_TERMINAL, "t-gone"));
     await waitFor(() => expect(result.current.anchorPending).toBe(false));
@@ -134,7 +135,7 @@ describe("useTasks single-task anchor (owner 2026-08-01)", () => {
 
   it("is PENDING until the hydrate lands — the page must not call it missing yet", async () => {
     // The distinction 「還沒載到」 vs 「不存在」. It has to be true in the very
-    // first render (the page's self-heal effect runs on the first commit), so a
+    // first render (the page decides its empty state on the first commit), so a
     // flag set from inside an effect would already be too late.
     let release!: (v: unknown) => void;
     h.getTask.mockReturnValue(new Promise((r) => (release = r)));

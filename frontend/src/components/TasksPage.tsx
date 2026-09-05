@@ -69,8 +69,8 @@ export function TasksPage() {
   // normal layout, cleared by the same 清除篩選 as any other filter.
   // Read BEFORE useTasks so the anchored id reaches the hook in the SAME render
   // the hash lands in: routed through an effect instead, the mount fetch and the
-  // page's self-heal would both run a commit before the hook knows there is an
-  // anchor at all.
+  // page's empty-state decision would both run a commit before the hook knows
+  // there is an anchor at all.
   const [route, setRoute] = useHashRoute();
   const taskIdFilter = route.page === "tasks" ? route.taskId : undefined;
   const {
@@ -88,6 +88,7 @@ export function TasksPage() {
     removeArtifact,
     setStatuses,
     anchorPending,
+    anchorFailed,
     // The hook's FIRST fetch must already carry the page's default set — the
     // mount fetch precedes any effect, and an unconstrained one would pull the
     // whole archive once per page open (T-a3e4).
@@ -324,26 +325,28 @@ export function TasksPage() {
   // tasks are reference material. Plain component state — never persisted.
   const [closedOpen, setClosedOpen] = useState(false);
 
-  // A #tasks/<id> filter on an unknown/stale task self-heals to the full list;
-  // a closed target auto-expands 已結束 so the one match is actually visible.
-  // 🔴 `anchorPending` is what separates 「還沒載到」 from 「不存在」 now that the
-  // anchored task arrives on its OWN fetch instead of inside a widened list.
-  // Without it every jump outside the ticked statuses would strip its own hash
-  // in the frames before that fetch lands — the target would flash away and the
-  // page would settle on the ordinary filtered list. It is also the failure
-  // path's exit: a REJECTED hydrate clears pending with no task, so this fires
-  // and the owner gets the normal list instead of a stuck 載入中.
-  useEffect(() => {
-    if (
-      taskIdFilter &&
-      !loading &&
-      !anchorPending &&
-      !tasks.some((x) => x.id === taskIdFilter) &&
-      (tasks.length > 0 || !error)
-    ) {
-      setRoute({ page: "tasks" });
-    }
-  }, [taskIdFilter, loading, anchorPending, error, tasks, setRoute]);
+  // A #tasks/<id> whose task does not exist USED TO self-heal: an effect here
+  // stripped the hash and the page settled on the ordinary filtered list, with
+  // nothing said. That is the defect owner 2026-09-05 ruled on (rc-428906235337,
+  // 「這一包一起改」): a link that resolves to nothing and a link that was never
+  // filtering look identical, so he cannot tell a broken link from a task that
+  // is genuinely gone. The anchor now STAYS, `filtered` is empty, and the page
+  // answers 沒有符合篩選條件的任務 — the same answer RepliesPage gives.
+  //
+  // 🔴 Removing the effect does not resurrect the flash it was written against:
+  // the flash was the effect firing in the frames before the anchor's own fetch
+  // landed, and `anchorPending` was the guard ON the effect, not a separate
+  // mechanism. With no effect there is nothing to fire early. The other half of
+  // its old job — the REJECTED-hydrate exit — is now served by the empty state:
+  // `useTasks` resolves a failed anchor fetch WITH the id and a null task, so
+  // `anchorPending` goes false and the page renders a message rather than a
+  // stuck 載入中.
+  //
+  // 🔴 The way OUT is 清除篩選, which already clears this axis with the rest
+  // (see clearFilters) and already shows while it is set (see anyFilter) —
+  // that is why the anchor can stay without trapping the owner in the hash.
+  //
+  // A closed target still auto-expands 已結束 so the one match is visible.
   useEffect(() => {
     if (taskIdFilter) setClosedOpen(true);
   }, [taskIdFilter]);
@@ -360,16 +363,23 @@ export function TasksPage() {
   // `anchorPending` gates both: while the anchored task's own fetch is in flight
   // the filtered list is legitimately empty, and either message would be a claim
   // about a question that has not been answered yet.
+  // 🔴 `anchorFailed` gates both for the same reason `anchorPending` does: it
+  // means the anchored task's fetch never got an answer (a 500, an offline
+  // browser), so BOTH messages would be claims about a question nobody asked.
+  // A 404 is different — that IS an answer, and 沒有符合篩選條件的任務 is the
+  // true thing to say about it. See useTasks' `anchorFailed`.
   const nothingAtAll =
     !loading &&
     !error &&
     !anchorPending &&
+    !anchorFailed &&
     tasks.length === 0 &&
     taskTotal === 0;
   const nothingMatches =
     !loading &&
     !error &&
     !anchorPending &&
+    !anchorFailed &&
     !nothingAtAll &&
     filtered.length === 0;
 
@@ -399,7 +409,11 @@ export function TasksPage() {
 
   return (
     <div className="tasks">
-      {error && <div className="tasks__error">{t.tasks.loadError}</div>}
+      {(error || anchorFailed) && (
+        <div className="tasks__error" data-testid="tasks-error">
+          {t.tasks.loadError}
+        </div>
+      )}
 
       {/* ── 篩選列 (multi-select, T-be18) ── */}
       <div className="tasks__filters">
