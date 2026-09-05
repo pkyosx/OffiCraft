@@ -341,12 +341,15 @@ describe("httpApi · updateTaskTitle wire shape", () => {
 
   it("POSTs the task's title route with the text in the body", async () => {
     fetchMock.mockImplementation(async () => jsonResponse(WIRE_TASK));
-    const task = await httpApi.updateTaskTitle("t-1", "corrected");
+    // T-91: the write answers a receipt and this seam returns nothing — what
+    // this test pins is the REQUEST it sends, which is all it ever really
+    // measured (the old `task.title` assertion just read back the fixture the
+    // fetch mock had been handed).
+    await httpApi.updateTaskTitle("t-1", "corrected");
     const { url, method, body } = await lastRequest();
     expect(url).toBe("/api/tasks/t-1/title");
     expect(method).toBe("POST");
     expect(JSON.parse(String(body))).toEqual({ title: "corrected" });
-    expect(task.title).toBe("corrected");
   });
 
   it("rejects a blank title with the server's 400 rather than refusing locally", async () => {

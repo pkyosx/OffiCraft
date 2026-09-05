@@ -977,7 +977,6 @@ describe("WorkerDetailPanel — lifecycle ops (T-32e1/T-f190)", () => {
       .spyOn(api, "restartWorker")
       .mockImplementation(async () => {
         order.push("wake");
-        return mkWorker({ id: "ow-1" });
       });
 
     const { findByTestId } = renderOfficeAt("#office/worker/ow-1");

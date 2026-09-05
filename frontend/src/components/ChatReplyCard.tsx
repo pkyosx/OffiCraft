@@ -25,7 +25,11 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useI18n } from "../i18n";
-import type { ReplyCard, ReplyCardAnswerInput } from "../api/adapter";
+import type {
+  ReplyCard,
+  ReplyCardWriteReceipt,
+  ReplyCardAnswerInput,
+} from "../api/adapter";
 import { api } from "../api";
 import { useHashRoute } from "../lib/hashRoute";
 import { mergeReplyCardWrite } from "../lib/replyCardReceipt";
@@ -110,10 +114,16 @@ export function ChatReplyCard({
    * saying so. So only the transition is taken from the write; the rest stays
    * as this card read it. Under today's whole-card answer the two are the same
    * value, which is why this lands safely BEFORE the server change. */
-  const mergeWrite = useCallback((receipt: ReplyCard) => {
+  const mergeWrite = useCallback((receipt: ReplyCardWriteReceipt) => {
     ++readGenRef.current;
     statusRef.current = receipt.status;
-    setCard((prev) => (prev ? mergeReplyCardWrite(prev, receipt) : receipt));
+    // No card on screen ⇒ NOTHING TO MERGE ONTO, and the receipt is not a card:
+    // it carries no question, no options, no attachments and no task ref, so
+    // storing it would paint a blank card. Keep null and let the read that is
+    // already on its way (this component always mounts one) supply the card.
+    // Unreachable in practice — the buttons that call this only exist once the
+    // card has rendered — which is exactly why it must not fabricate.
+    setCard((prev) => (prev ? mergeReplyCardWrite(prev, receipt) : prev));
     setLoadError(false);
   }, []);
 

@@ -37,7 +37,10 @@ interface UseTaskManuals {
    * server-side and must not be assumed into local state. */
   refetch: () => Promise<void>;
   /** Create by DISPLAY NAME (T-fa76) — the server mints the tm- type_key. */
-  create: (displayName: string) => Promise<TaskManualView>;
+  /** Create, then refetch. Resolves with the `tm-` type_key the SERVER minted
+   * — T-91: the write answers a receipt, not the manual, so the manual itself
+   * comes from the refetch this awaits (`manuals`), never from the write. */
+  create: (displayName: string) => Promise<{ typeKey: string }>;
   /** Partial update. RE-READS the list; the sub-page that renders the SOP or
    * the 學習經驗 re-reads its own manual (useTaskManual.refetch). Returns
    * nothing on purpose (T-91): the update receipt reports only the documents

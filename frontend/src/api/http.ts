@@ -76,6 +76,7 @@ import type {
   ScheduledMessageCreateInput,
   ScheduledMessageUpdate,
   ReplyCard,
+  ReplyCardWriteReceipt,
   ReplyCardAnswerInput,
   ReplyCardCounts,
   ServerSettingsView,
@@ -115,6 +116,7 @@ import {
   toChatRead,
   toGalleryAttachment,
   toReplyCard,
+  toReplyCardWriteReceipt,
   toMonitoring,
   toVersion,
   toReleaseCheck,
@@ -1213,7 +1215,7 @@ export const httpApi: Api = {
   async createScheduledMessage(
     memberId: string,
     input: ScheduledMessageCreateInput,
-  ): Promise<ScheduledMessage> {
+  ): Promise<{ id: string }> {
     // POST /api/members/{id}/scheduled-messages {body, cadence, timezone,
     // hour?, minute?, label?, day_of_week?, day_of_month?, custom_months?,
     // custom_days?, custom_hours?, custom_minutes?} -> ScheduledMessageDTO.
@@ -1261,14 +1263,14 @@ export const httpApi: Api = {
         body,
       }),
     );
-    return toScheduledMessage(wire);
+    return { id: wire.id };
   },
 
   async updateScheduledMessage(
     memberId: string,
     scheduleId: string,
     patch: ScheduledMessageUpdate,
-  ): Promise<ScheduledMessage> {
+  ): Promise<{ id: string }> {
     // PATCH /api/members/{id}/scheduled-messages/{schedule_id} ->
     // ScheduledMessageDTO. PATCH semantics — only supplied fields ride the
     // body; `id` and `member_id` are immutable and never sent.
@@ -1315,7 +1317,7 @@ export const httpApi: Api = {
         },
       ),
     );
-    return toScheduledMessage(wire);
+    return { id: wire.id };
   },
 
   async deleteScheduledMessage(
@@ -1476,7 +1478,7 @@ export const httpApi: Api = {
     body: string;
     attachments?: ChatAttachmentInput[];
     replyTo?: string;
-  }): Promise<ChatMessage> {
+  }): Promise<void> {
     // POST /api/chat {to, body, attachments?} -> ChatMessageDTO (server stamps
     // from/id/ts from the verified JWT sub). Addressing is by id (msg.to is a
     // member id). Pasted images AND/OR picked files ride together as the
@@ -1486,32 +1488,29 @@ export const httpApi: Api = {
     // `attachment` field was removed server-side (beta — the list is the sole
     // path, capped at 10 per message).
     const attachments = msg.attachments ?? [];
-    const wire = unwrap(
-      await client.POST("/api/chat", {
-        body: {
-          to: msg.to,
-          body: msg.body,
-          // The quote link. ALWAYS SENT — "" is the wire's "replies to
-          // nothing", the same shape `body` uses, and what the generated
-          // request type requires. (An earlier version of this comment said the
-          // field was omitted on an ordinary post; it never was, and a comment
-          // describing a wire shape the code does not produce is worse than no
-          // comment.) The server checks a non-empty value EXISTS — and only
-          // that, since 2026-08-21 — and is the only writer of the stored link.
-          reply_to: msg.replyTo ?? "",
-          ...(attachments.length > 0
-            ? {
-                attachments: attachments.map((a) => ({
-                  data_b64: a.dataB64,
-                  ...(a.filename ? { filename: a.filename } : {}),
-                  ...(a.mime ? { mime: a.mime } : {}),
-                })),
-              }
-            : {}),
-        },
-      }),
-    );
-    return toChatMessage(wire);
+    await client.POST("/api/chat", {
+      body: {
+        to: msg.to,
+        body: msg.body,
+        // The quote link. ALWAYS SENT — "" is the wire's "replies to
+        // nothing", the same shape `body` uses, and what the generated
+        // request type requires. (An earlier version of this comment said the
+        // field was omitted on an ordinary post; it never was, and a comment
+        // describing a wire shape the code does not produce is worse than no
+        // comment.) The server checks a non-empty value EXISTS — and only
+        // that, since 2026-08-21 — and is the only writer of the stored link.
+        reply_to: msg.replyTo ?? "",
+        ...(attachments.length > 0
+          ? {
+              attachments: attachments.map((a) => ({
+                data_b64: a.dataB64,
+                ...(a.filename ? { filename: a.filename } : {}),
+                ...(a.mime ? { mime: a.mime } : {}),
+              })),
+            }
+          : {}),
+      },
+    });
   },
 
   async markChatRead(mark: {
@@ -1616,7 +1615,7 @@ export const httpApi: Api = {
   async answerReplyCard(
     id: string,
     answer: ReplyCardAnswerInput,
-  ): Promise<ReplyCard> {
+  ): Promise<ReplyCardWriteReceipt> {
     // POST /api/reply-cards/{card_id}/answer -> ReplyCardDTO (the one-shot
     // close; already-answered → 409, empty/out-of-range → 400, all thrown as
     // ApiError by the client middleware). Attachments ride the same input
@@ -1627,13 +1626,13 @@ export const httpApi: Api = {
         body: toAnswerBody(answer),
       }),
     );
-    return toReplyCard(wire);
+    return toReplyCardWriteReceipt(wire);
   },
 
   async reanswerReplyCard(
     id: string,
     answer: ReplyCardAnswerInput,
-  ): Promise<ReplyCard> {
+  ): Promise<ReplyCardWriteReceipt> {
     // PUT /api/reply-cards/{card_id}/answer -> ReplyCardDTO (重新決定: same
     // body + validation as POST; a waiting card is a 409). Status stays
     // answered; answered_ts re-stamps server-side.
@@ -1643,10 +1642,10 @@ export const httpApi: Api = {
         body: toAnswerBody(answer),
       }),
     );
-    return toReplyCard(wire);
+    return toReplyCardWriteReceipt(wire);
   },
 
-  async expireReplyCard(id: string): Promise<ReplyCard> {
+  async expireReplyCard(id: string): Promise<ReplyCardWriteReceipt> {
     // POST /api/reply-cards/{card_id}/expire -> ReplyCardDTO (標為過期 — the
     // terminal exit that is NOT an answer; no body). Callers: the card's own
     // AUTHOR (T-1b88, owner 2026-08-07 card rc-3ff94b116970 — revising T-6020,
@@ -1658,7 +1657,7 @@ export const httpApi: Api = {
         params: { path: { card_id: id } },
       }),
     );
-    return toReplyCard(wire);
+    return toReplyCardWriteReceipt(wire);
   },
 
   async listTasks(opts?: {
@@ -1731,30 +1730,24 @@ export const httpApi: Api = {
     return { open: wire.open, total: wire.total ?? 0 };
   },
 
-  async terminateTask(id: string): Promise<TaskView> {
+  async terminateTask(id: string): Promise<void> {
     // POST /api/tasks/{task_id}/terminate -> TaskDTO. The ONLY owner-side
     // status change (spec §3.7); non-terminal only (409 throws via the client
     // middleware). No body — the FE owns the double-confirm.
-    const wire = unwrap(
-      await client.POST("/api/tasks/{task_id}/terminate", {
-        params: { path: { task_id: id } },
-      }),
-    );
-    return toTask(wire);
+    await client.POST("/api/tasks/{task_id}/terminate", {
+      params: { path: { task_id: id } },
+    });
   },
 
-  async markTaskDuplicate(id: string, duplicateOf: string): Promise<TaskView> {
+  async markTaskDuplicate(id: string, duplicateOf: string): Promise<void> {
     // POST /api/tasks/{task_id}/duplicate {duplicate_of} -> TaskDTO. Marks the
     // task a duplicate of the original (T-02c9); a third terminal status. The
     // server enforces the depth-1 graph (self/already-duplicated/already-an-
     // original are all 409) and rejects a closed task (409) — all throw.
-    const wire = unwrap(
-      await client.POST("/api/tasks/{task_id}/duplicate", {
-        params: { path: { task_id: id } },
-        body: { duplicate_of: duplicateOf },
-      }),
-    );
-    return toTask(wire);
+    await client.POST("/api/tasks/{task_id}/duplicate", {
+      params: { path: { task_id: id } },
+      body: { duplicate_of: duplicateOf },
+    });
   },
 
   async setTaskPriority(id: string, priority: string): Promise<void> {
@@ -1774,7 +1767,7 @@ export const httpApi: Api = {
   async updateTaskDescription(
     id: string,
     description: string,
-  ): Promise<TaskView> {
+  ): Promise<void> {
     // POST /api/tasks/{task_id}/description {description} -> TaskDTO (T-e271).
     // The field is ALWAYS sent, even when empty: the wire treats an absent
     // `description` as "change nothing" and an explicit "" as "clear it", so
@@ -1784,16 +1777,13 @@ export const httpApi: Api = {
     // No 409 branch to document here — a closed task is accepted on purpose
     // (see the adapter's note); the faces that do throw are 404 (unknown task)
     // and 403 (a caller who is neither the executor nor admin-capable).
-    const wire = unwrap(
-      await client.POST("/api/tasks/{task_id}/description", {
-        params: { path: { task_id: id } },
-        body: { description },
-      }),
-    );
-    return toTask(wire);
+    await client.POST("/api/tasks/{task_id}/description", {
+      params: { path: { task_id: id } },
+      body: { description },
+    });
   },
 
-  async updateTaskTitle(id: string, title: string): Promise<TaskView> {
+  async updateTaskTitle(id: string, title: string): Promise<void> {
     // POST /api/tasks/{task_id}/title {title} -> TaskDTO (T-2ebe). The field is
     // ALWAYS sent for the same reason the description twin always sends its
     // own: an absent `title` is "change nothing" on the wire, so omitting it
@@ -1808,29 +1798,23 @@ export const httpApi: Api = {
     //
     // Other faces: 404 (unknown task) and 403 (neither executor nor
     // admin-capable). A closed task is accepted on purpose.
-    const wire = unwrap(
-      await client.POST("/api/tasks/{task_id}/title", {
-        params: { path: { task_id: id } },
-        body: { title },
-      }),
-    );
-    return toTask(wire);
+    await client.POST("/api/tasks/{task_id}/title", {
+      params: { path: { task_id: id } },
+      body: { title },
+    });
   },
 
-  async reassignTask(id: string, input: TaskReassignInput): Promise<TaskView> {
+  async reassignTask(id: string, input: TaskReassignInput): Promise<void> {
     // POST /api/tasks/{task_id}/reassign {target, note?} -> TaskDTO. The whole
     // handover is the server's (card expiry / step rewind / old-worker dismiss
     // / fresh mint / both-sides notice); the FE only names the target. A closed
     // task is a 409, a frozen one a 400, a bad member target a 400/409 — all
     // throw via the client middleware. The task lands in `reassigning`; the NEW
     // executor reports it back to in_progress.
-    const wire = unwrap(
-      await client.POST("/api/tasks/{task_id}/reassign", {
-        params: { path: { task_id: id } },
-        body: fromTaskReassignInput(input),
-      })
-    );
-    return toTask(wire);
+    await client.POST("/api/tasks/{task_id}/reassign", {
+      params: { path: { task_id: id } },
+      body: fromTaskReassignInput(input),
+    });
   },
 
   async removeTaskArtifact(taskId: string, artifactId: string): Promise<void> {
@@ -1990,16 +1974,13 @@ export const httpApi: Api = {
     return toOutsourceWorker(wire);
   },
 
-  async restartWorker(id: string): Promise<OutsourceWorkerView> {
+  async restartWorker(id: string): Promise<void> {
     // POST /api/outsource-workers/{id}/restart -> OutsourceWorkerDTO (owner/admin-agent,
     // 409 only when the worker is actually alive — T-7526). Clears the stop and
     // re-dispatches; a worker whose session died on its own is revivable here.
-    const wire = unwrap(
-      await client.POST("/api/outsource-workers/{id}/restart", {
-        params: { path: { id } },
-      }),
-    );
-    return toOutsourceWorker(wire);
+    await client.POST("/api/outsource-workers/{id}/restart", {
+      params: { path: { id } },
+    });
   },
 
   async setWorkerModel(
@@ -2075,7 +2056,7 @@ export const httpApi: Api = {
     return toTaskManual(wire);
   },
 
-  async createTaskManual(displayName: string): Promise<TaskManualView> {
+  async createTaskManual(displayName: string): Promise<{ typeKey: string }> {
     // POST /api/task-manuals {display_name} -> TaskManualDTO (the blank
     // manual). T-fa76: the server MINTS the tm- type_key (echoed back on the
     // DTO) — type_key is deliberately NOT sent (that is the deprecated
@@ -2087,22 +2068,19 @@ export const httpApi: Api = {
         body: { type_key: null, display_name: displayName, assignee: null },
       }),
     );
-    return toTaskManual(wire);
+    return { typeKey: wire.type_key };
   },
 
   async updateTaskManual(
     typeKey: string,
     patch: TaskManualPatch,
-  ): Promise<TaskManualView> {
+  ): Promise<void> {
     // POST /api/task-manuals/{type_key} (partial edit) -> TaskManualDTO. On
     // the wire null = unchanged; assignee {} = unset (see fromTaskManualPatch).
-    const wire = unwrap(
-      await client.POST("/api/task-manuals/{type_key}", {
-        params: { path: { type_key: typeKey } },
-        body: fromTaskManualPatch(patch),
-      }),
-    );
-    return toTaskManual(wire);
+    await client.POST("/api/task-manuals/{type_key}", {
+      params: { path: { type_key: typeKey } },
+      body: fromTaskManualPatch(patch),
+    });
   },
 
   async deleteTaskManual(typeKey: string): Promise<void> {
@@ -2607,27 +2585,23 @@ export const httpApi: Api = {
     return toGlobalContext(wire);
   },
 
-  async saveGlobalContext(text: string): Promise<GlobalContextView> {
+  async saveGlobalContext(text: string): Promise<void> {
     // POST /api/global-context {text} -> GlobalContextDTO (whole-block replace,
     // isDefault=false). NOTE the POST verb — the frozen route surface
     // registers POST, not PUT; a PUT here 405s against the real backend — and
     // is now ALSO a compile error (the schema's /api/global-context has no put).
-    const wire = unwrap(
-      // allow_shrink: see saveLessons — the T-2d99 wipe guard targets blind
-      // agent write-backs; the owner clearing this textarea is explicit intent.
-      await client.POST("/api/global-context", {
-        body: { text, allow_shrink: true },
-      }),
-    );
-    return toGlobalContext(wire);
+    // allow_shrink: see saveLessons — the T-2d99 wipe guard targets blind
+    // agent write-backs; the owner clearing this textarea is explicit intent.
+    await client.POST("/api/global-context", {
+      body: { text, allow_shrink: true },
+    });
   },
 
-  async resetGlobalContext(): Promise<GlobalContextView> {
+  async resetGlobalContext(): Promise<void> {
     // POST /api/global-context/reset -> GlobalContextDTO (idempotent tombstone →
     // empty/is_default=true). NOTE: a dedicated POST reset route, NOT a DELETE on
     // the doc path (405 against the real backend, compile error against schema).
-    const wire = unwrap(await client.POST("/api/global-context/reset"));
-    return toGlobalContext(wire);
+    await client.POST("/api/global-context/reset");
   },
 
   // ── boot-context / lifecycle documents (T-791e, T-3201) ─────────────────
@@ -2659,7 +2633,7 @@ export const httpApi: Api = {
     kind: BootDocKind,
     key: string,
     body: string,
-  ): Promise<BootDocView> {
+  ): Promise<void> {
     // Replace the EDITABLE HALF, POST — same verb contract as
     // /api/global-context: NOT a PUT and NOT a DELETE-then-write.
     //
@@ -2677,24 +2651,16 @@ export const httpApi: Api = {
     //
     // A read-only document refuses this with 405, and the refusal says what the
     // document IS rather than that the caller lacks a permission.
-    return toBootDoc(
-      unwrap(
-        await client.POST("/api/boot-docs/{kind}/{key}", {
-          params: { path: { kind, key } },
-          body: { body, allow_shrink: false },
-        }),
-      ),
-    );
+    await client.POST("/api/boot-docs/{kind}/{key}", {
+      params: { path: { kind, key } },
+      body: { body, allow_shrink: false },
+    });
   },
 
-  async resetBootDoc(kind: BootDocKind, key: string): Promise<BootDocView> {
-    return toBootDoc(
-      unwrap(
-        await client.POST("/api/boot-docs/{kind}/{key}/reset", {
-          params: { path: { kind, key } },
-        }),
-      ),
-    );
+  async resetBootDoc(kind: BootDocKind, key: string): Promise<void> {
+    await client.POST("/api/boot-docs/{kind}/{key}/reset", {
+      params: { path: { kind, key } },
+    });
   },
 
   async listDocumentHistory(
@@ -2821,29 +2787,23 @@ export const httpApi: Api = {
     return toRoleDef(wire);
   },
 
-  async saveRole(key: string, patch: RolePatch): Promise<RoleDefView> {
+  async saveRole(key: string, patch: RolePatch): Promise<void> {
     // POST /api/roles/{key} {name?, definition_md?} -> RoleDefDTO. View model uses
     // camelCase (definitionMd); the wire body is snake_case (RoleDefUpdateDTO).
-    const wire = unwrap(
-      await client.POST("/api/roles/{role}", {
-        params: { path: { role: key } },
-        body: { name: patch.name, definition_md: patch.definitionMd },
-      }),
-    );
-    return toRoleDef(wire);
+    await client.POST("/api/roles/{role}", {
+      params: { path: { role: key } },
+      body: { name: patch.name, definition_md: patch.definitionMd },
+    });
   },
 
-  async resetRole(key: string): Promise<RoleDefView> {
+  async resetRole(key: string): Promise<void> {
     // POST /api/roles/{key}/reset -> RoleDefDTO (idempotent tombstone → seed).
     // NOTE the POST-reset route — the old DELETE verb here never matched the
     // route table (405), and DELETE /api/roles/{key} is now the HARD custom-role
     // delete (M2-2), a destructive different verb.
-    const wire = unwrap(
-      await client.POST("/api/roles/{role}/reset", {
-        params: { path: { role: key } },
-      }),
-    );
-    return toRoleDef(wire);
+    await client.POST("/api/roles/{role}/reset", {
+      params: { path: { role: key } },
+    });
   },
 
   async createRole(input: RoleCreateInput): Promise<RoleCreateResult> {
@@ -2863,7 +2823,11 @@ export const httpApi: Api = {
     if (input.model !== undefined) body.model = input.model;
     if (input.effort !== undefined) body.effort = input.effort;
     const wire = unwrap(await client.POST("/api/roles", { body }));
-    return { role: toRoleDef(wire.role), member: toMember(wire.member) };
+    return {
+      roleKey: wire.role_key,
+      memberId: wire.member_id,
+      memberName: wire.member_name,
+    };
   },
 
   async deleteRole(key: string): Promise<void> {
@@ -2899,7 +2863,7 @@ export const httpApi: Api = {
     return toLessons(wire);
   },
 
-  async saveLessons(roleKey: string, text: string): Promise<LessonsView> {
+  async saveLessons(roleKey: string, text: string): Promise<void> {
     // POST /api/lessons/{role_key} {text} -> LessonsDTO (folded,
     // isDefault=false). Whole-doc replace matching the backend
     // `handle_replace_lessons`. NOTE the POST verb — do NOT copy the
@@ -2908,17 +2872,14 @@ export const httpApi: Api = {
     // and keyed on the PRINCIPAL CLASS, not the token scope (T-5336): a caller
     // at or above admin_agent — the owner (this UI's scope) and the admin agent
     // — may write ANY role; every other agent may write only its own role.
-    const wire = unwrap(
-      await client.POST("/api/lessons/{role_key}", {
-        params: { path: { role_key: roleKey } },
-        // allow_shrink: the server's T-2d99 wipe guard refuses a non-empty →
-        // empty whole-doc replace unless the caller says so explicitly. That
-        // guard exists for BLIND agent write-backs; here a human is looking at
-        // the editor they just cleared, so the intent is already explicit.
-        body: { text, allow_shrink: true },
-      }),
-    );
-    return toLessons(wire);
+    await client.POST("/api/lessons/{role_key}", {
+      params: { path: { role_key: roleKey } },
+      // allow_shrink: the server's T-2d99 wipe guard refuses a non-empty →
+      // empty whole-doc replace unless the caller says so explicitly. That
+      // guard exists for BLIND agent write-backs; here a human is looking at
+      // the editor they just cleared, so the intent is already explicit.
+      body: { text, allow_shrink: true },
+    });
   },
 
   async getInsight(roleKey: string): Promise<InsightView> {
@@ -2937,34 +2898,28 @@ export const httpApi: Api = {
     return toInsight(wire);
   },
 
-  async saveInsight(roleKey: string, text: string): Promise<InsightView> {
+  async saveInsight(roleKey: string, text: string): Promise<void> {
     // POST /api/insight/{role_key} {text} -> InsightDTO (folded,
     // isDefault=false). Same POST-verb contract as saveLessons — do NOT copy the
     // global-context save's PUT/DELETE.
-    const wire = unwrap(
-      await client.POST("/api/insight/{role_key}", {
-        params: { path: { role_key: roleKey } },
-        // allow_shrink: identical reasoning to saveLessons — the server's wipe
-        // guard targets BLIND agent write-backs, and here a human is looking at
-        // the editor they just cleared, so the intent is already explicit. The
-        // doc.cap_chars.insight cap is checked UNCONDITIONALLY and this does not bypass
-        // it; allow_shrink governs the opposite direction.
-        body: { text, allow_shrink: true },
-      }),
-    );
-    return toInsight(wire);
+    await client.POST("/api/insight/{role_key}", {
+      params: { path: { role_key: roleKey } },
+      // allow_shrink: identical reasoning to saveLessons — the server's wipe
+      // guard targets BLIND agent write-backs, and here a human is looking at
+      // the editor they just cleared, so the intent is already explicit. The
+      // doc.cap_chars.insight cap is checked UNCONDITIONALLY and this does not bypass
+      // it; allow_shrink governs the opposite direction.
+      body: { text, allow_shrink: true },
+    });
   },
 
-  async resetInsight(roleKey: string): Promise<InsightView> {
+  async resetInsight(roleKey: string): Promise<void> {
     // POST /api/insight/{role_key}/reset -> InsightDTO (idempotent tombstone →
     // the folded read is the per-role file seed again, isDefault true). Same
     // POST-reset shape as resetRole; a role with no seed file 404s.
-    const wire = unwrap(
-      await client.POST("/api/insight/{role_key}/reset", {
-        params: { path: { role_key: roleKey } },
-      }),
-    );
-    return toInsight(wire);
+    await client.POST("/api/insight/{role_key}/reset", {
+      params: { path: { role_key: roleKey } },
+    });
   },
 
   subscribeEvents(

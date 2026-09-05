@@ -302,9 +302,9 @@ describe("SettingsPage · 版本紀錄", () => {
   });
 
   it("diffs a role definition against the role on screen", async () => {
-    const { role } = await mockApi.createRole({ name: "臨時角色" });
-    await mockApi.saveRole(role.key, { definitionMd: "第一版定義" });
-    await mockApi.saveRole(role.key, { definitionMd: "第二版定義" });
+    const { roleKey } = await mockApi.createRole({ name: "臨時角色" });
+    await mockApi.saveRole(roleKey, { definitionMd: "第一版定義" });
+    await mockApi.saveRole(roleKey, { definitionMd: "第二版定義" });
 
     const utils = render(
       <I18nProvider>
@@ -318,7 +318,7 @@ describe("SettingsPage · 版本紀錄", () => {
 
     const [target] = await mockApi.listDocumentHistory(
       "role_definition",
-      role.key
+      roleKey
     );
     fireEvent.click(await utils.findByTestId(`doc-history-open-${target.id}`));
     fireEvent.click(utils.getByTestId("doc-history-pane-diff"));
@@ -600,7 +600,9 @@ describe("SettingsPage · 版本紀錄", () => {
   // pinning only the negative side would let it quietly vanish from the two
   // documents whose reset it now IS.
   it("carries 初始版本 exactly where the document has a file seed", async () => {
-    const { role: custom } = await mockApi.createRole({ name: "臨時角色" });
+    const { roleKey: customKey } = await mockApi.createRole({
+      name: "臨時角色",
+    });
     const manual = await mockApi.createTaskManual("週報");
     // EVERY surface probed below must have retained revisions of its own. A
     // document with none renders the 「還沒有保留任何版本」 line instead of the
@@ -611,12 +613,12 @@ describe("SettingsPage · 版本紀錄", () => {
     await mockApi.saveGlobalContext("第一版");
     await mockApi.saveRole("assistant", { definitionMd: "第零版定義" });
     await mockApi.saveRole("assistant", { definitionMd: "第一版定義" });
-    await mockApi.saveRole(custom.key, { definitionMd: "第零版定義" });
-    await mockApi.saveRole(custom.key, { definitionMd: "第一版定義" });
-    await mockApi.saveLessons(custom.key, "第零版經驗");
-    await mockApi.saveLessons(custom.key, "第一版經驗");
-    await mockApi.saveInsight(custom.key, "第零版判準");
-    await mockApi.saveInsight(custom.key, "第一版判準");
+    await mockApi.saveRole(customKey, { definitionMd: "第零版定義" });
+    await mockApi.saveRole(customKey, { definitionMd: "第一版定義" });
+    await mockApi.saveLessons(customKey, "第零版經驗");
+    await mockApi.saveLessons(customKey, "第一版經驗");
+    await mockApi.saveInsight(customKey, "第零版判準");
+    await mockApi.saveInsight(customKey, "第一版判準");
     await mockApi.updateTaskManual(manual.typeKey, {
       sopMd: "第零版 SOP",
       learnings: "第零版經驗",
@@ -689,8 +691,8 @@ describe("SettingsPage · 版本紀錄", () => {
     fireEvent.click(await utils.findByText("臨時角色"));
     await utils.findAllByText(s.edit);
     await openHistory(utils, "role_definition");
-    expect(await probe(custom.key, "role_definition")).toEqual({
-      surface: custom.key,
+    expect(await probe(customKey, "role_definition")).toEqual({
+      surface: customKey,
       seeded: false,
     });
 
@@ -900,7 +902,9 @@ describe("SettingsPage · 版本紀錄", () => {
   // a test that only checked one surface.
   it("shows the delete-scope footnote exactly where a delete control exists", async () => {
     const created = await mockApi.createRole({ name: "臨時角色" });
-    expect(created.role.isSeed).toBe(false);
+    // T-91: the create receipt carries ids only, so the "this is a CUSTOM role"
+    // property is read back rather than taken from the write.
+    expect((await mockApi.getRole(created.roleKey)).isSeed).toBe(false);
     const manual = await mockApi.createTaskManual("週報");
 
     const utils = render(
@@ -962,7 +966,9 @@ describe("SettingsPage · 版本紀錄", () => {
           `doc-history-entry-task_manual_${entry === "definition" ? "sop" : "learnings"}`
         )
       );
-      return readNote(`${s.manuals} › ${manual.displayName} › ${entry}`, deletable);
+      // T-91: createTaskManual answers the minted type_key only, so the
+      // display name is the one this test passed in.
+      return readNote(`${s.manuals} › 週報 › ${entry}`, deletable);
     };
 
     // A seed role cannot be deleted, so the note — which says what history does
@@ -973,7 +979,7 @@ describe("SettingsPage · 版本紀錄", () => {
       noted: false,
     });
     // A custom role can be deleted whole, and that delete keeps no history.
-    expect(await probeRole("臨時角色", created.role.key)).toEqual({
+    expect(await probeRole("臨時角色", created.roleKey)).toEqual({
       surface: `${s.roles} › 臨時角色`,
       deletable: true,
       noted: true,

@@ -18,6 +18,25 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { mockApi, __resetMock } from "./mock";
+import type { ChatMessage } from "./adapter";
+
+/** Post a message and hand back the row the mock STORED for it.
+ *
+ * 🔴 T-91: `postChat` answers a RECEIPT, and this seam returns nothing at all —
+ * so there is no echo left to assert against. Every claim in this file is about
+ * what the mock stored and what a READ serves back, which is what the tests
+ * below always meant (the file's own header says the point is that reads carry
+ * the quote). The read door used is `listChat`, the same one the cockpit uses;
+ * the post lands last in its own thread. */
+async function post(msg: {
+  to: string;
+  body: string;
+  replyTo?: string;
+}): Promise<ChatMessage> {
+  await mockApi.postChat(msg);
+  const thread = await mockApi.listChat(msg.to);
+  return thread[thread.length - 1];
+}
 
 // The Go constant this mock mirrors, read out of the source file rather than
 // copied. See the cross-language guard at the bottom of this file.
@@ -35,10 +54,10 @@ describe("mock 回覆這則 — server parity", () => {
   beforeEach(() => __resetMock());
 
   it("stores the link on the accepted case and serves it back", async () => {
-    const quoted = await mockApi.postChat({ to: "mira", body: "問題" });
+    const quoted = await post({ to: "mira", body: "問題" });
     expect(quoted.replyTo ?? null).toBeNull();
 
-    const reply = await mockApi.postChat({
+    const reply = await post({
       to: "mira",
       body: "答案",
       replyTo: quoted.id,
@@ -55,11 +74,15 @@ describe("mock 回覆這則 — server parity", () => {
   // surfaced; a reply carries the quoted id and NOTHING else, so an ambiguous id
   // resolves the quote to whichever row sorts first.
   it("mints a distinct id per message even within one millisecond", async () => {
-    const posted = await Promise.all(
+    await Promise.all(
       Array.from({ length: 5 }, (_, i) =>
         mockApi.postChat({ to: "mira", body: `第 ${i} 則` }),
       ),
     );
+    // Read back rather than echoed (T-91): the ids under test are the STORED
+    // ones, which is where an ambiguous id would actually do its damage.
+    const posted = await mockApi.listChat("mira");
+    expect(posted).toHaveLength(5);
     expect(new Set(posted.map((m) => m.id)).size).toBe(posted.length);
   });
 
@@ -77,9 +100,9 @@ describe("mock 回覆這則 — server parity", () => {
     // The reversal, and the reason the whole redesign exists: the owner quotes a
     // line out of another conversation to step into it. This test read
     // `.rejects.toThrow(/another conversation/)` until 2026-08-21.
-    const elsewhere = await mockApi.postChat({ to: "kye", body: "別條線" });
+    const elsewhere = await post({ to: "kye", body: "別條線" });
 
-    const reply = await mockApi.postChat({
+    const reply = await post({
       to: "mira",
       body: "側向引用",
       replyTo: elsewhere.id,
@@ -96,16 +119,18 @@ describe("mock 回覆這則 — server parity", () => {
     // it in mockServedChatMessage for the same reason. A mock that only attached
     // it sometimes would make offline preview show a bug — a quote flickering
     // between present and absent — that the real product does not have.
-    const quoted = await mockApi.postChat({ to: "mira", body: "被引用的那句" });
-    const reply = await mockApi.postChat({
+    const quoted = await post({ to: "mira", body: "被引用的那句" });
+    const reply = await post({
       to: "mira",
       body: "答案",
       replyTo: quoted.id,
     });
 
-    // ① the POST echo. Whole-object equality, so a field the mock forgets to
-    // join (the recipient half arrived after the sender half did) is a failure
-    // here rather than a silently thinner quote in offline preview.
+    // ① the row the post stored, read back. Whole-object equality, so a field
+    // the mock forgets to join (the recipient half arrived after the sender
+    // half did) is a failure here rather than a silently thinner quote in
+    // offline preview. (This used to read the POST echo; T-91 removed it, and
+    // the read door is what offline preview actually renders from anyway.)
     expect(reply.replyToChat).toEqual({
       id: quoted.id,
       from: "owner",
@@ -137,8 +162,8 @@ describe("mock 回覆這則 — server parity", () => {
     // so a mock that dropped the quote here would preview a card cheaper and
     // emptier than the live one — which is the exact defect T-9871 fixed on the
     // rendering side.
-    const quoted = await mockApi.postChat({ to: "mira", body: "被引用的那句" });
-    const reply = await mockApi.postChat({
+    const quoted = await post({ to: "mira", body: "被引用的那句" });
+    const reply = await post({
       to: "mira",
       body: "答案",
       replyTo: quoted.id,
@@ -182,11 +207,11 @@ describe("mock 回覆這則 — server parity", () => {
     // a mock that dropped the collapse entirely would still have passed it. The
     // Go test of the same name learned this and wrote it down; this one had not
     // applied the lesson.
-    const quoted = await mockApi.postChat({
+    const quoted = await post({
       to: "mira",
       body: "長".repeat(10) + "\n\n" + "話".repeat(30) + "   " + "短".repeat(50),
     });
-    const reply = await mockApi.postChat({
+    const reply = await post({
       to: "mira",
       body: "tl;dr",
       replyTo: quoted.id,
@@ -235,11 +260,11 @@ describe("mock 回覆這則 — server parity", () => {
     // mock SERVES, not a number sitting beside it.
     return (async () => {
       __resetMock();
-      const quoted = await mockApi.postChat({
+      const quoted = await post({
         to: "mira",
         body: "長".repeat(serverLen + 40),
       });
-      const reply = await mockApi.postChat({
+      const reply = await post({
         to: "mira",
         body: "tl;dr",
         replyTo: quoted.id,

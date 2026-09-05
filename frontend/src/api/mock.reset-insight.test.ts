@@ -34,12 +34,14 @@ describe("mockApi · resetInsight", () => {
     expect(written.text).toBe(WRITTEN);
     expect(written.isDefault).toBe(false);
 
-    const reset = await mockApi.resetInsight("assistant");
+    // T-91: the reset answers a receipt, so the restored document is READ
+    // BACK. The property under test is unchanged — the reset really put the
+    // seed back — and it is now measured where the cockpit measures it.
+    await mockApi.resetInsight("assistant");
+    const reset = await mockApi.getInsight("assistant");
     expect(reset.text).toBe(seed.text);
     expect(reset.isDefault).toBe(true);
     expect(reset.sizeChars).toBe(seed.sizeChars);
-    // The read face agrees — the response is not a one-off projection.
-    expect(await mockApi.getInsight("assistant")).toEqual(reset);
   });
 
   it("retains the overlay it discarded, not the seed it restored", async () => {
@@ -62,8 +64,12 @@ describe("mockApi · resetInsight", () => {
 
   it("404s for a role with no factory insight of its own", async () => {
     // POSITIVE CONTROL: the seeded role must succeed here, or a mock where
-    // seeds simply do not resolve would satisfy the rejection below.
-    await expect(mockApi.resetInsight("assistant")).resolves.toBeDefined();
+    // seeds simply do not resolve would satisfy the rejection below. T-91: the
+    // reset answers a receipt, so "succeeded" is now "did not reject" —
+    // `toBeDefined` would pass on the returned `undefined`'s absence for the
+    // wrong reason, and the read-back below is what says the seed came back.
+    await expect(mockApi.resetInsight("assistant")).resolves.toBeUndefined();
+    expect((await mockApi.getInsight("assistant")).isDefault).toBe(true);
 
     await expect(mockApi.resetInsight("r-tester")).rejects.toSatisfy(
       (e: unknown) => isHttpStatus(e, 404)

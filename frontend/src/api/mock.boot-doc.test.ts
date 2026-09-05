@@ -114,11 +114,14 @@ describe("mockApi · boot-context blocks", () => {
       "task_takeover_with_predecessor",
     ] as const) {
       expect((await mockApi.getBootDoc(kind, "global")).readOnly).toBe(false);
-      const saved = await mockApi.saveBootDoc(kind, "global", `${kind} 改過
+      // T-91: both writes answer a receipt, so the document is READ BACK.
+      await mockApi.saveBootDoc(kind, "global", `${kind} 改過
 `);
+      const saved = await mockApi.getBootDoc(kind, "global");
       expect(saved).toMatchObject({ isDefault: false });
       expect(saved.text).toContain("改過");
-      expect(await mockApi.resetBootDoc(kind, "global")).toMatchObject({
+      await mockApi.resetBootDoc(kind, "global");
+      expect(await mockApi.getBootDoc(kind, "global")).toMatchObject({
         isDefault: true,
       });
     }
@@ -192,7 +195,9 @@ describe("mockApi · boot-context blocks", () => {
 
   it("restores the factory version without writing the seed text back as an edit", async () => {
     await mockApi.saveBootDoc("boot_sequence", "claude", "壞掉的內容");
-    const back = await mockApi.resetBootDoc("boot_sequence", "claude");
+    // T-91: the reset answers a receipt, so the restored document is READ BACK.
+    await mockApi.resetBootDoc("boot_sequence", "claude");
+    const back = await mockApi.getBootDoc("boot_sequence", "claude");
     // 🔴 `isDefault` true is the load-bearing half. A "reset" implemented as a
     // replace carrying the seed text renders identically and leaves the
     // document owner-edited forever — and on a server whose seed file later

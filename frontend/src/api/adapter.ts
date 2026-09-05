@@ -350,6 +350,22 @@ export interface ReplyCard {
   task?: TaskRefView | null;
 }
 
+/** What the three reply-card WRITES answer (wire `ReplyCardReceiptDTO`, T-91):
+ * ONLY the transition the write performed. The question, its options, its
+ * attachments and its task ref are NOT decided by answer/re-answer/expire, so
+ * they stopped riding the response — fold this into the card already on screen
+ * via `lib/replyCardReceipt.ts`'s `mergeReplyCardWrite` rather than treating it
+ * as a card. It is deliberately NOT a subtype of `ReplyCard`: making it one
+ * would let a receipt be stored where a card is rendered, which is exactly the
+ * silent blanking this shape exists to make impossible. */
+export interface ReplyCardWriteReceipt {
+  id: string;
+  status: "waiting" | "answered" | "expired";
+  answer: ReplyCardAnswer | null;
+  answeredTs: number | null;
+  expiredTs: number | null;
+}
+
 /** The LIGHT task reference riding a task-armed reply card (wire TaskRefDTO).
  * Deliberately narrow: `id` is ONLY the #tasks jump anchor; the UI shows the
  * TYPE (typeKey; "" ⇒ 自由代辦) — never the task number/識別鍵 (adjudicated:
@@ -1220,12 +1236,19 @@ export interface RoleCreateInput {
   effort?: string;
 }
 
-/** The created pair (mirrors `RoleCreateResultDTO`): the folded custom role doc
- * (isSeed=false, template definitionMd) + the founding member (initially
- * OFFLINE — creating never spawns; it surfaces on the roster immediately). */
+/** What `createRole` MINTED (mirrors `RoleCreateResultDTO`, T-91): the two ids
+ * the server assigned, plus the member name it may have picked from the pool
+ * when the caller did not name one. Deliberately NOT the role doc and NOT the
+ * member row — the write stopped echoing either, and the roster the cockpit
+ * renders comes from the LIST read that follows the create (`useRoles.create`).
+ * Anything to be SHOWN must be read back; the ids are here so the caller can
+ * address what it just made. The founding member is still created OFFLINE
+ * (creating never spawns) — that is a property of the write, not of this
+ * shape. */
 export interface RoleCreateResult {
-  role: RoleDefView;
-  member: Member;
+  roleKey: string;
+  memberId: string;
+  memberName: string;
 }
 
 /** One webhook endpoint bound to a member (M4 回呼端點, view model of
@@ -1851,7 +1874,7 @@ export interface Api {
   createScheduledMessage(
     memberId: string,
     input: ScheduledMessageCreateInput,
-  ): Promise<ScheduledMessage>;
+  ): Promise<{ id: string }>;
   /** Edit a scheduled message, including the enable/disable toggle
    * (`PATCH /api/members/{id}/scheduled-messages/{scheduleId}`). Re-aiming any
    * cadence/slot field moves the cursor to the slot most recently elapsed, so
@@ -1860,7 +1883,7 @@ export interface Api {
     memberId: string,
     scheduleId: string,
     patch: ScheduledMessageUpdate,
-  ): Promise<ScheduledMessage>;
+  ): Promise<{ id: string }>;
   /** Permanently remove a scheduled message
    * (`DELETE /api/members/{id}/scheduled-messages/{scheduleId}`) — distinct
    * from `status: disabled`, which is the reversible suspend. */
@@ -1974,7 +1997,7 @@ export interface Api {
      * only writer of the stored link; a forged `meta.reply_to` is dropped.
      * Omitted on an ordinary post. */
     replyTo?: string;
-  }): Promise<ChatMessage>;
+  }): Promise<void>;
   /** Mark a conversation (with `peer`) read up to `lastReadTs` — the caller's own
    * read watermark (reader = the verified JWT sub server-side; anti-spoof). The
    * watermark is monotonic; a stale ts is a no-op. Returns the effective receipt. */
@@ -2027,7 +2050,10 @@ export interface Api {
    * card → 400, already answered → 409 (all reject as ApiError). Returns the answered
    * card; the caller refetches lists + count (the SSE delta also fans).
    */
-  answerReplyCard(id: string, answer: ReplyCardAnswerInput): Promise<ReplyCard>;
+  answerReplyCard(
+    id: string,
+    answer: ReplyCardAnswerInput,
+  ): Promise<ReplyCardWriteReceipt>;
   /**
    * Revise an ANSWERED card's answer (`PUT /api/reply-cards/{id}/answer` —
    * 重新決定, the owner changing their OWN answer). Same body + validation as
@@ -2038,7 +2064,7 @@ export interface Api {
   reanswerReplyCard(
     id: string,
     answer: ReplyCardAnswerInput,
-  ): Promise<ReplyCard>;
+  ): Promise<ReplyCardWriteReceipt>;
   /**
    * Mark a WAITING card expired (`POST /api/reply-cards/{id}/expire` — 標為過期,
    * the terminal exit that is NOT an answer; its author, the owner, or an admin
@@ -2049,7 +2075,7 @@ export interface Api {
    * the expired card; the caller refetches lists + count (the SSE delta also
    * fans).
    */
-  expireReplyCard(id: string): Promise<ReplyCard>;
+  expireReplyCard(id: string): Promise<ReplyCardWriteReceipt>;
   // ── Tasks (M3 任務頁 + 任務卡) ──────────────────────────────────────────────
   /**
    * List tasks as LIGHT list items (the collapsed card's fields +
@@ -2127,7 +2153,7 @@ export interface Api {
    * releases any bound outsource worker. Returns the terminated task; the
    * caller refetches (the SSE delta also fans).
    */
-  terminateTask(id: string): Promise<TaskView>;
+  terminateTask(id: string): Promise<void>;
   /**
    * Mark a task duplicated (`POST /api/tasks/{id}/duplicate`), pointing at the
    * ORIGINAL it duplicates — so whoever spots the duplicate closes it instead of
@@ -2137,7 +2163,7 @@ export interface Api {
    * duplicate (all 409, thrown as ApiError); an already-closed task is a 409.
    * Returns the duplicated task; the SSE delta also fans.
    */
-  markTaskDuplicate(id: string, duplicateOf: string): Promise<TaskView>;
+  markTaskDuplicate(id: string, duplicateOf: string): Promise<void>;
   /**
    * Owner priority change (`POST /api/tasks/{id}/priority`): `high` | `mid` |
    * `low` | `frozen` — freeze/unfreeze ride the same knob (spec §3.3). Closed
@@ -2178,7 +2204,7 @@ export interface Api {
    * listDocumentHistory. Returns the task after the change; the SSE `task`
    * delta also fans.
    */
-  updateTaskDescription(id: string, description: string): Promise<TaskView>;
+  updateTaskDescription(id: string, description: string): Promise<void>;
   /**
    * Correct one task's title (`POST /api/tasks/{id}/title`, T-2ebe) — the ONLY
    * cell of a task the task list renders, and so the half of a card most likely
@@ -2209,7 +2235,7 @@ export interface Api {
    * over that same key. Returns the task after the change; the SSE `task` delta
    * also fans.
    */
-  updateTaskTitle(id: string, title: string): Promise<TaskView>;
+  updateTaskTitle(id: string, title: string): Promise<void>;
   /**
    * Reassign a task (`POST /api/tasks/{id}/reassign`) — owner + 特助 only
    * (the server gates it; a member/worker caller is a 403). The server expires
@@ -2220,7 +2246,7 @@ export interface Api {
    * member target a 400/409 (all throw ApiError). Returns the task after the
    * move; the caller refetches (the SSE delta also fans).
    */
-  reassignTask(id: string, input: TaskReassignInput): Promise<TaskView>;
+  reassignTask(id: string, input: TaskReassignInput): Promise<void>;
   /**
    * Un-pin one artifact from a task's set (`DELETE /api/tasks/{id}/artifact/
    * {artifactId}`) — the owner/admin cockpit action (T-3dc5; the executing
@@ -2310,7 +2336,7 @@ export interface Api {
    * not intent (T-7526): 409 only when the worker is BOTH not held down and
    * currently online, so a worker whose session died on its own is revivable.
    * unknown/released → 404. (T-f190) */
-  restartWorker(id: string): Promise<OutsourceWorkerView>;
+  restartWorker(id: string): Promise<void>;
   /** Change a worker's model/effort (`POST /api/outsource-workers/{id}/model`,
    * owner/admin-agent) — active+online → kill+respawn to take effect now, otherwise
    * persist for the next spawn. Returns the freshly projected worker. (T-f190) */
@@ -2345,14 +2371,14 @@ export interface Api {
   /** Create a task type from its DISPLAY NAME (T-fa76): the server mints the
    * `tm-` type_key (returned on the view) — the id is the system's, the text
    * is the human's. Blank name → 400/422 (throws ApiError). */
-  createTaskManual(displayName: string): Promise<TaskManualView>;
+  createTaskManual(displayName: string): Promise<{ typeKey: string }>;
   /** Partial manual edit (`POST /api/task-manuals/{type_key}`) — only supplied
    * fields change; `assignee: null` unsets (wire `{}`). Returns the manual
    * after the edit. Unknown → 404 (throws). */
   updateTaskManual(
     typeKey: string,
     patch: TaskManualPatch,
-  ): Promise<TaskManualView>;
+  ): Promise<void>;
   /** Delete a task type (`DELETE /api/task-manuals/{type_key}`). OPEN
    * (non-terminal) tasks of the type → 409 (throws — the UI surfaces the
    * human-readable 先讓任務結束 message); unknown → 404. */
@@ -2483,9 +2509,9 @@ export interface Api {
   getGlobalContext(): Promise<GlobalContextView>;
   /** Whole-doc replace of the global context → returns the folded doc
    * (`isDefault` flips false). */
-  saveGlobalContext(text: string): Promise<GlobalContextView>;
+  saveGlobalContext(text: string): Promise<void>;
   /** Reset the global context to seed (idempotent tombstone → `isDefault` true). */
-  resetGlobalContext(): Promise<GlobalContextView>;
+  resetGlobalContext(): Promise<void>;
   /**
    * The folded boot-context / lifecycle document (T-791e, widened by T-3201),
    * addressed by (kind, key). Every kind serves exactly one key, "global",
@@ -2518,7 +2544,7 @@ export interface Api {
     kind: BootDocKind,
     key: string,
     body: string
-  ): Promise<BootDocView>;
+  ): Promise<void>;
   /**
    * Restore ONE boot-context block to its FACTORY version → the folded doc
    * (`isDefault` true).
@@ -2528,7 +2554,7 @@ export interface Api {
    * online, so there is nobody online to fix it from. It must stay reachable
    * from the cockpit without a successful read and without any agent being up.
    */
-  resetBootDoc(kind: BootDocKind, key: string): Promise<BootDocView>;
+  resetBootDoc(kind: BootDocKind, key: string): Promise<void>;
   /** List the role roster as a DIRECTORY (seed defaults + owner edits).
    * T-1170: `definition_md` is NOT in this answer, only its size and the cap;
    * the persona body comes from `getRole`. */
@@ -2536,9 +2562,9 @@ export interface Api {
   /** The folded role definition for `key`. */
   getRole(key: string): Promise<RoleDefView>;
   /** Partial edit of a role definition → returns the folded doc. */
-  saveRole(key: string, patch: RolePatch): Promise<RoleDefView>;
+  saveRole(key: string, patch: RolePatch): Promise<void>;
   /** Reset a role definition to seed (idempotent tombstone → `isDefault` true). */
-  resetRole(key: string): Promise<RoleDefView>;
+  resetRole(key: string): Promise<void>;
   /**
    * Create ONE custom role + its ONE founding member (`POST /api/roles`, M2-2).
    * The server mints both ids; the role doc starts from the 「你是誰 / 你做什麼」
@@ -2582,7 +2608,7 @@ export interface Api {
    * or above admin_agent — the owner (this UI's scope) and the admin agent —
    * may write ANY role; every other agent may write only its own role.
    */
-  saveLessons(roleKey: string, text: string): Promise<LessonsView>;
+  saveLessons(roleKey: string, text: string): Promise<void>;
   /**
    * The folded PER-ROLE insight doc for a `roleKey` (T-3809) — the role
    * journal's third block, beside Duty and Learning. No file seed, so an
@@ -2601,7 +2627,7 @@ export interface Api {
    * write only its own role, and the 403 names `insight` rather than borrowing
    * the lessons wording.
    */
-  saveInsight(roleKey: string, text: string): Promise<InsightView>;
+  saveInsight(roleKey: string, text: string): Promise<void>;
   /**
    * Reset the PER-ROLE insight doc back to its factory seed (T-6501) —
    * idempotent tombstone → the folded read is `seeds/insight_<role_key>.md`
@@ -2612,7 +2638,7 @@ export interface Api {
    * about keeping every implementation of this port honest, not about a path
    * the UI walks.
    */
-  resetInsight(roleKey: string): Promise<InsightView>;
+  resetInsight(roleKey: string): Promise<void>;
   /**
    * The retained revisions of ONE editable long-form document as a DIRECTORY,
    * newest first (`GET /api/document-history/{kind}/{key}`). At most 3 are

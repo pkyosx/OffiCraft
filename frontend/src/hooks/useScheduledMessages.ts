@@ -22,11 +22,15 @@ interface UseScheduledMessages {
    * from honest-empty. */
   error: boolean;
   refetch: () => Promise<void>;
-  create: (input: ScheduledMessageCreateInput) => Promise<ScheduledMessage>;
+  /** Create, then refetch. Resolves with the id the SERVER minted — T-91: the
+   * write answers a receipt, not the row, so the row itself comes from the
+   * refetch this awaits (`items`), never from the write. */
+  create: (input: ScheduledMessageCreateInput) => Promise<{ id: string }>;
+  /** Edit, then refetch. Same shape and same reason as `create`. */
   update: (
     scheduleId: string,
     patch: ScheduledMessageUpdate
-  ) => Promise<ScheduledMessage>;
+  ) => Promise<{ id: string }>;
   remove: (scheduleId: string) => Promise<void>;
 }
 

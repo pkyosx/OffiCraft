@@ -48,12 +48,12 @@ function seedTask(over: Partial<TaskView> = {}): string {
 }
 
 describe("mockApi · updateTaskTitle", () => {
-  it("writes the title and echoes it back", async () => {
+  it("writes the title, and a read serves it back", async () => {
+    // T-91: the write answers a receipt, so there is no echo left to assert.
+    // The read-back was ALWAYS the stronger half — an echo that did not persist
+    // would have passed the echo-only assertion — and it is now the whole test.
     const id = seedTask();
-    const after = await mockApi.updateTaskTitle(id, "更正後的標題");
-    expect(after.title).toBe("更正後的標題");
-    // And it is what a subsequent read serves — an echo that did not persist
-    // would pass an echo-only assertion.
+    await mockApi.updateTaskTitle(id, "更正後的標題");
     expect((await mockApi.getTask(id)).title).toBe("更正後的標題");
   });
 
@@ -82,8 +82,8 @@ describe("mockApi · updateTaskTitle", () => {
 
   it("stores the TRIMMED value, matching create_task", async () => {
     const id = seedTask();
-    const after = await mockApi.updateTaskTitle(id, "  兩邊都有空白  ");
-    expect(after.title).toBe("兩邊都有空白");
+    await mockApi.updateTaskTitle(id, "  兩邊都有空白  ");
+    expect((await mockApi.getTask(id)).title).toBe("兩邊都有空白");
   });
 
   it("an unchanged title is a no-op that versions nothing, trimming included", async () => {
@@ -102,8 +102,8 @@ describe("mockApi · updateTaskTitle", () => {
     await mockApi.terminateTask(id);
     expect((await mockApi.getTask(id)).closedTs).not.toBeNull();
 
-    const after = await mockApi.updateTaskTitle(id, "結案後的更正");
-    expect(after.title).toBe("結案後的更正");
+    await mockApi.updateTaskTitle(id, "結案後的更正");
+    expect((await mockApi.getTask(id)).title).toBe("結案後的更正");
 
     // The control that makes this a DIFFERENCE and not a missing check: the
     // same closed task still freezes its artifact set and its priority.

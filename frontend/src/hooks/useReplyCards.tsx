@@ -114,7 +114,11 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import type { ReplyCard, ReplyCardAnswerInput } from "../api/adapter";
+import type {
+  ReplyCard,
+  ReplyCardWriteReceipt,
+  ReplyCardAnswerInput,
+} from "../api/adapter";
 import { api } from "../api";
 import { mergeReplyCardWrite } from "../lib/replyCardReceipt";
 
@@ -401,7 +405,7 @@ function useReplyCardsState(): UseReplyCards {
   // answered/expired → waiting edge, so the card we just closed cannot come back
   // as waiting. Both are server properties: if either changes, this hold needs a
   // TTL or a stamp comparison like the handled side's.
-  const adoptWrite = useCallback((receipt: ReplyCard) => {
+  const adoptWrite = useCallback((receipt: ReplyCardWriteReceipt) => {
     // Every one of the three writes settles the card (answer/re-answer → answered,
     // expire → expired), so `receipt.status !== "waiting"` always holds here.
     // There is deliberately no "still waiting" branch: the one that used to sit
@@ -435,20 +439,29 @@ function useReplyCardsState(): UseReplyCards {
     if (handledLoadedRef.current) {
       // The card to merge onto: the waiting row it just left, else the handled
       // row already on screen (the 重新決定 path reads it from there), else our
-      // own earlier adoption. With none of those this pane never held the card,
-      // so the receipt is all there is.
+      // own earlier adoption.
+      //
+      // 🔴 With NONE of those, this pane never held the card and there is
+      // nothing to merge the transition into. The receipt is NOT a card — it
+      // carries no question, no options, no attachments and no task ref — so
+      // the handled list is left alone rather than gaining a blank row. The
+      // pane converges the ordinary way instead (the `reply_card` delta, or the
+      // read a later expand issues); what is given up is only the zero-request
+      // shortcut, and only for a card this pane was not showing anyway.
       const before =
         wasWaiting ??
         handledRef.current.find((c) => c.id === receipt.id) ??
         adoptedHandledRef.current.get(receipt.id);
-      const card = before ? mergeReplyCardWrite(before, receipt) : receipt;
-      adoptedHandledRef.current.set(receipt.id, card);
-      const next = [
-        ...handledRef.current.filter((c) => c.id !== receipt.id),
-        card,
-      ].sort((a, b) => handledTs(b) - handledTs(a));
-      handledRef.current = next;
-      setHandled(next);
+      if (before) {
+        const card = mergeReplyCardWrite(before, receipt);
+        adoptedHandledRef.current.set(receipt.id, card);
+        const next = [
+          ...handledRef.current.filter((c) => c.id !== receipt.id),
+          card,
+        ].sort((a, b) => handledTs(b) - handledTs(a));
+        handledRef.current = next;
+        setHandled(next);
+      }
     }
   }, []);
 

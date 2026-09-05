@@ -12,15 +12,18 @@
 //
 // So the two adoption points MERGE instead of replacing: the transition comes
 // from the write, everything the write does not decide stays as it was read.
-// Under today's whole-card answer the two are the same value, which is why this
-// change is safe to land BEFORE the server shrinks the response.
-import type { ReplyCard } from "../api/adapter";
+// The server HAS since shrunk the response (T-91 landed), so `receipt` is now
+// typed as the narrow `ReplyCardWriteReceipt` rather than a whole `ReplyCard`.
+// That type is what keeps this file honest: a receipt can no longer be stored
+// where a card is rendered, so the blanking described above cannot come back by
+// somebody deleting the merge and passing the write's answer straight through.
+import type { ReplyCard, ReplyCardWriteReceipt } from "../api/adapter";
 
 /** `before` (the card on screen, read from the server) with ONLY the transition
  * the write just performed folded in. */
 export function mergeReplyCardWrite(
   before: ReplyCard,
-  receipt: ReplyCard
+  receipt: ReplyCardWriteReceipt
 ): ReplyCard {
   return {
     ...before,
