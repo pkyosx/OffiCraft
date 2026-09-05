@@ -98,12 +98,26 @@ func loadConfig(env func(string) string) Config {
 	// its input unchanged for a value it cannot re-scheme (`OC_BASE=http://`
 	// survives as "http://", and the TrimRight below leaves "http:"), so such a
 	// value counts as CONFIGURED here even though no request will ever succeed
-	// against it. That is the right split: a garbage OC_BASE fails loudly on the
-	// first request and the operator sees their own value in the error, whereas
-	// the fallback is the case where nothing anywhere says an address was
-	// invented. Widening this into a shape check would mean editing
-	// normalizeBase, which is a canonical block mirrored in three modules and
-	// pinned by bin/tests/base-scheme-mirror-guard.sh.
+	// against it.
+	//
+	// ⚠️ THAT LEAVES ONE CASE THIS GUARD DOES NOT COVER, and it must not be
+	// described as if it did. An earlier version of this comment claimed a
+	// malformed OC_BASE "fails loudly on the first request"; the independent
+	// review measured that false. It holds for upload, download and
+	// `diff --external`, which do make a request — but plain `diff` makes none
+	// by design, so OC_BASE=http:// prints "http:/diff?..." with exit 0 and an
+	// empty stderr. That is the SAME failure shape T-86 exists to remove, from a
+	// different input, and arguably a worse one: at least
+	// "http://127.0.0.1:7755/diff?..." is recognisably loopback.
+	//
+	// It is still out of this guard's scope rather than a hole it should grow to
+	// cover: closing it means a shape check, and the shape check belongs to
+	// normalizeBase, a canonical block mirrored across three modules and pinned
+	// by bin/tests/base-scheme-mirror-guard.sh. A warden-supplied base cannot
+	// reach this state either (ocwarden install.go asserts ocBaseShape) — it
+	// takes a hand-set value. The split is between "an address was invented in
+	// silence", which is this field, and "an address was given wrong", which is
+	// not.
 	baseConfigured := base != ""
 	if base == "" {
 		base = defaultBase

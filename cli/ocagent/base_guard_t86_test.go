@@ -31,13 +31,32 @@ import (
 // substring search can tell apart from every other string in the output.
 const plantedBase = "http://planted-base-value.invalid:65535"
 
+// misWiredBaseAt builds the state loadConfig produces for an UNSET OC_BASE —
+// a Base that is present and a BaseConfigured that is false — while letting the
+// caller choose the address.
+//
+// THE ADDRESS MATTERS AND IS NOT DECORATION. A test that pairs "no OC_BASE"
+// with an address nothing is listening on cannot tell a guard that refuses from
+// a request that merely failed, so its "reached no server" assertion is true no
+// matter what the code does. Passing a live httptest URL here is what gives that
+// assertion teeth: remove the guard and the request lands, the flag flips, and
+// the test goes red for the right reason. It doubles as the leak sentinel, since
+// the URL is a value the message must never echo.
+func misWiredBaseAt(base string) Config {
+	return Config{Base: base, BaseConfigured: false}
+}
+
+// misWiredBase is misWiredBaseAt with an address deliberately NOT reachable —
+// for the paths that make no request at all, where there is no server to reach
+// and the sentinel is all that is wanted.
 func misWiredBase() Config {
-	return Config{Base: plantedBase, BaseConfigured: false}
+	return misWiredBaseAt(plantedBase)
 }
 
 // assertNamesBaseWithoutValue is the pair of assertions the ticket asks for on
-// every new message: the variable is named, and no value is echoed.
-func assertNamesBaseWithoutValue(t *testing.T, subcommand, stderr string) {
+// every new message: the variable is named, and no value is echoed. `baseValue`
+// is the address that Config carried, which is exactly what a leak would print.
+func assertNamesBaseWithoutValue(t *testing.T, subcommand, baseValue, stderr string) {
 	t.Helper()
 	if !strings.Contains(stderr, "OC_BASE") {
 		t.Errorf("%s: the message must NAME the variable that is missing; got %q",
@@ -47,7 +66,7 @@ func assertNamesBaseWithoutValue(t *testing.T, subcommand, stderr string) {
 		t.Errorf("%s: the message must say which subcommand refused; got %q",
 			subcommand, stderr)
 	}
-	if strings.Contains(stderr, plantedBase) {
+	if strings.Contains(stderr, baseValue) {
 		t.Errorf("%s: the message printed the resolved base value. OC_* values must "+
 			"never reach a terminal; got %q", subcommand, stderr)
 	}
@@ -71,13 +90,16 @@ func TestUploadWithoutConfiguredBaseNamesItAndSendsNothing(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	cfg := misWiredBase()
+	cfg := misWiredBaseAt(srv.URL)
 	cfg.Token = "tok"
 	var out, errOut strings.Builder
 	rc := cmdUpload(srv.Client(), cfg, path, "", &out, &errOut)
 
-	if rc == 0 {
-		t.Errorf("upload with no OC_BASE must exit non-zero, got %d", rc)
+	// 3, not merely non-zero: the sibling OC_TOKEN guards in this same
+	// subcommand already exit 3 for the same class of mis-wire, and a test that
+	// only asked for "non-zero" let a mutant change it to 2 with nothing red.
+	if rc != 3 {
+		t.Errorf("upload with no OC_BASE must exit 3 like its OC_TOKEN sibling, got %d", rc)
 	}
 	if reached {
 		t.Error("upload with no OC_BASE reached a server; it must send nothing at all")
@@ -86,7 +108,7 @@ func TestUploadWithoutConfiguredBaseNamesItAndSendsNothing(t *testing.T) {
 		t.Errorf("upload refusal must leave stdout empty (callers capture the "+
 			"attachment id from it); got %q", out.String())
 	}
-	assertNamesBaseWithoutValue(t, "upload", errOut.String())
+	assertNamesBaseWithoutValue(t, "upload", srv.URL, errOut.String())
 }
 
 func TestDownloadWithoutConfiguredBaseNamesItAndFetchesNothing(t *testing.T) {
@@ -96,13 +118,13 @@ func TestDownloadWithoutConfiguredBaseNamesItAndFetchesNothing(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	cfg := misWiredBase()
+	cfg := misWiredBaseAt(srv.URL)
 	cfg.Token = "tok"
 	var out, errOut strings.Builder
 	rc := cmdDownload(srv.Client(), cfg, "att-0123456789ab", t.TempDir(), &out, &errOut)
 
-	if rc == 0 {
-		t.Errorf("download with no OC_BASE must exit non-zero, got %d", rc)
+	if rc != 3 {
+		t.Errorf("download with no OC_BASE must exit 3 like its OC_TOKEN sibling, got %d", rc)
 	}
 	if reached {
 		t.Error("download with no OC_BASE reached a server; it must fetch nothing at all")
@@ -111,7 +133,7 @@ func TestDownloadWithoutConfiguredBaseNamesItAndFetchesNothing(t *testing.T) {
 		t.Errorf("download refusal must leave stdout empty (callers capture the "+
 			"landed path from it); got %q", out.String())
 	}
-	assertNamesBaseWithoutValue(t, "download", errOut.String())
+	assertNamesBaseWithoutValue(t, "download", srv.URL, errOut.String())
 }
 
 // TestDiffWithoutConfiguredBaseRefusesInsteadOfMintingALoopbackLink is the
@@ -129,13 +151,13 @@ func TestDiffWithoutConfiguredBaseRefusesInsteadOfMintingALoopbackLink(t *testin
 	rc := cmdDiff(&client, misWiredBase(), "att-0123456789ab", "att-ba9876543210",
 		"", "", false, &out, &errOut)
 
-	if rc == 0 {
-		t.Errorf("diff with no OC_BASE must exit non-zero, got %d", rc)
+	if rc != 3 {
+		t.Errorf("diff with no OC_BASE must exit 3 like its OC_TOKEN sibling, got %d", rc)
 	}
 	if out.String() != "" {
 		t.Errorf("diff with no OC_BASE must print no link at all; got %q", out.String())
 	}
-	assertNamesBaseWithoutValue(t, "diff", errOut.String())
+	assertNamesBaseWithoutValue(t, "diff", plantedBase, errOut.String())
 }
 
 // TestDiffExternalWithoutConfiguredBaseRefusesBeforeMinting covers the other
@@ -153,13 +175,13 @@ func TestDiffExternalWithoutConfiguredBaseRefusesBeforeMinting(t *testing.T) {
 	rc := cmdDiff(&client, cfg, "att-0123456789ab", "att-ba9876543210",
 		"", "", true, &out, &errOut)
 
-	if rc == 0 {
-		t.Errorf("diff --external with no OC_BASE must exit non-zero, got %d", rc)
+	if rc != 3 {
+		t.Errorf("diff --external with no OC_BASE must exit 3 like its OC_TOKEN sibling, got %d", rc)
 	}
 	if out.String() != "" {
 		t.Errorf("diff --external with no OC_BASE must print nothing; got %q", out.String())
 	}
-	assertNamesBaseWithoutValue(t, "diff", errOut.String())
+	assertNamesBaseWithoutValue(t, "diff", plantedBase, errOut.String())
 }
 
 // TestConfiguredBaseAddsNoMessageAnywhere is the other half of every assertion
@@ -238,7 +260,7 @@ func TestContextReportWithoutConfiguredBaseKeepsStdoutAndExitCode(t *testing.T) 
 	if !found {
 		t.Fatalf("expected the guard line on stderr, got %q", misErr.String())
 	}
-	assertNamesBaseWithoutValue(t, "context-report", guardLine)
+	assertNamesBaseWithoutValue(t, "context-report", plantedBase, guardLine)
 }
 
 // TestLoadConfigRecordsWhetherBaseWasConfigured pins the resolver end of the
