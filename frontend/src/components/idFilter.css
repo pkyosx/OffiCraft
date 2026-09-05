@@ -1,0 +1,21 @@
+/* The ID 篩選 field. Same pill as the 篩選列's other controls
+ * (.tasks__filter), restated here so the component carries its own look to
+ * whichever page hosts it instead of depending on that page's stylesheet.
+ * Colours are theme tokens only — no literal colour lives in this file. */
+.id-filter {
+  padding: 7px 10px;
+  border-radius: var(--radius-pill);
+  border: 1px solid color-mix(in srgb, var(--color-overlay) 10%, transparent);
+  background: var(--color-card);
+  color: var(--color-text);
+  font-size: 13px;
+  width: 200px;
+  max-width: 100%;
+}
+.id-filter::placeholder {
+  color: var(--color-text-muted);
+}
+.id-filter:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--color-overlay) 35%, transparent);
+  outline-offset: 1px;
+}

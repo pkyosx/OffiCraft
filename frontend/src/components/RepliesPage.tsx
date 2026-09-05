@@ -43,6 +43,7 @@ import { useHashRoute } from "../lib/hashRoute";
 import { avatarKindForMember } from "../lib/avatarKind";
 import { ReplyCardAvatarButton } from "./ReplyCardAvatarButton";
 import { ChevronRightIcon } from "./icons";
+import { IdFilterInput } from "./IdFilterInput";
 import { ConfirmModal } from "./ConfirmModal";
 import { Markdown } from "./Markdown";
 import {
@@ -88,6 +89,34 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
   } = useReplyCards();
   const [, setRoute] = useHashRoute();
 
+  // ── ID 篩選 (T-93) ──────────────────────────────────────────────────────
+  // owner asked for the SAME thing the 任務頁 filters are, and for a link to
+  // do nothing more than pre-fill it (rc-2085e5ec60be, 2026-09-05):
+  //「只是連過去幫忙帶篩選參數而已」。So `#replies/card/<id>` seeds this field
+  // and nothing else — no by-id fetch, no locate notice.
+  //
+  // 🔴 THE COST OWNER TOOK KNOWINGLY (2026-09-05, c-0e183a7fbb10, verbatim
+  // 「已回覆已經標示24 hrs才有資料，所以真的列不出來也沒關係」): the panes are
+  // what the server sent, so a card ANSWERED OR EXPIRED more than 24h ago is
+  // not on this page and this filter therefore cannot show it. He was told
+  // and accepted it because the pane already says it only holds 24h. Do NOT
+  // quietly add a by-id fetch to "fix" this — it is a decision, not a gap.
+  // (The 待回覆 pane carries NO time window: every unanswered card is here
+  // however old, so those are always reachable — server's waitingReplyCards.)
+  const [idFilter, setIdFilter] = useState(replyCardId ?? "");
+  useEffect(() => {
+    if (replyCardId) setIdFilter(replyCardId);
+  }, [replyCardId]);
+  const idQuery = idFilter.trim().toLowerCase();
+  const matchesId = (card: ReplyCard) =>
+    idQuery === "" || card.id.toLowerCase().includes(idQuery);
+  function clearFilters() {
+    setIdFilter("");
+    // Clearing the field must also drop the id from the URL, or a reload
+    // would seed it straight back and the clear would look broken.
+    if (replyCardId) setRoute({ page: "replies" });
+  }
+
   // Ticking clock (30s): drives the live 已等你 counters AND the client-side
   // 24h prune of the handled pane while the page stays open (the server
   // already windows the lists per fetch; without the tick an aging card would
@@ -123,13 +152,17 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
   // already loaded; a handled one needs its collapsed pane fetched and opened
   // before it can be located.  Keeping this in the URL makes the destination
   // refresh-safe and works equally for an existing or newly opened PWA window.
+  // Widened from the notification tap to ANY active ID 篩選 (T-93): a filter
+  // that silently ignored the collapsed pane would answer 「沒有符合篩選條件的
+  // 請示」 for a card that is sitting right there, unfetched — a false empty,
+  // which is the one failure this control must not have.
   useEffect(() => {
-    if (!replyCardId) return;
-    if (!waiting.some((card) => card.id === replyCardId) && !handledLoaded) {
+    if (idQuery === "") return;
+    if (!waiting.some((card) => matchesId(card)) && !handledLoaded) {
       setHandledOpen(true);
       void loadHandled();
     }
-  }, [replyCardId, waiting, handledLoaded, loadHandled]);
+  }, [idQuery, waiting, handledLoaded, loadHandled]);
 
   useEffect(() => {
     if (!replyCardId) return;
@@ -150,16 +183,23 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
   // Display order = 開卡時間 newest first (stable sort over the server's
   // longest-waiting-first list). No per-card highlight: the owner ruled the
   // longest-waiting accent ring out (T-9ea9) — every card wears the same face.
-  const waitingSorted = [...waiting].sort((a, b) => b.createdTs - a.createdTs);
+  const waitingSorted = [...waiting]
+    .filter(matchesId)
+    .sort((a, b) => b.createdTs - a.createdTs);
 
   const visibleHandled = handled.filter((c) => {
+    if (!matchesId(c)) return false;
     const ts = handledTsOf(c);
     return ts !== null && nowTs - ts < HANDLED_WINDOW_SECONDS;
   });
   // The header count + zero-hide: the server counts until the lists are
   // loaded, then the client-pruned visible length (so an aging-out card drops
   // the header too while the page stays open).
-  const handledShown = handledLoaded ? visibleHandled.length : handledCount;
+  // While an ID 篩選 is on, the server-side count is the WRONG number — it
+  // counts the whole 24h pane, not the matches — so the header waits for the
+  // lists rather than printing a count the list below cannot back up.
+  const handledShown =
+    handledLoaded || idQuery !== "" ? visibleHandled.length : handledCount;
 
   // Outsource askers (ow- ids) get their codename from the lazy per-id read
   // rather than from `members`. Not because they are missing from it — GET
@@ -446,14 +486,39 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
         </div>
       )}
 
+      {/* ── 篩選列 (T-93): one ID field, and the same 清除篩選 affordance the
+        * 任務頁 filter row has. */}
+      <div className="replies__filters">
+        <IdFilterInput
+          value={idFilter}
+          onChange={setIdFilter}
+          label={t.replies.filterIdLabel}
+          testId="filter-reply-card-id"
+        />
+        {idQuery !== "" && (
+          <button
+            type="button"
+            className="replies__clear-filters"
+            data-testid="clear-filters"
+            onClick={clearFilters}
+          >
+            {t.replies.clearFilters}
+          </button>
+        )}
+      </div>
+
       <section className="replies__section">
         <div className="replies__section-title">
           {t.replies.waitingTitle}
-          {!loading && !error && ` · ${waiting.length}`}
+          {!loading && !error && ` · ${waitingSorted.length}`}
         </div>
-        {!loading && !error && waiting.length === 0 ? (
+        {!loading && !error && waitingSorted.length === 0 ? (
           <div className="replies__empty" data-testid="replies-empty">
-            {t.replies.empty}
+            {/* Two copies, the same split the 任務頁 already makes: an empty
+              * page and an empty RESULT are different news. Saying 「目前沒有
+              * 待處理的請示」 while six cards sit behind a filter would read as
+              * "you are all caught up". */}
+            {idQuery === "" ? t.replies.empty : t.replies.emptyFiltered}
           </div>
         ) : (
           <div className="replies__list">

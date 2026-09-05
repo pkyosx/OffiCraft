@@ -338,6 +338,12 @@ export const zh = {
     handledHint: "已回覆或已標為過期的事項 · 已回覆的可重新決定",
     // 全部處理完的空狀態
     empty: "✓ 目前沒有待處理的請示",
+    // 篩掉之後什麼都不剩的空狀態。跟上面那句是兩件事:上面是「你回完了」,
+    // 這句是「還有卡,只是沒有一張符合」——沿用任務頁 emptyNone/emptyFiltered
+    // 的同一個分法。
+    emptyFiltered: "沒有符合篩選條件的請示",
+    filterIdLabel: "請示卡編號",
+    clearFilters: "清除篩選",
     loadError: "載入請示失敗，請稍後重試",
     waitedLabel: "已等你",
     // 開卡/已回覆一律絕對時間含日期(如 7/13 09:05),不用相對或「今天」。
