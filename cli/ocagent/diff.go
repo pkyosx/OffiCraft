@@ -179,6 +179,7 @@ func cmdDiff(
 			return 2
 		}
 	}
+	// OC_BASE CLASSIFICATION: GUARDED — refuse, exit 3, on BOTH flavours.
 	// This guard used to read `cfg.Base == ""`, which loadConfig makes
 	// UNREACHABLE: an unset OC_BASE is replaced by defaultBase before any
 	// subcommand sees it, so Base is never empty and the refusal below never

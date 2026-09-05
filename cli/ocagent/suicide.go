@@ -57,7 +57,7 @@ func suicideSession(env func(string) string) (socket, session string, ok bool) {
 	return socket, session, true
 }
 
-// OC_BASE CLASSIFICATION (T-86): EXEMPT, and not by tolerance — by having no
+// OC_BASE CLASSIFICATION: EXEMPT, and not by tolerance — by having no
 // use for it. This subcommand contacts no station: it kills a tmux session on
 // this host, named by OC_SESSION on OC_TMUX_SOCKET, and the server learns of it
 // only by watching the SSE connection drop. There is no address to be wrong

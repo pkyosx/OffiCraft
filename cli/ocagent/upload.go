@@ -78,6 +78,7 @@ func cmdUpload(client httpClient, cfg Config, path, mimeType string, out, errOut
 		fmt.Fprint(errOut, "[ocagent] upload: no OC_TOKEN configured — cannot make an authed upload.\n")
 		return 3
 	}
+	// OC_BASE CLASSIFICATION: GUARDED — refuse, exit 3.
 	// Same class of mis-wire, same exit code: without OC_BASE the request below
 	// would be built against this machine's loopback address and the operator
 	// would see an upload that quietly went nowhere.

@@ -74,7 +74,7 @@ import (
 // them.
 const quarantineDirName = "trash"
 
-// OC_BASE CLASSIFICATION (T-86): EXEMPT, and the apparent contradiction in the
+// OC_BASE CLASSIFICATION: EXEMPT, and the apparent contradiction in the
 // original proposal dissolves once the two variables are kept apart. clean
 // contacts no station — it moves a file into a quarantine directory on this
 // host — so OC_BASE, which is only ever a station ADDRESS, has nothing to say

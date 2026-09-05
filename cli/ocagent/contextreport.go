@@ -152,6 +152,7 @@ func cmdContextReport(client httpClient, cfg Config, env func(string) string, no
 	}
 	pct, havePct := statuslinePct(payload)
 
+	// OC_BASE CLASSIFICATION: SIGNAL ONLY — stderr line, never a refusal.
 	// The OC_BASE mis-wire signal, and DELIBERATELY the only half of the guard
 	// this subcommand takes (Kyle, T-86: option 丙). The other three subcommands
 	// refuse and exit non-zero; this one MUST NOT, because the fail-safe

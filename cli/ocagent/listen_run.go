@@ -748,7 +748,7 @@ func cmdListen(cfg Config, env func(string) string, once bool, out io.Writer) in
 	stamper := &eventStamper{clock: time.Now}
 	out = &stampWriter{inner: out, stamp: stamper.suffix}
 
-	// OC_BASE CLASSIFICATION (T-86): NOT GUARDED IN THAT PACKAGE, AND THIS IS THE
+	// OC_BASE CLASSIFICATION: NOT GUARDED IN THIS PACKAGE, AND THIS IS THE
 	// ONE CASE WHERE THAT IS A DEFERRAL RATHER THAN AN EXEMPTION. Say so plainly,
 	// because listen is the subcommand with the MOST at stake here: cfg.Base is
 	// what the SSE connection below is opened against, holding it is what makes

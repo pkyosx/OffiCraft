@@ -113,9 +113,10 @@ func loadConfig(env func(string) string) Config {
 	// It is still out of this guard's scope rather than a hole it should grow to
 	// cover: closing it means a shape check, and the shape check belongs to
 	// normalizeBase, a canonical block mirrored across three modules and pinned
-	// by bin/tests/base-scheme-mirror-guard.sh. A warden-supplied base cannot
-	// reach this state either (ocwarden install.go asserts ocBaseShape) — it
-	// takes a hand-set value. The split is between "an address was invented in
+	// by bin/tests/base-scheme-mirror-guard.sh. A warden-supplied base is unlikely
+	// to reach this state either — ocwarden's install path asserts ocBaseShape,
+	// though its own loadConfig does not re-check the shape at spawn time — so in
+	// practice it takes a hand-set value. The split is between "an address was invented in
 	// silence", which is this field, and "an address was given wrong", which is
 	// not.
 	baseConfigured := base != ""
