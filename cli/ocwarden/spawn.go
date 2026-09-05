@@ -431,6 +431,21 @@ func tmuxNewSession(r CmdRunner, socket, session, command string) error {
 // Phase 1 CmdRunner seam has no stdin channel, so the SHORT constant nudge is
 // carried as an argv via set-buffer. paste-buffer keeps the -d -p flags and the
 // bare-flag fallback exactly as the origin.
+// nudgeClock is the nil-clock fail-safe, lifted out of tmuxDeliverNudge so it can
+// be asserted directly. Inline, the substitution was untestable at a sane cost:
+// the only way to observe it was to run a spawn with a nil clock and watch it take
+// ~30 real seconds, so nothing guarded it and reverting it to a no-op left the
+// whole package green (T-82 review round 3, BLK-1).
+//
+// A nil clock means REAL pacing, never "skip the wait" — see the Sleep field's
+// doc on SpawnDeps for why that direction is the safe one.
+func nudgeClock(sleep func(time.Duration)) func(time.Duration) {
+	if sleep == nil {
+		return time.Sleep
+	}
+	return sleep
+}
+
 func tmuxDeliverNudge(r CmdRunner, sleep func(time.Duration), socket, session, nudge string) {
 	// 🔴 nil FALLS BACK TO time.Sleep, NOT TO A NO-OP, and the direction is the
 	// whole point (same fail-safe kill.go's sweepPIDs already uses: "a mis-wired
@@ -444,13 +459,28 @@ func tmuxDeliverNudge(r CmdRunner, sleep func(time.Duration), socket, session, n
 	// avoid — with the whole package green every time. Each one was found only after
 	// a guard was written for the layer above it.
 	//
-	// With this fallback, forgetting to wire the clock is a PERFORMANCE bug (a spawn
-	// that paces when a test wanted it fast), never a correctness one. That closes
-	// the family instead of adding one more test per layer. Tests that want speed
-	// pass their own no-op explicitly.
-	if sleep == nil {
-		sleep = time.Sleep
-	}
+	// With this fallback, FORGETTING to wire the clock is a PERFORMANCE bug (a spawn
+	// that paces when a test wanted it fast), never a correctness one. Tests that
+	// want speed pass their own no-op explicitly.
+	//
+	// 🔴 IT DOES NOT CLOSE THE FAMILY, and this comment claimed it did (T-82 review
+	// round 3, BLK-2). The fallback only catches the NIL shape. Writing a non-nil
+	// no-op at the same per-spawn seam — `sd.Sleep = func(time.Duration){}` in
+	// buildCommandDeps — still turns 30 paced Enters into 30 in microseconds, and
+	// the whole package is still green. That is a REAL correctness regression this
+	// fallback cannot see, because a no-op clock is indistinguishable from a real
+	// one by type.
+	//
+	// What actually guards the two known shapes today, so the next reader does not
+	// have to re-derive it:
+	//   nil at the seam        → this fallback (pacing happens anyway)
+	//   non-nil no-op at the   → TestPerSpawnBinding_CarriesTheBaseClockThrough,
+	//   per-spawn seam           which pins that the per-spawn binding changes
+	//                            Pretrust/PurgeTrash and NOTHING else
+	// A third shape (mutating spawnDeps itself, or adding a knob to the per-spawn
+	// binding) is NOT guarded — it is only made VISIBLE, by there being no local
+	// copy in the closure to quietly assign to. Do not upgrade that to "guarded".
+	sleep = nudgeClock(sleep)
 	const buf = "oc-spawn-nudge"
 	_, _ = r.Run("tmux", "-L", socket, "set-buffer", "-b", buf, nudge)
 	// The paste lands reliably even into a not-yet-ready REPL (the text sits in the
@@ -488,9 +518,32 @@ func tmuxDeliverNudge(r CmdRunner, sleep func(time.Duration), socket, session, n
 	// squashed, so whether this check EVER fired — or was dead from the white-label
 	// import onward — is unknown. The claim here is about HEAD only.)
 	//
-	// The authority is now singular and OURS: whether the server received that
-	// member's report_waking inside StartTimeout. When it does not, reconcile stamps
-	// a wake_timeout receipt that shows up on the member's "last operation" row.
+	// The authority is now singular and OURS. NAMING IT PRECISELY, because an
+	// earlier draft of this very comment named the wrong mechanism (T-82, the fifth
+	// wrong-mechanism line in this package — and the one sitting at the centre of
+	// its thesis, which is why it is spelled out here rather than summarised):
+	//
+	//   what the server actually judges = PRESENCE, and presence = "does a live SSE
+	//   listener exist for this member id" (server/ocserverd/reconcile.go, the
+	//   observation `Online: s.hub.IsOnline(m.ID)`; Hub.IsOnline scans its listener
+	//   set for that id). reconcileOne returns "starting: awaiting presence" while
+	//   (now - LastCommandAt) <= StartTimeout, and past that the tick sets
+	//   StartTimedOut, which stampWakeObservability turns into the wake_timeout
+	//   receipt on the member's "last operation" row.
+	//
+	// It is NOT "the server received report_waking", which is what this comment used
+	// to say. That call is a DIFFERENT event: an agent reports waking as step 1 of
+	// its boot sequence, and only holds the SSE downlink later (`ocagent listen`).
+	// In the intended boot order presence therefore IMPLIES report_waking happened,
+	// which is why the wrong name produced no wrong behaviour and survived review —
+	// but the two can come apart, and anything that goes looking for the success
+	// signal must look at the listener set, not at a report_waking receipt.
+	//
+	// ⚠️ Do NOT reach for waking_since as the signal either. Since T-ba62 reconcile
+	// stamps it AT DISPATCH (see stampWakeObservability arm (a)), so it is written
+	// whether or not the agent ever came up; e2e_test/seven_gate says the same thing
+	// in its own words and grades report_waking as an OBSERVATION for exactly this
+	// reason. waking_since answers "did we ask", presence answers "did it arrive".
 	//
 	// ⚠️ WHAT THIS DID NOT CHANGE, SO NOBODY READS IT AS MORE THAN IT IS: the Enter
 	// side is byte-for-byte what it already did. Because the old check was ALREADY
@@ -832,10 +885,50 @@ type SpawnDeps struct {
 	// member's workdir, exactly like Pretrust. Purely best-effort: it never fails
 	// a spawn.
 	PurgeTrash func()
-	// Sleep paces the boot-nudge settle/retry between Enter presses. nil ⇒ no wait
-	// (the test default — fakes drive readiness synchronously); production wires
-	// time.Sleep so a cold claude REPL gets real time to become input-ready.
+	// Sleep paces the boot-nudge settle/retry between Enter presses. Production
+	// wires time.Sleep so a cold claude REPL gets real time to become input-ready.
+	//
+	// 🔴 nil DOES NOT MEAN "no wait" — it means REAL time.Sleep. tmuxDeliverNudge
+	// substitutes time.Sleep for a nil clock (see the fallback there and why), so a
+	// literal that omits this field PACES FOR REAL: ~30s per spawn, which in a test
+	// reads as "this suite got slow", not as a failure. A test that wants speed must
+	// pass its own no-op EXPLICITLY — omitting the field is the slow path, not the
+	// fast one. This sentence used to say the opposite and was the line anyone
+	// filling a SpawnDeps literal read (T-82 review round 3, BLK-3).
 	Sleep func(time.Duration)
+}
+
+// withPerSpawn returns a copy of d with ONLY the two per-spawn seams rebound —
+// the ones that cannot be built until StartParams names a member, because they
+// need that member's launch workdir. Everything else, the nudge clock included,
+// is carried through from the receiver untouched.
+//
+// 🔴 WHY THIS IS A NAMED METHOD AND NOT `sd := base; sd.X = ...` AT THE CALL
+// SITE. The transport used to copy SpawnDeps into a local inside its Spawn
+// closure and assign fields on the copy. That is a normal-looking shape, and it
+// is exactly where the T-82 review round 3 seeded its surviving mutant: adding
+// `sd.Sleep = func(time.Duration){}` on the next line turns 30 paced Enters into
+// 30 in microseconds — a real correctness regression — with the whole package
+// green. The closure is the natural home for "tweak one thing per spawn", so the
+// next person to need one will write it there too.
+//
+// Routing the rebind through a method with an explicit parameter list means the
+// closure holds no mutable copy to quietly assign to, and widening what may vary
+// per spawn requires changing THIS signature — a visible, reviewable edit rather
+// than one more line inside a closure.
+//
+// ⚠️ WHAT THIS DOES NOT DO, so nobody reads it as more than it is: Go structs are
+// not immutable and this does not make one. A caller can still take the returned
+// value, assign to it, and call start(). What changed is that doing so is now an
+// obviously odd thing to write instead of the obvious thing to write, and that
+// TestPerSpawnBinding_CarriesTheBaseClockThrough fails if a third seam is added
+// here without a decision. It closes two known shapes and makes the third
+// visible; it does not close the family. The earlier fallback comment in
+// tmuxDeliverNudge claimed a family was closed and was wrong — do not repeat it.
+func (d SpawnDeps) withPerSpawn(pretrust func() error, purgeTrash func()) SpawnDeps {
+	d.Pretrust = pretrust
+	d.PurgeTrash = purgeTrash
+	return d
 }
 
 // claudeBinUnresolvedReason is the owner-facing refusal for "this member wants

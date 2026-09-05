@@ -1174,11 +1174,15 @@ func TestTmuxDeliverNudge_AlwaysRunsBoundedAttempts(t *testing.T) {
 }
 
 // TestBuildSpawnDeps_NudgeClockIsRealAndWaits (T-82, from the independent review's third mutant):
-// the layer above. tmuxDeliverNudge takes its clock as a seam and falls back to a
-// NO-OP when handed nil — that fallback exists for tests. So a production call site
-// that passes nil silently turns the 30-second settle into microseconds, and the
-// two tests above cannot see it: they call tmuxDeliverNudge directly and supply
-// their own sleep.
+// the layer above. tmuxDeliverNudge takes its clock as a seam. ⚠️ THE SENTENCE THAT
+// USED TO BE HERE IS NOW FALSE and is corrected rather than deleted, because it is
+// the reasoning the rest of this test rests on: it said the nil fallback is a NO-OP
+// that "exists for tests", so a production call site passing nil would silently turn
+// the 30-second settle into microseconds. That WAS true when this test was written
+// and is why the test exists. It is not true now — nudgeClock substitutes the REAL
+// time.Sleep for a nil clock, so passing nil paces for real instead of skipping.
+// This test still earns its place: it pins that buildSpawnDeps WIRES the clock, and
+// a wired clock is what keeps the fallback from ever being the thing in charge.
 //
 // This is the fourth layer of a family this repo has been holed at repeatedly:
 // function → call site → what the call site passes → the seam's identity. The
@@ -1196,9 +1200,11 @@ func TestBuildSpawnDeps_NudgeClockIsRealAndWaits(t *testing.T) {
 		func(string) string { return "" }, &recordingRunner{}, "sock", "")
 
 	if deps.Sleep == nil {
-		t.Fatal("buildSpawnDeps left Sleep nil. tmuxDeliverNudge's nil fallback is a TEST default " +
-			"(no wait), so production would fire all 30 Enters in microseconds — materially the " +
-			"single-shot Enter that the boot nudge exists to avoid, with no local signal at all.")
+		t.Fatal("buildSpawnDeps left Sleep nil. Production must WIRE the clock rather than lean " +
+			"on tmuxDeliverNudge's nil fallback: the fallback paces for real (it is a fail-safe, " +
+			"not a no-op), so a nil here is not a correctness bug any more — but it means the one " +
+			"place that decides pacing is a fallback nobody chose, which is how the field went " +
+			"unnoticed the first time.")
 	}
 
 	// Positive control: it is not enough that the field is non-nil — it must be a
@@ -1221,9 +1227,16 @@ func TestBuildSpawnDeps_NudgeClockIsRealAndWaits(t *testing.T) {
 //	start() HANDS ITS OWN Sleep TO THE NUDGE  → was guarded by NOTHING
 //
 // Editing the single call site to `tmuxDeliverNudge(d.Runner, nil, …)` left every
-// one of those tests green, because tmuxDeliverNudge's nil fallback is "no wait" and
-// each of the other two tests supplies or inspects its own clock. A field can be
-// correctly built and correctly consumed while the one line joining them drops it.
+// one of those tests green, because at the time tmuxDeliverNudge's nil fallback WAS
+// "no wait" and each of the other two tests supplies or inspects its own clock. A
+// field can be correctly built and correctly consumed while the one line joining them
+// drops it.
+//
+// ⚠️ The nil arm is no longer "no wait" (nudgeClock returns the real time.Sleep), so
+// that exact mutant now costs 30 real seconds instead of corrupting behaviour. The
+// LESSON above is unchanged and is why this test stays: the seam between a correctly
+// built field and its correct consumer had no guard, and the fix for one layer is
+// where the next layer's hole gets made.
 //
 // DEFEATED BY: passing anything other than d.Sleep at the tmuxDeliverNudge call
 // site in start().
