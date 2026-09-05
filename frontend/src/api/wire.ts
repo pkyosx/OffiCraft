@@ -418,13 +418,21 @@ export type WireChatInlineReplyCard =
   components["schemas"]["ChatInlineReplyCardDTO"];
 
 // ── T-33 傳承 (lore) ────────────────────────────────────────────────────────
-// The station serves SIX lore routes and no more (verified against
-// server/ocserverd/routes.go + ocapi_gen.go on this branch): write, search,
-// get-one, get-one-revision, retire, revive. There is NO route that lists
-// SUBJECTS, none that lists the subjects a write parked `pending`, and none
-// that approves or merges one — so the cockpit's subject directory, its
-// pending queue and its approval buttons have no wire to ride, and the page
-// says so rather than drawing a zero.
+// The station serves TWELVE lore routes (counted on this branch against
+// server/ocserverd/routes.go: every row carrying `LoreGated: true`): write,
+// search, get-one, get-one-revision, retire, revive, propose, accept-proposal,
+// list-proposals, and the three ENTITY routes — pending, approve, merge.
+//
+// 🔴 THIS PARAGRAPH USED TO SAY "SIX … AND NO MORE", AND IT WAS LEFT BEHIND.
+// It claimed there was no route that lists a write's `pending` subjects and
+// none that approves or merges one, and it said so in the voice of something
+// verified. Both statements were false by the time anyone read them — the
+// entity routes landed on this branch, and `WireLorePendingEntity` /
+// `WireLoreEntityGovernance` are declared FORTY LINES BELOW the claim. Nothing
+// went red for it: a comment has no test. It is corrected in place rather than
+// deleted so the next reader can see that a "verified against routes.go"
+// sentence is a DATED measurement, not a standing fact — re-count, do not
+// re-read.
 
 /** Mirrors `LoreSearchDTO` — the selection conditions as they go on the wire.
  * Every field carries a server-side default, which the generator renders as

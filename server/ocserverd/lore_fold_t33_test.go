@@ -358,9 +358,21 @@ func TestMergedAwaySubjectsAreNotCountedTwice(t *testing.T) {
 // other side. workerSharedHead returns the SHARED SEED; this directory is
 // per-actor, so it belongs in buildWorkerBootContext and nowhere else.
 //
-// TestWorkerSharedHeadMatchesUnfilteredSeedAssembly already turns red if the
-// call moves there; this one says WHY in one line, and pairs the absence with
-// the positive control that the assembled worker document does carry it.
+// 🔴 THIS TEST IS THE ONLY GUARD, AND THE SENTENCE THAT USED TO STAND HERE
+// SAID THE OPPOSITE. It read "TestWorkerSharedHeadMatchesUnfilteredSeedAssembly
+// already turns red if the call moves there" — which is false, and it was false
+// while TWO other comments (lore_fold.go's "⚠️ MEASURED" block and
+// worker_spawn.go's "⚠️ Measured" note) already said so in as many words. That
+// test's fixture seeds a user context and NOTHING ELSE, so the ontology is
+// empty, this section folds to "" and moving the call changes nothing the
+// equality can see.
+//
+// What makes the old sentence worse than a stale comment: it was a PERMISSION
+// SLIP. Anyone deleting this test would have read "another test already covers
+// it", deleted the only guard, and watched the suite stay green.
+//
+// This one says WHY in one line, and pairs the absence with the positive
+// control that the assembled worker document does carry it.
 func TestDirectoryIsNotInTheSharedHead(t *testing.T) {
 	s := newWorkerTestServer(t)
 	seedLoreDirectoryFixture(t, s)

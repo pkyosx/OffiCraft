@@ -2888,16 +2888,25 @@ export interface Api {
    */
   // ── T-33 傳承 (lore) — READ ONLY, and that is the whole surface ─────────
   //
-  // 🔴 These three are EVERY lore method the seam has, because the station
-  // serves six lore routes and these cover the three the cockpit reads. The
-  // three it does NOT wrap are writes (`POST /api/lore/entries`, retire,
-  // revive), and nothing on the 傳承 tab calls a write this round.
+  // 🔴 THE TWO PARAGRAPHS THAT USED TO STAND HERE WERE FALSE, AND THEY WERE
+  // FALSE IN THE MOST EXPENSIVE WAY: they asserted a COUNT ("six lore routes")
+  // and an ABSENCE ("the station has no such route … nothing whose path
+  // contains `entit` exists at all"), both in the voice of something checked
+  // against routes.go on this branch. The station serves TWELVE lore routes,
+  // three of them entity routes, and this very interface declares
+  // `listPendingLoreEntities`, `approveLoreEntity` and `mergeLoreEntity` about
+  // thirty lines below where the denial sat.
   //
-  // 🔴 There is deliberately NO `listLoreSubjects`, NO `listPendingEntities`
-  // and NO `approveLoreEntity` here. Not because they were forgotten — the
-  // station has no such route (checked against server/ocserverd/routes.go and
-  // ocapi_gen.go on this branch: every `/api/lore/*` path is one of the six,
-  // and nothing whose path contains `entit` exists at all). Declaring them on
+  // The correction is kept rather than swapped for a fresh count because the
+  // lesson is not the number: an absence claim is the one kind of comment that
+  // TURNS OFF the reader's own check — a wrong number invites re-counting,
+  // "there is no such route" invites nothing. Re-count against routes.go
+  // (`LoreGated: true`), do not trust this or any later paragraph's arithmetic.
+  //
+  // What the seam wraps is still a SUBSET of what the station serves, and that
+  // is a deliberate scope call rather than an inventory: the cockpit's 傳承 tab
+  // reads, and the write paths (`POST /api/lore/entries`, retire, revive) are
+  // not called from it this round. Declaring them on
   // this interface would push the lie one layer down: the mock would answer
   // them plausibly, the page would render numbers, and the only place the
   // absence would show up is a 404 nobody runs.
