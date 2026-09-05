@@ -250,10 +250,16 @@ func (l *listener) noteDisconnect(format string, args ...any) {
 	// then the ONLY transport line that member will ever print, and without the
 	// segment it reads as "the station is down" when the truth is "nobody told me
 	// which station". Same debounce as everything else here: once per outage.
-	l.logf(noticeDisconnected+" — "+format+
-		baseAddressOrigin(l.cfg.BaseConfigured)+
+	// ⚠️ THE SEGMENT IS AN ARGUMENT, NOT PART OF THE FORMAT STRING. It is fixed
+	// text today, so concatenating it into the format would work — right up until
+	// somebody puts a `%` in the wording, at which point Fprintf prints
+	// `%!(NOVERB)` into an agent's transcript and it reads like a platform bug
+	// rather than a typo. The connect line already does it this way; this one
+	// briefly did not.
+	l.logf(noticeDisconnected+" — "+format+"%s"+
 		" (retrying on the same schedule, quietly; the next transport line you see "+
-		"is either the reconnect or a give-up)", args...)
+		"is either the reconnect or a give-up)",
+		append(append([]any{}, args...), baseAddressOrigin(l.cfg.BaseConfigured))...)
 }
 
 // stopRetrying prints the give-up line when the retry loop terminates while an
@@ -607,10 +613,15 @@ func (l *listener) connectOnce(ctx context.Context) (opened, activity, selfExit 
 	// The stream is up: whatever outage was being announced is over, and the
 	// line below IS the second of the owner's two notices.
 	l.inOutage = false
-	// ⚠️ POSITION: the origin segment goes HERE, not at the end. Four tests assert
-	// this line ENDS with " [station <sha>]" or " [agent <sha>]"
-	// (listen_agent_sha_test.go:62,106,138; listen_test.go:2726,2796,2828), so a
-	// trailing segment would break them. Anywhere after the head is equally safe for
+	// ⚠️ POSITION: the origin segment goes HERE, not at the end. FIVE existing
+	// tests assert this line ENDS with " [station <sha>]" or " [agent <sha>]" —
+	// TestConnectOnce_ConnectionLineNamesTheShaTheStationSelfReports,
+	// _NoStationSHALeavesTheLineUnadornedAndNeverReusesTheLastOne,
+	// _ConnectionLineNamesTheOcagentThatPrintedIt,
+	// _AnUnstampedOcagentSaysNothingAboutItself and _EveryReconnectNamesTheAgentAgain
+	// (counted by attributing every HasSuffix( to its enclosing func Test; an
+	// earlier revision of this comment said four, which independent review caught).
+	// A trailing segment would break them. Anywhere after the head is equally safe for
 	// the three sidecar prefix consumers, which read column 0 only — and it belongs
 	// beside the address it is talking about rather than after two shas.
 	l.logf(noticeConnected+" — streaming %s%s%s (⇒ online while held)%s%s%s",
@@ -838,8 +849,20 @@ func cmdListen(cfg Config, env func(string) string, once bool, out io.Writer) in
 		fmt.Fprint(out, "[ocagent] listen: no OC_ID/OC_TOKEN — nothing to do; exiting.\n")
 		return 0
 	}
+	return newListener(cfg, env, out, once, stamper).run(rootCtx())
+}
+
+// newListener is the WIRING, pulled out of cmdListen so it can be asserted.
+//
+// 🔴 WHY IT IS ITS OWN FUNCTION. A test can hold a function correct and still not
+// hold the line that hands it its input. Independent review found exactly that hole
+// here: every T-89 test builds its listener directly, so setting cfg.BaseConfigured
+// to a constant on the way IN — one token, inside cmdListen — left all of them
+// green while the feature was gone. There is no network and no clock in here, so
+// the wiring is now a plain unit somebody can pin (listen_base_origin_t89_test.go).
+func newListener(cfg Config, env func(string) string, out io.Writer, once bool, stamper *eventStamper) *listener {
 	api := defaultHTTPClient()
-	l := &listener{
+	return &listener{
 		stamp:            stamper,
 		cfg:              cfg,
 		api:              api,
@@ -864,11 +887,16 @@ func cmdListen(cfg Config, env func(string) string, once bool, out io.Writer) in
 		taskSnaps:        map[string]taskSnap{},
 		once:             once,
 	}
-	// Signal-driven root context: SIGINT/SIGTERM cancels ctx, and run() observes it to
-	// shut down GRACEFULLY — no hard kill of an in-flight SSE read. In practice the
-	// warden's tmux kill is what stops a spawned listener (SIGHUP to the session), but a
-	// clean signal path keeps a foreground/manual run tidy.
-	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
-	defer stop()
-	return l.run(ctx)
+}
+
+// rootCtx gives run() a signal-driven root: SIGINT/SIGTERM cancels it and run()
+// observes it to shut down GRACEFULLY — no hard kill of an in-flight SSE read. In
+// practice the warden's tmux kill is what stops a spawned listener (SIGHUP to the
+// session), but a clean signal path keeps a foreground/manual run tidy.
+//
+// ⚠️ The stop func is intentionally not returned: this context lives exactly as long
+// as the process, and run() returning IS the process ending.
+func rootCtx() context.Context {
+	ctx, _ := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	return ctx
 }

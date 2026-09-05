@@ -74,10 +74,10 @@ func TestConnectedLine_SaysTheAddressWasGuessedOnlyWhenItWas(t *testing.T) {
 				"codex_session.go matches it with HasPrefix):\n%s", line)
 		}
 	}
-	// And the two sha segments must still be last — four existing tests assert it.
+	// And the two sha segments must still be last — FIVE existing tests assert it.
 	if !strings.HasSuffix(guessedLine, " [station 9f3c1ab77e40]") {
 		t.Fatalf("the origin segment must be inserted BEFORE the sha segments, not "+
-			"appended; four existing tests assert this line ends with the station "+
+			"appended; five existing tests assert this line ends with the station "+
 			"sha:\n%s", guessedLine)
 	}
 }
@@ -140,7 +140,23 @@ func TestUnconfiguredBase_KeepsRetryingAndNeverGoesQuiet(t *testing.T) {
 		}
 	}
 
-	rc := l.run(ctx)
+	// 🔴 THE CONSTANT IS PART OF THE ASSERTION, SO IT GETS ASSERTED. Independent
+	// review found that setting letItTryAtLeast to 0 — one token, in this file —
+	// makes `attempts < 0` unsatisfiable and kills the only check that catches a
+	// print-and-exit listener, while every other line below stays green. A number
+	// that decides whether a test can fail is not a knob; 1 would also pass for a
+	// listener that dialled once and left.
+	if letItTryAtLeast < 2 {
+		t.Fatalf("letItTryAtLeast = %d: below 2 this test cannot distinguish a "+
+			"listener that keeps retrying from one that announced and left, which "+
+			"is the only thing it exists to detect", letItTryAtLeast)
+	}
+
+	// rc is deliberately NOT asserted: every one of run()'s returns goes through
+	// stopRetrying, which returns 0 unconditionally, so `rc != 0` is a check that
+	// can never fire. A dead assertion is worse than no assertion — it reads like
+	// coverage. (Also found by independent review.)
+	_ = l.run(ctx)
 
 	if attempts < letItTryAtLeast {
 		t.Fatalf("an unconfigured listener must KEEP DIALLING, not announce and "+
@@ -149,10 +165,6 @@ func TestUnconfiguredBase_KeepsRetryingAndNeverGoesQuiet(t *testing.T) {
 			"a quiet member is indistinguishable from a dead one.\n%s",
 			attempts, letItTryAtLeast, out.String())
 	}
-	if rc != 0 {
-		t.Fatalf("listen degrades gracefully; rc must stay 0, got %d", rc)
-	}
-
 	transcript := out.String()
 	if !strings.Contains(transcript, "GUESSED") {
 		t.Fatalf("the one transport line this member ever prints must say the "+
@@ -168,5 +180,87 @@ func TestUnconfiguredBase_KeepsRetryingAndNeverGoesQuiet(t *testing.T) {
 	// cancel above and not from anything this ticket added.
 	if !strings.Contains(transcript, noticeGivingUp) {
 		t.Fatalf("leaving an open outage must print the give-up line:\n%s", transcript)
+	}
+}
+
+// 🔴 THE LINE THAT HANDS THE FEATURE ITS INPUT. Every other test in this file
+// builds a listener directly and therefore holds baseAddressOrigin correct while
+// saying nothing about whether cmdListen ever passes the real flag in. Independent
+// review named the mutant: set cfg.BaseConfigured = true on the way into the
+// construction and all four of them stay green with the feature gone.
+//
+// newListener exists so that line is a unit. No network, no clock, no goroutine.
+func TestNewListener_CarriesBaseConfiguredThroughUnchanged(t *testing.T) {
+	cfgTempDir = t.TempDir()
+	noEnv := func(string) string { return "" }
+
+	for _, configured := range []bool{true, false} {
+		cfg := Config{
+			Base: "http://127.0.0.1:1", Token: "tok", ID: "kyle",
+			Home: cfgTempDir, BaseConfigured: configured,
+		}
+		l := newListener(cfg, noEnv, &syncBuf{}, true, nil)
+
+		if l.cfg.BaseConfigured != configured {
+			t.Fatalf("newListener dropped BaseConfigured: cfg had %v, listener holds %v",
+				configured, l.cfg.BaseConfigured)
+		}
+		// Tie the wiring to the OBSERVABLE, not just the field: what the listener
+		// will actually print has to differ between the two arms.
+		if got := baseAddressOrigin(l.cfg.BaseConfigured); (got == "") != configured {
+			t.Fatalf("BaseConfigured=%v must decide whether the transport lines say "+
+				"the address was invented; segment was %q", configured, got)
+		}
+	}
+}
+
+// 🔴 AND THE LINE ABOVE newListener, WHICH THE TEST ABOVE STILL DOES NOT COVER.
+//
+// Extracting newListener made the construction assertable, and I then seeded the
+// mutant the review named — `cfg.BaseConfigured = true` inside cmdListen, just
+// before the call — and every test above STAYED GREEN. The extraction had not
+// closed the hole; it had moved it up one line. That is the whole lesson: a seam
+// you can test is not the same as a seam that IS tested, and each fix at one layer
+// creates the next layer's gap.
+//
+// So this drives cmdListen ITSELF end to end. once=true means one successful
+// connect and out — no retry loop, no real sleep, no goroutine left behind. It is
+// the only test in this file that would notice a mangled hand-off between the
+// process entry point and the feature.
+func TestCmdListen_HandsTheRealBaseConfiguredToTheListener(t *testing.T) {
+	noEnv := func(string) string { return "" }
+
+	for _, tc := range []struct {
+		name            string
+		configured      bool
+		wantSaysGuessed bool
+	}{
+		{"an address nobody chose is named as invented", false, true},
+		{"an address that was configured is never accused", true, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cfgTempDir = t.TempDir()
+			srv := httptest.NewServer(stationHandler("9f3c1ab77e40", true))
+			defer srv.Close()
+
+			out := &syncBuf{}
+			rc := cmdListen(Config{
+				Base: srv.URL, Token: "tok", ID: "kyle",
+				Home: t.TempDir(), BaseConfigured: tc.configured,
+			}, noEnv, true, out)
+
+			if rc != 0 {
+				t.Fatalf("listen degrades gracefully; rc = %d\n%s", rc, out.String())
+			}
+			transcript := out.String()
+			if !strings.Contains(transcript, noticeConnected) {
+				t.Fatalf("fixture broken: cmdListen never reached the connect line, so "+
+					"this test would pass for any wiring at all:\n%s", transcript)
+			}
+			if got := strings.Contains(transcript, "GUESSED"); got != tc.wantSaysGuessed {
+				t.Fatalf("cmdListen(BaseConfigured=%v): line says GUESSED = %v, want %v\n%s",
+					tc.configured, got, tc.wantSaysGuessed, transcript)
+			}
+		})
 	}
 }
