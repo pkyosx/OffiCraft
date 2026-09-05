@@ -6390,6 +6390,33 @@
         "additionalProperties": false,
         "type": "object"
       },
+      "TaskWriteReceiptDTO": {
+        "description": "Bounded receipt returned after the task WRITE verbs that used to answer with the whole ticket - update_task (and its HTTP-only title / description twins), claim_task, reassign_task, terminate_task, mark_duplicate and set_task_deps. Same posture as TaskPriorityReceiptDTO and TaskArtifactReceiptDTO: the write answers with what the write DID and with the parts the caller cannot predict, not with the task. Measured on one real ticket the old shape was 12,666 characters, of which the step rows were 5,676 and the description another 5,668, leaving 822 for everything a caller actually reads back - so the step rows are reported here as progress_done / progress_total and the artifact set as artifact_count, the same index-not-rows split T-66 made on get_task. ``description_size_chars`` / ``description_sha256`` replace the description ECHO for a reason that is not size alone: this write TRIMS what it stores while create_task does not, so the stored text can differ from the text that was sent, and a size + hash pair answers exactly that question - the same anchor pair patch_lessons, patch_insight and patch_task_sop already carry. ``title`` rides back in full because it is ONE LINE, it is the row the task list shows, and it is trimmed by this same write. GET the task itself when full detail is needed; the artifacts route serves the artifact rows. NOTE the GET on this same path is UNCHANGED and still answers TaskDTO - only the write verbs moved.",
+        "properties": {
+          "artifact_count": {"description": "How many deliverables the task carries AFTER this write - the count, never the rows, exactly as taskArtifactReceiptDTO reports it. list_task_artifacts serves the rows.", "title": "Artifact Count", "type": "integer"},
+          "closed_ts": {"anyOf": [{"type": "number"}, {"type": "null"}], "title": "Closed Ts"},
+          "dedupe_key": {"default": "", "title": "Dedupe Key", "type": "string"},
+          "deps": {"description": "The blocking task ids after this write. Ids only - the dep_tasks rows get_task folds in are not here.", "items": {"type": "string"}, "title": "Deps", "type": "array"},
+          "description_sha256": {"default": "", "description": "Hex sha256 over the description AS STORED after this write. Present so a caller can confirm that what landed is what it sent WITHOUT the text riding back, which matters here because this write trims and create_task does not.", "title": "Description Sha256", "type": "string"},
+          "description_size_chars": {"description": "Size of the description AS STORED after this write, in CHARACTERS (Unicode code points) - the unit the caps are expressed in.", "title": "Description Size Chars", "type": "integer"},
+          "duplicate_of": {"default": "", "title": "Duplicate Of", "type": "string"},
+          "executor_id": {"default": "", "title": "Executor Id", "type": "string"},
+          "executor_kind": {"title": "Executor Kind", "type": "string"},
+          "lock": {"default": "", "title": "Lock", "type": "string"},
+          "progress_done": {"title": "Progress Done", "type": "integer"},
+          "progress_total": {"description": "How many steps the plan holds after this write. progress_done / progress_total is what replaces the step ROWS here: a caller learns the plan is intact and where it stands without carrying every dod string back.", "title": "Progress Total", "type": "integer"},
+          "status": {"title": "Status", "type": "string"},
+          "task_id": {"title": "Task Id", "type": "string"},
+          "task_no": {"title": "Task No", "type": "string"},
+          "title": {"default": "", "title": "Title", "type": "string"},
+          "type_key": {"default": "", "title": "Type Key", "type": "string"},
+          "waiting_reason": {"default": "", "title": "Waiting Reason", "type": "string"}
+        },
+        "required": ["task_id", "task_no", "status", "executor_kind", "closed_ts", "deps", "progress_done", "progress_total", "artifact_count", "description_size_chars"],
+        "title": "TaskWriteReceiptDTO",
+        "additionalProperties": false,
+        "type": "object"
+      },
       "TaskPriorityReceiptDTO": {
         "description": "Bounded receipt returned after set_task_priority (T-a98d). ``frozen_by`` rides along because the write DERIVES it (stamped on the way into frozen, cleared on the way out), so it is the part the caller cannot predict. Fetch GET /api/tasks/{task_id} when full task detail is needed.",
         "properties": {
@@ -18807,7 +18834,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/TaskDTO"
+                  "$ref": "#/components/schemas/TaskWriteReceiptDTO"
                 }
               }
             },
@@ -19266,7 +19293,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/TaskDTO"
+                  "$ref": "#/components/schemas/TaskWriteReceiptDTO"
                 }
               }
             },
@@ -19414,7 +19441,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/TaskDTO"
+                  "$ref": "#/components/schemas/TaskWriteReceiptDTO"
                 }
               }
             },
@@ -19493,7 +19520,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/TaskDTO"
+                  "$ref": "#/components/schemas/TaskWriteReceiptDTO"
                 }
               }
             },
@@ -19566,7 +19593,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/TaskDTO"
+                  "$ref": "#/components/schemas/TaskWriteReceiptDTO"
                 }
               }
             },
@@ -19882,7 +19909,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/TaskDTO"
+                  "$ref": "#/components/schemas/TaskWriteReceiptDTO"
                 }
               }
             },
@@ -20293,7 +20320,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/TaskDTO"
+                  "$ref": "#/components/schemas/TaskWriteReceiptDTO"
                 }
               }
             },
@@ -20372,7 +20399,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/TaskDTO"
+                  "$ref": "#/components/schemas/TaskWriteReceiptDTO"
                 }
               }
             },
