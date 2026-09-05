@@ -1727,14 +1727,27 @@ const taskArtifactsDetailLevelFull = "full"
 // decides four things with it. IsImage went because it is Mime's prefix, and
 // Filename went because Name derives from it.
 type taskArtifactDTO struct {
-	ID          string  `json:"id"`
-	Kind        string  `json:"kind"`
-	Name        string  `json:"name"`
-	Description string  `json:"description"`
-	URL         string  `json:"url"`
-	Mime        string  `json:"mime"`
-	CreatedTS   float64 `json:"created_ts"`
-	CreatedBy   string  `json:"created_by"`
+	ID   string `json:"id"`
+	Kind string `json:"kind"`
+	// AttachmentID is the row's own blob id, served as stored rather than
+	// resolved: unlike URL and Mime it does NOT go honest-empty when the blob
+	// is gone, because the question it answers ("which blob is this artifact
+	// bound to") still has that answer, and a caller comparing two artifacts
+	// wants to see that they name the same missing blob rather than two blanks.
+	//
+	// It was removed by T-92 as duplication of URL and put back by the owner on
+	// rc-91e29b576ad8. What the duplication argument missed: `ocagent diff`
+	// takes an att- id and system_interaction §2.1 tells members to pass the id
+	// a task artifact ALREADY HAS while forbidding hand-built addresses — so
+	// slicing it back out of URL is the move that document rules out, and a
+	// link has no blob path in URL to slice at all.
+	AttachmentID string  `json:"attachment_id"`
+	Name         string  `json:"name"`
+	Description  string  `json:"description"`
+	URL          string  `json:"url"`
+	Mime         string  `json:"mime"`
+	CreatedTS    float64 `json:"created_ts"`
+	CreatedBy    string  `json:"created_by"`
 	// VersionCount counts the versions of this deliverable WITH the live one
 	// (T-60), so a never-replaced artifact reads 1 rather than 0 — the reader
 	// asks "how many versions are there", and there is always this one.
@@ -2439,6 +2452,7 @@ func newTaskArtifactDTO(a TaskArtifact, att *ChatAttachment, retained int) taskA
 		VersionCount: retained + 1,
 		ID:           a.ID,
 		Kind:         a.Kind,
+		AttachmentID: a.AttachmentID,
 		Description:  a.Description,
 		CreatedTS:    a.CreatedTS,
 		CreatedBy:    a.CreatedBy,

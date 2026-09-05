@@ -30,6 +30,7 @@ function wireArtifact(over: Partial<WireTaskArtifact>): WireTaskArtifact {
   return {
     id: "ta-0",
     kind: "link",
+    attachment_id: "",
     url: "",
     name: "",
     description: "",

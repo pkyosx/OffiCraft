@@ -202,6 +202,33 @@ func TestListTaskArtifactsServesTheWholeRowAndSaysSo(t *testing.T) {
 		a.Name != t66ArtifactName || a.CreatedBy != "m-exec" || a.CreatedTS <= 0 {
 		t.Fatalf("full artifact row is not full: %+v", a)
 	}
+
+	// 🔴 attachment_id, restored by the owner on rc-91e29b576ad8 after T-92
+	// dropped it as duplication of url. THIS ROW IS A LINK, which is what makes
+	// the assertion worth making: a link's url is its external target, so there
+	// is no blob path to slice an id out of, and nothing else in the tool
+	// surface lists an artifact's blob. Without this field a member cannot obey
+	// system_interaction §2.1 —「直接用它的 id」for `ocagent diff` — on a link
+	// at all, and can only obey it on a file by hand-building an address the
+	// same document forbids.
+	if a.AttachmentID == "" {
+		t.Fatalf("attachment_id is empty on a link row: %+v", a)
+	}
+	var stored TaskArtifact
+	arts, err := api.dal.ListTaskArtifacts(taskID)
+	if err != nil {
+		t.Fatalf("read stored artifacts: %v", err)
+	}
+	for _, r := range arts {
+		if r.ID == artID {
+			stored = r
+		}
+	}
+	if a.AttachmentID != stored.AttachmentID {
+		t.Fatalf("attachment_id on the wire is %q, the stored row holds %q — the field is "+
+			"the row's own blob id served as stored, not a value derived at read time",
+			a.AttachmentID, stored.AttachmentID)
+	}
 }
 
 // TestListTaskArtifactsAnswersTheWholeTicketInOneCall pins the SHAPE the owner
