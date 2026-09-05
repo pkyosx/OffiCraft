@@ -33,17 +33,24 @@
 -- INTEGER PRIMARY KEY AUTOINCREMENT and the version order is `ORDER BY id DESC`.
 -- Let the rebuild re-number and every artifact's versions silently reorder.
 --
--- MEASURED ON A READ-ONLY SNAPSHOT OF THE LIVE DB, 2026-09-05 (re-measure before
--- landing — these are facts about data, not about code):
---   task_artifact 3,240 rows: file 2,357, image 179, link 704
---   task_artifact_history 71 rows: file 62, link 9
---   link rows with a blank url .................. 0   (so the mint below cannot miss)
---   file/image rows with a blank attachment_id .. 0
---   file/image rows whose blob is already gone .. 1   ⚠️ see the note under CHECK
---   distinct link urls across both tables ....... 641 (704+9 rows share them)
---   bytes those urls occupy ..................... 36,873
---   labels longer than 256 ...................... 313  → they land in `description`
---                                                        WHOLE; nothing is truncated
+-- MEASURED ON A READ-ONLY SNAPSHOT OF THE LIVE DB. First column 2026-09-05, second
+-- column RE-MEASURED 2026-09-06 on a fresh copy — these are facts about data, not
+-- about code, and they move:
+--                                                  09-05     09-06
+--   task_artifact rows ......................... 3,240     3,266  (file 2,382,
+--                                                                  image 179,
+--                                                                  link 705)
+--   task_artifact_history rows ..................   71        77  (file 68, link 9)
+--   link rows with a blank url ..................    0         0   🔴 THE MINT NO
+--                                                   LONGER DEPENDS ON THIS NUMBER —
+--                                                   see the note on the INSERT below
+--   file/image rows with a blank attachment_id ..    0         0
+--   file/image rows whose blob is already gone ..    1         1   ⚠️ see CHECK note
+--   distinct link urls across both tables ....... 641       642
+--   bytes those urls occupy ................... 36,873    36,917
+--   labels longer than 256 ...................... 313       313  → they land in
+--                                                        `description` WHOLE;
+--                                                        nothing is truncated
 --   link urls NOT starting http:// or https:// . 0   🔴 asked for by Kyle before
 --                                                   this ran, and the right thing
 --                                                   to ask: once a url is a blob,
@@ -82,11 +89,23 @@ CREATE TEMP TABLE t92_link_blob (url TEXT PRIMARY KEY, att_id TEXT NOT NULL);
 -- mints; randomblob(6) is those same six bytes. A collision with an existing id
 -- would abort this migration on the PRIMARY KEY — loudly, which is the right
 -- failure for the one-in-2^48 case.
+-- 🔴 NO `url <> ''` FILTER, AND THAT ABSENCE IS THE POINT. It used to be there,
+-- resting on the measured "link rows with a blank url .. 0". The rebuild below
+-- looks its link rows up in THIS table with no fallback, and the new
+-- attachment_id column has no DEFAULT — so one blank-url link row anywhere would
+-- put NULL into a NOT NULL column, abort the migration, and take an ALREADY
+-- RUNNING station down: runMigrations returns an error and the server exits at
+-- boot without listening. A measurement is a statement about one snapshot; this
+-- is a statement about every database the migration will ever meet. A blank url
+-- now simply gets its own (empty) blob, which is what "every kind is blob-backed"
+-- meant in the first place, and the count above becomes a fact rather than a
+-- load-bearing assumption. The API has refused a blank link url since the initial
+-- tree, so this branch is for rows that arrived some other way.
 INSERT INTO t92_link_blob (url, att_id)
 SELECT u, 'att-' || lower(hex(randomblob(6))) FROM (
-    SELECT url AS u FROM task_artifact         WHERE kind = 'link' AND url <> ''
+    SELECT url AS u FROM task_artifact         WHERE kind = 'link'
     UNION
-    SELECT url      FROM task_artifact_history WHERE kind = 'link' AND url <> ''
+    SELECT url      FROM task_artifact_history WHERE kind = 'link'
 );
 
 INSERT INTO chat_attachment (id, mime, data, filename)
