@@ -1095,52 +1095,77 @@ func (r *seqCaptureRunner) Run(name string, args ...string) (string, error) {
 	return "", nil
 }
 
-// TestTmuxDeliverNudge_RetriesUntilCommitted: the context gauge shows "?%" (not yet
-// submitted) for the first two capture reads, then flips numeric — expect exactly 3
-// Enter presses (2 retries + the committing one) and a SINGLE paste, then stop.
-func TestTmuxDeliverNudge_RetriesUntilCommitted(t *testing.T) {
-	r := &seqCaptureRunner{captures: []string{"🧠 ?% context", "🧠 ?% context", "🧠 5% context"}}
+// TestTmuxDeliverNudge_AlwaysRunsBoundedAttempts (T-82): the Enter retry is bounded
+// at nudgeMaxAttempts and a SINGLE paste, and it runs those attempts UNCONDITIONALLY
+// — there is no early exit, because there is no local success verdict any more.
+//
+// This replaces a test that asserted the loop stopped early once claude's status
+// line showed a numeric context gauge. That verdict scraped A THIRD PARTY'S SCREEN;
+// upstream changed the format, it went permanently false, and the loop had already
+// been running all attempts every time. The old test kept passing throughout,
+// because its fake fed the pane text the verdict wanted.
+//
+// DEFEATED BY: reintroducing any early `return` inside the loop.
+func TestTmuxDeliverNudge_AlwaysRunsBoundedAttempts(t *testing.T) {
+	r := &seqCaptureRunner{}
 	tmuxDeliverNudge(r, func(time.Duration) {}, "sock", "member-x", defaultNudge)
-	if r.enterCount != 3 {
-		t.Fatalf("expected 3 Enter presses (2 unsubmitted + 1 committed), got %d", r.enterCount)
+	if r.enterCount != nudgeMaxAttempts {
+		t.Fatalf("the loop must run exactly %d bounded attempts with no early exit, got %d", nudgeMaxAttempts, r.enterCount)
 	}
 	if r.pasteCount != 1 {
 		t.Fatalf("expected a SINGLE paste (paste-once + Enter-retry), got %d", r.pasteCount)
 	}
 }
 
-// TestTmuxDeliverNudge_StopsAtMaxAttempts: a nudge that never commits (gauge stuck at
-// "?%") is bounded at nudgeMaxAttempts — it must never spin forever on a wedged TUI.
-func TestTmuxDeliverNudge_StopsAtMaxAttempts(t *testing.T) {
-	r := &seqCaptureRunner{captures: []string{"🧠 ?% context"}}
+// TestTmuxDeliverNudge_NeverReadsTheAgentsScreen (T-82) is the guard the ticket asks
+// for by name: if anyone puts a read of the agent's own screen back on this path,
+// something must say so.
+//
+// It asserts on the ARGV the nudge actually issued, not on a string in the source,
+// because the defect being guarded is not "the word capture-pane appears" — it is
+// "this code decides something by looking at a UI we do not control". A future
+// rewrite that scrapes the pane through some other tmux verb would still have to
+// issue a command that reads it, and the denominator here is every command issued.
+//
+// DEFEATED BY: any re-added pane read inside tmuxDeliverNudge.
+func TestTmuxDeliverNudge_NeverReadsTheAgentsScreen(t *testing.T) {
+	r := &recordingRunner{}
 	tmuxDeliverNudge(r, func(time.Duration) {}, "sock", "member-x", defaultNudge)
-	if r.enterCount != nudgeMaxAttempts {
-		t.Fatalf("expected bounded %d attempts, got %d", nudgeMaxAttempts, r.enterCount)
+	if len(r.argv) == 0 {
+		t.Fatal("positive control: the nudge issued no commands at all, so this guard proved nothing")
+	}
+	for _, argv := range r.argv {
+		for _, forbidden := range []string{"capture-pane", "display-message", "show-buffer"} {
+			if strings.Contains(argv, forbidden) {
+				t.Fatalf("the boot nudge read the agent's own screen (%q in %q).\n"+
+					"Success on this path is decided by ONE authority \u2014 whether the server received that\n"+
+					"member's report_waking inside StartTimeout \u2014 and it is deliberately not decided here.\n"+
+					"A verdict scraped off a third party's UI is what T-82 removed: the format changed\n"+
+					"upstream, the check went permanently false, and nothing reported that it had.", forbidden, argv)
+			}
+		}
 	}
 }
 
-// TestNudgeSubmitted_ContextGauge: a numeric context gauge reads as submitted; the
-// "?%" gauge (or no gauge yet, during cold init) does not — the positive signal that
-// avoids the cold-init false-positive.
-func TestNudgeSubmitted_ContextGauge(t *testing.T) {
-	if !nudgeSubmitted("🧠 5% context · /rc active") {
-		t.Fatal("a numeric context gauge must read as submitted")
-	}
-	if nudgeSubmitted("🧠 ?% context · /rc active") {
-		t.Fatal("the ?% gauge must read as NOT submitted")
-	}
-	if nudgeSubmitted("welcome screen, no status bar yet") {
-		t.Fatal("no gauge rendered yet must read as NOT submitted")
-	}
+// recordingRunner records every argv the caller issues and answers everything with
+// an empty success. Deliberately NOT seqCaptureRunner: that fake ANSWERS
+// capture-pane, so a test using it cannot tell "never asked" from "asked and got
+// something harmless".
+type recordingRunner struct{ argv []string }
+
+func (r *recordingRunner) Run(name string, args ...string) (string, error) {
+	r.argv = append(r.argv, strings.Join(append([]string{name}, args...), " "))
+	return "", nil
 }
 
 // TestTmuxDeliverNudge_NilSleepSafe: a nil Sleep seam must not panic (test default
-// is a no-op wait); commits on the first numeric read → 1 Enter.
+// is a no-op wait). Since T-82 there is no early exit, so the bound is the whole
+// attempt count rather than 1.
 func TestTmuxDeliverNudge_NilSleepSafe(t *testing.T) {
-	r := &seqCaptureRunner{captures: []string{"🧠 7% context"}}
+	r := &seqCaptureRunner{}
 	tmuxDeliverNudge(r, nil, "sock", "member-x", defaultNudge)
-	if r.enterCount != 1 {
-		t.Fatalf("committed on first read → 1 Enter, got %d", r.enterCount)
+	if r.enterCount != nudgeMaxAttempts {
+		t.Fatalf("nil sleep must still run the bounded %d attempts, got %d", nudgeMaxAttempts, r.enterCount)
 	}
 }
 

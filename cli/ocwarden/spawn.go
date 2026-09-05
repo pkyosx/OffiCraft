@@ -415,29 +415,40 @@ func tmuxDeliverNudge(r CmdRunner, sleep func(time.Duration), socket, session, n
 	// the race when claude's REPL is not input-ready (the Enter fires before the box
 	// accepts it, or a startup notice eats it → the nudge sits UNSUBMITTED → the agent
 	// never boots — the Phase-4 boot-death's last mile). So retry the Enter, settling
-	// and CONFIRMING submission via a POSITIVE signal (nudgeSubmitted) each time.
-	// Bounded well under the reconcile start_timeout so a wedged TUI can't spin here.
+	// between attempts. Bounded well under the reconcile start_timeout so a wedged TUI
+	// can't spin here.
+	//
+	// 🔴 T-82: THIS LOOP DOES NOT DECIDE WHETHER THE NUDGE SUCCEEDED, AND THAT IS THE
+	// WHOLE POINT OF THE TICKET. It used to end early on a `nudgeSubmitted(pane)`
+	// check that scraped claude's own status line for its context gauge — a success
+	// verdict read off A THIRD PARTY'S SCREEN, in a format nobody here controls.
+	// Upstream changed that format, so the check went permanently false and the loop
+	// silently became "press Enter 30 times, always". Nothing reported that: a guard
+	// that can no longer fire looks exactly like a guard that never needed to.
+	//
+	// The authority is now singular and OURS: whether the server received that
+	// member's report_waking inside StartTimeout. When it does not, reconcile stamps
+	// a wake_timeout receipt that shows up on the member's "last operation" row.
+	//
+	// ⚠️ WHAT THIS DID NOT CHANGE, SO NOBODY READS IT AS MORE THAN IT IS: the Enter
+	// side is byte-for-byte what it already did. Because the old check was ALREADY
+	// always false, the loop already ran all nudgeMaxAttempts every time — dropping
+	// the check removes a dead verdict and one capture-pane per attempt, and removes
+	// NO protection. Detection did not improve either: the 30s–StartTimeout window
+	// where nothing reports was there before and is there now.
+	//
+	// ⚠️ nudgeMaxAttempts HAS NEVER BEEN MEASURED — the only justification in the
+	// tree is the "bounded well under" clause above. It is left exactly as it was on
+	// purpose: this change exists to delete an unmeasured decision, and quietly
+	// retuning a second unmeasured constant while here would carry the same disease
+	// into the fix. Changing it is its own ticket, with its own measurement.
 	if _, err := r.Run("tmux", "-L", socket, "paste-buffer", "-t", session, "-b", buf, "-d", "-p"); err != nil {
 		_, _ = r.Run("tmux", "-L", socket, "paste-buffer", "-t", session, "-b", buf)
 	}
 	for attempt := 0; attempt < nudgeMaxAttempts; attempt++ {
 		_, _ = r.Run("tmux", "-L", socket, "send-keys", "-t", session, "Enter")
 		sleep(nudgeSettle)
-		pane, err := r.Run("tmux", "-L", socket, "capture-pane", "-t", session, "-p")
-		if err == nil && nudgeSubmitted(pane) {
-			return
-		}
 	}
-}
-
-// nudgeSubmitted reports a POSITIVE "the boot nudge committed" signal: claude has
-// processed at least one turn, so its context gauge flips from "?%" (nothing
-// submitted yet) to a numeric percent. This is deliberately a positive signal — an
-// absence check ("nudge no longer on the input line") FALSE-POSITIVES during cold
-// init, before the input box has even rendered, and would stop the retry with the
-// nudge still unsubmitted (the bug that shipped in the first STAGE-B cut).
-func nudgeSubmitted(pane string) bool {
-	return strings.Contains(pane, "% context") && !strings.Contains(pane, "?% context")
 }
 
 // ---------------------------------------------------------------------------
