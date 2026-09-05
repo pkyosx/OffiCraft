@@ -1,16 +1,16 @@
 // hooks/useBootDoc.ts — load + mutate ONE boot-context block (T-791e).
 //
 // Same shape as useGlobalContext (mount fetch + reconcile-by-refetch on the
-// document's SSE topic; the mutation response IS the folded doc, so the UI never
+// document's SSE topic; every write is followed by a re-read, so the UI never
 // fabricates the is_default flip locally), with two differences that both come
 // straight off this ticket's risk:
 //
 //   1. `reset` DOES NOT DEPEND ON `doc`. A broken boot sequence means agents
 //      never attach to SSE, never come online, and nobody is left to fix it —
 //      so the factory restore has to work from a page whose read failed. It
-//      calls the adapter with the (kind, key) it was constructed with and
-//      adopts the response, and it never reads state that a failed load left
-//      empty.
+//      calls the adapter with the (kind, key) it was constructed with and then
+//      re-reads that same address, and it never reads state that a failed load
+//      left empty.
 //   2. `kind`/`key` are read fresh on every call rather than closed over once
 //      per mount. The claude and codex documents are DIFFERENT documents, and a
 //      stale closure here would be the exact defect the ticket forbids: a save
@@ -50,17 +50,29 @@ export function useBootDoc(kind: BootDocKind, key: string): UseBootDoc {
     setError(false);
   }, []);
 
-  const save = useCallback(async (body: string) => {
-    const { kind: k, key: docKey } = target.current;
-    setDoc(await api.saveBootDoc(k, docKey, body));
-    setError(false);
-  }, []);
+  // 🔴 T-91: WRITE THEN RE-READ. Both used to adopt the write's own answer,
+  // which was the folded document. The boot-doc receipt keeps size/cap/sha256
+  // and is_default and drops the text (read_only_head included), so adopting it
+  // would leave the editor showing an empty document over a real boot context —
+  // and `reset`'s whole job is to be the recovery path when that context is
+  // broken, so a silently blank one there is the worst version of this bug.
+  // The re-read still does not depend on `doc`: it reads (kind, key) off the ref
+  // exactly as the write does, so the factory restore keeps working from a page
+  // whose load failed.
+  const save = useCallback(
+    async (body: string) => {
+      const { kind: k, key: docKey } = target.current;
+      await api.saveBootDoc(k, docKey, body);
+      await refetch();
+    },
+    [refetch]
+  );
 
   const reset = useCallback(async () => {
     const { kind: k, key: docKey } = target.current;
-    setDoc(await api.resetBootDoc(k, docKey));
-    setError(false);
-  }, []);
+    await api.resetBootDoc(k, docKey);
+    await refetch();
+  }, [refetch]);
 
   useEffect(() => {
     let alive = true;

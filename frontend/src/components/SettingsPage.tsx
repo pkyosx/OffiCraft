@@ -604,13 +604,16 @@ export function SettingsPage({
             : t.settings.manualTabLearnings,
       },
     ];
-    // The update echo is the manual AFTER the edit, so this page adopts it
-    // rather than waiting for the list refetch (which no longer carries either
-    // document) or for an SSE frame.
+    // WRITE THEN RE-READ (T-91). This page used to adopt the update's echo —
+    // the manual AFTER the edit — but the receipt that write is moving to
+    // reports only the SIZES of the documents it touched, so adopting it would
+    // put a blank SOP on screen with nothing thrown. The list refetch inside
+    // `update` does not cover this page either (the directory carries neither
+    // document), so the page re-reads its own manual rather than waiting for an
+    // SSE frame.
     const onSave = async (patch: TaskManualPatch) => {
-      const next = await manualsH.update(key, patch);
-      manualDoc.adopt(next);
-      return next;
+      await manualsH.update(key, patch);
+      await manualDoc.refetch();
     };
     // A restore rewrites ONE of the manual's documents server-side, so this
     // page re-reads its own manual; the list follows for the row it shows.
@@ -864,7 +867,8 @@ export function SettingsPage({
         onRenameTitle={
           role && !role.isSeed
             ? async (name) => {
-                roleDoc.adopt(await rolesH.save(view.key, { name }));
+                await rolesH.save(view.key, { name });
+                await roleDoc.refetch();
               }
             : undefined
         }
@@ -923,11 +927,15 @@ export function SettingsPage({
             ? { size: role.sizeChars, cap: role.capChars }
             : undefined
         }
-        // Adopt the write echo: this page is no longer the roster's array, so
-        // nothing else would put the saved text back on screen until an SSE
-        // frame arrived — and a save must not depend on the stream being up.
+        // WRITE THEN RE-READ (T-91). This page is no longer the roster's
+        // array, so nothing else would put the saved text back on screen until
+        // an SSE frame arrived — and a save must not depend on the stream being
+        // up. It used to adopt the write's echo; the role receipt keeps the
+        // name and the size numbers and drops `definition_md`, so the re-read
+        // is now the only thing that can supply the text.
         onSave={async (text) => {
-          roleDoc.adopt(await rolesH.save(view.key, { definitionMd: text }));
+          await rolesH.save(view.key, { definitionMd: text });
+          await roleDoc.refetch();
         }}
         // 重置 = "restore the FILE SEED" — only a seed role has one. A custom
         // role's doc IS its only truth (the server 404s its reset — verified
@@ -937,7 +945,8 @@ export function SettingsPage({
         onReset={
           role?.isSeed
             ? async () => {
-                roleDoc.adopt(await rolesH.reset(view.key));
+                await rolesH.reset(view.key);
+                await roleDoc.refetch();
               }
             : undefined
         }

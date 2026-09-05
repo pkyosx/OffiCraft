@@ -30,9 +30,10 @@ interface UseInsight {
   error: boolean;
   refetch: () => Promise<void>;
   save: (text: string) => Promise<void>;
-  /** Back to the per-role factory seed (T-6501). Adopts the response, so the
-   * person who clicked always sees the restored doc even if the `insight` SSE
-   * frame is dropped. */
+  /** Back to the per-role factory seed (T-6501). RE-READS the doc after the
+   * write, so the person who clicked always sees the restored text even if the
+   * `insight` SSE frame is dropped — and without depending on the write to echo
+   * that text back (T-91). */
   reset: () => Promise<void>;
 }
 
@@ -45,16 +46,23 @@ export function useInsight(roleKey: string): UseInsight {
     setInsight(await api.getInsight(roleKey));
   }, [roleKey]);
 
+  // 🔴 T-91: WRITE THEN RE-READ, both of them. These used to adopt the write's
+  // own answer, which was the folded doc; the insight receipt keeps the sizes and
+  // has_seed and drops `text`, so adopting it would leave this card showing an
+  // empty journal after a save — and this document is legitimately empty
+  // sometimes, which is precisely why nobody would notice.
   const save = useCallback(
     async (text: string) => {
-      setInsight(await api.saveInsight(roleKey, text));
+      await api.saveInsight(roleKey, text);
+      await refetch();
     },
-    [roleKey]
+    [roleKey, refetch]
   );
 
   const reset = useCallback(async () => {
-    setInsight(await api.resetInsight(roleKey));
-  }, [roleKey]);
+    await api.resetInsight(roleKey);
+    await refetch();
+  }, [roleKey, refetch]);
 
   useEffect(() => {
     let alive = true;

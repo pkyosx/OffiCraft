@@ -62,7 +62,7 @@ ChatArea、ReplyComposer、TaskCard 訊息框都是 textarea，送出決策只�
 
 ## 回覆卡
 
-RepliesPage 與 ChatReplyCard 共用 ReplyCardBody、ReplyComposer；兩者訂 reply_card，inline 卡另做單卡 refetch。answer、expire 與 waiting-pane 的 owner 動作採用寫入端點回傳的新卡，不再重抓；採用後按 id 保留，直到 waiting 快照不再列出它，或 handled 快照帶著不舊於新狀態的 handled 戳記。其他卡照常採用，不能丟整份快照。refresh() 仍無條件 refetch。
+RepliesPage 與 ChatReplyCard 共用 ReplyCardBody、ReplyComposer；兩者訂 reply_card，inline 卡另做單卡 refetch。answer、expire 與 waiting-pane 的 owner 動作**把寫入回應合併進畫面上那張卡**（`lib/replyCardReceipt.ts` 的 `mergeReplyCardWrite`：只取 status／answer／answeredTs／expiredTs，其餘留著讀回來的那份），不再重抓、也不再整張換掉——T-91 之後那三個寫入只回傳它自己決定的東西，題目、選項、附件與 task ref 都不在上面，整張換掉會讓 `card.task.title` 這類欄位在存檔後靜靜變空。合併後按 id 保留，直到 waiting 快照不再列出它，或 handled 快照帶著不舊於新狀態的 handled 戳記。其他卡照常採用，不能丟整份快照。refresh() 仍無條件 refetch。
 
 ChatReplyCard 的 doReanswer 保留單卡 refetch：終態 delta 可能被刻意丟棄，拿掉會留下舊答案。不要把它和 doAnswer 對齊，也不要把「delta 是唯一 reconcile trigger」寫回規則。
 

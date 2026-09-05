@@ -1,9 +1,16 @@
 // hooks/useGlobalContext.ts — load + mutate the folded global-context doc.
 //
 // Mirrors useMonitoring: mount-fetch + reconcile-by-refetch on the relevant SSE
-// topic ("global_context"). The save/reset actions call the api and fold the
-// returned doc straight into state (the mutation response IS the folded doc), so
-// the UI never fabricates the is_default flip locally.
+// topic ("global_context").
+//
+// 🔴 T-91: save/reset WRITE THEN RE-READ. They used to fold the write's own
+// answer into state, because that answer WAS the folded doc. It is about to stop
+// being one (GlobalContextReceiptDTO carries identity + sizes, not `text`), and
+// the failure mode of leaving this as it was is a page that empties itself after
+// a save with nothing thrown and nothing to show the reader. The re-read costs
+// one GET per save, on a surface a person edits by hand — and it is still the
+// server's answer that lands on screen, so the UI never fabricates the
+// is_default flip locally.
 
 import { useCallback, useEffect, useState } from "react";
 import type { GlobalContextView } from "../types";
@@ -29,13 +36,18 @@ export function useGlobalContext(): UseGlobalContext {
     setCtx(await api.getGlobalContext());
   }, []);
 
-  const save = useCallback(async (text: string) => {
-    setCtx(await api.saveGlobalContext(text));
-  }, []);
+  const save = useCallback(
+    async (text: string) => {
+      await api.saveGlobalContext(text);
+      await refetch();
+    },
+    [refetch]
+  );
 
   const reset = useCallback(async () => {
-    setCtx(await api.resetGlobalContext());
-  }, []);
+    await api.resetGlobalContext();
+    await refetch();
+  }, [refetch]);
 
   useEffect(() => {
     let alive = true;

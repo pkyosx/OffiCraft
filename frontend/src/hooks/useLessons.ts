@@ -2,9 +2,12 @@
 // role_key (T-2 removed the task_type axis; role_key is the whole address).
 //
 // Mirrors useGlobalContext: mount-fetch + reconcile-by-refetch on the relevant
-// SSE topic ("lessons"). The save action calls the api and folds the returned
-// doc straight into state (the mutation response IS the folded doc), so the UI
-// never fabricates the is_default flip locally. Per-role-learnings step1: the
+// SSE topic ("lessons"). 🔴 T-91: save WRITES THEN RE-READS. It used to fold the
+// write's own answer into state because that answer WAS the folded doc; the
+// lessons receipt is about to carry size + sha256 and no `text`, and adopting
+// that would blank this journal on save without raising anything. The re-read is
+// also what keeps the is_default flip the server's statement rather than one the
+// UI invented. Per-role-learnings step1: the
 // doc is scoped to role_key — agents sharing a role share it, but a researcher's
 // learnings no longer pollute an assistant's.
 
@@ -33,9 +36,10 @@ export function useLessons(roleKey: string): UseLessons {
 
   const save = useCallback(
     async (text: string) => {
-      setLessons(await api.saveLessons(roleKey, text));
+      await api.saveLessons(roleKey, text);
+      await refetch();
     },
-    [roleKey]
+    [roleKey, refetch]
   );
 
   useEffect(() => {

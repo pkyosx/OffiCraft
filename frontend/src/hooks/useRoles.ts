@@ -1,9 +1,17 @@
 // hooks/useRoles.ts — load + mutate the role-definition ROSTER.
 //
 // Mirrors useMonitoring: mount-fetch + reconcile-by-refetch on the "role_def"
-// SSE topic. save/reset/create still fold the mutation response back into
-// state (the response IS the folded doc, and a roster row is a projection of
-// it), so a rename or a reset shows on the list without a re-pull.
+// SSE topic.
+//
+// 🔴 T-91: save/reset/create WRITE THEN RE-READ THE ROSTER. All three used to
+// fold the write's own answer back into state, because that answer was the
+// folded doc and a roster row is a projection of it. None of the three answers
+// carries a document any more: the role receipt keeps name + sizes + sha256 and
+// drops `definition_md`, and the CREATE receipt is three minted values
+// (role_key / member_id / member_name) with no role and no member on it at all.
+// `create` was the sharpest of the three — it pushed `result.role` straight into
+// the rendered roster, and `toRosterRow` maps its fields with `?? ""` fallbacks,
+// so a shrunken answer would have produced a blank row rather than an error.
 //
 // 🔴 T-1170 OVERTURNED THIS HOOK'S FOUNDING DESIGN DECISION, ON PURPOSE.
 // It used to say, in this comment block: "listRoles returns the FULL folded
@@ -45,27 +53,21 @@ interface UseRoles {
    * role list masquerading as "no roles defined". */
   error: boolean;
   refetch: () => Promise<void>;
-  /** Both return the folded doc the write echoed, so the page that is showing
-   * that document can ADOPT it — a page split off the roster must not have to
-   * wait for an SSE frame to see its own save (see useRole.adopt). */
-  save: (key: string, patch: RolePatch) => Promise<RoleDefView>;
-  reset: (key: string) => Promise<RoleDefView>;
-  /** Create one custom role + its founding member (M2-2). Appends the new role
-   * to the roster from the response (the office roster picks the member up via
-   * its own member-topic refetch). Rejections (422) propagate to the caller. */
+  /** Both RE-READ the roster after the write, so a rename or a reset is on the
+   * list without waiting for an SSE frame — and without the write having to
+   * echo the document back. The page that shows the document re-reads it too
+   * (useRole.refetch); it is one more request than the old adopt-the-echo path
+   * and it is the only version of this that survives a bounded receipt. */
+  save: (key: string, patch: RolePatch) => Promise<void>;
+  reset: (key: string) => Promise<void>;
+  /** Create one custom role + its founding member (M2-2). RE-READS the roster
+   * (the office roster picks the member up via its own member-topic refetch).
+   * The result is returned for the ids it MINTS — never to render from.
+   * Rejections (422) propagate to the caller. */
   create: (input: RoleCreateInput) => Promise<RoleCreateResult>;
   /** HARD-delete a custom role (M2-2). Rejections propagate — a 409 (member
    * online) must reach the caller so it can surface 有成員在線上,無法刪除. */
   remove: (key: string) => Promise<void>;
-}
-
-/** A folded doc, narrowed to the roster row it projects to. The mutation
- * responses are FULL docs; storing them whole would put `definitionMd` back
- * into the roster array under a type that says it is not there — a second,
- * silent source for the text this change exists to remove. */
-function toRosterRow(doc: RoleDefView): RoleSummaryView {
-  const { definitionMd: _definitionMd, ...row } = doc;
-  return row;
 }
 
 export function useRoles(): UseRoles {
@@ -77,36 +79,32 @@ export function useRoles(): UseRoles {
     setRoles(await api.listRoles());
   }, []);
 
-  // Merge one updated role back into the roster by key (no full refetch needed —
-  // the mutation response is the folded doc).
-  const mergeRole = useCallback((updated: RoleDefView) => {
-    const row = toRosterRow(updated);
-    setRoles((prev) => prev.map((r) => (r.key === row.key ? row : r)));
-  }, []);
-
   const save = useCallback(
     async (key: string, patch: RolePatch) => {
-      const doc = await api.saveRole(key, patch);
-      mergeRole(doc);
-      return doc;
+      await api.saveRole(key, patch);
+      await refetch();
     },
-    [mergeRole]
+    [refetch]
   );
 
   const reset = useCallback(
     async (key: string) => {
-      const doc = await api.resetRole(key);
-      mergeRole(doc);
-      return doc;
+      await api.resetRole(key);
+      await refetch();
     },
-    [mergeRole]
+    [refetch]
   );
 
-  const create = useCallback(async (input: RoleCreateInput) => {
-    const result = await api.createRole(input);
-    setRoles((prev) => [...prev, toRosterRow(result.role)]);
-    return result;
-  }, []);
+  const create = useCallback(
+    async (input: RoleCreateInput) => {
+      const result = await api.createRole(input);
+      // The roster row comes from the LIST, not from `result.role`. The caller
+      // gets the receipt back for the ids it minted; nothing renders off it.
+      await refetch();
+      return result;
+    },
+    [refetch]
+  );
 
   const remove = useCallback(async (key: string) => {
     await api.deleteRole(key); // throws on 403/404/409 — caller surfaces it
@@ -174,11 +172,6 @@ interface UseRole {
    * can be present and this read still fail. */
   error: boolean;
   refetch: () => Promise<void>;
-  /** Take a folded doc this page already has in hand (a write echo) as the
-   * current document. Zero requests, and it means a save is on screen the
-   * instant the server acknowledged it rather than whenever the SSE frame
-   * arrives — the page must not depend on a stream that can be down. */
-  adopt: (doc: RoleDefView) => void;
 }
 
 /**
@@ -188,7 +181,9 @@ interface UseRole {
  * Reconciles on the SAME "role_def" topic the roster listens on, which is what
  * keeps a 版本紀錄 restore, an agent's write and another tab's save landing on
  * this page: every one of them fans that topic. The page's own save does not
- * wait for it — `useRoles.save` returns the folded doc — but the refetch is
+ * wait for that frame either — it calls `refetch` itself the moment the write
+ * resolves (T-91 replaced the old `adopt(write echo)` with that re-read, since
+ * the write is about to stop carrying the document) — but the subscription is
  * what makes the page correct when the write came from somewhere else.
  *
  * `key` is `""` for "no role on screen": nothing is requested and nothing is
@@ -255,10 +250,5 @@ export function useRole(key: string): UseRole {
     };
   }, [key]);
 
-  const adopt = useCallback((doc: RoleDefView) => {
-    setRole(doc);
-    setError(false);
-  }, []);
-
-  return { role, loading, error, refetch, adopt };
+  return { role, loading, error, refetch };
 }
