@@ -164,6 +164,7 @@ import {
 // UNION (light rows | full cards) and `?view=full` is what picks the second
 // arm, so listReplyCards has to narrow to it. See that function.
 import type { WireReplyCard } from "./wire";
+import { suggestedRepliesPatchFields } from "./suggestedReplies";
 import { ownerToken, setToken } from "./auth";
 import { ApiError, parseRetryAfter } from "./errors";
 import { fetchDiffPair } from "./diff";
@@ -2555,6 +2556,12 @@ export const httpApi: Api = {
     if (patch.onboardingDismissed !== undefined) {
       body.onboarding_dismissed = patch.onboardingDismissed;
     }
+    // 建議回覆 (T-122). Spread in from api/suggestedReplies.ts rather than named
+    // here: the two wire field names live in exactly one module, on the write
+    // side as well as the read side. An omitted list stays out of the body
+    // (unchanged); an EMPTY one is sent, because [] is a legal value that
+    // clears the list.
+    Object.assign(body, suggestedRepliesPatchFields(patch));
     const wire = unwrap(await client.PATCH("/api/settings", { body }));
     return toServerSettings(wire);
   },

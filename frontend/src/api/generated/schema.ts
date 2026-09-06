@@ -3654,9 +3654,7 @@ export interface paths {
         };
         /**
          * Read the org-adjustable settings (owner/admin agent).
-         * @description Read the org-adjustable settings (owner or admin agent — T-6020): independent owner-login
-         *     and agent-token TTLs, the context auto-handover threshold, and the read-only
-         *     self-healed port (null while the server runs on its preferred port).
+         * @description Read the org-adjustable settings (owner or admin agent — T-6020). The response IS the field list — SettingsDTO — so this line deliberately names none of them: it used to name three, plus a read-only `self-healed port` that is not on this DTO at all any more, while the surface grew past twenty and nothing ever went red. Read a value here before writing it back through update_settings.
          */
         get: operations["handle_get_settings_api_settings_get"];
         put?: never;
@@ -3665,7 +3663,7 @@ export interface paths {
         options?: never;
         head?: never;
         /**
-         * Edit settings (owner-login and agent token TTLs / handover threshold); live immediately.
+         * Edit the org-adjustable settings (owner/admin agent) — only the fields you send change, and the change is live immediately. This tool's input schema is the field list; read the current values with get_settings first.
          * @description Partially update the org-adjustable settings (owner or admin agent — T-6020). Only supplied
          *     fields change; a change is durable (DB) AND live immediately — `owner_token_ttl`
          *     applies from the next login, `agent_token_ttl` from the next bootstrap, reconcile,
@@ -8979,6 +8977,16 @@ export interface components {
              */
             push_contact_email: string;
             /**
+             * Suggested Replies Reply Card
+             * @description The one-click 建議回覆 offered under a 請示卡 reply box (T-122) — one sentence per entry, dropped into the box by a single tap. The list is the owner's own writing, never generated. [] (the default) means no chips are drawn, and the reply box must keep working exactly as it did without them: the suggestions are a convenience laid over it, never a part of it.
+             */
+            suggested_replies_reply_card?: string[];
+            /**
+             * Suggested Replies Task Message
+             * @description The one-click 建議回覆 offered under a 任務 message box (T-122). A SEPARATE list from suggested_replies_reply_card by owner ruling: answering a 請示卡 and writing to a task in progress are different conversations, so one list's sentences are wrong in the other's box. [] (the default) means no chips are drawn there.
+             */
+            suggested_replies_task_message?: string[];
+            /**
              * Agent Token Ttl
              * @description Agent and outsource-worker JWT lifetime in seconds. Fresh installs default to 7 days.
              * @default 604800
@@ -9153,6 +9161,16 @@ export interface components {
              * @description The push contact address (T-8a82) — trimmed, max 254 runes; "" clears it back to unset and stops all Web Push delivery. A value must be a single `local@domain` address whose domain is a real public one: a malformed address, or one on a reserved suffix (.local, .localhost, .internal, .test, .invalid, .example), is a 422 — those are exactly the values the push gateways reject with BadJwtToken, which would take push down silently.
              */
             push_contact_email?: string | null;
+            /**
+             * Suggested Replies Reply Card
+             * @description Replace the 請示卡 建議回覆 list wholesale (T-122). At most 20 entries, each trimmed and at most 120 runes (Unicode code points); over either bound is a 422 that writes NOTHING — the list is never silently truncated. An EXPLICIT EMPTY ARRAY IS LEGAL and means "offer no suggestions there" (unlike the scheduled-message custom_* sets, where [] is a 422). Blank entries are dropped. 🔴 null is NOT "clear": an omitted field and an explicit null both mean LEAVE THIS LIST UNCHANGED, so an agent that sends null to empty the list gets a 200 and no change at all. To clear it, send [].
+             */
+            suggested_replies_reply_card?: string[] | null;
+            /**
+             * Suggested Replies Task Message
+             * @description Replace the 任務 message-box 建議回覆 list wholesale (T-122). Same bounds as suggested_replies_reply_card — at most 20 entries, each trimmed and at most 120 runes, over either is a 422 that writes nothing, and an explicit empty array is legal — but a SEPARATE list: patching one never touches the other. 🔴 null is NOT "clear": an omitted field and an explicit null both mean LEAVE THIS LIST UNCHANGED, so an agent that sends null to empty the list gets a 200 and no change at all. To clear it, send [].
+             */
+            suggested_replies_task_message?: string[] | null;
             /** Outsource Max Parallel */
             outsource_max_parallel?: number | null;
             /** Agent Token Ttl */

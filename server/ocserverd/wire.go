@@ -167,6 +167,18 @@ type settingsDTO struct {
 	// two prefs above this is a plain bool with no "never set" state — false IS
 	// the shipped narrow look, so an untouched install reads exactly right.
 	DisplayWide bool `json:"display_wide"`
+	// SuggestedRepliesReplyCard / SuggestedRepliesTaskMessage are the owner's
+	// one-click 建議回覆 (suggested_replies.*; T-122) — the sentences the cockpit
+	// offers under a 請示卡 reply box and under a 任務 message box respectively.
+	// TWO lists, not one: the two boxes are different conversations, so a
+	// sentence written for one is wrong in the other.
+	//
+	// 🔴 NEVER null on the wire. The spec types both as `array`, and "" the owner
+	// configured none is the ordinary state — it must serialize as [] so a
+	// reader never has to tell "none" apart from "missing". settingsView
+	// normalizes it.
+	SuggestedRepliesReplyCard   []string `json:"suggested_replies_reply_card"`
+	SuggestedRepliesTaskMessage []string `json:"suggested_replies_task_message"`
 	// Onboarding (T-ba62) is the first-run onboarding report, or nil when
 	// onboarding never ran on this database. It rides the OWNER-GATED settings
 	// read on purpose: a failed step's Detail carries the raw `ocwarden install`

@@ -18,6 +18,8 @@ import {
   STAGING_TARGET_PER_MOUNT,
 } from "../hooks/useAttachmentStaging";
 import { ComposerAttachmentPreview } from "./ComposerAttachmentPreview";
+import { appendSuggestion, SuggestedReplies } from "./SuggestedReplies";
+import { useSuggestedRepliesReplyCard } from "../hooks/useSuggestedReplies";
 import { PaperclipIcon, SendIcon } from "./icons";
 
 export function ReplyComposer({
@@ -72,6 +74,9 @@ export function ReplyComposer({
   // Phone viewport → Enter inserts a newline, send button sends (same rule as
   // the chat composer; no physical keyboard means Shift+Enter is impossible).
   const isMobile = useIsMobile();
+  // T-122 建議回覆: the owner's one-click sentences, shown UNDER this box. The
+  // empty list (no setting, or a failed read) renders nothing at all.
+  const suggestedReplies = useSuggestedRepliesReplyCard();
 
   const canSend =
     !sending &&
@@ -191,6 +196,17 @@ export function ReplyComposer({
           <SendIcon size={16} />
         </button>
       </div>
+      {/* T-122: a pick FILLS this box and leaves the send to the owner — the
+       * answer it would fire closes the card for good, so a mis-tap must never
+       * be the thing that sends it. */}
+      <SuggestedReplies
+        replies={suggestedReplies}
+        testId="reply-suggested-replies"
+        onPick={(suggestion) => {
+          setDraft((cur) => appendSuggestion(cur, suggestion));
+          draftRef.current?.focus();
+        }}
+      />
     </div>
   );
 }

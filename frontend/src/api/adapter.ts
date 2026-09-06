@@ -1115,6 +1115,15 @@ export interface ServerSettingsView {
   /** The owner's display nickname shown in the topbar profile pill (T-0b41).
    * "" = never set — the caller falls back to the localized default (`t.user`). */
   ownerName: string;
+  /** The 建議回覆 offered under a 請示卡 reply box (T-122), configured in 參數設定.
+   * Empty = the owner configured none, which renders nothing at all. Read
+   * through `api/suggestedReplies.ts`, the only module that knows the wire
+   * field names. */
+  suggestedRepliesReplyCard: string[];
+  /** The 建議回覆 offered under a 任務 message box (T-122). A SEPARATE list from
+   * the reply-card one by owner ruling — the two boxes are different
+   * conversations — so one being empty says nothing about the other. */
+  suggestedRepliesTaskMessage: string[];
   /** Contact email used as this deployment's Web Push VAPID identity. Empty
    * means delivery is disabled until the owner configures a public address. */
   pushContactEmail: string;
@@ -1219,6 +1228,14 @@ export interface ServerSettingsPatch {
   /** The owner's display nickname (T-0b41); trimmed server-side, max 80 runes,
    * "" clears it back to the localized default (server 422s anything longer). */
   ownerName?: string;
+  /** The 請示卡 reply-box 建議回覆 (T-122), replaced WHOLESALE. Entries are
+   * trimmed server-side; at most 20 of them, each at most 120 runes, and over
+   * either bound is a 422 that writes nothing — never a truncation. `[]` is a
+   * legal value and clears the list; omit the field to leave it unchanged. */
+  suggestedRepliesReplyCard?: string[];
+  /** The 任務 message-box 建議回覆 (T-122), replaced WHOLESALE. Same bounds as
+   * above, and independent of it: patching one never touches the other. */
+  suggestedRepliesTaskMessage?: string[];
   /** Web Push VAPID contact email; empty clears it and disables delivery. */
   pushContactEmail?: string;
   /** The owner's cockpit visual theme (T-0b41-p2); "" (unset) | "office" (the

@@ -3044,9 +3044,15 @@ type SettingsDTO struct {
 	PushContactEmail *string `json:"push_contact_email,omitempty"`
 
 	// StepNoteCapChars The size cap on ONE task STEP's working note, in CHARACTERS (Unicode code points — Chinese prose counts one per character). One number serves both faces: it is what `get_task` reports per step and what `get_task_step` reports as `note_cap_chars`, AND it is what both note write faces (the wholesale write and the anchor patch) refuse a longer note against, read from this one setting so the reported ceiling and the enforced one can never drift apart. The adjustable range is 1000..100000. Like `chat_budget_chars`, and unlike the `doc_cap_chars_*` knobs, it may be LOWERED as well as raised: the cap is checked only on WRITE, so a note already stored above a newly lowered cap stays readable in full and simply cannot be edited until it is shortened. Two neighbouring fields are deliberately NOT governed by this setting and keep their own 4,000-character server constant: the task-level handover note and a chat message body (owner ruling 2026-09-06).
-	StepNoteCapChars   *int  `json:"step_note_cap_chars,omitempty"`
-	UpdaterAutoUpdate  *bool `json:"updater_auto_update,omitempty"`
-	UpdaterReceiveBeta *bool `json:"updater_receive_beta,omitempty"`
+	StepNoteCapChars *int `json:"step_note_cap_chars,omitempty"`
+
+	// SuggestedRepliesReplyCard The one-click 建議回覆 offered under a 請示卡 reply box (T-122) — one sentence per entry, dropped into the box by a single tap. The list is the owner's own writing, never generated. [] (the default) means no chips are drawn, and the reply box must keep working exactly as it did without them: the suggestions are a convenience laid over it, never a part of it.
+	SuggestedRepliesReplyCard *[]string `json:"suggested_replies_reply_card,omitempty"`
+
+	// SuggestedRepliesTaskMessage The one-click 建議回覆 offered under a 任務 message box (T-122). A SEPARATE list from suggested_replies_reply_card by owner ruling: answering a 請示卡 and writing to a task in progress are different conversations, so one list's sentences are wrong in the other's box. [] (the default) means no chips are drawn there.
+	SuggestedRepliesTaskMessage *[]string `json:"suggested_replies_task_message,omitempty"`
+	UpdaterAutoUpdate           *bool     `json:"updater_auto_update,omitempty"`
+	UpdaterReceiveBeta          *bool     `json:"updater_receive_beta,omitempty"`
 
 	// WardenCredentialLifetimeSecs How long a MACHINE (warden) credential is meant to live, in seconds (86400 through 34560000 -- one day through 400 days). It is the number every warden's renewal threshold is derived from: a warden replaces its own credential once that credential is two thirds of this old, measured from the `iat` claim it carries, plus a per-machine stagger of up to one hour. Wardens read it from `GET /api/machines/credential-policy` on their 15-minute poll, so a change reaches the fleet within one interval; a warden that cannot reach that endpoint keeps using the shipped default rather than failing. NOTE: warden credentials still carry NO `exp`, so this value governs RENEWAL ONLY -- nothing expires because of it, and a renewal that does not complete leaves the machine on a credential that keeps working.
 	WardenCredentialLifetimeSecs *int `json:"warden_credential_lifetime_secs,omitempty"`
@@ -3149,9 +3155,15 @@ type SettingsUpdateDTO struct {
 	PushContactEmail *string `json:"push_contact_email,omitempty"`
 
 	// StepNoteCapChars The size cap on one task step's working note, in CHARACTERS (Unicode code points). Must be between 1000 and 100000. Unlike the `doc_cap_chars_*` knobs the floor is NOT the shipped default — this cap may be lowered as well as raised, because it is enforced only when a note is WRITTEN: a note already stored above a lowered cap stays readable in full and only becomes uneditable. It does not govern the task-level handover note or a chat message body, which keep their own 4,000-character constant.
-	StepNoteCapChars   *int  `json:"step_note_cap_chars,omitempty"`
-	UpdaterAutoUpdate  *bool `json:"updater_auto_update,omitempty"`
-	UpdaterReceiveBeta *bool `json:"updater_receive_beta,omitempty"`
+	StepNoteCapChars *int `json:"step_note_cap_chars,omitempty"`
+
+	// SuggestedRepliesReplyCard Replace the 請示卡 建議回覆 list wholesale (T-122). At most 20 entries, each trimmed and at most 120 runes (Unicode code points); over either bound is a 422 that writes NOTHING — the list is never silently truncated. An EXPLICIT EMPTY ARRAY IS LEGAL and means "offer no suggestions there" (unlike the scheduled-message custom_* sets, where [] is a 422). Blank entries are dropped. 🔴 null is NOT "clear": an omitted field and an explicit null both mean LEAVE THIS LIST UNCHANGED, so an agent that sends null to empty the list gets a 200 and no change at all. To clear it, send [].
+	SuggestedRepliesReplyCard *[]string `json:"suggested_replies_reply_card,omitempty"`
+
+	// SuggestedRepliesTaskMessage Replace the 任務 message-box 建議回覆 list wholesale (T-122). Same bounds as suggested_replies_reply_card — at most 20 entries, each trimmed and at most 120 runes, over either is a 422 that writes nothing, and an explicit empty array is legal — but a SEPARATE list: patching one never touches the other. 🔴 null is NOT "clear": an omitted field and an explicit null both mean LEAVE THIS LIST UNCHANGED, so an agent that sends null to empty the list gets a 200 and no change at all. To clear it, send [].
+	SuggestedRepliesTaskMessage *[]string `json:"suggested_replies_task_message,omitempty"`
+	UpdaterAutoUpdate           *bool     `json:"updater_auto_update,omitempty"`
+	UpdaterReceiveBeta          *bool     `json:"updater_receive_beta,omitempty"`
 
 	// WardenCredentialLifetimeSecs How long a MACHINE (warden) credential is meant to live, in seconds. Must be 86400 through 34560000 (one day through 400 days). A warden renews its own credential once that credential is two thirds of this old, plus a per-machine stagger of up to one hour so that LOWERING this value does not put the whole fleet on the mint endpoint inside one poll. The floor is one day because the last third of the lifetime is the retry window: at the 15-minute poll a one-day lifetime still leaves about 32 attempts. Wardens pick a change up within one poll interval. Warden credentials carry no `exp` today, so this governs renewal only and nothing expires because of it. Read the current value from get_settings rather than assuming a number.
 	WardenCredentialLifetimeSecs *int `json:"warden_credential_lifetime_secs,omitempty"`
@@ -4943,7 +4955,7 @@ type ServerInterface interface {
 	// Read the org-adjustable settings (owner/admin agent).
 	// (GET /api/settings)
 	HandleGetSettingsApiSettingsGet(w http.ResponseWriter, r *http.Request)
-	// Edit settings (owner-login and agent token TTLs / handover threshold); live immediately.
+	// Edit the org-adjustable settings (owner/admin agent) — only the fields you send change, and the change is live immediately. This tool's input schema is the field list; read the current values with get_settings first.
 	// (PATCH /api/settings)
 	HandleUpdateSettingsApiSettingsPatch(w http.ResponseWriter, r *http.Request)
 	// Read the 系統互動 block of the boot context — the shared studio handbook every agent reads at boot. Folded: the owner's edit when one exists, otherwise the shipped factory seed, with is_default saying which of the two you are holding and has_seed saying a factory version exists to go back to. The reply carries size_chars/cap_chars (this document's own size limit, in characters) and is_default/has_seed, so a caller can size an edit before making it and can tell an edited block from the shipped one.

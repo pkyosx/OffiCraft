@@ -482,6 +482,13 @@ const REGISTRY = [
     verdict: "the owner's own nickname; global, one provider",
   },
   {
+    file: "hooks/useSuggestedReplies.ts",
+    kind: ".then/.catch/.finally",
+    count: 2,
+    verdict:
+      "the owner's 建議回覆 (T-122); global, not per conversation. TWO lists now (請示卡 / 任務) behind ONE loader, and the hook picks by a constant argument fixed at the call site — so a landing still writes the same value the new mount would write anyway, whichever box it belongs to. The `alive` latch is still there, and it is there to keep React quiet about a setState after unmount, not because one room's value could reach another",
+  },
+  {
     file: "hooks/useWorkerCodenames.ts",
     kind: ".then/.catch/.finally",
     count: 2,

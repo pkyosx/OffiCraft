@@ -84,6 +84,8 @@ import {
   STAGING_TARGET_PER_MOUNT,
 } from "../hooks/useAttachmentStaging";
 import { ComposerAttachmentPreview } from "./ComposerAttachmentPreview";
+import { appendSuggestion, SuggestedReplies } from "./SuggestedReplies";
+import { useSuggestedRepliesTaskMessage } from "../hooks/useSuggestedReplies";
 import { ConfirmModal } from "./ConfirmModal";
 import { Markdown } from "./Markdown";
 import { MarkdownPreviewOverlay } from "./MarkdownPreviewOverlay";
@@ -779,6 +781,9 @@ export function TaskCard({
   // Phone viewport → Enter inserts a newline, send button sends (same rule as
   // the chat composer; no physical keyboard means Shift+Enter is impossible).
   const isMobile = useIsMobile();
+  // T-122 建議回覆: the owner's one-click sentences, shown UNDER this box. The
+  // empty list (no setting, or a failed read) renders nothing at all.
+  const suggestedReplies = useSuggestedRepliesTaskMessage();
   const draftRef = useRef<HTMLTextAreaElement>(null);
   // Attachment staging — the SHARED useAttachmentStaging state machine (same
   // caps + funnels as the chat composer / ReplyComposer): paste an image into
@@ -1913,6 +1918,23 @@ export function TaskCard({
           {t.tasks.send}
         </button>
       </div>
+      {/* T-122: a pick FILLS this box and leaves the send to the owner — this
+       * message goes to the executor and cannot be recalled, so a mis-tap must
+       * never be the thing that sends it. OUTSIDE `.task-card__composer`, which
+       * is the flex ROW holding the paperclip, the textarea and the send
+       * button: the suggestions are a row of their own, under that one. Hidden
+       * while the task is unassigned, where the box itself is disabled and a
+       * chip would only offer something that cannot happen. */}
+      {!unassigned && (
+        <SuggestedReplies
+          replies={suggestedReplies}
+          testId="task-suggested-replies"
+          onPick={(suggestion) => {
+            setDraft((cur) => appendSuggestion(cur, suggestion));
+            draftRef.current?.focus();
+          }}
+        />
+      )}
       {msgError && <div className="task-card__error">{t.tasks.messageError}</div>}
 
       {/* ── description (v5, owner 2026-07-17「task details 應該在回覆訊息的

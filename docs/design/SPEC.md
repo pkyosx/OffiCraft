@@ -496,9 +496,14 @@ epoch 再當場砍，**沒有重生**，所以存下的新值要等之後某一�
 | **五個文件字數上限** | `docCapCharsDuty` / `Insight` / `Learning` / `ManualSop` / `ManualLearnings` |
 | 喚醒聊天字數預算 | `chatBudget` |
 | 備份保留份數 | `backupRetain` |
+| 請示卡建議回覆 | `suggestedRepliesReplyCard` |
+| 任務訊息建議回覆 | `suggestedRepliesTaskMessage` |
 
 ⚠️ **五個字數上限是五個獨立的格子**（`DOC_CAP_ORDER`），不是一個共用值；
 喚醒聊天字數預算與備份保留份數刻意**不在**那張表裡（單位與上下限都不同，各走各的 commit）。
+兩份建議回覆也不在那張表裡，而且是**兩格而不是一格**（owner 裁定：任務跟請示卡要是不同的參數設定）：
+DB 兩個 key（`suggested_replies.reply_card` / `suggested_replies.task_message`）、wire 兩個平的頂層欄位，
+所以「只改其中一份」是一次寫入，不是對一個共用 blob 的 read-modify-write。清單為空是合法值。
 每個參數的意義與範圍見 [docs/guide/settings.md](../guide/settings.md)。
 
 ### 6.6 主題

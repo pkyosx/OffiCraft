@@ -972,6 +972,106 @@
   border-top: 1px solid color-mix(in srgb, var(--color-overlay) 5%, transparent);
 }
 
+/* T-122 建議回覆 editor. A list row is NOT the centred name-on-the-left,
+   control-on-the-right shape the numeric rows use: the control is a column of
+   sentences that can grow to twenty, so the row stacks and the control takes
+   the full width under its own label. */
+.param-row--stacked {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 12px;
+}
+
+.sugg-edit {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.sugg-edit__row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+/* 🔴 THE DOUBLE CLASS IS LOAD-BEARING — DO NOT "SIMPLIFY" IT TO ONE.
+ *
+ * These inputs wear `.param-input` for its chrome (height, radius, border,
+ * focus ring) but must NOT inherit its WIDTH: `.param-input { width: 88px }`
+ * below is the narrow box the NUMERIC knobs want, and 88px shows about seven
+ * Chinese characters. A 建議回覆 entry is a whole sentence of up to 120, so at
+ * 88px the owner cannot read what he typed — measured in a real browser: a
+ * 141-character entry showed its first seven characters next to a red line
+ * telling him it was too long.
+ *
+ * `.sugg-edit__input` alone is specificity (0,1,0) — exactly the same as
+ * `.param-input` — so whichever is declared LATER in this file wins, and that
+ * is the 88px rule. Qualifying with the parent block makes it (0,2,0) and it
+ * wins wherever either rule is moved to. (This file already hit this once and
+ * solved it by ORDER: `.param-input--wide` sits after `.param-input` on
+ * purpose. Order is the fragile version of this fix.)
+ *
+ * Pinned by visual-guards/settings-suggested-replies-width.ct.spec.tsx, which
+ * measures the rendered width in a real browser — jsdom has no layout engine
+ * and cannot see this class of bug at all. */
+.sugg-edit .sugg-edit__input {
+  flex: 1;
+  width: auto;
+  min-width: 0;
+}
+.sugg-edit__input[aria-invalid="true"] {
+  border-color: var(--color-danger);
+}
+.sugg-edit__error {
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--color-danger);
+}
+.sugg-edit__note {
+  font-size: 12px;
+  color: var(--color-text-muted);
+}
+.sugg-edit__btn {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  border: 1px solid color-mix(in srgb, var(--color-overlay) 10%, transparent);
+  background: var(--color-bg);
+  color: var(--color-text-muted);
+  font-size: 13px;
+  cursor: pointer;
+}
+.sugg-edit__btn:hover:not(:disabled) {
+  color: var(--color-text-strong);
+}
+.sugg-edit__btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.sugg-edit__btn--remove:hover:not(:disabled) {
+  color: var(--color-danger);
+}
+.sugg-edit__add {
+  align-self: flex-start;
+  height: 30px;
+  padding: 0 12px;
+  border-radius: 8px;
+  border: 1px dashed color-mix(in srgb, var(--color-overlay) 18%, transparent);
+  background: transparent;
+  color: var(--color-text-muted);
+  font-size: 12.5px;
+  cursor: pointer;
+}
+.sugg-edit__add:hover:not(:disabled) {
+  color: var(--color-text-strong);
+}
+.sugg-edit__add:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
 .param-row__body {
   display: flex;
   flex-direction: column;

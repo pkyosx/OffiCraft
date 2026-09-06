@@ -1969,6 +1969,29 @@ export const en: Dict = {
     backupRetainSub:
       "How many database backup files are kept. Everything past this number is DELETED from disk on the next backup — it is not moved aside and it cannot be recovered. Two things this number is NOT. It counts VERSIONS, NOT DAYS: it is a count of files, so how far back it reaches depends entirely on how many backups those days happened to produce — a busy day can use the whole allowance in under three days, a quiet one can stretch it past a week. And it is PER POOL, NOT PER DIRECTORY: routine backups (scheduled and manual) and pre-migration backups keep separate allowances, so 5 here means up to TEN files on disk, not five. The range is 1 to 20; the ceiling is a disk budget, since the space used is roughly two times this number times the size of one backup.",
     backupRetainUnit: "backups per pool",
+    // T-122: the two suggested-reply lists. Two rows and not one, deliberately —
+    // answering a reply card and writing to a task in progress are different
+    // conversations, so a sentence written for one is wrong in the other's box
+    // (owner ruling). An empty list is a legal value: that box then shows no
+    // suggestion buttons at all.
+    suggestedRepliesReplyCard: "Reply-card suggestions",
+    suggestedRepliesReplyCardSub:
+      "Sentences you can drop in with one tap when answering a reply card.",
+    suggestedRepliesTaskMessage: "Task-message suggestions",
+    suggestedRepliesTaskMessageSub:
+      "Sentences you can drop in with one tap when messaging on a task.",
+    suggestedReplyPlaceholder: "e.g. Got it, go ahead",
+    suggestedReplyAdd: "Add a sentence",
+    suggestedReplyRemove: "Remove this sentence",
+    suggestedReplyMoveUp: "Move up",
+    suggestedReplyMoveDown: "Move down",
+    // owner rc-76ab62ceb3ff: over the cap is REFUSED with a reason, never
+    // silently shortened — which is why the input carries no maxLength (the
+    // browser would cut a paste with no notice). The text stays, this line
+    // explains, and nothing is sent.
+    suggestedRepliesTooLong: (len: number, max: number) =>
+      `This sentence is ${len} characters, over the ${max} limit. Shorten it to save — nothing is cut for you, and nothing is stored.`,
+    suggestedRepliesFull: "That is 20 sentences, the maximum. Remove one to add another.",
     chatBudget: "Wake chat budget",
     chatBudgetSub:
       "How many characters the chat block of a wake snapshot (resume_summary) may spend — the messages, their folded cards, the snapshot header and the cut hint; the peek sizes itself against the same number. The range is 1000 to 13000 and it can be lowered as well as raised: the chat block is repacked on every read, so a smaller budget simply carries fewer messages, and whatever was left out is still reported as omitted.",

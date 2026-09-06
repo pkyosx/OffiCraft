@@ -10,6 +10,10 @@ import { DOC_CAP_CHARS_DEFAULTS } from "./docCap";
 import { CHAT_BUDGET_CHARS_DEFAULT } from "./chatBudget";
 import { STEP_NOTE_CAP_CHARS_DEFAULT } from "./stepNoteCap";
 import { BACKUP_RETAIN_DEFAULT } from "./backupRetain";
+import {
+  readSuggestedRepliesReplyCard,
+  readSuggestedRepliesTaskMessage,
+} from "./suggestedReplies";
 import type {
   Member,
   MemberStatus,
@@ -1163,6 +1167,11 @@ export function toServerSettings(w: WireServerSettings): ServerSettingsView {
     // Owner nickname (T-0b41; schema-optional for DTO-compat — the Go wire
     // always emits it). "" = never set; the profile pill substitutes t.user.
     ownerName: w.owner_name ?? "",
+    // 建議回覆 (T-122), TWO independent lists. Read structurally through the one
+    // module that knows the wire names: a server predating T-122 omits both,
+    // and absent ⇒ [] ⇒ nothing renders, which is honestly what it means.
+    suggestedRepliesReplyCard: readSuggestedRepliesReplyCard(w),
+    suggestedRepliesTaskMessage: readSuggestedRepliesTaskMessage(w),
     pushContactEmail: w.push_contact_email ?? "",
     // Cockpit display prefs (T-0b41-p2; schema-optional for DTO-compat — the Go
     // wire always emits them). "" = never set; the frontend keeps its
