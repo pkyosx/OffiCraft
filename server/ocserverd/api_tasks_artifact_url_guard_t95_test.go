@@ -34,6 +34,19 @@ package main
 //     TestArtifactLabelCapLeavesExistingRowsAlone).
 //  6. IT REFUSES, IT DOES NOT REWRITE. A url the server quietly "fixed" points
 //     somewhere the caller never asked for.
+//
+// 🔴 DO NOT DELETE THIS FILE WHILE RESOLVING A MERGE CONFLICT. T-92 (#432)
+// removes the `url` COLUMN and moves a link's target into a text/uri-list blob,
+// deleting the very two lines this guard sits on (`art.URL = url`,
+// `next.URL = url`). All six files those two packages share conflict, so the
+// conflict itself is loud — but the RESOLUTION is silent: taking one side
+// wholesale drops the guard while both branches were green. This file does not
+// participate in that conflict, which is exactly why it can look unrelated and
+// be swept away with it. It is the only thing that reddens when the guard is
+// gone. Whoever resolves that merge: re-attach artifactLinkURLRefusal to
+// whatever now reads body.Url on BOTH doors, then run
+// `go test -run TestArtifactURL` and read the DENOMINATOR (5 tests / 31
+// subtests), not the word `ok`.
 
 import (
 	"net/http"
