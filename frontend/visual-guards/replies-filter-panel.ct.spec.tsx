@@ -559,6 +559,17 @@ test("the field is sized to the id it holds — a whole id fits, with little to 
 // on sub-pixel rounding, and it would also freeze the PILLS' height, which is
 // not this guard's business. What is ruled out is the field standing proud of
 // the row.
+//
+// ⚠️ ONE ASSERTION, AND THAT IS THE HONEST SHAPE — DO NOT ADD A SECOND ONE
+// COMPARING THE CELL TO THE INPUT. The first version of this test did exactly
+// that (「the hidden sizer must not add height to the cell」), reasoning that the
+// gap would name WHICH of the two children grew. There is no gap: the two share
+// one grid cell under the default `align-items: stretch`, so when the sizer's
+// intrinsic height grows the cell grows AND THE INPUT IS STRETCHED WITH IT —
+// measured on seth-m1, `cell - input` stayed 0 under both mutants below while
+// the row was visibly 3.5px out of line. It was a decorative assertion that
+// could never red, sitting under a comment that claimed it would. Attribution
+// is simply not available from the rendered rects here; (a) is the whole guard.
 test("the field is no taller than the pill triggers beside it", async ({
   mount,
   page,
@@ -569,13 +580,9 @@ test("the field is no taller than the pill triggers beside it", async ({
   const m = await cmp
     .getByTestId("filter-reply-card-id")
     .evaluate((el: HTMLElement) => {
-      // The INPUT is what the reader sees, but the grid CELL is what the sizer
-      // can stretch — measure the wrapper too, or the bug hides inside it.
+      // Measure the WRAPPER, not the input: the cell is what the sizer sizes.
       const wrap = el.parentElement as HTMLElement;
-      return {
-        input: el.getBoundingClientRect().height,
-        field: wrap.getBoundingClientRect().height,
-      };
+      return { field: wrap.getBoundingClientRect().height };
     });
   const pill = await cmp.getByTestId("filter-opener").boundingBox();
 
@@ -587,13 +594,6 @@ test("the field is no taller than the pill triggers beside it", async ({
     m.field,
     "the id field's grid cell must not stand taller than the pill beside it"
   ).toBeLessThanOrEqual((pill as { height: number }).height + 1);
-  // …and the cell must not be taller than the input it wraps either. THAT gap
-  // is the sizer stretching it, named directly so a failure says which of the
-  // two children grew rather than only that the row is uneven.
-  expect(
-    m.field - m.input,
-    "the hidden sizer must not add height to the cell (idFilter.css line-height)"
-  ).toBeLessThanOrEqual(1);
 });
 
 // (2) The field must be distinguishable from the page behind it, in BOTH theme
