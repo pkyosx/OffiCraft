@@ -123,6 +123,20 @@ type MarkdownPreviewOverlayProps = {
   /** Display name shown in the header (the blob's filename, or the sender of
    * the message being read). */
   title: string;
+  /** The BLOB's own name, for TYPE DETECTION — never drawn on screen.
+   *
+   * 🔴 THE TWO USED TO BE ONE VALUE AND ARE NOT ANY MORE. `title` is what the
+   * thing is CALLED, and since T-92 a task artifact is called whatever a human
+   * typed, with no extension in it. Every detection below asks the mime first
+   * and falls back to the SUFFIX — `application/octet-stream` is what the agent
+   * upload path stores most .md under — so asking `title` for a suffix that is
+   * no longer there made .md artifacts stop previewing. This carries the name
+   * that still has one.
+   *
+   * OPTIONAL, and absent means "`title` IS the blob's name": that is true of
+   * every chat attachment, whose chip label has always been the filename
+   * itself, and those callers behave exactly as they did before. */
+  filename?: string;
   /** Absent = this overlay shows one item with nothing either side of it, and
    * no paging control renders. */
   pager?: PreviewPager;
@@ -181,6 +195,7 @@ type MarkdownPreviewOverlayProps = {
 
 export function MarkdownPreviewOverlay({
   title,
+  filename,
   pager,
   url,
   attachmentId,
@@ -207,7 +222,12 @@ export function MarkdownPreviewOverlay({
   // The text to render. An inline source is authoritative and synchronous — it
   // never passes through the loading/error states, which only describe a fetch.
   const image = imageSrc !== undefined || (mime?.startsWith("image/") ?? false);
-  const previewableText = isPreviewableTextAttachment(mime ?? "text/markdown", title);
+  // WHAT THE THREE DETECTORS ASK, and it is deliberately not `title`: they read
+  // a file EXTENSION whenever the mime cannot answer, and `title` is a display
+  // name that need not carry one. `filename` when the caller separated the two,
+  // `title` when it did not (a chat attachment's title IS its blob name).
+  const typeName = filename ?? title;
+  const previewableText = isPreviewableTextAttachment(mime ?? "text/markdown", typeName);
   // A comparison is not a stored blob at all — it carries no `url`, so none of
   // the blob branches below (fetch, download, share link, "open in a tab") can
   // fire for it, and it must not fall into `unavailable`, which is the "this
@@ -234,8 +254,8 @@ export function MarkdownPreviewOverlay({
   // overlay, where the line would push every pasted screenshot down for
   // nothing. The note therefore rides `looksInteractiveInNewTab`, NOT the
   // button's own condition.
-  const interactiveLooking = looksInteractiveInNewTab(mime ?? "text/markdown", title);
-  const plainText = previewableText && !isMarkdownAttachment(mime ?? "text/markdown", title);
+  const interactiveLooking = looksInteractiveInNewTab(mime ?? "text/markdown", typeName);
+  const plainText = previewableText && !isMarkdownAttachment(mime ?? "text/markdown", typeName);
   const source = inlineSource ?? fetched;
   const [zoom, setZoom] = useState(1);
   // The bytes the header's 下載 link points at. A stored blob needs the ?token=

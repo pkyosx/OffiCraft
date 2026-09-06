@@ -42,7 +42,9 @@ const realFetch = globalThis.fetch;
 
 // The LIVE artifact row, T-92 shape: `name` (never empty on the wire — the
 // server derives one from the blob's filename when the row has no stored one)
-// plus `description`, and no filename/is_image/attachment_id of its own.
+// plus `description` and the blob's own `filename` beside it — the same two
+// questions the version row has always answered separately. No is_image (it is
+// the mime's prefix) and no attachment_id on the VIEW.
 function mkArtifact(over: Partial<TaskArtifactView>): TaskArtifactView {
   return {
     id: "ta-1",
@@ -50,6 +52,7 @@ function mkArtifact(over: Partial<TaskArtifactView>): TaskArtifactView {
     url: "/api/chat/attachment/att-live",
     name: "spec.txt",
     description: "",
+    filename: "spec.txt",
     mime: "text/plain",
     createdTs: 2000,
     createdBy: "mira",

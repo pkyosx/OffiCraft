@@ -55,11 +55,20 @@ import {
  * AttachmentStrip renders (id/url/filename/mime/isImage — the exact reuse
  * surface).
  *
- * 🔴 THREE OF THOSE FIELDS NO LONGER ARRIVE AS FIELDS (T-92), and each is
- * derived here from one that does rather than dropped:
+ * 🔴 SOME OF THOSE FIELDS DO NOT ARRIVE AS FIELDS (T-92), and each is derived
+ * here from one that does rather than dropped:
  *   · `filename` ← `a.name`, which the SERVER now derives (from the blob's own
  *     filename when the row has no stored name), so the `a.filename || a.label`
  *     chain that used to live here has moved server-side and this is its result.
+ *     ⚠️ IT STAYS `a.name`, and a passing reader who "fixes" it to `a.filename`
+ *     takes the T-92 feature back out: the chip is where the human name someone
+ *     pinned this deliverable under is SHOWN.
+ *   · `blobFilename` ← `a.filename`, which is on the wire again beside `name`.
+ *     It is not display at all — the strip hands it to the preview overlay,
+ *     which reads an EXTENSION when the mime says `application/octet-stream`.
+ *     While it was missing the overlay asked the DISPLAY name for a suffix a
+ *     human title does not have, and .md artifacts rendered as plain download
+ *     rows.
  *   · `isImage` ← the mime's prefix. It was always exactly that; carrying both
  *     was one fact in two fields.
  *   · `backingAttachmentId` ← the tail of `url`, which for a file/image IS
@@ -85,6 +94,7 @@ function asAttachmentView(a: TaskArtifactView): ChatAttachmentView {
       : undefined,
     url: a.url,
     filename: a.name,
+    blobFilename: a.filename,
     mime: a.mime,
     isImage: a.mime.startsWith("image/"),
   };
@@ -98,7 +108,9 @@ const BLOB_SERVE_PREFIX = "/api/chat/attachment/";
  * 🔴 IT CAN NEVER RETURN "", and that is still the whole reason it exists —
  * but since T-92 the fallback chain lives on the SERVER (`artifactDisplayName`
  * in wire.go: stored name → blob filename → link target → id tail), so `a.name`
- * is already non-empty on any current server. The tail kept here is not
+ * is already non-empty on any current server. (A link carries no `filename`
+ * either way — that field is the blob's own name, and a link's blob is a
+ * uri-list nobody opens by name.) The tail kept here is not
  * duplication of that: it is what this component does when the name arrives
  * empty ANYWAY — an older server, a hand-built fixture, a field that got
  * dropped somewhere in between. The old chain rendered an anchor with NO TEXT

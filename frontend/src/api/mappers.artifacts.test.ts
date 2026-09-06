@@ -3,8 +3,12 @@
 // both carry the server's `artifact_count` and nothing else, so the two agree
 // by construction instead of one taking an array's length. The artifact ROW
 // itself is the narrowed T-92 shape (`name` + `description` in place of the
-// single `label`, and no filename/is_image/attachment_id — those are derived
-// from `name`/`mime`/`url` at the one place that draws a row). An unknown kind
+// single `label`, and no is_image/attachment_id — those are derived from
+// `mime`/`url` at the one place that draws a row). `filename` was narrowed away
+// with them and is BACK, beside `name` rather than folded into it: `name` is
+// the display name and may be a human sentence, `filename` is the blob's own
+// name, and only the second one carries the extension the preview falls back to
+// when the mime says `application/octet-stream`. An unknown kind
 // still falls back to "link" — the kind whose url is an external address rather
 // than a blob serve path — instead of fabricating a file/image. (Every kind is
 // blob-backed since T-92; what separates them on this row is what `url` means.)
@@ -34,6 +38,7 @@ function wireArtifact(over: Partial<WireTaskArtifact>): WireTaskArtifact {
     url: "",
     name: "",
     description: "",
+    filename: "",
     mime: "",
     created_ts: 0,
     created_by: "",
@@ -163,6 +168,9 @@ describe("toTaskArtifact", () => {
       url: "https://x/pr/1",
       name: "PR #1",
       description: "第一版設計稿的 PR",
+      // A link has no blob name to report — its blob is a uri-list nobody
+      // opens by name — so this is honestly empty rather than a copy of `name`.
+      filename: "",
       mime: "",
       createdTs: 0,
       createdBy: "",
@@ -170,12 +178,14 @@ describe("toTaskArtifact", () => {
     });
   });
 
-  it("carries a file/image row's url + mime, the only blob facts left on it", () => {
-    // T-92 took filename / is_image / attachment_id off this row: the first is
-    // folded into the server-derived `name`, and the other two are one fact
-    // each already said by `mime` and by `url`. What the mapper must still hand
-    // through untouched is the pair a renderer cannot derive from anything
-    // else — where the bytes are, and what they are.
+  it("carries a file/image row's blob facts: url, mime AND the blob's own name", () => {
+    // T-92 took is_image / attachment_id off this row — one fact each already
+    // said by `mime` and by `url`. `filename` went with them on the reasoning
+    // that the server-derived `name` replaces it, and that is the half that was
+    // WRONG: `name` is what the deliverable is CALLED (a human sentence here),
+    // `filename` is what its bytes are called, and only the second one carries
+    // the extension the preview reads when the mime says nothing. The mapper
+    // must hand BOTH through, distinct.
     expect(
       toTaskArtifact(
         wireArtifact({
@@ -183,25 +193,30 @@ describe("toTaskArtifact", () => {
           kind: "image",
           url: "/api/chat/attachment/att-9",
           mime: "image/png",
-          name: "shot.png",
+          name: "登入頁的錯誤畫面",
+          filename: "login-error.png",
         }),
       ),
     ).toMatchObject({
       kind: "image",
       url: "/api/chat/attachment/att-9",
       mime: "image/png",
-      name: "shot.png",
+      name: "登入頁的錯誤畫面",
+      filename: "login-error.png",
     });
   });
 
-  it("keeps the row NARROW — no filename/is_image/attachment_id sneaks back", () => {
+  it("keeps the row NARROW — no is_image/attachment_id sneaks back", () => {
     // The T-92 narrowing asserted as a shape, not just field by field: a mapper
-    // that re-derived the three removed fields here would put them back in the
+    // that re-derived the removed fields here would put them back in the
     // cockpit's hands and let a component believe they arrive on the wire.
+    // `filename` IS on the list — it came back to the wire because the preview
+    // has to read an extension somewhere — and is on it exactly once.
     expect(Object.keys(toTaskArtifact(wireArtifact({}))).sort()).toEqual([
       "createdBy",
       "createdTs",
       "description",
+      "filename",
       "id",
       "kind",
       "mime",
