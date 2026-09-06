@@ -1597,7 +1597,22 @@ func (s *apiServer) respawnWorkerForOwnerOp(w OutsourceWorker, op string) ownerO
 	// principled reason a 改機器 or a 換 model should throw away the session's
 	// in-flight state when a 換手 does not — from the worker's side all four are
 	// the same event (this session ends, a new one continues the task).
-	if !ownerOpDisplacesTheSession(op) && s.workerHasStateToFlush(w) {
+	//
+	// 🔴 THERE USED TO BE A DENY-LIST OPERAND HERE — `!ownerOpDisplacesTheSession(op)`,
+	// naming 重啟 as the one verb that skipped this arm because it was a kill+respawn
+	// rather than a request for a close-out. T-65 包④ DELETED IT, and deleted rather
+	// than kept-and-annotated because by then it could not change this line's answer:
+	// 重啟 now reaches this funnel ONLY from the arm where the session is already
+	// gone (api_outsource.go gates the call on `!sessionAliveReceipt`), and with no
+	// live session workerHasStateToFlush is false anyway — its own predicate is
+	// `online && …`. A guard whose removal cannot change an answer is not a guard;
+	// it is a sentence people believe. Measured before removing: neutering
+	// ownerOpDisplacesTheSession to `return false` left the whole
+	// Restart|OwnerOp|VerbPopulation|WindDownKind set green.
+	//
+	// WHAT ACTUALLY HOLDS 「正在跑就不動它」 now is the handler, not this line, and it
+	// is pinned there by TestRestartALiveWorkerIsACompleteNoOp.
+	if s.workerHasStateToFlush(w) {
 		// A ladder refusal still answers WoundDown, and deliberately: a wind-down
 		// IS open on this worker — a HIGHER one — so nothing may be dispatched
 		// here either. Falling through to the immediate arm would kill the very
@@ -1661,43 +1676,6 @@ const (
 	ownerOpModel    = "runtime/model" // 換 model / runtime / effort
 )
 
-// ownerOpDisplacesTheSession names the ONE verb that is not itself a request for
-// a close-out. 重啟 is not a wind-down CAUSE — it is a kill+respawn. It does not
-// ask the current session to flush and hand over, it DISPLACES it
-// (respawnWorkerForOwnerOp → respawnWorkerForOwnerOpNow → respawnWorkerNow, which
-// kills the session on the resolved target BEFORE it re-dispatches). 改機器 /
-// 換 model are the opposite verb: they mean "the same session's work must survive
-// this change", which is exactly what T-98f4 rule 2 buys with the 預告 + window.
-//
-// 🔴 IT USED TO BE CALLED ownerOpRevivesStoppedWorker, and that name carried a
-// framework this comment has spent its whole life contradicting: that the verb
-// it names arrives at a worker the owner has ALREADY STOPPED, so what it does is
-// revive one. Measured, it does not — the name was the last place that claim
-// still lived, and it is renamed rather than annotated because a name is read by
-// people who never open the body (T-170e stage 2 ⑥).
-//
-// It can arrive at ANY live worker: its handler
-// (HandleRestartOutsourceWorkerApiOutsourceWorkersIdRestartPost, api_outsource.go)
-// has exactly two preconditions — the row exists, and it is not released — and NO
-// desired-offline gate. Pressed on a worker with desired_state="online" that is
-// mid-加速停止 it answers 200, and the refocus_since / refocus_op /
-// stopping_since / stopped_since it zeroes just before calling in here take that
-// epoch's deadline with them.
-//
-// That clear is correct, for the reason written at that call site (T-ed79 #11):
-// those four anchors DATE THE SESSION BEING REPLACED, and carrying them into the
-// successor is what makes the NEXT 改機器 / 換 model read them as "this epoch's
-// wind-down is already collected" (workerHasStateToFlush, below) and shoot itself
-// on the spot. So the skip is a clean sheet for a new session, not a way around
-// the ladder: once the session the ladder was counting for is gone there is no
-// step left to stand on, and fanning an SOP 預告 at a session that is about to be
-// killed regardless would only wait out a deadline for an answer that changes
-// nothing.
-//
-// Deliberately a DENY-list, not an allow-list: a verb added later gets the
-// wind-down by default, because 「所有換手都給收尾機會」 is the rule and skipping
-// it is the exception that has to be argued for.
-func ownerOpDisplacesTheSession(op string) bool { return op == ownerOpRestart }
 
 // workerHasStateToFlush answers the ONE question rule 2 turns on: is there
 // anything for this worker to wind down, or should the owner's verb take effect
