@@ -26,6 +26,24 @@ function att(id: string, filename: string): ChatAttachmentView {
   };
 }
 
+function img(id: string, filename: string): ChatAttachmentView {
+  return {
+    id,
+    url: `/api/chat/attachment/${id}`,
+    filename,
+    mime: "image/png",
+    isImage: true,
+  };
+}
+
+function openTitle(): string | undefined {
+  return document.body.querySelector(".md-preview__title")?.textContent ?? undefined;
+}
+
+function pagerCount(): string | undefined {
+  return document.body.querySelector(".md-preview__pager-count")?.textContent ?? undefined;
+}
+
 function renderStrip(attachments: ChatAttachmentView[]) {
   return render(
     <I18nProvider>
@@ -79,5 +97,92 @@ describe("AttachmentStrip", () => {
     );
     expect(document.body.querySelector(".md-preview")).toBeNull();
     expect(document.body.textContent).not.toContain("第一份.md");
+  });
+
+  // T-123 — the reader opened one attachment of a message that carries several
+  // and wants the next one without going back to the row. The overlay已經
+  // supports paging; what these pin down is that this strip HANDS IT the list.
+
+  it("steps to the next attachment of the same strip from the next control", async () => {
+    const { container } = renderStrip([att("a1", "第一份.md"), att("a2", "第二份.md")]);
+    fireEvent.click(container.querySelectorAll("button.chat__msg-file")[0]);
+    await waitFor(() => expect(document.body.querySelector(".md-preview")).toBeTruthy());
+    expect(openTitle()).toBe("第一份.md");
+
+    fireEvent.click(document.body.querySelector("button.md-preview__pager--next")!);
+    await waitFor(() => expect(openTitle()).toBe("第二份.md"));
+    expect(pagerCount()).toBe("2 / 2");
+  });
+
+  it("steps back to the previous attachment from the previous control", async () => {
+    const { container } = renderStrip([att("a1", "第一份.md"), att("a2", "第二份.md")]);
+    fireEvent.click(container.querySelectorAll("button.chat__msg-file")[1]);
+    await waitFor(() => expect(openTitle()).toBe("第二份.md"));
+
+    fireEvent.click(document.body.querySelector("button.md-preview__pager--prev")!);
+    await waitFor(() => expect(openTitle()).toBe("第一份.md"));
+    expect(pagerCount()).toBe("1 / 2");
+  });
+
+  it("steps between images with the arrow keys", async () => {
+    const { container } = renderStrip([img("i1", "第一張.png"), img("i2", "第二張.png")]);
+    fireEvent.click(container.querySelectorAll("img.chat__msg-image")[0]);
+    await waitFor(() => expect(openTitle()).toBe("第一張.png"));
+
+    fireEvent.keyDown(document, { key: "ArrowRight" });
+    await waitFor(() => expect(openTitle()).toBe("第二張.png"));
+
+    fireEvent.keyDown(document, { key: "ArrowLeft" });
+    await waitFor(() => expect(openTitle()).toBe("第一張.png"));
+  });
+
+  it("stays on the last attachment at the end of the list instead of wrapping", async () => {
+    const { container } = renderStrip([img("i1", "第一張.png"), img("i2", "第二張.png")]);
+    fireEvent.click(container.querySelectorAll("img.chat__msg-image")[1]);
+    await waitFor(() => expect(openTitle()).toBe("第二張.png"));
+
+    expect(
+      document.body.querySelector("button.md-preview__pager--next")!.hasAttribute("disabled"),
+    ).toBe(true);
+    fireEvent.keyDown(document, { key: "ArrowRight" });
+    await waitFor(() => expect(pagerCount()).toBe("2 / 2"));
+    expect(openTitle()).toBe("第二張.png");
+  });
+
+  it("stays on the first attachment at the start of the list instead of wrapping", async () => {
+    const { container } = renderStrip([img("i1", "第一張.png"), img("i2", "第二張.png")]);
+    fireEvent.click(container.querySelectorAll("img.chat__msg-image")[0]);
+    await waitFor(() => expect(openTitle()).toBe("第一張.png"));
+
+    expect(
+      document.body.querySelector("button.md-preview__pager--prev")!.hasAttribute("disabled"),
+    ).toBe(true);
+    fireEvent.keyDown(document, { key: "ArrowLeft" });
+    await waitFor(() => expect(pagerCount()).toBe("1 / 2"));
+    expect(openTitle()).toBe("第一張.png");
+  });
+
+  it("walks a mixed strip in its drawn order, images and files alike", async () => {
+    const { container } = renderStrip([img("i1", "圖.png"), att("a1", "說明.md")]);
+    fireEvent.click(container.querySelectorAll("img.chat__msg-image")[0]);
+    await waitFor(() => expect(openTitle()).toBe("圖.png"));
+    expect(pagerCount()).toBe("1 / 2");
+
+    fireEvent.click(document.body.querySelector("button.md-preview__pager--next")!);
+    await waitFor(() => expect(openTitle()).toBe("說明.md"));
+    expect(pagerCount()).toBe("2 / 2");
+  });
+
+  it("shows no paging control when the strip holds a single attachment", async () => {
+    const { container } = renderStrip([img("i1", "唯一.png")]);
+    fireEvent.click(container.querySelector("img.chat__msg-image")!);
+    await waitFor(() => expect(document.body.querySelector(".md-preview")).toBeTruthy());
+
+    expect(document.body.querySelector("button.md-preview__pager--next")).toBeNull();
+    expect(document.body.querySelector("button.md-preview__pager--prev")).toBeNull();
+    expect(document.body.querySelector(".md-preview__pager-count")).toBeNull();
+
+    fireEvent.keyDown(document, { key: "ArrowRight" });
+    await waitFor(() => expect(openTitle()).toBe("唯一.png"));
   });
 });
