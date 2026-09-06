@@ -45,6 +45,17 @@ async function openParamsPage() {
 }
 
 describe("T-119 — the step note size cap is an adjustable setting", () => {
+  // The three numbers in this file's mirror are the ones the field refuses an
+  // out-of-range value against before the owner ever reaches the server's 422.
+  // Every other assertion here compares them against each other or against a
+  // value derived from them, so all three would drift together in silence; this
+  // is the one that names what the server actually ships.
+  it("mirrors the server's shipped default and range", () => {
+    expect(STEP_NOTE_CAP_CHARS_DEFAULT).toBe(10000);
+    expect(STEP_NOTE_CAP_CHARS_MIN).toBe(1000);
+    expect(STEP_NOTE_CAP_CHARS_MAX).toBe(100000);
+  });
+
   it("the row shows the LIVE value, not the shipped default", async () => {
     await mockApi.patchServerSettings({ stepNoteCapChars: 4000 });
     const utils = await openParamsPage();
