@@ -358,17 +358,22 @@ const (
 //     straight back to the permanent silence this whole change removes;
 //   - held_down describes the owner's own 停止 standing, which no dispatch
 //     invalidates — only a restart does, and that writes its own receipt;
-//   - session_alive is the same shape (T-ed79 #10): it records what the owner's
-//     重啟 FOUND — a session that was still running and is being displaced — and
-//     the dispatch that follows is the very thing it describes, not a refutation
-//     of it. Clearing it on the landed START would blank the receipt in exactly
-//     the case where it came true.
+//
+// 🔴 session_alive MOVED INTO THE SET IN T-65 包④, and the move is a consequence
+// of the behaviour change rather than a second opinion about the same facts. It
+// used to be excluded on the argument that 「the dispatch that follows is the very
+// thing it describes, not a refutation of it」 — true while 重啟 displaced the live
+// session. It no longer does: 喚醒 on a running worker now dispatches NOTHING, so
+// there is no following dispatch for the receipt to describe, and the next START
+// that DOES land is a genuine refutation — by then the session it reported as
+// still running is gone.
 var spawnBlockedReasonCodes = []string{
 	placementReasonNoMachine, placementReasonUnavailable,
 	spawnReasonNoLiveTask, spawnReasonBootContext, spawnReasonNoSecret,
 	spawnReasonTokenMint, spawnReasonFrameBuild, spawnReasonWardenLost,
 	spawnReasonRespawnDeferred,
 	spawnReasonCircuitOpen, spawnReasonBackoff, spawnReasonZombieSuspect,
+	spawnReasonSessionAlive,
 }
 
 // stampWorkerPlacementBlocked records WHY a worker was not dispatched, on the
@@ -1623,12 +1628,29 @@ type ownerOpOutcome struct {
 	// HeldDown: desired_state is offline, so the change was saved and nothing was
 	// started. The row carries the held_down receipt.
 	HeldDown bool
+	// AlreadyRunning: the session the verb would have started is ALREADY UP, so
+	// nothing was dispatched and nothing needed to be (T-65 包④). This is the
+	// fourth arm, and it is the one that is NOT pending: 「scheduled, not yet
+	// landed」 is false of it — there is nothing left to land. The staff face has
+	// answered this way since T-ba62, in one line rather than a field:
+	// `dec.Command != reconcileCmdStart && !s.hub.IsOnline(m.ID)` — an
+	// already-online member needs no START, so it raises no activation_pending.
+	// Without this arm the zero value would answer Pending()==true and tell the
+	// owner his 喚醒 was decided but never delivered, which is the opposite of
+	// what happened.
+	AlreadyRunning bool
 }
 
-// Pending reports whether the owner's verb has NOT landed yet — the union of the
-// two non-dispatch arms, which is exactly what relocation_pending /
-// activation_pending mean on the staff side ("scheduled, not yet landed").
-func (o ownerOpOutcome) Pending() bool { return !o.Dispatched }
+// Pending reports whether the owner's verb has NOT landed yet — which is exactly
+// what relocation_pending / activation_pending mean on the staff side
+// ("scheduled, not yet landed").
+//
+// 🔴 IT IS NO LONGER `!Dispatched` (T-65 包④). AlreadyRunning is a non-dispatch
+// arm that is nonetheless FINISHED: the session the verb wanted is up, so there
+// is nothing outstanding to report. Writing this as `!o.Dispatched` again would
+// put a pending badge on every 喚醒 pressed on a running worker — the exact case
+// the verb now exists to make a no-op.
+func (o ownerOpOutcome) Pending() bool { return !o.Dispatched && !o.AlreadyRunning }
 
 // The owner verbs that funnel through respawnWorkerForOwnerOp, named so the
 // wind-down table below cannot drift from its call sites (they were bare string
