@@ -728,7 +728,7 @@ export interface paths {
         get: operations["handle_list_chat_api_chat_get"];
         put?: never;
         /**
-         * Post a chat message (sender = verified JWT sub; auto SSE fan-out). ``to`` must name the owner or an active AI member; unknown, removed, and machine ids are rejected. Presence is not a gate: an offline member keeps its durable mailbox. Answers with a bounded receipt (``id``, ``ts``, ``attachments``), not the message — call ``get_chat`` when you need the rest.
+         * Post a chat message (sender = verified JWT sub; auto SSE fan-out). ``to`` must name the owner or an active AI member; unknown, removed, and machine ids are rejected. Presence is not a gate: an offline member keeps its durable mailbox. Answers with a bounded receipt (``id``, ``ts``, ``to``, ``attachments``), not the message — call ``get_chat`` when you need the rest.
          * @description Post one chat message (§3.4 #16). The sender is ALWAYS the VERIFIED JWT
          *     ``sub`` (``current_actor``) — never the body's ``from`` (ignored), so a sender
          *     can not be forged. The recipient ``to`` is a durable address: the owner or an
@@ -3822,7 +3822,7 @@ export interface paths {
         get: operations["handle_list_tasks_api_tasks_get"];
         put?: never;
         /**
-         * Create a task (dedupes on the manual's key; ad-hoc when type_key omitted). Pass target.kind=outsource to drop the task as an unassigned outsource task (發包); target.runtime is claude/codex (absent = claude). The existing outsource scheduler then spawns workers against the global concurrency cap (outsourceParallelCap) — below the cap it starts immediately, at the cap it queues for capacity and is picked up automatically when a slot frees. No owner-approval card and no per-task approval; the owner may reassign a still-queued task at any time. Caller authorization (正職授權矩陣, T-23cf): an outsource worker may never create a task; a 發包 create is open to any 正職 (owner/admin included); a typed task the manual assigns to member X may be created only by X (owner/admin NOT exempt); an ad-hoc task with a member executor may name only the caller itself unless the caller is owner/admin (a 一般正職 may self-execute or 發包, never assign another member). Answers with a bounded receipt (``task_id``, ``task_no``, ``deduped``, ``title``, ``status``, ``warnings``), not the task — call ``get_task`` when you need the rest.
+         * Create a task (dedupes on the manual's key; ad-hoc when type_key omitted). Pass target.kind=outsource to drop the task as an unassigned outsource task (發包); target.runtime is claude/codex (absent = claude). The existing outsource scheduler then spawns workers against the global concurrency cap (outsourceParallelCap) — below the cap it starts immediately, at the cap it queues for capacity and is picked up automatically when a slot frees. No owner-approval card and no per-task approval; the owner may reassign a still-queued task at any time. Caller authorization (正職授權矩陣, T-23cf): an outsource worker may never create a task; a 發包 create is open to any 正職 (owner/admin included); a typed task the manual assigns to member X may be created only by X (owner/admin NOT exempt); an ad-hoc task with a member executor may name only the caller itself unless the caller is owner/admin (a 一般正職 may self-execute or 發包, never assign another member). Answers with a bounded receipt (``task_id``, ``executor_kind``, ``executor_id``, ``deduped``, ``title``, ``status``, ``warnings``), not the task — call ``get_task`` when you need the rest. ``task_no`` is GONE from this answer (owner ruling rc-f1c0fd3cf124): it was the same string as ``task_id``, byte for byte, and the sibling task writes had already dropped it for that reason. The executor pair is what the SERVER chose — on a typed create it comes from the manual's assignee, so a caller that sent only ``type_key`` learns its placement here; an empty ``executor_id`` under ``outsource`` means the scheduler has not minted the worker yet.
          * @description Create one task (agent-side; MCP ``create_task``). With ``type_key`` the server derives the dedupe key from the manual's is_key fields over ``inputs`` and resolves the executor from the manual's assignee (member → bound directly; outsource → unassigned, awaiting the scheduler); an unset manual assignee requires an explicit ``executor_member_id``. Without ``type_key`` (ad-hoc 自由代辦) ``executor_member_id`` is mandatory. A dedupe hit on a NON-terminal task answers 200 with a bounded receipt (T-91) identifying the EXISTING ticket it folded onto — task_id, task_no, title, status, ``deduped: true`` — not the task in full; ``GET /api/tasks/{task_id}`` for the detail. Dedupe is the normal path, never an error. Caller authorization (正職授權矩陣, T-23cf): an outsource worker (kind=outsource) may NEVER create a task (403); a 發包 create (``target.kind=outsource`` or a manual outsource assignee) is open to any 正職, owner/admin included; a typed task the manual assigns to a member X may be created ONLY by X — owner/admin are NOT exempt (403 otherwise); an ad-hoc (or manual-assignee-less) task with a member executor may name only the caller itself, unless the caller is the owner or an admin agent — a 一般正職 pointing ``executor_member_id`` at another member is 403 (self, or a 發包, only). The authz gate precedes dedupe, so an unauthorized caller never receives the existing twin.
          */
         post: operations["handle_create_task_api_tasks_post"];
@@ -4086,7 +4086,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Message the task's executor (owner/admin agent; task context auto-attached). Answers with a bounded receipt (``id``, ``ts``, ``attachments``), not the message — call ``get_chat`` when you need the rest.
+         * Message the task's executor (owner/admin agent; task context auto-attached). Answers with a bounded receipt (``id``, ``ts``, ``to``, ``attachments``), not the message — call ``get_chat`` when you need the rest. ``to`` is the executor the server delivered to: you did not name it (you named a task), and a later read cannot recompute it, because the executor can change between two calls.
          * @description The task-card message box (owner or admin agent → executor; floor admin_agent since T-6020): the server posts one ordinary chat message to the task's executor with the task context auto-attached in ``meta`` ({task_id, task_title, task_type}). An unassigned executor is a 409.
          */
         post: operations["handle_post_task_message_api_tasks__task_id__message_post"];
@@ -5615,6 +5615,17 @@ export interface components {
              * @description The message id, MINTED HERE (api_chat.go:660). The single thing the caller cannot know and the handle every later read, quote-reply and by-id fetch takes. This is the ``ID`` in owner's ruling.
              */
             id: string;
+            /**
+             * To
+             * @description The member this message was DELIVERED TO.
+             *
+             *     It is on BOTH chat writes and it is the SAME field on both, which is a deliberate call by the owner (rc-f1c0fd3cf124 / 2026-09-06 verbatim: 「送訊息可以統一多給to 沒問題」). An earlier draft split the two routes apart on the grounds that ``POST /api/chat`` is TOLD its recipient while ``POST /api/tasks/{task_id}/message`` RESOLVES it from the task - so on the first route the value is the caller's own input coming home. That draft read the 2026-09-05 rule too narrowly: the rule exempts ids in as many words (「除了像是 ID 這類的」), and this is an id. One field, one meaning, both doors.
+             *
+             *     On the task route it is the thing the caller genuinely cannot compute: it names a TASK, the server resolves the executor (``Recipient: t.ExecutorID``), and a later read answers "who is on it NOW" rather than "who received THIS message" - the executor can change between two calls. The route refuses with 409 when a task has no executor, so it is never empty there.
+             *
+             *     ``to_name`` does NOT come back on either: it is a roster projection every read rebuilds, so it is derivable and the id is not.
+             */
+            to: string;
             /**
              * Ts
              * @description The SERVER's stamp for the message, epoch seconds (api_chat.go:664). The caller does not send it and cannot backdate it - the server always stamps now - so it is news, and it is what orders the message against everything else in the room.
@@ -9760,10 +9771,15 @@ export interface components {
              */
             task_id: string;
             /**
-             * Task No
-             * @description The SAME STRING as ``task_id``, byte for byte: T-5291 made the task number the identity of the id (there is no short code and no conversion step), so this field repeats the value above. It is kept because the create face was reviewed and approved carrying it; note that ``TaskWriteReceiptDTO`` deliberately omits it as the same string twice in one answer, so the two faces disagree.
+             * Executor Kind
+             * @description WHO THE TICKET IS ASSIGNED TO - the half of the answer the caller cannot compute. ``member`` or ``outsource``. On a TYPED create the server takes this from the manual's assignee (api_tasks.go), so a caller that sent only ``type_key`` learns its placement HERE or by reading the ticket back. It is not an echo: a caller that did name an executor gets its own value returned, but the branch that decides the value is the server's either way. On a dedupe hit it describes the EXISTING ticket, like ``title`` and ``status`` - the case where it matters most, since the caller has never seen that ticket. Restored by owner ruling rc-f1c0fd3cf124 after he was shown that T-91 had removed it along with the whole-task echo.
              */
-            task_no: string;
+            executor_kind: string;
+            /**
+             * Executor Id
+             * @description The member id this ticket is assigned to, or the EMPTY STRING when there is nobody yet - the normal state of a fresh ``outsource`` create, where the scheduler mints the worker afterwards. Empty is therefore an ANSWER ("nobody yet"), not a missing value, so there is no omitempty; read it together with ``executor_kind``, which says whether an empty id means "awaiting dispatch" or nothing at all.
+             */
+            executor_id: string;
             /**
              * Deduped
              * @description False when this call CREATED the task; true when a dedupe-key hit folded it onto an existing non-terminal task, in which case every other field describes THAT ticket and not what was sent.

@@ -1684,6 +1684,27 @@ type chatPostReceiptDTO struct {
 	// quote-reply and by-id fetch takes, and the one thing the caller cannot
 	// know.
 	ID string `json:"id"`
+	// To is the member this message was DELIVERED to.
+	//
+	// 🔴 IT IS ON BOTH CHAT WRITES AND IT IS THE SAME FIELD ON BOTH — an owner
+	// call (rc-f1c0fd3cf124, 2026-09-06 verbatim: 「送訊息可以統一多給to 沒問
+	// 題」), and this comment records the draft it overruled so nobody re-splits
+	// it. That draft gave post_task_message its own receipt type, reasoning that
+	// POST /api/chat is TOLD its recipient (so answering with it echoes the
+	// caller's own input) while the task route RESOLVES it from the task. The
+	// asymmetry is real; the conclusion was not. The 2026-09-05 rule exempts ids
+	// in as many words —「除了像是 ID 這類的」— and this is an id. One field,
+	// one meaning, both doors.
+	//
+	// On the task route it is what the caller genuinely cannot compute: it names
+	// a TASK, the handler resolves `t.ExecutorID`, and a later read answers "who
+	// is on it NOW" rather than "who received THIS message" — the executor can
+	// change between two calls. That route 409s when a task has no executor, so
+	// it is never empty there.
+	//
+	// `to_name` does NOT come back on either: it is a roster projection every
+	// read rebuilds, so it is derivable and the id is not.
+	To string `json:"to"`
 	// TS is the SERVER's stamp, epoch seconds. The caller does not send it and
 	// cannot backdate it, and it is what orders this message against everything
 	// else in the room.
@@ -2579,20 +2600,37 @@ type taskCreateResultDTO struct {
 	// and the EXISTING ticket's id on a dedupe hit. The one field the caller can
 	// never compute, and the handle every other task call takes.
 	TaskID string `json:"task_id"`
-	// TaskNo IS THE SAME STRING AS TaskID, byte for byte. T-5291 made TaskNo
-	// the identity function (domain.go: `return taskID`), so there is no short
-	// code, no conversion and nothing here a caller could not already read one
-	// field up. An earlier version of this comment claimed the opposite and was
-	// caught by the retired-sentence guard, which is the third time that same
-	// claim has grown back.
+	// 🔴 TaskNo IS GONE FROM THIS RECEIPT (owner ruling rc-f1c0fd3cf124), and
+	// this comment is here so nobody adds it back "for symmetry with the read
+	// face". T-5291 made TaskNo the identity function (domain.go: `return
+	// taskID`), so the field carried the SAME STRING as TaskID, byte for byte —
+	// the same string twice in one answer, which is the exact reason
+	// taskWriteReceiptDTO had already left it off. Keeping it here while the
+	// sibling dropped it was an inconsistency inside one package, not a
+	// decision. The read face (taskDTO.task_no) is unaffected and still carries
+	// it.
 	//
-	// 🔴 IT IS ALSO INCONSISTENT WITH ITS SIBLING: taskWriteReceiptDTO leaves
-	// task_no OFF for exactly this reason, in its own words, "the same string
-	// twice in one answer". Keeping it here is not a decision T-91 is entitled
-	// to reverse on its own — the create receipt's shape was reviewed and
-	// approved by the owner at rc-b49af6ee9712 with this field on it, so
-	// dropping it is a wire change that goes back to him. Raised on the ticket.
-	TaskNo string `json:"task_no"`
+	// It was NOT dropped silently: the shape was reviewed with the owner at
+	// rc-b49af6ee9712 with the field on it, so removing it went back to him
+	// with a worked example of the two identical values.
+	//
+	// ExecutorKind and ExecutorID are WHO THE TICKET LANDED ON — restored by the
+	// same ruling. On a typed create the server takes the executor from the
+	// manual's assignee (api_tasks.go), so a caller that sent only `type_key`
+	// cannot compute its own placement; before T-91 it read this off the whole
+	// task this route used to echo, and the echo took it out along with
+	// everything the caller had itself sent. That is the distinction the owner's
+	// 2026-09-05 rule draws: what the CALLER sent goes, what the SERVER decided
+	// stays.
+	//
+	// ExecutorID is the empty string when nobody holds it yet — the normal state
+	// of a fresh `outsource` create, where the scheduler mints the worker after
+	// this call returns. Empty is an ANSWER, not a missing value, so no
+	// omitempty: read it with ExecutorKind, which says whether an empty id means
+	// "awaiting dispatch" or nothing at all. On a dedupe hit both describe the
+	// EXISTING ticket, like Title and Status.
+	ExecutorKind string `json:"executor_kind"`
+	ExecutorID   string `json:"executor_id"`
 	// Deduped is false when this call CREATED the task; true when a dedupe-key
 	// hit folded it onto an existing non-terminal task, in which case every
 	// other field describes THAT ticket and not what was sent.

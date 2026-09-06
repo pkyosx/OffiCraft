@@ -708,6 +708,7 @@ func (s *apiServer) HandlePostChatApiChatPost(w http.ResponseWriter, r *http.Req
 func chatPostReceiptOf(m ChatMessage) chatPostReceiptDTO {
 	return chatPostReceiptDTO{
 		ID:          m.ID,
+		To:          m.Recipient,
 		TS:          m.TS,
 		Attachments: newChatMessageDTO(m).Attachments,
 	}

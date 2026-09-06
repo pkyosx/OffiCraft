@@ -1444,11 +1444,16 @@ func (s *apiServer) HandlePostTaskMessageApiTasksTaskIdMessagePost(w http.Respon
 	s.hub.Publish("chat", "patch", "chat", wireOwnerID+"::"+msg.ID,
 		map[string]any{"id": msg.ID, "from": msg.Sender, "to": msg.Recipient},
 		audienceMembers(msg.Sender, msg.Recipient), requestTrigger(r))
-	// T-91: the receipt, not the message — the same shape post_chat answers
-	// with, through the same chatPostReceiptOf, so the two write faces onto one
-	// table cannot drift. This was the fifth read door onto servedChatMessageDTO;
-	// the four READ doors keep it, and this handler's meta never carried
-	// `reply_to` anyway, so nothing was joined here that the receipt drops.
+	// T-91: the receipt, not the message. This was the fifth read door onto
+	// servedChatMessageDTO; the four READ doors keep it, and this handler's meta
+	// never carried `reply_to` anyway, so nothing was joined here that the
+	// receipt drops.
+	//
+	// It answers the SAME receipt post_chat does, `to` included — owner call at
+	// rc-f1c0fd3cf124. The value here is the executor this handler resolved from
+	// the task id, which the caller never named; on post_chat it is the id the
+	// caller sent. Same field, same meaning, and the owner's 2026-09-05 rule
+	// exempts ids, so the echo on that side is not the kind this ticket removes.
 	writeJSON(w, http.StatusOK, chatPostReceiptOf(msg))
 }
 
@@ -2223,8 +2228,13 @@ func (s *apiServer) HandleCreateTaskApiTasksPost(w http.ResponseWriter, r *http.
 			// no longer called here: nothing on this path needs the fold.
 			title, status := existing.Title, existing.Status
 			writeJSON(w, http.StatusOK, taskCreateResultDTO{
-				TaskID: existing.ID, TaskNo: TaskNo(existing.ID), Deduped: true,
-				Title: &title, Status: &status, Warnings: warnings,
+				TaskID:       existing.ID,
+				ExecutorKind: existing.ExecutorKind,
+				ExecutorID:   existing.ExecutorID,
+				Deduped:      true,
+				Title:        &title,
+				Status:       &status,
+				Warnings:     warnings,
 			})
 			return
 		}
@@ -2334,7 +2344,11 @@ func (s *apiServer) HandleCreateTaskApiTasksPost(w http.ResponseWriter, r *http.
 	// Absent rather than empty, so "no title here" cannot be read as "a ticket
 	// with a blank title".
 	writeJSON(w, http.StatusOK, taskCreateResultDTO{
-		TaskID: t.ID, TaskNo: TaskNo(t.ID), Deduped: false, Warnings: warnings,
+		TaskID:       t.ID,
+		ExecutorKind: t.ExecutorKind,
+		ExecutorID:   t.ExecutorID,
+		Deduped:      false,
+		Warnings:     warnings,
 	})
 }
 

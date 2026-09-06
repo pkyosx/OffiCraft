@@ -1134,7 +1134,7 @@
       "name": "get_member_resume_summary"
     },
     {
-      "description": "Post a chat message (sender = verified JWT sub; auto SSE fan-out). ``to`` must name the owner or an active AI member; unknown, removed, and machine ids are rejected. Presence is not a gate: an offline member keeps its durable mailbox. Answers with a bounded receipt (``id``, ``ts``, ``attachments``), not the message — call ``get_chat`` when you need the rest.",
+      "description": "Post a chat message (sender = verified JWT sub; auto SSE fan-out). ``to`` must name the owner or an active AI member; unknown, removed, and machine ids are rejected. Presence is not a gate: an offline member keeps its durable mailbox. Answers with a bounded receipt (``id``, ``ts``, ``to``, ``attachments``), not the message — call ``get_chat`` when you need the rest.",
       "inputSchema": {
         "$defs": {
           "ChatAttachmentInputDTO": {
@@ -2529,7 +2529,7 @@
       "name": "list_tasks"
     },
     {
-      "description": "Create a task (dedupes on the manual's key; ad-hoc when type_key omitted). Pass target.kind=outsource to drop the task as an unassigned outsource task (發包); target.runtime is claude/codex (absent = claude). The existing outsource scheduler then spawns workers against the global concurrency cap (outsourceParallelCap) — below the cap it starts immediately, at the cap it queues for capacity and is picked up automatically when a slot frees. No owner-approval card and no per-task approval; the owner may reassign a still-queued task at any time. Caller authorization (正職授權矩陣, T-23cf): an outsource worker may never create a task; a 發包 create is open to any 正職 (owner/admin included); a typed task the manual assigns to member X may be created only by X (owner/admin NOT exempt); an ad-hoc task with a member executor may name only the caller itself unless the caller is owner/admin (a 一般正職 may self-execute or 發包, never assign another member). Answers with a bounded receipt (``task_id``, ``task_no``, ``deduped``, ``title``, ``status``, ``warnings``), not the task — call ``get_task`` when you need the rest.",
+      "description": "Create a task (dedupes on the manual's key; ad-hoc when type_key omitted). Pass target.kind=outsource to drop the task as an unassigned outsource task (發包); target.runtime is claude/codex (absent = claude). The existing outsource scheduler then spawns workers against the global concurrency cap (outsourceParallelCap) — below the cap it starts immediately, at the cap it queues for capacity and is picked up automatically when a slot frees. No owner-approval card and no per-task approval; the owner may reassign a still-queued task at any time. Caller authorization (正職授權矩陣, T-23cf): an outsource worker may never create a task; a 發包 create is open to any 正職 (owner/admin included); a typed task the manual assigns to member X may be created only by X (owner/admin NOT exempt); an ad-hoc task with a member executor may name only the caller itself unless the caller is owner/admin (a 一般正職 may self-execute or 發包, never assign another member). Answers with a bounded receipt (``task_id``, ``executor_kind``, ``executor_id``, ``deduped``, ``title``, ``status``, ``warnings``), not the task — call ``get_task`` when you need the rest. ``task_no`` is GONE from this answer (owner ruling rc-f1c0fd3cf124): it was the same string as ``task_id``, byte for byte, and the sibling task writes had already dropped it for that reason. The executor pair is what the SERVER chose — on a typed create it comes from the manual's assignee, so a caller that sent only ``type_key`` learns its placement here; an empty ``executor_id`` under ``outsource`` means the scheduler has not minted the worker yet.",
       "inputSchema": {
         "properties": {
           "description": {
@@ -2727,7 +2727,7 @@
       "name": "set_task_priority"
     },
     {
-      "description": "Message the task's executor (owner/admin agent; task context auto-attached). Answers with a bounded receipt (``id``, ``ts``, ``attachments``), not the message — call ``get_chat`` when you need the rest.",
+      "description": "Message the task's executor (owner/admin agent; task context auto-attached). Answers with a bounded receipt (``id``, ``ts``, ``to``, ``attachments``), not the message — call ``get_chat`` when you need the rest. ``to`` is the executor the server delivered to: you did not name it (you named a task), and a later read cannot recompute it, because the executor can change between two calls.",
       "inputSchema": {
         "$defs": {
           "ChatAttachmentInputDTO": {

@@ -91,8 +91,11 @@ def _create_task(client, executor, title="conf task", **extra) -> dict:
     # and status of the ticket the caller landed on but never opened; a typed
     # create may add non-blocking `warnings`. Nothing else may ride along.
     assert set(receipt) <= {
-        "task_id", "task_no", "deduped", "title", "status", "warnings"
-    } and {"task_id", "task_no", "deduped"} <= set(receipt), receipt
+        "task_id", "executor_kind", "executor_id", "deduped",
+        "title", "status", "warnings"
+    } and {
+        "task_id", "executor_kind", "executor_id", "deduped"
+    } <= set(receipt), receipt
     if not receipt["deduped"]:
         # Owner ruling 2026-09-05: a fresh create does not echo the caller's
         # own sentence, nor the constant status this handler stamps.
@@ -674,7 +677,8 @@ def test_create_dedupes_open_tasks_and_reopens_after_terminal(
     # a FRESH create would be echoing the caller's own sentence back, which is
     # the thing this reshape removed.
     assert set(again["receipt"]) == {
-        "task_id", "task_no", "deduped", "title", "status"
+        "task_id", "executor_kind", "executor_id", "deduped",
+        "title", "status"
     }, again["receipt"]
     assert again["receipt"]["title"] == "review 9", again["receipt"]
     assert again["receipt"]["status"] == first["task"]["status"], again["receipt"]
@@ -1027,14 +1031,22 @@ def test_task_message_rides_chat_with_task_context(client, owner_token, executor
                     json={"body": "how is it going?"},
                     headers=_auth(owner_token))
     assert r.status_code == 200, r.text
-    # T-91: the post answers chatPostReceiptDTO — the minted id and ts plus the
-    # resolved attachments. The message it made is asserted on the chat stream,
-    # which this test read anyway; the read is now the ANCHOR rather than a
-    # corroboration, and `attachments` is pinned present-and-empty because a
-    # key that comes and goes makes "no files" and "no such concept" the same
-    # answer.
+    # T-91: the post answers taskMessageReceiptDTO — the minted id and ts, the
+    # resolved attachments, and `to`. The message it made is asserted on the
+    # chat stream, which this test read anyway; the read is now the ANCHOR
+    # rather than a corroboration, and `attachments` is pinned present-and-empty
+    # because a key that comes and goes makes "no files" and "no such concept"
+    # the same answer.
+    #
+    # `to` is on THIS route and NOT on POST /api/chat (owner ruling
+    # rc-f1c0fd3cf124), and the asymmetry is the point: /api/chat is told the
+    # recipient by its caller, so answering with it would echo the caller's own
+    # input; here the caller names a TASK and the server resolves the executor
+    # itself. Key-set EQUALITY on both routes is what keeps that asymmetry from
+    # eroding in either direction.
     receipt = r.json()
-    assert set(receipt) == {"id", "ts", "attachments"}, receipt
+    assert set(receipt) == {"id", "ts", "to", "attachments"}, receipt
+    assert receipt["to"] == executor.member_id, receipt
     assert receipt["attachments"] == [], receipt
     # It IS an ordinary chat message — the stream lists it.
     msgs = client.get(f"/api/chat?with={executor.member_id}&limit=-1",
@@ -2272,7 +2284,14 @@ def test_dispatch_target_machine_must_resolve(
     assert r.status_code == 200, r.text
     # T-91: create answers taskCreateResultDTO — the placement it produced is
     # read off the task itself.
-    assert set(r.json()) == {"task_id", "task_no", "deduped"}, r.text
+    assert set(r.json()) == {
+        "task_id", "executor_kind", "executor_id", "deduped"
+    }, r.text
+    # The receipt reports the placement, and the read face is asked anyway: a
+    # handler that answered "outsource" while storing something else would pass
+    # the first line and fail the second.
+    assert r.json()["executor_kind"] == "outsource", r.text
+    assert r.json()["executor_id"] == "", r.text  # the scheduler mints it after
     placed = _get_task(client, owner_token, r.json()["task_id"])
     assert placed["executor_kind"] == "outsource"
     assert create(None).status_code == 200, "an omitted machine inherits, never 404s"

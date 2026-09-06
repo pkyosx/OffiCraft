@@ -1406,14 +1406,23 @@ def _sha(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
-def _chat_post_receipt(ctx: HCtx, r: httpx.Response, peer: str) -> dict:
+def _chat_post_receipt(
+    ctx: HCtx, r: httpx.Response, peer: str, *, expect_to: str
+) -> dict:
     """Pin the post receipt's shape; answer the message from the READ face.
 
-    POST /api/chat and POST /api/tasks/{task_id}/message answer
-    chatPostReceiptDTO: the server-minted id and timestamp, plus the attachment
-    list the server resolved. The sentence the caller just sent does not ride
-    home any more, so `from`/`to`/`body` are asserted on GET /api/chat instead
-    of being dropped.
+    POST /api/chat answers chatPostReceiptDTO: the server-minted id and
+    timestamp, plus the attachment list the server resolved. The sentence the
+    caller just sent does not ride home any more, so `from`/`to`/`body` are
+    asserted on GET /api/chat instead of being dropped.
+
+    Both routes answer the SAME four keys, `to` included — owner call at
+    rc-f1c0fd3cf124 over a draft that split them apart. `to` is the caller's own
+    input on /api/chat and the server's own resolution on the task route, and
+    the owner's 2026-09-05 rule exempts ids from the no-echo rule in as many
+    words, so one field with one meaning is correct on both doors. `expect_to`
+    is REQUIRED so every caller states which member it expects rather than
+    letting the assertion pass on whatever came back.
 
     `attachments` is asserted PRESENT and empty rather than allowed to vanish:
     a field that appears only sometimes forces every reader to tell "this post
@@ -1421,7 +1430,8 @@ def _chat_post_receipt(ctx: HCtx, r: httpx.Response, peer: str) -> dict:
     answers to two different questions.
     """
     d = r.json()
-    assert set(d) == {"id", "ts", "attachments"}, d
+    assert set(d) == {"id", "ts", "to", "attachments"}, d
+    assert d["to"] == expect_to, d
     assert d["attachments"] == [], d
     assert d["id"] and d["ts"] > 0, d
     msgs = ctx.client.get(
@@ -1435,14 +1445,22 @@ def _chat_post_receipt(ctx: HCtx, r: httpx.Response, peer: str) -> dict:
 
 
 def _check_chat_post(ctx: HCtx, r: httpx.Response) -> None:
-    posted = _chat_post_receipt(ctx, r, ctx.agent.member_id)
+    posted = _chat_post_receipt(
+        ctx, r, ctx.agent.member_id, expect_to=ctx.agent.member_id
+    )
     assert posted["from"] == "owner", posted
     assert posted["to"] == ctx.agent.member_id, posted
     assert posted["body"] == "happy ping", posted
 
 
 def _check_task_message(ctx: HCtx, r: httpx.Response) -> None:
-    posted = _chat_post_receipt(ctx, r, ctx.agent.member_id)
+    # expect_to: this route resolves the recipient itself from the task id, so
+    # its receipt reports it (owner ruling rc-f1c0fd3cf124). The same value is
+    # asserted on the read face below — a handler that REPORTED one recipient
+    # and DELIVERED to another passes neither line.
+    posted = _chat_post_receipt(
+        ctx, r, ctx.agent.member_id, expect_to=ctx.agent.member_id
+    )
     assert posted["from"] == "owner", posted
     assert posted["to"] == ctx.agent.member_id, posted
     # The visible body is prefixed with the task's display number, so the
@@ -1610,12 +1628,20 @@ _HAPPY_STEP_NOTE_ROW = "conf happy note — 做到哪、下一步接什麼"
 
 def _check_task_created(ctx: HCtx, r: httpx.Response) -> None:
     d = r.json()
-    assert set(d) == {"task_id", "task_no", "deduped"}, d
+    assert set(d) == {
+        "task_id", "executor_kind", "executor_id", "deduped"
+    }, d
     assert d["deduped"] is False, d
-    # task_no IS the id (T-5291) — before that it was a separately derived
-    # display value (same wording as test_tasks.py; the old shape is
-    # deliberately not named there either).
-    assert d["task_no"] == d["task_id"], d
+    # `task_no` is NOT in that set, and its absence is the assertion. TaskNo is
+    # the identity function since T-5291, so the field repeated `task_id` byte
+    # for byte; the sibling task writes had already dropped it for that reason
+    # and the owner removed it here at rc-f1c0fd3cf124. Key-set EQUALITY is what
+    # makes this a guard: adding it back turns this line red.
+    # The executor pair is the placement the SERVER chose, which is why it rides
+    # a write that echoes nothing else — see the read-face check below, which
+    # proves the receipt reports the placement that was actually stored.
+    assert d["executor_kind"] == "member", d
+    assert d["executor_id"] == ctx.agent.member_id, d
     # The task the create opened is asserted on the read face, because the
     # create no longer serves it: a route that minted an id and stored nothing,
     # or stored it against the wrong executor, cannot pass this.
@@ -3986,7 +4012,7 @@ def test_chat_reply_to_is_the_servers_link_not_the_callers(hctx: HCtx) -> None:
         """
         assert r.status_code == 200, r.text
         d = r.json()
-        assert set(d) == {"id", "ts", "attachments"}, d
+        assert set(d) == {"id", "ts", "to", "attachments"}, d
         g = hctx.client.get(f"/api/chat?ids={d['id']}", headers=_auth(token))
         assert g.status_code == 200, g.text
         rows = chat_messages(g)

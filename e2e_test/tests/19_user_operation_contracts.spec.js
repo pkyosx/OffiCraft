@@ -57,7 +57,10 @@ async function readReplyCardAs(request, token, cardId) {
 
 // 🔴 T-91: THE CREATE ANSWERS A RECEIPT, NOT THE TASK. POST /api/tasks used to
 // answer {task: {...}, deduped}; it now answers
-// {task_id, task_no, title, status, deduped} with no `task` key at all. This
+// {task_id, executor_kind, executor_id, deduped} — plus title/status on a
+// dedupe hit — with no `task` key at all. (`task_no` was on an earlier version
+// of this answer and came off at rc-f1c0fd3cf124: it repeated `task_id` byte
+// for byte.) This
 // helper therefore creates, takes the minted id off the receipt, and READS THE
 // TASK BACK, so callers keep getting a real TaskDTO.
 async function createTaskAs(request, token, title, executorId) {
