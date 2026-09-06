@@ -41,30 +41,39 @@
 -- from the verified token's sub (currentActor), never from the request body —
 -- server/CLAUDE.md.
 --
--- 🔴 NUMBER: 00085, and it is deliberately NOT one of the gaps below it.
--- Swept 2026-09-05 across BOTH sources (migrations/*.sql AND
--- goose.AddNamedMigrationContext) over EVERY remote branch, not just main:
--- main's max was 00080, and the in-flight T-33 branches held 00081/00082/00083
--- (t-33/lore-land, t-33/lore-format-v8) plus 00084 (t-33/lore-format-v8), so
--- 00085 is the smallest safe number. Confirmed by the OffiCraft developer, who
--- re-ran the sweep himself and allocated 00085 to this ticket.
+-- 🔴 NUMBER: 00087, and it is deliberately NOT one of the gaps below it.
+-- Swept 2026-09-06 across BOTH sources (migrations/*.sql AND
+-- goose.AddNamedMigrationContext) over EVERY remote ref, not just main: 439
+-- refs, with 00001/00080 carried as positive controls so that "found nothing"
+-- could be told apart from "the sweep was truncated". main's max was 00080;
+-- 00086 is held by T-92. The OffiCraft developer allocated 00087 to this ticket
+-- and 00088 to T-33 (its 00084 has to move up too), so the two do not collide.
 --
--- 🔴 THIS FILE MUST LAND AFTER T-33, AND THAT IS MEASURED, NOT ASSUMED. The
--- production database has 00081/00082/00083 recorded as APPLIED while those
--- files exist only on the T-33 branches (a known mis-run, tracked elsewhere).
--- Measured on goose v3.27.2 + modernc.org/sqlite v1.53.0, calling goose exactly
--- as migrate.go does and with no allowMissing:
+-- 🔴 A NUMBER IS NOT SETTLED BY BEING SWEPT. It is settled at the moment this
+-- file is APPLIED, and the invariant is per-package, not global: MY number must
+-- be greater than the station's applied maximum at the instant I land. An
+-- allocated-but-unpushed number is invisible to every sweep (`git for-each-ref`
+-- cannot see a ref that does not exist), so a later sweep that reports 00087
+-- free is not evidence — the developer's ledger is. Whoever presses merge LAST
+-- must re-measure and renumber then: station applied max, and every number
+-- below mine still unlanded, whichever is larger, plus one.
+--
+-- 🔴 WHY THE ORDER IS CORRECTNESS AND NOT JUST COST. Measured on goose v3.27.2
+-- + modernc.org/sqlite v1.53.0, calling goose exactly as migrate.go does and
+-- with no allowMissing:
 --   * a version the database calls applied whose FILE is absent is ignored —
 --     this file lands fine on today's production state, exit 0;
 --   * a file whose version is BELOW the database's current version and was
 --     never applied FAILS — "found 1 missing migrations before current version
---     85: version 84" — and it does not heal: the database stays at 85, 00084
---     stays unapplied, and every subsequent start hits the same error.
--- So if this file landed before T-33, T-33's 00084 arriving afterwards would
--- stop the station from starting, permanently. Raw output of all four
--- conditions (including the positive and negative controls, and the six things
--- the experiment did NOT measure) is pinned on T-79 as an artifact. Land order
--- is the OffiCraft developer's call and he holds it.
+--     85: version 84" — and it does not heal: the database stays put, the
+--     smaller file stays unapplied, and every subsequent start hits the same
+--     error. The station does not come back on its own.
+-- The production database already has 00081/00082/00083 recorded as APPLIED
+-- while those files exist only on the T-33 branches (a known mis-run, tracked
+-- elsewhere). Raw output of all four conditions (including the positive and
+-- negative controls, and the six things the experiment did NOT measure) is
+-- pinned on T-79 as an artifact. Land order is the OffiCraft developer's call
+-- and he holds it.
 CREATE TABLE upgrade_instruction (
     id         TEXT PRIMARY KEY,
     body       TEXT NOT NULL,

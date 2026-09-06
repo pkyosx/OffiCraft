@@ -1,7 +1,7 @@
 package main
 
 // dal_upgrade_instructions.go — the durable data-access layer of the upgrade
-// instruction set (migrations/00085): upgrade_instruction, the owner's standing
+// instruction set (migrations/00087): upgrade_instruction, the owner's standing
 // instructions to the assistant, handed over at every station upgrade until she
 // ticks them off. Same convention as dal_task_artifacts.go — explicit
 // per-table methods, no generic repository; SSE fan-out stays a handler concern
