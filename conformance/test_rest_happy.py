@@ -653,6 +653,30 @@ def _nonempty_list(_ctx: HCtx, r: httpx.Response) -> None:
     assert isinstance(r.json(), list) and r.json(), "expected a non-empty list"
 
 
+def _check_credential_policy_matches_settings(
+    ctx: HCtx, r: httpx.Response
+) -> None:
+    """``lifetime_secs`` must BE the org setting, not a number that resembles
+    it. A warden derives its renewal threshold from whatever this face answers,
+    so a copy that drifted from ``warden_credential_lifetime_secs`` would move
+    the whole fleet's renewal date with the owner's typed value unchanged and
+    nothing anywhere going red."""
+    lifetime = r.json().get("lifetime_secs")
+    assert isinstance(lifetime, int) and not isinstance(lifetime, bool), (
+        f"lifetime_secs must be an integer, got {lifetime!r}"
+    )
+    settings = ctx.client.get("/api/settings", headers=_auth(ctx.owner_token))
+    assert settings.status_code == 200, (
+        f"settings read for the cross-check failed: "
+        f"{settings.status_code} {settings.text[:200]}"
+    )
+    declared = settings.json()["warden_credential_lifetime_secs"]
+    assert lifetime == declared, (
+        f"credential-policy answers lifetime_secs={lifetime}, but "
+        f"warden_credential_lifetime_secs={declared} on the settings face"
+    )
+
+
 def chat_messages(r: httpx.Response) -> list:
     """The rows out of a ``GET /api/chat`` response.
 
@@ -2484,6 +2508,15 @@ HAPPY: dict[str, Happy] = {
             and f"/install.sh?code={d['claim_code']}" in d["boot_command"]
             and d["token"] not in d["boot_command"],
         ),
+    ),
+    # The one number a warden polls to decide when to replace its own
+    # credential. The check is an EQUALITY against the settings face rather than
+    # a range: both are the same org setting, and this endpoint's only job is to
+    # carry it across the wire, so a value that merely looks plausible (any
+    # number in the accepted band does) would pass a range check while the fleet
+    # renewed on a stale copy.
+    "GET /api/machines/credential-policy": Happy(
+        check=_check_credential_policy_matches_settings
     ),
     "GET /api/machines/{machine_id}/boot-command": Happy(
         path=lambda ctx: f"/api/machines/{ctx.machine_id}/boot-command",

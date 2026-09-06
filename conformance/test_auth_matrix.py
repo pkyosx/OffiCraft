@@ -293,6 +293,46 @@ def _check_renewed_credential(
     )
 
 
+def _check_credential_policy(
+    ctx: Ctx, _identity: str, response: httpx.Response
+) -> None:
+    """Every identity that clears the floor must get the SAME number, and it
+    must be the number the settings face reports.
+
+    Both halves are the point. "Names no target and varies by nobody" is what
+    the route's own justification for sitting on the lowest floor rests on, so
+    a per-caller answer appearing here would invalidate that argument rather
+    than merely change a status. And equality with ``GET /api/settings`` is what
+    stops this face from drifting into a second, stale copy of the setting: a
+    warden that renews on a number the owner never typed is the failure mode
+    this endpoint exists to prevent.
+
+    The hook is called for EVERY cell, including the anonymous 401, so the
+    negative face is stepped over here: its status is already the assertion and
+    its body is an error envelope, not a policy."""
+    if response.status_code != 200:
+        return
+    data = response.json()
+    lifetime = data.get("lifetime_secs")
+    assert isinstance(lifetime, int) and not isinstance(lifetime, bool), (
+        f"lifetime_secs must be an integer, got {lifetime!r}"
+    )
+    assert lifetime > 0, f"lifetime_secs must be positive, got {lifetime}"
+    settings = ctx.client.get(
+        "/api/settings", headers={"Authorization": f"Bearer {ctx.owner_token}"}
+    )
+    assert settings.status_code == 200, (
+        f"settings read for the cross-check failed: "
+        f"{settings.status_code} {settings.text[:200]}"
+    )
+    declared = settings.json()["warden_credential_lifetime_secs"]
+    assert lifetime == declared, (
+        f"credential-policy answers lifetime_secs={lifetime}, but the settings "
+        f"face reports warden_credential_lifetime_secs={declared} — the two are "
+        f"the same org setting and a warden renews on the first one"
+    )
+
+
 def _matrix_webhook_requests_path(ctx: Ctx) -> str:
     """A fresh webhook endpoint on agent A (unique id per cell — the deny faces
     403 before resolve; only the owner face reads it)."""
@@ -1024,6 +1064,26 @@ MATRIX: dict[str, Route] = {
             "agent_other": 403,
         },
         check=_check_renewed_credential,
+    ),
+    # The lifetime number a warden polls to decide when to replace its own
+    # credential. It sits on the SAME floor as renew-credential above (rank 0),
+    # but unlike that route there is NO warden-only check in the handler: it
+    # answers one org setting, identical for every caller, and mints nothing.
+    # So every cell here is DERIVED and there are no overrides — every
+    # authenticated identity, owner down to warden, gets the same 200, and only
+    # "none" is refused.
+    #
+    # ⚠️ THIS ROW RECORDS THE FLOOR AS IT IS, NOT AS ANYONE CHOSE FOR IT TO BE
+    # REVIEWED. The same value is served on GET /api/settings, which requires
+    # admin_agent (rank 2) — so `auth.warden_credential_lifetime_secs` is
+    # readable two ranks lower through this face than through the settings face.
+    # api_machines.go argues that is safe (nothing secret, nothing minted, no
+    # per-caller variation); whether the asymmetry is what the owner wants is an
+    # interface decision, and this table's job is to state today's truth so that
+    # changing it has to be deliberate and reddens here.
+    "GET /api/machines/credential-policy": Route(
+        requires="machine",
+        check=_check_credential_policy,
     ),
     "POST /api/machines/{machine_id}/bootstrap-here": Route(
         # DEGRADED positive faces: unknown machine id → 404 (resolve runs
