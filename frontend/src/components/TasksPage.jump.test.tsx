@@ -472,14 +472,20 @@ describe("TasksPage executor seed (#tasks/executor/<id>, T-dfae)", () => {
   // not see this one.
   //
   // 🔴 WHY THIS ASSERTS THE TICK AND NOT THE PILL TEXT — DO NOT "SIMPLIFY" IT
-  // BACK. The obvious witness is the pill: it should say Mira. It does not, and
-  // that is a SECOND defect (A2 in the same review), not this one: after this
-  // seed the executor axis has exactly ONE option with a non-zero count, and
-  // `MultiSelectFilter` reads "every visible option checked" as "no constraint"
-  // and prints 所有負責人. So the pill reads 所有負責人 whether the reseed ran or
-  // not — ZERO discriminating power for M4. The checkbox is the one thing the
-  // two states disagree about. (A2 is recorded on the ticket; it is a rule this
-  // package inherited from main, and the owner has not been asked about it.)
+  // BACK. The checkbox is the state this test is about, and it is the state the
+  // seed either carried or dropped. Assert the thing under test.
+  //
+  // 🔁 THE REASON RECORDED HERE USED TO BE A DIFFERENT ONE, AND IT IS NOW GONE:
+  // the pill was said to have ZERO discriminating power, because after this seed
+  // the executor axis has exactly one option with a non-zero count, and
+  // `MultiSelectFilter` used to read 「every visible option checked」 as 「no
+  // constraint」 and print 所有負責人 either way. That was defect A2, and the
+  // comment noted the owner had not been asked about it. **He has been now**:
+  // 2026-09-06, rc-33dfe1ff14cb —「有勾選的時候,就不要顯示所有人…完全沒勾跟有勾
+  // 的情況本來就是不同的」. Only an EMPTY set prints allLabel today, so the pill
+  // would in fact say Mira and would discriminate. The tick is still the better
+  // witness — it is the state the seed writes — but do not re-derive the old
+  // reason from this file: A2 is fixed, not inherited.
   it("opening the panel after an executor seed carries the seeded tick into the draft", async () => {
     __injectMockTask(mkTask({ id: "t-mira-open", executorId: "mira" }));
     __injectMockTask(mkTask({ id: "t-kyle-open", executorId: "kyle" }));
@@ -504,5 +510,54 @@ describe("TasksPage executor seed (#tasks/executor/<id>, T-dfae)", () => {
       tick.checked,
       "the seeded executor must arrive in the draft, or 套用篩選 widens it"
     ).toBe(true);
+  });
+
+  // ── allLabel is for the EMPTY set only (T-118 增量, owner rc-33dfe1ff14cb) ──
+  //
+  // 🔴 WHAT THIS PROTECTS, IN THE OWNER'S OWN WORDS:「有勾選的時候,就不要顯示所有
+  // 人…我覺得完全沒勾跟有勾的情況本來就是不同的」(2026-09-06).
+  //
+  // The two states are not cosmetic variants of each other. An EMPTY set is a
+  // standing 「no constraint」 that keeps covering people who appear later; a FULL
+  // set is a SNAPSHOT of the names that existed at the instant of ticking. When
+  // both printed 所有X, a reader who ticked everyone was told he had selected
+  // everyone — and then anyone who loaded afterwards was silently excluded from
+  // a filter still claiming to show them all. On 請示卡 that is reachable in two
+  // clicks, because 近期已處理 fetches its rows on first unfold.
+  //
+  // It also made the pill disagree with the 清除篩選 button standing next to it:
+  // the button keys on the page's own `anyFilter` (size > 0), so it appeared
+  // while the pill said 所有X — one row of controls making two opposite claims.
+  it("🔴 ticking EVERY option does not read as 所有負責人 — only an empty set does", async () => {
+    __injectMockTask(mkTask({ id: "t-mira-all", executorId: "mira" }));
+
+    const { findByTestId } = renderTasks();
+    await findByTestId("open-list");
+
+    const pill = () =>
+      document.querySelector('[data-testid="filter-executor"] .tasks__ms-summary')
+        ?.textContent ?? "";
+
+    // Nothing ticked — the one genuinely unconstrained state.
+    expect(pill(), "an empty set is the unconstrained state").toBe("所有負責人");
+
+    fireEvent.click(await findByTestId("filter-executor"));
+    const tick = await waitFor(() => {
+      const el = document
+        .querySelector('[data-testid="filter-executor-opt-mira"]')
+        ?.querySelector("input");
+      expect(el).toBeTruthy();
+      return el!;
+    });
+    // Mira is the ONLY option here, so ticking her ticks every option — the
+    // exact case that used to collapse back onto 所有負責人.
+    fireEvent.click(tick);
+
+    await waitFor(() =>
+      expect(
+        pill(),
+        "every option checked is a CONSTRAINT, not 所有負責人"
+      ).toBe("Mira")
+    );
   });
 });
