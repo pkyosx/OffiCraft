@@ -70,8 +70,11 @@ func TestChatPostReceiptNamesTheEmptyAttachmentList(t *testing.T) {
 
 	// Anti-vacuity: the receipt really is the bounded one, so a build that
 	// answered the whole message (which also carries attachments) could not
-	// satisfy the assertion above by accident.
-	assertReceiptKeys(t, rec, "id", "ts", "attachments")
+	// satisfy the assertion above by accident. `to` joined the trio when the
+	// owner ruled at rc-f1c0fd3cf124 that both chat writes answer with the
+	// recipient (「送訊息可以統一多給to 沒問題」); the receipt is still bounded —
+	// a whole ChatMessageDTO carries fifteen keys, not four.
+	assertReceiptKeys(t, rec, "id", "ts", "to", "attachments")
 }
 
 func TestReplyCardCreateReceiptNamesTheEmptyAttachmentList(t *testing.T) {

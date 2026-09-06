@@ -1010,6 +1010,18 @@ var identityGateLedger = map[string]string{
 		"contractor is bound to one task and goes away with it, so the caller " +
 		"addresses them differently. Server-derived from the roster, not sent; " +
 		"no decision here.",
+	"api_tasks.go :: HandleCreateTaskApiTasksPost :: ExecutorKind: t.ExecutorKind": "" +
+		"T-91, owner ruling rc-f1c0fd3cf124: the CREATE receipt's copy of the kind " +
+		"the create just stamped. Same straight copy as newTaskDTO's and as " +
+		"writeTaskWriteReceipt's, and it is on the receipt because the id beside it " +
+		"is EMPTY on a fresh outsource create (the scheduler mints the worker after " +
+		"this call returns), so the kind is the only thing that separates 「外包票, " +
+		"還沒派工」 from 「這件事不適用」. No decision here — the deciding is the " +
+		"four create-matrix comparisons above, already on this ledger.",
+	"api_tasks.go :: HandleCreateTaskApiTasksPost :: ExecutorKind: existing.ExecutorKind": "" +
+		"the dedupe-hit twin of the line above: the same copy, taken from the " +
+		"EXISTING ticket this call folded onto rather than from the one it stamped. " +
+		"No decision here.",
 	"wire.go :: newTaskListItemDTO :: ExecutorKind: t.ExecutorKind": "" +
 		"the list-item twin of newTaskDTO's copy; no decision here.",
 	"wire.go :: newTaskListItemDTO :: ReassignedFromKind: t.ReassignedFromKind": "" +
