@@ -3179,4 +3179,29 @@ func TestCreateTaskRefusesATargetKindOutsideTheClosedSet(t *testing.T) {
 			t.Fatalf("target.kind=%v must still create (200), got %d %s", kind, rec.Code, rec.Body.String())
 		}
 	}
+
+	// An EMPTY kind is the one value the closed set does NOT refuse, and the
+	// spec says so: it is not validated and the WHOLE target block is discarded
+	// down the staff path. That discard is the only silent path this package
+	// still has — nothing goes red when it breaks, the 發包 just quietly comes
+	// back as a staff task — so the fields that would have dispatched are sent
+	// alongside the empty kind and the resulting row is read back.
+	rec = createTaskAs(t, api, map[string]any{
+		"title": "t", "executor_member_id": "m-exec",
+		"target": map[string]any{"kind": "", "model": "sonnet", "effort": "high"},
+	}, "m-exec", "agent")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("an empty target.kind must still create (200), got %d %s", rec.Code, rec.Body.String())
+	}
+	var created struct {
+		TaskID       string `json:"task_id"`
+		ExecutorKind string `json:"executor_kind"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &created); err != nil {
+		t.Fatalf("decode create receipt: %v (%s)", err, rec.Body.String())
+	}
+	if created.ExecutorKind != TaskExecutorStaff {
+		t.Fatalf("an empty target.kind must be discarded down the staff path, got executor_kind=%q",
+			created.ExecutorKind)
+	}
 }
