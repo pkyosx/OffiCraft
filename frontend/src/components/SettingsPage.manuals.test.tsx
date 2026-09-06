@@ -73,6 +73,16 @@ function mkManual(over: Partial<TaskManualView>): TaskManualView {
     learnings: "",
     assignee: null,
     updatedTs: 0,
+    // T-100 — the size/cap pairs. Defaulted to a REAL, non-equal pair rather
+    // than 0/0: a 0 cap is the "not known" state that suppresses the readout
+    // entirely, so a fixture built on it would let every usage assertion pass
+    // vacuously. Unequal on purpose — the two documents are judged against
+    // separate caps, and equal fixture numbers cannot tell a readout that reads
+    // the right pair from one that reads the other document's.
+    sopMdChars: 0,
+    sopMdCapChars: 18000,
+    learningsChars: 0,
+    learningsCapChars: 17000,
     ...over,
   };
 }

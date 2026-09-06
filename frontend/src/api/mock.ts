@@ -921,7 +921,36 @@ let tasks: MockTaskRow[] = [];
 // artifact drops its versions the way the server's transaction does.
 let artifactVersions = new Map<string, TaskArtifactVersionView[]>();
 let outsourceWorkers: OutsourceWorkerView[] = [];
-let taskManuals: TaskManualView[] = [];
+/** What the mock STORES for a manual: the whole view MINUS the four size/cap
+ * fields (T-100). They are DERIVED on every read, which is what the server
+ * does — `newTaskManualDTO` measures the stored row with
+ * `utf8.RuneCountInString` and asks the settings for the caps; it keeps no
+ * counter. Storing them instead would let the mock hand back a size that the
+ * last edit had already made false, and the readout that reads it is the one
+ * thing that must not lie about how full the document is. */
+type StoredTaskManual = Omit<
+  TaskManualView,
+  "sopMdChars" | "sopMdCapChars" | "learningsChars" | "learningsCapChars"
+>;
+
+let taskManuals: StoredTaskManual[] = [];
+
+/** Stored manual → the shape the wire answers with, sizes and caps measured
+ * NOW. Each document is measured against its OWN cap: they are two separate
+ * settings and on a live station they differ, so folding them into one number
+ * here would make mock mode disagree with the server about how much room is
+ * left — the exact disagreement `docSizeFields` exists to prevent. */
+function withManualSizes(m: StoredTaskManual): TaskManualView {
+  const sop = docSizeFields(m.sopMd, "manualSop");
+  const learnings = docSizeFields(m.learnings, "manualLearnings");
+  return {
+    ...m,
+    sopMdChars: sop.size_chars,
+    sopMdCapChars: sop.cap_chars,
+    learningsChars: learnings.size_chars,
+    learningsCapChars: learnings.cap_chars,
+  };
+}
 
 // Product-guide docs (the 使用說明 nav tab) — a representative fixture so mock-mode
 // (dev screenshots / vitest) renders the same list→doc flow the real embed
@@ -1233,7 +1262,7 @@ function deriveCodename(model: string, existing: string[]): string {
   return `${prefix}-${max + 1}`;
 }
 
-function findTaskManual(typeKey: string): TaskManualView {
+function findTaskManual(typeKey: string): StoredTaskManual {
   const m = taskManuals.find((x) => x.typeKey === typeKey);
   if (!m) {
     throw mockApiError(
@@ -4571,13 +4600,14 @@ export const mockApi: Api = {
     // T-1170: the DIRECTORY. The two long documents are DROPPED here, the way
     // the server drops them — a mock that kept serving them would let the
     // manual sub-pages keep reading a list row and stay green.
-    return taskManuals.map(({ sopMd: _sop, learnings: _learn, ...row }) =>
-      structuredClone(row)
-    );
+    return taskManuals.map((m) => {
+      const { sopMd: _sop, learnings: _learn, ...row } = withManualSizes(m);
+      return structuredClone(row);
+    });
   },
 
   async getTaskManual(typeKey: string): Promise<TaskManualView> {
-    return structuredClone(findTaskManual(typeKey));
+    return structuredClone(withManualSizes(findTaskManual(typeKey)));
   },
 
   async createTaskManual(displayName: string): Promise<{ typeKey: string }> {
@@ -4594,7 +4624,7 @@ export const mockApi: Api = {
         "display_name must not be blank"
       );
     }
-    const manual: TaskManualView = {
+    const manual: StoredTaskManual = {
       typeKey: `tm-${Array.from({ length: 12 }, () =>
         "0123456789abcdef".charAt(Math.floor(Math.random() * 16))
       ).join("")}`,
@@ -6437,7 +6467,7 @@ export function __injectMockTaskType(t: TaskTypeView): void {
 
 // Test-only hook: land a FULL manual (fields/SOP/learnings/assignee) so tests
 // can exercise the 設定 › 任務手冊 editor against a populated store entry.
-export function __injectMockTaskManual(m: TaskManualView): void {
+export function __injectMockTaskManual(m: StoredTaskManual): void {
   taskManuals.push(structuredClone(m));
   emitTopic("task_manual");
 }

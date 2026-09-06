@@ -896,6 +896,19 @@ export interface TaskManualSummaryView {
   fields: TaskManualFieldView[];
   assignee: ManualAssigneeView;
   updatedTs: number;
+  /** Size of the STORED SOP in CHARACTERS (Unicode code points), and the cap in
+   * force for it. Both are measured/answered PER MANUAL by the server, and the
+   * two documents are judged against SEPARATE caps (T-30f1) — on a live station
+   * they differ (18000 / 17000 measured 2026-09-06), so neither may be folded
+   * into the other nor into `DOC_CAP_CHARS_DEFAULTS`, which only carries the
+   * shipped fallback. The cap here is the SAME number the server refuses a
+   * write against (`manualSopCap()`), which is what makes it safe to show as a
+   * budget rather than as a hint. */
+  sopMdChars: number;
+  sopMdCapChars: number;
+  /** The 學習經驗 pair, same rules as the SOP pair above and its OWN cap. */
+  learningsChars: number;
+  learningsCapChars: number;
 }
 
 /** One FULL task manual — a list row plus the two long documents it sizes
