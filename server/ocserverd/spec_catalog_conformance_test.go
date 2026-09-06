@@ -249,9 +249,6 @@ var knownToolDescriptionDrift = map[string]map[string]string{
 		// deliberately different — the baseline records that, not a bug.
 		"openapi_summary": "Refocus (換手) an outsource worker's context; on a STOPPED worker it queues the 起來 instead of refusing (owner/admin agent). Answers with a bounded receipt (``id``), not the roster row — call ``list_outsource_workers`` when you need the rest.",
 	},
-	"update_settings": {
-		"route_summary": "Edit settings (owner and agent token TTLs / handover threshold); live immediately.",
-	},
 }
 
 type catalogSpec struct {

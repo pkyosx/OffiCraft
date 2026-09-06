@@ -4955,7 +4955,7 @@ type ServerInterface interface {
 	// Read the org-adjustable settings (owner/admin agent).
 	// (GET /api/settings)
 	HandleGetSettingsApiSettingsGet(w http.ResponseWriter, r *http.Request)
-	// Edit settings (owner-login and agent token TTLs / handover threshold); live immediately.
+	// Edit the org-adjustable settings (owner/admin agent) — only the fields you send change, and the change is live immediately. This tool's input schema is the field list; read the current values with get_settings first.
 	// (PATCH /api/settings)
 	HandleUpdateSettingsApiSettingsPatch(w http.ResponseWriter, r *http.Request)
 	// Read the 系統互動 block of the boot context — the shared studio handbook every agent reads at boot. Folded: the owner's edit when one exists, otherwise the shipped factory seed, with is_default saying which of the two you are holding and has_seed saying a factory version exists to go back to. The reply carries size_chars/cap_chars (this document's own size limit, in characters) and is_default/has_seed, so a caller can size an edit before making it and can tell an edited block from the shipped one.

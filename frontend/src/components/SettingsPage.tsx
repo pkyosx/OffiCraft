@@ -1095,7 +1095,9 @@ export function SettingsPage({
           <span className="set-entry__name">{t.settings.manuals}</span>
           <ChevronRightIcon size={18} className="set-entry__chev" />
         </button>
-        {/* 參數調整 — the owner-tunable server knobs (登入有效期 / 自動換手門檻).
+        {/* 參數調整 — the owner-tunable server knobs. Deliberately NOT named
+         * here: this comment used to list two of them and stayed that way while
+         * the card grew past twenty.
          * They used to live in the profile dropdown's 偏好設定 sub-view; owner
          * 2026-07-12 pulled them here so PARAMETERS live together in 設定 and the
          * avatar menu keeps only appearance + account identity (主題/語言/密碼). */}
@@ -1141,8 +1143,11 @@ export function SettingsPage({
 const TTL_CHOICES = [43200, 86400, 604800, 2592000] as const;
 
 /**
- * 參數調整 — 登入與 agent 有效期 + 自動換手門檻, both durable
- * and live immediately (PATCH echoes the effective values back). Honest states:
+ * 參數調整 — every owner-tunable server knob, durable
+ * and live immediately (PATCH echoes the effective values back). The knobs are
+ * NOT enumerated in this comment: the rows below are the list, and a prose copy
+ * of it goes stale the first time one is added, silently (T-122 added two).
+ * Honest states:
  * a REJECTED load renders the error line instead of a fabricated form, and an
  * out-of-range / rejected write snaps the field back to the last server-confirmed
  * value rather than leaving a lie on screen.

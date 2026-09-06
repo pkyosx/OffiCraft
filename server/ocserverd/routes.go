@@ -312,8 +312,15 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			Handler:  w.HandleUpdateSettingsApiSettingsPatch,
 			Auth:     authGated,
 			Requires: principalAdminAgent,
-			Summary:  "Edit settings (owner and agent token TTLs / handover threshold); live immediately.",
-			MCPTool:  "update_settings",
+			// 🔴 DO NOT ENUMERATE FIELDS HERE. This line used to name three of
+			// them ("owner and agent token TTLs / handover threshold") and it
+			// went stale the moment a field was added — T-122 added two and
+			// nothing went red, because prose has no gate. It also rides to the
+			// MCP face as update_settings's description, so a partial list is an
+			// agent being told what this endpoint can change. The input schema is
+			// generated from the DTO and cannot go stale; point at it instead.
+			Summary: "Edit the org-adjustable settings (owner/admin agent) — only the fields you send change, and the change is live immediately. This tool's input schema is the field list; read the current values with get_settings first.",
+			MCPTool: "update_settings",
 		},
 		{
 			Method: http.MethodGet, Path: "/api/push/public-key", Handler: w.HandleGetPushPublicKeyApiPushPublicKeyGet,

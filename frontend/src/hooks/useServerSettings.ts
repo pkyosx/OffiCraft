@@ -1,5 +1,10 @@
-// hooks/useServerSettings.ts — the owner-tunable server PARAMETERS
-// (登入與 agent token 有效期 / 自動換手門檻) behind /api/settings.
+// hooks/useServerSettings.ts — the owner-tunable server PARAMETERS behind
+// /api/settings.
+//
+// 🔴 DELIBERATELY NOT A FIELD LIST. This line used to read "(登入與 agent token
+// 有效期 / 自動換手門檻)" — three of the thirty, written when there were three,
+// and stale ever since without anything going red. `ServerSettingsView` is the
+// list, it is derived from the frozen wire, and it cannot go stale.
 //
 // Home is the 設定 page's 參數調整 entry (owner 2026-07-12: parameter knobs
 // belong together in 設定, not scattered in the profile menu). The dropdown used

@@ -17,7 +17,7 @@
       "name": "get_settings"
     },
     {
-  "description": "Edit settings (owner-login and agent token TTLs / handover threshold); live immediately.",
+  "description": "Edit the org-adjustable settings (owner/admin agent) — only the fields you send change, and the change is live immediately. This tool's input schema is the field list; read the current values with get_settings first.",
   "inputSchema": {
     "properties": {
       "codex_compaction_threshold": {

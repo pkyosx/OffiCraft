@@ -3654,9 +3654,7 @@ export interface paths {
         };
         /**
          * Read the org-adjustable settings (owner/admin agent).
-         * @description Read the org-adjustable settings (owner or admin agent — T-6020): independent owner-login
-         *     and agent-token TTLs, the context auto-handover threshold, and the read-only
-         *     self-healed port (null while the server runs on its preferred port).
+         * @description Read the org-adjustable settings (owner or admin agent — T-6020). The response IS the field list — SettingsDTO — so this line deliberately names none of them: it used to name three, plus a read-only `self-healed port` that is not on this DTO at all any more, while the surface grew past twenty and nothing ever went red. Read a value here before writing it back through update_settings.
          */
         get: operations["handle_get_settings_api_settings_get"];
         put?: never;
@@ -3665,7 +3663,7 @@ export interface paths {
         options?: never;
         head?: never;
         /**
-         * Edit settings (owner-login and agent token TTLs / handover threshold); live immediately.
+         * Edit the org-adjustable settings (owner/admin agent) — only the fields you send change, and the change is live immediately. This tool's input schema is the field list; read the current values with get_settings first.
          * @description Partially update the org-adjustable settings (owner or admin agent — T-6020). Only supplied
          *     fields change; a change is durable (DB) AND live immediately — `owner_token_ttl`
          *     applies from the next login, `agent_token_ttl` from the next bootstrap, reconcile,
