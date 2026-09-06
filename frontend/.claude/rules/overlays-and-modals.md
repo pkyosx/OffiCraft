@@ -8,6 +8,10 @@ paths:
   - "src/components/*Modal*"
   - "src/components/*Popover*"
   - "src/components/DocCard*"
+  - "src/components/DocUsage*"
+  - "src/components/TaskManualsPage*"
+  - "src/api/docCap.ts"
+  - "visual-guards/manual-doc-usage.ct.spec.tsx"
   - "src/components/BootDocPage*"
   - "src/components/SettingsPage*"
   - "src/components/DiffView*"
@@ -54,7 +58,12 @@ DocCard 是設定頁可編輯長文件的共用外殼：標題、字數、版本
 
 `doc.readOnlyHead` 是文件本身帶的唯讀上半，由 DocCard 畫在編輯框上方（編輯中也留著），不經 renderBody —— BootDocPage 不准提到那個 prop，它的測試會 grep 原始碼。沒有 readOnlyHead 的文件行為完全不變。
 
-編輯框裝的是**可以編輯的那一半**，送出的也是它；boot document 的唯讀上半在 wire 上沒有欄位，前端沒有辦法送。字數與 cap 判的是**存下來的整份**：DocCard 由 `usage.size - runeLength(text)` 推出草稿沒有涵蓋的那一段再加回去，所以編輯框只裝半份時螢幕上的數字仍然是 server 會拿去判的那個。編輯中字數讀 draft，超上限在送出前擋下，server 失敗顯示原話。沒有 usage 的文件不受 cap 影響。樣式由 settings.css 擁有；Insight、Lessons 與任務手冊尚未遷移，不要順手改。
+編輯框裝的是**可以編輯的那一半**，送出的也是它；boot document 的唯讀上半在 wire 上沒有欄位，前端沒有辦法送。字數與 cap 判的是**存下來的整份**：`usage.size` 減掉編輯框實際裝著的那段字數，就是草稿沒有涵蓋的那一半，要加回去，所以編輯框只裝半份時螢幕上的數字仍然是 server 會拿去判的那個。編輯中字數讀 draft，超上限在送出前擋下，server 失敗顯示原話。沒有 usage 的文件不受 cap 影響。
+
+🔴 **那段計算不在 DocCard 裡（T-100 起）**：它是 `api/docCap.ts` 的 `shownDocSize`，DocCard 與任務手冊那兩個編輯器共用的 `DocUsage` 都呼叫同一支。收成一支的理由是它會**在一邊悄悄算錯**——一邊讀草稿、另一邊讀已存檔字數，兩個數字都長得像對的。要改讀數的算法就改那一支，不要在任一個呼叫端補一份。
+
+樣式（`.doc-card__usage`）由 settings.css 擁有。**任務手冊的 SOP 與學習經驗現在也用它**（透過 `DocUsage`），Insight 與 Lessons 仍走 member-detail.css 的 `.mp-insight__size`、且只顯示**已存檔**字數（打字當下不會動），不要順手改。
+⚠️ 這個 class 有 `white-space: nowrap`，不是裝飾：任務手冊第三塊的標題列是一條會收縮的 flex 行，390px 下實測把「15796 / 18000」擠成三行。護欄在 `visual-guards/manual-doc-usage.ct.spec.tsx`，jsdom 看不到。
 
 ## 差異呈現
 
