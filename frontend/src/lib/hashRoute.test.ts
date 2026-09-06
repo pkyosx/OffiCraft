@@ -152,6 +152,34 @@ describe("parseHash", () => {
     expect(parseHash("#monitor/member")).toEqual({ page: "monitor" });
     expect(parseHash("#guide/")).toEqual({ page: "guide" });
   });
+
+  it("a malformed percent-escape does not take the page down", () => {
+    // 🔴 T-93: parseHash runs in useHashRoute's useMemo, which App calls at the
+    // root, and there is no ErrorBoundary anywhere in src/ — so a throw here is
+    // a WHITE PAGE, not a failed filter. decodeURIComponent throws on a lone
+    // `%` and on `%zz`. This ticket exists so an agent can paste a link the
+    // owner clicks; a URL that has been through a chat client, a terminal wrap
+    // and a manual re-paste is not guaranteed to arrive intact.
+    //
+    // Without the try/catch in decodeSegment EVERY line below throws URIError.
+    expect(() => parseHash("#replies/card/rc-50%")).not.toThrow();
+    expect(() => parseHash("#tasks/T-9%zz")).not.toThrow();
+    expect(() => parseHash("#office/chat/%")).not.toThrow();
+
+    // …and an undecodable segment is carried through RAW, so the page lands on
+    // the right surface and simply matches no card — the honest empty state.
+    expect(parseHash("#replies/card/rc-50%")).toEqual({
+      page: "replies",
+      replyCardId: "rc-50%",
+    });
+
+    // A well-formed escape still decodes — a blanket catch-and-return-raw would
+    // pass the three lines above while silently breaking every real link.
+    expect(parseHash("#replies/card/rc%2Dabc")).toEqual({
+      page: "replies",
+      replyCardId: "rc-abc",
+    });
+  });
 });
 
 describe("formatHash", () => {

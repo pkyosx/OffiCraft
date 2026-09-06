@@ -84,6 +84,28 @@ export function GearIcon({ size = 16, className }: IconProps) {
   );
 }
 
+export function SearchIcon({ size = 16, className }: IconProps) {
+  return (
+    <svg {...base(size)} className={className}>
+      <circle cx="11" cy="11" r="7" />
+      <path d="m20 20-3.6-3.6" />
+    </svg>
+  );
+}
+
+/** Funnel — the 篩選 entry on a list page's header row (T-93 round 2). The owner
+ * pointed at this exact affordance in another product of ours (c-7496afccb304),
+ * where a funnel button opens the filter form and Cancel/Apply close it. A
+ * magnifier would say "search", which is a different promise: this panel narrows
+ * a list, it does not go looking through everything. */
+export function FunnelIcon({ size = 16, className }: IconProps) {
+  return (
+    <svg {...base(size)} className={className}>
+      <path d="M3 5h18l-7 8v5.5l-4 2V13Z" />
+    </svg>
+  );
+}
+
 export function ChevronDownIcon({ size = 16, className }: IconProps) {
   return (
     <svg {...base(size)} className={className}>

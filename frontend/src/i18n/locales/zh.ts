@@ -90,6 +90,7 @@ export const zh = {
     emptyFiltered: "沒有符合篩選條件的任務",
     loadError: "載入任務失敗，請稍後重試",
     // 篩選列(任一生效顯「清除篩選」)
+    filterIdLabel: "任務編號",
     clearFilters: "清除篩選",
     // 「所有人」→「所有負責人」(T-17be): 這顆篩的是 executor,但「所有人」在中文
     // 有兩讀 ——「所有的人」與「所有權人(owner)」——「所有」本身就是所有權的
@@ -106,6 +107,13 @@ export const zh = {
     filterExecutorNoun: "負責人",
     filterTypeNoun: "類型",
     filterStatusNoun: "狀態",
+    // 「已篩選」chip 上的編號欄名。跟 filterIdLabel(欄位的 placeholder)分兩顆:
+    // 欄位要講清楚是哪一種編號(「任務編號」),chip 上編號旁邊就是值,再講「任務」
+    // 只是把一條本來就要單行的 chip 撐長。
+    filterIdNoun: "編號",
+    // 非 404 的失敗:根本沒問到,所以不能說「找不到」。
+    idUnreached: (id: string) =>
+      `查「${id}」時沒有得到伺服器的回覆，所以還不知道它在不在——這不是「找不到」。請稍後再試。`,
     outsource: "外包",
     unassigned: "未指派",
     adhoc: "自由代辦",
@@ -335,13 +343,44 @@ export const zh = {
       versionsOpaqueTail: "),只能切換前後各看一次。",
     },
   },
-  // ── 請示頁(M2 回覆卡 B2)──
+  // ── 篩選面板（T-93 第二輪）──
+  // owner 2026-09-06 c-7496afccb304 指名我們自家另一個產品的 Filter 面板作為
+  // 樣板：漏斗鈕 → 面板在頁面上展開 → Cancel／Apply → 收起來後上面留一條
+  // 「N 筆 · 已篩選 [條件×] · 清除全部」。用詞照他看得懂的講法，不用內部名詞。
+  filterPanel: {
+    filter: "篩選",
+    cancel: "取消",
+    apply: "套用篩選",
+    // 「已篩選」那一條的三格。results 要說出**目前這些條件之下**有幾筆,
+    // 否則收起來的面板會把一個仍在生效的條件藏起來。
+    results: (n: number) => `${n} 筆`,
+    filteredBy: "已篩選：",
+    clearAll: "清除全部",
+    removeChip: (label: string) => `移除篩選：${label}`,
+  },
   replies: {
     waitingTitle: "請示",
     handledTitle: "近期已處理",
     handledHint: "已回覆或已標為過期的事項 · 已回覆的可重新決定",
     // 全部處理完的空狀態
     empty: "✓ 目前沒有待處理的請示",
+    // 篩掉之後什麼都不剩的空狀態。跟上面那句是兩件事:上面是「你回完了」,
+    // 這句是「還有卡,只是沒有一張符合」——沿用任務頁 emptyNone/emptyFiltered
+    // 的同一個分法。
+    emptyFiltered: "沒有符合篩選條件的請示",
+    filterIdLabel: "請示卡編號",
+    clearFilters: "清除篩選",
+    // ── 篩選面板（T-93 第二輪）──
+    // 面板標題列上的清單名稱；晶片是收起面板後那條「已篩選」上的那一格。
+    filterTitle: "請示卡",
+    chipId: (id: string) => `編號：${id}`,
+    // 🔴 三種結局三句話，不可合併成一句。第一輪只有「沒有符合篩選條件的請示」，
+    // 於是「這張卡不存在」與「這張卡只是沒被載進來」在畫面上長得一模一樣——
+    // owner 在驗收時就是被這個併句騙過去的，這張票要移除的正是它。
+    lookupLoading: "正在跟伺服器查這個編號…",
+    // ⚠️ 這句**不准**說「找不到」：沒問到伺服器就沒有資格對存不存在下判斷。
+    lookupFailed:
+      "沒能問到伺服器（連線或伺服器出錯），所以現在無法判斷這個編號存不存在。請稍後重試。",
     loadError: "載入請示失敗，請稍後重試",
     waitedLabel: "已等你",
     // 開卡/已回覆一律絕對時間含日期(如 7/13 09:05),不用相對或「今天」。

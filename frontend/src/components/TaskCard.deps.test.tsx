@@ -34,6 +34,9 @@ import { I18nProvider } from "../i18n";
 import { TasksPage } from "./TasksPage";
 import { __resetMock, __injectMockTask } from "../api/mock";
 import type { TaskView } from "../api/adapter";
+// 篩選 now lives inside the FilterPanel and only bites on 套用篩選 (T-93
+// round 3) — the shared driver does open → tick → apply.
+import { toggleFilter } from "../test/tasksFilter";
 
 let seq = 0;
 
@@ -74,16 +77,6 @@ function renderPage() {
 
 /** Toggle one option in a multi-select filter dropdown — same helper as
  * TasksPage.test.tsx. */
-function toggleFilter(testId: string, value: string) {
-  const trigger = document.querySelector(`[data-testid="${testId}"]`)!;
-  if (trigger.getAttribute("aria-expanded") !== "true") {
-    fireEvent.click(trigger);
-  }
-  const checkbox = document.querySelector(
-    `[data-testid="${testId}-opt-${value}"] input`
-  )!;
-  fireEvent.click(checkbox);
-}
 
 function byTitle(cards: HTMLElement[], title: string): HTMLElement {
   const card = cards.find((c) =>

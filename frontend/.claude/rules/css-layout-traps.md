@@ -24,6 +24,14 @@ paths:
 
 使用某個 block class 的元件要自己 import 該 block 的 stylesheet；不可依賴 transitive import。最後一個間接 importer 消失時，仍使用同一 class 的另一個 dialog 會一起變成原生樣式；styleOwnership test 是必要護欄，因為 jsdom 與 tsc 都看不出 class 字串和 stylesheet 的關係。
 
+## 篩選欄位的 pill 樣式今天有兩份逐格相同的拷貝（T-93）
+
+`.id-filter`（`idFilter.css`）與 `.tasks__filter`（`tasks.css`）逐屬性相同。這是刻意的取捨——元件自己帶著外觀，才不會依賴宿主頁的 stylesheet（同一節「用了哪份 CSS 的 class，就要自己 import 那份 CSS」）——但代價是**改其中一份不會有任何東西提醒你另一份還是舊的**。
+
+⇒ 動這幾格的 padding／radius／border／字級時，兩份一起看；只改一份就會讓兩頁的篩選欄位在同一個畫面上長得不一樣，而測試與 lint 都不會叫。
+
+⚠️ 這一段原本寫「三份」，第三份是 `.replies__clear-filters`／`.tasks__clear-filters` 那一對清除鈕。**它們已經不存在了**：T-93 第二／三輪把兩頁的篩選列換成共用的 `FilterPanel`，清除全部住在面板自己的 已篩選 條上（`filter-panel.css`，單一份，沒有拷貝）。數字會漂移，別再抄一次——動之前用 class 名 grep 回來數。
+
 ## lazy fetch
 
 lazy prompt 的 fetch function 若由 wrapper inline 建立，不得直接放進 effect deps。用 ref 保存讀取函式，deps 只放真正的 cache key；in-flight 與 loaded key 分開，只有文字成功到手才蓋 loaded key。重繪不能取消仍有效的讀取，失敗要落 error state 並提供 retry。測試要在讀取途中用新 element 觸發 rerender、覆蓋成功、失敗重試與收合再展開。

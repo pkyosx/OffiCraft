@@ -19,6 +19,8 @@ import { TasksPage } from "./TasksPage";
 import { __resetMock, __injectMockTask, mockApi } from "../api/mock";
 import { ApiError } from "../api/errors";
 import type { TaskView } from "../api/adapter";
+// 篩選 moved into the FilterPanel and only bites on 套用篩選 (T-93 round 3).
+import { toggleFilter } from "../test/tasksFilter";
 
 let seq = 0;
 
@@ -132,12 +134,9 @@ describe("TaskCard 轉派 entry + dialog", () => {
     );
     const { findByTestId } = renderPage();
     // Terminals are filtered out of the default view — reveal via the status
-    // filter + the closed toggle (same path as the status-menu suite).
-    const trigger = document.querySelector('[data-testid="filter-status"]')!;
-    if (trigger.getAttribute("aria-expanded") !== "true") fireEvent.click(trigger);
-    fireEvent.click(
-      document.querySelector('[data-testid="filter-status-opt-terminated"] input')!
-    );
+    // filter + the closed toggle (same path as the status-menu suite). The
+    // filter lives in the FilterPanel now, so this is open → tick → apply.
+    toggleFilter("filter-status", "terminated");
     fireEvent.click(await findByTestId("closed-toggle"));
 
     const card = await findByTestId("task-card");

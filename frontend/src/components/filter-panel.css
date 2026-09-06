@@ -1,0 +1,260 @@
+/* FilterPanel — the 篩選 shell (T-93 round 2).
+ *
+ * 🔴 THERE IS NO `position: fixed` AND NO `z-index` IN THIS FILE, AND THAT IS
+ * THE POINT. owner c-3b5a0aa66550:「按搜尋時不要再跳出新modal」— the panel is
+ * page content that expands and pushes the list down, not a layer over it. If a
+ * future edit reaches for a scrim or a fixed box here, it is undoing a decision
+ * the owner made after being shown the overlay version.
+ *
+ * Self-contained: FilterPanel.tsx imports this file itself, so the shell carries
+ * its own look onto whichever page hosts it (frontend/.claude/rules/
+ * css-layout-traps.md — "用了哪份 CSS 的 class,就要自己 import 那份 CSS").
+ * Colours are theme tokens only. */
+/* 🔴 NO `margin-bottom` HERE — owner 2026-09-06 circled the gap it produced
+ * (「另外怎麼有一段空白」, c-d6c59eaa1c5a, a phone screenshot of 請示卡頁 with
+ * no filter applied). Measured in a real browser: the shell had
+ * `margin-bottom: 12px`, and BOTH host pages are flex columns that already
+ * space their own children — `.replies` gap 26px, `.tasks` gap 22px. The two
+ * ADD, so the row under this shell sat 38px down on a page whose rhythm is 26.
+ * The shell must not carry outer spacing: the host owns the rhythm, and a
+ * component that adds its own is invisible in code review and only shows up as
+ * "why is there a gap there" on someone's phone. */
+.filter-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+/* ── the expanded form ──────────────────────────────────────────────────── */
+.filter-panel__form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 16px 18px;
+  border-radius: var(--radius-card);
+  border: 1px solid color-mix(in srgb, var(--color-overlay) 12%, transparent);
+  background: var(--color-card);
+}
+
+.filter-panel__fields {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.filter-panel__actions {
+  display: flex;
+  justify-content: center;
+  gap: 10px;
+  padding-top: 12px;
+  border-top: 1px solid color-mix(in srgb, var(--color-overlay) 10%, transparent);
+}
+
+.filter-panel__btn {
+  height: 32px;
+  padding: 0 20px;
+  border-radius: 8px;
+  border: 1px solid color-mix(in srgb, var(--color-overlay) 10%, transparent);
+  background: transparent;
+  color: var(--color-text);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, opacity 0.15s;
+}
+.filter-panel__btn:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--color-overlay) 5%, transparent);
+}
+.filter-panel__btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+/* Apply is the accented one: of the two exits it is the one that DOES
+ * something, and the reference the owner sent makes the same distinction. */
+.filter-panel__btn--apply {
+  color: var(--color-accent);
+  border-color: color-mix(in srgb, var(--color-accent) 40%, transparent);
+  font-weight: 600;
+}
+.filter-panel__btn--apply:hover:not(:disabled) {
+  background: var(--color-accent-soft);
+}
+
+/* ── the 「已篩選」 strip ───────────────────────────────────────────────────
+ * Present ONLY while something is applied. It is what keeps a collapsed panel
+ * from hiding a filter that is still narrowing the list — the failure mode of
+ * every filter that lives behind a button. */
+.filter-panel__summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  /* 🔴 NO border, NO background — the owner chose this over the boxed version
+   * after seeing both (rc-b167fc748704, option D; he had called the boxed one
+   *「上面又多了一塊筐感覺很亂」). The row still has to EXIST — it is what stops a
+   * collapsed panel from hiding a filter that is still narrowing the list — but
+   * it is content, not a container. Do not give it a frame back. */
+  padding: 0 2px;
+  font-size: 12.5px;
+}
+
+.filter-panel__count {
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.filter-panel__summary-label {
+  color: var(--color-text-muted);
+}
+
+.filter-panel__chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 3px 3px 10px;
+  border-radius: var(--radius-pill);
+  background: var(--color-accent-soft);
+  color: var(--color-accent);
+  font-size: 12px;
+  /* CJK min-content is one character, so a chip whose label is Chinese folds to
+   * one column without this (frontend/.claude/rules/css-layout-traps.md). */
+  white-space: nowrap;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 🔴 The × is the owner's ask, and it was ALREADY THERE when he asked for it
+ * (rc-b167fc748704:「已經秀出的篩選，應該都要有一個叉叉，可以及時清除那個篩選」).
+ * That is the finding: at 12px, 75% opacity, accent-on-accent-soft, it read as a
+ * dot — present in the DOM, absent to the reader. A control nobody can see is
+ * not a control, and "it is in the markup" is not a defence. So: bigger glyph,
+ * full opacity, its own tint, and a hit area that clears the 24px minimum.
+ *
+ * 🔴 SECOND FINDING, on the fix itself (independent review of dbef7ff3): the
+ * first version of this rule shipped WITHOUT `padding: 0`. A <button> carries a
+ * UA default padding (measured 6px/6px/1px/1px in Chromium) and this box is
+ * `border-box`, so the 18px was spent on padding and the CONTENT box came out
+ * 6px wide — the 13px svg was squeezed back into a vertical line, i.e. exactly
+ * the "reads as a dot" defect this comment was written to close, reintroduced
+ * one layer down. Colour and opacity were fixed; the BOX was not. Hence the
+ * explicit reset below and the guard that MEASURES it (the 「the × … is a real
+ * box」 test in visual-guards/replies-filter-panel.ct.spec.tsx) — the earlier
+ * round had no
+ * mechanical witness on this control at all, which is why a claim in a comment
+ * was the only thing standing behind it.
+ *
+ * The 18px circle is the VISIBLE size (owner circled variant D at this scale);
+ * the ::after below grows the POINTER target to 24×24 without changing layout,
+ * so the "24px minimum" this comment promises is measured rather than merely
+ * asserted.
+ *
+ * ⚠️ THE OVERFLOW HAS ZERO MARGIN, AND THAT IS NOT WHAT THIS COMMENT FIRST
+ * CLAIMED. It said the 3px 「stays inside the chip's own padding/gap, so it
+ * cannot steal a click from the label」. A reviewer measured it: true today, and
+ * true by exactly nothing. `.filter-panel__chip` is `gap: 4px; padding: 3px 3px
+ * 3px 10px` — right/top/bottom meet a padding of EXACTLY 3px, and the left edge
+ * has 1px to spare inside the 4px gap. So the claim is not a property of this
+ * rule; it is a coincidence between this rule and four numbers in another one.
+ * Change the chip's padding to 2px and this target starts covering the chip's
+ * edge — and the guard added for it measures the TARGET'S SIZE (24×24), not
+ * whether it overlaps the label, so nothing would report that. If you touch
+ * `.filter-panel__chip`'s padding or gap, re-check this. */
+.filter-panel__chip-x {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  /* 🔴 Do not remove: without it the UA button padding eats the content box and
+   * the glyph collapses (see SECOND FINDING above). */
+  padding: 0;
+  width: 18px;
+  height: 18px;
+  border: 0;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--color-accent) 16%, transparent);
+  color: inherit;
+  cursor: pointer;
+  /* The glyph is small; the thing a finger or cursor has to hit is not. */
+  outline-offset: 2px;
+}
+/* Pointer target only — no paint, no layout. 18 + 3 on each side = 24. */
+.filter-panel__chip-x::after {
+  content: "";
+  position: absolute;
+  inset: -3px;
+  border-radius: 50%;
+}
+.filter-panel__chip-x:hover,
+.filter-panel__chip-x:focus-visible {
+  background: color-mix(in srgb, var(--color-accent) 34%, transparent);
+}
+
+.filter-panel__clear {
+  border: 0;
+  background: transparent;
+  color: var(--color-accent);
+  font-size: 12.5px;
+  cursor: pointer;
+  padding: 0 2px;
+}
+.filter-panel__clear:hover {
+  text-decoration: underline;
+}
+
+/* ── the list header row ────────────────────────────────────────────────── */
+.filter-panel__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.filter-panel__title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--color-text);
+  white-space: nowrap;
+}
+
+.filter-panel__toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 30px;
+  padding: 0 14px;
+  border-radius: var(--radius-pill);
+  border: 1px solid color-mix(in srgb, var(--color-overlay) 12%, transparent);
+  background: var(--color-card);
+  color: var(--color-text);
+  font-size: 13px;
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+.filter-panel__toggle:hover {
+  background: color-mix(in srgb, var(--color-overlay) 6%, transparent);
+}
+/* Something is applied. The button has to say so on its own: the summary strip
+ * above it can be scrolled off, and a plain funnel on a narrowed list is how a
+ * reader concludes the list is empty rather than filtered. */
+.filter-panel__toggle--on {
+  color: var(--color-accent);
+  border-color: color-mix(in srgb, var(--color-accent) 40%, transparent);
+  background: var(--color-accent-soft);
+}
+
+@media (max-width: 520px) {
+  .filter-panel__fields > * {
+    flex: 1 1 100%;
+  }
+  .filter-panel__actions {
+    justify-content: stretch;
+  }
+  .filter-panel__btn {
+    flex: 1;
+  }
+}
+

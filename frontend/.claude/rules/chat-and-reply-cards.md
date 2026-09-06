@@ -9,6 +9,10 @@ paths:
   - "visual-guards/chat-*"
   - "visual-guards/stories/Chat*"
   - "src/components/replies.css"
+  - "src/components/IdFilterInput*"
+  - "src/components/idFilter.css"
+  - "visual-guards/reply-id-filter*"
+  - "visual-guards/stories/ReplyIdFilter*"
   - "src/hooks/useChat*"
   - "src/hooks/useReplyCard*"
   - "src/hooks/useScheduledMessages.ts"
@@ -16,6 +20,7 @@ paths:
   - "src/lib/autosize.ts"
   - "src/lib/chatDraftStore.ts"
   - "src/lib/hashRoute.ts"
+  - "src/lib/hashRoute.test.ts"
   - "src/api/mock.scheduled-messages.test.ts"
   # 🔴 THE WIRE LAYER IS IN SCOPE, and it was not. The T-4e95 rule below —
   # "the quote content is assembled by the SERVER; the mock says the same thing;
@@ -65,6 +70,28 @@ ChatArea、ReplyComposer、TaskCard 訊息框都是 textarea，送出決策只�
 RepliesPage 與 ChatReplyCard 共用 ReplyCardBody、ReplyComposer；兩者訂 reply_card，inline 卡另做單卡 refetch。answer、expire 與 waiting-pane 的 owner 動作**把寫入回應合併進畫面上那張卡**（`lib/replyCardReceipt.ts` 的 `mergeReplyCardWrite`：只取 status／answer／answeredTs／expiredTs，其餘留著讀回來的那份），不再重抓、也不再整張換掉——T-91 之後那三個寫入只回傳它自己決定的東西，題目、選項、附件與 task ref 都不在上面，整張換掉會讓 `card.task.title` 這類欄位在存檔後靜靜變空。合併後按 id 保留，直到 waiting 快照不再列出它，或 handled 快照帶著不舊於新狀態的 handled 戳記。其他卡照常採用，不能丟整份快照。refresh() 仍無條件 refetch。
 
 ChatReplyCard 的 doReanswer 保留單卡 refetch：終態 delta 可能被刻意丟棄，拿掉會留下舊答案。不要把它和 doAnswer 對齊，也不要把「delta 是唯一 reconcile trigger」寫回規則。
+
+## 請示卡頁的 ID 篩選（T-93 第二輪，owner 2026-09-06）
+
+第一輪是一條常駐的篩選列，**每敲一個字元就篩一次已載入的那批卡**。owner 兩次否決那個形狀：「很常我們要找一張任務或票而已，但每次都要全部都撈回來才濾不合理 你可以設計成要給完搜尋條件要再按 search 的版本嗎」，看過覆蓋層之後又補「按搜尋時不要再跳出新modal」。所以欄位現在住在共用的 `FilterPanel` 殼裡（讀 `FilterPanel.tsx` 的檔頭，那份契約不在這裡重述），`testId="replies-filter"` 以免和任務頁的控制項撞名。
+
+**兩份狀態，不是一份**：`appliedId` 是清單真的被什麼篩，`draftId` 是欄位綁的值。打字不篩、不發請求；Cancel 什麼都不提交並把草稿還原成已套用值；Apply 才把草稿抄過去。`#replies/card/<id>` 仍然只是把 id 代進 **applied** 那一半（外加捲動 focus）。
+
+🔴 **id 是跟 server 要的，不是拿已載入的列去比對**（owner 2026-09-06 選了第①案）。套用 id 時打一支 `api.getReplyCard(id)`，**三種結局在畫面上必須長得不一樣**，這正是這張票存在的理由——這一頁只握著待回覆卡與 24 小時內的已處理卡，第一輪於是把「這張卡更舊，沒載進來」講成跟「這個編號不存在」一模一樣的一句話，owner 在驗收時就被這個併句騙過去：
+
+1. **找到** ⇒ 顯示那一張，**即使它不在任何一個 pane 裡**（三天前回過的卡也找得到），而且 24 小時的窗**不套用在它身上**。
+2. **404** ⇒ `replies.lookupMissing`：說明白這是**跟伺服器要過**的結果，不是還沒載進來。
+3. **其他失敗（500／離線）** ⇒ `replies.lookupFailed`，**不准說「找不到」**——沒問到伺服器就沒有資格對存不存在下判斷。
+
+🔴 **「找到了但畫面上沒有」和假的空是同一種沉默**：找到的卡若屬於已處理，那一段在篩選中一律**強制展開**並直接畫出撈回來的那張（不等 `handledLoaded`）。篩選中那一段也**一律不隱藏，即使數字是 0**——zero-hide 會把整段連同把手一起刪掉，於是「沒有符合」與「這一段不存在」又長得一樣。
+
+空狀態的四句**不可合併**：沒有篩選是「✓ 目前沒有待處理的請示」，篩選中但那張卡屬於別的 pane 是「沒有符合篩選條件的請示」，另外兩句是上面的 404 與失敗。
+
+⚠️ 第一輪那台「篩選中順便把已處理載進來、一次 visit 只載一次」的機關（`handledAutoloadTried`）**已經刪掉**：卡從 server 來，能不能找到不再取決於哪個 pane 剛好載過。不要因為註解寫得仔細就把它搬回來。
+
+⚠️ 動作（answer／reanswer／expire）成功後要 bump `lookupNonce` 重讀那一張，否則按 id 撈回來的快照會留著舊狀態。
+
+每一格都有一支測試釘著（`RepliesPage.id-filter.test.tsx`）。
 
 ## 選項是一組集合,不是一個位置(T-40)
 

@@ -3,9 +3,13 @@
 //      row: the TYPE + 查看任務詳情 — and NEVER the task number / 識別鍵
 //      (adjudicated). A pure chat ask shows nothing.
 //   2. Clicking 查看任務詳情 routes to #tasks/<taskId>.
-//   3. Arriving at #tasks/<id> FILTERS the list down to that one task in the
-//      normal layout (a closed target auto-expands 已結束); the same 清除篩選
-//      returns to the full list; an unknown id self-heals.
+//   3. Arriving at #tasks/<id> narrows the page to that ONE task in the normal
+//      layout (a closed target auto-expands 已結束); 清除全部 on the 已篩選 strip
+//      returns to the full list; an unknown id KEEPS its anchor and the page
+//      says THAT ID DOES NOT EXIST — the server was asked (owner 2026-09-05
+//      rc-428906235337 stopped the silent self-heal; owner 2026-09-06 option ①
+//      stopped it borrowing the generic 沒有符合篩選條件的任務, which is also
+//      what a merely-not-loaded task got and is the confusion T-93 is about).
 //   4. The chat's inline card (ChatReplyCard) carries the same task row.
 
 import { describe, it, expect, beforeEach } from "vitest";
@@ -21,6 +25,12 @@ import {
   __injectMockReplyCard,
 } from "../api/mock";
 import type { ReplyCard, TaskView } from "../api/adapter";
+// 篩選 now happens inside the FilterPanel and only on 套用篩選 (T-93 round 3).
+import {
+  toggleFilter,
+  clearAllFilters,
+  openFilterPanel,
+} from "../test/tasksFilter";
 
 let seq = 0;
 
@@ -85,18 +95,6 @@ function taskRefTextOutsideTitle(ref: HTMLElement): string {
   return clone.textContent ?? "";
 }
 
-// Toggle one option in a multi-select filter dropdown (T-be18) — same helper as
-// TasksPage.test.tsx: open the pill if needed, then click the option's checkbox.
-function toggleFilter(testId: string, value: string) {
-  const trigger = document.querySelector(`[data-testid="${testId}"]`)!;
-  if (trigger.getAttribute("aria-expanded") !== "true") {
-    fireEvent.click(trigger);
-  }
-  const checkbox = document.querySelector(
-    `[data-testid="${testId}-opt-${value}"] input`
-  )!;
-  fireEvent.click(checkbox);
-}
 
 function renderTasks() {
   return render(
@@ -233,7 +231,8 @@ describe("TasksPage 單一任務 filter (#tasks/<id>)", () => {
     expect(openList.querySelector('[data-task-id="t-open"]')).not.toBeNull();
     // The other task is filtered out; a filter being active shows 清除篩選.
     expect(document.querySelector('[data-task-id="t-other"]')).toBeNull();
-    await findByTestId("clear-filters");
+    // A filter is on, so the 已篩選 strip is there with its 清除全部 exit.
+    await findByTestId("tasks-filter-clear");
   });
 
   it("a CLOSED target shows up with 已結束 auto-expanded", async () => {
@@ -258,7 +257,8 @@ describe("TasksPage 單一任務 filter (#tasks/<id>)", () => {
     window.location.hash = "#tasks/t-open";
 
     const { findByTestId } = renderTasks();
-    fireEvent.click(await findByTestId("clear-filters"));
+    await findByTestId("tasks-filter-clear");
+    clearAllFilters();
 
     await waitFor(() => expect(window.location.hash).toBe("#tasks"));
     await waitFor(() =>
@@ -277,12 +277,35 @@ describe("TasksPage 單一任務 filter (#tasks/<id>)", () => {
     );
   });
 
-  it("an unknown/stale target self-heals (anchor stripped, full list)", async () => {
+  it("an unknown/stale target KEEPS its anchor and says the id DOES NOT EXIST", async () => {
+    // Direction changed TWICE. owner 2026-09-05 (rc-428906235337) killed the
+    // original self-heal — the anchor used to strip itself back to #tasks and
+    // the full list came back silently, so a broken link and a link that was
+    // never filtering looked identical.
+    // 🔴 owner 2026-09-06 then removed the bespoke wording it was replaced with
+    // (rc-f603bbd447f4 →「為什麼要顯示這種東西 拿掉!」→「UI不是本來就秀0筆了嗎」),
+    // so the ordinary filtered-empty state answers here again.
+    //
+    // THE PART THAT DID NOT CHANGE, AND IS WHAT THIS SPEC IS FOR: the anchor is
+    // NOT stripped. The 2026-09-05 ruling was about the HASH self-healing back
+    // to #tasks — that is what made a broken link and a link that was never
+    // filtering identical, and it is still held below. The wording was a second,
+    // separate answer to the same complaint, and it is the wording he removed.
     __injectMockTask(mkTask({ id: "t-1" }));
     window.location.hash = "#tasks/t-gone";
-    const { findByTestId } = renderTasks();
-    await waitFor(() => expect(window.location.hash).toBe("#tasks"));
+    const { findByTestId, queryByTestId } = renderTasks();
+
+    await findByTestId("tasks-empty-filtered");
+    expect(queryByTestId("task-id-missing")).toBeNull();
+    // Non-vacuity: the task that DOES exist is not on screen — the anchor is
+    // still narrowing, rather than the page being empty for some other reason.
+    expect(queryByTestId("open-list")).toBeNull();
+    // The anchor stays put — that is the visible difference from before.
+    expect(window.location.hash).toBe("#tasks/t-gone");
+    // 清除全部 is the way back, and it restores the list AND the hash.
+    clearAllFilters();
     await findByTestId("open-list");
+    expect(window.location.hash).toBe("#tasks");
   });
 });
 
@@ -334,7 +357,8 @@ describe("TasksPage executor seed (#tasks/executor/<id>, T-dfae)", () => {
     await waitFor(() => expect(window.location.hash).toBe("#tasks"));
     // The seeded filter is ordinary filter state: 清除篩選 lifts it like any
     // other axis, and kyle's task comes back.
-    fireEvent.click(await findByTestId("clear-filters"));
+    await findByTestId("tasks-filter-clear");
+    clearAllFilters();
     await waitFor(() =>
       expect(document.querySelector('[data-task-id="t-kyle-open"]')).not.toBeNull()
     );
@@ -365,7 +389,8 @@ describe("TasksPage executor seed (#tasks/executor/<id>, T-dfae)", () => {
 
     // Widen 狀態 to 所有狀態 the way the owner would: 清除篩選 = 顯示全部
     // (T-50bb), which EMPTIES the status set — terminals included.
-    fireEvent.click(await findByTestId("clear-filters"));
+    await findByTestId("tasks-filter-clear");
+    clearAllFilters();
     fireEvent.click(await findByTestId("closed-toggle"));
     await waitFor(() =>
       expect(
@@ -424,5 +449,57 @@ describe("TasksPage executor seed (#tasks/executor/<id>, T-dfae)", () => {
     );
     // …and the executor axis still bit (this is a filter seed, not a reset).
     expect(document.querySelector('[data-task-id="t-other-review"]')).toBeNull();
+  });
+
+  // 🔴 THE PANEL'S DRAFT MUST MATCH WHAT IS ACTUALLY FILTERING (M4 — added
+  // after an independent review of dbef7ff3 found this call site UNGUARDED).
+  //
+  // `openPanel` does `if (next) reseedDraft()`. The reviewer changed that one
+  // token to `if (false)` and the whole package — 81 assertions — stayed green.
+  // Nothing anywhere asserted that opening the panel shows the truth.
+  //
+  // WHY THIS SEED IS THE ONE THAT BREAKS IT. The effect above writes the four
+  // APPLIED axes and never touches the draft, so without the reseed the draft is
+  // still the mount default: empty. The owner arriving from the chat header then
+  // opens a panel with NOTHING ticked while the strip says 「負責人：Mira」 — and
+  // it does not stop at cosmetic, because 套用篩選 commits the DRAFT, so his next
+  // press SILENTLY WIDENS the filter back to everyone. Every other route into the
+  // panel leaves draft == applied already, which is exactly why 81 tests could
+  // not see this one.
+  //
+  // 🔴 WHY THIS ASSERTS THE TICK AND NOT THE PILL TEXT — DO NOT "SIMPLIFY" IT
+  // BACK. The obvious witness is the pill: it should say Mira. It does not, and
+  // that is a SECOND defect (A2 in the same review), not this one: after this
+  // seed the executor axis has exactly ONE option with a non-zero count, and
+  // `MultiSelectFilter` reads "every visible option checked" as "no constraint"
+  // and prints 所有負責人. So the pill reads 所有負責人 whether the reseed ran or
+  // not — ZERO discriminating power for M4. The checkbox is the one thing the
+  // two states disagree about. (A2 is recorded on the ticket; it is a rule this
+  // package inherited from main, and the owner has not been asked about it.)
+  it("opening the panel after an executor seed carries the seeded tick into the draft", async () => {
+    __injectMockTask(mkTask({ id: "t-mira-open", executorId: "mira" }));
+    __injectMockTask(mkTask({ id: "t-kyle-open", executorId: "kyle" }));
+    window.location.hash = "#tasks/executor/mira";
+
+    const { findByTestId } = renderTasks();
+    await findByTestId("open-list");
+
+    // Three gestures, not one: the panel expands, then the 負責人 DROPDOWN has
+    // to be opened before its option rows exist at all, and the roster they are
+    // built from arrives asynchronously. Reading too early gives `undefined`,
+    // which is neither checked nor unchecked and must not be scored as either.
+    openFilterPanel();
+    fireEvent.click(await findByTestId("filter-executor"));
+    const tick = await waitFor(() => {
+      const el = document
+        .querySelector('[data-testid="filter-executor-opt-mira"]')
+        ?.querySelector("input");
+      expect(el, "the mira option row must be in the open panel").toBeTruthy();
+      return el!;
+    });
+    expect(
+      tick.checked,
+      "the seeded executor must arrive in the draft, or 套用篩選 widens it"
+    ).toBe(true);
   });
 });

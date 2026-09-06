@@ -19,7 +19,26 @@ paths:
 
 useTasks 把 statusFilter 轉成重複的 ?statuses=；執行者與類型篩選仍在前端。清除狀態篩選才送空集合，代表使用者要完整清單。不要為 dependencies 再拉全歷史，也不要把每個 task SSE 變成全歷史下載。
 
-跳到 #tasks/<id> 時，清單仍保留原篩選，另以 GET /api/tasks/{id} 補單張錨點。anchor id 是 effect 的參數；anchorPending 在補抓成功或失敗前都阻止自癒與空狀態誤判，失敗後誠實回一般清單。合併時清單列優先，因為輕量列才有 dep_tasks；單張 DTO 沒有時不可覆蓋它。篩選未包含錨點時，depTasks===undefined 表示未知，不表示沒有依賴。
+跳到 #tasks/<id> 時，清單仍保留原篩選，另以 GET /api/tasks/{id} 補單張錨點。anchor id 是 effect 的參數；anchorPending 在補抓落定前擋住兩個空狀態，否則還在路上的那張會被說成不存在。
+
+**補抓落定後有三種結局，話不一樣，不要合併（owner 2026-09-05 `rc-428906235337`；話術在 2026-09-06 選項①下再細分，見下一節）**：抓到且通過其他條件就顯示那一張；**404 ⇒ 錨點留著**，出口是已篩選條上的「清除全部」（`clearFilters` 連 hash 一起還原）；**其他失敗（500／離線）⇒ `anchorFailed`**，顯示錯誤並壓住兩個空狀態——沒問出口的問題不得給答案。錨點**不再自己把 hash 拿掉**；釘住這幾格的是 TasksPage.test.tsx、TasksPage.jump.test.tsx、TasksPage.id-filter.test.tsx 與 TasksPage.anchor-fetch.test.tsx。合併時清單列優先，因為輕量列才有 dep_tasks；單張 DTO 沒有時不可覆蓋它。篩選未包含錨點時，depTasks===undefined 表示未知，不表示沒有依賴。
+
+## 任務頁的篩選面板與 ID 條件（T-93 第三輪，owner 2026-09-06 選項①）
+
+第二輪把四個軸做成常駐篩選列、每打一個字就生效；owner 連退兩次：「很常我們要找一張任務或票而已，但每次都要全部都撈回來才濾不合理 你可以設計成要給完搜尋條件要再按 search 的版本嗎」、「按搜尋時不要再跳出新modal」，並指定照 Master B/L List 的漏斗按鈕 + 頁內展開面板 + 「N 筆 · 已篩選：<chip ×> · 清除全部」條。「一起搬」＝四個軸全部進面板，外面只留漏斗。
+
+- **APPLIED / DRAFT 兩份狀態**：清單只吃 applied；面板欄位綁 draft。開面板時 draft 從 applied 重播，取消不提交，套用才覆寫。這是「不要每次都撈回來」的結構性答案 —— 打字期間不發請求、不縮清單。
+- **shell 是 `FilterPanel`**（`components/FilterPanel.tsx`，自帶 CSS、無 `position: fixed`／scrim／z-index）。欄位是 children，由頁面提供。
+- 🔴 **全部條件一起生效，編號也不例外（選項①）**：applied 的編號**不篩已載入的清單**，而是走 `useTasks(DEFAULT_STATUS, appliedId)` 的 `GET /api/tasks/{id}` 拿那一張，再拿它去比其他 applied 軸。編號因此是**精準比對**，不是第二輪的 substring。
+- 🔴 **三種結局必須長得不一樣，不得合併**（這就是本票存在的理由：第二輪讓「不存在」與「在，只是沒被載進來」渲染成同一句 `沒有符合篩選條件的任務`，owner 在驗收時被它騙過去）：
+  - **404** → `task-id-missing`，話術要講「這是跟伺服器要過的結果」。
+  - **抓到但被其他條件擋掉** → `task-id-filtered`，**點名是哪一軸**，並給 `task-id-only`「只用編號再找一次」（清掉其他軸、留下編號）。
+  - **抓到且通過** → 只顯示那一張。
+  - 非 404 的失敗（500／離線）**不是 miss**：`tasks-error` 改講「沒有得到伺服器的回覆」，不得說找不到。
+  編號生效時 `tasks-empty` / `tasks-empty-filtered` **兩個空狀態都噤聲**，否則就會退回那句合併的話。
+- **`#tasks/<id>` 錨點**只是「種下 applied 編號」，且**同時把其他三軸清空**——連結沒有對負責人／類型／狀態表示意見。所以「連結指向已完成任務也跳得到」仍然成立，靠的不是錨點豁免狀態軸，而是那時根本沒有狀態軸；`statusAsk` 的 effect 在有 applied 編號時**跳過**，清單 ask 才不會被清空的狀態集合擴成全歷史（432 KB 那條回歸）。`#tasks/executor/<id>` 仍照舊顯式種三軸，並清掉編號。
+- **已結束區的自動展開吃 applied 編號**（不是 hash）：打字打到一張已結案任務時若不展開，畫面會出現「通過了卻什麼都沒有」的第四種沉默結局。
+- 測試一律走 `src/test/tasksFilter.ts`（開面板 → 勾 → 套用），不要在各檔各自複製手勢。
 
 ## TaskCard
 

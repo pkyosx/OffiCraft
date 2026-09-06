@@ -87,6 +87,7 @@ export const en: Dict = {
     emptyNone: "No tasks yet",
     emptyFiltered: "No tasks match the current filters",
     loadError: "Failed to load tasks. Please try again.",
+    filterIdLabel: "Task ID",
     clearFilters: "Clear filters",
     filterExecutorAll: "Everyone",
     filterTypeAll: "All types",
@@ -95,6 +96,13 @@ export const en: Dict = {
     filterExecutorNoun: "Assignees",
     filterTypeNoun: "Types",
     filterStatusNoun: "Statuses",
+    // The chip's own word for the id axis — short, because the value sits right
+    // next to it. The FIELD keeps the longer "Task ID" placeholder.
+    filterIdNoun: "ID",
+    // A non-404 failure: the question never got an answer, so "not found" would
+    // be a lie.
+    idUnreached: (id: string) =>
+      `Looking up "${id}" got no answer from the server, so we do not know whether it exists — this is NOT a "not found". Please try again shortly.`,
     outsource: "Outsource",
     unassigned: "Unassigned",
     adhoc: "Ad-hoc",
@@ -293,13 +301,39 @@ export const en: Dict = {
       versionsOpaqueTail: ") — look at the two versions one at a time instead.",
     },
   },
-  // ── Awaiting-reply page (M2 reply cards, B2) ──
+  // ── Filter panel (T-93 round 2) ──
+  // Modelled on the affordance the owner pointed at (c-7496afccb304): a funnel
+  // button opens an in-page panel, Cancel/Apply close it, and a summary strip
+  // states what is still applied once it is shut.
+  filterPanel: {
+    filter: "Filter",
+    cancel: "Cancel",
+    apply: "Apply filters",
+    results: (n: number) => `${n} result${n === 1 ? "" : "s"}`,
+    filteredBy: "Filtered by:",
+    clearAll: "Clear all",
+    removeChip: (label: string) => `Remove filter: ${label}`,
+  },
   replies: {
     waitingTitle: "Ask",
     handledTitle: "Recently handled",
     handledHint:
       "Items answered or expired · answers can still be changed",
     empty: "✓ No pending asks",
+    emptyFiltered: "No asks match the current filter",
+    filterIdLabel: "Reply-card id",
+    clearFilters: "Clear filter",
+    // ── Filter panel (T-93 round 2) ──
+    filterTitle: "Asks",
+    chipId: (id: string) => `Id: ${id}`,
+    // 🔴 Three outcomes, three sentences — never merged. Round 1 had one, so
+    // "this card does not exist" and "this card was simply never loaded" read
+    // identically; that collapse is the defect this ticket removes.
+    lookupLoading: "Checking this id with the server…",
+    // ⚠️ This one must NOT say "not found": without an answer from the server
+    // we have no standing to say whether the id exists.
+    lookupFailed:
+      "The server could not be reached (network or server error), so whether this id exists is unknown. Please try again.",
     loadError: "Failed to load your asks. Please try again.",
     waitedLabel: "Waiting",
     // Opened/answered stamps are always absolute with the date (e.g. 7/13
