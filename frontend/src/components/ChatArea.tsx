@@ -865,6 +865,25 @@ export function ChatArea({
     // the latch stays untouched here.
   }, [messages]);
 
+  // 🔴 T-124: THE WHEEL, NOT ONLY THE SCROLL EVENT. A box whose content is
+  // shorter than itself has no overflow, and a browser emits NO scroll event
+  // for it however hard the wheel turns — so a loader armed on `scroll` alone
+  // is armed on a signal that this pane frequently cannot produce. It is not a
+  // corner case here: a 30-message page that is mostly 成員間對話 folds into a
+  // few one-line blocks (owner's own thread: 28 of 30, three blocks, whole page
+  // 543px inside a 543px pane), and then 往上滑 does nothing at all, for ever.
+  // The `wheel` event fires either way, and an upward wheel at the top of the
+  // pane IS the reader asking for older messages. Same guard, same one-page
+  // step — this only adds a second door onto it.
+  function onMessagesWheel(e: React.WheelEvent<HTMLDivElement>) {
+    if (e.deltaY >= 0) return;
+    const el = messagesRef.current;
+    if (!el) return;
+    if (el.scrollTop < NEAR_TOP_PX && hasMore) {
+      void loadOlderAnchored();
+    }
+  }
+
   function onMessagesScroll() {
     const el = messagesRef.current;
     if (!el) return;
@@ -2189,6 +2208,7 @@ export function ChatArea({
               className="chat__messages"
               ref={messagesRef}
               onScroll={onMessagesScroll}
+              onWheel={onMessagesWheel}
             >
               {/* 🔴 T-b0bb: THE GAP NOTICE COMES FIRST, AND IT SUPPRESSES
                * "已到最早訊息".

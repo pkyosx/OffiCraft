@@ -1,0 +1,50 @@
+// T-124 — 往上捲要載得到更舊的訊息,即使目前這一頁幾乎整頁都是「成員間對話」。
+//
+// 🔴 WHAT ONLY A BROWSER CAN ANSWER. 載入更舊那一頁只由 scroll 事件觸發,而一個
+// 內容比視窗還短的捲動盒**永遠不會發出 scroll 事件** —— 滾輪轉多用力都一樣。
+// 一頁 30 則裡有 28 則是成員間對話時,那 28 列被摺成三條一行的塊,整頁畫出來比
+// 面板還短,於是使用者往上滑,什麼都不會發生。jsdom 沒有版面(每個盒子都是 0px)
+// 也沒有真的滾輪,兩半都看不到。
+//
+// 這支 guard 用的是 owner 在 c-fc47d568cc14 拍到的那個組成:14 成員間 + 1 + 12
+// 成員間 + 1 + 2 成員間。
+import { test, expect } from "@playwright/experimental-ct-react";
+import { ChatInterAgentScrollbackStory } from "./stories/ChatInterAgentScrollbackStory";
+import { NORMAL_TOTAL } from "./stories/chatInterAgentScrollbackFixtures";
+
+test("一頁幾乎全是成員間對話時,往上捲仍然載得到更舊的訊息", async ({
+  mount,
+  page,
+}) => {
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await mount(<ChatInterAgentScrollbackStory />);
+
+  const box = page.locator(".chat__messages");
+  await expect(box).toBeVisible();
+  // 開場就是那個組成:三條摺疊塊 + 兩則 owner↔成員的訊息。
+  await expect(page.locator(".chat__inter-toggle")).toHaveCount(3);
+  const bubbles = page.locator(".chat__msg");
+  await expect(bubbles).toHaveCount(2);
+
+  // 量一件事實,不是猜的:這一頁畫出來比面板還短 ⇒ 捲不動 ⇒ 不會有 scroll 事件。
+  const geom = await box.evaluate((el) => ({
+    scrollHeight: el.scrollHeight,
+    clientHeight: el.clientHeight,
+  }));
+
+  // 照使用者的方式轉滾輪:往上,連續轉。這裡沒有任何一行用手寫 scrollTop ——
+  // 手寫 scrollTop 會自己製造出那個「不存在」的 scroll 事件,等於把要測的東西
+  // 先幫它做掉。
+  for (let turn = 0; turn < 20; turn += 1) {
+    await box.hover();
+    await page.mouse.wheel(0, -900);
+    await page.waitForTimeout(120);
+  }
+
+  const loaded = await bubbles.count();
+  expect(
+    loaded,
+    `往上捲 20 次之後只載到 ${loaded} 則 owner↔成員訊息 ` +
+      `(scrollHeight=${geom.scrollHeight}, clientHeight=${geom.clientHeight})`,
+  ).toBe(NORMAL_TOTAL);
+});

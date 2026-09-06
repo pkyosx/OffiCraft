@@ -170,6 +170,47 @@ describe("scroll-top history loading", () => {
     expect((list as HTMLElement).scrollTop).toBe(400);
   });
 
+  // T-124 — 往上滑要載得到,即使這一頁短到根本捲不動。
+  //
+  // 一頁 30 則裡大部分是成員間對話時,那些列被摺成一行的塊,整頁比面板還短:
+  // 捲動盒沒有 overflow,瀏覽器就一個 scroll 事件都不會發,只靠 scroll 事件武裝
+  // 的載入於是永遠不會被觸發。wheel 照樣會發。
+  //
+  // ⚠️ jsdom 這一格只釘「wheel 也是一道門」;那個門是必要的(真的沒有 scroll
+  // 事件可用)這件事量的是版面,由 visual-guards/chat-inter-agent-scrollback
+  // 在真的 Chromium 裡釘。
+  it("往上轉滾輪會載入更舊那一頁,即使這一頁短到發不出 scroll 事件", async () => {
+    initialMessages = [
+      mkMsg("c2", "b", "owner", 2000),
+      mkMsg("c3", "b", "owner", 2001),
+    ];
+    olderPage = [mkMsg("c1", "b", "owner", 1000)];
+    const { container } = renderChat();
+    const list = container.querySelector(".chat__messages")!;
+
+    // 內容比面板短 ⇒ 捲不動 ⇒ 這一格 scrollTop 永遠是 0,也永遠沒有 scroll 事件。
+    setScrollGeometry(list, {
+      scrollHeight: 200,
+      clientHeight: 200,
+      scrollTop: 0,
+    });
+
+    // 往下轉不是在要更舊的訊息,不該去撈。
+    await act(async () => {
+      fireEvent.wheel(list, { deltaY: 120 });
+    });
+    expect(loadOlderCalls).toBe(0);
+
+    await act(async () => {
+      fireEvent.wheel(list, { deltaY: -120 });
+    });
+    expect(loadOlderCalls).toBe(1);
+    const ids = Array.from(list.querySelectorAll("[data-msg-id]")).map((el) =>
+      el.getAttribute("data-msg-id"),
+    );
+    expect(ids).toEqual(["c1", "c2", "c3"]);
+  });
+
   it("prepended HISTORY never arms the new-message chip nor re-anchors the divider", async () => {
     initialMessages = [
       mkMsg("c2", "b", "owner", 2000),
