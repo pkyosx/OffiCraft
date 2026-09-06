@@ -216,8 +216,16 @@ func TestLoadAuthSettingsSuggestedReplies(t *testing.T) {
 	if len(got2.suggestedRepliesReplyCard) != 1 || got2.suggestedRepliesReplyCard[0] != "收到，照這樣做" {
 		t.Fatalf("reply_card list must load verbatim: %v", got2.suggestedRepliesReplyCard)
 	}
-	if len(got2.suggestedRepliesTaskMessage) != 2 {
-		t.Fatalf("task_message list must load verbatim: %v", got2.suggestedRepliesTaskMessage)
+	// 🔴 ORDER, not just length. This assertion used to read `len(...) != 2`,
+	// and a mutant that REVERSED the canonical list walked straight past it —
+	// the PATCH-face test caught that mutant, this one did not, so "verbatim"
+	// was a claim the boot face was not actually making. The order is the
+	// owner's own: he writes the sentence he reaches for first at the top.
+	if len(got2.suggestedRepliesTaskMessage) != 2 ||
+		got2.suggestedRepliesTaskMessage[0] != "先擱著" ||
+		got2.suggestedRepliesTaskMessage[1] != "這週不碰" {
+		t.Fatalf("task_message list must load verbatim AND in order: %v",
+			got2.suggestedRepliesTaskMessage)
 	}
 
 	// An explicit [] is a LEGAL stored value, not corruption.
