@@ -45,7 +45,7 @@ import {
   type DocumentHistoryEntryProps,
 } from "./DocumentHistoryEntry";
 import { serverMessageOf } from "../api/errors";
-import { docCapBlockedBySize, runeLength } from "../api/docCap";
+import { docCapBlockedBySize, shownDocSize } from "../api/docCap";
 import "./settings.css";
 
 /** The folded document this card renders. Structural on purpose: the role
@@ -233,36 +233,22 @@ export function DocCard({
   // window where the doc read is pending or broken.
   const isDefault = isDefaultOverride ?? (doc ? doc.isDefault : false);
 
-  // 🔴 WHAT THE DRAFT DOES NOT COUNT. `usage.size` is the size of the STORED
-  // document, and for a document with a read-only head the editor holds only
-  // part of it — so the difference between the two is exactly the head (plus
-  // whatever separates the halves, which this card is not allowed to know).
-  // Deriving it instead of taking a prop keeps every existing caller at zero:
-  // where the editor holds the whole document, `usage.size` and the text agree
-  // and this is 0.
-  //
-  // It has to be added back, because the cap the server enforces is on the
-  // document it STORES. A readout measuring the body against a whole-document
-  // cap would tell the owner he has room he does not have, and the refusal he
-  // then collects would quote numbers his screen never showed him.
-  const storedOverhead = usage ? Math.max(0, usage.size - runeLength(text)) : 0;
   // While editing, both the readout and the refusal judge the DRAFT. Mirrors
   // the server's own rule (docCapBlocked): over the cap is refused unless the
   // document is getting shorter, so an already-over-cap document can still be
   // edited downward instead of being frozen.
-  const shownSize = usage
-    ? editing
-      ? runeLength(draft) + storedOverhead
-      : usage.size
-    : 0;
+  //
+  // 🔴 THE COUNTING ITSELF MOVED OUT (T-100). `shownDocSize` — including the
+  // read-only-head term this comment used to explain here — now lives in
+  // api/docCap.ts, because the task-manual editors grew the same readout
+  // without being DocCards, and two copies of this arithmetic is exactly the
+  // kind of duplication that goes wrong in one copy only. Read the WHY there;
+  // it was not deleted, it was moved whole.
+  const shownSize = usage ? shownDocSize(usage.size, text, editing ? draft : null) : 0;
   const overCap =
     usage !== undefined &&
     editing &&
-    docCapBlockedBySize(
-      usage.cap,
-      usage.size,
-      runeLength(draft) + storedOverhead
-    );
+    docCapBlockedBySize(usage.cap, usage.size, shownSize);
   const unchanged = requireDirty && draft === text;
 
   // ⚠️ NO SCROLL CORRECTION HERE, AND THE REASON IS THAT NONE IS POSSIBLE —

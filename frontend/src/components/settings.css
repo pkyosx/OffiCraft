@@ -442,6 +442,16 @@
   font-weight: 500;
   font-variant-numeric: tabular-nums;
   color: var(--color-text-muted);
+  /* T-100: never fold 「15796 / 18000」 across lines. In a card head this was
+   * academic — nothing competed for the width. In the 任務手冊 §3 heading it is
+   * not: that row is a shrinkable flex line already carrying a number, a CJK
+   * title, a CJK hint and the block's 編輯 switch, and at 390px the readout was
+   * measured at 36px tall — THREE lines inside a row sized for one. `nowrap`
+   * is the fix rather than `flex: none` (frontend/.claude/rules/
+   * css-layout-traps.md): the item still yields its own margin, it just stops
+   * folding a number into a column of digits. Guarded at both widths by
+   * visual-guards/manual-doc-usage.ct.spec.tsx — jsdom cannot see any of it. */
+  white-space: nowrap;
 }
 .doc-card__actions {
   display: flex;

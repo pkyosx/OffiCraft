@@ -73,6 +73,16 @@ function mkManual(over: Partial<TaskManualView>): TaskManualView {
     learnings: "",
     assignee: null,
     updatedTs: 0,
+    // T-100 — the size/cap pairs. Defaulted to a REAL, non-equal pair rather
+    // than 0/0: a 0 cap is the "not known" state that suppresses the readout
+    // entirely, so a fixture built on it would let every usage assertion pass
+    // vacuously. These values are only type-valid, nonzero defaults here: the
+    // mock adapter replaces them on read, so this fixture does not distinguish
+    // which document pair a readout uses.
+    sopMdChars: 0,
+    sopMdCapChars: 18000,
+    learningsChars: 0,
+    learningsCapChars: 17000,
     ...over,
   };
 }

@@ -847,10 +847,24 @@ export function toTaskManualSummary(
     })),
     assignee: toManualAssignee(w.assignee as Record<string, unknown>),
     updatedTs: w.updated_ts ?? 0,
-    // The directory answer ALSO carries sop_md_chars / learnings_chars and
-    // their caps. They are deliberately NOT mapped: no manual surface renders
-    // a size budget today, and a view field with no reader is indistinguishable
-    // from a live one. Map them when something draws them.
+    // T-100: something draws them now — both manual sub-pages render 「已用 /
+    // 上限」 while the owner types, which is what this mapper was waiting for.
+    //
+    // 🔴 `?? 0` IS NOT A MEASUREMENT. Today's server always emits all four (the
+    // generated TypeScript shape treats them as present), so the fallback is
+    // only reachable
+    // from a server that predates them — the same defence `toRoleSummary` and
+    // `toLessons` keep. A zero cap would render 「1234 / 0」 — a budget that
+    // reads as "already over" on a document that is fine. The readout is
+    // gated on `cap > 0` at
+    // the render site for exactly that reason; do not remove that gate here by
+    // inventing a default cap, because a fallback cap and the live one are
+    // indistinguishable on screen and only one of them is what the server
+    // refuses a write against.
+    sopMdChars: w.sop_md_chars ?? 0,
+    sopMdCapChars: w.sop_md_cap_chars ?? 0,
+    learningsChars: w.learnings_chars ?? 0,
+    learningsCapChars: w.learnings_cap_chars ?? 0,
   };
 }
 
