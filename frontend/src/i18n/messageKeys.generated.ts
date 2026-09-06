@@ -968,7 +968,6 @@ export const MESSAGE_KEYS: readonly string[] = [
   "settings.stepNoteCap",
   "settings.stepNoteCapSub",
   "settings.stopSection",
-  "settings.suggestedRepliesEmpty",
   "settings.suggestedRepliesFull",
   "settings.suggestedRepliesReplyCard",
   "settings.suggestedRepliesReplyCardSub",

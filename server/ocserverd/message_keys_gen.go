@@ -969,7 +969,6 @@ var messageKeys = map[string]bool{
 	"settings.stepNoteCap":                             true,
 	"settings.stepNoteCapSub":                          true,
 	"settings.stopSection":                             true,
-	"settings.suggestedRepliesEmpty":                   true,
 	"settings.suggestedRepliesFull":                    true,
 	"settings.suggestedRepliesReplyCard":               true,
 	"settings.suggestedRepliesReplyCardSub":            true,

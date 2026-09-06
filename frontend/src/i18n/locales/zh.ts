@@ -2052,7 +2052,6 @@ export const zh = {
     suggestedRepliesReplyCardSub: "回覆請示卡時可一鍵帶入的句子。",
     suggestedRepliesTaskMessage: "任務訊息建議回覆",
     suggestedRepliesTaskMessageSub: "任務中傳送訊息時可一鍵帶入的句子。",
-    suggestedRepliesEmpty: "目前沒有建議回覆,那一邊的回覆框不會顯示任何按鈕。",
     suggestedReplyPlaceholder: "例:收到,照這樣做",
     suggestedReplyAdd: "新增一句",
     suggestedReplyRemove: "刪除這一句",

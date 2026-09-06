@@ -149,7 +149,10 @@ describe("T-122 — 建議回覆 是兩份各自獨立的參數設定", () => {
     expect(
       (await mockApi.getServerSettings()).suggestedRepliesTaskMessage
     ).toEqual(["任務用的"]);
-    expect(utils.getAllByText(s.suggestedRepliesEmpty).length).toBe(1);
+    // The list going empty draws NOTHING now — owner c-0386da47bf7d cut the
+    // explanatory line ("這種說明不需要，拿掉"). The SAVE above is the assertion
+    // that matters; an editor that skips it can never turn the chips off again.
+    expect(utils.queryAllByLabelText(cardRow(1))).toHaveLength(0);
   });
 
   it("keeps a PASTED over-long sentence WHOLE, says why, and sends nothing", async () => {
@@ -250,6 +253,23 @@ describe("T-122 — 建議回覆 是兩份各自獨立的參數設定", () => {
     expect((await mockApi.getServerSettings()).suggestedRepliesReplyCard).toEqual([
       "原本的",
     ]);
+  });
+
+  // owner c-90914e605cdb: the browser's own autofill dropdown floated a
+  // previously-saved sentence OVER the rows this field exists to manage.
+  it("leaves the browser's own autofill history off", async () => {
+    await mockApi.patchServerSettings({
+      suggestedRepliesReplyCard: ["原本的"],
+      suggestedRepliesTaskMessage: ["任務用的"],
+    });
+    const utils = await openParamsPage();
+
+    expect(utils.getByLabelText(cardRow(1)).getAttribute("autocomplete")).toBe(
+      "off"
+    );
+    expect(utils.getByLabelText(taskRow(1)).getAttribute("autocomplete")).toBe(
+      "off"
+    );
   });
 
   it("saves on the Enter that follows a finished composition", async () => {

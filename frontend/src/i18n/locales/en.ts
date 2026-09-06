@@ -1980,8 +1980,6 @@ export const en: Dict = {
     suggestedRepliesTaskMessage: "Task-message suggestions",
     suggestedRepliesTaskMessageSub:
       "Sentences you can drop in with one tap when messaging on a task.",
-    suggestedRepliesEmpty:
-      "No suggestions configured — that box shows no buttons at all.",
     suggestedReplyPlaceholder: "e.g. Got it, go ahead",
     suggestedReplyAdd: "Add a sentence",
     suggestedReplyRemove: "Remove this sentence",

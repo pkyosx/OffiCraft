@@ -1234,9 +1234,6 @@ function SuggestedRepliesEditor({
         <div className="param-row__sub">{sub}</div>
       </div>
       <div className="sugg-edit">
-        {rows.length === 0 && (
-          <div className="sugg-edit__empty">{t.settings.suggestedRepliesEmpty}</div>
-        )}
         {rows.map((text, i) => (
           <Fragment key={`${idPrefix}-${i}`}>
           <div className="sugg-edit__row">
@@ -1244,6 +1241,10 @@ function SuggestedRepliesEditor({
               id={`${idPrefix}-${i}`}
               className="param-input sugg-edit__input"
               type="text"
+              // This field manages a LIST; the sentences already live in the
+              // rows above it. The browser's own "you typed this before"
+              // dropdown floats a stale copy over them (owner c-90914e605cdb).
+              autoComplete="off"
               aria-invalid={overCap(text) || undefined}
               placeholder={t.settings.suggestedReplyPlaceholder}
               aria-label={`${label} ${i + 1}`}
