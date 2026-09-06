@@ -591,7 +591,6 @@ func TestLoreCreateRefusesAnEntryNobodyCouldEverFind(t *testing.T) {
 	}
 }
 
-
 // 🔴 THIS TEST LOOKS LIKE A TAUTOLOGY TODAY AND THAT IS THE POINT.
 //
 // api_lore_read.go carries an early return that turns an unparsable revision id

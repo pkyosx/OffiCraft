@@ -447,7 +447,7 @@ func TestPendingLoreEntityCarriesTheFirstEntrysContentAsASample(t *testing.T) {
 	first, err := d.CreateLoreEntry(LoreWrite{
 		Heading: "h", Content: "the fold happens in exactly one place",
 		ImpactStars: 2,
-		Subjects: []string{"repo:offcraft"}, ActorID: "m-writer",
+		Subjects:    []string{"repo:offcraft"}, ActorID: "m-writer",
 	}, 100)
 	if err != nil {
 		t.Fatalf("first write: %v", err)
@@ -455,7 +455,7 @@ func TestPendingLoreEntityCarriesTheFirstEntrysContentAsASample(t *testing.T) {
 	if _, err := d.CreateLoreEntry(LoreWrite{
 		Heading: "h", Content: "a later entry that must NOT be the sample",
 		ImpactStars: 2,
-		Subjects: []string{"repo:offcraft"}, ActorID: "m-writer",
+		Subjects:    []string{"repo:offcraft"}, ActorID: "m-writer",
 	}, 200); err != nil {
 		t.Fatalf("second write: %v", err)
 	}
