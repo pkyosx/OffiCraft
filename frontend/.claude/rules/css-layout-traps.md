@@ -30,7 +30,7 @@ paths:
 
 ⇒ 動這幾格的 padding／radius／border／字級時，兩份一起看；只改一份就會讓兩頁的篩選欄位在同一個畫面上長得不一樣，而測試與 lint 都不會叫。
 
-⚠️ 這一段原本寫「三份」，第三份是 `.replies__clear-filters`／`.tasks__clear-filters` 那一對清除鈕。**它們已經不存在了**：T-93 第二／三輪把兩頁的篩選列換成共用的 `FilterPanel`，清除全部住在面板自己的 已篩選 條上（`filter-panel.css`，單一份，沒有拷貝）。數字會漂移，別再抄一次——動之前用 class 名 grep 回來數。
+⚠️ 這一段原本寫「三份」，第三份是 `.replies__clear-filters`／`.tasks__clear-filters` 那一對清除鈕。**它們已經不存在了**：T-93 第二／三輪把兩頁的篩選列換成共用的 `FilterPanel`，清除全部搬到面板的 已篩選 條上；**T-118 又把那條摘要列整條拿掉了**（owner 2026-09-06 `c-c3d681fe05da`），所以今天**沒有任何「清除全部」控制項**，清空＝逐欄清空。數字會漂移，別再抄一次——動之前用 class 名 grep 回來數。
 
 ## lazy fetch
 

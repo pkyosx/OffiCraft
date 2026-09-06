@@ -18,7 +18,7 @@
  * there a gap there" on someone's phone. The host owns the rhythm.
  *
  * 🔴 NO BORDER AND NO BACKGROUND ON THE ROW EITHER. Round 3 had the fields
- * inside a `.filter-panel__form` card because they only appeared on demand and
+ * inside a card because they only appeared on demand and
  * needed to read as a panel that had opened. They are permanent now, so a frame
  * around them is a box the owner did not ask for — and he has already rejected
  * one extra frame on this exact page (「上面又多了一塊筐感覺很亂」,
