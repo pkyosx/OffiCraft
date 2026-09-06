@@ -80,7 +80,8 @@ def main(argv):
         # The server mints the role key — never client-supplied.
         st, b = req("POST", "/api/roles", {"name": "角色 %d" % i}, tok)
         assert st in (200, 201), ("create role", st, b[:300])
-        rk = json.loads(b)["role"]["key"]
+        # T-91: the create answers a receipt — role_key at the TOP level, no `role`.
+        rk = json.loads(b)["role_key"]
         st, b = req("POST", "/api/roles/" + rk, {"definition_md": DEF}, tok)
         assert st == 200, ("fill role", st, b[:300])
 

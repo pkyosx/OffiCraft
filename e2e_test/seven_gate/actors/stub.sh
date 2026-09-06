@@ -93,15 +93,28 @@ fi
 # ③ 開票
 TASK=""
 # 🔴 T-91: the create answers a RECEIPT whose task id is the TOP-LEVEL `task_id`.
-# It no longer answers {task:{...}}, so the old `jget task.id` read a key that is
-# not there — and `jget` returns "" for a missing key and exits 0, so the read
-# below would have fallen through to the recovery line silently. That recovery
-# picks the FIRST task this agent ever created, which on a re-run is a task from
-# a PREVIOUS scene: the harness would have gone on to drive the wrong task while
-# every step still reported green. Read the receipt's own key.
+# It no longer answers {task:{...}}, so `jget task.id` read a key that is not
+# there — and `jget` prints "" for a missing key and exits 0. Read the receipt's
+# own key.
+#
+# What made that miss invisible is the recovery on the next line, and it is worth
+# saying exactly what the damage was and was NOT. It was NOT "the harness drove a
+# task from a previous run": setup.sh wipes var/data and run.sh mints a fresh
+# AGENT_NAME per run, so this creator owns at most one task and the recovery
+# finds the right one. The damage is that the recovery SUCCEEDS — it hands back a
+# correct id, so every gate downstream stays green and nothing anywhere reports
+# that the documented read stopped working. It masked this for the whole time the
+# bug existed, and it will do the same for the next rename. So it now says so out
+# loud: reaching it is, by construction, evidence that the create response has
+# changed shape again.
 if ! skipped create_task; then
   TASK="$(sg_step create_task POST /api/tasks "$(python3 -c 'import json,sys;print(json.dumps({"title":"seven-gate probe "+sys.argv[1],"description":"七步關卡的載體任務（stub actor）。scene="+sys.argv[1],"executor_member_id":sys.argv[2]}))' "$NONCE" "$AGENT")" | jget task_id)"
-  [[ -n "$TASK" ]] || TASK="$(sg_http GET /api/tasks | python3 -c 'import sys,json;d=json.load(sys.stdin);ts=d.get("tasks",d) if isinstance(d,dict) else d;print(next((t["id"] for t in ts if t.get("creator_id")==sys.argv[1]),""))' "$AGENT")"
+  if [[ -z "$TASK" ]]; then
+    say "🔴 POST /api/tasks did not answer a top-level task_id — the create response has"
+    say "   changed shape. Falling back to a list scan; FIX THE READ ABOVE, because this"
+    say "   fallback keeps the gates below green and hides the change."
+    TASK="$(sg_http GET /api/tasks | python3 -c 'import sys,json;d=json.load(sys.stdin);ts=d.get("tasks",d) if isinstance(d,dict) else d;print(next((t["id"] for t in ts if t.get("creator_id")==sys.argv[1]),""))' "$AGENT")"
+  fi
   say "   task=$TASK"
 fi
 
