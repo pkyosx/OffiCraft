@@ -63,6 +63,10 @@ _PNG_B64 = (
 )
 _PNG_BYTES = base64.b64decode(_PNG_B64)
 
+# The one instruction body the create row writes — named so the row and its
+# echo check cannot drift apart.
+_UPGRADE_INSTRUCTION_BODY = "conf happy 換版交代單 — 記得把 seeds 一起更新"
+
 
 def _auth(token: str | None) -> dict[str, str]:
     return {"Authorization": f"Bearer {token}"} if token else {}
@@ -132,6 +136,8 @@ class HCtx:
     _attachment: tuple[str, bytes] | None = field(default=None, repr=False)
     _put_theme_id: str | None = field(default=None, repr=False)
     _avatar_to_delete_url: str | None = field(default=None, repr=False)
+    _upgrade_ticked: dict | None = field(default=None, repr=False)
+    _upgrade_withdrawn: dict | None = field(default=None, repr=False)
 
     def token(self, identity: str) -> str | None:
         return {"owner": self.owner_token, "agent": self.agent.token, "none": None}[
@@ -1384,6 +1390,114 @@ def _boot_doc_read(kind: str, key: str):
         assert d["has_seed"] is True, d
 
     return check
+
+
+# ── 換版交代單 (T-79) ────────────────────────────────────────────────────────
+
+
+def _happy_upgrade_instruction(hctx: HCtx, body: str | None = None) -> dict:
+    """Write one instruction as the owner (the only identity that may) and hand
+    back the whole row, so the {instruction_id} rows below have a real target."""
+    text = body or f"conf happy instruction {uuid.uuid4().hex[:8]}"
+    r = hctx.client.post(
+        "/api/upgrade-instructions",
+        json={"body": text},
+        headers=_auth(hctx.owner_token),
+    )
+    assert r.status_code == 200, (
+        f"upgrade instruction seed failed: {r.status_code} {r.text}"
+    )
+    return r.json()
+
+
+def _check_upgrade_instruction_list(hctx: HCtx, r: httpx.Response) -> None:
+    """`open_count` is part of the contract precisely because a client that
+    derives it from the array would agree today and disagree the day this list
+    is paged — so it is checked against the rows, and the hand-over ORDER (open
+    first) is checked too, because that order is what the assistant reads."""
+    data = r.json()
+    rows = data["instructions"]
+    assert data["open_count"] == sum(1 for i in rows if not i["done"]), data
+    done_flags = [i["done"] for i in rows]
+    assert done_flags == sorted(done_flags), (
+        f"open instructions must come first in the hand-over order: {done_flags}"
+    )
+    # The row this run just wrote is on the list, open.
+    seeded = _happy_upgrade_instruction(hctx)
+    again = hctx.client.get(
+        "/api/upgrade-instructions", headers=_auth(hctx.owner_token)
+    )
+    assert again.status_code == 200, again.text
+    fresh = again.json()
+    listed = {i["id"]: i for i in fresh["instructions"]}
+    assert seeded["id"] in listed, "a just-written instruction is not on the list"
+    assert listed[seeded["id"]]["body"] == seeded["body"], listed[seeded["id"]]
+    assert listed[seeded["id"]]["done"] is False, listed[seeded["id"]]
+    assert fresh["open_count"] >= 1, fresh
+
+
+def _check_upgrade_instruction_created(_hctx: HCtx, r: httpx.Response) -> None:
+    data = r.json()
+    assert data["id"].startswith("uin-"), data
+    assert data["body"] == _UPGRADE_INSTRUCTION_BODY, data
+    assert data["created_by"], "an instruction must record who wrote it"
+    assert data["created_ts"] > 0, data
+    # Open is the birth state, and the two "who/when" fields stay zero-valued
+    # until somebody ticks it — that separation is the wire contract.
+    assert data["done"] is False, data
+    assert data["done_by"] == "" and data["done_ts"] == 0, data
+
+
+def _happy_upgrade_instruction_done_path(hctx: HCtx) -> str:
+    hctx._upgrade_ticked = _happy_upgrade_instruction(hctx)
+    return f"/api/upgrade-instructions/{hctx._upgrade_ticked['id']}/done"
+
+
+def _check_upgrade_instruction_ticked(hctx: HCtx, r: httpx.Response) -> None:
+    seeded = hctx._upgrade_ticked
+    assert seeded is not None
+    data = r.json()
+    assert data["id"] == seeded["id"] and data["body"] == seeded["body"], data
+    assert data["done"] is True, data
+    assert data["done_by"], "a tick must record WHO did the work"
+    assert data["done_ts"] > 0, data
+    # The tick is durable, not just echoed.
+    listed = hctx.client.get(
+        "/api/upgrade-instructions", headers=_auth(hctx.owner_token)
+    )
+    assert listed.status_code == 200, listed.text
+    row = next(
+        i for i in listed.json()["instructions"] if i["id"] == seeded["id"]
+    )
+    assert row["done"] is True and row["done_by"] == data["done_by"], row
+
+
+def _happy_upgrade_instruction_delete_path(hctx: HCtx) -> str:
+    hctx._upgrade_withdrawn = _happy_upgrade_instruction(hctx)
+    return f"/api/upgrade-instructions/{hctx._upgrade_withdrawn['id']}"
+
+
+def _check_upgrade_instruction_withdrawn(hctx: HCtx, r: httpx.Response) -> None:
+    """Withdraw answers with the row it removed — this is the last moment
+    anyone can read what it said — and the removal is permanent."""
+    seeded = hctx._upgrade_withdrawn
+    assert seeded is not None
+    data = r.json()
+    assert data["id"] == seeded["id"] and data["body"] == seeded["body"], data
+    listed = hctx.client.get(
+        "/api/upgrade-instructions", headers=_auth(hctx.owner_token)
+    )
+    assert listed.status_code == 200, listed.text
+    assert seeded["id"] not in {i["id"] for i in listed.json()["instructions"]}, (
+        "a withdrawn instruction is still on the hand-over list"
+    )
+    again = hctx.client.delete(
+        f"/api/upgrade-instructions/{seeded['id']}",
+        headers=_auth(hctx.owner_token),
+    )
+    assert again.status_code == 404, (
+        f"withdrawing the same instruction twice: {again.status_code} {again.text}"
+    )
 
 
 HAPPY: dict[str, Happy] = {
@@ -2645,6 +2759,25 @@ HAPPY: dict[str, Happy] = {
             r,
             lambda d: d["slug"] == "why" and len(d["markdown_md"]) > 0,
         ),
+    ),
+    # ── 換版交代單 (T-79) ────────────────────────────────────────────────────
+    # Owner across all four: write and withdraw admit nobody else, and while the
+    # list and the tick also admit the assistant, she is a SEEDED member this
+    # table has no identity for. Who may call what is pinned in
+    # test_auth_matrix.py (including her tick); what a permitted call returns is
+    # pinned here.
+    "GET /api/upgrade-instructions": Happy(check=_check_upgrade_instruction_list),
+    "POST /api/upgrade-instructions": Happy(
+        body=lambda _ctx: {"body": _UPGRADE_INSTRUCTION_BODY},
+        check=_check_upgrade_instruction_created,
+    ),
+    "POST /api/upgrade-instructions/{instruction_id}/done": Happy(
+        path=_happy_upgrade_instruction_done_path,
+        check=_check_upgrade_instruction_ticked,
+    ),
+    "DELETE /api/upgrade-instructions/{instruction_id}": Happy(
+        path=_happy_upgrade_instruction_delete_path,
+        check=_check_upgrade_instruction_withdrawn,
     ),
 }
 
@@ -4255,3 +4388,78 @@ def test_command_result_without_reason_folds_empty(hctx: HCtx) -> None:
     row = _member_row(hctx, target)
     assert row["last_op"] == "stop" and row["last_op_reason"] == "", row
     assert row["last_op_log"] == "session=member-x: stopped", row
+
+
+# ── 換版交代單 semantics the happy table cannot express ─────────────────────
+
+
+def test_upgrade_instruction_first_tick_wins(hctx: HCtx) -> None:
+    """A second tick is a 200 that CHANGES NOTHING — including who did the work.
+
+    The assistant is handed the whole open set at every upgrade, so two of her
+    sessions holding the same instruction is the ordinary case; the loser of
+    that race must read a correct answer rather than an error. The pin that
+    matters is not the status but the ATTRIBUTION: the second caller is a
+    DIFFERENT identity from the first, so a last-write-wins implementation would
+    show up as done_by/done_ts moving.
+    """
+    mira_token = mint_member_token(hctx.client, hctx.owner_token, "mira", ttl_days=1)
+    seeded = _happy_upgrade_instruction(hctx)
+    path = f"/api/upgrade-instructions/{seeded['id']}/done"
+
+    first = hctx.client.post(path, headers=_auth(mira_token))
+    assert first.status_code == 200, f"{first.status_code} {first.text}"
+    won = first.json()
+    assert won["done"] is True and won["done_by"] == "mira", won
+
+    second = hctx.client.post(path, headers=_auth(hctx.owner_token))
+    assert second.status_code == 200, (
+        f"a second tick must be a 200, not a conflict: "
+        f"{second.status_code} {second.text}"
+    )
+    again = second.json()
+    assert again["done_by"] == won["done_by"] and again["done_ts"] == won["done_ts"], (
+        f"the second tick overwrote who did the work: {again} vs {won}"
+    )
+
+    listed = hctx.client.get(
+        "/api/upgrade-instructions", headers=_auth(hctx.owner_token)
+    )
+    assert listed.status_code == 200, listed.text
+    row = next(i for i in listed.json()["instructions"] if i["id"] == seeded["id"])
+    assert row["done_by"] == won["done_by"], row
+
+    hctx.client.delete(
+        f"/api/upgrade-instructions/{seeded['id']}",
+        headers=_auth(hctx.owner_token),
+    )
+
+
+def test_upgrade_instruction_blank_body_is_refused(hctx: HCtx) -> None:
+    """A blank instruction would be handed over at every upgrade forever while
+    saying nothing to its reader — 422, and whitespace is blank."""
+    for body in ("", "   ", "\n\t "):
+        r = hctx.client.post(
+            "/api/upgrade-instructions",
+            json={"body": body},
+            headers=_auth(hctx.owner_token),
+        )
+        assert r.status_code == 422, (
+            f"blank body {body!r}: {r.status_code} {r.text}"
+        )
+    # The field itself is required, not merely non-blank.
+    r = hctx.client.post(
+        "/api/upgrade-instructions", json={}, headers=_auth(hctx.owner_token)
+    )
+    assert r.status_code == 422, f"missing body: {r.status_code} {r.text}"
+
+
+def test_upgrade_instruction_unknown_id_is_not_found(hctx: HCtx) -> None:
+    """An id that names nothing is a 404 on both {instruction_id} verbs — a typo
+    announces itself instead of reading as a silent no-op."""
+    for method, path in (
+        ("POST", "/api/upgrade-instructions/uin-nope/done"),
+        ("DELETE", "/api/upgrade-instructions/uin-nope"),
+    ):
+        r = hctx.client.request(method, path, headers=_auth(hctx.owner_token))
+        assert r.status_code == 404, f"{method} {path}: {r.status_code} {r.text}"
