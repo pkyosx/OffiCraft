@@ -1017,7 +1017,13 @@ var identityGateLedger = map[string]string{
 		"is EMPTY on a fresh outsource create (the scheduler mints the worker after " +
 		"this call returns), so the kind is the only thing that separates 「外包票, " +
 		"還沒派工」 from 「這件事不適用」. No decision here — the deciding is the " +
-		"four create-matrix comparisons above, already on this ledger.",
+		"executor-kind comparisons in this same handler, which are already on this " +
+		"ledger. Deliberately not a COUNT: the sibling entry above says \"four\" and " +
+		"a reader who counts gets six, and a hard-coded number in a ledger goes " +
+		"stale with nothing to catch it — grep " +
+		"'HandleCreateTaskApiTasksPost ::' over this file for the live list. That " +
+		"sibling predates T-91 (cdf34aaf, T-170e stage 5), so it is left as it is " +
+		"rather than quietly corrected from inside this package.",
 	"api_tasks.go :: HandleCreateTaskApiTasksPost :: ExecutorKind: existing.ExecutorKind": "" +
 		"the dedupe-hit twin of the line above: the same copy, taken from the " +
 		"EXISTING ticket this call folded onto rather than from the one it stamped. " +
