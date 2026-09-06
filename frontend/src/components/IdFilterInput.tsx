@@ -87,6 +87,15 @@ export function IdFilterInput({
       <input
         type="text"
         className="id-filter"
+        // 🔴 `size={1}` OR THE SIZER ABOVE IS IGNORED. An <input> with no `size`
+        // carries a UA default of 20 characters, and that is an INTRINSIC width:
+        // during the grid's intrinsic sizing pass a percentage width behaves as
+        // `auto`, so the column comes out at max(sizer, 20 characters) and the
+        // input's own default wins nearly always — the `widthCh` knob would go
+        // dead and this field would stay the widest thing on the row, which is
+        // the complaint owner opened (「ID的也太長」). 1, not 0: 0 is invalid and
+        // browsers fall back to the default, which is the bug again.
+        size={1}
         data-testid={testId}
         aria-label={label}
         placeholder={label}

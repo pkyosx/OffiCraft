@@ -496,5 +496,16 @@ describe("任務頁 ID 篩選 — 清除與 hash", () => {
     const sizer = field.firstElementChild as HTMLElement;
     expect(sizer.textContent).toBe(input.placeholder);
     expect(sizer.getAttribute("aria-hidden")).toBe("true");
+    // 🔴 AND THE INPUT MUST NOT BRING A WIDTH OF ITS OWN. An <input> with no
+    // `size` carries a UA default of 20 characters, and that is an INTRINSIC
+    // width — during the grid's intrinsic sizing pass a percentage width
+    // behaves as `auto`, so the column would come out at max(sizer, 20 chars)
+    // and the default would win nearly every time. The count above would go
+    // dead while every assertion in this file stayed green: that is not a
+    // hypothetical, it shipped in 9d2bc496 and the CT guard 「the field is
+    // sized to the id it holds」 is what caught it.
+    expect(input.getAttribute("size"), "the input must not size itself").toBe(
+      "1"
+    );
   });
 });

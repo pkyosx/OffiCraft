@@ -46,6 +46,15 @@
   padding: 7px 10px;
   border: 1px solid transparent;
   font-size: 13px;
+  /* 🔴 `normal`, NOT the inherited 1.5. A span inherits the body's line-height
+   * while an <input> uses the UA's `normal`, so leaving this out makes the sizer
+   * the taller of the two — and since both share one grid cell, the CELL takes
+   * that height and this field ends up a few px taller than the pill triggers
+   * beside it. `.filter-panel__clear` pins its own height to 「the fields' own
+   * height」, so it would go out of line with them too. The sizer matches the
+   * input here rather than the other way round: the input's height is what
+   * ships today and nothing in this change is meant to move it. */
+  line-height: normal;
   /* The caller sets `--id-filter-ch` to the LENGTH OF THE ID this field holds
    * (see IdFilterInput's widthCh); no literal width lives here, because one
    * would freeze one page's id shape onto every page that hosts this field.
