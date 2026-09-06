@@ -5917,6 +5917,74 @@
         "additionalProperties": false,
         "type": "object"
       },
+      "AgentLifecycleReceiptDTO": {
+        "description": "Bounded receipt for the TWELVE agent-lifecycle writes whose entire answer was a re-read of the row they had just written (T-91, owner 2026-09-06). Seven staff routes — ``POST /api/members`` (hire_member), ``PATCH`` (update_member), ``DELETE`` (dismiss_member), ``/deactivate``, ``/refocus``, ``/force-stop``, ``/accelerated-stop`` — answered the whole MemberDTO, 33 fields flattened; five worker routes — ``/stop``, ``/model``, ``/refocus``, ``/force-stop``, ``/accelerated-stop`` — answered the whole OutsourceWorkerDTO, 42 fields. All twelve are agent-callable MCP tools, so those answers land in a model's context.\n\nWHY ID ALONE IS THE WHOLE OF THE NEWS HERE, stated as something that can be checked rather than asserted: each of the twelve handlers ends on the shared projection fold (writeMemberDTO / writeWorkerProjection) with NO response-only mutation. The whole server has exactly five of those — api_members.go:1104, 1278 and 1287, api_outsource.go:357 and 361 — and every one belongs to activate or to a relocate, which is why those three routes have receipts of their own and these twelve do not. So nothing on this wire was unrecoverable: ``get_member`` and ``list_outsource_workers`` serve all of it, at the moment the caller actually wants it rather than at the moment it wrote.\n\nTHE COCKPIT LOSES NOTHING, checked call site by call site rather than inferred from the adapter: all twelve are awaited for their completion and their value discarded (frontend/src/components/OfficePage.tsx, MemberDetailPanel.tsx, MonitorPage.tsx). Two adapters did parse the answer on the way past — ``patchMember`` returned ``toMember(wire)`` and the five worker verbs returned ``toOutsourceWorker(wire)`` — and no caller read what they returned; those adapters answer ``void`` in the same change, which is what every one of their callers already treated them as.",
+        "properties": {
+          "id": {
+            "description": "The agent this write acted on. On eleven of the twelve routes it is the caller's own path parameter, kept for the reason the restart receipt keeps it: a receipt that cannot say which agent it acted on is unreadable next to a log of several. On ``POST /api/members`` it is the one piece of genuine news on the wire — the server mints the id, and a caller that dropped it would have to search the roster for the row it had just created.",
+            "title": "Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "title": "AgentLifecycleReceiptDTO",
+        "additionalProperties": false,
+        "type": "object"
+      },
+      "MemberActivateReceiptDTO": {
+        "description": "Bounded receipt for ``POST /api/members/{member_id}/activate`` (activate_member) (T-91, owner 2026-09-06). It answered the whole MemberDTO, 33 fields flattened, and it is agent-callable, so that answer lands in a model's context.\n\nTHIS ONE CANNOT COLLAPSE TO AN ID, and for the same reason its worker twin cannot (OutsourceRestartReceiptDTO): ``activation_pending`` is computed at dispatch time and written onto the RESPONSE ONLY (api_members.go:1103-1104). It is one of the three flags this document describes as set only on this kind of response and absent or null on every other read, so a caller that drops it cannot ask again — there is no row to ask. The cockpit already depends on exactly this: frontend/src/api/http.ts activateMember returns ``{activationPending: wire.activation_pending === true}`` and the 喚醒中… button stays put on true.\n\n``last_op_reason`` rides beside it for the reason api_members.go:1105-1112 gives in its own words — the flag is one bit and at least four different states reach it, so the handler stamps WHICH one on the row before answering. Unlike the flag this one IS recoverable from ``get_member``; it is kept because a caller holding a pending bit with no cause has to make a second call to act on the first, which is the round trip this whole reshape exists to remove. Everything else the DTO carried is the member's stored row, which ``get_member`` serves.",
+        "properties": {
+          "id": {
+            "description": "The member this activation was aimed at — the caller's own path parameter, kept because a receipt that cannot say which member it acted on is unreadable next to a log of several.",
+            "title": "Id",
+            "type": "string"
+          },
+          "activation_pending": {
+            "description": "True when the activation intent was STORED but no START went out on this attempt — a warden that would not take it, an unbuildable start frame (missing persona or token), a backoff, an open circuit. It is a POSITIVE determination rather than a list of known failures: the handler asks whether a START actually went out, so failure modes not yet invented answer honestly here too. Absent when the member was already online or the start landed. It is here or nowhere: the flag is set only on responses of this kind and is absent or null on every other read of the member.",
+            "title": "Activation Pending",
+            "type": "boolean"
+          },
+          "last_op_reason": {
+            "description": "WHICH cause, as a structured ``<code>: <detail>`` line, stamped on the row by the same handler before it answers. An arm that named no code falls back to the generic \"活化 was recorded, but nothing has been dispatched yet\". Empty when there is no refusal to report.",
+            "title": "Last Op Reason",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "title": "MemberActivateReceiptDTO",
+        "additionalProperties": false,
+        "type": "object"
+      },
+      "AgentRelocateReceiptDTO": {
+        "description": "Bounded receipt shared by BOTH relocate routes — ``POST /api/members/{member_id}/relocate`` (relocate_member) and ``POST /api/outsource-workers/{id}/relocate`` (T-91, owner 2026-09-06). They answered the whole MemberDTO (33 fields) and the whole OutsourceWorkerDTO (42 fields) respectively.\n\nONE RECEIPT FOR THE TWO IS WHAT MAKES THIS PAGE TRUE, not a tidy-up. The member route accepts an ow- id as well — the verb is \"move one agent\" — and delegates it to relocateWorkerByID (api_members.go:1181-1185), which writes the WORKER projection. So that route could already answer an OutsourceWorkerDTO while this document said MemberDTO. The two answers are now the same three fields whichever kind of agent was named, and the disagreement is gone rather than documented.\n\nNEITHER FLAG IS RECOVERABLE, which is why this is not an id-only receipt: both are computed at dispatch time and written onto the RESPONSE ONLY — api_members.go:1278 and 1287 for the member arm, api_outsource.go:357 and 361 for the worker arm. The cockpit reads both on the member arm (frontend/src/api/http.ts relocateMember) and discards the worker arm's answer entirely. Everything else the two DTOs carried is the stored row, which ``get_member`` and ``list_outsource_workers`` serve.",
+        "properties": {
+          "id": {
+            "description": "The agent this relocate was aimed at — the caller's own path parameter, kept because a receipt that cannot say which agent it acted on is unreadable next to a log of several.",
+            "title": "Id",
+            "type": "string"
+          },
+          "relocation_pending": {
+            "description": "True when the move is SCHEDULED BUT NOT LANDED. The pin itself is persisted before any dispatch, so a relocate never fails on dispatch — and that is what made a clean 200 dangerous. Two different non-landings reach this flag: a decided recycle STOP/START the target warden would not accept, and a wind-down opened by design so nothing has been dispatched yet. Absent means nothing was left undelivered; it does NOT mean the agent is already running on the pin. The cadence retries the pinned move regardless.",
+            "title": "Relocation Pending",
+            "type": "boolean"
+          },
+          "relocation_deferred": {
+            "description": "WHICH of ``relocation_pending``'s two causes this is: true means a deliberately deferred move — a wind-down is open and the agent keeps running on the old machine until its own 收口 — rather than a delivery failure. A caller must hold back the \"nothing was dispatched\" alert for this case; the cockpit does exactly that.",
+            "title": "Relocation Deferred",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "title": "AgentRelocateReceiptDTO",
+        "additionalProperties": false,
+        "type": "object"
+      },
       "SettingsDTO": {
         "description": "The org-adjustable settings surface (`GET /api/settings`; owner or admin agent). `owner_token_ttl` controls owner-login JWTs; `agent_token_ttl` controls member and outsource-worker JWTs. They are independent and apply to newly minted tokens. Existing deployments migrate their former shared `auth.token_ttl` value into both successor settings, preserving current behaviour.",
         "properties": {
@@ -13684,7 +13752,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/MemberDTO"
+                  "$ref": "#/components/schemas/AgentLifecycleReceiptDTO"
                 }
               }
             },
@@ -13721,14 +13789,14 @@
             "description": "Server error (unified error envelope)."
           }
         },
-        "summary": "Hire a member (server mints the id). An omitted runtime is stored UNSET and resolved from the target host's reported runtime capabilities at first placement (a codex-only host grows a codex member) rather than written as claude; only claude/codex are accepted when you do name one; effort defaults to medium and is validated; a hire that names kind or role_key is admin-gated.",
+        "summary": "Hire a member (server mints the id). An omitted runtime is stored UNSET and resolved from the target host's reported runtime capabilities at first placement (a codex-only host grows a codex member) rather than written as claude; only claude/codex are accepted when you do name one; effort defaults to medium and is validated; a hire that names kind or role_key is admin-gated. Answers with a bounded receipt (``id``), not the roster row — call ``get_member`` when you need the rest.",
         "x-mcp": {
           "include": true,
           "order": 6,
           "name": "hire_member",
-          "description": "Hire a member (server mints the id). An omitted runtime is stored UNSET and resolved from the target host's reported runtime capabilities at first placement (a codex-only host grows a codex member) rather than written as claude; only claude/codex are accepted when you do name one; effort defaults to medium and is validated; a hire that names kind or role_key is admin-gated.",
+          "description": "Hire a member (server mints the id). An omitted runtime is stored UNSET and resolved from the target host's reported runtime capabilities at first placement (a codex-only host grows a codex member) rather than written as claude; only claude/codex are accepted when you do name one; effort defaults to medium and is validated; a hire that names kind or role_key is admin-gated. Answers with a bounded receipt (``id``), not the roster row — call ``get_member`` when you need the rest.",
           "legacy": {
-            "descriptor": "{\n      \"description\": \"Hire a member (server mints the id). An omitted runtime is stored UNSET and resolved from the target host's reported runtime capabilities at first placement (a codex-only host grows a codex member) rather than written as claude; only claude/codex are accepted when you do name one; effort defaults to medium and is validated; a hire that names kind or role_key is admin-gated.\",\n      \"inputSchema\": {\n        \"properties\": {\n          \"effort\": {\n            \"anyOf\": [\n              {\n                \"type\": \"string\"\n              },\n              {\n                \"type\": \"null\"\n              }\n            ],\n            \"default\": null,\n            \"title\": \"Effort\"\n          },\n          \"kind\": {\n            \"anyOf\": [\n              {\n                \"type\": \"string\"\n              },\n              {\n                \"type\": \"null\"\n              }\n            ],\n            \"default\": null,\n            \"title\": \"Kind\"\n          },\n          \"model\": {\n            \"anyOf\": [\n              {\n                \"type\": \"string\"\n              },\n              {\n                \"type\": \"null\"\n              }\n            ],\n            \"default\": null,\n            \"description\": \"Model the new member launches with. There is no model whitelist anywhere in the server: runtime and effort are validated against closed sets and 422 on an unknown value, while this string is stored exactly as sent. A misspelt or retired model name is accepted with 200 and becomes visible only much later, when the member fails to spawn. Blank is legal and leaves the launcher's default.\",\n            \"title\": \"Model\"\n          },\n          \"name\": {\n            \"title\": \"Name\",\n            \"type\": \"string\"\n          },\n          \"role_key\": {\n            \"anyOf\": [\n              {\n                \"type\": \"string\"\n              },\n              {\n                \"type\": \"null\"\n              }\n            ],\n            \"default\": null,\n            \"description\": \"Role to hire the member into. Supplying it at all is privilege-bearing - a caller below admin-agent is a flat 403 - but the value itself is never checked against the role table: a key nobody defined is stored verbatim and the member is created, 200. Your role_key is echoed back unchanged, so the only thing in the response that separates a typo from a real role is role_name, which comes back as an empty string.\",\n            \"title\": \"Role Key\"\n          },\n          \"runtime\": {\n            \"anyOf\": [\n              {\n                \"enum\": [\n                  \"claude\",\n                  \"codex\"\n                ],\n                \"type\": \"string\"\n              },\n              {\n                \"type\": \"null\"\n              }\n            ],\n            \"default\": null,\n            \"title\": \"Runtime\"\n          }\n        },\n        \"required\": [\n          \"name\"\n        ],\n        \"additionalProperties\": false,\n        \"type\": \"object\"\n      },\n      \"name\": \"hire_member\"\n    }"
+            "descriptor": "{\n      \"description\": \"Hire a member (server mints the id). An omitted runtime is stored UNSET and resolved from the target host's reported runtime capabilities at first placement (a codex-only host grows a codex member) rather than written as claude; only claude/codex are accepted when you do name one; effort defaults to medium and is validated; a hire that names kind or role_key is admin-gated. Answers with a bounded receipt (``id``), not the roster row \\u2014 call ``get_member`` when you need the rest.\",\n      \"inputSchema\": {\n        \"properties\": {\n          \"effort\": {\n            \"anyOf\": [\n              {\n                \"type\": \"string\"\n              },\n              {\n                \"type\": \"null\"\n              }\n            ],\n            \"default\": null,\n            \"title\": \"Effort\"\n          },\n          \"kind\": {\n            \"anyOf\": [\n              {\n                \"type\": \"string\"\n              },\n              {\n                \"type\": \"null\"\n              }\n            ],\n            \"default\": null,\n            \"title\": \"Kind\"\n          },\n          \"model\": {\n            \"anyOf\": [\n              {\n                \"type\": \"string\"\n              },\n              {\n                \"type\": \"null\"\n              }\n            ],\n            \"default\": null,\n            \"description\": \"Model the new member launches with. There is no model whitelist anywhere in the server: runtime and effort are validated against closed sets and 422 on an unknown value, while this string is stored exactly as sent. A misspelt or retired model name is accepted with 200 and becomes visible only much later, when the member fails to spawn. Blank is legal and leaves the launcher's default.\",\n            \"title\": \"Model\"\n          },\n          \"name\": {\n            \"title\": \"Name\",\n            \"type\": \"string\"\n          },\n          \"role_key\": {\n            \"anyOf\": [\n              {\n                \"type\": \"string\"\n              },\n              {\n                \"type\": \"null\"\n              }\n            ],\n            \"default\": null,\n            \"description\": \"Role to hire the member into. Supplying it at all is privilege-bearing - a caller below admin-agent is a flat 403 - but the value itself is never checked against the role table: a key nobody defined is stored verbatim and the member is created, 200. Your role_key is echoed back unchanged, so the only thing in the response that separates a typo from a real role is role_name, which comes back as an empty string.\",\n            \"title\": \"Role Key\"\n          },\n          \"runtime\": {\n            \"anyOf\": [\n              {\n                \"enum\": [\n                  \"claude\",\n                  \"codex\"\n                ],\n                \"type\": \"string\"\n              },\n              {\n                \"type\": \"null\"\n              }\n            ],\n            \"default\": null,\n            \"title\": \"Runtime\"\n          }\n        },\n        \"required\": [\n          \"name\"\n        ],\n        \"additionalProperties\": false,\n        \"type\": \"object\"\n      },\n      \"name\": \"hire_member\"\n    }"
           }
         }
       }
@@ -13753,7 +13821,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/MemberDTO"
+                  "$ref": "#/components/schemas/AgentLifecycleReceiptDTO"
                 }
               }
             },
@@ -13790,14 +13858,14 @@
             "description": "Server error (unified error envelope)."
           }
         },
-        "summary": "Dismiss a member (soft delete). Pure seam, no UI (§9.1).",
+        "summary": "Dismiss a member (soft delete). Pure seam, no UI (§9.1). Answers with a bounded receipt (``id``), not the roster row — call ``get_member`` when you need the rest.",
         "x-mcp": {
           "include": true,
           "order": 18,
           "name": "dismiss_member",
-          "description": "Dismiss a member (soft delete). Pure seam, no UI (§9.1).",
+          "description": "Dismiss a member (soft delete). Pure seam, no UI (§9.1). Answers with a bounded receipt (``id``), not the roster row — call ``get_member`` when you need the rest.",
           "legacy": {
-            "descriptor": "{\n      \"description\": \"Dismiss a member (soft delete). Pure seam, no UI (\\u00a79.1).\",\n      \"inputSchema\": {\n        \"properties\": {\n          \"member_id\": {\n            \"type\": \"string\"\n          }\n        },\n        \"required\": [\n          \"member_id\"\n        ],\n        \"additionalProperties\": false,\n        \"type\": \"object\"\n      },\n      \"name\": \"dismiss_member\"\n    }"
+            "descriptor": "{\n      \"description\": \"Dismiss a member (soft delete). Pure seam, no UI (\\u00a79.1). Answers with a bounded receipt (``id``), not the roster row \\u2014 call ``get_member`` when you need the rest.\",\n      \"inputSchema\": {\n        \"properties\": {\n          \"member_id\": {\n            \"type\": \"string\"\n          }\n        },\n        \"required\": [\n          \"member_id\"\n        ],\n        \"additionalProperties\": false,\n        \"type\": \"object\"\n      },\n      \"name\": \"dismiss_member\"\n    }"
           }
         }
       },
@@ -13897,7 +13965,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/MemberDTO"
+                  "$ref": "#/components/schemas/AgentLifecycleReceiptDTO"
                 }
               }
             },
@@ -13934,14 +14002,14 @@
             "description": "Server error (unified error envelope)."
           }
         },
-        "summary": "Partially update a member's name / runtime / model / effort. Blank name, invalid runtime or invalid effort → 422, and changing a launch-intent field arms a graceful handover.",
+        "summary": "Partially update a member's name / runtime / model / effort. Blank name, invalid runtime or invalid effort → 422, and changing a launch-intent field arms a graceful handover. Answers with a bounded receipt (``id``), not the roster row — call ``get_member`` when you need the rest.",
         "x-mcp": {
           "include": true,
           "order": 8,
           "name": "update_member",
-          "description": "Partially update a member's name / runtime / model / effort. Blank name, invalid runtime or invalid effort → 422, and changing a launch-intent field arms a graceful handover.",
+          "description": "Partially update a member's name / runtime / model / effort. Blank name, invalid runtime or invalid effort → 422, and changing a launch-intent field arms a graceful handover. Answers with a bounded receipt (``id``), not the roster row — call ``get_member`` when you need the rest.",
           "legacy": {
-            "descriptor": "{\n      \"description\": \"Partially update a member's name / runtime / model / effort. Blank name, invalid runtime or invalid effort → 422, and changing a launch-intent field arms a graceful handover.\",\n      \"inputSchema\": {\n        \"properties\": {\n          \"effort\": {\n            \"anyOf\": [\n              {\n                \"type\": \"string\"\n              },\n              {\n                \"type\": \"null\"\n              }\n            ],\n            \"default\": null,\n            \"title\": \"Effort\"\n          },\n          \"member_id\": {\n            \"type\": \"string\"\n          },\n          \"model\": {\n            \"anyOf\": [\n              {\n                \"type\": \"string\"\n              },\n              {\n                \"type\": \"null\"\n              }\n            ],\n            \"default\": null,\n            \"description\": \"New launch model for the member. Unlike name - which is refused when blank - this field is written exactly as sent, with no whitelist and no blank check. And it is not a passive edit: a value DIFFERENT from the stored one arms the same graceful wind-down a refocus uses, so the member finishes what it is doing and comes back on the new value. A typo therefore does not just sit in a column, it recycles a working member onto a model nothing has checked. Re-sending the value the member already carries arms nothing.\",\n            \"title\": \"Model\"\n          },\n          \"name\": {\n            \"anyOf\": [\n              {\n                \"type\": \"string\"\n              },\n              {\n                \"type\": \"null\"\n              }\n            ],\n            \"default\": null,\n            \"title\": \"Name\"\n          },\n          \"runtime\": {\n            \"anyOf\": [\n              {\n                \"enum\": [\n                  \"claude\",\n                  \"codex\"\n                ],\n                \"type\": \"string\"\n              },\n              {\n                \"type\": \"null\"\n              }\n            ],\n            \"default\": null,\n            \"title\": \"Runtime\"\n          }\n        },\n        \"required\": [\n          \"member_id\"\n        ],\n        \"additionalProperties\": false,\n        \"type\": \"object\"\n      },\n      \"name\": \"update_member\"\n    }"
+            "descriptor": "{\n      \"description\": \"Partially update a member's name / runtime / model / effort. Blank name, invalid runtime or invalid effort → 422, and changing a launch-intent field arms a graceful handover. Answers with a bounded receipt (``id``), not the roster row — call ``get_member`` when you need the rest.\",\n      \"inputSchema\": {\n        \"properties\": {\n          \"effort\": {\n            \"anyOf\": [\n              {\n                \"type\": \"string\"\n              },\n              {\n                \"type\": \"null\"\n              }\n            ],\n            \"default\": null,\n            \"title\": \"Effort\"\n          },\n          \"member_id\": {\n            \"type\": \"string\"\n          },\n          \"model\": {\n            \"anyOf\": [\n              {\n                \"type\": \"string\"\n              },\n              {\n                \"type\": \"null\"\n              }\n            ],\n            \"default\": null,\n            \"description\": \"New launch model for the member. Unlike name - which is refused when blank - this field is written exactly as sent, with no whitelist and no blank check. And it is not a passive edit: a value DIFFERENT from the stored one arms the same graceful wind-down a refocus uses, so the member finishes what it is doing and comes back on the new value. A typo therefore does not just sit in a column, it recycles a working member onto a model nothing has checked. Re-sending the value the member already carries arms nothing.\",\n            \"title\": \"Model\"\n          },\n          \"name\": {\n            \"anyOf\": [\n              {\n                \"type\": \"string\"\n              },\n              {\n                \"type\": \"null\"\n              }\n            ],\n            \"default\": null,\n            \"title\": \"Name\"\n          },\n          \"runtime\": {\n            \"anyOf\": [\n              {\n                \"enum\": [\n                  \"claude\",\n                  \"codex\"\n                ],\n                \"type\": \"string\"\n              },\n              {\n                \"type\": \"null\"\n              }\n            ],\n            \"default\": null,\n            \"title\": \"Runtime\"\n          }\n        },\n        \"required\": [\n          \"member_id\"\n        ],\n        \"additionalProperties\": false,\n        \"type\": \"object\"\n      },\n      \"name\": \"update_member\"\n    }"
           }
         }
       }
@@ -14217,7 +14285,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/MemberDTO"
+                  "$ref": "#/components/schemas/MemberActivateReceiptDTO"
                 }
               }
             },
@@ -14254,14 +14322,14 @@
             "description": "Server error (unified error envelope)."
           }
         },
-        "summary": "Activate: write desired_state=online intent (does NOT flip online).",
+        "summary": "Activate: write desired_state=online intent (does NOT flip online). Answers with a bounded receipt (``id``, ``activation_pending``, ``last_op_reason``), not the roster row — call ``get_member`` when you need the rest.",
         "x-mcp": {
           "include": true,
           "order": 9,
           "name": "activate_member",
-          "description": "Activate: write desired_state=online intent (does NOT flip online).",
+          "description": "Activate: write desired_state=online intent (does NOT flip online). Answers with a bounded receipt (``id``, ``activation_pending``, ``last_op_reason``), not the roster row — call ``get_member`` when you need the rest.",
           "legacy": {
-            "descriptor": "{\n      \"description\": \"Activate: write desired_state=online intent (does NOT flip online).\",\n      \"inputSchema\": {\n        \"properties\": {\n          \"machine_id\": {\n            \"anyOf\": [\n              {\n                \"type\": \"string\"\n              },\n              {\n                \"type\": \"null\"\n              }\n            ],\n            \"default\": null,\n            \"title\": \"Machine Id\"\n          },\n          \"member_id\": {\n            \"type\": \"string\"\n          }\n        },\n        \"required\": [\n          \"member_id\"\n        ],\n        \"additionalProperties\": false,\n        \"type\": \"object\"\n      },\n      \"name\": \"activate_member\"\n    }"
+            "descriptor": "{\n      \"description\": \"Activate: write desired_state=online intent (does NOT flip online). Answers with a bounded receipt (``id``, ``activation_pending``, ``last_op_reason``), not the roster row \\u2014 call ``get_member`` when you need the rest.\",\n      \"inputSchema\": {\n        \"properties\": {\n          \"machine_id\": {\n            \"anyOf\": [\n              {\n                \"type\": \"string\"\n              },\n              {\n                \"type\": \"null\"\n              }\n            ],\n            \"default\": null,\n            \"title\": \"Machine Id\"\n          },\n          \"member_id\": {\n            \"type\": \"string\"\n          }\n        },\n        \"required\": [\n          \"member_id\"\n        ],\n        \"additionalProperties\": false,\n        \"type\": \"object\"\n      },\n      \"name\": \"activate_member\"\n    }"
           }
         }
       }
@@ -14286,7 +14354,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/MemberDTO"
+                  "$ref": "#/components/schemas/AgentLifecycleReceiptDTO"
                 }
               }
             },
@@ -14323,14 +14391,14 @@
             "description": "Server error (unified error envelope)."
           }
         },
-        "summary": "Deactivate: desired_state=offline + stamp stopping_since (retains row).",
+        "summary": "Deactivate: desired_state=offline + stamp stopping_since (retains row). Answers with a bounded receipt (``id``), not the roster row — call ``get_member`` when you need the rest.",
         "x-mcp": {
           "include": true,
           "order": 11,
           "name": "deactivate_member",
-          "description": "Deactivate: desired_state=offline + stamp stopping_since (retains row).",
+          "description": "Deactivate: desired_state=offline + stamp stopping_since (retains row). Answers with a bounded receipt (``id``), not the roster row — call ``get_member`` when you need the rest.",
           "legacy": {
-            "descriptor": "{\n      \"description\": \"Deactivate: desired_state=offline + stamp stopping_since (retains row).\",\n      \"inputSchema\": {\n        \"properties\": {\n          \"member_id\": {\n            \"type\": \"string\"\n          }\n        },\n        \"required\": [\n          \"member_id\"\n        ],\n        \"additionalProperties\": false,\n        \"type\": \"object\"\n      },\n      \"name\": \"deactivate_member\"\n    }"
+            "descriptor": "{\n      \"description\": \"Deactivate: desired_state=offline + stamp stopping_since (retains row). Answers with a bounded receipt (``id``), not the roster row \\u2014 call ``get_member`` when you need the rest.\",\n      \"inputSchema\": {\n        \"properties\": {\n          \"member_id\": {\n            \"type\": \"string\"\n          }\n        },\n        \"required\": [\n          \"member_id\"\n        ],\n        \"additionalProperties\": false,\n        \"type\": \"object\"\n      },\n      \"name\": \"deactivate_member\"\n    }"
           }
         }
       }
@@ -14355,7 +14423,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/MemberDTO"
+                  "$ref": "#/components/schemas/AgentLifecycleReceiptDTO"
                 }
               }
             },
@@ -14392,14 +14460,14 @@
             "description": "Server error (unified error envelope)."
           }
         },
-        "summary": "Force-stop: robust STOP now. On the offboard arm the server starts no clock of its own -- collection is the agent's report_stopped, the deadline the owner opens with 加速停止, or this.",
+        "summary": "Force-stop: robust STOP now. On the offboard arm the server starts no clock of its own -- collection is the agent's report_stopped, the deadline the owner opens with 加速停止, or this. Answers with a bounded receipt (``id``), not the roster row — call ``get_member`` when you need the rest.",
         "x-mcp": {
           "include": true,
           "order": 12,
           "name": "force_stop_member",
-          "description": "Force-stop: robust STOP now. On the offboard arm the server starts no clock of its own -- collection is the agent's report_stopped, the deadline the owner opens with 加速停止, or this.",
+          "description": "Force-stop: robust STOP now. On the offboard arm the server starts no clock of its own -- collection is the agent's report_stopped, the deadline the owner opens with 加速停止, or this. Answers with a bounded receipt (``id``), not the roster row — call ``get_member`` when you need the rest.",
           "legacy": {
-            "descriptor": "{\n      \"description\": \"Force-stop: robust STOP now. On the offboard arm the server starts no clock of its own -- collection is the agent's report_stopped, the deadline the owner opens with 加速停止, or this.\",\n      \"inputSchema\": {\n        \"properties\": {\n          \"member_id\": {\n            \"type\": \"string\"\n          }\n        },\n        \"required\": [\n          \"member_id\"\n        ],\n        \"additionalProperties\": false,\n        \"type\": \"object\"\n      },\n      \"name\": \"force_stop_member\"\n    }"
+            "descriptor": "{\n      \"description\": \"Force-stop: robust STOP now. On the offboard arm the server starts no clock of its own -- collection is the agent's report_stopped, the deadline the owner opens with 加速停止, or this. Answers with a bounded receipt (``id``), not the roster row — call ``get_member`` when you need the rest.\",\n      \"inputSchema\": {\n        \"properties\": {\n          \"member_id\": {\n            \"type\": \"string\"\n          }\n        },\n        \"required\": [\n          \"member_id\"\n        ],\n        \"additionalProperties\": false,\n        \"type\": \"object\"\n      },\n      \"name\": \"force_stop_member\"\n    }"
           }
         }
       }
@@ -14424,7 +14492,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/MemberDTO"
+                  "$ref": "#/components/schemas/AgentLifecycleReceiptDTO"
                 }
               }
             },
@@ -14461,14 +14529,14 @@
             "description": "Server error (unified error envelope)."
           }
         },
-        "summary": "加速停止: put an ALREADY-OPEN wind-down on the stop.accelerated_grace_secs clock and tell the member. 409 if nothing is winding down -- press 停止 first. Middle rung of 停止 -> 加速停止 -> 強制停止.",
+        "summary": "加速停止: put an ALREADY-OPEN wind-down on the stop.accelerated_grace_secs clock and tell the member. 409 if nothing is winding down -- press 停止 first. Middle rung of 停止 -> 加速停止 -> 強制停止. Answers with a bounded receipt (``id``), not the roster row — call ``get_member`` when you need the rest.",
         "x-mcp": {
           "include": true,
           "order": 123,
           "name": "accelerated_stop_member",
-          "description": "加速停止: put an ALREADY-OPEN wind-down on the stop.accelerated_grace_secs clock and tell the member. 409 if nothing is winding down -- press 停止 first. Middle rung of 停止 -> 加速停止 -> 強制停止.",
+          "description": "加速停止: put an ALREADY-OPEN wind-down on the stop.accelerated_grace_secs clock and tell the member. 409 if nothing is winding down -- press 停止 first. Middle rung of 停止 -> 加速停止 -> 強制停止. Answers with a bounded receipt (``id``), not the roster row — call ``get_member`` when you need the rest.",
           "legacy": {
-            "descriptor": "{\n      \"description\": \"\\u52a0\\u901f\\u505c\\u6b62: put an ALREADY-OPEN wind-down on the stop.accelerated_grace_secs clock and tell the member. 409 if nothing is winding down -- press \\u505c\\u6b62 first. Middle rung of \\u505c\\u6b62 -> \\u52a0\\u901f\\u505c\\u6b62 -> \\u5f37\\u5236\\u505c\\u6b62.\",\n      \"inputSchema\": {\n        \"properties\": {\n          \"member_id\": {\n            \"type\": \"string\"\n          }\n        },\n        \"required\": [\n          \"member_id\"\n        ],\n        \"type\": \"object\"\n      },\n      \"name\": \"accelerated_stop_member\"\n    }"
+            "descriptor": "{\n      \"description\": \"\\u52a0\\u901f\\u505c\\u6b62: put an ALREADY-OPEN wind-down on the stop.accelerated_grace_secs clock and tell the member. 409 if nothing is winding down -- press \\u505c\\u6b62 first. Middle rung of \\u505c\\u6b62 -> \\u52a0\\u901f\\u505c\\u6b62 -> \\u5f37\\u5236\\u505c\\u6b62. Answers with a bounded receipt (``id``), not the roster row \\u2014 call ``get_member`` when you need the rest.\",\n      \"inputSchema\": {\n        \"properties\": {\n          \"member_id\": {\n            \"type\": \"string\"\n          }\n        },\n        \"required\": [\n          \"member_id\"\n        ],\n        \"type\": \"object\"\n      },\n      \"name\": \"accelerated_stop_member\"\n    }"
           }
         }
       }
@@ -14493,7 +14561,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/MemberDTO"
+                  "$ref": "#/components/schemas/AgentLifecycleReceiptDTO"
                 }
               }
             },
@@ -14530,14 +14598,14 @@
             "description": "Server error (unified error envelope)."
           }
         },
-        "summary": "Refocus a member's context (online-only, else 409).",
+        "summary": "Refocus a member's context (online-only, else 409). Answers with a bounded receipt (``id``), not the roster row — call ``get_member`` when you need the rest.",
         "x-mcp": {
           "include": true,
           "order": 17,
           "name": "refocus_member",
-          "description": "Refocus a member's context (online-only, else 409).",
+          "description": "Refocus a member's context (online-only, else 409). Answers with a bounded receipt (``id``), not the roster row — call ``get_member`` when you need the rest.",
           "legacy": {
-            "descriptor": "{\n      \"description\": \"Refocus a member's context (online-only, else 409).\",\n      \"inputSchema\": {\n        \"properties\": {\n          \"member_id\": {\n            \"type\": \"string\"\n          }\n        },\n        \"required\": [\n          \"member_id\"\n        ],\n        \"additionalProperties\": false,\n        \"type\": \"object\"\n      },\n      \"name\": \"refocus_member\"\n    }"
+            "descriptor": "{\n      \"description\": \"Refocus a member's context (online-only, else 409). Answers with a bounded receipt (``id``), not the roster row \\u2014 call ``get_member`` when you need the rest.\",\n      \"inputSchema\": {\n        \"properties\": {\n          \"member_id\": {\n            \"type\": \"string\"\n          }\n        },\n        \"required\": [\n          \"member_id\"\n        ],\n        \"additionalProperties\": false,\n        \"type\": \"object\"\n      },\n      \"name\": \"refocus_member\"\n    }"
           }
         }
       }
@@ -14572,7 +14640,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/MemberDTO"
+                  "$ref": "#/components/schemas/AgentRelocateReceiptDTO"
                 }
               }
             },
@@ -14609,14 +14677,14 @@
             "description": "Server error (unified error envelope)."
           }
         },
-        "summary": "Relocate a member to a machine (placement only; never touches desired_state). Also accepts an outsource-worker id: the same move-one-agent verb relocates the worker. machine_id is REQUIRED (owner 2026-07-27): a relocate NAMES the destination machine and no longer doubles as an unpin — an absent key is a 422, an explicit null or \"\" is a 400.",
+        "summary": "Relocate a member to a machine (placement only; never touches desired_state). Also accepts an outsource-worker id: the same move-one-agent verb relocates the worker. machine_id is REQUIRED (owner 2026-07-27): a relocate NAMES the destination machine and no longer doubles as an unpin — an absent key is a 422, an explicit null or \"\" is a 400. Answers with a bounded receipt (``id``, ``relocation_pending``, ``relocation_deferred``), not the roster row — call ``get_member`` when you need the rest.",
         "x-mcp": {
           "include": true,
           "order": 10,
           "name": "relocate_member",
-          "description": "Relocate a member to a machine (placement only; never touches desired_state). Also accepts an outsource-worker id: the same move-one-agent verb relocates the worker. machine_id is REQUIRED (owner 2026-07-27): a relocate NAMES the destination machine and no longer doubles as an unpin — an absent key is a 422, an explicit null or \"\" is a 400.",
+          "description": "Relocate a member to a machine (placement only; never touches desired_state). Also accepts an outsource-worker id: the same move-one-agent verb relocates the worker. machine_id is REQUIRED (owner 2026-07-27): a relocate NAMES the destination machine and no longer doubles as an unpin — an absent key is a 422, an explicit null or \"\" is a 400. Answers with a bounded receipt (``id``, ``relocation_pending``, ``relocation_deferred``), not the roster row — call ``get_member`` when you need the rest.",
           "legacy": {
-            "descriptor": "{\n      \"description\": \"Relocate a member to a machine (placement only; never touches desired_state). Also accepts an outsource-worker id: the same move-one-agent verb relocates the worker. machine_id is REQUIRED (owner 2026-07-27): a relocate NAMES the destination machine and no longer doubles as an unpin \\u2014 an absent key is a 422, an explicit null or \\\"\\\" is a 400.\",\n      \"inputSchema\": {\n        \"properties\": {\n          \"machine_id\": {\n            \"title\": \"Machine Id\",\n            \"type\": \"string\"\n          },\n          \"member_id\": {\n            \"type\": \"string\"\n          }\n        },\n        \"required\": [\n          \"member_id\",\n          \"machine_id\"\n        ],\n        \"additionalProperties\": false,\n        \"type\": \"object\"\n      },\n      \"name\": \"relocate_member\"\n    }"
+            "descriptor": "{\n      \"description\": \"Relocate a member to a machine (placement only; never touches desired_state). Also accepts an outsource-worker id: the same move-one-agent verb relocates the worker. machine_id is REQUIRED (owner 2026-07-27): a relocate NAMES the destination machine and no longer doubles as an unpin \\u2014 an absent key is a 422, an explicit null or \\\"\\\" is a 400. Answers with a bounded receipt (``id``, ``relocation_pending``, ``relocation_deferred``), not the roster row \\u2014 call ``get_member`` when you need the rest.\",\n      \"inputSchema\": {\n        \"properties\": {\n          \"machine_id\": {\n            \"title\": \"Machine Id\",\n            \"type\": \"string\"\n          },\n          \"member_id\": {\n            \"type\": \"string\"\n          }\n        },\n        \"required\": [\n          \"member_id\",\n          \"machine_id\"\n        ],\n        \"additionalProperties\": false,\n        \"type\": \"object\"\n      },\n      \"name\": \"relocate_member\"\n    }"
           }
         }
       }
@@ -15960,7 +16028,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/OutsourceWorkerDTO"
+                  "$ref": "#/components/schemas/AgentLifecycleReceiptDTO"
                 }
               }
             },
@@ -15997,14 +16065,14 @@
             "description": "Server error (unified error envelope)."
           }
         },
-        "summary": "強制停止 an outsource worker: kill the session NOW and hold it down; says nothing to it. Third rung of 停止 -> 加速停止 -> 強制停止.",
+        "summary": "強制停止 an outsource worker: kill the session NOW and hold it down; says nothing to it. Third rung of 停止 -> 加速停止 -> 強制停止. Answers with a bounded receipt (``id``), not the roster row — call ``list_outsource_workers`` when you need the rest.",
         "x-mcp": {
           "include": true,
           "order": 125,
           "name": "force_stop_outsource_worker",
-          "description": "強制停止 an outsource worker: kill the session NOW and hold it down; says nothing to it. Third rung of 停止 -> 加速停止 -> 強制停止.",
+          "description": "強制停止 an outsource worker: kill the session NOW and hold it down; says nothing to it. Third rung of 停止 -> 加速停止 -> 強制停止. Answers with a bounded receipt (``id``), not the roster row — call ``list_outsource_workers`` when you need the rest.",
           "legacy": {
-            "descriptor": "{\n      \"description\": \"\\u5f37\\u5236\\u505c\\u6b62 an outsource worker: kill the session NOW and hold it down; says nothing to it. Third rung of \\u505c\\u6b62 -> \\u52a0\\u901f\\u505c\\u6b62 -> \\u5f37\\u5236\\u505c\\u6b62.\",\n      \"inputSchema\": {\n        \"properties\": {\n          \"id\": {\n            \"type\": \"string\"\n          }\n        },\n        \"required\": [\n          \"id\"\n        ],\n        \"type\": \"object\"\n      },\n      \"name\": \"force_stop_outsource_worker\"\n    }"
+            "descriptor": "{\n      \"description\": \"\\u5f37\\u5236\\u505c\\u6b62 an outsource worker: kill the session NOW and hold it down; says nothing to it. Third rung of \\u505c\\u6b62 -> \\u52a0\\u901f\\u505c\\u6b62 -> \\u5f37\\u5236\\u505c\\u6b62. Answers with a bounded receipt (``id``), not the roster row \\u2014 call ``list_outsource_workers`` when you need the rest.\",\n      \"inputSchema\": {\n        \"properties\": {\n          \"id\": {\n            \"type\": \"string\"\n          }\n        },\n        \"required\": [\n          \"id\"\n        ],\n        \"type\": \"object\"\n      },\n      \"name\": \"force_stop_outsource_worker\"\n    }"
           }
         }
       }
@@ -16039,7 +16107,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/OutsourceWorkerDTO"
+                  "$ref": "#/components/schemas/AgentLifecycleReceiptDTO"
                 }
               }
             },
@@ -16076,14 +16144,14 @@
             "description": "Server error (unified error envelope)."
           }
         },
-        "summary": "Change (換 model) an outsource worker's model/effort (same floor as the staff model edit). On a worker whose stop is IN FLIGHT OR HAS LANDED it ALSO queues the restart (restart_after_stop), so the worker comes back up ON THE NEW MODEL once the stop converges — an edit is no longer only a save. A worker nobody ever asked to stop is still only persisted.",
+        "summary": "Change (換 model) an outsource worker's model/effort (same floor as the staff model edit). On a worker whose stop is IN FLIGHT OR HAS LANDED it ALSO queues the restart (restart_after_stop), so the worker comes back up ON THE NEW MODEL once the stop converges — an edit is no longer only a save. A worker nobody ever asked to stop is still only persisted. Answers with a bounded receipt (``id``), not the roster row — call ``list_outsource_workers`` when you need the rest.",
         "x-mcp": {
           "include": true,
           "order": 93,
           "name": "set_outsource_worker_model",
-          "description": "Change (換 model) an outsource worker's model/effort (same floor as the staff model edit). On a worker whose stop is IN FLIGHT OR HAS LANDED it ALSO queues the restart (restart_after_stop), so the worker comes back up ON THE NEW MODEL once the stop converges — an edit is no longer only a save. A worker nobody ever asked to stop is still only persisted.",
+          "description": "Change (換 model) an outsource worker's model/effort (same floor as the staff model edit). On a worker whose stop is IN FLIGHT OR HAS LANDED it ALSO queues the restart (restart_after_stop), so the worker comes back up ON THE NEW MODEL once the stop converges — an edit is no longer only a save. A worker nobody ever asked to stop is still only persisted. Answers with a bounded receipt (``id``), not the roster row — call ``list_outsource_workers`` when you need the rest.",
           "legacy": {
-            "descriptor": "{\n      \"description\": \"Change (\\u63db model) an outsource worker's model/effort (same floor as the staff model edit). On a worker whose stop is IN FLIGHT OR HAS LANDED it ALSO queues the restart (restart_after_stop), so the worker comes back up ON THE NEW MODEL once the stop converges \\u2014 an edit is no longer only a save. A worker nobody ever asked to stop is still only persisted.\",\n      \"inputSchema\": {\n        \"properties\": {\n          \"effort\": {\n            \"anyOf\": [\n              {\n                \"type\": \"string\"\n              },\n              {\n                \"type\": \"null\"\n              }\n            ],\n            \"description\": \"Optional effort quick-pick; null/absent keeps the current effort.\",\n            \"title\": \"Effort\"\n          },\n          \"id\": {\n            \"type\": \"string\"\n          },\n          \"model\": {\n            \"default\": \"\",\n            \"description\": \"New model for the outsource worker. It is trimmed and stored with no whitelist of any kind - runtime and effort in this same call ARE checked and 422 on an unknown value, and that 422 returns BEFORE the row is written, so a rejected effort also throws away the model you sent alongside it - and a blank string is a legal value meaning the launcher's default, not 'leave it as it is'; to leave it alone, omit the field. The value is persisted before anything else happens, so a 200 says nothing about whether it is usable. Exactly ONE combination is acted on now: status 'active' AND a session that is connected at this moment AND at least one of runtime/model/effort actually different from what is already stored (re-sending the same values, or sending only fields that match, changes nothing and takes nothing down). An assigned worker, or an active one whose session is not connected, is written to the row and nothing else - it picks the value up at its next spawn. The connected active worker then has THREE outcomes, not two. If the owner has already stopped it (desired_state offline), nothing is started at all: the model is saved and the row is stamped held_down, telling you to restart it when you want it to run. Otherwise the call opens a hand-over window and tells the worker to wind down, and the kill plus respawn on the new model happens when it reports stopped, or when the owner ends the wait himself (accelerated-stop arms a deadline the worker is told about; force-stop skips it) - this hand-over arms no clock of its own, model/runtime being one of the soft causes - UNLESS this refocus epoch's wind-down was already collected (its refocus AND stopped anchors both set), in which case the kill and the respawn go out inside this very call. So in the ordinary case an unusable model name does not take the worker down while you hold the 200 - the old model keeps running until the hand-over closes, and only then does the respawn fail.\",\n            \"title\": \"Model\",\n            \"type\": \"string\"\n          },\n          \"runtime\": {\n            \"anyOf\": [\n              {\n                \"enum\": [\n                  \"claude\",\n                  \"codex\"\n                ],\n                \"type\": \"string\"\n              },\n              {\n                \"type\": \"null\"\n              }\n            ],\n            \"description\": \"Optional runtime replacement; null/absent keeps the current runtime.\",\n            \"title\": \"Runtime\"\n          }\n        },\n        \"required\": [\n          \"id\"\n        ],\n        \"additionalProperties\": false,\n        \"type\": \"object\"\n      },\n      \"name\": \"set_outsource_worker_model\"\n    }"
+            "descriptor": "{\n      \"description\": \"Change (\\u63db model) an outsource worker's model/effort (same floor as the staff model edit). On a worker whose stop is IN FLIGHT OR HAS LANDED it ALSO queues the restart (restart_after_stop), so the worker comes back up ON THE NEW MODEL once the stop converges \\u2014 an edit is no longer only a save. A worker nobody ever asked to stop is still only persisted. Answers with a bounded receipt (``id``), not the roster row \\u2014 call ``list_outsource_workers`` when you need the rest.\",\n      \"inputSchema\": {\n        \"properties\": {\n          \"effort\": {\n            \"anyOf\": [\n              {\n                \"type\": \"string\"\n              },\n              {\n                \"type\": \"null\"\n              }\n            ],\n            \"description\": \"Optional effort quick-pick; null/absent keeps the current effort.\",\n            \"title\": \"Effort\"\n          },\n          \"id\": {\n            \"type\": \"string\"\n          },\n          \"model\": {\n            \"default\": \"\",\n            \"description\": \"New model for the outsource worker. It is trimmed and stored with no whitelist of any kind - runtime and effort in this same call ARE checked and 422 on an unknown value, and that 422 returns BEFORE the row is written, so a rejected effort also throws away the model you sent alongside it - and a blank string is a legal value meaning the launcher's default, not 'leave it as it is'; to leave it alone, omit the field. The value is persisted before anything else happens, so a 200 says nothing about whether it is usable. Exactly ONE combination is acted on now: status 'active' AND a session that is connected at this moment AND at least one of runtime/model/effort actually different from what is already stored (re-sending the same values, or sending only fields that match, changes nothing and takes nothing down). An assigned worker, or an active one whose session is not connected, is written to the row and nothing else - it picks the value up at its next spawn. The connected active worker then has THREE outcomes, not two. If the owner has already stopped it (desired_state offline), nothing is started at all: the model is saved and the row is stamped held_down, telling you to restart it when you want it to run. Otherwise the call opens a hand-over window and tells the worker to wind down, and the kill plus respawn on the new model happens when it reports stopped, or when the owner ends the wait himself (accelerated-stop arms a deadline the worker is told about; force-stop skips it) - this hand-over arms no clock of its own, model/runtime being one of the soft causes - UNLESS this refocus epoch's wind-down was already collected (its refocus AND stopped anchors both set), in which case the kill and the respawn go out inside this very call. So in the ordinary case an unusable model name does not take the worker down while you hold the 200 - the old model keeps running until the hand-over closes, and only then does the respawn fail.\",\n            \"title\": \"Model\",\n            \"type\": \"string\"\n          },\n          \"runtime\": {\n            \"anyOf\": [\n              {\n                \"enum\": [\n                  \"claude\",\n                  \"codex\"\n                ],\n                \"type\": \"string\"\n              },\n              {\n                \"type\": \"null\"\n              }\n            ],\n            \"description\": \"Optional runtime replacement; null/absent keeps the current runtime.\",\n            \"title\": \"Runtime\"\n          }\n        },\n        \"required\": [\n          \"id\"\n        ],\n        \"additionalProperties\": false,\n        \"type\": \"object\"\n      },\n      \"name\": \"set_outsource_worker_model\"\n    }"
           }
         }
       }
@@ -16108,7 +16176,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/OutsourceWorkerDTO"
+                  "$ref": "#/components/schemas/AgentLifecycleReceiptDTO"
                 }
               }
             },
@@ -16145,14 +16213,14 @@
             "description": "Server error (unified error envelope)."
           }
         },
-        "summary": "Refocus (換手) an outsource worker's context; on a STOPPED worker it queues the 起來 instead of refusing (owner/admin agent).",
+        "summary": "Refocus (換手) an outsource worker's context; on a STOPPED worker it queues the 起來 instead of refusing (owner/admin agent). Answers with a bounded receipt (``id``), not the roster row — call ``list_outsource_workers`` when you need the rest.",
         "x-mcp": {
           "include": true,
           "order": 90,
           "name": "refocus_outsource_worker",
-          "description": "Refocus (換手) an outsource worker (owner/admin agent). Needs a live session, 409 otherwise — EXCEPT on a worker whose stop is in flight or has landed, where it answers 200 and QUEUES the restart (restart_after_stop); the stop itself is honoured as-is. A worker nobody ever asked to stop is still a 409.",
+          "description": "Refocus (換手) an outsource worker (owner/admin agent). Needs a live session, 409 otherwise — EXCEPT on a worker whose stop is in flight or has landed, where it answers 200 and QUEUES the restart (restart_after_stop); the stop itself is honoured as-is. A worker nobody ever asked to stop is still a 409. Answers with a bounded receipt (``id``), not the roster row — call ``list_outsource_workers`` when you need the rest.",
           "legacy": {
-            "descriptor": "{\n      \"description\": \"Refocus (\\u63db\\u624b) an outsource worker (owner/admin agent). Needs a live session, 409 otherwise \\u2014 EXCEPT on a worker whose stop is in flight or has landed, where it answers 200 and QUEUES the restart (restart_after_stop); the stop itself is honoured as-is. A worker nobody ever asked to stop is still a 409.\",\n      \"inputSchema\": {\n        \"properties\": {\n          \"id\": {\n            \"type\": \"string\"\n          }\n        },\n        \"required\": [\n          \"id\"\n        ],\n        \"type\": \"object\"\n      },\n      \"name\": \"refocus_outsource_worker\"\n    }"
+            "descriptor": "{\n      \"description\": \"Refocus (\\u63db\\u624b) an outsource worker (owner/admin agent). Needs a live session, 409 otherwise \\u2014 EXCEPT on a worker whose stop is in flight or has landed, where it answers 200 and QUEUES the restart (restart_after_stop); the stop itself is honoured as-is. A worker nobody ever asked to stop is still a 409. Answers with a bounded receipt (``id``), not the roster row \\u2014 call ``list_outsource_workers`` when you need the rest.\",\n      \"inputSchema\": {\n        \"properties\": {\n          \"id\": {\n            \"type\": \"string\"\n          }\n        },\n        \"required\": [\n          \"id\"\n        ],\n        \"type\": \"object\"\n      },\n      \"name\": \"refocus_outsource_worker\"\n    }"
           }
         }
       }
@@ -16177,7 +16245,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/OutsourceWorkerDTO"
+                  "$ref": "#/components/schemas/AgentLifecycleReceiptDTO"
                 }
               }
             },
@@ -16214,14 +16282,14 @@
             "description": "Server error (unified error envelope)."
           }
         },
-        "summary": "加速停止 an outsource worker: put its ALREADY-OPEN wind-down (a 停止 or a 換手) on the stop.accelerated_grace_secs clock and tell it. 409 if none is open.",
+        "summary": "加速停止 an outsource worker: put its ALREADY-OPEN wind-down (a 停止 or a 換手) on the stop.accelerated_grace_secs clock and tell it. 409 if none is open. Answers with a bounded receipt (``id``), not the roster row — call ``list_outsource_workers`` when you need the rest.",
         "x-mcp": {
           "include": true,
           "order": 124,
           "name": "accelerated_stop_outsource_worker",
-          "description": "加速停止 an outsource worker: put its ALREADY-OPEN wind-down (a 停止 or a 換手) on the stop.accelerated_grace_secs clock and tell it. 409 if none is open.",
+          "description": "加速停止 an outsource worker: put its ALREADY-OPEN wind-down (a 停止 or a 換手) on the stop.accelerated_grace_secs clock and tell it. 409 if none is open. Answers with a bounded receipt (``id``), not the roster row — call ``list_outsource_workers`` when you need the rest.",
           "legacy": {
-            "descriptor": "{\n      \"description\": \"\\u52a0\\u901f\\u505c\\u6b62 an outsource worker: put its ALREADY-OPEN wind-down (a \\u505c\\u6b62 or a \\u63db\\u624b) on the stop.accelerated_grace_secs clock and tell it. 409 if none is open.\",\n      \"inputSchema\": {\n        \"properties\": {\n          \"id\": {\n            \"type\": \"string\"\n          }\n        },\n        \"required\": [\n          \"id\"\n        ],\n        \"type\": \"object\"\n      },\n      \"name\": \"accelerated_stop_outsource_worker\"\n    }"
+            "descriptor": "{\n      \"description\": \"\\u52a0\\u901f\\u505c\\u6b62 an outsource worker: put its ALREADY-OPEN wind-down (a \\u505c\\u6b62 or a \\u63db\\u624b) on the stop.accelerated_grace_secs clock and tell it. 409 if none is open. Answers with a bounded receipt (``id``), not the roster row \\u2014 call ``list_outsource_workers`` when you need the rest.\",\n      \"inputSchema\": {\n        \"properties\": {\n          \"id\": {\n            \"type\": \"string\"\n          }\n        },\n        \"required\": [\n          \"id\"\n        ],\n        \"type\": \"object\"\n      },\n      \"name\": \"accelerated_stop_outsource_worker\"\n    }"
           }
         }
       }
@@ -16256,7 +16324,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/OutsourceWorkerDTO"
+                  "$ref": "#/components/schemas/AgentRelocateReceiptDTO"
                 }
               }
             },
@@ -16293,7 +16361,7 @@
             "description": "Server error (unified error envelope)."
           }
         },
-        "summary": "Relocate an outsource worker to a machine (admin-gated).",
+        "summary": "Relocate an outsource worker to a machine (admin-gated). Answers with a bounded receipt (``id``, ``relocation_pending``, ``relocation_deferred``), not the roster row — call ``list_outsource_workers`` when you need the rest.",
         "x-mcp": {
           "include": false
         }
@@ -16388,7 +16456,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/OutsourceWorkerDTO"
+                  "$ref": "#/components/schemas/AgentLifecycleReceiptDTO"
                 }
               }
             },
@@ -16425,14 +16493,14 @@
             "description": "Server error (unified error envelope)."
           }
         },
-        "summary": "Stop (停止) an outsource worker: ask it to work its 〈停止〉 document and wait for its own report_stopped -- no kill, no deadline (owner/admin agent).",
+        "summary": "Stop (停止) an outsource worker: ask it to work its 〈停止〉 document and wait for its own report_stopped -- no kill, no deadline (owner/admin agent). Answers with a bounded receipt (``id``), not the roster row — call ``list_outsource_workers`` when you need the rest.",
         "x-mcp": {
           "include": true,
           "order": 91,
           "name": "stop_outsource_worker",
-          "description": "Stop (停止) an outsource worker: ask it to work its 〈停止〉 document and wait for its own report_stopped -- no kill, no deadline (owner/admin agent).",
+          "description": "Stop (停止) an outsource worker: ask it to work its 〈停止〉 document and wait for its own report_stopped -- no kill, no deadline (owner/admin agent). Answers with a bounded receipt (``id``), not the roster row — call ``list_outsource_workers`` when you need the rest.",
           "legacy": {
-            "descriptor": "{\n      \"description\": \"Stop (\\u505c\\u6b62) an outsource worker: ask it to work its \\u3008\\u505c\\u6b62\\u3009 document and wait for its own report_stopped -- no kill, no deadline (owner/admin agent).\",\n      \"inputSchema\": {\n        \"properties\": {\n          \"id\": {\n            \"type\": \"string\"\n          }\n        },\n        \"required\": [\n          \"id\"\n        ],\n        \"type\": \"object\"\n      },\n      \"name\": \"stop_outsource_worker\"\n    }"
+            "descriptor": "{\n      \"description\": \"Stop (\\u505c\\u6b62) an outsource worker: ask it to work its \\u3008\\u505c\\u6b62\\u3009 document and wait for its own report_stopped -- no kill, no deadline (owner/admin agent). Answers with a bounded receipt (``id``), not the roster row \\u2014 call ``list_outsource_workers`` when you need the rest.\",\n      \"inputSchema\": {\n        \"properties\": {\n          \"id\": {\n            \"type\": \"string\"\n          }\n        },\n        \"required\": [\n          \"id\"\n        ],\n        \"type\": \"object\"\n      },\n      \"name\": \"stop_outsource_worker\"\n    }"
           }
         }
       }
