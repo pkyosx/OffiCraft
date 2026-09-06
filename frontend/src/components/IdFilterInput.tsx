@@ -17,6 +17,17 @@ import "./idFilter.css";
 interface IdFilterInputProps {
   value: string;
   onChange: (next: string) => void;
+  /** 🔴 WHEN THE TYPED VALUE BECOMES A FILTER. Enter, or blur — and nothing
+   * else (owner 2026-09-06 c-c3d681fe05da:「任務編號那邊就是按enter或是點外面就
+   * 視為apply了」). `onChange` moves the TEXT IN THE BOX; this moves the FILTER.
+   *
+   * They are two callbacks and not one because both hosts turn a committed id
+   * into a SERVER request — `useTasks(…, appliedId)` on 任務頁,
+   * `api.getReplyCard(idQuery)` on 請示卡頁 — so committing per keystroke is a
+   * fetch per keystroke, which is the shape owner rejected twice before this
+   * round (「每次都要全部都撈回來才濾不合理」). Wiring this to `onChange` would
+   * look like a tidy-up and would be that rejection, restored. */
+  onCommit: (next: string) => void;
   /** aria-label AND placeholder — the field carries no separate visible label. */
   label: string;
   testId: string;
@@ -34,6 +45,7 @@ interface IdFilterInputProps {
 export function IdFilterInput({
   value,
   onChange,
+  onCommit,
   label,
   testId,
   widthCh,
@@ -56,6 +68,16 @@ export function IdFilterInput({
       spellCheck={false}
       autoComplete="off"
       onChange={(e) => onChange(e.target.value)}
+      // Enter commits. `key` rather than `keyCode`, and no `preventDefault`:
+      // the field is not in a form, so there is no submit to suppress.
+      onKeyDown={(e) => {
+        if (e.key === "Enter") onCommit(e.currentTarget.value);
+      }}
+      // 「點外面」 — clicking away commits what is in the box. Enter then blur
+      // therefore commits twice with the same value; both hosts treat that as
+      // idempotent (they set state to the trimmed string), so it is a no-op
+      // rather than a second fetch.
+      onBlur={(e) => onCommit(e.currentTarget.value)}
     />
   );
 }

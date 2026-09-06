@@ -81,7 +81,6 @@ export const en: Dict = {
   },
   // ── Tasks page (M3 task cards) ──
   tasks: {
-    title: "Tasks",
     openTitle: "Open",
     closedTitle: "Closed",
     emptyNone: "No tasks yet",
@@ -301,19 +300,14 @@ export const en: Dict = {
       versionsOpaqueTail: ") — look at the two versions one at a time instead.",
     },
   },
-  // ── Filter panel (T-93 round 2) ──
-  // Modelled on the affordance the owner pointed at (c-7496afccb304): a funnel
-  // button opens an in-page panel, Cancel/Apply close it, and a summary strip
-  // states what is still applied once it is shut.
-  filterPanel: {
-    filter: "Filter",
-    cancel: "Cancel",
-    apply: "Apply filters",
-    results: (n: number) => `${n} result${n === 1 ? "" : "s"}`,
-    filteredBy: "Filtered by:",
-    clearAll: "Clear all",
-    removeChip: (label: string) => `Remove filter: ${label}`,
-  },
+  // ── Filter row (T-118) ──
+  // The whole `filterPanel` group is GONE, and it is not a tidy-up: owner
+  // 2026-09-06 (c-c3d681fe05da) removed every control that carried a word.
+  // Filter / Cancel / Apply filters went with the funnel and its two buttons;
+  // "N results" / "Filtered by:" / "Clear all" / "Remove filter" went with the
+  // summary strip. The row that replaced them is fields and nothing else, so it
+  // has no copy of its own — the field labels live under `tasks.*` / `replies.*`
+  // because each page words its own.
   replies: {
     waitingTitle: "Ask",
     handledTitle: "Recently handled",
@@ -324,7 +318,6 @@ export const en: Dict = {
     filterIdLabel: "Reply-card id",
     clearFilters: "Clear filter",
     // ── Filter panel (T-93 round 2) ──
-    filterTitle: "Asks",
     chipId: (id: string) => `Id: ${id}`,
     // 🔴 Three outcomes, three sentences — never merged. Round 1 had one, so
     // "this card does not exist" and "this card was simply never loaded" read

@@ -42,10 +42,9 @@ import { __resetMock, __injectMockTask } from "../api/mock";
 import { api } from "../api";
 import type { TaskView } from "../api/adapter";
 import {
-  openFilterPanel,
-  applyFilters,
-  cancelFilters,
   applyIdFilter,
+  typeIdFilter,
+  blurIdFilter,
   toggleFilter,
   clearAllFilters,
 } from "../test/tasksFilter";
@@ -100,72 +99,59 @@ afterEach(() => {
 });
 
 describe("任務頁 篩選面板 (T-93 round 3)", () => {
-  it("the fields are BEHIND the funnel — nothing filter-shaped is on the page until it is opened", async () => {
-    // 「一起搬」: the id field AND all three dropdowns live inside the panel, so
-    // a collapsed page shows the funnel and the 已篩選 strip and nothing else.
+  it("all four fields are on the page from the first render — there is nothing to open", async () => {
+    // 🔁 REPLACES 「the fields are BEHIND the funnel」. That test pinned T-93
+    // round 3, where 「一起搬」 meant every axis hid behind a funnel button.
+    // OVERTURNED BY owner 2026-09-06 20:07 (c-c3d681fe05da):「不要多filter那一層
+    // 了,全部拉出來」. The funnel, the panel and the toggle no longer exist.
     __injectMockTask(mkTask({ id: "t-aaa1" }));
     const { findByTestId, queryByTestId } = renderPage();
-    await findByTestId("tasks-filter-toggle");
-    expect(queryByTestId("tasks-filter-form")).toBeNull();
-    expect(queryByTestId("filter-task-id")).toBeNull();
-    expect(queryByTestId("filter-executor")).toBeNull();
-    expect(queryByTestId("filter-type")).toBeNull();
-    expect(queryByTestId("filter-status")).toBeNull();
-
-    openFilterPanel();
-    expect(await findByTestId("tasks-filter-form")).toBeTruthy();
     expect(await findByTestId("filter-task-id")).toBeTruthy();
     expect(await findByTestId("filter-executor")).toBeTruthy();
     expect(await findByTestId("filter-type")).toBeTruthy();
     expect(await findByTestId("filter-status")).toBeTruthy();
+    // The affordances that used to gate them are gone, not merely hidden.
+    expect(queryByTestId("tasks-filter-toggle")).toBeNull();
+    expect(queryByTestId("tasks-filter-form")).toBeNull();
+    expect(queryByTestId("tasks-filter-apply")).toBeNull();
+    expect(queryByTestId("tasks-filter-cancel")).toBeNull();
   });
 
-  it("🔴 the panel is NOT a modal: it is page content, with no scrim over the list", async () => {
-    // owner c-3b5a0aa66550:「按搜尋時不要再跳出新modal」. The list must still be
-    // in the document while the panel is open, and nothing may cover it.
+  it("🔴 the filter row is NOT a modal: it is page content, with no scrim over the list", async () => {
+    // owner c-3b5a0aa66550:「按搜尋時不要再跳出新modal」— NOT overturned by
+    // T-118; 「全部拉出來」 is the opposite of floating it. Same rule, new node.
     __injectMockTask(mkTask({ id: "t-aaa1", title: "還看得見我" }));
-    const { findByText, queryByRole } = renderPage();
+    const { findByText, findByTestId, queryByRole } = renderPage();
     await findByText("還看得見我");
-    openFilterPanel();
-    expect(await findByText("還看得見我")).toBeTruthy();
     expect(queryByRole("dialog")).toBeNull();
-    const form = document.querySelector<HTMLElement>(
-      '[data-testid="tasks-filter-form"]'
-    )!;
+    const row = await findByTestId("tasks-filter");
     // Asserted on the RULE, not on geometry (jsdom lays nothing out): the shell
     // must not have grown a fixed box or a stacking context.
-    expect(getComputedStyle(form).position).not.toBe("fixed");
+    expect(getComputedStyle(row).position).not.toBe("fixed");
   });
 
-  it("🔴 typing changes NOTHING until 套用篩選 — and 取消 throws the draft away", async () => {
-    // The answer to 「每次都要全部都撈回來才濾不合理」. Round 2 filtered on every
-    // keystroke; this asserts the opposite rule.
+  it("🔴 typing in 任務編號 without Enter or blur applies NOTHING — the list does not move", async () => {
+    // 🆕 T-118's own guard, and the reason it exists: owner rejected a version
+    // where every keystroke took effect, and 「按enter或是點外面就視為apply了」 is
+    // the only timing he named this round. The dropdowns are immediate now, so
+    // without this assertion the id field would look like the odd one out and
+    // the next person would "fix" it back onto onChange.
     __injectMockTask(mkTask({ id: "t-aaa1", title: "第一張" }));
     __injectMockTask(mkTask({ id: "t-bbb2", title: "第二張" }));
-    const { findByTestId, queryByText } = renderPage();
+    const { queryByText } = renderPage();
     await waitFor(() => expect(queryByText("第一張")).toBeTruthy());
 
-    openFilterPanel();
-    const field = (await findByTestId("filter-task-id")) as HTMLInputElement;
-    fireEvent.change(field, { target: { value: "t-aaa1" } });
-    // Still BOTH on screen: a draft narrows nothing.
+    typeIdFilter("t-aaa1");
+    // Give any (wrongly) scheduled effect a chance to land before concluding.
+    await Promise.resolve();
     expect(queryByText("第一張")).toBeTruthy();
-    expect(queryByText("第二張")).toBeTruthy();
-
-    cancelFilters();
-    // Cancel committed nothing, and it closed the panel (「按了面板就又會再消失」).
-    expect(queryByText("第二張")).toBeTruthy();
-    await waitFor(() =>
-      expect(document.querySelector('[data-testid="tasks-filter-form"]')).toBeNull()
-    );
-    // Reopening shows the APPLIED truth, not the cancelled draft.
-    openFilterPanel();
     expect(
-      ((await findByTestId("filter-task-id")) as HTMLInputElement).value
-    ).toBe("");
+      queryByText("第二張"),
+      "typing alone must not narrow the list"
+    ).toBeTruthy();
   });
 
-  it("套用篩選 narrows to the one row, and the panel closes itself", async () => {
+  it("Enter applies the typed id", async () => {
     __injectMockTask(mkTask({ id: "t-aaa1", title: "第一張" }));
     __injectMockTask(mkTask({ id: "t-bbb2", title: "第二張" }));
     const { queryByText } = renderPage();
@@ -174,49 +160,83 @@ describe("任務頁 篩選面板 (T-93 round 3)", () => {
     applyIdFilter("t-aaa1");
     await waitFor(() => expect(queryByText("第二張")).toBeNull());
     expect(queryByText("第一張")).toBeTruthy();
-    expect(
-      document.querySelector('[data-testid="tasks-filter-form"]')
-    ).toBeNull();
   });
 
-  it("the applied filters stay readable while the panel is shut (已篩選 strip)", async () => {
-    // The strip is what stops a collapsed panel from hiding a live filter. The
-    // DEFAULT view is already filtered (terminals excluded), so it is there from
-    // the first render — and after an id is applied it names the id too.
+  it("blur applies the typed id too (「點外面」)", async () => {
+    // The second half of the owner's sentence. Enter and blur are two doors to
+    // one behaviour; a version that only wired Enter passes the test above and
+    // still fails him.
+    __injectMockTask(mkTask({ id: "t-aaa1", title: "第一張" }));
+    __injectMockTask(mkTask({ id: "t-bbb2", title: "第二張" }));
+    const { queryByText } = renderPage();
+    await waitFor(() => expect(queryByText("第二張")).toBeTruthy());
+
+    typeIdFilter("t-aaa1");
+    expect(queryByText("第二張")).toBeTruthy();
+    blurIdFilter();
+    await waitFor(() => expect(queryByText("第二張")).toBeNull());
+    expect(queryByText("第一張")).toBeTruthy();
+  });
+
+  it("a dropdown takes effect on the click — there is no 套用篩選", async () => {
+    // 🔁 REPLACES 「typing changes NOTHING until 套用篩選」 for the DROPDOWN half.
+    // That test pinned round 3's draft/apply split; owner 2026-09-06 removed
+    // both buttons, so a tick IS the condition. The id half of the old test
+    // survives, strengthened, as the three tests above.
+    __injectMockTask(
+      mkTask({ id: "t-aaa1", title: "第一張", status: "in_progress" })
+    );
+    __injectMockTask(
+      mkTask({ id: "t-bbb2", title: "第二張", status: "not_started" })
+    );
+    const { queryByText } = renderPage();
+    await waitFor(() => expect(queryByText("第一張")).toBeTruthy());
+    expect(queryByText("第二張")).toBeTruthy();
+
+    // Untick 進行中. Under round 3 this changed nothing until 套用篩選 was
+    // pressed; now the click IS the condition.
+    toggleFilter("filter-status", "in_progress");
+    await waitFor(() => expect(queryByText("第一張")).toBeNull());
+    expect(queryByText("第二張"), "only the unticked axis narrows").toBeTruthy();
+  });
+
+  it("the 已篩選 strip and its chips are gone", async () => {
+    // 🔁 REPLACES 「the applied filters stay readable while the panel is shut」
+    // and 「a chip's × drops JUST that axis」. Both pinned the summary strip,
+    // whose whole job was to keep a COLLAPSED panel honest. OVERTURNED BY owner
+    // 2026-09-06:「也不用再顯示14筆已篩選跟那一行」— with every field permanently
+    // visible there is no collapsed state left for it to protect against.
     __injectMockTask(mkTask({ id: "t-aaa1" }));
-    const { findByTestId } = renderPage();
-    const summary = await findByTestId("tasks-filter-summary");
-    expect(summary.textContent).toContain("狀態");
+    const { findByTestId, queryByTestId } = renderPage();
+    await findByTestId("filter-task-id");
+    expect(queryByTestId("tasks-filter-summary")).toBeNull();
+    expect(queryByTestId("tasks-filter-chip")).toBeNull();
+    expect(queryByTestId("tasks-filter-clear")).toBeNull();
 
     applyIdFilter("t-aaa1");
     await waitFor(() =>
       expect(
-        document.querySelector('[data-testid="tasks-filter-summary"]')
-          ?.textContent
-      ).toContain("編號：t-aaa1")
+        (document.querySelector(
+          '[data-testid="filter-task-id"]'
+        ) as HTMLInputElement).value
+      ).toBe("t-aaa1")
     );
+    // Still no strip — and the field itself is now what says an id is applied.
+    expect(queryByTestId("tasks-filter-summary")).toBeNull();
   });
 
-  it("a chip's × drops JUST that axis and re-runs at once", async () => {
-    __injectMockTask(mkTask({ id: "t-aaa1", title: "第一張" }));
-    __injectMockTask(mkTask({ id: "t-bbb2", title: "第二張" }));
-    const { queryByText, findAllByTestId } = renderPage();
-    await waitFor(() => expect(queryByText("第二張")).toBeTruthy());
-
-    applyIdFilter("t-aaa1");
-    await waitFor(() => expect(queryByText("第二張")).toBeNull());
-
-    // Two chips now: 編號 and 狀態. Remove the id one; 狀態 must survive.
-    const chips = await findAllByTestId("tasks-filter-chip");
-    const idChip = chips.find((c) => c.textContent?.includes("編號"))!;
-    fireEvent.click(idChip.querySelector("button")!);
-
-    await waitFor(() => expect(queryByText("第二張")).toBeTruthy());
-    const summary = document.querySelector(
-      '[data-testid="tasks-filter-summary"]'
-    );
-    expect(summary?.textContent).not.toContain("編號");
-    expect(summary?.textContent).toContain("狀態");
+  it("the 「案件」 sub-title above the list is gone", async () => {
+    // owner 2026-09-06:「也不用再顯示…跟案件那個子標了」, restated at 20:19
+    // (c-38c7759e6377) for 請示卡. The nav still names the page; this row was a
+    // second, redundant title sitting directly above the list.
+    __injectMockTask(mkTask({ id: "t-aaa1" }));
+    const { findByTestId } = renderPage();
+    await findByTestId("filter-task-id");
+    expect(
+      document.querySelector(".filter-panel__header"),
+      "the header row that carried 案件 + the funnel must not exist"
+    ).toBeNull();
+    expect(document.querySelector(".filter-panel__title")).toBeNull();
   });
 });
 
@@ -340,17 +360,20 @@ describe("任務頁 ID 篩選 — 三種結局 (owner 2026-09-06 選項①)", ()
     expect(queryByTestId("tasks-empty")).toBeNull();
   });
 
-  it("🔴 typing asks the server NOTHING; 套用篩選 asks exactly once", async () => {
+  it("🔴 typing asks the server NOTHING; Enter asks exactly once", async () => {
     // The rewritten form of round 2's 「typing NEVER asks the server」. The
     // must-fix it came from (an independent review's 「一個字元一個請求」 on
     // 請示卡頁) is still the thing guarded — what changed is that a COMMITTED id
     // is now allowed to cost exactly one request, which is what makes ① and ②
     // distinguishable at all.
+    // T-118: the COMMIT is now Enter rather than 套用篩選. The keystroke half of
+    // this assertion is untouched, and it is the half that matters — owner's
+    // 「按enter或是點外面就視為apply了」 is exactly a rule about when the request
+    // is allowed to leave.
     const spy = vi.spyOn(api, "getTask");
     __injectMockTask(mkTask({ id: "t-abcdef" }));
     const { findByTestId } = renderPage();
 
-    openFilterPanel();
     const field = await findByTestId("filter-task-id");
     for (const v of ["t", "t-", "t-a", "t-ab", "t-abc", "t-abcdef"]) {
       fireEvent.change(field, { target: { value: v } });
@@ -360,7 +383,7 @@ describe("任務頁 ID 篩選 — 三種結局 (owner 2026-09-06 選項①)", ()
     );
     expect(spy, "six keystrokes must cost zero requests").not.toHaveBeenCalled();
 
-    applyFilters();
+    fireEvent.keyDown(field, { key: "Enter" });
     await waitFor(() => expect(spy).toHaveBeenCalledWith("t-abcdef"));
     // ⚠️ NOT asserted as "exactly one call ever": the located card expands
     // itself (TaskCard's `located` effect) and hydrates its own detail through
@@ -371,41 +394,45 @@ describe("任務頁 ID 篩選 — 三種結局 (owner 2026-09-06 選項①)", ()
 });
 
 describe("任務頁 ID 篩選 — 清除與 hash", () => {
-  it("清除全部 empties the field and every other axis", async () => {
+  it("emptying every field leaves nothing narrowing the list", async () => {
+    // 🔁 WAS 「清除全部 empties the field and every other axis」. That button
+    // lived on the 已篩選 strip and was REMOVED WITH IT by owner 2026-09-06
+    // (「也不用再顯示14筆已篩選跟那一行」). The BEHAVIOUR it guarded is still
+    // required — it just has no single control any more, so the gesture is
+    // clearing each field, which is what `clearAllFilters` now performs.
     __injectMockTask(mkTask({ id: "t-real" }));
     const { findByTestId } = renderPage();
 
     applyIdFilter("t-real");
-    await findByTestId("tasks-filter-clear");
+    await findByTestId("filter-task-id");
     clearAllFilters();
 
-    // The strip is gone entirely — nothing narrows any more.
-    await waitFor(() =>
-      expect(
-        document.querySelector('[data-testid="tasks-filter-summary"]')
-      ).toBeNull()
-    );
-    expect(window.location.hash).toBe("");
-    openFilterPanel();
+    expect(
+      document.querySelector('[data-testid="tasks-filter-summary"]'),
+      "there is no strip to reappear"
+    ).toBeNull();
+    await waitFor(() => expect(window.location.hash).toBe(""));
     expect(
       ((await findByTestId("filter-task-id")) as HTMLInputElement).value
     ).toBe("");
   });
 
-  it("清除全部 also drops the id from the URL when the hash seeded it", async () => {
+  it("clearing the 編號 field also drops the id from the URL when the hash seeded it", async () => {
     // Without this the field clears, the list widens, and a reload seeds the
     // filter straight back — the clear looks broken to the owner.
     __injectMockTask(mkTask({ id: "t-seed" }));
     window.location.hash = "#tasks/t-seed";
     const { findByTestId } = renderPage();
 
-    // The hash seeds the APPLIED id, so the strip names it without the panel
-    // ever being opened.
+    // 🔁 WAS asserted through the 已篩選 strip, which T-118 removed. The hash
+    // seeds the APPLIED id, and the permanently-visible field is now where that
+    // is readable — which is the property that made removing the strip safe.
     await waitFor(() =>
       expect(
-        document.querySelector('[data-testid="tasks-filter-summary"]')
-          ?.textContent
-      ).toContain("編號：t-seed")
+        (document.querySelector(
+          '[data-testid="filter-task-id"]'
+        ) as HTMLInputElement).value
+      ).toBe("t-seed")
     );
 
     clearAllFilters();
@@ -414,7 +441,6 @@ describe("任務頁 ID 篩選 — 清除與 hash", () => {
     // and a reload seeds the filter straight back.
     await waitFor(() => expect(window.location.hash).toBe("#tasks"));
     expect(window.location.hash).not.toContain("t-seed");
-    openFilterPanel();
     expect(
       ((await findByTestId("filter-task-id")) as HTMLInputElement).value
     ).toBe("");
@@ -427,7 +453,6 @@ describe("任務頁 ID 篩選 — 清除與 hash", () => {
     // jsdom computes no layout, so a pixel assertion here would be theatre.
     // The real geometry is measured by the CT guard in visual-guards/.
     const { findByTestId } = renderPage();
-    openFilterPanel();
     const field = (await findByTestId("filter-task-id")) as HTMLInputElement;
     // A custom property, not a width: idFilter.css owns the box model, because
     // the field has to run `content-box` against the app's global `border-box`

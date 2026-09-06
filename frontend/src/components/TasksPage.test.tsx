@@ -40,7 +40,6 @@ import { api } from "../api";
 // through the shared driver rather than clicking a bare dropdown.
 import {
   toggleFilter,
-  openFilterPanel,
   clearAllFilters,
 } from "../test/tasksFilter";
 import { ApiError } from "../api/errors";
@@ -309,7 +308,7 @@ describe("TasksPage", () => {
     expect(queryByTestId("closed-list")).toBeNull();
   });
 
-  it("multi-selects executor / type / status; 清除篩選 clears to 顯示全部; no-match empty state", async () => {
+  it("multi-selects executor / type / status; emptying every axis shows 顯示全部; no-match empty state", async () => {
     __injectMockTaskType({ typeKey: "review-pr", displayName: "", purpose: "" });
     __injectMockTask(
       mkTask({ title: "Mira 的", typeKey: "review-pr", status: "in_progress" })
@@ -333,13 +332,14 @@ describe("TasksPage", () => {
       })
     );
 
-    const { findAllByTestId, findByTestId, getByTestId, queryByTestId } =
-      renderPage();
+    const { findAllByTestId, findByTestId, queryByTestId } = renderPage();
     // All three are non-terminal → all show under the default status filter.
-    // The default view already narrows (terminals hidden) → 清除篩選 shows
-    // from the start (T-50bb).
+    // 🔁 WAS also asserting that the 清除篩選 button shows from the start
+    // (T-50bb). That button lived on the 已篩選 strip and owner 2026-09-06
+    // (c-c3d681fe05da) removed the strip:「也不用再顯示14筆已篩選跟那一行」. The
+    // MULTI-SELECT behaviour this test is really about is untouched.
     expect((await findAllByTestId("task-card")).length).toBe(3);
-    expect(queryByTestId("tasks-filter-clear")).not.toBeNull();
+    expect(queryByTestId("tasks-filter-clear")).toBeNull();
 
     // 執行者 = 外包 (assigned outsource only — 未指派 is its own option).
     toggleFilter("filter-executor", "outsource");
@@ -348,8 +348,6 @@ describe("TasksPage", () => {
       expect(cards).toHaveLength(1);
       expect(cards[0].textContent).toContain("外包的");
     });
-    expect(getByTestId("tasks-filter-clear")).toBeTruthy();
-
     // MULTI-SELECT: add 未指派 alongside 外包 → both assigned-outsource and
     // unassigned tasks show (2), proving the axis is a union, not a swap.
     toggleFilter("filter-executor", "unassigned");
@@ -377,15 +375,15 @@ describe("TasksPage", () => {
     const empty = await findByTestId("tasks-empty-filtered");
     expect(empty.textContent).toBe("沒有符合篩選條件的任務");
 
-    // 清除篩選 = 顯示全部 (T-50bb): every axis empties (status too) → all three
-    // tasks again, and with nothing narrowing the list the button goes away.
+    // 清空每一軸 = 顯示全部 (T-50bb's semantics, T-118's gesture): every axis
+    // empties (status too) → all three tasks again. There is no single button
+    // any more, so this is the ordinary act of clearing each field.
     clearAllFilters();
     await waitFor(() =>
       expect(
         document.querySelectorAll('[data-testid="task-card"]')
       ).toHaveLength(3)
     );
-    expect(queryByTestId("tasks-filter-clear")).toBeNull();
 
     // 類型 = 自由代辦 (no type key).
     toggleFilter("filter-type", "adhoc");
@@ -409,7 +407,6 @@ describe("TasksPage", () => {
 
     const { findAllByTestId, getByTestId } = renderPage();
     await findAllByTestId("task-card");
-    openFilterPanel();
     fireEvent.click(getByTestId("filter-type"));
     // The option row shows the human label, never the tm- key…
     const named = getByTestId("filter-type-opt-tm-aaaabbbbcccc");
@@ -1187,7 +1184,6 @@ describe("TasksPage filter enhancements (T-be18)", () => {
 
     // The exclusion is expressed IN the filter UI: 已完成/終止 start unchecked
     // while the live statuses are checked (the owner can see and undo it).
-    openFilterPanel();
     fireEvent.click(await findByTestId("filter-status"));
     const checkOf = (v: string) =>
       document.querySelector<HTMLInputElement>(
@@ -1225,7 +1221,6 @@ describe("TasksPage filter enhancements (T-be18)", () => {
     );
 
     const { findByTestId } = renderPage();
-    openFilterPanel();
     fireEvent.click(await findByTestId("filter-executor"));
     const countOf = (v: string) =>
       document.querySelector(`[data-testid="filter-executor-count-${v}"]`)
@@ -1238,12 +1233,13 @@ describe("TasksPage filter enhancements (T-be18)", () => {
     expect(countOf("unassigned")).toBe("1");
 
     // Tick 已完成 in the 狀態 filter → Mira's count grows to 3 (the count basis
-    // follows the status filter, T-be18 #3 — now the DRAFT one, since the
-    // counts sit inside the panel next to the boxes they answer).
-    // 套用篩選 closes the panel, so the dropdown has to be reopened to be read.
+    // follows the status filter, T-be18 #3).
+    // 🔁 WAS followed by a re-open click on 負責人, because 套用篩選 used to close
+    // the whole panel. T-118 removed the panel (owner 2026-09-06,
+    // c-c3d681fe05da), so the dropdown is still open and that click would now
+    // SHUT it. The count basis is also the applied set rather than a draft one
+    // now — there is no draft — which is why the number moves on the tick.
     toggleFilter("filter-status", "done");
-    openFilterPanel();
-    fireEvent.click(await findByTestId("filter-executor"));
     await waitFor(() => expect(countOf("mira")).toBe("3"));
   });
 
@@ -1254,7 +1250,6 @@ describe("TasksPage filter enhancements (T-be18)", () => {
     );
 
     const { findByTestId } = renderPage();
-    openFilterPanel();
     fireEvent.click(await findByTestId("filter-executor"));
     const optOf = (v: string) =>
       document.querySelector(`[data-testid="filter-executor-opt-${v}"]`);
@@ -1277,7 +1272,6 @@ describe("TasksPage filter enhancements (T-be18)", () => {
     );
 
     const { findByTestId } = renderPage();
-    openFilterPanel();
     fireEvent.click(await findByTestId("filter-executor"));
     await waitFor(() =>
       expect(document.querySelector('[data-testid="filter-executor-opt-mira"]')).not.toBeNull()
@@ -1311,23 +1305,23 @@ describe("TasksPage filter enhancements (T-be18)", () => {
     // Wait for the async task load before opening the dropdown, else 外包 has a
     // stale count of 0 and is hidden before its task arrives.
     await findByText("外包的");
-    openFilterPanel();
     fireEvent.click(await findByTestId("filter-executor"));
     await waitFor(() => expect(optOf("outsource")).not.toBeNull());
 
-    // 勾選 外包 while it still has a task. (Each toggle now applies and closes
-    // the panel, so every read of the dropdown reopens it first.)
+    // 勾選 外包 while it still has a task.
+    // 🔁 EVERY `fireEvent.click(filter-executor)` THAT USED TO FOLLOW A TOGGLE
+    // IS GONE from this test. Round 3's 套用篩選 closed the whole panel, so each
+    // read had to reopen the dropdown; owner 2026-09-06 (c-c3d681fe05da)
+    // removed the panel, so the popover stays open and that click would now
+    // SHUT it — the reads below would then find nothing and the test would fail
+    // for a reason unrelated to what it guards.
     toggleFilter("filter-executor", "outsource");
-    openFilterPanel();
-    fireEvent.click(await findByTestId("filter-executor"));
     await waitFor(() => expect(checkOf("outsource")?.checked).toBe(true));
 
     // Un-tick 尚未執行 in 狀態 → the only outsource task leaves the count scope,
     // so 外包's count is now 0 — but it is still CHECKED, so it must stay in the
     // dropdown (邊界:勾選態不從下拉消失,否則無法取消勾選).
     toggleFilter("filter-status", "not_started");
-    openFilterPanel();
-    fireEvent.click(await findByTestId("filter-executor"));
     await waitFor(() =>
       expect(
         document.querySelector(
@@ -1340,8 +1334,6 @@ describe("TasksPage filter enhancements (T-be18)", () => {
 
     // Un-tick 外包 → now zero-count AND unchecked → it disappears from the list.
     toggleFilter("filter-executor", "outsource");
-    openFilterPanel();
-    fireEvent.click(await findByTestId("filter-executor"));
     await waitFor(() => expect(optOf("outsource")).toBeNull());
   });
 
@@ -1365,8 +1357,13 @@ describe("TasksPage filter enhancements (T-be18)", () => {
   });
 });
 
-// ── T-50bb: 清除篩選 = 顯示全部 (the default view counts as a filter)
-describe("TasksPage 清除篩選 semantics (T-50bb)", () => {
+// ── T-50bb: 清空每一軸 = 顯示全部 (the default view counts as a filter)
+// 🔁 THIS BLOCK WAS 「清除篩選 semantics」 and it was named after a BUTTON. owner
+// 2026-09-06 (c-c3d681fe05da) removed that button along with the 已篩選 strip it
+// stood on. T-50bb's actual RULE survives untouched — clearing every axis must
+// go straight to 顯示全部 (terminals included), NOT back to the terminal-hiding
+// default view — so the tests below keep it and only change the gesture.
+describe("TasksPage 顯示全部 semantics (T-50bb)", () => {
   const injectMixedTasks = () => {
     const now = Date.now() / 1000;
     __injectMockTask(mkTask({ title: "活的", status: "in_progress" }));
@@ -1378,14 +1375,21 @@ describe("TasksPage 清除篩選 semantics (T-50bb)", () => {
     );
   };
 
-  it("shows 清除篩選 already in the DEFAULT view (its status set hides terminals — that IS a filter)", async () => {
+  it("the DEFAULT view already narrows: the terminals it hides are absent from the list", async () => {
+    // 🔁 REPLACES 「shows 清除篩選 already in the DEFAULT view」. That test proved
+    // the default view counts as a filter BY THE PRESENCE OF THE BUTTON, and
+    // the button is gone (owner 2026-09-06, c-c3d681fe05da). The fact it was
+    // really pinning — that the default status set is a real constraint, not
+    // "no filter" — is asserted here directly instead, which is what it should
+    // have measured all along.
     injectMixedTasks();
-    const { findByText, getByTestId } = renderPage();
+    const { findByText, queryByText } = renderPage();
     await findByText("活的");
-    expect(getByTestId("tasks-filter-clear")).toBeTruthy();
+    expect(queryByText("完成的"), "已完成 is excluded by default").toBeNull();
+    expect(queryByText("終止的"), "終止 is excluded by default").toBeNull();
   });
 
-  it("clicking 清除篩選 from the default view lists EVERYTHING — 已完成/終止 included — and the button goes away", async () => {
+  it("emptying every axis from the default view lists EVERYTHING — 已完成/終止 included", async () => {
     injectMixedTasks();
     const { findByText, findByTestId, queryByTestId, queryByText } =
       renderPage();
@@ -1401,10 +1405,11 @@ describe("TasksPage 清除篩選 semantics (T-50bb)", () => {
     await findByText("完成的");
     await findByText("終止的");
     expect((await findByText("活的")).textContent).toContain("活的");
-    // Nothing narrows the list anymore → no 清除篩選, and the 狀態 dropdown
-    // reads as unconstrained (all boxes unchecked).
+    // Nothing narrows the list any more, and the 狀態 dropdown reads as
+    // unconstrained (all boxes unchecked) — with the 已篩選 strip gone, the
+    // dropdown's own state is what says so, which is the property that made
+    // removing the strip safe.
     expect(queryByTestId("tasks-filter-clear")).toBeNull();
-    openFilterPanel();
     fireEvent.click(await findByTestId("filter-status"));
     const checkOf = (v: string) =>
       document.querySelector<HTMLInputElement>(
@@ -1414,7 +1419,7 @@ describe("TasksPage 清除篩選 semantics (T-50bb)", () => {
     expect(checkOf("done").checked).toBe(false);
   });
 
-  it("clicking 清除篩選 after editing filters ALSO goes straight to 顯示全部 (not back to the default view)", async () => {
+  it("emptying every axis after editing filters ALSO goes straight to 顯示全部 (not back to the default view)", async () => {
     injectMixedTasks();
     const { findByText, findByTestId, queryByText } = renderPage();
     await findByText("活的");

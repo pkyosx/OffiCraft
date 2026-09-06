@@ -92,22 +92,26 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
   const [, setRoute] = useHashRoute();
 
   // ── 篩選 (T-93 round 2) ─────────────────────────────────────────────────
-  // Round 1 put an always-visible 篩選列 here that narrowed the ALREADY-LOADED
-  // cards on every keystroke. owner 2026-09-06 rejected that shape twice:
-  //「很常我們要找一張任務或票而已，但每次都要全部都撈回來才濾不合理 你可以設計
-  //  成要給完搜尋條件要再按 search 的版本嗎」and, on being shown an overlay,
-  //「按搜尋時不要再跳出新modal」。So the fields live inside the shared
-  // FilterPanel shell (FilterPanel.tsx — read its header before touching this):
-  // an in-page panel that expands above the list, Cancel / 套用篩選 at the
-  // bottom, and a 「N 筆 · 已篩選：<chip ×> · 清除全部」 strip once collapsed.
+  // ── ID 篩選 (T-118) ──────────────────────────────────────────────────────
+  // The field is permanently visible above the list — no funnel, no panel, no
+  // 取消/套用篩選, no 「N 筆 · 已篩選」 strip, and no 「請示卡」 sub-title above it.
+  // owner 2026-09-06 20:07 (c-c3d681fe05da):「不要多filter那一層了,全部拉出來
+  //…也不用再顯示14筆已篩選跟那一行跟案件那個子標了,案件跟請示卡都一樣」, and
+  // again at 20:19 (c-38c7759e6377):「請示卡跟任務都要改成一樣的呈現方式,一樣
+  // 請示卡的子標題拿掉」. The shell is still the shared FilterPanel (read
+  // FilterPanel.tsx's header — that contract is not restated here); it is now a
+  // row rather than an expander, so both pages got the new shape at once.
   //
-  // TWO STATES, NOT ONE. `appliedId` is what the page is actually filtered by;
-  // `draftId` is what the field binds to. Typing changes NOTHING until Apply —
-  // that is the whole answer to 「每次都要全部都撈回來才濾不合理」, because
-  // nothing is fetched or narrowed per keystroke.
+  // TWO STATES, STILL. `appliedId` is what the page is actually filtered by;
+  // `draftId` is what the field binds to. 🔴 They are still separate, and NOT
+  // because of a leftover panel: an applied id is a SERVER request
+  // (`api.getReplyCard` in the lookup effect below), so committing per keystroke
+  // is a fetch per keystroke — the shape owner rejected twice
+  // (「每次都要全部都撈回來才濾不合理」,「按搜尋時不要再跳出新modal」). What
+  // changed this round is only WHEN the draft commits: Enter or blur
+  // (「按enter或是點外面就視為apply了」), where it used to be 套用篩選.
   const [appliedId, setAppliedId] = useState(replyCardId ?? "");
   const [draftId, setDraftId] = useState(replyCardId ?? "");
-  const [filterOpen, setFilterOpen] = useState(false);
   // `#replies/card/<id>` still seeds the APPLIED id (unchanged from round 1):
   // a notification tap or a shared link lands on that one card without the
   // owner having to open the panel and press anything.
@@ -172,16 +176,27 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
         lookup.card)
       : null;
 
-  function clearFilters() {
-    setAppliedId("");
-    setDraftId("");
-    // Clearing must also drop the id from the URL, or a reload would seed it
-    // straight back and the clear would look broken.
-    if (replyCardId) setRoute({ page: "replies" });
-  }
+  // 🔴 WHERE 清除篩選 WENT (T-118). Round 2 had a 「清除全部」 on the 已篩選 strip;
+  // owner removed the strip, so it went with it. The escape did NOT go with it:
+  // the 編號 box is permanently on screen holding the offending id, so emptying
+  // it and pressing Enter (or clicking away) is the same clear, at the place the
+  // reader is already looking — `commitId("")` runs the identical three lines
+  // the old button ran, hash reset included. docs/guide/interface.md describes
+  // exactly this gesture. Do not put the button back without also putting the
+  // strip back; on its own it would be a second way to say one thing.
 
-  function applyFilters() {
-    const next = draftId.trim();
+  /** Enter or blur on the 編號 field — the only two events that turn typed text
+   * into a filter (owner 2026-09-06:「按enter或是點外面就視為apply了」). */
+  function commitId(value: string) {
+    const next = value.trim();
+    // Blur fires on every tab-through, so committing an unchanged value must
+    // cost nothing: `idQuery` drives the lookup effect, and re-setting it to
+    // what it already holds would re-run `api.getReplyCard` for no reason.
+    if (next === appliedId) {
+      if (next !== value) setDraftId(next);
+      return;
+    }
+    setDraftId(next);
     setAppliedId(next);
     // The hash is a SECOND source for the applied id, so leaving a stale one
     // there would re-seed the old card on the next reload.
@@ -588,43 +603,17 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
         </div>
       )}
 
-      {/* ── 篩選 (T-93 round 2) ────────────────────────────────────────────
-        * The shell is FilterPanel's; only the FIELDS are ours. Nothing here is
-        * a modal — it expands in the page and pushes the list down, because
-        * owner ruled out the overlay after seeing it. `testId` is namespaced so
-        * this panel's controls never collide with the 任務頁's. */}
-      <FilterPanel
-        title={t.replies.filterTitle}
-        count={loading ? null : waitingSorted.length + visibleHandled.length}
-        open={filterOpen}
-        onOpenChange={(next) => {
-          // Opening RESEEDS the draft from what is applied: the panel must open
-          // showing the filter that is actually in force, not whatever was left
-          // in the field by a Cancel three minutes ago.
-          if (next) setDraftId(appliedId);
-          setFilterOpen(next);
-        }}
-        chips={
-          filtering
-            ? [
-                {
-                  key: "id",
-                  label: t.replies.chipId(idQuery),
-                  onRemove: clearFilters,
-                },
-              ]
-            : []
-        }
-        onClearAll={clearFilters}
-        onApply={applyFilters}
-        // Cancel commits nothing: put the field back on the applied value so
-        // the abandoned draft cannot leak into the next open.
-        onCancel={() => setDraftId(appliedId)}
-        testId="replies-filter"
-      >
+      {/* ── 篩選 (T-118) ──────────────────────────────────────────────────
+        * The shell is FilterPanel's; only the FIELD is ours. Nothing here is a
+        * modal and nothing here expands — it is a row above the list, because
+        * owner ruled out the overlay (c-3b5a0aa66550) and then the expander
+        * itself (c-c3d681fe05da). `testId` is namespaced so this panel's
+        * controls never collide with the 任務頁's. */}
+      <FilterPanel testId="replies-filter">
         <IdFilterInput
           value={draftId}
           onChange={setDraftId}
+          onCommit={commitId}
           label={t.replies.filterIdLabel}
           testId="filter-reply-card-id"
           // 15 = the length of every 請示卡 id there is: api_replycards.go:283

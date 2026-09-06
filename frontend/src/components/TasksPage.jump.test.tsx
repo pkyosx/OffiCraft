@@ -4,7 +4,7 @@
 //      (adjudicated). A pure chat ask shows nothing.
 //   2. Clicking 查看任務詳情 routes to #tasks/<taskId>.
 //   3. Arriving at #tasks/<id> narrows the page to that ONE task in the normal
-//      layout (a closed target auto-expands 已結束); 清除全部 on the 已篩選 strip
+//      layout (a closed target auto-expands 已結束); emptying the 編號 field
 //      returns to the full list; an unknown id KEEPS its anchor and the page
 //      says THAT ID DOES NOT EXIST — the server was asked (owner 2026-09-05
 //      rc-428906235337 stopped the silent self-heal; owner 2026-09-06 option ①
@@ -29,7 +29,6 @@ import type { ReplyCard, TaskView } from "../api/adapter";
 import {
   toggleFilter,
   clearAllFilters,
-  openFilterPanel,
 } from "../test/tasksFilter";
 
 let seq = 0;
@@ -229,10 +228,17 @@ describe("TasksPage 單一任務 filter (#tasks/<id>)", () => {
     const { findByTestId } = renderTasks();
     const openList = await findByTestId("open-list");
     expect(openList.querySelector('[data-task-id="t-open"]')).not.toBeNull();
-    // The other task is filtered out; a filter being active shows 清除篩選.
+    // The other task is filtered out.
     expect(document.querySelector('[data-task-id="t-other"]')).toBeNull();
-    // A filter is on, so the 已篩選 strip is there with its 清除全部 exit.
-    await findByTestId("tasks-filter-clear");
+    // 🔁 WAS 「a filter is on, so the 已篩選 strip is there with its 清除全部
+    // exit」. owner 2026-09-06 (c-c3d681fe05da) removed the strip and the button
+    // with it. The exit did NOT go: the 編號 field is permanently visible
+    // holding the anchored id, so THAT is what says a filter is on and that is
+    // where it is cleared. Asserting the field is asserting the surviving
+    // property; asserting the button was asserting the vanished mechanism.
+    expect(
+      ((await findByTestId("filter-task-id")) as HTMLInputElement).value
+    ).not.toBe("");
   });
 
   it("a CLOSED target shows up with 已結束 auto-expanded", async () => {
@@ -248,7 +254,7 @@ describe("TasksPage 單一任務 filter (#tasks/<id>)", () => {
     expect(document.querySelector('[data-task-id="t-open"]')).toBeNull();
   });
 
-  it("清除篩選 lifts the anchor AND every other axis → 顯示全部 (terminals included, T-50bb)", async () => {
+  it("clearing every field lifts the anchor AND every other axis → 顯示全部 (terminals included, T-50bb)", async () => {
     __injectMockTask(mkTask({ id: "t-open" }));
     __injectMockTask(mkTask({ id: "t-other" }));
     __injectMockTask(
@@ -257,7 +263,6 @@ describe("TasksPage 單一任務 filter (#tasks/<id>)", () => {
     window.location.hash = "#tasks/t-open";
 
     const { findByTestId } = renderTasks();
-    await findByTestId("tasks-filter-clear");
     clearAllFilters();
 
     await waitFor(() => expect(window.location.hash).toBe("#tasks"));
@@ -302,7 +307,8 @@ describe("TasksPage 單一任務 filter (#tasks/<id>)", () => {
     expect(queryByTestId("open-list")).toBeNull();
     // The anchor stays put — that is the visible difference from before.
     expect(window.location.hash).toBe("#tasks/t-gone");
-    // 清除全部 is the way back, and it restores the list AND the hash.
+    // Emptying the 編號 field is the way back, and it restores the list AND
+    // the hash (T-118: the 清除全部 button went with the 已篩選 strip).
     clearAllFilters();
     await findByTestId("open-list");
     expect(window.location.hash).toBe("#tasks");
@@ -351,13 +357,12 @@ describe("TasksPage executor seed (#tasks/executor/<id>, T-dfae)", () => {
     __injectMockTask(mkTask({ id: "t-kyle-open", executorId: "kyle" }));
     window.location.hash = "#tasks/executor/mira";
 
-    const { findByTestId } = renderTasks();
+    renderTasks();
     // composeTaskNo precedent: consumed, then normalised away — so the route
     // never re-imposes itself over the owner's own filter edits.
     await waitFor(() => expect(window.location.hash).toBe("#tasks"));
-    // The seeded filter is ordinary filter state: 清除篩選 lifts it like any
+    // The seeded filter is ordinary filter state: clearing the fields lifts it like any
     // other axis, and kyle's task comes back.
-    await findByTestId("tasks-filter-clear");
     clearAllFilters();
     await waitFor(() =>
       expect(document.querySelector('[data-task-id="t-kyle-open"]')).not.toBeNull()
@@ -387,9 +392,8 @@ describe("TasksPage executor seed (#tasks/executor/<id>, T-dfae)", () => {
     );
     const { findByTestId, queryByTestId } = renderTasks();
 
-    // Widen 狀態 to 所有狀態 the way the owner would: 清除篩選 = 顯示全部
+    // Widen 狀態 to 所有狀態 the way the owner would: 清空每一軸 = 顯示全部
     // (T-50bb), which EMPTIES the status set — terminals included.
-    await findByTestId("tasks-filter-clear");
     clearAllFilters();
     fireEvent.click(await findByTestId("closed-toggle"));
     await waitFor(() =>
@@ -488,7 +492,6 @@ describe("TasksPage executor seed (#tasks/executor/<id>, T-dfae)", () => {
     // to be opened before its option rows exist at all, and the roster they are
     // built from arrives asynchronously. Reading too early gives `undefined`,
     // which is neither checked nor unchecked and must not be scored as either.
-    openFilterPanel();
     fireEvent.click(await findByTestId("filter-executor"));
     const tick = await waitFor(() => {
       const el = document
