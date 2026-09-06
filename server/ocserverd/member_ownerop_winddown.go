@@ -812,3 +812,43 @@ func (s *apiServer) consumeWorkerRestartAfterStop(w *OutsourceWorker, now float6
 	s.publishOutsourceWorker(*w, triggerServer)
 	return true
 }
+
+// ── 收口 latch: ONE body, three funnels (T-65 包⑤) ───────────────────────────
+//
+// collectWindDownRow is THE stopped_since latch of every close-out collect, for
+// both populations. It stamps the durable dump-done marker if — and only if —
+// this epoch has not been collected yet, and hands back both facts the three
+// funnels around it need:
+//
+//   - `latched` says whether THIS call is the one that collected. 正職's
+//     HandleReportStoppedApiSelfStoppedPost reads it as `recycleKill`: the first
+//     report dispatches a STOP and receipts `collected`, a repeat one receipts
+//     `already_reported` and sends no second kill. The worker funnels do not
+//     read it — their once-only check is the same anchor, read a layer up by
+//     their callers.
+//   - `prior` is the value that was there BEFORE, which is what
+//     collectWorkerHandover rolls the latch back to when the respawn finds no
+//     kill target and the session is still online.
+//
+// 🔴 THE `<= 0` GUARD IS THE ONCE-ONLY, and it is why this is a shared body
+// rather than three copies of two lines. BOTH drivers of the graceful handover
+// (a stopped-report and the grace timeout) key their once-only check on this
+// anchor, so a stopped-report racing the timeout can never double-collect (D4).
+// Make the stamp unconditional in ONE of the three funnels and that race comes
+// back for that funnel alone — which is the drift a shared body removes, not a
+// tidiness the caller could have kept by hand.
+//
+// 🔴 IT TAKES NO LOCK AND MUST NEVER TAKE ONE. The worker funnels run under
+// s.outsourceMu (held by their callers) and the staff funnel runs under no lock
+// at all; lifecycle_tick.go's ruling is that the two mutexes are never held at
+// once. A body shared across both sides is exactly the place a lock would be
+// added by someone reasoning about only one of them, so it takes no receiver and
+// touches nothing but the row it was handed.
+func collectWindDownRow(row windDownAnchorRow, now float64) (latched bool, prior float64) {
+	prior = *row.StoppedSince
+	if prior <= 0.0 {
+		*row.StoppedSince = now
+		return true, prior
+	}
+	return false, prior
+}

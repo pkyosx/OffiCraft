@@ -104,8 +104,7 @@ func (s *apiServer) persistMemberOpReceipt(m Member, trigger string) error {
 // one it creates is bounded, visible as a 500, and re-armable. That is the
 // argument — not that this direction is free.
 func (s *apiServer) persistMemberWindDownAnchors(m Member) error {
-	return s.dal.SetMemberWindDownAnchors(m.ID, m.StoppingSince, m.StoppedSince,
-		m.RefocusSince, m.RefocusOp)
+	return s.persistWindDownAnchors(windDownAnchorRowOfMember(&m))
 }
 
 // persistWorkerWindDownAnchors is the outsource face of the call above. It reads
@@ -114,9 +113,78 @@ func (s *apiServer) persistMemberWindDownAnchors(m Member) error {
 // call has no business triggering. There is no second table behind it:
 // DAL.PutOutsourceWorker IS PutMember(memberFromWorker(w)), so a worker row is a
 // member row with kind='outsource' and these four columns are the same columns.
+//
+// 🔴 IT TAKES A VALUE AND THE ADAPTER BELOW TAKES ITS ADDRESS, which is the
+// whole reason this signature did not change in T-65 包⑤: `&w` is the address of
+// THIS FUNCTION'S OWN COPY, so nothing a caller passed can be written through
+// the row. Handing the row a caller's *OutsourceWorker instead would make a
+// persist call able to mutate the caller's snapshot — a door that does not exist
+// today and must not be opened by an adapter.
 func (s *apiServer) persistWorkerWindDownAnchors(w OutsourceWorker) error {
-	return s.dal.SetMemberWindDownAnchors(w.ID, w.StoppingSince, w.StoppedSince,
-		w.RefocusSince, w.RefocusOp)
+	return s.persistWindDownAnchors(windDownAnchorRowOfWorker(&w))
+}
+
+// ── 收口 anchors: ONE row, both populations (T-65 包⑤) ───────────────────────
+//
+// windDownAnchorRow names the four wind-down anchor columns plus the id they
+// belong to, BY POINTER — the same shape stopVerbRow uses below and for the same
+// reason: the two populations' anchor code was two hand-kept copies of one body,
+// and nothing mechanical held them equal.
+//
+// The pointers are load-bearing rather than decorative because this row has TWO
+// bodies behind it, one of which WRITES: persistWindDownAnchors only reads the
+// four, but collectWindDownRow (member_ownerop_winddown.go) latches
+// stopped_since through StoppedSince. A value struct would have made the collect
+// body impossible to share and left that latch as three hand-copied lines in
+// three funnels, which is exactly what 包⑤ removed.
+//
+// ⚠️ ID IS A VALUE, not a pointer, and deliberately: no verb in either funnel
+// moves a row's id, so an id that could be written through would be a door with
+// nothing behind it.
+type windDownAnchorRow struct {
+	ID            string
+	StoppingSince *float64
+	StoppedSince  *float64
+	RefocusSince  *float64
+	RefocusOp     *string
+}
+
+// windDownAnchorRowOfMember / windDownAnchorRowOfWorker are pure address-taking
+// adapters and must stay that way, for the reason stopVerbRowOfMember gives: any
+// logic here would be logic that exists twice again.
+//
+// 🔴 NEITHER OF THEM GOES THROUGH memberFromWorker. That projection mints
+// activated_ts as a side effect, which is why the worker face reads the four
+// columns straight off the worker row; an adapter that "simplified" the worker
+// arm into memberFromWorker(w) would be a silent behaviour change that nothing
+// in this package reads.
+func windDownAnchorRowOfMember(m *Member) windDownAnchorRow {
+	return windDownAnchorRow{
+		ID:            m.ID,
+		StoppingSince: &m.StoppingSince,
+		StoppedSince:  &m.StoppedSince,
+		RefocusSince:  &m.RefocusSince,
+		RefocusOp:     &m.RefocusOp,
+	}
+}
+
+func windDownAnchorRowOfWorker(w *OutsourceWorker) windDownAnchorRow {
+	return windDownAnchorRow{
+		ID:            w.ID,
+		StoppingSince: &w.StoppingSince,
+		StoppedSince:  &w.StoppedSince,
+		RefocusSince:  &w.RefocusSince,
+		RefocusOp:     &w.RefocusOp,
+	}
+}
+
+// persistWindDownAnchors is THE body of the anchor write, for both populations.
+// The ordering rule that governs its callers — BEFORE the whole-row write — is
+// spelled out at persistMemberWindDownAnchors above and did not move here,
+// because it is a rule about CALL SITES and this function cannot enforce it.
+func (s *apiServer) persistWindDownAnchors(row windDownAnchorRow) error {
+	return s.dal.SetMemberWindDownAnchors(row.ID, *row.StoppingSince,
+		*row.StoppedSince, *row.RefocusSince, *row.RefocusOp)
 }
 
 // publishMemberPatch fans the member delta and nothing else. It is putMember's
@@ -1360,7 +1428,17 @@ func clearMemberHandoverMarker(m *Member) {
 // these five columns twice (api_members.go's force-stop against
 // api_outsource.go's), and its fifth, stopping_since, follows a DIFFERENT rule on
 // each side, so folding it in would be a behaviour change rather than a
-// convergence. That one belongs to 包④/包⑤. It does NOT make a MIS-WIRED adapter safe — stopVerbRowOfWorker could
+// convergence.
+//
+// ⚠️ THIS USED TO SAY 「that one belongs to 包④/包⑤」 AND IT NO LONGER DOES:
+// 包④ and 包⑤ have both landed without touching 強制停止's stopping_since —
+// 包⑤ was scoped to a zero-behaviour-change refactor of the 收口 funnels. The
+// gap is still open and still unowned. It is the 強制停止 pull-back arm the
+// parity whitelist's 強制停止|stopping_since and |noticed rows describe: ONE
+// production edit on the staff handler closes both. Naming a package that has
+// already shipped would have turned this into a claim that the work was done.
+//
+// It does NOT make a MIS-WIRED adapter safe — stopVerbRowOfWorker could
 // hand back a pointer to the wrong field and applyStopVerbRow would faithfully
 // write the wrong column. That failure has to be caught one layer up, at the
 // handler seam, and it is: block ① of TestVerbPopulationParityMatrix drives the
@@ -1462,9 +1540,17 @@ func stopVerbRowOfWorker(w *OutsourceWorker) stopVerbRow {
 //
 // 🔴 THAT LAST SENTENCE IS STAFF-SCOPED, and it did not have to say so while it
 // lived at the staff call site. It does now: decideDown is the MEMBER reconcile
-// path, and a stopped WORKER never reaches a tick at all — runOutsourceTick
-// `continue`s on desired_state=offline, which is why the worker side collects
-// inline instead. See the 停止（離線起點）rows in the parity whitelist. Caught
+// path, and the worker side collects inline instead.
+//
+// ⚠️ THE REASON GIVEN HERE USED TO BE 「a stopped WORKER never reaches a tick at
+// all — runOutsourceTick `continue`s on desired_state=offline」, AND THAT IS TOO
+// STRONG (measured against outsource_sched.go, T-65 包⑤). The `continue` exists
+// only on the WorkerStatusAssigned branch; the WorkerStatusActive branch calls
+// autoHandoverWorker unconditionally and guards only the FSM afterwards, so a
+// desired-offline ACTIVE worker enters the tick and can be collected there
+// (autoHandoverWorker's stop arm → collectWorkerStop). The inline collect is the
+// FAST path, not the only one. See the 停止（離線起點）rows in the parity
+// whitelist, which carries the same correction with its measurements. Caught
 // by independent review, which is the failure mode this move creates: a
 // paragraph that was true where it stood becomes a claim about both
 // populations the moment it is hoisted into shared code.
@@ -2002,10 +2088,7 @@ func (s *apiServer) HandleReportStoppedApiSelfStoppedPost(w http.ResponseWriter,
 	//
 	// desired_state decides what follows, and neither arm needs a special case
 	// here: online respawns on the next tick's plain START, offline stays down.
-	recycleKill := m.StoppedSince <= 0.0
-	if m.StoppedSince <= 0.0 {
-		m.StoppedSince = nowSecs()
-	}
+	recycleKill, _ := collectWindDownRow(windDownAnchorRowOfMember(m), nowSecs())
 	if err := s.persistMemberWindDownAnchors(*m); err != nil {
 		internalError(w, err)
 		return

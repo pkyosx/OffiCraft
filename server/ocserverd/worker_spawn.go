@@ -2287,10 +2287,7 @@ func (s *apiServer) openWorkerHandoverGrace(w OutsourceWorker, trigger string) {
 // Callers hold s.outsourceMu and pass a freshly-read row with refocus_since>0
 // ∧ stopped_since==0.
 func (s *apiServer) collectWorkerHandover(w OutsourceWorker, reason, trigger string) bool {
-	prior := w.StoppedSince
-	if w.StoppedSince <= 0.0 {
-		w.StoppedSince = nowSecs()
-	}
+	_, prior := collectWindDownRow(windDownAnchorRowOfWorker(&w), nowSecs())
 	if err := s.persistWorkerWindDownAnchors(w); err != nil {
 		outsourceLog("handover collect %s (%s): stopped-latch ANCHOR write failed: %v", w.ID, reason, err)
 		return false
@@ -2331,9 +2328,7 @@ func (s *apiServer) collectWorkerHandover(w OutsourceWorker, reason, trigger str
 // failure to defer to — a missing target only means the session is already gone,
 // and desired_state=offline is what keeps it that way. Callers hold s.outsourceMu.
 func (s *apiServer) collectWorkerStop(w OutsourceWorker, reason, trigger string) {
-	if w.StoppedSince <= 0.0 {
-		w.StoppedSince = nowSecs()
-	}
+	collectWindDownRow(windDownAnchorRowOfWorker(&w), nowSecs())
 	if err := s.persistWorkerWindDownAnchors(w); err != nil {
 		outsourceLog("stop collect %s (%s): stopped-latch ANCHOR write failed: %v", w.ID, reason, err)
 		return
