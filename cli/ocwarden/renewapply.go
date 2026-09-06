@@ -267,8 +267,9 @@ func (u *updater) maybeRenewCredential() bool {
 	// and the station's demand is not a property of the token at all.
 	//
 	// 🔴 THE DEMAND EXISTS BECAUSE THE EXPIRY QUESTION CANNOT ANSWER THIS ONE. A
-	// credential signed by a key the station has retired is not expiring — it may
-	// have no expiry at all (mintWardenToken mints without one) — and it is
+	// credential signed by a key the station has retired is not expiring — and it
+	// may have no expiry at all, since every credential minted before T-fc53
+	// 第二段 was permanent — and it is
 	// perfectly valid right up until somebody removes that key, at which instant
 	// it is worthless and this machine is unreachable. Nothing this process can
 	// read off its own token says which key signed it (the JWT header is a

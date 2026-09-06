@@ -239,12 +239,17 @@ type apiServer struct {
 	// (auth.warden_credential_lifetime_secs; T-fc53), guarded by settingsMu like
 	// every other owner-adjustable number here.
 	//
-	// 🔴 NOTHING ON THE SERVER ACTS ON IT. It is not consulted by mintWardenToken,
-	// not by the auth gate, and not by reconcile — it is PUBLISHED, to the settings
-	// face and to GET /api/machines/credential-policy, and the party that acts on
-	// it is each warden's own poll loop. That asymmetry is deliberate and is what
-	// keeps the first package harmless: the station changing this number cannot by
-	// itself invalidate anything.
+	// 🔴 SINCE T-fc53 第二段 THE SERVER DOES ACT ON IT, and the old note is quoted
+	// here because it is the thing a reader is most likely to still believe: it
+	// used to say "NOTHING ON THE SERVER ACTS ON IT … the station changing this
+	// number cannot by itself invalidate anything." mintWardenToken now stamps
+	// exp = iat + this value (api_auth.go), so it is a deadline as well as the
+	// number published to the settings face and to
+	// GET /api/machines/credential-policy.
+	//
+	// It STILL cannot invalidate anything already issued — an exp is fixed at mint
+	// time, so lowering this shortens only future credentials. What it changes is
+	// that a credential which never gets renewed now stops working.
 	wardenCredLifetimeSecs int
 	// root anchors the repo-file assets (seeds / prebuilt binaries / frozen
 	// MCP catalog) — see assets.go.

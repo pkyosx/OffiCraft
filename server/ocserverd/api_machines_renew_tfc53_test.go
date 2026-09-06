@@ -16,12 +16,14 @@ package main
 //	   without measuring it is how you find out later that it moved.
 //
 // ⚠️ WHAT THIS FILE DELIBERATELY DOES NOT ASSERT: that the new credential
-// differs from the old one. Warden credentials are currently minted WITHOUT an
-// exp claim, so two mints for the same machine in the same second are
-// byte-identical — an inequality assertion here would pass or fail on clock
-// luck. Renewal only becomes observable once the credential carries an expiry
-// again, which is a later step of T-fc53; asserting it now would be asserting
-// something the code cannot yet do.
+// differs from the old one, and T-fc53 第二段 did NOT change that. The reason it
+// used to give — "warden credentials are minted WITHOUT an exp claim, so two
+// mints for the same machine in the same second are byte-identical" — has been
+// replaced by a reason that survives the expiry: exp is derived as iat + a fixed
+// lifetime, so two mints inside the same second still produce identical claims
+// and an inequality assertion would pass or fail on clock luck. Renewal is
+// observable by the exp having MOVED, which needs a controlled clock this file
+// does not have; the file that does is api_machines_test.go.
 
 import (
 	"encoding/json"
@@ -177,27 +179,32 @@ func TestDeletedMachineIsTurnedAwayByTheAuthGateNotByThisHandler(t *testing.T) {
 			"stayed green.", code, body)
 	}
 
-	// 🔴 WHICH auth-layer gate answers, and why it is NOT the revocation one.
+	// 🔴 WHICH auth-layer gate answers, and THE ANSWER FLIPPED IN T-fc53 第二段.
 	//
-	// Warden credentials carry no exp claim today, so permanentCredentialRefusal
-	// fires FIRST and answers the generic "invalid token"; revocationRefusal's
-	// machine arm is never reached on this route. Asserting the revocation
-	// wording here would therefore be asserting something that has never once
-	// happened — a green nobody produced.
+	// It used to be permanentCredentialRefusal: warden credentials carried no exp
+	// claim, so that gate fired first and answered the generic "invalid token",
+	// and revocationRefusal's machine arm was never reached on this route. 第一段
+	// left this assertion pinned to that wording with a note saying it was
+	// EXPECTED TO FLIP once the expiry came back, and to re-measure rather than
+	// re-point it. It came back; this is the re-measurement.
 	//
-	// ⚠️ THIS ASSERTION IS EXPECTED TO FLIP. A later step of T-fc53 gives warden
-	// credentials an expiry again; on that day the permanent-credential gate
-	// stops firing, revocationRefusal becomes the only thing standing here, and
-	// this test goes red on the message. That red is the contract moving, not a
-	// break: swap the expectation to machineRevokedMsg("m-box") and re-measure
-	// that the refusal really does come from revocationRefusal — because that
-	// gate will then be carrying this route ALONE, and it has never been
-	// observed doing so.
-	if !strings.Contains(body, "invalid token") {
-		t.Errorf("refusal wording moved: got %d %s\n"+
-			"want the generic \"invalid token\" that permanentCredentialRefusal "+
-			"answers with. If this now carries %q, the expiry has come back and "+
-			"the comment above tells you what to do.",
-			code, body, machineRevokedMsg("m-box"))
+	// The credential now carries an exp, so permanentCredentialRefusal returns
+	// false on it and revocationRefusal is the ONLY gate standing here. The two
+	// answer DIFFERENT sentences, which is what makes this a discriminator rather
+	// than a rename: "invalid token" is permanentCredentialRefusal's, and
+	// machineRevokedMsg names the machine. Asserting the named one therefore
+	// fails if the permanent gate somehow answers again — e.g. if a future mint
+	// drops the exp — instead of quietly accepting either.
+	//
+	// ⚠️ A credential minted BEFORE 第二段 has no exp and would still be answered
+	// by permanentCredentialRefusal here. That path is not exercised in this test
+	// because it is not the one a live machine reaches after this release; it is
+	// pinned where it belongs, in the auth-layer files (auth_refusal_exits_t14_test.go).
+	if want := machineRevokedMsg("m-box"); !strings.Contains(body, want) {
+		t.Errorf("refusal wording moved: got %d %s\nwant %q, which is the sentence "+
+			"revocationRefusal answers with. The generic \"invalid token\" here would "+
+			"mean permanentCredentialRefusal answered instead, i.e. the credential "+
+			"this route mints no longer carries an exp.",
+			code, body, want)
 	}
 }

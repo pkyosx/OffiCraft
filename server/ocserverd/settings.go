@@ -128,21 +128,30 @@ const (
 	// (30 天)，同時換發改看『發下來多久』」) is how long a MACHINE credential is
 	// meant to live, in seconds.
 	//
-	// 🔴 IT IS NOT AN EXPIRY, AND THE DISTINCTION IS THE WHOLE FIRST PACKAGE.
-	// mintWardenToken still mints without an exp claim, nothing at the auth gate
-	// reads this, and no credential stops working because of it. What it governs
-	// is RENEWAL: each warden reads it (GET /api/machines/credential-policy) and
-	// replaces its own credential once that credential is two thirds of this old,
-	// measured from the `iat` claim it already carries.
+	// 🔴 IT IS NOW BOTH HALVES, AND THEY LANDED IN THAT ORDER ON PURPOSE.
 	//
-	// WHY THAT ORDER — a setting that only drives renewal, before the expiry it is
-	// named after. The renewal path had never once been observed to run: the old
-	// trigger asked "how much of the lifetime is left", which needs an exp, so it
-	// answered "not due" on every machine in the fleet forever. Putting expiries
-	// back first would have started a clock on every host against a path nobody
-	// had watched work. With no expiry in play the worst this setting can do is
-	// make machines renew too often or not at all, and neither takes a host off
-	// the network.
+	//	第一段 — RENEWAL. Each warden reads this number (GET
+	//	/api/machines/credential-policy) and replaces its own credential once that
+	//	credential is two thirds of this old, measured from the `iat` claim it
+	//	already carries. Landing this alone was safe: with no expiry in play the
+	//	worst a bug could do was make machines renew too often or not at all, and
+	//	neither took a host off the network. That mattered because the renewal path
+	//	had never once been observed to run — the old trigger asked "how much of
+	//	the lifetime is LEFT", which needs an exp, so it answered "not due" on
+	//	every machine in the fleet forever.
+	//
+	//	第二段 — EXPIRY. mintWardenToken now stamps `exp = iat + this` (api_auth.go),
+	//	so the number is a deadline as well as a renewal trigger. From here on
+	//	LOWERING this value shortens only credentials minted AFTER the change: an
+	//	`exp` is fixed at mint time, so nothing already in the field expires sooner
+	//	because the setting moved. RAISING it likewise only lengthens future ones.
+	//
+	// ⚠️ The two halves must stay the SAME number. A renewal threshold derived from
+	// one value and an expiry stamped from another is a fleet that renews after it
+	// has already been refused, and there is no signal anywhere that would say so —
+	// which is exactly why both read wardenCredLifetimeValue() and neither takes a
+	// lifetime argument. The failure conditions of the pair are written out at
+	// wardenCredLifetimeSecsDefault below.
 	//
 	// It is deliberately an owner-typed NUMBER rather than a pick from the
 	// 12h/1d/7d/30d list the two token TTLs use (owner 2026-09-06): the reason for
@@ -365,9 +374,42 @@ const (
 
 // The auth.warden_credential_lifetime_secs bounds (T-fc53).
 //
-// THE DEFAULT IS 30 DAYS because that is what the owner ruled the credential
-// lifetime should be, so an install that never writes the key already behaves the
-// way the second package will make it behave literally.
+// THE DEFAULT IS 90 DAYS (owner 2026-09-06 18:36, verbatim 「加回去預設 90 天可
+// 以調整」). It was 30 while the setting drove renewal only; giving the credential
+// an `exp` again (T-fc53 第二段) is what made the number a real deadline, and the
+// owner moved it at the same moment. Changing it is one PATCH away — that is the
+// 「可以調整」 half, and it was already true before this package.
+//
+// 🔴 THE TWO CONDITIONS THIS WHOLE MECHANISM SILENTLY FAILS UNDER. Both are
+// timing properties of the world, neither is checked anywhere, and both are
+// invisible until a machine is simply unreachable — nothing on this station
+// reports a warden that failed to renew.
+//
+//	① A SIGNING KEY MUST STAY ON THE RING FOR AT LEAST TWO THIRDS OF THIS
+//	   LIFETIME AFTER IT STOPS SIGNING — 60 days at the default — unless the
+//	   fleet is known to have converged. A warden replaces its credential at
+//	   two thirds of the lifetime (cli/ocwarden/renew.go), so that is how long
+//	   the last credential signed by a stepped-down key can still be in service.
+//	   Removing that key earlier refuses every machine still holding one, at
+//	   once, with no grace and no notice. Key rotation and removal are buttons
+//	   the owner can press at any moment; nothing sequences them against this
+//	   number. What DOES exist is an instrument, and it is the answer rather
+//	   than the calendar: `token_key_current` on GET /api/machines says whether
+//	   each machine has come back on the CURRENT key. Removal is safe when every
+//	   row says yes and unsafe otherwise, however many days have passed.
+//
+//	② A MACHINE OFF THE NETWORK FOR LONGER THAN ITS RETRY WINDOW NOW LOSES ITS
+//	   CREDENTIAL FOR GOOD — the last third of the lifetime, 30 days at the
+//	   default. This is NEW with the expiry: while credentials were permanent a
+//	   host that missed every renewal for a year came back and kept working. Now
+//	   it comes back, is refused, and needs a re-install by hand. The window is
+//	   deliberately a third rather than a fixed number of days so that it moves
+//	   with the setting; lowering the setting shortens it proportionally.
+//
+// ⚠️ NEITHER OF THESE HAS A MECHANICAL GUARD. This comment is a description, not
+// an enforcement, and it MUST NOT be read as one — see the note in spec/lifecycle.md
+// §1.6. The only thing pinned in code is that the numbers above are derived from
+// this constant rather than typed next to it (settings_warden_cred_expiry_tfc53_test.go).
 //
 // 🔴 THE FLOOR IS ONE DAY, AND IT IS NOT AN ARBITRARY ROUND NUMBER — it is derived
 // from the retry window. A warden renews at two thirds of the lifetime, so the
@@ -400,7 +442,7 @@ const (
 // long-lived credential on this station already lives under. Naming the same
 // number twice was rejected: this one is derived from it.
 const (
-	wardenCredLifetimeSecsDefault = 30 * 86400
+	wardenCredLifetimeSecsDefault = 90 * 86400
 	minWardenCredLifetimeSecs     = 86400
 	maxWardenCredLifetimeSecs     = int(maxAgentTTLSecs)
 )

@@ -647,10 +647,14 @@ func (s *apiServer) HandleOnboardMachineApiMachinesPost(w http.ResponseWriter, r
 		return
 	}
 	writeJSON(w, http.StatusOK, machineOnboardResultDTO{
-		MemberID:       member.ID,
-		MachineID:      member.ID,
-		Token:          token,
-		ExpiresIn:      0, // 0 is the wire sentinel for a credential with no exp.
+		MemberID:  member.ID,
+		MachineID: member.ID,
+		Token:     token,
+		// T-fc53 第二段: the credential carries an exp again, so this is the real
+		// remaining lifetime rather than the 0 sentinel that used to mean "never".
+		// It is read from the SAME accessor the mint just used, so the number the
+		// caller is told cannot drift from the number stamped in the token.
+		ExpiresIn:      int64(s.wardenCredLifetimeValue()),
 		BootCommand:    buildBootCommand(requestBaseURL(r), code),
 		ClaimCode:      code,
 		ClaimExpiresIn: machineClaimTTLSecs,
@@ -697,7 +701,7 @@ func (s *apiServer) HandleMachineBootCommandApiMachinesMachineIdBootCommandGet(w
 		MachineID:      machine.ID,
 		BootCommand:    buildBootCommand(requestBaseURL(r), code),
 		Token:          token,
-		ExpiresIn:      0,
+		ExpiresIn:      int64(s.wardenCredLifetimeValue()),
 		ClaimCode:      code,
 		ClaimExpiresIn: machineClaimTTLSecs,
 	})
@@ -731,7 +735,7 @@ func (s *apiServer) HandleClaimMachineTokenApiMachinesClaimPost(w http.ResponseW
 	}
 	writeJSON(w, http.StatusOK, machineClaimResultDTO{
 		Token:     token,
-		ExpiresIn: 0,
+		ExpiresIn: int64(s.wardenCredLifetimeValue()),
 		MachineID: machine.ID,
 	})
 }
@@ -775,7 +779,7 @@ func (s *apiServer) HandleRenewMachineCredentialApiMachinesRenewCredentialPost(w
 	}
 	writeJSON(w, http.StatusOK, machineClaimResultDTO{
 		Token:     token,
-		ExpiresIn: 0,
+		ExpiresIn: int64(s.wardenCredLifetimeValue()),
 		MachineID: machine.ID,
 	})
 }
@@ -783,12 +787,18 @@ func (s *apiServer) HandleRenewMachineCredentialApiMachinesRenewCredentialPost(w
 // GET /api/machines/credential-policy — how long a machine credential is meant
 // to live (T-fc53). One number, the same for every caller.
 //
-// 🔴 WHY THIS ENDPOINT HAS TO EXIST AT ALL. A warden decides for itself when to
-// replace its credential, and it used to be able to: the threshold was a fraction
-// of the credential's own lifetime, and the lifetime was exp minus iat. Warden
-// credentials carry no exp (mintWardenToken → mintJWTWithoutExpiry), so that
-// subtraction has nothing to work with and the number now lives only in the
-// owner's settings — on this side of the wire. This is how it crosses.
+// 🔴 WHY THIS ENDPOINT HAS TO EXIST AT ALL, INCLUDING NOW THAT THE CREDENTIAL HAS
+// AN exp AGAIN. The threshold used to be a fraction of exp minus iat, read off the
+// credential itself; that stopped working when warden credentials went permanent
+// and the number moved into the owner's settings, which is what this route
+// publishes. 第二段 put the exp back, so exp minus iat is once again derivable on
+// the warden — and the endpoint STAYS, for two reasons. First, every warden
+// installed before 第二段 is holding a credential with no exp, so a threshold read
+// off the token would answer "not due" on exactly the machines that most need to
+// renew. Second, an exp is fixed at MINT time: a credential minted under a 90-day
+// lifetime keeps quoting 90 days after the owner lowers the setting, so the token
+// is a record of what the lifetime WAS, and this endpoint is the only thing that
+// says what it IS.
 //
 // 🔴 WHY THE DECISION IS STILL THE WARDEN'S, and not this server's. The station
 // can already push a `renew` verb down a warden's downlink (askMachineToRenewIfStale

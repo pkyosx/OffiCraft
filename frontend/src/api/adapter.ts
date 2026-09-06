@@ -1085,14 +1085,14 @@ export interface ServerSettingsView {
    * soft cause stays uncollected at any value. */
   acceleratedGraceSecs: number;
   /** T-fc53: how long a MACHINE (warden) credential is meant to live, in
-   * seconds (86400..34560000; default 2592000 = 30 days). It is NOT an expiry —
-   * warden credentials still carry no `exp`, so nothing stops working because
-   * of this number. It is the ONE input every warden derives its renewal
-   * threshold from: a machine replaces its own credential once that credential
-   * is two thirds of this old, plus a per-machine stagger of up to an hour so
-   * that LOWERING it does not put the whole fleet on the mint endpoint inside
-   * one poll. Lowering it therefore makes machines renew sooner, never sooner
-   * than they can. */
+   * seconds (86400..34560000; default 7776000 = 90 days). It is BOTH the
+   * credential's expiry (the mint stamps `exp = iat + this`, T-fc53 第二段 — it
+   * carried no `exp` at all before that) and the ONE input every warden derives
+   * its renewal threshold from: a machine replaces its own credential once that
+   * credential is two thirds of this old, plus a per-machine stagger of up to an
+   * hour so that LOWERING it does not put the whole fleet on the mint endpoint
+   * inside one poll. Lowering it never shortens a credential already issued —
+   * an `exp` is fixed at mint time. */
   wardenCredentialLifetimeSecs: number;
   /** M3: the GLOBAL cap on concurrently live outsource workers (-1..20;
    * **-1 ⇒ 無限 (unlimited — no global cap)**; 0 ⇒ outsource assignment is

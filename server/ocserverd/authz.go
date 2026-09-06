@@ -291,13 +291,21 @@ const (
 // boot — the property using now() would not have.
 //
 // 🔴 KIND == machineKind IS EXEMPT, and that is a safety property rather than
-// an optimisation. mintWardenToken issues scope="agent" credentials with NO exp
-// for a machine member, so scope alone cannot tell a warden from an agent. A
-// warden does not call report_waking today — but that is a fact about today's
-// client, not a contract, and one added line there would raise a floor above a
-// credential that can never expire out of the way: every machine still carrying
-// an older permanent token would go dark PERMANENTLY, with a hand re-install as
-// the only recovery. Pinned by
+// an optimisation. mintWardenToken issues scope="agent" credentials for a machine
+// member, so scope alone cannot tell a warden from an agent. A warden does not
+// call report_waking today — but that is a fact about today's client, not a
+// contract, and one added line there would raise a floor above a credential the
+// machine cannot replace: a warden refused HERE is refused on
+// /api/machines/renew-credential too, so the one path out is shut at the same
+// instant, and the recovery is a hand re-install.
+//
+// ⚠️ THE STRENGTH OF THAT SENTENCE MOVED IN T-fc53 第二段, the exemption did not.
+// It used to read "a credential that can never expire out of the way … would go
+// dark PERMANENTLY", which was true while warden credentials carried no exp.
+// They carry one again (90 days by default), so a refused machine now un-sticks
+// itself when that credential expires and the host is reinstalled — the harm is
+// bounded rather than infinite. It is still a machine off the fleet for as long
+// as its credential lives, which is why nothing here changes. Pinned by
 // TestAgentIatFloor_WardenPermanentTokenIsExempt.
 //
 // Everything else fails OPEN by construction: a non-agent scope, a missing

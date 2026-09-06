@@ -33,7 +33,10 @@
 - Verification MUST, in order: check the 3-segment shape; reject any header `alg` other
   than `HS256` (no `alg:none` downgrade); compare the signature **constant-time** against
   each key in the signing-key ring (§1.2) until one matches; require a
-  numeric `exp` and reject `now >= exp` (expired); require a non-empty `sub`. Failures MUST map to 401 at the HTTP gate.
+  numeric `exp` and reject `now >= exp` (expired) WHEN one is present — a MISSING `exp` is
+  accepted and means "does not expire", which is the backwards-compatibility rule for the
+  warden credentials minted before §1.6 and MUST NOT be tightened while any are in the
+  field; require a non-empty `sub`. Failures MUST map to 401 at the HTTP gate.
   An expired token is expired under every key, so verification MUST stop at the first
   `exp` failure rather than pay an HMAC per key to reach the same answer. The refusal
   MUST NOT say WHICH key failed, or how many were tried.
@@ -62,9 +65,13 @@ Two operator actions, and no timer anywhere:
   "derived from the server signing secret" and which are therefore governed by this ring
   too — produced under that key stops verifying the instant the call returns,
   with no grace period. It is a human's decision precisely because it has no undo.
-  ⚠️ Warden credentials carry no `exp` (see "Mint surfaces and TTL semantics" below), so
-  "wait for the old tokens to expire" is not a strategy for them: they are valid until
-  their key leaves the ring.
+  ⚠️ Warden credentials expire again since §1.6, but "wait for the old tokens to expire" is
+  still the SLOW strategy rather than the answer: a machine's credential lives up to the
+  full lifetime (90 days by default) and is replaced at two thirds of it, so a key that has
+  stopped signing may still have credentials in service for two thirds of a lifetime. The
+  test is `token_key_current` on `GET /api/machines`, not the calendar (§1.6 condition 1).
+  Credentials minted before §1.6 carry no `exp` at all and are valid until their key leaves
+  the ring or that machine renews.
 
 Both actions MUST write the DB BEFORE swapping memory, so a failed write cannot leave a
 process signing with a key no restart could recover.
@@ -98,22 +105,25 @@ retired `var/jwt_secret` fallback file has no successor.
 | `POST /api/mint` (owner-gated) | `agent` / `body.member_id` | `min(ttl_days*86400, 400 days)` — the 400-day ceiling MUST cap every long-lived agent token, and an `exp` is ALWAYS stamped (`mintJWT` computes `now + ttl` unconditionally; `ttl_days: 0` mints a token that is already expired, never a permanent one). 🔴 For a member whose `kind` is NOT `warden`, the ceiling is not a guarantee of lifetime: the token carries NO exemption from the §1.2 cut 3 agent floor, so it dies the moment that member next reports waking, however many days are left on it (owner 2026-08-30, rc-162a4ace086d option 0 — asked and accepted). A long-lived token handed to an external script therefore stops working at that member's next boot. 🔴 THE `kind="warden"` CASE IS THE EXCEPTION AND IT IS OPEN ON PURPOSE. This route resolves its target with `staffOnly`, which refuses `kind='outsource'` and NOTHING ELSE — so a mint MAY be aimed at a machine (warden) member, and §1.2 cut 3 exempts `kind="warden"` rows by design. The resulting token is therefore an `agent`-scope credential that NO boot report can end. It is NOT unrevocable: it still expires (≤ 400 days), and removing that machine from the roster still refuses it through the cut 2 machine revocation. What is missing is only the boot cut. Two guards were proposed for this — refusing a machine target here, and raising the floor at dispatch time — and owner DEFERRED both on 2026-08-31, verbatim 「都先不加」(rc-b08b0a5d678b, free text, no option selected). That is a POSTPONEMENT, not an accepted permanent gap: this paragraph MUST be revisited rather than read as a settled design. | none |
 | `POST /api/bootstrap` (with `member_id`) | `agent` / member id | DB setting `auth.agent_token_ttl` (default **604800 s**) | `member.desired_machine_id` (omitted if empty) |
 | reconcile START payload (server-side, per spawn) | `agent` / member id | `auth.agent_token_ttl` | `member.desired_machine_id` |
-| machine onboard / boot-command / bootstrap-here exec-token | `agent` / warden member id | **no expiry** (`exp` omitted; response `expires_in=0`) | none (warden tokens carry no placement claim) |
-| `POST /api/machines/claim` (public; redeems a one-time claim code) | `agent` / warden member id | **no expiry** (`exp` omitted; response `expires_in=0`) — the same permanent mint used by every warden install path | none (warden tokens carry no placement claim) |
-| `POST /api/machines/renew-credential` (a warden replacing its OWN credential — §1.4) | `agent` / the caller's own warden member id | **no expiry** (`exp` omitted; response `expires_in=0`) — the SAME permanent mint as the install paths above, deliberately not a second one | none (warden tokens carry no placement claim) |
+| machine onboard / boot-command / bootstrap-here exec-token | `agent` / warden member id | DB setting `auth.warden_credential_lifetime_secs` (default **7776000 s** = 90 days; §1.6) — `exp = iat + lifetime`, response `expires_in` = the same number | none (warden tokens carry no placement claim) |
+| `POST /api/machines/claim` (public; redeems a one-time claim code) | `agent` / warden member id | `auth.warden_credential_lifetime_secs` — the same mint used by every warden install path | none (warden tokens carry no placement claim) |
+| `POST /api/machines/renew-credential` (a warden replacing its OWN credential — §1.4) | `agent` / the caller's own warden member id | `auth.warden_credential_lifetime_secs` — the SAME mint as the install paths above, deliberately not a second one | none (warden tokens carry no placement claim) |
 
-Warden credentials are revoked two ways: removing that machine from the roster, which
-rejects its next gated request, and removing the KEY that signed it (§1.3 cut 4), which
-rejects every credential that key signed at once. The first is per machine and is the
-ordinary one; the second is the fleet-wide one and requires convergence first (§1.3).
+Warden credentials are revoked three ways: they now EXPIRE (§1.6); removing that machine
+from the roster rejects its next gated request; and removing the KEY that signed it
+(§1.3 cut 4) rejects every credential that key signed at once. The second is per machine
+and is the ordinary one; the third is the fleet-wide one and requires convergence first
+(§1.3).
 
-Existing finite warden credentials do NOT need a reinstall to become permanent ones: the
-warden renews itself through §1.4 once its credential is far enough into its life, and what
-it receives back is a permanent mint. (This paragraph used to say the opposite — that they
-"remain finite until that machine is reinstalled". That was already untrue before T-80,
-which is why it is corrected rather than updated: self-renewal predates this ticket, and
-the sentence has simply been describing a world without it.) The 400-day cap remains the
-ceiling for non-warden agent-token mints.
+⚠️ **Warden credentials minted before the §1.6 change carry no `exp` and MUST go on being
+accepted.** Verification MUST treat a missing `exp` as "does not expire" (§1.1), because
+every machine installed before that change is holding one and its only route to a finite
+credential is the §1.4 renewal it performs itself. An implementation MUST NOT refuse a
+credential for lacking an `exp`, and MUST NOT derive a renewal deadline from `exp` — see
+§1.5, which requires the trigger to read `iat`.
+
+The 400-day cap remains the ceiling for non-warden agent-token mints, and it is also the
+ceiling of the warden lifetime setting (§1.6).
 
 - Login MUST verify the password against the DB-stored argon2id hash (`auth.password_hash`)
   and answer a flat 401 for a wrong password OR no set password, with no distinguishing
@@ -296,9 +306,13 @@ ceiling for non-warden agent-token mints.
      merely took a few seconds to arrive.
 
      Scope notes, all load-bearing: `kind="warden"` rows are EXEMPT, and that is a safety
-     property rather than an optimisation — a warden credential is `agent` scope with NO
-     `exp` (§1.3), so a floor raised above one could never expire out of the way and the
-     machine would be off the fleet permanently, recoverable only by a hand re-install.
+     property rather than an optimisation — a warden credential is `agent` scope, and a
+     warden refused HERE is refused on `POST /api/machines/renew-credential` too, so the
+     one path off a refused credential is shut at the same instant and the recovery is a
+     hand re-install. (Before §1.6 the sentence was stronger: warden credentials carried NO
+     `exp`, so such a floor could never expire out of the way and the machine was off the
+     fleet permanently. It is now bounded by the credential's lifetime, which does not
+     change the exemption.)
      A failed roster read MUST NOT refuse (unknown ≠ superseded), and a member that has
      never reported waking (floor 0 — every row predating the cut) refuses nothing.
 
@@ -372,8 +386,8 @@ ceiling for non-warden agent-token mints.
      signed, whatever its scope, from the next request onward. It is the ONLY cut of the
      four that is not per-token and not per-principal: it is per KEY, so it takes tokens
      the operator never enumerated — including `kind="warden"` credentials, which the three
-     cuts above deliberately exempt or cannot reach and which carry no `exp` to expire out
-     of the way. That is why it is a human's decision with no timer and no undo, and why
+     cuts above deliberately exempt or cannot reach, and whose own `exp` (§1.6) is far
+     enough out — up to a full lifetime — that waiting for it is not a substitute. That is why it is a human's decision with no timer and no undo, and why
      the settings page states the cost before the press. It also ends every attachment
      share-link `?sig=` produced under that key, which is not a token at all.
 
@@ -443,8 +457,8 @@ thing that needed replacing.
   cannot persist the new credential MUST therefore still be running on the old one.
 - A machine removed from the roster MUST NOT be able to renew. This follows from §1.2
   rather than from this endpoint, and an implementation MUST pin WHICH refusal answers:
-  while warden credentials carry no `exp`, the permanent-credential refusal answers
-  first and the roster-revocation arm is never reached on this route.
+  the roster-revocation refusal at the auth gate answers first, before the handler's own
+  active-machine check is reached.
 
 ### 1.5 Renewal trigger — the credential lifetime setting (`auth.warden_credential_lifetime_secs`)
 
@@ -474,16 +488,22 @@ evidence that a credential is or is not due.
   integer (seconds). It MUST be accepted anywhere in **86400 .. 34560000** (one day
   through 400 days, the §1.3 ceiling) and refused with a 422 outside it, by ONE predicate
   that the write face and the boot-time loader BOTH use — a value that saves MUST NOT be a
-  value the next start refuses. Its default is **2592000** (30 days).
+  value the next start refuses. Its default is **7776000** (90 days; owner 2026-09-06
+  「加回去預設 90 天可以調整」 — it was 2592000 while §1.6 had not landed).
   It MUST NOT be reduced to a pick-list: the reason to change it is to observe a renewal
   without waiting out a full lifetime, and the useful values are not the ones a list of
   four would contain (owner 2026-09-06).
-- 🔴 **The setting is NOT an expiry, and an implementation MUST NOT make it one.** Nothing
-  at the auth gate reads it, no mint stamps it, and no credential stops working because of
-  it. Lowering it MUST NOT be able to invalidate anything; the only thing it moves is the
-  age at which a warden goes and asks for a replacement. (Warden credentials regaining an
-  `exp` is a separate change, and it MUST NOT land before a renewal has been observed to
-  complete — see the note at the end of this section.)
+- 🔴 **The setting is BOTH the renewal trigger and the expiry (§1.6), and an implementation
+  MUST derive both from the SAME value.** This bullet used to say the opposite — "the
+  setting is NOT an expiry, and an implementation MUST NOT make it one" — which was the
+  contract while §1.6 had not landed; it is quoted rather than deleted because the two
+  halves shipped separately and a reader may have met the earlier one. A renewal threshold
+  taken from one number and an `exp` stamped from another is a fleet that renews after it
+  has already been refused, and nothing anywhere would report it.
+- Lowering the setting MUST NOT shorten any credential already issued. An `exp` is fixed at
+  mint time, so a lower value reaches the fleet only through the credentials minted after
+  it. What lowering DOES do immediately is move the renewal threshold under machines that
+  are already older than it — see **Staggering** below.
 
 **Reaching the fleet.** The lifetime lives only on the station, and the credential no
 longer carries anything to derive it from, so it MUST be published:
@@ -517,14 +537,68 @@ and accepted, with a stagger promised).
 - The stagger MUST be small relative to the retry window it delays into, and MUST NOT be
   able to exempt a machine from renewing: it moves the moment, it never cancels it.
 
-**Ordering (T-fc53, and it is a MUST NOT rather than a preference).** Giving warden
+**Ordering (T-fc53).** This section landed BEFORE §1.6, and deliberately: with no `exp` in
+play, a renewal that never fires and a renewal that fires too often are both survivable,
+and neither takes a machine off the network. The precondition that ordering was written
+with — that an expiry MUST NOT land before a renewal has been observed to run end to end
+on a real machine — is recorded in §1.6, which is where it now applies.
+
+### 1.6 Credential expiry — warden credentials carry an `exp` again
+
+§1.5 says when a machine replaces its credential. This says what happens if it does not.
+
+Warden credentials were permanent (no `exp`) between the freeze and T-fc53. They are not
+any more.
+
+- Every warden mint surface in the §1.3 table MUST stamp `exp = iat + auth.warden_credential_lifetime_secs`,
+  read from the LIVE setting at mint time. There MUST be exactly ONE warden mint and every
+  install and renewal path MUST go through it; an implementation MUST NOT let a caller pass
+  a lifetime in, because five callers with a lifetime argument is five places the number can
+  disagree with §1.5's threshold.
+- The response's `expires_in` MUST be that same lifetime. `expires_in=0` is no longer a
+  sentinel for "never" on any warden route.
+- 🔴 A credential minted WITHOUT an `exp` MUST still verify. Every machine installed before
+  this landed is holding one, and refusing it takes that machine off the fleet with a hand
+  re-install as the only recovery. An implementation MUST NOT add a "warden credentials
+  must carry an exp" check anywhere, and MUST NOT read the absence of `exp` as evidence
+  about renewal (§1.5).
+- Lowering the setting MUST NOT shorten a credential already minted, and an implementation
+  MUST NOT add a second expiry check that compares a live setting against a token's `iat` to
+  achieve that effect. The `exp` in the token is the whole contract.
+- The lifetime MUST be at least three times the §1.5 retry window an implementation's poll
+  cadence needs — which is the same statement as §1.5's floor, from the other end. The
+  floor is what makes the two consistent, and an implementation MUST NOT widen one without
+  the other.
+
+**The two conditions this MUST be read alongside.** Neither has, or can easily have, a
+mechanical guard on this station; both are recorded here because an implementation that
+does not know them will read the machinery above as self-sufficient, and it is not.
+
+1. **A signing key MUST remain on the ring for at least two thirds of the lifetime after it
+   stops signing, unless the fleet is known to have converged.** A warden replaces its
+   credential at two thirds of the lifetime (§1.5), so that is how long the last credential
+   signed by a stepped-down key can still be in service — 60 days at the default. Removing
+   the key before then refuses every machine still holding one, at once, with no grace
+   (§1.3 cut 4). The instrument is `token_key_current` on `GET /api/machines`, not the
+   calendar: removal is safe when every machine has come back on the current key, and
+   unsafe otherwise however many days have passed.
+2. **A machine off the network for longer than its retry window now loses its credential
+   permanently** — the last third of the lifetime, 30 days at the default. This is NEW with
+   the expiry: while credentials were permanent, a host that missed every renewal for a year
+   came back and kept working. It now comes back, is refused, and needs a re-install by
+   hand.
+
+⚠️ **Nothing on the station reports a machine whose renewal has stopped happening.** There
+is no pass, no band and no alarm; the first symptom of either condition above is a host
+nobody can reach. An implementation adding one would be adding a guarantee this contract
+does not currently make.
+
+⚠️ **The precondition §1.5 was written with.** That section states that giving warden
 credentials an `exp` again MUST NOT land before a renewal has been observed to run end to
-end on a real machine. Until it does, an expiry starts a clock on every host in the fleet
-against a path that has never been watched work, and nothing anywhere reports a machine
-that failed to renew — the first symptom is a host nobody can reach. Everything in this
-section is deliberately safe to land first: with no `exp` in play, a renewal that never
-fires and a renewal that fires too often are both survivable, and neither takes a machine
-off the network.
+end on a real machine, for exactly the reason in the paragraph above. This section is that
+change. Whether the observation was made is a fact about a deployment, not about an
+implementation, and this spec cannot assert it — it is recorded here so that the condition
+is not lost by having been satisfied on paper.
 
 ## 2. Boot context — the three-block assembly
 
@@ -929,8 +1003,13 @@ ONE-SHOT, never a standing order):
   the session's own bearer token, so an expired token does not degrade the close-out
   — it makes the close-out impossible.
   🔴 **The ONE exempt kind is `warden`, and the reason is its CREDENTIAL, not its
-  role**: `mintWardenToken` mints with no `exp` claim at all, so there is no expiry
-  to lead. `tokenExpiryOf` therefore excludes warden by name (T-170e). It used to
+  role**: `mintWardenToken` mints on a DIFFERENT clock — `exp = iat + auth.warden_credential_lifetime_secs`
+  (§1.6), not `auth.agent_token_ttl`, and anchored on the mint rather than on the session
+  boot this derivation uses, so neither input here applies to a warden. (Until §1.6 the
+  reason was simpler: a warden credential had no `exp` at all. The reason moved; the
+  exemption MUST NOT.) A warden also has its own answer to a credential running out — it
+  renews (§1.5) — and files none of the MCP close-out this wind-down asks for.
+  `tokenExpiryOf` therefore excludes warden by name (T-170e). It used to
   allow-list `assistant`, which swept outsource in with warden even though a
   worker's token comes from the same `mintAgentToken` with the same
   `auth.agent_token_ttl` — the exemption was wider than the reason written beside it.
