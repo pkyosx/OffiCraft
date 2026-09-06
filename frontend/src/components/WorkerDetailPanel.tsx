@@ -176,11 +176,29 @@ export function WorkerDetailPanel({
   // escalate?" (yes — the session is alive and working its close-out); this
   // asks "what does the ONE settings dialog DO when confirmed?", and for a
   // worker the owner has already held down the answer is 喚醒: /restart is
-  // reachable there (its guard refuses only a worker that is BOTH not held down
-  // and online), so the confirm really does revive it. That is what makes the
-  // ladder's first rung — Spawn, which opens this same dialog — a genuine
-  // rescue rather than a button that opens a dialog promising 更改 and then
-  // changes nothing on a held-down worker.
+  // NEVER refused (the old over-spawn 409 is gone, T-ed79 #10 — it has exactly
+  // two preconditions, the row exists and it is not released), so the confirm
+  // really does revive it. That is what makes the ladder's first rung — Spawn,
+  // which opens this same dialog — a genuine rescue rather than a button that
+  // opens a dialog promising 更改 and then changes nothing on a held-down
+  // worker.
+  //
+  // ⚠️ THE "really does revive it" HALF WAS AN INFERENCE UNTIL T-65 包④, and
+  // 包④ is precisely what could have falsified it. The revival used to BE the
+  // kill: /restart killed the live close-out session and dispatched the
+  // replacement in the same request. 包④ deleted that kill (owner 2026-09-06,
+  // rc-1f591528a6d0 圈 [0]: 「正在跑就不動它」), so this sentence had to be
+  // re-earned on a different mechanism, and it was — MEASURED, end to end, by
+  // TestWakeOnAStoppingWorkerBringsItBackAfterTheCloseOut
+  // (server/ocserverd/worker_wake_on_stopping_revives_t65_test.go): the press
+  // flips desired_state to online and clears stopping_since → the agent
+  // finishes its close-out and files report_stopped, which lands on the bare
+  // latch and dispatches nothing → the next outsource tick sees an online
+  // intent with no session and sends a plain start. It is SLOWER than it was
+  // (one tick plus however long the close-out takes) and it no longer throws
+  // away the half-written work, which is the trade the owner asked for. If any
+  // step of that regresses, this line becomes a lie with no visible symptom:
+  // the owner confirms, gets a 200, and the worker never comes back.
   const wakeMode = noLiveSession || stoppingNow;
   const machineText = worker.machine || t.workerDetail.notAssigned;
   // ── the four "changed, not applied yet" hints (T-7f28) ────────────────────

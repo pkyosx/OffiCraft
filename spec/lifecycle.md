@@ -1003,35 +1003,45 @@ ONE-SHOT, never a standing order):
   | `workerRestartSelf` (`worker_spawn.go`) | `restart_self` | **409** — the refusal is written by `HandleRestartSelfApiSelfRefocusPost` itself, VERBATIM the sentence its own staff arm writes further down in the same function (`m.Kind == KindOutsource` arm vs the fall-through `armRefocusEpoch` arm); the two arms are one rule |
   | `HandleAcceleratedStopOutsourceWorker…` | 加速停止 | n/a — it ADVANCES the ladder, and it deliberately does not zero the anchors (the twin of the staff 加速停止 arm) |
   | `stampContextHighRecycle` promotion arm (`reconcile.go`, the `if promoting` branch) | none — the reconcile tick's own context pass, projected onto workers by `runWorkerLifecyclePasses` (`lifecycle_roster.go`), which `runOutsourceTick` calls | n/a — it also ADVANCES, and only forwards: `canPromoteToAcceleratedStop` lets it move `context_notice` → `context_high` and nothing else. It hand-writes `refocus_since` / `refocus_op` INSTEAD of calling `armRefocusEpoch` on purpose — that helper zeroes the wind-down anchors, and here they belong to a close-out already in flight (see the `armRefocusEpoch is deliberately NOT used` note directly above that assignment) |
-  ⚠️ **`重啟` (restart) is a deliberate hole in this table, not a missing row.**
-  `ownerOpDisplacesTheSession(restart) == true` (`worker_spawn.go`), so the
-  `!ownerOpDisplacesTheSession(op) && s.workerHasStateToFlush(w)` arm in
-  `respawnWorkerForOwnerOp` (`worker_spawn.go`, the arm *after* the
-  `DesiredStateOffline` held-down one) is never taken for 重啟 and the ladder never
-  sees it. That is intended and predates T-170e — but **NOT because 重啟 can only arrive at a worker
-  the owner has already stopped.** It can arrive at any live worker:
-  `HandleRestartOutsourceWorkerApiOutsourceWorkersIdRestartPost`
-  (`api_outsource.go`) has exactly two preconditions — the row exists and it is
-  not `released` — and **no desired-offline gate at all**. Press 重啟 on a worker with
-  `desired_state="online"` that is mid-加速停止 and it answers **200**, zeroes
-  `refocus_since` / `refocus_op` / `stopping_since` / `stopped_since`, and the deadline
-  goes with them.
-  The reason that is right is that **重啟 is not a wind-down cause at all — it is a
-  kill+respawn.** It does not ask the current session for a close-out; it displaces
-  it (`respawnWorkerForOwnerOp` → `respawnWorkerForOwnerOpNow` → `respawnWorkerNow`,
-  which kills the session on the resolved target before it re-spawns), and the handler says so on the row itself: its `if s.hub.IsOnline(id)`
-  arm (`api_outsource.go`) stamps the `session_alive` receipt *"this worker was
-  still running — 重啟 is replacing that session, not starting a first one. If it
-  does not come back, its previous session was still holding the slot"*. The four
-  anchors it clears all DATE THE SESSION BEING REPLACED; carrying them into the
-  successor is what makes the next 改機器 / 換 model read them as "this epoch's
-  wind-down is already collected". So clearing them is a correct clean sheet for a new
-  session, **not a way around the ladder** — there is no ladder step left to be on once
-  the session the ladder was counting for is gone. (`forced_stop_at` is deliberately
-  KEPT, per the staff activate's rule.) Winding 重啟 down instead would fan an SOP 預告
-  at a session that is about to be killed regardless and then wait out a deadline for
-  an answer that changes nothing. A reader of the rows above would otherwise reasonably
-  assume 重啟 is covered; it is not, and it should not be.
+  ⚠️ **`喚醒` (restart) HAS TWO ARMS, and only one of them can reach this table.**
+  Owner ruling 2026-09-06 (`rc-1f591528a6d0` 圈 [0]): 「收斂成『正在跑就不動它』；真的要
+  強制重來再另外給一個動作」. `HandleRestartOutsourceWorkerApiOutsourceWorkersIdRestartPost`
+  (`api_outsource.go`) splits on `s.hub.IsOnline(id)`:
+  | arm | what it does | reaches the ladder? |
+  | --- | --- | --- |
+  | **session STILL RUNNING** | records the intent (`desired_state=online`), clears `stopping_since` + `waking_since`, stamps a `session_alive` receipt, dispatches **nothing** and kills **nothing**. `refocus_since` / `refocus_op` / `stopped_since` are left **bit-for-bit alone** — they date the epoch of the session that is still up, and clearing them would silently cancel a 加速停止 or 換手 in flight, on a 200, from the one verb the owner pressed in order to leave the worker alone. `respawnWorkerForOwnerOp` is not called at all. | **no** — nothing is displaced, so there is nothing for the ladder to rule on |
+  | **session NOT running** | unchanged clean sheet: clears all four anchors, then re-dispatches through `respawnWorkerForOwnerOp`. The anchors all date the session being replaced; carrying them into the successor is what makes the next 改機器 / 換 model read them as 「this epoch's wind-down is already collected」. (`forced_stop_at` is deliberately KEPT, per the staff activate's rule.) | **no** — `s.workerHasStateToFlush(w)` is `online && …`, and on this arm the worker is by definition not online, so the ladder arm in `respawnWorkerForOwnerOp` is unreachable from here |
+
+  🔴 **THIS PARAGRAPH USED TO SAY THE OPPOSITE, and the sentence it leaned on was
+  `ownerOpDisplacesTheSession(restart) == true`.** That predicate has been
+  DELETED (`fa5d7e72`): once 喚醒 stopped displacing a live session, its only
+  call site (`!ownerOpDisplacesTheSession(op) && s.workerHasStateToFlush(w)`)
+  had a second operand that was already false on every path 喚醒 can take, so
+  the guard could not change any answer — measured by flipping it to
+  `return false` and finding the `Restart|OwnerOp|VerbPopulation|WindDownKind`
+  family still green. A guard whose removal changes nothing is not a guard.
+
+  ⚠️ **WHAT THIS COST, stated plainly:** there is no longer a ONE-PRESS way to
+  end a wedged session. 強制停止 still calls `stopWorkerNow` with no liveness
+  gate, so the escape hatch survives as two presses — 強制停止, then 喚醒. The
+  one-press 「強制重來」 the owner named is a SEPARATE action he deferred; it does
+  not exist anywhere in this repo.
+
+  🔴 **THE RESCUE PATH IS NOT THE KILL ANY MORE — it is the reconcile tick.**
+  A worker mid-停止 (presence `stopping`: `desired_state=offline`, session still
+  up) is exactly where the cockpit offers 喚醒 (`WorkerDetailPanel.tsx`,
+  `wakeMode = noLiveSession || stoppingNow`). It used to come back because the
+  press killed it and spawned the replacement in the same breath. It now comes
+  back the long way, and every step is load-bearing: the press flips
+  `desired_state` to online and clears `stopping_since` → the agent finishes its
+  close-out and files `report_stopped`, which lands on `workerReportStopped`'s
+  **bare latch** (neither collect arm matches: the 停止 arm needs desired
+  offline, the 換手 arm needs `refocus_since > 0`) → the next `runOutsourceTick`
+  sees an online intent with no session and dispatches a plain `start`. Pinned
+  end to end by `TestWakeOnAStoppingWorkerBringsItBackAfterTheCloseOut`
+  (`worker_wake_on_stopping_revives_t65_test.go`), because if any one of those
+  steps regresses the owner presses 喚醒, is answered 200, and the worker simply
+  never comes back — with nothing red and nothing on screen saying so.
 
 ### 4.6 Dispatch discipline
 
