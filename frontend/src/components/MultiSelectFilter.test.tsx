@@ -11,8 +11,8 @@
 // several people have opened cards. Independent review of ec5dd972 found this.
 //
 // The other half the page guards never touched is `constrained`, which drives
-// the pill's active styling. Reverting that line alone left all 188 component
-// test files green — nothing in the tree asserted the class.
+// the pill's active styling. Reverting that line alone left the WHOLE component
+// suite green — nothing in the tree asserted the class.
 //
 // So: N > 1, and the class, tested where both pages inherit them at once.
 import { describe, it, expect, vi } from "vitest";
@@ -106,25 +106,51 @@ describe("MultiSelectFilter 的摘要規則 (T-118, owner rc-33dfe1ff14cb)", () 
   });
 
   it("a stale selected key never inflates the count nor fakes a constraint", () => {
-    // `present` filters against the options that still exist. A value left over
-    // from a person whose rows have aged out must not make the axis look
-    // narrowed — otherwise 清除篩選 appears with nothing to clear.
+    // `present` filters against the options that still exist, so every branch
+    // below must key off `present`, never off the raw `selected` set.
     //
-    // 🔴 TWO CASES, AND THE SECOND ONE IS THE ONE THAT BITES. A stale key ALONE
-    // takes the allLabel branch and never reaches the 「· N」 template at all, so
-    // asserting only that case left the count itself unguarded: swapping
-    // `present.length` for `selected.size` in that template survived all 189
-    // test files. Mixing a stale key WITH real ones is what actually exercises
-    // it. Found by independent review of 910abfeb.
+    // ⚠️ WHAT THIS DOES *NOT* CLAIM, stated because the earlier wording here
+    // claimed it and it is false: it does NOT say a stale-only axis agrees with
+    // the 清除篩選 button. On 任務頁 it does not. `passesExecutor` filters with
+    // the UN-narrowed `appliedExecutor`, so a set holding nothing but a stale
+    // key prints allLabel and leaves the pill dark (present.length === 0) while
+    // the list narrows to zero rows and 清除篩選 sits right there with something
+    // real to clear. That disagreement predates T-118 (`present` was already
+    // narrowed at 59816a53; this package changed only the allLabel branch and
+    // `constrained`), so it is out of this ticket's scope — but the comment must
+    // not describe it as correct design. 請示卡 does not have it: openerOptions
+    // back-fills an absent ticked id as a count-0 row, so there present.length
+    // always equals openerFilter.size. Found by independent review of b8e88098.
+    //
+    // 🔴 THREE CASES, AND ONLY THE LAST TWO REACH THE TEMPLATES. A stale key
+    // ALONE takes the allLabel branch and never reaches 「· N」 or the single-name
+    // branch at all, so asserting only that case left both unguarded: swapping
+    // `present.length` for `selected.size` in the count template survived the
+    // whole component suite, and swapping the `present.length === 1` GUARD for
+    // `selected.size === 1` survived this file's first six assertions. Mixing a
+    // stale key with real ones is what actually exercises them — with ONE real
+    // option for the single-name branch, and with TWO for the count.
     const alone = renderFilter(["ghost"]);
     expect(alone.summary()).toBe("所有負責人");
     expect(alone.active()).toBe(false);
     alone.unmount();
+
+    const one = renderFilter(["kyle", "ghost"]);
+    expect(
+      one.summary(),
+      "one surviving option still prints its NAME — the guard counts present, not selected"
+    ).toBe("Kyle");
+    expect(one.active()).toBe(true);
+    one.unmount();
 
     const mixed = renderFilter(["kyle", "penny", "ghost"]);
     expect(
       mixed.summary(),
       "the count is of options that still EXIST, not of the raw selection"
     ).toBe("負責人 · 2");
+    expect(
+      mixed.active(),
+      "a surviving tick is a constraint, stale company or not"
+    ).toBe(true);
   });
 });

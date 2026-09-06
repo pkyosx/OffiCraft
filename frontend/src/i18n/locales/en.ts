@@ -315,7 +315,13 @@ export const en: Dict = {
     empty: "✓ No pending asks",
     emptyFiltered: "No asks match the current filter",
     // The 開卡人 axis (T-118). Wording mirrors the 任務頁 executor dropdown:
-    // "all <noun>" when unconstrained, "<noun> · N" for a partial pick.
+    // "all <noun>" when NOTHING is ticked, that one name for a single tick,
+    // "<noun> · N" for any other set. ⚠️ A FULL set no longer says "all <noun>"
+    // (owner 2026-09-06 rc-33dfe1ff14cb 「完全沒勾跟有勾的情況本來就是不同的」) —
+    // an empty set is a standing no-constraint that covers whoever turns up
+    // later, a full set is only a snapshot of the names that existed at ticking
+    // time. The earlier wording here said "for a partial pick", which is the
+    // overturned rule; zh.ts carried the correction and en.ts did not.
     filterOpenerNoun: "Opener",
     filterOpenerAll: "All openers",
     filterIdLabel: "Reply-card id",
