@@ -283,7 +283,7 @@ func TestMemberAvatarRejectsReuseByGeneralAttachmentGraphs(t *testing.T) {
 		t.Fatalf("seed task-side avatar blob: %v", err)
 	}
 	rec := addArtifact(t, taskAPI, task.ID,
-		map[string]any{"kind": "image", "attachment_id": avatarID},
+		map[string]any{"kind": "image", "attachment_id": avatarID, "name": "avatar reuse"},
 		"m-exec", "agent")
 	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "reserved") {
 		t.Fatalf("task artifact must reject avatar id: %d %s", rec.Code, rec.Body.String())

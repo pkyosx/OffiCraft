@@ -90,7 +90,6 @@ import type {
   WireTaskStep,
   WireTaskStepDetail,
   WireTaskArtifact,
-  WireTaskArtifactRef,
   WireTaskArtifactVersion,
   WireOutsourceWorker,
   WireTaskManual,
@@ -118,7 +117,6 @@ import type {
   TaskStepView,
   TaskStepDetailView,
   TaskArtifactView,
-  TaskArtifactRefView,
   TaskArtifactVersionView,
   OutsourceWorkerView,
   TaskTypeView,
@@ -516,10 +514,15 @@ export function toTaskStepDetail(w: WireTaskStepDetail): TaskStepDetailView {
   };
 }
 
-/** Map one wire task artifact → `TaskArtifactView` (T-3dc5). Honest
- * passthrough — defaulted-away wire fields read as their wire defaults
- * (""/false/0). `kind` narrows to the closed set (an unknown value falls back
- * to "link" — the no-blob shape — rather than fabricating file/image). */
+/** Map one wire task artifact → `TaskArtifactView` (T-3dc5, T-92). Honest
+ * passthrough — defaulted-away wire fields read as their wire defaults (""/0).
+ * `kind` narrows to the closed set (an unknown value falls back to "link"
+ * rather than fabricating file/image).
+ *
+ * ⚠️ `name` is defaulted to "" here for the same reason every other field is —
+ * an older server, or a hand-built fixture, may not send it. That is NOT the
+ * server's contract: a current server always sends a non-empty name. Do not
+ * read the `?? ""` as permission to expect an empty one. */
 export function toTaskArtifact(w: WireTaskArtifact): TaskArtifactView {
   const kind =
     w.kind === "file" || w.kind === "image" || w.kind === "link"
@@ -529,11 +532,9 @@ export function toTaskArtifact(w: WireTaskArtifact): TaskArtifactView {
     id: w.id,
     kind,
     url: w.url ?? "",
-    label: w.label ?? "",
-    filename: w.filename ?? "",
+    name: w.name ?? "",
+    description: w.description ?? "",
     mime: w.mime ?? "",
-    isImage: w.is_image ?? false,
-    attachmentId: w.attachment_id ?? "",
     createdTs: w.created_ts ?? 0,
     createdBy: w.created_by ?? "",
     versionCount: w.version_count ?? 0,
@@ -556,7 +557,8 @@ export function toTaskArtifactVersion(
     id: w.id,
     kind,
     url: w.url ?? "",
-    label: w.label ?? "",
+    name: w.name ?? "",
+    description: w.description ?? "",
     filename: w.filename ?? "",
     mime: w.mime ?? "",
     isImage: w.is_image ?? false,
@@ -564,16 +566,6 @@ export function toTaskArtifactVersion(
     createdTs: w.created_ts ?? 0,
     createdBy: w.created_by ?? "",
   };
-}
-
-/** Map one wire artifact INDEX row → `TaskArtifactRefView` (T-66) — the two
- * fields a task response carries per deliverable since owner c-cd063427fb2f.
- * Honest passthrough: an artifact pinned without a label maps to "", and this
- * mapper does NOT invent one from a filename or a url, because it has neither.
- * The renderer decides what a nameless artifact looks like, on the full row it
- * fetched through `listTaskArtifacts`. */
-export function toTaskArtifactRef(w: WireTaskArtifactRef): TaskArtifactRefView {
-  return { id: w.id, label: w.label ?? "" };
 }
 
 /** Map one wire dep ref → `TaskDepRefView` (T-a3e4). Honest passthrough: an
@@ -624,12 +616,13 @@ export function toTask(w: WireTask): TaskView {
     steps: (w.steps ?? [])
       .map(toTaskStep)
       .sort((a, b) => a.orderIdx - b.orderIdx),
-    // Full task carries the resolved set; count kept == length so a hydrated
-    // card keeps the same 「產物 N」 badge as its light-list frame.
-    // INDEX rows (T-66): id + label. The full rows come from
-    // `listTaskArtifacts`, not from here — see TaskView.artifacts.
-    artifacts: (w.artifacts ?? []).map(toTaskArtifactRef),
-    artifactCount: (w.artifacts ?? []).length,
+    // 🔴 THE SERVER'S COUNT, not a length taken from rows that are no longer
+    // here (T-92). Leaving this reading `w.artifacts.length` against a payload
+    // that stopped carrying `artifacts` would have made the badge read 0 on
+    // every expanded card — and read 0 SILENTLY, since an absent array and an
+    // empty one are the same `.length`. The light list has read the server's
+    // count all along; this is the two projections finally agreeing.
+    artifactCount: w.artifact_count ?? 0,
   };
 }
 
@@ -672,9 +665,8 @@ export function toTaskListItem(w: WireTaskListItem): TaskView {
     progressDone: w.progress_done,
     progressTotal: w.progress_total,
     steps: [],
-    // Light list: no artifact rows (get_task hydrates them for the popover);
-    // only the server count for the collapsed card's 「產物 N」 badge.
-    artifacts: [],
+    // The server count for the collapsed card's 「產物 N」 badge — the same
+    // field the full task carries since T-92, read the same way.
     artifactCount: w.artifact_count ?? 0,
   };
 }

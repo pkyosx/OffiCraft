@@ -243,9 +243,23 @@ func (l *listener) noteDisconnect(format string, args ...any) {
 		return // the agent has already been told; retries are its own business
 	}
 	l.inOutage = true
-	l.logf(noticeDisconnected+" — "+format+
+	// 🔴 THE ORIGIN SEGMENT MUST BE ON THIS LINE TOO, and this is the half that is
+	// easy to miss. On a machine that is NOT the station host, an unconfigured
+	// listener never connects at all — it dials the invented loopback address, is
+	// refused, and the connect line above is never reached. This disconnect notice is
+	// then the ONLY transport line that member will ever print, and without the
+	// segment it reads as "the station is down" when the truth is "nobody told me
+	// which station". Same debounce as everything else here: once per outage.
+	// ⚠️ THE SEGMENT IS AN ARGUMENT, NOT PART OF THE FORMAT STRING. It is fixed
+	// text today, so concatenating it into the format would work — right up until
+	// somebody puts a `%` in the wording, at which point Fprintf prints
+	// `%!(NOVERB)` into an agent's transcript and it reads like a platform bug
+	// rather than a typo. The connect line already does it this way; this one
+	// briefly did not.
+	l.logf(noticeDisconnected+" — "+format+"%s"+
 		" (retrying on the same schedule, quietly; the next transport line you see "+
-		"is either the reconnect or a give-up)", args...)
+		"is either the reconnect or a give-up)",
+		append(append([]any{}, args...), baseAddressOrigin(l.cfg.BaseConfigured))...)
 }
 
 // stopRetrying prints the give-up line when the retry loop terminates while an
@@ -281,6 +295,45 @@ func stationVerdict(prev, cur string, firstConnect bool) string {
 		return " [same station]"
 	}
 	return " [new station — was " + prev + "]"
+}
+
+// baseAddressOrigin answers 「這個位址是誰決定的」 on the two transport lines a
+// misconfigured listener actually reaches, and it is the whole of T-89.
+//
+// 🔴 WHAT WAS WRONG. loadConfig falls back to defaultBase when OC_BASE is unset,
+// so cfg.Base is NEVER empty and the connect line printed the invented address in
+// exactly the bytes a correctly-configured member prints. Loopback is not itself the
+// tell: cli/ocwarden/testdata/golden_launch.txt line 1 is a spawn that EXPORTS
+// OC_BASE=http://127.0.0.1:7755 explicitly, i.e. a member that was TOLD to use the
+// address an unconfigured one would have invented. The failure was never a missing
+// line — it was a line that looks completely normal. Nothing on it
+// said the address had been invented, so a member joining whatever happens to be
+// listening on 127.0.0.1:7755 was indistinguishable, in the transcript, from a
+// member joining the station somebody chose for it.
+//
+// 🔴 WHAT THIS DELIBERATELY DOES NOT DO: refuse, exit, or shorten anything. The
+// two shapes the earlier deferral in cmdListen offered — folding this into the
+// debounced refusal policy, or making it a launch-time refusal — are BOTH refusals,
+// and the owner's ruling (rc-55a969718c98, option [1]) is that this must not become
+// one: a listener that exits is a member that goes quiet, and from outside a quiet
+// member is indistinguishable from a dead one. Worse, the debounced refusal policy
+// ENDS at selfTerminate(), which kills the tmux session the member lives in. So this
+// is a segment of text and nothing else. It reads cfg and returns a string; it holds
+// no state, cannot fail, and no control flow branches on it.
+//
+// 🔴 THE PREDICATE IS BaseConfigured, NOT `Base == defaultBase`. cli/CLAUDE.md:11
+// states the rule: BaseConfigured records whether the FALLBACK WAS TAKEN, which is
+// not the same question as what the resulting value looks like. A member on the
+// station host legitimately sets OC_BASE to loopback, and comparing against
+// defaultBase would accuse that member of guessing when it was told.
+//
+// Configured ⇒ "" ⇒ both lines are emitted byte-identical to what they were before
+// this existed, which is what keeps this change invisible on every healthy machine.
+func baseAddressOrigin(configured bool) string {
+	if configured {
+		return ""
+	}
+	return " [⚠ address GUESSED — OC_BASE is not set, so nobody chose this station]"
 }
 
 // dispatch is the bridge from ONE completed SSE data payload to the agent's downlink
@@ -560,8 +613,19 @@ func (l *listener) connectOnce(ctx context.Context) (opened, activity, selfExit 
 	// The stream is up: whatever outage was being announced is over, and the
 	// line below IS the second of the owner's two notices.
 	l.inOutage = false
-	l.logf(noticeConnected+" — streaming %s%s (⇒ online while held)%s%s%s",
-		l.cfg.Base, eventsPath, verdict, station, agent)
+	// ⚠️ POSITION: the origin segment goes HERE, not at the end. FIVE existing
+	// tests assert this line ENDS with " [station <sha>]" or " [agent <sha>]" —
+	// TestConnectOnce_ConnectionLineNamesTheShaTheStationSelfReports,
+	// _NoStationSHALeavesTheLineUnadornedAndNeverReusesTheLastOne,
+	// _ConnectionLineNamesTheOcagentThatPrintedIt,
+	// _AnUnstampedOcagentSaysNothingAboutItself and _EveryReconnectNamesTheAgentAgain
+	// (counted by attributing every HasSuffix( to its enclosing func Test; an
+	// earlier revision of this comment said four, which independent review caught).
+	// A trailing segment would break them. Anywhere after the head is equally safe for
+	// the three sidecar prefix consumers, which read column 0 only — and it belongs
+	// beside the address it is talking about rather than after two shas.
+	l.logf(noticeConnected+" — streaming %s%s%s (⇒ online while held)%s%s%s",
+		l.cfg.Base, eventsPath, baseAddressOrigin(l.cfg.BaseConfigured), verdict, station, agent)
 
 	// Connect drain: /api/events has no replay, so any reply_card delta
 	// fanned while this listener held no stream is lost — catch up from the
@@ -748,34 +812,57 @@ func cmdListen(cfg Config, env func(string) string, once bool, out io.Writer) in
 	stamper := &eventStamper{clock: time.Now}
 	out = &stampWriter{inner: out, stamp: stamper.suffix}
 
-	// OC_BASE CLASSIFICATION: NOT GUARDED IN THIS PACKAGE, AND THIS IS THE
-	// ONE CASE WHERE THAT IS A DEFERRAL RATHER THAN AN EXEMPTION. Say so plainly,
-	// because listen is the subcommand with the MOST at stake here: cfg.Base is
-	// what the SSE connection below is opened against, holding it is what makes
-	// the server call this agent online, and nothing in this file asks whether
-	// that address was ever configured. suicide and clean are exempt because they
-	// reach no station at all; listen reaches one for as long as it runs.
+	// OC_BASE CLASSIFICATION: ANNOUNCED, NEVER REFUSED — AND THIS IS THE ONLY
+	// SUBCOMMAND IN THAT CATEGORY. listen has the MOST at stake of any of them:
+	// cfg.Base is what the SSE connection below is opened against, holding that
+	// connection is what makes the server call this agent online, and loadConfig
+	// will have substituted a loopback address in silence if nobody set OC_BASE.
+	// suicide and clean are exempt because they reach no station at all; listen
+	// reaches one for as long as it runs.
 	//
-	// It was left alone for two reasons, neither of which is "it does not
-	// matter":
-	//   1. The refusal T-86 adds elsewhere is an exit. Here an exit is the
-	//      failure mode itself — a member that stops holding its downlink is
-	//      indistinguishable from a dead one — and this file's refusal policy is
-	//      already a deliberate, debounced one (cli/CLAUDE.md §5: tmux gone twice,
-	//      unknown eight times across ten minutes, 409 four times across two
-	//      minutes). A new immediate refusal would sit outside that policy.
-	//   2. T-86's own scope forbids changing what config_test.go pins about the
-	//      mis-wire arm directly below.
+	// 🔴 IT DOES NOT REFUSE, AND THAT IS THE RULING, NOT AN OMISSION. This block
+	// previously recorded a DEFERRAL and named two candidate answers — fold it
+	// into the debounced refusal policy, or make it a launch-time refusal. The
+	// owner answered on 2026-09-05 (rc-55a969718c98, option [1]) and the answer
+	// was NEITHER, because both candidates are refusals and a refusal here is an
+	// exit: a member that stops holding its downlink is indistinguishable, from
+	// the outside, from a dead one — no error, no signal, just a member that
+	// stopped answering. The debounced policy is worse still, not better: its
+	// terminal state is selfTerminate(), which kills the tmux session this member
+	// lives in. So T-89 added a line of TEXT and nothing else. See
+	// baseAddressOrigin: an unconfigured base is named on the connect line and on
+	// the disconnect notice, both of which already exist and are already
+	// debounced, and no control flow anywhere branches on it.
 	//
-	// What it would take: a ruling on whether an unconfigured OC_BASE belongs in
-	// the debounced refusal policy or is a launch-time refusal, which is a
-	// question about this file's contract rather than about the guard T-86 added.
+	// ⇒ Anyone "finishing the job" by turning this into the refusal the other
+	// three subcommands use is REVERSING an owner ruling.
+	// TestUnconfiguredBase_KeepsRetryingAndNeverGoesQuiet is the only thing that
+	// says so mechanically — the three tests that read the message all stay green
+	// against a mutant that prints the line and then leaves.
+	//
+	// ⚠️ NOTE FOR ANYONE GREPPING requireBase TO FIND WHO CARES ABOUT OC_BASE:
+	// this subcommand is NOT among its callers and never will be (requireBase
+	// writes a refusal message and reports "you must stop"). It reads
+	// cfg.BaseConfigured directly instead. The requireBase caller list is not the
+	// list of subcommands that care.
 	if cfg.ID == "" || cfg.Token == "" {
 		fmt.Fprint(out, "[ocagent] listen: no OC_ID/OC_TOKEN — nothing to do; exiting.\n")
 		return 0
 	}
+	return newListener(cfg, env, out, once, stamper).run(rootCtx())
+}
+
+// newListener is the WIRING, pulled out of cmdListen so it can be asserted.
+//
+// 🔴 WHY IT IS ITS OWN FUNCTION. A test can hold a function correct and still not
+// hold the line that hands it its input. Independent review found exactly that hole
+// here: every T-89 test builds its listener directly, so setting cfg.BaseConfigured
+// to a constant on the way IN — one token, inside cmdListen — left all of them
+// green while the feature was gone. There is no network and no clock in here, so
+// the wiring is now a plain unit somebody can pin (listen_base_origin_t89_test.go).
+func newListener(cfg Config, env func(string) string, out io.Writer, once bool, stamper *eventStamper) *listener {
 	api := defaultHTTPClient()
-	l := &listener{
+	return &listener{
 		stamp:            stamper,
 		cfg:              cfg,
 		api:              api,
@@ -800,11 +887,16 @@ func cmdListen(cfg Config, env func(string) string, once bool, out io.Writer) in
 		taskSnaps:        map[string]taskSnap{},
 		once:             once,
 	}
-	// Signal-driven root context: SIGINT/SIGTERM cancels ctx, and run() observes it to
-	// shut down GRACEFULLY — no hard kill of an in-flight SSE read. In practice the
-	// warden's tmux kill is what stops a spawned listener (SIGHUP to the session), but a
-	// clean signal path keeps a foreground/manual run tidy.
-	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
-	defer stop()
-	return l.run(ctx)
+}
+
+// rootCtx gives run() a signal-driven root: SIGINT/SIGTERM cancels it and run()
+// observes it to shut down GRACEFULLY — no hard kill of an in-flight SSE read. In
+// practice the warden's tmux kill is what stops a spawned listener (SIGHUP to the
+// session), but a clean signal path keeps a foreground/manual run tidy.
+//
+// ⚠️ The stop func is intentionally not returned: this context lives exactly as long
+// as the process, and run() returning IS the process ending.
+func rootCtx() context.Context {
+	ctx, _ := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	return ctx
 }

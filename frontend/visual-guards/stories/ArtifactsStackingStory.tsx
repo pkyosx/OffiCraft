@@ -44,11 +44,14 @@ const TASK = serveArtifacts(
       id: `ta-md${n === 1 ? "" : n}`,
       kind: "file" as const,
       url: DATA_URL,
-      label: n === 1 ? "Global Context.md" : `產物-${n}.md`,
-      filename: n === 1 ? "Global Context.md" : `產物-${n}.md`,
+      // T-92 collapsed label/filename into ONE `name`, and dropped `isImage`
+      // and `attachmentId` from the wire — the popover derives those from the
+      // mime prefix and the url tail. The name is what the preview trigger is
+      // reached by (`getByRole("button", { name: "Global Context.md" })`), so
+      // it is load-bearing here, not decoration.
+      name: n === 1 ? "Global Context.md" : `產物-${n}.md`,
+      description: "",
       mime: "text/markdown",
-      isImage: false,
-      attachmentId: `att-md${n}`,
       createdTs: 0,
       createdBy: "mira",
     })),

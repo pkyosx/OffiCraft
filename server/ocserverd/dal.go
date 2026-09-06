@@ -1572,7 +1572,9 @@ func refIDsFromJSON(blob string, into map[string]bool) {
 //	chat_message.meta $.attachments[].id
 //	reply_card.answer_attachments[].id
 //	reply_card.attachments[].id          (T-5e8a question side)
-//	task_artifact.attachment_id          (T-62a8 — file/image kinds; '' on link)
+//	task_artifact.attachment_id          (T-62a8 — EVERY kind since T-92: a link's
+//	                                     target is a text/uri-list blob, so link rows
+//	                                     vote too and this code needed no change)
 //	member.avatar_attachment_id           (T-c826 — dedicated personal image)
 //	task_artifact_history.attachment_id   (T-60 — a REPLACED artifact version)
 //
@@ -1720,15 +1722,27 @@ func collectSurvivingBlobRefs(tx *sql.Tx, into map[string]bool) error {
 	//    task_artifact rows have no cascade of their own and a terminal
 	//    task's set is frozen in every direction, so this reference is the
 	//    strongest one in the schema: dropping its blob is unrecoverable.
-	//    The filter keeps LINK artifacts (no blob, attachment_id '') from
-	//    voting for a nonexistent empty-id blob.
+	//    ⚠️ THE FILTER USED TO BE ABOUT LINKS, AND SINCE T-92 IT IS NOT. Link
+	//    rows carried no blob and an empty attachment_id, and the filter kept
+	//    them from voting for a nonexistent empty-id blob. T-92 gave every kind
+	//    a blob, so link rows now vote like any other — this predicate did not
+	//    change and did not have to, because it never named a kind. What it
+	//    still guards is a blank id, which the schema no longer produces but
+	//    which costs nothing to keep refusing.
 	//
-	//    COALESCE, not a bare `attachment_id <> ''`: the column is today
-	//    NOT NULL DEFAULT '' so NULL cannot occur — but if anyone ever makes
-	//    it nullable, `NULL <> ''` is NULL, the row silently stops voting,
-	//    and THE ORIGINAL DEFECT COMES BACK with nothing going red. The
-	//    fail-safe direction of this predicate is "vote", so write it so a
-	//    NULL still falls on the safe side.
+	//    COALESCE, not a bare `attachment_id <> ''`, is DEFENSIVE STYLE HERE
+	//    AND NOTHING MORE — do not read it as a fail-safe, because it is not
+	//    one. The column is today NOT NULL (00086 dropped its DEFAULT '' along
+	//    with the `url` column; only that migration's Down block puts the
+	//    default back), so NULL cannot occur and the two spellings are
+	//    identical in practice. And on a NULL they would still agree, in the
+	//    UNSAFE direction: `COALESCE(NULL,'') <> ''` is 0 and `NULL <> ''` is
+	//    NULL, and WHERE keeps neither — the row stops voting either way.
+	//    ⚠️ SO IF ANYONE EVER MAKES THIS COLUMN NULLABLE, changing nothing
+	//    here reintroduces the original defect silently, and the COALESCE will
+	//    not have saved you. The fail-safe direction of this predicate is
+	//    "vote", and buying that takes a different predicate —
+	//    `attachment_id IS NULL OR attachment_id <> ''` — not this wrapper.
 	artRows, err := tx.Query(
 		`SELECT attachment_id FROM task_artifact
 		 WHERE COALESCE(attachment_id, '') <> ''`)
@@ -1778,9 +1792,12 @@ func collectSurvivingBlobRefs(tx *sql.Tx, into map[string]bool) error {
 	//    the file the earlier version still points at, and neither must the
 	//    removal of an unrelated chat message.
 	//
-	//    COALESCE for the same reason source 4 spells out: the fail-safe
-	//    direction of this predicate is "vote", and a bare `<> ''` against a
-	//    NULL is NULL, which silently stops the row voting.
+	//    COALESCE with the same caveat source 4 spells out: it is defensive
+	//    style over a NOT NULL column, NOT a fail-safe. Against a NULL it
+	//    yields 0 where a bare `<> ''` yields NULL, and WHERE drops the row
+	//    either way — so making this column nullable would need the predicate
+	//    changed to `attachment_id IS NULL OR attachment_id <> ''`, not just
+	//    left alone.
 	histRows, err := tx.Query(
 		`SELECT attachment_id FROM task_artifact_history
 		 WHERE COALESCE(attachment_id, '') <> ''`)
