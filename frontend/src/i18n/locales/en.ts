@@ -318,7 +318,6 @@ export const en: Dict = {
     filterIdLabel: "Reply-card id",
     clearFilters: "Clear filter",
     // ── Filter panel (T-93 round 2) ──
-    chipId: (id: string) => `Id: ${id}`,
     // 🔴 Three outcomes, three sentences — never merged. Round 1 had one, so
     // "this card does not exist" and "this card was simply never loaded" read
     // identically; that collapse is the defect this ticket removes.

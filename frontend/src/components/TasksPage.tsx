@@ -78,7 +78,7 @@ export function TasksPage() {
   const { members } = useMembers();
   // ── 請示 → 任務: a reply card 查看任務詳情 routes to #tasks/<id>. That id
   // is just another filter dimension — the list narrows to that one task in the
-  // normal layout, cleared by the same 清除篩選 as any other filter.
+  // normal layout, cleared the same way any other axis is: empty its field.
   // Read BEFORE useTasks so the anchored id reaches the hook in the SAME render
   // the hash lands in: routed through an effect instead, the mount fetch and the
   // page's empty-state decision would both run a commit before the hook knows
@@ -228,7 +228,7 @@ export function TasksPage() {
   // not about one task.
   // One-shot (composeTaskNo precedent): the hash normalises back to #tasks the
   // moment it is consumed, so the seeded filters are ordinary, owner-editable
-  // filter state — 清除全部 and the panel work on them like any other.
+  // filter state — the fields edit them like any other.
   const executorSeed = route.page === "tasks" ? route.executorId : undefined;
   useEffect(() => {
     if (!executorSeed) return;
@@ -241,9 +241,9 @@ export function TasksPage() {
 
   // ── 勾什麼就問什麼 (T-a3e4) ────────────────────────────────────────────────
   // The fetch asks for the statuses the owner has APPLIED. ONE view genuinely
-  // needs every status and says so by sending nothing: 清除全部 (an empty set =
-  // 所有狀態) — there the owner asked for the whole population, so downloading
-  // it is the answer, not a defect.
+  // needs every status and says so by sending nothing: every 狀態 box unticked
+  // (an empty set = 所有狀態) — there the owner asked for the whole population,
+  // so downloading it is the answer, not a defect.
   //
   // 🔴 A by-id view is NOT such a view, and that is the 432 KB defect (owner
   // 2026-08-01): the id may name a task outside the ticked statuses, and the
@@ -489,12 +489,16 @@ export function TasksPage() {
   // `anchorPending` goes false and the page renders a message rather than a
   // stuck 載入中.
   //
-  // 🔴 The way OUT is 清除篩選, which already clears this axis with the rest
-  // (see clearFilters) and already shows while it is set (see anyFilter) —
-  // that is why the anchor can stay without trapping the owner in the hash.
+  // 🔴 The way OUT is the 任務編號 field itself: empty it and press Enter (or
+  // click away). T-118 removed the 清除篩選 button along with the 已篩選 strip it
+  // stood on, and this comment used to name that button plus two helpers
+  // (`clearFilters`, `anyFilter`) that no longer exist — the escape did not go
+  // with them, it moved to the field, which is now permanently on screen
+  // holding the offending id. That is why the anchor can stay without trapping
+  // the owner in the hash.
   //
   // A closed target still auto-expands 已結束 so the one match is visible.
-  // 🔴 Keyed on the APPLIED id, not the hash: an id TYPED into the panel names a
+  // 🔴 Keyed on the APPLIED id, not the hash: an id TYPED into the field names a
   // closed task exactly as often as a link does, and if 已結束 stays collapsed
   // the page has "found and passes" as its verdict while showing no row at all —
   // a fourth, silent outcome, which is the failure mode this ticket is about.
