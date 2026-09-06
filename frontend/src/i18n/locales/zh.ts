@@ -109,7 +109,6 @@ export const zh = {
     // 「已篩選」chip 上的編號欄名。跟 filterIdLabel(欄位的 placeholder)分兩顆:
     // 欄位要講清楚是哪一種編號(「任務編號」),chip 上編號旁邊就是值,再講「任務」
     // 只是把一條本來就要單行的 chip 撐長。
-    filterIdNoun: "編號",
     // 非 404 的失敗:根本沒問到,所以不能說「找不到」。
     idUnreached: (id: string) =>
       `查「${id}」時沒有得到伺服器的回覆，所以還不知道它在不在——這不是「找不到」。請稍後再試。`,
@@ -358,6 +357,10 @@ export const zh = {
     // 這句是「還有卡,只是沒有一張符合」——沿用任務頁 emptyNone/emptyFiltered
     // 的同一個分法。
     emptyFiltered: "沒有符合篩選條件的請示",
+    // 開卡人軸（T-118，owner 2026-09-06 c-782404ee53d8）。用詞跟任務頁的負責人
+    // 那顆對齊：全選時說「所有<名詞>」，部分選取時說「<名詞> · N」。
+    filterOpenerNoun: "開卡人",
+    filterOpenerAll: "所有開卡人",
     filterIdLabel: "請示卡編號",
     clearFilters: "清除篩選",
     // ── 篩選面板（T-93 第二輪）──

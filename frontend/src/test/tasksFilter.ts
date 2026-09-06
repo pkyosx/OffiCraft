@@ -59,7 +59,10 @@ export function blurIdFilter() {
  * ordinary gesture of emptying each field, which is what this helper performs.
  * That is deliberate rather than a gap: with every field permanently on screen,
  * each one shows its own value and clears where the reader is already looking.
- * Do not reintroduce a button here to make this shorter. */
+ * ⚠️ IT IS N GESTURES, NOT ONE, AND EACH COSTS A FETCH. Every 狀態 untick
+ * rewrites the applied set, and that axis is asked of the SERVER — so this
+ * helper makes several round trips where the product's own 清除篩選 button makes
+ * one. Do not use it as the basis of a request-count assertion. */
 export function clearAllFilters() {
   for (const testId of ["filter-executor", "filter-type", "filter-status"]) {
     const trigger = document.querySelector(`[data-testid="${testId}"]`);

@@ -46,6 +46,7 @@ import { ReplyCardAvatarButton } from "./ReplyCardAvatarButton";
 import { ChevronRightIcon } from "./icons";
 import { FilterPanel } from "./FilterPanel";
 import { IdFilterInput } from "./IdFilterInput";
+import { MultiSelectFilter, type MultiSelectOption } from "./MultiSelectFilter";
 import { ConfirmModal } from "./ConfirmModal";
 import { Markdown } from "./Markdown";
 import {
@@ -186,8 +187,35 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
   function clearFilters() {
     setAppliedId("");
     setDraftId("");
+    setOpenerFilter(new Set());
     if (replyCardId) setRoute({ page: "replies" });
   }
+
+  // ── 開卡人 (T-118, owner 2026-09-06 c-782404ee53d8「請示卡我想多一個開卡的人
+  // 的filter」) ──────────────────────────────────────────────────────────────
+  // Built the way 任務頁's 負責人 axis is built, because owner said so in as many
+  // words when he was shown the alternative (c-7e4374094273:「那我們先跟任務用
+  // 同樣的做法就好」): the options and their counts are computed from the LOADED
+  // panes, and the narrowing happens here rather than on the server.
+  //
+  // 🔴 THAT IS NOT AN OVERSIGHT AND IT IS NOT A CONTRADICTION OF「都不可以在前端
+  // 做篩選」(c-b3f5a7fe2431). It is the resolution he chose after being shown
+  // what server-side narrowing would cost HERE: the option list is derived from
+  // the same rows the pane holds, so a server that returned only the picked
+  // person's cards would leave that person as the ONLY option — nothing to
+  // switch to, nothing to untick. He was given three ways out and answered by
+  // pointing at the existing page. Moving this to the server later means
+  // solving the option-list problem first; it is not a one-line change.
+  //
+  // An EMPTY set = 所有開卡人 (no constraint), same convention as 任務頁.
+  const [openerFilter, setOpenerFilter] = useState<Set<string>>(
+    () => new Set()
+  );
+  // What 清除篩選 is offered for — EITHER axis, not just the id. `filtering`
+  // stays id-only on purpose: it also gates the by-id lookup's three outcomes
+  // and the handled pane's force-expand, and an 開卡人 tick must not switch
+  // those on (there is no id to have found, missed, or failed to reach).
+  const anyFilter = idQuery !== "" || openerFilter.size > 0;
 
   /** Enter or blur on the 編號 field — the only two events that turn typed text
    * into a filter (owner 2026-09-06:「按enter或是點外面就視為apply了」). */
@@ -270,11 +298,23 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
   // With a filter applied the two panes hold exactly what the SERVER returned
   // for that id — one card, in whichever pane its status belongs to — not a
   // narrowing of the loaded rows.
+  // 開卡人 predicate. An empty set is "no constraint", so an unticked axis is
+  // free rather than exclusive — same convention as 任務頁's three dropdowns.
+  const passesOpener = (c: ReplyCard) =>
+    openerFilter.size === 0 || openerFilter.has(c.from);
+
+  // 🔴 THE 開卡人 AXIS ANDs WITH THE ID, IT DOES NOT REPLACE IT. An id names ONE
+  // card and is answered by the SERVER; if that card's opener fails this axis,
+  // the honest answer is the ordinary filtered-empty, not the card. Letting the
+  // id win would make 「找到了，但不是這個人開的」 render as a hit, which is the
+  // same class of merged-silence defect the id lookup exists to remove.
   const waitingSorted = filtering
-    ? foundCard && foundCard.status === "waiting"
+    ? foundCard && foundCard.status === "waiting" && passesOpener(foundCard)
       ? [foundCard]
       : []
-    : [...waiting].sort((a, b) => b.createdTs - a.createdTs);
+    : [...waiting]
+        .filter(passesOpener)
+        .sort((a, b) => b.createdTs - a.createdTs);
 
   const visibleHandled = filtering
     ? // 🔴 NO 24h PRUNE on a card fetched by id. The window is what makes the
@@ -282,13 +322,58 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
       // server would re-create the exact hole this round removes — the owner
       // asks for a card, the server hands it over, and the page drops it for
       // being old.
-      foundCard && foundCard.status !== "waiting"
+      foundCard && foundCard.status !== "waiting" && passesOpener(foundCard)
       ? [foundCard]
       : []
     : handled.filter((c) => {
+        if (!passesOpener(c)) return false;
         const ts = handledTsOf(c);
         return ts !== null && nowTs - ts < HANDLED_WINDOW_SECONDS;
       });
+  // ── 開卡人 options + counts ────────────────────────────────────────────────
+  // 🔴 COUNTED OVER THE PANES BEFORE THE OPENER AXIS NARROWS THEM. That is the
+  // whole reason this axis stays usable: count the ALREADY-narrowed rows and a
+  // ticked person becomes the only person with a non-zero count, so every other
+  // name disappears and the owner cannot switch or untick. 任務頁 has the same
+  // shape for the same reason (`inCountScope` there).
+  //
+  // The basis is 待回覆 ∪ 近期已處理-within-24h — i.e. what this page actually
+  // holds. It deliberately does NOT include a card fetched by id: that card can
+  // be older than the window, so counting it would make one person's number
+  // jump by one for as long as an unrelated id is applied.
+  const openerBasis = [
+    ...waiting,
+    ...handled.filter((c) => {
+      const ts = handledTsOf(c);
+      return ts !== null && nowTs - ts < HANDLED_WINDOW_SECONDS;
+    }),
+  ];
+  const openerCounts = new Map<string, number>();
+  for (const c of openerBasis) {
+    openerCounts.set(c.from, (openerCounts.get(c.from) ?? 0) + 1);
+  }
+  // owner 2026-09-06 (c-63f5651493f8):「可以選的人就是現在UI filter出來的那些人,
+  // 並且要顯示幾張卡這個數字」— so the list is the people who actually have cards
+  // here, not the whole roster. 邊界 (copied from 任務頁 deliberately): a person
+  // already TICKED stays listed even at zero, or the owner could not untick them
+  // and the filter would be a dead end.
+  const openerOptions: MultiSelectOption[] = [...openerCounts.keys()]
+    .map((id) => ({
+      value: id,
+      label: members.find((m) => m.id === id)?.name ?? id,
+      count: openerCounts.get(id) ?? 0,
+    }))
+    .concat(
+      [...openerFilter]
+        .filter((id) => !openerCounts.has(id))
+        .map((id) => ({
+          value: id,
+          label: members.find((m) => m.id === id)?.name ?? id,
+          count: 0,
+        }))
+    )
+    .sort((a, b) => b.count - a.count || a.label.localeCompare(b.label));
+
   // The header count + zero-hide: the server counts until the lists are
   // loaded, then the client-pruned visible length (so an aging-out card drops
   // the header too while the page stays open).
@@ -616,7 +701,7 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
       <FilterPanel
         testId="replies-filter"
         clearLabel={t.replies.clearFilters}
-        onClear={filtering ? clearFilters : undefined}
+        onClear={anyFilter ? clearFilters : undefined}
       >
         <IdFilterInput
           value={draftId}
@@ -637,6 +722,14 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
           // caught this comment TWICE: once for the original wording, and again
           // for the note that quoted the banned phrase in order to explain it.
           widthCh={15}
+        />
+        <MultiSelectFilter
+          noun={t.replies.filterOpenerNoun}
+          allLabel={t.replies.filterOpenerAll}
+          options={openerOptions}
+          selected={openerFilter}
+          onChange={setOpenerFilter}
+          testId="filter-opener"
         />
       </FilterPanel>
 

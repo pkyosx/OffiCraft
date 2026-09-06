@@ -236,6 +236,14 @@ export function TasksPage() {
     setAppliedType(new Set());
     setAppliedStatus(new Set(DEFAULT_STATUS));
     setAppliedId("");
+    // 🔴 THE BOX TOO, NOT JUST THE APPLIED VALUE (T-118, found in independent
+    // review). `draftId` is what the 任務編號 field DISPLAYS; leaving it behind
+    // makes the field say 「t-aaa1」 over a list that is no longer filtered by
+    // it — and because the field commits on blur, one click into and out of it
+    // silently re-applies the id and throws the executor jump away. The
+    // draft/applied split only stays honest if every writer of `appliedId`
+    // moves both.
+    setDraftId("");
     setRoute({ page: "tasks" });
   }, [executorSeed, setRoute]);
 
@@ -627,7 +635,6 @@ export function TasksPage() {
         </div>
       )}
 
-      {/* ── 篩選面板 (T-93 round 3) — 「一起搬」: every axis lives in here ── */}
       {/* ── 篩選列 (T-118) — 四個軸,常駐可見,選了就生效 ── */}
       <FilterPanel
         testId="tasks-filter"

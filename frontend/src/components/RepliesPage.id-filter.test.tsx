@@ -186,8 +186,11 @@ describe("請示 ID 篩選（常駐欄位版，T-118）", () => {
     for (const value of ["r", "rc", "rc-", "rc-b", "rc-bb", "rc-bbb"]) {
       typeId(value);
     }
-    // Give any (wrongly) scheduled effect a chance to land before concluding.
-    await Promise.resolve();
+    // 🔴 A REAL CLOCK, NOT ONE MICROTASK — see the twin guard in
+    // TasksPage.id-filter.test.tsx. A `setTimeout`-debounced commit defeated the
+    // microtask version of this assertion in independent review while still
+    // asking the server once per typing pause.
+    await new Promise((r) => setTimeout(r, 600));
     await waitFor(() => expect(idField().value).toBe("rc-bbb"));
 
     expect(
@@ -559,5 +562,129 @@ describe("請示 ID 篩選（常駐欄位版，T-118）", () => {
     expect(
       (await findByTestId("answered-toggle")).getAttribute("aria-expanded")
     ).toBe("true");
+  });
+});
+
+// ── 開卡人軸 (T-118, owner 2026-09-06 c-782404ee53d8) ────────────────────────
+// 「請示卡我想多一個開卡的人的filter」, refined at c-63f5651493f8:「可以選的人就是
+// 現在UI filter出來的那些人，並且要顯示幾張卡這個數字」, and settled on a mechanism
+// at c-7e4374094273:「那我們先跟任務用同樣的做法就好」— so the options and counts
+// come from the LOADED panes and the narrowing happens in the page, exactly as
+// 任務頁's 負責人 axis does.
+describe("請示卡 開卡人 篩選 (T-118)", () => {
+  function openerTrigger(): HTMLElement {
+    return document.querySelector('[data-testid="filter-opener"]') as HTMLElement;
+  }
+  function tickOpener(id: string) {
+    if (openerTrigger().getAttribute("aria-expanded") !== "true") {
+      fireEvent.click(openerTrigger());
+    }
+    fireEvent.click(
+      document.querySelector(`[data-testid="filter-opener-opt-${id}"] input`)!
+    );
+  }
+
+  it("lists only the people who actually opened a card, each with its count", async () => {
+    __injectMockReplyCard(mkCard({ id: "rc-a1", from: "mira", summary: "銀月一" }));
+    __injectMockReplyCard(mkCard({ id: "rc-a2", from: "mira", summary: "銀月二" }));
+    __injectMockReplyCard(mkCard({ id: "rc-b1", from: "kyle", summary: "Kyle 一" }));
+
+    const { findByTestId } = renderPage();
+    fireEvent.click(await findByTestId("filter-opener"));
+
+    await waitFor(() =>
+      expect(
+        document.querySelector('[data-testid="filter-opener-count-mira"]')
+          ?.textContent
+      ).toBe("2")
+    );
+    expect(
+      document.querySelector('[data-testid="filter-opener-count-kyle"]')
+        ?.textContent
+    ).toBe("1");
+    // Nobody else is offered — the roster is not the option list.
+    expect(
+      document.querySelector('[data-testid="filter-opener-opt-penny"]'),
+      "a member with no cards here is not an option"
+    ).toBeNull();
+  });
+
+  it("ticking one opener narrows the list to that person's cards", async () => {
+    __injectMockReplyCard(mkCard({ id: "rc-a1", from: "mira", summary: "銀月的" }));
+    __injectMockReplyCard(mkCard({ id: "rc-b1", from: "kyle", summary: "Kyle 的" }));
+
+    const { findByText, queryByText } = renderPage();
+    await findByText("銀月的");
+    expect(queryByText("Kyle 的")).toBeTruthy();
+
+    tickOpener("mira");
+    await waitFor(() => expect(queryByText("Kyle 的")).toBeNull());
+    expect(queryByText("銀月的")).toBeTruthy();
+  });
+
+  it("🔴 a ticked opener stays in the dropdown at zero, so it can be unticked again", async () => {
+    // The dead end this guards: count the ALREADY-narrowed rows and the ticked
+    // person is the only one with a non-zero count, so every other name
+    // disappears and the axis cannot be undone. 任務頁 has the same 邊界.
+    __injectMockReplyCard(mkCard({ id: "rc-a1", from: "mira", summary: "銀月的" }));
+    __injectMockReplyCard(mkCard({ id: "rc-b1", from: "kyle", summary: "Kyle 的" }));
+
+    const { findByText, queryByText } = renderPage();
+    await findByText("銀月的");
+
+    tickOpener("mira");
+    await waitFor(() => expect(queryByText("Kyle 的")).toBeNull());
+
+    // Kyle is still offered, and still says 1 — the counts describe the panes,
+    // not the narrowed view.
+    expect(
+      document.querySelector('[data-testid="filter-opener-opt-kyle"]'),
+      "the other opener must remain switchable to"
+    ).not.toBeNull();
+    expect(
+      document.querySelector('[data-testid="filter-opener-count-kyle"]')
+        ?.textContent
+    ).toBe("1");
+
+    tickOpener("mira");
+    await waitFor(() => expect(queryByText("Kyle 的")).toBeTruthy());
+  });
+
+  it("清除篩選 appears for an opener tick alone, and lifts it", async () => {
+    __injectMockReplyCard(mkCard({ id: "rc-a1", from: "mira", summary: "銀月的" }));
+    __injectMockReplyCard(mkCard({ id: "rc-b1", from: "kyle", summary: "Kyle 的" }));
+
+    const { findByText, queryByText, queryByTestId, getByTestId } = renderPage();
+    await findByText("銀月的");
+    expect(queryByTestId("replies-filter-clear")).toBeNull();
+
+    tickOpener("mira");
+    await waitFor(() => expect(queryByTestId("replies-filter-clear")).not.toBeNull());
+
+    fireEvent.click(getByTestId("replies-filter-clear"));
+    await waitFor(() => expect(queryByText("Kyle 的")).toBeTruthy());
+    expect(queryByTestId("replies-filter-clear")).toBeNull();
+  });
+
+  it("an id whose card fails the opener axis answers filtered-empty, not a hit", async () => {
+    // 🔴 The two axes AND. Letting the id win would render 「找到了，但不是這個人
+    // 開的」 as a hit — the merged-silence class this page's id lookup exists to
+    // remove.
+    __injectMockReplyCard(mkCard({ id: "rc-b1", from: "kyle", summary: "Kyle 的" }));
+    __injectMockReplyCard(mkCard({ id: "rc-a1", from: "mira", summary: "銀月的" }));
+
+    const { findByText, queryByText } = renderPage();
+    await findByText("Kyle 的");
+
+    tickOpener("mira");
+    await waitFor(() => expect(queryByText("Kyle 的")).toBeNull());
+
+    applyId("rc-b1");
+    await waitFor(() =>
+      expect(
+        queryByText("Kyle 的"),
+        "the server found it, but it fails the opener axis"
+      ).toBeNull()
+    );
   });
 });

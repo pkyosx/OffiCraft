@@ -71,6 +71,10 @@ export function IdFilterInput({
       // Enter commits. `key` rather than `keyCode`, and no `preventDefault`:
       // the field is not in a form, so there is no submit to suppress.
       onKeyDown={(e) => {
+        // An IME's own Enter (confirming a candidate) must not commit the
+        // filter. ids are ASCII today, so this costs nothing and guards the day
+        // one is not — the standard shape for every committing text field.
+        if (e.nativeEvent.isComposing) return;
         if (e.key === "Enter") onCommit(e.currentTarget.value);
       }}
       // 「點外面」 — clicking away commits what is in the box. Enter then blur

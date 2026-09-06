@@ -98,7 +98,7 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-describe("任務頁 篩選面板 (T-93 round 3)", () => {
+describe("任務頁 篩選列 (T-118)", () => {
   it("all four fields are on the page from the first render — there is nothing to open", async () => {
     // 🔁 REPLACES 「the fields are BEHIND the funnel」. That test pinned T-93
     // round 3, where 「一起搬」 meant every axis hid behind a funnel button.
@@ -142,12 +142,19 @@ describe("任務頁 篩選面板 (T-93 round 3)", () => {
     await waitFor(() => expect(queryByText("第一張")).toBeTruthy());
 
     typeIdFilter("t-aaa1");
-    // Give any (wrongly) scheduled effect a chance to land before concluding.
-    await Promise.resolve();
+    // 🔴 WAIT ON A REAL CLOCK, NOT ONE MICROTASK. This assertion used to be
+    // `await Promise.resolve()`, and an independent review broke it: a commit
+    // wrapped in `setTimeout(…, 300)` — a debounced per-keystroke apply, which
+    // is the very shape owner rejected, just slower — passed every guard in
+    // this file. A microtask cannot observe a timer, so "nothing happened yet"
+    // was being read as "nothing will happen". 600ms is twice the debounce that
+    // defeated it; anything that eventually applies without Enter or blur has
+    // to land inside it.
+    await new Promise((r) => setTimeout(r, 600));
     expect(queryByText("第一張")).toBeTruthy();
     expect(
       queryByText("第二張"),
-      "typing alone must not narrow the list"
+      "typing alone must not narrow the list — not now, not after a delay"
     ).toBeTruthy();
   });
 
@@ -386,7 +393,14 @@ describe("任務頁 ID 篩選 — 三種結局 (owner 2026-09-06 選項①)", ()
     await waitFor(() =>
       expect((field as HTMLInputElement).value).toBe("t-abcdef")
     );
-    expect(spy, "six keystrokes must cost zero requests").not.toHaveBeenCalled();
+    // Same real-clock wait as the guard above, and for the same reason: a
+    // debounced commit would otherwise sit in a pending timer and this spy
+    // would report zero calls for a version that does ask per keystroke.
+    await new Promise((r) => setTimeout(r, 600));
+    expect(
+      spy,
+      "six keystrokes must cost zero requests — not now, not after a delay"
+    ).not.toHaveBeenCalled();
 
     fireEvent.keyDown(field, { key: "Enter" });
     await waitFor(() => expect(spy).toHaveBeenCalledWith("t-abcdef"));

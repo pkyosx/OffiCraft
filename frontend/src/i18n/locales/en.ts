@@ -97,7 +97,6 @@ export const en: Dict = {
     filterStatusNoun: "Statuses",
     // The chip's own word for the id axis — short, because the value sits right
     // next to it. The FIELD keeps the longer "Task ID" placeholder.
-    filterIdNoun: "ID",
     // A non-404 failure: the question never got an answer, so "not found" would
     // be a lie.
     idUnreached: (id: string) =>
@@ -315,6 +314,10 @@ export const en: Dict = {
       "Items answered or expired · answers can still be changed",
     empty: "✓ No pending asks",
     emptyFiltered: "No asks match the current filter",
+    // The 開卡人 axis (T-118). Wording mirrors the 任務頁 executor dropdown:
+    // "all <noun>" when unconstrained, "<noun> · N" for a partial pick.
+    filterOpenerNoun: "Opener",
+    filterOpenerAll: "All openers",
     filterIdLabel: "Reply-card id",
     clearFilters: "Clear filter",
     // ── Filter panel (T-93 round 2) ──
