@@ -1046,7 +1046,7 @@ describe("TasksPage", () => {
       const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
       window.location.hash = "#tasks/t-does-not-exist";
 
-      const { findByTestId, getByTestId, queryByTestId } = renderPage();
+      const { findByTestId, queryByTestId } = renderPage();
 
       // Wait for the anchor fetch to have been attempted and REJECTED, so every
       // assertion below reads the SETTLED page rather than a frame on the way
