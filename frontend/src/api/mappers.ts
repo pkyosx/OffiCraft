@@ -573,6 +573,10 @@ export function toTaskArtifact(w: WireTaskArtifact): TaskArtifactView {
     name: w.name ?? "",
     description: w.description ?? "",
     mime: w.mime ?? "",
+    // The blob's own name, carried BESIDE `name` rather than folded into it:
+    // one is what the deliverable is called, the other is what its bytes are
+    // called, and only the second one has the extension the preview reads.
+    filename: w.filename ?? "",
     createdTs: w.created_ts ?? 0,
     createdBy: w.created_by ?? "",
     versionCount: w.version_count ?? 0,

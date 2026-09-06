@@ -2375,8 +2375,22 @@ const taskArtifactsDetailLevelFull = "full"
 //
 // Mime survives the narrowing on purpose: it is the only field that separates a
 // .md from a .pdf from a .zip, which Kind cannot do, and the cockpit's preview
-// decides four things with it. IsImage went because it is Mime's prefix, and
-// Filename went because Name derives from it.
+// decides four things with it. IsImage stayed off — it IS Mime's prefix, one
+// fact in two fields.
+//
+// 🔴 FILENAME IS BACK, AND IT IS NOT NAME (production regression, T-92). The
+// drop reasoned that Name derives from the blob's filename and therefore
+// replaces it. That is true of DISPLAY and false of TYPE: a reader deciding
+// whether these bytes can be rendered as text asks the NAME OF THE BLOB when
+// Mime cannot say, and `application/octet-stream` is what the agent upload path
+// says about most of the .md reports pinned here. Name is now a human sentence
+// with no extension in it, so the cockpit's preview (isMarkdownAttachment and
+// its two siblings) stopped recognising .md artifacts and rendered them as bare
+// download rows. Nothing went red because on every migrated row the two values
+// COINCIDED — the derived Name *was* the filename — so each test and each
+// manual check was reading a case where the distinction does not show.
+// taskArtifactVersionDTO kept its own Filename for exactly this reason, which
+// is why a RETAINED version of a report previews while the live one does not.
 type taskArtifactDTO struct {
 	ID   string `json:"id"`
 	Kind string `json:"kind"`
@@ -2392,13 +2406,20 @@ type taskArtifactDTO struct {
 	// a task artifact ALREADY HAS while forbidding hand-built addresses — so
 	// slicing it back out of URL is the move that document rules out, and a
 	// link has no blob path in URL to slice at all.
-	AttachmentID string  `json:"attachment_id"`
-	Name         string  `json:"name"`
-	Description  string  `json:"description"`
-	URL          string  `json:"url"`
-	Mime         string  `json:"mime"`
-	CreatedTS    float64 `json:"created_ts"`
-	CreatedBy    string  `json:"created_by"`
+	AttachmentID string `json:"attachment_id"`
+	Name         string `json:"name"`
+	// Filename is the BLOB's own name, resolved read-time like URL and Mime and
+	// honest-empty on the same rule (a link, or a file/image whose blob is
+	// gone). It is NOT a second Name: Name is what this deliverable is CALLED
+	// and may be a human sentence, this is what the bytes arrived as, and only
+	// the second one carries the extension a reader needs when Mime says
+	// `application/octet-stream`.
+	Filename    string  `json:"filename"`
+	Description string  `json:"description"`
+	URL         string  `json:"url"`
+	Mime        string  `json:"mime"`
+	CreatedTS   float64 `json:"created_ts"`
+	CreatedBy   string  `json:"created_by"`
 	// VersionCount counts the versions of this deliverable WITH the live one
 	// (T-60), so a never-replaced artifact reads 1 rather than 0 — the reader
 	// asks "how many versions are there", and there is always this one.
@@ -3139,8 +3160,14 @@ func newTaskDTO(t Task, steps []TaskStep, deps []string, cardStatus map[string]s
 // T-92 — and is nil only when the referenced blob is gone; its mime rides along
 // honest-empty when absent, never fabricated. A link's url is read out of that
 // blob's text/uri-list bytes; a file/image's url is the blob serve path (the
-// chatAttachmentDTO convention). Filename and IsImage are no longer on this DTO
-// at all: Name derives from the former, Mime carries the latter.
+// chatAttachmentDTO convention). Filename rides along too, from the SAME
+// artifactBlobFacts the version projection reads it from — file/image only, so
+// a link and a dead blob leave it empty rather than fabricated. It is not
+// redundant with Name even though Name derives from it when the row stores no
+// name of its own: Name answers "what is this called" and is a human sentence
+// on any row someone named, Filename answers "what were the bytes called" and
+// is the only one of the two with an extension on it. IsImage stays off — Mime's
+// prefix is that fact already.
 // versionCount is the retained-version count of THIS artifact plus the live
 // row (the caller counts the history rows; the +1 is here so no caller can
 // forget it).
@@ -3158,7 +3185,7 @@ func newTaskArtifactDTO(a TaskArtifact, att *ChatAttachment, retained int) taskA
 		dto.URL = linkTargetOf(att)
 	}
 	if b, ok := artifactBlobFacts(att); ok && a.Kind != ArtifactKindLink {
-		dto.URL, dto.Mime = b.url, b.mime
+		dto.URL, dto.Mime, dto.Filename = b.url, b.mime, b.filename
 	}
 	if att != nil && a.Kind == ArtifactKindLink {
 		dto.Mime = att.Mime

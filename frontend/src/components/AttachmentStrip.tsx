@@ -187,7 +187,12 @@ export function AttachmentStrip({
         )
       )}
     </div>
-    {preview && <MarkdownPreviewOverlay title={preview.filename || t.chat.downloadAttachment} url={preview.url} attachmentId={preview.backingAttachmentId ?? preview.id} mime={preview.mime} onClose={() => setPreviewId(null)} />}
+    {/* `title` is what the row is CALLED and `filename` is what its bytes are
+      * called — one value for a chat attachment, two for a task artifact pinned
+      * under a human name. The overlay's type detection reads the second (and
+      * falls back to the first when the caller has only one), so passing
+      * `blobFilename` here is what keeps a .md artifact previewable. */}
+    {preview && <MarkdownPreviewOverlay title={preview.filename || t.chat.downloadAttachment} filename={preview.blobFilename} url={preview.url} attachmentId={preview.backingAttachmentId ?? preview.id} mime={preview.mime} onClose={() => setPreviewId(null)} />}
     </>
   );
 }
