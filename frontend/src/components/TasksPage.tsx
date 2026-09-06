@@ -513,13 +513,19 @@ export function TasksPage() {
   // `anchorPending` goes false and the page renders a message rather than a
   // stuck 載入中.
   //
-  // 🔴 The way OUT is the 任務編號 field itself: empty it and press Enter (or
-  // click away). T-118 removed the 清除篩選 button along with the 已篩選 strip it
-  // stood on, and this comment used to name that button plus two helpers
-  // (`clearFilters`, `anyFilter`) that no longer exist — the escape did not go
-  // with them, it moved to the field, which is now permanently on screen
-  // holding the offending id. That is why the anchor can stay without trapping
-  // the owner in the hash.
+  // 🔴 There are TWO ways OUT, and both are on screen whenever this state is
+  // reachable. (a) The 任務編號 field itself: empty it and press Enter (or click
+  // away). (b) The 清除篩選 button at the end of the field row — `anyFilter`
+  // counts a non-empty `appliedId`, and a 404 anchor is exactly that, so the
+  // button IS rendered here.
+  //
+  // 🔁 This comment used to say the button and its two helpers (`clearFilters`,
+  // `anyFilter`) no longer existed. That was true for about forty minutes:
+  // T-118 removed the button along with the 已篩選 strip it stood on, and then
+  // owner asked「清除篩選怎麼不見了？」(`c-16e6fa704246`) and ruled it back in
+  // (`c-2423dba8b65b`, 2026-09-06). The button came back on the field row, not
+  // on a strip, and both helpers came back with it. Do not restore the older
+  // wording — read lines 298 and 313.
   //
   // A closed target still auto-expands 已結束 so the one match is visible.
   // 🔴 Keyed on the APPLIED id, not the hash: an id TYPED into the field names a

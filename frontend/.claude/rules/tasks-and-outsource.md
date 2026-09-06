@@ -21,7 +21,7 @@ useTasks 把 statusFilter 轉成重複的 ?statuses=；執行者與類型篩選�
 
 跳到 #tasks/<id> 時，清單仍保留原篩選，另以 GET /api/tasks/{id} 補單張錨點。anchor id 是 effect 的參數；anchorPending 在補抓落定前擋住兩個空狀態，否則還在路上的那張會被說成不存在。
 
-**補抓落定後有三種結局，話不一樣，不要合併（owner 2026-09-05 `rc-428906235337`；話術在 2026-09-06 選項①下再細分，見下一節）**：抓到且通過其他條件就顯示那一張；**404 ⇒ 錨點留著**，出口是**常駐的任務編號欄位**——把它清空再按 Enter（或點到外面），`commitId("")` 連 hash 一起還原（T-118 之前這個出口是已篩選條上的「清除全部」鈕，owner 2026-09-06 連同那整條摘要列一起拿掉了；出口沒有消失，是搬到讀的人本來就在看的那一格）；**其他失敗（500／離線）⇒ `anchorFailed`**，顯示錯誤並壓住兩個空狀態——沒問出口的問題不得給答案。錨點**不再自己把 hash 拿掉**；釘住這幾格的是 TasksPage.test.tsx、TasksPage.jump.test.tsx、TasksPage.id-filter.test.tsx 與 TasksPage.anchor-fetch.test.tsx。合併時清單列優先，因為輕量列才有 dep_tasks；單張 DTO 沒有時不可覆蓋它。篩選未包含錨點時，depTasks===undefined 表示未知，不表示沒有依賴。
+**補抓落定後有三種結局，話不一樣，不要合併（owner 2026-09-05 `rc-428906235337`；話術在 2026-09-06 選項①下再細分，見下一節）**：抓到且通過其他條件就顯示那一張；**404 ⇒ 錨點留著**，出口是**常駐的任務編號欄位**——把它清空再按 Enter（或點到外面），`commitId("")` 連 hash 一起還原（T-118 之前這個出口是已篩選條上的「清除全部」鈕，owner 2026-09-06 連同那整條摘要列一起拿掉了；**同一天稍晚他又要求把清除留著**（`c-2423dba8b65b`），所以今天有**兩個**出口：清空編號欄位，或按欄位列最右邊的 `.filter-panel__clear`。後者只在真的有東西被篩住時才出現 —— 錨點 404 而編號欄裡留著那個編號，正是「有東西被篩住」，所以它會在）；**其他失敗（500／離線）⇒ `anchorFailed`**，顯示錯誤並壓住兩個空狀態——沒問出口的問題不得給答案。錨點**不再自己把 hash 拿掉**；釘住這幾格的是 TasksPage.test.tsx、TasksPage.jump.test.tsx、TasksPage.id-filter.test.tsx 與 TasksPage.anchor-fetch.test.tsx。合併時清單列優先，因為輕量列才有 dep_tasks；單張 DTO 沒有時不可覆蓋它。篩選未包含錨點時，depTasks===undefined 表示未知，不表示沒有依賴。
 
 ## 任務頁的篩選列與 ID 條件（T-118，owner 2026-09-06 20:07）
 

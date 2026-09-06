@@ -573,10 +573,18 @@ for (const theme of ["dark", "light"] as const) {
 //
 // What survives is the REQUIREMENT the × served: the owner must have a way OUT
 // of a filter he did not mean to apply, and it must be present on screen rather
-// than remembered. That is now the 編號 box itself — empty it and commit. So
-// this test pins, in a real browser, that the removed affordances are really
-// absent (a leftover would be a second way to say one thing) and that the
-// replacement escape actually works end to end.
+// than remembered. So this test pins, in a real browser, that the removed
+// affordances are really absent (a leftover would be a second way to say one
+// thing) and that the replacement escape actually works end to end.
+//
+// 🔁 AMENDED LATER THE SAME DAY: this comment used to say the escape was the
+// 編號 box AND NOTHING ELSE. Owner then asked「清除篩選怎麼不見了？」
+// (c-16e6fa704246) and ruled the button back in (c-2423dba8b65b), so there are
+// now TWO escapes — emptying the box, and `.filter-panel__clear` at the end of
+// the field row. This test still exercises the box one, because that is the
+// escape that must work even when the button is not rendered (it only appears
+// while something is actually filtered). The button has its own guard in the
+// unit tests; do not delete this one as a duplicate of it.
 test("the removed 已篩選 affordances are gone, and emptying the 編號 box is the escape that replaced them", async ({
   mount,
   page,
@@ -601,7 +609,16 @@ test("the removed 已篩選 affordances are gone, and emptying the 編號 box is
     "replies-filter-summary",
     "replies-filter-chip",
     "replies-filter-chip-x",
-    "replies-filter-clear",
+    // 🔁 `replies-filter-clear` WAS IN THIS LIST AND HAD TO COME OUT. It is the
+    // 清除篩選 button, which owner ruled back in on 2026-09-06
+    // (c-16e6fa704246 →「清除篩選還是要留著」c-2423dba8b65b) after this list was
+    // written. The assertion did not go red, which is the dangerous part: at
+    // this point in the test NOTHING is filtered, and the button only renders
+    // while something is, so "must not exist" and "correctly absent right now"
+    // are indistinguishable here. Pinning a spec owner had already overturned,
+    // and passing for an unrelated reason, is worse than not pinning it — so
+    // the absence is asserted below as CONDITIONAL, with the presence half
+    // asserted too.
   ]) {
     await expect(
       cmp.getByTestId(testId),
@@ -618,13 +635,30 @@ test("the removed 已篩選 affordances are gone, and emptying the 編號 box is
   // The escape, end to end: apply an id nothing matches (the page says so), then
   // empty the box and commit by clicking away (「點外面」) — the page must go
   // back to speaking as if no filter had ever been applied.
+  // 🔴 清除篩選 IS CONDITIONAL, AND BOTH HALVES ARE PINNED HERE. Nothing is
+  // filtered yet, so it must be absent; once an id is applied it must appear.
+  // Asserting only the absence is what let this file keep an overturned spec
+  // alive without going red — see the note in the list above.
+  await expect(
+    cmp.getByTestId("replies-filter-clear"),
+    "清除篩選 must NOT be on screen while nothing is filtered"
+  ).toHaveCount(0);
+
   await applyId(cmp, FULL_ID);
   await expect(empty).toHaveText("沒有符合篩選條件的請示");
+  await expect(
+    cmp.getByTestId("replies-filter-clear"),
+    "清除篩選 must appear once something IS filtered (owner c-2423dba8b65b)"
+  ).toBeVisible();
 
   const field = cmp.getByTestId("filter-reply-card-id");
   await field.fill("");
   await field.blur();
   await expect(empty).toHaveText("✓ 目前沒有待處理的請示");
+  await expect(
+    cmp.getByTestId("replies-filter-clear"),
+    "清除篩選 must go away again once the filter is gone"
+  ).toHaveCount(0);
 });
 
 // 🔴 THE SHELL MUST NOT ADD SPACING OF ITS OWN — owner circled the gap it made.
