@@ -33,15 +33,37 @@ func (s *apiServer) mintMemberToken(m Member, ttl int64) (string, error) {
 	return s.mintAgentToken(m.ID, m.DesiredMachineID, ttl)
 }
 
-// mintWardenToken mints the permanent machine credential used only by warden
-// installation paths. It intentionally cannot accept an arbitrary member: a
-// permanent token for an agent or outsource worker would bypass their TTL and
-// the 400-day ceiling.
+// mintWardenToken mints the machine credential used only by warden installation
+// and renewal paths. It intentionally cannot accept an arbitrary member: a
+// machine credential is exempt from the §1.2 cut-3 agent iat floor, so handing
+// one to an agent or outsource worker would give them a credential no boot
+// report can end.
+//
+// 🔴 IT IS THE ONE MINT, AND THAT IS WHY THE TTL IS HERE AND NOT AT THE CALLERS.
+// Five production paths reach this function — onboard, boot-command, claim,
+// bootstrap-here and renew-credential — and every one of them has to produce the
+// SAME credential shape. A ttl argument would be five places to keep in step; the
+// lifetime is read here, once, from the live setting.
+//
+// 🔴 T-fc53 第二段: THE CREDENTIAL HAS AN `exp` AGAIN (owner 2026-09-06
+// 「加回去預設 90 天可以調整」). It used to be minted through
+// mintJWTWithoutExpiry, i.e. permanent. What makes that safe to reverse is the
+// renewal path landed in 第一段: every warden replaces its own credential at two
+// thirds of this same lifetime, so a healthy machine is never within a third of
+// its expiry. What makes it UNSAFE is anything that stops that renewal running —
+// see the failure conditions written out at wardenCredLifetimeSecsDefault
+// (settings.go). Those are not hypothetical: before 第一段 the renewal path had
+// never once fired on any machine in the fleet.
+//
+// The lifetime is the live owner setting, read per mint rather than snapshotted:
+// an owner who lowers it wants the NEXT credential shorter, and a renewal minted
+// through here is exactly that next credential.
 func (s *apiServer) mintWardenToken(m Member) (string, error) {
 	if m.Kind != machineKind {
-		return "", fmt.Errorf("%w: permanent credentials are warden-only", errInvalidToken)
+		return "", fmt.Errorf("%w: machine credentials are warden-only", errInvalidToken)
 	}
-	return mintJWTWithoutExpiry(m.ID, "agent", s.keys.signingSecret(), time.Now().Unix(), "")
+	return mintJWT(m.ID, "agent", int64(s.wardenCredLifetimeValue()),
+		s.keys.signingSecret(), time.Now().Unix(), "")
 }
 
 // POST /api/login — exchange the owner password (and, once enrolled, a TOTP

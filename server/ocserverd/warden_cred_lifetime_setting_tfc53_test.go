@@ -3,9 +3,13 @@ package main
 // warden_cred_lifetime_setting_tfc53_test.go — T-fc53 第一段: the machine
 // credential lifetime is an owner-typed SETTING, and the fleet can read it.
 //
-// 🔴 WHAT THIS FILE IS ACTUALLY GUARDING. The setting is inert on this side —
-// nothing here mints differently, refuses differently, or expires anything
-// because of it. Its ONLY consumer is off this machine: each warden polls
+// 🔴 WHAT THIS FILE IS ACTUALLY GUARDING. It was written while the setting was
+// inert on this side — "nothing here mints differently, refuses differently, or
+// expires anything because of it". T-fc53 第二段 changed that: mintWardenToken
+// stamps exp = iat + this value, and THAT half is guarded in api_machines_test.go
+// (TestWardenCredentialsCarryTheConfiguredLifetimeAcrossAllMachineMintPaths).
+// What this file still guards is the OTHER consumer, which is off this machine
+// entirely: each warden polls
 // GET /api/machines/credential-policy and derives its own renewal threshold from
 // the answer. So the failure this file has to catch is not "the value is wrong",
 // it is "the value never leaves the building" — a knob that saves, reads back
@@ -15,7 +19,7 @@ package main
 // Accordingly every face is read TWICE — once at the shipped default and once
 // after a PATCH — and the pair must MOVE. Asserting only the post-PATCH value
 // passes for a face that hard-codes it; asserting only the default passes for a
-// face that hard-codes 30 days, which is what the wardens already assume.
+// face that hard-codes 90 days, which is what the wardens already assume.
 
 import (
 	"encoding/json"
@@ -66,31 +70,52 @@ func readCredentialPolicy(t *testing.T, api *apiServer) map[string]any {
 	return out
 }
 
-// TestWardenCredLifetime_UnsetIsThirtyDaysOnEveryFace. The default is not a
+// TestWardenCredLifetime_UnsetIsNinetyDaysOnEveryFace. The default is not a
 // cosmetic choice: it is the number every warden already assumes when it cannot
 // reach the station, so a station whose default disagreed with the fleet's would
 // change behaviour for nobody's benefit the moment the endpoint went down.
-func TestWardenCredLifetime_UnsetIsThirtyDaysOnEveryFace(t *testing.T) {
+//
+// It was ...UnsetIsThirtyDaysOnEveryFace until T-fc53 第二段, when the owner moved
+// the default to 90 days (2026-09-06 18:36 「加回去預設 90 天可以調整」) in the same
+// breath as putting the expiry back. The NUMBER is spelled out here rather than
+// read from wardenCredLifetimeSecsDefault deliberately: a test that reads the
+// constant it is guarding asserts nothing about the constant, and this value is
+// now stamped into every machine credential the station mints.
+func TestWardenCredLifetime_UnsetIsNinetyDaysOnEveryFace(t *testing.T) {
 	api := resumeCtxServer(t)
-	const thirtyDays = 30 * 86400
+	const ninetyDays = 90 * 86400
 
-	if got := api.wardenCredLifetimeValue(); got != thirtyDays {
-		t.Errorf("live accessor with no row: got %d, want %d", got, thirtyDays)
+	if got := api.wardenCredLifetimeValue(); got != ninetyDays {
+		t.Errorf("live accessor with no row: got %d, want %d", got, ninetyDays)
 	}
-	if got := wardenCredLifetimeSettings(t, api).WardenCredentialLifetimeSecs; got != thirtyDays {
-		t.Errorf("GET /api/settings with no row: got %d, want %d", got, thirtyDays)
+	if got := wardenCredLifetimeSettings(t, api).WardenCredentialLifetimeSecs; got != ninetyDays {
+		t.Errorf("GET /api/settings with no row: got %d, want %d", got, ninetyDays)
 	}
-	if got := readCredentialPolicy(t, api)["lifetime_secs"]; got != float64(thirtyDays) {
+	if got := readCredentialPolicy(t, api)["lifetime_secs"]; got != float64(ninetyDays) {
 		t.Errorf("GET /api/machines/credential-policy with no row: got %v, want %d",
-			got, thirtyDays)
+			got, ninetyDays)
 	}
 	loaded, err := loadAuthSettings(api.dal, defaultConfig(), func(string) {})
 	if err != nil {
 		t.Fatalf("load settings: %v", err)
 	}
-	if loaded.wardenCredLifetimeSecs != thirtyDays {
+	if loaded.wardenCredLifetimeSecs != ninetyDays {
 		t.Errorf("boot-time load with no row: got %d, want %d",
-			loaded.wardenCredLifetimeSecs, thirtyDays)
+			loaded.wardenCredLifetimeSecs, ninetyDays)
+	}
+
+	// 🔴 THE STATION'S DEFAULT AND THE WARDEN'S BUILT-IN DEFAULT MUST BE THE SAME
+	// NUMBER, and nothing compiles them together: they live in different modules
+	// (credentialLifetimeDefaultSecs, cli/ocwarden/renew.go). A drift is silent —
+	// it only shows on machines that cannot reach the policy endpoint, which are
+	// exactly the machines nobody is looking at. This assertion is a written copy
+	// of the warden's number, so moving one side without the other is red here.
+	const wardenBuiltInDefaultSecs = 90 * 24 * 60 * 60
+	if ninetyDays != wardenBuiltInDefaultSecs {
+		t.Errorf("the station ships %d s but cli/ocwarden assumes %d s when the "+
+			"policy endpoint is unreachable — a machine that cannot reach the "+
+			"station would renew on a different clock from the one its credential "+
+			"expires on", ninetyDays, wardenBuiltInDefaultSecs)
 	}
 }
 

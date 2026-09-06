@@ -416,10 +416,10 @@ func TestHandleClaimMachineTokenApiMachinesClaimPost(t *testing.T) {
 		if err := json.Unmarshal(rec.Body.Bytes(), &dto); err != nil {
 			t.Fatalf("unmarshal: %v", err)
 		}
-		if dto.MachineID != ob.MachineID || dto.ExpiresIn != 0 {
+		if dto.MachineID != ob.MachineID || dto.ExpiresIn != int64(s.wardenCredLifetimeValue()) {
 			t.Fatalf("claim result drifted from the onboard mint: %+v", dto)
 		}
-		assertPermanentWardenToken(t, s, dto.Token, ob.MachineID)
+		assertWardenCredential(t, s, dto.Token, ob.MachineID)
 
 		// Single-use: the same code is spent.
 		if rec := claim(t, s, `{"code":"`+ob.ClaimCode+`"}`); rec.Code != http.StatusUnauthorized {
@@ -447,29 +447,70 @@ func TestHandleClaimMachineTokenApiMachinesClaimPost(t *testing.T) {
 	})
 }
 
-// assertPermanentWardenToken proves the token is both structurally permanent
-// (no exp claim) and accepted long after any finite machine TTL. Looking only
-// at expires_in would be a false proof: a response field could drift while the
-// credential itself still expired.
-func assertPermanentWardenToken(t *testing.T, s *apiServer, token, wantMachineID string) {
+// assertWardenCredential proves the token carries the CONFIGURED lifetime and
+// really stops working at the end of it. T-fc53 第二段 reversed this helper: it
+// used to be assertPermanentWardenToken and proved the opposite (no exp claim,
+// accepted a century later).
+//
+// 🔴 IT ASSERTS BOTH ENDS, and the second one is the point. Reading exp out of
+// the claims proves what was STAMPED; verifying the token one second past it
+// proves what the auth layer DOES with that stamp. A mint that wrote an exp
+// nothing enforced would satisfy the first check alone, and that is precisely
+// the state this package exists to leave — the setting was published to the
+// fleet for a whole release while nothing on the server acted on it.
+//
+// Looking at the response's expires_in is deliberately NOT how this is measured:
+// a response field could drift from the credential and the caller would be told
+// a lifetime the token does not have.
+func assertWardenCredential(t *testing.T, s *apiServer, token, wantMachineID string) {
 	t.Helper()
-	claims, err := verifyJWT(token, s.keys.signingSecret(), time.Now().AddDate(100, 0, 0).Unix())
+	lifetime := int64(s.wardenCredLifetimeValue())
+	claims, err := verifyJWT(token, s.keys.signingSecret(), time.Now().Unix())
 	if err != nil {
-		t.Fatalf("permanent warden token must verify a century later: %v", err)
-	}
-	if _, hasExpiry := claims["exp"]; hasExpiry {
-		t.Fatalf("warden token must omit exp, got claims %v", claims)
+		t.Fatalf("a freshly minted warden credential must verify: %v", err)
 	}
 	if claims["sub"] != wantMachineID || claims["scope"] != "agent" {
 		t.Fatalf("warden identity drifted: %v", claims)
 	}
+	exp, ok := claims["exp"].(float64)
+	if !ok {
+		t.Fatalf("warden credentials carry an exp again (T-fc53 第二段) — got claims %v", claims)
+	}
+	iat, ok := claims["iat"].(float64)
+	if !ok {
+		t.Fatalf("warden token must carry iat: %v", claims)
+	}
+	if got := int64(exp - iat); got != lifetime {
+		t.Fatalf("warden credential lifetime = %d s, want the configured %d s — "+
+			"the mint and auth.warden_credential_lifetime_secs must be the same "+
+			"number, or the fleet renews on a clock the credential does not keep",
+			got, lifetime)
+	}
+	// The enforced half. One second past exp the auth layer must refuse it.
+	if _, err := verifyJWT(token, s.keys.signingSecret(), int64(exp)+1); err == nil {
+		t.Fatalf("a warden credential one second past its own exp still verified — "+
+			"the exp is decoration, not an expiry (claims %v)", claims)
+	}
 }
 
-func TestWardenCredentialsNeverExpireAcrossAllMachineMintPaths(t *testing.T) {
+// TestWardenCredentialsCarryTheConfiguredLifetimeAcrossAllMachineMintPaths walks
+// EVERY production path that mints a machine credential and asserts the same
+// shape at each one. It was TestWardenCredentialsNeverExpireAcrossAllMachineMintPaths
+// and asserted the opposite until T-fc53 第二段; the name moved with the contract,
+// because a test whose name promises "never expire" is a test the next reader
+// trusts without opening.
+//
+// 🔴 THE FAN-OUT IS THE WHOLE VALUE. Five call sites reach mintWardenToken and
+// four of them answer expires_in on the wire. A change made at one caller —
+// which is how a lifetime argument would have been threaded — leaves the other
+// four minting the old shape, and every one of them is a path a real machine is
+// installed through.
+func TestWardenCredentialsCarryTheConfiguredLifetimeAcrossAllMachineMintPaths(t *testing.T) {
 	s := newMachinesTestServer(t)
+	want := int64(s.wardenCredLifetimeValue())
 
-	// Onboard accepts the legacy override for compatibility, but it must not
-	// restore a finite warden credential or let the 400-day cap leak back in.
+	// Onboard accepts the legacy override for compatibility, but ttl_days must
+	// still not reach the warden credential: its lifetime is the org setting.
 	onboardRec := httptest.NewRecorder()
 	onboardReq := httptest.NewRequest("POST", "/api/machines",
 		strings.NewReader(`{"display_name":"permanent-box","ttl_days":401}`))
@@ -481,10 +522,10 @@ func TestWardenCredentialsNeverExpireAcrossAllMachineMintPaths(t *testing.T) {
 	if err := json.Unmarshal(onboardRec.Body.Bytes(), &onboard); err != nil {
 		t.Fatalf("unmarshal onboard: %v", err)
 	}
-	if onboard.ExpiresIn != 0 {
-		t.Fatalf("onboard expires_in = %d, want 0 for no expiry", onboard.ExpiresIn)
+	if onboard.ExpiresIn != want {
+		t.Fatalf("onboard expires_in = %d, want the configured lifetime %d", onboard.ExpiresIn, want)
 	}
-	assertPermanentWardenToken(t, s, onboard.Token, onboard.MachineID)
+	assertWardenCredential(t, s, onboard.Token, onboard.MachineID)
 
 	bootRec := httptest.NewRecorder()
 	bootReq := httptest.NewRequest("GET", "/api/machines/"+onboard.MachineID+"/boot-command", nil)
@@ -496,10 +537,10 @@ func TestWardenCredentialsNeverExpireAcrossAllMachineMintPaths(t *testing.T) {
 	if err := json.Unmarshal(bootRec.Body.Bytes(), &boot); err != nil {
 		t.Fatalf("unmarshal boot-command: %v", err)
 	}
-	if boot.ExpiresIn != 0 {
-		t.Fatalf("boot-command expires_in = %d, want 0 for no expiry", boot.ExpiresIn)
+	if boot.ExpiresIn != want {
+		t.Fatalf("boot-command expires_in = %d, want the configured lifetime %d", boot.ExpiresIn, want)
 	}
-	assertPermanentWardenToken(t, s, boot.Token, onboard.MachineID)
+	assertWardenCredential(t, s, boot.Token, onboard.MachineID)
 
 	claimRec := httptest.NewRecorder()
 	claimReq := httptest.NewRequest("POST", "/api/machines/claim",
@@ -512,10 +553,10 @@ func TestWardenCredentialsNeverExpireAcrossAllMachineMintPaths(t *testing.T) {
 	if err := json.Unmarshal(claimRec.Body.Bytes(), &claim); err != nil {
 		t.Fatalf("unmarshal claim: %v", err)
 	}
-	if claim.ExpiresIn != 0 {
-		t.Fatalf("claim expires_in = %d, want 0 for no expiry", claim.ExpiresIn)
+	if claim.ExpiresIn != want {
+		t.Fatalf("claim expires_in = %d, want the configured lifetime %d", claim.ExpiresIn, want)
 	}
-	assertPermanentWardenToken(t, s, claim.Token, onboard.MachineID)
+	assertWardenCredential(t, s, claim.Token, onboard.MachineID)
 
 	// Exercise the HTTP bootstrap-here path, then inspect the exact child env
 	// it would hand to ocwarden. This proves the route, not only its shared core.
@@ -545,7 +586,7 @@ func TestWardenCredentialsNeverExpireAcrossAllMachineMintPaths(t *testing.T) {
 	if !ok {
 		t.Fatal("bootstrap-here must pass its warden token to ocwarden")
 	}
-	assertPermanentWardenToken(t, s, token, ServerSelfHost)
+	assertWardenCredential(t, s, token, ServerSelfHost)
 }
 
 func TestNonWardenTokensStillExpireAndKeepThe400DayClamp(t *testing.T) {
@@ -554,7 +595,9 @@ func TestNonWardenTokensStillExpireAndKeepThe400DayClamp(t *testing.T) {
 		Effort: "medium", RosterStatus: RosterStatusActive}
 	putTestMember(t, s, agent)
 	if _, err := s.mintWardenToken(agent); err == nil {
-		t.Fatal("permanent warden mint must refuse a non-warden member")
+		t.Fatal("the warden mint must refuse a non-warden member — a machine " +
+			"credential is exempt from the agent iat floor, so an agent holding " +
+			"one has a credential no boot report can end")
 	}
 
 	// POST /api/mint is the public long-lived non-warden mint seam. A 401-day

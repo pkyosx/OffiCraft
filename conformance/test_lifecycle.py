@@ -12,7 +12,9 @@ Third conformance batch. What this file pins, MUST by MUST:
   * §1.3 mint surfaces and TTLs: login (owner scope, owner_token_ttl default
         86400 s), bootstrap/reconcile (agent_token_ttl default 604800 s),
         /api/mint (agent scope, min(ttl_days·86400, 400 d) cap), and every
-        warden install mint (permanent, no machine claim), including one-time
+        warden install mint (agent scope, no machine claim, exp = iat +
+        auth.warden_credential_lifetime_secs — §1.6; they were PERMANENT until
+        T-fc53 第二段), including one-time
         machine claim-code redemption, bootstrap-with-
         member (claim = desired_machine_id); wrong password → flat 401;
   * §2  boot-context assembly reproduced BYTE-FOR-BYTE from the seed files
@@ -106,13 +108,43 @@ def _assert_claims(
     return payload
 
 
-def _assert_permanent_warden_claims(token: str, *, sub: str) -> dict:
+def _warden_lifetime_secs(client, owner_token: str) -> int:
+    """The org setting every warden mint stamps its ``exp`` from (§1.6).
+
+    Read off the wire rather than hard-coded: this suite is black-box, and the
+    value is owner-adjustable, so pinning a literal here would make the suite
+    red on any install that changed a setting it is allowed to change. What IS
+    pinned is that the credential agrees with whatever the station says.
+    """
+    r = client.get("/api/settings", headers=_auth(owner_token))
+    assert r.status_code == 200, r.text
+    lifetime = r.json()["warden_credential_lifetime_secs"]
+    assert isinstance(lifetime, int) and lifetime > 0, lifetime
+    return lifetime
+
+
+def _assert_warden_claims(token: str, *, sub: str, lifetime: int) -> dict:
+    """§1.6: a warden credential expires again, on the lifetime setting's clock.
+
+    This replaced ``_assert_permanent_warden_claims``, which asserted the
+    opposite (``"exp" not in payload``). The rename is deliberate: a helper
+    called "permanent" is one a reader trusts without opening it.
+    """
     header, payload = _decode_jwt(token)
     assert header == {"alg": "HS256", "typ": "JWT"}, header
     assert payload["sub"] == sub, payload
     assert payload["scope"] == "agent", payload
     assert isinstance(payload["iat"], int), payload
-    assert "exp" not in payload, payload
+    assert isinstance(payload["exp"], int), (
+        f"warden credentials carry an exp again since §1.6: {payload}"
+    )
+    assert payload["exp"] - payload["iat"] == lifetime, (
+        f"warden credential lifetime is {payload['exp'] - payload['iat']} s but the "
+        f"station reports auth.warden_credential_lifetime_secs={lifetime}. The mint "
+        f"and the renewal trigger MUST read one number (§1.5, §1.6) — a fleet that "
+        f"renews on a clock its credentials do not keep is a fleet that renews after "
+        f"it has already been refused."
+    )
     assert "machine_id" not in payload, payload
     return payload
 
@@ -137,7 +169,10 @@ def test_mint_ttl_days_and_400_day_cap(client, owner_token, agent_a) -> None:
         )
 
 
-def test_machine_onboard_token_never_expires_no_placement_claim(client, owner_token) -> None:
+def test_machine_onboard_token_expires_on_the_setting_no_placement_claim(
+    client, owner_token
+) -> None:
+    lifetime = _warden_lifetime_secs(client, owner_token)
     r = client.post(
         "/api/machines",
         json={"display_name": f"conf-lc-machine-{uuid.uuid4().hex[:6]}"},
@@ -145,12 +180,16 @@ def test_machine_onboard_token_never_expires_no_placement_claim(client, owner_to
     )
     assert r.status_code == 200, r.text
     data = r.json()
-    assert data["expires_in"] == 0, data["expires_in"]
+    assert data["expires_in"] == lifetime, (
+        f"expires_in={data['expires_in']} but the credential's lifetime is {lifetime}. "
+        f"expires_in=0 was the permanent-credential sentinel and no warden route "
+        f"answers it since §1.6."
+    )
     # Warden tokens carry NO machine_id claim (§1.3) — the warden IS the machine.
-    _assert_permanent_warden_claims(data["token"], sub=data["machine_id"])
+    _assert_warden_claims(data["token"], sub=data["machine_id"], lifetime=lifetime)
     # §1.3 machine claim codes: the boot command carries the ONE-TIME code,
     # never the token, and redeeming it mints the SAME shape onboard minted
-    # (agent scope, warden sub, no expiry, no placement claim).
+    # (agent scope, warden sub, the same expiry, no placement claim).
     assert data["claim_expires_in"] == MACHINE_CLAIM_TTL_SECS, data["claim_expires_in"]
     assert f"/install.sh?code={data['claim_code']}" in data["boot_command"], (
         data["boot_command"]
@@ -162,8 +201,8 @@ def test_machine_onboard_token_never_expires_no_placement_claim(client, owner_to
     assert claimed.status_code == 200, claimed.text
     body = claimed.json()
     assert body["machine_id"] == data["machine_id"], body
-    assert body["expires_in"] == 0, body["expires_in"]
-    _assert_permanent_warden_claims(body["token"], sub=data["machine_id"])
+    assert body["expires_in"] == lifetime, body["expires_in"]
+    _assert_warden_claims(body["token"], sub=data["machine_id"], lifetime=lifetime)
 
 
 def test_bootstrap_token_carries_desired_machine_claim(

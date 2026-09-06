@@ -283,6 +283,23 @@ def _check_renewed_credential(
         f"({ctx.warden.member_id!r})"
     )
     assert data["token"], "renewal answered 200 with no token"
+    # §1.6: the renewal mint is the SAME mint the install paths use, so the
+    # credential it hands back expires on auth.warden_credential_lifetime_secs
+    # like every other one. This was `expires_in=0` (permanent) until T-fc53
+    # 第二段. Compared against the station's own answer rather than a literal:
+    # the setting is owner-adjustable, and what must hold is that the two agree.
+    policy = ctx.client.get(
+        "/api/machines/credential-policy",
+        headers={"Authorization": f"Bearer {data['token']}"},
+    )
+    assert policy.status_code == 200, policy.text
+    lifetime = policy.json()["lifetime_secs"]
+    assert data["expires_in"] == lifetime, (
+        f"renewal answered expires_in={data['expires_in']} while the station's "
+        f"credential policy says {lifetime}. The renewal threshold is derived from "
+        f"the policy number and the credential dies on the expires_in one; a fleet "
+        f"whose two numbers disagree renews after it has already been refused."
+    )
     probe = ctx.client.get(
         "/api/machines",
         headers={"Authorization": f"Bearer {data['token']}"},
