@@ -52,6 +52,44 @@ describe("SuggestedReplies", () => {
     );
     expect(getByTestId("row").querySelectorAll("button")).toHaveLength(2);
   });
+
+  // 🔴 A BAD `replies` MUST DRAW NOTHING, NOT THROW.
+  //
+  // This is a SHARED component and the value reaches it from a settings payload
+  // the frontend cannot verify. `replies.length` on undefined/null and
+  // `replies.map` on a string both throw DURING RENDER, and a render throw
+  // unmounts the whole subtree — which at both mount points is the reply box
+  // with the owner's half-typed draft in it. An independent review reproduced
+  // all three by resolving a settings read with the fields absent / null / a
+  // string. The type says `readonly string[]`; the type is not the guard.
+  it.each([
+    ["absent", undefined],
+    ["null", null],
+    ["a string", "收到"],
+    ["an array of non-strings", [42, null, { a: 1 }]],
+  ])("draws nothing, without throwing, when replies is %s", (_label, bad) => {
+    const { queryByTestId } = render(
+      <SuggestedReplies
+        replies={bad as unknown as readonly string[]}
+        onPick={() => {}}
+        testId="row"
+      />
+    );
+    expect(queryByTestId("row")).toBeNull();
+  });
+
+  it("keeps the usable sentences when only SOME entries are unusable", () => {
+    const { getByTestId } = render(
+      <SuggestedReplies
+        replies={["收到", 42, null, "照做"] as unknown as readonly string[]}
+        onPick={() => {}}
+        testId="row"
+      />
+    );
+    expect(
+      [...getByTestId("row").querySelectorAll("button")].map((b) => b.textContent)
+    ).toEqual(["收到", "照做"]);
+  });
 });
 
 describe("appendSuggestion", () => {

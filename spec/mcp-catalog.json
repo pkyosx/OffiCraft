@@ -331,7 +331,7 @@
             "type": "null"
           }
         ],
-        "description": "Replace the 建議回覆 list offered under a 請示卡 reply box (T-122) wholesale — one sentence per entry, the owner's own writing. At most 20 entries, each trimmed and at most 120 runes (Unicode code points); over either bound is a 422 that writes NOTHING, and the list is never silently truncated. An EXPLICIT EMPTY ARRAY IS LEGAL and means \"offer no suggestions there\" — unlike the scheduled-message custom_* sets, where [] is a 422. Blank entries are dropped. Read the current list from get_settings before sending: this replaces it, it does not append.",
+        "description": "Replace the 建議回覆 list offered under a 請示卡 reply box (T-122) wholesale — one sentence per entry, the owner's own writing. At most 20 entries, each trimmed and at most 120 runes (Unicode code points); over either bound is a 422 that writes NOTHING, and the list is never silently truncated. An EXPLICIT EMPTY ARRAY IS LEGAL and means \"offer no suggestions there\" — unlike the scheduled-message custom_* sets, where [] is a 422. Blank entries are dropped. Read the current list from get_settings before sending: this replaces it, it does not append. 🔴 null is NOT \"clear\": an omitted field and an explicit null both mean LEAVE THIS LIST UNCHANGED, so an agent that sends null to empty the list gets a 200 and no change at all. To clear it, send [].",
         "title": "Suggested Replies Reply Card"
       },
       "suggested_replies_task_message": {
@@ -346,7 +346,7 @@
             "type": "null"
           }
         ],
-        "description": "Replace the 建議回覆 list offered under a 任務 message box (T-122) wholesale. Same bounds as suggested_replies_reply_card — at most 20 entries, each trimmed and at most 120 runes, over either is a 422 that writes nothing, and an explicit empty array is legal — but a SEPARATE list by owner ruling: answering a 請示卡 and writing to a task in progress are different conversations, and patching one list never touches the other. Read the current list from get_settings before sending: this replaces it, it does not append.",
+        "description": "Replace the 建議回覆 list offered under a 任務 message box (T-122) wholesale. Same bounds as suggested_replies_reply_card — at most 20 entries, each trimmed and at most 120 runes, over either is a 422 that writes nothing, and an explicit empty array is legal — but a SEPARATE list by owner ruling: answering a 請示卡 and writing to a task in progress are different conversations, and patching one list never touches the other. Read the current list from get_settings before sending: this replaces it, it does not append. 🔴 null is NOT \"clear\": an omitted field and an explicit null both mean LEAVE THIS LIST UNCHANGED, so an agent that sends null to empty the list gets a 200 and no change at all. To clear it, send [].",
         "title": "Suggested Replies Task Message"
       },
       "agent_token_ttl": {

@@ -180,6 +180,30 @@ describe("task card message box — 建議回覆", () => {
     expect(spy).not.toHaveBeenCalled();
   });
 
+  // 🔴 THE SECOND MOUNT POINT'S CLICK PATH IS ITS OWN CODE, SO IT NEEDS ITS OWN
+  // GUARD. Measured: `fireEvent.click` does not rethrow a handler's error, so a
+  // chip that blows up here leaves every other case in this file green while the
+  // real browser unmounts the card and takes the half-typed message with it. A
+  // throw placed AFTER the visible effect is invisible to all of them — this is
+  // the only case that sees it.
+  it("clicking a chip raises NOTHING, and the box still works afterwards", async () => {
+    __setMockSuggestedRepliesTaskMessage(["收到，照這樣做"]);
+    __injectMockTask(mkTask());
+    const raised: unknown[] = [];
+    const onErr = (e: ErrorEvent) => raised.push(e.error ?? e.message);
+    window.addEventListener("error", onErr);
+    try {
+      const { findByText, findByTestId } = renderPage();
+      const input = (await findByTestId("task-msg-input")) as HTMLTextAreaElement;
+      fireEvent.click(await findByText("收到，照這樣做"));
+      await settleRealTime();
+      expect(raised).toEqual([]);
+      expect(input.value).toBe("收到，照這樣做");
+    } finally {
+      window.removeEventListener("error", onErr);
+    }
+  });
+
   it("offers no sentences on a task with no executor, where the box itself is inert", async () => {
     __setMockSuggestedRepliesTaskMessage(["收到，照這樣做"]);
     __injectMockTask(

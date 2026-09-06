@@ -22,11 +22,35 @@
 // suggestions are a convenience laid over a reply box that must keep working on
 // its own. Nothing here can take the box down, and nothing here invents a
 // suggestion the owner did not write.
+//
+// 🔴 "NOTHING HERE CAN TAKE THE BOX DOWN" COVERS THE RETURN VALUE, NOT JUST THE
+// CALL. It did not always: the try/catch below guards a read that THROWS or
+// REJECTS, and for a while that was the whole promise — a read that RESOLVED an
+// object whose lists were absent, null, or a string sailed straight through and
+// killed the box during render instead (`replies.length` of undefined). Same
+// damage as commit 7d4e5874, one door along. `listFrom` closes that door, and
+// the sentence above is only true because it is there.
 
 import { useEffect, useState } from "react";
 import { loadServerSettings } from "./sharedServerSettings";
 
 type SuggestedRepliesBox = "replyCard" | "taskMessage";
+
+/** The named list off a settings view, or `[]` for ANY shape that is not a list
+ * of sentences — an absent field, null, a string, an array of non-strings. The
+ * structural read is deliberate: this value has travelled through the wire and
+ * a mapper, and "I cannot read it" and "there are none" are the same answer to
+ * the only question the caller asks. */
+function listFrom(s: unknown, box: SuggestedRepliesBox): string[] {
+  if (typeof s !== "object" || s === null) return [];
+  const raw = (s as Record<string, unknown>)[
+    box === "replyCard"
+      ? "suggestedRepliesReplyCard"
+      : "suggestedRepliesTaskMessage"
+  ];
+  if (!Array.isArray(raw)) return [];
+  return raw.filter((v): v is string => typeof v === "string");
+}
 
 function useSuggestedReplies(box: SuggestedRepliesBox): string[] {
   const [replies, setReplies] = useState<string[]>([]);
@@ -42,13 +66,7 @@ function useSuggestedReplies(box: SuggestedRepliesBox): string[] {
     try {
       loadServerSettings()
         .then((s) => {
-          if (alive) {
-            setReplies(
-              box === "replyCard"
-                ? s.suggestedRepliesReplyCard
-                : s.suggestedRepliesTaskMessage
-            );
-          }
+          if (alive) setReplies(listFrom(s, box));
         })
         .catch((e) => {
           console.warn("useSuggestedReplies: load failed", e);

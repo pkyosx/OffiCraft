@@ -8,10 +8,24 @@
 // never one nested object — patching one can then never read-modify-write the
 // other.
 //
-// 🔴 NOTHING OUTSIDE THIS MODULE MAY SPELL EITHER WIRE FIELD. The invariant is
-// checkable in one command (`grep -rn suggested_replies frontend/src`), and it
-// is what keeps a rename one edit instead of a sweep across the api layer, the
-// mock, the settings page and two composers.
+// 🔴 NOTHING OUTSIDE THIS MODULE MAY SPELL EITHER WIRE FIELD. It is what keeps
+// a rename one edit instead of a sweep across the api layer, the mock, the
+// settings page and two composers. The check, which must print THIS FILE AND
+// NOTHING ELSE:
+//
+//     grep -rln 'suggested_replies_\(reply_card\|task_message\)' \
+//       frontend/src --exclude-dir=generated
+//
+// The two exclusions are load-bearing and were both measured. `generated/` is
+// openapi-typescript's output — it spells every wire name in the spec by
+// construction, so it is not a violation, and dropping `--exclude-dir` is the
+// negative control that proves the grep reaches it. And the pattern matches the
+// WIRE names specifically, not the prefix: prose elsewhere legitimately names
+// the DOTTED DB keys (`suggested_replies.reply_card`, SettingsPage.tsx) and the
+// key family (mock.suggested-replies.test.ts), which are different strings for
+// different things. An earlier version of this comment named the loose
+// `grep -rn suggested_replies frontend/src`, which has four hits — a check that
+// cannot be passed is a check nobody runs.
 //
 // The readers stay STRUCTURAL even though the fields are in the frozen spec
 // now. A server older than T-122 simply omits them, an owner can hand-edit a

@@ -15,6 +15,7 @@ import {
   __setMockSuggestedRepliesTaskMessage,
 } from "../api/mock";
 import { resetAllSharedSnapshots } from "../lib/sharedSnapshot";
+import * as shared from "../hooks/sharedServerSettings";
 
 const onSend = vi.fn(() => Promise.resolve());
 
@@ -155,5 +156,64 @@ describe("ReplyComposer 建議回覆", () => {
     const { findByText, input } = renderComposer();
     fireEvent.click(await findByText("收到，照這樣做"));
     await waitFor(() => expect(document.activeElement).toBe(input));
+  });
+
+  // 🔴 A SETTINGS READ THAT RESOLVES THE WRONG SHAPE MUST NOT TAKE THE BOX DOWN.
+  //
+  // Commit 7d4e5874 fixed this damage on the CALL side — a settings read that
+  // THREW unmounted the whole card, message box and half-typed draft included.
+  // An independent review found the same damage one door along: a read that
+  // RESOLVES an object whose lists are absent / null / a string sails past that
+  // try/catch and throws during RENDER instead (`replies.length` of undefined,
+  // `replies.map` of a string). The cost is identical — the owner's unsent words
+  // vanish — so the assertion is not merely "no chips": it is that he can still
+  // type and still send.
+  it.each([
+    ["absent", {}],
+    ["null", { suggestedRepliesReplyCard: null }],
+    ["a string", { suggestedRepliesReplyCard: "收到" }],
+  ])("keeps the reply box usable when the settings read answers %s", async (_l, payload) => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    vi.spyOn(shared, "loadServerSettings").mockResolvedValue(
+      payload as Awaited<ReturnType<typeof shared.loadServerSettings>>
+    );
+    const { queryByTestId, input } = renderComposer();
+    await settleRealTime();
+
+    expect(queryByTestId("reply-suggested-replies")).toBeNull();
+    fireEvent.change(input, { target: { value: "手打的回覆" } });
+    await act(async () => {
+      fireEvent.keyDown(input, { key: "Enter" });
+    });
+    expect(onSend).toHaveBeenCalledWith("手打的回覆", []);
+    vi.restoreAllMocks();
+  });
+
+  // 🔴 A CHIP CLICK THAT THROWS IS INVISIBLE TO EVERY OTHER GUARD IN THIS FILE.
+  //
+  // Measured: `fireEvent.click` on a handler that throws does NOT rethrow
+  // synchronously, so the ten jsdom guards around it stay green while the chip
+  // blows up in a real browser — React unmounts the tree and the draft goes with
+  // it. The uncaught error IS observable on `window`'s error event, so that is
+  // what this listens for. Without this case the whole click path — onPick,
+  // appendSuggestion, the focus hop — is unguarded against throwing.
+  it("clicking a chip raises NOTHING, and the box still works afterwards", async () => {
+    __setMockSuggestedRepliesReplyCard(["收到，照這樣做"]);
+    const raised: unknown[] = [];
+    const onErr = (e: ErrorEvent) => raised.push(e.error ?? e.message);
+    window.addEventListener("error", onErr);
+    try {
+      const { findByText, input } = renderComposer();
+      fireEvent.click(await findByText("收到，照這樣做"));
+      await settleRealTime();
+      expect(raised).toEqual([]);
+      expect(input.value).toBe("收到，照這樣做");
+      await act(async () => {
+        fireEvent.keyDown(input, { key: "Enter" });
+      });
+      expect(onSend).toHaveBeenCalledWith("收到，照這樣做", []);
+    } finally {
+      window.removeEventListener("error", onErr);
+    }
   });
 });

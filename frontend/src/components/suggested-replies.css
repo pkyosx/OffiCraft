@@ -22,7 +22,10 @@
   align-items: flex-start;
   box-sizing: border-box;
   width: 100%;
-  /* 132px is the chat composer's own autosize ceiling (lib/autosize) — the two
+  /* 132px is the chat composer's own ceiling, declared at office.css `.chat__input
+   * { max-height: 132px }` — NOT in lib/autosize.ts, which this comment used to
+   * cite and which contains no such number (autosize.ts grows the box UP TO
+   * whatever the stylesheet caps it at). The two
    * bounded, scrolling boxes that stack here use the SAME number so neither can
    * quietly grow taller than the other. Measured at 390px with five entries: it
    * shows four lines and leaves the fifth half-visible, which is the scroll

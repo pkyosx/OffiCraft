@@ -9163,12 +9163,12 @@ export interface components {
             push_contact_email?: string | null;
             /**
              * Suggested Replies Reply Card
-             * @description Replace the 請示卡 建議回覆 list wholesale (T-122). At most 20 entries, each trimmed and at most 120 runes (Unicode code points); over either bound is a 422 that writes NOTHING — the list is never silently truncated. An EXPLICIT EMPTY ARRAY IS LEGAL and means "offer no suggestions there" (unlike the scheduled-message custom_* sets, where [] is a 422). Blank entries are dropped.
+             * @description Replace the 請示卡 建議回覆 list wholesale (T-122). At most 20 entries, each trimmed and at most 120 runes (Unicode code points); over either bound is a 422 that writes NOTHING — the list is never silently truncated. An EXPLICIT EMPTY ARRAY IS LEGAL and means "offer no suggestions there" (unlike the scheduled-message custom_* sets, where [] is a 422). Blank entries are dropped. 🔴 null is NOT "clear": an omitted field and an explicit null both mean LEAVE THIS LIST UNCHANGED, so an agent that sends null to empty the list gets a 200 and no change at all. To clear it, send [].
              */
             suggested_replies_reply_card?: string[] | null;
             /**
              * Suggested Replies Task Message
-             * @description Replace the 任務 message-box 建議回覆 list wholesale (T-122). Same bounds as suggested_replies_reply_card — at most 20 entries, each trimmed and at most 120 runes, over either is a 422 that writes nothing, and an explicit empty array is legal — but a SEPARATE list: patching one never touches the other.
+             * @description Replace the 任務 message-box 建議回覆 list wholesale (T-122). Same bounds as suggested_replies_reply_card — at most 20 entries, each trimmed and at most 120 runes, over either is a 422 that writes nothing, and an explicit empty array is legal — but a SEPARATE list: patching one never touches the other. 🔴 null is NOT "clear": an omitted field and an explicit null both mean LEAVE THIS LIST UNCHANGED, so an agent that sends null to empty the list gets a 200 and no change at all. To clear it, send [].
              */
             suggested_replies_task_message?: string[] | null;
             /** Outsource Max Parallel */

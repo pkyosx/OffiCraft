@@ -376,6 +376,19 @@ func TestSuggestedRepliesSettingRoundTrip(t *testing.T) {
 		t.Fatalf("the list must be live in the snapshot")
 	}
 
+	// 🔴 THE RESPONSE MUST NOT ALIAS THE LIVE SNAPSHOT. settingsView copies the
+	// slice, and until this assertion existed that copy was pure intent: an
+	// independent review mutated it to a plain alias and every test stayed
+	// green. An aliased slice hands every caller of settingsView a writable
+	// window onto the process-wide settings — one handler sorting or
+	// re-labelling "its own" copy would silently re-write what the next
+	// GET /api/settings serves, with no write path and no lock involved.
+	aliasProbe := api.settingsView().SuggestedRepliesReplyCard
+	aliasProbe[0] = "從回應那一份改掉的"
+	if got := api.settingsView().SuggestedRepliesReplyCard; got[0] != "收到，照這樣做" {
+		t.Fatalf("settingsView must COPY, not alias, the live list: %v", got)
+	}
+
 	// 🔴 THE TWO LISTS ARE INDEPENDENT. The patch above named only the reply-card
 	// list, so the task-message one must still be untouched — and its DB row must
 	// still not exist at all.

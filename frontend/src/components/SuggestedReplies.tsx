@@ -35,7 +35,12 @@ export function SuggestedReplies({
   onPick,
   testId,
 }: {
-  /** The owner's configured sentences (hooks/useSuggestedReplies). */
+  /** The owner's configured sentences (hooks/useSuggestedReplies).
+   *
+   * 🔴 THE TYPE IS NOT THE GUARD. This is a SHARED component with callers this
+   * module does not own, and the value ultimately comes off a settings payload
+   * the frontend cannot verify. Anything that is not a list of sentences is
+   * read as "the owner configured none" below — see the render. */
   replies: readonly string[];
   /** Hand the picked sentence to the box. The CALLER folds it into its own
    * draft and focuses its textarea — this component owns no draft. */
@@ -43,10 +48,26 @@ export function SuggestedReplies({
   /** Distinguishes the two boxes on a page that shows both. */
   testId: string;
 }) {
-  if (replies.length === 0) return null;
+  // 🔴 EVERY BAD SHAPE ANSWERS "NO SUGGESTIONS", WHICH RENDERS NOTHING.
+  //
+  // `replies.length` on undefined/null, and `replies.map` on a string, both
+  // THROW DURING RENDER — and a render throw unmounts the whole subtree, which
+  // here is the reply box with the owner's half-typed draft in it. That is the
+  // exact damage commit 7d4e5874 fixed on the CALL side (a settings read that
+  // threw); this is the same damage arriving through the RETURN VALUE instead.
+  // The hook guards its own read too; this guard is for every other caller,
+  // because a shared component cannot assume its callers were careful.
+  //
+  // Drawing nothing is not a degraded mode here — it is exactly the state an
+  // install with no configured sentences is in, and the owner ruled that state
+  // legal.
+  const list = Array.isArray(replies)
+    ? replies.filter((v): v is string => typeof v === "string")
+    : [];
+  if (list.length === 0) return null;
   return (
     <div className="suggested-replies" data-testid={testId}>
-      {replies.map((text, i) => (
+      {list.map((text, i) => (
         <button
           key={`${i}-${text}`}
           type="button"

@@ -56,6 +56,31 @@ describe("useSuggestedReplies", () => {
     expect(getByTestId("count").textContent).toBe("0");
   });
 
+  // 🔴 THE RETURN VALUE IS A DOOR TOO, AND IT WAS OPEN.
+  //
+  // The try/catch in this hook guards a read that THROWS or REJECTS. A read that
+  // RESOLVES the wrong shape walks past it, and the hook then hands `undefined`
+  // / `null` / a string to whoever asked — which throws in the CALLER's render.
+  // An independent review reproduced exactly that. These cases assert at the
+  // HOOK boundary on purpose: SuggestedReplies has its own guard, so a composer-
+  // level test passes even with this one removed, and a guard nothing can fail
+  // is a guard nobody will keep.
+  it.each([
+    ["the fields are absent", {}],
+    ["a list is null", { suggestedRepliesReplyCard: null, suggestedRepliesTaskMessage: null }],
+    ["a list is a string", { suggestedRepliesReplyCard: "收到", suggestedRepliesTaskMessage: "先擱著" }],
+    ["the settings object is null", null],
+    ["a list holds non-strings", { suggestedRepliesReplyCard: [42, null], suggestedRepliesTaskMessage: [{}] }],
+  ])("answers the empty list when the read RESOLVES but %s", async (_l, payload) => {
+    vi.spyOn(shared, "loadServerSettings").mockResolvedValue(
+      payload as Awaited<ReturnType<typeof shared.loadServerSettings>>
+    );
+    const { getByTestId } = render(<Host />);
+    await waitFor(() => expect(getByTestId("box")).toBeTruthy());
+    expect(getByTestId("count").textContent).toBe("0");
+    expect(getByTestId("task-count").textContent).toBe("0");
+  });
+
   it("answers the empty list, and leaves the box standing, when the read REJECTS", async () => {
     vi.spyOn(shared, "loadServerSettings").mockRejectedValue(
       new Error("http 500 for GET /api/settings")
