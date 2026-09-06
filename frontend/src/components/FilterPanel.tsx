@@ -150,6 +150,7 @@ export function FilterPanel({
               <button
                 type="button"
                 className="filter-panel__chip-x"
+                data-testid={`${testId}-chip-x`}
                 aria-label={t.filterPanel.removeChip(chip.label)}
                 onClick={chip.onRemove}
               >

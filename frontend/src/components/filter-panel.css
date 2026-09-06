@@ -122,11 +122,34 @@
  * That is the finding: at 12px, 75% opacity, accent-on-accent-soft, it read as a
  * dot — present in the DOM, absent to the reader. A control nobody can see is
  * not a control, and "it is in the markup" is not a defence. So: bigger glyph,
- * full opacity, its own tint, and a hit area that clears the 24px minimum. */
+ * full opacity, its own tint, and a hit area that clears the 24px minimum.
+ *
+ * 🔴 SECOND FINDING, on the fix itself (independent review of dbef7ff3): the
+ * first version of this rule shipped WITHOUT `padding: 0`. A <button> carries a
+ * UA default padding (measured 6px/6px/1px/1px in Chromium) and this box is
+ * `border-box`, so the 18px was spent on padding and the CONTENT box came out
+ * 6px wide — the 13px svg was squeezed back into a vertical line, i.e. exactly
+ * the "reads as a dot" defect this comment was written to close, reintroduced
+ * one layer down. Colour and opacity were fixed; the BOX was not. Hence the
+ * explicit reset below and the guard that MEASURES it (the 「the × … is a real
+ * box」 test in visual-guards/replies-filter-panel.ct.spec.tsx) — the earlier
+ * round had no
+ * mechanical witness on this control at all, which is why a claim in a comment
+ * was the only thing standing behind it.
+ *
+ * The 18px circle is the VISIBLE size (owner circled variant D at this scale);
+ * the ::after below grows the POINTER target to 24×24 without changing layout,
+ * so the "24px minimum" this comment promises is measured rather than merely
+ * asserted. The overflow stays inside the chip's own padding/gap, so it
+ * cannot steal a click from the label. */
 .filter-panel__chip-x {
+  position: relative;
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  /* 🔴 Do not remove: without it the UA button padding eats the content box and
+   * the glyph collapses (see SECOND FINDING above). */
+  padding: 0;
   width: 18px;
   height: 18px;
   border: 0;
@@ -136,6 +159,13 @@
   cursor: pointer;
   /* The glyph is small; the thing a finger or cursor has to hit is not. */
   outline-offset: 2px;
+}
+/* Pointer target only — no paint, no layout. 18 + 3 on each side = 24. */
+.filter-panel__chip-x::after {
+  content: "";
+  position: absolute;
+  inset: -3px;
+  border-radius: 50%;
 }
 .filter-panel__chip-x:hover,
 .filter-panel__chip-x:focus-visible {

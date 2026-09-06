@@ -26,7 +26,11 @@ import {
 } from "../api/mock";
 import type { ReplyCard, TaskView } from "../api/adapter";
 // 篩選 now happens inside the FilterPanel and only on 套用篩選 (T-93 round 3).
-import { toggleFilter, clearAllFilters } from "../test/tasksFilter";
+import {
+  toggleFilter,
+  clearAllFilters,
+  openFilterPanel,
+} from "../test/tasksFilter";
 
 let seq = 0;
 
@@ -440,5 +444,57 @@ describe("TasksPage executor seed (#tasks/executor/<id>, T-dfae)", () => {
     );
     // …and the executor axis still bit (this is a filter seed, not a reset).
     expect(document.querySelector('[data-task-id="t-other-review"]')).toBeNull();
+  });
+
+  // 🔴 THE PANEL'S DRAFT MUST MATCH WHAT IS ACTUALLY FILTERING (M4 — added
+  // after an independent review of dbef7ff3 found this call site UNGUARDED).
+  //
+  // `openPanel` does `if (next) reseedDraft()`. The reviewer changed that one
+  // token to `if (false)` and the whole package — 81 assertions — stayed green.
+  // Nothing anywhere asserted that opening the panel shows the truth.
+  //
+  // WHY THIS SEED IS THE ONE THAT BREAKS IT. The effect above writes the four
+  // APPLIED axes and never touches the draft, so without the reseed the draft is
+  // still the mount default: empty. The owner arriving from the chat header then
+  // opens a panel with NOTHING ticked while the strip says 「負責人：Mira」 — and
+  // it does not stop at cosmetic, because 套用篩選 commits the DRAFT, so his next
+  // press SILENTLY WIDENS the filter back to everyone. Every other route into the
+  // panel leaves draft == applied already, which is exactly why 81 tests could
+  // not see this one.
+  //
+  // 🔴 WHY THIS ASSERTS THE TICK AND NOT THE PILL TEXT — DO NOT "SIMPLIFY" IT
+  // BACK. The obvious witness is the pill: it should say Mira. It does not, and
+  // that is a SECOND defect (A2 in the same review), not this one: after this
+  // seed the executor axis has exactly ONE option with a non-zero count, and
+  // `MultiSelectFilter` reads "every visible option checked" as "no constraint"
+  // and prints 所有負責人. So the pill reads 所有負責人 whether the reseed ran or
+  // not — ZERO discriminating power for M4. The checkbox is the one thing the
+  // two states disagree about. (A2 is recorded on the ticket; it is a rule this
+  // package inherited from main, and the owner has not been asked about it.)
+  it("opening the panel after an executor seed carries the seeded tick into the draft", async () => {
+    __injectMockTask(mkTask({ id: "t-mira-open", executorId: "mira" }));
+    __injectMockTask(mkTask({ id: "t-kyle-open", executorId: "kyle" }));
+    window.location.hash = "#tasks/executor/mira";
+
+    const { findByTestId } = renderTasks();
+    await findByTestId("open-list");
+
+    // Three gestures, not one: the panel expands, then the 負責人 DROPDOWN has
+    // to be opened before its option rows exist at all, and the roster they are
+    // built from arrives asynchronously. Reading too early gives `undefined`,
+    // which is neither checked nor unchecked and must not be scored as either.
+    openFilterPanel();
+    fireEvent.click(await findByTestId("filter-executor"));
+    const tick = await waitFor(() => {
+      const el = document
+        .querySelector('[data-testid="filter-executor-opt-mira"]')
+        ?.querySelector("input");
+      expect(el, "the mira option row must be in the open panel").toBeTruthy();
+      return el!;
+    });
+    expect(
+      tick.checked,
+      "the seeded executor must arrive in the draft, or 套用篩選 widens it"
+    ).toBe(true);
   });
 });

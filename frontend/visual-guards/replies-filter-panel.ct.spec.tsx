@@ -571,3 +571,89 @@ for (const theme of ["dark", "light"] as const) {
     ).toBe(false);
   });
 }
+
+// 🔴 THE OWNER'S × — the control he asked for by name, measured as a BOX.
+//
+// WHY THIS TEST EXISTS, and why it is not "one more assertion": round N fixed
+// this control's COLOUR and OPACITY (it had rendered as a dot: 12px, 75%,
+// accent on accent-soft) and shipped it with `width/height: 18px` but NO
+// `padding: 0`. A <button> carries a UA default padding — measured
+// 6px/6px/1px/1px in Chromium — and the box is `border-box`, so the content box
+// came out 6px wide and the 13px glyph was squeezed back into a vertical line.
+// The defect the fix was written to close came back one layer down, and every
+// green in the suite stayed green: jsdom applies no UA stylesheet and computes
+// no layout, so the unit tests could not see it, and no CT had ever measured
+// this control. An independent reviewer of dbef7ff3 found it by looking.
+//
+// So the assertions below are about the GLYPH and the TARGET, in a real engine:
+//   (a) the rendered svg is not collapsed on either axis — this is the one that
+//       reddens if the `padding: 0` reset is ever dropped again;
+//   (b) the button's own box is the 18px circle the design calls for;
+//   (c) the POINTER TARGET clears 24×24 (the ::after), because the comment
+//       above the CSS rule promises a 24px minimum and a promise no machine
+//       checks is how (a) happened in the first place.
+//
+// MUTANTS (each applied, run, reverted; file green again after each):
+//   * delete `padding: 0` from `.filter-panel__chip-x`  ⇒ (a) reddens —
+//     svg width collapses to 6px. This is the ACTUAL historical defect, and it
+//     is the reason this test is written against the svg's box rather than the
+//     button's: the button stayed 18px throughout, so asserting the BUTTON
+//     alone would have passed on the broken code.
+//   * delete the `.filter-panel__chip-x::after` rule ⇒ (c) reddens (target
+//     stays 18, under the 24 the CSS comment claims).
+//   * remove the `<FilterPanel>` from RepliesPage ⇒ nothing to measure; the
+//     test errors rather than passing vacuously, same as the rest of this file.
+test("the × on a 已篩選 chip is a real box, not a squeezed line", async ({
+  mount,
+  page,
+}) => {
+  await page.setViewportSize({ width: 390, height: 900 });
+  const cmp = await mount(<RepliesPageStory theme="dark" />);
+  await applyId(cmp, FULL_ID);
+
+  const x = cmp.getByTestId("replies-filter-chip-x").first();
+  await expect(x).toBeVisible();
+
+  const m = await x.evaluate((node) => {
+    const svg = node.querySelector("svg")!;
+    const s = svg.getBoundingClientRect();
+    const b = node.getBoundingClientRect();
+    const after = getComputedStyle(node, "::after");
+    const inset = parseFloat(after.insetBlockStart || "0"); // negative = grown
+    return {
+      svgW: s.width,
+      svgH: s.height,
+      btnW: b.width,
+      btnH: b.height,
+      padding: getComputedStyle(node).padding,
+      targetW: b.width - 2 * inset,
+      targetH: b.height - 2 * inset,
+    };
+  });
+
+  // (a) THE GLYPH. 13px nominal; allow a hair for sub-pixel rounding, but a
+  // collapsed axis (the 6px historical failure) is nowhere near this.
+  expect
+    .soft(m.svgW, `the × glyph's width (padding was ${m.padding})`)
+    .toBeGreaterThanOrEqual(12);
+  expect
+    .soft(m.svgH, `the × glyph's height (padding was ${m.padding})`)
+    .toBeGreaterThanOrEqual(12);
+  // …and it must not be a LINE: the two axes must be within a pixel of each
+  // other. A 6×13 passes any single-axis floor you set at 12 on the tall axis.
+  expect
+    .soft(Math.abs(m.svgW - m.svgH), "the × glyph must be square, not a line")
+    .toBeLessThanOrEqual(1);
+
+  // (b) THE VISIBLE CIRCLE — the size owner circled in variant D.
+  expect.soft(m.btnW, "the × button's visible width").toBeGreaterThanOrEqual(17);
+  expect.soft(m.btnH, "the × button's visible height").toBeGreaterThanOrEqual(17);
+
+  // (c) THE POINTER TARGET — what the CSS comment promises out loud.
+  expect
+    .soft(m.targetW, "the × pointer target's width (the ::after)")
+    .toBeGreaterThanOrEqual(24);
+  expect
+    .soft(m.targetH, "the × pointer target's height (the ::after)")
+    .toBeGreaterThanOrEqual(24);
+});
