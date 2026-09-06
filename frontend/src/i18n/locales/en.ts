@@ -1987,6 +1987,13 @@ export const en: Dict = {
     suggestedReplyRemove: "Remove this sentence",
     suggestedReplyMoveUp: "Move up",
     suggestedReplyMoveDown: "Move down",
+    // owner rc-76ab62ceb3ff: over the cap is REFUSED with a reason, never
+    // silently shortened — which is why the input carries no maxLength (the
+    // browser would cut a paste with no notice). The text stays, this line
+    // explains, and nothing is sent.
+    suggestedRepliesTooLong: (len: number, max: number) =>
+      `This sentence is ${len} characters, over the ${max} limit. Shorten it to save — nothing is cut for you, and nothing is stored.`,
+    suggestedRepliesFull: "That is 20 sentences, the maximum. Remove one to add another.",
     chatBudget: "Wake chat budget",
     chatBudgetSub:
       "How many characters the chat block of a wake snapshot (resume_summary) may spend — the messages, their folded cards, the snapshot header and the cut hint; the peek sizes itself against the same number. The range is 1000 to 13000 and it can be lowered as well as raised: the chat block is repacked on every read, so a smaller budget simply carries fewer messages, and whatever was left out is still reported as omitted.",

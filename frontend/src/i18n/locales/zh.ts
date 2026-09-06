@@ -2050,6 +2050,12 @@ export const zh = {
     suggestedReplyRemove: "刪除這一句",
     suggestedReplyMoveUp: "往上移",
     suggestedReplyMoveDown: "往下移",
+    // owner rc-76ab62ceb3ff:「超過就直接拒絕存檔並告訴你為什麼,不會偷偷截斷」。
+    // 所以輸入框不設 maxLength(瀏覽器會在貼上時無聲砍掉超出的部分),超過就把
+    // 原文留在畫面上、印出這一句、不送出。
+    suggestedRepliesTooLong: (len: number, max: number) =>
+      `這一句 ${len} 字,超過上限 ${max} 字。改短一點才會存檔——超過的部分不會被自動截掉,也不會存進去。`,
+    suggestedRepliesFull: "已經有 20 句了。要再加,先刪掉一句。",
     chatBudget: "喚醒聊天字數預算",
     chatBudgetSub:
       "喚醒快照(resume_summary)裡聊天區塊的字數預算,含訊息、摺疊卡片、快照表頭與截斷提示;peek 回報的大小算的是同一個數字。範圍 1000~13000,可調高也可調低——聊天區塊每次都是重新裝箱的,調低只是下次帶回比較少則,被留下的部分照樣由「更早的訊息已省略」交代。",

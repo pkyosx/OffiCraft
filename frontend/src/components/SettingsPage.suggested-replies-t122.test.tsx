@@ -14,12 +14,14 @@
 //  * A SAVE CARRIES ONE FIELD. A row wired to its neighbour would rewrite the
 //    other box's sentences while looking entirely correct on screen.
 
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, vi } from "vitest";
 import { render, fireEvent, waitFor } from "@testing-library/react";
 import { I18nProvider } from "../i18n";
 import { zh } from "../i18n/locales/zh";
 import { SettingsPage } from "./SettingsPage";
 import { __resetMock, mockApi } from "../api/mock";
+import { api } from "../api";
+import { SUGGESTED_REPLY_MAX_LEN } from "../api/suggestedReplies";
 
 const s = zh.settings;
 
@@ -148,6 +150,62 @@ describe("T-122 — 建議回覆 是兩份各自獨立的參數設定", () => {
       (await mockApi.getServerSettings()).suggestedRepliesTaskMessage
     ).toEqual(["任務用的"]);
     expect(utils.getAllByText(s.suggestedRepliesEmpty).length).toBe(1);
+  });
+
+  it("keeps a PASTED over-long sentence WHOLE, says why, and sends nothing", async () => {
+    // 🔴 owner rc-76ab62ceb3ff:「超過就直接拒絕存檔並告訴你為什麼,不會偷偷截
+    // 斷」. The regression this pins is `<input maxLength={120}>`: the browser
+    // enforces it by CUTTING A PASTE with no notice, and pasting is exactly how
+    // a saved reply reaches this field — a 150-character sentence would be
+    // stored 30 characters shorter than what the owner put in, and he would
+    // have no way to tell. So the assertion is on the input's OWN value, not
+    // just on the absence of a save.
+    const patch = vi.spyOn(api, "patchServerSettings");
+    const utils = await openParamsPage();
+    fireEvent.click(utils.getAllByText(s.suggestedReplyAdd)[0]);
+    const input = (await utils.findByLabelText(cardRow(1))) as HTMLInputElement;
+
+    // 🔴 THE ATTRIBUTE ASSERTION IS NOT DECORATION — IT IS THE ONLY HALF THAT
+    // SEES THIS MUTANT, AND THAT WAS MEASURED. jsdom does not enforce
+    // `maxLength` on a programmatic value assignment, which is what
+    // `fireEvent.change` performs, so putting `maxLength={120}` back leaves
+    // every behavioural assertion below GREEN. The truncation is a real
+    // BROWSER behaviour this environment cannot reproduce, so the thing to pin
+    // is that the field does not hand its bound to the browser at all.
+    expect(input.hasAttribute("maxlength")).toBe(false);
+
+    const pasted = "水".repeat(150);
+    expect(pasted.length).toBeGreaterThan(SUGGESTED_REPLY_MAX_LEN);
+    fireEvent.change(input, { target: { value: pasted } });
+    fireEvent.blur(input);
+
+    expect(input.value).toBe(pasted);
+    expect([...input.value].length).toBe(150);
+    expect(
+      utils.getByText(s.suggestedRepliesTooLong(150, SUGGESTED_REPLY_MAX_LEN))
+    ).toBeTruthy();
+    expect(patch).not.toHaveBeenCalled();
+    expect(
+      (await mockApi.getServerSettings()).suggestedRepliesReplyCard
+    ).toEqual([]);
+    patch.mockRestore();
+  });
+
+  it("says WHY the add button is dead once the list holds 20 sentences", async () => {
+    await mockApi.patchServerSettings({
+      suggestedRepliesReplyCard: Array.from(
+        { length: 20 },
+        (_, i) => `第 ${i + 1} 句`
+      ),
+    });
+    const utils = await openParamsPage();
+    // A disabled button that explains nothing reads as "broken", which is the
+    // small version of the same principle as the case above.
+    expect(utils.getAllByText(s.suggestedReplyAdd)[0]).toHaveProperty(
+      "disabled",
+      true
+    );
+    expect(utils.getAllByText(s.suggestedRepliesFull).length).toBeGreaterThan(0);
   });
 
   it("reorders within one list and saves the new order", async () => {

@@ -1182,7 +1182,23 @@ function SuggestedRepliesEditor({
   const [draft, setDraft] = useState<string[] | null>(null);
   const rows = draft ?? value;
 
+  /** RUNES, not UTF-16 units — the same measure the server applies
+   * (utf8.RuneCountInString), so a CJK sentence gets the full budget and the
+   * number this page shows is the number the server counted. */
+  const runeLen = (v: string) => [...v.trim()].length;
+  const overCap = (v: string) => runeLen(v) > SUGGESTED_REPLY_MAX_LEN;
+
   function commit(next: string[]) {
+    // 🔴 REFUSE, NEVER SHORTEN. owner (rc-76ab62ceb3ff): 「超過就直接拒絕存檔並
+    // 告訴你為什麼,不會偷偷截斷」. That is also why the input below carries NO
+    // `maxLength`: the browser enforces maxLength by CUTTING A PASTE with no
+    // notice at all, and pasting is exactly how a saved reply gets into this
+    // field. The over-long text stays on screen, in full, with the reason
+    // printed under it, and nothing is sent.
+    if (next.some(overCap)) {
+      setDraft(next);
+      return;
+    }
     const cleaned = next.map((v) => v.trim()).filter((v) => v.length > 0);
     setDraft(null);
     if (
@@ -1214,12 +1230,13 @@ function SuggestedRepliesEditor({
           <div className="sugg-edit__empty">{t.settings.suggestedRepliesEmpty}</div>
         )}
         {rows.map((text, i) => (
-          <div className="sugg-edit__row" key={`${idPrefix}-${i}`}>
+          <Fragment key={`${idPrefix}-${i}`}>
+          <div className="sugg-edit__row">
             <input
               id={`${idPrefix}-${i}`}
               className="param-input sugg-edit__input"
               type="text"
-              maxLength={SUGGESTED_REPLY_MAX_LEN}
+              aria-invalid={overCap(text) || undefined}
               placeholder={t.settings.suggestedReplyPlaceholder}
               aria-label={`${label} ${i + 1}`}
               value={text}
@@ -1272,11 +1289,21 @@ function SuggestedRepliesEditor({
               <TrashIcon size={14} />
             </button>
           </div>
+          {overCap(text) && (
+            <div className="sugg-edit__error" role="alert">
+              {t.settings.suggestedRepliesTooLong(
+                runeLen(text),
+                SUGGESTED_REPLY_MAX_LEN
+              )}
+            </div>
+          )}
+          </Fragment>
         ))}
         <button
           type="button"
           className="sugg-edit__add"
           disabled={full}
+          title={full ? t.settings.suggestedRepliesFull : undefined}
           onClick={() => {
             onTouch();
             setDraft([...rows, ""]);
@@ -1284,6 +1311,12 @@ function SuggestedRepliesEditor({
         >
           {t.settings.suggestedReplyAdd}
         </button>
+        {/* A disabled button says nothing about WHY. Twenty is the cap, and
+            "the cap is reached" has to be readable, not inferred from a button
+            that stopped responding. */}
+        {full && (
+          <div className="sugg-edit__note">{t.settings.suggestedRepliesFull}</div>
+        )}
       </div>
     </div>
   );
