@@ -246,10 +246,11 @@ func (s *apiServer) deliverPendingUpgradeNotice() (sent bool) {
 				"to_sha":       notice.ToSHA,
 				"shared_layer": len(sharedLayerFiles(files)) > 0,
 			},
-			// The ids the message spells out, so a reader that wants to act on
-			// one does not have to parse them back out of prose. It carries the
-			// COUNT the message was built from, which is the honest number even
-			// when the list itself was truncated for length.
+			// The ids the message was built from, so a reader that wants to act
+			// on one does not have to parse them back out of prose. This is the
+			// WHOLE open set, not the subset the body spelled out: the prose is
+			// capped for length and the ids are not, so when the two disagree
+			// this field is the honest one.
 			"upgrade_instructions": upgradeInstructionIDs(openInstructions),
 		},
 	}
