@@ -2349,7 +2349,7 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			Handler:  w.HandleListUpgradeInstructionsApiUpgradeInstructionsGet,
 			Auth:     authGated,
 			Requires: principalAdminAgent,
-			Summary:  "List the 換版交代單 — the standing instructions the owner has left for the assistant, which the station hands over in a chat message every time it upgrades. Open ones first, each group oldest→newest, and `open_count` counts the open ones only. A finished instruction stays in the list: it is the only evidence the work was ever picked up.",
+			Summary:  "List the 換版交代單 — the standing instructions the owner has left for the assistant, which the station hands over in a chat message every time it upgrades. Open ones come first, each group oldest→newest, and `open_count` counts the open ones only. admin_agent floor: the owner and the assistant; an ordinary agent gets 403. Read this to see what is still waiting — a finished instruction stays in the list, because it is the only evidence that the work was ever picked up.",
 			MCPTool:  "list_upgrade_instructions",
 		},
 		{
@@ -2358,7 +2358,7 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			Handler:  w.HandleCreateUpgradeInstructionApiUpgradeInstructionsPost,
 			Auth:     authGated,
 			Requires: principalAdminAgent,
-			Summary:  "Write one 換版交代單 for the assistant, delivered at the next station upgrade and at every upgrade after that until it is ticked off. OWNER ONLY (enforced in the handler): the assistant authoring her own instructions would make the record meaningless. `body` is the whole instruction; blank is a 422. There is no delivery-time field — the answer does not depend on when you typed it.",
+			Summary:  "Write one 換版交代單 — an instruction for the assistant that the station hands over at its next upgrade, and at every upgrade after that, until somebody ticks it off. OWNER ONLY, and that floor is the point rather than caution: the assistant authoring her own instructions would make the record meaningless. `body` is the whole instruction and a blank one is a 422. There is no delivery-time field — write it whenever you like, the answer does not depend on when you typed it. ⚠️ Nothing here schedules anything: an instruction nobody ticks is handed over again indefinitely, so withdraw a mistake with delete_upgrade_instruction rather than leaving it open.",
 			MCPTool:  "create_upgrade_instruction",
 		},
 		{
@@ -2367,7 +2367,7 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			Handler:  w.HandleCompleteUpgradeInstructionApiUpgradeInstructionsInstructionIdDonePost,
 			Auth:     authGated,
 			Requires: principalAdminAgent,
-			Summary:  "Tick one 換版交代單 off so the station stops handing it over. The owner or the assistant may tick. THE FIRST TICK WINS: a second call answers 200 with the row unchanged and never overwrites who did the work — two of the assistant's sessions racing on the same instruction is the ordinary case, not an exotic one. 404 if the id names nothing.",
+			Summary:  "Tick one 換版交代單 off — record that the instruction has been carried out, so the station stops handing it over at every upgrade. The owner or the assistant may tick; an ordinary agent gets 403. THE FIRST TICK WINS: a second call answers 200 with the instruction unchanged and does NOT overwrite who did the work or when, which is what makes two sessions of the assistant racing on the same instruction safe. 404 if the instruction id names nothing. ⚠️ This verb means \"I did this\". To retract something that should never have been written, the owner uses delete_upgrade_instruction instead — ticking it would certify work that never happened.",
 			MCPTool:  "complete_upgrade_instruction",
 		},
 		{
@@ -2376,7 +2376,7 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			Handler:  w.HandleDeleteUpgradeInstructionApiUpgradeInstructionsInstructionIdDelete,
 			Auth:     authGated,
 			Requires: principalAdminAgent,
-			Summary:  "Withdraw one 換版交代單 — permanent, not undoable, OWNER ONLY (enforced in the handler). This is the author retracting something he should not have written: ticking means \"I did this\", so without this verb a mistaken instruction would be handed over forever unless the assistant certified work that never happened. 404 if the id names nothing.",
+			Summary:  "Withdraw one 換版交代單 — permanent, not undoable, OWNER ONLY. This is the author retracting something he should not have written, and it exists because ticking is the assistant's verb for \"I did this\": without a withdraw path, an instruction written in error would be handed over at every single upgrade forever and the only way to stop it would be to ask the assistant to certify work that never happened. 404 if the instruction id names nothing. Answers with the row that was removed.",
 			MCPTool:  "delete_upgrade_instruction",
 		},
 	}
