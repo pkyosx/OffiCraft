@@ -1294,10 +1294,8 @@ def _lore_entry(ctx: HCtx) -> str:
         "/api/lore/entries",
         headers={"Authorization": f"Bearer {ctx.agent.token}"},
         json={
-            "trigger": "a route answers 200 and nothing was written",
+            "heading": "a route answers 200 and nothing was written",
             "content": "the entry and its original are one transaction",
-            "revisit_when": "a second route turns out to write entries too",
-            "impact": "the conformance suite seeding this very entry",
             # 🔴 ONE EVENT, AND ITS 人／地／物 ARE DELIBERATELY LEFT OFF. 第 5 格
             # only says something if the wire can carry an event whose optional
             # cells nobody knew — the row below asserts they come back EMPTY
@@ -1309,7 +1307,6 @@ def _lore_entry(ctx: HCtx) -> str:
                     "what": "the conformance suite wrote this very entry",
                 }
             ],
-            "origin": f"agent:{ctx.agent.member_id}",
             "subjects": [f"agent:{ctx.agent.member_id}"],
         },
     )
@@ -1360,11 +1357,14 @@ def _check_lore_read(_ctx: HCtx, r: httpx.Response) -> None:
     # lossy on purpose; this field is the whole reason the ticket exists. An entry
     # served with an empty one would look correct in every other respect.
     assert d["original"], f"the entry was served with NO original: {d}"
-    # 五格 as the owner ruled it on 2026-09-03. `label` / `falsify` /
-    # `residual_risk` are GONE — not renamed, removed — so this list is the four
-    # named cells plus the `events:` block, and it is the assertion that would
-    # fail first if the renderer ever quietly went back to the old shape.
-    for field in ("trigger", "content", "revisit_when", "impact", "events"):
+    # The named sections the renderer emits, as the format stands after v8.
+    # `label` / `falsify` / `residual_risk` were GONE already; `trigger` was
+    # folded into `heading` (rc-9002654dd81c) and `impact` / `impact_stars` /
+    # `revisit_when` / `supersedes` were removed outright (owner 2026-09-06).
+    # So this list is the two named cells plus the `events:` block, and it is
+    # the assertion that would fail first if the renderer ever quietly went
+    # back to the old shape.
+    for field in ("heading", "content", "events"):
         assert f"{field}:" in d["original"], (
             f"the original drops the {field!r} section — a renderer that skips blanks "
             f"cannot tell 'never written' from 'deleted': {d['original']!r}"
@@ -1469,11 +1469,8 @@ def _lore_pending_entity(ctx: HCtx, subject: str) -> str:
         "/api/lore/entries",
         headers=_auth(ctx.agent.token),
         json={
-            "trigger": "a subject key is minted and no route can reach it",
+            "heading": "a subject key is minted and no route can reach it",
             "content": "an unreviewed name is invisible to every agent's boot",
-            "revisit_when": "the pending entity is listed before anyone approves it",
-            "impact": "the conformance suite seeding this very entity",
-            "origin": f"agent:{ctx.agent.member_id}",
             "subjects": [subject],
         },
     )
@@ -1519,7 +1516,7 @@ def _check_lore_queue(_ctx: HCtx, r: httpx.Response) -> None:
     assert row["created_by"], row
     assert len(row["entry_refs"]) == row["entries"], row
     for ref in row["entry_refs"]:
-        assert ref["entry_id"] and ref["trigger"], row
+        assert ref["entry_id"] and ref["heading"], row
         assert ref["status"] != "retired", row
     # 🔴 `similar` IS PINNED TO THE ONE BRANCH THIS FIXTURE FORCES, not merely
     # well-typed. The fixture makes the branch determinate: the subject is
@@ -1621,16 +1618,14 @@ def _lore_propose_body(ctx: HCtx) -> dict[str, str]:
         "encountered": "the conformance suite's own happy row",
         "fault": "stale",
         "evidence": "this entry names the transaction, and the transaction moved file",
-        # 🔴 A PROPOSAL CARRIES 四格 AND ITS OWN 第 5 格 — the WHOLE event list
+        # 🔴 A PROPOSAL CARRIES THE NAMED CELLS AND ITS OWN 第 5 格 — the WHOLE event list
         # as it should stand once accepted, because accepting replaces the
         # entry's events wholesale (owner ruling rc-e5c34500face, 2026-09-03).
         # `events` is REQUIRED on an `update`: omitting it is a 422, never a
         # shorthand for 「維持現狀」, so that one forgotten field cannot clear
         # 第 5 格 where no reviewer would see it.
-        "trigger": "a route answers 200 and nothing was written",
+        "heading": "a route answers 200 and nothing was written",
         "content": "the entry, its original and its axes are ONE transaction",
-        "revisit_when": "an entry turns up with no revision behind it",
-        "impact": "the conformance suite proposing this very change",
         "events": [
             {
                 "happened_ts": 1700000000.0,
@@ -1721,10 +1716,8 @@ def _lore_accept_path(ctx: HCtx) -> str:
             "encountered": "the conformance suite's own acceptance row",
             "fault": "misled",
             "evidence": "the entry is retrieved for a situation it does not describe",
-            "trigger": "a proposal is accepted and the entry does not move",
+            "heading": "a proposal is accepted and the entry does not move",
             "content": "accepting writes the proposal's own bytes onto the entry",
-            "revisit_when": "an accept route turns out to re-render the version",
-            "impact": "the conformance suite accepting this very proposal",
             # 🔴 第 5 格 IS REPLACED WHOLESALE, so this ONE event is the entry's
             # whole event list afterwards — the seeded entry carried one of its
             # own, with different text. `events_after` being 1 is therefore not
@@ -1812,11 +1805,8 @@ HAPPY: dict[str, Happy] = {
         # rows ran before it is not pinning the server's behaviour, it is
         # pinning the order pytest happened to choose.
         body=lambda ctx: {
-            "trigger": "a route answers 200 and nothing was written",
+            "heading": "a route answers 200 and nothing was written",
             "content": "the entry and its original are one transaction",
-            "revisit_when": "a second route turns out to write entries too",
-            "impact": "the conformance suite writing this very row",
-            "origin": f"agent:{ctx.agent.member_id}",
             "subjects": [_lore_fresh_subject(ctx)],
         },
         check=_check_lore_write,
@@ -3881,9 +3871,8 @@ def test_lore_proposal_carries_its_own_events_and_names_the_ones_it_moves(
         "/api/lore/entries",
         headers=head,
         json={
-            "trigger": "I am checking what a proposal may move",
+            "heading": "I am checking what a proposal may move",
             "content": "a proposal carries the whole version, events included",
-            "origin": "agent:conformance",
             "subjects": ["agent:conformance"],
             "events": [
                 {"happened_ts": 1700000000.0, "what": "the derivation got this one right"},
@@ -3901,7 +3890,7 @@ def test_lore_proposal_carries_its_own_events_and_names_the_ones_it_moves(
         "encountered": "the conformance suite reading this entry",
         "fault": "never-true",
         "evidence": "the second event names a thing that did not happen",
-        "trigger": "I am checking what a proposal may move",
+        "heading": "I am checking what a proposal may move",
         "content": "a proposal carries the whole version, events included",
     }
     missing = hctx.client.post(
