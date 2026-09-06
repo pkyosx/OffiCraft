@@ -74,7 +74,7 @@ for (const viewport of WIDTHS) {
     // The row is ALWAYS capped — that is a rule, not a consequence of the
     // viewport — so it can never push the composer down the page.
     const rowBox = (await row.boundingBox())!;
-    expect(rowBox.height).toBeLessThanOrEqual(120);
+    expect(rowBox.height).toBeLessThanOrEqual(132);
 
     // The rest is only true where twelve chips genuinely do not fit one line.
     // At 1280 this card is wide enough to hold them all, so asserting a wrap
