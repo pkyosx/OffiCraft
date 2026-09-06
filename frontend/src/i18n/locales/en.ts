@@ -1978,7 +1978,7 @@ export const en: Dict = {
     // otherwise get wrong.
     stepNoteCap: "Step note size cap",
     stepNoteCapSub:
-      "How many characters one task step's note may hold — the field an agent writes \"where I got to, what comes next\" into at a handover. The range is 1000 to 100000 and it can be lowered as well as raised: the cap is checked only when a note is written, so lowering it loses nothing — a note already over the new cap still reads back in full and simply cannot be edited until it is shortened. It governs this field alone: the task-level handover note and a chat message body keep their own hard-coded 4,000 characters and do not follow this setting.",
+      "How many characters one task step's note may hold. It can be lowered as well as raised, and lowering it loses nothing already written.",
     docUsage: "Used",
     chars: "characters",
     // ── Verified-save read-back (T-1c2e; lives in the software-update view
