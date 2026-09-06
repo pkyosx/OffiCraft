@@ -92,7 +92,7 @@ func TestCreateTaskOutsourceDispatchLandsUnassignedTask(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("create dispatch: %d %s", rec.Code, rec.Body.String())
 	}
-	created := decodeBody[taskCreateResultDTO](t, rec).Task
+	created := createdTaskView(t, api, rec)
 	if created.Status != TaskStatusNotStarted {
 		t.Fatalf("dispatch must land not_started (no pending status), got %q", created.Status)
 	}
@@ -163,7 +163,7 @@ func TestCreateTaskOutsourceDispatchOwnerAdmitsThroughTheGate(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("owner dispatch: %d %s", rec.Code, rec.Body.String())
 	}
-	created := decodeBody[taskCreateResultDTO](t, rec).Task
+	created := createdTaskView(t, api, rec)
 	if created.Status != TaskStatusNotStarted || created.ExecutorKind != TaskExecutorOutsource {
 		t.Fatalf("admitted dispatch must land an outsource track, got %+v", created)
 	}

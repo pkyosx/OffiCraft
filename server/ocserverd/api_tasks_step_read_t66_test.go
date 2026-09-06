@@ -136,19 +136,25 @@ func TestGetTaskDeclaresItselfASummaryAndCarriesNoNoteText(t *testing.T) {
 	}
 }
 
-// TestTaskSummaryMarkerRidesEveryExitOfTheSharedBuilder: the owner's ruling was
-// to do this「在組裝票那一層」so that nine responses get thinner at once. A
-// per-handler fix would leave the other eight lying. terminate stands for the
-// eight here — it is the cheapest of them to reach — and it must carry the same
-// self-description AND the same absent note as get_task.
-func TestTaskSummaryMarkerRidesEveryExitOfTheSharedBuilder(t *testing.T) {
+// TestTaskWriteFacesCarryNoStepsAtAll: T-66's ruling was to slim「在組裝票那一
+// 層」so that nine responses got thinner at once — a per-handler fix would have
+// left the other eight lying. This test stood on one of those eight,
+// set_task_deps, and asserted that its task payload declared itself a summary
+// with the step notes left out.
+//
+// 🔴 T-91 TOOK THAT FACE OFF THE SHARED BUILDER ENTIRELY, so this test's
+// premise moves rather than disappears. The eight task-driving writes now
+// answer taskWriteReceiptDTO, which carries no step ROWS at all — only
+// progress_done / progress_total, two integers standing in for fifteen fields
+// per step. That makes the absent note structural instead of declared: there is
+// no place on this shape for a note to hide, so `notes_included` and
+// `detail_level` have nothing left to be honest about and are gone with the
+// rows. get_task, the READ, still declares itself exactly as before — pinned in
+// the test above, which is now the only place that self-description exists.
+func TestTaskWriteFacesCarryNoStepsAtAll(t *testing.T) {
 	api := newTasksTestServer(t)
 	view, _, _ := t66Fixture(t, api, "m-exec")
 
-	// set_task_deps stands for the other eight: it is a WRITE face, it answers
-	// with the whole task, and it has no reason of its own to know anything
-	// about step notes — which is exactly why it would still have been carrying
-	// them if the slimming had been done in the get_task handler.
 	rec := httptest.NewRecorder()
 	api.HandleSetTaskDepsApiTasksTaskIdDepsPost(rec,
 		taskReq(t, "POST", "/api/tasks/"+view.ID+"/deps",
@@ -161,16 +167,28 @@ func TestTaskSummaryMarkerRidesEveryExitOfTheSharedBuilder(t *testing.T) {
 		t.Fatalf("set_task_deps still carries the step note text: %s", body)
 	}
 	var raw struct {
-		DetailLevel   string `json:"detail_level"`
-		NotesIncluded bool   `json:"notes_included"`
+		Steps         []map[string]any `json:"steps"`
+		DetailLevel   *string          `json:"detail_level"`
+		NotesIncluded *bool            `json:"notes_included"`
+		ProgressDone  *int             `json:"progress_done"`
+		ProgressTotal *int             `json:"progress_total"`
 	}
 	if err := json.Unmarshal(rec.Body.Bytes(), &raw); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
-	if raw.DetailLevel != "summary" || raw.NotesIncluded {
-		t.Fatalf("set_task_deps's task payload must declare itself a summary too "+
-			"(detail_level=%q notes_included=%v) — the slimming lives in newTaskDTO "+
-			"precisely so all nine exits say the same thing", raw.DetailLevel, raw.NotesIncluded)
+	if raw.Steps != nil || raw.DetailLevel != nil || raw.NotesIncluded != nil {
+		t.Fatalf("a write receipt must carry no step rows, and nothing to declare "+
+			"about them: %s", body)
+	}
+	// Anti-vacuity: the pair that REPLACED the rows has to actually be there and
+	// actually describe this plan — otherwise "no steps" would also be satisfied
+	// by a handler that answered nothing at all.
+	if raw.ProgressTotal == nil || *raw.ProgressTotal != len(view.Steps) {
+		t.Fatalf("progress_total must report the plan the fixture built (%d steps), got %v",
+			len(view.Steps), raw.ProgressTotal)
+	}
+	if raw.ProgressDone == nil {
+		t.Fatalf("progress_done must ride beside progress_total: %s", body)
 	}
 }
 

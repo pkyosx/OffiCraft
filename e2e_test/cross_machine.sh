@@ -494,7 +494,7 @@ stage "4. spawn test agent ($TEST_AGENT) on server-self → presence online → 
 # runtime and the agent's SSE listen flips presence→online (hub projection).
 ACT_JSON="$(api_post_logged "/api/members/$TEST_AGENT/activate" "{\"machine_id\":\"$SERVER_SELF_ID\"}" || echo '{}')"
 [[ -n "$(printf '%s' "$ACT_JSON" | json_field id)" ]] \
-  || fail_stage "activate $TEST_AGENT on $SERVER_SELF_ID returned no member DTO — activation rejected"
+  || fail_stage "activate $TEST_AGENT on $SERVER_SELF_ID returned no id on its receipt — activation rejected"
 log "activated $TEST_AGENT on $SERVER_SELF_ID"
 
 # poll presence→online via the HUB (not DB) — gotcha #4.
@@ -615,7 +615,7 @@ stage "6. COLD relocate $TEST_AGENT → $SECOND_MACHINE (stop → activate {mach
 log "cold relocate step 1/2: deactivate $TEST_AGENT (stop on current machine)"
 DEACT_JSON="$(api_post_logged "/api/members/$TEST_AGENT/deactivate" '{}' || echo '{}')"
 [[ -n "$(printf '%s' "$DEACT_JSON" | json_field id)" ]] \
-  || fail_stage "deactivate $TEST_AGENT returned no member DTO"
+  || fail_stage "deactivate $TEST_AGENT returned no id on its receipt"
 # Wait for the stop to take via the member DTO (NOT poll_presence/monitoring
 # sessions — a stopped member may drop out of the sessions list entirely, which
 # reads as "" there). The settled post-deactivate state is "stopped", NOT
@@ -655,7 +655,7 @@ log "presence[$TEST_AGENT]=$cur_presence (stop took on origin machine)"
 log "cold relocate step 2/2: activate $TEST_AGENT on $MACHINE_ID (wake on the 2nd machine)"
 REL_JSON="$(api_post_logged "/api/members/$TEST_AGENT/activate" "{\"machine_id\":\"$MACHINE_ID\"}" || echo '{}')"
 [[ -n "$(printf '%s' "$REL_JSON" | json_field id)" ]] \
-  || fail_stage "relocate activate $TEST_AGENT → $MACHINE_ID returned no member DTO"
+  || fail_stage "relocate activate $TEST_AGENT → $MACHINE_ID returned no id on its receipt"
 log "relocate requested: $TEST_AGENT → $MACHINE_ID"
 
 # The agent must come online ON THE SECOND MACHINE. Presence alone is a FALSE

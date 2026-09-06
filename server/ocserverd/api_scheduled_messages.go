@@ -107,7 +107,7 @@ func (s *apiServer) HandleCreateScheduledMessageApiMembersMemberIdScheduledMessa
 		internalError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, newScheduledMessageDTO(m))
+	writeJSON(w, http.StatusOK, scheduledMessageReceiptOf(m))
 }
 
 // resolveCustomMonths decides what `custom_months` a request means, and it is
@@ -338,7 +338,7 @@ func (s *apiServer) HandleUpdateScheduledMessageApiMembersMemberIdScheduledMessa
 		writeResolveError(w, errNotFound, "scheduled message", scheduleId)
 		return
 	}
-	writeJSON(w, http.StatusOK, newScheduledMessageDTO(*fresh))
+	writeJSON(w, http.StatusOK, scheduledMessageReceiptOf(*fresh))
 }
 
 // DELETE /api/members/{member_id}/scheduled-messages/{schedule_id} —
@@ -353,7 +353,13 @@ func (s *apiServer) HandleDeleteScheduledMessageApiMembersMemberIdScheduledMessa
 		internalError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, newScheduledMessageDTO(*m))
+	// T-91: a delete receipt, not the row that no longer exists. The route 404s
+	// when the member or the schedule is absent, so `deleted` is never false
+	// here — it is on the shape so the answer SAYS what the write did rather
+	// than leaving an empty 200 to be interpreted.
+	writeJSON(w, http.StatusOK, scheduledMessageDeleteReceiptDTO{
+		ID: m.ID, MemberID: m.MemberID, Deleted: true,
+	})
 }
 
 // resolveScheduledMessage returns the schedule addressed by (member,

@@ -210,12 +210,24 @@ func TestBootDoc_ReplacedTextReadsBackByteIdentical(t *testing.T) {
 			if status != http.StatusOK {
 				t.Fatalf("replace %s: %d %s", c.path, status, body)
 			}
-			var wrote bootDocDTO
+			// T-91: the replace answers a RECEIPT, so "byte identical" is stated
+			// as a HASH over the STORED document instead of the document itself.
+			// The claim did not weaken — the multi-byte, trailing-whitespace,
+			// tab-bearing fixture above is exactly what a sha256 comparison
+			// carries better than an eyeball one — and the caller can still make
+			// it locally, which is the whole point of the field: hash what you
+			// sent (joined under its head) and compare 64 characters.
+			var wrote bootDocumentReceiptDTO
 			if err := json.Unmarshal([]byte(body), &wrote); err != nil {
 				t.Fatalf("decode replace response: %v", err)
 			}
-			if wrote.Text != want {
-				t.Fatalf("the replace RESPONSE is not what was written:\n got %q\nwant %q", wrote.Text, want)
+			if wrote.Sha256 != receiptSha256(want) {
+				t.Fatalf("the replace RESPONSE does not hash to what was written:\n got %q\nwant %q",
+					wrote.Sha256, receiptSha256(want))
+			}
+			if wrote.Kind == "" || wrote.Key != c.key {
+				t.Fatalf("the receipt must carry the document's ADDRESS (kind/key), got %q/%q",
+					wrote.Kind, wrote.Key)
 			}
 			if wrote.IsDefault {
 				t.Fatal("is_default must be false after an edit — true says the cockpit is showing factory wording")
@@ -256,16 +268,28 @@ func TestBootDoc_ResetRestoresTheEmbeddedSeedByteIdentical(t *testing.T) {
 			if status != http.StatusOK {
 				t.Fatalf("reset: %d %s", status, body)
 			}
-			var dto bootDocDTO
+			// T-91: same reshape as the replace case above — the reset receipt
+			// states "byte identical to the shipped seed" as a sha256. `has_seed`
+			// is deliberately NOT on this shape: reset 404s when there is no seed
+			// to reset to, so a 200 here already proves it, and the GET below
+			// still reports it for anyone who wants to read it.
+			var dto bootDocumentReceiptDTO
 			if err := json.Unmarshal([]byte(body), &dto); err != nil {
 				t.Fatalf("decode reset response: %v", err)
 			}
-			if dto.Text != seed {
-				t.Fatalf("reset answered %d chars, want the %d-char shipped seed VERBATIM",
-					utf8.RuneCountInString(dto.Text), utf8.RuneCountInString(seed))
+			if dto.Sha256 != receiptSha256(seed) {
+				t.Fatalf("reset receipt sha256 %q is not the %d-char shipped seed's",
+					dto.Sha256, utf8.RuneCountInString(seed))
 			}
-			if !dto.IsDefault || !dto.HasSeed {
-				t.Fatalf("after a reset: is_default=%v has_seed=%v, want both true", dto.IsDefault, dto.HasSeed)
+			if dto.SizeChars != utf8.RuneCountInString(seed) {
+				t.Fatalf("size_chars %d disagrees with the shipped seed (%d runes)",
+					dto.SizeChars, utf8.RuneCountInString(seed))
+			}
+			if !dto.IsDefault {
+				t.Fatalf("after a reset: is_default=%v, want true", dto.IsDefault)
+			}
+			if after := f.read(t, c.path); !after.HasSeed {
+				t.Fatal("has_seed must still be true on the READ face after a reset")
 			}
 			if after := f.read(t, c.path); after.Text != seed {
 				t.Fatalf("GET after reset is not the seed (%d chars vs %d)",

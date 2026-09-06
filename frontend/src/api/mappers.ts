@@ -79,6 +79,7 @@ import type {
   WireChatRead,
   WireChatGalleryEntry,
   WireReplyCard,
+  WireReplyCardReceipt,
   WireReplyCardOption,
   WireWebhookEndpoint,
   WireWebhookRequestLog,
@@ -109,6 +110,7 @@ import type {
   ChatReadReceipt,
   GalleryAttachment,
   ReplyCard,
+  ReplyCardWriteReceipt,
   ReplyCardOption,
   ServerSettingsView,
   OnboardingReportView,
@@ -460,6 +462,42 @@ export function toReplyCard(w: WireReplyCard): ReplyCard {
   };
 }
 
+/** Map the reply-card WRITE receipt → `ReplyCardWriteReceipt` (T-91).
+ *
+ * NOT `toReplyCard`. The receipt carries only what answer / re-answer / expire
+ * DECIDED; every other field of a card is absent from it, so mapping it through
+ * the card mapper would fabricate empty options / attachments / body and hand
+ * the caller something that renders as a blank card. The `task_id` / `step_id`
+ * the wire also carries are deliberately dropped: nothing in the cockpit reads
+ * them (the card already on screen holds the task ref it was read with), and a
+ * field nobody reads is a field that rots.
+ *
+ * `answer` is mapped with the same honesty as the card mapper — an absent
+ * attachment list reads as [], never as fabricated content. */
+export function toReplyCardWriteReceipt(
+  w: WireReplyCardReceipt
+): ReplyCardWriteReceipt {
+  return {
+    id: w.id,
+    status: w.status as ReplyCardWriteReceipt["status"],
+    answeredTs: w.answered_ts,
+    expiredTs: w.expired_ts,
+    answer: w.answer
+      ? {
+          optionIdxs: w.answer.option_idxs,
+          text: w.answer.text ?? "",
+          attachments: (w.answer.attachments ?? []).map((a) => ({
+            id: a.id,
+            url: a.url,
+            filename: a.filename ?? "",
+            mime: a.mime ?? "",
+            isImage: a.is_image ?? false,
+          })),
+        }
+      : null,
+  };
+}
+
 /** Map one wire task step → `TaskStepView`. Honest passthrough — defaulted-away
  * wire fields read as their wire defaults ("" / false / 0), never fabricated;
  * the gate projection (announced vs armed) is carried verbatim by
@@ -745,13 +783,6 @@ export function toOutsourceWorker(w: WireOutsourceWorker): OutsourceWorkerView {
     refocusDeadline:
       w.refocus_deadline && w.refocus_deadline > 0 ? w.refocus_deadline : null,
     desiredState: w.desired_state ?? "online",
-    // Response-only, absent on every read face — passed through as-is so
-    // `undefined` keeps meaning "this answer does not carry the signal"
-    // (T-ed79 #5/#12). Coalescing them to false here would erase exactly the
-    // distinction the three fields exist to make.
-    relocationPending: w.relocation_pending ?? undefined,
-    relocationDeferred: w.relocation_deferred ?? undefined,
-    activationPending: w.activation_pending ?? undefined,
   };
 }
 
