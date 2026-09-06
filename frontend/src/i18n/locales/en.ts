@@ -319,7 +319,7 @@ export const en: Dict = {
     filterOpenerNoun: "Opener",
     filterOpenerAll: "All openers",
     filterIdLabel: "Reply-card id",
-    clearFilters: "Clear filter",
+    clearFilters: "Clear filters",
     // ── Filter panel (T-93 round 2) ──
     // 🔴 Three outcomes, three sentences — never merged. Round 1 had one, so
     // "this card does not exist" and "this card was simply never loaded" read

@@ -298,6 +298,16 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
   // With a filter applied the two panes hold exactly what the SERVER returned
   // for that id — one card, in whichever pane its status belongs to — not a
   // narrowing of the loaded rows.
+  // The 24h window, in ONE place. It decides two things that must never drift
+  // apart: which handled cards are VISIBLE, and which ones the 開卡人 counts are
+  // computed over. Two copies of this predicate would let a future edit narrow
+  // one and not the other, and the symptom — a name offered with a count no
+  // list can produce — would look like a counting bug rather than a window one.
+  const withinHandledWindow = (c: ReplyCard) => {
+    const ts = handledTsOf(c);
+    return ts !== null && nowTs - ts < HANDLED_WINDOW_SECONDS;
+  };
+
   // 開卡人 predicate. An empty set is "no constraint", so an unticked axis is
   // free rather than exclusive — same convention as 任務頁's three dropdowns.
   const passesOpener = (c: ReplyCard) =>
@@ -325,11 +335,7 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
       foundCard && foundCard.status !== "waiting" && passesOpener(foundCard)
       ? [foundCard]
       : []
-    : handled.filter((c) => {
-        if (!passesOpener(c)) return false;
-        const ts = handledTsOf(c);
-        return ts !== null && nowTs - ts < HANDLED_WINDOW_SECONDS;
-      });
+    : handled.filter((c) => passesOpener(c) && withinHandledWindow(c));
   // ── 開卡人 options + counts ────────────────────────────────────────────────
   // 🔴 COUNTED OVER THE PANES BEFORE THE OPENER AXIS NARROWS THEM. That is the
   // whole reason this axis stays usable: count the ALREADY-narrowed rows and a
@@ -341,13 +347,7 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
   // holds. It deliberately does NOT include a card fetched by id: that card can
   // be older than the window, so counting it would make one person's number
   // jump by one for as long as an unrelated id is applied.
-  const openerBasis = [
-    ...waiting,
-    ...handled.filter((c) => {
-      const ts = handledTsOf(c);
-      return ts !== null && nowTs - ts < HANDLED_WINDOW_SECONDS;
-    }),
-  ];
+  const openerBasis = [...waiting, ...handled.filter(withinHandledWindow)];
   const openerCounts = new Map<string, number>();
   for (const c of openerBasis) {
     openerCounts.set(c.from, (openerCounts.get(c.from) ?? 0) + 1);
@@ -366,6 +366,14 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
   // review, 2026-09-05). Only a LOADED list may narrow this number; unloaded
   // falls back to the server's whole-pane count, exactly as it does with no
   // filter at all.
+  //
+  // ⚠️ THE FALLBACK NUMBER IGNORES THE 開卡人 AXIS. `handledCount` is the
+  // server's whole-pane total, so while the pane is still unloaded the title can
+  // say a number larger than the tick would allow, and it drops to the filtered
+  // one the moment the pane unfolds. That is the pre-existing fallback behaving
+  // as designed (an unloaded list cannot narrow anything), but the opener axis
+  // makes it much easier to notice than the id axis did — the id path sets
+  // `filtering` and takes the first branch, an opener tick does not.
   const handledShown = filtering
     ? visibleHandled.length
     : handledLoaded
