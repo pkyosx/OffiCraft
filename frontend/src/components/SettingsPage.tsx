@@ -336,6 +336,11 @@ type View =
   // 角色誌 is left with roles.
   | { kind: "globalContext" }
   | { kind: "params" }
+  // 實驗功能 (owner 2026-09-06) — the station-wide switches for features that
+  // are still being tried out. Its own view rather than a card inside 參數調整:
+  // those are knobs whose value is a number you tune, this is a feature that
+  // either exists on the station or does not.
+  | { kind: "experimental" }
   | { kind: "theme" }
   | { kind: "custom" }
   // 啟動步驟 is TWO documents. `boot` is the INDEX — two nav rows, one per
@@ -646,6 +651,23 @@ export function SettingsPage({
         onSave={params.save}
         onClearSaveError={params.clearSaveError}
         crumbs={[crumbRoot, { label: t.settings.params }]}
+      />
+    );
+  }
+
+  if (view.kind === "experimental") {
+    // Same /api/settings hook as 參數調整 — deliberately NOT a second fetch and
+    // NOT a new route: the switch it lists is one of the closed key set's own
+    // booleans, so it loads, saves and fails through the seam that already
+    // exists.
+    return (
+      <ExperimentalFeatures
+        settings={params.settings}
+        error={params.error}
+        saveError={params.saveError}
+        onSave={params.save}
+        onClearSaveError={params.clearSaveError}
+        crumbs={[crumbRoot, { label: t.settings.experimental }]}
       />
     );
   }
@@ -1056,6 +1078,22 @@ export function SettingsPage({
             <GearIcon size={18} />
           </span>
           <span className="set-entry__name">{t.settings.params}</span>
+          <ChevronRightIcon size={18} className="set-entry__chev" />
+        </button>
+        {/* 實驗功能 (owner 2026-09-06:「在參數調整下面可以多一個實驗功能」) —
+         * the station-wide switches for features still being tried out.
+         * Directly BELOW 參數調整 and above 主題, which is the position the
+         * request names. */}
+        <button
+          type="button"
+          className="set-entry"
+          data-testid="settings-experimental-entry"
+          onClick={() => setView({ kind: "experimental" })}
+        >
+          <span className="set-entry__icon set-entry__icon--blue">
+            <BoltIcon size={18} />
+          </span>
+          <span className="set-entry__name">{t.settings.experimental}</span>
           <ChevronRightIcon size={18} className="set-entry__chev" />
         </button>
         {/* 主題 — theme MANAGEMENT (T-16a1 P3b): add / edit colours (friendly,
@@ -1520,6 +1558,93 @@ function ServerParams({
           {(saveError || rangeError) && (
             <div className="set-error param-error">
               {t.settings.paramsSaveError}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── 實驗功能 ────────────────────────────────────────────────────────────────
+
+/**
+ * 實驗功能 — the station-wide switches for features that are still being tried
+ * out (owner 2026-09-06:「在參數調整下面可以多一個實驗功能」).
+ *
+ * 🔴 WHAT IS AND IS NOT ON THIS PAGE. The /api/settings key set is closed and
+ * carries exactly four booleans; only ONE of them is an experiment.
+ * `lore.enabled` is listed here. `updater.receive_beta` and
+ * `updater.auto_update` are update BEHAVIOUR and stay in 系統更新與備份;
+ * `display.wide` is a cockpit layout preference and stays where the layout is
+ * chosen. Listing those three here would tell the owner that turning them off
+ * removes a feature from the station, which is not what any of them does.
+ *
+ * Same honesty contract as 參數調整, and for the same reasons: a REJECTED load
+ * renders the error line rather than a fabricated form with a switch whose
+ * position is invented, and a REJECTED write leaves the switch showing the last
+ * server-confirmed value. The snap-back needs no code because there is no
+ * optimistic local copy to snap back — every row reads the hook's `settings`,
+ * which the hook only replaces with the server's own PATCH echo.
+ */
+function ExperimentalFeatures({
+  settings,
+  error,
+  saveError,
+  onSave,
+  onClearSaveError,
+  crumbs,
+}: {
+  settings: ServerSettingsView | null;
+  error: boolean;
+  saveError: boolean;
+  onSave: (patch: ServerSettingsPatch) => Promise<void>;
+  onClearSaveError: () => void;
+  crumbs: Crumb[];
+}) {
+  const { t } = useI18n();
+  return (
+    <div className="settings">
+      <Breadcrumbs items={crumbs} />
+      <h1 className="settings__title settings__title--doc">
+        {t.settings.experimental}
+      </h1>
+
+      {/* Honest load-failure notice — never a switch drawn over a dead fetch. */}
+      {error && (
+        <div className="set-error">{t.settings.experimentalLoadError}</div>
+      )}
+
+      {settings && (
+        <div className="param-card">
+          <div className="param-row">
+            <div className="param-row__body">
+              <span className="param-row__name">
+                {t.settings.experimentalLore}
+              </span>
+              <div className="param-row__sub">
+                {t.settings.experimentalLoreSub}
+              </div>
+            </div>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={settings.loreEnabled}
+              aria-label={t.settings.experimentalLore}
+              className={`set-toggle${settings.loreEnabled ? " set-toggle--on" : ""}`}
+              onClick={() => {
+                onClearSaveError();
+                void onSave({ loreEnabled: !settings.loreEnabled });
+              }}
+              data-testid="settings-lore-enabled"
+            >
+              <span className="set-toggle__knob" />
+            </button>
+          </div>
+
+          {saveError && (
+            <div className="set-error param-error">
+              {t.settings.experimentalSaveError}
             </div>
           )}
         </div>
