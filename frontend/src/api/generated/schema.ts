@@ -9244,8 +9244,8 @@ export interface components {
             accelerated_grace_secs: number;
             /**
              * Warden Credential Lifetime Secs
-             * @description How long a MACHINE (warden) credential is meant to live, in seconds (86400 through 34560000 -- one day through 400 days). It is the number every warden's renewal threshold is derived from: a warden replaces its own credential once that credential is two thirds of this old, measured from the `iat` claim it carries, plus a per-machine stagger of up to one hour. Wardens read it from `GET /api/machines/credential-policy` on their 15-minute poll, so a change reaches the fleet within one interval; a warden that cannot reach that endpoint keeps using the shipped default rather than failing. NOTE: warden credentials still carry NO `exp`, so this value governs RENEWAL ONLY -- nothing expires because of it, and a renewal that does not complete leaves the machine on a credential that keeps working.
-             * @default 2592000
+             * @description How long a MACHINE (warden) credential is meant to live, in seconds (86400 through 34560000 -- one day through 400 days). It is the number every warden's renewal threshold is derived from: a warden replaces its own credential once that credential is two thirds of this old, measured from the `iat` claim it carries, plus a per-machine stagger of up to one hour. Wardens read it from `GET /api/machines/credential-policy` on their 15-minute poll, so a change reaches the fleet within one interval; a warden that cannot reach that endpoint keeps using the shipped default rather than failing. It is ALSO the credential's expiry: the warden mint stamps `exp = iat + this` (T-fc53). A renewal that does not complete inside the remaining third therefore takes that machine off the fleet until someone re-installs it by hand, and nothing on the station reports that it happened. Lowering this value does not shorten credentials already issued -- an `exp` is fixed at mint time.
+             * @default 7776000
              */
             warden_credential_lifetime_secs: number;
             /**
