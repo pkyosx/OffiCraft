@@ -467,13 +467,23 @@ ocagent download <attachment id>
   "params": {
     "name": "write_lore_entry",
     "arguments": {
-      "heading": "<一句話寫發生了什麼>",
-      "content": "<機制、為什麼、怎麼分辨>",
-      "revisit_when": "<什麼情況出現時要重新判一次>",
-      "impact": "<沒有這條記憶的人最糟會發生什麼>",
-      "impact_stars": 3,
-      "events": [{"happened_ts": 1788527100, "what": "<看到的事實>", "place": "machine:<名稱>"}],
-      "subjects": ["repo:<名稱>", "machine:<名稱>"]
+      // 必填。上限 140 字元，超過整筆退回、不截斷。
+      "heading": "server/officraft.db 是 0 bytes 的空殼，查它不會報錯，只回「沒有那張表」，跟「有表但沒資料」逐字相同",
+      // 必填。打開這一條才讀得到的那一段。標題裡的名詞在這裡要找得到，搜尋只掃這兩格。
+      "content": "真正的資料庫在 server/data/officraft.db；server/officraft.db 是一顆 0 bytes 的空檔。sqlite 開一個空檔不會報錯，它就是一個沒有任何表的合法資料庫，所以 SELECT 回的是空，不是錯誤。\n\n要分辨：先問「這顆 DB 一共有幾張表」。真的那顆回 45，空殼回 0。任何一次查詢得到零列，都要先用這個問題確認自己量對了對象，再解釋那個零。",
+      // 選填。什麼情況出現時要把這一條拿出來重判，不是「什麼時候它是錯的」。
+      "revisit_when": "server/officraft.db 被刪掉或補上內容時。",
+      // 選填。沒有這條記憶的人「最糟」會發生什麼；問的不是你。
+      "impact": "他為了確認正式站有沒有資料而查了空殼，得到一個看起來正常的零，據此寫下「站上沒有這些資料」並繼續往下推。他花的時間沒有換到任何答案。",
+      // 必填。1 = 做白工，目的沒達到；2 = 弄壞的只有你動的那個；3 = 把其他東西弄壞了。
+      "impact_stars": 1,
+      // 選填。只放看到的事實；出現「因為／所以」就是判斷，退回重寫。
+      "events": [
+        {"happened_ts": 1788656300, "what": "ls -la 讀到 server/officraft.db 是 0 bytes、Sep 2 14:38 建立，而 server/data/officraft.db 是 889 MB", "actor": "agent:O-197", "place": "machine:seth-m5"},
+        {"happened_ts": 1788656400, "what": "對空殼下 SELECT count(*) FROM sqlite_master WHERE type='table' 回 0，對 data/ 那顆同一句回 45", "actor": "agent:O-197", "place": "machine:seth-m5"}
+      ],
+      // 必填。掛錯或漏掛，這一條就不會出現在任何人的開機目錄裡。
+      "subjects": ["repo:officraft", "machine:seth-m5"]
     }
   }
 }
