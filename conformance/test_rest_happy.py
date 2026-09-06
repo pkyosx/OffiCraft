@@ -1793,7 +1793,24 @@ def _check_lore_write(_ctx: HCtx, r: httpx.Response) -> None:
     # suspect」 flag sat behind a hard gate. An absent key and a key nobody looks
     # at are the same to a reader of this file, so the absence is pinned here.
     assert "degraded" not in d, f"the removed `degraded` flag is back on the wire: {d}"
-    assert d["superseded"] == "", d
+    # 🔴 THE RECEIPT'S `superseded` CELL IS GONE TOO, and its absence is pinned the
+    # same way rather than merely un-asserted. It went with `supersedes`, one of
+    # the four cells the owner removed on 2026-09-06 (message c-3d3e5582c2d2,
+    # verbatim 「都改掉」, alongside `impact` / `impact_stars` / `revisit_when`), so a
+    # receipt carrying it again would mean a cell nobody can write came back.
+    #
+    # ⚠️ DO NOT READ THIS AS 「the word superseded is gone」. `superseded` is still a
+    # live ENTRY STATUS — `active` / `superseded` / `retired` / `underspecified` is
+    # the CHECK set in migrations/00089 and it is unchanged. What went is the WRITE
+    # RECEIPT'S own cell, which is a different thing sharing a name.
+    #
+    # WHAT REPLACED `supersedes`: nothing — and that is quoted, not inferred. The
+    # frozen wire contract says so itself, in spec/openapi.json on the write route:
+    # 「There is NO `supersedes` field any more, and nothing replaced it: a new
+    # entry cannot declare which one it takes over from, and the entry it replaces
+    # is NOT re-statused」. That is a statement about the tree as it stands, not a
+    # promise about what the owner may add later.
+    assert "superseded" not in d, f"the removed `superseded` cell is back on the wire: {d}"
 
 
 # ── T-33 lore 對象審核 (the review queue) ──────────────────────────────────────
@@ -2626,6 +2643,20 @@ HAPPY: dict[str, Happy] = {
     "GET /api/auth/status": Happy(
         identity="none",
         check=lambda _c, r: _expect(r, lambda d: d["password_set"] is True),
+    ),
+    # 🔴 T-33 — the one read that answers 「傳承功能開著嗎？」 and nothing else. The
+    # check pins the SHAPE, not the value: a conformance station may run with the
+    # switch either way, so asserting True here would make this row pass or fail
+    # on the station's configuration instead of on the route. What it does pin is
+    # the permission radius the owner granted (rc-2972dcd48782, 2026-09-06:
+    # 「新一支 tool，只回這個開關（權限半徑就一格）」) — EXACTLY one field. A second
+    # field appearing here is a widening nobody ruled on, and it would otherwise
+    # reach ordinary members silently.
+    "GET /api/lore-switch": Happy(
+        identity="agent",
+        check=lambda _c, r: _expect(
+            r, lambda d: set(d) == {"lore_enabled"} and isinstance(d["lore_enabled"], bool)
+        ),
     ),
     "GET /api/settings": Happy(
         check=lambda _c, r: _expect(

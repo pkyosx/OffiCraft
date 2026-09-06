@@ -1404,6 +1404,19 @@ MATRIX: dict[str, Route] = {
         requires="agent",
         body={},
     ),
+    # 🔴 THIS ROW IS NOT LORE-GATED AND THAT IS THE POINT (api_lore_switch.go):
+    # GET /api/lore-switch exists to be callable while the 傳承 feature is OFF,
+    # which is the only moment its answer is worth anything. Behind the lore gate
+    # it would answer 403 exactly then, and a caller cannot tell that 403 from
+    # 「you are not permitted」.
+    #
+    # The floor is principalAgent because owner ruling rc-2972dcd48782
+    # (2026-09-06) widened the read to ordinary members by ONE FIELD rather than
+    # opening owner-gated GET /api/settings to them. No overrides: the route
+    # takes no id and no body, so every at-or-above-floor cell is a real 200 —
+    # the floor is the only thing this row pins, and a warden is refused 403
+    # (derived) below it.
+    "GET /api/lore-switch": Route(requires="agent"),
     # 🔴 THE TWO READ ROWS AIM AT AN ENTRY THAT DOES NOT EXIST, so every
     # at-or-above-floor cell is a 404 — the floor is decided before the id is
     # ever looked up, which is exactly what these rows pin. The 200 faces are in
