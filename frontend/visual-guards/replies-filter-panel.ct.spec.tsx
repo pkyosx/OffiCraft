@@ -537,6 +537,65 @@ test("the field is sized to the id it holds — a whole id fits, with little to 
   ).toBeLessThanOrEqual(perChar * 2);
 });
 
+// 🆕 T-118, 8th review. The id field and the pill triggers share ONE row, so
+// the field must not stand taller than they do. This is the only assertion in
+// the tree that holds that, and it was written because nothing did.
+//
+// It exists because the height is fixed by exactly ONE line —
+// `.id-filter-sizer { line-height: normal }` in idFilter.css. The sizer is a
+// <span> sharing a single grid cell with the <input>; a span inherits the
+// body's 1.5 while an input takes the UA's `normal`, so without that line the
+// SPAN is the taller of the two, the cell takes the span's height, and the
+// field grows past the pills beside it.
+//
+// MEASURED, NOT ASSUMED: deleting that line leaves all 41 unit assertions green
+// (jsdom lays nothing out) and, before this test existed, left this whole CT
+// suite green too — `grep -n height` over this file hit only `setViewportSize`,
+// `panelBox.height > 0`, and 「the panel's bottom is above the list」, none of
+// which move when the field gains 4.5px. The unit layer CANNOT ever catch it.
+// This is the layer that can.
+//
+// 「no taller than」 rather than 「exactly equal」 on purpose: equality would red
+// on sub-pixel rounding, and it would also freeze the PILLS' height, which is
+// not this guard's business. What is ruled out is the field standing proud of
+// the row.
+test("the field is no taller than the pill triggers beside it", async ({
+  mount,
+  page,
+}) => {
+  await page.setViewportSize({ width: 1040, height: 900 });
+  const cmp = await mount(<RepliesPageStory theme="dark" />);
+
+  const m = await cmp
+    .getByTestId("filter-reply-card-id")
+    .evaluate((el: HTMLElement) => {
+      // The INPUT is what the reader sees, but the grid CELL is what the sizer
+      // can stretch — measure the wrapper too, or the bug hides inside it.
+      const wrap = el.parentElement as HTMLElement;
+      return {
+        input: el.getBoundingClientRect().height,
+        field: wrap.getBoundingClientRect().height,
+      };
+    });
+  const pill = await cmp.getByTestId("filter-opener").boundingBox();
+
+  expect(
+    pill?.height,
+    "the pill trigger must be laid out for this to mean anything"
+  ).toBeGreaterThan(0);
+  expect(
+    m.field,
+    "the id field's grid cell must not stand taller than the pill beside it"
+  ).toBeLessThanOrEqual((pill as { height: number }).height + 1);
+  // …and the cell must not be taller than the input it wraps either. THAT gap
+  // is the sizer stretching it, named directly so a failure says which of the
+  // two children grew rather than only that the row is uneven.
+  expect(
+    m.field - m.input,
+    "the hidden sizer must not add height to the cell (idFilter.css line-height)"
+  ).toBeLessThanOrEqual(1);
+});
+
 // (2) The field must be distinguishable from the page behind it, in BOTH theme
 // families. This is the assertion that would have caught a field whose border
 // was deleted or whose fill collapsed into the background — the failure mode

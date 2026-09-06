@@ -27,7 +27,22 @@
   max-width: 100%;
 }
 /* Both children occupy the ONE cell, so the cell is as wide as the wider of
- * them and neither adds height to the other. */
+ * them — that is the 「取較大者」 owner circled in `rc-e2edbb0fff01`.
+ *
+ * 🔴 ON HEIGHT THIS IS CONDITIONAL, NOT FREE. One cell means the cell takes the
+ * TALLER of the two, so the sizer CAN add height to the input. It does not
+ * today for exactly one reason: `.id-filter-sizer` pins `line-height: normal`
+ * below, matching what the <input> gets from the UA. DELETE THAT LINE AND THIS
+ * PARAGRAPH BECOMES FALSE AGAIN — the span falls back to the body's 1.5, the
+ * cell grows with it, and this field ends up a few px taller than the pill
+ * triggers beside it.
+ *
+ * An earlier version of this comment said flatly that neither child could add
+ * height to the other. That sentence was not merely imprecise: it is what let
+ * the sizer stretch this cell once already, because it told the next reader
+ * there was nothing here to check. The CT guard 「the field is no taller than
+ * the pill triggers beside it」 is what holds it now — before that guard
+ * existed (T-118, 8th review), NOTHING did. */
 .id-filter-field > * {
   grid-area: 1 / 1;
 }

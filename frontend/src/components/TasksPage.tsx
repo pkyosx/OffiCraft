@@ -650,10 +650,18 @@ export function TasksPage() {
         clearLabel={t.tasks.clearFilters}
         onClear={anyFilter ? clearFilters : undefined}
       >
-        {/* 10 characters: owner 2026-09-06 set this by hand — 任務 ids are not a
-          * fixed length the way 請示卡 ids are (this station shows `T-93`; the
-          * canonical form is `t-` + 12 hex), so there is no measurement to
-          * derive it from and he picked one rather than have me invent it. */}
+        {/* 🔴 A second comment used to sit here saying the count was 10, set by
+          * hand, and that the canonical 任務 id was `t-` + 12 hex. BOTH halves
+          * were false by the time anyone read them: owner replaced the 10 on
+          * 2026-09-07 (`rc-b2beb7b1fd3c` 「任務可先假設到萬位數」 — see the note
+          * on `widthCh` below), and `t-` + 12 hex is the OLD, unmigrated shape
+          * — canonical is `T-` + a sequence number (dal_task_id_seq.go, and
+          * docs/design/SPEC.md agrees). It is DELETED rather than corrected
+          * because the note on `widthCh` already carries the whole record:
+          * two comments on one element is what let them drift apart, and a
+          * stale one here points the next reader at the guard instead of the
+          * bug — 7 would look like someone's slip and the red assertion like
+          * the thing to 「fix」. */}
         <IdFilterInput
           value={draftId}
           onChange={setDraftId}

@@ -745,6 +745,32 @@ describe("請示卡 開卡人 篩選 (T-118)", () => {
     );
   });
 
+  it("🔴 the id field is sized to a 請示卡 id — 15 characters, not a pixel literal", async () => {
+    // 🆕 T-118, 8th review. The 任務頁 side has pinned its count from the start;
+    // THIS side never did, and the asymmetry was invisible until someone went
+    // looking: changing `widthCh={15}` to `{3}` in RepliesPage left all 41
+    // assertions across BOTH id-filter suites green. So the number that decides
+    // how wide owner's field is could be edited to anything at all and no unit
+    // test would say a word.
+    //
+    // 15 is the LENGTH of every 請示卡 id there is — api_replycards.go:283 mints
+    // "rc-" + newHexID(12). It is asserted instead of a pixel width because
+    // owner's complaint (`rc-b2beb7b1fd3c` 「ID寬度要合理」) was that the box was
+    // wider than the thing inside it, and a pixel number stops tracking that
+    // the first time anyone touches the font.
+    //
+    // ⚠️ This does NOT prove the field RENDERS 15 characters wide — jsdom lays
+    // nothing out, so all that is guarded here is that the number is handed
+    // down. The geometry belongs to the CT guard (「the field is sized to the id
+    // it holds」), and the height half of it to 「no taller than the pill
+    // triggers beside it」.
+    const { findByTestId } = renderPage();
+    const input = (await findByTestId("filter-reply-card-id")) as HTMLInputElement;
+    const field = input.parentElement as HTMLElement;
+    expect(field.style.getPropertyValue("--id-filter-ch")).toBe("15");
+    expect(field.style.width, "the pixel width must NOT come from here").toBe("");
+  });
+
   it("🔴 近期已處理 keeps its section (and its handle) while an opener tick is on", async () => {
     // The 2026-09-05 independent review already found this once for the id
     // axis: zero-hiding the pane WHILE A FILTER IS ON removes the only control
