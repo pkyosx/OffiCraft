@@ -2975,10 +2975,16 @@ func (s *apiServer) HandleAddTaskArtifactApiTasksTaskIdArtifactPost(w http.Respo
 				"url is required for a link artifact")
 			return
 		}
+		if refusal := artifactLinkURLRefusal(url); refusal != "" {
+			writeError(w, http.StatusBadRequest, refusal)
+			return
+		}
 		// T-92, owner c-59fc5834d967:「連結也走 attachment」. The caller never sees
 		// this — it gave a url — but from here down a link is content like any
 		// other, which is what lets `url` mean one thing on the wire and lets the
 		// existing blob collector count link references without a line changing.
+		// The guard runs FIRST: after T-92 the url is written into a blob the
+		// server reads back, so a refused url must never reach the store.
 		art.AttachmentID, minted = mintLinkTargetBlob(url)
 	} else {
 		attID := trimmedOrEmpty(body.AttachmentId)
@@ -3215,6 +3221,14 @@ func (s *apiServer) HandleReplaceTaskArtifactApiTasksTaskIdArtifactArtifactIdRep
 				"url is required for a link artifact")
 			return
 		}
+		// Replace re-validates EVERY time: there is no carry-forward branch for
+		// url (name/description have one), so this also runs on a caller that only
+		// meant to change the name and sent the pinned url back unchanged. That is
+		// why the whitelist must keep `http` — see artifactLinkURLSchemes.
+		if refusal := artifactLinkURLRefusal(url); refusal != "" {
+			writeError(w, http.StatusBadRequest, refusal)
+			return
+		}
 		next.AttachmentID, minted = mintLinkTargetBlob(url)
 	} else {
 		if url != "" {
@@ -3277,6 +3291,69 @@ func (s *apiServer) writeTaskArtifactReplaceReceipt(w http.ResponseWriter, t Tas
 		TaskID: t.ID, ArtifactID: artifactID, ArtifactCount: count,
 		VersionCount: len(versions) + 1,
 	})
+}
+
+// artifactURLMaxChars caps a link artifact's url at 2048 UTF-8 CHARACTERS
+// (runes via utf8.RuneCountInString — NOT bytes, matching shortLabelMaxChars,
+// so a URL carrying percent-encoded CJK is not refused for being wide). Over-
+// length is REFUSED (400), never silently truncated: a url the server quietly
+// shortened points somewhere the caller never asked for.
+const artifactURLMaxChars = 2048
+
+// artifactLinkURLSchemes is the whole of what a link artifact's url may start
+// with. It is a WHITELIST, not a blacklist of the dangerous ones: `javascript:`
+// and `data:` are the two anybody names, but the reason a whitelist is used is
+// that the cockpit renders this string as an href the OWNER clicks, and the set
+// of schemes a browser will act on is not a list this repo can keep current.
+//
+// 🔴 `http` is load-bearing, not laxity. The production DB carries 6 live
+// `http` link artifacts (measured read-only 2026-09-06 03:4x: 706 live links =
+// https 700 / http 6 / other 0, max url length 118; task_artifact_history 10
+// rows, all https, max 60). Dropping `http` from this set would not merely
+// refuse new http urls — REPLACE re-validates the url on EVERY call and has no
+// carry-forward branch (unlike name/description, which do), so a caller editing one of
+// those 6 rows must send its existing url back and would be refused. Those 6
+// rows would become uneditable, with a refusal pointing at a field the caller
+// never typed.
+//
+// 🔴 SCOPE of "this blocks nothing today": that is true of THIS MOMENT, THAT
+// production DB and THESE TWO thresholds. It is not "any whitelist is
+// harmless". Re-run the two counts above before tightening either one.
+var artifactLinkURLSchemes = []string{"https://", "http://"}
+
+// artifactLinkURLRefusal validates a link artifact's url and answers the
+// refusal sentence, or "" when the url passes. It is written ONCE because the
+// field has two front doors — add (POST .../artifact) and replace
+// (POST .../artifact/{id}/replace) — and a guard on one of two doors is not a
+// guard: the replace door is the one already known to be walked (T-92 measured
+// 429 stored labels over the old 128-char cap, nearly all on replaced rows).
+//
+// It is deliberately NOT pushed down into the DAL, and it runs BEFORE
+// mintLinkTargetBlob so a refused url never reaches the store. Since T-92 the
+// target is a text/uri-list BLOB rather than a `url` column, and
+// task_artifact_history's INSERT carries `current.AttachmentID` DB→DB — a carry
+// of a value no caller sent — so a DAL-level guard would block the
+// version-retention carry of a legacy row rather than the caller who typed
+// something new. Existing rows are left exactly as they are: no migration, no
+// backfill, no truncation, so a READ can still return a url that a WRITE would
+// now refuse (same shape as the old 128-char label cap, `d648c1a8`).
+func artifactLinkURLRefusal(url string) string {
+	lower := strings.ToLower(url)
+	ok := false
+	for _, scheme := range artifactLinkURLSchemes {
+		if strings.HasPrefix(lower, scheme) {
+			ok = true
+			break
+		}
+	}
+	if !ok {
+		return "url must start with https:// or http://"
+	}
+	if n := utf8.RuneCountInString(url); n > artifactURLMaxChars {
+		return "url is " + strconv.Itoa(n) + " chars, over the " +
+			strconv.Itoa(artifactURLMaxChars) + "-char limit"
+	}
+	return ""
 }
 
 // artifactKindRefusal is the one sentence every cross-kind replacement is
