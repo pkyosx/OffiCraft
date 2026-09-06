@@ -2489,7 +2489,6 @@ interface MockLoreEntry {
   /** 第 5 格 — see the note above on why every one of these is empty. */
   events: LoreEventView[];
   subjects: string[];
-  origin: string;
   status: string;
   supersedes: string;
   writtenBy: string;
@@ -2508,7 +2507,6 @@ const MOCK_LORE_ENTRIES: MockLoreEntry[] = [
       '2026-09-01：-run 的正則打錯字，26 顆 mutant 一顆都沒跑，回報 PASS。分母改成可驗的做法是逐一 grep -c "^func <name>("。',
     events: [],
     subjects: ["repo:officraft"],
-    origin: "agent:O-197",
     status: "active",
     supersedes: "",
     writtenBy: "agent:O-197",
@@ -2526,7 +2524,6 @@ const MOCK_LORE_ENTRIES: MockLoreEntry[] = [
       "2026-09-01 分站換版：因此改成走 serve 開機而不是 migrate，並另外手拍一份驗過的備份。",
     events: [],
     subjects: ["repo:officraft"],
-    origin: "agent:O-197",
     status: "active",
     supersedes: "",
     writtenBy: "agent:O-197",
@@ -2543,7 +2540,6 @@ const MOCK_LORE_ENTRIES: MockLoreEntry[] = [
       "2026-09-01：我回報 trial 站跑 feab5437，90 秒後它自己 [upgrade] 換成 v0.5.281。成因是我複製的 DB 帶著 updater.auto_update=true。",
     events: [],
     subjects: ["repo:officraft"],
-    origin: "agent:O-197",
     status: "active",
     supersedes: "",
     writtenBy: "agent:O-197",
@@ -2561,7 +2557,6 @@ const MOCK_LORE_ENTRIES: MockLoreEntry[] = [
       "2026-09-01：分站換版後 90 秒自己升級（auto_update 跟著 DB 過去）；另外我主站的 agent token 打分站 /api/members 回 200，改一個字元回 401 ⇒ 簽章金鑰也跟著過去了。",
     events: [],
     subjects: ["repo:officraft"],
-    origin: "agent:O-197",
     status: "active",
     supersedes: "",
     writtenBy: "agent:O-197",
@@ -2578,7 +2573,6 @@ const MOCK_LORE_ENTRIES: MockLoreEntry[] = [
       "2026-09-01：Kyle 收回一句關於部署路徑的錯誤結論，而那句話已經被我寫進步驟筆記（下一代開機第一件要讀的東西）。掃描結果：步驟筆記命中 1、卡零、產物零、waiting_reason 零。",
     events: [],
     subjects: ["repo:officraft"],
-    origin: "agent:O-197",
     status: "active",
     supersedes: "",
     writtenBy: "agent:O-197",
@@ -6729,7 +6723,6 @@ export const mockApi: Api = {
         heading: e.heading,
         impactStars: e.impactStars,
         subjects: [...e.subjects],
-        origin: e.origin,
       }));
     return {
       entries,
@@ -6766,7 +6759,6 @@ export const mockApi: Api = {
       impact: e.impact,
       events: e.events.map((ev) => ({ ...ev })),
       subjects: [...e.subjects],
-      origin: e.origin,
       status: e.status,
       original,
       sha256: "",

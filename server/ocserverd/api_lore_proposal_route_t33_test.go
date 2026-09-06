@@ -30,7 +30,6 @@ func loreProposalSeed(t *testing.T, url, tok string) (string, string) {
 		"content":"the fold happens in one place",
 		"revisit_when":"等只剩一個組裝器",
 		"impact":"T-33 slot 3",
-		"origin":"agent:O-197",
 		"subjects":["agent:O-197"]}`)
 	if st != 200 {
 		t.Fatalf("seed entry: %d %s", st, body)

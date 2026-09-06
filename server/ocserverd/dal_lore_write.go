@@ -72,11 +72,13 @@ const LoreGovSupersede = "supersede"
 // 「合併成 heading 一格」把它併掉了。
 //
 // 🔴 ActorID IS NOT A BODY FIELD ANYWHERE ABOVE THIS. It comes from the verified
-// token subject. `Origin` is a different thing and IS caller-supplied: origin
-// says whose knowledge this is (`human:Seth` for something the owner said),
-// actor says who typed it. Collapsing the two would make it impossible to record
-// what a human told an agent, which is the origin class the assembler treats as
-// exempt from the count cap.
+// token subject.
+//
+// ⚠️ There used to be an `Origin` here beside it — whose knowledge this is, as
+// opposed to who typed it — and the pair existed so that what a human told an
+// agent could be recorded as such and given priority. Owner removed the field on
+// 2026-09-06 (rc-9c9bf14a579f), so ActorID is now the only identity on a write
+// and the distinction is no longer recorded anywhere.
 type LoreWrite struct {
 	Heading     string
 	Content     string
@@ -92,7 +94,6 @@ type LoreWrite struct {
 	// 兩件完全不同的事，兩件都看得出來。
 	Events []LoreEvent
 
-	Origin     string
 	Supersedes string
 	Subjects   []string
 
@@ -259,9 +260,9 @@ func loreSHA256(body string) string {
 // loreSubjectTypeAndName splits a subject key and refuses anything that is not
 // `type:name`.
 //
-// It is the same shape as an origin, deliberately: the design says origin and
-// subject draw on one vocabulary, and two parsers for one shape is two places to
-// disagree about whether `agent:` with nothing after it is a subject.
+// The `type:name` shape is shared with the 人／地／物 keys on an event, and one
+// parser serves them all: two parsers for one shape is two places to disagree
+// about whether `agent:` with nothing after it is a subject.
 func loreSubjectTypeAndName(key string) (string, string, error) {
 	if strings.TrimSpace(key) == "" {
 		return "", "", ErrLoreSubjectBlank
@@ -385,9 +386,6 @@ func (d *DAL) CreateLoreEntry(w LoreWrite, nowTS float64) (LoreWriteResult, erro
 	if err := loreImpactStarsRequired(w.ImpactStars); err != nil {
 		return out, err
 	}
-	if err := d.loreOriginError(w.Origin); err != nil {
-		return out, err
-	}
 	if len(w.Subjects) == 0 {
 		return out, ErrLoreSubjectsEmpty
 	}
@@ -410,7 +408,6 @@ func (d *DAL) CreateLoreEntry(w LoreWrite, nowTS float64) (LoreWriteResult, erro
 		Status:      "active",
 		Supersedes:  w.Supersedes,
 		EditableBy:  "agent",
-		Origin:      w.Origin,
 		CreatedTS:   nowTS,
 		UpdatedTS:   nowTS,
 	}
@@ -423,11 +420,11 @@ func (d *DAL) CreateLoreEntry(w LoreWrite, nowTS float64) (LoreWriteResult, erro
 	err := d.inTx(func(tx *sql.Tx) error {
 		if _, err := tx.Exec(`
 			INSERT INTO lore_entry (`+loreEntryColumns+`)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 			entry.ID, entry.Heading, entry.Content, entry.RevisitWhen,
 			entry.Impact, entry.ImpactStars, entry.Reviewed,
 			entry.Status, entry.Supersedes,
-			entry.EditableBy, entry.Origin, entry.CreatedTS, entry.UpdatedTS); err != nil {
+			entry.EditableBy, entry.CreatedTS, entry.UpdatedTS); err != nil {
 			return err
 		}
 

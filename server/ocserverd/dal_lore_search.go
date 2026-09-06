@@ -77,8 +77,6 @@ type LoreSearch struct {
 type LoreSearchHit struct {
 	Entry    LoreEntry
 	Subjects []string // canonical subject keys, not entity ids
-
-	humanOrigin bool
 }
 
 // LoreSearchResult carries the hits AND everything the caller needs to tell a
@@ -178,10 +176,7 @@ func (d *DAL) SearchLore(s LoreSearch) (LoreSearchResult, error) {
 			continue
 		}
 
-		hits = append(hits, LoreSearchHit{
-			Entry: e, Subjects: subjectKeys,
-			humanOrigin: strings.HasPrefix(e.Origin, "human:"),
-		})
+		hits = append(hits, LoreSearchHit{Entry: e, Subjects: subjectKeys})
 	}
 
 	sortLoreHits(hits)
@@ -226,9 +221,10 @@ func loreEntryMatchesLiteral(e LoreEntry, lowerNeedle string) bool {
 func sortLoreHits(hits []LoreSearchHit) {
 	sort.SliceStable(hits, func(i, j int) bool {
 		a, b := hits[i], hits[j]
-		if a.humanOrigin != b.humanOrigin {
-			return a.humanOrigin // a human origin sorts ahead
-		}
+		// 🔴 THE FIRST KEY USED TO BE A HUMAN ORIGIN — a `human:` entry sorted
+		// ahead of every agent one within its tier. `origin` is gone (owner
+		// ruling rc-9c9bf14a579f, 2026-09-06) and so is that key; what a person
+		// told an agent now orders on the same terms as everything else.
 		an, bn := len(a.Subjects), len(b.Subjects)
 		if an != bn {
 			return an < bn // fewer of its own tags first: it is more specific
@@ -242,28 +238,17 @@ func sortLoreHits(hits []LoreSearchHit) {
 
 // loreHitsWithinLimit applies the count cap.
 //
-// 🔴 A HUMAN-ORIGIN ENTRY IS EXEMPT FROM THE CAP, and that is the design's rule
-// rather than a convenience: what a person told an agent is not competing with
-// what the agent worked out for itself. The exemption is applied AFTER sorting
-// so the order is unaffected by it — the cap decides who is dropped, never who
-// is first.
+// 🔴 THERE IS NO EXEMPTION LEFT. A `human:`-origin entry used to be handed back
+// regardless of the cap, on the design's rule that what a person told an agent
+// is not competing with what the agent worked out for itself. `origin` is gone
+// (owner ruling rc-9c9bf14a579f, 2026-09-06), so the exemption is gone too
+// rather than remaining as a test no hit can pass — the cap now falls on every
+// entry alike, in sort order.
 func loreHitsWithinLimit(hits []LoreSearchHit, limit int) ([]LoreSearchHit, bool) {
 	if len(hits) <= limit {
 		return hits, false
 	}
-	kept := make([]LoreSearchHit, 0, limit)
-	budget := limit
-	for _, h := range hits {
-		if h.humanOrigin {
-			kept = append(kept, h)
-			continue
-		}
-		if budget > 0 {
-			kept = append(kept, h)
-			budget--
-		}
-	}
-	return kept, len(kept) < len(hits)
+	return hits[:limit], true
 }
 
 // loreEntityIDForKey resolves a subject key to an entity id WITHOUT creating

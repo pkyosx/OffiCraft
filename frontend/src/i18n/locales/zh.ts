@@ -133,7 +133,6 @@ export const zh = {
     pendingTitle: "等你審核",
     entriesTitle: "記憶",
     title: "傳承",
-    entryOriginLabel: "來自",
     entryOpen: "展開這一條",
     entryClose: "收起這一條",
     entryLoading: "讀取中…",
@@ -1755,6 +1754,9 @@ export const zh = {
     globalContext: "全域情境",
     roles: "角色誌",
     params: "參數調整",
+    // 實驗功能 — 還在試的站台級開關，排在「參數調整」與「主題」之間
+    // (owner 2026-09-06:「在參數調整下面可以多一個實驗功能」)。
+    experimental: "實驗功能",
     // ── 主題管理 (T-16a1 P3b): moved here from the profile dropdown ──
     themeManage: "主題",
     themeColorsSection: "顏色",
@@ -2106,6 +2108,18 @@ export const zh = {
       "喚醒快照(resume_summary)裡聊天區塊的字數預算,含訊息、摺疊卡片、快照表頭與截斷提示;peek 回報的大小算的是同一個數字。範圍 1000~13000,可調高也可調低——聊天區塊每次都是重新裝箱的,調低只是下次帶回比較少則,被留下的部分照樣由「更早的訊息已省略」交代。",
     docUsage: "已用字數",
     chars: "字",
+    // ── 實驗功能（owner 2026-09-06）──
+    // 這一頁列的是「還在試」的站台級開關，今天只有傳承（lore）一條。
+    // /api/settings 另外三個 bool 不在這裡：updater.receive_beta 與
+    // updater.auto_update 是更新行為，display.wide 是座艙版面偏好——
+    // 都不是實驗，所以都留在原本的地方。
+    experimentalLoadError: "載入實驗功能失敗，請稍後重試",
+    experimentalSaveError: "沒存成，請再試一次",
+    experimentalLore: "傳承（lore）",
+    // 說的是「打開會發生什麼」，不是「這個功能叫什麼」：導覽列多一個分頁，
+    // 而且成員的傳承呼叫從「一律被拒絕」變成會真的寫進去。
+    experimentalLoreSub:
+      "打開後導覽列會多一個「傳承」分頁，成員也才能寫入與搜尋傳承記憶；關著的時候那些呼叫一律被拒絕，內容不會被寫入。",
     // ── 存檔回讀對帳（T-1c2e，rework 後住在系統更新與備份區：secret 只顯示
     // 已設定/未設定,絕不露明文;自動更新開關存檔後回讀對帳（寫入 → 重新
     // GET → 比對）,回饋誠實反映伺服器實際存了什麼）──

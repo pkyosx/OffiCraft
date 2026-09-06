@@ -103,7 +103,6 @@ func (s *apiServer) HandleSearchLoreEntriesApiLoreSearchPost(w http.ResponseWrit
 			// 取代 因為 impact 本就是重要性」）—— 一串標題如果不帶重要性，agent
 			// 只能照順序看，而順序不是重要性。
 			ImpactStars: h.Entry.ImpactStars,
-			Origin:      h.Entry.Origin,
 			Subjects:    subjects,
 		})
 	}

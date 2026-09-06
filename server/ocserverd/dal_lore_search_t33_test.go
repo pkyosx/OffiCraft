@@ -157,32 +157,6 @@ func TestLoreSearchQueryDoesNotReachTheThirdOrFourthCell(t *testing.T) {
 	}
 }
 
-// A human origin sorts ahead within its tier AND survives the count cap — what
-// a person said is not competing with what an agent worked out.
-func TestLoreSearchKeepsWhatAPersonSaidAheadAndUncapped(t *testing.T) {
-	d := newTestDAL(t)
-	t33SearchSeed(t, d)
-	for _, id := range []string{"lore-m1", "lore-m2", "lore-m3"} {
-		t33Filed(t, d, id, "e-repo", nil)
-	}
-	t33Filed(t, d, "lore-human", "e-repo", func(e *LoreEntry) {
-		e.Origin = "human:Seth"
-		e.CreatedTS = 9999 // newest, so only the origin rule can put it first
-	})
-
-	got := t33Search(t, d, LoreSearch{SubjectKey: "repo:officraft", Limit: 1})
-	ids := t33IDs(got)
-	if len(ids) == 0 || ids[0] != "lore-human" {
-		t.Fatalf("a human origin did not sort first: %v", ids)
-	}
-	if len(ids) != 2 {
-		t.Fatalf("limit 1 kept %d hits; want the human one plus one agent one", len(ids))
-	}
-	if got.Total != 4 || !got.Truncated {
-		t.Fatalf("total/truncated: %d/%v", got.Total, got.Truncated)
-	}
-}
-
 // Retired entries are never retrieved — the same predicate the directory and
 // the per-subject list use.
 func TestLoreSearchNeverReturnsARetiredEntry(t *testing.T) {

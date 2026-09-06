@@ -4,7 +4,6 @@ package main
 
 import (
 	"errors"
-	"strings"
 	"testing"
 )
 
@@ -25,7 +24,6 @@ func t33Entry(id string) LoreEntry {
 		// （2026-09-06「合併成 heading 一格」）之後只剩一格，那個對調的錯誤在構造
 		// 上不存在了 —— 不是這個 fixture 放鬆了守衛。
 		Heading:     "前端畫面接的是假資料，而畫面上看不出來",
-		Origin:      "agent:O-197",
 		Content:     "the fold happens in one place",
 		RevisitWhen: "等前端不再有假資料模式",
 		Impact:      "T-33 slot 3：兩個區塊對同一件事說法不一樣",
@@ -54,7 +52,6 @@ func t33Get(t *testing.T, d *DAL, id string) *LoreEntry {
 func TestLoreEntryRoundTrips(t *testing.T) {
 	d := newTestDAL(t)
 	want := t33Entry("me-aaa")
-	want.Origin = "human:Seth"
 	want.Status = "underspecified"
 	want.EditableBy = "owner-gated"
 	want.Supersedes = "me-old"
@@ -81,84 +78,29 @@ func TestLoreGetMissingEntryIsNilNotError(t *testing.T) {
 	}
 }
 
-// 🔴 origin is a SUBJECT KEY, and an unapproved type prefix is REFUSED BY NAME.
-// This is the fail-closed half: the value set is open (any agent or human can be
-// an origin), so nothing but the type vocabulary can be checked — and a prefix
-// that quietly passed would let an entry claim an author from a category nobody
-// approved, with the ranking rules still honouring it.
-func TestLoreOriginMustBeAKnownTypePrefix(t *testing.T) {
+// 🔴 ONE COPY OF THE TYPE VOCABULARY. The prefixes an entry's 人／地／物 keys
+// accept are exactly the rows of entity_type — the same list subjects are
+// checked against, read from the TABLE at run time. This test is what would
+// catch a second, hard-coded list being introduced in Go: approve a type in the
+// table alone, and the write must start passing.
+//
+// ⚠️ This assertion used to be made through `origin`, which was removed on
+// 2026-09-06 (rc-9c9bf14a579f). It was the ONLY test that inserted a new row and
+// required the write to start passing — every other prefix test merely checks
+// that an unapproved prefix is REFUSED, and those pass just as well against a
+// hard-coded Go slice. So it was ported to an axis that still exists rather than
+// deleted with the field: the property is about the vocabulary, not about origin.
+func TestLoreEventKeyTypesComeFromTheEntityTypeTable(t *testing.T) {
 	d := newTestDAL(t)
-	for _, ok := range []string{"agent:O-197", "human:Seth", "role:assistant"} {
-		e := t33Entry("me-" + ok)
-		e.Origin = ok
-		if err := d.PutLoreEntry(e); err != nil {
-			t.Fatalf("origin %q must be accepted: %v", ok, err)
-		}
-	}
-	e := t33Entry("me-bad-prefix")
-	e.Origin = "wizard:Merlin"
-	err := d.PutLoreEntry(e)
-	if !errors.Is(err, ErrLoreOriginUnknownType) {
-		t.Fatalf("err = %v, want ErrLoreOriginUnknownType", err)
-	}
-	// 🔴 IT MUST SAY WHICH PREFIX. "rejected" without the name sends the reader
-	// hunting through a whole entry for the one word that was wrong.
-	if !strings.Contains(err.Error(), "wizard") {
-		t.Fatalf("the refusal must name the offending prefix, got %q", err)
-	}
-}
-
-// 🔴 `member:` IS GONE — the type is `agent:`. The pair that has to work is
-// agent/human, and `member` does not make that cut: the owner is a member too,
-// so it fails to exclude the very thing `human` names.
-func TestLoreOriginMemberPrefixIsNoLongerAType(t *testing.T) {
-	d := newTestDAL(t)
-	e := t33Entry("me-member")
-	e.Origin = "member:Kyle"
-	if err := d.PutLoreEntry(e); !errors.Is(err, ErrLoreOriginUnknownType) {
-		t.Fatalf("err = %v, want the `member` prefix to be refused", err)
-	}
-}
-
-// A blank or shapeless origin is refused rather than defaulted. There is no
-// default author, and an "unspecified" written as though it were a person would
-// be a claim nobody made — while still counting as a ranking axis.
-func TestLoreOriginBlankOrMalformedIsRefused(t *testing.T) {
-	d := newTestDAL(t)
-	for _, tc := range []struct {
-		origin string
-		want   error
-	}{
-		{"", ErrLoreOriginBlank},
-		{"   ", ErrLoreOriginBlank},
-		{"Seth", ErrLoreOriginMalformed},
-		{"human:", ErrLoreOriginMalformed},
-		{":Seth", ErrLoreOriginMalformed},
-	} {
-		e := t33Entry("me-origin")
-		e.Origin = tc.origin
-		if err := d.PutLoreEntry(e); !errors.Is(err, tc.want) {
-			t.Fatalf("origin %q: err = %v, want %v", tc.origin, err, tc.want)
-		}
-	}
-}
-
-// 🔴 ONE COPY OF THE TYPE VOCABULARY. The prefixes origin accepts are exactly the
-// rows of entity_type — the same list subjects are checked against. This test is
-// what would catch a second, hard-coded list being introduced in Go: approve a
-// type in the table alone, and the write must start passing.
-func TestLoreOriginTypesComeFromTheEntityTypeTable(t *testing.T) {
-	d := newTestDAL(t)
-	e := t33Entry("me-newtype")
-	e.Origin = "vendor:Acme"
-	if err := d.PutLoreEntry(e); !errors.Is(err, ErrLoreOriginUnknownType) {
+	ev := LoreEvent{HappenedTS: 1700000000, What: "x", Actor: "vendor:Acme"}
+	if err := d.loreEventError(ev); !errors.Is(err, ErrLoreEventKeyUnknownType) {
 		t.Fatalf("err = %v, want the unapproved prefix to be refused first", err)
 	}
 	if _, err := d.wdb.Exec(`INSERT INTO entity_type (type) VALUES ('vendor')`); err != nil {
 		t.Fatalf("approve type: %v", err)
 	}
-	if err := d.PutLoreEntry(e); err != nil {
-		t.Fatalf("after approving the type the same write must pass, got %v", err)
+	if err := d.loreEventError(ev); err != nil {
+		t.Fatalf("after approving `vendor` in entity_type the key must pass, got %v", err)
 	}
 }
 
@@ -173,28 +115,14 @@ func TestLoreOriginTypesComeFromTheEntityTypeTable(t *testing.T) {
 //     **真的消失了**，不是搬家：合併之後這一格就是 heading，而 heading 有 140 個
 //     rune 的硬上限（owner 2026-09-05）。這裡沒有留一支恆真的替身，因為一支永遠
 //     為真的測試在畫面上跟一支真的守衛長得一模一樣。
-
-// origin is L1, which means it must be readable through the ordinary entry read
-// — the one the assembler uses. A field that could only be reached through a
-// governance query could not participate in ordering or truncation, which is the
-// whole reason it was moved out of the meta table.
-func TestLoreOriginSurvivesOnTheEntryRead(t *testing.T) {
-	d := newTestDAL(t)
-	e := t33Entry("me-ccc")
-	e.Origin = "human:Seth"
-	t33Put(t, d, e)
-	t33Entity(t, d, "e-1", "repo", "repo:officraft")
-	if err := d.PutLoreSubject("me-ccc", "e-1"); err != nil {
-		t.Fatalf("file subject: %v", err)
-	}
-	list, err := d.ListLoreEntriesBySubject("e-1")
-	if err != nil {
-		t.Fatalf("list: %v", err)
-	}
-	if len(list) != 1 || list[0].Origin != "human:Seth" {
-		t.Fatalf("origin did not survive the by-subject read: %+v", list)
-	}
-}
+//
+// 🔴 同樣地，origin 的五支守衛（型別前綴、member 前綴、空白／畸形、值域來自
+// entity_type、以及 L1 可讀性）跟著 `origin` 一起被 `rc-9c9bf14a579f`
+// （2026-09-06「一起拿掉」）拿掉了，而下場也不一樣：
+//   * 值域那一支**被移植**成上面的 TestLoreEventKeyTypesComeFromTheEntityTypeTable
+//     —— 它守的是「型別清單讀資料表、不是 Go 裡的硬編清單」，那個性質跟 origin
+//     無關，而它是全樹唯一會 INSERT 一列再要求寫入開始通過的測試。
+//   * 其餘四支**真的消失了**，因為它們守的是這一格本身。沒有留恆真的替身。
 
 // 🔴 An edit keeps the birth timestamp. created_ts is what the staleness
 // judgement reads; letting an edit reset it would make any entry look freshly
@@ -363,7 +291,6 @@ func TestLoreEntryCellsRoundTripByName(t *testing.T) {
 		Impact:      "IM",
 		ImpactStars: 3,
 		Reviewed:    true,
-		Origin:      "agent:O-197",
 	}
 	t33Put(t, d, e)
 	got := t33Get(t, d, "me-five")

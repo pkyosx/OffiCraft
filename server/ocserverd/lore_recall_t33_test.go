@@ -120,8 +120,7 @@ func assertBootFoldRow(t *testing.T, r loreRecallRow, wantActor string) {
 // derived independently of the code under test — re-folding would make the
 // assertion agree with any number the fold happened to produce.
 func countSeededSubjectsIn(doc string) int {
-	return strings.Count(doc, "- agent:zz-bulk-") +
-		strings.Count(doc, "- agent:zzzz-owner-said-this")
+	return strings.Count(doc, "- agent:zz-bulk-")
 }
 
 // TestMemberStartJournalsTheSurfacing is the member half of the ticket: a START
@@ -131,7 +130,7 @@ func countSeededSubjectsIn(doc string) int {
 func TestMemberStartJournalsTheSurfacing(t *testing.T) {
 	s := newReconcileTestServer(t)
 	connectOnline(t, s, ServerSelfHost)
-	total := loreSubjectIndexMaxSubjects + 7 + 1 // bulk + the human-origin one
+	total := loreSubjectIndexMaxSubjects + 7 // the bulk subjects
 	seedManySubjects(t, s, loreSubjectIndexMaxSubjects+7)
 	m := wakeSeedAssistant(t, s)
 

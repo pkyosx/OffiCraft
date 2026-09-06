@@ -1063,8 +1063,6 @@ export interface LoreEntrySummaryView {
    * retrieval axis: owner removed the 活動 axis on 2026-09-05, and the T1/T2
    * tier plus the trust class went with it — both were computed FROM it. */
   subjects: string[];
-  /** Whose knowledge this is (`human:Seth`, `agent:Kyle`). */
-  origin: string;
 }
 
 /** What the server ACTUALLY applied, echoed back. Required, not a debugging
@@ -1171,7 +1169,6 @@ export interface LoreEntryDetailView {
    * carries none, which the surface states rather than omits. */
   events: LoreEventView[];
   subjects: string[];
-  origin: string;
   /** `active`, `superseded`, `retired` or `underspecified`. */
   status: string;
   /** The FULL text as last written, every named field including the blank

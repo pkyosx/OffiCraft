@@ -269,6 +269,70 @@ ALTER TABLE lore_proposal DROP COLUMN trigger;
 -- 這句話只在合併前為真，讀到這裡的人請自己重新量一次。
 DROP TABLE lore_action;
 
+-- ── 🔴 拿掉 `origin`，連同它撐起的三個人工優先權機制 ────────────────────────
+--
+-- 負責人 2026-09-06 於 `rc-9c9bf14a579f` 圈 A 逐字：
+--   「A｜對，一起拿掉。我知道我說過的話從此跟其他條目一起搶額度」
+--
+-- 🔴 這不是刪一個欄位，是刪一條規則。`origin`（`human:Seth` / `agent:Kyle`）的
+-- 全部功能就是「人說的話優先」，而它撐著三個機制，三個都跟著走：
+--   1. lore_fold.go `loreSubjectsWithinCaps` —— 掛著 `human:` 條目的對象**永不被
+--      截斷**（硬保留，不是加權）。
+--   2. dal_lore_search.go `sortLoreHits` —— `human:` 條目在同層裡排前面。
+--   3. dal_lore_search.go `loreHitsWithinLimit` —— `human:` 條目**不受 limit 管**。
+-- 🔴 留著欄位而只停用規則，或留著規則而讓它讀一個永遠不存在的值，都會產生一個
+-- **恆假的守衛**：函式照跑、分支永遠進不去，讀的人看到的是一道還在的門。所以三支
+-- 釘著它們的測試也一起刪掉，而不是改成斷言新行為 —— 那三支測的是這條規則本身。
+--
+-- ⚠️ 照實說代價，因為沒有任何東西接手：**負責人自己說過的話，從今天起跟其他條目
+-- 一樣會被截斷、會被排在後面、會被 limit 砍掉**，而截斷是靜默的（掉了的對象只剩一
+-- 個 omitted 數字）。他知道，這正是他圈 A 的那句話。
+--
+-- ── 為什麼是 DROP COLUMN，而且為什麼今天做不會掉資料 ────────────────────────
+--
+-- `origin` 是 00081 建的，而 00081 **已經在正式站套用過**（goose 停在 83）。
+-- 一支已套用的 migration 不能就地改（sha256 在 migration.lock 中段），所以這一格
+-- 只能由這一支 ALTER 掉。
+-- 🔴 DROP COLUMN 對**既有的列**不可逆：Down 段加得回欄位，加不回值。
+-- 量過（負責人第一手，正式站 DB 唯讀，2026-09-06）：正式站 `lore_entry` **0 列**、
+-- `entity` 0 列、`lore_recall_log` 0 列 ⇒ 今天一個值都不會掉。
+-- 陽性對照（沒有它，零列不算數）：同一顆 DB `member` 390 列、`chat_message`
+-- 57,419 列 ⇒ 量具會數得到東西，不是對什麼都回 0。
+-- ⚠️ 這句話只在此刻、只對**正式站**為真。試用站有資料，那不是同一顆庫；而讀到這
+-- 裡準備再動這一支的人，**自己重新量一次**，不要沿用上面這兩個數字。
+--
+-- ⚠️ 只有 lore_entry 有這一欄，所以這裡只動一張表，不是漏了一張。查過兩處：
+--   * lore_proposal（00083 建的）—— 整支 00083 對 `origin` **零命中**，從來沒有
+--     這一格；提案帶不動它，所以核可路徑也不需要跟著改。
+--   * lore_meta（00081:230）—— 檔頭那段「🔴 NO `origin` COLUMN HERE」指的是
+--     **這張 L2 表**，不是 lore_proposal。它說的是「兩層各存一份會變成同一件事
+--     的兩個真相」，所以 origin 當初只留在 L1。今天 L1 那一份也走了。
+--
+-- ── 🔴 這一支讓 00081 的三段話從此是**假的**，不是舊的 ──────────────────────
+--
+-- 一樣不能就地改（sha256 在 migration.lock 中段），所以更正接續寫在這裡。讀 00081
+-- 那三段的人，請讀到這裡為止：
+--   1. 檔頭：「🔴 `origin` LIVES ON L1, NOT ON L2 … the ranking rule makes a human
+--      origin a hard axis: those entries sort ahead within their tier and survive
+--      the count cap.」
+--      ⇒ **那條 ranking rule 沒有了**，連同它要 SELECT 的那一欄。L1／L2 的分界本身
+--        仍然成立（L2 的定義就是組裝器看不到它），只是今天沒有任何欄位靠它撐排序。
+--   2. entity_type 那一段：「Subjects and `origin` are the same shape … validated
+--      against the same rows, read at run time (loreOriginError in dal_lore.go)」
+--      ⇒ **`loreOriginError` 這個函式不存在了。** 那一段話的**主張**仍然為真而且
+--        仍然重要——型別前綴的值域只有 entity_type 這一份、在執行期讀表、Go 裡不准
+--        再抄一份——只是今天執行它的是 subject 與事件 人／地／物 的檢查
+--        （dal_lore_write.go 的 loreSubjectTypeAndName／dal_lore.go 的
+--        loreEventError），不再是 origin。
+--      ⚠️ 那條「一份清單」的性質在測試上原本只由 origin 那一支釘著
+--        （TestLoreOriginTypesComeFromTheEntityTypeTable：核准一個新型別、要求寫入
+--        開始通過）。它**被移植**成 TestLoreEventKeyTypesComeFromTheEntityTypeTable，
+--        不是跟著欄位一起刪掉——其餘的前綴測試只檢查「未核准會被拒」，那種測試對著
+--        一份 Go 硬編清單也會過，擋不住這件事。
+--   3. lore_entry 的欄位註解：「🔴 `origin` IS A SUBJECT KEY, NOT AN ENUM …
+--      the value set is therefore OPEN …」⇒ 那一欄沒有了，整段沒有對象。
+ALTER TABLE lore_entry DROP COLUMN origin;
+
 -- ── 第 3 格改名：retire_when → revisit_when ─────────────────────────────────
 -- owner 2026-09-06 逐字「retire_when -> revisit_when」（訊息 c-8fa8e792218d）。
 -- 他只說了那六個字，所以下面這段語意是我寫的，不是他裁的 —— 可以被推翻。
@@ -311,6 +375,12 @@ ALTER TABLE lore_proposal RENAME COLUMN retire_when TO revisit_when;
 -- 🔴 逐項反面，順序是 Up 的逆序。
 ALTER TABLE lore_proposal RENAME COLUMN revisit_when TO retire_when;
 ALTER TABLE lore_entry    RENAME COLUMN revisit_when TO retire_when;
+
+-- 🔴 只還原結構，還原不了值 —— 見 Up 段那一大段。欄位宣告與 00081 逐字相同
+-- （TEXT NOT NULL DEFAULT ''），否則「升級過的站」與「down 過再 up 的站」會帶著
+-- 不同的 schema。down 之後每一列的 origin 都是空字串，而空字串正是 00081 那道
+-- 驗證（現已一併移除）當初會拒絕的值。
+ALTER TABLE lore_entry ADD COLUMN origin TEXT NOT NULL DEFAULT '';
 
 -- 🔴 只還原結構，不還原資料 —— 見上面那段。欄位宣告與索引與 00081 逐字相同，
 -- 否則「升級過的站」與「down 過再 up 的站」會帶著不同的 schema。

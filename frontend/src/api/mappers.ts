@@ -1913,7 +1913,6 @@ export function toLoreEntrySummary(w: WireLoreSearchHit): LoreEntrySummaryView {
     heading: w.heading,
     impactStars: w.impact_stars,
     subjects: [...w.subjects],
-    origin: w.origin,
   };
 }
 
@@ -1999,7 +1998,6 @@ export function toLoreEntryDetail(w: WireLoreEntryDetail): LoreEntryDetailView {
     reviewed: w.reviewed,
     events: w.events.map(toLoreEvent),
     subjects: [...w.subjects],
-    origin: w.origin,
     status: w.status,
     original: w.original,
     sha256: w.sha256,

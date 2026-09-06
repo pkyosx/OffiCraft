@@ -37,11 +37,16 @@ import (
 // and the whole trust/method/cognitive classification are gone rather than
 // answering the same constant for every entry. See 00084_lore_format_v8.sql.
 //
-// 🔴 Origin IS AN L1 FIELD, NOT AN L2 ONE, and that placement is load-bearing:
-// a human origin sorts ahead within its tier and is exempt from the count cap,
-// so the assembler must be able to SELECT it. L2 (lore_meta) is
-// defined by the assembler NOT being able to see it, which is precisely why
-// origin cannot live there.
+// 🔴 THERE IS NO Origin FIELD. It was an L1 column carrying WHOSE knowledge an
+// entry was (`human:Seth`, `agent:Kyle`), and its whole function was a human
+// priority: a `human:` origin sorted ahead, was exempt from the retrieval count
+// cap, and reserved its subject against boot-directory truncation. Owner ruled
+// the field away on 2026-09-06 (card rc-9c9bf14a579f, verbatim
+// 「A｜對，一起拿掉。我知道我說過的話從此跟其他條目一起搶額度」), so all three
+// mechanisms went with it rather than staying as branches nothing can satisfy.
+// ⚠️ Said plainly so nobody goes looking for the guard: what the owner said in
+// person now competes for room with everything else. Nothing replaces it.
+// See 00084_lore_format_v8.sql.
 type LoreEntry struct {
 	ID string
 
@@ -92,7 +97,6 @@ type LoreEntry struct {
 	Status     string // 'active' | 'superseded' | 'retired' | 'underspecified'
 	Supersedes string // id of the entry this replaces; the replaced row is re-statused, never deleted
 	EditableBy string // 'agent' | 'owner-gated'
-	Origin     string // a subject key — `human:Seth`, `agent:Kyle`. WHO this knowledge came from.
 	CreatedTS  float64
 	UpdatedTS  float64
 }
@@ -127,7 +131,7 @@ type LoreEntry struct {
 // 在這一層或它上面補上**，不能靠「反正沒有路由送得進來」。
 const loreEntryColumns = `id, heading, content, revisit_when, impact,
 	impact_stars, reviewed,
-	status, supersedes, editable_by, origin,
+	status, supersedes, editable_by,
 	created_ts, updated_ts`
 
 func scanLoreEntry(row interface{ Scan(...any) error }) (LoreEntry, error) {
@@ -135,7 +139,7 @@ func scanLoreEntry(row interface{ Scan(...any) error }) (LoreEntry, error) {
 	err := row.Scan(
 		&e.ID, &e.Heading, &e.Content, &e.RevisitWhen, &e.Impact,
 		&e.ImpactStars, &e.Reviewed,
-		&e.Status, &e.Supersedes, &e.EditableBy, &e.Origin,
+		&e.Status, &e.Supersedes, &e.EditableBy,
 		&e.CreatedTS, &e.UpdatedTS,
 	)
 	return e, err
@@ -260,7 +264,7 @@ type LoreEvent struct {
 // 把選填變成必填，而那會把寫入者逼去編一個「人」出來——編出來的跟查出來的長得
 // 一模一樣，這正是`events`最不能出的錯。
 //
-// 🔴 前綴的值域讀 entity_type，跟 origin／subject 同一份清單。Go 裡再抄一份會在
+// 🔴 前綴的值域讀 entity_type，跟 subject 同一份清單。Go 裡再抄一份會在
 // 第一個新型別被核准的那天悄悄跟資料庫不一致。
 // ⚠️ 「人／地／物非空時必須是 `type:name` 且型別已核准」是實作判斷：規格只說了
 // 這三格「有前綴」。不檢查的話前綴就只是裝飾（`Seth` 跟 `human:Seth` 都會進來）。
@@ -316,37 +320,6 @@ func (d *DAL) ListLoreEvents(entryID string) ([]LoreEvent, error) {
 	return out, rows.Err()
 }
 
-// loreOriginError validates an origin as a subject key.
-//
-// 🔴 ORIGIN AND SUBJECT ARE THE SAME SHAPE, `type:name`, AND THEY DRAW ON THE
-// SAME LIST — the `entity_type` table, read here at run time. That table is the
-// ONE copy of the type-prefix vocabulary: the subject side reaches it through
-// `entity.type REFERENCES entity_type(type)`, this side reads it directly. A Go slice repeating it
-// would be a second copy that drifts the moment a type is approved, and the two
-// would then disagree about what is writable, silently, depending on which
-// reader you asked.
-//
-// 🔴 FAIL-CLOSED AND BY NAME. An unrecognised prefix REFUSES the write and says
-// which prefix it was; it is never quietly accepted, and never quietly rewritten
-// into something that parses. A blank origin is refused too: there is no default
-// author, and "unspecified" written as if it were a person would be a claim
-// nobody made.
-func (d *DAL) loreOriginError(origin string) error {
-	if strings.TrimSpace(origin) == "" {
-		return ErrLoreOriginBlank
-	}
-	prefix, name, found := strings.Cut(origin, ":")
-	if !found || prefix == "" || strings.TrimSpace(name) == "" {
-		return fmt.Errorf("%w: %q is not `type:name`", ErrLoreOriginMalformed, origin)
-	}
-	var one int
-	err := d.rdb.QueryRow(`SELECT 1 FROM entity_type WHERE type = ?`, prefix).Scan(&one)
-	if errors.Is(err, sql.ErrNoRows) {
-		return fmt.Errorf("%w: %q", ErrLoreOriginUnknownType, prefix)
-	}
-	return err
-}
-
 // ErrLoreEntryIDBlank refuses a write with no id. It is a NAMED
 // error rather than a database message because the layer above has to turn it
 // into a 400 that says what is wrong, and matching on a driver's wording is
@@ -379,9 +352,6 @@ var (
 		"lore: an event's `what` is blank — 主動語態，讓人永遠是動作者")
 	ErrLoreEventKeyMalformed   = errors.New("lore: an event's 人/地/物 is not a `type:name` key")
 	ErrLoreEventKeyUnknownType = errors.New("lore: an event's 人/地/物 names an unapproved type prefix")
-	ErrLoreOriginBlank         = errors.New("lore: the origin is blank")
-	ErrLoreOriginMalformed     = errors.New("lore: the origin is not a `type:name` subject key")
-	ErrLoreOriginUnknownType   = errors.New("lore: the origin names an unapproved type prefix")
 )
 
 // PutLoreEntry creates or replaces ONE entry.
@@ -413,9 +383,6 @@ func (d *DAL) PutLoreEntry(e LoreEntry) error {
 	if err := loreImpactStarsError(e.ImpactStars); err != nil {
 		return err
 	}
-	if err := d.loreOriginError(e.Origin); err != nil {
-		return err
-	}
 	// 🔴 `reviewed` 出現在 DO UPDATE SET 裡，跟其他每一格一樣，而這是刻意的：
 	// 這個函式的語意是「用這一份取代那一列」，把某一欄從取代裡挑掉會讓它在
 	// 「整列覆寫」的外表下悄悄保留舊值。
@@ -424,17 +391,17 @@ func (d *DAL) PutLoreEntry(e LoreEntry) error {
 	// 不會替它擋。
 	_, err := d.wdb.Exec(`
 		INSERT INTO lore_entry (`+loreEntryColumns+`)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT (id) DO UPDATE SET
 			heading = excluded.heading, content = excluded.content,
 			revisit_when = excluded.revisit_when, impact = excluded.impact,
 			impact_stars = excluded.impact_stars, reviewed = excluded.reviewed,
 			status = excluded.status,
 			supersedes = excluded.supersedes, editable_by = excluded.editable_by,
-			origin = excluded.origin, updated_ts = excluded.updated_ts`,
+			updated_ts = excluded.updated_ts`,
 		e.ID, e.Heading, e.Content, e.RevisitWhen, e.Impact,
 		e.ImpactStars, e.Reviewed,
-		e.Status, e.Supersedes, e.EditableBy, e.Origin,
+		e.Status, e.Supersedes, e.EditableBy,
 		e.CreatedTS, e.UpdatedTS)
 	return err
 }
@@ -566,20 +533,22 @@ type LoreSubjectRosterRow struct {
 	Canonical string
 	Display   string
 	Entries   int
-	// HumanOrigin is true when at least one of this subject's entries came from
-	// a `human:` origin. It rides on the SAME grouped query rather than a second
-	// pass, because the assembler needs it for every row it truncates against —
-	// a per-subject follow-up query would turn one boot query into N.
-	HumanOrigin bool
+	// 🔴 THERE IS NO HumanOrigin FLAG. It rode on this same grouped query and fed
+	// exactly one reader: loreSubjectsWithinCaps reserved a subject carrying a
+	// `human:`-origin entry against truncation, unconditionally. The `origin`
+	// column it was computed from is gone (owner ruling rc-9c9bf14a579f,
+	// 2026-09-06), so the flag would have been a constant false — a reservation
+	// nothing can ever qualify for, which reads like a guard while guarding
+	// nothing. It is removed instead. Every subject now competes for the
+	// directory's budget on entry count alone.
 }
 
 // ListLoreSubjectRoster returns the whole directory in ONE grouped
 // query.
 //
 // 🔴 COST: THIS IS A BOOT-PATH QUERY — every agent, every wake, forever. It is
-// therefore ONE statement with no per-subject follow-up: the count and the
-// human-origin flag are both aggregates of the same GROUP BY, never a loop over
-// CountLoreEntriesBySubject. Approved as an addition to the per-wake
+// therefore ONE statement with no per-subject follow-up: the count is an
+// aggregate of the GROUP BY, never a loop over CountLoreEntriesBySubject. Approved as an addition to the per-wake
 // query set by the owner on reply card rc-e5a9efbed9da (2026-08-31, option [0]);
 // see the COST DISCIPLINE block above resumeFloorParts in api_chat.go, where the
 // tree keeps that list.
@@ -614,8 +583,7 @@ type LoreSubjectRosterRow struct {
 func (d *DAL) ListLoreSubjectRoster(actorID string) ([]LoreSubjectRosterRow, error) {
 	rows, err := d.rdb.Query(`
 		SELECT n.id, n.type, n.canonical, n.display,
-		       COUNT(*),
-		       MAX(CASE WHEN e.origin LIKE 'human:%' THEN 1 ELSE 0 END)
+		       COUNT(*)
 		FROM lore_entry e
 		JOIN lore_subject s ON s.entry_id = e.id
 		JOIN entity n ON n.id = s.entity_id
@@ -631,11 +599,9 @@ func (d *DAL) ListLoreSubjectRoster(actorID string) ([]LoreSubjectRosterRow, err
 	var out []LoreSubjectRosterRow
 	for rows.Next() {
 		var r LoreSubjectRosterRow
-		var human int
-		if err := rows.Scan(&r.EntityID, &r.Type, &r.Canonical, &r.Display, &r.Entries, &human); err != nil {
+		if err := rows.Scan(&r.EntityID, &r.Type, &r.Canonical, &r.Display, &r.Entries); err != nil {
 			return nil, err
 		}
-		r.HumanOrigin = human == 1
 		out = append(out, r)
 	}
 	return out, rows.Err()

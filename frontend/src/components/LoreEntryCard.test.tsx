@@ -35,7 +35,6 @@ function summary(
     heading: "整套測試綠燈，而它跑過的分母是零",
     impactStars: 2,
     subjects: ["repo:officraft"],
-    origin: "agent:Kyle",
     ...over,
   };
 }
@@ -51,7 +50,6 @@ function detail(over: Partial<LoreEntryDetailView> = {}): LoreEntryDetailView {
     impact: "",
     events: [],
     subjects: ["repo:officraft"],
-    origin: "agent:Kyle",
     status: "active",
     original: "heading:\n…\n\ncontent:\n…\n\nrevisit_when:\n\n\nimpact:\n\n\nevents:\n\n",
     sha256: "a".repeat(64),

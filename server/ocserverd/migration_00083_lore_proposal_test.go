@@ -337,7 +337,7 @@ func m83SeedEntryAtPreviousStage(t *testing.T, db *sql.DB) LoreWriteResult {
 	// 摘要用的是 HEAD 的渲染器，而那正確：sha256 比的是那串位元組，不是欄名。
 	entry := LoreEntry{
 		ID: "lore-m83-seed", Heading: w.Heading, Content: w.Content,
-		RevisitWhen: w.RevisitWhen, Impact: w.Impact, Origin: w.Origin,
+		RevisitWhen: w.RevisitWhen, Impact: w.Impact,
 	}
 	body := loreRevisionBody(entry, nil)
 	sum := loreSHA256(body)
@@ -348,12 +348,18 @@ func m83SeedEntryAtPreviousStage(t *testing.T, db *sql.DB) LoreWriteResult {
 	// ⇒ 這個字串是寫死的，不是從 LoreWrite 拿的：HEAD 的 struct 已經沒有那一格，
 	// 而這裡種的本來就不是今天的條目。
 	const stageTrigger = "我要確認開機脈絡是在哪裡組起來的"
+	// 🔴 `origin` 同理，而且理由更強一層：這一欄在 00083 那一階**存在**（00081 建的），
+	// 是 00084 才 DROP 掉的（`rc-9c9bf14a579f`，2026-09-06「一起拿掉」）⇒ 這裡的
+	// INSERT 必須繼續填它，否則種出來的就不是那一階的列。值寫死，因為 HEAD 的
+	// LoreWrite / LoreEntry 已經沒有那一格可以拿。
+	// ⚠️ 它不影響下面的 sha256：loreRevisionBody 從來沒有印過 origin。
+	const stageOrigin = "agent:O-197"
 	if _, err := db.Exec(`
 		INSERT INTO lore_entry (id, trigger, content, retire_when, problem,
 			status, supersedes, editable_by, origin, created_ts, updated_ts)
 		VALUES (?, ?, ?, ?, ?, 'active', '', 'agent', ?, 1000, 1000)`,
 		entry.ID, stageTrigger, entry.Content, entry.RevisitWhen, entry.Impact,
-		entry.Origin); err != nil {
+		stageOrigin); err != nil {
 		t.Fatalf("seed entry at the previous stage: %v", err)
 	}
 	if _, err := db.Exec(`

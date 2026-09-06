@@ -20,7 +20,6 @@ func t33Write() LoreWrite {
 		RevisitWhen: "等組裝路徑不只一條",
 		Impact:      "T-33 slot 3：兩個區塊對同一件事說法不一樣",
 		ImpactStars: 2,
-		Origin:      "agent:O-197",
 		Subjects:    []string{"repo:officraft"},
 		ActorID:     "ow-e27260b9ed05",
 	}
@@ -310,17 +309,17 @@ func TestLoreEntriesWrittenBeforeTheRequirementStillReadBack(t *testing.T) {
 
 	legacy := LoreEntry{
 		ID: "lore-legacy-01", Content: "y",
-		Origin: "agent:O-197", CreatedTS: 1000, UpdatedTS: 1000,
+		CreatedTS: 1000, UpdatedTS: 1000,
 	}
 	// 🔴 這一列是用**原始 INSERT** 種下去的，不是 PutLoreEntry，而那正是它要模擬
 	// 的東西：v8 之前的條目沒有標題格，而 PutLoreEntry 現在會拒絕空標題。走
 	// PutLoreEntry 就種不出一列 v8 之前的條目，只種得出一列今天合法的條目——
 	// 那樣這支測試就不再是在問它宣稱要問的問題。
 	if _, err := d.wdb.Exec(`
-		INSERT INTO lore_entry (id, content, origin, status, editable_by,
+		INSERT INTO lore_entry (id, content, status, editable_by,
 			created_ts, updated_ts)
-		VALUES (?, ?, ?, 'active', 'agent', ?, ?)`,
-		legacy.ID, legacy.Content, legacy.Origin,
+		VALUES (?, ?, 'active', 'agent', ?, ?)`,
+		legacy.ID, legacy.Content,
 		legacy.CreatedTS, legacy.UpdatedTS); err != nil {
 		t.Fatalf("seed a pre-requirement entry: %v", err)
 	}
@@ -592,24 +591,6 @@ func TestLoreCreateRefusesAnEntryNobodyCouldEverFind(t *testing.T) {
 	}
 }
 
-// A blank origin and an unapproved origin prefix are both refused — the same
-// rule PutLoreEntry enforces, asserted through THIS path so the composite
-// cannot quietly stop applying it.
-func TestLoreCreateEnforcesTheOriginRuleOnItsOwnPath(t *testing.T) {
-	d := newTestDAL(t)
-	t33Entity(t, d, "e-repo", "repo", "repo:officraft")
-
-	blank := t33Write()
-	blank.Origin = ""
-	if _, err := d.CreateLoreEntry(blank, 1000); !errors.Is(err, ErrLoreOriginBlank) {
-		t.Fatalf("blank origin: got %v", err)
-	}
-	unknown := t33Write()
-	unknown.Origin = "vendor:acme"
-	if _, err := d.CreateLoreEntry(unknown, 1000); !errors.Is(err, ErrLoreOriginUnknownType) {
-		t.Fatalf("unknown origin type: got %v", err)
-	}
-}
 
 // 🔴 THIS TEST LOOKS LIKE A TAUTOLOGY TODAY AND THAT IS THE POINT.
 //
@@ -711,7 +692,6 @@ func TestHeadingChangeMovesTheRevisionDigest(t *testing.T) {
 		Heading: "遷移在沒有設定檔的情況下打到了正式庫",
 		Content: "零參數等於 serve，serve 啟動就跑 migration。",
 		Impact:  "14 張表進了正式庫。",
-		Origin:  "agent:O-197",
 	}
 	before := loreRevisionBody(base, nil)
 

@@ -126,7 +126,6 @@ export const en: Dict = {
     pendingTitle: "Waiting for you",
     entriesTitle: "Memories",
     title: "Lore",
-    entryOriginLabel: "From",
     entryOpen: "Open this entry",
     entryClose: "Close this entry",
     entryLoading: "Loading…",
@@ -1721,6 +1720,9 @@ export const en: Dict = {
     globalContext: "Global context",
     roles: "Role journal",
     params: "Parameters",
+    // Experimental features — station-wide switches for things still being
+    // tried out; sits between Parameters and Theme (owner 2026-09-06).
+    experimental: "Experimental features",
     // ── theme management (T-16a1 P3b): moved here from the profile dropdown ──
     themeManage: "Theme",
     themeColorsSection: "Colours",
@@ -2036,6 +2038,19 @@ export const en: Dict = {
       "How many characters the chat block of a wake snapshot (resume_summary) may spend — the messages, their folded cards, the snapshot header and the cut hint; the peek sizes itself against the same number. The range is 1000 to 13000 and it can be lowered as well as raised: the chat block is repacked on every read, so a smaller budget simply carries fewer messages, and whatever was left out is still reported as omitted.",
     docUsage: "Used",
     chars: "characters",
+    // ── Experimental features (owner 2026-09-06) ──
+    // Only switches for features still being tried out. The other three
+    // booleans behind /api/settings are NOT listed here: receive_beta and
+    // auto_update are update behaviour, display.wide is a cockpit layout
+    // preference — none of them is an experiment.
+    experimentalLoadError:
+      "Failed to load experimental features. Please try again.",
+    experimentalSaveError: "Didn't save — try again",
+    experimentalLore: "Lore",
+    // Says what turning it ON does, not what the feature is called: the nav
+    // grows a tab, and members' lore calls stop being refused outright.
+    experimentalLoreSub:
+      "Adds the Lore tab to the nav bar and lets members write and search lore memories; while it is off every lore call is refused and nothing is written.",
     // ── Verified-save read-back (T-1c2e; lives in the software-update view
     // after the rework: secrets show only set/unset, never the plaintext, and
     // the auto-update switch verifies a save by reading the value back) ──

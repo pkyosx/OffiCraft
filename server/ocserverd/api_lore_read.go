@@ -131,7 +131,6 @@ func (s *apiServer) HandleGetLoreEntryApiLoreEntriesEntryIdGet(
 		Events:     eventDTOs,
 		Status:     entry.Status,
 		Supersedes: entry.Supersedes,
-		Origin:     entry.Origin,
 		Subjects:   subjects,
 		Original:   original,
 		Sha256:     sha,

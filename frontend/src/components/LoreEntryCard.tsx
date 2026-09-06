@@ -221,9 +221,6 @@ export function LoreEntryCard({ entry }: { entry: LoreEntrySummaryView }) {
               {s}
             </span>
           ))}
-          <span>
-            {t.lore.entryOriginLabel} {entry.origin}
-          </span>
         </div>
         {/* 🔴 這裡曾經有一行副標：先是第 2 格「內容」，後來換成 `trigger`。兩
             個都沒有了 —— 內容拿掉是這一層存在的理由（清單那一層倒出整段內容，

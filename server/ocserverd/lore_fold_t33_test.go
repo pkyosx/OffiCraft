@@ -9,8 +9,13 @@ import (
 )
 
 // seedLoreDirectoryFixture files a small, deliberately MIXED
-// directory: two entity types, a human-origin subject and agent-origin ones, so
-// the grouping, the ordering and the human rule all have something to bite on.
+// directory: several entity types, so the grouping and the ordering both have
+// something to bite on.
+//
+// ⚠️ It used to mix a human-origin subject with agent-origin ones so 「the human
+// rule」 had something to bite on too. That rule is gone with `origin` (owner
+// ruling rc-9c9bf14a579f, 2026-09-06); the entity TYPES still differ, which is
+// what the grouping assertions actually read.
 //
 // It is used by the boot-context equality guard in worker_spawn_test.go as well
 // as by the tests below — one fixture, so "what a directory looks like" is not
@@ -39,10 +44,9 @@ func seedLoreDirectoryFixture(t *testing.T, s *apiServer) {
 	t33Entity(t, s.dal, "en-kyle", "agent", "agent:Kyle")
 	t33Entity(t, s.dal, "en-repo", "repo", "repo:officraft")
 
-	put := func(id, origin string, subjects ...string) {
+	put := func(id string, subjects ...string) {
 		t.Helper()
 		e := t33Entry(id)
-		e.Origin = origin
 		t33Put(t, s.dal, e)
 		for _, sub := range subjects {
 			if err := s.dal.PutLoreSubject(id, sub); err != nil {
@@ -50,9 +54,9 @@ func seedLoreDirectoryFixture(t *testing.T, s *apiServer) {
 			}
 		}
 	}
-	put("me-h1", "human:Seth", "en-seth", "en-repo")
-	put("me-a1", "agent:Kyle", "en-kyle", "en-repo")
-	put("me-a2", "agent:Kyle", "en-kyle")
+	put("me-h1", "en-seth", "en-repo")
+	put("me-a1", "en-kyle", "en-repo")
+	put("me-a2", "en-kyle")
 }
 
 // TestDirectoryIsAbsentWhenThereAreNoSubjects — the 使用者自訂 rule, applied to
@@ -144,31 +148,27 @@ func TestDirectoryCarriesNoEntryBody(t *testing.T) {
 	}
 }
 
-// seedManySubjects files n agent-origin subjects, plus one human-origin subject
-// whose name sorts LAST in the whole set — so if the human rule were a mere
-// ordering preference rather than a reservation, this one would be the first
-// thing the cap threw away.
-func seedManySubjects(t *testing.T, s *apiServer, n int) (humanCanonical string) {
+// seedManySubjects files n subjects, each carrying one entry, so a caller can
+// overflow the directory's two caps.
+//
+// ⚠️ This helper used to seed one EXTRA subject with a `human:` origin, named to
+// sort dead last, because a reservation protected it from truncation while any
+// ranking scheme would have dropped it. Owner removed `origin` and that
+// reservation on 2026-09-06 (rc-9c9bf14a579f), so the extra subject is gone with
+// the rule it existed to distinguish — every subject here is now alike, which is
+// exactly what the production code now believes.
+func seedManySubjects(t *testing.T, s *apiServer, n int) {
 	t.Helper()
 	enableLoreForTest(s)
 	for i := 0; i < n; i++ {
 		id := fmt.Sprintf("en-bulk-%03d", i)
 		t33Entity(t, s.dal, id, "agent", fmt.Sprintf("agent:zz-bulk-%03d", i))
 		e := t33Entry(fmt.Sprintf("me-bulk-%03d", i))
-		e.Origin = "agent:Kyle"
 		t33Put(t, s.dal, e)
 		if err := s.dal.PutLoreSubject(e.ID, id); err != nil {
 			t.Fatalf("file bulk %d: %v", i, err)
 		}
 	}
-	t33Entity(t, s.dal, "en-owner", "agent", "agent:zzzz-owner-said-this")
-	e := t33Entry("me-owner")
-	e.Origin = "human:Seth"
-	t33Put(t, s.dal, e)
-	if err := s.dal.PutLoreSubject(e.ID, "en-owner"); err != nil {
-		t.Fatalf("file owner subject: %v", err)
-	}
-	return "agent:zzzz-owner-said-this"
 }
 
 // TestDirectoryAnnouncesItsOwnTruncation — a truncated list that does not SAY it
@@ -188,12 +188,12 @@ func TestDirectoryAnnouncesItsOwnTruncation(t *testing.T) {
 		t.Fatalf("fold: %v", err)
 	}
 	lines := strings.Count(got, "\n- ")
-	if lines >= over+1 {
+	if lines >= over {
 		t.Fatalf("nothing was truncated (%d subject lines for %d subjects) — "+
 			"the caps below are not being applied and this test proves nothing",
-			lines, over+1)
+			lines, over)
 	}
-	omitted := over + 1 - lines
+	omitted := over - lines
 	want := loreTruncationLine(omitted)
 	if !strings.Contains(got, want) {
 		t.Fatalf("截斷了卻沒有印出那一行。少了：%q\n"+
@@ -207,36 +207,6 @@ func TestDirectoryAnnouncesItsOwnTruncation(t *testing.T) {
 	if first >= 0 && notice > first {
 		t.Errorf("截斷訊號在第一個對象後面（notice=%d, first entry=%d）—— "+
 			"它要在一定會被讀到的位置，不是附註", notice, first)
-	}
-}
-
-// TestHumanOriginSubjectsSurviveTruncation — the hard rule, in the only shape
-// that distinguishes a RESERVATION from a WEIGHTING: the human-origin subject is
-// named so it sorts dead last, and the directory is overflowed well past both
-// caps. Under any ranking scheme it would be gone; under the reservation it is
-// present.
-func TestHumanOriginSubjectsSurviveTruncation(t *testing.T) {
-	s := newWorkerTestServer(t)
-	humanCanonical := seedManySubjects(t, s, loreSubjectIndexMaxSubjects*3)
-
-	got, err := s.foldLoreSection("m-reader")
-	if err != nil {
-		t.Fatalf("fold: %v", err)
-	}
-	// Positive control: this IS an overflowed directory, so surviving it means
-	// something. Without this the assertion below passes on a directory that
-	// dropped nothing.
-	if !strings.Contains(got, "🔴 這份目錄被截斷了") {
-		t.Fatal("the fixture did not overflow the caps — 「撐過截斷」 would be vacuous")
-	}
-	if !strings.Contains(got, humanCanonical) {
-		t.Fatalf("human 來源的對象 %q 被截斷掉了。這是硬規則不是加權："+
-			"origin 是 human: 開頭的條目所掛的對象，永遠先保留", humanCanonical)
-	}
-	// And the bulk really did lose rows, so the human survivor is not just
-	// riding along in a directory where everything survived.
-	if strings.Contains(got, "agent:zz-bulk-119") {
-		t.Error("nothing was actually dropped; the cap is not being enforced")
 	}
 }
 
@@ -304,7 +274,6 @@ func TestPendingSubjectsDoNotReachTheDirectory(t *testing.T) {
 		"me-reviewed": "en-reviewed", "me-unreviewed": "en-unreviewed",
 	} {
 		e := t33Entry(id)
-		e.Origin = "agent:Kyle"
 		t33Put(t, s.dal, e)
 		if err := s.dal.PutLoreSubject(id, subject); err != nil {
 			t.Fatalf("file %s against %s: %v", id, subject, err)
@@ -339,7 +308,6 @@ func TestMergedAwaySubjectsAreNotCountedTwice(t *testing.T) {
 		"me-canonical": "en-canonical", "me-dupe": "en-dupe",
 	} {
 		e := t33Entry(id)
-		e.Origin = "agent:Kyle"
 		t33Put(t, s.dal, e)
 		if err := s.dal.PutLoreSubject(id, subject); err != nil {
 			t.Fatalf("file %s against %s: %v", id, subject, err)

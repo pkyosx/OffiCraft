@@ -54,9 +54,6 @@ func writeLoreWriteError(w http.ResponseWriter, err error) {
 		errors.Is(err, ErrLoreSubjectBlank),
 		errors.Is(err, ErrLoreSubjectMalformed),
 		errors.Is(err, ErrLoreSubjectUnknownType),
-		errors.Is(err, ErrLoreOriginBlank),
-		errors.Is(err, ErrLoreOriginMalformed),
-		errors.Is(err, ErrLoreOriginUnknownType),
 		errors.Is(err, ErrLoreSupersedesSelf),
 		errors.Is(err, ErrLoreEntityMergeCycle):
 		writeError(w, http.StatusUnprocessableEntity, err.Error())
@@ -93,7 +90,7 @@ func (s *apiServer) HandleWriteLoreEntryApiLoreEntriesPost(w http.ResponseWriter
 	// ⚠️ 這一行只擋**漏送**。明明送了、送的是 0，是 CreateLoreEntry 擋的
 	// （ErrLoreImpactStarsUnjudged）—— 兩件事要分開，否則「我沒填」跟「我填了 0」
 	// 會拿到同一句話，而後者才是需要重新去想的那個人。
-	if !decodeJSONBodyStrict(w, r, &body, "heading", "content", "origin", "subjects", "impact_stars") {
+	if !decodeJSONBodyStrict(w, r, &body, "heading", "content", "subjects", "impact_stars") {
 		return
 	}
 	write := LoreWrite{
@@ -107,7 +104,6 @@ func (s *apiServer) HandleWriteLoreEntryApiLoreEntriesPost(w http.ResponseWriter
 		// CreateLoreEntry 擋成 422（ErrLoreImpactStarsUnjudged），在這裡偷偷改成
 		// 1 會讓「沒有人判過」跟「判為做白工」在資料庫裡永遠分不開。
 		ImpactStars: body.ImpactStars,
-		Origin:      body.Origin,
 		Supersedes:  strOrEmpty(body.Supersedes),
 		Subjects:    body.Subjects,
 		ActorID:     currentActor(r),

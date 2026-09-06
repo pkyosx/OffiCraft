@@ -42,8 +42,7 @@ const loreWriteJSON = `{
 		{"happened_ts": 1756000000, "what": "Kyle 讀到兩個區塊互相矛盾",
 		 "actor": "agent:O-197", "place": "machine:seth-m5"}
 	],
-	"origin": "agent:O-197",
-	"subjects": ["repo:officraft"]
+		"subjects": ["repo:officraft"]
 }`
 
 // An ordinary agent can write, and what comes back is READ BACK from the store.
@@ -73,9 +72,6 @@ func TestLoreWriteRouteLetsAnAgentPutAnEntryWhereTheDirectoryFindsIt(t *testing.
 	entry, err := dal.GetLoreEntry(dto.EntryId)
 	if err != nil || entry == nil {
 		t.Fatalf("the entry the receipt names is not in the table: %v", err)
-	}
-	if entry.Origin != "agent:O-197" {
-		t.Fatalf("origin: got %q — it is the caller's to state", entry.Origin)
 	}
 	rev, err := dal.LatestLoreRevision(dto.EntryId)
 	if err != nil || rev == nil {
@@ -120,8 +116,7 @@ func TestLoreWriteRouteLetsAnAgentPutAnEntryWhereTheDirectoryFindsIt(t *testing.
 func TestLoreWriteRouteRefusesABadEventAndNamesTheCell(t *testing.T) {
 	url, dal, agentTok, _, _ := loreGovStack(t)
 
-	const head = `{"heading": "h", "content": "y", "origin": "agent:O-197",
-		"impact_stars": 2, "subjects": ["repo:officraft"], "events": [`
+	const head = `{"heading": "h", "content": "y", 		"impact_stars": 2, "subjects": ["repo:officraft"], "events": [`
 	for _, tc := range []struct{ name, events, want string }{
 		{"no happened_ts", `{"what": "有人踩到了"}`, "happened_ts"},
 		{"happened_ts is zero", `{"happened_ts": 0, "what": "有人踩到了"}`, "happened_ts"},
@@ -175,32 +170,38 @@ func TestLoreWriteRouteRefusesAnEntryNobodyCouldRead(t *testing.T) {
 	url, _, agentTok, _, _ := loreGovStack(t)
 
 	for _, tc := range []struct{ name, body, want string }{
-		{"heading absent", `{"content":"y","impact_stars":2,"origin":"agent:O-197","subjects":["repo:officraft"]}`, "heading"},
-		{"blank heading", `{"heading":"  ","content":"y","impact_stars":2,"origin":"agent:O-197","subjects":["repo:officraft"]}`, "heading"},
+		{"heading absent", `{"content":"y","impact_stars":2,"subjects":["repo:officraft"]}`, "heading"},
+		{"blank heading", `{"heading":"  ","content":"y","impact_stars":2,"subjects":["repo:officraft"]}`, "heading"},
 		// 🔴 第三種拒絕：標題超過 140 個字元。它在這裡而不是只在 DAL 那一層，
 		// 是因為**這一段是它變成 422 的地方**：沒有被 writeLoreWriteError 列舉
 		// 的錯誤會掉到 internalError 變成 500，而 500 的意思是「重試」，重試永遠
 		// 會失敗。141 個中文字＝141 個 rune、423 個 byte —— 用中文送，是為了讓
 		// 一個用 len() 數位元組的實作在錯誤訊息裡報出 423 而被下面那句抓到。
 		{"over-long heading", `{"heading":"` + strings.Repeat("記", 141) +
-			`","content":"y","impact_stars":2,"origin":"agent:O-197","subjects":["repo:officraft"]}`, "heading"},
+			`","content":"y","impact_stars":2,"subjects":["repo:officraft"]}`, "heading"},
 		// 🔴 這一列以前是 {"blank trigger", …}，也就是「`heading`空白要被拒」。那一格
 		// 被 `rc-9002654dd81c`（2026-09-06）併進 heading ⇒ 它守的東西已經在上面
 		// 「heading absent／blank heading」兩列裡。留在這裡的是**新的**那件事：
 		// `trigger` 現在是一個未宣告的 key，而未宣告的 body key 一律 422 指名拒絕。
 		// 少了這一列，一個仍然收 `trigger`（然後靜默丟掉）的 handler 會全綠，而
 		// 寫入者會以為他寫下了一句沒有人存下來的話。
-		{"trigger is no longer a field", `{"heading":"h","trigger":"x","content":"y","impact_stars":2,"origin":"agent:O-197","subjects":["repo:officraft"]}`, "trigger"},
-		{"blank content", `{"heading":"h","content":"","impact_stars":2,"origin":"agent:O-197","subjects":["repo:officraft"]}`, "content"},
-		{"no subject", `{"heading":"h","content":"y","impact_stars":2,"origin":"agent:O-197","subjects":[]}`, "subject"},
-		{"unknown origin type", `{"heading":"h","content":"y","impact_stars":2,"origin":"vendor:acme","subjects":["repo:officraft"]}`, "vendor"},
-		{"unknown subject type", `{"heading":"h","content":"y","impact_stars":2,"origin":"agent:O-197","subjects":["vendor:acme"]}`, "vendor"},
-		{"malformed subject", `{"heading":"h","content":"y","impact_stars":2,"origin":"agent:O-197","subjects":["officraft"]}`, "officraft"},
+		{"trigger is no longer a field", `{"heading":"h","trigger":"x","content":"y","impact_stars":2,"subjects":["repo:officraft"]}`, "trigger"},
+		{"blank content", `{"heading":"h","content":"","impact_stars":2,"subjects":["repo:officraft"]}`, "content"},
+		{"no subject", `{"heading":"h","content":"y","impact_stars":2,"subjects":[]}`, "subject"},
+		// 🔴 這一列以前是 {"unknown origin type", …}，守的是 origin 的型別前綴。
+		// `origin` 整格被 `rc-9c9bf14a579f`（2026-09-06「一起拿掉」）移除 ⇒ 那件事
+		// 沒有了。留在這裡的是**新的**那件事，跟上面 `trigger` 那一列同一個形狀：
+		// `origin` 現在是一個未宣告的 key，而未宣告的 body key 一律 422 指名拒絕。
+		// 🔴 少了這一列，一個仍然收 `origin`（然後靜默丟掉）的 handler 會全綠，而
+		// 送出來的人會以為他標註了來源 —— 那正是這一格被拿掉之後最像沒事的失敗。
+		{"origin is no longer a field", `{"heading":"h","origin":"human:Seth","content":"y","impact_stars":2,"subjects":["repo:officraft"]}`, "origin"},
+		{"unknown subject type", `{"heading":"h","content":"y","impact_stars":2,"subjects":["vendor:acme"]}`, "vendor"},
+		{"malformed subject", `{"heading":"h","content":"y","impact_stars":2,"subjects":["officraft"]}`, "officraft"},
 		// 🔴 星等的值域也在這裡：它是**寫入者可以自己修好**的東西，所以它是 422
 		// 而不是資料庫 CHECK 撞出來的 500。少了這兩行，把 loreImpactStarsError
 		// 整個拿掉會全綠，而症狀是一個送錯星等的人收到「伺服器出事了」。
-		{"impact_stars above the scale", `{"heading":"h","content":"y","impact_stars":4,"origin":"agent:O-197","subjects":["repo:officraft"]}`, "impact_stars"},
-		{"impact_stars below the scale", `{"heading":"h","content":"y","impact_stars":-1,"origin":"agent:O-197","subjects":["repo:officraft"]}`, "impact_stars"},
+		{"impact_stars above the scale", `{"heading":"h","content":"y","impact_stars":4,"subjects":["repo:officraft"]}`, "impact_stars"},
+		{"impact_stars below the scale", `{"heading":"h","content":"y","impact_stars":-1,"subjects":["repo:officraft"]}`, "impact_stars"},
 	} {
 		st, body := rosterREST(t, url, agentTok, "POST", "/api/lore/entries", tc.body)
 		if st != 422 {
@@ -232,7 +233,7 @@ func TestLoreWriteRouteRefusesAnUnknownFieldRatherThanDroppingIt(t *testing.T) {
 	st, body := rosterREST(t, url, agentTok, "POST", "/api/lore/entries", `{
 		"heading": "h", "contentt": "the typo that empties the body",
 		"content": "y", "impact_stars": 2,
-		"origin": "agent:O-197", "subjects": ["repo:officraft"]
+		"subjects": ["repo:officraft"]
 	}`)
 	if st != 422 {
 		t.Fatalf("unknown field: want 422, got %d %s", st, body)
@@ -259,8 +260,7 @@ func TestLoreWriteRouteSupersedesOnlyAnEntryThatExists(t *testing.T) {
 	first := loreWriteBody(t, body).EntryId
 
 	st, body = rosterREST(t, url, agentTok, "POST", "/api/lore/entries", `{
-		"heading": "h", "content": "y", "impact_stars": 2, "origin": "agent:O-197",
-		"subjects": ["repo:officraft"], "supersedes": "`+first+`"
+		"heading": "h", "content": "y", "impact_stars": 2, 		"subjects": ["repo:officraft"], "supersedes": "`+first+`"
 	}`)
 	if st != 200 {
 		t.Fatalf("supersede: want 200, got %d %s", st, body)
@@ -282,8 +282,7 @@ func TestLoreWriteRouteSupersedesOnlyAnEntryThatExists(t *testing.T) {
 	}
 
 	st, body = rosterREST(t, url, agentTok, "POST", "/api/lore/entries", `{
-		"heading": "h", "content": "y", "impact_stars": 2, "origin": "agent:O-197",
-		"subjects": ["repo:officraft"], "supersedes": "lore-nope"
+		"heading": "h", "content": "y", "impact_stars": 2, 		"subjects": ["repo:officraft"], "supersedes": "lore-nope"
 	}`)
 	if st != 404 {
 		t.Fatalf("supersede a ghost: want 404, got %d %s", st, body)
@@ -330,9 +329,9 @@ func TestLoreWriteRouteAdmitsTheOwnerToo(t *testing.T) {
 // 重新判一次那條傳承的下場。
 const (
 	loreStarsOmittedJSON = `{"heading":"一格必填的星等被漏掉了","content":"y",` +
-		`"origin":"agent:O-197","subjects":["repo:officraft"]}`
+		`"subjects":["repo:officraft"]}`
 	loreStarsZeroJSON = `{"heading":"一格必填的星等被填成了還沒判","content":"y",` +
-		`"impact_stars":0,"origin":"agent:O-197","subjects":["repo:officraft"]}`
+		`"impact_stars":0,"subjects":["repo:officraft"]}`
 )
 
 // 漏送 `impact_stars` ⇒ 422，而且訊息指名是哪一格。

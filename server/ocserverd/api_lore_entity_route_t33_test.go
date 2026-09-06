@@ -287,7 +287,7 @@ func TestLoreEntityPendingRouteCarriesTheReviewPacket(t *testing.T) {
 	if _, err := dal.CreateLoreEntry(LoreWrite{
 		Heading: "h", Content: "the fold happens in exactly one place",
 		ImpactStars: 2,
-		Origin:      "agent:O-197", Subjects: []string{"repo:OffiCraft"}, ActorID: "m-writer",
+		Subjects: []string{"repo:OffiCraft"}, ActorID: "m-writer",
 	}, 100); err != nil {
 		t.Fatalf("write: %v", err)
 	}
@@ -355,7 +355,7 @@ func TestLoreEntityPendingRouteCarriesTheEmptinessAndTheEntries(t *testing.T) {
 		Heading:     "I am about to review a name I cannot see behind",
 		Content:     "the queue showed one sample and no way to open the rest",
 		ImpactStars: 2,
-		Origin:      "agent:O-197", Subjects: []string{"repo:used"}, ActorID: "m-minter",
+		Subjects: []string{"repo:used"}, ActorID: "m-minter",
 	}, 100)
 	if err != nil {
 		t.Fatalf("write: %v", err)
@@ -363,7 +363,7 @@ func TestLoreEntityPendingRouteCarriesTheEmptinessAndTheEntries(t *testing.T) {
 	gone, err := dal.CreateLoreEntry(LoreWrite{
 		Heading: "this one got retired", Content: "c",
 		ImpactStars: 2,
-		Origin:      "agent:O-197", Subjects: []string{"repo:used"}, ActorID: "m-minter",
+		Subjects: []string{"repo:used"}, ActorID: "m-minter",
 	}, 200)
 	if err != nil {
 		t.Fatalf("second write: %v", err)

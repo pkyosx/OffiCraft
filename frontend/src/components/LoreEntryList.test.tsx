@@ -22,7 +22,6 @@ function entry(over: Partial<LoreEntrySummaryView> = {}): LoreEntrySummaryView {
     heading: "整套測試綠燈，而它跑過的分母是零",
     impactStars: 2,
     subjects: ["repo:officraft"],
-    origin: "agent:Kyle",
     ...over,
   };
 }

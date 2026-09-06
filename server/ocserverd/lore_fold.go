@@ -285,33 +285,27 @@ func (s *apiServer) recordLoreSurfacing(sur loreSurfacing) {
 // loreSubjectsWithinCaps applies both ceilings and reports how many
 // subjects were left out.
 //
-// 🔴 A SUBJECT CARRYING A `human:`-ORIGIN ENTRY IS NEVER TRUNCATED AWAY. THIS IS
-// A HARD RULE, NOT A WEIGHT: those rows are taken FIRST and unconditionally, and
-// only then is the remaining budget spent on the rest. A weighting would merely
-// make them likely to survive — likely is not the promise. Something the owner
-// said in person is the one class of knowledge whose disappearance nobody can
-// reconstruct afterwards, so it does not compete for room.
+// 🔴 THERE IS NO RESERVATION LEFT IN HERE, AND THAT IS A RULING, NOT AN
+// OVERSIGHT. Until 2026-09-06 a subject carrying a `human:`-origin entry was
+// taken FIRST and unconditionally — it never competed for room, on the ground
+// that what the owner said in person is the one class of knowledge nobody can
+// reconstruct after it disappears. The `origin` column that rule read is gone
+// (owner ruling rc-9c9bf14a579f, verbatim 「A｜對，一起拿掉。我知道我說過的話從此
+// 跟其他條目一起搶額度」), so the reservation went with it rather than surviving
+// as a branch no row can ever enter.
 //
-// The consequence is stated rather than hidden: if human-origin subjects alone
-// exceed BOTH caps, the block goes over budget. That is the deliberate choice —
-// blowing a size ceiling is visible in the very next boot document, whereas
-// dropping the owner's own knowledge is not visible at all.
+// ⚠️ The consequence, stated rather than hidden: the owner's own knowledge is now
+// truncated on the same terms as everything else, and that truncation is silent —
+// a dropped subject leaves nothing behind but the omitted count. Nothing guards
+// that distinction today.
+//
+// What remains is a single pass in the order the roster arrives (entity type,
+// then canonical), spending the budget until one of the two ceilings is reached.
 func loreSubjectsWithinCaps(rows []LoreSubjectRosterRow) ([]LoreSubjectRosterRow, int) {
-	var human, rest []LoreSubjectRosterRow
-	for _, r := range rows {
-		if r.HumanOrigin {
-			human = append(human, r)
-		} else {
-			rest = append(rest, r)
-		}
-	}
-	kept := human
+	var kept []LoreSubjectRosterRow
 	used := 0
-	for _, r := range human {
-		used += utf8.RuneCountInString(loreSubjectLine(r))
-	}
 	omitted := 0
-	for _, r := range rest {
+	for _, r := range rows {
 		cost := utf8.RuneCountInString(loreSubjectLine(r))
 		if len(kept) >= loreSubjectIndexMaxSubjects ||
 			used+cost > loreSubjectIndexMaxChars {
