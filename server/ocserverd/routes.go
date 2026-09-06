@@ -2494,16 +2494,20 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 		// still refused at the door — a warden has nothing to recall.
 		//
 		// ⚠️ WHAT THIS ROUTE CANNOT DO, said here because a summary is where
-		// people look: 第 3、4、5 格 (`revisit_when`, `problem` and the events)
-		// are NEITHER searched NOR returned on a hit — a hit carries `heading`
-		// and the rest, `content` included, is read with `get_lore_entry`. There is
+		// people look: `revisit_when`, `impact` and the events are NEITHER
+		// searched NOR returned on a hit — a hit carries `heading` and the rest,
+		// `content` included, is read with `get_lore_entry`. There is
 		// no table, no index and no parameter for them here, and
-		// de-duplication and conflict-finding both run on `impact` (`problem`)
+		// de-duplication and conflict-finding both run on `impact` (00084 renamed
+		// it from `problem`, and renamed it on `lore_entry` ONLY — `lore_proposal`
+		// still carries a column called `problem`, so the old name is live, not
+		// merely historical)
 		// — so neither is reachable through this route today. That is a known
 		// gap, not an oversight.
 		//
-		// ⚠️ This paragraph used to name `symptoms`, a 六格 cell that 五格
-		// removed. The cell is gone, the gap is not: it moved onto `problem`.
+		// ⚠️ This paragraph used to name `symptoms`, a cell removed when the
+		// format went from six cells to five. The cell is gone, the gap is not:
+		// it moved onto `impact`.
 		{
 			Method:    "POST",
 			Path:      "/api/lore/search",
