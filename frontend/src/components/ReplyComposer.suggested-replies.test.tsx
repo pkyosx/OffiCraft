@@ -55,6 +55,15 @@ describe("ReplyComposer 建議回覆", () => {
     );
   });
 
+  it("puts the row AFTER the input, not above it", async () => {
+    __setMockSuggestedReplies(["收到，照這樣做"]);
+    const { findByTestId, input } = renderComposer();
+    const row = await findByTestId("reply-suggested-replies");
+    // Node.DOCUMENT_POSITION_FOLLOWING — the row comes later in the document
+    // than the box it belongs to. 「在下面」 is the owner's whole request.
+    expect(input.compareDocumentPosition(row) & 4).toBeTruthy();
+  });
+
   it("shows nothing, and leaves the input usable, when none are configured", async () => {
     const { queryByTestId, input } = renderComposer();
     await settleRealTime();
