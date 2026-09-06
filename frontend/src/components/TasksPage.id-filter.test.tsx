@@ -200,7 +200,7 @@ describe("任務頁 篩選面板 (T-93 round 3)", () => {
     expect(queryByText("第二張"), "only the unticked axis narrows").toBeTruthy();
   });
 
-  it("the 已篩選 strip and its chips are gone", async () => {
+  it("the 已篩選 strip and its chips are gone, but 清除篩選 stays", async () => {
     // 🔁 REPLACES 「the applied filters stay readable while the panel is shut」
     // and 「a chip's × drops JUST that axis」. Both pinned the summary strip,
     // whose whole job was to keep a COLLAPSED panel honest. OVERTURNED BY owner
@@ -211,7 +211,11 @@ describe("任務頁 篩選面板 (T-93 round 3)", () => {
     await findByTestId("filter-task-id");
     expect(queryByTestId("tasks-filter-summary")).toBeNull();
     expect(queryByTestId("tasks-filter-chip")).toBeNull();
-    expect(queryByTestId("tasks-filter-clear")).toBeNull();
+    // 🔴 清除篩選 IS NOT PART OF THE STRIP AND MUST STAY. I removed it with the
+    // strip and owner asked for it back by name (2026-09-06 c-2423dba8b65b:
+    //「清除篩選還是要留著」). It is in the FIELD ROW now. The default status set
+    // already narrows, so it is present from the first render.
+    expect(queryByTestId("tasks-filter-clear")).not.toBeNull();
 
     applyIdFilter("t-aaa1");
     await waitFor(() =>
@@ -223,6 +227,7 @@ describe("任務頁 篩選面板 (T-93 round 3)", () => {
     );
     // Still no strip — and the field itself is now what says an id is applied.
     expect(queryByTestId("tasks-filter-summary")).toBeNull();
+    expect(queryByTestId("tasks-filter-chip")).toBeNull();
   });
 
   it("the 「案件」 sub-title above the list is gone", async () => {

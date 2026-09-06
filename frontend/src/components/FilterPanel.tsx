@@ -49,9 +49,26 @@ import "./filter-panel.css";
 
 export function FilterPanel({
   testId = "filter-panel",
+  clearLabel,
+  onClear,
   children,
 }: {
   testId?: string;
+  /** Wording for the 清除篩選 control. Each page supplies its own. */
+  clearLabel: string;
+  /** 🔴 PASS IT ONLY WHILE SOMETHING IS ACTUALLY NARROWING THE LIST, and
+   * `undefined` otherwise — the presence of this callback IS the decision to
+   * show the button. The host owns that judgement because only the host knows
+   * what its axes mean (the 任務頁's default status set narrows, so its button
+   * is on from the first render; the 請示卡頁 starts unfiltered).
+   *
+   * WHY IT EXISTS AT ALL, given that owner removed the 已篩選 strip it used to
+   * live on: he asked for it back by name (2026-09-06 `c-2423dba8b65b`
+   *「清除篩選還是要留著」) after seeing this row without it. The strip and the
+   * button were NOT one thing — I removed both when he had only named the
+   * strip. So the row keeps the button and stays free of the 「N 筆 · 已篩選：
+   * <chip ×>」 text he did name. */
+  onClear?: () => void;
   /** The filter fields. Always visible — there is no collapsed state. */
   children: ReactNode;
 }) {
@@ -59,6 +76,16 @@ export function FilterPanel({
     <div className="filter-panel" data-testid={testId}>
       <div className="filter-panel__fields" data-testid={`${testId}-fields`}>
         {children}
+        {onClear && (
+          <button
+            type="button"
+            className="filter-panel__clear"
+            data-testid={`${testId}-clear`}
+            onClick={onClear}
+          >
+            {clearLabel}
+          </button>
+        )}
       </div>
     </div>
   );

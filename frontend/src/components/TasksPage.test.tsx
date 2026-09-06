@@ -332,14 +332,16 @@ describe("TasksPage", () => {
       })
     );
 
-    const { findAllByTestId, findByTestId, queryByTestId } = renderPage();
+    const { findAllByTestId, findByTestId, getByTestId, queryByTestId } =
+      renderPage();
     // All three are non-terminal → all show under the default status filter.
-    // 🔁 WAS also asserting that the 清除篩選 button shows from the start
-    // (T-50bb). That button lived on the 已篩選 strip and owner 2026-09-06
-    // (c-c3d681fe05da) removed the strip:「也不用再顯示14筆已篩選跟那一行」. The
-    // MULTI-SELECT behaviour this test is really about is untouched.
+    // The default view already narrows (terminals hidden) → 清除篩選 shows from
+    // the start (T-50bb). ⚠️ This assertion was briefly REMOVED during T-118,
+    // when I deleted the button along with the 已篩選 strip owner had named; he
+    // asked for the button back (c-2423dba8b65b) and it is back in the field
+    // row, so the original assertion stands unchanged.
     expect((await findAllByTestId("task-card")).length).toBe(3);
-    expect(queryByTestId("tasks-filter-clear")).toBeNull();
+    expect(queryByTestId("tasks-filter-clear")).not.toBeNull();
 
     // 執行者 = 外包 (assigned outsource only — 未指派 is its own option).
     toggleFilter("filter-executor", "outsource");
@@ -375,15 +377,15 @@ describe("TasksPage", () => {
     const empty = await findByTestId("tasks-empty-filtered");
     expect(empty.textContent).toBe("沒有符合篩選條件的任務");
 
-    // 清空每一軸 = 顯示全部 (T-50bb's semantics, T-118's gesture): every axis
-    // empties (status too) → all three tasks again. There is no single button
-    // any more, so this is the ordinary act of clearing each field.
-    clearAllFilters();
+    // 清除篩選 = 顯示全部 (T-50bb): every axis empties (status too) → all three
+    // tasks again, and with nothing narrowing the list the button goes away.
+    fireEvent.click(getByTestId("tasks-filter-clear"));
     await waitFor(() =>
       expect(
         document.querySelectorAll('[data-testid="task-card"]')
       ).toHaveLength(3)
     );
+    expect(queryByTestId("tasks-filter-clear")).toBeNull();
 
     // 類型 = 自由代辦 (no type key).
     toggleFilter("filter-type", "adhoc");

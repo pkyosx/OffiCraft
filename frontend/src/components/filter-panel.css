@@ -44,3 +44,29 @@
     flex: 1 1 100%;
   }
 }
+
+/* ── 清除篩選 ─────────────────────────────────────────────────────────────
+ * 🔴 IT SITS IN THE FIELD ROW, NOT ON A STRIP OF ITS OWN. owner 2026-09-06
+ * named the 「N 筆 · 已篩選：<chip ×> · 清除全部」 row when he asked for a
+ * removal (`c-c3d681fe05da`) — he did NOT name this control, and when the row
+ * went he asked for it back (`c-2423dba8b65b`「清除篩選還是要留著」). So it
+ * lives with the fields it clears: one more item in the same flex row, wrapping
+ * with them, and no container of its own.
+ *
+ * A link rather than a filled button: it is the row's least-used control and
+ * must not out-shout the four fields that are its subject. */
+.filter-panel__clear {
+  border: 0;
+  background: transparent;
+  color: var(--color-accent);
+  font-size: 12.5px;
+  cursor: pointer;
+  /* Matches the fields' own height so the row's baseline does not jump when it
+   * appears and disappears. */
+  height: 30px;
+  padding: 0 6px;
+  white-space: nowrap;
+}
+.filter-panel__clear:hover {
+  text-decoration: underline;
+}

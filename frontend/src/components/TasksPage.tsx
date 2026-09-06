@@ -274,23 +274,39 @@ export function TasksPage() {
     setStatuses(statusAsk === "" ? [] : statusAsk.split(","));
   }, [statusAsk, appliedId, setStatuses]);
 
-  // 🔴 WHERE 清除全部 WENT, AND WHY NOTHING REPLACED IT (T-118). Round 3 had a
-  // 「清除全部」 button on the 已篩選 strip, and that strip was ALSO the
-  // documented exit from a 404 anchor: an id that names nothing left the anchor
-  // applied, and the button was how the owner got back to a list. owner
-  // 2026-09-06 removed the strip (「也不用再顯示14筆已篩選跟那一行」), so both
-  // went with it.
+  // 🔴 清除篩選 — REMOVED, THEN PUT BACK BY NAME (T-118). owner 2026-09-06
+  // named the 「N 筆 · 已篩選：<chip ×> · 清除全部」 strip when he asked for a
+  // removal (c-c3d681fe05da); I removed the BUTTON with it, because that is
+  // where it happened to live. He asked for it back the moment he saw the row
+  // without it (c-2423dba8b65b:「清除篩選還是要留著」). The strip and the button
+  // were two things, not one — the strip STATED the conditions (which the
+  // permanently-visible fields now do), the button ENDED them (which nothing
+  // else does in one gesture). Only the first was redundant.
   //
-  // The exit did NOT go with them, and that is the whole reason removing the
-  // strip is safe: the 任務編號 box is now permanently on screen with the
-  // offending id still in it. Emptying it and pressing Enter (or clicking away)
-  // is the same escape, at the place the owner is already looking — which is
-  // what 請示卡頁 has always done (docs/guide/interface.md). Each dropdown
-  // clears the same way: untick its boxes.
-  //
-  // ⇒ If a future change hides the id field behind anything, it re-opens the
-  // 404 trap this comment exists to record. The exit must stay reachable
-  // WITHOUT the owner knowing the id was seeded from a hash.
+  // It is also the exit from a 404 anchor: an id that names nothing leaves the
+  // anchor applied, and this clears it together with the hash. The 編號 field is
+  // a second way out now that it is always on screen, but a reader who does not
+  // realise the id came from a link would not know to look there.
+  function clearFilters() {
+    // 清除篩選 = 顯示全部 (T-50bb): every axis to "no constraint" — status
+    // EMPTIES too (所有狀態, 已完成/終止 included), NOT back to the default four.
+    setAppliedExecutor(new Set());
+    setAppliedType(new Set());
+    setAppliedStatus(new Set());
+    setAppliedId("");
+    setDraftId("");
+    if (taskIdFilter) setRoute({ page: "tasks" });
+  }
+  // Something is narrowing the list ⇒ the button is offered. 🔴 The DEFAULT view
+  // counts: its status set hides the two terminals, so 清除篩選 is on from the
+  // first render and pressing it widens to 顯示全部 (T-50bb). A version that
+  // only counted "the owner touched something" would leave no way to reach the
+  // terminals without knowing the dropdown hides them.
+  const anyFilter =
+    appliedExecutor.size > 0 ||
+    appliedType.size > 0 ||
+    appliedStatus.size > 0 ||
+    appliedId !== "";
 
   // Executor options: 外包 / 未指派 / 各成員 (real AI members only — machine-
   // layer wardens are not executors). An empty set = 所有人.
@@ -613,7 +629,11 @@ export function TasksPage() {
 
       {/* ── 篩選面板 (T-93 round 3) — 「一起搬」: every axis lives in here ── */}
       {/* ── 篩選列 (T-118) — 四個軸,常駐可見,選了就生效 ── */}
-      <FilterPanel testId="tasks-filter">
+      <FilterPanel
+        testId="tasks-filter"
+        clearLabel={t.tasks.clearFilters}
+        onClear={anyFilter ? clearFilters : undefined}
+      >
         {/* 10 characters: owner 2026-09-06 set this by hand — 任務 ids are not a
           * fixed length the way 請示卡 ids are (this station shows `T-93`; the
           * canonical form is `t-` + 12 hex), so there is no measurement to

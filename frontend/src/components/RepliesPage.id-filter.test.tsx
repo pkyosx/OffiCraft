@@ -285,6 +285,37 @@ describe("請示 ID 篩選（常駐欄位版，T-118）", () => {
     expect(idField().value).toBe("rc-bbb");
   });
 
+  it("清除篩選 appears once an id is applied and clears it, hash included", async () => {
+    // 🔴 THIS CONTROL WAS DELETED AND PUT BACK BY NAME. owner 2026-09-06 named
+    // the 「N 筆 · 已篩選：<chip ×> · 清除全部」 strip for removal
+    // (c-c3d681fe05da); the button was deleted with it, and he asked for it
+    // back on seeing the row without one (c-2423dba8b65b:「清除篩選還是要留著」).
+    // It now lives in the FIELD ROW, and only while something narrows — the
+    // 請示卡頁 starts unfiltered, so it starts absent. That "absent when
+    // nothing is on" half is what makes its presence mean something.
+    __injectMockReplyCard(mkCard({ id: "rc-aaa", summary: "第一張" }));
+    __injectMockReplyCard(mkCard({ id: "rc-bbb", summary: "第二張" }));
+    const { findAllByTestId, queryByTestId, getByTestId } = renderPage();
+    expect(await findAllByTestId("waiting-card")).toHaveLength(2);
+    expect(
+      queryByTestId("replies-filter-clear"),
+      "nothing is applied yet, so there is nothing to clear"
+    ).toBeNull();
+
+    applyId("rc-bbb");
+    await waitFor(() =>
+      expect(queryByTestId("replies-filter-clear")).not.toBeNull()
+    );
+
+    fireEvent.click(getByTestId("replies-filter-clear"));
+    await waitFor(() =>
+      expect(idField().value, "the box empties with the filter").toBe("")
+    );
+    expect(await findAllByTestId("waiting-card")).toHaveLength(2);
+    expect(window.location.hash).not.toContain("rc-bbb");
+    expect(queryByTestId("replies-filter-clear")).toBeNull();
+  });
+
   it("the 「請示卡」 sub-title row above the list is gone", async () => {
     // 🔁 REPLACES the panel-header half of the round-3 specs (the row that
     // carried 「請示卡」 + the funnel). OVERTURNED BY owner 2026-09-06

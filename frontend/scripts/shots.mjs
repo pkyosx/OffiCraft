@@ -53,6 +53,8 @@ const TARGETS = [
   // fields are simply THERE, and that the id field still only takes effect on
   // Enter — a picture of a typed-but-uncommitted field next to an unchanged
   // list is the only way to SEE that timing at all.
+  // f1 also shows 清除篩選: the default status set already narrows, so the
+  // control is present from the first render (T-50bb + owner c-2423dba8b65b).
   { name: "f1-tasks-row", hash: "tasks" },
   {
     name: "f2-tasks-typed-not-committed",

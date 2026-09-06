@@ -176,14 +176,18 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
         lookup.card)
       : null;
 
-  // 🔴 WHERE 清除篩選 WENT (T-118). Round 2 had a 「清除全部」 on the 已篩選 strip;
-  // owner removed the strip, so it went with it. The escape did NOT go with it:
-  // the 編號 box is permanently on screen holding the offending id, so emptying
-  // it and pressing Enter (or clicking away) is the same clear, at the place the
-  // reader is already looking — `commitId("")` runs the identical three lines
-  // the old button ran, hash reset included. docs/guide/interface.md describes
-  // exactly this gesture. Do not put the button back without also putting the
-  // strip back; on its own it would be a second way to say one thing.
+  // 🔴 清除篩選 — REMOVED, THEN PUT BACK BY NAME (T-118). It used to sit on the
+  // 已篩選 strip; owner named the strip for removal (c-c3d681fe05da) and then
+  // asked for this control back once he saw the row without it
+  // (c-2423dba8b65b:「清除篩選還是要留著」). The strip STATED the filter — the
+  // permanently-visible field does that now — while the button ENDS it, which
+  // nothing else does in one gesture. Clearing must also drop the id from the
+  // URL, or a reload would seed it straight back and the clear would look broken.
+  function clearFilters() {
+    setAppliedId("");
+    setDraftId("");
+    if (replyCardId) setRoute({ page: "replies" });
+  }
 
   /** Enter or blur on the 編號 field — the only two events that turn typed text
    * into a filter (owner 2026-09-06:「按enter或是點外面就視為apply了」). */
@@ -609,7 +613,11 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
         * owner ruled out the overlay (c-3b5a0aa66550) and then the expander
         * itself (c-c3d681fe05da). `testId` is namespaced so this panel's
         * controls never collide with the 任務頁's. */}
-      <FilterPanel testId="replies-filter">
+      <FilterPanel
+        testId="replies-filter"
+        clearLabel={t.replies.clearFilters}
+        onClear={filtering ? clearFilters : undefined}
+      >
         <IdFilterInput
           value={draftId}
           onChange={setDraftId}
