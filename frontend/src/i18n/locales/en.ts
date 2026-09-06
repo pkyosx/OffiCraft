@@ -163,6 +163,21 @@ export const en: Dict = {
     revisionView: "Read this revision",
     revisionHide: "Hide this revision",
     revisionFailed: "Could not read this revision. This is what the server said:",
+      // ── The three outcomes of a `#lore/entry/<id>` anchor, three sentences,
+      // never merged (owner ruling rc-428906235337, 2026-09-05 — given for the
+      // task page, applied here verbatim).
+      //
+      // 🔴 "not found" and "could not load" are OPPOSITE facts. A 404 is an
+      // answer (the entry does not exist) and we may offer 清除定位; a 500 or an
+      // offline client is the ABSENCE of an answer, and offering an exit there
+      // answers a question we never got to ask.
+      anchorLoadFailed:
+        "Could not load that entry (this is NOT \u300cno such entry\u300d — we did not get an answer this time)",
+      // The anchor deliberately does not strip its own hash: a silent self-heal
+      // would make the 404 flash past and leave a normal list, and the reader
+      // would conclude they had seen everything.
+      anchorNotFound: (id: string) => `No entry found for: ${id}.`,
+      anchorClear: "Clear the anchor",
     revisionsNote:
       "The “hollowed out by N characters” row is the most valuable cell on this tab: when an entry is emptied, the entry COUNT does not move, so no metric built on “how many are left” ever notices.",
   },
@@ -1332,6 +1347,36 @@ export const en: Dict = {
     },
     // ── RESUME SUMMARY (T-8b0d — the same wake snapshot resume_summary
     // returns, here for the owner to view) ──
+    loreActivity: {
+      title: "LORE ACTIVITY",
+      loading: "Loading…",
+      // The OPPOSITE claim to "read nothing this session", and the two must
+      // never be merged: a failed read tells us nothing about what this member
+      // read, while an empty list is an assertion about them.
+      error: "Failed to load the lore activity",
+      retry: "Retry",
+      // No session anchor — there is no "this session" to have a record in.
+      // Telling an offline agent it "read nothing" blames it for not reading
+      // while asleep.
+      noSession:
+        "This member is not running right now, so there is no current session to show reads for.",
+      // The only one of the four empties that says anything about the agent.
+      empty: "Nothing from lore has been retrieved this session yet.",
+      loreOff:
+        "The lore feature is switched off, so these headings cannot be opened; what follows is what was recorded while it was on.",
+      // 🔴 The owner's format skeleton, kept: "上線後 N 分鐘 - Load Lore: <heading>".
+      // The unit is ours (seconds under a minute, so a 45-second read is not
+      // printed as "0 minutes"); the skeleton is not.
+      afterBootMins: (n: number) => `${n} min after boot`,
+      afterBootSecs: (n: number) => `${n}s after boot`,
+      loadLore: "Load Lore:",
+      retiredTag: "retired",
+      // ⚠️ Never "this entry was deleted" — measured 2026-09-06, there is no
+      // DELETE FROM lore_entry anywhere in the tree and retirement is not one.
+      // Reaching this state means something is wrong; naming a delete would
+      // send the reader hunting for a mechanism that does not exist.
+      headingGone: (id: string) => `No entry found for id: ${id}`,
+    },
     resumeSummary: {
       title: "RESUME SUMMARY",
       loading: "Loading…",

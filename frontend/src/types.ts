@@ -1065,6 +1065,53 @@ export interface LoreEntrySummaryView {
   subjects: string[];
 }
 
+/** ONE line of the 傳承活動 panel (`GET /api/members/{id}/lore-activity`): one
+ * entry that was put in front of this member at one moment during the CURRENT
+ * session.
+ *
+ * 🔴 ONE ROW PER ENTRY, NOT PER RETRIEVAL. A search that answered with four
+ * entries is four lines here — the owner asked for a list of 標題, and a line
+ * that said 「搜尋回了 4 條」 would hide the four things actually handed over.
+ * Two rows can therefore share `createdTs` to the microsecond; that is the same
+ * event seen from each entry's side, not a duplicate. */
+export interface LoreActivityRowView {
+  /** Absolute epoch seconds — when the retrieval happened. */
+  createdTs: number;
+  /** 「上線後多久」, in seconds. The server computes it from the anchor STAMPED
+   * ON THE JOURNAL ROW, so it stays true after the session ends; the cockpit
+   * only formats it and never re-derives it from `createdTs`. */
+  sinceBootSecs: number;
+  /** Which door filed it — `search` / `entry-read` / `revision-read`. */
+  door: string;
+  entryId: string;
+  /** 標題 as it stands now, `""` when the entry cannot be found. Read WITH
+   * `headingFound`: an entry with an empty heading and an entry nobody can look
+   * up are different facts. */
+  heading: string;
+  /** Whether `entryId` still resolves. ⚠️ `false` is an ANOMALY, not the
+   * ordinary end of an entry's life: there is no delete path for lore entries
+   * and retirement is not one, so the wording it drives must say 「查不到這個
+   * id」 and must never say 「被刪掉了」. */
+  headingFound: boolean;
+  /** `active` / `superseded` / `retired` / `underspecified`, and `""` exactly
+   * when `headingFound` is false. DISPLAY, not error handling — a retired entry
+   * is still reachable by id, so this marks it rather than hides it. */
+  status: string;
+}
+
+/** The 傳承活動 panel's whole payload.
+ *
+ * 🔴 `sessionActive: false` WITH AN EMPTY `rows` IS A DIFFERENT ANSWER FROM
+ * `sessionActive: true` WITH AN EMPTY `rows`, and the two must never share a
+ * sentence on screen: the first says there is no current session to have a
+ * record in, the second says the member is running and has looked nothing up. */
+export interface LoreActivityView {
+  memberId: string;
+  sessionActive: boolean;
+  sessionBootTs: number;
+  rows: LoreActivityRowView[];
+}
+
 /** What the server ACTUALLY applied, echoed back. Required, not a debugging
  * extra: it is the only way to tell 「this condition was applied」 from 「this
  * condition was dropped on the floor」, and a dropped condition returns

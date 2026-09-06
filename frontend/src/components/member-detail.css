@@ -2133,3 +2133,70 @@
   padding: 4px 0 6px;
   font-size: 12.5px;
 }
+
+/* ── 傳承活動 (lore activity, T-33) ──────────────────────────────────────────
+   ⚠️ THE BLOCK IS `mp-recall__`, NOT `mp-lore__`, AND THAT IS NOT A TASTE CALL.
+   styleOwnership.test.ts matches a sheet's block with /\b<block>[a-z0-9-]*__/,
+   so ANY class shaped `mp-lore…__` reads as a use of lore.css's `.lore__*`
+   block (the `-` before `lore` is a word boundary) and the guard demands this
+   component import lore.css — which it must not, because these rules live
+   here. `recall` is also the truer name: this card draws the RECALL JOURNAL
+   (lore_recall_log), not the 傳承 page's own furniture.
+   One line per entry the member retrieved this session. The row is a single
+   flowing line that WRAPS rather than a grid: the 標題 has no length cap on the
+   server (owner removed the 40-rune `label` in v8), so a fixed column would
+   either clip a real title or leave the whole card as wide as its longest one.
+   The 「上線後 N 分鐘」 stamp is `nowrap` so the one part a reader scans down
+   the left edge never breaks mid-number. */
+.mp-recall__list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.mp-recall__row {
+  padding: 3px 0;
+  font-size: 12.5px;
+  line-height: 1.55;
+}
+.mp-recall__when {
+  color: var(--color-text-muted);
+  white-space: nowrap;
+}
+.mp-recall__sep {
+  color: var(--color-text-muted);
+}
+.mp-recall__verb {
+  color: var(--color-text-muted);
+  margin-right: 4px;
+}
+/* A heading that cannot be linked (entry gone, or lore switched off) is drawn
+   as plain text — NOT as a disabled-looking button. A dead affordance invites
+   the click it cannot serve, and the card already says in words why. */
+.mp-recall__heading {
+  color: var(--color-text);
+}
+.mp-recall__heading--link {
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  color: var(--color-accent);
+  cursor: pointer;
+  text-align: left;
+}
+.mp-recall__heading--link:hover {
+  text-decoration: underline;
+}
+.mp-recall__tag {
+  margin-left: 6px;
+  padding: 0 5px;
+  border-radius: 3px;
+  background: var(--color-surface-sunken);
+  color: var(--color-text-muted);
+  font-size: 11px;
+}
+.mp-recall__note {
+  color: var(--color-text-muted);
+  font-size: 12.5px;
+  padding: 2px 0 6px;
+}

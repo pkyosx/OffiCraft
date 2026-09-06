@@ -461,6 +461,8 @@ export type WireLoreSearchHit = components["schemas"]["LoreSearchHitDTO"];
 /** Mirrors `LoreEntryDetailDTO` — one entry in full, plus the preserved
  * `original`, its `sha256` and the revision CATALOGUE (no text). */
 export type WireLoreEntryDetail = components["schemas"]["LoreEntryDetailDTO"];
+export type WireLoreActivity = components["schemas"]["LoreActivityDTO"];
+export type WireLoreActivityRow = components["schemas"]["LoreActivityRowDTO"];
 
 /** Mirrors `LoreEventDTO` — 第 5 格, ONE event of an entry: 時／事／人／地／物.
  * 人／地／物 are plain strings that are EMPTY when nobody knew them; the wire

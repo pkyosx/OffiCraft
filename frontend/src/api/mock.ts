@@ -7,6 +7,8 @@
 
 import type {
   LoreEntryDetailView,
+  LoreActivityView,
+  LoreActivityRowView,
   LoreEventView,
   LorePendingEntityView,
   LoreEntityGovernanceView,
@@ -6737,6 +6739,76 @@ export const mockApi: Api = {
         limit,
       },
     };
+  },
+
+  async getLoreSwitch(): Promise<boolean> {
+    return mockServerSettings.lore_enabled === true;
+  },
+
+  async getMemberLoreActivity(memberId: string): Promise<LoreActivityView> {
+    // 404 parity with the real route (and with getMemberResumeSummary above):
+    // an id nobody knows is a 404, not an empty panel.
+    findResumeSummaryTarget(memberId);
+
+    // 🔴 THE MOCK'S JOB HERE IS TO MAKE THE FOUR STATES REACHABLE, because they
+    // all render as "nothing to show" if the screen is careless and only ONE of
+    // them is an empty list that means 「沒讀過」:
+    //
+    //   · not running        → sessionActive:false + rows:[]
+    //   · running, quiet     → sessionActive:true  + rows:[]
+    //   · read a live entry  → headingFound:true,  status:"active"
+    //   · read a retired one → headingFound:true,  status:"retired"  (still linkable)
+    //   · read a vanished id → headingFound:false, status:""         (line KEPT)
+    //
+    // An OFFLINE member is the no-session case: `awake` is what the roster
+    // shows, and a member that is not awake has no session anchor, so mocking
+    // "offline but with rows" would be a state the server cannot produce.
+    const m = wireMembers.find((x) => x.id === memberId);
+    const awake = m?.presence === "online";
+    if (!awake) {
+      return {
+        memberId,
+        sessionActive: false,
+        sessionBootTs: 0,
+        rows: [],
+      };
+    }
+
+    // A plausible session: booted 40 minutes ago, three retrievals since.
+    const bootTs = Math.floor(Date.now() / 1000) - 40 * 60;
+    const live = MOCK_LORE_ENTRIES.find((e) => e.status === "active");
+    const retired = MOCK_LORE_ENTRIES.find((e) => e.status === "retired");
+    const rows: LoreActivityRowView[] = [];
+    const push = (
+      secs: number,
+      door: string,
+      entryId: string,
+      heading: string,
+      status: string,
+    ) =>
+      rows.push({
+        createdTs: bootTs + secs,
+        sinceBootSecs: secs,
+        door,
+        entryId,
+        heading,
+        headingFound: heading !== "" || status !== "",
+        status,
+      });
+
+    if (live) {
+      // 45 秒 — under a minute, so the card must fall back to seconds.
+      push(45, "search", live.entryId, live.heading, live.status);
+      push(12 * 60, "entry-read", live.entryId, live.heading, live.status);
+    }
+    if (retired) {
+      push(21 * 60, "entry-read", retired.entryId, retired.heading, retired.status);
+    }
+    // The anomaly row: an id that resolves to nothing. It KEEPS its line —
+    // dropping it would render 「讀過但現在查不到」 as 「沒讀過」.
+    push(33 * 60, "revision-read", "lore-gone-forever", "", "");
+
+    return { memberId, sessionActive: true, sessionBootTs: bootTs, rows };
   },
 
   async getLoreEntry(entryId: string): Promise<LoreEntryDetailView> {

@@ -15,7 +15,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { useI18n } from "../i18n";
 import { api } from "../api";
-import { serverMessageOf } from "../api/errors";
+import { isHttpStatus, serverMessageOf } from "../api/errors";
+import { useHashRoute } from "../lib/hashRoute";
 import type { LoreEntrySummaryView } from "../types";
 import { LoreEntryCard } from "./LoreEntryCard";
 import "./lore.css";
@@ -36,10 +37,14 @@ function SubjectGroup({
   subject,
   entries,
   forceOpen,
+  anchorId,
 }: {
   subject: string;
   entries: LoreEntrySummaryView[];
   forceOpen: boolean;
+  /** The `#lore/entry/<id>` target, or "". A group holding it is force-opened
+   * by the caller — see LoreEntryList's `anchorSubjects`. */
+  anchorId: string;
 }) {
   const { t } = useI18n();
   const [open, setOpen] = useState(false);
@@ -64,7 +69,17 @@ function SubjectGroup({
       </button>
       {shown &&
         entries.map((e) => (
-          <LoreEntryCard entry={e} key={`${subject}:${e.entryId}`} />
+          <div
+            key={`${subject}:${e.entryId}`}
+            className={
+              e.entryId === anchorId ? "lore-list__anchored" : undefined
+            }
+            data-testid={
+              e.entryId === anchorId ? "lore-anchored-entry" : undefined
+            }
+          >
+            <LoreEntryCard entry={e} />
+          </div>
         ))}
     </section>
   );
@@ -72,11 +87,95 @@ function SubjectGroup({
 
 export function LoreEntryList() {
   const { t } = useI18n();
+  const [route, setRoute] = useHashRoute();
+  const anchorId = (route.page === "lore" && route.loreEntryId) || "";
   const [entries, setEntries] = useState<LoreEntrySummaryView[] | null>(null);
   const [total, setTotal] = useState(0);
   const [truncated, setTruncated] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState("");
+
+  // ── 錨點 (#lore/entry/<id>) ────────────────────────────────────────────────
+  //
+  // 🔴 THE ANCHORED ENTRY IS FETCHED ON ITS OWN AND MERGED IN — 「Merge, never
+  // replace」, copied from useTasks' `#tasks/<id>` anchor because this page has
+  // the SAME problem in two flavours the list fetch cannot solve:
+  //
+  //   · RETIRED. The list rides POST /api/lore/search, whose DAL filters
+  //     `status <> 'retired'`. Retirement means the entry is no longer
+  //     RETRIEVED — it is still readable BY ID (GetLoreEntry has no status
+  //     filter), so a link to one lands here perfectly well and the list simply
+  //     never had it.
+  //   · PAST THE CAP. The list asks for PAGE_LIMIT (100), which is the server's
+  //     maximum (loreSearchLimitMax); an entry outside that page is missing for
+  //     a reason that has nothing to do with the entry.
+  //
+  // Without the补抓, both of those would render as 「查無此條目」 — a false
+  // statement about an entry that is sitting in the database.
+  //
+  // 🔴 AND THE THREE OUTCOMES ARE THREE DIFFERENT SENTENCES (owner ruling
+  // rc-428906235337, 2026-09-05, given for the task page and applied here
+  // verbatim with 任務→傳承): FOUND ⇒ show it; 404 ⇒ the anchor STAYS and the
+  // page says 「沒有符合篩選條件的條目」 with 清除定位 as the exit; ANY OTHER
+  // failure (500 / offline) ⇒ `anchorFailed`, show the load error and suppress
+  // BOTH empty states — 「沒問出口的問題不得給答案」.
+  //
+  // 🔴 THE ANCHOR NEVER STRIPS ITS OWN HASH. A route that healed itself would
+  // make a 404 flash and vanish, leaving a normal list and no explanation —
+  // which is the silent self-heal the task page used to do and the owner
+  // overturned.
+  const [anchor, setAnchor] = useState<{
+    id: string;
+    entry: LoreEntrySummaryView | null;
+    failed: boolean;
+  }>({ id: "", entry: null, failed: false });
+
+  useEffect(() => {
+    if (anchorId === "") {
+      setAnchor({ id: "", entry: null, failed: false });
+      return;
+    }
+    let alive = true;
+    api
+      .getLoreEntry(anchorId)
+      .then((d) => {
+        // ⚠️ THIS READ IS JOURNALLED, AND THAT IS CORRECT HERE. GET
+        // /api/lore/entries/{id} files a recall row. Somebody following a link
+        // to an entry IS reading it, so the row is true. What must NEVER go
+        // through this route is a mere EXISTENCE PROBE — asking 「does this id
+        // resolve?」 to pick a message — because that files a row saying an
+        // entry was used when nobody read it, into the table the governance
+        // side uses to decide what to retire. The difference is INTENT, not the
+        // route: the lore activity panel therefore resolves its headings from
+        // /api/members/{id}/lore-activity, which reads and writes nothing.
+        if (!alive) return;
+        setAnchor({
+          id: anchorId,
+          entry: {
+            entryId: d.entryId,
+            heading: d.heading,
+            impactStars: d.impactStars,
+            subjects: [...d.subjects],
+          },
+          failed: false,
+        });
+      })
+      .catch((e) => {
+        console.warn("LoreEntryList: anchor entry fetch failed", e);
+        // A 404 is an ANSWER (「沒有這一條」); anything else is the ABSENCE of
+        // one, and the page says different things about them.
+        const notFound = isHttpStatus(e, 404);
+        if (alive) setAnchor({ id: anchorId, entry: null, failed: !notFound });
+      });
+    return () => {
+      alive = false;
+    };
+  }, [anchorId]);
+
+  // Only ever true once the fetch has SETTLED on this id: while it is pending
+  // the page must say nothing at all about why the entry is missing.
+  const anchorPending = anchorId !== "" && anchor.id !== anchorId;
+  const anchorFailed = !anchorPending && anchorId !== "" && anchor.failed;
 
   useEffect(() => {
     let alive = true;
@@ -108,9 +207,25 @@ export function LoreEntryList() {
   //
   // 篩選比對的是標題與對象 —— 搜尋回應只帶得回這些,其他格要展開那一條才讀得
   // 到,拿沒有的東西去篩會篩掉本來該中的。
+  // Merge, never replace: when the loaded page ALREADY has the anchored entry
+  // the list row is the one to keep (same shape, and it is what the grouping
+  // was built from); the fetched copy only ever fills a gap.
+  const merged = useMemo(() => {
+    const base = entries ?? [];
+    const a = anchor.entry;
+    if (a === null || base.some((e) => e.entryId === a.entryId)) return base;
+    return [...base, a];
+  }, [entries, anchor.entry]);
+
   const shown = useMemo(
     () =>
-      (entries ?? []).filter(
+      // 🔴 THE ANCHOR OVERRIDES THE FILTER ENTIRELY — the same rule the task
+      // page's `matches()` follows: `#lore/entry/<id>` is an explicit 「show me
+      // THIS one」, the exact opposite of narrowing a list, so a live 篩選 box
+      // must not be able to hide the thing the link was for.
+      anchorId !== ""
+        ? merged.filter((e) => e.entryId === anchorId)
+        : merged.filter(
         (e) =>
           needle === "" ||
           // 🔴 篩的是標題，不是內容 —— 清單這一層拿到的就是標題（深度②），
@@ -118,7 +233,7 @@ export function LoreEntryList() {
           e.heading.toLowerCase().includes(needle) ||
           e.subjects.some((s) => s.toLowerCase().includes(needle))
       ),
-    [entries, needle]
+    [merged, needle, anchorId]
   );
 
   // 一條可以掛在好幾個對象下,所以它會在好幾群裡各出現一次 —— 那是實話,不是
@@ -142,17 +257,33 @@ export function LoreEntryList() {
     );
   }, [shown]);
 
-  if (error !== null) {
+  // 🔴 THE THREE ANCHOR OUTCOMES, IN THE ORDER THEY MUST BE DECIDED
+  // (owner ruling rc-428906235337, given for the task page, applied verbatim
+  // here with 任務→傳承).
+  //
+  // ① OTHER FAILURE (500 / offline) — the load error, and it SUPPRESSES both
+  //    empty states below. 「沒問出口的問題不得給答案」: we do not know whether
+  //    the entry exists, so we must not offer 清除定位 as if the answer were
+  //    「it does not」.
+  if (error !== null || anchorFailed) {
     return (
-      <div className="lore-subjects__error">
-        {t.lore.listFailed} {error}
+      <div className="lore-subjects__error" data-testid="lore-list-error">
+        {t.lore.listFailed} {error ?? t.lore.anchorLoadFailed}
       </div>
     );
   }
-  if (entries === null) {
-    return <div className="lore__note">{t.lore.listLoading}</div>;
+  // ② STILL IN FLIGHT — say nothing about why anything is missing yet.
+  if (entries === null || anchorPending) {
+    return (
+      <div className="lore__note" data-testid="lore-list-loading">
+        {t.lore.listLoading}
+      </div>
+    );
   }
-  if (entries.length === 0) {
+  // 「站上一條都沒有」 is a claim about the whole store and only the unanchored
+  // list can support it: with an anchor live the list is narrowed to one id, so
+  // an empty result there means 「找不到那一條」 and is handled below.
+  if (anchorId === "" && entries.length === 0) {
     return <div className="lore__note">{t.lore.listEmpty}</div>;
   }
 
@@ -178,7 +309,26 @@ export function LoreEntryList() {
         )}
       </div>
 
-      {needle !== "" && shown.length === 0 && (
+      {/* ③ 404 — the anchor STAYS (it is not stripped) and the page says so in
+          words, with 清除定位 as the exit. This is the one the owner overturned
+          the task page's silent self-heal for: a hash that healed itself would
+          leave a normal list and no explanation, and the reader would conclude
+          they had seen something they had not. */}
+      {anchorId !== "" && shown.length === 0 && (
+        <div className="lore__note" data-testid="lore-anchor-missing">
+          {t.lore.anchorNotFound(anchorId)}{" "}
+          <button
+            type="button"
+            className="lore-list__clear-anchor"
+            data-testid="lore-clear-anchor"
+            onClick={() => setRoute({ page: "lore" })}
+          >
+            {t.lore.anchorClear}
+          </button>
+        </div>
+      )}
+
+      {needle !== "" && anchorId === "" && shown.length === 0 && (
         <div className="lore__note">{t.lore.listFilterNoHit}</div>
       )}
 
@@ -187,7 +337,13 @@ export function LoreEntryList() {
           subject={subject}
           entries={list}
           // 篩選中時全部攤開:一個篩完還要自己一群群點開的清單,等於沒篩。
-          forceOpen={needle !== ""}
+          // 🔴 定位時也全部攤開 —— 而且是「含這一條的每一群」而不是第一群。
+          // 一條掛在 N 個對象底下就在 N 個群裡各出現一次(那是刻意的,見上面
+          // groups 的註解),只展開其中一群等於替使用者挑了一個他沒挑的對象。
+          // 這裡 `shown` 已經被錨點窄化成那一條,所以「全部攤開」就正好是
+          // 「含它的每一群」。
+          forceOpen={needle !== "" || anchorId !== ""}
+          anchorId={anchorId}
           key={subject}
         />
       ))}

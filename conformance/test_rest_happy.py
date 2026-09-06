@@ -2169,6 +2169,23 @@ HAPPY: dict[str, Happy] = {
             and isinstance(d.get("overview"), dict),
         ),
     ),
+    # T-33 lore activity panel. The scratch agent is OFFLINE in the black-box
+    # world, so this happy face is deliberately the NO-ANCHOR one: the check
+    # pins the pair that must never collapse into each other — `session_active`
+    # false WITH an empty `rows` ("there is no session to have a record in"), as
+    # opposed to true with an empty `rows` ("running, and read nothing"). A
+    # check that only asserted `rows == []` would pass on both and would
+    # therefore be measuring nothing. `rows` must be a LIST and never null.
+    "GET /api/members/{member_id}/lore-activity": Happy(
+        path=lambda ctx: f"/api/members/{ctx.agent.member_id}/lore-activity",
+        check=lambda ctx, r: _expect(
+            r,
+            lambda d: d["member_id"] == ctx.agent.member_id
+            and d["session_active"] is False
+            and d["session_boot_ts"] == 0
+            and d["rows"] == [],
+        ),
+    ),
     # ── webhook inlet (M4 §2) — PUBLIC, token-only (?t=); silent 200 for every
     # case so it never leaks endpoint existence. The anonymous face (no token)
     # is the lowest-friction happy probe; the accept/ignore delivery semantics

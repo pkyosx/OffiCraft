@@ -388,3 +388,23 @@
   cursor: default;
   opacity: 0.6;
 }
+
+/* 定位 (#lore/entry/<id>) — the anchored entry and the exit from a 404.
+   The highlight is a left rule rather than a background wash: the card already
+   owns its own surface, and a second background would read as a different KIND
+   of entry instead of "this is the one you followed a link to". */
+.lore-list__anchored {
+  border-left: 2px solid var(--color-accent);
+  padding-left: 6px;
+}
+.lore-list__clear-anchor {
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  color: var(--color-accent);
+  cursor: pointer;
+}
+.lore-list__clear-anchor:hover {
+  text-decoration: underline;
+}

@@ -765,6 +765,39 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			Summary:  "The SAME bounded wake snapshot as resume_summary, for a TARGET member (member_id) instead of the caller — control-others, admin_agent+ only (owner-scope or role=assistant); an ordinary agent gets 403. Same identity/chat/light-task-rows/roster/machines/overview/note shape, assembled by the identical resumeSnapshotParts function (so the roster and machine blocks cannot drift from what that member would get on waking; note that machines.you_are_on resolves for the TARGET member, not for you); resume_summary itself is unchanged and still identity-locked to the caller.",
 			MCPTool:  "get_member_resume_summary",
 		},
+		// ── T-33 lore activity panel (座艙,不是 agent 的工具) ──────────────────
+		// 🔴 SAME FLOOR AS THE ROW ABOVE, AND FOR THE SAME REASON. This is another
+		// control-others read of ONE member's private working history — what it
+		// has been reading out of 傳承 this session. principalAdminAgent is
+		// copied from resume-summary rather than reasoned out again here: the two
+		// answer the same question about permission (「誰可以看別人的內部狀態」),
+		// so they must not be able to drift apart by one of them being reasoned
+		// about twice.
+		//
+		// 🔴 NO MCPTool, DELIBERATELY — the spec carries x-mcp {include:false} to
+		// match. It is a cockpit panel about a member; handing the same route to
+		// agents as a tool would put an agent's own reading history in front of
+		// it, which is a different feature with a different question behind it
+		// and has been ruled on by nobody. ⚠️ bin/gen-mcp-catalog REFUSES a route
+		// with no x-mcp block at all (「missing x-mcp metadata」), so opting out is
+		// an explicit `include: false` and never an omission — an omission is a
+		// red generator, not a quiet exclusion.
+		//
+		// 🔴 NOT LoreGated, and that is forced rather than chosen: the path is not
+		// under /api/lore/, and TestEveryLoreRouteCarriesTheFeatureFlag pins the
+		// prefix and the flag to agree in BOTH directions. It is also correct on
+		// its own terms — this route reads the recall JOURNAL, which keeps saying
+		// what happened while the feature was on even after somebody switches it
+		// off, and a panel that 403s the moment the switch flips would erase the
+		// history rather than the feature.
+		{
+			Method:   "GET",
+			Path:     "/api/members/{member_id}/lore-activity",
+			Handler:  w.HandleGetMemberLoreActivityApiMembersMemberIdLoreActivityGet,
+			Auth:     authGated,
+			Requires: principalAdminAgent,
+			Summary:  "What ONE member has read out of 傳承 (lore) since it came online THIS time — the cockpit's lore activity panel. One line per entry that was put in front of that member during the CURRENT session, oldest first, each carrying 上線後幾秒 (`since_boot_secs`, computed from the anchor stamped on the journal row so it stays true after the session ends), which door filed it (`search` / `entry-read` / `revision-read`), the entry id, its 標題 and its `status`. 🔴 An entry that can no longer be found still gets its line, with `heading_found: false` and no invented title — dropping it would render 「他讀過這一條，而這一條後來查不到了」 as 「他沒讀過任何東西」. A RETIRED entry is not that case: it resolves normally and carries `status: \"retired\"`, because retirement stops an entry being RETRIEVED, not being read by id. 🔴 A member with no current session anchor answers `session_active: false` with an empty `rows`, which is a DIFFERENT answer from a running member that has looked nothing up. Reads only — it never files a recall journal row of its own. Admin/owner only, like the member resume-summary read.",
+		},
 		// ── Webhook inlet — PUBLIC (M4 §2) ─────────────────────────────────────
 		// Token-only identity (?t=); the path carries nothing else. Silent 200
 		// for every case (accepted OR ignored) so it never leaks existence.

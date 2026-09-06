@@ -385,6 +385,13 @@
     "requires": "admin_agent"
   },
   {
+    "auth": "gated",
+    "mcp_tool": null,
+    "method": "GET",
+    "path": "/api/members/{member_id}/lore-activity",
+    "requires": "admin_agent"
+  },
+  {
     "auth": "public",
     "mcp_tool": null,
     "method": "POST",

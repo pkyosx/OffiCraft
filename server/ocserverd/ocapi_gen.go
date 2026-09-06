@@ -1211,6 +1211,47 @@ type LoginDTO struct {
 	Password string  `json:"password"`
 }
 
+// LoreActivityDTO What ONE member has read out of 傳承 (lore) SINCE IT CAME ONLINE THIS TIME (T-33). The journal itself is append-only and keeps every session forever; the scope to 「這一任」 is this read's filter — `session_state = 'anchored'` AND the row's stamped `session_boot_ts` equal to the member's current anchor — which is what makes the panel appear to clear itself at every wake without anything being deleted.
+//
+// 🔴 `session_active: false` WITH AN EMPTY `rows` IS NOT THE SAME ANSWER AS `session_active: true` WITH AN EMPTY `rows`. The first says there is no current session to have a record in (the member is stopped, or has not connected yet); the second says the member is running and has looked nothing up. Rendering them with the same words would tell an owner that a stopped agent is ignoring memory it was never awake to read.
+type LoreActivityDTO struct {
+	// MemberId The member this panel is about — the target, never the caller.
+	MemberId string `json:"member_id"`
+
+	// Rows The retrievals of the current session, OLDEST FIRST, flattened to one row per entry. Empty means different things depending on `session_active` — see this schema's description.
+	Rows []LoreActivityRowDTO `json:"rows"`
+
+	// SessionActive Whether the member is anchored to a live session right now (`member.session_boot_ts > 0`). `false` means `rows` is empty BECAUSE THERE IS NO SESSION — 「這一任還沒開始／已結束」 — and not because the session was quiet.
+	SessionActive bool `json:"session_active"`
+
+	// SessionBootTs The anchor every row's `since_boot_secs` was measured against, `0` when `session_active` is false. It is on the wire so a reader can check the subtraction instead of trusting it.
+	SessionBootTs float64 `json:"session_boot_ts"`
+}
+
+// LoreActivityRowDTO ONE line of the lore activity panel: one entry that was put in front of this member at one moment during the current session. A retrieval that returned several entries becomes several of these rows — the panel is a list of 標題, so a search that answered with four entries is four lines, not one line with a count. Two rows sharing a `created_ts` are therefore the same journalled retrieval seen from each entry's side, and that is not a duplicate.
+type LoreActivityRowDTO struct {
+	// CreatedTs When the retrieval happened, absolute epoch seconds.
+	CreatedTs float64 `json:"created_ts"`
+
+	// Door WHICH DOOR filed this row — `search` (the agent looked something up), `entry-read` (it opened one entry's original) or `revision-read` (it went back to what an entry used to say). 「搜到了這幾條」 and 「我把這一條打開了」 are different events: the first is retrieval finding something, the second is somebody choosing it, and the panel must not merge them.
+	Door string `json:"door"`
+
+	// EntryId The lore entry this line is about. It is also the deep link target — the cockpit routes it to `#lore/entry/<entry_id>`, which fetches the entry on its own and therefore reaches it even when the list view would not (retired, or past the search page limit).
+	EntryId string `json:"entry_id"`
+
+	// Heading The entry's 標題 as it stands NOW, or `""` when the entry can no longer be found. Read it together with `heading_found` and never alone: an empty heading on a found entry and a heading nobody can look up any more are different facts.
+	Heading string `json:"heading"`
+
+	// HeadingFound Whether `entry_id` still resolves to a lore entry. 🔴 `false` ROWS ARE STILL RETURNED, AND THAT IS THE POINT: dropping the line would render 「他讀過這一條，而這一條後來查不到了」 as 「他沒讀過任何東西」. Nothing is invented for `heading` in that case — a plausible title would be worse than the gap. ⚠️ Measured 2026-09-06: there is NO `DELETE FROM lore_entry` anywhere in the tree, and retirement is not a delete, so `false` is an ANOMALY today rather than the ordinary end of an entry's life.
+	HeadingFound bool `json:"heading_found"`
+
+	// SinceBootSecs 「上線後多久」 — `created_ts` minus the session anchor STAMPED ON THE JOURNAL ROW (see migrations/00082). It is computed from the row's own anchor rather than from the member's current `session_boot_ts` cell, which the member's next session overwrites, so this number stays true after the session ends.
+	SinceBootSecs float64 `json:"since_boot_secs"`
+
+	// Status The entry's lifecycle status as it stands now — `active`, `superseded`, `retired` or `underspecified` (the CHECK set in migrations/00081) — and `""` exactly when `heading_found` is false. 🔴 IT IS DISPLAY, NOT ERROR HANDLING. A retired entry is still REACHABLE by id (`GET /api/lore/entries/{id}` has no status filter; retirement means 「no longer RETRIEVED」 — search and the boot directory skip it), so the deep link lands on it either way; this field is what lets the panel say 「這一條已退役」 beside the heading instead of letting a retired memory read as a live one.
+	Status string `json:"status"`
+}
+
 // LoreEntityApproveDTO Approve one pending subject entity: `{reason}`. `reason` is optional free prose recorded in the governance journal; unlike the retire reason it carries no permission consequence.
 type LoreEntityApproveDTO struct {
 	// Reason Optional prose recorded in the governance journal beside the act. Unlike the retire reason it carries no permission consequence — it is there so 「why was this name accepted」 has somewhere to live.
@@ -4873,6 +4914,9 @@ type ServerInterface interface {
 	// Force-stop: robust STOP now. On the offboard arm the server starts no clock of its own -- collection is the agent's report_stopped, the deadline the owner opens with 加速停止, or this.
 	// (POST /api/members/{member_id}/force-stop)
 	HandleForceStopMemberApiMembersMemberIdForceStopPost(w http.ResponseWriter, r *http.Request, memberId string)
+	// What ONE member has read out of 傳承 (lore) since it came online THIS time — the cockpit's lore activity panel. One line per entry that was put in front of that member during the CURRENT session, oldest first, each carrying 上線後幾秒 (`since_boot_secs`, computed from the anchor stamped on the journal row so it stays true after the session ends), which door filed it (`search` / `entry-read` / `revision-read`), the entry id, its 標題 and its `status`. 🔴 An entry that can no longer be found still gets its line, with `heading_found: false` and no invented title — dropping it would render 「他讀過這一條，而這一條後來查不到了」 as 「他沒讀過任何東西」. A RETIRED entry is not that case: it resolves normally and carries `status: "retired"`, because retirement stops an entry being RETRIEVED, not being read by id. 🔴 A member with no current session anchor answers `session_active: false` with an empty `rows`, which is a DIFFERENT answer from a running member that has looked nothing up. Reads only — it never files a recall journal row of its own. Admin/owner only, like the member resume-summary read.
+	// (GET /api/members/{member_id}/lore-activity)
+	HandleGetMemberLoreActivityApiMembersMemberIdLoreActivityGet(w http.ResponseWriter, r *http.Request, memberId string)
 	// Refocus a member's context (online-only, else 409).
 	// (POST /api/members/{member_id}/refocus)
 	HandleRefocusMemberApiMembersMemberIdRefocusPost(w http.ResponseWriter, r *http.Request, memberId string)
@@ -7558,6 +7602,32 @@ func (siw *ServerInterfaceWrapper) HandleForceStopMemberApiMembersMemberIdForceS
 	handler.ServeHTTP(w, r)
 }
 
+// HandleGetMemberLoreActivityApiMembersMemberIdLoreActivityGet operation middleware
+func (siw *ServerInterfaceWrapper) HandleGetMemberLoreActivityApiMembersMemberIdLoreActivityGet(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "member_id" -------------
+	var memberId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "member_id", r.PathValue("member_id"), &memberId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "member_id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.HandleGetMemberLoreActivityApiMembersMemberIdLoreActivityGet(w, r, memberId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // HandleRefocusMemberApiMembersMemberIdRefocusPost operation middleware
 func (siw *ServerInterfaceWrapper) HandleRefocusMemberApiMembersMemberIdRefocusPost(w http.ResponseWriter, r *http.Request) {
 
@@ -10179,6 +10249,7 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/members/{member_id}/cost/reset", wrapper.HandleResetCostApiMembersMemberIdCostResetPost)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/members/{member_id}/deactivate", wrapper.HandleDeactivateMemberApiMembersMemberIdDeactivatePost)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/members/{member_id}/force-stop", wrapper.HandleForceStopMemberApiMembersMemberIdForceStopPost)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/members/{member_id}/lore-activity", wrapper.HandleGetMemberLoreActivityApiMembersMemberIdLoreActivityGet)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/members/{member_id}/refocus", wrapper.HandleRefocusMemberApiMembersMemberIdRefocusPost)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/members/{member_id}/relocate", wrapper.HandleRelocateMemberApiMembersMemberIdRelocatePost)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/members/{member_id}/resume-summary", wrapper.HandleGetMemberResumeSummaryApiMembersMemberIdResumeSummaryGet)

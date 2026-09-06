@@ -26,6 +26,7 @@
 
 import type {
   LoreSearchView,
+  LoreActivityView,
   LoreEntryDetailView,
   LoreRevisionView,
   LorePendingEntityView,
@@ -132,6 +133,7 @@ import {
   toTaskArtifactVersion,
   toDocumentHistoryEntry,
   toLoreSearch,
+  toLoreActivity,
   toLoreEntryDetail,
   toLorePendingEntity,
   toLoreEntityGovernance,
@@ -1356,6 +1358,32 @@ export const httpApi: Api = {
       }),
     );
     return toMemberResumeSummary(wire);
+  },
+
+  async getMemberLoreActivity(memberId: string): Promise<LoreActivityView> {
+    // GET /api/members/{id}/lore-activity -> LoreActivityDTO (owner /
+    // admin-agent only, the same floor as the resume-summary read above).
+    // Called ONLY when the panel's 傳承活動 section is expanded.
+    //
+    // 🔴 THIS ROUTE READS THE RECALL JOURNAL AND WRITES NOTHING, which is why
+    // the panel resolves headings through it instead of calling getLoreEntry
+    // per row: getLoreEntry JOURNALS a retrieval, so using it to look up a
+    // title would file rows saying an entry was used when nobody read it —
+    // into the very table this panel displays.
+    const wire = unwrap(
+      await client.GET("/api/members/{member_id}/lore-activity", {
+        params: { path: { member_id: memberId } },
+      }),
+    );
+    return toLoreActivity(wire);
+  },
+
+  async getLoreSwitch(): Promise<boolean> {
+    // GET /api/lore-switch -> LoreSwitchDTO. One field, no lore gate: it is the
+    // one route that can still answer while the feature is switched off, which
+    // is the only moment its answer is worth anything.
+    const wire = unwrap(await client.GET("/api/lore-switch", {}));
+    return wire.lore_enabled;
   },
 
   async listChat(

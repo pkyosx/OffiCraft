@@ -27,11 +27,9 @@
  *                                                   member's unfinished tasks
  *   #monitor                                      → monitor page
  *   #monitor/member/<detailId>                    → monitor's member detail
- *   #lore                                         → 傳承 (lore) 分頁。沒有子區段:
- *                                                   四個子畫面裡只有一個有資料,
- *                                                   其餘是「尚無資料來源」,深連
- *                                                   進去等於承諾一個看不到東西的
- *                                                   位置。
+ *   #lore                                         → 傳承 (lore) 分頁。
+ *   #lore/entry/<entryId>                         → 傳承分頁,定位到那一條條目
+ *                                                   (自己補抓 + 展開所在的群)。
  *   #guide                                        → 使用說明 (product guide) list
  *   #guide/<docSlug>                              → that guide doc
  *   #settings                                     → settings overlay
@@ -43,6 +41,32 @@
  *                                                   role's definition page
  *   #settings/manuals/<typeKey>                   → settings, opened on that
  *                                                   task manual's hub (deep-link)
+ *
+ *   ── #lore/entry 推翻了兩件事,兩件的死法不一樣,所以分開記 ──────────────
+ *
+ *   ⚠️ (1) 過期的事實描述。這裡原本逐字寫著:
+ *
+ *          「沒有子區段: 四個子畫面裡只有一個有資料,其餘是『尚無資料來源』」
+ *
+ *       這句話在 2026-09-02 就不再是真的了 —— 那天「概覽」與「健康」兩個子分頁
+ *       被砍掉(見 LorePage.tsx 檔頭),今天 #lore 只剩兩個區塊,而且兩個都接
+ *       真後端(LorePendingSection → listPendingLoreEntities;LoreEntryList →
+ *       searchLore)。它不是被誰推翻的,是它描述的那個畫面版本消失了,而沒有人
+ *       回來改這段註解。⇒ 讀到「四格」的人請不要去找那四格。
+ *
+ *   🔴 (2) 被推翻的結論。這裡原本逐字寫著:
+ *
+ *          「深連進去等於承諾一個看不到東西的位置。」
+ *
+ *       負責人 2026-09-06 親自推翻(卡 rc-94d925ac79dc,逐字:「那就把定位做出來
+ *       (新增 #lore/entry/<id>) —— 我推翻當初不做子路徑那個決定」)。
+ *       兩句原文都留在原地而不是靜默刪掉:下一個人要看得見它們曾經存在、誰翻的,
+ *       以及「事實過期」跟「結論被推翻」是兩回事。
+ *
+ *       ⚠️ 而且那句擔心不是無的放矢 —— 它只是有解了。錨點條目自己一支
+ *       GET /api/lore/entries/{id} 補抓並 merge 進清單(照 useTasks 的做法),所以
+ *       已退役的、以及掉在搜尋 100 筆上限外的條目,深連都到得了;清單看不看得到
+ *       它是另一回事。
  *
  * Unknown / malformed hashes parse to the office home (self-healing — a stale
  * id inside a valid shape is healed by the consuming page when the lookup
@@ -109,6 +133,14 @@ export interface HashRoute {
    * literally keyed "new" cannot be deep-linked (owner-minted keys never
    * are). A stale/unknown key self-heals to the roles list (SettingsPage). */
   roleKey?: string;
+  /** lore only — the entry the 傳承 page locates and expands on open
+   * (#lore/entry/<id>; the member panel's 傳承活動 card links here). Shaped
+   * after `#tasks/<id>`: the page fetches this ONE entry on its own and merges
+   * it into the list, so the link lands even on an entry the list view would
+   * not show — retired (search filters `status <> 'retired'`) or past the
+   * search page limit. "entry" is a reserved first segment; a dangling
+   * `#lore/entry` with no id self-heals to the plain 傳承 page. */
+  loreEntryId?: string;
   /** guide only — the doc being read (#guide/<slug>). Absent → the doc LIST.
    * The guide is a top-level tab (owner: "user guide 改放在 tab 中,監控的右邊"),
    * so unlike its previous life as a settings sub-page it needs a route of its
@@ -179,6 +211,13 @@ export function parseHash(raw: string): HashRoute {
   }
 
   if (head === "lore") {
+    // #lore/entry/<id> locates one entry. A dangling "entry" with no id
+    // self-heals to the plain page rather than to an entry literally id'd
+    // "entry" — ids are server-minted `le-<hex>`, so none ever is. (Same
+    // reserved-first-segment shape as tasks' "executor" and roles' "new".)
+    if (rest[0] === "entry" && rest[1]) {
+      return { page: "lore", loreEntryId: rest[1] };
+    }
     return { page: "lore" };
   }
 
@@ -247,7 +286,11 @@ export function formatHash(route: HashRoute): string {
       ? `#tasks/${encodeURIComponent(route.taskId)}`
       : "#tasks";
   }
-  if (route.page === "lore") return "#lore";
+  if (route.page === "lore") {
+    return route.loreEntryId
+      ? `#lore/entry/${encodeURIComponent(route.loreEntryId)}`
+      : "#lore";
+  }
   if (route.page === "guide") {
     return route.guideSlug
       ? `#guide/${encodeURIComponent(route.guideSlug)}`

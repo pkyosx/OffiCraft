@@ -815,6 +815,17 @@ MATRIX: dict[str, Route] = {
         requires="admin_agent",
         path=_member_path("/api/members/{member_id}/resume-summary"),
     ),
+    # T-33: the lore activity panel — another control-others read of ONE
+    # member's private working history (what it has read out of 傳承 this
+    # session), so it sits on the SAME admin_agent floor as the resume-summary
+    # row above and is asserted here rather than assumed to have inherited it.
+    # Not an MCP tool (cockpit panel, not an agent tool) and NOT lore-gated:
+    # the path is outside /api/lore/, and the journal keeps saying what happened
+    # while the feature was on even after somebody switches it off.
+    "GET /api/members/{member_id}/lore-activity": Route(
+        requires="admin_agent",
+        path=_member_path("/api/members/{member_id}/lore-activity"),
+    ),
     # ── self-report presence (identity from token, no target param) ─────────
     "POST /api/self/waking": Route(
         # owner: sub="owner" has no roster row → 404 (self-report is agent-only

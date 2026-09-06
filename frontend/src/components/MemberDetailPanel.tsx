@@ -30,6 +30,8 @@ import { avatarKindForMember } from "../lib/avatarKind";
 import { ConfirmModal } from "./ConfirmModal";
 import { ScheduledMessagesCard } from "./ScheduledMessagesCard";
 import { ResumeSummaryCard } from "./ResumeSummaryCard";
+import { LoreActivityCard } from "./LoreActivityCard";
+import { useLoreSwitch } from "../hooks/useLoreSwitch";
 import { InlineEdit } from "./InlineEdit";
 import { ModelEffortEditor } from "./ModelEffortEditor";
 import { presenceVisual } from "./LifecycleDot";
@@ -133,6 +135,14 @@ export function MemberDetailPanel({
   // machine/account by member id). One flag gates both cells so offline/stopping/
   // stopped all read "—"; online/waking let the real running values through.
   const awake = member.lifecycle === "online" || member.lifecycle === "waking";
+
+  // The station-wide 傳承 switch, for the lore activity card BELOW. It gates
+  // the card's deep LINKS and not the card: the recall journal keeps saying
+  // what happened while the feature was on, but with the feature off there is
+  // no 傳承 tab for a `#lore/entry/<id>` link to land on (App.tsx drops the
+  // route through to the office page), so a link would go somewhere unrelated
+  // and say nothing about why.
+  const loreEnabled = useLoreSwitch();
 
   // Force-stop confirm (二次確認): a *stopping* member's Stop button escalates to an
   // IMMEDIATE kill, so it opens this confirm before firing the force-stop endpoint.
@@ -1103,7 +1113,23 @@ export function MemberDetailPanel({
   // 履歷摘要 lives in its own component because the outsource panel renders
   // the same card (T-4595). See ResumeSummaryCard for the first-expand
   // fetch contract this panel depends on.
-  const resumeSummaryCard = <ResumeSummaryCard agentId={member.id} />;
+  const resumeSummaryCard = (
+    <>
+      <ResumeSummaryCard agentId={member.id} />
+      {/* 傳承活動 sits DIRECTLY under 履歷摘要 (owner, verbatim: 「落點：member
+        * detail 的 resume summary 下方」). It rides the same slot rather than a
+        * new one because the slot literal in `slots={{…}}` is exhaustive by
+        * design (AGENT_DETAIL_SLOTS, T-0b4f) — adding a slot would force the
+        * OUTSOURCE panel to answer for it too, and whether a contractor's lore
+        * reads belong on its panel is a question nobody has been asked.
+        *
+        * ⚠️ SO THIS IS A STAFF-PANEL-ONLY CARD TODAY, and that is a scope
+        * boundary rather than a judgement: the worker panel renders the same
+        * `resumeSummaryCard` variable name but builds its own, so it does not
+        * pick this up by accident. */}
+      <LoreActivityCard agentId={member.id} loreEnabled={loreEnabled} />
+    </>
+  );
 
   // The panel's `extraExpandCards` payload: 回呼端點 (webhook) + 定期訊息
   // (schedule) — the inbound-triggered and the clock-triggered halves of the

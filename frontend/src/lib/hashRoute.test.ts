@@ -291,3 +291,35 @@ describe("navigateHash", () => {
     expect(notified).toBe(true);
   });
 });
+
+describe("#lore/entry/<id> (T-33, rc-94d925ac79dc)", () => {
+  it("往返:parse 與 format 互為反函數", () => {
+    expect(parseHash("#lore/entry/lore-abc123")).toEqual({
+      page: "lore",
+      loreEntryId: "lore-abc123",
+    });
+    expect(formatHash({ page: "lore", loreEntryId: "lore-abc123" })).toBe(
+      "#lore/entry/lore-abc123",
+    );
+  });
+
+  it("沒有 id 的 #lore/entry 自癒成傳承頁,不會定位到一條 id 叫 entry 的條目", () => {
+    // "entry" 是保留的第一段(跟 tasks 的 "executor"、roles 的 "new" 同樣的形狀)。
+    expect(parseHash("#lore/entry")).toEqual({ page: "lore" });
+  });
+
+  it("id 有做 URL 編碼", () => {
+    expect(formatHash({ page: "lore", loreEntryId: "a/b c" })).toBe(
+      "#lore/entry/a%2Fb%20c",
+    );
+    expect(parseHash("#lore/entry/a%2Fb%20c")).toEqual({
+      page: "lore",
+      loreEntryId: "a/b c",
+    });
+  });
+
+  it("裸的 #lore 不帶 loreEntryId", () => {
+    expect(parseHash("#lore")).toEqual({ page: "lore" });
+    expect(formatHash({ page: "lore" })).toBe("#lore");
+  });
+});

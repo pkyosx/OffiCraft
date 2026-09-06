@@ -10,6 +10,7 @@
 import type { DiffParams } from "../lib/diffLink";
 import type { ThemeBundle } from "../lib/themeBundle";
 import type {
+  LoreActivityView,
   LoreSearchView,
   LoreEntryDetailView,
   LoreRevisionView,
@@ -1889,6 +1890,31 @@ export interface Api {
    * an ordinary agent token → 403). LAZY by contract: the panel calls this
    * only when its RESUME SUMMARY section is expanded, never on panel mount. */
   getMemberResumeSummary(memberId: string): Promise<MemberResumeSummaryView>;
+  /** The target member's 傳承活動 for the CURRENT session (T-33,
+   * `GET /api/members/{member_id}/lore-activity`, owner/admin-agent only — the
+   * same floor as `getMemberResumeSummary`, an ordinary agent → 403).
+   *
+   * 🔴 LAZY LIKE THE RESUME SNAPSHOT: the panel calls this only when its
+   * 傳承活動 section is expanded, never on panel mount.
+   *
+   * ⚠️ It is NOT gated by the lore feature switch — the journal keeps saying
+   * what happened while the feature was on, so the panel keeps answering after
+   * somebody switches it off. What the switch does gate is the DEEP LINK: with
+   * lore off there is no 傳承 tab to land on, so the card renders headings
+   * without links and says the feature is off. */
+  getMemberLoreActivity(memberId: string): Promise<LoreActivityView>;
+  /** The station-wide 傳承 feature switch, ALONE (`GET /api/lore-switch`).
+   *
+   * 🔴 IT IS NOT BEHIND THE LORE FEATURE GATE, which is the only reason the
+   * route exists: every `/api/lore/*` route answers 403 while the switch is
+   * off, and from the caller's side that 403 is indistinguishable from 「you are
+   * not permitted」. `loreEnabled: false` here is an ANSWER, not an error.
+   *
+   * 🔴 AND IT IS NOT `getSettings().loreEnabled`. That read is owner/admin
+   * gated and carries token TTLs, the push contact address and the onboarding
+   * install log; this one carries one field, so a surface that only needs to
+   * know whether a lore link can land does not have to be handed the rest. */
+  getLoreSwitch(): Promise<boolean>;
   /** List the conversation with `withId`, oldest→newest. `limit` mirrors the
    * server's `?limit=` param: omitted → the server's recent window (default
    * 30); `-1` → the WHOLE history (the M2-3 gallery's full-history path — the

@@ -10,6 +10,7 @@ import { DOC_CAP_CHARS_DEFAULTS } from "./docCap";
 import { CHAT_BUDGET_CHARS_DEFAULT } from "./chatBudget";
 import { BACKUP_RETAIN_DEFAULT } from "./backupRetain";
 import type {
+  LoreActivityView,
   LoreEntrySummaryView,
   LoreSearchView,
   LoreRevisionRowView,
@@ -61,6 +62,7 @@ import type {
   WireChatMessage,
   WireMachine,
   WireMonSession,
+  WireLoreActivity,
   WireLoreSearchResult,
   WireLoreSearchHit,
   WireLoreEntryDetail,
@@ -1907,6 +1909,33 @@ export function toMemberResumeSummary(
  * NOT dropped here — they are no longer on the wire at all. Owner removed the
  * 活動 axis on 2026-09-05 and the tier and the trust class, both derived from
  * it, went with it. */
+/** Map the 傳承活動 payload → the view model.
+ *
+ * 🔴 NOTHING IS RE-DERIVED HERE, AND THAT IS THE WHOLE JOB. `sinceBootSecs`
+ * comes computed from the anchor stamped on the journal row; recomputing it
+ * from `createdTs` and the member's CURRENT `sessionBootTs` would answer about
+ * the wrong session the moment the member reboots, and would look perfectly
+ * plausible while doing it (migrations/00082 is the long form of this).
+ * `headingFound` / `status` likewise pass straight through: the server decides
+ * both from ONE lookup so that `status === "" iff !headingFound` holds, and a
+ * client that inferred either from the other would be free to break it. */
+export function toLoreActivity(w: WireLoreActivity): LoreActivityView {
+  return {
+    memberId: w.member_id,
+    sessionActive: w.session_active,
+    sessionBootTs: w.session_boot_ts,
+    rows: w.rows.map((r) => ({
+      createdTs: r.created_ts,
+      sinceBootSecs: r.since_boot_secs,
+      door: r.door,
+      entryId: r.entry_id,
+      heading: r.heading,
+      headingFound: r.heading_found,
+      status: r.status,
+    })),
+  };
+}
+
 export function toLoreEntrySummary(w: WireLoreSearchHit): LoreEntrySummaryView {
   return {
     entryId: w.entry_id,
