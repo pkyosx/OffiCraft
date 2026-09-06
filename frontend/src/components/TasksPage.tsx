@@ -295,18 +295,6 @@ export function TasksPage() {
     if (taskIdFilter) setRoute({ page: "tasks" });
   }
 
-  // 只用編號再找一次 — the exit from the 「找到了，但不符合其他條件」 state. It
-  // drops the OTHER axes and keeps the id, which is the one thing the owner has
-  // just been told is real.
-  function keepIdOnly() {
-    setAppliedExecutor(new Set());
-    setAppliedType(new Set());
-    setAppliedStatus(new Set());
-    setDraftExecutor(new Set());
-    setDraftType(new Set());
-    setDraftStatus(new Set());
-  }
-
   // Drop ONE applied axis and re-run immediately (the 已篩選 chips' ×). The
   // draft moves with it so the panel does not reopen showing a filter that is
   // no longer on.
@@ -454,25 +442,24 @@ export function TasksPage() {
   const idRow = idApplied
     ? tasks.find((x) => x.id === appliedId) ?? null
     : null;
-  // Which of the OTHER axes the fetched row fails — the words the notice needs.
-  const idFailedAxes: string[] = [];
-  if (idRow) {
-    if (!matchesExecutor(idRow)) idFailedAxes.push(t.tasks.filterExecutorNoun);
-    if (!matchesType(idRow)) idFailedAxes.push(t.tasks.filterTypeNoun);
-    if (!matchesStatus(idRow)) idFailedAxes.push(t.tasks.filterStatusNoun);
-  }
-  const idOutcome: "none" | "pending" | "unreached" | "missing" | "filtered" | "match" =
+  // FOUR outcomes, not the six of round 3. 「the server says it does not exist」
+  // and 「it exists but another axis excludes it」 used to be separate because
+  // each had its own notice on screen; owner 2026-09-06 removed both notices
+  // (c-86c129855835:「不用 比數本來就是要顯示篩選過的數量」), so the two now
+  // produce the identical screen — an empty result with the conditions in force
+  // beside the count. Keeping the distinction here would be a branch nothing can
+  // read. What still has to stay apart is 「we have an answer」 vs 「we do not」:
+  // pending and unreached suppress the empty message, `empty` states it.
+  const idOutcome: "none" | "pending" | "unreached" | "empty" | "match" =
     !idApplied
       ? "none"
       : anchorPending || loading
         ? "pending"
         : anchorFailed || error
           ? "unreached"
-          : idRow === null
-            ? "missing"
-            : idFailedAxes.length > 0
-              ? "filtered"
-              : "match";
+          : idRow !== null && matchesOthers(idRow)
+            ? "match"
+            : "empty";
 
   // 🔴 An applied id does NOT narrow the loaded list — it REPLACES it. The one
   // row it names either shows or is explained above; the rest of the list is
@@ -556,8 +543,29 @@ export function TasksPage() {
     !anchorFailed &&
     tasks.length === 0 &&
     taskTotal === 0;
+  // 🔴 AN APPLIED ID USES THE ORDINARY EMPTY STATE — owner 2026-09-06, four
+  // messages on rc-f603bbd447f4 / c-2580b547d1a1 / c-a497d775aa4b /
+  // c-86c129855835. Round 3 gave the by-id view two notices of its own (「找不到
+  // 「X」」 and 「找到了，但不符合其他條件…只用編號再找一次」). He saw the first
+  // one on the trial station and answered 「為什麼要顯示這種東西 拿掉!」, then
+  // 「UI不是本來就秀0筆了嗎」, then 「任務那邊也可以用同樣的方式就好,不用特別再
+  // 多個顯示框」.
+  //
+  // I put the second notice's case to him explicitly — a task that EXISTS but is
+  // excluded by another axis would read as deleted, which is the confusion this
+  // whole ticket was opened to end — and he overruled it: 「不用 比數本來就是要
+  // 顯示篩選過的數量」. His model: the conditions in force are on screen in the
+  // 已篩選 strip beside the count, so 0 筆 means "nothing matches what you asked
+  // for", and the reader can see what he asked for. That is his call, recorded
+  // here so the next person does not "restore" the notices as a bug fix.
+  //
+  // What that means mechanically: `idApplied` no longer suppresses this message.
+  // The two states that must still stay silent are the ones where NOBODY HAS AN
+  // ANSWER YET — the fetch is in flight (`pending`) or it never returned
+  // (`unreached`) — because 沒有符合篩選條件的任務 would be a claim about a
+  // question that was never answered. A 404 is an answer, so it says it.
   const nothingMatches =
-    !idApplied &&
+    (!idApplied || (idOutcome !== "pending" && idOutcome !== "unreached")) &&
     !loading &&
     !error &&
     !anchorPending &&
@@ -717,26 +725,6 @@ export function TasksPage() {
           testId="filter-status"
         />
       </FilterPanel>
-
-      {/* ── the by-id answers: THREE different things, on purpose ── */}
-      {idOutcome === "missing" && (
-        <div className="tasks__empty" data-testid="task-id-missing">
-          {t.tasks.idMissing(appliedId)}
-        </div>
-      )}
-      {idOutcome === "filtered" && (
-        <div className="tasks__id-blocked" data-testid="task-id-filtered">
-          <div>{t.tasks.idFilteredOut(appliedId, idFailedAxes.join("、"))}</div>
-          <button
-            type="button"
-            className="tasks__id-blocked-btn"
-            data-testid="task-id-only"
-            onClick={keepIdOnly}
-          >
-            {t.tasks.idOnlyAgain}
-          </button>
-        </div>
-      )}
 
       {/* ── empty states ×2 ── */}
       {nothingAtAll && (

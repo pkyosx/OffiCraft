@@ -74,16 +74,6 @@
   color: var(--color-text-muted);
 }
 
-/* 找不到（404）— the SERVER's answer, not a pane that was never loaded (T-93
- * round 2). It keeps the empty block's shape but says its sentence in the
- * page's own text colour rather than the muted one, so「這個編號不存在」cannot
- * be skimmed as the ordinary「沒有符合篩選條件」emptiness sitting next to it.
- * The third outcome (伺服器沒問到) is deliberately NOT a variant of this: it
- * renders as .replies__error, because it is not an answer at all. */
-.replies__empty--missing {
-  color: var(--color-text);
-}
-
 .replies__list {
   display: flex;
   flex-direction: column;

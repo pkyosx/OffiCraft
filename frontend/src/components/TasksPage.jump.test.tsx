@@ -282,19 +282,24 @@ describe("TasksPage 單一任務 filter (#tasks/<id>)", () => {
     // original self-heal — the anchor used to strip itself back to #tasks and
     // the full list came back silently, so a broken link and a link that was
     // never filtering looked identical.
-    // 🔴 owner 2026-09-06 (option ①) then killed the REPLACEMENT wording: the
-    // page answered the shared 沒有符合篩選條件的任務, which is also what it says
-    // when a task is real but merely outside the loaded rows. The 404 is an
-    // answer from the server and now reads as one.
+    // 🔴 owner 2026-09-06 then removed the bespoke wording it was replaced with
+    // (rc-f603bbd447f4 →「為什麼要顯示這種東西 拿掉!」→「UI不是本來就秀0筆了嗎」),
+    // so the ordinary filtered-empty state answers here again.
+    //
+    // THE PART THAT DID NOT CHANGE, AND IS WHAT THIS SPEC IS FOR: the anchor is
+    // NOT stripped. The 2026-09-05 ruling was about the HASH self-healing back
+    // to #tasks — that is what made a broken link and a link that was never
+    // filtering identical, and it is still held below. The wording was a second,
+    // separate answer to the same complaint, and it is the wording he removed.
     __injectMockTask(mkTask({ id: "t-1" }));
     window.location.hash = "#tasks/t-gone";
     const { findByTestId, queryByTestId } = renderTasks();
 
-    const missing = await findByTestId("task-id-missing");
-    expect(missing.textContent).toContain("t-gone");
-    expect(missing.textContent).toContain("跟伺服器要過");
-    // The generic empty state must NOT be what answers here.
-    expect(queryByTestId("tasks-empty-filtered")).toBeNull();
+    await findByTestId("tasks-empty-filtered");
+    expect(queryByTestId("task-id-missing")).toBeNull();
+    // Non-vacuity: the task that DOES exist is not on screen — the anchor is
+    // still narrowing, rather than the page being empty for some other reason.
+    expect(queryByTestId("open-list")).toBeNull();
     // The anchor stays put — that is the visible difference from before.
     expect(window.location.hash).toBe("#tasks/t-gone");
     // 清除全部 is the way back, and it restores the list AND the hash.

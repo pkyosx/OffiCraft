@@ -99,15 +99,6 @@ export const en: Dict = {
     // The chip's own word for the id axis — short, because the value sits right
     // next to it. The FIELD keeps the longer "Task ID" placeholder.
     filterIdNoun: "ID",
-    // ── the three by-id endings (T-93 round 3, owner's option ①) ─────────────
-    // They must READ as three different things: round 2 said the same sentence
-    // for "no such id" and "it exists, it just is not in the loaded page", and
-    // that sentence fooled the owner in review.
-    idMissing: (id: string) =>
-      `No task "${id}". We asked the server — this is not a task that has yet to load; that ID does not exist right now.`,
-    idFilteredOut: (id: string, axes: string) =>
-      `Found "${id}", but it does not match your current ${axes} filter. Every condition applies together, so it is not in the list.`,
-    idOnlyAgain: "Search by ID only",
     // A non-404 failure: the question never got an answer, so "not found" would
     // be a lie.
     idUnreached: (id: string) =>
@@ -310,31 +301,6 @@ export const en: Dict = {
       versionsOpaqueTail: ") — look at the two versions one at a time instead.",
     },
   },
-  // ── Awaiting-reply page (M2 reply cards, B2) ──
-  // ── Find one row (T-93 round 2: the search panel) ──
-  // The four states must READ differently: "not searched yet" and "searched and
-  // found nothing" rendering alike is the defect this control removes.
-  search: {
-    title: "Find a row",
-    inputLabel: "Task or reply-card id",
-    placeholder: "Paste an id, e.g. T-93 or rc-dce83078a722",
-    go: "Search",
-    close: "Close",
-    hint: "Paste a task or reply-card id and press Search. This does not filter as you type — it asks the server when you press.",
-    searching: "Searching…",
-    miss: (id: string) =>
-      `No “${id}”. That answer came from the server, not from a list that had not loaded — this id does not exist right now.`,
-    error: "Search failed: the server was never reached. That is not the same as not found — try again.",
-    errorUnknown: "Unknown error",
-    kindCard: "Reply card",
-    kindTask: "Task",
-    cardStatus: {
-      waiting: "Waiting on you",
-      answered: "Answered",
-      expired: "Expired",
-    },
-    foot: "Ids must be complete; half an id will not match. Ids only for now — titles and bodies are not searchable yet.",
-  },
   // ── Filter panel (T-93 round 2) ──
   // Modelled on the affordance the owner pointed at (c-7496afccb304): a funnel
   // button opens an in-page panel, Cancel/Apply close it, and a summary strip
@@ -364,8 +330,6 @@ export const en: Dict = {
     // "this card does not exist" and "this card was simply never loaded" read
     // identically; that collapse is the defect this ticket removes.
     lookupLoading: "Checking this id with the server…",
-    lookupMissing: (id: string) =>
-      `No card with id “${id}”. That is the server's answer, not a list that has not loaded yet — this id does not exist right now.`,
     // ⚠️ This one must NOT say "not found": without an answer from the server
     // we have no standing to say whether the id exists.
     lookupFailed:

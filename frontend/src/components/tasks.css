@@ -2066,37 +2066,4 @@ button.task-card__waiting--dep:focus-visible {
   color: var(--color-text-muted);
 }
 
-/* ── 找到了，但被其他條件擋住 (T-93 round 3) ────────────────────────────────
- * 🔴 This state has to LOOK unlike both the 404 line above it and the ordinary
- * 沒有符合篩選條件的任務 empty state — that is the whole ticket: the previous
- * round rendered 「不存在」 and 「在，只是沒被載進來」 identically and it fooled
- * the owner in review. So this one carries an accent edge and an action, where
- * the others are plain grey sentences. No overlay, no fixed positioning: it is
- * page content, like the panel above it. */
-.tasks__id-blocked {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 10px 14px;
-  padding: 12px 14px;
-  border-radius: var(--radius-card);
-  border: 1px solid color-mix(in srgb, var(--color-accent) 45%, transparent);
-  background: color-mix(in srgb, var(--color-accent) 8%, transparent);
-  color: var(--color-text);
-  font-size: 13px;
-  line-height: 1.6;
-}
-.tasks__id-blocked-btn {
-  flex: none;
-  padding: 7px 14px;
-  border-radius: var(--radius-pill);
-  border: 1px solid color-mix(in srgb, var(--color-accent) 55%, transparent);
-  background: var(--color-card);
-  color: var(--color-text-strong);
-  font-size: 13px;
-  cursor: pointer;
-  transition: background 0.15s;
-}
-.tasks__id-blocked-btn:hover {
-  background: color-mix(in srgb, var(--color-accent) 14%, transparent);
-}
+

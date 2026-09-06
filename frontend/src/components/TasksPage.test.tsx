@@ -1056,24 +1056,19 @@ describe("TasksPage", () => {
       await waitFor(() =>
         expect(getTaskSpy).toHaveBeenCalledWith("t-does-not-exist")
       );
-      await findByTestId("task-id-missing");
+      await findByTestId("tasks-empty-filtered");
 
       // The anchor survives: the hash still carries the id the owner clicked.
       expect(window.location.hash).toBe("#tasks/t-does-not-exist");
-      // The 404 sentence, and it has to SAY that the server was asked —
-      // otherwise it is indistinguishable from 「還沒載進來」 all over again.
-      const missing = getByTestId("task-id-missing").textContent ?? "";
-      expect(missing).toContain("t-does-not-exist");
-      expect(missing).toContain("跟伺服器要過");
-      expect(missing).toContain("不存在");
-      // Neither of the generic empty states may appear: 目前沒有任務 would be a
-      // claim about a workshop that in fact holds a task, and
-      // 沒有符合篩選條件的任務 is the sentence that made the two outcomes look
-      // the same.
-      expect(queryByTestId("tasks-empty-filtered")).toBeNull();
+      // 🔴 The bespoke 404 sentence this used to assert was removed by owner on
+      // 2026-09-06 (rc-f603bbd447f4 / c-2580b547d1a1); a 404 renders the
+      // ordinary 沒有符合篩選條件的任務, awaited above. 目前沒有任務 still may
+      // NOT appear — that would be a claim about a workshop which in fact holds
+      // a task, and it is a different sentence from the one a filter earns.
       expect(queryByTestId("tasks-empty")).toBeNull();
-      // …and NOT the 「找到了，但被其他條件擋掉」 notice either: nothing was
-      // found, so naming conditions would be a second lie.
+      // The by-id notices are gone from the product; if either testid comes
+      // back, someone restored a screen the owner removed.
+      expect(queryByTestId("task-id-missing")).toBeNull();
       expect(queryByTestId("task-id-filtered")).toBeNull();
       // …and the one real task is NOT on screen: the anchor is still narrowing.
       expect(document.querySelectorAll('[data-testid="task-card"]')).toHaveLength(

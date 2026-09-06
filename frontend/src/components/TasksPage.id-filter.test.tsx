@@ -221,9 +221,25 @@ describe("任務頁 篩選面板 (T-93 round 3)", () => {
 });
 
 describe("任務頁 ID 篩選 — 三種結局 (owner 2026-09-06 選項①)", () => {
-  it("① 404 → 「不存在」, and it says the SERVER was asked", async () => {
-    // 🔴 The distinction the whole ticket is about. This may not read as
-    // 「還沒載進來」 and may not borrow the generic filtered-empty sentence.
+  // 🔴 OWNER REMOVED THE TWO BY-ID NOTICES — 2026-09-06, rc-f603bbd447f4 and
+  // c-2580b547d1a1 / c-a497d775aa4b / c-86c129855835. Round 3 gave this view its
+  // own sentences (「找不到「X」。這是跟伺服器要過的結果…」 and 「找到了，但不符合
+  // 你目前的狀態條件…只用編號再找一次」). He saw the first on the trial station:
+  //   「為什麼要顯示這種東西 拿掉!」 →「UI不是本來就秀0筆了嗎」
+  //   →「任務那邊也可以用同樣的方式就好,不用特別再多個顯示框」
+  // The second was put to him explicitly — a task that EXISTS but is excluded by
+  // another axis would read as deleted, the confusion this ticket was opened to
+  // end — and he overruled it: 「不用 比數本來就是要顯示篩選過的數量」. The
+  // conditions in force are on screen in the 已篩選 strip beside the count.
+  //
+  // SO THE TWO CASES NOW RENDER THE SAME SCREEN, AND THAT IS THE DECISION, NOT A
+  // BUG. What these specs still hold is everything that decision did NOT touch:
+  //   · the id is answered by the SERVER, not by filtering the loaded rows —
+  //     that is what made round 2 dishonest, and it is untouched;
+  //   · an excluded row really is excluded (every condition ANDs);
+  //   · the page still says SOMETHING rather than going blank;
+  //   · 「no answer yet」 (in flight / never returned) still says nothing at all.
+  it("① 404 → the ordinary empty result, not a bespoke notice and not a blank page", async () => {
     __injectMockTask(mkTask({ id: "t-real" }));
     vi.spyOn(console, "warn").mockImplementation(() => {});
     const { findByTestId, queryByTestId } = renderPage();
@@ -231,20 +247,17 @@ describe("任務頁 ID 篩選 — 三種結局 (owner 2026-09-06 選項①)", ()
 
     applyIdFilter("t-nope");
 
-    const missing = await findByTestId("task-id-missing");
-    expect(missing.textContent).toContain("t-nope");
-    expect(missing.textContent).toContain("跟伺服器要過");
-    expect(missing.textContent).toContain("不存在");
-    expect(queryByTestId("tasks-empty-filtered")).toBeNull();
-    expect(queryByTestId("tasks-empty")).toBeNull();
+    // The ordinary filtered-empty message — the same one every other filter
+    // gets. Round 3's dedicated box is gone.
+    await findByTestId("tasks-empty-filtered");
+    expect(queryByTestId("task-id-missing")).toBeNull();
     expect(queryByTestId("task-id-filtered")).toBeNull();
   });
 
-  it("② found but blocked by ANOTHER axis → says so, NAMES the axis, and offers 只用編號再找一次", async () => {
-    // 🔴 THE STATE THE TICKET EXISTS FOR. Round 2 rendered this identically to
-    // ①. Here the task is real and the server returned it — it is the 狀態
-    // condition that is hiding it, and the page has to say that and nothing
-    // else.
+  it("② a row that EXISTS but fails another axis is excluded — and says the same thing a 404 does", async () => {
+    // 🔴 The non-vacuity is the second half: the task is REAL. If this spec only
+    // asserted "empty", it would pass on a page that never fetched anything.
+    // Dropping the blocking axis brings the row back, which is the proof.
     __injectMockTask(mkTask({ id: "t-live", title: "還在跑" }));
     __injectMockTask(
       mkTask({
@@ -260,24 +273,21 @@ describe("任務頁 ID 篩選 — 三種結局 (owner 2026-09-06 選項①)", ()
     // The default 狀態 set excludes terminals, so this id is real but filtered.
     applyIdFilter("t-closed");
 
-    const blocked = await findByTestId("task-id-filtered");
-    expect(blocked.textContent).toContain("t-closed");
-    expect(blocked.textContent).toContain("狀態"); // the axis, named
-    // It must NOT collapse into either of the other two answers.
+    await findByTestId("tasks-empty-filtered");
+    expect(queryByTestId("task-id-filtered")).toBeNull();
     expect(queryByTestId("task-id-missing")).toBeNull();
-    expect(queryByTestId("tasks-empty-filtered")).toBeNull();
-    // The card itself is not shown — every condition ANDs, so it really is out.
+    // Every condition ANDs, so the row really is out — not merely unannounced.
     expect(queryByText("收工了")).toBeNull();
 
-    // …and the exit works: drop the other axes, keep the id, and there it is.
-    fireEvent.click(await findByTestId("task-id-only"));
+    // …and it was there all along: clear the 狀態 axis and the server's row shows.
+    clearAllFilters();
+    applyIdFilter("t-closed");
     await waitFor(() => expect(queryByText("收工了")).toBeTruthy());
-    expect(queryByTestId("task-id-filtered")).toBeNull();
   });
 
-  it("② names the 負責人 axis when THAT is the one blocking it", async () => {
-    // Non-vacuity control for the 狀態 case: the notice reports which condition
-    // actually blocked the row, not a fixed word.
+  it("② the 負責人 axis ANDs with the id the same way 狀態 does", async () => {
+    // The axis-naming assertion this replaced is gone with the notice, but the
+    // AND itself is not: a different axis must still be able to exclude the row.
     __injectMockTask(mkTask({ id: "t-kyle", title: "凱爾的", executorId: "kyle" }));
     __injectMockTask(mkTask({ id: "t-mira", title: "米菈的", executorId: "mira" }));
     const { findByTestId, queryByText } = renderPage();
@@ -287,9 +297,13 @@ describe("任務頁 ID 篩選 — 三種結局 (owner 2026-09-06 選項①)", ()
     await waitFor(() => expect(queryByText("凱爾的")).toBeNull());
 
     applyIdFilter("t-kyle");
-    const blocked = await findByTestId("task-id-filtered");
-    expect(blocked.textContent).toContain("負責人");
-    expect(blocked.textContent).not.toContain("狀態");
+    await findByTestId("tasks-empty-filtered");
+    expect(queryByText("凱爾的")).toBeNull();
+
+    // Non-vacuity: drop the 負責人 axis and the same id resolves to the row.
+    clearAllFilters();
+    applyIdFilter("t-kyle");
+    await waitFor(() => expect(queryByText("凱爾的")).toBeTruthy());
   });
 
   it("③ found and passing every other condition → that ONE row is the list", async () => {
@@ -301,8 +315,7 @@ describe("任務頁 ID 篩選 — 三種結局 (owner 2026-09-06 選項①)", ()
     applyIdFilter("t-aaa1");
     await waitFor(() => expect(queryByText("第二張")).toBeNull());
     expect(queryByText("第一張")).toBeTruthy();
-    expect(queryByTestId("task-id-missing")).toBeNull();
-    expect(queryByTestId("task-id-filtered")).toBeNull();
+    expect(queryByTestId("tasks-empty-filtered")).toBeNull();
   });
 
   it("a NON-404 failure is not a miss: it says the server was never reached", async () => {
@@ -319,9 +332,10 @@ describe("任務頁 ID 篩選 — 三種結局 (owner 2026-09-06 選項①)", ()
     expect(err.textContent).toContain("沒有得到伺服器的回覆");
     // It may only mention 找不到 to DENY it — never as the verdict.
     expect(err.textContent).toContain("這不是「找不到」");
-    // No answer of any other kind may be on screen.
-    expect(queryByTestId("task-id-missing")).toBeNull();
-    expect(queryByTestId("task-id-filtered")).toBeNull();
+    // No answer of any other kind may be on screen. 🔴 tasks-empty-filtered is
+    // the one that matters now that a 404 renders it: an unreached server must
+    // NOT borrow the sentence a real 「0 筆」 uses, or a broken server reads as a
+    // deleted task — the exact confusion this ticket exists to end.
     expect(queryByTestId("tasks-empty-filtered")).toBeNull();
     expect(queryByTestId("tasks-empty")).toBeNull();
   });

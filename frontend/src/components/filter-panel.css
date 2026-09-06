@@ -10,11 +10,19 @@
  * its own look onto whichever page hosts it (frontend/.claude/rules/
  * css-layout-traps.md — "用了哪份 CSS 的 class,就要自己 import 那份 CSS").
  * Colours are theme tokens only. */
+/* 🔴 NO `margin-bottom` HERE — owner 2026-09-06 circled the gap it produced
+ * (「另外怎麼有一段空白」, c-d6c59eaa1c5a, a phone screenshot of 請示卡頁 with
+ * no filter applied). Measured in a real browser: the shell had
+ * `margin-bottom: 12px`, and BOTH host pages are flex columns that already
+ * space their own children — `.replies` gap 26px, `.tasks` gap 22px. The two
+ * ADD, so the row under this shell sat 38px down on a page whose rhythm is 26.
+ * The shell must not carry outer spacing: the host owns the rhythm, and a
+ * component that adds its own is invisible in code review and only shows up as
+ * "why is there a gap there" on someone's phone. */
 .filter-panel {
   display: flex;
   flex-direction: column;
   gap: 10px;
-  margin-bottom: 12px;
 }
 
 /* ── the expanded form ──────────────────────────────────────────────────── */

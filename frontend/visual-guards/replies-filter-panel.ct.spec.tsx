@@ -657,3 +657,52 @@ test("the × on a 已篩選 chip is a real box, not a squeezed line", async ({
     .soft(m.targetH, "the × pointer target's height (the ::after)")
     .toBeGreaterThanOrEqual(24);
 });
+
+// 🔴 THE SHELL MUST NOT ADD SPACING OF ITS OWN — owner circled the gap it made.
+//
+// 2026-09-06, c-d6c59eaa1c5a: a phone screenshot of 請示卡頁 with NO filter
+// applied, a red ring round the empty band between 請示卡 and 待核准, and one
+// line: 「另外怎麼有一段空白」.
+//
+// Measured rather than guessed: `.filter-panel` carried `margin-bottom: 12px`,
+// and BOTH host pages are flex columns that already space their own children
+// (`.replies` gap 26px, `.tasks` gap 22px). Nothing collapses a flex gap against
+// a margin — they ADD — so the row below sat 38px away on a page whose rhythm is
+// 26px. Neither number is wrong on its own, which is exactly why no reviewer saw
+// it and no test could: it is only visible as a shape, on a screen.
+//
+// The rule this pins is the general one, not the number: the HOST owns the
+// rhythm between its children, so the distance from this shell to the next row
+// must be the host's own gap and nothing more.
+//
+// MUTANT: put `margin-bottom: 12px` back on `.filter-panel` ⇒ this reddens
+// (38 vs 26). Applied, run, reverted.
+test("the 篩選 shell adds no spacing of its own: the gap below it is the page's", async ({
+  mount,
+  page,
+}) => {
+  await page.setViewportSize({ width: 390, height: 900 });
+  const cmp = await mount(<RepliesPageStory theme="light" />);
+  await cmp.locator(".replies__section-title").first().waitFor();
+
+  const m = await cmp.evaluate((root: HTMLElement) => {
+    const panel = root.querySelector(".filter-panel") as HTMLElement;
+    const host = panel.parentElement as HTMLElement;
+    const next = panel.nextElementSibling as HTMLElement;
+    return {
+      hostGap: parseFloat(getComputedStyle(host).rowGap || "0"),
+      actual: next.getBoundingClientRect().top - panel.getBoundingClientRect().bottom,
+      panelMarginBottom: getComputedStyle(panel).marginBottom,
+      nextMarginTop: getComputedStyle(next).marginTop,
+    };
+  });
+
+  // Positive control: a host that is not spacing its children would make the
+  // comparison below vacuous.
+  expect(m.hostGap, "the host must own a real rhythm for this test to mean anything")
+    .toBeGreaterThan(0);
+  expect(
+    m.actual,
+    `gap under the 篩選 shell (panel margin-bottom ${m.panelMarginBottom}, next margin-top ${m.nextMarginTop})`
+  ).toBeCloseTo(m.hostGap, 0);
+});

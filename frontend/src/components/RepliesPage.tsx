@@ -649,29 +649,30 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
           {!loading && !error && ` · ${waitingSorted.length}`}
         </div>
         {!loading && !error && waitingSorted.length === 0 ? (
-          /* 🔴 FOUR COPIES, AND THEY MAY NEVER BE COLLAPSED INTO ONE. The
-           * first two are the split the 任務頁 already makes — an empty page
-           * and an empty RESULT are different news, and saying 「目前沒有待處
-           * 理的請示」 while six cards sit behind a filter reads as "you are
-           * all caught up". The last two are what round 2 adds, and they are
-           * the whole point of asking the server: a 404 is the server SAYING
-           * the id does not exist, while a network/500 failure means we never
-           * got an answer at all. Round 1 had one sentence for all of it, and
-           * that is exactly how a card the page simply had not loaded came out
-           * looking identical to a card that does not exist. */
+          /* THREE, and the split that survives is 「we have an answer」 vs
+           * 「we do not」. An empty page and an empty RESULT stay separate —
+           * saying 「目前沒有待處理的請示」 while six cards sit behind a filter
+           * reads as "you are all caught up". And a network/500 failure keeps
+           * its own line, because nothing was ever asked and 0 筆 would be a
+           * claim about an unanswered question.
+           *
+           * 🔴 A FOURTH used to sit here: a 404 got its own sentence
+           * (「找不到「X」…」). owner 2026-09-06 removed it — he saw it on the
+           * trial station and answered 「為什麼要顯示這種東西 拿掉!」, then
+           * 「UI不是本來就秀0筆了嗎」. A 404 now falls through to the ordinary
+           * 沒有符合篩選條件的請示, with the count and the 已篩選 條件 beside it.
+           * What made round 1 dishonest was never this sentence — it was that
+           * the page FILTERED THE ROWS IT HAPPENED TO HOLD, so an unloaded card
+           * and a non-existent one really were the same screen. The by-id
+           * lookup asks the server, so the two are now different facts; the
+           * sentence was belt-and-braces on top of a fix that already works.
+           * Do not restore it as a bug fix. */
           lookup.state === "failed" ? (
             <div
               className="replies__error"
               data-testid="replies-lookup-failed"
             >
               {t.replies.lookupFailed}
-            </div>
-          ) : lookup.state === "missing" ? (
-            <div
-              className="replies__empty replies__empty--missing"
-              data-testid="replies-lookup-missing"
-            >
-              {t.replies.lookupMissing(idQuery)}
             </div>
           ) : lookup.state === "loading" ? (
             <div className="replies__empty" data-testid="replies-lookup-loading">

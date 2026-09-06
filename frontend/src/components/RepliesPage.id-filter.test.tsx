@@ -169,22 +169,29 @@ describe("請示 ID 篩選（面板版）", () => {
     ).toHaveProperty("value", "");
   });
 
-  it("🔴 404 says the SERVER does not have this id — not that a list has not loaded", async () => {
-    // The defect this ticket exists to remove. Round 1 answered 「沒有符合篩選
-    // 條件的請示」 both for a card that does not exist and for one it simply
-    // had not fetched, and the owner read the second as the first.
+  it("🔴 404 renders the ordinary filtered-empty result — the bespoke notice is gone by owner ruling", async () => {
+    // 🔴 owner 2026-09-06 (rc-f603bbd447f4 →「為什麼要顯示這種東西 拿掉!」→
+    // 「UI不是本來就秀0筆了嗎」). Round 2's dedicated 404 sentence is removed;
+    // a 404 now falls through to 沒有符合篩選條件的請示, with the count and the
+    // 已篩選 條件 beside it.
+    //
+    // WHAT THIS SPEC STILL HOLDS, and why removing the sentence did not undo
+    // round 1's defect: round 1 was dishonest because the page FILTERED THE
+    // CARDS IT HAPPENED TO HOLD, so a card that merely had not been fetched and
+    // a card that does not exist produced the same screen as a matter of fact.
+    // The by-id lookup asks the SERVER, so those are now two different facts —
+    // and the spec below this one pins the half that must still look different:
+    // a server we never reached may NOT render this sentence.
     __injectMockReplyCard(mkCard({ id: "rc-aaa", summary: "第一張" }));
 
     const { findByTestId, queryByTestId } = renderPage("rc-nope");
 
-    const missing = await findByTestId("replies-lookup-missing");
-    expect(missing.textContent).toBe(
-      "找不到「rc-nope」。這是跟伺服器要過的結果，不是還沒載進來——這個編號現在不存在。"
-    );
-    // The three outcomes are three different nodes: this one is not the plain
-    // filtered-empty copy, and it is not the never-reached-the-server one.
-    expect(queryByTestId("replies-empty")).toBeNull();
+    await findByTestId("replies-empty");
+    expect(queryByTestId("replies-lookup-missing")).toBeNull();
     expect(queryByTestId("replies-lookup-failed")).toBeNull();
+    // Non-vacuity: the card that DOES exist is not on screen either — the id
+    // really replaced the list rather than the list being empty by accident.
+    expect(queryByTestId("replies-list")).toBeNull();
   });
 
   it("🔴 a non-404 failure says the server was never reached, and never says 找不到", async () => {
