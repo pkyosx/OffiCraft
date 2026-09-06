@@ -8867,6 +8867,12 @@ export interface components {
              */
             chat_budget_chars: number;
             /**
+             * Step Note Cap Chars
+             * @description The size cap on ONE task STEP's working note, in CHARACTERS (Unicode code points — Chinese prose counts one per character). One number serves both faces: it is what `get_task` reports per step and what `get_task_step` reports as `note_cap_chars`, AND it is what both note write faces (the wholesale write and the anchor patch) refuse a longer note against, read from this one setting so the reported ceiling and the enforced one can never drift apart. The adjustable range is 1000..100000. Like `chat_budget_chars`, and unlike the `doc_cap_chars_*` knobs, it may be LOWERED as well as raised: the cap is checked only on WRITE, so a note already stored above a newly lowered cap stays readable in full and simply cannot be edited until it is shortened. Two neighbouring fields are deliberately NOT governed by this setting and keep their own 4,000-character server constant: the task-level handover note and a chat message body (owner ruling 2026-09-06).
+             * @default 10000
+             */
+            step_note_cap_chars: number;
+            /**
              * Doc Cap Chars Boot Sequence
              * @description The size cap on a 啟動步驟 block of the boot context, in CHARACTERS (Unicode code points). ONE knob for BOTH runtimes (claude and codex), each document measured on its own text — they are two renderings of one short checklist, so a studio that needs more room for one needs it for the other. The floor of the adjustable range is this document's shipped default (the `default` field above), the ceiling is 100000.
              * @default 15000
@@ -9062,6 +9068,11 @@ export interface components {
              * @description The wake snapshot's chat block budget, in CHARACTERS (Unicode code points). Must be between 1000 and 13000. Unlike the `doc_cap_chars_*` knobs the floor is NOT the shipped default — this budget may be lowered as well as raised, because the chat block is repacked on every read rather than stored. The ceiling is pinned to how many messages the packer reads before packing and cannot be raised on its own.
              */
             chat_budget_chars?: number | null;
+            /**
+             * Step Note Cap Chars
+             * @description The size cap on one task step's working note, in CHARACTERS (Unicode code points). Must be between 1000 and 100000. Unlike the `doc_cap_chars_*` knobs the floor is NOT the shipped default — this cap may be lowered as well as raised, because it is enforced only when a note is WRITTEN: a note already stored above a lowered cap stays readable in full and only becomes uneditable. It does not govern the task-level handover note or a chat message body, which keep their own 4,000-character constant.
+             */
+            step_note_cap_chars?: number | null;
             /**
              * Doc Cap Chars Boot Sequence
              * @description The size cap on a 啟動步驟 block of the boot context, in CHARACTERS (Unicode code points). One knob for both runtimes, each measured on its own text. Must be at least this document's shipped default (see `SettingsDTO.doc_cap_chars_boot_sequence`, whose `default` is that floor) and at most 100000.

@@ -966,6 +966,8 @@ var messageKeys = map[string]bool{
 	"settings.sessionTtl":                              true,
 	"settings.sessionTtlSub":                           true,
 	"settings.software":                                true,
+	"settings.stepNoteCap":                             true,
+	"settings.stepNoteCapSub":                          true,
 	"settings.stopSection":                             true,
 	"settings.systemName":                              true,
 	"settings.systemSub":                               true,

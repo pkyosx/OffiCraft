@@ -8,6 +8,7 @@ import type { ThemeBundle } from "../lib/themeBundle";
 import type { components } from "./generated/schema";
 import { DOC_CAP_CHARS_DEFAULTS } from "./docCap";
 import { CHAT_BUDGET_CHARS_DEFAULT } from "./chatBudget";
+import { STEP_NOTE_CAP_CHARS_DEFAULT } from "./stepNoteCap";
 import { BACKUP_RETAIN_DEFAULT } from "./backupRetain";
 import type {
   Member,
@@ -1142,6 +1143,10 @@ export function toServerSettings(w: WireServerSettings): ServerSettingsView {
     // the caps above: against a server too old to send the field, 0 would read
     // as "no chat at all", which is the one answer that is never right.
     chatBudgetChars: w.chat_budget_chars ?? CHAT_BUDGET_CHARS_DEFAULT,
+    // T-119 step-note cap. Same "?? the shipped default, never 0" reasoning:
+    // against a server too old to send the field, 0 would read as "no note may
+    // be written at all", which is the one answer that is never right.
+    stepNoteCapChars: w.step_note_cap_chars ?? STEP_NOTE_CAP_CHARS_DEFAULT,
     // T-8 backup retention. Same "?? the shipped default, never 0" reasoning:
     // against a server too old to send the field, 0 would render as "keep no
     // backups", which is the one answer that is never right — and it is the

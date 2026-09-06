@@ -2469,6 +2469,7 @@ export const httpApi: Api = {
       doc_cap_chars_boot_sequence?: number;
       doc_cap_chars_offboard?: number;
       chat_budget_chars?: number;
+      step_note_cap_chars?: number;
       backup_retain?: number;
       updater_receive_beta?: boolean;
       updater_auto_update?: boolean;
@@ -2526,6 +2527,9 @@ export const httpApi: Api = {
     }
     if (patch.chatBudgetChars !== undefined) {
       body.chat_budget_chars = patch.chatBudgetChars;
+    }
+    if (patch.stepNoteCapChars !== undefined) {
+      body.step_note_cap_chars = patch.stepNoteCapChars;
     }
     if (patch.backupRetain !== undefined) {
       body.backup_retain = patch.backupRetain;

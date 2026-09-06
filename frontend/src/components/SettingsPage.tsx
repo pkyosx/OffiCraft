@@ -43,6 +43,10 @@ import {
   CHAT_BUDGET_CHARS_MAX,
   CHAT_BUDGET_CHARS_MIN,
 } from "../api/chatBudget";
+import {
+  STEP_NOTE_CAP_CHARS_MAX,
+  STEP_NOTE_CAP_CHARS_MIN,
+} from "../api/stepNoteCap";
 import { BACKUP_RETAIN_MAX, BACKUP_RETAIN_MIN } from "../api/backupRetain";
 
 /** The adjustable document caps (T-ae38, widened by T-30f1), in the order the
@@ -1171,6 +1175,7 @@ function ServerParams({
     Partial<Record<DocCapField, string>>
   >({});
   const [chatBudgetDraft, setChatBudgetDraft] = useState<string | null>(null);
+  const [stepNoteCapDraft, setStepNoteCapDraft] = useState<string | null>(null);
   const [backupRetainDraft, setBackupRetainDraft] = useState<string | null>(
     null
   );
@@ -1297,6 +1302,26 @@ function ServerParams({
     }
     setChatBudgetDraft(null);
     if (n !== settings.chatBudgetChars) void onSave({ chatBudgetChars: n });
+  }
+
+  // T-119: the step-note cap. Its own row and its own commit for the same
+  // reason as the chat budget — this one may be turned DOWN, so it does not
+  // belong in DOC_CAP_FIELDS whose floor is each segment's shipped default.
+  // Lowering it costs nothing already stored: the cap is checked only on write.
+  function commitStepNoteCap() {
+    if (!settings || stepNoteCapDraft === null) return;
+    const n = Number(stepNoteCapDraft);
+    if (
+      !Number.isInteger(n) ||
+      n < STEP_NOTE_CAP_CHARS_MIN ||
+      n > STEP_NOTE_CAP_CHARS_MAX
+    ) {
+      setRangeError(true);
+      setStepNoteCapDraft(null);
+      return;
+    }
+    setStepNoteCapDraft(null);
+    if (n !== settings.stepNoteCapChars) void onSave({ stepNoteCapChars: n });
   }
 
   // T-8: backup retention N. Its own row and its own commit for the same reason
@@ -1573,6 +1598,22 @@ function ServerParams({
                 value={chatBudgetDraft ?? String(settings.chatBudgetChars)}
                 onChange={(e) => { setRangeError(false); onClearSaveError(); setChatBudgetDraft(e.target.value); }}
                 onBlur={commitChatBudget} onKeyDown={(e) => { if (e.key === "Enter") commitChatBudget(); }} />
+              <span className="param-pct__sign">{t.settings.chars}</span>
+            </div>
+          </div>
+
+          <div className="param-row">
+            <div className="param-row__body">
+              <div className="param-row__name">{t.settings.stepNoteCap}</div>
+              <div className="param-row__sub">{t.settings.stepNoteCapSub}</div>
+            </div>
+            <div className="param-pct">
+              <input id="param-step-note-cap" className="param-input" type="number"
+                min={STEP_NOTE_CAP_CHARS_MIN} max={STEP_NOTE_CAP_CHARS_MAX}
+                aria-label={t.settings.stepNoteCap}
+                value={stepNoteCapDraft ?? String(settings.stepNoteCapChars)}
+                onChange={(e) => { setRangeError(false); onClearSaveError(); setStepNoteCapDraft(e.target.value); }}
+                onBlur={commitStepNoteCap} onKeyDown={(e) => { if (e.key === "Enter") commitStepNoteCap(); }} />
               <span className="param-pct__sign">{t.settings.chars}</span>
             </div>
           </div>
