@@ -997,7 +997,13 @@ var identityGateLedger = map[string]string{
 		"the out-of-box seed's local machine row; same reasoning as above.",
 	"api_tasks.go :: HandleCreateTaskApiTasksPost :: ExecutorKind: executorKind": "" +
 		"stamping the normalised executor kind onto the new task — the value the four " +
-		"create-matrix comparisons above decided.",
+		"create-matrix comparisons above decided. \u26a0\ufe0f \"four\" is not what a " +
+		"reader counts: grep 'HandleCreateTaskApiTasksPost ::' over this file and " +
+		"six of the entries are comparisons. The number is left as written because " +
+		"it predates T-91 and correcting a neighbour's text from inside an " +
+		"unrelated package is how ledgers drift; the caveat sits here, on the " +
+		"entry that is wrong, rather than only on the T-91 entry below it, because " +
+		"a reader who stops at this line would otherwise never see it.",
 	"wire.go :: newTaskDTO :: ExecutorKind: t.ExecutorKind": "" +
 		"wire projection, straight copy: the DTO tells the client which population " +
 		"executes the task. No decision here.",
@@ -1018,12 +1024,9 @@ var identityGateLedger = map[string]string{
 		"this call returns), so the kind is the only thing that separates 「外包票, " +
 		"還沒派工」 from 「這件事不適用」. No decision here — the deciding is the " +
 		"executor-kind comparisons in this same handler, which are already on this " +
-		"ledger. Deliberately not a COUNT: the sibling entry above says \"four\" and " +
-		"a reader who counts gets six, and a hard-coded number in a ledger goes " +
-		"stale with nothing to catch it — grep " +
-		"'HandleCreateTaskApiTasksPost ::' over this file for the live list. That " +
-		"sibling predates T-91 (cdf34aaf, T-170e stage 5), so it is left as it is " +
-		"rather than quietly corrected from inside this package.",
+		"ledger — grep 'HandleCreateTaskApiTasksPost ::' over this file for the " +
+		"live list. Deliberately not a count: a hard-coded number here goes stale " +
+		"with nothing watching it, which is what happened to the entry above.",
 	"api_tasks.go :: HandleCreateTaskApiTasksPost :: ExecutorKind: existing.ExecutorKind": "" +
 		"the dedupe-hit twin of the line above: the same copy, taken from the " +
 		"EXISTING ticket this call folded onto rather than from the one it stamped. " +
