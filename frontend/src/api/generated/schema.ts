@@ -3509,7 +3509,14 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * report_stopped(): anchor the caller's stopped; fire recycle kill. Answers with a bounded receipt (``id``, ``desired_state``, ``refocus_op``, ``refocus_deadline``), not the member row — call ``get_member`` when you need the rest.
+         * report_stopped(): tell the server you have FINISHED your close-out. 🔴 THIS CALL DOES NOT, BY ITSELF, END YOUR SESSION, and it does not always cause anything to end it — which of the four things happened is in the receipt's ``stop_effect``, and it is the only way to tell them apart:
+         *
+         *     * ``collected`` — a kill was dispatched by this call. You are being collected.
+         *     * ``latched_for_collect`` — nothing was sent yet, but the next reconcile tick collects you off the latch this call wrote. You are being collected, one tick later.
+         *     * ``recorded_only`` — 🔴 the end of this session was RECORDED AND NOTHING ELSE. No wind-down is open and nothing is holding you down, so NO KILL FOLLOWS and you will be started again. You have not been stopped, you have been noted. If you meant to stay down, someone with the authority to set your desired state has to do that — reporting again will not.
+         *     * ``already_reported`` — you had already reported stopped, so THIS CALL DID NOTHING AT ALL. Whatever your first report set in motion, or failed to, still stands. Calling a third time changes nothing either.
+         *
+         *     The rest of the receipt is ``id``, ``desired_state``, ``refocus_op`` and ``refocus_deadline``, not the member row — call ``get_member`` when you need the rest.
          * @description ``report_stopped()`` — shutdown-done report (identity from token, NO member_id).
          *
          *     Stamps the CALLER's ``stopped_since`` ONCE (anchor semantics — never re-stamped
@@ -3522,13 +3529,26 @@ export interface paths {
          *     SSE drops; ``refocus_since`` is DELIBERATELY left set (the dump-done marker stays
          *     in play until the machine kills → respawn → ``report_waking`` clears both markers).
          *
-         *     EVENT-DRIVEN RECYCLE KILL (phase ②): on the FIRST stopped report (the anchor
-         *     transition), if a recycle is pending (still ``desired_state==online`` +
-         *     refocus-marked)
-         *     fire the robust STOP at the warden RIGHT NOW — Seth's event-driven kill — instead
-         *     of waiting up to ~30s for the reconcile cadence to observe it. Gated on the anchor
-         *     so repeated stopped re-reports do NOT re-dispatch. The machine reconcile recycle
-         *     branch stays the idempotent BACKSTOP.
+         *     WHAT FOLLOWS THE REPORT IS NOT ONE THING, and ``stop_effect`` on the receipt is
+         *     the only place a caller can read WHICH. Every one of these used to answer 200
+         *     with byte-identical bytes, and two of them do nothing (T-102).
+         *
+         *     A STAFF report is ALWAYS collected (owner 2026-08-16, rc-b08d49dc3b03): the first
+         *     one fires the robust STOP at the warden RIGHT NOW — the event-driven kill —
+         *     instead of waiting up to ~30s for the reconcile cadence to observe it, and
+         *     answers ``collected``.
+         *
+         *     An OUTSOURCE report is folded to the worker funnel, which has three more cells:
+         *     ``latched_for_collect`` (a handover epoch is open — the latch is written here and
+         *     the next tick collects off it; one decider, one kill), ``collected`` (an open 停止
+         *     epoch — killed here, held down, no respawn), and 🔴 ``recorded_only``, the silent
+         *     cell: neither of those held, so ``stopped_since`` is written and NOTHING is
+         *     collecting it — no kill goes out, nothing holds the worker down, and it is simply
+         *     started again.
+         *
+         *     On EITHER side a repeat report answers ``already_reported``: the anchor is not
+         *     re-stamped, nothing is re-dispatched, the whole body is skipped. The machine
+         *     reconcile recycle branch stays the idempotent BACKSTOP.
          */
         post: operations["handle_report_stopped_api_self_stopped_post"];
         delete?: never;
@@ -8661,6 +8681,23 @@ export interface components {
              * @description Epoch seconds by which an in-flight wind-down is force-collected, 0 when none is in flight. The agent is counting to this number and cannot compute it: it is the server's anchor plus the reconcile grace. This is the one number that says how much time is left to close out properly.
              */
             refocus_deadline?: number;
+            /**
+             * Stop Effect
+             * @description 🔴 WHAT ``report_stopped`` ACTUALLY DID. Present ONLY on the ``/api/self/stopped`` face; absent on the other three, which are not stop reports and have no effect to name.
+             *
+             *     It exists because that one verb has FOUR different internal outcomes and, until T-102, every one of them answered 200 with byte-identical bytes - so an agent that had just declared itself finished could not tell "someone is collecting me" from "nobody is". Two of the four are silent no-ops: the caller believes it has stopped, nothing kills its session, and the reconcile machine starts it again seconds later and it keeps spending.
+             *
+             *     The four values, and the pairing that matters - the first two mean a collect is under way or provably owed, the last two mean NOBODY is coming:
+             *
+             *     * ``collected`` - a collect was dispatched BY THIS CALL. The staff arm's robust STOP, or the worker 停止 arm's kill-and-hold-down. The session ends.
+             *     * ``latched_for_collect`` - nothing was dispatched here, but this call wrote the latch the next reconcile tick keys on, so the collect is owed and the wait is bounded by one tick. One decider, one kill. The session ends.
+             *     * ``recorded_only`` - the end of this session was RECORDED and nothing else. ``stopped_since`` is on the row, but no wind-down epoch is open for a tick to close and this report carried no intent to stay down (``desired_state`` is still ``online``), so nothing is watching the latch and no kill will follow. An agent that reads this as "I have been stopped" is wrong: it has only been noted, and it will be woken again.
+             *     * ``already_reported`` - THIS CALL DID NOTHING AT ALL. ``stopped_since`` was already anchored (anchor semantics - it is never re-stamped), so the whole handler body was skipped. Whatever the FIRST report set in motion, or failed to, still stands; repeating the call cannot change it.
+             *
+             *     Optional (T-102 adds it to a frozen DTO), so a client written before this field must keep working when it is absent - but a client that reads a stopped-report receipt WITHOUT reading this field is reading the exact ambiguity the field was added to remove.
+             * @enum {string}
+             */
+            stop_effect?: "collected" | "latched_for_collect" | "recorded_only" | "already_reported";
         };
         /**
          * OutsourceRestartReceiptDTO

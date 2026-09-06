@@ -296,6 +296,30 @@ func (e ScheduledMessageUpdateDTOStatus) Valid() bool {
 	}
 }
 
+// Defines values for SelfReportReceiptDTOStopEffect.
+const (
+	AlreadyReported   SelfReportReceiptDTOStopEffect = "already_reported"
+	Collected         SelfReportReceiptDTOStopEffect = "collected"
+	LatchedForCollect SelfReportReceiptDTOStopEffect = "latched_for_collect"
+	RecordedOnly      SelfReportReceiptDTOStopEffect = "recorded_only"
+)
+
+// Valid indicates whether the value is a known member of the SelfReportReceiptDTOStopEffect enum.
+func (e SelfReportReceiptDTOStopEffect) Valid() bool {
+	switch e {
+	case AlreadyReported:
+		return true
+	case Collected:
+		return true
+	case LatchedForCollect:
+		return true
+	case RecordedOnly:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for WebhookCreateDTOPlatform.
 const (
 	WebhookCreateDTOPlatformGeneric WebhookCreateDTOPlatform = "generic"
@@ -2893,7 +2917,35 @@ type SelfReportReceiptDTO struct {
 
 	// RefocusOp Which wind-down or handover is in flight, empty when none is. It says WHICH rung of the ladder (下線 → 加速 → 強制) the agent is on, and the handlers refuse to walk that ladder backwards - so an agent that reports stopping while already further along learns here that the slower procedure is not available to it.
 	RefocusOp *string `json:"refocus_op,omitempty"`
+
+	// StopEffect 🔴 WHAT ``report_stopped`` ACTUALLY DID. Present ONLY on the ``/api/self/stopped`` face; absent on the other three, which are not stop reports and have no effect to name.
+	//
+	// It exists because that one verb has FOUR different internal outcomes and, until T-102, every one of them answered 200 with byte-identical bytes - so an agent that had just declared itself finished could not tell "someone is collecting me" from "nobody is". Two of the four are silent no-ops: the caller believes it has stopped, nothing kills its session, and the reconcile machine starts it again seconds later and it keeps spending.
+	//
+	// The four values, and the pairing that matters - the first two mean a collect is under way or provably owed, the last two mean NOBODY is coming:
+	//
+	// * ``collected`` - a collect was dispatched BY THIS CALL. The staff arm's robust STOP, or the worker 停止 arm's kill-and-hold-down. The session ends.
+	// * ``latched_for_collect`` - nothing was dispatched here, but this call wrote the latch the next reconcile tick keys on, so the collect is owed and the wait is bounded by one tick. One decider, one kill. The session ends.
+	// * ``recorded_only`` - the end of this session was RECORDED and nothing else. ``stopped_since`` is on the row, but no wind-down epoch is open for a tick to close and this report carried no intent to stay down (``desired_state`` is still ``online``), so nothing is watching the latch and no kill will follow. An agent that reads this as "I have been stopped" is wrong: it has only been noted, and it will be woken again.
+	// * ``already_reported`` - THIS CALL DID NOTHING AT ALL. ``stopped_since`` was already anchored (anchor semantics - it is never re-stamped), so the whole handler body was skipped. Whatever the FIRST report set in motion, or failed to, still stands; repeating the call cannot change it.
+	//
+	// Optional (T-102 adds it to a frozen DTO), so a client written before this field must keep working when it is absent - but a client that reads a stopped-report receipt WITHOUT reading this field is reading the exact ambiguity the field was added to remove.
+	StopEffect *SelfReportReceiptDTOStopEffect `json:"stop_effect,omitempty"`
 }
+
+// SelfReportReceiptDTOStopEffect 🔴 WHAT “report_stopped“ ACTUALLY DID. Present ONLY on the “/api/self/stopped“ face; absent on the other three, which are not stop reports and have no effect to name.
+//
+// It exists because that one verb has FOUR different internal outcomes and, until T-102, every one of them answered 200 with byte-identical bytes - so an agent that had just declared itself finished could not tell "someone is collecting me" from "nobody is". Two of the four are silent no-ops: the caller believes it has stopped, nothing kills its session, and the reconcile machine starts it again seconds later and it keeps spending.
+//
+// The four values, and the pairing that matters - the first two mean a collect is under way or provably owed, the last two mean NOBODY is coming:
+//
+// * “collected“ - a collect was dispatched BY THIS CALL. The staff arm's robust STOP, or the worker 停止 arm's kill-and-hold-down. The session ends.
+// * “latched_for_collect“ - nothing was dispatched here, but this call wrote the latch the next reconcile tick keys on, so the collect is owed and the wait is bounded by one tick. One decider, one kill. The session ends.
+// * “recorded_only“ - the end of this session was RECORDED and nothing else. “stopped_since“ is on the row, but no wind-down epoch is open for a tick to close and this report carried no intent to stay down (“desired_state“ is still “online“), so nothing is watching the latch and no kill will follow. An agent that reads this as "I have been stopped" is wrong: it has only been noted, and it will be woken again.
+// * “already_reported“ - THIS CALL DID NOTHING AT ALL. “stopped_since“ was already anchored (anchor semantics - it is never re-stamped), so the whole handler body was skipped. Whatever the FIRST report set in motion, or failed to, still stands; repeating the call cannot change it.
+//
+// Optional (T-102 adds it to a frozen DTO), so a client written before this field must keep working when it is absent - but a client that reads a stopped-report receipt WITHOUT reading this field is reading the exact ambiguity the field was added to remove.
+type SelfReportReceiptDTOStopEffect string
 
 // SetPasswordDTO First-run owner-password claim (`POST /api/auth/set-password`, PUBLIC).
 // `claim_token` is the one-shot token the server mints at first boot and prints
@@ -4850,7 +4902,14 @@ type ServerInterface interface {
 	// restart_self(): self-triggered recycle (online-only 409; min-liveness 429; wind-down-ladder 409). Answers with a bounded receipt (“id“, “desired_state“, “refocus_op“, “refocus_deadline“), not the member row — call “get_member“ when you need the rest.
 	// (POST /api/self/refocus)
 	HandleRestartSelfApiSelfRefocusPost(w http.ResponseWriter, r *http.Request)
-	// report_stopped(): anchor the caller's stopped; fire recycle kill. Answers with a bounded receipt (“id“, “desired_state“, “refocus_op“, “refocus_deadline“), not the member row — call “get_member“ when you need the rest.
+	// report_stopped(): tell the server you have FINISHED your close-out. 🔴 THIS CALL DOES NOT, BY ITSELF, END YOUR SESSION, and it does not always cause anything to end it — which of the four things happened is in the receipt's “stop_effect“, and it is the only way to tell them apart:
+	//
+	// * “collected“ — a kill was dispatched by this call. You are being collected.
+	// * “latched_for_collect“ — nothing was sent yet, but the next reconcile tick collects you off the latch this call wrote. You are being collected, one tick later.
+	// * “recorded_only“ — 🔴 the end of this session was RECORDED AND NOTHING ELSE. No wind-down is open and nothing is holding you down, so NO KILL FOLLOWS and you will be started again. You have not been stopped, you have been noted. If you meant to stay down, someone with the authority to set your desired state has to do that — reporting again will not.
+	// * “already_reported“ — you had already reported stopped, so THIS CALL DID NOTHING AT ALL. Whatever your first report set in motion, or failed to, still stands. Calling a third time changes nothing either.
+	//
+	// The rest of the receipt is “id“, “desired_state“, “refocus_op“ and “refocus_deadline“, not the member row — call “get_member“ when you need the rest.
 	// (POST /api/self/stopped)
 	HandleReportStoppedApiSelfStoppedPost(w http.ResponseWriter, r *http.Request)
 	// report_stopping(): stamp the caller's stopping_since (graceful stop). Answers with a bounded receipt (“id“, “desired_state“, “refocus_op“, “refocus_deadline“), not the member row — call “get_member“ when you need the rest.

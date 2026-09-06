@@ -2447,12 +2447,21 @@ func (s *apiServer) workerReportStopping(id, trigger string) (*Member, error) {
 // (kill+respawn NOW, not on the next tick — the member recycle-kill shape); a
 // repeat report, or one outside a handover, only anchors stopped_since once
 // and never dispatches. Takes s.outsourceMu.
-func (s *apiServer) workerReportStopped(id, trigger string) (*Member, error) {
+//
+// 🔴 RETURNS WHICH OF THE FOUR ARMS IT TOOK (the stop_effect enum, T-102). The
+// four are not variations on one outcome — two of them collect and two of them
+// do nothing a caller can rely on — and until this return existed they were
+// indistinguishable from outside: every one answered 200 with the same bytes.
+// The two silent ones are the bare latch below (nothing is watching
+// stopped_since on a row with no epoch and no offline intent) and the repeat
+// report (the whole body is skipped). A worker that reads "stopped" into either
+// of those is about to be woken again and keep spending.
+func (s *apiServer) workerReportStopped(id, trigger string) (*Member, string, error) {
 	s.outsourceMu.Lock()
 	defer s.outsourceMu.Unlock()
 	w, err := s.resolveLiveWorker(id)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 	if w.StoppedSince <= 0.0 {
 		// 🔴 TWO 收口 ARMS, and the second one is the cell this ticket had to
@@ -2487,13 +2496,13 @@ func (s *apiServer) workerReportStopped(id, trigger string) (*Member, error) {
 			// have.
 			w.StoppedSince = nowSecs()
 			if err := s.persistWorkerWindDownAnchors(*w); err != nil {
-				return nil, err
+				return nil, "", err
 			}
 			if err := s.putMember(memberFromWorker(*w), trigger); err != nil {
-				return nil, err
+				return nil, "", err
 			}
 			m := memberFromWorker(*w)
-			return &m, nil
+			return &m, stopEffectLatchedForCollect, nil
 		case w.DesiredState == DesiredStateOffline &&
 			gracefulStopEpochOpen(memberFromWorker(*w)):
 			// The 停止 arm: kill, never re-spawn. The forced epoch is excluded
@@ -2507,18 +2516,28 @@ func (s *apiServer) workerReportStopped(id, trigger string) (*Member, error) {
 				w = fresh
 			}
 			m := memberFromWorker(*w)
-			return &m, nil
+			return &m, stopEffectCollected, nil
 		}
+		// 🔴 THE BARE LATCH — neither arm above matched, so stopped_since is
+		// written and NOTHING is dispatched or owed. There is no epoch for a
+		// tick to close and no offline intent to hold the worker down, so the
+		// FSM's next pass simply starts it again. The receipt says
+		// recorded_only for exactly that: the end of this session is on the
+		// record, and no one is coming.
 		w.StoppedSince = nowSecs()
 		if err := s.persistWorkerWindDownAnchors(*w); err != nil {
-			return nil, err
+			return nil, "", err
 		}
 		if err := s.putMember(memberFromWorker(*w), trigger); err != nil {
-			return nil, err
+			return nil, "", err
 		}
+		m := memberFromWorker(*w)
+		return &m, stopEffectRecordedOnly, nil
 	}
+	// stopped_since was ALREADY anchored: the body above ran for an earlier
+	// report and this call changed nothing whatsoever.
 	m := memberFromWorker(*w)
-	return &m, nil
+	return &m, stopEffectAlreadyReported, nil
 }
 
 // workerRestartSelf is restart_self for a kind='outsource' caller: stamp a new

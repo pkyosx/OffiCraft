@@ -644,10 +644,27 @@ func memberAvatarURL(attachmentID string) string {
 // presence, cost, last_op — is the agent's own roster row, readable through
 // get_member whenever it actually needs it.
 func (s *apiServer) writeSelfReportReceipt(w http.ResponseWriter, m Member) {
+	s.writeSelfReportStopReceipt(w, m, "")
+}
+
+// writeSelfReportStopReceipt is the same receipt with stop_effect filled in —
+// the report_stopped face only. Kept as a separate entry point rather than a
+// fifth parameter on every call site because the other three faces have no
+// effect to name, and an empty string passed by hand at four sites is four
+// chances to pass the wrong one.
+//
+// 🔴 stop_effect is the ONLY thing that distinguishes the four outcomes of
+// report_stopped on the wire; both arms of the handler (staff and the outsource
+// fold) must name theirs. A new outcome added to either without a value here
+// re-creates the exact defect T-102 closed: a 200 that means nothing.
+func (s *apiServer) writeSelfReportStopReceipt(
+	w http.ResponseWriter, m Member, stopEffect string,
+) {
 	writeJSON(w, http.StatusOK, selfReportReceiptDTO{
 		ID:           m.ID,
 		DesiredState: m.DesiredState,
 		RefocusOp:    m.RefocusOp,
+		StopEffect:   stopEffect,
 		// The SAME derivation newMemberDTO uses, through the same one function:
 		// 0 means "nothing is collecting this on a clock", which since T-ed79 is
 		// every cause except the two 加速停止 arms. Reading RecycleGrace straight
