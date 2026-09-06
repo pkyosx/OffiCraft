@@ -16,20 +16,20 @@
 -- ⇒ 今天這一支留在條目上的格子是：`heading`／`content`／`lore_event`（第 5 格），
 --   外加一個沒有被點名、因此留在原地的 `reviewed` 旗標（見它自己那一段）。
 --
--- ── 為什麼是 ALTER，而 00081 當初是直接改欄位宣告 ─────────────────────────────
+-- ── 為什麼是 ALTER，而 00089 當初是直接改欄位宣告 ─────────────────────────────
 --
--- 00081 的檔頭寫著它可以直接改宣告，條件是「這個分支自己引入、還沒進 main、線上
+-- 00089 的檔頭寫著它可以直接改宣告，條件是「這個分支自己引入、還沒進 main、線上
 -- 零資料」。那個條件到這一支已經不成立，而且失效的時點比「合併」更早一步：這個站
--- 發版是自動的（push 到 main ＋ CI 全綠就自己發），所以 T-33 一合併，00081／00083
+-- 發版是自動的（push 到 main ＋ CI 全綠就自己發），所以 T-33 一合併，00089／00091
 -- 的欄位就必然會出現在真的資料庫裡。
 --
 -- 🔴 而那之後再去改宣告，不會報錯，只會讓「已經升級過的站」與「全新安裝的站」從
 -- 此帶著不同的 schema，兩邊都認為自己是對的。ALTER 是唯一能讓兩種站走到同一個
 -- 狀態的寫法。
 --
--- ── 🔴 00081 裡有一段說明從這一支開始是假的，而我不能去改它 ──────────────────
+-- ── 🔴 00089 裡有一段說明從這一支開始是假的，而我不能去改它 ──────────────────
 --
--- 00081 的 lore_entry 註解裡寫著：
+-- 00089 的 lore_entry 註解裡寫著：
 --   「`trigger` 兼任這條條目的標題……五格裡根本沒有『名字』這一格」
 --   「⚠️『第一格兼任標題、因此拿掉 label 與 40 runes 上限』是實作判斷，不是負責人
 --     的裁定。它被寫在這裡而不是默默做掉，就是為了讓下一個人看得見它可以被推翻。」
@@ -38,15 +38,15 @@
 -- 了什麼」、不得是祈使句、標題裡的名詞與數字都要在第 2 格找得到）。
 --
 -- 🔴 那段註解沒有被就地更正，是因為 migration.lock 對每一支 migration 的**檔案內容**
--- 做 sha256。改 00081 一個註解字元 ⇒ lock 中段那一行變動 ⇒ 那正是
+-- 做 sha256。改 00089 一個註解字元 ⇒ lock 中段那一行變動 ⇒ 那正是
 -- migration_lock_t75_test.go 用來抓「一支已釋出的 migration 被編輯」的訊號。
--- ⇒ **更正寫在這裡，這一支就是那段話的接續。** 讀 00081 那段的人，請讀到這裡為止。
+-- ⇒ **更正寫在這裡，這一支就是那段話的接續。** 讀 00089 那段的人，請讀到這裡為止。
 --
 -- ⚠️ 判準要講準，我第一版寫寬了，Kyle（第 44 代）收窄的：
 -- **判準是「這支 migration 的那一行在不在 lock 的中段」，不是「它有沒有進過 main」。**
 -- 進 main 只是其中一個充分條件 —— 你在自己的工作樹裡改一支既有 migration，lock
 -- 中段當場就動了，還沒有人合併任何東西。
--- 🔴 寫寬的那一版會害人：它會讓下一個人在自己工作樹裡動了 00081、跑完
+-- 🔴 寫寬的那一版會害人：它會讓下一個人在自己工作樹裡動了 00089、跑完
 -- gen-migration-lock、看到中段變動，然後以為那是誤報。中段變動永遠不是誤報。
 
 -- ── 標題 ────────────────────────────────────────────────────────────────────
@@ -80,7 +80,7 @@ ALTER TABLE lore_entry ADD COLUMN heading TEXT NOT NULL DEFAULT '';
 -- 🔴 這一支原本在這裡做的是 `RENAME COLUMN problem TO impact`，也就是把第 4 格
 -- 改名。今天那一格不存在了，所以改名沒有對象 —— **留著改名再在別處 DROP，會讓
 -- 這支 migration 先造出一個沒有人用得到的欄位名，讀的人得走完兩段才知道它死了。**
--- ⇒ 直接 DROP `problem`（00081 建的那一格），一步到位。
+-- ⇒ 直接 DROP `problem`（00089 建的那一格），一步到位。
 --
 -- ── 為什麼 DROP COLUMN 在今天是安全的（跟下面 `origin` 那一段同一個理由）──────
 --
@@ -91,7 +91,7 @@ ALTER TABLE lore_entry ADD COLUMN heading TEXT NOT NULL DEFAULT '';
 -- `lore_entry` 今天 0 列（見下面 `origin` 那一段的量測與陽性對照）⇒ 一個值都不會掉。
 -- ⚠️ 試用站有資料，那不是同一顆庫；讀到這裡準備再動這一支的人，**自己重新量一次**。
 --
--- ⚠️ 兩張表都要動。lore_proposal 的那一格也叫 `problem`（00083 建的，這一支從來
+-- ⚠️ 兩張表都要動。lore_proposal 的那一格也叫 `problem`（00091 建的，這一支從來
 -- 沒有替它改過名），漏掉它不會報錯 —— 症狀是提案表上留著一格沒有任何程式讀寫的
 -- 死欄位，而它看起來跟活的一模一樣。
 ALTER TABLE lore_entry    DROP COLUMN problem;
@@ -108,7 +108,7 @@ ALTER TABLE lore_proposal DROP COLUMN problem;
 -- 一顆真的資料庫裡」：`impact_stars` 只由這一支引入，而這一支一次都還沒被套用過
 -- （見下面 heading 那一段的兩次量測：25 顆＋31 顆 DB，goose 最高 83、`heading` 欄
 -- 零命中、附陽性對照）⇒ 沒有任何一顆庫有這一欄，DROP 它會直接失敗。
--- ⚠️ 這跟 `problem` / `retire_when` / `supersedes` 不同，那三格是 00081／00083 建
+-- ⚠️ 這跟 `problem` / `retire_when` / `supersedes` 不同，那三格是 00089／00091 建
 -- 的、已經在真的庫裡，所以那三格走 DROP COLUMN。同一份委託裡兩種做法，判準是
 -- 「這一格是誰建的」，不是「它要不要消失」。
 
@@ -163,7 +163,7 @@ ALTER TABLE lore_entry ADD COLUMN reviewed INTEGER NOT NULL DEFAULT 0
 -- ⚠️ 陽性對照是這份證據的關鍵：同一支測試在提案之前先問一次，那時候原文層
 -- **有**標題 ⇒ 不是量法看不到標題，是核可那一步把它換掉了。
 --
--- ── 為什麼寫在這一支，而不是補進 00083（建 lore_proposal 的那一支）─────────
+-- ── 為什麼寫在這一支，而不是補進 00091（建 lore_proposal 的那一支）─────────
 --
 -- 🔴 Kyle（`c-5f576ae65f3d`）裁定並指名這個陷阱：`81/82/83` 在正式庫已經
 -- `is_applied=1`（唯讀查證，配陽性／陰性對照）。goose **不會重跑一支已套用的
@@ -178,7 +178,7 @@ ALTER TABLE lore_entry ADD COLUMN reviewed INTEGER NOT NULL DEFAULT 0
 -- 錯、不會自己好」。
 -- ⚠️ 改這一支會動 migration.lock 的中段，而 Kyle 的判準是「中段變動永遠不是
 -- 誤報」—— 這裡不衝突：`TestMigrationLockGrowsOnlyAtItsTail` 比的是 origin/main
--- 的 lock 是不是本樹的**前綴**，而 00084 不在 main 上。
+-- 的 lock 是不是本樹的**前綴**，而 00092 不在 main 上。
 
 -- 空字串 = 這份提案沒有主張標題（既有的 27 份提案會落在這一格上，它們是在標題
 -- 這一格存在之前送的）。「拒絕空標題」放在 DAL 不放在 CHECK，理由同上面標題那
@@ -260,12 +260,12 @@ ALTER TABLE lore_proposal DROP COLUMN trigger;
 -- owner 2026-09-05 逐字：「第一個欄位 subject 就這樣 不用爭辯了」「只有subject
 -- 沒有 action因為後者太多可能性」。
 --
--- 理由不是「用不到」，是**它從來不是索引**：`actions` 是開放集合（00081 自己
+-- 理由不是「用不到」，是**它從來不是索引**：`actions` 是開放集合（00089 自己
 -- 寫著「every new kind of experience can mint a new action name」），寫的人各寫
 -- 各的，而讀取端沒有任何一處拿它做收斂。一個不會收斂的軸，看起來像檢索條件、
 -- 實際上是自由文字。
 --
--- 🔴 這一支同時讓 00081 的三段話從此是**錯的**，不是舊的 —— 一樣不能就地改
+-- 🔴 這一支同時讓 00089 的三段話從此是**錯的**，不是舊的 —— 一樣不能就地改
 -- （sha256 在 lock 中段），所以更正接續寫在這裡：
 --   1.「TWO TABLES, NOT ONE TAG BAG … that is the T1/T2 distinction」
 --      ⇒ T1/T2 分級一起拿掉了。機制是 `matched == askedAxes → T1`，只剩一個軸
@@ -322,15 +322,15 @@ DROP TABLE lore_action;
 -- 裡準備再動這一支的人，**自己重新量一次**，不要沿用上面這兩個數字。
 --
 -- ⚠️ 只有 lore_entry 有這一欄，所以這裡只動一張表，不是漏了一張。查過兩處：
---   * lore_proposal（00083 建的）—— 整支 00083 對 `origin` **零命中**，從來沒有
+--   * lore_proposal（00091 建的）—— 整支 00091 對 `origin` **零命中**，從來沒有
 --     這一格；提案帶不動它，所以核可路徑也不需要跟著改。
---   * lore_meta（00081:230）—— 檔頭那段「🔴 NO `origin` COLUMN HERE」指的是
+--   * lore_meta（00089:230）—— 檔頭那段「🔴 NO `origin` COLUMN HERE」指的是
 --     **這張 L2 表**，不是 lore_proposal。它說的是「兩層各存一份會變成同一件事
 --     的兩個真相」，所以 origin 當初只留在 L1。今天 L1 那一份也走了。
 --
--- ── 🔴 這一支讓 00081 的三段話從此是**假的**，不是舊的 ──────────────────────
+-- ── 🔴 這一支讓 00089 的三段話從此是**假的**，不是舊的 ──────────────────────
 --
--- 一樣不能就地改（sha256 在 migration.lock 中段），所以更正接續寫在這裡。讀 00081
+-- 一樣不能就地改（sha256 在 migration.lock 中段），所以更正接續寫在這裡。讀 00089
 -- 那三段的人，請讀到這裡為止：
 --   1. 檔頭：「🔴 `origin` LIVES ON L1, NOT ON L2 … the ranking rule makes a human
 --      origin a hard axis: those entries sort ahead within their tier and survive
@@ -353,7 +353,7 @@ DROP TABLE lore_action;
 --      the value set is therefore OPEN …」⇒ 那一欄沒有了，整段沒有對象。
 ALTER TABLE lore_entry DROP COLUMN origin;
 
--- ── 🔴 拿掉 `supersedes`（00081 建的那一格）─────────────────────────────────
+-- ── 🔴 拿掉 `supersedes`（00089 建的那一格）─────────────────────────────────
 --
 -- owner 2026-09-06「都改掉」（`c-3d3e5582c2d2`）點名的四格之一。
 -- 它存的是「這一條取代了哪一條」的條目 id，讀取端把它渲染成條目卡上的一行。
@@ -362,8 +362,8 @@ ALTER TABLE lore_entry DROP COLUMN origin;
 -- `lore_entry` 0 列（附陽性對照 member 390 列／chat_message 57,419 列），所以今天
 -- 一個值都不會掉；而這一格是 00081 建的、00081 已套用，就地改它不合法 ⇒ 只能 ALTER。
 --
--- ⚠️ 只有 lore_entry 有這一欄。lore_proposal（00083）對 `supersedes` 零命中，
--- 提案從來帶不動它，所以核可路徑不需要跟著改（陽性對照：同一個查法在 00083 上找得到
+-- ⚠️ 只有 lore_entry 有這一欄。lore_proposal（00091）對 `supersedes` 零命中，
+-- 提案從來帶不動它，所以核可路徑不需要跟著改（陽性對照：同一個查法在 00091 上找得到
 -- `retire_when` 與 `problem` 各 1 命中）。
 --
 -- ⚠️ 照實說**沒有跟著走的東西**，因為 owner 沒有點名它們，我不會順手清掉：
@@ -388,9 +388,9 @@ ALTER TABLE lore_entry DROP COLUMN supersedes;
 -- 兩個問題今天都沒有欄位在問 ⇒ **一條條目會一直被撈出來給人，而沒有任何人知道該在
 -- 什麼時候回頭看它一眼，包括它早就不成立之後。** 這是 MVP 買到的東西的價錢。
 --
--- ⚠️ 這一支同時讓 00081 與 00083 各一段話從此是**錯的**，不是舊的 —— 一樣不能就地
+-- ⚠️ 這一支同時讓 00089 與 00091 各一段話從此是**錯的**，不是舊的 —— 一樣不能就地
 -- 改（sha256 在 migration.lock 的中段），所以更正接續寫在這裡：
---   1. 00081 的 lore_entry 欄位註解：
+--   1. 00089 的 lore_entry 欄位註解：
 --      「🔴 `retire_when` 是自由文字，不是封閉值域，而且刻意沒有 CHECK。『什麼時候
 --        不需要了』可能是『等 X 上線』『等某人回答』『這個 repo 不再用 goose』」
 --      以及那一行行末的「-- 什麼時候不需要了（選填，自由文字）」
@@ -398,7 +398,7 @@ ALTER TABLE lore_entry DROP COLUMN supersedes;
 --        的錯答案」這個理由完全沒有變，而且更站得住腳**：重判的觸發條件比退役的時點
 --        還要開放。變的只有那一格在問什麼。上面舉的三個例子仍然是合法的值，只是現在
 --        讀成「這三件事任何一件發生時回頭重判」，而不是「發生了就丟掉」。
---   2. 00083 的 lore_proposal 欄位註解：
+--   2. 00091 的 lore_proposal 欄位註解：
 --      「舊的 label / symptoms / short / falsify / instance / residual_risk 六格
 --        換成 trigger / content / retire_when / problem 四格 + lore_event 一張表」
 --      ⇒ 那四格今天**只剩一格**：`trigger` 併進 `heading`（rc-9002654dd81c），
@@ -416,20 +416,20 @@ ALTER TABLE lore_proposal DROP COLUMN retire_when;
 -- 🔴 逐項反面，順序是 Up 的逆序。
 -- 🔴 這一段還原得了的只有**結構**，還原不了值：Up 段對 `problem` / `retire_when` /
 -- `supersedes` / `origin` 做的是 DROP COLUMN，down 之後那四格都是空字串。欄位宣告
--- 與 00081／00083 逐字相同（TEXT NOT NULL DEFAULT ''），否則「升級過的站」與
+-- 與 00089／00091 逐字相同（TEXT NOT NULL DEFAULT ''），否則「升級過的站」與
 -- 「down 過再 up 的站」會帶著不同的 schema，而兩邊都會認為自己是對的。
 ALTER TABLE lore_proposal ADD COLUMN retire_when TEXT NOT NULL DEFAULT '';
 ALTER TABLE lore_entry    ADD COLUMN retire_when TEXT NOT NULL DEFAULT '';
 
 ALTER TABLE lore_entry ADD COLUMN supersedes TEXT NOT NULL DEFAULT '';
 
--- 🔴 只還原結構，還原不了值 —— 見 Up 段那一大段。欄位宣告與 00081 逐字相同
+-- 🔴 只還原結構，還原不了值 —— 見 Up 段那一大段。欄位宣告與 00089 逐字相同
 -- （TEXT NOT NULL DEFAULT ''），否則「升級過的站」與「down 過再 up 的站」會帶著
--- 不同的 schema。down 之後每一列的 origin 都是空字串，而空字串正是 00081 那道
+-- 不同的 schema。down 之後每一列的 origin 都是空字串，而空字串正是 00089 那道
 -- 驗證（現已一併移除）當初會拒絕的值。
 ALTER TABLE lore_entry ADD COLUMN origin TEXT NOT NULL DEFAULT '';
 
--- 🔴 只還原結構，不還原資料 —— 見上面那段。欄位宣告與索引與 00081 逐字相同，
+-- 🔴 只還原結構，不還原資料 —— 見上面那段。欄位宣告與索引與 00089 逐字相同，
 -- 否則「升級過的站」與「down 過再 up 的站」會帶著不同的 schema。
 CREATE TABLE lore_action (
     entry_id TEXT NOT NULL REFERENCES lore_entry(id),
@@ -438,7 +438,7 @@ CREATE TABLE lore_action (
 );
 CREATE INDEX idx_lore_action_action ON lore_action (action, entry_id);
 -- 🔴 `trigger` 兩張表都要**先加回來、再把 heading 抄回去**，順序不能顛倒，而且這
--- 三步是 Up 那三步的逐項反面。欄位宣告與 00081／00083 逐字相同（TEXT NOT NULL
+-- 三步是 Up 那三步的逐項反面。欄位宣告與 00089／00091 逐字相同（TEXT NOT NULL
 -- DEFAULT ''），否則「down 過再 up 的站」會帶著跟「一路升上來的站」不同的 schema。
 -- ⚠️ 這裡還原得了的只有「一格變兩格」這個形狀，還原不了**兩格說的是兩句話**：
 -- Up 把 trigger 併進 heading 是不可逆的，down 之後兩格會是同一串字。合併之前
