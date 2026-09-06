@@ -450,6 +450,48 @@ describe("BootDocPage", () => {
     );
   });
 
+  it("counts the read-only head when it REFUSES, not only when it displays", async () => {
+    // 🔴 THE GAP THIS CLOSES (found by T-100's independent review). The test
+    // above proves the head overhead is non-zero as DATA, and it proves the
+    // refusal works — but on 啟動步驟, a document with NO head. So the term that
+    // adds the head back into the refusal had nothing rendering it: dropping it
+    // from `overCap` left the whole neighbourhood green (measured: 46 assertions
+    // across the six most-related files, all passing).
+    //
+    // The state that catches it is the only one where the two answers differ: a
+    // draft that is UNDER the cap on its own and OVER it once the head is
+    // counted. Without the term the owner is told he has room, sends the write,
+    // and collects a server refusal quoting numbers his screen never showed him
+    // — which is precisely the failure this card was built to end.
+    const cap = BOOT_DOC_CAP_CHARS_DEFAULTS.accelerated_stop;
+    const doc = await api.getBootDoc("accelerated_stop", "global");
+    const overhead = doc.sizeChars - runeLength(doc.body);
+    expect(overhead).toBeGreaterThan(0);
+
+    const utils = renderAcceleratedStop();
+    // Body alone: one character under the cap. Stored: one character over.
+    const draft = "超".repeat(cap - overhead + 1);
+    expect(runeLength(draft)).toBeLessThanOrEqual(cap);
+    await typeWholeDoc(utils as ReturnType<typeof renderClaude>, draft);
+
+    const notice = await utils.findByTestId("doc-card-over-cap");
+    const shown = Number(/\d{4,}/.exec(notice.textContent ?? "")?.[0]);
+    // The number is the STORED size — head included — not the draft's own
+    // length, and the two are different here by construction.
+    expect(shown).toBe(runeLength(draft) + overhead);
+    expect(shown).toBeGreaterThan(runeLength(draft));
+    expect(shown).toBeGreaterThan(cap);
+    // The readout quotes the SAME number as the refusal. Two numbers on one
+    // screen disagreeing about one document is worse than either being wrong.
+    expect(utils.getByTestId("doc-card-usage").textContent).toBe(
+      `${shown} / ${cap}`
+    );
+    // And the door really is shut.
+    expect(
+      (utils.getByTestId("doc-card-save") as HTMLButtonElement).disabled
+    ).toBe(true);
+  });
+
   it("marks a revision the raised-then-lowered cap now refuses as un-restorable", async () => {
     // The only way an over-cap revision exists at all: the owner RAISED the
     // cap, wrote a long version, then put the cap back. Which is why the

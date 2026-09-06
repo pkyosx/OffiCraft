@@ -22,9 +22,23 @@
 //     reads as "you are already over" on a document that is perfectly fine. A
 //     missing budget must look missing, not look full.
 //
-// It is a READOUT ONLY. It does not gate saving: an over-cap write is still
-// refused by the server and surfaced by each card's own save-error line
-// (T-100 scope — DocCard's pre-block is deliberately NOT copied here).
+// It is a READOUT ONLY: it does not gate saving, and DocCard's pre-block —
+// which shuts the save button and quotes both numbers before anything is sent —
+// is deliberately NOT copied here (T-100 scope).
+//
+// 🔴 SO SAY PLAINLY WHAT AN OVER-CAP SAVE DOES ON THESE TWO CARDS TODAY, AND IT
+// IS NOT GOOD (measured, not read off a comment — an earlier draft of this
+// block claimed the server's own words reach the screen and that was false):
+// both manual cards keep `saveError` as a BOOLEAN and put the server's message
+// into `console.warn`, so the owner sees the generic 「儲存失敗，請稍後重試」.
+// Retrying is exactly what will not work. This readout therefore lets him watch
+// 「18001 / 18000」 go past — with no warning styling of any kind — and then
+// hands him an instruction that cannot succeed.
+//
+// That is a REAL GAP and it is left open on purpose: closing it means changing
+// what these cards do on failure, which is a behaviour change beyond what this
+// ticket was asked for. It is recorded on T-100 for the ticket owner to file.
+// Do not read this paragraph as "handled".
 
 import { useI18n } from "../i18n";
 import { shownDocSize } from "../api/docCap";
