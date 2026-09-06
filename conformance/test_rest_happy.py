@@ -240,6 +240,97 @@ _LIFECYCLE_KEYS = {"id"}
 _ACTIVATE_KEYS = {"id", "activation_pending", "last_op_reason"}
 _RELOCATE_KEYS = {"id", "relocation_pending", "relocation_deferred"}
 
+# ── the READ faces, pinned the same way and for the mirror-image reason ──────
+# The three flags above were also DECLARED on MemberDTO and OutsourceWorkerDTO,
+# where no handler ever set them once the receipts existed — six fields that
+# were permanently absent while their own text said "set ONLY on the activate /
+# relocate response", a response that had stopped answering those DTOs. They
+# were deleted; these two sets are what keeps them deleted.
+#
+# 🔴 EQUALITY, NOT CONTAINMENT, and the choice is the whole value of the
+# assertion: a check that only asserts the keys it wants stays green when a
+# dead field grows back around it, which is exactly how the six survived a
+# whole reshape. Equality reddens on a re-added field AND on a silently dropped
+# one, and the failure prints which of the two by diffing the sets.
+#
+# The member set is exact (memberDTO carries no `omitempty`). The worker set is
+# a CEILING: `compaction_count` is the one omitempty on outsourceWorkerDTO.
+_MEMBER_READ_KEYS = {
+    "actual_effort", "actual_machine", "actual_model", "actual_runtime",
+    "avatar_url", "desired_machine_id", "desired_state", "effort",
+    "forced_stop_at", "id", "kind", "last_op", "last_op_at", "last_op_log",
+    "last_op_ok", "last_op_reason", "machine", "model", "name", "owner_id",
+    "presence", "refocus_deadline", "refocus_op", "refocus_since", "role_key",
+    "role_name", "roster_status", "runtime", "schema_version", "unread_count",
+}
+_WORKER_READ_KEYS = {
+    "account", "actual_effort", "actual_machine", "actual_model",
+    "actual_runtime", "avatar_url", "banked_cost", "codename",
+    "compaction_count", "context_pct", "cost", "created_ts", "creator_id",
+    "delegated_by", "desired_machine_id", "desired_state", "effort", "id",
+    "last_op", "last_op_at", "last_op_log", "last_op_ok", "last_op_reason",
+    "machine", "model", "presence", "refocus_deadline", "refocus_op",
+    "refocus_since", "runtime", "status", "task_created_ts", "task_id",
+    "task_no", "task_status", "task_title", "task_type_key", "task_type_name",
+    "unread_count",
+}
+
+_DEAD_ON_READ = {"activation_pending", "relocation_pending", "relocation_deferred"}
+
+
+def _member_row_keys(row: dict) -> None:
+    """One MemberDTO as every read face serves it — exact key set."""
+    assert set(row) == _MEMBER_READ_KEYS, (
+        "MemberDTO read-face key set changed: unexpected "
+        f"{sorted(set(row) - _MEMBER_READ_KEYS)}, missing "
+        f"{sorted(_MEMBER_READ_KEYS - set(row))}. "
+        + ("activation_pending / relocation_pending / relocation_deferred are "
+           "RESPONSE-ONLY signals and live on the receipts the activate and "
+           "relocate answer, never on a roster row — nothing on a read path can "
+           "set them here (T-91). "
+           if set(row) & _DEAD_ON_READ else "")
+        + "If the new key is a genuine roster field, update _MEMBER_READ_KEYS "
+          "here and memberReadFaceKeys in "
+          "server/ocserverd/read_face_key_sets_t91_test.go."
+    )
+
+
+def _check_member_read(ctx: HCtx, r: httpx.Response) -> None:
+    d = r.json()
+    assert d["id"] == ctx.agent.member_id, d
+    _member_row_keys(d)
+
+
+def _check_member_list(_ctx: HCtx, r: httpx.Response) -> None:
+    rows = r.json()
+    assert isinstance(rows, list) and rows, "expected a non-empty list"
+    for row in rows:
+        _member_row_keys(row)
+
+
+def _check_worker_list(_ctx: HCtx, r: httpx.Response) -> None:
+    """The worker list, key-set-pinned PER ROW when there are rows.
+
+    🔴 A worker row is mintable only by the Phase 2 assignment scheduler, so
+    this harness usually sees an empty list and this loop asserts nothing —
+    stated here rather than left for a reader to discover, because a silent
+    zero-iteration loop reads like coverage it is not. The claim that
+    OutsourceWorkerDTO carries no dead pending flags is therefore pinned in
+    Go instead (read_face_key_sets_t91_test.go,
+    TestOutsourceWorkerDTOReadFaceKeySet_T91), where a row can be built. The
+    loop stays because it costs nothing and becomes real the day this suite
+    can mint a worker.
+    """
+    rows = r.json()
+    assert isinstance(rows, list), rows
+    for row in rows:
+        assert set(row) <= _WORKER_READ_KEYS, (
+            "OutsourceWorkerDTO read-face key set changed: unexpected "
+            f"{sorted(set(row) - _WORKER_READ_KEYS)}. "
+            "The three pending flags live on the relocate / restart receipts, "
+            "never on a worker row (T-91)."
+        )
+
 
 def _receipt_then_member(keys: set[str], predicate=None, *, required: set[str] | None = None):
     """Pin the receipt's key set, then re-read the member it names.
@@ -1976,7 +2067,7 @@ HAPPY: dict[str, Happy] = {
         check=_check_mcp_tools_list,
     ),
     # ── members ──────────────────────────────────────────────────────────────
-    "GET /api/members": Happy(check=_nonempty_list),
+    "GET /api/members": Happy(check=_check_member_list),
     "POST /api/members": Happy(
         body=lambda _ctx: {"name": f"conf-happy-hire-{uuid.uuid4().hex[:8]}"},
         # The minted id is the whole of the news on a hire, and the follow-up
@@ -1985,9 +2076,7 @@ HAPPY: dict[str, Happy] = {
     ),
     "GET /api/members/{member_id}": Happy(
         path=lambda ctx: f"/api/members/{ctx.agent.member_id}",
-        check=lambda ctx, r: _expect(
-            r, lambda d: d["id"] == ctx.agent.member_id
-        ),
+        check=_check_member_read,
     ),
     "PATCH /api/members/{member_id}": Happy(
         path=lambda ctx: f"/api/members/{ctx.fresh_member()}",
@@ -3123,7 +3212,7 @@ HAPPY: dict[str, Happy] = {
     ),
     # ── outsource panel (M3) ─────────────────────────────────────────────────
     "GET /api/outsource-workers": Happy(
-        check=lambda _c, r: _expect(r, lambda d: isinstance(d, list)),
+        check=_check_worker_list,
     ),
     # ── task manuals (M3) ────────────────────────────────────────────────────
     "GET /api/task-manuals": Happy(),

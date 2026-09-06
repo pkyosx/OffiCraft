@@ -801,33 +801,16 @@ export interface OutsourceWorkerView {
    * worker panel's identity action row. "" from a
    * pre-column row reads as online. */
   desiredState?: string;
-  /**
-   * RESPONSE-ONLY signals an owner verb leaves on its own answer (T-ed79 #5/#12,
-   * wire `relocation_pending` / `relocation_deferred` / `activation_pending`) —
-   * the worker twins of {@link MemberRelocateResult} / {@link MemberActivateResult}.
-   *
-   * 🔴 SINCE T-91 THE COCKPIT NEVER SEES THEM SET on this type. The three fields
-   * are still declared on `OutsourceWorkerDTO`, so the mapper still passes them
-   * through honestly, but every worker WRITE now answers a receipt instead of the
-   * worker row — `relocateWorker` and friends resolve void — and the only two
-   * places this type is still built from the wire are the read faces
-   * (`listOutsourceWorkers`, `getOutsourceWorker`), where the server has never
-   * set them. So in practice these read `undefined` always. They are kept rather
-   * than deleted because the wire still carries them and a mapper that dropped a
-   * field the DTO declares is the kind of silent narrowing this seam exists to
-   * prevent; no consumer reads them today.
-   *
-   * `undefined` therefore keeps meaning "this answer does not carry the signal",
-   * distinguishable from "false".
-   *
-   * `relocationPending` is true for BOTH a deliberate deferral and a move that
-   * could not be dispatched at all; `relocationDeferred` is what tells them
-   * apart, and a consumer must NOT raise a "nothing was dispatched" alert while
-   * it is true.
-   */
-  relocationPending?: boolean;
-  relocationDeferred?: boolean;
-  activationPending?: boolean;
+  /* 🔴 NO `relocationPending` / `relocationDeferred` / `activationPending` HERE,
+   * and the absence is deliberate rather than an oversight (T-91, owner
+   * 2026-09-06). They were response-only signals (T-ed79 #5/#12) that an owner
+   * verb left on the worker row it answered with. Every worker WRITE now answers
+   * a bounded receipt instead — `AgentRelocateReceiptDTO` and
+   * `OutsourceRestartReceiptDTO` carry the three flags — so the only builders of
+   * this type are the read faces (`listOutsourceWorkers`, `getOutsourceWorker`),
+   * where the server never set them. `OutsourceWorkerDTO` stopped declaring them
+   * in the same change, so there is nothing left for a mapper to pass through.
+   * If you need "was this move dispatched?", read the relocate's own answer. */
 }
 
 /** One task type (任務手冊) in the LIGHT list shape the tasks page needs for

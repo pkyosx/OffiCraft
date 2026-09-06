@@ -6757,13 +6757,6 @@ export interface components {
              */
             avatar_url?: string;
             /**
-             * Activation Pending
-             * @description 🔴 NOTHING SETS THIS FIELD ANY MORE, and the sentence below is kept only so a reader who met it can find where it was withdrawn (T-91, owner 2026-09-06). The response it names — the member activate answering a MemberDTO — no longer exists: that route answers ``MemberActivateReceiptDTO``, which carries this signal itself. So on this DTO the field is absent on every read there is. What it MEANS is unchanged; where to read it moved.
-             *
-             *     Set true ONLY on the activate response when the decided START could not be delivered to the target warden (no live SSE downstream) — the wake intent is persisted and the reconcile cadence retries, but nothing has been dispatched yet. Absent/null on every other member read. The activate twin of ``relocation_pending``: without it an activate against an unreachable warden returns a clean 200 with zero signal, which is indistinguishable from a wake that actually started (T-ba62 additive-optional).
-             */
-            activation_pending?: boolean | null;
-            /**
              * Desired Machine Id
              * @default m-server-self
              */
@@ -6853,20 +6846,6 @@ export interface components {
              * @default 0
              */
             refocus_since: number;
-            /**
-             * Relocation Deferred
-             * @description 🔴 NOTHING SETS THIS FIELD ANY MORE, and the sentence below is kept only so a reader who met it can find where it was withdrawn (T-91, owner 2026-09-06). The response it names — the member relocate answering a MemberDTO — no longer exists: that route answers ``AgentRelocateReceiptDTO``, which carries this signal itself. So on this DTO the field is absent on every read there is. What it MEANS is unchanged; where to read it moved.
-             *
-             *     Set true on the relocate response when the move was DELIBERATELY deferred: the member is live with uncollected state, so the server opened a graceful wind-down window instead of dispatching now. Nothing has been sent YET BY DESIGN — the move lands when the agent finishes its wrap-up round. This is the companion that disambiguates ``relocation_pending``, which is true for BOTH this case and a genuinely undeliverable move: a consumer must NOT raise a "nothing was dispatched" alert while this field is true. Absent/null on every other member read, and never set on any response other than relocate (T-927a additive-optional).
-             */
-            relocation_deferred?: boolean | null;
-            /**
-             * Relocation Pending
-             * @description 🔴 NOTHING SETS THIS FIELD ANY MORE, and the sentence below is kept only so a reader who met it can find where it was withdrawn (T-91, owner 2026-09-06). The response it names — the member relocate answering a MemberDTO — no longer exists: that route answers ``AgentRelocateReceiptDTO``, which carries this signal itself. So on this DTO the field is absent on every read there is. What it MEANS is unchanged; where to read it moved.
-             *
-             *     Set true ONLY on the relocate response when the owner-pinned move is scheduled but has not landed yet. TWO causes, which this field does not distinguish: (a) the recycle STOP/START that moves a LIVE member could not be delivered to the warden (old/new machine unreachable) — the reconcile cadence retries; (b) since T-b6d9, a graceful wind-down window was opened, so nothing has been dispatched yet BY DESIGN. Read ``relocation_deferred`` to tell (b) apart from (a) — only (a) is a failure worth alerting on. Absent/null on every other member read, so the cockpit shows “move scheduled / not yet landed” instead of a silent success (T-8655 additive-optional).
-             */
-            relocation_pending?: boolean | null;
             /**
              * Role Key
              * @default
@@ -7423,27 +7402,6 @@ export interface components {
              * @default
              */
             presence: string;
-            /**
-             * Activation Pending
-             * @description 🔴 NOTHING SETS THIS FIELD ANY MORE, and the sentence below is kept only so a reader who met it can find where it was withdrawn (T-91, owner 2026-09-06). The response it names — the worker restart answering an OutsourceWorkerDTO — no longer exists: that route answers ``OutsourceRestartReceiptDTO``, which carries this signal itself. So on this DTO the field is absent on every read there is. What it MEANS is unchanged; where to read it moved.
-             *
-             *     Set true ONLY on the worker restart response when nothing was actually dispatched — the worker twin of ``MemberDTO.activation_pending`` (T-ed79 parity #12). The restart intent is persisted and the cadence retries, but no worker_start went out (no kill target for the session it must replace, an unreachable warden, an unbuildable frame). Without it a 重啟 against a machine that cannot take the worker answers a clean 200 with zero signal, which is indistinguishable from one that started — the exact bug T-ba62 named on the staff side. Read ``last_op_reason`` for WHICH cause. Absent/null on every other worker read.
-             */
-            activation_pending?: boolean | null;
-            /**
-             * Relocation Deferred
-             * @description 🔴 NOTHING SETS THIS FIELD ANY MORE, and the sentence below is kept only so a reader who met it can find where it was withdrawn (T-91, owner 2026-09-06). The response it names — the worker relocate answering an OutsourceWorkerDTO — no longer exists: that route answers ``AgentRelocateReceiptDTO``, which carries this signal itself. So on this DTO the field is absent on every read there is. What it MEANS is unchanged; where to read it moved.
-             *
-             *     Set true on the worker relocate response when the move was DELIBERATELY deferred: the worker is live with uncollected state, so a graceful wind-down owns the move instead of it being dispatched now. TWO ways that happens, and the field does not distinguish them because the consumer's question is the same in both: (a) THIS relocate opened the wind-down, and the move lands when the worker answers report_stopped; (b) an EXISTING wind-down at a HIGHER rung of the 停止 → 加速停止 → 強制停止 ladder already owns the worker, so the pin was saved and the ladder refused to re-open a lower stage — the move lands at THAT wind-down's collect, on whatever deadline it already carries (T-170e). This is the companion that disambiguates ``relocation_pending``, which is true for BOTH these cases and a genuinely undispatched move: a consumer must NOT raise a "nothing was dispatched" alert while this field is true. Absent/null on every other worker read (T-ed79 parity #5).
-             */
-            relocation_deferred?: boolean | null;
-            /**
-             * Relocation Pending
-             * @description 🔴 NOTHING SETS THIS FIELD ANY MORE, and the sentence below is kept only so a reader who met it can find where it was withdrawn (T-91, owner 2026-09-06). The response it names — the worker relocate answering an OutsourceWorkerDTO — no longer exists: that route answers ``AgentRelocateReceiptDTO``, which carries this signal itself. So on this DTO the field is absent on every read there is. What it MEANS is unchanged; where to read it moved.
-             *
-             *     Set true ONLY on the worker relocate response when the owner-pinned move is scheduled but has not landed yet — the worker twin of ``MemberDTO.relocation_pending`` (T-ed79 parity #5). TWO causes, which this field does not distinguish: (a) the kill+respawn that moves a worker with nothing to flush could not be dispatched (no kill target, or the warden would not take the start) — the cadence retries; (b) a graceful wind-down window was opened, so nothing has been dispatched yet BY DESIGN. Read ``relocation_deferred`` to tell (b) apart from (a) — only (a) is a failure worth alerting on. Absent/null on every other worker read.
-             */
-            relocation_pending?: boolean | null;
             /**
              * Refocus Deadline
              * @description Epoch seconds by which the in-flight wind-down is force-collected (the anchor + the reconcile recycle grace). THE ANCHOR IS THE ARM, not always ``refocus_since``: a 換手 (``desired_state`` stays online) anchors on ``refocus_since``; a 下線 (``desired_state=offline``) carries no ``refocus_since`` at all and anchors on ``stopping_since``, which is what an owner-pressed 加速停止 re-stamps on that arm. ZERO CARRIES TWO MEANINGS, and a client that reads it as one of them will be wrong about the other: no handover is in flight, OR a handover is in flight that NOTHING collects on a clock at all — which is now the NORMAL case rather than a carve-out: every cause except ``context_high`` and ``accelerated_stop`` is collected only by the agent's own ``report_stopped`` or by the owner pressing force-stop, and carries no deadline (owner 2026-08-21). ``refocus_op`` is what tells the two apart. Rendering no deadline is correct for both, and the sentence a client shows for an in-flight no-clock handover must not quote a time at all. Workers read the SAME judgement as members — there is no separate worker rule: one function (``winddownDeadlineOf``) answers BOTH arms for BOTH kinds, and the worker face reaches it through the same ``memberFromWorker`` projection its presence word already goes through. It used to read only the 換手 half, so an owner-pressed 加速停止 on a 下線 worker started a countdown the reconcile tick honours while this field reported 0 (T-14). Derived at read time, never stored. A CEILING, not a prediction: the collection fires the instant the worker answers ``report_stopped`` (T-7f28). Additive-optional.

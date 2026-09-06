@@ -361,8 +361,10 @@ func TestStaleStopping_AnOnlineWorkerIsSweptToo(t *testing.T) {
 
 // ④ THE WIRE SENTENCE THE LADDER REFUSAL MAKES — pinned to VALUES, not prose.
 //
-// `OutsourceWorkerDTO.relocation_deferred` had exactly one documented cause when
-// it was added (T-ed79 parity #5): THIS relocate opened the wind-down, and the
+// The worker relocate's `relocation_deferred` (carried by
+// AgentRelocateReceiptDTO since T-91; it was a field on OutsourceWorkerDTO when
+// this test was written) had exactly one documented cause when it was added
+// (T-ed79 parity #5): THIS relocate opened the wind-down, and the
 // move lands on the worker's own report_stopped. T-170e gave it a SECOND cause
 // and the contract text in spec/openapi.json was widened to say so: an EXISTING
 // wind-down at a HIGHER rung of 停止 → 加速停止 → 強制停止 already owns the worker,

@@ -235,27 +235,11 @@ type memberDTO struct {
 	// ForcedStopAt: unix seconds of the last force-stop, 0 when there has never
 	// been one. Deliberately NOT cleared by the next boot — it is the record
 	// that the PREVIOUS session was cut off mid-work (T-a9d6).
-	ForcedStopAt      float64 `json:"forced_stop_at"`
-	UnreadCount       int     `json:"unread_count"`
-	RosterStatus      string  `json:"roster_status"`
-	OwnerID           string  `json:"owner_id"`
-	SchemaVersion     int     `json:"schema_version"`
-	RelocationPending *bool   `json:"relocation_pending,omitempty"` // T-8655: set only on the relocate response when the recycle STOP/START could not be delivered (move scheduled, not yet landed); nil everywhere else
-	// ActivationPending (T-ba62) is the activate twin of RelocationPending: set
-	// only on the activate response when the decided START could not be handed
-	// to the target warden (no live SSE downstream). Without it an activate into
-	// an unreachable warden returns a clean 200 that is byte-indistinguishable
-	// from a wake that actually started — the caller has no way to tell "waking"
-	// from "nothing happened and nothing will until the cadence retries".
-	ActivationPending *bool `json:"activation_pending,omitempty"`
-	// RelocationDeferred (T-927a) disambiguates RelocationPending, which is true
-	// for TWO different situations: a move the warden could not accept, and a
-	// move deliberately held back because a graceful wind-down window was opened
-	// for a live member. Only the first is a failure. Without this field the
-	// cockpit cannot tell them apart, so it raised its "nothing was dispatched"
-	// alert over the perfectly normal wind-down case. Set only on the relocate
-	// response, and only when that window was opened; nil everywhere else.
-	RelocationDeferred *bool `json:"relocation_deferred,omitempty"`
+	ForcedStopAt  float64 `json:"forced_stop_at"`
+	UnreadCount   int     `json:"unread_count"`
+	RosterStatus  string  `json:"roster_status"`
+	OwnerID       string  `json:"owner_id"`
+	SchemaVersion int     `json:"schema_version"`
 }
 
 type machineDTO struct {
@@ -2973,18 +2957,6 @@ type outsourceWorkerDTO struct {
 	RefocusOp       string  `json:"refocus_op"`
 	RefocusDeadline float64 `json:"refocus_deadline"`
 	DesiredState    string  `json:"desired_state"`
-	// The three RESPONSE-ONLY pending signals an owner verb owes its caller
-	// (T-ed79 #5/#12) — the worker twins of the MemberDTO fields of the same
-	// names, and pointers-with-omitempty for the same reason: they are absent on
-	// every read face and on every verb that has nothing to defer, so a consumer
-	// can tell "this answer does not carry the signal" from "the signal is false".
-	//
-	// RelocationPending/RelocationDeferred appear only on the relocate response,
-	// ActivationPending only on the restart response. The panel-parity doc listed
-	// their absence as A9 「外包端根本沒有訊號可顯示」.
-	RelocationPending  *bool `json:"relocation_pending,omitempty"`
-	RelocationDeferred *bool `json:"relocation_deferred,omitempty"`
-	ActivationPending  *bool `json:"activation_pending,omitempty"`
 }
 
 // outsourceWorkerProjection carries the per-worker runtime facts the DTO folds

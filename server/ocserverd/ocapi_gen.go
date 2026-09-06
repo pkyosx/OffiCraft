@@ -1627,11 +1627,6 @@ type MemberAvatarDTO struct {
 // “role_name“ is the role's display title, resolved by the handler from the
 // role roster (empty until role definitions land in build order B2).
 type MemberDTO struct {
-	// ActivationPending 🔴 NOTHING SETS THIS FIELD ANY MORE, and the sentence below is kept only so a reader who met it can find where it was withdrawn (T-91, owner 2026-09-06). The response it names — the member activate answering a MemberDTO — no longer exists: that route answers ``MemberActivateReceiptDTO``, which carries this signal itself. So on this DTO the field is absent on every read there is. What it MEANS is unchanged; where to read it moved.
-	//
-	// Set true ONLY on the activate response when the decided START could not be delivered to the target warden (no live SSE downstream) — the wake intent is persisted and the reconcile cadence retries, but nothing has been dispatched yet. Absent/null on every other member read. The activate twin of ``relocation_pending``: without it an activate against an unreachable warden returns a clean 200 with zero signal, which is indistinguishable from a wake that actually started (T-ba62 additive-optional).
-	ActivationPending *bool `json:"activation_pending,omitempty"`
-
 	// ActualEffort The effort level the member's session is REPORTED to be running at, from its own live telemetry (``AgentTelemetryIngestDTO.effort``) — durably persisted alongside ``actual_model``, so it survives a server restart and outlives the session that reported it. Empty means nothing has ever reported an effort for this member; it is separate from, and NEVER falls back to, the owner-configured ``effort`` launch setting. WAS: reported effort lived ONLY in the in-memory telemetry store, so a server restart blanked it fleet-wide and no detail panel could tell a configured effort from a running one (T-7f28).
 	ActualEffort *string `json:"actual_effort,omitempty"`
 
@@ -1673,19 +1668,9 @@ type MemberDTO struct {
 	// RefocusOp Which owner operation opened the in-flight handover stamped in ``refocus_since``, empty when none is in flight. One of ``relocate`` (machine change), ``runtime/model`` (runtime / model / effort change), ``context_notice`` (FIRST context-pressure threshold), ``context_high`` (SECOND context-pressure threshold), ``refocus`` (owner-pressed refocus), ``restart_self`` (agent-requested), ``token_expiry`` (the session's agent token is inside its last hour — the close-out is opened while the calls that file it still work) or ``accelerated_stop`` (the owner pressed 加速停止 on a wind-down that was already open). Stamped and cleared in lockstep with ``refocus_since``. THE CAUSE ALSO SAYS WHETHER ANYTHING IS ON A CLOCK: ``context_high`` and ``accelerated_stop`` are the TWO causes force-collected on a deadline, and they share one grace (``stop.accelerated_grace_secs``); every other cause is collected by the agent's own ``report_stopped`` or by the owner pressing force-stop and carries none (owner 2026-08-21). A row can be promoted ``context_notice`` → ``context_high`` in place when context keeps climbing, which restamps ``refocus_since``. WAS: the cause lived only in a server log line, so a client could only say 'last refocus' — which reads as history — where it meant 'winding down right now so your change can take effect' (T-7f28). Additive-optional.
 	RefocusOp    *string  `json:"refocus_op,omitempty"`
 	RefocusSince *float64 `json:"refocus_since,omitempty"`
-
-	// RelocationDeferred 🔴 NOTHING SETS THIS FIELD ANY MORE, and the sentence below is kept only so a reader who met it can find where it was withdrawn (T-91, owner 2026-09-06). The response it names — the member relocate answering a MemberDTO — no longer exists: that route answers ``AgentRelocateReceiptDTO``, which carries this signal itself. So on this DTO the field is absent on every read there is. What it MEANS is unchanged; where to read it moved.
-	//
-	// Set true on the relocate response when the move was DELIBERATELY deferred: the member is live with uncollected state, so the server opened a graceful wind-down window instead of dispatching now. Nothing has been sent YET BY DESIGN — the move lands when the agent finishes its wrap-up round. This is the companion that disambiguates ``relocation_pending``, which is true for BOTH this case and a genuinely undeliverable move: a consumer must NOT raise a "nothing was dispatched" alert while this field is true. Absent/null on every other member read, and never set on any response other than relocate (T-927a additive-optional).
-	RelocationDeferred *bool `json:"relocation_deferred,omitempty"`
-
-	// RelocationPending 🔴 NOTHING SETS THIS FIELD ANY MORE, and the sentence below is kept only so a reader who met it can find where it was withdrawn (T-91, owner 2026-09-06). The response it names — the member relocate answering a MemberDTO — no longer exists: that route answers ``AgentRelocateReceiptDTO``, which carries this signal itself. So on this DTO the field is absent on every read there is. What it MEANS is unchanged; where to read it moved.
-	//
-	// Set true ONLY on the relocate response when the owner-pinned move is scheduled but has not landed yet. TWO causes, which this field does not distinguish: (a) the recycle STOP/START that moves a LIVE member could not be delivered to the warden (old/new machine unreachable) — the reconcile cadence retries; (b) since T-b6d9, a graceful wind-down window was opened, so nothing has been dispatched yet BY DESIGN. Read ``relocation_deferred`` to tell (b) apart from (a) — only (a) is a failure worth alerting on. Absent/null on every other member read, so the cockpit shows “move scheduled / not yet landed” instead of a silent success (T-8655 additive-optional).
-	RelocationPending *bool   `json:"relocation_pending,omitempty"`
-	RoleKey           *string `json:"role_key,omitempty"`
-	RoleName          *string `json:"role_name,omitempty"`
-	RosterStatus      *string `json:"roster_status,omitempty"`
+	RoleKey      *string  `json:"role_key,omitempty"`
+	RoleName     *string  `json:"role_name,omitempty"`
+	RosterStatus *string  `json:"roster_status,omitempty"`
 
 	// Runtime The member's selected AI CLI runtime. Existing rows default to ``claude``.
 	Runtime       *AgentRuntime `json:"runtime,omitempty"`
@@ -1951,11 +1936,6 @@ type OutsourceWorkerDTO struct {
 	// Account The Claude account this worker's session runs under (telemetry entry keyed by the worker's actor id — the SAME per-actor telemetry the member roster reads). null when the worker has not reported one (never fabricated). T-f190 additive-optional.
 	Account *string `json:"account,omitempty"`
 
-	// ActivationPending 🔴 NOTHING SETS THIS FIELD ANY MORE, and the sentence below is kept only so a reader who met it can find where it was withdrawn (T-91, owner 2026-09-06). The response it names — the worker restart answering an OutsourceWorkerDTO — no longer exists: that route answers ``OutsourceRestartReceiptDTO``, which carries this signal itself. So on this DTO the field is absent on every read there is. What it MEANS is unchanged; where to read it moved.
-	//
-	// Set true ONLY on the worker restart response when nothing was actually dispatched — the worker twin of ``MemberDTO.activation_pending`` (T-ed79 parity #12). The restart intent is persisted and the cadence retries, but no worker_start went out (no kill target for the session it must replace, an unreachable warden, an unbuildable frame). Without it a 重啟 against a machine that cannot take the worker answers a clean 200 with zero signal, which is indistinguishable from one that started — the exact bug T-ba62 named on the staff side. Read ``last_op_reason`` for WHICH cause. Absent/null on every other worker read.
-	ActivationPending *bool `json:"activation_pending,omitempty"`
-
 	// ActualEffort The effort level this worker's session is REPORTED to be running at — the same durably-persisted roster field ``MemberDTO.actual_effort`` serves (an ``ow-`` row IS a member row with ``kind=outsource``). Empty means nothing has ever reported one. Separate from, and NEVER a fallback to, the owner-configured ``effort`` launch setting this DTO round-trips (T-7f28).
 	ActualEffort *string `json:"actual_effort,omitempty"`
 
@@ -2031,16 +2011,6 @@ type OutsourceWorkerDTO struct {
 
 	// RefocusSince Epoch seconds of the in-flight context-handover stamp (T-32e1), 0 when none. >0 = a refocus (owner 換手 OR context-high auto-handover) is mid-flight; the FE maps 0→null. Additive-optional.
 	RefocusSince *float64 `json:"refocus_since,omitempty"`
-
-	// RelocationDeferred 🔴 NOTHING SETS THIS FIELD ANY MORE, and the sentence below is kept only so a reader who met it can find where it was withdrawn (T-91, owner 2026-09-06). The response it names — the worker relocate answering an OutsourceWorkerDTO — no longer exists: that route answers ``AgentRelocateReceiptDTO``, which carries this signal itself. So on this DTO the field is absent on every read there is. What it MEANS is unchanged; where to read it moved.
-	//
-	// Set true on the worker relocate response when the move was DELIBERATELY deferred: the worker is live with uncollected state, so a graceful wind-down owns the move instead of it being dispatched now. TWO ways that happens, and the field does not distinguish them because the consumer's question is the same in both: (a) THIS relocate opened the wind-down, and the move lands when the worker answers report_stopped; (b) an EXISTING wind-down at a HIGHER rung of the 停止 → 加速停止 → 強制停止 ladder already owns the worker, so the pin was saved and the ladder refused to re-open a lower stage — the move lands at THAT wind-down's collect, on whatever deadline it already carries (T-170e). This is the companion that disambiguates ``relocation_pending``, which is true for BOTH these cases and a genuinely undispatched move: a consumer must NOT raise a "nothing was dispatched" alert while this field is true. Absent/null on every other worker read (T-ed79 parity #5).
-	RelocationDeferred *bool `json:"relocation_deferred,omitempty"`
-
-	// RelocationPending 🔴 NOTHING SETS THIS FIELD ANY MORE, and the sentence below is kept only so a reader who met it can find where it was withdrawn (T-91, owner 2026-09-06). The response it names — the worker relocate answering an OutsourceWorkerDTO — no longer exists: that route answers ``AgentRelocateReceiptDTO``, which carries this signal itself. So on this DTO the field is absent on every read there is. What it MEANS is unchanged; where to read it moved.
-	//
-	// Set true ONLY on the worker relocate response when the owner-pinned move is scheduled but has not landed yet — the worker twin of ``MemberDTO.relocation_pending`` (T-ed79 parity #5). TWO causes, which this field does not distinguish: (a) the kill+respawn that moves a worker with nothing to flush could not be dispatched (no kill target, or the warden would not take the start) — the cadence retries; (b) a graceful wind-down window was opened, so nothing has been dispatched yet BY DESIGN. Read ``relocation_deferred`` to tell (b) apart from (a) — only (a) is a failure worth alerting on. Absent/null on every other worker read.
-	RelocationPending *bool `json:"relocation_pending,omitempty"`
 
 	// Runtime The worker's selected AI CLI runtime. Existing rows default to ``claude``.
 	Runtime *AgentRuntime `json:"runtime,omitempty"`
