@@ -451,6 +451,13 @@
       "seam_reason": "hop: the ONE place chat is drained since T-48 — both entrances (every connect and a chat delta) call l.drainChatNow(), which calls this. It is a GET (fetchChat), and since T-48 there IS a POST below it: the read receipt filed after the lines are printed. That POST is claimed by ocagent-chat-mark-read; this row stays a seam because the body is built there, not here."
     },
     {
+      "id": "ocagent-cmdlisten-run",
+      "source": "cli/ocagent/listen_run.go",
+      "callsite": "return newListener(cfg, env, out, once, stamper).run(rootCtx())",
+      "kind": "seam",
+      "seam_reason": "hop: the process entry point. It builds the listener and enters run(), so every send this subcommand ever makes hangs below this one line — all of them already claimed on their own callsites (ocagent-run-1..9, ocagent-connectonce, ocagent-dispatch-value, ocagent-chat-mark-read). This line itself puts nothing on the wire. It is NEW as a callsite only because T-89 split the construction out of cmdListen into newListener so the wiring could be asserted; before that the same hop was spelled `return l.run(ctx)`, which the scan did not match. Nothing about what goes on the wire changed."
+    },
+    {
       "id": "ocagent-run-7",
       "source": "cli/ocagent/listen_run.go",
       "callsite": "winddown:         newWindDownHook(api, cfg, out),",
