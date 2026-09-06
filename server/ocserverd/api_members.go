@@ -1977,12 +1977,12 @@ func (s *apiServer) HandleReportStoppedApiSelfStoppedPost(w http.ResponseWriter,
 		// worker runs the collect funnel (kill+respawn NOW) — the member
 		// recycle-kill shape, riding the worker's own kill funnel instead of
 		// dispatchRobustStopNow.
-		fresh, werr := s.workerReportStopped(m.ID, requestTrigger(r))
+		fresh, stopEffect, werr := s.workerReportStopped(m.ID, requestTrigger(r))
 		if werr != nil {
 			writeResolveError(w, werr, "member", currentActor(r))
 			return
 		}
-		s.writeSelfReportReceipt(w, *fresh)
+		s.writeSelfReportStopReceipt(w, *fresh, stopEffect)
 		return
 	}
 	// 🔴 A stopped-report is now ALWAYS collected (owner 2026-08-16, card
@@ -2016,10 +2016,19 @@ func (s *apiServer) HandleReportStoppedApiSelfStoppedPost(w http.ResponseWriter,
 	}
 	// Dispatch AFTER putMember so the marker persistence + member-delta fan
 	// (→ agent RecycleHook) has already landed before the STOP.
+	//
+	// 🔴 THE STAFF ARM HAS ONLY TWO OF THE FOUR OUTCOMES (T-102), and that is
+	// the ruling above restated on the wire: a staff stopped-report is ALWAYS
+	// collected, so the first one is `collected` and there is no
+	// recorded_only / latched_for_collect cell on this side. A repeat report is
+	// `already_reported` — the anchor is not re-stamped and no second STOP goes
+	// out, so nothing this call did changed the outcome of the first one.
+	stopEffect := stopEffectAlreadyReported
 	if recycleKill {
 		s.dispatchRobustStopNow(m.ID)
+		stopEffect = stopEffectCollected
 	}
-	s.writeSelfReportReceipt(w, *m)
+	s.writeSelfReportStopReceipt(w, *m, stopEffect)
 }
 
 // POST /api/self/refocus — restart_self(): the agent's SELF-TRIGGERED recycle

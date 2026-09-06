@@ -108,7 +108,7 @@ func TestGracefulStopEpochOpen_AForcedWorkersOwnReportIsLatchedNotCollected(t *t
 		putWorkerFixture(t, s, w)
 		s.workerSpawnTarget[id] = ServerSelfHost
 		s.hub.DrainWardenCommands(ServerSelfHost) // ignore fixture noise
-		if _, err := s.workerReportStopped(id, triggerServer); err != nil {
+		if _, _, err := s.workerReportStopped(id, triggerServer); err != nil {
 			t.Fatalf("report_stopped: %v", err)
 		}
 		return s

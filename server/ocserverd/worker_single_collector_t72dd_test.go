@@ -51,7 +51,7 @@ func TestWorkerContextHandover_ActuallyReachesTheCollect_T72dd(t *testing.T) {
 	}
 
 	// The agent works its close-out and reports stopped — the latch, no kill.
-	if _, err := s.workerReportStopped("ow-hi", triggerServer); err != nil {
+	if _, _, err := s.workerReportStopped("ow-hi", triggerServer); err != nil {
 		t.Fatalf("report_stopped: %v", err)
 	}
 	if n := len(s.hub.DrainWardenCommands(ServerSelfHost)); n != 0 {

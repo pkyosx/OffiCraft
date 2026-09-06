@@ -2304,12 +2304,39 @@ HAPPY: dict[str, Happy] = {
         # reported and what the station now wants of it. Key-set equality:
         # asserting only that `id` is present would stay green if the whole
         # member came back, because a member carries an id too.
+        #
+        # 🔴 THIS FACE CARRIES ONE MORE KEY THAN THE OTHER THREE (T-102), and
+        # that asymmetry is the point rather than an oversight: `stop_effect`
+        # names which of report_stopped's four outcomes this call had, and the
+        # other three faces are not stop reports, so they have no effect to
+        # name and must NOT grow the key. Both halves are asserted — this entry
+        # requires it present, the waking/stopping entries above require it
+        # absent by their own key-set equality.
+        #
+        # The VALUE is checked against the CLOSED ENUM rather than one member of
+        # it, deliberately, and the reason is a property of this suite: the agent
+        # identity is a session-scoped fixture that earlier files in the run have
+        # already driven through this same route, so WHICH cell this particular
+        # call lands in is a function of collection order, not of the contract.
+        # Pinning one value here would be pinning pytest's file ordering.
+        #
+        # What this suite is the authority for is the WIRE — the field is
+        # present, on this face, and never carries a value outside the four. The
+        # cell-by-cell mapping (which internal outcome yields which value) is
+        # pinned where the state can actually be set up: the server unit tests in
+        # stop_effect_receipt_t102_test.go drive all four arms and were checked
+        # against mutants.
         check=lambda ctx, r: _expect(
             r,
             lambda d: set(d) == {
-                "id", "desired_state", "refocus_op", "refocus_deadline"
+                "id", "desired_state", "refocus_op", "refocus_deadline",
+                "stop_effect",
             }
-            and d["id"] == ctx.agent.member_id,
+            and d["id"] == ctx.agent.member_id
+            and d["stop_effect"] in {
+                "collected", "latched_for_collect", "recorded_only",
+                "already_reported",
+            },
         ),
     ),
     # ── chat ─────────────────────────────────────────────────────────────────
