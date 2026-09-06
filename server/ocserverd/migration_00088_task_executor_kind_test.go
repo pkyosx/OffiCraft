@@ -2,11 +2,11 @@ package main
 
 // migration_00088_task_executor_kind_test.go — T-101.
 //
-// 00088 renames the TASK executor kind 'member' to 'staff'. SQLite can alter
+// 00088 renames the TASK executor kind 'member' to 'staff'. SQLite can alter kind-vocab-guard:legacy
 // neither a CHECK nor a DEFAULT in place, so the migration rebuilds `task`:
 // create task_rebuild with CHECK (executor_kind IN ('staff','outsource')) and
 // DEFAULT 'staff', copy every row through a named 33-column INSERT…SELECT that
-// maps 'member' -> 'staff' in BOTH executor_kind and reassigned_from_kind,
+// maps 'member' -> 'staff' in BOTH executor_kind and reassigned_from_kind, kind-vocab-guard:legacy
 // DROP TABLE task, RENAME, and re-create
 //
 //	CREATE INDEX idx_task_status ON task (status)
@@ -20,7 +20,7 @@ package main
 // decoration.
 //
 //	TestMigration00088UpRenamesBothKindColumns
-//	  → either CASE is dropped, inverted or widened: 'member' left behind,
+//	  → either CASE is dropped, inverted or widened: 'member' left behind, kind-vocab-guard:legacy
 //	    'outsource' swept up by a blanket rename, or the empty string (the
 //	    "never reassigned" marker, which reassigned_from_kind admits and no
 //	    CHECK guards) rewritten into a word.
@@ -161,8 +161,8 @@ type migration00088Spec struct {
 // migration00088Fixture is the pre-00088 population. Between them the rows cover
 // every value either kind column can hold at this version:
 //
-//	executor_kind         'member' (moves) and 'outsource' (must not)
-//	reassigned_from_kind  'member' (moves), 'outsource' (must not) and the
+//	executor_kind         'member' (moves) and 'outsource' (must not) kind-vocab-guard:legacy
+//	reassigned_from_kind  'member' (moves), 'outsource' (must not) and the kind-vocab-guard:legacy
 //	                      EMPTY STRING (never reassigned — no CHECK guards this
 //	                      column, so it is exactly the value a careless CASE
 //	                      would rewrite)
@@ -171,11 +171,15 @@ type migration00088Spec struct {
 // the other cannot hide behind rows where both happen to agree.
 func migration00088Fixture() []migration00088Spec {
 	return []migration00088Spec{
-		{id: "t-88-member", executorKind: "member", reassignedKind: "member", priority: "high"},
+		{id: "t-88-member", executorKind: migration00088OldKind,
+			reassignedKind: migration00088OldKind, priority: "high"},
 		{id: "t-88-outsource", executorKind: "outsource", reassignedKind: "outsource", priority: "mid"},
-		{id: "t-88-never-reassigned", executorKind: "member", reassignedKind: "", priority: "low"},
-		{id: "t-88-crossed", executorKind: "outsource", reassignedKind: "member", priority: "frozen"},
-		{id: "t-88-奇怪", executorKind: "member", reassignedKind: "outsource", priority: "mid", awkward: true},
+		{id: "t-88-never-reassigned", executorKind: migration00088OldKind,
+			reassignedKind: "", priority: "low"},
+		{id: "t-88-crossed", executorKind: "outsource",
+			reassignedKind: migration00088OldKind, priority: "frozen"},
+		{id: "t-88-奇怪", executorKind: migration00088OldKind,
+			reassignedKind: "outsource", priority: "mid", awkward: true},
 	}
 }
 
@@ -806,7 +810,7 @@ func TestMigration00088DownRenamesBothKindColumnsBack(t *testing.T) {
 	}
 	if leftover != 0 {
 		t.Errorf("%d task row(s) still carry 'staff' after the Down — at this schema version "+
-			"executor_kind's CHECK lists {'member','outsource'} and 'staff' is not a value "+
+			"executor_kind's CHECK lists {'member','outsource'} and 'staff' is not a value "+ // kind-vocab-guard:legacy
 			"the rolled-back database can even represent", leftover)
 	}
 
