@@ -165,6 +165,10 @@ import {
   BACKUP_RETAIN_MIN,
 } from "./backupRetain";
 import {
+  SUGGESTED_REPLIES_WIRE_FIELD,
+  withSuggestedReplies,
+} from "./suggestedReplies";
+import {
   MOCK_OWNER_ID,
   SEED_SYSTEM_INTERACTION_MD,
   SEED_ROLE_ASSISTANT_MD,
@@ -1980,6 +1984,12 @@ const DEFAULT_MOCK_SETTINGS = {
   // Owner nickname (T-0b41) — "" out of the box, mirroring the server (the
   // profile pill shows the localized default until the owner sets a nickname).
   owner_name: "",
+  // 建議回覆 (T-122) — EMPTY out of the box, mirroring a server that has no
+  // such setting yet (T-121 owns the field). Empty means the composer shows no
+  // chips at all, which is the state every install is in today. Written
+  // through the computed key so the field name still lives in exactly one
+  // module (api/suggestedReplies.ts).
+  [SUGGESTED_REPLIES_WIRE_FIELD]: [] as string[],
   push_contact_email: "",
   // Cockpit display prefs (T-0b41-p2) — "" out of the box, mirroring the server
   // (the frontend keeps its localStorage cache / default until the owner picks).
@@ -6449,6 +6459,14 @@ export function __injectMockTask(task: TaskView | MockTaskRow): void {
   // rows, which is the honest consequence of what was put in.
   tasks.push(task as MockTaskRow);
   emitTopic("task");
+}
+
+// Test-only hook: seed the owner's 建議回覆 (T-122). There is no cockpit write
+// for it in this package — T-121 owns the settings editor — so a test that
+// wants chips under the composer has no other way to put them there. Passing
+// an empty list restores the shipped state (no chips at all).
+export function __setMockSuggestedReplies(replies: readonly string[]): void {
+  mockServerSettings = withSuggestedReplies(mockServerSettings, replies);
 }
 
 // Test-only hook: land the retained PREVIOUS versions of one pinned deliverable

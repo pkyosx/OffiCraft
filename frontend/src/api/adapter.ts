@@ -1115,6 +1115,12 @@ export interface ServerSettingsView {
   /** The owner's display nickname shown in the topbar profile pill (T-0b41).
    * "" = never set — the caller falls back to the localized default (`t.user`). */
   ownerName: string;
+  /** The 建議回覆 the owner configured in 參數設定 (T-122) — the one-click
+   * sentences offered under the reply-card composer and the task message box.
+   * Empty = the owner configured none, which renders nothing at all. Read
+   * through `api/suggestedReplies.ts`, the only module that knows the wire
+   * field's name (it is not in the frozen spec yet — T-121 owns that). */
+  suggestedReplies: string[];
   /** Contact email used as this deployment's Web Push VAPID identity. Empty
    * means delivery is disabled until the owner configures a public address. */
   pushContactEmail: string;
