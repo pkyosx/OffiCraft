@@ -2000,7 +2000,7 @@ export const en: Dict = {
     // integer cannot — that it may be lowered, and that it governs the step
     // note alone — because both are what the person turning the knob will
     // otherwise get wrong.
-    stepNoteCap: "Step note size cap",
+    stepNoteCap: "Task step note size cap",
     stepNoteCapSub:
       "How many characters one task step's note may hold. It can be lowered as well as raised, and lowering it loses nothing already written.",
     docUsage: "Used",

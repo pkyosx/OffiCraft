@@ -1792,22 +1792,6 @@ function ServerParams({
 
           <div className="param-row">
             <div className="param-row__body">
-              <div className="param-row__name">{t.settings.chatBudget}</div>
-              <div className="param-row__sub">{t.settings.chatBudgetSub}</div>
-            </div>
-            <div className="param-pct">
-              <input id="param-chat-budget" className="param-input" type="number"
-                min={CHAT_BUDGET_CHARS_MIN} max={CHAT_BUDGET_CHARS_MAX}
-                aria-label={t.settings.chatBudget}
-                value={chatBudgetDraft ?? String(settings.chatBudgetChars)}
-                onChange={(e) => { setRangeError(false); onClearSaveError(); setChatBudgetDraft(e.target.value); }}
-                onBlur={commitChatBudget} onKeyDown={(e) => { if (e.key === "Enter") commitChatBudget(); }} />
-              <span className="param-pct__sign">{t.settings.chars}</span>
-            </div>
-          </div>
-
-          <div className="param-row">
-            <div className="param-row__body">
               <div className="param-row__name">{t.settings.stepNoteCap}</div>
               <div className="param-row__sub">{t.settings.stepNoteCapSub}</div>
             </div>
@@ -1818,6 +1802,22 @@ function ServerParams({
                 value={stepNoteCapDraft ?? String(settings.stepNoteCapChars)}
                 onChange={(e) => { setRangeError(false); onClearSaveError(); setStepNoteCapDraft(e.target.value); }}
                 onBlur={commitStepNoteCap} onKeyDown={(e) => { if (e.key === "Enter") commitStepNoteCap(); }} />
+              <span className="param-pct__sign">{t.settings.chars}</span>
+            </div>
+          </div>
+
+          <div className="param-row">
+            <div className="param-row__body">
+              <div className="param-row__name">{t.settings.chatBudget}</div>
+              <div className="param-row__sub">{t.settings.chatBudgetSub}</div>
+            </div>
+            <div className="param-pct">
+              <input id="param-chat-budget" className="param-input" type="number"
+                min={CHAT_BUDGET_CHARS_MIN} max={CHAT_BUDGET_CHARS_MAX}
+                aria-label={t.settings.chatBudget}
+                value={chatBudgetDraft ?? String(settings.chatBudgetChars)}
+                onChange={(e) => { setRangeError(false); onClearSaveError(); setChatBudgetDraft(e.target.value); }}
+                onBlur={commitChatBudget} onKeyDown={(e) => { if (e.key === "Enter") commitChatBudget(); }} />
               <span className="param-pct__sign">{t.settings.chars}</span>
             </div>
           </div>
