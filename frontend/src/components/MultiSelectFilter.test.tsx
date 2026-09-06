@@ -86,13 +86,21 @@ describe("MultiSelectFilter 的摘要規則 (T-118, owner rc-33dfe1ff14cb)", () 
   // Rendered one at a time: two mounts in one test would put two elements on
   // the same testid and getByTestId would throw before asserting anything.
   it("a partial set of ONE keeps its label, and lights the pill", () => {
-    const f = renderFilter(["mira"]);
-    expect(f.summary()).toBe("Mira");
+    // 🔴 NOT ["mira"]: mira is OPTIONS[0], so a summary that read
+    // `options[0].label` instead of `present[0].label` would print the right
+    // name anyway and this assertion would pass a broken component. Picking a
+    // value that is NOT first is what makes it a test. (Independent review of
+    // 910abfeb built exactly that mutant and it survived.)
+    const f = renderFilter(["kyle"]);
+    expect(f.summary()).toBe("Kyle");
     expect(f.active()).toBe(true);
   });
 
   it("a partial set of TWO reads 「負責人 · 2」, and lights the pill", () => {
-    const f = renderFilter(["mira", "kyle"]);
+    // 🔴 NOT ["mira", …]: mira is OPTIONS[0], so a summary that wrongly read
+    // `options[0].label` instead of `present[0].label` would still print the
+    // right name and this file would never notice. Start from the second one.
+    const f = renderFilter(["kyle", "penny"]);
     expect(f.summary()).toBe("負責人 · 2");
     expect(f.active()).toBe(true);
   });
@@ -101,8 +109,22 @@ describe("MultiSelectFilter 的摘要規則 (T-118, owner rc-33dfe1ff14cb)", () 
     // `present` filters against the options that still exist. A value left over
     // from a person whose rows have aged out must not make the axis look
     // narrowed — otherwise 清除篩選 appears with nothing to clear.
-    const f = renderFilter(["ghost"]);
-    expect(f.summary()).toBe("所有負責人");
-    expect(f.active()).toBe(false);
+    //
+    // 🔴 TWO CASES, AND THE SECOND ONE IS THE ONE THAT BITES. A stale key ALONE
+    // takes the allLabel branch and never reaches the 「· N」 template at all, so
+    // asserting only that case left the count itself unguarded: swapping
+    // `present.length` for `selected.size` in that template survived all 189
+    // test files. Mixing a stale key WITH real ones is what actually exercises
+    // it. Found by independent review of 910abfeb.
+    const alone = renderFilter(["ghost"]);
+    expect(alone.summary()).toBe("所有負責人");
+    expect(alone.active()).toBe(false);
+    alone.unmount();
+
+    const mixed = renderFilter(["kyle", "penny", "ghost"]);
+    expect(
+      mixed.summary(),
+      "the count is of options that still EXIST, not of the raw selection"
+    ).toBe("負責人 · 2");
   });
 });
