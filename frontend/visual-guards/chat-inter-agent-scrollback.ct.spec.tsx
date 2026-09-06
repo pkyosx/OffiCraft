@@ -47,4 +47,7 @@ test("一頁幾乎全是成員間對話時,往上捲仍然載得到更舊的訊�
     `往上捲 20 次之後只載到 ${loaded} 則 owner↔成員訊息 ` +
       `(scrollHeight=${geom.scrollHeight}, clientHeight=${geom.clientHeight})`,
   ).toBe(NORMAL_TOTAL);
+
+  // …而且它會停:歷史撈完之後畫的是「已到最早訊息」,不是繼續空轉。
+  await expect(page.locator(".chat__history-start")).toBeVisible();
 });
