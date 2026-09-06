@@ -352,27 +352,7 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
   for (const c of openerBasis) {
     openerCounts.set(c.from, (openerCounts.get(c.from) ?? 0) + 1);
   }
-  // owner 2026-09-06 (c-63f5651493f8):「可以選的人就是現在UI filter出來的那些人,
-  // 並且要顯示幾張卡這個數字」— so the list is the people who actually have cards
-  // here, not the whole roster. 邊界 (copied from 任務頁 deliberately): a person
-  // already TICKED stays listed even at zero, or the owner could not untick them
-  // and the filter would be a dead end.
-  const openerOptions: MultiSelectOption[] = [...openerCounts.keys()]
-    .map((id) => ({
-      value: id,
-      label: members.find((m) => m.id === id)?.name ?? id,
-      count: openerCounts.get(id) ?? 0,
-    }))
-    .concat(
-      [...openerFilter]
-        .filter((id) => !openerCounts.has(id))
-        .map((id) => ({
-          value: id,
-          label: members.find((m) => m.id === id)?.name ?? id,
-          count: 0,
-        }))
-    )
-    .sort((a, b) => b.count - a.count || a.label.localeCompare(b.label));
+  // 開卡人 下拉的選項在 `whoOf` 之後才建得起來（它要用 `codenames`），見下方。
 
   // The header count + zero-hide: the server counts until the lists are
   // loaded, then the client-pruned visible length (so an aging-out card drops
@@ -419,17 +399,53 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
   // Resolve the initiating member for a card's identity row. A card can
   // outlive its member (removed roster row) — fall back to the outsource
   // codename, then the raw id / no role, never fabricate.
-  function whoOf(card: ReplyCard): { name: string; role: string } {
-    const m = members.find((x) => x.id === card.from);
+  function whoOfId(fromId: string): { name: string; role: string } {
+    const m = members.find((x) => x.id === fromId);
     if (!m || m.kind === "outsource") {
-      const cn = codenames.get(card.from);
-      return { name: cn ? msg.outsourceLabel(cn) : card.from, role: "" };
+      const cn = codenames.get(fromId);
+      return { name: cn ? msg.outsourceLabel(cn) : fromId, role: "" };
     }
     const role =
       (t.office.role as Record<string, string>)[m.role] ??
       (m.roleName || m.role);
     return { name: m.name, role };
   }
+  function whoOf(card: ReplyCard): { name: string; role: string } {
+    return whoOfId(card.from);
+  }
+
+  // ── 開卡人 下拉的選項 ──────────────────────────────────────────────────────
+  // owner 2026-09-06 (c-63f5651493f8):「可以選的人就是現在UI filter出來的那些人,
+  // 並且要顯示幾張卡這個數字」— so the list is the people who actually have cards
+  // here, not the whole roster. 邊界 (copied from 任務頁 deliberately): a person
+  // already TICKED stays listed even at zero, or the owner could not untick them
+  // and the filter would be a dead end.
+  //
+  // 🔴 NAMES COME FROM `whoOfId`, THE SAME RESOLVER THE CARDS USE. An earlier
+  // cut read `members.find(...)?.name ?? id` here, which is a DIFFERENT rule
+  // from the one the card bodies follow: a RELEASED outsource asker is soft-
+  // removed from `members`, so the dropdown fell through to the raw `ow-…` id
+  // while the card beside it said 「外包 · 代號」. The owner would have been asked
+  // to tick a name that appears nowhere else on the page. That is also why this
+  // block sits below `codenames` rather than beside `openerCounts` — it needs
+  // the lazy codename read, and hoisting it back up is a TDZ error, not a
+  // tidy-up. Found by independent review of 8204de4f.
+  const openerOptions: MultiSelectOption[] = [...openerCounts.keys()]
+    .map((id) => ({
+      value: id,
+      label: whoOfId(id).name,
+      count: openerCounts.get(id) ?? 0,
+    }))
+    .concat(
+      [...openerFilter]
+        .filter((id) => !openerCounts.has(id))
+        .map((id) => ({
+          value: id,
+          label: whoOfId(id).name,
+          count: 0,
+        }))
+    )
+    .sort((a, b) => b.count - a.count || a.label.localeCompare(b.label));
 
   // Jump to the origin: the ask always comes from a chat message
   // (card.chatMessageId), so open that member's chat room WITH the message id
@@ -770,7 +786,16 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
             </div>
           ) : (
             <div className="replies__empty" data-testid="replies-empty">
-              {filtering ? t.replies.emptyFiltered : t.replies.empty}
+              {/* 🔴 `anyFilter`, NOT `filtering`. `filtering` is id-only, and it
+                * has a second job (gating the by-id lookup's three outcomes)
+                * that an 開卡人 tick must not switch on. But the sentence below
+                * is not about the id — it is about whether ANY axis is hiding
+                * rows. With `filtering` here, ticking only 開卡人 and matching
+                * nothing printed 「✓ 目前沒有待處理的請示」 while other people's
+                * cards sat behind the filter: precisely the 「you are all caught
+                * up」 lie the comment above this block forbids. Found by
+                * independent review of 8204de4f. */}
+              {anyFilter ? t.replies.emptyFiltered : t.replies.empty}
             </div>
           )
         ) : (
@@ -784,8 +809,15 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
         * the answer to a question the owner asked, so it has to stay on screen
         * and say 0 — hiding it there removes the only handle for opening the
         * pane and makes "no match" indistinguishable from "nothing exists"
-        * (independent review, 2026-09-05). */}
-      {(handledShown > 0 || filtering) && (
+        * (independent review, 2026-09-05).
+        *
+        * 🔴 `anyFilter`, NOT `filtering` — the 2026-09-05 defect above was
+        * reopened by the 開卡人 axis, because `filtering` only counts the id.
+        * Ticking a person made this whole section vanish along with the only
+        * handle for opening it, which is the same「no match looks like nothing
+        * exists」failure, one axis over. Found by independent review of
+        * 8204de4f. */}
+      {(handledShown > 0 || anyFilter) && (
         <section className="replies__section">
           {/* The whole title row IS the toggle (collapsed by default): the
            * handled pane only unfolds on demand, vibe-clicking style — and the

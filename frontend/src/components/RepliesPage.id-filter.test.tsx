@@ -687,4 +687,81 @@ describe("請示卡 開卡人 篩選 (T-118)", () => {
       ).toBeNull()
     );
   });
+
+  // ── 以下兩支釘的是同一個缺陷的兩面：頁面用 `filtering`（只看 id）去回答
+  // 「有沒有東西被篩住」，而 `filtering` 在 開卡人 軸加進來之後就不再是那個問題的
+  // 答案了。兩者都由 8204de4f 的獨立審查抓到。
+  it("🔴 an opener tick that matches nothing says 沒有符合篩選條件, NOT ✓ 你已回完", async () => {
+    // WHY THIS IS THE WORST POSSIBLE WORDING TO GET WRONG: 「✓ 目前沒有待處理的
+    // 請示」 is the page telling the owner he is caught up. Printing it while
+    // other people's cards sit behind a filter is not a cosmetic slip — it is
+    // the page reporting an all-clear that is false. The 待回覆/篩完是空的 split
+    // is load-bearing for exactly this reason and the comment above the empty
+    // state forbids merging them.
+    // 🔴 NO ID IS APPLIED ANYWHERE IN THIS TEST. That is the whole point: with
+    // an id in the box `filtering` is true as well, so a page that reads the
+    // wrong flag still prints the right sentence and the guard proves nothing.
+    // The opener axis has to be the ONLY thing engaged.
+    //
+    // The shape: 銀月 has the only 待回覆 card; Kyle's card is already handled, so
+    // he IS an option (the basis is 待回覆 ∪ 近期已處理-in-24h) but ticking him
+    // leaves 待回覆 with nothing in it.
+    __injectMockReplyCard(mkCard({ id: "rc-a1", from: "mira", summary: "銀月的" }));
+    __injectMockReplyCard(
+      mkCard({
+        id: "rc-b1",
+        from: "kyle",
+        summary: "Kyle 的",
+        status: "answered",
+        answeredTs: Date.now() / 1000 - 60,
+        answer: { optionIdxs: [0], text: "", attachments: [] },
+      })
+    );
+
+    const { findByText, findByTestId } = renderPage();
+    await findByText("銀月的");
+
+    // Unfold 近期已處理 first — the handled cards are fetched on that first
+    // unfold, and Kyle only enters the opener basis once they are here.
+    fireEvent.click(await findByTestId("answered-toggle"));
+    await findByText("Kyle 的");
+
+    fireEvent.click(openerTrigger());
+    await waitFor(() =>
+      expect(
+        document.querySelector('[data-testid="filter-opener-opt-kyle"]'),
+        "Kyle must become an opener option once his handled card is loaded"
+      ).not.toBeNull()
+    );
+
+    tickOpener("kyle");
+
+    const empty = await findByTestId("replies-empty");
+    await waitFor(() =>
+      expect(
+        empty.textContent,
+        "an engaged filter must never render the caught-up sentence"
+      ).toBe("沒有符合篩選條件的請示")
+    );
+  });
+
+  it("🔴 近期已處理 keeps its section (and its handle) while an opener tick is on", async () => {
+    // The 2026-09-05 independent review already found this once for the id
+    // axis: zero-hiding the pane WHILE A FILTER IS ON removes the only control
+    // for opening it, so 「no match」 and 「nothing exists」 become one screen.
+    // The 開卡人 axis reopened it, because the zero-hide was keyed on the
+    // id-only `filtering`.
+    __injectMockReplyCard(mkCard({ id: "rc-a1", from: "mira", summary: "銀月的" }));
+
+    const { findByText } = renderPage();
+    await findByText("銀月的");
+
+    tickOpener("mira");
+    await waitFor(() =>
+      expect(
+        document.querySelector('[data-testid="answered-toggle"]'),
+        "the handled pane's toggle must survive an opener-only filter"
+      ).not.toBeNull()
+    );
+  });
 });
