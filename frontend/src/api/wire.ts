@@ -367,6 +367,18 @@ export type WireInsight = components["schemas"]["InsightDTO"];
 export type WireBackupHealth = components["schemas"]["BackupHealthDTO"];
 export type WireSigningKeys = components["schemas"]["SigningKeysDTO"];
 
+/** Mirrors `UpgradeInstructionDTO` — ONE 換版交代單 (T-79): an instruction the
+ * owner leaves for the assistant, handed to her in a chat message at every
+ * station upgrade until somebody ticks it off. `done_ts`/`done_by` are 0/""
+ * while it is open, which the mapper narrows so no component renders 1970. */
+export type WireUpgradeInstruction = components["schemas"]["UpgradeInstructionDTO"];
+/** Mirrors `UpgradeInstructionsDTO` (`GET /api/upgrade-instructions`): the whole
+ * set, open ones first. `open_count` is computed by the server rather than
+ * derived from the array — it is the number that makes this feature's only
+ * failure mode visible (an instruction nobody ever acts on), and a client that
+ * counts the array itself gets a different answer the day the list is paged. */
+export type WireUpgradeInstructions = components["schemas"]["UpgradeInstructionsDTO"];
+
 // ── Resume summary (RESUME SUMMARY panel section, T-8b0d) ─────────────────────
 
 /** Mirrors `ResumeOverviewDTO`: the size/概要 block of a resume snapshot — the

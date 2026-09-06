@@ -592,6 +592,29 @@ var authzOutsideRouteTable = map[string]string{
 	"api_tasks.go :: taskCallerOf :: classifyMember(m)": "" +
 		"the classification step of the task-caller resolver (the owner branch above " +
 		"returns before this line). Same primitive as the 發包 path, different entry.",
+
+	// ── 換版交代單 (T-79): two narrowings the ladder has no rung for ──────────
+	//
+	// All four upgrade-instruction rows sit at the admin_agent floor because the
+	// TICK needs to admit the assistant, and admin_agent is the widest of the
+	// four. Two of the verbs are narrower than the floor they share, and the
+	// route table cannot say so: `Requires` names a RUNG, and these rules name a
+	// PARTICULAR MEMBER. Owner-only cannot be expressed as a floor either,
+	// because principalOwner as a floor would lock the assistant out of the tick.
+	"api_upgrade_instructions.go :: callerMayWriteUpgradeInstruction :: principalAtLeast(s.principalOfRequest(r), principalOwner)": "" +
+		"WRITING and WITHDRAWING an instruction are the OWNER's alone. An instruction " +
+		"is his order to the assistant; if she could author or retract her own, the row " +
+		"would stop being evidence of anything. Cannot be a route floor: the row's " +
+		"floor has to stay at admin_agent so the tick face admits her.",
+	"api_upgrade_instructions.go :: callerMayTickUpgradeInstruction :: principalAtLeast(s.principalOfRequest(r), principalOwner)": "" +
+		"the owner half of the tick rule — he ticks when he did the work himself or " +
+		"watched it happen. Paired with the assistant clause below; neither half is a " +
+		"rung on the ladder.",
+	"api_upgrade_instructions.go :: callerMayTickUpgradeInstruction :: currentActor(r) == seedMiraID": "" +
+		"the assistant half: the instructions are ADDRESSED to her, so she is the one " +
+		"who ticks what she did. This is the predicate the ladder genuinely cannot " +
+		"express — 'this particular member', not a capability class — and it reads the " +
+		"verified token sub, never a body field.",
 }
 
 // nonCallerKindPredicates — THE MIS-FIRE REGISTRY, and deliberately not part of

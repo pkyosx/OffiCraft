@@ -1614,6 +1614,35 @@ export const zh = {
     actionFailed: "這個動作沒有成功，伺服器沒有說明原因。",
     emptyState: "讀不到金鑰。",
   },
+  upgradeInstructions: {
+    title: "換版交代單",
+    intro:
+      "留給特助的交代，站台每次換版都會連同「這次動了哪一塊」一起交到她手上。沒打勾的不會消失，下一次換版會再交一次。",
+    loading: "讀取中…",
+    emptyState: "目前沒有交代單。站台換版時，特助只會收到換了什麼版、動了哪些檔案。",
+    openCountLabel: (n: number) => `還沒完成的有 ${n} 張`,
+    allDoneLabel: "全部都完成了",
+    openBadge: "還沒完成",
+    doneBadge: "已完成",
+    createdLabel: "寫於",
+    doneLabel: (who: string) => `${who} 打的勾`,
+    addPlaceholder: "換版之後要請特助做什麼？",
+    addButton: "新增交代單",
+    addHint:
+      "寫下去之後它就一直在，直到有人打勾。沒有「幾點送」這個選項 —— 下一次換版就會交出去。",
+    doneButton: "標記完成",
+    // 🔴 這兩句是這張卡最重要的文字。收回沒有復原。
+    deleteButton: "收回",
+    deleteConfirmTitle: "收回這張交代單？",
+    deleteConfirmBody:
+      "這張會被永久刪除，沒有復原。收回是給「寫錯了」用的：打勾的意思是「我做了」，所以寫錯的那張沒有誠實的方式用打勾撤掉 —— 不收回，它會在每一次換版被交出去。",
+    deleteConfirmCancel: "取消",
+    deleteConfirmOk: "確定收回",
+    // 這張卡沒有即時更新。這句話存在是因為「特助剛打完勾」跟「這份清單是舊的」
+    // 在畫面上長得一模一樣，而只有後者需要重新整理。
+    staleHint: "特助打勾之後，這裡不會自己更新，要重新整理才看得到。",
+    actionFailed: "這個動作沒有成功，伺服器沒有說明原因。",
+  },
   backupHealth: {
     title: "備份健康",
     // 三個 status 的短標。unknown 不是比較安靜的 healthy:它是「判斷不出來」,

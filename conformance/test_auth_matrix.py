@@ -56,7 +56,7 @@ from typing import Any, Callable
 import httpx
 import pytest
 
-from conftest import AgentIdentity
+from conftest import AgentIdentity, mint_member_token
 
 IDENTITIES = ("none", "owner", "admin_agent", "warden", "agent_self", "agent_other")
 _AVATAR_PNG_BYTES = b"\x89PNG\r\n\x1a\n\x00"
@@ -397,6 +397,36 @@ def _matrix_closed_task(ctx: Ctx) -> str:
     )
     assert r.status_code == 200, f"scratch terminate failed: {r.status_code} {r.text}"
     return task_id
+
+
+def _matrix_upgrade_instruction(ctx: Ctx) -> str:
+    """A fresh 換版交代單 (owner-written scratch); returns its id.
+
+    Only the OWNER can write one, which is the same narrowing the rows below
+    pin — so this factory doubles as the standing proof that the positive
+    write face works at all.
+    """
+    r = ctx.client.post(
+        "/api/upgrade-instructions",
+        json={"body": f"conf matrix scratch instruction {uuid.uuid4().hex[:8]}"},
+        headers={"Authorization": f"Bearer {ctx.owner_token}"},
+    )
+    assert r.status_code == 200, (
+        f"scratch upgrade instruction failed: {r.status_code} {r.text}"
+    )
+    return r.json()["id"]
+
+
+def _upgrade_instruction_target(ctx: Ctx, identity: str) -> str:
+    """Deny-first probe target for the two {instruction_id} rows.
+
+    Denied identities aim at an id that NAMES NOTHING. That is the whole point:
+    the refusal has to arrive BEFORE the row is resolved, so a 403 here proves
+    the choke fired first and a 404 would prove the caller was allowed to learn
+    whether the instruction exists. Only the identities that may actually act
+    get a real row.
+    """
+    return _matrix_upgrade_instruction(ctx) if identity == "owner" else "uin-nope"
 
 
 def _matrix_manual(ctx: Ctx) -> str:
@@ -1780,6 +1810,51 @@ MATRIX: dict[str, Route] = {
         path="/api/docs/assets/conf-missing.png",
         overrides={i: 404 for i in _IDENTITY_RANK},
     ),
+    # ── 換版交代單 (T-79) ────────────────────────────────────────────────────
+    # All four sit at the admin_agent floor in routes.go, but three of them are
+    # narrowed AGAIN inside the handler, because the ladder has no rung for
+    # "this particular member" (api_upgrade_instructions.go says so next to the
+    # code that enforces it):
+    #   * write + withdraw  → the OWNER alone. An admin agent — the assistant
+    #     included — is a 403, and that is the feature: an instruction the
+    #     assistant could author or retract would stop being evidence of
+    #     anything.
+    #   * tick              → the owner OR the seeded assistant `mira`. The
+    #     conformance admin agent is neither, so it is a 403 here too.
+    # The admin_agent 403s below are therefore NOT below-floor derivations (the
+    # admin clears the routed floor) — they are hand-written at-floor semantic
+    # statuses for the handler's own narrowing. `mira`'s positive tick face and
+    # her write/withdraw refusals cannot be spelled in this table at all (she is
+    # not one of IDENTITIES); they are pinned in
+    # test_upgrade_instruction_assistant_may_tick_but_not_write below.
+    "GET /api/upgrade-instructions": Route(
+        # The one row with NO extra narrowing: the routed admin_agent floor is
+        # the whole rule, so both admin faces read the list.
+        requires="admin_agent",
+    ),
+    "POST /api/upgrade-instructions": Route(
+        requires="admin_agent",
+        body=lambda _ctx, _i: {
+            "body": f"conf matrix instruction {uuid.uuid4().hex[:8]}"
+        },
+        overrides={"admin_agent": 403},
+    ),
+    "POST /api/upgrade-instructions/{instruction_id}/done": Route(
+        requires="admin_agent",
+        path=lambda ctx, i: (
+            f"/api/upgrade-instructions/{_upgrade_instruction_target(ctx, i)}/done"
+        ),
+        # 403, not 404, even though the admin's target id names nothing —
+        # deny-first.
+        overrides={"admin_agent": 403},
+    ),
+    "DELETE /api/upgrade-instructions/{instruction_id}": Route(
+        requires="admin_agent",
+        path=lambda ctx, i: (
+            f"/api/upgrade-instructions/{_upgrade_instruction_target(ctx, i)}"
+        ),
+        overrides={"admin_agent": 403},
+    ),
 }
 
 # Manifest rows deliberately NOT in the matrix (must carry a reason — the
@@ -2132,3 +2207,98 @@ def test_seed_role_delete_is_refused(client: httpx.Client, owner_token: str) -> 
         "/api/roles/assistant", headers={"Authorization": f"Bearer {owner_token}"}
     )
     assert r.status_code == 403
+
+
+# ── 換版交代單: the two narrowings the IDENTITIES table cannot spell ─────────
+
+
+@pytest.fixture(scope="session")
+def mira_token(client: httpx.Client, owner_token: str) -> str:
+    """A scope="agent" JWT for the SEEDED assistant.
+
+    `mira` is a wire fact, not an implementation detail: every install ships
+    this member id, and the tick face names it by id rather than by role — an
+    admin agent with role_key="assistant" is NOT her (the `admin_agent` fixture
+    is exactly that, and the rows above pin its 403). Read back over HTTP first
+    so a missing seed fails as "the assistant is not on the roster" rather than
+    as a confusing mint error.
+    """
+    r = client.get("/api/members", headers={"Authorization": f"Bearer {owner_token}"})
+    assert r.status_code == 200, f"roster read failed: {r.status_code} {r.text}"
+    members = r.json()
+    assert any(m["id"] == "mira" for m in members), (
+        "the seeded assistant 'mira' is not on the roster — the tick face names "
+        f"her by id, so this suite cannot pin it: {[m['id'] for m in members]}"
+    )
+    return mint_member_token(client, owner_token, "mira", ttl_days=1)
+
+
+def test_upgrade_instruction_assistant_may_tick_but_not_write(
+    client: httpx.Client, owner_token: str, mira_token: str
+) -> None:
+    """The assistant's own three faces — the half of the handler narrowing that
+    the matrix's identity vocabulary cannot express.
+
+    She TICKS (that is what the whole feature is for) but she may neither WRITE
+    an instruction nor WITHDRAW one: the owner's orders to her would stop being
+    evidence of anything if she could author or retract her own. She clears the
+    routed admin_agent floor for all three, so every refusal below is the
+    handler's narrowing and nothing else.
+    """
+    owner_h = {"Authorization": f"Bearer {owner_token}"}
+    mira_h = {"Authorization": f"Bearer {mira_token}"}
+
+    # WRITE — refused.
+    r = client.post(
+        "/api/upgrade-instructions",
+        json={"body": "the assistant writing her own orders"},
+        headers=mira_h,
+    )
+    assert r.status_code == 403, (
+        f"the assistant wrote an instruction: {r.status_code} {r.text}"
+    )
+
+    # A real instruction to act on, written by the only identity that may.
+    made = client.post(
+        "/api/upgrade-instructions",
+        json={"body": f"conf assistant-face instruction {uuid.uuid4().hex[:8]}"},
+        headers=owner_h,
+    )
+    assert made.status_code == 200, f"{made.status_code} {made.text}"
+    instruction_id = made.json()["id"]
+
+    # WITHDRAW — refused, deny-FIRST (an id that names nothing is still a 403,
+    # never a 404: the choke fires before the row is resolved) and with no
+    # side effect on the real row.
+    ghost = client.delete("/api/upgrade-instructions/uin-nope", headers=mira_h)
+    assert ghost.status_code == 403, (
+        f"the assistant learned whether an instruction exists: "
+        f"{ghost.status_code} {ghost.text}"
+    )
+    r = client.delete(f"/api/upgrade-instructions/{instruction_id}", headers=mira_h)
+    assert r.status_code == 403, (
+        f"the assistant withdrew an instruction: {r.status_code} {r.text}"
+    )
+
+    # TICK — allowed, and recorded as HERS.
+    r = client.post(
+        f"/api/upgrade-instructions/{instruction_id}/done", headers=mira_h
+    )
+    assert r.status_code == 200, (
+        f"the assistant could not tick her own instruction off: "
+        f"{r.status_code} {r.text}"
+    )
+    ticked = r.json()
+    assert ticked["done"] is True, ticked
+    assert ticked["done_by"] == "mira", ticked
+
+    # The withdraw refusal really was a refusal: the row is still on the list.
+    listed = client.get("/api/upgrade-instructions", headers=owner_h)
+    assert listed.status_code == 200, listed.text
+    assert instruction_id in {i["id"] for i in listed.json()["instructions"]}, (
+        "the assistant's refused DELETE removed the row anyway"
+    )
+
+    # Housekeeping: the owner takes his own row back off the list.
+    gone = client.delete(f"/api/upgrade-instructions/{instruction_id}", headers=owner_h)
+    assert gone.status_code == 200, f"{gone.status_code} {gone.text}"

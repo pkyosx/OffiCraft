@@ -1272,5 +1272,33 @@
     "method": "POST",
     "path": "/api/tasks/{task_id}/artifact/{artifact_id}/replace",
     "requires": "agent"
+  },
+  {
+    "auth": "gated",
+    "mcp_tool": "list_upgrade_instructions",
+    "method": "GET",
+    "path": "/api/upgrade-instructions",
+    "requires": "admin_agent"
+  },
+  {
+    "auth": "gated",
+    "mcp_tool": "create_upgrade_instruction",
+    "method": "POST",
+    "path": "/api/upgrade-instructions",
+    "requires": "admin_agent"
+  },
+  {
+    "auth": "gated",
+    "mcp_tool": "complete_upgrade_instruction",
+    "method": "POST",
+    "path": "/api/upgrade-instructions/{instruction_id}/done",
+    "requires": "admin_agent"
+  },
+  {
+    "auth": "gated",
+    "mcp_tool": "delete_upgrade_instruction",
+    "method": "DELETE",
+    "path": "/api/upgrade-instructions/{instruction_id}",
+    "requires": "admin_agent"
   }
 ]

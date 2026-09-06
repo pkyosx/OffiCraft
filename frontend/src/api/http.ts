@@ -31,6 +31,8 @@ import type {
   ReleaseCheckView,
   BackupHealthView,
   SigningKeyView,
+  UpgradeInstructionView,
+  UpgradeInstructionsView,
   AuthStatusView,
   MfaEnrollView,
   MfaStateView,
@@ -120,6 +122,8 @@ import {
   toReleaseCheck,
   toBackupHealth,
   toSigningKeys,
+  toUpgradeInstruction,
+  toUpgradeInstructions,
   toGlobalContext,
   toBootDoc,
   toDocumentHistory,
@@ -2309,6 +2313,50 @@ export const httpApi: Api = {
       }),
     );
     return toSigningKeys(wire);
+  },
+
+  async getUpgradeInstructions(): Promise<UpgradeInstructionsView> {
+    // GET /api/upgrade-instructions -> UpgradeInstructionsDTO (T-79). Open
+    // ones first, each group oldest→newest — the hand-over order, preserved.
+    const wire = unwrap(await client.GET("/api/upgrade-instructions"));
+    return toUpgradeInstructions(wire);
+  },
+
+  async createUpgradeInstruction(body: string): Promise<UpgradeInstructionView> {
+    // POST /api/upgrade-instructions -> the row that was written. 403 for
+    // anyone but the owner, 422 on a blank or over-long body; both surface as
+    // a rejected promise the card renders as its own message.
+    const wire = unwrap(
+      await client.POST("/api/upgrade-instructions", { body: { body } }),
+    );
+    return toUpgradeInstruction(wire);
+  },
+
+  async markUpgradeInstructionDone(
+    instructionId: string,
+  ): Promise<UpgradeInstructionView> {
+    // POST /api/upgrade-instructions/{instruction_id}/done -> the row AFTER
+    // whichever call won the race, never a report of what this call would have
+    // written. A second tick is a 200 with the row unchanged, on purpose.
+    const wire = unwrap(
+      await client.POST("/api/upgrade-instructions/{instruction_id}/done", {
+        params: { path: { instruction_id: instructionId } },
+      }),
+    );
+    return toUpgradeInstruction(wire);
+  },
+
+  async deleteUpgradeInstruction(
+    instructionId: string,
+  ): Promise<UpgradeInstructionView> {
+    // DELETE /api/upgrade-instructions/{instruction_id} -> the row that was
+    // removed. Owner-only and permanent; 404 when the id names nothing.
+    const wire = unwrap(
+      await client.DELETE("/api/upgrade-instructions/{instruction_id}", {
+        params: { path: { instruction_id: instructionId } },
+      }),
+    );
+    return toUpgradeInstruction(wire);
   },
 
   async getAuthStatus(): Promise<AuthStatusView> {
