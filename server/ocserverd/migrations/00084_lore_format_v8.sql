@@ -1,14 +1,20 @@
 -- +goose Up
--- T-33 — 規則 v8 的格式：標題獨立成格，`problem` 變成 `impact`，impact 帶星等與審核旗標。
+-- T-33 — 規則 v8 的格式，收成 MVP：標題獨立成格，其餘四格拿掉。
 --
 -- owner 2026-09-05 逐字「用這個去做吧」，對象是規則 v8（ta-091e7a9cb434）。v8 的
 -- 六格是：標題／1 對象×活動／2 內容（機制→實例→動作）／3 射程邊界／4 impact／
 -- 5 相關事件。第 5 格已經是 lore_event 那張表，1～3 格已經是 trigger / content /
 -- retire_when，所以這一支原本只動三件事：補上標題、把第 4 格改名、給第 4 格兩個欄位。
--- ⚠️「只動三件事」這句話後來被兩道裁定推翻，說在這裡是因為讀的人會拿它去數這一支
--- 到底改了什麼：rc-9002654dd81c（2026-09-06）把 `trigger` 併進 `heading`，
--- 而 owner 2026-09-06 逐字「retire_when -> revisit_when」又改了第 3 格的名字
--- （見檔尾那一段）。今天這一支動的是五件事，第 1 與第 3 格都在裡面。
+-- ⚠️「只動三件事」這句話後來被三道裁定推翻，說在這裡是因為讀的人會拿它去數這一支
+-- 到底改了什麼：
+--   1. rc-9002654dd81c（2026-09-06）把 `trigger` 併進 `heading`。
+--   2. rc-9c9bf14a579f（2026-09-06）拿掉 `origin` 與「活動」那一軸。
+--   3. 🔴 owner 2026-09-06 逐字「都改掉」（訊息 `c-3d3e5582c2d2`）：條目收成 MVP，
+--      `impact`（原 `problem`）／`impact_stars`／`revisit_when`（原 `retire_when`）／
+--      `supersedes` **四格連同程式一起拿掉**。這道裁定推翻了同一天稍早那句
+--      「retire_when -> revisit_when」—— 改名的對象不存在了。
+-- ⇒ 今天這一支留在條目上的格子是：`heading`／`content`／`lore_event`（第 5 格），
+--   外加一個沒有被點名、因此留在原地的 `reviewed` 旗標（見它自己那一段）。
 --
 -- ── 為什麼是 ALTER，而 00081 當初是直接改欄位宣告 ─────────────────────────────
 --
@@ -66,27 +72,45 @@
 -- 不放在 CHECK —— SQLite 的 CHECK 訊息說不出是哪一格空了。
 ALTER TABLE lore_entry ADD COLUMN heading TEXT NOT NULL DEFAULT '';
 
--- ── 第 4 格改名：problem → impact ───────────────────────────────────────────
--- 不是換個說法。`problem`（之前發生過什麼問題）問的是起因；v8 的 `impact` 問的是
--- 「我們原本想 ooo，結果 xxx 了」——原本要達成什麼、實際變成什麼。
--- 🔴 v8 明寫：那件壞事其實沒發生（護欄先擋下來了）就寫「沒有發生，因為…」，
--- 不要編一個沒發生的後果；真的填不出來就留白。
-ALTER TABLE lore_entry RENAME COLUMN problem TO impact;
-
--- ── 4b 星等 ─────────────────────────────────────────────────────────────────
--- 刻度是 owner 2026-09-05 逐字的三句：做白工 → 做完更糟糕了 → 還把其他東西也弄壞。
--- 判法只有一個問題：「弄壞了什麼？」
---   沒弄壞任何東西 = 1｜弄壞的只有你動的那個 = 2｜弄壞的包含你沒動的 = 3
--- ⚠️ 三級之間不是累加。舊版寫「還弄壞了別的」，那個「還」會被讀成「3 一定要先滿足
---    2」，owner 判定它模糊並拿掉。真正的分界只有一條：弄壞的東西在不在你動的範圍內。
--- ⚠️ 沒有但書。草稿的「修好的比弄壞的大 ⇒ 降一級」在 24 條真實條目上一條都沒觸發，
---    owner 看過四個實例後認可沒有但書的判法。要加回來請先找到一條真的需要它的條目。
+-- ── 🔴 第 4 格整格拿掉：`problem` 不改名成 `impact`，直接 DROP ───────────────
 --
--- 🔴 0 不是一個星等，是「還沒判」。CHECK 允許 0 是因為這一欄對既有列必須有預設值，
--- 而把既有列預設成 1（沒弄壞任何東西）等於替它們做了一次沒有人做過的判定。
--- 「還沒判」與「判為 1」必須分得開，否則 v8 的自檢就無從查起誰漏填。
-ALTER TABLE lore_entry ADD COLUMN impact_stars INTEGER NOT NULL DEFAULT 0
-    CHECK (impact_stars BETWEEN 0 AND 3);
+-- owner 2026-09-06 逐字「都改掉」（訊息 `c-3d3e5582c2d2`）：傳承條目收成 MVP，
+-- impact／impact_stars／revisit_when／supersedes 四格連同程式一起拿掉。
+--
+-- 🔴 這一支原本在這裡做的是 `RENAME COLUMN problem TO impact`，也就是把第 4 格
+-- 改名。今天那一格不存在了，所以改名沒有對象 —— **留著改名再在別處 DROP，會讓
+-- 這支 migration 先造出一個沒有人用得到的欄位名，讀的人得走完兩段才知道它死了。**
+-- ⇒ 直接 DROP `problem`（00081 建的那一格），一步到位。
+--
+-- ── 為什麼 DROP COLUMN 在今天是安全的（跟下面 `origin` 那一段同一個理由）──────
+--
+-- `problem` 是 00081 建的，而 00081 **已經在正式站套用過**（goose 停在 83），
+-- 一支已套用的 migration 不能就地改（sha256 在 migration.lock 中段）⇒ 這一格
+-- 只能由這一支 ALTER 掉。
+-- 🔴 DROP COLUMN 對**既有的列**不可逆：Down 段加得回欄位，加不回值。正式站
+-- `lore_entry` 今天 0 列（見下面 `origin` 那一段的量測與陽性對照）⇒ 一個值都不會掉。
+-- ⚠️ 試用站有資料，那不是同一顆庫；讀到這裡準備再動這一支的人，**自己重新量一次**。
+--
+-- ⚠️ 兩張表都要動。lore_proposal 的那一格也叫 `problem`（00083 建的，這一支從來
+-- 沒有替它改過名），漏掉它不會報錯 —— 症狀是提案表上留著一格沒有任何程式讀寫的
+-- 死欄位，而它看起來跟活的一模一樣。
+ALTER TABLE lore_entry    DROP COLUMN problem;
+ALTER TABLE lore_proposal DROP COLUMN problem;
+
+-- ── 🔴 星等（impact_stars）這一格沒有被建立，而不是建了再刪 ──────────────────
+--
+-- 這一支原本在這裡對 lore_entry、在下面對 lore_proposal 各 ADD 一個
+-- `impact_stars INTEGER NOT NULL DEFAULT 0 CHECK (impact_stars BETWEEN 0 AND 3)`，
+-- 刻度是 owner 2026-09-05 的三句（做白工／弄壞你動的那個／弄壞你沒動的）。
+-- owner 2026-09-06「都改掉」把這一格收掉了。
+--
+-- 🔴 這裡是**刪掉那兩行 ADD**，不是加兩行 DROP。判準是「這一格今天存不存在於任何
+-- 一顆真的資料庫裡」：`impact_stars` 只由這一支引入，而這一支一次都還沒被套用過
+-- （見下面 heading 那一段的兩次量測：25 顆＋31 顆 DB，goose 最高 83、`heading` 欄
+-- 零命中、附陽性對照）⇒ 沒有任何一顆庫有這一欄，DROP 它會直接失敗。
+-- ⚠️ 這跟 `problem` / `retire_when` / `supersedes` 不同，那三格是 00081／00083 建
+-- 的、已經在真的庫裡，所以那三格走 DROP COLUMN。同一份委託裡兩種做法，判準是
+-- 「這一格是誰建的」，不是「它要不要消失」。
 
 -- ── 審核旗標 ────────────────────────────────────────────────────────────────
 -- 🔴 這一欄的需求出處，以及 owner 對它的裁定 —— 讀之前先看這段。
@@ -162,15 +186,11 @@ ALTER TABLE lore_entry ADD COLUMN reviewed INTEGER NOT NULL DEFAULT 0
 -- 那 27 份：形狀檢查沒看過它們，核可它們會把條目上的標題清成空的。
 ALTER TABLE lore_proposal ADD COLUMN heading TEXT NOT NULL DEFAULT '';
 
--- 刻度與上面 lore_entry.impact_stars **必須**相同：核可會把這個值寫進那一欄，
--- 兩邊合法區間不一樣的話，一份存得下的提案會在核可那一刻撞上另一張表的 CHECK，
--- 而失敗的位置離送出的人很遠。
--- ⚠️ 照實說的代價：0 既是「還沒判」，也是一份沒填這一格的提案會存下來的值 ⇒ 一份
--- 提案有可能把條目從 2 降回 0。**但那不是靜默的**：這一批同時把 impact_stars 印進
--- `loreRevisionBody` ⇒ 它進了 body、進了 sha256、也進了審核者眼前那份 diff。
--- 看得見的降級是一個主張，看不見的才是 bug。
-ALTER TABLE lore_proposal ADD COLUMN impact_stars INTEGER NOT NULL DEFAULT 0
-    CHECK (impact_stars BETWEEN 0 AND 3);
+-- 🔴 提案表上的 `impact_stars` 同樣**沒有被建立**（原本這裡有一行 ADD COLUMN，
+-- 刻度與 lore_entry 的那一格必須相同）。理由見上面星等那一段：這一格只由這一支
+-- 引入，而這一支還沒被任何站台套用過 ⇒ 刪掉 ADD，不是加一行 DROP。
+-- ⚠️ 提案表因此只帶得動 `heading` 與 `content` 兩格，跟條目上剩下的可寫格數一致；
+-- 兩邊格數對不上正是上面那段「核可會寫出一份說謊的原文」講的病。
 
 -- ── 🔴 標題與第 1 格合併成一格：`trigger` 沒了，只留 `heading` ────────────────
 --
@@ -333,19 +353,40 @@ DROP TABLE lore_action;
 --      the value set is therefore OPEN …」⇒ 那一欄沒有了，整段沒有對象。
 ALTER TABLE lore_entry DROP COLUMN origin;
 
--- ── 第 3 格改名：retire_when → revisit_when ─────────────────────────────────
--- owner 2026-09-06 逐字「retire_when -> revisit_when」（訊息 c-8fa8e792218d）。
--- 他只說了那六個字，所以下面這段語意是我寫的，不是他裁的 —— 可以被推翻。
+-- ── 🔴 拿掉 `supersedes`（00081 建的那一格）─────────────────────────────────
 --
--- 🔴 不是換個好聽的說法，是換一個問題。`retire_when` 問的是「什麼時候它會是錯的」，
--- 而那個問題幾乎沒有人答得出來：一條記憶失效的那一刻沒有訊號，等到有人發現它錯了，
--- 它已經被拿去用過很多次。`revisit_when` 問的是「什麼情況出現的時候，要把這一條拿
--- 出來**重新判一次**」—— 條件成立**不代表這一條已經失效**，只代表在下一次相信它
--- 之前得先看一眼。
--- ⚠️ 差別在誰承擔舉證：退役語意要寫的人預言終點，重判語意只要他指出一個看得見的
--- 觸發條件。後者答得出來，前者答不出來，而答不出來的那一格會被留白。
--- 🔴 留白的代價不是少一格資訊：這一條會一直被撈出來給人，而沒有任何人知道該在什麼
--- 時候回頭看它一眼 —— 包括它早就不成立之後。
+-- owner 2026-09-06「都改掉」（`c-3d3e5582c2d2`）點名的四格之一。
+-- 它存的是「這一條取代了哪一條」的條目 id，讀取端把它渲染成條目卡上的一行。
+--
+-- 🔴 DROP COLUMN 的安全性理由與上面 `origin` / `problem` 同一份量測：正式站
+-- `lore_entry` 0 列（附陽性對照 member 390 列／chat_message 57,419 列），所以今天
+-- 一個值都不會掉；而這一格是 00081 建的、00081 已套用，就地改它不合法 ⇒ 只能 ALTER。
+--
+-- ⚠️ 只有 lore_entry 有這一欄。lore_proposal（00083）對 `supersedes` 零命中，
+-- 提案從來帶不動它，所以核可路徑不需要跟著改（陽性對照：同一個查法在 00083 上找得到
+-- `retire_when` 與 `problem` 各 1 命中）。
+--
+-- ⚠️ 照實說**沒有跟著走的東西**，因為 owner 沒有點名它們，我不會順手清掉：
+--   * `lore_entry.status` 的 CHECK 仍然收 `'superseded'`。今天沒有任何欄位記得下
+--     「被誰取代」，所以那個狀態值從此只說得出「它退場了」，說不出接班的是誰。
+--   * `lore_governance_event` 的 `kind` 仍然收 `'supersede'`（那一欄刻意不是 CHECK
+--     列舉），治理事件層還記得動作，只是條目層不再指得回去。
+ALTER TABLE lore_entry DROP COLUMN supersedes;
+
+-- ── 🔴 第 3 格整格拿掉：`retire_when` 不改名成 `revisit_when`，直接 DROP ──────
+--
+-- 這一段原本做的是改名。owner 2026-09-06 逐字「retire_when -> revisit_when」
+-- （訊息 `c-8fa8e792218d`）給了新名字，而**同一天**他又逐字「都改掉」
+-- （`c-3d3e5582c2d2`）把這一格連同其他三格收進 MVP 之外 ⇒ 後者是較晚的裁定，
+-- 這一格今天不存在，改名沒有對象。
+--
+-- 🔴 所以這裡是 DROP 而不是 RENAME：留著改名再在別處刪，會讓這支 migration 先造
+-- 出一個 `revisit_when` 欄位名，而站上沒有任何一行程式讀得到它。
+--
+-- ⚠️ 照實說代價（跟改名那一版要說的是同一件事，只是更重）：`retire_when` 問的是
+-- 「什麼時候它會是錯的」，`revisit_when` 本來要換成「什麼情況出現時回頭重判一次」。
+-- 兩個問題今天都沒有欄位在問 ⇒ **一條條目會一直被撈出來給人，而沒有任何人知道該在
+-- 什麼時候回頭看它一眼，包括它早就不成立之後。** 這是 MVP 買到的東西的價錢。
 --
 -- ⚠️ 這一支同時讓 00081 與 00083 各一段話從此是**錯的**，不是舊的 —— 一樣不能就地
 -- 改（sha256 在 migration.lock 的中段），所以更正接續寫在這裡：
@@ -360,21 +401,27 @@ ALTER TABLE lore_entry DROP COLUMN origin;
 --   2. 00083 的 lore_proposal 欄位註解：
 --      「舊的 label / symptoms / short / falsify / instance / residual_risk 六格
 --        換成 trigger / content / retire_when / problem 四格 + lore_event 一張表」
---      ⇒ 那四格今天一格都不叫那個名字了：`trigger` 併進 `heading`（rc-9002654dd81c）、
---        `problem` 改名 `impact`（本支上面那段）、`retire_when` 改名 `revisit_when`
---        （這一段）。那句話記的是一段歷史沿革，它描述的**過去**沒有錯，但拿它去對照
---        今天的 schema 會四格對不上三格。
+--      ⇒ 那四格今天**只剩一格**：`trigger` 併進 `heading`（rc-9002654dd81c），
+--        `retire_when` 與 `problem` 兩格整個沒有了（owner 2026-09-06「都改掉」），
+--        剩下的是 `content`。那句話記的是一段歷史沿革，它描述的**過去**沒有錯，
+--        但拿它去對照今天的 schema 會四格對不上一格。
 --
 -- 🔴 兩張表都要改。只改 lore_entry 不會報錯 —— lore_proposal 的欄位是照著
 -- lore_entry 的形狀寫的，但沒有任何 FK 或約束把兩邊綁在一起，所以漏掉一張的症狀
 -- 是「提案送得出去、核可時寫不進去」，而那要等到有人真的按下核可才會出現。
-ALTER TABLE lore_entry    RENAME COLUMN retire_when TO revisit_when;
-ALTER TABLE lore_proposal RENAME COLUMN retire_when TO revisit_when;
+ALTER TABLE lore_entry    DROP COLUMN retire_when;
+ALTER TABLE lore_proposal DROP COLUMN retire_when;
 
 -- +goose Down
 -- 🔴 逐項反面，順序是 Up 的逆序。
-ALTER TABLE lore_proposal RENAME COLUMN revisit_when TO retire_when;
-ALTER TABLE lore_entry    RENAME COLUMN revisit_when TO retire_when;
+-- 🔴 這一段還原得了的只有**結構**，還原不了值：Up 段對 `problem` / `retire_when` /
+-- `supersedes` / `origin` 做的是 DROP COLUMN，down 之後那四格都是空字串。欄位宣告
+-- 與 00081／00083 逐字相同（TEXT NOT NULL DEFAULT ''），否則「升級過的站」與
+-- 「down 過再 up 的站」會帶著不同的 schema，而兩邊都會認為自己是對的。
+ALTER TABLE lore_proposal ADD COLUMN retire_when TEXT NOT NULL DEFAULT '';
+ALTER TABLE lore_entry    ADD COLUMN retire_when TEXT NOT NULL DEFAULT '';
+
+ALTER TABLE lore_entry ADD COLUMN supersedes TEXT NOT NULL DEFAULT '';
 
 -- 🔴 只還原結構，還原不了值 —— 見 Up 段那一大段。欄位宣告與 00081 逐字相同
 -- （TEXT NOT NULL DEFAULT ''），否則「升級過的站」與「down 過再 up 的站」會帶著
@@ -400,9 +447,13 @@ ALTER TABLE lore_entry    ADD COLUMN trigger TEXT NOT NULL DEFAULT '';
 ALTER TABLE lore_proposal ADD COLUMN trigger TEXT NOT NULL DEFAULT '';
 UPDATE lore_entry    SET trigger = heading;
 UPDATE lore_proposal SET trigger = heading;
-ALTER TABLE lore_proposal DROP COLUMN impact_stars;
+-- 🔴 `impact_stars` 在 Up 段裡是**沒有被建立**，不是被刪掉（見 Up 段星等那兩段），
+-- 所以這裡沒有它的反面。多寫一行 DROP COLUMN impact_stars 會讓 down 整支失敗。
+ALTER TABLE lore_proposal ADD COLUMN problem TEXT NOT NULL DEFAULT '';
 ALTER TABLE lore_proposal DROP COLUMN heading;
+-- ⚠️ `reviewed` 留在 Up 段裡（owner 沒有點名它），所以它的反面也留著。
+-- 它今天是一個**沒有東西可以蓋章的旗標**：它存在的唯一理由是替 impact_stars 蓋章，
+-- 而星等那一格已經不存在了。留著是因為沒有人裁過要拿掉它，不是因為它還有用。
 ALTER TABLE lore_entry DROP COLUMN reviewed;
-ALTER TABLE lore_entry DROP COLUMN impact_stars;
-ALTER TABLE lore_entry RENAME COLUMN impact TO problem;
+ALTER TABLE lore_entry ADD COLUMN problem TEXT NOT NULL DEFAULT '';
 ALTER TABLE lore_entry DROP COLUMN heading;
