@@ -289,14 +289,18 @@ export const zh = {
     expandReply: "展開回覆卡",
     collapseReply: "收合回覆卡",
     // 產物集(T-3dc5):任務卡上釘的交付物(檔案/圖片/連結)。徽章「產物 N」
-    // 在彩色徽章列;點開浮層照檔案庫樣式分三籤。0 個產物時徽章不出現。
+    // 在彩色徽章列;點開浮層是一份依 檔案→圖片→連結 分組的單一清單(T-49fb 之前是三個
+    // 分頁)。0 個產物時徽章不出現。
     artifacts: {
       badge: "產物",
       open: "查看產物",
       panelTitle: "產物",
-      // T-49fb: the three tabs are gone (one list). What is left of the trio
-      // is the image row's name fallback — an image artifact may carry neither
-      // filename nor label, and its chip must never render empty.
+      // T-49fb: the three tabs are gone (one list). What is left of the trio is
+      // the image row's name fallback, and since T-92 it is a BACKSTOP rather
+      // than a normal path: the strip's `filename` is filled from the
+      // artifact's `name`, which the server guarantees non-empty. This word
+      // shows only against an older server or a fixture that sends none — the
+      // chip must never render empty.
       imageName: "圖片",
       empty: "還沒有產物",
       close: "關閉產物",

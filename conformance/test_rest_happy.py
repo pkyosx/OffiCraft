@@ -894,7 +894,7 @@ def _happy_replaced_file_artifact(ctx: HCtx) -> tuple[str, str]:
     task_id = _happy_task(ctx)
     r = ctx.client.post(
         f"/api/tasks/{task_id}/artifact",
-        json={"kind": "file", "attachment_id": blobs[0]},
+        json={"kind": "file", "attachment_id": blobs[0], "name": "conf report"},
         headers=_auth(ctx.agent.token),
     )
     assert r.status_code == 200, f"happy file artifact failed: {r.text}"
@@ -908,8 +908,10 @@ def _happy_replaced_file_artifact(ctx: HCtx) -> tuple[str, str]:
     _REPLACED_FILE["attachment_id"] = blobs[0]
 
     # The link shape stays covered on the real wire even though the row now
-    # checks a file: a link version's url IS the row's own external url, which
-    # is the control that stops the blob rewrite from applying to every kind.
+    # checks a file: a link version's url is its TARGET, read out of its own
+    # text/uri-list blob (T-92 — there is no `url` column on either artifact
+    # table any more), which is the control that stops the file/image serve-path
+    # rewrite from applying to every kind.
     link_task, link_art = _happy_replaced_artifact(ctx)
     r = ctx.client.get(
         f"/api/tasks/{link_task}/artifact/{link_art}/history",
@@ -923,7 +925,10 @@ def _happy_replaced_file_artifact(ctx: HCtx) -> tuple[str, str]:
         and link_versions[0]["url"] == "https://example.com/pr/1"
         and link_versions[0]["mime"] == ""
         and link_versions[0]["is_image"] is False
-    ), f"a link version keeps its external url and describes no blob: {link_versions}"
+    ), (
+        f"a link version serves its target url and, unlike the LIVE link row, "
+        f"reports no mime: {link_versions}"
+    )
 
     return task_id, artifact_id
 
@@ -934,11 +939,111 @@ def _happy_task_artifact(ctx: HCtx) -> tuple[str, str]:
     task_id = _happy_task(ctx)
     r = ctx.client.post(
         f"/api/tasks/{task_id}/artifact",
-        json={"kind": "link", "url": "https://example.com/pr/1", "label": "conf PR"},
+        json={"kind": "link", "url": "https://example.com/pr/1", "name": "conf PR"},
         headers=_auth(ctx.agent.token),
     )
     assert r.status_code == 200, f"happy artifact failed: {r.status_code} {r.text}"
     return task_id, r.json()["artifact_id"]
+
+
+# The (task, artifact) the raw-body upload rows wrote, stashed by their path
+# builders so each row's check can read the pin back off the artifact list —
+# the receipt alone cannot show that the BYTES and the ROW landed together,
+# which is the entire reason these one-call doors exist.
+_UPLOAD_TARGET: dict[str, str] = {}
+
+
+def _happy_upload_task(ctx: HCtx) -> str:
+    """A fresh task for the add-side raw-body upload row, stashed for its
+    check."""
+    task_id = _happy_task(ctx)
+    _UPLOAD_TARGET["task_id"] = task_id
+    return task_id
+
+
+def _happy_file_artifact(ctx: HCtx) -> tuple[str, str]:
+    """A fresh task with one FILE deliverable pinned; (task_id, artifact_id) —
+    the raw-body replace target, stashed for its check.
+
+    A file and not a link: the upload replace route refuses a LINK artifact
+    (400), because the kind cannot change across versions. The blob is seeded
+    through the chat-attachment upload and bound with the JSON add verb, so the
+    route under test is not its own fixture."""
+    task_id = _happy_task(ctx)
+    h = _auth(ctx.agent.token)
+    up = ctx.client.post(
+        "/api/chat/attachments?filename=report.md&mime=application/octet-stream",
+        content=b"# conf happy report v1\n",
+        headers=h,
+    )
+    assert up.status_code == 200, f"happy replace-upload blob failed: {up.text}"
+    r = ctx.client.post(
+        f"/api/tasks/{task_id}/artifact",
+        json={"kind": "file", "attachment_id": up.json()["id"],
+              "name": "conf report", "description": "the first cut"},
+        headers=h,
+    )
+    assert r.status_code == 200, f"happy file artifact failed: {r.text}"
+    artifact_id = r.json()["artifact_id"]
+    _UPLOAD_TARGET["replace_task_id"] = task_id
+    _UPLOAD_TARGET["replace_artifact_id"] = artifact_id
+    return task_id, artifact_id
+
+
+def _artifact_row(ctx: HCtx, task_id: str, artifact_id: str) -> dict:
+    """The one artifact row a task carries, read through the only call that
+    returns rows at all since T-92 (a task response is a COUNT)."""
+    r = ctx.client.get(
+        f"/api/tasks/{task_id}/artifacts", headers=_auth(ctx.agent.token)
+    )
+    assert r.status_code == 200, f"artifact read-back failed: {r.text}"
+    rows = [a for a in r.json()["artifacts"] if a["id"] == artifact_id]
+    assert len(rows) == 1, f"artifact {artifact_id} not in the set: {r.text}"
+    return rows[0]
+
+
+def _check_artifact_upload(ctx: HCtx, r: httpx.Response) -> None:
+    """The receipt names a pinned artifact — and the BYTES went with it.
+
+    A handler that stored the blob and forgot the row (or the reverse) is the
+    exact failure this one-call door exists to make impossible, and neither a
+    status nor the receipt's own shape can see it: the check reads the pin back
+    and asserts the query's name/description landed on the row, that the kind
+    was decided from the mime (`file`, not a caller-declared field), and that
+    `url` addresses a real blob whose bytes come back."""
+    data = r.json()
+    assert data["artifact_count"] == 1 and data["artifact_id"], data
+    row = _artifact_row(ctx, _UPLOAD_TARGET["task_id"], data["artifact_id"])
+    assert row["kind"] == "file", row
+    assert row["name"] == "conf upload", row
+    assert row["description"] == "pinned in one call", row
+    assert row["mime"] == "application/octet-stream", row
+    assert row["version_count"] == 1, row
+    assert row["url"].startswith("/api/chat/attachment/"), row
+    blob = ctx.client.get(row["url"], headers=_auth(ctx.agent.token))
+    assert blob.status_code == 200 and blob.content == b"# conf uploaded report\n", (
+        f"the pinned row does not address the uploaded bytes: "
+        f"{blob.status_code} {blob.content[:100]!r}"
+    )
+
+
+def _check_artifact_replace_upload(ctx: HCtx, r: httpx.Response) -> None:
+    """The id stays put, the content moves — and an OMITTED ``?name=`` carries
+    the pinned name forward rather than clearing or re-deriving it."""
+    data = r.json()
+    assert data["artifact_id"] == _UPLOAD_TARGET["replace_artifact_id"], data
+    assert data["artifact_count"] == 1 and data["version_count"] == 2, data
+    row = _artifact_row(
+        ctx, _UPLOAD_TARGET["replace_task_id"], data["artifact_id"]
+    )
+    assert row["kind"] == "file", row
+    assert row["name"] == "conf report", row
+    assert row["description"] == "the first cut", row
+    blob = ctx.client.get(row["url"], headers=_auth(ctx.agent.token))
+    assert blob.status_code == 200 and blob.content == b"# conf happy report v2\n", (
+        f"the live row still addresses the OLD bytes: "
+        f"{blob.status_code} {blob.content[:100]!r}"
+    )
 
 
 def _happy_theme(ctx: HCtx) -> str:
@@ -2311,10 +2416,47 @@ HAPPY: dict[str, Happy] = {
         # bounded receipt naming the pinned artifact and the resulting count.
         identity="agent",
         path=lambda ctx: f"/api/tasks/{_happy_task(ctx)}/artifact",
-        body={"kind": "link", "url": "https://example.com/pr/1", "label": "conf PR"},
+        body={"kind": "link", "url": "https://example.com/pr/1", "name": "conf PR"},
         check=lambda _c, r: _expect(
             r, lambda d: d["artifact_id"] != "" and d["artifact_count"] == 1
         ),
+    ),
+    "POST /api/tasks/{task_id}/artifacts/upload": Happy(
+        # T-92: the ONE-CALL door for bytes on disk — the raw request body IS
+        # the deliverable, and the store-and-pin happen in the same
+        # transaction. The executing agent is the lowest-friction identity, the
+        # same as the JSON add door beside it.
+        #
+        # The row body is BYTES (the harness sends it as `content=`, never
+        # `json=`); everything the JSON door carries in its body rides in the
+        # query string here. The response is the ordinary add receipt, so the
+        # spec schema check is the same one — what the receipt CANNOT show is
+        # that the blob and the row landed together, which is what the check
+        # reads back.
+        identity="agent",
+        path=lambda ctx: (
+            f"/api/tasks/{_happy_upload_task(ctx)}/artifacts/upload"
+            "?name=conf%20upload&description=pinned%20in%20one%20call"
+            "&filename=report.md&mime=application/octet-stream"
+        ),
+        body=b"# conf uploaded report\n",
+        check=_check_artifact_upload,
+    ),
+    "POST /api/tasks/{task_id}/artifact/{artifact_id}/replace/upload": Happy(
+        # T-92: the raw-body twin of replace — new bytes, SAME artifact id. The
+        # seed is a FILE deliverable because this door refuses a link (the kind
+        # is immutable across versions), and `?name=`/`?description=` are left
+        # off on purpose: omitted means CARRIED FORWARD, and a replacement that
+        # cleared them or re-derived the name from the new filename would pass
+        # a status check and fail in the read-back.
+        identity="agent",
+        path=lambda ctx: (
+            "/api/tasks/{}/artifact/{}/replace/upload"
+            "?filename=report-v2.md&mime=application/octet-stream".format(
+                *_happy_file_artifact(ctx))
+        ),
+        body=b"# conf happy report v2\n",
+        check=_check_artifact_replace_upload,
     ),
     "DELETE /api/tasks/{task_id}/artifact/{artifact_id}": Happy(
         # T-3dc5 (owner ruling 2026-07-18): the executing agent un-pins its own
@@ -2327,13 +2469,15 @@ HAPPY: dict[str, Happy] = {
         check=lambda _c, r: _expect(r, lambda d: d["artifact_count"] == 0),
     ),
     "GET /api/tasks/{task_id}/artifacts": Happy(
-        # T-66: the full-artifact read. The check is on the VALUES that came
-        # back, not on the shape — the artifact is pinned through the real write
-        # face first and this row asserts the same url/label/kind come out,
-        # plus the self-declared artifacts_detail_level="full" that tells a
-        # caller this response is the whole row. A handler that answered the
-        # id+label INDEX the task view carries (no url, no kind) cannot pass,
-        # and neither can one that forgot the marker.
+        # T-66, reshaped by T-92: the full-artifact read, and now the ONLY call
+        # that returns an artifact row at all — a task response carries
+        # `artifact_count` and nothing else. The check is on the VALUES that
+        # came back, not on the shape: the artifact is pinned through the real
+        # write face first and this row asserts the same url/name/kind come
+        # out, plus the self-declared artifacts_detail_level="full" that tells a
+        # caller this response is the whole row. That marker has had no
+        # opposite since the task-side index went, and it is kept so a reader
+        # holding this payload need not know which server version produced it.
         identity="agent",
         path=lambda ctx: "/api/tasks/{}/artifacts".format(
             *_happy_task_artifact(ctx)),
@@ -2343,7 +2487,7 @@ HAPPY: dict[str, Happy] = {
             and len(d["artifacts"]) == 1
             and d["artifacts"][0]["kind"] == "link"
             and d["artifacts"][0]["url"] == "https://example.com/pr/1"
-            and d["artifacts"][0]["label"] == "conf PR"
+            and d["artifacts"][0]["name"] == "conf PR"
             and d["artifacts"][0]["created_ts"] > 0,
         ),
     ),
@@ -2356,7 +2500,7 @@ HAPPY: dict[str, Happy] = {
         identity="agent",
         path=lambda ctx: "/api/tasks/{}/artifact/{}/replace".format(
             *_happy_replaceable_artifact(ctx)),
-        body={"url": "https://example.com/pr/2", "label": "conf PR v2"},
+        body={"url": "https://example.com/pr/2", "name": "conf PR v2"},
         check=lambda _c, r: _expect(
             r,
             lambda d: d["artifact_id"] == _REPLACE_TARGET["id"]
@@ -2368,12 +2512,14 @@ HAPPY: dict[str, Happy] = {
         # T-60: the version list of an artifact that has just been replaced —
         # exactly one retained version, carrying what the live row held before.
         #
-        # The seed is a FILE deliverable on purpose. A link version's url is the
-        # row's own column and passes on a projection that copies the row; a
-        # file's is NOT — the column is empty for file/image, and the reachable
-        # address is the retained blob's serve path. Running this row against a
-        # link therefore proved nothing about the class this journal mostly
-        # holds, and every retained report read as gone on the real wire.
+        # The seed is a FILE deliverable on purpose. A link version's url used
+        # to be the row's own `url` column and passed on a projection that
+        # copied the row; a file's did NOT — that column was empty for
+        # file/image, and the reachable address is the retained blob's serve
+        # path. (T-92's 00086 has since dropped the column outright, so both
+        # kinds are computed now.) Running this row against a link therefore
+        # proved nothing about the class this journal mostly holds, and every
+        # retained report read as gone on the real wire.
         identity="agent",
         path=lambda ctx: "/api/tasks/{}/artifact/{}/history".format(
             *_happy_replaced_file_artifact(ctx)),

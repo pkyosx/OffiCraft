@@ -1,10 +1,10 @@
-// Mock adapter parity for the task artifact set (T-3dc5 / T-66). The mock is
-// the FE's dev/test server, so it must reproduce the real handler's OBSERVABLE
-// effects: listTasks strips the artifact rows but keeps the count (the
-// light-list badge source), getTask carries the id+label INDEX (T-66 took the
-// full row off the task read), listTaskArtifacts answers the full rows, and
-// removeTaskArtifact un-pins one row (404 on an unknown id) leaving the count
-// consistent.
+// Mock adapter parity for the task artifact set (T-3dc5 / T-66 / T-92). The
+// mock is the FE's dev/test server, so it must reproduce the real handler's
+// OBSERVABLE effects: listTasks strips the artifact rows but keeps the count
+// (the light-list badge source), getTask carries THE COUNT AND NOTHING ELSE
+// (T-92 took even the id+label index off the task read), listTaskArtifacts
+// answers the full rows, and removeTaskArtifact un-pins one row (404 on an
+// unknown id) leaving the count consistent.
 //
 // 🔴 THE BADGE AND THE PANEL READ TWO DIFFERENT ENDPOINTS, so the pair has to
 // be checked as a pair. `listTaskArtifacts` used to `return []` outright, and
@@ -32,11 +32,9 @@ function mkArtifact(over: Partial<TaskArtifactView>): TaskArtifactView {
     id: "ta-1",
     kind: "link",
     url: "https://x/pr/1",
-    label: "PR #1",
-    filename: "",
+    name: "PR #1",
+    description: "",
     mime: "",
-    isImage: false,
-    attachmentId: "",
     createdTs: 0,
     createdBy: "mira",
     versionCount: 1,
@@ -49,7 +47,8 @@ function mkVersion(over: Partial<TaskArtifactVersionView>): TaskArtifactVersionV
     id: 1,
     kind: "link",
     url: "https://x/pr/0",
-    label: "PR #0",
+    name: "PR #0",
+    description: "",
     filename: "",
     mime: "",
     isImage: false,
@@ -88,6 +87,13 @@ function mkTask(over: Partial<MockTaskRow>): MockTaskRow {
   };
 }
 
+/** The artifact rows a task response carries — which since T-92 is NONE, on
+ * either projection. Read through a widened view because the field is off the
+ * view model entirely: the assertion is precisely that nothing answers here. */
+function artifactRowsOn(task: object): unknown {
+  return (task as Record<string, unknown>).artifacts;
+}
+
 beforeEach(() => __resetMock());
 
 describe("mock task artifacts", () => {
@@ -97,21 +103,25 @@ describe("mock task artifacts", () => {
     );
     const rows = await mockApi.listTasks();
     const row = rows.find((t) => t.id === "task-art")!;
-    expect(row.artifacts).toEqual([]);
+    // The store row holds each artifact WHOLE; the light projection carries a
+    // count and no rows (server parity, and the same narrowing `getTask` does
+    // by destructuring). A light row that hands the stored artifacts back makes
+    // mock mode the one place a task LIST carries url/mime — a cockpit could
+    // render from it here and find nothing against a real server.
+    expect(artifactRowsOn(row)).toBeUndefined();
     expect(row.artifactCount).toBe(2);
   });
 
-  it("getTask carries the artifact INDEX with count == length", async () => {
+  it("getTask carries the artifact COUNT and no rows at all", async () => {
     __injectMockTask(
-      mkTask({ artifacts: [mkArtifact({ id: "ta-1", label: "PR #1" })] }),
+      mkTask({ artifacts: [mkArtifact({ id: "ta-1", name: "PR #1" })] }),
     );
     const full = await mockApi.getTask("task-art");
-    expect(full.artifacts?.length).toBe(1);
     expect(full.artifactCount).toBe(1);
-    // T-66: id + label and NOTHING a row could be drawn from. The store row is
-    // whole, so a pass-through here would type-check and make mock mode the one
-    // place a task read carries url/mime/filename.
-    expect(full.artifacts![0]).toEqual({ id: "ta-1", label: "PR #1" });
+    // T-92: not even the ids. The store row is whole, so a pass-through here
+    // would type-check and make mock mode the one place a task read carries
+    // url/mime/name — and a cockpit that read them would 404 for real.
+    expect(artifactRowsOn(full)).toBeUndefined();
   });
 
   // 🔴 The case that reddens on `return []`. MEASURED (mutant planted in place,
@@ -123,15 +133,14 @@ describe("mock task artifacts", () => {
     __injectMockTask(
       mkTask({
         artifacts: [
-          mkArtifact({ id: "ta-1", label: "PR #1" }),
+          mkArtifact({ id: "ta-1", name: "PR #1" }),
           mkArtifact({
             id: "ta-2",
             kind: "file",
-            url: "/api/chat/attachment/ta-2",
-            label: "",
-            filename: "design.md",
+            url: "/api/chat/attachment/att-2",
+            name: "design.md",
+            description: "評審用的設計稿",
             mime: "text/markdown",
-            attachmentId: "ta-2",
           }),
         ],
       }),
@@ -139,13 +148,13 @@ describe("mock task artifacts", () => {
     const rows = await mockApi.listTaskArtifacts("task-art");
     expect(rows.map((a) => a.id)).toEqual(["ta-1", "ta-2"]);
     // Each row is the WHOLE deliverable — the fields the panel draws from and
-    // the task read no longer carries.
+    // the task read does not carry at all.
     expect(rows[1]).toMatchObject({
       kind: "file",
-      url: "/api/chat/attachment/ta-2",
-      filename: "design.md",
+      url: "/api/chat/attachment/att-2",
+      name: "design.md",
+      description: "評審用的設計稿",
       mime: "text/markdown",
-      attachmentId: "ta-2",
     });
   });
 
@@ -156,11 +165,13 @@ describe("mock task artifacts", () => {
       }),
     );
     // The badge reads the count off the task; the panel fetches its own rows.
-    // 「產物 N」 over 「還沒有產物」 is exactly the disagreement this forbids.
+    // 「產物 N」 over 「還沒有產物」 is exactly the disagreement this forbids — and
+    // since T-92 the count is the ONLY thing the two reads have in common, so
+    // this is the whole of what keeps them honest.
     const full = await mockApi.getTask("task-art");
     const rows = await mockApi.listTaskArtifacts("task-art");
     expect(rows.length).toBe(full.artifactCount);
-    expect(rows.map((a) => a.id)).toEqual(full.artifacts?.map((a) => a.id));
+    expect(rows.map((a) => a.id)).toEqual(["ta-1", "ta-2"]);
   });
 
   it("listTaskArtifacts on an unknown task is a 404, never a silent []", async () => {
@@ -172,9 +183,9 @@ describe("mock task artifacts", () => {
   it("listTaskArtifacts hands back a clone the caller cannot write through", async () => {
     __injectMockTask(mkTask({ artifacts: [mkArtifact({ id: "ta-1" })] }));
     const rows = await mockApi.listTaskArtifacts("task-art");
-    rows[0].label = "mutated";
+    rows[0].name = "mutated";
     const again = await mockApi.listTaskArtifacts("task-art");
-    expect(again[0].label).toBe("PR #1");
+    expect(again[0].name).toBe("PR #1");
   });
 
   it("removeTaskArtifact drops the row from the panel read too", async () => {
@@ -194,10 +205,11 @@ describe("mock task artifacts", () => {
     );
     await mockApi.removeTaskArtifact("task-art", "ta-1");
     // The write itself is a bounded receipt (T-a98d), so the fresh set is read
-    // back the way the cockpit reads it.
+    // back the way the cockpit reads it — the count off the task, the rows off
+    // the artifact endpoint, which since T-92 is the only place they live.
     const after = await mockApi.getTask("task-art");
-    expect(after.artifacts?.map((a) => a.id)).toEqual(["ta-2"]);
     expect(after.artifactCount).toBe(1);
+    expect((await mockApi.listTaskArtifacts("task-art")).map((a) => a.id)).toEqual(["ta-2"]);
   });
 
   it("removeTaskArtifact on an unknown artifact is a 404", async () => {
@@ -220,8 +232,9 @@ describe("mock task artifacts", () => {
       await expect(
         mockApi.removeTaskArtifact("task-art", "ta-1"),
       ).rejects.toMatchObject({ status: 409 } as Partial<ApiError>);
-      const still = await mockApi.getTask("task-art");
-      expect(still.artifacts?.map((a) => a.id)).toEqual(["ta-1"]);
+      const still = await mockApi.listTaskArtifacts("task-art");
+      expect(still.map((a) => a.id)).toEqual(["ta-1"]);
+      expect((await mockApi.getTask("task-art")).artifactCount).toBe(1);
     },
   );
 });

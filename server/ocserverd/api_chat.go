@@ -259,11 +259,14 @@ const (
 	// shortLabelMaxChars caps the SHORT NAMING fields at 128 UTF-8 CHARACTERS
 	// (runes via utf8.RuneCountInString — NOT bytes, so 128 CJK characters, 384
 	// bytes, still passes; a byte cap would have rejected them). Today it binds
-	// two fields, both of which are a NAME that a card prints on one line:
-	//   * a task artifact's label   (POST /api/tasks/{task_id}/artifact)
+	// exactly ONE field, a NAME that a card prints on one line:
 	//   * a chat attachment's filename (resolveChatAttachment — the ONE seam the
 	//     inline base64 path and the `ocagent upload` streaming path share, so
 	//     the cap binds both without a second copy)
+	// It used to bind a second: a task artifact's `label`. T-92 split that into
+	// `name` and `description` with their own, tighter caps
+	// (artifactNameMaxChars = 48 / artifactDescriptionMaxChars = 256, in
+	// api_tasks.go), so nothing on the artifact side reads this constant.
 	// Over-length is REFUSED (400), never silently truncated: a name the server
 	// quietly shortened is a name that no longer matches the thing it names.
 	//
@@ -271,7 +274,7 @@ const (
 	// 「過去先不管 新的都要限制長度」 (c-5d058a53ef74). Both halves of that are
 	// load-bearing: EXISTING ROWS ARE LEFT ALONE — there is no migration, no
 	// backfill and no truncation of stored data, so a read can still return a
-	// longer label than a write would now accept.
+	// longer name than a write would now accept.
 	//
 	// 🔴 The refusal message says the length and the limit and NOTHING ELSE — no
 	// advice about where the text should go instead. Owner, verbatim:

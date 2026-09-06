@@ -358,7 +358,7 @@ func TestPredecessorStaysLockedOutOfEveryOtherTaskWrite(t *testing.T) {
 			rec := httptest.NewRecorder()
 			api.HandleAddTaskArtifactApiTasksTaskIdArtifactPost(rec, taskReq(t, "POST",
 				"/api/tasks/"+task.ID+"/artifact",
-				map[string]any{"kind": "link", "url": "https://x/pr/1"},
+				map[string]any{"kind": "link", "url": "https://x/pr/1", "name": "PR #1"},
 				pred, "agent"), task.ID)
 			return rec
 		}},

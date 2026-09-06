@@ -17,8 +17,9 @@
 // this component talks to the server. T-66 took url / filename / mime / kind /
 // is_image / attachment_id / created_by / created_ts off the task read (owner
 // c-cd063427fb2f:「我覺得任務產物，只需要預設給標題跟ID, 有需要再透過另一隻去拿
-// 就好了」), so a hydrated task carries an id+label INDEX and nothing this file
-// can draw a row from. `api.listTaskArtifacts` is 「另一隻」, and it answers the
+// 就好了」), and T-92 took the id and the name off it too (owner
+// rc-15016959ad4d:「只有 ID 好像也沒用」), so a hydrated task carries a COUNT and
+// nothing this file can draw a row from. `api.listTaskArtifacts` is 「另一隻」, and it answers the
 // WHOLE ticket in one call (owner c-f2d0fecb1168:「應該是指名任務？」) — which is
 // exactly the shape this panel needs, because it opens onto every row at once.
 //
@@ -52,36 +53,61 @@ import {
 
 /** Project a file/image artifact onto the ChatAttachmentView the shared
  * AttachmentStrip renders (id/url/filename/mime/isImage — the exact reuse
- * surface). */
+ * surface).
+ *
+ * 🔴 THREE OF THOSE FIELDS NO LONGER ARRIVE AS FIELDS (T-92), and each is
+ * derived here from one that does rather than dropped:
+ *   · `filename` ← `a.name`, which the SERVER now derives (from the blob's own
+ *     filename when the row has no stored name), so the `a.filename || a.label`
+ *     chain that used to live here has moved server-side and this is its result.
+ *   · `isImage` ← the mime's prefix. It was always exactly that; carrying both
+ *     was one fact in two fields.
+ *   · `backingAttachmentId` ← the tail of `url`, which for a file/image IS
+ *     `/api/chat/attachment/{id}`. ⚠️ It is derived by PATH SHAPE, so a change
+ *     to that route silently empties it.
+ *     🔴 THE PREMISE OF THAT DERIVATION IS GONE (owner rc-91e29b576ad8):
+ *     `attachment_id` came BACK to the wire, so this component is now computing
+ *     from `url` a value that arrives beside it. It is left as-is deliberately —
+ *     swapping it is a behaviour change on a path nothing here tests — but it is
+ *     NOT the cheapest correct thing any more. ⚠️ AND THE OBVIOUS FIX DOES NOT
+ *     COMPILE TODAY: `attachmentId` is back on the WIRE, but `TaskArtifactView`
+ *     has no such property — `toTaskArtifact` (mappers.ts:526, NOT adapter.ts)
+ *     never maps it. The hop that is missing is there, not here, so "just read
+ *     the field" is two edits, not one. */
 function asAttachmentView(a: TaskArtifactView): ChatAttachmentView {
   return {
     id: a.id,
-    backingAttachmentId: a.attachmentId,
+    // undefined, NOT "": both readers fall back with `?? att.id`, and `??` does
+    // not fire on an empty string. Emitting "" here would take a fallback that
+    // works today and silently kill it — the field has always been optional.
+    backingAttachmentId: a.url.startsWith(BLOB_SERVE_PREFIX)
+      ? a.url.slice(BLOB_SERVE_PREFIX.length)
+      : undefined,
     url: a.url,
-    filename: a.filename || a.label,
+    filename: a.name,
     mime: a.mime,
-    isImage: a.isImage,
+    isImage: a.mime.startsWith("image/"),
   };
 }
 
+/** The serve path every file/image artifact's `url` is built from. */
+const BLOB_SERVE_PREFIX = "/api/chat/attachment/";
+
 /** What a LINK row is called on screen.
  *
- * 🔴 IT CAN NEVER RETURN "", and that is the whole reason it exists. The
- * expression here was `a.label || a.url`, which held only because a link row was
- * assumed to always carry a url — and T-66 makes that assumption something this
- * component has to earn rather than inherit, since the rows now arrive from
- * `listTaskArtifacts` instead of riding the task read. If that fetch ever hands
- * back a row with neither (a label-less pin whose url did not survive), the old
- * chain rendered an anchor with NO TEXT: invisible, unclickable, and silently
- * one row short of the count the badge promised. The id tail is the same
- * identifier `artifactMetaLabel` already prints beneath the name, so the worst
- * case is a row named after itself rather than a row named nothing.
- *
- * The blob kinds do not come through here: `AttachmentStrip` already falls back
- * to 「下載附件」 for a nameless file and `renderExtra` to 「圖片」 for a nameless
- * image, and duplicating those here would mean two answers to one question. */
+ * 🔴 IT CAN NEVER RETURN "", and that is still the whole reason it exists —
+ * but since T-92 the fallback chain lives on the SERVER (`artifactDisplayName`
+ * in wire.go: stored name → blob filename → link target → id tail), so `a.name`
+ * is already non-empty on any current server. The tail kept here is not
+ * duplication of that: it is what this component does when the name arrives
+ * empty ANYWAY — an older server, a hand-built fixture, a field that got
+ * dropped somewhere in between. The old chain rendered an anchor with NO TEXT
+ * in that case: invisible, unclickable, and silently one row short of the count
+ * the badge promised. The id tail is the same identifier `artifactMetaLabel`
+ * already prints beneath the name, so the worst case is a row named after
+ * itself rather than a row named nothing. */
 function artifactDisplayName(a: TaskArtifactView): string {
-  return a.label || a.filename || a.url || `#${a.id.replace(/^ta-/, "")}`;
+  return a.name || a.url || `#${a.id.replace(/^ta-/, "")}`;
 }
 
 /** T-6338: two pinned artifacts can carry the IDENTICAL filename (the same
@@ -105,9 +131,10 @@ export function TaskArtifactsBadge({
   task,
   onRemoveArtifact,
 }: {
-  /** Only the id and the COUNT are read here. The card's own `artifacts` are an
-   * id+label index since T-66 and carry nothing a row could be drawn from, so
-   * this component deliberately does not take them — it fetches. */
+  /** Only the id and the COUNT are read here. The card carries NO artifact
+   * rows at all since T-92 (T-66 had already cut them to an id+label index),
+   * so there is nothing a row could be drawn from and this component
+   * deliberately does not take them — it fetches. */
   task: { id: string; artifactCount?: number };
   /** Owner/admin un-pin. Absent ⇒ the popover is display-only (no × affordance). */
   onRemoveArtifact?: (taskId: string, artifactId: string) => Promise<void>;
@@ -284,9 +311,13 @@ function ArtifactsPopover({
     // here rather than inside AttachmentStrip so the image branch (and its
     // click-to-preview) stays untouched. It gives the image row the SAME
     // three-part shape as a file/link row, and the same hover-for-full-name.
-    // Both filename and label are optional server-side, so fall back the way
-    // the file branch does — an image row must never lose its chip, or it
-    // stops matching the other two kinds.
+    // The chip reads `att.filename`, which on this strip is NOT a blob
+    // filename: `asAttachmentView` fills it from the artifact's `name`, the
+    // only name a live row still carries since T-92. The server guarantees that
+    // name is non-empty (`artifactDisplayName` derives one when the column is
+    // blank), so the `||` below is a guard for an older server or a fixture
+    // that sends none, not for the normal case — kept because an image row must
+    // never lose its chip, or it stops matching the other two kinds.
     const imageName =
       art?.kind === "image" ? att.filename || t.tasks.artifacts.imageName : "";
     return (

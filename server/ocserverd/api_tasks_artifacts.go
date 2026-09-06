@@ -6,13 +6,20 @@ import "net/http"
 //
 // GET /api/tasks/{task_id}/artifacts — MCP list_task_artifacts.
 //
-// WHY IT EXISTS. Until this ticket every response newTaskDTO builds carried the
-// FULL artifact row — url, filename, mime, kind, is_image, attachment_id,
-// created_by, created_ts — on all nine of its exits (get_task, terminate,
-// reassign, claim, duplicate, set_task_deps, the create dedupe hit, description
-// and title). The owner ruled the default shrinks to a title and an id
-// (c-cd063427fb2f:「我覺得任務產物，只需要預設給標題跟ID, 有需要再透過另一隻去拿
-// 就好了」), so this is the 「另一隻」.
+// WHY IT EXISTS. Until T-66 every response newTaskDTO builds carried the FULL
+// artifact row — url, filename, mime, kind, is_image, attachment_id, created_by,
+// created_ts — on all nine of its exits (get_task, terminate, reassign, claim,
+// duplicate, set_task_deps, the create dedupe hit, description and title). The
+// owner ruled the default shrinks to a title and an id (c-cd063427fb2f:「我覺得
+// 任務產物，只需要預設給標題跟ID, 有需要再透過另一隻去拿就好了」), so this is the
+// 「另一隻」.
+//
+// 🔴 SINCE T-92 THE DEFAULT IS SMALLER STILL: a task response carries
+// `artifact_count` and no rows at all — not even the id — on the owner's later
+// ruling (rc-15016959ad4d:「只有 ID 好像也沒用」). So this route is no longer the
+// "full" half of a pair; it is the ONLY way to obtain an artifact row, an
+// artifact id, or an artifact name. Anything that draws an artifact, and
+// anything that needs an id in order to act on one, comes here.
 //
 // 🔴 WHY IT NAMES A TASK AND NOT AN ARTIFACT. The symmetric-looking design —
 // get_task_artifact(artifact_id), one row per call, exactly like get_task_step —
@@ -38,14 +45,19 @@ func (s *apiServer) HandleListTaskArtifactsApiTasksTaskIdArtifactsGet(w http.Res
 		writeResolveError(w, err, "task", taskId)
 		return
 	}
-	// The SAME projector the task view used before T-66 (blob metadata resolved
-	// read-time, honest-empty when the blob is gone), so the full row served
-	// here cannot drift from the row that used to ride get_task.
+	// Blob facts are resolved read-time and are honest-empty when the blob is
+	// gone. Since T-92 EVERY kind resolves one — a link's target is read out of
+	// its own text/uri-list blob — so this is the only projector left that
+	// touches the blob store at all.
 	arts, err := s.taskArtifactDTOs(t.ID)
 	if err != nil {
 		internalError(w, err)
 		return
 	}
+	// ArtifactsDetailLevel stays "full" and now has nothing to contrast with —
+	// the task side used to answer "index". It is kept because a conformance
+	// check asserts it, and because a reader holding this payload should not have
+	// to know which server version produced it to know the rows are whole.
 	writeJSON(w, http.StatusOK, taskArtifactListDTO{
 		TaskID:               t.ID,
 		ArtifactsDetailLevel: taskArtifactsDetailLevelFull,
