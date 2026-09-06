@@ -270,9 +270,16 @@ func TestMigrateTaskArtifactRoundTrip(t *testing.T) {
 	}
 
 	// The table + its index exist after up, and a row inserts through the CHECK.
+	//
+	// ⚠️ THE COLUMN LIST IS THE TABLE'S SHAPE AT THE TOP OF THE STACK, not
+	// 00022's. runMigrations runs every migration, and 00086 rebuilt this table:
+	// `url` and `label` are gone, `name`/`description` replaced them, and
+	// `attachment_id` lost its default and is required on every kind — a link's
+	// target is a text/uri-list blob now. What this test is about is unchanged
+	// (00022 is a reversible NEW TABLE); only the row it seeds had to follow.
 	if _, err := db.Exec(`INSERT INTO task_artifact
-		(id, task_id, kind, url, label, created_ts, created_by)
-		VALUES ('ta-1', 't-1', 'link', 'https://x/pr/1', 'PR #1', 9, 'm-exec')`); err != nil {
+		(id, task_id, kind, attachment_id, name, description, created_ts, created_by)
+		VALUES ('ta-1', 't-1', 'link', 'att-1', 'PR #1', '', 9, 'm-exec')`); err != nil {
 		t.Fatalf("seed artifact: %v", err)
 	}
 	if err := db.QueryRow(`SELECT name FROM sqlite_master

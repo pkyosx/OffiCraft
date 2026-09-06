@@ -28,9 +28,10 @@ import { zh } from "../i18n/locales/zh";
 // 🔴 `listTaskArtifacts` IS THE POINT OF THE STUB, not scaffolding. Before T-66
 // this file handed the rows in through an `onHydrate` prop, so every case here
 // would have stayed GREEN against a cockpit that fetched nothing — which is
-// exactly the regression this ticket creates the risk of, now that the task read
-// carries an id+label index and no url/filename/mime at all. Every case now goes
-// through this stub, and the stub itself is asserted on.
+// exactly the regression that ticket created the risk of. T-92 went one step
+// further: the task read carries a COUNT and nothing else, so there is not even
+// an id to draw a row from. Every case now goes through this stub, and the stub
+// itself is asserted on.
 const { listTaskArtifacts } = vi.hoisted(() => ({ listTaskArtifacts: vi.fn() }));
 vi.mock("../api", () => ({
   api: {
@@ -51,11 +52,9 @@ function mkArtifact(over: Partial<TaskArtifactView>): TaskArtifactView {
     id: `ta-${seq}`,
     kind: "link",
     url: "https://example.com/pr/1",
-    label: `artifact-${seq}`,
-    filename: "",
+    name: `artifact-${seq}`,
+    description: "",
     mime: "",
-    isImage: false,
-    attachmentId: "",
     createdTs: 0,
     createdBy: "mira",
     versionCount: 1,
@@ -69,8 +68,8 @@ function renderBadge(
 ) {
   const count = opts.count ?? artifacts.length;
   // The rows come from the SERVER, not from a prop: the task the card holds
-  // carries only the count (and, on a hydrated card, an id+label index that
-  // nothing here could draw a row from).
+  // carries only the count — since T-92 not even the artifact ids ride the task
+  // read, so there is nothing here a row could be drawn from.
   listTaskArtifacts.mockResolvedValue(artifacts);
   return render(
     <I18nProvider>
@@ -107,10 +106,12 @@ describe("產物 badge visibility (the empty-set assertion + positive control)",
 
 describe("產物 popover — the one list (T-49fb)", () => {
   const artifacts = [
-    mkArtifact({ id: "ta-file", kind: "file", filename: "report.pdf", mime: "application/pdf", url: "/api/chat/attachment/ta-file" }),
-    mkArtifact({ id: "ta-img", kind: "image", filename: "shot.png", mime: "image/png", isImage: true, url: "/api/chat/attachment/ta-img" }),
-    mkArtifact({ id: "ta-link", kind: "link", label: "PR #123", url: "https://github.com/x/y/pull/123" }),
-    mkArtifact({ id: "ta-md", kind: "file", filename: "design.md", mime: "text/markdown", url: "/api/chat/attachment/ta-md" }),
+    mkArtifact({ id: "ta-file", kind: "file", name: "report.pdf", mime: "application/pdf", url: "/api/chat/attachment/att-file" }),
+    // An image is an image because its MIME says so (T-92 dropped `is_image` —
+    // it was that same fact in a second field).
+    mkArtifact({ id: "ta-img", kind: "image", name: "shot.png", mime: "image/png", url: "/api/chat/attachment/att-img" }),
+    mkArtifact({ id: "ta-link", kind: "link", name: "PR #123", url: "https://github.com/x/y/pull/123" }),
+    mkArtifact({ id: "ta-md", kind: "file", name: "design.md", mime: "text/markdown", url: "/api/chat/attachment/att-md" }),
   ];
 
   it("opens on click, hydrates, and lists EVERY kind at once with no tabs", async () => {
@@ -175,12 +176,12 @@ describe("產物 popover — the one list (T-49fb)", () => {
 
   it("truncates an overlong name in a CHIP that keeps the full name in title=", async () => {
     // T-90df: the chip must not size to its text (that was the bug — a long
-    // filename stretched the row and pushed the actions out of column). It
+    // name stretched the row and pushed the actions out of column). It
     // truncates via CSS, so the whole name has to survive on `title=`.
     const longName =
       "2026-07-20-座艙產物彈窗列表對齊-超長檔名回歸測試用-really-long-artifact-filename.pdf";
     const { container } = renderBadge(
-      [mkArtifact({ id: "ta-long", kind: "file", filename: longName, mime: "application/pdf", url: "/api/chat/attachment/ta-long" })],
+      [mkArtifact({ id: "ta-long", kind: "file", name: longName, mime: "application/pdf", url: "/api/chat/attachment/att-long" })],
       { count: 1 },
     );
     fireEvent.click(screen.getByTestId("task-artifacts-badge"));
@@ -204,16 +205,16 @@ describe("產物 popover — the one list (T-49fb)", () => {
     // .task-artifacts__actions column (so they align).
     const cases: Array<{ artifact: TaskArtifactView; fullName: string }> = [
       {
-        artifact: mkArtifact({ id: "ta-f", kind: "file", filename: "a-file-with-a-long-name.pdf", mime: "application/pdf", url: "/api/chat/attachment/ta-f" }),
+        artifact: mkArtifact({ id: "ta-f", kind: "file", name: "a-file-with-a-long-name.pdf", mime: "application/pdf", url: "/api/chat/attachment/att-f" }),
         fullName: "a-file-with-a-long-name.pdf",
       },
       {
-        artifact: mkArtifact({ id: "ta-i", kind: "image", filename: "an-image-with-a-long-name.png", mime: "image/png", isImage: true, url: "/api/chat/attachment/ta-i" }),
+        artifact: mkArtifact({ id: "ta-i", kind: "image", name: "an-image-with-a-long-name.png", mime: "image/png", url: "/api/chat/attachment/att-i" }),
         fullName: "an-image-with-a-long-name.png",
       },
       {
-        artifact: mkArtifact({ id: "ta-l", kind: "link", label: "a link with a rather long label", url: "https://example.com/very/long/path" }),
-        fullName: "a link with a rather long label",
+        artifact: mkArtifact({ id: "ta-l", kind: "link", name: "a link with a rather long name", url: "https://example.com/very/long/path" }),
+        fullName: "a link with a rather long name",
       },
     ];
 
@@ -243,7 +244,7 @@ describe("產物 popover — the one list (T-49fb)", () => {
     // so the ACTION description has to survive on aria-label, and the anchor
     // must still open in a new tab with the safe rel.
     const { container } = renderBadge(
-      [mkArtifact({ id: "ta-link2", kind: "link", label: "PR #999", url: "https://github.com/x/y/pull/999" })],
+      [mkArtifact({ id: "ta-link2", kind: "link", name: "PR #999", url: "https://github.com/x/y/pull/999" })],
       { count: 1 },
     );
     fireEvent.click(screen.getByTestId("task-artifacts-badge"));
@@ -264,7 +265,7 @@ describe("產物 popover — the one list (T-49fb)", () => {
   it("lists a lone link with no empty state — one list, one kind present", async () => {
     // Pre-T-49fb this case opened on an EMPTY 檔案 tab and the owner had to
     // hunt for the link. Now the single artifact is simply there.
-    renderBadge([mkArtifact({ id: "ta-only-link", kind: "link", label: "only a link" })], { count: 1 });
+    renderBadge([mkArtifact({ id: "ta-only-link", kind: "link", name: "only a link" })], { count: 1 });
     fireEvent.click(screen.getByTestId("task-artifacts-badge"));
     await waitFor(() => expect(screen.getByText("only a link")).toBeTruthy());
     expect(screen.queryByText("還沒有產物")).toBeNull();
@@ -276,7 +277,7 @@ describe("產物面板：打開才抓 (T-66)", () => {
   // 另一隻去拿就好了」— so the panel is the thing that goes and gets them, and
   // it does it when it OPENS.
   const rows = [
-    mkArtifact({ id: "ta-l", kind: "link", label: "PR #77", url: "https://github.com/x/y/pull/77" }),
+    mkArtifact({ id: "ta-l", kind: "link", name: "PR #77", url: "https://github.com/x/y/pull/77" }),
   ];
 
   it("fetches NOTHING until the badge is clicked, then fetches THIS task's set", async () => {
@@ -293,15 +294,15 @@ describe("產物面板：打開才抓 (T-66)", () => {
   });
 
   it("draws rows from FIELDS THE TASK READ DOES NOT CARRY, so it must have fetched", async () => {
-    // 🔴 THE REGRESSION CASE. `url` / `filename` / `mime` / `is_image` left the
-    // task response in this ticket, so the only way this assertion can hold is
-    // that the panel called the server itself. A cockpit that went on reading
-    // the card's own `artifacts` would render an index (id + label) and have
-    // no href, no thumbnail and no filename to show.
+    // 🔴 THE REGRESSION CASE. `url` / `name` / `mime` do not ride the task
+    // response at all, so the only way this assertion can hold is that the panel
+    // called the server itself. A cockpit that went on reading the card's own
+    // artifacts would have nothing to read — T-92 left a bare count there — and
+    // so no href, no thumbnail and no name to show.
     const { container } = renderBadge(
       [
-        mkArtifact({ id: "ta-f", kind: "file", filename: "spec.pdf", mime: "application/pdf", url: "/api/chat/attachment/att-f" }),
-        mkArtifact({ id: "ta-l2", kind: "link", label: "PR #88", url: "https://github.com/x/y/pull/88" }),
+        mkArtifact({ id: "ta-f", kind: "file", name: "spec.pdf", mime: "application/pdf", url: "/api/chat/attachment/att-f" }),
+        mkArtifact({ id: "ta-l2", kind: "link", name: "PR #88", url: "https://github.com/x/y/pull/88" }),
       ],
       { count: 2 },
     );
@@ -340,11 +341,17 @@ describe("產物面板：打開才抓 (T-66)", () => {
     expect(screen.queryByTestId("task-artifacts-loading")).toBeNull();
   });
 
-  it("names a labelless link by its url, and a nameless one by its id — never blank", async () => {
+  it("names a nameless link by its url, and a url-less one by its id — never blank", async () => {
+    // The fallback chain lives on the SERVER since T-92 (stored name → blob
+    // filename → link target → id tail), so `name` is already non-empty on any
+    // current server. What this pins is what the component does when it arrives
+    // empty ANYWAY — an older server, a fixture, a field dropped in between:
+    // the old chain rendered an anchor with NO TEXT, invisible and unclickable
+    // and one row short of the count the badge promised.
     const { container } = renderBadge(
       [
-        mkArtifact({ id: "ta-nolabel", kind: "link", label: "", url: "https://example.com/no-label" }),
-        mkArtifact({ id: "ta-nothing", kind: "link", label: "", url: "" }),
+        mkArtifact({ id: "ta-noname", kind: "link", name: "", url: "https://example.com/no-name" }),
+        mkArtifact({ id: "ta-nothing", kind: "link", name: "", url: "" }),
       ],
       { count: 2 },
     );
@@ -355,7 +362,7 @@ describe("產物面板：打開才抓 (T-66)", () => {
     const names = Array.from(
       container.querySelectorAll("a.task-artifacts__link .task-artifacts__chip-name"),
     ).map((n) => n.textContent);
-    expect(names).toEqual(["https://example.com/no-label", "#ta-nothing".replace("#ta-", "#")]);
+    expect(names).toEqual(["https://example.com/no-name", "#ta-nothing".replace("#ta-", "#")]);
     for (const n of names) expect(n).not.toBe("");
   });
 });
@@ -363,7 +370,7 @@ describe("產物面板：打開才抓 (T-66)", () => {
 describe("任務產物 markdown 預覽的分享連結", () => {
   it("Escape closes an artifact popup without closing its parent artifact panel", async () => {
     const { container } = renderBadge([
-      mkArtifact({ id: "ta-escape", kind: "file", filename: "bundle.zip", mime: "application/zip", url: "/api/chat/attachment/att-escape", attachmentId: "att-escape" }),
+      mkArtifact({ id: "ta-escape", kind: "file", name: "bundle.zip", mime: "application/zip", url: "/api/chat/attachment/att-escape" }),
     ]);
     fireEvent.click(screen.getByTestId("task-artifacts-badge"));
     await waitFor(() => expect(container.querySelector("button.task-artifacts__chip")).toBeTruthy());
@@ -388,9 +395,8 @@ describe("任務產物 markdown 預覽的分享連結", () => {
     });
     const { container } = renderBadge([
       mkArtifact({
-        id: "ta-binary", kind: "file", filename: "bundle.zip",
+        id: "ta-binary", kind: "file", name: "bundle.zip",
         mime: "application/zip", url: "/api/chat/attachment/att-backing",
-        attachmentId: "att-backing",
       }),
     ]);
     fireEvent.click(screen.getByTestId("task-artifacts-badge"));
@@ -427,10 +433,13 @@ describe("任務產物 markdown 預覽的分享連結", () => {
         mkArtifact({
           id: "ta-artifact",
           kind: "file",
-          filename: "task.md",
+          name: "task.md",
           mime: "text/markdown",
-          url: "/api/chat/attachment/ta-artifact",
-          attachmentId: "att-backing",
+          // T-92: the blob id is the TAIL OF `url`, never a field of its own —
+          // one string said twice was the drift the DTO was reshaped to remove.
+          // So the artifact's own `ta-` id and its backing blob differ exactly
+          // here, which is what this case is about.
+          url: "/api/chat/attachment/att-backing",
         }),
       ],
       { count: 1 },
@@ -457,7 +466,7 @@ describe("任務產物 markdown 預覽的分享連結", () => {
 describe("產物 popover — click-outside dismissal (T-49fb)", () => {
   it("closes on an outside mousedown, stays open on an inside one", async () => {
     const { container } = renderBadge(
-      [mkArtifact({ id: "ta-x", kind: "link", label: "PR #1" })],
+      [mkArtifact({ id: "ta-x", kind: "link", name: "PR #1" })],
       { count: 1 },
     );
     fireEvent.click(screen.getByTestId("task-artifacts-badge"));
@@ -482,10 +491,9 @@ describe("產物 popover — click-outside dismissal (T-49fb)", () => {
       mkArtifact({
         id: "ta-preview",
         kind: "file",
-        filename: "bundle.zip",
+        name: "bundle.zip",
         mime: "application/zip",
         url: "/api/chat/attachment/att-preview",
-        attachmentId: "att-preview",
       }),
     ]);
     fireEvent.click(screen.getByTestId("task-artifacts-badge"));
@@ -508,7 +516,7 @@ describe("產物 popover — click-outside dismissal (T-49fb)", () => {
     // mousedown on it is never 'outside'. If it were, the panel would close on
     // mousedown and reopen on click — or never appear at all.
     const { container } = renderBadge(
-      [mkArtifact({ id: "ta-y", kind: "link", label: "PR #2" })],
+      [mkArtifact({ id: "ta-y", kind: "link", name: "PR #2" })],
       { count: 1 },
     );
     const badge = screen.getByTestId("task-artifacts-badge");
