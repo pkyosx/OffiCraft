@@ -22,13 +22,23 @@ export function useSuggestedReplies(): string[] {
 
   useEffect(() => {
     let alive = true;
-    loadServerSettings()
-      .then((s) => {
-        if (alive) setReplies(s.suggestedReplies);
-      })
-      .catch((e) => {
-        console.warn("useSuggestedReplies: load failed", e);
-      });
+    // Both failure modes, deliberately: the read can REJECT (the server said
+    // no) and it can THROW SYNCHRONOUSLY (measured — a caller that swapped the
+    // api client for a partial one has no getServerSettings at all, and an
+    // effect that throws takes the whole card down with it, message box
+    // included). The paragraph above promises this hook cannot do that, and
+    // one `.catch` alone does not keep the promise.
+    try {
+      loadServerSettings()
+        .then((s) => {
+          if (alive) setReplies(s.suggestedReplies);
+        })
+        .catch((e) => {
+          console.warn("useSuggestedReplies: load failed", e);
+        });
+    } catch (e) {
+      console.warn("useSuggestedReplies: load threw", e);
+    }
     return () => {
       alive = false;
     };
