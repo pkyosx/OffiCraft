@@ -1853,7 +1853,12 @@
 }
 .upgrade-instr__row {
   display: grid;
-  grid-template-columns: auto 1fr auto;
+  /* The badge column is FIXED, not auto. Each row is its own grid, so an auto
+     column sizes to that row's own badge — and 已完成 is narrower than
+     還沒完成, which starts every finished row's text at a different x from
+     every open one. The badges are a recurring element and have to sit in the
+     same place on each row; the width is the widest label plus its padding. */
+  grid-template-columns: 5.2rem 1fr auto;
   grid-template-areas:
     "badge body    actions"
     ".     meta    meta";
@@ -1872,6 +1877,7 @@
 }
 .upgrade-instr__badge {
   grid-area: badge;
+  text-align: center;
   font-size: 0.85em;
   padding: 0.05rem 0.4rem;
   border-radius: 0.6rem;
@@ -1964,7 +1970,7 @@
      so the actions drop to their own line instead of the text becoming a
      sliver. */
   .upgrade-instr__row {
-    grid-template-columns: auto 1fr;
+    grid-template-columns: 5.2rem 1fr;
     grid-template-areas:
       "badge body"
       ".     meta"

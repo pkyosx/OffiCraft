@@ -2455,7 +2455,14 @@ const MOCK_WIRE_UPGRADE_INSTRUCTIONS: WireUpgradeInstruction[] = [
   },
   {
     id: "uin-91be07d3a45f",
-    body: "確認 T-33 的 migration 已經 land",
+    // 🔴 THE HOSTILE CASE IS THE FIXTURE, not a pretty one. A real instruction
+    // names a path and a sha, and neither can break at a space — this is the
+    // widest a row ever gets, and it is an OPEN row, so it carries both
+    // buttons. The browser-level guard beside this card measures exactly it.
+    body:
+      "確認 T-33 的 migration 已經 land，檔案是 " +
+      "server/ocserverd/migrations/00084_lore_format_v8.sql" +
+      "，對應 commit bd55ebe0ec95590b6c2a6511a648e246cbc19267",
     created_ts: 1788640000,
     created_by: "owner",
     done: false,
