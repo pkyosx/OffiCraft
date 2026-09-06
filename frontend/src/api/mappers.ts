@@ -850,9 +850,12 @@ export function toTaskManualSummary(
     // T-100: something draws them now — both manual sub-pages render 「已用 /
     // 上限」 while the owner types, which is what this mapper was waiting for.
     //
-    // 🔴 `?? 0` IS NOT A MEASUREMENT. These four are optional on the wire, and
-    // a zero cap would render 「1234 / 0」 — a budget that reads as "already
-    // over" on a document that is fine. The readout is gated on `cap > 0` at
+    // 🔴 `?? 0` IS NOT A MEASUREMENT. Today's server always emits all four (the
+    // generated schema marks them required), so the fallback is only reachable
+    // from a server that predates them — the same defence `toRoleSummary` and
+    // `toLessons` keep. A zero cap would render 「1234 / 0」 — a budget that
+    // reads as "already over" on a document that is fine. The readout is
+    // gated on `cap > 0` at
     // the render site for exactly that reason; do not remove that gate here by
     // inventing a default cap, because a fallback cap and the live one are
     // indistinguishable on screen and only one of them is what the server

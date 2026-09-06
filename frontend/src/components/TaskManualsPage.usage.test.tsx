@@ -20,10 +20,17 @@
 //      the mapper floors them at 0, so 「1234 / 0」 would tell the owner he is
 //      already over on a document that is fine.
 //
-// The last test goes through the REAL page and the REAL mock adapter, because
-// tests 1–4 hand the sub-pages a manual directly: they can all pass while the
-// mapper still drops the four fields on the way in, which is the state this
-// ticket found the code in.
+// The last test goes through the REAL page and the mock adapter, because tests
+// 1–4 hand the sub-pages a manual directly and so never exercise the wiring
+// that fetches one.
+//
+// ⚠️ WHAT THAT LAST TEST DOES NOT COVER, stated because an earlier draft of
+// this header claimed the opposite and a mutant proved it wrong: the MOCK
+// adapter builds its views itself and never calls `toTaskManualSummary`, so
+// blanking the four fields in that mapper leaves every test in THIS FILE green.
+// The mapper — the only path the real HTTP seam takes — is covered by
+// `api/mappers.task-manual-usage.test.ts`. Neither file substitutes for the
+// other.
 
 import { describe, it, expect, beforeEach } from "vitest";
 import { render, fireEvent, waitFor } from "@testing-library/react";

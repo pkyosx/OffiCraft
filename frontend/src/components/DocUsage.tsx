@@ -16,9 +16,9 @@
 //     stays duplicated on purpose — DocCard's readout sits inside a header this
 //     component knows nothing about, and it also feeds its own over-cap notice.
 //
-//  2. NOTHING IS DRAWN WHEN `cap` IS NOT A REAL CAP. The four manual size/cap
-//     fields are optional on the wire and the mapper floors them at 0, so a
-//     server too old to send them would otherwise render 「1234 / 0」 — which
+//  2. NOTHING IS DRAWN WHEN `cap` IS NOT A REAL CAP. The mapper floors an
+//     absent cap at 0 (reachable from a server predating the fields), so
+//     without this gate such a server would render 「1234 / 0」 — which
 //     reads as "you are already over" on a document that is perfectly fine. A
 //     missing budget must look missing, not look full.
 //
@@ -32,6 +32,12 @@ import { shownDocSize } from "../api/docCap";
 // mount it — `.doc-card__usage` is declared in this sheet, and the one time a
 // component drew another sheet's block without importing it, the styles vanished
 // the day the last transitive importer changed (styleOwnership.test.ts).
+//
+// ⚠️ NOTHING ENFORCES THIS LINE. `settings.css` is not in that test's
+// OWNED_SHEETS list, and deleting this import was measured (T-100) to leave the
+// whole suite — the browser guard included — green, because the sheet reaches
+// the page another way today. It is here because the convention is right, not
+// because anything would tell you if it went.
 import "./settings.css";
 
 interface DocUsageProps {
