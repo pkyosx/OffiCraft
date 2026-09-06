@@ -68,6 +68,18 @@ package main
 // Then run `go test -run TestArtifactURL` and read the DENOMINATOR, not the word
 // `ok`: 5 top-level tests / 26 leaf subtests (a healthy run prints 31 `--- PASS`
 // lines — 5 parents + 26 leaves; do not read 31 as the subtest count).
+//
+// ✅ THAT MERGE HAS NOW HAPPENED. This branch is rebased onto #432 and the port
+// above is what is in this file: getTaskArtifacts for the four taskDTO reads,
+// PutTaskArtifactMintingBlob + AttachmentID for the legacy seed, Name for
+// Label, guard-then-mint on both doors.
+//
+// ⚠️ ONE TRAP THE BUILD DID NOT NAME, because it is not a compile error. T-92
+// made `name` REQUIRED on the ADD door, and that check runs BEFORE the url
+// guard. Every add payload here therefore carries a name — and without one the
+// refused cases still get a 400, from the WRONG rule, so they would have passed
+// with this guard deleted. t95AssertRefusalIsAboutURL exists to make that
+// impossible: it reads the refusal SENTENCE, not just the status code.
 
 import (
 	"net/http"
