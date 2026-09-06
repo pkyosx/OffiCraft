@@ -39,6 +39,12 @@ trash/
 
 # M4 deploy artifact (SPA-embedded ocserverd built by bin/build) — never commit
 .deploy/
+# …and the convenience symlink into it. It is NOT itself a build artifact, which
+# is why it was not covered here — but it points at one, and being untracked next
+# to a tracked directory made it the thing a `git add bin` sweeps up. T-91 did
+# exactly that twice in one session and caught it twice by reading the manifest;
+# the third time nobody would have.
+bin/ocserverd
 cli/ocagent/ocagent
 cli/ocwarden/ocwarden
 cli/officraft/officraft
