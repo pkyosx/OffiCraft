@@ -22,7 +22,18 @@ import (
 
 // newLessonsTestServer mirrors newWiredTestServer but hands back the DAL so a
 // test can seed a custom-role agent member directly.
+// newLessonsTestServer is the four-value shape's wrapper, kept because most
+// callers do not need the apiServer itself. T-33 added
+// newLessonsTestServerAPI for the ones that must reach a settings field (the
+// lore feature switch) — one assembly, two faces, so the two can never build
+// subtly different stacks.
 func newLessonsTestServer(t *testing.T) (*httptest.Server, *DAL, []byte) {
+	t.Helper()
+	srv, dal, secret, _ := newLessonsTestServerAPI(t)
+	return srv, dal, secret
+}
+
+func newLessonsTestServerAPI(t *testing.T) (*httptest.Server, *DAL, []byte, *apiServer) {
 	t.Helper()
 	db, err := openSQLite(filepath.Join(t.TempDir(), "lessons-test.db"))
 	if err != nil {
@@ -50,7 +61,7 @@ func newLessonsTestServer(t *testing.T) (*httptest.Server, *DAL, []byte) {
 	api.loopback = h
 	srv := httptest.NewServer(h)
 	t.Cleanup(srv.Close)
-	return srv, dal, secret
+	return srv, dal, secret, api
 }
 
 // lessonsCall posts a tools/call and returns (isError, code, text).

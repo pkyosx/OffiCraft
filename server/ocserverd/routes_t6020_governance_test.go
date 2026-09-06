@@ -21,6 +21,7 @@ package main
 import (
 	"encoding/json"
 	"os"
+	"strings"
 	"testing"
 )
 
@@ -183,6 +184,35 @@ var t6020Withheld = [][2]string{
 	{"GET", "/api/auth/signing-keys"},
 	{"POST", "/api/auth/signing-keys/rotate"},
 	{"POST", "/api/auth/signing-keys/{key_id}/remove"},
+}
+
+// ownerFloorAfterT6020 is the SECOND list, and it exists because t6020Withheld
+// cannot grow.
+//
+// 🔴 WHY NOT JUST APPEND TO t6020Withheld. That table is a HISTORICAL RULING
+// SET — twelve rows, a pinned literal, and a written arithmetic ("7 from the
+// owner rulings plus the 5 /api/auth/mfa* rows"). Appending a row the owner
+// never ruled on in 2026-07-26 would make that sentence false while leaving it
+// on the page, which is the exact disease the count was pinned to prevent. It
+// would also carry a second claim by association: every row on that list is
+// MCPExclude, and this one is only owner-floor.
+//
+// The completeness check below reads BOTH lists, so a new owner-floor row still
+// has to be declared with a reason before it can exist. What changed is only
+// which table it is declared in.
+var ownerFloorAfterT6020 = map[[2]string]string{
+	{"POST", "/api/lore/entries/{entry_id}/revive"}: "" +
+		"T-33, owner ruling ta-c568dfd29844 D11. Retiring an entry splits three ways by " +
+		"REASON — expired/merged are tidying and stay with the agent, falsified is a " +
+		"judgement about truth and is the owner's — and REVIVING asserts the entry " +
+		"holds after all, which sits on the same side of that line. ⚠️ The owner ruled " +
+		"on the falsified half; putting revive beside it is a DERIVATION, recorded as " +
+		"such in dal_lore_governance.go, and its cost is one-directional: a revive that " +
+		"should have been an agent's is a message to the owner, while an agent quietly " +
+		"reviving something the owner retired as false is not. NOT in t6020Withheld: " +
+		"that list is the 2026-07-26 ruling's own rows and its count is pinned to keep " +
+		"the ruling legible. Off the MCP surface for the ordinary reason every " +
+		"owner-floor row is — the owner acts through the cockpit, not through tools.",
 }
 
 func t6020RouteIndex(t *testing.T) map[[2]string]RouteSpec {
@@ -385,6 +415,19 @@ func TestT6020OpenedAndWithheldAreDisjointAndComplete(t *testing.T) {
 	}
 	withheld := map[[2]string]bool{}
 	for _, key := range t6020Withheld {
+		withheld[key] = true
+	}
+	// The second table (see its note): rows that reached the owner floor AFTER
+	// the ruling, each carrying its own reason. Read here so the completeness
+	// clause keeps its teeth without the historical count having to absorb them.
+	for key, reason := range ownerFloorAfterT6020 {
+		if strings.TrimSpace(reason) == "" {
+			t.Fatalf("%s %s sits at the owner floor with an EMPTY reason — the "+
+				"declaration is the whole mechanism", key[0], key[1])
+		}
+		if withheld[key] {
+			t.Fatalf("%s %s is on BOTH owner-floor lists", key[0], key[1])
+		}
 		withheld[key] = true
 	}
 	var stragglers []string

@@ -11,6 +11,7 @@ describe("parseHash", () => {
     expect(parseHash("#office")).toEqual({ page: "office" });
     expect(parseHash("#replies")).toEqual({ page: "replies" });
     expect(parseHash("#monitor")).toEqual({ page: "monitor" });
+    expect(parseHash("#lore")).toEqual({ page: "lore" });
     expect(parseHash("#guide")).toEqual({ page: "guide" });
     expect(parseHash("#settings")).toEqual({ page: "settings" });
   });
@@ -159,6 +160,7 @@ describe("formatHash", () => {
     expect(formatHash({ page: "office" })).toBe("");
     expect(formatHash({ page: "replies" })).toBe("#replies");
     expect(formatHash({ page: "monitor" })).toBe("#monitor");
+    expect(formatHash({ page: "lore" })).toBe("#lore");
     expect(formatHash({ page: "guide" })).toBe("#guide");
     expect(formatHash({ page: "settings" })).toBe("#settings");
     expect(formatHash({ page: "office", chatId: "mira" })).toBe(
@@ -250,6 +252,7 @@ describe("formatHash", () => {
       { page: "tasks" as const, executorId: "mira" },
       { page: "monitor" as const },
       { page: "monitor" as const, detailId: "mira" },
+      { page: "lore" as const },
       { page: "guide" as const },
       { page: "guide" as const, guideSlug: "interface" },
       { page: "settings" as const },

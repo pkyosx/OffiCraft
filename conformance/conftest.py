@@ -70,6 +70,42 @@ def _auth(token: str) -> dict[str, str]:
     return {"Authorization": f"Bearer {token}"}
 
 
+@pytest.fixture(scope="session", autouse=True)
+def lore_feature_enabled(client: httpx.Client, owner_token: str) -> None:
+    """T-33: switch the LORE feature ON for the whole run, once.
+
+    The feature ships OFF (settings ``lore.enabled``, default false — the owner
+    asked for that in as many words), so on a fresh throwaway database every
+    ``/api/lore/*`` row answers 403 and every lore case in this suite would be
+    asserting the refusal instead of the behaviour it names.
+
+    🔴 THE DEFAULT IS ASSERTED HERE, BEFORE IT IS CHANGED, and that assertion is
+    the only place this black-box suite can make it: the target is a brand-new
+    database exactly once, at the start of the run. Reading ``lore_enabled`` back
+    as ``false`` first is what makes turning it on afterwards a decision rather
+    than a step that would have passed either way.
+
+    ⚠️ WHAT THIS LEAVES UNCOVERED, STATED RATHER THAN IMPLIED: every case after
+    this fixture runs sees the feature ON, so the OFF behaviour of the routes
+    (403 with the spoken refusal) is NOT exercised here. It is exercised in
+    server/ocserverd/lore_toggle_t33_test.go, which sweeps all eleven addresses
+    in both states with controls. Switching the feature off and on again between
+    cases in this suite would make every lore case order-dependent, which is a
+    worse trade than the gap.
+    """
+    r = client.get("/api/settings", headers=_auth(owner_token))
+    assert r.status_code == 200, f"read settings: {r.status_code} {r.text}"
+    assert r.json().get("lore_enabled") is False, (
+        "a fresh station reports lore_enabled=%r — the owner asked for the lore "
+        "feature to ship OFF by default" % r.json().get("lore_enabled")
+    )
+    r = client.patch(
+        "/api/settings", json={"lore_enabled": True}, headers=_auth(owner_token)
+    )
+    assert r.status_code == 200, f"enable lore: {r.status_code} {r.text}"
+    assert r.json().get("lore_enabled") is True, r.text
+
+
 @dataclass(frozen=True)
 class AgentIdentity:
     """One minted agent: roster member id + its scope="agent" JWT."""

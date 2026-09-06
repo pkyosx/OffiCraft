@@ -1033,3 +1033,247 @@ export type BackupHealthStatus = "healthy" | "unhealthy" | "unknown";
 /** Which backup failure this is; "" while healthy (or while unknown — an
  * unevaluated watchdog names no failure). */
 export type BackupHealthCode = "" | "never_ran" | "stale" | "failed";
+
+// ── T-33 傳承 (lore) view models ───────────────────────────────────────────
+//
+// 🔴 WHAT IS NOT HERE IS THE POINT. There is no `score`, no `retrievedCount`,
+// no `approved` flag and no `pendingCount` on any of these types, because the
+// station serves no field that could fill one. An OPTIONAL field with no
+// producer reads as 「we looked and there was none」 on every screen that
+// renders it, which is exactly the lie this ticket exists to stop: the page
+// must be able to say 「尚無資料來源」, and it can only say that if the type
+// system never handed it a plausible zero to print instead.
+
+/** One retrieved entry, as `POST /api/lore/search` answers it.
+ *
+ * 🔴 A HIT CARRIES ONLY 第 1、2 格. 第 3、4、5 格 are reached with
+ * `getLoreEntry`, because a search answer is what you PICK from — putting every
+ * entry's events into the list would be a size decision nobody has made. */
+export interface LoreEntrySummaryView {
+  entryId: string;
+  /** 第 1 格「什麼時候要記起來」— when you would want to remember this. It is
+   * REQUIRED on write, and it doubles as the entry's TITLE: 五格 has no `label`
+   * cell and this one carries no length cap. */
+  trigger: string;
+  /** 第 2 格「內容」— the compressed body, and the only cell that ever enters a
+   * boot context. Also required on write. */
+  content: string;
+  /** Subject keys (`repo:officraft`) this entry is filed under. */
+  subjects: string[];
+  actions: string[];
+  /** Whose knowledge this is (`human:Seth`, `agent:Kyle`). */
+  origin: string;
+  /** `T1` matched every axis asked on; `T2` reached the caller across an axis
+   * that was NOT asked about. Meaningless without `tieredBy` — read together. */
+  tier: string;
+  tierNote: string;
+  /** `method` / `trust` / `cognitive`. */
+  trustScope: string;
+  /** True when the class was reached by FAILING CLOSED on an action name
+   * nothing recognised, rather than by the mapping table. A guessed class must
+   * not look identical to a known one. */
+  trustFellBack: boolean;
+}
+
+/** What the server ACTUALLY applied, echoed back. Required beside the tiers:
+ * a tier without its axes is read under a meaning it no longer has. */
+export interface LoreSearchAppliedView {
+  subject: string;
+  actions: string[];
+  query: string;
+  /** How `query` was matched. Today always `literal-substring`. */
+  queryMatch: string;
+  limit: number;
+  /** The axes the tier was computed over. Empty ⇒ nothing in the answer
+   * reached the caller across an axis it did not ask about. */
+  tieredBy: string[];
+}
+
+/** One search answer, with every honesty marker the wire carries. */
+export interface LoreSearchView {
+  entries: LoreEntrySummaryView[];
+  /** How many matched BEFORE the count cap — NOT `entries.length`. */
+  total: number;
+  /** True when the cap dropped some of them. */
+  truncated: boolean;
+  /** False ONLY when a `subject` was given and named nothing. 「this subject
+   * has no entries」 and 「this subject does not exist」 are different answers. */
+  subjectResolved: boolean;
+  /** The subject key that named nothing, echoed so a typo is visible. */
+  unresolvedSubject: string;
+  applied: LoreSearchAppliedView;
+  /** Action names the trust table did not recognise — non-empty means at least
+   * one entry was classified by failing closed. */
+  unmappedActions: string[];
+}
+
+/** One catalogue line of an entry's revision history — no text at all. */
+export interface LoreRevisionRowView {
+  revisionId: number;
+  createdTs: number;
+  actorId: string;
+  sha256: string;
+  /** How many characters this write REMOVED compared with the previous one.
+   * 🔴 The ONE place an entry being quietly hollowed out is visible: the entry
+   * count does not move when an entry is emptied. */
+  shrinkChars: number;
+}
+
+/** 第 5 格「相關的完整資訊」— ONE event: 時／事／人／地／物.
+ *
+ * 🔴 `actor` / `place` / `object` COME BACK EMPTY WHEN NOBODY KNEW THEM, and
+ * they are never back-filled with 「未知」 — not on the wire and not on the
+ * screen. 「查不出是誰」 and 「還沒有人去查」 have to stay distinguishable, and a
+ * placeholder collapses them into one.
+ *
+ * ⚠️ Empty is the ONLY unconstrained value these three take. A NON-EMPTY one is
+ * validated on write (`loreEventError`): it must be shaped `type:name` and the
+ * prefix must be an approved entity type, or the WHOLE write is refused 422.
+ * So anything that arrives non-empty is a well-formed key — but this surface
+ * still must not derive a type badge from it, because 「no key」 carries no
+ * prefix to derive from and would need a placeholder to render. */
+export interface LoreEventView {
+  /** When the event HAPPENED — not when anybody wrote it down. Required. */
+  happenedTs: number;
+  /** What happened, in the ACTIVE VOICE, so `actor` is always the one who did
+   * it rather than the one it happened to. Required. */
+  what: string;
+  /** 人 — who did it. May be empty; an act that never went through the API has
+   * nobody the server could stamp. */
+  actor: string;
+  /** 地 — which MACHINE it happened on. May be empty. */
+  place: string;
+  /** 物 — what was acted upon. May be empty. */
+  object: string;
+}
+
+/** One entry in full, plus the original preserved beside it. */
+export interface LoreEntryDetailView {
+  entryId: string;
+  /** 第 1 格, required, and the entry's title. */
+  trigger: string;
+  /** 第 2 格, required — the only cell that enters a boot context. */
+  content: string;
+  /** 第 3 格「什麼時候不需要了」— free text, no closed value set. May be empty
+   * — and an EMPTY one is rendered as an empty field with its name printed,
+   * never omitted: 「blank」 and 「no such section」 must not look the same. */
+  retireWhen: string;
+  /** 第 4 格「之前發生過什麼問題」— optional as a field while being the
+   * substance of the entry. May be empty, same rendering rule. */
+  problem: string;
+  /** 第 5 格, IN THE ORDER THE EVENTS HAPPENED — empty array when the entry
+   * carries none, which the surface states rather than omits. */
+  events: LoreEventView[];
+  subjects: string[];
+  actions: string[];
+  origin: string;
+  /** `active`, `superseded`, `retired` or `underspecified`. */
+  status: string;
+  /** The FULL text as last written, every named field including the blank
+   * ones AND the `events:` block. Empty ONLY for an entry written before the
+   * mechanism existed. */
+  original: string;
+  /** Digest of `original`, so a reader can tell it holds what was stored. */
+  sha256: string;
+  /** The entry this one took over from; empty when none. */
+  supersedes: string;
+  /** Who wrote the LATEST revision. */
+  writtenBy: string;
+  /** Oldest first, no text. */
+  revisions: LoreRevisionRowView[];
+}
+
+/** ONE revision's exact stored text. */
+export interface LoreRevisionView {
+  revisionId: number;
+  entryId: string;
+  body: string;
+  sha256: string;
+  createdTs: number;
+  actorId: string;
+  shrinkChars: number;
+}
+
+// ── T-33 對象審核 (待審 / 核可 / 合併) ────────────────────────────────────
+//
+// owner 2026-09-02 逐字:「agent 做完功課以後給建議並提出我一眼就可以判斷的資
+// 訊,我還是做最後的裁決」⇒ 每一列除了「是什麼」還要帶「伺服器算出來的建議、
+// 以及那個建議的依據」。依據是**像法的名字**(正規化後相同/編輯距離 1/前綴),
+// 刻意不是一個相似度分數:分數是判斷冒充數字,而這張票在治的就是那個。
+
+/** 一個既有對象跟待審這一筆像在哪裡。 */
+export interface LoreEntitySimilarView {
+  entityId: string;
+  /** `type:name`。 */
+  canonical: string;
+  /** 最強的那一種像法的名字,不是分數。 */
+  reason: string;
+}
+
+/** 待審這一筆底下的一條記憶,縮到一列放得下的三格。
+ *
+ * 🔴 這是**指路**,不是記憶本身。內容不放在這裡:要看內容就打開那一條,那條路
+ * 早就有了。把 content 抄一份進來等於讓待審佇列變成第二個讀取路徑 —— 有自己的
+ * 截斷規則、自己的排序,以及跟正牌讀取路徑吵架的機會。 */
+export interface LoreEntryRefView {
+  entryId: string;
+  /** 第 1 格「什麼時候要記起來」,同時就是這一條的標題,沒有長度上限。 */
+  trigger: string;
+  /** `active` / `superseded` / `underspecified`。**不會是** `retired` —— 這份
+   * 清單跟 `entries` 用同一個判準,退役的根本不在裡面。 */
+  status: string;
+}
+
+/** 待審佇列的一列:對象本身 ＋ 伺服器做完的功課。 */
+export interface LorePendingEntityView {
+  entityId: string;
+  canonical: string;
+  type: string;
+  name: string;
+  createdTs: number;
+  /** 鑄出這個名字的人 —— 寫下那條記憶、而那條記憶的對象欄第一次寫出這個 key 的
+   * 那個 actor id。
+   *
+   * 🔴 判斷「這是不是打錯字」的時候,名字本身之後最有用的線索就是這個。原樣印
+   * 出 id,不在這裡翻成顯示名 —— 翻譯是成員畫面的事,在這裡再翻一次就是同一個
+   * 問題的第二個答案。空字串 ⇒ 這一列鑄出來的時候還沒有記這一欄,照實留白。 */
+  createdBy: string;
+  /** 這個對象底下**現在**有幾條記憶(退役的不算)。 */
+  entries: number;
+  /** 同一個數字**把退役也算進去**。
+   *
+   * 🔴 `entries: 0` 有兩種完全不同的成因,而畫面上長得一模一樣,這一格就是拿來
+   * 分辨的:`0 / 0` ＝ 鑄出來以後**再也沒被用過**,那是打錯字的形狀(寫的人下一
+   * 次就改對了);`0 / 2` ＝ 真的用過,只是底下的都退役了 —— 那跟名字對不對一
+   * 點關係都沒有。owner 2026-09-04 逐字:「為什麼核可的可見內容這麼少 我根本無
+   * 從審核起」。 */
+  entriesEver: number;
+  /** `entries` 數到的**每一條**,不是只有第一條的前 120 字。 */
+  entryRefs: LoreEntryRefView[];
+  /** 🔴 `suggestion` / `mergeTarget` 原本在這裡,owner 2026-09-05 裁掉了。那一
+   * 組是伺服器用機械規則算出來的「你該按哪顆鈕」;他的理由是那個規則本身沒有
+   * 意義 ——「ai 會笨到產生大小寫不一樣的對象嗎」。之後會換成「請 AI 判一輪、
+   * 人可以同意或回 comment 讓它重判」,那是**另一張票**;在那之前這一列刻意不
+   * 給任何自動判斷。
+   * ⚠️ `similar` 留著,而且它才是重點:owner 要拿掉的是「系統建議你按哪個鈕」,
+   * 不是「像哪些既有名字、每一個為什麼像」。合併的目標現在由他從這一排裡自己
+   * 挑 —— 少掉的是那個代他挑的規則,不是合併這件事。 */
+  similar: LoreEntitySimilarView[];
+  /** 這個對象底下第一條記憶的**第 2 格 `content`**,截斷過。空 ⇒ 底下還沒有記憶。
+   * ⚠️ `sampleShort` / wire 上的 `sample_short` 是六格時代 `short` 留下的名字,
+   * 讀的欄位早就是 `content` 了。名字沒有跟著改是刻意的:它在線上、座艙讀它,
+   * 改名是一次 wire 變更,不順手夾帶。 */
+  sampleShort: string;
+}
+
+/** 核可或合併之後,伺服器回的那一筆治理紀錄。 */
+export interface LoreEntityGovernanceView {
+  entityId: string;
+  canonical: string;
+  pending: boolean;
+  mergedInto: string;
+  kind: string;
+  reason: string;
+  actorId: string;
+  createdTs: number;
+}

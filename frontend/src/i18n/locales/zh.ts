@@ -68,6 +68,112 @@ export const zh = {
     loadError: "載入使用說明失敗，請稍後重試",
     empty: "還沒有說明頁",
   },
+  // ── 傳承 Lore(T-33)───────────────────────────────────────────────────
+  // 這個分頁的文案有一半在講「這一格沒有東西可填,而且缺的是哪一條路」。那不是
+  // 佔位字,是這張票存在的理由:站上今天只有六條 lore route(寫入、搜尋、讀一條、
+  // 讀一版、停用、恢復),而設計稿上有一半的區塊需要「列對象目錄」「列待審對象」
+  // 「核可/合併」這些不存在的路。畫一個 0 上去,讀起來會是「我們查過,沒有」——
+  // 所以這些區塊一律說出缺的是哪一條路,而且一個數字都不印。
+  lore: {
+    pendingEmpty: "沒有等你審核的對象。",
+    pendingFailed: "讀不到待審清單：",
+    pendingLoading: "載入中…",
+    pendingEntries: (n: number) => `底下 ${n} 條記憶`,
+    pendingNoEntries: "底下還沒有記憶",
+    // 🔴 「底下 0 條」有兩種成因,處置完全相反,所以這裡是兩句話而不是一句。
+    // 從來沒被用過 ⇒ 打錯字的形狀;曾經有但都退役了 ⇒ 跟名字對不對無關。
+    pendingNeverUsed: "底下一條都沒有過 —— 這個名字鑄出來就沒再被用過",
+    pendingAllRetired: (n: number) => `底下曾經有 ${n} 條,現在全部退役了`,
+    pendingAlsoRetired: (n: number) => `(另有 ${n} 條已退役)`,
+    pendingMintedBy: (who: string) => `由 ${who} 鑄出`,
+    pendingMintedByUnknown: "沒有記錄是誰鑄出這個名字",
+    pendingEntryListLead: "底下這幾條:",
+    pendingEntryStatusSuperseded: "已被取代",
+    pendingEntryStatusUnderspecified: "資訊不足",
+    pendingSimilarLead: "像：",
+    pendingApprove: "核可",
+    pendingMerge: (name: string) => `併進 ${name}`,
+    // ── 合併的單一入口(owner 2026-09-05 逐字:「改成單一入口:只留一顆合併
+    // 鈕,按了列出候選讓你挑,再確認」)────────────────────────────────
+    // 🔴 這四句刻意都是插值函式而不是靜態字串,原因不是文法:靜態字串葉會進
+    // `messageKeys.generated.ts` 與 `server/ocserverd/message_keys_gen.go`,而
+    // 這一輪的界線是「只改前端、不動產生檔」。四句都真的有東西要插,所以這不是
+    // 為了繞閘門把靜態字硬折成函式 —— 但下一句要是插不出東西,就該去重新產生
+    // 那兩個檔,而不是硬折。
+    // 入口鈕上印候選數:按下去會看到幾個,按之前就知道。
+    pendingMergeStart: (n: number) => `合併…（${n} 個候選）`,
+    // 挑的那一步。這裡要說清楚「誰」要被併走,因為消失的是它。
+    pendingMergePickLead: (name: string) =>
+      `要把「${name}」併進哪一個？挑一個候選：`,
+    // 送出鈕。沒挑的時候它是死的,而且要說得出為什麼死 —— 一顆沒有理由的灰鈕
+    // 會被當成壞掉。
+    pendingMergePickSubmit: (picked: string) =>
+      picked === "" ? "先挑一個候選" : `下一步：確認併進 ${picked}`,
+    // 🔴 確認那一步的正文。這整個改動存在的理由就在第二句:後端的合併是單向
+    // 的,沒有 unmerge 路徑,按錯救不回來,所以畫面上必須明寫。
+    pendingMergeConfirmBody: (from: string, into: string) =>
+      `要把「${from}」併進「${into}」。這個動作無法還原：合併之後沒有拆回來的路。「${from}」這個名字不會被刪掉，它會變成「${into}」的別名 —— 之後用「${from}」寫入或搜尋都會落到「${into}」身上，底下的記憶也都算到「${into}」頭上。`,
+    pendingBusy: "處理中…",
+    pendingActionFailed: "這一筆沒有成功：",
+    reasonSameNormalized: "大小寫／符號正規化後完全相同",
+    reasonEditDistance1: "只差一個字",
+    reasonEditDistance2: "差兩個字",
+    reasonPrefix: "一個是另一個的開頭",
+    reasonSubstring: "一個包含在另一個裡面",
+    listCount: (n: number) => `共 ${n} 條記憶`,
+    listTruncated: (n: number) => `這一頁只載入了最新的 ${n} 條，還有更多沒顯示。`,
+    listLoading: "載入中…",
+    listEmpty: "還沒有任何記憶被寫進來。",
+    listFailed: "讀不到記憶清單：",
+    listFilterPlaceholder: "輸入關鍵字即時篩選",
+    listFilterNoHit: "沒有記憶符合這個關鍵字。",
+    listNoSubject: "未歸類",
+    listGroupExpand: "展開",
+    listGroupCollapse: "收合",
+    pendingTitle: "等你審核",
+    entriesTitle: "記憶",
+    title: "傳承",
+    entryOriginLabel: "來自",
+    entryOpen: "展開這一條",
+    entryClose: "收起這一條",
+    entryLoading: "讀取中…",
+    entryFailed: "讀不到這一條，這是伺服器回的：",
+
+    // ── 條目詳情 ──
+    fieldTrigger: "什麼時候要記起來 · 這一格也是這條的標題",
+    fieldContent: "內容 · 只有這一段會進 agent 的記憶",
+    fieldRetireWhen: "什麼時候不需要了",
+    fieldProblem: "之前發生過什麼問題",
+    fieldEvents: "相關的完整資訊 · 時／事／人／地／物",
+    fieldEmpty: "（空白 —— 寫的人沒有填）",
+    eventsEmpty: "這一條沒有掛任何事件。",
+    eventWhen: "時",
+    eventActor: "人",
+    eventPlace: "地",
+    eventObject: "物",
+    eventBlank: "（沒有記下）",
+    fieldsNote:
+      "每一格都把欄位名印出來，空的也印；一筆事件都沒有的時候，事件那一節照樣在並且說出來。「空著」跟「沒有這一節」必須長得不一樣。事件裡的人／地／物空著是合法的，所以那三格標的是「沒有記下」而不是被填成「未知」——「查不出是誰」跟「還沒有人去查」是兩件不同的事。",
+    detailStatusLabel: "狀態",
+    detailWrittenByLabel: "最新一版誰寫的",
+    detailSupersedesLabel: "取代了",
+    originalTitle: "當初寫下的原文（最新版）",
+    originalEmpty: "這一條沒有原文 —— 它是在這個機制存在之前寫的。",
+    shaLabel: "摘要",
+    shaEmpty: "（這份回應沒有帶摘要，所以沒辦法驗它跟存下來的是同一份）",
+    revisionsTitle: "版本時間軸",
+    revisionsEmpty: "這一條沒有任何一版的紀錄。",
+    revisionLabel: "第 ",
+    revisionLabelTail: " 版",
+    revisionShrinkLead: "被磨掉 ",
+    revisionShrinkTail: " 字",
+    revisionNoShrink: "沒有被磨短",
+    revisionView: "看這一版原文",
+    revisionHide: "收起這一版",
+    revisionFailed: "讀不到這一版，這是伺服器回的：",
+    revisionsNote:
+      "「被磨掉幾字」這一列是這個分頁最有價值的一格：條目被磨空的時候，條數一條都不會少，任何以「還剩幾條」為準的指標都不會動。",
+  },
   notifications: {
     dismiss: "關閉提示",
     title: "開啟通知",

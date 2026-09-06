@@ -10,6 +10,7 @@ import {
   TasksIcon,
   MonitorIcon,
   FileTextIcon,
+  BookIcon,
 } from "./components/icons";
 import { Avatar } from "./components/Avatar";
 import { BrandLogo } from "./components/BrandLogo";
@@ -18,6 +19,7 @@ import { OfficePage } from "./components/OfficePage";
 import { RepliesPage } from "./components/RepliesPage";
 import { TasksPage } from "./components/TasksPage";
 import { MonitorPage } from "./components/MonitorPage";
+import { LorePage } from "./components/LorePage";
 import { GuidePage } from "./components/UserGuidePage";
 import { SettingsPage } from "./components/SettingsPage";
 import { ProfileDropdown } from "./components/ProfileDropdown";
@@ -30,10 +32,11 @@ import { useOrgName } from "./hooks/useOrgName";
 import { OwnerNameProvider, useOwnerName } from "./hooks/useOwnerName";
 import { useReplyCardCount } from "./hooks/useReplyCardCount";
 import { useChatUnread } from "./hooks/useChatUnread";
+import { loadServerSettings } from "./hooks/sharedServerSettings";
 import { useTaskCount } from "./hooks/useTaskCount";
 import "./components/chrome.css";
 
-type Tab = "office" | "replies" | "tasks" | "monitor" | "guide";
+type Tab = "office" | "replies" | "tasks" | "monitor" | "lore" | "guide";
 
 // Which peer the office was last left on. Browser-local by nature (it is this
 // browser's last position, not studio state), so it stays out of the server and
@@ -81,6 +84,37 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
   // Navigational state (page tab / settings overlay / member selections) lives
   // in the URL hash — a refresh (incl. the top-bar reload button) restores the
   // same view, and every view is deep-linkable. See lib/hashRoute.ts.
+  // 傳承 is behind a station-wide feature switch (T-33, settings `lore.enabled`,
+  // default OFF): the owner turns it on when the studio is ready to try it.
+  //
+  // 🔴 THE PRE-LOAD VALUE IS false, AND THE DIRECTION IS THE DECISION. Starting
+  // true would flash a tab that then vanishes on a station that has the feature
+  // off — and every request behind it would be refused meanwhile. Starting
+  // false costs a switched-ON station one render before the tab appears, which
+  // is the harmless half of the trade.
+  //
+  // 🔴 A FAILED LOAD IS NOT READ AS 「OFF」 IN THE LOG, ONLY IN THE RENDER. We
+  // keep the tab hidden (there is nothing else safe to do) but say so, because
+  // a station whose settings fetch is broken and one whose owner left the
+  // feature off look identical on screen and must not look identical to whoever
+  // is debugging it.
+  const [loreEnabled, setLoreEnabled] = useState(false);
+  useEffect(() => {
+    let alive = true;
+    loadServerSettings()
+      .then((s) => {
+        if (alive) setLoreEnabled(s.loreEnabled);
+      })
+      .catch((e) => {
+        console.warn(
+          "App: lore feature switch load failed — 傳承 stays hidden",
+          e,
+        );
+      });
+    return () => {
+      alive = false;
+    };
+  }, []);
   const [route, setRoute] = useHashRoute();
   const tab: Tab =
     route.page === "monitor"
@@ -91,7 +125,13 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
           ? "replies"
           : route.page === "tasks"
             ? "tasks"
-            : "office";
+            : // A #lore deep-link on a station with the feature OFF must not
+              // render a page whose every request is refused. It falls through
+              // to the default tab rather than to an error: the link is not
+              // wrong, the feature is simply not switched on here.
+              route.page === "lore" && loreEnabled
+              ? "lore"
+              : "office";
   // The 等我回覆 nav badge: how many reply cards are WAITING (answered never
   // counts). Live via the count endpoint + "reply_card" SSE deltas. A separate
   // signal from the per-member chat unread red dot (different clearing rules —
@@ -384,6 +424,50 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
               </span>
             )}
           </button>
+          {/* 傳承 — immediately right of 任務 (owner 2026-09-02, 逐字:
+              「傳承應該放在案件右邊不是指南右邊」). 案件/指南 are what the
+              ACTIVE THEME renames 任務/使用說明 to — read off the station's own
+              `display.theme` wording, not guessed from the label in this file,
+              because the words the owner sees are not the words written here.
+
+              This also leaves the 2026-07-22 guide ruling intact in BOTH its
+              halves: 使用說明 stays last AND stays immediately right of 監控.
+
+              NO badge. ⚠️ The reason written here used to be 「the station
+              serves six lore routes and none of them lists pending subjects」
+              — that was FALSE by the time anyone read it (the station serves
+              twelve, three of them entity routes, and one of those IS the
+              pending list). The real reason survives the correction: a badge
+              would have to count something, and what it counts must be the
+              thing the owner is being pointed at. Deciding that is a design
+              call nobody has made, and a badge counting anything else is the
+              exact failure this tab exists to stop.
+
+              The glyph is rendered DIRECTLY rather than through <NavIcon>: a
+              theme bundle's `navIcons` key set is a closed, SERVER-VALIDATED
+              set (lib/themeBundleCore NAV_ICON_KEYS ↔ ocserverd
+              navIconKeyAllowed ↔ the openapi description), so admitting a
+              `lore` key here without its server twin would mean a bundle
+              carrying it is 422'd by name. Making this tab themable is that
+              cross-boundary change, not this ticket. */}
+          {/* T-33: the tab EXISTS ONLY WHILE THE FEATURE IS SWITCHED ON
+              (settings `lore.enabled`, default OFF — owner: 「打開的話 Lore 才
+              能被讀寫以及顯示在 UI 上」、「預設是關閉起來的」). It is removed
+              from the DOM rather than disabled or greyed: a visible-but-dead
+              tab advertises a feature the station does not serve, and every
+              request behind it is refused. */}
+          {loreEnabled && (
+            <button
+              type="button"
+              className={`nav-tab${
+                !settingsOpen && tab === "lore" ? " nav-tab--active" : ""
+              }`}
+              onClick={() => selectTab("lore")}
+            >
+              <BookIcon size={15} />
+              <span>{t.lore.title}</span>
+            </button>
+          )}
           <button
             type="button"
             className={`nav-tab${
@@ -437,6 +521,8 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
           <RepliesPage replyCardId={route.replyCardId} />
         ) : tab === "tasks" ? (
           <TasksPage />
+        ) : tab === "lore" ? (
+          <LorePage />
         ) : tab === "guide" ? (
           <GuidePage />
         ) : (

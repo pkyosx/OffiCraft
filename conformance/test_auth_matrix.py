@@ -1212,6 +1212,186 @@ MATRIX: dict[str, Route] = {
         ),
         body={"edits": [{"old": "", "new": "conformance patch probe"}]},
     ),
+    # ── T-33 lore 對象審核 ─────────────────────────────────────────────────────
+    # The review queue's three rows sit on the admin_agent floor (owner ruling
+    # rc-139a5ab99a19), so an ORDINARY AGENT IS 403 HERE while it is 200 on the
+    # lore rows below — that asymmetry is the whole point of these three cells
+    # and nothing else in the suite states it. Approving publishes a name into
+    # every agent's boot subject directory and merging rewrites which subject an
+    # entry belongs to; neither is an agent curating what it knows.
+    #
+    # The two acts aim at an entity id NOTHING carries, so every at-or-above-floor
+    # cell is a 404 and every below-floor cell is a derived 403 — which is the
+    # deny-first order being pinned: an agent must not learn from this route
+    # whether an entity exists. The 200 faces are in test_rest_happy.py, which is
+    # where a row may seed a pending entity first.
+    "GET /api/lore/entities/pending": Route(requires="admin_agent"),
+    "POST /api/lore/entities/{entity_id}/approve": Route(
+        requires="admin_agent",
+        path="/api/lore/entities/en-conf-no-such-entity/approve",
+        body={"reason": "conformance authz probe"},
+        overrides={"admin_agent": 404, "owner": 404},
+    ),
+    "POST /api/lore/entities/{entity_id}/merge": Route(
+        requires="admin_agent",
+        path="/api/lore/entities/en-conf-no-such-entity/merge",
+        body={"into": "en-conf-no-such-target"},
+        overrides={"admin_agent": 404, "owner": 404},
+    ),
+    # ── T-33 lore ────────────────────────────────────────────────────────────
+    # The two governance rows aim at an entry id NOTHING carries, so every
+    # at-or-above-floor cell is a 404. That stays deliberate even now that a
+    # create route exists: the choke these rows pin is the FLOOR, which is
+    # decided before the id is ever looked up, and a matrix cell that had to
+    # seed an entry first would be testing the seeding as much as the floor. A
+    # warden is refused 403 (derived) while an agent gets as far as the lookup.
+    # The 200 faces of all three routes are pinned in test_rest_happy.py, which
+    # is where a row is allowed to do setup.
+    #
+    # 🔴 WHAT THIS ROW DOES NOT COVER, said plainly so nobody reads more into a
+    # green than it carries: the per-REASON split (an agent may file `expired`
+    # and `merged`, only the owner may file `falsified`) is invisible here,
+    # because it lives below the floor gate and behind an entry that has to
+    # exist. It is pinned in the server unit tests
+    # (api_lore_governance_route_t33_test.go), against real HTTP requests.
+    "POST /api/lore/entries/{entry_id}/retire": Route(
+        requires="agent",
+        path="/api/lore/entries/e-conf-no-such-entry/retire",
+        body={"reason": "expired"},
+        overrides={
+            "agent_self": 404,
+            "agent_other": 404,
+            "admin_agent": 404,
+            "owner": 404,
+        },
+    ),
+    "POST /api/lore/entries/{entry_id}/revive": Route(
+        requires="owner",
+        path="/api/lore/entries/e-conf-no-such-entry/revive",
+        body={"reason": "conformance revive probe"},
+        overrides={"owner": 404},
+    ),
+    # 🔴 THE WRITE ROW HAS NO OVERRIDES, AND THAT ASYMMETRY IS THE POINT: unlike
+    # its two siblings it needs no pre-existing entry, so every at-or-above-floor
+    # cell is a real 200 that really wrote something. The floor is principalAgent
+    # because writing down what you just learned is an agent's own act — the
+    # owner's ruling of 2026-09-01 was that review happens AFTER the write, and a
+    # higher floor here would have put him back in front of every one of them.
+    # (That ruling stands. ⚠️ His 2026-09-02 ruling rc-714eea33c6ed — which made
+    # `falsify` and `instance` purely required — has NO LANDING PLACE in 五格:
+    # neither cell exists any more. It was not overturned; the 2026-09-03 format
+    # change left it with nothing to apply to.)
+    #
+    # 🔴 THE BODY MUST STAY WELL-FORMED FOR THIS ROW TO MEAN ANYTHING. 第 1、2 格
+    # are refused blank, and a 422 from a malformed body would read identically in
+    # every cell whatever the floor said — hiding the very thing this row pins.
+    "POST /api/lore/entries": Route(
+        requires="agent",
+        body={
+            "trigger": "the authz matrix is probing this row",
+            "content": "a floor is decided before the body is ever read",
+            "retire_when": "a cell answers 200 without the floor ever being consulted",
+            "problem": "this very row, run against every identity in the matrix",
+            "origin": "agent:conformance-authz",
+            "subjects": ["agent:conformance-authz"],
+        },
+    ),
+    # Retrieval sits at the same floor as writing, and the empty body is the
+    # point: every condition on this route is optional, so the floor is the ONLY
+    # thing standing between a caller and an answer. A warden gets 403 here for
+    # the same reason it does on the write row.
+    "POST /api/lore/search": Route(
+        requires="agent",
+        body={},
+    ),
+    # 🔴 THE TWO READ ROWS AIM AT AN ENTRY THAT DOES NOT EXIST, so every
+    # at-or-above-floor cell is a 404 — the floor is decided before the id is
+    # ever looked up, which is exactly what these rows pin. The 200 faces are in
+    # test_rest_happy.py, which is where a row may seed one first.
+    "GET /api/lore/entries/{entry_id}": Route(
+        requires="agent",
+        path="/api/lore/entries/lore-conf-no-such-entry",
+        overrides={
+            "agent_self": 404,
+            "agent_other": 404,
+            "admin_agent": 404,
+            "owner": 404,
+        },
+    ),
+    "GET /api/lore/entries/{entry_id}/revisions/{revision_id}": Route(
+        requires="agent",
+        path="/api/lore/entries/lore-conf-no-such-entry/revisions/1",
+        overrides={
+            "agent_self": 404,
+            "agent_other": 404,
+            "admin_agent": 404,
+            "owner": 404,
+        },
+    ),
+    # 🔴 THE TWO PROPOSAL ROWS AIM AT AN ENTRY NOTHING CARRIES, and the POST's
+    # body is deliberately WELL-FORMED: the shape checks run before the entry is
+    # looked up, so a body that would have been refused 422 would hide the floor
+    # behind a validation error and every cell would read the same whatever the
+    # floor said. With a valid body every at-or-above-floor cell is the 404 the
+    # lookup produces, which is what these rows pin.
+    #
+    # 🔴 WHAT THESE ROWS DO NOT COVER: the base-digest refusal (409) lives below
+    # the floor gate and behind an entry that has to exist, so it is invisible
+    # here. It is pinned in test_rest_happy.py
+    # (test_lore_proposal_refuses_a_base_digest_that_is_not_current) and in the
+    # server unit tests, against real HTTP requests.
+    "POST /api/lore/entries/{entry_id}/proposals": Route(
+        requires="agent",
+        path="/api/lore/entries/lore-conf-no-such-entry/proposals",
+        body={
+            "kind": "remove",
+            "base_sha256": "0" * 64,
+            "encountered": "the authz matrix is probing this row",
+            "fault": "stale",
+            "evidence": "this very row, run against every identity in the matrix",
+        },
+        overrides={
+            "agent_self": 404,
+            "agent_other": 404,
+            "admin_agent": 404,
+            "owner": 404,
+        },
+    ),
+    "GET /api/lore/entries/{entry_id}/proposals": Route(
+        requires="agent",
+        path="/api/lore/entries/lore-conf-no-such-entry/proposals",
+        overrides={
+            "agent_self": 404,
+            "agent_other": 404,
+            "admin_agent": 404,
+            "owner": 404,
+        },
+    ),
+    # 🔴 THE ONE LORE PROPOSAL ROW WHOSE FLOOR IS admin_agent, AND THAT
+    # ASYMMETRY WITH THE TWO ROWS ABOVE IS THE POINT OF THIS CELL. Filing a
+    # proposal changes nothing, so it sits at the agent floor; ACCEPTING one
+    # rewrites an entry somebody else wrote and replaces 第 5 格 wholesale.
+    # The owner ruled the floor on rc-a896af93d4f9 (「你 ＋ 銀月（沿用現有
+    # 前例）」, the precedent being the entity review queue), and the route
+    # table is the only place that ruling is written down — so an ordinary
+    # agent's 403 here is the ruling itself, not a detail. If this row ever
+    # goes green at "agent", any member can rewrite any other member's memory
+    # by filing a proposal and accepting it himself.
+    #
+    # The at-or-above cells are 404s: the proposal id names nothing, and the
+    # lookup runs AFTER the class gate — which is exactly what makes a 404
+    # here proof that the gate let them through.
+    "POST /api/lore/entries/{entry_id}/proposals/{proposal_id}/accept": Route(
+        requires="admin_agent",
+        path=(
+            "/api/lore/entries/lore-conf-no-such-entry/proposals/"
+            "lp-conf-no-such-proposal/accept"
+        ),
+        overrides={
+            "admin_agent": 404,
+            "owner": 404,
+        },
+    ),
     # ── insight (T-3809) ─────────────────────────────────────────────────────
     # The role journal's third block. Its authz face is the lessons face with
     # the task_type axis removed — three rows, same three floors, same handler

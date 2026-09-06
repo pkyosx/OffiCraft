@@ -27,6 +27,11 @@
  *                                                   member's unfinished tasks
  *   #monitor                                      → monitor page
  *   #monitor/member/<detailId>                    → monitor's member detail
+ *   #lore                                         → 傳承 (lore) 分頁。沒有子區段:
+ *                                                   四個子畫面裡只有一個有資料,
+ *                                                   其餘是「尚無資料來源」,深連
+ *                                                   進去等於承諾一個看不到東西的
+ *                                                   位置。
  *   #guide                                        → 使用說明 (product guide) list
  *   #guide/<docSlug>                              → that guide doc
  *   #settings                                     → settings overlay
@@ -47,7 +52,14 @@
 import { useCallback, useMemo, useSyncExternalStore } from "react";
 
 export interface HashRoute {
-  page: "office" | "replies" | "tasks" | "monitor" | "guide" | "settings";
+  page:
+    | "office"
+    | "replies"
+    | "tasks"
+    | "monitor"
+    | "lore"
+    | "guide"
+    | "settings";
   /** replies only — locate and focus this card (e.g. a Web Push tap). */
   replyCardId?: string;
   /** office only — the member whose chat is open. */
@@ -166,6 +178,10 @@ export function parseHash(raw: string): HashRoute {
     return rest[0] ? { page: "tasks", taskId: rest[0] } : { page: "tasks" };
   }
 
+  if (head === "lore") {
+    return { page: "lore" };
+  }
+
   if (head === "guide") {
     return rest[0] ? { page: "guide", guideSlug: rest[0] } : { page: "guide" };
   }
@@ -231,6 +247,7 @@ export function formatHash(route: HashRoute): string {
       ? `#tasks/${encodeURIComponent(route.taskId)}`
       : "#tasks";
   }
+  if (route.page === "lore") return "#lore";
   if (route.page === "guide") {
     return route.guideSlug
       ? `#guide/${encodeURIComponent(route.guideSlug)}`

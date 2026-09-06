@@ -447,6 +447,23 @@ func specsFor(s *apiServer) []RouteSpec {
 		},
 	}
 	specs := routeSpecs(wrapper)
+	// T-33: ONE gate for every row the table marks as belonging to the lore
+	// feature. It is applied HERE, after the table is built and before anything
+	// hashes or serves it, so a lore row cannot reach the mux ungated.
+	//
+	// 🔴 THE HASH AND THE MCP INDEX ARE COMPUTED OVER THE GATED SPECS ON
+	// PURPOSE — and, just as deliberately, the gate does not change either one.
+	// The tool CATALOG is frozen (spec/mcp-catalog.json; tools/list is served
+	// from it), so a lore tool stays listed whether the feature is on or off,
+	// and calling it while off returns the spoken refusal below instead of
+	// vanishing. A tool that disappears from the surface teaches an agent
+	// nothing; a tool that answers 「this feature is switched off」 teaches it
+	// exactly one thing, which is not to try again.
+	for i := range specs {
+		if specs[i].LoreGated {
+			specs[i].Handler = s.loreFeatureGate(specs[i].Handler)
+		}
+	}
 	s.catalogHash = catalogHashOf(specs)
 	s.mcpTools = mcpToolIndex(specs)
 	return specs
@@ -689,6 +706,7 @@ func cmdServe(env func(string) string, noReconcile, noOutsource bool, out io.Wri
 	api.displayTheme = auth.displayTheme
 	api.displayLanguage = auth.displayLanguage
 	api.displayWide = auth.displayWide
+	api.loreEnabled = auth.loreEnabled
 	api.namespace = cfg.Server.Namespace
 	// The embed-fallback binary cache rides beside the SQLite data file — a
 	// stable per-instance location that follows the configured DSN (never the

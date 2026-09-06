@@ -13,6 +13,7 @@
 
 - 標準入口：`conformance/run.sh --target go`。Python target 已退役，不要另造回滾路徑。server 使用核心自動配埠（預設 port 0，讀回實際值）；需要重現時才明設 `OC_CONF_PORT`。
 - DB、`oc.toml`、config 都在 mktemp/隔離目錄，透過 `OC_CONFIG` 注入；不讀寫 repo 根 config。prod guard 以現行 source 的 production ports/identity/residue 判斷，保護現行與退役 port，不能用硬編單一 port 取代。
+- `run.sh` 只在 `ocwarden` 不存在時才 stage `bindist/`，staged 的 `mcp-catalog.json` 可能比 HEAD 舊，會生出與當前改動無關的假紅；跑前先 `bash bin/build-bindist`。
 - teardown 只處理本次捕獲的 listener PID，禁止模糊 process kill。conformance 只需要 `OC_TARGET_URL` 與 `OC_OWNER_PASSWORD`；其餘 fixture 身分由 HTTP login/hire/mint 建立。
 
 ## 3. auth、REST 與 error envelope
