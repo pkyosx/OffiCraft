@@ -107,16 +107,30 @@ const (
 // credentialRenewJitterWindow is how far a machine's own renewal moment is
 // pushed back from the moment the arithmetic alone would pick.
 //
-// 🔴 WHAT IT IS FOR, STATED AS THE FAILURE IT PREVENTS. The owner was told, and
-// accepted, that LOWERING the lifetime setting makes every machine in the fleet
-// due at once: the threshold moves under all of them in the same instant, and
-// each one acts on its very next poll. Without a stagger the station takes the
-// whole fleet's mint traffic inside one poll interval — and, worse, every
-// machine execs itself at roughly the same moment, so a bug in the renewal path
-// takes the fleet down together instead of one host at a time.
+// 🔴 WHAT IT ACTUALLY DOES, AND WHAT IT DOES NOT. It spreads the fleet when
+// machines REACH the threshold by ageing into it: their ages are close together
+// near the boundary, so a per-machine offset of up to an hour decides who acts on
+// which poll.
 //
-// WHY AN HOUR. The poll is fifteen minutes, so poll PHASE alone already spreads
-// the fleet over fifteen minutes — machines wake fifteen minutes after their own
+// 🔴 IT DOES NOT PREVENT THE FLEET-WIDE SIMULTANEOUS RENEWAL, and an earlier
+// version of this comment claimed that it did. When the threshold MOVES UNDER the
+// whole fleet — the owner lowering the lifetime setting, or this code shipping to
+// machines whose credentials are already older than two thirds of the default —
+// every machine is past threshold+offset at the same instant, and an offset of at
+// most an hour changes nothing: they all act on their very next poll. Measured,
+// not reasoned: a 40-machine harness with realistic ages (5..83 days) and the
+// lifetime lowered to 3 days renews 40 of 40 on the SAME poll.
+//
+// So the fleet-wide event the owner was told about and accepted is REAL and is NOT
+// softened by this constant. What keeps it survivable is elsewhere: every failure
+// on this path keeps the old credential, and a failed exec does not exit. If you
+// are here because you need the herd actually broken up, this constant is the
+// wrong lever — the offset has to be applied AFTER the threshold is crossed, not
+// added to the threshold, and that is a different behaviour with its own failure
+// modes. See TestMaybeRenewCredential_TheHerdIsRealWhenTheThresholdMovesUnderTheFleet.
+//
+// WHY AN HOUR (for the ageing-into-it case above). The poll is fifteen minutes, so
+// poll PHASE alone already spreads the fleet over fifteen minutes — machines wake fifteen minutes after their own
 // start, not on a shared wall clock. An hour is four times that, so it dominates
 // the natural spread rather than disappearing into it, and it puts at most about
 // a quarter of the fleet in any one poll bucket. It is also small enough to be

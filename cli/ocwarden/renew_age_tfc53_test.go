@@ -573,14 +573,46 @@ func TestMaybeRenewCredential_EveryFailureOnTheAgeArmIsHarmless(t *testing.T) {
 	}
 }
 
-// TestMaybeRenewCredential_LoweringTheLifetimeDoesNotMoveTheWholeFleetAtOnce is
-// the stagger measured where it matters: not as a number out of a hash, but as
-// the fraction of a fleet that acts on the same poll.
+// TestMaybeRenewCredential_TheHerdIsRealWhenTheThresholdMovesUnderTheFleet pins the
+// behaviour the jitter does NOT prevent, so that nobody reads the stagger as a
+// solution to it. Ages here are REALISTIC (5..83 days), not hugging the boundary:
+// the threshold has moved under all of them, so every machine is past
+// threshold+offset and acts on its very next poll.
 //
-// The scenario is the one the owner accepted: the lifetime is lowered to three
-// days while every machine has been installed for exactly two — i.e. all of them
-// cross the bare arithmetic threshold in the same instant.
-func TestMaybeRenewCredential_LoweringTheLifetimeDoesNotMoveTheWholeFleetAtOnce(t *testing.T) {
+// 🔴 If this test ever goes red, somebody has changed the renewal path so that the
+// fleet no longer moves together. That is a GOOD change, but it is a behaviour
+// change with its own failure modes — delete this test deliberately, do not
+// "fix" it.
+func TestMaybeRenewCredential_TheHerdIsRealWhenTheThresholdMovesUnderTheFleet(t *testing.T) {
+	now := time.Unix(1_800_000_000, 0)
+	const fleet = 40
+
+	renewed := 0
+	for i := 0; i < fleet; i++ {
+		id := "m-" + fmtI64(int64(0xa10000+i*7919))
+		age := time.Duration(5+(i*2)%79) * testDay // 5..83 days, all far past 2 days
+		h := agedPermanentHarness(t, now, age, 3*86400, id)
+		if h.u.maybeRenewCredential() {
+			renewed++
+		}
+	}
+	if renewed != fleet {
+		t.Errorf("only %d of %d machines renewed on the same poll; this test exists to "+
+			"record that ALL of them do once the threshold moves under the fleet. A "+
+			"smaller number means the renewal path now staggers the herd — which is a "+
+			"real behaviour change, not a passing test", renewed, fleet)
+	}
+}
+
+// TestMaybeRenewCredential_TheStaggerSpreadsMachinesThatAgeIntoTheThreshold covers
+// the case the jitter DOES help with, and only that case: ages sitting on the
+// boundary, where an offset of up to an hour decides who acts on which poll.
+//
+// ⚠️ Its old name was ...LoweringTheLifetimeDoesNotMoveTheWholeFleetAtOnce, which
+// was WIDER than what it guards: the fixture pins every machine at exactly the
+// threshold, so it never exercised the lowering case its name promised. The
+// companion test above is the one that covers that.
+func TestMaybeRenewCredential_TheStaggerSpreadsMachinesThatAgeIntoTheThreshold(t *testing.T) {
 	now := time.Unix(1_800_000_000, 0)
 	const fleet = 40
 
@@ -593,10 +625,11 @@ func TestMaybeRenewCredential_LoweringTheLifetimeDoesNotMoveTheWholeFleetAtOnce(
 		}
 	}
 	if renewed == fleet {
-		t.Errorf("all %d machines renewed on the same poll after the lifetime was "+
-			"lowered. That is the thundering herd the owner was told would be staggered: "+
-			"one mint each inside one interval, and every host exec'ing itself at once, "+
-			"so a bug on this path takes the fleet down together", fleet)
+		t.Errorf("all %d machines renewed on the same poll even though their ages sit "+
+			"exactly ON the threshold — this is the one case the per-machine offset is "+
+			"supposed to spread, so the offset is not being applied at all. (It does NOT "+
+			"spread a fleet whose ages are already far past the threshold; that case is "+
+			"pinned by TestMaybeRenewCredential_TheHerdIsRealWhenTheThresholdMovesUnderTheFleet.)", fleet)
 	}
 
 	// CONTROL: the stagger DELAYS, it does not cancel. An hour later — past the

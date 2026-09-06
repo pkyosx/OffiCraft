@@ -352,8 +352,14 @@ const (
 // ⚠️ WHAT THE FLOOR DOES NOT PROTECT AGAINST, said out loud: nothing here stops
 // the owner lowering the setting far enough that credentials already in the field
 // are instantly past two thirds of it — that is the fleet-wide simultaneous
-// renewal he was told about and accepted, and what softens it is the per-machine
-// stagger on the warden, not this range.
+// renewal he was told about and accepted.
+//
+// 🔴 AND IT IS NOT SOFTENED BY THE WARDEN'S PER-MACHINE STAGGER, which an earlier
+// version of this comment claimed. That stagger is at most an hour and is ADDED TO
+// the threshold, so once the threshold sits under the whole fleet's age every
+// machine is due on its very next poll regardless (measured: 40 of 40). What makes
+// the event survivable is that every failure on the renewal path keeps the old
+// credential and a failed exec does not exit — not this range, and not the stagger.
 //
 // THE CEILING IS maxAgentTTLSecs (400 days), the same ceiling every other
 // long-lived credential on this station already lives under. Naming the same
