@@ -106,7 +106,7 @@ func TestPatchStepNoteUniqueAnchorReplace(t *testing.T) {
 	if got, _ := data["size_chars"].(float64); int(got) != utf8.RuneCountInString(want) {
 		t.Fatalf("size_chars anchor mismatch: got %v want %d", data["size_chars"], utf8.RuneCountInString(want))
 	}
-	if got, _ := data["cap_chars"].(float64); int(got) != chatBodyMaxChars {
+	if got, _ := data["cap_chars"].(float64); int(got) != stepNoteCapCharsDefault {
 		t.Fatalf("cap_chars must quote the ceiling the write was judged against: %v", data["cap_chars"])
 	}
 	if got, _ := data["applied_edits"].(float64); int(got) != 1 {
@@ -280,7 +280,7 @@ func TestPatchStepNoteResultIsHeldToTheSameCeiling(t *testing.T) {
 	const seeded = "做到哪：一半"
 	taskID, stepID := seedStepWithNote(t, api, seeded)
 
-	oversize := strings.Repeat("字", chatBodyMaxChars)
+	oversize := strings.Repeat("字", stepNoteCapCharsDefault)
 	status, data := patchStepNote(t, api, taskID, stepID, "m-exec", map[string]any{
 		"edits": []any{edit("", oversize)},
 	})
@@ -293,7 +293,7 @@ func TestPatchStepNoteResultIsHeldToTheSameCeiling(t *testing.T) {
 
 	// Positive control: the same shape one rune under the ceiling lands, so the
 	// refusal above is the ceiling talking and not the append branch failing.
-	fits := strings.Repeat("字", chatBodyMaxChars-utf8.RuneCountInString(seeded)-1)
+	fits := strings.Repeat("字", stepNoteCapCharsDefault-utf8.RuneCountInString(seeded)-1)
 	if status, data = patchStepNote(t, api, taskID, stepID, "m-exec", map[string]any{
 		"edits": []any{edit("", fits)},
 	}); status != http.StatusOK {

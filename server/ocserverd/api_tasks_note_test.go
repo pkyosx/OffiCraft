@@ -431,9 +431,13 @@ func TestStepNoteRefusesAnUnknownStep(t *testing.T) {
 	}
 }
 
-// TestStepNoteRefusesOverTheCharLimit — the same ceiling as the task-level
-// handover note, counted in RUNES: a 3,000-character Chinese note is well
-// inside the limit and must be accepted, which a byte-based count would reject.
+// TestStepNoteRefusesOverTheCharLimit — the ceiling counted in RUNES: a
+// 3,000-character Chinese note is well inside the limit and must be accepted,
+// which a byte-based count would reject. Since T-119 the ceiling is the
+// task.step_note_cap_chars setting rather than the handover note's constant,
+// so this case reads the shipped default; the setting's own behaviour (the
+// reported number tracking the enforced one, and lowering it) lives in
+// api_tasks_step_note_cap_setting_t119_test.go.
 func TestStepNoteRefusesOverTheCharLimit(t *testing.T) {
 	api := newTasksTestServer(t)
 	task := createAdHocTask(t, api, "m-exec")
@@ -444,7 +448,7 @@ func TestStepNoteRefusesOverTheCharLimit(t *testing.T) {
 	if rec := writeStepNote(t, api, task.ID, stepID, "m-exec", legal); rec.Code != http.StatusOK {
 		t.Fatalf("3,000-rune CJK note: %d %s, want 200", rec.Code, rec.Body.String())
 	}
-	over := strings.Repeat("備", chatBodyMaxChars+1)
+	over := strings.Repeat("備", stepNoteCapCharsDefault+1)
 	rec := writeStepNote(t, api, task.ID, stepID, "m-exec", over)
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("over-cap note: %d %s, want 400", rec.Code, rec.Body.String())
