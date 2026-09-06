@@ -261,6 +261,21 @@ func TestUpgradingADatabaseThatAlreadyHasTasks(t *testing.T) {
 		}
 	}
 
+	// The SAME vocabulary is also stored inside a JSON blob with no CHECK behind
+	// it, and that is the highest-risk copy in the package: a manual whose
+	// assignee still spells the retired kind stops binding an executor at all,
+	// and create_task then refuses with a message that names executor_member_id
+	// rather than the assignee. Five manuals on the live station carried the old
+	// value when this was written, two of them on the shipping path.
+	if _, err := db.Exec(
+		`INSERT INTO task_manual (type_key, assignee) VALUES (?, ?), (?, ?), (?, ?)`,
+		"tm-pre-staff", `{"kind":"`+preRenameExecutorKind+`","member_id":"m-exec","unknown_key":7}`,
+		"tm-pre-outsource", `{"kind":"outsource","model":"opus"}`,
+		"tm-pre-unset", `{}`,
+	); err != nil {
+		t.Fatalf("seed manuals: %v", err)
+	}
+
 	// ③ upgrade.
 	if err := runMigrations(db); err != nil {
 		t.Fatalf("goose up: %v", err)
@@ -300,6 +315,28 @@ func TestUpgradingADatabaseThatAlreadyHasTasks(t *testing.T) {
 		}
 		if renamed != 3 {
 			t.Errorf("00088 renamed %s on %d of the 3 seeded rows", col, renamed)
+		}
+	}
+
+	// The assignee blob: the kind renamed, EVERY OTHER KEY byte-identical. The
+	// second half is the point — json_set on `$.kind` is used instead of writing
+	// a fresh object precisely so member_id and any key the validator stores
+	// without reading (it accepts unknown sub-keys verbatim) survive. A blob
+	// rewrite would pass a "kind is staff" assertion while silently dropping
+	// them.
+	for _, tc := range []struct{ typeKey, want string }{
+		{"tm-pre-staff", `{"kind":"staff","member_id":"m-exec","unknown_key":7}`},
+		{"tm-pre-outsource", `{"kind":"outsource","model":"opus"}`},
+		{"tm-pre-unset", `{}`},
+	} {
+		var got string
+		if err := db.QueryRow(
+			`SELECT assignee FROM task_manual WHERE type_key = ?`, tc.typeKey,
+		).Scan(&got); err != nil {
+			t.Fatalf("read assignee %s: %v", tc.typeKey, err)
+		}
+		if got != tc.want {
+			t.Errorf("assignee %s after 00088:\n got  %s\n want %s", tc.typeKey, got, tc.want)
 		}
 	}
 

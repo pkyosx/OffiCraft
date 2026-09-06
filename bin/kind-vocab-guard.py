@@ -104,6 +104,26 @@ a green imply it:
 retired value per copy shape) that MUST redden and be named, and a synthetic
 negative tree (fully renamed, plus roster-axis and prose decoys) that MUST go
 green. A scanner nobody verified is a green with a hole in it.
+
+🔴 IF YOU ARE PLANTING A MUTANT IN THE REAL TREE TO TEST THIS GUARD, READ THIS
+FIRST — both traps below were hit on the first attempt, and each produced output
+IDENTICAL to a clean run.
+
+  1. THE FILE MUST BE TRACKED BY GIT. Enumeration is `git ls-files`, so an
+     untracked file is not scanned at all: the file count, the copy count and
+     the exit code are byte-identical to the run without it. "The guard is green"
+     and "the guard never looked" are indistinguishable here, which is the exact
+     failure this guard's own design section warns about. `git add -N <file>`
+     before measuring, and check that the FILE COUNT moved.
+  2. THE VALUE MUST LAND INSIDE THE NEIGHBOURHOOD. A planted map whose keys sit
+     more than BEFORE lines above its field token is outside the window, and it
+     will be missed for that reason rather than for its shape. Diagnosing a
+     window miss as a shape miss sends you to widen a regex that was already
+     correct. Put the token adjacent, then vary one thing at a time.
+
+Read the printed enumeration, not just the exit code: a mutant that landed moves
+`files scanned` AND `vocabulary copies found`. If neither moved, the guard did
+not see your file, and nothing it printed is evidence about your change.
 """
 
 import argparse
@@ -186,7 +206,18 @@ _V = "(?:" + "|".join(sorted(VOCAB, key=len, reverse=True)) + ")"
 VALUE_SHAPES = (
     ("quoted", re.compile(r"[\"'`](" + _V + r")[\"'`]")),
     ("assigned", re.compile(r"(?:=|==|===|:)\s*(" + _V + r")\b(?![\"'`\w-])")),
-    ("mapkey", re.compile(r"\b(" + _V + r")\s*:\s*\d")),
+    # A table KEYED by the kind — a label map, an i18n lookup, a per-kind config
+    # block. The value after the colon may be a number, a string or a nested
+    # object; what it may NOT be is a bare identifier, because `member: MemberDTO`
+    # is a DTO field on the ROSTER axis and naming it here would drag a second
+    # vocabulary into this guard's scope.
+    #
+    # 🔴 THIS USED TO REQUIRE A DIGIT (`\s*\d`), which made the commonest form of
+    # the shape invisible: a map from kind to a display string was scanned, its
+    # kind field was counted among the token sites, and it contributed ZERO
+    # copies — so a stale spelling there passed with exit 0 and a copy count that
+    # did not move. Measured on a planted file rather than reasoned about.
+    ("mapkey", re.compile(r"\b(" + _V + r")\s*:\s*[\"'`\d{\[]")),
 )
 
 
@@ -505,6 +536,19 @@ _MUTANTS = {
         'const wasOutsourced = task.reassignedFromKind === "outsource";\n'),
     "frontend/fixtures.ts": ("fixture",
         'export const t = { id: "T-1", executorKind: "member", executorId: "mira" };\n'),
+    # A table KEYED by the kind whose values are STRINGS — a label map, an i18n
+    # lookup. The mapkey shape used to require a DIGIT after the colon, so this
+    # whole family was invisible; the file was scanned and its kind field
+    # counted, and it contributed zero copies.
+    # 🔴 The token is placed ON THE LINE ABOVE the keys ON PURPOSE. The keys must
+    # fall inside the BEFORE/AFTER neighbourhood or this control tests the window
+    # rather than the shape — which is how the hole was mis-diagnosed the first
+    # time it was measured.
+    "frontend/src/i18n/kindLabels.ts": ("mapkey-string-value",
+        'export function labelOfExecutorKind(executorKind: string): string {\n'
+        '  const LABELS: Record<string, string> = {\n'
+        '    member: "\u6b63\u8077",\n    outsource: "\u5916\u5305",\n  };\n'
+        '  return LABELS[executorKind] ?? "";\n}\n'),
     "docs/notes.md": ("markdown-backtick",
         "The task's `executor_kind` is `member` or `outsource`.\n"),
 }
