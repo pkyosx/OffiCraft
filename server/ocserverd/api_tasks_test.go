@@ -3130,3 +3130,53 @@ func TestReconcileTaskStatusesOnBoot(t *testing.T) {
 		t.Fatalf("boot reconcile must leave a terminal task untouched, got %q", term.Status)
 	}
 }
+
+// The one behaviour change T-101 landed: an out-of-set `target.kind` on create
+// is a 400 instead of a silent fall-through to the staff track. It is pinned
+// here because the failure it replaces was invisible — the old handler answered
+// 200 with a normal-looking staff task, so a 發包 that lost its target and a
+// 發包 that was never asked for read identically, in the response and on the row.
+//
+// The pre-rename value is built from runes on purpose (same reason as
+// CanonicalTaskExecutorKind): written as a literal, a repo-wide rename sweep
+// would rewrite it into the CURRENT value and this case would quietly start
+// asserting that a legal value is refused.
+func TestCreateTaskRefusesATargetKindOutsideTheClosedSet(t *testing.T) {
+	api := newTasksTestServer(t)
+	api.noOutsource = true
+	putMemberRow(t, api, "m-exec", KindStaff, "")
+
+	body := func(kind any) map[string]any {
+		b := map[string]any{"title": "t", "executor_member_id": "m-exec"}
+		if kind != nil {
+			b["target"] = map[string]any{"kind": kind}
+		}
+		return b
+	}
+	preRename := string([]rune{'m', 'e', 'm', 'b', 'e', 'r'})
+
+	for _, kind := range []string{"outsourced", "Outsource", "zzz", preRename} {
+		rec := createTaskAs(t, api, body(kind), "m-exec", "agent")
+		if rec.Code != http.StatusBadRequest {
+			t.Fatalf("target.kind=%q must be 400, got %d %s", kind, rec.Code, rec.Body.String())
+		}
+		if !strings.Contains(rec.Body.String(), "target.kind") {
+			t.Fatalf("target.kind=%q: the 400 must name the field, got %s", kind, rec.Body.String())
+		}
+	}
+	// The renamed-away value is told it was RENAMED, not merely that it is
+	// unknown — owner ruling rc-7574cc804dd6. Without this the caller's next
+	// move is to guess which of the two remaining values it meant.
+	rec := createTaskAs(t, api, body(preRename), "m-exec", "agent")
+	if !strings.Contains(rec.Body.String(), "renamed") {
+		t.Fatalf("the pre-rename spelling must be told it was renamed, got %s", rec.Body.String())
+	}
+
+	// The two accepted shapes still pass, so the refusal above is the closed set
+	// talking and not the create path being broken.
+	for _, kind := range []any{nil, "staff", ""} {
+		if rec := createTaskAs(t, api, body(kind), "m-exec", "agent"); rec.Code != http.StatusOK {
+			t.Fatalf("target.kind=%v must still create (200), got %d %s", kind, rec.Code, rec.Body.String())
+		}
+	}
+}

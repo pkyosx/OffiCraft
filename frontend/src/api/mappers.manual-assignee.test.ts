@@ -1,8 +1,9 @@
 // 🔴 THIS FILE EXISTS BECAUSE A RENAME BROKE THIS MAPPER IN COMPLETE SILENCE.
 //
 // `toManualAssignee` is the seam where the WIRE spelling of a task manual's
-// assignee becomes the VIEW spelling. During T-101 (`member` → `staff`) the
-// rename changed the object this function RETURNS and left the value it
+// assignee becomes the VIEW spelling. The rename this file is named after
+// retired the wire value `member` in favour of `staff`. kind-vocab-guard:legacy
+// T-101 changed the object this function RETURNS and left the value it
 // COMPARES AGAINST untouched:
 //
 //     if (a["kind"] === "member" ...) return { kind: "staff", ... }
@@ -51,14 +52,19 @@ describe("mappers · toManualAssignee reads the WIRE vocabulary", () => {
   it("does NOT recognise the retired 'member' spelling", () => {
     // The rename is a rename, not an alias: accepting both would let a stale
     // writer keep working and hide the very drift T-101 exists to remove.
-    expect(toManualAssignee({ kind: "member", member_id: "m-exec" })).toBeNull();
+    // The retired spelling is the subject under test here, not a stale copy.
+    const retiredWireKind = "member"; // kind-vocab-guard:legacy
+    expect(
+      toManualAssignee({ kind: retiredWireKind, member_id: "m-exec" }),
+    ).toBeNull();
   });
 
   it("maps an outsource assignee, which the rename never touched", () => {
     // The control case. During T-101 the batch replace was bound to the
-    // `member` token, so the outsource branch was left alone — pinning it here
-    // is what tells a future reader that a red staff case is a rename bug and
-    // not a broken mapper.
+    // retired `member` token. kind-vocab-guard:legacy
+    // The outsource branch was therefore left alone — pinning it here is what
+    // tells a future reader that a red staff case is a rename bug and not a
+    // broken mapper.
     expect(
       toManualAssignee({ kind: "outsource", model: "opus", effort: "high" }),
     ).toEqual({
