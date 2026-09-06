@@ -163,6 +163,23 @@ type settingsDTO struct {
 	Onboarding *onboardingReportDTO `json:"onboarding"`
 }
 
+// loreSwitchDTO is the whole body of GET /api/lore-switch (T-33): the station's
+// lore feature switch and NOTHING else.
+//
+// 🔴 THE SHORTNESS IS THE FEATURE, not a stub waiting to grow. Every field added
+// here is a field an ordinary member — 正職 and 外包 — can read without the
+// owner/admin floor that guards `settingsDTO`, so this struct is the permission
+// radius the owner granted (rc-2972dcd48782, 2026-09-06: 「新一支 tool，只回這個
+// 開關（權限半徑就一格）」) written down as a type. Anything else belongs on
+// GET /api/settings.
+type loreSwitchDTO struct {
+	// LoreEnabled is the LIVE value of `lore.enabled`, read per request. false —
+	// the shipped default — is an answer, not an error: it says every
+	// /api/lore/* tool will refuse and that the learning / lesson tools are the
+	// road instead.
+	LoreEnabled bool `json:"lore_enabled"`
+}
+
 // onboardingStepDTO / onboardingReportDTO are the wire shape of the automatic
 // first-run onboarding result (T-ba62). Reason is ALWAYS populated on a failure:
 // the whole point of the report is that a new owner can read WHY the assistant

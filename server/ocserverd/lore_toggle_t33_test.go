@@ -237,11 +237,19 @@ func TestEveryLoreRouteCarriesTheFeatureFlag(t *testing.T) {
 	}
 }
 
-// ── 讀 ①：開機脈絡不折入 lore 那一段 ─────────────────────────────────────────
+// ── 讀 ①：開機脈絡照印那一段，但不印目錄 ─────────────────────────────────────
 
 // TestLoreOffKeepsTheSubjectDirectoryOutOfBothBootContexts is the 讀 row for
 // the boot documents, and it covers BOTH assemblers because the switch is
 // tested in the ONE shared fold they share (foldLoreSectionWithSurfacing).
+//
+// ⚠️ WHAT THIS TEST ASSERTS CHANGED, AND THE OLD VERSION IS DESCRIBED HERE SO
+// THE CHANGE IS NOT MISTAKEN FOR A REGRESSION. It used to demand the section be
+// ABSENT with the switch off. Owner ruling rc-6be334dd5e38 —
+// 「關著的時候那一段要照印」, 「印一行請他怎麼呼叫 mcp 去查有沒有開」, because
+// 「我們最終目標是要打開的」 — overturned that. So the heading is now REQUIRED to
+// be there while the switch is off, and what must still be absent is the thing
+// the switch actually withholds: the subject LINES.
 //
 // 🔴 正職 AND 外包 ARE BOTH ASSERTED EVEN THOUGH ONE CHECK GUARDS BOTH. That is
 // not redundancy: the whole reason lore_fold.go exists is that these two
@@ -309,12 +317,13 @@ func TestLoreOffKeepsTheSubjectDirectoryOutOfBothBootContexts(t *testing.T) {
 		{"正職 buildBootContext", staffOff.Context},
 		{"外包 buildWorkerBootContext", workerOff},
 	} {
-		if strings.Contains(c.doc, loreSectionH1) {
-			t.Errorf("%s still folds in the 對象目錄 with the feature OFF", c.name)
+		if !strings.Contains(c.doc, loreSectionH1) {
+			t.Errorf("%s drops the 傳承 section entirely with the feature OFF — "+
+				"owner ruling rc-6be334dd5e38 says 「關著的時候那一段要照印」", c.name)
 		}
-		// The heading is not the only thing that must be gone: a fold that kept
-		// the subject LINES and dropped only the title would leave an agent
-		// reading a directory it is not supposed to have.
+		// The section is printed, but what it prints is a notice about a switch.
+		// A fold that kept the subject LINES would leave an agent reading a
+		// directory it is not supposed to have.
 		for _, canonical := range loreFixtureSubjectLines {
 			if strings.Contains(c.doc, canonical) {
 				t.Errorf("%s still prints the directory line %q with the feature OFF",
@@ -349,8 +358,12 @@ func TestLoreOffFilesNoSurfacingReceipt(t *testing.T) {
 	if err != nil {
 		t.Fatalf("fold (off): %v", err)
 	}
-	if text != "" {
-		t.Errorf("the fold produced %d bytes with the feature OFF", len(text))
+	// The text is NOT empty any more (rc-6be334dd5e38: 「關著的時候那一段要照印」),
+	// and that is exactly why the receipt below is the thing worth asserting:
+	// bytes going into a boot document is no longer the same event as a
+	// directory having been shown to somebody.
+	if !strings.Contains(text, loreSectionH1) {
+		t.Errorf("the fold produced no 傳承 section with the feature OFF: %q", text)
 	}
 	if surOff.surfaced() || len(surOff.Subjects) != 0 || surOff.Omitted != 0 {
 		t.Errorf("the fold filed a receipt for a directory nobody saw: %+v", surOff)

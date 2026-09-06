@@ -2647,5 +2647,36 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			Summary:   "Accept ONE filed proposal and write it onto its lore entry — owner or admin agent only (owner ruling rc-a896af93d4f9: 「你 ＋ 銀月（沿用現有前例）」, the same floor the subject-entity review queue already carries). The four cells are replaced, `events` is replaced WHOLESALE by the events the proposal carried — not merged, because a merge would let a proposal add events and never remove one, and repairing an event the machine strung together wrongly is the reason this road exists — and ONE new revision is written carrying the EXACT BYTES the proposal stored rather than a fresh rendering, with `actor_id` = YOU, the accepter, not the proposer. 🔴 THE ADDRESS IS THE WHOLE PAIR AND BOTH HALVES ARE CHECKED: proposal ids are global, so a proposal that belongs to a DIFFERENT entry is a 404 saying so by name rather than being applied through this address — a mistyped entry id must not rewrite somebody else's entry with nothing to signal it. 404 when no proposal carries that id, and 404 when it carries it under another entry. 409 when the proposal is a `remove` — it proposes no version to write at all, and the act it asks for is `retire_lore_entry`. 409, naming BOTH digests, when the entry was rewritten after the proposal was filed: accepting then would discard whoever changed it in between, silently, and the fix is to re-read the entry and have the version rebuilt on what is there now. That check is made HERE, at the moment you press accept, not only when the list was read — the entry can move between the two. 422 when the proposed version is identical to the one it was written against, because there is nothing to review. 🔴 THERE IS DELIBERATELY NO DECLINE ROUTE BESIDE THIS ONE, AND NO ARBITRATION RECORD BEYOND THAT NEW REVISION'S `actor_id`: the owner has ruled on WHO may accept and on nothing else, so inventing a 退回 exit or a verdict journal here would decide for him what he has not decided.",
 			MCPTool:   "accept_lore_proposal",
 		},
+		// ── T-33 lore 開關的唯讀查詢 ───────────────────────────────────────────
+		// 🔴 THIS ROW MUST NEVER CARRY LoreGated, AND THAT IS THE ENTIRE POINT OF
+		// IT. Its only job is to answer 「is the lore feature switched on?」 while
+		// the feature is switched OFF. Wrapped in loreFeatureGate it would answer
+		// 403 in the one situation anybody asks — and to the caller that 403 is
+		// byte-identical to 「you are not permitted」, so the tool would not merely
+		// fail, it would fail in a way that teaches the wrong thing.
+		//
+		// 🔴 ITS PATH IS THEREFORE OUTSIDE THE `/api/lore/` PREFIX, ON PURPOSE
+		// rather than by taste. TestEveryLoreRouteCarriesTheFeatureFlag asserts
+		// the prefix and the flag agree in BOTH directions, so a row served under
+		// `/api/lore/...` cannot stay ungated without breaking that guard — and
+		// that guard is worth more than the tidier address. `/api/lore-switch`
+		// sits next to the family in a listing and outside it in the prefix test.
+		//
+		// 🔴 principalAgent, NOT principalAdminAgent (owner ruling rc-2972dcd48782,
+		// 2026-09-06: 「新一支 tool，只回這個開關（權限半徑就一格）」 — he was offered
+		// opening `get_settings` to ordinary members and refused it). Every member
+		// hits this switch, 正職 and 外包 alike: classifyMember ranks an outsource
+		// worker principalAgent exactly like a staff member, so this floor admits
+		// both. The permission radius stays one field wide instead of the whole
+		// settings bundle, which is what the ruling bought.
+		{
+			Method:   "GET",
+			Path:     "/api/lore-switch",
+			Handler:  w.HandleGetLoreSwitchApiLoreSwitchGet,
+			Auth:     authGated,
+			Requires: principalAgent,
+			Summary:  "Read the ONE station-wide switch that decides whether the 傳承 (lore) feature is reachable at all, and read NOTHING else — the answer is `{\"lore_enabled\": true|false}`. 🔴 THIS ROUTE IS DELIBERATELY NOT BEHIND THE LORE FEATURE GATE, AND THAT IS THE ONLY REASON IT EXISTS. Every `/api/lore/*` route answers 403 with the 「功能關閉」 refusal while the switch is off, so a tool that shared that gate would be unusable in the exact situation it is for — and from the caller's side 「403 because the feature is off」 and 「403 because I am not allowed」 are the same answer. So `lore_enabled: false` here is an ANSWER and not an error, and it is the one place the two can be told apart. 🔴 IT RETURNS THIS ONE FIELD AND NOTHING ELSE, ON PURPOSE: the whole settings bundle is owner/admin-gated behind `get_settings`, and cutting this row down to a single field is what lets an ORDINARY member — 正職 and 外包 alike — ask this one question without being handed everything else on the station. Call it when your boot context's 傳承 section says the feature is off (that line was written when your document was ASSEMBLED, and a boot context is assembled once at wake — the switch can be flipped while you are still running, so the document is a snapshot and this route is the live value), or before you spend a call on `write_lore_entry` and have it refused. Read-only: it changes nothing, and it cannot turn the feature on — switching it is the owner's `update_settings`.",
+			MCPTool:  "get_lore_switch",
+		},
 	}
 }

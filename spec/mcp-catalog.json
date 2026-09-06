@@ -4734,6 +4734,14 @@
           "type": "object"
         },
         "name": "accept_lore_proposal"
-      }
+      },
+    {
+      "description": "Read the ONE station-wide switch that decides whether the 傳承 (lore) feature is reachable at all, and read NOTHING else — the answer is `{\"lore_enabled\": true|false}`. 🔴 THIS ROUTE IS DELIBERATELY NOT BEHIND THE LORE FEATURE GATE, AND THAT IS THE ONLY REASON IT EXISTS. Every `/api/lore/*` route answers 403 with the 「功能關閉」 refusal while the switch is off, so a tool that shared that gate would be unusable in the exact situation it is for — and from the caller's side 「403 because the feature is off」 and 「403 because I am not allowed」 are the same answer. So `lore_enabled: false` here is an ANSWER and not an error, and it is the one place the two can be told apart. 🔴 IT RETURNS THIS ONE FIELD AND NOTHING ELSE, ON PURPOSE: the whole settings bundle is owner/admin-gated behind `get_settings`, and cutting this row down to a single field is what lets an ORDINARY member — 正職 and 外包 alike — ask this one question without being handed everything else on the station. Call it when your boot context's 傳承 section says the feature is off (that line was written when your document was ASSEMBLED, and a boot context is assembled once at wake — the switch can be flipped while you are still running, so the document is a snapshot and this route is the live value), or before you spend a call on `write_lore_entry` and have it refused. Read-only: it changes nothing, and it cannot turn the feature on — switching it is the owner's `update_settings`.",
+      "inputSchema": {
+        "properties": {},
+        "type": "object"
+      },
+      "name": "get_lore_switch"
+    }
   ]
 }

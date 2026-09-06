@@ -2532,6 +2532,22 @@
         "additionalProperties": false,
         "type": "object"
       },
+      "LoreSwitchDTO": {
+        "description": "The station-wide LORE feature switch, alone (T-33). `lore_enabled` is the live value of the `lore.enabled` setting: `true` means the `/api/lore/*` tools answer, `false` means every one of them refuses with the 「功能關閉」 message and the learning / lesson tools are the road instead. Deliberately ONE field: the rest of the settings bundle is owner/admin work behind `get_settings`, and this row exists so an ordinary member can ask this one question without that.",
+        "properties": {
+          "lore_enabled": {
+            "description": "The live value of the station-wide `lore.enabled` setting. `false` is the shipped default and is an ANSWER, not an error — it says the lore tools will refuse and that the learning / lesson tools are the road instead. It is read per request, so it is the value AT THIS MOMENT and not the one your boot context was assembled with.",
+            "title": "Lore Enabled",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "lore_enabled"
+        ],
+        "title": "LoreSwitchDTO",
+        "additionalProperties": false,
+        "type": "object"
+      },
       "LorePendingEntityDTO": {
         "description": "A subject key that named nothing and was therefore CREATED by this write, parked `pending` for review. It is reported rather than swallowed so a typo shows up here instead of quietly becoming part of the ontology.",
         "properties": {
@@ -13744,6 +13760,64 @@
           "description": "Patch a per-role lessons doc by unique anchors ({edits:[{old,new}]}). role_key must be addressable — a role that folds (list_roles), or a member carrying that role_key (list_members) — or the patch is refused 404.",
           "legacy": {
             "descriptor": "{\n        \"description\": \"Patch a per-role lessons doc by unique anchors ({edits:[{old,new}]}). role_key must be addressable — a role that folds (list_roles), or a member carrying that role_key (list_members) — or the patch is refused 404.\",\n        \"inputSchema\": {\n          \"properties\": {\n            \"allow_shrink\": {\n              \"default\": false,\n              \"title\": \"Allow Shrink\",\n              \"type\": \"boolean\"\n            },\n            \"edits\": {\n              \"items\": {\n                \"properties\": {\n                  \"new\": {\n                    \"default\": \"\",\n                    \"title\": \"New\",\n                    \"type\": \"string\"\n                  },\n                  \"old\": {\n                    \"default\": \"\",\n                    \"title\": \"Old\",\n                    \"type\": \"string\"\n                  }\n                },\n                \"title\": \"LessonsEditDTO\",\n                \"type\": \"object\",\n                \"additionalProperties\": false\n              },\n              \"title\": \"Edits\",\n              \"type\": \"array\"\n            },\n            \"role_key\": {\n              \"description\": \"Names WHOSE lessons to edit. Nothing checks the key against the roster, so who catches a typo depends on WHO YOU ARE: an ordinary member may only write its own role and is refused with 403, while an admin or the owner may write any role and gets no refusal at all. For them the edit form decides what happens next - an edit with a non-empty old cannot find its anchor in an empty document and fails with 400, but an edit with an EMPTY old (the append form) has no anchor to miss and CREATES a lessons document under a role nobody answers to, answering 200 while the role you meant stays untouched.\\n\\nTHERE IS NO task_type. A lessons doc is addressed by role_key ALONE. The task_type axis was removed in T-2 and sending the field is REFUSED with a 400 naming it - it is never accepted and never quietly dropped, because a silently-ignored bucket name is exactly the failure this removal exists to end: the caller believed it had written one classification and the write went somewhere else.\",\n              \"type\": \"string\"\n            }\n          },\n          \"required\": [\n            \"role_key\",\n            \"edits\"\n          ],\n          \"additionalProperties\": false,\n          \"type\": \"object\"\n        },\n        \"name\": \"patch_lessons\"\n      }"
+          }
+        }
+      }
+    },
+    "/api/lore-switch": {
+      "get": {
+        "description": "Read the station-wide LORE feature switch and nothing else (T-33; `lore.enabled`).\n\n🔴 IT IS NOT LORE-GATED, WHICH IS THE WHOLE POINT. The twelve `/api/lore/*` rows carry the feature gate and answer 403 while the switch is off. A switch-reading route behind that same gate would be unreachable in the only situation anyone needs it, and its 403 would be indistinguishable from a permission refusal. This row therefore answers on an OFF station, with `lore_enabled: false`.\n\n🔴 IT IS ALSO NOT ADMIN-GATED, and it carries ONE field for that reason. Reading the station's settings is owner/admin work (`GET /api/settings`); knowing whether the lore tools will answer is every member's business, 正職 and 外包 alike. The permission radius was cut to the single field instead of widening the settings read.",
+        "operationId": "handle_get_lore_switch_api_lore_switch_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LoreSwitchDTO"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Validation error (unified error envelope)."
+          },
+          "4XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Client error (unified error envelope)."
+          },
+          "5XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Server error (unified error envelope)."
+          }
+        },
+        "summary": "Read the ONE station-wide switch that decides whether the 傳承 (lore) feature is reachable at all, and read NOTHING else — the answer is `{\"lore_enabled\": true|false}`. 🔴 THIS ROUTE IS DELIBERATELY NOT BEHIND THE LORE FEATURE GATE, AND THAT IS THE ONLY REASON IT EXISTS. Every `/api/lore/*` route answers 403 with the 「功能關閉」 refusal while the switch is off, so a tool that shared that gate would be unusable in the exact situation it is for — and from the caller's side 「403 because the feature is off」 and 「403 because I am not allowed」 are the same answer. So `lore_enabled: false` here is an ANSWER and not an error, and it is the one place the two can be told apart. 🔴 IT RETURNS THIS ONE FIELD AND NOTHING ELSE, ON PURPOSE: the whole settings bundle is owner/admin-gated behind `get_settings`, and cutting this row down to a single field is what lets an ORDINARY member — 正職 and 外包 alike — ask this one question without being handed everything else on the station. Call it when your boot context's 傳承 section says the feature is off (that line was written when your document was ASSEMBLED, and a boot context is assembled once at wake — the switch can be flipped while you are still running, so the document is a snapshot and this route is the live value), or before you spend a call on `write_lore_entry` and have it refused. Read-only: it changes nothing, and it cannot turn the feature on — switching it is the owner's `update_settings`.",
+        "x-mcp": {
+          "include": true,
+          "order": 138,
+          "name": "get_lore_switch",
+          "description": "Read the ONE station-wide switch that decides whether the 傳承 (lore) feature is reachable at all, and read NOTHING else — the answer is `{\"lore_enabled\": true|false}`. 🔴 THIS ROUTE IS DELIBERATELY NOT BEHIND THE LORE FEATURE GATE, AND THAT IS THE ONLY REASON IT EXISTS. Every `/api/lore/*` route answers 403 with the 「功能關閉」 refusal while the switch is off, so a tool that shared that gate would be unusable in the exact situation it is for — and from the caller's side 「403 because the feature is off」 and 「403 because I am not allowed」 are the same answer. So `lore_enabled: false` here is an ANSWER and not an error, and it is the one place the two can be told apart. 🔴 IT RETURNS THIS ONE FIELD AND NOTHING ELSE, ON PURPOSE: the whole settings bundle is owner/admin-gated behind `get_settings`, and cutting this row down to a single field is what lets an ORDINARY member — 正職 and 外包 alike — ask this one question without being handed everything else on the station. Call it when your boot context's 傳承 section says the feature is off (that line was written when your document was ASSEMBLED, and a boot context is assembled once at wake — the switch can be flipped while you are still running, so the document is a snapshot and this route is the live value), or before you spend a call on `write_lore_entry` and have it refused. Read-only: it changes nothing, and it cannot turn the feature on — switching it is the owner's `update_settings`.",
+          "legacy": {
+            "descriptor": "{\n      \"description\": \"Read the ONE station-wide switch that decides whether the 傳承 (lore) feature is reachable at all, and read NOTHING else — the answer is `{\\\"lore_enabled\\\": true|false}`. 🔴 THIS ROUTE IS DELIBERATELY NOT BEHIND THE LORE FEATURE GATE, AND THAT IS THE ONLY REASON IT EXISTS. Every `/api/lore/*` route answers 403 with the 「功能關閉」 refusal while the switch is off, so a tool that shared that gate would be unusable in the exact situation it is for — and from the caller's side 「403 because the feature is off」 and 「403 because I am not allowed」 are the same answer. So `lore_enabled: false` here is an ANSWER and not an error, and it is the one place the two can be told apart. 🔴 IT RETURNS THIS ONE FIELD AND NOTHING ELSE, ON PURPOSE: the whole settings bundle is owner/admin-gated behind `get_settings`, and cutting this row down to a single field is what lets an ORDINARY member — 正職 and 外包 alike — ask this one question without being handed everything else on the station. Call it when your boot context's 傳承 section says the feature is off (that line was written when your document was ASSEMBLED, and a boot context is assembled once at wake — the switch can be flipped while you are still running, so the document is a snapshot and this route is the live value), or before you spend a call on `write_lore_entry` and have it refused. Read-only: it changes nothing, and it cannot turn the feature on — switching it is the owner's `update_settings`.\",\n      \"inputSchema\": {\n        \"properties\": {},\n        \"type\": \"object\"\n      },\n      \"name\": \"get_lore_switch\"\n    }"
           }
         }
       }

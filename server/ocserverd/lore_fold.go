@@ -177,13 +177,25 @@ func (s *apiServer) foldLoreSectionWithSurfacing(actorID string) (string, loreSu
 	// side, and 「off, so the section is absent」 looks identical to 「the fold
 	// broke, so the section is absent」.
 	//
-	// Returning the SAME zero values as an empty ontology is deliberate and not
-	// laziness: the callers' contract is already 「"" means this section does not
-	// exist」 (an orphan heading is forbidden — see foldLoreSection's comment),
-	// so an OFF station produces a boot document with no lore section at all
-	// rather than a heading explaining an absence. And the empty loreSurfacing
-	// means surfaced() is false, so recordLoreSurfacing files no journal row —
-	// a directory nobody was shown must not be recorded as shown.
+	// 🔴 OFF PRINTS THE SECTION ANYWAY — owner ruling rc-6be334dd5e38, verbatim
+	// 「關著的時候那一段要照印」 plus 「印一行請他怎麼呼叫 mcp 去查有沒有開」, and
+	// his reason for it: 「因為我們最終目標是要打開的」.
+	//
+	// ⚠️ THIS OVERTURNED THE PREVIOUS BEHAVIOUR, WHICH WAS DEFENSIBLE AND IS
+	// WRITTEN DOWN HERE SO NOBODY RE-DERIVES IT AND REVERTS. This used to return
+	// the SAME zero values as an empty ontology, on the argument that the
+	// callers' contract is 「"" means this section does not exist」 and an orphan
+	// heading is forbidden. What that traded away is the thing the ruling buys
+	// back: an agent on an OFF station saw nothing at all, so 「this station has
+	// the feature switched off」 and 「this station has never heard of 傳承」 were
+	// the same document, and the member had no way to reach the second half of
+	// the sentence — what to do instead, and how to find out whether it is still
+	// off.
+	//
+	// 🔴 THE RECEIPT STAYS EMPTY. sur is returned untouched, so surfaced() is
+	// false and recordLoreSurfacing files no journal row: what was printed is a
+	// notice about a switch, not a directory, and recording it as a surfacing
+	// would put rows in the recall journal for subjects nobody was shown.
 	//
 	// ⚠️ THIS IS THE ONE PLACE THE SWITCH IS NOT LIVE, AND IT CANNOT BE. A boot
 	// context is assembled ONCE at wake and handed over; an agent already
@@ -191,9 +203,11 @@ func (s *apiServer) foldLoreSectionWithSurfacing(actorID string) (string, loreSu
 	// switch on therefore reaches the routes immediately and this section only
 	// at the next boot. That side effect was stated to the owner rather than
 	// engineered around: re-reading the table per turn would mean the document
-	// an agent was told to trust changes under it mid-session.
+	// an agent was told to trust changes under it mid-session. It is ALSO why
+	// the text below must send the reader to get_lore_switch rather than let him
+	// believe the line he is reading is current — see loreSectionOffText.
 	if !s.loreEnabledSnapshot() {
-		return "", sur, nil
+		return loreSectionOffText(), sur, nil
 	}
 	rows, err := s.dal.ListLoreSubjectRoster(actorID)
 	if err != nil {
@@ -369,6 +383,53 @@ func renderLoreSubjectIndex(kept []LoreSubjectRosterRow, omitted int) string {
 		}
 	}
 	return strings.TrimRight(b.String(), "\n")
+}
+
+// loreSwitchToolName is the MCP tool the OFF notice sends its reader to. It is
+// a constant so the one guard that matters can be written at all:
+// TestLoreOffSectionNamesAToolTheStationActuallyServes confronts it with the
+// route table's own MCPTool, because a notice that names a tool nobody serves
+// is worse than no notice — it spends the reader's one attempt and teaches him
+// the feature is broken rather than off.
+const loreSwitchToolName = "get_lore_switch"
+
+// loreSectionOffText is the 傳承 section as it is printed on a station whose
+// lore switch is OFF (owner ruling rc-6be334dd5e38: 「關著的時候那一段要照印」 ＋
+// 「印一行請他怎麼呼叫 mcp 去查有沒有開」).
+//
+// 🔴 IT IS WRITTEN TO loreDisabledMessage's SPEC, NOT TO ITS WORDING. That
+// refusal (lore_gate.go) is good for exactly two reasons and both are copied
+// here rather than the sentences: it says 「this is not your request being
+// wrong」, which is what stops an agent retrying a permanently-failing call, and
+// it NAMES THE ALTERNATIVE, which is what keeps a refusal from turning into
+// lost knowledge. The wordings stay separate because the situations differ: the
+// gate answers somebody who just tried to write, this answers somebody who has
+// written nothing yet.
+//
+// 🔴 THE LAST PARAGRAPH IS THE RULING'S OTHER HALF AND IT DOES DOUBLE DUTY. It
+// hands over the MCP call, and it says out loud that the line above it is a
+// SNAPSHOT — because this section is folded once, at wake (see the comment in
+// foldLoreSectionWithSurfacing), so an agent still running after the owner
+// flips the switch on is holding a document that says OFF and is wrong. A
+// notice that omitted that would be read as current, and the reader would never
+// spend the one call that could correct it.
+func loreSectionOffText() string {
+	return loreSectionH1 + "\n\n" +
+		"🔴 這個站現在把傳承（lore）功能關起來了（設定 `lore.enabled = false`，" +
+		"預設就是關的），所以這一段沒有對象目錄可以給你。" +
+		"這不是你哪裡寫錯了，也不是暫時性的故障：只要開關還關著，" +
+		"每一支 `/api/lore/*` 工具都會回同一句拒絕，重試永遠是同一個結果。\n\n" +
+		"要記下來的東西改走你原本就有的那條路：" +
+		"`patch_lessons`、`write_task_learnings`、`patch_task_learnings`。" +
+		"站台不會替你把記憶從一個地方搬到另一個地方，所以現在不寫，就是沒有寫。\n\n" +
+		"⚠️ 上面那句「這個站現在把傳承功能關起來了」，是你這份開機檔" +
+		"被組裝的那一刻抄下來的，不是此刻的值。" +
+		"開機檔一次組好就交給你，之後站長把開關打開，你手上這份不會跟著改 —— " +
+		"「關著」跟「開了但你手上這份還是舊的」在這裡長得一模一樣。" +
+		"要問現在到底開了沒有，呼叫 MCP 工具 `" + loreSwitchToolName + "`" +
+		"（零參數，回 `{\"lore_enabled\": true|false}`）：" +
+		"它自己不受這道功能開關管，所以關著的時候它照樣回答得出來，" +
+		"這正是它存在的理由。"
 }
 
 // loreTruncationLine is the one sentence that says the directory is

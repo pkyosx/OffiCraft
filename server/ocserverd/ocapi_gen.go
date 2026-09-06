@@ -1695,6 +1695,12 @@ type LoreSearchResultDTO struct {
 	UnresolvedSubject string `json:"unresolved_subject"`
 }
 
+// LoreSwitchDTO The station-wide LORE feature switch, alone (T-33). `lore_enabled` is the live value of the `lore.enabled` setting: `true` means the `/api/lore/*` tools answer, `false` means every one of them refuses with the 「功能關閉」 message and the learning / lesson tools are the road instead. Deliberately ONE field: the rest of the settings bundle is owner/admin work behind `get_settings`, and this row exists so an ordinary member can ask this one question without that.
+type LoreSwitchDTO struct {
+	// LoreEnabled The live value of the station-wide `lore.enabled` setting. `false` is the shipped default and is an ANSWER, not an error — it says the lore tools will refuse and that the learning / lesson tools are the road instead. It is read per request, so it is the value AT THIS MOMENT and not the one your boot context was assembled with.
+	LoreEnabled bool `json:"lore_enabled"`
+}
+
 // LoreWriteDTO Create one lore entry: 五格 (a heading, three body cells plus 0..N events) and the axes it is filed under. The field set is CLOSED — an unknown key is a 422, never a silent drop.
 type LoreWriteDTO struct {
 	// Content REQUIRED. `content`（內容）— the mechanism, and why. THIS is the only cell that ever enters a boot context, so an entry with a blank `content` contributes literally nothing to anybody and is refused.
@@ -4765,6 +4771,9 @@ type ServerInterface interface {
 	// Owner login: exchange the password for an owner-scoped JWT.
 	// (POST /api/login)
 	HandleLoginApiLoginPost(w http.ResponseWriter, r *http.Request)
+	// Read the ONE station-wide switch that decides whether the 傳承 (lore) feature is reachable at all, and read NOTHING else — the answer is `{"lore_enabled": true|false}`. 🔴 THIS ROUTE IS DELIBERATELY NOT BEHIND THE LORE FEATURE GATE, AND THAT IS THE ONLY REASON IT EXISTS. Every `/api/lore/*` route answers 403 with the 「功能關閉」 refusal while the switch is off, so a tool that shared that gate would be unusable in the exact situation it is for — and from the caller's side 「403 because the feature is off」 and 「403 because I am not allowed」 are the same answer. So `lore_enabled: false` here is an ANSWER and not an error, and it is the one place the two can be told apart. 🔴 IT RETURNS THIS ONE FIELD AND NOTHING ELSE, ON PURPOSE: the whole settings bundle is owner/admin-gated behind `get_settings`, and cutting this row down to a single field is what lets an ORDINARY member — 正職 and 外包 alike — ask this one question without being handed everything else on the station. Call it when your boot context's 傳承 section says the feature is off (that line was written when your document was ASSEMBLED, and a boot context is assembled once at wake — the switch can be flipped while you are still running, so the document is a snapshot and this route is the live value), or before you spend a call on `write_lore_entry` and have it refused. Read-only: it changes nothing, and it cannot turn the feature on — switching it is the owner's `update_settings`.
+	// (GET /api/lore-switch)
+	HandleGetLoreSwitchApiLoreSwitchGet(w http.ResponseWriter, r *http.Request)
 	// List the subject entities parked for review, each with the homework already done — the `type:name` key it was minted under, its type, its name, when it was created, WHO MINTED IT (`created_by`), HOW MANY lore entries are filed under it (`entries`) and how many were EVER filed under it including retired ones (`entries_ever`), EVERY one of those entries by id and `heading` (`entry_refs`), a SAMPLE of the first one's `content` (the wire field is still called `sample_short`), and the existing subjects it resembles WITH the reason each was offered. 🔴 A pending entity is a name an agent INVENTED while writing lore: minting is deliberately ungated (gating it is what pushes a writer into forcing a near-miss key onto an existing subject), so this queue is the only place a typo like `repo:offcraft` is caught before it becomes part of the ontology. `entries` is counted with the SAME predicate the boot subject directory and `search_lore_entries` use — retired entries are not counted — and `entry_refs` is exactly the list that count counted. 🔴 `entries: 0` MEANS TWO OPPOSITE THINGS AND `entries_ever` IS WHAT SEPARATES THEM: `0`/`0` is a name minted once and never used again, which is the shape of a typo the writer corrected on its next attempt; `0`/`2` is a name that was genuinely used and has since been emptied by retirement, which says nothing about the name at all. 🔴 THIS QUEUE OFFERS EVIDENCE AND NO VERDICT. It also carried `suggestion` / `merge_target` — a mechanical rule's answer to 「which button should I press」 — until the owner removed them on 2026-09-05: that rule's strongest signal was two names differing only in case, full/half width or `_`/`-`, and the writers minting these names do not in fact make that mistake. A judgement that EXPLAINS ITSELF and that a reviewer can send back for another pass replaces it in a later ticket; until then, reading `similar`, `entries`, `entries_ever`, `entry_refs` and `created_by` is the reviewer's own job, which is what they are all there for. Nothing here approves or merges anything — both acts stay behind the owner/admin floor and the verdict is the reviewer's. 🔴 A pending entity is INVISIBLE to the boot subject directory until it is approved, so a queue nobody works is a set of lore entries no agent can reach by subject.
 	// (GET /api/lore/entities/pending)
 	HandleListPendingLoreEntitiesApiLoreEntitiesPendingGet(w http.ResponseWriter, r *http.Request)
@@ -6653,6 +6662,20 @@ func (siw *ServerInterfaceWrapper) HandleLoginApiLoginPost(w http.ResponseWriter
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.HandleLoginApiLoginPost(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// HandleGetLoreSwitchApiLoreSwitchGet operation middleware
+func (siw *ServerInterfaceWrapper) HandleGetLoreSwitchApiLoreSwitchGet(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.HandleGetLoreSwitchApiLoreSwitchGet(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -10128,6 +10151,7 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/lessons/{role_key}", wrapper.HandleReplaceLessonsApiLessonsRoleKeyPost)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/lessons/{role_key}/patch", wrapper.HandlePatchLessonsApiLessonsRoleKeyPatchPost)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/login", wrapper.HandleLoginApiLoginPost)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/lore-switch", wrapper.HandleGetLoreSwitchApiLoreSwitchGet)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/lore/entities/pending", wrapper.HandleListPendingLoreEntitiesApiLoreEntitiesPendingGet)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/lore/entities/{entity_id}/approve", wrapper.HandleApproveLoreEntityApiLoreEntitiesEntityIdApprovePost)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/lore/entities/{entity_id}/merge", wrapper.HandleMergeLoreEntityApiLoreEntitiesEntityIdMergePost)

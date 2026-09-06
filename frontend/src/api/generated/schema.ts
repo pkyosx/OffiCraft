@@ -1667,6 +1667,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/lore-switch": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read the ONE station-wide switch that decides whether the 傳承 (lore) feature is reachable at all, and read NOTHING else — the answer is `{"lore_enabled": true|false}`. 🔴 THIS ROUTE IS DELIBERATELY NOT BEHIND THE LORE FEATURE GATE, AND THAT IS THE ONLY REASON IT EXISTS. Every `/api/lore/*` route answers 403 with the 「功能關閉」 refusal while the switch is off, so a tool that shared that gate would be unusable in the exact situation it is for — and from the caller's side 「403 because the feature is off」 and 「403 because I am not allowed」 are the same answer. So `lore_enabled: false` here is an ANSWER and not an error, and it is the one place the two can be told apart. 🔴 IT RETURNS THIS ONE FIELD AND NOTHING ELSE, ON PURPOSE: the whole settings bundle is owner/admin-gated behind `get_settings`, and cutting this row down to a single field is what lets an ORDINARY member — 正職 and 外包 alike — ask this one question without being handed everything else on the station. Call it when your boot context's 傳承 section says the feature is off (that line was written when your document was ASSEMBLED, and a boot context is assembled once at wake — the switch can be flipped while you are still running, so the document is a snapshot and this route is the live value), or before you spend a call on `write_lore_entry` and have it refused. Read-only: it changes nothing, and it cannot turn the feature on — switching it is the owner's `update_settings`.
+         * @description Read the station-wide LORE feature switch and nothing else (T-33; `lore.enabled`).
+         *
+         *     🔴 IT IS NOT LORE-GATED, WHICH IS THE WHOLE POINT. The twelve `/api/lore/*` rows carry the feature gate and answer 403 while the switch is off. A switch-reading route behind that same gate would be unreachable in the only situation anyone needs it, and its 403 would be indistinguishable from a permission refusal. This row therefore answers on an OFF station, with `lore_enabled: false`.
+         *
+         *     🔴 IT IS ALSO NOT ADMIN-GATED, and it carries ONE field for that reason. Reading the station's settings is owner/admin work (`GET /api/settings`); knowing whether the lore tools will answer is every member's business, 正職 and 外包 alike. The permission radius was cut to the single field instead of widening the settings read.
+         */
+        get: operations["handle_get_lore_switch_api_lore_switch_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/lore/entities/pending": {
         parameters: {
             query?: never;
@@ -6768,6 +6792,17 @@ export interface components {
              * @default
              */
             reason: string;
+        };
+        /**
+         * LoreSwitchDTO
+         * @description The station-wide LORE feature switch, alone (T-33). `lore_enabled` is the live value of the `lore.enabled` setting: `true` means the `/api/lore/*` tools answer, `false` means every one of them refuses with the 「功能關閉」 message and the learning / lesson tools are the road instead. Deliberately ONE field: the rest of the settings bundle is owner/admin work behind `get_settings`, and this row exists so an ordinary member can ask this one question without that.
+         */
+        LoreSwitchDTO: {
+            /**
+             * Lore Enabled
+             * @description The live value of the station-wide `lore.enabled` setting. `false` is the shipped default and is an ANSWER, not an error — it says the lore tools will refuse and that the learning / lesson tools are the road instead. It is read per request, so it is the value AT THIS MOMENT and not the one your boot context was assembled with.
+             */
+            lore_enabled: boolean;
         };
         /**
          * LorePendingEntityDTO
@@ -14418,6 +14453,53 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["LessonsPatchResultDTO"];
+                };
+            };
+            /** @description Validation error (unified error envelope). */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+            /** @description Client error (unified error envelope). */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+            /** @description Server error (unified error envelope). */
+            "5XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+        };
+    };
+    handle_get_lore_switch_api_lore_switch_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LoreSwitchDTO"];
                 };
             };
             /** @description Validation error (unified error envelope). */
