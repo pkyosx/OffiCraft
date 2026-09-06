@@ -904,6 +904,61 @@ func TestTokfileWriter_ARenameFailureAlsoCleansUpTheTemp(t *testing.T) {
 	}
 }
 
+// TestTokfileWriter_AFailureBeforeTheRenameAlsoCleansUpTheTemp covers the two
+// steps that come before the ones already covered. The write and the chmod are
+// the earliest points at which a temp can exist, and their cleanup is the easiest
+// to leave out: it was, until this test. Measured — with the two w.cleanup calls
+// in install.go removed, this test fails on both arms and nothing else in
+// cli/ocwarden notices.
+func TestTokfileWriter_AFailureBeforeTheRenameAlsoCleansUpTheTemp(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		bust func(w *tokfileWriter)
+	}{
+		{
+			name: "the write fails",
+			bust: func(w *tokfileWriter) {
+				w.writeFile = func(string, []byte, os.FileMode) error {
+					return fmt.Errorf("simulated ENOSPC")
+				}
+			},
+		},
+		{
+			name: "the chmod fails",
+			bust: func(w *tokfileWriter) {
+				w.chmod = func(string, os.FileMode) error { return fmt.Errorf("simulated EPERM") }
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			dest := filepath.Join(dir, "exec-warden.tok")
+
+			removed := []string{}
+			w := osTokfileWriter()
+			realRemove := w.remove
+			w.remove = func(p string) error { removed = append(removed, p); return realRemove(p) }
+			tc.bust(&w)
+
+			if err := w.write(dest, "the-replacement"); err == nil {
+				t.Fatal("the failure was reported as success")
+			}
+			if len(removed) != 1 {
+				t.Errorf("the temp was not cleaned up: %v", removed)
+			}
+			entries, _ := os.ReadDir(dir)
+			if len(entries) != 0 {
+				var names []string
+				for _, e := range entries {
+					names = append(names, e.Name())
+				}
+				t.Errorf("left behind in the warden directory: %v — a partial or "+
+					"wrong-perms temp, one per failed attempt", names)
+			}
+		})
+	}
+}
+
 // TestSysOpsTokfileWriter_CarriesTheRemoveSeam pins the projection. Without it
 // the install path silently loses its cleanup: the seam is optional by design, so
 // dropping it compiles, and the only symptom is temps accumulating on a machine

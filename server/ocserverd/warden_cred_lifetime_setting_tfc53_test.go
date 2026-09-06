@@ -104,19 +104,20 @@ func TestWardenCredLifetime_UnsetIsNinetyDaysOnEveryFace(t *testing.T) {
 			loaded.wardenCredLifetimeSecs, ninetyDays)
 	}
 
-	// 🔴 THE STATION'S DEFAULT AND THE WARDEN'S BUILT-IN DEFAULT MUST BE THE SAME
-	// NUMBER, and nothing compiles them together: they live in different modules
-	// (credentialLifetimeDefaultSecs, cli/ocwarden/renew.go). A drift is silent —
-	// it only shows on machines that cannot reach the policy endpoint, which are
-	// exactly the machines nobody is looking at. This assertion is a written copy
-	// of the warden's number, so moving one side without the other is red here.
-	const wardenBuiltInDefaultSecs = 90 * 24 * 60 * 60
-	if ninetyDays != wardenBuiltInDefaultSecs {
-		t.Errorf("the station ships %d s but cli/ocwarden assumes %d s when the "+
-			"policy endpoint is unreachable — a machine that cannot reach the "+
-			"station would renew on a different clock from the one its credential "+
-			"expires on", ninetyDays, wardenBuiltInDefaultSecs)
-	}
+	// 🔴 THE STATION'S DEFAULT AND THE WARDEN'S BUILT-IN DEFAULT MUST BE THE
+	// SAME NUMBER, and nothing compiles them together: they live in different
+	// modules (credentialLifetimeDefaultSecs, cli/ocwarden/renew.go). A drift is
+	// silent — it only shows on machines that cannot reach the policy endpoint,
+	// which are exactly the machines nobody is looking at.
+	//
+	// NOTHING IN THIS PACKAGE CATCHES THAT DRIFT, and an earlier version of this
+	// comment claimed otherwise while comparing two literals declared beside each
+	// other. Measured: setting credentialLifetimeDefaultSecs to 30 days leaves the
+	// tests in this file green. Each end pins its OWN number against a written-out
+	// literal instead — the assertions above for the station,
+	// TestCredentialLifetimeDefaultSecs_IsNinetyDays
+	// (cli/ocwarden/renew_age_tfc53_test.go) for the warden — so moving one side
+	// alone is red in that side's package.
 }
 
 // TestWardenCredLifetime_APatchReachesTheFleetFace is the ticket's acceptance in
