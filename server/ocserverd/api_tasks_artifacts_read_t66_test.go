@@ -1,24 +1,34 @@
 package main
 
 // T-66 — the ARTIFACT split, the twin of the step-note split in
-// api_tasks_step_read_t66_test.go: the shared task projection now carries an
-// INDEX of the pinned deliverables (id + label), and list_task_artifacts is the
-// one read that serves the rows in full.
+// api_tasks_step_read_t66_test.go: the shared task projection stopped carrying
+// the pinned deliverables, and list_task_artifacts is the one read that serves
+// the rows in full.
 //
 // Owner c-cd063427fb2f, verbatim:「我覺得任務產物，只需要預設給標題跟ID, 有需要
 // 再透過另一隻去拿就好了」. And on the SHAPE of 「另一隻」, c-f2d0fecb1168,
 // verbatim:「應該是指名任務？」— one call per TASK, not per artifact.
 //
+// ⚠️ T-92 TOOK THE REMAINING HALF. The id+label index this file used to pin is
+// GONE: a task response now carries `artifact_count` and no rows at all, and
+// there is no `artifacts` key and no `artifacts_detail_level` on it either. The
+// reason is in the count's own doc — the id list is a SET that grows with the
+// age of the ticket and never shrinks, so leaving it there would have
+// reintroduced, one migration later, the unbounded per-read cost the split
+// exists to remove; and a caller holding an id is a caller about to act on that
+// artifact, which needs the whole row anyway. The cases below therefore assert
+// the COUNT and the ABSENCE of the rows, which is what the split now means.
+//
 // WHAT THESE PIN, and why each needs its own case:
 //
-//   - The fat fields are GONE FROM THE WIRE, not blanked. A decoded struct
+//   - The dropped fields are GONE FROM THE WIRE, not blanked. A decoded struct
 //     cannot tell those apart (a Go type that no longer declares URL decodes a
 //     url-bearing payload just as happily), so the removal is asserted against
 //     the RAW JSON of a task that really does have an artifact, key by key.
-//   - The response SAYS its artifacts are abridged. The AC is verbatim「成功的
-//     回應不得看起來像完整的 task」, and「省略要自己說出來」— a 200 whose
-//     artifact rows look complete is the defect, whether or not the caller
-//     knows which fields a full row used to carry.
+//   - The response SAYS how much of the set it is giving. The AC is verbatim
+//    「成功的回應不得看起來像完整的 task」, and「省略要自己說出來」— since T-92
+//     the count IS that statement: an EXACT, un-capped number that tells the
+//     caller how many rows list_task_artifacts is holding for it.
 //   - It rides EVERY exit of the shared builder. The slimming is done in
 //     newTaskDTO, so a write face that has no opinion about artifacts must be
 //     just as thin — that is the whole reason for doing it there.
@@ -38,9 +48,10 @@ import (
 // is answerable without knowing which key it might have leaked under.
 const t66ArtifactURL = "https://example.com/t66/only-on-the-full-row"
 
-// t66ArtifactLabel is multi-byte on purpose: the label is one of the two fields
-// the index DOES carry, so it has to survive the projection intact.
-const t66ArtifactLabel = "設計稿 v3"
+// t66ArtifactName is multi-byte on purpose: the name is what the full read has
+// to carry back intact, and a rune-counted cap makes a byte-counted mistake here
+// easy to make.
+const t66ArtifactName = "設計稿 v3"
 
 // t66ArtifactFixture pins one link artifact on a fresh task and returns the
 // task id and the artifact id.
@@ -48,7 +59,7 @@ func t66ArtifactFixture(t *testing.T, api *apiServer, executor string) (string, 
 	t.Helper()
 	task := createAdHocTask(t, api, executor)
 	rec := addArtifact(t, api, task.ID, map[string]any{
-		"kind": "link", "url": t66ArtifactURL, "label": t66ArtifactLabel,
+		"kind": "link", "url": t66ArtifactURL, "name": t66ArtifactName,
 	}, executor, "agent")
 	if rec.Code != http.StatusOK {
 		t.Fatalf("seed artifact: %d %s", rec.Code, rec.Body.String())
@@ -66,15 +77,10 @@ func listArtifactsRaw(t *testing.T, api *apiServer, taskID, caller, scope string
 	return rec
 }
 
-// t66IndexOnlyKeys is what an index row is allowed to carry. It is spelled out
-// rather than derived from the DTO so that ADDING a field back to
-// taskArtifactRefDTO reddens here instead of silently widening the contract.
-var t66IndexOnlyKeys = map[string]bool{"id": true, "label": true}
-
-// TestGetTaskArtifactsAreAnIndexAndTheResponseSaysSo is the AC for the artifact
+// TestGetTaskArtifactsAreACountAndTheResponseSaysSo is the AC for the artifact
 // half:「成功的回應不得看起來像完整的 task」. It reads the RAW body, because the
 // point is what is on the WIRE.
-func TestGetTaskArtifactsAreAnIndexAndTheResponseSaysSo(t *testing.T) {
+func TestGetTaskArtifactsAreACountAndTheResponseSaysSo(t *testing.T) {
 	api := newTasksTestServer(t)
 	taskID, artID := t66ArtifactFixture(t, api, "m-exec")
 
@@ -93,50 +99,47 @@ func TestGetTaskArtifactsAreAnIndexAndTheResponseSaysSo(t *testing.T) {
 			"payload is 「只需要預設給標題跟ID」: %s", body)
 	}
 
-	var raw struct {
-		ArtifactsDetailLevel *string          `json:"artifacts_detail_level"`
-		Artifacts            []map[string]any `json:"artifacts"`
+	// The artifact id is not on the wire either — it is what list_task_artifacts
+	// is FOR (T-92), and a client that could scrape ids off the task view would
+	// keep paying for a list that only ever grows.
+	if strings.Contains(body, artID) {
+		t.Fatalf("get_task carried the artifact id; since T-92 the ids come from "+
+			"list_task_artifacts and the task view answers a count: %s", body)
 	}
+
+	var raw map[string]json.RawMessage
 	if err := json.Unmarshal(rec.Body.Bytes(), &raw); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
-	// 2. The LIST is complete — the abridgement is per-row, never a cut set.
-	if len(raw.Artifacts) != 1 {
-		t.Fatalf("expected 1 artifact row, got %d (%v)", len(raw.Artifacts), raw.Artifacts)
-	}
-	row := raw.Artifacts[0]
-	// 3. Declared-but-empty is NOT the ask, exactly as with the step note: an
-	//    always-"" url reads to every existing client as "this artifact has no
-	//    url". The keys have to be gone from the schema.
-	for k := range row {
-		if !t66IndexOnlyKeys[k] {
-			t.Fatalf("artifact index row still declares %q on the wire — the index is id + label "+
-				"and nothing else (owner c-cd063427fb2f); a declared always-empty field is read "+
-				"by every existing client as 'this artifact has none': %v", k, row)
+	// 2. Declared-but-empty is NOT the ask, exactly as with the step note: an
+	//    always-[] artifacts array reads to every existing client as "this task
+	//    has no deliverables". The keys have to be gone from the schema — and
+	//    that goes for the detail level too, which described rows that are no
+	//    longer there.
+	for _, gone := range []string{"artifacts", "artifacts_detail_level"} {
+		if _, ok := raw[gone]; ok {
+			t.Fatalf("get_task still declares %q on the wire — since T-92 the task view "+
+				"carries a COUNT and no rows; a declared always-empty field is read by "+
+				"every existing client as 'this task has none': %s", gone, body)
 		}
 	}
-	// 4. And it really is the INDEX of the artifact that exists, not an empty
-	//    husk: both surviving fields carry their true values.
-	if row["id"] != artID || row["label"] != t66ArtifactLabel {
-		t.Fatalf("index row must carry the REAL id and label, got %v (want id=%q label=%q)",
-			row, artID, t66ArtifactLabel)
+	// 3. The count is what the response says INSTEAD, and it is the real one:
+	//    省略要自己說出來, and a number that is always 0 would say the opposite of
+	//    the truth about a task that really does have a deliverable pinned.
+	count, ok := raw["artifact_count"]
+	if !ok {
+		t.Fatalf("get_task must carry artifact_count — 省略要自己說出來: %s", body)
 	}
-	// 5. The response says what its artifact rows are, rather than leaving the
-	//    caller to infer it from which keys happen to be missing.
-	if raw.ArtifactsDetailLevel == nil {
-		t.Fatalf("get_task must declare artifacts_detail_level — 省略要自己說出來")
-	}
-	if *raw.ArtifactsDetailLevel != "index" {
-		t.Fatalf("get_task must declare artifacts_detail_level=index, got %q — 省略要自己說出來",
-			*raw.ArtifactsDetailLevel)
+	if string(count) != "1" {
+		t.Fatalf("artifact_count = %s, want 1 — the count is EXACT and un-capped", count)
 	}
 }
 
-// TestTaskArtifactIndexRidesEveryExitOfTheSharedBuilder: the slimming is done in
+// TestTaskArtifactCountRidesEveryExitOfTheSharedBuilder: the slimming is done in
 // newTaskDTO so that nine responses get thinner at once (EXECUTOR JUDGEMENT —
 // the owner ruled the payload, not the layer). A per-handler fix would leave
 // the other eight serving the fat rows, so one of the eight is checked here.
-func TestTaskArtifactIndexRidesEveryExitOfTheSharedBuilder(t *testing.T) {
+func TestTaskArtifactCountRidesEveryExitOfTheSharedBuilder(t *testing.T) {
 	api := newTasksTestServer(t)
 	taskID, _ := t66ArtifactFixture(t, api, "m-exec")
 
@@ -154,31 +157,24 @@ func TestTaskArtifactIndexRidesEveryExitOfTheSharedBuilder(t *testing.T) {
 	if strings.Contains(rec.Body.String(), t66ArtifactURL) {
 		t.Fatalf("set_task_deps still carries the artifact URL: %s", rec.Body.String())
 	}
-	var raw struct {
-		ArtifactsDetailLevel string           `json:"artifacts_detail_level"`
-		Artifacts            []map[string]any `json:"artifacts"`
-	}
+	var raw map[string]json.RawMessage
 	if err := json.Unmarshal(rec.Body.Bytes(), &raw); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
-	if raw.ArtifactsDetailLevel != "index" {
-		t.Fatalf("set_task_deps's task payload must declare artifacts_detail_level=index too, "+
-			"got %q — the slimming lives in newTaskDTO precisely so all nine exits say the "+
-			"same thing", raw.ArtifactsDetailLevel)
-	}
-	if len(raw.Artifacts) != 1 {
-		t.Fatalf("expected 1 artifact row, got %v", raw.Artifacts)
-	}
-	for k := range raw.Artifacts[0] {
-		if !t66IndexOnlyKeys[k] {
-			t.Fatalf("set_task_deps still serves the FULL artifact row (key %q): %v",
-				k, raw.Artifacts[0])
+	for _, gone := range []string{"artifacts", "artifacts_detail_level"} {
+		if _, ok := raw[gone]; ok {
+			t.Fatalf("set_task_deps's task payload still declares %q — the slimming lives in "+
+				"newTaskDTO precisely so all nine exits say the same thing: %s",
+				gone, rec.Body.String())
 		}
+	}
+	if got := string(raw["artifact_count"]); got != "1" {
+		t.Fatalf("set_task_deps's task payload must carry artifact_count 1 too, got %q", got)
 	}
 }
 
 // TestListTaskArtifactsServesTheWholeRowAndSaysSo is the other half: everything
-// the index dropped has to be reachable, in full, through the read that
+// the task view dropped has to be reachable, in full, through the read that
 // replaces it — and that read declares itself.
 func TestListTaskArtifactsServesTheWholeRowAndSaysSo(t *testing.T) {
 	api := newTasksTestServer(t)
@@ -193,16 +189,45 @@ func TestListTaskArtifactsServesTheWholeRowAndSaysSo(t *testing.T) {
 		t.Fatalf("answered task %q, asked for %q", got.TaskID, taskID)
 	}
 	if got.ArtifactsDetailLevel != "full" {
-		t.Fatalf("artifacts_detail_level = %q, want full — it is what lets a caller tell this "+
-			"response apart from the task view's index", got.ArtifactsDetailLevel)
+		t.Fatalf("artifacts_detail_level = %q, want full — since T-92 it has no opposite left "+
+			"to contrast with, and is kept so a reader holding this payload does not have to "+
+			"know which server version produced it to know the rows are whole",
+			got.ArtifactsDetailLevel)
 	}
 	if len(got.Artifacts) != 1 {
 		t.Fatalf("expected 1 artifact, got %+v", got.Artifacts)
 	}
 	a := got.Artifacts[0]
 	if a.ID != artID || a.Kind != "link" || a.URL != t66ArtifactURL ||
-		a.Label != t66ArtifactLabel || a.CreatedBy != "m-exec" || a.CreatedTS <= 0 {
+		a.Name != t66ArtifactName || a.CreatedBy != "m-exec" || a.CreatedTS <= 0 {
 		t.Fatalf("full artifact row is not full: %+v", a)
+	}
+
+	// 🔴 attachment_id, restored by the owner on rc-91e29b576ad8 after T-92
+	// dropped it as duplication of url. THIS ROW IS A LINK, which is what makes
+	// the assertion worth making: a link's url is its external target, so there
+	// is no blob path to slice an id out of, and nothing else in the tool
+	// surface lists an artifact's blob. Without this field a member cannot obey
+	// system_interaction §2.1 —「直接用它的 id」for `ocagent diff` — on a link
+	// at all, and can only obey it on a file by hand-building an address the
+	// same document forbids.
+	if a.AttachmentID == "" {
+		t.Fatalf("attachment_id is empty on a link row: %+v", a)
+	}
+	var stored TaskArtifact
+	arts, err := api.dal.ListTaskArtifacts(taskID)
+	if err != nil {
+		t.Fatalf("read stored artifacts: %v", err)
+	}
+	for _, r := range arts {
+		if r.ID == artID {
+			stored = r
+		}
+	}
+	if a.AttachmentID != stored.AttachmentID {
+		t.Fatalf("attachment_id on the wire is %q, the stored row holds %q — the field is "+
+			"the row's own blob id served as stored, not a value derived at read time",
+			a.AttachmentID, stored.AttachmentID)
 	}
 }
 
@@ -216,7 +241,7 @@ func TestListTaskArtifactsAnswersTheWholeTicketInOneCall(t *testing.T) {
 	want := []string{}
 	for _, n := range []string{"one", "two", "three"} {
 		rec := addArtifact(t, api, task.ID, map[string]any{
-			"kind": "link", "url": t66ArtifactURL + "/" + n, "label": n,
+			"kind": "link", "url": t66ArtifactURL + "/" + n, "name": n,
 		}, "m-exec", "agent")
 		if rec.Code != http.StatusOK {
 			t.Fatalf("seed %s: %d %s", n, rec.Code, rec.Body.String())

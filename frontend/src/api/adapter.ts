@@ -557,58 +557,54 @@ export interface TaskView {
   progressDone: number;
   progressTotal: number;
   steps: TaskStepView[];
-  /** The task's curated deliverable set (T-3dc5), oldest→newest, as an INDEX:
-   * each entry is `{ id, label }` and NOTHING else.
-   *
-   * 🔴 THE ARTIFACT DETAIL IS NOT ON THIS VIEW MODEL (T-66, owner
-   * c-cd063427fb2f:「我覺得任務產物，只需要預設給標題跟ID, 有需要再透過另一隻去
-   * 拿就好了」). url / filename / mime / kind / isImage / attachmentId /
-   * createdTs / createdBy arrive from `listTaskArtifacts`, one call for the
-   * whole ticket. A component that wants to RENDER an artifact and finds only
-   * these two fields is being told, correctly, to go and fetch it.
-   *
-   * Only the FULL task (getTask) carries even the index; the LIGHT list leaves
-   * it [] (it carries only `artifactCount` for the collapsed card's 「產物 N」
-   * badge). OPTIONAL so hand-built test fixtures stay valid (the
-   * replyCardStatus precedent); the mapper always sets it. */
-  artifacts?: TaskArtifactRefView[];
   /** Number of pinned deliverables — the collapsed card's 「產物 N」 badge (0 ⇒
-   * badge hidden). On the light list it is the SERVER count (`artifact_count`);
-   * on a hydrated full task it equals `artifacts.length` (kept consistent so a
-   * post-hydrate card keeps the same badge). OPTIONAL so hand-built fixtures
-   * stay valid; the mapper always sets it. */
+   * badge hidden), and since T-92 the ONLY thing a task response says about
+   * them. BOTH projections now read it from the server's `artifact_count`: the
+   * light list always did, and the full task carries the same field instead of
+   * an array whose length the card had to take.
+   *
+   * 🔴 THERE ARE NO ARTIFACT ROWS ON THIS VIEW MODEL AT ALL (T-92, owner
+   * rc-15016959ad4d:「只有 ID 好像也沒用」). T-66 had already cut them to id +
+   * label; the ids went too, because a caller holding one is about to act on
+   * that artifact and needs the whole row anyway. `listTaskArtifacts` answers
+   * the whole ticket in one call — which is what `TaskArtifactsPopover` does the
+   * moment someone opens it, and has done since before this change.
+   *
+   * OPTIONAL so hand-built fixtures stay valid; the mapper always sets it. */
   artifactCount?: number;
 }
 
-/** ONE pinned deliverable as an INDEX ROW (T-66): which one it is and what it
- * is called, and nothing that would need a second read. This is what a
- * `TaskView.artifacts` entry is.
- *
- * `label` is honest-empty when the deliverable was pinned without one — it is
- * NOT backfilled from a filename or a url here, because those live on the full
- * row. Deciding what to SHOW for a nameless artifact is the renderer's job, on
- * the full row it fetched. */
-export interface TaskArtifactRefView {
-  id: string;
-  label: string;
-}
-
-/** ONE pinned deliverable on a task's artifact set (T-3dc5), in view-model
- * form. `kind` is the closed set file|image|link. For file/image, `url` is the
- * blob serve path and `mime`/`filename`/`isImage` echo the shared
- * chat-attachment blob (render it exactly like a chat attachment). For link,
- * `url` is a bare external URL (a PR link), `attachmentId`/`mime`/`filename`
- * empty and `isImage` false. `label` is the display name (a link's title, or a
- * filename override). Honest passthrough — never fabricated. */
+/** ONE pinned deliverable on a task's artifact set (T-3dc5, narrowed by T-92),
+ * in view-model form. `kind` is the closed set file|image|link, and EVERY kind
+ * is backed by a chat-attachment blob. For file/image, `url` is the blob serve
+ * path and `mime` is that blob's content type (render it exactly like a chat
+ * attachment). For link, `url` is the external address read out of that link's
+ * `text/uri-list` blob, whose `mime` is `text/uri-list`. `filename`, `isImage`,
+ * `attachmentId` and the old single `label` are all GONE FROM THIS ROW — and
+ * for `attachmentId` read that literally: it is gone from THIS VIEW MODEL, not
+ * from the wire. It came back to the wire under owner rc-91e29b576ad8 and this
+ * adapter simply does not map it. The rest of the sentence is unchanged: `name`
+ * replaces the label (server-derived, never empty), the filename is what that
+ * derivation reads, and isImage is a prefix test on `mime`. Honest passthrough —
+ * never fabricated. */
 export interface TaskArtifactView {
   id: string;
   kind: "file" | "image" | "link";
+  /** Where the content is — ONE meaning on all three kinds since T-92: the blob
+   * serve path for a file/image, the external address for a link. */
   url: string;
-  label: string;
-  filename: string;
+  /** The display name. NEVER EMPTY on the wire — the server derives one from
+   * the blob's filename, the link target, or the id when the row has no stored
+   * name — so a renderer needs no fallback of its own any more. */
+  name: string;
+  /** The prose half of what used to be one `label`. May be empty, and MAY BE
+   * LONGER than the 256-rune write cap: that cap binds new writes only and
+   * never touched the migrated values, so never size anything on it. */
+  description: string;
+  /** The blob's content type. 🔴 LOAD-BEARING: `kind: "file"` covers .md, .pdf
+   * and .zip alike, so this is the only field the preview can tell them apart
+   * by — `MarkdownPreviewOverlay` makes four separate decisions with it. */
   mime: string;
-  isImage: boolean;
-  attachmentId: string;
   createdTs: number;
   createdBy: string;
   /** How many versions this deliverable has, the LIVE one INCLUDED (T-60) — 1
@@ -625,18 +621,33 @@ export interface TaskArtifactView {
 /** ONE retained PREVIOUS version of a pinned deliverable (T-60), in view-model
  * form — what the artifact pointed at before a replace, newest first.
  *
- * It carries the version WHOLE (a blob id or a url, plus a label); `id` is the
+ * It carries the version WHOLE (a blob id — every kind is blob-backed since
+ * T-92 — plus its name and prose);
+ * `id` is the
  * version's own row id and `kind` always equals the live artifact's, which
  * cannot change across versions. `url`, `mime`, `filename` and `isImage` are
- * that version's OWN facts, resolved by the server from the retained blob the
- * same way the live artifact's are — a file/image version's `url` is the blob
- * serve path (never empty while the blob is alive), and the mime is this
- * version's, never the live row's. */
+ * that version's OWN facts, resolved by the server from the retained blob — a
+ * file/image version's `url` is the blob serve path (never empty while the blob
+ * is alive), and the mime is this version's, never the live row's.
+ *
+ * ⚠️ NOT the same resolution the live artifact gets, on ONE kind: for a LINK
+ * version the server reads only the blob's BYTES (the uri-list target, into
+ * `url`) and leaves `mime`/`filename`/`isImage` empty, whereas the live link
+ * artifact does report `text/uri-list`. Never size a link comparison on those
+ * three. */
 export interface TaskArtifactVersionView {
   id: number;
   kind: "file" | "image" | "link";
   url: string;
-  label: string;
+  /** This version's stored display name (T-92 split the old single `label`).
+   * ⚠️ UNLIKE the live artifact's `name`, this one is NOT derived and CAN be
+   * empty — it is the column as it was written, and a version written before
+   * names existed has none. That asymmetry is why this row still carries
+   * `filename` while the live one does not. */
+  name: string;
+  /** This version's prose (T-92). May be empty, and may exceed the write cap
+   * for the same reason the live artifact's description may. */
+  description: string;
   filename: string;
   mime: string;
   isImage: boolean;
@@ -2100,12 +2111,14 @@ export interface Api {
   /**
    * Fetch ONE task's pinned deliverables in full
    * (`GET /api/tasks/{task_id}/artifacts`, T-66) — the only read that carries
-   * an artifact's url / filename / mime / kind / isImage / attachmentId /
-   * createdTs / createdBy.
+   * an artifact ROW at all: kind / url / name / description / mime /
+   * createdTs / createdBy / versionCount.
    *
-   * 🔴 It exists because `getTask` stopped carrying them: a task's `artifacts`
-   * are an id+label INDEX now (owner c-cd063427fb2f), so anything that DRAWS an
-   * artifact calls this. ONE call answers the WHOLE ticket — there is
+   * 🔴 It exists because `getTask` stopped carrying them, and T-92 finished the
+   * job: a task response has no `artifacts` field of any kind now, only
+   * `artifactCount` (owner c-cd063427fb2f started this as an id+label index;
+   * T-92 removed even the index). So anything that DRAWS an artifact — or that
+   * needs one artifact's id — calls this. ONE call answers the WHOLE ticket — there is
    * deliberately no per-artifact read (owner c-f2d0fecb1168:「應該是指名任務？」),
    * because the cockpit's deliverables panel opens onto the entire set and a
    * per-artifact door would cost one call per row.
