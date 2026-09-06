@@ -1976,10 +1976,10 @@ export const en: Dict = {
     // suggestion buttons at all.
     suggestedRepliesReplyCard: "Reply-card suggestions",
     suggestedRepliesReplyCardSub:
-      "The one-tap sentences offered under a reply card's answer box. A tap only FILLS the box — you still press send yourself. Leave the list empty and nothing is drawn: the box looks exactly as it did without the feature. At most 20 sentences, each at most 120 characters; anything longer is refused rather than shortened.",
+      "Sentences you can drop in with one tap when answering a reply card.",
     suggestedRepliesTaskMessage: "Task-message suggestions",
     suggestedRepliesTaskMessageSub:
-      "The one-tap sentences offered under a task card's \u201cMessage \u2026\u201d box. Independent of the list above — editing one never touches the other. Same limits: at most 20 sentences, each at most 120 characters, and empty means nothing is drawn.",
+      "Sentences you can drop in with one tap when messaging on a task.",
     suggestedRepliesEmpty:
       "No suggestions configured — that box shows no buttons at all.",
     suggestedReplyPlaceholder: "e.g. Got it, go ahead",
