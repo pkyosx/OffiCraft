@@ -43,7 +43,7 @@ import type { Member } from "../types";
 import type { TaskView, OutsourceWorkerView } from "../api/adapter";
 // 篩選 moved into the FilterPanel (T-93 round 3): open it before reading a
 // dropdown label, and 清除篩選 is now 清除全部 on the 已篩選 strip.
-import { openFilterPanel, clearAllFilters } from "../test/tasksFilter";
+import { clearAllFilters } from "../test/tasksFilter";
 
 let seq = 0;
 
@@ -359,7 +359,6 @@ describe("T-17be ③ 執行者篩選文案「所有負責人」", () => {
     const { findByTestId } = renderPage();
     // The dropdowns live inside the FilterPanel now (T-93 round 3) — open it
     // before reading a label off one.
-    openFilterPanel();
     const filter = await findByTestId("filter-executor");
 
     // toBe on the whole rendered label, NOT not.toContain("所有人"): the
@@ -376,7 +375,6 @@ describe("T-17be ③ 執行者篩選文案「所有負責人」", () => {
     // reading.
     __injectMockTask(mkTask({ title: "其它篩選" }));
     const { findByTestId } = renderPage();
-    openFilterPanel();
     expect((await findByTestId("filter-type")).textContent?.trim()).toBe(
       "所有類型"
     );
@@ -385,7 +383,6 @@ describe("T-17be ③ 執行者篩選文案「所有負責人」", () => {
     // the 已篩選 strip makes it fall back to the label this test is about — and
     // it closes nothing, so the panel has to be reopened to read the trigger.
     clearAllFilters();
-    openFilterPanel();
     expect((await findByTestId("filter-status")).textContent?.trim()).toBe(
       "所有狀態"
     );

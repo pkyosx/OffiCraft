@@ -58,8 +58,11 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-/* a constrained axis (a real subset picked) lights the pill so the owner can
-   see, at a glance, that this dropdown is narrowing the list */
+/* a constrained axis lights the pill so the owner can see, at a glance, that
+   this dropdown is narrowing the list. 🔁 「a real subset picked」 was the rule
+   until T-118 (owner rc-33dfe1ff14cb): ANY non-empty selection is a constraint
+   now, a full set included, so the pill agrees with the 清除篩選 button beside
+   it rather than contradicting it. */
 .tasks__ms-trigger--active {
   border-color: color-mix(in srgb, var(--color-accent) 45%, transparent);
   color: var(--color-text-strong);

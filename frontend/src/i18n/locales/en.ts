@@ -81,7 +81,6 @@ export const en: Dict = {
   },
   // ── Tasks page (M3 task cards) ──
   tasks: {
-    title: "Tasks",
     openTitle: "Open",
     closedTitle: "Closed",
     emptyNone: "No tasks yet",
@@ -98,7 +97,6 @@ export const en: Dict = {
     filterStatusNoun: "Statuses",
     // The chip's own word for the id axis — short, because the value sits right
     // next to it. The FIELD keeps the longer "Task ID" placeholder.
-    filterIdNoun: "ID",
     // A non-404 failure: the question never got an answer, so "not found" would
     // be a lie.
     idUnreached: (id: string) =>
@@ -301,19 +299,14 @@ export const en: Dict = {
       versionsOpaqueTail: ") — look at the two versions one at a time instead.",
     },
   },
-  // ── Filter panel (T-93 round 2) ──
-  // Modelled on the affordance the owner pointed at (c-7496afccb304): a funnel
-  // button opens an in-page panel, Cancel/Apply close it, and a summary strip
-  // states what is still applied once it is shut.
-  filterPanel: {
-    filter: "Filter",
-    cancel: "Cancel",
-    apply: "Apply filters",
-    results: (n: number) => `${n} result${n === 1 ? "" : "s"}`,
-    filteredBy: "Filtered by:",
-    clearAll: "Clear all",
-    removeChip: (label: string) => `Remove filter: ${label}`,
-  },
+  // ── Filter row (T-118) ──
+  // The whole `filterPanel` group is GONE, and it is not a tidy-up: owner
+  // 2026-09-06 (c-c3d681fe05da) removed every control that carried a word.
+  // Filter / Cancel / Apply filters went with the funnel and its two buttons;
+  // "N results" / "Filtered by:" / "Clear all" / "Remove filter" went with the
+  // summary strip. The row that replaced them is fields and nothing else, so it
+  // has no copy of its own — the field labels live under `tasks.*` / `replies.*`
+  // because each page words its own.
   replies: {
     waitingTitle: "Ask",
     handledTitle: "Recently handled",
@@ -321,11 +314,19 @@ export const en: Dict = {
       "Items answered or expired · answers can still be changed",
     empty: "✓ No pending asks",
     emptyFiltered: "No asks match the current filter",
+    // The 開卡人 axis (T-118). Wording mirrors the 任務頁 executor dropdown:
+    // "all <noun>" when NOTHING is ticked, that one name for a single tick,
+    // "<noun> · N" for any other set. ⚠️ A FULL set no longer says "all <noun>"
+    // (owner 2026-09-06 rc-33dfe1ff14cb 「完全沒勾跟有勾的情況本來就是不同的」) —
+    // an empty set is a standing no-constraint that covers whoever turns up
+    // later, a full set is only a snapshot of the names that existed at ticking
+    // time. The earlier wording here said "for a partial pick", which is the
+    // overturned rule; zh.ts carried the correction and en.ts did not.
+    filterOpenerNoun: "Opener",
+    filterOpenerAll: "All openers",
     filterIdLabel: "Reply-card id",
-    clearFilters: "Clear filter",
+    clearFilters: "Clear filters",
     // ── Filter panel (T-93 round 2) ──
-    filterTitle: "Asks",
-    chipId: (id: string) => `Id: ${id}`,
     // 🔴 Three outcomes, three sentences — never merged. Round 1 had one, so
     // "this card does not exist" and "this card was simply never loaded" read
     // identically; that collapse is the defect this ticket removes.

@@ -1,16 +1,19 @@
-// TasksPage — the 任務 page (M3, SPEC §2): 標題 → 篩選面板 → 任務清單.
+// TasksPage — the 任務 page (M3, SPEC §2): 篩選列 → 任務清單.
 //
-//   篩選面板 — a FilterPanel (T-93 round 3). owner 2026-09-06 rejected the
-//             always-on 篩選列 twice:「很常我們要找一張任務或票而已，但每次都要
-//             全部都撈回來才濾不合理 你可以設計成要給完搜尋條件要再按 search 的
-//             版本嗎」, then「按搜尋時不要再跳出新modal」. So every field lives
-//             inside a panel that expands IN THE PAGE behind a funnel button,
-//             nothing takes effect until 套用篩選, and what IS applied stays
-//             readable on the 已篩選 strip while the panel is shut. 「一起搬」 —
-//             ALL four axes moved in; nothing filter-related is left outside.
-//             狀態 is still asked of the SERVER (T-a3e4: the fetch carries the
-//             APPLIED set, see the setStatuses effect); 負責人 / 類型 stay
-//             client-side over the already status-narrowed list.
+//   篩選列   — a FilterPanel (T-118). Four axes, ALWAYS VISIBLE, each taking
+//             effect as soon as it is set. owner 2026-09-06 20:07
+//             (c-c3d681fe05da):「不要多filter那一層了,全部拉出來」— so round 3's
+//             funnel button, its 取消/套用篩選 pair, its 已篩選 strip and the
+//             「案件」 sub-title above the list are all gone.
+//             🔴 ONE axis still does not commit on keystroke: 任務編號 waits for
+//             Enter or blur, because it changes a SERVER request (it is passed
+//             to `useTasks` below, which reads `GET /api/tasks/{id}`). That is
+//             the surviving half of 「每次都要全部都撈回來才濾不合理」 and the one
+//             timing owner named this round. The three dropdowns commit at
+//             once — a tick is already a whole condition.
+//             狀態 is asked of the SERVER (T-a3e4: the fetch carries the applied
+//             set, see the setStatuses effect); 負責人 / 類型 stay client-side
+//             over the already status-narrowed list.
 //   未結束  — every NON-terminal task in ONE list (狀態不分組 — the status
 //             badge differentiates), ordered by priority 高→中→低→凍結 (凍結
 //             永遠最後), createdTs newest-first within a level.
@@ -34,7 +37,7 @@ import { useHashRoute } from "../lib/hashRoute";
 import { TaskCard } from "./TaskCard";
 import { IdFilterInput } from "./IdFilterInput";
 import { MultiSelectFilter, type MultiSelectOption } from "./MultiSelectFilter";
-import { FilterPanel, type FilterChip } from "./FilterPanel";
+import { FilterPanel } from "./FilterPanel";
 import { ChevronRightIcon } from "./icons";
 import "./office.css"; // chat composer classes the embedded ReplyComposer reuses
 import "./replies.css"; // shared reply-card interior styles (embedded cards)
@@ -65,7 +68,10 @@ const STATUS_OPTIONS = [
   "duplicated",
 ];
 
-// 一進頁面預設排除兩個終態 (done / terminated) — the status filter opens with
+// 一進頁面預設排除 TERMINAL 的每一個狀態（清單見上面那個常數，不在這裡抄第二份；
+// 這一行原本寫「兩個終態 (done / terminated)」，比 TERMINAL 少列一個。它在本 repo
+// 的第一顆 commit 裡就已經是這樣寫，所以是什麼時候開始對不上的，從這裡查不到）
+// — the status filter opens with
 // every NON-terminal status checked, so the page shows only live tasks and the
 // exclusion is visible (and undoable) right there in the 狀態 dropdown (T-be18).
 const DEFAULT_STATUS = STATUS_OPTIONS.filter((s) => !TERMINAL.has(s));
@@ -75,7 +81,7 @@ export function TasksPage() {
   const { members } = useMembers();
   // ── 請示 → 任務: a reply card 查看任務詳情 routes to #tasks/<id>. That id
   // is just another filter dimension — the list narrows to that one task in the
-  // normal layout, cleared by the same 清除篩選 as any other filter.
+  // normal layout, cleared the same way any other axis is: empty its field.
   // Read BEFORE useTasks so the anchored id reaches the hook in the SAME render
   // the hash lands in: routed through an effect instead, the mount fetch and the
   // page's empty-state decision would both run a commit before the hook knows
@@ -126,16 +132,20 @@ export function TasksPage() {
     return () => window.clearInterval(timer);
   }, []);
 
-  // ── APPLIED vs DRAFT (T-93 round 3) ──────────────────────────────────────
-  // TWO copies of the same four axes, and the split IS the feature the owner
-  // asked for:
-  //   APPLIED — what the list is actually filtered by, and the ONLY thing the
-  //             server is ever asked about. It changes on 套用篩選, on a chip's
-  //             ×, and on 清除全部 — never on a keystroke.
-  //   DRAFT   — what the panel's fields are bound to. Opening the panel reseeds
-  //             it from APPLIED, Cancel throws it away, Apply copies it over.
-  // 「每次都要全部都撈回來才濾不合理」 is answered structurally: nothing is fetched
-  // or narrowed while the owner is still stating his conditions.
+  // ── THE FOUR AXES (T-118) ────────────────────────────────────────────────
+  // ONE copy of each axis now. Round 3 held two (applied / draft) because the
+  // fields lived in a panel with 取消 / 套用篩選 at the bottom; owner 2026-09-06
+  // 20:07 (c-c3d681fe05da) took the panel, both buttons and the draft away:
+  //「不要多filter那一層了,全部拉出來」. A dropdown click is a complete condition,
+  // so it takes effect at once and there is nothing left to stage.
+  //
+  // 🔴 THE ID IS THE ONE EXCEPTION, AND IT IS NOT AN OVERSIGHT. It keeps a
+  // second piece of state (`draftId`, what is in the box) because a half-typed
+  // id is not a condition — and because `useTasks(…, appliedId)` below turns an
+  // applied id into a SERVER request, so committing per keystroke is a fetch
+  // per keystroke. owner rejected that shape twice (「每次都要全部都撈回來才濾
+  // 不合理」) and named the replacement this round:「按enter或是點外面就視為
+  // apply」. `draftId` → `appliedId` happens on Enter and on blur, nowhere else.
   //
   // A dimension's Set holds the keys ticked; an EMPTY set means "no constraint"
   // (所有負責人 / 所有類型 / 所有狀態).
@@ -157,34 +167,23 @@ export function TasksPage() {
     taskIdFilter ? new Set<string>() : new Set(DEFAULT_STATUS)
   );
 
-  const [draftExecutor, setDraftExecutor] = useState<Set<string>>(
-    () => new Set()
-  );
-  const [draftType, setDraftType] = useState<Set<string>>(() => new Set());
-  const [draftStatus, setDraftStatus] = useState<Set<string>>(() =>
-    taskIdFilter ? new Set<string>() : new Set(DEFAULT_STATUS)
-  );
+  // What is IN THE BOX. `appliedId` above is what the page is filtered by; the
+  // two differ exactly while the owner is mid-word.
   const [draftId, setDraftId] = useState(taskIdFilter ?? "");
-  const [panelOpen, setPanelOpen] = useState(false);
 
-  // Opening reseeds the draft from what is APPLIED — so the panel always opens
-  // showing the truth, never a half-typed condition from a session the owner
-  // cancelled out of.
-  function openPanel(next: boolean) {
-    if (next) reseedDraft();
-    setPanelOpen(next);
-  }
-  function reseedDraft() {
-    setDraftExecutor(new Set(appliedExecutor));
-    setDraftType(new Set(appliedType));
-    setDraftStatus(new Set(appliedStatus));
-    setDraftId(appliedId);
-  }
-  function applyDraft() {
-    setAppliedExecutor(new Set(draftExecutor));
-    setAppliedType(new Set(draftType));
-    setAppliedStatus(new Set(draftStatus));
-    const nextId = draftId.trim();
+  /** Enter or blur on the 任務編號 field — the only two events that turn typed
+   * text into a filter (owner 2026-09-06:「按enter或是點外面就視為apply了」). */
+  function commitId(next: string) {
+    const nextId = next.trim();
+    // Typing and then committing the SAME value must not re-run anything: this
+    // fires on blur too, so tabbing through an untouched field would otherwise
+    // repeat the by-id fetch for no reason.
+    if (nextId === appliedId) {
+      // Still normalise the box, so 「 t-1 」 settles to what is actually applied.
+      if (nextId !== next) setDraftId(nextId);
+      return;
+    }
+    setDraftId(nextId);
     setAppliedId(nextId);
     // The hash is a SEED, not a mirror: once the owner edits the id by hand the
     // URL must stop re-imposing the old one on the next render.
@@ -232,7 +231,7 @@ export function TasksPage() {
   // not about one task.
   // One-shot (composeTaskNo precedent): the hash normalises back to #tasks the
   // moment it is consumed, so the seeded filters are ordinary, owner-editable
-  // filter state — 清除全部 and the panel work on them like any other.
+  // filter state — the fields edit them like any other.
   const executorSeed = route.page === "tasks" ? route.executorId : undefined;
   useEffect(() => {
     if (!executorSeed) return;
@@ -240,14 +239,22 @@ export function TasksPage() {
     setAppliedType(new Set());
     setAppliedStatus(new Set(DEFAULT_STATUS));
     setAppliedId("");
+    // 🔴 THE BOX TOO, NOT JUST THE APPLIED VALUE (T-118, found in independent
+    // review). `draftId` is what the 任務編號 field DISPLAYS; leaving it behind
+    // makes the field say 「t-aaa1」 over a list that is no longer filtered by
+    // it — and because the field commits on blur, one click into and out of it
+    // silently re-applies the id and throws the executor jump away. The
+    // draft/applied split only stays honest if every writer of `appliedId`
+    // moves both.
+    setDraftId("");
     setRoute({ page: "tasks" });
   }, [executorSeed, setRoute]);
 
   // ── 勾什麼就問什麼 (T-a3e4) ────────────────────────────────────────────────
   // The fetch asks for the statuses the owner has APPLIED. ONE view genuinely
-  // needs every status and says so by sending nothing: 清除全部 (an empty set =
-  // 所有狀態) — there the owner asked for the whole population, so downloading
-  // it is the answer, not a defect.
+  // needs every status and says so by sending nothing: every 狀態 box unticked
+  // (an empty set = 所有狀態) — there the owner asked for the whole population,
+  // so downloading it is the answer, not a defect.
   //
   // 🔴 A by-id view is NOT such a view, and that is the 432 KB defect (owner
   // 2026-08-01): the id may name a task outside the ticked statuses, and the
@@ -278,31 +285,39 @@ export function TasksPage() {
     setStatuses(statusAsk === "" ? [] : statusAsk.split(","));
   }, [statusAsk, appliedId, setStatuses]);
 
+  // 🔴 清除篩選 — REMOVED, THEN PUT BACK BY NAME (T-118). owner 2026-09-06
+  // named the 「N 筆 · 已篩選：<chip ×> · 清除全部」 strip when he asked for a
+  // removal (c-c3d681fe05da); I removed the BUTTON with it, because that is
+  // where it happened to live. He asked for it back the moment he saw the row
+  // without it (c-2423dba8b65b:「清除篩選還是要留著」). The strip and the button
+  // were two things, not one — the strip STATED the conditions (which the
+  // permanently-visible fields now do), the button ENDED them (which nothing
+  // else does in one gesture). Only the first was redundant.
+  //
+  // It is also the exit from a 404 anchor: an id that names nothing leaves the
+  // anchor applied, and this clears it together with the hash. The 編號 field is
+  // a second way out now that it is always on screen, but a reader who does not
+  // realise the id came from a link would not know to look there.
   function clearFilters() {
-    // 清除全部 = 顯示全部 (T-50bb): every axis to "no constraint" — status
-    // EMPTIES too (所有狀態, 已完成/終止 included), no longer back to the
-    // default four (the old T-be18 semantics). The id is just another axis, so
-    // it clears with the rest — and it is the way OUT of a hash anchor, which
-    // is why the hash goes with it.
+    // 清除篩選 = 顯示全部 (T-50bb): every axis to "no constraint" — status
+    // EMPTIES too (所有狀態, 已完成/終止 included), NOT back to the default four.
     setAppliedExecutor(new Set());
     setAppliedType(new Set());
     setAppliedStatus(new Set());
     setAppliedId("");
-    setDraftExecutor(new Set());
-    setDraftType(new Set());
-    setDraftStatus(new Set());
     setDraftId("");
     if (taskIdFilter) setRoute({ page: "tasks" });
   }
-
-  // Drop ONE applied axis and re-run immediately (the 已篩選 chips' ×). The
-  // draft moves with it so the panel does not reopen showing a filter that is
-  // no longer on.
-  function clearId() {
-    setAppliedId("");
-    setDraftId("");
-    if (taskIdFilter) setRoute({ page: "tasks" });
-  }
+  // Something is narrowing the list ⇒ the button is offered. 🔴 The DEFAULT view
+  // counts: its status set hides the two terminals, so 清除篩選 is on from the
+  // first render and pressing it widens to 顯示全部 (T-50bb). A version that
+  // only counted "the owner touched something" would leave no way to reach the
+  // terminals without knowing the dropdown hides them.
+  const anyFilter =
+    appliedExecutor.size > 0 ||
+    appliedType.size > 0 ||
+    appliedStatus.size > 0 ||
+    appliedId !== "";
 
   // Executor options: 外包 / 未指派 / 各成員 (real AI members only — machine-
   // layer wardens are not executors). An empty set = 所有人.
@@ -378,13 +393,13 @@ export function TasksPage() {
   // "active tasks on this person", and it moves in step with the status filter
   // (add 已完成 → counts grow). taskIdFilter is ignored here (a single-task
   // anchor isn't a status/type filter).
-  // The counts sit INSIDE the panel, so they answer a question about the DRAFT:
-  // "if I applied what I have ticked so far, how many would this person have?"
-  // Reading the applied sets here would show counts that contradict the boxes
-  // right next to them the moment the owner ticks 已完成 and has not pressed
-  // 套用篩選 yet.
+  // T-118: these used to read the DRAFT sets, because the counts sat inside a
+  // panel and had to agree with the boxes next to them rather than with a list
+  // the owner had not applied yet. There is no draft any more — a tick IS the
+  // condition — so the applied sets are the only sets, and the counts and the
+  // list are now incapable of disagreeing.
   const inCountScope = (task: TaskView) =>
-    passesStatus(task, draftStatus) && passesType(task, draftType);
+    passesStatus(task, appliedStatus) && passesType(task, appliedType);
   const executorCount = (pred: (t: TaskView) => boolean) =>
     tasks.filter((t) => inCountScope(t) && pred(t)).length;
   const executorOptions: MultiSelectOption[] = [
@@ -413,7 +428,7 @@ export function TasksPage() {
     // 負責人下拉只列在當前 status/type 結果集中有任務的執行者 (owner 回饋:計數
     // 0 者隱藏;外包與未指派同規則,T-be18 #3)。邊界:已勾選的執行者即使計數
     // 歸 0 也保留 — 否則使用者無法取消勾選、勾選態會卡死。
-    .filter((o) => o.count > 0 || draftExecutor.has(o.value));
+    .filter((o) => o.count > 0 || appliedExecutor.has(o.value));
   const typeFilterOptions: MultiSelectOption[] = [
     ...typeOptions.map((k) => ({ value: k, label: typeNames.get(k) ?? k })),
     { value: "adhoc", label: t.tasks.adhoc },
@@ -501,12 +516,22 @@ export function TasksPage() {
   // `anchorPending` goes false and the page renders a message rather than a
   // stuck 載入中.
   //
-  // 🔴 The way OUT is 清除篩選, which already clears this axis with the rest
-  // (see clearFilters) and already shows while it is set (see anyFilter) —
-  // that is why the anchor can stay without trapping the owner in the hash.
+  // 🔴 There are TWO ways OUT, and both are on screen whenever this state is
+  // reachable. (a) The 任務編號 field itself: empty it and press Enter (or click
+  // away). (b) The 清除篩選 button at the end of the field row — `anyFilter`
+  // counts a non-empty `appliedId`, and a 404 anchor is exactly that, so the
+  // button IS rendered here.
+  //
+  // 🔁 This comment used to say the button and its two helpers (`clearFilters`,
+  // `anyFilter`) no longer existed. That was true for about forty minutes:
+  // T-118 removed the button along with the 已篩選 strip it stood on, and then
+  // owner asked「清除篩選怎麼不見了？」(`c-16e6fa704246`) and ruled it back in
+  // (`c-2423dba8b65b`, 2026-09-06). The button came back on the field row, not
+  // on a strip, and both helpers came back with it. Do not restore the older
+  // wording — read lines 298 and 313.
   //
   // A closed target still auto-expands 已結束 so the one match is visible.
-  // 🔴 Keyed on the APPLIED id, not the hash: an id TYPED into the panel names a
+  // 🔴 Keyed on the APPLIED id, not the hash: an id TYPED into the field names a
   // closed task exactly as often as a link does, and if 已結束 stays collapsed
   // the page has "found and passes" as its verdict while showing no row at all —
   // a fourth, silent outcome, which is the failure mode this ticket is about.
@@ -573,74 +598,16 @@ export function TasksPage() {
     !nothingAtAll &&
     filtered.length === 0;
 
-  // ── 已篩選 chips: ONE per APPLIED axis that narrows ────────────────────────
-  // The strip is what keeps a collapsed panel honest — a filter still narrowing
-  // the list has to be readable without reopening it. Each × drops exactly that
-  // axis and re-runs at once (no Apply needed: removing a condition is not a
-  // draft, it is an edit to what is already on).
-  const labelOfExecutor = (key: string) =>
-    key === "outsource"
-      ? t.tasks.outsource
-      : key === "unassigned"
-        ? t.tasks.unassigned
-        : members.find((m) => m.id === key)?.name ?? key;
-  const labelOfType = (key: string) =>
-    key === "adhoc" ? t.tasks.adhoc : typeNames.get(key) ?? key;
-  const labelOfStatus = (key: string) =>
-    key === "reassigning" ? t.tasks.lockReassigning : t.tasks.status[key] ?? key;
-  // 「狀態：進行中 +2」 — name the first pick and count the rest, so a chip stays
-  // one line however many boxes were ticked.
-  function chipValue(keys: string[], label: (k: string) => string): string {
-    const first = label(keys[0]);
-    return keys.length > 1 ? `${first} +${keys.length - 1}` : first;
-  }
-  const chips: FilterChip[] = [];
-  if (idApplied) {
-    chips.push({
-      key: "id",
-      label: `${t.tasks.filterIdNoun}：${appliedId}`,
-      onRemove: clearId,
-    });
-  }
-  if (appliedExecutor.size > 0) {
-    chips.push({
-      key: "executor",
-      label: `${t.tasks.filterExecutorNoun}：${chipValue(
-        [...appliedExecutor],
-        labelOfExecutor
-      )}`,
-      onRemove: () => {
-        setAppliedExecutor(new Set());
-        setDraftExecutor(new Set());
-      },
-    });
-  }
-  if (appliedType.size > 0) {
-    chips.push({
-      key: "type",
-      label: `${t.tasks.filterTypeNoun}：${chipValue(
-        [...appliedType],
-        labelOfType
-      )}`,
-      onRemove: () => {
-        setAppliedType(new Set());
-        setDraftType(new Set());
-      },
-    });
-  }
-  if (appliedStatus.size > 0) {
-    chips.push({
-      key: "status",
-      label: `${t.tasks.filterStatusNoun}：${chipValue(
-        [...appliedStatus],
-        labelOfStatus
-      )}`,
-      onRemove: () => {
-        setAppliedStatus(new Set());
-        setDraftStatus(new Set());
-      },
-    });
-  }
+  // ── 已篩選 chips: GONE (T-118) ────────────────────────────────────────────
+  // owner 2026-09-06 (c-c3d681fe05da):「也不用再顯示14筆已篩選跟那一行」. The strip
+  // existed because a COLLAPSED panel could narrow the list silently, and the
+  // chips were the only place that said so. The panel does not collapse any
+  // more — every field is on screen holding its own value — so the property the
+  // chips protected is now carried by the fields themselves.
+  //
+  // ⇒ Re-adding a chip row would state each condition twice, in two places that
+  // can drift. If a future change puts the fields back behind anything, the
+  // chips have to come back WITH it; they are not independent decoration.
 
   function renderCard(task: TaskView) {
     return (
@@ -677,51 +644,59 @@ export function TasksPage() {
         </div>
       )}
 
-      {/* ── 篩選面板 (T-93 round 3) — 「一起搬」: every axis lives in here ── */}
+      {/* ── 篩選列 (T-118) — 四個軸,常駐可見,選了就生效 ── */}
       <FilterPanel
-        title={t.tasks.title}
-        count={filtered.length}
-        open={panelOpen}
-        onOpenChange={openPanel}
-        chips={chips}
-        onClearAll={clearFilters}
-        onApply={applyDraft}
-        onCancel={reseedDraft}
         testId="tasks-filter"
+        clearLabel={t.tasks.clearFilters}
+        onClear={anyFilter ? clearFilters : undefined}
       >
-        {/* 10 characters: owner 2026-09-06 set this by hand — 任務 ids are not a
-          * fixed length the way 請示卡 ids are (this station shows `T-93`; the
-          * canonical form is `t-` + 12 hex), so there is no measurement to
-          * derive it from and he picked one rather than have me invent it. */}
+        {/* 🔴 A second comment used to sit here saying the count was 10, set by
+          * hand, and that the canonical 任務 id was `t-` + 12 hex. BOTH halves
+          * were false by the time anyone read them: owner replaced the 10 on
+          * 2026-09-07 (`rc-b2beb7b1fd3c` 「任務可先假設到萬位數」 — see the note
+          * on `widthCh` below), and `t-` + 12 hex is the OLD, unmigrated shape
+          * — canonical is `T-` + a sequence number (dal_task_id_seq.go, and
+          * docs/design/SPEC.md agrees). It is DELETED rather than corrected
+          * because the note on `widthCh` already carries the whole record:
+          * two comments on one element is what let them drift apart, and a
+          * stale one here points the next reader at the guard instead of the
+          * bug — 7 would look like someone's slip and the red assertion like
+          * the thing to 「fix」. */}
         <IdFilterInput
           value={draftId}
           onChange={setDraftId}
+          onCommit={commitId}
           label={t.tasks.filterIdLabel}
           testId="filter-task-id"
-          widthCh={10}
+          // 「T-」 + up to five digits. owner 2026-09-07 `rc-b2beb7b1fd3c`:
+          // 「ID寬度要合理…任務可先假設到萬位數」 — it replaces the 10 he had set
+          // by hand the day before. ⚠️ This is the ID's share only; the field
+          // also has to hold its own label and takes whichever is wider (see
+          // IdFilterInput), so on this page the visible width is the label's.
+          widthCh={7}
         />
         <MultiSelectFilter
           noun={t.tasks.filterExecutorNoun}
           allLabel={t.tasks.filterExecutorAll}
           options={executorOptions}
-          selected={draftExecutor}
-          onChange={setDraftExecutor}
+          selected={appliedExecutor}
+          onChange={setAppliedExecutor}
           testId="filter-executor"
         />
         <MultiSelectFilter
           noun={t.tasks.filterTypeNoun}
           allLabel={t.tasks.filterTypeAll}
           options={typeFilterOptions}
-          selected={draftType}
-          onChange={setDraftType}
+          selected={appliedType}
+          onChange={setAppliedType}
           testId="filter-type"
         />
         <MultiSelectFilter
           noun={t.tasks.filterStatusNoun}
           allLabel={t.tasks.filterStatusAll}
           options={statusFilterOptions}
-          selected={draftStatus}
-          onChange={setDraftStatus}
+          selected={appliedStatus}
+          onChange={setAppliedStatus}
           testId="filter-status"
         />
       </FilterPanel>

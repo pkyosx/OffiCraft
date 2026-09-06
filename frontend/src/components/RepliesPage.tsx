@@ -46,6 +46,7 @@ import { ReplyCardAvatarButton } from "./ReplyCardAvatarButton";
 import { ChevronRightIcon } from "./icons";
 import { FilterPanel } from "./FilterPanel";
 import { IdFilterInput } from "./IdFilterInput";
+import { MultiSelectFilter, type MultiSelectOption } from "./MultiSelectFilter";
 import { ConfirmModal } from "./ConfirmModal";
 import { Markdown } from "./Markdown";
 import {
@@ -92,22 +93,26 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
   const [, setRoute] = useHashRoute();
 
   // ── 篩選 (T-93 round 2) ─────────────────────────────────────────────────
-  // Round 1 put an always-visible 篩選列 here that narrowed the ALREADY-LOADED
-  // cards on every keystroke. owner 2026-09-06 rejected that shape twice:
-  //「很常我們要找一張任務或票而已，但每次都要全部都撈回來才濾不合理 你可以設計
-  //  成要給完搜尋條件要再按 search 的版本嗎」and, on being shown an overlay,
-  //「按搜尋時不要再跳出新modal」。So the fields live inside the shared
-  // FilterPanel shell (FilterPanel.tsx — read its header before touching this):
-  // an in-page panel that expands above the list, Cancel / 套用篩選 at the
-  // bottom, and a 「N 筆 · 已篩選：<chip ×> · 清除全部」 strip once collapsed.
+  // ── ID 篩選 (T-118) ──────────────────────────────────────────────────────
+  // The field is permanently visible above the list — no funnel, no panel, no
+  // 取消/套用篩選, no 「N 筆 · 已篩選」 strip, and no 「請示卡」 sub-title above it.
+  // owner 2026-09-06 20:07 (c-c3d681fe05da):「不要多filter那一層了,全部拉出來
+  //…也不用再顯示14筆已篩選跟那一行跟案件那個子標了,案件跟請示卡都一樣」, and
+  // again at 20:19 (c-38c7759e6377):「請示卡跟任務都要改成一樣的呈現方式,一樣
+  // 請示卡的子標題拿掉」. The shell is still the shared FilterPanel (read
+  // FilterPanel.tsx's header — that contract is not restated here); it is now a
+  // row rather than an expander, so both pages got the new shape at once.
   //
-  // TWO STATES, NOT ONE. `appliedId` is what the page is actually filtered by;
-  // `draftId` is what the field binds to. Typing changes NOTHING until Apply —
-  // that is the whole answer to 「每次都要全部都撈回來才濾不合理」, because
-  // nothing is fetched or narrowed per keystroke.
+  // TWO STATES, STILL. `appliedId` is what the page is actually filtered by;
+  // `draftId` is what the field binds to. 🔴 They are still separate, and NOT
+  // because of a leftover panel: an applied id is a SERVER request
+  // (`api.getReplyCard` in the lookup effect below), so committing per keystroke
+  // is a fetch per keystroke — the shape owner rejected twice
+  // (「每次都要全部都撈回來才濾不合理」,「按搜尋時不要再跳出新modal」). What
+  // changed this round is only WHEN the draft commits: Enter or blur
+  // (「按enter或是點外面就視為apply了」), where it used to be 套用篩選.
   const [appliedId, setAppliedId] = useState(replyCardId ?? "");
   const [draftId, setDraftId] = useState(replyCardId ?? "");
-  const [filterOpen, setFilterOpen] = useState(false);
   // `#replies/card/<id>` still seeds the APPLIED id (unchanged from round 1):
   // a notification tap or a shared link lands on that one card without the
   // owner having to open the panel and press anything.
@@ -172,16 +177,58 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
         lookup.card)
       : null;
 
+  // 🔴 清除篩選 — REMOVED, THEN PUT BACK BY NAME (T-118). It used to sit on the
+  // 已篩選 strip; owner named the strip for removal (c-c3d681fe05da) and then
+  // asked for this control back once he saw the row without it
+  // (c-2423dba8b65b:「清除篩選還是要留著」). The strip STATED the filter — the
+  // permanently-visible field does that now — while the button ENDS it, which
+  // nothing else does in one gesture. Clearing must also drop the id from the
+  // URL, or a reload would seed it straight back and the clear would look broken.
   function clearFilters() {
     setAppliedId("");
     setDraftId("");
-    // Clearing must also drop the id from the URL, or a reload would seed it
-    // straight back and the clear would look broken.
+    setOpenerFilter(new Set());
     if (replyCardId) setRoute({ page: "replies" });
   }
 
-  function applyFilters() {
-    const next = draftId.trim();
+  // ── 開卡人 (T-118, owner 2026-09-06 c-782404ee53d8「請示卡我想多一個開卡的人
+  // 的filter」) ──────────────────────────────────────────────────────────────
+  // Built the way 任務頁's 負責人 axis is built, because owner said so in as many
+  // words when he was shown the alternative (c-7e4374094273:「那我們先跟任務用
+  // 同樣的做法就好」): the options and their counts are computed from the LOADED
+  // panes, and the narrowing happens here rather than on the server.
+  //
+  // 🔴 THAT IS NOT AN OVERSIGHT AND IT IS NOT A CONTRADICTION OF「都不可以在前端
+  // 做篩選」(c-b3f5a7fe2431). It is the resolution he chose after being shown
+  // what server-side narrowing would cost HERE: the option list is derived from
+  // the same rows the pane holds, so a server that returned only the picked
+  // person's cards would leave that person as the ONLY option — nothing to
+  // switch to, nothing to untick. He was given three ways out and answered by
+  // pointing at the existing page. Moving this to the server later means
+  // solving the option-list problem first; it is not a one-line change.
+  //
+  // An EMPTY set = 所有開卡人 (no constraint), same convention as 任務頁.
+  const [openerFilter, setOpenerFilter] = useState<Set<string>>(
+    () => new Set()
+  );
+  // What 清除篩選 is offered for — EITHER axis, not just the id. `filtering`
+  // stays id-only on purpose: it also gates the by-id lookup's three outcomes
+  // and the handled pane's force-expand, and an 開卡人 tick must not switch
+  // those on (there is no id to have found, missed, or failed to reach).
+  const anyFilter = idQuery !== "" || openerFilter.size > 0;
+
+  /** Enter or blur on the 編號 field — the only two events that turn typed text
+   * into a filter (owner 2026-09-06:「按enter或是點外面就視為apply了」). */
+  function commitId(value: string) {
+    const next = value.trim();
+    // Blur fires on every tab-through, so committing an unchanged value must
+    // cost nothing: `idQuery` drives the lookup effect, and re-setting it to
+    // what it already holds would re-run `api.getReplyCard` for no reason.
+    if (next === appliedId) {
+      if (next !== value) setDraftId(next);
+      return;
+    }
+    setDraftId(next);
     setAppliedId(next);
     // The hash is a SECOND source for the applied id, so leaving a stale one
     // there would re-seed the old card on the next reload.
@@ -251,11 +298,33 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
   // With a filter applied the two panes hold exactly what the SERVER returned
   // for that id — one card, in whichever pane its status belongs to — not a
   // narrowing of the loaded rows.
+  // The 24h window, in ONE place. It decides two things that must never drift
+  // apart: which handled cards are VISIBLE, and which ones the 開卡人 counts are
+  // computed over. Two copies of this predicate would let a future edit narrow
+  // one and not the other, and the symptom — a name offered with a count no
+  // list can produce — would look like a counting bug rather than a window one.
+  const withinHandledWindow = (c: ReplyCard) => {
+    const ts = handledTsOf(c);
+    return ts !== null && nowTs - ts < HANDLED_WINDOW_SECONDS;
+  };
+
+  // 開卡人 predicate. An empty set is "no constraint", so an unticked axis is
+  // free rather than exclusive — same convention as 任務頁's three dropdowns.
+  const passesOpener = (c: ReplyCard) =>
+    openerFilter.size === 0 || openerFilter.has(c.from);
+
+  // 🔴 THE 開卡人 AXIS ANDs WITH THE ID, IT DOES NOT REPLACE IT. An id names ONE
+  // card and is answered by the SERVER; if that card's opener fails this axis,
+  // the honest answer is the ordinary filtered-empty, not the card. Letting the
+  // id win would make 「找到了，但不是這個人開的」 render as a hit, which is the
+  // same class of merged-silence defect the id lookup exists to remove.
   const waitingSorted = filtering
-    ? foundCard && foundCard.status === "waiting"
+    ? foundCard && foundCard.status === "waiting" && passesOpener(foundCard)
       ? [foundCard]
       : []
-    : [...waiting].sort((a, b) => b.createdTs - a.createdTs);
+    : [...waiting]
+        .filter(passesOpener)
+        .sort((a, b) => b.createdTs - a.createdTs);
 
   const visibleHandled = filtering
     ? // 🔴 NO 24h PRUNE on a card fetched by id. The window is what makes the
@@ -263,13 +332,28 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
       // server would re-create the exact hole this round removes — the owner
       // asks for a card, the server hands it over, and the page drops it for
       // being old.
-      foundCard && foundCard.status !== "waiting"
+      foundCard && foundCard.status !== "waiting" && passesOpener(foundCard)
       ? [foundCard]
       : []
-    : handled.filter((c) => {
-        const ts = handledTsOf(c);
-        return ts !== null && nowTs - ts < HANDLED_WINDOW_SECONDS;
-      });
+    : handled.filter((c) => passesOpener(c) && withinHandledWindow(c));
+  // ── 開卡人 options + counts ────────────────────────────────────────────────
+  // 🔴 COUNTED OVER THE PANES BEFORE THE OPENER AXIS NARROWS THEM. That is the
+  // whole reason this axis stays usable: count the ALREADY-narrowed rows and a
+  // ticked person becomes the only person with a non-zero count, so every other
+  // name disappears and the owner cannot switch or untick. 任務頁 has the same
+  // shape for the same reason (`inCountScope` there).
+  //
+  // The basis is 待回覆 ∪ 近期已處理-within-24h — i.e. what this page actually
+  // holds. It deliberately does NOT include a card fetched by id: that card can
+  // be older than the window, so counting it would make one person's number
+  // jump by one for as long as an unrelated id is applied.
+  const openerBasis = [...waiting, ...handled.filter(withinHandledWindow)];
+  const openerCounts = new Map<string, number>();
+  for (const c of openerBasis) {
+    openerCounts.set(c.from, (openerCounts.get(c.from) ?? 0) + 1);
+  }
+  // 開卡人 下拉的選項在 `whoOf` 之後才建得起來（它要用 `codenames`），見下方。
+
   // The header count + zero-hide: the server counts until the lists are
   // loaded, then the client-pruned visible length (so an aging-out card drops
   // the header too while the page stays open).
@@ -282,6 +366,14 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
   // review, 2026-09-05). Only a LOADED list may narrow this number; unloaded
   // falls back to the server's whole-pane count, exactly as it does with no
   // filter at all.
+  //
+  // ⚠️ THE FALLBACK NUMBER IGNORES THE 開卡人 AXIS. `handledCount` is the
+  // server's whole-pane total, so while the pane is still unloaded the title can
+  // say a number larger than the tick would allow, and it drops to the filtered
+  // one the moment the pane unfolds. That is the pre-existing fallback behaving
+  // as designed (an unloaded list cannot narrow anything), but the opener axis
+  // makes it much easier to notice than the id axis did — the id path sets
+  // `filtering` and takes the first branch, an opener tick does not.
   const handledShown = filtering
     ? visibleHandled.length
     : handledLoaded
@@ -315,17 +407,53 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
   // Resolve the initiating member for a card's identity row. A card can
   // outlive its member (removed roster row) — fall back to the outsource
   // codename, then the raw id / no role, never fabricate.
-  function whoOf(card: ReplyCard): { name: string; role: string } {
-    const m = members.find((x) => x.id === card.from);
+  function whoOfId(fromId: string): { name: string; role: string } {
+    const m = members.find((x) => x.id === fromId);
     if (!m || m.kind === "outsource") {
-      const cn = codenames.get(card.from);
-      return { name: cn ? msg.outsourceLabel(cn) : card.from, role: "" };
+      const cn = codenames.get(fromId);
+      return { name: cn ? msg.outsourceLabel(cn) : fromId, role: "" };
     }
     const role =
       (t.office.role as Record<string, string>)[m.role] ??
       (m.roleName || m.role);
     return { name: m.name, role };
   }
+  function whoOf(card: ReplyCard): { name: string; role: string } {
+    return whoOfId(card.from);
+  }
+
+  // ── 開卡人 下拉的選項 ──────────────────────────────────────────────────────
+  // owner 2026-09-06 (c-63f5651493f8):「可以選的人就是現在UI filter出來的那些人,
+  // 並且要顯示幾張卡這個數字」— so the list is the people who actually have cards
+  // here, not the whole roster. 邊界 (copied from 任務頁 deliberately): a person
+  // already TICKED stays listed even at zero, or the owner could not untick them
+  // and the filter would be a dead end.
+  //
+  // 🔴 NAMES COME FROM `whoOfId`, THE SAME RESOLVER THE CARDS USE. An earlier
+  // cut read `members.find(...)?.name ?? id` here, which is a DIFFERENT rule
+  // from the one the card bodies follow: a RELEASED outsource asker is soft-
+  // removed from `members`, so the dropdown fell through to the raw `ow-…` id
+  // while the card beside it said 「外包 · 代號」. The owner would have been asked
+  // to tick a name that appears nowhere else on the page. That is also why this
+  // block sits below `codenames` rather than beside `openerCounts` — it needs
+  // the lazy codename read, and hoisting it back up is a TDZ error, not a
+  // tidy-up. Found by independent review of 8204de4f.
+  const openerOptions: MultiSelectOption[] = [...openerCounts.keys()]
+    .map((id) => ({
+      value: id,
+      label: whoOfId(id).name,
+      count: openerCounts.get(id) ?? 0,
+    }))
+    .concat(
+      [...openerFilter]
+        .filter((id) => !openerCounts.has(id))
+        .map((id) => ({
+          value: id,
+          label: whoOfId(id).name,
+          count: 0,
+        }))
+    )
+    .sort((a, b) => b.count - a.count || a.label.localeCompare(b.label));
 
   // Jump to the origin: the ask always comes from a chat message
   // (card.chatMessageId), so open that member's chat room WITH the message id
@@ -588,43 +716,21 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
         </div>
       )}
 
-      {/* ── 篩選 (T-93 round 2) ────────────────────────────────────────────
-        * The shell is FilterPanel's; only the FIELDS are ours. Nothing here is
-        * a modal — it expands in the page and pushes the list down, because
-        * owner ruled out the overlay after seeing it. `testId` is namespaced so
-        * this panel's controls never collide with the 任務頁's. */}
+      {/* ── 篩選 (T-118) ──────────────────────────────────────────────────
+        * The shell is FilterPanel's; only the FIELD is ours. Nothing here is a
+        * modal and nothing here expands — it is a row above the list, because
+        * owner ruled out the overlay (c-3b5a0aa66550) and then the expander
+        * itself (c-c3d681fe05da). `testId` is namespaced so this panel's
+        * controls never collide with the 任務頁's. */}
       <FilterPanel
-        title={t.replies.filterTitle}
-        count={loading ? null : waitingSorted.length + visibleHandled.length}
-        open={filterOpen}
-        onOpenChange={(next) => {
-          // Opening RESEEDS the draft from what is applied: the panel must open
-          // showing the filter that is actually in force, not whatever was left
-          // in the field by a Cancel three minutes ago.
-          if (next) setDraftId(appliedId);
-          setFilterOpen(next);
-        }}
-        chips={
-          filtering
-            ? [
-                {
-                  key: "id",
-                  label: t.replies.chipId(idQuery),
-                  onRemove: clearFilters,
-                },
-              ]
-            : []
-        }
-        onClearAll={clearFilters}
-        onApply={applyFilters}
-        // Cancel commits nothing: put the field back on the applied value so
-        // the abandoned draft cannot leak into the next open.
-        onCancel={() => setDraftId(appliedId)}
         testId="replies-filter"
+        clearLabel={t.replies.clearFilters}
+        onClear={anyFilter ? clearFilters : undefined}
       >
         <IdFilterInput
           value={draftId}
           onChange={setDraftId}
+          onCommit={commitId}
           label={t.replies.filterIdLabel}
           testId="filter-reply-card-id"
           // 15 = the length of every 請示卡 id there is: api_replycards.go:283
@@ -640,6 +746,14 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
           // caught this comment TWICE: once for the original wording, and again
           // for the note that quoted the banned phrase in order to explain it.
           widthCh={15}
+        />
+        <MultiSelectFilter
+          noun={t.replies.filterOpenerNoun}
+          allLabel={t.replies.filterOpenerAll}
+          options={openerOptions}
+          selected={openerFilter}
+          onChange={setOpenerFilter}
+          testId="filter-opener"
         />
       </FilterPanel>
 
@@ -680,7 +794,16 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
             </div>
           ) : (
             <div className="replies__empty" data-testid="replies-empty">
-              {filtering ? t.replies.emptyFiltered : t.replies.empty}
+              {/* 🔴 `anyFilter`, NOT `filtering`. `filtering` is id-only, and it
+                * has a second job (gating the by-id lookup's three outcomes)
+                * that an 開卡人 tick must not switch on. But the sentence below
+                * is not about the id — it is about whether ANY axis is hiding
+                * rows. With `filtering` here, ticking only 開卡人 and matching
+                * nothing printed 「✓ 目前沒有待處理的請示」 while other people's
+                * cards sat behind the filter: precisely the 「you are all caught
+                * up」 lie the comment above this block forbids. Found by
+                * independent review of 8204de4f. */}
+              {anyFilter ? t.replies.emptyFiltered : t.replies.empty}
             </div>
           )
         ) : (
@@ -694,8 +817,15 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
         * the answer to a question the owner asked, so it has to stay on screen
         * and say 0 — hiding it there removes the only handle for opening the
         * pane and makes "no match" indistinguishable from "nothing exists"
-        * (independent review, 2026-09-05). */}
-      {(handledShown > 0 || filtering) && (
+        * (independent review, 2026-09-05).
+        *
+        * 🔴 `anyFilter`, NOT `filtering` — the 2026-09-05 defect above was
+        * reopened by the 開卡人 axis, because `filtering` only counts the id.
+        * Ticking a person made this whole section vanish along with the only
+        * handle for opening it, which is the same「no match looks like nothing
+        * exists」failure, one axis over. Found by independent review of
+        * 8204de4f. */}
+      {(handledShown > 0 || anyFilter) && (
         <section className="replies__section">
           {/* The whole title row IS the toggle (collapsed by default): the
            * handled pane only unfolds on demand, vibe-clicking style — and the

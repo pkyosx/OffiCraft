@@ -46,85 +46,77 @@ const ROOT = fileURLToPath(new URL("..", import.meta.url));
 // somebody typed and pressed, and a picture of the closed panel proves nothing
 // about them.
 const TARGETS = [
-  // ── 篩選面板 (T-93 round 2/3) ─────────────────────────────────────────────
-  // The owner asked to SEE this before it lands, and the states worth showing
-  // him are the ones that only exist after somebody pressed 套用篩選.
-  //
-  // Shot 5 is the one that matters most. T-88 is `done`, and this act also ticks
-  // 狀態, so the id RESOLVES but fails another applied condition. Round 1
-  // rendered that identically to "no such id" and the owner was fooled by it in
-  // review; this shot is the proof it no longer does. The 狀態 tick is not
-  // decoration — set the condition HERE rather than inheriting one from the
-  // reset below, which is the mistake that reset's own comment records.
-  { name: "f1-tasks-collapsed", hash: "tasks" },
+  // ── 篩選列 (T-118) ────────────────────────────────────────────────────────
+  // The owner asked to SEE this before it lands (again — the same request that
+  // created this file in round 2). What changed: there is no panel to open, so
+  // the "open" shots are gone; what is worth photographing now is that the
+  // fields are simply THERE, and that the id field still only takes effect on
+  // Enter — a picture of a typed-but-uncommitted field next to an unchanged
+  // list is the only way to SEE that timing at all.
+  // f1 also shows 清除篩選: the default status set already narrows, so the
+  // control is present from the first render (T-50bb + owner c-2423dba8b65b).
+  { name: "f1-tasks-row", hash: "tasks" },
   {
-    name: "f2-tasks-open",
+    name: "f2-tasks-typed-not-committed",
     hash: "tasks",
+    // 🔴 THE SHOT THAT MATTERS. The box holds "T-93" and the list is still
+    // whole, because nothing was pressed. If a future change wires the field to
+    // onChange, THIS picture is the one that visibly breaks.
     act: async (page) => {
-      await page.click('[data-testid="tasks-filter-toggle"]');
-      await page.waitForSelector('[data-testid="tasks-filter-form"]');
-    },
-  },
-  {
-    name: "f3-tasks-applied-hit",
-    hash: "tasks",
-    act: async (page) => {
-      await page.click('[data-testid="tasks-filter-toggle"]');
       await page.fill('[data-testid="filter-task-id"]', "T-93");
-      await page.click('[data-testid="tasks-filter-apply"]');
-      await page.waitForSelector('[data-testid="tasks-filter-summary"]');
+      await page.waitForTimeout(300);
     },
   },
   {
-    name: "f4-tasks-applied-miss",
+    name: "f3-tasks-committed-hit",
     hash: "tasks",
     act: async (page) => {
-      await page.click('[data-testid="tasks-filter-toggle"]');
-      // Right SHAPE, nothing carries it. A malformed string would let a reader
-      // dismiss the empty answer as "well, that is not an id"; the point of this
-      // picture is that a well-formed id can be genuinely absent.
+      await page.fill('[data-testid="filter-task-id"]', "T-93");
+      await page.press('[data-testid="filter-task-id"]', "Enter");
+      await page.waitForTimeout(400);
+    },
+  },
+  {
+    name: "f4-tasks-committed-miss",
+    hash: "tasks",
+    // Right SHAPE, nothing carries it. A malformed string would let a reader
+    // dismiss the empty answer as "well, that is not an id"; the point of this
+    // picture is that a well-formed id can be genuinely absent.
+    act: async (page) => {
       await page.fill('[data-testid="filter-task-id"]', "T-9999");
-      await page.click('[data-testid="tasks-filter-apply"]');
-      await page.waitForSelector('[data-testid="tasks-filter-summary"]');
+      await page.press('[data-testid="filter-task-id"]', "Enter");
+      await page.waitForTimeout(400);
     },
   },
   {
-    name: "f5-tasks-exists-but-filtered-out",
+    name: "f5-tasks-dropdown-open",
     hash: "tasks",
+    // The dropdowns apply on the click now, so this photographs the one moment
+    // that still has a transient state worth seeing.
     act: async (page) => {
-      await page.click('[data-testid="tasks-filter-toggle"]');
-      await page.fill('[data-testid="filter-task-id"]', "T-88");
       await page.click('[data-testid="filter-status"]');
-      await page.click('[data-testid="filter-status-opt-in_progress"]');
-      // Esc, not a second click on the trigger: the dropdown is an overlay whose
-      // geometry depends on what sits above it, so "click the trigger again"
-      // lands on a different element depending on the layout.
-      await page.keyboard.press("Escape");
-      await page.click('[data-testid="tasks-filter-apply"]');
-      await page.waitForSelector('[data-testid="tasks-filter-summary"]');
+      await page.waitForTimeout(300);
     },
   },
-  { name: "f6-replies-collapsed", hash: "replies" },
+  { name: "f6-replies-row", hash: "replies" },
   {
-    name: "f7-replies-open",
+    name: "f7-replies-typed-not-committed",
     hash: "replies",
     act: async (page) => {
-      await page.click('[data-testid="replies-filter-toggle"]');
-      await page.waitForSelector('[data-testid="replies-filter-form"]');
-    },
-  },
-  {
-    name: "f8-replies-applied-hit",
-    hash: "replies",
-    act: async (page) => {
-      await page.click('[data-testid="replies-filter-toggle"]');
       await page.fill('[data-testid="filter-reply-card-id"]', "rc-428906235337");
-      await page.click('[data-testid="replies-filter-apply"]');
-      await page.waitForSelector('[data-testid="replies-filter-summary"]');
+      await page.waitForTimeout(300);
+    },
+  },
+  {
+    name: "f8-replies-committed-hit",
+    hash: "replies",
+    act: async (page) => {
+      await page.fill('[data-testid="filter-reply-card-id"]', "rc-428906235337");
+      await page.press('[data-testid="filter-reply-card-id"]', "Enter");
+      await page.waitForTimeout(400);
     },
   },
 ];
-
 const VIEWPORT = { width: 1440, height: 900 };
 const DEVICE_SCALE_FACTOR = 2;
 
@@ -395,29 +387,27 @@ async function main() {
       // Let the route's fetches land and any transition settle.
       await page.waitForTimeout(700);
       if (target.act) {
-        // 🔴 ONLY BETWEEN shots — never before the first one. This reset presses
-        // 清除全部, and that button only EXISTS in some of the designs under
-        // review, so running it on a fresh page made the same script photograph
-        // two different applied states: the variants that rendered the button
-        // started cleared, the one that did not started on the page's default
-        // 狀態 set. Deterministic, invisible, and it looked like a real design
-        // difference rather than a defect in the harness.
+        // 🔴 ONLY BETWEEN shots — never before the first one. Shots share ONE
+        // page, so whatever the previous act applied is still in force.
+        //
+        // 🔁 THIS USED TO PRESS 清除全部. That button was removed with the 已篩選
+        // strip (owner 2026-09-06, c-c3d681fe05da), and its own comment here
+        // recorded why pressing it was fragile anyway: it only EXISTED in some
+        // of the designs under review, so the same script photographed two
+        // different applied states depending on which one was loaded.
+        // Clearing the FIELD is not variant-dependent in the same way — the
+        // field is the design now — but the id is the only axis an act sets, so
+        // that is all this has to undo.
         if (shotIndex > 0) {
-        // Shots share ONE page, so whatever the previous act applied is still
-        // in force. Reset through the UI the owner would use — 清除全部 — and
-        // collapse any expanded panel, so each picture is of the state its own
-        // act produced and not of the one before it.
-        await page.evaluate(() => {
-          for (const sel of [
-            '[data-testid="tasks-filter-clear"]',
-            '[data-testid="replies-filter-clear"]',
-            '[data-testid="tasks-filter-cancel"]',
-            '[data-testid="replies-filter-cancel"]',
-          ]) {
-            const el = document.querySelector(sel);
-            if (el instanceof HTMLElement) el.click();
-          }
-        });
+        const field = page.locator(
+          '[data-testid="filter-task-id"], [data-testid="filter-reply-card-id"]'
+        ).first();
+        if (await field.count()) {
+          await field.fill("");
+          await field.press("Enter");
+        }
+        // Close any dropdown the previous act left open.
+        await page.keyboard.press("Escape");
         await page.waitForTimeout(400);
         }
         await target.act(page);
@@ -427,10 +417,16 @@ async function main() {
       // cannot tell you which state it caught — every state looks equally
       // plausible in one. This line is what caught two shots in this very file
       // that had photographed the WRONG state while looking exactly like a pass.
+      // 🔁 WAS reading the 已篩選 strip. That strip is gone (T-118), and the
+      // FIELD is now the thing that says what is applied — which is exactly the
+      // property that made removing the strip safe, so reading it here is the
+      // same check against the same fact.
       const summary = await page
-        .locator('[data-testid$="-summary"]')
+        .locator(
+          '[data-testid="filter-task-id"], [data-testid="filter-reply-card-id"]'
+        )
         .first()
-        .textContent()
+        .inputValue()
         .catch(() => null);
       const body = (await page.textContent(".app__main")) ?? "";
       const outcome = /找到「/.test(body)

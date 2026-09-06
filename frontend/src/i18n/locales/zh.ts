@@ -82,7 +82,6 @@ export const zh = {
   },
   // ── 任務頁(M3 任務卡)──
   tasks: {
-    title: "任務",
     openTitle: "未結束",
     closedTitle: "已結束",
     // 空狀態 ×2(SPEC §2.3 指定文案)
@@ -107,10 +106,6 @@ export const zh = {
     filterExecutorNoun: "負責人",
     filterTypeNoun: "類型",
     filterStatusNoun: "狀態",
-    // 「已篩選」chip 上的編號欄名。跟 filterIdLabel(欄位的 placeholder)分兩顆:
-    // 欄位要講清楚是哪一種編號(「任務編號」),chip 上編號旁邊就是值,再講「任務」
-    // 只是把一條本來就要單行的 chip 撐長。
-    filterIdNoun: "編號",
     // 非 404 的失敗:根本沒問到,所以不能說「找不到」。
     idUnreached: (id: string) =>
       `查「${id}」時沒有得到伺服器的回覆，所以還不知道它在不在——這不是「找不到」。請稍後再試。`,
@@ -343,21 +338,12 @@ export const zh = {
       versionsOpaqueTail: "),只能切換前後各看一次。",
     },
   },
-  // ── 篩選面板（T-93 第二輪）──
-  // owner 2026-09-06 c-7496afccb304 指名我們自家另一個產品的 Filter 面板作為
-  // 樣板：漏斗鈕 → 面板在頁面上展開 → Cancel／Apply → 收起來後上面留一條
-  // 「N 筆 · 已篩選 [條件×] · 清除全部」。用詞照他看得懂的講法，不用內部名詞。
-  filterPanel: {
-    filter: "篩選",
-    cancel: "取消",
-    apply: "套用篩選",
-    // 「已篩選」那一條的三格。results 要說出**目前這些條件之下**有幾筆,
-    // 否則收起來的面板會把一個仍在生效的條件藏起來。
-    results: (n: number) => `${n} 筆`,
-    filteredBy: "已篩選：",
-    clearAll: "清除全部",
-    removeChip: (label: string) => `移除篩選：${label}`,
-  },
+  // ── 篩選列（T-118）──
+  // 整組 `filterPanel` 詞條**已經刪掉**，不是整理，是 owner 2026-09-06
+  // c-c3d681fe05da 把每一個帶字的控制項都拿掉了：「篩選」漏斗鈕與「取消」／
+  // 「套用篩選」兩顆鈕一起消失，「N 筆」／「已篩選：」／「清除全部」／「移除篩選」
+  // 隨那條摘要列一起消失。取代它的那一列只有欄位、沒有任何自己的字，所以這裡
+  // 不留空殼；欄位的標籤本來就分別住在 `tasks.*` 與 `replies.*`，兩頁各自措辭。
   replies: {
     waitingTitle: "請示",
     handledTitle: "近期已處理",
@@ -368,12 +354,16 @@ export const zh = {
     // 這句是「還有卡,只是沒有一張符合」——沿用任務頁 emptyNone/emptyFiltered
     // 的同一個分法。
     emptyFiltered: "沒有符合篩選條件的請示",
+    // 開卡人軸（T-118，owner 2026-09-06 c-782404ee53d8）。用詞跟任務頁的負責人
+    // 那顆對齊：**都沒勾**時說「所有<名詞>」，勾一個說那個名字，勾多個說
+    // 「<名詞> · N」。⚠️ 全勾不再說「所有<名詞>」（owner 2026-09-06
+    // rc-33dfe1ff14cb：「完全沒勾跟有勾的情況本來就是不同的」）——空集合是持續
+    // 生效的無限制，全集合只是當下那批名字的快照。
+    filterOpenerNoun: "開卡人",
+    filterOpenerAll: "所有開卡人",
     filterIdLabel: "請示卡編號",
     clearFilters: "清除篩選",
     // ── 篩選面板（T-93 第二輪）──
-    // 面板標題列上的清單名稱；晶片是收起面板後那條「已篩選」上的那一格。
-    filterTitle: "請示卡",
-    chipId: (id: string) => `編號：${id}`,
     // 🔴 三種結局三句話，不可合併成一句。第一輪只有「沒有符合篩選條件的請示」，
     // 於是「這張卡不存在」與「這張卡只是沒被載進來」在畫面上長得一模一樣——
     // owner 在驗收時就是被這個併句騙過去的，這張票要移除的正是它。
