@@ -183,14 +183,26 @@ log "layout: SERVER_ROOT=$SERVER_ROOT DB=$DB_PATH  backups→$BACKUP_DIR  synth-
 # json_bool BODY KEY — echo True/true-normalized truthiness of a top-level bool.
 json_bool() { printf '%s' "$1" | py -c 'import sys,json; v=json.load(sys.stdin).get(sys.argv[1]); print("true" if v is True or str(v).lower()=="true" else "false")' "$2"; }
 
-# task_field TASK_JSON DOTKEY — read task.<key> from a {task:{...},deduped:...} DTO
-# (or a bare TaskDTO). Returns "" if absent.
+# task_field JSON KEY — read a TOP-LEVEL key out of a task response. Returns ""
+# if absent.
+#
+# 🔴 T-91 REMOVED THE `d.get("task", d)` UNWRAP, AND THAT LINE WAS THE ONE PLACE
+# IN THIS SCRIPT THAT COULD BREAK IN SILENCE. create_task used to answer
+# {task:{...}, deduped:...}; it now answers a receipt with `task_id` at the top
+# level and no `task` key at all. The old unwrap would have fallen back to `d`
+# itself, then looked up `id` on the receipt, found nothing, printed "" and
+# EXITED 0 — so every downstream [[ -n "$TASK_ID" ]] would have failed with a
+# message about a rejected create, for a create that succeeded. Reading the top
+# level directly means a renamed field is an empty string at the call site that
+# names it, not a plausible-looking lie three stages later.
+#
+# Callers therefore pass `task_id` when reading a CREATE receipt and `id` when
+# reading a bare TaskDTO from GET /api/tasks/{id}. Those are two different
+# shapes now and the script says which is which.
 task_field() {
   printf '%s' "$1" | py -c '
 import sys, json
-d = json.load(sys.stdin)
-t = d.get("task", d)   # accept {task:{...}} or a bare TaskDTO
-print(t.get(sys.argv[1], ""))
+print(json.load(sys.stdin).get(sys.argv[1], ""))
 ' "$2"
 }
 
@@ -443,17 +455,21 @@ print(json.dumps({
 }))
 ' "$SYNTH_TYPE" "$SYNTH_OUT")"
 A3_CREATE="$(api_post_logged /api/tasks "$A3_BODY" || echo '{}')"
-TASK_ID="$(task_field "$A3_CREATE" id)"
-[[ -n "$TASK_ID" ]] || fail_stage "POST /api/tasks ($SYNTH_TYPE) returned no task id — create rejected"
+TASK_ID="$(task_field "$A3_CREATE" task_id)"
+[[ -n "$TASK_ID" ]] || fail_stage "POST /api/tasks ($SYNTH_TYPE) returned no task_id — create rejected"
 # outsource path → executor left blank until the scheduler binds a worker.
-A3_EXEC="$(task_field "$A3_CREATE" executor_id)"
+# READ BACK from GET, not off the create response: since T-91 the create receipt
+# carries no executor_id, and asserting an absent field is empty is a check that
+# can never fail. The property is still worth pinning, so it is pinned against
+# the row.
+A3_EXEC="$(task_field "$(api_get "/api/tasks/$TASK_ID" 2>/dev/null || echo '{}')" executor_id)"
 [[ -z "$A3_EXEC" ]] \
   || warn "task $TASK_ID created with executor_id='$A3_EXEC' — expected unassigned on the outsource path"
 log "task created: id=$TASK_ID (executor unassigned — outsource path)"
 
 # dedupe: create the SAME task again (same is_key output_file) → deduped:true, same id.
 A3_DUP="$(api_post_logged /api/tasks "$A3_BODY" || echo '{}')"
-A3_DUP_ID="$(task_field "$A3_DUP" id)"
+A3_DUP_ID="$(task_field "$A3_DUP" task_id)"
 A3_DEDUPED="$(json_bool "$A3_DUP" deduped)"
 [[ "$A3_DEDUPED" == "true" ]] \
   || fail_stage "re-create with same dedupe key did not return deduped:true (got '$A3_DEDUPED') — non-terminal dedupe regressed"
@@ -612,7 +628,7 @@ import json, sys
 print(json.dumps({"title": "E2E plan-shape negative harness", "executor_member_id": sys.argv[1]}))
 ' "$TEST_AGENT")"
 D2_TASK="$(api_post_logged /api/tasks "$D2_TASK_BODY" || echo '{}')"
-D2_TID="$(task_field "$D2_TASK" id)"
+D2_TID="$(task_field "$D2_TASK" task_id)"
 [[ -n "$D2_TID" ]] || fail_stage "could not create the throwaway task for D2 plan-shape negatives"
 # Mint the EXECUTOR (mira) token so the plan POSTs pass the executor guard and reach shape validation.
 D2_MINT="$(api_post_logged /api/mint "{\"member_id\":\"$TEST_AGENT\",\"ttl_days\":1}" || echo '{}')"
@@ -748,7 +764,7 @@ print(json.dumps({
 }))
 ' "$FORK_TYPE" "$FORK_L3" "$FORK_L5" "$FORK_L7" "$FORK_SUM")"
 D_TASK="$(api_post_logged /api/tasks "$D_TASK_BODY" || echo '{}')"
-FORK_TID="$(task_field "$D_TASK" id)"
+FORK_TID="$(task_field "$D_TASK" task_id)"
 [[ -n "$FORK_TID" ]] || fail_stage "POST /api/tasks ($FORK_TYPE) returned no task id"
 log "fork-join task created: id=$FORK_TID"
 

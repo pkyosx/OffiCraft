@@ -52,7 +52,7 @@ async function create(
   }> = {}
 ): Promise<ScheduledMessage> {
   const { cadence = "custom" as const, ...rest } = over;
-  return mockApi.createScheduledMessage(MEMBER, {
+  const { id } = await mockApi.createScheduledMessage(MEMBER, {
     label: "T49E7 " + Math.random().toString(16).slice(2),
     body: "巡檢",
     cadence,
@@ -60,6 +60,14 @@ async function create(
     ...(cadence === "custom" ? OTHER_SETS : { hour: 9, minute: 0 }),
     ...rest,
   });
+  return readRow(id);
+}
+
+/** The stored row for `id`. T-91: create/update answer the minted id only, so
+ * every assertion about what a write STORED reads the row back — the same
+ * round the cockpit itself makes (useScheduledMessages refetches). */
+async function readRow(id: string): Promise<ScheduledMessage> {
+  return (await mockApi.listScheduledMessages(MEMBER)).find((r) => r.id === id)!;
 }
 
 /** The 422 an invalid set earns, or `null` when the call resolved. */
@@ -161,10 +169,10 @@ describe("mockApi.createScheduledMessage", () => {
 describe("mockApi.updateScheduledMessage", () => {
   it("leaves the stored months alone when the patch does not mention them", async () => {
     const created = await create({ customMonths: [3, 6, 9, 12] });
-    const renamed = await mockApi.updateScheduledMessage(MEMBER, created.id, {
+    await mockApi.updateScheduledMessage(MEMBER, created.id, {
       label: "T49E7 改名",
     });
-    expect(renamed.customMonths).toEqual([3, 6, 9, 12]);
+    expect((await readRow(created.id)).customMonths).toEqual([3, 6, 9, 12]);
   });
 
   it("gives a never-custom row the whole year when it switches to custom without naming months", async () => {
@@ -175,11 +183,11 @@ describe("mockApi.updateScheduledMessage", () => {
     // a 422 or, worse, a schedule that never fires.
     const daily = await create({ cadence: "daily" });
     expect(daily.customMonths).toEqual([]);
-    const switched = await mockApi.updateScheduledMessage(MEMBER, daily.id, {
+    await mockApi.updateScheduledMessage(MEMBER, daily.id, {
       cadence: "custom",
       ...OTHER_SETS,
     });
-    expect(switched.customMonths).toEqual(ALL_MONTHS);
+    expect((await readRow(daily.id)).customMonths).toEqual(ALL_MONTHS);
   });
 
   it("refuses an explicitly empty months patch and changes nothing", async () => {
@@ -223,18 +231,18 @@ describe("mockApi.updateScheduledMessage", () => {
 
   it("keeps the months a row carried after it switches AWAY from custom", async () => {
     const created = await create({ customMonths: [4] });
-    const daily = await mockApi.updateScheduledMessage(MEMBER, created.id, {
+    await mockApi.updateScheduledMessage(MEMBER, created.id, {
       cadence: "daily",
       hour: 9,
       minute: 0,
     });
     // Parked, not cleared — switching back must not lose the choice, which is
     // exactly what the PATCH clause of the frozen spec promises.
-    expect(daily.customMonths).toEqual([4]);
-    const back = await mockApi.updateScheduledMessage(MEMBER, created.id, {
+    expect((await readRow(created.id)).customMonths).toEqual([4]);
+    await mockApi.updateScheduledMessage(MEMBER, created.id, {
       cadence: "custom",
     });
-    expect(back.customMonths).toEqual([4]);
+    expect((await readRow(created.id)).customMonths).toEqual([4]);
   });
 
 });

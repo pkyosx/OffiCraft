@@ -221,9 +221,20 @@ func TestT63bfAdminAssistantDrivesAllFourScheduledMessageToolsOverMCP(t *testing
 	if scheduleID == "" {
 		t.Fatalf("create returned no schedule id: %v", structured)
 	}
-	if structured["cadence"] != "daily" || structured["timezone"] != "Asia/Taipei" ||
-		structured["hour"] != float64(9) || structured["minute"] != float64(30) {
-		t.Fatalf("create did not store the schedule as sent: %v", structured)
+	// T-91: the create receipt keeps what the SERVER decided and drops what the
+	// caller sent — so timezone/hour/minute are no longer on it (they are stored
+	// exactly as posted), while `cadence` stays because on a PATCH it is the
+	// ASSEMBLED value and it decides which of the other fields mean anything.
+	// The "stored as sent" claim moves to the list read below, which is the only
+	// read this API has for a schedule.
+	if structured["cadence"] != "daily" {
+		t.Fatalf("create did not report the assembled cadence: %v", structured)
+	}
+	for _, echoed := range []string{"timezone", "hour", "minute", "body"} {
+		if _, present := structured[echoed]; present {
+			t.Fatalf("the create receipt must not echo %q back — the caller sent it: %v",
+				echoed, structured)
+		}
 	}
 
 	listed := t63bfCall(t, url, adminTok, "list_scheduled_messages", `{"member_id":"mira"}`)
@@ -232,9 +243,13 @@ func TestT63bfAdminAssistantDrivesAllFourScheduledMessageToolsOverMCP(t *testing
 	}
 	// A top-level array carries no structuredContent (spec/mcp.md §3.3), so the
 	// list is read out of the text item.
+	// This read is now also where "stored as sent" is asserted (see the create
+	// note above): the row has to come back carrying the timezone and the clock
+	// the create posted, not merely the id.
 	if body := t63bfResultText(t, listed); !strings.Contains(body, scheduleID) ||
-		!strings.Contains(body, "stand-up") {
-		t.Fatalf("list must serve the schedule just created, got %s", body)
+		!strings.Contains(body, "stand-up") || !strings.Contains(body, "Asia/Taipei") ||
+		!strings.Contains(body, `"hour":9`) || !strings.Contains(body, `"minute":30`) {
+		t.Fatalf("list must serve the schedule just created, as sent, got %s", body)
 	}
 
 	patched := t63bfCall(t, url, adminTok, "update_scheduled_message",
@@ -246,8 +261,16 @@ func TestT63bfAdminAssistantDrivesAllFourScheduledMessageToolsOverMCP(t *testing
 	if !ok {
 		t.Fatalf("update returned no structuredContent: %v", patched)
 	}
-	if patchedRow["status"] != "disabled" || patchedRow["hour"] != float64(8) {
-		t.Fatalf("update did not apply: %v", patchedRow)
+	// `status` stays on the receipt because on the UPDATE path it is a real
+	// answer — it says whether the row the caller just edited is actually live.
+	// `hour` does not: the caller sent it. So the hour change is verified through
+	// the list read, the only read this API has for a schedule.
+	if patchedRow["status"] != "disabled" {
+		t.Fatalf("update did not apply the status: %v", patchedRow)
+	}
+	if body := t63bfResultText(t, t63bfCall(t, url, adminTok,
+		"list_scheduled_messages", `{"member_id":"mira"}`)); !strings.Contains(body, `"hour":8`) {
+		t.Fatalf("update did not apply the hour: %s", body)
 	}
 
 	deleted := t63bfCall(t, url, adminTok, "delete_scheduled_message",

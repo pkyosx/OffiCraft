@@ -58,12 +58,13 @@ async function anyTaskId(): Promise<string> {
 }
 
 describe("mockApi · updateTaskDescription", () => {
-  it("writes the description and echoes it back", async () => {
+  it("writes the description, and a read serves it back", async () => {
+    // T-91: the write answers a receipt, so there is no echo left to assert.
+    // The read-back was ALWAYS the stronger half of this test — an echo that
+    // did not persist would have passed the echo-only assertion — and it is
+    // now the whole of it.
     const id = await anyTaskId();
-    const after = await mockApi.updateTaskDescription(id, "更正後的敘述");
-    expect(after.description).toBe("更正後的敘述");
-    // And it is what a subsequent read serves — an echo that did not persist
-    // would pass an echo-only assertion.
+    await mockApi.updateTaskDescription(id, "更正後的敘述");
     expect((await mockApi.getTask(id)).description).toBe("更正後的敘述");
   });
 
@@ -83,8 +84,8 @@ describe("mockApi · updateTaskDescription", () => {
     const closed = await mockApi.getTask(id);
     expect(closed.closedTs).not.toBeNull();
 
-    const after = await mockApi.updateTaskDescription(id, "結案後的更正");
-    expect(after.description).toBe("結案後的更正");
+    await mockApi.updateTaskDescription(id, "結案後的更正");
+    expect((await mockApi.getTask(id)).description).toBe("結案後的更正");
 
     // The control that makes this a DIFFERENCE and not just a missing check:
     // the same closed task still freezes its artifact set, and its priority.
@@ -142,8 +143,8 @@ describe("mockApi · updateTaskDescription", () => {
     // must clear rather than no-op.
     const id = await anyTaskId();
     await mockApi.updateTaskDescription(id, "會被清掉的文字");
-    const after = await mockApi.updateTaskDescription(id, "");
-    expect(after.description).toBe("");
+    await mockApi.updateTaskDescription(id, "");
+    expect((await mockApi.getTask(id)).description).toBe("");
     const versions = await documentRevisions(mockApi, "task_description", id);
     expect(versions[0].content.description).toBe("會被清掉的文字");
   });
@@ -171,8 +172,8 @@ describe("mockApi · updateTaskDescription", () => {
   // an entire green suite said nothing about it.
   it("stores the TRIMMED value, matching its title twin", async () => {
     const id = await anyTaskId();
-    const after = await mockApi.updateTaskDescription(id, "  兩邊都有空白  ");
-    expect(after.description).toBe("兩邊都有空白");
+    await mockApi.updateTaskDescription(id, "  兩邊都有空白  ");
+    expect((await mockApi.getTask(id)).description).toBe("兩邊都有空白");
   });
 
   it("an unchanged description is a no-op that versions nothing, trimming included", async () => {
@@ -196,8 +197,8 @@ describe("mockApi · updateTaskDescription", () => {
     // rc-796541192519 ① and must not be "tidied up" on either seam.
     const id = await anyTaskId();
     await mockApi.updateTaskDescription(id, "先有內容");
-    const after = await mockApi.updateTaskDescription(id, "   \t ");
-    expect(after.description).toBe("");
+    await mockApi.updateTaskDescription(id, "   \t ");
+    expect((await mockApi.getTask(id)).description).toBe("");
   });
 
   it("restoring a description touches nothing else on the task", async () => {

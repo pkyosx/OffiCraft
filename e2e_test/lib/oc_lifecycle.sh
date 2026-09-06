@@ -150,6 +150,23 @@ py() {
 }
 
 # json_field JSON KEY — read a top-level string/number field from a JSON blob.
+#
+# 🔴 STANDING SILENT-FAILURE HAZARD — the `.get(key, "")` is a DEFAULT, not a
+# lookup: a key that is not on the response prints an empty line and the
+# pipeline carries on. Nothing here distinguishes "the field is absent from this
+# wire" from "the field is present and empty", so when a response shape NARROWS,
+# every shell reader of a dropped field goes quietly empty instead of red — and
+# the surrounding `[[ -n ... ]] || fail_stage` guards then fail with a message
+# about the wrong thing.
+#
+# T-91 (2026-09-06) narrowed fifteen agent lifecycle writes from the full roster
+# row down to a small receipt, and NOT ONE shell stage broke. That was luck, not
+# safety: every field these scripts read off those writes happened to be `id`,
+# which is the one field the receipts kept. A future narrowing that touches
+# anything else gets no such warning from this helper.
+#
+# Deliberately left as-is (changing it to fail on a missing key would ripple
+# through every caller); recorded here so the next reader is not surprised.
 json_field() { py -c 'import sys,json; print(json.load(sys.stdin).get(sys.argv[1],""))' "$1"; }
 
 # api_get PATH — authenticated GET against LOCAL_BASE, prints body.

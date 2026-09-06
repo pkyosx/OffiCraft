@@ -248,8 +248,19 @@ func TestUpdateMember_RuntimeRoundTripsAndValidates(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("Codex PATCH: %d %s", rec.Code, rec.Body.String())
 	}
-	if got := decodeBody[memberDTO](t, rec).Runtime; got != RuntimeCodex {
-		t.Fatalf("runtime = %q, want codex", got)
+	// The PATCH answers a bounded receipt now (T-91), so the round trip is read
+	// back off the STORED ROW rather than out of the write's own answer. That is
+	// the stronger check of the two: a handler that echoed the request body back
+	// without persisting it would have passed the old assertion.
+	if got := decodeBody[agentLifecycleReceiptDTO](t, rec).ID; got != "mira" {
+		t.Fatalf("receipt id = %q, want mira", got)
+	}
+	stored, err := api.dal.GetMember("mira")
+	if err != nil || stored == nil {
+		t.Fatalf("read back member: %v", err)
+	}
+	if stored.Runtime != RuntimeCodex {
+		t.Fatalf("runtime = %q, want codex", stored.Runtime)
 	}
 
 	rec = httptest.NewRecorder()

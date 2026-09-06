@@ -32,6 +32,7 @@ the normal case, including CI — nothing is written anywhere.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import pathlib
@@ -79,7 +80,8 @@ def subject(client: httpx.Client, owner_token: str):
         "/api/roles", json={"name": f"T3809 Subject {tag}"}, headers=_auth(owner_token)
     )
     assert r.status_code == 200, r.text
-    role_key = r.json()["role"]["key"]
+    # T-91: create answers a receipt naming the minted key, not the role.
+    role_key = r.json()["role_key"]
 
     duty = f"DUTY-{tag}: this role ships the widget."
     r = client.post(
@@ -184,7 +186,18 @@ def test_own_agent_write_insight_succeeds(client, subject):
     r = client.post(path, json={"text": text}, headers=_auth(subject["own_token"]))
     _log("write-insight-own-role", "POST", path, "agent_self", r)
     assert r.status_code == 200, r.text
-    assert r.json()["text"] == text
+    # T-91: the write answers insightReceiptDTO — the text does not ride home.
+    # Key-set equality: asserting only that role_key is present would stay
+    # green if the whole insight document came back. What proves the server
+    # took THIS text is the size and digest of exactly what was sent; that the
+    # text LANDED is the read-back below, which this test already had.
+    d = r.json()
+    assert set(d) == {
+        "role_key", "is_default", "has_seed", "size_chars", "cap_chars", "sha256"
+    }, d
+    assert d["role_key"] == subject["role_key"], d
+    assert d["size_chars"] == len(text), d
+    assert d["sha256"] == hashlib.sha256(text.encode("utf-8")).hexdigest(), d
 
     r2 = client.get(path, headers=_auth(subject["own_token"]))
     _log("read-back-insight-own-role", "GET", path, "agent_self", r2)

@@ -37,6 +37,12 @@ func TestCreateManualMintsSystemKeyFromDisplayName(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("display_name create must 200, got %d %s", rec.Code, rec.Body.String())
 	}
+	// T-91: the create receipt carries the MINTED key and nothing the caller
+	// sent — so display_name is no longer on it. That is exactly the split this
+	// test was always about: the key is news on this face (the server minted
+	// it), the display name is the caller's own trimmed string. The trimming is
+	// still asserted, one line down, against the STORED row — which is where the
+	// claim actually belongs and is a stronger place to make it.
 	var dto struct {
 		TypeKey     string `json:"type_key"`
 		DisplayName string `json:"display_name"`
@@ -47,12 +53,12 @@ func TestCreateManualMintsSystemKeyFromDisplayName(t *testing.T) {
 	if !strings.HasPrefix(dto.TypeKey, "tm-") || len(dto.TypeKey) != len("tm-")+12 {
 		t.Fatalf("minted key must be tm-+hex12, got %q", dto.TypeKey)
 	}
-	if dto.DisplayName != "審查 PR" {
-		t.Fatalf("display_name must be the trimmed input, got %q", dto.DisplayName)
+	if dto.DisplayName != "" {
+		t.Fatalf("the create receipt must not echo display_name back: %q", dto.DisplayName)
 	}
 	if m, err := api.dal.GetTaskManual(dto.TypeKey); err != nil || m == nil ||
 		m.DisplayName != "審查 PR" {
-		t.Fatalf("manual readback by minted key: %+v %v", m, err)
+		t.Fatalf("manual readback by minted key (display_name must be the trimmed input): %+v %v", m, err)
 	}
 
 	// Legacy path: an explicit type_key is the id verbatim, and a blank

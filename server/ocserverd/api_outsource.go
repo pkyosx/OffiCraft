@@ -351,63 +351,17 @@ func (s *apiServer) relocateWorkerByID(w http.ResponseWriter, r *http.Request, i
 	// dispatch — but we OBSERVE it, the staff relocate's rule verbatim (T-8655 /
 	// T-927a). Two different non-landings answered the same clean 200 here: a
 	// wind-down opened by design, and a move that could not be dispatched at all.
-	s.writeWorkerProjectionWith(w, r, *worker, func(dto *outsourceWorkerDTO) {
-		if outcome.Pending() {
-			pending := true
-			dto.RelocationPending = &pending
-		}
-		if outcome.WoundDown {
-			deferred := true
-			dto.RelocationDeferred = &deferred
-		}
+	// T-91: a bounded receipt, not the worker — and the SAME receipt the staff
+	// relocate answers, which is what lets that route stop claiming a MemberDTO
+	// for the ow- ids it forwards here. The two flags are the entire news of this
+	// write; everything the projection carried besides them (placement,
+	// telemetry, cost, the bound task) is the stored row, which
+	// list_outsource_workers serves.
+	writeJSON(w, http.StatusOK, agentRelocateReceiptDTO{
+		ID:                 worker.ID,
+		RelocationPending:  outcome.Pending(),
+		RelocationDeferred: outcome.WoundDown,
 	})
-}
-
-// writeWorkerProjection re-reads the per-request join maps (machine names, bound
-// task, the caller's unread count, the telemetry/gauge snapshots) and writes the
-// worker DTO — the shared post-op response fold for every owner lifecycle op
-// (relocate / refocus / stop / restart / model), so all serve the identical
-// projection the list + single GET do. Call WITHOUT s.outsourceMu held.
-func (s *apiServer) writeWorkerProjection(w http.ResponseWriter, r *http.Request, worker OutsourceWorker) {
-	s.writeWorkerProjectionWith(w, r, worker, nil)
-}
-
-// writeWorkerProjectionWith is writeWorkerProjection plus the RESPONSE-ONLY
-// pending flags an owner verb owes its caller (T-ed79 #5/#12). `overlay` is nil
-// for every read face and for the verbs that have nothing to defer; the flags it
-// sets are never persisted and never appear on a list/GET, exactly as their
-// MemberDTO twins do not.
-func (s *apiServer) writeWorkerProjectionWith(w http.ResponseWriter, r *http.Request,
-	worker OutsourceWorker, overlay func(*outsourceWorkerDTO)) {
-	machineNames, err := s.dal.MachineDisplayNames()
-	if err != nil {
-		internalError(w, err)
-		return
-	}
-	task, err := s.dal.GetTask(worker.TaskID)
-	if err != nil {
-		internalError(w, err)
-		return
-	}
-	unread, err := s.unreadCountsForRequest(r)
-	if err != nil {
-		internalError(w, err)
-		return
-	}
-	tele := s.telemetry.Snapshot()
-	accountDisplay, err := s.accountDisplayFold(r, tele)
-	if err != nil {
-		internalError(w, err)
-		return
-	}
-	dto := s.projectWorker(
-		worker, task, unread[worker.ID], nowSecs(),
-		tele, s.gauge.Snapshot(), machineNames, accountDisplay,
-		s.taskTypeDisplayNames())
-	if overlay != nil {
-		overlay(&dto)
-	}
-	writeJSON(w, http.StatusOK, dto)
 }
 
 // POST /api/outsource-workers/{id}/refocus — the cockpit's 換手 (owner/admin agent since T-6020,
@@ -476,7 +430,7 @@ func (s *apiServer) HandleRefocusOutsourceWorkerApiOutsourceWorkersIdRefocusPost
 		if fresh, ferr := s.dal.GetOutsourceWorker(id); ferr == nil && fresh != nil {
 			worker = fresh
 		}
-		s.writeWorkerProjection(w, r, *worker)
+		writeJSON(w, http.StatusOK, agentLifecycleReceiptDTO{ID: worker.ID})
 		return
 	}
 	if worker.Status != WorkerStatusActive || !s.hub.IsOnline(worker.ID) {
@@ -533,7 +487,7 @@ func (s *apiServer) HandleRefocusOutsourceWorkerApiOutsourceWorkersIdRefocusPost
 	s.publishOutsourceWorker(*worker, requestTrigger(r))
 	s.outsourceMu.Unlock()
 
-	s.writeWorkerProjection(w, r, *worker)
+	writeJSON(w, http.StatusOK, agentLifecycleReceiptDTO{ID: worker.ID})
 }
 
 // POST /api/outsource-workers/{id}/accelerated-stop — the symmetric twin of the
@@ -648,7 +602,7 @@ func (s *apiServer) HandleAcceleratedStopOutsourceWorkerApiOutsourceWorkersIdAcc
 	s.publishOutsourceWorker(*worker, requestTrigger(r))
 	s.outsourceMu.Unlock()
 
-	s.writeWorkerProjection(w, r, *worker)
+	writeJSON(w, http.StatusOK, agentLifecycleReceiptDTO{ID: worker.ID})
 }
 
 // POST /api/outsource-workers/{id}/stop — the cockpit's 停止 (owner/admin agent
@@ -742,7 +696,7 @@ func (s *apiServer) HandleStopOutsourceWorkerApiOutsourceWorkersIdStopPost(w htt
 	s.publishOutsourceWorker(*worker, requestTrigger(r))
 	s.outsourceMu.Unlock()
 
-	s.writeWorkerProjection(w, r, *worker)
+	writeJSON(w, http.StatusOK, agentLifecycleReceiptDTO{ID: worker.ID})
 }
 
 // POST /api/outsource-workers/{id}/force-stop — the THIRD rung of the owner's
@@ -804,7 +758,7 @@ func (s *apiServer) HandleForceStopOutsourceWorkerApiOutsourceWorkersIdForceStop
 	s.publishOutsourceWorker(*worker, requestTrigger(r))
 	s.outsourceMu.Unlock()
 
-	s.writeWorkerProjection(w, r, *worker)
+	writeJSON(w, http.StatusOK, agentLifecycleReceiptDTO{ID: worker.ID})
 }
 
 // POST /api/outsource-workers/{id}/restart — the cockpit's 重啟 (owner/admin agent since T-6020),
@@ -966,11 +920,18 @@ func (s *apiServer) HandleRestartOutsourceWorkerApiOutsourceWorkersIdRestartPost
 	// it, an unbuildable frame) answered a clean 200 with zero signal, which is
 	// the shape T-ba62 called 「整個 bug」 when it fixed the staff twin. WHICH
 	// cause is on last_op_reason, in the shared reason-code family (#14).
-	s.writeWorkerProjectionWith(w, r, *worker, func(dto *outsourceWorkerDTO) {
-		if outcome.Pending() {
-			pending := true
-			dto.ActivationPending = &pending
-		}
+	//
+	// T-91: it rides a RECEIPT now instead of the whole OutsourceWorkerDTO. The
+	// three fields here are the entire news of this write — which worker, whether
+	// the restart was decided but not delivered, and which cause. Everything else
+	// that projection carried (placement, telemetry, cost, the bound task) is
+	// readable through get_outsource_worker / list_outsource_workers, and none of
+	// it is what this write produced. activation_pending is omitted when the
+	// restart actually landed, so its presence is the signal.
+	writeJSON(w, http.StatusOK, outsourceRestartReceiptDTO{
+		ID:                worker.ID,
+		ActivationPending: outcome.Pending(),
+		LastOpReason:      worker.LastOpReason,
 	})
 }
 
@@ -1140,5 +1101,5 @@ func (s *apiServer) HandleSetOutsourceWorkerModelApiOutsourceWorkersIdModelPost(
 	s.publishOutsourceWorker(*worker, requestTrigger(r))
 	s.outsourceMu.Unlock()
 
-	s.writeWorkerProjection(w, r, *worker)
+	writeJSON(w, http.StatusOK, agentLifecycleReceiptDTO{ID: worker.ID})
 }
