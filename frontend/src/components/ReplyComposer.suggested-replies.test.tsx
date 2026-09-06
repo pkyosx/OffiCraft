@@ -197,6 +197,14 @@ describe("ReplyComposer 建議回覆", () => {
   // it. The uncaught error IS observable on `window`'s error event, so that is
   // what this listens for. Without this case the whole click path — onPick,
   // appendSuggestion, the focus hop — is unguarded against throwing.
+  //
+  // ⚠️ HOW TO MUTATE THIS HONESTLY, because the obvious way lies. Putting the
+  // throw at the TOP of `onPick` reddens four neighbouring cases too — but NOT
+  // because they detected the throw: they fail because the visible effect never
+  // happened at all (`input.value` is empty). That mutant proves the effect is
+  // covered, not the blind spot. Put the throw AFTER `setDraft` and the focus
+  // hop instead: then thirteen cases stay green and only this one fires, which
+  // is what "this is the only guard on the click path" actually means.
   it("clicking a chip raises NOTHING, and the box still works afterwards", async () => {
     __setMockSuggestedRepliesReplyCard(["收到，照這樣做"]);
     const raised: unknown[] = [];

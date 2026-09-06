@@ -61,8 +61,16 @@ export function SuggestedReplies({
   // Drawing nothing is not a degraded mode here — it is exactly the state an
   // install with no configured sentences is in, and the owner ruled that state
   // legal.
+  // Trim-then-drop-blanks, not just "is it a string": a whitespace-only entry
+  // draws a chip with NO LABEL that is still CLICKABLE, and clicking it pastes
+  // whitespace into the box. Same reasoning as the shape guard above — a shared
+  // component does not get to assume its caller already cleaned the list — and
+  // the same rule the wire reader applies (api/suggestedReplies.ts readList).
   const list = Array.isArray(replies)
-    ? replies.filter((v): v is string => typeof v === "string")
+    ? replies
+        .filter((v): v is string => typeof v === "string")
+        .map((v) => v.trim())
+        .filter((v) => v.length > 0)
     : [];
   if (list.length === 0) return null;
   return (

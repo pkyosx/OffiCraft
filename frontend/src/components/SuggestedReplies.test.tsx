@@ -78,6 +78,29 @@ describe("SuggestedReplies", () => {
     expect(queryByTestId("row")).toBeNull();
   });
 
+  // 🔴 A WHITESPACE-ONLY ENTRY IS NOT A SENTENCE. It renders as a chip with no
+  // visible label that is nonetheless CLICKABLE, and clicking it pastes
+  // whitespace into the reply box. Same family as the shape guard above: the
+  // shared component does not get to assume the caller cleaned the list.
+  it("draws no chip for a whitespace-only entry, and trims the rest", () => {
+    const { getByTestId } = render(
+      <SuggestedReplies
+        replies={["   ", "收到", "  照做  ", "\t\n"]}
+        onPick={() => {}}
+        testId="row"
+      />
+    );
+    const chips = [...getByTestId("row").querySelectorAll("button")];
+    expect(chips.map((b) => b.textContent)).toEqual(["收到", "照做"]);
+  });
+
+  it("draws nothing at all when EVERY entry is whitespace", () => {
+    const { queryByTestId } = render(
+      <SuggestedReplies replies={["   ", "\t"]} onPick={() => {}} testId="row" />
+    );
+    expect(queryByTestId("row")).toBeNull();
+  });
+
   it("keeps the usable sentences when only SOME entries are unusable", () => {
     const { getByTestId } = render(
       <SuggestedReplies

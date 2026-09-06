@@ -36,7 +36,15 @@ import { loadServerSettings } from "./sharedServerSettings";
 
 type SuggestedRepliesBox = "replyCard" | "taskMessage";
 
-/** The named list off a settings view, or `[]` for ANY shape that is not a list
+/** ⚠️ THE FIELD NAMES BELOW ARE STRING LITERALS, DELIBERATELY, AND THAT COSTS
+ * SOMETHING. Reading a value typed `unknown` cannot also be bound to
+ * `ServerSettingsView`'s property names, so renaming either field will NOT turn
+ * this file red — `useSuggestedReplies.test.tsx` is what goes red instead. The
+ * guard moved from the source to the test; it did not disappear. Reviewed and
+ * accepted rather than overlooked: binding the names back would mean tangling a
+ * lenient parse of `unknown` with a type-checked read, for less than it costs.
+ *
+ * The named list off a settings view, or `[]` for ANY shape that is not a list
  * of sentences — an absent field, null, a string, an array of non-strings. The
  * structural read is deliberate: this value has travelled through the wire and
  * a mapper, and "I cannot read it" and "there are none" are the same answer to
@@ -49,7 +57,14 @@ function listFrom(s: unknown, box: SuggestedRepliesBox): string[] {
       : "suggestedRepliesTaskMessage"
   ];
   if (!Array.isArray(raw)) return [];
-  return raw.filter((v): v is string => typeof v === "string");
+  // Blanks go too, not just non-strings: a whitespace-only entry renders as an
+  // unlabelled but CLICKABLE chip that pastes whitespace into the box. Same rule
+  // as the wire reader (api/suggestedReplies.ts) and as the component's own
+  // guard — both layers, for the reason F-1 established.
+  return raw
+    .filter((v): v is string => typeof v === "string")
+    .map((v) => v.trim())
+    .filter((v) => v.length > 0);
 }
 
 function useSuggestedReplies(box: SuggestedRepliesBox): string[] {

@@ -23,6 +23,8 @@ function Host() {
     <div>
       <textarea data-testid="box" />
       <span data-testid="count">{replyCard.length}</span>
+      <span data-testid="first">{replyCard[0]}</span>
+      <span data-testid="second">{replyCard[1]}</span>
       <span data-testid="task-count">{taskMessage.length}</span>
     </div>
   );
@@ -78,6 +80,22 @@ describe("useSuggestedReplies", () => {
     const { getByTestId } = render(<Host />);
     await waitFor(() => expect(getByTestId("box")).toBeTruthy());
     expect(getByTestId("count").textContent).toBe("0");
+    expect(getByTestId("task-count").textContent).toBe("0");
+  });
+
+  // 🔴 ASSERTED AT THE HOOK BOUNDARY ON PURPOSE. SuggestedReplies drops blanks
+  // too, so a composer-level test passes with this layer removed — the same
+  // mutual masking that made the F-1 hook guard untestable through a component.
+  it("drops whitespace-only entries, and trims the ones it keeps", async () => {
+    vi.spyOn(shared, "loadServerSettings").mockResolvedValue({
+      suggestedRepliesReplyCard: ["   ", "收到", "  照做  "],
+      suggestedRepliesTaskMessage: ["\t", " "],
+    } as unknown as Awaited<ReturnType<typeof shared.loadServerSettings>>);
+    const { getByTestId } = render(<Host />);
+    await waitFor(() => expect(getByTestId("count").textContent).toBe("2"));
+    expect(getByTestId("first").textContent).toBe("收到");
+    expect(getByTestId("second").textContent).toBe("照做");
+    // Every entry blank ⇒ the same answer as "none configured".
     expect(getByTestId("task-count").textContent).toBe("0");
   });
 
