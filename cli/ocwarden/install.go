@@ -959,11 +959,15 @@ func (w tokfileWriter) write(path, token string) error {
 	}
 	tmp := filepath.Join(dir, fmt.Sprintf(".exec-warden.tok.%d", os.Getpid()))
 	if err := w.writeFile(tmp, []byte(token), 0o600); err != nil {
+		// A failed write can still have left the file behind, holding part of a
+		// credential: the same litter the rename path cleans up.
+		w.cleanup(tmp)
 		return fmt.Errorf("write temp tokfile %s: %w", tmp, err)
 	}
 	// Explicit chmod: os.WriteFile's mode is masked by umask, so re-assert 0600 to
 	// guarantee the perms regardless of the caller's umask.
 	if err := w.chmod(tmp, 0o600); err != nil {
+		w.cleanup(tmp)
 		return fmt.Errorf("chmod temp tokfile %s: %w", tmp, err)
 	}
 	// The perms are verified on the TEMP, before the rename, so that rename is the

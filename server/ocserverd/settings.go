@@ -409,7 +409,7 @@ const (
 // ⚠️ NEITHER OF THESE HAS A MECHANICAL GUARD. This comment is a description, not
 // an enforcement, and it MUST NOT be read as one — see the note in spec/lifecycle.md
 // §1.6. The only thing pinned in code is that the numbers above are derived from
-// this constant rather than typed next to it (settings_warden_cred_expiry_tfc53_test.go).
+// this constant rather than typed next to it (warden_cred_expiry_tfc53_test.go).
 //
 // 🔴 THE FLOOR IS ONE DAY, AND IT IS NOT AN ARBITRARY ROUND NUMBER — it is derived
 // from the retry window. A warden renews at two thirds of the lifetime, so the
