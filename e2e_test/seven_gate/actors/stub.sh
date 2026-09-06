@@ -92,8 +92,15 @@ fi
 
 # ③ 開票
 TASK=""
+# 🔴 T-91: the create answers a RECEIPT whose task id is the TOP-LEVEL `task_id`.
+# It no longer answers {task:{...}}, so the old `jget task.id` read a key that is
+# not there — and `jget` returns "" for a missing key and exits 0, so the read
+# below would have fallen through to the recovery line silently. That recovery
+# picks the FIRST task this agent ever created, which on a re-run is a task from
+# a PREVIOUS scene: the harness would have gone on to drive the wrong task while
+# every step still reported green. Read the receipt's own key.
 if ! skipped create_task; then
-  TASK="$(sg_step create_task POST /api/tasks "$(python3 -c 'import json,sys;print(json.dumps({"title":"seven-gate probe "+sys.argv[1],"description":"七步關卡的載體任務（stub actor）。scene="+sys.argv[1],"executor_member_id":sys.argv[2]}))' "$NONCE" "$AGENT")" | jget task.id)"
+  TASK="$(sg_step create_task POST /api/tasks "$(python3 -c 'import json,sys;print(json.dumps({"title":"seven-gate probe "+sys.argv[1],"description":"七步關卡的載體任務（stub actor）。scene="+sys.argv[1],"executor_member_id":sys.argv[2]}))' "$NONCE" "$AGENT")" | jget task_id)"
   [[ -n "$TASK" ]] || TASK="$(sg_http GET /api/tasks | python3 -c 'import sys,json;d=json.load(sys.stdin);ts=d.get("tasks",d) if isinstance(d,dict) else d;print(next((t["id"] for t in ts if t.get("creator_id")==sys.argv[1]),""))' "$AGENT")"
   say "   task=$TASK"
 fi
