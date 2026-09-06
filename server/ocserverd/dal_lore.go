@@ -126,9 +126,12 @@ type LoreEntry struct {
 // true。「沒有路由寫得到」跟「這一層寫不進去」是兩件事，把後者寫成前者會讓下一個
 // 人以為這裡自帶一道門 —— 它沒有。
 //
-// 🔴 所以真正的狀況是：**這一欄今天沒有守衛。** v8 要的是一個旗標，「誰能蓋、蓋了
-// 要不要留紀錄」還沒有人裁定（卡在 rc-37f10fec50d1）。等有人裁定了，**那道門要有人
-// 在這一層或它上面補上**，不能靠「反正沒有路由送得進來」。
+// 🔴 所以真正的狀況是：**這一欄今天沒有守衛。** v8 要的是一個旗標，而 owner 已於
+// `rc-37f10fec50d1`（2026-09-05 20:53）確認要有這個旗標（逐字：「Same number but
+// 1~3 is our final decision with a flag indicating if human confirmation is
+// done」）—— **但那張卡沒有回答「誰能蓋、蓋了要不要留紀錄」，那一題今天仍然沒有
+// 任何人裁過，而且沒有卡在問它。** 要開放寫入路徑之前得先開一張新卡問他；有了答案，
+// **那道門要有人在這一層或它上面補上**，不能靠「反正沒有路由送得進來」。
 const loreEntryColumns = `id, heading, content, revisit_when, impact,
 	impact_stars, reviewed,
 	status, supersedes, editable_by,

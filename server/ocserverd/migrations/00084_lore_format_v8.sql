@@ -89,7 +89,7 @@ ALTER TABLE lore_entry ADD COLUMN impact_stars INTEGER NOT NULL DEFAULT 0
     CHECK (impact_stars BETWEEN 0 AND 3);
 
 -- ── 審核旗標 ────────────────────────────────────────────────────────────────
--- 🔴 這一欄的需求出處，以及它今天還沒有被裁定的部分 —— 讀之前先看這段。
+-- 🔴 這一欄的需求出處，以及 owner 對它的裁定 —— 讀之前先看這段。
 --
 -- 規則 v8（ta-091e7a9cb434）**整份文件裡沒有「審核」「admin」「排序」「蓋章」
 -- 這幾個字**（grep 過，五個關鍵字全部 0 命中）。「審核與星等是兩欄／審核旗標只有
@@ -98,17 +98,17 @@ ALTER TABLE lore_entry ADD COLUMN impact_stars INTEGER NOT NULL DEFAULT 0
 -- 時標成了「v8 定案」，我照著它把「只有 owner 與 admin 能動」寫成事實 —— 那句話
 -- 現在拿掉了，因為它宣稱了一個沒有人做過的決定。
 --
--- 🔴 owner 真的裁過的是 `rc-ccd8ef9517fb`，逐字：「我審核以後可以給分數 沒有審核
--- 過的零分 審核過的最高可以到五分 表示這條目的權重」—— 那是**一欄**（0＝未審核，
--- 1–5＝權重），跟這裡的兩欄是**相反的結構**。
+-- ✅ 已裁定：`rc-37f10fec50d1`，owner 2026-09-05 20:53 自由文字（沒圈選項），逐字：
+--    「Same number but 1~3 is our final decision with a flag indicating if human
+--     confirmation is done」
+-- ⇒ 星等與他八月底講的分數是**同一個數字**，刻度定為 **1～3**（他更早在
+--   `rc-ccd8ef9517fb` 講的「零分到五分」以此為準被取代），另外**再加一個旗標**表示
+--   有沒有人確認過 ⇒ **這裡的兩欄結構就是他裁的結構，不要改。**
+-- ⇒ 0 仍然不是一個星等，是「還沒判」（見上面 4b）。壓成一欄會讓「沒有人審過」跟
+--   「審過但影響輕微」變成同一個 0，而他要的是分得開。
 --
--- ⚠️ 兩欄仍然可能是對的，理由是兩個軸不同：他那個分數是**人審過之後給的權重**，
--- v8 4b 的星等是 **agent 提案的「弄壞了什麼」**。壓成一欄會讓「沒有人審過」跟
--- 「審過但影響輕微」變成同一個 0。**但這是推論，不是裁定** —— 沒有人問過他那兩個
--- 數字是不是同一個。卡在 `rc-37f10fec50d1`，等他回。
---   是同一個 ⇒ 一欄，這個 `reviewed` 欄要拿掉。
---   不是     ⇒ 兩欄留下，而「誰能蓋章」還要他再裁一次。
--- ⇒ **在他回覆之前這一欄原地不動**：拿掉跟留著一樣是在替他做決定。
+-- 🔴 他這次**沒有**回答的：**誰按得動這個旗標**。原本寫「只有 owner 與 admin」的
+-- 那句話是我們自己寫的，至今沒有人裁過 ⇒ 要開放寫入路徑之前必須先問他一次。
 --
 -- ⚠️ 我沒有加 `reviewed_by` / `reviewed_ts`。v8 與 owner 的裁定說的是「旗標」，
 -- 加上「誰審的、何時審的」是我自己想要的東西，不是被要求的 —— 射程外的不順手做。
@@ -117,7 +117,7 @@ ALTER TABLE lore_entry ADD COLUMN impact_stars INTEGER NOT NULL DEFAULT 0
 -- （entity-approve／entity-merge／retire／revive／supersede）與五個呼叫點
 -- **沒有一個**在設定這個旗標時觸發 ⇒ 誰蓋的章，站上記不下來。
 -- 表本身收得下（`kind` 刻意不是 CHECK 列舉），要記只需要一個新的 kind 常數與一個
--- 呼叫點 —— 那要等上面那張卡回來、有人來寫 writer 的時候一起做。
+-- 呼叫點 —— 那要等「誰按得動」那一題有答案、有人來寫 writer 的時候一起做。
 ALTER TABLE lore_entry ADD COLUMN reviewed INTEGER NOT NULL DEFAULT 0
     CHECK (reviewed IN (0, 1));
 
