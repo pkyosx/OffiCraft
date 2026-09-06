@@ -178,10 +178,14 @@ func TestManualReadFacesReportBothCaps(t *testing.T) {
 	}
 }
 
-// TestLearningsOnlyFacesQuoteTheLearningsCap — write_task_learnings has no
-// receipt of its own (it answers with the whole manual DTO, whose cap fields
-// come from inside writeTaskManual rather than from the handler that judged
-// the write), and patch_task_learnings quotes the cap it judged against. Both
+// TestLearningsOnlyFacesQuoteTheLearningsCap — write_task_learnings answers
+// with its own receipt (TaskLearningsWriteReceiptDTO), and patch_task_learnings
+// quotes the cap it judged against. ⚠️ THIS USED TO SAY write_task_learnings
+// "has no receipt of its own (it answers with the whole manual DTO, whose cap
+// fields come from inside writeTaskManual rather than from the handler that
+// judged the write)". That was true before T-91 gave it a receipt; the file
+// head three hundred lines up already says "their receipt and their response
+// DTO", so the two halves had stopped agreeing. Both
 // must speak the LEARNINGS cap; quoting the SOP's would hand an agent the wrong
 // budget for the only document these faces can write.
 func TestLearningsOnlyFacesQuoteTheLearningsCap(t *testing.T) {

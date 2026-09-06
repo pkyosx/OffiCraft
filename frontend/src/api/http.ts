@@ -1489,8 +1489,13 @@ export const httpApi: Api = {
     replyTo?: string;
   }): Promise<void> {
     // POST /api/chat {to, body, attachments?} -> ChatPostReceiptDTO. The write
-    // answers with a bounded receipt (T-91) — id, ts, attachments — not the
-    // posted message; the chat thread reconciles via its own "chat" SSE topic,
+    // answers with a bounded receipt (T-91) — id, ts, to, attachments — not the
+    // posted message. This list read "id, ts, attachments" while a draft kept
+    // `to` on the task route only; the owner overruled that at rc-f1c0fd3cf124,
+    // so both chat writes answer the same four keys. The list is HAND-WRITTEN
+    // with nothing asserting it against `ChatPostReceiptDTO` in
+    // api/generated/schema.ts, which is the thing to read before trusting it.
+    // The chat thread reconciles via its own "chat" SSE topic,
     // exactly as it already did. The server still stamps from/id/ts from the
     // verified JWT sub. Addressing is by id (msg.to is a
     // member id). Pasted images AND/OR picked files ride together as the

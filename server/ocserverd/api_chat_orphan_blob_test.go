@@ -318,8 +318,12 @@ func attachmentFaces() []attachmentFace {
 					t.Fatalf("create task: %d %s", status, resp)
 				}
 				// T-91: the create response is a RECEIPT — {"task_id":…,
-				// "task_no":…,"deduped":…} — not the wrapped row it used to be
-				// ({"task":{…},"deduped":…}). This test only ever wanted the id.
+				// "executor_kind":…,"executor_id":…,"deduped":…} — not the
+				// wrapped row it used to be ({"task":{…},"deduped":…}).
+				// (`task_no` was on an earlier version of the receipt and came
+				// off at rc-f1c0fd3cf124: it repeated `task_id` byte for byte.
+				// This list is hand-written prose with nothing asserting it
+				// against taskCreateResultDTO.) This test only wanted the id.
 				var created struct {
 					TaskID string `json:"task_id"`
 				}

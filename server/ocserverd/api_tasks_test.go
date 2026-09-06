@@ -314,7 +314,8 @@ func createAdHocTask(t *testing.T, api *apiServer, executor string) taskDTO {
 // createdTaskView turns a create_task recorder into the full task view.
 //
 // 🔴 T-91 RESHAPED create_task's ANSWER, and this helper is where the tests
-// absorb it. The write now answers with {task_id, task_no, deduped} — the same
+// absorb it. The write now answers with {task_id, executor_kind, executor_id,
+// deduped} — plus title/status/warnings where they apply — the same
 // posture submit_plan took at T-a98d — so a caller that wants the whole ticket
 // reads get_task, which is what an agent does too. Tests that were reaching
 // through `.Task` for a field were not pinning the create SHAPE; they were
@@ -2653,8 +2654,11 @@ func TestTaskMessageBodyCarriesTaskNo(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("post message: %d %s", rec.Code, rec.Body.String())
 	}
-	// T-91: post_task_message answers a RECEIPT — {id, ts, attachments} — so the
-	// body and the meta are read off the STORED MESSAGE the receipt's id names.
+	// T-91: post_task_message answers a RECEIPT — {id, ts, to, attachments} — so
+	// the body and the meta are read off the STORED MESSAGE the receipt's id
+	// names. (The list said {id, ts, attachments} before `to` landed on both
+	// chat writes at rc-f1c0fd3cf124. It is hand-written prose with nothing
+	// asserting it against chatPostReceiptDTO — read wire.go for the truth.)
 	// That is the right place for this claim anyway: what matters is the text
 	// the executor will READ, not what the write chose to say about it.
 	receipt := decodeBody[chatPostReceiptDTO](t, rec)

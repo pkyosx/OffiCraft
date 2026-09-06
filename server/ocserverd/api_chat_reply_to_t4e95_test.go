@@ -58,10 +58,15 @@ func chatFields(t *testing.T, raw string) (id string, replyTo string) {
 // made against the write's own echo — which is exactly the reading this file
 // already warned about in its own words ("the POST response is built from the
 // in-memory row the handler just made, so it would still look right if the link
-// were never persisted"). The write now answers {id, ts, attachments}: the id it
-// minted, the stamp only the server can make, and the attachment ids a caller
-// that uploaded inline learns here or nowhere. Everything else is read back, so
-// the round trip this file is named for is the only path left.
+// were never persisted"). The write now answers {id, ts, to, attachments}: the
+// id it minted, the stamp only the server can make, the recipient it delivered
+// to, and the attachment ids a caller that uploaded inline learns here or
+// nowhere. (This read {id, ts, attachments} while a draft kept `to` on the task
+// route alone; the owner overruled that at rc-f1c0fd3cf124 and both chat writes
+// now answer the same four keys. The list is hand-written prose — nothing
+// asserts it against chatPostReceiptDTO, so read wire.go before trusting it.)
+// Everything else is read back, so the round trip this file is named for is the
+// only path left.
 func postedChatRead(t *testing.T, srvURL, tok, body string) (string, string) {
 	t.Helper()
 	status, raw := postedChat(t, srvURL, tok, body)

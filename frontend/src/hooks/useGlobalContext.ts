@@ -8,9 +8,9 @@
 // more (GlobalContextReceiptDTO carries identity + sizes, not `text`) — this
 // sentence used to read "is about to stop", written while the frontend half of
 // T-91 went in FIRST ON PURPOSE, before the server half; both are in the same
-// package now, so it is past tense. The
-// the failure mode of leaving this as it was is a page that empties itself after
-// a save with nothing thrown and nothing to show the reader. The re-read costs
+// package now, so it has already happened. The failure mode of leaving this as
+// it was is a page that empties itself after a save with nothing thrown and
+// nothing to show the reader. The re-read costs
 // one GET per save, on a surface a person edits by hand — and it is still the
 // server's answer that lands on screen, so the UI never fabricates the
 // is_default flip locally.

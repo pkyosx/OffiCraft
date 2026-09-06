@@ -372,9 +372,13 @@ function useReplyCardsState(): UseReplyCards {
   // again and eats a 409, and the nav badge (this array's length) stays wrong
   // until reconnect / foreground resync / reload.
   //
-  // The write already answers with the fresh card (`answerReplyCard` /
-  // `reanswerReplyCard` / `expireReplyCard` all return `ReplyCard`), so this
-  // costs ZERO extra requests — step 8's one-round budget is untouched, and the
+  // The write already answers with the transition (`answerReplyCard` /
+  // `reanswerReplyCard` / `expireReplyCard` all return
+  // `Promise<ReplyCardWriteReceipt>`), so this costs ZERO extra requests.
+  // ⚠️ This used to say they "all return `ReplyCard`", which was true before
+  // T-91 bounded the three receipts; `:414` below was corrected in the same
+  // package and this sentence was missed. That is why the fold at `:414` is a
+  // MERGE and not a replacement — step 8's one-round budget is untouched, and the
   // delta still drives the pane for everyone ELSE's writes.
   // ⚠️ This is an adoption of the SERVER's own response for ONE identified card,
   // not a merge of an SSE payload (contract B still holds: deltas refetch, never
@@ -416,7 +420,8 @@ function useReplyCardsState(): UseReplyCards {
     // attachments or its task ref (they are not what it decided), so a
     // replacement would blank those — silently, since nothing here would throw.
     // This read "is about to" while the frontend half of T-91 went in first on
-    // purpose; the server half is in the same package, so the day is today. `mergeReplyCardWrite` folds only the transition
+    // purpose; the server half is in the same package, so it has already
+    // happened. `mergeReplyCardWrite` folds only the transition
     // in and keeps the rest of the card THIS pane already read. Still zero extra
     // requests, so the reason adoption exists at all — the pane converges from
     // the write instead of waiting for a `reply_card` frame that may never

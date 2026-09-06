@@ -18,8 +18,14 @@ package main
 //	① a reply into ANOTHER conversation carries its quote (the door the owner
 //	   opened, and the quote crossing it)
 //	② the quote is built on EVERY read door — listing, history page, by-ids,
-//	   POST echo, wake snapshot — because a door that forgot would look exactly
-//	   like a message whose original is gone
+//	   wake snapshot — because a door that forgot would look exactly like a
+//	   message whose original is gone.
+//	   ⚠️ THIS LIST USED TO NAME THE POST ECHO as one of the doors. That was
+//	   true when it was written and is not any more: T-91 made POST /api/chat
+//	   answer a bounded receipt that serves no message and reads no quote, so
+//	   the door is DELETED, not merely untested. Do not restore it — the same
+//	   ruling is recorded at chatReplyQuote in api_chat.go, which says in as
+//	   many words not to reintroduce the read.
 //	③ it is built even when the quoted message is RIGHT THERE in the same
 //	   payload: the "already loaded, skip it" optimisation must not exist
 //	④ a target that cannot be read leaves the quote ABSENT while `reply_to`
@@ -156,9 +162,10 @@ func TestReplyToChat_IsBuiltOnEveryReadDoor(t *testing.T) {
 	// point of the list rather than an exception to it. This test enumerates the
 	// doors that SERVE a message, because a door that skipped the quote join
 	// would be indistinguishable on screen from an original that is really gone.
-	// post_chat stopped being such a door: it answers {id, ts, attachments} — the
-	// minted id, the server's stamp, and the attachment ids a caller that
-	// uploaded inline learns there or nowhere — and it serves no message at all,
+	// post_chat stopped being such a door: it answers {id, ts, to, attachments}
+	// — the minted id, the server's stamp, the delivered recipient, and the
+	// attachment ids a caller that uploaded inline learns there or nowhere — and
+	// it serves no message at all,
 	// so there is no quote for it to skip. The four remaining doors are the four
 	// that actually hand a reader a message, and they are all still here.
 	replyID, _ := postedChatRead(t, srv.URL, tok,
@@ -535,13 +542,22 @@ func TestReplyToChat_AnUnreadableOriginalFailsLoudlyRatherThanClaimingItIsGone(t
 	// noisy), not a defect — but it must be VISIBLE in the suite, because it is
 	// the thing a future reader will want to weigh before changing this line.
 	//
-	// ⚠️ THE OTHER TWO SERVING DOORS ARE DELIBERATELY ABSENT — see chatReplyQuote.
-	// `GET /api/chat?with=` (whole-table ListChat) and the POST echo (the
-	// reply_to existence gate reads the same id before storing anything) each
-	// 500 on their OWN read of the bad row, so their quote branch is unreachable
-	// for a single-row fault. Verified by mutation: with the error swallowed in
-	// chatReplyQuote, those two still 500 while all four rows here turn 200. A
-	// row for either would be green against the mutant and would guard nothing.
+	// ⚠️ THE ONE REMAINING SERVING DOOR THAT IS DELIBERATELY ABSENT — see
+	// chatReplyQuote in api_chat.go. `GET /api/chat?with=` (the cursorless page,
+	// which reads and scans every row it serves) 500s on its OWN read of the bad
+	// row, so its quote branch is unreachable for a single-row fault. Verified by
+	// mutation: with the error swallowed in chatReplyQuote, it still 500s while
+	// all four rows here turn 200. A row for it would be green against the mutant
+	// and would guard nothing.
+	//
+	// ⚠️ THIS USED TO SAY "THE OTHER TWO", and the second one was the POST
+	// /api/chat echo — "the reply_to existence gate reads the same id before
+	// storing anything". True when written, false now: T-91 made POST /api/chat
+	// answer a bounded receipt that serves no message and reads no quote, so that
+	// branch is DELETED rather than unreachable. api_chat.go carries the same
+	// correction and tells you not to reintroduce the read. Do not restore this
+	// half of the sentence; if POST /api/chat is ever made to serve a quote
+	// again, that is a NEW door and it needs measuring from scratch.
 	doors := []struct {
 		name string
 		url  string

@@ -3417,8 +3417,13 @@ export const mockApi: Api = {
     // response just stops carrying what nobody may render from it.
     // (This used to echo through `mockServedChatMessage`, the same read
     // projection the listing uses, so a reply's quote rode the POST response
-    // too. `ChatPostReceiptDTO` carries id/ts/attachments only, and nothing in
-    // the cockpit reads even those — useChat.ts has always refetched.)
+    // too. `ChatPostReceiptDTO` carries id, ts, to and attachments — nothing
+    // in the cockpit reads even those, since useChat.ts has always refetched.
+    // `to` was left off this list while a draft kept it on the task route only;
+    // the owner overruled that at rc-f1c0fd3cf124 and both chat writes now
+    // answer the same four keys. This list is HAND-WRITTEN and nothing asserts
+    // it against the DTO — check `ChatPostReceiptDTO` in api/generated/schema.ts
+    // before trusting it.)
   },
 
   async markChatRead(mark: {

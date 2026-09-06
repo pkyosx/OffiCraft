@@ -32,8 +32,11 @@ func TestChatPostCarriesReplyCardIDAndReplyToOnTheSameMessage(t *testing.T) {
 		t.Fatalf("no seed id")
 	}
 
-	// T-91: post_chat answers {id, ts, attachments}, so the two fields this test
-	// is about are read off the SERVED message. That is the honest surface for
+	// T-91: post_chat answers {id, ts, to, attachments}, so the two fields this
+	// test is about are read off the SERVED message. (This said {id, ts,
+	// attachments} while a draft kept `to` on the task route alone; the owner
+	// overruled that at rc-f1c0fd3cf124. The list is hand-written prose with no
+	// assertion tying it to chatPostReceiptDTO — read wire.go for the truth.) That is the honest surface for
 	// the claim anyway — meta.reply_card_id is what the COCKPIT reads, and the
 	// cockpit reads it from a served message, never from the write's answer.
 	_, raw := postedChatRead(t, srv.URL, tok,

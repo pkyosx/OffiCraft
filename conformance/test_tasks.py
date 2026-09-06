@@ -1031,19 +1031,30 @@ def test_task_message_rides_chat_with_task_context(client, owner_token, executor
                     json={"body": "how is it going?"},
                     headers=_auth(owner_token))
     assert r.status_code == 200, r.text
-    # T-91: the post answers taskMessageReceiptDTO — the minted id and ts, the
+    # T-91: the post answers chatPostReceiptDTO — the minted id and ts, the
     # resolved attachments, and `to`. The message it made is asserted on the
     # chat stream, which this test read anyway; the read is now the ANCHOR
     # rather than a corroboration, and `attachments` is pinned present-and-empty
     # because a key that comes and goes makes "no files" and "no such concept"
     # the same answer.
     #
-    # `to` is on THIS route and NOT on POST /api/chat (owner ruling
-    # rc-f1c0fd3cf124), and the asymmetry is the point: /api/chat is told the
-    # recipient by its caller, so answering with it would echo the caller's own
-    # input; here the caller names a TASK and the server resolves the executor
-    # itself. Key-set EQUALITY on both routes is what keeps that asymmetry from
-    # eroding in either direction.
+    # ⚠️ THIS USED TO SAY the post answers a `taskMessageReceiptDTO` of its own,
+    # and that `to` is on THIS route and NOT on POST /api/chat, the asymmetry
+    # being the point. Both sentences described a DRAFT the owner overruled at
+    # rc-f1c0fd3cf124 (2026-09-06 verbatim: 「送訊息可以統一多給to 沒問題」), and
+    # no `taskMessageReceiptDTO` was ever in the tree. Do not restore either.
+    # BOTH chat writes share ONE type — `chatPostReceiptDTO`, minted by
+    # `chatPostReceiptOf` — and answer the SAME four keys. The overruled draft
+    # is recorded on that type's `To` field in server/ocserverd/wire.go, and
+    # `_chat_post_receipt` in test_rest_happy.py asserts the same four keys on
+    # POST /api/chat.
+    #
+    # The asymmetry the draft named is real and survives: /api/chat is TOLD its
+    # recipient by the caller, while here the caller names a TASK and the server
+    # resolves the executor itself. The owner's 2026-09-05 rule exempts ids from
+    # the no-echo rule in as many words —「除了像是 ID 這類的」— so one field with
+    # one meaning is correct on both doors. Key-set EQUALITY below is what keeps
+    # the shape from eroding in either direction.
     receipt = r.json()
     assert set(receipt) == {"id", "ts", "to", "attachments"}, receipt
     assert receipt["to"] == executor.member_id, receipt
