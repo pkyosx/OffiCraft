@@ -1058,7 +1058,7 @@ function AssigneeCard({
   }
 
   // Draft axes for the editor: kind + the per-kind knobs.
-  const [kindDraft, setKindDraft] = useState<"member" | "outsource" | null>(
+  const [kindDraft, setKindDraft] = useState<"staff" | "outsource" | null>(
     null
   );
   const [memberDraft, setMemberDraft] = useState("");
@@ -1073,7 +1073,7 @@ function AssigneeCard({
   function startEdit() {
     const a = manual.assignee;
     setKindDraft(a === null ? null : a.kind);
-    setMemberDraft(a?.kind === "member" ? a.memberId : (roster[0]?.id ?? ""));
+    setMemberDraft(a?.kind === "staff" ? a.memberId : (roster[0]?.id ?? ""));
     setRuntimeDraft(
       a?.kind === "outsource" ? a.runtime || "claude" : "claude"
     );
@@ -1103,8 +1103,8 @@ function AssigneeCard({
     const assignee: ManualAssigneeView =
       kindDraft === null
         ? null
-        : kindDraft === "member"
-          ? { kind: "member", memberId: memberDraft }
+        : kindDraft === "staff"
+          ? { kind: "staff", memberId: memberDraft }
           : {
               kind: "outsource",
               runtime: runtimeDraft,
@@ -1136,7 +1136,7 @@ function AssigneeCard({
   function assigneeText(): string {
     const a = manual.assignee;
     if (a === null) return t.settings.assigneeUnset;
-    if (a.kind === "member") {
+    if (a.kind === "staff") {
       const m = roster.find((x) => x.id === a.memberId);
       return `${t.settings.assigneeKindMember} · ${m?.name ?? a.memberId}`;
     }
@@ -1162,12 +1162,12 @@ function AssigneeCard({
         <div className="manual-assignee-card__row">
           <span
             className={`manual-assignee-card__icon${
-              manual.assignee?.kind === "member"
+              manual.assignee?.kind === "staff"
                 ? " manual-assignee-card__icon--member"
                 : ""
             }`}
           >
-            {manual.assignee?.kind === "member" ? (
+            {manual.assignee?.kind === "staff" ? (
               <UserIcon size={18} />
             ) : (
               <BriefcaseIcon size={18} />
@@ -1199,7 +1199,7 @@ function AssigneeCard({
           {/* 指定成員 / 外包 — full-width two-cell segmented toggle. */}
           <Segmented
             options={[
-              { value: "member", label: t.settings.assigneeToggleMember },
+              { value: "staff", label: t.settings.assigneeToggleMember },
               { value: "outsource", label: t.settings.assigneeToggleOutsource },
             ]}
             value={kindDraft}
@@ -1208,7 +1208,7 @@ function AssigneeCard({
             ariaLabel={t.settings.assigneeTitle}
           />
 
-          {kindDraft === "member" && (
+          {kindDraft === "staff" && (
             <div className="manual-assignee-editor__section">
               <div className="manual-assignee-editor__label">
                 {t.settings.assigneeToggleMember}

@@ -147,7 +147,7 @@ describe("TaskCard 轉派 entry + dialog", () => {
 
   it("never offers the task's CURRENT executor as a target", async () => {
     __injectMockTask(
-      mkTask({ title: "Mira 的任務", executorKind: "member", executorId: "mira" })
+      mkTask({ title: "Mira 的任務", executorKind: "staff", executorId: "mira" })
     );
     const { findByTestId, queryByTestId } = renderPage();
     const dialog = await openDialog(findByTestId);

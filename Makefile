@@ -104,6 +104,7 @@ REGEN_PAIR_GATE = $(P) \
 
 .PHONY: \
   lint-go-naming lint-go-fmt lint-go-vet lint-uplink-contract lint-effort-vocab \
+  lint-kind-vocab \
   lint-shadow-claim lint-user-operation-contract \
   lint-conformance-blackbox lint-ts lint-css-tokens lint-css-token-roles \
   lint-async-landing lint-chat-area-key lint-chat-pushdown \
@@ -307,6 +308,21 @@ lint-effort-vocab:
 	echo "[lint-effort-vocab] every hand-written copy lists exactly what the server enforces"; \
 	python3 bin/effort-vocab-guard.py; \
 	python3 bin/tests/effort-vocab-guard-selftest.py; \
+	$(DONE)
+
+# Executor-kind vocabulary gate (T-101), the same shape and the same reason as
+# the pair above. The task side used to call a permanent member "member" while
+# the roster called the identical thing "staff"; renaming it left this
+# vocabulary hand-copied across Go constants, error strings, spec descriptions,
+# route summaries, frontend types and fixtures — and a copy that misses the
+# rename does not fail, it compares false forever and renders the wrong branch.
+# The selftest is the guard's own positive control: a scanner nobody verified
+# still prints all green.
+lint-kind-vocab:
+	@$(P) \
+	echo "[lint-kind-vocab] every hand-written copy of the executor-kind vocabulary agrees with the server"; \
+	python3 bin/kind-vocab-guard.py; \
+	python3 bin/kind-vocab-guard.py --selftest; \
 	$(DONE)
 
 # Shadow-claim contract gate (T-941e) plus its control, same shape and same

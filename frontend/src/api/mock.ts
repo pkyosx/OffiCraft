@@ -3194,7 +3194,7 @@ export const mockApi: Api = {
         .map((m) => ({
           id: m.id,
           name: m.name,
-          kind: "member",
+          kind: "staff",
           roleName: m.role_name ?? "",
           duty: m.role_key ? `職責定義：${m.role_key}` : "",
           currentTask: "",
@@ -4050,7 +4050,7 @@ export const mockApi: Api = {
     const target = input.target;
     let newMember: WireMember | undefined;
     let newWorker: OutsourceWorkerView | undefined;
-    if (target.kind === "member") {
+    if (target.kind === "staff") {
       if (!target.memberId.trim()) {
         throw badRequest("target.member_id is required for kind 'member'");
       }
@@ -4065,7 +4065,7 @@ export const mockApi: Api = {
           `target member '${target.memberId}' is a machine (warden) — machines never execute tasks`
         );
       }
-      if (t.executorKind === "member" && t.executorId === target.memberId) {
+      if (t.executorKind === "staff" && t.executorId === target.memberId) {
         throw mockApiError(
           `http 409 for POST /api/tasks/${id}/reassign`,
           409,
@@ -4129,7 +4129,7 @@ export const mockApi: Api = {
       t.executorKind = "outsource";
       t.executorId = newWorker.id;
     } else if (newMember) {
-      t.executorKind = "member";
+      t.executorKind = "staff";
       t.executorId = newMember.id;
     }
     // T-9ca5: `reassigning` is now an ORTHOGONAL LOCK, not a status. The task

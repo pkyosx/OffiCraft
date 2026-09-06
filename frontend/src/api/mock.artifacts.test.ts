@@ -69,7 +69,7 @@ function mkTask(over: Partial<MockTaskRow>): MockTaskRow {
     description: "",
     status: "in_progress",
     priority: "mid",
-    executorKind: "member",
+    executorKind: "staff",
     executorId: "mira",
     creatorId: "owner",
     dedupeKey: "",

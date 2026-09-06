@@ -148,7 +148,7 @@ func TestAgentCreatesManualAndEditsContentFields(t *testing.T) {
 
 func TestAgentSuppliedAssigneeIs403OnCreateAndEdit(t *testing.T) {
 	api := newTasksTestServer(t)
-	assignee := map[string]any{"kind": "member", "member_id": "m-exec"}
+	assignee := map[string]any{"kind": "staff", "member_id": "m-exec"}
 
 	// Create carrying assignee → 403, and NO manual is written.
 	rec := httptest.NewRecorder()
@@ -256,7 +256,7 @@ func TestOwnerAssigneeOnCreateIsValidatedAndApplied(t *testing.T) {
 	api.HandleCreateTaskManualApiTaskManualsPost(rec, taskReq(t, "POST",
 		"/api/task-manuals",
 		map[string]any{"type_key": "own-type",
-			"assignee": map[string]any{"kind": "member"}},
+			"assignee": map[string]any{"kind": "staff"}},
 		"owner", "owner"))
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("owner bad assignee must 400, got %d %s", rec.Code, rec.Body.String())
@@ -267,7 +267,7 @@ func TestOwnerAssigneeOnCreateIsValidatedAndApplied(t *testing.T) {
 	api.HandleCreateTaskManualApiTaskManualsPost(rec, taskReq(t, "POST",
 		"/api/task-manuals",
 		map[string]any{"type_key": "own-type",
-			"assignee": map[string]any{"kind": "member", "member_id": "m-exec"}},
+			"assignee": map[string]any{"kind": "staff", "member_id": "m-exec"}},
 		"owner", "owner"))
 	if rec.Code != http.StatusOK {
 		t.Fatalf("owner create+assignee must 200, got %d %s", rec.Code, rec.Body.String())
@@ -276,7 +276,7 @@ func TestOwnerAssigneeOnCreateIsValidatedAndApplied(t *testing.T) {
 	if err != nil || m == nil {
 		t.Fatalf("manual readback: %v %v", m, err)
 	}
-	if m.Assignee != `{"kind":"member","member_id":"m-exec"}` {
+	if m.Assignee != `{"kind": "staff","member_id":"m-exec"}` {
 		t.Fatalf("owner assignee not applied: %q", m.Assignee)
 	}
 }
@@ -294,7 +294,7 @@ func TestAdminAgentAssigneeIsAppliedOnCreateAndEdit(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("PutMember: %v", err)
 	}
-	assignee := map[string]any{"kind": "member", "member_id": "m-exec"}
+	assignee := map[string]any{"kind": "staff", "member_id": "m-exec"}
 
 	rec := httptest.NewRecorder()
 	api.HandleCreateTaskManualApiTaskManualsPost(rec, taskReq(t, "POST",
@@ -308,7 +308,7 @@ func TestAdminAgentAssigneeIsAppliedOnCreateAndEdit(t *testing.T) {
 	if err != nil || m == nil {
 		t.Fatalf("manual readback: %v %v", m, err)
 	}
-	if m.Assignee != `{"kind":"member","member_id":"m-exec"}` {
+	if m.Assignee != `{"kind": "staff","member_id":"m-exec"}` {
 		t.Fatalf("admin assignee not applied on create: %q", m.Assignee)
 	}
 
@@ -324,7 +324,7 @@ func TestAdminAgentAssigneeIsAppliedOnCreateAndEdit(t *testing.T) {
 	if err != nil || m == nil {
 		t.Fatalf("manual readback: %v %v", m, err)
 	}
-	if m.Assignee != `{"kind":"member","member_id":"m-exec"}` {
+	if m.Assignee != `{"kind": "staff","member_id":"m-exec"}` {
 		t.Fatalf("admin assignee not applied on edit: %q", m.Assignee)
 	}
 }

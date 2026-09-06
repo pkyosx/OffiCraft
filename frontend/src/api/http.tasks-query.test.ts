@@ -97,7 +97,7 @@ describe("httpApi.listTasks · dep_tasks arrives as the server's answer (T-a3e4)
     task_no: "T-1111",
     status: "in_progress",
     priority: "mid",
-    executor_kind: "member",
+    executor_kind: "staff",
     closed_ts: null,
     deps: ["t-2222bbbbcccc", "t-3333ddddeeee"],
     progress_done: 0,

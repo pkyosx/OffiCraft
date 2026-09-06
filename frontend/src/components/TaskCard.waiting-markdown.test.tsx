@@ -47,7 +47,7 @@ function mkWaitingTask(reason: string): TaskView {
   return {
     id: "T-a20b", taskNo: "T-a20b", title: "waiting markdown 任務", typeKey: "",
     description: "", status: "waiting_external", priority: "high",
-    executorKind: "member", executorId: "mira", creatorId: "", dedupeKey: "",
+    executorKind: "staff", executorId: "mira", creatorId: "", dedupeKey: "",
     deps: [], waitingReason: reason, duplicateOf: "", createdTs: 1000, updatedTs: 2000,
     closedTs: null, progressDone: 0, progressTotal: 1,
     steps: [mkStep({ status: "waiting_external", waitingReason: reason })],

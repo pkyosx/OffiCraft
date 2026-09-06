@@ -228,7 +228,7 @@ function blankTask(id: string) {
     status: "in_progress",
     lock: "",
     priority: "medium",
-    executorKind: "member",
+    executorKind: "staff",
     executorId: "",
     creatorId: OWNER,
     reassignedFrom: "",

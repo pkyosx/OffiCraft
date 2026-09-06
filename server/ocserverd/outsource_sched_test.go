@@ -222,7 +222,7 @@ func TestOutsourceSpecOfParsesTheManualAssignee(t *testing.T) {
 	}
 	// Member assignee / unset / junk → nil (never an outsource spec).
 	for _, blob := range []string{
-		`{"kind":"member","member_id":"m-1"}`, `{}`, ``, `not json`,
+		`{"kind": "staff","member_id":"m-1"}`, `{}`, ``, `not json`,
 	} {
 		if got := outsourceSpecOf(TaskManual{Assignee: blob}); got != nil {
 			t.Fatalf("assignee %q must yield nil, got %+v", blob, got)

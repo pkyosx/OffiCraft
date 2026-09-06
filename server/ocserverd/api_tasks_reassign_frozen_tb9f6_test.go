@@ -201,7 +201,7 @@ func TestReassignFrozenTask_SuccessorNoticeCarriesNoFrozenCaveat(t *testing.T) {
 			}
 			if rec := reassign(t, api, task.ID,
 				map[string]any{"target": map[string]any{
-					"kind": "member", "member_id": "m-new"}},
+					"kind": "staff", "member_id": "m-new"}},
 				wireOwnerID, "owner"); rec.Code != http.StatusOK {
 				t.Fatalf("reassign: %d %s", rec.Code, rec.Body.String())
 			}

@@ -87,7 +87,7 @@ function mkTask(steps: TaskStepView[]): TaskView {
   return {
     id: "T-cc3e", taskNo: "T-cc3e", title: "步驟備註任務", typeKey: "",
     description: "", status: "in_progress", priority: "mid",
-    executorKind: "member", executorId: "mira", creatorId: "", dedupeKey: "",
+    executorKind: "staff", executorId: "mira", creatorId: "", dedupeKey: "",
     deps: [], waitingReason: "", duplicateOf: "", createdTs: 1000, updatedTs: 2000,
     closedTs: null, progressDone: 0, progressTotal: steps.length, steps,
   };

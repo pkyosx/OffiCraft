@@ -325,7 +325,7 @@ func TestMutableToolCatalogAndLoopbackCloseNestedDTOs(t *testing.T) {
 	srv, secret, _ := newWiredTestServer(t)
 	ownerTok, _ := mintJWT("owner", "owner", 300, secret, time.Now().Unix(), "")
 	payload := postMCP(t, srv.URL, ownerTok,
-		`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"create_task","arguments":{"title":"must not be created","target":{"kind":"member","typo":"must not disappear"}}}}`)
+		`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"create_task","arguments":{"title":"must not be created","target":{"kind": "staff","typo":"must not disappear"}}}}`)
 	result := payload["result"].(map[string]any)
 	if result["isError"] != true || result["structuredContent"].(map[string]any)["error"].(map[string]any)["code"] != "validation_error" {
 		t.Fatalf("nested unknown MCP argument must be refused: %v", result)

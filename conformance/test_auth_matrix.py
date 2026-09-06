@@ -513,7 +513,7 @@ def _matrix_reassigning_task(ctx: Ctx) -> str:
     task_id = r.json()["task_id"]
     r = ctx.client.post(
         f"/api/tasks/{task_id}/reassign",
-        json={"target": {"kind": "member", "member_id": ctx.agent_a.member_id}},
+        json={"target": {"kind": "staff", "member_id": ctx.agent_a.member_id}},
         headers=h,
     )
     assert r.status_code == 200, f"scratch reassign failed: {r.status_code} {r.text}"
@@ -1584,7 +1584,7 @@ MATRIX: dict[str, Route] = {
         overrides={"agent_other": 403},
         path=lambda ctx, _i: f"/api/tasks/{_matrix_task(ctx)}/reassign",
         body=lambda ctx, identity: (
-            {"target": {"kind": "member", "member_id": ctx.fresh_member()}}
+            {"target": {"kind": "staff", "member_id": ctx.fresh_member()}}
             if identity in _ADMIN_FACES
             else {"target": {"kind": "outsource", "model": "sonnet",
                              "effort": "low"}}

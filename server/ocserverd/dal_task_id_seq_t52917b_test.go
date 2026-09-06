@@ -241,12 +241,21 @@ func TestUpgradingADatabaseThatAlreadyHasTasks(t *testing.T) {
 	}
 
 	// ② populate it the way a live database is populated.
+	//
+	// 🔴 THE EXECUTOR KIND HERE IS THE PRE-RENAME SPELLING, WRITTEN AS A
+	// LITERAL, AND IT HAS TO BE. This seeds at schema version 59, where the
+	// CHECK still reads IN ('member','outsource') — 00088 renames it to 'staff'
+	// only in step ③ below. Using TaskExecutorStaff here fails the CHECK at
+	// INSERT time, which is a test bug, not a product one: a database being
+	// upgraded from version 59 contains the OLD value by definition.
+	const preRenameExecutorKind = "member" // kind-vocab-guard:legacy
 	pre := NewDAL(db)
 	now := nowSecs()
 	for _, id := range []string{"t-72dd79b666d0", "t-ced055e27e9f", "T-5"} {
 		if err := pre.PutTask(Task{ID: id, Title: "pre-upgrade " + id,
 			Status: TaskStatusNotStarted, Priority: TaskPriorityMid,
-			ExecutorKind: TaskExecutorMember, ExecutorID: "m-exec",
+			ExecutorKind: preRenameExecutorKind, ExecutorID: "m-exec",
+			ReassignedFrom: "m-old", ReassignedFromKind: preRenameExecutorKind,
 			CreatedTS: now, UpdatedTS: now}); err != nil {
 			t.Fatalf("seed %s: %v", id, err)
 		}
@@ -255,6 +264,43 @@ func TestUpgradingADatabaseThatAlreadyHasTasks(t *testing.T) {
 	// ③ upgrade.
 	if err := runMigrations(db); err != nil {
 		t.Fatalf("goose up: %v", err)
+	}
+
+	// The rows seeded at version 59 carried the pre-rename kind in BOTH kind
+	// columns; 00088 must have renamed them in place. Asserted HERE because this
+	// is the only test that starts from a POPULATED OLD schema — a fresh
+	// database has no pre-rename row for the migration to act on, so a rename
+	// that silently skipped existing rows would pass everywhere else.
+	//
+	// 🔴 reassigned_from_kind IS THE HALF THAT NEEDS AN ASSERTION, and that was
+	// measured rather than assumed. executor_kind carries the new CHECK, so a
+	// migration that forgot to rename it cannot even complete — goose fails on
+	// the INSERT and every test that runs migrations goes red. Asserting only
+	// that column would therefore have been an assertion with no teeth, hidden
+	// behind a louder failure. reassigned_from_kind has NO CHECK and admits '',
+	// so dropping its CASE leaves a migration that succeeds, a database that
+	// looks upgraded, and a column still speaking the retired word. Nothing
+	// else in the tree notices.
+	for _, col := range []string{"executor_kind", "reassigned_from_kind"} {
+		var stale int
+		if err := db.QueryRow(
+			`SELECT count(*) FROM task WHERE `+col+` = ?`, preRenameExecutorKind,
+		).Scan(&stale); err != nil {
+			t.Fatalf("count pre-rename %s: %v", col, err)
+		}
+		if stale != 0 {
+			t.Errorf("00088 left %d task row(s) with %s on the pre-rename value",
+				stale, col)
+		}
+		var renamed int
+		if err := db.QueryRow(
+			`SELECT count(*) FROM task WHERE `+col+` = ?`, TaskExecutorStaff,
+		).Scan(&renamed); err != nil {
+			t.Fatalf("count renamed %s: %v", col, err)
+		}
+		if renamed != 3 {
+			t.Errorf("00088 renamed %s on %d of the 3 seeded rows", col, renamed)
+		}
 	}
 
 	// the counter must clear the highest EXISTING T-<n>, not restart at 1
@@ -281,7 +327,7 @@ func TestUpgradingADatabaseThatAlreadyHasTasks(t *testing.T) {
 	// and the next mint lands clear of them
 	minted, err := pre.CreateTaskMintingID(Task{Title: "post-upgrade",
 		Status: TaskStatusNotStarted, Priority: TaskPriorityMid,
-		ExecutorKind: TaskExecutorMember, ExecutorID: "m-exec",
+		ExecutorKind: TaskExecutorStaff, ExecutorID: "m-exec",
 		CreatedTS: now, UpdatedTS: now}, nil)
 	if err != nil {
 		t.Fatalf("mint after upgrade: %v", err)

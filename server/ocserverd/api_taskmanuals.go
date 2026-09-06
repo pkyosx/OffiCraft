@@ -111,7 +111,7 @@ func (s *apiServer) writeTaskManualReceipt(w http.ResponseWriter, m TaskManual, 
 }
 
 // validateManualAssignee checks an incoming assignee object: {} unsets; a
-// populated object must carry a legal kind — "member" (with a non-blank
+// populated object must carry a legal kind — "staff" (with a non-blank
 // member_id) or "outsource". Outsource knobs (spec TaskManualUpdateDTO):
 // `copies` >= 0 where 0 = 無限 (unlimited per-type parallel copies; absent
 // = 1); `machine`, when present, must be a MACHINE ID — the type's workers boot
@@ -126,9 +126,9 @@ func validateManualAssignee(assignee map[string]any) string {
 	}
 	kind, _ := assignee["kind"].(string)
 	switch kind {
-	case TaskExecutorMember:
+	case TaskExecutorStaff:
 		if memberID, _ := assignee["member_id"].(string); memberID == "" {
-			return "assignee kind 'member' requires a member_id"
+			return "assignee kind '" + TaskExecutorStaff + "' requires a member_id"
 		}
 	case TaskExecutorOutsource:
 		if runtime, ok := assignee["runtime"]; ok {
@@ -158,7 +158,11 @@ func validateManualAssignee(assignee map[string]any) string {
 			}
 		}
 	default:
-		return "assignee kind must be 'member' or 'outsource'"
+		// Derived, not written out again: a caller sending the PRE-RENAME
+		// 'member' must be told it was RENAMED rather than merely rejected kind-vocab-guard:legacy
+		// (owner ruling rc-7574cc804dd6).
+		_, err := CanonicalTaskExecutorKind(kind)
+		return "assignee kind: " + err.Error()
 	}
 	return ""
 }

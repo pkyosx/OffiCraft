@@ -30,7 +30,7 @@ func t92LinkBlobWorld(t *testing.T) *DAL {
 	for _, id := range []string{"t-aaaa0001", "t-aaaa0002"} {
 		if err := dal.PutTask(Task{
 			ID: id, Title: "holder", Status: TaskStatusNotStarted,
-			Priority: TaskPriorityMid, ExecutorKind: TaskExecutorMember,
+			Priority: TaskPriorityMid, ExecutorKind: TaskExecutorStaff,
 			ExecutorID: "m-exec", CreatedTS: 1, UpdatedTS: 1,
 		}); err != nil {
 			t.Fatalf("seed task %s: %v", id, err)

@@ -41,7 +41,7 @@ func seedTasksMix(t *testing.T, s *apiServer) (openIDs, terminalIDs []string) {
 		}
 		if err := s.dal.PutTask(Task{
 			ID: id, TypeKey: "tm-x", Title: id, Status: status,
-			Priority: TaskPriorityMid, ExecutorKind: TaskExecutorMember,
+			Priority: TaskPriorityMid, ExecutorKind: TaskExecutorStaff,
 			ExecutorID: "m-1", CreatedTS: 1000, UpdatedTS: 1000, ClosedTS: closed,
 		}); err != nil {
 			t.Fatal(err)
@@ -242,7 +242,7 @@ func seedManuals(t *testing.T, s *apiServer) {
 			Fields:    `[{"name":"pr","required":true,"is_key":true}]`,
 			SopMD:     "## huge SOP markdown body that the list view never shows",
 			Learnings: "## accumulated learnings the list view never shows",
-			Assignee:  `{"kind":"member","member_id":"m-1"}`,
+			Assignee:  `{"kind": "staff","member_id":"m-1"}`,
 			UpdatedTS: 1234,
 		}); err != nil {
 			t.Fatal(err)
@@ -313,7 +313,7 @@ func TestListTaskManualsDropsTheLongDocumentsAndKeepsTheRest(t *testing.T) {
 		if len(m.Fields) == 0 {
 			t.Fatalf("fields must be the REAL parsed value, not blanked: %+v", m)
 		}
-		if m.Assignee["kind"] != "member" {
+		if m.Assignee["kind"] != TaskExecutorStaff {
 			t.Fatalf("assignee must be the REAL parsed value, not blanked: %+v", m.Assignee)
 		}
 	}

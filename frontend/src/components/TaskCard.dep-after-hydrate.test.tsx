@@ -53,7 +53,7 @@ function mkTask(over: Partial<TaskView> = {}): TaskView {
     description: "詳細敘述",
     status: "in_progress",
     priority: "high",
-    executorKind: "member",
+    executorKind: "staff",
     executorId: "mira",
     creatorId: "",
     dedupeKey: "",

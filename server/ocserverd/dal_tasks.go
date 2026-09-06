@@ -29,7 +29,7 @@ type Task struct {
 	Status        string // DERIVED from steps (domain.go DeriveTaskStatus); closed set
 	Lock          string // '' | 'reassigning' — orthogonal system hold (domain.go TaskLock*)
 	Priority      string // closed set high|mid|low|frozen
-	ExecutorKind  string // "member" | "outsource"
+	ExecutorKind  string // "staff" | "outsource" (was "member", T-101) kind-vocab-guard:legacy
 	ExecutorID    string // '' = outsource task awaiting assignment
 	CreatorID     string // verified sub of the creator; '' on pre-column rows
 	WaitingReason string // non-empty only while waiting_external
@@ -44,7 +44,7 @@ type Task struct {
 	DuplicateOf string
 	// ReassignedFrom / ReassignedFromKind is the PREDECESSOR the task was last
 	// handed over from (T-ba04): on every reassign the server stamps the OLD
-	// executor's id + kind ('member' | 'outsource') here so the new executor and
+	// executor's id + kind ('staff' | 'outsource') here so the new executor and
 	// the cockpit can name who to hand over WITH. '' / '' on a task never
 	// reassigned (or pre-column rows).
 	ReassignedFrom     string

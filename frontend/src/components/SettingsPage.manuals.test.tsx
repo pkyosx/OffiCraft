@@ -46,7 +46,7 @@ function mkTask(over: Partial<TaskView>): TaskView {
     description: "",
     status: "in_progress",
     priority: "mid",
-    executorKind: "member",
+    executorKind: "staff",
     executorId: "mira",
     creatorId: "",
     dedupeKey: "",
@@ -787,7 +787,7 @@ describe("設定 › 任務手冊 — detail", () => {
     fireEvent.click(await findByTestId("manual-open-review-pr"));
 
     fireEvent.click(await findByTestId("manual-assignee-edit"));
-    fireEvent.click(getByTestId("manual-assignee-kind-member"));
+    fireEvent.click(getByTestId("manual-assignee-kind-staff"));
     // The roster pick rows list the real assistants (mock Mira) — pick her.
     const members = await api.listMembers();
     const mira = members.find((m) => m.kind === "staff")!;
@@ -796,7 +796,7 @@ describe("設定 › 任務手冊 — detail", () => {
 
     await waitFor(async () => {
       expect((await api.getTaskManual("review-pr")).assignee).toEqual({
-        kind: "member",
+        kind: "staff",
         memberId: mira.id,
       });
     });
@@ -808,7 +808,7 @@ describe("設定 › 任務手冊 — detail", () => {
     fireEvent.click(await findByTestId("manual-open-review-pr"));
 
     fireEvent.click(await findByTestId("manual-assignee-edit"));
-    fireEvent.click(getByTestId("manual-assignee-kind-member"));
+    fireEvent.click(getByTestId("manual-assignee-kind-staff"));
     // Mock Mira carries role_key "assistant" → the row's role label resolves
     // through the shared order (i18n seed label first) to 特助.
     const members = await api.listMembers();

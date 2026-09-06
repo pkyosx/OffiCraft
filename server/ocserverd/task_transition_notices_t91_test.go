@@ -137,7 +137,7 @@ func TestResumeSummaryTaskRowCarriesTheReassignHold(t *testing.T) {
 		t.Fatalf("resume-summary task row must name the PREDECESSOR to hand over "+
 			"with (reassigned_from), got %v (row=%v)", row["reassigned_from"], row)
 	}
-	if row["reassigned_from_kind"] != TaskExecutorMember {
+	if row["reassigned_from_kind"] != TaskExecutorStaff {
 		t.Fatalf("resume-summary task row must say HOW to resolve reassigned_from "+
 			"(member vs outsource), got %v", row["reassigned_from_kind"])
 	}

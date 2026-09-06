@@ -781,7 +781,7 @@ func seedManualWithKey(t *testing.T, api *apiServer, typeKey string) {
 	if err := api.dal.PutTaskManual(TaskManual{
 		TypeKey:  typeKey,
 		Fields:   `[{"name":"pr","required":true,"is_key":true}]`,
-		Assignee: `{"kind":"member","member_id":"m-exec"}`,
+		Assignee: `{"kind": "staff","member_id":"m-exec"}`,
 	}); err != nil {
 		t.Fatalf("seed manual: %v", err)
 	}
@@ -799,7 +799,7 @@ func seedManualWithLabel(t *testing.T, api *apiServer, typeKey, displayName stri
 		TypeKey:     typeKey,
 		DisplayName: displayName,
 		Fields:      `[{"name":"pr","required":true,"is_key":true}]`,
-		Assignee:    `{"kind":"member","member_id":"m-exec"}`,
+		Assignee:    `{"kind": "staff","member_id":"m-exec"}`,
 	}); err != nil {
 		t.Fatalf("seed manual: %v", err)
 	}
@@ -886,7 +886,7 @@ func TestCreateTypedTaskAssignedToMemberIsThatMembersAlone(t *testing.T) {
 	if err := api.dal.PutTaskManual(TaskManual{
 		TypeKey:  "review",
 		Fields:   `[{"name":"pr","required":true,"is_key":true}]`,
-		Assignee: `{"kind":"member","member_id":"m-exec"}`,
+		Assignee: `{"kind": "staff","member_id":"m-exec"}`,
 	}); err != nil {
 		t.Fatalf("seed manual: %v", err)
 	}
@@ -3095,7 +3095,7 @@ func TestReconcileTaskStatusesOnBoot(t *testing.T) {
 	// reconcile SHOULD correct this to in_progress.
 	if err := api.dal.PutTask(Task{
 		ID: "t-drift", TypeKey: "tm-x", Title: "drift", Status: TaskStatusNotStarted,
-		Priority: TaskPriorityMid, ExecutorKind: TaskExecutorMember, ExecutorID: "m-1",
+		Priority: TaskPriorityMid, ExecutorKind: TaskExecutorStaff, ExecutorID: "m-1",
 		CreatedTS: 1000, UpdatedTS: 1000,
 	}); err != nil {
 		t.Fatalf("put drift task: %v", err)
@@ -3108,7 +3108,7 @@ func TestReconcileTaskStatusesOnBoot(t *testing.T) {
 	// A terminal control: reconcile must not re-derive it.
 	if err := api.dal.PutTask(Task{
 		ID: "t-term", TypeKey: "tm-x", Title: "term", Status: TaskStatusTerminated,
-		Priority: TaskPriorityMid, ExecutorKind: TaskExecutorMember, ExecutorID: "m-1",
+		Priority: TaskPriorityMid, ExecutorKind: TaskExecutorStaff, ExecutorID: "m-1",
 		CreatedTS: 1000, UpdatedTS: 1000,
 	}); err != nil {
 		t.Fatalf("put terminal task: %v", err)

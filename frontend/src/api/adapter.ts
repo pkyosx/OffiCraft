@@ -511,6 +511,23 @@ export interface TaskCountView {
   total: number;
 }
 
+/**
+ * The executor track a task runs on — the closed set the server enforces
+ * (`task.executor_kind`, and the same word `reassigned_from_kind` speaks).
+ *
+ * It is ONE word for ONE thing as of T-101: the roster calls a permanent member
+ * `staff`, and the task side used to call the identical distinction `member`, kind-vocab-guard:legacy
+ * so an agent reading both in one turn had to guess whether `member` named a
+ * third kind of身分. The task side was renamed to match. `warden` is absent on
+ * purpose — machines never execute tasks.
+ *
+ * Every field on this axis is typed as this union rather than `string` so a
+ * stale spelling fails to COMPILE. A bare `string` lets `x === "member"` keep
+ * type-checking forever while being false at runtime, which renders the wrong
+ * branch and reports nothing.
+ */
+export type TaskExecutorKind = "staff" | "outsource";
+
 export interface TaskView {
   id: string;
   /** The task NUMBER, which IS `id` (T-5291): the wire sends it and the card
@@ -533,8 +550,12 @@ export interface TaskView {
    * fixtures, so it stays optional (read as `?? ""`). */
   lock?: string;
   priority: string;
-  /** "member" | "outsource". */
-  executorKind: string;
+  /** The executor track. A UNION, not a bare string, ON PURPOSE (T-101): it is
+   * the closed set the server enforces, so a stale spelling anywhere in the SPA
+   * stops compiling instead of comparing false at runtime and rendering the
+   * wrong branch in silence. Renamed from "member" to "staff" so the task side kind-vocab-guard:legacy
+   * and the roster side say one word for one thing. */
+  executorKind: TaskExecutorKind;
   /** Member id / outsource worker id; "" under kind=outsource ⇒ unassigned. */
   executorId: string;
   /** The verified token sub of whoever created the task: a member id, an
@@ -547,10 +568,10 @@ export interface TaskView {
    * always set it, but the field post-dates many test fixtures, so it stays
    * optional to avoid a churn of unrelated fixture edits (read as `?? ""`). */
   reassignedFrom?: string;
-  /** The kind of {@link reassignedFrom} ("member" | "outsource"), so the card
+  /** The kind of {@link reassignedFrom} ("staff" | "outsource"), so the card
    * resolves the id the right way (roster name vs outsource codename). "" when
    * reassignedFrom is "". Optional-additive — see {@link reassignedFrom}. */
-  reassignedFromKind?: string;
+  reassignedFromKind?: TaskExecutorKind | "";
   /** The manual-derived identity key value (dedupe key); "" for ad-hoc. When
    * the value is a URL the badge renders an external link (spec 識別鍵). */
   dedupeKey: string;
@@ -864,7 +885,7 @@ export interface TaskManualFieldView {
  * machine is chosen, or the chosen one is offline, no worker of the type is
  * started and the reason is recorded on the worker row). */
 export type ManualAssigneeView =
-  | { kind: "member"; memberId: string }
+  | { kind: "staff"; memberId: string }
   | {
       kind: "outsource";
       runtime?: "claude" | "codex";
@@ -967,7 +988,7 @@ export interface TaskMessageInput {
  * no analogue here: a reassign
  * mints exactly ONE worker for THIS task. */
 export type TaskReassignTarget =
-  | { kind: "member"; memberId: string }
+  | { kind: "staff"; memberId: string }
   | {
       kind: "outsource";
       runtime?: "claude" | "codex";
@@ -1653,7 +1674,7 @@ export interface ResumeTaskView {
    * reassigned; `reassignedFromKind` says whether that id is a roster member
    * or an outsource worker. */
   reassignedFrom: string;
-  reassignedFromKind: string;
+  reassignedFromKind: TaskExecutorKind | "";
   /** Ids of the still-open tickets waiting on THIS one (T-91) — the reverse of
    * `deps`. Nothing is messaged about it by owner ruling, so this row is the
    * whole delivery. */

@@ -111,7 +111,7 @@ export function mkTask(over: Partial<MockTaskRow>): MockTaskRow {
     description: "",
     status: "in_progress",
     priority: "high",
-    executorKind: "member",
+    executorKind: "staff",
     executorId: "mira",
     creatorId: "owner",
     dedupeKey: "",
@@ -353,6 +353,6 @@ export const LONG_MEMBER = {
   kind: "agent",
 } as unknown as Member;
 export const LONG_ASSIGNEE: TaskView = mkTask({
-  executorKind: "member",
+  executorKind: "staff",
   executorId: "long-assignee",
 });

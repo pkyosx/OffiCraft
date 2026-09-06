@@ -28,7 +28,7 @@ function seedTask(over: Partial<TaskView> = {}): string {
     description: "",
     status: "in_progress",
     priority: "high",
-    executorKind: "member",
+    executorKind: "staff",
     executorId: "mira",
     creatorId: "",
     dedupeKey: "",

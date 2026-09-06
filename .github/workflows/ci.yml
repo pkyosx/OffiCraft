@@ -297,7 +297,7 @@ jobs:
           # the PR base; a shallow checkout would turn that provenance check into
           # an unverified guess.
           fetch-depth: 0
-      - run: bash bin/run-checks.sh lint-uplink-contract lint-effort-vocab lint-shadow-claim lint-user-operation-contract
+      - run: bash bin/run-checks.sh lint-uplink-contract lint-effort-vocab lint-kind-vocab lint-shadow-claim lint-user-operation-contract
 
   # ---------------------------------------------------------------------------
   # conformance — the black-box import lint (fast, static) and then the full

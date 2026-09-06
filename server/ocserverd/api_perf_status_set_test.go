@@ -106,7 +106,7 @@ func TestTasksStatusSetMatchesTheReassigningLock(t *testing.T) {
 	mk := func(id, status, lock string) {
 		if err := s.dal.PutTask(Task{
 			ID: id, Title: id, Status: status, Lock: lock,
-			Priority: TaskPriorityMid, ExecutorKind: TaskExecutorMember,
+			Priority: TaskPriorityMid, ExecutorKind: TaskExecutorStaff,
 			ExecutorID: "m-1", CreatedTS: 1000, UpdatedTS: 1000,
 		}); err != nil {
 			t.Fatal(err)
@@ -158,7 +158,7 @@ func TestTasksStatusSetIgnoresAResidualLockOnAClosedTask(t *testing.T) {
 	mk := func(id, status, lock string, closed float64) {
 		if err := s.dal.PutTask(Task{
 			ID: id, Title: id, Status: status, Lock: lock,
-			Priority: TaskPriorityMid, ExecutorKind: TaskExecutorMember,
+			Priority: TaskPriorityMid, ExecutorKind: TaskExecutorStaff,
 			ExecutorID: "m-1", CreatedTS: 1000, UpdatedTS: 1000, ClosedTS: closed,
 		}); err != nil {
 			t.Fatal(err)
@@ -296,7 +296,7 @@ func seedBlockedTask(t *testing.T, s *apiServer) (blockedID, doneID, ghostID str
 	mk := func(id, title, status string, closed float64) {
 		if err := s.dal.PutTask(Task{
 			ID: id, Title: title, Status: status, Priority: TaskPriorityMid,
-			ExecutorKind: TaskExecutorMember, ExecutorID: "m-1",
+			ExecutorKind: TaskExecutorStaff, ExecutorID: "m-1",
 			CreatedTS: 1000, UpdatedTS: 1000, ClosedTS: closed,
 		}); err != nil {
 			t.Fatal(err)
@@ -362,7 +362,7 @@ func TestTaskListDepTasksIsAlwaysAnArray(t *testing.T) {
 	s := &apiServer{dal: newTestDAL(t), hub: NewHub()}
 	if err := s.dal.PutTask(Task{
 		ID: "t-nodeps000001", Title: "獨立", Status: TaskStatusInProgress,
-		Priority: TaskPriorityMid, ExecutorKind: TaskExecutorMember,
+		Priority: TaskPriorityMid, ExecutorKind: TaskExecutorStaff,
 		ExecutorID: "m-1", CreatedTS: 1, UpdatedTS: 1,
 	}); err != nil {
 		t.Fatal(err)

@@ -67,7 +67,7 @@ function mkTask(over: Partial<TaskView>): TaskView {
     description: "",
     status: "done",
     priority: "mid",
-    executorKind: "member",
+    executorKind: "staff",
     executorId: "mira",
     creatorId: "",
     dedupeKey: "",

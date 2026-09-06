@@ -36,7 +36,7 @@ function mkTask(over: Partial<TaskView>): TaskView {
   return {
     id: "T-1aea", taskNo: "T-1aea", title: "re-plan 保留已答卡節點", typeKey: "",
     description: "", status: "in_progress", priority: "mid",
-    executorKind: "member", executorId: "mira", creatorId: "", dedupeKey: "",
+    executorKind: "staff", executorId: "mira", creatorId: "", dedupeKey: "",
     deps: [], waitingReason: "", duplicateOf: "", createdTs: 1000, updatedTs: 2000,
     closedTs: null, progressDone: 0, progressTotal: 0, steps: [], ...over,
   };

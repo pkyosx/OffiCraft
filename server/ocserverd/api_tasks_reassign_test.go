@@ -38,7 +38,7 @@ func reassign(t *testing.T, api *apiServer, taskID string, body map[string]any, 
 }
 
 func memberTarget(memberID string) map[string]any {
-	return map[string]any{"target": map[string]any{"kind": "member", "member_id": memberID}}
+	return map[string]any{"target": map[string]any{"kind": "staff", "member_id": memberID}}
 }
 
 func TestReassignRouteRowIsAgentGatedAndMCPExposed(t *testing.T) {
@@ -213,7 +213,7 @@ func TestReassignMemberToMemberHandsOver(t *testing.T) {
 	newConn, _ := api.hub.Connect("m-new", "")
 
 	rec = reassign(t, api, task.ID, map[string]any{
-		"target": map[string]any{"kind": "member", "member_id": "m-new"},
+		"target": map[string]any{"kind": "staff", "member_id": "m-new"},
 		"note":   "分支在 kyle-160e",
 	}, "owner", "owner")
 	if rec.Code != http.StatusOK {
@@ -229,7 +229,7 @@ func TestReassignMemberToMemberHandsOver(t *testing.T) {
 	// The reassigning hold is now a LOCK (T-9ca5); status stays DERIVED (done +
 	// two pending → in_progress).
 	if out.Lock != TaskLockReassigning || out.Status != TaskStatusInProgress ||
-		out.ExecutorKind != TaskExecutorMember || out.ExecutorID != "m-new" {
+		out.ExecutorKind != TaskExecutorStaff || out.ExecutorID != "m-new" {
 		t.Fatalf("handed-over row wrong: %+v", out)
 	}
 	// Identity: the receipt carries the id, and dedupe_key/type_key are no
@@ -350,7 +350,7 @@ func TestReassignMemberToMemberHandsOver(t *testing.T) {
 	}
 	// T-ba04: the predecessor is stamped on the persisted task.
 	if storedT, err := api.dal.GetTask(task.ID); err != nil || storedT == nil ||
-		storedT.ReassignedFrom != "m-old" || storedT.ReassignedFromKind != TaskExecutorMember {
+		storedT.ReassignedFrom != "m-old" || storedT.ReassignedFromKind != TaskExecutorStaff {
 		t.Fatalf("predecessor stamp wrong: %+v %v", storedT, err)
 	}
 
@@ -746,7 +746,7 @@ func TestReassignOutsourceSuccessorClaimsOnWakingThenTakesOver(t *testing.T) {
 		t.Fatalf("claimed task must carry the reassigning lock: %+v", claimed)
 	}
 	if claimed.ReassignedFrom != "m-old" ||
-		claimed.ReassignedFromKind != TaskExecutorMember {
+		claimed.ReassignedFromKind != TaskExecutorStaff {
 		t.Fatalf("the task the worker reads must carry the predecessor stamp: %+v", claimed)
 	}
 	if claimed.HandoverNote != note ||
@@ -772,7 +772,7 @@ func TestReassignPreservesHandoverNoteWhenLaterReassignOmitsNote(t *testing.T) {
 	task := createAdHocTask(t, api, "m-old")
 
 	if rec := reassign(t, api, task.ID, map[string]any{
-		"target": map[string]any{"kind": "member", "member_id": "m-new"},
+		"target": map[string]any{"kind": "staff", "member_id": "m-new"},
 		"note":   "先確認已完成的匯入",
 	}, "owner", "owner"); rec.Code != http.StatusOK {
 		t.Fatalf("first reassign: %d %s", rec.Code, rec.Body.String())
@@ -786,7 +786,7 @@ func TestReassignPreservesHandoverNoteWhenLaterReassignOmitsNote(t *testing.T) {
 		t.Fatalf("omitted note must preserve the existing handover note: %v %+v", err, stored)
 	}
 	if rec := reassign(t, api, task.ID, map[string]any{
-		"target": map[string]any{"kind": "member", "member_id": "m-new"},
+		"target": map[string]any{"kind": "staff", "member_id": "m-new"},
 		"note":   "再確認匯入後的驗收",
 	}, "owner", "owner"); rec.Code != http.StatusOK {
 		t.Fatalf("third reassign: %d %s", rec.Code, rec.Body.String())
@@ -804,7 +804,7 @@ func TestReassignRejectsHandoverNoteOverRuneLimit(t *testing.T) {
 	task := createAdHocTask(t, api, "m-old")
 
 	rec := reassign(t, api, task.ID, map[string]any{
-		"target": map[string]any{"kind": "member", "member_id": "m-new"},
+		"target": map[string]any{"kind": "staff", "member_id": "m-new"},
 		"note":   strings.Repeat("交", chatBodyMaxChars+1),
 	}, "owner", "owner")
 	if rec.Code != http.StatusBadRequest {
@@ -985,7 +985,7 @@ func TestReassignOutsourceTargetMachineMustResolve(t *testing.T) {
 				machine, rec.Code, rec.Body.String())
 		}
 		if stored, _ := api.dal.GetTask(task.ID); stored == nil ||
-			stored.ExecutorKind != TaskExecutorMember {
+			stored.ExecutorKind != TaskExecutorStaff {
 			t.Fatalf("a refused reassign must not hand the task over: %+v", stored)
 		}
 	}
@@ -1025,7 +1025,7 @@ func TestReassignGuards(t *testing.T) {
 		body map[string]any
 		want int
 	}{
-		{"missing member_id", map[string]any{"target": map[string]any{"kind": "member"}}, 400},
+		{"missing member_id", map[string]any{"target": map[string]any{"kind": "staff"}}, 400},
 		{"unknown member", memberTarget("m-nobody"), 400},
 		{"dismissed member", memberTarget("m-gone"), 400},
 		{"warden target", memberTarget("m-warden"), 400},

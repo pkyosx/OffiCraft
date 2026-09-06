@@ -51,7 +51,7 @@ func viewFullCorpus(t *testing.T, s *apiServer) (waiting []string) {
 	if err := s.dal.PutTask(Task{
 		ID: "t-vf", Title: "the bound task", Status: TaskStatusInProgress,
 		Priority: "mid", TypeKey: "review-pr",
-		ExecutorKind: "member", ExecutorID: "m-a",
+		ExecutorKind: TaskExecutorStaff, ExecutorID: "m-a",
 		CreatedTS: now, UpdatedTS: now,
 	}); err != nil {
 		t.Fatalf("seed task: %v", err)

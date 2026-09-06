@@ -109,7 +109,7 @@ func TestCreateTaskDedupesAcrossFieldNameCase(t *testing.T) {
 	if err := api.dal.PutTaskManual(TaskManual{
 		TypeKey:  "review-pr",
 		Fields:   `[{"name":"PR Link","required":true,"is_key":true}]`,
-		Assignee: `{"kind":"member","member_id":"m-exec"}`,
+		Assignee: `{"kind": "staff","member_id":"m-exec"}`,
 	}); err != nil {
 		t.Fatalf("seed: %v", err)
 	}
@@ -135,7 +135,7 @@ func TestCreateTaskK1RejectsEmptyIdentityKey(t *testing.T) {
 	if err := api.dal.PutTaskManual(TaskManual{
 		TypeKey:  "review-pr",
 		Fields:   `[{"name":"PR Link","required":false,"is_key":true}]`,
-		Assignee: `{"kind":"member","member_id":"m-exec"}`,
+		Assignee: `{"kind": "staff","member_id":"m-exec"}`,
 	}); err != nil {
 		t.Fatalf("seed: %v", err)
 	}
@@ -162,7 +162,7 @@ func TestCreateTaskWarnsOnUndefinedFields(t *testing.T) {
 	if err := api.dal.PutTaskManual(TaskManual{
 		TypeKey:  "review-pr",
 		Fields:   `[{"name":"PR Link","required":true,"is_key":true}]`,
-		Assignee: `{"kind":"member","member_id":"m-exec"}`,
+		Assignee: `{"kind": "staff","member_id":"m-exec"}`,
 	}); err != nil {
 		t.Fatalf("seed: %v", err)
 	}

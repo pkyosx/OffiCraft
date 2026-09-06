@@ -1550,7 +1550,7 @@ func (s *apiServer) HandleReassignTaskApiTasksTaskIdReassignPost(w http.Response
 	var newMember *Member
 	var dispatch dispatchSpec
 	switch kind {
-	case TaskExecutorMember:
+	case TaskExecutorStaff:
 		// Rule 7: a 一般正職 may only turn its OWN task into a 發包 (an outsource
 		// target); handing it to another 正職 (a member target) is owner/Mira's
 		// alone (rule 6). Deny before target probing (the reply-card posture).
@@ -1562,7 +1562,7 @@ func (s *apiServer) HandleReassignTaskApiTasksTaskIdReassignPost(w http.Response
 		memberID := trimmedOrEmpty(body.Target.MemberId)
 		if memberID == "" {
 			writeError(w, http.StatusBadRequest,
-				"target.member_id is required for kind 'member'")
+				"target.member_id is required for kind '"+TaskExecutorStaff+"'")
 			return
 		}
 		m, err := s.dal.GetMember(memberID)
@@ -1572,7 +1572,7 @@ func (s *apiServer) HandleReassignTaskApiTasksTaskIdReassignPost(w http.Response
 		}
 		if m == nil || m.RosterStatus != RosterStatusActive || m.Kind == KindOutsource {
 			// kind=outsource is refused too (P7d fold parity): an outsource
-			// member is never a 'member'-kind reassign target — outsource
+			// member is never a 'staff'-kind reassign target — outsource
 			// executors are minted fresh by the outsource arm below.
 			writeError(w, http.StatusBadRequest,
 				"target member '"+memberID+"' is not an active roster member")
@@ -1583,7 +1583,7 @@ func (s *apiServer) HandleReassignTaskApiTasksTaskIdReassignPost(w http.Response
 				"target member '"+memberID+"' is a machine (warden) — machines never execute tasks")
 			return
 		}
-		if t.ExecutorKind == TaskExecutorMember && t.ExecutorID == memberID {
+		if t.ExecutorKind == TaskExecutorStaff && t.ExecutorID == memberID {
 			writeError(w, http.StatusConflict,
 				"member '"+memberID+"' is already the task's executor")
 			return
@@ -1624,8 +1624,13 @@ func (s *apiServer) HandleReassignTaskApiTasksTaskIdReassignPost(w http.Response
 		}
 		dispatch = inheritDispatchSpec(dispatch, manualSpec, caller.member)
 	default:
-		writeError(w, http.StatusBadRequest,
-			"target.kind must be 'member' or 'outsource'")
+		// The message comes from CanonicalTaskExecutorKind so that a caller
+		// sending the PRE-RENAME 'member' is told it was RENAMED, not merely kind-vocab-guard:legacy
+		// that it is unknown (owner ruling rc-7574cc804dd6). Deriving it here
+		// rather than writing the set out again keeps this seam and the
+		// vocabulary from drifting apart silently.
+		_, kindErr := CanonicalTaskExecutorKind(kind)
+		writeError(w, http.StatusBadRequest, "target.kind: "+kindErr.Error())
 		return
 	}
 
@@ -1732,8 +1737,8 @@ func (s *apiServer) HandleReassignTaskApiTasksTaskIdReassignPost(w http.Response
 	// under the global parallel cap (T-35e0 — no inline mint here). The successor's
 	// boot context folds the same reassigning takeover instruction, so a headless
 	// worker learns whom to hand over WITH even though it is minted later.
-	if kind == TaskExecutorMember {
-		t.ExecutorKind = TaskExecutorMember
+	if kind == TaskExecutorStaff {
+		t.ExecutorKind = TaskExecutorStaff
 		t.ExecutorID = newMember.ID
 		t.OutsourceRuntime = RuntimeClaude
 		t.OutsourceModel, t.OutsourceEffort, t.OutsourceMachine = "", "", ""
@@ -1928,7 +1933,7 @@ func (s *apiServer) executorLabel(kind, id string) string {
 		return ""
 	}
 	switch kind {
-	case TaskExecutorMember:
+	case TaskExecutorStaff:
 		if m, err := s.dal.GetMember(id); err == nil && m != nil && m.Name != "" {
 			return m.Name
 		}
@@ -2010,15 +2015,49 @@ func (s *apiServer) HandleCreateTaskApiTasksPost(w http.ResponseWriter, r *http.
 
 	// An explicit outsource dispatch target (① agent 發包給外包) overrides the
 	// manual/executor_member resolution: the task is created outsource-tracked
-	// and routed through the single spawn gate below. kind absent / 'member'
-	// keeps the current semantics.
+	// and routed through the single spawn gate below.
+	//
+	// 🔴 THE KIND IS VALIDATED HERE, AND IT WAS NOT BEFORE (T-101). The previous
+	// comment on this seam claimed "kind absent / 'member' keeps the current
+	// semantics", which read as if 'member' were checked. It was not: the test
+	// was `== TaskExecutorOutsource` and NOTHING else, so EVERY other value —
+	// the old 'member', a typo, a whole sentence — fell through to the staff
+	// track and answered 200. A caller could not tell a rejected spelling from
+	// an accepted one, because there was no rejection.
+	//
+	// The owner's ruling that an old spelling must be REFUSED with a message
+	// naming the rename (rc-7574cc804dd6) has no other place to land on this
+	// path, so the branch is new behaviour rather than a reworded message:
+	// a value that used to be silently accepted is now a 400. Absent stays
+	// absent — omitting target entirely is still how you ask for the staff
+	// track, and that is unchanged.
+	//
+	// 🔴 THE VALIDATION IS A SEPARATE STATEMENT FROM THE DISPATCH DECISION, AND
+	// THAT SHAPE IS LOAD-BEARING. Folding the two together (validate, then
+	// branch on the CANONICAL local) reads better and silently blinds a guard:
+	// authz_surface_gate_test.go scans for predicates that read a selector
+	// called `Kind`, and `canonical == TaskExecutorOutsource` has none, so the
+	// decision below simply vanished from its inventory — the exact failure its
+	// own header warns about ("read the field into a local until the scanner
+	// cannot see it... keeps the count at zero while the gate goes blind").
+	// Measured, not assumed: the test named the entry as no longer existing.
+	// So the equality keeps reading body.Target.Kind, and the fold above only
+	// refuses values that would never have matched it anyway.
+	if body.Target != nil {
+		if k := trimString(body.Target.Kind); k != "" {
+			if _, err := CanonicalTaskExecutorKind(k); err != nil {
+				writeError(w, http.StatusBadRequest, "target.kind: "+err.Error())
+				return
+			}
+		}
+	}
 	var dispatchTarget *TaskCreateTargetDTO
 	if body.Target != nil && trimString(body.Target.Kind) == TaskExecutorOutsource {
 		dispatchTarget = body.Target
 	}
 
 	typeKey := trimmedOrEmpty(body.TypeKey)
-	executorKind := TaskExecutorMember
+	executorKind := TaskExecutorStaff
 	executorID := ""
 	dedupeKey := ""
 	// The MANUAL's assignee member id when the type designates a 正職 (rule 3's
@@ -2102,7 +2141,7 @@ func (s *apiServer) HandleCreateTaskApiTasksPost(w http.ResponseWriter, r *http.
 		case kind == TaskExecutorOutsource:
 			executorKind = TaskExecutorOutsource // unassigned; the scheduler picks
 			manualSpec = outsourceSpecOf(*manual)
-		case kind == TaskExecutorMember && memberID != "":
+		case kind == TaskExecutorStaff && memberID != "":
 			executorID = memberID
 			manualAssigneeMemberID = memberID
 		}
@@ -2139,7 +2178,7 @@ func (s *apiServer) HandleCreateTaskApiTasksPost(w http.ResponseWriter, r *http.
 			}
 		}
 	}
-	if executorKind == TaskExecutorMember && executorID == "" {
+	if executorKind == TaskExecutorStaff && executorID == "" {
 		executorID = trimmedOrEmpty(body.ExecutorMemberId)
 		if executorID == "" {
 			what := "an ad-hoc task"

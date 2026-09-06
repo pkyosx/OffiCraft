@@ -23,7 +23,7 @@ function mkTask(over: Partial<TaskView>): TaskView {
   return {
     id: "T-13af", taskNo: "T-13af", title: "markdown render 任務", typeKey: "",
     description: "", status: "in_progress", priority: "high",
-    executorKind: "member", executorId: "mira", creatorId: "", dedupeKey: "",
+    executorKind: "staff", executorId: "mira", creatorId: "", dedupeKey: "",
     deps: [], waitingReason: "", duplicateOf: "", createdTs: 1000, updatedTs: 2000,
     closedTs: null, progressDone: 0, progressTotal: 1, steps: [], ...over,
   };

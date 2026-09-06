@@ -361,7 +361,7 @@ func TestResumeContractorCarriesTaskTitleAndMemberDoesNot(t *testing.T) {
 	memberTaskID := "t-floor-2"
 	if err := s.dal.PutTask(Task{
 		ID: memberTaskID, TypeKey: "tm-x", Title: "成員自己的任務標題", Status: TaskStatusInProgress,
-		Priority: TaskPriorityMid, ExecutorKind: TaskExecutorMember, ExecutorID: "m-alpha",
+		Priority: TaskPriorityMid, ExecutorKind: TaskExecutorStaff, ExecutorID: "m-alpha",
 		CreatedTS: 1000, UpdatedTS: 1000,
 	}); err != nil {
 		t.Fatal(err)

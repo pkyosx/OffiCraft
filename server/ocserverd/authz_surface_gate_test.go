@@ -497,7 +497,10 @@ var authzOutsideRouteTable = map[string]string{
 		"T-23cf create matrix: who may create for whom.",
 	"api_tasks.go :: HandleCreateTaskApiTasksPost :: trimString(body.Target.Kind) == TaskExecutorOutsource": "" +
 		"T-23cf: the TARGET's executor kind (a request field), paired with the caller " +
-		"class above — the rule is about the pair, which no single Requires can state.",
+		"class above — the rule is about the pair, which no single Requires can state. " +
+		"T-101 kept this predicate READING body.Target.Kind on purpose: the new " +
+		"CanonicalTaskExecutorKind fold sits in a separate statement above, because " +
+		"branching on a canonical local would hide this decision from the scan.",
 	"api_tasks.go :: HandleReassignTaskApiTasksTaskIdReassignPost :: principal != principalOwner": "" +
 		"T-23cf reassign matrix, caller half: the owner may reassign anything; below owner " +
 		"the rule depends on the TARGET, so it cannot be a single route floor.",
