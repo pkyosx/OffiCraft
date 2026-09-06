@@ -122,6 +122,15 @@ describe("MultiSelectFilter 的摘要規則 (T-118, owner rc-33dfe1ff14cb)", () 
     // back-fills an absent ticked id as a count-0 row, so there present.length
     // always equals openerFilter.size. Found by independent review of b8e88098.
     //
+    // HOW A STALE KEY ARISES ON 任務頁, since it is NOT what you would guess:
+    // NOT by that person's tasks being filtered away — executorOptions keeps a
+    // ticked option whose count drops to 0, on purpose, or you could never
+    // untick it. The one route is the ticked MEMBER leaving `memberOptions`
+    // altogether (dismissed / soft-removed), which drops the row the tick
+    // referred to. Written down because a reader who assumes the count-0 route
+    // will conclude this is unreachable and delete the case. Found by
+    // independent review of e744438b.
+    //
     // 🔴 THREE CASES, AND ONLY THE LAST TWO REACH THE TEMPLATES. A stale key
     // ALONE takes the allLabel branch and never reaches 「· N」 or the single-name
     // branch at all, so asserting only that case left both unguarded: swapping

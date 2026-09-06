@@ -69,8 +69,9 @@ const STATUS_OPTIONS = [
 ];
 
 // 一進頁面預設排除 TERMINAL 的每一個狀態（清單見上面那個常數，不在這裡抄第二份；
-// 這一行原本寫「兩個終態 (done / terminated)」，在 duplicated 加進 TERMINAL 之後
-// 就漏了一個）— the status filter opens with
+// 這一行原本寫「兩個終態 (done / terminated)」，比 TERMINAL 少列一個。它在本 repo
+// 的第一顆 commit 裡就已經是這樣寫，所以是什麼時候開始對不上的，從這裡查不到）
+// — the status filter opens with
 // every NON-terminal status checked, so the page shows only live tasks and the
 // exclusion is visible (and undoable) right there in the 狀態 dropdown (T-be18).
 const DEFAULT_STATUS = STATUS_OPTIONS.filter((s) => !TERMINAL.has(s));

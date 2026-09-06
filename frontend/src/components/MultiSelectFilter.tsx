@@ -10,9 +10,11 @@
 // so a partial status set (the default: terminals unchecked) reads as
 // 「狀態 · N」 and opening the popover shows exactly WHICH ones — the owner can
 // see the terminals are excluded and re-check them. (The count is deliberately
-// not written out here: it is STATUS_OPTIONS minus TERMINAL in TasksPage.tsx and
-// it moves whenever a status is added. This line said 「狀態 · 4」 until T-118 and
-// had been wrong since a third terminal status was added.) Options may carry a count
+// not written out here: it is STATUS_OPTIONS minus TERMINAL in TasksPage.tsx, and
+// it moves whenever a NON-terminal status is added or an existing one becomes
+// terminal. This line said 「狀態 · 4」 until T-118; it was already wrong in the
+// first commit this repo has, so WHEN it drifted is not knowable from here.)
+// Options may carry a count
 // badge (負責人 per-owner task counts, T-be18 point 3).
 //
 // 🔴 「EVERY OPTION CHECKED」 USED TO SHARE THE allLabel BRANCH. It does not any
