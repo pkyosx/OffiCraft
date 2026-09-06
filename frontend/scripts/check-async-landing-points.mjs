@@ -482,6 +482,13 @@ const REGISTRY = [
     verdict: "the owner's own nickname; global, one provider",
   },
   {
+    file: "hooks/useSuggestedReplies.ts",
+    kind: ".then/.catch/.finally",
+    count: 2,
+    verdict:
+      "the owner's 建議回覆 (T-122); global, not per conversation — the same list whichever card or task is on screen, so a landing on a discarded mount could only write the value the new mount would write anyway. The `alive` latch is still there, and it is there to keep React quiet about a setState after unmount, not because one room's value could reach another",
+  },
+  {
     file: "hooks/useWorkerCodenames.ts",
     kind: ".then/.catch/.finally",
     count: 2,
