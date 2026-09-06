@@ -3041,9 +3041,12 @@ type SettingsDTO struct {
 	OwnerTokenTtl int `json:"owner_token_ttl"`
 
 	// PushContactEmail The contact address the push gateways are told to reach us at (T-8a82). "" = never set, and while it is unset no Web Push is delivered at all: Apple rejects the whole VAPID JWT when the address sits on an unreachable domain, so an unset or reserved-domain value would silently kill push on every device.
-	PushContactEmail   *string `json:"push_contact_email,omitempty"`
-	UpdaterAutoUpdate  *bool   `json:"updater_auto_update,omitempty"`
-	UpdaterReceiveBeta *bool   `json:"updater_receive_beta,omitempty"`
+	PushContactEmail *string `json:"push_contact_email,omitempty"`
+
+	// StepNoteCapChars The size cap on ONE task STEP's working note, in CHARACTERS (Unicode code points — Chinese prose counts one per character). One number serves both faces: it is what `get_task` reports per step and what `get_task_step` reports as `note_cap_chars`, AND it is what both note write faces (the wholesale write and the anchor patch) refuse a longer note against, read from this one setting so the reported ceiling and the enforced one can never drift apart. The adjustable range is 1000..100000. Like `chat_budget_chars`, and unlike the `doc_cap_chars_*` knobs, it may be LOWERED as well as raised: the cap is checked only on WRITE, so a note already stored above a newly lowered cap stays readable in full and simply cannot be edited until it is shortened. Two neighbouring fields are deliberately NOT governed by this setting and keep their own 4,000-character server constant: the task-level handover note and a chat message body (owner ruling 2026-09-06).
+	StepNoteCapChars   *int  `json:"step_note_cap_chars,omitempty"`
+	UpdaterAutoUpdate  *bool `json:"updater_auto_update,omitempty"`
+	UpdaterReceiveBeta *bool `json:"updater_receive_beta,omitempty"`
 
 	// WardenCredentialLifetimeSecs How long a MACHINE (warden) credential is meant to live, in seconds (86400 through 34560000 -- one day through 400 days). It is the number every warden's renewal threshold is derived from: a warden replaces its own credential once that credential is two thirds of this old, measured from the `iat` claim it carries, plus a per-machine stagger of up to one hour. Wardens read it from `GET /api/machines/credential-policy` on their 15-minute poll, so a change reaches the fleet within one interval; a warden that cannot reach that endpoint keeps using the shipped default rather than failing. NOTE: warden credentials still carry NO `exp`, so this value governs RENEWAL ONLY -- nothing expires because of it, and a renewal that does not complete leaves the machine on a credential that keeps working.
 	WardenCredentialLifetimeSecs *int `json:"warden_credential_lifetime_secs,omitempty"`
@@ -3143,9 +3146,12 @@ type SettingsUpdateDTO struct {
 	OwnerTokenTtl *int    `json:"owner_token_ttl,omitempty"`
 
 	// PushContactEmail The push contact address (T-8a82) — trimmed, max 254 runes; "" clears it back to unset and stops all Web Push delivery. A value must be a single `local@domain` address whose domain is a real public one: a malformed address, or one on a reserved suffix (.local, .localhost, .internal, .test, .invalid, .example), is a 422 — those are exactly the values the push gateways reject with BadJwtToken, which would take push down silently.
-	PushContactEmail   *string `json:"push_contact_email,omitempty"`
-	UpdaterAutoUpdate  *bool   `json:"updater_auto_update,omitempty"`
-	UpdaterReceiveBeta *bool   `json:"updater_receive_beta,omitempty"`
+	PushContactEmail *string `json:"push_contact_email,omitempty"`
+
+	// StepNoteCapChars The size cap on one task step's working note, in CHARACTERS (Unicode code points). Must be between 1000 and 100000. Unlike the `doc_cap_chars_*` knobs the floor is NOT the shipped default — this cap may be lowered as well as raised, because it is enforced only when a note is WRITTEN: a note already stored above a lowered cap stays readable in full and only becomes uneditable. It does not govern the task-level handover note or a chat message body, which keep their own 4,000-character constant.
+	StepNoteCapChars   *int  `json:"step_note_cap_chars,omitempty"`
+	UpdaterAutoUpdate  *bool `json:"updater_auto_update,omitempty"`
+	UpdaterReceiveBeta *bool `json:"updater_receive_beta,omitempty"`
 
 	// WardenCredentialLifetimeSecs How long a MACHINE (warden) credential is meant to live, in seconds. Must be 86400 through 34560000 (one day through 400 days). A warden renews its own credential once that credential is two thirds of this old, plus a per-machine stagger of up to one hour so that LOWERING this value does not put the whole fleet on the mint endpoint inside one poll. The floor is one day because the last third of the lifetime is the retry window: at the 15-minute poll a one-day lifetime still leaves about 32 attempts. Wardens pick a change up within one poll interval. Warden credentials carry no `exp` today, so this governs renewal only and nothing expires because of it. Read the current value from get_settings rather than assuming a number.
 	WardenCredentialLifetimeSecs *int `json:"warden_credential_lifetime_secs,omitempty"`

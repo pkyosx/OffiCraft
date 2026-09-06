@@ -56,6 +56,18 @@
             "description": "The wake snapshot's chat block budget, in CHARACTERS (Unicode code points). It is what bounds resume_summary's chat block AND the estimated_total_chars peek_resume_summary_size reports — one number, one code path, so the two can never disagree. Must be between 1000 and 13000. Unlike the doc_cap_chars_* knobs it may be LOWERED as well as raised (the block is repacked on every read, not stored). Read the current value from get_settings rather than assuming a number.",
             "title": "Chat Budget Chars"
           },
+          "step_note_cap_chars": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The size cap on one task step's working note, in CHARACTERS (Unicode code points). Must be between 1000 and 100000. Unlike the doc_cap_chars_* knobs it may be LOWERED as well as raised, because it is enforced only when a note is WRITTEN: a note already stored above a lowered cap stays readable in full and only becomes uneditable. It does NOT govern the task-level handover note or a chat message body, which keep their own 4,000-character constant. Read the current value from get_settings rather than assuming a number.",
+            "title": "Step Note Cap Chars"
+          },
           "doc_cap_chars_boot_sequence": {
             "anyOf": [
               {

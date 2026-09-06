@@ -194,6 +194,19 @@ const (
 	// move in both directions. See domain.go for the range and why its ceiling is
 	// tied to resumeChatFetch.
 	settingChatBudgetChars = "chat.budget_chars"
+	// settingStepNoteCapChars (T-119) is the ceiling on ONE task step's working
+	// note — what both note write faces refuse a longer note against, and what
+	// get_task / get_task_step report as note_cap_chars. It was the hard-coded
+	// chatBodyMaxChars until the owner made it adjustable (2026-09-06).
+	//
+	// It is a `task.` key and NOT a `doc.cap_chars.*` one, for the same reason
+	// the chat budget above is not: those floors equal their own defaults so a
+	// document cap can only ever be raised, while this one may be LOWERED. It
+	// can, because it is enforced only on WRITE — a note already stored above a
+	// newly lowered cap stays readable in full and simply becomes uneditable
+	// until it is shortened, which is a state the owner asked to be able to
+	// create deliberately.
+	settingStepNoteCapChars = "task.step_note_cap_chars"
 	// settingBackupRetain (T-8, owner 2026-08-27: 「我覺得應該只保留最新的 N 版
 	// 備份，N 可以設定，剩餘的應該直接移除」) is N — how many database backup
 	// files survive rotation. Its default, floor and ceiling all live in
@@ -396,6 +409,7 @@ type authSettings struct {
 	docCapCharsBootSequence      int    // doc.cap_chars.boot_sequence (default bootSequenceCapCharsDefault; ONE cap, both runtimes)
 	docCapCharsOffboard          int    // doc.cap_chars.offboard (default offboardCapCharsDefault)
 	chatBudgetChars              int    // chat.budget_chars (default chatBudgetCharsDefault)
+	stepNoteCapChars             int    // task.step_note_cap_chars (default stepNoteCapCharsDefault)
 	backupRetain                 int    // backup.retain (default backupRetainDefault; N is PER POOL, and counts versions not days)
 	updaterReceiveBeta           bool   // updater.receive_beta (default false = official releases only)
 	updaterAutoUpdate            bool   // updater.auto_update (default false = manual upgrades only)
@@ -727,6 +741,14 @@ func loadAuthSettings(d *DAL, cfg Config, logf func(string)) (authSettings, erro
 	// face would have refused.
 	if err := loadCap(settingChatBudgetChars, minChatBudgetChars, maxChatBudgetChars,
 		&out.chatBudgetChars, chatBudgetCharsDefault); err != nil {
+		return out, err
+	}
+
+	// task.step_note_cap_chars (T-119) — range-checked at load for the same
+	// reason: a hand-edited DB row must not install a value the PATCH face would
+	// have refused.
+	if err := loadCap(settingStepNoteCapChars, minStepNoteCapChars, maxStepNoteCapChars,
+		&out.stepNoteCapChars, stepNoteCapCharsDefault); err != nil {
 		return out, err
 	}
 

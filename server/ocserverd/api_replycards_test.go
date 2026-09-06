@@ -277,13 +277,13 @@ func TestTaskStepReplyCardStatusJoinsBoundCards(t *testing.T) {
 		{ID: "st-3", TaskID: "t-1", ReplyCardID: "", Status: StepStatusPending, OrderIdx: 2},
 	}
 	statuses := s.replyCardStatusesForSteps(steps)
-	if got := newTaskStepDTO(steps[0], statuses).ReplyCardStatus; got != replyCardStatusWaiting {
+	if got := newTaskStepDTO(steps[0], statuses, stepNoteCapCharsDefault).ReplyCardStatus; got != replyCardStatusWaiting {
 		t.Fatalf("st-1 (waiting card): got %q", got)
 	}
-	if got := newTaskStepDTO(steps[1], statuses).ReplyCardStatus; got != replyCardStatusAnswered {
+	if got := newTaskStepDTO(steps[1], statuses, stepNoteCapCharsDefault).ReplyCardStatus; got != replyCardStatusAnswered {
 		t.Fatalf("st-2 (answered card): got %q", got)
 	}
-	if got := newTaskStepDTO(steps[2], statuses).ReplyCardStatus; got != "" {
+	if got := newTaskStepDTO(steps[2], statuses, stepNoteCapCharsDefault).ReplyCardStatus; got != "" {
 		t.Fatalf("st-3 (no card): got %q", got)
 	}
 }

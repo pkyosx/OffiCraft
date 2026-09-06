@@ -51,5 +51,5 @@ func (s *apiServer) HandleGetTaskStepApiTasksTaskIdStepsStepIdGet(w http.Respons
 	// The same read-time card join newTaskStepDTO takes, so the two faces of one
 	// step cannot disagree about a bound card's live status.
 	cardStatus := s.replyCardStatusesForSteps([]TaskStep{*step})
-	writeJSON(w, http.StatusOK, newTaskStepDetailDTO(*step, cardStatus))
+	writeJSON(w, http.StatusOK, newTaskStepDetailDTO(*step, cardStatus, s.stepNoteCap()))
 }
