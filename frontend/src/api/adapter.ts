@@ -194,6 +194,18 @@ export interface ChatAttachmentView {
   url: string;
   /** Original upload filename (for the download-chip label); "" when none. */
   filename: string;
+  /** The blob's OWN name, when it differs from the DISPLAY name in `filename`
+   * above — a task artifact pinned under a human title is the case that has
+   * one (`name` = 「稽核報告」, blob = `audit-2026-09.md`).
+   *
+   * 🔴 FOR CONTENT-TYPE DETECTION ONLY, never for display. It is the extension
+   * a reader needs when the mime cannot answer — `application/octet-stream` is
+   * what the agent upload path stores most .md under — and a display name has
+   * no extension in it.
+   *
+   * Absent ⇒ `filename` IS the blob's name, which is the case for every chat
+   * attachment: there the two were never separate things. */
+  blobFilename?: string;
   /** Stored blob mime. */
   mime: string;
   /** true ⇒ render inline `<img>`; false ⇒ render a download chip. */
@@ -607,6 +619,17 @@ export interface TaskArtifactView {
   mime: string;
   createdTs: number;
   createdBy: string;
+  /** The BLOB's own name — what the bytes arrived as, NOT what the deliverable
+   * is called (`name` is that, and since T-92 it is usually a human sentence).
+   * "" for a link, and "" when a file/image's blob is gone: honest-empty, never
+   * fabricated.
+   *
+   * 🔴 IT IS READ FOR ITS EXTENSION AND NOTHING ELSE. `mime` is asked first and
+   * answers `application/octet-stream` for most agent-uploaded .md, and then
+   * this suffix is the only thing left that separates a report the cockpit can
+   * preview from a tarball it cannot. Dropping it from the wire is what stopped
+   * .md artifacts previewing after T-92. */
+  filename: string;
   /** How many versions this deliverable has, the LIVE one INCLUDED (T-60) — 1
    * for one that has never been replaced, and bounded above because only the
    * most recent few replaced versions are retained.

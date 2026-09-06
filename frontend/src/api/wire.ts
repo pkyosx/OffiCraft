@@ -213,7 +213,15 @@ export type WireTaskArtifactList = components["schemas"]["TaskArtifactListDTO"];
  * external address for a link. `name` is never empty (the server derives one
  * when the row has none); `description` may be empty AND may be longer than the
  * 256-rune write cap, which binds new writes only. It arrives ONLY from
- * `listTaskArtifacts` — no task response carries these rows. */
+ * `listTaskArtifacts` — no task response carries these rows.
+ *
+ * `filename` is BACK alongside `name` and is a different question: `name` is
+ * what the deliverable is CALLED (a human sentence on any row someone named),
+ * `filename` is what its BYTES are called. T-92 dropped it on the reasoning
+ * that `name` derives from it, which holds for display and not for type — the
+ * preview reads an EXTENSION when `mime` says `application/octet-stream`, and a
+ * sentence has none. `TaskArtifactVersionDTO` never dropped it, which is why a
+ * retained version previewed while the live artifact did not. */
 export type WireTaskArtifact = components["schemas"]["TaskArtifactDTO"];
 
 /** Mirrors `TaskArtifactVersionDTO` (T-60): ONE retained PREVIOUS version of a

@@ -34,6 +34,7 @@ function mkArtifact(over: Partial<TaskArtifactView>): TaskArtifactView {
     url: "https://x/pr/1",
     name: "PR #1",
     description: "",
+    filename: "",
     mime: "",
     createdTs: 0,
     createdBy: "mira",

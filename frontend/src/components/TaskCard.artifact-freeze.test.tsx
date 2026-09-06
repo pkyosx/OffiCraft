@@ -68,6 +68,7 @@ const ARTIFACT: TaskArtifactView = {
   url: "https://example.com/pr/1",
   name: "PR #1",
   description: "",
+  filename: "",
   mime: "",
   createdTs: 0,
   createdBy: "mira",
