@@ -36,14 +36,25 @@
   gap: 10px;
 }
 
-/* One field per row once they stop fitting side by side. The dropdown triggers
- * and the id box are all `flex: 0 0 auto` by default, so without this they wrap
- * into ragged part-rows on a phone. */
-@media (max-width: 520px) {
-  .filter-panel__fields > * {
-    flex: 1 1 100%;
-  }
-}
+/* 🔴 NO 「ONE FIELD PER ROW ON A PHONE」 RULE HERE, AND PUTTING ONE BACK IS
+ * REVERSING AN OWNER RULING, NOT TIDYING A PHONE LAYOUT.
+ *
+ * There used to be `@media (max-width: 520px) { .filter-panel__fields > * {
+ * flex: 1 1 100% } }`, to stop the fields wrapping into ragged part-rows. It
+ * was written when this panel only appeared after clicking a funnel, so almost
+ * nobody met it. T-118 made the fields permanent and it became what the owner
+ * sees every time he opens the page on his phone — he asked 「為什麼會一個
+ * filter 一行」 (2026-09-07 `c-e91a6f9274d1`) and then circled 「窄畫面也讓它們
+ * 並排、塞不下才換行」 (`rc-5d2e6d48a108`), having been told in that same card
+ * that the cost is exactly the ragged part-rows the old rule bought off.
+ *
+ * ⚠️ It also had a SECOND effect nobody had named: `flex-basis: 100%` beats the
+ * id field's own width, so on a phone that field stopped being 「as wide as the
+ * id it holds」 and became full-bleed. That is why 「ID的也太長」 arrived in the
+ * same breath as the question above — one rule, two complaints.
+ *
+ * So the fields keep `flex: 0 0 auto` at every width and simply wrap when they
+ * run out of room. `.filter-panel__fields` is `flex-wrap: wrap` above. */
 
 /* ── 清除篩選 ─────────────────────────────────────────────────────────────
  * 🔴 IT SITS IN THE FIELD ROW, NOT ON A STRIP OF ITS OWN. owner 2026-09-06

@@ -468,16 +468,33 @@ describe("任務頁 ID 篩選 — 清除與 hash", () => {
   it("the field's width comes from the id's LENGTH, not from a literal", async () => {
     // owner 2026-09-06: the old field was a flat 200px chosen with no reference
     // to its content, which is why it read as too wide. This asserts the
-    // MECHANISM (a ch-based width the caller supplies), not a pixel count —
+    // MECHANISM (a ch-based count the caller supplies), not a pixel count —
     // jsdom computes no layout, so a pixel assertion here would be theatre.
     // The real geometry is measured by the CT guard in visual-guards/.
+    //
+    // 🔁 THIS TEST USED TO READ THE COUNT OFF THE INPUT, AND USED TO EXPECT 10.
+    // Both halves were overturned on 2026-09-07 and by the same person:
+    //   · the NUMBER, by owner `rc-b2beb7b1fd3c` 「ID寬度要合理…任務可先假設到
+    //     萬位數」 ⇒ 「T-」 + 5 digits = 7. The 10 it replaced was owner's own
+    //     hand-set figure from the day before, not a measurement.
+    //   · the ELEMENT, by owner `rc-e2edbb0fff01` 「寬度取編號跟標籤的較大者」.
+    //     The label is this field's only label (it is the placeholder), and on
+    //     this page it is the wider of the two, so the box can no longer be
+    //     sized off the id alone. The count now rides the WRAPPER, which hands
+    //     it to a hidden copy of the label as a `min-width`; the browser takes
+    //     the max. Reading it off the input would assert a spec nobody holds.
     const { findByTestId } = renderPage();
-    const field = (await findByTestId("filter-task-id")) as HTMLInputElement;
-    // A custom property, not a width: idFilter.css owns the box model, because
-    // the field has to run `content-box` against the app's global `border-box`
-    // for the count to mean the TEXT area rather than the text area minus the
-    // padding. So what the component contributes is the NUMBER OF CHARACTERS.
-    expect(field.style.getPropertyValue("--id-filter-ch")).toBe("10");
+    const input = (await findByTestId("filter-task-id")) as HTMLInputElement;
+    const field = input.parentElement as HTMLElement;
+    expect(field.style.getPropertyValue("--id-filter-ch")).toBe("7");
     expect(field.style.width, "the pixel width must NOT come from here").toBe("");
+    // 🔴 The label has to be IN THE BOX for the browser to take a max at all.
+    // Delete the sizer and this file still passes on the count above while the
+    // placeholder silently clips — so assert the sizer carries the label, and
+    // that it is hidden from anyone reading the page aloud (the input already
+    // carries the same string as its aria-label; two would be read twice).
+    const sizer = field.firstElementChild as HTMLElement;
+    expect(sizer.textContent).toBe(input.placeholder);
+    expect(sizer.getAttribute("aria-hidden")).toBe("true");
   });
 });

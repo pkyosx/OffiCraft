@@ -660,7 +660,12 @@ export function TasksPage() {
           onCommit={commitId}
           label={t.tasks.filterIdLabel}
           testId="filter-task-id"
-          widthCh={10}
+          // 「T-」 + up to five digits. owner 2026-09-07 `rc-b2beb7b1fd3c`:
+          // 「ID寬度要合理…任務可先假設到萬位數」 — it replaces the 10 he had set
+          // by hand the day before. ⚠️ This is the ID's share only; the field
+          // also has to hold its own label and takes whichever is wider (see
+          // IdFilterInput), so on this page the visible width is the label's.
+          widthCh={7}
         />
         <MultiSelectFilter
           noun={t.tasks.filterExecutorNoun}

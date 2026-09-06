@@ -127,6 +127,14 @@
 //     the <=520px `flex: 1 1 100%` -> `flex: 0 0 auto` => 1 failed: (5), on
 //     「distinct rows the 篩選 fields occupy」. The soft halves report together,
 //     which is what they are soft for.
+//     🔁 THE SECOND HALF OF THAT MUTANT IS NOW THE SHIPPED STATE, so do not
+//     read this line as 「`flex: 0 0 auto` is a defect」. owner 2026-09-07
+//     `rc-5d2e6d48a108` circled 「窄畫面也讓它們並排、塞不下才換行」 and the
+//     ≤520px rule is GONE (filter-panel.css says why). The `flex-wrap: nowrap`
+//     half still reds (5) on its own. What guards the new ruling is the second
+//     assertion added to (5) — 「rows must be FEWER than fields」 — which the
+//     old one-per-row layout fails and the 「more than one row」 assertion above
+//     it cannot see.
 //
 // ⚠️ NOT RE-RUN, and stated rather than implied: nothing here re-verifies the
 // UNIT-level guards, and no mutant was applied to `idFilter.css` — the
@@ -321,26 +329,42 @@ test("width 320: several 篩選 fields WRAP inside the row, and their CJK labels
   const fields = cmp.getByTestId("replies-filter-fields");
   await expect(fields).toBeVisible();
 
-  // 🔴 soft from here down, ON PURPOSE: `flex-wrap: nowrap` (or dropping the
-  // ≤520px full-width rule) breaks the row in several places at once, and a
-  // hard first failure would leave the others unproven. "which parts of the row
-  // broke" is the useful output.
+  // 🔴 soft from here down, ON PURPOSE: `flex-wrap: nowrap` breaks the row in
+  // several places at once, and a hard first failure would leave the others
+  // unproven. "which parts of the row broke" is the useful output.
   const o = await overflow(fields);
   expect.soft(o.self, "篩選 fields horizontal overflow").toBeLessThanOrEqual(1);
   expect.soft(o.page, "page horizontal overflow").toBeLessThanOrEqual(1);
 
+  const layout = await fields.evaluate((node) => {
+    const tops = Array.from(node.children).map((n) =>
+      Math.round(n.getBoundingClientRect().top)
+    );
+    return { rows: new Set(tops).size, count: tops.length };
+  });
+
   // WRAP, not one runaway row: an id box plus three dropdown triggers cannot
   // share one line in a ~240px column, so if they all report the same top the
   // row is overflowing rather than wrapping.
-  const rows = await fields.evaluate(
-    (node) =>
-      new Set(
-        Array.from(node.children).map((n) =>
-          Math.round(n.getBoundingClientRect().top)
-        )
-      ).size
-  );
-  expect.soft(rows, "distinct rows the 篩選 fields occupy").toBeGreaterThan(1);
+  expect
+    .soft(layout.rows, "distinct rows the 篩選 fields occupy")
+    .toBeGreaterThan(1);
+
+  // 🔴 AND WRAP IS ALL IT DOES — no field gets a row to itself while there is
+  // room beside it. owner 2026-09-07 asked 「為什麼會一個filter一行」
+  // (`c-e91a6f9274d1`) on his phone and then circled 「窄畫面也讓它們並排、塞不下
+  // 才換行」 (`rc-5d2e6d48a108`), told in that same card that the price is ragged
+  // part-rows. What produced one-per-row was `@media (max-width: 520px) {
+  // .filter-panel__fields > * { flex: 1 1 100% } }` in filter-panel.css, and
+  // THIS is the assertion that stops it coming back: under that rule every
+  // child reports its own top, so rows === count. The test above cannot see it
+  // — one-per-row satisfies 「more than one row」 perfectly.
+  expect
+    .soft(
+      layout.rows,
+      "rows vs fields — equal means every field took a row of its own"
+    )
+    .toBeLessThan(layout.count);
 
   const fieldsBox = (await fields.boundingBox())!;
   for (const testId of ["filter-executor", "filter-type", "filter-status"]) {
