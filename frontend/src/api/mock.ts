@@ -4052,7 +4052,7 @@ export const mockApi: Api = {
     let newWorker: OutsourceWorkerView | undefined;
     if (target.kind === "staff") {
       if (!target.memberId.trim()) {
-        throw badRequest("target.member_id is required for kind 'member'");
+        throw badRequest("target.member_id is required for kind 'staff'");
       }
       const m = wireMembers.find((x) => x.id === target.memberId);
       if (!m || m.roster_status !== "active") {

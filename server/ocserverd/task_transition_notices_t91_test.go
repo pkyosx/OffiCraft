@@ -139,7 +139,7 @@ func TestResumeSummaryTaskRowCarriesTheReassignHold(t *testing.T) {
 	}
 	if row["reassigned_from_kind"] != TaskExecutorStaff {
 		t.Fatalf("resume-summary task row must say HOW to resolve reassigned_from "+
-			"(member vs outsource), got %v", row["reassigned_from_kind"])
+			"(staff vs outsource), got %v", row["reassigned_from_kind"])
 	}
 }
 

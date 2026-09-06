@@ -781,7 +781,7 @@ func seedManualWithKey(t *testing.T, api *apiServer, typeKey string) {
 	if err := api.dal.PutTaskManual(TaskManual{
 		TypeKey:  typeKey,
 		Fields:   `[{"name":"pr","required":true,"is_key":true}]`,
-		Assignee: `{"kind": "staff","member_id":"m-exec"}`,
+		Assignee: `{"kind":"staff","member_id":"m-exec"}`,
 	}); err != nil {
 		t.Fatalf("seed manual: %v", err)
 	}
@@ -799,7 +799,7 @@ func seedManualWithLabel(t *testing.T, api *apiServer, typeKey, displayName stri
 		TypeKey:     typeKey,
 		DisplayName: displayName,
 		Fields:      `[{"name":"pr","required":true,"is_key":true}]`,
-		Assignee:    `{"kind": "staff","member_id":"m-exec"}`,
+		Assignee:    `{"kind":"staff","member_id":"m-exec"}`,
 	}); err != nil {
 		t.Fatalf("seed manual: %v", err)
 	}
@@ -886,7 +886,7 @@ func TestCreateTypedTaskAssignedToMemberIsThatMembersAlone(t *testing.T) {
 	if err := api.dal.PutTaskManual(TaskManual{
 		TypeKey:  "review",
 		Fields:   `[{"name":"pr","required":true,"is_key":true}]`,
-		Assignee: `{"kind": "staff","member_id":"m-exec"}`,
+		Assignee: `{"kind":"staff","member_id":"m-exec"}`,
 	}); err != nil {
 		t.Fatalf("seed manual: %v", err)
 	}

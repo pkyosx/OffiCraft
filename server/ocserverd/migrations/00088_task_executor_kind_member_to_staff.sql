@@ -59,9 +59,13 @@
 -- bytes are frozen: goose records one row per version and never revisits it, so
 -- an edit reaches new installs only and silently gives two stations different
 -- schemas. `migration.lock` enforces that — editing 00076, even by one comment
--- character, changes its content hash and TestMigrationLockGrowsOnlyAtItsTail
--- refuses the branch (measured, not assumed: the guard was run and it named the
--- line). A reader who follows 00076's claim arrives here.
+-- character, changes its content hash and TestMigrationLockMatchesTheTree
+-- refuses the branch with [lock:content] (measured twice, not assumed: a probe
+-- line was appended to 00076 and that test named the file and both hashes).
+-- The neighbouring TestMigrationLockGrowsOnlyAtItsTail stays GREEN for such an
+-- edit — it guards the lock's SHAPE (append-only) rather than each migration's
+-- CONTENT, so citing it here would send a reader to a test that never fires
+-- for this. A reader who follows 00076's claim arrives here.
 --
 -- SECOND COLUMN, SAME VOCABULARY, NO CHECK TO STOP IT. `reassigned_from_kind`
 -- (00023) speaks the SAME closed set as executor_kind but has NO CHECK and

@@ -117,7 +117,7 @@ a green imply it:
   * The DATABASE. Rows already written say `member`; migrating them is a
     migration's job (00088), and a green here says nothing about stored data.
   * A legacy value BUILT FROM RUNES rather than written as a literal —
-    `string([]rune{'m','e','b','e','r'})` in CanonicalTaskExecutorKind is
+    `string([]rune{'m','e','m','b','e','r'})` in CanonicalTaskExecutorKind is
     deliberately spelled that way so a repo-wide replacement cannot reach it.
     There is no literal to read, so this guard cannot see it either. That is
     the intended trade and it is stated here so a green does not imply
@@ -127,6 +127,40 @@ a green imply it:
 retired value per copy shape) that MUST redden and be named, and a synthetic
 negative tree (fully renamed, plus roster-axis and prose decoys) that MUST go
 green. A scanner nobody verified is a green with a hole in it.
+
+🔴 THE SHAPE OF THE CODE IS ITSELF AN INTERFACE, AND THIS GUARD IS NOT THE ONLY
+READER OF IT. A scanning guard — this one, the authz surface gate, the contract
+guards — recognises code by how it is WRITTEN, not by what it does. So a change
+that is genuinely behaviour-preserving can still break one, and it breaks it the
+worst possible way: by making the code invisible rather than wrong.
+
+Measured instance, from this very package. A route handler validated its input
+inline:
+
+    if trimString(body.Target.Kind) == TaskExecutorStaff {
+
+and was refactored to hoist the validation into a variable:
+
+    if canonical == TaskExecutorStaff {
+
+Zero behaviour change, strictly clearer. But authz_surface_gate_test.go locates
+authorisation predicates by their AST shape, and after the hoist it could no
+longer see this one: the inventory silently shrank and the gate stayed green
+while covering one predicate less. Reverting the hoist brought it back
+(`inventory holds 45` / `predicate(s) that no longer exist`).
+
+The rule that follows, and it generalises past this file: WHEN YOU TOUCH CODE A
+SCANNING GUARD WATCHES, ADD YOUR VALIDATION AS A SEPARATE STATEMENT — do not
+change the shape of the predicate itself. This is the same family as "the
+contract guards recognise a call site by its text, not its line number". You
+cannot tell from the code that something is reading its shape, which is why the
+warning has to live where the shape does.
+
+Its twin failure is one level up, in TOKENS: a guard that recognises code by
+shape is still bounded by WHERE IT LOOKS. A carrier of the vocabulary that is
+not in the anchor list is not covered less well — it is not covered at all, and
+silently, because a line nobody scanned cannot appear in any count. See the
+comment on TOKENS for the instance that cost this package a live bug.
 
 🔴 IF YOU ARE PLANTING A MUTANT IN THE REAL TREE TO TEST THIS GUARD, READ THIS
 FIRST — both traps below were hit on the first attempt, and each produced output
@@ -166,16 +200,41 @@ TARGET = {"staff", "outsource"}
 RETIRED = {"member"}
 VOCAB = TARGET | RETIRED
 
-# The four field tokens. A value literal is only a COPY of this vocabulary if
-# it sits in the neighbourhood of one of these — that gate is what keeps the
+# The field tokens. A value literal is only a COPY of this vocabulary if it
+# sits in the neighbourhood of one of these — that gate is what keeps the
 # roster `kind` axis and every English sentence out.
 # Each is listed in the three spellings the tree actually uses: the wire /
 # SQL snake_case, the frontend camelCase, and Go's exported PascalCase. The
 # Go struct field `ExecutorKind string // "member" | "outsource"` is a real
 # copy, and it was invisible until PascalCase was in this list.
+#
+# 🔴 `assignee` IS THE THIRD CARRIER AND IT WAS MISSING FROM THIS LIST.
+# The vocabulary lives in three places, not two: two COLUMNS (executor_kind,
+# reassigned_from_kind) and one JSON BLOB (task_manual.assignee, whose object
+# spells the kind under the bare key `kind`). Only the two columns were
+# anchored here, so every line that writes the vocabulary near an assignee —
+# and nowhere near a column name — was outside every neighbourhood this guard
+# ever looked at. It was not a shape miss: the `quoted` shape matches
+# `=== "member"` perfectly well. The line was never offered to a shape.
+#
+# What that cost, measured rather than argued: with
+# `frontend/src/api/mappers.ts` reading `a["kind"] === "member"` — the live
+# T-101 regression, which made every staff-assigned manual render as 未設定 —
+# this guard printed 1513 files / 105 with a token / 329 token sites / 138
+# copies / 0 retired and exited 0. Every number was IDENTICAL to the clean
+# tree. A guard whose whole purpose is "you changed one copy and missed
+# another" could not see the miss its own package shipped.
+#
+# The general form, for whoever extends this next: THE ANCHOR LIST IS THE
+# REAL SCOPE OF THIS GUARD — not VOCAB, not VALUE_SHAPES. A carrier that is
+# not anchored is not partially covered, it is entirely absent, and it is
+# absent SILENTLY, because an unscanned line cannot appear in any count. So
+# when the vocabulary gains a home, it is this tuple that has to grow. Ask
+# "which fields can hold this value", not "which fields do I remember".
 TOKENS = (
     "executor_kind", "executorKind", "ExecutorKind",
     "reassigned_from_kind", "reassignedFromKind", "ReassignedFromKind",
+    "assignee", "Assignee",
 )
 TOKEN_RE = re.compile("|".join(TOKENS))
 
@@ -533,6 +592,14 @@ _CLEAN = {
         'export const t = { id: "T-1", executorKind: "staff", executorId: "mira" };\n',
     "docs/notes.md":
         "The task's `executor_kind` is `staff` or `outsource`.\n",
+    # THE THIRD CARRIER. The vocabulary also lives inside the task_manual
+    # `assignee` JSON blob, where the kind sits under the bare key `kind` —
+    # there is no *_kind column name anywhere near it. Anchored on `assignee`
+    # or this whole family is outside every neighbourhood the guard looks at.
+    "frontend/src/api/mappers.ts":
+        'export function toManualAssignee(a: Record<string, unknown>) {\n'
+        '  if (a["kind"] === "staff") return { kind: "staff" };\n'
+        '  return null;\n}\n',
 }
 
 # Each mutant is a DIFFERENT copy shape, so a scan that loses one shape loses
@@ -572,6 +639,18 @@ _MUTANTS = {
         '  const LABELS: Record<string, string> = {\n'
         '    member: "\u6b63\u8077",\n    outsource: "\u5916\u5305",\n  };\n'
         '  return LABELS[executorKind] ?? "";\n}\n'),
+    # 🔴 THE CARRIER THIS GUARD USED TO BE BLIND TO — the reason `assignee` is
+    # in TOKENS. This is a READ seam: the rename changed what the function
+    # RETURNS and left what it COMPARES reading the retired value, so the
+    # server's `staff` stopped matching and every staff-assigned manual
+    # rendered as unset. Measured, not argued: with this exact line in the real
+    # tree and `assignee` absent from TOKENS, the guard printed the SAME counts
+    # as a clean tree and exited 0. Nothing else in this suite covers it — the
+    # ts-equality control names an executorKind field, which anchors itself.
+    "frontend/src/api/mappers.ts": ("assignee-blob-read-seam",
+        'export function toManualAssignee(a: Record<string, unknown>) {\n'
+        '  if (a["kind"] === "member") return { kind: "staff" };\n'
+        '  return null;\n}\n'),
     "docs/notes.md": ("markdown-backtick",
         "The task's `executor_kind` is `member` or `outsource`.\n"),
 }

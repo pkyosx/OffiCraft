@@ -183,7 +183,7 @@ export type WireTaskDepRef = components["schemas"]["TaskDepRefDTO"];
 
 /** Mirrors `TaskReassignDTO` (`POST /api/tasks/{task_id}/reassign` / MCP
  * `reassign_task`): the new executor target + an optional handover note the
- * server appends to the new executor's notification. `target.kind='member'`
+ * server appends to the new executor's notification. `target.kind='staff'`
  * re-points at an ACTIVE roster member; `target.kind='outsource'` mints a
  * fresh worker on the spot from `model` / `effort` / `machine`. */
 export type WireTaskReassign = components["schemas"]["TaskReassignDTO"];

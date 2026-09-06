@@ -821,15 +821,24 @@ export function toTaskType(
   };
 }
 
-/** Narrow the wire's OPEN assignee object ({} = unset; {"kind":"member",…} or
+/** Narrow the wire's OPEN assignee object ({} = unset; {"kind":"staff",…} or
  * {"kind":"outsource",…} otherwise) to the closed `ManualAssigneeView` union.
  * Honest: an unrecognised/empty shape maps to null (unset), never a
- * fabricated assignee. */
+ * fabricated assignee.
+ *
+ * The wire spelling and the view spelling are BOTH "staff" since T-101, but
+ * they are still two separate strings: this function is the seam, and a
+ * rename that touches only the returned object leaves the comparison reading
+ * a value the server no longer sends. That failure is silent — an
+ * unrecognised shape is a legal input here, so it maps to null and the page
+ * renders "unset" instead of erroring. The unit test on this function is
+ * what makes the wire value observable; the mock stores the VIEW shape and
+ * never reaches this code. */
 export function toManualAssignee(
   a: Record<string, unknown> | undefined,
 ): ManualAssigneeView {
   if (!a) return null;
-  if (a["kind"] === "member" && typeof a["member_id"] === "string") {
+  if (a["kind"] === "staff" && typeof a["member_id"] === "string") {
     return { kind: "staff", memberId: a["member_id"] };
   }
   if (a["kind"] === "outsource") {

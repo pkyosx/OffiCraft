@@ -276,7 +276,7 @@ func TestOwnerAssigneeOnCreateIsValidatedAndApplied(t *testing.T) {
 	if err != nil || m == nil {
 		t.Fatalf("manual readback: %v %v", m, err)
 	}
-	if m.Assignee != `{"kind": "staff","member_id":"m-exec"}` {
+	if m.Assignee != `{"kind":"staff","member_id":"m-exec"}` {
 		t.Fatalf("owner assignee not applied: %q", m.Assignee)
 	}
 }
@@ -308,7 +308,7 @@ func TestAdminAgentAssigneeIsAppliedOnCreateAndEdit(t *testing.T) {
 	if err != nil || m == nil {
 		t.Fatalf("manual readback: %v %v", m, err)
 	}
-	if m.Assignee != `{"kind": "staff","member_id":"m-exec"}` {
+	if m.Assignee != `{"kind":"staff","member_id":"m-exec"}` {
 		t.Fatalf("admin assignee not applied on create: %q", m.Assignee)
 	}
 
@@ -324,7 +324,7 @@ func TestAdminAgentAssigneeIsAppliedOnCreateAndEdit(t *testing.T) {
 	if err != nil || m == nil {
 		t.Fatalf("manual readback: %v %v", m, err)
 	}
-	if m.Assignee != `{"kind": "staff","member_id":"m-exec"}` {
+	if m.Assignee != `{"kind":"staff","member_id":"m-exec"}` {
 		t.Fatalf("admin assignee not applied on edit: %q", m.Assignee)
 	}
 }

@@ -947,7 +947,7 @@ var identityGateLedger = map[string]string{
 		"the neighbouring entry, and there is no kind normalisation in this handler " +
 		"at all — `kind` is a plain trimString of the request field.)",
 	"api_tasks.go :: HandleReassignTaskApiTasksTaskIdReassignPost :: m.Kind == KindOutsource": "" +
-		"P7d fold parity: an outsource ROW is never a 'member'-kind reassign target — " +
+		"P7d fold parity: an outsource ROW is never a 'staff'-kind reassign target — " +
 		"outsource executors are minted fresh by the outsource arm. Refusing here is " +
 		"what keeps the two arms from both claiming the same worker. Also in " +
 		"authzOutsideRouteTable.",

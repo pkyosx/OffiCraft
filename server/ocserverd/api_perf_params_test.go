@@ -242,7 +242,7 @@ func seedManuals(t *testing.T, s *apiServer) {
 			Fields:    `[{"name":"pr","required":true,"is_key":true}]`,
 			SopMD:     "## huge SOP markdown body that the list view never shows",
 			Learnings: "## accumulated learnings the list view never shows",
-			Assignee:  `{"kind": "staff","member_id":"m-1"}`,
+			Assignee:  `{"kind":"staff","member_id":"m-1"}`,
 			UpdatedTS: 1234,
 		}); err != nil {
 			t.Fatal(err)

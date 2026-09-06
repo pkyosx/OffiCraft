@@ -980,7 +980,7 @@ def _happy_reassigning_task(ctx: HCtx) -> str:
     """A fresh task under the `reassigning` LOCK whose NEW executor is the happy
     agent — so the happy agent may CLAIM it (the claim endpoint is
     executor-guarded). Created executed by a fresh member, then the owner
-    reassigns it (kind=member) to the happy agent → lock=reassigning."""
+    reassigns it (kind=staff) to the happy agent → lock=reassigning."""
     r = ctx.client.post(
         "/api/tasks",
         json={"title": "conf happy claim task",

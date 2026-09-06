@@ -500,7 +500,7 @@ def _matrix_reassigning_task(ctx: Ctx) -> str:
     """A fresh task under the `reassigning` LOCK whose NEW executor is agent A —
     so agent_self (A) may claim it (2xx, lock cleared) while agent_other (B) is
     403 (executor guard). Created executed by a fresh member, then the owner
-    reassigns it (kind=member) to agent A → lock=reassigning, executor=A."""
+    reassigns it (kind=staff) to agent A → lock=reassigning, executor=A."""
     h = {"Authorization": f"Bearer {ctx.owner_token}"}
     r = ctx.client.post(
         "/api/tasks",

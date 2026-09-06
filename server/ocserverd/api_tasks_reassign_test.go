@@ -1010,7 +1010,7 @@ func TestReassignGuards(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("dismiss m-gone: %v", err)
 	}
-	// P7d fold: an outsource member row is never a 'member'-kind target —
+	// P7d fold: an outsource member row is never a 'staff'-kind target —
 	// outsource executors are minted fresh by the outsource arm.
 	if err := api.dal.PutMember(Member{
 		ID: "ow-guard", Name: "S-guard", Kind: KindOutsource, Effort: "medium",

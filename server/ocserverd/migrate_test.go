@@ -934,7 +934,7 @@ func TestMigration00035NormalizesAutoMachinePlacement(t *testing.T) {
 	if _, err := db.Exec(`INSERT INTO task_manual (type_key, assignee) VALUES
 		('tm-auto', '{"kind":"outsource","model":"opus","machine":"auto"}'),
 		('tm-real', '{"kind":"outsource","model":"opus","machine":"m-box"}'),
-		('tm-member', '{"kind":"member","member_id":"m-real"}')`); err != nil {
+		('tm-member', '{"kind":"member","member_id":"m-real"}')`); err != nil { // kind-vocab-guard:legacy — seeded PRE-rename on purpose: 00088 has to convert it
 		t.Fatalf("seed manuals: %v", err)
 	}
 
@@ -976,7 +976,7 @@ func TestMigration00035NormalizesAutoMachinePlacement(t *testing.T) {
 	// would rewrite the whole blob. member_id is what proves that: it is still
 	// here, unchanged, and no `machine` key was invented. The `kind` reads
 	// "staff" because 00088 renames the task-executor vocabulary (it was seeded
-	// as the pre-rename "member", so this line also proves 00088 reaches the
+	// as the pre-rename "member", so this line also proves 00088 reaches the kind-vocab-guard:legacy
 	// assignee blob at all — a stored old spelling stops binding an executor).
 	if got := scalar(`SELECT assignee FROM task_manual WHERE type_key = ?`, "tm-member"); got !=
 		`{"kind":"staff","member_id":"m-real"}` {

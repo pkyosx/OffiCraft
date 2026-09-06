@@ -318,6 +318,49 @@ func TestUpgradingADatabaseThatAlreadyHasTasks(t *testing.T) {
 		}
 	}
 
+	// 🔴 THE COLUMN DEFAULT IS A SECOND COPY OF THE VOCABULARY AND IT NEEDS ITS
+	// OWN ASSERTION. The CHECK and the DEFAULT are written on the same line of
+	// the schema and are easy to read as one thing; they fail differently. A
+	// migration that renames the CHECK but leaves DEFAULT 'member' produces a
+	// table whose every existing row is correct — the assertions above stay
+	// green — and whose next INSERT that omits the column writes a value its
+	// own CHECK rejects. So the write fails at the far end, in create_task,
+	// naming a constraint rather than the rename.
+	//
+	// This is asserted rather than inferred because the inference was MEASURED
+	// WRONG: reverting the DEFAULT alone left every assertion in this block
+	// green. What reddened was TestMigrateTaskReassignedFrom, and only because
+	// that unrelated test happens to INSERT a row omitting executor_kind. The
+	// coverage was real but accidental — one edit to that test's column list
+	// and the DEFAULT half goes unguarded with nothing to say so.
+	var defaultKind string
+	if err := db.QueryRow(
+		`INSERT INTO task (id, title, type_key, status, executor_id)
+		 VALUES ('t-default-probe', 'probe', 'tm-pre-unset', 'not_started', 'm-exec')
+		 RETURNING executor_kind`,
+	).Scan(&defaultKind); err != nil {
+		// A CHECK failure HERE is the DEFAULT half breaking, not a broken
+		// probe: the row names no executor_kind, so the only value that can
+		// violate the constraint is the one the DEFAULT supplied. Said out
+		// loud because the driver's message names the constraint and never
+		// the default — which is the same misdirection this assertion exists
+		// to stop users hitting in create_task.
+		t.Fatalf("00088 left the executor_kind DEFAULT on a value its own "+
+			"CHECK rejects — an INSERT omitting the column cannot land: %v", err)
+	}
+	if defaultKind != TaskExecutorStaff {
+		t.Errorf("00088 left the executor_kind DEFAULT on %q; a row inserted "+
+			"without the column must land on %q, or the column's own CHECK "+
+			"refuses it", defaultKind, TaskExecutorStaff)
+	}
+	// The probe is an EXTRA row in a table whose population later assertions
+	// count exactly. Removed here rather than at the end so the two facts stay
+	// adjacent: this row exists to be read once, and it must not be visible to
+	// anything after that.
+	if _, err := db.Exec(`DELETE FROM task WHERE id = 't-default-probe'`); err != nil {
+		t.Fatalf("remove probe row: %v", err)
+	}
+
 	// The assignee blob: the kind renamed, EVERY OTHER KEY byte-identical. The
 	// second half is the point — json_set on `$.kind` is used instead of writing
 	// a fresh object precisely so member_id and any key the validator stores
