@@ -851,7 +851,8 @@ export function toTaskManualSummary(
     // 上限」 while the owner types, which is what this mapper was waiting for.
     //
     // 🔴 `?? 0` IS NOT A MEASUREMENT. Today's server always emits all four (the
-    // generated schema marks them required), so the fallback is only reachable
+    // generated TypeScript shape treats them as present), so the fallback is
+    // only reachable
     // from a server that predates them — the same defence `toRoleSummary` and
     // `toLessons` keep. A zero cap would render 「1234 / 0」 — a budget that
     // reads as "already over" on a document that is fine. The readout is

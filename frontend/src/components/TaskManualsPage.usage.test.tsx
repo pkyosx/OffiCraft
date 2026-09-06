@@ -172,12 +172,12 @@ describe("任務手冊 — the numbers survive the real adapter", () => {
     window.location.hash = "";
   });
 
-  it("reaches the page through the mapper, measured on the stored text", async () => {
-    // 🔴 The point of this one: every test above hands a manual straight to a
-    // sub-page, so all of them stay green while `toTaskManualSummary` drops the
-    // four wire fields — which is precisely how the code arrived at this
-    // ticket (its comment said they were "deliberately NOT mapped"). This test
-    // is the only thing here that fails in that state.
+  it("reaches the page through the mock adapter, measured on the stored text", async () => {
+    // 🔴 This covers the page-to-adapter wiring: every test above hands a
+    // manual straight to a sub-page. The mock adapter builds its view itself,
+    // so this file stays green if `toTaskManualSummary` drops the four wire
+    // fields. The mapper path is covered separately by
+    // `api/mappers.task-manual-usage.test.ts`.
     __injectMockTaskManual({
       typeKey: "tm-real",
       displayName: "審查 PR",
