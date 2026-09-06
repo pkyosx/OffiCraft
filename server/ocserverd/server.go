@@ -497,6 +497,8 @@ func newAPIServer(dal *DAL, hub *Hub, keys *keyring, tokenTTL int64, root assetR
 		chatBudgetChars:              chatBudgetCharsDefault,
 		stepNoteCapChars:             stepNoteCapCharsDefault,
 		backupRetain:                 backupRetainDefault,
+		suggestedRepliesReplyCard:    []string{},
+		suggestedRepliesTaskMessage:  []string{},
 		ctxhigh:                      defaultSseContextHigh(),
 		root:                         root,
 		binHashes:                    bindistBinaryHashesFrom(bindistFS()),
@@ -693,6 +695,8 @@ func cmdServe(env func(string) string, noReconcile, noOutsource bool, out io.Wri
 	api.displayTheme = auth.displayTheme
 	api.displayLanguage = auth.displayLanguage
 	api.displayWide = auth.displayWide
+	api.suggestedRepliesReplyCard = auth.suggestedRepliesReplyCard
+	api.suggestedRepliesTaskMessage = auth.suggestedRepliesTaskMessage
 	api.namespace = cfg.Server.Namespace
 	// The embed-fallback binary cache rides beside the SQLite data file — a
 	// stable per-instance location that follows the configured DSN (never the

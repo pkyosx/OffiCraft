@@ -165,8 +165,12 @@ import {
   BACKUP_RETAIN_MIN,
 } from "./backupRetain";
 import {
-  SUGGESTED_REPLIES_WIRE_FIELD,
-  withSuggestedReplies,
+  SUGGESTED_REPLIES_MAX_ENTRIES,
+  SUGGESTED_REPLIES_REPLY_CARD_FIELD,
+  SUGGESTED_REPLIES_TASK_MESSAGE_FIELD,
+  SUGGESTED_REPLY_MAX_LEN,
+  withSuggestedRepliesReplyCard,
+  withSuggestedRepliesTaskMessage,
 } from "./suggestedReplies";
 import {
   MOCK_OWNER_ID,
@@ -1984,12 +1988,12 @@ const DEFAULT_MOCK_SETTINGS = {
   // Owner nickname (T-0b41) — "" out of the box, mirroring the server (the
   // profile pill shows the localized default until the owner sets a nickname).
   owner_name: "",
-  // 建議回覆 (T-122) — EMPTY out of the box, mirroring a server that has no
-  // such setting yet (T-121 owns the field). Empty means the composer shows no
-  // chips at all, which is the state every install is in today. Written
-  // through the computed key so the field name still lives in exactly one
-  // module (api/suggestedReplies.ts).
-  [SUGGESTED_REPLIES_WIRE_FIELD]: [] as string[],
+  // 建議回覆 (T-122) — BOTH lists empty out of the box, mirroring the server.
+  // Empty means the box shows no chips at all, which is the state a fresh
+  // install is in. Written through api/suggestedReplies.ts so the two field
+  // names still live in exactly one module.
+  [SUGGESTED_REPLIES_REPLY_CARD_FIELD]: [] as string[],
+  [SUGGESTED_REPLIES_TASK_MESSAGE_FIELD]: [] as string[],
   push_contact_email: "",
   // Cockpit display prefs (T-0b41-p2) — "" out of the box, mirroring the server
   // (the frontend keeps its localStorage cache / default until the owner picks).
@@ -5483,6 +5487,34 @@ export const mockApi: Api = {
         "owner_name must be at most 80 characters"
       );
     }
+    // 建議回覆 (T-122). Server parity, and the messages below are a HAND COPY of
+    // server/ocserverd/api_settings.go — nothing compares the two files, so a
+    // reworded refusal has to be changed in both.
+    //
+    // 🔴 [] IS LEGAL and clears the list. Over either bound is a REFUSAL, never
+    // a truncation: a shortened sentence is one the owner never wrote, offered
+    // to him one tap from being sent.
+    for (const [wire, list] of [
+      [SUGGESTED_REPLIES_REPLY_CARD_FIELD, patch.suggestedRepliesReplyCard],
+      [SUGGESTED_REPLIES_TASK_MESSAGE_FIELD, patch.suggestedRepliesTaskMessage],
+    ] as const) {
+      if (list === undefined) continue;
+      const entries = list.map((v) => v.trim()).filter((v) => v.length > 0);
+      if (entries.some((v) => [...v].length > SUGGESTED_REPLY_MAX_LEN)) {
+        throw mockApiError(
+          "http 422 for PATCH /api/settings",
+          422,
+          `${wire} must be at most ${SUGGESTED_REPLY_MAX_LEN} characters per entry`
+        );
+      }
+      if (entries.length > SUGGESTED_REPLIES_MAX_ENTRIES) {
+        throw mockApiError(
+          "http 422 for PATCH /api/settings",
+          422,
+          `${wire} must be at most ${SUGGESTED_REPLIES_MAX_ENTRIES} entries`
+        );
+      }
+    }
     // display_theme is validated against the THEME STORE: "" | a built-in | an
     // id that exists in /api/themes (server parity). T-83ef: settings no
     // longer carries the bundles, so there is no "post-patch custom set" to
@@ -5586,6 +5618,24 @@ export const mockApi: Api = {
     }
     if (patch.ownerName !== undefined) {
       mockServerSettings.owner_name = patch.ownerName.trim();
+    }
+    // 建議回覆 (T-122): each list is REPLACED wholesale and independently — the
+    // two rows are two rows for exactly this reason.
+    if (patch.suggestedRepliesReplyCard !== undefined) {
+      mockServerSettings = withSuggestedRepliesReplyCard(
+        mockServerSettings,
+        patch.suggestedRepliesReplyCard
+          .map((v) => v.trim())
+          .filter((v) => v.length > 0),
+      );
+    }
+    if (patch.suggestedRepliesTaskMessage !== undefined) {
+      mockServerSettings = withSuggestedRepliesTaskMessage(
+        mockServerSettings,
+        patch.suggestedRepliesTaskMessage
+          .map((v) => v.trim())
+          .filter((v) => v.length > 0),
+      );
     }
     if (patch.pushContactEmail !== undefined) {
       const email = patch.pushContactEmail.trim();
@@ -6461,12 +6511,26 @@ export function __injectMockTask(task: TaskView | MockTaskRow): void {
   emitTopic("task");
 }
 
-// Test-only hook: seed the owner's 建議回覆 (T-122). There is no cockpit write
-// for it in this package — T-121 owns the settings editor — so a test that
-// wants chips under the composer has no other way to put them there. Passing
-// an empty list restores the shipped state (no chips at all).
-export function __setMockSuggestedReplies(replies: readonly string[]): void {
-  mockServerSettings = withSuggestedReplies(mockServerSettings, replies);
+// Test-only hooks: seed the owner's two 建議回覆 lists (T-122). Separate hooks
+// for separate lists — a test that seeds one and asserts the OTHER box stays
+// bare is exactly the assertion that pins them as independent. Passing an empty
+// list restores the shipped state (no chips at all).
+export function __setMockSuggestedRepliesReplyCard(
+  replies: readonly string[],
+): void {
+  mockServerSettings = withSuggestedRepliesReplyCard(
+    mockServerSettings,
+    replies,
+  );
+}
+
+export function __setMockSuggestedRepliesTaskMessage(
+  replies: readonly string[],
+): void {
+  mockServerSettings = withSuggestedRepliesTaskMessage(
+    mockServerSettings,
+    replies,
+  );
 }
 
 // Test-only hook: land the retained PREVIOUS versions of one pinned deliverable

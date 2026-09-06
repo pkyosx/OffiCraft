@@ -16,9 +16,12 @@ package main
 import (
 	"crypto/rand"
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"io"
 	"strconv"
+	"strings"
+	"unicode/utf8"
 )
 
 // The closed settings key set. The setting table is schemaless key-value; the
@@ -285,6 +288,25 @@ const (
 	// localStorage the pre-auth cache. Stored like the updater toggles —
 	// strconv.FormatBool text, absent row = false. NOT an agent read path.
 	settingDisplayWide = "display.wide"
+	// settingSuggestedRepliesReplyCard / settingSuggestedRepliesTaskMessage
+	// (T-122) hold the owner's one-click 建議回覆 — the sentences the cockpit
+	// offers under a reply box so an answer is one tap instead of one typing
+	// session. Stored as a JSON ARRAY OF STRINGS in the single `value` column
+	// (the setting table is key/value — migrations/00002_settings.sql), which is
+	// why there is no migration: a new key needs no DDL.
+	//
+	// TWO KEYS, NOT ONE, and no nested object: answering a 請示卡 and writing to
+	// a task in progress are different conversations, so one list's sentences
+	// are wrong in the other's box (owner ruling). Two rows also keep "change
+	// only one of them" a single PATCH-time write instead of an unlocked
+	// read-modify-write over one shared blob.
+	//
+	// ABSENT ROW = the empty list, and so is a stored `[]`: "the owner
+	// configured none" is a legal, ordinary state that draws no chips. The reply
+	// box must keep working with none — the suggestions are a convenience laid
+	// over it, never a part of it.
+	settingSuggestedRepliesReplyCard   = "suggested_replies.reply_card"
+	settingSuggestedRepliesTaskMessage = "suggested_replies.task_message"
 	// [T-16a1 P2 / T-83ef] `display.custom_themes` — the row that used to hold
 	// every saved theme as one JSON array — HAS NO CONSTANT HERE ANY MORE, and
 	// that is deliberate rather than an oversight:
@@ -419,6 +441,82 @@ type authSettings struct {
 	displayTheme                 string // display.theme ("" = never set → frontend cache/default)
 	displayLanguage              string // display.language ("" = never set → frontend cache/default)
 	displayWide                  bool   // display.wide (default false = the narrow centred column)
+	// suggested_replies.* (T-122) — the two one-click 建議回覆 lists, each stored
+	// as a JSON array of strings. nil/empty = the owner configured none, which
+	// draws no chips and is an ordinary state, not a failure.
+	suggestedRepliesReplyCard   []string // suggested_replies.reply_card
+	suggestedRepliesTaskMessage []string // suggested_replies.task_message
+}
+
+// maxSuggestedReplies / maxSuggestedReplyLen bound each 建議回覆 list (T-122).
+// A list is a menu the owner reads at a glance under a reply box, not a
+// document: twenty sentences is already more than fits on a phone, and 120
+// runes is one sentence rather than a paragraph. Counted in RUNES so a CJK
+// sentence gets the full budget, and measured AFTER trimming so trailing
+// whitespace can never be what pushes an entry over.
+const (
+	maxSuggestedReplies  = 20
+	maxSuggestedReplyLen = 120
+)
+
+// canonicalSuggestedReplies trims every entry, drops the blank ones, and
+// REFUSES anything over either bound instead of truncating it.
+//
+// 🔴 Refusing rather than truncating is the whole point: a silently shortened
+// sentence is a sentence the owner never wrote, and it would be offered to him
+// as one tap away from being sent. The caller turns the error into a 422 (PATCH
+// face, prefixed with the wire field name) or a boot failure (loader, prefixed
+// with `settings <key>`), which is the same invariant every bounded setting on
+// this endpoint holds: a value the PATCH face rejects must not be a value the
+// next boot accepts.
+//
+// The EMPTY list is a legal result, including from an explicitly empty input —
+// "offer no suggestions there" is an ordinary configuration, not a failure.
+func canonicalSuggestedReplies(in []string) ([]string, error) {
+	out := make([]string, 0, len(in))
+	for _, v := range in {
+		v = strings.TrimSpace(v)
+		if v == "" {
+			continue
+		}
+		if utf8.RuneCountInString(v) > maxSuggestedReplyLen {
+			return nil, fmt.Errorf("must be at most %d characters per entry",
+				maxSuggestedReplyLen)
+		}
+		out = append(out, v)
+	}
+	if len(out) > maxSuggestedReplies {
+		return nil, fmt.Errorf("must be at most %d entries", maxSuggestedReplies)
+	}
+	return out, nil
+}
+
+// encodeSuggestedReplies renders a canonical list into the single TEXT `value`
+// column the setting table gives every key. A nil list stores "[]", never
+// "null": the two mean the same thing here and storing one shape keeps the
+// loader's parse total.
+func encodeSuggestedReplies(list []string) string {
+	if list == nil {
+		list = []string{}
+	}
+	b, err := json.Marshal(list)
+	if err != nil {
+		// []string cannot fail to marshal; "[]" keeps the row parseable if it
+		// somehow ever did.
+		return "[]"
+	}
+	return string(b)
+}
+
+// decodeSuggestedReplies parses a stored row back, applying the SAME bounds the
+// PATCH face applies. A row that fails either is corruption (nothing but a hand
+// edit can produce one) and is reported, never repaired.
+func decodeSuggestedReplies(raw string) ([]string, error) {
+	var list []string
+	if err := json.Unmarshal([]byte(raw), &list); err != nil {
+		return nil, fmt.Errorf("must be a JSON array of strings: %q", raw)
+	}
+	return canonicalSuggestedReplies(list)
 }
 
 // loadAuthSettings loads the snapshot from the migrated DB, running the
@@ -759,6 +857,34 @@ func loadAuthSettings(d *DAL, cfg Config, logf func(string)) (authSettings, erro
 	// not quietly become rotation's instruction.
 	if err := loadCap(settingBackupRetain, minBackupRetain, maxBackupRetain,
 		&out.backupRetain, backupRetainDefault); err != nil {
+		return out, err
+	}
+
+	// suggested_replies.* (T-122) — the string-array counterpart of loadCap, and
+	// it exists for exactly the reason loadCap does: without it a hand-edited row
+	// holding 200 sentences, or one 5000 runes long, would be a value the PATCH
+	// face refuses that the next boot nevertheless installs. An absent row is the
+	// empty list (the shipped default); an unparseable or over-cap row stops the
+	// server rather than quietly becoming what the cockpit offers.
+	loadSuggestedReplies := func(key string, dst *[]string) error {
+		*dst = []string{}
+		v, err := d.GetSetting(key)
+		if err != nil || v == nil {
+			return err
+		}
+		list, derr := decodeSuggestedReplies(*v)
+		if derr != nil {
+			return fmt.Errorf("settings %s: %v", key, derr)
+		}
+		*dst = list
+		return nil
+	}
+	if err := loadSuggestedReplies(settingSuggestedRepliesReplyCard,
+		&out.suggestedRepliesReplyCard); err != nil {
+		return out, err
+	}
+	if err := loadSuggestedReplies(settingSuggestedRepliesTaskMessage,
+		&out.suggestedRepliesTaskMessage); err != nil {
 		return out, err
 	}
 

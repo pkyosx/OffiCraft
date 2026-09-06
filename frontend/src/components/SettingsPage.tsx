@@ -48,6 +48,10 @@ import {
   STEP_NOTE_CAP_CHARS_MIN,
 } from "../api/stepNoteCap";
 import { BACKUP_RETAIN_MAX, BACKUP_RETAIN_MIN } from "../api/backupRetain";
+import {
+  SUGGESTED_REPLIES_MAX_ENTRIES,
+  SUGGESTED_REPLY_MAX_LEN,
+} from "../api/suggestedReplies";
 
 /** The adjustable document caps (T-ae38, widened by T-30f1), in the order the
  * parameters card lists them: the three role-journal segments in journal order
@@ -1143,6 +1147,148 @@ const TTL_CHOICES = [43200, 86400, 604800, 2592000] as const;
  * out-of-range / rejected write snaps the field back to the last server-confirmed
  * value rather than leaving a lie on screen.
  */
+/** ONE editable 建議回覆 list (T-122) — the 參數設定 face of
+ * `suggested_replies.reply_card` / `suggested_replies.task_message`.
+ *
+ * Two of these are mounted, one per list, and they share nothing but this
+ * component: the owner ruled the 請示卡 box and the 任務 box get separate
+ * settings, so each editor holds its own draft and saves its own field. A save
+ * sends ONE field, which is what keeps "edit one list" from rewriting the other.
+ *
+ * The draft is `null` until the owner touches something, so a value arriving
+ * from the server flows straight through; once touched, the draft owns the
+ * rows until it commits. Same idiom as the numeric rows above.
+ *
+ * 🔴 THE EMPTY LIST IS A REAL VALUE, not "unset". Deleting the last row saves
+ * `[]`, and that is what turns the chips off. */
+function SuggestedRepliesEditor({
+  label,
+  sub,
+  idPrefix,
+  value,
+  onCommit,
+  onTouch,
+}: {
+  label: string;
+  sub: string;
+  idPrefix: string;
+  value: string[];
+  /** Save this list wholesale. Called only when it differs from `value`. */
+  onCommit: (next: string[]) => void;
+  /** Clear the card's error banners as soon as the owner types. */
+  onTouch: () => void;
+}) {
+  const { t } = useI18n();
+  const [draft, setDraft] = useState<string[] | null>(null);
+  const rows = draft ?? value;
+
+  function commit(next: string[]) {
+    const cleaned = next.map((v) => v.trim()).filter((v) => v.length > 0);
+    setDraft(null);
+    if (
+      cleaned.length === value.length &&
+      cleaned.every((v, i) => v === value[i])
+    ) {
+      return;
+    }
+    onCommit(cleaned);
+  }
+
+  /** A structural edit (delete / reorder) is a decision, not a keystroke, so it
+   * saves at once — there is no blur to wait for. */
+  function apply(next: string[]) {
+    setDraft(next);
+    commit(next);
+  }
+
+  const full = rows.length >= SUGGESTED_REPLIES_MAX_ENTRIES;
+
+  return (
+    <div className="param-row param-row--stacked">
+      <div className="param-row__body">
+        <div className="param-row__name">{label}</div>
+        <div className="param-row__sub">{sub}</div>
+      </div>
+      <div className="sugg-edit">
+        {rows.length === 0 && (
+          <div className="sugg-edit__empty">{t.settings.suggestedRepliesEmpty}</div>
+        )}
+        {rows.map((text, i) => (
+          <div className="sugg-edit__row" key={`${idPrefix}-${i}`}>
+            <input
+              id={`${idPrefix}-${i}`}
+              className="param-input sugg-edit__input"
+              type="text"
+              maxLength={SUGGESTED_REPLY_MAX_LEN}
+              placeholder={t.settings.suggestedReplyPlaceholder}
+              aria-label={`${label} ${i + 1}`}
+              value={text}
+              onChange={(e) => {
+                onTouch();
+                const next = [...rows];
+                next[i] = e.target.value;
+                setDraft(next);
+              }}
+              onBlur={() => commit(rows)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") commit(rows);
+              }}
+            />
+            <button
+              type="button"
+              className="sugg-edit__btn"
+              title={t.settings.suggestedReplyMoveUp}
+              aria-label={`${label} ${t.settings.suggestedReplyMoveUp} ${i + 1}`}
+              disabled={i === 0}
+              onClick={() => {
+                const next = [...rows];
+                [next[i - 1], next[i]] = [next[i], next[i - 1]];
+                apply(next);
+              }}
+            >
+              ↑
+            </button>
+            <button
+              type="button"
+              className="sugg-edit__btn"
+              title={t.settings.suggestedReplyMoveDown}
+              aria-label={`${label} ${t.settings.suggestedReplyMoveDown} ${i + 1}`}
+              disabled={i === rows.length - 1}
+              onClick={() => {
+                const next = [...rows];
+                [next[i], next[i + 1]] = [next[i + 1], next[i]];
+                apply(next);
+              }}
+            >
+              ↓
+            </button>
+            <button
+              type="button"
+              className="sugg-edit__btn sugg-edit__btn--remove"
+              title={t.settings.suggestedReplyRemove}
+              aria-label={`${label} ${t.settings.suggestedReplyRemove} ${i + 1}`}
+              onClick={() => apply(rows.filter((_, j) => j !== i))}
+            >
+              <TrashIcon size={14} />
+            </button>
+          </div>
+        ))}
+        <button
+          type="button"
+          className="sugg-edit__add"
+          disabled={full}
+          onClick={() => {
+            onTouch();
+            setDraft([...rows, ""]);
+          }}
+        >
+          {t.settings.suggestedReplyAdd}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function ServerParams({
   settings,
   error,
@@ -1633,6 +1779,27 @@ function ServerParams({
               <span className="param-pct__sign">{t.settings.backupRetainUnit}</span>
             </div>
           </div>
+
+          {/* T-122: TWO lists, TWO rows. The owner ruled 「任務跟請示卡要是不同的
+              參數設定」 (c-85c28e708b81), so each row saves its OWN field and a
+              save never carries the other one. */}
+          <SuggestedRepliesEditor
+            label={t.settings.suggestedRepliesReplyCard}
+            sub={t.settings.suggestedRepliesReplyCardSub}
+            idPrefix="param-suggested-reply-card"
+            value={settings.suggestedRepliesReplyCard}
+            onTouch={() => { setRangeError(false); onClearSaveError(); }}
+            onCommit={(next) => { void onSave({ suggestedRepliesReplyCard: next }); }}
+          />
+
+          <SuggestedRepliesEditor
+            label={t.settings.suggestedRepliesTaskMessage}
+            sub={t.settings.suggestedRepliesTaskMessageSub}
+            idPrefix="param-suggested-task-message"
+            value={settings.suggestedRepliesTaskMessage}
+            onTouch={() => { setRangeError(false); onClearSaveError(); }}
+            onCommit={(next) => { void onSave({ suggestedRepliesTaskMessage: next }); }}
+          />
 
           {(saveError || rangeError) && (
             <div className="set-error param-error">

@@ -9,7 +9,11 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, fireEvent, act, waitFor } from "@testing-library/react";
 import { I18nProvider } from "../i18n";
 import { ReplyComposer } from "./ReplyComposer";
-import { __resetMock, __setMockSuggestedReplies } from "../api/mock";
+import {
+  __resetMock,
+  __setMockSuggestedRepliesReplyCard,
+  __setMockSuggestedRepliesTaskMessage,
+} from "../api/mock";
 import { resetAllSharedSnapshots } from "../lib/sharedSnapshot";
 
 const onSend = vi.fn(() => Promise.resolve());
@@ -47,7 +51,7 @@ describe("ReplyComposer 建議回覆", () => {
   });
 
   it("shows the owner's configured sentences under the reply input", async () => {
-    __setMockSuggestedReplies(["收到，照這樣做", "先擱著，這週不碰"]);
+    __setMockSuggestedRepliesReplyCard(["收到，照這樣做", "先擱著，這週不碰"]);
     const { findByTestId } = renderComposer();
     const row = await findByTestId("reply-suggested-replies");
     expect([...row.querySelectorAll("button")].map((b) => b.textContent)).toEqual(
@@ -55,8 +59,28 @@ describe("ReplyComposer 建議回覆", () => {
     );
   });
 
+  it("reads the REPLY-CARD list, never the task-message one", async () => {
+    // 🔴 The two lists are separate settings by owner ruling (chat
+    // c-85c28e708b81「任務跟請示卡要是不同的參數設定」). A composer that fell back
+    // to the other list would look right in every test that seeds both.
+    __setMockSuggestedRepliesTaskMessage(["這是任務用的"]);
+    const { queryByTestId } = renderComposer();
+    await settleRealTime();
+    expect(queryByTestId("reply-suggested-replies")).toBeNull();
+  });
+
+  it("still shows its own chips when the task-message list is empty", async () => {
+    __setMockSuggestedRepliesReplyCard(["收到，照這樣做"]);
+    __setMockSuggestedRepliesTaskMessage([]);
+    const { findByTestId } = renderComposer();
+    const row = await findByTestId("reply-suggested-replies");
+    expect([...row.querySelectorAll("button")].map((b) => b.textContent)).toEqual(
+      ["收到，照這樣做"]
+    );
+  });
+
   it("puts the row AFTER the input, not above it", async () => {
-    __setMockSuggestedReplies(["收到，照這樣做"]);
+    __setMockSuggestedRepliesReplyCard(["收到，照這樣做"]);
     const { findByTestId, input } = renderComposer();
     const row = await findByTestId("reply-suggested-replies");
     // Node.DOCUMENT_POSITION_FOLLOWING — the row comes later in the document
@@ -76,7 +100,7 @@ describe("ReplyComposer 建議回覆", () => {
   });
 
   it("puts the clicked sentence in the input and sends NOTHING", async () => {
-    __setMockSuggestedReplies(["收到，照這樣做"]);
+    __setMockSuggestedRepliesReplyCard(["收到，照這樣做"]);
     const { findByText, input } = renderComposer();
     fireEvent.click(await findByText("收到，照這樣做"));
 
@@ -88,7 +112,7 @@ describe("ReplyComposer 建議回覆", () => {
   });
 
   it("sends the picked sentence only once the owner presses Enter, and sends it verbatim", async () => {
-    __setMockSuggestedReplies(["收到，照這樣做"]);
+    __setMockSuggestedRepliesReplyCard(["收到，照這樣做"]);
     const { findByText, input } = renderComposer();
     fireEvent.click(await findByText("收到，照這樣做"));
     await act(async () => {
@@ -106,7 +130,7 @@ describe("ReplyComposer 建議回覆", () => {
     // decision: half a sentence typed, then a chip clicked. An independent
     // review sent a real answer through here while the whole suite stayed
     // green.
-    __setMockSuggestedReplies(["收到，照這樣做"]);
+    __setMockSuggestedRepliesReplyCard(["收到，照這樣做"]);
     const { findByText, input } = renderComposer();
     fireEvent.change(input, { target: { value: "我看過了" } });
     fireEvent.click(await findByText("收到，照這樣做"));
@@ -116,7 +140,7 @@ describe("ReplyComposer 建議回覆", () => {
   });
 
   it("leaves the picked sentence editable — the owner can change it before sending", async () => {
-    __setMockSuggestedReplies(["收到，照這樣做"]);
+    __setMockSuggestedRepliesReplyCard(["收到，照這樣做"]);
     const { findByText, input } = renderComposer();
     fireEvent.click(await findByText("收到，照這樣做"));
     fireEvent.change(input, { target: { value: "收到，但先等我確認" } });
@@ -127,7 +151,7 @@ describe("ReplyComposer 建議回覆", () => {
   });
 
   it("puts the caret back in the input so typing continues where the sentence ended", async () => {
-    __setMockSuggestedReplies(["收到，照這樣做"]);
+    __setMockSuggestedRepliesReplyCard(["收到，照這樣做"]);
     const { findByText, input } = renderComposer();
     fireEvent.click(await findByText("收到，照這樣做"));
     await waitFor(() => expect(document.activeElement).toBe(input));

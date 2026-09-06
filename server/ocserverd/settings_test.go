@@ -191,6 +191,63 @@ func TestLoadAuthSettingsOwnerName(t *testing.T) {
 	}
 }
 
+// TestLoadAuthSettingsSuggestedReplies pins the boot half of the T-122
+// invariant every bounded setting holds: a value the PATCH face refuses must
+// not be a value the next boot installs. The two lists have no loadCap to lean
+// on (loadCap is for bounded integers), so this covers the string-array
+// counterpart written for them.
+func TestLoadAuthSettingsSuggestedReplies(t *testing.T) {
+	// Absent rows → the empty list, never nil-with-a-surprise: no chips.
+	got, _ := loadForTest(t, newTestDAL(t), defaultConfig())
+	if len(got.suggestedRepliesReplyCard) != 0 || len(got.suggestedRepliesTaskMessage) != 0 {
+		t.Fatalf("absent suggested_replies.* must load empty: %v %v",
+			got.suggestedRepliesReplyCard, got.suggestedRepliesTaskMessage)
+	}
+
+	// Stored rows load independently — one list is not the other.
+	d := newTestDAL(t)
+	if err := d.PutSetting(settingSuggestedRepliesReplyCard, `["收到，照這樣做"]`); err != nil {
+		t.Fatal(err)
+	}
+	if err := d.PutSetting(settingSuggestedRepliesTaskMessage, `["先擱著","這週不碰"]`); err != nil {
+		t.Fatal(err)
+	}
+	got2, _ := loadForTest(t, d, defaultConfig())
+	if len(got2.suggestedRepliesReplyCard) != 1 || got2.suggestedRepliesReplyCard[0] != "收到，照這樣做" {
+		t.Fatalf("reply_card list must load verbatim: %v", got2.suggestedRepliesReplyCard)
+	}
+	if len(got2.suggestedRepliesTaskMessage) != 2 {
+		t.Fatalf("task_message list must load verbatim: %v", got2.suggestedRepliesTaskMessage)
+	}
+
+	// An explicit [] is a LEGAL stored value, not corruption.
+	d3 := newTestDAL(t)
+	if err := d3.PutSetting(settingSuggestedRepliesReplyCard, `[]`); err != nil {
+		t.Fatal(err)
+	}
+	if got3, _ := loadForTest(t, d3, defaultConfig()); len(got3.suggestedRepliesReplyCard) != 0 {
+		t.Fatalf("an explicit empty list must load clean: %v",
+			got3.suggestedRepliesReplyCard)
+	}
+
+	// A hand-edited row the PATCH face would have refused must STOP the boot,
+	// not quietly become what the cockpit offers.
+	for name, row := range map[string]string{
+		"not JSON":       "收到",
+		"not an array":   `{"a":1}`,
+		"entry too long": `["` + strings.Repeat("水", maxSuggestedReplyLen+1) + `"]`,
+		"too many":       "[" + strings.TrimSuffix(strings.Repeat(`"x",`, maxSuggestedReplies+1), ",") + "]",
+	} {
+		dd := newTestDAL(t)
+		if err := dd.PutSetting(settingSuggestedRepliesTaskMessage, row); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := loadAuthSettings(dd, defaultConfig(), func(string) {}); err == nil {
+			t.Fatalf("%s must fail the boot loudly", name)
+		}
+	}
+}
+
 func TestLoadAuthSettingsDisplayPrefs(t *testing.T) {
 	// Absent → "" for both (never set; the frontend keeps its cache/default).
 	got, _ := loadForTest(t, newTestDAL(t), defaultConfig())

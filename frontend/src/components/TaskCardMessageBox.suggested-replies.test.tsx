@@ -16,7 +16,8 @@ import { TasksPage } from "./TasksPage";
 import {
   __resetMock,
   __injectMockTask,
-  __setMockSuggestedReplies,
+  __setMockSuggestedRepliesReplyCard,
+  __setMockSuggestedRepliesTaskMessage,
 } from "../api/mock";
 import { resetAllSharedSnapshots } from "../lib/sharedSnapshot";
 import { api } from "../api";
@@ -78,7 +79,7 @@ describe("task card message box — 建議回覆", () => {
   });
 
   it("shows the owner's configured sentences under the message input", async () => {
-    __setMockSuggestedReplies(["收到，照這樣做", "先擱著，這週不碰"]);
+    __setMockSuggestedRepliesTaskMessage(["收到，照這樣做", "先擱著，這週不碰"]);
     __injectMockTask(mkTask());
     const { findByTestId } = renderPage();
     const row = await findByTestId("task-suggested-replies");
@@ -87,8 +88,30 @@ describe("task card message box — 建議回覆", () => {
     );
   });
 
+  it("reads the TASK-MESSAGE list, never the reply-card one", async () => {
+    // 🔴 The two lists are separate settings by owner ruling (chat
+    // c-85c28e708b81「任務跟請示卡要是不同的參數設定」). A box that fell back to the
+    // other list would look right in every test that seeds both.
+    __setMockSuggestedRepliesReplyCard(["這是請示卡用的"]);
+    __injectMockTask(mkTask());
+    const { queryByTestId } = renderPage();
+    await settleRealTime();
+    expect(queryByTestId("task-suggested-replies")).toBeNull();
+  });
+
+  it("still shows its own chips when the reply-card list is empty", async () => {
+    __setMockSuggestedRepliesTaskMessage(["收到，照這樣做"]);
+    __setMockSuggestedRepliesReplyCard([]);
+    __injectMockTask(mkTask());
+    const { findByTestId } = renderPage();
+    const row = await findByTestId("task-suggested-replies");
+    expect([...row.querySelectorAll("button")].map((b) => b.textContent)).toEqual(
+      ["收到，照這樣做"]
+    );
+  });
+
   it("puts the row AFTER the input, not above it", async () => {
-    __setMockSuggestedReplies(["收到，照這樣做"]);
+    __setMockSuggestedRepliesTaskMessage(["收到，照這樣做"]);
     __injectMockTask(mkTask());
     const { findByTestId } = renderPage();
     const input = await findByTestId("task-msg-input");
@@ -113,7 +136,7 @@ describe("task card message box — 建議回覆", () => {
   });
 
   it("puts the clicked sentence in the input and sends NOTHING", async () => {
-    __setMockSuggestedReplies(["收到，照這樣做"]);
+    __setMockSuggestedRepliesTaskMessage(["收到，照這樣做"]);
     __injectMockTask(mkTask());
     const spy = vi.spyOn(api, "postTaskMessage");
     const { findByText, findByTestId } = renderPage();
@@ -126,7 +149,7 @@ describe("task card message box — 建議回覆", () => {
   });
 
   it("sends the picked sentence only once the owner presses send, and sends it verbatim", async () => {
-    __setMockSuggestedReplies(["收到，照這樣做"]);
+    __setMockSuggestedRepliesTaskMessage(["收到，照這樣做"]);
     __injectMockTask(mkTask());
     const spy = vi.spyOn(api, "postTaskMessage");
     const { findByText, findByTestId } = renderPage();
@@ -145,7 +168,7 @@ describe("task card message box — 建議回覆", () => {
     // NOTHING" test is refused by `canSend` before it proves anything, and an
     // independent review posted a real message to the executor through THIS
     // path while the whole suite stayed green.
-    __setMockSuggestedReplies(["收到，照這樣做"]);
+    __setMockSuggestedRepliesTaskMessage(["收到，照這樣做"]);
     __injectMockTask(mkTask());
     const spy = vi.spyOn(api, "postTaskMessage");
     const { findByText, findByTestId } = renderPage();
@@ -158,7 +181,7 @@ describe("task card message box — 建議回覆", () => {
   });
 
   it("offers no sentences on a task with no executor, where the box itself is inert", async () => {
-    __setMockSuggestedReplies(["收到，照這樣做"]);
+    __setMockSuggestedRepliesTaskMessage(["收到，照這樣做"]);
     __injectMockTask(
       mkTask({ id: "task-sugg-2", executorKind: "outsource", executorId: "" })
     );

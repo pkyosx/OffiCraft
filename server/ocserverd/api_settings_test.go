@@ -314,6 +314,102 @@ func TestOrgNameSettingRoundTrips(t *testing.T) {
 	}
 }
 
+// TestSuggestedRepliesSettingRoundTrip covers the T-122 建議回覆 lists: TWO
+// independent lists (patching one never touches the other), an explicit empty
+// array is a LEGAL value, and anything over either bound is a 422 that writes
+// NOTHING — refused, never truncated.
+func TestSuggestedRepliesSettingRoundTrip(t *testing.T) {
+	api, srv, d, _ := newSettingsTestServer(t, "sugg-pass")
+	status, data := doJSON(t, "POST", srv.URL+"/api/login", "", `{"password":"sugg-pass"}`)
+	if status != 200 {
+		t.Fatalf("login: %d", status)
+	}
+	owner := data["token"].(string)
+
+	list := func(m map[string]any, key string) []any {
+		v, ok := m[key].([]any)
+		if !ok {
+			t.Fatalf("%s must be an ARRAY on the wire, never null: %#v", key, m[key])
+		}
+		return v
+	}
+
+	// Default: both lists are [] — an array, not null, so a reader never has to
+	// tell "the owner configured none" apart from "the field is missing".
+	if status, data = doJSON(t, "GET", srv.URL+"/api/settings", owner, ""); status != 200 {
+		t.Fatalf("get: %d", status)
+	}
+	if len(list(data, "suggested_replies_reply_card")) != 0 ||
+		len(list(data, "suggested_replies_task_message")) != 0 {
+		t.Fatalf("both lists must default to []: %v", data)
+	}
+
+	// Over the per-entry rune cap → 422, nothing written.
+	long := `{"suggested_replies_reply_card":["` + strings.Repeat("水", maxSuggestedReplyLen+1) + `"]}`
+	if status, _ := doJSON(t, "PATCH", srv.URL+"/api/settings", owner, long); status != 422 {
+		t.Fatalf("an over-long entry must 422: got %d", status)
+	}
+	// Over the entry-count cap → 422, nothing written.
+	many := `{"suggested_replies_reply_card":[` +
+		strings.TrimSuffix(strings.Repeat(`"收到",`, maxSuggestedReplies+1), ",") + `]}`
+	if status, _ := doJSON(t, "PATCH", srv.URL+"/api/settings", owner, many); status != 422 {
+		t.Fatalf("too many entries must 422: got %d", status)
+	}
+	if v, err := d.GetSetting(settingSuggestedRepliesReplyCard); err != nil || v != nil {
+		t.Fatalf("a rejected suggested-replies patch must write nothing: %v %v", v, err)
+	}
+
+	// A valid patch: trimmed, blanks dropped, echoed, durable, live.
+	body := `{"suggested_replies_reply_card":["  收到，照這樣做  ","","   ","先擱著"]}`
+	if status, data = doJSON(t, "PATCH", srv.URL+"/api/settings", owner, body); status != 200 {
+		t.Fatalf("valid patch: %d %v", status, data)
+	}
+	got := list(data, "suggested_replies_reply_card")
+	if len(got) != 2 || got[0] != "收到，照這樣做" || got[1] != "先擱著" {
+		t.Fatalf("entries must be trimmed and blanks dropped: %v", got)
+	}
+	if v, err := d.GetSetting(settingSuggestedRepliesReplyCard); err != nil || v == nil ||
+		*v != `["收到，照這樣做","先擱著"]` {
+		t.Fatalf("the list must be durable as a JSON array: %v %v", v, err)
+	}
+	if len(api.settingsView().SuggestedRepliesReplyCard) != 2 {
+		t.Fatalf("the list must be live in the snapshot")
+	}
+
+	// 🔴 THE TWO LISTS ARE INDEPENDENT. The patch above named only the reply-card
+	// list, so the task-message one must still be untouched — and its DB row must
+	// still not exist at all.
+	if len(list(data, "suggested_replies_task_message")) != 0 {
+		t.Fatalf("patching one list must not populate the other: %v", data)
+	}
+	if v, err := d.GetSetting(settingSuggestedRepliesTaskMessage); err != nil || v != nil {
+		t.Fatalf("the other list's row must not be written: %v %v", v, err)
+	}
+
+	// The task-message list moves on its own and leaves the reply-card one alone.
+	if status, data = doJSON(t, "PATCH", srv.URL+"/api/settings", owner,
+		`{"suggested_replies_task_message":["之後再說"]}`); status != 200 {
+		t.Fatalf("task_message patch: %d %v", status, data)
+	}
+	if len(list(data, "suggested_replies_task_message")) != 1 ||
+		len(list(data, "suggested_replies_reply_card")) != 2 {
+		t.Fatalf("the two lists must move independently: %v", data)
+	}
+
+	// An EXPLICIT EMPTY ARRAY is legal and clears the list — the opposite of the
+	// scheduled-message custom_* sets, where [] is a 422.
+	if status, data = doJSON(t, "PATCH", srv.URL+"/api/settings", owner,
+		`{"suggested_replies_reply_card":[]}`); status != 200 {
+		t.Fatalf("an explicit empty array must be accepted: %d %v", status, data)
+	}
+	if len(list(data, "suggested_replies_reply_card")) != 0 {
+		t.Fatalf("an explicit empty array must clear the list: %v", data)
+	}
+	if len(api.settingsView().SuggestedRepliesReplyCard) != 0 {
+		t.Fatalf("the cleared list must be live in the snapshot")
+	}
+}
+
 // TestOwnerNameSettingRoundTrips covers the T-0b41 owner nickname: the owner
 // writes it through PATCH /api/settings (validated, trimmed, durable + live in
 // the snapshot) and reads it back on the settings surface. Unlike org.name it

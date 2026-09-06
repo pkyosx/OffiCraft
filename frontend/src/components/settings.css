@@ -972,6 +972,78 @@
   border-top: 1px solid color-mix(in srgb, var(--color-overlay) 5%, transparent);
 }
 
+/* T-122 建議回覆 editor. A list row is NOT the centred name-on-the-left,
+   control-on-the-right shape the numeric rows use: the control is a column of
+   sentences that can grow to twenty, so the row stacks and the control takes
+   the full width under its own label. */
+.param-row--stacked {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 12px;
+}
+
+.sugg-edit {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.sugg-edit__empty {
+  font-size: 12.5px;
+  color: var(--color-text-muted);
+}
+.sugg-edit__row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.sugg-edit__input {
+  flex: 1;
+  width: auto;
+  min-width: 0;
+}
+.sugg-edit__btn {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  border: 1px solid color-mix(in srgb, var(--color-overlay) 10%, transparent);
+  background: var(--color-bg);
+  color: var(--color-text-muted);
+  font-size: 13px;
+  cursor: pointer;
+}
+.sugg-edit__btn:hover:not(:disabled) {
+  color: var(--color-text-strong);
+}
+.sugg-edit__btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.sugg-edit__btn--remove:hover:not(:disabled) {
+  color: var(--color-danger);
+}
+.sugg-edit__add {
+  align-self: flex-start;
+  height: 30px;
+  padding: 0 12px;
+  border-radius: 8px;
+  border: 1px dashed color-mix(in srgb, var(--color-overlay) 18%, transparent);
+  background: transparent;
+  color: var(--color-text-muted);
+  font-size: 12.5px;
+  cursor: pointer;
+}
+.sugg-edit__add:hover:not(:disabled) {
+  color: var(--color-text-strong);
+}
+.sugg-edit__add:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
 .param-row__body {
   display: flex;
   flex-direction: column;

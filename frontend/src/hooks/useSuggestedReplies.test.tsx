@@ -10,15 +10,20 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, waitFor } from "@testing-library/react";
-import { useSuggestedReplies } from "./useSuggestedReplies";
+import {
+  useSuggestedRepliesReplyCard,
+  useSuggestedRepliesTaskMessage,
+} from "./useSuggestedReplies";
 import * as shared from "./sharedServerSettings";
 
 function Host() {
-  const replies = useSuggestedReplies();
+  const replyCard = useSuggestedRepliesReplyCard();
+  const taskMessage = useSuggestedRepliesTaskMessage();
   return (
     <div>
       <textarea data-testid="box" />
-      <span data-testid="count">{replies.length}</span>
+      <span data-testid="count">{replyCard.length}</span>
+      <span data-testid="task-count">{taskMessage.length}</span>
     </div>
   );
 }
@@ -33,10 +38,22 @@ describe("useSuggestedReplies", () => {
 
   it("answers the owner's configured sentences once the settings read lands", async () => {
     vi.spyOn(shared, "loadServerSettings").mockResolvedValue({
-      suggestedReplies: ["收到", "照做"],
+      suggestedRepliesReplyCard: ["收到", "照做"],
+      suggestedRepliesTaskMessage: ["先擱著"],
     } as Awaited<ReturnType<typeof shared.loadServerSettings>>);
     const { getByTestId } = render(<Host />);
     await waitFor(() => expect(getByTestId("count").textContent).toBe("2"));
+    expect(getByTestId("task-count").textContent).toBe("1");
+  });
+
+  it("reads its OWN list — one being empty leaves the other alone", async () => {
+    vi.spyOn(shared, "loadServerSettings").mockResolvedValue({
+      suggestedRepliesReplyCard: [] as string[],
+      suggestedRepliesTaskMessage: ["先擱著", "之後再說"],
+    } as Awaited<ReturnType<typeof shared.loadServerSettings>>);
+    const { getByTestId } = render(<Host />);
+    await waitFor(() => expect(getByTestId("task-count").textContent).toBe("2"));
+    expect(getByTestId("count").textContent).toBe("0");
   });
 
   it("answers the empty list, and leaves the box standing, when the read REJECTS", async () => {
@@ -46,6 +63,7 @@ describe("useSuggestedReplies", () => {
     const { getByTestId } = render(<Host />);
     await waitFor(() => expect(getByTestId("box")).toBeTruthy());
     expect(getByTestId("count").textContent).toBe("0");
+    expect(getByTestId("task-count").textContent).toBe("0");
   });
 
   it("answers the empty list, and leaves the box standing, when the read THROWS", async () => {

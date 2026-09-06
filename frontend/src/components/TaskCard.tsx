@@ -85,7 +85,7 @@ import {
 } from "../hooks/useAttachmentStaging";
 import { ComposerAttachmentPreview } from "./ComposerAttachmentPreview";
 import { appendSuggestion, SuggestedReplies } from "./SuggestedReplies";
-import { useSuggestedReplies } from "../hooks/useSuggestedReplies";
+import { useSuggestedRepliesTaskMessage } from "../hooks/useSuggestedReplies";
 import { ConfirmModal } from "./ConfirmModal";
 import { Markdown } from "./Markdown";
 import { MarkdownPreviewOverlay } from "./MarkdownPreviewOverlay";
@@ -783,7 +783,7 @@ export function TaskCard({
   const isMobile = useIsMobile();
   // T-122 建議回覆: the owner's one-click sentences, shown UNDER this box. The
   // empty list (no setting, or a failed read) renders nothing at all.
-  const suggestedReplies = useSuggestedReplies();
+  const suggestedReplies = useSuggestedRepliesTaskMessage();
   const draftRef = useRef<HTMLTextAreaElement>(null);
   // Attachment staging — the SHARED useAttachmentStaging state machine (same
   // caps + funnels as the chat composer / ReplyComposer): paste an image into

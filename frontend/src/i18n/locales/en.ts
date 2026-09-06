@@ -1969,6 +1969,24 @@ export const en: Dict = {
     backupRetainSub:
       "How many database backup files are kept. Everything past this number is DELETED from disk on the next backup — it is not moved aside and it cannot be recovered. Two things this number is NOT. It counts VERSIONS, NOT DAYS: it is a count of files, so how far back it reaches depends entirely on how many backups those days happened to produce — a busy day can use the whole allowance in under three days, a quiet one can stretch it past a week. And it is PER POOL, NOT PER DIRECTORY: routine backups (scheduled and manual) and pre-migration backups keep separate allowances, so 5 here means up to TEN files on disk, not five. The range is 1 to 20; the ceiling is a disk budget, since the space used is roughly two times this number times the size of one backup.",
     backupRetainUnit: "backups per pool",
+    // T-122: the two suggested-reply lists. Two rows and not one, deliberately —
+    // answering a reply card and writing to a task in progress are different
+    // conversations, so a sentence written for one is wrong in the other's box
+    // (owner ruling). An empty list is a legal value: that box then shows no
+    // suggestion buttons at all.
+    suggestedRepliesReplyCard: "Reply-card suggestions",
+    suggestedRepliesReplyCardSub:
+      "The one-tap sentences offered under a reply card's answer box. A tap only FILLS the box — you still press send yourself. Leave the list empty and nothing is drawn: the box looks exactly as it did without the feature. At most 20 sentences, each at most 120 characters; anything longer is refused rather than shortened.",
+    suggestedRepliesTaskMessage: "Task-message suggestions",
+    suggestedRepliesTaskMessageSub:
+      "The one-tap sentences offered under a task card's \u201cMessage \u2026\u201d box. Independent of the list above — editing one never touches the other. Same limits: at most 20 sentences, each at most 120 characters, and empty means nothing is drawn.",
+    suggestedRepliesEmpty:
+      "No suggestions configured — that box shows no buttons at all.",
+    suggestedReplyPlaceholder: "e.g. Got it, go ahead",
+    suggestedReplyAdd: "Add a sentence",
+    suggestedReplyRemove: "Remove this sentence",
+    suggestedReplyMoveUp: "Move up",
+    suggestedReplyMoveDown: "Move down",
     chatBudget: "Wake chat budget",
     chatBudgetSub:
       "How many characters the chat block of a wake snapshot (resume_summary) may spend — the messages, their folded cards, the snapshot header and the cut hint; the peek sizes itself against the same number. The range is 1000 to 13000 and it can be lowered as well as raised: the chat block is repacked on every read, so a smaller budget simply carries fewer messages, and whatever was left out is still reported as omitted.",

@@ -19,7 +19,7 @@ import {
 } from "../hooks/useAttachmentStaging";
 import { ComposerAttachmentPreview } from "./ComposerAttachmentPreview";
 import { appendSuggestion, SuggestedReplies } from "./SuggestedReplies";
-import { useSuggestedReplies } from "../hooks/useSuggestedReplies";
+import { useSuggestedRepliesReplyCard } from "../hooks/useSuggestedReplies";
 import { PaperclipIcon, SendIcon } from "./icons";
 
 export function ReplyComposer({
@@ -76,7 +76,7 @@ export function ReplyComposer({
   const isMobile = useIsMobile();
   // T-122 建議回覆: the owner's one-click sentences, shown UNDER this box. The
   // empty list (no setting, or a failed read) renders nothing at all.
-  const suggestedReplies = useSuggestedReplies();
+  const suggestedReplies = useSuggestedRepliesReplyCard();
 
   const canSend =
     !sending &&
