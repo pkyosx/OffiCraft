@@ -3,6 +3,8 @@ package main
 import (
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -30,12 +32,57 @@ const defaultBase = "http://127.0.0.1:7755"
 // empty when unset (a mis-wired launch must degrade, never crash — mirrors the
 // Python AgentConfig contract).
 type Config struct {
-	Base     string
-	Token    string
-	ID       string
-	Home     string
-	Role     string
-	TaskType string
+	Base string
+	// BaseConfigured says whether Base came from OC_BASE or from the built-in
+	// defaultBase fallback. It exists because Base ALONE CANNOT ANSWER THAT
+	// QUESTION and two callers need the answer for opposite reasons.
+	//
+	// WHY A FIELD AND NOT A COMPARISON AGAINST defaultBase. "cfg.Base ==
+	// defaultBase" is the obvious derivation and it is wrong: an agent running
+	// on the station's own host legitimately sets OC_BASE to the loopback
+	// address, so that test would refuse a correctly-wired agent. The two states
+	// are genuinely distinct and only the resolver can tell them apart.
+	//
+	// WHY THE ZERO VALUE IS THE REFUSING SIDE. loadConfig is the only producer
+	// in production code, and it always sets this. Everything else that builds a
+	// Config is a test, where a literal that says nothing about OC_BASE gets the
+	// strict answer rather than a silent pass — a caller that never declared its
+	// intent must not inherit the permissive one.
+	BaseConfigured bool
+	Token          string
+	ID             string
+	Home           string
+	Role           string
+	TaskType       string
+}
+
+// requireBase is the OC_BASE half of the mis-wire guard, the twin of the
+// "no OC_TOKEN configured" refusals upload/download/diff already carry. It
+// returns true when the caller must STOP.
+//
+// THE DEFECT IT CLOSES. loadConfig substitutes defaultBase for an unset
+// OC_BASE, so every subcommand downstream holds a syntactically fine base that
+// points at this machine. A subcommand that then makes a request does not fail
+// loudly: on a machine with nothing on that port it looks like the operation
+// simply did nothing, and on the station's OWN host it would reach the real
+// station under an identity nobody meant to use. The old diff guard tried to
+// catch this by testing Base for emptiness, which the fallback makes
+// unreachable — the message existed and the path to it did not.
+//
+// It names the variable and prints NO VALUE: what is missing is knowable
+// without echoing anything, and OC_* values are the one thing this binary must
+// never put on someone's terminal.
+//
+// THE MESSAGE STATES THE FACT, NOT THE CONSEQUENCE, and that is deliberate:
+// three callers refuse on it and context-report does not, so a message that
+// said "refusing" would be a lie in the one place the fail-safe forbids
+// refusing. What each caller does about it is carried by its exit code.
+func requireBase(cfg Config, subcommand string, errOut io.Writer) bool {
+	if cfg.BaseConfigured {
+		return false
+	}
+	fmt.Fprintf(errOut, "[ocagent] %s: no OC_BASE configured — nothing here knows which station to talk to, and the built-in default is this machine's loopback address.\n", subcommand)
+	return true
 }
 
 // loadConfig resolves OC_* env into a Config (mirrors agent/oc_agent.py
@@ -43,6 +90,36 @@ type Config struct {
 // `sub` claim of the token, so a launch needs only OC_TOKEN + OC_BASE.
 func loadConfig(env func(string) string) Config {
 	base := normalizeBase(env("OC_BASE")) // T-78: keep the host, re-decide the scheme
+	// baseConfigured records exactly one thing: whether the fallback below was
+	// taken. That is the state this guard exists for — an address the operator
+	// never chose, substituted in silence.
+	//
+	// IT IS NOT A VALIDITY CHECK, and deliberately not. normalizeBase returns
+	// its input unchanged for a value it cannot re-scheme (`OC_BASE=http://`
+	// survives as "http://", and the TrimRight below leaves "http:"), so such a
+	// value counts as CONFIGURED here even though no request will ever succeed
+	// against it.
+	//
+	// ⚠️ THAT LEAVES ONE CASE THIS GUARD DOES NOT COVER, and it must not be
+	// described as if it did. An earlier version of this comment claimed a
+	// malformed OC_BASE "fails loudly on the first request"; the independent
+	// review measured that false. It holds for upload, download and
+	// `diff --external`, which do make a request — but plain `diff` makes none
+	// by design, so OC_BASE=http:// prints "http:/diff?..." with exit 0 and an
+	// empty stderr. That is the SAME failure shape T-86 exists to remove, from a
+	// different input, and arguably a worse one: at least
+	// "http://127.0.0.1:7755/diff?..." is recognisably loopback.
+	//
+	// It is still out of this guard's scope rather than a hole it should grow to
+	// cover: closing it means a shape check, and the shape check belongs to
+	// normalizeBase, a canonical block mirrored across three modules and pinned
+	// by bin/tests/base-scheme-mirror-guard.sh. A warden-supplied base is unlikely
+	// to reach this state either — ocwarden's install path asserts ocBaseShape,
+	// though its own loadConfig does not re-check the shape at spawn time — so in
+	// practice it takes a hand-set value. The split is between "an address was invented in
+	// silence", which is this field, and "an address was given wrong", which is
+	// not.
+	baseConfigured := base != ""
 	if base == "" {
 		base = defaultBase
 	}
@@ -60,12 +137,13 @@ func loadConfig(env func(string) string) Config {
 	}
 
 	return Config{
-		Base:     base,
-		Token:    token,
-		ID:       id,
-		Home:     home,
-		Role:     env("OC_ROLE"),
-		TaskType: env("OC_TASK_TYPE"),
+		Base:           base,
+		BaseConfigured: baseConfigured,
+		Token:          token,
+		ID:             id,
+		Home:           home,
+		Role:           env("OC_ROLE"),
+		TaskType:       env("OC_TASK_TYPE"),
 	}
 }
 

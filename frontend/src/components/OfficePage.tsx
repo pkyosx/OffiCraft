@@ -53,7 +53,17 @@ function blankChatPeer(id: string, name: string, kind: Member["kind"]): Member {
   };
 }
 
-export function OfficePage() {
+export function OfficePage({
+  restoredChatId,
+  onRestoredChatGone,
+}: {
+  /** Set by App ONLY when this load's open chat was reopened from the
+   * browser-local "last office chat" memory rather than asked for by a hash. */
+  restoredChatId?: string;
+  /** Raised when that restored chat's peer turns out to be gone, so App can
+   * fall back to the roster. Never raised for an explicitly requested chat. */
+  onRestoredChatGone?: () => void;
+} = {}) {
   const { t, msg } = useI18n();
   // T-66a8: the sidebar switches 正職/外包 by a top text tab (owner mockup
   // 2026-07-18), replacing the old two-stacked-groups rail. Plain component
@@ -290,6 +300,24 @@ export function OfficePage() {
           isReleasedWorkerId ? "outsource" : "staff",
         )
       : undefined;
+  // A chat App reopened FROM MEMORY whose peer has since gone (fired member /
+  // released worker) should not strand a cold load on the read-only history
+  // panel nobody asked for — hand it back to App, which returns to the roster.
+  //
+  // `releasedPeer` is the ONLY sound trigger here: it is already gated on BOTH
+  // the roster and the live-worker list having settled, so it cannot fire while
+  // the lists are merely still loading. A plain `roster.find(...)` miss would
+  // fire during that window and erase the memory of a perfectly live chat.
+  //
+  // Explicit navigation is untouched: `restoredChatId` is undefined unless this
+  // exact chat came from memory, so a deep-linked departed peer still renders
+  // its read-only history (T-661b).
+  const restoredChatGone =
+    releasedPeer !== undefined && releasedPeer.id === restoredChatId;
+  useEffect(() => {
+    if (restoredChatGone) onRestoredChatGone?.();
+  }, [restoredChatGone, onRestoredChatGone]);
+
   const rosterDetail = detailId
     ? roster.find((m) => m.id === detailId)
     : undefined;

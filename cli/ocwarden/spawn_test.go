@@ -226,6 +226,11 @@ func (r *recRunner) sawArgv(want ...string) bool {
 	return false
 }
 
+// fxOcAgentResolver is the T-81 seam every start() test needs now that it is required.
+// It answers the same path the pre-T-81 construction used and reports it present, so a
+// test that is not ABOUT ocagent resolution reads exactly as it did before.
+func fxOcAgentResolver() (string, bool) { return ocAgentSymlinkTarget(fxRepoRoot, ""), true }
+
 func newStartDeps(t *testing.T, run *recRunner, files map[string]string) SpawnDeps {
 	t.Helper()
 	return newStartDepsLinks(t, run, files, map[string]string{})
@@ -246,6 +251,17 @@ func newStartDepsLinks(t *testing.T, run *recRunner, files, links map[string]str
 		MkdirAll:  func(string, os.FileMode) error { return nil },
 		Symlink:   func(oldname, newname string) error { links[newname] = oldname; return nil },
 		Remove:    func(string) error { return nil },
+
+		// 🔴 EXPLICIT NO-OP CLOCK, and it has to be explicit as of T-82. A nil Sleep
+		// used to mean "no wait"; it now falls back to time.Sleep (fail-safe, so a
+		// mis-wired production caller paces instead of firing 30 Enters in
+		// microseconds). Leaving this nil would therefore make EVERY test built on
+		// this helper spend a real nudgeMaxAttempts x nudgeSettle = 30 seconds in
+		// the boot nudge. Tests that want to observe the pacing replace this with
+		// their own recording clock.
+		Sleep: func(time.Duration) {},
+
+		ResolveOcAgentBin: fxOcAgentResolver,
 	}
 }
 
@@ -431,6 +447,9 @@ func TestStart_PublishesOcAgentSymlink(t *testing.T) {
 	links := map[string]string{}
 	removed := []string{}
 	deps := SpawnDeps{
+		// T-82: explicit no-op clock — a nil Sleep now falls back to time.Sleep
+		// (fail-safe for production), so leaving it out costs this test a real 30s.
+		Sleep:     func(time.Duration) {},
 		Runner:    run,
 		Base:      fxBase,
 		Socket:    fxSocket,
@@ -441,6 +460,8 @@ func TestStart_PublishesOcAgentSymlink(t *testing.T) {
 		MkdirAll:  func(string, os.FileMode) error { return nil },
 		Symlink:   func(oldname, newname string) error { links[newname] = oldname; return nil },
 		Remove:    func(name string) error { removed = append(removed, name); return nil },
+
+		ResolveOcAgentBin: fxOcAgentResolver,
 	}
 	out := deps.start(StartParams{MemberID: "alice", MemberToken: fxToken, SessionName: "member-alice"})
 	if !out.OK {
@@ -471,6 +492,9 @@ func TestStart_OcAgentSymlinkFailureAborts(t *testing.T) {
 	hasKey := "tmux -L officraft has-session -t member-alice"
 	run := &recRunner{err: map[string]error{hasKey: errAbsent()}}
 	deps := SpawnDeps{
+		// T-82: explicit no-op clock — a nil Sleep now falls back to time.Sleep
+		// (fail-safe for production), so leaving it out costs this test a real 30s.
+		Sleep:     func(time.Duration) {},
 		Runner:    run,
 		Base:      fxBase,
 		Socket:    fxSocket,
@@ -504,6 +528,9 @@ func TestStart_OcAgentSymlinkRemoveNotExistOK(t *testing.T) {
 	}
 	links := map[string]string{}
 	deps := SpawnDeps{
+		// T-82: explicit no-op clock — a nil Sleep now falls back to time.Sleep
+		// (fail-safe for production), so leaving it out costs this test a real 30s.
+		Sleep:     func(time.Duration) {},
 		Runner:    run,
 		Base:      fxBase,
 		Socket:    fxSocket,
@@ -514,6 +541,8 @@ func TestStart_OcAgentSymlinkRemoveNotExistOK(t *testing.T) {
 		MkdirAll:  func(string, os.FileMode) error { return nil },
 		Symlink:   func(oldname, newname string) error { links[newname] = oldname; return nil },
 		Remove:    func(string) error { return os.ErrNotExist },
+
+		ResolveOcAgentBin: fxOcAgentResolver,
 	}
 	out := deps.start(StartParams{MemberID: "alice", MemberToken: fxToken, SessionName: "member-alice"})
 	if !out.OK {
@@ -546,19 +575,31 @@ func TestResolveOcAgentBin(t *testing.T) {
 	homeExe := func() (string, error) { return "/Users/seth/.officraft/warden/ocwarden", nil }
 	devExe := func() (string, error) { return repoRoot + "/cli/ocwarden/ocwarden", nil }
 
-	// Sibling exists → use it (the self-contained home-install layout).
+	// Sibling exists → use it (the self-contained home-install layout), and report it
+	// as present.
 	sibling := "/Users/seth/.officraft/warden/ocagent"
-	if got := resolveOcAgentBin(homeExe, func(p string) bool { return p == sibling }, repoRoot); got != sibling {
-		t.Errorf("home-install must exec the sibling ocagent, got %q want %q", got, sibling)
+	if got, ok := resolveOcAgentBin(homeExe, func(p string) bool { return p == sibling }, repoRoot); got != sibling || !ok {
+		t.Errorf("home-install must exec the sibling ocagent, got %q ok=%v want %q ok=true", got, ok, sibling)
 	}
 	// No sibling on disk → fall back to the repoRoot-relative dev path.
 	wantFallback := repoRoot + "/cli/ocagent/ocagent"
-	if got := resolveOcAgentBin(devExe, func(string) bool { return false }, repoRoot); got != wantFallback {
+	if got, _ := resolveOcAgentBin(devExe, func(string) bool { return false }, repoRoot); got != wantFallback {
 		t.Errorf("dev run must fall back to repoRoot-relative ocagent, got %q want %q", got, wantFallback)
 	}
 	// Unresolvable executable → still yields the repoRoot fallback (no panic).
-	if got := resolveOcAgentBin(func() (string, error) { return "", errString("no exe") }, func(string) bool { return true }, repoRoot); got != wantFallback {
+	if got, _ := resolveOcAgentBin(func() (string, error) { return "", errString("no exe") }, func(string) bool { return true }, repoRoot); got != wantFallback {
 		t.Errorf("unresolvable exe must yield the repoRoot fallback, got %q", got)
+	}
+
+	// T-81 — the half that did not exist before: the fallback branch now REPORTS
+	// whether the path it settled on is actually there. This is the whole difference
+	// between "deaf forever, silently" and one visible refusal: nothing on a fresh
+	// machine has $HOME/cli/ocagent/ocagent, and the old signature had no way to say so.
+	if got, ok := resolveOcAgentBin(devExe, func(p string) bool { return p == wantFallback }, repoRoot); got != wantFallback || !ok {
+		t.Errorf("fallback that EXISTS must report ok=true, got %q ok=%v", got, ok)
+	}
+	if got, ok := resolveOcAgentBin(devExe, func(string) bool { return false }, repoRoot); got != wantFallback || ok {
+		t.Errorf("fallback that does NOT exist must report ok=false, got %q ok=%v", got, ok)
 	}
 }
 
@@ -710,6 +751,9 @@ func TestStart_NewSessionFailure(t *testing.T) {
 func TestStart_NoClaudeBin(t *testing.T) {
 	run := &recRunner{}
 	deps := SpawnDeps{
+		// T-82: explicit no-op clock — a nil Sleep now falls back to time.Sleep
+		// (fail-safe for production), so leaving it out costs this test a real 30s.
+		Sleep:     func(time.Duration) {},
 		Runner:    run,
 		Base:      fxBase,
 		Socket:    fxSocket,
@@ -762,6 +806,9 @@ func TestStart_ClaudeNotLoggedIn(t *testing.T) {
 	run := &recRunner{}
 	wrote := map[string]string{}
 	deps := SpawnDeps{
+		// T-82: explicit no-op clock — a nil Sleep now falls back to time.Sleep
+		// (fail-safe for production), so leaving it out costs this test a real 30s.
+		Sleep:     func(time.Duration) {},
 		Runner:    run,
 		Base:      fxBase,
 		Socket:    fxSocket,
@@ -1041,29 +1088,21 @@ type errString string
 
 func (e errString) Error() string { return string(e) }
 
-// seqCaptureRunner drives the boot-nudge settle/retry: capture-pane returns a
-// programmed sequence (the last value repeats), and Enter/paste presses are counted.
-type seqCaptureRunner struct {
-	captures   []string
-	capIdx     int
+// nudgeCountingRunner counts the boot nudge's Enter and paste presses.
+//
+// T-82 renamed it from seqCaptureRunner and DELETED its capture-pane arm, which had
+// become dead: it fed a programmed pane transcript to the success verdict this
+// ticket removed, and both remaining users construct it empty. Deleting the arm is
+// not tidying — a fake that still ANSWERS capture-pane is a fake that would let a
+// re-added screen read pass unnoticed. This one has nothing to answer with.
+type nudgeCountingRunner struct {
 	enterCount int
 	pasteCount int
 }
 
-func (r *seqCaptureRunner) Run(name string, args ...string) (string, error) {
+func (r *nudgeCountingRunner) Run(name string, args ...string) (string, error) {
 	argv := strings.Join(append([]string{name}, args...), " ")
 	switch {
-	case strings.Contains(argv, "capture-pane"):
-		v := ""
-		if n := len(r.captures); n > 0 {
-			if r.capIdx < n {
-				v = r.captures[r.capIdx]
-			} else {
-				v = r.captures[n-1]
-			}
-		}
-		r.capIdx++
-		return v, nil
 	case strings.Contains(argv, "send-keys") && strings.Contains(argv, "Enter"):
 		r.enterCount++
 	case strings.Contains(argv, "paste-buffer"):
@@ -1072,52 +1111,245 @@ func (r *seqCaptureRunner) Run(name string, args ...string) (string, error) {
 	return "", nil
 }
 
-// TestTmuxDeliverNudge_RetriesUntilCommitted: the context gauge shows "?%" (not yet
-// submitted) for the first two capture reads, then flips numeric — expect exactly 3
-// Enter presses (2 retries + the committing one) and a SINGLE paste, then stop.
-func TestTmuxDeliverNudge_RetriesUntilCommitted(t *testing.T) {
-	r := &seqCaptureRunner{captures: []string{"🧠 ?% context", "🧠 ?% context", "🧠 5% context"}}
-	tmuxDeliverNudge(r, func(time.Duration) {}, "sock", "member-x", defaultNudge)
-	if r.enterCount != 3 {
-		t.Fatalf("expected 3 Enter presses (2 unsubmitted + 1 committed), got %d", r.enterCount)
+// TestTmuxDeliverNudge_AlwaysRunsBoundedAttempts (T-82): the Enter retry is bounded
+// at nudgeMaxAttempts and a SINGLE paste, and it runs those attempts UNCONDITIONALLY
+// — there is no early exit, because there is no local success verdict any more.
+//
+// This replaces a test that asserted the loop stopped early once the status line
+// showed a numeric context gauge. That verdict has been permanently false, so the
+// loop had already been running all attempts every time — and the old test kept
+// passing throughout, because its fake fed the pane text the verdict wanted.
+// (The status line in question is OUR OWN — see the comment on tmuxDeliverNudge.)
+//
+// 🔴 THE COUNTS BELOW ARE WRITTEN AS LITERALS ON PURPOSE. Asserting
+// `enterCount != nudgeMaxAttempts` is an IDENTITY — a constant compared against
+// itself — so it has zero discrimination against a change to the constant. An
+// independent review made exactly that edit (30 → 1, i.e. back to the single-shot
+// Enter this loop's own comment names as the Phase-4 boot-death) and the whole
+// 517-test package stayed green. With literals, that edit is red here.
+//
+// ⚠️ If you are changing nudgeMaxAttempts, that is a BEHAVIOUR CHANGE, not a
+// constant tidy-up: it is its own ticket with its own measurement, and it must
+// also update the receiptDeadlineSecs derivation in
+// server/ocserverd/receipt_watch.go, which spends this loop's wall time.
+//
+// DEFEATED BY: an early `return` in the loop; changing nudgeMaxAttempts; changing
+// nudgeSettle. All three are red here.
+func TestTmuxDeliverNudge_AlwaysRunsBoundedAttempts(t *testing.T) {
+	const wantAttempts = 30                    // literal, NOT nudgeMaxAttempts — see above
+	const wantSettle = 1000 * time.Millisecond // literal, NOT nudgeSettle — see above
+
+	if nudgeMaxAttempts != wantAttempts {
+		t.Fatalf("nudgeMaxAttempts is %d, this test pins %d. Changing it is a behaviour change: "+
+			"update receipt_watch.go's deadline derivation in the same package of work.",
+			nudgeMaxAttempts, wantAttempts)
+	}
+	if nudgeSettle != wantSettle {
+		t.Fatalf("nudgeSettle is %v, this test pins %v. Same reason as nudgeMaxAttempts.",
+			nudgeSettle, wantSettle)
+	}
+
+	// The rhythm, not just the count: a loop that fires 30 Enters in microseconds is
+	// materially the single-shot bug. Record every sleep the loop actually asks for.
+	var slept []time.Duration
+	r := &nudgeCountingRunner{}
+	tmuxDeliverNudge(r, func(d time.Duration) { slept = append(slept, d) }, "sock", "member-x", defaultNudge)
+
+	if r.enterCount != wantAttempts {
+		t.Fatalf("the loop must run exactly %d bounded attempts with no early exit, got %d", wantAttempts, r.enterCount)
 	}
 	if r.pasteCount != 1 {
 		t.Fatalf("expected a SINGLE paste (paste-once + Enter-retry), got %d", r.pasteCount)
 	}
+	if len(slept) != wantAttempts {
+		t.Fatalf("the loop must settle between attempts: expected %d sleeps, got %d. "+
+			"Deleting the settle turns 30 attempts into one burst, which is the bug this loop exists to avoid.",
+			wantAttempts, len(slept))
+	}
+	for i, d := range slept {
+		if d != wantSettle {
+			t.Fatalf("sleep #%d was %v, expected %v", i, d, wantSettle)
+		}
+	}
 }
 
-// TestTmuxDeliverNudge_StopsAtMaxAttempts: a nudge that never commits (gauge stuck at
-// "?%") is bounded at nudgeMaxAttempts — it must never spin forever on a wedged TUI.
-func TestTmuxDeliverNudge_StopsAtMaxAttempts(t *testing.T) {
-	r := &seqCaptureRunner{captures: []string{"🧠 ?% context"}}
+// TestBuildSpawnDeps_NudgeClockIsRealAndWaits (T-82, from the independent review's third mutant):
+// the layer above. tmuxDeliverNudge takes its clock as a seam. ⚠️ THE SENTENCE THAT
+// USED TO BE HERE IS NOW FALSE and is corrected rather than deleted, because it is
+// the reasoning the rest of this test rests on: it said the nil fallback is a NO-OP
+// that "exists for tests", so a production call site passing nil would silently turn
+// the 30-second settle into microseconds. That WAS true when this test was written
+// and is why the test exists. It is not true now — nudgeClock substitutes the REAL
+// time.Sleep for a nil clock, so passing nil paces for real instead of skipping.
+// This test still earns its place: it pins that buildSpawnDeps WIRES the clock, and
+// a wired clock is what keeps the fallback from ever being the thing in charge.
+//
+// This is the fourth layer of a family this repo has been holed at repeatedly:
+// function → call site → what the call site passes → the seam's identity. The
+// review made this exact edit (d.Sleep → nil at the call site) and the package
+// stayed green.
+//
+// It asks the PRODUCTION builder (buildSpawnDeps, transport.go) for its answer
+// rather than a struct assembled here, because a test that builds its own SpawnDeps
+// is guarding a shape, not a wiring.
+//
+// DEFEATED BY: dropping or nil-ing `Sleep:` in buildSpawnDeps, or wiring it to
+// something that does not actually wait.
+func TestBuildSpawnDeps_NudgeClockIsRealAndWaits(t *testing.T) {
+	deps := buildSpawnDeps(Config{Base: "https://station.example", Token: "t", ID: "m-x"},
+		func(string) string { return "" }, &recordingRunner{}, "sock", "")
+
+	if deps.Sleep == nil {
+		t.Fatal("buildSpawnDeps left Sleep nil. Production must WIRE the clock rather than lean " +
+			"on tmuxDeliverNudge's nil fallback: the fallback paces for real (it is a fail-safe, " +
+			"not a no-op), so a nil here is not a correctness bug any more — but it means the one " +
+			"place that decides pacing is a fallback nobody chose, which is how the field went " +
+			"unnoticed the first time.")
+	}
+
+	// Positive control: it is not enough that the field is non-nil — it must be a
+	// clock. A stub that returns immediately would satisfy a nil check and defeat
+	// the settle just as completely.
+	start := time.Now()
+	deps.Sleep(5 * time.Millisecond)
+	if elapsed := time.Since(start); elapsed < 2*time.Millisecond {
+		t.Fatalf("positive control: deps.Sleep(5ms) returned after %v — it is not a real clock, "+
+			"so the settle between Enter presses does not happen in production", elapsed)
+	}
+}
+
+// TestStart_PassesItsClockToTheNudge (T-82) is the layer BETWEEN the two tests
+// above, and it is here because writing them first was not enough — the mutant that
+// proves it was run:
+//
+//	buildSpawnDeps has Sleep: time.Sleep      → guarded by the test above
+//	tmuxDeliverNudge settles between attempts → guarded by the test above that
+//	start() HANDS ITS OWN Sleep TO THE NUDGE  → was guarded by NOTHING
+//
+// Editing the single call site to `tmuxDeliverNudge(d.Runner, nil, …)` left every
+// one of those tests green, because at the time tmuxDeliverNudge's nil fallback WAS
+// "no wait" and each of the other two tests supplies or inspects its own clock. A
+// field can be correctly built and correctly consumed while the one line joining them
+// drops it.
+//
+// ⚠️ The nil arm is no longer "no wait" (nudgeClock returns the real time.Sleep), so
+// that exact mutant now costs 30 real seconds instead of corrupting behaviour. The
+// LESSON above is unchanged and is why this test stays: the seam between a correctly
+// built field and its correct consumer had no guard, and the fix for one layer is
+// where the next layer's hole gets made.
+//
+// DEFEATED BY: passing anything other than d.Sleep at the tmuxDeliverNudge call
+// site in start().
+func TestStart_PassesItsClockToTheNudge(t *testing.T) {
+	hasKey := "tmux -L officraft has-session -t member-alice"
+	pidKey := "tmux -L officraft display-message -p -t member-alice #{pane_pid}"
+	run := &recRunner{
+		out: map[string]string{pidKey: "4242\n"},
+		err: map[string]error{hasKey: errAbsent()},
+	}
+	deps := newStartDeps(t, run, map[string]string{})
+
+	var slept []time.Duration
+	deps.Sleep = func(d time.Duration) { slept = append(slept, d) }
+
+	out := deps.start(StartParams{MemberID: "alice", MemberToken: fxToken, SessionName: "member-alice", Model: fxModel})
+	if !out.OK {
+		t.Fatalf("positive control: the spawn itself failed (%+v), so this guard proved nothing", out)
+	}
+
+	if len(slept) != nudgeMaxAttempts {
+		t.Fatalf("start() must hand ITS OWN clock to the boot nudge: expected %d settles, saw %d.\n"+
+			"Zero means the call site passed nil, or some other clock. nil is NOT \"no wait\":\n"+
+			"nudgeClock turns a nil clock into a REAL time.Sleep, so a nil call site still\n"+
+			"paces — it just stops being THIS test's clock, and the 30 paced Enters become\n"+
+			"30 real seconds instead of 30 counted ticks. What a NON-NIL fake clock at the\n"+
+			"per-spawn seam would do is the actual regression: 30 Enters in microseconds,\n"+
+			"which is materially the single-shot Enter this loop exists to avoid.",
+			nudgeMaxAttempts, len(slept))
+	}
+	for i, d := range slept {
+		if d != nudgeSettle {
+			t.Fatalf("settle #%d was %v, expected nudgeSettle %v", i, d, nudgeSettle)
+		}
+	}
+}
+
+// TestTmuxDeliverNudge_NeverReadsTheAgentsScreen (T-82) is the guard the ticket asks
+// for by name: if anyone puts a read of the agent's own screen back on this path,
+// something must say so.
+//
+// It asserts on the ARGV the nudge actually issued, not on a string in the source,
+// because the defect being guarded is not "the word capture-pane appears" — it is
+// "this loop decides something by reading a rendered screen". A future rewrite that
+// scrapes the pane through some other tmux verb would still have to issue a command
+// that reads it, and the denominator here is every command issued.
+//
+// ⚠️ WHAT THIS DOES NOT COVER, stated because a blacklist always looks broader than
+// it is: tmux has more ways to read a pane than the verbs listed below —
+// `pipe-pane`, `save-buffer`, `list-panes -F`, `display -p` among them. The list is
+// the ones a rewrite is likely to reach for, not a proof that no read is possible.
+// The load-bearing guard against this class is the AUTHORITY, not this list: success
+// is decided by the server's receipt, and this test is a tripwire on the way back.
+//
+// DEFEATED BY: any re-added pane read inside tmuxDeliverNudge that uses one of the
+// listed verbs.
+func TestTmuxDeliverNudge_NeverReadsTheAgentsScreen(t *testing.T) {
+	r := &recordingRunner{}
 	tmuxDeliverNudge(r, func(time.Duration) {}, "sock", "member-x", defaultNudge)
-	if r.enterCount != nudgeMaxAttempts {
-		t.Fatalf("expected bounded %d attempts, got %d", nudgeMaxAttempts, r.enterCount)
+	if len(r.argv) == 0 {
+		t.Fatal("positive control: the nudge issued no commands at all, so this guard proved nothing")
+	}
+	for _, argv := range r.argv {
+		for _, forbidden := range []string{
+			"capture-pane", "display-message", "show-buffer",
+			"pipe-pane", "save-buffer", "list-panes", "display -p",
+		} {
+			if strings.Contains(argv, forbidden) {
+				t.Fatalf("the boot nudge read the agent's own screen (%q in %q).\n"+
+					"Success on this path is decided by ONE authority \u2014 whether the server received that\n"+
+					"member's report_waking inside StartTimeout \u2014 and it is deliberately not decided here.\n"+
+					"What T-82 removed was a verdict scraped off a RENDERED SCREEN. Note the mechanism,\n"+
+					"because the obvious reading is wrong: that status line is OURS \u2014 buildStatuslineSettings\n"+
+					"points the agent's statusLine at our own `ocagent context-report`, and T-51a8 (our ticket)\n"+
+					"changed its layout so the check went permanently false. The lesson is not \"do not read\n"+
+					"someone else's screen\"; it is that two of our own modules were coupled through an\n"+
+					"uncontracted string with nothing guarding it.", forbidden, argv)
+			}
+		}
 	}
 }
 
-// TestNudgeSubmitted_ContextGauge: a numeric context gauge reads as submitted; the
-// "?%" gauge (or no gauge yet, during cold init) does not — the positive signal that
-// avoids the cold-init false-positive.
-func TestNudgeSubmitted_ContextGauge(t *testing.T) {
-	if !nudgeSubmitted("🧠 5% context · /rc active") {
-		t.Fatal("a numeric context gauge must read as submitted")
-	}
-	if nudgeSubmitted("🧠 ?% context · /rc active") {
-		t.Fatal("the ?% gauge must read as NOT submitted")
-	}
-	if nudgeSubmitted("welcome screen, no status bar yet") {
-		t.Fatal("no gauge rendered yet must read as NOT submitted")
-	}
+// recordingRunner records every argv the caller issues and answers everything with
+// an empty success. It is the fake for asserting on WHAT WAS ASKED; nudgeCountingRunner
+// counts a few specific verbs and discards the rest, so it cannot answer "was this
+// ever issued at all". (Before T-82 this comment said the other fake had to be
+// avoided because it ANSWERS capture-pane — true then, false now: that arm was
+// deleted in the same change, so neither fake can serve a pane read.)
+type recordingRunner struct{ argv []string }
+
+func (r *recordingRunner) Run(name string, args ...string) (string, error) {
+	r.argv = append(r.argv, strings.Join(append([]string{name}, args...), " "))
+	return "", nil
 }
 
-// TestTmuxDeliverNudge_NilSleepSafe: a nil Sleep seam must not panic (test default
-// is a no-op wait); commits on the first numeric read → 1 Enter.
+// TestTmuxDeliverNudge_NilSleepSafe: a nil Sleep seam must not panic, and must
+// still run the whole bounded attempt count (since T-82 there is no early exit).
+//
+// ⚠️ IT NO LONGER PASSES nil, and that is not a workaround — it is the point. As of
+// T-82 a nil clock falls back to time.Sleep (fail-safe, mirroring kill.go), so a
+// test passing nil here would really wait 30 seconds. What the test is actually
+// about is "an unwired clock does not panic and does not shorten the loop", which
+// a caller-supplied no-op states without buying a 30-second test.
+//
+// The count is a LITERAL for the same reason as TestTmuxDeliverNudge_AlwaysRunsBoundedAttempts:
+// `!= nudgeMaxAttempts` is a constant compared against itself and has no
+// discrimination against a change to the constant.
 func TestTmuxDeliverNudge_NilSleepSafe(t *testing.T) {
-	r := &seqCaptureRunner{captures: []string{"🧠 7% context"}}
-	tmuxDeliverNudge(r, nil, "sock", "member-x", defaultNudge)
-	if r.enterCount != 1 {
-		t.Fatalf("committed on first read → 1 Enter, got %d", r.enterCount)
+	const wantAttempts = 30 // literal, NOT nudgeMaxAttempts — see above
+	r := &nudgeCountingRunner{}
+	tmuxDeliverNudge(r, func(time.Duration) {}, "sock", "member-x", defaultNudge)
+	if r.enterCount != wantAttempts {
+		t.Fatalf("an unwired clock must still run the bounded %d attempts, got %d", wantAttempts, r.enterCount)
 	}
 }
 

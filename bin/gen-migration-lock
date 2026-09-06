@@ -20,10 +20,123 @@
 # the lock untouched while this script reports victory. So the generator prints
 # its own marker as its last act and this script requires it, the same posture
 # bin/run-checks.sh takes with the Makefile.
+# ── WHY THE LAST LINE ASKS GIT INSTEAD OF ASSERTING ──────────────────────────
+# This script used to end with an UNCONDITIONAL "migration.lock is up to date.",
+# printed AFTER the generator had already rewritten the whole file. It had
+# compared nothing. On 2026-09-04 someone read it through `tail -5`, saw only
+# that line, and concluded the file had not moved and there was nothing to do.
+# The two facts a human actually needs are how many entries were written and
+# whether the file on disk now differs from the committed one, so those are what
+# the ending reports.
+#
+# The question is asked of git, not of a before/after checksum of this run,
+# because "did THIS run rewrite the bytes" is not the question a human is about
+# to act on: a lock left dirty by an earlier run still needs reviewing and
+# committing, and a byte-comparison of this run alone would call that "no
+# change". `git status --porcelain -- <path>` answers the committed-vs-worktree
+# question, covers staged and unstaged alike, and reports an untracked file
+# distinctly instead of silently as "clean".
+#
+# 🔴 AND WHEN GIT CANNOT ANSWER — no git on PATH, not a work tree, the lock
+# untracked, or git erroring — the script says so in those words. It does NOT
+# fall back to the reassuring sentence. An unverified claim that the lock is
+# fine is the exact failure this rewrite exists to remove; "I could not check"
+# is worth more than a confident guess, because only the first one makes the
+# reader look.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 MARKER='[gen-migration-lock] wrote'
+LOCK_REL="server/ocserverd/migration.lock"
+
+# The append-only reading instructions, printed only when there is in fact a
+# diff to read (or when we could not tell whether there is one).
+print_append_only_advice() {
+  echo "[gen-migration-lock] New migrations must appear as lines APPENDED at the END. A changed"
+  echo "[gen-migration-lock] line in the middle means an already-released migration was edited or"
+  echo "[gen-migration-lock] removed — see migration_lock_t75_test.go before pushing."
+}
+
+# report_lock_state ENTRIES-LINE — print what actually happened. ENTRIES-LINE is
+# the generator's own marker line with its "[gen-migration-lock] " prefix
+# stripped, or empty if it printed none; this function never invents a count.
+report_lock_state() {
+  local entries_line="${1:-}"
+  local state reason porcelain rc
+
+  reason=""
+  if ! command -v git >/dev/null 2>&1; then
+    state="unknown"
+    reason="git is not on PATH"
+  elif ! git -C "$ROOT" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    state="unknown"
+    reason="$ROOT is not inside a git work tree"
+  else
+    set +e
+    porcelain="$(git -C "$ROOT" status --porcelain -- "$LOCK_REL" 2>/dev/null)"
+    rc=$?
+    set -e
+    if [[ "$rc" != "0" ]]; then
+      state="unknown"
+      reason="git status exited $rc for $LOCK_REL"
+    elif [[ -z "$porcelain" ]]; then
+      # An empty porcelain means "identical to the committed version" ONLY IF git
+      # can see this path at all. It is EQUALLY empty when git holds nothing
+      # here: the file is missing, the path is ignored, or LOCK_REL has drifted
+      # away from what the generator actually writes. Those three are "I could
+      # not tell", and reporting them as UNCHANGED is exactly the
+      # optimistic-by-default failure this whole script exists to remove — the
+      # same sentence, in a new place. Found by the independent reviewer of
+      # PR #417, who reproduced it: with the lock file absent, the script said
+      # "byte-identical to the committed version. Nothing to review."
+      if git -C "$ROOT" ls-files --error-unmatch -- "$LOCK_REL" >/dev/null 2>&1; then
+        state="unchanged"
+      else
+        state="unknown"
+        reason="git holds no version of $LOCK_REL (it is missing, ignored, or the path this script looks at has drifted from the one the generator writes), so an empty diff proves nothing"
+      fi
+    elif [[ "$porcelain" == '??'* ]]; then
+      state="unknown"
+      reason="$LOCK_REL is UNTRACKED, so git holds no committed version to compare it against"
+    else
+      state="changed"
+    fi
+  fi
+
+  echo
+  if [[ -n "$entries_line" ]]; then
+    echo "[gen-migration-lock] generator: $entries_line"
+  else
+    echo "[gen-migration-lock] generator: printed no entry count (this script does not compute one)."
+  fi
+
+  case "$state" in
+  unchanged)
+    echo "[gen-migration-lock] RESULT: $LOCK_REL is UNCHANGED — what was just written is"
+    echo "[gen-migration-lock] byte-identical to the committed version. Nothing to review, nothing to commit."
+    ;;
+  changed)
+    echo "[gen-migration-lock] RESULT: $LOCK_REL CHANGED — this run rewrote it and it now"
+    echo "[gen-migration-lock] differs from the committed version. Review the diff:  git diff -- $LOCK_REL"
+    print_append_only_advice
+    ;;
+  *)
+    echo "[gen-migration-lock] RESULT: CANNOT DETERMINE whether $LOCK_REL changed — $reason."
+    echo "[gen-migration-lock] Nothing here has verified that the lock is current. Check it by hand before"
+    echo "[gen-migration-lock] concluding there is nothing to do."
+    print_append_only_advice
+    ;;
+  esac
+}
+
+# Hidden seam, same posture as bin/ocserver's `bootstrap-and-confirm`: it lets
+# bin/tests/gen-migration-lock-signal-guard.sh drive the reporting stage against
+# purpose-built git fixtures without a toolchain, a build, or a `go test`. It is
+# not part of the human-facing interface.
+if [[ "${1:-}" == "--report-state" ]]; then
+  report_lock_state "${2:-}"
+  exit 0
+fi
 
 # The package embeds seedsdist/docsdist/webdist/bindist; without them it does not
 # compile, and a fresh clone has none of them (they are gitignored).
@@ -50,8 +163,8 @@ if ! grep -qF -- "$MARKER" "$LOG"; then
   exit 1
 fi
 
-echo
-echo "[gen-migration-lock] server/ocserverd/migration.lock is up to date."
-echo "[gen-migration-lock] Review the diff: new migrations must appear as lines APPENDED at the"
-echo "[gen-migration-lock] END. A changed line in the middle means an already-released migration"
-echo "[gen-migration-lock] was edited or removed — see migration_lock_t75_test.go before pushing."
+# The generator's own count, taken verbatim from its marker line. If the marker
+# ever stops carrying one, report_lock_state says so rather than making one up.
+ENTRIES_LINE="$(grep -F -- "$MARKER" "$LOG" | tail -1 | sed 's/^\[gen-migration-lock\] //')"
+
+report_lock_state "$ENTRIES_LINE"

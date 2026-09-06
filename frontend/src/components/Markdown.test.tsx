@@ -225,6 +225,104 @@ describe("Markdown", () => {
     expect(c.textContent).toContain("[click me](javascript:alert(1))");
   });
 
+  // Angle-bracketed destinations — `[text](<url>)`, CommonMark's way of writing
+  // a destination that may carry spaces. It used to render as literal text
+  // because the brackets were judged as part of the URL.
+  describe("angle-bracketed link destination", () => {
+    it("renders [text](<url>) as the same anchor as [text](url)", () => {
+      const a = renderMd("see [the docs](<https://example.com/docs>)").querySelector("a");
+      expect(a?.getAttribute("href")).toBe("https://example.com/docs");
+      expect(a?.textContent).toBe("the docs");
+      expect(a?.getAttribute("target")).toBe("_blank");
+      expect(a?.getAttribute("rel")).toBe("noopener noreferrer");
+    });
+
+    it("renders an angle-bracketed mailto: destination as an anchor", () => {
+      const c = renderMd("[contact](<mailto:owner@example.com>)");
+      expect(c.querySelector("a")?.getAttribute("href")).toBe(
+        "mailto:owner@example.com",
+      );
+    });
+
+    it("autolinks nothing and keeps the anchor when the link sits inside prose and bold", () => {
+      const a = renderMd("**看 [首頁](<https://example.com/>)**").querySelector("strong a");
+      expect(a?.getAttribute("href")).toBe("https://example.com/");
+    });
+
+    // The scheme allowlist runs on what the brackets HOLD, not on the written
+    // form: unwrapping must not become a way to smuggle a scheme past it.
+    // Payloads deliberately carry no ")" — one that does ends the link token
+    // early and is literal text in every version of this renderer, so it would
+    // pass whether or not the allowlist still ran.
+    it.each([
+      "[x](<javascript:alert1>)",
+      "[x](<data:text/html,hi>)",
+      "[x](<vbscript:msgbox>)",
+      "[x](<//evil.com/x>)",
+    ])("falls back to literal text for an unsafe angle-bracketed destination: %s", (src) => {
+      const c = renderMd(src);
+      expect(c.querySelector("a")).toBeNull();
+      expect(c.textContent).toContain(src);
+    });
+
+    // Pinned as-is, not chosen: a lone trailing ">" is not a bracket pair, so
+    // it stays part of the destination exactly as it did before. Changing it
+    // would change an existing [text](url) rendering, which this work does not.
+    it("leaves a single unpaired '>' in the destination untouched", () => {
+      const a = renderMd("[x](https://example.com/a>)").querySelector("a");
+      expect(a?.getAttribute("href")).toBe("https://example.com/a>");
+    });
+
+    it("leaves an empty bracket pair as literal text", () => {
+      const c = renderMd("[x](<>)");
+      expect(c.querySelector("a")).toBeNull();
+      expect(c.textContent).toContain("[x](<>)");
+    });
+
+    // The ONE behaviour change unwrapping causes outside the link cases above,
+    // measured on both sides (main 85c2dd6a vs this branch) rather than argued:
+    // `![alt](<url>)` used to be literal text and is now rendered the same way
+    // `![alt](url)` ALREADY was on main — a "!" followed by an ordinary link.
+    // Pinned because the two are only consistent by accident of sharing one
+    // code path: narrow the unwrap to destinations not preceded by "!" and
+    // every positive case above stays green while this one silently drops back
+    // to literal text. What is NOT pinned here, because this work does not
+    // change it: this renderer produces no <img> for either form.
+    it("renders an angle-bracketed image the same way it already rendered a plain one", () => {
+      const c = renderMd("![alt](<https://example.com/i.png>)");
+      const a = c.querySelector("a");
+      expect(a?.getAttribute("href")).toBe("https://example.com/i.png");
+      expect(a?.textContent).toBe("alt");
+      expect(c.textContent).toBe("!alt");
+      expect(c.querySelector("img")).toBeNull();
+    });
+
+    // SECURITY PROPERTY, not an edge case: what the brackets hand over must not
+    // itself contain "<" or ">". The unwrapping pattern says so with a negated
+    // character class, and until this test that claim was unenforced — widening
+    // it to `.*` left all other cases green, so the comment beside it was a
+    // promise nothing kept. The payload below is the shape that matters: the
+    // OUTER pair is well-formed, so a greedy pattern unwraps it happily and
+    // yields a destination with a stray ">" inside, which then reaches the
+    // scheme allowlist as a URL nobody wrote.
+    it("refuses to unwrap a destination that itself contains an angle bracket", () => {
+      const c = renderMd("[x](<https://example.com/a>b>)");
+      expect(c.querySelector("a")).toBeNull();
+      expect(c.textContent).toContain("[x](<https://example.com/a>b>)");
+    });
+
+    // A CAPABILITY THIS BRANCH ADDS, pinned separately because it is a
+    // different kind of claim from the one above: whitespace around the
+    // bracketed destination is tolerated, so a hand-typed link does not fail
+    // for a reason the writer cannot see. It rests on a single `.trim()`, and
+    // removing that token left every other case in this file green.
+    it("tolerates whitespace around an angle-bracketed destination", () => {
+      const a = renderMd("[x](  <https://example.com/a>  )").querySelector("a");
+      expect(a?.getAttribute("href")).toBe("https://example.com/a");
+      expect(a?.textContent).toBe("x");
+    });
+  });
+
   // T-59 — the compare url is a THIRD link class, and its whole promise is
   // that it does not stop being an ordinary link. Interception is the studio's
   // (see DiffModalHost.test.tsx); what is pinned HERE is that the renderer

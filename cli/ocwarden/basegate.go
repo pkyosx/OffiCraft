@@ -1,0 +1,276 @@
+package main
+
+// The station-address gate (T-88).
+//
+// WHAT THIS DEFENDS. `loadConfig` used to answer an unset OC_BASE with the
+// hard-coded defaultBase and hand the result on as if somebody had configured
+// it. Nothing downstream could tell the two apart: warden's Config carried
+// Base/Token/ID and no bit saying where Base came from, so a machine whose
+// install never received a station address would come up, talk to whatever is
+// listening on 127.0.0.1:7755, and spawn members pointed at it. Everything looks
+// normal on screen. The damage is NOT "cannot connect" — a station host, or a
+// trial station on the same box, IS listening there — the damage is CONNECTING
+// TO THE WRONG STATION, and no layer ever says a word.
+//
+// WHY IT STOPS RATHER THAN RETRIES. The failure this guards is a missing piece
+// of configuration. Configuration does not arrive on its own: unlike the ocagent
+// path in T-81 — which a download genuinely does fill in a moment later, so
+// "decide when you use it" was the right shape there — nobody is coming to write
+// OC_BASE while this process waits. Retrying would be a loop that can never
+// succeed, and its only effect would be noise.
+//
+// 🔴 WHY IT DOES NOT EXIT. This repo holds THREE accounts of what launchd does
+// with a warden that exits, and they do not agree:
+//
+//  1. The plist this installer writes sets `KeepAlive` to an unconditional
+//     <true/> with ThrottleInterval 10. Read straight: an exiting warden is
+//     relaunched every 10 seconds forever, its message going to
+//     ocwarden.err.log, which nobody reads — a SILENT CRASHLOOP, strictly worse
+//     than the bug being fixed.
+//  2. install.go's own verify() DEPENDS on relaunch happening. It requires the
+//     same pid to hold across a settle window precisely because "a bad-token /
+//     unreachable-server warden is respawned by KeepAlive under a DIFFERENT
+//     pid". That is not a comment about theory; it is the check that decides
+//     whether an install is declared healthy, today.
+//  3. selfupdate.go records the opposite as an OBSERVATION, twice and
+//     reproducibly on real macOS hosts: "launchd does NOT relaunch — the
+//     gui-domain LaunchAgent job sits 'not running, last exit 0' until a manual
+//     launchctl kickstart". Its whole exec-in-place design rests on that.
+//
+// ⚠️ THE OBVIOUS RECONCILIATION IS WRONG, AND IT WAS CHECKED. An earlier draft of
+// this comment guessed that (1)+(2) and (3) describe different launchd job
+// shapes. `git log -S` says otherwise: (2) and (3) were written in the SAME
+// commit, 8e573a7e (2026-07-20, the root commit), and the `officraft` anchor
+// arrived later in 5981d868 / 6d62584f (2026-07-29), which is when the plist's
+// ProgramArguments changed from `<ocwarden> run` to `<anchor>`.
+//
+// So (2) and (3) are contemporaries and BOTH describe the pre-anchor world,
+// where ocwarden itself was the job leader. They contradict each other outright
+// and this ticket did not settle which is right. What the anchor did change is
+// the SUBJECT of (1): KeepAlive today governs the anchor, not this process.
+// ⇒ ALL THREE ACCOUNTS PREDATE TODAY'S SHAPE, AND NOBODY HAS MEASURED UNDER IT.
+//
+// 🔑 Which is why the halt does not depend on resolving any of it. Parking here
+// means the anchor's Wait() never returns, so the launchd JOB never exits, so
+// KeepAlive is never consulted at all — under every one of the three accounts.
+// Exiting is the only choice that would have needed the question answered.
+//
+// ⚠️ WHAT THE SIGNAL ACTUALLY IS, corrected. An earlier draft of this file said
+// the machine "never appears on the roster". THAT IS WRONG and it would have
+// sent a reader the wrong way: the roster row is created BEFORE the install runs
+// (the boot command is minted against an already-created machine), so the machine
+// DOES appear — it simply never comes online. The server already reports that in
+// the reader's own language: onboarding's `wake_undispatched` step says the
+// assistant is set to come online but no start command was dispatched, "most
+// often this machine's warden has not connected back to the server".
+//
+// ⚠️ THE COST, NAMED. A halted warden does not heal. Setting OC_BASE afterwards
+// does nothing until somebody restarts it. That is deliberate: this ticket asks
+// for a loud stop, not for a retry that eventually works.
+
+import (
+	"context"
+	"fmt"
+	"io"
+	"os"
+	"os/signal"
+	"path/filepath"
+	"strings"
+	"syscall"
+	"time"
+)
+
+// noBaseSentinelName is the file a halted warden leaves behind. It is a RECORD,
+// never an input: nothing reads it back to decide anything, so a missing or
+// unwritable one can never keep a healthy warden from starting, and a stale one
+// left by an earlier halt can never stop a correctly-configured warden from
+// running. (The same fail-open direction contextreport.go states for its backoff
+// record: an unreadable scratch file must not be able to silence a working
+// process. Here the exposure is removed rather than mitigated — there is no read
+// path at all.)
+const noBaseSentinelName = "ocwarden.no-base"
+
+// baseFromEnv resolves OC_BASE and says WHETHER IT WAS THERE — the distinction
+// the old loadConfig threw away. `configured` is false exactly when the env gave
+// nothing usable, which is the case this whole file exists for.
+//
+// It deliberately reports on the ENV, not on the resulting value: a station host
+// legitimately sets OC_BASE to a loopback address, and judging by comparing the
+// final string against defaultBase would refuse that machine. What is wrong is
+// never the address, it is nobody having chosen one.
+// ⚠️ EMPTINESS IS JUDGED HERE, NOT BY normalizeBase, and that is not a detail.
+// normalizeBase hands back anything it cannot parse UNCHANGED — deliberately, so
+// the caller's own validation sees what the operator actually typed — so a
+// whitespace-only OC_BASE comes back as whitespace, not as "". Asking
+// normalizeBase whether the variable was set therefore answers "yes" for
+// `OC_BASE="   "`, which is how a blank line in a launchd plist or an unexpanded
+// shell variable would arrive. This function's own test caught that.
+func baseFromEnv(env func(string) string) (base string, configured bool) {
+	raw := env("OC_BASE")
+	if strings.TrimSpace(raw) == "" {
+		return "", false
+	}
+	return normalizeBase(raw), true // T-78: keep the host, re-decide the scheme
+}
+
+// noBaseMessage is what a person finds when they go looking. It names the
+// variable, says what the warden did about it, and says what will and will not
+// happen next — including that setting the variable now is not enough on its
+// own, because the most expensive wrong guess here is "I fixed it, it should
+// come back".
+func noBaseMessage(where string) string {
+	return "[ocwarden] FATAL: OC_BASE is not set — this warden was never told which station to talk to.\n" +
+		"[ocwarden]   It is NOT guessing an address, and it will NOT start any members on this machine.\n" +
+		"[ocwarden]   Guessing would be worse than stopping: something else may well be listening on\n" +
+		"[ocwarden]   " + defaultBase + " (a station host, a trial station), and members started against it\n" +
+		"[ocwarden]   would quietly join the WRONG station while every screen looked normal.\n" +
+		// ⚠️ WHAT THIS MACHINE LOOKS LIKE FROM THE SERVER, stated precisely because an
+		// earlier draft of this line got it backwards and would have sent the reader
+		// the wrong way. The roster row is created BEFORE the install runs — the boot
+		// command is minted against an already-created machine — so the machine DOES
+		// appear. It simply never comes online, and the server's own onboarding report
+		// already says so in the reader's language (wake_undispatched: "the assistant
+		// is set to come online, but no start command has been dispatched … most often
+		// this machine's warden has not connected back to the server").
+		"[ocwarden]   This machine WILL still be listed, and will simply never come online.\n" +
+		"[ocwarden]   Do not read its presence in the list as evidence that this is not the problem.\n" +
+		"[ocwarden]   To fix: re-run `ocwarden install` with OC_BASE set to the station URL.\n" +
+		"[ocwarden]   Setting OC_BASE alone is not enough — this process must be restarted to pick it up.\n" +
+		"[ocwarden]   Halting here (staying alive, doing nothing) rather than exiting; see " + where + "\n"
+}
+
+// noBaseSentinelPath is where the record goes: the per-instance warden dir,
+// derived from HOME and OC_NAMESPACE ONLY.
+//
+// It deliberately does NOT go through resolvePaths, which is the obvious place
+// to reach for and the wrong one: resolvePaths needs OC_BASE, which is precisely
+// what is missing here, so routing through it would make the explanation of the
+// failure depend on the thing that failed.
+func noBaseSentinelPath(env func(string) string) (string, error) {
+	home := env("HOME")
+	if home == "" {
+		return "", fmt.Errorf("HOME is not set")
+	}
+	ns, err := namespaceFromEnv(env)
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(officraftRootFor(home, ns), "warden", noBaseSentinelName), nil
+}
+
+// writeNoBaseSentinel drops the record best-effort and returns where it went (or
+// why it did not). Failing to write it is NOT a reason to change course: the
+// halt has already been decided by the env, and the log line has already been
+// printed. The returned string is for the log, so that a reader who cannot find
+// the file learns that from the same place they learned everything else.
+func writeNoBaseSentinel(env func(string) string, body string,
+	mkdirAll func(string, os.FileMode) error,
+	writeFile func(string, []byte, os.FileMode) error) string {
+
+	path, err := noBaseSentinelPath(env)
+	if err != nil {
+		return "no sentinel written (" + err.Error() + ")"
+	}
+	if err := mkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return "no sentinel written (" + err.Error() + ")"
+	}
+	if err := writeFile(path, []byte(body), 0o644); err != nil {
+		return "no sentinel written (" + err.Error() + ")"
+	}
+	return path
+}
+
+// stationAddressGate is the ONE call site of this whole file, and it is one on
+// purpose. An earlier shape had realMain branch on `--once` itself and call two
+// different functions; that gave the gate two call sites, and a test can only
+// ever reach the branch it can run — the halting one hangs by design, so nothing
+// would have watched it. Folding the branch in here means the single line in
+// realMain is the single thing that can be deleted, and deleting it is what the
+// reached-test notices.
+//
+// Returns (exit code, stop). stop=false means OC_BASE was configured and the
+// caller should carry on; the exit code is meaningless then.
+func stationAddressGate(env func(string) string, out io.Writer, once bool,
+	now func() time.Time, block func()) (int, bool) {
+
+	if _, configured := baseFromEnv(env); configured {
+		return 0, false
+	}
+	// (branch documented at its implementation below)
+
+	// --once is a TEST HOOK, never a launchd job. It refuses the same way but
+	// RETURNS instead of parking, because a hook that parks forever is a hook
+	// nobody can use. Its message says so rather than repeating the halting
+	// wording, which would point the reader at a sentinel this branch never wrote.
+	if once {
+		fmt.Fprint(out, noBaseMessage(noBaseSentinelName))
+		fmt.Fprintln(out, "[ocwarden] --once: refusing and exiting non-zero (no sentinel written; the launchd path halts instead)")
+		return 1, true
+	}
+	return haltNoBase(env, out, now, block), true
+}
+
+// haltNoBase is the whole refusal: say it, record it, then stop doing anything
+// at all until the process is signalled.
+//
+// `block` is the seam that makes this testable — production passes
+// blockUntilSignal, tests pass a function that returns at once. There is no
+// timeout and no wake-up condition on purpose: see the file header for why this
+// does not retry.
+func haltNoBase(env func(string) string, out io.Writer, now func() time.Time, block func()) int {
+	fmt.Fprint(out, noBaseMessage(noBaseSentinelName))
+	body := now().UTC().Format(time.RFC3339) + "\n" + noBaseMessage(noBaseSentinelName)
+	where := writeNoBaseSentinel(env, body, os.MkdirAll, os.WriteFile)
+	fmt.Fprintf(out, "[ocwarden] halted: no station address; %s\n", where)
+	block()
+	// Reached only when the process was signalled, i.e. somebody or something
+	// asked this warden to go away. Non-zero because nothing this warden was
+	// installed to do ever happened.
+	return 1
+}
+
+// gateBlock is the seam realMain hands the gate, and it exists so a TEST CAN
+// ENTER THE HALTING PATH AT ALL.
+//
+// 🔴 WHY A PACKAGE VARIABLE RATHER THAN A PARAMETER. The halting branch is the
+// one realMain takes in production, and it parks forever by design — so no test
+// could drive realMain through it, and every guard on this file ran only through
+// the `--once` branch. Independent review turned that into a live defeat: change
+// the ONE token `*once` to `true` at the call site and an unconfigured warden
+// exits instead of halting, which under the plist's unconditional KeepAlive is
+// the silent crashloop this file's header calls "strictly worse than the bug
+// being fixed" — and the whole package stayed green, pass for pass, because
+// nothing could reach the branch that changed.
+//
+// Swapping this seam lets a test take the real branch and return, so the call
+// site's ARGUMENT is asserted rather than only the gate's logic.
+var gateBlock = blockUntilSignal
+
+// notifyContext is signal.NotifyContext behind a seam, and it exists for exactly
+// one reason: WITHOUT IT, THE BODY OF blockUntilSignal IS UNTESTABLE, and an
+// untestable body is where this file's guards were caught being decorative.
+//
+// 🔴 The history, because it is the lesson. A first attempt guarded the halt by
+// swapping gateBlock for a counting closure. That test counts ITS OWN closure —
+// it is blind both to what gateBlock is bound to and to what the real function
+// does. Independent review defeated it twice, each with one token:
+// `var gateBlock = blockUntilSignal` → `func() {}`, and `<-ctx.Done()` → `_ =
+// ctx`. Both compile, both make an unconfigured warden EXIT instead of halting,
+// and the whole package stayed green pass-for-pass. The repo had already written
+// this lesson down for the updater seams — a seam wired to the wrong producer is
+// still non-nil — and this file did not apply it.
+var notifyContext = signal.NotifyContext
+
+// blockUntilSignal parks until SIGINT/SIGTERM. This is what "stays alive, does
+// nothing" means concretely: no member is spawned, no HTTP request is made, and
+// `ocwarden teardown` / a reboot still ends it the ordinary way.
+//
+// Under today's launchd shape it is also why KeepAlive never enters the picture:
+// the job leader is the `officraft` anchor, which forks this process and sits in
+// Wait(). While this parks, that Wait() does not return, the job never exits, and
+// there is nothing for KeepAlive to relaunch.
+func blockUntilSignal() {
+	ctx, stop := notifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+	<-ctx.Done()
+}

@@ -42,12 +42,32 @@ const receiptMissingReasonCode = "receipt_missing"
 // distribution — there is no end-to-end measurement of frame→receipt today
 // (the warden log carries only warden-side clocks and the server fold logs
 // nothing), and inventing one from a single host would be worse than naming the
-// derivation. Worst honest round trip: claudeProbeBudget 20s + nudgeSettle 1s
-// (spawn) or the ~5s kill ladder (stop), + commandReportTimeout 5s for the POST
-// itself, + up to one lifecycleCadenceSecs 30s of sweep granularity ≈ 56s. 90s
-// leaves a full extra tick of slack on top, so a stamp means the receipt is
-// genuinely gone rather than merely slow. Erring long is the safe direction: a
-// late stamp costs nothing, a premature one would cry wolf on a healthy fleet.
+// derivation. Worst honest round trip: claudeProbeBudget 20s + THE WHOLE BOOT
+// NUDGE LOOP 30s (spawn) or the ~5s kill ladder (stop), + commandReportTimeout 5s
+// for the POST itself, + up to one lifecycleCadenceSecs 30s of sweep granularity
+// ≈ 85s.
+//
+// 🔴 THE NUDGE TERM IS 30s, NOT 1s, AND THAT CHANGES WHAT THIS NUMBER MEANS. An
+// earlier version of this derivation costed the nudge at a single nudgeSettle (1s).
+// The loop's early exit has been permanently false, so it has ALWAYS run all
+// nudgeMaxAttempts (30) x nudgeSettle (1s) on every spawn, and the START receipt is
+// only POSTed after Spawn returns (command.go: Spawn, then report). T-82 did not
+// cause this; it is the first place that writes the fact down.
+//
+// => 90s does NOT leave "a full extra tick of slack". It leaves about 5 SECONDS. A
+// merely-slow cold start therefore stamps receipt_missing, whose meaning is "the
+// receipt channel is gone" - sending a reader to investigate SSE/POST when nothing
+// is wrong with either.
+//
+// WARNING: TWO CONSTANTS IN A DIFFERENT GO MODULE (cli/ocwarden has its own go.mod)
+// spend this budget, and nothing mechanical links them: raising nudgeMaxAttempts by
+// six consumes the remaining slack outright. cli/ocwarden/spawn_test.go pins both
+// literals and points back here; that pin is the only link there is.
+//
+// Erring long is the safe direction: a late stamp costs nothing, a premature one
+// would cry wolf on a healthy fleet. Whether 90 is still long enough is a question
+// this ticket surfaces and deliberately does not answer - raising it changes
+// stamping behaviour on a live fleet, which is its own decision.
 const receiptDeadlineSecs = 90.0
 
 // pendingReceipt is one outstanding start/stop awaiting its command_result.

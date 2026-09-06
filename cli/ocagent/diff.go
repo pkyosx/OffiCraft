@@ -179,9 +179,20 @@ func cmdDiff(
 			return 2
 		}
 	}
-	if cfg.Base == "" {
-		fmt.Fprint(errOut, "[ocagent] diff: no OC_BASE configured — there is no station to link to.\n")
-		return 2
+	// OC_BASE CLASSIFICATION: GUARDED — refuse, exit 3, on BOTH flavours.
+	// This guard used to read `cfg.Base == ""`, which loadConfig makes
+	// UNREACHABLE: an unset OC_BASE is replaced by defaultBase before any
+	// subcommand sees it, so Base is never empty and the refusal below never
+	// ran. What actually happened with OC_BASE unset was a link printed against
+	// this machine's loopback address and an exit code of 0 — a comparison URL
+	// that says it worked and leads nowhere the recipient can open. The
+	// condition now asks the question the message always claimed to ask.
+	//
+	// It refuses on BOTH flavours deliberately. The plain link makes no request,
+	// so nothing fails to warn the caller; it is precisely the flavour whose
+	// wrongness is invisible until someone else clicks it.
+	if requireBase(cfg, "diff", errOut) {
+		return 3
 	}
 	if !external {
 		fmt.Fprintln(out, cfg.Base+diffPagePath+"?"+

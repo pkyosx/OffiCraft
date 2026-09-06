@@ -23,7 +23,9 @@
 //               render it nested — so a numbered step with indented sub-bullets
 //               stays ONE list with continuous numbering instead of collapsing
 //               into many single-item lists each restarting at 1.
-// Inline:       **bold**, `code`, and [text](url) links (http/https/mailto
+// Inline:       **bold**, `code`, and [text](url) links — the destination may
+//               also be written CommonMark's angle-bracketed way,
+//               [text](<url>), which means the same thing (http/https/mailto
 //               only — any other scheme, e.g. "javascript:", falls through as
 //               literal text instead of becoming an <a>; real links carry
 //               target="_blank" rel="noopener noreferrer"). A SECOND, opt-in
@@ -117,6 +119,16 @@ interface MarkdownProps {
 }
 
 const LINK_RE = /^\[([^\]]+)\]\(([^)]+)\)$/;
+// CommonMark lets a link destination be WRAPPED IN ANGLE BRACKETS:
+// `[text](<https://x>)` is the same link as `[text](https://x)`, and the
+// wrapper is the standard way to write a destination that carries spaces.
+// The brackets were being read as part of the URL, so SAFE_URL_RE saw "<http…"
+// and the whole link fell through to literal text — silently, which is how a
+// pasted-in legal link looked broken with nothing to read (owner report
+// 2026-09-05). Unwrapping happens BEFORE every allowlist, so what the brackets
+// hold is judged exactly as if they had not been written; a destination that
+// itself contains "<" or ">" does not match and is left alone.
+const ANGLE_DEST_RE = /^<([^<>]*)>$/;
 const IMG_BLOCK_RE = /^!\[([^\]]*)\]\(([^)]+)\)$/;
 const SAFE_URL_RE = /^(https?:|mailto:)/i;
 // An image src is safe to load when it is http/https OR a same-origin absolute
@@ -331,7 +343,8 @@ function renderInline(text: string, opts?: InlineOpts): ReactNode[] {
       const link = LINK_RE.exec(part);
       if (link) {
         const [, label, url] = link;
-        const target = url.trim();
+        const angled = ANGLE_DEST_RE.exec(url.trim());
+        const target = (angled ? angled[1] : url).trim();
         // The external-scheme allowlist runs FIRST and is unchanged.
         if (!SAFE_URL_RE.test(target)) {
           // Second chance, opt-in only: a repo-relative *.md reference the host

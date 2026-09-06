@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useI18n } from "./i18n";
 import { useHashRoute } from "./lib/hashRoute";
 import {
@@ -34,6 +34,30 @@ import { useTaskCount } from "./hooks/useTaskCount";
 import "./components/chrome.css";
 
 type Tab = "office" | "replies" | "tasks" | "monitor" | "guide";
+
+// Which peer the office was last left on. Browser-local by nature (it is this
+// browser's last position, not studio state), so it stays out of the server and
+// out of the hash. Every access is guarded: Safari's private mode and 3rd-party
+// storage blocking make localStorage throw, and losing the memory must degrade
+// to "open the roster", never to a blank console.
+const LAST_OFFICE_CHAT_KEY = "oc_last_office_chat";
+
+function readLastOfficeChat(): string | undefined {
+  try {
+    return window.localStorage.getItem(LAST_OFFICE_CHAT_KEY) || undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function writeLastOfficeChat(id: string | undefined): void {
+  try {
+    if (id) window.localStorage.setItem(LAST_OFFICE_CHAT_KEY, id);
+    else window.localStorage.removeItem(LAST_OFFICE_CHAT_KEY);
+  } catch {
+    /* storage unavailable — the in-memory ref still covers this session */
+  }
+}
 
 export default function App({ onLogout }: { onLogout?: () => void } = {}) {
   const { t } = useI18n();
@@ -90,7 +114,109 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
   // home, even when already inside a Settings sub-page.
   const [settingsNonce, setSettingsNonce] = useState(0);
 
+  // 辦公室 remembers the chat you were last in, so leaving for another tab and
+  // coming back does not drop you on the roster (owner 2026-08-20:「切換分頁的
+  // 時候可以固定住最後的對話視窗」). Only the peer id is remembered — NOT msgId
+  // / composeSeed / the member-detail overlay, which are one-shot intents
+  // (locate this message, seed the composer with a task no) and would re-fire
+  // on every return.
+  //
+  // It is kept in localStorage, not just in memory, because the console is also
+  // embedded as a conductor tab whose <iframe src> is the bare console URL and
+  // is UNMOUNTED on every conductor tab switch (owner 2026-08-20:「在 Conductor
+  // 切換 iframe 的時候能夠記住嗎?」). A remount is a cold page load, so an
+  // in-memory ref would already be gone by the time the office renders.
+  //
+  // Two refs, deliberately: `bootOfficeChatRef` is the value as it stood at
+  // mount and is never written again, because the recorder effect below fires
+  // BEFORE the boot effect on a bare load (effects run in declaration order)
+  // and would blank the live ref with this load's empty chatId — the restore
+  // would then have nothing left to restore.
+  //
+  // The read is LAZY (a ref initializer argument is evaluated on EVERY render,
+  // so passing readLastOfficeChat() directly would hit localStorage on every
+  // repaint of the console for a value that is only ever read once). The
+  // separate `storageReadRef` flag is what makes it once-only: `undefined` is a
+  // legitimate remembered value ("nothing remembered"), so the refs' own
+  // contents cannot double as the "not read yet" sentinel.
+  const bootOfficeChatRef = useRef<string | undefined>(undefined);
+  const lastOfficeChatRef = useRef<string | undefined>(undefined);
+  const storageReadRef = useRef(false);
+  if (!storageReadRef.current) {
+    storageReadRef.current = true;
+    const remembered = readLastOfficeChat();
+    bootOfficeChatRef.current = remembered;
+    lastOfficeChatRef.current = remembered;
+  }
+  useEffect(() => {
+    if (route.page !== "office") return;
+    lastOfficeChatRef.current = route.chatId;
+    writeLastOfficeChat(route.chatId);
+  }, [route.page, route.chatId]);
+
+  // Cold load straight onto the bare console URL (the conductor iframe, or a
+  // bookmark of the root) → reopen the remembered chat. Scoped to an EMPTY hash
+  // on the FIRST render only: an explicit "#office" is the owner asking for the
+  // roster, and every other deep link owns its own destination.
+  const bootRestoredRef = useRef(false);
+  // The chat this load opened FROM MEMORY rather than because someone asked for
+  // it. Only a restored chat may be second-guessed when it turns out the peer is
+  // gone (see forgetRestoredChat) — an explicit deep link to a departed peer
+  // MUST still land on its read-only history (T-661b: 跳到原訊息 on a released
+  // outsource worker's card), so it deliberately never sets this.
+  const [restoredChatId, setRestoredChatId] = useState<string | undefined>(
+    undefined,
+  );
+  useEffect(() => {
+    if (bootRestoredRef.current) return;
+    bootRestoredRef.current = true;
+    if (window.location.hash === "" && bootOfficeChatRef.current) {
+      lastOfficeChatRef.current = bootOfficeChatRef.current;
+      setRestoredChatId(bootOfficeChatRef.current);
+      setRoute({ page: "office", chatId: bootOfficeChatRef.current });
+    }
+    // Boot-only by design — deliberately not re-run when the route changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // The remembered peer no longer exists (fired member / released outsource
+  // worker), so the cold load would open a read-only history panel nobody asked
+  // for. Drop back to the roster instead — the roster IS the honest answer to
+  // "reopen where I was" when where-I-was is gone.
+  //
+  // 🔴 The "no longer exists" verdict is NOT computed here: App has no roster.
+  // It comes from OfficePage, which raises it only once BOTH the member list and
+  // the live-outsource list have finished loading (its `releasedPeer`, gated on
+  // !loading && !outsource.loading — T-661b review finding #1/#2). That gate is
+  // the whole safety of this path: "the roster has not arrived yet" and "this
+  // peer is gone" are the same missing-id lookup, and acting on the first would
+  // silently erase a live conversation's memory. Never re-derive it from a bare
+  // `members.find(...)` miss.
+  //
+  // Clearing the stored key is left to the recorder effect above: setRoute to a
+  // chat-less office IS the "forget it" signal, and routing it through the one
+  // writer keeps a single place that owns the key.
+  const forgetRestoredChat = useCallback(() => {
+    setRestoredChatId(undefined);
+    lastOfficeChatRef.current = undefined;
+    setRoute({ page: "office" });
+  }, [setRoute]);
+
   function selectTab(next: Tab) {
+    // Restoring is for a tab SWITCH. Clicking 辦公室 while already inside it
+    // keeps its existing meaning — reset to the roster, the only way to close
+    // a chat on mobile — instead of re-opening what you just closed. The test
+    // is on route.page, not `tab`: the Settings overlay (#settings) resolves to
+    // tab "office" via that chain's fallback, and returning from Settings is a
+    // switch like any other.
+    if (
+      next === "office" &&
+      route.page !== "office" &&
+      lastOfficeChatRef.current
+    ) {
+      setRoute({ page: "office", chatId: lastOfficeChatRef.current });
+      return;
+    }
     setRoute({ page: next });
   }
 
@@ -220,7 +346,10 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
             <NavIcon tabKey="office" fallback={<OfficeIcon size={15} />} />
             <span>{t.nav.office}</span>
             {chatUnread > 0 && (
-              <span className="nav-tab__badge" data-testid="office-unread-badge">
+              <span
+                className="nav-tab__badge"
+                data-testid="office-unread-badge"
+              >
                 {chatUnread > 99 ? "99+" : chatUnread}
               </span>
             )}
@@ -300,7 +429,10 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
             initialRoleKey={route.roleKey}
           />
         ) : tab === "office" ? (
-          <OfficePage />
+          <OfficePage
+            restoredChatId={restoredChatId}
+            onRestoredChatGone={forgetRestoredChat}
+          />
         ) : tab === "replies" ? (
           <RepliesPage replyCardId={route.replyCardId} />
         ) : tab === "tasks" ? (

@@ -44,7 +44,7 @@ func TestDownloadStreamsBlobToOutDirWithDispositionName(t *testing.T) {
 		"Content-Disposition": `attachment; filename="bundle.zip"; filename*=UTF-8''bundle.zip`,
 	})
 	dir := t.TempDir()
-	cfg := Config{Base: srv.URL, Token: "tok-k", ID: "kyle"}
+	cfg := Config{BaseConfigured: true, Base: srv.URL, Token: "tok-k", ID: "kyle"}
 
 	var out, errOut bytes.Buffer
 	rc := cmdDownload(srv.Client(), cfg, "att-abc123", dir, &out, &errOut)
@@ -77,7 +77,7 @@ func TestDownloadPrefersRFC5987UTF8Name(t *testing.T) {
 	})
 	dir := t.TempDir()
 	var out, errOut bytes.Buffer
-	rc := cmdDownload(srv.Client(), Config{Base: srv.URL, Token: "t"}, "att-zh", dir, &out, &errOut)
+	rc := cmdDownload(srv.Client(), Config{BaseConfigured: true, Base: srv.URL, Token: "t"}, "att-zh", dir, &out, &errOut)
 	if rc != 0 {
 		t.Fatalf("rc = %d, want 0 (stderr: %s)", rc, errOut.String())
 	}
@@ -95,7 +95,7 @@ func TestDownloadImageNoDispositionFallsBackToID(t *testing.T) {
 	})
 	dir := t.TempDir()
 	var out, errOut bytes.Buffer
-	rc := cmdDownload(srv.Client(), Config{Base: srv.URL, Token: "t"}, "att-img42", dir, &out, &errOut)
+	rc := cmdDownload(srv.Client(), Config{BaseConfigured: true, Base: srv.URL, Token: "t"}, "att-img42", dir, &out, &errOut)
 	if rc != 0 {
 		t.Fatalf("rc = %d, want 0 (stderr: %s)", rc, errOut.String())
 	}
@@ -117,7 +117,7 @@ func TestDownloadPathTraversalFilenameIsBasenamed(t *testing.T) {
 	root := t.TempDir()
 	dir := filepath.Join(root, "a", "b") // nested so ../../ would escape into root
 	var out, errOut bytes.Buffer
-	rc := cmdDownload(srv.Client(), Config{Base: srv.URL, Token: "t"}, "att-evil", dir, &out, &errOut)
+	rc := cmdDownload(srv.Client(), Config{BaseConfigured: true, Base: srv.URL, Token: "t"}, "att-evil", dir, &out, &errOut)
 	if rc != 0 {
 		t.Fatalf("rc = %d, want 0 (stderr: %s)", rc, errOut.String())
 	}
@@ -138,7 +138,7 @@ func TestDownloadDefaultDirIsWorkdirTmpAttachments(t *testing.T) {
 	wd := t.TempDir()
 	t.Chdir(wd)
 	var out, errOut bytes.Buffer
-	rc := cmdDownload(srv.Client(), Config{Base: srv.URL, Token: "t"}, "att-dflt", "", &out, &errOut)
+	rc := cmdDownload(srv.Client(), Config{BaseConfigured: true, Base: srv.URL, Token: "t"}, "att-dflt", "", &out, &errOut)
 	if rc != 0 {
 		t.Fatalf("rc = %d, want 0 (stderr: %s)", rc, errOut.String())
 	}
@@ -179,7 +179,7 @@ func TestDownloadErrorExitCodes(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			srv := statusSrv(c.status)
 			var out, errOut bytes.Buffer
-			rc := cmdDownload(srv.Client(), Config{Base: srv.URL, Token: "t"}, "att-x", t.TempDir(), &out, &errOut)
+			rc := cmdDownload(srv.Client(), Config{BaseConfigured: true, Base: srv.URL, Token: "t"}, "att-x", t.TempDir(), &out, &errOut)
 			if rc != c.wantRC {
 				t.Fatalf("rc = %d, want %d", rc, c.wantRC)
 			}
@@ -196,7 +196,7 @@ func TestDownloadErrorExitCodes(t *testing.T) {
 		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
 		srv.Close() // connection refused
 		var out, errOut bytes.Buffer
-		rc := cmdDownload(newStreamingClient(), Config{Base: srv.URL, Token: "t"}, "att-x", t.TempDir(), &out, &errOut)
+		rc := cmdDownload(newStreamingClient(), Config{BaseConfigured: true, Base: srv.URL, Token: "t"}, "att-x", t.TempDir(), &out, &errOut)
 		if rc != 1 {
 			t.Fatalf("rc = %d, want 1", rc)
 		}
@@ -207,7 +207,7 @@ func TestDownloadErrorExitCodes(t *testing.T) {
 
 	t.Run("no token fails fast", func(t *testing.T) {
 		var out, errOut bytes.Buffer
-		rc := cmdDownload(newStreamingClient(), Config{Base: "http://127.0.0.1:1"}, "att-x", t.TempDir(), &out, &errOut)
+		rc := cmdDownload(newStreamingClient(), Config{BaseConfigured: true, Base: "http://127.0.0.1:1"}, "att-x", t.TempDir(), &out, &errOut)
 		if rc != 3 {
 			t.Fatalf("rc = %d, want 3", rc)
 		}

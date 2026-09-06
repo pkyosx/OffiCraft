@@ -527,3 +527,51 @@ func TestArtifactHistoryServesAFileVersionsBlobEndpoint(t *testing.T) {
 			linkVersions)
 	}
 }
+
+// An OMITTED label carries the pinned one forward (owner ruling 2026-09-05):
+// updating a deliverable's content should not cost it its display name, which
+// is what happened while an absent label was stored as the empty string. The
+// three arms are the whole contract — absent keeps, explicit replaces, explicit
+// blank clears — so a mutant that collapses any two of them reddens.
+func TestReplaceArtifactLabelAbsentKeepsExplicitReplacesBlankClears(t *testing.T) {
+	api := newTasksTestServer(t)
+	task := createAdHocTask(t, api, "m-exec")
+	rec := addArtifact(t, api, task.ID,
+		map[string]any{"kind": "link", "url": "https://x/pr/1", "label": "PR #1"},
+		"m-exec", "agent")
+	artID := decodeBody[taskArtifactReceiptDTO](t, rec).ArtifactID
+
+	live := func() taskArtifactDTO {
+		t.Helper()
+		return getTaskArtifacts(t, api, task.ID).Artifacts[0]
+	}
+	replace := func(body map[string]any) {
+		t.Helper()
+		r := replaceArtifact(t, api, task.ID, artID, body, "m-exec", "agent")
+		if r.Code != http.StatusOK {
+			t.Fatalf("replace %+v: %d %s", body, r.Code, r.Body.String())
+		}
+	}
+
+	replace(map[string]any{"url": "https://x/pr/2"})
+	if got := live().Label; got != "PR #1" {
+		t.Fatalf("an omitted label must keep the pinned one, got %q", got)
+	}
+
+	replace(map[string]any{"url": "https://x/pr/3", "label": "PR #3"})
+	if got := live().Label; got != "PR #3" {
+		t.Fatalf("an explicit label must replace, got %q", got)
+	}
+
+	replace(map[string]any{"url": "https://x/pr/4", "label": ""})
+	if got := live().Label; got != "" {
+		t.Fatalf("an explicit blank label must clear, got %q", got)
+	}
+
+	// Once cleared, an omitted label keeps it cleared — inheritance is of what
+	// is pinned, not of the last non-empty label anyone ever set.
+	replace(map[string]any{"url": "https://x/pr/5"})
+	if got := live().Label; got != "" {
+		t.Fatalf("an omitted label must keep the pinned empty one, got %q", got)
+	}
+}
