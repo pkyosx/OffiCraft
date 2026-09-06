@@ -29,7 +29,7 @@ owner 用完 T-1f39 提了兩件事，各在一張卡上拍板：
 
 **wire-freeze 流程照走**（憲章 §13）：先改 `spec/openapi.json` → `bash bin/gen-ocapi` 重生 `ocapi_gen.go`
 → `npx openapi-typescript` 重生 `frontend/src/api/generated/schema.ts`；`conformance/routes_manifest.json`
-（127 列）、`test_auth_matrix.py`、`test_rest_happy.py` 同批。**`spec/mcp-catalog.json` 也同批**（手維護；
+（127 列）、`test_auth_matrix.py`、`test_rest_happy.py` 同批。**`spec/mcp-catalog.json` 也同批**（**當時為手維護** —— 這份設計稿寫下時是真的；`df52648d`（2026-08-12, T-2590）之後它是 `bin/gen-mcp-catalog` 的生成物，改法變成重跑產生器而不是手插描述子；
 新工具 `get_document_seed` 的描述子插在 `list_document_history` 之後，89 → 90 個工具），
 `conformance/routes_manifest.json` 的 `mcp_tool` 欄一併從 `null` 改成工具名。
 `catalog_hash` 由 route 表的**工具名集合**推導（`catalogHashOf`），所以這次會變 —— 那就是它的用途，

@@ -389,7 +389,20 @@ func TestRelocateMember_AdminGated(t *testing.T) {
 // the relocate verb means "move one agent" — an id naming no roster member
 // falls through to the outsource-worker table, so the SAME handler (and thus
 // the MCP relocate_member tool) relocates a worker. The pin lands on the
-// worker row and the response is the worker projection, not a member DTO.
+// worker row.
+//
+// 🔴 THIS TEST USED TO BIND THE ROUTING BY RESPONSE SHAPE and it deliberately
+// cannot any more (T-91, owner 2026-09-06). It asserted that the answer carried
+// the worker projection's `presence` / `codename` and NOT the member DTO's
+// `role`, because "since the P7d fold both paths write the SAME member row, so
+// only the response shape tells the worker relocate core apart from the member
+// path". Both arms now answer the SAME bounded receipt on purpose — that is
+// what stopped this route from claiming a MemberDTO for the ow- ids it forwards
+// — so the discriminator is gone rather than broken. What replaces it, and why
+// it is not weaker: an ow- id is exactly what resolveMember REFUSES, so a 200
+// here already proves the fallback ran; the member path cannot produce one. The
+// row read below then proves the move actually landed, and the key-set check
+// proves the receipt has not quietly re-widened back into a projection.
 func TestRelocateMember_WorkerIdFallback(t *testing.T) {
 	api := newTasksTestServer(t)
 	api.noOutsource = true
@@ -403,25 +416,22 @@ func TestRelocateMember_WorkerIdFallback(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("relocate(worker id): %d %s", rec.Code, rec.Body.String())
 	}
-	dto := decodeBody[outsourceWorkerDTO](t, rec)
-	if dto.ID != workerID {
-		t.Errorf("response must be the worker projection: got id %q, want %q", dto.ID, workerID)
+	if got := decodeBody[agentRelocateReceiptDTO](t, rec).ID; got != workerID {
+		t.Errorf("receipt id = %q, want the worker it moved (%q)", got, workerID)
 	}
-	// Bind the ROUTING, not just the row write: since the P7d fold both paths
-	// write the SAME member row, so only the response shape tells the worker
-	// relocate core apart from the member path. Worker-only keys must be
-	// present and the member DTO's "role" must not — if resolveMember ever
-	// admits ow- ids, this turns red.
+	// resolveMember REFUSES ow- ids, so the 200 above is itself the routing
+	// proof: only the fallback can produce one. What this adds is that the
+	// receipt stayed a receipt — key-set containment, not mere presence, because
+	// an assertion that only names the keys it wants would stay green if the
+	// whole projection came back around it.
 	body := decodeBody[map[string]any](t, rec)
-	if _, ok := body["presence"]; !ok {
-		t.Errorf("response lacks presence — worker projection not served: %s", rec.Body.String())
-	}
-	if _, ok := body["codename"]; !ok {
-		t.Errorf("response lacks codename — worker projection not served: %s", rec.Body.String())
-	}
-	if _, ok := body["role"]; ok {
-		t.Errorf("response carries the member DTO's role — the relocate rode the member path: %s",
-			rec.Body.String())
+	for k := range body {
+		switch k {
+		case "id", "relocation_pending", "relocation_deferred":
+		default:
+			t.Errorf("relocate answered %q — the response has re-widened past the receipt: %s",
+				k, rec.Body.String())
+		}
 	}
 	w, err := api.dal.GetOutsourceWorker(workerID)
 	if err != nil || w == nil {

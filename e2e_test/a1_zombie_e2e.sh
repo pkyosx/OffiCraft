@@ -352,13 +352,14 @@ stage "4. activate target ($TARGET_AGENT) + hire+activate control → both prese
 # 4a. TARGET: activate the seeded agent on server-self (desired=online + bind).
 ACT_JSON="$(api_post_logged "/api/members/$TARGET_AGENT/activate" "{\"machine_id\":\"$SERVER_SELF_ID\"}" || echo '{}')"
 [[ -n "$(printf '%s' "$ACT_JSON" | json_field id)" ]] \
-  || fail_stage "activate target $TARGET_AGENT on $SERVER_SELF_ID returned no member DTO — activation rejected"
+  || fail_stage "activate target $TARGET_AGENT on $SERVER_SELF_ID returned no id on its receipt — activation rejected"
 log "activated TARGET $TARGET_AGENT on $SERVER_SELF_ID"
 
 # 4b. CONTROL: HIRE a fresh healthy member (the DB seeds only mira + server-self,
 #     so the control must be created). A bare hire (name only, no kind/role_key)
 #     folds to KindStaff and is NOT privilege-bearing → owner token suffices;
-#     the server mints its id (m-<hex12>) and returns the DTO.
+#     the server mints its id (m-<hex12>) and answers a receipt carrying it
+#     (T-91 narrowed this route from the whole DTO down to `{id}`).
 HIRE_JSON="$(api_post_logged /api/members "$(py -c '
 import json,sys; print(json.dumps({"name": sys.argv[1]}))' "$CONTROL_NAME")" || echo '{}')"
 CONTROL_AGENT="$(printf '%s' "$HIRE_JSON" | json_field id)"
@@ -367,7 +368,7 @@ CONTROL_AGENT="$(printf '%s' "$HIRE_JSON" | json_field id)"
 log "hired CONTROL member id=$CONTROL_AGENT (name='$CONTROL_NAME', kind folds to staff)"
 ACT2_JSON="$(api_post_logged "/api/members/$CONTROL_AGENT/activate" "{\"machine_id\":\"$SERVER_SELF_ID\"}" || echo '{}')"
 [[ -n "$(printf '%s' "$ACT2_JSON" | json_field id)" ]] \
-  || fail_stage "activate control $CONTROL_AGENT on $SERVER_SELF_ID returned no member DTO"
+  || fail_stage "activate control $CONTROL_AGENT on $SERVER_SELF_ID returned no id on its receipt"
 log "activated CONTROL $CONTROL_AGENT on $SERVER_SELF_ID"
 
 # 4c. poll BOTH to presence=online via the HUB (live SSE), not the DB.

@@ -62,7 +62,17 @@ export function useWebhooks(memberId: string): UseWebhooks {
   const create = useCallback(
     async (input: WebhookCreateInput) => {
       const created = await api.createWebhook(memberId, input);
-      await refetch();
+      // The endpoint (and its one-time token in `created`) exists whatever the
+      // list read does; rejecting here would hide a token that will never be
+      // shown again behind 新增失敗.
+      try {
+        await refetch();
+      } catch (e) {
+        console.warn(
+          "useWebhooks: post-create refetch failed (the endpoint was created)",
+          e
+        );
+      }
       return created;
     },
     [memberId, refetch]
@@ -71,7 +81,15 @@ export function useWebhooks(memberId: string): UseWebhooks {
   const update = useCallback(
     async (endpointId: string, patch: WebhookUpdate) => {
       const updated = await api.updateWebhook(memberId, endpointId, patch);
-      await refetch();
+      // The patch has landed — the list read only repaints the row.
+      try {
+        await refetch();
+      } catch (e) {
+        console.warn(
+          "useWebhooks: post-update refetch failed (the endpoint was updated)",
+          e
+        );
+      }
       return updated;
     },
     [memberId, refetch]
@@ -80,7 +98,15 @@ export function useWebhooks(memberId: string): UseWebhooks {
   const remove = useCallback(
     async (endpointId: string) => {
       await api.deleteWebhook(memberId, endpointId);
-      await refetch();
+      // The endpoint is deleted; a failed list read is not a failed delete.
+      try {
+        await refetch();
+      } catch (e) {
+        console.warn(
+          "useWebhooks: post-delete refetch failed (the endpoint was deleted)",
+          e
+        );
+      }
     },
     [memberId, refetch]
   );

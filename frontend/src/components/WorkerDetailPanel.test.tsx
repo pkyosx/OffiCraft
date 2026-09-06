@@ -965,19 +965,16 @@ describe("WorkerDetailPanel — lifecycle ops (T-32e1/T-f190)", () => {
       .spyOn(api, "setWorkerModel")
       .mockImplementation(async () => {
         order.push("model");
-        return mkWorker({ id: "ow-1" });
       });
     const relocate = vi
       .spyOn(api, "relocateWorker")
       .mockImplementation(async () => {
         order.push("relocate");
-        return mkWorker({ id: "ow-1" });
       });
     const restart = vi
       .spyOn(api, "restartWorker")
       .mockImplementation(async () => {
         order.push("wake");
-        return mkWorker({ id: "ow-1" });
       });
 
     const { findByTestId } = renderOfficeAt("#office/worker/ow-1");

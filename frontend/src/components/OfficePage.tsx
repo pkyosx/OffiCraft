@@ -487,7 +487,15 @@ export function OfficePage({
         // server-driven presence surface stopping → stopped.
         onDeactivate={async () => {
           await api.deactivateMember(detail.id);
-          await refetch();
+          // The stop is dispatched; only the refresh can still fail (NIT-4 again).
+          try {
+            await refetch();
+          } catch (e) {
+            console.warn(
+              "OfficePage: post-deactivate refetch failed (the stop was sent)",
+              e
+            );
+          }
         }}
         // Force-stop (immediate kill): the LAST rung — the robust STOP goes to
         // the warden now. Refetch and let server-driven presence surface stopped.
@@ -496,32 +504,89 @@ export function OfficePage({
         // member; it is NOT a kill, so the member can still finish early.
         onAcceleratedStop={async () => {
           await api.acceleratedStopMember(detail.id);
-          await refetch();
+          // Same rung, same split: the clock is already running server-side.
+          try {
+            await refetch();
+          } catch (e) {
+            console.warn(
+              "OfficePage: post-accelerated-stop refetch failed (the stop was sent)",
+              e
+            );
+          }
         }}
         onForceStop={async () => {
           await api.forceStopMember(detail.id);
-          await refetch();
+          // The kill has gone out — a failed refresh must not read as a live member.
+          try {
+            await refetch();
+          } catch (e) {
+            console.warn(
+              "OfficePage: post-force-stop refetch failed (the kill was sent)",
+              e
+            );
+          }
         }}
         onRefocus={async () => {
           await api.refocusMember(detail.id);
-          await refetch();
+          // The refocus is delivered whatever the roster read does.
+          try {
+            await refetch();
+          } catch (e) {
+            console.warn(
+              "OfficePage: post-refocus refetch failed (the refocus was sent)",
+              e
+            );
+          }
         }}
         // 成本歸零 (T-53, owner-only + irreversible; the panel confirms first).
         onResetCost={async () => {
           await api.resetMemberCost(detail.id);
-          await refetch();
+          // 歸零 is irreversible and already done: reporting it as failed would invite
+          // the owner to confirm the same destructive action twice.
+          try {
+            await refetch();
+          } catch (e) {
+            console.warn(
+              "OfficePage: post-cost-reset refetch failed (the cost was cleared)",
+              e
+            );
+          }
         }}
         onRename={async (name) => {
           await api.patchMember(detail.id, { name });
-          await refetch();
+          // The name is stored; the roster read only repaints it.
+          try {
+            await refetch();
+          } catch (e) {
+            console.warn(
+              "OfficePage: post-rename refetch failed (the name was saved)",
+              e
+            );
+          }
         }}
         onUpdateAvatar={async (file) => {
           await api.updateMemberAvatar(detail.id, file);
-          await refetch();
+          // The avatar is uploaded whatever the roster read does next.
+          try {
+            await refetch();
+          } catch (e) {
+            console.warn(
+              "OfficePage: post-avatar-upload refetch failed (the avatar was saved)",
+              e
+            );
+          }
         }}
         onRemoveAvatar={async () => {
           await api.removeMemberAvatar(detail.id);
-          await refetch();
+          // And the removal is equally done before this read is sent.
+          try {
+            await refetch();
+          } catch (e) {
+            console.warn(
+              "OfficePage: post-avatar-remove refetch failed (the avatar was removed)",
+              e
+            );
+          }
         }}
       />
     );

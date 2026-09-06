@@ -158,8 +158,20 @@ export function InsightCard({ roleKey }: InsightCardProps) {
               title={t.settings.historyInsightTitle}
               currentContent={insight ? { text: insight.text } : undefined}
               onRestored={async () => {
-                await refetch();
-                cancelEdit();
+                // 🔴 `finally`, not a plain sequence: the restore has ALREADY
+                // landed by the time this runs, so the draft below is stale no
+                // matter what the re-read does. T-91 wrapped the re-read in
+                // DocumentHistoryEntry so a failed re-read stops showing as a
+                // failed restore — but that made a rejection here SKIP the
+                // line below and then get swallowed, which closed the modal
+                // silently and left the editor holding the pre-restore draft.
+                // Leaving edit mode is what the comment above promises; it
+                // must not be conditional on the re-read succeeding.
+                try {
+                  await refetch();
+                } finally {
+                  cancelEdit();
+                }
               }}
               onReset={
                 insight?.hasSeed

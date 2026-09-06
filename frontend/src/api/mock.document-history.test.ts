@@ -243,26 +243,26 @@ describe("mockApi · document history", () => {
   // history for a deleted document teaches the UI, and the next reader of this
   // file, a behaviour the server does not have.
   it("deleting a role drops its own history and its lessons history", async () => {
-    const { role } = await mockApi.createRole({ name: "臨時角色" });
-    await mockApi.saveRole(role.key, { definitionMd: "改寫" });
+    const { roleKey } = await mockApi.createRole({ name: "臨時角色" });
+    await mockApi.saveRole(roleKey, { definitionMd: "改寫" });
     // The lessons history key is the BARE role_key since T-2 — one document per
     // role, addressed exactly, so this is an equality rather than the prefix
     // sweep the compound key used to need.
-    await mockApi.saveLessons(role.key, "第一版");
-    await mockApi.saveLessons(role.key, "第二版");
+    await mockApi.saveLessons(roleKey, "第一版");
+    await mockApi.saveLessons(roleKey, "第二版");
     expect(
-      await documentRevisions(mockApi, "lessons", role.key)
+      await documentRevisions(mockApi, "lessons", roleKey)
     ).toHaveLength(1);
     expect(
-      await documentRevisions(mockApi, "role_definition", role.key)
+      await documentRevisions(mockApi, "role_definition", roleKey)
     ).toHaveLength(1);
 
-    await mockApi.deleteRole(role.key);
+    await mockApi.deleteRole(roleKey);
 
     expect(
-      await documentRevisions(mockApi, "role_definition", role.key)
+      await documentRevisions(mockApi, "role_definition", roleKey)
     ).toEqual([]);
-    expect(await documentRevisions(mockApi, "lessons", role.key)).toEqual([]);
+    expect(await documentRevisions(mockApi, "lessons", roleKey)).toEqual([]);
   });
 
   it("deleting a task manual drops the history of BOTH its series", async () => {
@@ -360,14 +360,16 @@ describe("mockApi · document history", () => {
   });
 
   it("404s for every document that ships no default — the same set a reset refuses", async () => {
-    const { role: custom } = await mockApi.createRole({ name: "臨時角色" });
+    const { roleKey: customKey } = await mockApi.createRole({
+      name: "臨時角色",
+    });
     const manual = await mockApi.createTaskManual("週報");
 
     for (const probe of [
-      ["role_definition", custom.key],
+      ["role_definition", customKey],
       ["task_manual_sop", manual.typeKey],
       ["task_manual_learnings", manual.typeKey],
-      ["lessons", custom.key],
+      ["lessons", customKey],
     ] as const) {
       await expect(
         mockApi.getDocumentSeed(probe[0], probe[1])
@@ -376,7 +378,7 @@ describe("mockApi · document history", () => {
       // (Only role_definition HAS a reset route; the other three have none at
       // all, which is the stronger form of the same fact.)
     }
-    await expect(mockApi.resetRole(custom.key)).rejects.toSatisfy((e) =>
+    await expect(mockApi.resetRole(customKey)).rejects.toSatisfy((e) =>
       isHttpStatus(e, 404)
     );
 

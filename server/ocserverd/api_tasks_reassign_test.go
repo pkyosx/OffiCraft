@@ -206,7 +206,7 @@ func TestReassignMemberToMemberHandsOver(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("open bound card: %d %s", rec.Code, rec.Body.String())
 	}
-	card := decodeBody[replyCardDTO](t, rec)
+	card := createdCardView(t, api, rec)
 
 	// SSE listeners: the old executor must get the farewell fan.
 	oldConn, _ := api.hub.Connect("m-old", "")
@@ -219,16 +219,32 @@ func TestReassignMemberToMemberHandsOver(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("reassign: %d %s", rec.Code, rec.Body.String())
 	}
-	out := decodeBody[taskDTO](t, rec)
+	// T-91: reassign answers taskWriteReceiptDTO. Every field this block reads
+	// off the response is still on it, and for the reason this test states —
+	// `lock` because status does NOT move when a lock is placed (so a caller
+	// reading status alone cannot see the ticket is mid-transfer), `status`
+	// because it is derived from the steps and the caller cannot compute it,
+	// and the executor pair because it decides who may drive the task next.
+	out := decodeBody[taskWriteReceiptDTO](t, rec)
 	// The reassigning hold is now a LOCK (T-9ca5); status stays DERIVED (done +
 	// two pending → in_progress).
 	if out.Lock != TaskLockReassigning || out.Status != TaskStatusInProgress ||
 		out.ExecutorKind != TaskExecutorMember || out.ExecutorID != "m-new" {
 		t.Fatalf("handed-over row wrong: %+v", out)
 	}
-	if out.DedupeKey != task.DedupeKey || out.TypeKey != task.TypeKey ||
-		out.ID != task.ID {
-		t.Fatalf("reassign must never touch identity: %+v", out)
+	// Identity: the receipt carries the id, and dedupe_key/type_key are no
+	// longer on any write answer — so the untouched-identity claim is made
+	// against the STORED ROW, which is what the claim was always about.
+	if out.TaskID != task.ID {
+		t.Fatalf("reassign answered about the wrong task: %+v", out)
+	}
+	afterRow, err := api.dal.GetTask(task.ID)
+	if err != nil || afterRow == nil {
+		t.Fatalf("load task after reassign: %v %v", afterRow, err)
+	}
+	if afterRow.DedupeKey != task.DedupeKey || afterRow.TypeKey != task.TypeKey ||
+		afterRow.ID != task.ID {
+		t.Fatalf("reassign must never touch identity: %+v", afterRow)
 	}
 
 	// The waiting gate card expired (settled — replan will freeze the step).
