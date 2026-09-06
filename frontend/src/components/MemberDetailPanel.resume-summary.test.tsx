@@ -31,6 +31,7 @@ vi.mock("../api", () => ({
       return resumeSummary();
     },
     subscribeEvents: () => () => {},
+    getLoreSwitch: () => Promise.resolve(false),
   },
 }));
 

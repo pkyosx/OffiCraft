@@ -136,6 +136,7 @@ vi.mock("../api", () => ({
         checkedTs: 1785603600,
       }),
     subscribeEvents: () => () => {},
+    getLoreSwitch: () => Promise.resolve(false),
   },
 }));
 

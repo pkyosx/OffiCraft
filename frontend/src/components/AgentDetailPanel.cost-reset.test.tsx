@@ -29,6 +29,7 @@ vi.mock("../api", () => ({
     listWebhooks: () => Promise.resolve([]),
     listScheduledMessages: () => Promise.resolve([]),
     subscribeEvents: () => () => {},
+    getLoreSwitch: () => Promise.resolve(false),
   },
 }));
 

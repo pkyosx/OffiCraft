@@ -44,6 +44,7 @@ vi.mock("../api", () => ({
         ? Promise.reject(new Error("boom"))
         : Promise.resolve(requests.map((r) => ({ ...r }))),
     subscribeEvents: () => () => {},
+    getLoreSwitch: () => Promise.resolve(false),
   },
 }));
 

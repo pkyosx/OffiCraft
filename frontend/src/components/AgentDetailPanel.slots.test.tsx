@@ -43,6 +43,7 @@ vi.mock("../api", () => ({
     listScheduledMessages: () => Promise.resolve([]),
     getMemberResumeSummary: () => Promise.resolve(null),
     subscribeEvents: () => () => {},
+    getLoreSwitch: () => Promise.resolve(false),
   },
 }));
 

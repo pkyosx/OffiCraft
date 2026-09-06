@@ -133,6 +133,7 @@ vi.mock("../api", () => ({
     deleteScheduledMessage: (memberId: string, scheduleId: string) =>
       deleteScheduledMessage(memberId, scheduleId),
     subscribeEvents: () => () => {},
+    getLoreSwitch: () => Promise.resolve(false),
   },
 }));
 

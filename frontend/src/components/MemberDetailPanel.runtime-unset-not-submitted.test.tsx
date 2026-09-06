@@ -52,6 +52,7 @@ vi.mock("../api", () => ({
       Promise.resolve({ endpointId: "", purpose: "", status: "enabled", createdTs: 0, token: "" }),
     deleteWebhook: () => Promise.resolve(),
     subscribeEvents: () => () => {},
+    getLoreSwitch: () => Promise.resolve(false),
   },
 }));
 

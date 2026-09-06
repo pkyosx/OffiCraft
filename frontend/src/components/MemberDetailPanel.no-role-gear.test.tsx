@@ -56,6 +56,7 @@ vi.mock("../api", () => ({
       }),
     deleteWebhook: () => Promise.resolve(),
     subscribeEvents: () => () => {},
+    getLoreSwitch: () => Promise.resolve(false),
   },
 }));
 
