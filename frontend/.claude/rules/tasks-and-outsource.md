@@ -21,19 +21,24 @@ useTasks 把 statusFilter 轉成重複的 ?statuses=；執行者與類型篩選�
 
 跳到 #tasks/<id> 時，清單仍保留原篩選，另以 GET /api/tasks/{id} 補單張錨點。anchor id 是 effect 的參數；anchorPending 在補抓落定前擋住兩個空狀態，否則還在路上的那張會被說成不存在。
 
-**補抓落定後有三種結局，話不一樣，不要合併（owner 2026-09-05 `rc-428906235337`）**：抓到就顯示那一張；**404 ⇒ 錨點留著**，畫面答「沒有符合篩選條件的任務」，出口是「清除篩選」（`anyFilter` 已含 taskIdFilter，所以按鈕本來就在，`clearFilters` 連 hash 一起還原）；**其他失敗（500／離線）⇒ `anchorFailed`**，顯示載入錯誤並壓住兩個空狀態——沒問出口的問題不得給答案。錨點**不再自己把 hash 拿掉**；釘住這三格的是 TasksPage.test.tsx、TasksPage.jump.test.tsx 與 TasksPage.anchor-fetch.test.tsx 各一支。合併時清單列優先，因為輕量列才有 dep_tasks；單張 DTO 沒有時不可覆蓋它。篩選未包含錨點時，depTasks===undefined 表示未知，不表示沒有依賴。
+**補抓落定後有三種結局，話不一樣，不要合併（owner 2026-09-05 `rc-428906235337`；話術在 2026-09-06 選項①下再細分，見下一節）**：抓到且通過其他條件就顯示那一張；**404 ⇒ 錨點留著**，出口是已篩選條上的「清除全部」（`clearFilters` 連 hash 一起還原）；**其他失敗（500／離線）⇒ `anchorFailed`**，顯示錯誤並壓住兩個空狀態——沒問出口的問題不得給答案。錨點**不再自己把 hash 拿掉**；釘住這幾格的是 TasksPage.test.tsx、TasksPage.jump.test.tsx、TasksPage.id-filter.test.tsx 與 TasksPage.anchor-fetch.test.tsx。合併時清單列優先，因為輕量列才有 dep_tasks；單張 DTO 沒有時不可覆蓋它。篩選未包含錨點時，depTasks===undefined 表示未知，不表示沒有依賴。
 
-## 任務頁的 ID 篩選欄位（T-93 第二輪，owner 2026-09-06 `rc-44347fc49338`）
+## 任務頁的篩選面板與 ID 條件（T-93 第三輪，owner 2026-09-06 選項①）
 
-第一輪只把欄位做在請示卡頁，owner 在試用站上回「任務沒有出現同樣的filter」——他的交辦逐字是「任務列表**跟**請示卡列表，是不是**都**可以有一個ID的filter」，所以那是漏做，而**全套測試當時是綠的**。
+第二輪把四個軸做成常駐篩選列、每打一個字就生效；owner 連退兩次：「很常我們要找一張任務或票而已，但每次都要全部都撈回來才濾不合理 你可以設計成要給完搜尋條件要再按 search 的版本嗎」、「按搜尋時不要再跳出新modal」，並指定照 Master B/L List 的漏斗按鈕 + 頁內展開面板 + 「N 筆 · 已篩選：<chip ×> · 清除全部」條。「一起搬」＝四個軸全部進面板，外面只留漏斗。
 
-🔴 **這一頁上有兩條 by-id 的路，它們不是同一條，不要合併**：
-- **`taskIdFilter`（hash 錨點）**：單獨抓 `GET /api/tasks/{id}`，**蓋過狀態集合**（連結指向已完成任務也跳得到），三種結局的話術見上一節。
-- **`idQuery`（打字）**：只篩已載入的那批，**不發任何請求**。獨立審查在請示卡頁把「一個字元一個請求」列為必須改；`TasksPage.id-filter.test.tsx` 有一支專門盯著 `api.getTask` 沒被呼叫。
-
-⚠️ **`anyFilter` 裡 `idQuery !== ""` 是獨立一句，不要以為 `taskIdFilter` 涵蓋它。** 它看起來可以刪，因為狀態預設非空 ⇒ `anyFilter` 恆真 ⇒ 刪掉之後**八支測試全綠**（實測）。唯一打得到它的是**先按清除篩選（狀態集合也清空）再打字**那條路：少了它，畫面窄掉而唯一能放寬的按鈕不在了。那支測試就叫 `after 清除篩選 empties every OTHER axis, typing an id brings the button BACK`。
-
-**欄位寬度取自要裝的編號長度**，透過 `--id-filter-ch`；`.id-filter` 刻意用 `content-box` 對抗全域 `border-box`，否則 padding 會吃掉字數（實測 15 字元的 id 在 15ch 的欄位裡差 13px 裝不下）。
+- **APPLIED / DRAFT 兩份狀態**：清單只吃 applied；面板欄位綁 draft。開面板時 draft 從 applied 重播，取消不提交，套用才覆寫。這是「不要每次都撈回來」的結構性答案 —— 打字期間不發請求、不縮清單。
+- **shell 是 `FilterPanel`**（`components/FilterPanel.tsx`，自帶 CSS、無 `position: fixed`／scrim／z-index）。欄位是 children，由頁面提供。
+- 🔴 **全部條件一起生效，編號也不例外（選項①）**：applied 的編號**不篩已載入的清單**，而是走 `useTasks(DEFAULT_STATUS, appliedId)` 的 `GET /api/tasks/{id}` 拿那一張，再拿它去比其他 applied 軸。編號因此是**精準比對**，不是第二輪的 substring。
+- 🔴 **三種結局必須長得不一樣，不得合併**（這就是本票存在的理由：第二輪讓「不存在」與「在，只是沒被載進來」渲染成同一句 `沒有符合篩選條件的任務`，owner 在驗收時被它騙過去）：
+  - **404** → `task-id-missing`，話術要講「這是跟伺服器要過的結果」。
+  - **抓到但被其他條件擋掉** → `task-id-filtered`，**點名是哪一軸**，並給 `task-id-only`「只用編號再找一次」（清掉其他軸、留下編號）。
+  - **抓到且通過** → 只顯示那一張。
+  - 非 404 的失敗（500／離線）**不是 miss**：`tasks-error` 改講「沒有得到伺服器的回覆」，不得說找不到。
+  編號生效時 `tasks-empty` / `tasks-empty-filtered` **兩個空狀態都噤聲**，否則就會退回那句合併的話。
+- **`#tasks/<id>` 錨點**只是「種下 applied 編號」，且**同時把其他三軸清空**——連結沒有對負責人／類型／狀態表示意見。所以「連結指向已完成任務也跳得到」仍然成立，靠的不是錨點豁免狀態軸，而是那時根本沒有狀態軸；`statusAsk` 的 effect 在有 applied 編號時**跳過**，清單 ask 才不會被清空的狀態集合擴成全歷史（432 KB 那條回歸）。`#tasks/executor/<id>` 仍照舊顯式種三軸，並清掉編號。
+- **已結束區的自動展開吃 applied 編號**（不是 hash）：打字打到一張已結案任務時若不展開，畫面會出現「通過了卻什麼都沒有」的第四種沉默結局。
+- 測試一律走 `src/test/tasksFilter.ts`（開面板 → 勾 → 套用），不要在各檔各自複製手勢。
 
 ## TaskCard
 

@@ -3,11 +3,13 @@
 //      row: the TYPE + 查看任務詳情 — and NEVER the task number / 識別鍵
 //      (adjudicated). A pure chat ask shows nothing.
 //   2. Clicking 查看任務詳情 routes to #tasks/<taskId>.
-//   3. Arriving at #tasks/<id> FILTERS the list down to that one task in the
-//      normal layout (a closed target auto-expands 已結束); the same 清除篩選
+//   3. Arriving at #tasks/<id> narrows the page to that ONE task in the normal
+//      layout (a closed target auto-expands 已結束); 清除全部 on the 已篩選 strip
 //      returns to the full list; an unknown id KEEPS its anchor and the page
-//      answers 沒有符合篩選條件的任務 (owner 2026-09-05, rc-428906235337 — it
-//      used to strip the anchor and return to the full list with nothing said).
+//      says THAT ID DOES NOT EXIST — the server was asked (owner 2026-09-05
+//      rc-428906235337 stopped the silent self-heal; owner 2026-09-06 option ①
+//      stopped it borrowing the generic 沒有符合篩選條件的任務, which is also
+//      what a merely-not-loaded task got and is the confusion T-93 is about).
 //   4. The chat's inline card (ChatReplyCard) carries the same task row.
 
 import { describe, it, expect, beforeEach } from "vitest";
@@ -23,6 +25,8 @@ import {
   __injectMockReplyCard,
 } from "../api/mock";
 import type { ReplyCard, TaskView } from "../api/adapter";
+// 篩選 now happens inside the FilterPanel and only on 套用篩選 (T-93 round 3).
+import { toggleFilter, clearAllFilters } from "../test/tasksFilter";
 
 let seq = 0;
 
@@ -87,18 +91,6 @@ function taskRefTextOutsideTitle(ref: HTMLElement): string {
   return clone.textContent ?? "";
 }
 
-// Toggle one option in a multi-select filter dropdown (T-be18) — same helper as
-// TasksPage.test.tsx: open the pill if needed, then click the option's checkbox.
-function toggleFilter(testId: string, value: string) {
-  const trigger = document.querySelector(`[data-testid="${testId}"]`)!;
-  if (trigger.getAttribute("aria-expanded") !== "true") {
-    fireEvent.click(trigger);
-  }
-  const checkbox = document.querySelector(
-    `[data-testid="${testId}-opt-${value}"] input`
-  )!;
-  fireEvent.click(checkbox);
-}
 
 function renderTasks() {
   return render(
@@ -235,7 +227,8 @@ describe("TasksPage 單一任務 filter (#tasks/<id>)", () => {
     expect(openList.querySelector('[data-task-id="t-open"]')).not.toBeNull();
     // The other task is filtered out; a filter being active shows 清除篩選.
     expect(document.querySelector('[data-task-id="t-other"]')).toBeNull();
-    await findByTestId("clear-filters");
+    // A filter is on, so the 已篩選 strip is there with its 清除全部 exit.
+    await findByTestId("tasks-filter-clear");
   });
 
   it("a CLOSED target shows up with 已結束 auto-expanded", async () => {
@@ -260,7 +253,8 @@ describe("TasksPage 單一任務 filter (#tasks/<id>)", () => {
     window.location.hash = "#tasks/t-open";
 
     const { findByTestId } = renderTasks();
-    fireEvent.click(await findByTestId("clear-filters"));
+    await findByTestId("tasks-filter-clear");
+    clearAllFilters();
 
     await waitFor(() => expect(window.location.hash).toBe("#tasks"));
     await waitFor(() =>
@@ -279,22 +273,28 @@ describe("TasksPage 單一任務 filter (#tasks/<id>)", () => {
     );
   });
 
-  it("an unknown/stale target KEEPS its anchor and says 沒有符合篩選條件的任務", async () => {
-    // Direction changed by owner ruling 2026-09-05 (rc-428906235337). This test
-    // used to assert the opposite — the anchor stripped itself back to #tasks
-    // and the full list came back, silently. That made a broken link and a link
-    // that was never filtering look identical on screen, which is the whole
-    // complaint the id-filter work exists to answer.
+  it("an unknown/stale target KEEPS its anchor and says the id DOES NOT EXIST", async () => {
+    // Direction changed TWICE. owner 2026-09-05 (rc-428906235337) killed the
+    // original self-heal — the anchor used to strip itself back to #tasks and
+    // the full list came back silently, so a broken link and a link that was
+    // never filtering looked identical.
+    // 🔴 owner 2026-09-06 (option ①) then killed the REPLACEMENT wording: the
+    // page answered the shared 沒有符合篩選條件的任務, which is also what it says
+    // when a task is real but merely outside the loaded rows. The 404 is an
+    // answer from the server and now reads as one.
     __injectMockTask(mkTask({ id: "t-1" }));
     window.location.hash = "#tasks/t-gone";
-    const { findByTestId, getByTestId } = renderTasks();
+    const { findByTestId, queryByTestId } = renderTasks();
 
-    const empty = await findByTestId("tasks-empty-filtered");
-    expect(empty.textContent).toBe("沒有符合篩選條件的任務");
+    const missing = await findByTestId("task-id-missing");
+    expect(missing.textContent).toContain("t-gone");
+    expect(missing.textContent).toContain("跟伺服器要過");
+    // The generic empty state must NOT be what answers here.
+    expect(queryByTestId("tasks-empty-filtered")).toBeNull();
     // The anchor stays put — that is the visible difference from before.
     expect(window.location.hash).toBe("#tasks/t-gone");
-    // 清除篩選 is the way back, and it restores the list AND the hash.
-    fireEvent.click(getByTestId("clear-filters"));
+    // 清除全部 is the way back, and it restores the list AND the hash.
+    clearAllFilters();
     await findByTestId("open-list");
     expect(window.location.hash).toBe("#tasks");
   });
@@ -348,7 +348,8 @@ describe("TasksPage executor seed (#tasks/executor/<id>, T-dfae)", () => {
     await waitFor(() => expect(window.location.hash).toBe("#tasks"));
     // The seeded filter is ordinary filter state: 清除篩選 lifts it like any
     // other axis, and kyle's task comes back.
-    fireEvent.click(await findByTestId("clear-filters"));
+    await findByTestId("tasks-filter-clear");
+    clearAllFilters();
     await waitFor(() =>
       expect(document.querySelector('[data-task-id="t-kyle-open"]')).not.toBeNull()
     );
@@ -379,7 +380,8 @@ describe("TasksPage executor seed (#tasks/executor/<id>, T-dfae)", () => {
 
     // Widen 狀態 to 所有狀態 the way the owner would: 清除篩選 = 顯示全部
     // (T-50bb), which EMPTIES the status set — terminals included.
-    fireEvent.click(await findByTestId("clear-filters"));
+    await findByTestId("tasks-filter-clear");
+    clearAllFilters();
     fireEvent.click(await findByTestId("closed-toggle"));
     await waitFor(() =>
       expect(

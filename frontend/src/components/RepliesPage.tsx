@@ -29,8 +29,9 @@
 // question still matters). The nav badge (waiting count) and the chat unread
 // red dot are independent signals: answering here never touches the red dot.
 
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { useI18n } from "../i18n";
+import { api } from "../api";
 import type { ReplyCard, ReplyCardAnswerInput } from "../api/adapter";
 import { isHttpStatus } from "../api/errors";
 import { useMembers } from "../hooks/useMembers";
@@ -43,6 +44,7 @@ import { useHashRoute } from "../lib/hashRoute";
 import { avatarKindForMember } from "../lib/avatarKind";
 import { ReplyCardAvatarButton } from "./ReplyCardAvatarButton";
 import { ChevronRightIcon } from "./icons";
+import { FilterPanel } from "./FilterPanel";
 import { IdFilterInput } from "./IdFilterInput";
 import { ConfirmModal } from "./ConfirmModal";
 import { Markdown } from "./Markdown";
@@ -89,32 +91,101 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
   } = useReplyCards();
   const [, setRoute] = useHashRoute();
 
-  // ── ID 篩選 (T-93) ──────────────────────────────────────────────────────
-  // owner asked for the SAME thing the 任務頁 filters are, and for a link to
-  // do nothing more than pre-fill it (rc-2085e5ec60be, 2026-09-05):
-  //「只是連過去幫忙帶篩選參數而已」。So `#replies/card/<id>` seeds this field
-  // and nothing else — no by-id fetch, no locate notice.
+  // ── 篩選 (T-93 round 2) ─────────────────────────────────────────────────
+  // Round 1 put an always-visible 篩選列 here that narrowed the ALREADY-LOADED
+  // cards on every keystroke. owner 2026-09-06 rejected that shape twice:
+  //「很常我們要找一張任務或票而已，但每次都要全部都撈回來才濾不合理 你可以設計
+  //  成要給完搜尋條件要再按 search 的版本嗎」and, on being shown an overlay,
+  //「按搜尋時不要再跳出新modal」。So the fields live inside the shared
+  // FilterPanel shell (FilterPanel.tsx — read its header before touching this):
+  // an in-page panel that expands above the list, Cancel / 套用篩選 at the
+  // bottom, and a 「N 筆 · 已篩選：<chip ×> · 清除全部」 strip once collapsed.
   //
-  // 🔴 THE COST OWNER TOOK KNOWINGLY (2026-09-05, c-0e183a7fbb10, verbatim
-  // 「已回覆已經標示24 hrs才有資料，所以真的列不出來也沒關係」): the panes are
-  // what the server sent, so a card ANSWERED OR EXPIRED more than 24h ago is
-  // not on this page and this filter therefore cannot show it. He was told
-  // and accepted it because the pane already says it only holds 24h. Do NOT
-  // quietly add a by-id fetch to "fix" this — it is a decision, not a gap.
-  // (The 待回覆 pane carries NO time window: every unanswered card is here
-  // however old, so those are always reachable — server's waitingReplyCards.)
-  const [idFilter, setIdFilter] = useState(replyCardId ?? "");
+  // TWO STATES, NOT ONE. `appliedId` is what the page is actually filtered by;
+  // `draftId` is what the field binds to. Typing changes NOTHING until Apply —
+  // that is the whole answer to 「每次都要全部都撈回來才濾不合理」, because
+  // nothing is fetched or narrowed per keystroke.
+  const [appliedId, setAppliedId] = useState(replyCardId ?? "");
+  const [draftId, setDraftId] = useState(replyCardId ?? "");
+  const [filterOpen, setFilterOpen] = useState(false);
+  // `#replies/card/<id>` still seeds the APPLIED id (unchanged from round 1):
+  // a notification tap or a shared link lands on that one card without the
+  // owner having to open the panel and press anything.
   useEffect(() => {
-    if (replyCardId) setIdFilter(replyCardId);
+    if (!replyCardId) return;
+    setAppliedId(replyCardId);
+    setDraftId(replyCardId);
   }, [replyCardId]);
-  const idQuery = idFilter.trim().toLowerCase();
-  const matchesId = (card: ReplyCard) =>
-    idQuery === "" || card.id.toLowerCase().includes(idQuery);
+  const idQuery = appliedId.trim();
+  const filtering = idQuery !== "";
+
+  // 🔴 THE ID IS ASKED OF THE SERVER — it is NOT a substring scan of the rows
+  // that happen to be loaded (owner 2026-09-06, option ①). Round 1 filtered the
+  // panes, and the panes hold waiting cards plus whatever was answered/expired
+  // in the last 24h; a card older than that came back as「沒有符合篩選條件的
+  // 請示」— a sentence indistinguishable from 「這張卡不存在」. That collapse
+  // fooled the owner in review and is the defect this ticket exists to remove,
+  // so the three outcomes below are kept apart on purpose and must stay apart:
+  //   found   → that one card, even if its pane was collapsed and unfetched;
+  //   missing → 404, i.e. the SERVER says the id does not exist;
+  //   failed  → we never got an answer (network / 500). It must NOT say 找不到.
+  type Lookup =
+    | { state: "idle" }
+    | { state: "loading" }
+    | { state: "found"; card: ReplyCard }
+    | { state: "missing" }
+    | { state: "failed" };
+  const [lookup, setLookup] = useState<Lookup>({ state: "idle" });
+  // Bumped after an owner action so a card fetched by id is re-read once its
+  // status has changed underneath us (answering the found card must not leave
+  // the stale waiting body on screen).
+  const [lookupNonce, setLookupNonce] = useState(0);
+  useEffect(() => {
+    if (idQuery === "") {
+      setLookup({ state: "idle" });
+      return;
+    }
+    let alive = true;
+    setLookup({ state: "loading" });
+    api.getReplyCard(idQuery).then(
+      (card) => {
+        if (alive) setLookup({ state: "found", card });
+      },
+      (e: unknown) => {
+        if (!alive) return;
+        console.warn("RepliesPage: reply-card lookup failed", e);
+        setLookup({ state: isHttpStatus(e, 404) ? "missing" : "failed" });
+      }
+    );
+    return () => {
+      alive = false;
+    };
+  }, [idQuery, lookupNonce]);
+
+  // The live row wins over the fetched one when the page already holds it: the
+  // panes are kept in sync by SSE + the write-adoption in useReplyCards, and a
+  // one-shot GET is a snapshot from one instant.
+  const foundCard =
+    lookup.state === "found"
+      ? (waiting.find((c) => c.id === lookup.card.id) ??
+        handled.find((c) => c.id === lookup.card.id) ??
+        lookup.card)
+      : null;
+
   function clearFilters() {
-    setIdFilter("");
-    // Clearing the field must also drop the id from the URL, or a reload
-    // would seed it straight back and the clear would look broken.
+    setAppliedId("");
+    setDraftId("");
+    // Clearing must also drop the id from the URL, or a reload would seed it
+    // straight back and the clear would look broken.
     if (replyCardId) setRoute({ page: "replies" });
+  }
+
+  function applyFilters() {
+    const next = draftId.trim();
+    setAppliedId(next);
+    // The hash is a SECOND source for the applied id, so leaving a stale one
+    // there would re-seed the old card on the next reload.
+    if (replyCardId && next !== replyCardId) setRoute({ page: "replies" });
   }
 
   // Ticking clock (30s): drives the live 已等你 counters AND the client-side
@@ -148,35 +219,14 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
   // from the counts.
   const [handledOpen, setHandledOpen] = useState(false);
 
-  // A notification tap carries the card id in the hash.  Waiting cards are
-  // already loaded; a handled one needs its collapsed pane fetched and opened
-  // before it can be located.  Keeping this in the URL makes the destination
-  // refresh-safe and works equally for an existing or newly opened PWA window.
-  // Widened from the notification tap to ANY active ID 篩選 (T-93): a filter
-  // that silently ignored the collapsed pane would answer 「沒有符合篩選條件的
-  // 請示」 for a card that is sitting right there, unfetched — a false empty,
-  // which is the one failure this control must not have.
-  //
-  // 🔴 AT MOST ONCE PER VISIT. `loadHandled` is two requests with no in-flight
-  // de-duplication and `handledLoaded` only flips when they come back, so
-  // without this latch every keystroke that matches nothing fires another
-  // pair — a pasted 15-character id becomes ~30 requests, and a failing fetch
-  // never settles so the amplification lasts the whole visit (independent
-  // review, 2026-09-05). The pane's content does not depend on the query, so
-  // fetching it once is all the filter ever needs.
-  const handledAutoloadTried = useRef(false);
-  useEffect(() => {
-    // 🔴 `waiting` is [] until the first fetch lands, and an empty list at
-    // mount means "not known yet", NOT "nothing matched". Firing then burns
-    // the latch AND loads the handled pane on the one path that never needed
-    // it — the link-to-a-waiting-card path this whole ticket exists for.
-    if (loading || idQuery === "") return;
-    if (handledLoaded || handledAutoloadTried.current) return;
-    if (waiting.some((card) => matchesId(card))) return;
-    handledAutoloadTried.current = true;
-    setHandledOpen(true);
-    void loadHandled();
-  }, [loading, idQuery, waiting, handledLoaded, loadHandled]);
+  // Round 1 had a latched auto-load here: with a filter on, the collapsed
+  // 近期已處理 pane had to be FETCHED before the filter could find a card in
+  // it, or the page answered "no match" for a card sitting right there. That is
+  // gone with the by-id lookup — the found card comes from the server, so
+  // nothing about reaching it depends on which pane happens to be loaded. What
+  // DID survive is the requirement behind it: a card the server returned must
+  // never be invisible because a pane is collapsed. The handled pane is
+  // therefore FORCE-EXPANDED while a filter is applied (see handledExpanded).
 
   useEffect(() => {
     if (!replyCardId) return;
@@ -197,15 +247,29 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
   // Display order = 開卡時間 newest first (stable sort over the server's
   // longest-waiting-first list). No per-card highlight: the owner ruled the
   // longest-waiting accent ring out (T-9ea9) — every card wears the same face.
-  const waitingSorted = [...waiting]
-    .filter(matchesId)
-    .sort((a, b) => b.createdTs - a.createdTs);
+  //
+  // With a filter applied the two panes hold exactly what the SERVER returned
+  // for that id — one card, in whichever pane its status belongs to — not a
+  // narrowing of the loaded rows.
+  const waitingSorted = filtering
+    ? foundCard && foundCard.status === "waiting"
+      ? [foundCard]
+      : []
+    : [...waiting].sort((a, b) => b.createdTs - a.createdTs);
 
-  const visibleHandled = handled.filter((c) => {
-    if (!matchesId(c)) return false;
-    const ts = handledTsOf(c);
-    return ts !== null && nowTs - ts < HANDLED_WINDOW_SECONDS;
-  });
+  const visibleHandled = filtering
+    ? // 🔴 NO 24h PRUNE on a card fetched by id. The window is what makes the
+      // unfiltered pane a "recent" list; applying it to an answer from the
+      // server would re-create the exact hole this round removes — the owner
+      // asks for a card, the server hands it over, and the page drops it for
+      // being old.
+      foundCard && foundCard.status !== "waiting"
+      ? [foundCard]
+      : []
+    : handled.filter((c) => {
+        const ts = handledTsOf(c);
+        return ts !== null && nowTs - ts < HANDLED_WINDOW_SECONDS;
+      });
   // The header count + zero-hide: the server counts until the lists are
   // loaded, then the client-pruned visible length (so an aging-out card drops
   // the header too while the page stays open).
@@ -218,7 +282,23 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
   // review, 2026-09-05). Only a LOADED list may narrow this number; unloaded
   // falls back to the server's whole-pane count, exactly as it does with no
   // filter at all.
-  const handledShown = handledLoaded ? visibleHandled.length : handledCount;
+  const handledShown = filtering
+    ? visibleHandled.length
+    : handledLoaded
+      ? visibleHandled.length
+      : handledCount;
+  // 🔴 A card the server returned must be ON SCREEN, not behind a collapsed
+  // pane: 「找到了但畫面上沒有」 is the same silent nothing as a false empty.
+  // While a filter is applied the handled pane is open and renders the fetched
+  // card directly — it does not wait for `handledLoaded`, because with a filter
+  // the pane's content is the lookup's answer, not the deferred 24h list.
+  // Two flags, not one: `handledExpanded` is the AFFORDANCE (what the caret and
+  // aria-expanded say), `handledListShown` is whether there are rows to draw.
+  // They differ for one frame on an ordinary unfold — the toggle reads expanded
+  // while loadHandled is still in flight — and folding them together would make
+  // the caret lie for the length of that request.
+  const handledExpanded = filtering || handledOpen;
+  const handledListShown = filtering || (handledOpen && handledLoaded);
 
   // Outsource askers (ow- ids) get their codename from the lazy per-id read
   // rather than from `members`. Not because they are missing from it — GET
@@ -332,6 +412,7 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
     try {
       await answer(id, input);
       setActionError(null);
+      setLookupNonce((n) => n + 1);
     } catch (e) {
       console.warn("RepliesPage: answer failed", e);
       await reportAnswerFailure(e);
@@ -343,6 +424,7 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
     try {
       await reanswer(id, input);
       setActionError(null);
+      setLookupNonce((n) => n + 1);
     } catch (e) {
       console.warn("RepliesPage: re-answer failed", e);
       await reportAnswerFailure(e);
@@ -356,6 +438,7 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
       await expire(card.id);
       setActionError(null);
       setExpireTarget(null);
+      setLookupNonce((n) => n + 1);
     } catch (e) {
       console.warn("RepliesPage: expire failed", e);
       setActionError(t.replies.expireError);
@@ -505,12 +588,43 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
         </div>
       )}
 
-      {/* ── 篩選列 (T-93): one ID field, and the same 清除篩選 affordance the
-        * 任務頁 filter row has. */}
-      <div className="replies__filters">
+      {/* ── 篩選 (T-93 round 2) ────────────────────────────────────────────
+        * The shell is FilterPanel's; only the FIELDS are ours. Nothing here is
+        * a modal — it expands in the page and pushes the list down, because
+        * owner ruled out the overlay after seeing it. `testId` is namespaced so
+        * this panel's controls never collide with the 任務頁's. */}
+      <FilterPanel
+        title={t.replies.filterTitle}
+        count={loading ? null : waitingSorted.length + visibleHandled.length}
+        open={filterOpen}
+        onOpenChange={(next) => {
+          // Opening RESEEDS the draft from what is applied: the panel must open
+          // showing the filter that is actually in force, not whatever was left
+          // in the field by a Cancel three minutes ago.
+          if (next) setDraftId(appliedId);
+          setFilterOpen(next);
+        }}
+        chips={
+          filtering
+            ? [
+                {
+                  key: "id",
+                  label: t.replies.chipId(idQuery),
+                  onRemove: clearFilters,
+                },
+              ]
+            : []
+        }
+        onClearAll={clearFilters}
+        onApply={applyFilters}
+        // Cancel commits nothing: put the field back on the applied value so
+        // the abandoned draft cannot leak into the next open.
+        onCancel={() => setDraftId(appliedId)}
+        testId="replies-filter"
+      >
         <IdFilterInput
-          value={idFilter}
-          onChange={setIdFilter}
+          value={draftId}
+          onChange={setDraftId}
           label={t.replies.filterIdLabel}
           testId="filter-reply-card-id"
           // 15 = the length of every 請示卡 id there is: api_replycards.go:283
@@ -527,24 +641,7 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
           // for the note that quoted the banned phrase in order to explain it.
           widthCh={15}
         />
-        {/* 🔴 The hash counts as an active filter even when the FIELD is empty.
-          * Gate this on `idQuery` alone and the owner can delete the value by
-          * hand, lose the button, and be left on `#replies/card/<id>` with no
-          * control on screen that clears it — a reload, a share or a Back then
-          * seeds the filter straight back. 任務頁 never had this hole: its
-          * `anyFilter` names `taskIdFilter` explicitly, and both pages' docs
-          * promise the same behaviour. */}
-        {(idQuery !== "" || replyCardId) && (
-          <button
-            type="button"
-            className="replies__clear-filters"
-            data-testid="clear-filters"
-            onClick={clearFilters}
-          >
-            {t.replies.clearFilters}
-          </button>
-        )}
-      </div>
+      </FilterPanel>
 
       <section className="replies__section">
         <div className="replies__section-title">
@@ -552,13 +649,39 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
           {!loading && !error && ` · ${waitingSorted.length}`}
         </div>
         {!loading && !error && waitingSorted.length === 0 ? (
-          <div className="replies__empty" data-testid="replies-empty">
-            {/* Two copies, the same split the 任務頁 already makes: an empty
-              * page and an empty RESULT are different news. Saying 「目前沒有
-              * 待處理的請示」 while six cards sit behind a filter would read as
-              * "you are all caught up". */}
-            {idQuery === "" ? t.replies.empty : t.replies.emptyFiltered}
-          </div>
+          /* 🔴 FOUR COPIES, AND THEY MAY NEVER BE COLLAPSED INTO ONE. The
+           * first two are the split the 任務頁 already makes — an empty page
+           * and an empty RESULT are different news, and saying 「目前沒有待處
+           * 理的請示」 while six cards sit behind a filter reads as "you are
+           * all caught up". The last two are what round 2 adds, and they are
+           * the whole point of asking the server: a 404 is the server SAYING
+           * the id does not exist, while a network/500 failure means we never
+           * got an answer at all. Round 1 had one sentence for all of it, and
+           * that is exactly how a card the page simply had not loaded came out
+           * looking identical to a card that does not exist. */
+          lookup.state === "failed" ? (
+            <div
+              className="replies__error"
+              data-testid="replies-lookup-failed"
+            >
+              {t.replies.lookupFailed}
+            </div>
+          ) : lookup.state === "missing" ? (
+            <div
+              className="replies__empty replies__empty--missing"
+              data-testid="replies-lookup-missing"
+            >
+              {t.replies.lookupMissing(idQuery)}
+            </div>
+          ) : lookup.state === "loading" ? (
+            <div className="replies__empty" data-testid="replies-lookup-loading">
+              {t.replies.lookupLoading}
+            </div>
+          ) : (
+            <div className="replies__empty" data-testid="replies-empty">
+              {filtering ? t.replies.emptyFiltered : t.replies.empty}
+            </div>
+          )
         ) : (
           <div className="replies__list">
             {waitingSorted.map((card) => renderWaitingCard(card))}
@@ -571,7 +694,7 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
         * and say 0 — hiding it there removes the only handle for opening the
         * pane and makes "no match" indistinguishable from "nothing exists"
         * (independent review, 2026-09-05). */}
-      {(handledShown > 0 || idQuery !== "") && (
+      {(handledShown > 0 || filtering) && (
         <section className="replies__section">
           {/* The whole title row IS the toggle (collapsed by default): the
            * handled pane only unfolds on demand, vibe-clicking style — and the
@@ -581,14 +704,14 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
           <button
             type="button"
             className="replies__section-toggle"
-            aria-expanded={handledOpen}
+            aria-expanded={handledExpanded}
             onClick={toggleHandled}
             data-testid="answered-toggle"
           >
             <ChevronRightIcon
               size={13}
               className={`reply-card__caret${
-                handledOpen ? " reply-card__caret--open" : ""
+                handledExpanded ? " reply-card__caret--open" : ""
               }`}
             />
             {`${t.replies.handledTitle} · ${handledShown}`}
@@ -596,7 +719,7 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
               {t.replies.handledHint}
             </span>
           </button>
-          {handledOpen && handledLoaded && (
+          {handledListShown && (
             <div className="replies__list">
               {visibleHandled.map((card) => renderHandledCard(card))}
             </div>

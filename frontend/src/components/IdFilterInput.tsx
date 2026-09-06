@@ -1,15 +1,15 @@
-// IdFilterInput — the ID 篩選 field on a list page's 篩選列.
+// IdFilterInput — the ID field on a list page's filter panel.
 //
-// It is a PLAIN FILTER, deliberately: owner 2026-09-05 (rc-2085e5ec60be)
-// ruled that filtering by id must behave exactly like the filters next to it
-// —「我預期功能都一樣 / 只是連過去幫忙帶篩選參數而已」—— so this control adds
-// no locate mechanism, no "not found" notice and no fetch of its own. A URL
-// carrying an id only PRE-FILLS it; the page's own clear-filters button
-// empties it.
-//
-// Matching is case-insensitive SUBSTRING (see the callers): a pasted id is a
-// full match, and a half-typed one still narrows instead of collapsing to
-// nothing the moment the first character lands.
+// 🔴 IT IS A TEXT BOX AND NOTHING ELSE. It holds a value and reports changes;
+// it does not fetch, does not match, and does not decide what an id MEANS.
+// That belongs to the host page, and the two hosts no longer agree:
+// RepliesPage (T-93 round 2, owner 2026-09-06 option ①) asks the server for
+// the id on Apply and tells 找到／404／問不到伺服器 apart, while the 任務頁
+// keeps its own semantics. Do not restore a sentence here claiming either
+// behaviour as this component's own: an earlier version of this comment
+// stated round 1's 「不分大小寫的子字串比對、不打任何 API、沒有找不到提示」 as
+// if it were this component's contract, and it went stale the moment one host
+// changed.
 
 import type { CSSProperties } from "react";
 import "./idFilter.css";

@@ -27,6 +27,9 @@ import { I18nProvider } from "../i18n";
 import { TasksPage } from "./TasksPage";
 import { __resetMock, __injectMockTask, mockApi } from "../api/mock";
 import type { TaskView } from "../api/adapter";
+// 篩選 now lives inside the FilterPanel and only bites on 套用篩選 (T-93
+// round 3) — the shared driver does open → tick → apply.
+import { toggleFilter } from "../test/tasksFilter";
 
 let seq = 0;
 
@@ -67,15 +70,6 @@ function renderPage() {
 
 /** Terminals are hidden by default — tick one in the 狀態 filter to reveal the
  * 已結束 section (same helper shape as TasksPage.test.tsx). */
-function toggleFilter(testId: string, value: string) {
-  const trigger = document.querySelector(`[data-testid="${testId}"]`)!;
-  if (trigger.getAttribute("aria-expanded") !== "true") {
-    fireEvent.click(trigger);
-  }
-  fireEvent.click(
-    document.querySelector(`[data-testid="${testId}-opt-${value}"] input`)!
-  );
-}
 
 beforeEach(() => {
   __resetMock();

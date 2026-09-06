@@ -24,13 +24,13 @@
   font-size: 13px;
 }
 
-/* ── 篩選列 ── */
-.tasks__filters {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  flex-wrap: wrap;
-}
+/* ── 篩選欄位 ──
+ * The always-visible 篩選列 that used to wrap these is GONE (T-93 round 3,
+ * owner 2026-09-06): every field now lives inside FilterPanel, which owns the
+ * row layout in filter-panel.css. `.tasks__filters` and `.tasks__clear-filters`
+ * went with it — the panel's own 已篩選 strip carries 清除全部 now. What remains
+ * here is the PILL LOOK, still worn by the multi-select triggers inside the
+ * panel. */
 .tasks__filter {
   padding: 7px 10px;
   border-radius: var(--radius-pill);
@@ -40,21 +40,6 @@
   font-size: 13px;
   cursor: pointer;
 }
-.tasks__clear-filters {
-  padding: 6px 4px;
-  border: none;
-  background: transparent;
-  color: var(--color-text-muted);
-  font-size: 12.5px;
-  cursor: pointer;
-  text-decoration: underline;
-  text-underline-offset: 3px;
-  transition: color 0.15s;
-}
-.tasks__clear-filters:hover {
-  color: var(--color-text);
-}
-
 /* ── multi-select filter dropdown (T-be18) ── */
 .tasks__ms {
   position: relative;
@@ -2079,4 +2064,39 @@ button.task-card__waiting--dep:focus-visible {
 }
 .task-reassign__row-state--offline {
   color: var(--color-text-muted);
+}
+
+/* ── 找到了，但被其他條件擋住 (T-93 round 3) ────────────────────────────────
+ * 🔴 This state has to LOOK unlike both the 404 line above it and the ordinary
+ * 沒有符合篩選條件的任務 empty state — that is the whole ticket: the previous
+ * round rendered 「不存在」 and 「在，只是沒被載進來」 identically and it fooled
+ * the owner in review. So this one carries an accent edge and an action, where
+ * the others are plain grey sentences. No overlay, no fixed positioning: it is
+ * page content, like the panel above it. */
+.tasks__id-blocked {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 14px;
+  padding: 12px 14px;
+  border-radius: var(--radius-card);
+  border: 1px solid color-mix(in srgb, var(--color-accent) 45%, transparent);
+  background: color-mix(in srgb, var(--color-accent) 8%, transparent);
+  color: var(--color-text);
+  font-size: 13px;
+  line-height: 1.6;
+}
+.tasks__id-blocked-btn {
+  flex: none;
+  padding: 7px 14px;
+  border-radius: var(--radius-pill);
+  border: 1px solid color-mix(in srgb, var(--color-accent) 55%, transparent);
+  background: var(--color-card);
+  color: var(--color-text-strong);
+  font-size: 13px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.tasks__id-blocked-btn:hover {
+  background: color-mix(in srgb, var(--color-accent) 14%, transparent);
 }

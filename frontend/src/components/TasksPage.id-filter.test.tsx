@@ -1,22 +1,38 @@
-// 任務 page — the ID 篩選 field (T-93, second pass).
+// 任務頁 — the ID 篩選 field, third pass (T-93).
 //
-// WHY THIS FILE EXISTS AT ALL. The first pass shipped the field on 請示卡頁 only.
-// owner opened the trial station, answered rc-44347fc49338 in free text —
-// 「任務沒有出現同樣的filter, 而且好像太寬了」 — and he was right: 任務頁 had the
-// hash half (a URL could seed a filter) but no field to type one into, while his
-// charter said 「任務列表跟請示卡列表，是不是都可以有一個ID的filter」. Nothing was
-// broken; half the ticket was missing, and every test in the suite was green.
+// WHY THIS FILE EXISTS. Round 1 shipped the field on 請示卡頁 only; owner opened
+// the trial station and answered 「任務沒有出現同樣的filter, 而且好像太寬了」, so
+// round 2 added it here. Round 3 is the owner rejecting the SHAPE of both:
 //
-// 🔴 THE TWO PATHS THESE SPECS KEEP APART. 任務頁 already had a by-id mechanism
-// before this field existed, and it is NOT the same one:
-//   (1) the HASH anchor `#tasks/<id>` fetches that ONE task from its own
-//       endpoint and OVERRIDES the status set, so a link to a 已完成 task lands
-//       even though the default view hides terminals;
-//   (2) the FIELD filters what is already loaded and asks the server nothing —
-//       an independent review returned 「一個字元一個請求」 as a must-fix on
-//       請示卡頁, and a half-typed id names no task anyway.
-// A change that quietly merged the two would keep (1)'s tests green while
-// turning every keystroke into a fetch, so (2) is pinned on its own below.
+//   「很常我們要找一張任務或票而已，但每次都要全部都撈回來才濾不合理 你可以設計成
+//     要給完搜尋條件要再按 search 的版本嗎」            (rejected the 篩選列)
+//   「按搜尋時不要再跳出新modal」                        (rejected the overlay)
+//   「一起搬」                    (ALL the dropdowns move into the panel too)
+//   and, on the id itself, option ①: EVERY CONDITION ANDS, THE ID INCLUDED.
+//
+// 🔴 WHAT ROUND 2 GOT WRONG, AND WHAT THESE SPECS NOW EXIST TO PREVENT. The
+// field filtered the ALREADY-LOADED rows by substring. So an id that named a
+// real task the page had not downloaded (a 已完成 one, under the default status
+// filter) produced the same screen as an id that names nothing at all —
+// 沒有符合篩選條件的任務, both times. The owner read a live task as a deleted one
+// in review. Under option ① the id is answered by `GET /api/tasks/{id}` and the
+// page has THREE separate endings, pinned separately below:
+//   · 404              → 「不存在」, and it says the server was asked.
+//   · found, fails the other applied axes → says so, NAMES them, and offers
+//     「只用編號再找一次」.
+//   · found and passes → that one row.
+// A fourth, non-404 failure, is NOT a miss: nothing was reached, so nothing may
+// be claimed.
+//
+// ⚠️ TWO ASSERTIONS FROM ROUND 2 ARE DELIBERATELY GONE, because the owner
+// overruled the behaviour they pinned:
+//   · 「typing NEVER asks the server」 — typing still asks nothing (the fetch
+//     rides the APPLIED id), but pressing 套用篩選 now DOES ask, exactly once.
+//     The spec is rewritten to that rule rather than deleted; the must-fix it
+//     came from (「一個字元一個請求」) is still what it guards.
+//   · SUBSTRING matching — `GET /api/tasks/{id}` answers about one id, so the
+//     field is exact-match now. A half-typed id names no task, which is the
+//     same thing the substring rule was hand-waving at.
 
 import { describe, it, expect, beforeEach, vi, afterEach } from "vitest";
 import { render, fireEvent, waitFor } from "@testing-library/react";
@@ -25,6 +41,14 @@ import { TasksPage } from "./TasksPage";
 import { __resetMock, __injectMockTask } from "../api/mock";
 import { api } from "../api";
 import type { TaskView } from "../api/adapter";
+import {
+  openFilterPanel,
+  applyFilters,
+  cancelFilters,
+  applyIdFilter,
+  toggleFilter,
+  clearAllFilters,
+} from "../test/tasksFilter";
 
 let seq = 0;
 // The SAME fixture shape TasksPage.test.tsx uses — copied rather than invented,
@@ -75,137 +99,311 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-describe("任務頁 ID 篩選", () => {
-  it("the field EXISTS — this is the half owner found missing", async () => {
-    // The plainest possible assertion, and the one that would have caught the
-    // gap: the field is on the page at all. Everything below assumes it.
-    const { findByTestId } = renderPage();
+describe("任務頁 篩選面板 (T-93 round 3)", () => {
+  it("the fields are BEHIND the funnel — nothing filter-shaped is on the page until it is opened", async () => {
+    // 「一起搬」: the id field AND all three dropdowns live inside the panel, so
+    // a collapsed page shows the funnel and the 已篩選 strip and nothing else.
+    __injectMockTask(mkTask({ id: "t-aaa1" }));
+    const { findByTestId, queryByTestId } = renderPage();
+    await findByTestId("tasks-filter-toggle");
+    expect(queryByTestId("tasks-filter-form")).toBeNull();
+    expect(queryByTestId("filter-task-id")).toBeNull();
+    expect(queryByTestId("filter-executor")).toBeNull();
+    expect(queryByTestId("filter-type")).toBeNull();
+    expect(queryByTestId("filter-status")).toBeNull();
+
+    openFilterPanel();
+    expect(await findByTestId("tasks-filter-form")).toBeTruthy();
     expect(await findByTestId("filter-task-id")).toBeTruthy();
+    expect(await findByTestId("filter-executor")).toBeTruthy();
+    expect(await findByTestId("filter-type")).toBeTruthy();
+    expect(await findByTestId("filter-status")).toBeTruthy();
   });
 
-  it("typing an id narrows the list, and it is a SUBSTRING match", async () => {
-    __injectMockTask(mkTask({ id: "t-aaa1", taskNo: "T-aaa1", title: "第一張" }));
-    __injectMockTask(mkTask({ id: "t-bbb2", taskNo: "T-bbb2", title: "第二張" }));
-    const { findByTestId, queryByText } = renderPage();
+  it("🔴 the panel is NOT a modal: it is page content, with no scrim over the list", async () => {
+    // owner c-3b5a0aa66550:「按搜尋時不要再跳出新modal」. The list must still be
+    // in the document while the panel is open, and nothing may cover it.
+    __injectMockTask(mkTask({ id: "t-aaa1", title: "還看得見我" }));
+    const { findByText, queryByRole } = renderPage();
+    await findByText("還看得見我");
+    openFilterPanel();
+    expect(await findByText("還看得見我")).toBeTruthy();
+    expect(queryByRole("dialog")).toBeNull();
+    const form = document.querySelector<HTMLElement>(
+      '[data-testid="tasks-filter-form"]'
+    )!;
+    // Asserted on the RULE, not on geometry (jsdom lays nothing out): the shell
+    // must not have grown a fixed box or a stacking context.
+    expect(getComputedStyle(form).position).not.toBe("fixed");
+  });
 
-    // Both are on screen before the filter — without this the narrowing below
-    // could pass on a page that never rendered the second task at all.
+  it("🔴 typing changes NOTHING until 套用篩選 — and 取消 throws the draft away", async () => {
+    // The answer to 「每次都要全部都撈回來才濾不合理」. Round 2 filtered on every
+    // keystroke; this asserts the opposite rule.
+    __injectMockTask(mkTask({ id: "t-aaa1", title: "第一張" }));
+    __injectMockTask(mkTask({ id: "t-bbb2", title: "第二張" }));
+    const { findByTestId, queryByText } = renderPage();
     await waitFor(() => expect(queryByText("第一張")).toBeTruthy());
+
+    openFilterPanel();
+    const field = (await findByTestId("filter-task-id")) as HTMLInputElement;
+    fireEvent.change(field, { target: { value: "t-aaa1" } });
+    // Still BOTH on screen: a draft narrows nothing.
+    expect(queryByText("第一張")).toBeTruthy();
     expect(queryByText("第二張")).toBeTruthy();
 
-    const field = await findByTestId("filter-task-id");
-    fireEvent.change(field, { target: { value: "aaa" } });
+    cancelFilters();
+    // Cancel committed nothing, and it closed the panel (「按了面板就又會再消失」).
+    expect(queryByText("第二張")).toBeTruthy();
+    await waitFor(() =>
+      expect(document.querySelector('[data-testid="tasks-filter-form"]')).toBeNull()
+    );
+    // Reopening shows the APPLIED truth, not the cancelled draft.
+    openFilterPanel();
+    expect(
+      ((await findByTestId("filter-task-id")) as HTMLInputElement).value
+    ).toBe("");
+  });
 
+  it("套用篩選 narrows to the one row, and the panel closes itself", async () => {
+    __injectMockTask(mkTask({ id: "t-aaa1", title: "第一張" }));
+    __injectMockTask(mkTask({ id: "t-bbb2", title: "第二張" }));
+    const { queryByText } = renderPage();
+    await waitFor(() => expect(queryByText("第二張")).toBeTruthy());
+
+    applyIdFilter("t-aaa1");
     await waitFor(() => expect(queryByText("第二張")).toBeNull());
     expect(queryByText("第一張")).toBeTruthy();
+    expect(
+      document.querySelector('[data-testid="tasks-filter-form"]')
+    ).toBeNull();
   });
 
-  it("matching is case-insensitive", async () => {
-    __injectMockTask(mkTask({ id: "t-AbCd", taskNo: "T-AbCd", title: "混大小寫" }));
-    const { findByTestId, queryByText } = renderPage();
-    await waitFor(() => expect(queryByText("混大小寫")).toBeTruthy());
+  it("the applied filters stay readable while the panel is shut (已篩選 strip)", async () => {
+    // The strip is what stops a collapsed panel from hiding a live filter. The
+    // DEFAULT view is already filtered (terminals excluded), so it is there from
+    // the first render — and after an id is applied it names the id too.
+    __injectMockTask(mkTask({ id: "t-aaa1" }));
+    const { findByTestId } = renderPage();
+    const summary = await findByTestId("tasks-filter-summary");
+    expect(summary.textContent).toContain("狀態");
 
-    fireEvent.change(await findByTestId("filter-task-id"), {
-      target: { value: "ABCD" },
-    });
-    // Still there: a case-sensitive matcher would have hidden it.
-    await waitFor(() => expect(queryByText("混大小寫")).toBeTruthy());
+    applyIdFilter("t-aaa1");
+    await waitFor(() =>
+      expect(
+        document.querySelector('[data-testid="tasks-filter-summary"]')
+          ?.textContent
+      ).toContain("編號：t-aaa1")
+    );
   });
 
-  it("an id that matches nothing shows 沒有符合篩選條件的任務, NOT 目前沒有任務", async () => {
-    // 🔴 The distinction owner complained about in the first place: a filtered
-    // empty must not read as "you have no tasks". The two empty states have
-    // different testids for exactly this reason.
-    __injectMockTask(mkTask({ id: "t-real", taskNo: "T-real" }));
+  it("a chip's × drops JUST that axis and re-runs at once", async () => {
+    __injectMockTask(mkTask({ id: "t-aaa1", title: "第一張" }));
+    __injectMockTask(mkTask({ id: "t-bbb2", title: "第二張" }));
+    const { queryByText, findAllByTestId } = renderPage();
+    await waitFor(() => expect(queryByText("第二張")).toBeTruthy());
+
+    applyIdFilter("t-aaa1");
+    await waitFor(() => expect(queryByText("第二張")).toBeNull());
+
+    // Two chips now: 編號 and 狀態. Remove the id one; 狀態 must survive.
+    const chips = await findAllByTestId("tasks-filter-chip");
+    const idChip = chips.find((c) => c.textContent?.includes("編號"))!;
+    fireEvent.click(idChip.querySelector("button")!);
+
+    await waitFor(() => expect(queryByText("第二張")).toBeTruthy());
+    const summary = document.querySelector(
+      '[data-testid="tasks-filter-summary"]'
+    );
+    expect(summary?.textContent).not.toContain("編號");
+    expect(summary?.textContent).toContain("狀態");
+  });
+});
+
+describe("任務頁 ID 篩選 — 三種結局 (owner 2026-09-06 選項①)", () => {
+  it("① 404 → 「不存在」, and it says the SERVER was asked", async () => {
+    // 🔴 The distinction the whole ticket is about. This may not read as
+    // 「還沒載進來」 and may not borrow the generic filtered-empty sentence.
+    __injectMockTask(mkTask({ id: "t-real" }));
+    vi.spyOn(console, "warn").mockImplementation(() => {});
     const { findByTestId, queryByTestId } = renderPage();
     await waitFor(() => expect(queryByTestId("tasks-empty")).toBeNull());
 
-    fireEvent.change(await findByTestId("filter-task-id"), {
-      target: { value: "t-nope" },
-    });
+    applyIdFilter("t-nope");
 
-    expect(await findByTestId("tasks-empty-filtered")).toBeTruthy();
+    const missing = await findByTestId("task-id-missing");
+    expect(missing.textContent).toContain("t-nope");
+    expect(missing.textContent).toContain("跟伺服器要過");
+    expect(missing.textContent).toContain("不存在");
+    expect(queryByTestId("tasks-empty-filtered")).toBeNull();
+    expect(queryByTestId("tasks-empty")).toBeNull();
+    expect(queryByTestId("task-id-filtered")).toBeNull();
+  });
+
+  it("② found but blocked by ANOTHER axis → says so, NAMES the axis, and offers 只用編號再找一次", async () => {
+    // 🔴 THE STATE THE TICKET EXISTS FOR. Round 2 rendered this identically to
+    // ①. Here the task is real and the server returned it — it is the 狀態
+    // condition that is hiding it, and the page has to say that and nothing
+    // else.
+    __injectMockTask(mkTask({ id: "t-live", title: "還在跑" }));
+    __injectMockTask(
+      mkTask({
+        id: "t-closed",
+        title: "收工了",
+        status: "done",
+        closedTs: Date.now() / 1000 - 60,
+      })
+    );
+    const { findByTestId, queryByTestId, queryByText } = renderPage();
+    await waitFor(() => expect(queryByText("還在跑")).toBeTruthy());
+
+    // The default 狀態 set excludes terminals, so this id is real but filtered.
+    applyIdFilter("t-closed");
+
+    const blocked = await findByTestId("task-id-filtered");
+    expect(blocked.textContent).toContain("t-closed");
+    expect(blocked.textContent).toContain("狀態"); // the axis, named
+    // It must NOT collapse into either of the other two answers.
+    expect(queryByTestId("task-id-missing")).toBeNull();
+    expect(queryByTestId("tasks-empty-filtered")).toBeNull();
+    // The card itself is not shown — every condition ANDs, so it really is out.
+    expect(queryByText("收工了")).toBeNull();
+
+    // …and the exit works: drop the other axes, keep the id, and there it is.
+    fireEvent.click(await findByTestId("task-id-only"));
+    await waitFor(() => expect(queryByText("收工了")).toBeTruthy());
+    expect(queryByTestId("task-id-filtered")).toBeNull();
+  });
+
+  it("② names the 負責人 axis when THAT is the one blocking it", async () => {
+    // Non-vacuity control for the 狀態 case: the notice reports which condition
+    // actually blocked the row, not a fixed word.
+    __injectMockTask(mkTask({ id: "t-kyle", title: "凱爾的", executorId: "kyle" }));
+    __injectMockTask(mkTask({ id: "t-mira", title: "米菈的", executorId: "mira" }));
+    const { findByTestId, queryByText } = renderPage();
+    await waitFor(() => expect(queryByText("凱爾的")).toBeTruthy());
+
+    toggleFilter("filter-executor", "mira");
+    await waitFor(() => expect(queryByText("凱爾的")).toBeNull());
+
+    applyIdFilter("t-kyle");
+    const blocked = await findByTestId("task-id-filtered");
+    expect(blocked.textContent).toContain("負責人");
+    expect(blocked.textContent).not.toContain("狀態");
+  });
+
+  it("③ found and passing every other condition → that ONE row is the list", async () => {
+    __injectMockTask(mkTask({ id: "t-aaa1", title: "第一張" }));
+    __injectMockTask(mkTask({ id: "t-bbb2", title: "第二張" }));
+    const { queryByText, queryByTestId } = renderPage();
+    await waitFor(() => expect(queryByText("第二張")).toBeTruthy());
+
+    applyIdFilter("t-aaa1");
+    await waitFor(() => expect(queryByText("第二張")).toBeNull());
+    expect(queryByText("第一張")).toBeTruthy();
+    expect(queryByTestId("task-id-missing")).toBeNull();
+    expect(queryByTestId("task-id-filtered")).toBeNull();
+  });
+
+  it("a NON-404 failure is not a miss: it says the server was never reached", async () => {
+    // 500 / offline. 「找不到」 would be an answer to a question that never got
+    // asked, and the owner would read a broken server as a deleted task.
+    __injectMockTask(mkTask({ id: "t-real" }));
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    vi.spyOn(api, "getTask").mockRejectedValue(new Error("boom"));
+    const { findByTestId, queryByTestId } = renderPage();
+
+    applyIdFilter("t-real");
+
+    const err = await findByTestId("tasks-error");
+    expect(err.textContent).toContain("沒有得到伺服器的回覆");
+    // It may only mention 找不到 to DENY it — never as the verdict.
+    expect(err.textContent).toContain("這不是「找不到」");
+    // No answer of any other kind may be on screen.
+    expect(queryByTestId("task-id-missing")).toBeNull();
+    expect(queryByTestId("task-id-filtered")).toBeNull();
+    expect(queryByTestId("tasks-empty-filtered")).toBeNull();
     expect(queryByTestId("tasks-empty")).toBeNull();
   });
 
-  it("清除篩選 appears for a TYPED id with no hash, and empties the field", async () => {
-    // Gate the button on the hash anchor alone and this case loses it: the
-    // owner types an id, the list narrows, and nothing on screen clears it.
-    __injectMockTask(mkTask({ id: "t-real", taskNo: "T-real" }));
-    const { findByTestId, queryByTestId } = renderPage();
+  it("🔴 typing asks the server NOTHING; 套用篩選 asks exactly once", async () => {
+    // The rewritten form of round 2's 「typing NEVER asks the server」. The
+    // must-fix it came from (an independent review's 「一個字元一個請求」 on
+    // 請示卡頁) is still the thing guarded — what changed is that a COMMITTED id
+    // is now allowed to cost exactly one request, which is what makes ① and ②
+    // distinguishable at all.
+    const spy = vi.spyOn(api, "getTask");
+    __injectMockTask(mkTask({ id: "t-abcdef" }));
+    const { findByTestId } = renderPage();
 
-    const field = (await findByTestId("filter-task-id")) as HTMLInputElement;
-    fireEvent.change(field, { target: { value: "t-re" } });
+    openFilterPanel();
+    const field = await findByTestId("filter-task-id");
+    for (const v of ["t", "t-", "t-a", "t-ab", "t-abc", "t-abcdef"]) {
+      fireEvent.change(field, { target: { value: v } });
+    }
+    await waitFor(() =>
+      expect((field as HTMLInputElement).value).toBe("t-abcdef")
+    );
+    expect(spy, "six keystrokes must cost zero requests").not.toHaveBeenCalled();
 
-    const clear = await findByTestId("clear-filters");
-    fireEvent.click(clear);
-    await waitFor(() => expect(field.value).toBe(""));
+    applyFilters();
+    await waitFor(() => expect(spy).toHaveBeenCalledWith("t-abcdef"));
+    // ⚠️ NOT asserted as "exactly one call ever": the located card expands
+    // itself (TaskCard's `located` effect) and hydrates its own detail through
+    // the same `api.getTask`, so a second read arrives for a reason that has
+    // nothing to do with filtering. What the filter must not do is ask PER
+    // KEYSTROKE, and that is the assertion above this one.
+  });
+});
+
+describe("任務頁 ID 篩選 — 清除與 hash", () => {
+  it("清除全部 empties the field and every other axis", async () => {
+    __injectMockTask(mkTask({ id: "t-real" }));
+    const { findByTestId } = renderPage();
+
+    applyIdFilter("t-real");
+    await findByTestId("tasks-filter-clear");
+    clearAllFilters();
+
+    // The strip is gone entirely — nothing narrows any more.
+    await waitFor(() =>
+      expect(
+        document.querySelector('[data-testid="tasks-filter-summary"]')
+      ).toBeNull()
+    );
     expect(window.location.hash).toBe("");
-    expect(queryByTestId("tasks-empty-filtered")).toBeNull();
+    openFilterPanel();
+    expect(
+      ((await findByTestId("filter-task-id")) as HTMLInputElement).value
+    ).toBe("");
   });
 
-  it("🔴 after 清除篩選 empties every OTHER axis, typing an id brings the button BACK", async () => {
-    // The discriminating case, and the only one that is: 狀態 opens at
-    // DEFAULT_STATUS, so `statusFilter.size > 0` is true from mount and
-    // `anyFilter` is true no matter what the id clause says. Deleting the
-    // `idQuery !== ""` clause therefore leaves EVERY other spec in this file
-    // green (measured: 8/8 pass with it removed).
-    //
-    // 清除篩選 empties the status set too (所有狀態), so AFTER pressing it every
-    // other axis is unconstrained — and that is the one state where the id
-    // clause is load-bearing. Without it the owner types an id, the list
-    // narrows, and the only control that could widen it again is gone from the
-    // screen.
-    __injectMockTask(mkTask({ id: "t-aaa1", taskNo: "T-aaa1", title: "第一張" }));
-    __injectMockTask(mkTask({ id: "t-bbb2", taskNo: "T-bbb2", title: "第二張" }));
-    const { findByTestId, queryByTestId, queryByText } = renderPage();
-
-    // 1. Wipe every axis, so nothing but the id can make anyFilter true.
-    fireEvent.click(await findByTestId("clear-filters"));
-    await waitFor(() => expect(queryByTestId("clear-filters")).toBeNull());
-
-    // 2. Type an id. The list narrows…
-    const field = (await findByTestId("filter-task-id")) as HTMLInputElement;
-    fireEvent.change(field, { target: { value: "aaa" } });
-    await waitFor(() => expect(queryByText("第二張")).toBeNull());
-
-    // 3. …so the way out must be back on screen.
-    expect(await findByTestId("clear-filters")).toBeTruthy();
-  });
-
-  it("清除篩選 also drops the id from the URL when the hash seeded it", async () => {
+  it("清除全部 also drops the id from the URL when the hash seeded it", async () => {
     // Without this the field clears, the list widens, and a reload seeds the
     // filter straight back — the clear looks broken to the owner.
-    __injectMockTask(mkTask({ id: "t-seed", taskNo: "T-seed" }));
+    __injectMockTask(mkTask({ id: "t-seed" }));
     window.location.hash = "#tasks/t-seed";
     const { findByTestId } = renderPage();
 
-    const field = (await findByTestId("filter-task-id")) as HTMLInputElement;
-    await waitFor(() => expect(field.value).toBe("t-seed"));
+    // The hash seeds the APPLIED id, so the strip names it without the panel
+    // ever being opened.
+    await waitFor(() =>
+      expect(
+        document.querySelector('[data-testid="tasks-filter-summary"]')
+          ?.textContent
+      ).toContain("編號：t-seed")
+    );
 
-    fireEvent.click(await findByTestId("clear-filters"));
+    clearAllFilters();
     // `#tasks`, not "": clearing returns the route to the plain 任務頁 rather
     // than to the app's home. What matters is that the ID is GONE — leave it in
     // and a reload seeds the filter straight back.
     await waitFor(() => expect(window.location.hash).toBe("#tasks"));
     expect(window.location.hash).not.toContain("t-seed");
-    expect(field.value).toBe("");
-  });
-
-  it("🔴 typing NEVER asks the server for a task", async () => {
-    // The must-fix an independent review returned on 請示卡頁, pinned here
-    // BEFORE 任務頁 can grow it. The hash path legitimately calls getTask; this
-    // spec types into the field with NO hash, so any call at all is the defect.
-    const spy = vi.spyOn(api, "getTask");
-    __injectMockTask(mkTask({ id: "t-abcdef", taskNo: "T-abcdef" }));
-    const { findByTestId } = renderPage();
-    const field = await findByTestId("filter-task-id");
-
-    for (const v of ["t", "t-", "t-a", "t-ab", "t-abc", "t-abcdef"]) {
-      fireEvent.change(field, { target: { value: v } });
-    }
-    await waitFor(() => expect((field as HTMLInputElement).value).toBe("t-abcdef"));
-    expect(spy).not.toHaveBeenCalled();
+    openFilterPanel();
+    expect(
+      ((await findByTestId("filter-task-id")) as HTMLInputElement).value
+    ).toBe("");
   });
 
   it("the field's width comes from the id's LENGTH, not from a literal", async () => {
@@ -215,6 +413,7 @@ describe("任務頁 ID 篩選", () => {
     // jsdom computes no layout, so a pixel assertion here would be theatre.
     // The real geometry is measured by the CT guard in visual-guards/.
     const { findByTestId } = renderPage();
+    openFilterPanel();
     const field = (await findByTestId("filter-task-id")) as HTMLInputElement;
     // A custom property, not a width: idFilter.css owns the box model, because
     // the field has to run `content-box` against the app's global `border-box`
