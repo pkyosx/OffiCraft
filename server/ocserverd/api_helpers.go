@@ -623,24 +623,19 @@ func memberAvatarURL(attachmentID string) string {
 	return "/api/chat/attachment/" + attachmentID
 }
 
-// writeMemberDTO is the common single-member response tail (role name folded,
-// no observed machine / unread injection).
-func (s *apiServer) writeMemberDTO(w http.ResponseWriter, m Member) {
-	roleName, err := s.memberRoleName(m)
-	if err != nil {
-		internalError(w, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, s.newMemberDTO(m, roleName, "", 0))
-}
-
 // writeSelfReportReceipt is the common tail of the FOUR self-report faces —
 // report_waking, report_stopping, report_stopped and restart_self (T-91). All
 // four used to answer with the whole MemberDTO.
 //
-// 🔴 IT IS A SECOND TAIL, NOT A CHANGE TO writeMemberDTO. That one still serves
-// the dozen owner-facing member routes (hire, activate, deactivate, update,
-// relocate, refocus_member and the rest), which are outside this reshape.
+// 🔴 IT IS ITS OWN TAIL, and it used to be justified here by a sentence that has
+// now been retracted rather than deleted: it said the dozen member routes (hire,
+// activate, deactivate, update, relocate, refocus_member and the rest) were
+// "owner-facing … outside this reshape". The second half was true when written;
+// the first half never was — every one of those routes is an agent-callable MCP
+// tool. Owner extended the reshape over them on 2026-09-06, so they now answer
+// receipts of their own (agentLifecycleReceiptDTO, memberActivateReceiptDTO,
+// agentRelocateReceiptDTO) and the shared writeMemberDTO tail they used is gone.
+// This one stays separate because the fields it keeps are different ones.
 //
 // The three fields it keeps beside the id are the ones an agent reporting on
 // ITSELF cannot get anywhere else at that moment: whether the boot is still

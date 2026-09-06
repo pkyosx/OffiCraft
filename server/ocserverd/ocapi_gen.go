@@ -380,6 +380,32 @@ type AgentContextIngestDTO struct {
 	RateLimits      *map[string]interface{} `json:"rate_limits,omitempty"`
 }
 
+// AgentLifecycleReceiptDTO Bounded receipt for the TWELVE agent-lifecycle writes whose entire answer was a re-read of the row they had just written (T-91, owner 2026-09-06). Seven staff routes — “POST /api/members“ (hire_member), “PATCH“ (update_member), “DELETE“ (dismiss_member), “/deactivate“, “/refocus“, “/force-stop“, “/accelerated-stop“ — answered the whole MemberDTO, 33 fields flattened; five worker routes — “/stop“, “/model“, “/refocus“, “/force-stop“, “/accelerated-stop“ — answered the whole OutsourceWorkerDTO, 42 fields. All twelve are agent-callable MCP tools, so those answers land in a model's context.
+//
+// WHY ID ALONE IS THE WHOLE OF THE NEWS HERE, stated as something that can be checked rather than asserted: each of the twelve handlers ends on the shared projection fold (writeMemberDTO / writeWorkerProjection) with NO response-only mutation. The whole server has exactly five of those — api_members.go:1104, 1278 and 1287, api_outsource.go:357 and 361 — and every one belongs to activate or to a relocate, which is why those three routes have receipts of their own and these twelve do not. So nothing on this wire was unrecoverable: “get_member“ and “list_outsource_workers“ serve all of it, at the moment the caller actually wants it rather than at the moment it wrote.
+//
+// THE COCKPIT LOSES NOTHING, checked call site by call site rather than inferred from the adapter: all twelve are awaited for their completion and their value discarded (frontend/src/components/OfficePage.tsx, MemberDetailPanel.tsx, MonitorPage.tsx). Two adapters did parse the answer on the way past — “patchMember“ returned “toMember(wire)“ and the five worker verbs returned “toOutsourceWorker(wire)“ — and no caller read what they returned; those adapters answer “void“ in the same change, which is what every one of their callers already treated them as.
+type AgentLifecycleReceiptDTO struct {
+	// Id The agent this write acted on. On eleven of the twelve routes it is the caller's own path parameter, kept for the reason the restart receipt keeps it: a receipt that cannot say which agent it acted on is unreadable next to a log of several. On ``POST /api/members`` it is the one piece of genuine news on the wire — the server mints the id, and a caller that dropped it would have to search the roster for the row it had just created.
+	Id string `json:"id"`
+}
+
+// AgentRelocateReceiptDTO Bounded receipt shared by BOTH relocate routes — “POST /api/members/{member_id}/relocate“ (relocate_member) and “POST /api/outsource-workers/{id}/relocate“ (T-91, owner 2026-09-06). They answered the whole MemberDTO (33 fields) and the whole OutsourceWorkerDTO (42 fields) respectively.
+//
+// ONE RECEIPT FOR THE TWO IS WHAT MAKES THIS PAGE TRUE, not a tidy-up. The member route accepts an ow- id as well — the verb is "move one agent" — and delegates it to relocateWorkerByID (api_members.go:1181-1185), which writes the WORKER projection. So that route could already answer an OutsourceWorkerDTO while this document said MemberDTO. The two answers are now the same three fields whichever kind of agent was named, and the disagreement is gone rather than documented.
+//
+// NEITHER FLAG IS RECOVERABLE, which is why this is not an id-only receipt: both are computed at dispatch time and written onto the RESPONSE ONLY — api_members.go:1278 and 1287 for the member arm, api_outsource.go:357 and 361 for the worker arm. The cockpit reads both on the member arm (frontend/src/api/http.ts relocateMember) and discards the worker arm's answer entirely. Everything else the two DTOs carried is the stored row, which “get_member“ and “list_outsource_workers“ serve.
+type AgentRelocateReceiptDTO struct {
+	// Id The agent this relocate was aimed at — the caller's own path parameter, kept because a receipt that cannot say which agent it acted on is unreadable next to a log of several.
+	Id string `json:"id"`
+
+	// RelocationDeferred WHICH of ``relocation_pending``'s two causes this is: true means a deliberately deferred move — a wind-down is open and the agent keeps running on the old machine until its own 收口 — rather than a delivery failure. A caller must hold back the "nothing was dispatched" alert for this case; the cockpit does exactly that.
+	RelocationDeferred *bool `json:"relocation_deferred,omitempty"`
+
+	// RelocationPending True when the move is SCHEDULED BUT NOT LANDED. The pin itself is persisted before any dispatch, so a relocate never fails on dispatch — and that is what made a clean 200 dangerous. Two different non-landings reach this flag: a decided recycle STOP/START the target warden would not accept, and a wind-down opened by design so nothing has been dispatched yet. Absent means nothing was left undelivered; it does NOT mean the agent is already running on the pin. The cadence retries the pinned move regardless.
+	RelocationPending *bool `json:"relocation_pending,omitempty"`
+}
+
 // AgentRuntime AI CLI runtime selected per member or outsource worker. Existing rows and omitted inputs default to “claude“ for backward compatibility.
 type AgentRuntime string
 
@@ -1558,6 +1584,22 @@ type MarkChatReadDTO struct {
 // from-token audit: they were never a target, only self-runtime metadata now gone.)
 type MemberActivateDTO struct {
 	MachineId *string `json:"machine_id,omitempty"`
+}
+
+// MemberActivateReceiptDTO Bounded receipt for “POST /api/members/{member_id}/activate“ (activate_member) (T-91, owner 2026-09-06). It answered the whole MemberDTO, 33 fields flattened, and it is agent-callable, so that answer lands in a model's context.
+//
+// THIS ONE CANNOT COLLAPSE TO AN ID, and for the same reason its worker twin cannot (OutsourceRestartReceiptDTO): “activation_pending“ is computed at dispatch time and written onto the RESPONSE ONLY (api_members.go:1103-1104). It is one of the three flags this document describes as set only on this kind of response and absent or null on every other read, so a caller that drops it cannot ask again — there is no row to ask. The cockpit already depends on exactly this: frontend/src/api/http.ts activateMember returns “{activationPending: wire.activation_pending === true}“ and the 喚醒中… button stays put on true.
+//
+// “last_op_reason“ rides beside it for the reason api_members.go:1105-1112 gives in its own words — the flag is one bit and at least four different states reach it, so the handler stamps WHICH one on the row before answering. Unlike the flag this one IS recoverable from “get_member“; it is kept because a caller holding a pending bit with no cause has to make a second call to act on the first, which is the round trip this whole reshape exists to remove. Everything else the DTO carried is the member's stored row, which “get_member“ serves.
+type MemberActivateReceiptDTO struct {
+	// ActivationPending True when the activation intent was STORED but no START went out on this attempt — a warden that would not take it, an unbuildable start frame (missing persona or token), a backoff, an open circuit. It is a POSITIVE determination rather than a list of known failures: the handler asks whether a START actually went out, so failure modes not yet invented answer honestly here too. Absent when the member was already online or the start landed. It is here or nowhere: the flag is set only on responses of this kind and is absent or null on every other read of the member.
+	ActivationPending *bool `json:"activation_pending,omitempty"`
+
+	// Id The member this activation was aimed at — the caller's own path parameter, kept because a receipt that cannot say which member it acted on is unreadable next to a log of several.
+	Id string `json:"id"`
+
+	// LastOpReason WHICH cause, as a structured ``<code>: <detail>`` line, stamped on the row by the same handler before it answers. An arm that named no code falls back to the generic "活化 was recorded, but nothing has been dispatched yet". Empty when there is no refusal to report.
+	LastOpReason *string `json:"last_op_reason,omitempty"`
 }
 
 // MemberAvatarDTO Narrow result of an owner-only personal-avatar mutation. “avatar_url“ is a newly minted authenticated blob path after upload and empty after removal; the changing blob id naturally cache-busts replacements.
@@ -4612,22 +4654,22 @@ type ServerInterface interface {
 	// List every member that has not been removed, including outsource members by default (presence-derived MemberDTO[]). fields=light returns an identity-only projection that preserves kind.
 	// (GET /api/members)
 	HandleListMembersApiMembersGet(w http.ResponseWriter, r *http.Request, params HandleListMembersApiMembersGetParams)
-	// Hire a member (server mints the id). An omitted runtime is stored UNSET and resolved from the target host's reported runtime capabilities at first placement (a codex-only host grows a codex member) rather than written as claude; only claude/codex are accepted when you do name one; effort defaults to medium and is validated; a hire that names kind or role_key is admin-gated.
+	// Hire a member (server mints the id). An omitted runtime is stored UNSET and resolved from the target host's reported runtime capabilities at first placement (a codex-only host grows a codex member) rather than written as claude; only claude/codex are accepted when you do name one; effort defaults to medium and is validated; a hire that names kind or role_key is admin-gated. Answers with a bounded receipt (“id“), not the roster row — call “get_member“ when you need the rest.
 	// (POST /api/members)
 	HandleHireMemberApiMembersPost(w http.ResponseWriter, r *http.Request)
-	// Dismiss a member (soft delete). Pure seam, no UI (§9.1).
+	// Dismiss a member (soft delete). Pure seam, no UI (§9.1). Answers with a bounded receipt (“id“), not the roster row — call “get_member“ when you need the rest.
 	// (DELETE /api/members/{member_id})
 	HandleDismissMemberApiMembersMemberIdDelete(w http.ResponseWriter, r *http.Request, memberId string)
 	// Read one member row — STAFF OR OUTSOURCE, matching what GET /api/members already lists (removed → 404). It answered 404 for an ow- id until 2026-08-28, which cost the cockpit one guaranteed failed request plus a whole-roster refetch on every contractor chat line; the write verbs on this same {member_id} keep refusing outsource and say so themselves.
 	// (GET /api/members/{member_id})
 	HandleGetMemberApiMembersMemberIdGet(w http.ResponseWriter, r *http.Request, memberId string)
-	// Partially update a member's name / runtime / model / effort. Blank name, invalid runtime or invalid effort → 422, and changing a launch-intent field arms a graceful handover.
+	// Partially update a member's name / runtime / model / effort. Blank name, invalid runtime or invalid effort → 422, and changing a launch-intent field arms a graceful handover. Answers with a bounded receipt (“id“), not the roster row — call “get_member“ when you need the rest.
 	// (PATCH /api/members/{member_id})
 	HandleUpdateMemberApiMembersMemberIdPatch(w http.ResponseWriter, r *http.Request, memberId string)
-	// 加速停止: put an ALREADY-OPEN wind-down on the stop.accelerated_grace_secs clock and tell the member. 409 if nothing is winding down -- press 停止 first. Middle rung of 停止 -> 加速停止 -> 強制停止.
+	// 加速停止: put an ALREADY-OPEN wind-down on the stop.accelerated_grace_secs clock and tell the member. 409 if nothing is winding down -- press 停止 first. Middle rung of 停止 -> 加速停止 -> 強制停止. Answers with a bounded receipt (“id“), not the roster row — call “get_member“ when you need the rest.
 	// (POST /api/members/{member_id}/accelerated-stop)
 	HandleAcceleratedStopMemberApiMembersMemberIdAcceleratedStopPost(w http.ResponseWriter, r *http.Request, memberId string)
-	// Activate: write desired_state=online intent (does NOT flip online).
+	// Activate: write desired_state=online intent (does NOT flip online). Answers with a bounded receipt (“id“, “activation_pending“, “last_op_reason“), not the roster row — call “get_member“ when you need the rest.
 	// (POST /api/members/{member_id}/activate)
 	HandleActivateMemberApiMembersMemberIdActivatePost(w http.ResponseWriter, r *http.Request, memberId string)
 	// Remove a member's personal avatar (owner only).
@@ -4639,16 +4681,16 @@ type ServerInterface interface {
 	// Reset one actor's estimated spend to zero (owner-only, irreversible): clears the durable banked figure AND the live telemetry figure.
 	// (POST /api/members/{member_id}/cost/reset)
 	HandleResetCostApiMembersMemberIdCostResetPost(w http.ResponseWriter, r *http.Request, memberId string)
-	// Deactivate: desired_state=offline + stamp stopping_since (retains row).
+	// Deactivate: desired_state=offline + stamp stopping_since (retains row). Answers with a bounded receipt (“id“), not the roster row — call “get_member“ when you need the rest.
 	// (POST /api/members/{member_id}/deactivate)
 	HandleDeactivateMemberApiMembersMemberIdDeactivatePost(w http.ResponseWriter, r *http.Request, memberId string)
-	// Force-stop: robust STOP now. On the offboard arm the server starts no clock of its own -- collection is the agent's report_stopped, the deadline the owner opens with 加速停止, or this.
+	// Force-stop: robust STOP now. On the offboard arm the server starts no clock of its own -- collection is the agent's report_stopped, the deadline the owner opens with 加速停止, or this. Answers with a bounded receipt (“id“), not the roster row — call “get_member“ when you need the rest.
 	// (POST /api/members/{member_id}/force-stop)
 	HandleForceStopMemberApiMembersMemberIdForceStopPost(w http.ResponseWriter, r *http.Request, memberId string)
-	// Refocus a member's context (online-only, else 409).
+	// Refocus a member's context (online-only, else 409). Answers with a bounded receipt (“id“), not the roster row — call “get_member“ when you need the rest.
 	// (POST /api/members/{member_id}/refocus)
 	HandleRefocusMemberApiMembersMemberIdRefocusPost(w http.ResponseWriter, r *http.Request, memberId string)
-	// Relocate a member to a machine (placement only; never touches desired_state). Also accepts an outsource-worker id: the same move-one-agent verb relocates the worker. machine_id is REQUIRED (owner 2026-07-27): a relocate NAMES the destination machine and no longer doubles as an unpin — an absent key is a 422, an explicit null or "" is a 400.
+	// Relocate a member to a machine (placement only; never touches desired_state). Also accepts an outsource-worker id: the same move-one-agent verb relocates the worker. machine_id is REQUIRED (owner 2026-07-27): a relocate NAMES the destination machine and no longer doubles as an unpin — an absent key is a 422, an explicit null or "" is a 400. Answers with a bounded receipt (“id“, “relocation_pending“, “relocation_deferred“), not the roster row — call “get_member“ when you need the rest.
 	// (POST /api/members/{member_id}/relocate)
 	HandleRelocateMemberApiMembersMemberIdRelocatePost(w http.ResponseWriter, r *http.Request, memberId string)
 	// The SAME bounded wake snapshot as resume_summary, for a TARGET member (member_id) instead of the caller — control-others, admin_agent+ only (owner-scope or role=assistant); an ordinary agent gets 403. Same identity/chat/light-task-rows/roster/machines/overview/note shape, assembled by the identical resumeSnapshotParts function (so the roster and machine blocks cannot drift from what that member would get on waking; note that machines.you_are_on resolves for the TARGET member, not for you); resume_summary itself is unchanged and still identity-locked to the caller.
@@ -4705,28 +4747,28 @@ type ServerInterface interface {
 	// Read one outsource worker by id (detail-panel refresh).
 	// (GET /api/outsource-workers/{id})
 	HandleGetOutsourceWorkerApiOutsourceWorkersIdGet(w http.ResponseWriter, r *http.Request, id string)
-	// 加速停止 an outsource worker: put its ALREADY-OPEN wind-down (a 停止 or a 換手) on the stop.accelerated_grace_secs clock and tell it. 409 if none is open.
+	// 加速停止 an outsource worker: put its ALREADY-OPEN wind-down (a 停止 or a 換手) on the stop.accelerated_grace_secs clock and tell it. 409 if none is open. Answers with a bounded receipt (“id“), not the roster row — call “list_outsource_workers“ when you need the rest.
 	// (POST /api/outsource-workers/{id}/accelerated-stop)
 	HandleAcceleratedStopOutsourceWorkerApiOutsourceWorkersIdAcceleratedStopPost(w http.ResponseWriter, r *http.Request, id string)
 	// Read an outsource worker's boot-context preview (owner/admin agent).
 	// (GET /api/outsource-workers/{id}/boot-context)
 	HandleGetWorkerBootContextApiOutsourceWorkersIdBootContextGet(w http.ResponseWriter, r *http.Request, id string)
-	// 強制停止 an outsource worker: kill the session NOW and hold it down; says nothing to it. Third rung of 停止 -> 加速停止 -> 強制停止.
+	// 強制停止 an outsource worker: kill the session NOW and hold it down; says nothing to it. Third rung of 停止 -> 加速停止 -> 強制停止. Answers with a bounded receipt (“id“), not the roster row — call “list_outsource_workers“ when you need the rest.
 	// (POST /api/outsource-workers/{id}/force-stop)
 	HandleForceStopOutsourceWorkerApiOutsourceWorkersIdForceStopPost(w http.ResponseWriter, r *http.Request, id string)
-	// Change (換 model) an outsource worker's model/effort (same floor as the staff model edit). On a worker whose stop is IN FLIGHT OR HAS LANDED it ALSO queues the restart (restart_after_stop), so the worker comes back up ON THE NEW MODEL once the stop converges — an edit is no longer only a save. A worker nobody ever asked to stop is still only persisted.
+	// Change (換 model) an outsource worker's model/effort (same floor as the staff model edit). On a worker whose stop is IN FLIGHT OR HAS LANDED it ALSO queues the restart (restart_after_stop), so the worker comes back up ON THE NEW MODEL once the stop converges — an edit is no longer only a save. A worker nobody ever asked to stop is still only persisted. Answers with a bounded receipt (“id“), not the roster row — call “list_outsource_workers“ when you need the rest.
 	// (POST /api/outsource-workers/{id}/model)
 	HandleSetOutsourceWorkerModelApiOutsourceWorkersIdModelPost(w http.ResponseWriter, r *http.Request, id string)
-	// Refocus (換手) an outsource worker's context; on a STOPPED worker it queues the 起來 instead of refusing (owner/admin agent).
+	// Refocus (換手) an outsource worker's context; on a STOPPED worker it queues the 起來 instead of refusing (owner/admin agent). Answers with a bounded receipt (“id“), not the roster row — call “list_outsource_workers“ when you need the rest.
 	// (POST /api/outsource-workers/{id}/refocus)
 	HandleRefocusOutsourceWorkerApiOutsourceWorkersIdRefocusPost(w http.ResponseWriter, r *http.Request, id string)
-	// Relocate an outsource worker to a machine (admin-gated).
+	// Relocate an outsource worker to a machine (admin-gated). Answers with a bounded receipt (“id“, “relocation_pending“, “relocation_deferred“), not the roster row — call “list_outsource_workers“ when you need the rest.
 	// (POST /api/outsource-workers/{id}/relocate)
 	HandleRelocateOutsourceWorkerApiOutsourceWorkersIdRelocatePost(w http.ResponseWriter, r *http.Request, id string)
 	// Restart (重啟) an outsource worker (owner/admin agent; a live worker is displaced, not refused). Answers with a bounded receipt (“id“, “activation_pending“, “last_op_reason“), not the worker — call “list_outsource_workers“ when you need the rest.
 	// (POST /api/outsource-workers/{id}/restart)
 	HandleRestartOutsourceWorkerApiOutsourceWorkersIdRestartPost(w http.ResponseWriter, r *http.Request, id string)
-	// Stop (停止) an outsource worker: ask it to work its 〈停止〉 document and wait for its own report_stopped -- no kill, no deadline (owner/admin agent).
+	// Stop (停止) an outsource worker: ask it to work its 〈停止〉 document and wait for its own report_stopped -- no kill, no deadline (owner/admin agent). Answers with a bounded receipt (“id“), not the roster row — call “list_outsource_workers“ when you need the rest.
 	// (POST /api/outsource-workers/{id}/stop)
 	HandleStopOutsourceWorkerApiOutsourceWorkersIdStopPost(w http.ResponseWriter, r *http.Request, id string)
 	// Read the VAPID public key used to subscribe this owner's browser.

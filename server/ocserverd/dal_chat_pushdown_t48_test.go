@@ -316,19 +316,14 @@ func TestOutsourceUnreadFacesMatchTheGoFold(t *testing.T) {
 				actor, one.UnreadCount, want)
 		}
 
-		// FACE 3 — writeWorkerProjectionWith, the shared post-op fold behind
-		// every owner lifecycle verb (relocate / refocus / stop / restart / model).
-		rec = httptest.NewRecorder()
-		api.writeWorkerProjection(rec,
-			taskReq(t, "POST", "/api/outsource-workers/"+workerID+"/stop", nil, actor, "owner"), *worker)
-		if rec.Code != 200 {
-			t.Fatalf("actor %s: projection → %d %s", actor, rec.Code, rec.Body.String())
-		}
-		proj := decodeBody[outsourceWorkerDTO](t, rec)
-		if proj.UnreadCount != want {
-			t.Fatalf("actor %s: post-op projection unread_count = %d, the Go fold says %d",
-				actor, proj.UnreadCount, want)
-		}
+		// FACE 3 IS GONE, and it is gone because the thing it guarded stopped
+		// being reachable (T-91, owner 2026-09-06). It used to call
+		// writeWorkerProjection — the shared post-op fold behind every owner
+		// lifecycle verb — and check that the unread_count it folded belonged to
+		// the CALLER rather than to whoever the verb acted on. Those verbs now
+		// answer a bounded receipt that carries no unread_count and no projection
+		// at all, so there is no per-actor fold left on that path to get wrong.
+		// The two faces above are the whole of the surface that still serves one.
 	}
 	// The fixture must actually SEPARATE the actors, or all fifteen comparisons
 	// above are the same number compared to itself.

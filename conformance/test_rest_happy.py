@@ -228,6 +228,58 @@ def _check_account_cost_reset_receipt(_ctx: HCtx, r: httpx.Response) -> None:
     assert data.get("cleared_cost") is None, data
 
 
+# ── T-91: the fifteen agent-lifecycle writes answer a receipt ────────────────
+# Owner extended the reshape over them on 2026-09-06. Two things have to be
+# pinned here and they are different claims: that the ANSWER is the receipt and
+# nothing wider, and that the write still DID what it says. The first is key-set
+# equality rather than a presence check, because an assertion that only names
+# the keys it wants stays green when the whole roster row comes back around it —
+# which is the exact regression this reshape exists to prevent. The second moved
+# to a follow-up GET, which is what the cockpit itself does now.
+_LIFECYCLE_KEYS = {"id"}
+_ACTIVATE_KEYS = {"id", "activation_pending", "last_op_reason"}
+_RELOCATE_KEYS = {"id", "relocation_pending", "relocation_deferred"}
+
+
+def _receipt_then_member(keys: set[str], predicate=None, *, required: set[str] | None = None):
+    """Pin the receipt's key set, then re-read the member it names.
+
+    ``keys`` is the CLOSED set the response may draw from; ``required`` names the
+    ones that must actually be present (the optional flags are omitted when they
+    have nothing to report, so containment is the honest test for those and
+    equality would fail on a healthy answer).
+    """
+
+    def check(ctx: HCtx, r: httpx.Response) -> None:
+        d = r.json()
+        assert set(d) <= keys, d
+        assert set(d) >= (required or {"id"}), d
+        assert d["id"], d
+        if predicate is None:
+            return
+        g = ctx.client.get(
+            f"/api/members/{d['id']}",
+            headers={"Authorization": f"Bearer {ctx.owner_token}"},
+        )
+        assert g.status_code == 200, (g.status_code, g.text)
+        assert predicate(ctx, g.json()), f"post-write read: {json.dumps(g.json())[:500]}"
+
+    return check
+
+
+def _check_dismiss_receipt(ctx: HCtx, r: httpx.Response) -> None:
+    d = r.json()
+    assert set(d) == _LIFECYCLE_KEYS, d
+    assert d["id"], d
+    g = ctx.client.get(
+        f"/api/members/{d['id']}",
+        headers={"Authorization": f"Bearer {ctx.owner_token}"},
+    )
+    assert g.status_code == 404, (
+        "a dismissed member still resolves — the dismiss did not land: "
+        f"{g.status_code} {g.text[:200]}")
+
+
 def _check_version(_ctx: HCtx, r: httpx.Response) -> None:
     data = r.json()
     assert data["version"] and data["catalog_hash"], data
@@ -1822,7 +1874,9 @@ HAPPY: dict[str, Happy] = {
     "GET /api/members": Happy(check=_nonempty_list),
     "POST /api/members": Happy(
         body=lambda _ctx: {"name": f"conf-happy-hire-{uuid.uuid4().hex[:8]}"},
-        check=lambda _c, r: _expect(r, lambda d: d["id"]),
+        # The minted id is the whole of the news on a hire, and the follow-up
+        # read is what proves the row it names actually exists.
+        check=_receipt_then_member(_LIFECYCLE_KEYS, lambda _c, d: d["id"]),
     ),
     "GET /api/members/{member_id}": Happy(
         path=lambda ctx: f"/api/members/{ctx.agent.member_id}",
@@ -1833,7 +1887,9 @@ HAPPY: dict[str, Happy] = {
     "PATCH /api/members/{member_id}": Happy(
         path=lambda ctx: f"/api/members/{ctx.fresh_member()}",
         body={"name": "conf-happy-renamed"},
-        check=lambda _c, r: _expect(r, lambda d: d["name"] == "conf-happy-renamed"),
+        check=_receipt_then_member(
+            _LIFECYCLE_KEYS, lambda _c, d: d["name"] == "conf-happy-renamed"
+        ),
     ),
     "PUT /api/members/{member_id}/avatar": Happy(
         path=lambda ctx: f"/api/members/{ctx.agent.member_id}/avatar"
@@ -1854,7 +1910,11 @@ HAPPY: dict[str, Happy] = {
     "POST /api/members/{member_id}/activate": Happy(
         path=lambda ctx: f"/api/members/{ctx.fresh_member()}/activate",
         body={},
-        check=lambda _c, r: _expect(r, lambda d: d["desired_state"] == "online"),
+        # activation_pending / last_op_reason are OMITTED when the start landed,
+        # so the key set is a ceiling here, not an equality.
+        check=_receipt_then_member(
+            _ACTIVATE_KEYS, lambda _c, d: d["desired_state"] == "online"
+        ),
     ),
     "POST /api/members/{member_id}/relocate": Happy(
         # placement-only 改機器: writes desired_machine_id, NEVER touches
@@ -1863,18 +1923,21 @@ HAPPY: dict[str, Happy] = {
         # landed AND desired_state was NOT flipped online.
         path=lambda ctx: f"/api/members/{ctx.fresh_member()}/relocate",
         body=lambda ctx: {"machine_id": ctx.machine_id},
-        check=lambda ctx, r: _expect(
-            r,
-            lambda d: d["desired_machine_id"] == ctx.machine_id
+        check=_receipt_then_member(
+            _RELOCATE_KEYS,
+            lambda ctx, d: d["desired_machine_id"] == ctx.machine_id
             and d.get("desired_state") != "online",
         ),
     ),
     "POST /api/members/{member_id}/deactivate": Happy(
         path=lambda ctx: f"/api/members/{ctx.fresh_member()}/deactivate",
-        check=lambda _c, r: _expect(r, lambda d: d["desired_state"] == "offline"),
+        check=_receipt_then_member(
+            _LIFECYCLE_KEYS, lambda _c, d: d["desired_state"] == "offline"
+        ),
     ),
     "POST /api/members/{member_id}/force-stop": Happy(
         path=lambda ctx: f"/api/members/{ctx.fresh_member()}/force-stop",
+        check=_receipt_then_member(_LIFECYCLE_KEYS),
     ),
     "POST /api/members/{member_id}/cost/reset": Happy(
         path=lambda ctx: f"/api/members/{ctx.fresh_member()}/cost/reset",
@@ -1886,7 +1949,13 @@ HAPPY: dict[str, Happy] = {
     ),
     "DELETE /api/members/{member_id}": Happy(
         path=lambda ctx: f"/api/members/{ctx.fresh_member()}",
-        check=lambda _c, r: _expect(r, lambda d: d["roster_status"] == "removed"),
+        # 🔴 NO follow-up read here, and the reason is worth stating: a dismiss
+        # is a soft delete on the row but the member GET stops resolving it
+        # (404), so the old roster_status=="removed" claim has no read face
+        # left to be made against. What is checked instead is that the id came
+        # back and that the row it names no longer resolves — which is the
+        # observable half of the dismissal, and the half a caller acts on.
+        check=_check_dismiss_receipt,
     ),
     # ── webhooks (M4) — a member's 回呼端點 config CRUD (admin_agent floor since
     # T-5336; the DTO carries the endpoint's plaintext inlet token) ───────────
@@ -3355,7 +3424,12 @@ def test_relocate_requires_a_machine_that_resolves(hctx: HCtx) -> None:
         f"/api/members/{member_id}/relocate",
         json={"machine_id": hctx.machine_id}, headers=h)
     assert r.status_code == 200, r.text
-    assert r.json()["desired_machine_id"] == hctx.machine_id
+    # T-91: the relocate answers a receipt, so the sentinel reads the pin back
+    # through the same helper the refusals above use — one way of asking, one
+    # thing being asked, instead of the write's own echo for the positive case
+    # and a re-read for the negative ones.
+    assert _desired_machine(hctx, member_id) == hctx.machine_id, (
+        "a relocate that answered 200 did not land the pin")
     # "" is a semantic refusal (400) and the pin survives; an ABSENT key is the
     # missing-required-field face (422). Both leave the machine just pinned.
     for body, want in (({"machine_id": ""}, 400), ({}, 422)):
@@ -3389,9 +3463,12 @@ def test_activate_requires_a_machine_that_resolves(hctx: HCtx) -> None:
         f"/api/members/{member_id}/activate",
         json={"machine_id": hctx.machine_id}, headers=h)
     assert r.status_code == 200, r.text
-    body = r.json()
-    assert body["desired_machine_id"] == hctx.machine_id, body
-    assert body["desired_state"] == "online", body
+    # T-91: the activate answers a receipt, so both halves of the sentinel are
+    # read back off the member row — the same face the refusals above are
+    # checked through, instead of the write's own echo for this one case.
+    landed = hctx.client.get(f"/api/members/{member_id}", headers=h).json()
+    assert landed["desired_machine_id"] == hctx.machine_id, landed
+    assert landed["desired_state"] == "online", landed
 
 
 def test_outsource_worker_relocate_requires_a_machine_that_resolves(

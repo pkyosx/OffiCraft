@@ -2187,7 +2187,7 @@ export interface paths {
         get: operations["handle_list_members_api_members_get"];
         put?: never;
         /**
-         * Hire a member (server mints the id). An omitted runtime is stored UNSET and resolved from the target host's reported runtime capabilities at first placement (a codex-only host grows a codex member) rather than written as claude; only claude/codex are accepted when you do name one; effort defaults to medium and is validated; a hire that names kind or role_key is admin-gated.
+         * Hire a member (server mints the id). An omitted runtime is stored UNSET and resolved from the target host's reported runtime capabilities at first placement (a codex-only host grows a codex member) rather than written as claude; only claude/codex are accepted when you do name one; effort defaults to medium and is validated; a hire that names kind or role_key is admin-gated. Answers with a bounded receipt (``id``), not the roster row — call ``get_member`` when you need the rest.
          * @description Hire a roster member (§3.4 #9; pure seam, no UI). The owner assigns the
          *     display ``name``; the server mints the ``id`` (``m-<hex>`` — never client
          *     supplied, it is the attribution key). The member starts offline/active; hiring
@@ -2227,7 +2227,7 @@ export interface paths {
         put?: never;
         post?: never;
         /**
-         * Dismiss a member (soft delete). Pure seam, no UI (§9.1).
+         * Dismiss a member (soft delete). Pure seam, no UI (§9.1). Answers with a bounded receipt (``id``), not the roster row — call ``get_member`` when you need the rest.
          * @description Dismiss a member (§3.4 #15; pure seam, no UI) — a SOFT delete:
          *     ``status="removed"`` + intent ``desired_state="offline"``, then re-put (never a hard
          *     tombstone, so attribution/audit survives). Writes INTENT only — the warden
@@ -2241,7 +2241,7 @@ export interface paths {
         options?: never;
         head?: never;
         /**
-         * Partially update a member's name / runtime / model / effort. Blank name, invalid runtime or invalid effort → 422, and changing a launch-intent field arms a graceful handover.
+         * Partially update a member's name / runtime / model / effort. Blank name, invalid runtime or invalid effort → 422, and changing a launch-intent field arms a graceful handover. Answers with a bounded receipt (``id``), not the roster row — call ``get_member`` when you need the rest.
          * @description Partially update a member's owner-editable fields (§3.4 #11: name / runtime /
          *     model / effort). PATCH semantics — only supplied fields change. A blank ``name``
          *     is a 422; a runtime outside claude/codex or effort outside low/medium/high/max is a
@@ -2329,7 +2329,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Activate: write desired_state=online intent (does NOT flip online).
+         * Activate: write desired_state=online intent (does NOT flip online). Answers with a bounded receipt (``id``, ``activation_pending``, ``last_op_reason``), not the roster row — call ``get_member`` when you need the rest.
          * @description Activate a member (§3.4 #12): write the owner's INTENT ``desired_state="online"``
          *     (and bind the reconciling ``host`` when named). Sets intent ONLY — does NOT
          *     flip ``online`` (the ACTUAL state). The server can't reach the host, so the
@@ -2362,7 +2362,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Deactivate: desired_state=offline + stamp stopping_since (retains row).
+         * Deactivate: desired_state=offline + stamp stopping_since (retains row). Answers with a bounded receipt (``id``), not the roster row — call ``get_member`` when you need the rest.
          * @description Deactivate a member (handover 層3): write the owner's INTENT
          *     ``desired_state="offline"`` and stamp ``stopping_since`` — a graceful STOP that
          *     RETAINS the roster row (``status`` stays ``active``), in contrast to dismiss
@@ -2393,7 +2393,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Force-stop: robust STOP now. On the offboard arm the server starts no clock of its own -- collection is the agent's report_stopped, the deadline the owner opens with 加速停止, or this.
+         * Force-stop: robust STOP now. On the offboard arm the server starts no clock of its own -- collection is the agent's report_stopped, the deadline the owner opens with 加速停止, or this. Answers with a bounded receipt (``id``), not the roster row — call ``get_member`` when you need the rest.
          * @description Force-stop a member: IMMEDIATELY kill the live session.
          *
          *     🔴 This is NOT a shortcut past a countdown the SERVER started — it starts none.
@@ -2449,7 +2449,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * 加速停止: put an ALREADY-OPEN wind-down on the stop.accelerated_grace_secs clock and tell the member. 409 if nothing is winding down -- press 停止 first. Middle rung of 停止 -> 加速停止 -> 強制停止.
+         * 加速停止: put an ALREADY-OPEN wind-down on the stop.accelerated_grace_secs clock and tell the member. 409 if nothing is winding down -- press 停止 first. Middle rung of 停止 -> 加速停止 -> 強制停止. Answers with a bounded receipt (``id``), not the roster row — call ``get_member`` when you need the rest.
          * @description 加速停止 (accelerated stop) — the MIDDLE rung of the owner's three-step escalation 停止 → 加速停止 → 強制停止 (owner 2026-08-21).
          *
          *     停止 asks the member to work its offboard sequence and waits INDEFINITELY: nothing on the server ever collects it (owner ruling rc-27d1710174dd). 強制停止 kills the session on the spot and deliberately says nothing at all. This endpoint is the rung between them: it puts the wind-down that is ALREADY OPEN on a clock, and TELLS the member — the same write fans an offboard notice whose sentence now quotes a deadline.
@@ -2477,7 +2477,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Refocus a member's context (online-only, else 409).
+         * Refocus a member's context (online-only, else 409). Answers with a bounded receipt (``id``), not the roster row — call ``get_member`` when you need the rest.
          * @description Refocus a member's context (§3.4 #14): record the owner's REFOCUS intent.
          *     ONLY-ONLINE gate — refused 409 unless the member's DERIVED presence is online
          *     (a context compaction is meaningless with no live session). On success the
@@ -2505,7 +2505,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Relocate a member to a machine (placement only; never touches desired_state). Also accepts an outsource-worker id: the same move-one-agent verb relocates the worker. machine_id is REQUIRED (owner 2026-07-27): a relocate NAMES the destination machine and no longer doubles as an unpin — an absent key is a 422, an explicit null or "" is a 400.
+         * Relocate a member to a machine (placement only; never touches desired_state). Also accepts an outsource-worker id: the same move-one-agent verb relocates the worker. machine_id is REQUIRED (owner 2026-07-27): a relocate NAMES the destination machine and no longer doubles as an unpin — an absent key is a 422, an explicit null or "" is a 400. Answers with a bounded receipt (``id``, ``relocation_pending``, ``relocation_deferred``), not the roster row — call ``get_member`` when you need the rest.
          * @description Relocate a member to a machine (the owner cockpit's 改機器 for a roster member; the member twin of the outsource-worker relocate). Writes the owner-pinned ``desired_machine_id`` then runs the SAME event-driven reconcile the activate click uses (``reconcileMemberNow``): a LIVE member is auto-migrated onto the chosen machine (robust STOP the old session, the next tick re-spawns on the pin); an offline member just re-pins so the next wake lands there. PLACEMENT ONLY — unlike activate it NEVER touches ``desired_state`` (a relocate is not a wake). A ``member`` delta fans out immediately. Any non-"" pin must name a real machine, else 404 — "auto" included, since it names no machine and pinned the member to a destination dispatch could never reach. P7c: ``member_id`` also accepts an outsource-worker id — an id naming no roster member falls through to the worker table and relocates that worker (the response is then an OutsourceWorkerDTO); an id in neither table stays the member 404.
          */
         post: operations["handle_relocate_member_api_members__member_id__relocate_post"];
@@ -2885,7 +2885,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * 強制停止 an outsource worker: kill the session NOW and hold it down; says nothing to it. Third rung of 停止 -> 加速停止 -> 強制停止.
+         * 強制停止 an outsource worker: kill the session NOW and hold it down; says nothing to it. Third rung of 停止 -> 加速停止 -> 強制停止. Answers with a bounded receipt (``id``), not the roster row — call ``list_outsource_workers`` when you need the rest.
          * @description 強制停止 an outsource worker — the THIRD rung of the owner's escalation 停止 → 加速停止 → 強制停止 (T-ed79, owner 2026-08-21 「強制殺移到第三顆按鈕」) and the worker twin of ``force_stop_member``.
          *
          *     This is the body ``POST /api/outsource-workers/{id}/stop`` used to have, moved to its own button rather than removed: set ``desired_state='offline'``, clear any in-flight wind-down, stamp ``forced_stop_at`` + ``stopping_since`` and kill the session IMMEDIATELY, without re-dispatching.
@@ -2911,7 +2911,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Change (換 model) an outsource worker's model/effort (same floor as the staff model edit). On a worker whose stop is IN FLIGHT OR HAS LANDED it ALSO queues the restart (restart_after_stop), so the worker comes back up ON THE NEW MODEL once the stop converges — an edit is no longer only a save. A worker nobody ever asked to stop is still only persisted.
+         * Change (換 model) an outsource worker's model/effort (same floor as the staff model edit). On a worker whose stop is IN FLIGHT OR HAS LANDED it ALSO queues the restart (restart_after_stop), so the worker comes back up ON THE NEW MODEL once the stop converges — an edit is no longer only a save. A worker nobody ever asked to stop is still only persisted. Answers with a bounded receipt (``id``), not the roster row — call ``list_outsource_workers`` when you need the rest.
          * @description Change (換 model) an outsource worker's model + effort (T-f190 lifecycle), the worker twin of the member model/effort edit. Persists the new model (blank ⇒ launcher default) and effort; when the worker is ACTIVE + online AND a value actually CHANGED it opens a hand-over so the new model takes effect on the next session, otherwise (assigned/stopped, or nothing changed) it only persists — the next spawn/restart bakes it in. 🔴 SINCE T-65 包②, 「only persists」 HAS ONE EXCEPTION: on a worker whose stop is IN FLIGHT OR ALREADY LANDED (desired_state=offline AND a stopping_since anchor exists), a model change ALSO QUEUES THE START — restart_after_stop is set and the worker comes back up ON THE NEW MODEL once the stop converges, rather than waiting for somebody to press 起來. It reaches that queue by TWO different routes and neither covers the other: while the session is still up it goes through the hand-over funnel; on a CONVERGED stop the funnel is skipped and the handler queues it directly. A worker NOBODY EVER ASKED TO STOP (no stopping_since anchor) is still only persisted — an edit must not boot a worker that never started. Same owner ruling as refocus (2026-08-30, rc-bc1b029a3aa2). Re-saving the values a worker is already running on costs it nothing, the same old-against-new compare the staff face has always done. 404 unknown/released. The owner mental model: an outsource worker is just a member the system creates and deletes, so it reuses the SAME lifecycle mechanisms. Floor machine (route requires=machine) since T-ed79, owner 2026-08-21: changing a model is the SAME act on both sides of the roster, so it carries the same floor as the staff face (PATCH /api/members/{member_id}, kept at the machine floor by owner 2026-07-27). A plain agent may call it. It is the one T-6020 row that left the admin_agent floor; refocus/relocate/stop/restart did not. Exposed as an MCP tool since T-6020.
          */
         post: operations["handle_set_outsource_worker_model_api_outsource_workers__id__model_post"];
@@ -2931,7 +2931,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Refocus (換手) an outsource worker's context; on a STOPPED worker it queues the 起來 instead of refusing (owner/admin agent).
+         * Refocus (換手) an outsource worker's context; on a STOPPED worker it queues the 起來 instead of refusing (owner/admin agent). Answers with a bounded receipt (``id``), not the roster row — call ``list_outsource_workers`` when you need the rest.
          * @description Refocus (換手) an outsource worker (T-32e1): the worker twin of refocus_member. Stamps refocus_since, then kills the current session and re-spawns it so a FRESH worker picks the SAME bound task back up from its task plan / step notes (a worker has no member fold — continuity lives in the task). Needs a live session: 409 unless the worker is active and connected; 404 unknown/released. 🔴 A STOPPED WORKER IS NO LONGER A 409 (T-65 包②; owner 2026-08-30, rc-bc1b029a3aa2: 「一個重啟的 intention 遇上一個更強硬的下線規則 他的方式是沿用強硬下線規則 但是附加上線規則」). Pressed on a worker whose stop is in flight — or has already landed — it answers 200 and QUEUES the start: restart_after_stop is set, the stop keeps its stage and all four of its anchors, no refocus epoch is opened (that stamp has no reader with no session), and the worker is brought back up once the stop converges. The 409 SURVIVES for a worker nobody has ever asked to stop (no stopping_since anchor): there is no 下線 for an 上線 rule to be added to, so an edit must not boot it. The owner mental model: an outsource worker is just a member the system creates and deletes, so it reuses the SAME lifecycle mechanisms. Floor admin_agent (route requires=admin_agent, T-6020 — 外包對齊正職, the same floor as worker relocate); a plain agent is a flat 403. ⚠️ T-ed79 moved ONE of the T-6020 four off this floor — set_outsource_worker_model, owner 2026-08-21 — and this row was NOT part of that ruling. Exposed as an MCP tool since T-6020.
          */
         post: operations["handle_refocus_outsource_worker_api_outsource_workers__id__refocus_post"];
@@ -2951,7 +2951,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * 加速停止 an outsource worker: put its ALREADY-OPEN wind-down (a 停止 or a 換手) on the stop.accelerated_grace_secs clock and tell it. 409 if none is open.
+         * 加速停止 an outsource worker: put its ALREADY-OPEN wind-down (a 停止 or a 換手) on the stop.accelerated_grace_secs clock and tell it. 409 if none is open. Answers with a bounded receipt (``id``), not the roster row — call ``list_outsource_workers`` when you need the rest.
          * @description 加速停止 for an outsource worker — the symmetric twin of ``accelerated_stop_member`` (owner 2026-08-21, 停止 → 加速停止 → 強制停止).
          *
          *     It puts a wind-down the worker is ALREADY inside on the ``stop.accelerated_grace_secs`` clock and tells it, by stamping ``refocus_op=accelerated_stop`` on the open handover epoch and re-stamping ``refocus_since`` from THIS press. The clock, the wire deadline and the sentence all come from the one ``winddownKindFor`` judgement members use — there is no separate worker rule.
@@ -2977,7 +2977,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Relocate an outsource worker to a machine (admin-gated).
+         * Relocate an outsource worker to a machine (admin-gated). Answers with a bounded receipt (``id``, ``relocation_pending``, ``relocation_deferred``), not the roster row — call ``list_outsource_workers`` when you need the rest.
          * @description Relocate an outsource worker to a machine (T-f190): the owner cockpit's 改機器 operation, the worker twin of the member relocate. Writes desired_machine_id immediately, then — since T-98f4 — hands the worker over GRACEFULLY rather than killing it on the spot: a LIVE session is told to wind down and keeps running on the OLD machine until it answers report_stopped (or the owner force-stops it); the kill and the re-spawn onto the chosen machine happen at that 收口. There is no deadline on that wait. A worker with no live session to flush (offline, or already collected) takes the immediate 殺舊 session + 清 pacing + 重生 path instead. Either way lifecycle is untouched (the worker stays assigned/active) — a relocate is a placement change, not a state change. 🔴 ONE EXCEPTION SINCE T-65 包②, and it is a real state change rather than a caveat: pressed on a worker whose stop is IN FLIGHT OR ALREADY LANDED (desired_state=offline AND a stopping_since anchor exists), a relocate ALSO QUEUES THE START — restart_after_stop is set, the stop keeps its stage and all four of its anchors, and the worker is brought back up on the new machine once the stop converges. So on that one path the sentence above is FALSE: the row goes from held-down to online without anyone pressing 起來. A worker NOBODY EVER ASKED TO STOP (no stopping_since anchor) is still only re-pinned — an edit must not boot a worker that never started. Same owner ruling as refocus (2026-08-30, rc-bc1b029a3aa2). ⚠️ RETRACTED, not quietly deleted: until T-98f4 this description promised an unconditional immediate kill followed by a re-spawn on the next scheduler tick. That claim stopped being true when the verb moved onto the graceful funnel, and it stood here unread for the whole time in between because nothing in the suite ever compared it against the code. Admin-gated since P7c (requires=admin_agent, the exact member relocate floor).
          */
         post: operations["handle_relocate_outsource_worker_api_outsource_workers__id__relocate_post"];
@@ -3017,7 +3017,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Stop (停止) an outsource worker: ask it to work its 〈停止〉 document and wait for its own report_stopped -- no kill, no deadline (owner/admin agent).
+         * Stop (停止) an outsource worker: ask it to work its 〈停止〉 document and wait for its own report_stopped -- no kill, no deadline (owner/admin agent). Answers with a bounded receipt (``id``), not the roster row — call ``list_outsource_workers`` when you need the rest.
          * @description Stop (停止) an outsource worker — a GRACEFUL CLOSE-OUT since T-ed79 (owner 2026-08-21 「往正職靠：外包那顆改成優雅停止，強制殺移到第三顆按鈕」), the worker twin of a member deactivate. It sets desired_state='offline' (a direct mirror of member.desired_state — which makes every scheduler auto-revival path skip it: the shared reconcile-FSM rescue never revives an owner-held-down worker), stamps stopping_since, clears any in-flight refocus epoch, fans the 〈停止〉 notice at the worker's OWN session and RETURNS. It does NOT kill: the 收口 is the worker's own report_stopped, exactly as on the staff 下線 arm, and there is NO deadline unless the owner presses 加速停止 (rc-27d1710174dd 「不要兜底」). It does NOT stamp forced_stop_at — that anchor belongs to force-stop, and it is what keeps THAT verb silent. An OFFLINE worker (no session to hear the notice) takes the immediate kill instead. The worker projects presence 'stopping'/'stopped' (honest, never fake-green); the bound task stays in its own status. Idempotent. 404 unknown/released. Escalate with POST /api/outsource-workers/{id}/accelerated-stop, then POST /api/outsource-workers/{id}/force-stop. Floor admin_agent (route requires=admin_agent, T-6020 — 外包對齊正職, the same floor as worker relocate); a plain agent is a flat 403. ⚠️ T-ed79 moved ONE of the T-6020 four off this floor — set_outsource_worker_model, owner 2026-08-21 — and this row was NOT part of that ruling. Exposed as an MCP tool since T-6020.
          */
         post: operations["handle_stop_outsource_worker_api_outsource_workers__id__stop_post"];
@@ -8674,6 +8674,71 @@ export interface components {
              * @description WHICH cause, as a structured ``<code>: <detail>`` line. It rides beside ``activation_pending`` because the flag is one bit and at least four different states reach it - the test that pins this pair says so in its own words. Empty when there is no refusal to report.
              */
             last_op_reason?: string;
+        };
+        /**
+         * AgentLifecycleReceiptDTO
+         * @description Bounded receipt for the TWELVE agent-lifecycle writes whose entire answer was a re-read of the row they had just written (T-91, owner 2026-09-06). Seven staff routes — ``POST /api/members`` (hire_member), ``PATCH`` (update_member), ``DELETE`` (dismiss_member), ``/deactivate``, ``/refocus``, ``/force-stop``, ``/accelerated-stop`` — answered the whole MemberDTO, 33 fields flattened; five worker routes — ``/stop``, ``/model``, ``/refocus``, ``/force-stop``, ``/accelerated-stop`` — answered the whole OutsourceWorkerDTO, 42 fields. All twelve are agent-callable MCP tools, so those answers land in a model's context.
+         *
+         *     WHY ID ALONE IS THE WHOLE OF THE NEWS HERE, stated as something that can be checked rather than asserted: each of the twelve handlers ends on the shared projection fold (writeMemberDTO / writeWorkerProjection) with NO response-only mutation. The whole server has exactly five of those — api_members.go:1104, 1278 and 1287, api_outsource.go:357 and 361 — and every one belongs to activate or to a relocate, which is why those three routes have receipts of their own and these twelve do not. So nothing on this wire was unrecoverable: ``get_member`` and ``list_outsource_workers`` serve all of it, at the moment the caller actually wants it rather than at the moment it wrote.
+         *
+         *     THE COCKPIT LOSES NOTHING, checked call site by call site rather than inferred from the adapter: all twelve are awaited for their completion and their value discarded (frontend/src/components/OfficePage.tsx, MemberDetailPanel.tsx, MonitorPage.tsx). Two adapters did parse the answer on the way past — ``patchMember`` returned ``toMember(wire)`` and the five worker verbs returned ``toOutsourceWorker(wire)`` — and no caller read what they returned; those adapters answer ``void`` in the same change, which is what every one of their callers already treated them as.
+         */
+        AgentLifecycleReceiptDTO: {
+            /**
+             * Id
+             * @description The agent this write acted on. On eleven of the twelve routes it is the caller's own path parameter, kept for the reason the restart receipt keeps it: a receipt that cannot say which agent it acted on is unreadable next to a log of several. On ``POST /api/members`` it is the one piece of genuine news on the wire — the server mints the id, and a caller that dropped it would have to search the roster for the row it had just created.
+             */
+            id: string;
+        };
+        /**
+         * MemberActivateReceiptDTO
+         * @description Bounded receipt for ``POST /api/members/{member_id}/activate`` (activate_member) (T-91, owner 2026-09-06). It answered the whole MemberDTO, 33 fields flattened, and it is agent-callable, so that answer lands in a model's context.
+         *
+         *     THIS ONE CANNOT COLLAPSE TO AN ID, and for the same reason its worker twin cannot (OutsourceRestartReceiptDTO): ``activation_pending`` is computed at dispatch time and written onto the RESPONSE ONLY (api_members.go:1103-1104). It is one of the three flags this document describes as set only on this kind of response and absent or null on every other read, so a caller that drops it cannot ask again — there is no row to ask. The cockpit already depends on exactly this: frontend/src/api/http.ts activateMember returns ``{activationPending: wire.activation_pending === true}`` and the 喚醒中… button stays put on true.
+         *
+         *     ``last_op_reason`` rides beside it for the reason api_members.go:1105-1112 gives in its own words — the flag is one bit and at least four different states reach it, so the handler stamps WHICH one on the row before answering. Unlike the flag this one IS recoverable from ``get_member``; it is kept because a caller holding a pending bit with no cause has to make a second call to act on the first, which is the round trip this whole reshape exists to remove. Everything else the DTO carried is the member's stored row, which ``get_member`` serves.
+         */
+        MemberActivateReceiptDTO: {
+            /**
+             * Id
+             * @description The member this activation was aimed at — the caller's own path parameter, kept because a receipt that cannot say which member it acted on is unreadable next to a log of several.
+             */
+            id: string;
+            /**
+             * Activation Pending
+             * @description True when the activation intent was STORED but no START went out on this attempt — a warden that would not take it, an unbuildable start frame (missing persona or token), a backoff, an open circuit. It is a POSITIVE determination rather than a list of known failures: the handler asks whether a START actually went out, so failure modes not yet invented answer honestly here too. Absent when the member was already online or the start landed. It is here or nowhere: the flag is set only on responses of this kind and is absent or null on every other read of the member.
+             */
+            activation_pending?: boolean;
+            /**
+             * Last Op Reason
+             * @description WHICH cause, as a structured ``<code>: <detail>`` line, stamped on the row by the same handler before it answers. An arm that named no code falls back to the generic "活化 was recorded, but nothing has been dispatched yet". Empty when there is no refusal to report.
+             */
+            last_op_reason?: string;
+        };
+        /**
+         * AgentRelocateReceiptDTO
+         * @description Bounded receipt shared by BOTH relocate routes — ``POST /api/members/{member_id}/relocate`` (relocate_member) and ``POST /api/outsource-workers/{id}/relocate`` (T-91, owner 2026-09-06). They answered the whole MemberDTO (33 fields) and the whole OutsourceWorkerDTO (42 fields) respectively.
+         *
+         *     ONE RECEIPT FOR THE TWO IS WHAT MAKES THIS PAGE TRUE, not a tidy-up. The member route accepts an ow- id as well — the verb is "move one agent" — and delegates it to relocateWorkerByID (api_members.go:1181-1185), which writes the WORKER projection. So that route could already answer an OutsourceWorkerDTO while this document said MemberDTO. The two answers are now the same three fields whichever kind of agent was named, and the disagreement is gone rather than documented.
+         *
+         *     NEITHER FLAG IS RECOVERABLE, which is why this is not an id-only receipt: both are computed at dispatch time and written onto the RESPONSE ONLY — api_members.go:1278 and 1287 for the member arm, api_outsource.go:357 and 361 for the worker arm. The cockpit reads both on the member arm (frontend/src/api/http.ts relocateMember) and discards the worker arm's answer entirely. Everything else the two DTOs carried is the stored row, which ``get_member`` and ``list_outsource_workers`` serve.
+         */
+        AgentRelocateReceiptDTO: {
+            /**
+             * Id
+             * @description The agent this relocate was aimed at — the caller's own path parameter, kept because a receipt that cannot say which agent it acted on is unreadable next to a log of several.
+             */
+            id: string;
+            /**
+             * Relocation Pending
+             * @description True when the move is SCHEDULED BUT NOT LANDED. The pin itself is persisted before any dispatch, so a relocate never fails on dispatch — and that is what made a clean 200 dangerous. Two different non-landings reach this flag: a decided recycle STOP/START the target warden would not accept, and a wind-down opened by design so nothing has been dispatched yet. Absent means nothing was left undelivered; it does NOT mean the agent is already running on the pin. The cadence retries the pinned move regardless.
+             */
+            relocation_pending?: boolean;
+            /**
+             * Relocation Deferred
+             * @description WHICH of ``relocation_pending``'s two causes this is: true means a deliberately deferred move — a wind-down is open and the agent keeps running on the old machine until its own 收口 — rather than a delivery failure. A caller must hold back the "nothing was dispatched" alert for this case; the cockpit does exactly that.
+             */
+            relocation_deferred?: boolean;
         };
         /**
          * SettingsDTO
@@ -14554,7 +14619,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["MemberDTO"];
+                    "application/json": components["schemas"]["AgentLifecycleReceiptDTO"];
                 };
             };
             /** @description Validation error (unified error envelope). */
@@ -14652,7 +14717,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["MemberDTO"];
+                    "application/json": components["schemas"]["AgentLifecycleReceiptDTO"];
                 };
             };
             /** @description Validation error (unified error envelope). */
@@ -14705,7 +14770,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["MemberDTO"];
+                    "application/json": components["schemas"]["AgentLifecycleReceiptDTO"];
                 };
             };
             /** @description Validation error (unified error envelope). */
@@ -14921,7 +14986,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["MemberDTO"];
+                    "application/json": components["schemas"]["MemberActivateReceiptDTO"];
                 };
             };
             /** @description Validation error (unified error envelope). */
@@ -14970,7 +15035,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["MemberDTO"];
+                    "application/json": components["schemas"]["AgentLifecycleReceiptDTO"];
                 };
             };
             /** @description Validation error (unified error envelope). */
@@ -15019,7 +15084,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["MemberDTO"];
+                    "application/json": components["schemas"]["AgentLifecycleReceiptDTO"];
                 };
             };
             /** @description Validation error (unified error envelope). */
@@ -15068,7 +15133,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["MemberDTO"];
+                    "application/json": components["schemas"]["AgentLifecycleReceiptDTO"];
                 };
             };
             /** @description Validation error (unified error envelope). */
@@ -15117,7 +15182,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["MemberDTO"];
+                    "application/json": components["schemas"]["AgentLifecycleReceiptDTO"];
                 };
             };
             /** @description Validation error (unified error envelope). */
@@ -15170,7 +15235,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["MemberDTO"];
+                    "application/json": components["schemas"]["AgentRelocateReceiptDTO"];
                 };
             };
             /** @description Validation error (unified error envelope). */
@@ -16169,7 +16234,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["OutsourceWorkerDTO"];
+                    "application/json": components["schemas"]["AgentLifecycleReceiptDTO"];
                 };
             };
             /** @description Validation error (unified error envelope). */
@@ -16222,7 +16287,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["OutsourceWorkerDTO"];
+                    "application/json": components["schemas"]["AgentLifecycleReceiptDTO"];
                 };
             };
             /** @description Validation error (unified error envelope). */
@@ -16271,7 +16336,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["OutsourceWorkerDTO"];
+                    "application/json": components["schemas"]["AgentLifecycleReceiptDTO"];
                 };
             };
             /** @description Validation error (unified error envelope). */
@@ -16320,7 +16385,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["OutsourceWorkerDTO"];
+                    "application/json": components["schemas"]["AgentLifecycleReceiptDTO"];
                 };
             };
             /** @description Validation error (unified error envelope). */
@@ -16373,7 +16438,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["OutsourceWorkerDTO"];
+                    "application/json": components["schemas"]["AgentRelocateReceiptDTO"];
                 };
             };
             /** @description Validation error (unified error envelope). */
@@ -16471,7 +16536,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["OutsourceWorkerDTO"];
+                    "application/json": components["schemas"]["AgentLifecycleReceiptDTO"];
                 };
             };
             /** @description Validation error (unified error envelope). */

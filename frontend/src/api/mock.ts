@@ -2652,7 +2652,10 @@ export const mockApi: Api = {
     w.desired_state = "offline";
   },
 
-  async patchMember(id: string, patch: MemberPatch): Promise<Member> {
+  async patchMember(id: string, patch: MemberPatch): Promise<void> {
+    // T-91: the write answers a RECEIPT (`{id}`), not the member row. The mock's
+    // own store is still the one that changed below, so a read-back sees the
+    // write; the response just stops carrying what nobody may render from it.
     const w = findWire(id);
     if (patch.name !== undefined) w.name = patch.name;
     // model/effort launch intents (M2-2) — same closed effort vocabulary the
@@ -2668,7 +2671,6 @@ export const mockApi: Api = {
       w.effort = patch.effort;
     }
     if (patch.model !== undefined) w.model = patch.model;
-    return mapWithExtras(w);
   },
 
   async refocusMember(id: string): Promise<void> {
@@ -4288,10 +4290,7 @@ export const mockApi: Api = {
     };
   },
 
-  async relocateWorker(
-    id: string,
-    machineId: string
-  ): Promise<OutsourceWorkerView> {
+  async relocateWorker(id: string, machineId: string): Promise<void> {
     // 改機器 (T-f190). The mock has no scheduler, so it models the SERVER's
     // observable outcome honestly: write the owner-pinned desired_machine_id and,
     // for a CONCRETE machine id, reflect it as the new `machine` (the dispatch
@@ -4317,21 +4316,15 @@ export const mockApi: Api = {
       w.machine = m ? m.name : machineId;
     }
     emitTopic("outsource_worker");
-    // Mock ↔ http parity (T-ed79 #5): a LIVE worker's move is deferred to its
-    // 收口, so the answer says "scheduled, not landed" AND says which of the two
-    // kinds of not-landed it is. A worker with no live session is dispatched now
-    // and carries neither flag.
-    const deferred = w.presence === "online";
-    return {
-      ...withWorkerTaskJoin(structuredClone(w)),
-      unreadCount: unreadCountOf(w.id),
-      ...(deferred
-        ? { relocationPending: true, relocationDeferred: true }
-        : {}),
-    };
+    // T-91: the write answers a RECEIPT, not the worker. The receipt DOES carry
+    // relocation_pending / relocation_deferred (it is the member arm's shape),
+    // but the worker adapter reads neither, so the mock has nothing left to
+    // stage: what used to be modelled here — Mock ↔ http parity (T-ed79 #5), a
+    // LIVE worker's move deferred to its 收口 — was only ever readable through a
+    // return value no caller took. The store above is what changed.
   },
 
-  async refocusWorker(id: string): Promise<OutsourceWorkerView> {
+  async refocusWorker(id: string): Promise<void> {
     // 換手 (T-32e1). The mock models the server's observable outcome: online-only
     // (409 unless presence "online"), stopped → 409, unknown/released → 404. On
     // success stamp refocus_since (the panel's 換手中 acknowledgement); the actual
@@ -4357,13 +4350,11 @@ export const mockApi: Api = {
     }
     w.refocusSince = Date.now() / 1000;
     emitTopic("outsource_worker");
-    return {
-      ...withWorkerTaskJoin(structuredClone(w)),
-      unreadCount: unreadCountOf(w.id),
-    };
+    // T-91: the write answers a RECEIPT, not the worker; the store above is what
+    // changed and the panel refetches.
   },
 
-  async stopWorker(id: string): Promise<OutsourceWorkerView> {
+  async stopWorker(id: string): Promise<void> {
     // 停止 (T-f190; a GRACEFUL close-out since T-ed79). Held down: desired_state
     // offline (member parity) and the in-flight refocus cleared — but NO kill.
     // The worker is shown its 〈停止〉 and keeps its session until it reports
@@ -4381,13 +4372,11 @@ export const mockApi: Api = {
     w.refocusOp = undefined;
     w.presence = w.presence === "online" ? "stopping" : "stopped";
     emitTopic("outsource_worker");
-    return {
-      ...withWorkerTaskJoin(structuredClone(w)),
-      unreadCount: unreadCountOf(w.id),
-    };
+    // T-91: the write answers a RECEIPT, not the worker; the store above is what
+    // changed and the panel refetches.
   },
 
-  async acceleratedStopWorker(id: string): Promise<OutsourceWorkerView> {
+  async acceleratedStopWorker(id: string): Promise<void> {
     // 加速停止 (T-ed79) — the MIDDLE rung. It escalates a wind-down that is
     // ALREADY open, so its refusal is what makes it an escalation rather than a
     // second stop button; the message names the rungs below it, mirroring the
@@ -4425,13 +4414,11 @@ export const mockApi: Api = {
     if (stamps.since !== null) w.refocusSince = stamps.since;
     w.refocusDeadline = stamps.deadline;
     emitTopic("outsource_worker");
-    return {
-      ...withWorkerTaskJoin(structuredClone(w)),
-      unreadCount: unreadCountOf(w.id),
-    };
+    // T-91: the write answers a RECEIPT, not the worker; the store above is what
+    // changed and the panel refetches.
   },
 
-  async forceStopWorker(id: string): Promise<OutsourceWorkerView> {
+  async forceStopWorker(id: string): Promise<void> {
     // 強制停止 (T-ed79) — the THIRD rung, and the body /stop used to have: the
     // session is killed on the spot, so the worker lands in "stopped" directly.
     const w = outsourceWorkers.find((x) => x.id === id);
@@ -4446,10 +4433,8 @@ export const mockApi: Api = {
     w.refocusOp = undefined;
     w.presence = "stopped";
     emitTopic("outsource_worker");
-    return {
-      ...withWorkerTaskJoin(structuredClone(w)),
-      unreadCount: unreadCountOf(w.id),
-    };
+    // T-91: the write answers a RECEIPT, not the worker; the store above is what
+    // changed and the panel refetches.
   },
 
   async restartWorker(id: string): Promise<void> {
@@ -4494,7 +4479,7 @@ export const mockApi: Api = {
   async setWorkerModel(
     id: string,
     patch: { model: string; effort?: string }
-  ): Promise<OutsourceWorkerView> {
+  ): Promise<void> {
     // 換 model (T-f190). Persist model/effort; the respawn-to-take-effect-now is
     // server-side (invisible here). unknown/released → 404.
     const w = outsourceWorkers.find((x) => x.id === id);
@@ -4507,10 +4492,8 @@ export const mockApi: Api = {
     w.model = patch.model;
     if (patch.effort !== undefined && patch.effort !== "") w.effort = patch.effort;
     emitTopic("outsource_worker");
-    return {
-      ...withWorkerTaskJoin(structuredClone(w)),
-      unreadCount: unreadCountOf(w.id),
-    };
+    // T-91: the write answers a RECEIPT, not the worker; the store above is what
+    // changed and the panel refetches.
   },
 
   async getWorkerBootContext(id: string): Promise<string> {

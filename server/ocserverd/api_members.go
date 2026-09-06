@@ -778,7 +778,7 @@ func (s *apiServer) HandleHireMemberApiMembersPost(w http.ResponseWriter, r *htt
 		internalError(w, err)
 		return
 	}
-	s.writeMemberDTO(w, m)
+	writeJSON(w, http.StatusOK, agentLifecycleReceiptDTO{ID: m.ID})
 }
 
 // GET /api/members/{member_id} — one roster member (removed → 404); machine
@@ -1020,7 +1020,7 @@ func (s *apiServer) HandleUpdateMemberApiMembersMemberIdPatch(w http.ResponseWri
 			return
 		}
 	}
-	s.writeMemberDTO(w, *m)
+	writeJSON(w, http.StatusOK, agentLifecycleReceiptDTO{ID: m.ID})
 }
 
 // POST /api/members/{member_id}/activate — write desired_state=online intent.
@@ -1084,12 +1084,11 @@ func (s *apiServer) HandleActivateMemberApiMembersMemberIdActivatePost(w http.Re
 	// warden answered a clean 200 with zero signal, so "waking" and "nothing was
 	// dispatched and nothing will be until the next cadence tick" looked identical.
 	dec := s.reconcileMemberNow(m.ID)
-	roleName, err := s.memberRoleName(*m)
-	if err != nil {
-		internalError(w, err)
-		return
-	}
-	dto := s.newMemberDTO(*m, roleName, "", 0)
+	// T-91: a bounded receipt, not the roster row. The three fields here are the
+	// entire news of this write — which member, whether a START actually went
+	// out, and which cause when one did not. Everything the MemberDTO carried
+	// besides them is the member's stored row, which get_member serves.
+	receipt := memberActivateReceiptDTO{ID: m.ID}
 	// POSITIVE determination (T-ba62 review R4), not a list of known failures.
 	// `dec.DispatchUnlanded` alone was wrong: reconcileOne ALSO downgrades a
 	// START to none when buildStartFrame cannot assemble a payload (missing
@@ -1100,8 +1099,7 @@ func (s *apiServer) HandleActivateMemberApiMembersMemberIdActivatePost(w http.Re
 	// circuit-open, and failure modes not yet invented — is honestly "nothing
 	// has been dispatched yet".
 	if dec.Command != reconcileCmdStart && !s.hub.IsOnline(m.ID) {
-		pending := true
-		dto.ActivationPending = &pending
+		receipt.ActivationPending = true
 		// …and WHICH pending (T-ed79 #14). The flag is one bit and the comment
 		// above lists at least four states that reach it. The tick has already
 		// decided which one it is; stamp that on the row so the cockpit can say it
@@ -1117,8 +1115,12 @@ func (s *apiServer) HandleActivateMemberApiMembersMemberIdActivatePost(w http.Re
 				"be retried; if it stays here, check that machine"
 		}
 		s.stampMemberOpBlocked(m.ID, reason, nowSecs())
+		// The receipt reports the reason it just stamped, rather than re-reading
+		// the row: an activation that landed leaves this empty instead of quoting
+		// some earlier op's refusal back at a caller with nothing to act on.
+		receipt.LastOpReason = reason
 	}
-	writeJSON(w, http.StatusOK, dto)
+	writeJSON(w, http.StatusOK, receipt)
 }
 
 // POST /api/members/{member_id}/relocate — the owner cockpit's 改機器 for a roster
@@ -1262,20 +1264,17 @@ func (s *apiServer) HandleRelocateMemberApiMembersMemberIdRelocatePost(w http.Re
 	// caller sees "move scheduled, not yet landed" instead of a silent 200
 	// success (T-8655). The cadence retries the pinned move regardless.
 	dec := s.reconcileMemberNow(m.ID)
-	roleName, err := s.memberRoleName(*m)
-	if err != nil {
-		internalError(w, err)
-		return
-	}
-	dto := s.newMemberDTO(*m, roleName, "", 0)
+	// T-91: a bounded receipt, not the roster row — and the SAME receipt the
+	// worker relocate answers, so this route tells the truth whichever kind of
+	// agent its id named (an ow- id is handed to relocateWorkerByID above).
+	receipt := agentRelocateReceiptDTO{ID: m.ID}
 	// relocation_pending means what it has always meant — "move scheduled, not
 	// yet landed". T-b6d9 adds a SECOND way to be in that state: a wind-down was
 	// opened, so nothing has been dispatched YET and the member is still on the
 	// old machine until the 收口. Reporting a clean landed 200 there would be the
 	// same silent false-success T-8655 removed for the unreachable-warden case.
 	if dec.DispatchUnlanded || windDown {
-		pending := true
-		dto.RelocationPending = &pending
+		receipt.RelocationPending = true
 	}
 	// …and WHICH of the two it is (T-927a). The wind-down case is a deliberate
 	// deferral, not a delivery failure, so the caller must be able to hold back
@@ -1283,10 +1282,9 @@ func (s *apiServer) HandleRelocateMemberApiMembersMemberIdRelocatePost(w http.Re
 	// by narrowing relocation_pending: that field's meaning is on the frozen
 	// wire and existing readers depend on it covering both.
 	if windDown {
-		deferred := true
-		dto.RelocationDeferred = &deferred
+		receipt.RelocationDeferred = true
 	}
-	writeJSON(w, http.StatusOK, dto)
+	writeJSON(w, http.StatusOK, receipt)
 }
 
 // memberHeldDownReceipt is the sentence a staff owner-verb leaves on the row when
@@ -1432,7 +1430,7 @@ func (s *apiServer) HandleDeactivateMemberApiMembersMemberIdDeactivatePost(w htt
 	// the member; that is the owner's ruling, not a gap. Still run after a cancel
 	// — the raw dispatch above does not touch the reconcile store.
 	s.reconcileMemberNow(m.ID)
-	s.writeMemberDTO(w, *m)
+	writeJSON(w, http.StatusOK, agentLifecycleReceiptDTO{ID: m.ID})
 }
 
 // POST /api/members/{member_id}/force-stop — STOP intent now (stamps
@@ -1486,7 +1484,7 @@ func (s *apiServer) HandleForceStopMemberApiMembersMemberIdForceStopPost(w http.
 		taskLog("force-stop %s: forced_stop_at not recorded: %v", m.ID, err)
 	}
 	s.dispatchRobustStopNow(m.ID)
-	s.writeMemberDTO(w, *m)
+	writeJSON(w, http.StatusOK, agentLifecycleReceiptDTO{ID: m.ID})
 }
 
 // acceleratedStopNeedsAnOpenWindDownMsg is the ONE wording of the refusal that
@@ -1583,7 +1581,7 @@ func (s *apiServer) HandleAcceleratedStopMemberApiMembersMemberIdAcceleratedStop
 	s.reconcileMemberNow(m.ID)
 	reconcileLog("加速停止: %s on the %s arm (collect at %.0f or on the stopped report)",
 		m.ID, m.DesiredState, winddownDeadlineOf(*m, s.reconcileConfigLive()))
-	s.writeMemberDTO(w, *m)
+	writeJSON(w, http.StatusOK, agentLifecycleReceiptDTO{ID: m.ID})
 }
 
 // POST /api/members/{member_id}/refocus — needs a live session (409 otherwise);
@@ -1628,7 +1626,7 @@ func (s *apiServer) HandleRefocusMemberApiMembersMemberIdRefocusPost(w http.Resp
 		if fresh, err := s.dal.GetMember(m.ID); err == nil && fresh != nil {
 			m = fresh
 		}
-		s.writeMemberDTO(w, *m)
+		writeJSON(w, http.StatusOK, agentLifecycleReceiptDTO{ID: m.ID})
 		return
 	}
 	if !s.hub.IsOnline(m.ID) || !aRefocusStampWouldReachTheAgent(*m) {
@@ -1657,7 +1655,7 @@ func (s *apiServer) HandleRefocusMemberApiMembersMemberIdRefocusPost(w http.Resp
 		internalError(w, err)
 		return
 	}
-	s.writeMemberDTO(w, *m)
+	writeJSON(w, http.StatusOK, agentLifecycleReceiptDTO{ID: m.ID})
 }
 
 // DELETE /api/members/{member_id} — dismiss: a SOFT delete (roster_status=
@@ -1687,7 +1685,7 @@ func (s *apiServer) HandleDismissMemberApiMembersMemberIdDelete(w http.ResponseW
 	if _, err := s.expireWaitingCardsFromMember(m.ID, nowSecs(), requestTrigger(r)); err != nil {
 		taskLog("dismiss %s: reply-card sweep failed (cards left waiting): %v", m.ID, err)
 	}
-	s.writeMemberDTO(w, *m)
+	writeJSON(w, http.StatusOK, agentLifecycleReceiptDTO{ID: m.ID})
 }
 
 // ── self-report presence (identity from token, NO member_id target) ──────────

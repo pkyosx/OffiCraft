@@ -944,7 +944,7 @@ export const httpApi: Api = {
     id: string,
     machineId?: string,
   ): Promise<MemberActivateResult> {
-    // POST /api/members/{id}/activate {machine_id?} -> MemberDTO (writes
+    // POST /api/members/{id}/activate {machine_id?} -> MemberActivateReceiptDTO (writes
     // desired_state=online INTENT only; server does NOT flip online). When machineId is
     // given it BINDS the agent to that machine (the field was renamed host →
     // machine_id) — the spawn/wake path and the permanent "move agent" rebind
@@ -952,13 +952,17 @@ export const httpApi: Api = {
     // server-driven presence surface waking → online. The body must be a present
     // object (MemberActivateDTO) — `{}` is the honest "no machine override".
     //
-    // 🔴 The response body is READ, not discarded (T-7fa1). `activation_pending`
-    // is the server's only report that no START went out on this attempt; a 200
-    // alone cannot say that, because the intent is persisted before any dispatch
-    // is attempted. The field is set ONLY on that shape (never `false`), and the
-    // schema types it `boolean | null`, optional — so absent, null and false all
-    // mean the same thing and `=== true` reads the wire without inventing a
-    // default.
+    // 🔴 The response body is READ, not discarded (T-7fa1) — which is exactly why
+    // T-91 gave this route a receipt of its own instead of collapsing it to
+    // `{id}` like its eleven siblings. `activation_pending` is the server's only
+    // report that no START went out on this attempt; a 200 alone cannot say
+    // that, because the intent is persisted before any dispatch is attempted,
+    // and it is computed onto the RESPONSE only — there is no row to re-read it
+    // from. The field is set ONLY on that shape (never `false`), and the receipt
+    // schema types it `boolean`, optional — so absent and false mean the same
+    // thing and `=== true` reads the wire without inventing a default. (The
+    // receipt also carries `last_op_reason`, which the cockpit does not read:
+    // the notice it draws needs the bit, not the cause.)
     const body = machineId !== undefined ? { machine_id: machineId } : {};
     const wire = unwrap(
       await client.POST("/api/members/{member_id}/activate", {
@@ -973,16 +977,18 @@ export const httpApi: Api = {
     id: string,
     machineId: string,
   ): Promise<MemberRelocateResult> {
-    // POST /api/members/{id}/relocate {machine_id} -> MemberDTO (admin-gated
+    // POST /api/members/{id}/relocate {machine_id} -> AgentRelocateReceiptDTO (admin-gated
     // 改機器). PLACEMENT ONLY: writes the owner-pinned desired_machine_id and runs
     // the server's event-driven reconcile (a live member migrates onto the pin;
     // an offline member re-pins for the next wake) — it NEVER touches
     // desired_state (the activate contrast: a relocate is not a wake). Does NOT
     // flip online; the caller refetches and lets server-driven presence surface
     // the migration.
-    // Same read-the-response discipline as activateMember (T-7fa1):
-    // `relocation_pending` is set ONLY when a decided recycle STOP/START was
-    // refused by the warden it was addressed to. Absent/null therefore means
+    // Same read-the-response discipline as activateMember (T-7fa1), and the same
+    // reason T-91 left this route a receipt with flags on it rather than a bare
+    // `{id}`: `relocation_pending` is set ONLY when a decided recycle STOP/START
+    // was refused by the warden it was addressed to, and it is computed onto the
+    // RESPONSE only — no later read can recover it. Absent therefore means
     // "nothing was left undelivered" — NOT "the member is now running on the
     // pin"; a delivered STOP still needs the next tick's START to land.
     const wire = unwrap(
@@ -1000,7 +1006,9 @@ export const httpApi: Api = {
   },
 
   async deactivateMember(id: string): Promise<void> {
-    // POST /api/members/{id}/deactivate -> MemberDTO. Writes desired_state=offline +
+    // POST /api/members/{id}/deactivate -> AgentLifecycleReceiptDTO. The write
+    // answers with a bounded receipt (T-91), not the member row; the cockpit
+    // refetches, exactly as it already did. Writes desired_state=offline +
     // stamps stopping_since (graceful STOP; retains the row). The handler takes
     // NO body. Caller refetches and lets server-driven presence surface
     // stopping → stopped (no optimistic state change here).
@@ -1054,7 +1062,8 @@ export const httpApi: Api = {
   },
 
   async forceStopMember(id: string): Promise<void> {
-    // POST /api/members/{id}/force-stop -> MemberDTO. Escalates a *stopping* member
+    // POST /api/members/{id}/force-stop -> AgentLifecycleReceiptDTO (a bounded
+    // receipt since T-91, not the member row). Escalates a *stopping* member
     // to an IMMEDIATE kill: the server dispatches the robust STOP straight to the
     // warden (the warden SIGKILLs). It is NOT a shortcut past a countdown — the
     // server arms none on this arm. Three things end a soft offboard and this is
@@ -1067,7 +1076,8 @@ export const httpApi: Api = {
   },
 
   async acceleratedStopMember(id: string): Promise<void> {
-    // POST /api/members/{id}/accelerated-stop -> MemberDTO. Puts an ALREADY-OPEN
+    // POST /api/members/{id}/accelerated-stop -> AgentLifecycleReceiptDTO (a
+    // bounded receipt since T-91, not the member row). Puts an ALREADY-OPEN
     // wind-down on the server's stop.accelerated_grace_secs clock and tells the
     // member. 409 when nothing is winding down, when there is no live session, or
     // when the member was already cut off by 強制停止 — the 409 is the contract,
@@ -1080,19 +1090,23 @@ export const httpApi: Api = {
   },
 
   async dismissMember(id: string): Promise<void> {
-    // DELETE /api/members/{id} -> MemberDTO (soft delete: status=removed +
-    // desired_state=offline). Caller refetches (the row drops from the roster) and
+    // DELETE /api/members/{id} -> AgentLifecycleReceiptDTO (a bounded receipt
+    // since T-91, not the member row) for a soft delete: status=removed +
+    // desired_state=offline. Caller refetches (the row drops from the roster) and
     // navigates back.
     await client.DELETE("/api/members/{member_id}", {
       params: { path: { member_id: id } },
     });
   },
 
-  async patchMember(id: string, patch: MemberPatch): Promise<Member> {
-    // PATCH /api/members/{id} {name?, model?, effort?} -> MemberDTO. PATCH
-    // semantics — only supplied fields ride the body (an absent field must NOT
-    // arrive as null, which the server would reject / misread). model/effort
-    // are launch intents (take effect on the next wake).
+  async patchMember(id: string, patch: MemberPatch): Promise<void> {
+    // PATCH /api/members/{id} {name?, model?, effort?} -> AgentLifecycleReceiptDTO.
+    // The write answers with a bounded receipt (T-91), not the member row; the
+    // cockpit refetches, exactly as it already did — this used to parse the
+    // answer into a Member that no caller ever read. PATCH semantics — only
+    // supplied fields ride the body (an absent field must NOT arrive as null,
+    // which the server would reject / misread). model/effort are launch intents
+    // (take effect on the next wake).
     const body: {
       name?: string;
       runtime?: "claude" | "codex";
@@ -1103,17 +1117,17 @@ export const httpApi: Api = {
     if (patch.runtime !== undefined) body.runtime = patch.runtime;
     if (patch.model !== undefined) body.model = patch.model;
     if (patch.effort !== undefined) body.effort = patch.effort;
-    const wire = unwrap(
+    unwrap(
       await client.PATCH("/api/members/{member_id}", {
         params: { path: { member_id: id } },
         body,
       }),
     );
-    return toMember(wire);
   },
 
   async refocusMember(id: string): Promise<void> {
-    // POST /api/members/{id}/refocus -> MemberDTO (online-only; 409 otherwise)
+    // POST /api/members/{id}/refocus -> AgentLifecycleReceiptDTO (a bounded
+    // receipt since T-91, not the member row; online-only, 409 otherwise)
     await client.POST("/api/members/{member_id}/refocus", {
       params: { path: { member_id: id } },
     });
@@ -1931,28 +1945,31 @@ export const httpApi: Api = {
     return toOutsourceWorker(wire);
   },
 
-  async relocateWorker(
-    id: string,
-    machineId: string,
-  ): Promise<OutsourceWorkerView> {
-    // POST /api/outsource-workers/{id}/relocate {machine_id} -> OutsourceWorkerDTO
+  async relocateWorker(id: string, machineId: string): Promise<void> {
+    // POST /api/outsource-workers/{id}/relocate {machine_id} -> AgentRelocateReceiptDTO
     // (改機器; admin-gated since P7c — the member relocate floor). Writes the
     // pinned placement, kills the current
     // session, and clears pacing so the next scheduler tick re-spawns on the
-    // chosen machine (no lifecycle change). Returns the freshly-projected worker;
-    // the outsource_worker SSE delta also fans so the list refetches.
-    const wire = unwrap(
+    // chosen machine (no lifecycle change). The write answers with a bounded
+    // receipt (T-91), not the worker; the cockpit refetches, exactly as it
+    // already did — the outsource_worker SSE delta also fans so the list
+    // refetches. The receipt shares its shape with the member arm and so carries
+    // relocation_pending / relocation_deferred, but this arm does NOT read them:
+    // the WORKER relocate has no 移動中… notice to keep put, and its only caller
+    // (OfficePage.tsx) awaits and discards.
+    unwrap(
       await client.POST("/api/outsource-workers/{id}/relocate", {
         params: { path: { id } },
         body: { machine_id: machineId },
       }),
     );
-    return toOutsourceWorker(wire);
   },
 
-  async refocusWorker(id: string): Promise<OutsourceWorkerView> {
-    // POST /api/outsource-workers/{id}/refocus -> OutsourceWorkerDTO (owner/admin-agent,
-    // online-only 409). Graceful (T-ea82): stamps the handover + nudges the worker
+  async refocusWorker(id: string): Promise<void> {
+    // POST /api/outsource-workers/{id}/refocus -> AgentLifecycleReceiptDTO
+    // (owner/admin-agent, online-only 409). The write answers with a bounded
+    // receipt (T-91), not the worker; the cockpit refetches, exactly as it
+    // already did. Graceful (T-ea82): stamps the handover + nudges the worker
     // to flush, then the server kills+re-spawns a fresh worker on the same task;
     // the outsource_worker SSE delta also fans so the list refetches.
     //
@@ -1965,48 +1982,50 @@ export const httpApi: Api = {
     // recycleGraceFor", which has been false since T-fe5e and is more false now
     // that every member cause except the two 加速停止 arms (context_high and the
     // owner-pressed accelerated_stop) is soft too.
-    const wire = unwrap(
+    unwrap(
       await client.POST("/api/outsource-workers/{id}/refocus", {
         params: { path: { id } },
       }),
     );
-    return toOutsourceWorker(wire);
   },
 
-  async stopWorker(id: string): Promise<OutsourceWorkerView> {
-    // POST /api/outsource-workers/{id}/stop -> OutsourceWorkerDTO (owner/admin-agent).
+  async stopWorker(id: string): Promise<void> {
+    // POST /api/outsource-workers/{id}/stop -> AgentLifecycleReceiptDTO
+    // (owner/admin-agent). The write answers with a bounded receipt (T-91), not
+    // the worker; the cockpit refetches, exactly as it already did.
     // Since T-ed79 this ASKS: it holds the worker down and shows it the 〈停止〉,
     // and the 收口 is the worker's own report_stopped. The kill moved to
     // forceStopWorker below.
-    const wire = unwrap(
+    unwrap(
       await client.POST("/api/outsource-workers/{id}/stop", {
         params: { path: { id } },
       }),
     );
-    return toOutsourceWorker(wire);
   },
 
-  async acceleratedStopWorker(id: string): Promise<OutsourceWorkerView> {
-    // POST /api/outsource-workers/{id}/accelerated-stop -> OutsourceWorkerDTO
-    // (owner/admin-agent). The MIDDLE rung: puts an ALREADY-OPEN wind-down on the
-    // clock and tells the worker. 409 when nothing is open.
-    const wire = unwrap(
+  async acceleratedStopWorker(id: string): Promise<void> {
+    // POST /api/outsource-workers/{id}/accelerated-stop -> AgentLifecycleReceiptDTO
+    // (owner/admin-agent). The write answers with a bounded receipt (T-91), not
+    // the worker; the cockpit refetches, exactly as it already did. The MIDDLE
+    // rung: puts an ALREADY-OPEN wind-down on the clock and tells the worker.
+    // 409 when nothing is open.
+    unwrap(
       await client.POST("/api/outsource-workers/{id}/accelerated-stop", {
         params: { path: { id } },
       }),
     );
-    return toOutsourceWorker(wire);
   },
 
-  async forceStopWorker(id: string): Promise<OutsourceWorkerView> {
-    // POST /api/outsource-workers/{id}/force-stop -> OutsourceWorkerDTO
-    // (owner/admin-agent). The THIRD rung: kill NOW, hold down, say nothing.
-    const wire = unwrap(
+  async forceStopWorker(id: string): Promise<void> {
+    // POST /api/outsource-workers/{id}/force-stop -> AgentLifecycleReceiptDTO
+    // (owner/admin-agent). The write answers with a bounded receipt (T-91), not
+    // the worker; the cockpit refetches, exactly as it already did. The THIRD
+    // rung: kill NOW, hold down, say nothing.
+    unwrap(
       await client.POST("/api/outsource-workers/{id}/force-stop", {
         params: { path: { id } },
       }),
     );
-    return toOutsourceWorker(wire);
   },
 
   async restartWorker(id: string): Promise<void> {
@@ -2027,9 +2046,11 @@ export const httpApi: Api = {
       model: string;
       effort?: string;
     },
-  ): Promise<OutsourceWorkerView> {
-    // POST /api/outsource-workers/{id}/model {model, effort?} -> OutsourceWorkerDTO
-    // (owner/admin-agent). Active+online → kill+respawn now; otherwise persist for the
+  ): Promise<void> {
+    // POST /api/outsource-workers/{id}/model {model, effort?} -> AgentLifecycleReceiptDTO
+    // (owner/admin-agent). The write answers with a bounded receipt (T-91), not
+    // the worker; the cockpit refetches, exactly as it already did.
+    // Active+online → kill+respawn now; otherwise persist for the
     // next spawn. model is always sent (blank ⇒ launcher default); effort only
     // when supplied (an absent field must not arrive as null).
     const body: {
@@ -2039,13 +2060,12 @@ export const httpApi: Api = {
     } = { model: patch.model };
     if (patch.runtime !== undefined) body.runtime = patch.runtime;
     if (patch.effort !== undefined) body.effort = patch.effort;
-    const wire = unwrap(
+    unwrap(
       await client.POST("/api/outsource-workers/{id}/model", {
         params: { path: { id } },
         body,
       }),
     );
-    return toOutsourceWorker(wire);
   },
 
   async getWorkerBootContext(id: string): Promise<string> {

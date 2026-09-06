@@ -1814,6 +1814,75 @@ type outsourceRestartReceiptDTO struct {
 	LastOpReason string `json:"last_op_reason,omitempty"`
 }
 
+// agentLifecycleReceiptDTO answers the TWELVE owner/agent lifecycle writes that
+// used to hand back the whole roster row they had just written — seven staff
+// routes (hire, update, dismiss, deactivate, refocus, force-stop,
+// accelerated-stop) and five worker routes (stop, model, refocus, force-stop,
+// accelerated-stop). MemberDTO is 33 fields and OutsourceWorkerDTO is 42; all
+// twelve are agent-callable, so those answers landed in a model's context.
+//
+// 🔴 WHY AN ID IS THE WHOLE OF THE NEWS HERE, and it is checkable rather than
+// asserted: every one of the twelve ended on a plain projection of the stored
+// row. The whole server writes a field onto a response WITHOUT persisting it in
+// exactly five places — the activation_pending arm in HandleActivateMember and
+// the relocation_pending/relocation_deferred pairs on the two relocates — and
+// each of those three routes has a receipt of its own below. Nothing else on
+// this wire was unrecoverable: get_member and list_outsource_workers serve it,
+// at the moment a caller actually wants it instead of at the moment it wrote.
+type agentLifecycleReceiptDTO struct {
+	// ID is the agent this write acted on. On eleven of the twelve it is the
+	// caller's own path parameter, kept because a receipt that cannot say which
+	// agent it acted on is unreadable next to a log of several. On the hire it is
+	// the one piece of genuine news: the server mints the id, and a caller that
+	// dropped it would have to search the roster for the row it just created.
+	ID string `json:"id"`
+}
+
+// memberActivateReceiptDTO answers activate_member. It is the staff twin of
+// outsourceRestartReceiptDTO above, field for field and for the same reason.
+type memberActivateReceiptDTO struct {
+	// ID is the member this activation was aimed at.
+	ID string `json:"id"`
+	// ActivationPending is true when the intent was STORED but no START went out
+	// on this attempt. It is a POSITIVE determination rather than a list of known
+	// failures — the handler asks whether a START actually went out — so causes
+	// nobody has invented yet answer honestly here too. Omitted when the member
+	// was already online or the start landed. It is here or nowhere: this flag is
+	// set only on responses of this kind and is absent on every other read.
+	ActivationPending bool `json:"activation_pending,omitempty"`
+	// LastOpReason is WHICH cause, stamped on the row by the same handler before
+	// it answers. It rides here rather than being left to get_member because a
+	// caller holding a pending bit with no cause has to make a second call to act
+	// on the first — the round trip this reshape exists to remove.
+	LastOpReason string `json:"last_op_reason,omitempty"`
+}
+
+// agentRelocateReceiptDTO answers BOTH relocate routes — the staff one and the
+// worker one.
+//
+// 🔴 ONE RECEIPT FOR THE TWO IS WHAT MAKES THE WIRE TRUE, not a tidy-up.
+// HandleRelocateMember takes an ow- id as well (the verb is "move one agent")
+// and hands it to relocateWorkerByID, which wrote the WORKER projection — so
+// that route could answer an OutsourceWorkerDTO while spec/openapi.json said
+// MemberDTO. Same three fields whichever kind of agent was named, and the
+// disagreement is gone instead of documented.
+type agentRelocateReceiptDTO struct {
+	// ID is the agent this relocate was aimed at.
+	ID string `json:"id"`
+	// RelocationPending is true when the move is SCHEDULED BUT NOT LANDED. The
+	// pin is persisted before any dispatch, so a relocate never fails on
+	// dispatch — which is what made a clean 200 dangerous. Two non-landings reach
+	// it: a decided recycle STOP/START the warden would not accept, and a
+	// wind-down opened by design. Omitted means nothing was left undelivered; it
+	// does NOT mean the agent is already running on the pin.
+	RelocationPending bool `json:"relocation_pending,omitempty"`
+	// RelocationDeferred says WHICH of the two causes it is. True is a
+	// deliberately deferred move — a wind-down is open and the agent keeps
+	// running on the old machine until its own 收口 — not a delivery failure, so
+	// a caller must hold back the "nothing was dispatched" alert for it.
+	RelocationDeferred bool `json:"relocation_deferred,omitempty"`
+}
+
 // replyCardCreateReceiptDTO answers create_reply_card.
 type replyCardCreateReceiptDTO struct {
 	// ID is the card id, MINTED HERE ("rc-" + newHexID(12)) — the handle

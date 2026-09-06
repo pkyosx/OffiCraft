@@ -795,6 +795,10 @@ export function toOutsourceWorker(w: WireOutsourceWorker): OutsourceWorkerView {
     // `undefined` keeps meaning "this answer does not carry the signal"
     // (T-ed79 #5/#12). Coalescing them to false here would erase exactly the
     // distinction the three fields exist to make.
+    //
+    // Since T-91 the read faces are the ONLY callers of this mapper (every
+    // worker write answers a receipt, not the worker), so these three are in
+    // practice always undefined — see the field docs on OutsourceWorkerView.
     relocationPending: w.relocation_pending ?? undefined,
     relocationDeferred: w.relocation_deferred ?? undefined,
     activationPending: w.activation_pending ?? undefined,

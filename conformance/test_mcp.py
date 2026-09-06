@@ -266,13 +266,24 @@ def test_call_object_result_has_structured_content(client, owner_token, agent_a)
 
 
 def test_call_write_route_body_split(client, owner_token) -> None:
-    """Non-GET split (spec §3.1 rule 3): remaining args become the JSON body."""
+    """Non-GET split (spec §3.1 rule 3): remaining args become the JSON body.
+
+    🔴 The evidence for that moved (T-91). hire_member answers a bounded receipt
+    now — an id and nothing else — so the name the caller sent no longer comes
+    home to be compared against. It is read back off the row instead, which is
+    the stronger form of the same claim: the old assertion would have passed on
+    a server that echoed the request body without ever persisting it.
+    """
     name = f"conf-mcp-hire-{uuid.uuid4().hex[:8]}"
     result = _call(client, owner_token, "hire_member", {"name": name})
     assert result["isError"] is False, result
     body = json.loads(_text(result))
-    assert body["name"] == name and body["id"], body
+    assert set(body) == {"id"}, body
+    assert body["id"], body
     assert result["structuredContent"] == body
+    hired = _call(client, owner_token, "get_member", {"member_id": body["id"]})
+    assert hired["isError"] is False, hired
+    assert json.loads(_text(hired))["name"] == name, hired
 
 
 def test_call_get_route_query_split(client, owner_token, agent_a) -> None:

@@ -70,8 +70,10 @@ const updateWebhook = vi.fn(
 vi.mock("../api", () => ({
   api: {
     listMachines: () => Promise.resolve([]),
-    patchMember: (_id: string, patch: object) =>
-      Promise.resolve({ ...mkMember(), ...(patch as Partial<Member>) }),
+    // T-91: PATCH answers a receipt, and the adapter resolves void. The double
+    // says void too — echoing the patch back as a Member would be a wire the
+    // server no longer sends (and no caller ever read it).
+    patchMember: (_id: string, _patch: object) => Promise.resolve(),
     getBootstrap: () =>
       Promise.resolve({ role: "assistant", name: "", taskType: "", context: "" }),
     listWebhooks: () => Promise.resolve(store.map((e) => ({ ...e }))),
