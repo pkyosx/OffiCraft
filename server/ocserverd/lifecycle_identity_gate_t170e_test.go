@@ -208,7 +208,7 @@ var identityKindIdents = map[string]bool{
 	"KindWarden":            true,
 	"KindOutsource":         true,
 	"machineKind":           true,
-	"TaskExecutorStaff":    true,
+	"TaskExecutorStaff":     true,
 	"TaskExecutorOutsource": true,
 }
 
