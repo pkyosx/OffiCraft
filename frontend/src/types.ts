@@ -1199,7 +1199,7 @@ export interface LoreEntryDetailView {
    * `content` (owner 2026-09-05:「title 應該就是 agent 透過 target 會看到的列表
    * 因為這會決定他們要不要看內容」)。
    * 🔴 `trigger` 那一格沒有了 —— owner ruling rc-9002654dd81c (2026-09-06) 逐字
-   * 「合併成 heading 一格」。合併之前寫的條目不是被留成空標題：migration 00084
+   * 「合併成 heading 一格」。合併之前寫的條目不是被留成空標題：migration 00092
    * 在 DROP 掉 `trigger` 之前先把它複製進空的 `heading`，所以那些條目帶的是它們
    * 原本那句「什麼時候要記起來」。 */
   heading: string;

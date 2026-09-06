@@ -1975,7 +1975,7 @@ export function toMemberResumeSummary(
  * comes computed from the anchor stamped on the journal row; recomputing it
  * from `createdTs` and the member's CURRENT `sessionBootTs` would answer about
  * the wrong session the moment the member reboots, and would look perfectly
- * plausible while doing it (migrations/00082 is the long form of this).
+ * plausible while doing it (migrations/00090 is the long form of this).
  * `headingFound` / `status` likewise pass straight through: the server decides
  * both from ONE lookup so that `status === "" iff !headingFound` holds, and a
  * client that inferred either from the other would be free to break it. */
@@ -2067,7 +2067,7 @@ export function toLoreEvent(w: WireLoreEvent): LoreEventView {
  * removed all four along with their database columns.
  *
  * ⚠️ There is no `trigger` any more: owner ruling rc-9002654dd81c (2026-09-06)
- * merged it into `heading`, and migration 00084 copied each row's `trigger`
+ * merged it into `heading`, and migration 00092 copied each row's `trigger`
  * into an empty `heading` before dropping the column — so a pre-merge entry
  * carries its old 「什麼時候要記起來」 line as its 標題 rather than a blank.
  *

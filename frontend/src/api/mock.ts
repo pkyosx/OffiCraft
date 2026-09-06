@@ -2548,7 +2548,7 @@ interface MockLoreEntry {
   entryId: string;
   /** 🔴 標題格 —— 這五條在 owner ruling rc-9002654dd81c (2026-09-06) 之前寫下,
    * 當時它們的那一句話坐在 `trigger` 這一格。合併把 `trigger` 拿掉了,而
-   * migration 00084 在 DROP 之前先把每一列的 `trigger` 抄進空的 `heading`,所以
+   * migration 00092 在 DROP 之前先把每一列的 `trigger` 抄進空的 `heading`,所以
    * 這裡帶的就是那五句原話 —— 不是空白、也不是新編的標題。⚠️ 它們是祈使／情境
    * 句而不是 v8 要求的「發生了什麼」,那也是真的:存量條目就長這樣,替它們重寫
    * 一個漂亮的標題,等於在畫面上放一句站上沒有的話。 */

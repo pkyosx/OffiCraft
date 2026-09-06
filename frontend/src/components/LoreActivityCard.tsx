@@ -39,7 +39,7 @@ import "./member-detail.css";
 //
 // ── 「每次重新上線就清空」 IS A FILTER, NOT A DELETE ──────────────────────────
 // The owner asked for a panel that clears at every wake. Nothing is deleted:
-// the journal is append-only by design (migrations/00082), and the server scopes
+// the journal is append-only by design (migrations/00090), and the server scopes
 // this read to rows stamped with the member's CURRENT session anchor. What looks
 // like clearing is the anchor moving.
 
@@ -202,7 +202,7 @@ export function LoreActivityCard({
                   const line = sinceBoot(row.sinceBootSecs, t);
                   // 🔴 THE KEY CANNOT BE entryId ALONE. Reading the same entry
                   // twice in one session is TWO rows and is the signal the
-                  // journal was built to carry (00082); a key that collapsed
+                  // journal was built to carry (00090); a key that collapsed
                   // them would delete the repetition from the screen.
                   const key = `${row.createdTs}:${row.door}:${row.entryId}:${i}`;
                   // A heading nobody can look up gets the 查不到 wording and no

@@ -5,7 +5,7 @@ package main
 // 🔴 THIS IS THE FIRST READER THE RECALL JOURNAL HAS EVER HAD. Three write
 // points file a row on every retrieval (api_lore_search.go:119,
 // api_lore_read.go:109 and :194) and, until this route, `FROM lore_recall_log`
-// occurred nowhere outside the tests. migrations/00082 wrote down at length why
+// occurred nowhere outside the tests. migrations/00090 wrote down at length why
 // the anchor is stamped onto the row; this file is the half that spends it.
 //
 // 🔴 IT IS NOT AN MCP TOOL, DELIBERATELY. It is a COCKPIT panel — the owner
@@ -17,7 +17,7 @@ package main
 //
 // 🔴 THE SCOPE IS ONE SESSION, AND THE SESSION IS 「這一任」. The owner asked for
 // a panel that 「每次重新上線就清空」; the mechanism that delivers that is not a
-// delete, it is this filter — the journal stays append-only (00082 is explicit
+// delete, it is this filter — the journal stays append-only (00090 is explicit
 // that it must), and 「清空」 is what a reader scoped to the CURRENT anchor sees
 // the moment a new session stamps a new one.
 
@@ -60,7 +60,7 @@ type loreActivityDTO struct {
 type loreActivityRowDTO struct {
 	CreatedTS float64 `json:"created_ts"`
 	// SinceBootSecs is created_ts − session_boot_ts, computed from the anchor
-	// STAMPED ON THE ROW (00082): 「上線後多久」, and it stays true forever
+	// STAMPED ON THE ROW (00090): 「上線後多久」, and it stays true forever
 	// because it never consults the member's own cell, which the next session
 	// overwrites.
 	SinceBootSecs float64 `json:"since_boot_secs"`

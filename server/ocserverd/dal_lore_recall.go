@@ -7,7 +7,7 @@ package main
 // retrieval (api_lore_search.go, api_lore_read.go twice) and nothing ever read
 // one back. A journal with no reader is indistinguishable, from the owner's
 // side, from a journal that was never written — which is the exact failure
-// migrations/00082 was opened to prevent, arriving one layer higher up.
+// migrations/00090 was opened to prevent, arriving one layer higher up.
 //
 // 🔴 IT IS A SEPARATE FILE FROM dal_lore.go DELIBERATELY. dal_lore.go is the
 // WRITE-side home of the journal (LoreRecall / InsertLoreRecall) and is under
@@ -57,7 +57,7 @@ type LoreRecallEvent struct {
 // member appearing to have read the whole boot fold's worth of history.
 //
 // 🔴 AND IT IS SCOPED TO ONE session_boot_ts RATHER THAN 「the latest N rows」.
-// The whole reason 00082 stamps the anchor onto the row is that the member's
+// The whole reason 00090 stamps the anchor onto the row is that the member's
 // own cell is overwritten by the NEXT session; filtering on the value the
 // caller resolved a moment ago is what makes 「這一任」 mean this one and not
 // 「whatever is most recent」.
@@ -100,7 +100,7 @@ func (d *DAL) ListLoreRecallForSession(actorID string, bootTS float64) ([]LoreRe
 type LoreEntryLabel struct {
 	Heading string
 	// Status is the lifecycle value (`active` / `superseded` / `retired` /
-	// `underspecified`, the CHECK set in migrations/00081). It is DISPLAY, not
+	// `underspecified`, the CHECK set in migrations/00089). It is DISPLAY, not
 	// error handling: a retired entry is still reachable by id, so the panel
 	// uses this to say 「已退役」 beside a heading rather than to decide whether
 	// the line may be shown.

@@ -393,7 +393,7 @@ func TestPendingLoreEntityShowsEveryCandidateWhenTwoFoldOntoOneName(t *testing.T
 }
 
 // TestPendingLoreEntityDoesNotCompareAcrossTypes holds the comparison to one
-// type prefix, which is 00081's own ruling: 「Kyle being both the canonical of
+// type prefix, which is 00089's own ruling: 「Kyle being both the canonical of
 // agent:Kyle and an alias of human:KyleHsia is CORRECT, not a data error」.
 // Offering that as a merge candidate would push a reviewer to fold together two
 // things the schema says are two things.
@@ -591,7 +591,7 @@ func TestPendingLoreEntityReportsAFamilyResemblanceWithItsOwnReason(t *testing.T
 // untouched. What died is only the part that turned that fact into a verdict.
 
 // TestListPendingLoreEntitiesNamesWhoMintedTheKey — the column has been written
-// since 00081 and nothing served it. 「誰在什麼情況下鑄出這個名字」 is the most
+// since 00089 and nothing served it. 「誰在什麼情況下鑄出這個名字」 is the most
 // useful evidence after the name itself for the question the queue asks.
 func TestListPendingLoreEntitiesNamesWhoMintedTheKey(t *testing.T) {
 	d := newTestDAL(t)

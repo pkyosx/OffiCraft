@@ -1,12 +1,12 @@
 package main
 
-// migration_00082_lore_recall_session_anchor_test.go — the round trip, and what
+// migration_00090_lore_recall_session_anchor_test.go — the round trip, and what
 // the rows that were already in the table become.
 //
 // 🔴 THE OLD ROWS ARE THE POINT OF THIS FILE. Every lore_recall_log row a live
 // station carries today was written by the boot fold — one row per wake for the
 // whole subject directory — and NONE of them carries a session anchor, because
-// nothing recorded one. After 00082 they have the two new cells at their
+// nothing recorded one. After 00090 they have the two new cells at their
 // defaults, and the question that matters is whether a reader can tell those
 // rows apart from a row whose read genuinely happened outside any session. If it
 // cannot, 「這一列沒有錨」 and 「那一次沒記到」 render identically, which is the
@@ -24,11 +24,11 @@ import (
 	"github.com/pressly/goose/v3"
 )
 
-// m82Bounds derives this migration's version and the one immediately before it
+// m90Bounds derives this migration's version and the one immediately before it
 // from the embedded migration set — never from a literal.
 //
 // 🔴 THIS FUNCTION EXISTS BECAUSE THE LITERALS ACTUALLY BIT. This file used to
-// say `m82UpTo(t, db, 77)` and `goose.DownTo(..., 77)`. When the lore stages
+// say `m90UpTo(t, db, 77)` and `goose.DownTo(..., 77)`. When the lore stages
 // were renumbered 77/78/79 → 81/82/83 to land after another package's 00080,
 // every one of those literals silently pointed at a stage that no longer had
 // anything to do with this migration: the test migrated to 76, found no
@@ -36,7 +36,15 @@ import (
 // only because it seeds a row before the UP. A literal in a test that merely
 // asserts a version number would have gone on passing while measuring the wrong
 // retreat. Derive; do not write the number down.
-func m82Bounds(t *testing.T) (mine, prev int64) {
+//
+// 🔴 AND IT HAPPENED A SECOND TIME, WHICH IS WHY THE DERIVATION STAYS. On
+// 2026-09-07 the same four stages were renumbered AGAIN — 00081/00082/00083/
+// 00084 → 00089/00090/00091/00092 — because 00087 and 00088 had meanwhile been
+// taken by branches still in flight (t-79/upgrade-migration-notice and
+// t-101/executor-kind-member-to-staff) and main had reached 00086. Not one line
+// of the code below had to change: `mine` and `prev` were both derived, so the
+// second renumber cost a filename and nothing else.
+func m90Bounds(t *testing.T) (mine, prev int64) {
 	t.Helper()
 	entries, err := fs.ReadDir(embeddedMigrations, "migrations")
 	if err != nil {
@@ -81,7 +89,7 @@ func m82Bounds(t *testing.T) (mine, prev int64) {
 	return mine, prev
 }
 
-func m82Goose(t *testing.T) {
+func m90Goose(t *testing.T) {
 	t.Helper()
 	goose.SetBaseFS(embeddedMigrations)
 	if err := goose.SetDialect("sqlite3"); err != nil {
@@ -89,15 +97,15 @@ func m82Goose(t *testing.T) {
 	}
 }
 
-func m82UpTo(t *testing.T, db *sql.DB, v int64) {
+func m90UpTo(t *testing.T, db *sql.DB, v int64) {
 	t.Helper()
-	m82Goose(t)
+	m90Goose(t)
 	if err := goose.UpTo(db, "migrations", v); err != nil {
 		t.Fatalf("goose up to %d: %v", v, err)
 	}
 }
 
-func m82Columns(t *testing.T, db *sql.DB) map[string]bool {
+func m90Columns(t *testing.T, db *sql.DB) map[string]bool {
 	t.Helper()
 	rows, err := db.Query(`PRAGMA table_info(lore_recall_log)`)
 	if err != nil {
@@ -117,22 +125,22 @@ func m82Columns(t *testing.T, db *sql.DB) map[string]bool {
 	return out
 }
 
-// TestMigration00082CarriesTheOldBootRowsForwardAsUnrecorded is the whole
+// TestMigration00090CarriesTheOldBootRowsForwardAsUnrecorded is the whole
 // question in one test: a row written by the OLD writer (the only writer there
 // was), carried across the migration, must come out saying 'unrecorded' — and
 // must be distinguishable from a row written by the NEW writer for an actor with
 // no session, which says 'unanchored'.
-func TestMigration00082CarriesTheOldBootRowsForwardAsUnrecorded(t *testing.T) {
-	db, err := openSQLite(filepath.Join(t.TempDir(), "m82-legacy.db"))
+func TestMigration00090CarriesTheOldBootRowsForwardAsUnrecorded(t *testing.T) {
+	db, err := openSQLite(filepath.Join(t.TempDir(), "m90-legacy.db"))
 	if err != nil {
 		t.Fatalf("open: %v", err)
 	}
 	defer db.Close()
 
 	// ── the station as it stands TODAY: the stage BEFORE this one, one boot-fold row ──
-	mine, prev := m82Bounds(t)
-	m82UpTo(t, db, prev)
-	if cols := m82Columns(t, db); cols["session_boot_ts"] || cols["session_state"] {
+	mine, prev := m90Bounds(t)
+	m90UpTo(t, db, prev)
+	if cols := m90Columns(t, db); cols["session_boot_ts"] || cols["session_state"] {
 		t.Fatalf("stage %d already has the anchor columns; this test would prove nothing", prev)
 	}
 	// Written through the OLD column list on purpose. A row inserted through
@@ -145,8 +153,8 @@ func TestMigration00082CarriesTheOldBootRowsForwardAsUnrecorded(t *testing.T) {
 	}
 
 	// ── UP: prev → this migration ───────────────────────────────────────────
-	m82UpTo(t, db, mine)
-	cols := m82Columns(t, db)
+	m90UpTo(t, db, mine)
+	cols := m90Columns(t, db)
 	if !cols["session_boot_ts"] || !cols["session_state"] {
 		t.Fatalf("the anchor columns did not arrive: %v", cols)
 	}
@@ -213,7 +221,7 @@ func TestMigration00082CarriesTheOldBootRowsForwardAsUnrecorded(t *testing.T) {
 	}
 }
 
-// TestMigration00082DownIsReversibleAndKeepsTheRows exercises the Down block,
+// TestMigration00090DownIsReversibleAndKeepsTheRows exercises the Down block,
 // which — as 00047's round-trip test says of its own — has no execution path in
 // the product at all (`ocserverd` has no `migrate down` subcommand). This test is
 // its only executor.
@@ -224,14 +232,14 @@ func TestMigration00082CarriesTheOldBootRowsForwardAsUnrecorded(t *testing.T) {
 // ROWS themselves must survive: this journal is append-only ground truth, and a
 // Down that took the history with it would make retreating the code cost the
 // data.
-func TestMigration00082DownIsReversibleAndKeepsTheRows(t *testing.T) {
-	db, err := openSQLite(filepath.Join(t.TempDir(), "m82-down.db"))
+func TestMigration00090DownIsReversibleAndKeepsTheRows(t *testing.T) {
+	db, err := openSQLite(filepath.Join(t.TempDir(), "m90-down.db"))
 	if err != nil {
 		t.Fatalf("open: %v", err)
 	}
 	defer db.Close()
-	mine, prev := m82Bounds(t)
-	m82UpTo(t, db, mine)
+	mine, prev := m90Bounds(t)
+	m90UpTo(t, db, mine)
 
 	dal := &DAL{rdb: db, wdb: db}
 	if err := dal.InsertLoreRecall(LoreRecall{
@@ -242,7 +250,7 @@ func TestMigration00082DownIsReversibleAndKeepsTheRows(t *testing.T) {
 		t.Fatalf("seed: %v", err)
 	}
 
-	m82Goose(t)
+	m90Goose(t)
 	if err := goose.DownTo(db, "migrations", prev); err != nil {
 		t.Fatalf("goose down to %d: %v", prev, err)
 	}
@@ -253,7 +261,7 @@ func TestMigration00082DownIsReversibleAndKeepsTheRows(t *testing.T) {
 	if version != prev {
 		t.Fatalf("version after down = %d, want %d", version, prev)
 	}
-	if cols := m82Columns(t, db); cols["session_boot_ts"] || cols["session_state"] {
+	if cols := m90Columns(t, db); cols["session_boot_ts"] || cols["session_state"] {
 		t.Fatalf("down left the columns behind: %v", cols)
 	}
 	var actor, returned string
@@ -270,7 +278,7 @@ func TestMigration00082DownIsReversibleAndKeepsTheRows(t *testing.T) {
 	// UP again: the columns come back at their defaults, and the row that lived
 	// through the retreat honestly reads as 'unrecorded' — its anchor is gone
 	// and the cell says so instead of implying one was observed.
-	m82UpTo(t, db, mine)
+	m90UpTo(t, db, mine)
 	var state string
 	var boot float64
 	if err := db.QueryRow(

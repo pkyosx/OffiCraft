@@ -2219,7 +2219,7 @@
             "type": "array"
           },
           "heading": {
-            "description": "標題格 — 這條條目在講的是「發生了什麼」，同時也是讀者找到它的那一軸。🔴 `trigger` 這一格沒有了：owner ruling rc-9002654dd81c (2026-09-06), verbatim 「合併成 heading 一格（同時把搜尋改成掃 heading＋內容、待審畫面改顯示 heading）」。⚠️ 合併之前寫下的條目**不是**被留成空標題：migration 00084 在 DROP 掉 `trigger` 之前，先把每一列的 `trigger` 複製進了空的 `heading`，所以那些條目帶的是它們原本那句「什麼時候要記起來」。",
+            "description": "標題格 — 這條條目在講的是「發生了什麼」，同時也是讀者找到它的那一軸。🔴 `trigger` 這一格沒有了：owner ruling rc-9002654dd81c (2026-09-06), verbatim 「合併成 heading 一格（同時把搜尋改成掃 heading＋內容、待審畫面改顯示 heading）」。⚠️ 合併之前寫下的條目**不是**被留成空標題：migration 00092 在 DROP 掉 `trigger` 之前，先把每一列的 `trigger` 複製進了空的 `heading`，所以那些條目帶的是它們原本那句「什麼時候要記起來」。",
             "title": "Heading",
             "type": "string"
           },
@@ -2567,12 +2567,12 @@
             "type": "boolean"
           },
           "since_boot_secs": {
-            "description": "「上線後多久」 — `created_ts` minus the session anchor STAMPED ON THE JOURNAL ROW (see migrations/00082). It is computed from the row's own anchor rather than from the member's current `session_boot_ts` cell, which the member's next session overwrites, so this number stays true after the session ends.",
+            "description": "「上線後多久」 — `created_ts` minus the session anchor STAMPED ON THE JOURNAL ROW (see migrations/00090). It is computed from the row's own anchor rather than from the member's current `session_boot_ts` cell, which the member's next session overwrites, so this number stays true after the session ends.",
             "title": "Since Boot Secs",
             "type": "number"
           },
           "status": {
-            "description": "The entry's lifecycle status as it stands now — `active`, `superseded`, `retired` or `underspecified` (the CHECK set in migrations/00081) — and `\"\"` exactly when `heading_found` is false. 🔴 IT IS DISPLAY, NOT ERROR HANDLING. A retired entry is still REACHABLE by id (`GET /api/lore/entries/{id}` has no status filter; retirement means 「no longer RETRIEVED」 — search and the boot directory skip it), so the deep link lands on it either way; this field is what lets the panel say 「這一條已退役」 beside the heading instead of letting a retired memory read as a live one.",
+            "description": "The entry's lifecycle status as it stands now — `active`, `superseded`, `retired` or `underspecified` (the CHECK set in migrations/00089) — and `\"\"` exactly when `heading_found` is false. 🔴 IT IS DISPLAY, NOT ERROR HANDLING. A retired entry is still REACHABLE by id (`GET /api/lore/entries/{id}` has no status filter; retirement means 「no longer RETRIEVED」 — search and the boot directory skip it), so the deep link lands on it either way; this field is what lets the panel say 「這一條已退役」 beside the heading instead of letting a retired memory read as a live one.",
             "title": "Status",
             "type": "string"
           }
@@ -17637,7 +17637,7 @@
     },
     "/api/members/{member_id}/lore-activity": {
       "get": {
-        "description": "What ONE member has read out of 傳承 (lore) since it came online THIS time — the\ncockpit's lore activity panel, shown under that member's RESUME SUMMARY card.\n\nThis is the first reader the recall journal has ever had. Three write points file\na row on every retrieval (lore search, entry read, revision read), each row\ncarrying the session anchor it was written under (migrations/00082); this route\nselects the rows whose ``session_state`` is ``anchored`` and whose stamped\n``session_boot_ts`` equals the member's CURRENT anchor, oldest first, and\nflattens them to one row per entry so the panel can be a list of 標題.\n\n🔴 NOT AN MCP TOOL, deliberately: it is a cockpit panel about a member, not a\ntool for an agent to read its own reading history — a different feature nobody\nhas ruled on.\n\n🔴 IT READS THE JOURNAL AND WRITES NOTHING. It resolves each entry's 標題 and\nstatus with a direct table read, never through ``GET /api/lore/entries/{id}`` —\nthat route JOURNALS a retrieval, so using it to resolve a heading would file a\nrow saying an entry was used when nobody read it, into the very table this panel\nexists to display.\n\nRBAC: the same floor as ``GET /api/members/{member_id}/resume-summary`` —\nroute-table ``requires=\"admin_agent\"``, so an owner-scoped token or an\nadmin-role member only; an ordinary agent → 403. 404 if ``member_id`` does not\nresolve to a roster member.",
+        "description": "What ONE member has read out of 傳承 (lore) since it came online THIS time — the\ncockpit's lore activity panel, shown under that member's RESUME SUMMARY card.\n\nThis is the first reader the recall journal has ever had. Three write points file\na row on every retrieval (lore search, entry read, revision read), each row\ncarrying the session anchor it was written under (migrations/00090); this route\nselects the rows whose ``session_state`` is ``anchored`` and whose stamped\n``session_boot_ts`` equals the member's CURRENT anchor, oldest first, and\nflattens them to one row per entry so the panel can be a list of 標題.\n\n🔴 NOT AN MCP TOOL, deliberately: it is a cockpit panel about a member, not a\ntool for an agent to read its own reading history — a different feature nobody\nhas ruled on.\n\n🔴 IT READS THE JOURNAL AND WRITES NOTHING. It resolves each entry's 標題 and\nstatus with a direct table read, never through ``GET /api/lore/entries/{id}`` —\nthat route JOURNALS a retrieval, so using it to resolve a heading would file a\nrow saying an entry was used when nobody read it, into the very table this panel\nexists to display.\n\nRBAC: the same floor as ``GET /api/members/{member_id}/resume-summary`` —\nroute-table ``requires=\"admin_agent\"``, so an owner-scoped token or an\nadmin-role member only; an ordinary agent → 403. 404 if ``member_id`` does not\nresolve to a roster member.",
         "operationId": "handle_get_member_lore_activity_api_members__member_id__lore_activity_get",
         "parameters": [
           {

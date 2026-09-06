@@ -84,7 +84,7 @@ func TestLoreHeadingCapAcceptsExactly140Runes(t *testing.T) {
 // ── 點 ②：141 個 rune 被拒，而且錯誤訊息指名是 heading 這一格 ───────────────
 //
 // 🔴 「指名是哪一格」不是禮貌，是這道門為什麼在 DAL 而不在 SQLite CHECK 的**唯一
-// 理由**（00084 逐字寫過這個判斷）：CHECK 只會回一句 "CHECK constraint failed"，
+// 理由**（00092 逐字寫過這個判斷）：CHECK 只會回一句 "CHECK constraint failed"，
 // 說不出是哪一格。所以這支測試同時斷言錯誤值、訊息裡有 `heading`、有上限 140、
 // 也有他實際送來的 141 —— 少任何一項，寫的人就得自己猜。
 func TestLoreHeadingCapRefusesOneRuneOverAndNamesTheCell(t *testing.T) {

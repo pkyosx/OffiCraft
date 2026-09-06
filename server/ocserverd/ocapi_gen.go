@@ -1433,10 +1433,10 @@ type LoreActivityRowDTO struct {
 	// HeadingFound Whether `entry_id` still resolves to a lore entry. 🔴 `false` ROWS ARE STILL RETURNED, AND THAT IS THE POINT: dropping the line would render 「他讀過這一條，而這一條後來查不到了」 as 「他沒讀過任何東西」. Nothing is invented for `heading` in that case — a plausible title would be worse than the gap. ⚠️ Measured 2026-09-06: there is NO `DELETE FROM lore_entry` anywhere in the tree, and retirement is not a delete, so `false` is an ANOMALY today rather than the ordinary end of an entry's life.
 	HeadingFound bool `json:"heading_found"`
 
-	// SinceBootSecs 「上線後多久」 — `created_ts` minus the session anchor STAMPED ON THE JOURNAL ROW (see migrations/00082). It is computed from the row's own anchor rather than from the member's current `session_boot_ts` cell, which the member's next session overwrites, so this number stays true after the session ends.
+	// SinceBootSecs 「上線後多久」 — `created_ts` minus the session anchor STAMPED ON THE JOURNAL ROW (see migrations/00090). It is computed from the row's own anchor rather than from the member's current `session_boot_ts` cell, which the member's next session overwrites, so this number stays true after the session ends.
 	SinceBootSecs float64 `json:"since_boot_secs"`
 
-	// Status The entry's lifecycle status as it stands now — `active`, `superseded`, `retired` or `underspecified` (the CHECK set in migrations/00081) — and `""` exactly when `heading_found` is false. 🔴 IT IS DISPLAY, NOT ERROR HANDLING. A retired entry is still REACHABLE by id (`GET /api/lore/entries/{id}` has no status filter; retirement means 「no longer RETRIEVED」 — search and the boot directory skip it), so the deep link lands on it either way; this field is what lets the panel say 「這一條已退役」 beside the heading instead of letting a retired memory read as a live one.
+	// Status The entry's lifecycle status as it stands now — `active`, `superseded`, `retired` or `underspecified` (the CHECK set in migrations/00089) — and `""` exactly when `heading_found` is false. 🔴 IT IS DISPLAY, NOT ERROR HANDLING. A retired entry is still REACHABLE by id (`GET /api/lore/entries/{id}` has no status filter; retirement means 「no longer RETRIEVED」 — search and the boot directory skip it), so the deep link lands on it either way; this field is what lets the panel say 「這一條已退役」 beside the heading instead of letting a retired memory read as a live one.
 	Status string `json:"status"`
 }
 
@@ -1499,7 +1499,7 @@ type LoreEntryDetailDTO struct {
 	// Events `events`（相關的完整資訊）— the entry's events, IN THE ORDER THEY HAPPENED (`happened_ts`), not in the order anybody wrote them down: a back-filled event sorts into the place it really belongs. `[]` when the entry has none. 人／地／物 come back EMPTY when nobody knew them — they are not back-filled with 「未知」, so 「查不出是誰」 and 「還沒有人去查」 stay distinguishable.
 	Events []LoreEventDTO `json:"events"`
 
-	// Heading 標題格 — 這條條目在講的是「發生了什麼」，同時也是讀者找到它的那一軸。🔴 `trigger` 這一格沒有了：owner ruling rc-9002654dd81c (2026-09-06), verbatim 「合併成 heading 一格（同時把搜尋改成掃 heading＋內容、待審畫面改顯示 heading）」。⚠️ 合併之前寫下的條目**不是**被留成空標題：migration 00084 在 DROP 掉 `trigger` 之前，先把每一列的 `trigger` 複製進了空的 `heading`，所以那些條目帶的是它們原本那句「什麼時候要記起來」。
+	// Heading 標題格 — 這條條目在講的是「發生了什麼」，同時也是讀者找到它的那一軸。🔴 `trigger` 這一格沒有了：owner ruling rc-9002654dd81c (2026-09-06), verbatim 「合併成 heading 一格（同時把搜尋改成掃 heading＋內容、待審畫面改顯示 heading）」。⚠️ 合併之前寫下的條目**不是**被留成空標題：migration 00092 在 DROP 掉 `trigger` 之前，先把每一列的 `trigger` 複製進了空的 `heading`，所以那些條目帶的是它們原本那句「什麼時候要記起來」。
 	Heading string `json:"heading"`
 
 	// Original 🔴 THE FULL TEXT OF THE ENTRY AS IT WAS LAST WRITTEN — all four cells AND the `events:` block, each named, blank ones included. This is what the whole ticket means by keeping the original: `content` is lossy by design, and without this an agent that doubts it has nowhere to go. The events are inside it, so they are inside `sha256` too. Empty ONLY for an entry written before this mechanism existed; a normal entry always has one, because the entry and its first revision are one transaction.

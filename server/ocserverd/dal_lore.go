@@ -35,7 +35,7 @@ import (
 // FROM. The class used to be computed at read time from the entry's action
 // names; owner ruled the action axis away on 2026-09-05, so memoryTrustScope()
 // and the whole trust/method/cognitive classification are gone rather than
-// answering the same constant for every entry. See 00084_lore_format_v8.sql.
+// answering the same constant for every entry. See 00092_lore_format_v8.sql.
 //
 // 🔴 THERE IS NO Origin FIELD. It was an L1 column carrying WHOSE knowledge an
 // entry was (`human:Seth`, `agent:Kyle`), and its whole function was a human
@@ -46,7 +46,7 @@ import (
 // mechanisms went with it rather than staying as branches nothing can satisfy.
 // ⚠️ Said plainly so nobody goes looking for the guard: what the owner said in
 // person now competes for room with everything else. Nothing replaces it.
-// See 00084_lore_format_v8.sql.
+// See 00092_lore_format_v8.sql.
 type LoreEntry struct {
 	ID string
 
@@ -69,13 +69,13 @@ type LoreEntry struct {
 	// 在列表上、在搜尋裡、在待審畫面上用**三句不同的話**代表自己。一格之後，
 	// 使用者看到的那一行就是搜尋掃的那一行。
 	//
-	// 🔴 而 `00081_lore.sql` 裡那段話**沒有被就地更正，而且不會被更正**。它現在是
+	// 🔴 而 `00089_lore.sql` 裡那段話**沒有被就地更正，而且不會被更正**。它現在是
 	// 假的，但那支 migration 不能改：`migration.lock` 對每支 migration 的檔案內容做
 	// sha256，更重要的是**它很可能已經被一個真的資料庫套用過**（正式庫那 14 張表
-	// ＝ 00081 的 12 張 ＋ 00083 的 2 張，數字逐一對上）。改它的內容，那個庫就對不上
+	// ＝ 00089 的 12 張 ＋ 00091 的 2 張，數字逐一對上）。改它的內容，那個庫就對不上
 	// 一份它跑過的 migration。
-	// ⇒ **更正寫在 `00084_lore_format_v8.sql`，而 00081 沒有任何回鏈。**
-	// ⚠️ 這個洞是**知情留著的**，不是漏掉的：打開 00081 讀到那段的人，會停在一句
+	// ⇒ **更正寫在 `00092_lore_format_v8.sql`，而 00089 沒有任何回鏈。**
+	// ⚠️ 這個洞是**知情留著的**，不是漏掉的：打開 00089 讀到那段的人，會停在一句
 	// 假話上，而檔案裡沒有東西會告訴他往哪裡走。留著的理由是上面那句——用一個
 	// 可讀性的改善去換「正式庫對不上一支跑過的 migration」的風險，不划算。
 	// **這一行就是那個補償，而它只在這裡，不在他會打開的那個檔案裡。**
@@ -168,7 +168,7 @@ func scanLoreEntry(row interface{ Scan(...any) error }) (LoreEntry, error) {
 // 壞事：這條撈不到（heading 是搜尋唯一掃得到的那一軸），而且它在任何一份清單
 // 上跟一條寫好的條目長得一模一樣，讀的人不會知道要回來補。
 //
-// 🔴 檢查在這裡而不在 CHECK constraint 裡，是 migration 00084 明講的判斷：
+// 🔴 檢查在這裡而不在 CHECK constraint 裡，是 migration 00092 明講的判斷：
 // SQLite 的 CHECK 只會回一句「CHECK constraint failed」，說不出是哪一格空了。
 //
 // ⚠️ v8 對標題還有三條這一層擋不住的要求（寫「發生了什麼」、不得是祈使句、
@@ -315,7 +315,7 @@ var (
 	// 🔴 標題超過 140 個字元（rune）。它跟 ErrLoreHeadingBlank 是**兩個**錯誤，
 	// 因為寫入者要做的事不一樣：一個是去補一句，一個是去把一句砍短。訊息裡一定
 	// 要有三件事 —— **是哪一格**、上限多少、送來的是多少 —— 而「哪一格」正是
-	// 00084 說明過 CHECK 講不出來的那一件（SQLite 只會回一句 CHECK constraint
+	// 00092 說明過 CHECK 講不出來的那一件（SQLite 只會回一句 CHECK constraint
 	// failed），也就是這道門為什麼在 DAL 而不在 CHECK 的理由。
 	ErrLoreHeadingTooLong = errors.New(
 		"lore: `heading` is over the cap — 標題（heading）這一格太長了")
@@ -592,7 +592,7 @@ type LoreRecall struct {
 	// moment of the recall rather than joined back to later. member.session_boot_ts
 	// is a single cell that the actor's NEXT session overwrites, so a join from
 	// an old row answers about the wrong session or about none — see
-	// migrations/00082 for the whole argument, and loreRecallSession* for what
+	// migrations/00090 for the whole argument, and loreRecallSession* for what
 	// the three states mean. Nothing in this struct is optional-by-omission: the
 	// zero value is `unrecorded`, which is a state and not a default.
 	SessionBootTS float64

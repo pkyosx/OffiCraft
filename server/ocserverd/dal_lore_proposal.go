@@ -87,7 +87,7 @@ var (
 )
 
 // loreProposalKinds / loreProposalFaults are the two closed sets, declared once
-// here and mirrored by a CHECK constraint in 00083. The CHECK is the backstop;
+// here and mirrored by a CHECK constraint in 00091. The CHECK is the backstop;
 // this is what produces an error a caller can read.
 //
 // 🔴 `fault` IS THE OWNER'S THREE, NOT lore_feedback's `shape`. He named them on
@@ -127,7 +127,7 @@ type LoreProposal struct {
 	// 「任何修改都是提案的一環」。在此之前提案表沒有這一欄，後果不是「少了一格」
 	// 而是一份**主動說謊的原文**：loreRevisionBody 印 heading，loreProposalEntry
 	// 給它零值，核可寫下的原文就宣稱這條沒有標題 —— 實測配陽性對照坐實過
-	// （見 00084 檔內那一段）。而第二個後果更難看見：「什麼都沒改的提案要被拒絕」
+	// （見 00092 檔內那一段）。而第二個後果更難看見：「什麼都沒改的提案要被拒絕」
 	// 是比兩串 digest，提案那一串永遠少一格 ⇒ 兩串永遠不等 ⇒ **那道守衛恆真、
 	// 永遠不擋任何東西**。
 	Heading string

@@ -54,10 +54,20 @@ import (
 
 const (
 	migration00086Version = 86
-	// 00081-00085 do not exist in this tree (they are held by branches in
-	// flight — see 00086's header), so the version immediately below 00086 is
-	// 00080. Written as its own constant so that a future migration filling one
-	// of those gaps is a one-line edit rather than a puzzle.
+	// 00081-00085 do not exist in this tree, so the version immediately below
+	// 00086 is 00080. Written as its own constant so that a future migration
+	// filling one of those gaps is a one-line edit rather than a puzzle.
+	//
+	// ⚠️ THIS BRIEFLY STOPPED BEING TRUE, AND THE CONSTANT WAS STILL 80. When
+	// t-33/lore-format-v8 merged main on 2026-09-07 it brought 00081-00084 into
+	// the tree beside 00086, and from that moment the stage below 00086 was
+	// 00084, not 00080 — this constant named a stage five below the real one and
+	// the DownTo below retreated through four of another branch's migrations.
+	// The renumber to 00089-00092 later the same day put the gap back and made
+	// the sentence true again. 00086's own header names 00081-00085 as held by
+	// branches in flight; that inventory is now stale (T-33 vacated 00081-00084)
+	// and cannot be corrected in place — 00086 has shipped, so editing it would
+	// move its sha256 in migration.lock. Read the inventory here, not there.
 	migration00086PriorVersion = 80
 )
 

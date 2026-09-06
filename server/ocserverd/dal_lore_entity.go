@@ -21,7 +21,7 @@ package main
 // rather than column updates.
 //
 // 🔴 NO MIGRATION, AND THAT IS NOT A COINCIDENCE. `entity.pending`,
-// `entity.merged_into` and `entity_alias` already exist (00081) and are already
+// `entity.merged_into` and `entity_alias` already exist (00089) and are already
 // READ on every write (loreResolveSubject) and every search (loreEntityIDForKey).
 // Recording a merge through those columns therefore repairs the ontology for
 // every path at once; a new table would have been a second answer to 「which
@@ -86,7 +86,7 @@ type LorePendingEntryRef struct {
 // LorePendingEntity is ONE line of the review queue.
 //
 // 🔴 THERE IS NO Display FIELD, AND ITS ABSENCE IS THE HONEST ANSWER. The
-// column exists in 00081 and NOTHING in this tree writes it, so a `display` on
+// column exists in 00089 and NOTHING in this tree writes it, so a `display` on
 // this struct could only ever be "" — and an empty string reads as 「we looked
 // and it has no name」 rather than 「no path can fill this yet」. Name is the name
 // half of Canonical, split at read time: a stored second copy of a substring of
@@ -145,7 +145,7 @@ type LorePendingEntity struct {
 	// CreatedBy is the actor id loreResolveSubject stamped on the mint — WHO wrote
 	// the entry whose subject list minted this name.
 	//
-	// 🔴 THE COLUMN HAS BEEN WRITTEN SINCE 00081 AND NOTHING SERVED IT. The review
+	// 🔴 THE COLUMN HAS BEEN WRITTEN SINCE 00089 AND NOTHING SERVED IT. The review
 	// question is 「is this name a typo」, and after the name itself the most useful
 	// evidence is who minted it: a name minted by the agent that already owns the
 	// neighbouring subjects reads very differently from one minted once by a caller
@@ -744,7 +744,7 @@ func loreEditDistance(a, b string, max int) int {
 // one", or "" when it does not.
 //
 // 🔴 THE COMPARISON IS WITHIN ONE TYPE, AND THAT IS THE SCHEMA'S OWN RULING
-// RATHER THAN A CHOICE MADE HERE. 00081 says it in as many words: 「Kyle being
+// RATHER THAN A CHOICE MADE HERE. 00089 says it in as many words: 「Kyle being
 // both the canonical of agent:Kyle and an alias of human:KyleHsia is CORRECT,
 // not a data error」. So an identical NAME under two different type prefixes is
 // not evidence of a duplicate, and offering it as one would push a reviewer

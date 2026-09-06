@@ -157,7 +157,7 @@ describe("LoreActivityCard", () => {
     );
     renderCard();
     expand();
-    // 🔴 重複讀是這本日誌被建出來要量的訊號(migrations/00082),不是雜訊。
+    // 🔴 重複讀是這本日誌被建出來要量的訊號(migrations/00090),不是雜訊。
     await waitFor(() =>
       expect(screen.getAllByTestId("mp-lore-row").length).toBe(2),
     );

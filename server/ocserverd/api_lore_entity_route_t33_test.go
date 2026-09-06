@@ -388,7 +388,7 @@ func TestLoreEntityPendingRouteCarriesTheEmptinessAndTheEntries(t *testing.T) {
 
 	if used.CreatedBy != "m-minter" {
 		t.Fatalf("repo:used created_by = %q, want the minting actor over the wire — the "+
-			"column has been written since 00081 and no response carried it", used.CreatedBy)
+			"column has been written since 00089 and no response carried it", used.CreatedBy)
 	}
 	if used.Entries != 1 || used.EntriesEver != 2 {
 		t.Fatalf("repo:used = %d now / %d ever, want 1/2", used.Entries, used.EntriesEver)

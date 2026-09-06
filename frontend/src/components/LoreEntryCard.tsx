@@ -213,7 +213,7 @@ export function LoreEntryCard({ entry }: { entry: LoreEntrySummaryView }) {
             就是 agent 透過 target 會看到的列表 因為這會決定他們要不要看內容」。
             它在寫入路徑上是硬性必填(擋在 PutLoreEntry 這個原始 upsert 縫上),
             所以這裡沒有「這條沒有名字」的退路;合併之前寫的條目也不是空的,
-            migration 00084 把它們原本的 `trigger` 抄了進來。 */}
+            migration 00092 把它們原本的 `trigger` 抄了進來。 */}
         <div className="lore-entry__title">{entry.heading}</div>
         <div className="lore-entry__axes">
           {entry.subjects.map((s) => (

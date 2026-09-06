@@ -2977,7 +2977,7 @@ export interface paths {
          *
          *     This is the first reader the recall journal has ever had. Three write points file
          *     a row on every retrieval (lore search, entry read, revision read), each row
-         *     carrying the session anchor it was written under (migrations/00082); this route
+         *     carrying the session anchor it was written under (migrations/00090); this route
          *     selects the rows whose ``session_state`` is ``anchored`` and whose stamped
          *     ``session_boot_ts`` equals the member's CURRENT anchor, oldest first, and
          *     flattens them to one row per entry so the panel can be a list of 標題.
@@ -6701,7 +6701,7 @@ export interface components {
             events: components["schemas"]["LoreEventDTO"][];
             /**
              * Heading
-             * @description 標題格 — 這條條目在講的是「發生了什麼」，同時也是讀者找到它的那一軸。🔴 `trigger` 這一格沒有了：owner ruling rc-9002654dd81c (2026-09-06), verbatim 「合併成 heading 一格（同時把搜尋改成掃 heading＋內容、待審畫面改顯示 heading）」。⚠️ 合併之前寫下的條目**不是**被留成空標題：migration 00084 在 DROP 掉 `trigger` 之前，先把每一列的 `trigger` 複製進了空的 `heading`，所以那些條目帶的是它們原本那句「什麼時候要記起來」。
+             * @description 標題格 — 這條條目在講的是「發生了什麼」，同時也是讀者找到它的那一軸。🔴 `trigger` 這一格沒有了：owner ruling rc-9002654dd81c (2026-09-06), verbatim 「合併成 heading 一格（同時把搜尋改成掃 heading＋內容、待審畫面改顯示 heading）」。⚠️ 合併之前寫下的條目**不是**被留成空標題：migration 00092 在 DROP 掉 `trigger` 之前，先把每一列的 `trigger` 複製進了空的 `heading`，所以那些條目帶的是它們原本那句「什麼時候要記起來」。
              */
             heading: string;
             /**
@@ -6967,12 +6967,12 @@ export interface components {
             heading_found: boolean;
             /**
              * Since Boot Secs
-             * @description 「上線後多久」 — `created_ts` minus the session anchor STAMPED ON THE JOURNAL ROW (see migrations/00082). It is computed from the row's own anchor rather than from the member's current `session_boot_ts` cell, which the member's next session overwrites, so this number stays true after the session ends.
+             * @description 「上線後多久」 — `created_ts` minus the session anchor STAMPED ON THE JOURNAL ROW (see migrations/00090). It is computed from the row's own anchor rather than from the member's current `session_boot_ts` cell, which the member's next session overwrites, so this number stays true after the session ends.
              */
             since_boot_secs: number;
             /**
              * Status
-             * @description The entry's lifecycle status as it stands now — `active`, `superseded`, `retired` or `underspecified` (the CHECK set in migrations/00081) — and `""` exactly when `heading_found` is false. 🔴 IT IS DISPLAY, NOT ERROR HANDLING. A retired entry is still REACHABLE by id (`GET /api/lore/entries/{id}` has no status filter; retirement means 「no longer RETRIEVED」 — search and the boot directory skip it), so the deep link lands on it either way; this field is what lets the panel say 「這一條已退役」 beside the heading instead of letting a retired memory read as a live one.
+             * @description The entry's lifecycle status as it stands now — `active`, `superseded`, `retired` or `underspecified` (the CHECK set in migrations/00089) — and `""` exactly when `heading_found` is false. 🔴 IT IS DISPLAY, NOT ERROR HANDLING. A retired entry is still REACHABLE by id (`GET /api/lore/entries/{id}` has no status filter; retirement means 「no longer RETRIEVED」 — search and the boot directory skip it), so the deep link lands on it either way; this field is what lets the panel say 「這一條已退役」 beside the heading instead of letting a retired memory read as a live one.
              */
             status: string;
         };

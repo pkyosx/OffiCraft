@@ -40,7 +40,7 @@ func seedRecall(t *testing.T, d *DAL, actor, query, entryID string, createdTS, b
 //
 // 🔴 THE TWO ROWS ARE OTHERWISE IDENTICAL ON PURPOSE. Same actor, same door,
 // same entry: `session_boot_ts` is the ONLY cell that separates them, which is
-// the whole claim migrations/00082 makes about why that column had to exist.
+// the whole claim migrations/00090 makes about why that column had to exist.
 // If the fixture varied anything else, a filter that keyed off the wrong column
 // could still pass.
 func TestListLoreRecallForSessionSeparatesTheSessions(t *testing.T) {

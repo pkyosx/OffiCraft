@@ -105,7 +105,7 @@ func TestLoreRevisionBodyNamesEveryFieldEvenWhenBlank(t *testing.T) {
 	}
 	// 🔴 標題**在**原文裡，而這一段以前釘的是相反的事（「它不在，那是一個已知的
 	// 洞」）。洞被填掉的方式不是把它從渲染器拿掉，是讓提案帶得動它（owner
-	// rc-bbccbeb3d9e6 逐字「任何修改都是提案的一環」，00084 補了 lore_proposal 的
+	// rc-bbccbeb3d9e6 逐字「任何修改都是提案的一環」，00092 補了 lore_proposal 的
 	// heading 欄）。
 	// 少了這一格的後果不是「少記一格」：核可寫進 lore_revision 的是提案渲染出來
 	// 的那串 body，所以每一次核可都會留下一份宣稱「這條沒有標題」的原文，而條目
