@@ -16,15 +16,19 @@
 //    declared the field. Pinned server-side by
 //    `api_members_unread_parity_test.go` (single vs list, on the response body).
 //    ⚠️ SCOPE — "both handlers", not "every endpoint that returns a MemberDTO".
-//    Verified 2026-08-01: of the six `newMemberDTO` call sites, only those two
-//    pass a computed count; `writeMemberDTO` (shared by ~15 handlers),
-//    `api_members.go:462`, `:565` and `api_roles.go:222` still pass a literal 0.
-//    No user-visible consequence today — the cockpit never feeds those responses
-//    back into the roster — but do not read the sentence above as a promise that
-//    unread_count is real everywhere.
-//    ⚠️ NOR is it "one shared computation" repo-wide: four inline
-//    ListChat→ListChatReads→UnreadCounts copies remain (`api_outsource.go` :136,
-//    :199, :348 and `api_chat.go` :873). The helper unified the MEMBER pair only.
+//    Verified 2026-08-01 — and on 2026-09-06 the caveat this paragraph carried
+//    stopped applying. `writeMemberDTO` was the offender it named (shared by ~15
+//    handlers, every one passing a literal 0), and T-91 deleted it outright when
+//    those fifteen lifecycle writes stopped answering with a member row at all.
+//    Re-counted after that change: `newMemberDTO` now has exactly TWO call
+//    sites, the roster list and `GET /api/members/{id}`, and both pass a
+//    computed count. So `unread_count` IS real everywhere a MemberDTO is now
+//    served. Kept rather than deleted because the sentence above is a claim
+//    about scope, and a reader who met the old caveat should find where it
+//    was discharged instead of wondering whether anyone checked.
+//    ⚠️ NOR is it "one shared computation" repo-wide: inline
+//    ListChat→ListChatReads→UnreadCounts copies remain in `api_outsource.go` and
+//    `api_chat.go`. The helper unified the MEMBER pair only.
 //  - `GET /api/tasks/{id}` — `dep_tasks` IS NOT ON THE WIRE AT ALL. The frozen
 //    spec declares it on `TaskListItemDTO` only, never on `TaskDTO`
 //    (`spec/openapi.json`; `toTask()` in `api/mappers.ts` therefore sets no

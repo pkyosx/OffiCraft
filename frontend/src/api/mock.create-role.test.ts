@@ -37,7 +37,9 @@ describe("mock createRole — effort 422 parity", () => {
   it("accepts the closed low/medium/high/max effort vocabulary", async () => {
     for (const effort of ["low", "medium", "high", "max"] as const) {
       const r = await mockApi.createRole({ name: `Role ${effort}`, effort });
-      expect(r.member.effort).toBe(effort);
+      // T-91: the create receipt carries the minted ids, not the member row —
+      // the launch knob it accepted is read back off the member it minted.
+      expect((await mockApi.getMember(r.memberId)).effort).toBe(effort);
     }
   });
 });

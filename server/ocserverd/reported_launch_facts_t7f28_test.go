@@ -216,6 +216,18 @@ func TestRefocusOp_IsStampedAndClearedWithTheWindow(t *testing.T) {
 		t.Fatalf("update: %d %s", rec.Code, rec.Body.String())
 	}
 
+	// The PATCH answers a bounded receipt now (T-91), so the three panel fields
+	// are read from the surface the panel itself reads — the member GET it
+	// refetches with — instead of out of the write's own answer.
+	if got := decodeBody[agentLifecycleReceiptDTO](t, rec).ID; got != "m-op" {
+		t.Fatalf("receipt id = %q, want m-op", got)
+	}
+	rec = httptest.NewRecorder()
+	s.HandleGetMemberApiMembersMemberIdGet(rec,
+		taskReq(t, "GET", "/api/members/m-op", nil, wireOwnerID, "owner"), "m-op")
+	if rec.Code != 200 {
+		t.Fatalf("member GET: %d %s", rec.Code, rec.Body.String())
+	}
 	dto := decodeBody[memberDTO](t, rec)
 	if dto.RefocusOp != memberOpModel {
 		t.Errorf("refocus_op = %q, want %q — without the cause the panel can "+
@@ -241,7 +253,12 @@ func TestRefocusOp_IsStampedAndClearedWithTheWindow(t *testing.T) {
 	if rec.Code != 200 {
 		t.Fatalf("report_waking: %d %s", rec.Code, rec.Body.String())
 	}
-	woken := decodeBody[memberDTO](t, rec)
+	// 🔴 Decode the SELF-REPORT RECEIPT, not a memberDTO. report_waking stopped
+	// answering with the whole member row earlier in T-91, and a memberDTO
+	// decoded from that receipt would have come back with a zero RefocusOp and a
+	// zero RefocusDeadline whatever the row actually said — this assertion would
+	// have passed on a handler that never closed the window at all.
+	woken := decodeBody[selfReportReceiptDTO](t, rec)
 	if woken.RefocusOp != "" || woken.RefocusDeadline != 0 {
 		t.Errorf("a closed window still advertises op=%q deadline=%v — a cause "+
 			"that outlives its window makes the panel announce a wind-down that "+

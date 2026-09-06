@@ -284,7 +284,7 @@ func (s *apiServer) updateTaskText(w http.ResponseWriter, r *http.Request, taskI
 	// Nothing named, or nothing actually different ⇒ nothing changes, nothing is
 	// versioned, nothing fans.
 	if edit.empty() {
-		s.writeTask(w, *t)
+		s.writeTaskWriteReceipt(w, *t)
 		return
 	}
 	ok, err := s.writeTaskText(t, currentActor(r), edit)
@@ -297,7 +297,7 @@ func (s *apiServer) updateTaskText(w http.ResponseWriter, r *http.Request, taskI
 		return
 	}
 	s.publishTask(*t, requestTrigger(r))
-	s.writeTask(w, *t)
+	s.writeTaskWriteReceipt(w, *t)
 }
 
 // POST /api/tasks/{task_id} — correct this task's title, description, or both

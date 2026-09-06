@@ -87,8 +87,10 @@ describe("SettingsPage · InsightCard (T-3809)", () => {
     // The DoD says "every role", and a seed-only implementation passes a
     // seed-only test. Custom roles are the half a keyed-off-the-seed-list
     // mistake would drop.
-    const { role } = await mockApi.createRole({ name: "臨時角色" });
-    const utils = await openRolePage(role.name);
+    // T-91: createRole answers the minted ids only, so the display name the
+    // page is opened by is the one this test passed in.
+    await mockApi.createRole({ name: "臨時角色" });
+    const utils = await openRolePage("臨時角色");
     expect(insightCard(utils)).toBeTruthy();
   });
 
@@ -98,8 +100,8 @@ describe("SettingsPage · InsightCard (T-3809)", () => {
     // untouched doc is deliberately non-empty. The property being pinned is
     // unchanged and still real: a role with no seed of its own reads empty, and
     // that empty must be its own reading rather than the load or error state.
-    const { role } = await mockApi.createRole({ name: "無 seed 的角色" });
-    const utils = await openRolePage(role.name);
+    await mockApi.createRole({ name: "無 seed 的角色" });
+    const utils = await openRolePage("無 seed 的角色");
     const card = insightCard(utils)!;
 
     expect(within(card).getByText(mp.insightEmpty)).toBeTruthy();
@@ -141,8 +143,8 @@ describe("SettingsPage · InsightCard (T-3809)", () => {
     // client: `api/mock.ts` must fold a MAP keyed by role, not one shared
     // constant. A mock that copied the lessons shape would make the cockpit
     // look correct against a server that is wrong in the same way.
-    const { role } = await mockApi.createRole({ name: "測試員" });
-    const mine = await mockApi.getInsight(role.key);
+    const { roleKey } = await mockApi.createRole({ name: "測試員" });
+    const mine = await mockApi.getInsight(roleKey);
     const assistant = await mockApi.getInsight("assistant");
     expect(assistant.text.trim()).not.toBe("");
     expect(mine.text).toBe("");
@@ -165,8 +167,8 @@ describe("SettingsPage · InsightCard (T-3809)", () => {
     // untouched doc is no longer zero-length. Zero is exactly when someone is
     // about to write the first thing into the doc, so it is the worst moment to
     // hide the limit — a role with no seed is where that state now lives.
-    const { role } = await mockApi.createRole({ name: "零字角色" });
-    const utils = await openRolePage(role.name);
+    await mockApi.createRole({ name: "零字角色" });
+    const utils = await openRolePage("零字角色");
     const size = insightCard(utils)!.querySelector(".mp-insight__size");
     expect(size?.textContent?.replace(/\s+/g, " ").trim()).toBe(
       `0 / ${DOC_CAP_CHARS_DEFAULTS.insight}`
@@ -239,8 +241,8 @@ describe("SettingsPage · InsightCard (T-3809)", () => {
   });
 
   it("offers NO 初始版本 on a role with no factory insight", async () => {
-    const { role } = await mockApi.createRole({ name: "沒有出廠判準的角色" });
-    const utils = await openRolePage(role.name);
+    await mockApi.createRole({ name: "沒有出廠判準的角色" });
+    const utils = await openRolePage("沒有出廠判準的角色");
     const card = insightCard(utils)!;
 
     fireEvent.click(within(card).getByText(s.edit));

@@ -1003,12 +1003,40 @@ var identityGateLedger = map[string]string{
 		"the out-of-box seed's local machine row; same reasoning as above.",
 	"api_tasks.go :: HandleCreateTaskApiTasksPost :: ExecutorKind: executorKind": "" +
 		"stamping the normalised executor kind onto the new task — the value the four " +
-		"create-matrix comparisons above decided.",
+		"create-matrix comparisons above decided. \u26a0\ufe0f \"four\" is not what a " +
+		"reader counts: grep 'HandleCreateTaskApiTasksPost ::' over this file and " +
+		"six of the entries are comparisons. The number is left as written because " +
+		"it predates T-91 and correcting a neighbour's text from inside an " +
+		"unrelated package is how ledgers drift; the caveat sits here, on the " +
+		"entry that is wrong, rather than only on the T-91 entry below it, because " +
+		"a reader who stops at this line would otherwise never see it.",
 	"wire.go :: newTaskDTO :: ExecutorKind: t.ExecutorKind": "" +
 		"wire projection, straight copy: the DTO tells the client which population " +
 		"executes the task. No decision here.",
 	"wire.go :: newTaskDTO :: ReassignedFromKind: t.ReassignedFromKind": "" +
 		"same wire projection for the predecessor's kind; no decision here.",
+	"api_tasks.go :: writeTaskWriteReceipt :: ExecutorKind: t.ExecutorKind": "" +
+		"T-91: the WRITE-RECEIPT twin of newTaskDTO's straight copy. The eight " +
+		"task-driving writes stopped answering with the whole taskDTO, and this " +
+		"field rides the receipt for the same reason it rides the DTO — a " +
+		"contractor is bound to one task and goes away with it, so the caller " +
+		"addresses them differently. Server-derived from the roster, not sent; " +
+		"no decision here.",
+	"api_tasks.go :: HandleCreateTaskApiTasksPost :: ExecutorKind: t.ExecutorKind": "" +
+		"T-91, owner ruling rc-f1c0fd3cf124: the CREATE receipt's copy of the kind " +
+		"the create just stamped. Same straight copy as newTaskDTO's and as " +
+		"writeTaskWriteReceipt's, and it is on the receipt because the id beside it " +
+		"is EMPTY on a fresh outsource create (the scheduler mints the worker after " +
+		"this call returns), so the kind is the only thing that separates 「外包票, " +
+		"還沒派工」 from 「這件事不適用」. No decision here — the deciding is the " +
+		"executor-kind comparisons in this same handler, which are already on this " +
+		"ledger — grep 'HandleCreateTaskApiTasksPost ::' over this file for the " +
+		"live list. Deliberately not a count: a hard-coded number here goes stale " +
+		"with nothing watching it, which is what happened to the entry above.",
+	"api_tasks.go :: HandleCreateTaskApiTasksPost :: ExecutorKind: existing.ExecutorKind": "" +
+		"the dedupe-hit twin of the line above: the same copy, taken from the " +
+		"EXISTING ticket this call folded onto rather than from the one it stamped. " +
+		"No decision here.",
 	"wire.go :: newTaskListItemDTO :: ExecutorKind: t.ExecutorKind": "" +
 		"the list-item twin of newTaskDTO's copy; no decision here.",
 	"wire.go :: newTaskListItemDTO :: ReassignedFromKind: t.ReassignedFromKind": "" +
@@ -1044,6 +1072,11 @@ var identityGateLedger = map[string]string{
 		"closeout…), an unrelated vocabulary reusing the field name.",
 	"api_bootdocs.go :: foldBootDocDTO :: Kind: spec.Kind": "" +
 		"NOT an identity gate — the same document-kind vocabulary, at the DTO fold.",
+	"api_bootdocs.go :: bootDocReceiptOf :: Kind: dto.Kind": "" +
+		"NOT an identity gate — the same document-kind vocabulary, at the T-91 " +
+		"WRITE RECEIPT fold. It reads the value foldBootDocDTO (listed above) " +
+		"already put on the DTO; the receipt reports the document's address, " +
+		"and nothing about it asks who the caller is.",
 	"api_bootdocs.go :: replaceBootDoc :: Kind: spec.Kind": "" +
 		"NOT an identity gate — the same document-kind vocabulary, at the write path.",
 	"api_bootdocs.go :: resetBootDoc :: Kind: spec.Kind": "" +

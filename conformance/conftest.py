@@ -192,6 +192,8 @@ def fresh_role(client: httpx.Client, owner_token: str):
             headers=_auth(owner_token),
         )
         assert r.status_code == 200, f"create role failed: {r.status_code} {r.text}"
-        return r.json()["role"]["key"]
+        # T-91: the create answers a receipt naming the minted key, not the
+        # whole role object it used to echo back.
+        return r.json()["role_key"]
 
     return make

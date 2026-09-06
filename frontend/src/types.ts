@@ -931,8 +931,9 @@ export interface RoleSummaryView {
  * a roster row plus the persona body it describes (from the real seed, never
  * the mockup's illustrative Chinese desc).
  *
- * Answered by `GET /api/roles/{key}` and by every role WRITE (the response IS
- * the folded doc). Never by the roster list.
+ * Answered by `GET /api/roles/{key}`. NOT by role writes: since T-91 those
+ * answer a bounded receipt rather than the folded doc, so a caller that needs
+ * this view after a write has to read it back. Never by the roster list.
  */
 export interface RoleDefView extends RoleSummaryView {
   definitionMd: string;

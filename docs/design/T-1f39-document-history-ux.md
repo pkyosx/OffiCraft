@@ -127,7 +127,7 @@ owner 原話（2026-07-31，逐字）：
 - 舊值 `task_manual` **已退場**（Q2 裁定）：list 與 restore 都回 400，訊息指名兩個新 kind。
 - 還原路由沿用同一條，只是 kind 多兩個；`MCPExclude` 不變（還原仍只有座艙做）。
 - **不新增任何路由**（diff 在前端算）。
-- 需同步：`spec/openapi.json` → `bin/gen-ocapi` → `frontend` `gen:api`；`spec/mcp-catalog.json`（手維護、byte-equality）；`conformance/routes_manifest.json`（路由集合沒變，只有描述／列舉變動）；`spec_catalog_conformance_test.go` 的 drift 基線；`seeds/system_interaction.md` §4。
+- 需同步：`spec/openapi.json` → `bin/gen-ocapi` → `frontend` `gen:api`；`spec/mcp-catalog.json`（**當時為手維護**、byte-equality —— 這份設計稿寫下時是真的；`df52648d`（2026-08-12, T-2590）把它改成 `bin/gen-mcp-catalog` 的生成物，CI 有 `drift-mcp-catalog` 守著，現在不得手改）；`conformance/routes_manifest.json`（路由集合沒變，只有描述／列舉變動）；`spec_catalog_conformance_test.go` 的 drift 基線；`seeds/system_interaction.md` §4。
 
 ---
 

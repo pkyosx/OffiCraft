@@ -117,14 +117,14 @@ func TestCreateTaskDedupesAcrossFieldNameCase(t *testing.T) {
 	if first.Code != http.StatusOK {
 		t.Fatalf("first: %d %s", first.Code, first.Body.String())
 	}
-	firstID := decodeBody[taskCreateResultDTO](t, first).Task.ID
+	firstID := decodeBody[taskCreateResultDTO](t, first).TaskID
 
 	// Same PR, lower-cased + padded key → must dedupe onto the same task.
 	again := createTypedRec(t, api, "review-pr", map[string]any{"  pr link ": "https://x/1"})
 	res := decodeBody[taskCreateResultDTO](t, again)
-	if again.Code != http.StatusOK || !res.Deduped || res.Task.ID != firstID {
+	if again.Code != http.StatusOK || !res.Deduped || res.TaskID != firstID {
 		t.Fatalf("case-insensitive dedupe failed: code=%d deduped=%v id=%s want=%s",
-			again.Code, res.Deduped, res.Task.ID, firstID)
+			again.Code, res.Deduped, res.TaskID, firstID)
 	}
 }
 

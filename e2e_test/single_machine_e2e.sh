@@ -210,7 +210,7 @@ stage "4. spawn test agent ($TEST_AGENT) on server-self → presence online"
 # the agent's SSE listen flips presence→online (hub projection, NOT the DB).
 ACT_JSON="$(api_post_logged "/api/members/$TEST_AGENT/activate" "{\"machine_id\":\"$SERVER_SELF_ID\"}" || echo '{}')"
 [[ -n "$(printf '%s' "$ACT_JSON" | json_field id)" ]] \
-  || fail_stage "activate $TEST_AGENT on $SERVER_SELF_ID returned no member DTO — activation rejected"
+  || fail_stage "activate $TEST_AGENT on $SERVER_SELF_ID returned no id on its receipt — activation rejected"
 log "activated $TEST_AGENT on $SERVER_SELF_ID"
 
 # poll presence→online via the HUB (not DB).
