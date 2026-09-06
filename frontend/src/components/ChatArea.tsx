@@ -232,6 +232,11 @@ type ChatSession = {
    * live tail — this ticket's own failure shape, arriving from the previous
    * conversation's button press. */
   pendingLatestScroll: boolean;
+  /** T-124: the last touch Y of the drag in progress, so a finger drag can be
+   * read as a DIRECTION. `null` = no drag in progress. It has to be tracked by
+   * hand because a pane with no overflow scrolls nowhere: there is no
+   * scrollTop for the browser to move and therefore nothing to compare. */
+  touchY: number | null;
 };
 
 function freshChatSession(unreadCount: number): ChatSession {
@@ -249,6 +254,7 @@ function freshChatSession(unreadCount: number): ChatSession {
     autoJumpRetries: 0,
     seedConsumed: null,
     pendingLatestScroll: false,
+    touchY: null,
   };
 }
 
@@ -882,6 +888,35 @@ export function ChatArea({
     if (el.scrollTop < NEAR_TOP_PX && hasMore) {
       void loadOlderAnchored();
     }
+  }
+
+  // The touch half of the same door (owner ruling rc-b5b3c307b90d). A finger
+  // never produces a wheel event, and on a pane with no overflow it produces no
+  // scroll event either — MEASURED at 390px: on the folded thread six downward
+  // drags emitted touchstart/touchmove/touchend only and loaded nothing, while
+  // the same drags on an ordinary thread walked it from 30 messages to 120
+  // through the scroll door. So without this, the phone keeps the dead end the
+  // wheel just took off the desktop. Dragging the content DOWN is reaching for
+  // what is above it — the same request the upward wheel makes.
+  function onMessagesTouchStart(e: React.TouchEvent<HTMLDivElement>) {
+    session.touchY = e.touches[0]?.clientY ?? null;
+  }
+
+  function onMessagesTouchMove(e: React.TouchEvent<HTMLDivElement>) {
+    const y = e.touches[0]?.clientY;
+    if (y == null || session.touchY == null) return;
+    const movedDown = y - session.touchY > 0;
+    session.touchY = y;
+    if (!movedDown) return;
+    const el = messagesRef.current;
+    if (!el) return;
+    if (el.scrollTop < NEAR_TOP_PX && hasMore) {
+      void loadOlderAnchored();
+    }
+  }
+
+  function onMessagesTouchEnd() {
+    session.touchY = null;
   }
 
   function onMessagesScroll() {
@@ -2209,6 +2244,10 @@ export function ChatArea({
               ref={messagesRef}
               onScroll={onMessagesScroll}
               onWheel={onMessagesWheel}
+              onTouchStart={onMessagesTouchStart}
+              onTouchMove={onMessagesTouchMove}
+              onTouchEnd={onMessagesTouchEnd}
+              onTouchCancel={onMessagesTouchEnd}
             >
               {/* 🔴 T-b0bb: THE GAP NOTICE COMES FIRST, AND IT SUPPRESSES
                * "已到最早訊息".

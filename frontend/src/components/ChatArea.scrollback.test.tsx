@@ -211,6 +211,45 @@ describe("scroll-top history loading", () => {
     expect(ids).toEqual(["c1", "c2", "c3"]);
   });
 
+  // 手指的那道門(owner 圈定 rc-b5b3c307b90d)。手指往下拖 = 伸手去拿上面的東西,
+  // 跟往上轉滾輪是同一個請求;往上拖是往新的方向走,不該撈。
+  //
+  // ⚠️ 同樣地,「這一格非有不可」量的是版面與真的觸控輸入,由
+  // visual-guards/chat-inter-agent-scrollback 的手機那一段在真的 Chromium 裡釘。
+  it("手指往下拖會載入更舊那一頁,往上拖不會", async () => {
+    initialMessages = [
+      mkMsg("c2", "b", "owner", 2000),
+      mkMsg("c3", "b", "owner", 2001),
+    ];
+    olderPage = [mkMsg("c1", "b", "owner", 1000)];
+    const { container } = renderChat();
+    const list = container.querySelector(".chat__messages")!;
+    setScrollGeometry(list, {
+      scrollHeight: 200,
+      clientHeight: 200,
+      scrollTop: 0,
+    });
+
+    // 往上拖:內容往新的方向走,不撈。
+    await act(async () => {
+      fireEvent.touchStart(list, { touches: [{ clientY: 300 }] });
+      fireEvent.touchMove(list, { touches: [{ clientY: 240 }] });
+      fireEvent.touchEnd(list, { touches: [] });
+    });
+    expect(loadOlderCalls).toBe(0);
+
+    await act(async () => {
+      fireEvent.touchStart(list, { touches: [{ clientY: 240 }] });
+      fireEvent.touchMove(list, { touches: [{ clientY: 320 }] });
+      fireEvent.touchEnd(list, { touches: [] });
+    });
+    expect(loadOlderCalls).toBe(1);
+    const ids = Array.from(list.querySelectorAll("[data-msg-id]")).map((el) =>
+      el.getAttribute("data-msg-id"),
+    );
+    expect(ids).toEqual(["c1", "c2", "c3"]);
+  });
+
   it("prepended HISTORY never arms the new-message chip nor re-anchors the divider", async () => {
     initialMessages = [
       mkMsg("c2", "b", "owner", 2000),
