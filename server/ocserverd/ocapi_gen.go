@@ -1420,6 +1420,13 @@ type MachineClaimResultDTO struct {
 	Token     string `json:"token"`
 }
 
+// MachineCredentialPolicyDTO The station's machine-credential policy (“GET /api/machines/credential-policy“).
+//
+// “lifetime_secs“ is the org setting “auth.warden_credential_lifetime_secs“: how long a machine (warden) credential is meant to live. It is NOT an expiry and nothing enforces it at the auth gate -- warden credentials still carry no “exp“. It is the input to the warden's own renewal threshold: two thirds of it, measured from the credential's “iat“, plus a per-machine stagger.
+type MachineCredentialPolicyDTO struct {
+	LifetimeSecs int `json:"lifetime_secs"`
+}
+
 // MachineDTO One machine for the FE picker/panel (“GET /api/machines“). “machine_id“ is
 // the stable warden member id (the binding key an agent stores in its
 // “desired_machine_id“);
@@ -3037,6 +3044,9 @@ type SettingsDTO struct {
 	PushContactEmail   *string `json:"push_contact_email,omitempty"`
 	UpdaterAutoUpdate  *bool   `json:"updater_auto_update,omitempty"`
 	UpdaterReceiveBeta *bool   `json:"updater_receive_beta,omitempty"`
+
+	// WardenCredentialLifetimeSecs How long a MACHINE (warden) credential is meant to live, in seconds (86400 through 34560000 -- one day through 400 days). It is the number every warden's renewal threshold is derived from: a warden replaces its own credential once that credential is two thirds of this old, measured from the `iat` claim it carries, plus a per-machine stagger of up to one hour. Wardens read it from `GET /api/machines/credential-policy` on their 15-minute poll, so a change reaches the fleet within one interval; a warden that cannot reach that endpoint keeps using the shipped default rather than failing. NOTE: warden credentials still carry NO `exp`, so this value governs RENEWAL ONLY -- nothing expires because of it, and a renewal that does not complete leaves the machine on a credential that keeps working.
+	WardenCredentialLifetimeSecs *int `json:"warden_credential_lifetime_secs,omitempty"`
 }
 
 // SettingsUpdateDTO Partial settings edit (`PATCH /api/settings`) — only supplied fields change,
@@ -3136,6 +3146,9 @@ type SettingsUpdateDTO struct {
 	PushContactEmail   *string `json:"push_contact_email,omitempty"`
 	UpdaterAutoUpdate  *bool   `json:"updater_auto_update,omitempty"`
 	UpdaterReceiveBeta *bool   `json:"updater_receive_beta,omitempty"`
+
+	// WardenCredentialLifetimeSecs How long a MACHINE (warden) credential is meant to live, in seconds. Must be 86400 through 34560000 (one day through 400 days). A warden renews its own credential once that credential is two thirds of this old, plus a per-machine stagger of up to one hour so that LOWERING this value does not put the whole fleet on the mint endpoint inside one poll. The floor is one day because the last third of the lifetime is the retry window: at the 15-minute poll a one-day lifetime still leaves about 32 attempts. Wardens pick a change up within one poll interval. Warden credentials carry no `exp` today, so this governs renewal only and nothing expires because of it. Read the current value from get_settings rather than assuming a number.
+	WardenCredentialLifetimeSecs *int `json:"warden_credential_lifetime_secs,omitempty"`
 }
 
 // SigningKeyDTO ONE signing key, as the outside is allowed to see it: which key it is, when it was made, and whether it is the one signing. There is deliberately no field that could carry key material — not the key, not a fingerprint, not a hash prefix — so "did this leak the key" is answered by the shape of the type rather than by remembering to strip a field at each call site.
@@ -4695,6 +4708,9 @@ type ServerInterface interface {
 	// Exchange a one-time claim code for the machine's exec-token.
 	// (POST /api/machines/claim)
 	HandleClaimMachineTokenApiMachinesClaimPost(w http.ResponseWriter, r *http.Request)
+	// Read how long a machine credential is meant to live, in seconds. Names no target and returns the same answer to every caller; a warden polls it to know when to renew its own credential.
+	// (GET /api/machines/credential-policy)
+	HandleMachineCredentialPolicyApiMachinesCredentialPolicyGet(w http.ResponseWriter, r *http.Request)
 	// Renew the CALLER's own machine credential. Takes no body and names no target — the machine acted on is the caller's verified sub, so one machine cannot renew another's.
 	// (POST /api/machines/renew-credential)
 	HandleRenewMachineCredentialApiMachinesRenewCredentialPost(w http.ResponseWriter, r *http.Request)
@@ -6593,6 +6609,20 @@ func (siw *ServerInterfaceWrapper) HandleClaimMachineTokenApiMachinesClaimPost(w
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.HandleClaimMachineTokenApiMachinesClaimPost(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// HandleMachineCredentialPolicyApiMachinesCredentialPolicyGet operation middleware
+func (siw *ServerInterfaceWrapper) HandleMachineCredentialPolicyApiMachinesCredentialPolicyGet(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.HandleMachineCredentialPolicyApiMachinesCredentialPolicyGet(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -9906,6 +9936,7 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/machines", wrapper.HandleListMachinesApiMachinesGet)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/machines", wrapper.HandleOnboardMachineApiMachinesPost)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/machines/claim", wrapper.HandleClaimMachineTokenApiMachinesClaimPost)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/machines/credential-policy", wrapper.HandleMachineCredentialPolicyApiMachinesCredentialPolicyGet)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/machines/renew-credential", wrapper.HandleRenewMachineCredentialApiMachinesRenewCredentialPost)
 	m.HandleFunc(http.MethodPatch+" "+options.BaseURL+"/api/machines/{machine_id}", wrapper.HandleUpdateMachineApiMachinesMachineIdPatch)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/machines/{machine_id}/boot-command", wrapper.HandleMachineBootCommandApiMachinesMachineIdBootCommandGet)

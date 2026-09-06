@@ -1049,6 +1049,16 @@ export interface ServerSettingsView {
    * collects on cannot be two different values. It says HOW LONG, never WHO: a
    * soft cause stays uncollected at any value. */
   acceleratedGraceSecs: number;
+  /** T-fc53: how long a MACHINE (warden) credential is meant to live, in
+   * seconds (86400..34560000; default 2592000 = 30 days). It is NOT an expiry —
+   * warden credentials still carry no `exp`, so nothing stops working because
+   * of this number. It is the ONE input every warden derives its renewal
+   * threshold from: a machine replaces its own credential once that credential
+   * is two thirds of this old, plus a per-machine stagger of up to an hour so
+   * that LOWERING it does not put the whole fleet on the mint endpoint inside
+   * one poll. Lowering it therefore makes machines renew sooner, never sooner
+   * than they can. */
+  wardenCredentialLifetimeSecs: number;
   /** M3: the GLOBAL cap on concurrently live outsource workers (-1..20;
    * **-1 ⇒ 無限 (unlimited — no global cap)**; 0 ⇒ outsource assignment is
    * PAUSED — the panel annotates it). */
@@ -1163,6 +1173,11 @@ export interface ServerSettingsPatch {
   monitoringRefreshSeconds?: number;
   /** 加速停止 grace in seconds. Must be 10..3600. */
   acceleratedGraceSecs?: number;
+  /** T-fc53 warden credential lifetime in seconds. Must be 86400..34560000 —
+   * the floor is one day because the last third of the lifetime is the retry
+   * window, and at a 15-minute poll a one-day lifetime still leaves ~32
+   * attempts to renew before the intended end of life. */
+  wardenCredentialLifetimeSecs?: number;
   outsourceMaxParallel?: number;
   /** T-ae38 document size caps, in characters. Each must be between THAT
    * segment's shipped default (`DOC_CAP_CHARS_DEFAULTS`) and 100000. */

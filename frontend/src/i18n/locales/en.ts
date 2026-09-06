@@ -1936,6 +1936,9 @@ export const en: Dict = {
     acceleratedGrace: "Accelerated stop deadline",
     acceleratedGraceSub:
       "How long an agent has once 加速停止 is pressed — and the same clock the second context threshold runs. The agent is told this exact instant (10–3600)",
+    wardenCredentialLifetime: "Machine credential lifetime",
+    wardenCredentialLifetimeSub:
+      "How long a machine's credential is meant to live. Each machine replaces its own credential once that credential is two thirds of this old, spread out by up to an hour so the whole fleet does not renew at the same moment. Lowering it makes machines renew sooner; nothing expires because of it (86400–34560000)",
     rounds: "rounds",
     // T-ae38 (split again by T-30f1): one cap became many. Deleting from these
     // documents costs wildly different amounts — a role definition is a

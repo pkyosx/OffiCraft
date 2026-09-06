@@ -121,6 +121,31 @@ const (
 	// quoted one number while the tick collected on another. This key says HOW
 	// LONG; it never says WHO is on a clock.
 	settingAcceleratedGraceSecs = "stop.accelerated_grace_secs"
+	// settingWardenCredLifetimeSecs (T-fc53, owner 2026-09-06 「憑證改回有到期日
+	// (30 天)，同時換發改看『發下來多久』」) is how long a MACHINE credential is
+	// meant to live, in seconds.
+	//
+	// 🔴 IT IS NOT AN EXPIRY, AND THE DISTINCTION IS THE WHOLE FIRST PACKAGE.
+	// mintWardenToken still mints without an exp claim, nothing at the auth gate
+	// reads this, and no credential stops working because of it. What it governs
+	// is RENEWAL: each warden reads it (GET /api/machines/credential-policy) and
+	// replaces its own credential once that credential is two thirds of this old,
+	// measured from the `iat` claim it already carries.
+	//
+	// WHY THAT ORDER — a setting that only drives renewal, before the expiry it is
+	// named after. The renewal path had never once been observed to run: the old
+	// trigger asked "how much of the lifetime is left", which needs an exp, so it
+	// answered "not due" on every machine in the fleet forever. Putting expiries
+	// back first would have started a clock on every host against a path nobody
+	// had watched work. With no expiry in play the worst this setting can do is
+	// make machines renew too often or not at all, and neither takes a host off
+	// the network.
+	//
+	// It is deliberately an owner-typed NUMBER rather than a pick from the
+	// 12h/1d/7d/30d list the two token TTLs use (owner 2026-09-06): the reason for
+	// changing it is to watch a renewal happen without waiting a month, and 3 days
+	// is not on that list.
+	settingWardenCredLifetimeSecs = "auth.warden_credential_lifetime_secs"
 	// settingOutsourceMaxParallel (M3, owner ruling ③) is the GLOBAL cap on
 	// concurrently live (assigned + active) outsource workers — the Phase 2
 	// assignment scheduler's admission knob; member tasks never count (H7).
@@ -303,6 +328,42 @@ const (
 	maxAcceleratedGraceSecs     = 3600
 )
 
+// The auth.warden_credential_lifetime_secs bounds (T-fc53).
+//
+// THE DEFAULT IS 30 DAYS because that is what the owner ruled the credential
+// lifetime should be, so an install that never writes the key already behaves the
+// way the second package will make it behave literally.
+//
+// 🔴 THE FLOOR IS ONE DAY, AND IT IS NOT AN ARBITRARY ROUND NUMBER — it is derived
+// from the retry window. A warden renews at two thirds of the lifetime, so the
+// LAST THIRD is the window in which a machine that was switched off, asleep or
+// off the network can still get a replacement; its poll is 15 minutes
+// (selfUpdateInterval, cli/ocwarden). One day therefore buys an eight-hour window
+// ≈ 32 attempts, which survives a working day of downtime. Halve the lifetime
+// again and the window is four hours; take it to an hour and the window is twenty
+// minutes, i.e. one or two polls — at which point a single missed poll is the
+// difference between a machine that renews and one that does not. The floor is
+// where that stops being true, not where the number stops looking tidy.
+//
+// It is also comfortably below the 3 days the owner said he would set to watch a
+// renewal happen (owner 2026-09-06), which is the constraint that decided a day
+// rather than a week.
+//
+// ⚠️ WHAT THE FLOOR DOES NOT PROTECT AGAINST, said out loud: nothing here stops
+// the owner lowering the setting far enough that credentials already in the field
+// are instantly past two thirds of it — that is the fleet-wide simultaneous
+// renewal he was told about and accepted, and what softens it is the per-machine
+// stagger on the warden, not this range.
+//
+// THE CEILING IS maxAgentTTLSecs (400 days), the same ceiling every other
+// long-lived credential on this station already lives under. Naming the same
+// number twice was rejected: this one is derived from it.
+const (
+	wardenCredLifetimeSecsDefault = 30 * 86400
+	minWardenCredLifetimeSecs     = 86400
+	maxWardenCredLifetimeSecs     = int(maxAgentTTLSecs)
+)
+
 // authSettings is the boot-time snapshot cmdServe stamps onto the apiServer.
 type authSettings struct {
 	secret                       []byte
@@ -318,6 +379,7 @@ type authSettings struct {
 	codexNoticeRound             int // codex.notice_round — the FIRST, soft notice round (T-a9d6)
 	monitoringRefreshSeconds     int
 	acceleratedGraceSecs         int    // stop.accelerated_grace_secs (default acceleratedGraceSecsDefault)
+	wardenCredLifetimeSecs       int    // auth.warden_credential_lifetime_secs (default wardenCredLifetimeSecsDefault)
 	outsourceMaxParallel         int    // task.outsource_max_parallel (default 3)
 	docCapCharsDuty              int    // doc.cap_chars.duty (default dutyCapCharsDefault)
 	docCapCharsInsight           int    // doc.cap_chars.insight (default contextDocMaxCharsDefault)
@@ -364,6 +426,7 @@ func loadAuthSettings(d *DAL, cfg Config, logf func(string)) (authSettings, erro
 		codexCompactionThreshold: defaultCodexCompactionThreshold,
 		monitoringRefreshSeconds: defaultMonitoringRefreshSeconds,
 		acceleratedGraceSecs:     acceleratedGraceSecsDefault,
+		wardenCredLifetimeSecs:   wardenCredLifetimeSecsDefault,
 	}
 
 	stored, err := d.GetSetting(settingJWTSecret)
@@ -555,6 +618,24 @@ func loadAuthSettings(d *DAL, cfg Config, logf func(string)) (authSettings, erro
 				settingAcceleratedGraceSecs, acceleratedGraceRangeMsg, *v)
 		}
 		out.acceleratedGraceSecs = n
+	}
+
+	// auth.warden_credential_lifetime_secs — range-checked at load against the
+	// SAME predicate the PATCH face uses (wardenCredLifetimeInRange), so a value
+	// that survives a save can never be the value that refuses to boot on the next
+	// start. A hand-edited row must not install a lifetime the write face would
+	// have refused: this one is read by every machine in the fleet, and a two-hour
+	// lifetime accepted here would have the whole fleet renewing on every poll
+	// with nothing on the wire to say why.
+	if v, err := d.GetSetting(settingWardenCredLifetimeSecs); err != nil {
+		return out, err
+	} else if v != nil {
+		n, err := strconv.Atoi(*v)
+		if err != nil || !wardenCredLifetimeInRange(n) {
+			return out, fmt.Errorf("settings %s: %s: %q",
+				settingWardenCredLifetimeSecs, wardenCredLifetimeRangeMsg, *v)
+		}
+		out.wardenCredLifetimeSecs = n
 	}
 
 	out.outsourceMaxParallel = defaultOutsourceMaxParallel

@@ -82,6 +82,26 @@ func acceleratedGraceInRange(n int) bool {
 	return n >= minAcceleratedGraceSecs && n <= maxAcceleratedGraceSecs
 }
 
+// wardenCredLifetimeInRange is the SINGLE source of truth for which
+// auth.warden_credential_lifetime_secs values this build accepts, for the same
+// reason acceleratedGraceInRange is: the PATCH face and the LOAD face must agree
+// exactly, or a value that saves is a value the next boot refuses.
+func wardenCredLifetimeInRange(n int) bool {
+	return n >= minWardenCredLifetimeSecs && n <= maxWardenCredLifetimeSecs
+}
+
+// wardenCredLifetimeRangeMsg is the ONE wording of that refusal, derived from the
+// bounds so the sentence can never quote a number the predicate does not enforce.
+// It names WHY the floor is where it is, because the caller is the owner and the
+// number is otherwise unguessable: a shorter lifetime shrinks the retry window a
+// machine has to come back through.
+var wardenCredLifetimeRangeMsg = fmt.Sprintf(
+	"must be between %d and %d seconds (one day through 400 days) — a warden renews at "+
+		"two thirds of the lifetime, so the remaining third is the window an offline "+
+		"machine has to get a replacement, and below a day that window stops surviving "+
+		"a working day of downtime",
+	minWardenCredLifetimeSecs, maxWardenCredLifetimeSecs)
+
 // acceleratedGraceRangeMsg is the ONE wording of that refusal, derived from the
 // constants so it can never quote a range the code does not enforce.
 var acceleratedGraceRangeMsg = fmt.Sprintf(
@@ -490,6 +510,18 @@ func (s *apiServer) HandleUpdateSettingsApiSettingsPatch(w http.ResponseWriter, 
 			"outsource_max_parallel "+outsourceParallelRangeMsg)
 		return
 	}
+	// warden_credential_lifetime_secs (T-fc53) is checked on its own rather than as
+	// a row in the capRange table below: that table's shared message talks about
+	// CHARACTERS and about a floor that equals a shipped default so a cap can only
+	// be raised. Both halves would be lies about this one — its unit is seconds and
+	// it is explicitly meant to be turned DOWN, which is the whole reason the owner
+	// asked for a typed number instead of a pick list.
+	if body.WardenCredentialLifetimeSecs != nil &&
+		!wardenCredLifetimeInRange(*body.WardenCredentialLifetimeSecs) {
+		writeError(w, http.StatusUnprocessableEntity,
+			"warden_credential_lifetime_secs "+wardenCredLifetimeRangeMsg)
+		return
+	}
 	// Each floor is THAT segment's shipped default, so a knob only ever RAISES
 	// its cap (owner 2026-07-31). Lowering one would strand every document that
 	// is legal today in shrink-only mode — the refusal says so rather than
@@ -680,6 +712,15 @@ func (s *apiServer) HandleUpdateSettingsApiSettingsPatch(w http.ResponseWriter, 
 		}
 		s.acceleratedGraceSecs = *body.AcceleratedGraceSecs
 	}
+	if body.WardenCredentialLifetimeSecs != nil {
+		if err := s.dal.PutSetting(settingWardenCredLifetimeSecs,
+			strconv.Itoa(*body.WardenCredentialLifetimeSecs)); err != nil {
+			s.settingsMu.Unlock()
+			internalError(w, err)
+			return
+		}
+		s.wardenCredLifetimeSecs = *body.WardenCredentialLifetimeSecs
+	}
 	if body.OutsourceMaxParallel != nil {
 		if err := s.dal.PutSetting(settingOutsourceMaxParallel,
 			strconv.Itoa(*body.OutsourceMaxParallel)); err != nil {
@@ -847,6 +888,7 @@ func (s *apiServer) settingsView() settingsDTO {
 		CodexNoticeRound:             s.codexNoticeRound,
 		MonitoringRefreshSeconds:     s.monitoringRefreshSeconds,
 		AcceleratedGraceSecs:         s.acceleratedGraceSecs,
+		WardenCredentialLifetimeSecs: s.wardenCredLifetimeSecs,
 		OutsourceMaxParallel:         s.outsourceMaxParallel,
 		DocCapCharsDuty:              s.docCapCharsDuty,
 		DocCapCharsInsight:           s.docCapCharsInsight,

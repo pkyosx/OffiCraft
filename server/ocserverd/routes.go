@@ -1098,6 +1098,20 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			Summary:    "Renew the CALLER's own machine credential. Takes no body and names no target — the machine acted on is the caller's verified sub, so one machine cannot renew another's.",
 			MCPExclude: true, // a credential-mint seam (like claim/onboard), not an agent tool
 		},
+		// The number a warden needs in order to decide, for itself, that its own
+		// credential is old enough to replace. It is on the SAME floor as the renew
+		// seam above because the same caller asks it, one poll before asking that
+		// one — a higher floor would lock the warden out of the question it exists
+		// to answer.
+		{
+			Method:     "GET",
+			Path:       "/api/machines/credential-policy",
+			Handler:    w.HandleMachineCredentialPolicyApiMachinesCredentialPolicyGet,
+			Auth:       authGated,
+			Requires:   principalMachine,
+			Summary:    "Read how long a machine credential is meant to live, in seconds. Names no target and returns the same answer to every caller; a warden polls it to know when to renew its own credential.",
+			MCPExclude: true, // fleet plumbing a warden polls, not a verb an agent has any use for
+		},
 		// T-6020 (owner 2026-07-26): the two on-server host lifecycle faces open
 		// to admin_agent — installing/tearing down the server host's own warden
 		// is office operations. A plain agent is still 403 (rank<2).

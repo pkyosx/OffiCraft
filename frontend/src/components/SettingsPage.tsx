@@ -1164,6 +1164,7 @@ function ServerParams({
   const [codexNoticeDraft, setCodexNoticeDraft] = useState<string | null>(null);
   const [monitoringRefreshDraft, setMonitoringRefreshDraft] = useState<string | null>(null);
   const [acceleratedGraceDraft, setAcceleratedGraceDraft] = useState<string | null>(null);
+  const [wardenCredLifetimeDraft, setWardenCredLifetimeDraft] = useState<string | null>(null);
   // T-ae38, widened by T-30f1: five independent caps, so five independent
   // drafts. A shared draft would make typing in one field snap the others back.
   const [docCapDrafts, setDocCapDrafts] = useState<
@@ -1247,6 +1248,21 @@ function ServerParams({
     if (!Number.isInteger(n) || n < 10 || n > 3600) { setRangeError(true); setAcceleratedGraceDraft(null); return; }
     setAcceleratedGraceDraft(null);
     if (n !== settings.acceleratedGraceSecs) void onSave({ acceleratedGraceSecs: n });
+  }
+
+  // 機器憑證壽命 (T-fc53). A free-typed number rather than a dropdown of fixed
+  // choices (owner 2026-09-06): the fleets that need this at all need a number
+  // someone picked for their own renewal window, not one of ours. The range
+  // mirrors the server's 422 exactly (86400..34560000) — the floor is one day
+  // because the last third of the lifetime is the retry window, and offering a
+  // value the server rejects would show the owner a 422 for a number this page
+  // handed him.
+  function commitWardenCredLifetime() {
+    if (!settings || wardenCredLifetimeDraft === null) return;
+    const n = Number(wardenCredLifetimeDraft);
+    if (!Number.isInteger(n) || n < 86400 || n > 34560000) { setRangeError(true); setWardenCredLifetimeDraft(null); return; }
+    setWardenCredLifetimeDraft(null);
+    if (n !== settings.wardenCredentialLifetimeSecs) void onSave({ wardenCredentialLifetimeSecs: n });
   }
 
   function commitMonitoringRefresh() {
@@ -1490,6 +1506,21 @@ function ServerParams({
                 value={acceleratedGraceDraft ?? String(settings.acceleratedGraceSecs)}
                 onChange={(e) => { setRangeError(false); onClearSaveError(); setAcceleratedGraceDraft(e.target.value); }}
                 onBlur={commitAcceleratedGrace} onKeyDown={(e) => { if (e.key === "Enter") commitAcceleratedGrace(); }} />
+              <span className="param-pct__sign">{t.settings.seconds}</span>
+            </div>
+          </div>
+
+          <div className="param-row">
+            <div className="param-row__body">
+              <div className="param-row__name">{t.settings.wardenCredentialLifetime}</div>
+              <div className="param-row__sub">{t.settings.wardenCredentialLifetimeSub}</div>
+            </div>
+            <div className="param-pct">
+              <input id="param-warden-cred-lifetime" className="param-input" type="number" min={86400} max={34560000}
+                aria-label={t.settings.wardenCredentialLifetime}
+                value={wardenCredLifetimeDraft ?? String(settings.wardenCredentialLifetimeSecs)}
+                onChange={(e) => { setRangeError(false); onClearSaveError(); setWardenCredLifetimeDraft(e.target.value); }}
+                onBlur={commitWardenCredLifetime} onKeyDown={(e) => { if (e.key === "Enter") commitWardenCredLifetime(); }} />
               <span className="param-pct__sign">{t.settings.seconds}</span>
             </div>
           </div>

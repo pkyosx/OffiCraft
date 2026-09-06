@@ -248,6 +248,18 @@
             "description": "\u52a0\u901f\u505c\u6b62 grace, in seconds. Must be 10 through 3600. Applies to every CLOCKED wind-down cause at once (the second context threshold and the owner-pressed \u52a0\u901f\u505c\u6b62); it can never put a clock on a soft cause.",
             "title": "Accelerated Grace Secs"
           },
+          "warden_credential_lifetime_secs": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "How long a MACHINE (warden) credential is meant to live, in seconds. Must be 86400 through 34560000 (one day through 400 days). A warden renews its own credential once that credential is two thirds of this old, plus a per-machine stagger of up to one hour so that LOWERING this value does not put the whole fleet on the mint endpoint inside one poll. The floor is one day because the last third of the lifetime is the retry window: at the 15-minute poll a one-day lifetime still leaves about 32 attempts. Wardens pick a change up within one poll interval. Warden credentials carry no `exp` today, so this governs renewal only and nothing expires because of it. Read the current value from get_settings rather than assuming a number.",
+            "title": "Warden Credential Lifetime Secs"
+          },
           "org_name": {
             "anyOf": [
               {

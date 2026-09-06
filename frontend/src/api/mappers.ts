@@ -1113,6 +1113,11 @@ export function toServerSettings(w: WireServerSettings): ServerSettingsView {
     // 120 is the server's shipped default (StoppingTimeoutSecs), the value an
     // install that never touched the knob runs on.
     acceleratedGraceSecs: w.accelerated_grace_secs ?? 120,
+    // 2592000 (30 days) is the server's shipped default, the value a fleet that
+    // never touched the knob renews on — and the same number a warden falls back
+    // to when it cannot reach the credential-policy endpoint, so a server too
+    // old to send the field reads here exactly as the machines behave.
+    wardenCredentialLifetimeSecs: w.warden_credential_lifetime_secs ?? 2592000,
     outsourceMaxParallel: w.outsource_max_parallel ?? 0,
     // ?? that segment's shipped default, not 0: a server too old to send the
     // field still caps at it, and a 0 here would read as "no cap" to every
