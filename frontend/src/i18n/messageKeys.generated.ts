@@ -965,6 +965,8 @@ export const MESSAGE_KEYS: readonly string[] = [
   "settings.sessionTtl",
   "settings.sessionTtlSub",
   "settings.software",
+  "settings.stepNoteCap",
+  "settings.stepNoteCapSub",
   "settings.stopSection",
   "settings.systemName",
   "settings.systemSub",

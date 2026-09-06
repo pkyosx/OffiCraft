@@ -1090,6 +1090,13 @@ export interface ServerSettingsView {
    * it may be lowered as well as raised, and it has its own ceiling. Default and
    * range in `chatBudget.ts` (mirroring server/ocserverd/domain.go). */
   chatBudgetChars: number;
+  /** T-119: the ceiling on ONE task step's working note, in the same rune unit.
+   * NOT a document cap — it is enforced only when a note is written, so it may
+   * be lowered as well as raised and an over-cap note keeps reading back in
+   * full. It governs the step note ALONE: the task-level handover note and a
+   * chat message body keep their own 4,000-character server constant. Default
+   * and range in `stepNoteCap.ts` (mirroring server/ocserverd/domain.go). */
+  stepNoteCapChars: number;
   /** T-8: N — how many database backup files rotation KEEPS. Everything past N
    * is DELETED from disk. Two things the number does not carry and the settings
    * copy therefore has to say: it counts VERSIONS, not days, and it is PER POOL
@@ -1196,6 +1203,9 @@ export interface ServerSettingsPatch {
   /** T-c9b4 wake-snapshot chat budget; range 1000..13000 (chatBudget.ts). The
    * floor is NOT the shipped default — this one may be turned down. */
   chatBudgetChars?: number;
+  /** T-119 step-note cap; range 1000..100000 (stepNoteCap.ts). The floor is NOT
+   * the shipped default — this one may be turned down. */
+  stepNoteCapChars?: number;
   /** T-8 backup retention N; range 1..20 (backupRetain.ts). Lowering it DELETES
    * the files it puts out of range on the next backup. */
   backupRetain?: number;

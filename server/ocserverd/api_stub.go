@@ -130,6 +130,12 @@ type apiServer struct {
 	// resumeSnapshotParts — the ONE place the number enters the packer, which is
 	// why resume_summary and peek_resume_summary_size cannot disagree about it.
 	chatBudgetChars int
+	// stepNoteCapChars is the live ceiling on one task step's working note (DB
+	// task.step_note_cap_chars; T-119). Read through stepNoteCap() by BOTH the
+	// write faces that enforce it and the read faces that report it as
+	// note_cap_chars, which is the whole point: the number an agent is told and
+	// the number its write is measured against are one read of one field.
+	stepNoteCapChars int
 	// backupRetain is N — how many database backup files rotation keeps PER POOL
 	// (DB backup.retain; T-8). This copy exists for the COCKPIT FACE only: GET
 	// /api/settings shows it and PATCH moves it.
@@ -679,6 +685,21 @@ func (s *apiServer) chatBudget() int {
 	s.settingsMu.RLock()
 	defer s.settingsMu.RUnlock()
 	return s.chatBudgetChars
+}
+
+// stepNoteCap is the live ceiling on one task step's working note
+// (task.step_note_cap_chars; T-119). Read at request time like every cap above,
+// so a PATCH takes effect on the next write with no restart.
+//
+// 🔴 It is the ONLY source of that number. Both write faces measure against it
+// (stepNoteWithinLimit) and every read face reports it (newTaskStepDTO,
+// newTaskStepDetailDTO, and the two note receipts), so the ceiling an agent is
+// told about and the ceiling that refuses its note cannot drift apart. A second
+// literal anywhere on either side is how they start disagreeing.
+func (s *apiServer) stepNoteCap() int {
+	s.settingsMu.RLock()
+	defer s.settingsMu.RUnlock()
+	return s.stepNoteCapChars
 }
 
 // backupRetainSetting is the live cockpit view of N (backup.retain; T-8).

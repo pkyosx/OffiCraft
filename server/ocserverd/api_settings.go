@@ -572,6 +572,20 @@ func (s *apiServer) HandleUpdateSettingsApiSettingsPatch(w http.ResponseWriter, 
 				minChatBudgetChars, maxChatBudgetChars))
 		return
 	}
+	// step_note_cap_chars (T-119) is checked on its own for the same reason and
+	// NOT as a row in the capRange table: the step note is measured only when it
+	// is WRITTEN, so lowering the cap breaks nothing that is already stored — an
+	// over-cap note still reads back in full and only becomes uneditable. The
+	// table's shared message ("the floor is the shipped default, so the document
+	// cap can only be raised, never lowered") would be a lie about a knob the
+	// owner asked to be able to turn DOWN.
+	if body.StepNoteCapChars != nil &&
+		(*body.StepNoteCapChars < minStepNoteCapChars || *body.StepNoteCapChars > maxStepNoteCapChars) {
+		writeError(w, http.StatusUnprocessableEntity,
+			fmt.Sprintf("step_note_cap_chars must be between %d and %d characters",
+				minStepNoteCapChars, maxStepNoteCapChars))
+		return
+	}
 	// backup_retain (T-8) — checked on its own too. It is not a character count,
 	// its unit is FILES, and it is the only knob on this endpoint whose value
 	// causes DELETION, so it does not belong in a table whose shared message
@@ -744,6 +758,7 @@ func (s *apiServer) HandleUpdateSettingsApiSettingsPatch(w http.ResponseWriter, 
 		{body.DocCapCharsBootSequence, settingDocCapCharsBootSequence, &s.docCapCharsBootSequence},
 		{body.DocCapCharsOffboard, settingDocCapCharsOffboard, &s.docCapCharsOffboard},
 		{body.ChatBudgetChars, settingChatBudgetChars, &s.chatBudgetChars},
+		{body.StepNoteCapChars, settingStepNoteCapChars, &s.stepNoteCapChars},
 		{body.BackupRetain, settingBackupRetain, &s.backupRetain},
 	}
 	for _, c := range capWrite {
@@ -899,6 +914,7 @@ func (s *apiServer) settingsView() settingsDTO {
 		DocCapCharsBootSequence:      s.docCapCharsBootSequence,
 		DocCapCharsOffboard:          s.docCapCharsOffboard,
 		ChatBudgetChars:              s.chatBudgetChars,
+		StepNoteCapChars:             s.stepNoteCapChars,
 		BackupRetain:                 s.backupRetain,
 		UpdaterReceiveBeta:           s.updaterReceiveBeta,
 		UpdaterAutoUpdate:            s.updaterAutoUpdate,

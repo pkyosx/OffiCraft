@@ -155,6 +155,11 @@ import {
   CHAT_BUDGET_CHARS_MIN,
 } from "./chatBudget";
 import {
+  STEP_NOTE_CAP_CHARS_DEFAULT,
+  STEP_NOTE_CAP_CHARS_MAX,
+  STEP_NOTE_CAP_CHARS_MIN,
+} from "./stepNoteCap";
+import {
   BACKUP_RETAIN_DEFAULT,
   BACKUP_RETAIN_MAX,
   BACKUP_RETAIN_MIN,
@@ -1958,6 +1963,8 @@ const DEFAULT_MOCK_SETTINGS = {
   // caps above — a settings DTO missing a field the server always sends is a
   // mock the page can go green against while the real one breaks.
   chat_budget_chars: CHAT_BUDGET_CHARS_DEFAULT,
+  // T-119 step-note cap, served for the same reason as everything above.
+  step_note_cap_chars: STEP_NOTE_CAP_CHARS_DEFAULT,
   // T-8 backup retention N, served for the same reason as everything above: a
   // settings DTO missing a field the server always sends is a mock the page can
   // go green against while the real one breaks.
@@ -5430,6 +5437,20 @@ export const mockApi: Api = {
         `chat_budget_chars must be between ${CHAT_BUDGET_CHARS_MIN} and ${CHAT_BUDGET_CHARS_MAX} characters`
       );
     }
+    // T-119: checked on its own for the same reason — it may be turned DOWN,
+    // so the doc caps' "the floor is the shipped default" message is a lie
+    // about it.
+    if (
+      patch.stepNoteCapChars !== undefined &&
+      (patch.stepNoteCapChars < STEP_NOTE_CAP_CHARS_MIN ||
+        patch.stepNoteCapChars > STEP_NOTE_CAP_CHARS_MAX)
+    ) {
+      throw mockApiError(
+        "http 422 for PATCH /api/settings",
+        422,
+        `step_note_cap_chars must be between ${STEP_NOTE_CAP_CHARS_MIN} and ${STEP_NOTE_CAP_CHARS_MAX} characters`
+      );
+    }
     if (
       patch.orgName !== undefined &&
       [...patch.orgName.trim()].length > 80
@@ -5537,6 +5558,9 @@ export const mockApi: Api = {
     }
     if (patch.chatBudgetChars !== undefined) {
       mockServerSettings.chat_budget_chars = patch.chatBudgetChars;
+    }
+    if (patch.stepNoteCapChars !== undefined) {
+      mockServerSettings.step_note_cap_chars = patch.stepNoteCapChars;
     }
     if (patch.backupRetain !== undefined) {
       mockServerSettings.backup_retain = patch.backupRetain;

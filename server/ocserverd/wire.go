@@ -126,6 +126,13 @@ type settingsDTO struct {
 	// the seven above it may be lowered as well as raised, and its ceiling is its
 	// own (tied to resumeChatFetch, see domain.go).
 	ChatBudgetChars int `json:"chat_budget_chars"`
+	// StepNoteCapChars is the ceiling on ONE task step's working note
+	// (task.step_note_cap_chars; T-119). Also not a doc cap and also lowerable:
+	// it is enforced only when a note is written, so an over-cap note keeps
+	// reading back in full. It governs the step note ALONE — the task-level
+	// handover note and a chat message body keep their own 4,000-character
+	// constant (owner ruling 2026-09-06).
+	StepNoteCapChars int `json:"step_note_cap_chars"`
 	// BackupRetain is N — how many database backup files rotation KEEPS
 	// (backup.retain; T-8). Two things about this number that its type does not
 	// carry, and that the settings page therefore has to say out loud:
@@ -1182,9 +1189,12 @@ type taskSopPatchResultDTO struct {
 // wants the TEXT reads get_task_step — which is what the anchor-miss message
 // has pointed at since T-66.
 //
-// CapChars here is a server CONSTANT (chatBodyMaxChars), NOT a settings key —
-// unlike the cap_chars on the manual patch receipts, which report the
-// adjustable doc.cap_chars.* values. Same field name, different source.
+// CapChars is the ADJUSTABLE step-note ceiling (task.step_note_cap_chars;
+// T-119), read from the server's live settings exactly like the cap_chars on
+// the manual patch receipts — same field name, same kind of source. It was the
+// chatBodyMaxChars constant until the owner made it a knob (2026-09-06); that
+// constant still governs a chat message body and the task-level handover note,
+// which this setting deliberately does NOT touch.
 type taskStepNotePatchResultDTO struct {
 	TaskID       string `json:"task_id"`
 	StepID       string `json:"step_id"`
@@ -2328,8 +2338,10 @@ type taskStepDTO struct {
 	// 一起瘦），座艙改成點開才抓」). The note text used to ride EVERY response
 	// built from this struct — get_task, terminate, reassign, claim, duplicate,
 	// deps, the create dedupe hit, description, title — nine exits carrying a
-	// 4,000-rune-capped free-text field per step for callers that wanted one of
-	// them or none.
+	// free-text field per step for callers that wanted one of them or none. The
+	// cap was a hard-coded 4,000 runes AT THAT TIME; it is the
+	// task.step_note_cap_chars setting now (T-119), so do not read that number
+	// off this paragraph.
 	//
 	// It was removed from the SCHEMA rather than left declared-and-empty on
 	// purpose. A field that is present on the wire and always blank is a silent
@@ -2355,7 +2367,10 @@ type taskStepDTO struct {
 	// read as if it sized the row.
 	//
 	// ⚠️ NoteCapChars is REPORTED, never enforced here; the ceiling stays the
-	// write face's (stepNoteWithinLimit). T-6bd2 does not move it.
+	// write face's (stepNoteWithinLimit). T-6bd2 does not move it, and since
+	// T-119 both sides read the same task.step_note_cap_chars setting, so the
+	// number reported here is by construction the number a write is refused
+	// against.
 	NoteSizeChars int     `json:"note_size_chars"`
 	NoteCapChars  int     `json:"note_cap_chars"`
 	StartedTS     float64 `json:"started_ts"`
@@ -3082,7 +3097,13 @@ type outsourceWorkerProjection struct {
 // newTaskStepDTO projects one step row onto the wire. cardStatus maps a bound
 // reply_card_id → its live status ("waiting"/"answered"); a step with no card
 // (or an id absent from the map) serialises reply_card_status "".
-func newTaskStepDTO(st TaskStep, cardStatus map[string]string) taskStepDTO {
+//
+// noteCap is passed IN rather than read from a constant here (T-119): the
+// ceiling is now the task.step_note_cap_chars setting, and this projection has
+// no apiServer to read it from. Callers hand it s.stepNoteCap() — the same one
+// read the write faces enforce — so what a step REPORTS as its ceiling and what
+// a write is refused against are the same number by construction.
+func newTaskStepDTO(st TaskStep, cardStatus map[string]string, noteCap int) taskStepDTO {
 	return taskStepDTO{
 		ID:              st.ID,
 		TaskID:          st.TaskID,
@@ -3099,7 +3120,7 @@ func newTaskStepDTO(st TaskStep, cardStatus map[string]string) taskStepDTO {
 		// whole statement the summary row makes about the note: a caller reads
 		// note_size_chars and decides whether to spend a get_task_step.
 		NoteSizeChars: utf8.RuneCountInString(st.Note),
-		NoteCapChars:  chatBodyMaxChars,
+		NoteCapChars:  noteCap,
 		StartedTS:     st.StartedTS,
 		FinishedTS:    st.FinishedTS,
 	}
@@ -3108,7 +3129,8 @@ func newTaskStepDTO(st TaskStep, cardStatus map[string]string) taskStepDTO {
 // newTaskStepDetailDTO projects ONE step onto the single-step wire (T-66),
 // note text included. cardStatus is the same read-time join newTaskStepDTO
 // takes, so the two faces of a step can never disagree about a bound card.
-func newTaskStepDetailDTO(st TaskStep, cardStatus map[string]string) taskStepDetailDTO {
+// noteCap is likewise the caller's s.stepNoteCap(), for the reason above.
+func newTaskStepDetailDTO(st TaskStep, cardStatus map[string]string, noteCap int) taskStepDetailDTO {
 	return taskStepDetailDTO{
 		DetailLevel:     taskDetailLevelFull,
 		ID:              st.ID,
@@ -3124,7 +3146,7 @@ func newTaskStepDetailDTO(st TaskStep, cardStatus map[string]string) taskStepDet
 		WaitingReason:   st.WaitingReason,
 		Note:            st.Note,
 		NoteSizeChars:   utf8.RuneCountInString(st.Note),
-		NoteCapChars:    chatBodyMaxChars,
+		NoteCapChars:    noteCap,
 		StartedTS:       st.StartedTS,
 		FinishedTS:      st.FinishedTS,
 	}
@@ -3134,13 +3156,13 @@ func newTaskStepDetailDTO(st TaskStep, cardStatus map[string]string) taskStepDet
 // the leaf progress derive here; closed_ts serialises null while open.
 // cardStatus carries each bound card's live status for reply_card_status (nil
 // when there are no steps to enrich — e.g. the create result).
-func newTaskDTO(t Task, steps []TaskStep, deps []string, cardStatus map[string]string) taskDTO {
+func newTaskDTO(t Task, steps []TaskStep, deps []string, cardStatus map[string]string, noteCap int) taskDTO {
 	if deps == nil {
 		deps = []string{}
 	}
 	stepDTOs := []taskStepDTO{}
 	for _, st := range steps {
-		stepDTOs = append(stepDTOs, newTaskStepDTO(st, cardStatus))
+		stepDTOs = append(stepDTOs, newTaskStepDTO(st, cardStatus, noteCap))
 	}
 	done, total := TaskProgress(steps)
 	inputs := t.Inputs

@@ -1972,6 +1972,13 @@ export const en: Dict = {
     chatBudget: "Wake chat budget",
     chatBudgetSub:
       "How many characters the chat block of a wake snapshot (resume_summary) may spend — the messages, their folded cards, the snapshot header and the cut hint; the peek sizes itself against the same number. The range is 1000 to 13000 and it can be lowered as well as raised: the chat block is repacked on every read, so a smaller budget simply carries fewer messages, and whatever was left out is still reported as omitted.",
+    // T-119: the step-note cap. The sub-label has to carry the two things the
+    // integer cannot — that it may be lowered, and that it governs the step
+    // note alone — because both are what the person turning the knob will
+    // otherwise get wrong.
+    stepNoteCap: "Step note size cap",
+    stepNoteCapSub:
+      "How many characters one task step's note may hold. It can be lowered as well as raised, and lowering it loses nothing already written.",
     docUsage: "Used",
     chars: "characters",
     // ── Verified-save read-back (T-1c2e; lives in the software-update view

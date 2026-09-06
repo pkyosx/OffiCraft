@@ -265,7 +265,7 @@ func (s *apiServer) taskDTOOf(t Task) (taskDTO, error) {
 	if err != nil {
 		return taskDTO{}, err
 	}
-	dto := newTaskDTO(t, steps, deps, s.replyCardStatusesForSteps(steps))
+	dto := newTaskDTO(t, steps, deps, s.replyCardStatusesForSteps(steps), s.stepNoteCap())
 	// A COUNT only (T-92, owner rc-15016959ad4d:「只有 ID 好像也沒用」). Every
 	// artifact ROW — kind, name, description, url, mime, created_by, created_ts,
 	// version_count — is served by taskArtifactDTOs through
