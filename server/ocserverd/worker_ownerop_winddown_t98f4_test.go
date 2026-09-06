@@ -11,7 +11,9 @@ package main
 //
 // The second half of the owner's ask is 「有東西要存才等,沒有就立刻走」, so this
 // file also pins the FAST paths. Which cases are fast is a stated criterion, not
-// a guess — see workerHasStateToFlush / ownerOpDisplacesTheSession.
+// a guess — see workerHasStateToFlush. (The companion predicate this line used
+// to name, ownerOpDisplacesTheSession, was deleted in T-65 包④ — see the 🔴 note
+// above TestOwnerOp_RestartNeverWindsDown.)
 //
 // ─────────────────────────────────────────────────────────────────────────────
 // THE DECISION TABLE (written because BOTH HIGH defects in this票 were mis-drawn
@@ -45,9 +47,11 @@ package main
 //	                                 worker must already be stopped — its handler
 //	                                 has NO desired-offline gate and answers 200
 //	                                 on a live, mid-加速停止 worker
-//	                                 (ownerOpDisplacesTheSession, worker_spawn.go).
-//	                                 (deny-list, so a NEW verb gets the wind-down
-//	                                 by default.)
+//	                                 (api_outsource.go). 🔴 T-65 包④: on a LIVE
+//	                                 session that handler no longer calls this
+//	                                 funnel at all — 喚醒 is a no-op there — so
+//	                                 the ownerOpDisplacesTheSession deny-list
+//	                                 this row used to name is deleted.
 //	                                 (TestOwnerOp_RestartNeverWindsDown)
 //
 // Then the predicate itself, over its four inputs. `active` is Status ==
@@ -351,42 +355,102 @@ func TestOwnerOp_UnclaimedButOnlineStillWindsDown(t *testing.T) {
 // It can arrive at ANY live worker: its handler has exactly two preconditions —
 // the row exists and it is not released — and NO desired-offline gate, so pressed
 // on a worker with desired_state="online" that is mid-加速停止 it answers 200.
-// The fixture below presses 停止 first for a different reason: that is how it
-// manufactures the race where the session is dying but has NOT been reaped yet,
-// so a state-only criterion would still read it as online. The prior 停止 is the
-// test's setup, NOT the precondition the rule rests on.
+//
+// ⚠️ T-65 包④ SPLIT THE HANDLER AND THE SENTENCE ABOVE NOW ONLY DESCRIBES ONE
+// ARM OF IT. 喚醒 no longer displaces a live session at all: it reaches
+// respawnWorkerForOwnerOp only when `!s.hub.IsOnline(id)` (api_outsource.go, the
+// `if !sessionAliveReceipt` block). So "restart never winds down" has to be
+// asserted on BOTH arms, and this test does that in two subtests:
+//
+//   - live: the funnel is not entered at all, so nothing may be stamped and
+//     nothing may be dispatched — a 喚醒 that opened a 預告+grace on a session
+//     the owner pressed the button in order to LEAVE ALONE is the same bug as
+//     one that killed it, wearing a politer hat.
+//   - not live: the funnel IS entered, with ownerOpRestart, and must come out
+//     on the immediate arm.
+//
+// 🔴 THE DENY-LIST THIS TEST USED TO STAND BESIDE IS GONE, and how it went is
+// worth the paragraph. `ownerOpDisplacesTheSession` became unreachable the
+// moment 包④ landed: its only caller was the `!displaces && workerHasStateToFlush(w)`
+// line, workerHasStateToFlush is `online && …`, and the only arm that still calls
+// the funnel with ownerOpRestart is the one where online is false — so the second
+// operand was false whatever the first said. It was MEASURED before it was
+// removed (neutering it to `return false` left this whole set green), and it was
+// removed rather than annotated, because a guard whose removal cannot change an
+// answer is not a guard — it is a sentence the next reader believes.
+//
+// So the two subtests below assert the BEHAVIOUR (no wind-down, either arm),
+// which is what the deny-list existed to produce and what now actually holds it:
+// the handler gate in api_outsource.go, pinned by
+// TestRestartALiveWorkerIsACompleteNoOp.
 func TestOwnerOp_RestartNeverWindsDown(t *testing.T) {
-	api := newTasksTestServer(t)
-	api.noOutsource = true
-	workerID := newActiveOnlineWorker(t, api)
+	// The fixture presses 停止 first to manufacture the race where the session is
+	// dying but has NOT been reaped yet, so a state-only criterion would still
+	// read it as online. The prior 停止 is the test's setup, NOT the precondition
+	// the rule rests on.
+	t.Run("live session — nothing stamped, nothing sent", func(t *testing.T) {
+		api := newTasksTestServer(t)
+		api.noOutsource = true
+		workerID := newActiveOnlineWorker(t, api)
 
-	postWorker(t, api, workerID, "stop", nil,
-		api.HandleStopOutsourceWorkerApiOutsourceWorkersIdStopPost)
-	api.hub.DrainWardenCommands(ServerSelfHost)
-	// The fixture's SSE listener is still up (the warden has not reaped the
-	// session yet), so this is precisely the race where a state-only criterion
-	// would mistake a dying session for a working one.
-	if !api.hub.IsOnline(workerID) {
-		t.Fatal("fixture: the session must still look online for this test to bite")
-	}
-
-	rec := postWorker(t, api, workerID, "restart", nil,
-		api.HandleRestartOutsourceWorkerApiOutsourceWorkersIdRestartPost)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("restart: %d %s", rec.Code, rec.Body.String())
-	}
-	if w, _ := api.dal.GetOutsourceWorker(workerID); w.RefocusSince != 0 {
-		t.Fatal("restart must not open a wind-down on an already-stopped worker")
-	}
-	sawStart := false
-	for _, f := range api.hub.DrainWardenCommands(ServerSelfHost) {
-		if rpc, _ := decodeWardenFrame(t, f.Frame); rpc == reconcileCmdStart {
-			sawStart = true
+		postWorker(t, api, workerID, "stop", nil,
+			api.HandleStopOutsourceWorkerApiOutsourceWorkersIdStopPost)
+		api.hub.DrainWardenCommands(ServerSelfHost)
+		if !api.hub.IsOnline(workerID) {
+			t.Fatal("fixture: the session must still look online for this test to bite")
 		}
-	}
-	if !sawStart {
-		t.Fatal("restart must re-dispatch immediately")
-	}
+		// The predicate a wind-down would turn on says YES about this worker, so a
+		// 喚醒 that fell into the wind-down arm really would open one. Without this
+		// control, "no wind-down" and "nothing could have wound down anyway" are
+		// the same green.
+		pre, _ := api.dal.GetOutsourceWorker(workerID)
+		if !hasUncollectedOnlineOwnerOpState(pre.RefocusSince, pre.StoppedSince, true) {
+			t.Fatal("control: this fixture must have something to flush, otherwise " +
+				"the assertions below cannot tell a skipped wind-down from an " +
+				"impossible one")
+		}
+
+		rec := postWorker(t, api, workerID, "restart", nil,
+			api.HandleRestartOutsourceWorkerApiOutsourceWorkersIdRestartPost)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("restart: %d %s", rec.Code, rec.Body.String())
+		}
+		if w, _ := api.dal.GetOutsourceWorker(workerID); w.RefocusSince != 0 {
+			t.Error("喚醒 opened a wind-down on a live worker. It is not a wind-down " +
+				"CAUSE on either arm — and on this one the owner pressed it precisely " +
+				"in order to leave the session alone, so handing that session a 預告 " +
+				"and a grace window is the bug 包④ closes, not a softer version of it.")
+		}
+		if got := len(api.hub.DrainWardenCommands(ServerSelfHost)); got != 0 {
+			t.Errorf("喚醒 on a live worker dispatched %d frames, want 0", got)
+		}
+	})
+
+	t.Run("no session — immediate re-dispatch, still no wind-down", func(t *testing.T) {
+		api := newTasksTestServer(t)
+		api.noOutsource = true
+		workerID := newActiveWorker(t, api, false)
+		api.hub.DrainWardenCommands(ServerSelfHost)
+
+		rec := postWorker(t, api, workerID, "restart", nil,
+			api.HandleRestartOutsourceWorkerApiOutsourceWorkersIdRestartPost)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("restart: %d %s", rec.Code, rec.Body.String())
+		}
+		if w, _ := api.dal.GetOutsourceWorker(workerID); w.RefocusSince != 0 {
+			t.Error("restart must not open a wind-down")
+		}
+		sawStart := false
+		for _, f := range api.hub.DrainWardenCommands(ServerSelfHost) {
+			if rpc, _ := decodeWardenFrame(t, f.Frame); rpc == reconcileCmdStart {
+				sawStart = true
+			}
+		}
+		if !sawStart {
+			t.Fatal("restart must re-dispatch immediately when there is no session " +
+				"to leave alone — 包④ made 喚醒 a no-op on a LIVE worker, not a no-op")
+		}
+	})
 }
 
 // TestOwnerOp_StoppedWorkerStillOnlyGetsAReceipt: the pre-existing

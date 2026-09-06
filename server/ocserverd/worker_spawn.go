@@ -358,17 +358,22 @@ const (
 //     straight back to the permanent silence this whole change removes;
 //   - held_down describes the owner's own 停止 standing, which no dispatch
 //     invalidates — only a restart does, and that writes its own receipt;
-//   - session_alive is the same shape (T-ed79 #10): it records what the owner's
-//     重啟 FOUND — a session that was still running and is being displaced — and
-//     the dispatch that follows is the very thing it describes, not a refutation
-//     of it. Clearing it on the landed START would blank the receipt in exactly
-//     the case where it came true.
+//
+// 🔴 session_alive MOVED INTO THE SET IN T-65 包④, and the move is a consequence
+// of the behaviour change rather than a second opinion about the same facts. It
+// used to be excluded on the argument that 「the dispatch that follows is the very
+// thing it describes, not a refutation of it」 — true while 重啟 displaced the live
+// session. It no longer does: 喚醒 on a running worker now dispatches NOTHING, so
+// there is no following dispatch for the receipt to describe, and the next START
+// that DOES land is a genuine refutation — by then the session it reported as
+// still running is gone.
 var spawnBlockedReasonCodes = []string{
 	placementReasonNoMachine, placementReasonUnavailable,
 	spawnReasonNoLiveTask, spawnReasonBootContext, spawnReasonNoSecret,
 	spawnReasonTokenMint, spawnReasonFrameBuild, spawnReasonWardenLost,
 	spawnReasonRespawnDeferred,
 	spawnReasonCircuitOpen, spawnReasonBackoff, spawnReasonZombieSuspect,
+	spawnReasonSessionAlive,
 }
 
 // stampWorkerPlacementBlocked records WHY a worker was not dispatched, on the
@@ -1592,7 +1597,22 @@ func (s *apiServer) respawnWorkerForOwnerOp(w OutsourceWorker, op string) ownerO
 	// principled reason a 改機器 or a 換 model should throw away the session's
 	// in-flight state when a 換手 does not — from the worker's side all four are
 	// the same event (this session ends, a new one continues the task).
-	if !ownerOpDisplacesTheSession(op) && s.workerHasStateToFlush(w) {
+	//
+	// 🔴 THERE USED TO BE A DENY-LIST OPERAND HERE — `!ownerOpDisplacesTheSession(op)`,
+	// naming 重啟 as the one verb that skipped this arm because it was a kill+respawn
+	// rather than a request for a close-out. T-65 包④ DELETED IT, and deleted rather
+	// than kept-and-annotated because by then it could not change this line's answer:
+	// 重啟 now reaches this funnel ONLY from the arm where the session is already
+	// gone (api_outsource.go gates the call on `!sessionAliveReceipt`), and with no
+	// live session workerHasStateToFlush is false anyway — its own predicate is
+	// `online && …`. A guard whose removal cannot change an answer is not a guard;
+	// it is a sentence people believe. Measured before removing: neutering
+	// ownerOpDisplacesTheSession to `return false` left the whole
+	// Restart|OwnerOp|VerbPopulation|WindDownKind set green.
+	//
+	// WHAT ACTUALLY HOLDS 「正在跑就不動它」 now is the handler, not this line, and it
+	// is pinned there by TestRestartALiveWorkerIsACompleteNoOp.
+	if s.workerHasStateToFlush(w) {
 		// A ladder refusal still answers WoundDown, and deliberately: a wind-down
 		// IS open on this worker — a HIGHER one — so nothing may be dispatched
 		// here either. Falling through to the immediate arm would kill the very
@@ -1623,12 +1643,29 @@ type ownerOpOutcome struct {
 	// HeldDown: desired_state is offline, so the change was saved and nothing was
 	// started. The row carries the held_down receipt.
 	HeldDown bool
+	// AlreadyRunning: the session the verb would have started is ALREADY UP, so
+	// nothing was dispatched and nothing needed to be (T-65 包④). This is the
+	// fourth arm, and it is the one that is NOT pending: 「scheduled, not yet
+	// landed」 is false of it — there is nothing left to land. The staff face has
+	// answered this way since T-ba62, in one line rather than a field:
+	// `dec.Command != reconcileCmdStart && !s.hub.IsOnline(m.ID)` — an
+	// already-online member needs no START, so it raises no activation_pending.
+	// Without this arm the zero value would answer Pending()==true and tell the
+	// owner his 喚醒 was decided but never delivered, which is the opposite of
+	// what happened.
+	AlreadyRunning bool
 }
 
-// Pending reports whether the owner's verb has NOT landed yet — the union of the
-// two non-dispatch arms, which is exactly what relocation_pending /
-// activation_pending mean on the staff side ("scheduled, not yet landed").
-func (o ownerOpOutcome) Pending() bool { return !o.Dispatched }
+// Pending reports whether the owner's verb has NOT landed yet — which is exactly
+// what relocation_pending / activation_pending mean on the staff side
+// ("scheduled, not yet landed").
+//
+// 🔴 IT IS NO LONGER `!Dispatched` (T-65 包④). AlreadyRunning is a non-dispatch
+// arm that is nonetheless FINISHED: the session the verb wanted is up, so there
+// is nothing outstanding to report. Writing this as `!o.Dispatched` again would
+// put a pending badge on every 喚醒 pressed on a running worker — the exact case
+// the verb now exists to make a no-op.
+func (o ownerOpOutcome) Pending() bool { return !o.Dispatched && !o.AlreadyRunning }
 
 // The owner verbs that funnel through respawnWorkerForOwnerOp, named so the
 // wind-down table below cannot drift from its call sites (they were bare string
@@ -1638,44 +1675,6 @@ const (
 	ownerOpRestart  = "restart"       // 重啟
 	ownerOpModel    = "runtime/model" // 換 model / runtime / effort
 )
-
-// ownerOpDisplacesTheSession names the ONE verb that is not itself a request for
-// a close-out. 重啟 is not a wind-down CAUSE — it is a kill+respawn. It does not
-// ask the current session to flush and hand over, it DISPLACES it
-// (respawnWorkerForOwnerOp → respawnWorkerForOwnerOpNow → respawnWorkerNow, which
-// kills the session on the resolved target BEFORE it re-dispatches). 改機器 /
-// 換 model are the opposite verb: they mean "the same session's work must survive
-// this change", which is exactly what T-98f4 rule 2 buys with the 預告 + window.
-//
-// 🔴 IT USED TO BE CALLED ownerOpRevivesStoppedWorker, and that name carried a
-// framework this comment has spent its whole life contradicting: that the verb
-// it names arrives at a worker the owner has ALREADY STOPPED, so what it does is
-// revive one. Measured, it does not — the name was the last place that claim
-// still lived, and it is renamed rather than annotated because a name is read by
-// people who never open the body (T-170e stage 2 ⑥).
-//
-// It can arrive at ANY live worker: its handler
-// (HandleRestartOutsourceWorkerApiOutsourceWorkersIdRestartPost, api_outsource.go)
-// has exactly two preconditions — the row exists, and it is not released — and NO
-// desired-offline gate. Pressed on a worker with desired_state="online" that is
-// mid-加速停止 it answers 200, and the refocus_since / refocus_op /
-// stopping_since / stopped_since it zeroes just before calling in here take that
-// epoch's deadline with them.
-//
-// That clear is correct, for the reason written at that call site (T-ed79 #11):
-// those four anchors DATE THE SESSION BEING REPLACED, and carrying them into the
-// successor is what makes the NEXT 改機器 / 換 model read them as "this epoch's
-// wind-down is already collected" (workerHasStateToFlush, below) and shoot itself
-// on the spot. So the skip is a clean sheet for a new session, not a way around
-// the ladder: once the session the ladder was counting for is gone there is no
-// step left to stand on, and fanning an SOP 預告 at a session that is about to be
-// killed regardless would only wait out a deadline for an answer that changes
-// nothing.
-//
-// Deliberately a DENY-list, not an allow-list: a verb added later gets the
-// wind-down by default, because 「所有換手都給收尾機會」 is the rule and skipping
-// it is the exception that has to be argued for.
-func ownerOpDisplacesTheSession(op string) bool { return op == ownerOpRestart }
 
 // workerHasStateToFlush answers the ONE question rule 2 turns on: is there
 // anything for this worker to wind down, or should the owner's verb take effect

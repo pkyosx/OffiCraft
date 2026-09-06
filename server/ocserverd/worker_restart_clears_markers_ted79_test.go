@@ -79,10 +79,22 @@ func TestRestartWorkerClearsThePreviousSessionsAnchors(t *testing.T) {
 // and a leftover refocus+stopped pair answers YES about an epoch that ended
 // before this session existed — so the next owner verb is shot on the spot with
 // no close-out at all.
+// 🔴 THE FIXTURE MOVED TO THE OFFLINE ARM IN T-65 包④, and that is the arm this
+// test was always describing. "重啟 starts a new session, so it must start from a
+// clean sheet" is a sentence about a restart that ACTUALLY STARTS A SESSION, and
+// as of 包④ that is the arm where hub.IsOnline is false. On the live arm the
+// three anchors are deliberately NOT cleared — there is no session being
+// replaced, so refocus_since / refocus_op / stopped_since still describe the
+// session that is up, and clearing them would silently cancel a 加速停止 or a
+// 換手 mid-flight (api_outsource.go, the `if !sessionAliveReceipt` block).
+// Leaving the old online fixture here would have made this test assert the
+// opposite of the ruling while still reading like a clean-sheet test.
 func TestOwnerVerbAfterARestartStillWindsDown(t *testing.T) {
 	api := newTasksTestServer(t)
 	api.noOutsource = true
-	workerID := newActiveOnlineWorker(t, api)
+	// No live session: the arm that really does replace one, and the only arm
+	// the clean sheet is claimed about.
+	workerID := newActiveWorker(t, api, false)
 	workerCarryingAStaleEpoch(t, api, workerID)
 
 	rec := postWorker(t, api, workerID, "restart", nil,
@@ -91,6 +103,14 @@ func TestOwnerVerbAfterARestartStillWindsDown(t *testing.T) {
 		t.Fatalf("restart: %d %s", rec.Code, rec.Body.String())
 	}
 	api.hub.DrainWardenCommands(ServerSelfHost)
+	// The session the restart just dispatched comes up. Without this the 換 model
+	// below would take workerHasStateToFlush's !hub.IsOnline arm and the test
+	// would be green for a reason that has nothing to do with the anchors.
+	connectOnline(t, api, workerID)
+	if !api.hub.IsOnline(workerID) {
+		t.Fatal("fixture: the freshly restarted session must be online for the " +
+			"wind-down predicate to be reachable at all")
+	}
 
 	setWorkerModelBody(t, api, workerID, map[string]any{"model": "claude-opus-4-9"})
 

@@ -761,16 +761,24 @@ func (s *apiServer) HandleForceStopOutsourceWorkerApiOutsourceWorkersIdForceStop
 	writeJSON(w, http.StatusOK, agentLifecycleReceiptDTO{ID: worker.ID})
 }
 
-// POST /api/outsource-workers/{id}/restart — the cockpit's 重啟 (owner/admin agent since T-6020),
-// the inverse of stop: set desired_state back to "online" and re-dispatch (重啟 =
-// 再 dispatch — a fresh worker_start onto the pinned / preferred machine). It NEVER
-// 409s: the old "409 when the worker is actually ALIVE" over-spawn guard is GONE
-// (T-ed79 #10 — see the 🔴 note in the body below), and a live worker now gets a
-// session_alive RECEIPT and a 200 instead. There is also NO desired-offline gate,
-// so 重啟 on a worker that is mid-加速停止 answers 200 too. A worker whose session
-// died on its own keeps desired_state=online and IS restartable; 404
-// unknown/released is the only refusal this handler writes (a store failure still
-// answers 500).
+// POST /api/outsource-workers/{id}/restart — the cockpit's 喚醒 (owner/admin agent
+// since T-6020), the inverse of stop: set desired_state back to "online" and, IF
+// THE SESSION IS NOT ALREADY UP, dispatch a fresh worker_start onto the pinned /
+// preferred machine.
+//
+// 🔴 IT HAS TWO ARMS NOW (T-65 包④, owner 2026-09-06 rc-1f591528a6d0 圈 [0]:
+// 「收斂成『正在跑就不動它』；真的要強制重來再另外給一個動作」):
+//   - session ALREADY RUNNING → record the intent, dispatch NOTHING, kill NOTHING,
+//     answer 200 with a session_alive receipt. This is what 活化 has always done
+//     on a live staff member.
+//   - session NOT running → unchanged: clean sheet, re-dispatch.
+//
+// It NEVER 409s (the old over-spawn guard is GONE, T-ed79 #10) and there is NO
+// desired-offline gate, so 喚醒 on a worker that is mid-加速停止 answers 200 too —
+// and on the live arm it now leaves that 加速停止 running instead of cancelling it.
+// A worker whose session died on its own keeps desired_state=online and IS
+// restartable; 404 unknown/released is the only refusal this handler writes (a
+// store failure still answers 500).
 func (s *apiServer) HandleRestartOutsourceWorkerApiOutsourceWorkersIdRestartPost(w http.ResponseWriter, r *http.Request, id string) {
 	s.outsourceMu.Lock()
 	worker, err := s.dal.GetOutsourceWorker(id)
@@ -790,21 +798,29 @@ func (s *apiServer) HandleRestartOutsourceWorkerApiOutsourceWorkersIdRestartPost
 	// on liveness. Neither test has a staff twin: 活化 on a live member is simply
 	// honoured, and the owner ruled the two verbs must behave the same.
 	//
-	// WHAT MAKES THAT SAFE is the ORDER, not the guard: respawnWorkerForOwnerOp
-	// →	respawnWorkerNow kills the current session BEFORE it dispatches the
-	// fresh one, so "restart a live worker" is a displacement, never a second
-	// copy. Behind that, the warden's own local clobber-guard refuses to stomp a
-	// tmux session that is still there (cli/ocwarden/spawn.go), so even a kill
-	// that has not taken effect yet cannot end in two live sessions.
+	// 🔴 T-65 包④ FINISHED THAT SENTENCE. Removing the 409 made the two verbs
+	// agree on the ANSWER (200, never refused) while they still disagreed on the
+	// CONSEQUENCE: this arm went on to respawnWorkerNow, which kills the current
+	// session before dispatching the next one, while the staff arm reaches
+	// reconcile, gets `online: converged`, and sends no frame at all. Same word on
+	// both panels since owner 2026-07-31 「應該要統一」, opposite outcomes, and
+	// nothing on the screen said which one the owner was pressing — press it on a
+	// worker that had been writing for half an hour and the unwritten half was
+	// gone. He ruled on 2026-09-06 (rc-1f591528a6d0 圈 [0]): 正在跑就不動它.
 	//
-	// 🔴 WHAT THE OWNER WOULD OTHERWISE HAVE LOST is the SENTENCE. The 409 told
-	// him something true and actionable; without it a restart pressed on a live
-	// worker would surface, if anything, as a warden-level "session_already_exists"
-	// bounce. That is the exact diagnosis-free blank #4/#12/#14 of this same
-	// ticket exist to remove, so the fact becomes a RECEIPT in the same
-	// reason-code family instead — stamped only when it is TRUE of this worker,
-	// and cleared by the landed START (spawnBlockedReasonCodes) so it never
-	// outlives the restart it describes.
+	// ⚠️ THIS REMOVES THE ONE-PRESS WAY TO END A WEDGED SESSION, and that is a
+	// named trade rather than an oversight: 強制停止 (HandleForceStopOutsource…
+	// ForceStopPost, above) still calls stopWorkerNow with NO liveness gate, so
+	// the escape hatch survives as two presses — 強制停止, then 喚醒. The one-press
+	// 「強制重來」 the owner mentioned is a SEPARATE action he deferred; it does not
+	// exist anywhere in this repo yet.
+	//
+	// 🔴 THE RECEIPT IS WHAT THE OWNER GETS INSTEAD OF THE OLD 409. It told him
+	// something true and actionable; the sentence below has to keep doing that,
+	// and it now says the opposite thing from the one it used to say — nothing
+	// was displaced. It IS in spawnBlockedReasonCodes as of 包④, because this arm
+	// no longer dispatches: a later landed START is now a genuine refutation of
+	// it, which it was not while the dispatch was the very thing it described.
 	sessionAliveReceipt := s.hub.IsOnline(id)
 	if sessionAliveReceipt {
 		// Stamped onto the in-memory row rather than written through
@@ -815,49 +831,55 @@ func (s *apiServer) HandleRestartOutsourceWorkerApiOutsourceWorkersIdRestartPost
 		// SetMemberOpReceipt below, and the 換 model verb stores its three launch
 		// intents through their own setters (see the 🔴 block there).
 		stampWorkerOpReceipt(worker, spawnReasonSessionAlive+
-			": this worker was still running — 重啟 is replacing that session, not "+
-			"starting a first one. If it does not come back, its previous session "+
-			"was still holding the slot", nowSecs())
+			": this worker was already running — 喚醒 left that session alone and "+
+			"dispatched nothing. Its work, and any 加速停止 or 換手 already under "+
+			"way on it, are untouched. To end the current session and start a "+
+			"fresh one, press 強制停止 first, then 喚醒", nowSecs())
 	}
 	worker.DesiredState = DesiredStateOnline
-	// 🔴 A RESTART STARTS A NEW SESSION, SO IT STARTS FROM A CLEAN SHEET
-	// (T-ed79 parity #11). This handler used to write desired_state and NOTHING
-	// else, and worker_spawn.go names the leftover it produces by name: "NOTHING
-	// clears the second one — clearWorkerRefocus is only reachable while
-	// refocus_since > 0, and the restart handler writes desired_state and nothing
-	// else — so it outlives the whole stop→restart cycle."
+	// THE TWO ANCHORS THE STAFF 活化 CLEARS, cleared here on BOTH arms for the same
+	// reasons it clears them (api_members.go — m.StoppingSince, m.WakingSince).
+	// stopping_since is the 下線 this verb is answering; waking_since is the stale
+	// 喚醒中 badge that otherwise sits on the row until its TTL lapses.
 	//
-	// WHICH ANCHORS, and why exactly these:
-	//   * refocus_since / refocus_op / stopping_since / stopped_since all date
-	//     the session being REPLACED. Carried into the next one they are read as
-	//     facts about THAT one — and the pair (refocus > 0 ∧ stopped > 0) is read
-	//     by workerHasStateToFlush as "this epoch's wind-down is already
-	//     collected", which shoots the next 改機器 / 換 model on the spot with no
-	//     close-out. The epoch scoping in that predicate heals a stale
-	//     stopped_since ALONE; it cannot heal a stale PAIR, because a stale pair
-	//     is indistinguishable from a real collected epoch.
-	//   * forced_stop_at is deliberately KEPT — the staff activate's rule
-	//     verbatim. It does not describe this session; it describes the one
-	//     BEFORE it, and the reader who needs it most is the one that comes after
-	//     (dal.go, migrations/00057). Its max() upsert would fight a clear here
-	//     anyway.
-	//
-	// This is the SET, not the count: the staff activate clears two anchors
-	// (stopping/waking) because those are the two a member carries. Copying the
-	// staff LIST would have cleared neither of the two the code above points at.
-	//
-	// 🔴 A worker DOES carry waking_since as of T-14 — this comment used to say it
-	// does not, and that stopped being true the moment the projection was unified.
-	// It is deliberately NOT cleared here: notifyWorkerSpawn stamps a fresh anchor
-	// on the re-dispatch this restart is about to trigger. ⚠️ Known residue: if
-	// that re-dispatch fails outright and the previous anchor is still inside
-	// WakingTTLSecs, the row reads 喚醒中 until the TTL lapses. Self-healing, and
-	// the staff arm has no equivalent hole because activate zeroes waking_since —
-	// so this is the same 正職／外包 divergence T-14 exists to delete, one layer up.
-	worker.RefocusSince = 0.0
-	worker.RefocusOp = ""
+	// 🔴 waking_since USED TO BE LEFT ALONE HERE, and the argument for that was
+	// 「notifyWorkerSpawn stamps a fresh anchor on the re-dispatch this restart is
+	// about to trigger」 — an argument that only ever held on the arm that HAS a
+	// re-dispatch, and one that named itself 「the same 正職／外包 divergence T-14
+	// exists to delete, one layer up」. 包④ deletes it: the live arm dispatches
+	// nothing, so nothing would restamp it.
 	worker.StoppingSince = 0.0
-	worker.StoppedSince = 0.0
+	worker.WakingSince = 0.0
+	// 🔴 THE OTHER THREE ANCHORS ARE CLEARED ONLY ON THE ARM THAT ACTUALLY STARTS
+	// A NEW SESSION, and that split is the substance of T-65 包④.
+	//
+	//   * NOT RUNNING — clear them. refocus_since / refocus_op / stopped_since all
+	//     date the session being REPLACED, and here one really is. Carried into
+	//     the next one they are read as facts about THAT one, and the pair
+	//     (refocus > 0 ∧ stopped > 0) is read by workerHasStateToFlush as "this
+	//     epoch's wind-down is already collected", which shoots the next 改機器 /
+	//     換 model on the spot with no close-out. The epoch scoping in that
+	//     predicate heals a stale stopped_since ALONE; it cannot heal a stale
+	//     PAIR, because a stale pair is indistinguishable from a real collected
+	//     epoch. So the clear stays exactly where it is earned.
+	//
+	//   * ALREADY RUNNING — do not touch them. There is no session being replaced.
+	//     Those three describe the epoch of the session that is STILL UP: a
+	//     加速停止 or a 換手 that is mid-flight right now. Clearing them would
+	//     cancel it silently, on a 200, from the one verb the owner pressed in
+	//     order to LEAVE THE WORKER ALONE — a worse version of the bug 包④ is
+	//     closing. The staff 活化 does not touch these three either, and that
+	//     parity is the whole point.
+	//
+	//   * forced_stop_at is deliberately KEPT on both arms — the staff activate's
+	//     rule verbatim. It does not describe this session; it describes the one
+	//     BEFORE it, and the reader who needs it most is the one that comes after
+	//     (dal.go, migrations/00057). Its max() upsert would fight a clear anyway.
+	if !sessionAliveReceipt {
+		worker.RefocusSince = 0.0
+		worker.RefocusOp = ""
+		worker.StoppedSince = 0.0
+	}
 	// 後蓋前 (T-65 包②) — and here the reason is 「it is being spent RIGHT NOW」
 	// rather than 「it is cancelled」: this handler does the very thing a queued
 	// 起來 asks for. Leaving the flag armed would fire a SECOND start after the
@@ -906,7 +928,18 @@ func (s *apiServer) HandleRestartOutsourceWorkerApiOutsourceWorkersIdRestartPost
 			return
 		}
 	}
-	outcome := s.respawnWorkerForOwnerOp(*worker, ownerOpRestart)
+	// 🔴 正在跑就不動它 — the whole behaviour change is this branch (T-65 包④).
+	// respawnWorkerForOwnerOp is where the kill lives (→ respawnWorkerForOwnerOpNow
+	// → respawnWorkerNow, which resolves a kill target and ends the session before
+	// it dispatches). Not calling it is what makes 喚醒 a no-op on a live worker.
+	//
+	// The outcome is built by hand rather than left as the zero value: the zero
+	// value answers Pending()==true, and a pending badge here would tell the owner
+	// his 喚醒 was decided but never delivered — the opposite of what happened.
+	outcome := ownerOpOutcome{AlreadyRunning: true}
+	if !sessionAliveReceipt {
+		outcome = s.respawnWorkerForOwnerOp(*worker, ownerOpRestart)
+	}
 	if fresh, ferr := s.dal.GetOutsourceWorker(id); ferr == nil && fresh != nil {
 		worker = fresh
 	}

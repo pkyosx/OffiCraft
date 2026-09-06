@@ -118,11 +118,16 @@ package main
 //	  arriving inside the collect window would open a SECOND wind-down that
 //	  dispatches nothing, while the in-flight respawn boots on the OLD value.
 //
-//	worker: ownerOpDisplacesTheSession deny-list (重啟 skips the wind-down)
-//	  staff: N/A — 重啟 is not in this funnel. refocus_member / restart_self ARE
-//	  the wind-down (they stamp and return), and activate is a wake, not a
-//	  displacement. The staff funnel carries only 改機器 and 換模型, and both act
-//	  on a session the owner wants to keep running.
+//	worker: 重啟 never reaches this funnel with a live session (T-65 包④)
+//	  🔴 THIS ROW USED TO READ 「ownerOpDisplacesTheSession deny-list (重啟 skips
+//	  the wind-down)」. That deny-list is GONE: 包④ made 喚醒 a no-op on a running
+//	  worker, so its handler only calls the funnel once the session is already
+//	  gone, and the deny-list operand could no longer change any answer. The
+//	  asymmetry it described is closed rather than merely re-worded.
+//	  staff: N/A — 重啟 is not in this funnel either. refocus_member /
+//	  restart_self ARE the wind-down (they stamp and return), and activate is a
+//	  wake, not a displacement. The staff funnel carries only 改機器 and 換模型,
+//	  and both act on a session the owner wants to keep running.
 //
 // The active+online cell is an honest fallback, not a positive detection: the
 // server has zero visibility into an agent's transcript, so any finer test

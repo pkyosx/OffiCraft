@@ -3411,7 +3411,7 @@
       "name": "stop_outsource_worker"
     },
     {
-      "description": "Restart (\u91cd\u555f) an outsource worker (owner/admin agent; a live worker is displaced, not refused). Answers with a bounded receipt (``id``, ``activation_pending``, ``last_op_reason``), not the worker \u2014 call ``list_outsource_workers`` when you need the rest.",
+      "description": "Restart (\u91cd\u555f) an outsource worker (owner/admin agent; a worker that is still running is LEFT ALONE, not restarted and not refused). Answers with a bounded receipt (``id``, ``activation_pending``, ``last_op_reason``), not the worker \u2014 call ``list_outsource_workers`` when you need the rest.",
       "inputSchema": {
         "properties": {
           "id": {
