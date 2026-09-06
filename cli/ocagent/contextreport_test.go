@@ -66,7 +66,7 @@ func findPost(posts []capturedPost, path string) *capturedPost {
 // the rounded pct.
 func TestContextReportPostsContextPct(t *testing.T) {
 	srv, posts := contextServer(t)
-	cfg := Config{Base: srv.URL, Token: "tok-k", ID: "kyle", Home: t.TempDir()}
+	cfg := Config{BaseConfigured: true, Base: srv.URL, Token: "tok-k", ID: "kyle", Home: t.TempDir()}
 	payload := `{"context_window":{"used_percentage":42.4}}`
 
 	var out, errOut bytes.Buffer
@@ -123,7 +123,7 @@ func stripANSI(s string) string {
 // TestContextReportBankersRounding: int(round(42.5)) is 42 under Python's banker's
 // rounding (round-half-to-even), NOT 43.
 func TestContextReportBankersRounding(t *testing.T) {
-	cfg := Config{Base: "http://127.0.0.1:1", Token: "", ID: "", Home: t.TempDir()}
+	cfg := Config{BaseConfigured: true, Base: "http://127.0.0.1:1", Token: "", ID: "", Home: t.TempDir()}
 	var out, errOut bytes.Buffer
 	// No token ⇒ no POST, but the status line still renders from the payload pct.
 	cmdContextReport(defaultHTTPClient(), cfg, testEnv(nil), 1000.0,
@@ -143,7 +143,7 @@ func TestContextReportBankersRounding(t *testing.T) {
 // POST + status line shows "?". (Telemetry is pct-independent — none here.)
 func TestContextReportNullPctSkipsContextPost(t *testing.T) {
 	srv, posts := contextServer(t)
-	cfg := Config{Base: srv.URL, Token: "t", ID: "kyle", Home: t.TempDir()}
+	cfg := Config{BaseConfigured: true, Base: srv.URL, Token: "t", ID: "kyle", Home: t.TempDir()}
 	var out, errOut bytes.Buffer
 	rc := cmdContextReport(srv.Client(), cfg, testEnv(nil), 1000.0,
 		strings.NewReader(`{"context_window":{"used_percentage":null}}`), &out, &errOut)
@@ -185,7 +185,7 @@ func TestContextReportClampsPct(t *testing.T) {
 func TestContextReportTelemetry(t *testing.T) {
 	srv, posts := contextServer(t)
 	home := t.TempDir()
-	cfg := Config{Base: srv.URL, Token: "t", ID: "kyle", Home: home}
+	cfg := Config{BaseConfigured: true, Base: srv.URL, Token: "t", ID: "kyle", Home: home}
 	// A transcript for tokens: one assistant row dated today (UTC).
 	today := time.Now().UTC().Format("2006-01-02")
 	transcript := filepath.Join(home, "t.jsonl")
@@ -265,7 +265,7 @@ func TestContextReportTelemetry(t *testing.T) {
 // account a previous runtime had left behind, which is worse than showing nothing.
 func TestContextReportUnmeasuredUsageStillReportsIdentity(t *testing.T) {
 	srv, posts := contextServer(t)
-	cfg := Config{Base: srv.URL, Token: "t", ID: "kyle", Home: t.TempDir()}
+	cfg := Config{BaseConfigured: true, Base: srv.URL, Token: "t", ID: "kyle", Home: t.TempDir()}
 	home := writeClaudeJSON(t,
 		`{"userID":"acct-9","oauthAccount":{"emailAddress":"e@x.io","organizationUuid":"org-9"}}`)
 	var out, errOut bytes.Buffer
@@ -301,7 +301,7 @@ func TestContextReportUnmeasuredUsageStillReportsIdentity(t *testing.T) {
 func TestContextReportThrottle(t *testing.T) {
 	srv, posts := contextServer(t)
 	home := t.TempDir()
-	cfg := Config{Base: srv.URL, Token: "t", ID: "kyle", Home: home}
+	cfg := Config{BaseConfigured: true, Base: srv.URL, Token: "t", ID: "kyle", Home: home}
 	// Pre-seed the stamp at now-5 (< 30s window ⇒ throttled).
 	stamp := reportStampPath(cfg)
 	if err := os.MkdirAll(filepath.Dir(stamp), 0o755); err != nil {
@@ -374,7 +374,7 @@ func TestReportStatePathsAreLiteralAndPerAgent(t *testing.T) {
 func TestContextReportStampAdvances(t *testing.T) {
 	srv, _ := contextServer(t)
 	home := t.TempDir()
-	cfg := Config{Base: srv.URL, Token: "t", ID: "kyle", Home: home}
+	cfg := Config{BaseConfigured: true, Base: srv.URL, Token: "t", ID: "kyle", Home: home}
 	var out, errOut bytes.Buffer
 	cmdContextReport(srv.Client(), cfg, testEnv(nil), 2000.0,
 		strings.NewReader(`{"context_window":{"used_percentage":50}}`), &out, &errOut)
@@ -392,7 +392,7 @@ func TestContextReportStampAdvances(t *testing.T) {
 // status line still renders (dual-use).
 func TestContextReportNoTokenNoPost(t *testing.T) {
 	srv, posts := contextServer(t)
-	cfg := Config{Base: srv.URL, Token: "", ID: "", Home: t.TempDir()}
+	cfg := Config{BaseConfigured: true, Base: srv.URL, Token: "", ID: "", Home: t.TempDir()}
 	var out, errOut bytes.Buffer
 	rc := cmdContextReport(srv.Client(), cfg, testEnv(nil), 1000.0,
 		strings.NewReader(`{"context_window":{"used_percentage":77}}`), &out, &errOut)
@@ -409,7 +409,7 @@ func TestContextReportNoTokenNoPost(t *testing.T) {
 
 // TestContextReportBestEffortOnFault: an unreachable base still exits 0 + prints.
 func TestContextReportBestEffortOnFault(t *testing.T) {
-	cfg := Config{Base: "http://127.0.0.1:1", Token: "t", ID: "kyle", Home: t.TempDir()}
+	cfg := Config{BaseConfigured: true, Base: "http://127.0.0.1:1", Token: "t", ID: "kyle", Home: t.TempDir()}
 	var out, errOut bytes.Buffer
 	rc := cmdContextReport(defaultHTTPClient(), cfg, testEnv(nil), 1000.0,
 		strings.NewReader(`{"context_window":{"used_percentage":30}}`), &out, &errOut)
@@ -607,7 +607,7 @@ func TestReadClaudeAccountLabel(t *testing.T) {
 // entirely (the server must see absent, not "").
 func TestContextReportTelemetryAccountLabel(t *testing.T) {
 	srv, posts := contextServer(t)
-	cfg := Config{Base: srv.URL, Token: "t", ID: "kyle", Home: t.TempDir()}
+	cfg := Config{BaseConfigured: true, Base: srv.URL, Token: "t", ID: "kyle", Home: t.TempDir()}
 	home := writeClaudeJSON(t,
 		`{"userID":"acct-123","oauthAccount":{"emailAddress":"eva.cheng@gofreight.com","organizationName":"GoFreight","organizationUuid":"org-team"}}`)
 	payload := `{"rate_limits":{"five_hour":{"used_percentage":30,"resets_at":1720000000}}}`
@@ -635,7 +635,7 @@ func TestContextReportTelemetryAccountLabel(t *testing.T) {
 
 	// Missing oauthAccount ⇒ the key is OMITTED from the wire body.
 	*posts = nil
-	cfg2 := Config{Base: srv.URL, Token: "t", ID: "kyle", Home: t.TempDir()}
+	cfg2 := Config{BaseConfigured: true, Base: srv.URL, Token: "t", ID: "kyle", Home: t.TempDir()}
 	rc = cmdContextReport(srv.Client(), cfg2,
 		testEnv(map[string]string{"HOME": t.TempDir()}), 1000.0, strings.NewReader(payload), &out, &errOut)
 	if rc != 0 {
@@ -878,7 +878,7 @@ func sameFloats(a, b []float64) bool {
 // accident you may drop — read their doc comments first.
 func TestRefusedReportBacksOffToAnIntentionalCap(t *testing.T) {
 	srv, seen := refusingServer(t)
-	cfg := Config{Base: srv.URL, Token: "t", ID: "kyle", Home: t.TempDir()}
+	cfg := Config{BaseConfigured: true, Base: srv.URL, Token: "t", ID: "kyle", Home: t.TempDir()}
 	stamp := reportStampPath(cfg)
 	payload := `{"context_window":{"used_percentage":50}}`
 
@@ -908,7 +908,7 @@ func TestRefusedReportBacksOffToAnIntentionalCap(t *testing.T) {
 	// Now the curve, over 30 virtual minutes of ticking against a server that never
 	// recovers. Attempts at 0, 30, 90, 210, 450, 750, 1050, 1350, 1650.
 	srv2, seen2 := refusingServer(t)
-	cfg2 := Config{Base: srv2.URL, Token: "t", ID: "kyle", Home: t.TempDir()}
+	cfg2 := Config{BaseConfigured: true, Base: srv2.URL, Token: "t", ID: "kyle", Home: t.TempDir()}
 	attempts := driveTicks(t, srv2.Client(), cfg2, func() int { return len(*seen2) }, 1800.0, 0.5)
 	want := []float64{30, 60, 120, 240, 300, 300, 300, 300}
 	if got := gapsOf(attempts); !sameFloats(got, want) {
@@ -940,7 +940,7 @@ func TestAcceptedBurstResetsTheFailureBackoff(t *testing.T) {
 	}))
 	t.Cleanup(srv.Close)
 
-	cfg := Config{Base: srv.URL, Token: "t", ID: "kyle", Home: t.TempDir()}
+	cfg := Config{BaseConfigured: true, Base: srv.URL, Token: "t", ID: "kyle", Home: t.TempDir()}
 	payload := `{"context_window":{"used_percentage":50}}`
 	tick := func(now float64) int {
 		var out, errOut bytes.Buffer
@@ -991,7 +991,7 @@ func TestAcceptedBurstResetsTheFailureBackoff(t *testing.T) {
 // leaking into the healthy path), not denser — for the whole run.
 func TestHealthyCadenceIsUnchangedByTheFailureBackoff(t *testing.T) {
 	srv, posts := contextServer(t)
-	cfg := Config{Base: srv.URL, Token: "t", ID: "kyle", Home: t.TempDir()}
+	cfg := Config{BaseConfigured: true, Base: srv.URL, Token: "t", ID: "kyle", Home: t.TempDir()}
 
 	attempts := driveTicks(t, srv.Client(), cfg, func() int { return len(*posts) }, 600.0, 0.5)
 	want := []float64{0, 30, 60, 90, 120, 150, 180, 210, 240, 270, 300, 330, 360, 390, 420, 450, 480, 510, 540, 570, 600}
@@ -1009,7 +1009,7 @@ func TestHealthyCadenceIsUnchangedByTheFailureBackoff(t *testing.T) {
 // 2xx burst stamps the window exactly as before, so a tick 5s later is silent.
 func TestAcceptedReportStillThrottlesNextTick(t *testing.T) {
 	srv, posts := contextServer(t)
-	cfg := Config{Base: srv.URL, Token: "t", ID: "kyle", Home: t.TempDir()}
+	cfg := Config{BaseConfigured: true, Base: srv.URL, Token: "t", ID: "kyle", Home: t.TempDir()}
 	payload := `{"context_window":{"used_percentage":50}}`
 
 	var out, errOut bytes.Buffer
@@ -1043,7 +1043,7 @@ func TestRefusedTelemetryAloneLeavesWindowOpen(t *testing.T) {
 	}))
 	t.Cleanup(srv.Close)
 
-	cfg := Config{Base: srv.URL, Token: "t", ID: "kyle", Home: t.TempDir()}
+	cfg := Config{BaseConfigured: true, Base: srv.URL, Token: "t", ID: "kyle", Home: t.TempDir()}
 	payload := `{"context_window":{"used_percentage":50}}`
 	var out, errOut bytes.Buffer
 	cmdContextReport(srv.Client(), cfg, testEnv(nil), 2000.0, strings.NewReader(payload), &out, &errOut)

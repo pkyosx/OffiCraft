@@ -14,6 +14,8 @@ import { I18nProvider } from "../i18n";
 import { TasksPage } from "./TasksPage";
 import { __resetMock, __injectMockTask } from "../api/mock";
 import type { TaskView } from "../api/adapter";
+// 篩選 moved into the FilterPanel and only bites on 套用篩選 (T-93 round 3).
+import { toggleFilter } from "../test/tasksFilter";
 
 let seq = 0;
 
@@ -133,14 +135,9 @@ describe("TaskCard in-place priority editing (v2)", () => {
     );
     const { findAllByTestId, findByTestId } = renderPage();
     // Terminal tasks hide behind the 狀態 filter → tick 終止 to surface the
-    // (collapsed) 已結束 section, then open it.
-    const trigger = await findByTestId("filter-status");
-    fireEvent.click(trigger);
-    fireEvent.click(
-      document.querySelector(
-        '[data-testid="filter-status-opt-terminated"] input'
-      )!
-    );
+    // (collapsed) 已結束 section, then open it. The filter is inside the
+    // FilterPanel now, so the driver opens it and presses 套用篩選 (T-93 r3).
+    toggleFilter("filter-status", "terminated");
     fireEvent.click(await findByTestId("closed-toggle"));
 
     const chips = await findAllByTestId("task-priority");

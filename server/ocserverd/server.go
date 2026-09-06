@@ -501,6 +501,7 @@ func newAPIServer(dal *DAL, hub *Hub, keys *keyring, tokenTTL int64, root assetR
 		ownerTokenTTL:                tokenTTL,
 		agentTokenTTL:                defaultAgentTokenTTL,
 		acceleratedGraceSecs:         acceleratedGraceSecsDefault,
+		wardenCredLifetimeSecs:       wardenCredLifetimeSecsDefault,
 		outsourceMaxParallel:         defaultOutsourceMaxParallel,
 		docCapCharsDuty:              dutyCapCharsDefault,
 		docCapCharsInsight:           contextDocMaxCharsDefault,
@@ -511,7 +512,10 @@ func newAPIServer(dal *DAL, hub *Hub, keys *keyring, tokenTTL int64, root assetR
 		docCapCharsBootSequence:      bootSequenceCapCharsDefault,
 		docCapCharsOffboard:          offboardCapCharsDefault,
 		chatBudgetChars:              chatBudgetCharsDefault,
+		stepNoteCapChars:             stepNoteCapCharsDefault,
 		backupRetain:                 backupRetainDefault,
+		suggestedRepliesReplyCard:    []string{},
+		suggestedRepliesTaskMessage:  []string{},
 		ctxhigh:                      defaultSseContextHigh(),
 		root:                         root,
 		binHashes:                    bindistBinaryHashesFrom(bindistFS()),
@@ -682,6 +686,7 @@ func cmdServe(env func(string) string, noReconcile, noOutsource bool, out io.Wri
 	api.codexNoticeRound = auth.codexNoticeRound
 	api.monitoringRefreshSeconds = auth.monitoringRefreshSeconds
 	api.acceleratedGraceSecs = auth.acceleratedGraceSecs
+	api.wardenCredLifetimeSecs = auth.wardenCredLifetimeSecs
 	api.outsourceMaxParallel = auth.outsourceMaxParallel
 	api.docCapCharsDuty = auth.docCapCharsDuty
 	api.docCapCharsInsight = auth.docCapCharsInsight
@@ -692,6 +697,7 @@ func cmdServe(env func(string) string, noReconcile, noOutsource bool, out io.Wri
 	api.docCapCharsBootSequence = auth.docCapCharsBootSequence
 	api.docCapCharsOffboard = auth.docCapCharsOffboard
 	api.chatBudgetChars = auth.chatBudgetChars
+	api.stepNoteCapChars = auth.stepNoteCapChars
 	api.backupRetain = auth.backupRetain
 	api.updaterReceiveBeta = auth.updaterReceiveBeta
 	api.updaterAutoUpdate = auth.updaterAutoUpdate
@@ -707,6 +713,8 @@ func cmdServe(env func(string) string, noReconcile, noOutsource bool, out io.Wri
 	api.displayLanguage = auth.displayLanguage
 	api.displayWide = auth.displayWide
 	api.loreEnabled = auth.loreEnabled
+	api.suggestedRepliesReplyCard = auth.suggestedRepliesReplyCard
+	api.suggestedRepliesTaskMessage = auth.suggestedRepliesTaskMessage
 	api.namespace = cfg.Server.Namespace
 	// The embed-fallback binary cache rides beside the SQLite data file — a
 	// stable per-instance location that follows the configured DSN (never the

@@ -12,8 +12,6 @@ package main
 // tombstone); delete is refused while non-terminal tasks of the type exist.
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -62,7 +60,12 @@ func (s *apiServer) resolveTaskManual(typeKey string) (*TaskManual, error) {
 	return m, nil
 }
 
-// writeTaskManual is the common single-manual response tail.
+// writeTaskManual is the common single-manual READ response tail.
+//
+// 🔴 T-91 LEFT IT ALONE ON PURPOSE. It still serves GET /api/task-manuals/{key}
+// — the intake's type judgement and the planner's blueprint read — with the
+// whole manual, sop_md and learnings included. The three WRITE faces moved onto
+// the receipt tails below.
 func (s *apiServer) writeTaskManual(w http.ResponseWriter, m TaskManual) {
 	dto, err := newTaskManualDTO(m, s.manualSopCap(), s.manualLearningsCap())
 	if err != nil {
@@ -70,6 +73,41 @@ func (s *apiServer) writeTaskManual(w http.ResponseWriter, m TaskManual) {
 		return
 	}
 	writeJSON(w, http.StatusOK, dto)
+}
+
+// writeTaskManualReceipt answers create_task_manual and update_task_manual
+// (T-91). The whole taskManualDTO — both capped documents in full — used to
+// ride back from every one of these writes.
+//
+// 🔴 wroteSop / wroteLearnings ARE THE POINT OF THE SIGNATURE. A document's
+// triple is reported ONLY when THIS call wrote it: update_task_manual is a
+// partial, so a caller that changed only the display name never touched either
+// document, and reporting a size and a hash for an untouched document invites
+// exactly the wrong conclusion. Absence is spelled with pointers rather than
+// zeroes, because 0 is indistinguishable from an empty document that WAS
+// written.
+func (s *apiServer) writeTaskManualReceipt(w http.ResponseWriter, m TaskManual, wroteSop, wroteLearnings bool) {
+	receipt := taskManualReceiptDTO{TypeKey: m.TypeKey, UpdatedTS: m.UpdatedTS}
+	if wroteLearnings {
+		n := utf8.RuneCountInString(m.Learnings)
+		capChars := s.manualLearningsCap()
+		sum := receiptSha256(m.Learnings)
+		receipt.LearningsChars = &n
+		receipt.LearningsCapChars = &capChars
+		receipt.LearningsSha256 = &sum
+	}
+	if wroteSop {
+		n := utf8.RuneCountInString(m.SopMD)
+		// The SOP's OWN cap — doc_cap_chars_manual_sop, a different settings key
+		// from the learnings one. Reading one as evidence about the other is the
+		// mistake the split cap exists to prevent.
+		capChars := s.manualSopCap()
+		sum := receiptSha256(m.SopMD)
+		receipt.SopMdChars = &n
+		receipt.SopMdCapChars = &capChars
+		receipt.SopMdSha256 = &sum
+	}
+	writeJSON(w, http.StatusOK, receipt)
 }
 
 // validateManualAssignee checks an incoming assignee object: {} unsets; a
@@ -270,7 +308,11 @@ func (s *apiServer) HandleCreateTaskManualApiTaskManualsPost(w http.ResponseWrit
 		return
 	}
 	s.publishTaskManual(typeKey, requestTrigger(r))
-	s.writeTaskManual(w, m)
+	// Neither document is written on a create — a fresh manual starts with an
+	// empty SOP and empty learnings — so neither triple rides back. type_key IS
+	// news on this face when the caller sent only a display_name: the id was
+	// minted here.
+	s.writeTaskManualReceipt(w, m, false, false)
 }
 
 // GET /api/task-manuals/{type_key} — one manual in full (the intake's
@@ -418,7 +460,11 @@ func (s *apiServer) HandleUpdateTaskManualApiTaskManualsTypeKeyPost(w http.Respo
 		return
 	}
 	s.publishTaskManual(typeKey, requestTrigger(r))
-	s.writeTaskManual(w, *m)
+	// Reported per DOCUMENT THE BODY NAMED, not per document that changed:
+	// a caller that resent the SOP unchanged still asked about the SOP, and the
+	// size/hash it gets back are the honest answer to that question. A caller
+	// that never mentioned it gets nothing about it at all.
+	s.writeTaskManualReceipt(w, *m, body.SopMd != nil, body.Learnings != nil)
 }
 
 // DELETE /api/task-manuals/{type_key} — hard delete (no seed to fall back
@@ -493,7 +539,15 @@ func (s *apiServer) HandleWriteTaskLearningsApiTaskManualsTypeKeyLearningsPost(w
 		return
 	}
 	s.publishTaskManual(typeKey, requestTrigger(r))
-	s.writeTaskManual(w, *m)
+	// T-91: its own shape, not the manual. This write touches ONE document, and
+	// the whole taskManualDTO it used to answer with carried the SOP too — a
+	// document this call never looked at.
+	writeJSON(w, http.StatusOK, taskLearningsWriteReceiptDTO{
+		TypeKey:   m.TypeKey,
+		SizeChars: utf8.RuneCountInString(m.Learnings),
+		CapChars:  s.manualLearningsCap(),
+		Sha256:    receiptSha256(m.Learnings),
+	})
 }
 
 // POST /api/task-manuals/{type_key}/learnings/patch — anchor-addressed patch of
@@ -599,13 +653,12 @@ func (s *apiServer) HandlePatchTaskLearningsApiTaskManualsTypeKeyLearningsPatchP
 		}
 		s.publishTaskManual(typeKey, requestTrigger(r))
 	}
-	sum := sha256.Sum256([]byte(next))
 	writeJSON(w, http.StatusOK, taskLearningsPatchResultDTO{
 		TypeKey:      typeKey,
 		AppliedEdits: applied,
 		SizeChars:    utf8.RuneCountInString(next),
 		CapChars:     cap,
-		Sha256:       hex.EncodeToString(sum[:]),
+		Sha256:       receiptSha256(next),
 	})
 }
 
@@ -739,12 +792,11 @@ func (s *apiServer) HandlePatchTaskSopApiTaskManualsTypeKeySopPatchPost(w http.R
 		}
 		s.publishTaskManual(typeKey, requestTrigger(r))
 	}
-	sum := sha256.Sum256([]byte(next))
 	writeJSON(w, http.StatusOK, taskSopPatchResultDTO{
 		TypeKey:      typeKey,
 		AppliedEdits: applied,
 		SizeChars:    utf8.RuneCountInString(next),
 		CapChars:     cap,
-		Sha256:       hex.EncodeToString(sum[:]),
+		Sha256:       receiptSha256(next),
 	})
 }

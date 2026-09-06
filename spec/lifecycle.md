@@ -100,6 +100,7 @@ retired `var/jwt_secret` fallback file has no successor.
 | reconcile START payload (server-side, per spawn) | `agent` / member id | `auth.agent_token_ttl` | `member.desired_machine_id` |
 | machine onboard / boot-command / bootstrap-here exec-token | `agent` / warden member id | **no expiry** (`exp` omitted; response `expires_in=0`) | none (warden tokens carry no placement claim) |
 | `POST /api/machines/claim` (public; redeems a one-time claim code) | `agent` / warden member id | **no expiry** (`exp` omitted; response `expires_in=0`) — the same permanent mint used by every warden install path | none (warden tokens carry no placement claim) |
+| `POST /api/machines/renew-credential` (a warden replacing its OWN credential — §1.4) | `agent` / the caller's own warden member id | **no expiry** (`exp` omitted; response `expires_in=0`) — the SAME permanent mint as the install paths above, deliberately not a second one | none (warden tokens carry no placement claim) |
 
 Warden credentials are revoked two ways: removing that machine from the roster, which
 rejects its next gated request, and removing the KEY that signed it (§1.3 cut 4), which
@@ -444,6 +445,86 @@ thing that needed replacing.
   rather than from this endpoint, and an implementation MUST pin WHICH refusal answers:
   while warden credentials carry no `exp`, the permanent-credential refusal answers
   first and the roster-revocation arm is never reached on this route.
+
+### 1.5 Renewal trigger — the credential lifetime setting (`auth.warden_credential_lifetime_secs`)
+
+§1.4 says how a machine replaces its credential. This says WHEN, and it is a separate
+contract because the two failed independently: the endpoint has existed and worked since
+T-fc53's first landing, while nothing on any machine ever called it on a clock. The trigger
+asked how much of the credential's ORIGINAL lifetime remained, which is `exp` minus `iat`,
+and warden credentials carry no `exp` (§1.3) — so the question had no answer and the
+implementation read "no answer" as "not due". Every warden in the fleet has therefore
+answered "not due" on every poll since the feature shipped.
+
+🔴 **The trigger MUST be a function of the credential's AGE, not of its remaining time.**
+An implementation MUST derive it from the `iat` claim, which §1.1 requires on every token.
+It MUST NOT require an `exp` to reach a verdict, and it MUST NOT treat a missing `exp` as
+evidence that a credential is or is not due.
+
+- A warden MUST renew when its own credential's age reaches **two thirds** of the
+  configured lifetime. That is the same instant the remaining-time rule named ("under a
+  third left"), expressed from the other end, so an implementation moving between the two
+  MUST NOT change when a healthy fleet renews.
+- The remaining third is the **retry window**, and it is what the two-thirds figure buys:
+  a machine that is switched off, asleep or off the network for part of that window still
+  gets a replacement. An implementation MUST NOT shorten the window below the point where
+  it stops holding several attempts at that implementation's poll cadence — this is what
+  the setting's floor exists to enforce, not tidiness.
+- The lifetime is the DB setting `auth.warden_credential_lifetime_secs`, an owner-typed
+  integer (seconds). It MUST be accepted anywhere in **86400 .. 34560000** (one day
+  through 400 days, the §1.3 ceiling) and refused with a 422 outside it, by ONE predicate
+  that the write face and the boot-time loader BOTH use — a value that saves MUST NOT be a
+  value the next start refuses. Its default is **2592000** (30 days).
+  It MUST NOT be reduced to a pick-list: the reason to change it is to observe a renewal
+  without waiting out a full lifetime, and the useful values are not the ones a list of
+  four would contain (owner 2026-09-06).
+- 🔴 **The setting is NOT an expiry, and an implementation MUST NOT make it one.** Nothing
+  at the auth gate reads it, no mint stamps it, and no credential stops working because of
+  it. Lowering it MUST NOT be able to invalidate anything; the only thing it moves is the
+  age at which a warden goes and asks for a replacement. (Warden credentials regaining an
+  `exp` is a separate change, and it MUST NOT land before a renewal has been observed to
+  complete — see the note at the end of this section.)
+
+**Reaching the fleet.** The lifetime lives only on the station, and the credential no
+longer carries anything to derive it from, so it MUST be published:
+
+- `GET /api/machines/credential-policy` MUST answer the current setting as
+  `lifetime_secs`. It MUST take no target and MUST return the same answer to every
+  caller — an answer that varied per machine would be a second copy of the rule to keep in
+  step with the setting. It MUST sit on the same principal floor as
+  `POST /api/machines/renew-credential`, since the same caller asks it one poll earlier.
+- 🔴 **A warden that cannot read it MUST still renew.** An unreachable or absent policy
+  endpoint — a station not yet upgraded answers 404 — MUST leave the machine on its last
+  known lifetime, or on a built-in default equal to the shipped one, and MUST NOT be
+  treated as an error, logged per poll, or allowed to stop renewal. The station publishes
+  a number; it MUST NOT be the thing that drives the fleet, because a machine whose link
+  to the station is broken is exactly the machine that must not silently stop renewing.
+- The threshold and the stagger below MUST be computed on the WARDEN from that one number.
+  An implementation MUST NOT split the rule across the wire by serving a pre-derived
+  renewal age: half the rule on each side is two things that can disagree with nothing
+  able to detect it.
+
+**Staggering.** Lowering the setting moves the threshold under every machine in the fleet
+in the same instant, so all of them become due on their next poll (owner 2026-09-06: told
+and accepted, with a stagger promised).
+
+- A warden MUST offset its own renewal moment by a **stagger derived from its own machine
+  id**, bounded by a fixed window.
+- The stagger MUST be stable for a given machine — the same value on every poll and across
+  restarts. A freshly drawn random offset per poll MUST NOT be used: it re-rolls the
+  threshold each time, so a machine near the boundary flickers between due and not-due and
+  the fleet is spread by luck rather than by design.
+- The stagger MUST be small relative to the retry window it delays into, and MUST NOT be
+  able to exempt a machine from renewing: it moves the moment, it never cancels it.
+
+**Ordering (T-fc53, and it is a MUST NOT rather than a preference).** Giving warden
+credentials an `exp` again MUST NOT land before a renewal has been observed to run end to
+end on a real machine. Until it does, an expiry starts a clock on every host in the fleet
+against a path that has never been watched work, and nothing anywhere reports a machine
+that failed to renew — the first symptom is a host nobody can reach. Everything in this
+section is deliberately safe to land first: with no `exp` in play, a renewal that never
+fires and a renewal that fires too often are both survivable, and neither takes a machine
+off the network.
 
 ## 2. Boot context — the three-block assembly
 
@@ -1003,35 +1084,45 @@ ONE-SHOT, never a standing order):
   | `workerRestartSelf` (`worker_spawn.go`) | `restart_self` | **409** — the refusal is written by `HandleRestartSelfApiSelfRefocusPost` itself, VERBATIM the sentence its own staff arm writes further down in the same function (`m.Kind == KindOutsource` arm vs the fall-through `armRefocusEpoch` arm); the two arms are one rule |
   | `HandleAcceleratedStopOutsourceWorker…` | 加速停止 | n/a — it ADVANCES the ladder, and it deliberately does not zero the anchors (the twin of the staff 加速停止 arm) |
   | `stampContextHighRecycle` promotion arm (`reconcile.go`, the `if promoting` branch) | none — the reconcile tick's own context pass, projected onto workers by `runWorkerLifecyclePasses` (`lifecycle_roster.go`), which `runOutsourceTick` calls | n/a — it also ADVANCES, and only forwards: `canPromoteToAcceleratedStop` lets it move `context_notice` → `context_high` and nothing else. It hand-writes `refocus_since` / `refocus_op` INSTEAD of calling `armRefocusEpoch` on purpose — that helper zeroes the wind-down anchors, and here they belong to a close-out already in flight (see the `armRefocusEpoch is deliberately NOT used` note directly above that assignment) |
-  ⚠️ **`重啟` (restart) is a deliberate hole in this table, not a missing row.**
-  `ownerOpDisplacesTheSession(restart) == true` (`worker_spawn.go`), so the
-  `!ownerOpDisplacesTheSession(op) && s.workerHasStateToFlush(w)` arm in
-  `respawnWorkerForOwnerOp` (`worker_spawn.go`, the arm *after* the
-  `DesiredStateOffline` held-down one) is never taken for 重啟 and the ladder never
-  sees it. That is intended and predates T-170e — but **NOT because 重啟 can only arrive at a worker
-  the owner has already stopped.** It can arrive at any live worker:
-  `HandleRestartOutsourceWorkerApiOutsourceWorkersIdRestartPost`
-  (`api_outsource.go`) has exactly two preconditions — the row exists and it is
-  not `released` — and **no desired-offline gate at all**. Press 重啟 on a worker with
-  `desired_state="online"` that is mid-加速停止 and it answers **200**, zeroes
-  `refocus_since` / `refocus_op` / `stopping_since` / `stopped_since`, and the deadline
-  goes with them.
-  The reason that is right is that **重啟 is not a wind-down cause at all — it is a
-  kill+respawn.** It does not ask the current session for a close-out; it displaces
-  it (`respawnWorkerForOwnerOp` → `respawnWorkerForOwnerOpNow` → `respawnWorkerNow`,
-  which kills the session on the resolved target before it re-spawns), and the handler says so on the row itself: its `if s.hub.IsOnline(id)`
-  arm (`api_outsource.go`) stamps the `session_alive` receipt *"this worker was
-  still running — 重啟 is replacing that session, not starting a first one. If it
-  does not come back, its previous session was still holding the slot"*. The four
-  anchors it clears all DATE THE SESSION BEING REPLACED; carrying them into the
-  successor is what makes the next 改機器 / 換 model read them as "this epoch's
-  wind-down is already collected". So clearing them is a correct clean sheet for a new
-  session, **not a way around the ladder** — there is no ladder step left to be on once
-  the session the ladder was counting for is gone. (`forced_stop_at` is deliberately
-  KEPT, per the staff activate's rule.) Winding 重啟 down instead would fan an SOP 預告
-  at a session that is about to be killed regardless and then wait out a deadline for
-  an answer that changes nothing. A reader of the rows above would otherwise reasonably
-  assume 重啟 is covered; it is not, and it should not be.
+  ⚠️ **`喚醒` (restart) HAS TWO ARMS, and only one of them can reach this table.**
+  Owner ruling 2026-09-06 (`rc-1f591528a6d0` 圈 [0]): 「收斂成『正在跑就不動它』；真的要
+  強制重來再另外給一個動作」. `HandleRestartOutsourceWorkerApiOutsourceWorkersIdRestartPost`
+  (`api_outsource.go`) splits on `s.hub.IsOnline(id)`:
+  | arm | what it does | reaches the ladder? |
+  | --- | --- | --- |
+  | **session STILL RUNNING** | records the intent (`desired_state=online`), clears `stopping_since` + `waking_since`, stamps a `session_alive` receipt, dispatches **nothing** and kills **nothing**. `refocus_since` / `refocus_op` / `stopped_since` are left **bit-for-bit alone** — they date the epoch of the session that is still up, and clearing them would silently cancel a 加速停止 or 換手 in flight, on a 200, from the one verb the owner pressed in order to leave the worker alone. `respawnWorkerForOwnerOp` is not called at all. | **no** — nothing is displaced, so there is nothing for the ladder to rule on |
+  | **session NOT running** | unchanged clean sheet: clears all four anchors, then re-dispatches through `respawnWorkerForOwnerOp`. The anchors all date the session being replaced; carrying them into the successor is what makes the next 改機器 / 換 model read them as 「this epoch's wind-down is already collected」. (`forced_stop_at` is deliberately KEPT, per the staff activate's rule.) | **no** — `s.workerHasStateToFlush(w)` is `online && …`, and on this arm the worker is by definition not online, so the ladder arm in `respawnWorkerForOwnerOp` is unreachable from here |
+
+  🔴 **THIS PARAGRAPH USED TO SAY THE OPPOSITE, and the sentence it leaned on was
+  `ownerOpDisplacesTheSession(restart) == true`.** That predicate has been
+  DELETED (`fa5d7e72`): once 喚醒 stopped displacing a live session, its only
+  call site (`!ownerOpDisplacesTheSession(op) && s.workerHasStateToFlush(w)`)
+  had a second operand that was already false on every path 喚醒 can take, so
+  the guard could not change any answer — measured by flipping it to
+  `return false` and finding the `Restart|OwnerOp|VerbPopulation|WindDownKind`
+  family still green. A guard whose removal changes nothing is not a guard.
+
+  ⚠️ **WHAT THIS COST, stated plainly:** there is no longer a ONE-PRESS way to
+  end a wedged session. 強制停止 still calls `stopWorkerNow` with no liveness
+  gate, so the escape hatch survives as two presses — 強制停止, then 喚醒. The
+  one-press 「強制重來」 the owner named is a SEPARATE action he deferred; it does
+  not exist anywhere in this repo.
+
+  🔴 **THE RESCUE PATH IS NOT THE KILL ANY MORE — it is the reconcile tick.**
+  A worker mid-停止 (presence `stopping`: `desired_state=offline`, session still
+  up) is exactly where the cockpit offers 喚醒 (`WorkerDetailPanel.tsx`,
+  `wakeMode = noLiveSession || stoppingNow`). It used to come back because the
+  press killed it and spawned the replacement in the same breath. It now comes
+  back the long way, and every step is load-bearing: the press flips
+  `desired_state` to online and clears `stopping_since` → the agent finishes its
+  close-out and files `report_stopped`, which lands on `workerReportStopped`'s
+  **bare latch** (neither collect arm matches: the 停止 arm needs desired
+  offline, the 換手 arm needs `refocus_since > 0`) → the next `runOutsourceTick`
+  sees an online intent with no session and dispatches a plain `start`. Pinned
+  end to end by `TestWakeOnAStoppingWorkerBringsItBackAfterTheCloseOut`
+  (`worker_wake_on_stopping_revives_t65_test.go`), because if any one of those
+  steps regresses the owner presses 喚醒, is answered 200, and the worker simply
+  never comes back — with nothing red and nothing on screen saying so.
 
 ### 4.6 Dispatch discipline
 

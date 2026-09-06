@@ -13,7 +13,12 @@ import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
-import { DOC_CAP_CHARS_DEFAULT, docCapBlocked, runeLength } from "./docCap";
+import {
+  DOC_CAP_CHARS_DEFAULT,
+  docCapBlocked,
+  runeLength,
+  shownDocSize,
+} from "./docCap";
 
 const CASES_PATH = join(
   dirname(fileURLToPath(import.meta.url)),
@@ -117,5 +122,47 @@ describe("docCapBlocked · the shared cap table", () => {
     // is ONE character to this rule and two to String.length.
     expect(runeLength("🙂")).toBe(1);
     expect("🙂".length).toBe(2);
+  });
+});
+
+// ── shownDocSize (T-100) ────────────────────────────────────────────────────
+//
+// The arithmetic behind every 「已用 / 上限」 readout in the cockpit. It moved
+// out of DocCard when the two task-manual editors grew the same readout without
+// being DocCards: two copies of this is how one of them ends up counting the
+// saved document while the other counts the draft, and nothing would say so.
+describe("shownDocSize · what a usage readout must show", () => {
+  it("reports the STORED size when there is no draft", () => {
+    // `null` is a state, not a missing value: nothing is being edited, so the
+    // stored size is the honest answer.
+    expect(shownDocSize(42, "whatever the stored text is", null)).toBe(42);
+  });
+
+  it("reports the DRAFT while editing, not the stored size", () => {
+    // The whole reason the function exists. A readout that answered 9 here
+    // would move only AFTER the write its reader was trying to decide about.
+    // (8 = the rune count of the stored text, so there is no read-only head
+    // here; the head term has its own case below.)
+    expect(shownDocSize(8, "九個字元的舊內容", "新的")).toBe(2);
+  });
+
+  it("adds back the part of the document the editor does not hold", () => {
+    // A document with a read-only head: the editor holds `body` (4 runes) while
+    // the server stores 10, so the head is 6 and the cap is on all 10. Dropping
+    // that term promises room the server will refuse.
+    expect(shownDocSize(10, "abcd", "abcdefgh")).toBe(14);
+  });
+
+  it("never subtracts when the stored size is SMALLER than the text held", () => {
+    // Can happen transiently — an adopted write echo lands before the stored
+    // size does. Flooring at 0 keeps the readout merely stale for one frame
+    // instead of showing a number smaller than what is on screen.
+    expect(shownDocSize(2, "a much longer stored text", "abc")).toBe(3);
+  });
+
+  it("counts CODE POINTS, matching utf8.RuneCountInString on the server", () => {
+    // `String.length` would say 4 for two astral characters and would show a
+    // budget the server never judges anything by.
+    expect(shownDocSize(0, "", "🙂🙂")).toBe(2);
   });
 });

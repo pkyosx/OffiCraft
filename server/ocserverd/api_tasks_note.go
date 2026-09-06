@@ -1,8 +1,6 @@
 package main
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"net/http"
 	"strconv"
 	"unicode/utf8"
@@ -44,7 +42,7 @@ func (s *apiServer) HandleUpdateTaskStepNoteApiTasksTaskIdStepsStepIdNotePost(w 
 		return
 	}
 	note := trimString(body.Note)
-	if !stepNoteWithinLimit(w, note) {
+	if !s.stepNoteWithinLimit(w, note) {
 		return
 	}
 	t, step, ok := s.resolveStepForNoteWrite(w, r, taskId, stepId)
@@ -55,8 +53,9 @@ func (s *apiServer) HandleUpdateTaskStepNoteApiTasksTaskIdStepsStepIdNotePost(w 
 		return
 	}
 	writeJSON(w, http.StatusOK, taskStepNoteReceiptDTO{
-		TaskID: t.ID, StepID: step.ID, StepStatus: step.Status, Note: step.Note,
-		SizeChars: utf8.RuneCountInString(step.Note), CapChars: chatBodyMaxChars,
+		TaskID: t.ID, StepID: step.ID, StepStatus: step.Status,
+		SizeChars: utf8.RuneCountInString(step.Note), CapChars: s.stepNoteCap(),
+		Sha256: receiptSha256(step.Note),
 	})
 }
 
@@ -139,7 +138,7 @@ func (s *apiServer) HandlePatchTaskStepNoteApiTasksTaskIdStepsStepIdNotePatchPos
 			"patch would empty (or shrink to under a tenth of) the step note — pass allow_shrink=true if this is intended, or use update_step_note; nothing was written")
 		return
 	}
-	if !stepNoteWithinLimit(w, next) {
+	if !s.stepNoteWithinLimit(w, next) {
 		return
 	}
 	// 🔴 `next` byte-identical to the stored note → there is nothing to ANNOUNCE.
@@ -170,30 +169,41 @@ func (s *apiServer) HandlePatchTaskStepNoteApiTasksTaskIdStepsStepIdNotePatchPos
 	if !s.storeStepNote(w, r, t, step, next, next != step.Note) {
 		return
 	}
-	sum := sha256.Sum256([]byte(next))
 	writeJSON(w, http.StatusOK, taskStepNotePatchResultDTO{
 		TaskID:       t.ID,
 		StepID:       step.ID,
 		StepStatus:   step.Status,
-		Note:         step.Note,
 		AppliedEdits: applied,
 		SizeChars:    utf8.RuneCountInString(next),
-		CapChars:     chatBodyMaxChars,
-		Sha256:       hex.EncodeToString(sum[:]),
+		CapChars:     s.stepNoteCap(),
+		Sha256:       receiptSha256(next),
 	})
 }
 
 // stepNoteWithinLimit holds a would-be note to the field's ceiling, writing the
 // 400 and returning false when it is over.
 //
-// Same ceiling as the task-level handover note (HandleReassignTaskApi...): it
-// is the same kind of writing for the same reader, so it gets the same limit
-// rather than a second number to remember. Runes, not bytes — these notes are
-// written in Chinese.
-func stepNoteWithinLimit(w http.ResponseWriter, note string) bool {
-	if n := utf8.RuneCountInString(note); n > chatBodyMaxChars {
+// 🔴 THE CEILING IS THE task.step_note_cap_chars SETTING (T-119), read here
+// through s.stepNoteCap() — the SAME read the reporting faces make. It used to
+// be chatBodyMaxChars, shared with the task-level handover note on the argument
+// that "it is the same kind of writing for the same reader, so it gets the same
+// limit rather than a second number to remember". The owner ruled otherwise on
+// 2026-09-06 (rc-c8cc527bfed3) and that argument no longer holds: a step note is
+// a WORKING DOCUMENT an agent grows across a handover and rewrites in place,
+// while the handover note and a chat message body are one-shot messages sent to
+// a reader. Only the first outgrows a fixed 4,000 characters, so only the first
+// got a knob — the other two deliberately keep the constant, and that IS a
+// second number to remember. Runes, not bytes — these notes are written in
+// Chinese.
+//
+// Enforced only HERE, on write. That is what lets the setting be lowered: a note
+// already stored above a newly lowered cap keeps reading back in full through
+// get_task_step and merely cannot be edited until it is shortened.
+func (s *apiServer) stepNoteWithinLimit(w http.ResponseWriter, note string) bool {
+	limit := s.stepNoteCap()
+	if n := utf8.RuneCountInString(note); n > limit {
 		writeError(w, http.StatusBadRequest, "step note is "+strconv.Itoa(n)+
-			" chars, over the "+strconv.Itoa(chatBodyMaxChars)+"-char limit")
+			" chars, over the "+strconv.Itoa(limit)+"-char limit")
 		return false
 	}
 	return true

@@ -13,6 +13,18 @@ package main
 // on #4, #12 and #14 in the same pass. So the fact is now a RECEIPT in the
 // reason-code family instead of a refusal: it says the same thing, and it says
 // it on the row the cockpit already renders.
+//
+// ⚠️ T-65 包④ CHANGED WHAT "NOT REFUSED" BUYS, and only that. The 200 is
+// unchanged and so is the receipt; what follows the 200 is not. This file used
+// to assert that the 200 was followed by a DISPLACEMENT (stop+start), on the
+// argument that "a restart that kills the old session before starting the new
+// one is not a double-spawn". The owner ruled on 2026-09-06
+// (rc-1f591528a6d0 圈 [0]) 「收斂成『正在跑就不動它』」, so the same press now
+// answers 200 and dispatches NOTHING. Both facts are still asserted below —
+// the refusal is still gone, and now the displacement is too. The full
+// four-part guard over the live arm (no frames, session survives, the three
+// epoch anchors untouched, activation_pending false) is
+// worker_restart_live_session_noop_t65_test.go.
 
 import (
 	"net/http"
@@ -37,17 +49,24 @@ func TestRestartALiveWorkerIsNotRefused(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("restart: %d %s", rec.Code, rec.Body.String())
 	}
-	frames := api.hub.DrainWardenCommands(ServerSelfHost)
-	if len(frames) != 2 {
-		t.Fatalf("a restart displaces the live session: want stop+start (2 frames), got %d",
-			len(frames))
+	// NOT REFUSED, AND NOT DISPLACED EITHER (T-65 包④). The 200 above is the
+	// half T-ed79 #10 bought; this half is the owner's 2026-09-06 ruling. A
+	// 喚醒 pressed on a worker that is still running must leave it running —
+	// no kill, no second start.
+	var rpcs []string
+	for _, f := range api.hub.DrainWardenCommands(ServerSelfHost) {
+		rpc, _ := decodeWardenFrame(t, f.Frame)
+		rpcs = append(rpcs, rpc)
 	}
-	if rpc, _ := decodeWardenFrame(t, frames[0].Frame); rpc != reconcileCmdStop {
-		t.Errorf("frame[0] = %s, want the OLD session killed FIRST — that ordering is "+
-			"what makes dropping the guard safe", rpc)
+	if len(rpcs) != 0 {
+		t.Fatalf("喚醒 on a live worker dispatched %v — it must dispatch NOTHING. "+
+			"owner 2026-09-06 rc-1f591528a6d0 圈 [0] 「收斂成『正在跑就不動它』」: the "+
+			"press that used to send stop+start took half an hour of unwritten work "+
+			"with it, and 正職 活化 on a live member has never sent a frame.", rpcs)
 	}
-	if rpc, _ := decodeWardenFrame(t, frames[1].Frame); rpc != reconcileCmdStart {
-		t.Errorf("frame[1] = %s, want start", rpc)
+	if !api.hub.IsOnline(workerID) {
+		t.Error("喚醒 ended the live session it was pressed on — the one thing the " +
+			"ruling says it must not do")
 	}
 }
 

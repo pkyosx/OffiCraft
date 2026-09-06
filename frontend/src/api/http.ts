@@ -82,6 +82,7 @@ import type {
   ScheduledMessageCreateInput,
   ScheduledMessageUpdate,
   ReplyCard,
+  ReplyCardWriteReceipt,
   ReplyCardAnswerInput,
   ReplyCardCounts,
   ServerSettingsView,
@@ -122,6 +123,7 @@ import {
   toChatRead,
   toGalleryAttachment,
   toReplyCard,
+  toReplyCardWriteReceipt,
   toMonitoring,
   toVersion,
   toReleaseCheck,
@@ -175,6 +177,7 @@ import {
 // UNION (light rows | full cards) and `?view=full` is what picks the second
 // arm, so listReplyCards has to narrow to it. See that function.
 import type { WireLoreSearchRequest, WireReplyCard } from "./wire";
+import { suggestedRepliesPatchFields } from "./suggestedReplies";
 import { ownerToken, setToken } from "./auth";
 import { ApiError, parseRetryAfter } from "./errors";
 import { fetchDiffPair } from "./diff";
@@ -955,7 +958,7 @@ export const httpApi: Api = {
     id: string,
     machineId?: string,
   ): Promise<MemberActivateResult> {
-    // POST /api/members/{id}/activate {machine_id?} -> MemberDTO (writes
+    // POST /api/members/{id}/activate {machine_id?} -> MemberActivateReceiptDTO (writes
     // desired_state=online INTENT only; server does NOT flip online). When machineId is
     // given it BINDS the agent to that machine (the field was renamed host →
     // machine_id) — the spawn/wake path and the permanent "move agent" rebind
@@ -963,13 +966,17 @@ export const httpApi: Api = {
     // server-driven presence surface waking → online. The body must be a present
     // object (MemberActivateDTO) — `{}` is the honest "no machine override".
     //
-    // 🔴 The response body is READ, not discarded (T-7fa1). `activation_pending`
-    // is the server's only report that no START went out on this attempt; a 200
-    // alone cannot say that, because the intent is persisted before any dispatch
-    // is attempted. The field is set ONLY on that shape (never `false`), and the
-    // schema types it `boolean | null`, optional — so absent, null and false all
-    // mean the same thing and `=== true` reads the wire without inventing a
-    // default.
+    // 🔴 The response body is READ, not discarded (T-7fa1) — which is exactly why
+    // T-91 gave this route a receipt of its own instead of collapsing it to
+    // `{id}` like its eleven siblings. `activation_pending` is the server's only
+    // report that no START went out on this attempt; a 200 alone cannot say
+    // that, because the intent is persisted before any dispatch is attempted,
+    // and it is computed onto the RESPONSE only — there is no row to re-read it
+    // from. The field is set ONLY on that shape (never `false`), and the receipt
+    // schema types it `boolean`, optional — so absent and false mean the same
+    // thing and `=== true` reads the wire without inventing a default. (The
+    // receipt also carries `last_op_reason`, which the cockpit does not read:
+    // the notice it draws needs the bit, not the cause.)
     const body = machineId !== undefined ? { machine_id: machineId } : {};
     const wire = unwrap(
       await client.POST("/api/members/{member_id}/activate", {
@@ -984,16 +991,18 @@ export const httpApi: Api = {
     id: string,
     machineId: string,
   ): Promise<MemberRelocateResult> {
-    // POST /api/members/{id}/relocate {machine_id} -> MemberDTO (admin-gated
+    // POST /api/members/{id}/relocate {machine_id} -> AgentRelocateReceiptDTO (admin-gated
     // 改機器). PLACEMENT ONLY: writes the owner-pinned desired_machine_id and runs
     // the server's event-driven reconcile (a live member migrates onto the pin;
     // an offline member re-pins for the next wake) — it NEVER touches
     // desired_state (the activate contrast: a relocate is not a wake). Does NOT
     // flip online; the caller refetches and lets server-driven presence surface
     // the migration.
-    // Same read-the-response discipline as activateMember (T-7fa1):
-    // `relocation_pending` is set ONLY when a decided recycle STOP/START was
-    // refused by the warden it was addressed to. Absent/null therefore means
+    // Same read-the-response discipline as activateMember (T-7fa1), and the same
+    // reason T-91 left this route a receipt with flags on it rather than a bare
+    // `{id}`: `relocation_pending` is set ONLY when a decided recycle STOP/START
+    // was refused by the warden it was addressed to, and it is computed onto the
+    // RESPONSE only — no later read can recover it. Absent therefore means
     // "nothing was left undelivered" — NOT "the member is now running on the
     // pin"; a delivered STOP still needs the next tick's START to land.
     const wire = unwrap(
@@ -1011,7 +1020,9 @@ export const httpApi: Api = {
   },
 
   async deactivateMember(id: string): Promise<void> {
-    // POST /api/members/{id}/deactivate -> MemberDTO. Writes desired_state=offline +
+    // POST /api/members/{id}/deactivate -> AgentLifecycleReceiptDTO. The write
+    // answers with a bounded receipt (T-91), not the member row; the cockpit
+    // refetches, exactly as it already did. Writes desired_state=offline +
     // stamps stopping_since (graceful STOP; retains the row). The handler takes
     // NO body. Caller refetches and lets server-driven presence surface
     // stopping → stopped (no optimistic state change here).
@@ -1065,7 +1076,8 @@ export const httpApi: Api = {
   },
 
   async forceStopMember(id: string): Promise<void> {
-    // POST /api/members/{id}/force-stop -> MemberDTO. Escalates a *stopping* member
+    // POST /api/members/{id}/force-stop -> AgentLifecycleReceiptDTO (a bounded
+    // receipt since T-91, not the member row). Escalates a *stopping* member
     // to an IMMEDIATE kill: the server dispatches the robust STOP straight to the
     // warden (the warden SIGKILLs). It is NOT a shortcut past a countdown — the
     // server arms none on this arm. Three things end a soft offboard and this is
@@ -1078,7 +1090,8 @@ export const httpApi: Api = {
   },
 
   async acceleratedStopMember(id: string): Promise<void> {
-    // POST /api/members/{id}/accelerated-stop -> MemberDTO. Puts an ALREADY-OPEN
+    // POST /api/members/{id}/accelerated-stop -> AgentLifecycleReceiptDTO (a
+    // bounded receipt since T-91, not the member row). Puts an ALREADY-OPEN
     // wind-down on the server's stop.accelerated_grace_secs clock and tells the
     // member. 409 when nothing is winding down, when there is no live session, or
     // when the member was already cut off by 強制停止 — the 409 is the contract,
@@ -1091,19 +1104,23 @@ export const httpApi: Api = {
   },
 
   async dismissMember(id: string): Promise<void> {
-    // DELETE /api/members/{id} -> MemberDTO (soft delete: status=removed +
-    // desired_state=offline). Caller refetches (the row drops from the roster) and
+    // DELETE /api/members/{id} -> AgentLifecycleReceiptDTO (a bounded receipt
+    // since T-91, not the member row) for a soft delete: status=removed +
+    // desired_state=offline. Caller refetches (the row drops from the roster) and
     // navigates back.
     await client.DELETE("/api/members/{member_id}", {
       params: { path: { member_id: id } },
     });
   },
 
-  async patchMember(id: string, patch: MemberPatch): Promise<Member> {
-    // PATCH /api/members/{id} {name?, model?, effort?} -> MemberDTO. PATCH
-    // semantics — only supplied fields ride the body (an absent field must NOT
-    // arrive as null, which the server would reject / misread). model/effort
-    // are launch intents (take effect on the next wake).
+  async patchMember(id: string, patch: MemberPatch): Promise<void> {
+    // PATCH /api/members/{id} {name?, model?, effort?} -> AgentLifecycleReceiptDTO.
+    // The write answers with a bounded receipt (T-91), not the member row; the
+    // cockpit refetches, exactly as it already did — this used to parse the
+    // answer into a Member that no caller ever read. PATCH semantics — only
+    // supplied fields ride the body (an absent field must NOT arrive as null,
+    // which the server would reject / misread). model/effort are launch intents
+    // (take effect on the next wake).
     const body: {
       name?: string;
       runtime?: "claude" | "codex";
@@ -1114,17 +1131,17 @@ export const httpApi: Api = {
     if (patch.runtime !== undefined) body.runtime = patch.runtime;
     if (patch.model !== undefined) body.model = patch.model;
     if (patch.effort !== undefined) body.effort = patch.effort;
-    const wire = unwrap(
+    unwrap(
       await client.PATCH("/api/members/{member_id}", {
         params: { path: { member_id: id } },
         body,
       }),
     );
-    return toMember(wire);
   },
 
   async refocusMember(id: string): Promise<void> {
-    // POST /api/members/{id}/refocus -> MemberDTO (online-only; 409 otherwise)
+    // POST /api/members/{id}/refocus -> AgentLifecycleReceiptDTO (a bounded
+    // receipt since T-91, not the member row; online-only, 409 otherwise)
     await client.POST("/api/members/{member_id}/refocus", {
       params: { path: { member_id: id } },
     });
@@ -1229,10 +1246,12 @@ export const httpApi: Api = {
   async createScheduledMessage(
     memberId: string,
     input: ScheduledMessageCreateInput,
-  ): Promise<ScheduledMessage> {
+  ): Promise<{ id: string }> {
     // POST /api/members/{id}/scheduled-messages {body, cadence, timezone,
     // hour?, minute?, label?, day_of_week?, day_of_month?, custom_months?,
-    // custom_days?, custom_hours?, custom_minutes?} -> ScheduledMessageDTO.
+    // custom_days?, custom_hours?, custom_minutes?} -> ScheduledMessageReceiptDTO.
+    // The write answers with a bounded receipt (T-91), not the schedule row;
+    // the cockpit refetches, exactly as it already did.
     // The three unconditionally required fields always ride; every other one
     // only when supplied (an absent field must not arrive as null). `hour` and
     // `minute` left the unconditional set in T-49e7 so a `custom` schedule does
@@ -1277,16 +1296,18 @@ export const httpApi: Api = {
         body,
       }),
     );
-    return toScheduledMessage(wire);
+    return { id: wire.id };
   },
 
   async updateScheduledMessage(
     memberId: string,
     scheduleId: string,
     patch: ScheduledMessageUpdate,
-  ): Promise<ScheduledMessage> {
+  ): Promise<{ id: string }> {
     // PATCH /api/members/{id}/scheduled-messages/{schedule_id} ->
-    // ScheduledMessageDTO. PATCH semantics — only supplied fields ride the
+    // ScheduledMessageReceiptDTO. The write answers with a bounded receipt
+    // (T-91), not the schedule row; the cockpit refetches, exactly as it
+    // already did. PATCH semantics — only supplied fields ride the
     // body; `id` and `member_id` are immutable and never sent.
     const body: {
       label?: string;
@@ -1331,7 +1352,7 @@ export const httpApi: Api = {
         },
       ),
     );
-    return toScheduledMessage(wire);
+    return { id: wire.id };
   },
 
   async deleteScheduledMessage(
@@ -1339,7 +1360,9 @@ export const httpApi: Api = {
     scheduleId: string,
   ): Promise<void> {
     // DELETE /api/members/{id}/scheduled-messages/{schedule_id} ->
-    // ScheduledMessageDTO (the deleted row echo; the caller refetches).
+    // ScheduledMessageDeleteReceiptDTO. The write answers with a bounded
+    // receipt (T-91) — id, member_id, deleted — not the deleted row; the row
+    // is gone, so there is nothing left to echo. The caller refetches.
     await client.DELETE(
       "/api/members/{member_id}/scheduled-messages/{schedule_id}",
       { params: { path: { member_id: memberId, schedule_id: scheduleId } } },
@@ -1518,9 +1541,17 @@ export const httpApi: Api = {
     body: string;
     attachments?: ChatAttachmentInput[];
     replyTo?: string;
-  }): Promise<ChatMessage> {
-    // POST /api/chat {to, body, attachments?} -> ChatMessageDTO (server stamps
-    // from/id/ts from the verified JWT sub). Addressing is by id (msg.to is a
+  }): Promise<void> {
+    // POST /api/chat {to, body, attachments?} -> ChatPostReceiptDTO. The write
+    // answers with a bounded receipt (T-91) — id, ts, to, attachments — not the
+    // posted message. This list read "id, ts, attachments" while a draft kept
+    // `to` on the task route only; the owner overruled that at rc-f1c0fd3cf124,
+    // so both chat writes answer the same four keys. The list is HAND-WRITTEN
+    // with nothing asserting it against `ChatPostReceiptDTO` in
+    // api/generated/schema.ts, which is the thing to read before trusting it.
+    // The chat thread reconciles via its own "chat" SSE topic,
+    // exactly as it already did. The server still stamps from/id/ts from the
+    // verified JWT sub. Addressing is by id (msg.to is a
     // member id). Pasted images AND/OR picked files ride together as the
     // generic `attachments` list of {data_b64, filename?, mime?} objects
     // (data_b64 = data-URI or bare base64) — all on the SAME message; omitted
@@ -1528,32 +1559,29 @@ export const httpApi: Api = {
     // `attachment` field was removed server-side (beta — the list is the sole
     // path, capped at 10 per message).
     const attachments = msg.attachments ?? [];
-    const wire = unwrap(
-      await client.POST("/api/chat", {
-        body: {
-          to: msg.to,
-          body: msg.body,
-          // The quote link. ALWAYS SENT — "" is the wire's "replies to
-          // nothing", the same shape `body` uses, and what the generated
-          // request type requires. (An earlier version of this comment said the
-          // field was omitted on an ordinary post; it never was, and a comment
-          // describing a wire shape the code does not produce is worse than no
-          // comment.) The server checks a non-empty value EXISTS — and only
-          // that, since 2026-08-21 — and is the only writer of the stored link.
-          reply_to: msg.replyTo ?? "",
-          ...(attachments.length > 0
-            ? {
-                attachments: attachments.map((a) => ({
-                  data_b64: a.dataB64,
-                  ...(a.filename ? { filename: a.filename } : {}),
-                  ...(a.mime ? { mime: a.mime } : {}),
-                })),
-              }
-            : {}),
-        },
-      }),
-    );
-    return toChatMessage(wire);
+    await client.POST("/api/chat", {
+      body: {
+        to: msg.to,
+        body: msg.body,
+        // The quote link. ALWAYS SENT — "" is the wire's "replies to
+        // nothing", the same shape `body` uses, and what the generated
+        // request type requires. (An earlier version of this comment said the
+        // field was omitted on an ordinary post; it never was, and a comment
+        // describing a wire shape the code does not produce is worse than no
+        // comment.) The server checks a non-empty value EXISTS — and only
+        // that, since 2026-08-21 — and is the only writer of the stored link.
+        reply_to: msg.replyTo ?? "",
+        ...(attachments.length > 0
+          ? {
+              attachments: attachments.map((a) => ({
+                data_b64: a.dataB64,
+                ...(a.filename ? { filename: a.filename } : {}),
+                ...(a.mime ? { mime: a.mime } : {}),
+              })),
+            }
+          : {}),
+      },
+    });
   },
 
   async markChatRead(mark: {
@@ -1658,8 +1686,12 @@ export const httpApi: Api = {
   async answerReplyCard(
     id: string,
     answer: ReplyCardAnswerInput,
-  ): Promise<ReplyCard> {
-    // POST /api/reply-cards/{card_id}/answer -> ReplyCardDTO (the one-shot
+  ): Promise<ReplyCardWriteReceipt> {
+    // POST /api/reply-cards/{card_id}/answer -> ReplyCardReceiptDTO. The write
+    // answers with a bounded receipt (T-91) — status/answer/answered_ts — not
+    // the whole card; the cockpit MERGES it into the card it is already
+    // holding, which is what keeps a dropped SSE frame from showing an
+    // answered card as waiting. (the one-shot
     // close; already-answered → 409, empty/out-of-range → 400, all thrown as
     // ApiError by the client middleware). Attachments ride the same input
     // shape as chat attachments.
@@ -1669,14 +1701,15 @@ export const httpApi: Api = {
         body: toAnswerBody(answer),
       }),
     );
-    return toReplyCard(wire);
+    return toReplyCardWriteReceipt(wire);
   },
 
   async reanswerReplyCard(
     id: string,
     answer: ReplyCardAnswerInput,
-  ): Promise<ReplyCard> {
-    // PUT /api/reply-cards/{card_id}/answer -> ReplyCardDTO (重新決定: same
+  ): Promise<ReplyCardWriteReceipt> {
+    // PUT /api/reply-cards/{card_id}/answer -> ReplyCardReceiptDTO, merged into
+    // the held card exactly as the POST twin's is (重新決定: same
     // body + validation as POST; a waiting card is a 409). Status stays
     // answered; answered_ts re-stamps server-side.
     const wire = unwrap(
@@ -1685,11 +1718,12 @@ export const httpApi: Api = {
         body: toAnswerBody(answer),
       }),
     );
-    return toReplyCard(wire);
+    return toReplyCardWriteReceipt(wire);
   },
 
-  async expireReplyCard(id: string): Promise<ReplyCard> {
-    // POST /api/reply-cards/{card_id}/expire -> ReplyCardDTO (標為過期 — the
+  async expireReplyCard(id: string): Promise<ReplyCardWriteReceipt> {
+    // POST /api/reply-cards/{card_id}/expire -> ReplyCardReceiptDTO, merged into
+    // the held card exactly as the answer faces are (標為過期 — the
     // terminal exit that is NOT an answer; no body). Callers: the card's own
     // AUTHOR (T-1b88, owner 2026-08-07 card rc-3ff94b116970 — revising T-6020,
     // which held this at the admin floor), the owner, or an admin agent. Someone
@@ -1700,7 +1734,7 @@ export const httpApi: Api = {
         params: { path: { card_id: id } },
       }),
     );
-    return toReplyCard(wire);
+    return toReplyCardWriteReceipt(wire);
   },
 
   async listTasks(opts?: {
@@ -1737,7 +1771,10 @@ export const httpApi: Api = {
     return toTask(wire);
   },
 
-  async getTaskStep(taskId: string, stepId: string): Promise<TaskStepDetailView> {
+  async getTaskStep(
+    taskId: string,
+    stepId: string,
+  ): Promise<TaskStepDetailView> {
     // GET /api/tasks/{task_id}/steps/{step_id} -> TaskStepDetailDTO (T-66).
     // The ONE read that carries a step note's text: getTask reports each step's
     // note_size_chars and stopped carrying the note itself, so the card opens
@@ -1752,11 +1789,12 @@ export const httpApi: Api = {
   },
 
   async listTaskArtifacts(taskId: string): Promise<TaskArtifactView[]> {
-    // GET /api/tasks/{task_id}/artifacts -> TaskArtifactListDTO (T-66). The ONE
-    // read that carries an artifact's url/filename/mime/kind/is_image: getTask
-    // carries an id+label INDEX and stopped carrying the rest, so anything that
-    // DRAWS an artifact opens this. One call answers the whole ticket; an
-    // unknown task 404s through the client middleware as an ApiError.
+    // GET /api/tasks/{task_id}/artifacts -> TaskArtifactListDTO (T-66, T-92).
+    // The ONLY read that carries an artifact ROW at all: getTask answers
+    // `artifact_count` and nothing else — no rows, no ids, no names — so
+    // anything that DRAWS an artifact, or needs its id in order to act on it,
+    // opens this. One call answers the whole ticket; an unknown task 404s
+    // through the client middleware as an ApiError.
     const wire = unwrap(
       await client.GET("/api/tasks/{task_id}/artifacts", {
         params: { path: { task_id: taskId } },
@@ -1773,30 +1811,28 @@ export const httpApi: Api = {
     return { open: wire.open, total: wire.total ?? 0 };
   },
 
-  async terminateTask(id: string): Promise<TaskView> {
-    // POST /api/tasks/{task_id}/terminate -> TaskDTO. The ONLY owner-side
+  async terminateTask(id: string): Promise<void> {
+    // POST /api/tasks/{task_id}/terminate -> TaskWriteReceiptDTO. The write
+    // answers with a bounded receipt (T-91), not the task; the cockpit
+    // refetches, exactly as it already did. The ONLY owner-side
     // status change (spec §3.7); non-terminal only (409 throws via the client
     // middleware). No body — the FE owns the double-confirm.
-    const wire = unwrap(
-      await client.POST("/api/tasks/{task_id}/terminate", {
-        params: { path: { task_id: id } },
-      }),
-    );
-    return toTask(wire);
+    await client.POST("/api/tasks/{task_id}/terminate", {
+      params: { path: { task_id: id } },
+    });
   },
 
-  async markTaskDuplicate(id: string, duplicateOf: string): Promise<TaskView> {
-    // POST /api/tasks/{task_id}/duplicate {duplicate_of} -> TaskDTO. Marks the
+  async markTaskDuplicate(id: string, duplicateOf: string): Promise<void> {
+    // POST /api/tasks/{task_id}/duplicate {duplicate_of} -> TaskWriteReceiptDTO.
+    // The write answers with a bounded receipt (T-91), not the task; the
+    // cockpit refetches, exactly as it already did. Marks the
     // task a duplicate of the original (T-02c9); a third terminal status. The
     // server enforces the depth-1 graph (self/already-duplicated/already-an-
     // original are all 409) and rejects a closed task (409) — all throw.
-    const wire = unwrap(
-      await client.POST("/api/tasks/{task_id}/duplicate", {
-        params: { path: { task_id: id } },
-        body: { duplicate_of: duplicateOf },
-      }),
-    );
-    return toTask(wire);
+    await client.POST("/api/tasks/{task_id}/duplicate", {
+      params: { path: { task_id: id } },
+      body: { duplicate_of: duplicateOf },
+    });
   },
 
   async setTaskPriority(id: string, priority: string): Promise<void> {
@@ -1813,30 +1849,29 @@ export const httpApi: Api = {
     );
   },
 
-  async updateTaskDescription(
-    id: string,
-    description: string,
-  ): Promise<TaskView> {
-    // POST /api/tasks/{task_id}/description {description} -> TaskDTO (T-e271).
+  async updateTaskDescription(id: string, description: string): Promise<void> {
+    // POST /api/tasks/{task_id}/description {description} ->
+    // TaskWriteReceiptDTO (T-e271; the receipt is T-91). The write answers
+    // with a bounded receipt, not the task; the cockpit refetches, exactly as
+    // it already did.
     // The field is ALWAYS sent, even when empty: the wire treats an absent
     // `description` as "change nothing" and an explicit "" as "clear it", so
     // omitting it on a clear would silently turn the write into a no-op that
-    // still answers 200 with the old text.
+    // still answers 200 while changing nothing.
     //
     // No 409 branch to document here — a closed task is accepted on purpose
     // (see the adapter's note); the faces that do throw are 404 (unknown task)
     // and 403 (a caller who is neither the executor nor admin-capable).
-    const wire = unwrap(
-      await client.POST("/api/tasks/{task_id}/description", {
-        params: { path: { task_id: id } },
-        body: { description },
-      }),
-    );
-    return toTask(wire);
+    await client.POST("/api/tasks/{task_id}/description", {
+      params: { path: { task_id: id } },
+      body: { description },
+    });
   },
 
-  async updateTaskTitle(id: string, title: string): Promise<TaskView> {
-    // POST /api/tasks/{task_id}/title {title} -> TaskDTO (T-2ebe). The field is
+  async updateTaskTitle(id: string, title: string): Promise<void> {
+    // POST /api/tasks/{task_id}/title {title} -> TaskWriteReceiptDTO (T-2ebe;
+    // the receipt is T-91). The write answers with a bounded receipt, not the
+    // task; the cockpit refetches, exactly as it already did. The field is
     // ALWAYS sent for the same reason the description twin always sends its
     // own: an absent `title` is "change nothing" on the wire, so omitting it
     // would turn a write into a silent no-op that still answers 200.
@@ -1850,29 +1885,25 @@ export const httpApi: Api = {
     //
     // Other faces: 404 (unknown task) and 403 (neither executor nor
     // admin-capable). A closed task is accepted on purpose.
-    const wire = unwrap(
-      await client.POST("/api/tasks/{task_id}/title", {
-        params: { path: { task_id: id } },
-        body: { title },
-      }),
-    );
-    return toTask(wire);
+    await client.POST("/api/tasks/{task_id}/title", {
+      params: { path: { task_id: id } },
+      body: { title },
+    });
   },
 
-  async reassignTask(id: string, input: TaskReassignInput): Promise<TaskView> {
-    // POST /api/tasks/{task_id}/reassign {target, note?} -> TaskDTO. The whole
+  async reassignTask(id: string, input: TaskReassignInput): Promise<void> {
+    // POST /api/tasks/{task_id}/reassign {target, note?} -> TaskWriteReceiptDTO.
+    // The write answers with a bounded receipt (T-91), not the task; the
+    // cockpit refetches, exactly as it already did. The whole
     // handover is the server's (card expiry / step rewind / old-worker dismiss
     // / fresh mint / both-sides notice); the FE only names the target. A closed
     // task is a 409, a frozen one a 400, a bad member target a 400/409 — all
     // throw via the client middleware. The task lands in `reassigning`; the NEW
     // executor reports it back to in_progress.
-    const wire = unwrap(
-      await client.POST("/api/tasks/{task_id}/reassign", {
-        params: { path: { task_id: id } },
-        body: fromTaskReassignInput(input),
-      }),
-    );
-    return toTask(wire);
+    await client.POST("/api/tasks/{task_id}/reassign", {
+      params: { path: { task_id: id } },
+      body: fromTaskReassignInput(input),
+    });
   },
 
   async removeTaskArtifact(taskId: string, artifactId: string): Promise<void> {
@@ -1901,20 +1932,21 @@ export const httpApi: Api = {
     // [] rather than 404; unknown task/artifact → 404, wrong-task → 400 (all
     // throw through the client middleware).
     const wire = unwrap(
-      await client.GET(
-        "/api/tasks/{task_id}/artifact/{artifact_id}/history",
-        { params: { path: { task_id: taskId, artifact_id: artifactId } } },
-      ),
+      await client.GET("/api/tasks/{task_id}/artifact/{artifact_id}/history", {
+        params: { path: { task_id: taskId, artifact_id: artifactId } },
+      }),
     );
     return wire.map(toTaskArtifactVersion);
   },
 
   async postTaskMessage(id: string, msg: TaskMessageInput): Promise<void> {
-    // POST /api/tasks/{task_id}/message {body, attachments?} -> ChatMessageDTO.
+    // POST /api/tasks/{task_id}/message {body, attachments?} ->
+    // ChatPostReceiptDTO.
     // The server posts ONE ordinary chat message owner → the executor with the
     // task context auto-attached in meta ({task_id, task_title, task_type}).
-    // Unassigned executor → 409, empty message → 400 (both throw). The return
-    // message is not needed here — the chat thread reconciles via its own
+    // Unassigned executor → 409, empty message → 400 (both throw). The write
+    // answers with a bounded receipt (T-91), not the message — and nothing
+    // here wanted the message anyway: the chat thread reconciles via its own
     // "chat" SSE topic.
     const attachments = msg.attachments ?? [];
     await client.POST("/api/tasks/{task_id}/message", {
@@ -1954,28 +1986,31 @@ export const httpApi: Api = {
     return toOutsourceWorker(wire);
   },
 
-  async relocateWorker(
-    id: string,
-    machineId: string,
-  ): Promise<OutsourceWorkerView> {
-    // POST /api/outsource-workers/{id}/relocate {machine_id} -> OutsourceWorkerDTO
+  async relocateWorker(id: string, machineId: string): Promise<void> {
+    // POST /api/outsource-workers/{id}/relocate {machine_id} -> AgentRelocateReceiptDTO
     // (改機器; admin-gated since P7c — the member relocate floor). Writes the
     // pinned placement, kills the current
     // session, and clears pacing so the next scheduler tick re-spawns on the
-    // chosen machine (no lifecycle change). Returns the freshly-projected worker;
-    // the outsource_worker SSE delta also fans so the list refetches.
-    const wire = unwrap(
+    // chosen machine (no lifecycle change). The write answers with a bounded
+    // receipt (T-91), not the worker; the cockpit refetches, exactly as it
+    // already did — the outsource_worker SSE delta also fans so the list
+    // refetches. The receipt shares its shape with the member arm and so carries
+    // relocation_pending / relocation_deferred, but this arm does NOT read them:
+    // the WORKER relocate has no 移動中… notice to keep put, and its only caller
+    // (OfficePage.tsx) awaits and discards.
+    unwrap(
       await client.POST("/api/outsource-workers/{id}/relocate", {
         params: { path: { id } },
         body: { machine_id: machineId },
       }),
     );
-    return toOutsourceWorker(wire);
   },
 
-  async refocusWorker(id: string): Promise<OutsourceWorkerView> {
-    // POST /api/outsource-workers/{id}/refocus -> OutsourceWorkerDTO (owner/admin-agent,
-    // online-only 409). Graceful (T-ea82): stamps the handover + nudges the worker
+  async refocusWorker(id: string): Promise<void> {
+    // POST /api/outsource-workers/{id}/refocus -> AgentLifecycleReceiptDTO
+    // (owner/admin-agent, online-only 409). The write answers with a bounded
+    // receipt (T-91), not the worker; the cockpit refetches, exactly as it
+    // already did. Graceful (T-ea82): stamps the handover + nudges the worker
     // to flush, then the server kills+re-spawns a fresh worker on the same task;
     // the outsource_worker SSE delta also fans so the list refetches.
     //
@@ -1988,60 +2023,61 @@ export const httpApi: Api = {
     // recycleGraceFor", which has been false since T-fe5e and is more false now
     // that every member cause except the two 加速停止 arms (context_high and the
     // owner-pressed accelerated_stop) is soft too.
-    const wire = unwrap(
+    unwrap(
       await client.POST("/api/outsource-workers/{id}/refocus", {
         params: { path: { id } },
       }),
     );
-    return toOutsourceWorker(wire);
   },
 
-  async stopWorker(id: string): Promise<OutsourceWorkerView> {
-    // POST /api/outsource-workers/{id}/stop -> OutsourceWorkerDTO (owner/admin-agent).
+  async stopWorker(id: string): Promise<void> {
+    // POST /api/outsource-workers/{id}/stop -> AgentLifecycleReceiptDTO
+    // (owner/admin-agent). The write answers with a bounded receipt (T-91), not
+    // the worker; the cockpit refetches, exactly as it already did.
     // Since T-ed79 this ASKS: it holds the worker down and shows it the 〈停止〉,
     // and the 收口 is the worker's own report_stopped. The kill moved to
     // forceStopWorker below.
-    const wire = unwrap(
+    unwrap(
       await client.POST("/api/outsource-workers/{id}/stop", {
         params: { path: { id } },
       }),
     );
-    return toOutsourceWorker(wire);
   },
 
-  async acceleratedStopWorker(id: string): Promise<OutsourceWorkerView> {
-    // POST /api/outsource-workers/{id}/accelerated-stop -> OutsourceWorkerDTO
-    // (owner/admin-agent). The MIDDLE rung: puts an ALREADY-OPEN wind-down on the
-    // clock and tells the worker. 409 when nothing is open.
-    const wire = unwrap(
+  async acceleratedStopWorker(id: string): Promise<void> {
+    // POST /api/outsource-workers/{id}/accelerated-stop -> AgentLifecycleReceiptDTO
+    // (owner/admin-agent). The write answers with a bounded receipt (T-91), not
+    // the worker; the cockpit refetches, exactly as it already did. The MIDDLE
+    // rung: puts an ALREADY-OPEN wind-down on the clock and tells the worker.
+    // 409 when nothing is open.
+    unwrap(
       await client.POST("/api/outsource-workers/{id}/accelerated-stop", {
         params: { path: { id } },
       }),
     );
-    return toOutsourceWorker(wire);
   },
 
-  async forceStopWorker(id: string): Promise<OutsourceWorkerView> {
-    // POST /api/outsource-workers/{id}/force-stop -> OutsourceWorkerDTO
-    // (owner/admin-agent). The THIRD rung: kill NOW, hold down, say nothing.
-    const wire = unwrap(
+  async forceStopWorker(id: string): Promise<void> {
+    // POST /api/outsource-workers/{id}/force-stop -> AgentLifecycleReceiptDTO
+    // (owner/admin-agent). The write answers with a bounded receipt (T-91), not
+    // the worker; the cockpit refetches, exactly as it already did. The THIRD
+    // rung: kill NOW, hold down, say nothing.
+    unwrap(
       await client.POST("/api/outsource-workers/{id}/force-stop", {
         params: { path: { id } },
       }),
     );
-    return toOutsourceWorker(wire);
   },
 
-  async restartWorker(id: string): Promise<OutsourceWorkerView> {
-    // POST /api/outsource-workers/{id}/restart -> OutsourceWorkerDTO (owner/admin-agent,
+  async restartWorker(id: string): Promise<void> {
+    // POST /api/outsource-workers/{id}/restart -> OutsourceRestartReceiptDTO.
+    // The write answers with a bounded receipt (T-91), not the worker; the
+    // cockpit refetches, exactly as it already did. (owner/admin-agent,
     // 409 only when the worker is actually alive — T-7526). Clears the stop and
     // re-dispatches; a worker whose session died on its own is revivable here.
-    const wire = unwrap(
-      await client.POST("/api/outsource-workers/{id}/restart", {
-        params: { path: { id } },
-      }),
-    );
-    return toOutsourceWorker(wire);
+    await client.POST("/api/outsource-workers/{id}/restart", {
+      params: { path: { id } },
+    });
   },
 
   async setWorkerModel(
@@ -2051,9 +2087,11 @@ export const httpApi: Api = {
       model: string;
       effort?: string;
     },
-  ): Promise<OutsourceWorkerView> {
-    // POST /api/outsource-workers/{id}/model {model, effort?} -> OutsourceWorkerDTO
-    // (owner/admin-agent). Active+online → kill+respawn now; otherwise persist for the
+  ): Promise<void> {
+    // POST /api/outsource-workers/{id}/model {model, effort?} -> AgentLifecycleReceiptDTO
+    // (owner/admin-agent). The write answers with a bounded receipt (T-91), not
+    // the worker; the cockpit refetches, exactly as it already did.
+    // Active+online → kill+respawn now; otherwise persist for the
     // next spawn. model is always sent (blank ⇒ launcher default); effort only
     // when supplied (an absent field must not arrive as null).
     const body: {
@@ -2063,13 +2101,12 @@ export const httpApi: Api = {
     } = { model: patch.model };
     if (patch.runtime !== undefined) body.runtime = patch.runtime;
     if (patch.effort !== undefined) body.effort = patch.effort;
-    const wire = unwrap(
+    unwrap(
       await client.POST("/api/outsource-workers/{id}/model", {
         params: { path: { id } },
         body,
       }),
     );
-    return toOutsourceWorker(wire);
   },
 
   async getWorkerBootContext(id: string): Promise<string> {
@@ -2117,10 +2154,11 @@ export const httpApi: Api = {
     return toTaskManual(wire);
   },
 
-  async createTaskManual(displayName: string): Promise<TaskManualView> {
-    // POST /api/task-manuals {display_name} -> TaskManualDTO (the blank
-    // manual). T-fa76: the server MINTS the tm- type_key (echoed back on the
-    // DTO) — type_key is deliberately NOT sent (that is the deprecated
+  async createTaskManual(displayName: string): Promise<{ typeKey: string }> {
+    // POST /api/task-manuals {display_name} -> TaskManualReceiptDTO. The write
+    // answers with a bounded receipt (T-91), not the blank manual; the cockpit
+    // refetches, exactly as it already did. T-fa76: the server MINTS the tm-
+    // type_key (which is why the receipt carries it) — type_key is deliberately NOT sent (that is the deprecated
     // legacy path). Blank name → 400 (throws ApiError). On the wire null
     // assignee = absent (the owner sets the assignee via the edit face;
     // agents may not carry it at all — 403).
@@ -2129,22 +2167,21 @@ export const httpApi: Api = {
         body: { type_key: null, display_name: displayName, assignee: null },
       }),
     );
-    return toTaskManual(wire);
+    return { typeKey: wire.type_key };
   },
 
   async updateTaskManual(
     typeKey: string,
     patch: TaskManualPatch,
-  ): Promise<TaskManualView> {
-    // POST /api/task-manuals/{type_key} (partial edit) -> TaskManualDTO. On
+  ): Promise<void> {
+    // POST /api/task-manuals/{type_key} (partial edit) -> TaskManualReceiptDTO.
+    // The write answers with a bounded receipt (T-91), not the manual; the
+    // cockpit refetches, exactly as it already did. On
     // the wire null = unchanged; assignee {} = unset (see fromTaskManualPatch).
-    const wire = unwrap(
-      await client.POST("/api/task-manuals/{type_key}", {
-        params: { path: { type_key: typeKey } },
-        body: fromTaskManualPatch(patch),
-      }),
-    );
-    return toTaskManual(wire);
+    await client.POST("/api/task-manuals/{type_key}", {
+      params: { path: { type_key: typeKey } },
+      body: fromTaskManualPatch(patch),
+    });
   },
 
   async deleteTaskManual(typeKey: string): Promise<void> {
@@ -2461,6 +2498,7 @@ export const httpApi: Api = {
       codex_compaction_threshold?: number;
       monitoring_refresh_seconds?: number;
       accelerated_grace_secs?: number;
+      warden_credential_lifetime_secs?: number;
       outsource_max_parallel?: number;
       doc_cap_chars_duty?: number;
       doc_cap_chars_insight?: number;
@@ -2471,6 +2509,7 @@ export const httpApi: Api = {
       doc_cap_chars_boot_sequence?: number;
       doc_cap_chars_offboard?: number;
       chat_budget_chars?: number;
+      step_note_cap_chars?: number;
       backup_retain?: number;
       updater_receive_beta?: boolean;
       updater_auto_update?: boolean;
@@ -2497,6 +2536,8 @@ export const httpApi: Api = {
       body.monitoring_refresh_seconds = patch.monitoringRefreshSeconds;
     if (patch.acceleratedGraceSecs !== undefined)
       body.accelerated_grace_secs = patch.acceleratedGraceSecs;
+    if (patch.wardenCredentialLifetimeSecs !== undefined)
+      body.warden_credential_lifetime_secs = patch.wardenCredentialLifetimeSecs;
     if (patch.outsourceMaxParallel !== undefined) {
       body.outsource_max_parallel = patch.outsourceMaxParallel;
     }
@@ -2528,6 +2569,9 @@ export const httpApi: Api = {
     if (patch.chatBudgetChars !== undefined) {
       body.chat_budget_chars = patch.chatBudgetChars;
     }
+    if (patch.stepNoteCapChars !== undefined) {
+      body.step_note_cap_chars = patch.stepNoteCapChars;
+    }
     if (patch.backupRetain !== undefined) {
       body.backup_retain = patch.backupRetain;
     }
@@ -2555,6 +2599,12 @@ export const httpApi: Api = {
     if (patch.onboardingDismissed !== undefined) {
       body.onboarding_dismissed = patch.onboardingDismissed;
     }
+    // 建議回覆 (T-122). Spread in from api/suggestedReplies.ts rather than named
+    // here: the two wire field names live in exactly one module, on the write
+    // side as well as the read side. An omitted list stays out of the body
+    // (unchanged); an EMPTY one is sent, because [] is a legal value that
+    // clears the list.
+    Object.assign(body, suggestedRepliesPatchFields(patch));
     const wire = unwrap(await client.PATCH("/api/settings", { body }));
     return toServerSettings(wire);
   },
@@ -2668,27 +2718,27 @@ export const httpApi: Api = {
     return toGlobalContext(wire);
   },
 
-  async saveGlobalContext(text: string): Promise<GlobalContextView> {
-    // POST /api/global-context {text} -> GlobalContextDTO (whole-block replace,
-    // isDefault=false). NOTE the POST verb — the frozen route surface
+  async saveGlobalContext(text: string): Promise<void> {
+    // POST /api/global-context {text} -> GlobalContextReceiptDTO (whole-block
+    // replace, is_default=false). The write answers with a bounded receipt
+    // (T-91), not the document; the cockpit refetches, exactly as it already
+    // did. NOTE the POST verb — the frozen route surface
     // registers POST, not PUT; a PUT here 405s against the real backend — and
     // is now ALSO a compile error (the schema's /api/global-context has no put).
-    const wire = unwrap(
-      // allow_shrink: see saveLessons — the T-2d99 wipe guard targets blind
-      // agent write-backs; the owner clearing this textarea is explicit intent.
-      await client.POST("/api/global-context", {
-        body: { text, allow_shrink: true },
-      }),
-    );
-    return toGlobalContext(wire);
+    // allow_shrink: see saveLessons — the T-2d99 wipe guard targets blind
+    // agent write-backs; the owner clearing this textarea is explicit intent.
+    await client.POST("/api/global-context", {
+      body: { text, allow_shrink: true },
+    });
   },
 
-  async resetGlobalContext(): Promise<GlobalContextView> {
-    // POST /api/global-context/reset -> GlobalContextDTO (idempotent tombstone →
-    // empty/is_default=true). NOTE: a dedicated POST reset route, NOT a DELETE on
+  async resetGlobalContext(): Promise<void> {
+    // POST /api/global-context/reset -> GlobalContextReceiptDTO (idempotent
+    // tombstone → empty/is_default=true). The write answers with a bounded
+    // receipt (T-91), not the document; the cockpit refetches, exactly as it
+    // already did. NOTE: a dedicated POST reset route, NOT a DELETE on
     // the doc path (405 against the real backend, compile error against schema).
-    const wire = unwrap(await client.POST("/api/global-context/reset"));
-    return toGlobalContext(wire);
+    await client.POST("/api/global-context/reset");
   },
 
   // ── boot-context / lifecycle documents (T-791e, T-3201) ─────────────────
@@ -2720,7 +2770,7 @@ export const httpApi: Api = {
     kind: BootDocKind,
     key: string,
     body: string,
-  ): Promise<BootDocView> {
+  ): Promise<void> {
     // Replace the EDITABLE HALF, POST — same verb contract as
     // /api/global-context: NOT a PUT and NOT a DELETE-then-write.
     //
@@ -2738,24 +2788,16 @@ export const httpApi: Api = {
     //
     // A read-only document refuses this with 405, and the refusal says what the
     // document IS rather than that the caller lacks a permission.
-    return toBootDoc(
-      unwrap(
-        await client.POST("/api/boot-docs/{kind}/{key}", {
-          params: { path: { kind, key } },
-          body: { body, allow_shrink: false },
-        }),
-      ),
-    );
+    await client.POST("/api/boot-docs/{kind}/{key}", {
+      params: { path: { kind, key } },
+      body: { body, allow_shrink: false },
+    });
   },
 
-  async resetBootDoc(kind: BootDocKind, key: string): Promise<BootDocView> {
-    return toBootDoc(
-      unwrap(
-        await client.POST("/api/boot-docs/{kind}/{key}/reset", {
-          params: { path: { kind, key } },
-        }),
-      ),
-    );
+  async resetBootDoc(kind: BootDocKind, key: string): Promise<void> {
+    await client.POST("/api/boot-docs/{kind}/{key}/reset", {
+      params: { path: { kind, key } },
+    });
   },
 
   async listDocumentHistory(
@@ -2882,34 +2924,34 @@ export const httpApi: Api = {
     return toRoleDef(wire);
   },
 
-  async saveRole(key: string, patch: RolePatch): Promise<RoleDefView> {
-    // POST /api/roles/{key} {name?, definition_md?} -> RoleDefDTO. View model uses
+  async saveRole(key: string, patch: RolePatch): Promise<void> {
+    // POST /api/roles/{key} {name?, definition_md?} -> RoleDefReceiptDTO. The
+    // write answers with a bounded receipt (T-91), not the duty document; the
+    // cockpit refetches, exactly as it already did. View model uses
     // camelCase (definitionMd); the wire body is snake_case (RoleDefUpdateDTO).
-    const wire = unwrap(
-      await client.POST("/api/roles/{role}", {
-        params: { path: { role: key } },
-        body: { name: patch.name, definition_md: patch.definitionMd },
-      }),
-    );
-    return toRoleDef(wire);
+    await client.POST("/api/roles/{role}", {
+      params: { path: { role: key } },
+      body: { name: patch.name, definition_md: patch.definitionMd },
+    });
   },
 
-  async resetRole(key: string): Promise<RoleDefView> {
-    // POST /api/roles/{key}/reset -> RoleDefDTO (idempotent tombstone → seed).
+  async resetRole(key: string): Promise<void> {
+    // POST /api/roles/{key}/reset -> RoleDefReceiptDTO (idempotent tombstone →
+    // seed). The write answers with a bounded receipt (T-91), not the duty
+    // document; the cockpit refetches, exactly as it already did.
     // NOTE the POST-reset route — the old DELETE verb here never matched the
     // route table (405), and DELETE /api/roles/{key} is now the HARD custom-role
     // delete (M2-2), a destructive different verb.
-    const wire = unwrap(
-      await client.POST("/api/roles/{role}/reset", {
-        params: { path: { role: key } },
-      }),
-    );
-    return toRoleDef(wire);
+    await client.POST("/api/roles/{role}/reset", {
+      params: { path: { role: key } },
+    });
   },
 
   async createRole(input: RoleCreateInput): Promise<RoleCreateResult> {
     // POST /api/roles {name, member_name?, model?, effort?} ->
-    // RoleCreateResultDTO {role, member}. One custom role + its ONE founding
+    // RoleCreateResultDTO — since T-91 a bounded receipt naming the two things
+    // the server minted ({role_key, member_id, ...}), NOT the whole role and
+    // member objects; the cockpit refetches. One custom role + its ONE founding
     // member per call; the server mints both ids; the member starts offline.
     // member_name omitted ⇒ the server picks a fresh pool name (M2 隨機成員名).
     const body: {
@@ -2924,7 +2966,11 @@ export const httpApi: Api = {
     if (input.model !== undefined) body.model = input.model;
     if (input.effort !== undefined) body.effort = input.effort;
     const wire = unwrap(await client.POST("/api/roles", { body }));
-    return { role: toRoleDef(wire.role), member: toMember(wire.member) };
+    return {
+      roleKey: wire.role_key,
+      memberId: wire.member_id,
+      memberName: wire.member_name,
+    };
   },
 
   async deleteRole(key: string): Promise<void> {
@@ -2960,26 +3006,24 @@ export const httpApi: Api = {
     return toLessons(wire);
   },
 
-  async saveLessons(roleKey: string, text: string): Promise<LessonsView> {
-    // POST /api/lessons/{role_key} {text} -> LessonsDTO (folded,
-    // isDefault=false). Whole-doc replace matching the backend
+  async saveLessons(roleKey: string, text: string): Promise<void> {
+    // POST /api/lessons/{role_key} {text} -> LessonsReceiptDTO (is_default=false).
+    // The write answers with a bounded receipt (T-91), not the folded doc; the
+    // cockpit refetches, exactly as it already did. Whole-doc replace matching the backend
     // `handle_replace_lessons`. NOTE the POST verb — do NOT copy the
     // global-context save's PUT/DELETE, which mismatch this contract. PER-ROLE
     // doc addressed by role_key alone. WRITE authz is per-role
     // and keyed on the PRINCIPAL CLASS, not the token scope (T-5336): a caller
     // at or above admin_agent — the owner (this UI's scope) and the admin agent
     // — may write ANY role; every other agent may write only its own role.
-    const wire = unwrap(
-      await client.POST("/api/lessons/{role_key}", {
-        params: { path: { role_key: roleKey } },
-        // allow_shrink: the server's T-2d99 wipe guard refuses a non-empty →
-        // empty whole-doc replace unless the caller says so explicitly. That
-        // guard exists for BLIND agent write-backs; here a human is looking at
-        // the editor they just cleared, so the intent is already explicit.
-        body: { text, allow_shrink: true },
-      }),
-    );
-    return toLessons(wire);
+    await client.POST("/api/lessons/{role_key}", {
+      params: { path: { role_key: roleKey } },
+      // allow_shrink: the server's T-2d99 wipe guard refuses a non-empty →
+      // empty whole-doc replace unless the caller says so explicitly. That
+      // guard exists for BLIND agent write-backs; here a human is looking at
+      // the editor they just cleared, so the intent is already explicit.
+      body: { text, allow_shrink: true },
+    });
   },
 
   async getInsight(roleKey: string): Promise<InsightView> {
@@ -2998,34 +3042,31 @@ export const httpApi: Api = {
     return toInsight(wire);
   },
 
-  async saveInsight(roleKey: string, text: string): Promise<InsightView> {
-    // POST /api/insight/{role_key} {text} -> InsightDTO (folded,
-    // isDefault=false). Same POST-verb contract as saveLessons — do NOT copy the
+  async saveInsight(roleKey: string, text: string): Promise<void> {
+    // POST /api/insight/{role_key} {text} -> InsightReceiptDTO (is_default=false).
+    // The write answers with a bounded receipt (T-91), not the folded doc; the
+    // cockpit refetches, exactly as it already did. Same POST-verb contract as saveLessons — do NOT copy the
     // global-context save's PUT/DELETE.
-    const wire = unwrap(
-      await client.POST("/api/insight/{role_key}", {
-        params: { path: { role_key: roleKey } },
-        // allow_shrink: identical reasoning to saveLessons — the server's wipe
-        // guard targets BLIND agent write-backs, and here a human is looking at
-        // the editor they just cleared, so the intent is already explicit. The
-        // doc.cap_chars.insight cap is checked UNCONDITIONALLY and this does not bypass
-        // it; allow_shrink governs the opposite direction.
-        body: { text, allow_shrink: true },
-      }),
-    );
-    return toInsight(wire);
+    await client.POST("/api/insight/{role_key}", {
+      params: { path: { role_key: roleKey } },
+      // allow_shrink: identical reasoning to saveLessons — the server's wipe
+      // guard targets BLIND agent write-backs, and here a human is looking at
+      // the editor they just cleared, so the intent is already explicit. The
+      // doc.cap_chars.insight cap is checked UNCONDITIONALLY and this does not bypass
+      // it; allow_shrink governs the opposite direction.
+      body: { text, allow_shrink: true },
+    });
   },
 
-  async resetInsight(roleKey: string): Promise<InsightView> {
-    // POST /api/insight/{role_key}/reset -> InsightDTO (idempotent tombstone →
-    // the folded read is the per-role file seed again, isDefault true). Same
+  async resetInsight(roleKey: string): Promise<void> {
+    // POST /api/insight/{role_key}/reset -> InsightReceiptDTO (idempotent
+    // tombstone → the folded read is the per-role file seed again,
+    // is_default true). The write answers with a bounded receipt (T-91), not
+    // the folded doc; the cockpit refetches, exactly as it already did. Same
     // POST-reset shape as resetRole; a role with no seed file 404s.
-    const wire = unwrap(
-      await client.POST("/api/insight/{role_key}/reset", {
-        params: { path: { role_key: roleKey } },
-      }),
-    );
-    return toInsight(wire);
+    await client.POST("/api/insight/{role_key}/reset", {
+      params: { path: { role_key: roleKey } },
+    });
   },
 
   subscribeEvents(

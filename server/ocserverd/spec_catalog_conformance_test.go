@@ -247,10 +247,7 @@ var knownToolDescriptionDrift = map[string]map[string]string{
 		// T-65 包②: the openapi summary is the SHORT owner-facing line and the
 		// x-mcp description is the long one an agent needs, so these two stay
 		// deliberately different — the baseline records that, not a bug.
-		"openapi_summary": "Refocus (換手) an outsource worker's context; on a STOPPED worker it queues the 起來 instead of refusing (owner/admin agent).",
-	},
-	"update_settings": {
-		"route_summary": "Edit settings (owner and agent token TTLs / handover threshold); live immediately.",
+		"openapi_summary": "Refocus (換手) an outsource worker's context; on a STOPPED worker it queues the 起來 instead of refusing (owner/admin agent). Answers with a bounded receipt (``id``), not the roster row — call ``list_outsource_workers`` when you need the rest.",
 	},
 }
 

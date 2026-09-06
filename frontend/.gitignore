@@ -22,3 +22,10 @@ dist-paint-guard/
 # would make every future note there need `git add -f` while its neighbours stay
 # tracked — a trap for the next person. Only the generated images are ignored.
 recon-out/*.png
+
+# Screenshots written by scripts/shots.mjs (shots-out/<name>.png, rewritten from
+# scratch on every run). Same reasoning as recon-out above: generated pixels that
+# land in the working tree, and the script deletes and recreates the directory,
+# so nothing here is ever worth committing. Scoped to *.png for the same reason —
+# a hand-written note dropped next to the images stays tracked.
+shots-out/*.png

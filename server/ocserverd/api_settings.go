@@ -82,6 +82,26 @@ func acceleratedGraceInRange(n int) bool {
 	return n >= minAcceleratedGraceSecs && n <= maxAcceleratedGraceSecs
 }
 
+// wardenCredLifetimeInRange is the SINGLE source of truth for which
+// auth.warden_credential_lifetime_secs values this build accepts, for the same
+// reason acceleratedGraceInRange is: the PATCH face and the LOAD face must agree
+// exactly, or a value that saves is a value the next boot refuses.
+func wardenCredLifetimeInRange(n int) bool {
+	return n >= minWardenCredLifetimeSecs && n <= maxWardenCredLifetimeSecs
+}
+
+// wardenCredLifetimeRangeMsg is the ONE wording of that refusal, derived from the
+// bounds so the sentence can never quote a number the predicate does not enforce.
+// It names WHY the floor is where it is, because the caller is the owner and the
+// number is otherwise unguessable: a shorter lifetime shrinks the retry window a
+// machine has to come back through.
+var wardenCredLifetimeRangeMsg = fmt.Sprintf(
+	"must be between %d and %d seconds (one day through 400 days) — a warden renews at "+
+		"two thirds of the lifetime, so the remaining third is the window an offline "+
+		"machine has to get a replacement, and below a day that window stops surviving "+
+		"a working day of downtime",
+	minWardenCredLifetimeSecs, maxWardenCredLifetimeSecs)
+
 // acceleratedGraceRangeMsg is the ONE wording of that refusal, derived from the
 // constants so it can never quote a range the code does not enforce.
 var acceleratedGraceRangeMsg = fmt.Sprintf(
@@ -490,6 +510,18 @@ func (s *apiServer) HandleUpdateSettingsApiSettingsPatch(w http.ResponseWriter, 
 			"outsource_max_parallel "+outsourceParallelRangeMsg)
 		return
 	}
+	// warden_credential_lifetime_secs (T-fc53) is checked on its own rather than as
+	// a row in the capRange table below: that table's shared message talks about
+	// CHARACTERS and about a floor that equals a shipped default so a cap can only
+	// be raised. Both halves would be lies about this one — its unit is seconds and
+	// it is explicitly meant to be turned DOWN, which is the whole reason the owner
+	// asked for a typed number instead of a pick list.
+	if body.WardenCredentialLifetimeSecs != nil &&
+		!wardenCredLifetimeInRange(*body.WardenCredentialLifetimeSecs) {
+		writeError(w, http.StatusUnprocessableEntity,
+			"warden_credential_lifetime_secs "+wardenCredLifetimeRangeMsg)
+		return
+	}
 	// Each floor is THAT segment's shipped default, so a knob only ever RAISES
 	// its cap (owner 2026-07-31). Lowering one would strand every document that
 	// is legal today in shrink-only mode — the refusal says so rather than
@@ -538,6 +570,20 @@ func (s *apiServer) HandleUpdateSettingsApiSettingsPatch(w http.ResponseWriter, 
 		writeError(w, http.StatusUnprocessableEntity,
 			fmt.Sprintf("chat_budget_chars must be between %d and %d characters",
 				minChatBudgetChars, maxChatBudgetChars))
+		return
+	}
+	// step_note_cap_chars (T-119) is checked on its own for the same reason and
+	// NOT as a row in the capRange table: the step note is measured only when it
+	// is WRITTEN, so lowering the cap breaks nothing that is already stored — an
+	// over-cap note still reads back in full and only becomes uneditable. The
+	// table's shared message ("the floor is the shipped default, so the document
+	// cap can only be raised, never lowered") would be a lie about a knob the
+	// owner asked to be able to turn DOWN.
+	if body.StepNoteCapChars != nil &&
+		(*body.StepNoteCapChars < minStepNoteCapChars || *body.StepNoteCapChars > maxStepNoteCapChars) {
+		writeError(w, http.StatusUnprocessableEntity,
+			fmt.Sprintf("step_note_cap_chars must be between %d and %d characters",
+				minStepNoteCapChars, maxStepNoteCapChars))
 		return
 	}
 	// backup_retain (T-8) — checked on its own too. It is not a character count,
@@ -614,6 +660,36 @@ func (s *apiServer) HandleUpdateSettingsApiSettingsPatch(w http.ResponseWriter, 
 			return
 		}
 	}
+	// suggested_replies.* (T-122) — canonicalized (trim, drop blanks) and bounds
+	// checked HERE, before the lock, like every other field on this endpoint: a
+	// 422 writes nothing. Over either bound is a REFUSAL, never a truncation —
+	// a shortened sentence is a sentence the owner never wrote, and it would be
+	// offered to him one tap away from being sent.
+	//
+	// 🔴 AN EXPLICIT EMPTY ARRAY IS LEGAL and clears the list. That is the
+	// OPPOSITE of the scheduled-message custom_* sets, where [] is a 422, and the
+	// difference is real: there "fires always" and "fires never" are one
+	// keystroke apart, while here the empty list just means a reply box with no
+	// chips above it — which is exactly how the box shipped.
+	var suggestedRepliesReplyCard, suggestedRepliesTaskMessage []string
+	if body.SuggestedRepliesReplyCard != nil {
+		list, err := canonicalSuggestedReplies(*body.SuggestedRepliesReplyCard)
+		if err != nil {
+			writeError(w, http.StatusUnprocessableEntity,
+				fmt.Sprintf("suggested_replies_reply_card %v", err))
+			return
+		}
+		suggestedRepliesReplyCard = list
+	}
+	if body.SuggestedRepliesTaskMessage != nil {
+		list, err := canonicalSuggestedReplies(*body.SuggestedRepliesTaskMessage)
+		if err != nil {
+			writeError(w, http.StatusUnprocessableEntity,
+				fmt.Sprintf("suggested_replies_task_message %v", err))
+			return
+		}
+		suggestedRepliesTaskMessage = list
+	}
 	s.settingsMu.Lock()
 	if body.OwnerTokenTtl != nil {
 		if err := s.dal.PutSetting(settingOwnerTokenTTL, strconv.Itoa(*body.OwnerTokenTtl)); err != nil {
@@ -680,6 +756,15 @@ func (s *apiServer) HandleUpdateSettingsApiSettingsPatch(w http.ResponseWriter, 
 		}
 		s.acceleratedGraceSecs = *body.AcceleratedGraceSecs
 	}
+	if body.WardenCredentialLifetimeSecs != nil {
+		if err := s.dal.PutSetting(settingWardenCredLifetimeSecs,
+			strconv.Itoa(*body.WardenCredentialLifetimeSecs)); err != nil {
+			s.settingsMu.Unlock()
+			internalError(w, err)
+			return
+		}
+		s.wardenCredLifetimeSecs = *body.WardenCredentialLifetimeSecs
+	}
 	if body.OutsourceMaxParallel != nil {
 		if err := s.dal.PutSetting(settingOutsourceMaxParallel,
 			strconv.Itoa(*body.OutsourceMaxParallel)); err != nil {
@@ -703,6 +788,7 @@ func (s *apiServer) HandleUpdateSettingsApiSettingsPatch(w http.ResponseWriter, 
 		{body.DocCapCharsBootSequence, settingDocCapCharsBootSequence, &s.docCapCharsBootSequence},
 		{body.DocCapCharsOffboard, settingDocCapCharsOffboard, &s.docCapCharsOffboard},
 		{body.ChatBudgetChars, settingChatBudgetChars, &s.chatBudgetChars},
+		{body.StepNoteCapChars, settingStepNoteCapChars, &s.stepNoteCapChars},
 		{body.BackupRetain, settingBackupRetain, &s.backupRetain},
 	}
 	for _, c := range capWrite {
@@ -820,6 +906,29 @@ func (s *apiServer) HandleUpdateSettingsApiSettingsPatch(w http.ResponseWriter, 
 		}
 		s.loreEnabled = *body.LoreEnabled
 	}
+	// suggested_replies.* (T-122) — written wholesale like the caps above rather
+	// than compared first: the value is a list, "did it change" is not a `!=`,
+	// and PutSetting on an unchanged row costs one write of the same bytes. The
+	// two keys are written INDEPENDENTLY, which is the whole reason they are two
+	// rows: patching one list can never read-modify-write the other.
+	if body.SuggestedRepliesReplyCard != nil {
+		if err := s.dal.PutSetting(settingSuggestedRepliesReplyCard,
+			encodeSuggestedReplies(suggestedRepliesReplyCard)); err != nil {
+			s.settingsMu.Unlock()
+			internalError(w, err)
+			return
+		}
+		s.suggestedRepliesReplyCard = suggestedRepliesReplyCard
+	}
+	if body.SuggestedRepliesTaskMessage != nil {
+		if err := s.dal.PutSetting(settingSuggestedRepliesTaskMessage,
+			encodeSuggestedReplies(suggestedRepliesTaskMessage)); err != nil {
+			s.settingsMu.Unlock()
+			internalError(w, err)
+			return
+		}
+		s.suggestedRepliesTaskMessage = suggestedRepliesTaskMessage
+	}
 	s.settingsMu.Unlock()
 	// onboarding_dismissed (T-0648) is written OUTSIDE settingsMu, and last:
 	// it does not live in the settings snapshot at all — it is a field on the
@@ -867,6 +976,7 @@ func (s *apiServer) settingsView() settingsDTO {
 		CodexNoticeRound:             s.codexNoticeRound,
 		MonitoringRefreshSeconds:     s.monitoringRefreshSeconds,
 		AcceleratedGraceSecs:         s.acceleratedGraceSecs,
+		WardenCredentialLifetimeSecs: s.wardenCredLifetimeSecs,
 		OutsourceMaxParallel:         s.outsourceMaxParallel,
 		DocCapCharsDuty:              s.docCapCharsDuty,
 		DocCapCharsInsight:           s.docCapCharsInsight,
@@ -877,6 +987,7 @@ func (s *apiServer) settingsView() settingsDTO {
 		DocCapCharsBootSequence:      s.docCapCharsBootSequence,
 		DocCapCharsOffboard:          s.docCapCharsOffboard,
 		ChatBudgetChars:              s.chatBudgetChars,
+		StepNoteCapChars:             s.stepNoteCapChars,
 		BackupRetain:                 s.backupRetain,
 		UpdaterReceiveBeta:           s.updaterReceiveBeta,
 		UpdaterAutoUpdate:            s.updaterAutoUpdate,
@@ -887,6 +998,12 @@ func (s *apiServer) settingsView() settingsDTO {
 		DisplayLanguage:              s.displayLanguage,
 		DisplayWide:                  s.displayWide,
 		LoreEnabled:                  s.loreEnabled,
+		// Never null on the wire (spec types both as `array`): the empty list is
+		// the ordinary "the owner configured none", and a reader must not have to
+		// tell it apart from a missing field. Copied rather than aliased so no
+		// response body shares a slice with the live snapshot.
+		SuggestedRepliesReplyCard:   append([]string{}, s.suggestedRepliesReplyCard...),
+		SuggestedRepliesTaskMessage: append([]string{}, s.suggestedRepliesTaskMessage...),
 		// Read from the DAL, NOT from the settings snapshot: onboarding runs in
 		// its own goroutine and finishes after this handler returned, so a
 		// boot-time snapshot would serve a permanently stale "running".

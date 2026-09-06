@@ -1168,6 +1168,30 @@ const (
 	maxChatBudgetChars     = 13000
 )
 
+// stepNoteCapCharsDefault / minStepNoteCapChars / maxStepNoteCapChars bound one
+// task STEP's working note (T-119; the `task.step_note_cap_chars` setting). It
+// was the hard-coded chatBodyMaxChars (4000) until the owner made it adjustable
+// and raised the shipped value to 10000 (2026-09-06).
+//
+// 🔴 THE FLOOR IS NOT THE DEFAULT, same as the chat budget above and unlike
+// every doc.cap_chars.* knob. The doc caps refuse to go below their own default
+// because lowering one puts existing legal documents into shrink-only mode. A
+// step note is checked ONLY on write and has no shrink-only mode to fall into:
+// an over-cap note keeps reading back in full (get_task_step still serves the
+// whole text) and merely cannot be edited until it is shortened. The owner
+// asked for a knob that turns both ways, so the floor is a floor.
+//
+// 🔴 IT DOES NOT GOVERN chatBodyMaxChars' OTHER TWO USERS. A chat message body
+// (api_chat.go) and the task-level handover note (HandleReassignTask...) keep
+// the 4000-character constant — owner ruling 2026-09-06, rc-c8cc527bfed3. Those
+// two are messages sent to a reader, not a working document an agent grows
+// across a handover; only the step note earned a knob.
+const (
+	stepNoteCapCharsDefault = 10000
+	minStepNoteCapChars     = 1000
+	maxStepNoteCapChars     = 100000
+)
+
 // DocCapBlocked reports whether replacing before with after must be refused by
 // the hard cap. The three-line rule, boundaries included:
 //
@@ -1407,9 +1431,11 @@ const (
 	WorkerStatusReleased = "released"
 )
 
-// The task_artifact kind closed set (schema CHECK; T-3dc5). file/image
-// reference a chat_attachment blob (one blob mechanism, not two); link is a
-// bare URL with no blob (the part the chat-attachment model cannot express).
+// The task_artifact kind closed set (schema CHECK; T-3dc5). EVERY kind
+// references a chat_attachment blob since T-92 (owner c-59fc5834d967): file and
+// image point at the uploaded bytes, and a link's target is stored as a
+// `text/uri-list` blob of its own. kind is what distinguishes them now, not
+// whether a blob exists.
 const (
 	ArtifactKindFile  = "file"
 	ArtifactKindImage = "image"

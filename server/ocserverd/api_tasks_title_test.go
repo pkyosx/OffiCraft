@@ -301,7 +301,7 @@ func TestTaskTitleEditableOnAClosedTask(t *testing.T) {
 	rec := httptest.NewRecorder()
 	api.HandleAddTaskArtifactApiTasksTaskIdArtifactPost(rec,
 		taskReq(t, "POST", "/api/tasks/"+task.ID+"/artifact",
-			map[string]any{"kind": "link", "label": "pr", "url": "https://example.invalid/pr/1"},
+			map[string]any{"kind": "link", "name": "pr", "url": "https://example.invalid/pr/1"},
 			"m-exec", "agent"),
 		task.ID)
 	if rec.Code != http.StatusConflict {

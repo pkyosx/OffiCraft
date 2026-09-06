@@ -130,6 +130,12 @@ type apiServer struct {
 	// resumeSnapshotParts — the ONE place the number enters the packer, which is
 	// why resume_summary and peek_resume_summary_size cannot disagree about it.
 	chatBudgetChars int
+	// stepNoteCapChars is the live ceiling on one task step's working note (DB
+	// task.step_note_cap_chars; T-119). Read through stepNoteCap() by BOTH the
+	// write faces that enforce it and the read faces that report it as
+	// note_cap_chars, which is the whole point: the number an agent is told and
+	// the number its write is measured against are one read of one field.
+	stepNoteCapChars int
 	// backupRetain is N — how many database backup files rotation keeps PER POOL
 	// (DB backup.retain; T-8). This copy exists for the COCKPIT FACE only: GET
 	// /api/settings shows it and PATCH moves it.
@@ -183,6 +189,14 @@ type apiServer struct {
 	// boot context — it is assembled once at wake, so an already-booted agent
 	// keeps the document it was handed until it boots again.
 	loreEnabled bool
+
+	// suggestedRepliesReplyCard / suggestedRepliesTaskMessage are the owner's
+	// one-click 建議回覆 (DB suggested_replies.*; T-122), live copies of the two
+	// lists GET /api/settings serves and PATCH replaces. Each is REPLACED
+	// wholesale on a patch and never mutated in place, so a reader holding the
+	// slice under settingsMu can keep it.
+	suggestedRepliesReplyCard   []string
+	suggestedRepliesTaskMessage []string
 	// selfBase is this server's OWN loopback base URL ("http://127.0.0.1:PORT"),
 	// stamped by cmdServe once the bind address is known. It exists for the ONE
 	// in-process caller that needs an OC_BASE with no HTTP request to derive it
@@ -230,6 +244,17 @@ type apiServer struct {
 	// through the single recycleGraceFor pair. A second direct reader would be a
 	// second opinion about the same number, which is the split T-ed79 removed.
 	acceleratedGraceSecs int
+	// wardenCredLifetimeSecs is the live machine-credential lifetime in seconds
+	// (auth.warden_credential_lifetime_secs; T-fc53), guarded by settingsMu like
+	// every other owner-adjustable number here.
+	//
+	// 🔴 NOTHING ON THE SERVER ACTS ON IT. It is not consulted by mintWardenToken,
+	// not by the auth gate, and not by reconcile — it is PUBLISHED, to the settings
+	// face and to GET /api/machines/credential-policy, and the party that acts on
+	// it is each warden's own poll loop. That asymmetry is deliberate and is what
+	// keeps the first package harmless: the station changing this number cannot by
+	// itself invalidate anything.
+	wardenCredLifetimeSecs int
 	// root anchors the repo-file assets (seeds / prebuilt binaries / frozen
 	// MCP catalog) — see assets.go.
 	root assetRoot
@@ -538,6 +563,20 @@ func (s *apiServer) agentTokenTTLValue() int64 {
 	return s.agentTokenTTL
 }
 
+// wardenCredLifetimeValue reads the live machine-credential lifetime under the
+// same lock every other adjustable number here is read under. A zero can only mean
+// a hand-built apiServer that skipped the boot defaults (tests), and the caller —
+// the policy handler — substitutes the shipped default rather than publishing a
+// zero that every warden would have to sanitise on its own.
+func (s *apiServer) wardenCredLifetimeValue() int {
+	s.settingsMu.RLock()
+	defer s.settingsMu.RUnlock()
+	if s.wardenCredLifetimeSecs <= 0 {
+		return wardenCredLifetimeSecsDefault
+	}
+	return s.wardenCredLifetimeSecs
+}
+
 // reconcileConfigLive is the reconcile config as it stands RIGHT NOW: the
 // boot-time struct with the one owner-adjustable number folded in fresh on
 // every read.
@@ -662,6 +701,21 @@ func (s *apiServer) chatBudget() int {
 	s.settingsMu.RLock()
 	defer s.settingsMu.RUnlock()
 	return s.chatBudgetChars
+}
+
+// stepNoteCap is the live ceiling on one task step's working note
+// (task.step_note_cap_chars; T-119). Read at request time like every cap above,
+// so a PATCH takes effect on the next write with no restart.
+//
+// 🔴 It is the ONLY source of that number. Both write faces measure against it
+// (stepNoteWithinLimit) and every read face reports it (newTaskStepDTO,
+// newTaskStepDetailDTO, and the two note receipts), so the ceiling an agent is
+// told about and the ceiling that refuses its note cannot drift apart. A second
+// literal anywhere on either side is how they start disagreeing.
+func (s *apiServer) stepNoteCap() int {
+	s.settingsMu.RLock()
+	defer s.settingsMu.RUnlock()
+	return s.stepNoteCapChars
 }
 
 // backupRetainSetting is the live cockpit view of N (backup.retain; T-8).

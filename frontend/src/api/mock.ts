@@ -68,6 +68,7 @@ import type {
   ScheduledMessageCreateInput,
   ScheduledMessageUpdate,
   ReplyCard,
+  ReplyCardWriteReceipt,
   ReplyCardAnswerInput,
   ReplyCardCounts,
   RolePatch,
@@ -164,10 +165,23 @@ import {
   CHAT_BUDGET_CHARS_MIN,
 } from "./chatBudget";
 import {
+  STEP_NOTE_CAP_CHARS_DEFAULT,
+  STEP_NOTE_CAP_CHARS_MAX,
+  STEP_NOTE_CAP_CHARS_MIN,
+} from "./stepNoteCap";
+import {
   BACKUP_RETAIN_DEFAULT,
   BACKUP_RETAIN_MAX,
   BACKUP_RETAIN_MIN,
 } from "./backupRetain";
+import {
+  SUGGESTED_REPLIES_MAX_ENTRIES,
+  SUGGESTED_REPLIES_REPLY_CARD_FIELD,
+  SUGGESTED_REPLIES_TASK_MESSAGE_FIELD,
+  SUGGESTED_REPLY_MAX_LEN,
+  withSuggestedRepliesReplyCard,
+  withSuggestedRepliesTaskMessage,
+} from "./suggestedReplies";
 import {
   MOCK_OWNER_ID,
   SEED_SYSTEM_INTERACTION_MD,
@@ -926,15 +940,21 @@ let replyCards: ReplyCard[] = [];
 // §5.1) — the owner creates every type. Tests inject via __injectMockTask /
 // __injectMockOutsourceWorker / __injectMockTaskType to exercise the
 // list / filter / terminate / priority / message / manual seams.
-// 🔴 THE STORE HOLDS EACH ARTIFACT WHOLE, which is why the row type is not
-// plain `TaskView`. T-66 narrowed `TaskView.artifacts` to an id+label INDEX,
-// but an index is a READ SHAPE, not what a store keeps: the server's store
-// holds the full deliverable and its two reads project from it (`get_task` →
-// the index, `list_task_artifacts` → the full rows). A mock whose store held
-// only the index could not answer the second read at all — which is exactly
-// how it came to `return []` and tell a reader 「還沒有產物」 about a task whose
-// badge had just said N.
-export type MockTaskRow = Omit<TaskView, "artifacts"> & { artifacts?: TaskArtifactView[] };
+// 🔴 THE STORE HOLDS EACH ARTIFACT WHOLE, which is why the row type EXTENDS
+// `TaskView` rather than being it. T-66 narrowed a task read to an id+label
+// index and T-92 narrowed it again to a bare count, but a read shape is not
+// what a store keeps: the server's store holds the full deliverable and its
+// reads project from it (`get_task` → the count, `list_task_artifacts` → the
+// full rows). A mock whose store held only the projection could not answer the
+// second read at all — which is exactly how it came to `return []` and tell a
+// reader 「還沒有產物」 about a task whose badge had just said N.
+//
+// ⚠️ THE COST OF EXTENDING RATHER THAN REPLACING: every read that spreads a
+// store row has to peel `artifacts` off by hand, and TypeScript cannot catch a
+// miss (excess-property checking does not apply to spreads). Both task reads
+// destructure it out in their parameter list for that reason. A third reader
+// that spreads a row must do the same.
+export type MockTaskRow = TaskView & { artifacts?: TaskArtifactView[] };
 let tasks: MockTaskRow[] = [];
 
 // The retained PREVIOUS versions of a pinned deliverable (T-60), keyed by
@@ -944,7 +964,36 @@ let tasks: MockTaskRow[] = [];
 // artifact drops its versions the way the server's transaction does.
 let artifactVersions = new Map<string, TaskArtifactVersionView[]>();
 let outsourceWorkers: OutsourceWorkerView[] = [];
-let taskManuals: TaskManualView[] = [];
+/** What the mock STORES for a manual: the whole view MINUS the four size/cap
+ * fields (T-100). They are DERIVED on every read, which is what the server
+ * does — `newTaskManualDTO` measures the stored row with
+ * `utf8.RuneCountInString` and asks the settings for the caps; it keeps no
+ * counter. Storing them instead would let the mock hand back a size that the
+ * last edit had already made false, and the readout that reads it is the one
+ * thing that must not lie about how full the document is. */
+type StoredTaskManual = Omit<
+  TaskManualView,
+  "sopMdChars" | "sopMdCapChars" | "learningsChars" | "learningsCapChars"
+>;
+
+let taskManuals: StoredTaskManual[] = [];
+
+/** Stored manual → the shape the wire answers with, sizes and caps measured
+ * NOW. Each document is measured against its OWN cap: they are two separate
+ * settings and on a live station they differ, so folding them into one number
+ * here would make mock mode disagree with the server about how much room is
+ * left — the exact disagreement `docSizeFields` exists to prevent. */
+function withManualSizes(m: StoredTaskManual): TaskManualView {
+  const sop = docSizeFields(m.sopMd, "manualSop");
+  const learnings = docSizeFields(m.learnings, "manualLearnings");
+  return {
+    ...m,
+    sopMdChars: sop.size_chars,
+    sopMdCapChars: sop.cap_chars,
+    learningsChars: learnings.size_chars,
+    learningsCapChars: learnings.cap_chars,
+  };
+}
 
 // Product-guide docs (the 使用說明 nav tab) — a representative fixture so mock-mode
 // (dev screenshots / vitest) renders the same list→doc flow the real embed
@@ -1108,6 +1157,22 @@ function findReplyCard(id: string): ReplyCard {
   return card;
 }
 
+/** Project a stored mock card down to what the three WRITES answer (T-91,
+ * mirroring `ReplyCardReceiptDTO` through `toReplyCardWriteReceipt`). The mock
+ * holds a whole card and could echo it — the point of narrowing here anyway is
+ * that mock mode must not be able to render a field http mode will not have.
+ * The wire receipt also carries `task_id` / `step_id`; the view type drops both
+ * (nothing reads them), so there is nothing to build here for them. */
+function mockReplyCardWriteReceipt(card: ReplyCard): ReplyCardWriteReceipt {
+  return structuredClone({
+    id: card.id,
+    status: card.status,
+    answer: card.answer,
+    answeredTs: card.answeredTs,
+    expiredTs: card.expiredTs ?? null,
+  });
+}
+
 /** Read-time join mirroring the server's `reply_card_status`: the CURRENT
  * status of the card a chat message / task step carries, or null when it
  * carries none (or the card is missing). Computed at read time — the mock,
@@ -1242,7 +1307,7 @@ function deriveCodename(model: string, existing: string[]): string {
   return `${prefix}-${max + 1}`;
 }
 
-function findTaskManual(typeKey: string): TaskManualView {
+function findTaskManual(typeKey: string): StoredTaskManual {
   const m = taskManuals.find((x) => x.typeKey === typeKey);
   if (!m) {
     throw mockApiError(
@@ -1913,6 +1978,10 @@ const DEFAULT_MOCK_SETTINGS = {
   monitoring_refresh_seconds: 5,
   // 加速停止 grace — mirrors the server's shipped default (StoppingTimeoutSecs).
   accelerated_grace_secs: 120,
+  // T-fc53 warden credential lifetime — mirrors the server's shipped default
+  // (30 days). Hard-coded rather than derived so the mock still shows the fleet
+  // default the day someone changes the constant on only one side.
+  warden_credential_lifetime_secs: 2592000,
   // M3 global outsource cap — mirrors the server's code-side default (3).
   outsource_max_parallel: 3,
   // T-ae38 document size caps — mirror the server's shipped defaults, which
@@ -1937,6 +2006,8 @@ const DEFAULT_MOCK_SETTINGS = {
   // caps above — a settings DTO missing a field the server always sends is a
   // mock the page can go green against while the real one breaks.
   chat_budget_chars: CHAT_BUDGET_CHARS_DEFAULT,
+  // T-119 step-note cap, served for the same reason as everything above.
+  step_note_cap_chars: STEP_NOTE_CAP_CHARS_DEFAULT,
   // T-8 backup retention N, served for the same reason as everything above: a
   // settings DTO missing a field the server always sends is a mock the page can
   // go green against while the real one breaks.
@@ -1952,6 +2023,12 @@ const DEFAULT_MOCK_SETTINGS = {
   // Owner nickname (T-0b41) — "" out of the box, mirroring the server (the
   // profile pill shows the localized default until the owner sets a nickname).
   owner_name: "",
+  // 建議回覆 (T-122) — BOTH lists empty out of the box, mirroring the server.
+  // Empty means the box shows no chips at all, which is the state a fresh
+  // install is in. Written through api/suggestedReplies.ts so the two field
+  // names still live in exactly one module.
+  [SUGGESTED_REPLIES_REPLY_CARD_FIELD]: [] as string[],
+  [SUGGESTED_REPLIES_TASK_MESSAGE_FIELD]: [] as string[],
   push_contact_email: "",
   // Cockpit display prefs (T-0b41-p2) — "" out of the box, mirroring the server
   // (the frontend keeps its localStorage cache / default until the owner picks).
@@ -2976,7 +3053,10 @@ export const mockApi: Api = {
     w.desired_state = "offline";
   },
 
-  async patchMember(id: string, patch: MemberPatch): Promise<Member> {
+  async patchMember(id: string, patch: MemberPatch): Promise<void> {
+    // T-91: the write answers a RECEIPT (`{id}`), not the member row. The mock's
+    // own store is still the one that changed below, so a read-back sees the
+    // write; the response just stops carrying what nobody may render from it.
     const w = findWire(id);
     if (patch.name !== undefined) w.name = patch.name;
     // model/effort launch intents (M2-2) — same closed effort vocabulary the
@@ -2992,7 +3072,6 @@ export const mockApi: Api = {
       w.effort = patch.effort;
     }
     if (patch.model !== undefined) w.model = patch.model;
-    return mapWithExtras(w);
   },
 
   async refocusMember(id: string): Promise<void> {
@@ -3126,8 +3205,8 @@ export const mockApi: Api = {
 
   async createScheduledMessage(
     memberId: string,
-    input: ScheduledMessageCreateInput,
-  ): Promise<ScheduledMessage> {
+    input: ScheduledMessageCreateInput
+  ): Promise<{ id: string }> {
     findScheduleRecipient(memberId);
     // Months are resolved BEFORE anything judges them — a create has no prior
     // row, so `stored` is empty and an omitted field becomes the whole year.
@@ -3184,14 +3263,14 @@ export const mockApi: Api = {
       ...(mockScheduledMessages.get(memberId) ?? []),
       created,
     ]);
-    return { ...created };
+    return { id: created.id };
   },
 
   async updateScheduledMessage(
     memberId: string,
     scheduleId: string,
-    patch: ScheduledMessageUpdate,
-  ): Promise<ScheduledMessage> {
+    patch: ScheduledMessageUpdate
+  ): Promise<{ id: string }> {
     const list = mockScheduledMessages.get(memberId) ?? [];
     const s = list.find((x) => x.id === scheduleId);
     if (!s) {
@@ -3269,7 +3348,7 @@ export const mockApi: Api = {
       patch.customMinutes !== undefined ||
       patch.timezone !== undefined;
     if (reAimed) s.lastFiredSlot = mockScheduleSlot(s);
-    return { ...s };
+    return { id: s.id };
   },
 
   async deleteScheduledMessage(
@@ -3695,7 +3774,7 @@ export const mockApi: Api = {
     body: string;
     attachments?: ChatAttachmentInput[];
     replyTo?: string;
-  }): Promise<ChatMessage> {
+  }): Promise<void> {
     // Record the owner's message into the in-memory log and echo it back. The
     // sender is MOCK_OWNER_ID ("owner") — matching the real backend, which
     // stamps `from` from the owner JWT sub (the fixed owner id "owner"), so the
@@ -3742,11 +3821,18 @@ export const mockApi: Api = {
       replyTo: msg.replyTo ?? null,
     };
     chatLog.push(sent);
-    // Echoed through the SAME read projection the listing uses, because the
-    // server echoes through servedChatMessageDTO: a reply's quote is on the POST
-    // response too, and a mock that left it off would have the thread flicker
-    // between "quoted" and "not quoted" offline and not online.
-    return mockServedChatMessage(sent);
+    // T-91: the write answers a RECEIPT, not the object. The mock's own store
+    // is still the one that changed above, so a read-back sees the write; the
+    // response just stops carrying what nobody may render from it.
+    // (This used to echo through `mockServedChatMessage`, the same read
+    // projection the listing uses, so a reply's quote rode the POST response
+    // too. `ChatPostReceiptDTO` carries id, ts, to and attachments — nothing
+    // in the cockpit reads even those, since useChat.ts has always refetched.
+    // `to` was left off this list while a draft kept it on the task route only;
+    // the owner overruled that at rc-f1c0fd3cf124 and both chat writes now
+    // answer the same four keys. This list is HAND-WRITTEN and nothing asserts
+    // it against the DTO — check `ChatPostReceiptDTO` in api/generated/schema.ts
+    // before trusting it.)
   },
 
   async markChatRead(mark: {
@@ -3841,8 +3927,8 @@ export const mockApi: Api = {
 
   async answerReplyCard(
     id: string,
-    answer: ReplyCardAnswerInput,
-  ): Promise<ReplyCard> {
+    answer: ReplyCardAnswerInput
+  ): Promise<ReplyCardWriteReceipt> {
     // The one-shot close (mirrors handle_answer_reply_card): only a WAITING
     // card is answerable — already answered → 409 (revise via re-answer);
     // empty / out-of-range → 400. Any real answer — including a typed
@@ -3861,13 +3947,13 @@ export const mockApi: Api = {
     card.answeredTs = stamp / 1000;
     card.answer = toStoredReplyAnswer(answer, stamp);
     emitTopic("reply_card");
-    return structuredClone(card);
+    return mockReplyCardWriteReceipt(card);
   },
 
   async reanswerReplyCard(
     id: string,
-    answer: ReplyCardAnswerInput,
-  ): Promise<ReplyCard> {
+    answer: ReplyCardAnswerInput
+  ): Promise<ReplyCardWriteReceipt> {
     // 重新決定 (mirrors handle_reanswer_reply_card): only an ANSWERED card is
     // revisable (waiting → 409 — answer it first); the answer is replaced
     // wholesale, answeredTs re-stamps, status STAYS answered (a revision never
@@ -3885,10 +3971,10 @@ export const mockApi: Api = {
     card.answeredTs = stamp / 1000;
     card.answer = toStoredReplyAnswer(answer, stamp);
     emitTopic("reply_card");
-    return structuredClone(card);
+    return mockReplyCardWriteReceipt(card);
   },
 
-  async expireReplyCard(id: string): Promise<ReplyCard> {
+  async expireReplyCard(id: string): Promise<ReplyCardWriteReceipt> {
     // 標為過期 (mirrors handle_expire_reply_card): only a WAITING card can
     // expire — answered/expired → 409; terminal, NOT an answer (the answer
     // stays null). ⚠️ The server has one rung this mock does not: since T-1b88
@@ -3929,7 +4015,7 @@ export const mockApi: Api = {
       break;
     }
     emitTopic("reply_card");
-    return structuredClone(card);
+    return mockReplyCardWriteReceipt(card);
   },
 
   async listTasks(opts?: {
@@ -3966,7 +4052,7 @@ export const mockApi: Api = {
     // filter excluded. A dep with no task keeps its derived number and stays
     // title/status-less (the card's 查無此任務 row).
     const byId = new Map(tasks.map((t) => [t.id, t]));
-    return structuredClone(rows).map((t) => ({
+    return structuredClone(rows).map(({ artifacts: stored, ...t }) => ({
       ...t,
       steps: [],
       description: "",
@@ -3981,8 +4067,17 @@ export const mockApi: Api = {
       }),
       // Light list parity (T-3dc5): no artifact rows, only the count (the
       // server's grouped COUNT) — the collapsed card's 「產物 N」 badge.
-      artifacts: [],
-      artifactCount: (t.artifacts ?? []).length,
+      //
+      // 🔴 `stored` is PEELED OFF in the parameter list, exactly as getTask does
+      // it, and for the same reason: the store row keeps each artifact whole,
+      // and `...t` would hand every one of them back on the LIGHT list. This
+      // leaked for real between two T-92 commits — the explicit `artifacts: []`
+      // that used to sit here was removed once TaskView stopped declaring the
+      // field, and the spread quietly kept serving the rows. The type checker
+      // could not see it (excess properties are only checked on object
+      // literals, and these arrive through a spread), so destructuring is what
+      // makes the type system enforce this instead of a comment.
+      artifactCount: (stored ?? []).length,
     }));
   },
 
@@ -3990,7 +4085,14 @@ export const mockApi: Api = {
     // Mirrors GET /api/tasks/{id}: the FULL task (steps + description) the
     // light list omits — the per-card expand hydration path. reply_card_status
     // is a read-time join per step (server parity), never stored.
-    const task = structuredClone(findTask(id));
+    // 🔴 `stored` is PEELED OFF rather than spread. The mock's store row keeps
+    // each artifact whole; the wire has had NO artifact field on a task read
+    // since T-92, so spreading the row would make mock mode the one place a
+    // task read hands back artifact rows — the cockpit could render from it here
+    // and 404 against a real server. Peeling it is the narrowing the mapper does
+    // for real, and it is done by DESTRUCTURING rather than by assigning
+    // undefined so the type system, not a comment, is what enforces it.
+    const { artifacts: stored, ...task } = structuredClone(findTask(id));
     return {
       ...task,
       // TaskDTO carries no dep_tasks (T-a3e4 put the dep join on the LIGHT list
@@ -4000,18 +4102,8 @@ export const mockApi: Api = {
         ...st,
         replyCardStatus: mockReplyCardStatusOf(st.replyCardId || null),
       })),
-      // Full task carries the artifact INDEX (T-66: id + label per deliverable);
-      // count kept == length (server parity). The full rows are listTaskArtifacts.
-      //
-      // 🔴 PROJECTED, not passed through. The store row holds each artifact
-      // whole, and a `TaskArtifactView` is structurally a `TaskArtifactRefView`
-      // too — so handing the stored row straight back type-checks and would
-      // quietly make mock mode the ONE place a task read carries url / mime /
-      // filename. The cockpit would then render from the task read here and
-      // 404 against a real server. The mapper is the guard, so the mock has to
-      // narrow exactly like it does.
-      artifacts: (task.artifacts ?? []).map((a) => ({ id: a.id, label: a.label })),
-      artifactCount: (task.artifacts ?? []).length,
+      // A COUNT and nothing else (T-92) — server parity.
+      artifactCount: (stored ?? []).length,
     };
   },
 
@@ -4081,7 +4173,7 @@ export const mockApi: Api = {
     };
   },
 
-  async terminateTask(id: string): Promise<TaskView> {
+  async terminateTask(id: string): Promise<void> {
     // Mirrors handle_terminate_task: the only status change that does not go
     // through the task's own step reports; non-terminal only (done/terminated →
     // 409). Stamps closedTs and releases any bound outsource worker (the live
@@ -4106,10 +4198,12 @@ export const mockApi: Api = {
     outsourceWorkers = outsourceWorkers.filter((w) => w.taskId !== id);
     emitTopic("task");
     emitTopic("outsource_worker");
-    return structuredClone(t);
+    // T-91: the write answers a RECEIPT, not the object. The mock's own store
+    // is still the one that changed above, so a read-back sees the write; the
+    // response just stops carrying what nobody may render from it.
   },
 
-  async markTaskDuplicate(id: string, duplicateOf: string): Promise<TaskView> {
+  async markTaskDuplicate(id: string, duplicateOf: string): Promise<void> {
     // Mirrors handle_mark_task_duplicate (T-02c9): mark the task a duplicate of
     // the original and close it. Keeps the depth-1 graph — the target must
     // exist, not be itself, not be itself duplicated, and this task must not
@@ -4158,13 +4252,15 @@ export const mockApi: Api = {
     outsourceWorkers = outsourceWorkers.filter((w) => w.taskId !== id);
     emitTopic("task");
     emitTopic("outsource_worker");
-    return structuredClone(t);
+    // T-91: the write answers a RECEIPT, not the object. The mock's own store
+    // is still the one that changed above, so a read-back sees the write; the
+    // response just stops carrying what nobody may render from it.
   },
 
   async updateTaskDescription(
     id: string,
-    description: string,
-  ): Promise<TaskView> {
+    description: string
+  ): Promise<void> {
     // Mirrors HandleUpdateTaskDescription... (T-e271) rule for rule, because a
     // mock that is more permissive than the server lets a component pass here
     // and fail in production — and one that is stricter invents a refusal the
@@ -4192,15 +4288,17 @@ export const mockApi: Api = {
     // means clear, exactly as the http twin sends it.
     const t = findTask(id);
     const trimmed = description.trim();
-    if (t.description === trimmed) return t;
+    if (t.description === trimmed) return;
     recordDocumentHistory("task_description", id);
     t.description = trimmed;
     t.updatedTs = Date.now() / 1000;
     emitTopic("task");
-    return t;
+    // T-91: the write answers a RECEIPT, not the object. The mock's own store
+    // is still the one that changed above, so a read-back sees the write; the
+    // response just stops carrying what nobody may render from it.
   },
 
-  async updateTaskTitle(id: string, title: string): Promise<TaskView> {
+  async updateTaskTitle(id: string, title: string): Promise<void> {
     // Mirrors HandleUpdateTaskTitle... (T-2ebe) rule for rule, in the same
     // guard ORDER the server uses — 404 → (403, which never arises in the
     // owner's cockpit) → 400 blank → write:
@@ -4225,12 +4323,14 @@ export const mockApi: Api = {
         "title must not be blank",
       );
     }
-    if (t.title === trimmed) return t;
+    if (t.title === trimmed) return;
     recordDocumentHistory("task_title", id);
     t.title = trimmed;
     t.updatedTs = Date.now() / 1000;
     emitTopic("task");
-    return t;
+    // T-91: the write answers a RECEIPT, not the object. The mock's own store
+    // is still the one that changed above, so a read-back sees the write; the
+    // response just stops carrying what nobody may render from it.
   },
 
   async setTaskPriority(id: string, priority: string): Promise<void> {
@@ -4259,7 +4359,7 @@ export const mockApi: Api = {
     emitTopic("task");
   },
 
-  async reassignTask(id: string, input: TaskReassignInput): Promise<TaskView> {
+  async reassignTask(id: string, input: TaskReassignInput): Promise<void> {
     // Mirrors handle_reassign_task (T-160e): expire the task's waiting cards,
     // rewind non-terminal steps to pending, dismiss the OLD outsource worker,
     // mint the new one when the target is 外包, move the task to `reassigning`
@@ -4456,7 +4556,9 @@ export const mockApi: Api = {
     }
     emitTopic("task");
     emitTopic("outsource_worker");
-    return structuredClone(t);
+    // T-91: the write answers a RECEIPT, not the object. The mock's own store
+    // is still the one that changed above, so a read-back sees the write; the
+    // response just stops carrying what nobody may render from it.
   },
 
   async removeTaskArtifact(taskId: string, artifactId: string): Promise<void> {
@@ -4588,10 +4690,7 @@ export const mockApi: Api = {
     };
   },
 
-  async relocateWorker(
-    id: string,
-    machineId: string,
-  ): Promise<OutsourceWorkerView> {
+  async relocateWorker(id: string, machineId: string): Promise<void> {
     // 改機器 (T-f190). The mock has no scheduler, so it models the SERVER's
     // observable outcome honestly: write the owner-pinned desired_machine_id and,
     // for a CONCRETE machine id, reflect it as the new `machine` (the dispatch
@@ -4617,21 +4716,15 @@ export const mockApi: Api = {
       w.machine = m ? m.name : machineId;
     }
     emitTopic("outsource_worker");
-    // Mock ↔ http parity (T-ed79 #5): a LIVE worker's move is deferred to its
-    // 收口, so the answer says "scheduled, not landed" AND says which of the two
-    // kinds of not-landed it is. A worker with no live session is dispatched now
-    // and carries neither flag.
-    const deferred = w.presence === "online";
-    return {
-      ...withWorkerTaskJoin(structuredClone(w)),
-      unreadCount: unreadCountOf(w.id),
-      ...(deferred
-        ? { relocationPending: true, relocationDeferred: true }
-        : {}),
-    };
+    // T-91: the write answers a RECEIPT, not the worker. The receipt DOES carry
+    // relocation_pending / relocation_deferred (it is the member arm's shape),
+    // but the worker adapter reads neither, so the mock has nothing left to
+    // stage: what used to be modelled here — Mock ↔ http parity (T-ed79 #5), a
+    // LIVE worker's move deferred to its 收口 — was only ever readable through a
+    // return value no caller took. The store above is what changed.
   },
 
-  async refocusWorker(id: string): Promise<OutsourceWorkerView> {
+  async refocusWorker(id: string): Promise<void> {
     // 換手 (T-32e1). The mock models the server's observable outcome: online-only
     // (409 unless presence "online"), stopped → 409, unknown/released → 404. On
     // success stamp refocus_since (the panel's 換手中 acknowledgement); the actual
@@ -4660,13 +4753,11 @@ export const mockApi: Api = {
     }
     w.refocusSince = Date.now() / 1000;
     emitTopic("outsource_worker");
-    return {
-      ...withWorkerTaskJoin(structuredClone(w)),
-      unreadCount: unreadCountOf(w.id),
-    };
+    // T-91: the write answers a RECEIPT, not the worker; the store above is what
+    // changed and the panel refetches.
   },
 
-  async stopWorker(id: string): Promise<OutsourceWorkerView> {
+  async stopWorker(id: string): Promise<void> {
     // 停止 (T-f190; a GRACEFUL close-out since T-ed79). Held down: desired_state
     // offline (member parity) and the in-flight refocus cleared — but NO kill.
     // The worker is shown its 〈停止〉 and keeps its session until it reports
@@ -4685,13 +4776,11 @@ export const mockApi: Api = {
     w.refocusOp = undefined;
     w.presence = w.presence === "online" ? "stopping" : "stopped";
     emitTopic("outsource_worker");
-    return {
-      ...withWorkerTaskJoin(structuredClone(w)),
-      unreadCount: unreadCountOf(w.id),
-    };
+    // T-91: the write answers a RECEIPT, not the worker; the store above is what
+    // changed and the panel refetches.
   },
 
-  async acceleratedStopWorker(id: string): Promise<OutsourceWorkerView> {
+  async acceleratedStopWorker(id: string): Promise<void> {
     // 加速停止 (T-ed79) — the MIDDLE rung. It escalates a wind-down that is
     // ALREADY open, so its refusal is what makes it an escalation rather than a
     // second stop button; the message names the rungs below it, mirroring the
@@ -4731,13 +4820,11 @@ export const mockApi: Api = {
     if (stamps.since !== null) w.refocusSince = stamps.since;
     w.refocusDeadline = stamps.deadline;
     emitTopic("outsource_worker");
-    return {
-      ...withWorkerTaskJoin(structuredClone(w)),
-      unreadCount: unreadCountOf(w.id),
-    };
+    // T-91: the write answers a RECEIPT, not the worker; the store above is what
+    // changed and the panel refetches.
   },
 
-  async forceStopWorker(id: string): Promise<OutsourceWorkerView> {
+  async forceStopWorker(id: string): Promise<void> {
     // 強制停止 (T-ed79) — the THIRD rung, and the body /stop used to have: the
     // session is killed on the spot, so the worker lands in "stopped" directly.
     const w = outsourceWorkers.find((x) => x.id === id);
@@ -4753,13 +4840,11 @@ export const mockApi: Api = {
     w.refocusOp = undefined;
     w.presence = "stopped";
     emitTopic("outsource_worker");
-    return {
-      ...withWorkerTaskJoin(structuredClone(w)),
-      unreadCount: unreadCountOf(w.id),
-    };
+    // T-91: the write answers a RECEIPT, not the worker; the store above is what
+    // changed and the panel refetches.
   },
 
-  async restartWorker(id: string): Promise<OutsourceWorkerView> {
+  async restartWorker(id: string): Promise<void> {
     // 喚醒 (T-f190; the word since T-7526 — the path stays /restart). Inverse of stop: set desired_state back online + re-dispatch.
     // 409 only when the worker is actually ALIVE (T-7526 — see the guard below);
     // unknown/released → 404. The mock reflects the observable re-spawn as presence
@@ -4794,16 +4879,15 @@ export const mockApi: Api = {
     // mock that invents a pending state teaches the panel a story the server
     // only tells in a condition this mock cannot reach (no kill target /
     // unreachable warden).
-    return {
-      ...withWorkerTaskJoin(structuredClone(w)),
-      unreadCount: unreadCountOf(w.id),
-    };
+    // T-91: the write answers a RECEIPT, not the object. The mock's own store
+    // is still the one that changed above, so a read-back sees the write; the
+    // response just stops carrying what nobody may render from it.
   },
 
   async setWorkerModel(
     id: string,
-    patch: { model: string; effort?: string },
-  ): Promise<OutsourceWorkerView> {
+    patch: { model: string; effort?: string }
+  ): Promise<void> {
     // 換 model (T-f190). Persist model/effort; the respawn-to-take-effect-now is
     // server-side (invisible here). unknown/released → 404.
     const w = outsourceWorkers.find((x) => x.id === id);
@@ -4818,10 +4902,8 @@ export const mockApi: Api = {
     if (patch.effort !== undefined && patch.effort !== "")
       w.effort = patch.effort;
     emitTopic("outsource_worker");
-    return {
-      ...withWorkerTaskJoin(structuredClone(w)),
-      unreadCount: unreadCountOf(w.id),
-    };
+    // T-91: the write answers a RECEIPT, not the worker; the store above is what
+    // changed and the panel refetches.
   },
 
   async getWorkerBootContext(id: string): Promise<string> {
@@ -4889,16 +4971,17 @@ export const mockApi: Api = {
     // T-1170: the DIRECTORY. The two long documents are DROPPED here, the way
     // the server drops them — a mock that kept serving them would let the
     // manual sub-pages keep reading a list row and stay green.
-    return taskManuals.map(({ sopMd: _sop, learnings: _learn, ...row }) =>
-      structuredClone(row),
-    );
+    return taskManuals.map((m) => {
+      const { sopMd: _sop, learnings: _learn, ...row } = withManualSizes(m);
+      return structuredClone(row);
+    });
   },
 
   async getTaskManual(typeKey: string): Promise<TaskManualView> {
-    return structuredClone(findTaskManual(typeKey));
+    return structuredClone(withManualSizes(findTaskManual(typeKey)));
   },
 
-  async createTaskManual(displayName: string): Promise<TaskManualView> {
+  async createTaskManual(displayName: string): Promise<{ typeKey: string }> {
     // Mirrors HandleCreateTaskManualApiTaskManualsPost's T-fa76 system-key
     // path: blank display name → 400; the type_key is MINTED server-side
     // ("tm-"+hex12 — never the user's text), and the created manual is BLANK
@@ -4912,7 +4995,7 @@ export const mockApi: Api = {
         "display_name must not be blank",
       );
     }
-    const manual: TaskManualView = {
+    const manual: StoredTaskManual = {
       typeKey: `tm-${Array.from({ length: 12 }, () =>
         "0123456789abcdef".charAt(Math.floor(Math.random() * 16)),
       ).join("")}`,
@@ -4926,13 +5009,16 @@ export const mockApi: Api = {
     };
     taskManuals.push(manual);
     emitTopic("task_manual");
-    return structuredClone(manual);
+    // T-91: the write answers a RECEIPT, not the object. The mock's own store
+    // is still the one that changed above, so a read-back sees the write; the
+    // response just stops carrying what nobody may render from it.
+    return { typeKey: manual.typeKey };
   },
 
   async updateTaskManual(
     typeKey: string,
-    patch: TaskManualPatch,
-  ): Promise<TaskManualView> {
+    patch: TaskManualPatch
+  ): Promise<void> {
     // Mirrors handle_update_task_manual: partial — only supplied fields
     // change; assignee is three-valued (omitted = unchanged, null = unset).
     const manual = findTaskManual(typeKey);
@@ -4960,7 +5046,9 @@ export const mockApi: Api = {
     }
     manual.updatedTs = Date.now() / 1000;
     emitTopic("task_manual");
-    return structuredClone(manual);
+    // T-91: the write answers a RECEIPT, not the object. The mock's own store
+    // is still the one that changed above, so a read-back sees the write; the
+    // response just stops carrying what nobody may render from it.
   },
 
   async deleteTaskManual(typeKey: string): Promise<void> {
@@ -5647,16 +5735,24 @@ export const mockApi: Api = {
         "accelerated_grace_secs must be between 10 and 3600 seconds",
       );
     }
+    // T-fc53: the mock refuses exactly what the server refuses, so a UI that
+    // only ever runs against the mock cannot ship a field that offers the owner
+    // a number he would get a 422 for on a real install.
     if (
-      patch.monitoringRefreshSeconds !== undefined &&
-      (patch.monitoringRefreshSeconds < 1 ||
-        patch.monitoringRefreshSeconds > 60)
+      patch.wardenCredentialLifetimeSecs !== undefined &&
+      (patch.wardenCredentialLifetimeSecs < 86400 ||
+        patch.wardenCredentialLifetimeSecs > 34560000)
     ) {
-      throw mockApiError(
-        "http 422 for PATCH /api/settings",
-        422,
-        "monitoring_refresh_seconds must be between 1 and 60",
-      );
+      // The sentence is copied VERBATIM from wardenCredLifetimeRangeMsg
+      // (server/ocserverd/api_settings.go), which is where it is derived from the
+      // bounds. It carries its own reasoning because the floor is otherwise
+      // unguessable to whoever typed the number, and the mock has to show the owner
+      // the same sentence the real station would — a shorter one here would make the
+      // demo mode read as a different, gentler product.
+      throw mockApiError("http 422 for PATCH /api/settings", 422, "warden_credential_lifetime_secs must be between 86400 and 34560000 seconds (one day through 400 days) — a warden renews at two thirds of the lifetime, so the remaining third is the window an offline machine has to get a replacement, and below a day that window stops surviving a working day of downtime");
+    }
+    if (patch.monitoringRefreshSeconds !== undefined && (patch.monitoringRefreshSeconds < 1 || patch.monitoringRefreshSeconds > 60)) {
+      throw mockApiError("http 422 for PATCH /api/settings", 422, "monitoring_refresh_seconds must be between 1 and 60");
     }
     if (
       patch.outsourceMaxParallel !== undefined &&
@@ -5752,7 +5848,24 @@ export const mockApi: Api = {
         `chat_budget_chars must be between ${CHAT_BUDGET_CHARS_MIN} and ${CHAT_BUDGET_CHARS_MAX} characters`,
       );
     }
-    if (patch.orgName !== undefined && [...patch.orgName.trim()].length > 80) {
+    // T-119: checked on its own for the same reason — it may be turned DOWN,
+    // so the doc caps' "the floor is the shipped default" message is a lie
+    // about it.
+    if (
+      patch.stepNoteCapChars !== undefined &&
+      (patch.stepNoteCapChars < STEP_NOTE_CAP_CHARS_MIN ||
+        patch.stepNoteCapChars > STEP_NOTE_CAP_CHARS_MAX)
+    ) {
+      throw mockApiError(
+        "http 422 for PATCH /api/settings",
+        422,
+        `step_note_cap_chars must be between ${STEP_NOTE_CAP_CHARS_MIN} and ${STEP_NOTE_CAP_CHARS_MAX} characters`
+      );
+    }
+    if (
+      patch.orgName !== undefined &&
+      [...patch.orgName.trim()].length > 80
+    ) {
       // Server parity: trimmed, capped at 80 runes (T-d693).
       throw mockApiError(
         "http 422 for PATCH /api/settings",
@@ -5770,6 +5883,34 @@ export const mockApi: Api = {
         422,
         "owner_name must be at most 80 characters",
       );
+    }
+    // 建議回覆 (T-122). Server parity, and the messages below are a HAND COPY of
+    // server/ocserverd/api_settings.go — nothing compares the two files, so a
+    // reworded refusal has to be changed in both.
+    //
+    // 🔴 [] IS LEGAL and clears the list. Over either bound is a REFUSAL, never
+    // a truncation: a shortened sentence is one the owner never wrote, offered
+    // to him one tap from being sent.
+    for (const [wire, list] of [
+      [SUGGESTED_REPLIES_REPLY_CARD_FIELD, patch.suggestedRepliesReplyCard],
+      [SUGGESTED_REPLIES_TASK_MESSAGE_FIELD, patch.suggestedRepliesTaskMessage],
+    ] as const) {
+      if (list === undefined) continue;
+      const entries = list.map((v) => v.trim()).filter((v) => v.length > 0);
+      if (entries.some((v) => [...v].length > SUGGESTED_REPLY_MAX_LEN)) {
+        throw mockApiError(
+          "http 422 for PATCH /api/settings",
+          422,
+          `${wire} must be at most ${SUGGESTED_REPLY_MAX_LEN} characters per entry`
+        );
+      }
+      if (entries.length > SUGGESTED_REPLIES_MAX_ENTRIES) {
+        throw mockApiError(
+          "http 422 for PATCH /api/settings",
+          422,
+          `${wire} must be at most ${SUGGESTED_REPLIES_MAX_ENTRIES} entries`
+        );
+      }
     }
     // display_theme is validated against the THEME STORE: "" | a built-in | an
     // id that exists in /api/themes (server parity). T-83ef: settings no
@@ -5819,6 +5960,9 @@ export const mockApi: Api = {
     if (patch.acceleratedGraceSecs !== undefined) {
       mockServerSettings.accelerated_grace_secs = patch.acceleratedGraceSecs;
     }
+    if (patch.wardenCredentialLifetimeSecs !== undefined) {
+      mockServerSettings.warden_credential_lifetime_secs = patch.wardenCredentialLifetimeSecs;
+    }
     if (patch.monitoringRefreshSeconds !== undefined) {
       mockServerSettings.monitoring_refresh_seconds =
         patch.monitoringRefreshSeconds;
@@ -5856,6 +6000,9 @@ export const mockApi: Api = {
     if (patch.chatBudgetChars !== undefined) {
       mockServerSettings.chat_budget_chars = patch.chatBudgetChars;
     }
+    if (patch.stepNoteCapChars !== undefined) {
+      mockServerSettings.step_note_cap_chars = patch.stepNoteCapChars;
+    }
     if (patch.backupRetain !== undefined) {
       mockServerSettings.backup_retain = patch.backupRetain;
     }
@@ -5870,6 +6017,24 @@ export const mockApi: Api = {
     }
     if (patch.ownerName !== undefined) {
       mockServerSettings.owner_name = patch.ownerName.trim();
+    }
+    // 建議回覆 (T-122): each list is REPLACED wholesale and independently — the
+    // two rows are two rows for exactly this reason.
+    if (patch.suggestedRepliesReplyCard !== undefined) {
+      mockServerSettings = withSuggestedRepliesReplyCard(
+        mockServerSettings,
+        patch.suggestedRepliesReplyCard
+          .map((v) => v.trim())
+          .filter((v) => v.length > 0),
+      );
+    }
+    if (patch.suggestedRepliesTaskMessage !== undefined) {
+      mockServerSettings = withSuggestedRepliesTaskMessage(
+        mockServerSettings,
+        patch.suggestedRepliesTaskMessage
+          .map((v) => v.trim())
+          .filter((v) => v.length > 0),
+      );
     }
     if (patch.pushContactEmail !== undefined) {
       const email = patch.pushContactEmail.trim();
@@ -6001,7 +6166,7 @@ export const mockApi: Api = {
     return toGlobalContext(foldGlobalContext());
   },
 
-  async saveGlobalContext(text: string): Promise<GlobalContextView> {
+  async saveGlobalContext(text: string): Promise<void> {
     recordDocumentHistory("global_context", "global");
     // Whole-BLOCK replace of the user-custom additive block → store the overlay;
     // the folded read is now owner-edited (is_default=false).
@@ -6014,16 +6179,20 @@ export const mockApi: Api = {
       org_name: "",
     };
     emitTopic("global_context");
-    return toGlobalContext(foldGlobalContext());
+    // T-91: the write answers a RECEIPT, not the object. The mock's own store
+    // is still the one that changed above, so a read-back sees the write; the
+    // response just stops carrying what nobody may render from it.
   },
 
-  async resetGlobalContext(): Promise<GlobalContextView> {
+  async resetGlobalContext(): Promise<void> {
     recordDocumentHistory("global_context", "global");
     // Idempotent tombstone: drop the overlay → the folded read is EMPTY again
     // (text=""/is_default=true; the assembled boot context skips the block).
     globalContextOverlay = null;
     emitTopic("global_context");
-    return toGlobalContext(foldGlobalContext());
+    // T-91: the write answers a RECEIPT, not the object. The mock's own store
+    // is still the one that changed above, so a read-back sees the write; the
+    // response just stops carrying what nobody may render from it.
   },
 
   async getBootDoc(kind: BootDocKind, key: string): Promise<BootDocView> {
@@ -6033,8 +6202,8 @@ export const mockApi: Api = {
   async saveBootDoc(
     kind: BootDocKind,
     key: string,
-    body: string,
-  ): Promise<BootDocView> {
+    body: string
+  ): Promise<void> {
     // 404 BEFORE anything is written: foldBootDoc is the one place that knows
     // whether (kind, key) names a document, and a save that created a fourth
     // stream out of a typo'd runtime key would be the mock inventing a
@@ -6078,14 +6247,16 @@ export const mockApi: Api = {
     // is how the version worth going back to disappears. Nothing is written at
     // all in that case, so `is_default` is not flipped either: re-saving a
     // document that is still the factory text must not make it stop saying so.
-    if (before.text === text) return toBootDoc(before);
+    if (before.text === text) return;
     recordDocumentHistory(kind, key);
     bootDocOverlays.set(`${kind}/${key}`, text);
     emitTopic(BOOT_DOC_TOPIC);
-    return toBootDoc(foldBootDoc(kind, key));
+    // T-91: the write answers a RECEIPT, not the object. The mock's own store
+    // is still the one that changed above, so a read-back sees the write; the
+    // response just stops carrying what nobody may render from it.
   },
 
-  async resetBootDoc(kind: BootDocKind, key: string): Promise<BootDocView> {
+  async resetBootDoc(kind: BootDocKind, key: string): Promise<void> {
     // Existence check first, same as the save — and NO cap check: going back to
     // the factory version can only ever be the shipped size, and refusing it on
     // length would take away the recovery path exactly when the document is at
@@ -6095,7 +6266,9 @@ export const mockApi: Api = {
     recordDocumentHistory(kind, key);
     bootDocOverlays.delete(`${kind}/${key}`);
     emitTopic(BOOT_DOC_TOPIC);
-    return toBootDoc(foldBootDoc(kind, key));
+    // T-91: the write answers a RECEIPT, not the object. The mock's own store
+    // is still the one that changed above, so a read-back sees the write; the
+    // response just stops carrying what nobody may render from it.
   },
 
   async listRoles(): Promise<RoleSummaryView[]> {
@@ -6113,7 +6286,7 @@ export const mockApi: Api = {
     return toRoleDef(foldRole(key));
   },
 
-  async saveRole(key: string, patch: RolePatch): Promise<RoleDefView> {
+  async saveRole(key: string, patch: RolePatch): Promise<void> {
     // Self-contained overlay (§6.1): merge the patch onto the current folded doc
     // so the stored overlay carries the FULL effective name + definition_md.
     // Name-lock parity with handle_update_role (owner M2 定案): ONLY a CUSTOM
@@ -6140,10 +6313,12 @@ export const mockApi: Api = {
       }
     }
     emitTopic("role_def");
-    return toRoleDef(foldRole(key));
+    // T-91: the write answers a RECEIPT, not the object. The mock's own store
+    // is still the one that changed above, so a read-back sees the write; the
+    // response just stops carrying what nobody may render from it.
   },
 
-  async resetRole(key: string): Promise<RoleDefView> {
+  async resetRole(key: string): Promise<void> {
     // Reset restores the FILE SEED — only a seed role has one. A custom (or
     // unknown) key 404s, matching handle_reset_role (verified live: the server
     // refuses and the custom doc stays untouched). The UI offers no reset on
@@ -6159,7 +6334,9 @@ export const mockApi: Api = {
     recordDocumentHistory("role_definition", key);
     roleOverlays.delete(key);
     emitTopic("role_def");
-    return toRoleDef(foldRole(key));
+    // T-91: the write answers a RECEIPT, not the object. The mock's own store
+    // is still the one that changed above, so a read-back sees the write; the
+    // response just stops carrying what nobody may render from it.
   },
 
   async createRole(input: RoleCreateInput): Promise<RoleCreateResult> {
@@ -6237,9 +6414,13 @@ export const mockApi: Api = {
       schema_version: 3,
     };
     wireMembers.push(wireMember);
+    // T-91: the write answers a RECEIPT, not the object. The mock's own store
+    // is still the one that changed above, so a read-back sees the write; the
+    // response just stops carrying what nobody may render from it.
     return {
-      role: toRoleDef(foldRole(roleKey)),
-      member: mapWithExtras(wireMember),
+      roleKey,
+      memberId: wireMember.id,
+      memberName: wireMember.name,
     };
   },
 
@@ -6390,7 +6571,7 @@ export const mockApi: Api = {
     return toLessons(wire);
   },
 
-  async saveLessons(roleKey: string, text: string): Promise<LessonsView> {
+  async saveLessons(roleKey: string, text: string): Promise<void> {
     // Whole-doc replace → store the per-role overlay; the folded read is now
     // owner-edited for THIS role_key only (a sibling role's doc is untouched).
     recordDocumentHistory("lessons", roleKey);
@@ -6404,7 +6585,9 @@ export const mockApi: Api = {
     };
     lessonsOverlays.set(roleKey, wire);
     emitTopic("lessons");
-    return toLessons(wire);
+    // T-91: the write answers a RECEIPT, not the object. The mock's own store
+    // is still the one that changed above, so a read-back sees the write; the
+    // response just stops carrying what nobody may render from it.
   },
 
   async getInsight(roleKey: string): Promise<InsightView> {
@@ -6434,7 +6617,7 @@ export const mockApi: Api = {
     return toInsight(wire);
   },
 
-  async saveInsight(roleKey: string, text: string): Promise<InsightView> {
+  async saveInsight(roleKey: string, text: string): Promise<void> {
     // Whole-doc replace → store the per-role overlay. Keyed on the bare
     // role_key; a sibling role's insight is untouched.
     recordDocumentHistory("insight", roleKey);
@@ -6449,10 +6632,12 @@ export const mockApi: Api = {
     };
     insightOverlays.set(roleKey, wire);
     emitTopic("insight");
-    return toInsight(wire);
+    // T-91: the write answers a RECEIPT, not the object. The mock's own store
+    // is still the one that changed above, so a read-back sees the write; the
+    // response just stops carrying what nobody may render from it.
   },
 
-  async resetInsight(roleKey: string): Promise<InsightView> {
+  async resetInsight(roleKey: string): Promise<void> {
     // Reset restores the PER-ROLE FILE SEED — only a role that ships one has
     // anything to reset TO, so a role with no seed 404s, mirroring
     // HandleResetInsightApiInsightRoleKeyResetPost. 🔴 The membership test is
@@ -6472,7 +6657,9 @@ export const mockApi: Api = {
     recordDocumentHistory("insight", roleKey);
     insightOverlays.delete(roleKey);
     emitTopic("insight");
-    return await mockApi.getInsight(roleKey);
+    // T-91: the write answers a RECEIPT, not the object. The mock's own store
+    // is still the one that changed above, so a read-back sees the write; the
+    // response just stops carrying what nobody may render from it.
   },
 
   async listDocumentHistory(
@@ -7002,6 +7189,28 @@ export function __injectMockTask(task: TaskView | MockTaskRow): void {
   emitTopic("task");
 }
 
+// Test-only hooks: seed the owner's two 建議回覆 lists (T-122). Separate hooks
+// for separate lists — a test that seeds one and asserts the OTHER box stays
+// bare is exactly the assertion that pins them as independent. Passing an empty
+// list restores the shipped state (no chips at all).
+export function __setMockSuggestedRepliesReplyCard(
+  replies: readonly string[],
+): void {
+  mockServerSettings = withSuggestedRepliesReplyCard(
+    mockServerSettings,
+    replies,
+  );
+}
+
+export function __setMockSuggestedRepliesTaskMessage(
+  replies: readonly string[],
+): void {
+  mockServerSettings = withSuggestedRepliesTaskMessage(
+    mockServerSettings,
+    replies,
+  );
+}
+
 // Test-only hook: land the retained PREVIOUS versions of one pinned deliverable
 // (T-60), newest first — what a sequence of `replace_task_artifact` calls would
 // have left behind. There is no cockpit write that can produce them.
@@ -7065,7 +7274,7 @@ export function __injectMockTaskType(t: TaskTypeView): void {
 
 // Test-only hook: land a FULL manual (fields/SOP/learnings/assignee) so tests
 // can exercise the 設定 › 任務手冊 editor against a populated store entry.
-export function __injectMockTaskManual(m: TaskManualView): void {
+export function __injectMockTaskManual(m: StoredTaskManual): void {
   taskManuals.push(structuredClone(m));
   emitTopic("task_manual");
 }

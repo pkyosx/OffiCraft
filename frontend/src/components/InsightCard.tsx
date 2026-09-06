@@ -6,10 +6,20 @@
 // editor over different documents. Two deliberate differences, each with a
 // reason that is not "tidier":
 //
-//  1. The header carries {size_chars} / {cap_chars}. 🔴 This is the ONLY place
-//     in the cockpit an owner can see the live doc.cap_chars.insight value without
+//  1. The header carries {size_chars} / {cap_chars}. It is the only place in
+//     the cockpit an owner reads the live doc.cap_chars.insight value without
 //     being admin — the settings surface that otherwise shows it is admin-only,
 //     and the alternative way to learn the limit is to be refused by it.
+//     ⚠️ THAT IS TRUE OF THE INSIGHT CAP, NOT OF CAPS IN GENERAL. This comment
+//     used to claim the header was the cockpit's ONLY doc-cap readout, and that
+//     stopped being true long before anyone noticed: the Duty card and the role
+//     page's Learning card both carry one now, and T-100 added the two
+//     task-manual documents. Do not read this line as "add nothing elsewhere".
+//     🔴 What this card still does NOT do, and what a reader is most likely to
+//     assume it does: the number here counts the SAVED document, so it does not
+//     move while the owner types. `DocCard` (and `DocUsage`, which the manual
+//     editors use) count the DRAFT — that is the behaviour the owner asked for
+//     in T-100, and it is the one this card has not been given.
 //  2. The empty state is a FIRST-CLASS reading, not a fallback — for a role
 //     with NO file seed, "empty" is the honest answer to "has this role moved
 //     anything over yet?". It must never be confused with a failed load, which
@@ -158,8 +168,20 @@ export function InsightCard({ roleKey }: InsightCardProps) {
               title={t.settings.historyInsightTitle}
               currentContent={insight ? { text: insight.text } : undefined}
               onRestored={async () => {
-                await refetch();
-                cancelEdit();
+                // 🔴 `finally`, not a plain sequence: the restore has ALREADY
+                // landed by the time this runs, so the draft below is stale no
+                // matter what the re-read does. T-91 wrapped the re-read in
+                // DocumentHistoryEntry so a failed re-read stops showing as a
+                // failed restore — but that made a rejection here SKIP the
+                // line below and then get swallowed, which closed the modal
+                // silently and left the editor holding the pre-restore draft.
+                // Leaving edit mode is what the comment above promises; it
+                // must not be conditional on the re-read succeeding.
+                try {
+                  await refetch();
+                } finally {
+                  cancelEdit();
+                }
               }}
               onReset={
                 insight?.hasSeed

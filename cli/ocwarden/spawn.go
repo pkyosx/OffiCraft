@@ -50,10 +50,37 @@ const (
 	defaultNudge = "開始。"
 	// nudgeMaxAttempts / nudgeSettle bound the boot-nudge Enter-retry (STAGE-B). A
 	// cold claude REPL can take several seconds to accept input (rendering the
-	// welcome screen, dismissing startup notices), so we retry the Enter until the
-	// context gauge confirms submission. ~30×1s ≈ 30s covers a slow cold start yet
-	// stays COMFORTABLY under the reconcile start_timeout (the configured waking TTL) so a
-	// slow-but-successful boot is never miscounted as a start-failure → circuit trip.
+	// welcome screen, dismissing startup notices), so the Enter is retried.
+	//
+	// 🔴 T-82 CORRECTED ALL THREE CLAIMS THAT USED TO BE HERE, and this is the
+	// declaration every other pointer sends a reader to, so read it before changing
+	// either number:
+	//
+	//  1. MECHANISM. It used to say the retry ran "until the context gauge confirms
+	//     submission". That gauge is not some third party's: buildStatuslineSettings
+	//     (this file) points the agent's statusLine at our own `ocagent
+	//     context-report`, and T-51a8 changed its rendering. The verdict has been
+	//     permanently false, which is what this ticket removed.
+	//  2. BEHAVIOUR. There is no "until". The loop is UNCONDITIONAL: it runs all
+	//     nudgeMaxAttempts every single time, so every spawn spends 30×1s = 30
+	//     SECONDS here whether the first Enter landed or not.
+	//  3. BUDGET. It used to say this stays "comfortably under" the reconcile
+	//     start_timeout. Those 30 seconds are also spent out of the 90s
+	//     receiptDeadlineSecs in server/ocserverd/receipt_watch.go (the START
+	//     receipt is POSTed only after Spawn returns), which leaves that deadline
+	//     about 5 SECONDS of slack — not comfortable.
+	//
+	// ⚠️ NEITHER NUMBER HAS EVER BEEN MEASURED. Changing one is a behaviour change
+	// with a cross-module consequence, and TODAY NOTHING MECHANICAL ENFORCES THAT.
+	// cli/ocwarden/spawn_test.go pins both as literals, so an accidental edit is
+	// red — but a deliberate edit that also updates those literals is green on both
+	// sides while receiptDeadlineSecs silently goes over budget, because
+	// cli/ocwarden and server/ocserverd are separate Go modules with nothing in
+	// common. The repo already solves exactly this shape elsewhere
+	// (bin/tests/base-scheme-mirror-guard.sh, T-78: one hand-copied invariant across
+	// three modules, failing the build the moment they disagree); the equivalent
+	// guard for this budget does not exist yet. Until it does, the only link is a
+	// sentence — this one.
 	nudgeMaxAttempts = 30
 	nudgeSettle      = 1 * time.Second
 	// paneCols/paneRows: the FIXED wide pane geometry (AgentSpawner.PANE_COLS/ROWS)
@@ -404,10 +431,83 @@ func tmuxNewSession(r CmdRunner, socket, session, command string) error {
 // Phase 1 CmdRunner seam has no stdin channel, so the SHORT constant nudge is
 // carried as an argv via set-buffer. paste-buffer keeps the -d -p flags and the
 // bare-flag fallback exactly as the origin.
-func tmuxDeliverNudge(r CmdRunner, sleep func(time.Duration), socket, session, nudge string) {
+// nudgeClock is the nil-clock fail-safe, lifted out of tmuxDeliverNudge so it can
+// be asserted directly. Inline, the substitution was untestable at a sane cost:
+// the only way to observe it was to run a spawn with a nil clock and watch it take
+// ~30 real seconds, so nothing guarded it and reverting it to a no-op left the
+// whole package green (T-82 review round 3, BLK-1).
+//
+// A nil clock means REAL pacing, never "skip the wait" — see the Sleep field's
+// doc on SpawnDeps for why that direction is the safe one.
+func nudgeClock(sleep func(time.Duration)) func(time.Duration) {
 	if sleep == nil {
-		sleep = func(time.Duration) {} // test default: no real wait
+		return time.Sleep
 	}
+	return sleep
+}
+
+func tmuxDeliverNudge(r CmdRunner, sleep func(time.Duration), socket, session, nudge string) {
+	// 🔴 nil FALLS BACK TO time.Sleep, NOT TO A NO-OP, and the direction is the
+	// whole point (same fail-safe kill.go's sweepPIDs already uses: "a mis-wired
+	// production caller still paces, only tests inject a fake").
+	//
+	// It used to fall back to a no-op — the convenient default for tests, and a
+	// SILENT correctness hole for production. Three separate one-token edits (this
+	// call site passing nil, buildSpawnDeps leaving Sleep nil, buildCommandDeps'
+	// per-spawn closure setting sd.Sleep = nil) each turned 30 paced Enters into 30
+	// Enters in microseconds — materially the single-shot Enter this loop exists to
+	// avoid — with the whole package green every time. Each one was found only after
+	// a guard was written for the layer above it.
+	//
+	// With this fallback, FORGETTING to wire the clock is a PERFORMANCE bug (a spawn
+	// that paces when a test wanted it fast), never a correctness one. Tests that
+	// want speed pass their own no-op explicitly.
+	//
+	// 🔴 IT DOES NOT CLOSE THE FAMILY, and this comment claimed it did (T-82 review
+	// round 3, BLK-2). The fallback only catches the NIL shape. Writing a non-nil
+	// no-op at the same per-spawn seam — `sd.Sleep = func(time.Duration){}` in
+	// buildCommandDeps — still turns 30 paced Enters into 30 in microseconds, and
+	// the whole package is still green. That is a REAL correctness regression this
+	// fallback cannot see, because a no-op clock is indistinguishable from a real
+	// one by type.
+	//
+	// What actually guards the two known shapes today, so the next reader does not
+	// have to re-derive it:
+	//   nil at the seam        → this fallback (pacing happens anyway)
+	//   non-nil no-op at the   → TestPerSpawnBinding_CarriesTheBaseClockThrough,
+	//   per-spawn seam           which pins that the per-spawn binding changes
+	//                            Pretrust/PurgeTrash and NOTHING else
+	// A third shape — assigning to the captured spawnDeps inside transport.go's
+	// Spawn closure — is NOT GUARDED, AND NOT MADE VISIBLE EITHER. An earlier
+	// version of this comment claimed the second half ("only made VISIBLE, by
+	// there being no local copy to quietly assign to"); review round 4 measured
+	// that claim and it is false, in both directions:
+	//
+	//   * NOT visible. The closure ALREADY dereferences spawnDeps directly
+	//     (transport.go: agentWorkdir(spawnDeps.Home, …), purgeTrash(spawnDeps.Home, …)),
+	//     so one more `spawnDeps.X = …` line beside them reads like the others.
+	//     Adding it is one line, exactly as it was before this seam existed, and
+	//     `go test ./...` stays green at 522/522.
+	//   * WORSE, not neutral, in the failure it leads to. The shape this replaced
+	//     (`sd := spawnDeps` then `sd.X = …`) mutated a PER-CALL copy, so a mistake
+	//     cost one spawn. spawnDeps is captured by buildCommandDeps, so the same
+	//     mistake now persists for every later spawn of that warden process — and
+	//     is a data race if Spawn is ever called concurrently.
+	//
+	// WHAT THIS SEAM DOES BUY, stated at its real size: adding a per-spawn knob
+	// THE INTENDED WAY now requires editing withPerSpawn's signature, and
+	// spawn_clock_guard_t82_test.go fails on any non-per-spawn field that differs.
+	// That guard covers what withPerSpawn itself does. It cannot see what a caller
+	// does to the base before calling it.
+	//
+	// ⚠️ DELIBERATELY NOT FIXED HERE, and this is the reason rather than an
+	// oversight: three consecutive review rounds on this ticket each opened
+	// blockers that were created by the PREVIOUS round's fix, in a ticket whose
+	// stated scope was deleting a one-line function and its single call site. A
+	// fourth layer of machinery is how that continues. The residual is named and
+	// ticketed instead. buildCommandDeps also has no test of its own (grep:
+	// zero hits in *_test.go), which is the same gap one level up.
+	sleep = nudgeClock(sleep)
 	const buf = "oc-spawn-nudge"
 	_, _ = r.Run("tmux", "-L", socket, "set-buffer", "-b", buf, nudge)
 	// The paste lands reliably even into a not-yet-ready REPL (the text sits in the
@@ -415,29 +515,82 @@ func tmuxDeliverNudge(r CmdRunner, sleep func(time.Duration), socket, session, n
 	// the race when claude's REPL is not input-ready (the Enter fires before the box
 	// accepts it, or a startup notice eats it → the nudge sits UNSUBMITTED → the agent
 	// never boots — the Phase-4 boot-death's last mile). So retry the Enter, settling
-	// and CONFIRMING submission via a POSITIVE signal (nudgeSubmitted) each time.
-	// Bounded well under the reconcile start_timeout so a wedged TUI can't spin here.
+	// between attempts. Bounded well under the reconcile start_timeout so a wedged TUI
+	// can't spin here.
+	//
+	// 🔴 T-82: THIS LOOP DOES NOT DECIDE WHETHER THE NUDGE SUCCEEDED, AND THAT IS THE
+	// WHOLE POINT OF THE TICKET. It used to end early on a `nudgeSubmitted(pane)`
+	// check that scraped the agent's status line for a `"% context"` substring, and
+	// that check has been permanently false: the loop silently became "press Enter 30
+	// times, always". Nothing reported that — a guard that can no longer fire looks
+	// exactly like a guard that never needed to.
+	//
+	// 🔴 GET THE MECHANISM RIGHT, because an earlier draft of this comment got it
+	// wrong in a way that closes off the real design space. That status line is NOT
+	// a third party's, and NOT in a format "nobody here controls": buildStatuslineSettings
+	// (this file) is what points the agent's statusLine at `ocagent context-report`,
+	// which is OUR OWN binary in this same repo. T-51a8 — our ticket — replaced its
+	// old "🧠 N% context" rendering with "<bar> N%", which carries no "context" token
+	// at all, and nothing anywhere was watching that string.
+	//
+	// ⇒ The lesson is NOT "do not read someone else's screen". It is: TWO OF OUR OWN
+	// MODULES WERE COUPLED THROUGH AN UNCONTRACTED STRING, ACROSS A PROCESS AND A
+	// SCREEN, WITH NO LAYER GUARDING IT. Reading a marker that ocagent deliberately
+	// PUBLISHES for warden would be a legitimate design (a versioned token in the
+	// statusline, or a file ocagent drops in its workdir on start) — it is simply not
+	// what this ticket does, because the server's own receipt is a better authority
+	// than anything on a screen.
+	//
+	// (What could not be settled: history before the initial commit 8e573a7 is
+	// squashed, so whether this check EVER fired — or was dead from the white-label
+	// import onward — is unknown. The claim here is about HEAD only.)
+	//
+	// The authority is now singular and OURS. NAMING IT PRECISELY, because an
+	// earlier draft of this very comment named the wrong mechanism (T-82, the fifth
+	// wrong-mechanism line in this package — and the one sitting at the centre of
+	// its thesis, which is why it is spelled out here rather than summarised):
+	//
+	//   what the server actually judges = PRESENCE, and presence = "does a live SSE
+	//   listener exist for this member id" (server/ocserverd/reconcile.go, the
+	//   observation `Online: s.hub.IsOnline(m.ID)`; Hub.IsOnline scans its listener
+	//   set for that id). reconcileOne returns "starting: awaiting presence" while
+	//   (now - LastCommandAt) <= StartTimeout, and past that the tick sets
+	//   StartTimedOut, which stampWakeObservability turns into the wake_timeout
+	//   receipt on the member's "last operation" row.
+	//
+	// It is NOT "the server received report_waking", which is what this comment used
+	// to say. That call is a DIFFERENT event: an agent reports waking as step 1 of
+	// its boot sequence, and only holds the SSE downlink later (`ocagent listen`).
+	// In the intended boot order presence therefore IMPLIES report_waking happened,
+	// which is why the wrong name produced no wrong behaviour and survived review —
+	// but the two can come apart, and anything that goes looking for the success
+	// signal must look at the listener set, not at a report_waking receipt.
+	//
+	// ⚠️ Do NOT reach for waking_since as the signal either. Since T-ba62 reconcile
+	// stamps it AT DISPATCH (see stampWakeObservability arm (a)), so it is written
+	// whether or not the agent ever came up; e2e_test/seven_gate says the same thing
+	// in its own words and grades report_waking as an OBSERVATION for exactly this
+	// reason. waking_since answers "did we ask", presence answers "did it arrive".
+	//
+	// ⚠️ WHAT THIS DID NOT CHANGE, SO NOBODY READS IT AS MORE THAN IT IS: the Enter
+	// side is byte-for-byte what it already did. Because the old check was ALREADY
+	// always false, the loop already ran all nudgeMaxAttempts every time — dropping
+	// the check removes a dead verdict and one capture-pane per attempt, and removes
+	// NO protection. Detection did not improve either: the 30s–StartTimeout window
+	// where nothing reports was there before and is there now.
+	//
+	// ⚠️ nudgeMaxAttempts HAS NEVER BEEN MEASURED — the only justification in the
+	// tree is the "bounded well under" clause above. It is left exactly as it was on
+	// purpose: this change exists to delete an unmeasured decision, and quietly
+	// retuning a second unmeasured constant while here would carry the same disease
+	// into the fix. Changing it is its own ticket, with its own measurement.
 	if _, err := r.Run("tmux", "-L", socket, "paste-buffer", "-t", session, "-b", buf, "-d", "-p"); err != nil {
 		_, _ = r.Run("tmux", "-L", socket, "paste-buffer", "-t", session, "-b", buf)
 	}
 	for attempt := 0; attempt < nudgeMaxAttempts; attempt++ {
 		_, _ = r.Run("tmux", "-L", socket, "send-keys", "-t", session, "Enter")
 		sleep(nudgeSettle)
-		pane, err := r.Run("tmux", "-L", socket, "capture-pane", "-t", session, "-p")
-		if err == nil && nudgeSubmitted(pane) {
-			return
-		}
 	}
-}
-
-// nudgeSubmitted reports a POSITIVE "the boot nudge committed" signal: claude has
-// processed at least one turn, so its context gauge flips from "?%" (nothing
-// submitted yet) to a numeric percent. This is deliberately a positive signal — an
-// absence check ("nudge no longer on the input line") FALSE-POSITIVES during cold
-// init, before the input box has even rendered, and would stop the retry with the
-// nudge still unsubmitted (the bug that shipped in the first STAGE-B cut).
-func nudgeSubmitted(pane string) bool {
-	return strings.Contains(pane, "% context") && !strings.Contains(pane, "?% context")
 }
 
 // ---------------------------------------------------------------------------
@@ -759,10 +912,50 @@ type SpawnDeps struct {
 	// member's workdir, exactly like Pretrust. Purely best-effort: it never fails
 	// a spawn.
 	PurgeTrash func()
-	// Sleep paces the boot-nudge settle/retry between Enter presses. nil ⇒ no wait
-	// (the test default — fakes drive readiness synchronously); production wires
-	// time.Sleep so a cold claude REPL gets real time to become input-ready.
+	// Sleep paces the boot-nudge settle/retry between Enter presses. Production
+	// wires time.Sleep so a cold claude REPL gets real time to become input-ready.
+	//
+	// 🔴 nil DOES NOT MEAN "no wait" — it means REAL time.Sleep. tmuxDeliverNudge
+	// substitutes time.Sleep for a nil clock (see the fallback there and why), so a
+	// literal that omits this field PACES FOR REAL: ~30s per spawn, which in a test
+	// reads as "this suite got slow", not as a failure. A test that wants speed must
+	// pass its own no-op EXPLICITLY — omitting the field is the slow path, not the
+	// fast one. This sentence used to say the opposite and was the line anyone
+	// filling a SpawnDeps literal read (T-82 review round 3, BLK-3).
 	Sleep func(time.Duration)
+}
+
+// withPerSpawn returns a copy of d with ONLY the two per-spawn seams rebound —
+// the ones that cannot be built until StartParams names a member, because they
+// need that member's launch workdir. Everything else, the nudge clock included,
+// is carried through from the receiver untouched.
+//
+// 🔴 WHY THIS IS A NAMED METHOD AND NOT `sd := base; sd.X = ...` AT THE CALL
+// SITE. The transport used to copy SpawnDeps into a local inside its Spawn
+// closure and assign fields on the copy. That is a normal-looking shape, and it
+// is exactly where the T-82 review round 3 seeded its surviving mutant: adding
+// `sd.Sleep = func(time.Duration){}` on the next line turns 30 paced Enters into
+// 30 in microseconds — a real correctness regression — with the whole package
+// green. The closure is the natural home for "tweak one thing per spawn", so the
+// next person to need one will write it there too.
+//
+// Routing the rebind through a method with an explicit parameter list means the
+// closure holds no mutable copy to quietly assign to, and widening what may vary
+// per spawn requires changing THIS signature — a visible, reviewable edit rather
+// than one more line inside a closure.
+//
+// ⚠️ WHAT THIS DOES NOT DO, so nobody reads it as more than it is: Go structs are
+// not immutable and this does not make one. A caller can still take the returned
+// value, assign to it, and call start(). What changed is that doing so is now an
+// obviously odd thing to write instead of the obvious thing to write, and that
+// TestPerSpawnBinding_CarriesTheBaseClockThrough fails if a third seam is added
+// here without a decision. It closes two known shapes and makes the third
+// visible; it does not close the family. The earlier fallback comment in
+// tmuxDeliverNudge claimed a family was closed and was wrong — do not repeat it.
+func (d SpawnDeps) withPerSpawn(pretrust func() error, purgeTrash func()) SpawnDeps {
+	d.Pretrust = pretrust
+	d.PurgeTrash = purgeTrash
+	return d
 }
 
 // claudeBinUnresolvedReason is the owner-facing refusal for "this member wants

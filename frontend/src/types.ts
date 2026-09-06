@@ -232,8 +232,11 @@ export interface LessonsView {
  * journal's third block, beside Duty (the role definition) and Learning (the
  * lessons doc).
  *
- * ⚠️ UNLIKE `LessonsView` this DOES carry `sizeChars` / `capChars`, and that is
- * load-bearing rather than tidy. `capChars` is the live `doc.cap_chars.insight`
+ * ⚠️ This carries `sizeChars` / `capChars`, and that is load-bearing rather
+ * than tidy. (This line used to say "UNLIKE `LessonsView`" — false since T-ae38
+ * gave Learning the same pair for the same reason; corrected in T-100, which
+ * found it while adding the readout to the two task-manual documents.)
+ * `capChars` is the live `doc.cap_chars.insight`
  * setting (its OWN one since T-ae38 — it no longer shares a number with Learning),
  * and the settings surface that otherwise shows it is admin-only — the insight
  * card's header is the one place an owner sees the number a write will be judged
@@ -931,8 +934,9 @@ export interface RoleSummaryView {
  * a roster row plus the persona body it describes (from the real seed, never
  * the mockup's illustrative Chinese desc).
  *
- * Answered by `GET /api/roles/{key}` and by every role WRITE (the response IS
- * the folded doc). Never by the roster list.
+ * Answered by `GET /api/roles/{key}`. NOT by role writes: since T-91 those
+ * answer a bounded receipt rather than the folded doc, so a caller that needs
+ * this view after a write has to read it back. Never by the roster list.
  */
 export interface RoleDefView extends RoleSummaryView {
   definitionMd: string;

@@ -22,6 +22,8 @@ import { httpApi } from "./http";
 import { ApiError } from "./errors";
 import { codeForStatus } from "./errorCodes";
 
+/** Still the shape `POST /api/roles` answers under `member` — that route was not
+ * part of T-91 and still hands back the roster row it just created. */
 const WIRE_MEMBER = {
   id: "m-1",
   name: "Mira",
@@ -31,6 +33,13 @@ const WIRE_MEMBER = {
   status: "active",
 };
 
+/** The DEFAULT answer for the writes under test here. Since T-91 patchMember and
+ * activateMember are answered by a receipt, not a MemberDTO, and a stub that
+ * kept handing back the whole row would be a wire the server no longer sends —
+ * the one thing this file's `?? false` neighbours (http.pending-response.test)
+ * would never catch, because everything here asserts the REQUEST. */
+const WIRE_RECEIPT = { id: "m-1" };
+
 function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
     status,
@@ -38,7 +47,7 @@ function jsonResponse(body: unknown, status = 200): Response {
   });
 }
 
-const fetchMock = vi.fn(async () => jsonResponse(WIRE_MEMBER));
+const fetchMock = vi.fn(async () => jsonResponse(WIRE_RECEIPT));
 
 async function lastRequest(): Promise<{
   url: string;
@@ -58,7 +67,7 @@ async function lastRequest(): Promise<{
 
 beforeEach(() => {
   fetchMock.mockReset();
-  fetchMock.mockImplementation(async () => jsonResponse(WIRE_MEMBER));
+  fetchMock.mockImplementation(async () => jsonResponse(WIRE_RECEIPT));
   vi.stubGlobal("fetch", fetchMock);
 });
 
@@ -341,12 +350,15 @@ describe("httpApi · updateTaskTitle wire shape", () => {
 
   it("POSTs the task's title route with the text in the body", async () => {
     fetchMock.mockImplementation(async () => jsonResponse(WIRE_TASK));
-    const task = await httpApi.updateTaskTitle("t-1", "corrected");
+    // T-91: the write answers a receipt and this seam returns nothing — what
+    // this test pins is the REQUEST it sends, which is all it ever really
+    // measured (the old `task.title` assertion just read back the fixture the
+    // fetch mock had been handed).
+    await httpApi.updateTaskTitle("t-1", "corrected");
     const { url, method, body } = await lastRequest();
     expect(url).toBe("/api/tasks/t-1/title");
     expect(method).toBe("POST");
     expect(JSON.parse(String(body))).toEqual({ title: "corrected" });
-    expect(task.title).toBe("corrected");
   });
 
   it("rejects a blank title with the server's 400 rather than refusing locally", async () => {

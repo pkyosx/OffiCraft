@@ -39,7 +39,8 @@ import (
 // that lags the constants it is closing over is not a guard. Every constant in
 // member_ownerop_winddown.go's two const blocks belongs here; add the value in
 // the same edit that adds the constant. ownerOpRestart ("restart") is in for a
-// different reason: it is the ONE verb ownerOpDisplacesTheSession deny-lists
+// different reason: it WAS the one verb the (now deleted, T-65 包④)
+// ownerOpDisplacesTheSession deny-list named
 // out of the wind-down, so it never lands in refocus_op today — but that
 // deny-list is documented as "a verb added later gets the wind-down by
 // default", so the day it stops being denied the ruling must already be pinned.

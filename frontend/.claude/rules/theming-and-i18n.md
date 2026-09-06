@@ -31,6 +31,12 @@ Locale 是 zh/en 封閉聯集；xian 是主題，不是語系。mobile 的 720 �
 
 可帶參數的文案要拆成可覆寫的靜態葉子，由 i18n/compose.ts 組裝；不可在 dictionary 直接放 interpolation function。句中參數用 lead/tail，只有空格差異用 sp；狀態映射也用靜態可覆寫葉子。compose 測試要釘住 zh/en 的逐字輸出。
 
+⚠️ **這條規則今天沒有被遵守，也沒有任何東西在執行它 —— 這是一筆已知欠款，不是現況的描述**（Kyle 2026-09-06 裁定，T-93 第二輪）。實量：本包之前 `locales/{zh,en}.ts` **各有 22 個** dictionary interpolation function（`origin/main` 與當時 HEAD 同數；量法 `grep -cE '^\s+[A-Za-z_][A-Za-z0-9_]*:\s*\(.*=>'`），本包再加 8，成為各 30。**唯一在乎這件事的機制 `scripts/gen-message-keys.mjs` 只是把 function leaf 排除在白名單外，它不會叫**，所以違反這一句從來不會有任何東西變紅。
+
+代價是具體的：**那 30 個葉子的文字，主題包永遠改不動**。這正是這一句存在的理由，也就是說那個能力今天在 30 個地方是壞的。
+
+⇒ **不要把這一句改成「描述現況」**——那等於把一個已知缺陷升級成設計。也**不要要求下一張碰到它的票當第一個還債的人**：在一張跟 i18n 無關的票裡搬 30 個葉子（外加補 `compose.test.ts` 的 EXPECTED 列），是拿那張票去付別人的欠款。**新的帶參數文案照現況寫沒有錯，直到有人專門開一張票把 30 個一起搬完為止；那張票還沒有被開。**
+
 themeIdentity 子樹是主題自己的身分名稱，產生 message key 時整支跳過；nav.office 仍可覆寫。匯入 wording 遇到未知 code 要丟棄並在 UI 顯示一次 warning，不可把整包判錯，也不可靜默吞掉；真正非法的 token、保留 id 或注入仍拒絕。既存主題包套用時只改既有 string leaf，不因白名單變小而清洗。
 
 ## 主題編輯與清單

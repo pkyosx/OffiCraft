@@ -43,7 +43,15 @@ import {
   CHAT_BUDGET_CHARS_MAX,
   CHAT_BUDGET_CHARS_MIN,
 } from "../api/chatBudget";
+import {
+  STEP_NOTE_CAP_CHARS_MAX,
+  STEP_NOTE_CAP_CHARS_MIN,
+} from "../api/stepNoteCap";
 import { BACKUP_RETAIN_MAX, BACKUP_RETAIN_MIN } from "../api/backupRetain";
+import {
+  SUGGESTED_REPLIES_MAX_ENTRIES,
+  SUGGESTED_REPLY_MAX_LEN,
+} from "../api/suggestedReplies";
 
 /** The adjustable document caps (T-ae38, widened by T-30f1), in the order the
  * parameters card lists them: the three role-journal segments in journal order
@@ -609,13 +617,26 @@ export function SettingsPage({
             : t.settings.manualTabLearnings,
       },
     ];
-    // The update echo is the manual AFTER the edit, so this page adopts it
-    // rather than waiting for the list refetch (which no longer carries either
-    // document) or for an SSE frame.
+    // WRITE THEN RE-READ (T-91). This page used to adopt the update's echo —
+    // the manual AFTER the edit — but the receipt that write is moving to
+    // reports only the SIZES of the documents it touched, so adopting it would
+    // put a blank SOP on screen with nothing thrown. The list refetch inside
+    // `update` does not cover this page either (the directory carries neither
+    // document), so the page re-reads its own manual rather than waiting for an
+    // SSE frame.
     const onSave = async (patch: TaskManualPatch) => {
-      const next = await manualsH.update(key, patch);
-      manualDoc.adopt(next);
-      return next;
+      await manualsH.update(key, patch);
+      // But the RE-READ is its own promise. TaskManualsPage maps a rejection here
+      // to 儲存失敗 — for an edit the server already has — and the owner's natural
+      // retry writes it a second time. The page can be stale; it must not lie.
+      try {
+        await manualDoc.refetch();
+      } catch (e) {
+        console.warn(
+          "SettingsPage: manual re-read after save failed (the manual was saved)",
+          e
+        );
+      }
     };
     // A restore rewrites ONE of the manual's documents server-side, so this
     // page re-reads its own manual; the list follows for the row it shows.
@@ -886,7 +907,17 @@ export function SettingsPage({
         onRenameTitle={
           role && !role.isSeed
             ? async (name) => {
-                roleDoc.adopt(await rolesH.save(view.key, { name }));
+                await rolesH.save(view.key, { name });
+                // The rename is stored; only the doc re-read below can still fail, and
+                // DocCard would print that as the rename's own failure.
+                try {
+                  await roleDoc.refetch();
+                } catch (e) {
+                  console.warn(
+                    "SettingsPage: role re-read after rename failed (the name was saved)",
+                    e
+                  );
+                }
               }
             : undefined
         }
@@ -945,11 +976,24 @@ export function SettingsPage({
             ? { size: role.sizeChars, cap: role.capChars }
             : undefined
         }
-        // Adopt the write echo: this page is no longer the roster's array, so
-        // nothing else would put the saved text back on screen until an SSE
-        // frame arrived — and a save must not depend on the stream being up.
+        // WRITE THEN RE-READ (T-91). This page is no longer the roster's
+        // array, so nothing else would put the saved text back on screen until
+        // an SSE frame arrived — and a save must not depend on the stream being
+        // up. It used to adopt the write's echo; the role receipt keeps the
+        // name and the size numbers and drops `definition_md`, so the re-read
+        // is now the only thing that can supply the text.
         onSave={async (text) => {
-          roleDoc.adopt(await rolesH.save(view.key, { definitionMd: text }));
+          await rolesH.save(view.key, { definitionMd: text });
+          // …and it is a SEPARATE promise. DocCard prints a rejection as 儲存失敗 and
+          // reopens the editor, which is exactly wrong once the PATCH has returned.
+          try {
+            await roleDoc.refetch();
+          } catch (e) {
+            console.warn(
+              "SettingsPage: role re-read after save failed (the definition was saved)",
+              e
+            );
+          }
         }}
         // 重置 = "restore the FILE SEED" — only a seed role has one. A custom
         // role's doc IS its only truth (the server 404s its reset — verified
@@ -959,7 +1003,16 @@ export function SettingsPage({
         onReset={
           role?.isSeed
             ? async () => {
-                roleDoc.adopt(await rolesH.reset(view.key));
+                await rolesH.reset(view.key);
+                // The seed is back server-side; the re-read only fetches it for display.
+                try {
+                  await roleDoc.refetch();
+                } catch (e) {
+                  console.warn(
+                    "SettingsPage: role re-read after reset failed (the role was reset)",
+                    e
+                  );
+                }
               }
             : undefined
         }
@@ -1064,7 +1117,9 @@ export function SettingsPage({
           <span className="set-entry__name">{t.settings.manuals}</span>
           <ChevronRightIcon size={18} className="set-entry__chev" />
         </button>
-        {/* 參數調整 — the owner-tunable server knobs (登入有效期 / 自動換手門檻).
+        {/* 參數調整 — the owner-tunable server knobs. Deliberately NOT named
+         * here: this comment used to list two of them and stayed that way while
+         * the card grew past twenty.
          * They used to live in the profile dropdown's 偏好設定 sub-view; owner
          * 2026-07-12 pulled them here so PARAMETERS live together in 設定 and the
          * avatar menu keeps only appearance + account identity (主題/語言/密碼). */}
@@ -1126,12 +1181,210 @@ export function SettingsPage({
 const TTL_CHOICES = [43200, 86400, 604800, 2592000] as const;
 
 /**
- * 參數調整 — 登入與 agent 有效期 + 自動換手門檻, both durable
- * and live immediately (PATCH echoes the effective values back). Honest states:
+ * 參數調整 — every owner-tunable server knob, durable
+ * and live immediately (PATCH echoes the effective values back). The knobs are
+ * NOT enumerated in this comment: the rows below are the list, and a prose copy
+ * of it goes stale the first time one is added, silently (T-122 added two).
+ * Honest states:
  * a REJECTED load renders the error line instead of a fabricated form, and an
  * out-of-range / rejected write snaps the field back to the last server-confirmed
  * value rather than leaving a lie on screen.
  */
+/** ONE editable 建議回覆 list (T-122) — the 參數設定 face of
+ * `suggested_replies.reply_card` / `suggested_replies.task_message`.
+ *
+ * Two of these are mounted, one per list, and they share nothing but this
+ * component: the owner ruled the 請示卡 box and the 任務 box get separate
+ * settings, so each editor holds its own draft and saves its own field. A save
+ * sends ONE field, which is what keeps "edit one list" from rewriting the other.
+ *
+ * The draft is `null` until the owner touches something, so a value arriving
+ * from the server flows straight through; once touched, the draft owns the
+ * rows until it commits. Same idiom as the numeric rows above.
+ *
+ * 🔴 THE EMPTY LIST IS A REAL VALUE, not "unset". Deleting the last row saves
+ * `[]`, and that is what turns the chips off. */
+function SuggestedRepliesEditor({
+  label,
+  sub,
+  idPrefix,
+  value,
+  onCommit,
+  onTouch,
+}: {
+  label: string;
+  sub: string;
+  idPrefix: string;
+  value: string[];
+  /** Save this list wholesale. Called only when it differs from `value`. */
+  onCommit: (next: string[]) => void;
+  /** Clear the card's error banners as soon as the owner types. */
+  onTouch: () => void;
+}) {
+  const { t } = useI18n();
+  const [draft, setDraft] = useState<string[] | null>(null);
+  const rows = draft ?? value;
+  // Same guard the role-create field below uses: an Enter that CONFIRMS a CJK
+  // candidate must not be read as "this line is finished, save it".
+  const composingRef = useRef(false);
+
+  /** RUNES, not UTF-16 units — the same measure the server applies
+   * (utf8.RuneCountInString), so a CJK sentence gets the full budget and the
+   * number this page shows is the number the server counted. */
+  const runeLen = (v: string) => [...v.trim()].length;
+  const overCap = (v: string) => runeLen(v) > SUGGESTED_REPLY_MAX_LEN;
+
+  function commit(next: string[]) {
+    // 🔴 REFUSE, NEVER SHORTEN. owner (rc-76ab62ceb3ff): 「超過就直接拒絕存檔並
+    // 告訴你為什麼,不會偷偷截斷」. That is also why the input below carries NO
+    // `maxLength`: the browser enforces maxLength by CUTTING A PASTE with no
+    // notice at all, and pasting is exactly how a saved reply gets into this
+    // field. The over-long text stays on screen, in full, with the reason
+    // printed under it, and nothing is sent.
+    if (next.some(overCap)) {
+      setDraft(next);
+      return;
+    }
+    const cleaned = next.map((v) => v.trim()).filter((v) => v.length > 0);
+    setDraft(null);
+    if (
+      cleaned.length === value.length &&
+      cleaned.every((v, i) => v === value[i])
+    ) {
+      return;
+    }
+    onCommit(cleaned);
+  }
+
+  /** A structural edit (delete / reorder) is a decision, not a keystroke, so it
+   * saves at once — there is no blur to wait for. */
+  function apply(next: string[]) {
+    setDraft(next);
+    commit(next);
+  }
+
+  const full = rows.length >= SUGGESTED_REPLIES_MAX_ENTRIES;
+
+  return (
+    <div className="param-row param-row--stacked">
+      <div className="param-row__body">
+        <div className="param-row__name">{label}</div>
+        <div className="param-row__sub">{sub}</div>
+      </div>
+      <div className="sugg-edit">
+        {rows.map((text, i) => (
+          <Fragment key={`${idPrefix}-${i}`}>
+          <div className="sugg-edit__row">
+            <input
+              id={`${idPrefix}-${i}`}
+              className="param-input sugg-edit__input"
+              type="text"
+              // This field manages a LIST; the sentences already live in the
+              // rows above it. The browser's own "you typed this before"
+              // dropdown floats a stale copy over them (owner c-90914e605cdb).
+              autoComplete="off"
+              aria-invalid={overCap(text) || undefined}
+              placeholder={t.settings.suggestedReplyPlaceholder}
+              aria-label={`${label} ${i + 1}`}
+              value={text}
+              onChange={(e) => {
+                onTouch();
+                const next = [...rows];
+                next[i] = e.target.value;
+                setDraft(next);
+              }}
+              onBlur={() => commit(rows)}
+              onCompositionStart={() => {
+                composingRef.current = true;
+              }}
+              onCompositionEnd={(e) => {
+                composingRef.current = false;
+                const next = [...rows];
+                next[i] = e.currentTarget.value;
+                setDraft(next);
+              }}
+              onKeyDown={(e) => {
+                if (
+                  e.nativeEvent.isComposing ||
+                  e.keyCode === 229 ||
+                  composingRef.current
+                ) {
+                  return;
+                }
+                if (e.key === "Enter") commit(rows);
+              }}
+            />
+            <button
+              type="button"
+              className="sugg-edit__btn"
+              title={t.settings.suggestedReplyMoveUp}
+              aria-label={`${label} ${t.settings.suggestedReplyMoveUp} ${i + 1}`}
+              disabled={i === 0}
+              onClick={() => {
+                const next = [...rows];
+                [next[i - 1], next[i]] = [next[i], next[i - 1]];
+                apply(next);
+              }}
+            >
+              ↑
+            </button>
+            <button
+              type="button"
+              className="sugg-edit__btn"
+              title={t.settings.suggestedReplyMoveDown}
+              aria-label={`${label} ${t.settings.suggestedReplyMoveDown} ${i + 1}`}
+              disabled={i === rows.length - 1}
+              onClick={() => {
+                const next = [...rows];
+                [next[i], next[i + 1]] = [next[i + 1], next[i]];
+                apply(next);
+              }}
+            >
+              ↓
+            </button>
+            <button
+              type="button"
+              className="sugg-edit__btn sugg-edit__btn--remove"
+              title={t.settings.suggestedReplyRemove}
+              aria-label={`${label} ${t.settings.suggestedReplyRemove} ${i + 1}`}
+              onClick={() => apply(rows.filter((_, j) => j !== i))}
+            >
+              <TrashIcon size={14} />
+            </button>
+          </div>
+          {overCap(text) && (
+            <div className="sugg-edit__error" role="alert">
+              {t.settings.suggestedRepliesTooLong(
+                runeLen(text),
+                SUGGESTED_REPLY_MAX_LEN
+              )}
+            </div>
+          )}
+          </Fragment>
+        ))}
+        <button
+          type="button"
+          className="sugg-edit__add"
+          disabled={full}
+          title={full ? t.settings.suggestedRepliesFull : undefined}
+          onClick={() => {
+            onTouch();
+            setDraft([...rows, ""]);
+          }}
+        >
+          {t.settings.suggestedReplyAdd}
+        </button>
+        {/* A disabled button says nothing about WHY. Twenty is the cap, and
+            "the cap is reached" has to be readable, not inferred from a button
+            that stopped responding. */}
+        {full && (
+          <div className="sugg-edit__note">{t.settings.suggestedRepliesFull}</div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function ServerParams({
   settings,
   error,
@@ -1157,12 +1410,14 @@ function ServerParams({
   const [codexNoticeDraft, setCodexNoticeDraft] = useState<string | null>(null);
   const [monitoringRefreshDraft, setMonitoringRefreshDraft] = useState<string | null>(null);
   const [acceleratedGraceDraft, setAcceleratedGraceDraft] = useState<string | null>(null);
+  const [wardenCredLifetimeDraft, setWardenCredLifetimeDraft] = useState<string | null>(null);
   // T-ae38, widened by T-30f1: five independent caps, so five independent
   // drafts. A shared draft would make typing in one field snap the others back.
   const [docCapDrafts, setDocCapDrafts] = useState<
     Partial<Record<DocCapField, string>>
   >({});
   const [chatBudgetDraft, setChatBudgetDraft] = useState<string | null>(null);
+  const [stepNoteCapDraft, setStepNoteCapDraft] = useState<string | null>(null);
   const [backupRetainDraft, setBackupRetainDraft] = useState<string | null>(
     null
   );
@@ -1242,6 +1497,21 @@ function ServerParams({
     if (n !== settings.acceleratedGraceSecs) void onSave({ acceleratedGraceSecs: n });
   }
 
+  // 機器憑證壽命 (T-fc53). A free-typed number rather than a dropdown of fixed
+  // choices (owner 2026-09-06): the fleets that need this at all need a number
+  // someone picked for their own renewal window, not one of ours. The range
+  // mirrors the server's 422 exactly (86400..34560000) — the floor is one day
+  // because the last third of the lifetime is the retry window, and offering a
+  // value the server rejects would show the owner a 422 for a number this page
+  // handed him.
+  function commitWardenCredLifetime() {
+    if (!settings || wardenCredLifetimeDraft === null) return;
+    const n = Number(wardenCredLifetimeDraft);
+    if (!Number.isInteger(n) || n < 86400 || n > 34560000) { setRangeError(true); setWardenCredLifetimeDraft(null); return; }
+    setWardenCredLifetimeDraft(null);
+    if (n !== settings.wardenCredentialLifetimeSecs) void onSave({ wardenCredentialLifetimeSecs: n });
+  }
+
   function commitMonitoringRefresh() {
     if (!settings || monitoringRefreshDraft === null) return;
     const n = Number(monitoringRefreshDraft);
@@ -1274,6 +1544,26 @@ function ServerParams({
     }
     setChatBudgetDraft(null);
     if (n !== settings.chatBudgetChars) void onSave({ chatBudgetChars: n });
+  }
+
+  // T-119: the step-note cap. Its own row and its own commit for the same
+  // reason as the chat budget — this one may be turned DOWN, so it does not
+  // belong in DOC_CAP_FIELDS whose floor is each segment's shipped default.
+  // Lowering it costs nothing already stored: the cap is checked only on write.
+  function commitStepNoteCap() {
+    if (!settings || stepNoteCapDraft === null) return;
+    const n = Number(stepNoteCapDraft);
+    if (
+      !Number.isInteger(n) ||
+      n < STEP_NOTE_CAP_CHARS_MIN ||
+      n > STEP_NOTE_CAP_CHARS_MAX
+    ) {
+      setRangeError(true);
+      setStepNoteCapDraft(null);
+      return;
+    }
+    setStepNoteCapDraft(null);
+    if (n !== settings.stepNoteCapChars) void onSave({ stepNoteCapChars: n });
   }
 
   // T-8: backup retention N. Its own row and its own commit for the same reason
@@ -1489,6 +1779,21 @@ function ServerParams({
 
           <div className="param-row">
             <div className="param-row__body">
+              <div className="param-row__name">{t.settings.wardenCredentialLifetime}</div>
+              <div className="param-row__sub">{t.settings.wardenCredentialLifetimeSub}</div>
+            </div>
+            <div className="param-pct">
+              <input id="param-warden-cred-lifetime" className="param-input" type="number" min={86400} max={34560000}
+                aria-label={t.settings.wardenCredentialLifetime}
+                value={wardenCredLifetimeDraft ?? String(settings.wardenCredentialLifetimeSecs)}
+                onChange={(e) => { setRangeError(false); onClearSaveError(); setWardenCredLifetimeDraft(e.target.value); }}
+                onBlur={commitWardenCredLifetime} onKeyDown={(e) => { if (e.key === "Enter") commitWardenCredLifetime(); }} />
+              <span className="param-pct__sign">{t.settings.seconds}</span>
+            </div>
+          </div>
+
+          <div className="param-row">
+            <div className="param-row__body">
               <div className="param-row__name">{t.settings.monitoringRefresh}</div>
               <div className="param-row__sub">{t.settings.monitoringRefreshSub}</div>
             </div>
@@ -1525,6 +1830,22 @@ function ServerParams({
 
           <div className="param-row">
             <div className="param-row__body">
+              <div className="param-row__name">{t.settings.stepNoteCap}</div>
+              <div className="param-row__sub">{t.settings.stepNoteCapSub}</div>
+            </div>
+            <div className="param-pct">
+              <input id="param-step-note-cap" className="param-input" type="number"
+                min={STEP_NOTE_CAP_CHARS_MIN} max={STEP_NOTE_CAP_CHARS_MAX}
+                aria-label={t.settings.stepNoteCap}
+                value={stepNoteCapDraft ?? String(settings.stepNoteCapChars)}
+                onChange={(e) => { setRangeError(false); onClearSaveError(); setStepNoteCapDraft(e.target.value); }}
+                onBlur={commitStepNoteCap} onKeyDown={(e) => { if (e.key === "Enter") commitStepNoteCap(); }} />
+              <span className="param-pct__sign">{t.settings.chars}</span>
+            </div>
+          </div>
+
+          <div className="param-row">
+            <div className="param-row__body">
               <div className="param-row__name">{t.settings.chatBudget}</div>
               <div className="param-row__sub">{t.settings.chatBudgetSub}</div>
             </div>
@@ -1554,6 +1875,27 @@ function ServerParams({
               <span className="param-pct__sign">{t.settings.backupRetainUnit}</span>
             </div>
           </div>
+
+          {/* T-122: TWO lists, TWO rows. The owner ruled 「任務跟請示卡要是不同的
+              參數設定」 (c-85c28e708b81), so each row saves its OWN field and a
+              save never carries the other one. */}
+          <SuggestedRepliesEditor
+            label={t.settings.suggestedRepliesReplyCard}
+            sub={t.settings.suggestedRepliesReplyCardSub}
+            idPrefix="param-suggested-reply-card"
+            value={settings.suggestedRepliesReplyCard}
+            onTouch={() => { setRangeError(false); onClearSaveError(); }}
+            onCommit={(next) => { void onSave({ suggestedRepliesReplyCard: next }); }}
+          />
+
+          <SuggestedRepliesEditor
+            label={t.settings.suggestedRepliesTaskMessage}
+            sub={t.settings.suggestedRepliesTaskMessageSub}
+            idPrefix="param-suggested-task-message"
+            value={settings.suggestedRepliesTaskMessage}
+            onTouch={() => { setRangeError(false); onClearSaveError(); }}
+            onCommit={(next) => { void onSave({ suggestedRepliesTaskMessage: next }); }}
+          />
 
           {(saveError || rangeError) && (
             <div className="set-error param-error">

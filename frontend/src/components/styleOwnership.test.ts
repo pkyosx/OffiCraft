@@ -60,6 +60,10 @@ const OWNED_SHEETS = [
   // draws the `.task-artifacts*` block out of tasks.css — so this sheet would
   // free-ride on whatever the task page happens to import.
   "task-artifact-versions.css",
+  // T-122: the 建議回覆 row. Mounted from BOTH the reply-card composer and the
+  // task card's message box, whose hosts import replies.css / tasks.css — so
+  // this sheet would free-ride on whichever page drew the row first.
+  "suggested-replies.css",
 ] as const;
 
 /** Sheets whose BEM block is not just the filename. `member-detail.css` owns the

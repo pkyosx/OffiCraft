@@ -69,7 +69,7 @@
 | A6 | 任務 chip（任務編號，T-5291 起即 task id 本身）+ 任務類型 | 無 | 有，可點 → `#tasks/<id>` | 外包獨有 | **保留**。外包的「角色」就是它綁的任務類型，這是 rail 列形的同一條裁定（`frontend/CLAUDE.md` 外包面板節），移除等於拔掉外包唯一的身分線索 |
 | A7 | 動作鍵列（喚醒／取消／停止／強制停止） | `MemberActionButtons`，依 `visual` 五態切換按鈕集合 | ~~無此列~~ **已補（owner 2026-07-31）**：身分卡右上角有 `worker-detail-change` ＋ `MemberActionButtons` 的 `member-action-stop`／`member-action-accelerated-stop`／`member-action-force-stop`（T-ed79 起；在那之前是 worker 私有的 `worker-detail-stop`）／`worker-detail-wake` | ~~差~~ **已對齊** | ✅ 見下方「owner 2026-07-31 四項裁定」 |
 | A8 | 「更改」鍵 | `mp-change`，`online` 時出現，開啟動設定 dialog | **無** | 差 🔴 | **外包要有等價入口**：開一份同形狀的設定 dialog（執行環境／模型／投入度／機器）。這是步驟 2 的主改動 |
-| A9 | 未派送警示 | `DispatchAlert`（`mp-wake-undispatched` / `mp-relocate-undispatched`） | **無** | 差 | ~~**待裁定**：外包的 `relocateWorker` wire 回傳 `OutsourceWorkerView`，**沒有** member 那個 `relocation_pending` 欄位，所以外包端根本沒有訊號可顯示。要對齊得改 `spec/openapi.json`（wire 已凍結，§13）。本票不動~~ → **T-ed79 已做（#5／#12）**：`OutsourceWorkerDTO` 加了三個 optional 欄位 `relocation_pending` / `relocation_deferred` / `activation_pending`（新增欄位一律 optional，不破壞既有 client）。relocate 的回應會說「排了、還沒落地」以及「是不是**刻意**延後到收口」；restart 的回應會說「什麼都沒派出去」。這一格原本擋在「要動凍結 wire」，那正是 owner 這次一併裁掉的 |
+| A9 | 未派送警示 | `DispatchAlert`（`mp-wake-undispatched` / `mp-relocate-undispatched`） | **無** | 差 | ~~**待裁定**：外包的 `relocateWorker` wire 回傳 `OutsourceWorkerView`，**沒有** member 那個 `relocation_pending` 欄位，所以外包端根本沒有訊號可顯示。要對齊得改 `spec/openapi.json`（wire 已凍結，§13）。本票不動~~ → **T-ed79 已做（#5／#12）**：`OutsourceWorkerDTO` 加了三個 optional 欄位 `relocation_pending` / `relocation_deferred` / `activation_pending`（新增欄位一律 optional，不破壞既有 client）。relocate 的回應會說「排了、還沒落地」以及「是不是**刻意**延後到收口」；restart 的回應會說「什麼都沒派出去」。這一格原本擋在「要動凍結 wire」，那正是 owner 這次一併裁掉的。**T-91（owner 2026-09-06）搬了家，沒有拿掉能力**：三個旗標不再是 `OutsourceWorkerDTO`／`MemberDTO` 的欄位，而是 relocate／restart 各自回的專屬回執（`AgentRelocateReceiptDTO`、`OutsourceRestartReceiptDTO`、`MemberActivateReceiptDTO`）上的欄位。理由是它們本來就只寫在「回應」上、任何讀取面都不可能有值；留在讀取 DTO 上是六個恆為空、而說明文字還在描述一個已經不存在的回應的欄位。要讀「排了沒落地」仍然讀 relocate 自己的回答 |
 
 ## B. 模型／機器 資訊卡（共用面板 `mp-info2`）
 
@@ -128,7 +128,7 @@
 
 | 代號 | 一句話 |
 |------|--------|
-| A9 | ~~外包 relocate 的 wire 回傳沒有 `relocation_pending`，無法對齊正職的「已釘選但沒派出去」警示。要對齊＝改凍結 wire~~ → T-ed79 #5／#12 已補上三個 optional 欄位，見上表 A9 |
+| A9 | ~~外包 relocate 的 wire 回傳沒有 `relocation_pending`，無法對齊正職的「已釘選但沒派出去」警示。要對齊＝改凍結 wire~~ → T-ed79 #5／#12 已補上三個 optional 欄位（T-91 起改由 relocate／restart 的專屬回執攜帶，不再是讀取 DTO 的欄位），見上表 A9 |
 | B2 | ~~外包 DTO 無 `actual_model`，模型格無法像正職那樣標「最近一次開機回報」。要不要加欄？~~ → 欄早在 T-7f28 就加了，owner `rc-b8d219446b13` [0] 裁定兩邊都標，見上表 B2 列 |
 | B4 | 要不要補「→ 要換到 ○○」遷移提示？外包的 `machine` 是派工目標而非觀測位置，文案有過度宣稱風險 |
 | D2 | `waking` 的外包無「取消喚醒」。`stop` 端點是否吃 waking 態，wire 未明說 |

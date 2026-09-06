@@ -8,7 +8,12 @@ import type { ThemeBundle } from "../lib/themeBundle";
 import type { components } from "./generated/schema";
 import { DOC_CAP_CHARS_DEFAULTS } from "./docCap";
 import { CHAT_BUDGET_CHARS_DEFAULT } from "./chatBudget";
+import { STEP_NOTE_CAP_CHARS_DEFAULT } from "./stepNoteCap";
 import { BACKUP_RETAIN_DEFAULT } from "./backupRetain";
+import {
+  readSuggestedRepliesReplyCard,
+  readSuggestedRepliesTaskMessage,
+} from "./suggestedReplies";
 import type {
   LoreActivityView,
   LoreEntrySummaryView,
@@ -97,6 +102,7 @@ import type {
   WireChatRead,
   WireChatGalleryEntry,
   WireReplyCard,
+  WireReplyCardReceipt,
   WireReplyCardOption,
   WireWebhookEndpoint,
   WireWebhookRequestLog,
@@ -108,7 +114,6 @@ import type {
   WireTaskStep,
   WireTaskStepDetail,
   WireTaskArtifact,
-  WireTaskArtifactRef,
   WireTaskArtifactVersion,
   WireOutsourceWorker,
   WireTaskManual,
@@ -128,6 +133,7 @@ import type {
   ChatReadReceipt,
   GalleryAttachment,
   ReplyCard,
+  ReplyCardWriteReceipt,
   ReplyCardOption,
   ServerSettingsView,
   OnboardingReportView,
@@ -136,7 +142,6 @@ import type {
   TaskStepView,
   TaskStepDetailView,
   TaskArtifactView,
-  TaskArtifactRefView,
   TaskArtifactVersionView,
   OutsourceWorkerView,
   TaskTypeView,
@@ -480,6 +485,42 @@ export function toReplyCard(w: WireReplyCard): ReplyCard {
   };
 }
 
+/** Map the reply-card WRITE receipt → `ReplyCardWriteReceipt` (T-91).
+ *
+ * NOT `toReplyCard`. The receipt carries only what answer / re-answer / expire
+ * DECIDED; every other field of a card is absent from it, so mapping it through
+ * the card mapper would fabricate empty options / attachments / body and hand
+ * the caller something that renders as a blank card. The `task_id` / `step_id`
+ * the wire also carries are deliberately dropped: nothing in the cockpit reads
+ * them (the card already on screen holds the task ref it was read with), and a
+ * field nobody reads is a field that rots.
+ *
+ * `answer` is mapped with the same honesty as the card mapper — an absent
+ * attachment list reads as [], never as fabricated content. */
+export function toReplyCardWriteReceipt(
+  w: WireReplyCardReceipt
+): ReplyCardWriteReceipt {
+  return {
+    id: w.id,
+    status: w.status as ReplyCardWriteReceipt["status"],
+    answeredTs: w.answered_ts,
+    expiredTs: w.expired_ts,
+    answer: w.answer
+      ? {
+          optionIdxs: w.answer.option_idxs,
+          text: w.answer.text ?? "",
+          attachments: (w.answer.attachments ?? []).map((a) => ({
+            id: a.id,
+            url: a.url,
+            filename: a.filename ?? "",
+            mime: a.mime ?? "",
+            isImage: a.is_image ?? false,
+          })),
+        }
+      : null,
+  };
+}
+
 /** Map one wire task step → `TaskStepView`. Honest passthrough — defaulted-away
  * wire fields read as their wire defaults ("" / false / 0), never fabricated;
  * the gate projection (announced vs armed) is carried verbatim by
@@ -534,10 +575,15 @@ export function toTaskStepDetail(w: WireTaskStepDetail): TaskStepDetailView {
   };
 }
 
-/** Map one wire task artifact → `TaskArtifactView` (T-3dc5). Honest
- * passthrough — defaulted-away wire fields read as their wire defaults
- * (""/false/0). `kind` narrows to the closed set (an unknown value falls back
- * to "link" — the no-blob shape — rather than fabricating file/image). */
+/** Map one wire task artifact → `TaskArtifactView` (T-3dc5, T-92). Honest
+ * passthrough — defaulted-away wire fields read as their wire defaults (""/0).
+ * `kind` narrows to the closed set (an unknown value falls back to "link"
+ * rather than fabricating file/image).
+ *
+ * ⚠️ `name` is defaulted to "" here for the same reason every other field is —
+ * an older server, or a hand-built fixture, may not send it. That is NOT the
+ * server's contract: a current server always sends a non-empty name. Do not
+ * read the `?? ""` as permission to expect an empty one. */
 export function toTaskArtifact(w: WireTaskArtifact): TaskArtifactView {
   const kind =
     w.kind === "file" || w.kind === "image" || w.kind === "link"
@@ -547,11 +593,13 @@ export function toTaskArtifact(w: WireTaskArtifact): TaskArtifactView {
     id: w.id,
     kind,
     url: w.url ?? "",
-    label: w.label ?? "",
-    filename: w.filename ?? "",
+    name: w.name ?? "",
+    description: w.description ?? "",
     mime: w.mime ?? "",
-    isImage: w.is_image ?? false,
-    attachmentId: w.attachment_id ?? "",
+    // The blob's own name, carried BESIDE `name` rather than folded into it:
+    // one is what the deliverable is called, the other is what its bytes are
+    // called, and only the second one has the extension the preview reads.
+    filename: w.filename ?? "",
     createdTs: w.created_ts ?? 0,
     createdBy: w.created_by ?? "",
     versionCount: w.version_count ?? 0,
@@ -574,7 +622,8 @@ export function toTaskArtifactVersion(
     id: w.id,
     kind,
     url: w.url ?? "",
-    label: w.label ?? "",
+    name: w.name ?? "",
+    description: w.description ?? "",
     filename: w.filename ?? "",
     mime: w.mime ?? "",
     isImage: w.is_image ?? false,
@@ -582,16 +631,6 @@ export function toTaskArtifactVersion(
     createdTs: w.created_ts ?? 0,
     createdBy: w.created_by ?? "",
   };
-}
-
-/** Map one wire artifact INDEX row → `TaskArtifactRefView` (T-66) — the two
- * fields a task response carries per deliverable since owner c-cd063427fb2f.
- * Honest passthrough: an artifact pinned without a label maps to "", and this
- * mapper does NOT invent one from a filename or a url, because it has neither.
- * The renderer decides what a nameless artifact looks like, on the full row it
- * fetched through `listTaskArtifacts`. */
-export function toTaskArtifactRef(w: WireTaskArtifactRef): TaskArtifactRefView {
-  return { id: w.id, label: w.label ?? "" };
 }
 
 /** Map one wire dep ref → `TaskDepRefView` (T-a3e4). Honest passthrough: an
@@ -642,12 +681,13 @@ export function toTask(w: WireTask): TaskView {
     steps: (w.steps ?? [])
       .map(toTaskStep)
       .sort((a, b) => a.orderIdx - b.orderIdx),
-    // Full task carries the resolved set; count kept == length so a hydrated
-    // card keeps the same 「產物 N」 badge as its light-list frame.
-    // INDEX rows (T-66): id + label. The full rows come from
-    // `listTaskArtifacts`, not from here — see TaskView.artifacts.
-    artifacts: (w.artifacts ?? []).map(toTaskArtifactRef),
-    artifactCount: (w.artifacts ?? []).length,
+    // 🔴 THE SERVER'S COUNT, not a length taken from rows that are no longer
+    // here (T-92). Leaving this reading `w.artifacts.length` against a payload
+    // that stopped carrying `artifacts` would have made the badge read 0 on
+    // every expanded card — and read 0 SILENTLY, since an absent array and an
+    // empty one are the same `.length`. The light list has read the server's
+    // count all along; this is the two projections finally agreeing.
+    artifactCount: w.artifact_count ?? 0,
   };
 }
 
@@ -690,9 +730,8 @@ export function toTaskListItem(w: WireTaskListItem): TaskView {
     progressDone: w.progress_done,
     progressTotal: w.progress_total,
     steps: [],
-    // Light list: no artifact rows (get_task hydrates them for the popover);
-    // only the server count for the collapsed card's 「產物 N」 badge.
-    artifacts: [],
+    // The server count for the collapsed card's 「產物 N」 badge — the same
+    // field the full task carries since T-92, read the same way.
     artifactCount: w.artifact_count ?? 0,
   };
 }
@@ -772,13 +811,6 @@ export function toOutsourceWorker(w: WireOutsourceWorker): OutsourceWorkerView {
     refocusDeadline:
       w.refocus_deadline && w.refocus_deadline > 0 ? w.refocus_deadline : null,
     desiredState: w.desired_state ?? "online",
-    // Response-only, absent on every read face — passed through as-is so
-    // `undefined` keeps meaning "this answer does not carry the signal"
-    // (T-ed79 #5/#12). Coalescing them to false here would erase exactly the
-    // distinction the three fields exist to make.
-    relocationPending: w.relocation_pending ?? undefined,
-    relocationDeferred: w.relocation_deferred ?? undefined,
-    activationPending: w.activation_pending ?? undefined,
   };
 }
 
@@ -839,10 +871,24 @@ export function toTaskManualSummary(
     })),
     assignee: toManualAssignee(w.assignee as Record<string, unknown>),
     updatedTs: w.updated_ts ?? 0,
-    // The directory answer ALSO carries sop_md_chars / learnings_chars and
-    // their caps. They are deliberately NOT mapped: no manual surface renders
-    // a size budget today, and a view field with no reader is indistinguishable
-    // from a live one. Map them when something draws them.
+    // T-100: something draws them now — both manual sub-pages render 「已用 /
+    // 上限」 while the owner types, which is what this mapper was waiting for.
+    //
+    // 🔴 `?? 0` IS NOT A MEASUREMENT. Today's server always emits all four (the
+    // generated TypeScript shape treats them as present), so the fallback is
+    // only reachable
+    // from a server that predates them — the same defence `toRoleSummary` and
+    // `toLessons` keep. A zero cap would render 「1234 / 0」 — a budget that
+    // reads as "already over" on a document that is fine. The readout is
+    // gated on `cap > 0` at
+    // the render site for exactly that reason; do not remove that gate here by
+    // inventing a default cap, because a fallback cap and the live one are
+    // indistinguishable on screen and only one of them is what the server
+    // refuses a write against.
+    sopMdChars: w.sop_md_chars ?? 0,
+    sopMdCapChars: w.sop_md_cap_chars ?? 0,
+    learningsChars: w.learnings_chars ?? 0,
+    learningsCapChars: w.learnings_cap_chars ?? 0,
   };
 }
 
@@ -1093,6 +1139,11 @@ export function toServerSettings(w: WireServerSettings): ServerSettingsView {
     // 120 is the server's shipped default (StoppingTimeoutSecs), the value an
     // install that never touched the knob runs on.
     acceleratedGraceSecs: w.accelerated_grace_secs ?? 120,
+    // 2592000 (30 days) is the server's shipped default, the value a fleet that
+    // never touched the knob renews on — and the same number a warden falls back
+    // to when it cannot reach the credential-policy endpoint, so a server too
+    // old to send the field reads here exactly as the machines behave.
+    wardenCredentialLifetimeSecs: w.warden_credential_lifetime_secs ?? 2592000,
     outsourceMaxParallel: w.outsource_max_parallel ?? 0,
     // ?? that segment's shipped default, not 0: a server too old to send the
     // field still caps at it, and a 0 here would read as "no cap" to every
@@ -1120,6 +1171,10 @@ export function toServerSettings(w: WireServerSettings): ServerSettingsView {
     // the caps above: against a server too old to send the field, 0 would read
     // as "no chat at all", which is the one answer that is never right.
     chatBudgetChars: w.chat_budget_chars ?? CHAT_BUDGET_CHARS_DEFAULT,
+    // T-119 step-note cap. Same "?? the shipped default, never 0" reasoning:
+    // against a server too old to send the field, 0 would read as "no note may
+    // be written at all", which is the one answer that is never right.
+    stepNoteCapChars: w.step_note_cap_chars ?? STEP_NOTE_CAP_CHARS_DEFAULT,
     // T-8 backup retention. Same "?? the shipped default, never 0" reasoning:
     // against a server too old to send the field, 0 would render as "keep no
     // backups", which is the one answer that is never right — and it is the
@@ -1136,6 +1191,11 @@ export function toServerSettings(w: WireServerSettings): ServerSettingsView {
     // Owner nickname (T-0b41; schema-optional for DTO-compat — the Go wire
     // always emits it). "" = never set; the profile pill substitutes t.user.
     ownerName: w.owner_name ?? "",
+    // 建議回覆 (T-122), TWO independent lists. Read structurally through the one
+    // module that knows the wire names: a server predating T-122 omits both,
+    // and absent ⇒ [] ⇒ nothing renders, which is honestly what it means.
+    suggestedRepliesReplyCard: readSuggestedRepliesReplyCard(w),
+    suggestedRepliesTaskMessage: readSuggestedRepliesTaskMessage(w),
     pushContactEmail: w.push_contact_email ?? "",
     // Cockpit display prefs (T-0b41-p2; schema-optional for DTO-compat — the Go
     // wire always emits them). "" = never set; the frontend keeps its

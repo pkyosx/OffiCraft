@@ -88,7 +88,7 @@ func TestDeleteChatInvolvingSparesTaskArtifactPinnedBlobs(t *testing.T) {
 	// …but only a-pinned is also a task deliverable.
 	if err := d.PutTaskArtifact(TaskArtifact{
 		ID: "ta-1", TaskID: "t-1", Kind: ArtifactKindFile,
-		AttachmentID: "a-pinned", Label: "deliverable.pdf", CreatedTS: 3.0,
+		AttachmentID: "a-pinned", Name: "deliverable.pdf", CreatedTS: 3.0,
 		CreatedBy: "m-1",
 	}); err != nil {
 		t.Fatalf("put task artifact: %v", err)
@@ -194,14 +194,14 @@ func TestDeleteChatInvolvingSparesReplacedArtifactVersionBlobs(t *testing.T) {
 	// second: a-old-version now lives only in the version history.
 	if err := d.PutTaskArtifact(TaskArtifact{
 		ID: "ta-replaced", TaskID: "t-1", Kind: ArtifactKindFile,
-		AttachmentID: "a-old-version", Label: "v1.pdf", CreatedTS: 1.0,
+		AttachmentID: "a-old-version", Name: "v1.pdf", CreatedTS: 1.0,
 		CreatedBy: "m-uploader",
 	}); err != nil {
 		t.Fatalf("put task artifact: %v", err)
 	}
 	replaced, err := d.ReplaceTaskArtifact(TaskArtifact{
 		ID: "ta-replaced", TaskID: "t-1", Kind: ArtifactKindFile,
-		AttachmentID: "a-live", Label: "v2.pdf", CreatedTS: 2.0,
+		AttachmentID: "a-live", Name: "v2.pdf", CreatedTS: 2.0,
 		CreatedBy: "m-uploader",
 	})
 	if err != nil || !replaced {
@@ -295,13 +295,19 @@ func TestDeleteChatInvolvingStillCollectsUnreferencedBlobs(t *testing.T) {
 			t.Fatalf("put chat: %v", err)
 		}
 	}
-	// A LINK artifact carries no attachment_id. It must not be read as a
-	// reference to the empty-string blob, and it must not keep any blob
-	// alive — otherwise every link artifact on the board would pin an
-	// arbitrary blob forever.
+	// An artifact row with a BLANK attachment_id must not be read as a
+	// reference to the empty-string blob, and must not keep any blob alive —
+	// otherwise such a row would pin an arbitrary blob forever.
+	//
+	// ⚠️ SINCE T-92 THE SCHEMA NO LONGER PRODUCES THIS ROW: a link's target is
+	// a text/uri-list blob, so every kind carries an attachment_id and link
+	// rows vote like any other. The row is seeded here by hand because the
+	// predicate that refuses a blank id did not change and did not have to —
+	// it never named a kind — and dropping it would make this shape, which
+	// existed on every board before T-92, silently dangerous again.
 	if err := d.PutTaskArtifact(TaskArtifact{
 		ID: "ta-link", TaskID: "t-1", Kind: ArtifactKindLink,
-		URL: "https://example.invalid/pr/1", Label: "PR #1", CreatedTS: 4.0,
+		Name: "PR #1", CreatedTS: 4.0,
 	}); err != nil {
 		t.Fatalf("put link artifact: %v", err)
 	}

@@ -24,13 +24,13 @@
   font-size: 13px;
 }
 
-/* ── 篩選列 ── */
-.tasks__filters {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  flex-wrap: wrap;
-}
+/* ── 篩選欄位 ──
+ * The always-visible 篩選列 that used to wrap these is GONE (T-93 round 3,
+ * owner 2026-09-06): every field now lives inside FilterPanel, which owns the
+ * row layout in filter-panel.css. `.tasks__filters` and `.tasks__clear-filters`
+ * went with it — the panel's own 已篩選 strip carries 清除全部 now. What remains
+ * here is the PILL LOOK, still worn by the multi-select triggers inside the
+ * panel. */
 .tasks__filter {
   padding: 7px 10px;
   border-radius: var(--radius-pill);
@@ -40,21 +40,6 @@
   font-size: 13px;
   cursor: pointer;
 }
-.tasks__clear-filters {
-  padding: 6px 4px;
-  border: none;
-  background: transparent;
-  color: var(--color-text-muted);
-  font-size: 12.5px;
-  cursor: pointer;
-  text-decoration: underline;
-  text-underline-offset: 3px;
-  transition: color 0.15s;
-}
-.tasks__clear-filters:hover {
-  color: var(--color-text);
-}
-
 /* ── multi-select filter dropdown (T-be18) ── */
 .tasks__ms {
   position: relative;
@@ -73,8 +58,11 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-/* a constrained axis (a real subset picked) lights the pill so the owner can
-   see, at a glance, that this dropdown is narrowing the list */
+/* a constrained axis lights the pill so the owner can see, at a glance, that
+   this dropdown is narrowing the list. 🔁 「a real subset picked」 was the rule
+   until T-118 (owner rc-33dfe1ff14cb): ANY non-empty selection is a constraint
+   now, a full set included, so the pill agrees with the 清除篩選 button beside
+   it rather than contradicting it. */
 .tasks__ms-trigger--active {
   border-color: color-mix(in srgb, var(--color-accent) 45%, transparent);
   color: var(--color-text-strong);
@@ -2080,3 +2068,5 @@ button.task-card__waiting--dep:focus-visible {
 .task-reassign__row-state--offline {
   color: var(--color-text-muted);
 }
+
+

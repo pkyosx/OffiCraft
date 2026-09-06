@@ -387,9 +387,22 @@ func resolvePaths(env func(string) string, exe string, uid int) (wardenPaths, er
 	// installed warden must survive deletion of the copy `exe` was launched from.
 	root := officraftRootFor(home, ns)
 
-	ocBase := normalizeBase(env("OC_BASE")) // T-78: what we WRITE into the plist is normalised too
-	if ocBase == "" {
-		ocBase = defaultBase
+	// T-88: the SECOND, independent place this default used to be filled in — the
+	// one that gets BAKED INTO THE PLIST, so a guess made here is a guess every
+	// future launch of this machine's warden inherits, long after whoever ran the
+	// installer has gone. Refusing is the loud half of this ticket: an install is
+	// the one moment on this whole path when a person is actually watching, and
+	// an installer that stops with a message is the only failure here anybody
+	// ever sees.
+	//
+	// The check is on the ENV, not on the resulting value: a station host
+	// legitimately installs with OC_BASE pointing at loopback, and rejecting by
+	// comparing against defaultBase would refuse that machine.
+	ocBase, ocBaseConfigured := baseFromEnv(env) // T-78: what we WRITE into the plist is normalised too
+	if !ocBaseConfigured {
+		return wardenPaths{}, errors.New("OC_BASE is not set — refusing to install a warden that does not know which station to talk to. " +
+			"Re-run with OC_BASE set to the station URL (e.g. OC_BASE=https://station.example ocwarden install). " +
+			"Guessing " + defaultBase + " here would be written into this machine's launchd job permanently, and members started from it would join whatever is listening there")
 	}
 	ocBase = strings.TrimRight(ocBase, "/") // mirror loadConfig
 	if !ocBaseShape.MatchString(ocBase) {

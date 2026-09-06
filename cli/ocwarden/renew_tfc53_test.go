@@ -2,6 +2,13 @@ package main
 
 // renew_tfc53_test.go — when this machine decides its own credential is due.
 //
+// 🔴 THIS FILE COVERS THE EXPIRY ARM ONLY, and the AGE arm is deliberately parked
+// while it does (renewAfter = expiryArmOnly, far longer than any fixture's age).
+// The two arms are OR'd, so an age arm left live would answer "due" for most of
+// the fixtures below and every one of these cases would pass without the expiry
+// arithmetic being consulted at all — a green table proving nothing. The age arm
+// has its own file: renew_age_tfc53_test.go.
+//
 // The two failure directions are NOT symmetric, and the tests are shaped around
 // that. Renewing too eagerly costs one request per poll per machine, fleet-wide.
 // Renewing too late costs a machine that cannot come back — on a remote host,
@@ -28,6 +35,10 @@ func jwtWith(t *testing.T, claims map[string]any) string {
 	}
 	return "aGVhZGVy." + base64.RawURLEncoding.EncodeToString(body) + ".not-a-signature"
 }
+
+// expiryArmOnly parks the age arm. A year is longer than the oldest fixture in
+// this file by an order of magnitude, so no case here can reach it by accident.
+const expiryArmOnly = 365 * 24 * time.Hour
 
 func TestCredentialDueForRenewal(t *testing.T) {
 	now := time.Unix(1_800_000_000, 0)
@@ -65,9 +76,12 @@ func TestCredentialDueForRenewal(t *testing.T) {
 			name:  "no expiry claim at all",
 			token: jwtWith(t, map[string]any{"sub": "m-box", "iat": iat}),
 			want:  false,
-			why: "warden credentials are permanent today: 'no expiry' must read as " +
-				"NOTHING TO RENEW. Read the other way, every warden in the fleet renews " +
-				"on every poll, forever, and the server mints every time",
+			why: "'no expiry' must read to THIS ARM as 'nothing I can say' rather than " +
+				"as 'expired long ago'. Read the other way, every warden in the fleet " +
+				"renews on every poll, forever, and the server mints every time. " +
+				"⚠️ In production this token IS due — the age arm answers it (T-fc53); " +
+				"what is pinned here is that the expiry arm does not invent a verdict " +
+				"about a credential that carries no expiry",
 		},
 		{
 			name:  "already expired",
@@ -104,7 +118,7 @@ func TestCredentialDueForRenewal(t *testing.T) {
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := credentialDueForRenewal(tc.token, now); got != tc.want {
+			if got := credentialDueForRenewal(tc.token, now, expiryArmOnly); got != tc.want {
 				t.Errorf("credentialDueForRenewal = %v, want %v — %s", got, tc.want, tc.why)
 			}
 		})
@@ -157,7 +171,7 @@ func TestRenewalDoesNotVerifyTheSignature(t *testing.T) {
 		t.Fatal("this test's fixture stopped carrying a junk signature, so it no longer " +
 			"proves anything about verification")
 	}
-	if !credentialDueForRenewal(token, now) {
+	if !credentialDueForRenewal(token, now, expiryArmOnly) {
 		t.Error("a credential with one day left was not due — if this started failing " +
 			"after a change that added signature checking, that is the bug: the warden " +
 			"holds no secret and could never verify its own token")

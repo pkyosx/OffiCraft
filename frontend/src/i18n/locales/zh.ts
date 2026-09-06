@@ -198,7 +198,6 @@ export const zh = {
   },
   // ── 任務頁(M3 任務卡)──
   tasks: {
-    title: "任務",
     openTitle: "未結束",
     closedTitle: "已結束",
     // 空狀態 ×2(SPEC §2.3 指定文案)
@@ -206,6 +205,7 @@ export const zh = {
     emptyFiltered: "沒有符合篩選條件的任務",
     loadError: "載入任務失敗，請稍後重試",
     // 篩選列(任一生效顯「清除篩選」)
+    filterIdLabel: "任務編號",
     clearFilters: "清除篩選",
     // 「所有人」→「所有負責人」(T-17be): 這顆篩的是 executor,但「所有人」在中文
     // 有兩讀 ——「所有的人」與「所有權人(owner)」——「所有」本身就是所有權的
@@ -222,6 +222,9 @@ export const zh = {
     filterExecutorNoun: "負責人",
     filterTypeNoun: "類型",
     filterStatusNoun: "狀態",
+    // 非 404 的失敗:根本沒問到,所以不能說「找不到」。
+    idUnreached: (id: string) =>
+      `查「${id}」時沒有得到伺服器的回覆，所以還不知道它在不在——這不是「找不到」。請稍後再試。`,
     outsource: "外包",
     unassigned: "未指派",
     adhoc: "自由代辦",
@@ -405,14 +408,18 @@ export const zh = {
     expandReply: "展開回覆卡",
     collapseReply: "收合回覆卡",
     // 產物集(T-3dc5):任務卡上釘的交付物(檔案/圖片/連結)。徽章「產物 N」
-    // 在彩色徽章列;點開浮層照檔案庫樣式分三籤。0 個產物時徽章不出現。
+    // 在彩色徽章列;點開浮層是一份依 檔案→圖片→連結 分組的單一清單(T-49fb 之前是三個
+    // 分頁)。0 個產物時徽章不出現。
     artifacts: {
       badge: "產物",
       open: "查看產物",
       panelTitle: "產物",
-      // T-49fb: the three tabs are gone (one list). What is left of the trio
-      // is the image row's name fallback — an image artifact may carry neither
-      // filename nor label, and its chip must never render empty.
+      // T-49fb: the three tabs are gone (one list). What is left of the trio is
+      // the image row's name fallback, and since T-92 it is a BACKSTOP rather
+      // than a normal path: the strip's `filename` is filled from the
+      // artifact's `name`, which the server guarantees non-empty. This word
+      // shows only against an older server or a fixture that sends none — the
+      // chip must never render empty.
       imageName: "圖片",
       empty: "還沒有產物",
       close: "關閉產物",
@@ -447,13 +454,39 @@ export const zh = {
       versionsOpaqueTail: "),只能切換前後各看一次。",
     },
   },
-  // ── 請示頁(M2 回覆卡 B2)──
+  // ── 篩選列（T-118）──
+  // 整組 `filterPanel` 詞條**已經刪掉**，不是整理，是 owner 2026-09-06
+  // c-c3d681fe05da 把每一個帶字的控制項都拿掉了：「篩選」漏斗鈕與「取消」／
+  // 「套用篩選」兩顆鈕一起消失，「N 筆」／「已篩選：」／「清除全部」／「移除篩選」
+  // 隨那條摘要列一起消失。取代它的那一列只有欄位、沒有任何自己的字，所以這裡
+  // 不留空殼；欄位的標籤本來就分別住在 `tasks.*` 與 `replies.*`，兩頁各自措辭。
   replies: {
     waitingTitle: "請示",
     handledTitle: "近期已處理",
     handledHint: "已回覆或已標為過期的事項 · 已回覆的可重新決定",
     // 全部處理完的空狀態
     empty: "✓ 目前沒有待處理的請示",
+    // 篩掉之後什麼都不剩的空狀態。跟上面那句是兩件事:上面是「你回完了」,
+    // 這句是「還有卡,只是沒有一張符合」——沿用任務頁 emptyNone/emptyFiltered
+    // 的同一個分法。
+    emptyFiltered: "沒有符合篩選條件的請示",
+    // 開卡人軸（T-118，owner 2026-09-06 c-782404ee53d8）。用詞跟任務頁的負責人
+    // 那顆對齊：**都沒勾**時說「所有<名詞>」，勾一個說那個名字，勾多個說
+    // 「<名詞> · N」。⚠️ 全勾不再說「所有<名詞>」（owner 2026-09-06
+    // rc-33dfe1ff14cb：「完全沒勾跟有勾的情況本來就是不同的」）——空集合是持續
+    // 生效的無限制，全集合只是當下那批名字的快照。
+    filterOpenerNoun: "開卡人",
+    filterOpenerAll: "所有開卡人",
+    filterIdLabel: "請示卡編號",
+    clearFilters: "清除篩選",
+    // ── 篩選面板（T-93 第二輪）──
+    // 🔴 三種結局三句話，不可合併成一句。第一輪只有「沒有符合篩選條件的請示」，
+    // 於是「這張卡不存在」與「這張卡只是沒被載進來」在畫面上長得一模一樣——
+    // owner 在驗收時就是被這個併句騙過去的，這張票要移除的正是它。
+    lookupLoading: "正在跟伺服器查這個編號…",
+    // ⚠️ 這句**不准**說「找不到」：沒問到伺服器就沒有資格對存不存在下判斷。
+    lookupFailed:
+      "沒能問到伺服器（連線或伺服器出錯），所以現在無法判斷這個編號存不存在。請稍後重試。",
     loadError: "載入請示失敗，請稍後重試",
     waitedLabel: "已等你",
     // 開卡/已回覆一律絕對時間含日期(如 7/13 09:05),不用相對或「今天」。
@@ -2107,6 +2140,9 @@ export const zh = {
     acceleratedGrace: "加速停止秒數",
     acceleratedGraceSub:
       "按下加速停止之後，成員還有多少秒可以收尾；記憶第二段門檻自動換手也走同一個時鐘。這個時刻會原文告訴成員（10–3600）",
+    wardenCredentialLifetime: "機器憑證壽命",
+    wardenCredentialLifetimeSub:
+      "一台機器的憑證預計要活多久。每台機器會在自己的憑證用掉三分之二的時候自己換一張新的，並隨機錯開最多一小時，避免整批機器同一刻一起換。調小只是讓機器提早換，不會有任何東西因此過期（86400–34560000）",
     rounds: "次",
     // T-ae38 起(T-30f1 又拆過一次):上限不再是一個。這些文件被刪掉的成本差很多
     // ——角色定義是常設說明、學習經驗是逐次累積的環境問答——所以不再共用同一把尺。
@@ -2134,9 +2170,43 @@ export const zh = {
     backupRetainSub:
       "資料庫備份要保留幾份。超過這個數字的，會在下一次備份時直接從磁碟上刪掉——不是移到別的資料夾，刪掉就救不回來。有兩件事這個數字並不代表。它算的是「份數」，不是「天數」：它數的是檔案，所以能回溯多久完全看那幾天實際備份了幾次——忙的那幾天可能不到三天就用完，閒的時候可以撐超過一週。它也是「每一池」而不是「每個資料夾」：日常備份（定時＋手動）與升級前備份各自有各自的額度，所以這裡填 5，磁碟上最多會有十份，不是五份。範圍 1～20；上限是磁碟預算——佔用空間大約是這個數字的兩倍再乘上一份備份的大小。",
     backupRetainUnit: "份／池",
+    // T-122:兩份建議回覆清單。刻意是兩格而不是一格——請示卡的回覆與任務訊息
+    // 是兩件不同的對話,同一句話放錯格子就不合用(owner 裁定)。
+    //
+    // 🔴 說明文各一句,句號結束,不要再長回去。owner 走了五輪把它砍到這樣,逐項
+    // 否決的東西都有理由,再加回來就是把他刪過的東西塞回去:
+    //   * 不解釋位置(「回覆框下面那排」)——標題已經寫了是哪一格;
+    //   * 不寫「留空就不顯示」;
+    //   * 不寫上限數字——打超過的時候紅字會當場說(suggestedRepliesTooLong);
+    //   * 不寫「兩格各自獨立」——分開擺、標題不同,看得出來;
+    //   * 不寫「點一下不會送出」——那是用的時候的事,不是設定頁的事。
+    // 第二句用「任務中傳送訊息」而不是「傳訊息給成員」:後者聽起來像一般聊天
+    // 視窗,而那一格是任務上的訊息框。開頭也刻意沒有「在」(不是「在任務中傳送
+    // 訊息時…」),那是 owner 明確要求拿掉的。
+    suggestedRepliesReplyCard: "請示卡建議回覆",
+    suggestedRepliesReplyCardSub: "回覆請示卡時可一鍵帶入的句子。",
+    suggestedRepliesTaskMessage: "任務訊息建議回覆",
+    suggestedRepliesTaskMessageSub: "任務中傳送訊息時可一鍵帶入的句子。",
+    suggestedReplyPlaceholder: "例:收到,照這樣做",
+    suggestedReplyAdd: "新增一句",
+    suggestedReplyRemove: "刪除這一句",
+    suggestedReplyMoveUp: "往上移",
+    suggestedReplyMoveDown: "往下移",
+    // owner rc-76ab62ceb3ff:「超過就直接拒絕存檔並告訴你為什麼,不會偷偷截斷」。
+    // 所以輸入框不設 maxLength(瀏覽器會在貼上時無聲砍掉超出的部分),超過就把
+    // 原文留在畫面上、印出這一句、不送出。
+    suggestedRepliesTooLong: (len: number, max: number) =>
+      `這一句 ${len} 字,超過上限 ${max} 字。改短一點才會存檔——超過的部分不會被自動截掉,也不會存進去。`,
+    suggestedRepliesFull: "已經有 20 句了。要再加,先刪掉一句。",
     chatBudget: "喚醒聊天字數預算",
     chatBudgetSub:
       "喚醒快照(resume_summary)裡聊天區塊的字數預算,含訊息、摺疊卡片、快照表頭與截斷提示;peek 回報的大小算的是同一個數字。範圍 1000~13000,可調高也可調低——聊天區塊每次都是重新裝箱的,調低只是下次帶回比較少則,被留下的部分照樣由「更早的訊息已省略」交代。",
+    // T-119:步驟備註字數上限。說明文字必須講出它「可以調低」與「只管步驟
+    // 備註」這兩件事,因為前者是它跟上面五格文件上限相反的地方,後者是轉這個
+    // 旋鈕的人最容易誤以為連帶變寬的東西。
+    stepNoteCap: "任務步驟備註字數上限",
+    stepNoteCapSub:
+      "一個任務步驟的備註可以寫多少字。可以調低,調低不會弄丟已經寫好的內容。",
     docUsage: "已用字數",
     chars: "字",
     // ── 實驗功能（owner 2026-09-06）──

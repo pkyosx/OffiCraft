@@ -683,15 +683,15 @@ func buildCommandDeps(cfg Config, env func(string) string, runner CmdRunner) Com
 		// ~/.claude.json write, mirroring pretrust_launch_cwd(self.workdir). A failing
 		// pretrust aborts the spawn inside start() (don't spawn a nudge-eaten zombie).
 		Spawn: func(p StartParams) SpawnOutcome {
-			sd := spawnDeps
-			workdir := agentWorkdir(sd.Home, p.MemberID)
-			sd.Pretrust = func() error { return pretrustWorkdir(claudeJSONPath, workdir) }
+			workdir := agentWorkdir(spawnDeps.Home, p.MemberID)
 			// T-684c: bind the trash reaper over THIS member's agents-root +
 			// workdir pair. purgeTrash re-derives and re-validates the whole shape
 			// itself (direct-child containment, symlink refusal) — passing the root
 			// is what lets it do the containment check at all.
-			sd.PurgeTrash = func() { purgeTrash(sd.Home, workdir, stderrLogf) }
-			return sd.start(p)
+			return spawnDeps.withPerSpawn(
+				func() error { return pretrustWorkdir(claudeJSONPath, workdir) },
+				func() { purgeTrash(spawnDeps.Home, workdir, stderrLogf) },
+			).start(p)
 		},
 		Stop: func(session string) (bool, bool) {
 			// The sweep seams complete the ladder's ⓪/⑤ legs: lsof-discover any

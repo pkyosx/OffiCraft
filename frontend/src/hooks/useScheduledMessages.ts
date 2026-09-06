@@ -22,11 +22,15 @@ interface UseScheduledMessages {
    * from honest-empty. */
   error: boolean;
   refetch: () => Promise<void>;
-  create: (input: ScheduledMessageCreateInput) => Promise<ScheduledMessage>;
+  /** Create, then refetch. Resolves with the id the SERVER minted — T-91: the
+   * write answers a receipt, not the row, so the row itself comes from the
+   * refetch this awaits (`items`), never from the write. */
+  create: (input: ScheduledMessageCreateInput) => Promise<{ id: string }>;
+  /** Edit, then refetch. Same shape and same reason as `create`. */
   update: (
     scheduleId: string,
     patch: ScheduledMessageUpdate
-  ) => Promise<ScheduledMessage>;
+  ) => Promise<{ id: string }>;
   remove: (scheduleId: string) => Promise<void>;
 }
 
@@ -67,7 +71,15 @@ export function useScheduledMessages(memberId: string): UseScheduledMessages {
   const create = useCallback(
     async (input: ScheduledMessageCreateInput) => {
       const created = await api.createScheduledMessage(memberId, input);
-      await refetch();
+      // The schedule exists from the line above — the list read only places it.
+      try {
+        await refetch();
+      } catch (e) {
+        console.warn(
+          "useScheduledMessages: post-create refetch failed (the schedule was created)",
+          e
+        );
+      }
       return created;
     },
     [memberId, refetch]
@@ -80,7 +92,15 @@ export function useScheduledMessages(memberId: string): UseScheduledMessages {
         scheduleId,
         patch
       );
-      await refetch();
+      // The patch has landed; the list read is the separate step.
+      try {
+        await refetch();
+      } catch (e) {
+        console.warn(
+          "useScheduledMessages: post-update refetch failed (the schedule was updated)",
+          e
+        );
+      }
       return updated;
     },
     [memberId, refetch]
@@ -89,7 +109,15 @@ export function useScheduledMessages(memberId: string): UseScheduledMessages {
   const remove = useCallback(
     async (scheduleId: string) => {
       await api.deleteScheduledMessage(memberId, scheduleId);
-      await refetch();
+      // The schedule is deleted whatever the list read does next.
+      try {
+        await refetch();
+      } catch (e) {
+        console.warn(
+          "useScheduledMessages: post-delete refetch failed (the schedule was deleted)",
+          e
+        );
+      }
     },
     [memberId, refetch]
   );

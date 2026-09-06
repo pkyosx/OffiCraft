@@ -16,9 +16,12 @@ package main
 import (
 	"crypto/rand"
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"io"
 	"strconv"
+	"strings"
+	"unicode/utf8"
 )
 
 // The closed settings key set. The setting table is schemaless key-value; the
@@ -121,6 +124,31 @@ const (
 	// quoted one number while the tick collected on another. This key says HOW
 	// LONG; it never says WHO is on a clock.
 	settingAcceleratedGraceSecs = "stop.accelerated_grace_secs"
+	// settingWardenCredLifetimeSecs (T-fc53, owner 2026-09-06 「憑證改回有到期日
+	// (30 天)，同時換發改看『發下來多久』」) is how long a MACHINE credential is
+	// meant to live, in seconds.
+	//
+	// 🔴 IT IS NOT AN EXPIRY, AND THE DISTINCTION IS THE WHOLE FIRST PACKAGE.
+	// mintWardenToken still mints without an exp claim, nothing at the auth gate
+	// reads this, and no credential stops working because of it. What it governs
+	// is RENEWAL: each warden reads it (GET /api/machines/credential-policy) and
+	// replaces its own credential once that credential is two thirds of this old,
+	// measured from the `iat` claim it already carries.
+	//
+	// WHY THAT ORDER — a setting that only drives renewal, before the expiry it is
+	// named after. The renewal path had never once been observed to run: the old
+	// trigger asked "how much of the lifetime is left", which needs an exp, so it
+	// answered "not due" on every machine in the fleet forever. Putting expiries
+	// back first would have started a clock on every host against a path nobody
+	// had watched work. With no expiry in play the worst this setting can do is
+	// make machines renew too often or not at all, and neither takes a host off
+	// the network.
+	//
+	// It is deliberately an owner-typed NUMBER rather than a pick from the
+	// 12h/1d/7d/30d list the two token TTLs use (owner 2026-09-06): the reason for
+	// changing it is to watch a renewal happen without waiting a month, and 3 days
+	// is not on that list.
+	settingWardenCredLifetimeSecs = "auth.warden_credential_lifetime_secs"
 	// settingOutsourceMaxParallel (M3, owner ruling ③) is the GLOBAL cap on
 	// concurrently live (assigned + active) outsource workers — the Phase 2
 	// assignment scheduler's admission knob; member tasks never count (H7).
@@ -169,6 +197,19 @@ const (
 	// move in both directions. See domain.go for the range and why its ceiling is
 	// tied to resumeChatFetch.
 	settingChatBudgetChars = "chat.budget_chars"
+	// settingStepNoteCapChars (T-119) is the ceiling on ONE task step's working
+	// note — what both note write faces refuse a longer note against, and what
+	// get_task / get_task_step report as note_cap_chars. It was the hard-coded
+	// chatBodyMaxChars until the owner made it adjustable (2026-09-06).
+	//
+	// It is a `task.` key and NOT a `doc.cap_chars.*` one, for the same reason
+	// the chat budget above is not: those floors equal their own defaults so a
+	// document cap can only ever be raised, while this one may be LOWERED. It
+	// can, because it is enforced only on WRITE — a note already stored above a
+	// newly lowered cap stays readable in full and simply becomes uneditable
+	// until it is shortened, which is a state the owner asked to be able to
+	// create deliberately.
+	settingStepNoteCapChars = "task.step_note_cap_chars"
 	// settingBackupRetain (T-8, owner 2026-08-27: 「我覺得應該只保留最新的 N 版
 	// 備份，N 可以設定，剩餘的應該直接移除」) is N — how many database backup
 	// files survive rotation. Its default, floor and ceiling all live in
@@ -269,6 +310,26 @@ const (
 	// It is a plain bool with no "never set" state (absent row = false = OFF),
 	// stored as strconv.FormatBool text like the updater / display.wide toggles.
 	settingLoreEnabled = "lore.enabled"
+
+	// settingSuggestedRepliesReplyCard / settingSuggestedRepliesTaskMessage
+	// (T-122) hold the owner's one-click 建議回覆 — the sentences the cockpit
+	// offers under a reply box so an answer is one tap instead of one typing
+	// session. Stored as a JSON ARRAY OF STRINGS in the single `value` column
+	// (the setting table is key/value — migrations/00002_settings.sql), which is
+	// why there is no migration: a new key needs no DDL.
+	//
+	// TWO KEYS, NOT ONE, and no nested object: answering a 請示卡 and writing to
+	// a task in progress are different conversations, so one list's sentences
+	// are wrong in the other's box (owner ruling). Two rows also keep "change
+	// only one of them" a single PATCH-time write instead of an unlocked
+	// read-modify-write over one shared blob.
+	//
+	// ABSENT ROW = the empty list, and so is a stored `[]`: "the owner
+	// configured none" is a legal, ordinary state that draws no chips. The reply
+	// box must keep working with none — the suggestions are a convenience laid
+	// over it, never a part of it.
+	settingSuggestedRepliesReplyCard   = "suggested_replies.reply_card"
+	settingSuggestedRepliesTaskMessage = "suggested_replies.task_message"
 	// [T-16a1 P2 / T-83ef] `display.custom_themes` — the row that used to hold
 	// every saved theme as one JSON array — HAS NO CONSTANT HERE ANY MORE, and
 	// that is deliberate rather than an oversight:
@@ -325,6 +386,48 @@ const (
 	maxAcceleratedGraceSecs     = 3600
 )
 
+// The auth.warden_credential_lifetime_secs bounds (T-fc53).
+//
+// THE DEFAULT IS 30 DAYS because that is what the owner ruled the credential
+// lifetime should be, so an install that never writes the key already behaves the
+// way the second package will make it behave literally.
+//
+// 🔴 THE FLOOR IS ONE DAY, AND IT IS NOT AN ARBITRARY ROUND NUMBER — it is derived
+// from the retry window. A warden renews at two thirds of the lifetime, so the
+// LAST THIRD is the window in which a machine that was switched off, asleep or
+// off the network can still get a replacement; its poll is 15 minutes
+// (selfUpdateInterval, cli/ocwarden). One day therefore buys an eight-hour window
+// ≈ 32 attempts, which survives a working day of downtime. Halve the lifetime
+// again and the window is four hours; take it to an hour and the window is twenty
+// minutes, i.e. one or two polls — at which point a single missed poll is the
+// difference between a machine that renews and one that does not. The floor is
+// where that stops being true, not where the number stops looking tidy.
+//
+// It is also comfortably below the 3 days the owner said he would set to watch a
+// renewal happen (owner 2026-09-06), which is the constraint that decided a day
+// rather than a week.
+//
+// ⚠️ WHAT THE FLOOR DOES NOT PROTECT AGAINST, said out loud: nothing here stops
+// the owner lowering the setting far enough that credentials already in the field
+// are instantly past two thirds of it — that is the fleet-wide simultaneous
+// renewal he was told about and accepted.
+//
+// 🔴 AND IT IS NOT SOFTENED BY THE WARDEN'S PER-MACHINE STAGGER, which an earlier
+// version of this comment claimed. That stagger is at most an hour and is ADDED TO
+// the threshold, so once the threshold sits under the whole fleet's age every
+// machine is due on its very next poll regardless (measured: 40 of 40). What makes
+// the event survivable is that every failure on the renewal path keeps the old
+// credential and a failed exec does not exit — not this range, and not the stagger.
+//
+// THE CEILING IS maxAgentTTLSecs (400 days), the same ceiling every other
+// long-lived credential on this station already lives under. Naming the same
+// number twice was rejected: this one is derived from it.
+const (
+	wardenCredLifetimeSecsDefault = 30 * 86400
+	minWardenCredLifetimeSecs     = 86400
+	maxWardenCredLifetimeSecs     = int(maxAgentTTLSecs)
+)
+
 // authSettings is the boot-time snapshot cmdServe stamps onto the apiServer.
 type authSettings struct {
 	secret                       []byte
@@ -340,6 +443,7 @@ type authSettings struct {
 	codexNoticeRound             int // codex.notice_round — the FIRST, soft notice round (T-a9d6)
 	monitoringRefreshSeconds     int
 	acceleratedGraceSecs         int    // stop.accelerated_grace_secs (default acceleratedGraceSecsDefault)
+	wardenCredLifetimeSecs       int    // auth.warden_credential_lifetime_secs (default wardenCredLifetimeSecsDefault)
 	outsourceMaxParallel         int    // task.outsource_max_parallel (default 3)
 	docCapCharsDuty              int    // doc.cap_chars.duty (default dutyCapCharsDefault)
 	docCapCharsInsight           int    // doc.cap_chars.insight (default contextDocMaxCharsDefault)
@@ -350,6 +454,7 @@ type authSettings struct {
 	docCapCharsBootSequence      int    // doc.cap_chars.boot_sequence (default bootSequenceCapCharsDefault; ONE cap, both runtimes)
 	docCapCharsOffboard          int    // doc.cap_chars.offboard (default offboardCapCharsDefault)
 	chatBudgetChars              int    // chat.budget_chars (default chatBudgetCharsDefault)
+	stepNoteCapChars             int    // task.step_note_cap_chars (default stepNoteCapCharsDefault)
 	backupRetain                 int    // backup.retain (default backupRetainDefault; N is PER POOL, and counts versions not days)
 	updaterReceiveBeta           bool   // updater.receive_beta (default false = official releases only)
 	updaterAutoUpdate            bool   // updater.auto_update (default false = manual upgrades only)
@@ -360,6 +465,83 @@ type authSettings struct {
 	displayLanguage              string // display.language ("" = never set → frontend cache/default)
 	displayWide                  bool   // display.wide (default false = the narrow centred column)
 	loreEnabled                  bool   // lore.enabled (T-33; default false = the whole lore feature is OFF)
+
+	// suggested_replies.* (T-122) — the two one-click 建議回覆 lists, each stored
+	// as a JSON array of strings. nil/empty = the owner configured none, which
+	// draws no chips and is an ordinary state, not a failure.
+	suggestedRepliesReplyCard   []string // suggested_replies.reply_card
+	suggestedRepliesTaskMessage []string // suggested_replies.task_message
+}
+
+// maxSuggestedReplies / maxSuggestedReplyLen bound each 建議回覆 list (T-122).
+// A list is a menu the owner reads at a glance under a reply box, not a
+// document: twenty sentences is already more than fits on a phone, and 120
+// runes is one sentence rather than a paragraph. Counted in RUNES so a CJK
+// sentence gets the full budget, and measured AFTER trimming so trailing
+// whitespace can never be what pushes an entry over.
+const (
+	maxSuggestedReplies  = 20
+	maxSuggestedReplyLen = 120
+)
+
+// canonicalSuggestedReplies trims every entry, drops the blank ones, and
+// REFUSES anything over either bound instead of truncating it.
+//
+// 🔴 Refusing rather than truncating is the whole point: a silently shortened
+// sentence is a sentence the owner never wrote, and it would be offered to him
+// as one tap away from being sent. The caller turns the error into a 422 (PATCH
+// face, prefixed with the wire field name) or a boot failure (loader, prefixed
+// with `settings <key>`), which is the same invariant every bounded setting on
+// this endpoint holds: a value the PATCH face rejects must not be a value the
+// next boot accepts.
+//
+// The EMPTY list is a legal result, including from an explicitly empty input —
+// "offer no suggestions there" is an ordinary configuration, not a failure.
+func canonicalSuggestedReplies(in []string) ([]string, error) {
+	out := make([]string, 0, len(in))
+	for _, v := range in {
+		v = strings.TrimSpace(v)
+		if v == "" {
+			continue
+		}
+		if utf8.RuneCountInString(v) > maxSuggestedReplyLen {
+			return nil, fmt.Errorf("must be at most %d characters per entry",
+				maxSuggestedReplyLen)
+		}
+		out = append(out, v)
+	}
+	if len(out) > maxSuggestedReplies {
+		return nil, fmt.Errorf("must be at most %d entries", maxSuggestedReplies)
+	}
+	return out, nil
+}
+
+// encodeSuggestedReplies renders a canonical list into the single TEXT `value`
+// column the setting table gives every key. A nil list stores "[]", never
+// "null": the two mean the same thing here and storing one shape keeps the
+// loader's parse total.
+func encodeSuggestedReplies(list []string) string {
+	if list == nil {
+		list = []string{}
+	}
+	b, err := json.Marshal(list)
+	if err != nil {
+		// []string cannot fail to marshal; "[]" keeps the row parseable if it
+		// somehow ever did.
+		return "[]"
+	}
+	return string(b)
+}
+
+// decodeSuggestedReplies parses a stored row back, applying the SAME bounds the
+// PATCH face applies. A row that fails either is corruption (nothing but a hand
+// edit can produce one) and is reported, never repaired.
+func decodeSuggestedReplies(raw string) ([]string, error) {
+	var list []string
+	if err := json.Unmarshal([]byte(raw), &list); err != nil {
+		return nil, fmt.Errorf("must be a JSON array of strings: %q", raw)
+	}
+	return canonicalSuggestedReplies(list)
 }
 
 // loadAuthSettings loads the snapshot from the migrated DB, running the
@@ -387,6 +569,7 @@ func loadAuthSettings(d *DAL, cfg Config, logf func(string)) (authSettings, erro
 		codexCompactionThreshold: defaultCodexCompactionThreshold,
 		monitoringRefreshSeconds: defaultMonitoringRefreshSeconds,
 		acceleratedGraceSecs:     acceleratedGraceSecsDefault,
+		wardenCredLifetimeSecs:   wardenCredLifetimeSecsDefault,
 	}
 
 	stored, err := d.GetSetting(settingJWTSecret)
@@ -580,6 +763,24 @@ func loadAuthSettings(d *DAL, cfg Config, logf func(string)) (authSettings, erro
 		out.acceleratedGraceSecs = n
 	}
 
+	// auth.warden_credential_lifetime_secs — range-checked at load against the
+	// SAME predicate the PATCH face uses (wardenCredLifetimeInRange), so a value
+	// that survives a save can never be the value that refuses to boot on the next
+	// start. A hand-edited row must not install a lifetime the write face would
+	// have refused: this one is read by every machine in the fleet, and a two-hour
+	// lifetime accepted here would have the whole fleet renewing on every poll
+	// with nothing on the wire to say why.
+	if v, err := d.GetSetting(settingWardenCredLifetimeSecs); err != nil {
+		return out, err
+	} else if v != nil {
+		n, err := strconv.Atoi(*v)
+		if err != nil || !wardenCredLifetimeInRange(n) {
+			return out, fmt.Errorf("settings %s: %s: %q",
+				settingWardenCredLifetimeSecs, wardenCredLifetimeRangeMsg, *v)
+		}
+		out.wardenCredLifetimeSecs = n
+	}
+
 	out.outsourceMaxParallel = defaultOutsourceMaxParallel
 	if v, err := d.GetSetting(settingOutsourceMaxParallel); err != nil {
 		return out, err
@@ -666,6 +867,14 @@ func loadAuthSettings(d *DAL, cfg Config, logf func(string)) (authSettings, erro
 		return out, err
 	}
 
+	// task.step_note_cap_chars (T-119) — range-checked at load for the same
+	// reason: a hand-edited DB row must not install a value the PATCH face would
+	// have refused.
+	if err := loadCap(settingStepNoteCapChars, minStepNoteCapChars, maxStepNoteCapChars,
+		&out.stepNoteCapChars, stepNoteCapCharsDefault); err != nil {
+		return out, err
+	}
+
 	// backup.retain (T-8) — range-checked at load for the same reason as the
 	// caps above, and here it matters more than anywhere else on this list: this
 	// is the only setting whose value decides how many files get DELETED. A
@@ -673,6 +882,34 @@ func loadAuthSettings(d *DAL, cfg Config, logf func(string)) (authSettings, erro
 	// not quietly become rotation's instruction.
 	if err := loadCap(settingBackupRetain, minBackupRetain, maxBackupRetain,
 		&out.backupRetain, backupRetainDefault); err != nil {
+		return out, err
+	}
+
+	// suggested_replies.* (T-122) — the string-array counterpart of loadCap, and
+	// it exists for exactly the reason loadCap does: without it a hand-edited row
+	// holding 200 sentences, or one 5000 runes long, would be a value the PATCH
+	// face refuses that the next boot nevertheless installs. An absent row is the
+	// empty list (the shipped default); an unparseable or over-cap row stops the
+	// server rather than quietly becoming what the cockpit offers.
+	loadSuggestedReplies := func(key string, dst *[]string) error {
+		*dst = []string{}
+		v, err := d.GetSetting(key)
+		if err != nil || v == nil {
+			return err
+		}
+		list, derr := decodeSuggestedReplies(*v)
+		if derr != nil {
+			return fmt.Errorf("settings %s: %v", key, derr)
+		}
+		*dst = list
+		return nil
+	}
+	if err := loadSuggestedReplies(settingSuggestedRepliesReplyCard,
+		&out.suggestedRepliesReplyCard); err != nil {
+		return out, err
+	}
+	if err := loadSuggestedReplies(settingSuggestedRepliesTaskMessage,
+		&out.suggestedRepliesTaskMessage); err != nil {
 		return out, err
 	}
 

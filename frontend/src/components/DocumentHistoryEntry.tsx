@@ -475,7 +475,18 @@ export function DocumentHistoryEntry({
               return;
             }
             await restore(reading.version.id);
-            await onRestored?.();
+            // The document is ALREADY overwritten by the line above (useDocumentHistory's
+            // own restore says the same about its list read). The host's re-read is a
+            // separate step, and DocumentHistoryModal maps a rejection to 還原失敗 — the
+            // owner then restores a second time and burns another retained slot.
+            try {
+              await onRestored?.();
+            } catch (e) {
+              console.warn(
+                "DocumentHistoryEntry: re-read after restore failed (the restore landed)",
+                e
+              );
+            }
           }}
         />
       )}

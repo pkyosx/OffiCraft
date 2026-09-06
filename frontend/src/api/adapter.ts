@@ -200,6 +200,18 @@ export interface ChatAttachmentView {
   url: string;
   /** Original upload filename (for the download-chip label); "" when none. */
   filename: string;
+  /** The blob's OWN name, when it differs from the DISPLAY name in `filename`
+   * above — a task artifact pinned under a human title is the case that has
+   * one (`name` = 「稽核報告」, blob = `audit-2026-09.md`).
+   *
+   * 🔴 FOR CONTENT-TYPE DETECTION ONLY, never for display. It is the extension
+   * a reader needs when the mime cannot answer — `application/octet-stream` is
+   * what the agent upload path stores most .md under — and a display name has
+   * no extension in it.
+   *
+   * Absent ⇒ `filename` IS the blob's name, which is the case for every chat
+   * attachment: there the two were never separate things. */
+  blobFilename?: string;
   /** Stored blob mime. */
   mime: string;
   /** true ⇒ render inline `<img>`; false ⇒ render a download chip. */
@@ -354,6 +366,22 @@ export interface ReplyCard {
    * hand-built test fixtures stay valid (same precedent as Member.roleName);
    * the mapper always sets it (null when the wire carries none). */
   task?: TaskRefView | null;
+}
+
+/** What the three reply-card WRITES answer (wire `ReplyCardReceiptDTO`, T-91):
+ * ONLY the transition the write performed. The question, its options, its
+ * attachments and its task ref are NOT decided by answer/re-answer/expire, so
+ * they stopped riding the response — fold this into the card already on screen
+ * via `lib/replyCardReceipt.ts`'s `mergeReplyCardWrite` rather than treating it
+ * as a card. It is deliberately NOT a subtype of `ReplyCard`: making it one
+ * would let a receipt be stored where a card is rendered, which is exactly the
+ * silent blanking this shape exists to make impossible. */
+export interface ReplyCardWriteReceipt {
+  id: string;
+  status: "waiting" | "answered" | "expired";
+  answer: ReplyCardAnswer | null;
+  answeredTs: number | null;
+  expiredTs: number | null;
 }
 
 /** The LIGHT task reference riding a task-armed reply card (wire TaskRefDTO).
@@ -563,60 +591,67 @@ export interface TaskView {
   progressDone: number;
   progressTotal: number;
   steps: TaskStepView[];
-  /** The task's curated deliverable set (T-3dc5), oldest→newest, as an INDEX:
-   * each entry is `{ id, label }` and NOTHING else.
-   *
-   * 🔴 THE ARTIFACT DETAIL IS NOT ON THIS VIEW MODEL (T-66, owner
-   * c-cd063427fb2f:「我覺得任務產物，只需要預設給標題跟ID, 有需要再透過另一隻去
-   * 拿就好了」). url / filename / mime / kind / isImage / attachmentId /
-   * createdTs / createdBy arrive from `listTaskArtifacts`, one call for the
-   * whole ticket. A component that wants to RENDER an artifact and finds only
-   * these two fields is being told, correctly, to go and fetch it.
-   *
-   * Only the FULL task (getTask) carries even the index; the LIGHT list leaves
-   * it [] (it carries only `artifactCount` for the collapsed card's 「產物 N」
-   * badge). OPTIONAL so hand-built test fixtures stay valid (the
-   * replyCardStatus precedent); the mapper always sets it. */
-  artifacts?: TaskArtifactRefView[];
   /** Number of pinned deliverables — the collapsed card's 「產物 N」 badge (0 ⇒
-   * badge hidden). On the light list it is the SERVER count (`artifact_count`);
-   * on a hydrated full task it equals `artifacts.length` (kept consistent so a
-   * post-hydrate card keeps the same badge). OPTIONAL so hand-built fixtures
-   * stay valid; the mapper always sets it. */
+   * badge hidden), and since T-92 the ONLY thing a task response says about
+   * them. BOTH projections now read it from the server's `artifact_count`: the
+   * light list always did, and the full task carries the same field instead of
+   * an array whose length the card had to take.
+   *
+   * 🔴 THERE ARE NO ARTIFACT ROWS ON THIS VIEW MODEL AT ALL (T-92, owner
+   * rc-15016959ad4d:「只有 ID 好像也沒用」). T-66 had already cut them to id +
+   * label; the ids went too, because a caller holding one is about to act on
+   * that artifact and needs the whole row anyway. `listTaskArtifacts` answers
+   * the whole ticket in one call — which is what `TaskArtifactsPopover` does the
+   * moment someone opens it, and has done since before this change.
+   *
+   * OPTIONAL so hand-built fixtures stay valid; the mapper always sets it. */
   artifactCount?: number;
 }
 
-/** ONE pinned deliverable as an INDEX ROW (T-66): which one it is and what it
- * is called, and nothing that would need a second read. This is what a
- * `TaskView.artifacts` entry is.
- *
- * `label` is honest-empty when the deliverable was pinned without one — it is
- * NOT backfilled from a filename or a url here, because those live on the full
- * row. Deciding what to SHOW for a nameless artifact is the renderer's job, on
- * the full row it fetched. */
-export interface TaskArtifactRefView {
-  id: string;
-  label: string;
-}
-
-/** ONE pinned deliverable on a task's artifact set (T-3dc5), in view-model
- * form. `kind` is the closed set file|image|link. For file/image, `url` is the
- * blob serve path and `mime`/`filename`/`isImage` echo the shared
- * chat-attachment blob (render it exactly like a chat attachment). For link,
- * `url` is a bare external URL (a PR link), `attachmentId`/`mime`/`filename`
- * empty and `isImage` false. `label` is the display name (a link's title, or a
- * filename override). Honest passthrough — never fabricated. */
+/** ONE pinned deliverable on a task's artifact set (T-3dc5, narrowed by T-92),
+ * in view-model form. `kind` is the closed set file|image|link, and EVERY kind
+ * is backed by a chat-attachment blob. For file/image, `url` is the blob serve
+ * path and `mime` is that blob's content type (render it exactly like a chat
+ * attachment). For link, `url` is the external address read out of that link's
+ * `text/uri-list` blob, whose `mime` is `text/uri-list`. `filename`, `isImage`,
+ * `attachmentId` and the old single `label` are all GONE FROM THIS ROW — and
+ * for `attachmentId` read that literally: it is gone from THIS VIEW MODEL, not
+ * from the wire. It came back to the wire under owner rc-91e29b576ad8 and this
+ * adapter simply does not map it. The rest of the sentence is unchanged: `name`
+ * replaces the label (server-derived, never empty), the filename is what that
+ * derivation reads, and isImage is a prefix test on `mime`. Honest passthrough —
+ * never fabricated. */
 export interface TaskArtifactView {
   id: string;
   kind: "file" | "image" | "link";
+  /** Where the content is — ONE meaning on all three kinds since T-92: the blob
+   * serve path for a file/image, the external address for a link. */
   url: string;
-  label: string;
-  filename: string;
+  /** The display name. NEVER EMPTY on the wire — the server derives one from
+   * the blob's filename, the link target, or the id when the row has no stored
+   * name — so a renderer needs no fallback of its own any more. */
+  name: string;
+  /** The prose half of what used to be one `label`. May be empty, and MAY BE
+   * LONGER than the 256-rune write cap: that cap binds new writes only and
+   * never touched the migrated values, so never size anything on it. */
+  description: string;
+  /** The blob's content type. 🔴 LOAD-BEARING: `kind: "file"` covers .md, .pdf
+   * and .zip alike, so this is the only field the preview can tell them apart
+   * by — `MarkdownPreviewOverlay` makes four separate decisions with it. */
   mime: string;
-  isImage: boolean;
-  attachmentId: string;
   createdTs: number;
   createdBy: string;
+  /** The BLOB's own name — what the bytes arrived as, NOT what the deliverable
+   * is called (`name` is that, and since T-92 it is usually a human sentence).
+   * "" for a link, and "" when a file/image's blob is gone: honest-empty, never
+   * fabricated.
+   *
+   * 🔴 IT IS READ FOR ITS EXTENSION AND NOTHING ELSE. `mime` is asked first and
+   * answers `application/octet-stream` for most agent-uploaded .md, and then
+   * this suffix is the only thing left that separates a report the cockpit can
+   * preview from a tarball it cannot. Dropping it from the wire is what stopped
+   * .md artifacts previewing after T-92. */
+  filename: string;
   /** How many versions this deliverable has, the LIVE one INCLUDED (T-60) — 1
    * for one that has never been replaced, and bounded above because only the
    * most recent few replaced versions are retained.
@@ -631,18 +666,33 @@ export interface TaskArtifactView {
 /** ONE retained PREVIOUS version of a pinned deliverable (T-60), in view-model
  * form — what the artifact pointed at before a replace, newest first.
  *
- * It carries the version WHOLE (a blob id or a url, plus a label); `id` is the
+ * It carries the version WHOLE (a blob id — every kind is blob-backed since
+ * T-92 — plus its name and prose);
+ * `id` is the
  * version's own row id and `kind` always equals the live artifact's, which
  * cannot change across versions. `url`, `mime`, `filename` and `isImage` are
- * that version's OWN facts, resolved by the server from the retained blob the
- * same way the live artifact's are — a file/image version's `url` is the blob
- * serve path (never empty while the blob is alive), and the mime is this
- * version's, never the live row's. */
+ * that version's OWN facts, resolved by the server from the retained blob — a
+ * file/image version's `url` is the blob serve path (never empty while the blob
+ * is alive), and the mime is this version's, never the live row's.
+ *
+ * ⚠️ NOT the same resolution the live artifact gets, on ONE kind: for a LINK
+ * version the server reads only the blob's BYTES (the uri-list target, into
+ * `url`) and leaves `mime`/`filename`/`isImage` empty, whereas the live link
+ * artifact does report `text/uri-list`. Never size a link comparison on those
+ * three. */
 export interface TaskArtifactVersionView {
   id: number;
   kind: "file" | "image" | "link";
   url: string;
-  label: string;
+  /** This version's stored display name (T-92 split the old single `label`).
+   * ⚠️ UNLIKE the live artifact's `name`, this one is NOT derived and CAN be
+   * empty — it is the column as it was written, and a version written before
+   * names existed has none. That asymmetry is why this row still carries
+   * `filename` while the live one does not. */
+  name: string;
+  /** This version's prose (T-92). May be empty, and may exceed the write cap
+   * for the same reason the live artifact's description may. */
+  description: string;
   filename: string;
   mime: string;
   isImage: boolean;
@@ -780,22 +830,16 @@ export interface OutsourceWorkerView {
    * worker panel's identity action row. "" from a
    * pre-column row reads as online. */
   desiredState?: string;
-  /**
-   * RESPONSE-ONLY signals an owner verb leaves on its own answer (T-ed79 #5/#12,
-   * wire `relocation_pending` / `relocation_deferred` / `activation_pending`) —
-   * the worker twins of {@link MemberRelocateResult} / {@link MemberActivateResult}.
-   *
-   * `undefined` on every list/GET and on every verb that has nothing to defer, so
-   * "this answer does not carry the signal" stays distinguishable from "false".
-   *
-   * `relocationPending` is true for BOTH a deliberate deferral and a move that
-   * could not be dispatched at all; `relocationDeferred` is what tells them
-   * apart, and a consumer must NOT raise a "nothing was dispatched" alert while
-   * it is true.
-   */
-  relocationPending?: boolean;
-  relocationDeferred?: boolean;
-  activationPending?: boolean;
+  /* 🔴 NO `relocationPending` / `relocationDeferred` / `activationPending` HERE,
+   * and the absence is deliberate rather than an oversight (T-91, owner
+   * 2026-09-06). They were response-only signals (T-ed79 #5/#12) that an owner
+   * verb left on the worker row it answered with. Every worker WRITE now answers
+   * a bounded receipt instead — `AgentRelocateReceiptDTO` and
+   * `OutsourceRestartReceiptDTO` carry the three flags — so the only builders of
+   * this type are the read faces (`listOutsourceWorkers`, `getOutsourceWorker`),
+   * where the server never set them. `OutsourceWorkerDTO` stopped declaring them
+   * in the same change, so there is nothing left for a mapper to pass through.
+   * If you need "was this move dispatched?", read the relocate's own answer. */
 }
 
 /** One task type (任務手冊) in the LIGHT list shape the tasks page needs for
@@ -858,6 +902,19 @@ export interface TaskManualSummaryView {
   fields: TaskManualFieldView[];
   assignee: ManualAssigneeView;
   updatedTs: number;
+  /** Size of the STORED SOP in CHARACTERS (Unicode code points), and the cap in
+   * force for it. Both are measured/answered PER MANUAL by the server, and the
+   * two documents are judged against SEPARATE caps (T-30f1) — on a live station
+   * they differ (18000 / 17000 measured 2026-09-06), so neither may be folded
+   * into the other nor into `DOC_CAP_CHARS_DEFAULTS`, which only carries the
+   * shipped fallback. The cap here is the SAME number the server refuses a
+   * write against (`manualSopCap()`), which is what makes it safe to show as a
+   * budget rather than as a hint. */
+  sopMdChars: number;
+  sopMdCapChars: number;
+  /** The 學習經驗 pair, same rules as the SOP pair above and its OWN cap. */
+  learningsChars: number;
+  learningsCapChars: number;
 }
 
 /** One FULL task manual — a list row plus the two long documents it sizes
@@ -998,6 +1055,16 @@ export interface ServerSettingsView {
    * collects on cannot be two different values. It says HOW LONG, never WHO: a
    * soft cause stays uncollected at any value. */
   acceleratedGraceSecs: number;
+  /** T-fc53: how long a MACHINE (warden) credential is meant to live, in
+   * seconds (86400..34560000; default 2592000 = 30 days). It is NOT an expiry —
+   * warden credentials still carry no `exp`, so nothing stops working because
+   * of this number. It is the ONE input every warden derives its renewal
+   * threshold from: a machine replaces its own credential once that credential
+   * is two thirds of this old, plus a per-machine stagger of up to an hour so
+   * that LOWERING it does not put the whole fleet on the mint endpoint inside
+   * one poll. Lowering it therefore makes machines renew sooner, never sooner
+   * than they can. */
+  wardenCredentialLifetimeSecs: number;
   /** M3: the GLOBAL cap on concurrently live outsource workers (-1..20;
    * **-1 ⇒ 無限 (unlimited — no global cap)**; 0 ⇒ outsource assignment is
    * PAUSED — the panel annotates it). */
@@ -1029,6 +1096,13 @@ export interface ServerSettingsView {
    * it may be lowered as well as raised, and it has its own ceiling. Default and
    * range in `chatBudget.ts` (mirroring server/ocserverd/domain.go). */
   chatBudgetChars: number;
+  /** T-119: the ceiling on ONE task step's working note, in the same rune unit.
+   * NOT a document cap — it is enforced only when a note is written, so it may
+   * be lowered as well as raised and an over-cap note keeps reading back in
+   * full. It governs the step note ALONE: the task-level handover note and a
+   * chat message body keep their own 4,000-character server constant. Default
+   * and range in `stepNoteCap.ts` (mirroring server/ocserverd/domain.go). */
+  stepNoteCapChars: number;
   /** T-8: N — how many database backup files rotation KEEPS. Everything past N
    * is DELETED from disk. Two things the number does not carry and the settings
    * copy therefore has to say: it counts VERSIONS, not days, and it is PER POOL
@@ -1047,6 +1121,15 @@ export interface ServerSettingsView {
   /** The owner's display nickname shown in the topbar profile pill (T-0b41).
    * "" = never set — the caller falls back to the localized default (`t.user`). */
   ownerName: string;
+  /** The 建議回覆 offered under a 請示卡 reply box (T-122), configured in 參數設定.
+   * Empty = the owner configured none, which renders nothing at all. Read
+   * through `api/suggestedReplies.ts`, the only module that knows the wire
+   * field names. */
+  suggestedRepliesReplyCard: string[];
+  /** The 建議回覆 offered under a 任務 message box (T-122). A SEPARATE list from
+   * the reply-card one by owner ruling — the two boxes are different
+   * conversations — so one being empty says nothing about the other. */
+  suggestedRepliesTaskMessage: string[];
   /** Contact email used as this deployment's Web Push VAPID identity. Empty
    * means delivery is disabled until the owner configures a public address. */
   pushContactEmail: string;
@@ -1120,6 +1203,11 @@ export interface ServerSettingsPatch {
   monitoringRefreshSeconds?: number;
   /** 加速停止 grace in seconds. Must be 10..3600. */
   acceleratedGraceSecs?: number;
+  /** T-fc53 warden credential lifetime in seconds. Must be 86400..34560000 —
+   * the floor is one day because the last third of the lifetime is the retry
+   * window, and at a 15-minute poll a one-day lifetime still leaves ~32
+   * attempts to renew before the intended end of life. */
+  wardenCredentialLifetimeSecs?: number;
   outsourceMaxParallel?: number;
   /** T-ae38 document size caps, in characters. Each must be between THAT
    * segment's shipped default (`DOC_CAP_CHARS_DEFAULTS`) and 100000. */
@@ -1138,6 +1226,9 @@ export interface ServerSettingsPatch {
   /** T-c9b4 wake-snapshot chat budget; range 1000..13000 (chatBudget.ts). The
    * floor is NOT the shipped default — this one may be turned down. */
   chatBudgetChars?: number;
+  /** T-119 step-note cap; range 1000..100000 (stepNoteCap.ts). The floor is NOT
+   * the shipped default — this one may be turned down. */
+  stepNoteCapChars?: number;
   /** T-8 backup retention N; range 1..20 (backupRetain.ts). Lowering it DELETES
    * the files it puts out of range on the next backup. */
   backupRetain?: number;
@@ -1151,6 +1242,14 @@ export interface ServerSettingsPatch {
   /** The owner's display nickname (T-0b41); trimmed server-side, max 80 runes,
    * "" clears it back to the localized default (server 422s anything longer). */
   ownerName?: string;
+  /** The 請示卡 reply-box 建議回覆 (T-122), replaced WHOLESALE. Entries are
+   * trimmed server-side; at most 20 of them, each at most 120 runes, and over
+   * either bound is a 422 that writes nothing — never a truncation. `[]` is a
+   * legal value and clears the list; omit the field to leave it unchanged. */
+  suggestedRepliesReplyCard?: string[];
+  /** The 任務 message-box 建議回覆 (T-122), replaced WHOLESALE. Same bounds as
+   * above, and independent of it: patching one never touches the other. */
+  suggestedRepliesTaskMessage?: string[];
   /** Web Push VAPID contact email; empty clears it and disables delivery. */
   pushContactEmail?: string;
   /** The owner's cockpit visual theme (T-0b41-p2); "" (unset) | "office" (the
@@ -1238,12 +1337,19 @@ export interface RoleCreateInput {
   effort?: string;
 }
 
-/** The created pair (mirrors `RoleCreateResultDTO`): the folded custom role doc
- * (isSeed=false, template definitionMd) + the founding member (initially
- * OFFLINE — creating never spawns; it surfaces on the roster immediately). */
+/** What `createRole` MINTED (mirrors `RoleCreateResultDTO`, T-91): the two ids
+ * the server assigned, plus the member name it may have picked from the pool
+ * when the caller did not name one. Deliberately NOT the role doc and NOT the
+ * member row — the write stopped echoing either, and the roster the cockpit
+ * renders comes from the LIST read that follows the create (`useRoles.create`).
+ * Anything to be SHOWN must be read back; the ids are here so the caller can
+ * address what it just made. The founding member is still created OFFLINE
+ * (creating never spawns) — that is a property of the write, not of this
+ * shape. */
 export interface RoleCreateResult {
-  role: RoleDefView;
-  member: Member;
+  roleKey: string;
+  memberId: string;
+  memberName: string;
 }
 
 /** One webhook endpoint bound to a member (M4 回呼端點, view model of
@@ -1828,7 +1934,12 @@ export interface Api {
    * per owner acceptance; the backend route (and this client mirror) stays.
    */
   dismissMember(id: string): Promise<void>;
-  patchMember(id: string, patch: MemberPatch): Promise<Member>;
+  /** Edit a member's name / runtime / model / effort (`PATCH /api/members/{id}`).
+   * PATCH semantics — only supplied fields ride the body. The write answers a
+   * bounded receipt (`{id}`, T-91), not the member row, so this resolves VOID:
+   * the row it used to parse and return was never read by any caller, and the
+   * cockpit refetches. */
+  patchMember(id: string, patch: MemberPatch): Promise<void>;
   /** Refocus context (online-only server-side). */
   refocusMember(id: string): Promise<void>;
   /** List a member's webhook endpoints (`GET /api/members/{id}/webhooks`),
@@ -1869,7 +1980,7 @@ export interface Api {
   createScheduledMessage(
     memberId: string,
     input: ScheduledMessageCreateInput,
-  ): Promise<ScheduledMessage>;
+  ): Promise<{ id: string }>;
   /** Edit a scheduled message, including the enable/disable toggle
    * (`PATCH /api/members/{id}/scheduled-messages/{scheduleId}`). Re-aiming any
    * cadence/slot field moves the cursor to the slot most recently elapsed, so
@@ -1878,7 +1989,7 @@ export interface Api {
     memberId: string,
     scheduleId: string,
     patch: ScheduledMessageUpdate,
-  ): Promise<ScheduledMessage>;
+  ): Promise<{ id: string }>;
   /** Permanently remove a scheduled message
    * (`DELETE /api/members/{id}/scheduled-messages/{scheduleId}`) — distinct
    * from `status: disabled`, which is the reversible suspend. */
@@ -2017,7 +2128,7 @@ export interface Api {
      * only writer of the stored link; a forged `meta.reply_to` is dropped.
      * Omitted on an ordinary post. */
     replyTo?: string;
-  }): Promise<ChatMessage>;
+  }): Promise<void>;
   /** Mark a conversation (with `peer`) read up to `lastReadTs` — the caller's own
    * read watermark (reader = the verified JWT sub server-side; anti-spoof). The
    * watermark is monotonic; a stale ts is a no-op. Returns the effective receipt. */
@@ -2070,7 +2181,10 @@ export interface Api {
    * card → 400, already answered → 409 (all reject as ApiError). Returns the answered
    * card; the caller refetches lists + count (the SSE delta also fans).
    */
-  answerReplyCard(id: string, answer: ReplyCardAnswerInput): Promise<ReplyCard>;
+  answerReplyCard(
+    id: string,
+    answer: ReplyCardAnswerInput,
+  ): Promise<ReplyCardWriteReceipt>;
   /**
    * Revise an ANSWERED card's answer (`PUT /api/reply-cards/{id}/answer` —
    * 重新決定, the owner changing their OWN answer). Same body + validation as
@@ -2081,7 +2195,7 @@ export interface Api {
   reanswerReplyCard(
     id: string,
     answer: ReplyCardAnswerInput,
-  ): Promise<ReplyCard>;
+  ): Promise<ReplyCardWriteReceipt>;
   /**
    * Mark a WAITING card expired (`POST /api/reply-cards/{id}/expire` — 標為過期,
    * the terminal exit that is NOT an answer; its author, the owner, or an admin
@@ -2092,7 +2206,7 @@ export interface Api {
    * the expired card; the caller refetches lists + count (the SSE delta also
    * fans).
    */
-  expireReplyCard(id: string): Promise<ReplyCard>;
+  expireReplyCard(id: string): Promise<ReplyCardWriteReceipt>;
   // ── Tasks (M3 任務頁 + 任務卡) ──────────────────────────────────────────────
   /**
    * List tasks as LIGHT list items (the collapsed card's fields +
@@ -2143,12 +2257,14 @@ export interface Api {
   /**
    * Fetch ONE task's pinned deliverables in full
    * (`GET /api/tasks/{task_id}/artifacts`, T-66) — the only read that carries
-   * an artifact's url / filename / mime / kind / isImage / attachmentId /
-   * createdTs / createdBy.
+   * an artifact ROW at all: kind / url / name / description / mime /
+   * createdTs / createdBy / versionCount.
    *
-   * 🔴 It exists because `getTask` stopped carrying them: a task's `artifacts`
-   * are an id+label INDEX now (owner c-cd063427fb2f), so anything that DRAWS an
-   * artifact calls this. ONE call answers the WHOLE ticket — there is
+   * 🔴 It exists because `getTask` stopped carrying them, and T-92 finished the
+   * job: a task response has no `artifacts` field of any kind now, only
+   * `artifactCount` (owner c-cd063427fb2f started this as an id+label index;
+   * T-92 removed even the index). So anything that DRAWS an artifact — or that
+   * needs one artifact's id — calls this. ONE call answers the WHOLE ticket — there is
    * deliberately no per-artifact read (owner c-f2d0fecb1168:「應該是指名任務？」),
    * because the cockpit's deliverables panel opens onto the entire set and a
    * per-artifact door would cost one call per row.
@@ -2170,7 +2286,7 @@ export interface Api {
    * releases any bound outsource worker. Returns the terminated task; the
    * caller refetches (the SSE delta also fans).
    */
-  terminateTask(id: string): Promise<TaskView>;
+  terminateTask(id: string): Promise<void>;
   /**
    * Mark a task duplicated (`POST /api/tasks/{id}/duplicate`), pointing at the
    * ORIGINAL it duplicates — so whoever spots the duplicate closes it instead of
@@ -2180,7 +2296,7 @@ export interface Api {
    * duplicate (all 409, thrown as ApiError); an already-closed task is a 409.
    * Returns the duplicated task; the SSE delta also fans.
    */
-  markTaskDuplicate(id: string, duplicateOf: string): Promise<TaskView>;
+  markTaskDuplicate(id: string, duplicateOf: string): Promise<void>;
   /**
    * Owner priority change (`POST /api/tasks/{id}/priority`): `high` | `mid` |
    * `low` | `frozen` — freeze/unfreeze ride the same knob (spec §3.3). Closed
@@ -2221,7 +2337,7 @@ export interface Api {
    * listDocumentHistory. Returns the task after the change; the SSE `task`
    * delta also fans.
    */
-  updateTaskDescription(id: string, description: string): Promise<TaskView>;
+  updateTaskDescription(id: string, description: string): Promise<void>;
   /**
    * Correct one task's title (`POST /api/tasks/{id}/title`, T-2ebe) — the ONLY
    * cell of a task the task list renders, and so the half of a card most likely
@@ -2252,7 +2368,7 @@ export interface Api {
    * over that same key. Returns the task after the change; the SSE `task` delta
    * also fans.
    */
-  updateTaskTitle(id: string, title: string): Promise<TaskView>;
+  updateTaskTitle(id: string, title: string): Promise<void>;
   /**
    * Reassign a task (`POST /api/tasks/{id}/reassign`) — owner + 特助 only
    * (the server gates it; a member/worker caller is a 403). The server expires
@@ -2263,7 +2379,7 @@ export interface Api {
    * member target a 400/409 (all throw ApiError). Returns the task after the
    * move; the caller refetches (the SSE delta also fans).
    */
-  reassignTask(id: string, input: TaskReassignInput): Promise<TaskView>;
+  reassignTask(id: string, input: TaskReassignInput): Promise<void>;
   /**
    * Un-pin one artifact from a task's set (`DELETE /api/tasks/{id}/artifact/
    * {artifactId}`) — the owner/admin cockpit action (T-3dc5; the executing
@@ -2317,35 +2433,46 @@ export interface Api {
    * member machine-bind. Writes the owner-pinned placement, kills the current
    * session, and clears pacing so the next tick re-spawns on the chosen machine
    * (no lifecycle change). machineId = a concrete machine id that must resolve,
-   * or "" (clear the pin). Returns the freshly-projected
-   * worker; the caller can also lean on the outsource_worker SSE refetch. (T-f190) */
-  relocateWorker(id: string, machineId: string): Promise<OutsourceWorkerView>;
+   * or "" (clear the pin).
+   *
+   * Resolves VOID. The write answers the SAME AgentRelocateReceiptDTO the member
+   * arm gets (T-91), flags and all — but this arm reads none of them: unlike
+   * {@link relocateMember} there is no worker-side 移動中… notice to keep put, and
+   * the only caller awaits and discards. The caller refetches / leans on the
+   * outsource_worker SSE delta, exactly as it already did. (T-f190) */
+  relocateWorker(id: string, machineId: string): Promise<void>;
   /** Refocus a worker (`POST /api/outsource-workers/{id}/refocus`, owner/admin-agent) —
    * the cockpit's 換手, the worker twin of refocusMember. Kills the current
    * session and re-spawns a fresh worker onto the SAME task. ONLINE-ONLY (409
-   * otherwise); stopped → 409; unknown/released → 404. Returns the freshly
-   * projected worker. (T-32e1) */
-  refocusWorker(id: string): Promise<OutsourceWorkerView>;
+   * otherwise); stopped → 409; unknown/released → 404. Resolves VOID: the write
+   * answers a bounded receipt (`{id}`, T-91), not the worker, and the caller
+   * refetches. (T-32e1) */
+  refocusWorker(id: string): Promise<void>;
   /** Stop a worker (`POST /api/outsource-workers/{id}/stop`, owner/admin-agent) — the
    * FIRST rung of 停止 → 加速停止 → 強制停止 and, since T-ed79, a GRACEFUL
    * CLOSE-OUT rather than a kill (owner 2026-08-21 「往正職靠：外包那顆改成優雅
    * 停止」): it holds the worker down (desired offline, presence
    * "stopping"/"stopped", no auto-revival), shows it the 〈停止〉 and WAITS for
    * its own report_stopped. No deadline unless the owner escalates. The bound
-   * task stays put. Idempotent; unknown/released → 404. (T-f190, T-ed79) */
-  stopWorker(id: string): Promise<OutsourceWorkerView>;
+   * task stays put. Idempotent; unknown/released → 404. Resolves VOID: the write
+   * answers a bounded receipt (`{id}`, T-91), not the worker, and the caller
+   * refetches. (T-f190, T-ed79) */
+  stopWorker(id: string): Promise<void>;
   /** 加速停止 a worker (`POST /api/outsource-workers/{id}/accelerated-stop`,
    * owner/admin-agent) — the MIDDLE rung. Puts the wind-down that is ALREADY open
    * (a 停止 or a 換手) on the server's `stop.accelerated_grace_secs` clock and
    * TELLS the worker; it is not a kill, so the worker can still finish early.
    * 409 when nothing is winding down, when the worker is offline/released, or
-   * when it was force-stopped. (T-ed79) */
-  acceleratedStopWorker(id: string): Promise<OutsourceWorkerView>;
+   * when it was force-stopped. Resolves VOID: the write answers a bounded
+   * receipt (`{id}`, T-91), not the worker, and the caller refetches. (T-ed79) */
+  acceleratedStopWorker(id: string): Promise<void>;
   /** 強制停止 a worker (`POST /api/outsource-workers/{id}/force-stop`,
    * owner/admin-agent) — the THIRD rung, and the body /stop used to have: kill the
    * session NOW and hold it down. It says NOTHING to the worker (the recipient is
-   * about to stop existing). Idempotent; unknown/released → 404. (T-ed79) */
-  forceStopWorker(id: string): Promise<OutsourceWorkerView>;
+   * about to stop existing). Idempotent; unknown/released → 404. Resolves VOID:
+   * the write answers a bounded receipt (`{id}`, T-91), not the worker, and the
+   * caller refetches. (T-ed79) */
+  forceStopWorker(id: string): Promise<void>;
   /** WAKE a worker with no live session (`POST /api/outsource-workers/{id}/restart`,
    * owner/admin-agent) — clear the stop and re-dispatch. ⚠️ The owner-facing word
    * is 喚醒 since T-7526 (「重啟」 retired, one verb across both panels); the
@@ -2353,14 +2480,15 @@ export interface Api {
    * not intent (T-7526): 409 only when the worker is BOTH not held down and
    * currently online, so a worker whose session died on its own is revivable.
    * unknown/released → 404. (T-f190) */
-  restartWorker(id: string): Promise<OutsourceWorkerView>;
+  restartWorker(id: string): Promise<void>;
   /** Change a worker's model/effort (`POST /api/outsource-workers/{id}/model`,
    * owner/admin-agent) — active+online → kill+respawn to take effect now, otherwise
-   * persist for the next spawn. Returns the freshly projected worker. (T-f190) */
+   * persist for the next spawn. Resolves VOID: the write answers a bounded
+   * receipt (`{id}`, T-91), not the worker, and the caller refetches. (T-f190) */
   setWorkerModel(
     id: string,
     patch: { runtime?: "claude" | "codex"; model: string; effort?: string },
-  ): Promise<OutsourceWorkerView>;
+  ): Promise<void>;
   /** Read a worker's boot-context PREVIEW (`GET
    * /api/outsource-workers/{id}/boot-context`, owner/admin-agent) — the worker twin
    * of getBootstrap's role preview: the server re-assembles the persona text
@@ -2388,14 +2516,14 @@ export interface Api {
   /** Create a task type from its DISPLAY NAME (T-fa76): the server mints the
    * `tm-` type_key (returned on the view) — the id is the system's, the text
    * is the human's. Blank name → 400/422 (throws ApiError). */
-  createTaskManual(displayName: string): Promise<TaskManualView>;
+  createTaskManual(displayName: string): Promise<{ typeKey: string }>;
   /** Partial manual edit (`POST /api/task-manuals/{type_key}`) — only supplied
    * fields change; `assignee: null` unsets (wire `{}`). Returns the manual
    * after the edit. Unknown → 404 (throws). */
   updateTaskManual(
     typeKey: string,
     patch: TaskManualPatch,
-  ): Promise<TaskManualView>;
+  ): Promise<void>;
   /** Delete a task type (`DELETE /api/task-manuals/{type_key}`). OPEN
    * (non-terminal) tasks of the type → 409 (throws — the UI surfaces the
    * human-readable 先讓任務結束 message); unknown → 404. */
@@ -2524,11 +2652,12 @@ export interface Api {
   removeSigningKey(keyId: string): Promise<SigningKeyView[]>;
   /** The folded global-context doc (owner overlay ⊕ file seed). */
   getGlobalContext(): Promise<GlobalContextView>;
-  /** Whole-doc replace of the global context → returns the folded doc
-   * (`isDefault` flips false). */
-  saveGlobalContext(text: string): Promise<GlobalContextView>;
+  /** Whole-doc replace of the global context. The write answers with a
+   * bounded receipt (T-91), not the folded doc; read it back with
+   * `getGlobalContext` (`isDefault` flips false there). */
+  saveGlobalContext(text: string): Promise<void>;
   /** Reset the global context to seed (idempotent tombstone → `isDefault` true). */
-  resetGlobalContext(): Promise<GlobalContextView>;
+  resetGlobalContext(): Promise<void>;
   /**
    * The folded boot-context / lifecycle document (T-791e, widened by T-3201),
    * addressed by (kind, key). Every kind serves exactly one key, "global",
@@ -2545,8 +2674,9 @@ export interface Api {
    * cockpit keeps no list of which ones those are.
    */
   getBootDoc(kind: BootDocKind, key: string): Promise<BootDocView>;
-  /** Replace the EDITABLE HALF of ONE boot-context block → the folded doc
-   * (`isDefault` flips false).
+  /** Replace the EDITABLE HALF of ONE boot-context block. The write answers
+   * with a bounded receipt (T-91), not the folded doc; read it back with
+   * `getBootDoc` (`isDefault` flips false there).
    *
    * 🔴 IT TAKES `body`, NOT THE DOCUMENT (T-3201). The read-only head is not
    * something this call can get wrong — there is no field for it, and the
@@ -2560,28 +2690,30 @@ export interface Api {
   saveBootDoc(
     kind: BootDocKind,
     key: string,
-    body: string,
-  ): Promise<BootDocView>;
+    body: string
+  ): Promise<void>;
   /**
-   * Restore ONE boot-context block to its FACTORY version → the folded doc
-   * (`isDefault` true).
+   * Restore ONE boot-context block to its FACTORY version. The write answers
+   * with a bounded receipt (T-91), not the folded doc; read it back with
+   * `getBootDoc` (`isDefault` true there).
    *
    * 🔴 This is the recovery path for the failure this whole surface risks: a
    * broken boot sequence means agents never attach to SSE, so they never come
    * online, so there is nobody online to fix it from. It must stay reachable
    * from the cockpit without a successful read and without any agent being up.
    */
-  resetBootDoc(kind: BootDocKind, key: string): Promise<BootDocView>;
+  resetBootDoc(kind: BootDocKind, key: string): Promise<void>;
   /** List the role roster as a DIRECTORY (seed defaults + owner edits).
    * T-1170: `definition_md` is NOT in this answer, only its size and the cap;
    * the persona body comes from `getRole`. */
   listRoles(): Promise<RoleSummaryView[]>;
   /** The folded role definition for `key`. */
   getRole(key: string): Promise<RoleDefView>;
-  /** Partial edit of a role definition → returns the folded doc. */
-  saveRole(key: string, patch: RolePatch): Promise<RoleDefView>;
+  /** Partial edit of a role definition. The write answers with a bounded
+   * receipt (T-91), not the folded doc; read it back with `getRole`. */
+  saveRole(key: string, patch: RolePatch): Promise<void>;
   /** Reset a role definition to seed (idempotent tombstone → `isDefault` true). */
-  resetRole(key: string): Promise<RoleDefView>;
+  resetRole(key: string): Promise<void>;
   /**
    * Create ONE custom role + its ONE founding member (`POST /api/roles`, M2-2).
    * The server mints both ids; the role doc starts from the 「你是誰 / 你做什麼」
@@ -2618,14 +2750,15 @@ export interface Api {
    */
   getLessons(roleKey: string): Promise<LessonsView>;
   /**
-   * Whole-doc replace of the PER-ROLE lessons for a `roleKey` →
-   * returns the folded doc (`isDefault` flips false). Backend contract is POST
+   * Whole-doc replace of the PER-ROLE lessons for a `roleKey`. The write
+   * answers with a bounded receipt (T-91), not the folded doc; read it back
+   * with `getLessons` (`isDefault` flips false there). Backend contract is POST
    * (NOT the PUT/DELETE the global-context save uses). WRITE authz is per-role
    * and keyed on the PRINCIPAL CLASS, not the token scope (T-5336): a caller at
    * or above admin_agent — the owner (this UI's scope) and the admin agent —
    * may write ANY role; every other agent may write only its own role.
    */
-  saveLessons(roleKey: string, text: string): Promise<LessonsView>;
+  saveLessons(roleKey: string, text: string): Promise<void>;
   /**
    * The folded PER-ROLE insight doc for a `roleKey` (T-3809) — the role
    * journal's third block, beside Duty and Learning. No file seed, so an
@@ -2637,14 +2770,15 @@ export interface Api {
    */
   getInsight(roleKey: string): Promise<InsightView>;
   /**
-   * Whole-doc replace of the PER-ROLE insight doc → returns the folded doc
-   * (`isDefault` flips false). WRITE authz is per-role and keyed on the
+   * Whole-doc replace of the PER-ROLE insight doc. The write answers with a
+   * bounded receipt (T-91), not the folded doc; read it back with `getInsight`
+   * (`isDefault` flips false there). WRITE authz is per-role and keyed on the
    * PRINCIPAL CLASS: a caller at or above admin_agent — the owner (this UI's
    * scope) and the admin agent — may write ANY role; every other agent may
    * write only its own role, and the 403 names `insight` rather than borrowing
    * the lessons wording.
    */
-  saveInsight(roleKey: string, text: string): Promise<InsightView>;
+  saveInsight(roleKey: string, text: string): Promise<void>;
   /**
    * Reset the PER-ROLE insight doc back to its factory seed (T-6501) —
    * idempotent tombstone → the folded read is `seeds/insight_<role_key>.md`
@@ -2655,7 +2789,7 @@ export interface Api {
    * about keeping every implementation of this port honest, not about a path
    * the UI walks.
    */
-  resetInsight(roleKey: string): Promise<InsightView>;
+  resetInsight(roleKey: string): Promise<void>;
   /**
    * The retained revisions of ONE editable long-form document as a DIRECTORY,
    * newest first (`GET /api/document-history/{kind}/{key}`). At most 3 are

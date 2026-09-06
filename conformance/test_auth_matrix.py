@@ -293,6 +293,46 @@ def _check_renewed_credential(
     )
 
 
+def _check_credential_policy(
+    ctx: Ctx, _identity: str, response: httpx.Response
+) -> None:
+    """Every identity that clears the floor must get the SAME number, and it
+    must be the number the settings face reports.
+
+    Both halves are the point. "Names no target and varies by nobody" is what
+    the route's own justification for sitting on the lowest floor rests on, so
+    a per-caller answer appearing here would invalidate that argument rather
+    than merely change a status. And equality with ``GET /api/settings`` is what
+    stops this face from drifting into a second, stale copy of the setting: a
+    warden that renews on a number the owner never typed is the failure mode
+    this endpoint exists to prevent.
+
+    The hook is called for EVERY cell, including the anonymous 401, so the
+    negative face is stepped over here: its status is already the assertion and
+    its body is an error envelope, not a policy."""
+    if response.status_code != 200:
+        return
+    data = response.json()
+    lifetime = data.get("lifetime_secs")
+    assert isinstance(lifetime, int) and not isinstance(lifetime, bool), (
+        f"lifetime_secs must be an integer, got {lifetime!r}"
+    )
+    assert lifetime > 0, f"lifetime_secs must be positive, got {lifetime}"
+    settings = ctx.client.get(
+        "/api/settings", headers={"Authorization": f"Bearer {ctx.owner_token}"}
+    )
+    assert settings.status_code == 200, (
+        f"settings read for the cross-check failed: "
+        f"{settings.status_code} {settings.text[:200]}"
+    )
+    declared = settings.json()["warden_credential_lifetime_secs"]
+    assert lifetime == declared, (
+        f"credential-policy answers lifetime_secs={lifetime}, but the settings "
+        f"face reports warden_credential_lifetime_secs={declared} — the two are "
+        f"the same org setting and a warden renews on the first one"
+    )
+
+
 def _matrix_webhook_requests_path(ctx: Ctx) -> str:
     """A fresh webhook endpoint on agent A (unique id per cell — the deny faces
     403 before resolve; only the owner face reads it)."""
@@ -360,7 +400,8 @@ def _matrix_task(ctx: Ctx) -> str:
         headers={"Authorization": f"Bearer {ctx.owner_token}"},
     )
     assert r.status_code == 200, f"scratch task failed: {r.status_code} {r.text}"
-    return r.json()["task"]["id"]
+    # T-91: create answers taskCreateResultDTO — the minted id, not the task.
+    return r.json()["task_id"]
 
 
 def _matrix_task_step(ctx: Ctx) -> tuple[str, str]:
@@ -418,10 +459,40 @@ def _matrix_task_artifact(ctx: Ctx) -> tuple[str, str]:
     task_id = _matrix_task(ctx)
     r = ctx.client.post(
         f"/api/tasks/{task_id}/artifact",
-        json={"kind": "link", "url": "https://example.com/pr/1", "label": "conf PR"},
+        json={"kind": "link", "url": "https://example.com/pr/1", "name": "conf PR"},
         headers={"Authorization": f"Bearer {ctx.owner_token}"},
     )
     assert r.status_code == 200, f"scratch artifact failed: {r.status_code} {r.text}"
+    return task_id, r.json()["artifact_id"]
+
+
+def _matrix_task_file_artifact(ctx: Ctx) -> tuple[str, str]:
+    """A fresh task (executed by agent A) with ONE FILE artifact pinned by the
+    owner; returns (task_id, artifact_id) — the raw-body replace face's target.
+
+    A FILE and not the link `_matrix_task_artifact` pins, because the upload
+    replace route refuses a LINK artifact outright (400: the kind is immutable
+    across versions). Aimed at a link, every at-or-above-floor cell would be a
+    400 that says nothing about the authz gate this table exists to pin.
+
+    The blob is seeded through the chat-attachment upload and bound with the
+    JSON add verb, so the route under test is never its own fixture."""
+    task_id = _matrix_task(ctx)
+    h = {"Authorization": f"Bearer {ctx.owner_token}"}
+    up = ctx.client.post(
+        "/api/chat/attachments?filename=conf-report.md&mime=application/octet-stream",
+        content=b"# conf matrix report\n",
+        headers=h,
+    )
+    assert up.status_code == 200, f"scratch blob failed: {up.status_code} {up.text}"
+    r = ctx.client.post(
+        f"/api/tasks/{task_id}/artifact",
+        json={"kind": "file", "attachment_id": up.json()["id"], "name": "conf report"},
+        headers=h,
+    )
+    assert r.status_code == 200, (
+        f"scratch file artifact failed: {r.status_code} {r.text}"
+    )
     return task_id, r.json()["artifact_id"]
 
 
@@ -438,7 +509,8 @@ def _matrix_reassigning_task(ctx: Ctx) -> str:
         headers=h,
     )
     assert r.status_code == 200, f"scratch reassign-seed failed: {r.status_code} {r.text}"
-    task_id = r.json()["task"]["id"]
+    # T-91: create answers taskCreateResultDTO — the minted id, not the task.
+    task_id = r.json()["task_id"]
     r = ctx.client.post(
         f"/api/tasks/{task_id}/reassign",
         json={"target": {"kind": "member", "member_id": ctx.agent_a.member_id}},
@@ -880,9 +952,9 @@ MATRIX: dict[str, Route] = {
         path="/api/chat/attachments/att-conf-missing/share-link",
     ),
     "POST /api/chat/attachments": Route(
-        # the matrix harness only speaks JSON bodies; an EMPTY octet-stream
-        # body probes the authz choke (fires before the handler), and every
-        # at-floor face then hits the handler's "attachment is empty" 400.
+        # an EMPTY octet-stream body probes the authz choke (which fires before
+        # the handler), and every at-floor face then hits the handler's
+        # "attachment is empty" 400.
         # The positive upload semantics live in test_rest_happy.py.
         requires="machine",
         overrides={i: 400 for i in _IDENTITY_RANK},
@@ -1003,6 +1075,26 @@ MATRIX: dict[str, Route] = {
             "agent_other": 403,
         },
         check=_check_renewed_credential,
+    ),
+    # The lifetime number a warden polls to decide when to replace its own
+    # credential. It sits on the SAME floor as renew-credential above (rank 0),
+    # but unlike that route there is NO warden-only check in the handler: it
+    # answers one org setting, identical for every caller, and mints nothing.
+    # So every cell here is DERIVED and there are no overrides — every
+    # authenticated identity, owner down to warden, gets the same 200, and only
+    # "none" is refused.
+    #
+    # ⚠️ THIS ROW RECORDS THE FLOOR AS IT IS, NOT AS ANYONE CHOSE FOR IT TO BE
+    # REVIEWED. The same value is served on GET /api/settings, which requires
+    # admin_agent (rank 2) — so `auth.warden_credential_lifetime_secs` is
+    # readable two ranks lower through this face than through the settings face.
+    # api_machines.go argues that is safe (nothing secret, nothing minted, no
+    # per-caller variation); whether the asymmetry is what the owner wants is an
+    # interface decision, and this table's job is to state today's truth so that
+    # changing it has to be deliberate and reddens here.
+    "GET /api/machines/credential-policy": Route(
+        requires="machine",
+        check=_check_credential_policy,
     ),
     "POST /api/machines/{machine_id}/bootstrap-here": Route(
         # DEGRADED positive faces: unknown machine id → 404 (resolve runs
@@ -1704,7 +1796,45 @@ MATRIX: dict[str, Route] = {
         requires="agent",
         overrides={"agent_other": 403},
         path=lambda ctx, _i: f"/api/tasks/{_matrix_task(ctx)}/artifact",
-        body={"kind": "link", "url": "https://example.com/pr/1", "label": "conf PR"},
+        body={"kind": "link", "url": "https://example.com/pr/1", "name": "conf PR"},
+    ),
+    "POST /api/tasks/{task_id}/artifacts/upload": Route(
+        # T-92: the one-call door — raw bytes in, a pinned deliverable out. It
+        # is the SAME WRITE as add with a different transport, so it carries
+        # add's model exactly: requires=agent plus the handler's executor guard
+        # (agent B on agent A's task → 403), admin capability (owner/admin_agent)
+        # passes on any task, warden is the derived below-floor 403.
+        #
+        # The body is RAW OCTET-STREAM, not JSON — bytes here reach the client
+        # as `content=`, the way the avatar PUT row's do. `?name=` is REQUIRED
+        # by the route, so every cell sends one: without it the at-floor faces
+        # would 400 on the body shape (which the handler checks BEFORE the
+        # executor guard) and the 403 cells would still be 403, quietly turning
+        # the positive faces into a body-validation test.
+        requires="agent",
+        overrides={"agent_other": 403},
+        path=lambda ctx, _i: (
+            f"/api/tasks/{_matrix_task(ctx)}/artifacts/upload"
+            "?name=conf%20matrix%20upload&filename=conf-upload.md"
+            "&mime=application/octet-stream"
+        ),
+        body=b"# conf matrix upload\n",
+    ),
+    "POST /api/tasks/{task_id}/artifact/{artifact_id}/replace/upload": Route(
+        # T-92: the raw-body twin of replace, and therefore the same permission
+        # model as the three JSON verbs on this set — executor-guarded, admin
+        # excepted. The target is a FILE artifact (see the fixture): a link one
+        # is refused by kind before the authz statement could be read off the
+        # status. `?name=` is optional here (omitted = carried forward), so the
+        # query only describes the new blob.
+        requires="agent",
+        overrides={"agent_other": 403},
+        path=lambda ctx, _i: (
+            "/api/tasks/{}/artifact/{}/replace/upload"
+            "?filename=conf-report-v2.md&mime=application/octet-stream".format(
+                *_matrix_task_file_artifact(ctx))
+        ),
+        body=b"# conf matrix report v2\n",
     ),
     "DELETE /api/tasks/{task_id}/artifact/{artifact_id}": Route(
         # T-3dc5 owner ruling 2026-07-18: un-pin has the SAME model as add — the
@@ -1737,15 +1867,17 @@ MATRIX: dict[str, Route] = {
         overrides={"agent_other": 403},
         path=lambda ctx, _i: "/api/tasks/{}/artifact/{}/replace".format(
             *_matrix_task_artifact(ctx)),
-        body={"url": "https://example.com/pr/2", "label": "conf PR v2"},
+        body={"url": "https://example.com/pr/2", "name": "conf PR v2"},
     ),
     "GET /api/tasks/{task_id}/artifact/{artifact_id}/history": Route(
         # T-60: the version list is cockpit-only (off MCP) and, unlike the three
         # write verbs on the same set, carries NO executor guard — agent B reads
-        # agent A's version list (200). Owner ruling: GET /api/tasks/{task_id}
-        # makes no caller distinction at all and its response already carries the
-        # artifact set, so gating the history would leave one door refusing what
-        # the other hands over. The route floor (agent) is unchanged, so the
+        # agent A's version list (200). Owner ruling: the artifact-set read
+        # (GET /api/tasks/{task_id}/artifacts) makes no caller distinction at
+        # all and hands over every artifact row — since T-92 it is the only door
+        # that does, GET /api/tasks/{task_id} answering a bare artifact_count —
+        # so gating the history would leave one door refusing what the other
+        # hands over. The route floor (agent) is unchanged, so the
         # below-floor cells are still the derived 403.
         requires="agent",
         path=lambda ctx, _i: "/api/tasks/{}/artifact/{}/history".format(

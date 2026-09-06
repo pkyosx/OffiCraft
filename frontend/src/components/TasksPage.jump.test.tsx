@@ -3,9 +3,13 @@
 //      row: the TYPE + 查看任務詳情 — and NEVER the task number / 識別鍵
 //      (adjudicated). A pure chat ask shows nothing.
 //   2. Clicking 查看任務詳情 routes to #tasks/<taskId>.
-//   3. Arriving at #tasks/<id> FILTERS the list down to that one task in the
-//      normal layout (a closed target auto-expands 已結束); the same 清除篩選
-//      returns to the full list; an unknown id self-heals.
+//   3. Arriving at #tasks/<id> narrows the page to that ONE task in the normal
+//      layout (a closed target auto-expands 已結束); emptying the 編號 field
+//      returns to the full list; an unknown id KEEPS its anchor and the page
+//      says THAT ID DOES NOT EXIST — the server was asked (owner 2026-09-05
+//      rc-428906235337 stopped the silent self-heal; owner 2026-09-06 option ①
+//      stopped it borrowing the generic 沒有符合篩選條件的任務, which is also
+//      what a merely-not-loaded task got and is the confusion T-93 is about).
 //   4. The chat's inline card (ChatReplyCard) carries the same task row.
 
 import { describe, it, expect, beforeEach } from "vitest";
@@ -21,6 +25,11 @@ import {
   __injectMockReplyCard,
 } from "../api/mock";
 import type { ReplyCard, TaskView } from "../api/adapter";
+// 篩選 now happens inside the FilterPanel and only on 套用篩選 (T-93 round 3).
+import {
+  toggleFilter,
+  clearAllFilters,
+} from "../test/tasksFilter";
 
 let seq = 0;
 
@@ -85,18 +94,6 @@ function taskRefTextOutsideTitle(ref: HTMLElement): string {
   return clone.textContent ?? "";
 }
 
-// Toggle one option in a multi-select filter dropdown (T-be18) — same helper as
-// TasksPage.test.tsx: open the pill if needed, then click the option's checkbox.
-function toggleFilter(testId: string, value: string) {
-  const trigger = document.querySelector(`[data-testid="${testId}"]`)!;
-  if (trigger.getAttribute("aria-expanded") !== "true") {
-    fireEvent.click(trigger);
-  }
-  const checkbox = document.querySelector(
-    `[data-testid="${testId}-opt-${value}"] input`
-  )!;
-  fireEvent.click(checkbox);
-}
 
 function renderTasks() {
   return render(
@@ -231,9 +228,17 @@ describe("TasksPage 單一任務 filter (#tasks/<id>)", () => {
     const { findByTestId } = renderTasks();
     const openList = await findByTestId("open-list");
     expect(openList.querySelector('[data-task-id="t-open"]')).not.toBeNull();
-    // The other task is filtered out; a filter being active shows 清除篩選.
+    // The other task is filtered out.
     expect(document.querySelector('[data-task-id="t-other"]')).toBeNull();
-    await findByTestId("clear-filters");
+    // 🔁 WAS 「a filter is on, so the 已篩選 strip is there with its 清除全部
+    // exit」. owner 2026-09-06 (c-c3d681fe05da) removed the strip and the button
+    // with it. The exit did NOT go: the 編號 field is permanently visible
+    // holding the anchored id, so THAT is what says a filter is on and that is
+    // where it is cleared. Asserting the field is asserting the surviving
+    // property; asserting the button was asserting the vanished mechanism.
+    expect(
+      ((await findByTestId("filter-task-id")) as HTMLInputElement).value
+    ).not.toBe("");
   });
 
   it("a CLOSED target shows up with 已結束 auto-expanded", async () => {
@@ -249,7 +254,7 @@ describe("TasksPage 單一任務 filter (#tasks/<id>)", () => {
     expect(document.querySelector('[data-task-id="t-open"]')).toBeNull();
   });
 
-  it("清除篩選 lifts the anchor AND every other axis → 顯示全部 (terminals included, T-50bb)", async () => {
+  it("clearing every field lifts the anchor AND every other axis → 顯示全部 (terminals included, T-50bb)", async () => {
     __injectMockTask(mkTask({ id: "t-open" }));
     __injectMockTask(mkTask({ id: "t-other" }));
     __injectMockTask(
@@ -258,7 +263,7 @@ describe("TasksPage 單一任務 filter (#tasks/<id>)", () => {
     window.location.hash = "#tasks/t-open";
 
     const { findByTestId } = renderTasks();
-    fireEvent.click(await findByTestId("clear-filters"));
+    clearAllFilters();
 
     await waitFor(() => expect(window.location.hash).toBe("#tasks"));
     await waitFor(() =>
@@ -277,12 +282,36 @@ describe("TasksPage 單一任務 filter (#tasks/<id>)", () => {
     );
   });
 
-  it("an unknown/stale target self-heals (anchor stripped, full list)", async () => {
+  it("an unknown/stale target KEEPS its anchor and says the id DOES NOT EXIST", async () => {
+    // Direction changed TWICE. owner 2026-09-05 (rc-428906235337) killed the
+    // original self-heal — the anchor used to strip itself back to #tasks and
+    // the full list came back silently, so a broken link and a link that was
+    // never filtering looked identical.
+    // 🔴 owner 2026-09-06 then removed the bespoke wording it was replaced with
+    // (rc-f603bbd447f4 →「為什麼要顯示這種東西 拿掉!」→「UI不是本來就秀0筆了嗎」),
+    // so the ordinary filtered-empty state answers here again.
+    //
+    // THE PART THAT DID NOT CHANGE, AND IS WHAT THIS SPEC IS FOR: the anchor is
+    // NOT stripped. The 2026-09-05 ruling was about the HASH self-healing back
+    // to #tasks — that is what made a broken link and a link that was never
+    // filtering identical, and it is still held below. The wording was a second,
+    // separate answer to the same complaint, and it is the wording he removed.
     __injectMockTask(mkTask({ id: "t-1" }));
     window.location.hash = "#tasks/t-gone";
-    const { findByTestId } = renderTasks();
-    await waitFor(() => expect(window.location.hash).toBe("#tasks"));
+    const { findByTestId, queryByTestId } = renderTasks();
+
+    await findByTestId("tasks-empty-filtered");
+    expect(queryByTestId("task-id-missing")).toBeNull();
+    // Non-vacuity: the task that DOES exist is not on screen — the anchor is
+    // still narrowing, rather than the page being empty for some other reason.
+    expect(queryByTestId("open-list")).toBeNull();
+    // The anchor stays put — that is the visible difference from before.
+    expect(window.location.hash).toBe("#tasks/t-gone");
+    // Emptying the 編號 field is the way back, and it restores the list AND
+    // the hash (T-118: the 清除全部 button went with the 已篩選 strip).
+    clearAllFilters();
     await findByTestId("open-list");
+    expect(window.location.hash).toBe("#tasks");
   });
 });
 
@@ -328,13 +357,13 @@ describe("TasksPage executor seed (#tasks/executor/<id>, T-dfae)", () => {
     __injectMockTask(mkTask({ id: "t-kyle-open", executorId: "kyle" }));
     window.location.hash = "#tasks/executor/mira";
 
-    const { findByTestId } = renderTasks();
+    renderTasks();
     // composeTaskNo precedent: consumed, then normalised away — so the route
     // never re-imposes itself over the owner's own filter edits.
     await waitFor(() => expect(window.location.hash).toBe("#tasks"));
-    // The seeded filter is ordinary filter state: 清除篩選 lifts it like any
+    // The seeded filter is ordinary filter state: clearing the fields lifts it like any
     // other axis, and kyle's task comes back.
-    fireEvent.click(await findByTestId("clear-filters"));
+    clearAllFilters();
     await waitFor(() =>
       expect(document.querySelector('[data-task-id="t-kyle-open"]')).not.toBeNull()
     );
@@ -363,9 +392,9 @@ describe("TasksPage executor seed (#tasks/executor/<id>, T-dfae)", () => {
     );
     const { findByTestId, queryByTestId } = renderTasks();
 
-    // Widen 狀態 to 所有狀態 the way the owner would: 清除篩選 = 顯示全部
+    // Widen 狀態 to 所有狀態 the way the owner would: 清空每一軸 = 顯示全部
     // (T-50bb), which EMPTIES the status set — terminals included.
-    fireEvent.click(await findByTestId("clear-filters"));
+    clearAllFilters();
     fireEvent.click(await findByTestId("closed-toggle"));
     await waitFor(() =>
       expect(
@@ -424,5 +453,111 @@ describe("TasksPage executor seed (#tasks/executor/<id>, T-dfae)", () => {
     );
     // …and the executor axis still bit (this is a filter seed, not a reset).
     expect(document.querySelector('[data-task-id="t-other-review"]')).toBeNull();
+  });
+
+  // 🔴 THE PANEL'S DRAFT MUST MATCH WHAT IS ACTUALLY FILTERING (M4 — added
+  // after an independent review of dbef7ff3 found this call site UNGUARDED).
+  //
+  // `openPanel` does `if (next) reseedDraft()`. The reviewer changed that one
+  // token to `if (false)` and the whole package — 81 assertions — stayed green.
+  // Nothing anywhere asserted that opening the panel shows the truth.
+  //
+  // WHY THIS SEED IS THE ONE THAT BREAKS IT. The effect above writes the four
+  // APPLIED axes and never touches the draft, so without the reseed the draft is
+  // still the mount default: empty. The owner arriving from the chat header then
+  // opens a panel with NOTHING ticked while the strip says 「負責人：Mira」 — and
+  // it does not stop at cosmetic, because 套用篩選 commits the DRAFT, so his next
+  // press SILENTLY WIDENS the filter back to everyone. Every other route into the
+  // panel leaves draft == applied already, which is exactly why 81 tests could
+  // not see this one.
+  //
+  // 🔴 WHY THIS ASSERTS THE TICK AND NOT THE PILL TEXT — DO NOT "SIMPLIFY" IT
+  // BACK. The checkbox is the state this test is about, and it is the state the
+  // seed either carried or dropped. Assert the thing under test.
+  //
+  // 🔁 THE REASON RECORDED HERE USED TO BE A DIFFERENT ONE, AND IT IS NOW GONE:
+  // the pill was said to have ZERO discriminating power, because after this seed
+  // the executor axis has exactly one option with a non-zero count, and
+  // `MultiSelectFilter` used to read 「every visible option checked」 as 「no
+  // constraint」 and print 所有負責人 either way. That was defect A2, and the
+  // comment noted the owner had not been asked about it. **He has been now**:
+  // 2026-09-06, rc-33dfe1ff14cb —「有勾選的時候,就不要顯示所有人…完全沒勾跟有勾
+  // 的情況本來就是不同的」. Only an EMPTY set prints allLabel today, so the pill
+  // would in fact say Mira and would discriminate. The tick is still the better
+  // witness — it is the state the seed writes — but do not re-derive the old
+  // reason from this file: A2 is fixed, not inherited.
+  it("opening the panel after an executor seed carries the seeded tick into the draft", async () => {
+    __injectMockTask(mkTask({ id: "t-mira-open", executorId: "mira" }));
+    __injectMockTask(mkTask({ id: "t-kyle-open", executorId: "kyle" }));
+    window.location.hash = "#tasks/executor/mira";
+
+    const { findByTestId } = renderTasks();
+    await findByTestId("open-list");
+
+    // Three gestures, not one: the panel expands, then the 負責人 DROPDOWN has
+    // to be opened before its option rows exist at all, and the roster they are
+    // built from arrives asynchronously. Reading too early gives `undefined`,
+    // which is neither checked nor unchecked and must not be scored as either.
+    fireEvent.click(await findByTestId("filter-executor"));
+    const tick = await waitFor(() => {
+      const el = document
+        .querySelector('[data-testid="filter-executor-opt-mira"]')
+        ?.querySelector("input");
+      expect(el, "the mira option row must be in the open panel").toBeTruthy();
+      return el!;
+    });
+    expect(
+      tick.checked,
+      "the seeded executor must arrive in the draft, or 套用篩選 widens it"
+    ).toBe(true);
+  });
+
+  // ── allLabel is for the EMPTY set only (T-118 增量, owner rc-33dfe1ff14cb) ──
+  //
+  // 🔴 WHAT THIS PROTECTS, IN THE OWNER'S OWN WORDS:「有勾選的時候,就不要顯示所有
+  // 人…我覺得完全沒勾跟有勾的情況本來就是不同的」(2026-09-06).
+  //
+  // The two states are not cosmetic variants of each other. An EMPTY set is a
+  // standing 「no constraint」 that keeps covering people who appear later; a FULL
+  // set is a SNAPSHOT of the names that existed at the instant of ticking. When
+  // both printed 所有X, a reader who ticked everyone was told he had selected
+  // everyone — and then anyone who loaded afterwards was silently excluded from
+  // a filter still claiming to show them all. On 請示卡 that is reachable in two
+  // clicks, because 近期已處理 fetches its rows on first unfold.
+  //
+  // It also made the pill disagree with the 清除篩選 button standing next to it:
+  // the button keys on the page's own `anyFilter` (size > 0), so it appeared
+  // while the pill said 所有X — one row of controls making two opposite claims.
+  it("🔴 ticking EVERY option does not read as 所有負責人 — only an empty set does", async () => {
+    __injectMockTask(mkTask({ id: "t-mira-all", executorId: "mira" }));
+
+    const { findByTestId } = renderTasks();
+    await findByTestId("open-list");
+
+    const pill = () =>
+      document.querySelector('[data-testid="filter-executor"] .tasks__ms-summary')
+        ?.textContent ?? "";
+
+    // Nothing ticked — the one genuinely unconstrained state.
+    expect(pill(), "an empty set is the unconstrained state").toBe("所有負責人");
+
+    fireEvent.click(await findByTestId("filter-executor"));
+    const tick = await waitFor(() => {
+      const el = document
+        .querySelector('[data-testid="filter-executor-opt-mira"]')
+        ?.querySelector("input");
+      expect(el).toBeTruthy();
+      return el!;
+    });
+    // Mira is the ONLY option here, so ticking her ticks every option — the
+    // exact case that used to collapse back onto 所有負責人.
+    fireEvent.click(tick);
+
+    await waitFor(() =>
+      expect(
+        pill(),
+        "every option checked is a CONSTRAINT, not 所有負責人"
+      ).toBe("Mira")
+    );
   });
 });

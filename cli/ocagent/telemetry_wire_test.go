@@ -230,7 +230,7 @@ func TestContextReportBodiesMatchFrozenIngestSchemas(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			srv, posts := contextServer(t)
-			cfg := Config{Base: srv.URL, Token: "t", ID: "kyle", Home: t.TempDir()}
+			cfg := Config{BaseConfigured: true, Base: srv.URL, Token: "t", ID: "kyle", Home: t.TempDir()}
 			var out, errOut bytes.Buffer
 			cmdContextReport(srv.Client(), cfg,
 				testEnv(map[string]string{"HOME": home, "OC_HOST": "lab-1"}),
@@ -315,7 +315,7 @@ func TestContextReportSendsSessionEffort(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			srv, posts := contextServer(t)
-			cfg := Config{Base: srv.URL, Token: "t", ID: "kyle", Home: t.TempDir()}
+			cfg := Config{BaseConfigured: true, Base: srv.URL, Token: "t", ID: "kyle", Home: t.TempDir()}
 			payload := `{"context_window":{"used_percentage":41.5}}`
 			if tc.effort != "" {
 				payload = `{"context_window":{"used_percentage":41.5},` +
@@ -400,7 +400,7 @@ func TestContextReportSendsSessionModel(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			srv, posts := contextServer(t)
-			cfg := Config{Base: srv.URL, Token: "t", ID: "kyle", Home: t.TempDir()}
+			cfg := Config{BaseConfigured: true, Base: srv.URL, Token: "t", ID: "kyle", Home: t.TempDir()}
 			payload := `{` + tc.model + `"context_window":{"used_percentage":41.5}}`
 			var out, errOut bytes.Buffer
 			cmdContextReport(srv.Client(), cfg,
@@ -461,7 +461,7 @@ func TestContextReportSurfacesRefusedPost(t *testing.T) {
 	}))
 	t.Cleanup(srv.Close)
 
-	cfg := Config{Base: srv.URL, Token: "t", ID: "kyle", Home: t.TempDir()}
+	cfg := Config{BaseConfigured: true, Base: srv.URL, Token: "t", ID: "kyle", Home: t.TempDir()}
 	var out, errOut bytes.Buffer
 	rc := cmdContextReport(srv.Client(), cfg, testEnv(nil), 1000.0,
 		strings.NewReader(`{"context_window":{"used_percentage":28.93}}`), &out, &errOut)

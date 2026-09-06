@@ -48,7 +48,22 @@ const (
 	// change moves it again to 7755. Existing installs pin their port in
 	// oc.toml (bin/ocserver renders it explicitly) and are unaffected; only a
 	// config-less `ocserverd serve` moves.
-	defaultPort          = 7755
+	defaultPort = 7755
+	// ⚠️ THESE ARE DEFAULTS, NOT WHAT A RUNNING STATION USES. Both comments below
+	// describe the CONSTANT and are accurate about it — which is exactly why they
+	// mislead: a reader who takes "24h" as the answer will be wrong on any station
+	// where the DB says otherwise, and nothing here says to go look.
+	//
+	// The DB `setting` table wins: loadSettings (settings.go) reads
+	// `auth.owner_token_ttl` / `auth.agent_token_ttl` and only falls back to these
+	// when neither is stored. On a station upgraded from before those two keys were
+	// split apart, the successor key is written ONCE from the pre-split shared key
+	// `auth.token_ttl` — so an inherited value can be sitting there without anyone
+	// having chosen it, and from here that is indistinguishable from the default.
+	//
+	// ⇒ To learn what a station actually enforces, READ ITS DB. Do not read this
+	// line. Deliberately no current value is quoted here: a number in a comment
+	// goes stale silently, and looking it up is cheap.
 	defaultOwnerTokenTTL = 86400  // owner login JWT lifetime: 24h
 	defaultAgentTokenTTL = 604800 // agent/worker JWT lifetime: 7d
 )

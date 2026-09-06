@@ -1,0 +1,114 @@
+/* The ID 篩選 field. Same pill as the 篩選列's other controls
+ * (.tasks__filter), restated here so the component carries its own look to
+ * whichever page hosts it instead of depending on that page's stylesheet.
+ * Colours are theme tokens only — no literal colour lives in this file. */
+/* 🔴 THE FIELD IS AS WIDE AS THE WIDER OF TWO THINGS, AND THE BROWSER PICKS.
+ * Two things have to fit in this box: the ID it filters on, and the LABEL —
+ * which is the placeholder, because the field has no caption beside it. On
+ * 請示卡頁 the id wins (15 characters against 「請示卡編號」); on 任務頁 the label
+ * wins (「任務編號」 against 7). owner 2026-09-07 `rc-e2edbb0fff01` circled
+ * 「寬度取編號跟標籤的較大者」 over shortening the label.
+ *
+ * A NUMBER FOR THE LABEL IS NOT WRITTEN DOWN ANYWHERE, on purpose. How wide
+ * 「任務編號」 renders depends on the font, and it is a different string in each
+ * locale ("Task ID", "Reply-card id"), so any constant would be a guess that is
+ * already wrong in one of them — and a picked constant on this very field is
+ * what owner has objected to twice (2026-09-06 「200px」, 2026-09-07 「ID寬度要
+ * 合理」). Instead a HIDDEN COPY OF THE LABEL sits in the same grid cell as the
+ * input, carrying the id count as its `min-width`; the cell takes the wider of
+ * the two and the input fills it. The measurement is the browser's, in the
+ * field's own font, and it re-measures itself when either side changes. */
+.id-filter-field {
+  display: inline-grid;
+  /* Carried over from .id-filter, which used to be the outermost box here. A
+   * `ch` count is a promise about text, not about the phone it is read on, so
+   * the column stays the cap — the CT guard's 320px 「no horizontal scrolling」
+   * assertion is what this line answers to. */
+  max-width: 100%;
+}
+/* Both children occupy the ONE cell, so the cell is as wide as the wider of
+ * them — that is the 「取較大者」 owner circled in `rc-e2edbb0fff01`.
+ *
+ * 🔴 ON HEIGHT THIS IS CONDITIONAL, NOT FREE. One cell means the cell takes the
+ * TALLER of the two, so the sizer CAN add height to the input. It does not
+ * today for exactly one reason: `.id-filter-sizer` pins `line-height: normal`
+ * below, matching what the <input> gets from the UA. DELETE THAT LINE AND THIS
+ * PARAGRAPH BECOMES FALSE AGAIN — the span falls back to the body's 1.5, the
+ * cell grows with it, and this field ends up a few px taller than the pill
+ * triggers beside it.
+ *
+ * An earlier version of this comment said flatly that neither child could add
+ * height to the other. That sentence was not merely imprecise: it is what let
+ * the sizer stretch this cell once already, because it told the next reader
+ * there was nothing here to check. The CT guard 「the field is no taller than
+ * the pill triggers beside it」 is what holds it now — before that guard
+ * existed (T-118, 8th review), NOTHING did. */
+.id-filter-field > * {
+  grid-area: 1 / 1;
+}
+
+/* Measured, never seen. `visibility: hidden` rather than `display: none`
+ * because a `display: none` box is not laid out and therefore measures
+ * nothing — it would silently make the id count the only input again. */
+.id-filter-sizer {
+  visibility: hidden;
+  pointer-events: none;
+  white-space: nowrap;
+  /* Must match .id-filter's box model and type EXACTLY or the two are not
+   * comparable and the cell comes out the wrong width. The border is
+   * transparent because it is never painted; it is here for its 1px. */
+  box-sizing: content-box;
+  padding: 7px 10px;
+  border: 1px solid transparent;
+  font-size: 13px;
+  /* 🔴 `normal`, NOT the inherited 1.5. A span inherits the body's line-height
+   * while an <input> uses the UA's `normal`, so leaving this out makes the sizer
+   * the taller of the two — and since both share one grid cell, the CELL takes
+   * that height and this field ends up a few px taller than the pill triggers
+   * beside it. `.filter-panel__clear` pins its own height to 「the fields' own
+   * height」, so it would go out of line with them too. The sizer matches the
+   * input here rather than the other way round: the input's height is what
+   * ships today and nothing in this change is meant to move it. */
+  line-height: normal;
+  /* The caller sets `--id-filter-ch` to the LENGTH OF THE ID this field holds
+   * (see IdFilterInput's widthCh); no literal width lives here, because one
+   * would freeze one page's id shape onto every page that hosts this field.
+   *
+   * 🔴 `content-box` against the app's global `border-box` is deliberate and
+   * load-bearing: the count is meant to be the TEXT area, and under border-box
+   * the padding and border eat into it — measured, a 15-character id came up
+   * 13px short of fitting in a 15ch field, which is exactly the clipping the
+   * guard in visual-guards/replies-filter-panel.ct.spec.tsx exists to catch.
+   * Here the padding above adds ON TOP, so the number keeps meaning what it
+   * says even if that padding changes. */
+  min-width: calc(var(--id-filter-ch) * 1ch);
+  /* 🔴 A `min-width` overflows its parent rather than shrinking, and this box is
+   * what sizes the grid column — so without this the field would push a 320px
+   * page into horizontal scrolling on the day an id gets longer. `max-width`
+   * loses to `min-width` on the same element, so it is here to bound the TEXT,
+   * with the wrapper's own cap behind it. */
+  max-width: 100%;
+}
+
+.id-filter {
+  padding: 7px 10px;
+  border-radius: var(--radius-pill);
+  border: 1px solid color-mix(in srgb, var(--color-overlay) 10%, transparent);
+  background: var(--color-card);
+  color: var(--color-text);
+  font-size: 13px;
+  /* `border-box` here, unlike the sizer: the input's job is to FILL the cell
+   * the sizer measured, and the cell's width already includes that padding and
+   * border. Its text area therefore comes out at exactly the larger of the two
+   * counts above — the meaning the `ch` number has always had. */
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 100%;
+}
+.id-filter::placeholder {
+  color: var(--color-text-muted);
+}
+.id-filter:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--color-overlay) 35%, transparent);
+  outline-offset: 1px;
+}

@@ -3,12 +3,18 @@ package main
 // worker_pending_signals_ted79_test.go — T-ed79 parity #5 and #12: a worker
 // owner-verb that has not landed must say so, exactly as the staff twin does.
 //
-// MemberDTO has carried relocation_pending (T-8655), relocation_deferred
+// The staff side has carried relocation_pending (T-8655), relocation_deferred
 // (T-927a) and activation_pending (T-ba62) for the same reason each time: a
 // clean 200 with the new intent on the row is indistinguishable from a verb that
-// actually took effect. The worker DTO carried none of the three — the panel
+// actually took effect. The worker side carried none of the three — the panel
 // parity doc listed it as A9 「外包端根本沒有訊號可顯示」 and deferred it because
 // closing it means touching the frozen wire.
+//
+// WHERE THE THREE LIVE NOW (T-91, owner 2026-09-06): on the RECEIPTS these
+// writes answer — AgentRelocateReceiptDTO and OutsourceRestartReceiptDTO — not
+// on MemberDTO / OutsourceWorkerDTO, which no handler ever wrote them onto once
+// the receipts existed and which therefore no longer declare them at all. Every
+// assertion below reads a receipt body, which is why none of them moved.
 //
 // 🔴 THE T-ba62 SENTENCE IS ABOUT A BUG, NOT A NICETY: 「把這個回傳值丟掉就是整個
 // bug —— 對一台連不上的機器按啟動，會回一個乾淨的成功、零訊號」. The same shape

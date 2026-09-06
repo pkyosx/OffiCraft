@@ -17,7 +17,7 @@
 # WHY EACH LINE CARRIES A CONTENT HASH. Editing an already-shipped migration is
 # invisible to goose (one row per version, never revisited): new installs get the
 # edit, upgraded stations never do, and nothing errors. Only the hash sees it.
-roll sha256:4eff5b21c84339da03692501fb097995dc3f7af1e97cedfd54878a58b4da9eb3
+roll sha256:735af08df67395eb0923ae545bc6882b3566d36a1ade0bf2ae48fa19fbebfd6b
 00001 migrations/00001_schema.sql sha256:373a2a54ba46ba7fc3e10f592e663c639d7ca217ed9a50d4c93730c73e9f8298
 00002 migrations/00002_settings.sql sha256:800b45a9db1ba6fe7b79709f394a6990e270b4bdfda8d54f20e29f85f7ab089c
 00003 migrations/00003_reply_card.sql sha256:a5c9097852dbb2d953009b679e63c684331532648d92c229404f2b6748f78660
@@ -91,3 +91,4 @@ roll sha256:4eff5b21c84339da03692501fb097995dc3f7af1e97cedfd54878a58b4da9eb3
 00082 migrations/00082_lore_recall_session_anchor.sql sha256:1d3f547c0a39a2d27c65ff7307b66795a4aee2d2d4048be128d5cdc7350a4843
 00083 migrations/00083_lore_proposal.sql sha256:524797f0edc10e6aeb6a12fdb552dfe9205ab7bd952ae62b59b8eb383f396c35
 00084 migrations/00084_lore_format_v8.sql sha256:6916c75a699eb6c2c8223cb28d028e415ab0f03063ef366444e1ed0b3d35ba68
+00086 migrations/00086_task_artifact_name_description.sql sha256:2bc9cc56aaa0b83ae34eea9b3e9b26b2cef0e7e89b6434f00ae7b280002a46f0

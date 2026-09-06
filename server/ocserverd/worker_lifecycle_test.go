@@ -556,13 +556,32 @@ func TestStopWorker_Idempotent(t *testing.T) {
 func TestRestartWorker_ClearsAndRedispatches(t *testing.T) {
 	api := newTasksTestServer(t)
 	api.noOutsource = true
-	workerID := newActiveOnlineWorker(t, api)
+	workerID := newActiveWorker(t, api, false)
+	// A live session, so the 強制停止 below has something to kill — the fixture
+	// this test has always described.
+	l, err := api.hub.Connect(workerID, "")
+	if err != nil {
+		t.Fatalf("connect worker SSE: %v", err)
+	}
 
 	// Stop it, then restart → 200, marker cleared, worker_start dispatched.
 	// 強制停止 rather than 停止: this case wants the session GONE before the
 	// restart, and 停止 now only asks for a close-out.
 	postWorker(t, api, workerID, "force-stop", nil,
 		api.HandleForceStopOutsourceWorkerApiOutsourceWorkersIdForceStopPost)
+	// 🔴 THE FIXTURE HAD TO SAY WHAT IT MEANT (T-65 包④). The 強制停止 above
+	// dispatches the kill, but the test's own SSE listener is what hub.IsOnline
+	// reads, and nothing in-process reaps it — so "the session is GONE" was a
+	// comment, not a state. It did not matter while restart behaved the same
+	// either way; as of 包④ 喚醒 branches on exactly this bit, and leaving the
+	// listener up would have quietly moved this test onto the live arm, where it
+	// asserts something it is not about. Dropping the listener IS the warden
+	// reaping the killed session.
+	api.hub.Disconnect(l)
+	if api.hub.IsOnline(workerID) {
+		t.Fatal("fixture: the session must be gone before the restart — this test " +
+			"is about the STOPPED→restart path")
+	}
 	api.hub.DrainWardenCommands(ServerSelfHost)
 	rec := postWorker(t, api, workerID, "restart", nil,
 		api.HandleRestartOutsourceWorkerApiOutsourceWorkersIdRestartPost)

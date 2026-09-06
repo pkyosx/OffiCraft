@@ -47,7 +47,8 @@ type View = "main" | "preferences" | "password" | "notifications" | "mfa";
  * theme MANAGEMENT (add / edit colours / 用詞 / import / export / delete)
  * moved to the 設定 page's 主題 sub-section (SettingsPage → ThemeSettings)
  * so selection stays a quick flip here and management lives in one place. The
- * server PARAMETER knobs (登入有效期 / 自動換手門檻) likewise live in 設定/參數調整.
+ * server PARAMETER knobs likewise live in 設定/參數調整 — all of them, which
+ * is why this line names none of them.
  *
  * Local preferences persist via the i18n/preferences provider. Click-outside +
  * toggling is owned by the parent (App) via a wrapping ref.

@@ -434,7 +434,7 @@ func TestResumeContractorZeroProgressSeparatesNoStepsFromNoTask(t *testing.T) {
 	if rec.Code != 200 {
 		t.Fatalf("create stepless task: %d %s", rec.Code, rec.Body.String())
 	}
-	stepless := decodeBody[taskCreateResultDTO](t, rec).Task
+	stepless := createdTaskView(t, s, rec)
 	if len(stepless.Steps) != 0 {
 		t.Fatalf("fixture must have NO steps, got %d", len(stepless.Steps))
 	}

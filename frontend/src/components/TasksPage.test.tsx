@@ -35,6 +35,15 @@ import {
   __injectMockReplyCard,
 } from "../api/mock";
 import { api } from "../api";
+// The 篩選 fields moved INSIDE a FilterPanel and only bite on 套用篩選 (T-93
+// round 3, owner 2026-09-06) — so every filter gesture in this file goes
+// through the shared driver rather than clicking a bare dropdown.
+import {
+  toggleFilter,
+  clearAllFilters,
+} from "../test/tasksFilter";
+import { ApiError } from "../api/errors";
+import { codeForStatus } from "../api/errorCodes";
 import type { TaskView, TaskStepView, ReplyCard } from "../api/adapter";
 
 let seq = 0;
@@ -110,19 +119,6 @@ function renderPage() {
   );
 }
 
-// Toggle one option in a multi-select filter dropdown (T-be18): open the pill if
-// needed, then click the option's checkbox. Leaves the popover open so several
-// options can be toggled in a row.
-function toggleFilter(testId: string, value: string) {
-  const trigger = document.querySelector(`[data-testid="${testId}"]`)!;
-  if (trigger.getAttribute("aria-expanded") !== "true") {
-    fireEvent.click(trigger);
-  }
-  const checkbox = document.querySelector(
-    `[data-testid="${testId}-opt-${value}"] input`
-  )!;
-  fireEvent.click(checkbox);
-}
 
 beforeEach(() => {
   __resetMock();
@@ -312,7 +308,7 @@ describe("TasksPage", () => {
     expect(queryByTestId("closed-list")).toBeNull();
   });
 
-  it("multi-selects executor / type / status; 清除篩選 clears to 顯示全部; no-match empty state", async () => {
+  it("multi-selects executor / type / status; emptying every axis shows 顯示全部; no-match empty state", async () => {
     __injectMockTaskType({ typeKey: "review-pr", displayName: "", purpose: "" });
     __injectMockTask(
       mkTask({ title: "Mira 的", typeKey: "review-pr", status: "in_progress" })
@@ -339,10 +335,13 @@ describe("TasksPage", () => {
     const { findAllByTestId, findByTestId, getByTestId, queryByTestId } =
       renderPage();
     // All three are non-terminal → all show under the default status filter.
-    // The default view already narrows (terminals hidden) → 清除篩選 shows
-    // from the start (T-50bb).
+    // The default view already narrows (terminals hidden) → 清除篩選 shows from
+    // the start (T-50bb). ⚠️ This assertion was briefly REMOVED during T-118,
+    // when I deleted the button along with the 已篩選 strip owner had named; he
+    // asked for the button back (c-2423dba8b65b) and it is back in the field
+    // row, so the original assertion stands unchanged.
     expect((await findAllByTestId("task-card")).length).toBe(3);
-    expect(queryByTestId("clear-filters")).not.toBeNull();
+    expect(queryByTestId("tasks-filter-clear")).not.toBeNull();
 
     // 執行者 = 外包 (assigned outsource only — 未指派 is its own option).
     toggleFilter("filter-executor", "outsource");
@@ -351,8 +350,6 @@ describe("TasksPage", () => {
       expect(cards).toHaveLength(1);
       expect(cards[0].textContent).toContain("外包的");
     });
-    expect(getByTestId("clear-filters")).toBeTruthy();
-
     // MULTI-SELECT: add 未指派 alongside 外包 → both assigned-outsource and
     // unassigned tasks show (2), proving the axis is a union, not a swap.
     toggleFilter("filter-executor", "unassigned");
@@ -382,13 +379,13 @@ describe("TasksPage", () => {
 
     // 清除篩選 = 顯示全部 (T-50bb): every axis empties (status too) → all three
     // tasks again, and with nothing narrowing the list the button goes away.
-    fireEvent.click(getByTestId("clear-filters"));
+    fireEvent.click(getByTestId("tasks-filter-clear"));
     await waitFor(() =>
       expect(
         document.querySelectorAll('[data-testid="task-card"]')
       ).toHaveLength(3)
     );
-    expect(queryByTestId("clear-filters")).toBeNull();
+    expect(queryByTestId("tasks-filter-clear")).toBeNull();
 
     // 類型 = 自由代辦 (no type key).
     toggleFilter("filter-type", "adhoc");
@@ -1008,6 +1005,90 @@ describe("TasksPage", () => {
       getTaskSpy.mockRestore();
     });
 
+    it("KEEPS the #tasks/<id> anchor and says the id DOES NOT EXIST when the server answers 404", async () => {
+      // owner 2026-09-05 (rc-428906235337, 「這一包一起改」). Before this, a
+      // link whose task does not exist stripped its OWN hash and the page
+      // settled on the ordinary list with nothing said — so a broken link and a
+      // link that was never filtering looked identical, and the owner could not
+      // tell which one he was looking at. The anchor now stays and the page
+      // answers.
+      //
+      // 🔴 WHAT THIS SPEC NOW ASSERTS, AND WHY IT CHANGED (T-93 round 3, owner
+      // 2026-09-06 option ①). It used to expect the shared
+      // 沒有符合篩選條件的任務 empty state. That sentence is exactly the defect
+      // this ticket exists for: it is ALSO what the page said when the task was
+      // real but simply outside the loaded page, so 「不存在」 and 「在，只是沒被
+      // 載進來」 read identically — and it fooled the owner in review. A 404 is
+      // an ANSWER from the server, so the page now says so in its own words.
+      //
+      // ⚠️ The old behaviour WAS guarded, just not from here: deleting the
+      // stripping effect left all 35 tests in THIS file green, and the two that
+      // went red live in TasksPage.jump.test.tsx and TasksPage.anchor-fetch.
+      // Both were rewritten to the new expectation in the same commit. Recorded
+      // because "I ran the obvious file and it was green" is exactly how a
+      // deleted behaviour gets called unguarded — the denominator is every file
+      // that renders this page, not the one named after it.
+      __injectMockTask(mkTask({ title: "工作室裡確實有一張票" }));
+      // The real failure path: GET /api/tasks/{id} rejects (404 / deleted), and
+      // useTasks resolves the anchor WITH the id and a null task, so
+      // anchorPending goes false with nothing to show.
+      const getTaskSpy = vi
+        .spyOn(api, "getTask")
+        .mockRejectedValue(
+          new ApiError(
+            "http 404 for GET /api/tasks/t-does-not-exist",
+            404,
+            codeForStatus(404),
+            "task 't-does-not-exist' not found"
+          )
+        );
+      const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+      window.location.hash = "#tasks/t-does-not-exist";
+
+      const { findByTestId, queryByTestId } = renderPage();
+
+      // Wait for the anchor fetch to have been attempted and REJECTED, so every
+      // assertion below reads the SETTLED page rather than a frame on the way
+      // there. 🔴 This ordering is load-bearing: asserted before the settle, the
+      // empty-state half passes even against the self-heal mutant (it catches a
+      // transient frame), and only the hash half would have teeth.
+      await waitFor(() =>
+        expect(getTaskSpy).toHaveBeenCalledWith("t-does-not-exist")
+      );
+      await findByTestId("tasks-empty-filtered");
+
+      // The anchor survives: the hash still carries the id the owner clicked.
+      expect(window.location.hash).toBe("#tasks/t-does-not-exist");
+      // 🔴 The bespoke 404 sentence this used to assert was removed by owner on
+      // 2026-09-06 (rc-f603bbd447f4 / c-2580b547d1a1); a 404 renders the
+      // ordinary 沒有符合篩選條件的任務, awaited above. 目前沒有任務 still may
+      // NOT appear — that would be a claim about a workshop which in fact holds
+      // a task, and it is a different sentence from the one a filter earns.
+      expect(queryByTestId("tasks-empty")).toBeNull();
+      // The by-id notices are gone from the product; if either testid comes
+      // back, someone restored a screen the owner removed.
+      expect(queryByTestId("task-id-missing")).toBeNull();
+      expect(queryByTestId("task-id-filtered")).toBeNull();
+      // …and the one real task is NOT on screen: the anchor is still narrowing.
+      expect(document.querySelectorAll('[data-testid="task-card"]')).toHaveLength(
+        0
+      );
+
+      // And there is a way out — which is why keeping the anchor is not a trap:
+      // 清除全部 shows on the 已篩選 strip while the anchor is set and clears it
+      // with every other axis, restoring both the list and the hash.
+      clearAllFilters();
+      await waitFor(() =>
+        expect(
+          document.querySelectorAll('[data-testid="task-card"]')
+        ).toHaveLength(1)
+      );
+      expect(window.location.hash).toBe("#tasks");
+
+      warnSpy.mockRestore();
+      getTaskSpy.mockRestore();
+    });
+
     it("shows a loading placeholder (not the 規劃中 empty state) while a planned task's steps are in flight", async () => {
       __injectMockTask(
         mkTask({
@@ -1154,7 +1235,12 @@ describe("TasksPage filter enhancements (T-be18)", () => {
     expect(countOf("unassigned")).toBe("1");
 
     // Tick 已完成 in the 狀態 filter → Mira's count grows to 3 (the count basis
-    // follows the live status filter, T-be18 #3).
+    // follows the status filter, T-be18 #3).
+    // 🔁 WAS followed by a re-open click on 負責人, because 套用篩選 used to close
+    // the whole panel. T-118 removed the panel (owner 2026-09-06,
+    // c-c3d681fe05da), so the dropdown is still open and that click would now
+    // SHUT it. The count basis is also the applied set rather than a draft one
+    // now — there is no draft — which is why the number moves on the tick.
     toggleFilter("filter-status", "done");
     await waitFor(() => expect(countOf("mira")).toBe("3"));
   });
@@ -1225,6 +1311,12 @@ describe("TasksPage filter enhancements (T-be18)", () => {
     await waitFor(() => expect(optOf("outsource")).not.toBeNull());
 
     // 勾選 外包 while it still has a task.
+    // 🔁 EVERY `fireEvent.click(filter-executor)` THAT USED TO FOLLOW A TOGGLE
+    // IS GONE from this test. Round 3's 套用篩選 closed the whole panel, so each
+    // read had to reopen the dropdown; owner 2026-09-06 (c-c3d681fe05da)
+    // removed the panel, so the popover stays open and that click would now
+    // SHUT it — the reads below would then find nothing and the test would fail
+    // for a reason unrelated to what it guards.
     toggleFilter("filter-executor", "outsource");
     await waitFor(() => expect(checkOf("outsource")?.checked).toBe(true));
 
@@ -1267,8 +1359,13 @@ describe("TasksPage filter enhancements (T-be18)", () => {
   });
 });
 
-// ── T-50bb: 清除篩選 = 顯示全部 (the default view counts as a filter)
-describe("TasksPage 清除篩選 semantics (T-50bb)", () => {
+// ── T-50bb: 清空每一軸 = 顯示全部 (the default view counts as a filter)
+// 🔁 THIS BLOCK WAS 「清除篩選 semantics」 and it was named after a BUTTON. owner
+// 2026-09-06 (c-c3d681fe05da) removed that button along with the 已篩選 strip it
+// stood on. T-50bb's actual RULE survives untouched — clearing every axis must
+// go straight to 顯示全部 (terminals included), NOT back to the terminal-hiding
+// default view — so the tests below keep it and only change the gesture.
+describe("TasksPage 顯示全部 semantics (T-50bb)", () => {
   const injectMixedTasks = () => {
     const now = Date.now() / 1000;
     __injectMockTask(mkTask({ title: "活的", status: "in_progress" }));
@@ -1280,21 +1377,28 @@ describe("TasksPage 清除篩選 semantics (T-50bb)", () => {
     );
   };
 
-  it("shows 清除篩選 already in the DEFAULT view (its status set hides terminals — that IS a filter)", async () => {
+  it("the DEFAULT view already narrows: the terminals it hides are absent from the list", async () => {
+    // 🔁 REPLACES 「shows 清除篩選 already in the DEFAULT view」. That test proved
+    // the default view counts as a filter BY THE PRESENCE OF THE BUTTON, and
+    // the button is gone (owner 2026-09-06, c-c3d681fe05da). The fact it was
+    // really pinning — that the default status set is a real constraint, not
+    // "no filter" — is asserted here directly instead, which is what it should
+    // have measured all along.
     injectMixedTasks();
-    const { findByText, getByTestId } = renderPage();
+    const { findByText, queryByText } = renderPage();
     await findByText("活的");
-    expect(getByTestId("clear-filters")).toBeTruthy();
+    expect(queryByText("完成的"), "已完成 is excluded by default").toBeNull();
+    expect(queryByText("終止的"), "終止 is excluded by default").toBeNull();
   });
 
-  it("clicking 清除篩選 from the default view lists EVERYTHING — 已完成/終止 included — and the button goes away", async () => {
+  it("emptying every axis from the default view lists EVERYTHING — 已完成/終止 included", async () => {
     injectMixedTasks();
-    const { findByText, findByTestId, getByTestId, queryByTestId, queryByText } =
+    const { findByText, findByTestId, queryByTestId, queryByText } =
       renderPage();
     await findByText("活的");
     expect(queryByText("完成的")).toBeNull();
 
-    fireEvent.click(getByTestId("clear-filters"));
+    clearAllFilters();
     // Terminals now pass the (emptied) status filter → the 已結束 section
     // appears with both closed tasks; expand it to see the cards.
     const toggle = await findByTestId("closed-toggle");
@@ -1303,9 +1407,11 @@ describe("TasksPage 清除篩選 semantics (T-50bb)", () => {
     await findByText("完成的");
     await findByText("終止的");
     expect((await findByText("活的")).textContent).toContain("活的");
-    // Nothing narrows the list anymore → no 清除篩選, and the 狀態 dropdown
-    // reads as unconstrained (all boxes unchecked).
-    expect(queryByTestId("clear-filters")).toBeNull();
+    // Nothing narrows the list any more, and the 狀態 dropdown reads as
+    // unconstrained (all boxes unchecked) — with the 已篩選 strip gone, the
+    // dropdown's own state is what says so, which is the property that made
+    // removing the strip safe.
+    expect(queryByTestId("tasks-filter-clear")).toBeNull();
     fireEvent.click(await findByTestId("filter-status"));
     const checkOf = (v: string) =>
       document.querySelector<HTMLInputElement>(
@@ -1315,9 +1421,9 @@ describe("TasksPage 清除篩選 semantics (T-50bb)", () => {
     expect(checkOf("done").checked).toBe(false);
   });
 
-  it("clicking 清除篩選 after editing filters ALSO goes straight to 顯示全部 (not back to the default view)", async () => {
+  it("emptying every axis after editing filters ALSO goes straight to 顯示全部 (not back to the default view)", async () => {
     injectMixedTasks();
-    const { findByText, findByTestId, getByTestId, queryByText } = renderPage();
+    const { findByText, findByTestId, queryByText } = renderPage();
     await findByText("活的");
 
     // Edit two axes: executor = mira, and un-tick 進行中 → nothing matches.
@@ -1325,7 +1431,7 @@ describe("TasksPage 清除篩選 semantics (T-50bb)", () => {
     toggleFilter("filter-status", "in_progress");
     await findByTestId("tasks-empty-filtered");
 
-    fireEvent.click(getByTestId("clear-filters"));
+    clearAllFilters();
     // Straight to 顯示全部: the live task is back AND the terminals surface in
     // 已結束 — proof it did not stop at the terminal-hiding default view.
     await findByText("活的");

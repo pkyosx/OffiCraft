@@ -780,6 +780,45 @@ func (s *apiServer) HandleRenewMachineCredentialApiMachinesRenewCredentialPost(w
 	})
 }
 
+// GET /api/machines/credential-policy — how long a machine credential is meant
+// to live (T-fc53). One number, the same for every caller.
+//
+// 🔴 WHY THIS ENDPOINT HAS TO EXIST AT ALL. A warden decides for itself when to
+// replace its credential, and it used to be able to: the threshold was a fraction
+// of the credential's own lifetime, and the lifetime was exp minus iat. Warden
+// credentials carry no exp (mintWardenToken → mintJWTWithoutExpiry), so that
+// subtraction has nothing to work with and the number now lives only in the
+// owner's settings — on this side of the wire. This is how it crosses.
+//
+// 🔴 WHY THE DECISION IS STILL THE WARDEN'S, and not this server's. The station
+// can already push a `renew` verb down a warden's downlink (askMachineToRenewIfStale
+// — T-80), and moving the age decision there would have been less code. It would
+// also have made every renewal in the fleet depend on the SSE downlink being up
+// for that machine: enqueueToWarden is fail-closed on reachability, so a machine
+// whose stream is broken would simply never renew, silently, which is the exact
+// failure this whole ticket exists to end. A warden that can reach this endpoint
+// renews; a warden that cannot keeps its last answer, or the shipped default, and
+// renews anyway. The station publishing a number is strictly weaker than the
+// station driving the fleet, and weaker is the right shape here.
+//
+// IT NAMES NO TARGET AND VARIES BY NOBODY. The per-machine stagger that keeps the
+// fleet from renewing in one instant is computed on the WARDEN, from its own id
+// (cli/ocwarden/renew.go), deliberately not served: an answer that differed per
+// caller would be a second thing to keep in step with the setting, and it would
+// make this response un-cacheable and un-reproducible for no gain.
+//
+// The route sits on principalMachine — the same LOWEST floor renew-credential
+// uses, which an ordinary agent also clears. Unlike renew-credential there is no
+// warden-only check in the handler, and that is deliberate rather than forgotten:
+// this reads one org setting that the settings face already shows the owner and
+// every admin agent, it mints nothing and it changes nothing, so there is nothing
+// here for a non-machine caller to gain by asking.
+func (s *apiServer) HandleMachineCredentialPolicyApiMachinesCredentialPolicyGet(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, machineCredentialPolicyDTO{
+		LifetimeSecs: s.wardenCredLifetimeValue(),
+	})
+}
+
 // ---------------------------------------------------------------------------
 // child env — ALLOWLIST (fail-closed), not a denylist
 // ---------------------------------------------------------------------------

@@ -191,12 +191,12 @@ export const en: Dict = {
   },
   // ── Tasks page (M3 task cards) ──
   tasks: {
-    title: "Tasks",
     openTitle: "Open",
     closedTitle: "Closed",
     emptyNone: "No tasks yet",
     emptyFiltered: "No tasks match the current filters",
     loadError: "Failed to load tasks. Please try again.",
+    filterIdLabel: "Task ID",
     clearFilters: "Clear filters",
     filterExecutorAll: "Everyone",
     filterTypeAll: "All types",
@@ -205,6 +205,12 @@ export const en: Dict = {
     filterExecutorNoun: "Assignees",
     filterTypeNoun: "Types",
     filterStatusNoun: "Statuses",
+    // The chip's own word for the id axis — short, because the value sits right
+    // next to it. The FIELD keeps the longer "Task ID" placeholder.
+    // A non-404 failure: the question never got an answer, so "not found" would
+    // be a lie.
+    idUnreached: (id: string) =>
+      `Looking up "${id}" got no answer from the server, so we do not know whether it exists — this is NOT a "not found". Please try again shortly.`,
     outsource: "Outsource",
     unassigned: "Unassigned",
     adhoc: "Ad-hoc",
@@ -366,7 +372,8 @@ export const en: Dict = {
     collapseReply: "Collapse reply card",
     // Artifact set (T-3dc5): the deliverables (file/image/link) pinned onto a
     // task card. The 「Artifacts N」 count badge sits in the coloured badge row;
-    // clicking opens a popover with three gallery-style tabs. 0 ⇒ badge hidden.
+    // clicking opens a popover with ONE gallery-style list, grouped
+    // file → image → link (T-49fb removed the three tabs). 0 ⇒ badge hidden.
     artifacts: {
       badge: "Artifacts",
       open: "View artifacts",
@@ -402,13 +409,42 @@ export const en: Dict = {
       versionsOpaqueTail: ") — look at the two versions one at a time instead.",
     },
   },
-  // ── Awaiting-reply page (M2 reply cards, B2) ──
+  // ── Filter row (T-118) ──
+  // The whole `filterPanel` group is GONE, and it is not a tidy-up: owner
+  // 2026-09-06 (c-c3d681fe05da) removed every control that carried a word.
+  // Filter / Cancel / Apply filters went with the funnel and its two buttons;
+  // "N results" / "Filtered by:" / "Clear all" / "Remove filter" went with the
+  // summary strip. The row that replaced them is fields and nothing else, so it
+  // has no copy of its own — the field labels live under `tasks.*` / `replies.*`
+  // because each page words its own.
   replies: {
     waitingTitle: "Ask",
     handledTitle: "Recently handled",
     handledHint:
       "Items answered or expired · answers can still be changed",
     empty: "✓ No pending asks",
+    emptyFiltered: "No asks match the current filter",
+    // The 開卡人 axis (T-118). Wording mirrors the 任務頁 executor dropdown:
+    // "all <noun>" when NOTHING is ticked, that one name for a single tick,
+    // "<noun> · N" for any other set. ⚠️ A FULL set no longer says "all <noun>"
+    // (owner 2026-09-06 rc-33dfe1ff14cb 「完全沒勾跟有勾的情況本來就是不同的」) —
+    // an empty set is a standing no-constraint that covers whoever turns up
+    // later, a full set is only a snapshot of the names that existed at ticking
+    // time. The earlier wording here said "for a partial pick", which is the
+    // overturned rule; zh.ts carried the correction and en.ts did not.
+    filterOpenerNoun: "Opener",
+    filterOpenerAll: "All openers",
+    filterIdLabel: "Reply-card id",
+    clearFilters: "Clear filters",
+    // ── Filter panel (T-93 round 2) ──
+    // 🔴 Three outcomes, three sentences — never merged. Round 1 had one, so
+    // "this card does not exist" and "this card was simply never loaded" read
+    // identically; that collapse is the defect this ticket removes.
+    lookupLoading: "Checking this id with the server…",
+    // ⚠️ This one must NOT say "not found": without an answer from the server
+    // we have no standing to say whether the id exists.
+    lookupFailed:
+      "The server could not be reached (network or server error), so whether this id exists is unknown. Please try again.",
     loadError: "Failed to load your asks. Please try again.",
     waitedLabel: "Waiting",
     // Opened/answered stamps are always absolute with the date (e.g. 7/13
@@ -2044,6 +2080,9 @@ export const en: Dict = {
     acceleratedGrace: "Accelerated stop deadline",
     acceleratedGraceSub:
       "How long an agent has once 加速停止 is pressed — and the same clock the second context threshold runs. The agent is told this exact instant (10–3600)",
+    wardenCredentialLifetime: "Machine credential lifetime",
+    wardenCredentialLifetimeSub:
+      "How long a machine's credential is meant to live. Each machine replaces its own credential once that credential is two thirds of this old, spread out by up to an hour so the whole fleet does not renew at the same moment. Lowering it makes machines renew sooner; nothing expires because of it (86400–34560000)",
     rounds: "rounds",
     // T-ae38 (split again by T-30f1): one cap became many. Deleting from these
     // documents costs wildly different amounts — a role definition is a
@@ -2074,9 +2113,39 @@ export const en: Dict = {
     backupRetainSub:
       "How many database backup files are kept. Everything past this number is DELETED from disk on the next backup — it is not moved aside and it cannot be recovered. Two things this number is NOT. It counts VERSIONS, NOT DAYS: it is a count of files, so how far back it reaches depends entirely on how many backups those days happened to produce — a busy day can use the whole allowance in under three days, a quiet one can stretch it past a week. And it is PER POOL, NOT PER DIRECTORY: routine backups (scheduled and manual) and pre-migration backups keep separate allowances, so 5 here means up to TEN files on disk, not five. The range is 1 to 20; the ceiling is a disk budget, since the space used is roughly two times this number times the size of one backup.",
     backupRetainUnit: "backups per pool",
+    // T-122: the two suggested-reply lists. Two rows and not one, deliberately —
+    // answering a reply card and writing to a task in progress are different
+    // conversations, so a sentence written for one is wrong in the other's box
+    // (owner ruling). An empty list is a legal value: that box then shows no
+    // suggestion buttons at all.
+    suggestedRepliesReplyCard: "Reply-card suggestions",
+    suggestedRepliesReplyCardSub:
+      "Sentences you can drop in with one tap when answering a reply card.",
+    suggestedRepliesTaskMessage: "Task-message suggestions",
+    suggestedRepliesTaskMessageSub:
+      "Sentences you can drop in with one tap when messaging on a task.",
+    suggestedReplyPlaceholder: "e.g. Got it, go ahead",
+    suggestedReplyAdd: "Add a sentence",
+    suggestedReplyRemove: "Remove this sentence",
+    suggestedReplyMoveUp: "Move up",
+    suggestedReplyMoveDown: "Move down",
+    // owner rc-76ab62ceb3ff: over the cap is REFUSED with a reason, never
+    // silently shortened — which is why the input carries no maxLength (the
+    // browser would cut a paste with no notice). The text stays, this line
+    // explains, and nothing is sent.
+    suggestedRepliesTooLong: (len: number, max: number) =>
+      `This sentence is ${len} characters, over the ${max} limit. Shorten it to save — nothing is cut for you, and nothing is stored.`,
+    suggestedRepliesFull: "That is 20 sentences, the maximum. Remove one to add another.",
     chatBudget: "Wake chat budget",
     chatBudgetSub:
       "How many characters the chat block of a wake snapshot (resume_summary) may spend — the messages, their folded cards, the snapshot header and the cut hint; the peek sizes itself against the same number. The range is 1000 to 13000 and it can be lowered as well as raised: the chat block is repacked on every read, so a smaller budget simply carries fewer messages, and whatever was left out is still reported as omitted.",
+    // T-119: the step-note cap. The sub-label has to carry the two things the
+    // integer cannot — that it may be lowered, and that it governs the step
+    // note alone — because both are what the person turning the knob will
+    // otherwise get wrong.
+    stepNoteCap: "Task step note size cap",
+    stepNoteCapSub:
+      "How many characters one task step's note may hold. It can be lowered as well as raised, and lowering it loses nothing already written.",
     docUsage: "Used",
     chars: "characters",
     // ── Experimental features (owner 2026-09-06) ──

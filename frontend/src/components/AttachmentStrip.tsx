@@ -85,7 +85,12 @@ export function AttachmentStrip({
   // three of this component's four mount points (the two reply-card strips and
   // the task-artifacts popover) do not live in a conversation at all.
   const [previewId, setPreviewId] = useState<string | null>(null);
-  const preview = attachments.find((a) => a.id === previewId) ?? null;
+  // The POSITION comes from the same lookup as the item itself (T-123), so
+  // paging inherits the property above: both are derived from the list on
+  // screen on the same render, and a strip handed a different list simply
+  // stops having an open preview rather than paging through a stale one.
+  const previewIndex = attachments.findIndex((a) => a.id === previewId);
+  const preview = previewIndex >= 0 ? attachments[previewIndex] : null;
   const [shareCopiedId, setShareCopiedId] = useState<string | null>(null);
 
   if (attachments.length === 0) return null;
@@ -187,7 +192,31 @@ export function AttachmentStrip({
         )
       )}
     </div>
-    {preview && <MarkdownPreviewOverlay title={preview.filename || t.chat.downloadAttachment} url={preview.url} attachmentId={preview.backingAttachmentId ?? preview.id} mime={preview.mime} onClose={() => setPreviewId(null)} />}
+    {/* `title` is what the row is CALLED and `filename` is what its bytes are
+      * called — one value for a chat attachment, two for a task artifact pinned
+      * under a human name. The overlay's type detection reads the second (and
+      * falls back to the first when the caller has only one), so passing
+      * `blobFilename` here is what keeps a .md artifact previewable. */}
+    {/* T-123 — paging is over THIS strip's whole list, in the order it is drawn,
+      * images and download chips alike: the row on screen is the list the reader
+      * counts, so `3 / 7` has to mean the same seven they can see, and the same
+      * click must not produce arrows for a .png and none for a .md. The overlay
+      * already renders a non-image body and already keeps the arrow KEYS for
+      * scrolling once the body is text — the chevrons stay live either way.
+      *
+      * ⚠️ WHICH MAKES THE ARROW KEYS A ONE-WAY DOOR, and mixed strips are where
+      * a reader meets it: ArrowRight can carry them from a .png INTO a .md, and
+      * from there neither arrow pages any more (T-51 gives that key back to the
+      * text — whether it then actually scrolls is that ticket's claim, not one
+      * measured here) — the way back is the chevron, with a mouse. That trade is
+      * T-51's, not this call site's, and it is the right one for a long text
+      * body; it is written down here because pairing images with files in one
+      * strip is what turns it from an edge into an ordinary path.
+      *
+      * ONE attachment ⇒ no `pager` at all, so neither the chevrons, the counter,
+      * nor the key listener exist. Passing a 1-of-1 pager would draw two dead
+      * controls that can never do anything. */}
+    {preview && <MarkdownPreviewOverlay title={preview.filename || t.chat.downloadAttachment} filename={preview.blobFilename} url={preview.url} attachmentId={preview.backingAttachmentId ?? preview.id} mime={preview.mime} pager={attachments.length > 1 ? { index: previewIndex, total: attachments.length, onGo: (i) => setPreviewId(attachments[i].id) } : undefined} onClose={() => setPreviewId(null)} />}
     </>
   );
 }

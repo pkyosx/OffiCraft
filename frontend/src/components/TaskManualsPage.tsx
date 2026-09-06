@@ -51,6 +51,7 @@ import { Markdown } from "./Markdown";
 import { InlineEdit } from "./InlineEdit";
 import { Breadcrumbs, type Crumb } from "./Breadcrumbs";
 import { DocumentHistoryEntry } from "./DocumentHistoryEntry";
+import { DocUsage } from "./DocUsage";
 import "./stepper.css";
 import { ConfirmModal } from "./ConfirmModal";
 import { CODEX_MODEL_OPTIONS, MODEL_QUICK_PICKS, EFFORTS } from "./ModelEffortEditor";
@@ -904,6 +905,24 @@ function DefinitionCard({
           <span className="manual-sec__num">3</span>
           <span className="manual-sec__title">{t.settings.manualQ3}</span>
           <span className="manual-sec__aside">{t.settings.manualQ3Hint}</span>
+          {/* T-100. The SOP has been capped all along and this page showed the
+            * number nowhere, so the owner met the cap as a refusal AFTER
+            * writing. The cap comes off THIS MANUAL's own answer — the two
+            * manual documents are judged against separate caps and on a live
+            * station they differ (18000 / 17000 measured 2026-09-06), so a
+            * shared constant here would print a budget nobody enforces.
+            *
+            * `sopDraft` is passed only while §3 is open: that is what makes the
+            * number move as he types, which is the whole point of the ticket
+            * (the role journal's two cards show the SAVED size and were the
+            * precedent NOT to follow). */}
+          <DocUsage
+            size={manual.sopMdChars}
+            cap={manual.sopMdCapChars}
+            storedText={manual.sopMd}
+            draft={openBlocks.has(3) ? sopDraft : null}
+            testId="manual-sop-usage"
+          />
           {/* 版本紀錄 — the ONLY place it appears on this page: only the SOP is
             * versioned, and this is the SOP's own edit row. A task manual has no
             * file seed, so its list carries no 初始版本 row. */}
@@ -920,8 +939,20 @@ function DefinitionCard({
               // A restore rewrote the SOP under the editor — leaving the draft
               // up would turn 完成編輯 into an undo of the restore.
               onRestored={async () => {
-                await onRestored?.();
-                cancelEdit(3);
+                // 🔴 `finally`, not a plain sequence: the restore has ALREADY
+                // landed by the time this runs, so the draft below is stale no
+                // matter what the re-read does. T-91 wrapped the re-read in
+                // DocumentHistoryEntry so a failed re-read stops showing as a
+                // failed restore — but that made a rejection here SKIP the
+                // line below and then get swallowed, which closed the modal
+                // silently and left the editor holding the pre-restore draft.
+                // Leaving edit mode is what the comment above promises; it
+                // must not be conditional on the re-read succeeding.
+                try {
+                  await onRestored?.();
+                } finally {
+                  cancelEdit(3);
+                }
               }}
               disabled={savingBlock === 3}
             />
@@ -1512,6 +1543,16 @@ function LearningsCard({
     <div className="doc-card" data-testid="manual-learnings-card">
       <div className="doc-card__head">
         <span className="doc-card__file" />
+        {/* T-100 — see the SOP readout for the reasoning; this document has its
+          * OWN cap, which is why the pair is read off the manual rather than
+          * shared with the SOP's. `draft` while editing, `null` otherwise. */}
+        <DocUsage
+          size={manual.learningsChars}
+          cap={manual.learningsCapChars}
+          storedText={manual.learnings}
+          draft={editing ? draft : null}
+          testId="manual-learnings-usage"
+        />
         {editing ? (
           <div className="doc-card__actions">
             <DocumentHistoryEntry
@@ -1521,8 +1562,20 @@ function LearningsCard({
               currentContent={{ learnings: manual.learnings }}
               docDeletable
               onRestored={async () => {
-                await onRestored?.();
-                setEditing(false);
+                // 🔴 `finally`, not a plain sequence: the restore has ALREADY
+                // landed by the time this runs, so the draft below is stale no
+                // matter what the re-read does. T-91 wrapped the re-read in
+                // DocumentHistoryEntry so a failed re-read stops showing as a
+                // failed restore — but that made a rejection here SKIP the
+                // line below and then get swallowed, which closed the modal
+                // silently and left the editor holding the pre-restore draft.
+                // Leaving edit mode is what the comment above promises; it
+                // must not be conditional on the re-read succeeding.
+                try {
+                  await onRestored?.();
+                } finally {
+                  setEditing(false);
+                }
               }}
               disabled={busy}
             />
@@ -1531,6 +1584,7 @@ function LearningsCard({
               className="doc-btn"
               onClick={() => setEditing(false)}
               disabled={busy}
+              data-testid="manual-learnings-cancel"
             >
               {t.settings.cancel}
             </button>

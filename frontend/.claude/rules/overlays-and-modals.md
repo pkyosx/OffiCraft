@@ -8,6 +8,10 @@ paths:
   - "src/components/*Modal*"
   - "src/components/*Popover*"
   - "src/components/DocCard*"
+  - "src/components/DocUsage*"
+  - "src/components/TaskManualsPage*"
+  - "src/api/docCap.ts"
+  - "visual-guards/manual-doc-usage.ct.spec.tsx"
   - "src/components/BootDocPage*"
   - "src/components/SettingsPage*"
   - "src/components/DiffView*"
@@ -34,7 +38,9 @@ paths:
 
 ## 全幅閱覽
 
-MarkdownPreviewOverlay 是唯一的全幅面，props 是互斥的 url+attachmentId、source 或 imageSrc。url 自己 fetch，保留下載與以 att- blob id mint 的分享連結；source 是聊天本文，不 fetch、不可下載或分享；imageSrc 是尚未上傳的圖片 bytes，只能下載。
+MarkdownPreviewOverlay 是唯一的全幅面，props 是互斥的 url+attachmentId、source、imageSrc 或 diffParams（diffParams 是一份比較，由 /diff 網址的兩個位址指名）。url 自己 fetch，保留下載與以 att- blob id mint 的分享連結；source 是聊天本文，不 fetch、不可下載或分享；imageSrc 是尚未上傳的圖片 bytes，只能下載。
+
+分頁（pager）是 optional，而且「下一張是誰」永遠由呼叫端回答，overlay 自己不猜：它只收到 index、total 與 onGo，換到哪一張是呼叫端重新 render 的結果。呼叫端要翻的那份清單，就是使用者當下看得見的那一份 —— 例如相簿面板翻的是套完 tab 與上傳者篩選後的結果，附件列翻的是那一列的完整顯示順序（圖片與下載列一起，因為畫面上的計數要對得上使用者數得出來的東西）。清單只有一項時不要傳 pager：傳一個 1/1 會畫出兩顆永遠按不動的控制項，還會白掛一組方向鍵監聽。⚠️ 相簿面板今天還沒有照這一句做（它無條件傳 pager），所以**不要拿它當這一句的參考實作**；那是 T-123 記下來、還沒有人去修的落差，不是這一句寫錯了。方向鍵只在圖片模式生效，文字內容的方向鍵留給捲動，兩顆 chevron 則兩種模式都能翻。
 
 圖片縮放必須改變 layout：用圖片 width/height 乘 fit box 與 zoom，不能只用 transform；量測 fit 前要移除 inline 尺寸，resize 在所有倍率重算，並解除 stylesheet 百分比 cap。pointer drag 與原生捲動共用 scrollLeft/scrollTop。控制列要在 scroll container 外，矮視窗的兩條高度 cap 都要扣除 overlay chrome。
 
@@ -54,7 +60,14 @@ DocCard 是設定頁可編輯長文件的共用外殼：標題、字數、版本
 
 `doc.readOnlyHead` 是文件本身帶的唯讀上半，由 DocCard 畫在編輯框上方（編輯中也留著），不經 renderBody —— BootDocPage 不准提到那個 prop，它的測試會 grep 原始碼。沒有 readOnlyHead 的文件行為完全不變。
 
-編輯框裝的是**可以編輯的那一半**，送出的也是它；boot document 的唯讀上半在 wire 上沒有欄位，前端沒有辦法送。字數與 cap 判的是**存下來的整份**：DocCard 由 `usage.size - runeLength(text)` 推出草稿沒有涵蓋的那一段再加回去，所以編輯框只裝半份時螢幕上的數字仍然是 server 會拿去判的那個。編輯中字數讀 draft，超上限在送出前擋下，server 失敗顯示原話。沒有 usage 的文件不受 cap 影響。樣式由 settings.css 擁有；Insight、Lessons 與任務手冊尚未遷移，不要順手改。
+編輯框裝的是**可以編輯的那一半**，送出的也是它；boot document 的唯讀上半在 wire 上沒有欄位，前端沒有辦法送。字數與 cap 判的是**存下來的整份**：`usage.size` 減掉編輯框實際裝著的那段字數，就是草稿沒有涵蓋的那一半，要加回去，所以編輯框只裝半份時螢幕上的數字仍然是 server 會拿去判的那個。編輯中字數讀 draft，超上限在送出前擋下，server 失敗顯示原話。沒有 usage 的文件不受 cap 影響。
+
+🔴 **上面那句「送出前擋下、失敗顯示原話」只對 DocCard 成立，對任務手冊那兩張卡是假的（T-100）。** 那兩張卡走的是 `DocUsage`，**只借了讀數，沒有借前置阻擋**：`TaskManualsPage` 的 `saveError` 是**布林值**、server 的訊息進 `console.warn`，畫面只給一句固定的「儲存失敗，請稍後重試」——而超上限重試多少次都不會成功。對照組是 DocCard：它有 `overCap`、送出鈕會 `disabled`，而且另外畫一列說出被拒的理由。讀數這一側也不會提醒：`DocUsage` 的 className 恆為 `doc-card__usage`，**超上限不換樣式**，所以「18001 / 18000」就這樣走過去。**這是刻意留著的缺口，不是還沒做完**（本包只補讀數，不改存檔行為）。⇒ **在這兩張卡上不要把這條規則讀成「已經有人擋住了」**；要改那條路徑請回頭讀 `DocUsage.tsx` 檔頭。
+
+🔴 **那段計算不在 DocCard 裡（T-100 起）**：它是 `api/docCap.ts` 的 `shownDocSize`，DocCard 與任務手冊那兩個編輯器共用的 `DocUsage` 都呼叫同一支。收成一支的理由是它會**在一邊悄悄算錯**——一邊讀草稿、另一邊讀已存檔字數，兩個數字都長得像對的。要改讀數的算法就改那一支，不要在任一個呼叫端補一份。
+
+樣式（`.doc-card__usage`）由 settings.css 擁有。**任務手冊的 SOP 與學習經驗現在也用它**（透過 `DocUsage`），Insight 與 Lessons 仍走 member-detail.css 的 `.mp-insight__size`、且只顯示**已存檔**字數（打字當下不會動），不要順手改。
+⚠️ 這個 class 有 `white-space: nowrap`，不是裝飾：任務手冊第三塊的標題列是一條會收縮的 flex 行，390px 下實測把「15796 / 18000」擠成三行。護欄在 `visual-guards/manual-doc-usage.ct.spec.tsx`，jsdom 看不到。
 
 ## 差異呈現
 
@@ -74,14 +87,14 @@ token 標亮只在兩側有共同非空白 token 時做，每側有上限；顏�
 
 TaskArtifactVersionsModal 是任務產物「被換過幾次、換掉的是什麼」的唯一讀面，形狀沿用 DocumentHistoryModal（左版本清單、右內容／差異），由產物列在 versionCount > 1 時的入口開啟。它 portal 到 document.body，所以產物 popover 的 click-outside 述詞要認得它的 root，跟 .md-preview 同一格。
 
-「目前版本」一律在開啟時向 server 讀（getTask），不得改讀 popover 手上的 SSE 快取——差異說的話必須等於伺服器現在的狀態，這條與文件閱讀器同一條判準。server 說產物已不在任務上就照實講，不拿手上最後知道的那份當現況。
+「目前版本」一律在開啟時向 server 讀（listTaskArtifacts——T-92 之後 getTask 只回 artifact_count，一列都不回，拿不到版本讀面要的 kind／url／mime），不得改讀 popover 手上的 SSE 快取——差異說的話必須等於伺服器現在的狀態，這條與文件閱讀器同一條判準。server 說產物已不在任務上就照實講，不拿手上最後知道的那份當現況。
 
 差異依產物型態分三種畫面，不是一種畫面留三個洞：兩份文字餵共用的 DiffView（不新刻比對元件、不改 DiffView／lineDiff，要放寬上限只能由呼叫端傳 DiffViewOptions.maxLines）；圖片與非文字檔改成前後切換；連結列出舊網址與新網址。
 
 「這份 bytes 是不是文字」問的是回應本身的 Content-Type，不是產物列上的 mime——列上的 mime 與 bytes 的 content type 是兩句話，讀的是後者；尤其不可拿 live 產物的 mime 去判某一版，那是另一個版本的事實。不是文字的回應不讀 body。
 
-版本 wire 的 `url`／`mime`／`filename`／`is_image` 都由 server 從那一版自己的 blob 解出，跟 live 產物走同一條解析：file/image 版本的 `url` 是 blob 端點（**不是** `task_artifact.url` 那一欄，那欄對 file/image 是空字串），照抄該欄會讓每個檔案版本在前端讀成 gone。
+版本 wire 的 `url`／`mime`／`filename`／`is_image` 都由 server 從那一版自己的 blob 解出，跟 live 產物走同一條解析：file/image 版本的 `url` 是 blob 端點；link 版本的 `url` 是從它自己的 `text/uri-list` blob 讀出來的目標。兩張產物表的 `url` 欄都已被 00086 移除（T-92），沒有欄可抄——當年照抄那一欄（對 file/image 是空字串）會讓每個檔案版本在前端讀成 gone。
 
-🔴 但 mime 不是唯一判準：`text/*` 是文字、`image/*` 是圖片，兩者皆非時再看檔名副檔名（兩側同一條：filename 優先、label 次之；版本的 filename 由 wire 從它自己的 attachment_id 解出，是那一版自己的事實），命中一份封閉的文字副檔名清單就當文字讀。理由是 agent 上傳的報告回來是 `application/octet-stream`——那是上傳端「不知道」，不是「這是二進位」；只信 mime 會把報告、log、spec 這些最常見的產物全部推去前後切換，永遠 diff 不到。清單是封閉的，不在清單上的仍然不讀 body。
+🔴 但 mime 不是唯一判準：`text/*` 是文字、`image/*` 是圖片，兩者皆非時再看檔名副檔名，命中一份封閉的文字副檔名清單就當文字讀。副檔名要從哪裡拿，兩側不對稱：版本的 `filename` 由 wire 從它自己的 attachment_id 解出，是那一版自己的事實；live 產物在 T-92 之後**沒有 filename 欄**，而它的 `name` 是**作者寫的標題**（`artifactDisplayName` 第一順位就回 stored name，T-92 又讓寫入必填），常態上根本沒有副檔名——只讀 `name` 會讓一份 `.md` 報告的 live 側判成 opaque，差異分頁整個消失。所以 live 側的檔名改從**下載回應自己的 `Content-Disposition`** 取（`filename*=UTF-8''…` 優先、`filename="…"` 次之；那個 header 是 server 對每個非圖片附件都會寫的），兩邊任一看起來是文字就當文字。清單本身仍是封閉的，不因此放寬。理由是 agent 上傳的報告回來是 `application/octet-stream`——那是上傳端「不知道」，不是「這是二進位」；只信 mime 會把報告、log、spec 這些最常見的產物全部推去前後切換，永遠 diff 不到。清單是封閉的，不在清單上的仍然不讀 body。
 
 沒有還原面，server 也沒有還原動詞；舊版要回來是往前 replace。

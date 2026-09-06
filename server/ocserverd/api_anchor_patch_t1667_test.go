@@ -91,8 +91,13 @@ func TestPatchStepNoteUniqueAnchorReplace(t *testing.T) {
 	if got := readStepNote(t, api, taskID, stepID); got != want {
 		t.Fatalf("patched note mismatch:\n got: %q\nwant: %q", got, want)
 	}
-	if got, _ := data["note"].(string); got != want {
-		t.Fatalf("receipt must echo the stored note: %q", got)
+	// T-91 removed the `note` echo from this receipt: the caller has the text it
+	// spliced, and the sha256 below is the cheap way to confirm the SPLICE
+	// landed where it thought. Pinned as an ABSENCE, not merely stopped being
+	// pinned — a quiet restoration of the echo is the regression this reshape
+	// exists to prevent.
+	if _, present := data["note"]; present {
+		t.Fatalf("the patch receipt must not carry `note` any more: %v", data["note"])
 	}
 	sum := sha256.Sum256([]byte(want))
 	if got, _ := data["sha256"].(string); got != hex.EncodeToString(sum[:]) {
@@ -101,7 +106,7 @@ func TestPatchStepNoteUniqueAnchorReplace(t *testing.T) {
 	if got, _ := data["size_chars"].(float64); int(got) != utf8.RuneCountInString(want) {
 		t.Fatalf("size_chars anchor mismatch: got %v want %d", data["size_chars"], utf8.RuneCountInString(want))
 	}
-	if got, _ := data["cap_chars"].(float64); int(got) != chatBodyMaxChars {
+	if got, _ := data["cap_chars"].(float64); int(got) != stepNoteCapCharsDefault {
 		t.Fatalf("cap_chars must quote the ceiling the write was judged against: %v", data["cap_chars"])
 	}
 	if got, _ := data["applied_edits"].(float64); int(got) != 1 {
@@ -275,7 +280,7 @@ func TestPatchStepNoteResultIsHeldToTheSameCeiling(t *testing.T) {
 	const seeded = "做到哪：一半"
 	taskID, stepID := seedStepWithNote(t, api, seeded)
 
-	oversize := strings.Repeat("字", chatBodyMaxChars)
+	oversize := strings.Repeat("字", stepNoteCapCharsDefault)
 	status, data := patchStepNote(t, api, taskID, stepID, "m-exec", map[string]any{
 		"edits": []any{edit("", oversize)},
 	})
@@ -288,7 +293,7 @@ func TestPatchStepNoteResultIsHeldToTheSameCeiling(t *testing.T) {
 
 	// Positive control: the same shape one rune under the ceiling lands, so the
 	// refusal above is the ceiling talking and not the append branch failing.
-	fits := strings.Repeat("字", chatBodyMaxChars-utf8.RuneCountInString(seeded)-1)
+	fits := strings.Repeat("字", stepNoteCapCharsDefault-utf8.RuneCountInString(seeded)-1)
 	if status, data = patchStepNote(t, api, taskID, stepID, "m-exec", map[string]any{
 		"edits": []any{edit("", fits)},
 	}); status != http.StatusOK {
@@ -356,8 +361,14 @@ func TestUpdateStepNoteStillReplacesWholesale(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("wholesale replace must land: %d %s", rec.Code, rec.Body.String())
 	}
-	if got := decodeBody[taskStepNoteReceiptDTO](t, rec).Note; got != "第二版：換掉了" {
-		t.Fatalf("wholesale receipt must echo the stored note, got %q", got)
+	// T-91: the receipt no longer ECHOES the note — it HASHES it. The claim
+	// this line makes is the same one it always made (the write is verifiable
+	// at the write, without a second round trip); what changed is the price:
+	// 64 characters instead of the document. The reason the old echo was
+	// defensible — "a step note is bounded" — was never a reason it was
+	// USEFUL, since the caller had just sent the text.
+	if got := decodeBody[taskStepNoteReceiptDTO](t, rec).Sha256; got != receiptSha256("第二版：換掉了") {
+		t.Fatalf("wholesale receipt sha256 = %q, want the hash of the stored note", got)
 	}
 	if got := readStepNote(t, api, taskID, stepID); got != "第二版：換掉了" {
 		t.Fatalf("wholesale replace mismatch, got %q", got)

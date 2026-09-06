@@ -27,6 +27,7 @@ import type {
   TaskTypeView,
 } from "../api/adapter";
 import { api } from "../api";
+import { ApiError } from "../api/errors";
 import { createDeltaSink } from "../lib/deltaSink";
 
 interface UseTasks {
@@ -82,14 +83,27 @@ interface UseTasks {
    * what made it latch. Asking for what is ticked needs no derivation. */
   setStatuses: (statuses: string[] | undefined) => void;
   /** True while the anchored task's single fetch is still in flight — i.e. its
-   * absence from `tasks` means 「還沒載到」, not 「不存在」. The page's
-   * self-heal (an unknown #tasks/<id> strips itself back to #tasks) MUST wait
-   * on this, or every jump to a task outside the ticked statuses would heal
-   * itself away in the frames before its fetch lands. Resolves either way: a
-   * REJECTED fetch (404 / 500 / offline) also clears it, so a failed hydrate
-   * falls back to the ordinary list instead of a blank page or a spinner that
-   * never stops. */
+   * absence from `tasks` means 「還沒載到」, not 「不存在」. The page's empty
+   * state MUST wait on this, or every jump to a task outside the ticked
+   * statuses would print 沒有符合篩選條件的任務 in the frames before its fetch
+   * lands. Resolves either way: a REJECTED fetch (404 / 500 / offline) also
+   * clears it, so a failed hydrate ends in a message rather than a blank page
+   * or a spinner that never stops. */
   anchorPending: boolean;
+  /** True when the anchored task's fetch failed for a reason that is NOT
+   * 「這張不存在」 — a 500, an offline browser, a proxy error page.
+   *
+   * 🔴 This exists because the two outcomes are indistinguishable in `tasks`
+   * (both leave the anchor absent) and the RIGHT WORDS FOR THEM ARE OPPOSITE.
+   * A 404 means nothing matched, and 沒有符合篩選條件的任務 is true. A 500
+   * means the page could not ASK — printing 沒有符合篩選條件的任務 there is a
+   * claim about a question that was never answered, and the owner would read a
+   * broken server as a deleted task. The page shows its load error instead.
+   *
+   * The split keys off `ApiError.status === 404`, the one status the server
+   * uses for 「這個 id 沒有對應的任務」; every other rejection, typed or not
+   * (a TypeError from a dropped connection included), counts as a failure. */
+  anchorFailed: boolean;
 }
 
 // initialStatuses is the status set the CALLER's filter opens on — the page's
@@ -161,30 +175,38 @@ export function useTasks(
   // The result is held together with the id it belongs to, so a pending fetch is
   // `anchor.id !== anchorId` — derivable in the SAME render the id changes in,
   // which a separate boolean state could not be (an effect-set flag is false for
-  // one commit too many, and the page's self-heal fires in exactly that commit).
+  // one commit too many, and the page's empty state renders in exactly that
+  // commit — it would print 沒有符合篩選條件的任務 over a task that is simply
+  // still on its way).
   const anchorId = anchorTaskId ?? "";
-  const [anchor, setAnchor] = useState<{ id: string; task: TaskView | null }>({
-    id: "",
-    task: null,
-  });
+  const [anchor, setAnchor] = useState<{
+    id: string;
+    task: TaskView | null;
+    failed: boolean;
+  }>({ id: "", task: null, failed: false });
   useEffect(() => {
     if (anchorId === "") {
-      setAnchor({ id: "", task: null });
+      setAnchor({ id: "", task: null, failed: false });
       return;
     }
     let alive = true;
     // Resolve the SAME way on success and failure — with the id, and with the
     // task set or null. A rejected hydrate (deleted task, 500, offline) must
     // still land, otherwise the page waits on `anchorPending` forever.
+    // What DOES differ between the two failures is `failed`: a 404 is an
+    // answer (「沒有這張」), anything else is the absence of one, and the page
+    // has to say different things about them. See `anchorFailed`.
     const load = () =>
       api
         .getTask(anchorId)
         .then((task) => {
-          if (alive) setAnchor({ id: anchorId, task });
+          if (alive) setAnchor({ id: anchorId, task, failed: false });
         })
         .catch((e) => {
           console.warn("useTasks: anchor task fetch failed", e);
-          if (alive) setAnchor({ id: anchorId, task: null });
+          const notFound = e instanceof ApiError && e.status === 404;
+          if (alive)
+            setAnchor({ id: anchorId, task: null, failed: !notFound });
         });
     void load();
     // The anchored row is not in the list fetch, so the list's SSE refetch does
@@ -198,6 +220,9 @@ export function useTasks(
     };
   }, [anchorId]);
   const anchorPending = anchorId !== "" && anchor.id !== anchorId;
+  // Only ever true once the fetch has SETTLED on this id: while it is still
+  // pending the page must say nothing at all about why the task is missing.
+  const anchorFailed = !anchorPending && anchorId !== "" && anchor.failed;
   // Merge, never replace: when the ticked statuses DO include the anchored task
   // the list row is the better one (it carries the server's `dep_tasks` join,
   // which TaskDTO has no field for), so the fetched copy only fills a gap.
@@ -258,7 +283,16 @@ export function useTasks(
   const terminate = useCallback(
     async (id: string) => {
       await api.terminateTask(id);
-      await refetch();
+      // The task is terminated; the list re-read only decides when the card
+      // catches up. Its failure is not the termination's failure.
+      try {
+        await refetch();
+      } catch (e) {
+        console.warn(
+          "useTasks: post-terminate refetch failed (the task was terminated)",
+          e
+        );
+      }
     },
     [refetch]
   );
@@ -266,7 +300,15 @@ export function useTasks(
   const markDuplicate = useCallback(
     async (id: string, duplicateOf: string) => {
       await api.markTaskDuplicate(id, duplicateOf);
-      await refetch();
+      // The duplicate mark is written — the list read that follows is separate.
+      try {
+        await refetch();
+      } catch (e) {
+        console.warn(
+          "useTasks: post-mark-duplicate refetch failed (the task was marked)",
+          e
+        );
+      }
     },
     [refetch]
   );
@@ -274,7 +316,15 @@ export function useTasks(
   const setPriority = useCallback(
     async (id: string, priority: string) => {
       await api.setTaskPriority(id, priority);
-      await refetch();
+      // Priority is written; a failed list read must not read as a refused change.
+      try {
+        await refetch();
+      } catch (e) {
+        console.warn(
+          "useTasks: post-priority refetch failed (the priority was set)",
+          e
+        );
+      }
     },
     [refetch]
   );
@@ -282,7 +332,16 @@ export function useTasks(
   const updateDescription = useCallback(
     async (id: string, description: string) => {
       await api.updateTaskDescription(id, description);
-      await refetch();
+      // The description is stored. Rejecting on the re-read here sends the editor
+      // back into edit mode holding text the server already has.
+      try {
+        await refetch();
+      } catch (e) {
+        console.warn(
+          "useTasks: post-description refetch failed (the description was saved)",
+          e
+        );
+      }
     },
     [refetch]
   );
@@ -290,7 +349,15 @@ export function useTasks(
   const updateTitle = useCallback(
     async (id: string, title: string) => {
       await api.updateTaskTitle(id, title);
-      await refetch();
+      // Same for the title: saved above, re-read below, two verdicts.
+      try {
+        await refetch();
+      } catch (e) {
+        console.warn(
+          "useTasks: post-title refetch failed (the title was saved)",
+          e
+        );
+      }
     },
     [refetch]
   );
@@ -298,7 +365,16 @@ export function useTasks(
   const reassign = useCallback(
     async (id: string, input: TaskReassignInput) => {
       await api.reassignTask(id, input);
-      await refetch();
+      // The reassign has happened — a failed list read would otherwise invite the
+      // owner to reassign the same task a second time.
+      try {
+        await refetch();
+      } catch (e) {
+        console.warn(
+          "useTasks: post-reassign refetch failed (the task was reassigned)",
+          e
+        );
+      }
     },
     [refetch]
   );
@@ -315,7 +391,15 @@ export function useTasks(
   const removeArtifact = useCallback(
     async (taskId: string, artifactId: string) => {
       await api.removeTaskArtifact(taskId, artifactId);
-      await refetch();
+      // The artifact is gone from the task whatever the list read does.
+      try {
+        await refetch();
+      } catch (e) {
+        console.warn(
+          "useTasks: post-remove-artifact refetch failed (the artifact was removed)",
+          e
+        );
+      }
     },
     [refetch]
   );
@@ -337,5 +421,6 @@ export function useTasks(
     removeArtifact,
     setStatuses,
     anchorPending,
+    anchorFailed,
   };
 }

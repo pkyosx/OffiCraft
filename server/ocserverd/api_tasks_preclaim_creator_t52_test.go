@@ -42,7 +42,7 @@ func unboundOutsourceTask(t *testing.T, api *apiServer, creator string) taskDTO 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("create 發包票: %d %s", rec.Code, rec.Body.String())
 	}
-	task := decodeBody[taskCreateResultDTO](t, rec).Task
+	task := createdTaskView(t, api, rec)
 	if task.ExecutorKind != TaskExecutorOutsource || task.ExecutorID != "" {
 		t.Fatalf("fixture broken: a 發包票 must be born unassigned, got %+v", task)
 	}
@@ -116,18 +116,22 @@ func textDoors() []textDoor {
 		}},
 		{"add_task_artifact", func(t *testing.T, api *apiServer, task taskDTO, _, caller string) *httptest.ResponseRecorder {
 			return addArtifact(t, api, task.ID, map[string]any{
-				"kind": "link", "url": "https://example.invalid/" + caller}, caller, "agent")
+				"kind": "link", "url": "https://example.invalid/" + caller,
+				"name": "pin by " + caller}, caller, "agent")
 		}},
 		{"remove_task_artifact", func(t *testing.T, api *apiServer, task taskDTO, _, caller string) *httptest.ResponseRecorder {
 			// Removing needs something to remove, and only a permitted caller can
 			// put it there — so the owner seeds it and the door under test is the
 			// DELETE alone.
 			rec := addArtifact(t, api, task.ID, map[string]any{
-				"kind": "link", "url": "https://example.invalid/seed"}, "owner", "owner")
+				"kind": "link", "url": "https://example.invalid/seed",
+				"name": "seed"}, "owner", "owner")
 			if rec.Code != http.StatusOK {
 				t.Fatalf("seed artifact: %d %s", rec.Code, rec.Body.String())
 			}
-			arts := getTaskView(t, api, task.ID).Artifacts
+			// The ids live on list_task_artifacts since T-92; the task view
+			// answers a count and carries no rows to read one off.
+			arts := getTaskArtifacts(t, api, task.ID).Artifacts
 			if len(arts) == 0 {
 				t.Fatal("seed artifact did not land")
 			}

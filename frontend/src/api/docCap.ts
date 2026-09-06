@@ -150,6 +150,40 @@ export function runeLength(s: string): number {
 }
 
 /**
+ * The number a 「已用 / 上限」 readout must SHOW for a capped document — the one
+ * piece of arithmetic every such readout in the cockpit shares.
+ *
+ * 🔴 WHILE EDITING IT MEASURES THE DRAFT, NOT THE STORED DOCUMENT, and that is
+ * the whole reason this function exists. A readout fed `storedSize` alone is
+ * frozen at what was last SAVED: it moves only after the write the owner was
+ * trying to decide about, which is the wrong order — he asked for it so he
+ * could pull back BEFORE being refused. `InsightCard` and the role page's
+ * `LessonsCard` were both that frozen kind before T-100.
+ *
+ * 🔴 WHAT THE DRAFT DOES NOT COUNT. `storedSize` is the size of the STORED
+ * document; where the editor holds only PART of it (a read-only head), the
+ * difference between `storedSize` and the stored text the editor does hold is
+ * exactly that head, and it has to be added back — the cap the server enforces
+ * is on the document it STORES, so a readout measuring the body alone against a
+ * whole-document cap promises room that is not there. Where the editor holds
+ * the whole document (both task-manual documents: the server sizes them with
+ * `utf8.RuneCountInString` over exactly the editable text) the term is 0 and
+ * this reduces to the draft's own length.
+ *
+ * `draft` is `null` when NOT editing, which is a state and not a missing value:
+ * there is no draft to measure, so the stored size is the honest answer.
+ */
+export function shownDocSize(
+  storedSize: number,
+  storedText: string,
+  draft: string | null
+): number {
+  if (draft === null) return storedSize;
+  const storedOverhead = Math.max(0, storedSize - runeLength(storedText));
+  return runeLength(draft) + storedOverhead;
+}
+
+/**
  * Mirrors WholeDocWipeBlocked: emptying a document that had content is refused.
  * A whole-doc replace legitimately shrinks a lot, so only the WIPE is guarded;
  * the server bypasses it on an explicit allow_shrink=true, which no cockpit

@@ -493,6 +493,12 @@ var identityGateExpectedCount = map[string]int{
 	// handler does, not this one. The check found the second site and the second
 	// site is what showed the reason was wrong. See the entry itself.
 	"api_tasks.go :: HandleReassignTaskApiTasksTaskIdReassignPost :: kind == TaskExecutorOutsource": 2,
+	// T-92 gave a LINK a blob of its own, and the projection now asks the same
+	// question twice for two different fields: once to read the link target out
+	// of that blob into `url`, and once to take the blob's mime — the branch
+	// artifactBlobFacts serves for every other kind. Both are the same artifact
+	// content kind and the ledger's single reason covers both.
+	"wire.go :: newTaskArtifactDTO :: a.Kind == ArtifactKindLink": 2,
 }
 
 // identityGateLedger is THE LIST. Every identity gate in the package's
@@ -997,12 +1003,40 @@ var identityGateLedger = map[string]string{
 		"the out-of-box seed's local machine row; same reasoning as above.",
 	"api_tasks.go :: HandleCreateTaskApiTasksPost :: ExecutorKind: executorKind": "" +
 		"stamping the normalised executor kind onto the new task — the value the four " +
-		"create-matrix comparisons above decided.",
+		"create-matrix comparisons above decided. \u26a0\ufe0f \"four\" is not what a " +
+		"reader counts: grep 'HandleCreateTaskApiTasksPost ::' over this file and " +
+		"six of the entries are comparisons. The number is left as written because " +
+		"it predates T-91 and correcting a neighbour's text from inside an " +
+		"unrelated package is how ledgers drift; the caveat sits here, on the " +
+		"entry that is wrong, rather than only on the T-91 entry below it, because " +
+		"a reader who stops at this line would otherwise never see it.",
 	"wire.go :: newTaskDTO :: ExecutorKind: t.ExecutorKind": "" +
 		"wire projection, straight copy: the DTO tells the client which population " +
 		"executes the task. No decision here.",
 	"wire.go :: newTaskDTO :: ReassignedFromKind: t.ReassignedFromKind": "" +
 		"same wire projection for the predecessor's kind; no decision here.",
+	"api_tasks.go :: writeTaskWriteReceipt :: ExecutorKind: t.ExecutorKind": "" +
+		"T-91: the WRITE-RECEIPT twin of newTaskDTO's straight copy. The eight " +
+		"task-driving writes stopped answering with the whole taskDTO, and this " +
+		"field rides the receipt for the same reason it rides the DTO — a " +
+		"contractor is bound to one task and goes away with it, so the caller " +
+		"addresses them differently. Server-derived from the roster, not sent; " +
+		"no decision here.",
+	"api_tasks.go :: HandleCreateTaskApiTasksPost :: ExecutorKind: t.ExecutorKind": "" +
+		"T-91, owner ruling rc-f1c0fd3cf124: the CREATE receipt's copy of the kind " +
+		"the create just stamped. Same straight copy as newTaskDTO's and as " +
+		"writeTaskWriteReceipt's, and it is on the receipt because the id beside it " +
+		"is EMPTY on a fresh outsource create (the scheduler mints the worker after " +
+		"this call returns), so the kind is the only thing that separates 「外包票, " +
+		"還沒派工」 from 「這件事不適用」. No decision here — the deciding is the " +
+		"executor-kind comparisons in this same handler, which are already on this " +
+		"ledger — grep 'HandleCreateTaskApiTasksPost ::' over this file for the " +
+		"live list. Deliberately not a count: a hard-coded number here goes stale " +
+		"with nothing watching it, which is what happened to the entry above.",
+	"api_tasks.go :: HandleCreateTaskApiTasksPost :: ExecutorKind: existing.ExecutorKind": "" +
+		"the dedupe-hit twin of the line above: the same copy, taken from the " +
+		"EXISTING ticket this call folded onto rather than from the one it stamped. " +
+		"No decision here.",
 	"wire.go :: newTaskListItemDTO :: ExecutorKind: t.ExecutorKind": "" +
 		"the list-item twin of newTaskDTO's copy; no decision here.",
 	"wire.go :: newTaskListItemDTO :: ReassignedFromKind: t.ReassignedFromKind": "" +
@@ -1038,6 +1072,11 @@ var identityGateLedger = map[string]string{
 		"closeout…), an unrelated vocabulary reusing the field name.",
 	"api_bootdocs.go :: foldBootDocDTO :: Kind: spec.Kind": "" +
 		"NOT an identity gate — the same document-kind vocabulary, at the DTO fold.",
+	"api_bootdocs.go :: bootDocReceiptOf :: Kind: dto.Kind": "" +
+		"NOT an identity gate — the same document-kind vocabulary, at the T-91 " +
+		"WRITE RECEIPT fold. It reads the value foldBootDocDTO (listed above) " +
+		"already put on the DTO; the receipt reports the document's address, " +
+		"and nothing about it asks who the caller is.",
 	"api_bootdocs.go :: replaceBootDoc :: Kind: spec.Kind": "" +
 		"NOT an identity gate — the same document-kind vocabulary, at the write path.",
 	"api_bootdocs.go :: resetBootDoc :: Kind: spec.Kind": "" +
@@ -1055,6 +1094,9 @@ var identityGateLedger = map[string]string{
 	"api_tasks.go :: HandleReplaceTaskArtifactApiTasksTaskIdArtifactArtifactIdReplacePost :: Kind: art.Kind": "" +
 		"NOT an identity gate — the replacement row carries the pinned artifact's own " +
 		"kind forward verbatim; that carry IS the immutability rule, not a population.",
+	"api_tasks_artifact_upload.go :: HandleUploadReplaceTaskArtifactApiTasksTaskIdArtifactArtifactIdReplaceUploadPost :: Kind: art.Kind": "" +
+		"NOT an identity gate — the same carry on the T-92 raw-body replace door, which " +
+		"is the same write with a different transport.",
 	"api_lore_governance.go :: writeLoreGovernanceReceipt :: Kind: event.Kind": "" +
 		"NOT an identity gate — LORE GOVERNANCE kind (`retire` / `revive`), the journal " +
 		"row's own vocabulary, copied to the receipt. Nothing here reads a member.",
@@ -1080,13 +1122,6 @@ var identityGateLedger = map[string]string{
 		"NOT an identity gate — `Kind` here is a DOCUMENT kind (boot sequence, " +
 		"offboard, task closeout…), an unrelated vocabulary that happens to reuse the " +
 		"field name. Kept listed rather than filtered out of the scan.",
-	"api_tasks.go :: taskArtifactDTOs :: a.Kind != ArtifactKindLink": "" +
-		"NOT an identity gate — ARTIFACT kind (file / image / link). Same overloaded " +
-		"field name, same reason for keeping it visible.",
-	"api_tasks.go :: HandleListTaskArtifactHistoryApiTasksTaskIdArtifactArtifactIdHistoryGet :: v.Kind != ArtifactKindLink": "" +
-		"NOT an identity gate — the same artifact kind read off a RETAINED VERSION row " +
-		"(T-60 history), deciding whether that version has a blob to resolve a filename " +
-		"from. Kept listed rather than filtered out of the scan.",
 	"api_tasks.go :: HandleReplaceTaskArtifactApiTasksTaskIdArtifactArtifactIdReplacePost :: kind != art.Kind": "" +
 		"NOT an identity gate — the artifact kind a replace body asked for versus the " +
 		"pinned artifact's own, which is the T-60 immutability rule. No population is " +
@@ -1096,6 +1131,33 @@ var identityGateLedger = map[string]string{
 		"(a link carries a url, a file carries an attachment).",
 	"wire.go :: newTaskArtifactDTO :: a.Kind != ArtifactKindLink": "" +
 		"NOT an identity gate — the wire twin of the artifact-kind test above.",
+	"wire.go :: newTaskArtifactDTO :: a.Kind == ArtifactKindLink": "" +
+		"NOT an identity gate — the positive arm of the same artifact-kind test, which " +
+		"T-92 needed once a link carried a blob too: it reads the link target out of " +
+		"that blob and takes the blob's mime. TWO sites, pinned at 2 in " +
+		"identityGateExpectedCount.",
+	"wire.go :: newTaskArtifactVersionDTO :: h.Kind == ArtifactKindLink": "" +
+		"NOT an identity gate — the same positive arm on a RETAINED VERSION's row, " +
+		"resolving that version's link target out of its own retained blob.",
+	"dal_task_artifacts.go :: DeleteTaskArtifact :: live.Kind == ArtifactKindLink": "" +
+		"NOT an identity gate — the same artifact kind deciding whether the live row's " +
+		"blob is SPARED on un-pin or handed to the collector (owner rc-27107ca914a7). " +
+		"The exemption's reason is that an uploaded blob may also be riding a chat " +
+		"message. A link's blob is minted for that one pin, but NOT exclusively its own: " +
+		"migration 00086 deduped identical targets, so link artifacts can share one. " +
+		"Neither arm deletes anything itself — the link arm only adds a candidate, and " +
+		"collectSurvivingBlobRefs still has the last word. No population is on either " +
+		"side.",
+	"wire.go :: artifactDisplayName :: a.Kind == ArtifactKindLink": "" +
+		"NOT an identity gate — the same artifact kind choosing which FALLBACK names a " +
+		"row whose name column is empty (T-92): a link falls back to its target, a " +
+		"file/image to its blob's filename. No population is on either side.",
+	"api_tasks_artifact_upload.go :: HandleUploadReplaceTaskArtifactApiTasksTaskIdArtifactArtifactIdReplaceUploadPost :: art.Kind == ArtifactKindLink": "" +
+		"NOT an identity gate — the pinned artifact's content kind closing the raw-body " +
+		"replace door to a link, whose content is a url rather than bytes.",
+	"api_tasks_artifact_upload.go :: HandleUploadReplaceTaskArtifactApiTasksTaskIdArtifactArtifactIdReplaceUploadPost :: k != art.Kind": "" +
+		"NOT an identity gate — the kind SNIFFED from the uploaded bytes versus the " +
+		"pinned one: the T-60 immutability rule read through the T-92 upload transport.",
 	"wire.go :: newTaskArtifactVersionDTO :: h.Kind != ArtifactKindLink": "" +
 		"NOT an identity gate — the same artifact kind read off a RETAINED VERSION " +
 		"row (T-60), deciding whether that version has a blob whose filename and mime " +

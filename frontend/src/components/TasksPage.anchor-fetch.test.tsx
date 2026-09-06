@@ -129,14 +129,13 @@ describe("#tasks/<id> 直跳:只補抓那一張", () => {
     // 🔴 The frames the old code never had. When the anchored row arrived inside
     // a widened LIST fetch, `loading` covered the whole wait. Now it arrives on
     // its own request, so between mount and that response the page holds an id
-    // it cannot find in `tasks` — and the self-heal reads exactly that shape as
-    // 「不存在」. Without the anchorPending guard it strips the hash back to
-    // #tasks and the owner's link lands on the ordinary filtered list instead of
-    // the task they clicked.
+    // it cannot find in `tasks` — and the empty state reads exactly that shape
+    // as 「不存在」. Without the anchorPending guard the page prints
+    // 沒有符合篩選條件的任務 over a task that is simply still on its way.
     // A DEFERRED promise is what makes this visible: every other test in this
     // file resolves within a microtask, so the missing-guard version wins the
-    // race and stays green. MUTANT (proven): drop `!anchorPending` from the
-    // self-heal effect → this test goes red while all others stay green.
+    // race and stays green. MUTANT: drop `!anchorPending` from `nothingMatches`
+    // → the page answers 「不存在」 for a task still in flight.
     __injectMockTask(mkTask({ id: "t-live" }));
     __injectMockTask(
       mkTask({ id: "t-slow", status: "done", closedTs: Date.now() / 1000 - 60 })
@@ -162,10 +161,13 @@ describe("#tasks/<id> 直跳:只補抓那一張", () => {
     expect(closedList.querySelector('[data-task-id="t-slow"]')).not.toBeNull();
   });
 
-  it("a FAILED hydrate falls back to the ordinary list — never blank, never a stuck spinner", async () => {
-    // 補抓失敗 (500 / offline; the 404 「這張不存在」 case is pinned in
-    // TasksPage.jump.test.tsx). The anchor is consumed, the page settles on the
-    // normal filtered list, and no empty-state lie is printed.
+  it("a hydrate that failed for a NON-404 reason shows the load error, not an empty state", async () => {
+    // 補抓失敗 that is NOT 「這張不存在」 (500 / offline; the 404 case is pinned
+    // in TasksPage.jump.test.tsx and says something DIFFERENT on purpose).
+    // The page could not ASK, so it must not answer: 沒有符合篩選條件的任務
+    // would be a claim about a question nobody got to put, and the owner would
+    // read a broken server as a deleted task. It shows its load error instead —
+    // never blank, never a stuck spinner, never a lie.
     __injectMockTask(mkTask({ id: "t-live" }));
     __injectMockTask(
       mkTask({ id: "t-far", status: "done", closedTs: Date.now() / 1000 - 60 })
@@ -175,12 +177,11 @@ describe("#tasks/<id> 直跳:只補抓那一張", () => {
 
     const { findByTestId, queryByTestId } = renderTasks();
 
-    await waitFor(() => expect(window.location.hash).toBe("#tasks"));
-    const openList = await findByTestId("open-list");
-    expect(openList.querySelector('[data-task-id="t-live"]')).not.toBeNull();
-    // MUTANT: leave anchorPending true on the failure path → the hash never
-    // heals and this test times out on the waitFor above.
+    await findByTestId("tasks-error");
+    // Neither empty state may appear: both would be answers.
     expect(queryByTestId("tasks-empty")).toBeNull();
     expect(queryByTestId("tasks-empty-filtered")).toBeNull();
+    // MUTANT: leave anchorPending true on the failure path → nothing settles and
+    // the findByTestId above times out.
   });
 });
