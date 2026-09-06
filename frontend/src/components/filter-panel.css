@@ -148,8 +148,19 @@
  * The 18px circle is the VISIBLE size (owner circled variant D at this scale);
  * the ::after below grows the POINTER target to 24×24 without changing layout,
  * so the "24px minimum" this comment promises is measured rather than merely
- * asserted. The overflow stays inside the chip's own padding/gap, so it
- * cannot steal a click from the label. */
+ * asserted.
+ *
+ * ⚠️ THE OVERFLOW HAS ZERO MARGIN, AND THAT IS NOT WHAT THIS COMMENT FIRST
+ * CLAIMED. It said the 3px 「stays inside the chip's own padding/gap, so it
+ * cannot steal a click from the label」. A reviewer measured it: true today, and
+ * true by exactly nothing. `.filter-panel__chip` is `gap: 4px; padding: 3px 3px
+ * 3px 10px` — right/top/bottom meet a padding of EXACTLY 3px, and the left edge
+ * has 1px to spare inside the 4px gap. So the claim is not a property of this
+ * rule; it is a coincidence between this rule and four numbers in another one.
+ * Change the chip's padding to 2px and this target starts covering the chip's
+ * edge — and the guard added for it measures the TARGET'S SIZE (24×24), not
+ * whether it overlaps the label, so nothing would report that. If you touch
+ * `.filter-panel__chip`'s padding or gap, re-check this. */
 .filter-panel__chip-x {
   position: relative;
   display: inline-flex;
