@@ -1407,7 +1407,12 @@ const (
 )
 
 // CanonicalTaskExecutorKind folds an incoming executor kind onto the closed set,
-// mirroring CanonicalKind's shape for the roster axis.
+// mirroring CanonicalKind's shape for the roster axis — with ONE deliberate
+// divergence: CanonicalKind("") answers the default kind, this one answers an
+// error. The empty string is not a task executor kind; the create seam
+// short-circuits it BEFORE calling here (an omitted target.kind keeps the staff
+// track, which is spec'd), so folding it to a default here would only make a
+// caller that sent an empty kind on some OTHER seam look like it sent a valid one.
 //
 // A caller sending the PRE-RENAME value gets told it was renamed, not merely
 // that it is invalid (T-101, matching T-48's treatment of 'assistant'). Without

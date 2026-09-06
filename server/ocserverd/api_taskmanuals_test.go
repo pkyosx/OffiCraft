@@ -262,6 +262,27 @@ func TestOwnerAssigneeOnCreateIsValidatedAndApplied(t *testing.T) {
 		t.Fatalf("owner bad assignee must 400, got %d %s", rec.Code, rec.Body.String())
 	}
 
+	// The retired spelling is refused like any other bad kind, and it is the one
+	// that has to SAY it was renamed — same owner ruling (rc-7574cc804dd6) and
+	// same reason as the create/reassign seams: the status code is identical
+	// either way, so nothing but the message tells a stale caller what to send
+	// instead. Built from runes so a repo-wide rename sweep cannot rewrite it
+	// into the value it exists to refuse.
+	rec = httptest.NewRecorder()
+	api.HandleCreateTaskManualApiTaskManualsPost(rec, taskReq(t, "POST",
+		"/api/task-manuals",
+		map[string]any{"type_key": "own-type",
+			"assignee": map[string]any{
+				"kind":      string([]rune{'m', 'e', 'm', 'b', 'e', 'r'}),
+				"member_id": "m-exec"}},
+		"owner", "owner"))
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("the pre-rename assignee kind must 400, got %d %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "renamed") {
+		t.Fatalf("the pre-rename assignee kind must be told it was renamed, got %s", rec.Body.String())
+	}
+
 	// A well-formed owner assignee lands on the created manual.
 	rec = httptest.NewRecorder()
 	api.HandleCreateTaskManualApiTaskManualsPost(rec, taskReq(t, "POST",

@@ -1032,6 +1032,8 @@ func TestReassignGuards(t *testing.T) {
 		{"outsource member target", memberTarget("ow-guard"), 400},
 		{"same executor", memberTarget("m-old"), 409},
 		{"junk kind", map[string]any{"target": map[string]any{"kind": "team"}}, 400},
+		{"pre-rename kind", map[string]any{"target": map[string]any{
+			"kind": string([]rune{'m', 'e', 'm', 'b', 'e', 'r'})}}, 400},
 		{"bad effort", map[string]any{"target": map[string]any{
 			"kind": "outsource", "effort": "extreme"}}, 400},
 	}
@@ -1039,6 +1041,22 @@ func TestReassignGuards(t *testing.T) {
 		if rec := reassign(t, api, task.ID, tc.body, "owner", "owner"); rec.Code != tc.want {
 			t.Fatalf("%s: want %d, got %d %s", tc.name, tc.want, rec.Code, rec.Body.String())
 		}
+	}
+
+	// The retired spelling is refused like any other junk kind — but it is the
+	// only one that has to SAY it was renamed. Owner ruling rc-7574cc804dd6
+	// chose that over accepting both spellings, and the cost it accepted is
+	// paid here: an agent still holding the old tool description sends the old
+	// word once, and this message is the whole of what tells it what to send
+	// instead. Refusing it with the bare set would leave the caller guessing
+	// which of the two remaining values it had meant, and the status code is
+	// the same either way — so the code above cannot pin this and the message
+	// must be asserted on its own. Built from runes so a repo-wide rename sweep
+	// cannot quietly rewrite it into the value it exists to refuse.
+	renameRec := reassign(t, api, task.ID, map[string]any{"target": map[string]any{
+		"kind": string([]rune{'m', 'e', 'm', 'b', 'e', 'r'})}}, "owner", "owner")
+	if !strings.Contains(renameRec.Body.String(), "renamed") {
+		t.Fatalf("the pre-rename target.kind must be told it was renamed, got %s", renameRec.Body.String())
 	}
 
 	// Frozen task → reassignable.
