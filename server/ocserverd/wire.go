@@ -2338,8 +2338,10 @@ type taskStepDTO struct {
 	// 一起瘦），座艙改成點開才抓」). The note text used to ride EVERY response
 	// built from this struct — get_task, terminate, reassign, claim, duplicate,
 	// deps, the create dedupe hit, description, title — nine exits carrying a
-	// 4,000-rune-capped free-text field per step for callers that wanted one of
-	// them or none.
+	// free-text field per step for callers that wanted one of them or none. The
+	// cap was a hard-coded 4,000 runes AT THAT TIME; it is the
+	// task.step_note_cap_chars setting now (T-119), so do not read that number
+	// off this paragraph.
 	//
 	// It was removed from the SCHEMA rather than left declared-and-empty on
 	// purpose. A field that is present on the wire and always blank is a silent

@@ -20,6 +20,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -299,5 +301,33 @@ func TestStepNoteCap_UnsetIsTenThousandOnEveryFace(t *testing.T) {
 	}
 	if loaded.stepNoteCapChars != 10000 {
 		t.Fatalf("boot-time load must default to 10000, got %d", loaded.stepNoteCapChars)
+	}
+
+	// The spec DECLARES this default to every client that reads the schema
+	// instead of calling the API, and nothing regenerates that number when the
+	// server's own default moves. Without this face, changing the default leaves
+	// spec/openapi.json quietly lying and no test red.
+	specBytes, err := os.ReadFile(filepath.Join("..", "..", "spec", "openapi.json"))
+	if err != nil {
+		t.Fatalf("read spec: %v", err)
+	}
+	var spec struct {
+		Components struct {
+			Schemas struct {
+				SettingsDTO struct {
+					Properties struct {
+						StepNoteCapChars struct {
+							Default int `json:"default"`
+						} `json:"step_note_cap_chars"`
+					} `json:"properties"`
+				} `json:"SettingsDTO"`
+			} `json:"schemas"`
+		} `json:"components"`
+	}
+	if err := json.Unmarshal(specBytes, &spec); err != nil {
+		t.Fatalf("decode spec: %v", err)
+	}
+	if got := spec.Components.Schemas.SettingsDTO.Properties.StepNoteCapChars.Default; got != 10000 {
+		t.Fatalf("spec/openapi.json declares default %d, the server answers 10000", got)
 	}
 }

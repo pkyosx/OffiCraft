@@ -9,8 +9,10 @@ import "net/http"
 // WHY IT EXISTS. Until this ticket the step working note (T-cc3e) rode EVERY
 // response newTaskDTO builds: get_task, terminate, reassign, claim, duplicate,
 // set_task_deps, the create dedupe hit, description and title — nine exits, each
-// carrying a 4,000-rune-capped free-text field per step to callers that wanted
-// one of those notes or none of them. The owner ruled (card rc-4c8065fb30a5)
+// carrying a free-text field per step to callers that wanted one of those notes
+// or none of them. The cap was a hard-coded 4,000 runes AT THAT TIME; it is the
+// task.step_note_cap_chars setting now (T-119), so do not read that number off
+// this paragraph. The owner ruled (card rc-4c8065fb30a5)
 // that the note comes off the shared projection entirely and the reader fetches
 // it on demand, so this is the door it fetches through.
 //
