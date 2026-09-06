@@ -19,6 +19,8 @@ import type {
   ReleaseCheckView,
   BackupHealthView,
   SigningKeyView,
+  UpgradeInstructionView,
+  UpgradeInstructionsView,
   AuthStatusView,
   MfaEnrollView,
   MfaStateView,
@@ -2479,6 +2481,31 @@ export interface Api {
   /** POST /api/auth/signing-keys/{keyId}/remove — REVOKE everything that key
    * signed. No undo, no grace period. Answers the ring after the removal. */
   removeSigningKey(keyId: string): Promise<SigningKeyView[]>;
+  /**
+   * GET /api/upgrade-instructions — the 換版交代單 set (T-79): the standing
+   * instructions the owner has left for the assistant, which the station hands
+   * over in a chat message every time it upgrades. Open ones first, each group
+   * oldest→newest. A finished instruction stays in the list; it is the only
+   * evidence the work was ever picked up.
+   */
+  getUpgradeInstructions(): Promise<UpgradeInstructionsView>;
+  /** POST /api/upgrade-instructions — write one instruction. OWNER ONLY: the
+   * assistant authoring her own would make the record evidence of nothing.
+   * Answers the row that was written, not the whole set. */
+  createUpgradeInstruction(body: string): Promise<UpgradeInstructionView>;
+  /** POST /api/upgrade-instructions/{id}/done — tick one off so the station
+   * stops handing it over. The owner or the assistant may tick.
+   * 🔴 THE FIRST TICK WINS: a second call answers 200 with the row unchanged and
+   * never overwrites who did the work. The answer is the state after whichever
+   * call won — never a report of what this call would have written. */
+  markUpgradeInstructionDone(instructionId: string): Promise<UpgradeInstructionView>;
+  /** DELETE /api/upgrade-instructions/{id} — withdraw one. OWNER ONLY,
+   * permanent. This is the author retracting something he should not have
+   * written: ticking means "I did this", so without this verb a mistaken
+   * instruction would be handed over forever unless the assistant certified
+   * work that never happened. Answers the row that was removed — the last
+   * moment anyone can read what it said. */
+  deleteUpgradeInstruction(instructionId: string): Promise<UpgradeInstructionView>;
   /** The folded global-context doc (owner overlay ⊕ file seed). */
   getGlobalContext(): Promise<GlobalContextView>;
   /** Whole-doc replace of the global context → returns the folded doc

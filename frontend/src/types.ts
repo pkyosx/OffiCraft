@@ -1008,6 +1008,39 @@ export interface SigningKeyView {
   isSigning: boolean;
 }
 
+/** ONE 換版交代單 as the cockpit knows it (T-79) — an instruction the owner
+ * leaves for the assistant, handed to her at every station upgrade until it is
+ * ticked off.
+ *
+ * 🔴 `doneTs`/`doneBy` are NULLABLE rather than 0/"". The wire says "still
+ * open" with a zero, and a component that renders that verbatim prints 1970 and
+ * an empty author — so the narrowing happens once, in the mapper, and every
+ * reader here has to decide what an open instruction looks like. */
+export interface UpgradeInstructionView {
+  id: string;
+  /** What the owner wants done — the only field he authors. */
+  body: string;
+  createdTs: number;
+  /** Verified sub of the author; "" only on a row written before the field
+   * existed, which no install has. */
+  createdBy: string;
+  done: boolean;
+  /** When it was ticked (epoch seconds), or null while still open. */
+  doneTs: number | null;
+  /** Who ticked it, or null while still open. Kept apart from `done` because
+   * "it was ticked" and "who ticked it, when" are different facts and only the
+   * second survives a disagreement. */
+  doneBy: string | null;
+}
+
+/** The whole 換版交代單 set as one answer (T-79). */
+export interface UpgradeInstructionsView {
+  instructions: UpgradeInstructionView[];
+  /** How many are still open — taken from the server's own count, never
+   * recomputed from the array. */
+  openCount: number;
+}
+
 export interface BackupHealthView {
   status: BackupHealthStatus;
   code: BackupHealthCode;

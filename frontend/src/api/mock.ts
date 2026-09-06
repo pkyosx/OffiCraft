@@ -12,6 +12,8 @@ import type {
   ReleaseCheckView,
   BackupHealthView,
   SigningKeyView,
+  UpgradeInstructionView,
+  UpgradeInstructionsView,
   AuthStatusView,
   MfaEnrollView,
   MfaStateView,
@@ -101,6 +103,7 @@ import type {
   WireVersion,
   WireBackupHealth,
   WireSigningKeys,
+  WireUpgradeInstruction,
   WireGlobalContext,
   WireBootDoc,
   WireDocumentHistory,
@@ -122,6 +125,8 @@ import {
   toReleaseCheck,
   toBackupHealth,
   toSigningKeys,
+  toUpgradeInstruction,
+  toUpgradeInstructions,
   toGlobalContext,
   toBootDoc,
   toDocumentHistory,
@@ -2415,6 +2420,73 @@ const MOCK_WIRE_SIGNING_KEYS: WireSigningKeys["keys"] = [
 let mockSigningKeys: WireSigningKeys["keys"] = structuredClone(
   MOCK_WIRE_SIGNING_KEYS,
 );
+
+// ── 換版交代單 (T-79) ────────────────────────────────────────────────────────
+//
+// ⚠️ THIS CAP IS A SECOND COPY. The authority is `upgradeInstructionBodyCap` in
+// server/ocserverd/api_upgrade_instructions.go; the mock needs its own because
+// offline preview has no server to ask. The two are pinned together by
+// mock.upgrade-instructions.test.ts, which reads that Go line — change one and
+// the other goes red, instead of the mock quietly accepting what the server
+// refuses.
+const MOCK_UPGRADE_INSTRUCTION_BODY_CAP = 2000;
+
+function mockUpgradeInstructionId(): string {
+  return (
+    "uin-" +
+    Array.from({ length: 12 }, () =>
+      Math.floor(Math.random() * 16).toString(16)
+    ).join("")
+  );
+}
+
+// Two open and one already ticked, because the ticked one is what proves the
+// list keeps finished instructions (they are the only evidence the work was
+// ever picked up) while the hand-over message does not carry them.
+const MOCK_WIRE_UPGRADE_INSTRUCTIONS: WireUpgradeInstruction[] = [
+  {
+    id: "uin-4c1a9f2b60de",
+    body: "換版後把 drift 檢查重跑一次",
+    created_ts: 1788600000,
+    created_by: "owner",
+    done: false,
+    done_ts: 0,
+    done_by: "",
+  },
+  {
+    id: "uin-91be07d3a45f",
+    body: "確認 T-33 的 migration 已經 land",
+    created_ts: 1788640000,
+    created_by: "owner",
+    done: false,
+    done_ts: 0,
+    done_by: "",
+  },
+  {
+    id: "uin-2f70ab914c33",
+    body: "把備份健康度的告警門檻調回 24 小時",
+    created_ts: 1788520000,
+    created_by: "owner",
+    done: true,
+    done_ts: 1788530000,
+    done_by: "mira",
+  },
+];
+let mockUpgradeInstructions: WireUpgradeInstruction[] = structuredClone(
+  MOCK_WIRE_UPGRADE_INSTRUCTIONS,
+);
+
+/** The server's order: open first, each group oldest→newest, id as the
+ * tie-break. The mock sorts rather than trusting fixture order, so a fixture
+ * edit cannot make the mock disagree with the server about hand-over order. */
+function sortedMockUpgradeInstructions(): WireUpgradeInstruction[] {
+  return [...mockUpgradeInstructions].sort(
+    (a, b) =>
+      Number(a.done) - Number(b.done) ||
+      a.created_ts - b.created_ts ||
+      a.id.localeCompare(b.id),
+  );
+}
 
 export const mockApi: Api = {
   async listMembers(_opts?: { light?: boolean }): Promise<Member[]> {
@@ -4901,6 +4973,90 @@ export const mockApi: Api = {
     return toSigningKeys({ keys: mockSigningKeys });
   },
 
+  async getUpgradeInstructions(): Promise<UpgradeInstructionsView> {
+    return toUpgradeInstructions({
+      instructions: sortedMockUpgradeInstructions(),
+      // Counted off the OPEN rows, the way the server counts it — not off the
+      // array length, which would agree today and stop agreeing the moment
+      // either side pages the list.
+      open_count: mockUpgradeInstructions.filter((u) => !u.done).length,
+    });
+  },
+
+  async createUpgradeInstruction(body: string): Promise<UpgradeInstructionView> {
+    // The server trims first and refuses a blank, then refuses an over-long
+    // one. Both are 422 with the wire envelope; a mock that accepted either
+    // would let a component look correct here and 422 against the real server.
+    const trimmed = body.trim();
+    if (trimmed === "") {
+      throw mockApiError(
+        "http 422 for POST /api/upgrade-instructions",
+        422,
+        "body must not be blank — a blank instruction is handed over at every upgrade while saying nothing",
+      );
+    }
+    // Runes, not UTF-16 code units: the server counts `[]rune(body)`, so a
+    // `.length` here would let 2,000 CJK characters through and then 422.
+    if ([...trimmed].length > MOCK_UPGRADE_INSTRUCTION_BODY_CAP) {
+      throw mockApiError(
+        "http 422 for POST /api/upgrade-instructions",
+        422,
+        "body is too long — an instruction is a chat message, not a document",
+      );
+    }
+    const row: WireUpgradeInstruction = {
+      id: mockUpgradeInstructionId(),
+      body: trimmed,
+      created_ts: Date.now() / 1000,
+      created_by: "owner",
+      done: false,
+      done_ts: 0,
+      done_by: "",
+    };
+    mockUpgradeInstructions.push(row);
+    return toUpgradeInstruction(row);
+  },
+
+  async markUpgradeInstructionDone(
+    instructionId: string,
+  ): Promise<UpgradeInstructionView> {
+    const row = mockUpgradeInstructions.find((u) => u.id === instructionId);
+    if (!row) {
+      throw mockApiError(
+        `http 404 for POST /api/upgrade-instructions/${instructionId}/done`,
+        404,
+        `upgrade instruction '${instructionId}' not found`,
+      );
+    }
+    // 🔴 THE FIRST TICK WINS, and the mock has to model that or a component
+    // that reports "you ticked this" off the response looks right here and
+    // reports the wrong person against the real server. A second tick is a
+    // 200 with the row UNCHANGED — not a 409.
+    if (!row.done) {
+      row.done = true;
+      row.done_ts = Date.now() / 1000;
+      row.done_by = "mira";
+    }
+    return toUpgradeInstruction(row);
+  },
+
+  async deleteUpgradeInstruction(
+    instructionId: string,
+  ): Promise<UpgradeInstructionView> {
+    const idx = mockUpgradeInstructions.findIndex((u) => u.id === instructionId);
+    if (idx < 0) {
+      throw mockApiError(
+        `http 404 for DELETE /api/upgrade-instructions/${instructionId}`,
+        404,
+        `upgrade instruction '${instructionId}' not found`,
+      );
+    }
+    // Answers the row that was removed: the caller asked for it by id and this
+    // is the last moment anyone can read what it said.
+    const [removed] = mockUpgradeInstructions.splice(idx, 1);
+    return toUpgradeInstruction(removed);
+  },
+
   async removeSigningKey(keyId: string): Promise<SigningKeyView[]> {
     const target = mockSigningKeys.find((k) => k.key_id === keyId);
     // 🔴 THE SAME ENVELOPE THE WIRE RETURNS, not a plain Error. A mock that
@@ -6241,6 +6397,8 @@ export function __resetMock(): void {
   // test that rotates leaves a two-key ring for whatever runs next, and the
   // failure lands on the innocent test.
   mockSigningKeys = structuredClone(MOCK_WIRE_SIGNING_KEYS);
+  // Same reason: create/tick/withdraw MUTATE this store.
+  mockUpgradeInstructions = structuredClone(MOCK_WIRE_UPGRADE_INSTRUCTIONS);
   wireMembers = structuredClone(MOCK_WIRE_MEMBERS);
   wireMonitoring = structuredClone(MOCK_WIRE_MONITORING);
   mockBinStatus.clear();

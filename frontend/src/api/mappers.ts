@@ -23,6 +23,8 @@ import type {
   ReleaseCheckView,
   BackupHealthView,
   SigningKeyView,
+  UpgradeInstructionView,
+  UpgradeInstructionsView,
   BackupHealthStatus,
   BackupHealthCode,
   GlobalContextView,
@@ -60,6 +62,8 @@ import type {
   WireReleaseCheck,
   WireBackupHealth,
   WireSigningKeys,
+  WireUpgradeInstruction,
+  WireUpgradeInstructions,
   WireGlobalContext,
   WireBootDoc,
   WireDocumentHistory,
@@ -1293,6 +1297,47 @@ export function toSigningKeys(w: WireSigningKeys): SigningKeyView[] {
     createdTs: k.created_ts === 0 ? null : k.created_ts,
     isSigning: k.is_signing,
   }));
+}
+
+/**
+ * WireUpgradeInstruction → UpgradeInstructionView (T-79).
+ *
+ * 🔴 THE ONE NARROWING, AND WHY IT IS HERE RATHER THAN IN THE CARD. The wire
+ * says "still open" with `done_ts: 0` and `done_by: ""`, because the row is a
+ * SQLite row and those columns cannot be absent. A component that renders those
+ * verbatim prints "1970-01-01" and a blank author next to an instruction nobody
+ * has touched — a completed-looking row for work that has not happened. Doing
+ * the narrowing once, here, is what stops every future reader from having to
+ * remember the convention.
+ */
+export function toUpgradeInstruction(w: WireUpgradeInstruction): UpgradeInstructionView {
+  return {
+    id: w.id,
+    body: w.body,
+    createdTs: w.created_ts,
+    createdBy: w.created_by,
+    done: w.done,
+    doneTs: w.done ? w.done_ts : null,
+    doneBy: w.done ? w.done_by : null,
+  };
+}
+
+/**
+ * WireUpgradeInstructions → UpgradeInstructionsView (T-79). The server's order
+ * (open first, each group oldest→newest) is the hand-over order and is
+ * preserved verbatim — re-sorting here would put the list in a different order
+ * from the message the assistant is actually handed.
+ *
+ * 🔴 `openCount` is taken from the server, NOT counted off the array. The two
+ * agree today and stop agreeing the day this list is ever paged, and the count
+ * is the number that makes this feature's only failure mode visible: an
+ * instruction nobody ever acts on.
+ */
+export function toUpgradeInstructions(w: WireUpgradeInstructions): UpgradeInstructionsView {
+  return {
+    instructions: w.instructions.map(toUpgradeInstruction),
+    openCount: w.open_count,
+  };
 }
 
 export function toBackupHealth(w: WireBackupHealth): BackupHealthView {

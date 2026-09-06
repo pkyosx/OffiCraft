@@ -11,6 +11,7 @@ import { api, type ServerSettingsView, type ServerSettingsPatch } from "../api";
 import { ApiError } from "../api/errors";
 import { useVersion } from "../hooks/useVersion";
 import { useBackupHealth } from "../hooks/useBackupHealth";
+import { UpgradeInstructionsCard } from "./UpgradeInstructionsCard";
 import { SigningKeysCard } from "./SigningKeysCard";
 import {
   backupIndicatorState,
@@ -1977,6 +1978,13 @@ function SoftwareUpdate({
           same reason 備份健康 does: it is an operational posture the owner
           checks, not a parameter that is tuned. */}
       <SigningKeysCard />
+
+      {/* ── 換版交代單 (T-79) ── the standing instructions the owner leaves
+          for the assistant, handed over at every station upgrade until she
+          ticks them off. It sits under 系統更新與備份 because it is ABOUT
+          the upgrade: this is the only place the owner gets to say what the
+          next one should carry with it. */}
+      <UpgradeInstructionsCard />
     </div>
   );
 }

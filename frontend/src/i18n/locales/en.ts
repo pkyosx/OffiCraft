@@ -1588,6 +1588,34 @@ export const en: Dict = {
     actionFailed: "That action did not go through, and the server gave no reason.",
     emptyState: "The keys could not be read.",
   },
+  upgradeInstructions: {
+    title: "Upgrade instructions",
+    intro:
+      "Standing instructions for your assistant. Every time the station upgrades she is handed the open ones, alongside what the upgrade changed. An instruction nobody ticks off is handed over again at the next upgrade.",
+    loading: "Loading…",
+    emptyState:
+      "No instructions right now. At the next upgrade your assistant is told which version it moved to and which files changed, and nothing else.",
+    openCountLabel: (n: number) => `${n} still open`,
+    allDoneLabel: "All done",
+    openBadge: "Open",
+    doneBadge: "Done",
+    createdLabel: "Written",
+    doneLabel: (who: string) => `Ticked off by ${who}`,
+    addPlaceholder: "What should your assistant do after the next upgrade?",
+    addButton: "Add instruction",
+    addHint:
+      "Once written it stays until somebody ticks it off. There is no send-at field — the next upgrade hands it over.",
+    doneButton: "Mark done",
+    deleteButton: "Withdraw",
+    deleteConfirmTitle: "Withdraw this instruction?",
+    deleteConfirmBody:
+      "It is deleted permanently, with no undo. Withdrawing is for something you should not have written: ticking off means \"I did this\", so there is no honest way to retract a mistake with a tick — and without withdrawing it, the instruction is handed over at every single upgrade.",
+    deleteConfirmCancel: "Cancel",
+    deleteConfirmOk: "Withdraw it",
+    staleHint:
+      "This list does not update itself when your assistant ticks something off — reload to see it.",
+    actionFailed: "That did not go through, and the server gave no reason.",
+  },
   backupHealth: {
     title: "Backup health",
     // `unknown` is not a quieter `healthy` — it means "we cannot tell", and

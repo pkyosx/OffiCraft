@@ -1818,3 +1818,159 @@
   margin-top: 0.5rem;
   color: var(--color-danger);
 }
+
+/* ── 換版交代單 (T-79) ─────────────────────────────────────────────────────
+   設定 › 系統更新與備份 · the standing instructions the owner leaves for the
+   assistant. Laid out as a grid rather than the flex row 簽章金鑰 uses,
+   because the instruction TEXT is the row's subject and it is the one part
+   that can be long: a flex row would let the badge and the buttons take their
+   width first and squeeze the sentence into a sliver. Here the text owns its
+   own column and wraps; nothing else can take width from it.
+   Colours all go through theme tokens — the cockpit's looks are theme bundles
+   that rewrite --color-* at runtime, so a literal here would survive exactly
+   one of them. */
+.upgrade-instr {
+  padding: 16px 18px;
+}
+.upgrade-instr__hint {
+  color: var(--color-text-muted);
+}
+.upgrade-instr__hint--inline {
+  font-size: 0.9em;
+}
+.upgrade-instr__loading {
+  color: var(--color-text-muted);
+}
+.upgrade-instr__count {
+  color: var(--color-text-muted);
+  margin-top: 0.6rem;
+  margin-bottom: 0.4rem;
+}
+.upgrade-instr__list {
+  list-style: none;
+  margin: 0 0 0.6rem;
+  padding: 0;
+}
+.upgrade-instr__row {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  grid-template-areas:
+    "badge body    actions"
+    ".     meta    meta";
+  align-items: start;
+  gap: 0.15rem 0.6rem;
+  padding: 0.5rem 0;
+  border-bottom: 1px solid var(--color-border);
+}
+.upgrade-instr__row:last-child {
+  border-bottom: none;
+}
+/* A finished instruction stays in the list — it is the only evidence the work
+   was ever picked up — so it recedes rather than disappearing. */
+.upgrade-instr__row--done .upgrade-instr__body {
+  color: var(--color-text-muted);
+}
+.upgrade-instr__badge {
+  grid-area: badge;
+  font-size: 0.85em;
+  padding: 0.05rem 0.4rem;
+  border-radius: 0.6rem;
+  border: 1px solid var(--color-border);
+  white-space: nowrap;
+}
+/* 還沒完成 is the state someone scans this list for, so it is the one thing
+   carrying an accent; the finished rows stay muted rather than becoming a
+   second kind of signal competing with it. */
+.upgrade-instr__badge--open {
+  color: var(--color-accent);
+  border-color: var(--color-accent);
+}
+.upgrade-instr__badge--done {
+  color: var(--color-text-muted);
+}
+.upgrade-instr__body {
+  grid-area: body;
+  margin: 0;
+  /* An instruction can be up to 2,000 characters and can carry an unbroken
+     id or path; without this it would push the row wider than the panel and
+     the whole settings page would scroll sideways. */
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+.upgrade-instr__meta {
+  grid-area: meta;
+  color: var(--color-text-muted);
+  font-size: 0.9em;
+}
+.upgrade-instr__rowactions {
+  grid-area: actions;
+  display: flex;
+  gap: 0.4rem;
+  align-items: center;
+}
+.upgrade-instr__form {
+  margin-top: 0.6rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+.upgrade-instr__input {
+  width: 100%;
+  resize: vertical;
+  padding: 0.5rem 0.6rem;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  background: var(--color-card);
+  color: var(--color-text);
+  font: inherit;
+}
+.upgrade-instr__actions {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  flex-wrap: wrap;
+}
+/* The one thing a reader cannot tell from the list itself: whether it is
+   current. Muted, because it is a standing caveat rather than a failure. */
+.upgrade-instr__stale {
+  margin: 0.7rem 0 0;
+  color: var(--color-text-muted);
+  font-size: 0.9em;
+}
+.upgrade-instr__confirm-title {
+  display: block;
+  font-weight: 600;
+  margin-bottom: 0.4rem;
+}
+/* The instruction's own words inside the confirmation, so the person
+   confirming is looking at WHICH one — not at the id they clicked. */
+.upgrade-instr__confirm-quote {
+  display: block;
+  padding: 0.4rem 0.6rem;
+  margin-bottom: 0.5rem;
+  border-left: 2px solid var(--color-border);
+  color: var(--color-text-muted);
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+.upgrade-instr__confirm-warn {
+  display: block;
+  margin-top: 0.5rem;
+  color: var(--color-danger);
+}
+
+@media (max-width: 520px) {
+  /* Below this the three-column row cannot hold the sentence AND two buttons,
+     so the actions drop to their own line instead of the text becoming a
+     sliver. */
+  .upgrade-instr__row {
+    grid-template-columns: auto 1fr;
+    grid-template-areas:
+      "badge body"
+      ".     meta"
+      ".     actions";
+  }
+  .upgrade-instr__rowactions {
+    margin-top: 0.3rem;
+  }
+}
