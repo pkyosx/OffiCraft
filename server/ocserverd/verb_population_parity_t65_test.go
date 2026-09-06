@@ -259,10 +259,25 @@ type noticeSet string
 
 const (
 	// noticedNothing — the verb fanned NO member-topic frame for this subject.
-	// This is the whole outsource side of the file today: PutOutsourceWorker
-	// deliberately fans no member patch (dal.go:512), so a worker's only
-	// member-topic frame in the entire package is openWorkerHandoverGrace's
-	// (worker_spawn.go:2259).
+	// This is the whole outsource side of the file today, and 🔴 THE REASON IS
+	// NOT THE ONE THIS COMMENT USED TO GIVE. It said openWorkerHandoverGrace was
+	// "the worker's ONLY member-topic publisher"; MEASURED (T-65 包⑤) that is
+	// FALSE. openWorkerHandoverGrace holds the only DIRECT hub.Publish("member")
+	// in the worker package (worker_spawn.go:2258), but SIX further worker-id
+	// publishes ride s.putMember(memberFromWorker(w)), which fans
+	// publishMemberPatch UNCONDITIONALLY (api_members.go): the two collect
+	// funnels (:2295, :2336) and the three self-report folds (:2403, :2432,
+	// :2495/:2525). Denominator: hub.Publish("member" = 4 in production out of 40
+	// hub.Publish( calls; a bogus topic matches 0.
+	//
+	// What actually keeps these cells silent is NARROWER and holds on its own:
+	// the owner-verb handlers under test are in api_outsource.go, which calls
+	// putMember NOWHERE (0 call sites — positive control: worker_spawn.go has 6),
+	// and PutOutsourceWorker deliberately fans no member patch (dal.go:512).
+	// ⚠️ THE DIFFERENCE MATTERS FOR THE NEXT EDITOR, not for today's colour: the
+	// old sentence said the silence was a property of the WORKER, so a handler
+	// that gained a putMember would read as still-silent. The measured one says
+	// it is a property of THIS HANDLER FAMILY, which is a thing an edit can break.
 	noticedNothing noticeSet = ""
 	// noticedPlain — a member-topic frame arrived and carried no
 	// offboard_notice. 🔴 NO CELL IS EXPECTED TO BE THIS TODAY; it is here so
@@ -494,9 +509,16 @@ var knownDivergences = []knownDivergence{
 			"report_stopped yourself」: the member was told to come UP and, in the same " +
 			"breath, shown a wind-down. 外包 restart says nothing at all, and as of T-65 " +
 			"包④ that is true on BOTH its arms for a simpler reason than before — " +
-			"openWorkerHandoverGrace, the worker's ONLY member-topic publisher " +
-			"(worker_spawn.go:2259), is not called by this handler at all, and " +
-			"PutOutsourceWorker deliberately fans no member patch (dal.go:512). " +
+			"this handler reaches NO member-topic publisher at all: it never calls " +
+			"openWorkerHandoverGrace, and api_outsource.go calls putMember nowhere " +
+			"(0 call sites, measured T-65 包⑤), so PutOutsourceWorker — which " +
+			"deliberately fans no member patch (dal.go:512) — is the only write it " +
+			"makes. 🔴 THE REASON USED TO BE STATED AS 「openWorkerHandoverGrace is " +
+			"the worker's ONLY member-topic publisher」 AND THAT IS FALSE: six other " +
+			"worker-id publishes ride s.putMember(memberFromWorker(w)) in " +
+			"worker_spawn.go (both collect funnels and all three self-report folds). " +
+			"The corrected reason is scoped to this handler, which is the scope the " +
+			"cell actually depends on. " +
 			"⚠️ SCOPE: 包④ converged the ROW and the KILL for 喚醒; it did not touch what " +
 			"正職 says, so this row survives. It is NOT a permanent difference, and the " +
 			"question whoever closes it has to answer is the same ONE question the " +
@@ -675,9 +697,31 @@ var knownDivergences = []knownDivergence{
 	// subject (worker_spawn.go's ~810 lines against member_ownerop_winddown.go's
 	// ~666), and pulling it forward would mean either giving the staff verb a
 	// collect it does not have — a behaviour change, not a convergence — or
-	// taking the worker's away, which recon坐實 would silently strand it:
-	// runOutsourceTick `continue`s on desired_state=offline, so a stopped worker
-	// NEVER REACHES THE FSM at all and nothing downstream would ever collect it.
+	// taking the worker's away, which recon坐實 would silently strand it.
+	//
+	// 🔴 BUT NOT FOR THE REASON THIS PARAGRAPH USED TO GIVE, and the old one was
+	// TOO STRONG in a way that would mislead whoever converges this. It said:
+	// 「runOutsourceTick `continue`s on desired_state=offline, so a stopped worker
+	// NEVER REACHES THE FSM at all and nothing downstream would ever collect it」.
+	// Read against outsource_sched.go (T-65 包⑤), the first half is true only for
+	// ONE of the two branches and the second half is FALSE:
+	//
+	//   * WorkerStatusAssigned — the `continue` really is there, and a
+	//     desired-offline ASSIGNED worker leaves the tick untouched.
+	//   * WorkerStatusActive — there is NO such `continue`. The tick calls
+	//     autoHandoverWorker UNCONDITIONALLY, and only afterwards guards the FSM
+	//     with `if fresh.DesiredState != DesiredStateOffline`. So a desired-offline
+	//     ACTIVE worker DOES enter the tick; what it skips is the FSM, not the
+	//     tick — and autoHandoverWorker's stop arm (worker_spawn.go, the
+	//     `w.DesiredState == DesiredStateOffline` block) collects it through
+	//     collectWorkerStop on either stop-session-gone or
+	//     stop-accelerated-deadline.
+	//
+	// ⇒ The inline collect is the worker's FAST path, not its only one. The real
+	// reason not to take it away is the ASSIGNED branch plus the two arms that
+	// never fire on a plain 停止 (recycleGraceFor answers "not clocked", so an
+	// online worker waits indefinitely by the owner's own ruling) — a narrower
+	// claim than the old sentence, and the narrower one is the true one.
 	{
 		verb: "停止（離線起點）", field: "stopped_since",
 		why: "外包 openWorkerHandoverGrace's `!hub.IsOnline` arm calls collectWorkerStop, " +
@@ -714,27 +758,65 @@ var knownDivergences = []knownDivergence{
 	},
 	{
 		verb: "停止（離線起點）", field: "banked_cost",
-		why: "collectWorkerStop's putMember runs the fold that pops the live telemetry " +
-			"figure into banked_cost; the staff verb's putMember does not, because a " +
-			"staff stop is not finished yet at this point — the money is banked when the " +
-			"session actually ends. 🔴 THIS IS THE ROW THAT WOULD BE READ WRONG IF THE " +
-			"OTHER TWO WERE CONVERGED CARELESSLY: recon on 包③ established that routing " +
-			"the worker through the staff dispatch (dispatchRobustStopNow) drops " +
-			"bankLiveCost entirely, which is a SILENT loss of owner-visible money — " +
-			"costLost exists as a distinct literal for exactly that outcome, and it must " +
-			"never become the answer here.",
+		why: "🔴 PERMANENT DIFFERENCE — TWO POPULATIONS, TWO BANKING EDGES, THE SAME " +
+			"TERMINAL AMOUNT (re-judged T-65 包⑤; an earlier draft of this row read as " +
+			"an unsettled convergence question and it is not one). 外包 banks INSIDE the " +
+			"kill funnel: collectWorkerStop ends in stopWorkerNow, which calls " +
+			"bankLiveCost before the kill, so the money is durable in the same instant " +
+			"the session dies. 正職 banks on the SSE LAST-DISCONNECT edge instead — " +
+			"api_infra.go's stream defer fires onLastDisconnect → bankLiveCost when " +
+			"hub.Disconnect reports last. Production has exactly THREE bankLiveCost call " +
+			"sites (api_infra.go, and worker_spawn.go's respawnWorkerNow / stopWorkerNow) " +
+			"and no staff path holds one, which is why this cell reads live and not " +
+			"banked. ⚠️ WHAT THIS CELL MEASURES IS IMMEDIACY, NOT MONEY, and the fixture " +
+			"is why: watchMemberDeltas and the seeds keep the subject's SSE connection up " +
+			"for the whole run and only disconnect it in t.Cleanup, AFTER the terminal " +
+			"read. So the staff arm is read at the moment the handler returns, which is " +
+			"before its banking edge exists. TestForceStoppedStaffCostBanksOnTheDisconnect" +
+			"Edge (forcestop_bank_lastdisconnect_t65_test.go) drives that edge through " +
+			"the real GET /api/events handler and pins BOTH halves — untouched at return, " +
+			"banked after the disconnect — so this sentence is a measurement rather than " +
+			"prose that can rot. 🔴 CONVERGING IT IS STILL THE WRONG MOVE, and this is " +
+			"the row that says why: routing the worker through the staff dispatch " +
+			"(dispatchRobustStopNow) would delete the only unconditional bank on a stop " +
+			"and leave the money to a disconnect edge that NEVER ARRIVES for a subject " +
+			"that is already offline — precisely the population this row is about. " +
+			"costLost exists as a distinct literal for that outcome and must never become " +
+			"the answer here.",
 	},
 	{
 		verb: "強制停止", field: "banked_cost",
-		why: "🔴 THIS IS THE ONE 包③ IS ABOUT, AND IT IS THE ONLY ROW IN THIS WHITELIST " +
-			"THAT COSTS THE OWNER MONEY RATHER THAN CORRECTNESS. Both sides end with the " +
-			"same desired_state, the same anchors and the SAME single `stop` frame — the " +
-			"nine row columns and `dispatched` all agree — and only the money differs. " +
-			"外包 force-stop goes through stopWorkerNow, which banks the dying session's " +
-			"live cost before the kill (worker_spawn.go:1983). 正職 force-stop calls " +
-			"dispatchRobustStopNow (api_members.go:1488), which banks nothing; the staff " +
-			"figure is folded LATER, and only if an SSE last-disconnect edge arrives " +
-			"(api_infra.go:879-882, the sole member-side call site). " +
+		why: "🔴 RE-JUDGED IN T-65 包⑤: THIS IS A PERMANENT DIFFERENCE — TWO BANKING " +
+			"EDGES, THE SAME TERMINAL AMOUNT — AND THE SENTENCE IT REPLACES WAS WRONG " +
+			"IN A LOAD-BEARING WAY. That sentence read 「the ONLY row in this whitelist " +
+			"that costs the owner MONEY rather than correctness」, i.e. that the staff " +
+			"money is lost. It is not: it is banked LATER, on a different edge. " +
+			"Both sides end with the same desired_state, the same anchors and the SAME " +
+			"single `stop` frame — the nine row columns and `dispatched` all agree — and " +
+			"what differs is WHEN the fold runs. 外包 force-stop goes through " +
+			"stopWorkerNow, which banks the dying session's live cost before the kill. " +
+			"正職 force-stop calls dispatchRobustStopNow, which banks nothing itself; the " +
+			"warden kills the session, the agent's SSE stream ends, and api_infra.go's " +
+			"stream defer runs onLastDisconnect → bankLiveCost on the real online→offline " +
+			"edge. Nothing on the staff force-stop path clears the telemetry entry in " +
+			"between — the repo's ONLY s.telemetry.Delete is api_roles.go's staff " +
+			"HARD-DELETE (role removal), measured, not the stop path — so the live figure " +
+			"is still there when that edge arrives. " +
+			"⚠️ THIS CELL THEREFORE MEASURES IMMEDIACY, NOT AMOUNT: the fixture holds the " +
+			"subject's SSE connection open until t.Cleanup, which is after the terminal " +
+			"read, so the staff arm is sampled before its banking edge can exist. " +
+			"TestForceStoppedStaffCostBanksOnTheDisconnectEdge " +
+			"(forcestop_bank_lastdisconnect_t65_test.go) drives the real GET /api/events " +
+			"handler and pins both halves — costUntouched when force-stop returns, " +
+			"costBanked once the stream ends. Without it this paragraph would be prose " +
+			"asserting something no test watches, which is how a permanent-difference " +
+			"row rots into an excuse. " +
+			"⚠️ THE ONE RESIDUAL RISK, stated with its evidence level: s.telemetry is a " +
+			"*memStore (api_stub.go) with no persistence, so a station that re-execs " +
+			"BETWEEN the kill and the disconnect edge loses the staff figure, while 外包 " +
+			"is immune because it banked synchronously. READ: the type and the absence of " +
+			"a persist call. NOT MEASURED: how wide that window is — bounding it needs " +
+			"the warden's code, which is not in this module. " +
 			"⚠️ SCOPE — READ THIS BEFORE 「CONVERGING」 IT: the safe direction is NOT " +
 			"free. Moving 外包 onto dispatchRobustStopNow would delete the ONLY " +
 			"unconditional bank on a stop and leave the money to the disconnect edge — " +
@@ -800,9 +882,14 @@ var knownDivergences = []knownDivergence{
 			"stamped at nowSecs() — the third term is FALSE, forcedEpochLive is false, " +
 			"gracefulStopEpochOpen is TRUE, and the putMember at :1479 hands the session " +
 			"it is about to kill the full soft sequence. 外包 is silent by TWO independent " +
-			"guards: its force-stop reaches no member-topic publisher at all (the only " +
-			"openWorkerHandoverGrace call sites are api_outsource.go:529/:643/:736 and " +
-			"worker_spawn.go:1846/:2560, none on this path), and its pull-back keeps " +
+			"guards: its force-stop reaches no member-topic publisher at all — the five " +
+			"openWorkerHandoverGrace call sites (api_outsource.go:483/:597/:691, " +
+			"worker_spawn.go:1845/:2573) are none of them on this path, AND " +
+			"api_outsource.go calls putMember nowhere at all, which is the half an " +
+			"earlier draft left out and needed: the grace publisher is NOT the worker's " +
+			"only member-topic publisher (six more ride putMember(memberFromWorker) in " +
+			"worker_spawn.go), so 「no openWorkerHandoverGrace on this path」 alone would " +
+			"not have settled it. Measured T-65 包⑤. Its pull-back also keeps " +
 			"forcedEpochLive true so a frame would carry nothing anyway. " +
 			"⚠️ WHY IT IS WHITELISTED RATHER THAN FIXED HERE: the fix is a production " +
 			"change on the 正職 handler (give it the pull-back arm), which is what the " +
@@ -1236,10 +1323,12 @@ func parityCases() []verbCase {
 				// No session ends, so respawnWorkerNow's bank-before-kill is never
 				// reached and the live figure is still on the row.
 				Cost: costUntouched,
-				// NOTHING is said. openWorkerHandoverGrace — the worker's ONLY
-				// member-topic publisher (worker_spawn.go:2259) — is not called on
-				// either arm of this handler, and PutOutsourceWorker deliberately fans
-				// no member patch (dal.go:512).
+				// NOTHING is said: openWorkerHandoverGrace is not called on either arm
+				// of this handler, api_outsource.go calls putMember nowhere at all
+				// (0 call sites, measured T-65 包⑤), and PutOutsourceWorker
+				// deliberately fans no member patch (dal.go:512). ⚠️ NOT because
+				// openWorkerHandoverGrace is "the worker's ONLY member-topic
+				// publisher" — that claim is false, see noticedNothing above.
 				Noticed: noticedNothing,
 			},
 		},
@@ -1333,9 +1422,11 @@ func parityCases() []verbCase {
 				// (「so the respawn never zeroes the visible spend」); the start+stop
 				// above is the same call's evidence.
 				Cost: costBanked,
-				// openWorkerHandoverGrace — the worker's ONLY member-topic publisher —
-				// is not called by this handler on either arm, and PutOutsourceWorker
-				// deliberately fans no member patch (dal.go:512).
+				// openWorkerHandoverGrace is not called by this handler on either arm,
+				// api_outsource.go calls putMember nowhere at all (0 call sites,
+				// measured T-65 包⑤), and PutOutsourceWorker deliberately fans no
+				// member patch (dal.go:512). ⚠️ NOT because openWorkerHandoverGrace is
+				// "the worker's ONLY member-topic publisher" — see noticedNothing.
 				Noticed: noticedNothing,
 			},
 		},
@@ -1609,9 +1700,11 @@ func parityCases() []verbCase {
 				Cost: costBanked,
 				// silent, and by TWO independent guards rather than one — which is what
 				// makes the staff cell above a defect rather than a coin-flip. The worker
-				// force-stop reaches no member-topic publisher at all (grep: the only
-				// openWorkerHandoverGrace call sites are api_outsource.go:529/:643/:736 and
-				// worker_spawn.go:1846/:2560, none of them on this path), AND the
+				// force-stop reaches no member-topic publisher at all (grep, T-65 包⑤: the
+				// five openWorkerHandoverGrace call sites are api_outsource.go:483/:597/:691
+				// and worker_spawn.go:1845/:2573, none of them on this path, AND
+				// api_outsource.go calls putMember nowhere — the second half is load-bearing
+				// because the grace publisher is not the worker's only one), AND the
 				// stopping_since pull-back keeps forcedEpochLive true, so even a frame
 				// would carry nothing.
 				Noticed: noticedNothing,
