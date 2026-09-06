@@ -1710,11 +1710,12 @@ export const httpApi: Api = {
   },
 
   async listTaskArtifacts(taskId: string): Promise<TaskArtifactView[]> {
-    // GET /api/tasks/{task_id}/artifacts -> TaskArtifactListDTO (T-66). The ONE
-    // read that carries an artifact's url/filename/mime/kind/is_image: getTask
-    // carries an id+label INDEX and stopped carrying the rest, so anything that
-    // DRAWS an artifact opens this. One call answers the whole ticket; an
-    // unknown task 404s through the client middleware as an ApiError.
+    // GET /api/tasks/{task_id}/artifacts -> TaskArtifactListDTO (T-66, T-92).
+    // The ONLY read that carries an artifact ROW at all: getTask answers
+    // `artifact_count` and nothing else — no rows, no ids, no names — so
+    // anything that DRAWS an artifact, or needs its id in order to act on it,
+    // opens this. One call answers the whole ticket; an unknown task 404s
+    // through the client middleware as an ApiError.
     const wire = unwrap(
       await client.GET("/api/tasks/{task_id}/artifacts", {
         params: { path: { task_id: taskId } },

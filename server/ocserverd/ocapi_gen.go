@@ -2807,59 +2807,74 @@ type SigningKeysDTO struct {
 	Keys []SigningKeyDTO `json:"keys"`
 }
 
-// TaskArtifactDTO One pinned deliverable on a task's artifact set (T-3dc5). “kind“ is the closed set file|image|link. FILE/IMAGE artifacts reference the shared chat_attachment blob store: “attachment_id“ is the blob id, “url“ is its serve path (“/api/chat/attachment/{attachment_id}“), and “filename“/“mime“/“is_image“ echo the blob metadata (resolved read-time; empty when the blob is gone). LINK artifacts carry a bare external “url“ (a PR link) with “attachment_id“/“mime“/“filename“ empty and “is_image“ false. “label“ is the display name (a link's title, or a filename override); “created_by“ is the verified token sub of whoever last WROTE the artifact and “created_ts“ when that write landed — the registrar and the moment of pinning until someone replaces it, the REPLACER and the moment of replacement afterwards (T-60 rewrites both in place; neither field is a record of the original pin). “version_count“ (T-60) is how many versions of this deliverable exist, the live one INCLUDED — 1 for an artifact that has never been replaced, and bounded above because only the most recent few replaced versions are retained; list them with GET /api/tasks/{task_id}/artifact/{artifact_id}/history.
+// TaskArtifactDTO One pinned deliverable on a task's artifact set (T-3dc5, reshaped by T-92). “kind“ is the closed set file|image|link and it is IMMUTABLE across versions. EVERY artifact — a link included — is backed by one chat_attachment blob (owner ruling c-59fc5834d967): a link's target is stored as a “text/uri-list“ blob. That is why “url“ here has exactly ONE meaning — WHERE TO GO FOR THIS DELIVERABLE'S CONTENT: the blob serve path (“/api/chat/attachment/{attachment_id}“) for a file/image, the external address for a link. “attachment_id“ is that blob's id. T-92 removed it as duplication of “url“ and the owner restored it on rc-91e29b576ad8, because the duplication was not the whole of what the field did: system_interaction §2.1 tells members to compare a task artifact by passing THE ID IT ALREADY HAS, and the same document forbids assembling an address by hand — so recovering the id by slicing a prefix off “url“ is the move it rules out, and for a LINK there is nothing to slice, since that “url“ is the external target rather than a blob path. No tool lists an artifact's retained versions, so there was no second door to the id either. It is present for EVERY kind. “name“ is the display name and is NEVER EMPTY ON THE WIRE — the stored name when the row has one, else the blob's own filename (file/image), else the link target (link), else “#“ + the id without its “ta-“ prefix. It is derived READ-TIME, so replacing the content changes the name with it instead of leaving a filename copied into a second place where it can go stale. ⚠️ A DERIVED “name“ IS NOT BOUND BY THE 48-RUNE WRITE CAP — that cap is a gate on what you may store, never a promise about what you will read back. “description“ is the prose the single old “label“ used to carry alongside the title — what a reader reads to decide whether this is the artifact they want — and it MAY BE EMPTY and MAY EXCEED 256 runes: that cap binds new writes only, and the labels migrated into this field were written before any cap existed. “mime“ is the blob's own content type, resolved read-time and honest-empty when the blob is gone; it is the ONLY field that separates a “.md“ from a “.pdf“ from a “.zip“, which “kind“ cannot do — a reader that drops it renders the other two wrongly and silently. “created_by“/“created_ts“ are who last WROTE this artifact and when — the registrar and the moment of pinning until someone replaces it, the REPLACER and the moment of replacement afterwards (T-60 rewrites both in place; neither field is a record of the original pin). “version_count“ (T-60) is how many versions of this deliverable exist, the live one INCLUDED — 1 for an artifact that has never been replaced, and bounded above because only the most recent few replaced versions are retained; list them with GET /api/tasks/{task_id}/artifact/{artifact_id}/history.
 type TaskArtifactDTO struct {
+	// AttachmentId The blob this deliverable's content lives in — the same id ``ocagent upload`` prints and the address ``ocagent diff`` takes, so a member can compare an artifact without re-uploading anything. Restored by owner ruling rc-91e29b576ad8 after T-92 dropped it as duplication of ``url``. Present for EVERY kind: for a file/image it is the tail of ``url``; for a LINK it names the ``text/uri-list`` blob holding the target, which ``url`` does not expose at all. Blank only if a row carries no blob. ⚠️ The SCHEMA does not forbid that: the column is ``TEXT NOT NULL`` with no ``CHECK``, so ``''`` is a legal value, and migration 00086 says in as many words that the absence of that CHECK is deliberate. The invariant is held at the WRITE DOOR instead. Read this as non-empty in practice, not as guaranteed by the storage.
 	AttachmentId *string  `json:"attachment_id,omitempty"`
 	CreatedBy    *string  `json:"created_by,omitempty"`
 	CreatedTs    *float64 `json:"created_ts,omitempty"`
-	Filename     *string  `json:"filename,omitempty"`
-	Id           string   `json:"id"`
-	IsImage      *bool    `json:"is_image,omitempty"`
-	Kind         string   `json:"kind"`
-	Label        *string  `json:"label,omitempty"`
-	Mime         *string  `json:"mime,omitempty"`
-	Url          *string  `json:"url,omitempty"`
+
+	// Description Prose about this deliverable, for a reader deciding whether it is the one they want (T-92 — the half of the old ``label`` that was not a title). MAY BE EMPTY, and MAY BE LONGER THAN THE 256-RUNE WRITE CAP: the cap binds new writes only and never touched the values migrated in from ``label``. Do not size a buffer or a column on 256.
+	Description *string `json:"description,omitempty"`
+	Id          string  `json:"id"`
+	Kind        string  `json:"kind"`
+
+	// Mime The blob's own content type, resolved read-time and empty when the blob is gone — never fabricated. It is the only field that distinguishes ``.md`` from ``.pdf`` from ``.zip``: ``kind`` = ``file`` covers all three, so a client that substitutes a default here displays the other two wrongly and says nothing. A link's blob is ``text/uri-list``.
+	Mime *string `json:"mime,omitempty"`
+
+	// Name The deliverable's display name. NEVER EMPTY on the wire — and that is a read-time DERIVATION rather than a stored guarantee (T-92): the stored name when the row has one, else the blob's filename for a file/image, else the link target for a link, else ``#`` + the id without its ``ta-`` prefix. ⚠️ A derived name is NOT capped: the 48-rune limit gates what may be STORED and says nothing about this value.
+	Name *string `json:"name,omitempty"`
+
+	// Url Where to go for this deliverable's content — ONE meaning, both kinds (T-92): the blob serve path (``/api/chat/attachment/{attachment_id}``) for a file/image, the external address for a link. Resolved read-time, and honest-empty when a file/image's blob is gone.
+	Url *string `json:"url,omitempty"`
 
 	// VersionCount How many versions of this deliverable exist, the LIVE one included — 1 for an artifact that has never been replaced. additive-optional (absent reads as 0 for older servers).
 	VersionCount *int `json:"version_count,omitempty"`
 }
 
-// TaskArtifactInputDTO Register one artifact onto a task (MCP “add_task_artifact“). “kind“ is required: file|image|link. For file/image, “attachment_id“ is required — the chat_attachment blob id from a prior “POST /api/chat/attachments“ upload (one blob mechanism, not two). For link, “url“ is required — a bare http(s) URL (a PR link). “label“ is an optional display name (a link's title such as "PR #123", or a filename override); absent = the blob's own filename (file/image) or the URL itself (link). “label“ is capped at 128 CHARACTERS (Unicode runes, so 128 CJK characters fit — it is not a byte count); a longer one is REFUSED with a 400 and is never silently truncated. The cap binds NEW writes only: labels stored before it existed are left as they are.
+// TaskArtifactInputDTO Register one artifact onto a task (MCP “add_task_artifact“). “kind“ is required: file|image|link. For a LINK, “url“ is required - a bare http(s) URL. For a FILE/IMAGE, “attachment_id“ names a blob ALREADY in the store; bytes that are still on disk must reach the store first (the chat-attachment upload), because the one-call route POST /api/tasks/{task_id}/artifacts/upload has no MCP tool and no CLI subcommand and is reachable only by a direct HTTP client. Mind the two-step gap: an upload never bound here leaves an unreferenced blob. “name“ is REQUIRED (48 runes, blank refused) and “description“ is optional (256 runes); both caps refuse rather than truncate and both bind NEW writes only.
 type TaskArtifactInputDTO struct {
+	// AttachmentId A blob ALREADY in the store, to pin without uploading a second copy of the same bytes - an attachment someone sent you in chat, a file already pinned elsewhere. Read ONLY when kind is 'file' or 'image', where one of this and the raw-body upload route must have supplied the content; an id that resolves to no stored blob is a 400. ⚠️ THIS IS A TWO-STEP PATH and the gap matters: a caller that uploads to the chat store and never binds here leaves a blob nothing references and nothing goes looking for. POST /api/tasks/{task_id}/artifacts/upload does the store-and-pin in one transaction, but it is exposed as no MCP tool and driven by no CLI subcommand, so only a direct HTTP client can take it - it is not an alternative you can pick from here.
 	AttachmentId *string `json:"attachment_id,omitempty"`
-	Kind         string  `json:"kind"`
-	Label        *string `json:"label,omitempty"`
-	Url          *string `json:"url,omitempty"`
+
+	// Description OPTIONAL prose about what this deliverable IS and why it is worth opening - the half of the old ``label`` that was not a title (T-92). It is what the next reader has to go on, because a task response carries only a COUNT of artifacts: an unexplained row costs whoever finds it a download to learn what it was. At most 256 runes, refused rather than truncated. Omitting it is not an error and the artifact is pinned with an empty description. The cap binds NEW writes only, so values already stored may be far longer.
+	Description *string `json:"description,omitempty"`
+	Kind        string  `json:"kind"`
+
+	// Name REQUIRED (T-92, owner ruling rc-85b07ab98651 「現在開始任務產物都需要有個名字，舊的不管」). The name this deliverable is LISTED under - short enough to read in a row, e.g. "PR #428" or "migration rollback plan". At most 48 characters, counted in Unicode runes so 48 CJK characters fit; a longer one is REFUSED with a 400 rather than truncated, and so is a blank or whitespace-only one. THE REQUIREMENT BINDS NEW WRITES ONLY: artifacts pinned before it existed keep whatever they have, including nothing, so a reader must NOT assume a stored name is present - what makes the name non-empty on the way out is the read-time derivation, not this rule.
+	Name string `json:"name"`
+
+	// Url The link target, read ONLY when kind is 'link' - where it IS required, a blank one being a 400. It is never parsed and never fetched: any non-empty string is accepted as sent, so a typo is pinned as a deliverable that leads nowhere. Since T-92 the server stores it as a ``text/uri-list`` blob like any other artifact's content, which the caller never sees and never needs to. With kind 'file' or 'image' this field is not merely optional but never looked at at all, so a file artifact sent with a url and no content is refused for the MISSING content, not for the field you actually filled in.
+	Url *string `json:"url,omitempty"`
 }
 
-// TaskArtifactListDTO One task's pinned deliverables IN FULL (T-66) — the answer of “GET /api/tasks/{task_id}/artifacts“ / MCP “list_task_artifacts“, and the counterpart of the “TaskArtifactRefDTO“ index a task response carries. “artifacts“ holds EVERY artifact on the task, oldest→newest, each a complete “TaskArtifactDTO“; an empty set is “[]“, never a 404. It is a wrapped list rather than a bare array so the response can say what it is: “artifacts_detail_level“ is “full“ here against the “index“ a task response declares — the same self-description “TaskStepDetailDTO“ carries as “detail_level“ = “full“ against “TaskDTO“'s “summary“.
+// TaskArtifactListDTO One task's pinned deliverables IN FULL (T-66, reshaped by T-92) — the answer of “GET /api/tasks/{task_id}/artifacts“ / MCP “list_task_artifacts“, and since T-92 the ONLY call that returns an artifact ROW at all: a task response carries “artifact_count“ and nothing else. “artifacts“ holds EVERY artifact on the task, oldest→newest, each a complete “TaskArtifactDTO“; an empty set is “[]“, never a 404.
 type TaskArtifactListDTO struct {
 	Artifacts *[]TaskArtifactDTO `json:"artifacts,omitempty"`
 
-	// ArtifactsDetailLevel What this response IS, said by the response itself (T-66): always ``full``. Every artifact row here is complete. A task response declares ``artifacts_detail_level`` = ``index`` instead, and its rows carry only ``id`` and ``label``.
+	// ArtifactsDetailLevel What this response IS, said by the response itself: always ``full`` — every artifact row here is complete, no field held back and no row abridged. ⚠️ SINCE T-92 IT HAS NO OPPOSITE: it used to stand against the ``index`` a task response declared, and a task response now carries a count and no rows at all. It is a self-description without a contrasting value, the same shape ``notes_included`` has, and it is kept so a reader holding this payload does not have to know which server version produced it to know the rows are whole.
 	ArtifactsDetailLevel *string `json:"artifacts_detail_level,omitempty"`
 	TaskId               string  `json:"task_id"`
 }
 
-// TaskArtifactReceiptDTO Bounded receipt returned after pinning or un-pinning ONE deliverable (T-a98d). It names the artifact the write touched and the resulting size of the set — the whole task used to ride back on a one-line pin, which no agent client could read. Fetch GET /api/tasks/{task_id} when full task detail is needed, and GET /api/tasks/{task_id}/artifacts (MCP “list_task_artifacts“) for the artifact set itself — since T-66 the task response carries only an id+label INDEX of the artifacts.
+// TaskArtifactReceiptDTO Bounded receipt returned after pinning or un-pinning ONE deliverable (T-a98d). It names the artifact the write touched and the resulting size of the set — the whole task used to ride back on a one-line pin, which no agent client could read. Fetch GET /api/tasks/{task_id} when full task detail is needed, and GET /api/tasks/{task_id}/artifacts (MCP “list_task_artifacts“) for the artifact set itself — since T-92 the task response carries only “artifact_count“.
 type TaskArtifactReceiptDTO struct {
 	ArtifactCount int    `json:"artifact_count"`
 	ArtifactId    string `json:"artifact_id"`
 	TaskId        string `json:"task_id"`
 }
 
-// TaskArtifactRefDTO ONE pinned deliverable reduced to an INDEX ROW (T-66, owner c-cd063427fb2f): the “id“ — the handle every other artifact call takes — and the “label“, the deliverable's display title ("" when it was pinned without one; it is NOT backfilled from the filename or the url here, because inventing a display name in the index would make the index look like it carried more than it does). This is what a task response's “artifacts“ array holds. Everything else about the artifact — “kind“, “url“, “filename“, “mime“, “is_image“, “attachment_id“, “created_ts“, “created_by“ — lives on “TaskArtifactDTO“ and is fetched for the WHOLE task at once through “GET /api/tasks/{task_id}/artifacts“ (MCP “list_task_artifacts“). There is deliberately no per-artifact read: the cockpit's deliverables panel opens onto the whole set, so a per-artifact door would cost one call per row.
-type TaskArtifactRefDTO struct {
-	Id    string  `json:"id"`
-	Label *string `json:"label,omitempty"`
-}
-
-// TaskArtifactReplaceInputDTO Replace one pinned artifact's content in place (MCP “replace_task_artifact“). The id does not move; the content does. Send “attachment_id“ for a file/image artifact (the chat_attachment blob id from a prior “POST /api/chat/attachments“ upload) or “url“ for a link artifact — whichever the artifact's EXISTING kind calls for, since the kind cannot change across versions. “kind“ is optional and is an ASSERTION rather than an instruction: when present it must equal the pinned kind, so a caller that believes it is replacing a link is told it is wrong instead of being handed a 400 about some other field. “label“ is optional and an OMITTED one CARRIES THE PINNED LABEL FORWARD — a replacement is a corrected version of the same deliverable, so the display name survives a content swap without being re-typed. An explicit label replaces it and an explicit blank clears it: absent and empty are different requests, and JSON null counts as absent.
+// TaskArtifactReplaceInputDTO Replace one pinned artifact's content in place (MCP “replace_task_artifact“). The id does not move; the content does. Send “attachment_id“ for a file/image artifact (a blob already in the store - new bytes on disk go to the raw-body replace/upload route instead) or “url“ for a link artifact - whichever the artifact's EXISTING kind calls for, since the kind cannot change across versions. “kind“ is optional and is an ASSERTION rather than an instruction: when present it must equal the pinned kind, so a caller that believes it is replacing a link is told it is wrong instead of being handed a 400 about some other field. “name“ and “description“ are optional and an OMITTED one CARRIES THE PINNED VALUE FORWARD; an explicit blank “name“ is refused and an explicit blank “description“ clears it, and JSON null counts as absent in both.
 type TaskArtifactReplaceInputDTO struct {
 	AttachmentId *string `json:"attachment_id,omitempty"`
-	Kind         *string `json:"kind,omitempty"`
-	Label        *string `json:"label,omitempty"`
-	Url          *string `json:"url,omitempty"`
+
+	// Description The NEW version's prose. OPTIONAL, omitted = carried forward, JSON null read as omitted, 256-rune cap checked only against a value actually sent (T-92). Unlike ``name`` a blank one is ACCEPTED and CLEARS it - plenty of deliverables need no explanation - but see the warning on ``name``: a client that turns an empty string into an omitted field will silently keep the old prose instead, so do not build on clearing.
+	Description *string `json:"description,omitempty"`
+	Kind        *string `json:"kind,omitempty"`
+
+	// Name The NEW version's display name. OPTIONAL, and an omitted one CARRIES THE PINNED NAME FORWARD - a replacement is a corrected version of the same deliverable, so you never re-type the display name just to swap the content - and JSON null is read as omitted rather than as a value. Sending one replaces it, and the 48-rune cap is checked ONLY against a value you actually send: omit the field and whatever is stored stands, however long it is. A blank one is REFUSED, because every deliverable has a name. ⚠️ Some clients serialise an empty string as an omitted field, so "omit to keep" is reliable in a way "send blank" is not.
+	Name *string `json:"name,omitempty"`
+	Url  *string `json:"url,omitempty"`
 }
 
 // TaskArtifactReplaceReceiptDTO Bounded receipt returned after REPLACING one deliverable (T-60). The same three fields as “TaskArtifactReceiptDTO“ — the artifact the write touched and the resulting size of the set — plus “version_count“, how many versions that artifact now has with the live one included. That last one is the part a replacing caller cannot predict: it stops climbing once the retained depth is reached, which is also the signal that an older version has just been discarded. Fetch GET /api/tasks/{task_id} when full task detail is needed.
@@ -2870,25 +2885,30 @@ type TaskArtifactReplaceReceiptDTO struct {
 	VersionCount  int    `json:"version_count"`
 }
 
-// TaskArtifactVersionDTO ONE retained PREVIOUS version of a pinned deliverable (T-60). Unlike a document revision this row carries the version WHOLE rather than a size summary: an artifact version is a pointer (a blob id or a url) plus a label, so there is no prose to hold back and the listing IS the content. “id“ is the version's own row id, ascending with the age of the write; “kind“ always equals the live artifact's kind, which cannot change across versions; “created_ts“/“created_by“ are when THAT version was written and by whom. A file/image version's “attachment_id“ still resolves — the blob is kept alive for as long as the version is retained, and collected when the version falls off the end — and “url“/“mime“/“filename“/“is_image“ echo that blob — the serve path, its content type, its own name and whether it is an image — resolved read-time exactly like the live artifact's.
+// TaskArtifactVersionDTO ONE retained PREVIOUS version of a pinned deliverable (T-60, fields tracked to T-92). Unlike a document revision this row carries the version WHOLE rather than a size summary: an artifact version is a pointer (a blob id — every kind is blob-backed since T-92) plus its name and its prose, and the prose is bounded, so there is nothing to hold back and the listing IS the content. “id“ is the version's own row id, ascending with the age of the write; “kind“ always equals the live artifact's kind, which cannot change across versions; “created_ts“/“created_by“ are when THAT version was written and by whom. “name“/“description“ are that version's own — T-92 split the single “label“ this row used to carry into the two of them, here as well as on the live artifact, because the history table stores those two columns now. EVERY version's “attachment_id“ still resolves, a link's included — the blob is kept alive for as long as the version is retained, and collected when the version falls off the end. “url“/“mime“/“filename“/“is_image“ are resolved read-time from that blob exactly like the live artifact's, EXCEPT that on this row the blob facts are read only for a file/image: a link version's “url“ is the blob's BYTES (the uri-list target it pointed at) and its “mime“/“filename“ stay empty, unlike the live artifact's link, which does report “text/uri-list“. ⚠️ THIS ROW IS DELIBERATELY WIDER THAN THE LIVE “TaskArtifactDTO“, which T-92 narrowed: this is a cockpit-only read of a bounded handful of rows rather than a cost paid on every ticket read, and narrowing it was outside what the owner approved.
 type TaskArtifactVersionDTO struct {
 	AttachmentId *string  `json:"attachment_id,omitempty"`
 	CreatedBy    *string  `json:"created_by,omitempty"`
 	CreatedTs    *float64 `json:"created_ts,omitempty"`
 
-	// Filename The retained blob's own name, resolved read-time from ``attachment_id`` (empty for a link, and for a file/image whose blob is gone — never fabricated). It is the name a reader answers "are these bytes text" with when the mime cannot say, so a version whose ``label`` is empty is not left mute. additive-optional (absent reads as "" for older servers).
+	// Description This version's prose (T-92 — the half of the old ``label`` that was not a title). May be empty, and may exceed the 256-rune write cap for the same reason the live artifact's may: the cap never touched migrated values.
+	Description *string `json:"description,omitempty"`
+
+	// Filename The retained blob's own name, resolved read-time from ``attachment_id`` (empty for a link, and for a file/image whose blob is gone — never fabricated). It is the name a reader answers "are these bytes text" with when the mime cannot say, so a version whose ``name`` is empty is not left mute. additive-optional (absent reads as "" for older servers).
 	Filename *string `json:"filename,omitempty"`
 	Id       int64   `json:"id"`
 
-	// IsImage Whether this version's blob is an image (its mime starts with ``image/``) — the same read the live artifact's ``is_image`` is, so a reader shows a retained image version the way it shows the current one. additive-optional (absent reads as false for older servers).
-	IsImage *bool   `json:"is_image,omitempty"`
-	Kind    string  `json:"kind"`
-	Label   *string `json:"label,omitempty"`
+	// IsImage Whether this version's blob is an image (its mime starts with ``image/``). The live ``TaskArtifactDTO`` no longer carries this field at all (T-92 narrowed it away, since it is a prefix test on ``mime``); it survives here because this cockpit-only row was left wide, so a reader shows a retained image version without re-deriving it. additive-optional (absent reads as false for older servers).
+	IsImage *bool  `json:"is_image,omitempty"`
+	Kind    string `json:"kind"`
 
 	// Mime The retained blob's own content type, resolved read-time from ``attachment_id`` (empty for a link, and for a file/image whose blob is gone). It is THIS version's mime, not the live artifact's — kind is immutable across versions but the content type is not. additive-optional (absent reads as "" for older servers).
 	Mime *string `json:"mime,omitempty"`
 
-	// Url Where THIS version's content is. For a file/image it is the retained blob's serve path (``/api/chat/attachment/{attachment_id}``), exactly as on the live artifact — NOT the row's ``url`` column, which is empty for those kinds; for a link it is the external url that version pointed at.
+	// Name This version's display name AS STORED (T-92). Unlike the live artifact's ``name`` this one is NOT derived — it is the column, so it is empty on a version written before names existed.
+	Name *string `json:"name,omitempty"`
+
+	// Url Where THIS version's content is. For a file/image it is the retained blob's serve path (``/api/chat/attachment/{attachment_id}``), exactly as on the live artifact; for a link it is the external url that version pointed at, read out of that version's ``text/uri-list`` blob. There is no stored ``url`` column on either artifact table — every kind's url is computed read-time.
 	Url *string `json:"url,omitempty"`
 }
 
@@ -2941,11 +2961,8 @@ type TaskCreateTargetDTO struct {
 
 // TaskDTO One task (M3 任務卡): a workflow with a Definition of Done, executed by a roster member or an anonymous outsource worker. “task_no“ IS the id itself, unchanged (T-5291) — there is no projection any more, so the number shown in the UI is byte-for-byte the “task_id“ you look the task up with. “status“ is DERIVED from the steps (not agent-reported): the work states not_started/in_progress/waiting_owner/waiting_external plus the terminals done/terminated/duplicated. “reassigning“ is NO LONGER a status — it is the orthogonal “lock“ field (the owner/admin handover hold, cleared by the claim action; see “POST /api/tasks/{task_id}/reassign“); “priority“ includes “frozen“ (pause-pushing — a priority, not a status). “executor_kind='outsource'“ with an empty “executor_id“ is the transient unassigned state. “closed_ts“ is null while open. “deps“ are the blocking task ids (display markers, never a status change); “progress_done“/“progress_total“ count step leaves (“superseded“ replan history counts toward neither side). “closeout_reported“ flips true once the executor reports the close-out follow-ups done (“report_task_closeout“; terminal tasks only). “creator_id“ is the verified token sub of the task's creator (a member id, an outsource worker id, or the literal "owner"); "" on rows created before the column existed. “duplicate_of“ is the id of the ORIGINAL task this one duplicates — non-empty ONLY while “status='duplicated'“ (MCP “mark_duplicate“); the graph is depth-1 by construction so the cockpit link always resolves in one hop.
 type TaskDTO struct {
-	// Artifacts The task's pinned deliverables as an INDEX (T-66, owner c-cd063427fb2f): each row is ``id`` + ``label`` and nothing else. The LIST is complete — every pinned deliverable has a row, so its length is the true count — but the ROWS are not: ``kind``, ``url``, ``filename``, ``mime``, ``is_image``, ``attachment_id``, ``created_ts``, ``created_by`` and ``version_count`` are served by ``list_task_artifacts(task_id)``, which answers the whole ticket in one call. Read ``artifacts_detail_level`` (``index`` here) rather than inferring the abridgement from a missing field.
-	Artifacts *[]TaskArtifactRefDTO `json:"artifacts,omitempty"`
-
-	// ArtifactsDetailLevel What this response's ARTIFACT rows ARE, said by the response itself (T-66): always ``index``. Each entry of ``artifacts`` carries only ``id`` and ``label``; ``GET /api/tasks/{task_id}/artifacts`` (MCP ``list_task_artifacts``) answers ``full`` and carries every field. It is a separate field from ``detail_level`` because the two abridgements are undone by two different calls — ``detail_level`` = ``summary`` sends you to ``get_task_step``, ``artifacts_detail_level`` = ``index`` sends you to ``list_task_artifacts`` — and one string cannot name both.
-	ArtifactsDetailLevel *string `json:"artifacts_detail_level,omitempty"`
+	// ArtifactCount HOW MANY deliverables are pinned on this task — and, since T-92, ALL that a task response says about them. There is no ``artifacts`` array here any more, and no ids in it either: rows, ids and names all come from ``list_task_artifacts(task_id)``, which answers the WHOLE ticket in one call. The count is EXACT, has no ceiling and is never truncated — 0 means the task genuinely has nothing pinned — the same promise ``note_size_chars`` makes for a step's note (T-66). WHY NOT EVEN THE IDS, when they are only a few characters each: a caller holding an id is a caller about to act on that artifact, which needs the row anyway — the id alone buys a follow-up call rather than saving one. Ask for the list when you want the list.
+	ArtifactCount *int `json:"artifact_count,omitempty"`
 
 	// Blocking THE REVERSE OF ``deps``: the NON-TERMINAL tasks that name THIS task in their own ``blocked_by`` — who is waiting on you (T-91). Never null ([] when nobody is). Until this field existed the blocking side was invisible: ``set_task_deps`` fans the delta to the BLOCKED task's audience only, so the executor of the ticket everyone is queued behind was told nothing, by any channel. The owner ruled that this stays WRITTEN ON THE TICKET and is never messaged, which is why there is no notification to match it — read it here and on the wake snapshot (``ResumeTaskDTO.blocking``, ids only). Each entry carries the waiting task's ``id``/``task_no``/``title``/``status``, resolved the same way ``dep_tasks`` resolves the forward direction. TERMINAL waiters are omitted: a closed ticket is not waiting for anything.
 	Blocking         *[]TaskDepRefDTO `json:"blocking,omitempty"`
@@ -3060,6 +3077,7 @@ type TaskLearningsReplaceDTO struct {
 
 // TaskListItemDTO One task in the LIGHT list projection (“GET /api/tasks“ / MCP “list_tasks“): the fields the 任務清單 card needs to render collapsed. Drops the heavy per-task detail (“steps“, “description“, “inputs“) which the list never shows collapsed — fetch the full “TaskDTO“ with “GET /api/tasks/{task_id}“ (MCP “get_task“) to read those. “progress_done“/“progress_total“ are still counted (from step leaves) so the card's progress bar renders without the steps payload. “current_step_id“/“current_step_name“ are the same kind of pre-resolved summary — the step the task is on right now, resolved server-side in ONE grouped query over the whole population (never a per-task step read), carrying only the step's id and name and never its “dod“. “creator_id“ is the verified token sub of the task's creator (a member id, an outsource worker id, or the literal "owner"); "" on rows created before the column existed.
 type TaskListItemDTO struct {
+	// ArtifactCount How many deliverables are pinned on this task — the same field, with the same exact-count promise, that the full task response carries (``TaskDTO.artifact_count``). It predates T-92 on this light projection; T-92 made the two responses agree by giving the full one a count as well, instead of an array.
 	ArtifactCount *int     `json:"artifact_count,omitempty"`
 	ClosedTs      *float64 `json:"closed_ts"`
 	CreatedTs     *float64 `json:"created_ts,omitempty"`
@@ -3741,6 +3759,22 @@ type HandleListTasksApiTasksGetParams struct {
 	Status   *string   `form:"status,omitempty" json:"status,omitempty"`
 	Type     *string   `form:"type,omitempty" json:"type,omitempty"`
 	Open     *string   `form:"open,omitempty" json:"open,omitempty"`
+}
+
+// HandleUploadReplaceTaskArtifactApiTasksTaskIdArtifactArtifactIdReplaceUploadPostParams defines parameters for HandleUploadReplaceTaskArtifactApiTasksTaskIdArtifactArtifactIdReplaceUploadPost.
+type HandleUploadReplaceTaskArtifactApiTasksTaskIdArtifactArtifactIdReplaceUploadPostParams struct {
+	Name        *string `form:"name,omitempty" json:"name,omitempty"`
+	Description *string `form:"description,omitempty" json:"description,omitempty"`
+	Filename    *string `form:"filename,omitempty" json:"filename,omitempty"`
+	Mime        *string `form:"mime,omitempty" json:"mime,omitempty"`
+}
+
+// HandleUploadTaskArtifactApiTasksTaskIdArtifactsUploadPostParams defines parameters for HandleUploadTaskArtifactApiTasksTaskIdArtifactsUploadPost.
+type HandleUploadTaskArtifactApiTasksTaskIdArtifactsUploadPostParams struct {
+	Name        string  `form:"name" json:"name"`
+	Description *string `form:"description,omitempty" json:"description,omitempty"`
+	Filename    *string `form:"filename,omitempty" json:"filename,omitempty"`
+	Mime        *string `form:"mime,omitempty" json:"mime,omitempty"`
 }
 
 // HandleReceiveWebhookInPostParams defines parameters for HandleReceiveWebhookInPost.
@@ -4476,27 +4510,33 @@ type ServerInterface interface {
 	// Open task count (the tasks nav badge).
 	// (GET /api/tasks/count)
 	HandleTaskCountApiTasksCountGet(w http.ResponseWriter, r *http.Request)
-	// Read one task — and read it knowing it is a SUMMARY, not the whole of it: the response says so itself (“detail_level“ = “summary“, “notes_included“ = false). WHAT IS COMPLETE HERE: the task's own fields, its deps, its progress counts, its gate cards, and EVERY ONE of its steps. The step list has no cap, no paging and no truncation of any kind — the rows you get back are all the rows there are, so a step that is not here does not exist on this task. WHAT IS OMITTED, AND EXACTLY HOW MUCH OF IT: each step's working-note TEXT (T-66). In its place every step carries “note_size_chars“ — the EXACT number of characters of note sitting on the server for that step, where 0 means that step genuinely has no note — and “note_cap_chars“, the ceiling. A positive “note_size_chars“ is a precise promise that that many characters are waiting for you, and “get_task_step(task_id, step_id)“ is the one call that returns them, one step at a time. Read the sizes first, then fetch only the notes you actually need. ALSO OMITTED, AND EXACTLY WHAT IS LEFT IN ITS PLACE: the “artifacts“ rows are an INDEX of the task's pinned deliverables, not the deliverables (T-66). Every entry carries ONLY “id“ and “label“ — the deliverable's title, and the handle every other artifact call takes. Its “kind“, “url“, “filename“, “mime“, “is_image“, “attachment_id“, “created_ts“, “created_by“ and “version_count“ are NOT here: “list_task_artifacts(task_id)“ returns them, for EVERY artifact on the ticket, in ONE call — there is deliberately no per-artifact read. The response says which of the two it is: “artifacts_detail_level“ = “index“ here, “full“ there. The artifact LIST itself is not abridged — every pinned deliverable has a row here, so its length is the true count. Unknown id → 404.
+	// Read one task — and read it knowing it is a SUMMARY, not the whole of it: the response says so itself (“detail_level“ = “summary“, “notes_included“ = false). WHAT IS COMPLETE HERE: the task's own fields, its deps, its progress counts, its gate cards, and EVERY ONE of its steps. The step list has no cap, no paging and no truncation of any kind — the rows you get back are all the rows there are, so a step that is not here does not exist on this task. WHAT IS OMITTED, AND EXACTLY HOW MUCH OF IT: each step's working-note TEXT (T-66). In its place every step carries “note_size_chars“ — the EXACT number of characters of note sitting on the server for that step, where 0 means that step genuinely has no note — and “note_cap_chars“, the ceiling. A positive “note_size_chars“ is a precise promise that that many characters are waiting for you, and “get_task_step(task_id, step_id)“ is the one call that returns them, one step at a time. Read the sizes first, then fetch only the notes you actually need. THE PINNED DELIVERABLES ARE OMITTED THE SAME WAY, AND SINCE T-92 THERE IS NOT EVEN AN INDEX OF THEM: “artifact_count“ is the only thing said about them here — an EXACT, un-truncated, un-capped count, 0 meaning the task genuinely has nothing pinned. No array, no ids, no names: “list_task_artifacts(task_id)“ returns every artifact on the ticket, complete, in ONE call, and there is deliberately no per-artifact read. Ask for that list when you are going to USE an artifact; a count is what you need to know one exists. Unknown id → 404.
 	// (GET /api/tasks/{task_id})
 	HandleGetTaskApiTasksTaskIdGet(w http.ResponseWriter, r *http.Request, taskId string)
 	// Correct THIS task's own TEXT — its title, its description, or both in one write (T-646a). Replaces `update_task_title` and `update_task_description`, which documented the same rules twice and could not be applied together: changing both meant two calls, two transactions and two SSE deltas, with room for someone else's write to land in between. WHO: the task's own executor, or an admin/owner; anyone else is a flat 403. Creating a task grants NO standing to keep rewriting it — if you handed the task over, it is the new executor's text now. ⚠️ ONE STRUCTURAL EXCEPTION (T-52, owner 2026-09-02): while the task has NO executor AT ALL (`executor_id` empty — where a 發包票 sits between create_task and the moment the scheduler binds a worker to it), its CREATOR may correct the text here, because otherwise nobody who is awake could fix the brief the contractor reads on arrival and that window has no upper bound. It SHUTS the instant an executor is bound — from then on the creator is a flat 403 again, even though it opened the ticket. TEXT ONLY: the same window opens add_task_artifact, remove_task_artifact, replace_task_artifact, update_step_note, patch_step_note and the task_title / task_description restores, and nothing else — never freeze, terminate, reassign, claim, plan, step status, deps or closeout. `replace_task_artifact` sits in the same window as add/remove by owner ruling (card rc-09367ed77bc2, 2026-09-03, option [0]), given with these facts in front of him: replace OVERWRITES in place what someone else pinned, and remove_task_artifact deletes that artifact's every retained version together with their blobs. PARTIAL: only the fields you NAME are touched, so omitting a field is a legal no-op for it that versions nothing and fans nothing. ⚠️ THE TWO FIELDS TREAT AN EXPLICIT BLANK DIFFERENTLY, and that is an owner ruling rather than an inconsistency (card rc-796541192519, 2026-08-11, option ①): a blank `title` ("" or whitespace-only) is REFUSED with 400 and does NOT clear the field, because create_task refuses a blank title too and an edit door looser than the create door would let a caller reach a task-list row with nothing in it; a blank `description` IS accepted and DOES clear the text, because plenty of cards legitimately have no prose. VALIDATION IS WHOLE-BODY AND HAPPENS FIRST: a request carrying a blank title alongside a perfectly good description writes NEITHER — a 400 leaves the task exactly as it was, never half-applied. Both values are trimmed of surrounding whitespace before they are stored AND before they are compared with what is there, so re-sending the same text with a stray trailing space is correctly seen as no change rather than spending one of the retained revisions saying nothing moved. ⚠️ THAT HOLDS ONLY WHILE THE STORED TEXT IS ALREADY TRIMMED. Whenever the stored description carries untrimmed whitespace, the next edit here normalises it and therefore DOES spend a revision — even when you re-send exactly what you read back. TWO things can put untrimmed text in that column, so this is not a one-time settling: create_task, which never trims the description (it does trim the title), and a RESTORE of a revision that holds untrimmed text, which is written back verbatim. Before this ticket both doors stored it raw and agreed; this tool trims and create still does not, which is a divergence awaiting a ruling rather than a promise about the system. The write is wholesale within each field: send the full corrected text, not a fragment. ⚠️ Division of labour with update_step_note: the DESCRIPTION says what this task IS (stable); the step NOTE says where a step is RIGHT NOW (volatile, handover-facing) — do not put progress here. A CLOSED task (completed / terminated / duplicated) is STILL editable, on the same terms — unlike its artifact set, which freezes at close: artifacts record what the task PRODUCED and must stop moving, while a ticket worded wrongly is usually found to be wrong after it closed, and freezing the text would preserve a known falsehood in the permanent record. Every change that actually alters a field retains the previous value as a document version — kind `task_title` / `task_description`, key = the task id — so a correction is recoverable through list_document_history and the older wording is never simply gone.
 	// (POST /api/tasks/{task_id})
 	HandleUpdateTaskApiTasksTaskIdPost(w http.ResponseWriter, r *http.Request, taskId string)
-	// Register a deliverable (file, image, or link) onto the task's artifact set — the pinned deliverables shown on the task card. This verb only ADDS, and is repeatable: call it again to pin one more. To change what an ALREADY-PINNED deliverable points at, use replace_task_artifact instead of remove+add: it keeps the artifact id. For a file or image, first upload the bytes via the chat-attachments upload to get an attachment id, then call this with kind=file|image and that attachment_id. For a link (e.g. a PR url) call it with kind=link and url — no upload needed. label is an optional display name (a link title such as "PR #123"), capped at 128 characters — Unicode runes, so 128 CJK characters fit; a longer label is refused with a 400, never truncated. Answers with a bounded receipt (task_id, artifact_id, artifact_count), not the whole task.
+	// Register a deliverable (file, image, or link) onto the task's artifact set — the pinned deliverables shown on the task card. This verb only ADDS, and is repeatable: call it again to pin one more. To change what an ALREADY-PINNED deliverable points at, use replace_task_artifact instead of remove+add: it keeps the artifact id. THIS IS THE DOOR YOU HAVE FOR A LOCAL FILE, and it takes two steps: put the bytes in the store first (the chat-attachment upload), then pin that id here with kind=file|image + attachment_id. There IS a one-call route that stores and pins in the same transaction (POST /api/tasks/{task_id}/artifacts/upload, raw body), but nothing you can call reaches it today — it is excluded from the MCP tool set and no CLI subcommand drives it, so it is there for an HTTP client written directly against the REST API. Mind the gap the two steps leave: an upload with no pin after it leaves a blob nothing points at, which nothing goes looking for either. Use THIS call for a link (kind=link + url), or to pin a blob that is ALREADY in the store — an attachment someone sent you in chat, a file you pinned elsewhere — with kind=file|image + attachment_id, which is what that field is for now: reusing an existing blob rather than uploading a second copy of the same bytes. name is REQUIRED and is the display name (a link title such as "PR #123", a report's title), capped at 48 characters — Unicode runes, so 48 CJK characters fit — and a blank one is refused. description is optional prose about what this deliverable IS and why it is worth opening, capped at 256 runes; it is what the next reader has to go on, because a task response carries only a COUNT of artifacts. Both caps refuse rather than truncate, and both bind NEW writes only — artifacts pinned before they existed keep whatever they have. Answers with a bounded receipt (task_id, artifact_id, artifact_count), not the whole task.
 	// (POST /api/tasks/{task_id}/artifact)
 	HandleAddTaskArtifactApiTasksTaskIdArtifactPost(w http.ResponseWriter, r *http.Request, taskId string)
-	// Un-pin (remove) one artifact from a task's artifact set — the counterpart to add_task_artifact. You may remove artifacts from a task you are the executor of (the owner/assistant may remove on any task). Give the task id and the artifact id (the id returned when it was added, or from get_task's artifacts). The LIVE file blob is left intact, and on an artifact that was never replaced only the pin on the card is removed. BUT IF YOU HAD REPLACED IT, un-pinning also destroys its past: every retained version of this artifact is deleted in the same breath, and the files only those versions pointed at go with them, unrecoverably. ONLY WHILE THE TASK IS STILL OPEN: once a task closes (done / terminated / duplicated) its deliverable set is frozen in every direction — remove is refused with the same 409 as add and replace. So swap a deliverable BEFORE you close the task, not after; after the close it can neither be removed nor put back. Answers with a bounded receipt (task_id, artifact_id, artifact_count), not the whole task.
+	// Un-pin (remove) one artifact from a task's artifact set — the counterpart to add_task_artifact. You may remove artifacts from a task you are the executor of (the owner/assistant may remove on any task). Give the task id and the artifact id — the id returned when it was added, or from list_task_artifacts, which since T-92 is where artifact ids come from: get_task answers a count and carries none. The LIVE blob of a FILE or IMAGE is left intact, and on such an artifact that was never replaced only the pin on the card is removed. ⚠️ A LINK IS THE EXCEPTION and it is the one that can lose content: its “text/uri-list“ blob is USUALLY its own — but not by construction: migration 00086 deduped identical targets, so 705 live link rows share 642 distinct blobs and two artifacts CAN point at the same one. Un-pinning hands it to the collector because a link does not QUALIFY for that exemption — the exemption exists for uploaded blobs that may also be riding a chat message, which a uri-list blob never is — and because sharing is real, the verdict has to be the collector's rather than settled at the un-pin (owner rc-27107ca914a7). It is not deleted outright — it joins the candidate list and survives if anything still-stored still references it — but do not read “only the pin is removed“ as covering a link. BUT IF YOU HAD REPLACED IT, un-pinning also destroys its past: every retained version of this artifact is deleted in the same breath, and the files only those versions pointed at go with them, unrecoverably. ONLY WHILE THE TASK IS STILL OPEN: once a task closes (done / terminated / duplicated) its deliverable set is frozen in every direction — remove is refused with the same 409 as add and replace. So swap a deliverable BEFORE you close the task, not after; after the close it can neither be removed nor put back. Answers with a bounded receipt (task_id, artifact_id, artifact_count), not the whole task.
 	// (DELETE /api/tasks/{task_id}/artifact/{artifact_id})
 	HandleRemoveTaskArtifactApiTasksTaskIdArtifactArtifactIdDelete(w http.ResponseWriter, r *http.Request, taskId string, artifactId string)
 	// List the retained previous versions of one pinned deliverable, newest first — what it pointed at before each replace. Read-only, cockpit-only, and only the most recent few are kept.
 	// (GET /api/tasks/{task_id}/artifact/{artifact_id}/history)
 	HandleListTaskArtifactHistoryApiTasksTaskIdArtifactArtifactIdHistoryGet(w http.ResponseWriter, r *http.Request, taskId string, artifactId string)
-	// Replace the CONTENT of one already-pinned deliverable while its artifact id stays exactly the same — the card keeps pointing at the same artifact and what sits behind it changes. Use this instead of remove+add whenever you are shipping a corrected version of something you already pinned: remove+add mints a NEW id, so anyone holding the old one is left pointing at nothing. Give the task id, the artifact id and the replacement — attachment_id for a file/image artifact (upload the bytes first via the chat-attachments upload), url for a link artifact; label is optional: omit it and the deliverable KEEPS the label it already has — you never have to re-type the display name just to swap the content — send one to replace it, send an explicit blank to clear it. THE KIND CANNOT CHANGE ACROSS VERSIONS: a file artifact stays a file artifact, so sending a url for one (or an attachment_id for a link, or an explicit kind that differs from what is pinned) is a 400 — un-pin it and register a new artifact if the kind is what you meant to change. The version you replaced is KEPT and readable, but only the most recent few are retained: the oldest falls off the end for good when a newer one arrives, and the file it pointed at is deleted with it, so a version that has scrolled off is not recoverable from anywhere. ONLY WHILE THE TASK IS STILL OPEN: once a task closes (done / terminated / duplicated) its deliverable set is frozen in every direction — replace is refused with the same 409 as add and remove, and admin/owner are not exempt. Answers with a bounded receipt (task_id, artifact_id, artifact_count, version_count), not the whole task.
+	// Replace the CONTENT of one already-pinned deliverable while its artifact id stays exactly the same — the card keeps pointing at the same artifact and what sits behind it changes. Use this instead of remove+add whenever you are shipping a corrected version of something you already pinned: remove+add mints a NEW id, so anyone holding the old one is left pointing at nothing. For a file/image whose new bytes are on disk the one-call door is the task-scoped upload (POST /api/tasks/{task_id}/artifact/{artifact_id}/replace/upload, raw body); use THIS call to point a file/image at a blob already in the store (attachment_id), or to change a link's target (url). THE KIND CANNOT CHANGE ACROSS VERSIONS: a file artifact stays a file artifact, so sending a url for one (or an attachment_id for a link, or an explicit kind that differs from what is pinned) is a 400 — un-pin it and register a new artifact if the kind is what you meant to change. name and description are optional here and an omitted one is CARRIED FORWARD: a replacement is a corrected version of the same deliverable, so you never re-type either just to swap the content. Sending one replaces it, and the length caps (48 runes for name, 256 for description) are checked ONLY against a value you actually send — omit the field and whatever is stored stands, however long it is. A blank name is refused, because every deliverable has a name; a blank description clears it. ⚠️ Some clients serialise an empty string as an omitted field, so "omit to keep" is reliable and "send blank to clear" is not — do not build on the latter. The version you replaced is KEPT and readable, but only the most recent few are retained: the oldest falls off the end for good when a newer one arrives, and the file it pointed at is deleted with it, so a version that has scrolled off is not recoverable from anywhere. ONLY WHILE THE TASK IS STILL OPEN: once a task closes (done / terminated / duplicated) its deliverable set is frozen in every direction — replace is refused with the same 409 as add and remove, and admin/owner are not exempt. Answers with a bounded receipt (task_id, artifact_id, artifact_count, version_count), not the whole task.
 	// (POST /api/tasks/{task_id}/artifact/{artifact_id}/replace)
 	HandleReplaceTaskArtifactApiTasksTaskIdArtifactArtifactIdReplacePost(w http.ResponseWriter, r *http.Request, taskId string, artifactId string)
-	// Read one task's pinned deliverables IN FULL — the companion read to “get_task“, whose “artifacts“ rows carry only “id“ and “label“. Answers “{task_id, artifacts_detail_level, artifacts}“ where “artifacts_detail_level“ is “full“ (against the task view's “index“) and every artifact on the task is present, oldest→newest, complete: “kind“ (file|image|link), “url“ (the blob serve path for a file/image, the external link for a link), “label“, “filename“, “mime“, “is_image“, “attachment_id“, “created_ts“, “created_by“ and “version_count“. ONE call answers the WHOLE ticket, and that is deliberate — there is no per-artifact read, because whoever opens a task's deliverables wants the set (a 32-artifact ticket would otherwise cost 32 calls), whereas a step note is read one at a time and “get_task_step“ is per-step for exactly that reason. File/image metadata is resolved read-time and is honest-empty when the underlying blob is gone — never fabricated. A task with nothing pinned answers “artifacts: []“, not a 404; an unknown task id is a 404. Same read floor as “get_task“: any authenticated principal may read any task's artifacts, and no field here was behind a stricter door before.
+	// Replace a pinned file/image deliverable's content from a LOCAL file in ONE call (T-92) — the raw-body twin of “replace_task_artifact“, keeping the artifact id exactly as that verb does. The request body IS the new bytes (“application/octet-stream“), the server stores the blob and swaps the live row in the same transaction, and the answer is the ordinary replace receipt (task_id, artifact_id, artifact_count, version_count). It exists for the same reason the add-side upload does: upload-then-replace leaves an unreferenced blob behind whenever the second step does not happen. “?name=“ and “?description=“ are OPTIONAL and an omitted one is CARRIED FORWARD, exactly as on the JSON replace; “?filename=“/“?mime=“ describe the new blob. THE KIND CANNOT CHANGE: this route refuses a LINK artifact with a 400 rather than converting it, and the sniffed image/file distinction must match what is pinned. Permission, freeze, retention and blob collection are the JSON replace's exactly. Excluded from the MCP tool surface — a binary ingest seam, not a tool.
+	// (POST /api/tasks/{task_id}/artifact/{artifact_id}/replace/upload)
+	HandleUploadReplaceTaskArtifactApiTasksTaskIdArtifactArtifactIdReplaceUploadPost(w http.ResponseWriter, r *http.Request, taskId string, artifactId string, params HandleUploadReplaceTaskArtifactApiTasksTaskIdArtifactArtifactIdReplaceUploadPostParams)
+	// Read one task's pinned deliverables IN FULL — and since T-92 the ONLY call that returns an artifact row at all: “get_task“ answers “artifact_count“ and nothing else, no ids and no names. Answers “{task_id, artifacts_detail_level, artifacts}“ where every artifact on the task is present, oldest→newest, complete: “id“, “kind“ (file|image|link), “name“ (never empty — derived read-time from the blob's filename or the link target when the row has no stored name), “description“ (the prose, possibly empty and possibly longer than the 256-rune write cap), “url“ (where to go for the content — the blob serve path for a file/image, the external address for a link), “mime“ (the blob's own content type, the only field that separates .md from .pdf from .zip), “created_ts“, “created_by“, “version_count“ and “attachment_id“ (the row's own blob id — the address “ocagent diff“ takes, so a member can compare a deliverable without re-uploading it; for a LINK it is the “text/uri-list“ blob holding the target, which “url“ does not expose at all). ⚠️ This call is where that id COMES FROM: “get_task“ answers a count, so this is the only place a member can pick one up in the first place. (One other response carries it — the artifact-history read, for RETAINED PREVIOUS versions rather than the live row — but it is “x-mcp: include=false“, so it is not on the tool surface at all.). ONE call answers the WHOLE ticket, and that is deliberate — there is no per-artifact read, because whoever opens a task's deliverables wants the set (a 32-artifact ticket would otherwise cost 32 calls), whereas a step note is read one at a time and “get_task_step“ is per-step for exactly that reason. Blob metadata is resolved read-time and is honest-empty when the underlying blob is gone — never fabricated. A task with nothing pinned answers “artifacts: []“, not a 404; an unknown task id is a 404. Same read floor as “get_task“: any authenticated principal may read any task's artifacts, and no field here was behind a stricter door before.
 	// (GET /api/tasks/{task_id}/artifacts)
 	HandleListTaskArtifactsApiTasksTaskIdArtifactsGet(w http.ResponseWriter, r *http.Request, taskId string)
+	// Pin a LOCAL file or image onto this task as a deliverable in ONE call (T-92, owner card rc-210fc77beea1): the raw request body IS the bytes (“application/octet-stream“; NOT base64, NOT multipart), the server stores the blob AND registers the artifact in the same transaction, and the answer is the ordinary add receipt — the new artifact's id plus the resulting count. THIS IS THE ONE-CALL PATH for bytes on disk — though no MCP tool and no CLI subcommand drives it today, so only a client written directly against this REST API can take it. The reason it exists is not convenience: upload-then-bind is TWO steps with a gap in the middle, and a caller who takes the first and not the second leaves a blob that nothing references and that nothing goes looking for — the collector runs when a retained version falls off the end, not as a sweep. One call has no such gap. “?name=“ is REQUIRED (48 runes, refused not truncated, blank refused) and “?description=“ optional (256 runes); “?filename=“ and “?mime=“ describe the BLOB exactly as they do on the chat-attachment upload, with an omitted mime falling back to a magic-byte image sniff and then “application/octet-stream“. The request “Content-Type“ header is deliberately IGNORED — clients default it to “application/octet-stream“, indistinguishable from a real declaration; “?mime=“ is the explicit channel. “kind“ is not a parameter: an image mime pins “image“, anything else pins “file“. Size caps are the chat upload's exactly (one mechanism, not two): 20 MB for an “image/*“ blob, 100 MB otherwise, with an over-cap or empty body a flat 400. Permission and freeze are add's exactly: the task's executor (admin excepted), 409 on a terminal task. Excluded from the MCP tool surface — a binary ingest seam like the chat-attachment upload, not a tool; “add_task_artifact“ remains the JSON door for a link, or for reusing a blob already in the store.
+	// (POST /api/tasks/{task_id}/artifacts/upload)
+	HandleUploadTaskArtifactApiTasksTaskIdArtifactsUploadPost(w http.ResponseWriter, r *http.Request, taskId string, params HandleUploadTaskArtifactApiTasksTaskIdArtifactsUploadPostParams)
 	// Take over a reassigned task (the new executor claims it): clears the reassigning lock and fires the predecessor worker. The task status stays derived from its steps; only the lock is cleared. 409 if the task is not under the reassigning lock.
 	// (POST /api/tasks/{task_id}/claim)
 	HandleClaimTaskApiTasksTaskIdClaimPost(w http.ResponseWriter, r *http.Request, taskId string)
@@ -8354,6 +8394,96 @@ func (siw *ServerInterfaceWrapper) HandleReplaceTaskArtifactApiTasksTaskIdArtifa
 	handler.ServeHTTP(w, r)
 }
 
+// HandleUploadReplaceTaskArtifactApiTasksTaskIdArtifactArtifactIdReplaceUploadPost operation middleware
+func (siw *ServerInterfaceWrapper) HandleUploadReplaceTaskArtifactApiTasksTaskIdArtifactArtifactIdReplaceUploadPost(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "task_id" -------------
+	var taskId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "task_id", r.PathValue("task_id"), &taskId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "task_id", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "artifact_id" -------------
+	var artifactId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "artifact_id", r.PathValue("artifact_id"), &artifactId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "artifact_id", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params HandleUploadReplaceTaskArtifactApiTasksTaskIdArtifactArtifactIdReplaceUploadPostParams
+
+	// ------------- Optional query parameter "name" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "name", r.URL.Query(), &params.Name, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "name"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "name", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "description" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "description", r.URL.Query(), &params.Description, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "description"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "description", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "filename" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "filename", r.URL.Query(), &params.Filename, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "filename"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "filename", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "mime" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "mime", r.URL.Query(), &params.Mime, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "mime"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "mime", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.HandleUploadReplaceTaskArtifactApiTasksTaskIdArtifactArtifactIdReplaceUploadPost(w, r, taskId, artifactId, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // HandleListTaskArtifactsApiTasksTaskIdArtifactsGet operation middleware
 func (siw *ServerInterfaceWrapper) HandleListTaskArtifactsApiTasksTaskIdArtifactsGet(w http.ResponseWriter, r *http.Request) {
 
@@ -8371,6 +8501,87 @@ func (siw *ServerInterfaceWrapper) HandleListTaskArtifactsApiTasksTaskIdArtifact
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.HandleListTaskArtifactsApiTasksTaskIdArtifactsGet(w, r, taskId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// HandleUploadTaskArtifactApiTasksTaskIdArtifactsUploadPost operation middleware
+func (siw *ServerInterfaceWrapper) HandleUploadTaskArtifactApiTasksTaskIdArtifactsUploadPost(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "task_id" -------------
+	var taskId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "task_id", r.PathValue("task_id"), &taskId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "task_id", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params HandleUploadTaskArtifactApiTasksTaskIdArtifactsUploadPostParams
+
+	// ------------- Required query parameter "name" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, true, "name", r.URL.Query(), &params.Name, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "name"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "name", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "description" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "description", r.URL.Query(), &params.Description, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "description"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "description", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "filename" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "filename", r.URL.Query(), &params.Filename, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "filename"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "filename", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "mime" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "mime", r.URL.Query(), &params.Mime, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "mime"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "mime", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.HandleUploadTaskArtifactApiTasksTaskIdArtifactsUploadPost(w, r, taskId, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -9333,7 +9544,9 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/api/tasks/{task_id}/artifact/{artifact_id}", wrapper.HandleRemoveTaskArtifactApiTasksTaskIdArtifactArtifactIdDelete)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/tasks/{task_id}/artifact/{artifact_id}/history", wrapper.HandleListTaskArtifactHistoryApiTasksTaskIdArtifactArtifactIdHistoryGet)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/tasks/{task_id}/artifact/{artifact_id}/replace", wrapper.HandleReplaceTaskArtifactApiTasksTaskIdArtifactArtifactIdReplacePost)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/tasks/{task_id}/artifact/{artifact_id}/replace/upload", wrapper.HandleUploadReplaceTaskArtifactApiTasksTaskIdArtifactArtifactIdReplaceUploadPost)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/tasks/{task_id}/artifacts", wrapper.HandleListTaskArtifactsApiTasksTaskIdArtifactsGet)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/tasks/{task_id}/artifacts/upload", wrapper.HandleUploadTaskArtifactApiTasksTaskIdArtifactsUploadPost)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/tasks/{task_id}/claim", wrapper.HandleClaimTaskApiTasksTaskIdClaimPost)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/tasks/{task_id}/closeout", wrapper.HandleReportTaskCloseoutApiTasksTaskIdCloseoutPost)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/tasks/{task_id}/deps", wrapper.HandleSetTaskDepsApiTasksTaskIdDepsPost)

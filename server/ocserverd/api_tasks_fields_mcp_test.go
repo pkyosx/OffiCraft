@@ -469,7 +469,7 @@ func TestToolsCallUpdateTaskOnAClosedTask(t *testing.T) {
 	// terminal guard is missing everywhere.
 	payload := postMCP(t, srv.URL, miraTok,
 		`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"add_task_artifact",`+
-			`"arguments":{"task_id":"`+taskID+`","kind":"link","label":"pr","url":"https://example.invalid/1"}}}`)
+			`"arguments":{"task_id":"`+taskID+`","kind":"link","name":"pr","url":"https://example.invalid/1"}}}`)
 	if _, artErr, artText := toolResult(t, payload); !artErr {
 		t.Fatalf("a closed task's artifact set must stay frozen: %s", artText)
 	}
