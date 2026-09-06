@@ -206,8 +206,9 @@ export function AttachmentStrip({
       *
       * ⚠️ WHICH MAKES THE ARROW KEYS A ONE-WAY DOOR, and mixed strips are where
       * a reader meets it: ArrowRight can carry them from a .png INTO a .md, and
-      * from there neither arrow pages any more (that key belongs to scrolling
-      * the text now) — the way back is the chevron, with a mouse. That trade is
+      * from there neither arrow pages any more (T-51 gives that key back to the
+      * text — whether it then actually scrolls is that ticket's claim, not one
+      * measured here) — the way back is the chevron, with a mouse. That trade is
       * T-51's, not this call site's, and it is the right one for a long text
       * body; it is written down here because pairing images with files in one
       * strip is what turns it from an edge into an ordinary path.
