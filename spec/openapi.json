@@ -3029,7 +3029,7 @@
         "type": "object"
       },
       "LoreWriteDTO": {
-        "description": "Create one lore entry: 五格 (a heading, three body cells plus 0..N events) and the axes it is filed under. The field set is CLOSED — an unknown key is a 422, never a silent drop.",
+        "description": "Create one lore entry. The fields are named here rather than counted, because a count goes stale silently: `heading`, `content`, `subjects` and `events` are what this route takes today — the first three REQUIRED, `events` 0..N. ⚠️ IF THAT LIST IS WRONG, IT IS WRONG IN A WAY YOU CAN FIND: a field the route accepts but this sentence does not name is a name missing from a list, which greps. An earlier version of this sentence said 「五格 (a heading, three body cells plus 0..N events)」 and stayed wrong through two field removals without anything noticing, because a number points at nothing. The field set is CLOSED — an unknown key is a 422, never a silent drop.",
         "properties": {
           "content": {
             "description": "REQUIRED. `content`（內容）— the mechanism, and why. THIS is the only cell that ever enters a boot context, so an entry with a blank `content` contributes literally nothing to anybody and is refused.",
