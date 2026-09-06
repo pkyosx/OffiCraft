@@ -1039,6 +1039,8 @@ var messageKeys = map[string]bool{
 	"settings.upgradeRestarting":                       true,
 	"settings.upgradeTimeout":                          true,
 	"settings.viewRelease":                             true,
+	"settings.wardenCredentialLifetime":                true,
+	"settings.wardenCredentialLifetimeSub":             true,
 	"signingKeys.actionFailed":                         true,
 	"signingKeys.createdLabel":                         true,
 	"signingKeys.createdUnknown":                       true,

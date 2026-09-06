@@ -603,6 +603,13 @@
   },
   {
     "auth": "gated",
+    "mcp_tool": null,
+    "method": "GET",
+    "path": "/api/machines/credential-policy",
+    "requires": "machine"
+  },
+  {
+    "auth": "gated",
     "mcp_tool": "install_warden_on_server_host",
     "method": "POST",
     "path": "/api/machines/{machine_id}/bootstrap-here",

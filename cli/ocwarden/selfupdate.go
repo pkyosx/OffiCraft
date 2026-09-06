@@ -347,6 +347,31 @@ type updater struct {
 	// GATE, never the swap oracle — recorded ONLY after a fully successful cycle so a
 	// mid-cycle failure always retries instead of silently skipping.
 	lastSHA string
+
+	// credLifetimeSecs is the station's last answer to "how long is a machine
+	// credential supposed to live" (auth.warden_credential_lifetime_secs, read via
+	// GET /api/machines/credential-policy). ZERO means it has never answered — not
+	// "zero seconds" — and credentialRenewAfter turns that into the shipped default.
+	//
+	// 🔴 IT IS IN MEMORY ONLY, AND THAT IS THE SAFE DIRECTION. Nothing persists it,
+	// so a restart forgets the station's answer and falls back to the 30-day default
+	// until the next poll re-reads it. The failure that buys: a machine can never be
+	// stuck on a stale SHORT lifetime it wrote down once — the only value it can be
+	// stuck on is the conservative default. Persisting it would add a file whose
+	// corruption makes the fleet renew on every poll, to save one cheap GET.
+	//
+	// It is touched ONLY by the poll loop goroutine (refreshCredentialPolicy and
+	// maybeRenewCredential both run there), so unlike renewDemanded it needs no
+	// atomic. If a second goroutine is ever given a reason to read it, that changes.
+	credLifetimeSecs int64
+}
+
+// renewAfter is the age at which THIS machine replaces its credential: two thirds
+// of the station's lifetime plus this machine's own stagger. One accessor rather
+// than the expression at each call site, so the three places that ask the question
+// can never be handed three different thresholds.
+func (u *updater) renewAfter() time.Duration {
+	return credentialRenewAfter(u.credLifetimeSecs, u.agentID)
 }
 
 // run is the ctx-aware self-update loop: it waits interval (or a backoff after a

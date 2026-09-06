@@ -95,6 +95,13 @@ type settingsDTO struct {
 	// It cannot put a clock on a soft cause — winddownKindFor still decides WHO
 	// is clocked, and this only says HOW LONG.
 	AcceleratedGraceSecs int `json:"accelerated_grace_secs"`
+
+	// WardenCredentialLifetimeSecs is how long a MACHINE credential is meant to
+	// live (auth.warden_credential_lifetime_secs; T-fc53). It drives RENEWAL only —
+	// warden credentials still carry no exp — so a change here can never take a
+	// machine off the network; it moves the age at which each warden goes and
+	// fetches a replacement.
+	WardenCredentialLifetimeSecs int `json:"warden_credential_lifetime_secs"`
 	// DocCapChars* are the live size caps on the accumulating context
 	// documents, in CHARACTERS (runes) — the same unit the patch receipts and
 	// the refusal message speak (T-3aeb). FIVE independent knobs: a role's
@@ -332,6 +339,18 @@ type machineClaimResultDTO struct {
 	Token     string `json:"token"`
 	ExpiresIn int64  `json:"expires_in"`
 	MachineID string `json:"machine_id"`
+}
+
+// machineCredentialPolicyDTO answers GET /api/machines/credential-policy (T-fc53):
+// how long a machine credential is meant to live, in seconds.
+//
+// ONE FIELD, AND THE RESTRAINT IS DELIBERATE. The obvious second field is the
+// derived renewal age (two thirds of this), and putting it here would mean the
+// station and every warden each owning half of one rule — the fraction on this
+// side, the arithmetic on the other — with nothing able to tell you they still
+// agree. The warden owns the whole rule; the station owns the input.
+type machineCredentialPolicyDTO struct {
+	LifetimeSecs int `json:"lifetime_secs"`
 }
 
 type bootstrapResultDTO struct {

@@ -1930,6 +1930,10 @@ const DEFAULT_MOCK_SETTINGS = {
   monitoring_refresh_seconds: 5,
   // 加速停止 grace — mirrors the server's shipped default (StoppingTimeoutSecs).
   accelerated_grace_secs: 120,
+  // T-fc53 warden credential lifetime — mirrors the server's shipped default
+  // (30 days). Hard-coded rather than derived so the mock still shows the fleet
+  // default the day someone changes the constant on only one side.
+  warden_credential_lifetime_secs: 2592000,
   // M3 global outsource cap — mirrors the server's code-side default (3).
   outsource_max_parallel: 3,
   // T-ae38 document size caps — mirror the server's shipped defaults, which
@@ -5317,6 +5321,22 @@ export const mockApi: Api = {
     ) {
       throw mockApiError("http 422 for PATCH /api/settings", 422, "accelerated_grace_secs must be between 10 and 3600 seconds");
     }
+    // T-fc53: the mock refuses exactly what the server refuses, so a UI that
+    // only ever runs against the mock cannot ship a field that offers the owner
+    // a number he would get a 422 for on a real install.
+    if (
+      patch.wardenCredentialLifetimeSecs !== undefined &&
+      (patch.wardenCredentialLifetimeSecs < 86400 ||
+        patch.wardenCredentialLifetimeSecs > 34560000)
+    ) {
+      // The sentence is copied VERBATIM from wardenCredLifetimeRangeMsg
+      // (server/ocserverd/api_settings.go), which is where it is derived from the
+      // bounds. It carries its own reasoning because the floor is otherwise
+      // unguessable to whoever typed the number, and the mock has to show the owner
+      // the same sentence the real station would — a shorter one here would make the
+      // demo mode read as a different, gentler product.
+      throw mockApiError("http 422 for PATCH /api/settings", 422, "warden_credential_lifetime_secs must be between 86400 and 34560000 seconds (one day through 400 days) — a warden renews at two thirds of the lifetime, so the remaining third is the window an offline machine has to get a replacement, and below a day that window stops surviving a working day of downtime");
+    }
     if (patch.monitoringRefreshSeconds !== undefined && (patch.monitoringRefreshSeconds < 1 || patch.monitoringRefreshSeconds > 60)) {
       throw mockApiError("http 422 for PATCH /api/settings", 422, "monitoring_refresh_seconds must be between 1 and 60");
     }
@@ -5478,6 +5498,9 @@ export const mockApi: Api = {
     }
     if (patch.acceleratedGraceSecs !== undefined) {
       mockServerSettings.accelerated_grace_secs = patch.acceleratedGraceSecs;
+    }
+    if (patch.wardenCredentialLifetimeSecs !== undefined) {
+      mockServerSettings.warden_credential_lifetime_secs = patch.wardenCredentialLifetimeSecs;
     }
     if (patch.monitoringRefreshSeconds !== undefined) {
       mockServerSettings.monitoring_refresh_seconds = patch.monitoringRefreshSeconds;

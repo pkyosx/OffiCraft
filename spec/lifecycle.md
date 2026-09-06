@@ -100,6 +100,7 @@ retired `var/jwt_secret` fallback file has no successor.
 | reconcile START payload (server-side, per spawn) | `agent` / member id | `auth.agent_token_ttl` | `member.desired_machine_id` |
 | machine onboard / boot-command / bootstrap-here exec-token | `agent` / warden member id | **no expiry** (`exp` omitted; response `expires_in=0`) | none (warden tokens carry no placement claim) |
 | `POST /api/machines/claim` (public; redeems a one-time claim code) | `agent` / warden member id | **no expiry** (`exp` omitted; response `expires_in=0`) — the same permanent mint used by every warden install path | none (warden tokens carry no placement claim) |
+| `POST /api/machines/renew-credential` (a warden replacing its OWN credential — §1.4) | `agent` / the caller's own warden member id | **no expiry** (`exp` omitted; response `expires_in=0`) — the SAME permanent mint as the install paths above, deliberately not a second one | none (warden tokens carry no placement claim) |
 
 Warden credentials are revoked two ways: removing that machine from the roster, which
 rejects its next gated request, and removing the KEY that signed it (§1.3 cut 4), which
@@ -444,6 +445,86 @@ thing that needed replacing.
   rather than from this endpoint, and an implementation MUST pin WHICH refusal answers:
   while warden credentials carry no `exp`, the permanent-credential refusal answers
   first and the roster-revocation arm is never reached on this route.
+
+### 1.5 Renewal trigger — the credential lifetime setting (`auth.warden_credential_lifetime_secs`)
+
+§1.4 says how a machine replaces its credential. This says WHEN, and it is a separate
+contract because the two failed independently: the endpoint has existed and worked since
+T-fc53's first landing, while nothing on any machine ever called it on a clock. The trigger
+asked how much of the credential's ORIGINAL lifetime remained, which is `exp` minus `iat`,
+and warden credentials carry no `exp` (§1.3) — so the question had no answer and the
+implementation read "no answer" as "not due". Every warden in the fleet has therefore
+answered "not due" on every poll since the feature shipped.
+
+🔴 **The trigger MUST be a function of the credential's AGE, not of its remaining time.**
+An implementation MUST derive it from the `iat` claim, which §1.1 requires on every token.
+It MUST NOT require an `exp` to reach a verdict, and it MUST NOT treat a missing `exp` as
+evidence that a credential is or is not due.
+
+- A warden MUST renew when its own credential's age reaches **two thirds** of the
+  configured lifetime. That is the same instant the remaining-time rule named ("under a
+  third left"), expressed from the other end, so an implementation moving between the two
+  MUST NOT change when a healthy fleet renews.
+- The remaining third is the **retry window**, and it is what the two-thirds figure buys:
+  a machine that is switched off, asleep or off the network for part of that window still
+  gets a replacement. An implementation MUST NOT shorten the window below the point where
+  it stops holding several attempts at that implementation's poll cadence — this is what
+  the setting's floor exists to enforce, not tidiness.
+- The lifetime is the DB setting `auth.warden_credential_lifetime_secs`, an owner-typed
+  integer (seconds). It MUST be accepted anywhere in **86400 .. 34560000** (one day
+  through 400 days, the §1.3 ceiling) and refused with a 422 outside it, by ONE predicate
+  that the write face and the boot-time loader BOTH use — a value that saves MUST NOT be a
+  value the next start refuses. Its default is **2592000** (30 days).
+  It MUST NOT be reduced to a pick-list: the reason to change it is to observe a renewal
+  without waiting out a full lifetime, and the useful values are not the ones a list of
+  four would contain (owner 2026-09-06).
+- 🔴 **The setting is NOT an expiry, and an implementation MUST NOT make it one.** Nothing
+  at the auth gate reads it, no mint stamps it, and no credential stops working because of
+  it. Lowering it MUST NOT be able to invalidate anything; the only thing it moves is the
+  age at which a warden goes and asks for a replacement. (Warden credentials regaining an
+  `exp` is a separate change, and it MUST NOT land before a renewal has been observed to
+  complete — see the note at the end of this section.)
+
+**Reaching the fleet.** The lifetime lives only on the station, and the credential no
+longer carries anything to derive it from, so it MUST be published:
+
+- `GET /api/machines/credential-policy` MUST answer the current setting as
+  `lifetime_secs`. It MUST take no target and MUST return the same answer to every
+  caller — an answer that varied per machine would be a second copy of the rule to keep in
+  step with the setting. It MUST sit on the same principal floor as
+  `POST /api/machines/renew-credential`, since the same caller asks it one poll earlier.
+- 🔴 **A warden that cannot read it MUST still renew.** An unreachable or absent policy
+  endpoint — a station not yet upgraded answers 404 — MUST leave the machine on its last
+  known lifetime, or on a built-in default equal to the shipped one, and MUST NOT be
+  treated as an error, logged per poll, or allowed to stop renewal. The station publishes
+  a number; it MUST NOT be the thing that drives the fleet, because a machine whose link
+  to the station is broken is exactly the machine that must not silently stop renewing.
+- The threshold and the stagger below MUST be computed on the WARDEN from that one number.
+  An implementation MUST NOT split the rule across the wire by serving a pre-derived
+  renewal age: half the rule on each side is two things that can disagree with nothing
+  able to detect it.
+
+**Staggering.** Lowering the setting moves the threshold under every machine in the fleet
+in the same instant, so all of them become due on their next poll (owner 2026-09-06: told
+and accepted, with a stagger promised).
+
+- A warden MUST offset its own renewal moment by a **stagger derived from its own machine
+  id**, bounded by a fixed window.
+- The stagger MUST be stable for a given machine — the same value on every poll and across
+  restarts. A freshly drawn random offset per poll MUST NOT be used: it re-rolls the
+  threshold each time, so a machine near the boundary flickers between due and not-due and
+  the fleet is spread by luck rather than by design.
+- The stagger MUST be small relative to the retry window it delays into, and MUST NOT be
+  able to exempt a machine from renewing: it moves the moment, it never cancels it.
+
+**Ordering (T-fc53, and it is a MUST NOT rather than a preference).** Giving warden
+credentials an `exp` again MUST NOT land before a renewal has been observed to run end to
+end on a real machine. Until it does, an expiry starts a clock on every host in the fleet
+against a path that has never been watched work, and nothing anywhere reports a machine
+that failed to renew — the first symptom is a host nobody can reach. Everything in this
+section is deliberately safe to land first: with no `exp` in play, a renewal that never
+fires and a renewal that fires too often are both survivable, and neither takes a machine
+off the network.
 
 ## 2. Boot context — the three-block assembly
 

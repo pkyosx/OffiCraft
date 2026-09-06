@@ -222,6 +222,17 @@ type apiServer struct {
 	// through the single recycleGraceFor pair. A second direct reader would be a
 	// second opinion about the same number, which is the split T-ed79 removed.
 	acceleratedGraceSecs int
+	// wardenCredLifetimeSecs is the live machine-credential lifetime in seconds
+	// (auth.warden_credential_lifetime_secs; T-fc53), guarded by settingsMu like
+	// every other owner-adjustable number here.
+	//
+	// 🔴 NOTHING ON THE SERVER ACTS ON IT. It is not consulted by mintWardenToken,
+	// not by the auth gate, and not by reconcile — it is PUBLISHED, to the settings
+	// face and to GET /api/machines/credential-policy, and the party that acts on
+	// it is each warden's own poll loop. That asymmetry is deliberate and is what
+	// keeps the first package harmless: the station changing this number cannot by
+	// itself invalidate anything.
+	wardenCredLifetimeSecs int
 	// root anchors the repo-file assets (seeds / prebuilt binaries / frozen
 	// MCP catalog) — see assets.go.
 	root assetRoot
@@ -528,6 +539,20 @@ func (s *apiServer) agentTokenTTLValue() int64 {
 	s.settingsMu.RLock()
 	defer s.settingsMu.RUnlock()
 	return s.agentTokenTTL
+}
+
+// wardenCredLifetimeValue reads the live machine-credential lifetime under the
+// same lock every other adjustable number here is read under. A zero can only mean
+// a hand-built apiServer that skipped the boot defaults (tests), and the caller —
+// the policy handler — substitutes the shipped default rather than publishing a
+// zero that every warden would have to sanitise on its own.
+func (s *apiServer) wardenCredLifetimeValue() int {
+	s.settingsMu.RLock()
+	defer s.settingsMu.RUnlock()
+	if s.wardenCredLifetimeSecs <= 0 {
+		return wardenCredLifetimeSecsDefault
+	}
+	return s.wardenCredLifetimeSecs
 }
 
 // reconcileConfigLive is the reconcile config as it stands RIGHT NOW: the

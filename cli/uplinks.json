@@ -746,6 +746,20 @@
       "seam_reason": "The renewal seams handed over as VALUES onto the updater. The requests they reach are declared on their own callsites (warden-renew-request, warden-renew-probe)."
     },
     {
+      "id": "warden-renew-policy-read",
+      "source": "cli/ocwarden/renewapply.go",
+      "callsite": "status, raw, err := u.get(credentialPolicyPath)",
+      "kind": "skip",
+      "skip_reason": "GET through the warden getter (warden-selfupdate-getter): httpGetter builds http.NewRequest(http.MethodGet, base+path, nil) and nothing else, so the third argument is a literal nil and no body goes out. It reads the station's machine-credential lifetime; the answer names no target and the same number is served to every caller. Not kind=read because the callee here is the injected `get` FIELD, which has no declaration in this module for proves_it_reads to read — the same reason warden-selfupdate-6/7 are skips."
+    },
+    {
+      "id": "warden-renew-policy-hop",
+      "source": "cli/ocwarden/renewapply.go",
+      "callsite": "u.refreshCredentialPolicy()",
+      "kind": "seam",
+      "seam_reason": "hop: refreshes the credential-lifetime threshold before the renewal decision is taken. Its only request is the body-less GET above (warden-renew-policy-read); it builds nothing and reaches no POST."
+    },
+    {
       "id": "warden-renew-invoked",
       "source": "cli/ocwarden/renewapply.go",
       "callsite": "status, body, err := u.renew()",

@@ -52,6 +52,10 @@ describe("SettingsPage · 參數調整", () => {
     // number is the owner's, and docs/guide/members.md sends him HERE to change
     // it — until this row existed the only way to move it was the API.
     expect((utils.getByLabelText(s.acceleratedGrace) as HTMLInputElement).value).toBe("120");
+    // 機器憑證壽命 (T-fc53). The shipped 30 days must be readable HERE: a fleet
+    // renews on this number whether or not anyone ever opened the API, so the
+    // page has to show what the machines are actually running on.
+    expect((utils.getByLabelText(s.wardenCredentialLifetime) as HTMLInputElement).value).toBe("2592000");
   });
 
   it("changing the login TTL patches the server immediately", async () => {
@@ -111,6 +115,26 @@ describe("SettingsPage · 參數調整", () => {
     fireEvent.blur(secs);
     await utils.findByText(s.paramsSaveError);
     expect((await api.getServerSettings()).acceleratedGraceSecs).toBe(300);
+    expect(patch).toHaveBeenCalledTimes(1);
+    patch.mockRestore();
+  });
+
+  it("persists the 機器憑證壽命 and refuses a value the server would 422", async () => {
+    const patch = vi.spyOn(api, "patchServerSettings");
+    const utils = await openParams();
+    const secs = utils.getByLabelText(s.wardenCredentialLifetime) as HTMLInputElement;
+    fireEvent.change(secs, { target: { value: "604800" } });
+    fireEvent.blur(secs);
+    await waitFor(async () =>
+      expect((await api.getServerSettings()).wardenCredentialLifetimeSecs).toBe(604800),
+    );
+    expect(patch).toHaveBeenCalledWith({ wardenCredentialLifetimeSecs: 604800 });
+    // Below the one-day floor: the local guard mirrors the server's 422 range
+    // exactly, so a number the server would reject never leaves the page.
+    fireEvent.change(secs, { target: { value: "3600" } });
+    fireEvent.blur(secs);
+    await utils.findByText(s.paramsSaveError);
+    expect((await api.getServerSettings()).wardenCredentialLifetimeSecs).toBe(604800);
     expect(patch).toHaveBeenCalledTimes(1);
     patch.mockRestore();
   });

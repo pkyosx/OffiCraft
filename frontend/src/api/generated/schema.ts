@@ -1822,6 +1822,34 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/machines/credential-policy": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read how long a machine credential is meant to live, in seconds. Names no target and returns the same answer to every caller; a warden polls it to know when to renew its own credential.
+         * @description Read the station's machine-credential policy (``GET /api/machines/credential-policy``).
+         *
+         *     It answers ONE number: ``lifetime_secs``, the org setting ``auth.warden_credential_lifetime_secs`` -- how long a machine (warden) credential is meant to live. A warden polls this every 15 minutes and renews its own credential once that credential is two thirds of ``lifetime_secs`` old, measured from the ``iat`` claim, plus a per-machine stagger of up to one hour.
+         *
+         *     WHY THE ENDPOINT EXISTS AT ALL. The threshold used to be readable off the credential itself (``exp`` minus ``iat``). Warden credentials carry no ``exp``, so that subtraction has nothing to work with and the number lives only in the owner's settings -- this is how it reaches the fleet.
+         *
+         *     IT NAMES NO TARGET AND CARRIES NO CREDENTIAL MATERIAL. The answer is identical for every caller; the per-machine stagger is computed on the warden, not served, so nothing here varies by who asks and nothing here is secret to one machine.
+         *
+         *     Auth: any authenticated caller at the ``machine`` principal class or above -- the same floor ``POST /api/machines/renew-credential`` sits on. Being unreachable is NOT an error condition for a warden: a station that has not been upgraded answers 404 and every warden keeps using its shipped default (30 days), which is the value this setting also defaults to.
+         */
+        get: operations["handle_machine_credential_policy_api_machines_credential_policy_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/machines/{machine_id}": {
         parameters: {
             query?: never;
@@ -6421,6 +6449,16 @@ export interface components {
             code: string;
         };
         /**
+         * MachineCredentialPolicyDTO
+         * @description The station's machine-credential policy (``GET /api/machines/credential-policy``).
+         *
+         *     ``lifetime_secs`` is the org setting ``auth.warden_credential_lifetime_secs``: how long a machine (warden) credential is meant to live. It is NOT an expiry and nothing enforces it at the auth gate -- warden credentials still carry no ``exp``. It is the input to the warden's own renewal threshold: two thirds of it, measured from the credential's ``iat``, plus a per-machine stagger.
+         */
+        MachineCredentialPolicyDTO: {
+            /** Lifetime Secs */
+            lifetime_secs: number;
+        };
+        /**
          * MachineClaimResultDTO
          * @description The claim-code redemption result (``POST /api/machines/claim``).
          *
@@ -8904,6 +8942,12 @@ export interface components {
              */
             accelerated_grace_secs: number;
             /**
+             * Warden Credential Lifetime Secs
+             * @description How long a MACHINE (warden) credential is meant to live, in seconds (86400 through 34560000 -- one day through 400 days). It is the number every warden's renewal threshold is derived from: a warden replaces its own credential once that credential is two thirds of this old, measured from the `iat` claim it carries, plus a per-machine stagger of up to one hour. Wardens read it from `GET /api/machines/credential-policy` on their 15-minute poll, so a change reaches the fleet within one interval; a warden that cannot reach that endpoint keeps using the shipped default rather than failing. NOTE: warden credentials still carry NO `exp`, so this value governs RENEWAL ONLY -- nothing expires because of it, and a renewal that does not complete leaves the machine on a credential that keeps working.
+             * @default 2592000
+             */
+            warden_credential_lifetime_secs: number;
+            /**
              * Onboarding
              * @description The first-run onboarding report (T-ba62), or null when onboarding never ran on this database. Governance-gated (owner/admin agent) by virtue of living on GET /api/settings — a failed step's detail can carry local paths, so it must never reach the PUBLIC /api/auth/status probe.
              */
@@ -9078,6 +9122,11 @@ export interface components {
              * @description 加速停止 grace, in seconds. Must be 10 through 3600. Applies to every CLOCKED wind-down cause at once (the second context threshold and the owner-pressed 加速停止); it can never put a clock on a soft cause.
              */
             accelerated_grace_secs?: number | null;
+            /**
+             * Warden Credential Lifetime Secs
+             * @description How long a MACHINE (warden) credential is meant to live, in seconds. Must be 86400 through 34560000 (one day through 400 days). A warden renews its own credential once that credential is two thirds of this old, plus a per-machine stagger of up to one hour so that LOWERING this value does not put the whole fleet on the mint endpoint inside one poll. The floor is one day because the last third of the lifetime is the retry window: at the 15-minute poll a one-day lifetime still leaves about 32 attempts. Wardens pick a change up within one poll interval. Warden credentials carry no `exp` today, so this governs renewal only and nothing expires because of it. Read the current value from get_settings rather than assuming a number.
+             */
+            warden_credential_lifetime_secs?: number | null;
             /**
              * Org Name
              * @description The studio display name (T-d693) — trimmed, max 80 runes; "" clears it back to the localized default. A value longer than 80 runes is a 422.
@@ -14202,6 +14251,35 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["MachineClaimResultDTO"];
+                };
+            };
+            /** @description Error (unified error envelope). */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+        };
+    };
+    handle_machine_credential_policy_api_machines_credential_policy_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MachineCredentialPolicyDTO"];
                 };
             };
             /** @description Error (unified error envelope). */
