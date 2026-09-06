@@ -813,9 +813,21 @@ func (s *apiServer) consumeWorkerRestartAfterStop(w *OutsourceWorker, now float6
 // workerReportStopped was a FOURTH funnel, hand-writing both the guard and the
 // stamp twice, while this same package was busy deleting three other false
 // universal claims from the parity whitelist. The number is load-bearing: a
-// reader who trusts it stops looking. It is kept honest by nothing but the
-// grep `StoppedSince = nowSecs()` over non-test server code, which must stay at
-// ZERO.
+// reader who trusts it stops looking.
+//
+// 📌 SO HERE IS THE MEASUREMENT, AND IT IS A MEASUREMENT RATHER THAN A RULE.
+// On 2026-09-07 I ran `grep -rn --include='*.go' 'StoppedSince = nowSecs()' .`
+// over server/ocserverd and filtered out _test.go: production hits = 0. The only
+// textual hit is THIS COMMENT quoting the pattern, so anyone re-running it reads
+// 1 and should not doubt himself.
+//
+// 🔴 NOTHING IS ENFORCING THAT. There is no such check under bin/, in the
+// Makefile, or in .github/ — verified the same day by grepping all three for
+// StoppedSince and finding nothing. So "four" is true as of that measurement and
+// has NO automatic guard behind it: a fifth funnel added tomorrow would make
+// this header false again in silence, exactly as the third one did. Re-run the
+// grep rather than trusting the number, and if you want it guarded, the guard
+// still has to be written.
 //
 // collectWindDownRow is THE stopped_since latch of every close-out collect, for
 // both populations. It stamps the durable dump-done marker if — and only if —

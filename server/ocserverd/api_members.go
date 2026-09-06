@@ -125,21 +125,51 @@ func (s *apiServer) persistMemberWindDownAnchors(m Member) error {
 // this one function: THE ROW'S ALIASING IS DECIDED ENTIRELY AT THE CALL SITE,
 // and BOTH readings compile and both stay green.
 //
-//	windDownAnchorRowOfWorker(&w)     // w is a VALUE parameter or local
+//	windDownAnchorRowOf…(&x)     // x is a VALUE parameter or local
 //	  ⇒ the row aliases a COPY. collectWindDownRow / clearWindDownRow /
 //	    openWindDownRow mutate that copy, and the caller must persist it itself.
-//	    collectWorkerHandover and collectWorkerStop are this shape.
 //
-//	windDownAnchorRowOfWorker(w)      // w is already *OutsourceWorker
+//	windDownAnchorRowOf…(x)      // x is already *Member / *OutsourceWorker
 //	  ⇒ the row aliases THE CALLER'S ROW. The same three helpers now mutate
 //	    state the caller's later code, and its returns, will read.
-//	    workerReportStopped and workerReportWaking are this shape.
 //
-// Neither is wrong; picking the wrong one is. Copy a call from a value-shaped
-// funnel into a pointer-shaped one and the mutation silently escapes (or the
-// reverse: it silently does not land). Nothing type-checks the difference and no
-// test in this package distinguishes the two by construction — the guard is
-// reading the receiver's declaration before copying the line.
+// 🔴 EVERY CALL SITE IS NAMED BELOW, and that completeness is the point rather
+// than the illustration. An earlier draft of this warning listed TWO
+// pointer-shaped sites and stopped — which is the exact shape of the "three
+// funnels" sentence this same package had to fix one commit earlier, and it is
+// worse than no warning at all: a reader working in one of the sites the list
+// skipped concludes he is outside its scope.
+//
+// VALUE-shaped (4) — the row aliases a copy:
+//
+//	persistMemberWindDownAnchors / persistWorkerWindDownAnchors (this file, the
+//	  two value params above), collectWorkerHandover, collectWorkerStop.
+//
+// POINTER-shaped (10) — the row aliases the caller's row:
+//
+//	*Member (5): HandleForceStopMember…, HandleReportStopping…,
+//	  HandleReportStopped… (all three this file, `m` from resolveMember /
+//	  resolveSelf); consumeRestartAfterStop (member_ownerop_winddown.go, `m` is
+//	  its own PARAMETER, so the mutation escapes to ITS caller);
+//	  clearRecycleMarkersOnRespawn (reconcile.go, `m := &members[i]` — the
+//	  mutation lands in the CALLER'S SLICE).
+//	*OutsourceWorker (5): clearWorkerRefocus (`fresh` from the DAL),
+//	  workerReportWaking, workerReportStopping, workerReportStopped (all
+//	  worker_spawn.go, `w` from resolveLiveWorker); consumeWorkerRestartAfterStop
+//	  (member_ownerop_winddown.go, `w` is its own PARAMETER — same escape).
+//
+// 📌 MEASURED 2026-09-07: `grep -rn --include='*.go' 'windDownAnchorRowOf' .`
+// over non-test files = 19 hits, of which 5 are this comment and the two
+// definitions with their doc line, leaving 14 calls = 4 + 10. Positive control
+// on the same ruler: `windDownAnchorRow{` = 2 (the two adapter bodies); negative
+// control `windDownAnchorRowOfZZZ` = 0. Re-run those three before trusting the
+// counts — nothing keeps them true but the next person doing exactly that.
+//
+// Neither shape is wrong; picking the wrong one is. Copy a call from a
+// value-shaped funnel into a pointer-shaped one and the mutation silently
+// escapes (or the reverse: it silently does not land). Nothing type-checks the
+// difference and no test in this package distinguishes the two by construction —
+// the guard is reading the receiver's declaration before copying the line.
 func (s *apiServer) persistWorkerWindDownAnchors(w OutsourceWorker) error {
 	return s.persistWindDownAnchors(windDownAnchorRowOfWorker(&w))
 }
