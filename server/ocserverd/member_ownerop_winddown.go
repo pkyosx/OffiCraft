@@ -637,11 +637,8 @@ func (s *apiServer) consumeRestartAfterStop(m *Member, now float64) bool {
 	}
 	m.RestartAfterStop = false
 	m.DesiredState = DesiredStateOnline
-	m.StoppingSince = 0.0
-	m.StoppedSince = 0.0
+	clearWindDownRow(windDownAnchorRowOfMember(m))
 	m.WakingSince = 0.0
-	m.RefocusSince = 0.0
-	m.RefocusOp = ""
 	stampMemberOpReceipt(m, spawnReasonHeldDown+": the stop the owner asked for has "+
 		"landed — starting this member again, which is what the 重啟 he pressed "+
 		"during the wind-down asked for", now)
@@ -782,11 +779,8 @@ func (s *apiServer) consumeWorkerRestartAfterStop(w *OutsourceWorker, now float6
 	}
 	w.RestartAfterStop = false
 	w.DesiredState = DesiredStateOnline
-	w.StoppingSince = 0.0
-	w.StoppedSince = 0.0
+	clearWindDownRow(windDownAnchorRowOfWorker(w))
 	w.WakingSince = 0.0
-	w.RefocusSince = 0.0
-	w.RefocusOp = ""
 	stampOpReceipt(&w.LastOp, &w.LastOpOK, &w.LastOpLog, &w.LastOpReason, &w.LastOpAt,
 		reconcileCmdStart, spawnReasonHeldDown+": the stop the owner asked for has "+
 			"landed — starting this worker again, which is what the 重啟 he pressed "+
@@ -813,30 +807,50 @@ func (s *apiServer) consumeWorkerRestartAfterStop(w *OutsourceWorker, now float6
 	return true
 }
 
-// ── 收口 latch: ONE body, three funnels (T-65 包⑤) ───────────────────────────
+// ── 收口 latch: ONE body, four funnels (T-65 包⑤) ────────────────────────────
+//
+// ⚠️ THIS HEADER SAID "three" FOR ONE REVIEW CYCLE AND THAT WAS FALSE —
+// workerReportStopped was a FOURTH funnel, hand-writing both the guard and the
+// stamp twice, while this same package was busy deleting three other false
+// universal claims from the parity whitelist. The number is load-bearing: a
+// reader who trusts it stops looking. It is kept honest by nothing but the
+// grep `StoppedSince = nowSecs()` over non-test server code, which must stay at
+// ZERO.
 //
 // collectWindDownRow is THE stopped_since latch of every close-out collect, for
 // both populations. It stamps the durable dump-done marker if — and only if —
-// this epoch has not been collected yet, and hands back both facts the three
+// this epoch has not been collected yet, and hands back both facts the four
 // funnels around it need:
 //
-//   - `latched` says whether THIS call is the one that collected. 正職's
-//     HandleReportStoppedApiSelfStoppedPost reads it as `recycleKill`: the first
-//     report dispatches a STOP and receipts `collected`, a repeat one receipts
-//     `already_reported` and sends no second kill. The worker funnels do not
-//     read it — their once-only check is the same anchor, read a layer up by
-//     their callers.
+//   - `latched` says whether THIS call is the one that collected. BOTH
+//     report_stopped faces read it, and read it for the same purpose: 正職's
+//     HandleReportStoppedApiSelfStoppedPost as `recycleKill`, 外包's
+//     workerReportStopped as the gate over its whole body. First report ⇒
+//     dispatch/collect and receipt `collected`; repeat ⇒ `already_reported`,
+//     no second kill, and the anchor NOT moved. The two collect funnels
+//     (collectWorkerHandover / collectWorkerStop) discard it — their callers
+//     already checked the same anchor a layer up.
 //   - `prior` is the value that was there BEFORE, which is what
 //     collectWorkerHandover rolls the latch back to when the respawn finds no
-//     kill target and the session is still online.
+//     kill target and the session is still online. 🔴 IT MUST BE READ BEFORE THE
+//     STAMP, and both lines below are that one fact: `prior` is assigned first
+//     and the returns hand back THAT variable, never a second read of
+//     *row.StoppedSince. Move the read after the stamp — the ordinary way to get
+//     this wrong in a function with a named return — and `prior` becomes `now`,
+//     so the rollback "restores" the very latch it was supposed to undo. That
+//     failure is SILENT everywhere except the rollback arm, which is why
+//     TestCollectWindDownRowLatchesOnceAndRollsBack exists.
 //
 // 🔴 THE `<= 0` GUARD IS THE ONCE-ONLY, and it is why this is a shared body
-// rather than three copies of two lines. BOTH drivers of the graceful handover
+// rather than four copies of two lines. BOTH drivers of the graceful handover
 // (a stopped-report and the grace timeout) key their once-only check on this
 // anchor, so a stopped-report racing the timeout can never double-collect (D4).
-// Make the stamp unconditional in ONE of the three funnels and that race comes
+// Make the stamp unconditional in ONE of the four funnels and that race comes
 // back for that funnel alone — which is the drift a shared body removes, not a
-// tidiness the caller could have kept by hand.
+// tidiness the caller could have kept by hand. Unconditional here is also what
+// breaks 「anchors stopped_since ONCE (never re-stamped)」, the sentence
+// HandleReportStoppedApiSelfStoppedPost opens with: the repeat report would keep
+// receipting `already_reported` while quietly MOVING the anchor.
 //
 // 🔴 IT TAKES NO LOCK AND MUST NEVER TAKE ONE. The worker funnels run under
 // s.outsourceMu (held by their callers) and the staff funnel runs under no lock
@@ -851,4 +865,67 @@ func collectWindDownRow(row windDownAnchorRow, now float64) (latched bool, prior
 		return true, prior
 	}
 	return false, prior
+}
+
+// openWindDownRow is THE stopping_since latch — the OTHER end of the same epoch
+// collectWindDownRow closes. It stamps the anchor that dates when a wind-down
+// was OPENED, if and only if one is not already open, so an epoch already under
+// way keeps the clock it started on rather than being quietly restarted by a
+// later report.
+//
+// 🔴 THREE CALL SITES, AND A FOURTH THAT DELIBERATELY DOES NOT USE IT. 外包
+// force-stop (api_outsource.go) writes `if StoppingSince <= 0 || StoppingSince >
+// forcedAt { = forcedAt }` — the same latch PLUS a pull-back arm for a stamp
+// sitting in the future. That second arm is not a variation this function may
+// absorb, in either direction:
+//
+//   - dropping it (routing 外包 through this body) deletes the invariant
+//     forcedEpochLive rests on — ForcedStopAt >= StoppingSince — and a
+//     force-stopped worker would start reading as a graceful wind-down still in
+//     progress, which is precisely the state T-c996 removed.
+//   - adding it here hands the same arm to the THREE staff/worker sites above,
+//     which is a behaviour change and, on the force-stop pair, the very
+//     divergence the parity whitelist's 強制停止|stopping_since row is asking
+//     someone to decide deliberately.
+//
+// So the fourth site stays hand-written, and this comment is why — not an
+// oversight, and not an invitation to "finish the job" without that decision.
+func openWindDownRow(row windDownAnchorRow, now float64) {
+	if *row.StoppingSince <= 0.0 {
+		*row.StoppingSince = now
+	}
+}
+
+// clearWindDownRow wipes all four anchors — the epoch is over and nothing about
+// it should be read as a fact about whatever session comes next. It returns
+// nothing on purpose: every caller clears unconditionally, and a bool nobody
+// reads is a claim nobody checks.
+//
+// 🔴 ALL FOUR OR NONE, and that is the rule the copies kept getting subtly
+// wrong. The pair (refocus_since > 0 ∧ stopped_since > 0) is read by
+// workerHasStateToFlush as "this epoch's wind-down is ALREADY collected"; a
+// clear that drops one of the two leaves a stale PAIR behind, which is
+// indistinguishable from a real collected epoch and shoots the next owner-op on
+// the spot with no close-out (the reason spelled out at
+// HandleRestartOutsourceWorker, api_outsource.go). The epoch scoping downstream
+// heals a stale stopped_since ALONE; it cannot heal a stale pair.
+//
+// ⚠️ waking_since and forced_stop_at ARE NOT IN THIS ROW and must not be added:
+// two callers clear waking_since beside this call because THEY have a reason to,
+// and forced_stop_at is deliberately KEPT by every one of them (it describes the
+// session BEFORE this one, and its max() upsert would fight a clear anyway).
+// Widening the row would make both of those decisions vanish into a helper.
+//
+// ⚠️ NOT EVERY FOUR-ANCHOR SITE IS A CALLER, also on purpose. Staff
+// report_waking clears three unconditionally and stopping_since only under
+// `DesiredState == Online` (T-7526 — clearing it unconditionally erased the mark
+// a mid-wake 取消 left behind). Its worker twin, workerReportWaking, clears all
+// four unconditionally. That difference is REAL and is now a named row in the
+// parity whitelist; folding the staff site into this body would silently pick
+// one of the two behaviours.
+func clearWindDownRow(row windDownAnchorRow) {
+	*row.StoppingSince = 0.0
+	*row.StoppedSince = 0.0
+	*row.RefocusSince = 0.0
+	*row.RefocusOp = ""
 }

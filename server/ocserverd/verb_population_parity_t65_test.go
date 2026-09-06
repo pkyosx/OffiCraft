@@ -2053,6 +2053,116 @@ func TestAcceleratedStopWorkerHasAnExtraLifecycleGate(t *testing.T) {
 	}
 }
 
+// TestReportWakingKeepsAStaffStopAnchorButClearsTheWorkerOne is the SECOND
+// divergence the matrix above cannot express, recorded the same one-sided way
+// TestAcceleratedStopWorkerHasAnExtraLifecycleGate is.
+//
+// 🔴 WHY IT IS A TEST RATHER THAN A knownDivergences ROW, which is where T-65
+// 包⑤ was asked to put it: the whitelist is keyed (verb, field) and the orphan
+// check above rejects any row whose verb no case in parityCases runs.
+// report_waking is an AGENT SELF-REPORT, not one of the nine owner verbs this
+// matrix drives, so a row for it would be documentation the orphan check would
+// (correctly) redden. This is the file's own escape hatch for exactly that.
+//
+// THE DIVERGENCE. Both faces clear refocus_since / refocus_op / stopped_since
+// unconditionally. On stopping_since they part:
+//
+//	正職 HandleReportWakingApiSelfWakingPost — clears it ONLY under
+//	  `DesiredState == DesiredStateOnline`. T-7526 put that guard there: clearing
+//	  unconditionally erased the only mark a mid-wake 取消 left behind, so an
+//	  agent that was already booting when the cancel landed came up painting a
+//	  fresh green over an intent that is still offline.
+//	外包 workerReportWaking — clears it UNCONDITIONALLY. No guard.
+//
+// ⚠️ WHAT THIS TEST IS AND IS NOT. It PINS today's behaviour on both sides; it
+// does NOT claim the worker side is correct. The reasoning that produced the
+// staff guard applies to a worker word for word, so the likely reading is that
+// 外包 is the defective side — but 「likely」 is not a ruling, and T-65 包⑤ was
+// scoped to ZERO behaviour change, so fixing it there would have been the one
+// thing the package promised not to do.
+//
+// ⚠️ REACHABILITY IS NOT MEASURED. Whether a real deployment gets a worker
+// report_waking while desired_state is offline was not established — the seed
+// below constructs the state directly. So this is a divergence in the CODE with
+// its production reach unknown, which is exactly what a whitelist row would
+// have had to say too.
+func TestReportWakingKeepsAStaffStopAnchorButClearsTheWorkerOne(t *testing.T) {
+	t.Run("正職: the anchor of a cancelled wake SURVIVES", func(t *testing.T) {
+		api := newParityServer(t)
+		seedParityMemberOffline(t, api, "m-waking-off", func(m *Member) {
+			// 🔴 DESIRED-offline, not just session-offline. seedParityMemberOffline's
+			// name means "no SSE connection" and testAgent is desired ONLINE, so
+			// without this line the guard's own condition is satisfied and the anchor
+			// is cleared — measured, and it is the mid-wake 取消 state that is the
+			// whole subject: the owner said DOWN while this session was still booting.
+			m.DesiredState = DesiredStateOffline
+			m.StoppingSince = parityPast
+		})
+		rec := httptest.NewRecorder()
+		api.HandleReportWakingApiSelfWakingPost(rec,
+			taskReq(t, "POST", "/api/self/waking", map[string]any{}, "m-waking-off", "agent"))
+		if rec.Code != http.StatusOK {
+			t.Fatalf("report_waking: %d %s", rec.Code, rec.Body.String())
+		}
+		m, err := api.dal.GetMember("m-waking-off")
+		if err != nil || m == nil {
+			t.Fatalf("read back: %v", err)
+		}
+		if m.StoppingSince != parityPast {
+			t.Fatalf("staff stopping_since = %v, want it UNTOUCHED at %v — the "+
+				"`if m.DesiredState == DesiredStateOnline` guard (T-7526) is what "+
+				"keeps a mid-wake 取消 visible", m.StoppingSince, parityPast)
+		}
+		if m.StoppedSince != 0.0 || m.RefocusSince != 0.0 || m.RefocusOp != "" {
+			t.Fatalf("the OTHER three anchors are cleared unconditionally on both "+
+				"sides; that half is not the divergence: %+v", *m)
+		}
+	})
+	t.Run("外包: the same anchor is CLEARED", func(t *testing.T) {
+		api := newParityServer(t)
+		id := seedParityWorker(t, api, func(w *OutsourceWorker) {
+			w.DesiredState = DesiredStateOffline
+			w.StoppingSince = parityPast
+			// All four seeded non-zero, because this block carries a second job:
+			// it is the only guard over clearWindDownRow's ALL-FOUR-OR-NONE
+			// contract. Measured (T-65 包⑤, second round): deleting the RefocusOp
+			// write from that shared body left a 777-test scope entirely GREEN
+			// before these three lines existed — and the body is shared by FIVE
+			// call sites now, so one silent edit moves all five at once. A partial
+			// clear leaves the pair (refocus_since > 0 ∧ stopped_since > 0), which
+			// workerHasStateToFlush reads as "already collected" and which shoots
+			// the next owner-op with no close-out.
+			w.StoppedSince = parityPast
+			w.RefocusSince = parityPast
+			w.RefocusOp = refocusOpRefocus
+		})
+		rec := httptest.NewRecorder()
+		api.HandleReportWakingApiSelfWakingPost(rec,
+			taskReq(t, "POST", "/api/self/waking", map[string]any{}, id, "agent"))
+		if rec.Code != http.StatusOK {
+			t.Fatalf("report_waking: %d %s", rec.Code, rec.Body.String())
+		}
+		w, err := api.dal.GetOutsourceWorker(id)
+		if err != nil || w == nil {
+			t.Fatalf("read back: %v", err)
+		}
+		if w.StoppingSince != 0.0 {
+			t.Fatalf("worker stopping_since = %v, want 0 — workerReportWaking "+
+				"clears it with no desired_state guard. If this is red because "+
+				"somebody ADDED the guard, that is the fix this row is waiting "+
+				"for: delete this block and say so.", w.StoppingSince)
+		}
+		if w.StoppedSince != 0.0 || w.RefocusSince != 0.0 || w.RefocusOp != "" {
+			t.Fatalf("clearWindDownRow left part of the epoch behind: "+
+				"stopped_since=%v refocus_since=%v refocus_op=%q — ALL FOUR or "+
+				"none. A surviving (refocus_since > 0 ∧ stopped_since > 0) pair is "+
+				"indistinguishable from a genuinely collected epoch, and nothing "+
+				"downstream can heal a stale PAIR.",
+				w.StoppedSince, w.RefocusSince, w.RefocusOp)
+		}
+	})
+}
+
 // ── T-65 包③: the fixture guard the side-effect columns stand on ─────────────
 
 // TestVerbPopulationParityFixtureLandsBothPopulationsOnOneWarden — 包③ reads the

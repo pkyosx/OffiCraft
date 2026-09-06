@@ -120,6 +120,26 @@ func (s *apiServer) persistMemberWindDownAnchors(m Member) error {
 // the row. Handing the row a caller's *OutsourceWorker instead would make a
 // persist call able to mutate the caller's snapshot — a door that does not exist
 // today and must not be opened by an adapter.
+//
+// 🔴 AND THAT IS THE GENERAL RULE FOR EVERY windDownAnchorRow, not a quirk of
+// this one function: THE ROW'S ALIASING IS DECIDED ENTIRELY AT THE CALL SITE,
+// and BOTH readings compile and both stay green.
+//
+//	windDownAnchorRowOfWorker(&w)     // w is a VALUE parameter or local
+//	  ⇒ the row aliases a COPY. collectWindDownRow / clearWindDownRow /
+//	    openWindDownRow mutate that copy, and the caller must persist it itself.
+//	    collectWorkerHandover and collectWorkerStop are this shape.
+//
+//	windDownAnchorRowOfWorker(w)      // w is already *OutsourceWorker
+//	  ⇒ the row aliases THE CALLER'S ROW. The same three helpers now mutate
+//	    state the caller's later code, and its returns, will read.
+//	    workerReportStopped and workerReportWaking are this shape.
+//
+// Neither is wrong; picking the wrong one is. Copy a call from a value-shaped
+// funnel into a pointer-shaped one and the mutation silently escapes (or the
+// reverse: it silently does not land). Nothing type-checks the difference and no
+// test in this package distinguishes the two by construction — the guard is
+// reading the receiver's declaration before copying the line.
 func (s *apiServer) persistWorkerWindDownAnchors(w OutsourceWorker) error {
 	return s.persistWindDownAnchors(windDownAnchorRowOfWorker(&w))
 }
@@ -131,12 +151,18 @@ func (s *apiServer) persistWorkerWindDownAnchors(w OutsourceWorker) error {
 // reason: the two populations' anchor code was two hand-kept copies of one body,
 // and nothing mechanical held them equal.
 //
-// The pointers are load-bearing rather than decorative because this row has TWO
-// bodies behind it, one of which WRITES: persistWindDownAnchors only reads the
-// four, but collectWindDownRow (member_ownerop_winddown.go) latches
-// stopped_since through StoppedSince. A value struct would have made the collect
-// body impossible to share and left that latch as three hand-copied lines in
-// three funnels, which is exactly what 包⑤ removed.
+// The pointers are load-bearing rather than decorative because this row has FOUR
+// bodies behind it and three of them WRITE. persistWindDownAnchors only reads
+// the four columns; the other three (all in member_ownerop_winddown.go) write
+// through the row:
+//
+//	openWindDownRow     latch stopping_since if no epoch is open  — 3 call sites
+//	collectWindDownRow  latch stopped_since once, report `prior`  — 4 call sites
+//	clearWindDownRow    wipe all four, the epoch is over          — 5 call sites
+//
+// A value struct would have made every one of those impossible to share and left
+// each rule as hand-copied lines at a dozen sites, which is exactly what 包⑤
+// removed.
 //
 // ⚠️ ID IS A VALUE, not a pointer, and deliberately: no verb in either funnel
 // moves a row's id, so an id that could be written through would be a door with
@@ -1665,9 +1691,7 @@ func (s *apiServer) HandleForceStopMemberApiMembersMemberIdForceStopPost(w http.
 	// queued earlier in this wind-down is cancelled. This is what keeps
 	// 重新聚焦 → 強制停止 different from 強制停止 → 重新聚焦.
 	clearRestartIntent(m)
-	if m.StoppingSince <= 0.0 {
-		m.StoppingSince = nowSecs()
-	}
+	openWindDownRow(windDownAnchorRowOfMember(m), nowSecs())
 	// The record that this session was cut off (T-a9d6). Force-stop sends no
 	// notice — the recipient is about to stop existing, so a sentence meant to
 	// change its behaviour has no one to change — and that silence is exactly
@@ -2032,9 +2056,7 @@ func (s *apiServer) HandleReportStoppingApiSelfStoppingPost(w http.ResponseWrite
 		s.writeSelfReportReceipt(w, *fresh)
 		return
 	}
-	if m.StoppingSince <= 0.0 {
-		m.StoppingSince = nowSecs()
-	}
+	openWindDownRow(windDownAnchorRowOfMember(m), nowSecs())
 	if err := s.persistMemberWindDownAnchors(*m); err != nil {
 		internalError(w, err)
 		return

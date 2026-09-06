@@ -2188,10 +2188,7 @@ func (s *apiServer) clearWorkerRefocus(id, reason string) {
 		(fresh.RefocusSince == 0.0 && fresh.StoppingSince == 0.0 && fresh.StoppedSince == 0.0) {
 		return
 	}
-	fresh.RefocusSince = 0.0
-	fresh.RefocusOp = ""
-	fresh.StoppingSince = 0.0
-	fresh.StoppedSince = 0.0
+	clearWindDownRow(windDownAnchorRowOfWorker(fresh))
 	if err := s.persistWorkerWindDownAnchors(*fresh); err != nil {
 		outsourceLog("refocus clear %s (%s): ANCHOR write failed: %v", id, reason, err)
 		return
@@ -2389,10 +2386,7 @@ func (s *apiServer) workerReportWaking(id string, model *string, trigger string)
 	if claimed {
 		w.Status = WorkerStatusActive
 	}
-	w.RefocusSince = 0.0
-	w.RefocusOp = ""
-	w.StoppingSince = 0.0
-	w.StoppedSince = 0.0
+	clearWindDownRow(windDownAnchorRowOfWorker(w))
 	m := memberFromWorker(*w)
 	if model != nil {
 		m.ActualModel = *model
@@ -2422,9 +2416,7 @@ func (s *apiServer) workerReportStopping(id, trigger string) (*Member, error) {
 	if err != nil {
 		return nil, err
 	}
-	if w.StoppingSince <= 0.0 {
-		w.StoppingSince = nowSecs()
-	}
+	openWindDownRow(windDownAnchorRowOfWorker(w), nowSecs())
 	m := memberFromWorker(*w)
 	if err := s.persistMemberWindDownAnchors(m); err != nil {
 		return nil, err
@@ -2457,7 +2449,23 @@ func (s *apiServer) workerReportStopped(id, trigger string) (*Member, string, er
 	if err != nil {
 		return nil, "", err
 	}
-	if w.StoppedSince <= 0.0 {
+	// 🔴 THE FOURTH 收口 FUNNEL, and it is the one T-65 包⑤ nearly shipped a false
+	// sentence about: the shared body's header said "three funnels" while this
+	// one still hand-wrote both the once-only guard and the stamp, twice. The
+	// guard IS what collectWindDownRow owns, so it is the guard that moved, not
+	// just the two assignments — leaving the `if` here would have kept a second
+	// copy of the rule and made "four" as hollow as "three" was.
+	//
+	// ⚠️ ONE NARROW ORDERING CHANGE, named rather than hidden: the 停止 arm below
+	// now hands collectWorkerStop a row whose stopped_since is ALREADY stamped,
+	// so that call's own collectWindDownRow is a no-op and the persisted anchor
+	// carries THIS clock read instead of one taken a few microseconds later.
+	// Same value to every reader. The only place the two differ at all is the
+	// error path where the post-collect re-read fails: the receipt then reports
+	// this row rather than a zeroed one — which is the truer of the two, because
+	// collectWorkerStop did persist the latch before the re-read broke.
+	latched, _ := collectWindDownRow(windDownAnchorRowOfWorker(w), nowSecs())
+	if latched {
 		// 🔴 TWO 收口 ARMS, and the second one is the cell this ticket had to
 		// prove (T-ed79). The first arm alone was correct only while 停止 killed
 		// on the spot: it requires `desired online ∧ refocus_since > 0`, and a
@@ -2488,7 +2496,6 @@ func (s *apiServer) workerReportStopped(id, trigger string) (*Member, string, er
 			// waits for the next outsource tick. That is the price of being able
 			// to prove only one kill goes out, and it is the same latency staff
 			// have.
-			w.StoppedSince = nowSecs()
 			if err := s.persistWorkerWindDownAnchors(*w); err != nil {
 				return nil, "", err
 			}
@@ -2518,7 +2525,6 @@ func (s *apiServer) workerReportStopped(id, trigger string) (*Member, string, er
 		// FSM's next pass simply starts it again. The receipt says
 		// recorded_only for exactly that: the end of this session is on the
 		// record, and no one is coming.
-		w.StoppedSince = nowSecs()
 		if err := s.persistWorkerWindDownAnchors(*w); err != nil {
 			return nil, "", err
 		}
