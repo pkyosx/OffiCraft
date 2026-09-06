@@ -996,7 +996,27 @@
   align-items: center;
   gap: 6px;
 }
-.sugg-edit__input {
+/* 🔴 THE DOUBLE CLASS IS LOAD-BEARING — DO NOT "SIMPLIFY" IT TO ONE.
+ *
+ * These inputs wear `.param-input` for its chrome (height, radius, border,
+ * focus ring) but must NOT inherit its WIDTH: `.param-input { width: 88px }`
+ * below is the narrow box the NUMERIC knobs want, and 88px shows about seven
+ * Chinese characters. A 建議回覆 entry is a whole sentence of up to 120, so at
+ * 88px the owner cannot read what he typed — measured in a real browser: a
+ * 141-character entry showed its first seven characters next to a red line
+ * telling him it was too long.
+ *
+ * `.sugg-edit__input` alone is specificity (0,1,0) — exactly the same as
+ * `.param-input` — so whichever is declared LATER in this file wins, and that
+ * is the 88px rule. Qualifying with the parent block makes it (0,2,0) and it
+ * wins wherever either rule is moved to. (This file already hit this once and
+ * solved it by ORDER: `.param-input--wide` sits after `.param-input` on
+ * purpose. Order is the fragile version of this fix.)
+ *
+ * Pinned by visual-guards/settings-suggested-replies-width.ct.spec.tsx, which
+ * measures the rendered width in a real browser — jsdom has no layout engine
+ * and cannot see this class of bug at all. */
+.sugg-edit .sugg-edit__input {
   flex: 1;
   width: auto;
   min-width: 0;
