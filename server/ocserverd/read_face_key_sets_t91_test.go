@@ -173,6 +173,57 @@ func declaredJSONKeys(t *testing.T, v any) []string {
 	return keys
 }
 
+// 🔴 THE STRUCT THAT ACTUALLY SUPPLIES THE BODY IS THE HAND-WRITTEN ONE, and
+// until this test existed nothing held IT to a declaration. The four other
+// assertions in this file leave one shape uncovered, and it is the shape that
+// ships:
+//
+//   - `marshalledKeys` (the two tests above) cannot see it. All six deleted
+//     fields were `*bool` with `omitempty`; re-add one to memberDTO in that
+//     shape and a nil pointer marshals to nothing, so the served JSON is
+//     byte-for-byte what it was. Nothing to compare, nothing to redden.
+//   - `TestGeneratedReadDTOsDeclareNoDeadPendingFlags_T91` does read
+//     declarations, but it reads MemberDTO / OutsourceWorkerDTO — the structs
+//     `bin/gen-ocapi` writes out of the spec. Those are not what any handler
+//     answers with (api_helpers.go and api_outsource.go build memberDTO and
+//     outsourceWorkerDTO), so a field added only to the hand-written struct
+//     never reaches them.
+//   - `TestSpecReadDTOsDeclareNoDeadPendingFlags_T91` reads the spec, and the
+//     hand-written struct can grow a field without the spec being touched at
+//     all — that is precisely the drift the spec-first rule exists to prevent
+//     and precisely the drift a test has to catch when someone skips it.
+//
+// So: same `declaredJSONKeys`, same two written-out sets, aimed at the two
+// structs on the wire. A dead flag re-added straight to wire.go reddens HERE
+// and nowhere else.
+func TestHandWrittenReadDTOsDeclareNoDeadPendingFlags_T91(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		zero    any
+		want    []string
+		setName string
+	}{
+		{"memberDTO", memberDTO{}, memberReadFaceKeys, "memberReadFaceKeys"},
+		{"outsourceWorkerDTO", outsourceWorkerDTO{}, workerReadFaceKeys, "workerReadFaceKeys"},
+	} {
+		want := append([]string(nil), tc.want...)
+		sort.Strings(want)
+		extra, missing := diffKeys(declaredJSONKeys(t, tc.zero), want)
+		if len(extra) > 0 || len(missing) > 0 {
+			t.Errorf("hand-written %s (server/ocserverd/wire.go — the struct the "+
+				"handlers actually answer with) declares unexpected %v, missing %v. "+
+				"activation_pending / relocation_pending / relocation_deferred belong "+
+				"on the receipts the writes answer, never on a read face (T-91). Note "+
+				"that a re-added *bool with omitempty is INVISIBLE to the marshalling "+
+				"tests in this file and to the generated-struct and spec tests below, "+
+				"which is why this assertion exists: if one of them is back here, it is "+
+				"back on the served body. If the new key is a genuine field, add it to "+
+				"%s in this file — and to the spec, or the generated struct and this "+
+				"struct will disagree.", tc.name, extra, missing, tc.setName)
+		}
+	}
+}
+
 func TestGeneratedReadDTOsDeclareNoDeadPendingFlags_T91(t *testing.T) {
 	for _, tc := range []struct {
 		name string

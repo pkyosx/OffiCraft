@@ -8666,7 +8666,7 @@ export interface components {
          * OutsourceRestartReceiptDTO
          * @description Bounded receipt for ``POST /api/outsource-workers/{id}/restart`` (restart_outsource_worker) (T-91). It answered with the whole OutsourceWorkerDTO, 41 fields flattened; measured over 24 hours of real agent sessions, 9 calls and 10,000 characters. It is agent-called, so that answer lands in a model's context.
          *
-         *     THIS ONE CANNOT COLLAPSE TO IDS ALONE, and the reason is pinned by a test rather than inferred: worker_pending_signals_ted79_test.go:107-118 requires the restart answer to carry BOTH ``activation_pending`` and a non-empty ``last_op_reason``, and states why in its own failure message - a restart aimed at a machine that cannot take the worker used to answer a clean 200 with zero signal, and "one bit cannot answer why". ``activation_pending`` is additionally one of the three flags the openapi text describes as set ONLY on this kind of response and absent or null on every other read, so no follow-up query can recover it. Everything else the DTO carried is the worker's stored row, which ``list_outsource_workers`` serves.
+         *     THIS ONE CANNOT COLLAPSE TO IDS ALONE, and the reason is pinned by a test rather than inferred: worker_pending_signals_ted79_test.go:107-118 requires the restart answer to carry BOTH ``activation_pending`` and a non-empty ``last_op_reason``, and states why in its own failure message - a restart aimed at a machine that cannot take the worker used to answer a clean 200 with zero signal, and "one bit cannot answer why". ``activation_pending`` is additionally one of the three flags that no READ structure declares at all: ``OutsourceWorkerDTO`` does not carry it, so it is not a field that reads back null - the read face does not have the field. No follow-up query can recover it. Everything else the DTO carried is the worker's stored row, which ``list_outsource_workers`` serves.
          */
         OutsourceRestartReceiptDTO: {
             /**
@@ -8676,7 +8676,7 @@ export interface components {
             id: string;
             /**
              * Activation Pending
-             * @description True when the restart was DECIDED but could not be delivered - no live SSE downstream to the target warden. The intent is stored and the reconcile cadence will retry, but nothing has been dispatched yet. Absent when the restart actually landed. It is here or nowhere: this flag is set only on responses of this kind and is absent or null on every other read of the worker, so a caller that drops it cannot ask again.
+             * @description True when the restart was DECIDED but could not be delivered - no live SSE downstream to the target warden. The intent is stored and the reconcile cadence will retry, but nothing has been dispatched yet. Absent when the restart actually landed. It is here or nowhere: this flag is set only on responses of this kind, and no read structure declares it at all - there is no worker read that carries the field, null or otherwise - so a caller that drops it cannot ask again.
              */
             activation_pending?: boolean;
             /**
@@ -8704,7 +8704,7 @@ export interface components {
          * MemberActivateReceiptDTO
          * @description Bounded receipt for ``POST /api/members/{member_id}/activate`` (activate_member) (T-91, owner 2026-09-06). It answered the whole MemberDTO, 33 fields flattened, and it is agent-callable, so that answer lands in a model's context.
          *
-         *     THIS ONE CANNOT COLLAPSE TO AN ID, and for the same reason its worker twin cannot (OutsourceRestartReceiptDTO): ``activation_pending`` is computed at dispatch time and written onto the RESPONSE ONLY — the reconcile decision behind it is stored nowhere, so a later read has nothing to serve. It is one of the three flags this document describes as set only on this kind of response and absent or null on every other read, so a caller that drops it cannot ask again — there is no row to ask. The cockpit already depends on exactly this: frontend/src/api/http.ts activateMember returns ``{activationPending: wire.activation_pending === true}`` and the 喚醒中… button stays put on true.
+         *     THIS ONE CANNOT COLLAPSE TO AN ID, and for the same reason its worker twin cannot (OutsourceRestartReceiptDTO): ``activation_pending`` is computed at dispatch time and written onto the RESPONSE ONLY — the reconcile decision behind it is stored nowhere, so a later read has nothing to serve. It is one of the three flags that no READ structure declares at all: ``MemberDTO`` does not carry it, so it is not a field that reads back null — the read face does not have the field. A caller that drops it cannot ask again; there is no row to ask. The cockpit already depends on exactly this: frontend/src/api/http.ts activateMember returns ``{activationPending: wire.activation_pending === true}`` and the 喚醒中… button stays put on true.
          *
          *     ``last_op_reason`` rides beside it for the reason the handler gives in its own words where it stamps the row — the flag is one bit and at least four different states reach it, so the handler stamps WHICH one on the row before answering. Unlike the flag this one IS recoverable from ``get_member``; it is kept because a caller holding a pending bit with no cause has to make a second call to act on the first, which is the round trip this whole reshape exists to remove. Everything else the DTO carried is the member's stored row, which ``get_member`` serves.
          */
@@ -8716,7 +8716,7 @@ export interface components {
             id: string;
             /**
              * Activation Pending
-             * @description True when the activation intent was STORED but no START went out on this attempt — a warden that would not take it, an unbuildable start frame (missing persona or token), a backoff, an open circuit. It is a POSITIVE determination rather than a list of known failures: the handler asks whether a START actually went out, so failure modes not yet invented answer honestly here too. Absent when the member was already online or the start landed. It is here or nowhere: the flag is set only on responses of this kind and is absent or null on every other read of the member.
+             * @description True when the activation intent was STORED but no START went out on this attempt — a warden that would not take it, an unbuildable start frame (missing persona or token), a backoff, an open circuit. It is a POSITIVE determination rather than a list of known failures: the handler asks whether a START actually went out, so failure modes not yet invented answer honestly here too. Absent when the member was already online or the start landed. It is here or nowhere: the flag is set only on responses of this kind, and no read structure declares it at all — there is no member read that carries the field, null or otherwise.
              */
             activation_pending?: boolean;
             /**
@@ -8746,7 +8746,7 @@ export interface components {
             relocation_pending?: boolean;
             /**
              * Relocation Deferred
-             * @description WHICH of ``relocation_pending``'s two causes this is: true means a deliberately deferred move — a wind-down is open and the agent keeps running on the old machine until its own 收口 — rather than a delivery failure. A caller must hold back the "nothing was dispatched" alert for this case; the cockpit does exactly that.
+             * @description WHICH of ``relocation_pending``'s two causes this is: true means a deliberately deferred move — the agent is live with uncollected state, so a graceful wind-down owns the move and the agent keeps running on the old machine until its own 收口 — rather than a delivery failure. TWO ways that happens, and the field does not distinguish them because the consumer's question is the same in both: (a) THIS relocate opened the wind-down, and the move lands when the agent answers report_stopped; (b) an EXISTING wind-down at a HIGHER rung of the 停止 → 加速停止 → 強制停止 ladder already owns the agent, so the pin was saved and the ladder refused to re-open a lower stage — the move lands at THAT wind-down's collect, on whatever deadline it already carries (T-170e). A caller must hold back the "nothing was dispatched" alert for either case; the cockpit does exactly that.
              */
             relocation_deferred?: boolean;
         };

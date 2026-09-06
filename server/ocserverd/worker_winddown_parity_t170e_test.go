@@ -365,11 +365,14 @@ func TestStaleStopping_AnOnlineWorkerIsSweptToo(t *testing.T) {
 // AgentRelocateReceiptDTO since T-91; it was a field on OutsourceWorkerDTO when
 // this test was written) had exactly one documented cause when it was added
 // (T-ed79 parity #5): THIS relocate opened the wind-down, and the
-// move lands on the worker's own report_stopped. T-170e gave it a SECOND cause
-// and the contract text in spec/openapi.json was widened to say so: an EXISTING
-// wind-down at a HIGHER rung of 停止 → 加速停止 → 強制停止 already owns the worker,
-// the pin is saved, the ladder refuses to re-open a lower stage, and the move
-// lands at THAT wind-down's collect on the deadline it already carries.
+// move lands on the worker's own report_stopped. T-170e gave it a SECOND cause:
+// an EXISTING wind-down at a HIGHER rung of 停止 → 加速停止 → 強制停止 already owns
+// the worker, the pin is saved, the ladder refuses to re-open a lower stage, and
+// the move lands at THAT wind-down's collect on the deadline it already carries.
+// Both causes are written out where the signal now lives — the
+// `relocation_deferred` property of AgentRelocateReceiptDTO in
+// spec/openapi.json. They were on OutsourceWorkerDTO's copy of the field until
+// T-91 deleted it; that copy is gone, so do not go looking for them there.
 //
 // 🔴 That second cause had no test. The existing
 // TestRelocateWorker_WindDownIsPendingAndDeferred exercises cause (a) only — a
