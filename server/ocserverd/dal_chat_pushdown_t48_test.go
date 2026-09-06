@@ -231,8 +231,8 @@ func TestUnreadCountsForMatchesTheGoFold(t *testing.T) {
 //
 // api_outsource.go carried THREE MORE copies of the same whole-table unread
 // fold — the contractor LIST (which the owner pays on every cockpit open), the
-// single-worker GET, and writeWorkerProjectionWith (the shared response fold
-// that stood behind every owner lifecycle verb: relocate / refocus / stop /
+// single-worker GET, and writeWorkerProjectionWith, which WAS the shared
+// response fold behind every owner lifecycle verb (relocate / refocus / stop /
 // restart / model). All three went through DAL.UnreadCountsFor.
 //
 // The third is GONE rather than fixed again: T-91 (owner 2026-09-06) collapsed
@@ -322,8 +322,8 @@ func TestOutsourceUnreadFacesMatchTheGoFold(t *testing.T) {
 
 		// FACE 3 IS GONE, and it is gone because the thing it guarded stopped
 		// being reachable (T-91, owner 2026-09-06). It used to call
-		// writeWorkerProjection — the shared post-op fold behind every owner
-		// lifecycle verb — and check that the unread_count it folded belonged to
+		// writeWorkerProjection — which WAS the post-op fold behind every owner
+		// lifecycle verb, and is deleted — and check that the unread_count it folded belonged to
 		// the CALLER rather than to whoever the verb acted on. Those verbs now
 		// answer a bounded receipt that carries no unread_count and no projection
 		// at all, so there is no per-actor fold left on that path to get wrong.

@@ -16,8 +16,9 @@ bin/t6cce_add_param_desc.py.
 
 THE THREE RECEIPTS, and why there are three rather than one or fifteen. Every
 one of the 15 handlers ends by writing a PROJECTION OF THE STORED ROW, with
-exactly five exceptions — the whole tree has five response-only DTO mutations and
-this is all of them:
+exactly five exceptions. "Exactly five" is a claim about THESE TWO FILES, which
+is what was searched — other files elsewhere in the tree decorate their own
+responses, and that is not what this counts:
 
     api_members.go:1104   activate  -> activation_pending
     api_members.go:1278   relocate  -> relocation_pending
@@ -25,8 +26,9 @@ this is all of them:
     api_outsource.go:357  relocate  -> relocation_pending
     api_outsource.go:361  relocate  -> relocation_deferred
 
-(verified by grepping both files for assignments onto the response dto, not by
-reading the ticket's list back). So three shapes: one for the twelve routes whose
+(verified by grepping THOSE TWO FILES for assignments onto the response dto, not
+by reading the ticket's list back — and the sentence above says "the whole tree"
+nowhere for that reason). So three shapes: one for the twelve routes whose
 answer is recoverable in full from get_member / get_outsource_worker, one for
 activate, one shared by BOTH relocates.
 

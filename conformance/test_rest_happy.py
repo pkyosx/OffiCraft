@@ -2024,8 +2024,10 @@ HAPPY: dict[str, Happy] = {
     "POST /api/members/{member_id}/relocate": Happy(
         # placement-only 改機器: writes desired_machine_id, NEVER touches
         # desired_state (the activate contrast). The pin must name a REAL
-        # machine — this file's own onboarded one. The check pins BOTH: the pin
-        # landed AND desired_state was NOT flipped online.
+        # machine — this file's own onboarded one. The check still pins BOTH —
+        # the pin landed AND desired_state was NOT flipped online — but since
+        # T-91 it makes that claim against the member READ rather than against
+        # the relocate's own answer, which is now a three-field receipt.
         path=lambda ctx: f"/api/members/{ctx.fresh_member()}/relocate",
         body=lambda ctx: {"machine_id": ctx.machine_id},
         check=_receipt_then_member(
