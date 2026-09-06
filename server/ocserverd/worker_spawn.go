@@ -1676,7 +1676,6 @@ const (
 	ownerOpModel    = "runtime/model" // 換 model / runtime / effort
 )
 
-
 // workerHasStateToFlush answers the ONE question rule 2 turns on: is there
 // anything for this worker to wind down, or should the owner's verb take effect
 // immediately? The owner's ask was 「有東西要存才等,沒有就立刻走」 — he must not
