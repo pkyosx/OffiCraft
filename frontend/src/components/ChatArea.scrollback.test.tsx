@@ -330,6 +330,39 @@ describe("scroll-top history loading", () => {
     expect(loadOlderCalls).toBe(2);
   });
 
+  // T-124 (owner c-c9cd7fefe19f「載入時我正在開的位置或手機手指指的位置都會跑
+  // 掉」):請求送出到那一頁落地之間,讀的人還在滑 —— 觸控板的慣性、手指還按在
+  // 螢幕上。落地時要從「他現在在哪」往下推,不是從送出請求時拍的那張快照。
+  it("落地時保留讀者當下的位置,不把請求飛行期間他滑的那一段還原掉", async () => {
+    initialMessages = [
+      mkMsg("c2", "b", "owner", 2000),
+      mkMsg("c3", "b", "owner", 2001),
+    ];
+    olderPage = [mkMsg("c1", "b", "owner", 1000)];
+    const { container } = renderChat();
+    const list = container.querySelector(".chat__messages")!;
+    setScrollGeometry(list, {
+      scrollHeight: 1000,
+      clientHeight: 200,
+      scrollTop: 79,
+    });
+    // 請求在飛的時候:那一頁多出 300px 的高度,而讀者已經滑到最頂。
+    onLoadOlder = () => {
+      Object.defineProperty(list, "scrollHeight", {
+        configurable: true,
+        value: 1300,
+      });
+      (list as HTMLElement).scrollTop = 0;
+    };
+    await act(async () => {
+      fireEvent.scroll(list);
+    });
+
+    // 0（他現在在哪）+ 300（多出來的高度）。用舊快照的話會是 379,也就是把他
+    // 在飛行期間滑的 79px 還原掉。
+    expect((list as HTMLElement).scrollTop).toBe(300);
+  });
+
   it("prepended HISTORY never arms the new-message chip nor re-anchors the divider", async () => {
     initialMessages = [
       mkMsg("c2", "b", "owner", 2000),

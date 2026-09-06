@@ -179,7 +179,7 @@ type ChatSession = {
   prevIds: Set<string>;
   /** T-bf82 scrollback: the pre-fetch scroll-geometry snapshot an older-page
    * prepend restores from (null = no older page in flight/pending). */
-  prependAnchor: { firstId: string; height: number; top: number } | null;
+  prependAnchor: { firstId: string; height: number } | null;
   /** The UI-side in-flight lock over `useChat`'s own, so repeated scroll
    * events near the top cannot re-snapshot `prependAnchor` mid-flight.
    *
@@ -853,7 +853,6 @@ export function ChatArea({
     session.prependAnchor = {
       firstId: messages[0].id,
       height: el.scrollHeight,
-      top: el.scrollTop,
     };
     try {
       await loadOlder();
@@ -884,7 +883,50 @@ export function ChatArea({
     session.prependAnchor = null;
     for (let i = 0; i < idx; i++) session.prevIds.add(messages[i].id);
     const el = messagesRef.current;
-    if (el) el.scrollTop = anchor.top + (el.scrollHeight - anchor.height);
+    // 🔴 THE CURRENT POSITION, NOT THE ONE SNAPSHOTTED BEFORE THE FETCH (T-124,
+    // owner c-c9cd7fefe19f 「載入時我正在開的位置或手機手指指的位置都會跑掉」).
+    // The snapshot is taken when the request goes out; the reader keeps
+    // scrolling while it flies — momentum on a trackpad, a finger still on the
+    // glass — so restoring a snapshotted scrollTop UNDOES exactly that stretch.
+    // MEASURED against a 900ms page: armed at scrollTop 79, the reader carried
+    // on to 0, and landing put them back at 79 + the added height.
+    //
+    // 🔴 AND THE ADDED HEIGHT IS MEASURED FROM THE DOM, NOT FROM THE SNAPSHOT
+    // EITHER. `scrollHeight - anchor.height` is only the prepend's height while
+    // NOTHING ELSE changed the content in between — an image finishing, a font
+    // swapping, a message arriving over SSE all break it, and they break it
+    // into the exact shape of the bug above: the reader is moved and nothing
+    // says so. The row the reader was anchored on used to be the FIRST row, so
+    // whatever now sits between the first row and it IS the prepend, read off
+    // the laid-out DOM at landing.
+    //
+    // The fallback is for the one case that measurement cannot reach: the
+    // anchor row is inside a COLLAPSED 成員間對話 block and has no node at all.
+    // That is also the case where a wrong number cannot move anybody — a
+    // thread whose page folds that far renders shorter than the pane, so it has
+    // no overflow and scrollTop is pinned at 0 either way.
+    if (el) {
+      // Walked rather than selected: a message id goes into an attribute
+      // selector unescaped, and `CSS.escape` does not exist in the jsdom the
+      // unit suite runs on — the whole compensation would throw there.
+      const rows = Array.from(
+        el.querySelectorAll<HTMLElement>("[data-msg-id]"),
+      );
+      const firstRow = rows[0] ?? null;
+      const anchorRow =
+        rows.find((row) => row.dataset.msgId === anchor.firstId) ?? null;
+      const measured =
+        anchorRow && firstRow ? anchorRow.offsetTop - firstRow.offsetTop : 0;
+      // `measured > 0` is also what tells a LAID-OUT page from one that has no
+      // layout engine at all: jsdom answers 0 to every offset, so the unit
+      // suite (and anything else without layout) takes the snapshot path, which
+      // is what it can actually reason about. A real prepend that genuinely
+      // added no height — a page that folded entirely into the collapsed block
+      // already on screen — measures 0 too, and there the snapshot delta is 0
+      // as well, so both paths say the same thing.
+      const added = measured > 0 ? measured : el.scrollHeight - anchor.height;
+      el.scrollTop = el.scrollTop + added;
+    }
     // The one-shot entry positioning (session.initialPositioned) already ran for
     // this conversation — a prepend must never re-run it, and it doesn't:
     // the latch stays untouched here.
