@@ -35,10 +35,12 @@ test("一頁幾乎全是成員間對話時,往上捲仍然載得到更舊的訊�
   // 照使用者的方式轉滾輪:往上,連續轉。這裡沒有任何一行用手寫 scrollTop ——
   // 手寫 scrollTop 會自己製造出那個「不存在」的 scroll 事件,等於把要測的東西
   // 先幫它做掉。
+  // 每一「次」滑動之間留一段安靜的間隔 —— 一次手勢一頁(owner 圈定
+  // rc-3bceed6d9e0a),所以連續不斷的滾輪事件算同一次手勢,只買一頁。
   for (let turn = 0; turn < 20; turn += 1) {
     await box.hover();
     await page.mouse.wheel(0, -900);
-    await page.waitForTimeout(120);
+    await page.waitForTimeout(300);
   }
 
   const loaded = await bubbles.count();
@@ -101,4 +103,39 @@ test.describe("手機／平板", () => {
     );
     await expect(page.locator(".chat__history-start")).toBeVisible();
   });
+});
+
+// 一次手勢一頁(owner 圈定 rc-3bceed6d9e0a)。他在試用站上滑一次,一口氣多了不只
+// 30 則 —— 一次滑動在瀏覽器眼裡是一串事件,而這種摺疊對話載完幾乎不長高、畫面
+// 一直停在最上面,於是那一串裡的每一個事件都各買一頁(實量:一次滑動買走三頁)。
+test("一次滑動只買一頁,不管那一次滑動送出幾個滾輪事件", async ({
+  mount,
+  page,
+}) => {
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await mount(<ChatInterAgentScrollbackStory />);
+
+  const box = page.locator(".chat__messages");
+  const bubbles = page.locator(".chat__msg");
+  await expect(bubbles).toHaveCount(2);
+  await box.hover();
+
+  // 一次觸控板滑動 = 一串幾乎沒有間隔的事件。這些 wheel 呼叫要一起送出、最後才
+  // 一起等 —— 一個一個 await 的話,每一次來回本身就是幾十毫秒的停頓,量到的會是
+  // 「連續好幾次滑動」而不是一次(實量:一起送 ⇒ 事件間隔 0–17ms)。
+  const flick = async () => {
+    const jobs: Promise<void>[] = [];
+    for (let i = 0; i < 12; i += 1) jobs.push(page.mouse.wheel(0, -120));
+    await Promise.all(jobs);
+    await page.waitForTimeout(1200);
+  };
+
+  // 一頁 = 30 則 = 這個組成裡的 2 則 owner↔成員訊息。
+  await flick();
+  const loaded = await bubbles.count();
+  expect(loaded, `一次滑動之後載到 ${loaded} 則 owner↔成員訊息`).toBe(4);
+
+  // 而且它只是「一次一頁」,不是「只有一頁」:下一次滑動照樣買得到。
+  await flick();
+  expect(await bubbles.count()).toBe(6);
 });

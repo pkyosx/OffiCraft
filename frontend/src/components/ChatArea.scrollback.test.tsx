@@ -250,6 +250,86 @@ describe("scroll-top history loading", () => {
     expect(ids).toEqual(["c1", "c2", "c3"]);
   });
 
+  // 一次手勢一頁(owner 圈定 rc-3bceed6d9e0a)。滾輪那一串沒有結束事件,所以手勢的
+  // 邊界是「安靜下來」;手指有 touchstart 這個真的邊界,不需要時鐘。
+  it("同一次手勢只買一頁:滾輪連續事件只撈一次,安靜之後的下一次滑動才會再撈", async () => {
+    initialMessages = [
+      mkMsg("c2", "b", "owner", 2000),
+      mkMsg("c3", "b", "owner", 2001),
+    ];
+    olderPage = [mkMsg("c1", "b", "owner", 1000)];
+    const { container } = renderChat();
+    const list = container.querySelector(".chat__messages")!;
+    setScrollGeometry(list, {
+      scrollHeight: 200,
+      clientHeight: 200,
+      scrollTop: 0,
+    });
+
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date(1_000_000));
+      await act(async () => {
+        fireEvent.wheel(list, { deltaY: -120 });
+      });
+      expect(loadOlderCalls).toBe(1);
+      // 同一次滑動的其餘事件(幾十毫秒內)不再買第二頁。
+      for (const dt of [16, 32, 48, 64]) {
+        vi.setSystemTime(new Date(1_000_000 + dt));
+        await act(async () => {
+          fireEvent.wheel(list, { deltaY: -120 });
+        });
+      }
+      expect(loadOlderCalls).toBe(1);
+
+      // 安靜一段時間之後,那是新的一次滑動。
+      vi.setSystemTime(new Date(1_000_000 + 500));
+      await act(async () => {
+        fireEvent.wheel(list, { deltaY: -120 });
+      });
+      expect(loadOlderCalls).toBe(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("同一次手指滑動只買一頁,手指放開再滑才會再撈", async () => {
+    initialMessages = [
+      mkMsg("c2", "b", "owner", 2000),
+      mkMsg("c3", "b", "owner", 2001),
+    ];
+    olderPage = [mkMsg("c1", "b", "owner", 1000)];
+    const { container } = renderChat();
+    const list = container.querySelector(".chat__messages")!;
+    setScrollGeometry(list, {
+      scrollHeight: 200,
+      clientHeight: 200,
+      scrollTop: 0,
+    });
+
+    // 🔴 每一個 touchmove 各自 await 落地。全部塞在同一個 act 裡的話,第二、三個
+    // 事件會撞上還沒結束的那一次請求(既有的 in-flight 鎖),於是不管有沒有
+    // 「一次手勢一頁」這條規則都只會撈一次 —— 測到的是鎖,不是規則。
+    await act(async () => {
+      fireEvent.touchStart(list, { touches: [{ clientY: 100 }] });
+    });
+    for (const y of [180, 260, 340]) {
+      await act(async () => {
+        fireEvent.touchMove(list, { touches: [{ clientY: y }] });
+      });
+    }
+    expect(loadOlderCalls).toBe(1);
+
+    await act(async () => {
+      fireEvent.touchEnd(list, { touches: [] });
+      fireEvent.touchStart(list, { touches: [{ clientY: 100 }] });
+    });
+    await act(async () => {
+      fireEvent.touchMove(list, { touches: [{ clientY: 180 }] });
+    });
+    expect(loadOlderCalls).toBe(2);
+  });
+
   it("prepended HISTORY never arms the new-message chip nor re-anchors the divider", async () => {
     initialMessages = [
       mkMsg("c2", "b", "owner", 2000),

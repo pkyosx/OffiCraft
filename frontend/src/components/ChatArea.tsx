@@ -237,6 +237,17 @@ type ChatSession = {
    * hand because a pane with no overflow scrolls nowhere: there is no
    * scrollTop for the browser to move and therefore nothing to compare. */
   touchY: number | null;
+  /** T-124 一次手勢一頁 (owner ruling rc-3bceed6d9e0a). A gesture is not an
+   * event: one flick of a trackpad is a BURST of wheel events, and on a pane
+   * that stays pinned at its top every one of them would buy another page —
+   * measured, one flick pulled three pages (90 messages) at once, which is
+   * what the owner saw. These two mark the page already bought by the gesture
+   * in progress: `wheelSpent` is cleared by a quiet gap (a burst has no
+   * end event to hang it on), `touchSpent` by the next touchstart, which is a
+   * real boundary and needs no clock. */
+  wheelSpent: boolean;
+  lastWheelTs: number;
+  touchSpent: boolean;
 };
 
 function freshChatSession(unreadCount: number): ChatSession {
@@ -255,6 +266,9 @@ function freshChatSession(unreadCount: number): ChatSession {
     seedConsumed: null,
     pendingLatestScroll: false,
     touchY: null,
+    wheelSpent: false,
+    lastWheelTs: 0,
+    touchSpent: false,
   };
 }
 
@@ -825,6 +839,11 @@ export function ChatArea({
   // paint, so the owner keeps reading the same row. The anchor's firstId also
   // tells "a prepend really landed" apart from an unrelated (appended) update.
   const NEAR_TOP_PX = 120;
+  // 🔴 The gap that tells two flicks apart from one flick's own burst. A
+  // trackpad emits an event roughly every frame while the fingers move and
+  // keeps emitting through momentum, all a few tens of ms apart; a person
+  // making a second, deliberate gesture takes far longer than this.
+  const WHEEL_GESTURE_GAP_MS = 200;
 
   async function loadOlderAnchored() {
     if (session.loadingOlder || !hasMore) return;
@@ -883,9 +902,18 @@ export function ChatArea({
   // step — this only adds a second door onto it.
   function onMessagesWheel(e: React.WheelEvent<HTMLDivElement>) {
     if (e.deltaY >= 0) return;
+    // One flick = one page (owner ruling rc-3bceed6d9e0a). A wheel burst has no
+    // end event, so the gesture boundary is a QUIET GAP: events closer together
+    // than this belong to the same flick, momentum included.
+    const now = Date.now();
+    const sameGesture = now - session.lastWheelTs <= WHEEL_GESTURE_GAP_MS;
+    session.lastWheelTs = now;
+    if (!sameGesture) session.wheelSpent = false;
+    if (session.wheelSpent) return;
     const el = messagesRef.current;
     if (!el) return;
     if (el.scrollTop < NEAR_TOP_PX && hasMore) {
+      session.wheelSpent = true;
       void loadOlderAnchored();
     }
   }
@@ -900,6 +928,8 @@ export function ChatArea({
   // what is above it — the same request the upward wheel makes.
   function onMessagesTouchStart(e: React.TouchEvent<HTMLDivElement>) {
     session.touchY = e.touches[0]?.clientY ?? null;
+    // A finger drag has a real boundary, so 一次手勢一頁 needs no clock here.
+    session.touchSpent = false;
   }
 
   function onMessagesTouchMove(e: React.TouchEvent<HTMLDivElement>) {
@@ -907,10 +937,11 @@ export function ChatArea({
     if (y == null || session.touchY == null) return;
     const movedDown = y - session.touchY > 0;
     session.touchY = y;
-    if (!movedDown) return;
+    if (!movedDown || session.touchSpent) return;
     const el = messagesRef.current;
     if (!el) return;
     if (el.scrollTop < NEAR_TOP_PX && hasMore) {
+      session.touchSpent = true;
       void loadOlderAnchored();
     }
   }
