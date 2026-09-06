@@ -98,12 +98,21 @@ describe("ReplyComposer 建議回覆", () => {
     expect(onSend).toHaveBeenCalledWith("收到，照這樣做", []);
   });
 
-  it("keeps a reply already being typed, adding the sentence after it", async () => {
+  it("keeps a reply already being typed, adding the sentence after it — and STILL sends nothing", async () => {
+    // 🔴 THE NO-SEND HALF IS THE POINT OF THIS CASE, not a bonus. The other
+    // "sends NOTHING" test starts from an empty draft, where a send would be
+    // refused anyway (`canSend` is false) — so it certifies almost nothing.
+    // THIS is the path an owner is actually on when a mis-tap costs a
+    // decision: half a sentence typed, then a chip clicked. An independent
+    // review sent a real answer through here while the whole suite stayed
+    // green.
     __setMockSuggestedReplies(["收到，照這樣做"]);
     const { findByText, input } = renderComposer();
     fireEvent.change(input, { target: { value: "我看過了" } });
     fireEvent.click(await findByText("收到，照這樣做"));
     expect(input.value).toBe("我看過了\n收到，照這樣做");
+    await settleRealTime();
+    expect(onSend).not.toHaveBeenCalled();
   });
 
   it("leaves the picked sentence editable — the owner can change it before sending", async () => {

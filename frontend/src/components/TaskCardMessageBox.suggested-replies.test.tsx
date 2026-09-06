@@ -139,14 +139,22 @@ describe("task card message box — 建議回覆", () => {
     expect(spy.mock.calls[0][1].body).toBe("收到，照這樣做");
   });
 
-  it("keeps a message already being typed, adding the sentence after it", async () => {
+  it("keeps a message already being typed, adding the sentence after it — and STILL sends nothing", async () => {
+    // 🔴 THE NO-SEND HALF IS THE POINT OF THIS CASE. See the twin comment in
+    // ReplyComposer.suggested-replies.test.tsx: the empty-draft "sends
+    // NOTHING" test is refused by `canSend` before it proves anything, and an
+    // independent review posted a real message to the executor through THIS
+    // path while the whole suite stayed green.
     __setMockSuggestedReplies(["收到，照這樣做"]);
     __injectMockTask(mkTask());
+    const spy = vi.spyOn(api, "postTaskMessage");
     const { findByText, findByTestId } = renderPage();
     const input = (await findByTestId("task-msg-input")) as HTMLTextAreaElement;
     fireEvent.change(input, { target: { value: "我看過了" } });
     fireEvent.click(await findByText("收到，照這樣做"));
     expect(input.value).toBe("我看過了\n收到，照這樣做");
+    await settleRealTime();
+    expect(spy).not.toHaveBeenCalled();
   });
 
   it("offers no sentences on a task with no executor, where the box itself is inert", async () => {
