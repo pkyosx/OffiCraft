@@ -221,4 +221,54 @@ describe("T-122 — 建議回覆 是兩份各自獨立的參數設定", () => {
       expect(after.suggestedRepliesReplyCard).toEqual(["第二句", "第一句"]);
     });
   });
+
+  // owner 2026-09-07 (c-bb83edad24bf ＋ rc-8bfa9288ad2c「我是指參數設定那邊」):
+  // typing Chinese here and pressing Enter ONCE to pick the candidate saved the
+  // half-typed line. Enter-to-save read the keystroke that CONFIRMS a CJK
+  // candidate as "this sentence is finished". Every other Enter-to-submit field
+  // on the site already guards this — the role-create field in this same file,
+  // and the three composers via composerKeys — so this list was the one that
+  // drifted. A miss here is silent: the value saved LOOKS like something the
+  // owner typed.
+  it("does not save on the Enter that CONFIRMS a CJK candidate", async () => {
+    await mockApi.patchServerSettings({
+      suggestedRepliesReplyCard: ["原本的"],
+      suggestedRepliesTaskMessage: ["任務用的"],
+    });
+    const utils = await openParamsPage();
+
+    const input = utils.getByLabelText(cardRow(1));
+    fireEvent.change(input, { target: { value: "打到一半" } });
+
+    // The three shapes a browser reports mid-composition. Each must be inert.
+    fireEvent.keyDown(input, { key: "Enter", isComposing: true });
+    fireEvent.keyDown(input, { key: "Enter", keyCode: 229 });
+    fireEvent.compositionStart(input);
+    fireEvent.keyDown(input, { key: "Enter" });
+
+    await Promise.resolve();
+    expect((await mockApi.getServerSettings()).suggestedRepliesReplyCard).toEqual([
+      "原本的",
+    ]);
+  });
+
+  it("saves on the Enter that follows a finished composition", async () => {
+    await mockApi.patchServerSettings({
+      suggestedRepliesReplyCard: ["原本的"],
+      suggestedRepliesTaskMessage: ["任務用的"],
+    });
+    const utils = await openParamsPage();
+
+    const input = utils.getByLabelText(cardRow(1));
+    fireEvent.compositionStart(input);
+    fireEvent.change(input, { target: { value: "打完了" } });
+    fireEvent.compositionEnd(input, { target: { value: "打完了" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+
+    await waitFor(async () => {
+      expect(
+        (await mockApi.getServerSettings()).suggestedRepliesReplyCard
+      ).toEqual(["打完了"]);
+    });
+  });
 });

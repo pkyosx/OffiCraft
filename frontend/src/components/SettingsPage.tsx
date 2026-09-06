@@ -1186,6 +1186,9 @@ function SuggestedRepliesEditor({
   const { t } = useI18n();
   const [draft, setDraft] = useState<string[] | null>(null);
   const rows = draft ?? value;
+  // Same guard the role-create field below uses: an Enter that CONFIRMS a CJK
+  // candidate must not be read as "this line is finished, save it".
+  const composingRef = useRef(false);
 
   /** RUNES, not UTF-16 units — the same measure the server applies
    * (utf8.RuneCountInString), so a CJK sentence gets the full budget and the
@@ -1252,7 +1255,23 @@ function SuggestedRepliesEditor({
                 setDraft(next);
               }}
               onBlur={() => commit(rows)}
+              onCompositionStart={() => {
+                composingRef.current = true;
+              }}
+              onCompositionEnd={(e) => {
+                composingRef.current = false;
+                const next = [...rows];
+                next[i] = e.currentTarget.value;
+                setDraft(next);
+              }}
               onKeyDown={(e) => {
+                if (
+                  e.nativeEvent.isComposing ||
+                  e.keyCode === 229 ||
+                  composingRef.current
+                ) {
+                  return;
+                }
                 if (e.key === "Enter") commit(rows);
               }}
             />
