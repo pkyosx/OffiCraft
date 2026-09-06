@@ -204,6 +204,14 @@ export function AttachmentStrip({
       * already renders a non-image body and already keeps the arrow KEYS for
       * scrolling once the body is text — the chevrons stay live either way.
       *
+      * ⚠️ WHICH MAKES THE ARROW KEYS A ONE-WAY DOOR, and mixed strips are where
+      * a reader meets it: ArrowRight can carry them from a .png INTO a .md, and
+      * from there neither arrow pages any more (that key belongs to scrolling
+      * the text now) — the way back is the chevron, with a mouse. That trade is
+      * T-51's, not this call site's, and it is the right one for a long text
+      * body; it is written down here because pairing images with files in one
+      * strip is what turns it from an edge into an ordinary path.
+      *
       * ONE attachment ⇒ no `pager` at all, so neither the chevrons, the counter,
       * nor the key listener exist. Passing a 1-of-1 pager would draw two dead
       * controls that can never do anything. */}

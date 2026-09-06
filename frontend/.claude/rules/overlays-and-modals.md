@@ -38,7 +38,7 @@ paths:
 
 ## 全幅閱覽
 
-MarkdownPreviewOverlay 是唯一的全幅面，props 是互斥的 url+attachmentId、source 或 imageSrc。url 自己 fetch，保留下載與以 att- blob id mint 的分享連結；source 是聊天本文，不 fetch、不可下載或分享；imageSrc 是尚未上傳的圖片 bytes，只能下載。
+MarkdownPreviewOverlay 是唯一的全幅面，props 是互斥的 url+attachmentId、source、imageSrc 或 diffParams（diffParams 是一份比較，由 /diff 網址的兩個位址指名）。url 自己 fetch，保留下載與以 att- blob id mint 的分享連結；source 是聊天本文，不 fetch、不可下載或分享；imageSrc 是尚未上傳的圖片 bytes，只能下載。
 
 分頁（pager）是 optional，而且「下一張是誰」永遠由呼叫端回答，overlay 自己不猜：它只收到 index、total 與 onGo，換到哪一張是呼叫端重新 render 的結果。呼叫端要翻的那份清單，就是使用者當下看得見的那一份 —— 相簿面板翻的是套完 tab 與上傳者篩選後的結果，附件列翻的是那一列的完整顯示順序（圖片與下載列一起，因為畫面上的計數要對得上使用者數得出來的東西）。清單只有一項時不要傳 pager：傳一個 1/1 會畫出兩顆永遠按不動的控制項，還會白掛一組方向鍵監聽。方向鍵只在圖片模式生效，文字內容的方向鍵留給捲動，兩顆 chevron 則兩種模式都能翻。
 

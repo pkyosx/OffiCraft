@@ -173,6 +173,42 @@ describe("AttachmentStrip", () => {
     expect(pagerCount()).toBe("2 / 2");
   });
 
+  // 🔴 THE ONE THAT GUARDS `findIndex` (T-123 review, B1). Every test above
+  // keeps the same list from first click to last assertion, and a strip that
+  // REMEMBERED the position instead of re-deriving it passes all of them. The
+  // task-artifacts popover's list is live (SSE), and its rows are grouped
+  // files-then-images rather than appended, so a file pinned while the reader
+  // has an image open lands BEFORE the open one and shifts it. A remembered
+  // position then says "2 / 4" while the reader is on the third, and its next
+  // control steps back onto the item already on screen.
+  it("re-derives the position when the list grows in front of the open item", async () => {
+    const a1 = att("a1", "第一份.md");
+    const a2 = att("a2", "第二份.md");
+    const a3 = att("a3", "第三份.md");
+    const { container, rerender } = renderStrip([a1, a2, a3]);
+    fireEvent.click(container.querySelectorAll("button.chat__msg-file")[1]);
+    await waitFor(() => expect(openTitle()).toBe("第二份.md"));
+    expect(pagerCount()).toBe("2 / 3");
+
+    const a0 = att("a0", "插隊的.md");
+    rerender(
+      <I18nProvider>
+        <AttachmentStrip
+          attachments={[a0, a1, a2, a3]}
+          className="chat__msg-attachments"
+          imageClassName="chat__msg-image"
+        />
+      </I18nProvider>,
+    );
+
+    await waitFor(() => expect(pagerCount()).toBe("3 / 4"));
+    expect(openTitle()).toBe("第二份.md");
+
+    fireEvent.click(document.body.querySelector("button.md-preview__pager--next")!);
+    await waitFor(() => expect(openTitle()).toBe("第三份.md"));
+    expect(pagerCount()).toBe("4 / 4");
+  });
+
   it("shows no paging control when the strip holds a single attachment", async () => {
     const { container } = renderStrip([img("i1", "唯一.png")]);
     fireEvent.click(container.querySelector("img.chat__msg-image")!);

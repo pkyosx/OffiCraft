@@ -100,8 +100,12 @@ function clampZoom(value: number): number {
  * what "next" means — the gallery's own tab + uploader filters do, and the
  * overlay would have to duplicate them to answer that question itself.
  *
- * OPTIONAL on purpose: every other place that opens this overlay shows ONE
- * attachment with no list behind it, and must not be forced to invent one.
+ * OPTIONAL on purpose: some callers open this overlay on ONE item with no list
+ * behind it — a message body, a step note, a diff — and must not be forced to
+ * invent one. That is a property of the CALLER, not a count: this comment used
+ * to say "every OTHER place shows one attachment", and T-123 made that false
+ * the moment a second caller with a real list passed a pager. State the reason
+ * the prop is optional, not how many callers currently skip it.
  *
  * ⚠️ DO NOT WRITE THE CALLERS DOWN AS A LIST HERE — an earlier draft did, and
  * it was wrong on both ends: it named a file that imports this component but
