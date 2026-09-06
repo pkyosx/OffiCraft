@@ -35,18 +35,39 @@ package main
 //  6. IT REFUSES, IT DOES NOT REWRITE. A url the server quietly "fixed" points
 //     somewhere the caller never asked for.
 //
-// 🔴 DO NOT DELETE THIS FILE WHILE RESOLVING A MERGE CONFLICT. T-92 (#432)
-// removes the `url` COLUMN and moves a link's target into a text/uri-list blob,
-// deleting the very two lines this guard sits on (`art.URL = url`,
-// `next.URL = url`). All six files those two packages share conflict, so the
-// conflict itself is loud — but the RESOLUTION is silent: taking one side
-// wholesale drops the guard while both branches were green. This file does not
-// participate in that conflict, which is exactly why it can look unrelated and
-// be swept away with it. It is the only thing that reddens when the guard is
-// gone. Whoever resolves that merge: re-attach artifactLinkURLRefusal to
-// whatever now reads body.Url on BOTH doors, then run
-// `go test -run TestArtifactURL` and read the DENOMINATOR (5 tests / 31
-// subtests), not the word `ok`.
+// 🔴 DO NOT DELETE THIS FILE WHILE RESOLVING THE T-92 MERGE. PORT IT.
+//
+// T-92 (#432) removes the `url` COLUMN and moves a link's target into a
+// text/uri-list blob, deleting the very two lines this guard sits on
+// (`art.URL = url`, `next.URL = url`). All six files the two packages share
+// conflict, so the conflict is LOUD — but the resolution is silent: taking one
+// side wholesale drops the guard while both branches were green.
+//
+// ⚠️ AND WHAT YOU WILL ACTUALLY SEE IS NOT A RED TEST — IT IS A BUILD FAILURE.
+// Measured in a real trial merge of 7cac7c4c with this branch, six errors, all
+// in THIS file: `taskDTO has no field Artifacts` (x4 — T-92 drops the folded
+// artifact index; use getTaskArtifacts) and `unknown field URL`/`unknown field
+// Label` in the TaskArtifact literal (T-92 removes URL and splits Label into
+// Name/Description; the DAL seed is PutTaskArtifactMintingBlob). A file that
+// will not COMPILE is far more tempting to delete than one that fails, and this
+// one already looks unrelated because it takes no part in the conflict.
+// It is the only thing that reddens when the guard is gone. Port the field
+// names. Do not delete it.
+//
+// The resolution for the two Go hunks, verified to compile in that trial merge:
+// keep BOTH sides, guard FIRST, mint SECOND —
+//
+//	if refusal := artifactLinkURLRefusal(url); refusal != "" { ...400...; return }
+//	art.AttachmentID, minted = mintLinkTargetBlob(url)   // and next.* likewise
+//
+// Guard-then-mint is not cosmetic: after T-92 the url is written into a blob the
+// server reads back to fill an API response, which is the exact condition this
+// ticket was opened to get ahead of. Dropping the guard while taking the mint
+// leaves the tree WORSE than before either package.
+//
+// Then run `go test -run TestArtifactURL` and read the DENOMINATOR, not the word
+// `ok`: 5 top-level tests / 26 leaf subtests (a healthy run prints 31 `--- PASS`
+// lines — 5 parents + 26 leaves; do not read 31 as the subtest count).
 
 import (
 	"net/http"
