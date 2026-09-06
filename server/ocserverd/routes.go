@@ -411,7 +411,7 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			Handler:  w.HandleHireMemberApiMembersPost,
 			Auth:     authGated,
 			Requires: principalMachine,
-			Summary:  "Hire a member (server mints the id). An omitted runtime is stored UNSET and resolved from the target host's reported runtime capabilities at first placement (a codex-only host grows a codex member) rather than written as claude; only claude/codex are accepted when you do name one; effort defaults to medium and is validated; a hire that names kind or role_key is admin-gated.",
+			Summary:  "Hire a member (server mints the id). An omitted runtime is stored UNSET and resolved from the target host's reported runtime capabilities at first placement (a codex-only host grows a codex member) rather than written as claude; only claude/codex are accepted when you do name one; effort defaults to medium and is validated; a hire that names kind or role_key is admin-gated. Answers with a bounded receipt (``id``), not the roster row — call ``get_member`` when you need the rest.",
 			MCPTool:  "hire_member",
 		},
 		{
@@ -444,7 +444,7 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			Handler:  w.HandleUpdateMemberApiMembersMemberIdPatch,
 			Auth:     authGated,
 			Requires: principalMachine,
-			Summary:  "Partially update a member's name / runtime / model / effort. Blank name, invalid runtime or invalid effort → 422, and changing a launch-intent field arms a graceful handover.",
+			Summary:  "Partially update a member's name / runtime / model / effort. Blank name, invalid runtime or invalid effort → 422, and changing a launch-intent field arms a graceful handover. Answers with a bounded receipt (``id``), not the roster row — call ``get_member`` when you need the rest.",
 			MCPTool:  "update_member",
 		},
 		{
@@ -476,7 +476,7 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			Handler:  w.HandleActivateMemberApiMembersMemberIdActivatePost,
 			Auth:     authGated,
 			Requires: principalAdminAgent,
-			Summary:  "Activate: write desired_state=online intent (does NOT flip online).",
+			Summary:  "Activate: write desired_state=online intent (does NOT flip online). Answers with a bounded receipt (``id``, ``activation_pending``, ``last_op_reason``), not the roster row — call ``get_member`` when you need the rest.",
 			MCPTool:  "activate_member",
 		},
 		{
@@ -485,7 +485,7 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			Handler:  w.HandleRelocateMemberApiMembersMemberIdRelocatePost,
 			Auth:     authGated,
 			Requires: principalAdminAgent,
-			Summary:  "Relocate a member to a machine (placement only; never touches desired_state). Also accepts an outsource-worker id: the same move-one-agent verb relocates the worker. machine_id is REQUIRED (owner 2026-07-27): a relocate NAMES the destination machine and no longer doubles as an unpin — an absent key is a 422, an explicit null or \"\" is a 400.",
+			Summary:  "Relocate a member to a machine (placement only; never touches desired_state). Also accepts an outsource-worker id: the same move-one-agent verb relocates the worker. machine_id is REQUIRED (owner 2026-07-27): a relocate NAMES the destination machine and no longer doubles as an unpin — an absent key is a 422, an explicit null or \"\" is a 400. Answers with a bounded receipt (``id``, ``relocation_pending``, ``relocation_deferred``), not the roster row — call ``get_member`` when you need the rest.",
 			MCPTool:  "relocate_member", // owner-cockpit 改機器 + admin-agent 工具 (T-8655): Mira 可經 MCP 把 member 搬機; 權限仍 principalAdminAgent (一般 agent 擋)。P7c: member_id 也吃 worker id (ow-…) — handler falls through to the worker relocate core (外包對齊正職)
 		},
 		{
@@ -494,7 +494,7 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			Handler:  w.HandleDeactivateMemberApiMembersMemberIdDeactivatePost,
 			Auth:     authGated,
 			Requires: principalAdminAgent,
-			Summary:  "Deactivate: desired_state=offline + stamp stopping_since (retains row).",
+			Summary:  "Deactivate: desired_state=offline + stamp stopping_since (retains row). Answers with a bounded receipt (``id``), not the roster row — call ``get_member`` when you need the rest.",
 			MCPTool:  "deactivate_member",
 		},
 		{
@@ -503,7 +503,7 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			Handler:  w.HandleForceStopMemberApiMembersMemberIdForceStopPost,
 			Auth:     authGated,
 			Requires: principalAdminAgent,
-			Summary:  "Force-stop: robust STOP now. On the offboard arm the server starts no clock of its own -- collection is the agent's report_stopped, the deadline the owner opens with 加速停止, or this.",
+			Summary:  "Force-stop: robust STOP now. On the offboard arm the server starts no clock of its own -- collection is the agent's report_stopped, the deadline the owner opens with 加速停止, or this. Answers with a bounded receipt (``id``), not the roster row — call ``get_member`` when you need the rest.",
 			MCPTool:  "force_stop_member",
 		},
 		{
@@ -587,7 +587,7 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			Handler:  w.HandleRefocusMemberApiMembersMemberIdRefocusPost,
 			Auth:     authGated,
 			Requires: principalAdminAgent,
-			Summary:  "Refocus a member's context (online-only, else 409).",
+			Summary:  "Refocus a member's context (online-only, else 409). Answers with a bounded receipt (``id``), not the roster row — call ``get_member`` when you need the rest.",
 			MCPTool:  "refocus_member",
 		},
 		{
@@ -596,7 +596,7 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			Handler:  w.HandleDismissMemberApiMembersMemberIdDelete,
 			Auth:     authGated,
 			Requires: principalAdminAgent,
-			Summary:  "Dismiss a member (soft delete). Pure seam, no UI (§9.1).",
+			Summary:  "Dismiss a member (soft delete). Pure seam, no UI (§9.1). Answers with a bounded receipt (``id``), not the roster row — call ``get_member`` when you need the rest.",
 			MCPTool:  "dismiss_member",
 		},
 		// ── Webhooks — a member's 回呼端點 (M4) ─────────────────────────────────
@@ -1941,7 +1941,7 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			Handler:    w.HandleRelocateOutsourceWorkerApiOutsourceWorkersIdRelocatePost,
 			Auth:       authGated,
 			Requires:   principalAdminAgent,
-			Summary:    "Relocate an outsource worker to a machine (admin-gated).",
+			Summary:    "Relocate an outsource worker to a machine (admin-gated). Answers with a bounded receipt (``id``, ``relocation_pending``, ``relocation_deferred``), not the roster row — call ``list_outsource_workers`` when you need the rest.",
 			MCPExclude: true,
 		},
 		{
@@ -1962,7 +1962,7 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			Handler:  w.HandleRefocusOutsourceWorkerApiOutsourceWorkersIdRefocusPost,
 			Auth:     authGated,
 			Requires: principalAdminAgent,
-			Summary:  "Refocus (換手) an outsource worker (owner/admin agent). Needs a live session, 409 otherwise — EXCEPT on a worker whose stop is in flight or has landed, where it answers 200 and QUEUES the restart (restart_after_stop); the stop itself is honoured as-is. A worker nobody ever asked to stop is still a 409.",
+			Summary:  "Refocus (換手) an outsource worker (owner/admin agent). Needs a live session, 409 otherwise — EXCEPT on a worker whose stop is in flight or has landed, where it answers 200 and QUEUES the restart (restart_after_stop); the stop itself is honoured as-is. A worker nobody ever asked to stop is still a 409. Answers with a bounded receipt (``id``), not the roster row — call ``list_outsource_workers`` when you need the rest.",
 			MCPTool:  "refocus_outsource_worker",
 		},
 		{
@@ -1971,7 +1971,7 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			Handler:  w.HandleStopOutsourceWorkerApiOutsourceWorkersIdStopPost,
 			Auth:     authGated,
 			Requires: principalAdminAgent,
-			Summary:  "Stop (停止) an outsource worker: ask it to work its 〈停止〉 document and wait for its own report_stopped -- no kill, no deadline (owner/admin agent).",
+			Summary:  "Stop (停止) an outsource worker: ask it to work its 〈停止〉 document and wait for its own report_stopped -- no kill, no deadline (owner/admin agent). Answers with a bounded receipt (``id``), not the roster row — call ``list_outsource_workers`` when you need the rest.",
 			MCPTool:  "stop_outsource_worker",
 		},
 		{
@@ -2012,7 +2012,7 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			Handler:  w.HandleSetOutsourceWorkerModelApiOutsourceWorkersIdModelPost,
 			Auth:     authGated,
 			Requires: principalMachine,
-			Summary:  "Change (換 model) an outsource worker's model/effort (same floor as the staff model edit). On a worker whose stop is IN FLIGHT OR HAS LANDED it ALSO queues the restart (restart_after_stop), so the worker comes back up ON THE NEW MODEL once the stop converges — an edit is no longer only a save. A worker nobody ever asked to stop is still only persisted.",
+			Summary:  "Change (換 model) an outsource worker's model/effort (same floor as the staff model edit). On a worker whose stop is IN FLIGHT OR HAS LANDED it ALSO queues the restart (restart_after_stop), so the worker comes back up ON THE NEW MODEL once the stop converges — an edit is no longer only a save. A worker nobody ever asked to stop is still only persisted. Answers with a bounded receipt (``id``), not the roster row — call ``list_outsource_workers`` when you need the rest.",
 			MCPTool:  "set_outsource_worker_model",
 		},
 		// ── Task manuals (M3) — agents create manuals + edit the CONTENT fields
@@ -2287,7 +2287,7 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			Handler:  w.HandleAcceleratedStopMemberApiMembersMemberIdAcceleratedStopPost,
 			Auth:     authGated,
 			Requires: principalAdminAgent,
-			Summary:  "加速停止: put an ALREADY-OPEN wind-down on the stop.accelerated_grace_secs clock and tell the member. 409 if nothing is winding down -- press 停止 first. Middle rung of 停止 -> 加速停止 -> 強制停止.",
+			Summary:  "加速停止: put an ALREADY-OPEN wind-down on the stop.accelerated_grace_secs clock and tell the member. 409 if nothing is winding down -- press 停止 first. Middle rung of 停止 -> 加速停止 -> 強制停止. Answers with a bounded receipt (``id``), not the roster row — call ``get_member`` when you need the rest.",
 			MCPTool:  "accelerated_stop_member",
 		},
 		{
@@ -2296,7 +2296,7 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			Handler:  w.HandleAcceleratedStopOutsourceWorkerApiOutsourceWorkersIdAcceleratedStopPost,
 			Auth:     authGated,
 			Requires: principalAdminAgent,
-			Summary:  "加速停止 an outsource worker: put its ALREADY-OPEN wind-down (a 停止 or a 換手) on the stop.accelerated_grace_secs clock and tell it. 409 if none is open.",
+			Summary:  "加速停止 an outsource worker: put its ALREADY-OPEN wind-down (a 停止 or a 換手) on the stop.accelerated_grace_secs clock and tell it. 409 if none is open. Answers with a bounded receipt (``id``), not the roster row — call ``list_outsource_workers`` when you need the rest.",
 			MCPTool:  "accelerated_stop_outsource_worker",
 		},
 		{
@@ -2305,7 +2305,7 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			Handler:  w.HandleForceStopOutsourceWorkerApiOutsourceWorkersIdForceStopPost,
 			Auth:     authGated,
 			Requires: principalAdminAgent,
-			Summary:  "強制停止 an outsource worker: kill the session NOW and hold it down; says nothing to it. Third rung of 停止 -> 加速停止 -> 強制停止.",
+			Summary:  "強制停止 an outsource worker: kill the session NOW and hold it down; says nothing to it. Third rung of 停止 -> 加速停止 -> 強制停止. Answers with a bounded receipt (``id``), not the roster row — call ``list_outsource_workers`` when you need the rest.",
 			MCPTool:  "force_stop_outsource_worker",
 		},
 	}

@@ -232,8 +232,12 @@ func TestUnreadCountsForMatchesTheGoFold(t *testing.T) {
 // api_outsource.go carried THREE MORE copies of the same whole-table unread
 // fold — the contractor LIST (which the owner pays on every cockpit open), the
 // single-worker GET, and writeWorkerProjectionWith (the shared response fold
-// behind every owner lifecycle verb: relocate / refocus / stop / restart /
-// model). All three now go through DAL.UnreadCountsFor.
+// that stood behind every owner lifecycle verb: relocate / refocus / stop /
+// restart / model). All three went through DAL.UnreadCountsFor.
+//
+// The third is GONE rather than fixed again: T-91 (owner 2026-09-06) collapsed
+// those verbs onto bounded receipts, so no lifecycle write folds an unread
+// count any more — there are TWO copies left and they are both read faces.
 //
 // Same rule as everywhere else in this file: the oracle is the OLD code, run
 // over the same fixture, per actor — not a hand-written number.
