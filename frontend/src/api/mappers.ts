@@ -1940,7 +1940,6 @@ export function toLoreEntrySummary(w: WireLoreSearchHit): LoreEntrySummaryView {
   return {
     entryId: w.entry_id,
     heading: w.heading,
-    impactStars: w.impact_stars,
     subjects: [...w.subjects],
   };
 }
@@ -2001,8 +2000,11 @@ export function toLoreEvent(w: WireLoreEvent): LoreEventView {
  *
  * Every body cell is mapped verbatim, empty string included. 標題與內容
  * (`heading` / `content`) cannot be blank — the write path refuses them at the
- * upsert seam. `revisit_when` / `impact` are optional and a blank one is
- * ordinary, which is exactly why it is mapped rather than dropped.
+ * upsert seam.
+ *
+ * ⚠️ There are no `revisit_when` / `impact` / `impact_stars` / `supersedes`
+ * cells any more: owner 2026-09-06 逐字「都改掉」(message c-3d3e5582c2d2)
+ * removed all four along with their database columns.
  *
  * ⚠️ There is no `trigger` any more: owner ruling rc-9002654dd81c (2026-09-06)
  * merged it into `heading`, and migration 00084 copied each row's `trigger`
@@ -2020,17 +2022,13 @@ export function toLoreEntryDetail(w: WireLoreEntryDetail): LoreEntryDetailView {
   return {
     entryId: w.entry_id,
     content: w.content,
-    revisitWhen: w.revisit_when,
-    impact: w.impact,
     heading: w.heading,
-    impactStars: w.impact_stars,
     reviewed: w.reviewed,
     events: w.events.map(toLoreEvent),
     subjects: [...w.subjects],
     status: w.status,
     original: w.original,
     sha256: w.sha256,
-    supersedes: w.supersedes,
     writtenBy: w.written_by,
     revisions: w.revisions.map(toLoreRevisionRow),
   };

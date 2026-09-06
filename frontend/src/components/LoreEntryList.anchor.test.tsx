@@ -21,7 +21,6 @@ function entry(over: Partial<LoreEntrySummaryView> = {}): LoreEntrySummaryView {
   return {
     entryId: "lore-1",
     heading: "整套測試綠燈，而它跑過的分母是零",
-    impactStars: 2,
     subjects: ["repo:officraft"],
     ...over,
   };
@@ -60,15 +59,11 @@ function detail(over: Record<string, unknown> = {}) {
   return {
     entryId: "lore-far-away",
     heading: "掉在一百筆之外的那一條",
-    impactStars: 3,
     reviewed: false,
     content: "",
-    revisitWhen: "",
-    impact: "",
     events: [],
     subjects: ["repo:officraft"],
     status: "active",
-    supersedes: "",
     original: "",
     sha256: "",
     revisions: [],

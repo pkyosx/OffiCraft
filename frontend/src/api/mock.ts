@@ -2462,11 +2462,11 @@ let relocationDeferredNext = false;
 // 🔴 The 六格 cells that 五格 dropped (`label` / `falsify` / `residual_risk`) are
 // GONE from this fixture rather than parked in an unused field: `symptoms` →
 // `trigger` → `heading`（owner ruling rc-9002654dd81c (2026-09-06) 把 `trigger`
-// 併進 `heading`）, `short` → `content`, `instance` → `impact`（v8 之前這一格叫
-// `problem`）, and `revisit_when` is
-// a cell nobody had when these were written, so it is blank. Keeping the dropped
-// text around in a field no route serves would put words on a screen the station
-// cannot produce.
+// 併進 `heading`）, `short` → `content`。⚠️ `instance` 當時折進的那一格
+// （`problem` → `impact`）與 `revisit_when` 今天都不存在了：owner 2026-09-06
+// 逐字「都改掉」(訊息 c-3d3e5582c2d2) 把 impact / impact_stars / revisit_when /
+// supersedes 四格連同欄位一起拿掉。Keeping the dropped text around in a field no
+// route serves would put words on a screen the station cannot produce.
 interface MockLoreEntry {
   entryId: string;
   /** 🔴 標題格 —— 這五條在 owner ruling rc-9002654dd81c (2026-09-06) 之前寫下,
@@ -2476,107 +2476,74 @@ interface MockLoreEntry {
    * 句而不是 v8 要求的「發生了什麼」,那也是真的:存量條目就長這樣,替它們重寫
    * 一個漂亮的標題,等於在畫面上放一句站上沒有的話。 */
   heading: string;
-  /** 🔴 星等 0..3. 0 on all five = 還沒判, which is again what the station holds:
-   * nobody has judged these. It is NOT 「lightest」. */
-  impactStars: number;
   /** false on all five, and it is false for EVERY entry on every station today:
    * no route can write it. */
   reviewed: boolean;
   /** 內容格 — the only cell that enters a boot context. */
   content: string;
-  /** 第 3 格 — free text. Blank on all five: the cell did not exist yet. */
-  revisitWhen: string;
-  /** 第 4 格. */
-  impact: string;
   /** 第 5 格 — see the note above on why every one of these is empty. */
   events: LoreEventView[];
   subjects: string[];
   status: string;
-  supersedes: string;
   writtenBy: string;
 }
 
 const MOCK_LORE_ENTRIES: MockLoreEntry[] = [
   {
     entryId: "lore-31274bbb892c",
-    impactStars: 0,
     reviewed: false,
     heading: "整套測試回 PASS／ok，而我正要拿這個結果去說「這一包沒問題」。",
     content:
       "綠燈只證明「它看得到的那些東西沒問題」。go test -run 配一個匹配不到任何東西的正則，輸出跟真的全部通過逐字相同（唯一訊號 no tests to run 常被 grep 濾掉）。⇒ 跑完之後要問的是「這一次的量法，看得到的範圍是什麼」——而且要在跑過之後問，不是在寫的時候。",
-    revisitWhen: "",
-    impact:
-      '2026-09-01：-run 的正則打錯字，26 顆 mutant 一顆都沒跑，回報 PASS。分母改成可驗的做法是逐一 grep -c "^func <name>("。',
     events: [],
     subjects: ["repo:officraft"],
     status: "active",
-    supersedes: "",
     writtenBy: "agent:O-197",
   },
   {
     entryId: "lore-3a8f02e14c10",
-    impactStars: 0,
     reviewed: false,
     heading:
       "我正要拿「它有自動備份／有守衛／有檢查」去對別人保證這一次是安全的。",
     content:
       "機制存在只證明那條路上有那段碼，不證明這一次走的是那條路。實例：升級前備份只掛在 serve 開機那條路（backupBeforeMigrations 全樹一個呼叫者），而 bin/migrate 走的是沒有它的那條 ⇒ 用 migrate 升級的人沒有退路，而畫面上跟有退路一模一樣。⇒ 保證要講「這一次」，不是「有機制」。",
-    revisitWhen: "",
-    impact:
-      "2026-09-01 分站換版：因此改成走 serve 開機而不是 migrate，並另外手拍一份驗過的備份。",
     events: [],
     subjects: ["repo:officraft"],
     status: "active",
-    supersedes: "",
     writtenBy: "agent:O-197",
   },
   {
     entryId: "lore-b97ced3313a6",
-    impactStars: 0,
     reviewed: false,
     heading: "我剛驗完一台機器的狀態，正要把結果當成「現在就是這樣」回報出去。",
     content:
       "對一台會自己動的機器（有更新器、有排程、有 KeepAlive），驗證是瞬時的而狀態不是。⇒ 驗完要多問一句「有什麼東西會在我不看的時候改變它」，並把答案變成可觀察的（掛一個定期查、或關掉那個會動的東西）。",
-    revisitWhen: "",
-    impact:
-      "2026-09-01：我回報 trial 站跑 feab5437，90 秒後它自己 [upgrade] 換成 v0.5.281。成因是我複製的 DB 帶著 updater.auto_update=true。",
     events: [],
     subjects: ["repo:officraft"],
     status: "active",
-    supersedes: "",
     writtenBy: "agent:O-197",
   },
   {
     entryId: "lore-dab4e84475b4",
-    impactStars: 0,
     reviewed: false,
     heading:
       "我把一個站的 DB 複製到另一個站，然後預期新站會照我在新站上做的設定跑。",
     content:
       "OffiCraft 的站台設定存在 DB 的 setting 表裡（updater.auto_update、receive_beta、JWT 簽章金鑰等），所以複製 DB 會一起搬過去。後果一：新站會照舊站的自動更新設定把你剛裝的 binary 換掉。後果二：舊站簽出來的 token 在新站也通。⇒ 複製 DB 之後、開機之前，先把那些跟「這台該怎麼行為」有關的設定改掉。",
-    revisitWhen: "",
-    impact:
-      "2026-09-01：分站換版後 90 秒自己升級（auto_update 跟著 DB 過去）；另外我主站的 agent token 打分站 /api/members 回 200，改一個字元回 401 ⇒ 簽章金鑰也跟著過去了。",
     events: [],
     subjects: ["repo:officraft"],
     status: "active",
-    supersedes: "",
     writtenBy: "agent:O-197",
   },
   {
     entryId: "lore-76fba702e52a",
-    impactStars: 0,
     reviewed: false,
     heading: "我剛說完「我收回那句話」，覺得這件事已經處理完了。",
     content:
       "收回只對聽到的人生效，幾秒鐘；真正的工作是把那句話從每一個會被再讀一次的地方拔掉（記憶檔、步驟筆記、票面、已送出的卡、產物、PR 描述）。⇒ 真正會發生的失敗不是不願意更正，是只做了便宜的那一半，而做完那半的人主觀上覺得自己已經更正過了。",
-    revisitWhen: "",
-    impact:
-      "2026-09-01：Kyle 收回一句關於部署路徑的錯誤結論，而那句話已經被我寫進步驟筆記（下一代開機第一件要讀的東西）。掃描結果：步驟筆記命中 1、卡零、產物零、waiting_reason 零。",
     events: [],
     subjects: ["repo:officraft"],
     status: "active",
-    supersedes: "",
     writtenBy: "agent:O-197",
   },
 ];
@@ -2608,8 +2575,6 @@ function mockLoreOriginal(e: MockLoreEntry): string {
   for (const [name, value] of [
     ["heading", e.heading],
     ["content", e.content],
-    ["revisit_when", e.revisitWhen],
-    ["impact", e.impact],
   ] as const) {
     body += `${name}:\n${value}\n\n`;
   }
@@ -6705,9 +6670,7 @@ export const mockApi: Api = {
           if (needle === "") return true;
           // The station's literal matcher scans 標題＋內容 and nothing else
           // (loreEntryMatchesLiteral; owner ruling rc-9002654dd81c 2026-09-06,
-          // 逐字「同時把搜尋改成掃 heading＋內容」). revisit_when / impact are
-          // deliberately NOT scanned there, so scanning them here would make the
-          // mock answer a wider question than the route does.
+          // 逐字「同時把搜尋改成掃 heading＋內容」).
           return (
             e.heading.toLowerCase().includes(needle) ||
             e.content.toLowerCase().includes(needle)
@@ -6719,11 +6682,10 @@ export const mockApi: Api = {
       .map((e) => ({
         entryId: e.entryId,
         // 🔴 A hit carries the TITLE, exactly as the route serves it (depth ②).
-        // content / impact are reached with getLoreEntry — a mock that handed
-        // the list the body would let a screen render, for free, the thing the
-        // real route deliberately makes you ask for.
+        // content is reached with getLoreEntry — a mock that handed the list
+        // the body would let a screen render, for free, the thing the real
+        // route deliberately makes you ask for.
         heading: e.heading,
-        impactStars: e.impactStars,
         subjects: [...e.subjects],
       }));
     return {
@@ -6824,17 +6786,13 @@ export const mockApi: Api = {
     return {
       entryId: e.entryId,
       heading: e.heading,
-      impactStars: e.impactStars,
       reviewed: e.reviewed,
       content: e.content,
-      revisitWhen: e.revisitWhen,
-      impact: e.impact,
       events: e.events.map((ev) => ({ ...ev })),
       subjects: [...e.subjects],
       status: e.status,
       original,
       sha256: "",
-      supersedes: e.supersedes,
       writtenBy: e.writtenBy,
       // One revision each: these five were written once and never rewritten,
       // so there is no shrink to show. A fabricated second revision would put

@@ -154,7 +154,6 @@ export function LoreEntryList() {
           entry: {
             entryId: d.entryId,
             heading: d.heading,
-            impactStars: d.impactStars,
             subjects: [...d.subjects],
           },
           failed: false,

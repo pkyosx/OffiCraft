@@ -133,9 +133,6 @@ export const en: Dict = {
 
     fieldHeading: "Heading · what happened (the only line a list shows)",
     fieldContent: "Content · the only cell that enters an agent's memory",
-    fieldRevisitWhen: "Revisit when · what would make you judge this again",
-    fieldImpact: "Impact · what we meant to achieve, and what actually happened",
-    fieldImpactStars: "Importance · what it broke",
     fieldEvents: "Events · when / what / who / where / what was touched",
     fieldEmpty: "(blank — whoever wrote it left this empty)",
     eventsEmpty: "No events are attached to this entry.",
@@ -148,7 +145,6 @@ export const en: Dict = {
       "Every cell prints its name, blank ones included, and so does the events section when it is empty. “Blank” and “no such section” must not look the same. Inside an event, who / where / what-was-touched may legitimately be empty, so they are marked “not recorded” rather than filled in — “nobody could find out” and “nobody has looked yet” are different facts.",
     detailStatusLabel: "Status",
     detailWrittenByLabel: "Latest revision written by",
-    detailSupersedesLabel: "Supersedes",
     originalTitle: "The original as written (latest revision)",
     originalEmpty: "This entry has no original — it was written before the mechanism existed.",
     shaLabel: "Digest",

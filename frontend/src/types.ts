@@ -1047,8 +1047,8 @@ export type BackupHealthCode = "" | "never_ran" | "stale" | "failed";
 /** One retrieved entry, as `POST /api/lore/search` answers it.
  *
  * 🔴 A HIT CARRIES THE TITLE, NOT THE BODY — depth ② of the four owner ruled on
- * 2026-09-05: subject list (boot) → titles (looking something up) → content and
- * impact (having decided it is worth loading) → events (the raw material). A
+ * 2026-09-05: subject list (boot) → titles (looking something up) → content
+ * (having decided it is worth loading) → events (the raw material). A
  * search answer is what you PICK FROM, so it carries what a decision needs and
  * nothing else; `getLoreEntry` is what you call once you have decided. */
 export interface LoreEntrySummaryView {
@@ -1056,9 +1056,11 @@ export interface LoreEntrySummaryView {
   /** 🔴 標題 — the one line this list is FOR. owner 2026-09-05: 「title 應該就是
    * agent 透過 target 會看到的列表 因為這會決定他們要不要看內容」. */
   heading: string;
-  /** 🔴 星等 0..3 — the entry's importance, so a list of titles can be read by
-   * weight rather than by order. 0 is 還沒判, not 「lightest」. */
-  impactStars: number;
+  /** ⚠️ A hit used to carry `impactStars` — the entry's importance, so a list of
+   * titles could be read by weight rather than by order. owner 2026-09-06
+   * 逐字「都改掉」removed that cell, and NOTHING replaced it: this list carries
+   * no importance signal at all today, only its order, and order is not
+   * importance. */
   /** Subject keys (`repo:officraft`) this entry is filed under. THE ONLY
    * retrieval axis: owner removed the 活動 axis on 2026-09-05, and the T1/T2
    * tier plus the trust class went with it — both were computed FROM it. */
@@ -1184,16 +1186,10 @@ export interface LoreEntryDetailView {
   entryId: string;
   /** 內容格, required — the only cell that enters a boot context. */
   content: string;
-  /** 第 3 格「什麼情況出現時要把這一條拿出來重新判一次」— ⚠️ 問的不是「什麼時候
-   * 它會是錯的」：條件成立不代表這條已經失效,只代表在下一次相信它之前得先看一
-   * 眼。free text, no closed value set. May be empty
-   * — and an EMPTY one is rendered as an empty field with its name printed,
-   * never omitted: 「blank」 and 「no such section」 must not look the same. */
-  revisitWhen: string;
-  /** 第 4 格「impact」— 原本想達成什麼、實際變成什麼。v8 之前這一格叫
-   * `problem`，問的是起因。Optional as a field while being the substance of
-   * the entry. May be empty, same rendering rule. */
-  impact: string;
+  /** ⚠️ THERE ARE NO `revisitWhen` / `impact` / `impactStars` / `supersedes`
+   * CELLS ANY MORE. owner 2026-09-06 逐字「都改掉」(message c-3d3e5582c2d2)
+   * shrank the entry to an MVP and all four went with their database columns.
+   * Do not add one back here: it would be a field the wire never carries. */
   /** 🔴 標題格 — 這條在講的是「發生了什麼」，同時是讀者找到它的那一軸。它不是
    * 裝飾：它是「列出來」那一層唯一被讀到的東西，決定一個 agent 要不要載入
    * `content` (owner 2026-09-05:「title 應該就是 agent 透過 target 會看到的列表
@@ -1203,14 +1199,10 @@ export interface LoreEntryDetailView {
    * 在 DROP 掉 `trigger` 之前先把它複製進空的 `heading`，所以那些條目帶的是它們
    * 原本那句「什麼時候要記起來」。 */
   heading: string;
-  /** 🔴 第 4 格的星等 0..3 — **它就是這條條目的重要性**
-   * (owner 2026-09-05:「評分也改了不用 用星等取代 因為 impact 本就是重要性」)。
-   * 1 = 沒弄壞任何東西｜2 = 弄壞的只有你動的那個｜3 = 弄壞的包含你沒動的。
-   * ⚠️ 0 是「還沒判」，不是「最輕」——畫面上必須跟 1 分得開，否則沒有人查得出
-   * 誰漏填了。 */
-  impactStars: number;
   /** 有沒有人蓋過章。⚠️ 今天沒有任何路由寫得動它，所以它一律是 false —— 那是
-   * 「還沒有 writer」的結果，不是「沒有人審核過」的事實。 */
+   * 「還沒有 writer」的結果，不是「沒有人審核過」的事實。
+   * 🔴 而它今天連要蓋的那一格都沒有了：它存在的唯一理由是替 `impactStars` 蓋章，
+   * 而那一格已經被 owner 2026-09-06「都改掉」拿掉。它留著只是因為沒有被點名。 */
   reviewed: boolean;
   /** 第 5 格, IN THE ORDER THE EVENTS HAPPENED — empty array when the entry
    * carries none, which the surface states rather than omits. */
@@ -1224,8 +1216,6 @@ export interface LoreEntryDetailView {
   original: string;
   /** Digest of `original`, so a reader can tell it holds what was stored. */
   sha256: string;
-  /** The entry this one took over from; empty when none. */
-  supersedes: string;
   /** Who wrote the LATEST revision. */
   writtenBy: string;
   /** Oldest first, no text. */

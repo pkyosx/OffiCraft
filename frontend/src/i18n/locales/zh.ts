@@ -144,11 +144,6 @@ export const zh = {
     // 「發生了什麼」寫進第 1 格，而第 1 格是索引鍵，寫成事實敘述就撈不到了。
     fieldHeading: "標題 · 發生了什麼（清單上只看得到這一行）",
     fieldContent: "內容 · 只有這一段會進 agent 的記憶",
-    fieldRevisitWhen: "什麼情況出現時要重新判一次",
-    // 🔴 v8 把第 4 格從 problem（之前發生過什麼問題）改成 impact，因為問的東西
-    // 換了：前者問起因，這一格問後果。
-    fieldImpact: "impact · 原本想達成什麼，實際變成什麼",
-    fieldImpactStars: "重要性 · 弄壞了什麼",
     fieldEvents: "相關的完整資訊 · 時／事／人／地／物",
     fieldEmpty: "（空白 —— 寫的人沒有填）",
     eventsEmpty: "這一條沒有掛任何事件。",
@@ -161,7 +156,6 @@ export const zh = {
       "每一格都把欄位名印出來，空的也印；一筆事件都沒有的時候，事件那一節照樣在並且說出來。「空著」跟「沒有這一節」必須長得不一樣。事件裡的人／地／物空著是合法的，所以那三格標的是「沒有記下」而不是被填成「未知」——「查不出是誰」跟「還沒有人去查」是兩件不同的事。",
     detailStatusLabel: "狀態",
     detailWrittenByLabel: "最新一版誰寫的",
-    detailSupersedesLabel: "取代了",
     originalTitle: "當初寫下的原文（最新版）",
     originalEmpty: "這一條沒有原文 —— 它是在這個機制存在之前寫的。",
     shaLabel: "摘要",

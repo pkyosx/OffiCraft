@@ -33,7 +33,6 @@ function summary(
   return {
     entryId: "lore-1",
     heading: "整套測試綠燈，而它跑過的分母是零",
-    impactStars: 2,
     subjects: ["repo:officraft"],
     ...over,
   };
@@ -43,17 +42,13 @@ function detail(over: Partial<LoreEntryDetailView> = {}): LoreEntryDetailView {
   return {
     entryId: "lore-1",
     heading: "整套測試綠燈，而它跑過的分母是零",
-    impactStars: 2,
     reviewed: false,
     content: "綠燈只證明它看得到的那些東西沒問題。",
-    revisitWhen: "",
-    impact: "",
     events: [],
     subjects: ["repo:officraft"],
     status: "active",
-    original: "heading:\n…\n\ncontent:\n…\n\nrevisit_when:\n\n\nimpact:\n\n\nevents:\n\n",
+    original: "heading:\n…\n\ncontent:\n…\n\nevents:\n\n",
     sha256: "a".repeat(64),
-    supersedes: "",
     writtenBy: "agent:Kyle",
     revisions: [],
     ...over,
@@ -77,8 +72,8 @@ beforeEach(() => {
   getLoreEntry.mockReset();
 });
 
-describe("LoreEntryCard 五格", () => {
-  it("展開後五格都印出欄位名，選填的空格印成空白而不是消失", async () => {
+describe("LoreEntryCard 每一格", () => {
+  it("展開後每一格都印出欄位名，六格時代的欄位名一個都不准回來", async () => {
     getLoreEntry.mockResolvedValue(detail());
     renderCard();
     await open();
@@ -86,15 +81,10 @@ describe("LoreEntryCard 五格", () => {
     for (const name of [
       zh.lore.fieldHeading,
       zh.lore.fieldContent,
-      zh.lore.fieldRevisitWhen,
-      zh.lore.fieldImpact,
-      zh.lore.fieldImpactStars,
       zh.lore.fieldEvents,
     ]) {
       expect(screen.getByText(name)).toBeTruthy();
     }
-    // 第 3、4 格空著 —— 兩格都要看得出來是「空白」,不是「沒有這一節」。
-    expect(screen.getAllByText(zh.lore.fieldEmpty).length).toBe(2);
     // 六格時代的欄位名一個都不准回來。
     expect(screen.queryByText(/證偽條件/)).toBeNull();
     expect(screen.queryByText(/殘餘風險/)).toBeNull();
@@ -102,6 +92,13 @@ describe("LoreEntryCard 五格", () => {
     // ⇒ 它的欄位名也不准回來。少了這一句，一個把空字串印成「什麼時候要記起來：
     // （空白）」的元件會通過，而畫面上那是「寫的人漏填了」，不是「沒有這一格」。
     expect(screen.queryByText(/什麼時候要記起來/)).toBeNull();
+    // 🔴 owner 2026-09-06 逐字「都改掉」拿掉的四格，欄位名一個都不准回來。少了
+    // 這幾句，一個仍然印「impact：（空白）」的元件會通過，而畫面上那是「寫的人
+    // 漏填了」，不是「沒有這一格」。
+    expect(screen.queryByText(/重新判一次/)).toBeNull();
+    expect(screen.queryByText(/原本想達成什麼/)).toBeNull();
+    expect(screen.queryByText(/重要性/)).toBeNull();
+    expect(screen.queryByText(/取代了/)).toBeNull();
   });
 
   it("一筆事件都沒有的時候，事件那一節照樣在並且說出來", async () => {

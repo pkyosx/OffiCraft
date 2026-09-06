@@ -20,7 +20,6 @@ function entry(over: Partial<LoreEntrySummaryView> = {}): LoreEntrySummaryView {
   return {
     entryId: "lore-1",
     heading: "整套測試綠燈，而它跑過的分母是零",
-    impactStars: 2,
     subjects: ["repo:officraft"],
     ...over,
   };

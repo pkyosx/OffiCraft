@@ -252,23 +252,9 @@ export function LoreEntryCard({ entry }: { entry: LoreEntrySummaryView }) {
                     那正是 v8 推翻掉的 v7 說法。 */}
                 <Field name={t.lore.fieldHeading} value={detail.heading} />
                 <Field name={t.lore.fieldContent} value={detail.content} />
-                <Field
-                  name={t.lore.fieldRevisitWhen}
-                  value={detail.revisitWhen}
-                />
-                <Field name={t.lore.fieldImpact} value={detail.impact} />
-                {/* 星等：owner 2026-09-05「評分也改了不用 用星等取代 因為 impact
-                    本就是重要性」⇒ 這一格就是這條條目的重要性，不是註腳。
-                    🔴 0 印成「還沒判」而不是 0 顆星：0 與 1（沒弄壞任何東西）
-                    必須分得開，否則沒有人查得出誰漏填。 */}
-                <Field
-                  name={t.lore.fieldImpactStars}
-                  value={
-                    detail.impactStars === 0
-                      ? ""
-                      : "★".repeat(detail.impactStars)
-                  }
-                />
+                {/* ⚠️ 這裡以前還印 revisit_when / impact / 星等三格。owner
+                    2026-09-06 逐字「都改掉」(訊息 c-3d3e5582c2d2) 把它們連同
+                    資料庫欄位一起拿掉了 ⇒ 沒有欄位可以印，不是排版決定。 */}
 
                 {/* 第 5 格。一筆都沒有的時候這一節照樣在,並且說出來 —— 跟後端
                     永遠渲染 `events:` 是同一條規則。 */}
@@ -297,12 +283,6 @@ export function LoreEntryCard({ entry }: { entry: LoreEntrySummaryView }) {
                   {t.lore.detailStatusLabel}：{detail.status}
                   {" · "}
                   {t.lore.detailWrittenByLabel}：{detail.writtenBy}
-                  {detail.supersedes !== "" && (
-                    <>
-                      {" · "}
-                      {t.lore.detailSupersedesLabel}：{detail.supersedes}
-                    </>
-                  )}
                 </div>
               </div>
 
