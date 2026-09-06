@@ -15,8 +15,17 @@
 //     boot_command (curl /api/warden/binary → chmod → ocwarden install shape).
 //   * MACHINE ONLINE — a real `ocwarden run` (env-fed OC_BASE/OC_TOKEN/OC_ID +
 //     OC_CLAUDE_BIN) holds the /api/events SSE; the machine flips online<15s.
-//   * ACTIVATE intent — POST /api/members/{id}/activate writes desired_state=online and
-//     binds host == machine_id (owner INTENT; server can't reach the host).
+//   * ACTIVATE intent — POST /api/members/{id}/activate writes desired_state=online
+//     and binds desired_machine_id == machine_id (owner INTENT; server can't
+//     reach the host).
+//     🔴 WHERE THAT IS READ (T-91): the activate route no longer echoes the
+//     roster row — it answers a bounded receipt (`id`, and the two
+//     response-only flags `activation_pending` / `last_op_reason`, both omitted
+//     when the START landed). So the receipt is asserted for what it IS (a
+//     receipt naming this member — the write is still pinned), and the two
+//     INTENT fields are read back off `GET /api/members/{id}`, the same read
+//     face steps 7 and 8 below already poll. Same for the hire in step 4: the
+//     POST /api/members answer is `{id}` and carries no `kind`.
 //   * SPAWN (the load-bearing seam) — within ~60s a tmux session `member-<id>`
 //     appears whose pane_pid is a REAL claude process launched with
 //     --mcp-config + --model, pointed at THIS isolated server (verified by ps).
@@ -202,7 +211,13 @@ test.describe('C1 · machine onboarding → agent spawn → warden-log START', (
       const hBody = await hire.json();
       agentId = hBody.id;
       expect(agentId, 'assistant id must be minted (m- prefix)').toMatch(/^m-/);
-      expect(hBody.kind).toBe('staff');
+      // The minted id is ALL the hire receipt carries since T-91 — `hBody.kind`
+      // used to be asserted right here and is no longer on this wire. The
+      // kind=staff request is honoured, read it back off the read face.
+      const hiredRow = await (
+        await request.get(`${BASE}/api/members/${agentId}`, { headers: auth })
+      ).json();
+      expect(hiredRow.kind, 'the hire must land as kind=staff').toBe('staff');
 
       // ---- STEP 5: activate the assistant onto the machine ----------------
       const activate = await request.post(
@@ -211,15 +226,35 @@ test.describe('C1 · machine onboarding → agent spawn → warden-log START', (
       );
       expect(activate.status(), 'activate must succeed').toBe(200);
       const aBody = await activate.json();
-      // Owner INTENT: desired_state flips online and the DESIRED placement binds to the
-      // machine id. At 948c7d1 the placement field is `desired_machine_id` (the DESIRED
-      // binding the warden reconciles against; handle_activate_member sets
-      // m.desired_machine_id = body.machine_id). The old `host` field was removed —
-      // `machine` on the DTO is the distinct OBSERVED position (empty until the warden
-      // reports), NOT the intent written here.
-      expect(aBody.desired_state, 'activate must write desired_state=online').toBe('online');
+      // Pin the WRITE for what it now answers (T-91): a bounded receipt naming
+      // this member. `desired_state` / `desired_machine_id` used to be read
+      // straight off this response and are no longer on it.
       expect(
-        aBody.desired_machine_id,
+        aBody.id,
+        'the activate receipt must name the member it activated',
+      ).toBe(agentId);
+      expect(
+        Object.prototype.hasOwnProperty.call(aBody, 'desired_state'),
+        'the activate receipt must NOT echo the roster row back (T-91)',
+      ).toBe(false);
+
+      // Owner INTENT, read off GET /api/members/{id} — the read face T-91 left
+      // serving the full DTO: desired_state flips online and the DESIRED
+      // placement binds to the machine id. At 948c7d1 the placement field is
+      // `desired_machine_id` (the DESIRED binding the warden reconciles against;
+      // handle_activate_member sets m.desired_machine_id = body.machine_id). The
+      // old `host` field was removed — `machine` on the DTO is the distinct
+      // OBSERVED position (empty until the warden reports), NOT the intent
+      // written here.
+      const activated = await (
+        await request.get(`${BASE}/api/members/${agentId}`, { headers: auth })
+      ).json();
+      expect(
+        activated.desired_state,
+        'activate must write desired_state=online',
+      ).toBe('online');
+      expect(
+        activated.desired_machine_id,
         'activate must bind desired_machine_id (desired placement) to the machine id',
       ).toBe(machineId);
 

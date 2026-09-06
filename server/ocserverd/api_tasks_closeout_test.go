@@ -88,7 +88,7 @@ func fatCloseoutTask(t *testing.T, api *apiServer, executor string) string {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("create fat task: %d %s", rec.Code, rec.Body.String())
 	}
-	task := decodeBody[taskCreateResultDTO](t, rec).Task
+	task := createdTaskView(t, api, rec)
 
 	steps := make([]map[string]any, 0, 15)
 	for i := 0; i < 15; i++ {

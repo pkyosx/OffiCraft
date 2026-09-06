@@ -894,7 +894,32 @@ func (s *apiServer) replaceBootDoc(w http.ResponseWriter, r *http.Request, spec 
 		internalError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, dto)
+	writeJSON(w, http.StatusOK, bootDocReceiptOf(dto))
+}
+
+// bootDocReceiptOf reduces the READ face's fold to the WRITE face's receipt
+// (T-91). Both write tails — replaceBootDoc above and resetBootDoc below — go
+// through it, so the eight write routes cannot answer with two shapes for one
+// document family.
+//
+// 🔴 IT TAKES THE FOLD, IT DOES NOT REPLACE IT. foldBootDocDTO is still called
+// exactly where it was: it is what the wipe guard and the cap gate read BEFORE
+// the write (as `current`), and what both tails re-read AFTER it. Reducing the
+// answer at the very last step is the only way to leave those guards judging
+// the same text they always judged.
+//
+// size_chars/sha256 are measured on the STORED document (head + body), not the
+// body — the same text foldBootDocDTO reports and the same number the cap
+// refusal quotes, so the three cannot say different things about one document.
+func bootDocReceiptOf(dto *bootDocDTO) bootDocumentReceiptDTO {
+	return bootDocumentReceiptDTO{
+		Kind:      dto.Kind,
+		Key:       dto.Key,
+		IsDefault: dto.IsDefault,
+		SizeChars: dto.SizeChars,
+		CapChars:  dto.CapChars,
+		Sha256:    receiptSha256(dto.Text),
+	}
 }
 
 // bootDocStoredText turns a caller's BODY into the bytes that get stored, by
@@ -1034,7 +1059,7 @@ func (s *apiServer) resetBootDoc(w http.ResponseWriter, r *http.Request, spec bo
 		internalError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, dto)
+	writeJSON(w, http.StatusOK, bootDocReceiptOf(dto))
 }
 
 // GET /api/system-interaction — the folded 系統互動 block.

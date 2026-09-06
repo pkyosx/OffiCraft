@@ -3,6 +3,12 @@
 // write-back of 學習經驗 on task close surfaces live); every owner mutation
 // ALSO refetches directly so the mock behaves identically.
 //
+// 🔴 T-91: an owner mutation is a WRITE FOLLOWED BY A RE-READ, and nothing
+// renders off the write's own answer any more. `update` used to hand its echo
+// back so the 任務定義 / 學習經驗 sub-page could adopt it; the update receipt
+// reports only the sizes of the documents that call actually wrote, so adopting
+// it would blank a 16,000-character SOP the moment somebody saved it.
+//
 // Error split mirrors the other resource hooks: `error` is the honest
 // load-failure flag (never render a dead fetch as "no manuals"); mutation
 // rejections PROPAGATE to the caller — the pages surface them inline
@@ -31,8 +37,15 @@ interface UseTaskManuals {
    * server-side and must not be assumed into local state. */
   refetch: () => Promise<void>;
   /** Create by DISPLAY NAME (T-fa76) — the server mints the tm- type_key. */
-  create: (displayName: string) => Promise<TaskManualView>;
-  update: (typeKey: string, patch: TaskManualPatch) => Promise<TaskManualView>;
+  /** Create, then refetch. Resolves with the `tm-` type_key the SERVER minted
+   * — T-91: the write answers a receipt, not the manual, so the manual itself
+   * comes from the refetch this awaits (`manuals`), never from the write. */
+  create: (displayName: string) => Promise<{ typeKey: string }>;
+  /** Partial update. RE-READS the list; the sub-page that renders the SOP or
+   * the 學習經驗 re-reads its own manual (useTaskManual.refetch). Returns
+   * nothing on purpose (T-91): the update receipt reports only the documents
+   * THIS call wrote, as sizes — never their text. */
+  update: (typeKey: string, patch: TaskManualPatch) => Promise<void>;
   remove: (typeKey: string) => Promise<void>;
 }
 
@@ -74,7 +87,17 @@ export function useTaskManuals(): UseTaskManuals {
   const create = useCallback(
     async (displayName: string) => {
       const created = await api.createTaskManual(displayName);
-      await refetch();
+      // The manual EXISTS from here on — the directory refresh only decides how
+      // soon the new row shows. Rejecting on it would tell the caller the create
+      // failed, and the retry collides with the manual it just made.
+      try {
+        await refetch();
+      } catch (e) {
+        console.warn(
+          "useTaskManuals: post-create refetch failed (the manual was created)",
+          e
+        );
+      }
       return created;
     },
     [refetch]
@@ -82,9 +105,17 @@ export function useTaskManuals(): UseTaskManuals {
 
   const update = useCallback(
     async (typeKey: string, patch: TaskManualPatch) => {
-      const next = await api.updateTaskManual(typeKey, patch);
-      await refetch();
-      return next;
+      await api.updateTaskManual(typeKey, patch);
+      // The patch has landed; the list re-read is the separate step. Letting it
+      // reject here is what puts 儲存失敗 on TaskManualsPage over a saved edit.
+      try {
+        await refetch();
+      } catch (e) {
+        console.warn(
+          "useTaskManuals: post-update refetch failed (the manual was updated)",
+          e
+        );
+      }
     },
     [refetch]
   );
@@ -92,7 +123,15 @@ export function useTaskManuals(): UseTaskManuals {
   const remove = useCallback(
     async (typeKey: string) => {
       await api.deleteTaskManual(typeKey);
-      await refetch();
+      // The manual is deleted whatever the directory read does next.
+      try {
+        await refetch();
+      } catch (e) {
+        console.warn(
+          "useTaskManuals: post-delete refetch failed (the manual was deleted)",
+          e
+        );
+      }
     },
     [refetch]
   );
@@ -111,10 +150,6 @@ interface UseTaskManual {
    * list row can be present and this read still fail. */
   error: boolean;
   refetch: () => Promise<void>;
-  /** Take a manual this page already has in hand (an update echo) as the
-   * current document — zero requests, and the edit is on screen the instant
-   * the server acknowledged it rather than whenever the SSE frame lands. */
-  adopt: (doc: TaskManualView) => void;
 }
 
 /**
@@ -183,10 +218,5 @@ export function useTaskManual(typeKey: string): UseTaskManual {
     };
   }, [typeKey]);
 
-  const adopt = useCallback((doc: TaskManualView) => {
-    setManual(doc);
-    setError(false);
-  }, []);
-
-  return { manual, loading, error, refetch, adopt };
+  return { manual, loading, error, refetch };
 }

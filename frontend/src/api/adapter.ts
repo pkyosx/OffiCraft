@@ -362,6 +362,22 @@ export interface ReplyCard {
   task?: TaskRefView | null;
 }
 
+/** What the three reply-card WRITES answer (wire `ReplyCardReceiptDTO`, T-91):
+ * ONLY the transition the write performed. The question, its options, its
+ * attachments and its task ref are NOT decided by answer/re-answer/expire, so
+ * they stopped riding the response — fold this into the card already on screen
+ * via `lib/replyCardReceipt.ts`'s `mergeReplyCardWrite` rather than treating it
+ * as a card. It is deliberately NOT a subtype of `ReplyCard`: making it one
+ * would let a receipt be stored where a card is rendered, which is exactly the
+ * silent blanking this shape exists to make impossible. */
+export interface ReplyCardWriteReceipt {
+  id: string;
+  status: "waiting" | "answered" | "expired";
+  answer: ReplyCardAnswer | null;
+  answeredTs: number | null;
+  expiredTs: number | null;
+}
+
 /** The LIGHT task reference riding a task-armed reply card (wire TaskRefDTO).
  * Deliberately narrow: `id` is ONLY the #tasks jump anchor; the UI shows the
  * TYPE (typeKey; "" ⇒ 自由代辦) — never the task number/識別鍵 (adjudicated:
@@ -808,22 +824,16 @@ export interface OutsourceWorkerView {
    * worker panel's identity action row. "" from a
    * pre-column row reads as online. */
   desiredState?: string;
-  /**
-   * RESPONSE-ONLY signals an owner verb leaves on its own answer (T-ed79 #5/#12,
-   * wire `relocation_pending` / `relocation_deferred` / `activation_pending`) —
-   * the worker twins of {@link MemberRelocateResult} / {@link MemberActivateResult}.
-   *
-   * `undefined` on every list/GET and on every verb that has nothing to defer, so
-   * "this answer does not carry the signal" stays distinguishable from "false".
-   *
-   * `relocationPending` is true for BOTH a deliberate deferral and a move that
-   * could not be dispatched at all; `relocationDeferred` is what tells them
-   * apart, and a consumer must NOT raise a "nothing was dispatched" alert while
-   * it is true.
-   */
-  relocationPending?: boolean;
-  relocationDeferred?: boolean;
-  activationPending?: boolean;
+  /* 🔴 NO `relocationPending` / `relocationDeferred` / `activationPending` HERE,
+   * and the absence is deliberate rather than an oversight (T-91, owner
+   * 2026-09-06). They were response-only signals (T-ed79 #5/#12) that an owner
+   * verb left on the worker row it answered with. Every worker WRITE now answers
+   * a bounded receipt instead — `AgentRelocateReceiptDTO` and
+   * `OutsourceRestartReceiptDTO` carry the three flags — so the only builders of
+   * this type are the read faces (`listOutsourceWorkers`, `getOutsourceWorker`),
+   * where the server never set them. `OutsourceWorkerDTO` stopped declaring them
+   * in the same change, so there is nothing left for a mapper to pass through.
+   * If you need "was this move dispatched?", read the relocate's own answer. */
 }
 
 /** One task type (任務手冊) in the LIGHT list shape the tasks page needs for
@@ -1254,12 +1264,19 @@ export interface RoleCreateInput {
   effort?: string;
 }
 
-/** The created pair (mirrors `RoleCreateResultDTO`): the folded custom role doc
- * (isSeed=false, template definitionMd) + the founding member (initially
- * OFFLINE — creating never spawns; it surfaces on the roster immediately). */
+/** What `createRole` MINTED (mirrors `RoleCreateResultDTO`, T-91): the two ids
+ * the server assigned, plus the member name it may have picked from the pool
+ * when the caller did not name one. Deliberately NOT the role doc and NOT the
+ * member row — the write stopped echoing either, and the roster the cockpit
+ * renders comes from the LIST read that follows the create (`useRoles.create`).
+ * Anything to be SHOWN must be read back; the ids are here so the caller can
+ * address what it just made. The founding member is still created OFFLINE
+ * (creating never spawns) — that is a property of the write, not of this
+ * shape. */
 export interface RoleCreateResult {
-  role: RoleDefView;
-  member: Member;
+  roleKey: string;
+  memberId: string;
+  memberName: string;
 }
 
 /** One webhook endpoint bound to a member (M4 回呼端點, view model of
@@ -1844,7 +1861,12 @@ export interface Api {
    * per owner acceptance; the backend route (and this client mirror) stays.
    */
   dismissMember(id: string): Promise<void>;
-  patchMember(id: string, patch: MemberPatch): Promise<Member>;
+  /** Edit a member's name / runtime / model / effort (`PATCH /api/members/{id}`).
+   * PATCH semantics — only supplied fields ride the body. The write answers a
+   * bounded receipt (`{id}`, T-91), not the member row, so this resolves VOID:
+   * the row it used to parse and return was never read by any caller, and the
+   * cockpit refetches. */
+  patchMember(id: string, patch: MemberPatch): Promise<void>;
   /** Refocus context (online-only server-side). */
   refocusMember(id: string): Promise<void>;
   /** List a member's webhook endpoints (`GET /api/members/{id}/webhooks`),
@@ -1885,7 +1907,7 @@ export interface Api {
   createScheduledMessage(
     memberId: string,
     input: ScheduledMessageCreateInput,
-  ): Promise<ScheduledMessage>;
+  ): Promise<{ id: string }>;
   /** Edit a scheduled message, including the enable/disable toggle
    * (`PATCH /api/members/{id}/scheduled-messages/{scheduleId}`). Re-aiming any
    * cadence/slot field moves the cursor to the slot most recently elapsed, so
@@ -1894,7 +1916,7 @@ export interface Api {
     memberId: string,
     scheduleId: string,
     patch: ScheduledMessageUpdate,
-  ): Promise<ScheduledMessage>;
+  ): Promise<{ id: string }>;
   /** Permanently remove a scheduled message
    * (`DELETE /api/members/{id}/scheduled-messages/{scheduleId}`) — distinct
    * from `status: disabled`, which is the reversible suspend. */
@@ -2008,7 +2030,7 @@ export interface Api {
      * only writer of the stored link; a forged `meta.reply_to` is dropped.
      * Omitted on an ordinary post. */
     replyTo?: string;
-  }): Promise<ChatMessage>;
+  }): Promise<void>;
   /** Mark a conversation (with `peer`) read up to `lastReadTs` — the caller's own
    * read watermark (reader = the verified JWT sub server-side; anti-spoof). The
    * watermark is monotonic; a stale ts is a no-op. Returns the effective receipt. */
@@ -2061,7 +2083,10 @@ export interface Api {
    * card → 400, already answered → 409 (all reject as ApiError). Returns the answered
    * card; the caller refetches lists + count (the SSE delta also fans).
    */
-  answerReplyCard(id: string, answer: ReplyCardAnswerInput): Promise<ReplyCard>;
+  answerReplyCard(
+    id: string,
+    answer: ReplyCardAnswerInput,
+  ): Promise<ReplyCardWriteReceipt>;
   /**
    * Revise an ANSWERED card's answer (`PUT /api/reply-cards/{id}/answer` —
    * 重新決定, the owner changing their OWN answer). Same body + validation as
@@ -2072,7 +2097,7 @@ export interface Api {
   reanswerReplyCard(
     id: string,
     answer: ReplyCardAnswerInput,
-  ): Promise<ReplyCard>;
+  ): Promise<ReplyCardWriteReceipt>;
   /**
    * Mark a WAITING card expired (`POST /api/reply-cards/{id}/expire` — 標為過期,
    * the terminal exit that is NOT an answer; its author, the owner, or an admin
@@ -2083,7 +2108,7 @@ export interface Api {
    * the expired card; the caller refetches lists + count (the SSE delta also
    * fans).
    */
-  expireReplyCard(id: string): Promise<ReplyCard>;
+  expireReplyCard(id: string): Promise<ReplyCardWriteReceipt>;
   // ── Tasks (M3 任務頁 + 任務卡) ──────────────────────────────────────────────
   /**
    * List tasks as LIGHT list items (the collapsed card's fields +
@@ -2163,7 +2188,7 @@ export interface Api {
    * releases any bound outsource worker. Returns the terminated task; the
    * caller refetches (the SSE delta also fans).
    */
-  terminateTask(id: string): Promise<TaskView>;
+  terminateTask(id: string): Promise<void>;
   /**
    * Mark a task duplicated (`POST /api/tasks/{id}/duplicate`), pointing at the
    * ORIGINAL it duplicates — so whoever spots the duplicate closes it instead of
@@ -2173,7 +2198,7 @@ export interface Api {
    * duplicate (all 409, thrown as ApiError); an already-closed task is a 409.
    * Returns the duplicated task; the SSE delta also fans.
    */
-  markTaskDuplicate(id: string, duplicateOf: string): Promise<TaskView>;
+  markTaskDuplicate(id: string, duplicateOf: string): Promise<void>;
   /**
    * Owner priority change (`POST /api/tasks/{id}/priority`): `high` | `mid` |
    * `low` | `frozen` — freeze/unfreeze ride the same knob (spec §3.3). Closed
@@ -2214,7 +2239,7 @@ export interface Api {
    * listDocumentHistory. Returns the task after the change; the SSE `task`
    * delta also fans.
    */
-  updateTaskDescription(id: string, description: string): Promise<TaskView>;
+  updateTaskDescription(id: string, description: string): Promise<void>;
   /**
    * Correct one task's title (`POST /api/tasks/{id}/title`, T-2ebe) — the ONLY
    * cell of a task the task list renders, and so the half of a card most likely
@@ -2245,7 +2270,7 @@ export interface Api {
    * over that same key. Returns the task after the change; the SSE `task` delta
    * also fans.
    */
-  updateTaskTitle(id: string, title: string): Promise<TaskView>;
+  updateTaskTitle(id: string, title: string): Promise<void>;
   /**
    * Reassign a task (`POST /api/tasks/{id}/reassign`) — owner + 特助 only
    * (the server gates it; a member/worker caller is a 403). The server expires
@@ -2256,7 +2281,7 @@ export interface Api {
    * member target a 400/409 (all throw ApiError). Returns the task after the
    * move; the caller refetches (the SSE delta also fans).
    */
-  reassignTask(id: string, input: TaskReassignInput): Promise<TaskView>;
+  reassignTask(id: string, input: TaskReassignInput): Promise<void>;
   /**
    * Un-pin one artifact from a task's set (`DELETE /api/tasks/{id}/artifact/
    * {artifactId}`) — the owner/admin cockpit action (T-3dc5; the executing
@@ -2310,35 +2335,46 @@ export interface Api {
    * member machine-bind. Writes the owner-pinned placement, kills the current
    * session, and clears pacing so the next tick re-spawns on the chosen machine
    * (no lifecycle change). machineId = a concrete machine id that must resolve,
-   * or "" (clear the pin). Returns the freshly-projected
-   * worker; the caller can also lean on the outsource_worker SSE refetch. (T-f190) */
-  relocateWorker(id: string, machineId: string): Promise<OutsourceWorkerView>;
+   * or "" (clear the pin).
+   *
+   * Resolves VOID. The write answers the SAME AgentRelocateReceiptDTO the member
+   * arm gets (T-91), flags and all — but this arm reads none of them: unlike
+   * {@link relocateMember} there is no worker-side 移動中… notice to keep put, and
+   * the only caller awaits and discards. The caller refetches / leans on the
+   * outsource_worker SSE delta, exactly as it already did. (T-f190) */
+  relocateWorker(id: string, machineId: string): Promise<void>;
   /** Refocus a worker (`POST /api/outsource-workers/{id}/refocus`, owner/admin-agent) —
    * the cockpit's 換手, the worker twin of refocusMember. Kills the current
    * session and re-spawns a fresh worker onto the SAME task. ONLINE-ONLY (409
-   * otherwise); stopped → 409; unknown/released → 404. Returns the freshly
-   * projected worker. (T-32e1) */
-  refocusWorker(id: string): Promise<OutsourceWorkerView>;
+   * otherwise); stopped → 409; unknown/released → 404. Resolves VOID: the write
+   * answers a bounded receipt (`{id}`, T-91), not the worker, and the caller
+   * refetches. (T-32e1) */
+  refocusWorker(id: string): Promise<void>;
   /** Stop a worker (`POST /api/outsource-workers/{id}/stop`, owner/admin-agent) — the
    * FIRST rung of 停止 → 加速停止 → 強制停止 and, since T-ed79, a GRACEFUL
    * CLOSE-OUT rather than a kill (owner 2026-08-21 「往正職靠：外包那顆改成優雅
    * 停止」): it holds the worker down (desired offline, presence
    * "stopping"/"stopped", no auto-revival), shows it the 〈停止〉 and WAITS for
    * its own report_stopped. No deadline unless the owner escalates. The bound
-   * task stays put. Idempotent; unknown/released → 404. (T-f190, T-ed79) */
-  stopWorker(id: string): Promise<OutsourceWorkerView>;
+   * task stays put. Idempotent; unknown/released → 404. Resolves VOID: the write
+   * answers a bounded receipt (`{id}`, T-91), not the worker, and the caller
+   * refetches. (T-f190, T-ed79) */
+  stopWorker(id: string): Promise<void>;
   /** 加速停止 a worker (`POST /api/outsource-workers/{id}/accelerated-stop`,
    * owner/admin-agent) — the MIDDLE rung. Puts the wind-down that is ALREADY open
    * (a 停止 or a 換手) on the server's `stop.accelerated_grace_secs` clock and
    * TELLS the worker; it is not a kill, so the worker can still finish early.
    * 409 when nothing is winding down, when the worker is offline/released, or
-   * when it was force-stopped. (T-ed79) */
-  acceleratedStopWorker(id: string): Promise<OutsourceWorkerView>;
+   * when it was force-stopped. Resolves VOID: the write answers a bounded
+   * receipt (`{id}`, T-91), not the worker, and the caller refetches. (T-ed79) */
+  acceleratedStopWorker(id: string): Promise<void>;
   /** 強制停止 a worker (`POST /api/outsource-workers/{id}/force-stop`,
    * owner/admin-agent) — the THIRD rung, and the body /stop used to have: kill the
    * session NOW and hold it down. It says NOTHING to the worker (the recipient is
-   * about to stop existing). Idempotent; unknown/released → 404. (T-ed79) */
-  forceStopWorker(id: string): Promise<OutsourceWorkerView>;
+   * about to stop existing). Idempotent; unknown/released → 404. Resolves VOID:
+   * the write answers a bounded receipt (`{id}`, T-91), not the worker, and the
+   * caller refetches. (T-ed79) */
+  forceStopWorker(id: string): Promise<void>;
   /** WAKE a worker with no live session (`POST /api/outsource-workers/{id}/restart`,
    * owner/admin-agent) — clear the stop and re-dispatch. ⚠️ The owner-facing word
    * is 喚醒 since T-7526 (「重啟」 retired, one verb across both panels); the
@@ -2346,14 +2382,15 @@ export interface Api {
    * not intent (T-7526): 409 only when the worker is BOTH not held down and
    * currently online, so a worker whose session died on its own is revivable.
    * unknown/released → 404. (T-f190) */
-  restartWorker(id: string): Promise<OutsourceWorkerView>;
+  restartWorker(id: string): Promise<void>;
   /** Change a worker's model/effort (`POST /api/outsource-workers/{id}/model`,
    * owner/admin-agent) — active+online → kill+respawn to take effect now, otherwise
-   * persist for the next spawn. Returns the freshly projected worker. (T-f190) */
+   * persist for the next spawn. Resolves VOID: the write answers a bounded
+   * receipt (`{id}`, T-91), not the worker, and the caller refetches. (T-f190) */
   setWorkerModel(
     id: string,
     patch: { runtime?: "claude" | "codex"; model: string; effort?: string },
-  ): Promise<OutsourceWorkerView>;
+  ): Promise<void>;
   /** Read a worker's boot-context PREVIEW (`GET
    * /api/outsource-workers/{id}/boot-context`, owner/admin-agent) — the worker twin
    * of getBootstrap's role preview: the server re-assembles the persona text
@@ -2381,14 +2418,14 @@ export interface Api {
   /** Create a task type from its DISPLAY NAME (T-fa76): the server mints the
    * `tm-` type_key (returned on the view) — the id is the system's, the text
    * is the human's. Blank name → 400/422 (throws ApiError). */
-  createTaskManual(displayName: string): Promise<TaskManualView>;
+  createTaskManual(displayName: string): Promise<{ typeKey: string }>;
   /** Partial manual edit (`POST /api/task-manuals/{type_key}`) — only supplied
    * fields change; `assignee: null` unsets (wire `{}`). Returns the manual
    * after the edit. Unknown → 404 (throws). */
   updateTaskManual(
     typeKey: string,
     patch: TaskManualPatch,
-  ): Promise<TaskManualView>;
+  ): Promise<void>;
   /** Delete a task type (`DELETE /api/task-manuals/{type_key}`). OPEN
    * (non-terminal) tasks of the type → 409 (throws — the UI surfaces the
    * human-readable 先讓任務結束 message); unknown → 404. */
@@ -2517,11 +2554,12 @@ export interface Api {
   removeSigningKey(keyId: string): Promise<SigningKeyView[]>;
   /** The folded global-context doc (owner overlay ⊕ file seed). */
   getGlobalContext(): Promise<GlobalContextView>;
-  /** Whole-doc replace of the global context → returns the folded doc
-   * (`isDefault` flips false). */
-  saveGlobalContext(text: string): Promise<GlobalContextView>;
+  /** Whole-doc replace of the global context. The write answers with a
+   * bounded receipt (T-91), not the folded doc; read it back with
+   * `getGlobalContext` (`isDefault` flips false there). */
+  saveGlobalContext(text: string): Promise<void>;
   /** Reset the global context to seed (idempotent tombstone → `isDefault` true). */
-  resetGlobalContext(): Promise<GlobalContextView>;
+  resetGlobalContext(): Promise<void>;
   /**
    * The folded boot-context / lifecycle document (T-791e, widened by T-3201),
    * addressed by (kind, key). Every kind serves exactly one key, "global",
@@ -2538,8 +2576,9 @@ export interface Api {
    * cockpit keeps no list of which ones those are.
    */
   getBootDoc(kind: BootDocKind, key: string): Promise<BootDocView>;
-  /** Replace the EDITABLE HALF of ONE boot-context block → the folded doc
-   * (`isDefault` flips false).
+  /** Replace the EDITABLE HALF of ONE boot-context block. The write answers
+   * with a bounded receipt (T-91), not the folded doc; read it back with
+   * `getBootDoc` (`isDefault` flips false there).
    *
    * 🔴 IT TAKES `body`, NOT THE DOCUMENT (T-3201). The read-only head is not
    * something this call can get wrong — there is no field for it, and the
@@ -2554,27 +2593,29 @@ export interface Api {
     kind: BootDocKind,
     key: string,
     body: string
-  ): Promise<BootDocView>;
+  ): Promise<void>;
   /**
-   * Restore ONE boot-context block to its FACTORY version → the folded doc
-   * (`isDefault` true).
+   * Restore ONE boot-context block to its FACTORY version. The write answers
+   * with a bounded receipt (T-91), not the folded doc; read it back with
+   * `getBootDoc` (`isDefault` true there).
    *
    * 🔴 This is the recovery path for the failure this whole surface risks: a
    * broken boot sequence means agents never attach to SSE, so they never come
    * online, so there is nobody online to fix it from. It must stay reachable
    * from the cockpit without a successful read and without any agent being up.
    */
-  resetBootDoc(kind: BootDocKind, key: string): Promise<BootDocView>;
+  resetBootDoc(kind: BootDocKind, key: string): Promise<void>;
   /** List the role roster as a DIRECTORY (seed defaults + owner edits).
    * T-1170: `definition_md` is NOT in this answer, only its size and the cap;
    * the persona body comes from `getRole`. */
   listRoles(): Promise<RoleSummaryView[]>;
   /** The folded role definition for `key`. */
   getRole(key: string): Promise<RoleDefView>;
-  /** Partial edit of a role definition → returns the folded doc. */
-  saveRole(key: string, patch: RolePatch): Promise<RoleDefView>;
+  /** Partial edit of a role definition. The write answers with a bounded
+   * receipt (T-91), not the folded doc; read it back with `getRole`. */
+  saveRole(key: string, patch: RolePatch): Promise<void>;
   /** Reset a role definition to seed (idempotent tombstone → `isDefault` true). */
-  resetRole(key: string): Promise<RoleDefView>;
+  resetRole(key: string): Promise<void>;
   /**
    * Create ONE custom role + its ONE founding member (`POST /api/roles`, M2-2).
    * The server mints both ids; the role doc starts from the 「你是誰 / 你做什麼」
@@ -2611,14 +2652,15 @@ export interface Api {
    */
   getLessons(roleKey: string): Promise<LessonsView>;
   /**
-   * Whole-doc replace of the PER-ROLE lessons for a `roleKey` →
-   * returns the folded doc (`isDefault` flips false). Backend contract is POST
+   * Whole-doc replace of the PER-ROLE lessons for a `roleKey`. The write
+   * answers with a bounded receipt (T-91), not the folded doc; read it back
+   * with `getLessons` (`isDefault` flips false there). Backend contract is POST
    * (NOT the PUT/DELETE the global-context save uses). WRITE authz is per-role
    * and keyed on the PRINCIPAL CLASS, not the token scope (T-5336): a caller at
    * or above admin_agent — the owner (this UI's scope) and the admin agent —
    * may write ANY role; every other agent may write only its own role.
    */
-  saveLessons(roleKey: string, text: string): Promise<LessonsView>;
+  saveLessons(roleKey: string, text: string): Promise<void>;
   /**
    * The folded PER-ROLE insight doc for a `roleKey` (T-3809) — the role
    * journal's third block, beside Duty and Learning. No file seed, so an
@@ -2630,14 +2672,15 @@ export interface Api {
    */
   getInsight(roleKey: string): Promise<InsightView>;
   /**
-   * Whole-doc replace of the PER-ROLE insight doc → returns the folded doc
-   * (`isDefault` flips false). WRITE authz is per-role and keyed on the
+   * Whole-doc replace of the PER-ROLE insight doc. The write answers with a
+   * bounded receipt (T-91), not the folded doc; read it back with `getInsight`
+   * (`isDefault` flips false there). WRITE authz is per-role and keyed on the
    * PRINCIPAL CLASS: a caller at or above admin_agent — the owner (this UI's
    * scope) and the admin agent — may write ANY role; every other agent may
    * write only its own role, and the 403 names `insight` rather than borrowing
    * the lessons wording.
    */
-  saveInsight(roleKey: string, text: string): Promise<InsightView>;
+  saveInsight(roleKey: string, text: string): Promise<void>;
   /**
    * Reset the PER-ROLE insight doc back to its factory seed (T-6501) —
    * idempotent tombstone → the folded read is `seeds/insight_<role_key>.md`
@@ -2648,7 +2691,7 @@ export interface Api {
    * about keeping every implementation of this port honest, not about a path
    * the UI walks.
    */
-  resetInsight(roleKey: string): Promise<InsightView>;
+  resetInsight(roleKey: string): Promise<void>;
   /**
    * The retained revisions of ONE editable long-form document as a DIRECTORY,
    * newest first (`GET /api/document-history/{kind}/{key}`). At most 3 are

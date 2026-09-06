@@ -30,6 +30,7 @@ import {
   __injectMockTask,
   __injectMockTaskManual,
 } from "../api/mock";
+import { mockApiError } from "../api/errorCodes";
 import { api } from "../api";
 import type { TaskManualView, TaskView } from "../api/adapter";
 
@@ -856,5 +857,52 @@ describe("設定 › 任務手冊 — deep link (T-e987 任務類型 label 跳�
       </I18nProvider>
     );
     expect(await findByTestId("manuals-empty")).toBeTruthy();
+  });
+});
+describe("設定 › 任務手冊 — 完成編輯 的兩個 await (T-91)", () => {
+  // 8. A saved block that the RE-READ could not confirm still counts as saved.
+  //    Since T-91 the PATCH answers a receipt, so this page writes and then
+  //    re-reads the manual; those are two promises about two different things
+  //    and only the first one is the save. When the re-read blips, the block
+  //    used to close on 儲存失敗 over an edit the server already had — and the
+  //    owner's natural retry wrote it a second time.
+  it("a save that lands with a re-read that fails is NOT reported as 儲存失敗", async () => {
+    __injectMockTaskManual(mkManual({ typeKey: "review-pr" }));
+    const readManual = api.getTaskManual.bind(api);
+    const { findByTestId, getByTestId, queryByText, container } =
+      await renderManualsList();
+    fireEvent.click(await findByTestId("manual-open-review-pr"));
+    fireEvent.click(await findByTestId("manual-entry-definition"));
+    await findByTestId("manual-definition-card");
+
+    // From here on EVERY read fails — the manual's own re-read (SettingsPage's
+    // `onSave`) and the directory refetch inside `useTaskManuals.update`.
+    // Nothing touches the PATCH, which keeps landing.
+    let readsBroken = false;
+    vi.spyOn(api, "getTaskManual").mockImplementation(async (key) => {
+      if (readsBroken) throw mockApiError("read failed", 503, "");
+      return readManual(key);
+    });
+    vi.spyOn(api, "listTaskManuals").mockImplementation(async () => {
+      throw mockApiError("read failed", 503, "");
+    });
+
+    fireEvent.click(getByTestId("manual-def-edit-1"));
+    await findByTestId("manual-purpose-input");
+    fireEvent.change(getByTestId("manual-purpose-input"), {
+      target: { value: "Review 進來的 Pull Request。" },
+    });
+    readsBroken = true;
+    fireEvent.click(getByTestId("manual-def-done-1"));
+
+    // The block closes the way a SUCCESSFUL save closes it: back to read-only…
+    await waitFor(() => expect(getByTestId("manual-def-edit-1")).toBeTruthy());
+    // …and the write really did land (asked through the un-mocked store).
+    expect(updateManualPatches).toEqual([
+      { purpose: "Review 進來的 Pull Request。" },
+    ]);
+    // …with no save error anywhere on the page.
+    expect(queryByText("儲存失敗，請稍後重試")).toBeNull();
+    expect(container.querySelector(".set-error")).toBeNull();
   });
 });

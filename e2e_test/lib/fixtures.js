@@ -103,16 +103,29 @@ async function ownerToken(request) {
 }
 
 // Hire a fresh roster member (kind=staff so it surfaces on the office
-// roster). Returns the full MemberDTO. Each spec hires its OWN members (specs
-// run in parallel workers against the one shared isolated server — never
-// mutate another spec's fixtures, and never dismiss the seed `mira`).
+// roster). Each spec hires its OWN members (specs run in parallel workers
+// against the one shared isolated server — never mutate another spec's
+// fixtures, and never dismiss the seed `mira`).
+//
+// 🔴 RETURN SHAPE — this used to say "Returns the full MemberDTO", and since
+// T-91 POST /api/members answers a bounded receipt (`{id}`) instead of the
+// roster row. The fixture keeps handing callers an object with BOTH `id` and
+// `name` rather than passing the bare receipt through, because `name` is the
+// caller's OWN argument — it never needed the server to say it back, and five
+// UI call sites (13_reply_cards ×3, 14_chat_date_divider, and
+// 19_user_operation_contracts) locate a `.member-card` by `hired.name`. Every
+// OTHER field the old DTO carried is genuinely gone from this answer: a spec
+// that needs roster_status / presence / machine / runtime must read it from
+// `GET /api/members/{id}`, which still serves the full DTO.
 async function hireMember(request, token, name) {
   const res = await request.post(`${BASE}/api/members`, {
     headers: authHeaders(token),
     data: { name, kind: 'staff' },
   });
   expect(res.status(), `hiring member "${name}" must succeed`).toBe(200);
-  return res.json();
+  const receipt = await res.json();
+  expect(receipt.id, `hiring member "${name}" must mint an id`).toBeTruthy();
+  return { ...receipt, name };
 }
 
 // Owner-gated mint of a member's agent-scope token. ttl_days is REQUIRED by

@@ -135,18 +135,25 @@ func TestGetTaskArtifactsAreACountAndTheResponseSaysSo(t *testing.T) {
 	}
 }
 
-// TestTaskArtifactCountRidesEveryExitOfTheSharedBuilder: the slimming is done in
-// newTaskDTO so that nine responses get thinner at once (EXECUTOR JUDGEMENT —
-// the owner ruled the payload, not the layer). A per-handler fix would leave
-// the other eight serving the fat rows, so one of the eight is checked here.
-func TestTaskArtifactCountRidesEveryExitOfTheSharedBuilder(t *testing.T) {
+// TestTaskWriteFacesCarryTheArtifactCountAndNoRows: T-66 slimmed the artifact
+// set inside newTaskDTO so that nine responses got thinner at once rather than
+// one handler being fixed while the other eight kept serving the fat rows. This
+// test stood on one of those eight — set_task_deps, a WRITE face with no reason
+// of its own to know anything about artifacts.
+//
+// 🔴 TWO TICKETS MOVED THIS TEST'S PREMISE, and it moved rather than being
+// deleted either time. T-91 took the write faces off the shared builder
+// entirely: the eight task-driving writes answer taskWriteReceiptDTO, which
+// carries `artifact_count` and no artifact rows of any kind. T-92 then took the
+// id+label index off the READ face too, so what is left to distinguish is not
+// index-vs-full but count-vs-rows. The claim underneath both is the same one and
+// it only got stronger: a write face must not be a door onto the artifact set.
+func TestTaskWriteFacesCarryTheArtifactCountAndNoRows(t *testing.T) {
 	api := newTasksTestServer(t)
-	taskID, _ := t66ArtifactFixture(t, api, "m-exec")
+	taskID, artID := t66ArtifactFixture(t, api, "m-exec")
 
-	// set_task_deps stands for the other eight: a WRITE face that answers with
-	// the whole task and has no reason of its own to know anything about
-	// artifacts — which is exactly why it would still be carrying them if the
-	// slimming had been done in the get_task handler.
+	// set_task_deps stands for the other seven: if a write face were still built
+	// on the shared task builder, this is where the rows would show up.
 	rec := httptest.NewRecorder()
 	api.HandleSetTaskDepsApiTasksTaskIdDepsPost(rec,
 		taskReq(t, "POST", "/api/tasks/"+taskID+"/deps",
@@ -157,14 +164,21 @@ func TestTaskArtifactCountRidesEveryExitOfTheSharedBuilder(t *testing.T) {
 	if strings.Contains(rec.Body.String(), t66ArtifactURL) {
 		t.Fatalf("set_task_deps still carries the artifact URL: %s", rec.Body.String())
 	}
+	// The ID too, not only the URL: the index row T-66 used to carry had the id
+	// in it, so a response that had merely dropped `url` would pass the check
+	// above. T-92 removed that index from the read face; this keeps the write
+	// face pinned against it coming back.
+	if strings.Contains(rec.Body.String(), artID) {
+		t.Fatalf("set_task_deps still carries an artifact row: %s", rec.Body.String())
+	}
 	var raw map[string]json.RawMessage
 	if err := json.Unmarshal(rec.Body.Bytes(), &raw); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
 	for _, gone := range []string{"artifacts", "artifacts_detail_level"} {
 		if _, ok := raw[gone]; ok {
-			t.Fatalf("set_task_deps's task payload still declares %q — the slimming lives in "+
-				"newTaskDTO precisely so all nine exits say the same thing: %s",
+			t.Fatalf("a write receipt still declares %q — the slimming lives in "+
+				"newTaskDTO precisely so every exit says the same thing: %s",
 				gone, rec.Body.String())
 		}
 	}

@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"unicode/utf8"
 )
 
 // ── T-e271 任務描述可編輯 guards ─────────────────────────────────────────────
@@ -119,8 +120,19 @@ func TestTaskDescriptionRoundTripsThroughTheTaskView(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("write description: %d %s", rec.Code, rec.Body.String())
 	}
-	if got := decodeBody[taskDTO](t, rec).Description; got != corrected {
-		t.Fatalf("response description = %q, want %q", got, corrected)
+	// T-91: the write receipt reports the description as a SIZE and a HASH, not
+	// as the text — the caller sent that text one line ago. The hash is the
+	// stronger form of the same claim this line always made ("what landed is
+	// what I sent"), and it is on this face specifically because this write
+	// TRIMS while create_task does not, so a caller cannot assume the two agree.
+	receipt := decodeBody[taskWriteReceiptDTO](t, rec)
+	if receipt.DescriptionSha256 != receiptSha256(corrected) {
+		t.Fatalf("response description sha256 = %q, want the hash of %q",
+			receipt.DescriptionSha256, corrected)
+	}
+	if receipt.DescriptionSizeChars != utf8.RuneCountInString(corrected) {
+		t.Fatalf("response description_size_chars = %d, want %d RUNES",
+			receipt.DescriptionSizeChars, utf8.RuneCountInString(corrected))
 	}
 	if got := readTaskDescription(t, api, task.ID); got != corrected {
 		t.Fatalf("description read back = %q, want %q", got, corrected)

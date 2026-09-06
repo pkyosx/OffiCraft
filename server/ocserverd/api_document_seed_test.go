@@ -179,10 +179,10 @@ func TestGetDocumentSeed_404sExactlyWhereAResetDoes(t *testing.T) {
 	}
 
 	for _, probe := range []struct{ kind, key string }{
-		{"role_definition", created.Role.Key},
+		{"role_definition", created.RoleKey},
 		{"task_manual_sop", "weekly-report"},
 		{"task_manual_learnings", "weekly-report"},
-		{"lessons", created.Role.Key},
+		{"lessons", created.RoleKey},
 	} {
 		got := getDocumentSeed(t, api, probe.kind, probe.key, "owner", "owner")
 		if got.Code != http.StatusNotFound {
@@ -292,7 +292,7 @@ func TestGetDocumentSeed_InsightIsPerRoleNotBlanket(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &created); err != nil {
 		t.Fatal(err)
 	}
-	if got := getDocumentSeed(t, api, "insight", created.Role.Key, "owner", "owner"); got.Code != http.StatusNotFound {
+	if got := getDocumentSeed(t, api, "insight", created.RoleKey, "owner", "owner"); got.Code != http.StatusNotFound {
 		t.Fatalf("custom role insight: status=%d body=%s, want 404", got.Code, got.Body.String())
 	}
 	// Positive control: the seeded role in the same test answers 200.

@@ -69,9 +69,21 @@ def asker(client, owner_token) -> AgentIdentity:
 DEFAULT_OPTIONS = ({"text": "AI pick", "ai_pick": True}, {"text": "other"})
 
 
-def _open_card(client, asker: AgentIdentity, summary="need a call",
-               kind="decision", options=DEFAULT_OPTIONS,
-               select_mode=None) -> dict:
+# T-91: POST /api/reply-cards answers replyCardCreateReceiptDTO — the two
+# server-minted ids, the timestamp, and the attachment list the server
+# resolved from the ids it was handed. The card itself is not on it.
+_CARD_CREATE_RECEIPT_KEYS = {"id", "chat_message_id", "created_ts", "attachments"}
+
+
+def _open_card_receipt(client, asker: AgentIdentity, summary="need a call",
+                       kind="decision", options=DEFAULT_OPTIONS,
+                       select_mode=None) -> dict:
+    """Open a card and answer the CREATE RECEIPT, shape pinned.
+
+    Key-set equality, not key presence: asserting only that ``id`` is on the
+    response would stay green if the route went back to serving the whole
+    card, because a card carries an id too.
+    """
     body = {"kind": kind, "summary": summary, "options": list(options),
             "linked_task": None}
     if select_mode is not None:
@@ -82,7 +94,30 @@ def _open_card(client, asker: AgentIdentity, summary="need a call",
         headers=_auth(asker.token),
     )
     assert r.status_code == 200, f"open card failed: {r.status_code} {r.text}"
-    return r.json()
+    receipt = r.json()
+    assert set(receipt) == _CARD_CREATE_RECEIPT_KEYS, receipt
+    return receipt
+
+
+def _open_card(client, asker: AgentIdentity, summary="need a call",
+               kind="decision", options=DEFAULT_OPTIONS,
+               select_mode=None) -> dict:
+    """Open a card and answer the CARD, read back off the read face.
+
+    Every claim the tests below make is about the card that now exists, and the
+    create stopped serving it (T-91). Reading it back is strictly stronger than
+    the echo was: the echo was assembled from the row the handler had just
+    made, so it would have looked right even if nothing were stored.
+    """
+    receipt = _open_card_receipt(
+        client, asker, summary=summary, kind=kind, options=options,
+        select_mode=select_mode,
+    )
+    card = _get_card(client, asker.token, receipt["id"])
+    assert card["chat_message_id"] == receipt["chat_message_id"], (card, receipt)
+    assert card["created_ts"] == receipt["created_ts"], (card, receipt)
+    assert card["attachments"] == receipt["attachments"], (card, receipt)
+    return card
 
 
 def _answer(client, owner_token, card_id: str, body: dict, method="POST"):
@@ -214,7 +249,12 @@ def test_card_opens_with_question_attachments(client, owner_token, asker):
         headers=_auth(asker.token),
     )
     assert r.status_code == 200, r.text
+    # T-91: the create receipt carries the RESOLVED attachment list — the ids,
+    # names and urls the server minted from what was sent — and nothing else
+    # about the card. Key-set equality: only checking that `attachments` is
+    # present would stay green if the whole card came back around it.
     card = r.json()
+    assert set(card) == _CARD_CREATE_RECEIPT_KEYS, card
     atts = card["attachments"]
     assert len(atts) == 2, atts
     by_name = {a["filename"]: a for a in atts}
@@ -248,7 +288,20 @@ def test_card_opens_with_question_attachments(client, owner_token, asker):
 
 
 def test_card_without_attachments_serves_an_empty_array(client, owner_token, asker):
-    card = _open_card(client, asker, summary="no attachments here")
+    """Both faces name the empty list; neither drops the key.
+
+    A field that appears only sometimes forces every reader to distinguish
+    "this card has no attachments" from "this server does not know about
+    attachments", which are answers to two different questions. T-91 put the
+    attachment list on the CREATE RECEIPT as well, so the convention is now
+    asserted on both faces — and on the receipt it is asserted against the raw
+    response, because that is where "the key is absent" and "the key is an
+    empty list" are still two different things.
+    """
+    receipt = _open_card_receipt(client, asker, summary="no attachments here")
+    assert "attachments" in receipt, receipt
+    assert receipt["attachments"] == [], receipt
+    card = _get_card(client, asker.token, receipt["id"])
     assert card["attachments"] == []
 
 
@@ -869,7 +922,8 @@ def test_expiring_a_gate_card_resumes_the_task_and_step(
         headers=h_agent,
     )
     assert r.status_code == 200, r.text
-    task_id = r.json()["task"]["id"]
+    # T-91: create answers taskCreateResultDTO — the minted id, not the task.
+    task_id = r.json()["task_id"]
     r = client.post(
         f"/api/tasks/{task_id}/plan",
         json={"steps": [{"name": "approve", "dod": "go", "is_gate": True}]},
@@ -915,7 +969,8 @@ def test_closing_a_task_retires_its_waiting_card(client, owner_token, asker):
         headers=h_agent,
     )
     assert r.status_code == 200, r.text
-    task_id = r.json()["task"]["id"]
+    # T-91: create answers taskCreateResultDTO — the minted id, not the task.
+    task_id = r.json()["task_id"]
     r = client.post(
         f"/api/tasks/{task_id}/plan",
         json={"steps": [{"name": "approve", "dod": "go", "is_gate": True}]},

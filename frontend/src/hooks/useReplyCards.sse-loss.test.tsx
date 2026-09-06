@@ -28,9 +28,12 @@
 // assertion can stand in for the other.
 //
 // The fix these tests demand costs no extra round trip: the write's OWN response
-// already carries the fresh card (`answerReplyCard` / `expireReplyCard` /
-// `reanswerReplyCard` all return `ReplyCard`), so the action path adopts it. The
-// one-round budget is therefore untouched — both files are green together.
+// already carries the transition (`answerReplyCard` / `expireReplyCard` /
+// `reanswerReplyCard` all return `Promise<ReplyCardWriteReceipt>`), so the
+// action path folds it into the card it already holds. ⚠️ This used to say they
+// "all return `ReplyCard`", true before T-91 bounded the three receipts; the
+// adoption is a MERGE now, not a replacement (see useReplyCards.tsx `adoptWrite`).
+// The one-round budget is therefore untouched — both files are green together.
 
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { render, fireEvent, waitFor } from "@testing-library/react";

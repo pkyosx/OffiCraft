@@ -12,7 +12,12 @@
 //   2. the field ABSENT (the server omits it via omitempty on the success
 //      shape) → `{activationPending: false}` — absence is success, never
 //      undefined leaking into a `?.activationPending` branch.
-//   3. `null` → false as well (the OpenAPI type is `boolean | null`).
+//   3. `null` → false as well. T-91 narrowed the RECEIPT schemas to plain
+//      optional `boolean` (MemberDTO, which these routes no longer answer, is
+//      what typed them `boolean | null`), so a null is no longer a shape the
+//      server can send — the case stays pinned because `=== true` is what makes
+//      absent/null/false one answer, and a mapper rewritten to `?? false` or
+//      `!!` would still pass every other case here.
 //   4. the same three for relocate's `relocation_pending`.
 //   5. relocate's companion `relocation_deferred` (T-927a) maps the same way, and
 //      INDEPENDENTLY of pending: the panel suppresses its alert on deferred, so a
@@ -21,18 +26,11 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { httpApi } from "./http";
 
-/** The activate/relocate 200 body is a MemberDTO; only the pending flag matters
- * here, so the rest is the minimum the mapper tolerates. */
-function memberBody(extra: Record<string, unknown> = {}) {
-  return {
-    id: "m-1",
-    name: "Mira",
-    role: "assistant",
-    online: false,
-    presence: "offline",
-    status: "active",
-    ...extra,
-  };
+/** The activate/relocate 200 body is a RECEIPT since T-91 —
+ * MemberActivateReceiptDTO / AgentRelocateReceiptDTO, `id` plus the pending
+ * flags — not the MemberDTO it used to be. `id` alone is the whole of the rest. */
+function receiptBody(extra: Record<string, unknown> = {}) {
+  return { id: "m-1", ...extra };
 }
 
 function jsonResponse(body: unknown, status = 200): Response {
@@ -42,7 +40,7 @@ function jsonResponse(body: unknown, status = 200): Response {
   });
 }
 
-const fetchMock = vi.fn(async () => jsonResponse(memberBody()));
+const fetchMock = vi.fn(async () => jsonResponse(receiptBody()));
 
 beforeEach(() => {
   fetchMock.mockReset();
@@ -56,7 +54,7 @@ afterEach(() => {
 describe("httpApi.activateMember reads activation_pending", () => {
   it("true → activationPending true", async () => {
     fetchMock.mockImplementation(async () =>
-      jsonResponse(memberBody({ activation_pending: true })),
+      jsonResponse(receiptBody({ activation_pending: true })),
     );
     expect(await httpApi.activateMember("m-1")).toEqual({
       activationPending: true,
@@ -64,7 +62,7 @@ describe("httpApi.activateMember reads activation_pending", () => {
   });
 
   it("absent → activationPending false (omitempty = the START went out)", async () => {
-    fetchMock.mockImplementation(async () => jsonResponse(memberBody()));
+    fetchMock.mockImplementation(async () => jsonResponse(receiptBody()));
     expect(await httpApi.activateMember("m-1")).toEqual({
       activationPending: false,
     });
@@ -72,7 +70,7 @@ describe("httpApi.activateMember reads activation_pending", () => {
 
   it("null → activationPending false (the wire type is boolean | null)", async () => {
     fetchMock.mockImplementation(async () =>
-      jsonResponse(memberBody({ activation_pending: null })),
+      jsonResponse(receiptBody({ activation_pending: null })),
     );
     expect(await httpApi.activateMember("m-1")).toEqual({
       activationPending: false,
@@ -83,7 +81,7 @@ describe("httpApi.activateMember reads activation_pending", () => {
 describe("httpApi.relocateMember reads relocation_pending", () => {
   it("true → relocationPending true", async () => {
     fetchMock.mockImplementation(async () =>
-      jsonResponse(memberBody({ relocation_pending: true })),
+      jsonResponse(receiptBody({ relocation_pending: true })),
     );
     expect(await httpApi.relocateMember("m-1", "mach-a")).toEqual({
       relocationPending: true,
@@ -92,7 +90,7 @@ describe("httpApi.relocateMember reads relocation_pending", () => {
   });
 
   it("absent → relocationPending false (the move landed)", async () => {
-    fetchMock.mockImplementation(async () => jsonResponse(memberBody()));
+    fetchMock.mockImplementation(async () => jsonResponse(receiptBody()));
     expect(await httpApi.relocateMember("m-1", "mach-a")).toEqual({
       relocationPending: false,
       relocationDeferred: false,
@@ -102,7 +100,7 @@ describe("httpApi.relocateMember reads relocation_pending", () => {
   it("relocation_deferred true → relocationDeferred true (a deliberate deferral)", async () => {
     fetchMock.mockImplementation(async () =>
       jsonResponse(
-        memberBody({ relocation_pending: true, relocation_deferred: true }),
+        receiptBody({ relocation_pending: true, relocation_deferred: true }),
       ),
     );
     expect(await httpApi.relocateMember("m-1", "mach-a")).toEqual({
@@ -114,7 +112,7 @@ describe("httpApi.relocateMember reads relocation_pending", () => {
   it("relocation_deferred null → relocationDeferred false", async () => {
     fetchMock.mockImplementation(async () =>
       jsonResponse(
-        memberBody({ relocation_pending: true, relocation_deferred: null }),
+        receiptBody({ relocation_pending: true, relocation_deferred: null }),
       ),
     );
     expect(await httpApi.relocateMember("m-1", "mach-a")).toEqual({
@@ -125,7 +123,7 @@ describe("httpApi.relocateMember reads relocation_pending", () => {
 
   it("null → relocationPending false", async () => {
     fetchMock.mockImplementation(async () =>
-      jsonResponse(memberBody({ relocation_pending: null })),
+      jsonResponse(receiptBody({ relocation_pending: null })),
     );
     expect(await httpApi.relocateMember("m-1", "mach-a")).toEqual({
       relocationPending: false,
