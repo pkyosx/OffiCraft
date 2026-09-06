@@ -34,13 +34,10 @@ func t33Propose(entryID string) LoreProposal {
 		// ⚠️ 它也刻意跟 t33Write() 的標題**不一樣**：核可之後條目上的標題必須
 		// 變成這一句，而如果兩邊一樣，「核可有沒有寫回標題」就無從分辨。
 		Heading:     "組裝器搬過家，而條目還指著舊檔名",
-		ImpactStars: 3,
 		Encountered: "T-33 slot 4, wiring the proposal route",
 		Fault:       "stale",
 		Evidence:    "the entry names dal_lore.go, and the function moved to dal_lore_write.go in 8282fdef",
 		Content:     "the fold happens in one place, and that place is lore_fold.go",
-		RevisitWhen: "等組裝路徑不只一條",
-		Impact:      "T-33 slot 3：條目指到 dal_lore.go，函式其實已經搬走",
 		ActorID:     "ow-e27260b9ed05",
 	}
 }
@@ -199,7 +196,6 @@ func TestLoreProposalStoresTheWholeVersionUnderTheSharedRenderer(t *testing.T) {
 	}
 	want := loreRevisionBody(LoreEntry{
 		Heading: p.Heading, Content: p.Content,
-		RevisitWhen: p.RevisitWhen, Impact: p.Impact, ImpactStars: p.ImpactStars,
 	}, seededEvents)
 	if row.Body != want {
 		t.Fatalf("stored body is not what the shared renderer produces:\n got %q\nwant %q", row.Body, want)
@@ -212,7 +208,6 @@ func TestLoreProposalStoresTheWholeVersionUnderTheSharedRenderer(t *testing.T) {
 	// is the shape a dropped field actually has.
 	for _, f := range []struct{ section, value string }{
 		{"heading:", p.Heading}, {"content:", p.Content},
-		{"revisit_when:", p.RevisitWhen}, {"impact:", p.Impact},
 	} {
 		if !strings.Contains(row.Body, f.section+"\n"+f.value+"\n") {
 			t.Fatalf("the stored version drops the %q section or its value: %q", f.section, row.Body)
@@ -311,12 +306,11 @@ func TestLoreProposalRefusesAVersionIdenticalToTheBase(t *testing.T) {
 	entry := t33Get(t, d, entryID)
 	same := t33Propose(entryID)
 	same.BaseSHA256 = sha
-	same.Heading, same.Content = entry.Heading, entry.Content
-	same.RevisitWhen, same.Impact = entry.RevisitWhen, entry.Impact
-	// 🔴 星等也要抄過來，而它是這一批新加的一格。漏抄它的話這份提案就**不是**
+	// 🔴 條目上改得動的每一格都要抄過來，漏抄任何一格這份提案就**不是**
 	// 「一模一樣」了，摘要會不同、ErrLoreProposalNoChange 不會觸發，而測試會紅
-	// 在一個看起來像「守衛失效」的地方 —— 那正是這一格加進摘要要防的事。
-	same.ImpactStars = entry.ImpactStars
+	// 在一個看起來像「守衛失效」的地方。⚠️ 那一組今天只有兩格（owner 2026-09-06
+	// 「都改掉」拿掉了 revisit_when / impact / impact_stars）。
+	same.Heading, same.Content = entry.Heading, entry.Content
 	if _, err := d.CreateLoreProposal(same, 2000); !errors.Is(err, ErrLoreProposalNoChange) {
 		t.Fatalf("a proposal that changes nothing was filed: %v", err)
 	}
@@ -472,7 +466,7 @@ func TestLoreProposalBodyCarriesTheProposalsOwnEventsNotTheEntrysCurrentOnes(t *
 	}
 	// 而且不是靠「事件根本不在 body 裡」蒙混過去的：拿掉事件的渲染必須不一樣。
 	if loreSHA256(body) == loreSHA256(loreRevisionBody(LoreEntry{
-		Heading: p.Heading, Content: p.Content, RevisitWhen: p.RevisitWhen, Impact: p.Impact,
+		Heading: p.Heading, Content: p.Content,
 	}, nil)) {
 		t.Fatal("帶事件與不帶事件渲染出同一串 —— `events`不在 digest 裡")
 	}
@@ -502,7 +496,6 @@ func TestLoreProposalThatOnlyMovesEventsIsNotNoChange(t *testing.T) {
 		Encountered: "在讀這條的時候發現`events`串錯了", Fault: "never-true",
 		Evidence: "那台機器當天根本沒有被碰過",
 		Heading:  w.Heading, Content: w.Content,
-		RevisitWhen: w.RevisitWhen, Impact: w.Impact, ImpactStars: w.ImpactStars,
 		Events:  []LoreEvent{t33Event(1700000000, "人工修好的那一筆")},
 		ActorID: "ow-e27260b9ed05",
 	}

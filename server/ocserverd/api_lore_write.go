@@ -36,13 +36,6 @@ func writeLoreWriteError(w http.ResponseWriter, err error) {
 		// 500，而 500 的意思是「伺服器壞了，你重試」，重試永遠會失敗。
 		errors.Is(err, ErrLoreHeadingTooLong),
 		errors.Is(err, ErrLoreContentBlank),
-		// 🔴 星等超出 0..3 是 422 而不是 500。資料庫的 CHECK 也會擋，但它回來的是
-		// 一句 driver 訊息，只能被報成「伺服器出事了」——而送 star=7 的人是可以
-		// 自己修好的。這裡的 422 指名了是哪一格、以及三級各是什麼意思。
-		errors.Is(err, ErrLoreImpactStarsRange),
-		// 🔴 星等是 0 也是 422，而且是**另一個**錯誤：送 0 的人沒有打錯數字，他
-		// 是沒有判。訊息因此給的是那把尺，不是「合法範圍是 0..3」。
-		errors.Is(err, ErrLoreImpactStarsUnjudged),
 		// `events`的四種拒絕。它們是 422 而不是 500：一筆事件缺時間、缺主動語態的
 		// 「事」，或人／地／物寫成不是 `type:name`／型別沒被核准，都是寫入者可以
 		// 自己修好的東西，而且錯誤訊息會指名是哪一格。
@@ -54,14 +47,13 @@ func writeLoreWriteError(w http.ResponseWriter, err error) {
 		errors.Is(err, ErrLoreSubjectBlank),
 		errors.Is(err, ErrLoreSubjectMalformed),
 		errors.Is(err, ErrLoreSubjectUnknownType),
-		errors.Is(err, ErrLoreSupersedesSelf),
 		errors.Is(err, ErrLoreEntityMergeCycle):
 		writeError(w, http.StatusUnprocessableEntity, err.Error())
 	case errors.Is(err, ErrLoreEntryUnknown):
-		// The only id this handler is given is `supersedes`, so an unknown entry
-		// here is always that one: the caller named a predecessor that is not
-		// there. 404 rather than 422 keeps it the same answer the governance
-		// routes give for the same mistake.
+		// ⚠️ 這一支今天**不再收任何條目 id**：唯一一個是 `supersedes`，而那一格已經
+		// 被 owner 2026-09-06「都改掉」拿掉了。這一行因此是一道今天到不了的分支，
+		// 留著是因為它仍然是「這條路上如果冒出一個不存在的條目 id，答案是 404」的
+		// 唯一一句話 —— 拿掉它，下一個往這條路加 id 參數的人會撞到 500。
 		writeError(w, http.StatusNotFound, err.Error())
 	case errors.Is(err, ErrLoreActorBlank):
 		writeError(w, http.StatusForbidden, err.Error())
@@ -79,34 +71,19 @@ func writeLoreWriteError(w http.ResponseWriter, err error) {
 // to be one subject.
 func (s *apiServer) HandleWriteLoreEntryApiLoreEntriesPost(w http.ResponseWriter, r *http.Request) {
 	var body LoreWriteDTO
-	// 🔴 標題格與內容格在這裡被要求「必須出現」。第 3、4 格是選填，`events`是
-	// 0..N——把它們列進來會讓「這條沒有後果可以寫」變成一個送不出去的請求。
-	// ⚠️ 這份清單以前還有 "trigger"。`rc-9002654dd81c`（2026-09-06）把那一格併進
-	// heading 之後它不再是一個合法的 key —— 送它會被 422 指名擋下來，而那是對的：
-	// 一個被靜默忽略的 body key 會讓寫入者以為他寫下了一句沒有人存下來的話。
-	// 🔴 `impact_stars` 從 2026-09-06 起在這裡（負責人逐字：「因為我們一定會有
-	// impact 所以不會是 0」「不允許給 0」）。它以前刻意不在，理由是「不要逼人判一
-	// 個他還沒判的東西」—— 那條理由被推翻了：一條值得寫下來的傳承一定有下場。
-	// ⚠️ 這一行只擋**漏送**。明明送了、送的是 0，是 CreateLoreEntry 擋的
-	// （ErrLoreImpactStarsUnjudged）—— 兩件事要分開，否則「我沒填」跟「我填了 0」
-	// 會拿到同一句話，而後者才是需要重新去想的那個人。
-	if !decodeJSONBodyStrict(w, r, &body, "heading", "content", "subjects", "impact_stars") {
+	// 🔴 標題格與內容格在這裡被要求「必須出現」。`events`是 0..N。
+	// ⚠️ 這份清單以前還有 "trigger"（`rc-9002654dd81c` 併進 heading）與
+	// "impact_stars"（owner 2026-09-06「都改掉」拿掉了整格）。兩者今天都不是合法的
+	// key —— 送它們會被 422 指名擋下來，而那是對的：一個被靜默忽略的 body key 會讓
+	// 寫入者以為他寫下了一句沒有人存下來的話。
+	if !decodeJSONBodyStrict(w, r, &body, "heading", "content", "subjects") {
 		return
 	}
 	write := LoreWrite{
-		Heading:     body.Heading,
-		Content:     body.Content,
-		RevisitWhen: strOrEmpty(body.RevisitWhen),
-		Impact:      strOrEmpty(body.Impact),
-		// 🔴 這一格從 2026-09-06 起是必填，所以產生出來的型別是 int 而不是 *int，
-		// 也就沒有「沒送」這個狀態要折 —— 漏送在上面的 decodeJSONBodyStrict 就被
-		// 擋掉了。**這一層不准替任何人補一個星等**：真的送了 0 交給
-		// CreateLoreEntry 擋成 422（ErrLoreImpactStarsUnjudged），在這裡偷偷改成
-		// 1 會讓「沒有人判過」跟「判為做白工」在資料庫裡永遠分不開。
-		ImpactStars: body.ImpactStars,
-		Supersedes:  strOrEmpty(body.Supersedes),
-		Subjects:    body.Subjects,
-		ActorID:     currentActor(r),
+		Heading:  body.Heading,
+		Content:  body.Content,
+		Subjects: body.Subjects,
+		ActorID:  currentActor(r),
 	}
 	// 🔴 `events`。人／地／物用 strOrEmpty 折成空字串，而空字串在這一層以下就是
 	// 「沒有這一格」——**不會**被補成「未知」。省略一個 key 跟送一個空字串在這裡
@@ -168,6 +145,5 @@ func (s *apiServer) HandleWriteLoreEntryApiLoreEntriesPost(w http.ResponseWriter
 		RevisionId:      int(got.RevisionID),
 		SubjectIds:      subjects,
 		PendingEntities: pending,
-		Superseded:      got.Superseded,
 	})
 }

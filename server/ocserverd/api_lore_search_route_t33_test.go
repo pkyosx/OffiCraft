@@ -25,8 +25,6 @@ func loreSearchSeed(t *testing.T, url, tok, subject, content string) string {
 	st, body := rosterREST(t, url, tok, "POST", "/api/lore/entries", `{
 		"heading": "something became visible that had not been",
 		"content": "`+content+`",
-		"revisit_when": "等只剩一個組裝器", "impact": "T-33 slot 3",
-		"impact_stars": 2,
 		"subjects": ["`+subject+`"]
 	}`)
 	if st != 200 {

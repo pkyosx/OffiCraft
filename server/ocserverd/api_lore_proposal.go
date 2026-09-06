@@ -69,17 +69,15 @@ func writeLoreProposalError(w http.ResponseWriter, err error) {
 		// 錯誤值而不是提案專屬的新錯誤：接受一份提案等於走一次普通寫入，所以寫入
 		// 會拒絕的東西在這裡就要被拒絕，否則它會躺在佇列裡，看起來跟一份可以被
 		// 接受的提案一模一樣。
-		// 🔴 標題與星等走同一條路，而它們是這一批新加的：一份 heading 空白的
-		// 提案是**呼叫者改得掉**的錯（他補一句就好），所以是 422。漏掉這兩行的
-		// 代價不是「錯誤碼難看」—— 沒有被列舉的錯誤會掉到最後的 internalError，
-		// 呼叫者收到 500，而 500 的意思是「伺服器壞了，你重試」，那會讓一個
-		// 補得好的提案永遠不被補。
+		// 🔴 標題走同一條路：一份 heading 空白的提案是**呼叫者改得掉**的錯（他補
+		// 一句就好），所以是 422。漏掉這一行的代價不是「錯誤碼難看」—— 沒有被列舉
+		// 的錯誤會掉到最後的 internalError，呼叫者收到 500，而 500 的意思是
+		// 「伺服器壞了，你重試」，那會讓一個補得好的提案永遠不被補。
 		errors.Is(err, ErrLoreHeadingBlank),
 		// 🔴 標題超長走同一條路，而且它有**兩個**進入點：送出時的形狀檢查，以及
 		// 核可時 ApplyLoreProposal 再擋的那一次。只擋前者等於留一條繞過的路 ——
 		// 核可一份提案會把 heading 寫回條目，所以那一步就是一次寫入。
 		errors.Is(err, ErrLoreHeadingTooLong),
-		errors.Is(err, ErrLoreImpactStarsRange),
 		errors.Is(err, ErrLoreContentBlank):
 		writeError(w, http.StatusUnprocessableEntity, err.Error())
 	default:
@@ -107,18 +105,17 @@ func (s *apiServer) HandleProposeLoreChangeApiLoreEntriesEntryIdProposalsPost(w 
 		Encountered: body.Encountered,
 		Fault:       body.Fault,
 		Evidence:    body.Evidence,
-		// 提案帶的是**完整的新版本**：六格 + `events`的整份事件清單（負責人
-		// 2026-09-03 裁定，卡 rc-e5c34500face；2026-09-05 rc-bbccbeb3d9e6 逐字
-		// 「任何修改都是提案的一環」把標題與星等一併收進來）。
-		// 🔴「完整」現在對整條條目是真的成立的，而在此之前它不是：標題與星等收
-		// 不到，核可寫下的原文因此宣稱條目沒有標題。
-		Heading:     strOrEmpty(body.Heading),
-		Content:     strOrEmpty(body.Content),
-		RevisitWhen: strOrEmpty(body.RevisitWhen),
-		Impact:      strOrEmpty(body.Impact),
-		ImpactStars: intOr(body.ImpactStars, 0),
-		Events:      loreProposeEvents(body.Events),
-		ActorID:     currentActor(r),
+		// 提案帶的是**完整的新版本**：條目上改得動的每一格 + `events`的整份事件
+		// 清單（負責人 2026-09-03 裁定，卡 rc-e5c34500face；2026-09-05
+		// rc-bbccbeb3d9e6 逐字「任何修改都是提案的一環」把標題一併收進來）。
+		// 🔴「完整」對整條條目是真的成立的，而在此之前它不是：標題收不到，核可寫下
+		// 的原文因此宣稱條目沒有標題。
+		// ⚠️ 那一組今天只有兩格：owner 2026-09-06「都改掉」拿掉了 `revisit_when` /
+		// `impact` / `impact_stars`（`supersedes` 從來就不在提案上）。
+		Heading: strOrEmpty(body.Heading),
+		Content: strOrEmpty(body.Content),
+		Events:  loreProposeEvents(body.Events),
+		ActorID: currentActor(r),
 	}, nowSecs())
 	if err != nil {
 		writeLoreProposalError(w, err)
@@ -176,9 +173,6 @@ func (s *apiServer) HandleListLoreProposalsApiLoreEntriesEntryIdProposalsGet(w h
 			Stale:          p.Stale,
 			Heading:        p.Heading,
 			Content:        p.Content,
-			RevisitWhen:    p.RevisitWhen,
-			Impact:         p.Impact,
-			ImpactStars:    p.ImpactStars,
 			Events:         loreEventDTOs(p.Events),
 			EventsAdded:    loreEventDTOs(p.EventsAdded),
 			EventsRemoved:  loreEventDTOs(p.EventsRemoved),

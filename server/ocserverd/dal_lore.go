@@ -79,23 +79,26 @@ type LoreEntry struct {
 	// 假話上，而檔案裡沒有東西會告訴他往哪裡走。留著的理由是上面那句——用一個
 	// 可讀性的改善去換「正式庫對不上一支跑過的 migration」的風險，不划算。
 	// **這一行就是那個補償，而它只在這裡，不在他會打開的那個檔案裡。**
-	Heading     string // 標題：發生了什麼。必填，上限 140 個 rune。也是檢索與搜尋的那一軸
-	Content     string // 內容 — THIS is what enters a context
-	RevisitWhen string // 什麼情況出現時要把這一條拿出來重判（選填，自由文字，非封閉值域）
-	Impact      string // 原本想達成什麼、實際變成什麼（選填，但它是主體）
+	Heading string // 標題：發生了什麼。必填，上限 140 個 rune。也是檢索與搜尋的那一軸
+	Content string // 內容 — THIS is what enters a context
 
-	// ImpactStars 是 impact 的星等，而 0 **不是一個星等**：它是「還沒判」。
-	// 既有列的預設值只能是 0，把 0 當成 1（沒弄壞任何東西）等於替它們做了一次
-	// 沒有人做過的判定，而 v8 的自檢就再也查不出誰漏填。
-	ImpactStars int
+	// 🔴 這裡曾經有 RevisitWhen / Impact / ImpactStars / Supersedes 四格，它們是被
+	// **裁定**掉的，不是被清掉的：owner 2026-09-06 逐字「都改掉」（訊息
+	// `c-3d3e5582c2d2`）把傳承條目收成 MVP。⚠️ 不要「順手」把任何一格加回來 ——
+	// 它們的欄位、線上名字與 migration 都一起走了，加回一個 Go 欄位只會得到一格
+	// 永遠是零值、而且寫不進資料庫的裝飾。
+	// ⚠️ 照實說跟著失去意義的東西（都留在原地，因為 owner 沒有點名它們）：
+	//   * Reviewed（下面那一格）本來是替 ImpactStars 蓋章用的，今天沒有東西可蓋。
+	//   * Status 仍然收 'superseded'，但沒有任何欄位記得下接班的是哪一條。
 
-	// 🔴 Reviewed 與 ImpactStars 是兩個欄位而不是一個。星等是 agent 的提案，
-	// 這一格是別人蓋的章；合成一欄就等於讓 agent 自己蓋自己的章。
+	// 🔴 Reviewed 曾經是 ImpactStars 的**對面那一半**：星等是 agent 的提案，這一格
+	// 是別人蓋的章，合成一欄就等於讓 agent 自己蓋自己的章。星等拿掉之後這句話沒有
+	// 對象了 —— 它今天是一個沒有東西可以蓋章的旗標。留著是因為 owner 只點名了四格，
+	// 沒有點名它，而不是因為它還有用。
 	// ⚠️ 這一版沒有任何一條路寫得到它——見 PutLoreEntry 底下的說明。
 	Reviewed bool
 
 	Status     string // 'active' | 'superseded' | 'retired' | 'underspecified'
-	Supersedes string // id of the entry this replaces; the replaced row is re-statused, never deleted
 	EditableBy string // 'agent' | 'owner-gated'
 	CreatedTS  float64
 	UpdatedTS  float64
@@ -113,10 +116,11 @@ type LoreEntry struct {
 // write receipt / search hit）、以及它們在 spec/openapi.json 裡的宣告。
 //
 // ⚠️ 不要「順手」把它加回來。它在六格時代的判準是「falsify 與 instance 皆空」，
-// 五格裡那兩格都不存在；曾經有過一個暫定判準（「problem 為空」，即今天的
-// `impact`），而那個暫定值正是這道裁定要收掉的東西。要有第二層品質訊號的話，
-// 那是一張新卡。⚠️ v8 的 `impact_stars = 0`（還沒判）**不是**那個標記借屍還魂：
-// 它說的是「沒有人判過」，不是「判過而且品質可疑」。
+// 五格裡那兩格都不存在；曾經有過一個暫定判準（「problem 為空」），而那個暫定值
+// 正是這道裁定要收掉的東西。要有第二層品質訊號的話，那是一張新卡。
+// ⚠️ v8 一度有過的 `impact_stars = 0`（還沒判）**不是**那個標記借屍還魂，而今天
+// 連那一格也不存在了（owner 2026-09-06「都改掉」）—— 也就是說，這條「不要加回來」
+// 今天沒有任何一個現成的欄位可以被借去復活它。
 
 // 🔴 `reviewed` 在這裡，也就是說它會被 PutLoreEntry 的 upsert 覆寫。
 //
@@ -132,17 +136,15 @@ type LoreEntry struct {
 // done」）—— **但那張卡沒有回答「誰能蓋、蓋了要不要留紀錄」，那一題今天仍然沒有
 // 任何人裁過，而且沒有卡在問它。** 要開放寫入路徑之前得先開一張新卡問他；有了答案，
 // **那道門要有人在這一層或它上面補上**，不能靠「反正沒有路由送得進來」。
-const loreEntryColumns = `id, heading, content, revisit_when, impact,
-	impact_stars, reviewed,
-	status, supersedes, editable_by,
+const loreEntryColumns = `id, heading, content, reviewed,
+	status, editable_by,
 	created_ts, updated_ts`
 
 func scanLoreEntry(row interface{ Scan(...any) error }) (LoreEntry, error) {
 	var e LoreEntry
 	err := row.Scan(
-		&e.ID, &e.Heading, &e.Content, &e.RevisitWhen, &e.Impact,
-		&e.ImpactStars, &e.Reviewed,
-		&e.Status, &e.Supersedes, &e.EditableBy,
+		&e.ID, &e.Heading, &e.Content, &e.Reviewed,
+		&e.Status, &e.EditableBy,
 		&e.CreatedTS, &e.UpdatedTS,
 	)
 	return e, err
@@ -201,41 +203,16 @@ func loreHeadingError(heading string) error {
 // 既有資料一律不動：這道門只擋新的寫入與新的提案，不會回頭改任何一列。
 const loreHeadingMaxRunes = 140
 
-// loreImpactStarsError 擋 0..3 以外的值。
+// 🔴 這裡曾經有 loreImpactStarsError()（擋 0..3 以外）與 loreImpactStarsRequired()
+// （新條目連 0 也擋，因為 0 是「還沒判」不是一個等級）。兩支都跟著 `impact_stars`
+// 那一格一起被裁掉了：owner 2026-09-06 逐字「都改掉」（`c-3d3e5582c2d2`）。
 //
-// 🔴 它擋的東西 CHECK 也擋得住，重複是刻意的：CHECK 的失敗會從 d.wdb.Exec 回來
-// 成一個 driver 錯誤，上層只能把它報成 500，而送 star=7 的人是可以自己修好的。
-// 這一層存在的理由就是讓那個回覆是 422 而且指名是哪一格。
-//
-// 🔴 0 在**這一道**是合法的，而它的意思是「還沒判」，不是「最輕」。存量列的預設
-// 值只能是 0，而 PutLoreEntry 要放得回那些列 —— 一道連既有資料都放不回去的門，
-// 會讓「讀得到但改不動」變成一種沒有人預期的狀態。**新條目那道門在下面。**
-func loreImpactStarsError(stars int) error {
-	if stars < 0 || stars > 3 {
-		return fmt.Errorf("%w: impact_stars=%d", ErrLoreImpactStarsRange, stars)
-	}
-	return nil
-}
-
-// loreImpactStarsRequired 是**新條目**那一道：0..3 之外照樣擋，而且 0 也擋。
-//
-// 🔴 負責人 2026-09-06 逐字：「因為我們一定會有 impact 所以不會是 0」「不允許給
-// 0」。⇒ 一條值得被寫下來的傳承一定有它的下場，所以「還沒判」不是一個新條目送得
-// 出去的答案。
-//
-// 🔴 為什麼是兩道門而不是把 loreImpactStarsError 改嚴：0 在**存量**列上是真的、
-// 而且必須讀得回來也放得回去（v8 之前寫下的條目全部是 0）。把 0 一路擋到底，等於
-// 宣告那些列非法，而它們就在資料庫裡。這道門只擋**新的**，不回頭改任何一列 ——
-// 跟 loreHeadingError 上面那句「既有資料一律不動」是同一個理由。
-func loreImpactStarsRequired(stars int) error {
-	if err := loreImpactStarsError(stars); err != nil {
-		return err
-	}
-	if stars == 0 {
-		return fmt.Errorf("%w: impact_stars=0", ErrLoreImpactStarsUnjudged)
-	}
-	return nil
-}
+// ⚠️ 它們守的東西**沒有**落到別人身上，因為守的對象整格不存在了 —— 這跟
+// loreTriggerError（上面那段）不一樣：那一次欄位被合併，必填的責任由 heading 接手；
+// 這一次是欄位消失，沒有接手的人，也不需要有。
+// ⚠️ 不要「順手」把它們改成對別的欄位做同樣的事。星等的刻度是 owner 對 impact 的
+// 三句話（做白工／弄壞你動的那個／弄壞你沒動的），套到任何別的格子上都會是我們自己
+// 發明的判準。
 
 // LoreEvent 是`events`的一列：一條條目底下的一次事件。時／事／人／地／物。
 //
@@ -342,13 +319,6 @@ var (
 	// failed），也就是這道門為什麼在 DAL 而不在 CHECK 的理由。
 	ErrLoreHeadingTooLong = errors.New(
 		"lore: `heading` is over the cap — 標題（heading）這一格太長了")
-	ErrLoreImpactStarsRange = errors.New(
-		"lore: `impact_stars` is outside 0..3 — 1=做白工，原本要完成的目的沒達到、2=弄壞的只有你動的那個、3=把其他東西弄壞了（0 只存在於 v8 之前的存量條目，意思是還沒有人判過）")
-	// 🔴 它跟 ErrLoreImpactStarsRange 是**兩個**錯誤，因為寫入者要做的事不一樣：
-	// 一個是把 7 改成 1..3，一個是去判一件他還沒判的事。共用一句訊息會讓後者
-	// 讀起來像「你打錯數字了」，而他根本沒打。
-	ErrLoreImpactStarsUnjudged = errors.New(
-		"lore: `impact_stars` is 0 — 星等是必填的，而 0 是「還沒判」不是一個等級：1=做白工，原本要完成的目的沒達到、2=弄壞的只有你動的那個、3=把其他東西弄壞了。三級不是累加：把自己動的那個修好了卻炸了其他人，那是 3 不是 2")
 	ErrLoreEventTimeMissing = errors.New(
 		"lore: an event has no `happened_ts` — 事件發生的時間（不是寫下的時間）")
 	ErrLoreEventWhatBlank = errors.New(
@@ -383,9 +353,6 @@ func (d *DAL) PutLoreEntry(e LoreEntry) error {
 	if err := loreHeadingError(e.Heading); err != nil {
 		return err
 	}
-	if err := loreImpactStarsError(e.ImpactStars); err != nil {
-		return err
-	}
 	// 🔴 `reviewed` 出現在 DO UPDATE SET 裡，跟其他每一格一樣，而這是刻意的：
 	// 這個函式的語意是「用這一份取代那一列」，把某一欄從取代裡挑掉會讓它在
 	// 「整列覆寫」的外表下悄悄保留舊值。
@@ -394,17 +361,14 @@ func (d *DAL) PutLoreEntry(e LoreEntry) error {
 	// 不會替它擋。
 	_, err := d.wdb.Exec(`
 		INSERT INTO lore_entry (`+loreEntryColumns+`)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT (id) DO UPDATE SET
 			heading = excluded.heading, content = excluded.content,
-			revisit_when = excluded.revisit_when, impact = excluded.impact,
-			impact_stars = excluded.impact_stars, reviewed = excluded.reviewed,
-			status = excluded.status,
-			supersedes = excluded.supersedes, editable_by = excluded.editable_by,
+			reviewed = excluded.reviewed,
+			status = excluded.status, editable_by = excluded.editable_by,
 			updated_ts = excluded.updated_ts`,
-		e.ID, e.Heading, e.Content, e.RevisitWhen, e.Impact,
-		e.ImpactStars, e.Reviewed,
-		e.Status, e.Supersedes, e.EditableBy,
+		e.ID, e.Heading, e.Content, e.Reviewed,
+		e.Status, e.EditableBy,
 		e.CreatedTS, e.UpdatedTS)
 	return err
 }
@@ -526,7 +490,7 @@ func (d *DAL) loreStrings(query string, args ...any) ([]string, error) {
 //
 // 🔴 THERE IS NO BODY FIELD ON THIS STRUCT, AND THAT IS THE POINT. The boot
 // context gets a DIRECTORY — "these subjects exist, this many entries each" —
-// and never a `heading` / `content` / `impact` cell. Carrying a body field here
+// and never a `heading` / `content` cell. Carrying a body field here
 // would put the entries themselves one careless `+=` away from every boot
 // document in the fleet, which is a size decision nobody has made. An agent that
 // wants an entry reads it deliberately.

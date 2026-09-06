@@ -15,11 +15,10 @@ import (
 func t33Mint(t *testing.T, d *DAL, subjects ...string) LoreWriteResult {
 	t.Helper()
 	got, err := d.CreateLoreEntry(LoreWrite{
-		Heading:     "the pending queue filled up and nobody read it",
-		Content:     "the pending column had no exit",
-		ImpactStars: 2,
-		Subjects:    subjects,
-		ActorID:     "m-writer",
+		Heading:  "the pending queue filled up and nobody read it",
+		Content:  "the pending column had no exit",
+		Subjects: subjects,
+		ActorID:  "m-writer",
 	}, 100)
 	if err != nil {
 		t.Fatalf("write against %v: %v", subjects, err)
@@ -446,16 +445,14 @@ func TestPendingLoreEntityCarriesTheFirstEntrysContentAsASample(t *testing.T) {
 	d := newTestDAL(t)
 	first, err := d.CreateLoreEntry(LoreWrite{
 		Heading: "h", Content: "the fold happens in exactly one place",
-		ImpactStars: 2,
-		Subjects:    []string{"repo:offcraft"}, ActorID: "m-writer",
+		Subjects: []string{"repo:offcraft"}, ActorID: "m-writer",
 	}, 100)
 	if err != nil {
 		t.Fatalf("first write: %v", err)
 	}
 	if _, err := d.CreateLoreEntry(LoreWrite{
 		Heading: "h", Content: "a later entry that must NOT be the sample",
-		ImpactStars: 2,
-		Subjects:    []string{"repo:offcraft"}, ActorID: "m-writer",
+		Subjects: []string{"repo:offcraft"}, ActorID: "m-writer",
 	}, 200); err != nil {
 		t.Fatalf("second write: %v", err)
 	}
@@ -467,8 +464,7 @@ func TestPendingLoreEntityCarriesTheFirstEntrysContentAsASample(t *testing.T) {
 	// rather than a sentence invented here.
 	long := strings.Repeat("長", loreSampleShortRunes+40)
 	if _, err := d.CreateLoreEntry(LoreWrite{
-		ImpactStars: 2,
-		Heading:     "h", Content: long, Subjects: []string{"repo:verbose"}, ActorID: "m-writer",
+		Heading: "h", Content: long, Subjects: []string{"repo:verbose"}, ActorID: "m-writer",
 	}, 300); err != nil {
 		t.Fatalf("long write: %v", err)
 	}
@@ -600,8 +596,7 @@ func TestPendingLoreEntityReportsAFamilyResemblanceWithItsOwnReason(t *testing.T
 func TestListPendingLoreEntitiesNamesWhoMintedTheKey(t *testing.T) {
 	d := newTestDAL(t)
 	if _, err := d.CreateLoreEntry(LoreWrite{
-		ImpactStars: 2,
-		Heading:     "h", Content: "c", Subjects: []string{"repo:offcraft"}, ActorID: "m-someone-else",
+		Heading: "h", Content: "c", Subjects: []string{"repo:offcraft"}, ActorID: "m-someone-else",
 	}, 100); err != nil {
 		t.Fatalf("write: %v", err)
 	}
@@ -629,8 +624,7 @@ func TestListPendingLoreEntitiesCarriesEveryEntryNotJustTheSample(t *testing.T) 
 	write := func(heading, content string, ts float64) LoreWriteResult {
 		t.Helper()
 		got, err := d.CreateLoreEntry(LoreWrite{
-			ImpactStars: 2,
-			Heading:     heading, Content: content, Subjects: []string{"repo:offcraft"}, ActorID: "m-writer",
+			Heading: heading, Content: content, Subjects: []string{"repo:offcraft"}, ActorID: "m-writer",
 		}, ts)
 		if err != nil {
 			t.Fatalf("write %q: %v", heading, err)

@@ -115,27 +115,23 @@ func (s *apiServer) HandleGetLoreEntryApiLoreEntriesEntryIdGet(
 	}, loreAnchorFromRoster)
 
 	writeJSON(w, http.StatusOK, LoreEntryDetailDTO{
-		EntryId:     entry.ID,
-		Heading:     entry.Heading,
-		Content:     entry.Content,
-		RevisitWhen: entry.RevisitWhen,
-		Impact:      entry.Impact,
-		// 🔴 星等與審核旗標都原樣送出，而 0 就是 0 —— 這一層不會把「還沒判」
-		// 折成 1，也不會把它藏起來。讀的人要分得出「沒有人判過」與「判為最輕」，
-		// 而唯一能讓他分得出來的，就是這裡不去動它。
-		ImpactStars: entry.ImpactStars,
+		EntryId: entry.ID,
+		Heading: entry.Heading,
+		Content: entry.Content,
 		// ⚠️ `reviewed` 讀得到、寫不到：這一版沒有任何路由蓋得了章（見 dal_lore.go
 		// 上 loreEntryColumns 的說明），所以它對每一條都是 false。它照樣送出來，
 		// 因為一個永遠是 false 的欄位，跟一個不存在的欄位，對前端是兩件事。
-		Reviewed:   entry.Reviewed,
-		Events:     eventDTOs,
-		Status:     entry.Status,
-		Supersedes: entry.Supersedes,
-		Subjects:   subjects,
-		Original:   original,
-		Sha256:     sha,
-		WrittenBy:  writtenBy,
-		Revisions:  revisions,
+		// 🔴 而它今天連要蓋的那一格都沒有了：它存在的唯一理由是替 `impact_stars`
+		// 蓋章，而那一格已經被 owner 2026-09-06「都改掉」拿掉。留著是因為他沒有
+		// 點名它。
+		Reviewed:  entry.Reviewed,
+		Events:    eventDTOs,
+		Status:    entry.Status,
+		Subjects:  subjects,
+		Original:  original,
+		Sha256:    sha,
+		WrittenBy: writtenBy,
+		Revisions: revisions,
 	})
 }
 

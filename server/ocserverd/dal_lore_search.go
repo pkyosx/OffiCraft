@@ -203,11 +203,12 @@ func (d *DAL) SearchLore(s LoreSearch) (LoreSearchResult, error) {
 // **使用者看到的那一行，搜尋搜不到**，而且搜不到跟「站上真的沒有這條」長得一模
 // 一樣。名字與軸現在是同一格，所以那個落差在構造上消失了，不是被補起來的。
 //
-// 🔴 第 3、4、5 格 (`revisit_when`, `impact`, events) are deliberately NOT added:
-// making them searchable would widen what `query` answers, and 「要不要能搜到
-// 影響那一格」 is a decision nobody has made. Widening it here would make it by
-// accident, and the symptom would be extra hits that look exactly like correct
-// ones.
+// 🔴 `events` is deliberately NOT added: making it searchable would widen what
+// `query` answers, and 「要不要能搜到事件那一格」 is a decision nobody has made.
+// Widening it here would make it by accident, and the symptom would be extra
+// hits that look exactly like correct ones.
+// ⚠️ 這一段以前還點名 `revisit_when` 與 `impact`。owner 2026-09-06 逐字「都改掉」
+// 把那兩格拿掉了 ⇒ 它們不是「刻意不掃」，是不存在。
 func loreEntryMatchesLiteral(e LoreEntry, lowerNeedle string) bool {
 	for _, f := range []string{e.Heading, e.Content} {
 		if strings.Contains(strings.ToLower(f), lowerNeedle) {

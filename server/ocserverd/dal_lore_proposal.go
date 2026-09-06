@@ -115,30 +115,22 @@ type LoreProposal struct {
 	Fault       string
 	Evidence    string
 
-	// 🔴 提案帶的是**完整的新版本**：三格 + `events`的整份事件清單。
+	// 🔴 提案帶的是**完整的新版本**：兩格 + `events`的整份事件清單。
 	// 負責人 2026-09-03 裁定（卡 rc-e5c34500face）：「改得動 —— 提案就該帶完整的
 	// 新版本，包含所有事件」。
-	// ⚠️ 這裡以前是四格，多的那一格是 `Trigger`；`rc-9002654dd81c`（2026-09-06）
-	// 把它併進 Heading（宣告在下面那一段）。
-	Content     string
-	RevisitWhen string
-	Impact      string
+	// ⚠️ 這裡以前是四格，多的那三格是 `Trigger`（`rc-9002654dd81c` 併進 Heading）
+	// 與 `RevisitWhen` / `Impact` / `ImpactStars`（owner 2026-09-06 逐字「都改掉」，
+	// 訊息 `c-3d3e5582c2d2`，連同欄位一起拿掉）。
+	Content string
 
-	// 🔴 這裡叫 Impact，而 lore_proposal 那一欄仍然叫 `problem`，兩邊的 SQL 也照
-	// 樣寫 `problem`。00084 只把 lore_entry 的那一欄改了名，沒有動提案表，而那是
-	// 對的：欄位名字在提案表裡只是儲存位置，改它要一次 migration，換來的是零。
-	// ⚠️ 代價寫在這裡而不是靠人記得：讀這幾段 SQL 的人會看到欄名與欄位對不上，
-	// 而那不是 bug。線上的名字（spec 與 DTO）已經全部是 `impact`。
-	//
-	// 🔴 Heading 與 ImpactStars 現在**在**提案上，而它們是同一個裁定的兩半。
-	// owner 2026-09-05 於 rc-bbccbeb3d9e6 逐字：「任何修改都是提案的一環」。
-	// 在此之前提案表沒有這兩欄，後果不是「少了兩格」而是一份**主動說謊的原文**：
-	// loreRevisionBody 印 heading，loreProposalEntry 給它零值，核可寫下的原文
-	// 就宣稱這條沒有標題 —— 實測配陽性對照坐實過（見 00084 檔內那一段）。
-	// 而第二個後果更難看見：「什麼都沒改的提案要被拒絕」是比兩串 digest，提案
-	// 那一串永遠少一格 ⇒ 兩串永遠不等 ⇒ **那道守衛恆真、永遠不擋任何東西**。
-	Heading     string
-	ImpactStars int
+	// 🔴 Heading **在**提案上，理由是 owner 2026-09-05 於 rc-bbccbeb3d9e6 逐字：
+	// 「任何修改都是提案的一環」。在此之前提案表沒有這一欄，後果不是「少了一格」
+	// 而是一份**主動說謊的原文**：loreRevisionBody 印 heading，loreProposalEntry
+	// 給它零值，核可寫下的原文就宣稱這條沒有標題 —— 實測配陽性對照坐實過
+	// （見 00084 檔內那一段）。而第二個後果更難看見：「什麼都沒改的提案要被拒絕」
+	// 是比兩串 digest，提案那一串永遠少一格 ⇒ 兩串永遠不等 ⇒ **那道守衛恆真、
+	// 永遠不擋任何東西**。
+	Heading string
 
 	// Events 是提案主張的**整份**`events`，不是增量。核可時 lore_event 會被整批
 	// 換成這一份。
@@ -176,9 +168,6 @@ type LoreProposalRow struct {
 	Evidence       string
 	Heading        string
 	Content        string
-	RevisitWhen    string
-	Impact         string
-	ImpactStars    int
 	Body           string
 	SHA256         string
 	ActorID        string
@@ -239,17 +228,14 @@ type LoreProposalList struct {
 // compared with a revision's — and 「這份提案就是那一版」 would stop being an
 // answerable question the moment the two drifted by one newline.
 //
-// 🔴 Heading 與 ImpactStars 都在這裡，而那正是上面那段「一個渲染器」的意思：
-// 渲染器印哪幾格，提案就必須帶得動哪幾格。前一版把這兩格留成零值，並在註解裡
-// 寫下「哪一天有人讓渲染器印標題，這裡就會開始把空標題摘要進去」—— 那一天到了，
-// 而它是被四支測試抓到的，不是被這段註解擋住的。註解不是守衛。
+// 🔴 Heading 在這裡，而那正是上面那段「一個渲染器」的意思：渲染器印哪幾格，提案
+// 就必須帶得動哪幾格。前一版把它留成零值，並在註解裡寫下「哪一天有人讓渲染器印
+// 標題，這裡就會開始把空標題摘要進去」—— 那一天到了，而它是被四支測試抓到的，
+// 不是被那段註解擋住的。註解不是守衛。
 func loreProposalEntry(p LoreProposal) LoreEntry {
 	return LoreEntry{
-		Heading:     p.Heading,
-		Content:     p.Content,
-		RevisitWhen: p.RevisitWhen,
-		Impact:      p.Impact,
-		ImpactStars: p.ImpactStars,
+		Heading: p.Heading,
+		Content: p.Content,
 	}
 }
 
@@ -284,15 +270,10 @@ func loreProposalShapeError(p LoreProposal) error {
 		// A removal proposes no new version. Carrying one would put a version on
 		// the reviewer's screen that no accept path would ever write — the
 		// description/result gap in miniature, inside the shape built to close it.
-		for _, f := range []string{p.Heading, p.Content, p.RevisitWhen, p.Impact} {
+		for _, f := range []string{p.Heading, p.Content} {
 			if strings.TrimSpace(f) != "" {
 				return ErrLoreProposalRemoveBody
 			}
-		}
-		// 星等同理：一份 `remove` 不主張任何版本，帶一個星等等於在審核者眼前
-		// 放一個沒有任何核可路徑會寫下去的數字。
-		if p.ImpactStars != 0 {
-			return ErrLoreProposalRemoveBody
 		}
 		// `events`同理。一份 `remove` 帶著事件，會讓審核者看到一份沒有任何核可
 		// 路徑會寫下去的`events`。⚠️ 這裡拒絕的是**非空**，不是 nil：`remove`
@@ -307,16 +288,13 @@ func loreProposalShapeError(p LoreProposal) error {
 	// writing a version through the ordinary write path, so a proposal that path
 	// would refuse is a proposal that can never be accepted — and it would sit in
 	// the queue looking exactly like one that could.
-	// 🔴 標題與星等現在也走寫入路徑自己的檢查，理由跟下面兩格一模一樣：核可
-	// 一份提案等於走一次普通寫入，寫入會拒絕的東西在這裡就要被拒絕。
+	// 🔴 標題也走寫入路徑自己的檢查，理由跟下面一格一模一樣：核可一份提案等於走
+	// 一次普通寫入，寫入會拒絕的東西在這裡就要被拒絕。
 	if err := loreHeadingError(p.Heading); err != nil {
 		return err
 	}
 	if strings.TrimSpace(p.Content) == "" {
 		return ErrLoreContentBlank
-	}
-	if err := loreImpactStarsError(p.ImpactStars); err != nil {
-		return err
 	}
 	// 🔴 `events`在 `update` 上是**必填**，而空陣列就滿足它。理由跟上面那兩格
 	// 「空白就拒絕」不一樣：這一格不是不能空，是不能**沒說**。提案帶的是完整的
@@ -407,12 +385,12 @@ func (d *DAL) CreateLoreProposal(p LoreProposal, nowTS float64) (LoreProposalRes
 			INSERT INTO lore_proposal (
 				id, entry_id, kind, base_revision_id, base_sha256,
 				encountered, fault, evidence,
-				heading, content, revisit_when, problem, impact_stars,
+				heading, content,
 				body, sha256, actor_id, created_ts)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 			out.ProposalID, p.EntryID, p.Kind, base.ID, base.SHA256,
 			p.Encountered, p.Fault, p.Evidence,
-			p.Heading, p.Content, p.RevisitWhen, p.Impact, p.ImpactStars,
+			p.Heading, p.Content,
 			body, sum, p.ActorID, nowTS); err != nil {
 			return err
 		}
@@ -474,7 +452,7 @@ func (d *DAL) ListLoreProposals(entryID string) (LoreProposalList, error) {
 	rows, err := d.rdb.Query(`
 		SELECT id, entry_id, kind, base_revision_id, base_sha256,
 		       encountered, fault, evidence,
-		       heading, content, revisit_when, problem, impact_stars,
+		       heading, content,
 		       body, sha256, actor_id, created_ts
 		FROM lore_proposal WHERE entry_id = ? ORDER BY created_ts DESC, id DESC`, entryID)
 	if err != nil {
@@ -486,7 +464,7 @@ func (d *DAL) ListLoreProposals(entryID string) (LoreProposalList, error) {
 		if err := rows.Scan(
 			&p.ID, &p.EntryID, &p.Kind, &p.BaseRevisionID, &p.BaseSHA256,
 			&p.Encountered, &p.Fault, &p.Evidence,
-			&p.Heading, &p.Content, &p.RevisitWhen, &p.Impact, &p.ImpactStars,
+			&p.Heading, &p.Content,
 			&p.Body, &p.SHA256, &p.ActorID, &p.CreatedTS,
 		); err != nil {
 			return LoreProposalList{}, err
@@ -602,12 +580,12 @@ func (d *DAL) GetLoreProposal(proposalID string) (*LoreProposalRow, error) {
 	err := d.rdb.QueryRow(`
 		SELECT id, entry_id, kind, base_revision_id, base_sha256,
 		       encountered, fault, evidence,
-		       heading, content, revisit_when, problem, impact_stars,
+		       heading, content,
 		       body, sha256, actor_id, created_ts
 		FROM lore_proposal WHERE id = ?`, proposalID).Scan(
 		&p.ID, &p.EntryID, &p.Kind, &p.BaseRevisionID, &p.BaseSHA256,
 		&p.Encountered, &p.Fault, &p.Evidence,
-		&p.Heading, &p.Content, &p.RevisitWhen, &p.Impact, &p.ImpactStars,
+		&p.Heading, &p.Content,
 		&p.Body, &p.SHA256, &p.ActorID, &p.CreatedTS)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
@@ -655,13 +633,13 @@ func (d *DAL) GetLoreProposal(proposalID string) (*LoreProposalRow, error) {
 // 都不存在。落地時唯一留下的紀錄是新的 lore_revision 那一列的 actor_id ＝
 // 核可的人。
 //
-// 🔴 「完整的新版本」這句話在 v8 之後**不再涵蓋整條條目**，而這是這個函式現在
-// 最容易被誤讀的地方：UPDATE 只碰當時的四個本體格（`trigger` / `content` /
-// `revisit_when` / `impact`），`heading` 與 `impact_stars` 原封不動留在
-// 條目上。**這一版起不再是這樣**：owner 2026-09-05 於 rc-bbccbeb3d9e6 逐字裁
-// 「任何修改都是提案的一環」⇒ lore_proposal 補上了 heading 與 impact_stars
-// （00084 的兩支 ALTER TABLE），而這裡把它們一起寫回條目。
-// ⇒ v8 的標題與星等**現在有修改路徑了**；在此之前寫錯只能新寫一條去 supersede。
+// 🔴 「完整的新版本」今天涵蓋條目上**每一個改得動的本體格**，而那一組今天只有
+// 兩格：`heading` 與 `content`。owner 2026-09-05 於 rc-bbccbeb3d9e6 逐字裁
+// 「任何修改都是提案的一環」，而 owner 2026-09-06 逐字「都改掉」把
+// `revisit_when` / `impact` / `impact_stars` / `supersedes` 四格整個拿掉了 ⇒
+// 這個 UPDATE 從碰四格縮成碰兩格，不是因為漏了，是因為只剩兩格。
+// ⚠️ 跟著沒有的是「寫錯只能新寫一條去 supersede」那條退路本身：`supersedes` 也
+// 走了，所以修一條寫錯的條目今天**只有提案這一條路**。
 func (d *DAL) ApplyLoreProposal(proposalID, actorID string, nowTS float64) (LoreProposalApplied, error) {
 	var out LoreProposalApplied
 	if actorID == "" {
@@ -725,11 +703,9 @@ func (d *DAL) ApplyLoreProposal(proposalID, actorID string, nowTS float64) (Lore
 	err = d.inTx(func(tx *sql.Tx) error {
 		res, err := tx.Exec(`
 			UPDATE lore_entry
-			SET heading = ?, content = ?, revisit_when = ?,
-			    impact = ?, impact_stars = ?, updated_ts = ?
+			SET heading = ?, content = ?, updated_ts = ?
 			WHERE id = ?`,
-			p.Heading, p.Content, p.RevisitWhen,
-			p.Impact, p.ImpactStars, nowTS, p.EntryID)
+			p.Heading, p.Content, nowTS, p.EntryID)
 		if err != nil {
 			return err
 		}

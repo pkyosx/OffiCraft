@@ -23,13 +23,10 @@ func t33Entry(id string) LoreEntry {
 		// 「把 heading 接到 trigger 上」的錯誤露出來。`rc-9002654dd81c`
 		// （2026-09-06「合併成 heading 一格」）之後只剩一格，那個對調的錯誤在構造
 		// 上不存在了 —— 不是這個 fixture 放鬆了守衛。
-		Heading:     "前端畫面接的是假資料，而畫面上看不出來",
-		Content:     "the fold happens in one place",
-		RevisitWhen: "等前端不再有假資料模式",
-		Impact:      "T-33 slot 3：兩個區塊對同一件事說法不一樣",
-		ImpactStars: 2,
-		CreatedTS:   100,
-		UpdatedTS:   100,
+		Heading:   "前端畫面接的是假資料，而畫面上看不出來",
+		Content:   "the fold happens in one place",
+		CreatedTS: 100,
+		UpdatedTS: 100,
 	}
 }
 
@@ -54,7 +51,6 @@ func TestLoreEntryRoundTrips(t *testing.T) {
 	want := t33Entry("me-aaa")
 	want.Status = "underspecified"
 	want.EditableBy = "owner-gated"
-	want.Supersedes = "me-old"
 	t33Put(t, d, want)
 
 	got := t33Get(t, d, "me-aaa")
@@ -274,53 +270,27 @@ func TestLoreCountAgreesWithList(t *testing.T) {
 	}
 }
 
-// 六格裡存在 lore_entry 上的那幾格 survive a write and a read, by name. A column
-// dropped from the INSERT list or transposed in the scan would otherwise show up
-// much later as an entry that lost one cell.
+// 條目上存在 lore_entry 的每一個本體格 survive a write and a read, by name. A
+// column dropped from the INSERT list or transposed in the scan would otherwise
+// show up much later as an entry that lost one cell.
 //
 // 🔴 每一格的值都不一樣，而且**沒有一個是零值**：兩格值相同的話，把它們對調的
-// bug 會讀回來完全正確。impact_stars 用 3、reviewed 用 true，理由同上——用 0 和
-// false 的話，一個根本沒寫進去的欄位會跟一個寫對了的欄位長得一模一樣。
+// bug 會讀回來完全正確。reviewed 用 true 是同一個理由——用 false 的話，一個根本
+// 沒寫進去的欄位會跟一個寫對了的欄位長得一模一樣。
+// ⚠️ 這支測試以前還蓋著 revisit_when / impact / impact_stars 三格。owner
+// 2026-09-06 逐字「都改掉」把它們拿掉了 ⇒ 少的是格子，不是覆蓋率。
 func TestLoreEntryCellsRoundTripByName(t *testing.T) {
 	d := newTestDAL(t)
 	e := LoreEntry{
-		ID:          "me-five",
-		Heading:     "HD",
-		Content:     "CO",
-		RevisitWhen: "RW",
-		Impact:      "IM",
-		ImpactStars: 3,
-		Reviewed:    true,
+		ID:       "me-five",
+		Heading:  "HD",
+		Content:  "CO",
+		Reviewed: true,
 	}
 	t33Put(t, d, e)
 	got := t33Get(t, d, "me-five")
-	if got.Heading != "HD" || got.Content != "CO" ||
-		got.RevisitWhen != "RW" || got.Impact != "IM" ||
-		got.ImpactStars != 3 || !got.Reviewed {
+	if got.Heading != "HD" || got.Content != "CO" || !got.Reviewed {
 		t.Fatalf("a body cell was lost or transposed: %+v", *got)
-	}
-}
-
-// 🔴 星等的值域擋在 DAL，不是只擋在 CHECK 上，而錯誤是具名的：CHECK 只回得出
-// 「constraint failed」，上層只能把它報成 500，而送錯星等的人是可以自己修好的。
-//
-// 0 也一起被斷言是**合法**的，而且那不是順手：0 的意思是「還沒判」，把它擋掉
-// 等於逼每一條既有條目與每一次沒填的寫入當場被判一個等級。
-func TestLoreImpactStarsRefusesWhatIsNotAStar(t *testing.T) {
-	d := newTestDAL(t)
-	for _, stars := range []int{-1, 4, 7} {
-		e := t33Entry("me-stars")
-		e.ImpactStars = stars
-		if err := d.PutLoreEntry(e); !errors.Is(err, ErrLoreImpactStarsRange) {
-			t.Fatalf("impact_stars=%d 被收下了: %v", stars, err)
-		}
-	}
-	for _, stars := range []int{0, 1, 2, 3} {
-		e := t33Entry("me-stars")
-		e.ImpactStars = stars
-		if err := d.PutLoreEntry(e); err != nil {
-			t.Fatalf("impact_stars=%d 是合法的，卻被擋了: %v", stars, err)
-		}
 	}
 }
 

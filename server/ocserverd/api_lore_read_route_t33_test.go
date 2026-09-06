@@ -44,9 +44,9 @@ func TestLoreReadRouteHandsBackWhatContentCompressedAway(t *testing.T) {
 	// 🔴 EVERY SECTION IS NAMED, blank ones included: a renderer that skipped
 	// blanks would make "never written" and "deleted" the same bytes, which is
 	// the erosion this ticket exists to make visible.
-	// 五格：heading + 三個欄位 + `events:` 區塊。`events:` 也在這一行裡，因為一條
-	// 沒有事件的條目跟一條事件被改寫弄丟的條目在原文裡必須不一樣。
-	for _, f := range []string{"heading:", "content:", "revisit_when:", "impact:", "events:"} {
+	// heading + content + `events:` 區塊。`events:` 也在這一行裡，因為一條沒有
+	// 事件的條目跟一條事件被改寫弄丟的條目在原文裡必須不一樣。
+	for _, f := range []string{"heading:", "content:", "events:"} {
 		if !strings.Contains(got.Original, f) {
 			t.Fatalf("the original drops %q:\n%s", f, got.Original)
 		}
@@ -54,19 +54,14 @@ func TestLoreReadRouteHandsBackWhatContentCompressedAway(t *testing.T) {
 	if got.Sha256 != loreSHA256(got.Original) {
 		t.Fatalf("the digest does not hash the served text")
 	}
-	// 🔴 v8 加的三格在線上讀得回來。
+	// 🔴 標題格在線上讀得回來。
 	// ⚠️ 這一段以前還靠「標題與`heading`是兩句不同的話」來抓一個把兩格接反的
 	// handler。`trigger` 被 `rc-9002654dd81c`（2026-09-06）併進 heading 之後只剩
 	// 一格，那個對調的錯誤在構造上不存在了 —— 不是這支測試放鬆了。
-	// ⚠️ 星等在這裡是 2，因為 seed 現在**一定**送得出一個星等：負責人 2026-09-06
-	// 「不允許給 0」之後，一個沒送 `impact_stars` 的 seed 根本寫不進來（422）。
-	// 這一行斷言的是「送進去的那個等級讀得回來」，不是「沒送會被折成幾」——後者
-	// 已經不是這條路徑上存在得了的狀態。
+	// ⚠️ 這裡以前還斷言 `impact` 與 `impact_stars` 讀得回來。owner 2026-09-06
+	// 逐字「都改掉」把那兩格拿掉了 ⇒ 少的是格子，不是覆蓋率。
 	if got.Heading != "something became visible that had not been" {
 		t.Fatalf("heading = %q — 標題格沒有被接到讀取路徑上", got.Heading)
-	}
-	if got.Impact != "T-33 slot 3" || got.ImpactStars != 2 {
-		t.Fatalf("impact = %q / stars = %d", got.Impact, got.ImpactStars)
 	}
 	// ⚠️ `reviewed` 一定是 false，而那不是這支測出來的性質，是這一版**沒有任何
 	// 路由蓋得了章**的結果。它被斷言在這裡，是為了讓「有人把 reviewed 接上了
@@ -81,9 +76,6 @@ func TestLoreReadRouteHandsBackWhatContentCompressedAway(t *testing.T) {
 	if !strings.Contains(got.Original, "heading:\n"+got.Heading+"\n") {
 		t.Fatalf("原文裡沒有標題格，或它記的不是條目上那一句（%q）:\n%s",
 			got.Heading, got.Original)
-	}
-	if !strings.Contains(got.Original, "impact_stars:\n") {
-		t.Fatalf("原文裡沒有星等這一格:\n%s", got.Original)
 	}
 	if got.WrittenBy != "m-lore-agent" {
 		t.Fatalf("written_by = %q, want the verified token subject", got.WrittenBy)

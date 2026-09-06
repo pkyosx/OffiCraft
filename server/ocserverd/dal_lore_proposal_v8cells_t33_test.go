@@ -1,8 +1,10 @@
 package main
 
-// dal_lore_proposal_v8cells_t33_test.go — T-33. 提案帶得動 v8 的標題與星等，而這
-// 一檔守的是「帶得動」到底是什麼意思：不是欄位存得下，是**核可之後條目與原文層
-// 都跟著變**。
+// dal_lore_proposal_v8cells_t33_test.go — T-33. 提案帶得動 v8 的標題，而這一檔守
+// 的是「帶得動」到底是什麼意思：不是欄位存得下，是**核可之後條目與原文層都跟著
+// 變**。
+// ⚠️ 這一檔以前同時守標題與星等。owner 2026-09-06 逐字「都改掉」拿掉了星等那一格
+// ⇒ 少的是格子，不是這一檔的鑑別力。
 //
 // 🔴 這一檔存在的理由是一次真的發生過的失效，不是假想的：渲染器先被加上 heading，
 // 而 lore_proposal 那時候沒有那一欄 ⇒ 每一次核可都寫下一份宣稱「這條沒有標題」
@@ -18,11 +20,11 @@ import (
 	"testing"
 )
 
-// 核可之後，條目上的標題與星等變成提案主張的那一組。
+// 核可之後，條目上的標題變成提案主張的那一個。
 //
 // 🔴 seed 與 proposal 的標題刻意不同，而那是這支測試的全部鑑別力：兩邊一樣的話，
 // 一個「根本沒有寫回標題」的 UPDATE 會讀回來完全正確。
-func TestAcceptingAProposalWritesTheHeadingAndStarsOntoTheEntry(t *testing.T) {
+func TestAcceptingAProposalWritesTheHeadingOntoTheEntry(t *testing.T) {
 	d := newTestDAL(t)
 	entryID, sha := t33SeedForProposal(t, d)
 
@@ -31,9 +33,6 @@ func TestAcceptingAProposalWritesTheHeadingAndStarsOntoTheEntry(t *testing.T) {
 	p.BaseSHA256 = sha
 	if p.Heading == before.Heading {
 		t.Fatal("fixture: 提案與 seed 的標題一樣，這支測試會對一個不寫回標題的實作說 OK")
-	}
-	if p.ImpactStars == before.ImpactStars {
-		t.Fatal("fixture: 提案與 seed 的星等一樣，同上")
 	}
 
 	filed, err := d.CreateLoreProposal(p, 2000)
@@ -47,9 +46,6 @@ func TestAcceptingAProposalWritesTheHeadingAndStarsOntoTheEntry(t *testing.T) {
 	after := t33Get(t, d, entryID)
 	if after.Heading != p.Heading {
 		t.Errorf("條目的標題沒有跟著核可走: got %q, want %q", after.Heading, p.Heading)
-	}
-	if after.ImpactStars != p.ImpactStars {
-		t.Errorf("條目的星等沒有跟著核可走: got %d, want %d", after.ImpactStars, p.ImpactStars)
 	}
 
 	// 🔴 原文層也要對得上，而它是這一組裡**最容易靜默壞掉**的一半：條目更新了、

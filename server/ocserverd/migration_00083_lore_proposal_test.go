@@ -214,7 +214,7 @@ func TestMigration00083DownRetreatsExactlyOneStage(t *testing.T) {
 	}
 	// 🔴 這一列是用原始 INSERT 填的，不是 CreateLoreProposal，理由跟 seed 一樣而且
 	// 更不明顯：CreateLoreProposal 第一件事是 GetLoreEntry，而那個 SELECT 名的是
-	// HEAD 這一階的 lore_entry 欄位（00084 的 heading / impact / …），這裡的資料庫
+	// HEAD 這一階的 lore_entry 欄位（00084 的 heading / reviewed），這裡的資料庫
 	// 停在 00083。走 DAL 只會撞到「沒有這個欄位」，而那跟這支測的東西無關。
 	// ⚠️ 因此這一段量到的是「00083 這張表收得下一列指向更老條目的提案」，**不是**
 	// 「提案路徑在這一階能跑」。後者已經沒有辦法在這裡量了，這行字就是那個縮水。
@@ -235,7 +235,7 @@ func TestMigration00083DownRetreatsExactlyOneStage(t *testing.T) {
 	}
 	// 🔴 這裡讀的是原始 SQL，不是 ListLoreProposals，而理由跟上面那一段完全一樣、
 	// 只是晚了一階發現：`ListLoreProposals` 名的也是 HEAD 那一階的欄位（00084 給
-	// lore_proposal 補的 heading / impact_stars），而這個資料庫停在 00083。走 DAL
+	// lore_proposal 補的 heading），而這個資料庫停在 00083。走 DAL
 	// 只會撞到「沒有這個欄位」，那跟這支測的東西無關。
 	// ⚠️ 因此這一段量到的縮水又多一格：它現在只證明「這一列存得進去，而且它指向
 	// 一條比這張表更老的條目」，**不再**證明「新的讀取路徑讀得懂它」。後者在這一
@@ -277,8 +277,8 @@ func TestMigration00083DownRetreatsExactlyOneStage(t *testing.T) {
 	// must not cost the lore.
 	//
 	// 🔴 用 COUNT 而不是 dal.GetLoreEntry：資料庫現在退到了 prev 這一階，而 DAL 的
-	// SELECT 名的是 HEAD 那一階的欄位（v8 的 heading / impact / impact_stars /
-	// reviewed 從 00084 才存在）。走 DAL 只會撞到「沒有這個欄位」——那是在量
+	// SELECT 名的是 HEAD 那一階的欄位（v8 的 heading 從 00084 才存在，而 00084
+	// 同時 DROP 掉了這一階仍然有的 problem / retire_when / supersedes）。走 DAL 只會撞到「沒有這個欄位」——那是在量
 	// 「DAL 比資料庫新」，不是在量「這一列有沒有活下來」。
 	var alive int
 	if err := db.QueryRow(
@@ -322,7 +322,7 @@ func TestMigration00083DownRetreatsExactlyOneStage(t *testing.T) {
 // naming only the columns that exist at the stage before 00083.
 //
 // 🔴 它不能走 CreateLoreEntry，而理由不是圖方便：那個函式寫的是 HEAD 這一階的
-// 欄位（00084 的 heading / impact / impact_stars / reviewed），而這裡的資料庫
+// 欄位（00084 的 heading / reviewed），而這裡的資料庫
 // 停在 00082。走 DAL 的話這支測試會在「seed」就爆掉，而爆的原因跟它要測的
 // 「00083 的 Down 退了幾階」毫無關係——一支因為別的理由紅掉的守衛，跟一支壞掉的
 // 守衛一樣沒有用。
@@ -333,20 +333,19 @@ func TestMigration00083DownRetreatsExactlyOneStage(t *testing.T) {
 func m83SeedEntryAtPreviousStage(t *testing.T, db *sql.DB) LoreWriteResult {
 	t.Helper()
 	w := t33Write()
-	// `impact`在 00082 那一階的欄名還是 `problem`（00084 才改成 `impact`）。
 	// 摘要用的是 HEAD 的渲染器，而那正確：sha256 比的是那串位元組，不是欄名。
 	entry := LoreEntry{
 		ID: "lore-m83-seed", Heading: w.Heading, Content: w.Content,
-		RevisitWhen: w.RevisitWhen, Impact: w.Impact,
 	}
 	body := loreRevisionBody(entry, nil)
 	sum := loreSHA256(body)
 	// 🔴 這一列用的是 **00083 那一階的欄名**：第一格叫 `trigger`，而 `heading` 那
 	// 一欄根本還不存在（它是 00084 加的，而同一支 00084 又把 `trigger` 併進了它）。
-	// ⚠️ 第三格同理叫 `retire_when` —— 00084 才把它改名成 `revisit_when`。這裡的
-	// SQL 欄名不跟著改名走，跟著的是 Go 欄位名（entry.RevisitWhen）。
-	// ⇒ 這個字串是寫死的，不是從 LoreWrite 拿的：HEAD 的 struct 已經沒有那一格，
-	// 而這裡種的本來就不是今天的條目。
+	// ⚠️ `retire_when` 與 `problem` 同理：兩格在 00083 那一階**存在**（00081 建的），
+	// 是 00084 才 DROP 掉的（owner 2026-09-06「都改掉」）⇒ 這裡的 INSERT 必須繼續
+	// 填它們，而值只能寫死：HEAD 的 LoreEntry 已經沒有那兩格可以拿。
+	// ⇒ 這幾個字串都是寫死的，不是從 LoreWrite 拿的：HEAD 的 struct 已經沒有那些
+	// 格子，而這裡種的本來就不是今天的條目。
 	const stageTrigger = "我要確認開機脈絡是在哪裡組起來的"
 	// 🔴 `origin` 同理，而且理由更強一層：這一欄在 00083 那一階**存在**（00081 建的），
 	// 是 00084 才 DROP 掉的（`rc-9c9bf14a579f`，2026-09-06「一起拿掉」）⇒ 這裡的
@@ -354,11 +353,14 @@ func m83SeedEntryAtPreviousStage(t *testing.T, db *sql.DB) LoreWriteResult {
 	// LoreWrite / LoreEntry 已經沒有那一格可以拿。
 	// ⚠️ 它不影響下面的 sha256：loreRevisionBody 從來沒有印過 origin。
 	const stageOrigin = "agent:O-197"
+	// 🔴 `retire_when` / `problem` 同上：00081 建的，00084 才 DROP。
+	const stageRetireWhen = "等組裝路徑不只一條"
+	const stageProblem = "T-33 slot 3：兩個區塊對同一件事說法不一樣"
 	if _, err := db.Exec(`
 		INSERT INTO lore_entry (id, trigger, content, retire_when, problem,
 			status, supersedes, editable_by, origin, created_ts, updated_ts)
 		VALUES (?, ?, ?, ?, ?, 'active', '', 'agent', ?, 1000, 1000)`,
-		entry.ID, stageTrigger, entry.Content, entry.RevisitWhen, entry.Impact,
+		entry.ID, stageTrigger, entry.Content, stageRetireWhen, stageProblem,
 		stageOrigin); err != nil {
 		t.Fatalf("seed entry at the previous stage: %v", err)
 	}

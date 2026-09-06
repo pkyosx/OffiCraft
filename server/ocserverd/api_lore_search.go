@@ -99,11 +99,10 @@ func (s *apiServer) HandleSearchLoreEntriesApiLoreSearchPost(w http.ResponseWrit
 			// heading＋內容、待審畫面改顯示 heading）」⇒ 只剩這一格，而它就是
 			// 被掃的那一格。
 			Heading: h.Entry.Heading,
-			// 星等要在這一層，因為它就是重要性（owner：「評分也改了不用 用星等
-			// 取代 因為 impact 本就是重要性」）—— 一串標題如果不帶重要性，agent
-			// 只能照順序看，而順序不是重要性。
-			ImpactStars: h.Entry.ImpactStars,
-			Subjects:    subjects,
+			// ⚠️ 這一列以前還帶 `impact_stars`（重要性）。owner 2026-09-06「都改掉」
+			// 拿掉了那一格 ⇒ 這串標題今天**只有順序**，而順序不是重要性：agent 拿到
+			// 的清單裡沒有任何一個訊號說哪一條比較重。沒有東西接手這件事。
+			Subjects: subjects,
 		})
 	}
 	// 🔴 JOURNALLED AFTER THE ANSWER IS BUILT AND BEFORE IT IS WRITTEN, and only

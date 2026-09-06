@@ -15,13 +15,10 @@ func t33Write() LoreWrite {
 		// ⚠️ 這裡以前還有一格 `Trigger`，跟 Heading 刻意寫成不同的句子，好讓一個
 		// 把兩格接反的錯誤露出來。`rc-9002654dd81c`（2026-09-06「合併成 heading
 		// 一格」）之後只剩一格。
-		Heading:     "開機脈絡在兩個地方各組了一次，兩份內容不一樣",
-		Content:     "the fold happens in one place",
-		RevisitWhen: "等組裝路徑不只一條",
-		Impact:      "T-33 slot 3：兩個區塊對同一件事說法不一樣",
-		ImpactStars: 2,
-		Subjects:    []string{"repo:officraft"},
-		ActorID:     "ow-e27260b9ed05",
+		Heading:  "開機脈絡在兩個地方各組了一次，兩份內容不一樣",
+		Content:  "the fold happens in one place",
+		Subjects: []string{"repo:officraft"},
+		ActorID:  "ow-e27260b9ed05",
 	}
 }
 
@@ -79,7 +76,7 @@ func TestLoreCreateWritesEntrySubjectsAndOriginal(t *testing.T) {
 		t.Fatalf("the stored digest does not hash the stored body: %q", rev.SHA256)
 	}
 	if !strings.Contains(rev.Body, "the fold happens in one place") ||
-		!strings.Contains(rev.Body, "等組裝路徑不只一條") {
+		!strings.Contains(rev.Body, "開機脈絡在兩個地方各組了一次，兩份內容不一樣") {
 		t.Fatalf("the original does not carry the body it was written from:\n%s", rev.Body)
 	}
 	if rev.ActorID != "ow-e27260b9ed05" {
@@ -101,37 +98,33 @@ func TestLoreCreateWritesEntrySubjectsAndOriginal(t *testing.T) {
 // which is the collapse this ticket exists to prevent.
 func TestLoreRevisionBodyNamesEveryFieldEvenWhenBlank(t *testing.T) {
 	body := loreRevisionBody(LoreEntry{Content: "only this one is set"}, nil)
-	for _, name := range []string{"content", "revisit_when", "impact", "events"} {
+	for _, name := range []string{"content", "events"} {
 		if !strings.Contains(body, name+":\n") {
 			t.Fatalf("the rendered original drops the %q section:\n%s", name, body)
 		}
 	}
-	// 🔴 標題與星等**在**原文裡，而這一段以前釘的是相反的事（「它們不在，那是
-	// 一個已知的洞」）。洞被填掉的方式不是把它們從渲染器拿掉，是讓提案帶得動
-	// 它們（owner rc-bbccbeb3d9e6 逐字「任何修改都是提案的一環」，00084 補了
-	// lore_proposal 的兩欄）。
-	// 少了這兩格的後果不是「少記一格」：核可寫進 lore_revision 的是提案渲染出來
+	// 🔴 標題**在**原文裡，而這一段以前釘的是相反的事（「它不在，那是一個已知的
+	// 洞」）。洞被填掉的方式不是把它從渲染器拿掉，是讓提案帶得動它（owner
+	// rc-bbccbeb3d9e6 逐字「任何修改都是提案的一環」，00084 補了 lore_proposal 的
+	// heading 欄）。
+	// 少了這一格的後果不是「少記一格」：核可寫進 lore_revision 的是提案渲染出來
 	// 的那串 body，所以每一次核可都會留下一份宣稱「這條沒有標題」的原文，而條目
 	// 上的標題其實還在 —— 一份主動說謊的原文，比一份沒答案的更糟。
-	full := loreRevisionBody(LoreEntry{Heading: "H", ImpactStars: 3}, nil)
-	for _, name := range []string{"heading", "impact_stars"} {
-		if !strings.Contains(full, name+":\n") {
-			t.Fatalf("原文漏了 %q 這一格 —— 核可之後它會被記成不存在:\n%s", name, full)
-		}
+	// ⚠️ 這一段以前同時釘 `impact_stars`；owner 2026-09-06「都改掉」拿掉了那一格。
+	full := loreRevisionBody(LoreEntry{Heading: "H"}, nil)
+	if !strings.Contains(full, "heading:\n") {
+		t.Fatalf("原文漏了 heading 這一格 —— 核可之後它會被記成不存在:\n%s", full)
 	}
 	// 🔴 值也要在，不只是欄名。只斷言欄名的話，一個把值換成空字串的改動會通過，
 	// 而那正是這一段原本在防的失效形狀（摘要因為標題而變，讀的人卻不知道哪一格變了）。
-	if !strings.Contains(full, "heading:\nH\n") || !strings.Contains(full, "impact_stars:\n3\n") {
+	if !strings.Contains(full, "heading:\nH\n") {
 		t.Fatalf("欄名在但值沒進去:\n%s", full)
 	}
 	// 🔴 換掉標題必須換掉摘要。這一條是 base_sha256 那整套機制對標題成立的唯一
 	// 保證：不成立的話，一份基於舊標題寫的提案會顯示成「還是最新的」，而審核者
-	// 按下核可時，那條的標題已經不是他讀過的那一個。星等同理。
-	if loreSHA256(full) == loreSHA256(loreRevisionBody(LoreEntry{Heading: "H2", ImpactStars: 3}, nil)) {
+	// 按下核可時，那條的標題已經不是他讀過的那一個。
+	if loreSHA256(full) == loreSHA256(loreRevisionBody(LoreEntry{Heading: "H2"}, nil)) {
 		t.Fatal("換掉標題之後摘要一個位元組都沒變 —— 標題不在雜湊裡")
-	}
-	if loreSHA256(full) == loreSHA256(loreRevisionBody(LoreEntry{Heading: "H", ImpactStars: 1}, nil)) {
-		t.Fatal("換掉星等之後摘要一個位元組都沒變 —— 星等不在雜湊裡")
 	}
 	if loreSHA256(body) == loreSHA256(loreRevisionBody(LoreEntry{}, nil)) {
 		t.Fatal("an entry with a body and an entirely empty one hash the same")
@@ -187,43 +180,16 @@ func TestLoreCreateRefusesTheTwoCellsThatMakeAnEntryReadable(t *testing.T) {
 		t.Fatalf("a refused write left %d entries behind", n)
 	}
 
-	// 🔴 `revisit_when`與`impact`是**選填**，空著必須寫得進去。少了這一半，一個把兩格
-	// 也變成必填的實作會讓上面全綠——而那就是擅自把選填改成必填。
-	optional := t33Write()
-	optional.RevisitWhen = ""
-	optional.Impact = ""
-	// ⚠️ 星等**不會**跟著歸零。負責人 2026-09-06 裁定「不允許給 0」之後，0 在新
-	// 條目上不再是一個合法的值，所以「第 3、4 格是選填」這件事只能用一個真的星等
-	// 來問；0 被拒的那一半移到下面它自己的斷言。
-	optRes, err := d.CreateLoreEntry(optional, 1000)
+	// ⚠️ 這裡以前還問「`revisit_when` 與 `impact` 空著寫不寫得進去」與「星等原樣
+	// 落地」。owner 2026-09-06 逐字「都改掉」把那三格拿掉了 ⇒ 那幾個問題今天沒有
+	// 對象。剩下的是一份最小寫入必須落地。
+	optRes, err := d.CreateLoreEntry(t33Write(), 1000)
 	if err != nil {
-		t.Fatalf("第 3、4 格是選填，空著必須收: %v", err)
+		t.Fatalf("一份只有標題與內容的寫入必須收: %v", err)
 	}
-	// 🔴 「收下了」不等於「原樣收下」。少了下面這幾行，一個把空的第 3、4 格
-	// 回填成「未知」的實作會讓上面全綠 —— 那是把「還沒有人去想」寫成「有人
-	// 想過、結論是未知」，而兩者從此分不開。這一段是 2026-09-04 的陰性對照
-	// 補上的：當時把回填塞進 CreateLoreEntry，整套測試 rc=0，一支都沒說話。
 	landed := t33Get(t, d, optRes.EntryID)
 	if landed == nil {
-		t.Fatal("第 3、4 格空著的條目沒有落地")
-	}
-	if landed.RevisitWhen != "" || landed.Impact != "" {
-		t.Fatalf("空著的第 3、4 格被發明了預設值: revisit_when=%q impact=%q", landed.RevisitWhen, landed.Impact)
-	}
-	// 🔴 送進來的星等必須原樣落地。把它換成別的值等於替寫入者做了一次他沒做的
-	// 判定，而之後沒有任何人查得出來原本判的是幾。
-	if landed.ImpactStars != optional.ImpactStars {
-		t.Fatalf("落地的星等不是送進來的那個: impact_stars=%d, want %d", landed.ImpactStars, optional.ImpactStars)
-	}
-
-	// 🔴 負責人 2026-09-06「不允許給 0」，這一段從「省略折成 0」改成「0 被拒」：
-	// 這支測試以前把 ImpactStars 歸零然後斷言它原樣落地，那個前提已經被推翻。
-	// 錯誤必須是 ErrLoreImpactStarsUnjudged 而不是 ErrLoreImpactStarsRange：
-	// 「我判了 0」跟「我送了 7」要修的東西不一樣，而 0 那個人要回去重新想一次。
-	unjudged := t33Write()
-	unjudged.ImpactStars = 0
-	if _, err := d.CreateLoreEntry(unjudged, 1000); !errors.Is(err, ErrLoreImpactStarsUnjudged) {
-		t.Fatalf("impact_stars=0 被新條目收下了（或報成了別的錯）: %v", err)
+		t.Fatal("寫入沒有落地")
 	}
 	// 🔴 `reviewed` 不由寫入者帶進來，所以一條剛寫好的條目一定是沒蓋過章的。
 	// 少了這一行，一個把 reviewed 接上請求體的實作會讓 agent 自己蓋自己的章，
@@ -327,19 +293,18 @@ func TestLoreEntriesWrittenBeforeTheRequirementStillReadBack(t *testing.T) {
 	if got == nil {
 		t.Fatal("an entry written before the requirement stopped being readable")
 	}
-	if got.Content != legacy.Content ||
-		got.RevisitWhen != "" || got.Impact != "" {
+	if got.Content != legacy.Content {
 		t.Fatalf("a pre-requirement entry did not read back as written: %+v", got)
 	}
-	// 🔴 v8 加的三格在一列 v8 之前的條目上讀回來是零值，而且**讀得回來**：
-	// 空標題不會讓這一列讀不到（必填只擋新寫入），星等是 0＝還沒判，章沒蓋過。
-	// 少了這三行，一個對舊列直接爆掉、或把 0 當成 1 的讀取路徑會讓上面全綠。
+	// 🔴 v8 加的格子在一列 v8 之前的條目上讀回來是零值，而且**讀得回來**：
+	// 空標題不會讓這一列讀不到（必填只擋新寫入），章沒蓋過。
+	// 少了這兩行，一個對舊列直接爆掉的讀取路徑會讓上面全綠。
 	// ⚠️ 這一列以前是靠種一個 `trigger` 來模擬「v8 之前的條目」的。那一格已經被
 	// `rc-9002654dd81c` 併進 heading ⇒ 現在種的是一列**連 heading 都空著**的條目，
 	// 而那仍然是這支測試要問的形狀：一列擋不住今天的必填、卻必須照樣讀得回來。
-	if got.Heading != "" || got.ImpactStars != 0 || got.Reviewed {
-		t.Fatalf("一列 v8 之前的條目讀回來時被補了 v8 的欄位: heading=%q stars=%d reviewed=%v",
-			got.Heading, got.ImpactStars, got.Reviewed)
+	if got.Heading != "" || got.Reviewed {
+		t.Fatalf("一列 v8 之前的條目讀回來時被補了 v8 的欄位: heading=%q reviewed=%v",
+			got.Heading, got.Reviewed)
 	}
 }
 
@@ -482,96 +447,6 @@ func TestLoreCreateResolvesAliasesAndDeduplicatesSubjects(t *testing.T) {
 	}
 }
 
-// Superseding re-statuses the old entry AND leaves a journal row. The pointer
-// alone would say what replaced it and never who decided that, or when.
-func TestLoreCreateSupersedesTheEntryItReplacesAndJournalsIt(t *testing.T) {
-	d := newTestDAL(t)
-	t33Entity(t, d, "e-repo", "repo", "repo:officraft")
-	old := t33Create(t, d, t33Write())
-
-	w := t33Write()
-	w.Supersedes = old.EntryID
-	got := t33Create(t, d, w)
-
-	prev := t33Get(t, d, old.EntryID)
-	if prev == nil || prev.Status != "superseded" {
-		t.Fatalf("the replaced entry kept status %+v", prev)
-	}
-	events, err := d.ListLoreGovernanceEvents(old.EntryID)
-	if err != nil {
-		t.Fatalf("events: %v", err)
-	}
-	if len(events) != 1 || events[0].Kind != LoreGovSupersede ||
-		events[0].ReplacedBy != got.EntryID || events[0].ActorID != "ow-e27260b9ed05" {
-		t.Fatalf("the supersede left no usable journal row: %+v", events)
-	}
-}
-
-// Superseding an id that names nothing rolls the WHOLE write back. A pointer
-// into empty space is a dead end that looks like a trail.
-func TestLoreCreateRefusesToSupersedeAnEntryThatDoesNotExist(t *testing.T) {
-	d := newTestDAL(t)
-	t33Entity(t, d, "e-repo", "repo", "repo:officraft")
-	w := t33Write()
-	w.Supersedes = "lore-nope"
-
-	if _, err := d.CreateLoreEntry(w, 1000); !errors.Is(err, ErrLoreEntryUnknown) {
-		t.Fatalf("supersedes a ghost: got %v", err)
-	}
-	if n := t33CountEntries(t, d); n != 0 {
-		t.Fatalf("the refused write left %d entries behind", n)
-	}
-}
-
-// 🔴 一條**已退休**的條目不准被 supersede，而這條規則不是為了整齊：supersede
-// 會把舊那筆的狀態改成 `superseded`，而 `superseded` 是讀取端**照樣會回傳**的
-// 狀態（dal_lore.go 自己寫明），`retired` 則是每一條讀取路徑都濾掉的。
-//
-// ⇒ 拿一條退休條目去 supersede，等於把它**弄回搜尋與每個人的開機目錄** ——
-// 而那正是 ReviveLoreEntry 只有 owner 能按的原因（見
-// TestLoreReviveIsOwnerOnlyAndBringsTheEntryBack）。任何一般 agent 用一次
-// 普通寫入就能達成，而且 journal 記下的是 `supersede` 不是 `revive`，所以
-// LatestLoreGovernanceEvent 事後連「它為什麼又活了」都答不出來。
-//
-// 2026-09-04 的陰性對照：把 CreateLoreEntry 的 `AND status <> 'retired'`
-// 拆掉，整套 `go test ./...` **rc=0** —— 這道閘當時一支測試都沒有。
-func TestLoreCreateWillNotSupersedeARetiredEntryBackIntoView(t *testing.T) {
-	d := newTestDAL(t)
-	t33Entity(t, d, "e-repo", "repo", "repo:officraft")
-
-	gone := t33Create(t, d, t33Write())
-	if err := d.RetireLoreEntry(gone.EntryID, LoreRetireFalsified, "owner", "", true, 500); err != nil {
-		t.Fatalf("retire: %v", err)
-	}
-
-	w := t33Write()
-	w.Supersedes = gone.EntryID
-	if _, err := d.CreateLoreEntry(w, 1000); !errors.Is(err, ErrLoreEntryUnknown) {
-		t.Fatalf("supersede a retired entry: got %v, want ErrLoreEntryUnknown", err)
-	}
-	// 🔴 最重要的一句：那條退休條目必須**還是** retired。它一旦變成
-	// superseded 就重新讀得到，而開那道門只有 owner 有權。
-	if got := t33Get(t, d, gone.EntryID); got == nil || got.Status != "retired" {
-		t.Fatalf("一次普通寫入把退休條目弄回來了: %+v", got)
-	}
-	// 整筆寫入回滾，不是「舊那筆沒動、新那筆照樣進去」。
-	if n := t33CountEntries(t, d); n != 1 {
-		t.Fatalf("被退回的寫入留下了東西：現在共 %d 筆，只該剩那條退休的", n)
-	}
-
-	// 🔑 陽性對照：同一段碼在對象**還活著**時必須成功。少了這一半，上面的
-	// 拒絕也可能只是因為 supersede 整條路壞掉了 —— 而那看起來一模一樣。
-	alive := t33Create(t, d, t33Write())
-	ok := t33Write()
-	ok.Supersedes = alive.EntryID
-	if _, err := d.CreateLoreEntry(ok, 1100); err != nil {
-		t.Fatalf("陽性對照：supersede 一筆還活著的條目應該要成功: %v", err)
-	}
-	if got := t33Get(t, d, alive.EntryID); got == nil || got.Status != "superseded" {
-		t.Fatalf("陽性對照：活著的那筆沒有被改成 superseded: %+v", got)
-	}
-}
-
 // 🔴 這裡曾經有一支 TestLoreCreateAcceptsALongTriggerWholeRatherThanTrimmingIt，
 // 它守的是「`heading`沒有長度上限，長的要整段寫進去不截斷」。它跟著 `trigger` 那一格
 // 一起沒了（`rc-9002654dd81c`，2026-09-06「合併成 heading 一格」），而**它守的性質
@@ -679,18 +554,11 @@ func TestLoreEventKeyPrefixesAreCheckedOnlyWhenTheCellIsFilled(t *testing.T) {
 // spelling instead, and this tree already learned where that ends —— see the
 // warning at the top of api_chat_attachment_wiring_test.go: 「Enumerating ways of
 // writing something has no end… never treat its green as evidence.」
-//
-// ⚠️ WHAT IT DOES NOT COVER: `impact_stars` is in the same position — writable
-// through the same upsert, absent from the body. It is left out on purpose, not
-// missed: whether a star rating is part of the version a reviewer approved is
-// the same undecided question as the heading was, and it is on the card. When
-// that comes back, this test is where the answer lands.
 func TestHeadingChangeMovesTheRevisionDigest(t *testing.T) {
 	base := LoreEntry{
 		ID:      "le-heading-digest",
 		Heading: "遷移在沒有設定檔的情況下打到了正式庫",
 		Content: "零參數等於 serve，serve 啟動就跑 migration。",
-		Impact:  "14 張表進了正式庫。",
 	}
 	before := loreRevisionBody(base, nil)
 

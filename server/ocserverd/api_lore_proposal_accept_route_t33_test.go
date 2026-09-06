@@ -83,10 +83,8 @@ func loreAcceptUpdateBody(base, marker string) string {
 		"encountered":"T-33 slot 5, wiring the accept route",
 		"fault":"misled",
 		"evidence":"the entry is retrieved for a situation it does not describe",
-		"heading":"兩個區塊對同一件事給了不同答案","impact_stars":2,
+		"heading":"兩個區塊對同一件事給了不同答案",
 		"content":"` + marker + `",
-		"revisit_when":"等只剩一個組裝器",
-		"impact":"T-33 slot 3",
 		"events":[{"happened_ts":1788440000,"what":"` + marker + ` was proposed"}]}`
 }
 

@@ -6,9 +6,11 @@ package main
 //
 // 🔴 WHY THIS IS NOT IN dal_lore.go. That file is the L1 row seam — PutLoreEntry
 // writes one table and says so. Creating an entry is not one table: it is the
-// entry, the join rows, the revision journal and (when the write supersedes an
-// older entry) a governance act, and every one of them has to happen or none of
-// them may. Putting the composite beside the single-row upsert would make the
+// entry, the join rows and the revision journal, and every one of them has to
+// happen or none of them may. (⚠️ There used to be a fourth: a governance act
+// when the write named a `supersedes`. That cell was removed by owner ruling
+// 2026-09-06 逐字「都改掉」, so the composite is one row shorter — not because
+// anything was simplified.) Putting the composite beside the single-row upsert would make the
 // two look interchangeable, and the day someone reaches for the cheaper one the
 // store gets an entry with no original behind it.
 //
@@ -51,21 +53,20 @@ var (
 	ErrLoreSubjectUnknownType = errors.New("lore: a subject key names an unapproved type prefix")
 	ErrLoreSubjectsEmpty      = errors.New("lore: the entry names no subject")
 	ErrLoreEntityMergeCycle   = errors.New("lore: the subject's merge chain does not end")
-	ErrLoreSupersedesSelf     = errors.New("lore: an entry cannot supersede itself")
 )
 
-// LoreGovSupersede is the journal kind written when a new entry takes over from
-// an older one.
+// 🔴 這裡曾經有一個 ErrLoreSupersedesSelf 與一個 LoreGovSupersede（"supersede"），
+// 它們跟 `supersedes` 那一格一起被裁掉了：owner 2026-09-06 逐字「都改掉」
+// （`c-3d3e5582c2d2`）。
 //
-// 🔴 IT IS A GOVERNANCE ACT, NOT A COLUMN UPDATE, for the same reason retiring
-// is: it changes whether an existing entry is still the answer, and "why did
-// this stop being used" has to be answerable afterwards. The `supersedes`
-// column on the new entry records the pointer; only the journal records WHO
-// pointed it and WHEN.
-const LoreGovSupersede = "supersede"
+// ⚠️ 照實說跟著失去意義、但**我沒有動**的東西（owner 只點名了四格）：
+//   * `lore_governance_event.kind` 那一欄刻意不是 CHECK 列舉，所以資料庫今天仍然
+//     存得下 "supersede" —— 只是站上沒有任何一個呼叫點會寫它了。
+//   * `lore_entry.status` 的 CHECK 仍然收 'superseded'，而今天沒有任何一條路會把
+//     一列設成那個狀態。⇒ 那個狀態值今天是**寫不進去的**，讀取端仍然照樣處理它。
 
-// LoreWrite is one request to create an entry — 五格（heading + 三個欄位 + 0..N 筆
-// 事件）、the axes it is filed under, and the verified identity of whoever is
+// LoreWrite is one request to create an entry — heading ＋ content ＋ 0..N 筆
+// 事件、the axes it is filed under, and the verified identity of whoever is
 // writing.
 //
 // ⚠️ 這裡以前是六格，多的那一格是 `trigger`；`rc-9002654dd81c`（2026-09-06）逐字
@@ -80,22 +81,19 @@ const LoreGovSupersede = "supersede"
 // 2026-09-06 (rc-9c9bf14a579f), so ActorID is now the only identity on a write
 // and the distinction is no longer recorded anywhere.
 type LoreWrite struct {
-	Heading     string
-	Content     string
-	RevisitWhen string
-	Impact      string
+	Heading string
+	Content string
 
-	// ImpactStars 是寫入者的**提案**，不是裁定。0 = 還沒判，1..3 見
-	// loreImpactStarsError。這裡沒有 Reviewed：蓋章的那一欄不由寫入者帶進來，
-	// 否則 agent 就是自己蓋自己的章。
-	ImpactStars int
+	// 🔴 這裡曾經有 RevisitWhen / Impact / ImpactStars / Supersedes 四格。
+	// owner 2026-09-06 逐字「都改掉」（`c-3d3e5582c2d2`）把它們連同欄位一起拿掉了。
+	// ⚠️ 不要「順手」加回其中任何一格：它們在資料庫、線上 DTO 與 migration 上都沒有
+	// 落點了，加回一個請求欄位只會得到一格被靜靜丟掉的輸入。
 
 	// Events 是`events`。0 筆是合法的，而且 0 筆跟「有事件但人／地／物空著」是
 	// 兩件完全不同的事，兩件都看得出來。
 	Events []LoreEvent
 
-	Supersedes string
-	Subjects   []string
+	Subjects []string
 
 	ActorID string
 }
@@ -122,7 +120,6 @@ type LoreWriteResult struct {
 	Minted     []LoreMintedEntity
 	RevisionID int64
 	SHA256     string
-	Superseded string
 }
 
 // loreRevisionBody renders 第 1..5 格 — the four cells AND the events — into the
@@ -153,26 +150,26 @@ type LoreWriteResult struct {
 // author never wrote this cell" and "this cell was deleted" — the exact collapse
 // this ticket is about.
 //
-// 🔴 `impact`的名字從 `problem` 改成 `impact`（v8）。舊的 revision 列**不會**被
-// 重新渲染，所以 v8 之前寫下的原文裡那一行仍然是 `problem:` —— 那是對的：原文是
-// 「當初寫下的東西」的紀錄，回頭改它就等於偽造。沒有任何一條路會拿一條舊條目
-// 重新渲染再跟它存下的 sha256 比對（核可寫的是提案存下來的那串 body），所以這次
-// 改名不會讓任何既有條目變成「過期」。
+// 🔴 舊的 revision 列**不會**被重新渲染。v8 之前寫下的原文裡仍然有 `problem:` /
+// `trigger:` 那幾行，而 owner 2026-09-06「都改掉」拿掉的四格（`impact` /
+// `impact_stars` / `revisit_when` / `supersedes`）在更早的原文裡也還留著 —— 那是
+// 對的：原文是「當初寫下的東西」的紀錄，回頭改它就等於偽造。沒有任何一條路會拿一條
+// 舊條目重新渲染再跟它存下的 sha256 比對（核可寫的是提案存下來的那串 body），所以
+// 這幾次改格不會讓任何既有條目變成「過期」。
 //
-// 🔴 `heading` 與 `impact_stars` 都在渲染器裡，而它們是同一條裁定的兩半。owner
-// 2026-09-05 於 `rc-bbccbeb3d9e6` 逐字：「**任何修改都是提案的一環**」。理由跟
-// 下面那條「空事件也照印」完全一樣：**一條標題（或星等）被換掉的條目，不可以跟
-// 換掉之前雜湊出同一串。**
+// 🔴 `heading` 在渲染器裡，理由是 owner 2026-09-05 於 `rc-bbccbeb3d9e6` 逐字：
+// 「**任何修改都是提案的一環**」。跟下面那條「空事件也照印」完全一樣：**一條標題
+// 被換掉的條目，不可以跟換掉之前雜湊出同一串。**
 //
-// ⚠️ 這一段之前寫的是相反的話（「這個渲染器沒有印那兩格，而這是一個被知道的
+// ⚠️ 這一段之前寫的是相反的話（「這個渲染器沒有印 heading，而這是一個被知道的
 // 洞」）。那句話在 heading 被加進來的那一刻就變成假的，而沒有人回頭改它 —— 同一
 // 份檔案對同一件事給了兩個答案，讀的人只會挑一句信，而且不知道自己挑了。
 //
-// 舊的理由本身是對的，而且它預言的事**真的發生了**：lore_proposal 當時沒有那兩
-// 欄 ⇒ 核可寫下的原文會宣稱這條沒有標題 —— 一份**主動說謊**的原文，比一份不提
-// 這一格的原文更糟：前者會被讀成事實，後者只是沒答案。
-// 🔴 但解法不是把它們從渲染器拿掉，是**讓提案帶得動它們**（00084 的兩支
-// ALTER TABLE），因為 owner 要的是「條目上改得動的每一格都由提案主張」。
+// 舊的理由本身是對的，而且它預言的事**真的發生了**：lore_proposal 當時沒有
+// heading ⇒ 核可寫下的原文會宣稱這條沒有標題 —— 一份**主動說謊**的原文，比一份
+// 不提這一格的原文更糟：前者會被讀成事實，後者只是沒答案。
+// 🔴 但解法不是把它從渲染器拿掉，是**讓提案帶得動它**（00084 的 ALTER TABLE），
+// 因為 owner 要的是「條目上改得動的每一格都由提案主張」。
 //
 // 前一版把 heading 排除在外，理由寫的是「今天沒有任何一條路改得動 heading（只有
 // 建立時寫一次）」。**那個理由是假的**：`dal_lore.go` 的 PutLoreEntry 在
@@ -200,15 +197,6 @@ func loreRevisionBody(e LoreEntry, events []LoreEvent) string {
 	for _, f := range []struct{ name, value string }{
 		{"heading", e.Heading},
 		{"content", e.Content},
-		{"revisit_when", e.RevisitWhen},
-		{"impact", e.Impact},
-		// 🔴 星等進 body，理由跟 heading 一模一樣，而且 owner 的裁定同時涵蓋
-		// 兩者：「任何修改都是提案的一環」(rc-bbccbeb3d9e6)。一條星等被從 1 改
-		// 成 3 的條目，不可以跟改之前雜湊出同一串 —— 否則一份基於舊星等寫的
-		// 提案會顯示成「還是最新的」，而審核者按下去時那一格已經不是他讀到的
-		// 那個數字。owner 2026-09-05 另補：星等就是重要性本身（評分那一軸作廢，
-		// 「用星等取代 因為 impact 本就是重要性」）⇒ 它是條目的權重，不是註腳。
-		{"impact_stars", strconv.Itoa(e.ImpactStars)},
 	} {
 		b.WriteString(f.name)
 		b.WriteString(":\n")
@@ -337,8 +325,8 @@ func loreResolveSubject(tx *sql.Tx, key, actorID string, nowTS float64) (string,
 	return "", nil, fmt.Errorf("%w: %q", ErrLoreEntityMergeCycle, key)
 }
 
-// CreateLoreEntry writes one entry, its axes, its L0 original and — when it
-// supersedes an older entry — the journal row recording that act.
+// CreateLoreEntry writes one entry, its axes and its L0 original, in one
+// transaction.
 //
 // 🔴 EVERYTHING OR NOTHING. The failure this transaction rules out is an entry
 // that is in a context tomorrow with no original behind it and no subject to
@@ -354,13 +342,12 @@ func loreResolveSubject(tx *sql.Tx, key, actorID string, nowTS float64) (string,
 // `rc-9002654dd81c`（2026-09-06）把它併進 heading ⇒ 那個「撈得到」的角色沒有
 // 消失，它整個搬到 heading 身上了。
 //
-// 🔴 `revisit_when` 與 `impact` 是**選填**，這一層不會替它們補
-// 任何東西。`impact`「它是主體」是寫作上的重量，不是欄位上的必填——把它變成必填
-// 會把填不出來的人逼去掰一個後果，而掰的跟真的長得一模一樣。
-//
-// 🔴 `impact_stars` 收得到 0..3，0 的意思是「還沒判」而不是「最輕」。這一層
-// **不會**把 0 補成 1：那等於替寫入者做一次他沒做的判定。`reviewed` 這個函式
-// 完全不收——它是別人蓋的章，見 LoreWrite 上的說明。
+// 🔴 這裡曾經還收 `revisit_when` / `impact` / `impact_stars` / `supersedes`。
+// owner 2026-09-06 逐字「都改掉」（`c-3d3e5582c2d2`）把那四格拿掉了 ⇒ 一份寫入
+// 今天只有 `heading` / `content` / `events` / `subjects` 四樣東西。
+// ⚠️ 跟著沒有的是**取代**這個動作本身：以前送 `supersedes` 會把舊那一列改成
+// 'superseded' 並寫一筆治理事件，今天沒有任何一條路做得到那件事。`reviewed` 這個
+// 函式一樣完全不收——它是別人蓋的章，而它今天沒有東西可以蓋（見 dal_lore.go）。
 //
 // ⚠️ 2026-09-02 rc-714eea33c6ed（falsify / instance 純 required）在這一版**沒有
 // 落點**：五格裡這兩格都不存在。不要把它當成被推翻——它是被格式改版讓它沒有欄位
@@ -380,12 +367,6 @@ func (d *DAL) CreateLoreEntry(w LoreWrite, nowTS float64) (LoreWriteResult, erro
 	if strings.TrimSpace(w.Content) == "" {
 		return out, ErrLoreContentBlank
 	}
-	// 🔴 這裡用的是 loreImpactStarsRequired 而不是 loreImpactStarsError：新條目
-	// 不准送 0（負責人 2026-09-06「不允許給 0」）。PutLoreEntry 那一道仍然放 0
-	// 過，那是給存量列的，見 dal_lore.go 兩支函式上的說明。
-	if err := loreImpactStarsRequired(w.ImpactStars); err != nil {
-		return out, err
-	}
 	if len(w.Subjects) == 0 {
 		return out, ErrLoreSubjectsEmpty
 	}
@@ -402,17 +383,10 @@ func (d *DAL) CreateLoreEntry(w LoreWrite, nowTS float64) (LoreWriteResult, erro
 		// 🔴 Reviewed 沒有出現在這裡，而不是被設成 false：這個 struct 的零值就是
 		// false，寫出來反而會讀成「這條路做過一個關於審核的決定」。它做過的決定
 		// 是**不碰**。
-		RevisitWhen: w.RevisitWhen,
-		Impact:      w.Impact,
-		ImpactStars: w.ImpactStars,
-		Status:      "active",
-		Supersedes:  w.Supersedes,
-		EditableBy:  "agent",
-		CreatedTS:   nowTS,
-		UpdatedTS:   nowTS,
-	}
-	if entry.Supersedes == entry.ID {
-		return out, ErrLoreSupersedesSelf
+		Status:     "active",
+		EditableBy: "agent",
+		CreatedTS:  nowTS,
+		UpdatedTS:  nowTS,
 	}
 	body := loreRevisionBody(entry, w.Events)
 	sum := loreSHA256(body)
@@ -420,11 +394,10 @@ func (d *DAL) CreateLoreEntry(w LoreWrite, nowTS float64) (LoreWriteResult, erro
 	err := d.inTx(func(tx *sql.Tx) error {
 		if _, err := tx.Exec(`
 			INSERT INTO lore_entry (`+loreEntryColumns+`)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-			entry.ID, entry.Heading, entry.Content, entry.RevisitWhen,
-			entry.Impact, entry.ImpactStars, entry.Reviewed,
-			entry.Status, entry.Supersedes,
-			entry.EditableBy, entry.CreatedTS, entry.UpdatedTS); err != nil {
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+			entry.ID, entry.Heading, entry.Content, entry.Reviewed,
+			entry.Status, entry.EditableBy,
+			entry.CreatedTS, entry.UpdatedTS); err != nil {
 			return err
 		}
 
@@ -494,30 +467,11 @@ func (d *DAL) CreateLoreEntry(w LoreWrite, nowTS float64) (LoreWriteResult, erro
 			return err
 		}
 
-		if entry.Supersedes != "" {
-			res, err := tx.Exec(`
-				UPDATE lore_entry SET status = 'superseded', updated_ts = ?
-				WHERE id = ? AND status <> 'retired'`, nowTS, entry.Supersedes)
-			if err != nil {
-				return err
-			}
-			// A supersede pointing at nothing is refused, not recorded. The
-			// pointer is how a reader gets from the new entry back to what it
-			// replaced; one that names no row is a dead end that looks like a
-			// trail, and the whole write is rolled back rather than leaving it.
-			if n, err := res.RowsAffected(); err != nil {
-				return err
-			} else if n == 0 {
-				return fmt.Errorf("%w: supersedes %q", ErrLoreEntryUnknown, entry.Supersedes)
-			}
-			out.Superseded = entry.Supersedes
-			if err := insertLoreGovernanceEvent(tx, LoreGovernanceEvent{
-				Kind: LoreGovSupersede, Target: entry.Supersedes, ActorID: w.ActorID,
-				ReplacedBy: entry.ID, CreatedTS: nowTS,
-			}); err != nil {
-				return err
-			}
-		}
+		// 🔴 這裡曾經有一段「取代」：送 `supersedes` 會把被取代的那一列改成
+		// 'superseded'、寫一筆 LoreGovSupersede 治理事件，而指到空處的 id 會退掉
+		// 整份寫入。它跟 `supersedes` 那一格一起被 owner 2026-09-06「都改掉」拿掉了。
+		// ⚠️ 沒有任何東西接手：一條新條目今天無法宣告它取代了誰，被取代的那一列也
+		// 不會被改狀態 —— 兩條講同一件事的條目會並排活著，而讀取端兩條都會回。
 		return nil
 	})
 	if err != nil {

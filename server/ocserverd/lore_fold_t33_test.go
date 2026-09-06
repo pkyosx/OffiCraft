@@ -109,8 +109,6 @@ func TestDirectoryCarriesNoEntryBody(t *testing.T) {
 	// 是洩漏，不可能是有人在文件裡引用了同一句話。
 	body := t33Entry("me-probe")
 	body.Content = "SENTINEL-CONTENT-4f1c9a"
-	body.RevisitWhen = "SENTINEL-RETIRE-4f1c9a"
-	body.Impact = "SENTINEL-IMPACT-4f1c9a"
 	// 🔴 標題格也是正文。v8 把它加進來的時候，它是最像「應該放進目錄」的一格——
 	// 它就是為了給人讀而存在的。少了這個哨兵，哪天有人順手把標題折進目錄，這道
 	// 守衛會全綠，而每一個成員的開機檔會開始多帶 N 條標題。
@@ -136,8 +134,7 @@ func TestDirectoryCarriesNoEntryBody(t *testing.T) {
 			t.Fatalf("%s boot context has no 對象目錄 — the checks below would be vacuous", name)
 		}
 		for field, text := range map[string]string{
-			"content":      body.Content,
-			"revisit_when": body.RevisitWhen, "impact": body.Impact,
+			"content": body.Content,
 			"heading": body.Heading,
 		} {
 			if strings.Contains(doc, text) {
