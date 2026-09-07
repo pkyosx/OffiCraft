@@ -428,8 +428,25 @@ export function LorePage() {
     [runAction]
   );
 
-  function openChat(peerId: string) {
-    navigateHash({ page: "office", chatId: peerId });
+  // 撰寫人 → the office, WITH this entry's id seeded into the composer as
+  // "[L-7] " — the same one-shot seed the 任務卡's 負責人 jump uses for a task
+  // number (TaskCard.openChat → composeTaskNo).
+  //
+  // 🔴 THE SEED IS THE POINT, NOT THE JUMP. Without it the reader arrives at an
+  // EMPTY composer and types "這條還適用嗎" — a sentence with no subject. The
+  // author may hold dozens of entries and has to ask which one, which is the
+  // question the jump was supposed to save. Showing the id on the row and
+  // carrying the id across are two halves of one thing (owner, c-c933a2b41c54
+  // then card rc-abf2c90d887c).
+  //
+  // ⚠️ The route field is named `composeTaskNo` and this passes a 傳承 id
+  // through it. One field carrying two kinds of thing normally needs a second
+  // field saying which — but not here: the VALUE says it. "T-1" and "L-7" are
+  // distinguishable by prefix, so nothing has to be inferred. Renaming the
+  // field would reach four pages and their tests, which is outside this
+  // ticket's scope; it is reported rather than done (owner, c-0b690fa9c0de).
+  function openChat(peerId: string, entryId: string) {
+    navigateHash({ page: "office", chatId: peerId, composeTaskNo: entryId });
   }
 
   // 屬於 → the task-type settings hub, the SAME jump the 任務卡's 類型 chip
@@ -725,7 +742,7 @@ function LoreRow({
    * the pill clickable — the row never re-derives that from `entry.scopeKind`,
    * so there is one place that decides it (resolveScope). */
   scope: { label: string; manualKey: string };
-  onOpenChat: (peerId: string) => void;
+  onOpenChat: (peerId: string, entryId: string) => void;
   onOpenManual: (typeKey: string) => void;
   onSetState: (id: string, next: LoreEntryState) => void;
   onBump: (id: string) => void;
@@ -945,7 +962,7 @@ function LoreRow({
           <LoreAuthorChip
             author={author}
             avatar={avatar}
-            onOpenChat={onOpenChat}
+            onOpenChat={(peerId) => onOpenChat(peerId, entry.id)}
           />
 
           {/* 生效期 left, 提到最新 right, ONE row. */}
