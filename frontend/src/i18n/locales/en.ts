@@ -97,8 +97,6 @@ export const en: Dict = {
     actionRetire: "Retire",
     actionActivate: "Activate",
     actionPin: "Pin",
-    // The author gets a row of its own.
-    scopeLabel: "Scope",
     scopeUnknown: "Unknown scope",
     openManualLabel: "Open task manual",
     copyEntryIdLabel: "Copy entry id",
@@ -111,9 +109,15 @@ export const en: Dict = {
     bump: "Bump to latest",
     // Retire reason — the whole row is hidden when it is empty.
     retireReasonLabel: "Retire reason",
-    // The four fragments of the named cap line.
-    capLineRolePrefix: "Role lore",
-    capLineManualPrefix: "Task lore",
+    // The scope-kind names. ONE source per word: they name the 屬於 chip on
+    // every row AND open the named cap line. They used to be called
+    // capLineRolePrefix / capLineManualPrefix, a name that pinned them to the
+    // cap line and invited the next caller to write a second copy.
+    scopeKindRole: "Role lore",
+    // An outsource worker has no role; its lore hangs off its own member id.
+    scopeKindAgent: "Member lore",
+    scopeKindManual: "Task lore",
+    // The remaining fragments of the named cap line.
     capLineSep: " · ",
     capLineMid: " cap ",
     capLineTail: " characters — nothing below this line is loaded",

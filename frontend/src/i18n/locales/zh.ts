@@ -96,8 +96,6 @@ export const zh = {
     actionRetire: "失效",
     actionActivate: "生效",
     actionPin: "置頂",
-    // 屬於 —— 這一筆騎在哪個範圍上，展開後的第一列
-    scopeLabel: "屬於",
     scopeUnknown: "未知範圍",
     openManualLabel: "開啟任務手冊",
     // 條目編號 chip（照任務卡編號的做法：點了複製）
@@ -112,9 +110,15 @@ export const zh = {
     bump: "提到最新",
     // 失效理由 —— 沒填就整列不顯示
     retireReasonLabel: "失效理由",
-    // 具名上限線的四個片段
-    capLineRolePrefix: "角色傳承",
-    capLineManualPrefix: "任務傳承",
+    // 範圍的種類名。🔴 有兩個地方用同一組詞：條目列上的「屬於」chip，與具名
+    // 上限線的開頭。所以同一個詞只留一份來源——這三個先前叫
+    // capLineRolePrefix / capLineManualPrefix，名字把它們寫死在上限線上，等於
+    // 在告訴下一個要用的人「你自己再寫一份」，而兩份詞就是兩份會各自漂走的詞。
+    scopeKindRole: "角色傳承",
+    // 外包沒有角色，它的傳承掛在自己的成員 id 上——線路上是自己一種範圍。
+    scopeKindAgent: "成員傳承",
+    scopeKindManual: "任務傳承",
+    // 具名上限線的其餘片段
     capLineSep: " · ",
     capLineMid: " 上限 ",
     capLineTail: " 字，以下不會被載入",

@@ -309,6 +309,10 @@ describe("LorePage — 撰寫人下拉只列寫得出傳承的身分", () => {
 
 /** Build a page whose single row rides `scopeKind` / `scopeKey`, expand it, and
  * hand back the 屬於 pill. */
+/** The 屬於 pill's NAME half, read off a row NOBODY OPENED. The helper does not
+ * click the row on purpose: the collapsed list is where the reader who cannot
+ * tell one scope from another is standing, so every one of these specs is also
+ * a statement that the pill is reachable without expanding anything. */
 async function scopePillFor(
   scopeKind: LoreEntryView["scopeKind"],
   scopeKey: string,
@@ -316,9 +320,10 @@ async function scopePillFor(
   stubList(page([mkEntry({ id: "s1", scopeKind, scopeKey })]));
   const { container } = renderPage();
   await waitFor(() => expect(renderedIds(container)).toHaveLength(1));
-  fireEvent.click(rowById(container, "s1"));
   const pill = await waitFor(() => {
-    const el = container.querySelector<HTMLElement>('[data-testid="lore-scope"]');
+    const el = container.querySelector<HTMLElement>(
+      '[data-testid="lore-scope-name"]',
+    );
     if (!el) throw new Error("no 屬於 pill");
     return el;
   });
@@ -401,10 +406,23 @@ describe("LorePage — 條目編號", () => {
     // 🔴 The row must stay COLLAPSED. The id badge sits inside the row, whose
     // whole surface is the expand toggle; a badge that both copies and expands
     // would look like it worked while doing something the reader did not ask
-    // for. 屬於 only renders when expanded, so its absence IS the assertion.
+    // for.
+    //
+    // ⚠️ This used to assert 「屬於 is absent」 and read that absence as 「still
+    // collapsed」. That proxy died the day 屬於 moved onto the collapsed row —
+    // and a proxy that dies by becoming ALWAYS-TRUE or ALWAYS-FALSE takes the
+    // spec with it silently. 撰寫人 is the expanded-only element now, so the
+    // signal is its absence, and the clamp on the body says the same thing a
+    // second way.
     expect(
-      container.querySelector('[data-testid="lore-scope"]'),
+      container.querySelector('[data-testid="lore-author-row"]'),
     ).toBeNull();
+    expect(
+      container.querySelector('[data-testid="lore-author-link"]'),
+    ).toBeNull();
+    expect(
+      container.querySelector('[data-testid="lore-body"]')?.className,
+    ).toContain("lore-row__body--clamped");
   });
 });
 
@@ -471,5 +489,85 @@ describe("LorePage — 撰寫人跳過去帶著條目編號", () => {
     );
 
     expect(window.location.hash).toBe("#office/chat/mira/compose/L-31");
+  });
+});
+
+// ────────────────────────────────────────────────────────────────────────────
+// 屬於 on the COLLAPSED row (owner, card rc-11734523eb52 — and the second
+// attempt at it).
+//
+// 🔴 THE FIRST FIX FOR THIS PASSED EVERY REVIEW AND DID NOT SOLVE THE PROBLEM.
+// It put 屬於 in the row's expanded body, and the reason written down for
+// adding it at all was that 全部 — where the page OPENS — mixes every scope
+// together and the reader cannot tell a 角色傳承 from one manual's. That reader
+// is looking at a list of CLOSED rows. An answer they must open a row to reach
+// arrives only for somebody who already knew to go looking, which is not the
+// person who was lost. On screen the two versions are indistinguishable until
+// you notice you are the one doing the clicking.
+//
+// So this spec asserts on rows NOBODY OPENED, and it uses two entries whose
+// scopes have THE SAME DISPLAY NAME. That is the whole discrimination: a chip
+// carrying the name alone renders identical text for both rows and would pass
+// any assertion written against one of them.
+describe("LorePage — 屬於 在收合的列上就說得出是哪一種", () => {
+  it("tells a 角色傳承 from a 任務傳承 when both are named 特助, without opening either row", async () => {
+    vi.spyOn(api, "listRoles").mockResolvedValue([
+      { key: "assistant", name: "特助" },
+    ] as never);
+    vi.spyOn(api, "listTaskManuals").mockResolvedValue([
+      // A manual that happens to carry the SAME display name as the role.
+      { typeKey: "assistant-work", displayName: "特助", purpose: "", fields: [] },
+    ] as never);
+
+    stubList(
+      page([
+        mkEntry({ id: "L-1", scopeKind: "role", scopeKey: "assistant" }),
+        mkEntry({ id: "L-2", scopeKind: "manual", scopeKey: "assistant-work" }),
+      ]),
+    );
+    const { container } = renderPage();
+    await waitFor(() => expect(renderedIds(container)).toHaveLength(2));
+
+    // NOT expanded — no click anywhere. The 撰寫人 row is the expanded-only
+    // element, so its absence is what says these rows are still closed.
+    expect(
+      container.querySelectorAll('[data-testid="lore-author-row"]'),
+    ).toHaveLength(0);
+    expect(
+      container.querySelectorAll('[data-testid="lore-author-link"]'),
+    ).toHaveLength(0);
+
+    // 🔴 PRESENCE IS ITS OWN ASSERTION, on its own line. Reading .textContent
+    // off a `!`-asserted querySelector would make a MISSING pill fail inside an
+    // accessor instead of at a spec line — a red that says 「something threw」
+    // where the spec meant to say 「屬於 is not on the closed row」.
+    const scopeOf = (id: string) => {
+      const el = rowById(container, id).querySelector('[data-testid="lore-scope"]');
+      expect(el).not.toBeNull();
+      return el!.textContent!.replace(/\s+/g, " ").trim();
+    };
+
+    // Both are reachable while closed…
+    const roleText = scopeOf("L-1");
+    const manualText = scopeOf("L-2");
+
+    // …and they do not read the same. 🔴 This inequality is the assertion that
+    // survives a rename of either word; asserting the literal 「角色傳承 · 特助」
+    // would also pass for a page that printed the kind and dropped the name.
+    expect(roleText).not.toBe(manualText);
+    expect(roleText).toContain("角色傳承");
+    expect(roleText).toContain("特助");
+    expect(manualText).toContain("任務傳承");
+    expect(manualText).toContain("特助");
+  });
+
+  it("names 成員傳承 as its own kind, not as a role", async () => {
+    // An outsource worker has no role; its lore hangs off its own member id.
+    // Reading it as 角色傳承 would tell the reader to look somewhere that does
+    // not hold it.
+    const agent = await scopePillFor("agent", "ow-nobody");
+    const chip = agent.closest('[data-testid="lore-scope"]')!;
+    expect(chip.textContent).toContain("成員傳承");
+    expect(chip.textContent).not.toContain("角色傳承");
   });
 });

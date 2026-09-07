@@ -361,27 +361,59 @@ export function LorePage() {
    * fourth arm and is NOT a scope — it is what a cockpit older than the server
    * calls a kind it has never heard of, so it must never be renamed into one of
    * the real three (see LoreEntryView.scopeKind). */
+  // 🔴 THE NAME ALONE DOES NOT ANSWER THE QUESTION THE OWNER ASKED. A chip
+  // reading 「特助」 does not say whether that is a role or a manual, and on 全部
+  // — where the page opens — every kind is mixed together. So the scope answers
+  // in two parts: WHICH KIND, then WHICH ONE. Same two words the cap line opens
+  // with, from the same i18n keys.
   const resolveScope = useCallback(
-    (entry: LoreEntryView): { label: string; manualKey: string } => {
+    (entry: LoreEntryView): {
+      kindLabel: string;
+      label: string;
+      manualKey: string;
+    } => {
       if (entry.scopeKind === "role") {
         const r = roles.find((x) => x.key === entry.scopeKey);
-        return { label: r?.name || entry.scopeKey, manualKey: "" };
+        return {
+          kindLabel: t.lore.scopeKindRole,
+          label: r?.name || entry.scopeKey,
+          manualKey: "",
+        };
       }
       if (entry.scopeKind === "agent") {
         // scopeKey is a MEMBER id here, not a role key. Reuse the author
         // resolver so a departed member reads the same way in both places.
-        return { label: resolveAuthor(entry.scopeKey).text, manualKey: "" };
+        return {
+          kindLabel: t.lore.scopeKindAgent,
+          label: resolveAuthor(entry.scopeKey).text,
+          manualKey: "",
+        };
       }
       if (entry.scopeKind === "manual") {
         const m = manuals.find((x) => x.typeKey === entry.scopeKey);
         return {
+          kindLabel: t.lore.scopeKindManual,
           label: m?.displayName || entry.scopeKey,
           manualKey: entry.scopeKey,
         };
       }
-      return { label: entry.scopeKey || t.lore.scopeUnknown, manualKey: "" };
+      // An unknown kind names no kind — inventing one here would state a fact
+      // the server never sent.
+      return {
+        kindLabel: "",
+        label: entry.scopeKey || t.lore.scopeUnknown,
+        manualKey: "",
+      };
     },
-    [roles, manuals, resolveAuthor, t.lore.scopeUnknown]
+    [
+      roles,
+      manuals,
+      resolveAuthor,
+      t.lore.scopeUnknown,
+      t.lore.scopeKindRole,
+      t.lore.scopeKindAgent,
+      t.lore.scopeKindManual,
+    ]
   );
 
   const authorAvatar = useCallback(
@@ -494,10 +526,10 @@ export function LorePage() {
   // budget is. No percentage, no 已用 x/y (spec §6 rules all three out).
   const scopeName =
     scope === "role"
-      ? t.lore.capLineRolePrefix +
+      ? t.lore.scopeKindRole +
         t.lore.capLineSep +
         (roles.find((r) => r.key === roleKey)?.name || roleKey)
-      : t.lore.capLineManualPrefix +
+      : t.lore.scopeKindManual +
         t.lore.capLineSep +
         (() => {
           const key = scope.slice("manual:".length);
@@ -741,7 +773,7 @@ function LoreRow({
   /** 屬於, already resolved. `manualKey` non-empty is the ONLY thing that makes
    * the pill clickable — the row never re-derives that from `entry.scopeKind`,
    * so there is one place that decides it (resolveScope). */
-  scope: { label: string; manualKey: string };
+  scope: { kindLabel: string; label: string; manualKey: string };
   onOpenChat: (peerId: string, entryId: string) => void;
   onOpenManual: (typeKey: string) => void;
   onSetState: (id: string, next: LoreEntryState) => void;
@@ -910,6 +942,42 @@ function LoreRow({
           )}
         </button>
 
+        {/* 屬於 — which scope pays for this entry.
+            🔴 IT IS ON THE COLLAPSED ROW, WHICH IS THE WHOLE POINT. It used to
+            sit in the expanded body, and the reason given for putting it on the
+            row at all was that 全部 — where the page OPENS — mixes every scope
+            together and the reader cannot tell a 角色傳承 from one manual's.
+            That reader is looking at a COLLAPSED list. A chip they have to open
+            a row to reach answers the question only for somebody who already
+            went looking, which is not the person who was lost (owner, card
+            rc-11734523eb52; the first attempt landed inside `expanded &&`).
+            It is a <button> when it leads somewhere, so the row's closest()
+            filter lets the click through to the manual instead of toggling. */}
+        <span className="lore-row__scope" data-testid="lore-scope">
+          {scope.kindLabel !== "" && (
+            <span className="lore-row__scope-kind">
+              {scope.kindLabel}
+              {t.lore.capLineSep}
+            </span>
+          )}
+          {scope.manualKey === "" ? (
+            <span className="lore-row__scope-name" data-testid="lore-scope-name">
+              {scope.label}
+            </span>
+          ) : (
+            <button
+              type="button"
+              className="lore-row__scope-name lore-row__scope-name--link"
+              data-testid="lore-scope-name"
+              aria-label={msg.loreOpenManual(scope.label)}
+              title={msg.loreOpenManual(scope.label)}
+              onClick={() => onOpenManual(scope.manualKey)}
+            >
+              {scope.label}
+            </button>
+          )}
+        </span>
+
         {/* A pure STATE INDICATOR: aria-hidden, no role, pointer-events:none in
             CSS, and a DIFFERENT ICON per state rather than one icon rotated. */}
         <span
@@ -935,27 +1003,6 @@ function LoreRow({
 
       {expanded && (
         <div className="lore-row__meta">
-          {/* 屬於 — which scope this entry rides. FIRST row on purpose: it is
-              the entry's most basic fact (which boot document or manual pays
-              for it), and 撰寫人 only makes sense once you know where. */}
-          <span className="lore-row__meta-label">{t.lore.scopeLabel}</span>
-          {scope.manualKey === "" ? (
-            <span className="lore-row__chip" data-testid="lore-scope">
-              {scope.label}
-            </span>
-          ) : (
-            <button
-              type="button"
-              className="lore-row__chip lore-row__chip--link"
-              data-testid="lore-scope"
-              aria-label={msg.loreOpenManual(scope.label)}
-              title={msg.loreOpenManual(scope.label)}
-              onClick={() => onOpenManual(scope.manualKey)}
-            >
-              {scope.label}
-            </button>
-          )}
-
           {/* 撰寫人自成一列: label left, avatar+name pill right, and the
               傳訊息 icon INSIDE the pill. */}
           <span className="lore-row__meta-label">{t.lore.authorLabel}</span>

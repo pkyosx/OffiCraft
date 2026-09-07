@@ -181,6 +181,54 @@
   opacity: 0.85;
 }
 
+/* ── 屬於, on the COLLAPSED row ──
+ * Quieter than the id badge on purpose: the id is what you copy and quote, the
+ * scope is what you scan. So it is muted text rather than a second heavy pill —
+ * two pills side by side would make the row read as having two identifiers.
+ *
+ * It sits BEFORE .lore-row__expand-mark, which claims the right edge with
+ * margin-left:auto, so the scope stays next to the id and the ▸/▾ stays put.
+ *
+ * `min-width: 0` + the ellipsis on the name: a long manual display name must
+ * shorten rather than push the ▸/▾ off the row. The KIND never truncates — it
+ * is the half that answers 「這是哪一種」, and half a kind word is worse than a
+ * shortened name. */
+.lore-row__scope {
+  display: inline-flex;
+  align-items: baseline;
+  min-width: 0;
+  font-size: 12px;
+  color: var(--color-text-muted);
+}
+.lore-row__scope-kind {
+  flex: none;
+  white-space: pre;
+}
+.lore-row__scope-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* Only a 任務傳承 has a page to land on; role and member scopes render as the
+ * plain span above and are never clickable. */
+button.lore-row__scope-name--link {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  font: inherit;
+  color: inherit;
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, currentColor 35%, transparent);
+  text-underline-offset: 2px;
+  cursor: pointer;
+  transition: color 0.15s;
+}
+button.lore-row__scope-name--link:hover {
+  color: var(--color-accent);
+}
+
 .lore-row__title {
   margin: 0;
   font-size: 14.5px;
