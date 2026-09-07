@@ -819,3 +819,93 @@ describe("LorePage — 篩選器複選", () => {
     );
   });
 });
+
+// ────────────────────────────────────────────────────────────────────────────
+// 上限線 ↔ 篩選器, end to end through the CONTROLS.
+//
+// 🔴 THE 界線 SPECS ABOVE NEVER TOUCH A FILTER. They hand the page a stubbed
+// answer that already carries `capChars`/`firstDroppedId` and check what the
+// page draws with it — which is the right shape for testing the drawing, and
+// says nothing about whether converging the filter is what makes the server
+// answer that way. After the axes became multi-select (owner rc-0376bf875757
+// [1]) that gap matters: 「範圍複選時上限線就不畫」 is a decision the owner
+// weighed a cost for, so the page has to be able to get the line BACK.
+//
+// A test that only asserted 「two scopes ⇒ no line」 would pass for a page that
+// never shows a line at all — the exact one-sided check the ticket's own DoD
+// calls out. So both directions are here, in that order, in one spec.
+describe("LorePage — 收斂到單一範圍時，上限線回得來", () => {
+  it("goes quiet for two kinds and comes back — named — for one kind and one key", async () => {
+    vi.spyOn(api, "listRoles").mockResolvedValue([
+      { key: "assistant", name: "特助" },
+    ] as never);
+
+    const rows = [
+      mkEntry({ id: "L-1", state: "active" }),
+      mkEntry({ id: "L-2", state: "active" }),
+    ];
+    // The stub answers as the SERVER does: a cap only when the request named a
+    // single scope. That is the rule under test — the page must not invent one.
+    const spy = vi
+      .spyOn(api, "listLoreEntries")
+      .mockImplementation(async (o) => {
+        const one =
+          o?.scopeKinds?.length === 1 && o?.scopeKeys?.length === 1;
+        return {
+          entries: rows,
+          limit: 30,
+          offset: 0,
+          capChars: one ? 10000 : 0,
+          firstDroppedId: one ? "L-2" : "",
+        };
+      });
+
+    const { container } = renderPage();
+    await waitFor(() => expect(renderedIds(container)).toHaveLength(2));
+
+    function tick(testId: string, value: string) {
+      const trigger = container.querySelector<HTMLElement>(
+        `[data-testid="${testId}"]`,
+      )!;
+      if (trigger.getAttribute("aria-expanded") !== "true") {
+        fireEvent.click(trigger);
+      }
+      fireEvent.click(
+        container.querySelector<HTMLElement>(
+          `[data-testid="${testId}-opt-${value}"] input`,
+        )!,
+      );
+    }
+
+    // Two kinds ⇒ two budgets ⇒ no honest place for one line.
+    tick("lore-filter-scope", "role");
+    tick("lore-filter-scope", "agent");
+    await waitFor(() =>
+      expect(spy.mock.calls[spy.mock.calls.length - 1][0]?.scopeKinds).toEqual([
+        "role",
+        "agent",
+      ]),
+    );
+    await waitFor(() =>
+      expect(
+        container.querySelector('[data-testid="lore-cap-line"]'),
+      ).toBeNull(),
+    );
+
+    // Converge: drop 成員傳承, pick one role. The line must return.
+    tick("lore-filter-scope", "agent");
+    tick("lore-filter-role", "assistant");
+
+    const line = await waitFor(() => {
+      const el = container.querySelector('[data-testid="lore-cap-line"]');
+      if (!el) throw new Error("the 上限線 did not come back");
+      return el;
+    });
+    // 🔴 NAMED, not merely present. A line that appeared carrying the wrong
+    // scope's name would be worse than none: it would tell the reader a budget
+    // they are not looking at.
+    expect(line.textContent).toContain("角色傳承");
+    expect(line.textContent).toContain("特助");
+    expect(line.textContent).toContain("10000");
+  });
+});
