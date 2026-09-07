@@ -460,7 +460,10 @@ func (s *apiServer) HandleUpdateTaskManualApiTaskManualsTypeKeyPost(w http.Respo
 		m.SopMD = *body.SopMd
 	}
 	if body.Learnings != nil {
-		m.Learnings = *body.Learnings
+		// 🔴 Stripped on the way in — GET /api/task-manuals/{type_key} SERVES the
+		// 傳承 block appended to this very field, so "read the latest, merge, send
+		// it back" puts it here. See stripTrailingLoreBlock (lore_select.go).
+		m.Learnings = stripTrailingLoreBlock(*body.Learnings)
 	}
 	if body.Fields != nil {
 		fields := make([]ManualField, 0, len(*body.Fields))
@@ -560,11 +563,14 @@ func (s *apiServer) HandleWriteTaskLearningsApiTaskManualsTypeKeyLearningsPost(w
 	}
 	// T-3351 hard cap. Unconditional — allow_shrink governs the opposite
 	// direction (shrinking too far) and is not a bypass for this one.
-	if cap := s.manualLearningsCap(); DocCapBlocked(cap, m.Learnings, body.Text) {
-		writeError(w, http.StatusBadRequest, docCapRefusal(cap, "learnings doc", m.Learnings, body.Text))
+	// 🔴 Stripped BEFORE the cap check and before the receipt is measured, so the
+	// size and sha256 the caller is handed describe what was stored.
+	incoming := stripTrailingLoreBlock(body.Text)
+	if cap := s.manualLearningsCap(); DocCapBlocked(cap, m.Learnings, incoming) {
+		writeError(w, http.StatusBadRequest, docCapRefusal(cap, "learnings doc", m.Learnings, incoming))
 		return
 	}
-	m.Learnings = body.Text
+	m.Learnings = incoming
 	m.UpdatedTS = nowSecs()
 	if err := s.dal.SaveWithDocumentHistories(
 		taskManualHistoryStreams(typeKey, currentActor(r), false, true),
@@ -646,6 +652,10 @@ func (s *apiServer) HandlePatchTaskLearningsApiTaskManualsTypeKeyLearningsPatchP
 	// find the anchor it missed — it re-anchors against the wrong document and
 	// misses again, with no error and no signal that it was misdirected.
 	next, applied, err := ApplyDocEdits(m.Learnings, edits, "get_task_manual")
+	// The patch's RESULT is stripped, not its edits: get_task_manual serves the
+	// 傳承 block inside `learnings`, so an append edit carrying what the caller
+	// read back lands the block in `next` — and `next` becomes the document.
+	next = stripTrailingLoreBlock(next)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return

@@ -791,7 +791,11 @@ func (s *apiServer) HandleReplaceLessonsApiLessonsRoleKeyPost(w http.ResponseWri
 	if !s.requireLessonsAddressableRole(w, roleKey) {
 		return
 	}
-	text := body.Text
+	// 🔴 A 傳承 block the caller read back and sent in again is stripped HERE,
+	// before the wipe guard, the cap check and the receipt — so every number the
+	// caller is told describes the text that is actually stored. See
+	// stripTrailingLoreBlock (lore_select.go) for the loop this closes.
+	text := stripTrailingLoreBlock(body.Text)
 	current, err := s.foldLessonsDTO(roleKey)
 	if err != nil {
 		internalError(w, err)
@@ -893,6 +897,10 @@ func (s *apiServer) HandlePatchLessonsApiLessonsRoleKeyPatchPost(w http.Response
 	// get_lessons: the tool that serves THIS doc (the overlay ⊕ seed fold the
 	// caller anchored against).
 	next, applied, err := ApplyDocEdits(current.Text, edits, "get_lessons")
+	// The patch's RESULT is stripped, not its edits: an append edit whose `new`
+	// carries the block the caller pasted from its boot document lands the block
+	// in `next`, and it is `next` that becomes the document.
+	next = stripTrailingLoreBlock(next)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return

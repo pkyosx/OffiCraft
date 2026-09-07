@@ -670,11 +670,20 @@ func (s *apiServer) restoreDocumentHistory(r *http.Request, kind, key string, co
 		if err != nil {
 			return err
 		}
-		if DocCapBlocked(s.learningCap(), current.Text, content["text"]) {
+		// 🔴 A restore is a WRITE like any other, and the retained version may
+		// itself be a snapshot taken while the 傳承 block was already written into
+		// the document — restoring it verbatim would put the block back and
+		// restart the growth. See stripTrailingLoreBlock (lore_select.go).
+		//
+		// Stripped BEFORE the cap is judged, not after: the cap decides whether
+		// this restore is allowed at all, and judging it on text the write will
+		// not store would refuse restores that in fact fit.
+		restored := stripTrailingLoreBlock(content["text"])
+		if DocCapBlocked(s.learningCap(), current.Text, restored) {
 			return errDocumentHistoryCap
 		}
 		return s.dal.SaveWithDocumentHistory(kind, key, actor, lessonsSnapshotIn(roleKey), func(ex sqlExecer) error {
-			return putLessonsOn(ex, Lessons{RoleKey: roleKey, Text: content["text"], Tombstoned: historyTombstoned(content)})
+			return putLessonsOn(ex, Lessons{RoleKey: roleKey, Text: restored, Tombstoned: historyTombstoned(content)})
 		})
 	case docKindTaskDescription:
 		// T-e271. No doc cap: the description has never had a length ceiling on
@@ -815,10 +824,14 @@ func (s *apiServer) restoreDocumentHistory(r *http.Request, kind, key string, co
 	case docKindTaskManualLearnings:
 		return s.restoreTaskManualField(key, taskManualHistoryStreams(key, actor, false, true),
 			func(m *TaskManual) error {
-				if DocCapBlocked(s.manualLearningsCap(), m.Learnings, content["learnings"]) {
+				// Stripped for the same reason as the lessons restore above, and
+				// BEFORE the cap for the same reason: the cap must judge what will
+				// actually be stored.
+				restored := stripTrailingLoreBlock(content["learnings"])
+				if DocCapBlocked(s.manualLearningsCap(), m.Learnings, restored) {
 					return errDocumentHistoryCap
 				}
-				m.Learnings = content["learnings"]
+				m.Learnings = restored
 				return nil
 			})
 	}

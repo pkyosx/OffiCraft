@@ -153,3 +153,66 @@ func renderLoreBlock(sel loreSelection) string {
 	}
 	return b.String()
 }
+
+// stripTrailingLoreBlock removes 傳承 block(s) that were APPENDED to a document
+// by renderLoreBlock and have since been written back into the document itself.
+// It is idempotent, and it loops until nothing is left to strip so a document
+// that already accumulated several copies heals in one write rather than one
+// copy per write.
+//
+// 🔴 WHY THIS EXISTS AT ALL — the loop it closes. renderLoreBlock appends to
+// what a reader is SERVED: the staff boot document's 長期筆記, and the
+// `learnings` field of GET /api/task-manuals/{type_key}. The documented
+// procedure an agent follows before editing either is 「更新前先讀取對應位置的
+// 最新內容，合併同主題，然後只把改動的那幾段送回去」 — read the latest, merge,
+// send it back. What it just read ENDS WITH the appended block, so the block
+// goes back in as document text. The next read then appends a fresh block after
+// the copy that is now stored, and the document grows by one block per cycle.
+//
+// ⚠️ NOTHING ERRORS ANYWHERE ALONG THAT PATH. The write succeeds, the read
+// looks right, and the only symptom is a document that keeps getting longer
+// until it eats its own cap.
+//
+// 🔴 THIS TREE HAS ALREADY HAD THIS BUG ONCE, in the other direction: the
+// 長期筆記 title self-heal in assets.go exists because a generation wrote its
+// own boot-context fragment back through replace_lessons, and the drift was
+// measured at +38 characters. That is the same shape with a smaller payload.
+// This function is the same posture as that self-heal — strip on the way in,
+// loop until clean, never error — applied to the whole appended block.
+//
+// ⚠️ WHAT IT CANNOT DISTINGUISH. A document whose own last section is genuinely
+// headed `# 傳承` loses that section. That is the same trade the title self-heal
+// makes, and it is the right way round: the cost of stripping a real section is
+// one heading a human can retype, and the cost of NOT stripping is an unbounded
+// document nobody is told about.
+// 🔴 A DOCUMENT WITH NO BLOCK COMES BACK BYTE-FOR-BYTE, trailing whitespace and
+// all. This function sits on EVERY lessons / learnings write in the tree, so an
+// unconditional TrimRight here would silently reformat every document anybody
+// saves — measured: it turned 29 existing patch/restore tests red by removing a
+// trailing newline that had always survived a round trip. Whitespace is only
+// tidied at the SEAM this function actually cuts.
+func stripTrailingLoreBlock(text string) string {
+	out := text
+	for {
+		trimmed := strings.TrimRight(out, " \t\r\n")
+		cut := -1
+		if strings.HasPrefix(trimmed, loreBlockHeading) {
+			cut = 0
+		} else if i := strings.LastIndex(trimmed, "\n"+loreBlockHeading); i >= 0 {
+			cut = i
+		}
+		if cut < 0 {
+			return out
+		}
+		// The heading must END a line (or the text), or `# 傳承的由來` — a
+		// different heading that merely starts with the same runes — would be
+		// treated as the appended block and take the rest of the document with it.
+		rest := trimmed[cut:]
+		rest = strings.TrimPrefix(rest, "\n")
+		rest = rest[len(loreBlockHeading):]
+		if rest != "" && !strings.HasPrefix(rest, "\n") {
+			return out
+		}
+		out = strings.TrimRight(trimmed[:cut], " \t\r\n")
+	}
+}
