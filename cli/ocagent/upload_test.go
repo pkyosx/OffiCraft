@@ -87,8 +87,8 @@ func TestCmdUpload(t *testing.T) {
 	t.Run("no token refuses before the file is even opened", func(t *testing.T) {
 		var out, errOut bytes.Buffer
 		client := canned(200, mintedRef)
-		noToken := Config{Base: "https://station.example.com", BaseConfigured: true}
-		rc := cmdUpload(client, noToken, filepath.Join(t.TempDir(), "absent.txt"), "", &out, &errOut)
+		plainCfg := Config{Base: "https://station.example.com", BaseConfigured: true}
+		rc := cmdUpload(client, plainCfg, filepath.Join(t.TempDir(), "absent.txt"), "", &out, &errOut)
 		want := "[ocagent] upload: no OC_TOKEN configured — cannot make an authed upload.\n"
 		if rc != 3 || errOut.String() != want || out.String() != "" {
 			t.Fatalf("got (%d, %q, %q), want (3, \"\", the no-token refusal)",

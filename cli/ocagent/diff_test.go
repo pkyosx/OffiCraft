@@ -283,8 +283,8 @@ func TestMintExternalDiffLink(t *testing.T) {
 	t.Run("no token refuses before any request is built", func(t *testing.T) {
 		var out, errOut bytes.Buffer
 		client := canned(200, `{"url":"/diff/s/abc"}`)
-		noToken := Config{Base: "https://station.example.com", BaseConfigured: true}
-		rc := mintExternalDiffLink(client, noToken, "att-0123456789ab", "att-ba9876543210", "", "",
+		plainCfg := Config{Base: "https://station.example.com", BaseConfigured: true}
+		rc := mintExternalDiffLink(client, plainCfg, "att-0123456789ab", "att-ba9876543210", "", "",
 			&out, &errOut)
 		want := "[ocagent] diff: no OC_TOKEN configured — minting an external link is an authed call.\n"
 		if rc != 3 || errOut.String() != want || out.String() != "" {

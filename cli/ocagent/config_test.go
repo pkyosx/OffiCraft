@@ -175,7 +175,7 @@ func TestJwtSub(t *testing.T) {
 		{"a payload without sub yields nothing", "h.eyJyb2xlIjoieCJ9.sig", ""},
 		{"a payload that is not JSON yields nothing", "h.bm90IGpzb24.sig", ""},
 		{"a payload that is not base64 yields nothing", "h.!!!.sig", ""},
-		{"a two-segment token yields nothing", "h.eyJzdWIiOiJtZW1iZXItYWxpY2UiLCJleHAiOjF9", ""},
+		{"a two-segment value yields nothing", "h.eyJzdWIiOiJhIn0", ""},
 		{"an empty token yields nothing", "", ""},
 	}
 	for _, tc := range cases {

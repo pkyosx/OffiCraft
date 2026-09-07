@@ -117,8 +117,8 @@ func TestCmdDownload(t *testing.T) {
 		dir := t.TempDir()
 		var out, errOut bytes.Buffer
 		client := dispositionReply("x", "", "")
-		noToken := Config{Base: "https://station.example.com", BaseConfigured: true}
-		rc := cmdDownload(client, noToken, "att-0123456789ab", dir, &out, &errOut)
+		plainCfg := Config{Base: "https://station.example.com", BaseConfigured: true}
+		rc := cmdDownload(client, plainCfg, "att-0123456789ab", dir, &out, &errOut)
 		want := "[ocagent] download: no OC_TOKEN configured — cannot make an authed fetch.\n"
 		if rc != 3 || errOut.String() != want || out.String() != "" {
 			t.Fatalf("got (%d, %q, %q), want (3, \"\", the no-token refusal)",
