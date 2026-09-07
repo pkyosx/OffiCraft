@@ -13,6 +13,19 @@
 // mirroring MonitorPage.tsx's real JSX for the member cell (`.mon-member` >
 // `.mon-member__body` > `.mon-member__name` + `.mon-member__sub`).
 //
+// THE HEADER IS THE REAL ONE, NOT A COPY (T-135). It used to be six hand-typed
+// `<th>成員</th>`-style cells, and that copy was BLIND by construction: this
+// guard measures the table's horizontal overflow, so anything that widens a
+// header — T-135 gave every column a sortable `<button>` plus a `min-width:1em`
+// arrow slot — moved the very number being asserted while the copy stayed the
+// same width and the guard stayed green. It now mounts MonitorPage's exported
+// `SessionsTableHead`. The `sort` prop pins the widest state (one column ACTIVE,
+// so its arrow is a printed glyph rather than an empty slot).
+//
+// The rest of the mount is still hand-built on purpose: the ROWS are the fixture
+// (a title length no real props can pin), and `data-surface="sessions"` is this
+// story's own query hook — the real `.mon-table-wrap` carries no such attribute.
+//
 // Two rows on purpose: a salaried MEMBER row (SENTINEL — short sub-line, its
 // account column must stay nowrap) and the OUTSOURCE row under test.
 //
@@ -25,6 +38,7 @@
 //     but this token still cannot break unless overflow-wrap allows it)
 import { I18nProvider } from "../../src/i18n";
 import { Avatar } from "../../src/components/Avatar";
+import { SessionsTableHead } from "../../src/components/MonitorPage";
 import "../../src/components/chrome.css";
 import "../../src/components/monitor.css";
 
@@ -42,16 +56,10 @@ export function MonitorOutsourceSubWrapStory() {
         <main className="app__main">
           <div className="mon-table-wrap" data-surface="sessions">
             <table className="mon-table mon-table--sessions">
-              <thead>
-                <tr>
-                  <th>成員</th>
-                  <th>機器</th>
-                  <th>帳號</th>
-                  <th>模型</th>
-                  <th>🧠</th>
-                  <th>💲</th>
-                </tr>
-              </thead>
+              <SessionsTableHead
+                sort={{ col: "member", dir: "asc" }}
+                onSort={() => {}}
+              />
               <tbody>
                 {/* member row — SENTINEL: short sub-line; its ordinary
                  * `.mon-table td` account column must stay nowrap, proving the

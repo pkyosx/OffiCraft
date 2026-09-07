@@ -1313,50 +1313,7 @@ export function MonitorPage() {
         <div className="mon-section__title">{t.monitor.sessionsTitle}</div>
         <div className="mon-table-wrap">
           <table className="mon-table mon-table--sessions">
-            <thead>
-              <tr>
-                <SessionSortHeader
-                  col="member"
-                  label={t.monitor.sessionCol.member}
-                  left
-                  sort={sessionSort}
-                  onSort={toggleSessionSort}
-                />
-                <SessionSortHeader
-                  col="machine"
-                  label={t.monitor.sessionCol.machine}
-                  left
-                  sort={sessionSort}
-                  onSort={toggleSessionSort}
-                />
-                <SessionSortHeader
-                  col="account"
-                  label={t.monitor.sessionCol.account}
-                  left
-                  sort={sessionSort}
-                  onSort={toggleSessionSort}
-                />
-                <SessionSortHeader
-                  col="model"
-                  label={t.monitor.sessionCol.model}
-                  left
-                  sort={sessionSort}
-                  onSort={toggleSessionSort}
-                />
-                <SessionSortHeader
-                  col="context"
-                  label={`🧠 ${t.monitor.sessionCol.context}`}
-                  sort={sessionSort}
-                  onSort={toggleSessionSort}
-                />
-                <SessionSortHeader
-                  col="estCost"
-                  label={`💲 ${t.monitor.sessionCol.estCost}`}
-                  sort={sessionSort}
-                  onSort={toggleSessionSort}
-                />
-              </tr>
-            </thead>
+            <SessionsTableHead sort={sessionSort} onSort={toggleSessionSort} />
             {/* Outsource workers (O-xx) share this one table — they are live AI
              * sessions too, and since T-135 they share the same ORDER too: one
              * list, sorted as a whole once a column is picked. Both kinds render
@@ -1885,6 +1842,66 @@ function SessionSortHeader({
         </span>
       </button>
     </th>
+  );
+}
+
+/** The §3 table's header row. Extracted and EXPORTED so the visual guard mounts
+ * the REAL header instead of a hand-copied one: the guard measures the table's
+ * horizontal overflow, and a copy of the thead cannot see a change to the
+ * header's own min-content width (e.g. the sort arrow slot, T-135). */
+export function SessionsTableHead({
+  sort,
+  onSort,
+}: {
+  sort: SessionSort | null;
+  onSort: (col: SessionSortCol) => void;
+}) {
+  const { t } = useI18n();
+  return (
+    <thead>
+      <tr>
+        <SessionSortHeader
+          col="member"
+          label={t.monitor.sessionCol.member}
+          left
+          sort={sort}
+          onSort={onSort}
+        />
+        <SessionSortHeader
+          col="machine"
+          label={t.monitor.sessionCol.machine}
+          left
+          sort={sort}
+          onSort={onSort}
+        />
+        <SessionSortHeader
+          col="account"
+          label={t.monitor.sessionCol.account}
+          left
+          sort={sort}
+          onSort={onSort}
+        />
+        <SessionSortHeader
+          col="model"
+          label={t.monitor.sessionCol.model}
+          left
+          sort={sort}
+          onSort={onSort}
+        />
+        <SessionSortHeader
+          col="context"
+          label={`🧠 ${t.monitor.sessionCol.context}`}
+          sort={sort}
+          onSort={onSort}
+        />
+        <SessionSortHeader
+          col="estCost"
+          label={`💲 ${t.monitor.sessionCol.estCost}`}
+          sort={sort}
+          onSort={onSort}
+        />
+      </tr>
+    </thead>
   );
 }
 

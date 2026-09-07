@@ -116,6 +116,62 @@ const memberNames = () =>
     (r) => r.querySelector(".mon-member__name")?.textContent?.trim() ?? ""
   );
 
+/** The 模型 column, top row to bottom. Read off `.mon-model` rather than the
+ * whole `<td>`: that cell also carries the EffortBadge, whose text would ride
+ * along in `textContent` and blur the assertion. */
+const modelCells = () =>
+  sessionRows().map(
+    (r) => r.querySelector(".mon-model")?.textContent?.trim() ?? ""
+  );
+
+/** One fixture for the four per-column checks below. Every column's correct
+ * 升冪 is a DIFFERENT permutation of these three rows, and none of them is the
+ * feed order:
+ *
+ *   feed      Eva, Kai, Lin
+ *   機器 升   Kai(alpha), Eva(beta),  Lin(gamma)
+ *   帳號 升   Kai(abe),   Lin(bea),   Eva(carl)
+ *   模型 升   Lin(haiku), Eva(opus),  Kai(sonnet)
+ *   估計$ 升  Eva(2.45),  Lin(2.5),   Kai(10.1)
+ *
+ * So a header wired to the wrong column, a 降冪 that quietly stays 升冪, or a
+ * table that is not sorting at all cannot produce any of the asserted orders by
+ * coincidence.
+ *
+ * The 估計 $ figures are picked so the two READINGS of the same values disagree:
+ * compared as text they order 2.5 < 2.45 < 10.1 ("$3","$2","$10"), compared as
+ * money 2.45 < 2.5 < 10.1 ("$2","$3","$10"). A fixture where both readings
+ * agree would assert nothing about which one the column uses. */
+const fourColumnSessions = (): MonSessionView[] => [
+  session({
+    id: "mem-eva",
+    name: "Eva",
+    machine: "beta",
+    account: "carl@example.test",
+    model: "opus-4.8",
+    cost: 2.45,
+    bankedCost: null,
+  }),
+  session({
+    id: "mem-kai",
+    name: "Kai",
+    machine: "alpha",
+    account: "abe@example.test",
+    model: "sonnet-4.5",
+    cost: 10.1,
+    bankedCost: null,
+  }),
+  session({
+    id: "mem-lin",
+    name: "Lin",
+    machine: "gamma",
+    account: "bea@example.test",
+    model: "haiku-4.5",
+    cost: 2.5,
+    bankedCost: null,
+  }),
+];
+
 describe("MonitorPage AI Sessions — column sort", () => {
   beforeEach(() => {
     listMembers.mockResolvedValue([]);
@@ -297,6 +353,86 @@ describe("MonitorPage AI Sessions — column sort", () => {
     fireEvent.click(screen.getByTestId("mon-sort-context"));
     // lexicographically "100%" < "42%" < "7%"; by magnitude it is the reverse
     expect(column(4)).toEqual(["7%", "42%", "100%"]);
+  });
+
+  // ── every column orders by its OWN value, both ways ──────────────────────
+
+  it("orders 機器 by machine name, ascending then descending", async () => {
+    getMonitoring.mockResolvedValue({
+      accounts: [],
+      machines: [],
+      sessions: fourColumnSessions(),
+    });
+    renderMonitor();
+
+    await screen.findByText("Eva");
+    const header = screen.getByTestId("mon-sort-machine");
+
+    fireEvent.click(header);
+    expect(column(1)).toEqual(["alpha", "beta", "gamma"]);
+    fireEvent.click(header);
+    expect(column(1)).toEqual(["gamma", "beta", "alpha"]);
+  });
+
+  it("orders 帳號 by account, ascending then descending", async () => {
+    getMonitoring.mockResolvedValue({
+      accounts: [],
+      machines: [],
+      sessions: fourColumnSessions(),
+    });
+    renderMonitor();
+
+    await screen.findByText("Eva");
+    const header = screen.getByTestId("mon-sort-account");
+
+    fireEvent.click(header);
+    expect(column(2)).toEqual([
+      "abe@example.test",
+      "bea@example.test",
+      "carl@example.test",
+    ]);
+    fireEvent.click(header);
+    expect(column(2)).toEqual([
+      "carl@example.test",
+      "bea@example.test",
+      "abe@example.test",
+    ]);
+  });
+
+  it("orders 模型 by model name, ascending then descending", async () => {
+    getMonitoring.mockResolvedValue({
+      accounts: [],
+      machines: [],
+      sessions: fourColumnSessions(),
+    });
+    renderMonitor();
+
+    await screen.findByText("Eva");
+    const header = screen.getByTestId("mon-sort-model");
+
+    fireEvent.click(header);
+    expect(modelCells()).toEqual(["haiku-4.5", "opus-4.8", "sonnet-4.5"]);
+    fireEvent.click(header);
+    expect(modelCells()).toEqual(["sonnet-4.5", "opus-4.8", "haiku-4.5"]);
+  });
+
+  it("orders 估計 $ by amount, not by the string the cell prints", async () => {
+    getMonitoring.mockResolvedValue({
+      accounts: [],
+      machines: [],
+      sessions: fourColumnSessions(),
+    });
+    renderMonitor();
+
+    await screen.findByText("Eva");
+    const header = screen.getByTestId("mon-sort-estCost");
+
+    // as text the same three values read "$3", "$2", "$10" — the money reading
+    // is the one that must win, in both directions
+    fireEvent.click(header);
+    expect(column(5)).toEqual(["$2", "$3", "$10"]);
+    fireEvent.click(header);
+    expect(column(5)).toEqual(["$10", "$3", "$2"]);
   });
 
   // ── the dash rule ────────────────────────────────────────────────────────
