@@ -530,21 +530,35 @@ describe("MonitorPage AI Sessions — column sort", () => {
   // all fifteen checks green. The member column is the one column whose two
   // lanes do not share a source, which is exactly why it needed a fixture that
   // makes the two disagree.
+  // TWO rows, and their roster names sort in the OPPOSITE order from their
+  // session names, so the sorted assertion below can tell the two sources
+  // apart. (With one row it could not: a single row sorts to itself under
+  // either key, which is a check that cannot fail — caught in review.)
+  //
+  //   feed order        Zoe, Ada          (also what a session-name 升冪 gives)
+  //   roster-name 升冪   Ada, Zoe
+  //   session-name 升冪  Zoe, Ada          ← "Ann" < "Zed"
   it("takes a member's name from the roster, not from the session row", async () => {
     listMembers.mockResolvedValue([
-      { id: "mem-eva", name: "Eva Renamed", kind: "staff" } as Member,
+      { id: "mem-zoe", name: "Zoe Renamed", kind: "staff" } as Member,
+      { id: "mem-ada", name: "Ada Renamed", kind: "staff" } as Member,
     ]);
     getMonitoring.mockResolvedValue({
       accounts: [],
       machines: [],
-      sessions: [session({ id: "mem-eva", name: "Eva Stale" })],
+      sessions: [
+        session({ id: "mem-zoe", name: "Ann Stale" }),
+        session({ id: "mem-ada", name: "Zed Stale" }),
+      ],
     });
     renderMonitor();
 
-    await screen.findByText("Eva Renamed");
-    expect(memberNames()).toEqual(["Eva Renamed"]);
-    // and the sort key follows the printed value, not the session's
+    await screen.findByText("Zoe Renamed");
+    // what is PRINTED comes from the roster
+    expect(memberNames()).toEqual(["Zoe Renamed", "Ada Renamed"]);
+    // and what is SORTED is that same printed value: keyed on the session
+    // names this would stay in feed order instead.
     fireEvent.click(screen.getByTestId("mon-sort-member"));
-    expect(memberNames()).toEqual(["Eva Renamed"]);
+    expect(memberNames()).toEqual(["Ada Renamed", "Zoe Renamed"]);
   });
 });
