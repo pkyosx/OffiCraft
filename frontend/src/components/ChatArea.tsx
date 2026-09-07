@@ -382,8 +382,10 @@ export function ChatArea({
   // presence (api_chat.PutChat lands the message regardless, UnreadCounts counts
   // it, the member reads it on next boot). So the composer's ONLY lock reason is
   // "no queue path at all": a synthetic released/removed peer (read-only, T-661b
-  // — it must never grow a typable composer or a false "will queue" promise) or
-  // an outsource worker; both are deliberately passed NO onWake by OfficePage.
+  // — it must never grow a typable composer or a false "will queue" promise),
+  // which is the ONE shape OfficePage deliberately passes no onWake. A LIVE
+  // outsource worker used to be the second (T-128 wired its 喚醒 —
+  // restartWorker — so it now takes this same queue path when non-online).
   //
   // This REVERSES T-94c1's extra lock on waking/stopping (owner 2026-07-17),
   // which was the intermittent "sometimes offline can't be messaged" bug: an
@@ -2477,22 +2479,26 @@ export function ChatArea({
         )}
         {composerLocked ? (
           /* T-9c3c: the composer locks ONLY for a peer with NO queue path — a
-           * synthetic released/removed peer (read-only, T-661b) or an outsource
-           * worker; OfficePage wires neither onWake nor a queue promise for
-           * them. A live member always has a queue path (onWake), so it never
-           * reaches here. A plain, non-clickable notice: there is nothing to
-           * wake and no live detail panel to open for these peers. */
+           * synthetic released/removed peer (read-only, T-661b), for which
+           * OfficePage wires neither onWake nor a queue promise. A live member
+           * and (since T-128) a live outsource worker both always have a queue
+           * path (onWake), so neither reaches here. A plain, non-clickable
+           * notice: there is nothing to wake and no live detail panel to open
+           * for a peer that is gone. */
           <div className="chat__composer-locked" role="status">
             {msg.chatComposerOffline(member.name)}
           </div>
         ) : (
           <>
-            {/* Wake row: shown for a live member in ANY non-online state
+            {/* Wake row: shown for a live PEER in ANY non-online state
              * (offline/stopped/waking/stopping, T-9c3c) — an honest "your
-             * message will queue" notice plus an in-place ⚡喚醒 button (calls
-             * activateMember via onWake). Sits ABOVE the composer so the input
-             * row stays full-width (owner mockup). The button is wired only when
-             * the caller passes onWake (a member, not an outsource worker). */}
+             * message will queue" notice plus an in-place ⚡喚醒 button. Sits
+             * ABOVE the composer so the input row stays full-width (owner
+             * mockup). The button is wired only when the caller passes onWake;
+             * WHAT that fires is the caller's business and differs by peer kind
+             * (activateMember for a 正職, restartWorker for an outsource worker
+             * since T-128) — this component only knows there is a wake to
+             * offer. */}
             {offlineQueue && (
               <div className="chat__wake-row">
                 <span className="chat__wake-row__hint">

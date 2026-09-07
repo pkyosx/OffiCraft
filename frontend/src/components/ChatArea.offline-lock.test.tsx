@@ -10,7 +10,9 @@
 //     (you can type; the message queues) + a wake row above the input (queue
 //     notice + an in-place ⚡喚醒 button calling onWake/activateMember).
 //   • a peer with NO onWake (a synthetic released/removed peer — read-only,
-//     T-661b — or an outsource worker) → LOCKED, the member-panel entry.
+//     T-661b) → LOCKED, the member-panel entry. A LIVE outsource worker was in
+//     this bullet until T-128 gave it a wake (restartWorker) and moved it up to
+//     the bullet above; OfficePage.outsource-offline-chat.test.tsx owns that.
 //
 // This REVERSES T-94c1's extra lock on waking/stopping: those are transient
 // presence states an offline member passes through (a fresh wake's configured TTL —
