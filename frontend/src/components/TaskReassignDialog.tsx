@@ -25,7 +25,7 @@
 import { useState } from "react";
 import { useI18n } from "../i18n";
 import { effortText } from "../i18n/compose";
-import type { Effort, Member } from "../types";
+import type { Member } from "../types";
 import type { TaskExecutorKind, TaskReassignInput, TaskView } from "../api/adapter";
 import { serverMessageOf } from "../api/errors";
 import { useMachines } from "../hooks/useMachines";
@@ -49,7 +49,10 @@ function Segmented<T extends string>({
   testidPrefix: string;
   ariaLabel: string;
   /** Optional layout modifier (e.g. the 2x2 grid the 模型 picker uses so its 4
-   * chips never leave a lone centered chip on a second row at 390px). */
+   * chips never leave a lone centered chip on a second row at 390px).
+ *
+ * 投入程度 does NOT use this any more: it became a dropdown in T-131 (owner
+ * 2026-09-08), because its vocabulary keeps growing and a row does not. */
   className?: string;
 }) {
   return (
@@ -356,17 +359,22 @@ export function TaskReassignDialog({
                 <div className="task-reassign__label">
                   {t.settings.assigneeEffort}
                 </div>
-                <Segmented
-                  options={EFFORTS.map((e) => ({
-                    value: e,
-                    label: effortText(t, e),
-                  }))}
-                  value={effortDraft as Effort}
-                  onPick={(v) => setEffortDraft(v)}
-                  testidPrefix="reassign-effort"
-                  ariaLabel={t.settings.assigneeEffort}
-                  className="task-reassign__seg--grid3"
-                />
+                {/* A dropdown, the same shape as the AI runtime select above
+                 * (owner, 2026-09-08, card rc-e787f14c9085) — see the matching
+                 * note in TaskManualsPage. */}
+                <select
+                  className="task-reassign__input"
+                  value={effortDraft}
+                  aria-label={t.settings.assigneeEffort}
+                  data-testid="reassign-effort"
+                  onChange={(e) => setEffortDraft(e.target.value)}
+                >
+                  {EFFORTS.map((e) => (
+                    <option key={e} value={e}>
+                      {effortText(t, e)}
+                    </option>
+                  ))}
+                </select>
               </div>
 
               <div className="task-reassign__section">

@@ -603,7 +603,7 @@ DB 兩個 key（`suggested_replies.reply_card` / `suggested_replies.task_message
 - 全域情境的份數：`spec/openapi.json` 的 `BootDocKind` enum（前端 `Record<BootDocKind, …>` 少一列編譯不過）
 - 出貨文件的 read_only / has_head：`bin/tests/fixtures/boot-doc-registry.tsv`
 - 使用說明的出貨範圍：`api_docs_test.go` 的 embed guard
-- 成員 effort 的四級用詞：`bin/tests/effort-vocab-guard-selftest.py`
+- 成員 effort 的五級用詞：`bin/tests/effort-vocab-guard-selftest.py`
 
 ---
 

@@ -25,8 +25,10 @@
 //                   review-pr.md chip is deliberately not built).
 //   Assignee edit — segmented 指定成員/外包 toggle; model = the member panel's
 //                   quick-pick chips (MODEL_QUICK_PICKS — the same source as
-//                   ModelEffortEditor) + free input; 投入程度 = 低/中/高/極高/最高
-//                   segmented; 機器 = the machines list, one of which must be
+//                   ModelEffortEditor) + free input;
+//                   投入程度 = a 低/中/高/極高/最高 DROPDOWN, the same shape as
+//                   the AI runtime select above it (owner 2026-09-08);
+//                   機器 = the machines list, one of which must be
 //                   chosen for the type to run at all (states joined honestly
 //                   from /api/machines + monitoring agents: 閒置/忙碌/離線);
 //                   雇用數量 = −/＋ stepper + 無限 (wire
@@ -1324,7 +1326,7 @@ function AssigneeCard({
                       onPick={setModelDraft}
                       testidPrefix="manual-assignee-model"
                       ariaLabel={t.settings.assigneeModelLabel}
-                      className="manual-seg--effort-aligned"
+                      className="manual-seg--chips4"
                     />
                     <input
                       className="manual-input manual-assignee__model"
@@ -1347,21 +1349,29 @@ function AssigneeCard({
                 )}
               </div>
 
-              {/* 投入程度 — 低/中/高/極高/最高 segmented. */}
+              {/* 投入程度 — a dropdown, the same shape as the AI runtime select
+               * above it (owner, 2026-09-08, card rc-e787f14c9085). It was a
+               * segmented row until T-131 added a fifth level: five English
+               * labels (Low/Medium/High/X-High/Max) do not fit one phone-width
+               * row, and the closed vocabulary keeps growing while the row does
+               * not. The option list stays derived from EFFORTS. */}
               <div className="manual-assignee-editor__section">
                 <div className="manual-assignee-editor__label">
                   {t.settings.assigneeEffort}
                 </div>
-                <Segmented
-                  options={EFFORTS.map((e) => ({
-                    value: e,
-                    label: effortText(t, e),
-                  }))}
-                  value={effortDraft as (typeof EFFORTS)[number]}
-                  onPick={(v) => setEffortDraft(v)}
-                  testidPrefix="manual-assignee-effort"
-                  ariaLabel={t.settings.assigneeEffort}
-                />
+                <select
+                  className="manual-input"
+                  value={effortDraft}
+                  aria-label={t.settings.assigneeEffort}
+                  data-testid="manual-assignee-effort"
+                  onChange={(e) => setEffortDraft(e.target.value)}
+                >
+                  {EFFORTS.map((e) => (
+                    <option key={e} value={e}>
+                      {effortText(t, e)}
+                    </option>
+                  ))}
+                </select>
               </div>
 
               {/* 機器 — the honest machines list; no machine chosen means no worker starts. */}

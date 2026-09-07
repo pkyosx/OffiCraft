@@ -8,17 +8,15 @@
 //      so this file only locks the class HOOK the rule targets
 //      (task-badge--lock-reassigning) + the task-lock testid. The hue/overlay
 //      layout is verified by the CT visual guard (lock-badge-*).
-//   2. The 模型 pickers lay their 4 chips out as a fixed 2x2 (grid2 modifier)
-//      and 投入程度 lays its 5 out on three tracks (grid3), while 轉給-轉外包,
-//      which has two cells, keeps the flex row, AND a selected 模型 chip carries
-//      the SAME active class as a selected 投入程度 chip. The GEOMETRY is a CSS
-//      grid (untestable in jsdom); what is locked here is the modifier class
-//      that switches it on and the shared active-class consistency.
-//      投入程度 was on the flex row until T-129: MEASURED at 390px it wrapped
-//      into 低/中/高 then 最高 alone at w=292 of a 302-wide group — the very
-//      shape the 模型 modifier exists to prevent. It shared grid2 with 模型
-//      until T-131 added a fifth level, at which point two tracks reproduced
-//      that shape one row lower (MEASURED at 390px: 最高 alone at w=143).
+//   2. The 模型 picker lays its 4 chips out as a fixed 2x2 (grid2 modifier)
+//      while 轉給-轉外包, which has two cells, keeps the flex row. The GEOMETRY
+//      is a CSS grid (untestable in jsdom); what is locked here is the modifier
+//      class that switches it on.
+//      投入程度 used to be pinned here too — it shared the chip row's shape, and
+//      at 390px it wrapped into 低/中/高 then 最高 alone at w=292 of a 302-wide
+//      group. It is no longer a chip row at all: T-131 made it a dropdown
+//      (owner 2026-09-08), so there is no modifier class left to assert and its
+//      contract is now the option-list guard in this file.
 
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { render, fireEvent, within, waitFor } from "@testing-library/react";
@@ -27,6 +25,14 @@ import { TasksPage } from "./TasksPage";
 import { TaskReassignDialog } from "./TaskReassignDialog";
 import { __resetMock, __injectMockTask } from "../api/mock";
 import type { TaskView } from "../api/adapter";
+import {
+  EFFORT_LABELS_EN,
+  EFFORT_SLUGS,
+  clearLocale,
+  optionTexts,
+  optionValues,
+  useEnglishLocale,
+} from "../test/effortOptions";
 
 let seq = 0;
 
@@ -77,6 +83,7 @@ async function openOutsourceFace(
 
 beforeEach(() => {
   __resetMock();
+  clearLocale();
   window.location.hash = "";
   seq = 0;
 });
@@ -111,7 +118,7 @@ describe("轉派中 lock badge — orthogonal overlay class hook", () => {
   });
 });
 
-describe("模型 picker — grid modifiers + selection parity with 投入程度", () => {
+describe("模型 picker — grid modifier + active-class wiring", () => {
   it("gives each group the grid modifier its chip count needs, and 轉給/轉外包 none", async () => {
     __injectMockTask(mkTask({}));
     const { findByTestId } = renderPage();
@@ -121,61 +128,59 @@ describe("模型 picker — grid modifiers + selection parity with 投入程度"
     const modelGroup = within(dialog)
       .getByTestId("reassign-model-fable")
       .closest(".task-reassign__seg");
-    const effortGroup = within(dialog)
-      .getByTestId("reassign-effort-medium")
-      .closest(".task-reassign__seg");
     const kindGroup = within(dialog)
       .getByTestId("reassign-kind-outsource")
       .closest(".task-reassign__seg");
 
     expect(modelGroup).not.toBeNull();
-    expect(effortGroup).not.toBeNull();
     expect(kindGroup).not.toBeNull();
     // 模型: 4 chips → 2x2 grid, so haiku never wraps alone (owner review).
     expect(
       modelGroup!.classList.contains("task-reassign__seg--grid2")
     ).toBe(true);
-    // 投入程度: 5 chips since xhigh (T-131). Two tracks would leave the fifth
-    // alone on a row of its own — the very shape --grid2 exists to prevent —
-    // so this group takes three.
-    expect(
-      effortGroup!.classList.contains("task-reassign__seg--grid3")
-    ).toBe(true);
-    expect(
-      effortGroup!.classList.contains("task-reassign__seg--grid2")
-    ).toBe(false);
     // 轉給/轉外包 has two cells that fit the row — it must NOT inherit a grid.
     // The opt-in is per callsite, not a rule derived from chip count.
     expect(
       kindGroup!.classList.contains("task-reassign__seg--grid2")
     ).toBe(false);
+
+    // 投入程度 is a dropdown since T-131 (owner 2026-09-08): it must not be a
+    // chip row at all, so no radiogroup carries a reassign-effort-* cell.
     expect(
-      kindGroup!.classList.contains("task-reassign__seg--grid3")
-    ).toBe(false);
+      dialog.querySelector('[data-testid^="reassign-effort-"]')
+    ).toBeNull();
+    expect(
+      (within(dialog).getByTestId("reassign-effort") as HTMLElement).tagName
+    ).toBe("SELECT");
   });
 
-  it("gives a selected 模型 chip the SAME active class as a selected 投入程度 chip", async () => {
+  it("offers exactly the five English 投入程度 levels in the dropdown", async () => {
+    useEnglishLocale();
+    __injectMockTask(mkTask({}));
+    const { findByTestId } = renderPage();
+    const dialog = await openOutsourceFace(findByTestId);
+
+    const select = within(dialog).getByTestId("reassign-effort");
+    expect(select.tagName).toBe("SELECT");
+    // EXACTLY, not "contains": a containment check cannot see a sixth option
+    // appear or "X-High" quietly revert to "Extra High".
+    expect(optionTexts(select)).toEqual([...EFFORT_LABELS_EN]);
+    expect(optionValues(select)).toEqual([...EFFORT_SLUGS]);
+  });
+
+  it("gives a selected 模型 chip the active cell class", async () => {
     __injectMockTask(mkTask({}));
     const { findByTestId } = renderPage();
     const dialog = await openOutsourceFace(findByTestId);
 
     const ACTIVE = "task-reassign__seg-cell--active";
 
-    // 投入程度 opens with 中 already selected (medium default) → active box.
-    const effortMid = within(dialog).getByTestId("reassign-effort-medium");
-    expect(effortMid.classList.contains(ACTIVE)).toBe(true);
-
     // 模型 opens with nothing selected (blank ⇒ runtime default); picking one
-    // must give it the identical active class the effort chip carries.
+    // must give it the active class.
     const modelSonnet = within(dialog).getByTestId("reassign-model-sonnet");
     expect(modelSonnet.classList.contains(ACTIVE)).toBe(false);
     fireEvent.click(modelSonnet);
     expect(modelSonnet.classList.contains(ACTIVE)).toBe(true);
-
-    // Same visual token on both selectors — the parity the owner asked for.
-    expect(effortMid.classList.contains(ACTIVE)).toBe(
-      modelSonnet.classList.contains(ACTIVE)
-    );
   });
 });
 

@@ -1474,7 +1474,8 @@
   min-width: 220px;
 }
 
-/* full-width segmented control (指定成員/外包 · 模型 · 投入程度) */
+/* full-width segmented control (指定成員/外包 · 模型). 投入程度 left this control
+   in T-131 — it is a dropdown now (owner 2026-09-08). */
 .manual-seg {
   display: flex;
   gap: 6px;
@@ -1493,10 +1494,11 @@
    PAGE that grows with the viewport rather than inside a max-width modal (which
    is why 轉派's class keeps both the name and the hard 1fr 1fr — see tasks.css).
    MEASURED at 1280 with `1fr 1fr`: group 958, four chips at 471 each — an
-   11-character label in a half-width button — on two rows, while the 投入程度
-   row directly below stayed on one. The two controls stopped lining up.
-   (That row's cells were 4 x 233 when this was written and are 5 x 185 since
-   T-131 added the xhigh level — the count below is derived from it, not fixed.)
+   11-character label in a half-width button — on two rows. (Until T-131 the
+   reason that read as WRONG rather than merely wide was the 投入程度 chip row
+   directly below, which stayed 4 x 233 on one row; that row is a dropdown now,
+   so this class no longer has a sibling to line up with — see the note in
+   codex-model-chips.ct.spec.tsx's @1280 case.)
 
    🔴 The track count is spelled out as TWO LITERAL EVEN COUNTS on purpose. The
    obvious one-liner, `repeat(auto-fit, minmax(120px, 1fr))`, fixes both ends and
@@ -1512,41 +1514,15 @@
    MEASURED across the whole range, 320→1600 in 10px steps: 129 widths, 41 of
    them 2x2 and 88 of them 4-across, and NOTHING else. At the boundary itself
    720 → group 638 (2 x 311) and 730 → group 648 (4 x 155); at the extremes
-   320 → group 238 (2 x 111) and 1280 → group 958. Every chip keeps its label on
-   one line at all of them. ⚠️ The 1280 figure that used to stand here (4 x 233,
-   "the column positions the 投入程度 row below uses") was measured against FOUR
-   effort levels and is superseded by the 5-track rule below.
-   The narrow end, the boundary band and the wide end are pinned by
+   320 → group 238 (2 x 111) and 1280 → group 958 (4 x 233). Every chip keeps
+   its label on one line at all of them. The narrow end, the boundary band and the wide end are pinned by
    frontend/visual-guards/codex-model-chips.ct.spec.tsx. */
-.manual-seg--effort-aligned {
+.manual-seg--chips4 {
   display: grid;
-  /* FIVE tracks for FOUR chips, and the 5 is not this control's number: it is
-     the 投入程度 row's, one section below. That row is a plain .manual-seg flex
-     line of EFFORTS cells (低/中/高/極高/最高 — 5 since T-131 added xhigh), so at
-     a given width its cells land on 5 equal columns. Giving this grid the same
-     5 tracks, the same 6px gap and the same 4px padding puts the 4 model chips
-     on that row's FIRST FOUR columns exactly — same x, same width, one column
-     short on the right, which is what a reader sees as "the two controls line
-     up".
-     MEASURED at 1280 before this: model was repeat(4, 1fr) → 4 x 233 while
-     投入程度 was 5 x 185, and the two controls stopped agreeing the moment the
-     fifth effort level existed.
-     🔴 So this number tracks EFFORTS.length, not CODEX_MODEL_OPTIONS.length. Add
-     a sixth effort level and this becomes 6; add a fifth Codex model and it does
-     NOT change (the chips just fill one more of the same tracks). The pairing is
-     asserted at 1280 by frontend/visual-guards/codex-model-chips.ct.spec.tsx.
-     That coupling is why the class is named for the ROW IT ALIGNS TO rather than
-     for a count: it was --chips4 until T-131, and a name carrying the number 4
-     read as a promise about this picker's own chips — so when a FIFTH effort
-     level landed one section below, nothing in the name said this rule was the
-     one that had gone stale. */
-  grid-template-columns: repeat(5, 1fr);
+  grid-template-columns: repeat(4, 1fr);
 }
 @media (max-width: 720px) {
-  /* Below the breakpoint the sibling 投入程度 row squeezes rather than wraps, so
-     there is no column grid to agree with; 2 is chosen for THIS control alone —
-     4 chips, and with 4 items any odd track count is the orphan bug. */
-  .manual-seg--effort-aligned {
+  .manual-seg--chips4 {
     grid-template-columns: repeat(2, 1fr);
   }
 }
