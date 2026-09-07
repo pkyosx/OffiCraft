@@ -97,6 +97,7 @@ import { enterShouldSend } from "../lib/composerKeys";
 import { navigateHash } from "../lib/hashRoute";
 import { Avatar } from "./Avatar";
 import { FilterPanel } from "./FilterPanel";
+import { MultiSelectFilter } from "./MultiSelectFilter";
 import { ChatBubbleIcon, ChevronDownIcon, ChevronRightIcon } from "./icons";
 import "./lore.css";
 
@@ -127,6 +128,13 @@ interface AuthorIdentity {
   peerId: string;
 }
 
+/** The three scopes that can be ASKED for — the same closed set
+ * `LoreListOptions.scopeKind` names. `MultiSelectFilter` speaks in plain
+ * strings because it is shared with pages whose axes are open-ended, so the
+ * narrowing happens ONCE, at the two controls whose option lists are these
+ * literals and nothing else. */
+type LoreScopeKind = NonNullable<LoreListOptions["scopeKind"]>;
+
 export function LorePage() {
   const { t, msg } = useI18n();
   const { members } = useMembers();
@@ -136,54 +144,75 @@ export function LorePage() {
 
   // ── 篩選 (all four axes are QUERY PARAMETERS, none is a client-side pass) ──
   //
-  // `scope` is one control carrying the spec's 任務下拉: "" = 全部,
-  // "role" = the explicit 「無 · 角色傳承」 item, "agent" = 「無 · 成員傳承」
-  // (the outsource scope the server gained in T-33), "manual:<typeKey>" = one
-  // task type. The two items the spec names by hand exist because
-  // 「這一筆不屬於任何任務」 is a real answer about a real entry, and an empty
-  // dropdown slot does not say it.
+  // 🔴 範圍 IS ITS OWN CONTROL NOW, AND EVERY AXIS IS MULTI-SELECT (owner
+  // rc-0376bf875757 [1]). The old shape put two different questions in one
+  // dropdown — 「哪一本手冊」 and 「不屬於任何任務的那兩種」 — so the list read as
+  // a task list with strange things mixed into it, which is what the owner hit.
+  // Now: pick the KIND first (角色傳承 / 成員傳承 / 任務傳承), and the second
+  // half appears only for the kinds that have one.
   //
-  // `roleKey` is the SECOND half of a role scope. It exists because a budget
-  // belongs to ONE scope, and `scopeKind: "role"` alone names a kind, not a
-  // scope — the server answers `capChars: 0` for it and the page correctly
-  // draws no line. Picking a role is what lets the 角色傳承 line appear at all,
-  // which is most of what this page is for. It is hidden while a TASK is
-  // selected, because it cannot narrow a manual scope.
-  const [scope, setScope] = useState("");
-  const [roleKey, setRoleKey] = useState("");
-  const [stateFilter, setStateFilter] = useState<"" | LoreEntryState>("");
-  const [authorFilter, setAuthorFilter] = useState("");
+  // The three kind labels are the SAME WORDS the row's 屬於 chip and the 上限線
+  // use, from the same i18n keys. They used to differ (「無 · 角色傳承」 in the
+  // filter, 「角色傳承」 on the row) and two wordings for one thing is a question
+  // the reader has to answer before they can read either.
+  //
+  // `roleKeys` / `manualKeys` are the SECOND half of a scope. A budget belongs
+  // to ONE scope, and a kind alone names a kind, not a scope — the server
+  // answers `capChars: 0` for it and the page correctly draws no line. Picking
+  // exactly one kind AND exactly one key is what makes the 上限線 appear, which
+  // is most of what this page is for.
+  //
+  // ⚠️ SO THE LINE GOES QUIET WHENEVER THE RANGE IS BROADER THAN ONE SCOPE, and
+  // that is the cost the owner accepted when he chose full multi-select: two
+  // ranges mean two budgets and there is one place on screen for a line, so no
+  // line can honestly be drawn. The server is the one that decides this (it
+  // answers 0/""); the page does not re-derive the rule.
+  const [scopeKinds, setScopeKinds] = useState<Set<LoreScopeKind>>(new Set());
+  const [roleKeys, setRoleKeys] = useState<Set<string>>(new Set());
+  const [manualKeys, setManualKeys] = useState<Set<string>>(new Set());
+  const [states, setStates] = useState<Set<LoreEntryState>>(new Set());
+  const [authors, setAuthors] = useState<Set<string>>(new Set());
 
+  // 🔴 A KEY ONLY TRAVELS WHILE ITS KIND IS SELECTED. Unticking 角色傳承 while
+  // roles stay ticked must not keep sending those role keys: `scope_kinds` and
+  // `scope_keys` are ANDed on the wire, so an orphaned key would silently
+  // narrow — or empty — a page the reader believes they widened. The state is
+  // kept rather than wiped so re-ticking the kind restores the picks, and the
+  // FILTER is what drops them.
+  //
+  // 成員傳承 has no second half: an agent scope's key is a MEMBER id, not a role
+  // key, so neither list can narrow it. Sending the kind alone is the honest
+  // request.
   const opts = useMemo<LoreListOptions>(() => {
     const next: LoreListOptions = {};
-    if (scope === "role") {
-      next.scopeKind = "role";
-      if (roleKey) next.scopeKey = roleKey;
-    } else if (scope === "agent") {
-      // No second half yet. An agent scope's key is a MEMBER id, not a role
-      // key, so the 角色 dropdown cannot narrow it and offering it would ask a
-      // question about the wrong list. Sending the kind alone is the honest
-      // request: the server answers `capChars: 0` for a kind that has not
-      // converged on one scope, and the page correctly draws no 上限線 — the
-      // same thing it already does for a bare `scopeKind: "role"`.
-      next.scopeKind = "agent";
-    } else if (scope.startsWith("manual:")) {
-      next.scopeKind = "manual";
-      next.scopeKey = scope.slice("manual:".length);
-    }
-    if (stateFilter) next.state = stateFilter;
-    if (authorFilter) next.authorId = authorFilter;
+    if (scopeKinds.size > 0) next.scopeKinds = [...scopeKinds];
+    const keys = [
+      ...(scopeKinds.has("role") ? roleKeys : []),
+      ...(scopeKinds.has("manual") ? manualKeys : []),
+    ];
+    if (keys.length > 0) next.scopeKeys = keys;
+    if (states.size > 0) next.states = [...states];
+    if (authors.size > 0) next.authorIds = [...authors];
     return next;
-  }, [scope, roleKey, stateFilter, authorFilter]);
+  }, [scopeKinds, roleKeys, manualKeys, states, authors]);
 
+  // What 清除篩選 keys on. It asks whether anything the reader can SEE is
+  // narrowing the page, so it counts the two key sets only while their kind is
+  // selected — the same rule `opts` sends by, or the button would offer to
+  // clear a constraint that is not in force.
   const anyFilter =
-    scope !== "" || roleKey !== "" || stateFilter !== "" || authorFilter !== "";
+    scopeKinds.size > 0 ||
+    states.size > 0 ||
+    authors.size > 0 ||
+    (scopeKinds.has("role") && roleKeys.size > 0) ||
+    (scopeKinds.has("manual") && manualKeys.size > 0);
 
   function clearFilters() {
-    setScope("");
-    setRoleKey("");
-    setStateFilter("");
-    setAuthorFilter("");
+    setScopeKinds(new Set());
+    setRoleKeys(new Set());
+    setManualKeys(new Set());
+    setStates(new Set());
+    setAuthors(new Set());
   }
 
   // ── the page's own data ────────────────────────────────────────────────
@@ -528,24 +557,36 @@ export function LorePage() {
 
   // The line is NAMED — it says which scope's budget it is and how big that
   // budget is. No percentage, no 已用 x/y (spec §6 rules all three out).
+  //
+  // 🔴 WHETHER THERE IS A LINE IS THE SERVER'S ANSWER (`cap.capChars`), NOT
+  // THIS. Everything here does is put a NAME on a line the server already
+  // decided to draw. The condition below looks like the server's own
+  // 「exactly one kind and one key」 rule and it must not be read as a second
+  // copy of it: it exists so the name is empty when there is no single scope to
+  // name, and if the two ever disagree the line still appears or not by the
+  // server's answer alone. Re-deriving the DECISION here is the drift the whole
+  // 上限線 design is built to avoid.
+  const soleKind = scopeKinds.size === 1 ? [...scopeKinds][0] : "";
+  const soleKey = opts.scopeKeys?.length === 1 ? opts.scopeKeys[0] : "";
   const scopeName =
-    scope === "role"
-      ? t.lore.scopeKindRole +
-        t.lore.capLineSep +
-        (roles.find((r) => r.key === roleKey)?.name || roleKey)
-      : t.lore.scopeKindManual +
-        t.lore.capLineSep +
-        (() => {
-          const key = scope.slice("manual:".length);
-          const m = manuals.find((x) => x.typeKey === key);
-          return m?.displayName || key;
-        })();
+    soleKind === "" || soleKey === ""
+      ? ""
+      : soleKind === "manual"
+        ? t.lore.scopeKindManual +
+          t.lore.capLineSep +
+          (manuals.find((x) => x.typeKey === soleKey)?.displayName || soleKey)
+        : t.lore.scopeKindRole +
+          t.lore.capLineSep +
+          (roles.find((r) => r.key === soleKey)?.name || soleKey);
   const capLineText =
     scopeName + t.lore.capLineMid + cap.capChars + t.lore.capLineTail;
 
   const roleOptions = roles.map((r) => ({ value: r.key, label: r.name || r.key }));
+  // The VALUE is the bare type_key now, not a `manual:` prefixed one: it goes
+  // straight into `scope_keys`, and the kind it belongs to is said separately by
+  // the 範圍 filter. The prefix existed only to pack two axes into one dropdown.
   const manualOptions = manuals.map((m) => ({
-    value: `manual:${m.typeKey}`,
+    value: m.typeKey,
     label: m.displayName || m.typeKey,
   }));
   // 撰寫人 options are the LIVE roster only. An author who has left cannot be
@@ -593,66 +634,68 @@ export function LorePage() {
         clearLabel={t.lore.clearFilters}
         onClear={anyFilter ? clearFilters : undefined}
       >
-        <LoreSelect
+        {/* 範圍 — the KIND, on its own. It used to share a dropdown with the
+            manual list, which made a list of tasks look like it had non-tasks
+            mixed into it (owner, card rc-0376bf875757). The three labels are the
+            same words the row's 屬於 chip uses, from the same i18n keys. */}
+        <MultiSelectFilter
+          noun={t.lore.filterScopeNoun}
+          allLabel={t.lore.filterScopeAll}
           testId="lore-filter-scope"
-          label={t.lore.filterTaskNoun}
-          value={scope}
-          onChange={(v) => {
-            setScope(v);
-            // A task scope cannot be narrowed by role, so the role half is
-            // dropped rather than kept as invisible state that would ride the
-            // next request.
-            if (v !== "role") setRoleKey("");
-          }}
           options={[
-            { value: "", label: t.lore.filterTaskAll },
-            // 🔴 SPEC §6 NAMES THIS ITEM. 「無 · 角色傳承」 is not "no filter" —
-            // it is the answer 「這一筆不屬於任何任務」, and it is a filter value
-            // of its own (scopeKind: "role").
-            { value: "role", label: t.lore.filterRoleLore },
-            // The third scope. It sits beside 角色傳承 rather than inside it
-            // because it is a KIND of its own on the wire (scopeKind: "agent"):
-            // an outsource worker has no role, so its lore hangs off its own
-            // member id. The settings knob these two share is a separate
-            // question from the filter, and sharing one does not merge them
-            // here.
-            { value: "agent", label: t.lore.filterAgentLore },
-            ...manualOptions,
+            { value: "role", label: t.lore.scopeKindRole },
+            // Beside 角色傳承, not inside it: an outsource worker has no role, so
+            // its lore hangs off its own member id and it is a KIND of its own
+            // on the wire.
+            { value: "agent", label: t.lore.scopeKindAgent },
+            { value: "manual", label: t.lore.scopeKindManual },
           ]}
+          selected={scopeKinds}
+          onChange={(next) => setScopeKinds(next as Set<LoreScopeKind>)}
         />
-        {scope === "role" && (
-          <LoreSelect
+        {/* The second half of a scope, one list per kind that HAS one, and each
+            appears only while its kind is ticked. 成員傳承 has none: its key is a
+            member id, which neither list can narrow — offering one would ask a
+            question about the wrong roster. */}
+        {scopeKinds.has("role") && (
+          <MultiSelectFilter
+            noun={t.lore.filterRoleNoun}
+            allLabel={t.lore.filterRoleAll}
             testId="lore-filter-role"
-            label={t.lore.filterRoleNoun}
-            value={roleKey}
-            onChange={setRoleKey}
-            options={[
-              { value: "", label: t.lore.filterRoleAll },
-              ...roleOptions,
-            ]}
+            options={roleOptions}
+            selected={roleKeys}
+            onChange={setRoleKeys}
           />
         )}
-        <LoreSelect
+        {scopeKinds.has("manual") && (
+          <MultiSelectFilter
+            noun={t.lore.filterManualNoun}
+            allLabel={t.lore.filterManualAll}
+            testId="lore-filter-manual"
+            options={manualOptions}
+            selected={manualKeys}
+            onChange={setManualKeys}
+          />
+        )}
+        <MultiSelectFilter
+          noun={t.lore.filterStateNoun}
+          allLabel={t.lore.filterStateAll}
           testId="lore-filter-state"
-          label={t.lore.filterStateNoun}
-          value={stateFilter}
-          onChange={(v) => setStateFilter(v as "" | LoreEntryState)}
           options={[
-            { value: "", label: t.lore.filterStateAll },
             { value: "pinned", label: t.lore.statePinned },
             { value: "active", label: t.lore.stateActive },
             { value: "retired", label: t.lore.stateRetired },
           ]}
+          selected={states}
+          onChange={(next) => setStates(next as Set<LoreEntryState>)}
         />
-        <LoreSelect
+        <MultiSelectFilter
+          noun={t.lore.filterAuthorNoun}
+          allLabel={t.lore.filterAuthorAll}
           testId="lore-filter-author"
-          label={t.lore.filterAuthorNoun}
-          value={authorFilter}
-          onChange={setAuthorFilter}
-          options={[
-            { value: "", label: t.lore.filterAuthorAll },
-            ...authorOptions,
-          ]}
+          options={authorOptions}
+          selected={authors}
+          onChange={setAuthors}
         />
       </FilterPanel>
 
@@ -718,52 +761,6 @@ export function LorePage() {
   );
 }
 
-/** One filter field: a label + a native single-select pill.
- *
- * ⚠️ THE REASON WRITTEN HERE HAS EXPIRED, AND THE CONTROL HAS NOT CAUGHT UP YET.
- * It used to say the API could only carry ONE `state` / ONE `authorId` / ONE
- * scope pair, so a multi-select control would express a request the wire could
- * not carry. That stopped being true when the plural filters landed
- * (`states` / `authorIds` / `scopeKinds` / `scopeKeys` on `LoreListOptions`) —
- * the wire carries a SET on every axis now, and the owner asked for the
- * multi-select control to match (rc-0376bf875757, option [1]).
- *
- * So this stays a native `<select>` for one reason only: the control has not
- * been replaced yet. It is a TODO, not a design decision, and it is written
- * that way on purpose — a stale rationale left standing reads as a rule and
- * stops the next person from doing the work. */
-function LoreSelect({
-  testId,
-  label,
-  value,
-  onChange,
-  options,
-}: {
-  testId: string;
-  label: string;
-  value: string;
-  onChange: (v: string) => void;
-  options: { value: string; label: string }[];
-}) {
-  return (
-    <label className="lore__filter-field">
-      <span className="lore__filter-label">{label}</span>
-      <select
-        className="lore__filter"
-        data-testid={testId}
-        aria-label={label}
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-      >
-        {options.map((o) => (
-          <option key={o.value} value={o.value}>
-            {o.label}
-          </option>
-        ))}
-      </select>
-    </label>
-  );
-}
 
 /** ONE 傳承 row. Collapsed by default; the whole row is the toggle surface. */
 function LoreRow({

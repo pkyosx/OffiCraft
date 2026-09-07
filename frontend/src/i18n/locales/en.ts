@@ -133,17 +133,17 @@ export const en: Dict = {
     capLineSep: " · ",
     capLineMid: " cap ",
     capLineTail: " characters — nothing below this line is loaded",
-    // The filter row.
+    // The filter row. 範圍 is its own field now (it used to share a dropdown
+    // with the manual list, which made a task list look like it had non-tasks
+    // mixed in). The three scope words come from the scopeKind* keys — the same
+    // source the row's 屬於 chip and the cap line use.
     clearFilters: "Clear filters",
-    filterTaskNoun: "Task",
-    filterTaskAll: "All",
-    filterRoleLore: "None · role lore",
-    // The third scope: an outsource worker has no role, so its lore hangs off
-    // its own member id. It sits BESIDE the role item, not under it — on the
-    // wire it is a scope_kind of its own.
-    filterAgentLore: "None · member lore",
+    filterScopeNoun: "Scope",
+    filterScopeAll: "All scopes",
     filterRoleNoun: "Role",
     filterRoleAll: "All roles",
+    filterManualNoun: "Manual",
+    filterManualAll: "All manuals",
     filterStateNoun: "State",
     filterStateAll: "All states",
     filterAuthorNoun: "Author",

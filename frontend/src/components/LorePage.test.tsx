@@ -278,12 +278,25 @@ function stubRoster() {
   ] as never);
 }
 
+/** The 撰寫人 axis's option values. It is a MultiSelectFilter now (owner
+ * rc-0376bf875757 [1] made all three axes multi-select), so the options live in
+ * a popover that has to be OPENED — a helper that read the closed trigger would
+ * find nothing and report an empty option list, which is exactly the false
+ * negative the spec below refuses to accept. */
 function authorOptionValues(container: HTMLElement): string[] {
-  const sel = container.querySelector<HTMLSelectElement>(
+  const trigger = container.querySelector<HTMLElement>(
     '[data-testid="lore-filter-author"]',
   );
-  if (!sel) throw new Error("no 撰寫人 dropdown");
-  return Array.from(sel.options).map((o) => o.value);
+  if (!trigger) throw new Error("no 撰寫人 filter");
+  if (trigger.getAttribute("aria-expanded") !== "true") {
+    fireEvent.click(trigger);
+  }
+  return Array.from(
+    container.querySelectorAll('[data-testid^="lore-filter-author-opt-"]'),
+  ).map(
+    (el) =>
+      el.getAttribute("data-testid")!.slice("lore-filter-author-opt-".length),
+  );
 }
 
 describe("LorePage — 撰寫人下拉只列寫得出傳承的身分", () => {
@@ -697,5 +710,112 @@ describe("LorePage — 內嵌輸入框", () => {
     expect(
       rowById(container, "gone").querySelector('[data-testid="lore-msg-input"]'),
     ).toBeNull();
+  });
+});
+
+// ────────────────────────────────────────────────────────────────────────────
+// 篩選器改複選 (owner rc-0376bf875757 option ②: 全部改複選, 範圍複選時上限線就不畫).
+//
+// 🔴 THE ONE THAT FAILS SILENTLY IS THE ORPHANED KEY. `scope_kinds` and
+// `scope_keys` are ANDed on the wire. Tick 角色傳承, tick a role, then UNTICK
+// 角色傳承: the role list disappears from the screen, so the reader believes
+// they widened the page — but if the key set is still sent, the request is now
+// 「any kind, but only this role's key」, which narrows or empties a page they
+// asked to broaden. Nothing errors. The screen shows a filter row with one less
+// constraint on it and a list with fewer rows in it, and the two never meet.
+//
+// The state is KEPT so re-ticking the kind restores the picks; it is the
+// REQUEST that must drop them. So the assertion is on what was sent.
+describe("LorePage — 篩選器複選", () => {
+  /** The options of the most recent list request. */
+  function lastOpts(spy: ReturnType<typeof stubList>) {
+    const calls = spy.mock.calls;
+    if (calls.length === 0) throw new Error("listLoreEntries was never called");
+    return (calls[calls.length - 1][0] ?? {}) as Record<string, unknown>;
+  }
+
+  function tick(container: HTMLElement, testId: string, value: string) {
+    const trigger = container.querySelector<HTMLElement>(
+      `[data-testid="${testId}"]`,
+    );
+    if (!trigger) throw new Error(`no ${testId} filter`);
+    if (trigger.getAttribute("aria-expanded") !== "true") {
+      fireEvent.click(trigger);
+    }
+    const box = container.querySelector<HTMLElement>(
+      `[data-testid="${testId}-opt-${value}"] input`,
+    );
+    if (!box) throw new Error(`no ${testId} option ${value}`);
+    fireEvent.click(box);
+  }
+
+  it("stops sending a role key once 角色傳承 is unticked", async () => {
+    vi.spyOn(api, "listRoles").mockResolvedValue([
+      { key: "assistant", name: "特助" },
+    ] as never);
+    const spy = stubList(page([mkEntry({ id: "L-1" })]));
+    const { container } = renderPage();
+    await waitFor(() => expect(renderedIds(container)).toHaveLength(1));
+
+    tick(container, "lore-filter-scope", "role");
+    await waitFor(() => expect(lastOpts(spy).scopeKinds).toEqual(["role"]));
+
+    tick(container, "lore-filter-role", "assistant");
+    await waitFor(() => expect(lastOpts(spy).scopeKeys).toEqual(["assistant"]));
+
+    // Untick the KIND. The role list leaves the screen; the key must leave the
+    // request with it.
+    tick(container, "lore-filter-scope", "role");
+    await waitFor(() => expect(lastOpts(spy).scopeKinds).toBeUndefined());
+    // 🔴 THE WHOLE POINT. `scopeKeys` still carrying ["assistant"] here is a
+    // request for 「every kind, but only entries keyed assistant」 — narrower
+    // than the screen says, with nothing to show for it.
+    expect(lastOpts(spy).scopeKeys).toBeUndefined();
+  });
+
+  it("sends a SET on the state axis, not the last thing ticked", async () => {
+    const spy = stubList(page([mkEntry({ id: "L-1" })]));
+    const { container } = renderPage();
+    await waitFor(() => expect(renderedIds(container)).toHaveLength(1));
+
+    tick(container, "lore-filter-state", "pinned");
+    tick(container, "lore-filter-state", "retired");
+
+    // Both, in one request. A control that kept only the newest tick would send
+    // ["retired"] and look completely normal doing it.
+    await waitFor(() =>
+      expect(lastOpts(spy).states).toEqual(["pinned", "retired"]),
+    );
+  });
+
+  it("shows the manual list only while 任務傳承 is ticked", async () => {
+    vi.spyOn(api, "listTaskManuals").mockResolvedValue([
+      { typeKey: "review-pr", displayName: "PR 審查", purpose: "", fields: [] },
+    ] as never);
+    stubList(page([mkEntry({ id: "L-1" })]));
+    const { container } = renderPage();
+    await waitFor(() => expect(renderedIds(container)).toHaveLength(1));
+
+    // 🔴 This is the owner's original complaint: the manual list used to sit in
+    // the same dropdown as the two non-task scopes, so a list of tasks appeared
+    // to have things in it that are not tasks. Splitting them is only a fix if
+    // the manual list is genuinely absent until asked for.
+    expect(
+      container.querySelector('[data-testid="lore-filter-manual"]'),
+    ).toBeNull();
+
+    tick(container, "lore-filter-scope", "manual");
+    await waitFor(() =>
+      expect(
+        container.querySelector('[data-testid="lore-filter-manual"]'),
+      ).not.toBeNull(),
+    );
+
+    tick(container, "lore-filter-scope", "manual");
+    await waitFor(() =>
+      expect(
+        container.querySelector('[data-testid="lore-filter-manual"]'),
+      ).toBeNull(),
+    );
   });
 });

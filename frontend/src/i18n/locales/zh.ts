@@ -131,16 +131,17 @@ export const zh = {
     capLineSep: " · ",
     capLineMid: " 上限 ",
     capLineTail: " 字，以下不會被載入",
-    // 篩選列
+    // 篩選列。範圍改成自己一格（原本跟手冊清單擠在同一個下拉，看起來就像
+    // 任務清單裡混進了不是任務的東西）。三個範圍的字用 scopeKind* 那一組，
+    // 跟條目列上的「屬於」與上限線同一份來源——先前這裡寫「無 · 角色傳承」、
+    // 列上寫「角色傳承」，同一件事兩種講法，讀的人得先自己對起來。
     clearFilters: "清除篩選",
-    filterTaskNoun: "任務",
-    filterTaskAll: "全部",
-    filterRoleLore: "無 · 角色傳承",
-    // 第三種範圍：外包沒有角色，它的傳承掛在自己的成員 id 上。與上面那一項
-    // 並列，不是它的子項——在線路上它是自己一種 scope_kind。
-    filterAgentLore: "無 · 成員傳承",
+    filterScopeNoun: "範圍",
+    filterScopeAll: "全部範圍",
     filterRoleNoun: "角色",
     filterRoleAll: "全部角色",
+    filterManualNoun: "手冊",
+    filterManualAll: "全部手冊",
     filterStateNoun: "狀態",
     filterStateAll: "全部狀態",
     filterAuthorNoun: "撰寫人",
