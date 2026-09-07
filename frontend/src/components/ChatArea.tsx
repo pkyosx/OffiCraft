@@ -179,7 +179,7 @@ type ChatSession = {
   prevIds: Set<string>;
   /** T-bf82 scrollback: the pre-fetch scroll-geometry snapshot an older-page
    * prepend restores from (null = no older page in flight/pending). */
-  prependAnchor: { firstId: string; height: number; top: number } | null;
+  prependAnchor: { firstId: string; height: number } | null;
   /** The UI-side in-flight lock over `useChat`'s own, so repeated scroll
    * events near the top cannot re-snapshot `prependAnchor` mid-flight.
    *
@@ -232,6 +232,22 @@ type ChatSession = {
    * live tail — this ticket's own failure shape, arriving from the previous
    * conversation's button press. */
   pendingLatestScroll: boolean;
+  /** T-124: the last touch Y of the drag in progress, so a finger drag can be
+   * read as a DIRECTION. `null` = no drag in progress. It has to be tracked by
+   * hand because a pane with no overflow scrolls nowhere: there is no
+   * scrollTop for the browser to move and therefore nothing to compare. */
+  touchY: number | null;
+  /** T-124 一次手勢一頁 (owner ruling rc-3bceed6d9e0a). A gesture is not an
+   * event: one flick of a trackpad is a BURST of wheel events, and on a pane
+   * that stays pinned at its top every one of them would buy another page —
+   * measured, one flick pulled three pages (90 messages) at once, which is
+   * what the owner saw. These two mark the page already bought by the gesture
+   * in progress: `wheelSpent` is cleared by a quiet gap (a burst has no
+   * end event to hang it on), `touchSpent` by the next touchstart, which is a
+   * real boundary and needs no clock. */
+  wheelSpent: boolean;
+  lastWheelTs: number;
+  touchSpent: boolean;
 };
 
 function freshChatSession(unreadCount: number): ChatSession {
@@ -249,6 +265,10 @@ function freshChatSession(unreadCount: number): ChatSession {
     autoJumpRetries: 0,
     seedConsumed: null,
     pendingLatestScroll: false,
+    touchY: null,
+    wheelSpent: false,
+    lastWheelTs: 0,
+    touchSpent: false,
   };
 }
 
@@ -819,6 +839,11 @@ export function ChatArea({
   // paint, so the owner keeps reading the same row. The anchor's firstId also
   // tells "a prepend really landed" apart from an unrelated (appended) update.
   const NEAR_TOP_PX = 120;
+  // 🔴 The gap that tells two flicks apart from one flick's own burst. A
+  // trackpad emits an event roughly every frame while the fingers move and
+  // keeps emitting through momentum, all a few tens of ms apart; a person
+  // making a second, deliberate gesture takes far longer than this.
+  const WHEEL_GESTURE_GAP_MS = 200;
 
   async function loadOlderAnchored() {
     if (session.loadingOlder || !hasMore) return;
@@ -828,7 +853,6 @@ export function ChatArea({
     session.prependAnchor = {
       firstId: messages[0].id,
       height: el.scrollHeight,
-      top: el.scrollTop,
     };
     try {
       await loadOlder();
@@ -859,11 +883,114 @@ export function ChatArea({
     session.prependAnchor = null;
     for (let i = 0; i < idx; i++) session.prevIds.add(messages[i].id);
     const el = messagesRef.current;
-    if (el) el.scrollTop = anchor.top + (el.scrollHeight - anchor.height);
+    // 🔴 THE CURRENT POSITION, NOT THE ONE SNAPSHOTTED BEFORE THE FETCH (T-124,
+    // owner c-c9cd7fefe19f 「載入時我正在開的位置或手機手指指的位置都會跑掉」).
+    // The snapshot is taken when the request goes out; the reader keeps
+    // scrolling while it flies — momentum on a trackpad, a finger still on the
+    // glass — so restoring a snapshotted scrollTop UNDOES exactly that stretch.
+    // MEASURED against a 900ms page: armed at scrollTop 79, the reader carried
+    // on to 0, and landing put them back at 79 + the added height.
+    //
+    // 🔴 AND THE ADDED HEIGHT IS MEASURED FROM THE DOM, NOT FROM THE SNAPSHOT
+    // EITHER. `scrollHeight - anchor.height` is only the prepend's height while
+    // NOTHING ELSE changed the content in between — an image finishing, a font
+    // swapping, a message arriving over SSE all break it, and they break it
+    // into the exact shape of the bug above: the reader is moved and nothing
+    // says so. The row the reader was anchored on used to be the FIRST row, so
+    // whatever now sits between the first row and it IS the prepend, read off
+    // the laid-out DOM at landing.
+    //
+    // The fallback is for the one case that measurement cannot reach: the
+    // anchor row is inside a COLLAPSED 成員間對話 block and has no node at all.
+    // That is also the case where a wrong number cannot move anybody — a
+    // thread whose page folds that far renders shorter than the pane, so it has
+    // no overflow and scrollTop is pinned at 0 either way.
+    if (el) {
+      // Walked rather than selected: a message id goes into an attribute
+      // selector unescaped, and `CSS.escape` does not exist in the jsdom the
+      // unit suite runs on — the whole compensation would throw there.
+      const rows = Array.from(
+        el.querySelectorAll<HTMLElement>("[data-msg-id]"),
+      );
+      const firstRow = rows[0] ?? null;
+      const anchorRow =
+        rows.find((row) => row.dataset.msgId === anchor.firstId) ?? null;
+      const measured =
+        anchorRow && firstRow ? anchorRow.offsetTop - firstRow.offsetTop : 0;
+      // `measured > 0` is also what tells a LAID-OUT page from one that has no
+      // layout engine at all: jsdom answers 0 to every offset, so the unit
+      // suite (and anything else without layout) takes the snapshot path, which
+      // is what it can actually reason about. A real prepend that genuinely
+      // added no height — a page that folded entirely into the collapsed block
+      // already on screen — measures 0 too, and there the snapshot delta is 0
+      // as well, so both paths say the same thing.
+      const added = measured > 0 ? measured : el.scrollHeight - anchor.height;
+      el.scrollTop = el.scrollTop + added;
+    }
     // The one-shot entry positioning (session.initialPositioned) already ran for
     // this conversation — a prepend must never re-run it, and it doesn't:
     // the latch stays untouched here.
   }, [messages]);
+
+  // 🔴 T-124: THE WHEEL, NOT ONLY THE SCROLL EVENT. A box whose content is
+  // shorter than itself has no overflow, and a browser emits NO scroll event
+  // for it however hard the wheel turns — so a loader armed on `scroll` alone
+  // is armed on a signal that this pane frequently cannot produce. It is not a
+  // corner case here: a 30-message page that is mostly 成員間對話 folds into a
+  // few one-line blocks (owner's own thread: 28 of 30, three blocks, whole page
+  // 543px inside a 543px pane), and then 往上滑 does nothing at all, for ever.
+  // The `wheel` event fires either way, and an upward wheel at the top of the
+  // pane IS the reader asking for older messages. Same guard, same one-page
+  // step — this only adds a second door onto it.
+  function onMessagesWheel(e: React.WheelEvent<HTMLDivElement>) {
+    if (e.deltaY >= 0) return;
+    // One flick = one page (owner ruling rc-3bceed6d9e0a). A wheel burst has no
+    // end event, so the gesture boundary is a QUIET GAP: events closer together
+    // than this belong to the same flick, momentum included.
+    const now = Date.now();
+    const sameGesture = now - session.lastWheelTs <= WHEEL_GESTURE_GAP_MS;
+    session.lastWheelTs = now;
+    if (!sameGesture) session.wheelSpent = false;
+    if (session.wheelSpent) return;
+    const el = messagesRef.current;
+    if (!el) return;
+    if (el.scrollTop < NEAR_TOP_PX && hasMore) {
+      session.wheelSpent = true;
+      void loadOlderAnchored();
+    }
+  }
+
+  // The touch half of the same door (owner ruling rc-b5b3c307b90d). A finger
+  // never produces a wheel event, and on a pane with no overflow it produces no
+  // scroll event either — MEASURED at 390px: on the folded thread six downward
+  // drags emitted touchstart/touchmove/touchend only and loaded nothing, while
+  // the same drags on an ordinary thread walked it from 30 messages to 120
+  // through the scroll door. So without this, the phone keeps the dead end the
+  // wheel just took off the desktop. Dragging the content DOWN is reaching for
+  // what is above it — the same request the upward wheel makes.
+  function onMessagesTouchStart(e: React.TouchEvent<HTMLDivElement>) {
+    session.touchY = e.touches[0]?.clientY ?? null;
+    // A finger drag has a real boundary, so 一次手勢一頁 needs no clock here.
+    session.touchSpent = false;
+  }
+
+  function onMessagesTouchMove(e: React.TouchEvent<HTMLDivElement>) {
+    const y = e.touches[0]?.clientY;
+    if (y == null || session.touchY == null) return;
+    const movedDown = y - session.touchY > 0;
+    session.touchY = y;
+    if (!movedDown || session.touchSpent) return;
+    const el = messagesRef.current;
+    if (!el) return;
+    if (el.scrollTop < NEAR_TOP_PX && hasMore) {
+      session.touchSpent = true;
+      void loadOlderAnchored();
+    }
+  }
+
+  function onMessagesTouchEnd() {
+    session.touchY = null;
+  }
 
   function onMessagesScroll() {
     const el = messagesRef.current;
@@ -2189,6 +2316,11 @@ export function ChatArea({
               className="chat__messages"
               ref={messagesRef}
               onScroll={onMessagesScroll}
+              onWheel={onMessagesWheel}
+              onTouchStart={onMessagesTouchStart}
+              onTouchMove={onMessagesTouchMove}
+              onTouchEnd={onMessagesTouchEnd}
+              onTouchCancel={onMessagesTouchEnd}
             >
               {/* 🔴 T-b0bb: THE GAP NOTICE COMES FIRST, AND IT SUPPRESSES
                * "已到最早訊息".

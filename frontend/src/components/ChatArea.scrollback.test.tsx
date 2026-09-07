@@ -170,6 +170,199 @@ describe("scroll-top history loading", () => {
     expect((list as HTMLElement).scrollTop).toBe(400);
   });
 
+  // T-124 — 往上滑要載得到,即使這一頁短到根本捲不動。
+  //
+  // 一頁 30 則裡大部分是成員間對話時,那些列被摺成一行的塊,整頁比面板還短:
+  // 捲動盒沒有 overflow,瀏覽器就一個 scroll 事件都不會發,只靠 scroll 事件武裝
+  // 的載入於是永遠不會被觸發。wheel 照樣會發。
+  //
+  // ⚠️ jsdom 這一格只釘「wheel 也是一道門」;那個門是必要的(真的沒有 scroll
+  // 事件可用)這件事量的是版面,由 visual-guards/chat-inter-agent-scrollback
+  // 在真的 Chromium 裡釘。
+  it("往上轉滾輪會載入更舊那一頁,即使這一頁短到發不出 scroll 事件", async () => {
+    initialMessages = [
+      mkMsg("c2", "b", "owner", 2000),
+      mkMsg("c3", "b", "owner", 2001),
+    ];
+    olderPage = [mkMsg("c1", "b", "owner", 1000)];
+    const { container } = renderChat();
+    const list = container.querySelector(".chat__messages")!;
+
+    // 內容比面板短 ⇒ 捲不動 ⇒ 這一格 scrollTop 永遠是 0,也永遠沒有 scroll 事件。
+    setScrollGeometry(list, {
+      scrollHeight: 200,
+      clientHeight: 200,
+      scrollTop: 0,
+    });
+
+    // 往下轉不是在要更舊的訊息,不該去撈。
+    await act(async () => {
+      fireEvent.wheel(list, { deltaY: 120 });
+    });
+    expect(loadOlderCalls).toBe(0);
+
+    await act(async () => {
+      fireEvent.wheel(list, { deltaY: -120 });
+    });
+    expect(loadOlderCalls).toBe(1);
+    const ids = Array.from(list.querySelectorAll("[data-msg-id]")).map((el) =>
+      el.getAttribute("data-msg-id"),
+    );
+    expect(ids).toEqual(["c1", "c2", "c3"]);
+  });
+
+  // 手指的那道門(owner 圈定 rc-b5b3c307b90d)。手指往下拖 = 伸手去拿上面的東西,
+  // 跟往上轉滾輪是同一個請求;往上拖是往新的方向走,不該撈。
+  //
+  // ⚠️ 同樣地,「這一格非有不可」量的是版面與真的觸控輸入,由
+  // visual-guards/chat-inter-agent-scrollback 的手機那一段在真的 Chromium 裡釘。
+  it("手指往下拖會載入更舊那一頁,往上拖不會", async () => {
+    initialMessages = [
+      mkMsg("c2", "b", "owner", 2000),
+      mkMsg("c3", "b", "owner", 2001),
+    ];
+    olderPage = [mkMsg("c1", "b", "owner", 1000)];
+    const { container } = renderChat();
+    const list = container.querySelector(".chat__messages")!;
+    setScrollGeometry(list, {
+      scrollHeight: 200,
+      clientHeight: 200,
+      scrollTop: 0,
+    });
+
+    // 往上拖:內容往新的方向走,不撈。
+    await act(async () => {
+      fireEvent.touchStart(list, { touches: [{ clientY: 300 }] });
+      fireEvent.touchMove(list, { touches: [{ clientY: 240 }] });
+      fireEvent.touchEnd(list, { touches: [] });
+    });
+    expect(loadOlderCalls).toBe(0);
+
+    await act(async () => {
+      fireEvent.touchStart(list, { touches: [{ clientY: 240 }] });
+      fireEvent.touchMove(list, { touches: [{ clientY: 320 }] });
+      fireEvent.touchEnd(list, { touches: [] });
+    });
+    expect(loadOlderCalls).toBe(1);
+    const ids = Array.from(list.querySelectorAll("[data-msg-id]")).map((el) =>
+      el.getAttribute("data-msg-id"),
+    );
+    expect(ids).toEqual(["c1", "c2", "c3"]);
+  });
+
+  // 一次手勢一頁(owner 圈定 rc-3bceed6d9e0a)。滾輪那一串沒有結束事件,所以手勢的
+  // 邊界是「安靜下來」;手指有 touchstart 這個真的邊界,不需要時鐘。
+  it("同一次手勢只買一頁:滾輪連續事件只撈一次,安靜之後的下一次滑動才會再撈", async () => {
+    initialMessages = [
+      mkMsg("c2", "b", "owner", 2000),
+      mkMsg("c3", "b", "owner", 2001),
+    ];
+    olderPage = [mkMsg("c1", "b", "owner", 1000)];
+    const { container } = renderChat();
+    const list = container.querySelector(".chat__messages")!;
+    setScrollGeometry(list, {
+      scrollHeight: 200,
+      clientHeight: 200,
+      scrollTop: 0,
+    });
+
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date(1_000_000));
+      await act(async () => {
+        fireEvent.wheel(list, { deltaY: -120 });
+      });
+      expect(loadOlderCalls).toBe(1);
+      // 同一次滑動的其餘事件(幾十毫秒內)不再買第二頁。
+      for (const dt of [16, 32, 48, 64]) {
+        vi.setSystemTime(new Date(1_000_000 + dt));
+        await act(async () => {
+          fireEvent.wheel(list, { deltaY: -120 });
+        });
+      }
+      expect(loadOlderCalls).toBe(1);
+
+      // 安靜一段時間之後,那是新的一次滑動。
+      vi.setSystemTime(new Date(1_000_000 + 500));
+      await act(async () => {
+        fireEvent.wheel(list, { deltaY: -120 });
+      });
+      expect(loadOlderCalls).toBe(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("同一次手指滑動只買一頁,手指放開再滑才會再撈", async () => {
+    initialMessages = [
+      mkMsg("c2", "b", "owner", 2000),
+      mkMsg("c3", "b", "owner", 2001),
+    ];
+    olderPage = [mkMsg("c1", "b", "owner", 1000)];
+    const { container } = renderChat();
+    const list = container.querySelector(".chat__messages")!;
+    setScrollGeometry(list, {
+      scrollHeight: 200,
+      clientHeight: 200,
+      scrollTop: 0,
+    });
+
+    // 🔴 每一個 touchmove 各自 await 落地。全部塞在同一個 act 裡的話,第二、三個
+    // 事件會撞上還沒結束的那一次請求(既有的 in-flight 鎖),於是不管有沒有
+    // 「一次手勢一頁」這條規則都只會撈一次 —— 測到的是鎖,不是規則。
+    await act(async () => {
+      fireEvent.touchStart(list, { touches: [{ clientY: 100 }] });
+    });
+    for (const y of [180, 260, 340]) {
+      await act(async () => {
+        fireEvent.touchMove(list, { touches: [{ clientY: y }] });
+      });
+    }
+    expect(loadOlderCalls).toBe(1);
+
+    await act(async () => {
+      fireEvent.touchEnd(list, { touches: [] });
+      fireEvent.touchStart(list, { touches: [{ clientY: 100 }] });
+    });
+    await act(async () => {
+      fireEvent.touchMove(list, { touches: [{ clientY: 180 }] });
+    });
+    expect(loadOlderCalls).toBe(2);
+  });
+
+  // T-124 (owner c-c9cd7fefe19f「載入時我正在開的位置或手機手指指的位置都會跑
+  // 掉」):請求送出到那一頁落地之間,讀的人還在滑 —— 觸控板的慣性、手指還按在
+  // 螢幕上。落地時要從「他現在在哪」往下推,不是從送出請求時拍的那張快照。
+  it("落地時保留讀者當下的位置,不把請求飛行期間他滑的那一段還原掉", async () => {
+    initialMessages = [
+      mkMsg("c2", "b", "owner", 2000),
+      mkMsg("c3", "b", "owner", 2001),
+    ];
+    olderPage = [mkMsg("c1", "b", "owner", 1000)];
+    const { container } = renderChat();
+    const list = container.querySelector(".chat__messages")!;
+    setScrollGeometry(list, {
+      scrollHeight: 1000,
+      clientHeight: 200,
+      scrollTop: 79,
+    });
+    // 請求在飛的時候:那一頁多出 300px 的高度,而讀者已經滑到最頂。
+    onLoadOlder = () => {
+      Object.defineProperty(list, "scrollHeight", {
+        configurable: true,
+        value: 1300,
+      });
+      (list as HTMLElement).scrollTop = 0;
+    };
+    await act(async () => {
+      fireEvent.scroll(list);
+    });
+
+    // 0（他現在在哪）+ 300（多出來的高度）。用舊快照的話會是 379,也就是把他
+    // 在飛行期間滑的 79px 還原掉。
+    expect((list as HTMLElement).scrollTop).toBe(300);
+  });
+
   it("prepended HISTORY never arms the new-message chip nor re-anchors the divider", async () => {
     initialMessages = [
       mkMsg("c2", "b", "owner", 2000),
