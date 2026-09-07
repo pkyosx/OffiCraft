@@ -219,7 +219,7 @@ func TestLorePageOrderIsPinnedActiveRetired(t *testing.T) {
 	// separates "grouped by state" from "sorted by time".
 	wantLoreIDs(t, page, []string{"L-3", "L-4", "L-1", "L-2"})
 
-	only, err := d.ListLoreEntriesPage(loreListFilter{State: LoreStateActive}, 30, 0)
+	only, err := d.ListLoreEntriesPage(loreListFilter{States: []string{LoreStateActive}}, 30, 0)
 	if err != nil {
 		t.Fatalf("ListLoreEntriesPage(filtered): %v", err)
 	}

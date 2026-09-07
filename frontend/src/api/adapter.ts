@@ -3157,6 +3157,32 @@ export interface LoreListOptions {
   scopeKey?: string;
   state?: LoreEntryState;
   authorId?: string;
+  /** 🔴 THE PLURAL HALF, AND IT WINS. The 清單頁's 範圍 / 狀態 / 作者 filters are
+   * multi-select (owner rc-0376bf875757 [1]), so each axis has a SET spelling
+   * beside its scalar one; both are sent as the repeatable query parameter the
+   * spec declares, never as a client-side filter.
+   *
+   * When a set and its scalar twin are both given, the SET is the filter and
+   * the scalar is ignored — the server does not AND them, does not union them,
+   * and neither does anything here. The scalars are kept only so callers written
+   * before the ruling keep working unchanged; a caller that has moved to the
+   * sets should stop sending them rather than sending both.
+   *
+   * An EMPTY array is not a filter that matches nothing — it is 「no constraint
+   * on this axis」, the same as omitting the field, and `listLoreEntries` leaves
+   * it out of the query entirely so the server never has to decide what an empty
+   * set means.
+   *
+   * 🔴 `scopeKinds` / `scopeKeys` ALSO DECIDE WHETHER THERE IS A 上限線 AT ALL.
+   * `capChars`/`firstDroppedId` come back non-empty only when the effective
+   * scope_kind set holds EXACTLY ONE value and the effective scope_key set holds
+   * exactly one — a budget belongs to a scope, and two scopes have two different
+   * budgets with no single line between them. Tick two 範圍 and the page gets
+   * 0 / "", which is the same honest answer an unfiltered page gets. */
+  scopeKinds?: ("role" | "agent" | "manual")[];
+  scopeKeys?: string[];
+  states?: LoreEntryState[];
+  authorIds?: string[];
   limit?: number;
   offset?: number;
 }

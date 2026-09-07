@@ -17,6 +17,7 @@ import (
 	"errors"
 	"fmt"
 	"strconv"
+	"strings"
 )
 
 // LoreEntry mirrors one lore_entry row. Field-for-column; nothing derived.
@@ -177,17 +178,45 @@ func (d *DAL) ListLoreEntriesLive(scopeKind, scopeKey string) ([]LoreEntry, erro
 	return collectLoreEntries(rows)
 }
 
-// loreListFilter is the server-side filter behind the cockpit's list page. Every
-// field is optional; "" means "do not narrow on this".
+// loreListFilter is the server-side filter behind the cockpit's list page.
+//
+// 🔴 EVERY AXIS IS A SET, because the cockpit's three filters are multi-select
+// (owner rc-0376bf875757 [1]). An EMPTY set means 「do not narrow on this axis」
+// — it is NOT 「match nothing」, and it never reaches SQL: an empty set skips its
+// clause entirely rather than emitting `IN ()`, which is a syntax error in
+// SQLite and would be the wrong meaning even if it parsed.
+//
+// The wire still carries a singular spelling of each axis beside the plural one;
+// folding the two into ONE set is the handler's job (loreFilterValues in
+// api_lore.go), so nothing below has to know that two spellings exist.
 //
 // 🔴 The filter travels WITH the paging, never after it. Filtering a page that
 // was already cut client-side makes 「捲到底沒有了」 and 「真的沒有了」 the same
 // picture, and makes any count computed off the visible rows wrong.
 type loreListFilter struct {
-	ScopeKind string
-	ScopeKey  string
-	State     string
-	AuthorID  string
+	ScopeKinds []string
+	ScopeKeys  []string
+	States     []string
+	AuthorIDs  []string
+}
+
+// loreInClause renders one axis as ` AND <column> IN (?,?,…)` plus its args, or
+// ("", nil) for an empty set.
+//
+// 🔴 THE EMPTY CASE IS THE WHOLE REASON THIS IS A FUNCTION. `IN ()` does not
+// parse, so an empty set cannot be expressed as a clause at all — it has to be
+// the ABSENCE of one. Written inline at four call sites, that is four chances
+// for one of them to build the placeholder list before checking the length.
+func loreInClause(column string, vals []string) (string, []any) {
+	if len(vals) == 0 {
+		return "", nil
+	}
+	args := make([]any, 0, len(vals))
+	for _, v := range vals {
+		args = append(args, v)
+	}
+	return " AND " + column + " IN (" +
+		strings.TrimPrefix(strings.Repeat(",?", len(vals)), ",") + ")", args
 }
 
 // ListLoreEntriesPage serves the cockpit list: the filter applied in SQL, the
@@ -201,21 +230,18 @@ type loreListFilter struct {
 func (d *DAL) ListLoreEntriesPage(f loreListFilter, limit, offset int) ([]LoreEntry, error) {
 	query := `SELECT ` + loreEntryColumns + ` FROM lore_entry WHERE 1=1`
 	var args []any
-	if f.ScopeKind != "" {
-		query += ` AND scope_kind = ?`
-		args = append(args, f.ScopeKind)
-	}
-	if f.ScopeKey != "" {
-		query += ` AND scope_key = ?`
-		args = append(args, f.ScopeKey)
-	}
-	if f.State != "" {
-		query += ` AND state = ?`
-		args = append(args, f.State)
-	}
-	if f.AuthorID != "" {
-		query += ` AND author_id = ?`
-		args = append(args, f.AuthorID)
+	for _, axis := range []struct {
+		column string
+		vals   []string
+	}{
+		{"scope_kind", f.ScopeKinds},
+		{"scope_key", f.ScopeKeys},
+		{"state", f.States},
+		{"author_id", f.AuthorIDs},
+	} {
+		clause, clauseArgs := loreInClause(axis.column, axis.vals)
+		query += clause
+		args = append(args, clauseArgs...)
 	}
 	query += ` ORDER BY CASE state WHEN ? THEN 0 WHEN ? THEN 1 ELSE 2 END,
 		effective_ts DESC, seq DESC LIMIT ? OFFSET ?`

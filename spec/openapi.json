@@ -9645,6 +9645,19 @@
         "operationId": "handle_list_lore_entries_api_lore_get",
         "parameters": [
           {
+            "description": "REPEATABLE scope-kind set (``?scope_kinds=role&scope_kinds=manual``) — the cockpit's 範圍 filter is multi-select (owner rc-0376bf875757 [1]), so the page asks for exactly the kinds that are ticked instead of downloading every scope and filtering in the browser. Accepted values: ``role``, ``agent``, ``manual``; ANY other element is a 400 that NAMES the offending value — never a silently dropped one, because 「查無資料」 and 「你打錯字」 look identical on the wire. 🔴 PLURAL WINS. When this and its singular twin are BOTH sent, this one is the filter and the singular is ignored — they are neither ANDed nor unioned. Absent, or present but all-blank, falls back to the singular; both empty means no constraint on this axis. NOTE the 上限線: ``cap_chars`` / ``first_dropped_id`` are answered only when the EFFECTIVE scope_kind set holds exactly ONE value AND the effective scope_key set holds exactly ONE — a budget belongs to a scope, so a page spanning two or more has no single one to report and answers 0 / \"\". additive-optional.",
+            "in": "query",
+            "name": "scope_kinds",
+            "required": false,
+            "schema": {
+              "items": {
+                "type": "string"
+              },
+              "title": "Scope Kinds",
+              "type": "array"
+            }
+          },
+          {
             "in": "query",
             "name": "scope_kind",
             "required": false,
@@ -9658,6 +9671,19 @@
                 }
               ],
               "title": "Scope Kind"
+            }
+          },
+          {
+            "description": "REPEATABLE scope-key set (``?scope_keys=assistant&scope_keys=researcher``) — the multi-select twin of ``scope_key``. The keys are free-form (a role_key, a member id or a manual's type_key, depending on the kind beside them), so there is no closed set to check against and no 400: a key nobody carries answers 200 with no rows for that key. 🔴 PLURAL WINS. When this and its singular twin are BOTH sent, this one is the filter and the singular is ignored — they are neither ANDed nor unioned. Absent, or present but all-blank, falls back to the singular; both empty means no constraint on this axis. NOTE the 上限線: ``cap_chars`` / ``first_dropped_id`` are answered only when the EFFECTIVE scope_kind set holds exactly ONE value AND the effective scope_key set holds exactly ONE — a budget belongs to a scope, so a page spanning two or more has no single one to report and answers 0 / \"\". additive-optional.",
+            "in": "query",
+            "name": "scope_keys",
+            "required": false,
+            "schema": {
+              "items": {
+                "type": "string"
+              },
+              "title": "Scope Keys",
+              "type": "array"
             }
           },
           {
@@ -9677,6 +9703,19 @@
             }
           },
           {
+            "description": "REPEATABLE state set (``?states=active&states=pinned``) — the multi-select twin of ``state``, so the 狀態 filter can tick more than one row. Accepted values: ``active``, ``pinned``, ``retired``; ANY other element is a 400 that NAMES the offending value rather than being dropped, for the same reason the singular does it — an ignored typo returns an empty page that reads exactly like a real \"there are none\". 🔴 PLURAL WINS. When this and its singular twin are BOTH sent, this one is the filter and the singular is ignored — they are neither ANDed nor unioned. Absent, or present but all-blank, falls back to the singular; both empty means no constraint on this axis. additive-optional.",
+            "in": "query",
+            "name": "states",
+            "required": false,
+            "schema": {
+              "items": {
+                "type": "string"
+              },
+              "title": "States",
+              "type": "array"
+            }
+          },
+          {
             "in": "query",
             "name": "state",
             "required": false,
@@ -9690,6 +9729,19 @@
                 }
               ],
               "title": "State"
+            }
+          },
+          {
+            "description": "REPEATABLE author set (``?author_ids=mira&author_ids=nova``) — the multi-select twin of ``author_id``. Member ids are free-form and are matched literally against the author PINNED at write time, so there is no closed set and no 400; an id nobody carries simply contributes no rows. 🔴 PLURAL WINS. When this and its singular twin are BOTH sent, this one is the filter and the singular is ignored — they are neither ANDed nor unioned. Absent, or present but all-blank, falls back to the singular; both empty means no constraint on this axis. additive-optional.",
+            "in": "query",
+            "name": "author_ids",
+            "required": false,
+            "schema": {
+              "items": {
+                "type": "string"
+              },
+              "title": "Author Ids",
+              "type": "array"
             }
           },
           {
@@ -9790,7 +9842,7 @@
           "name": "list_lore_entries",
           "description": "List 傳承 entries, filtered SERVER-SIDE and paged in the fixed order pinned -> active -> retired, newest first inside each group. The order is not configurable; the filter is.",
           "legacy": {
-            "descriptor": "{\n        \"description\": \"List 傳承 entries, filtered SERVER-SIDE and paged in the fixed order pinned -> active -> retired, newest first inside each group. The order is not configurable; the filter is.\",\n        \"inputSchema\": {\n          \"properties\": {\n            \"scope_kind\": {\n              \"type\": \"string\"\n            },\n            \"scope_key\": {\n              \"type\": \"string\"\n            },\n            \"state\": {\n              \"type\": \"string\"\n            },\n            \"author_id\": {\n              \"type\": \"string\"\n            },\n            \"limit\": {\n              \"type\": \"integer\"\n            },\n            \"offset\": {\n              \"type\": \"integer\"\n            }\n          },\n          \"type\": \"object\"\n        },\n        \"name\": \"list_lore_entries\"\n      }"
+            "descriptor": "{\n        \"description\": \"List 傳承 entries, filtered SERVER-SIDE and paged in the fixed order pinned -> active -> retired, newest first inside each group. The order is not configurable; the filter is.\",\n        \"inputSchema\": {\n          \"properties\": {\n            \"scope_kinds\": {\n              \"description\": \"REPEATABLE scope-kind set (``?scope_kinds=role&scope_kinds=manual``) — the cockpit's 範圍 filter is multi-select (owner rc-0376bf875757 [1]), so the page asks for exactly the kinds that are ticked instead of downloading every scope and filtering in the browser. Accepted values: ``role``, ``agent``, ``manual``; ANY other element is a 400 that NAMES the offending value — never a silently dropped one, because 「查無資料」 and 「你打錯字」 look identical on the wire. 🔴 PLURAL WINS. When this and its singular twin are BOTH sent, this one is the filter and the singular is ignored — they are neither ANDed nor unioned. Absent, or present but all-blank, falls back to the singular; both empty means no constraint on this axis. NOTE the 上限線: ``cap_chars`` / ``first_dropped_id`` are answered only when the EFFECTIVE scope_kind set holds exactly ONE value AND the effective scope_key set holds exactly ONE — a budget belongs to a scope, so a page spanning two or more has no single one to report and answers 0 / \\\"\\\". additive-optional.\",\n              \"items\": {\n                \"type\": \"string\"\n              },\n              \"type\": \"array\"\n            },\n            \"scope_kind\": {\n              \"type\": \"string\"\n            },\n            \"scope_keys\": {\n              \"description\": \"REPEATABLE scope-key set (``?scope_keys=assistant&scope_keys=researcher``) — the multi-select twin of ``scope_key``. The keys are free-form (a role_key, a member id or a manual's type_key, depending on the kind beside them), so there is no closed set to check against and no 400: a key nobody carries answers 200 with no rows for that key. 🔴 PLURAL WINS. When this and its singular twin are BOTH sent, this one is the filter and the singular is ignored — they are neither ANDed nor unioned. Absent, or present but all-blank, falls back to the singular; both empty means no constraint on this axis. NOTE the 上限線: ``cap_chars`` / ``first_dropped_id`` are answered only when the EFFECTIVE scope_kind set holds exactly ONE value AND the effective scope_key set holds exactly ONE — a budget belongs to a scope, so a page spanning two or more has no single one to report and answers 0 / \\\"\\\". additive-optional.\",\n              \"items\": {\n                \"type\": \"string\"\n              },\n              \"type\": \"array\"\n            },\n            \"scope_key\": {\n              \"type\": \"string\"\n            },\n            \"states\": {\n              \"description\": \"REPEATABLE state set (``?states=active&states=pinned``) — the multi-select twin of ``state``, so the 狀態 filter can tick more than one row. Accepted values: ``active``, ``pinned``, ``retired``; ANY other element is a 400 that NAMES the offending value rather than being dropped, for the same reason the singular does it — an ignored typo returns an empty page that reads exactly like a real \\\"there are none\\\". 🔴 PLURAL WINS. When this and its singular twin are BOTH sent, this one is the filter and the singular is ignored — they are neither ANDed nor unioned. Absent, or present but all-blank, falls back to the singular; both empty means no constraint on this axis. additive-optional.\",\n              \"items\": {\n                \"type\": \"string\"\n              },\n              \"type\": \"array\"\n            },\n            \"state\": {\n              \"type\": \"string\"\n            },\n            \"author_ids\": {\n              \"description\": \"REPEATABLE author set (``?author_ids=mira&author_ids=nova``) — the multi-select twin of ``author_id``. Member ids are free-form and are matched literally against the author PINNED at write time, so there is no closed set and no 400; an id nobody carries simply contributes no rows. 🔴 PLURAL WINS. When this and its singular twin are BOTH sent, this one is the filter and the singular is ignored — they are neither ANDed nor unioned. Absent, or present but all-blank, falls back to the singular; both empty means no constraint on this axis. additive-optional.\",\n              \"items\": {\n                \"type\": \"string\"\n              },\n              \"type\": \"array\"\n            },\n            \"author_id\": {\n              \"type\": \"string\"\n            },\n            \"limit\": {\n              \"type\": \"integer\"\n            },\n            \"offset\": {\n              \"type\": \"integer\"\n            }\n          },\n          \"type\": \"object\"\n        },\n        \"name\": \"list_lore_entries\"\n      }"
           }
         }
       },

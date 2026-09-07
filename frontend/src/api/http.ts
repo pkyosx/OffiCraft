@@ -2175,11 +2175,25 @@ export const httpApi: Api = {
     // An OMITTED field is left out of the query entirely rather than sent
     // empty: "" is a value the server would have to decide the meaning of, and
     // "no filter on this axis" is not something a value can say.
+    // Each axis has TWO wire spellings: the repeatable plural the multi-select
+    // filters send (openapi-fetch's default form/explode serialisation — one
+    // `?states=` per ticked value, the shape the spec declares) and the frozen
+    // singular. Both are forwarded verbatim when given; the SERVER, not this
+    // seam, applies the precedence — plural wins, singular ignored. Deciding it
+    // here as well would be a second copy of the rule that could drift, and the
+    // wire would then disagree with the only place the rule is enforced.
+    //
+    // An EMPTY set is omitted entirely rather than sent as an empty parameter:
+    // it means 「所有」, and sending nothing is exactly that.
     const query: {
       scope_kind?: string;
       scope_key?: string;
       state?: string;
       author_id?: string;
+      scope_kinds?: string[];
+      scope_keys?: string[];
+      states?: string[];
+      author_ids?: string[];
       limit?: number;
       offset?: number;
     } = {};
@@ -2187,6 +2201,16 @@ export const httpApi: Api = {
     if (opts?.scopeKey) query.scope_key = opts.scopeKey;
     if (opts?.state) query.state = opts.state;
     if (opts?.authorId) query.author_id = opts.authorId;
+    if (opts?.scopeKinds && opts.scopeKinds.length > 0) {
+      query.scope_kinds = opts.scopeKinds;
+    }
+    if (opts?.scopeKeys && opts.scopeKeys.length > 0) {
+      query.scope_keys = opts.scopeKeys;
+    }
+    if (opts?.states && opts.states.length > 0) query.states = opts.states;
+    if (opts?.authorIds && opts.authorIds.length > 0) {
+      query.author_ids = opts.authorIds;
+    }
     if (opts?.limit !== undefined) query.limit = opts.limit;
     if (opts?.offset !== undefined) query.offset = opts.offset;
     const wire = unwrap(await client.GET("/api/lore", { params: { query } }));

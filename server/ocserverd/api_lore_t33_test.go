@@ -214,7 +214,7 @@ func TestWriteLoreAgainstAnUntypedTaskFilesUnderTheWritersOwnBootDocument(t *tes
 		t.Fatalf("scope = %s/%s, want role/researcher", dto.ScopeKind, dto.ScopeKey)
 	}
 	// 🔴 The half that outlived the ruling: no manual was charged for this.
-	page, err := s.dal.ListLoreEntriesPage(loreListFilter{ScopeKind: LoreScopeManual}, 30, 0)
+	page, err := s.dal.ListLoreEntriesPage(loreListFilter{ScopeKinds: []string{LoreScopeManual}}, 30, 0)
 	if err != nil {
 		t.Fatalf("ListLoreEntriesPage: %v", err)
 	}

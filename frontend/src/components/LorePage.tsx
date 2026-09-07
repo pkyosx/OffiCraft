@@ -720,11 +720,18 @@ export function LorePage() {
 
 /** One filter field: a label + a native single-select pill.
  *
- * A NATIVE `<select>`, not the 任務頁's MultiSelectFilter, and the reason is
- * arity: `LoreListOptions` takes ONE `state` / ONE `authorId` / ONE scope pair,
- * so a multi-select control would be an interface that can express a request
- * this API cannot carry — and the page would have to silently drop the extra
- * ticks or fall back to filtering downloaded rows, which §6 forbids. */
+ * ⚠️ THE REASON WRITTEN HERE HAS EXPIRED, AND THE CONTROL HAS NOT CAUGHT UP YET.
+ * It used to say the API could only carry ONE `state` / ONE `authorId` / ONE
+ * scope pair, so a multi-select control would express a request the wire could
+ * not carry. That stopped being true when the plural filters landed
+ * (`states` / `authorIds` / `scopeKinds` / `scopeKeys` on `LoreListOptions`) —
+ * the wire carries a SET on every axis now, and the owner asked for the
+ * multi-select control to match (rc-0376bf875757, option [1]).
+ *
+ * So this stays a native `<select>` for one reason only: the control has not
+ * been replaced yet. It is a TODO, not a design decision, and it is written
+ * that way on purpose — a stale rationale left standing reads as a rule and
+ * stops the next person from doing the work. */
 function LoreSelect({
   testId,
   label,

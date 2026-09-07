@@ -375,34 +375,47 @@ func (s *apiServer) writeLoreEntryByID(w http.ResponseWriter, entryID string) {
 
 // GET /api/lore — list_lore_entries.
 func (s *apiServer) HandleListLoreEntriesApiLoreGet(w http.ResponseWriter, r *http.Request, params HandleListLoreEntriesApiLoreGetParams) {
-	f := loreListFilter{}
-	if params.ScopeKind != nil {
-		f.ScopeKind = strings.TrimSpace(*params.ScopeKind)
-	}
-	if params.ScopeKey != nil {
-		f.ScopeKey = strings.TrimSpace(*params.ScopeKey)
-	}
-	if params.State != nil {
-		f.State = strings.TrimSpace(*params.State)
-	}
-	if params.AuthorId != nil {
-		f.AuthorID = strings.TrimSpace(*params.AuthorId)
+	// 🔴 EACH AXIS HAS TWO WIRE SPELLINGS AND THE PLURAL WINS. The singular
+	// params are frozen wire and stay; the plural ones are what the cockpit's
+	// multi-select filters send (owner rc-0376bf875757 [1]). When BOTH arrive for
+	// one axis the plural set is the filter and the singular value is IGNORED —
+	// not intersected with it, not added to it. A client sending both is one
+	// mid-migration saying the same thing twice, and only the plural can carry
+	// what it means; ANDing them instead would silently narrow a two-value
+	// request down to whichever single value the old field still held.
+	kinds, kindsPlural := loreFilterValues(params.ScopeKinds, params.ScopeKind)
+	keys, _ := loreFilterValues(params.ScopeKeys, params.ScopeKey)
+	states, statesPlural := loreFilterValues(params.States, params.State)
+	authors, _ := loreFilterValues(params.AuthorIds, params.AuthorId)
+	f := loreListFilter{
+		ScopeKinds: kinds, ScopeKeys: keys, States: states, AuthorIDs: authors,
 	}
 	// A filter value outside its closed set is a 400 rather than a silently
 	// empty page: "no entries match role_kind=roles" and "there are none" look
 	// identical on the wire, and the caller would read the typo as an answer.
-	if f.ScopeKind != "" && f.ScopeKind != LoreScopeRole &&
-		f.ScopeKind != LoreScopeAgent && f.ScopeKind != LoreScopeManual {
-		writeError(w, http.StatusBadRequest,
-			"scope_kind must be "+LoreScopeRole+", "+LoreScopeAgent+" or "+LoreScopeManual+
-				" — got "+strconv.Quote(f.ScopeKind))
-		return
+	//
+	// 🔴 THAT HOLDS PER ELEMENT OF THE SET, not just for the first one. Dropping
+	// one bad element out of three and answering 200 would narrow the page by an
+	// axis the caller never asked to narrow by, and nothing on the wire would
+	// say so — which is the same failure as the singular case, only harder to
+	// notice because some rows still come back. The message names the offending
+	// VALUE and the parameter that actually carried it.
+	for _, k := range kinds {
+		if k != LoreScopeRole && k != LoreScopeAgent && k != LoreScopeManual {
+			writeError(w, http.StatusBadRequest,
+				loreFilterParamName("scope_kind", kindsPlural)+" must be "+LoreScopeRole+
+					", "+LoreScopeAgent+" or "+LoreScopeManual+" — got "+strconv.Quote(k))
+			return
+		}
 	}
-	if f.State != "" && !ValidLoreState(f.State) {
-		writeError(w, http.StatusBadRequest,
-			"state must be one of "+LoreStateActive+", "+LoreStatePinned+", "+
-				LoreStateRetired+" — got "+strconv.Quote(f.State))
-		return
+	for _, st := range states {
+		if !ValidLoreState(st) {
+			writeError(w, http.StatusBadRequest,
+				loreFilterParamName("state", statesPlural)+" must be one of "+
+					LoreStateActive+", "+LoreStatePinned+", "+LoreStateRetired+
+					" — got "+strconv.Quote(st))
+			return
+		}
 	}
 
 	limit := loreListDefaultLimit
@@ -453,12 +466,21 @@ func (s *apiServer) HandleListLoreEntriesApiLoreGet(w http.ResponseWriter, r *ht
 	// It is answered only when the filter converged on ONE scope: a budget belongs
 	// to a scope, so a page spanning several has no single one to report, and 0/""
 	// says that honestly instead of naming an arbitrary one.
-	if f.ScopeKind != "" && f.ScopeKey != "" {
+	//
+	// 🔴 「ONE SCOPE」 IS EXACTLY-ONE-OF-EACH, and the multi-select filters are why
+	// that has to be said with a length and not with a non-empty test. A page
+	// asked for `scope_kinds=role&scope_kinds=manual` spans two scopes and has
+	// two different budgets behind it (role and manual are separate settings),
+	// so there is no single cap_chars it could report and no single entry that
+	// is 「the first one dropped」. Two or more on EITHER axis ⇒ 0 / "", the same
+	// answer an unfiltered page gets, for the same reason.
+	if len(f.ScopeKinds) == 1 && len(f.ScopeKeys) == 1 {
+		scopeKind, scopeKey := f.ScopeKinds[0], f.ScopeKeys[0]
 		capChars := s.loreRoleCap()
-		if f.ScopeKind == LoreScopeManual {
+		if scopeKind == LoreScopeManual {
 			capChars = s.loreManualCap()
 		}
-		sel, err := selectLoreForScope(s.dal, f.ScopeKind, f.ScopeKey, capChars)
+		sel, err := selectLoreForScope(s.dal, scopeKind, scopeKey, capChars)
 		if err != nil {
 			internalError(w, err)
 			return
@@ -467,6 +489,47 @@ func (s *apiServer) HandleListLoreEntriesApiLoreGet(w http.ResponseWriter, r *ht
 		out.FirstDroppedId = sel.FirstDroppedID
 	}
 	writeJSON(w, http.StatusOK, out)
+}
+
+// loreFilterValues folds ONE axis's two wire spellings — the repeatable plural
+// and the frozen singular — into the single set the query is built from, and
+// reports which spelling the answer came from so a refusal can name the
+// parameter the caller actually sent.
+//
+// 🔴 THE PLURAL WINS WHEN BOTH ARE PRESENT. See the call site for why they are
+// not ANDed. A plural that is absent — or present but every element blank —
+// counts as NOT GIVEN and falls through to the singular, so `?states=` alone
+// reads as 「no constraint」 exactly like an omitted `?state=`; the singular is
+// trimmed and an empty one is likewise no constraint. Both empty ⇒ nil, which
+// loreInClause turns into no clause at all rather than `IN ()`.
+func loreFilterValues(plural *[]string, single *string) (vals []string, fromPlural bool) {
+	if plural != nil {
+		for _, v := range *plural {
+			if v = strings.TrimSpace(v); v != "" {
+				vals = append(vals, v)
+			}
+		}
+	}
+	if len(vals) > 0 {
+		return vals, true
+	}
+	if single != nil {
+		if v := strings.TrimSpace(*single); v != "" {
+			return []string{v}, false
+		}
+	}
+	return nil, false
+}
+
+// loreFilterParamName names the parameter a rejected value arrived on. Saying
+// "scope_kind" when the caller sent `?scope_kinds=` would point them at a field
+// they never filled in, which is a worse answer than "too long" — it is a
+// confident wrong one.
+func loreFilterParamName(singular string, fromPlural bool) string {
+	if fromPlural {
+		return singular + "s"
+	}
+	return singular
 }
 
 // newLoreEntryDTO is the ONE row→wire projection for the READ face, so every

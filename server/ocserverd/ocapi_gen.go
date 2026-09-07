@@ -4364,12 +4364,23 @@ type HandleGetDiffShareLinkApiDiffShareLinkGetParams struct {
 
 // HandleListLoreEntriesApiLoreGetParams defines parameters for HandleListLoreEntriesApiLoreGet.
 type HandleListLoreEntriesApiLoreGetParams struct {
-	ScopeKind *string `form:"scope_kind,omitempty" json:"scope_kind,omitempty"`
-	ScopeKey  *string `form:"scope_key,omitempty" json:"scope_key,omitempty"`
-	State     *string `form:"state,omitempty" json:"state,omitempty"`
-	AuthorId  *string `form:"author_id,omitempty" json:"author_id,omitempty"`
-	Limit     *int    `form:"limit,omitempty" json:"limit,omitempty"`
-	Offset    *int    `form:"offset,omitempty" json:"offset,omitempty"`
+	// ScopeKinds REPEATABLE scope-kind set (``?scope_kinds=role&scope_kinds=manual``) — the cockpit's 範圍 filter is multi-select (owner rc-0376bf875757 [1]), so the page asks for exactly the kinds that are ticked instead of downloading every scope and filtering in the browser. Accepted values: ``role``, ``agent``, ``manual``; ANY other element is a 400 that NAMES the offending value — never a silently dropped one, because 「查無資料」 and 「你打錯字」 look identical on the wire. 🔴 PLURAL WINS. When this and its singular twin are BOTH sent, this one is the filter and the singular is ignored — they are neither ANDed nor unioned. Absent, or present but all-blank, falls back to the singular; both empty means no constraint on this axis. NOTE the 上限線: ``cap_chars`` / ``first_dropped_id`` are answered only when the EFFECTIVE scope_kind set holds exactly ONE value AND the effective scope_key set holds exactly ONE — a budget belongs to a scope, so a page spanning two or more has no single one to report and answers 0 / "". additive-optional.
+	ScopeKinds *[]string `form:"scope_kinds,omitempty" json:"scope_kinds,omitempty"`
+	ScopeKind  *string   `form:"scope_kind,omitempty" json:"scope_kind,omitempty"`
+
+	// ScopeKeys REPEATABLE scope-key set (``?scope_keys=assistant&scope_keys=researcher``) — the multi-select twin of ``scope_key``. The keys are free-form (a role_key, a member id or a manual's type_key, depending on the kind beside them), so there is no closed set to check against and no 400: a key nobody carries answers 200 with no rows for that key. 🔴 PLURAL WINS. When this and its singular twin are BOTH sent, this one is the filter and the singular is ignored — they are neither ANDed nor unioned. Absent, or present but all-blank, falls back to the singular; both empty means no constraint on this axis. NOTE the 上限線: ``cap_chars`` / ``first_dropped_id`` are answered only when the EFFECTIVE scope_kind set holds exactly ONE value AND the effective scope_key set holds exactly ONE — a budget belongs to a scope, so a page spanning two or more has no single one to report and answers 0 / "". additive-optional.
+	ScopeKeys *[]string `form:"scope_keys,omitempty" json:"scope_keys,omitempty"`
+	ScopeKey  *string   `form:"scope_key,omitempty" json:"scope_key,omitempty"`
+
+	// States REPEATABLE state set (``?states=active&states=pinned``) — the multi-select twin of ``state``, so the 狀態 filter can tick more than one row. Accepted values: ``active``, ``pinned``, ``retired``; ANY other element is a 400 that NAMES the offending value rather than being dropped, for the same reason the singular does it — an ignored typo returns an empty page that reads exactly like a real "there are none". 🔴 PLURAL WINS. When this and its singular twin are BOTH sent, this one is the filter and the singular is ignored — they are neither ANDed nor unioned. Absent, or present but all-blank, falls back to the singular; both empty means no constraint on this axis. additive-optional.
+	States *[]string `form:"states,omitempty" json:"states,omitempty"`
+	State  *string   `form:"state,omitempty" json:"state,omitempty"`
+
+	// AuthorIds REPEATABLE author set (``?author_ids=mira&author_ids=nova``) — the multi-select twin of ``author_id``. Member ids are free-form and are matched literally against the author PINNED at write time, so there is no closed set and no 400; an id nobody carries simply contributes no rows. 🔴 PLURAL WINS. When this and its singular twin are BOTH sent, this one is the filter and the singular is ignored — they are neither ANDed nor unioned. Absent, or present but all-blank, falls back to the singular; both empty means no constraint on this axis. additive-optional.
+	AuthorIds *[]string `form:"author_ids,omitempty" json:"author_ids,omitempty"`
+	AuthorId  *string   `form:"author_id,omitempty" json:"author_id,omitempty"`
+	Limit     *int      `form:"limit,omitempty" json:"limit,omitempty"`
+	Offset    *int      `form:"offset,omitempty" json:"offset,omitempty"`
 }
 
 // HandleListMembersApiMembersGetParams defines parameters for HandleListMembersApiMembersGet.
@@ -6792,6 +6803,19 @@ func (siw *ServerInterfaceWrapper) HandleListLoreEntriesApiLoreGet(w http.Respon
 	// Parameter object where we will unmarshal all parameters from the context
 	var params HandleListLoreEntriesApiLoreGetParams
 
+	// ------------- Optional query parameter "scope_kinds" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "scope_kinds", r.URL.Query(), &params.ScopeKinds, runtime.BindQueryParameterOptions{Type: "array", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "scope_kinds"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "scope_kinds", Err: err})
+		}
+		return
+	}
+
 	// ------------- Optional query parameter "scope_kind" -------------
 
 	err = runtime.BindQueryParameterWithOptions("form", true, false, "scope_kind", r.URL.Query(), &params.ScopeKind, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
@@ -6801,6 +6825,19 @@ func (siw *ServerInterfaceWrapper) HandleListLoreEntriesApiLoreGet(w http.Respon
 			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "scope_kind"})
 		} else {
 			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "scope_kind", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "scope_keys" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "scope_keys", r.URL.Query(), &params.ScopeKeys, runtime.BindQueryParameterOptions{Type: "array", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "scope_keys"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "scope_keys", Err: err})
 		}
 		return
 	}
@@ -6818,6 +6855,19 @@ func (siw *ServerInterfaceWrapper) HandleListLoreEntriesApiLoreGet(w http.Respon
 		return
 	}
 
+	// ------------- Optional query parameter "states" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "states", r.URL.Query(), &params.States, runtime.BindQueryParameterOptions{Type: "array", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "states"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "states", Err: err})
+		}
+		return
+	}
+
 	// ------------- Optional query parameter "state" -------------
 
 	err = runtime.BindQueryParameterWithOptions("form", true, false, "state", r.URL.Query(), &params.State, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
@@ -6827,6 +6877,19 @@ func (siw *ServerInterfaceWrapper) HandleListLoreEntriesApiLoreGet(w http.Respon
 			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "state"})
 		} else {
 			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "state", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "author_ids" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "author_ids", r.URL.Query(), &params.AuthorIds, runtime.BindQueryParameterOptions{Type: "array", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "author_ids"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "author_ids", Err: err})
 		}
 		return
 	}

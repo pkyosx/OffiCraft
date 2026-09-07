@@ -4851,20 +4851,40 @@ export const mockApi: Api = {
   // place nobody is looking when the cockpit is being built.
 
   async listLoreEntries(opts?: LoreListOptions): Promise<LoreEntryPageView> {
+    // 🔴 THE PRECEDENCE IS MIRRORED, NOT REINVENTED. Each axis has a plural set
+    // and a singular scalar; when both are given the SET wins and the scalar is
+    // ignored — never ANDed, never unioned. A mock that ANDed them would let a
+    // cockpit bug (sending both, meaning the set) pass every mock-mode test and
+    // appear only against the real server, which is the one place nobody is
+    // looking while the page is being built. An empty/absent set falls back to
+    // the scalar; both empty means this axis does not narrow at all.
+    const axis = <T extends string>(plural: T[] | undefined, single: T | undefined): T[] =>
+      plural && plural.length > 0 ? plural : single ? [single] : [];
+    const kinds = axis(opts?.scopeKinds, opts?.scopeKind);
+    const keys = axis(opts?.scopeKeys, opts?.scopeKey);
+    const states = axis(opts?.states, opts?.state);
+    const authors = axis(opts?.authorIds, opts?.authorId);
     const matches = mockLoreEntries.filter(
       (e) =>
-        (!opts?.scopeKind || e.scopeKind === opts.scopeKind) &&
-        (!opts?.scopeKey || e.scopeKey === opts.scopeKey) &&
-        (!opts?.state || e.state === opts.state) &&
-        (!opts?.authorId || e.authorId === opts.authorId)
+        (kinds.length === 0 || kinds.includes(e.scopeKind as (typeof kinds)[number])) &&
+        (keys.length === 0 || keys.includes(e.scopeKey)) &&
+        (states.length === 0 || states.includes(e.state)) &&
+        (authors.length === 0 || authors.includes(e.authorId))
     );
     const ordered = [...matches].sort(mockLoreOrder);
 
     // The 上限線, over the WHOLE converged scope and before the page is cut —
     // never over the rows this call happens to return.
+    //
+    // 🔴 CONVERGED MEANS EXACTLY ONE OF EACH, which is a LENGTH test and not a
+    // non-empty one. Two ticked 範圍 span two scopes with two different budgets
+    // behind them, so there is no single cap to report and no single entry that
+    // is 「the first one dropped」 — 0 / "" is the honest answer, the same one an
+    // unfiltered page gets.
     let capChars = 0;
     let firstDroppedId = "";
-    if (opts?.scopeKind && opts?.scopeKey) {
+    if (kinds.length === 1 && keys.length === 1) {
+      const scopeKind = kinds[0];
       // 🔴 THREE KINDS, TWO KNOBS — that is the ruling, not an oversight.
       // owner rc-3c24fdc61ed3 [0]: the agent scope SHARES the role knob
       // (`lore.cap_chars.role`) instead of getting a fifth one, which is why
@@ -4873,9 +4893,9 @@ export const mockApi: Api = {
       // arriving later has to be assigned a knob on purpose instead of
       // inheriting this one by falling off the end.
       capChars =
-        opts.scopeKind === "manual"
+        scopeKind === "manual"
           ? mockServerSettings.lore_cap_chars_manual
-          : opts.scopeKind === "agent" || opts.scopeKind === "role"
+          : scopeKind === "agent" || scopeKind === "role"
             ? mockServerSettings.lore_cap_chars_role
             : 0;
       let used = 0;
