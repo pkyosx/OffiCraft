@@ -246,6 +246,125 @@ func TestPostChat(t *testing.T) {
 			t.Fatalf("empty-message message: %q", got)
 		}
 	})
+
+	t.Run("a message carrying meta answers 200 and a receipt naming the recipient", func(t *testing.T) {
+		_, srv, owner := newChatTestServer(t)
+
+		status, data := chatJSON(t, "POST", srv.URL+"/api/chat", owner,
+			`{"to":"mira","body":"hi","meta":{"source":"cli"}}`)
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		if data["to"] != "mira" {
+			t.Fatalf("receipt to: want \"mira\", got %v", data["to"])
+		}
+	})
+
+	t.Run("a reply to a message that exists answers 200", func(t *testing.T) {
+		_, srv, owner := newChatTestServer(t)
+
+		_, first := chatJSON(t, "POST", srv.URL+"/api/chat", owner,
+			`{"to":"mira","body":"the original"}`)
+		quoted, _ := first["id"].(string)
+		if quoted == "" {
+			t.Fatalf("the first post must mint an id: %v", first)
+		}
+
+		status, data := chatJSON(t, "POST", srv.URL+"/api/chat", owner,
+			`{"to":"mira","body":"quoting you","reply_to":"`+quoted+`"}`)
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		if data["to"] != "mira" {
+			t.Fatalf("receipt to: want \"mira\", got %v", data["to"])
+		}
+	})
+
+	t.Run("a reply to a message that does not exist answers 400", func(t *testing.T) {
+		_, srv, owner := newChatTestServer(t)
+
+		status, data := chatJSON(t, "POST", srv.URL+"/api/chat", owner,
+			`{"to":"mira","body":"quoting nothing","reply_to":"c-nosuchmessage"}`)
+		if status != 400 {
+			t.Fatalf("want 400, got %d (%v)", status, data)
+		}
+		if got := chatErrorMessage(t, data); got != "reply_to names no message (c-nosuchmessage) — "+
+			"you can only reply to a message that exists; re-read the conversation and use the id it carries" {
+			t.Fatalf("unknown reply_to message: %q", got)
+		}
+	})
+
+	t.Run("a message addressed to a member that is not on the roster answers 404", func(t *testing.T) {
+		_, srv, owner := newChatTestServer(t)
+
+		status, data := chatJSON(t, "POST", srv.URL+"/api/chat", owner,
+			`{"to":"ghost","body":"hi"}`)
+		if status != 404 {
+			t.Fatalf("want 404, got %d (%v)", status, data)
+		}
+		if got := chatErrorMessage(t, data); got != "chat recipient 'ghost' not found" {
+			t.Fatalf("unknown recipient message: %q", got)
+		}
+	})
+
+	t.Run("a message carrying an inline attachment answers 200 and a receipt listing the attachment that landed", func(t *testing.T) {
+		_, srv, owner := newChatTestServer(t)
+
+		status, data := chatJSON(t, "POST", srv.URL+"/api/chat", owner,
+			`{"to":"mira","body":"see this","attachments":[`+
+				`{"data_b64":"aGVsbG8=","filename":"notes.txt","mime":"text/plain"}]}`)
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		list, _ := data["attachments"].([]any)
+		if len(list) != 1 {
+			t.Fatalf("receipt attachments: want 1 entry, got %v", data["attachments"])
+		}
+		att, _ := list[0].(map[string]any)
+		if att["filename"] != "notes.txt" {
+			t.Fatalf("attachment filename: want \"notes.txt\", got %v", att["filename"])
+		}
+		if att["mime"] != "text/plain" {
+			t.Fatalf("attachment mime: want \"text/plain\", got %v", att["mime"])
+		}
+		if att["is_image"] != false {
+			t.Fatalf("attachment is_image: want false, got %v", att["is_image"])
+		}
+		id, _ := att["id"].(string)
+		if id == "" {
+			t.Fatalf("the receipt must name the minted attachment id, got %v", att["id"])
+		}
+		if url, _ := att["url"].(string); !strings.HasPrefix(url, "/api/chat/attachment/") {
+			t.Fatalf("attachment url: want the \"/api/chat/attachment/\" prefix, got %v", att["url"])
+		}
+	})
+
+	t.Run("an attachment referencing an id that does not exist answers 400", func(t *testing.T) {
+		_, srv, owner := newChatTestServer(t)
+
+		status, data := chatJSON(t, "POST", srv.URL+"/api/chat", owner,
+			`{"to":"mira","body":"hi","attachments":[{"id":"att-nosuchblob"}]}`)
+		if status != 400 {
+			t.Fatalf("want 400, got %d (%v)", status, data)
+		}
+		if got := chatErrorMessage(t, data); got != "attachment 'att-nosuchblob' not found" {
+			t.Fatalf("unknown attachment message: %q", got)
+		}
+	})
+
+	t.Run("a member posting to the owner answers 200 and a receipt naming the owner", func(t *testing.T) {
+		api, srv, _ := newChatTestServer(t)
+		agent := chatAgentToken(t, api)
+
+		status, data := chatJSON(t, "POST", srv.URL+"/api/chat", agent,
+			`{"to":"owner","body":"hi boss"}`)
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		if data["to"] != "owner" {
+			t.Fatalf("receipt to: want \"owner\", got %v", data["to"])
+		}
+	})
 }
 
 func TestChatPostReceiptOf(t *testing.T) {
