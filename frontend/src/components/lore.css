@@ -467,3 +467,80 @@ button.lore-row__chip--link {
   color: var(--color-text);
   min-width: 0;
 }
+
+/* ── 傳訊息給撰寫人, inline under the 撰寫人 row ──
+ * Spans BOTH grid columns: it is not a value belonging to a label, it is its
+ * own surface. */
+.lore-row__composer {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 2px;
+  min-width: 0;
+}
+.lore-row__composer-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 6px;
+  min-width: 0;
+}
+.lore-row__composer-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  /* Auto-grown by autosizeTextarea; this is the ceiling it grows into, after
+   * which the box scrolls rather than pushing the rest of the row off. */
+  max-height: 140px;
+  margin: 0;
+  padding: 6px 10px;
+  border-radius: var(--radius-md, 8px);
+  border: 1px solid color-mix(in srgb, var(--color-overlay) 14%, transparent);
+  background: color-mix(in srgb, var(--color-overlay) 4%, transparent);
+  color: var(--color-text);
+  font: inherit;
+  font-size: 12.5px;
+  line-height: 1.5;
+  resize: none;
+  overflow-y: auto;
+}
+.lore-row__composer-input:focus-visible {
+  outline: none;
+  border-color: color-mix(in srgb, var(--color-accent) 55%, transparent);
+}
+.lore-row__composer-send {
+  flex: none;
+  margin: 0;
+  padding: 6px 14px;
+  border-radius: var(--radius-pill);
+  border: 1px solid color-mix(in srgb, var(--color-accent) 45%, transparent);
+  background: color-mix(in srgb, var(--color-accent) 12%, transparent);
+  color: var(--color-accent);
+  font: inherit;
+  font-size: 12.5px;
+  cursor: pointer;
+  transition: background 0.15s, opacity 0.15s;
+}
+.lore-row__composer-send:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--color-accent) 20%, transparent);
+}
+/* Disabled must READ as disabled — a send button that looks live on an empty
+ * box teaches the reader that clicking it did nothing. */
+.lore-row__composer-send:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+/* 🔴 The line that says the entry id is prepended. Quiet, but never hidden:
+ * it is the only place the reader learns that what goes out is not exactly
+ * what they typed. */
+.lore-row__composer-note {
+  font-size: 11.5px;
+  color: var(--color-text-muted);
+}
+.lore-row__composer-error {
+  font-size: 11.5px;
+  color: var(--color-danger);
+}
+.lore-row__composer-sent {
+  font-size: 11.5px;
+  color: var(--color-text-muted);
+}

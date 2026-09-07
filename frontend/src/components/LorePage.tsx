@@ -66,6 +66,7 @@
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -82,6 +83,7 @@ import { isHttpStatus, serverMessageOf } from "../api/errors";
 import { useMembers } from "../hooks/useMembers";
 import { useOutsourceWorkers } from "../hooks/useOutsourceWorkers";
 import { useRoles } from "../hooks/useRoles";
+import { useIsMobile } from "../hooks/useIsMobile";
 import { useTaskManuals } from "../hooks/useTaskManuals";
 import {
   useWorkerAvatarUrls,
@@ -90,6 +92,8 @@ import {
 import { avatarKindForMember } from "../lib/avatarKind";
 import { copyText } from "../lib/clipboard";
 import { formatAbsolute } from "../lib/dateFormat";
+import { autosizeTextarea } from "../lib/autosize";
+import { enterShouldSend } from "../lib/composerKeys";
 import { navigateHash } from "../lib/hashRoute";
 import { Avatar } from "./Avatar";
 import { FilterPanel } from "./FilterPanel";
@@ -1012,6 +1016,19 @@ function LoreRow({
             onOpenChat={(peerId) => onOpenChat(peerId, entry.id)}
           />
 
+          {/* …and the box to write in, directly under the person it writes to
+              (owner, card rc-abf2c90d887c option ②). The 名牌 jump STAYS — it is
+              how you open the whole conversation; this box is how you say one
+              sentence without leaving the entry you are reading.
+              🔴 Only a reachable author gets one. The departed author's pill is
+              deliberately not a button, and a composer that sends to nobody
+              would be that same dead affordance in a larger shape.
+              It spans BOTH grid columns: it is not a value belonging to a
+              label, it is its own surface. */}
+          {author.peerId !== "" && (
+            <LoreAuthorComposer entryId={entry.id} author={author} />
+          )}
+
           {/* 生效期 left, 提到最新 right, ONE row. */}
           <span className="lore-row__meta-label">{t.lore.effectiveLabel}</span>
           <div className="lore-row__effective">
@@ -1047,6 +1064,140 @@ function LoreRow({
         </div>
       )}
     </article>
+  );
+}
+
+/** The box under 撰寫人 — one sentence to the person who wrote this entry,
+ * sent without leaving the page.
+ *
+ * 🔴 THE ENTRY ID IS PREPENDED BY THIS BOX, NOT TYPED BY THE READER, and the
+ * note under the box is the ONLY place that says so. The whole reason this
+ * affordance exists is that the author may hold dozens of entries and 「這條還
+ * 適用嗎」 without a subject costs them a round trip to ask which one. Leaving
+ * the reader to type the id would put the failure back exactly where it was,
+ * and prepending it silently would send something different from what they see
+ * — so it is prepended, and it is stated.
+ *
+ * 🔴 A FAILED SEND KEEPS THE DRAFT AND SAYS SO. A box that clears itself on a
+ * failure looks identical to one that succeeded, and what is lost is the
+ * reader's own sentence.
+ *
+ * ⚠️ NO ATTACHMENTS HERE, unlike 任務卡's composer. That box carries the whole
+ * conversation with an executor; this one carries one question about one entry.
+ * Anything longer belongs in the chat the 名牌 jumps to, which is still there.
+ */
+function LoreAuthorComposer({
+  entryId,
+  author,
+}: {
+  entryId: string;
+  author: AuthorIdentity;
+}): ReactNode {
+  const { t } = useI18n();
+  const isMobile = useIsMobile();
+  const [draft, setDraft] = useState("");
+  const [sending, setSending] = useState(false);
+  const [failed, setFailed] = useState(false);
+  const [sent, setSent] = useState(false);
+  const boxRef = useRef<HTMLTextAreaElement>(null);
+  const isComposingRef = useRef(false);
+  const canSend = !sending && draft.trim().length > 0;
+
+  // Auto-grow to the draft, same as the chat composer; the CSS max-height caps
+  // it and the box scrolls beyond that.
+  useLayoutEffect(() => {
+    if (boxRef.current) autosizeTextarea(boxRef.current);
+  }, [draft]);
+
+  async function send() {
+    if (!canSend) return;
+    setSending(true);
+    setSent(false);
+    try {
+      // The id LEADS the message, the same shape 任務卡 sends 「[T-1] …」 in.
+      await api.postChat({
+        to: author.peerId,
+        body: `[${entryId}] ${draft.trim()}`,
+      });
+      setDraft("");
+      setFailed(false);
+      setSent(true);
+    } catch (e) {
+      console.warn("LorePage: message to author failed", e);
+      // The typed content stays — retry-friendly, and the notice says so.
+      setFailed(true);
+    } finally {
+      setSending(false);
+    }
+  }
+
+  function onKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
+    // Shared send rule (IME gate + mobile newline) — see lib/composerKeys. On a
+    // phone Enter is left un-prevented so the box inserts a native newline and
+    // the button is the only way to send.
+    if (enterShouldSend(e, { isMobile, composing: isComposingRef.current })) {
+      e.preventDefault();
+      void send();
+    }
+  }
+
+  return (
+    <div className="lore-row__composer" data-testid="lore-author-composer">
+      <div className="lore-row__composer-row">
+        <textarea
+          ref={boxRef}
+          className="lore-row__composer-input"
+          rows={1}
+          value={draft}
+          disabled={sending}
+          placeholder={t.lore.messagePlaceholder(author.text)}
+          data-testid="lore-msg-input"
+          onChange={(e) => {
+            setDraft(e.target.value);
+            setSent(false);
+          }}
+          onCompositionStart={() => {
+            isComposingRef.current = true;
+          }}
+          onCompositionEnd={(e) => {
+            isComposingRef.current = false;
+            setDraft(e.currentTarget.value);
+          }}
+          onKeyDown={onKeyDown}
+        ></textarea>
+        <button
+          type="button"
+          className="lore-row__composer-send"
+          disabled={!canSend}
+          data-testid="lore-msg-send"
+          onClick={() => void send()}
+        >
+          {t.lore.messageSend}
+        </button>
+      </div>
+      {/* 🔴 The one line that says what gets sent is not what was typed. */}
+      <div className="lore-row__composer-note" data-testid="lore-msg-prefix-note">
+        {t.lore.messagePrefixNote(entryId)}
+      </div>
+      {failed && (
+        <div
+          className="lore-row__composer-error"
+          role="status"
+          data-testid="lore-msg-failed"
+        >
+          {t.lore.messageFailed}
+        </div>
+      )}
+      {sent && !failed && (
+        <div
+          className="lore-row__composer-sent"
+          role="status"
+          data-testid="lore-msg-sent"
+        >
+          {t.lore.messageSent}
+        </div>
+      )}
+    </div>
   );
 }
 

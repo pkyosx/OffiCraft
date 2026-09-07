@@ -104,6 +104,18 @@ export const en: Dict = {
     authorLabel: "Author",
     authorUnknown: "—",
     messageAuthor: "Message the author",
+    // The inline composer: write from the author row itself, without first
+    // jumping to the office.
+    messagePlaceholder: (name: string) => `Message ${name}…`,
+    messageSend: "Send",
+    // 🔴 The ONLY place on screen that says the id is prepended for you.
+    // Without it what gets sent differs from what the writer typed and nothing
+    // tells them.
+    messagePrefixNote: (entryId: string) => `Sent starting with ${entryId}`,
+    // A failed send must be visible AND must keep the draft — retyping is the
+    // one punishment this box must never hand out.
+    messageFailed: "That message did not go out. Your text is kept — send again.",
+    messageSent: "Sent",
     // Effective-from and 提到最新 share one row.
     effectiveLabel: "Effective",
     bump: "Bump to latest",

@@ -571,3 +571,131 @@ describe("LorePage — 屬於 在收合的列上就說得出是哪一種", () =>
     expect(chip.textContent).not.toContain("角色傳承");
   });
 });
+
+// ────────────────────────────────────────────────────────────────────────────
+// 內嵌輸入框 (owner, card rc-abf2c90d887c option ②).
+//
+// Three properties here, and all three fail with a screen that looks correct:
+//
+//   ① THE ENTRY ID LEADS THE MESSAGE. Drop the prefix and the box still
+//      accepts text, still clears, still says 已送出 — and the author receives
+//      「這條還適用嗎」 with no subject, holding dozens of entries. The damage
+//      is entirely on the recipient's side and nothing on this screen shows it.
+//      The assertion is therefore on the BODY THAT WAS SENT, not on the box.
+//   ② A FAILED SEND KEEPS THE DRAFT AND SAYS SO. A box that clears itself on a
+//      failure is pixel-identical to one that succeeded; what is lost is the
+//      reader's own sentence, and they have no way to know it never left.
+//   ③ A DEPARTED AUTHOR GETS NO BOX AT ALL. Not a disabled one — the pill for
+//      such an author is deliberately not a button, and a composer that sends
+//      into nothing is that same dead affordance in a larger shape.
+describe("LorePage — 內嵌輸入框", () => {
+  async function openComposer(entryId = "L-7", authorId = "mira") {
+    stubList(page([mkEntry({ id: entryId, state: "active", authorId })]));
+    const { container } = renderPage();
+    await waitFor(() => expect(renderedIds(container)).toHaveLength(1));
+    fireEvent.click(rowById(container, entryId));
+    await waitFor(() =>
+      expect(
+        container.querySelector('[data-testid="lore-msg-input"]'),
+      ).not.toBeNull(),
+    );
+    return container;
+  }
+
+  it("sends the entry id AHEAD of what was typed", async () => {
+    const posted: { to: string; body: string }[] = [];
+    vi.spyOn(api, "postChat").mockImplementation(async (m) => {
+      posted.push({ to: m.to, body: m.body });
+    });
+
+    const container = await openComposer("L-7");
+    const box = container.querySelector<HTMLTextAreaElement>(
+      '[data-testid="lore-msg-input"]',
+    )!;
+    fireEvent.change(box, { target: { value: "這條還適用嗎" } });
+    fireEvent.click(
+      container.querySelector<HTMLElement>('[data-testid="lore-msg-send"]')!,
+    );
+
+    await waitFor(() => expect(posted).toHaveLength(1));
+    // 🔴 The WHOLE body, and the id at the FRONT. `toContain("L-7")` would also
+    // pass for an id appended after the sentence, which does not solve the
+    // problem the prefix exists for — the author reads the first words.
+    expect(posted[0].body).toBe("[L-7] 這條還適用嗎");
+    expect(posted[0].to).toBe("mira");
+
+    // The box empties on success, and the screen says it went.
+    await waitFor(() => expect(box.value).toBe(""));
+    expect(
+      container.querySelector('[data-testid="lore-msg-sent"]'),
+    ).not.toBeNull();
+  });
+
+  it("tells the reader the id will be prepended, before they send anything", async () => {
+    const container = await openComposer("L-31");
+    // 🔴 This note is the ONLY place on screen that says what goes out differs
+    // from what was typed. Without it the prefix is a silent rewrite of the
+    // reader's own words.
+    const note = container.querySelector('[data-testid="lore-msg-prefix-note"]');
+    expect(note).not.toBeNull();
+    expect(note!.textContent).toContain("L-31");
+  });
+
+  it("keeps the draft and says so when the send fails", async () => {
+    vi.spyOn(api, "postChat").mockRejectedValue(new Error("boom"));
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    const container = await openComposer("L-7");
+    const box = container.querySelector<HTMLTextAreaElement>(
+      '[data-testid="lore-msg-input"]',
+    )!;
+    fireEvent.change(box, { target: { value: "這條還適用嗎" } });
+    fireEvent.click(
+      container.querySelector<HTMLElement>('[data-testid="lore-msg-send"]')!,
+    );
+
+    await waitFor(() =>
+      expect(
+        container.querySelector('[data-testid="lore-msg-failed"]'),
+      ).not.toBeNull(),
+    );
+    // 🔴 BOTH halves. A visible notice with an emptied box still costs the
+    // reader their sentence; a kept draft with no notice reads as 「it just did
+    // not send yet」.
+    expect(box.value).toBe("這條還適用嗎");
+    expect(
+      container.querySelector('[data-testid="lore-msg-sent"]'),
+    ).toBeNull();
+  });
+
+  it("gives a departed author no box at all, not a disabled one", async () => {
+    stubList(
+      page([
+        mkEntry({ id: "here", state: "active", authorId: "mira" }),
+        mkEntry({ id: "gone", state: "active", authorId: "m-gone" }),
+      ]),
+    );
+    const { container } = renderPage();
+    await waitFor(() => expect(renderedIds(container)).toHaveLength(2));
+    fireEvent.click(rowById(container, "here"));
+    fireEvent.click(rowById(container, "gone"));
+
+    await waitFor(() =>
+      expect(
+        rowById(container, "here").querySelector(
+          '[data-testid="lore-author-composer"]',
+        ),
+      ).not.toBeNull(),
+    );
+    // 🔴 Absent, not disabled. Asserting only 「the send button is disabled」
+    // would pass for a box that renders, invites typing, and can never deliver.
+    expect(
+      rowById(container, "gone").querySelector(
+        '[data-testid="lore-author-composer"]',
+      ),
+    ).toBeNull();
+    expect(
+      rowById(container, "gone").querySelector('[data-testid="lore-msg-input"]'),
+    ).toBeNull();
+  });
+});

@@ -105,6 +105,15 @@ export const zh = {
     authorLabel: "撰寫人",
     authorUnknown: "—",
     messageAuthor: "傳訊息給撰寫人",
+    // 內嵌輸入框：撰寫人那一列底下直接寫，不必先跳到辦公室。
+    messagePlaceholder: (name: string) => `傳訊息給 ${name}…`,
+    messageSend: "送出",
+    // 🔴 這一句是「編號會被自動加在最前面」在畫面上唯一的說明。沒有它，送出去
+    // 的字跟輸入框裡看到的字不一樣，而寫的人不會知道多了什麼。
+    messagePrefixNote: (entryId: string) => `會以 ${entryId} 開頭送出`,
+    // 送不出去要看得見，而且打的字要留著——重打一次是這裡最不該有的懲罰。
+    messageFailed: "訊息沒有送出去，你打的字還留著，可以再送一次",
+    messageSent: "已送出",
     // 生效期與提到最新同一行
     effectiveLabel: "生效期",
     bump: "提到最新",
