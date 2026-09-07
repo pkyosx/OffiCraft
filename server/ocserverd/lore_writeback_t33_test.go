@@ -298,3 +298,48 @@ func TestStripTrailingLoreBlockIsIdempotentAndHealsAccumulatedCopies(t *testing.
 		}
 	}
 }
+
+// TestWipeGuardJudgesTheStrippedTextNotWhatWasSent pins the ORDER of the two
+// guards on write_task_learnings, which is the only thing standing between an
+// agent's honest mistake and a real document being erased.
+//
+// 🔴 THE FAILURE THIS CATCHES IS SILENT AND IT ANSWERS 200. An agent reads
+// get_task_manual, sees the new `lore` field, and writes that block back as
+// `learnings` — the exact loop stripTrailingLoreBlock exists to close. If the
+// wipe guard is measured on the UNSTRIPPED body it sees a non-empty string and
+// lets it through; the strip then reduces it to "" and the manual's accumulated
+// learnings are gone. Nothing is refused, nothing is logged, and the only trace
+// is `size_chars: 0` in a receipt nobody reads.
+//
+// The sibling face gets this right (api_roles.go strips BEFORE the wipe guard
+// and says so in a comment). This test is here because the two faces disagreed
+// and only one of them was guarded.
+//
+// ⚠️ The fixture MUST start with a NON-EMPTY learnings document. An empty one
+// never trips the wipe guard at all, so the same test over an empty manual
+// passes whichever order the code uses — that is why the existing writeback
+// tests did not catch this.
+func TestWipeGuardJudgesTheStrippedTextNotWhatWasSent(t *testing.T) {
+	s := loreTestServer(t)
+	const original = "既有的重要 learnings，不該被一次寫入抹掉。"
+	if err := s.dal.PutTaskManual(TaskManual{
+		TypeKey: "tm-wipe", DisplayName: "W", Learnings: original, UpdatedTS: 1}); err != nil {
+		t.Fatalf("PutTaskManual: %v", err)
+	}
+	// Nothing but a 傳承 block: strips down to the empty string.
+	onlyLore := loreBlockHeading + "\n\n## L-1 標題\n\n內容"
+
+	rec := httptest.NewRecorder()
+	s.HandleWriteTaskLearningsApiTaskManualsTypeKeyLearningsPost(rec,
+		taskReq(t, "POST", "/api/task-manuals/tm-wipe/learnings",
+			map[string]any{"text": onlyLore}, "m-x", "agent"), "tm-wipe")
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("write that strips to empty answered %d %s — want 400: the wipe guard must "+
+			"judge the text that will be STORED, not the text that was sent",
+			rec.Code, rec.Body.String())
+	}
+	if got := storedManualLearnings(t, s, "tm-wipe"); got != original {
+		t.Fatalf("stored = %q, want the original document untouched (%q)", got, original)
+	}
+}

@@ -406,3 +406,66 @@ func TestEachAxisFiltersOnItsOwnColumn(t *testing.T) {
 		}
 	}
 }
+
+// TestEachSingularFilterNarrowsOnItsOwn pins that the three SINGULAR query
+// params are actually READ. Nothing else did.
+//
+// 🔴 THE GAP THIS CLOSES IS THE ONE THAT LOOKS LIKE COVERAGE. There is a test
+// named "plural beats the singular", and it passes whether the singular is
+// honoured-and-overridden or never read at all — those two produce the identical
+// page. The only other place a singular reached the handler sent "  " and
+// expected NO narrowing, which is also what an ignored parameter produces. So
+// all three singular axes could be deleted from the handler and the suite stayed
+// green: an old client sending ?state=active would silently get the WHOLE list
+// back instead of its one row, with no error.
+//
+// Each sub-test therefore sends the singular ALONE and asserts the page really
+// came back narrower — the one shape an unread parameter cannot fake.
+func TestEachSingularFilterNarrowsOnItsOwn(t *testing.T) {
+	s := loreTestServer(t)
+	me := hireLoreStaff(t, s, "m-lore-singular", defaultBootRole)
+	ids := seedLoreStates(t, s, me)
+
+	// Baseline: unfiltered. If this is not bigger than 1 the narrowing
+	// assertions below prove nothing.
+	all := listLore(t, s, me, HandleListLoreEntriesApiLoreGetParams{})
+	if len(all.Entries) < 2 {
+		t.Fatalf("fixture seeded %d entries — the narrowing assertions need at least 2",
+			len(all.Entries))
+	}
+
+	t.Run("state", func(t *testing.T) {
+		page := listLore(t, s, me, HandleListLoreEntriesApiLoreGetParams{
+			State: strp(LoreStateActive),
+		})
+		if len(page.Entries) != 1 || page.Entries[0].Id != ids[LoreStateActive] {
+			t.Fatalf("?state=active served %d entries (%v), want exactly the active one (%q) — "+
+				"the whole list coming back is what an UNREAD parameter looks like",
+				len(page.Entries), loreIdsOf(page), ids[LoreStateActive])
+		}
+	})
+
+	t.Run("entry_id", func(t *testing.T) {
+		want := ids[LoreStatePinned]
+		page := listLore(t, s, me, HandleListLoreEntriesApiLoreGetParams{
+			EntryId: strp(want),
+		})
+		if len(page.Entries) != 1 || page.Entries[0].Id != want {
+			t.Fatalf("?entry_id=%s served %d entries (%v), want exactly that one",
+				want, len(page.Entries), loreIdsOf(page))
+		}
+	})
+
+	t.Run("author_id", func(t *testing.T) {
+		// A author nobody wrote under: the narrowing is visible as an EMPTY page,
+		// which the unfiltered baseline above proves is not the natural answer.
+		page := listLore(t, s, me, HandleListLoreEntriesApiLoreGetParams{
+			AuthorId: strp("m-nobody-wrote-this"),
+		})
+		if len(page.Entries) != 0 {
+			t.Fatalf("?author_id=m-nobody-wrote-this served %d entries (%v), want 0 — "+
+				"a full page here means the author axis was not applied",
+				len(page.Entries), loreIdsOf(page))
+		}
+	})
+}

@@ -1113,22 +1113,35 @@ describe("LorePage — 篩選器複選", () => {
     const { container } = renderPage();
     await waitFor(() => expect(renderedIds(container)).toHaveLength(1));
 
-    fireEvent.click(
-      container.querySelector<HTMLElement>('[data-testid="lore-filter-belongs"]')!,
-    );
-    expect(
-      container.querySelectorAll('[data-testid^="lore-filter-belongs-count-"]'),
-    ).toHaveLength(0);
-
-    fireEvent.click(
-      container.querySelector<HTMLElement>('[data-testid="lore-filter-state"]')!,
-    );
-    expect(
-      container.querySelectorAll('[data-testid^="lore-filter-state-count-"]'),
-    ).toHaveLength(0);
-    expect(
-      container.querySelectorAll('[data-testid^="lore-filter-author-count-"]'),
-    ).toHaveLength(0);
+    // \U0001f534 EACH FILTER MUST BE OPENED BEFORE ITS OWN COUNT IS ASSERTED.
+    // The shared control renders `${testId}-count-<value>` ONLY while its
+    // dropdown is open, so asserting a closed filter's count selector is empty
+    // is true no matter what the component does — it passed with a hardcoded
+    // `count: 7` on every option. All four filters are walked here for that
+    // reason, one open per assertion.
+    for (const id of [
+      "lore-filter-author",
+      "lore-filter-member",
+      "lore-filter-belongs",
+      "lore-filter-state",
+    ]) {
+      const control = container.querySelector<HTMLElement>(
+        `[data-testid="${id}"]`,
+      );
+      expect(control, `${id} is missing — this walk asserts nothing`).not.toBeNull();
+      fireEvent.click(control!);
+      // The dropdown really is open: its options are in the DOM. Without this
+      // the loop would go back to measuring a closed control.
+      expect(
+        container.querySelectorAll(`[data-testid^="${id}-opt-"]`).length,
+        `${id} did not open — the count assertion below would be vacuous`,
+      ).toBeGreaterThan(0);
+      expect(
+        container.querySelectorAll(`[data-testid^="${id}-count-"]`),
+        `${id} renders a per-option count badge — owner ruled 「we dont need count」`,
+      ).toHaveLength(0);
+      fireEvent.click(control!);
+    }
   });
 });
 

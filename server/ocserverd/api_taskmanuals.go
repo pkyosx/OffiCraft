@@ -551,9 +551,19 @@ func (s *apiServer) HandleWriteTaskLearningsApiTaskManualsTypeKeyLearningsPost(w
 		writeResolveError(w, err, "task manual", typeKey)
 		return
 	}
+	// 🔴 STRIPPED FIRST — before the wipe guard, the cap check and the receipt,
+	// so every one of them judges the text that is actually STORED. The sibling
+	// face (api_roles.go) has always done it in this order and says so; this one
+	// did not, and the gap was not academic: a write consisting of nothing but a
+	// 傳承 block (what an agent sends after reading get_task_manual's new `lore`
+	// field and writing it back) is non-empty on the way in and empty on the way
+	// out. The wipe guard saw the non-empty version, let it through, and the
+	// manual's accumulated learnings were erased with a 200 whose only trace was
+	// `size_chars: 0`. See stripTrailingLoreBlock (lore_select.go) for the loop.
+	incoming := stripTrailingLoreBlock(body.Text)
 	// Belt to the strict decoder's braces: even a well-formed {"text": ""}
 	// must not silently erase accumulated learnings.
-	if !(body.AllowShrink != nil && *body.AllowShrink) && WholeDocWipeBlocked(m.Learnings, body.Text) {
+	if !(body.AllowShrink != nil && *body.AllowShrink) && WholeDocWipeBlocked(m.Learnings, incoming) {
 		writeError(w, http.StatusBadRequest,
 			"this would replace the existing learnings with an empty doc — pass allow_shrink=true "+
 				"if that is intended; nothing was written")
@@ -561,9 +571,6 @@ func (s *apiServer) HandleWriteTaskLearningsApiTaskManualsTypeKeyLearningsPost(w
 	}
 	// T-3351 hard cap. Unconditional — allow_shrink governs the opposite
 	// direction (shrinking too far) and is not a bypass for this one.
-	// 🔴 Stripped BEFORE the cap check and before the receipt is measured, so the
-	// size and sha256 the caller is handed describe what was stored.
-	incoming := stripTrailingLoreBlock(body.Text)
 	if cap := s.manualLearningsCap(); DocCapBlocked(cap, m.Learnings, incoming) {
 		writeError(w, http.StatusBadRequest, docCapRefusal(cap, "learnings doc", m.Learnings, incoming))
 		return

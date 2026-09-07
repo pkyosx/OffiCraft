@@ -195,8 +195,16 @@ export function LorePage() {
   //
   // The row is 所有撰寫人 → 所有成員傳承 → 所有任務傳承 → 所有狀態 → 清除篩選
   // (owner 2026-09-08, verbatim, in that order). It is still the 任務頁's shape
-  // — 負責人 → 類型 → 狀態 — with its id search box dropped, because 傳承 has no
-  // id anybody types.
+  // — 負責人 → 類型 → 狀態 — with the 任務編號 box not (yet) present here.
+  //
+  // 🔴 THE REASON THAT BOX IS ABSENT IS NOT "NOBODY TYPES A 傳承 ID". That
+  // sentence used to sit here, LORE_SPEC §6 records it as a post-hoc excuse for
+  // a gap rather than a design decision, and this very branch disproved it:
+  // owner asked for 傳承編號 search on 2026-09-08 (「跟 task 一樣」) and the
+  // server axis for it shipped in ddf4a2f6 (`entry_ids`). The box is absent
+  // because the FRONT half was not built in that round, and whether it belongs
+  // in this row is an open question for owner — not a settled fact about what
+  // readers want.
   //
   // 🔴 THE MEMBER CONTROL IS A ROUTE THAT DID NOT EXIST, NOT A SECOND 撰寫人.
   // The two ask different questions and, more to the point, they travel on
@@ -759,9 +767,12 @@ export function LorePage() {
             learned one page should not have to re-learn where things are on the
             other.
 
-            The 任務頁 has a 任務編號 search box ahead of all of these; this page
-            has no counterpart because a 傳承 id (L-7) is not something anyone
-            goes looking for by typing it.
+            The 任務頁 has a 任務編號 search box ahead of all of these; this
+            page has no counterpart YET. The server side of it exists
+            (`entry_ids`, ddf4a2f6) — owner asked for it on 2026-09-08 — but
+            nothing on this page sends it. Do not re-write this into 「傳承的編號
+            不是誰會去打的東西」: that claim is what LORE_SPEC §6 records as a
+            justification written to fit the gap, and owner asked for the box.
 
             Nothing here appears conditionally — a filter row whose fields come
             and go as you tick is a row whose shape the reader cannot learn. */}
