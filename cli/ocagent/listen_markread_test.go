@@ -83,7 +83,7 @@ func newMarkReadServer(t *testing.T, list string) *markReadServer {
 			m.bodies = append(m.bodies, string(raw))
 			m.mu.Unlock()
 			w.WriteHeader(st)
-			_, _ = w.Write([]byte(`{"reader_id":"kyle","peer_id":"` + c.Peer + `","last_read_ts":0}`))
+			_, _ = w.Write([]byte(`{"peer_id":"` + c.Peer + `","last_read_ts":0,"advanced":true}`))
 			return
 		}
 		if strings.HasPrefix(r.URL.Path, "/api/chat") {
@@ -994,7 +994,7 @@ func newUnreadChatServer(t *testing.T, rows []unreadRow) *unreadChatServer {
 			}
 			u.mu.Unlock()
 			w.WriteHeader(st)
-			_, _ = w.Write([]byte(`{"reader_id":"kyle","peer_id":"` + c.Peer + `","last_read_ts":0}`))
+			_, _ = w.Write([]byte(`{"peer_id":"` + c.Peer + `","last_read_ts":0,"advanced":true}`))
 			return
 		}
 		if strings.HasPrefix(r.URL.Path, eventsPath) {
