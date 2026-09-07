@@ -1,0 +1,78 @@
+#!/usr/bin/env bash
+# officraft — regenerate spec/sse-topics.json, the MACHINE-READABLE closed SSE
+# topic vocabulary.
+#
+# ── WHY THIS IS A WRAPPER AND NOT THE GENERATOR ──────────────────────────────
+# The vocabulary IS `sseTopics` in server/ocserverd/hub.go — the map the publish
+# seam consults before it fans anything — and that identifier is not reachable
+# from outside package main. A standalone renderer would have to re-type the
+# list, i.e. mint the FOURTH copy of the very thing this asset exists to reduce
+# to one. So the generator is `ocserverd sse-topics <out.json>` and this script
+# is the human-facing handle, nothing more. Same posture as bin/gen-migration-lock.
+#
+# 🔴 spec/sse.md IS NOT GENERATED, from here or anywhere. §3.1's table stays
+# HAND-WRITTEN: adding, renaming or removing a topic means editing hub.go,
+# re-running this script, and updating that table yourself.
+#
+# ── WHY IT GREPS FOR A MARKER INSTEAD OF TRUSTING rc ─────────────────────────
+# A zero exit says "nothing failed", not "something ran" — a body cut short by an
+# early return exits 0 just the same. The generator prints its own marker as its
+# last act and this script requires it (the posture bin/gen-migration-lock takes).
+#
+# Usage: bin/gen-sse-topics [<out-file>]
+#   no arg     — rewrite the committed spec/sse-topics.json in place.
+#   <out-file> — write there instead, leaving the committed file untouched (the
+#                drift-sse-topics gate renders to a temp file and diffs).
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+MARKER='[gen-sse-topics] wrote'
+OUT_REL="spec/sse-topics.json"
+
+OUT="${1:-$ROOT/$OUT_REL}"
+case "$OUT" in
+  /*) ;;
+  *) OUT="$PWD/$OUT" ;;
+esac
+
+# The package embeds seedsdist/docsdist/webdist/bindist; without them it does not
+# compile, and a fresh clone has none of them (they are gitignored).
+make -C "$ROOT" build-embed-assets >/dev/null
+
+log="$(mktemp -t oc-gen-sse-topics.XXXXXX)"
+trap 'rm -f "$log"' EXIT
+
+# Run FROM the package directory (go run . needs it); the output path is absolute.
+(cd "$ROOT/server/ocserverd" && go run . sse-topics "$OUT") | tee "$log"
+
+if ! grep -qF "$MARKER" "$log"; then
+  echo "[gen-sse-topics] FAIL — the generator exited 0 without printing its write marker"
+  echo "  ($MARKER). A zero exit is not evidence that anything was rendered; nothing"
+  echo "  here trusts it. Look at the output above."
+  exit 1
+fi
+
+# Ask git whether the committed file now differs, rather than asserting it does
+# not: a file left dirty by an EARLIER run still needs reviewing and committing,
+# and a before/after checksum of THIS run alone would call that "no change".
+# When git cannot answer, say so — an unverified reassurance is worth less than
+# "I could not check", because only the second one makes the reader look.
+if [[ "$OUT" != "$ROOT/$OUT_REL" ]]; then
+  echo "[gen-sse-topics] wrote to $OUT (committed $OUT_REL untouched)"
+  exit 0
+fi
+if ! command -v git >/dev/null 2>&1 || ! git -C "$ROOT" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+  echo "[gen-sse-topics] could NOT check whether $OUT_REL differs from the committed copy"
+  echo "  (no usable git here). Diff it yourself before concluding there is nothing to commit."
+  exit 0
+fi
+if status="$(git -C "$ROOT" status --porcelain -- "$OUT_REL")"; then
+  if [[ -n "$status" ]]; then
+    echo "[gen-sse-topics] $OUT_REL DIFFERS from the committed copy — review and commit it:"
+    echo "  git add $OUT_REL"
+  else
+    echo "[gen-sse-topics] $OUT_REL matches the committed copy — nothing to commit."
+  fi
+else
+  echo "[gen-sse-topics] could NOT check whether $OUT_REL differs (git errored). Diff it yourself."
+fi

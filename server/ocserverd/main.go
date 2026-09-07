@@ -27,6 +27,7 @@ var subcommands = []struct{ name, help string }{
 	{"mfa-disable", "clear the owner's TOTP second factor (lost-authenticator recovery)"},
 	{"migration-lock", "--write / --check server/ocserverd/migration.lock (run from that directory)"},
 	{"theme-name-verdicts", "<cases.json> <verdicts.json>: this side of the Go/TS theme-name parity check"},
+	{"sse-topics", "<out.json>: render hub.go's closed SSE topic vocabulary (spec/sse-topics.json)"},
 }
 
 // noSubcommand is the internal dispatch key for "the argv named no subcommand"
@@ -114,19 +115,24 @@ func realMain(argv []string, env func(string) string, out io.Writer) int {
 		}
 		return cmdMFADisable(env, out)
 
-	// migration-lock and theme-name-verdicts are the two DEVELOPMENT subcommands:
+	// migration-lock, theme-name-verdicts and sse-topics are the DEVELOPMENT subcommands:
 	// they touch no database and no config, and they exist because both of them
 	// need code that is only reachable from inside package main — the go:embed
 	// migration FS and the AST of this package for the first, the theme-bundle
-	// validator for the second. Before T-125 both lived in _test.go files behind
-	// a build tag for exactly that reason, which made two things that are not
-	// tests look like tests. bin/gen-migration-lock, bin/check-migration-lock and
-	// frontend/src/lib/themeName.parity.test.ts are their callers.
+	// validator for the second, the `sseTopics` map the publish seam consults for
+	// the third. Before T-125 the first two lived in _test.go files behind a build
+	// tag for exactly that reason, which made two things that are not tests look
+	// like tests. bin/gen-migration-lock, bin/check-migration-lock,
+	// frontend/src/lib/themeName.parity.test.ts and bin/gen-sse-topics are their
+	// callers.
 	case "migration-lock":
 		return cmdMigrationLock(rest, out)
 
 	case "theme-name-verdicts":
 		return cmdThemeNameVerdicts(rest, out)
+
+	case "sse-topics":
+		return cmdSSETopics(rest, out)
 
 	case "-h", "--help", "help":
 		usage(out)

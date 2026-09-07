@@ -1,0 +1,19 @@
+{
+  "generated_by": "bin/gen-sse-topics",
+  "source": "server/ocserverd/hub.go (sseTopics)",
+  "topics": [
+    "chat",
+    "chat_read",
+    "context",
+    "global_context",
+    "insight",
+    "lessons",
+    "member",
+    "monitoring",
+    "outsource_worker",
+    "reply_card",
+    "role_def",
+    "task",
+    "task_manual"
+  ]
+}

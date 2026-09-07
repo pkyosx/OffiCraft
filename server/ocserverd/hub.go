@@ -359,6 +359,14 @@ func (h *Hub) AgentsOnMachine(machineID string) []string {
 // mechanism §8 recommends): a topic outside the set is dropped, so a typo can
 // never mint a phantom wire topic.
 //
+// 🔴 THIS MAP IS THE SINGLE SOURCE of the closed vocabulary. bin/gen-sse-topics
+// renders it into the committed spec/sse-topics.json (the drift-sse-topics gate
+// requires the render back byte-identical), and the conformance suite reads THAT
+// asset to know what it must trigger. So a change here means: edit this map,
+// run bin/gen-sse-topics, commit the JSON — and update spec/sse.md §3.1's table
+// BY HAND, because that table is hand-written documentation and nothing
+// generates or checks it.
+//
 // ⚠️ That drop is SILENT by design, and it has bitten: a restore published
 // "role" instead of "role_def" and fanned nothing at all, with a 200 on the
 // wire and no error anywhere (the case is documented at

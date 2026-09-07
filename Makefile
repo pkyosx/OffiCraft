@@ -114,7 +114,7 @@ REGEN_PAIR_GATE = $(P) \
   test-frontend-ct test-conformance \
   scan-tracked-paths scan-secrets scan-tcc-anchor \
   drift-ocapi drift-schema-ts drift-theme-tokens drift-message-keys drift-fonts \
-  drift-mcp-catalog \
+  drift-mcp-catalog drift-sse-topics \
   drift-migration-lock check-released-migrations
 
 # ===========================================================================
@@ -786,6 +786,32 @@ drift-mcp-catalog:
 	  echo "FAIL — gen-mcp-catalog drift: spec/mcp-catalog.json is STALE vs spec/openapi.json."; \
 	  echo "wire 已凍結 (M1): the MCP tool surface is spec-first — if the spec change IS approved, regenerate + commit:"; \
 	  echo "  bin/gen-mcp-catalog && git add spec/mcp-catalog.json"; \
+	  rm -f "$$fresh"; \
+	  exit 1; \
+	fi; \
+	rm -f "$$fresh"; \
+	$(DONE)
+
+# The wire-freeze gate on the SSE topic vocabulary. spec/sse-topics.json is a
+# COMMITTED GENERATED artifact rendered from hub.go's `sseTopics` — the map the
+# publish seam actually consults — and it is what the conformance suite reads to
+# know the closed set. Stale, it describes a vocabulary the server no longer has,
+# and every consumer's coverage confrontation goes green against the wrong list.
+#
+# 🔴 spec/sse.md IS NOT IN THIS GATE. §3.1's table is HAND-WRITTEN and stays that
+# way (owner's call): a topic change means hub.go + bin/gen-sse-topics + editing
+# that table yourself. This gate binds the JSON to the code, nothing else.
+# Regenerate to a temp file — the committed file is never touched.
+drift-sse-topics:
+	@$(P) \
+	GO="$$(oc_go)"; \
+	echo "[drift-sse-topics] regenerate spec/sse-topics.json from hub.go sseTopics + diff committed"; \
+	fresh="$$(mktemp -t oc-fresh-sse-topics.XXXXXX.json)"; \
+	PATH="$$(dirname "$$GO"):$$PATH" bin/gen-sse-topics "$$fresh" >/dev/null; \
+	if ! diff -u spec/sse-topics.json "$$fresh"; then \
+	  echo "FAIL — gen-sse-topics drift: spec/sse-topics.json is STALE vs server/ocserverd/hub.go."; \
+	  echo "the closed SSE topic set is CODE-first — regenerate + commit (and update spec/sse.md §3.1 BY HAND):"; \
+	  echo "  bin/gen-sse-topics && git add spec/sse-topics.json"; \
 	  rm -f "$$fresh"; \
 	  exit 1; \
 	fi; \

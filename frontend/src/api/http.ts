@@ -401,8 +401,9 @@ let sseGapPending = false;
 // (T-05db node 4). There were THREE hand-copies: this one, plus transcriptions
 // in hooks/sseFanout.test.tsx and api/http.sse-pool.test.ts — both now import
 // THIS array. Its own correctness is no longer taken on trust either:
-// api/sseResyncTopics.test.ts asserts it EQUALS the spec/sse.md §3.1 table,
-// parsed from the repo file at run time rather than transcribed.
+// api/sseResyncTopics.test.ts asserts it EQUALS the GENERATED spec/sse-topics.json
+// (rendered from hub.go's sseTopics by bin/gen-sse-topics), read from the repo
+// file at run time rather than transcribed.
 //
 // Why this matters more than it looks: a topic MISSING here fails silently —
 // after a reconnect that topic never refetches, so the data is right, the

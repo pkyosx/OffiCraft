@@ -149,6 +149,7 @@ OC_ROUND=(
   lint-chat-pushdown
   drift-ocapi
   drift-mcp-catalog
+  drift-sse-topics
   drift-migration-lock
   lint-conformance-blackbox
   scan-tcc-anchor
