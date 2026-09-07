@@ -4393,8 +4393,12 @@ type HandleListLoreEntriesApiLoreGetParams struct {
 	// AuthorIds REPEATABLE author set (``?author_ids=mira&author_ids=nova``) — the multi-select twin of ``author_id``. Member ids are free-form and are matched literally against the author PINNED at write time, so there is no closed set and no 400; an id nobody carries simply contributes no rows. 🔴 PLURAL WINS. When this and its singular twin are BOTH sent, this one is the filter and the singular is ignored — they are neither ANDed nor unioned. Absent, or present but all-blank, falls back to the singular; both empty means no constraint on this axis. additive-optional.
 	AuthorIds *[]string `form:"author_ids,omitempty" json:"author_ids,omitempty"`
 	AuthorId  *string   `form:"author_id,omitempty" json:"author_id,omitempty"`
-	Limit     *int      `form:"limit,omitempty" json:"limit,omitempty"`
-	Offset    *int      `form:"offset,omitempty" json:"offset,omitempty"`
+
+	// EntryIds REPEATABLE 傳承編號 set (``?entry_ids=L-12&entry_ids=L-30``) — the multi-select twin of ``entry_id``, and the axis behind the 傳承編號 search box the design calls for (LORE_SPEC.md §6). 🔴 IT MATCHES THE WHOLE ID, EXACTLY — never a prefix and never a substring. Owner 2026-09-08 asked for it 「跟 task 一樣」, and 任務頁 resolves a committed id by asking for THAT ONE id (``useTasks.ts:201`` ``api.getTask(anchorId)``) and pairs it to a row by equality (``TasksPage.tsx:458`` ``x.id === appliedId``); nothing there ever compares part of an id. A substring axis would also interact badly with paging: ``L-1`` would drag L-10…L-19 into a batch that limit/offset then cuts, pushing the entry actually asked for off the end. 🔴 IT IS APPLIED IN SQL, WITH THE PAGE — like every other axis here, and for the reason the whole filter exists: this list is scroll-to-load, so an id narrowed client-side would make 「捲到底沒有了」 and 「真的沒有了」 the same picture and would draw the 上限線 in the wrong place. An id is an OPEN identifier space, so there is NO closed set to check and NO 400 — the same call ``scope_keys``/``author_ids`` make. An id no entry carries answers 200 with no rows, which is the true answer, and no ``L-`` + digits shape is enforced: it would refuse only the ids that could never match while still answering an empty page for ``L-99999``, the likelier miss. 🔴 PLURAL WINS. When this and its singular twin are BOTH sent, this one is the filter and the singular is ignored — they are neither ANDed nor unioned. Absent, or present but all-blank, falls back to the singular; both empty means no constraint on this axis, which is IDENTICAL to not sending the parameter at all (an empty set is 「do not narrow」, never 「match nothing」). NOTE the 上限線 is unaffected: ``cap_chars`` / ``first_dropped_id`` still depend only on the effective scope_kind and scope_key sets holding exactly one value each — a budget belongs to a scope, and naming one entry does not name a scope. additive-optional.
+	EntryIds *[]string `form:"entry_ids,omitempty" json:"entry_ids,omitempty"`
+	EntryId  *string   `form:"entry_id,omitempty" json:"entry_id,omitempty"`
+	Limit    *int      `form:"limit,omitempty" json:"limit,omitempty"`
+	Offset   *int      `form:"offset,omitempty" json:"offset,omitempty"`
 }
 
 // HandleListMembersApiMembersGetParams defines parameters for HandleListMembersApiMembersGet.
@@ -6917,6 +6921,32 @@ func (siw *ServerInterfaceWrapper) HandleListLoreEntriesApiLoreGet(w http.Respon
 			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "author_id"})
 		} else {
 			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "author_id", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "entry_ids" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "entry_ids", r.URL.Query(), &params.EntryIds, runtime.BindQueryParameterOptions{Type: "array", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "entry_ids"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "entry_ids", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "entry_id" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "entry_id", r.URL.Query(), &params.EntryId, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "entry_id"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "entry_id", Err: err})
 		}
 		return
 	}
