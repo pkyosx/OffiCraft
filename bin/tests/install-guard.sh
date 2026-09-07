@@ -489,6 +489,18 @@ $OUT" ;;
   *) ok "fresh install: the registration poll confirms the healthy label (no false 'still does not know')" ;;
 esac
 
+# ── 9a. the rendered plist must pass `serve` EXPLICITLY (T-107) ─────────────
+# ocserverd no longer implies the subcommand: a bare invocation prints usage and
+# exits 2. So a plist that lost the word `serve` is not a cosmetic drift — the
+# job never serves, and launchd's KeepAlive silently retries it every 10s
+# forever with nothing anywhere raising a hand. Nothing else in this suite looks
+# at ProgramArguments.1: plist_program reads index 0 (the binary) only, and the
+# fresh-install cases stop at "a plist exists". Read from the plist case 9 just
+# rendered, by index and verbatim, so neither a reordered array nor a `serve`
+# that merely appears SOMEWHERE in the file can satisfy it.
+PROG_ARG1="$(/usr/bin/plutil -extract ProgramArguments.1 raw -o - "$FAKEHOME/$PLIST_REL" 2>&1)"
+check "fresh install: the rendered plist passes 'serve' as ProgramArguments.1" "serve" "$PROG_ARG1"
+
 # ── 9b. bootstrap exits 0 and registers NOTHING → blame bootstrap (T-908d) ──
 # THE DEFECT. `launchctl bootstrap` can exit 0 while registering no job at all.
 # kickstart is swallowed here with `|| true`, so the first thing to notice was the

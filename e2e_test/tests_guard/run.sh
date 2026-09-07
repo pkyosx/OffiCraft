@@ -3177,6 +3177,14 @@ else
   grep -qF 'new-session' "$T45_TMUX_LOG" \
     && ok "T-45: start creates a detached tmux session" \
     || bad "T-45: start never issued new-session (log: $(tr '\n' '|' < "$T45_TMUX_LOG"))"
+  # T-107: ocserverd no longer implies the subcommand — a bare invocation prints
+  # usage and exits 2, so a carrier that lost the word `serve` starts a session
+  # that dies immediately and the whole e2e run fails somewhere else entirely.
+  # Anchored on the server path so the word has to sit in the ARGUMENT position,
+  # not merely appear somewhere in the command line.
+  grep -qF -- '"/tmp/server" serve ' "$T45_TMUX_LOG" \
+    && ok "T-45: start passes 'serve' explicitly, right after the server binary" \
+    || bad "T-45: start does not invoke the server as '<server> serve' — a bare ocserverd exits 2 forever (log: $(tr '\n' '|' < "$T45_TMUX_LOG"))"
 
   oc_e2e_tmux_stop "$T45_SOCKET" "$T45_SESSION" \
     >"$T45_TMUX_FIXTURE/stop.stdout" 2>"$T45_TMUX_FIXTURE/stop.stderr"
