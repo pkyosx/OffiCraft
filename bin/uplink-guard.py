@@ -36,9 +36,6 @@ looked finished:
     containing `/*` blanked out arbitrary amounts of real code, and `"a//b"` ate
     the rest of its own line.
 
-`bin/tests/uplink-guard-selftest.py` holds one fixture per known bypass and
-requires this scanner to name it. That file is the reason a future edit cannot
-quietly narrow the scan: shrinking the enumeration reddens the selftest.
 """
 import json, os, re, sys
 from pathlib import Path

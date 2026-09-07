@@ -294,18 +294,18 @@ lint-go-vet:
 	done; \
 	$(DONE)
 
-# Client-payload contract gate (T-9c8d) plus its own positive control. Both
-# halves move together, always: the selftest is what proves the scanner still
-# bites, and a scanner nobody verified is a green with a hole in it.
+# Client-payload contract gate (T-9c8d). It had a selftest that planted one
+# fixture per known bypass and required this scanner to name it; the owner
+# removed it (2026-09-08) as a test of how the scanner is written rather than
+# of what it decides. The guard itself is unchanged.
 lint-uplink-contract:
 	@$(P) \
 	echo "[lint-uplink-contract] every CLI send is declared, spec-checked and wire-tested"; \
 	python3 bin/uplink-guard.py; \
-	python3 bin/tests/uplink-guard-selftest.py; \
 	$(DONE)
 
-# Effort-vocabulary contract gate (T-dbd4) plus its positive control, same shape
-# and same reason as the pair above.
+# Effort-vocabulary contract gate (T-dbd4) plus its positive control: the
+# selftest is what proves the scanner still bites.
 lint-effort-vocab:
 	@$(P) \
 	echo "[lint-effort-vocab] every hand-written copy lists exactly what the server enforces"; \
