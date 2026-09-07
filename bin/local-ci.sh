@@ -9,9 +9,10 @@
 # in e2e_test/ (bin/ci.sh only exercises their wiring, via tests_guard — a green
 # there means zero specs ran).
 #
-# It is also not a `make ci`-style aggregate: it names no check. The round is
-# bin/ci.sh's own OC_ROUND array and nothing here duplicates it, so there is no
-# second list of what CI runs — killing that duplication is the whole of T-4d88.
+# It is also not a `make ci`-style aggregate: it names no check. The round comes
+# from bin/lib/ci-round.txt, which since T-127 is the only place any check is
+# written down — bin/ci.sh reads all of it and each cloud cell reads one lane, so
+# there is no second list of what CI runs anywhere.
 #
 # ── WHEN TO RUN IT (not every time) ──────────────────────────────────────────
 # Two occasions, both rare and both deliberate:

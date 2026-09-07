@@ -60,10 +60,12 @@
 # quota). It is default-OFF and declares itself by filename
 # (*.live-agent.spec.js), so nothing anywhere has to remember to exclude it.
 #
-# WHAT RUNS WHERE is deliberately not enumerated in any doc: read the target list
-# below for this round, and `grep -n 'run-checks' .github/workflows/ci.yml` for
-# the cloud cells. Both name Makefile targets, so neither can describe a check the
-# other implements differently.
+# WHAT RUNS WHERE is deliberately not enumerated in any doc, and since T-127 it is
+# not enumerated in two places either: bin/lib/ci-round.txt is the ONE list. This
+# round is all of it, in file order; each cloud cell is one lane of it, selected by
+# that job's own id. ⚠️ Asking `grep -n 'run-checks' .github/workflows/ci.yml` used
+# to answer "which checks run in the cloud" and no longer does — the cells name no
+# targets. Read the round list.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
