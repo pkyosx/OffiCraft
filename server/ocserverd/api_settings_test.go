@@ -198,7 +198,12 @@ func TestHandleSetPasswordApiAuthSetPasswordPost(t *testing.T) {
 		api, h, _, _ := newAPITestStack(t)
 		api.credentialFailureFloor = 2 * time.Second
 
-		codes := make(chan int, 8)
+		type answer struct {
+			code       int
+			retryAfter string
+			body       string
+		}
+		answers := make(chan answer, 8)
 		var wg sync.WaitGroup
 		for i := 0; i < 8; i++ {
 			wg.Add(1)
@@ -209,18 +214,28 @@ func TestHandleSetPasswordApiAuthSetPasswordPost(t *testing.T) {
 				req.Header.Set("Content-Type", "application/json")
 				rec := httptest.NewRecorder()
 				h.ServeHTTP(rec, req)
-				codes <- rec.Code
-				if rec.Code == 429 && rec.Header().Get("Retry-After") != "1" {
-					t.Errorf("Retry-After: want \"1\", got %q", rec.Header().Get("Retry-After"))
-				}
+				answers <- answer{rec.Code, rec.Header().Get("Retry-After"), rec.Body.String()}
 			}()
 		}
 		wg.Wait()
-		close(codes)
+		close(answers)
 		throttled := 0
-		for code := range codes {
-			if code == 429 {
+		for got := range answers {
+			switch got.code {
+			case 429:
 				throttled++
+				if got.retryAfter != "1" {
+					t.Fatalf("Retry-After: want \"1\", got %q", got.retryAfter)
+				}
+				if got.body != `{"error":{"code":"client_error","message":"too many failed credential attempts; retry in 1s"}}` {
+					t.Fatalf("throttled body: %q", got.body)
+				}
+			case 401:
+				if got.body != `{"error":{"code":"unauthorized","message":"invalid claim token"}}` {
+					t.Fatalf("refused body: %q", got.body)
+				}
+			default:
+				t.Fatalf("want 401 or 429, got %d (%s)", got.code, got.body)
 			}
 		}
 		if throttled != 4 {
@@ -837,6 +852,7 @@ func TestHandleUpdateSettingsApiSettingsPatch(t *testing.T) {
 			if status != 500 {
 				t.Fatalf("%s: want 500, got %d (%v)", patch, status, data)
 			}
+			apiWantError(t, data, "internal_error", "internal error: sql: database is closed")
 		}
 	})
 
@@ -889,6 +905,7 @@ func TestHandleUpdateSettingsApiSettingsPatch(t *testing.T) {
 			if status != 500 {
 				t.Fatalf("%s: want 500, got %d (%v)", patch, status, data)
 			}
+			apiWantError(t, data, "internal_error", "internal error: sql: database is closed")
 		}
 	})
 }
