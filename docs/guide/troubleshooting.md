@@ -172,13 +172,13 @@ warden 與成員**各自自證線上、互不推斷**。原理見 [架構與運�
    >
    > ```
    > [ocserverd] backup: config file = none (looked at /Users/you/oc.toml, from the default filename, …)
-   > [ocserverd] backup: to point this run at a config file, set OC_CONFIG=/path/to/oc.toml or run from a directory containing oc.toml; without one, every config value is the built-in default.
+   > [ocserverd] backup: to point this run at a config file, set OC_CONFIG=/path/to/oc.toml or run from a directory containing oc.toml. Without one, nothing is read from oc.toml — $OC_DATABASE_URL and the built-in defaults decide the rest.
    > [ocserverd] backup: database    = /Users/you/.officraft/server/data/officraft.db (DSN sqlite:////Users/…), from the built-in default (no namespace)
    > ```
    >
    > **`database` 那一行的第一個位置,就是它真正要開的那一個檔案**——已經幫你算成完整路徑了。後面括號裡的 `DSN …` 是你(或設定檔)寫下的原文,句尾的 `from …` 是**這個答案從哪來的**。
    >
-   > 沒有設定檔**不是錯誤**——一般安裝本來就沒有,那一行只是把事情講出來,中間那行則是告訴你「想指定設定檔的話要怎麼做」(有設定檔時就不會印)。但如果那個路徑不是你以為的那一份(例如你有多個 namespace、或你以為自己指定了別的位置),**就是這一行會告訴你**,而它出現在任何東西被動到之前。
+   > 沒有設定檔**不是錯誤**——一般安裝本來就沒有,那一行只是把事情講出來,中間那行則是告訴你「想指定設定檔的話要怎麼做」(有設定檔時就不會印)。⚠️ 中間那行只說了「oc.toml 沒有被讀到」,**沒有說「所有設定都是內建預設」**:`$OC_DATABASE_URL` 的順位在設定檔**之前**,環境裡帶著它的時候,資料庫仍然由它決定——第三行的 `from …` 才是最後的答案。另外,`$OC_CONFIG` 一旦有設就**不會**再回頭看目前資料夾裡的 `oc.toml`,所以它指到一個不存在的檔時,中間那行不會再叫你換資料夾,而是告訴你它指到哪裡了。但如果那個路徑不是你以為的那一份(例如你有多個 namespace、或你以為自己指定了別的位置),**`database` 那一行會告訴你**,而它出現在任何東西被動到之前。
    >
    > ⚠️ **為什麼要把檔案路徑另外算一次給你看**:`sqlite:///x` 是**相對**路徑、`sqlite:////x` 是**絕對**路徑,差一個斜線。相對的那種會跟著你「從哪個資料夾啟動」跑——同一份設定在不同資料夾底下,動到的是兩個不同的資料庫。只印 DSN 看不出這件事,印檔案路徑就看得出來。
    >

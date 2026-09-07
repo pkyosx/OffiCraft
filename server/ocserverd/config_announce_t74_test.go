@@ -128,6 +128,94 @@ func TestAnnouncementNamesTheDatabaseAndWhereItCameFrom(t *testing.T) {
 	}
 }
 
+// howToLine returns the single instruction line out of an announcement, so a
+// test can assert about THAT sentence rather than about the whole buffer —
+// "the built-in default" is a legitimate phrase on the database line and a lie
+// on this one, and a whole-buffer Contains cannot tell those apart.
+func howToLine(t *testing.T, announcement string) string {
+	t.Helper()
+	const marker = "to point this run at a config file"
+	for _, line := range strings.Split(announcement, "\n") {
+		if strings.Contains(line, marker) {
+			return line
+		}
+	}
+	t.Fatalf("no line containing %q in:\n%s", marker, announcement)
+	return ""
+}
+
+// TestHowToLineDoesNotClaimEverythingIsDefaultWhenEnvSuppliesTheDSN pins the
+// one half of the instruction line that had NO guard, and it had none in the
+// worst possible way: an independent reviewer replaced the whole sentence with
+// "without one, the server will refuse to start and your database will be
+// deleted." and every test in this package stayed green. The half that was
+// unguarded was the half that was false.
+//
+// The false claim was "without one, every config value is the built-in
+// default", and the run that disproves it is the run this announcement exists
+// for: no config file, someone else's DSN in the environment. resolveDSN's
+// FIRST branch is $OC_DATABASE_URL, so the database line printed immediately
+// below says "from $OC_DATABASE_URL" — the announcement contradicted itself
+// one line later, and told the person in the wrong directory that nothing in
+// his environment mattered.
+func TestHowToLineDoesNotClaimEverythingIsDefaultWhenEnvSuppliesTheDSN(t *testing.T) {
+	db := filepath.Join(t.TempDir(), "env.db")
+	var out bytes.Buffer
+	_, _, rc := announceResolution("migrate", announceEnv(map[string]string{envDatabaseURL: "sqlite:///" + db}), &out)
+	if rc != 0 {
+		t.Fatalf("rc=%d, want 0. out=%s", rc, out.String())
+	}
+	got := out.String()
+	// Positive control: this run really is the contradicting one. If the
+	// database stopped coming from the environment, the assertion below would
+	// be about nothing.
+	if !strings.Contains(got, "from $"+envDatabaseURL) {
+		t.Fatalf("positive control failed: %s was set, yet the database line does not attribute the DSN to it, so there is no contradiction left to detect:\n%s", envDatabaseURL, got)
+	}
+	line := howToLine(t, got)
+	if !strings.Contains(line, "$"+envDatabaseURL) {
+		t.Errorf("the instruction line does not name %s:\n\t%s\n\nyet the line directly under it says the database came from exactly that variable. Any sentence here that describes what happens \"without a config file\" without naming the variable that outranks the config file is asserting something this very run disproves — the original wording (\"without one, every config value is the built-in default\") is the case in point, and it was addressed at the one reader who most needed it to be true.", envDatabaseURL, line)
+	}
+	if strings.Contains(line, "every config value is the built-in default") {
+		t.Errorf("the instruction line still claims every config value is the built-in default:\n\t%s\n\n$%s is set on this run and resolveDSN reads it FIRST.", line, envDatabaseURL)
+	}
+}
+
+// TestHowToLineDoesNotSaySwitchDirectoriesWhenOCConfigIsSet pins the other
+// half. configPath returns $OC_CONFIG unconditionally and never falls back to
+// ./oc.toml, so "or run from a directory containing oc.toml" is an instruction
+// that does nothing for the reader whose $OC_CONFIG names a file that is not
+// there — measured: standing IN a directory that has an oc.toml, with
+// $OC_CONFIG pointing at an absent file, the announcement said "config file =
+// none" and then told him to go and stand where he was already standing.
+func TestHowToLineDoesNotSaySwitchDirectoriesWhenOCConfigIsSet(t *testing.T) {
+	const cwdAdvice = "run from a directory containing oc.toml"
+	absent := filepath.Join(t.TempDir(), "absent", "oc.toml")
+
+	var set bytes.Buffer
+	_, _, rc := announceResolution("migrate", announceEnv(map[string]string{envConfigPath: absent}), &set)
+	if rc != 0 {
+		t.Fatalf("rc=%d, want 0 — a missing config file is not an error. out=%s", rc, set.String())
+	}
+	if !strings.Contains(set.String(), "config file = none") {
+		t.Fatalf("positive control failed: %s pointed at %s, which does not exist, yet the announcement did not report a missing config file:\n%s", envConfigPath, absent, set.String())
+	}
+	if line := howToLine(t, set.String()); strings.Contains(line, cwdAdvice) {
+		t.Errorf("$%s is set (to %s, which is absent) and the instruction line still tells the reader to change directory:\n\t%s\n\nconfigPath returns $%s unconditionally and never falls back to ./oc.toml, so the reader can be standing in a directory that HAS an oc.toml and this advice will still do nothing for him.", envConfigPath, absent, line, envConfigPath)
+	}
+
+	// The negative arm, without which "never say it" and "say it only when
+	// $OC_CONFIG is unset" are the same output: with the variable unset, the
+	// CWD route is real and must still be offered.
+	var unset bytes.Buffer
+	if _, _, rc := announceResolution("migrate", announceEnv(map[string]string{}), &unset); rc != 0 {
+		t.Fatalf("rc=%d, want 0. out=%s", rc, unset.String())
+	}
+	if line := howToLine(t, unset.String()); !strings.Contains(line, cwdAdvice) {
+		t.Errorf("$%s is unset, so ./oc.toml IS consulted, yet the instruction line no longer offers that route:\n\t%s", envConfigPath, line)
+	}
+}
+
 // TestAnnouncementIsNotAnError pins the half of the owner's ruling that is easy
 // to lose in a later "tighten this up" pass: the FIRST plan was to refuse, and
 // it was withdrawn because a normal install has no config file by design and
