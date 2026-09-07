@@ -75,6 +75,7 @@ import {
 import { useI18n } from "../i18n";
 import { api } from "../api";
 import type {
+  ChatAttachmentInput,
   LoreEntryState,
   LoreEntryView,
   LoreListOptions,
@@ -84,6 +85,11 @@ import { useMembers } from "../hooks/useMembers";
 import { useOutsourceWorkers } from "../hooks/useOutsourceWorkers";
 import { useIsMobile } from "../hooks/useIsMobile";
 import { useTaskManuals } from "../hooks/useTaskManuals";
+import {
+  ATTACH_ACCEPT,
+  STAGING_TARGET_PER_MOUNT,
+  useAttachmentStaging,
+} from "../hooks/useAttachmentStaging";
 import {
   useWorkerAvatarUrls,
   useWorkerCodenames,
@@ -95,6 +101,7 @@ import { autosizeTextarea } from "../lib/autosize";
 import { enterShouldSend } from "../lib/composerKeys";
 import { navigateHash } from "../lib/hashRoute";
 import { Avatar } from "./Avatar";
+import { ComposerAttachmentPreview } from "./ComposerAttachmentPreview";
 import { FilterPanel } from "./FilterPanel";
 import { MultiSelectFilter } from "./MultiSelectFilter";
 import {
@@ -103,8 +110,17 @@ import {
   CheckIcon,
   ChevronDownIcon,
   ChevronRightIcon,
+  GearIcon,
+  PaperclipIcon,
+  SendIcon,
 } from "./icons";
 import "./lore.css";
+// The staged-attachment preview strip (ComposerAttachmentPreview) draws the
+// `.chat__composer-preview` / `.chat__preview-*` block, which lives in
+// office.css — so this page owns that import rather than free-riding on
+// whichever page happened to be mounted first (frontend/.claude/rules/
+// css-layout-traps.md).
+import "./office.css";
 
 /** 捲到底一次載這麼多 (spec §6). The SAME number is the "is there more" test:
  * a page shorter than this is the last one. */
@@ -843,8 +859,13 @@ function LoreRow({
   // toggling instead of being swallowed.
   function onRowToggleClick(e: React.MouseEvent<HTMLElement>) {
     const target = e.target as HTMLElement;
+    // `.lore-row__composer` is in this list for the same reason the controls
+    // are: it is a WRITING surface that now renders on the COLLAPSED row, so a
+    // click that lands on its padding (beside the box, not on it) would fold
+    // the entry away mid-sentence. The textarea/buttons inside it are already
+    // covered by the element entries; this covers the box AROUND them.
     const hit = target.closest(
-      "button, a, textarea, input, select, [role='button'], [role='menu'], [role='dialog']"
+      "button, a, textarea, input, select, .lore-row__composer, [role='button'], [role='menu'], [role='dialog']"
     );
     if (hit && hit !== e.currentTarget) return;
     const sel = window.getSelection();
@@ -1020,20 +1041,30 @@ function LoreRow({
               {t.lore.capLineSep}
             </span>
           )}
+          {/* The NAME half is the 任務卡's 類型 badge, copied value-for-value
+              under lore names (.lore-badge--type ← tasks.css .task-badge--type;
+              owner: 「傳承條目的樣子跟任務卡不一樣，我要它一樣」). Clickable ⇒ a
+              <button> carrying the 齒輪, exactly as task-card__type-chip does;
+              otherwise the same pill as a plain <span>. The KIND half stays
+              muted prefix text — only the name was asked to become a badge. */}
           {scope.manualKey === "" ? (
-            <span className="lore-row__scope-name" data-testid="lore-scope-name">
-              {scope.label}
+            <span
+              className="lore-badge lore-badge--type"
+              data-testid="lore-scope-name"
+            >
+              <span className="lore-row__scope-name">{scope.label}</span>
             </span>
           ) : (
             <button
               type="button"
-              className="lore-row__scope-name lore-row__scope-name--link"
+              className="lore-badge lore-badge--type lore-row__scope-chip"
               data-testid="lore-scope-name"
               aria-label={msg.loreOpenManual(scope.label)}
               title={msg.loreOpenManual(scope.label)}
               onClick={() => onOpenManual(scope.manualKey)}
             >
-              {scope.label}
+              <GearIcon size={13} />
+              <span className="lore-row__scope-name">{scope.label}</span>
             </button>
           )}
         </span>
@@ -1061,6 +1092,20 @@ function LoreRow({
         {entry.body}
       </div>
 
+      {/* The box to write to this entry's author — OUTSIDE `expanded`, the way
+          任務卡's message box is always on the card (owner: 「訊息輸入框預設就要
+          在」). It used to sit inside the expanded body under 撰寫人; a reader
+          who wanted to ask one question about a row they could already read had
+          to open the row first, which is a step the 任務 page does not ask for.
+          🔴 Only a reachable author gets one. The departed author's pill is
+          deliberately not a button, and a composer that sends to nobody would be
+          that same dead affordance in a larger shape.
+          It is no longer a cell of `.lore-row__meta`'s grid, so lore.css gives
+          it the full row width itself rather than a `grid-column` span. */}
+      {author.peerId !== "" && (
+        <LoreAuthorComposer entryId={entry.id} author={author} />
+      )}
+
       {expanded && (
         <div className="lore-row__meta">
           {/* 撰寫人自成一列: label left, avatar+name pill right, and the
@@ -1072,20 +1117,9 @@ function LoreRow({
             onOpenChat={(peerId) => onOpenChat(peerId, entry.id)}
           />
 
-          {/* …and the box to write in, directly under the person it writes to
-              (owner, card rc-abf2c90d887c option ②). The 名牌 jump STAYS — it is
-              how you open the whole conversation; this box is how you say one
-              sentence without leaving the entry you are reading.
-              🔴 Only a reachable author gets one. The departed author's pill is
-              deliberately not a button, and a composer that sends to nobody
-              would be that same dead affordance in a larger shape.
-              It spans BOTH grid columns: it is not a value belonging to a
-              label, it is its own surface. */}
-          {author.peerId !== "" && (
-            <LoreAuthorComposer entryId={entry.id} author={author} />
-          )}
-
-          {/* 生效期 left, 提到最新 right, ONE row. */}
+          {/* 生效期 directly UNDER 撰寫人 (owner: 「生效期移到撰寫人下面一列」) —
+              with the composer lifted out of this grid, the two label rows are
+              now adjacent instead of being split by a writing surface. */}
           <span className="lore-row__meta-label">{t.lore.effectiveLabel}</span>
           <div className="lore-row__effective">
             <span className="lore-row__effective-ts" data-testid="lore-effective">
@@ -1126,21 +1160,29 @@ function LoreRow({
 /** The box under 撰寫人 — one sentence to the person who wrote this entry,
  * sent without leaving the page.
  *
- * 🔴 THE ENTRY ID IS PREPENDED BY THIS BOX, NOT TYPED BY THE READER, and the
- * note under the box is the ONLY place that says so. The whole reason this
- * affordance exists is that the author may hold dozens of entries and 「這條還
- * 適用嗎」 without a subject costs them a round trip to ask which one. Leaving
- * the reader to type the id would put the failure back exactly where it was,
- * and prepending it silently would send something different from what they see
- * — so it is prepended, and it is stated.
+ * 🔴 THE ENTRY ID IS PREPENDED BY THIS BOX, NOT TYPED BY THE READER. The whole
+ * reason this affordance exists is that the author may hold dozens of entries
+ * and 「這條還適用嗎」 without a subject costs them a round trip to ask which
+ * one. Leaving the reader to type the id would put the failure back exactly
+ * where it was.
+ *
+ * ⚠️ NOTHING ON SCREEN SAYS SO ANY MORE. There used to be a line under the box
+ * (`.lore-row__composer-note`) — the only place the reader learned that what
+ * goes out is not exactly what they typed — and owner removed it in the round
+ * that made this row look like a 任務卡 (任務卡 has no such line). The PREFIX
+ * ITSELF WAS DELIBERATELY LEFT ALONE: that round was 外觀 only. So the silent
+ * rewrite the note existed to disclose is now silent, and that is a known,
+ * chosen cost, not an oversight to quietly re-fix here.
  *
  * 🔴 A FAILED SEND KEEPS THE DRAFT AND SAYS SO. A box that clears itself on a
  * failure looks identical to one that succeeded, and what is lost is the
  * reader's own sentence.
  *
- * ⚠️ NO ATTACHMENTS HERE, unlike 任務卡's composer. That box carries the whole
- * conversation with an executor; this one carries one question about one entry.
- * Anything longer belongs in the chat the 名牌 jumps to, which is still there.
+ * ATTACHMENTS RIDE THE SAME MESSAGE, through the SAME staging machine the 任務卡
+ * composer and the chat composer use (useAttachmentStaging): paste an image into
+ * the box or pick files with the 📎, and they go out on the one postChat call
+ * this box makes. The slot is per-mount, so one entry's staged files can never
+ * surface under another's box.
  */
 function LoreAuthorComposer({
   entryId,
@@ -1156,8 +1198,25 @@ function LoreAuthorComposer({
   const [failed, setFailed] = useState(false);
   const [sent, setSent] = useState(false);
   const boxRef = useRef<HTMLTextAreaElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const isComposingRef = useRef(false);
-  const canSend = !sending && draft.trim().length > 0;
+  // The SHARED staging machine (same caps, same paste/pick funnels as the chat
+  // composer / 任務卡). `STAGING_TARGET_PER_MOUNT` is the honest slot for this
+  // surface: a LoreRow is mounted per entry, so the files die with the entry's
+  // box and one row's staging cannot appear under another row's.
+  const {
+    pendingAttachments,
+    attachError,
+    onPaste,
+    onPickFile,
+    removeAttachment,
+    clearAttachments,
+  } = useAttachmentStaging(STAGING_TARGET_PER_MOUNT);
+  // 🔴 TEXT **OR** FILES — the same rule 任務卡 uses. A message that is only a
+  // screenshot is a legitimate message; requiring a sentence beside it would
+  // make the 📎 an affordance that cannot complete on its own.
+  const canSend =
+    !sending && (draft.trim().length > 0 || pendingAttachments.length > 0);
 
   // Auto-grow to the draft, same as the chat composer; the CSS max-height caps
   // it and the box scrolls beyond that.
@@ -1167,6 +1226,11 @@ function LoreAuthorComposer({
 
   async function send() {
     if (!canSend) return;
+    const attachments: ChatAttachmentInput[] = pendingAttachments.map((a) => ({
+      dataB64: a.dataUri,
+      ...(a.filename ? { filename: a.filename } : {}),
+      mime: a.mime,
+    }));
     setSending(true);
     setSent(false);
     try {
@@ -1174,13 +1238,17 @@ function LoreAuthorComposer({
       await api.postChat({
         to: author.peerId,
         body: `[${entryId}] ${draft.trim()}`,
+        ...(attachments.length > 0 ? { attachments } : {}),
       });
       setDraft("");
+      clearAttachments();
       setFailed(false);
       setSent(true);
     } catch (e) {
       console.warn("LorePage: message to author failed", e);
-      // The typed content stays — retry-friendly, and the notice says so.
+      // The typed content stays — retry-friendly, and the notice says so. The
+      // STAGED FILES stay for the same reason: clearing them on a failure would
+      // silently cost the reader the thing they cannot retype.
       setFailed(true);
     } finally {
       setSending(false);
@@ -1199,7 +1267,36 @@ function LoreAuthorComposer({
 
   return (
     <div className="lore-row__composer" data-testid="lore-author-composer">
+      {/* Staged-attachment preview strip — the SAME component (and therefore the
+       * same markup and classes) the chat composer / ReplyComposer / 任務卡 use.
+       * The mount guard lives here, as it does at every other call site. */}
+      {(pendingAttachments.length > 0 || attachError) && (
+        <ComposerAttachmentPreview
+          pendingAttachments={pendingAttachments}
+          attachError={attachError}
+          onRemove={removeAttachment}
+        />
+      )}
       <div className="lore-row__composer-row">
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept={ATTACH_ACCEPT}
+          multiple
+          onChange={onPickFile}
+          hidden
+        />
+        <button
+          type="button"
+          className="lore-row__composer-attach"
+          aria-label={t.chat.attachLabel}
+          title={t.chat.attachLabel}
+          disabled={sending}
+          data-testid="lore-msg-attach"
+          onClick={() => fileInputRef.current?.click()}
+        >
+          <PaperclipIcon size={18} />
+        </button>
         <textarea
           ref={boxRef}
           className="lore-row__composer-input"
@@ -1220,6 +1317,7 @@ function LoreAuthorComposer({
             setDraft(e.currentTarget.value);
           }}
           onKeyDown={onKeyDown}
+          onPaste={onPaste}
         ></textarea>
         <button
           type="button"
@@ -1228,12 +1326,9 @@ function LoreAuthorComposer({
           data-testid="lore-msg-send"
           onClick={() => void send()}
         >
+          <SendIcon size={14} />
           {t.lore.messageSend}
         </button>
-      </div>
-      {/* 🔴 The one line that says what gets sent is not what was typed. */}
-      <div className="lore-row__composer-note" data-testid="lore-msg-prefix-note">
-        {t.lore.messagePrefixNote(entryId)}
       </div>
       {failed && (
         <div

@@ -38,7 +38,11 @@ import { I18nProvider } from "../i18n";
 import { LorePage } from "./LorePage";
 import { __resetMock } from "../api/mock";
 import { api } from "../api";
-import type { LoreEntryPageView, LoreEntryView } from "../api/adapter";
+import type {
+  ChatAttachmentInput,
+  LoreEntryPageView,
+  LoreEntryView,
+} from "../api/adapter";
 
 function mkEntry(over: Partial<LoreEntryView> & { id: string }): LoreEntryView {
   return {
@@ -612,16 +616,26 @@ describe("LorePage — 屬於 在收合的列上就說得出是哪一種", () =>
 //      such an author is deliberately not a button, and a composer that sends
 //      into nothing is that same dead affordance in a larger shape.
 describe("LorePage — 內嵌輸入框", () => {
+  /** 🔴 THIS HELPER NO LONGER OPENS ANYTHING, AND THAT IS AN ASSERTION.
+   * It used to click the row, because the box lived in the expanded body. Owner
+   * moved it onto the collapsed row (「訊息輸入框預設就要在（不用展開）」, the
+   * 任務卡 behaviour), so every spec below now also states that the box is
+   * reachable without a click — a `waitFor` that never resolves is how a
+   * regression back into `expanded &&` shows up here. */
   async function openComposer(entryId = "L-7", authorId = "mira") {
     stubList(page([mkEntry({ id: entryId, state: "active", authorId })]));
     const { container } = renderPage();
     await waitFor(() => expect(renderedIds(container)).toHaveLength(1));
-    fireEvent.click(rowById(container, entryId));
     await waitFor(() =>
       expect(
         container.querySelector('[data-testid="lore-msg-input"]'),
       ).not.toBeNull(),
     );
+    // The row really is closed: 撰寫人 is the expanded-only element.
+    expect(container.querySelector('[data-testid="lore-author-row"]')).toBeNull();
+    expect(
+      container.querySelector('[data-testid="lore-author-link"]'),
+    ).toBeNull();
     return container;
   }
 
@@ -654,14 +668,105 @@ describe("LorePage — 內嵌輸入框", () => {
     ).not.toBeNull();
   });
 
-  it("tells the reader the id will be prepended, before they send anything", async () => {
+  // ⚠️ THIS SPEC USED TO ASSERT THE OPPOSITE, and the flip is owner's, not a
+  // convenience. It read 「tells the reader the id will be prepended, before
+  // they send anything」 and required `lore-msg-prefix-note` to be PRESENT and
+  // to name the entry — that line was the only place on screen saying that what
+  // goes out is not what was typed. Owner removed the line in the round that
+  // made this row look like a 任務卡 (任務卡 has no such line) and ruled the
+  // round 外觀-only, so THE PREFIX ITSELF STAYS.
+  //
+  // 🔴 So the spec keeps the half that still holds and states the cost of the
+  // half that changed: no note, and the id still leads the wire. Deleting the
+  // spec instead would have left 「the note is gone」 unrecorded and 「the prefix
+  // survived the note's removal」 unguarded — and the prefix is the half whose
+  // loss lands on the OTHER person's side, where nothing on this screen shows
+  // it.
+  it("no longer shows the prefix note, and still sends the id ahead of the text", async () => {
+    const posted: { to: string; body: string }[] = [];
+    vi.spyOn(api, "postChat").mockImplementation(async (m) => {
+      posted.push({ to: m.to, body: m.body });
+    });
+
     const container = await openComposer("L-31");
-    // 🔴 This note is the ONLY place on screen that says what goes out differs
-    // from what was typed. Without it the prefix is a silent rewrite of the
-    // reader's own words.
-    const note = container.querySelector('[data-testid="lore-msg-prefix-note"]');
-    expect(note).not.toBeNull();
-    expect(note!.textContent).toContain("L-31");
+    expect(
+      container.querySelector('[data-testid="lore-msg-prefix-note"]'),
+    ).toBeNull();
+
+    const box = container.querySelector<HTMLTextAreaElement>(
+      '[data-testid="lore-msg-input"]',
+    )!;
+    fireEvent.change(box, { target: { value: "這條還適用嗎" } });
+    fireEvent.click(
+      container.querySelector<HTMLElement>('[data-testid="lore-msg-send"]')!,
+    );
+
+    await waitFor(() => expect(posted).toHaveLength(1));
+    expect(posted[0].body).toBe("[L-31] 這條還適用嗎");
+  });
+
+  // 🔴 THE BOX ON THE COLLAPSED ROW SITS ON THE ROW'S OWN TOGGLE SURFACE.
+  // Every click inside `.lore-row` that is not filtered out by the row's
+  // closest() list flips expanded — so a composer that renders while collapsed
+  // and is NOT in that list folds the entry away as soon as the reader reaches
+  // for it. On screen the box still accepts the click; what happens is the card
+  // shuts. The textarea and the buttons are covered by the element entries in
+  // that list; this asserts the SURFACE AROUND them is too.
+  it("does not expand or collapse the row when the composer is clicked", async () => {
+    const container = await openComposer("L-7");
+    const composer = container.querySelector<HTMLElement>(
+      '[data-testid="lore-author-composer"]',
+    )!;
+
+    fireEvent.click(composer);
+    expect(container.querySelector('[data-testid="lore-author-row"]')).toBeNull();
+
+    const box = container.querySelector<HTMLTextAreaElement>(
+      '[data-testid="lore-msg-input"]',
+    )!;
+    fireEvent.click(box);
+    fireEvent.change(box, { target: { value: "打字不該把卡片摺起來" } });
+    expect(container.querySelector('[data-testid="lore-author-row"]')).toBeNull();
+    expect(box.value).toBe("打字不該把卡片摺起來");
+  });
+
+  // The 📎 owner asked for (「加上附加檔案按鈕」): staged files ride the SAME
+  // postChat call as the text, and a message that is ONLY files is sendable —
+  // the 任務卡 rule. A 📎 whose files never reach `attachments` looks identical
+  // on screen to one whose files do.
+  it("carries staged files on the same message, and sends with no text at all", async () => {
+    const posted: {
+      body: string;
+      attachments?: ChatAttachmentInput[];
+    }[] = [];
+    vi.spyOn(api, "postChat").mockImplementation(async (m) => {
+      posted.push({ body: m.body, attachments: m.attachments });
+    });
+
+    const container = await openComposer("L-7");
+    const send = container.querySelector<HTMLButtonElement>(
+      '[data-testid="lore-msg-send"]',
+    )!;
+    // Empty box, nothing staged ⇒ the button cannot fire.
+    expect(send.disabled).toBe(true);
+    expect(
+      container.querySelector('[data-testid="lore-msg-attach"]'),
+    ).not.toBeNull();
+
+    const fileInput = container.querySelector<HTMLInputElement>(
+      '[data-testid="lore-author-composer"] input[type="file"]',
+    )!;
+    const file = new File(["hello"], "note.txt", { type: "text/plain" });
+    fireEvent.change(fileInput, { target: { files: [file] } });
+
+    // The strip appears, and the send button comes alive with NO text typed.
+    await waitFor(() => expect(send.disabled).toBe(false));
+
+    fireEvent.click(send);
+    await waitFor(() => expect(posted).toHaveLength(1));
+    expect(posted[0].body).toBe("[L-7] ");
+    expect(posted[0].attachments).toHaveLength(1);
+    expect(posted[0].attachments![0].filename).toBe("note.txt");
   });
 
   it("keeps the draft and says so when the send fails", async () => {
@@ -700,9 +805,8 @@ describe("LorePage — 內嵌輸入框", () => {
     );
     const { container } = renderPage();
     await waitFor(() => expect(renderedIds(container)).toHaveLength(2));
-    fireEvent.click(rowById(container, "here"));
-    fireEvent.click(rowById(container, "gone"));
 
+    // No click: the box is on the collapsed row now, and so is its absence.
     await waitFor(() =>
       expect(
         rowById(container, "here").querySelector(

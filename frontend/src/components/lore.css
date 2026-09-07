@@ -201,7 +201,11 @@
  * shortened name. */
 .lore-row__scope {
   display: inline-flex;
-  align-items: baseline;
+  /* `center`, not `baseline`: the NAME half is a pill (.lore-badge--type) with
+   * its own border and padding, and baseline-aligning a bordered pill against
+   * bare text sits the pill low. */
+  align-items: center;
+  gap: 4px;
   min-width: 0;
   font-size: 12px;
   color: var(--color-text-muted);
@@ -210,29 +214,27 @@
   flex: none;
   white-space: pre;
 }
+/* The name text INSIDE the badge — copied from tasks.css `.task-card__type`,
+ * the span that lives inside 任務卡's 類型 badge. */
 .lore-row__scope-name {
+  color: var(--color-text);
+  font-weight: 600;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 /* Only a 任務傳承 has a page to land on; role and member scopes render as the
- * plain span above and are never clickable. */
-button.lore-row__scope-name--link {
-  margin: 0;
-  padding: 0;
-  border: 0;
-  background: transparent;
-  font: inherit;
-  color: inherit;
-  text-decoration: underline;
-  text-decoration-color: color-mix(in srgb, currentColor 35%, transparent);
-  text-underline-offset: 2px;
+ * plain <span> pill above and are never clickable. Copied from tasks.css
+ * `button.task-card__type-chip`. */
+button.lore-row__scope-chip {
   cursor: pointer;
-  transition: color 0.15s;
+  background: none;
+  font-family: inherit;
+  transition: border-color 0.15s;
 }
-button.lore-row__scope-name--link:hover {
-  color: var(--color-accent);
+button.lore-row__scope-chip:hover {
+  border-color: color-mix(in srgb, var(--color-task-type) 70%, transparent);
 }
 
 .lore-row__title {
@@ -306,6 +308,26 @@ button.lore-row__scope-name--link:hover {
 }
 .lore-badge--state-retired {
   color: var(--color-text-muted);
+}
+/* 屬於's name half wears 任務卡's 類型 badge — copy of tasks.css
+ * `.task-badge--type`, same token, same 40% border mix. Its own teal
+ * (--color-task-type), NOT --color-accent: 置頂 already owns accent on this row
+ * and two same-coloured pills side by side would read as one pair. */
+.lore-badge--type {
+  color: var(--color-task-type);
+  border-color: color-mix(in srgb, var(--color-task-type) 40%, transparent);
+}
+/* The leading dot + the 齒輪 must not absorb the shrink the name needs. */
+.lore-badge--type svg,
+.lore-badge--type::before {
+  flex: none;
+}
+/* The name is the one badge whose text is user data of unbounded length (a
+ * manual's display name), so it alone opts out of .lore-badge's flex:none —
+ * copy of tasks.css's second `.task-badge--type` block. */
+.lore-badge--type {
+  flex: 0 1 auto;
+  max-width: 100%;
 }
 
 /* ── badge → state menu (copy of .task-card__status / __status-chip) ── */
@@ -474,73 +496,113 @@ button.lore-row__chip--link {
   min-width: 0;
 }
 
-/* ── 傳訊息給撰寫人, inline under the 撰寫人 row ──
- * Spans BOTH grid columns: it is not a value belonging to a label, it is its
- * own surface. */
+/* ── 傳訊息給撰寫人 ──
+ * 🔴 IT IS NO LONGER A CELL OF `.lore-row__meta`. The composer renders on the
+ * COLLAPSED row now (owner: 「訊息輸入框預設就要在」), which puts it outside the
+ * label/value grid entirely — so the `grid-column: 1 / -1` span that used to
+ * give it both columns is gone and it is simply a full-width child of the
+ * flex-column `.lore-row`.
+ *
+ * The three parts below are copies of 任務卡's composer row, value for value:
+ *   .lore-row__composer-row    ← tasks.css .task-card__composer
+ *   .lore-row__composer-attach ← office.css .chat__attach
+ *   .lore-row__composer-input  ← office.css .chat__input
+ *   .lore-row__composer-send   ← tasks.css .task-card__send
+ * copied rather than imported, for the reason at the top of this file. */
 .lore-row__composer {
-  grid-column: 1 / -1;
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 6px;
   margin-top: 2px;
   min-width: 0;
 }
 .lore-row__composer-row {
   display: flex;
+  /* Bottom-align: the input is a growing textarea (multi-line drafts) — the
+   * send button stays anchored to its last line, like the chat composer. */
   align-items: flex-end;
-  gap: 6px;
-  min-width: 0;
+  gap: 8px;
+}
+/* 📎 — same 44px square as the chat composer's, a quiet card surface beside the
+ * solid send button (copy of office.css .chat__attach). */
+.lore-row__composer-attach {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  flex: none;
+  border-radius: 12px;
+  border: 1px solid color-mix(in srgb, var(--color-overlay) 6%, transparent);
+  background: var(--color-card);
+  color: var(--color-text-muted);
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s;
+}
+.lore-row__composer-attach:hover:not(:disabled) {
+  color: var(--color-text);
+  border-color: color-mix(in srgb, var(--color-accent) 40%, transparent);
+}
+/* While a send is in flight the whole row is inert — the 📎 greys out with the
+ * send button (tasks.css does the same for its unassigned case; office.css
+ * never disables .chat__attach because the chat composer has no such state). */
+.lore-row__composer-attach:disabled {
+  opacity: 0.45;
+  cursor: default;
 }
 .lore-row__composer-input {
-  flex: 1 1 auto;
+  flex: 1;
   min-width: 0;
+  min-height: 44px;
   /* Auto-grown by autosizeTextarea; this is the ceiling it grows into, after
    * which the box scrolls rather than pushing the rest of the row off. */
-  max-height: 140px;
+  max-height: 132px;
+  height: 44px;
   margin: 0;
-  padding: 6px 10px;
-  border-radius: var(--radius-md, 8px);
-  border: 1px solid color-mix(in srgb, var(--color-overlay) 14%, transparent);
-  background: color-mix(in srgb, var(--color-overlay) 4%, transparent);
+  padding: 11px 16px;
+  border-radius: 12px;
+  border: 1px solid color-mix(in srgb, var(--color-overlay) 6%, transparent);
+  background: var(--color-card);
   color: var(--color-text);
-  font: inherit;
-  font-size: 12.5px;
-  line-height: 1.5;
+  font-family: inherit;
+  font-size: 14px;
+  line-height: 20px;
+  outline: none;
   resize: none;
   overflow-y: auto;
 }
-.lore-row__composer-input:focus-visible {
-  outline: none;
-  border-color: color-mix(in srgb, var(--color-accent) 55%, transparent);
+.lore-row__composer-input::placeholder {
+  color: var(--color-text-muted);
 }
+.lore-row__composer-input:focus {
+  border-color: color-mix(in srgb, var(--color-accent) 40%, transparent);
+}
+/* Solid indigo, icon + word — the 任務卡 send button (copy of
+ * tasks.css .task-card__send), not the hollow accent outline this box wore. */
 .lore-row__composer-send {
   flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   margin: 0;
-  padding: 6px 14px;
-  border-radius: var(--radius-pill);
-  border: 1px solid color-mix(in srgb, var(--color-accent) 45%, transparent);
-  background: color-mix(in srgb, var(--color-accent) 12%, transparent);
-  color: var(--color-accent);
-  font: inherit;
-  font-size: 12.5px;
+  padding: 9px 16px;
+  border-radius: 10px;
+  border: none;
+  background: var(--color-indigo);
+  color: var(--color-text-strong);
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 600;
   cursor: pointer;
-  transition: background 0.15s, opacity 0.15s;
+  transition: filter 0.15s;
 }
 .lore-row__composer-send:hover:not(:disabled) {
-  background: color-mix(in srgb, var(--color-accent) 20%, transparent);
+  filter: brightness(1.15);
 }
 /* Disabled must READ as disabled — a send button that looks live on an empty
  * box teaches the reader that clicking it did nothing. */
 .lore-row__composer-send:disabled {
   opacity: 0.45;
   cursor: default;
-}
-/* 🔴 The line that says the entry id is prepended. Quiet, but never hidden:
- * it is the only place the reader learns that what goes out is not exactly
- * what they typed. */
-.lore-row__composer-note {
-  font-size: 11.5px;
-  color: var(--color-text-muted);
 }
 .lore-row__composer-error {
   font-size: 11.5px;
