@@ -32,11 +32,3 @@ func TestMachineRevokedMsg(t *testing.T) {
 func TestRequirePrincipalClass(t *testing.T) {
 	t.Skip("TODO: requirePrincipalClass wraps a handler with the ONE RBAC enforcement choke the route table attaches (service.authz.require_principal_class): the request's principal (resolved from the claims the auth middleware stashed + the roster lookup) must rank at or above minimum, or the request is a flat 403.")
 }
-
-func TestAssertAllRoutesDeclareRequires(t *testing.T) {
-	t.Skip("TODO: assertAllRoutesDeclareRequires is the fail-closed boot assertion (service.authz.assert_all_routes_declare_requires, app.py spirit): EVERY route row must declare a KNOWN requires class, consistent with its auth label (auth==\"public\" ⟺ requires==\"public\").")
-}
-
-func TestAssertAllRoutesLabelled(t *testing.T) {
-	t.Skip("TODO: assertAllRoutesLabelled is the deny-by-default auth-label boot assertion (plumbing.auth.assert_all_routes_labelled): every route must carry a KNOWN auth label; anything else refuses to start.")
-}
