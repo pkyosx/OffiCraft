@@ -231,6 +231,47 @@ for (const width of [320, 390, 520]) {
   });
 }
 
+// The BOUNDARY itself. Every case above and the 1280 case below sit on one
+// side or the other of settings.css's existing 720px breakpoint, and an even
+// track count is even on either side of it — so all of them stay green if the
+// breakpoint moves. These two widths are one 10px step apart across it and
+// assert the flip, which is the only thing that reddens when the breakpoint
+// itself changes.
+//
+// The number asserted is the COLUMN count (chips on the first row), not the
+// row count: rows depend on how many models exist, columns do not, so adding a
+// 5th Codex model must not redden these.
+// MEASURED against this build: 720 → group 638, 4 x 311 on 2 rows (2 columns);
+//                              730 → group 648, 4 x 155 on 1 row  (4 columns).
+for (const { width, columns } of [
+  { width: 720, columns: 2 },
+  { width: 730, columns: 4 },
+]) {
+  test(`任務手冊 負責成員 模型 @${width}: the 720px breakpoint gives ${columns} columns`, async ({
+    mount,
+    page,
+  }) => {
+    await openManualCodex(mount, page, width);
+    const group = groupOf(page, "manual-assignee-model-gpt-6-astra");
+    const chips = await readChips(group, "manual-assignee-model");
+    const rows = rowsOf(chips);
+    expect(
+      rows[0].length,
+      `任務手冊 負責成員 模型 @${width}: the chips lay out in ${columns} columns. ` +
+        `This is settings.css's 720px breakpoint; a different count here means ` +
+        `the breakpoint moved, and the cases at 320/390/520/1280 cannot see that ` +
+        `because they are all on one side of it or the other ` +
+        `(rows measured: ${rows.map((r) => r.length).join("+")} of ${chips.length} chips)`
+    ).toBe(columns);
+    await assertNoOrphanChip(
+      `任務手冊 負責成員 模型 @${width}`,
+      group,
+      "manual-assignee-model",
+      width
+    );
+  });
+}
+
 // The wide end, which the 390px cases cannot see: fixing the phone by splitting
 // the chips in two costs the desktop, and the way that reads is the mismatch
 // with 投入程度 — the identical control directly below, on a plain flex row. So
