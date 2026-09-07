@@ -40,6 +40,14 @@
 # file's targets and the Makefile's named targets, and reddens on either. It
 # runs in the contract-guards lane, so a forgotten line cannot reach main.
 # What IS structural is the half that used to break: the cloud has no list.
+#
+# ⚠️ ORDER WITHIN A LANE MATTERS FOR ONE REASON: `make` stops at the first
+# recipe that fails, so a check placed after a failing one does not run — and
+# this repo has already shipped a new check that sat behind a red one and
+# therefore never executed in the cloud at all. lint-ci-round is FIRST in its
+# lane deliberately: it is the cheapest check in the round and it is the one
+# guarding this file, so it must not be reachable only when everything else
+# already passed.
 
 go-checks           build-embed-assets
 e2e-isolation-guard test-e2e-isolation-guard
@@ -50,13 +58,13 @@ go-checks           lint-go-vet
 go-checks           build-go
 go-checks           test-go
 go-checks           test-system-interaction-examples
+contract-guards     lint-ci-round
 contract-guards     lint-uplink-contract
 contract-guards     lint-effort-vocab
 contract-guards     lint-kind-vocab
 contract-guards     lint-shadow-claim
 contract-guards     lint-user-operation-contract
 contract-guards     lint-chat-pushdown
-contract-guards     lint-ci-round
 drift-checks        drift-ocapi
 drift-checks        drift-mcp-catalog
 conformance         lint-conformance-blackbox
