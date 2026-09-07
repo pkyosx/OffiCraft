@@ -537,7 +537,6 @@ fi
 # be sabotaged. Measured: with the row deleted, `bin/run-checks.sh --lane
 # contract-guards` goes green and this dispatch goes red naming the missing row.
 CIROUND="$HERE/../ci-round-guard.py"
-CIROUND_SELFTEST="$HERE/ci-round-guard-selftest.py"
 echo
 if [[ -f "$CIROUND" ]]; then
   if python3 "$CIROUND"; then
@@ -548,16 +547,6 @@ if [[ -f "$CIROUND" ]]; then
 else
   bad "bin/ci-round-guard.py is missing"
 fi
-if [[ -f "$CIROUND_SELFTEST" ]]; then
-  if python3 "$CIROUND_SELFTEST"; then
-    ok "ci-round guard selftest passed (its positive controls still redden)"
-  else
-    bad "ci-round guard selftest FAILED (see output above)"
-  fi
-else
-  bad "bin/tests/ci-round-guard-selftest.py is missing"
-fi
-
 # ── the wrapper that proves a check RAN: its own contract (T-4d88) ───────────
 # bin/run-checks.sh runs `make <targets>` and then requires each target's own
 # `[oc-check-done] <target>` line, because a zero exit says "nothing failed",

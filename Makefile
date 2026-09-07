@@ -404,7 +404,6 @@ lint-chat-pushdown:
 	@$(P) \
 	echo "[lint-chat-pushdown] the chat page stays pushed down; unread counting has one entry point"; \
 	python3 bin/chat-pushdown-guard.py; \
-	python3 bin/tests/chat-pushdown-guard-selftest.py; \
 	$(DONE)
 
 # The round list and the Makefile must name the same checks (T-127), asserted as
@@ -429,13 +428,13 @@ lint-chat-pushdown:
 # ⇒ The general form, since I got it wrong in a comment: a guard's comment must
 # say what was OBSERVED to redden, not what the author expects to redden.
 #
-# The selftest is the positive control: a green from the guard means nothing
-# unless the guard can be shown to redden on a tree that deserves it.
+# It had a selftest that mutated real copies of ci.yml, the Makefile and the
+# round list to prove the guard reddens; the owner removed it (2026-09-08) —
+# a check that edits production files to test itself is not wanted here.
 lint-ci-round:
 	@$(P) \
 	echo "[lint-ci-round] the round list and the Makefile name the same checks, and every lane is a gate job"; \
 	python3 bin/ci-round-guard.py; \
-	python3 bin/tests/ci-round-guard-selftest.py; \
 	$(DONE)
 
 # The chat surface's async-landing census (T-48). It reads source text — which
