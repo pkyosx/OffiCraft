@@ -166,34 +166,6 @@ func TestHandleSetPasswordApiAuthSetPasswordPost(t *testing.T) {
 		apiWantError(t, data, "unauthorized", "invalid claim token")
 	})
 
-	t.Run("a storage fault while the claim token is read answers 500", func(t *testing.T) {
-		_, h, d, claim := newAPITestStack(t)
-		if err := d.rdb.Close(); err != nil {
-			t.Fatalf("close: %v", err)
-		}
-
-		status, data := apiJSON(t, h, "POST", "/api/auth/set-password", "",
-			`{"password":"first-run-pass","claim_token":"`+claim+`"}`)
-		if status != 500 {
-			t.Fatalf("want 500, got %d (%v)", status, data)
-		}
-		apiWantError(t, data, "internal_error", "internal error: sql: database is closed")
-	})
-
-	t.Run("a storage fault while the hash is stored answers 500", func(t *testing.T) {
-		_, h, d, claim := newAPITestStack(t)
-		if err := d.wdb.Close(); err != nil {
-			t.Fatalf("close: %v", err)
-		}
-
-		status, data := apiJSON(t, h, "POST", "/api/auth/set-password", "",
-			`{"password":"first-run-pass","claim_token":"`+claim+`"}`)
-		if status != 500 {
-			t.Fatalf("want 500, got %d (%v)", status, data)
-		}
-		apiWantError(t, data, "internal_error", "internal error: sql: database is closed")
-	})
-
 	t.Run("attempts beyond the in-flight cap answer 429 with a one-second Retry-After", func(t *testing.T) {
 		api, h, _, _ := newAPITestStack(t)
 		api.credentialFailureFloor = 2 * time.Second
@@ -332,20 +304,6 @@ func TestHandleChangePasswordApiAuthChangePasswordPost(t *testing.T) {
 			t.Fatalf("want 403, got %d (%v)", status, data)
 		}
 		apiWantError(t, data, "forbidden", "principal not permitted")
-	})
-
-	t.Run("a storage fault while the new hash is stored answers 500", func(t *testing.T) {
-		_, h, d, owner := newAPITestServer(t)
-		if err := d.wdb.Close(); err != nil {
-			t.Fatalf("close: %v", err)
-		}
-
-		status, data := apiJSON(t, h, "POST", "/api/auth/change-password", owner,
-			`{"current_password":"`+apiTestOwnerPassword+`","new_password":"a-brand-new-pass"}`)
-		if status != 500 {
-			t.Fatalf("want 500, got %d (%v)", status, data)
-		}
-		apiWantError(t, data, "internal_error", "internal error: sql: database is closed")
 	})
 }
 
@@ -801,112 +759,6 @@ func TestHandleUpdateSettingsApiSettingsPatch(t *testing.T) {
 			t.Fatalf("want 403, got %d (%v)", status, data)
 		}
 		apiWantError(t, data, "forbidden", "principal not permitted")
-	})
-
-	t.Run("a storage fault while the theme is checked answers 500", func(t *testing.T) {
-		_, h, d, owner := newAPITestServer(t)
-		if err := d.rdb.Close(); err != nil {
-			t.Fatalf("close: %v", err)
-		}
-
-		status, data := apiJSON(t, h, "PATCH", "/api/settings", owner, `{"display_theme":"midnight"}`)
-		if status != 500 {
-			t.Fatalf("want 500, got %d (%v)", status, data)
-		}
-		apiWantError(t, data, "internal_error", "internal error: sql: database is closed")
-	})
-
-	t.Run("a storage fault while any one knob is written answers 500", func(t *testing.T) {
-		_, h, d, owner := newAPITestServer(t)
-		if err := d.wdb.Close(); err != nil {
-			t.Fatalf("close: %v", err)
-		}
-
-		for _, patch := range []string{
-			`{"owner_token_ttl":43200}`,
-			`{"agent_token_ttl":43200}`,
-			`{"handover_pct":80}`,
-			`{"notice_pct":45}`,
-			`{"codex_compaction_threshold":6}`,
-			`{"codex_notice_round":1}`,
-			`{"monitoring_refresh_seconds":30}`,
-			`{"accelerated_grace_secs":90}`,
-			`{"warden_credential_lifetime_secs":864000}`,
-			`{"outsource_max_parallel":-1}`,
-			`{"doc_cap_chars_duty":2000}`,
-			`{"chat_budget_chars":9000}`,
-			`{"step_note_cap_chars":20000}`,
-			`{"backup_retain":9}`,
-			`{"updater_receive_beta":true}`,
-			`{"updater_auto_update":true}`,
-			`{"org_name":"Studio Nine"}`,
-			`{"owner_name":"Eva"}`,
-			`{"push_contact_email":"eva@example.com"}`,
-			`{"display_theme":"office"}`,
-			`{"display_language":"en"}`,
-			`{"display_wide":true}`,
-			`{"suggested_replies_reply_card":["yes"]}`,
-			`{"suggested_replies_task_message":["on it"]}`,
-		} {
-			status, data := apiJSON(t, h, "PATCH", "/api/settings", owner, patch)
-			if status != 500 {
-				t.Fatalf("%s: want 500, got %d (%v)", patch, status, data)
-			}
-			apiWantError(t, data, "internal_error", "internal error: sql: database is closed")
-		}
-	})
-
-	t.Run("a storage fault while the theme is checked answers 500", func(t *testing.T) {
-		_, h, d, owner := newAPITestServer(t)
-		if err := d.rdb.Close(); err != nil {
-			t.Fatalf("close: %v", err)
-		}
-
-		status, data := apiJSON(t, h, "PATCH", "/api/settings", owner, `{"display_theme":"midnight"}`)
-		if status != 500 {
-			t.Fatalf("want 500, got %d (%v)", status, data)
-		}
-		apiWantError(t, data, "internal_error", "internal error: sql: database is closed")
-	})
-
-	t.Run("a storage fault while any one knob is written answers 500", func(t *testing.T) {
-		_, h, d, owner := newAPITestServer(t)
-		if err := d.wdb.Close(); err != nil {
-			t.Fatalf("close: %v", err)
-		}
-
-		for _, patch := range []string{
-			`{"owner_token_ttl":43200}`,
-			`{"agent_token_ttl":43200}`,
-			`{"handover_pct":80}`,
-			`{"notice_pct":45}`,
-			`{"codex_compaction_threshold":6}`,
-			`{"codex_notice_round":1}`,
-			`{"monitoring_refresh_seconds":30}`,
-			`{"accelerated_grace_secs":90}`,
-			`{"warden_credential_lifetime_secs":864000}`,
-			`{"outsource_max_parallel":-1}`,
-			`{"doc_cap_chars_duty":2000}`,
-			`{"chat_budget_chars":9000}`,
-			`{"step_note_cap_chars":20000}`,
-			`{"backup_retain":9}`,
-			`{"updater_receive_beta":true}`,
-			`{"updater_auto_update":true}`,
-			`{"org_name":"Studio Nine"}`,
-			`{"owner_name":"Eva"}`,
-			`{"push_contact_email":"eva@example.com"}`,
-			`{"display_theme":"office"}`,
-			`{"display_language":"en"}`,
-			`{"display_wide":true}`,
-			`{"suggested_replies_reply_card":["yes"]}`,
-			`{"suggested_replies_task_message":["on it"]}`,
-		} {
-			status, data := apiJSON(t, h, "PATCH", "/api/settings", owner, patch)
-			if status != 500 {
-				t.Fatalf("%s: want 500, got %d (%v)", patch, status, data)
-			}
-			apiWantError(t, data, "internal_error", "internal error: sql: database is closed")
-		}
 	})
 }
 

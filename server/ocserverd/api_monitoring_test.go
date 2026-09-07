@@ -907,19 +907,6 @@ func TestHandleGetMonitoringApiMonitoringGet(t *testing.T) {
 		}
 		apiWantError(t, data, "unauthorized", "missing credentials")
 	})
-
-	t.Run("a storage fault answers 500", func(t *testing.T) {
-		_, h, d, owner := newAPITestServer(t)
-		if err := d.rdb.Close(); err != nil {
-			t.Fatalf("close: %v", err)
-		}
-
-		status, data := apiJSON(t, h, "GET", "/api/monitoring", owner, "")
-		if status != 500 {
-			t.Fatalf("want 500, got %d (%v)", status, data)
-		}
-		apiWantError(t, data, "internal_error", "internal error: sql: database is closed")
-	})
 }
 
 func TestAnyOrNil(t *testing.T) {

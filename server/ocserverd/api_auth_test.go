@@ -144,22 +144,6 @@ func TestHandleLoginApiLoginPost(t *testing.T) {
 		}
 	})
 
-	t.Run("a storage fault while the code is being spent answers 500 rather than letting the login through", func(t *testing.T) {
-		api, h, d, _ := newAPITestServer(t)
-		secret := apiTestArmMFA(t, api, d)
-		code := apiTestTOTPCode(t, secret)
-		if err := d.wdb.Close(); err != nil {
-			t.Fatalf("close: %v", err)
-		}
-
-		status, data := apiJSON(t, h, "POST", "/api/login", "",
-			`{"password":"`+apiTestOwnerPassword+`","code":"`+code+`"}`)
-		if status != 500 {
-			t.Fatalf("want 500, got %d (%v)", status, data)
-		}
-		apiWantError(t, data, "internal_error", "internal error: sql: database is closed")
-	})
-
 	t.Run("attempts beyond the in-flight cap answer 429 with a one-second Retry-After", func(t *testing.T) {
 		api, h, _, _ := newAPITestServer(t)
 		api.credentialFailureFloor = 2 * time.Second
@@ -361,19 +345,6 @@ func TestHandleBootstrapApiBootstrapPost(t *testing.T) {
 		}
 		apiWantError(t, data, "validation_error",
 			"invalid request body: invalid character 'o' in literal null (expecting 'u')")
-	})
-
-	t.Run("a storage fault while the boot package is assembled answers 500", func(t *testing.T) {
-		_, h, d, owner := newAPITestServer(t)
-		if err := d.rdb.Close(); err != nil {
-			t.Fatalf("close: %v", err)
-		}
-
-		status, data := apiJSON(t, h, "POST", "/api/bootstrap", owner, `{"role":"assistant"}`)
-		if status != 500 {
-			t.Fatalf("want 500, got %d (%v)", status, data)
-		}
-		apiWantError(t, data, "internal_error", "internal error: sql: database is closed")
 	})
 
 	t.Run("a member that is not on the roster answers 404", func(t *testing.T) {

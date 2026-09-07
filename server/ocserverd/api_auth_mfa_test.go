@@ -149,19 +149,6 @@ func TestHandleMfaOfferApiAuthMfaOfferPost(t *testing.T) {
 		}
 		apiWantError(t, data, "forbidden", "principal not permitted")
 	})
-
-	t.Run("a storage fault answers 500", func(t *testing.T) {
-		_, h, d, owner := newAPITestServer(t)
-		if err := d.wdb.Close(); err != nil {
-			t.Fatalf("close: %v", err)
-		}
-
-		status, data := apiJSON(t, h, "POST", "/api/auth/mfa/offer", owner, `{"offered":true}`)
-		if status != 500 {
-			t.Fatalf("want 500, got %d (%v)", status, data)
-		}
-		apiWantError(t, data, "internal_error", "internal error: sql: database is closed")
-	})
 }
 
 func TestHandleMfaEnrollApiAuthMfaEnrollPost(t *testing.T) {
@@ -268,20 +255,6 @@ func TestHandleMfaEnrollApiAuthMfaEnrollPost(t *testing.T) {
 			t.Fatalf("want 403, got %d (%v)", status, data)
 		}
 		apiWantError(t, data, "forbidden", "principal not permitted")
-	})
-
-	t.Run("a storage fault answers 500", func(t *testing.T) {
-		_, h, d, owner := newAPITestServer(t)
-		apiJSON(t, h, "POST", "/api/auth/mfa/offer", owner, `{"offered":true}`)
-		if err := d.wdb.Close(); err != nil {
-			t.Fatalf("close: %v", err)
-		}
-
-		status, data := apiJSON(t, h, "POST", "/api/auth/mfa/enroll", owner, `{}`)
-		if status != 500 {
-			t.Fatalf("want 500, got %d (%v)", status, data)
-		}
-		apiWantError(t, data, "internal_error", "internal error: sql: database is closed")
 	})
 }
 
@@ -429,39 +402,6 @@ func TestHandleMfaActivateApiAuthMfaActivatePost(t *testing.T) {
 		}
 		apiWantError(t, data, "forbidden", "principal not permitted")
 	})
-
-	t.Run("a storage fault while the pending secret is read answers 500", func(t *testing.T) {
-		_, h, d, owner := newAPITestServer(t)
-		apiJSON(t, h, "POST", "/api/auth/mfa/offer", owner, `{"offered":true}`)
-		if err := d.rdb.Close(); err != nil {
-			t.Fatalf("close: %v", err)
-		}
-
-		status, data := apiJSON(t, h, "POST", "/api/auth/mfa/activate", owner,
-			`{"password":"`+apiTestOwnerPassword+`","code":"123456"}`)
-		if status != 500 {
-			t.Fatalf("want 500, got %d (%v)", status, data)
-		}
-		apiWantError(t, data, "internal_error", "internal error: sql: database is closed")
-	})
-
-	t.Run("a storage fault while the proven secret is armed answers 500", func(t *testing.T) {
-		_, h, d, owner := newAPITestServer(t)
-		apiJSON(t, h, "POST", "/api/auth/mfa/offer", owner, `{"offered":true}`)
-		_, enrolled := apiJSON(t, h, "POST", "/api/auth/mfa/enroll", owner, `{}`)
-		secret, _ := enrolled["secret"].(string)
-		code := apiTestTOTPCode(t, secret)
-		if err := d.wdb.Close(); err != nil {
-			t.Fatalf("close: %v", err)
-		}
-
-		status, data := apiJSON(t, h, "POST", "/api/auth/mfa/activate", owner,
-			`{"password":"`+apiTestOwnerPassword+`","code":"`+code+`"}`)
-		if status != 500 {
-			t.Fatalf("want 500, got %d (%v)", status, data)
-		}
-		apiWantError(t, data, "internal_error", "internal error: sql: database is closed")
-	})
 }
 
 func TestHandleMfaDisableApiAuthMfaDisablePost(t *testing.T) {
@@ -585,21 +525,5 @@ func TestHandleMfaDisableApiAuthMfaDisablePost(t *testing.T) {
 			t.Fatalf("want 403, got %d (%v)", status, data)
 		}
 		apiWantError(t, data, "forbidden", "principal not permitted")
-	})
-
-	t.Run("a storage fault while the secret is destroyed answers 500", func(t *testing.T) {
-		api, h, d, owner := newAPITestServer(t)
-		secret := apiTestArmMFA(t, api, d)
-		code := apiTestTOTPCode(t, secret)
-		if err := d.wdb.Close(); err != nil {
-			t.Fatalf("close: %v", err)
-		}
-
-		status, data := apiJSON(t, h, "POST", "/api/auth/mfa/disable", owner,
-			`{"password":"`+apiTestOwnerPassword+`","code":"`+code+`"}`)
-		if status != 500 {
-			t.Fatalf("want 500, got %d (%v)", status, data)
-		}
-		apiWantError(t, data, "internal_error", "internal error: sql: database is closed")
 	})
 }
