@@ -13,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 )
 
@@ -128,6 +129,84 @@ func TestBuildCodexLaunchCommandAnnouncesAnUnknownEffort(t *testing.T) {
 		if _, lines := build(quiet); len(lines) != 0 {
 			t.Errorf("effort %q is a level this warden knows; it must launch "+
 				"silently, got: %v", quiet, lines)
+		}
+	}
+}
+
+// lockedBuffer is a bytes.Buffer that survives being written from more than one
+// goroutine — see the comment at its only use site.
+type lockedBuffer struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (b *lockedBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.Write(p)
+}
+
+func (b *lockedBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.String()
+}
+
+func TestRunCodexSessionAnnouncesAnUnknownEffort(t *testing.T) {
+	// The SECOND normalisation, and the one buildCodexLaunchCommand's test cannot
+	// reach: `ocwarden codex-session --effort <x>` is a subcommand, so its effort
+	// can arrive from an operator's hand or an older launch line, not only from
+	// the launcher above. Both halves coerce; both must say so.
+	//
+	// The stub app-server exits immediately, so the session gets EOF on the first
+	// response it waits for and returns without burning the app-server timeout.
+	// Everything asserted here is already on `out` by then: the effort line is
+	// emitted before `initialize` is even sent.
+	run := func(effort string) string {
+		dir := t.TempDir()
+		stub := filepath.Join(dir, "codex-stub")
+		if err := os.WriteFile(stub, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+			t.Fatalf("write stub app-server: %v", err)
+		}
+		persona := filepath.Join(dir, "persona.md")
+		if err := os.WriteFile(persona, []byte("persona\n"), 0o644); err != nil {
+			t.Fatalf("write persona: %v", err)
+		}
+		// codexAccountKey() reads ~/.codex/auth.json, which holds live credentials
+		// on a developer machine. Point HOME at the temp dir before it runs.
+		t.Setenv("HOME", dir)
+		// NOT a bare bytes.Buffer. runCodexSession hands the same writer to
+		// cmd.Stderr, and os/exec copies a non-*os.File stderr on its own
+		// goroutine — so an unsynchronised buffer races with the session's own
+		// writes and silently LOSES lines. It loses exactly the lines this test
+		// exists to see, which reads as a missing announcement rather than as a
+		// broken harness.
+		out := &lockedBuffer{}
+		runCodexSession([]string{
+			"--codex-bin", stub, "--workdir", dir, "--persona", persona,
+			"--agent-id", "m-1", "--effort", effort,
+		}, func(string) string { return "" }, out)
+		return out.String()
+	}
+
+	got := run("bogus")
+	if !strings.Contains(got, "is not a level this warden knows") {
+		t.Fatalf("an unknown --effort was coerced SILENTLY: the pane is the only "+
+			"place this difference exists, and nothing named it.\n%s", got)
+	}
+	for _, want := range []string{"bogus", "medium"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("the announcement must name %q so the reader can tell WHICH "+
+				"level was dropped and what actually ran; got:\n%s", want, got)
+		}
+	}
+
+	// Negative control: a level this warden knows must run silently, or the line
+	// is noise everyone learns to scroll past.
+	for _, quiet := range []string{"low", "medium", "high", "xhigh", "max"} {
+		if out := run(quiet); strings.Contains(out, "is not a level this warden knows") {
+			t.Errorf("effort %q is a level this warden knows; it must run "+
+				"silently, got:\n%s", quiet, out)
 		}
 	}
 }
