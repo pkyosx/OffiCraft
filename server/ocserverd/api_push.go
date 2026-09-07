@@ -181,6 +181,10 @@ type webPushPayload struct {
 // or an owner ask. 404/410 are authoritative expiration receipts and prune
 // only the corresponding endpoint.
 func (s *apiServer) enqueueWebPush(payload webPushPayload) {
+	if s.webPushSink != nil {
+		s.webPushSink(payload)
+		return
+	}
 	go func() {
 		subscriber := s.pushVAPIDSubscriber()
 		if subscriber == "" {

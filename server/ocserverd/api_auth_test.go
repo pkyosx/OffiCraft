@@ -121,6 +121,29 @@ func TestHandleLoginApiLoginPost(t *testing.T) {
 		apiWantError(t, data, "unauthorized", "invalid password or code")
 	})
 
+	t.Run("the right password with a wrong code hands the assistant alert one refusal to report", func(t *testing.T) {
+		api, h, d, _ := newAPITestServer(t)
+		apiTestArmMFA(t, api, d)
+		reported := make(chan int, 4)
+		api.authAlertDeliver = func(count int) { reported <- count }
+
+		status, data := apiJSON(t, h, "POST", "/api/login", "",
+			`{"password":"`+apiTestOwnerPassword+`","code":"000000"}`)
+		if status != 401 {
+			t.Fatalf("want 401, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "unauthorized", "invalid password or code")
+
+		select {
+		case count := <-reported:
+			if count != 1 {
+				t.Fatalf("want 1 refusal folded into the alert, got %d", count)
+			}
+		case <-time.After(5 * time.Second):
+			t.Fatal("the refusal reported nothing to the assistant alert")
+		}
+	})
+
 	t.Run("a storage fault while the code is being spent answers 500 rather than letting the login through", func(t *testing.T) {
 		api, h, d, _ := newAPITestServer(t)
 		secret := apiTestArmMFA(t, api, d)

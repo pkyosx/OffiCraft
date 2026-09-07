@@ -104,6 +104,47 @@ func TestHandleIngestAgentContextApiAgentContextPost(t *testing.T) {
 		}
 		apiWantError(t, data, "unauthorized", "missing credentials")
 	})
+
+	t.Run("an accepted report fans one context signal to the owner cockpit and to no agent", func(t *testing.T) {
+		api, h, _, _ := newAPITestServer(t)
+		agent := apiTestAgentToken(t, api, "mira", "")
+		dashboard := apiTestListen(t, api, "")
+		reporter := apiTestListen(t, api, "mira")
+
+		status, data := apiJSON(t, h, "POST", "/api/agent/context", agent, `{"context_pct":42.5}`)
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+
+		dashboard.wantFrames(map[string]any{
+			"seq":   1,
+			"topic": "context",
+			"op":    "signal",
+			"data": map[string]any{
+				"entity":  "context",
+				"key":     "mira",
+				"epoch":   1,
+				"deleted": false,
+				"payload": nil,
+			},
+			"ts":      apiAnyNumber,
+			"trigger": "mira",
+		})
+		reporter.wantFrames()
+	})
+
+	t.Run("a refused report fans nothing", func(t *testing.T) {
+		api, h, _, _ := newAPITestServer(t)
+		agent := apiTestAgentToken(t, api, "mira", "")
+		dashboard := apiTestListen(t, api, "")
+
+		status, data := apiJSON(t, h, "POST", "/api/agent/context", agent, `{"context_pct":"half"}`)
+		if status != 400 {
+			t.Fatalf("want 400, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "validation_error", "context_pct must be a number")
+		dashboard.wantFrames()
+	})
 }
 
 func TestTeleNum(t *testing.T) {
@@ -413,6 +454,96 @@ func TestHandleIngestTelemetryApiMonitoringTelemetryPost(t *testing.T) {
 			t.Fatalf("want 401, got %d (%v)", status, data)
 		}
 		apiWantError(t, data, "unauthorized", "missing credentials")
+	})
+
+	t.Run("a report carrying no launch fact fans one monitoring signal to the owner cockpit and to no agent", func(t *testing.T) {
+		api, h, _, _ := newAPITestServer(t)
+		agent := apiTestAgentToken(t, api, "mira", "")
+		dashboard := apiTestListen(t, api, "")
+		reporter := apiTestListen(t, api, "mira")
+
+		status, data := apiJSON(t, h, "POST", "/api/monitoring/telemetry", agent, `{"cost":2}`)
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+
+		dashboard.wantFrames(map[string]any{
+			"seq":   1,
+			"topic": "monitoring",
+			"op":    "signal",
+			"data": map[string]any{
+				"entity":  "monitoring",
+				"key":     "mira",
+				"epoch":   1,
+				"deleted": false,
+				"payload": nil,
+			},
+			"ts":      apiAnyNumber,
+			"trigger": "mira",
+		})
+		reporter.wantFrames()
+	})
+
+	t.Run("a report whose launch facts move the roster row fans the member patch before the monitoring signal", func(t *testing.T) {
+		api, h, _, _ := newAPITestServer(t)
+		warden := apiTestAgentToken(t, api, "m-server-self", "m-server-self")
+		dashboard := apiTestListen(t, api, "")
+		reporter := apiTestListen(t, api, "m-server-self")
+
+		status, data := apiJSON(t, h, "POST", "/api/monitoring/telemetry", warden,
+			`{"tokens":{"input":10},"runtime":"claude","effort":"high","model":"opus"}`)
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+
+		memberFrame := map[string]any{
+			"seq":   1,
+			"topic": "member",
+			"op":    "patch",
+			"data": map[string]any{
+				"entity":  "member",
+				"key":     "owner::m-server-self",
+				"epoch":   1,
+				"deleted": false,
+				"payload": map[string]any{
+					"id":            "m-server-self",
+					"name":          "伺服器這一台",
+					"status":        "active",
+					"desired_state": "offline",
+					"owner_id":      "owner",
+				},
+			},
+			"ts":      apiAnyNumber,
+			"trigger": "m-server-self",
+		}
+		dashboard.wantFrames(memberFrame, map[string]any{
+			"seq":   2,
+			"topic": "monitoring",
+			"op":    "signal",
+			"data": map[string]any{
+				"entity":  "monitoring",
+				"key":     "m-server-self",
+				"epoch":   2,
+				"deleted": false,
+				"payload": nil,
+			},
+			"ts":      apiAnyNumber,
+			"trigger": "m-server-self",
+		})
+		reporter.wantFrames(memberFrame)
+	})
+
+	t.Run("a refused report fans nothing", func(t *testing.T) {
+		api, h, _, _ := newAPITestServer(t)
+		agent := apiTestAgentToken(t, api, "mira", "")
+		dashboard := apiTestListen(t, api, "")
+
+		status, data := apiJSON(t, h, "POST", "/api/monitoring/telemetry", agent, `{"runtime":"gemini"}`)
+		if status != 400 {
+			t.Fatalf("want 400, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "validation_error", "runtime must be 'claude' or 'codex'")
+		dashboard.wantFrames()
 	})
 }
 

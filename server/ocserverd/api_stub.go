@@ -32,9 +32,14 @@ type apiServer struct {
 	// pushHTTPClient is normally the guarded client assembled in api_push.go;
 	// tests can substitute a recording client without opening a real socket.
 	pushHTTPClient webpush.HTTPClient
-	hub            *Hub
-	telemetry      *memStore
-	gauge          *memStore
+	// webPushSink replaces the delivery step of enqueueWebPush. nil — the
+	// production value — means the best-effort goroutine in api_push.go. It
+	// exists so the payload a handler hands to push is an OBSERVABLE output
+	// rather than something only a real gateway could have seen.
+	webPushSink func(payload webPushPayload)
+	hub         *Hub
+	telemetry   *memStore
+	gauge       *memStore
 	// machineClaims holds the pending one-time machine claim codes (in-memory
 	// only, like the observation stores — a restart voids them, which reads
 	// exactly like expiry).

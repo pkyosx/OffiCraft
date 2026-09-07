@@ -50,7 +50,69 @@ func TestWriteReplyCardTransitionReceipt(t *testing.T) {
 }
 
 func TestHandleCreateReplyCardApiReplyCardsPost(t *testing.T) {
-	t.Run("a well-formed POST /api/reply-cards answers 200", func(t *testing.T) { t.Skip("TODO") })
+	t.Run("an unbound card answers 200 with a receipt, fans the chat and reply_card deltas, and hands push the decision notification", func(t *testing.T) {
+		api, h, _, _ := newAPITestServer(t)
+		agent := apiTestAgentToken(t, api, "mira", "")
+		dashboard := apiTestListen(t, api, "")
+		asker := apiTestListen(t, api, "mira")
+		bystander := apiTestListen(t, api, "kip")
+		wantPushed := apiTestWebPushSink(t, api)
+
+		status, data := apiJSON(t, h, "POST", "/api/reply-cards", agent,
+			`{"kind":"decision","summary":"要不要出貨",`+
+				`"options":[{"text":"出","ai_pick":true},{"text":"不出"}],"linked_task":null}`)
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		apiWantBody(t, data, map[string]any{
+			"id":              apiAnyString,
+			"chat_message_id": apiAnyString,
+			"created_ts":      apiAnyNumber,
+			"attachments":     []any{},
+		})
+		cardID, _ := data["id"].(string)
+		messageID, _ := data["chat_message_id"].(string)
+
+		chatFrame := map[string]any{
+			"seq":   1,
+			"topic": "chat",
+			"op":    "patch",
+			"data": map[string]any{
+				"entity":  "chat",
+				"key":     "owner::" + messageID,
+				"epoch":   1,
+				"deleted": false,
+				"payload": map[string]any{"id": messageID, "from": "mira", "to": "owner"},
+			},
+			"ts":      apiAnyNumber,
+			"trigger": "mira",
+		}
+		cardFrame := map[string]any{
+			"seq":   2,
+			"topic": "reply_card",
+			"op":    "patch",
+			"data": map[string]any{
+				"entity":  "reply_card",
+				"key":     "owner::" + cardID,
+				"epoch":   2,
+				"deleted": false,
+				"payload": map[string]any{"id": cardID, "from": "mira", "status": "waiting"},
+			},
+			"ts":      apiAnyNumber,
+			"trigger": "mira",
+		}
+		dashboard.wantFrames(chatFrame, cardFrame)
+		asker.wantFrames(chatFrame, cardFrame)
+		bystander.wantFrames()
+		wantPushed(map[string]any{
+			"kind":           "reply_card",
+			"chat_id":        messageID,
+			"reply_card_id":  cardID,
+			"title":          "OffiCraft：需要你決定",
+			"body":           "你有一張新的請示卡。",
+			"needs_decision": true,
+		})
+	})
 	t.Run("a POST /api/reply-cards request without a token answers 401", func(t *testing.T) { t.Skip("TODO") })
 	t.Run("a request to POST /api/reply-cards reaches this handler and no other row", func(t *testing.T) { t.Skip("TODO") })
 	t.Run("a POST /api/reply-cards request the wire layer rejects (malformed body, wrong content type, over the size cap) answers a 4xx without reaching the domain", func(t *testing.T) { t.Skip("TODO") })

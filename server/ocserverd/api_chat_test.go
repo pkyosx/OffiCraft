@@ -261,6 +261,79 @@ func TestPostChat(t *testing.T) {
 			"attachments": []any{},
 		})
 	})
+
+	t.Run("a member posting to the owner fans one chat frame and hands push the owner's notification", func(t *testing.T) {
+		api, h, _, _ := newAPITestServer(t)
+		agent := apiTestAgentToken(t, api, "mira", "")
+		dashboard := apiTestListen(t, api, "")
+		sender := apiTestListen(t, api, "mira")
+		bystander := apiTestListen(t, api, "kip")
+		wantPushed := apiTestWebPushSink(t, api)
+
+		status, data := apiJSON(t, h, "POST", "/api/chat", agent,
+			`{"to":"owner","body":"hi boss"}`)
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		id, _ := data["id"].(string)
+
+		frame := map[string]any{
+			"seq":   1,
+			"topic": "chat",
+			"op":    "patch",
+			"data": map[string]any{
+				"entity":  "chat",
+				"key":     "owner::" + id,
+				"epoch":   1,
+				"deleted": false,
+				"payload": map[string]any{"id": id, "from": "mira", "to": "owner"},
+			},
+			"ts":      apiAnyNumber,
+			"trigger": "mira",
+		}
+		dashboard.wantFrames(frame)
+		sender.wantFrames(frame)
+		bystander.wantFrames()
+		wantPushed(map[string]any{
+			"kind":         "chat",
+			"chat_id":      id,
+			"chat_peer_id": "mira",
+			"title":        "OffiCraft 有新訊息",
+			"body":         "你有一則新訊息。",
+		})
+	})
+
+	t.Run("a message the owner sends fans one chat frame and pushes nothing", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		dashboard := apiTestListen(t, api, "")
+		recipient := apiTestListen(t, api, "mira")
+		wantPushed := apiTestWebPushSink(t, api)
+
+		status, data := apiJSON(t, h, "POST", "/api/chat", owner,
+			`{"to":"mira","body":"hi"}`)
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		id, _ := data["id"].(string)
+
+		frame := map[string]any{
+			"seq":   1,
+			"topic": "chat",
+			"op":    "patch",
+			"data": map[string]any{
+				"entity":  "chat",
+				"key":     "owner::" + id,
+				"epoch":   1,
+				"deleted": false,
+				"payload": map[string]any{"id": id, "from": "owner", "to": "mira"},
+			},
+			"ts":      apiAnyNumber,
+			"trigger": "owner",
+		}
+		dashboard.wantFrames(frame)
+		recipient.wantFrames(frame)
+		wantPushed()
+	})
 }
 
 func TestChatPostReceiptOf(t *testing.T) {

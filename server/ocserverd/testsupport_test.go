@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -322,4 +323,96 @@ func apiErrorMessage(t *testing.T, data map[string]any) string {
 	}
 	msg, _ := body["message"].(string)
 	return msg
+}
+
+// apiTestListener is one live SSE connection subscribed to the server's hub —
+// the observation surface for the deltas a handler fans out. It is the same
+// registration /api/events makes, so what it collects is what another client
+// would actually have received. memberID "" is the owner/dashboard connection,
+// which every publish is addressed to (spec/sse.md §4).
+type apiTestListener struct {
+	t   *testing.T
+	hub *Hub
+	l   *hubListener
+}
+
+func apiTestListen(t *testing.T, api *apiServer, memberID string) *apiTestListener {
+	t.Helper()
+	l, err := api.hub.Connect(memberID, "")
+	if err != nil {
+		t.Fatalf("hub.Connect(%q): %v", memberID, err)
+	}
+	t.Cleanup(func() { api.hub.Disconnect(l) })
+	return &apiTestListener{t: t, hub: api.hub, l: l}
+}
+
+// wantFrames asserts this connection received EXACTLY the frames in want, in
+// publish order, each compared field by field the way apiWantBody compares a
+// response body — apiAnyString / apiAnyNumber for the values that cannot be
+// written down in advance. Passing no frame asserts the connection was fanned
+// nothing at all.
+func (c *apiTestListener) wantFrames(want ...map[string]any) {
+	c.t.Helper()
+	got := []any{}
+	for {
+		raw := c.l.pop()
+		if raw == nil {
+			break
+		}
+		got = append(got, apiDecodeSSEFrame(c.t, raw))
+	}
+	expected := make([]any, len(want))
+	for i := range want {
+		expected[i] = want[i]
+	}
+	apiWantValue(c.t, "frames", any(got), any(expected))
+}
+
+// apiDecodeSSEFrame parses one buffered wire-text frame ("id: N\ndata: {…}\n\n")
+// back into the decoded envelope.
+func apiDecodeSSEFrame(t *testing.T, raw []byte) map[string]any {
+	t.Helper()
+	_, data, ok := strings.Cut(strings.TrimSuffix(string(raw), "\n\n"), "\ndata: ")
+	if !ok {
+		t.Fatalf("SSE frame carries no data line: %q", raw)
+	}
+	var frame map[string]any
+	if err := json.Unmarshal([]byte(data), &frame); err != nil {
+		t.Fatalf("SSE frame data is not JSON (%q): %v", data, err)
+	}
+	return frame
+}
+
+// apiTestWebPushSink installs the collector apiServer.webPushSink names, and
+// answers with the assertion over what enqueueWebPush handed it.
+func apiTestWebPushSink(t *testing.T, api *apiServer) func(want ...map[string]any) {
+	t.Helper()
+	var mu sync.Mutex
+	var sent []any
+	api.webPushSink = func(payload webPushPayload) {
+		raw, err := json.Marshal(payload)
+		if err != nil {
+			t.Errorf("marshal web-push payload: %v", err)
+			return
+		}
+		var decoded map[string]any
+		if err := json.Unmarshal(raw, &decoded); err != nil {
+			t.Errorf("decode web-push payload: %v", err)
+			return
+		}
+		mu.Lock()
+		sent = append(sent, decoded)
+		mu.Unlock()
+	}
+	return func(want ...map[string]any) {
+		t.Helper()
+		expected := make([]any, len(want))
+		for i := range want {
+			expected[i] = want[i]
+		}
+		mu.Lock()
+		got := append([]any{}, sent...)
+		mu.Unlock()
+		apiWantValue(t, "web-push", any(got), any(expected))
+	}
 }
