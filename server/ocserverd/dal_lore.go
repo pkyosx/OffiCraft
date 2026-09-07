@@ -22,12 +22,19 @@ import (
 
 // LoreEntry mirrors one lore_entry row. Field-for-column; nothing derived.
 type LoreEntry struct {
-	ID        string // "L-" + Seq
-	Seq       int
-	ScopeKind string // LoreScopeRole | LoreScopeManual
-	ScopeKey  string // role_key for 'role', task-manual type_key for 'manual'
-	Title     string
-	Body      string
+	ID  string // "L-" + Seq
+	Seq int
+	// ⚠️ THREE KINDS, NOT TWO. This comment said `LoreScopeRole |
+	// LoreScopeManual` long after LoreScopeAgent shipped (owner approved it in
+	// rc-3c24fdc61ed3), and a field comment that undercounts a closed set is
+	// how the next reader learns the wrong vocabulary from the type itself.
+	ScopeKind string // LoreScopeRole | LoreScopeAgent | LoreScopeManual
+	// role_key for 'role'; the MEMBER's own id for 'agent' (an outsource worker
+	// has no role, so its lore hangs off itself); task-manual type_key for
+	// 'manual'.
+	ScopeKey string
+	Title    string
+	Body     string
 	// AuthorID is the writer's member id as it was at the moment of the write,
 	// pinned. It is NOT re-resolved against the roster on read: a writer who has
 	// since left did still write this.
