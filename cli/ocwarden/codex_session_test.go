@@ -12,9 +12,30 @@ import (
 	"reflect"
 	"regexp"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
+
+// lockedBuffer is a bytes.Buffer safe for the two writers runCodexSession gives
+// it in a test: the sidecar itself, and the goroutine os/exec starts to copy the
+// child's stderr into any writer that is not an *os.File.
+type lockedBuffer struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (b *lockedBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.Write(p)
+}
+
+func (b *lockedBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.String()
+}
 
 // codexPipe is the App Server's stdin as a test sees it: everything the sidecar
 // wrote, verbatim.
@@ -1699,7 +1720,7 @@ func TestRunCodexSession(t *testing.T) {
 
 	t.Run("an unlaunchable codex binary is reported", func(t *testing.T) {
 		work := t.TempDir()
-		out := &bytes.Buffer{}
+		out := &lockedBuffer{}
 
 		code := runCodexSession([]string{
 			"--codex-bin", filepath.Join(work, "no-such-codex"),
@@ -1722,7 +1743,7 @@ func TestRunCodexSession(t *testing.T) {
 		if err := os.WriteFile(codexBin, []byte(script), 0o755); err != nil {
 			t.Fatalf("stage codex stub: %v", err)
 		}
-		out := &bytes.Buffer{}
+		out := &lockedBuffer{}
 
 		code := runCodexSession([]string{
 			"--codex-bin", codexBin, "--workdir", work,
