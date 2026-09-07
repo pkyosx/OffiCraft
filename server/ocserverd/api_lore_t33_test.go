@@ -744,7 +744,10 @@ func TestUnpinningIsAdminOnlyToo(t *testing.T) {
 	}
 }
 
-// TestRetireAndBumpAreAuthorOnly — 「只寫你自己那一份，也只處置你自己寫的那幾筆。」
+// TestRetireAndBumpAreAuthorOnly — 失效／提到最新 只作用在「呼叫者自己寫的」那一筆
+// （author_id 於寫入當下釘住），admin 不受限。來源是 owner 2026-09-07 的裁定；這裡
+// 刻意把規則本身寫出來，不引用 Global Context 的句子 —— 那句話已被 owner 從文件裡
+// 刪掉（同日），引用一句不存在的話會把讀的人送去找一個找不到的東西。
 func TestRetireAndBumpAreAuthorOnly(t *testing.T) {
 	s := loreTestServer(t)
 	me := hireLoreStaff(t, s, "m-gov-3", "researcher")

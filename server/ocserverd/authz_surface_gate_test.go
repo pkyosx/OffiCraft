@@ -412,8 +412,11 @@ var authzOutsideRouteTable = map[string]string{
 		"caller-vs-TARGET rule, which no route floor can express: 失效 and 提到最新 are " +
 		"agent-floor but act only on an entry the caller is the recorded AUTHOR of " +
 		"(author_id, pinned at write time), with admin capability unrestricted. Owner " +
-		"ruling 2026-09-07, and the Global Context sentence it comes from: 「只寫你自己那" +
-		"一份，也只處置你自己寫的那幾筆。」 It is ONE predicate shared by both verbs on " +
+		"ruling 2026-09-07. This used to cite the Global Context sentence the ruling " +
+		"came from, but the owner removed that sentence from the document the same day, " +
+		"so the rule is stated here instead of pointed at: a citation of a sentence that " +
+		"no longer exists sends the reader looking for something they cannot find, and " +
+		"nothing tells them the pointer is stale. It is ONE predicate shared by both verbs on " +
 		"purpose — they ask the same question of the same caller about the same row, so " +
 		"two copies could only drift into one of them being wider than the ruling.",
 
