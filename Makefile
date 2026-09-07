@@ -105,7 +105,7 @@ REGEN_PAIR_GATE = $(P) \
 .PHONY: \
   lint-go-naming lint-go-fmt lint-go-vet lint-uplink-contract lint-effort-vocab \
   lint-kind-vocab \
-  lint-shadow-claim lint-user-operation-contract \
+  lint-shadow-claim lint-user-operation-contract lint-mcp-write-receipt \
   lint-conformance-blackbox lint-ts lint-css-tokens lint-css-token-roles \
   lint-async-landing lint-chat-area-key lint-chat-pushdown \
   lint-ci-round \
@@ -344,6 +344,25 @@ lint-user-operation-contract:
 	echo "[lint-user-operation-contract] every scoped user action has a named browser result and ruled wording"; \
 	python3 bin/user-operation-contract-guard.py; \
 	python3 bin/tests/user-operation-contract-guard-selftest.py; \
+	$(DONE)
+
+# Agent-callable WRITE receipt gate (T-133) plus its positive control, same shape
+# and same reason as the pairs above. Owner: 「mcp call 成功以後不要帶大量 payload
+# 回來，尤其是 create / update 以後回傳完整 payload 的 pattern，會浪費 agent
+# context」, scoped a second time to 「重點看 mcp 不是 UI api」. A write that answers
+# with the row it just wrote spends the CALLER's context restating the caller's own
+# request, and nothing else in this repo goes red for it: the route works, the
+# tests pass, and the only symptom is a context window that fills faster. The
+# selftest is the guard's own positive control. Rule 2 (the request handed back)
+# now does fire once on the real tree — update_settings, silenced by its standing
+# exemption, which is why the green line reads "1 request-echo" — so the rule is
+# no longer invisible. Its THRESHOLD still is: 0.6 has no witness outside the
+# selftest, which plants a mutant sitting on exactly that line.
+lint-mcp-write-receipt:
+	@$(P) \
+	echo "[lint-mcp-write-receipt] every agent-callable write answers a receipt, not the thing it wrote"; \
+	python3 bin/mcp-write-receipt-guard.py; \
+	python3 bin/tests/mcp-write-receipt-guard-selftest.py; \
 	$(DONE)
 
 # The conformance suite is the language-agnostic black-box definition of the

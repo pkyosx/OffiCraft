@@ -108,7 +108,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Ingest an agent's context gauge (in-memory; bad body → 400).
+         * Ingest an agent's context gauge (in-memory; bad body → 400). Answers with a bounded receipt (``agent_id``, ``ts``), not the stored entry echoed back — call ``get_monitoring`` when you need the rest.
          * @description Ingest one agent's context-window gauge (statusLine → server; §3.4 #18).
          *     Stored purely IN-MEMORY on ``app.state.context_gauge`` (no DB, ephemeral — a
          *     fresh gauge on restart is fail-safe). A non-numeric ``context_pct`` is a flat 400
@@ -941,7 +941,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Mark a conversation read up to a watermark (reader = verified sub).
+         * Mark a conversation read up to a watermark (reader = verified sub). Answers with a bounded receipt (``peer_id``, ``last_read_ts``, ``advanced``), not the stored entry echoed back — call ``get_chat_reads`` when you need the rest.
          * @description Mark a conversation read up to a watermark (``POST /api/chat/mark-read``).
          *
          *     The reader is ALWAYS the VERIFIED JWT ``sub`` (``actor``) — never a
@@ -2760,7 +2760,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Ingest warden telemetry (hardware/limits/tokens/cost/self_update).
+         * Ingest warden telemetry (hardware/limits/tokens/cost/self_update). Answers with a bounded receipt (``agent_id``, ``machine``, ``ts``), not the stored entry echoed back — call ``get_monitoring`` when you need the rest.
          * @description Ingest one warden telemetry report (§3.8) — the source-of-truth push that
          *     fills the monitoring surface (``GET /api/monitoring``). Stored purely
          *     IN-MEMORY on ``app.state.telemetry`` keyed by ``agent_id`` (no DB, ephemeral —
@@ -4725,27 +4725,6 @@ export interface components {
             kind: string;
         };
         /**
-         * AgentContextDTO
-         * @description Echo of a stored gauge entry (``POST /api/agent/context`` response).
-         */
-        AgentContextDTO: {
-            /** Agent Id */
-            agent_id: string;
-            /** Context Pct */
-            context_pct: number;
-            /**
-             * Compaction Count
-             * @description Codex App Server context compactions in this live session; null for runtimes that do not report it.
-             */
-            compaction_count?: number;
-            /** Rate Limits */
-            rate_limits?: {
-                [key: string]: unknown;
-            };
-            /** Ts */
-            ts: number;
-        };
-        /**
          * AgentContextIngestDTO
          * @description Inbound agent context-gauge report (``POST /api/agent/context``). The gauge
          *     key is the CALLER (the verified JWT ``sub``), NEVER a self-reported ``agent_id``
@@ -4765,77 +4744,6 @@ export interface components {
             rate_limits?: {
                 [key: string]: unknown;
             };
-        };
-        /**
-         * AgentTelemetryDTO
-         * @description Echo of a stored telemetry entry (``POST /api/monitoring/telemetry``).
-         */
-        AgentTelemetryDTO: {
-            /** Account */
-            account?: string | null;
-            /** Agent Id */
-            agent_id: string;
-            /** Binaries */
-            binaries?: {
-                [key: string]: unknown;
-            } | null;
-            /**
-             * Claude
-             * @description Echo of the stored claude CLI probe (see ``AgentTelemetryIngestDTO.claude`` — T-97ee); null when never reported.
-             */
-            claude?: {
-                [key: string]: unknown;
-            } | null;
-            /** Command Result */
-            command_result?: {
-                [key: string]: unknown;
-            } | null;
-            /** Cost */
-            cost?: number | null;
-            /**
-             * Cutover Effect
-             * @description Echo of the stored cutover-effect verdict (see ``AgentTelemetryIngestDTO.cutover_effect``); null when never reported.
-             */
-            cutover_effect?: string | null;
-            /** Effort */
-            effort?: string | null;
-            /** Hardware */
-            hardware?: {
-                [key: string]: unknown;
-            } | null;
-            /** Machine */
-            machine?: string | null;
-            /** Rate Limits */
-            rate_limits?: {
-                [key: string]: unknown;
-            } | null;
-            /**
-             * Runtime Key
-             * @description The provider runtime that produced this session telemetry. null when an older reporter did not identify it.
-             */
-            runtime?: components["schemas"]["AgentRuntime"] | null;
-            /**
-             * Runtimes
-             * @description Warden heartbeats only — provider-neutral machine runtime capabilities keyed by runtime name. null when never reported.
-             */
-            runtimes?: {
-                [key: string]: components["schemas"]["RuntimeCapabilityDTO"];
-            } | null;
-            /** Self Update */
-            self_update?: {
-                [key: string]: unknown;
-            } | null;
-            /** Tokens */
-            tokens?: {
-                [key: string]: number;
-            } | null;
-            /** Ts */
-            ts: number;
-            /**
-             * Warden Shape
-             * @description Echo of the stored warden shape verdict (see ``AgentTelemetryIngestDTO.warden_shape``); null when never reported.
-             */
-            warden_shape?: string | null;
         };
         /**
          * AgentTelemetryIngestDTO
@@ -8824,6 +8732,76 @@ export interface components {
             relocation_deferred?: boolean;
         };
         /**
+         * AgentContextReceiptDTO
+         * @description Bounded receipt returned after ``POST /api/agent/context`` (ingest_agent_context) (T-133). It used to answer ``AgentContextDTO``, an echo of the gauge entry the caller had just written — ``context_pct``, ``compaction_count`` and the whole free-form ``rate_limits`` object, all of them the caller's own body handed straight back.
+         *
+         *     The two fields left are the two the caller did not send. ``agent_id`` is the verified JWT sub the gauge was filed under — this route takes NO agent_id in its body (it was removed so an agent can only ever report its own context), so the receipt is the only place the attribution is visible. ``ts`` is the server's stamp. The gauge itself is served by ``get_monitoring``.
+         *
+         *     This route MERGES onto the prior entry, so what is stored after a call is not in general what the call sent; that is a reason to read the gauge deliberately, not a reason to ship it back on every report.
+         */
+        AgentContextReceiptDTO: {
+            /**
+             * Agent Id
+             * @description The identity the gauge entry was filed under — the verified JWT sub. The body carries no agent_id at all, so this is the only place the attribution appears.
+             */
+            agent_id: string;
+            /**
+             * Ts
+             * @description The server's stamp on the merged gauge entry, in epoch seconds. The freshness the context-high band and the cockpit judge the gauge by.
+             */
+            ts: number;
+        };
+        /**
+         * AgentTelemetryReceiptDTO
+         * @description Bounded receipt returned after ``POST /api/monitoring/telemetry`` (ingest_telemetry) (T-133). It used to answer ``AgentTelemetryDTO``, whose own description called it an "Echo of a stored telemetry entry": 17 fields, carrying back the whole MERGED entry — the hardware snapshot, the binary fingerprints, the runtimes probe, the rate-limit windows and the token counts the caller had just uploaded. A warden heartbeat is the largest body an agent sends on any schedule, and every byte of it came back.
+         *
+         *     WHAT IS LEFT IS WHAT THE CALLER COULD NOT COMPUTE. ``machine`` is the attribution the SERVER decided: it comes from the verified token's machine_id claim FIRST and falls back to the self-reported ``machine`` only for a claim-less token, so a reporter that sent one machine can be stored under another and the old echo was the only place that showed it. ``ts`` is the server's own stamp, and ``agent_id`` is the identity the entry was filed under. Everything else is recoverable from ``get_monitoring``, at the moment a caller wants it rather than at the moment it wrote.
+         *
+         *     This is a MERGE endpoint: a partial report leaves the other fields of the stored entry alone. That is exactly why echoing the merged entry was so expensive — a one-field report answered with the accumulated whole.
+         */
+        AgentTelemetryReceiptDTO: {
+            /**
+             * Agent Id
+             * @description The identity this report was filed under — the verified JWT sub, never a self-report. A reporter that believed it was somebody else learns it here.
+             */
+            agent_id: string;
+            /**
+             * Machine
+             * @description The machine the entry was ATTRIBUTED to, which is not necessarily the one the body named: the verified token's machine_id claim wins, and the payload ``machine`` is consulted only when the token carries no claim (long-lived /api/mint tokens and outsource-worker tokens mint machine_id "none" by design). Null when neither source supplied one.
+             */
+            machine?: string | null;
+            /**
+             * Ts
+             * @description The server's own stamp on the merged entry, in epoch seconds. The freshness every cockpit read of this entry is judged against, and not something the reporter's clock decides.
+             */
+            ts: number;
+        };
+        /**
+         * ChatMarkReadReceiptDTO
+         * @description Bounded receipt returned after ``POST /api/chat/mark-read`` (post_chat_mark-read) (T-133). It used to answer ``ChatReadDTO`` — the READ surface, the same type ``GET /api/chat/reads`` serves — of whose three fields two were the caller's own input: ``reader_id`` is always the verified sub, i.e. the caller, and ``last_read_ts`` is the number just sent.
+         *
+         *     WHAT THE OLD ANSWER COULD NOT SAY, and this one does: the watermark is MONOTONIC, so a stale report is a silent no-op. The old body echoed the EFFECTIVE watermark but gave no way to tell an accepted report from a rejected one that happened to sit at the same number, and the handler had computed that bit already (it gates the SSE publish). ``advanced`` is that bit, and it is here or nowhere — no read serves it.
+         *
+         *     ``peer_id`` stays because a receipt that cannot say which conversation it acted on is unreadable next to a log of several; one drain files one receipt PER SENDER. ``reader_id`` is dropped: it is the caller, on every call, with no exception the caller could not already compute.
+         */
+        ChatMarkReadReceiptDTO: {
+            /**
+             * Peer Id
+             * @description The conversation this receipt is for — the ``peer`` the caller sent, trimmed. Kept for readability next to a log of several receipts, not as news.
+             */
+            peer_id: string;
+            /**
+             * Last Read Ts
+             * @description The watermark now in force for this conversation AFTER the monotonic clamp. Equal to what was sent when the report advanced it, and equal to the PREVIOUS (higher) watermark when it did not — which is why ``advanced`` is a separate field and not something a caller can infer by comparing this against what it sent.
+             */
+            last_read_ts: number;
+            /**
+             * Advanced
+             * @description True when THIS call moved the watermark. False when the report was stale and the stored watermark was already at or past it — a 200 that changed nothing. The server publishes the read-receipt signal on true only, so this is the same bit the rest of the fleet sees.
+             */
+            advanced: boolean;
+        };
+        /**
          * SettingsDTO
          * @description The org-adjustable settings surface (`GET /api/settings`; owner or admin agent). `owner_token_ttl` controls owner-login JWTs; `agent_token_ttl` controls member and outsource-worker JWTs. They are independent and apply to newly minted tokens. Existing deployments migrate their former shared `auth.token_ttl` value into both successor settings, preserving current behaviour.
          */
@@ -11616,7 +11594,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["AgentContextDTO"];
+                    "application/json": components["schemas"]["AgentContextReceiptDTO"];
                 };
             };
             /** @description Validation error (unified error envelope). */
@@ -12947,7 +12925,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ChatReadDTO"];
+                    "application/json": components["schemas"]["ChatMarkReadReceiptDTO"];
                 };
             };
             /** @description Validation error (unified error envelope). */
@@ -16060,7 +16038,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["AgentTelemetryDTO"];
+                    "application/json": components["schemas"]["AgentTelemetryReceiptDTO"];
                 };
             };
             /** @description Validation error (unified error envelope). */

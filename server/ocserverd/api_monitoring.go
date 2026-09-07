@@ -72,13 +72,7 @@ func (s *apiServer) HandleIngestAgentContextApiAgentContextPost(w http.ResponseW
 	// No agent consumes the context signal on the wire (it drives the
 	// server-side context-high band, not fan-out); owner cockpit only.
 	s.hub.Publish("context", "signal", "context", agentID, nil, audienceOwnerOnly(), requestTrigger(r))
-	writeJSON(w, http.StatusOK, agentContextDTO{
-		AgentID:         agentID,
-		ContextPct:      pct,
-		CompactionCount: compactions,
-		RateLimits:      rateLimits,
-		TS:              now,
-	})
+	writeJSON(w, http.StatusOK, agentContextReceiptDTO{AgentID: agentID, TS: now})
 }
 
 // teleNum shapes a telemetry numeric: bool / non-number / negative sentinel
@@ -712,15 +706,15 @@ func (s *apiServer) HandleIngestTelemetryApiMonitoringTelemetryPost(w http.Respo
 	}
 	// 🔴 model is deliberately NOT stashed on the telemetry entry the way effort
 	// is. Its home is the DURABLE actual_model column
-	// (stampReportedLaunchFacts, below); a copy here would have no reader,
-	// would not be echoed on the
-	// response DTO, and would sit in the one map a reader naturally treats as
+	// (stampReportedLaunchFacts, below); a copy here would have no reader —
+	// this route answers a bounded receipt since T-133, so NOTHING of the entry
+	// is echoed back any more — and would sit in the one map a reader naturally treats as
 	// this handler's source of truth. That is not a harmless duplicate — the
 	// next person to touch this column would read the in-memory copy, and the
 	// column would go back to being blanked fleet-wide on every server re-exec,
 	// which is verbatim the bug this change exists to fix. If model ever does
-	// need to ride the entry, echo it on agentTelemetryDTO in the same commit
-	// and pin it, so "stored" and "readable" cannot drift apart again.
+	// need to ride the entry, give it a reader in the same commit and pin it,
+	// so "stored" and "readable" cannot drift apart again.
 	if selfUpdate != nil {
 		entry["self_update"] = selfUpdate
 		fmt.Fprintf(os.Stderr,
@@ -765,24 +759,10 @@ func (s *apiServer) HandleIngestTelemetryApiMonitoringTelemetryPost(w http.Respo
 		s.foldCommandResult(commandResult, requestTrigger(r), receiptReporterMachine(r))
 	}
 
-	writeJSON(w, http.StatusOK, agentTelemetryDTO{
-		AgentID:       agentID,
-		Machine:       entryStr(entry, "machine"),
-		Account:       entryStr(entry, "account"),
-		RateLimits:    entryObj(entry, "rate_limits"),
-		Tokens:        entryObj(entry, "tokens"),
-		Hardware:      entryObj(entry, "hardware"),
-		Binaries:      entryObj(entry, "binaries"),
-		Claude:        entryObj(entry, "claude"),
-		Runtime:       entryStr(entry, "runtime"),
-		Runtimes:      entryObj(entry, "runtimes"),
-		Cost:          entryNum(entry, "cost"),
-		Effort:        entryStr(entry, "effort"),
-		SelfUpdate:    entryObj(entry, "self_update"),
-		CommandResult: entryObj(entry, "command_result"),
-		WardenShape:   entryStr(entry, "warden_shape"),
-		CutoverEffect: entryStr(entry, "cutover_effect"),
-		TS:            entry["ts"].(float64),
+	writeJSON(w, http.StatusOK, agentTelemetryReceiptDTO{
+		AgentID: agentID,
+		Machine: entryStr(entry, "machine"),
+		TS:      entry["ts"].(float64),
 	})
 }
 

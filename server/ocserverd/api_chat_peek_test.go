@@ -22,6 +22,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http/httptest"
+	"reflect"
+	"sort"
 	"testing"
 )
 
@@ -146,6 +148,50 @@ func TestMarkReadWritesWatermark(t *testing.T) {
 	}
 	if wm := ownerWatermark(t, s, "m-1"); wm != 3.0 {
 		t.Fatalf("POST /api/chat/mark-read must advance the watermark to 3.0, got %v", wm)
+	}
+}
+
+// TestMarkReadAnswersABoundedReceipt pins the T-133 reshape: this route used to
+// answer ChatReadDTO, the same type GET /api/chat/reads serves, of which two of
+// three fields were the caller's own input. The assertion is on the EXACT key
+// set, not on the presence of the three new ones — a receipt that grows the read
+// surface back one field at a time is the way this regresses, and a
+// presence-only check would stay green through all of it.
+func TestMarkReadAnswersABoundedReceipt(t *testing.T) {
+	s := &apiServer{dal: newTestDAL(t), hub: NewHub()}
+	seedTwoConversations(t, s)
+
+	rec := markReadRec(s, "owner", "m-1", 3.0)
+	if rec.Code != 200 {
+		t.Fatalf("mark-read → %d: %s", rec.Code, rec.Body.String())
+	}
+	var body map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("receipt is not an object: %v (%s)", err, rec.Body.String())
+	}
+	keys := make([]string, 0, len(body))
+	for k := range body {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	if want := []string{"advanced", "last_read_ts", "peer_id"}; !reflect.DeepEqual(keys, want) {
+		t.Fatalf("receipt keys = %v, want exactly %v", keys, want)
+	}
+	if body["peer_id"] != "m-1" || body["last_read_ts"] != 3.0 || body["advanced"] != true {
+		t.Fatalf("first report = %v, want peer m-1 at 3.0 with advanced true", body)
+	}
+
+	// The bit no read serves: the watermark is monotonic, so a stale report is a
+	// 200 that changed nothing — and the OLD answer was byte-identical either way.
+	stale := markReadRec(s, "owner", "m-1", 1.0)
+	if stale.Code != 200 {
+		t.Fatalf("stale mark-read → %d: %s", stale.Code, stale.Body.String())
+	}
+	if err := json.Unmarshal(stale.Body.Bytes(), &body); err != nil {
+		t.Fatalf("stale receipt is not an object: %v", err)
+	}
+	if body["advanced"] != false || body["last_read_ts"] != 3.0 {
+		t.Fatalf("stale report = %v, want advanced false at the standing 3.0", body)
 	}
 }
 

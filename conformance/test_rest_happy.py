@@ -2394,8 +2394,18 @@ HAPPY: dict[str, Happy] = {
         body=_PNG_BYTES,
         check=_check_upload_ref,
     ),
+    # T-133: answers a bounded receipt instead of the READ surface. `advanced`
+    # is the field that did not exist before — a stale report is a 200 that
+    # changed nothing, and the echoed watermark looked identical either way.
     "POST /api/chat/mark-read": Happy(
         body=lambda ctx: {"peer": ctx.agent.member_id, "last_read_ts": 1.0},
+        check=lambda ctx, r: _expect(
+            r,
+            lambda d: d["peer_id"] == ctx.agent.member_id
+            and d["last_read_ts"] == 1.0
+            and d["advanced"] is True
+            and "reader_id" not in d,
+        ),
     ),
     "GET /api/chat/reads": Happy(),
     "GET /api/chat/unread-count": Happy(
@@ -2458,13 +2468,34 @@ HAPPY: dict[str, Happy] = {
         ),
     ),
     # ── telemetry / monitoring ───────────────────────────────────────────────
+    # T-133: the answer is a bounded receipt, not the gauge echoed back. The
+    # assertion moved onto what the receipt is FOR — the attribution the body
+    # cannot carry (this route takes no agent_id; the gauge is filed under the
+    # verified sub) and the server's own stamp.
     "POST /api/agent/context": Happy(
         identity="agent",
         body={"context_pct": 42},
-        check=lambda _c, r: _expect(r, lambda d: d["context_pct"] == 42),
+        check=lambda ctx, r: _expect(
+            r,
+            lambda d: d["agent_id"] == ctx.agent.member_id
+            and isinstance(d["ts"], (int, float))
+            and d["ts"] > 0
+            and "context_pct" not in d,
+        ),
     ),
+    # T-133: same reshape as the context gauge above. The old answer echoed the
+    # whole merged entry (17 fields); the receipt keeps the attribution the
+    # server DECIDED — machine comes from the token claim first — plus its stamp.
     "POST /api/monitoring/telemetry": Happy(
-        identity="agent", body={"rate_limits": {"primary_used_pct": 1}}
+        identity="agent",
+        body={"rate_limits": {"primary_used_pct": 1}},
+        check=lambda ctx, r: _expect(
+            r,
+            lambda d: d["agent_id"] == ctx.agent.member_id
+            and isinstance(d["ts"], (int, float))
+            and d["ts"] > 0
+            and "rate_limits" not in d,
+        ),
     ),
     "GET /api/monitoring": Happy(),
     # T-da06. The conformance server is a fresh workdir: no SCHEDULED backup has

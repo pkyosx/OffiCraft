@@ -82,6 +82,7 @@ import type {
   WireTeardownHereResult,
   WireBootstrapResult,
   WireChatRead,
+  WireChatMarkReadReceipt,
   WireChatGalleryEntry,
   WireReplyCard,
   WireReplyCardReceipt,
@@ -113,6 +114,7 @@ import type {
 import type {
   ChatMessage,
   ChatReadReceipt,
+  ChatMarkReadReceipt,
   GalleryAttachment,
   ReplyCard,
   ReplyCardWriteReceipt,
@@ -999,6 +1001,17 @@ export function toChatRead(w: WireChatRead): ChatReadReceipt {
     readerId: w.reader_id,
     peerId: w.peer_id,
     lastReadTs: w.last_read_ts,
+  };
+}
+
+/** Map the bounded mark-read receipt → its view-model twin (T-133). */
+export function toChatMarkReadReceipt(
+  w: WireChatMarkReadReceipt,
+): ChatMarkReadReceipt {
+  return {
+    peerId: w.peer_id,
+    lastReadTs: w.last_read_ts,
+    advanced: w.advanced,
   };
 }
 
