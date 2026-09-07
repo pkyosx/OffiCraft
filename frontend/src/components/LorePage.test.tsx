@@ -763,34 +763,35 @@ describe("LorePage — 篩選器複選", () => {
     fireEvent.click(box);
   }
 
-  it("derives the KIND set from what is ticked — a member alone never asks for manuals", async () => {
+  it("names the manual kind on every request, and drops both axes when nothing is ticked", async () => {
     vi.spyOn(api, "listTaskManuals").mockResolvedValue([
       { typeKey: "review-pr", displayName: "PR 審查", purpose: "", fields: [] },
+      { typeKey: "deploy", displayName: "上線", purpose: "", fields: [] },
     ] as never);
     const spy = stubList(page([mkEntry({ id: "L-1" })]));
     const { container } = renderPage();
     await waitFor(() => expect(renderedIds(container)).toHaveLength(1));
 
-    // One member ⇒ exactly one kind and one key. 🔴 The kind matters as much as
-    // the key: sending ["agent","manual"] here would also return every manual
-    // entry, and the screen — one ticked name, some rows — looks identical.
-    tick(container, "lore-filter-belongs", "agent:mira");
-    await waitFor(() => expect(lastOpts(spy).scopeKinds).toEqual(["agent"]));
-    expect(lastOpts(spy).scopeKeys).toEqual(["mira"]);
-
-    // Add a manual ⇒ BOTH kinds, both keys.
+    // 🔴 THE KIND STILL TRAVELS, even though only one kind can be ticked here
+    // now (owner 2026-09-07: 「你第二個 filter 應該只需要放任務」). A request that
+    // sent keys without kinds would narrow on one axis only, and the screen —
+    // one ticked name, some rows — looks identical either way. The kind is also
+    // what stops a manual key colliding with a member id on the other axis.
     tick(container, "lore-filter-belongs", "manual:review-pr");
-    await waitFor(() =>
-      expect(lastOpts(spy).scopeKinds).toEqual(["agent", "manual"]),
-    );
-    expect(lastOpts(spy).scopeKeys).toEqual(["mira", "review-pr"]);
-
-    // Untick the member ⇒ the manual kind ALONE. This is the half that fails
-    // silently if the kind set is a constant: `agent` lingering here asks for
-    // every member's 傳承 on a screen showing one manual ticked.
-    tick(container, "lore-filter-belongs", "agent:mira");
     await waitFor(() => expect(lastOpts(spy).scopeKinds).toEqual(["manual"]));
     expect(lastOpts(spy).scopeKeys).toEqual(["review-pr"]);
+
+    // A second manual ⇒ two keys, and the kind list does NOT grow a duplicate.
+    tick(container, "lore-filter-belongs", "manual:deploy");
+    await waitFor(() =>
+      expect(lastOpts(spy).scopeKeys).toEqual(["review-pr", "deploy"]),
+    );
+    expect(lastOpts(spy).scopeKinds).toEqual(["manual"]);
+
+    // Untick one ⇒ back to a single key, kind unchanged.
+    tick(container, "lore-filter-belongs", "manual:deploy");
+    await waitFor(() => expect(lastOpts(spy).scopeKeys).toEqual(["review-pr"]));
+    expect(lastOpts(spy).scopeKinds).toEqual(["manual"]);
 
     // Untick everything ⇒ no constraint on either axis, not an empty array.
     tick(container, "lore-filter-belongs", "manual:review-pr");
@@ -842,16 +843,16 @@ describe("LorePage — 篩選器複選", () => {
     }
   });
 
-  it("offers every member AND every manual in the one 屬於 list", async () => {
+  it("offers every manual and NO members — the member axis is 撰寫人", async () => {
     vi.spyOn(api, "listTaskManuals").mockResolvedValue([
       { typeKey: "review-pr", displayName: "PR 審查", purpose: "", fields: [] },
+      { typeKey: "deploy", displayName: "上線", purpose: "", fields: [] },
     ] as never);
-    // 🔴 THE LIVE WORKER IS STUBBED IN, and the mock's default of NONE is why.
-    // Outsource workers exist on the mock only while bound to a task, so
-    // without this the list is staff + manuals and the spec below would be
-    // asserting that 屬於 offers two kinds of thing when it had only ever been
-    // handed one kind plus manuals — it would pass for a list built from
-    // `members` alone.
+    // 🔴 A LIVE WORKER AND A STAFF MEMBER ARE STUBBED IN ON PURPOSE, and they
+    // are the discriminating half of this test. The assertion below is that
+    // members are ABSENT; with no members on the roster at all it would pass
+    // for a control that still tried to list them. Both kinds are present and
+    // both must be missing from this dropdown.
     vi.spyOn(api, "listOutsourceWorkers").mockResolvedValue([
       { id: "ow-7d8ad859dd9b", codename: "O-179" },
     ] as never);
@@ -863,22 +864,8 @@ describe("LorePage — 篩選器複選", () => {
       container.querySelector<HTMLElement>('[data-testid="lore-filter-belongs"]')!,
     );
 
-    // A staff member, an outsource member, and a manual — all three reachable
-    // without changing any other control. The outsource row is what says this
-    // list is not just "the staff roster".
-    //
-    // ⚠️ WHAT THIS LIST CANNOT OFFER, so nobody reads the spec as claiming
-    // otherwise: a RELEASED outsource worker. Its 傳承 outlives it (the entries
-    // are keyed by its member id and are never deleted) but it is on neither
-    // the live worker list nor the staff roster, so nothing can put it in this
-    // dropdown. That is the same limit the 撰寫人 filter already has and states,
-    // and it is not made worse here — before this control existed, 成員傳承 had
-    // no key filter of any kind.
-    for (const value of [
-      "agent:mira",
-      "agent:ow-7d8ad859dd9b",
-      "manual:review-pr",
-    ]) {
+    // Every manual is reachable without touching any other control.
+    for (const value of ["manual:review-pr", "manual:deploy"]) {
       expect(
         container.querySelector(
           `[data-testid="lore-filter-belongs-opt-${value}"]`,
@@ -886,15 +873,29 @@ describe("LorePage — 篩選器複選", () => {
       ).not.toBeNull();
     }
 
-    // 🔴 THE OPTION LABELS SAY WHICH KIND. One list holding people and manuals
-    // cannot rely on the name alone — a station may have a manual named after a
-    // member, which is exactly the collision the row chip already had to solve.
+    // 🔴 AND NO MEMBER IS OFFERED HERE. The owner sent back a screenshot of this
+    // dropdown listing 「成員傳承 · Mira」 (2026-09-07): 「成員的 filter 不是左邊
+    // 那個嗎 你第二個 filter 應該只需要放任務」. The member axis is 撰寫人, to the
+    // left; offering members again here asks one question with two controls,
+    // and two controls answering one question can disagree.
+    for (const absent of ["agent:mira", "agent:ow-7d8ad859dd9b"]) {
+      expect(
+        container.querySelector(
+          `[data-testid="lore-filter-belongs-opt-${absent}"]`,
+        ),
+      ).toBeNull();
+    }
+
+    // 🔴 THE LABEL IS THE MANUAL'S OWN NAME, with no kind word in front of it.
+    // The kind word was there while the list mixed people and manuals and a
+    // bare name could not say which; one kind needs no disambiguator, and the
+    // design mock names this control 「所有任務」.
     const label = (value: string) =>
       container.querySelector(
         `[data-testid="lore-filter-belongs-opt-${value}"]`,
       )!.textContent!;
-    expect(label("agent:mira")).toContain("成員傳承");
-    expect(label("manual:review-pr")).toContain("任務傳承");
+    expect(label("manual:review-pr")).toContain("PR 審查");
+    expect(label("manual:review-pr")).not.toContain("任務傳承");
   });
 
   it("offers no per-option statistic on any filter", async () => {
@@ -955,6 +956,7 @@ describe("LorePage — 收斂到單一範圍時，上限線回得來", () => {
   it("goes quiet for two scopes and comes back — named — for one", async () => {
     vi.spyOn(api, "listTaskManuals").mockResolvedValue([
       { typeKey: "review-pr", displayName: "PR 審查", purpose: "", fields: [] },
+      { typeKey: "deploy", displayName: "上線", purpose: "", fields: [] },
     ] as never);
 
     const rows = [
@@ -994,16 +996,19 @@ describe("LorePage — 收斂到單一範圍時，上限線回得來", () => {
       );
     }
 
-    // Two scopes ⇒ two budgets ⇒ no honest place for one line. They are a
-    // MEMBER and a MANUAL on purpose: two members would also span two budgets,
-    // but this pair also spans two KINDS, which is the case the wire's
-    // convergence rule is written about.
-    tick("lore-filter-belongs", "agent:mira");
+    // Two scopes ⇒ two budgets ⇒ no honest place for one line.
+    //
+    // ⚠️ THE PAIR IS TWO MANUALS NOW, not a member and a manual. This control
+    // stopped offering members on 2026-09-07 (owner: 「你第二個 filter 應該只需要
+    // 放任務」), so the two-KINDS case can no longer be produced from this row at
+    // all — and a test that keeps naming it would be describing a screen nobody
+    // can reach. Two budgets is still two budgets; that is the rule under test.
     tick("lore-filter-belongs", "manual:review-pr");
+    tick("lore-filter-belongs", "manual:deploy");
     await waitFor(() =>
-      expect(spy.mock.calls[spy.mock.calls.length - 1][0]?.scopeKinds).toEqual([
-        "agent",
-        "manual",
+      expect(spy.mock.calls[spy.mock.calls.length - 1][0]?.scopeKeys).toEqual([
+        "review-pr",
+        "deploy",
       ]),
     );
     await waitFor(() =>
@@ -1012,8 +1017,8 @@ describe("LorePage — 收斂到單一範圍時，上限線回得來", () => {
       ).toBeNull(),
     );
 
-    // Converge: drop the manual, leaving one member. The line must return.
-    tick("lore-filter-belongs", "manual:review-pr");
+    // Converge: drop one manual, leaving exactly one. The line must return.
+    tick("lore-filter-belongs", "manual:deploy");
 
     const line = await waitFor(() => {
       const el = container.querySelector('[data-testid="lore-cap-line"]');
@@ -1023,8 +1028,8 @@ describe("LorePage — 收斂到單一範圍時，上限線回得來", () => {
     // 🔴 NAMED, not merely present. A line that appeared carrying the wrong
     // scope's name would be worse than none: it would tell the reader a budget
     // they are not looking at.
-    expect(line.textContent).toContain("成員傳承");
-    expect(line.textContent).toContain("Mira");
+    expect(line.textContent).toContain("任務傳承");
+    expect(line.textContent).toContain("PR 審查");
     expect(line.textContent).toContain("10000");
   });
 });

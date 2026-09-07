@@ -610,49 +610,30 @@ export function LorePage() {
   const capLineText =
     scopeName + t.lore.capLineMid + cap.capChars + t.lore.capLineTail;
 
-  // 屬於 — every MEMBER, then every TASK MANUAL, in one list.
+  // 任務 — every TASK MANUAL, and ONLY manuals.
   //
-  // 🔴 THE LABELS CARRY THE KIND WORD, and that is not clutter. This one list
-  // mixes people and manuals, and a bare name cannot say which: the owner
-  // already hit exactly this on the row chip (「特助」 does not tell you whether
-  // that is a person or a manual), and a station may legitimately have a manual
-  // whose display name matches a member's. The two words are the SAME i18n keys
-  // the row's 屬於 chip and the 上限線 use, so one thing is named one way
-  // everywhere.
+  // 🔴 MEMBERS ARE DELIBERATELY NOT HERE, AND THAT IS A CORRECTION. This list
+  // briefly carried every member as well, on the reading that 「我從使用者或是任
+  // 務手冊作為 filter」 described ONE control offering both. The owner rejected
+  // that the moment he saw it (2026-09-07, with a screenshot of this very
+  // dropdown): 「成員的 filter 不是左邊那個嗎 你第二個 filter 應該只需要放任務」.
+  // The member axis is the 撰寫人 control to the left — offering members again
+  // here asks the same question twice, and the two answers can disagree.
   //
-  // 🔴 MEMBERS COME FIRST AND MANUALS SECOND, matching the order the owner said
-  // it in (「我從使用者或是任務手冊作為 filter」) and the order the two scopes are
-  // written in everywhere else in this feature.
+  // It also matches the design mock, which this page is supposed to follow and
+  // which has said 「所有任務」 the whole time. What went wrong was not that the
+  // mock was unread: the spec text was EDITED to describe what had been built
+  // instead. A document that is rewritten to agree with the code cannot
+  // contradict the code, which is the only thing a spec is for.
   //
-  // ⚠️ ONE ASYMMETRY WITH THE 撰寫人 LIST BELOW, on purpose: that one is an
-  // ALLOW-list of kinds that can WRITE, and it excludes the warden because a
-  // machine principal is refused at the route. This list is about what an entry
-  // can BELONG to, which is a different question — but the answer happens to be
-  // the same set, because only a member that can write can accumulate 傳承. It
-  // is spelled out separately rather than shared so that the two can diverge
-  // without one silently redefining the other.
-  const belongsOptions = [
-    ...members
-      .filter((m) => m.kind === "staff")
-      .map((m) => ({
-        value: belongsValue("agent", m.id),
-        label: t.lore.scopeKindAgent + t.lore.capLineSep + m.name,
-      })),
-    ...workers.map((w) => ({
-      value: belongsValue("agent", w.id),
-      label:
-        t.lore.scopeKindAgent +
-        t.lore.capLineSep +
-        (w.codename ? msg.outsourceLabel(w.codename) : w.id),
-    })),
-    ...manuals.map((m) => ({
-      value: belongsValue("manual", m.typeKey),
-      label:
-        t.lore.scopeKindManual +
-        t.lore.capLineSep +
-        (m.displayName || m.typeKey),
-    })),
-  ];
+  // 🔴 THE KIND PREFIX STAYS IN THE VALUE even though only one kind can appear
+  // now. It is what puts `scope_kinds=["manual"]` on the request beside
+  // `scope_keys`, so the server still narrows on BOTH axes; dropping it because
+  // "there is only one kind" would make the wire depend on that staying true.
+  const belongsOptions = manuals.map((m) => ({
+    value: belongsValue("manual", m.typeKey),
+    label: m.displayName || m.typeKey,
+  }));
   // 撰寫人 options are the LIVE roster only. An author who has left cannot be
   // offered here (there is no list of departed ids to offer), which is the same
   // fact the row states by dropping their 傳訊息 icon.
@@ -718,15 +699,21 @@ export function LorePage() {
           selected={authors}
           onChange={setAuthors}
         />
-        {/* 屬於 — WHICH member or WHICH manual, one control, always visible.
-            It replaced the 範圍 + 角色 + 手冊 trio (owner, card rc-a43100fd0486):
-            範圍's three options were the thing being collapsed away, and the two
-            key lists behind it were the same question asked twice. Nothing here
-            appears conditionally any more — a filter row whose fields come and
-            go as you tick is a row whose shape the reader cannot learn. */}
+        {/* 任務 — WHICH task manual, and only that. It replaced the 範圍 + 角色 +
+            手冊 trio (owner, card rc-a43100fd0486): 範圍's three options were the
+            thing being collapsed away, and the two key lists behind it were the
+            same question asked twice.
+            🔴 IT DOES NOT OFFER MEMBERS. It briefly did, and the owner sent back
+            a screenshot of this dropdown the same day: 「成員的 filter 不是左邊那
+            個嗎 你第二個 filter 應該只需要放任務」. The member axis is 撰寫人, to
+            the left of this control; listing members here asks the same question
+            twice in one row, and two controls answering one question can
+            disagree. The design mock has said 「所有任務」 throughout.
+            Nothing here appears conditionally — a filter row whose fields come
+            and go as you tick is a row whose shape the reader cannot learn. */}
         <MultiSelectFilter
-          noun={t.lore.filterBelongsNoun}
-          allLabel={t.lore.filterBelongsAll}
+          noun={t.lore.filterTaskNoun}
+          allLabel={t.lore.filterTaskAll}
           testId="lore-filter-belongs"
           options={belongsOptions}
           selected={belongs}

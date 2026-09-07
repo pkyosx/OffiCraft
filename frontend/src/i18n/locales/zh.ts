@@ -150,8 +150,11 @@ export const zh = {
     // ——負責人明講「we dont need count」，而且傳承是往下捲載入的，這裡算得出
     // 來的只有「目前已載入幾筆」，會隨著捲動一直變。
     clearFilters: "清除篩選",
-    filterBelongsNoun: "屬於",
-    filterBelongsAll: "全部",
+    // 第二格只放任務，不放成員：成員那一軸是左邊的撰寫人。負責人 2026-09-07
+    // 看到這個下拉裡同時列著成員時當場退回——「成員的 filter 不是左邊那個嗎
+    // 你第二個 filter 應該只需要放任務」。設計稿一直都寫「所有任務」。
+    filterTaskNoun: "任務",
+    filterTaskAll: "所有任務",
     filterStateNoun: "狀態",
     filterStateAll: "全部狀態",
     filterAuthorNoun: "撰寫人",

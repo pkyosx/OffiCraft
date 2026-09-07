@@ -154,8 +154,8 @@ export const en: Dict = {
     // option labels are built from the scopeKind* words above, so a name in the
     // filter reads the same as the same name on a row.
     clearFilters: "Clear filters",
-    filterBelongsNoun: "Belongs to",
-    filterBelongsAll: "Everything",
+    filterTaskNoun: "Task",
+    filterTaskAll: "All tasks",
     filterStateNoun: "State",
     filterStateAll: "All states",
     filterAuthorNoun: "Author",
