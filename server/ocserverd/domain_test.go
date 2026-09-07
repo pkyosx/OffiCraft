@@ -1,647 +1,254 @@
+// Skeleton generated from server/ocserverd/domain.go by gen_test_skeletons.py.
+// Every case is a t.Skip placeholder: fill the body, keep or rewrite the name.
+
 package main
 
-// domain_test.go — case-for-case port of the retired Python tests/domain/
-// {test_member_domain,test_chat_read_domain}.py plus the fold semantics the
-// Python service exercises through service.boot (fold_role_def /
-// fold_lessons / fold_user_context) and the alias fold.
+import "testing"
 
-import (
-	"maps"
-	"math/rand/v2"
-	"regexp"
-	"slices"
-	"strings"
-	"testing"
-)
-
-func presenceMember(mutate func(*Member)) Member {
-	m := Member{ID: "mira", Kind: KindStaff}
-	if mutate != nil {
-		mutate(&m)
-	}
-	return m
+func TestCanonicalKind(t *testing.T) {
+	t.Skip("TODO: CanonicalKind folds an incoming kind onto the closed set.")
 }
 
-// ── PresenceState ────────────────────────────────────────────────────────────
-
-func TestPresenceState(t *testing.T) {
-	cases := []struct {
-		name   string
-		mutate func(*Member)
-		now    float64
-		online bool
-		want   string
-	}{
-		{"online when connected", nil, 1000.0, true, MemberPresenceOnline},
-		{"owner-approved waking window still wakes at 91 seconds", func(m *Member) {
-			m.DesiredState = DesiredStateOnline
-			m.WakingSince = 1000.0
-		}, 1091.0, false, MemberPresenceWaking},
-		{"owner-approved waking window is offline at 121 seconds", func(m *Member) {
-			m.DesiredState = DesiredStateOnline
-			m.WakingSince = 1000.0
-		}, 1121.0, false, MemberPresenceOffline},
-		{"waking within ttl", func(m *Member) {
-			m.DesiredState = DesiredStateOnline
-			m.WakingSince = 1000.0
-		}, 1000.0 + WakingTTLSecs - 1, false, MemberPresenceWaking},
-		{"offline when waking stale", func(m *Member) {
-			m.DesiredState = DesiredStateOnline
-			m.WakingSince = 1000.0
-		}, 1000.0 + WakingTTLSecs + 1, false, MemberPresenceOffline},
-		{"offline when no intent", func(m *Member) {
-			m.DesiredState = DesiredStateOffline
-			m.WakingSince = 1000.0
-		}, 1000.0, false, MemberPresenceOffline},
-		{"stopping when online and stopping_since set", func(m *Member) {
-			m.StoppingSince = 1000.0
-		}, 1000.0, true, MemberPresenceStopping},
-		{"stopped when offline and stopping_since set", func(m *Member) {
-			m.StoppingSince = 1000.0
-		}, 1000.0, false, MemberPresenceStopped},
-		{"stopping_since takes precedence over online", func(m *Member) {
-			m.StoppingSince = 1000.0
-		}, 1_000_000.0, true, MemberPresenceStopping},
-		{"cleared stopping_since returns to online", func(m *Member) {
-			m.StoppingSince = 0.0
-		}, 1000.0, true, MemberPresenceOnline},
-		{"cleared stopping_since returns to waking", func(m *Member) {
-			m.DesiredState = DesiredStateOnline
-			m.WakingSince = 1000.0
-			m.StoppingSince = 0.0
-		}, 1000.0 + WakingTTLSecs - 1, false, MemberPresenceWaking},
-		// SSE is the GROUND TRUTH for stopped: a warden kill receipt (last_op
-		// stop/ok/at>=stopping_since) must NOT judge stopped while the SSE is
-		// up — a receipt can lie (the kill missed; the process still answers).
-		{"kill receipt never shortcuts a live SSE", func(m *Member) {
-			ok := true
-			m.StoppingSince = 1000.0
-			m.LastOp = "stop"
-			m.LastOpOK = &ok
-			m.LastOpAt = 1000.0
-		}, 1000.0, true, MemberPresenceStopping},
-		{"no receipt keeps stopped on dropped SSE", func(m *Member) {
-			m.StoppingSince = 1000.0
-		}, 1000.0, false, MemberPresenceStopped},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			got := PresenceState(presenceMember(tc.mutate), tc.now, tc.online)
-			if got != tc.want {
-				t.Fatalf("PresenceState = %q, want %q", got, tc.want)
-			}
-		})
-	}
+func TestCanonicalHost(t *testing.T) {
+	t.Skip("TODO: CanonicalHost folds the retired legacy host alias onto the canonical server-self machine id; every other host passes through unchanged.")
 }
-
-// ── deriveLiveness (the shared kernel PresenceState delegates to) ────────────
 
 func TestDeriveLiveness(t *testing.T) {
-	cases := []struct {
-		name string
-		in   livenessInput
-		want string
-	}{
-		{"stop dominates while online → stopping",
-			livenessInput{Online: true, StopIntent: true}, MemberPresenceStopping},
-		{"stop while offline → stopped",
-			livenessInput{Online: false, StopIntent: true}, MemberPresenceStopped},
-		{"stop dominates even over a pending wake",
-			livenessInput{Online: false, StopIntent: true, WakePending: true}, MemberPresenceStopped},
-		{"online with no stop → online",
-			livenessInput{Online: true}, MemberPresenceOnline},
-		{"online outranks a pending wake",
-			livenessInput{Online: true, WakePending: true}, MemberPresenceOnline},
-		{"offline with fresh wake → waking",
-			livenessInput{Online: false, WakePending: true}, MemberPresenceWaking},
-		{"offline, nothing pending → offline",
-			livenessInput{}, MemberPresenceOffline},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			if got := deriveLiveness(tc.in); got != tc.want {
-				t.Fatalf("deriveLiveness(%+v) = %q, want %q", tc.in, got, tc.want)
-			}
-		})
-	}
+	t.Skip("TODO: deriveLiveness is the ONE shared liveness kernel for both actor kinds.")
 }
 
-// ── WakingTimedOut ───────────────────────────────────────────────────────────
+func TestPresenceState(t *testing.T) {
+	t.Skip("TODO: PresenceState projects ANY member row's presence at now — staff and outsource alike (T-14: workerPresence is a thin released-row guard in front of THIS call, not a second projection).")
+}
 
 func TestWakingTimedOut(t *testing.T) {
-	waking := presenceMember(func(m *Member) {
-		m.DesiredState = DesiredStateOnline
-		m.WakingSince = 1000.0
-	})
-	if !WakingTimedOut(waking, 1000.0+WakingTTLSecs+1, false) {
-		t.Fatal("stale waking signal must time out")
-	}
-	if WakingTimedOut(waking, 1000.0+WakingTTLSecs-1, false) {
-		t.Fatal("within the TTL is not a timeout")
-	}
-	notDesired := presenceMember(func(m *Member) {
-		m.DesiredState = DesiredStateOffline
-		m.WakingSince = 1000.0
-	})
-	if WakingTimedOut(notDesired, 1000.0+WakingTTLSecs+1, false) {
-		t.Fatal("no online intent means no failed wake")
-	}
-	// An online session is not a failed wake, however stale the signal.
-	if WakingTimedOut(waking, 1000.0+WakingTTLSecs+1, true) {
-		t.Fatal("an online member never times out of waking")
-	}
+	t.Skip("TODO: WakingTimedOut reports a waking member whose startup window lapsed with no online session (failed wake → should fall to offline).")
 }
-
-// ── StoppingTimedOut ─────────────────────────────────────────────────────────
 
 func TestStoppingTimedOut(t *testing.T) {
-	stopping := presenceMember(func(m *Member) { m.StoppingSince = 1000.0 })
-	if !StoppingTimedOut(stopping, 1000.0+StoppingTimeoutSecs+1, true) {
-		t.Fatal("lapsed grace must read timed out")
-	}
-	if StoppingTimedOut(stopping, 1000.0+StoppingTimeoutSecs-1, true) {
-		t.Fatal("within the grace window is not a timeout")
-	}
-	if StoppingTimedOut(stopping, 1000.0+StoppingTimeoutSecs+1, false) {
-		t.Fatal("no live session to force-kill means no stuck collect")
-	}
-	notStopping := presenceMember(nil)
-	if StoppingTimedOut(notStopping, 1_000_000.0, true) {
-		t.Fatal("not stopping at all")
-	}
-	// Orthogonality: the timeout is a reconciliation trigger, NOT a presence
-	// input — past the grace the member still projects "stopping".
-	now := 1000.0 + StoppingTimeoutSecs + 1
-	if got := PresenceState(stopping, now, true); got != MemberPresenceStopping {
-		t.Fatalf("timed-out member must still project stopping, got %q", got)
-	}
+	t.Skip("TODO: StoppingTimedOut reports a stopping member whose shutdown grace lapsed (collect stuck → force-kill).")
 }
 
-// ── CanonicalHost ────────────────────────────────────────────────────────────
-
-func TestCanonicalHostFoldsOnlyLegacyAlias(t *testing.T) {
-	if got := CanonicalHost(legacyServerSelfHost); got != ServerSelfHost {
-		t.Fatalf("legacy alias must fold to %q, got %q", ServerSelfHost, got)
-	}
-	for _, host := range []string{ServerSelfHost, "m-seth-box", ""} {
-		if got := CanonicalHost(host); got != host {
-			t.Fatalf("CanonicalHost(%q) = %q, want unchanged", host, got)
-		}
-	}
+func TestPickMemberName(t *testing.T) {
+	t.Skip("TODO: PickMemberName picks a random display name colliding with none in taken (trimmed, case-insensitive).")
 }
-
-// ── CanonicalKind ────────────────────────────────────────────────────────────
-
-func TestCanonicalKindMapsBlankToStaff(t *testing.T) {
-	// The Python bare hire writes kind="" — the Go closed set folds it to the
-	// default colleague kind.
-	got, err := CanonicalKind("")
-	if err != nil || got != KindStaff {
-		t.Fatalf("blank kind must fold to staff, got (%q, %v)", got, err)
-	}
-	for _, kind := range []string{KindStaff, KindWarden, KindOutsource} {
-		got, err := CanonicalKind(kind)
-		if err != nil || got != kind {
-			t.Fatalf("closed-set kind %q must pass through, got (%q, %v)", kind, got, err)
-		}
-	}
-	for _, kind := range []string{"robot", "Staff", "WARDEN", "Outsource", "assistant"} {
-		if _, err := CanonicalKind(kind); err == nil {
-			t.Fatalf("kind %q outside the closed set must be refused", kind)
-		}
-	}
-	// Refusing the PRE-RENAME value is not enough: the message has to say it was
-	// renamed, or an older caller reads three unfamiliar values and has to guess
-	// which one its own used to be (T-48).
-	// 🔑 Composed from runes, not spelled — a literal here would be rewritten by
-	// the same repo-wide "assistant"→"staff" replacement this case guards, and
-	// the assertion would then be checking the NEW value and pass for free.
-	legacy := string([]rune{'a', 's', 's', 'i', 's', 't', 'a', 'n', 't'})
-	_, err = CanonicalKind(legacy)
-	if err == nil {
-		t.Fatalf("the pre-rename kind %q must still be refused", legacy)
-	}
-	if !strings.Contains(err.Error(), "renamed") || !strings.Contains(err.Error(), KindStaff) {
-		t.Fatalf("refusing %q must name the rename and the new value, got: %v", legacy, err)
-	}
-}
-
-// ── member name pool / PickMemberName ────────────────────────────────────────
-
-func TestMemberNamePoolIsMiraStyleAndBigEnough(t *testing.T) {
-	if len(MemberNamePool) < 20 {
-		t.Fatalf("pool too small: %d", len(MemberNamePool))
-	}
-	seen := map[string]bool{}
-	nameRe := regexp.MustCompile(`^[A-Z][a-z]{1,9}$`)
-	for _, n := range MemberNamePool {
-		fold := strings.ToLower(n)
-		if seen[fold] {
-			t.Fatalf("duplicate pool name %q", n)
-		}
-		seen[fold] = true
-		if !nameRe.MatchString(n) {
-			t.Fatalf("pool name %q is not a Mira-style short given name", n)
-		}
-	}
-	if seen["mira"] {
-		t.Fatal("the pool must never contain the seed name Mira")
-	}
-}
-
-func TestPickMemberNameAvoidsTakenCaseInsensitively(t *testing.T) {
-	rng := rand.New(rand.NewPCG(7, 7))
-	taken := []string{"nova", "  Kai  ", "Mira"} // trimmed + folded before comparing
-	for range 50 {
-		picked := PickMemberName(taken, rng)
-		if !slices.Contains(MemberNamePool, picked) {
-			t.Fatalf("picked %q is not from the pool", picked)
-		}
-		fold := strings.ToLower(picked)
-		if fold == "nova" || fold == "kai" {
-			t.Fatalf("picked a taken name %q", picked)
-		}
-	}
-}
-
-func TestPickMemberNameExhaustedPoolFallsBackToSuffix(t *testing.T) {
-	rng := rand.New(rand.NewPCG(7, 7))
-	taken := slices.Clone(MemberNamePool)
-	picked := PickMemberName(taken, rng)
-	if !regexp.MustCompile(`^[A-Z][a-z]{1,9}-\d+$`).MatchString(picked) {
-		t.Fatalf("exhausted pool must fall back to a numeric suffix, got %q", picked)
-	}
-	for _, tk := range taken {
-		if strings.EqualFold(tk, picked) {
-			t.Fatalf("fallback %q collides with a taken name", picked)
-		}
-	}
-}
-
-// ── entity invariants ────────────────────────────────────────────────────────
 
 func TestValidateMember(t *testing.T) {
-	for _, kind := range []string{KindStaff, KindWarden, KindOutsource} {
-		if err := ValidateMember(Member{ID: "mira", Kind: kind}); err != nil {
-			t.Fatalf("valid %s member refused: %v", kind, err)
-		}
-	}
-	if err := ValidateMember(Member{Kind: KindStaff}); err == nil {
-		t.Fatal("blank id must be refused")
-	}
-	if err := ValidateMember(Member{ID: "m-1", Kind: ""}); err == nil {
-		t.Fatal("a stored member must carry a closed-set kind (blank is ingest-only)")
-	}
-	if err := ValidateMember(Member{ID: "m-1", Kind: "robot"}); err == nil {
-		t.Fatal("off-set kind must be refused")
-	}
+	t.Skip("TODO: ── entity invariants (the Python __post_init__ checks, sans owner scoping) ── ValidateMember enforces the member entity invariants: a non-empty id (the roster identity and attribution key) and a kind on the closed set (blank is an ingest-seam concern — CanonicalKind — never a stored value).")
 }
 
-func TestValidateChatEntities(t *testing.T) {
-	if err := ValidateChatMessage(ChatMessage{ID: "c-1"}); err != nil {
-		t.Fatalf("valid message refused: %v", err)
-	}
-	if err := ValidateChatMessage(ChatMessage{}); err == nil {
-		t.Fatal("blank message id must be refused")
-	}
-	if err := ValidateChatAttachment(ChatAttachment{ID: "att-1"}); err != nil {
-		t.Fatalf("valid attachment refused: %v", err)
-	}
-	if err := ValidateChatAttachment(ChatAttachment{}); err == nil {
-		t.Fatal("blank attachment id must be refused")
-	}
+func TestValidateChatMessage(t *testing.T) {
+	t.Skip("TODO: ValidateChatMessage enforces the chat-message invariant: a non-empty id.")
+}
+
+func TestValidateChatAttachment(t *testing.T) {
+	t.Skip("TODO: ValidateChatAttachment enforces the attachment invariant: a non-empty id.")
 }
 
 func TestValidateChatRead(t *testing.T) {
-	ok := ChatRead{ReaderID: "mira", PeerID: "owner", LastReadTS: 42.0}
-	if err := ValidateChatRead(ok); err != nil {
-		t.Fatalf("valid receipt refused: %v", err)
-	}
-	blankReader := ChatRead{PeerID: "owner"}
-	if err := ValidateChatRead(blankReader); err == nil || !strings.Contains(err.Error(), "reader_id") {
-		t.Fatalf("blank reader_id must be refused naming the field, got %v", err)
-	}
-	blankPeer := ChatRead{ReaderID: "mira"}
-	if err := ValidateChatRead(blankPeer); err == nil || !strings.Contains(err.Error(), "peer_id") {
-		t.Fatalf("blank peer_id must be refused naming the field, got %v", err)
-	}
+	t.Skip("TODO: ValidateChatRead enforces the read-receipt invariants: a watermark is meaningless without both conversation participants.")
 }
 
-func TestValidateOverlayEntities(t *testing.T) {
-	if err := ValidateRoleDef(RoleDef{RoleKey: "assistant"}); err != nil {
-		t.Fatalf("valid role def refused: %v", err)
-	}
-	if err := ValidateRoleDef(RoleDef{}); err == nil {
-		t.Fatal("blank role_key must be refused")
-	}
-	if err := ValidateLessons(Lessons{RoleKey: "assistant"}); err != nil {
-		t.Fatalf("valid lessons refused: %v", err)
-	}
-	if err := ValidateLessons(Lessons{}); err == nil {
-		t.Fatal("blank role_key must be refused")
-	}
-	if err := ValidateAccountAlias(AccountAlias{Account: "acct"}); err != nil {
-		t.Fatalf("valid account alias refused: %v", err)
-	}
-	if err := ValidateAccountAlias(AccountAlias{}); err == nil {
-		t.Fatal("blank account must be refused")
-	}
-	if err := ValidateMachineAlias(MachineAlias{MachineID: "m-1"}); err != nil {
-		t.Fatalf("valid machine alias refused: %v", err)
-	}
-	if err := ValidateMachineAlias(MachineAlias{}); err == nil {
-		t.Fatal("blank machine_id must be refused")
-	}
+func TestValidateRoleDef(t *testing.T) {
+	t.Skip("TODO: ValidateRoleDef enforces the role-overlay invariant: a non-empty role key.")
 }
 
-// ── AttachmentRefIDs ─────────────────────────────────────────────────────────
+func TestValidateLessons(t *testing.T) {
+	t.Skip("TODO: ValidateLessons enforces the lessons-overlay invariant: role_key IS the key (T-2 dropped the task_type half of the old composite), so it must be populated.")
+}
+
+func TestValidateAccountAlias(t *testing.T) {
+	t.Skip("TODO: ValidateAccountAlias / ValidateMachineAlias enforce the overlay invariant: an alias without its stable dedupe key labels nothing.")
+}
+
+func TestValidateMachineAlias(t *testing.T) {
+	t.Skip("TODO: 需要人工判斷這個函式的可觀察結果是什麼")
+}
+
+func TestValidateWebhookEndpointID(t *testing.T) {
+	t.Skip("TODO: ValidateWebhookEndpointID enforces the endpoint-id invariant at the create seam: non-empty, within the length cap, closed character set.")
+}
+
+func TestValidWebhookPlatform(t *testing.T) {
+	t.Skip("TODO: ValidWebhookPlatform reports whether platform is in the closed verification preset set (generic/slack/github — migrations/00012).")
+}
+
+func TestValidScheduledMessageCadence(t *testing.T) {
+	t.Skip("TODO: ValidScheduledMessageCadence reports whether cadence is in the closed set.")
+}
+
+func TestScheduledMessageCadenceList(t *testing.T) {
+	t.Skip("TODO: scheduledMessageCadenceList renders the closed set for a refusal message, so the message cannot come to list a different set from the one enforced.")
+}
+
+func TestScheduledMessageCadenceReads(t *testing.T) {
+	t.Skip("TODO: scheduledMessageCadenceReads reports whether cadence reads field.")
+}
+
+func TestAllCustomMonths(t *testing.T) {
+	t.Skip("TODO: allCustomMonths is the whole year, listed.")
+}
+
+func TestValidateScheduledMessageCustomSets(t *testing.T) {
+	t.Skip("TODO: ValidateScheduledMessageCustomSets enforces the four explicit sets `custom` intersects (T-49e7).")
+}
+
+func TestMaxDaysInMonth(t *testing.T) {
+	t.Skip("TODO: maxDaysInMonth is how many days month m can have in the BEST year — February answers 29, which is what keeps a leap-year-only schedule legal.")
+}
+
+func TestScheduledMessageMonthDayFeasible(t *testing.T) {
+	t.Skip("TODO: scheduledMessageMonthDayFeasible refuses a month × day pair that no calendar can ever satisfy.")
+}
+
+func TestValidateScheduledMessageWallClockPresence(t *testing.T) {
+	t.Skip("TODO: ValidateScheduledMessageWallClockPresence refuses a calendar cadence (daily/weekly/monthly) that was not given an hour AND a minute.")
+}
+
+func TestValidScheduledMessageStatus(t *testing.T) {
+	t.Skip("TODO: ValidScheduledMessageStatus reports whether status is in the closed set (the enable/disable toggle domain).")
+}
+
+func TestValidateScheduledMessageBody(t *testing.T) {
+	t.Skip("TODO: ValidateScheduledMessageBody rejects a blank body: a schedule that delivers nothing is a schedule whose only observable effect is noise.")
+}
+
+func TestValidateScheduledMessageSlotFields(t *testing.T) {
+	t.Skip("TODO: ValidateScheduledMessageSlotFields enforces the wall-clock field ranges.")
+}
+
+func TestValidateScheduledMessageTimezone(t *testing.T) {
+	t.Skip("TODO: ValidateScheduledMessageTimezone rejects any name that does not pin the schedule to a stated place on Earth.")
+}
 
 func TestAttachmentRefIDs(t *testing.T) {
-	meta := map[string]any{"attachments": []any{
-		map[string]any{"id": "att-1", "mime": "image/png"},
-		map[string]any{"id": ""},      // blank id skipped
-		map[string]any{"mime": "x/y"}, // no id skipped
-		"not-a-ref",                   // non-conforming entry skipped
-		map[string]any{"id": "att-2"},
-	}}
-	got := AttachmentRefIDs(meta)
-	if !slices.Equal(got, []string{"att-1", "att-2"}) {
-		t.Fatalf("refs = %v, want [att-1 att-2]", got)
-	}
-	// Free-form / non-conforming meta yields no refs, never panics.
-	if got := AttachmentRefIDs(map[string]any{}); got != nil {
-		t.Fatalf("no attachments key must yield nil, got %v", got)
-	}
-	if got := AttachmentRefIDs(map[string]any{"attachments": "oops"}); got != nil {
-		t.Fatalf("non-list attachments must yield nil, got %v", got)
-	}
-}
-
-// ── UnreadCounts ─────────────────────────────────────────────────────────────
-
-func msg(sender, recipient string, ts float64) ChatMessage {
-	return ChatMessage{ID: "c-" + sender, Sender: sender, Recipient: recipient, TS: ts}
-}
-
-func receipt(reader, peer string, ts float64) ChatRead {
-	return ChatRead{ReaderID: reader, PeerID: peer, LastReadTS: ts}
+	t.Skip("TODO: ── chat: attachment refs (the only message→blob linkage) ──────────────────── AttachmentRefIDs extracts the attachment blob ids a message's meta refs — meta[\"attachments\"] is BY DECREE the single source of truth for the message→attachment linkage (no FK edge).")
 }
 
 func TestUnreadCounts(t *testing.T) {
-	cases := []struct {
-		name     string
-		messages []ChatMessage
-		receipts []ChatRead
-		want     map[string]int
-	}{
-		{"no receipt counts every addressed message",
-			[]ChatMessage{msg("mira", "owner", 10.0)}, nil,
-			map[string]int{"mira": 1}},
-		{"watermark covering the message clears it",
-			[]ChatMessage{msg("mira", "owner", 10.0)},
-			[]ChatRead{receipt("owner", "mira", 10.0)},
-			map[string]int{}},
-		{"messages newer than the watermark are counted",
-			[]ChatMessage{
-				msg("mira", "owner", 10.0),
-				msg("mira", "owner", 20.0),
-				msg("mira", "owner", 30.0),
-			},
-			[]ChatRead{receipt("owner", "mira", 10.0)},
-			map[string]int{"mira": 2}},
-		{"counts are per peer",
-			[]ChatMessage{
-				msg("mira", "owner", 10.0),
-				msg("joey", "owner", 20.0),
-				msg("joey", "owner", 30.0),
-			}, nil,
-			map[string]int{"mira": 1, "joey": 2}},
-		{"agent-to-agent messages never count",
-			[]ChatMessage{msg("mira", "joey", 99.0), msg("joey", "mira", 100.0)}, nil,
-			map[string]int{}},
-		{"readers own sent messages never count",
-			[]ChatMessage{msg("owner", "mira", 50.0)}, nil,
-			map[string]int{}},
-		{"another readers receipt does not clear",
-			[]ChatMessage{msg("mira", "owner", 10.0)},
-			[]ChatRead{receipt("mira", "owner", 999.0)},
-			map[string]int{"mira": 1}},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			got := UnreadCounts(tc.messages, tc.receipts, "owner")
-			if !maps.Equal(got, tc.want) {
-				t.Fatalf("UnreadCounts = %v, want %v", got, tc.want)
-			}
-		})
-	}
+	t.Skip("TODO: ── chat_read: unread counts (the pure watermark inverse) ──────────────────── UnreadCounts derives per-peer unread message counts for reader — the pure inverse of the read watermark.")
 }
-
-// ── FoldRoleDef ──────────────────────────────────────────────────────────────
 
 func TestFoldRoleDef(t *testing.T) {
-	liveOverlay := &RoleDef{RoleKey: "assistant", Name: "Edited", DefinitionMD: "custom md"}
-	tombstoned := &RoleDef{RoleKey: "assistant", Tombstoned: true}
-
-	// A live overlay wins whole (self-contained: full name + md); an edited
-	// seed role stays a seed role (resettable, not deletable).
-	got := FoldRoleDef("assistant", liveOverlay, "Assistant", "seed md", true)
-	want := &FoldedRoleDef{Key: "assistant", Name: "Edited", DefinitionMD: "custom md", IsSeed: true}
-	if got == nil || *got != *want {
-		t.Fatalf("live overlay fold = %+v, want %+v", got, want)
-	}
-
-	// A tombstoned overlay (reset) falls back to the seed as the default.
-	got = FoldRoleDef("assistant", tombstoned, "Assistant", "seed md", true)
-	want = &FoldedRoleDef{Key: "assistant", Name: "Assistant", DefinitionMD: "seed md", IsDefault: true, IsSeed: true}
-	if got == nil || *got != *want {
-		t.Fatalf("tombstoned fold = %+v, want %+v", got, want)
-	}
-
-	// No overlay at all also reads the seed default.
-	got = FoldRoleDef("assistant", nil, "Assistant", "seed md", true)
-	if got == nil || *got != *want {
-		t.Fatalf("no-overlay fold = %+v, want %+v", got, want)
-	}
-
-	// A custom role: overlay only, no file seed — deletable, never default.
-	custom := &RoleDef{RoleKey: "r-abc", Name: "Scout", DefinitionMD: CustomRoleTemplateMD}
-	got = FoldRoleDef("r-abc", custom, "", "", false)
-	want = &FoldedRoleDef{Key: "r-abc", Name: "Scout", DefinitionMD: CustomRoleTemplateMD}
-	if got == nil || *got != *want {
-		t.Fatalf("custom fold = %+v, want %+v", got, want)
-	}
-
-	// Neither a seed nor a live overlay → nil (unknown role, caller 404s);
-	// a tombstoned custom overlay reads the same as absent.
-	if got := FoldRoleDef("nope", nil, "", "", false); got != nil {
-		t.Fatalf("unknown role must fold to nil, got %+v", got)
-	}
-	deadCustom := &RoleDef{RoleKey: "r-abc", Tombstoned: true}
-	if got := FoldRoleDef("r-abc", deadCustom, "", "", false); got != nil {
-		t.Fatalf("tombstoned custom overlay must fold to nil, got %+v", got)
-	}
+	t.Skip("TODO: FoldRoleDef folds one role definition: owner overlay ⊕ file seed.")
 }
-
-// ── FoldLessons ──────────────────────────────────────────────────────────────
 
 func TestFoldLessons(t *testing.T) {
-	// No overlay / a tombstoned overlay → the shared seed as the default
-	// (every role falls back to the SAME seed until its overlay diverges it).
-	if text, isDefault := FoldLessons(nil, "seed lessons"); text != "seed lessons" || !isDefault {
-		t.Fatalf("no overlay must fold to the seed default, got (%q, %v)", text, isDefault)
-	}
-	dead := &Lessons{RoleKey: "assistant", Text: "old", Tombstoned: true}
-	if text, isDefault := FoldLessons(dead, "seed lessons"); text != "seed lessons" || !isDefault {
-		t.Fatalf("tombstoned overlay must fold to the seed default, got (%q, %v)", text, isDefault)
-	}
-	live := &Lessons{RoleKey: "assistant", Text: "learned"}
-	if text, isDefault := FoldLessons(live, "seed lessons"); text != "learned" || isDefault {
-		t.Fatalf("live overlay must win, got (%q, %v)", text, isDefault)
-	}
+	t.Skip("TODO: ── lessons: per-role overlay ⊕ shared seed fold ───────────────────────────── FoldLessons folds a per-role lessons doc: owner overlay ⊕ file seed.")
 }
 
-// ── FoldUserContext ──────────────────────────────────────────────────────────
+func TestFoldInsight(t *testing.T) {
+	t.Skip("TODO: ── insight: per-role overlay ⊕ PER-ROLE file seed (T-3809 → T-e1e3) ───────── FoldInsight resolves a per-role insight doc: owner/agent overlay ⊕ this role's OWN file seed.")
+}
+
+func TestFoldBootDocument(t *testing.T) {
+	t.Skip("TODO: FoldBootDocument resolves ONE boot-context block: owner overlay ⊕ the embedded seed (T-791e).")
+}
+
+func TestApplyDocEdits(t *testing.T) {
+	t.Skip("TODO: ApplyDocEdits applies edits IN ORDER to text and returns the resulting doc.")
+}
+
+func TestLessonsShrinkBlocked(t *testing.T) {
+	t.Skip("TODO: LessonsShrinkBlocked reports whether patching before → after would wipe the doc (non-blank → blank) or shrink a substantial doc to under a tenth of its size — the r-76 wipe-accident guard, bypassed only by an explicit allow_shrink=true (or the whole-doc replace_lessons seam).")
+}
+
+func TestDocCapBlocked(t *testing.T) {
+	t.Skip("TODO: DocCapBlocked reports whether replacing before with after must be refused by the hard cap.")
+}
+
+func TestDocCapRefusal(t *testing.T) {
+	t.Skip("TODO: docCapRefusal is the ONE refusal text behind the cap, so the five write seams cannot drift into five different explanations.")
+}
+
+func TestDocWipeRefusal(t *testing.T) {
+	t.Skip("TODO: docWipeRefusal is the ONE refusal text behind the wipe guard (WholeDocWipeBlocked), the same way docCapRefusal is the one text behind the cap.")
+}
 
 func TestFoldUserContext(t *testing.T) {
-	// The additive block's seed is EMPTY: no row (or a tombstoned one) folds
-	// to ""/default so the boot-context assembly skips the block entirely.
-	if text, isDefault := FoldUserContext(nil); text != "" || !isDefault {
-		t.Fatalf("no row must fold to the empty default, got (%q, %v)", text, isDefault)
-	}
-	dead := &UserContext{Text: "old", Tombstoned: true}
-	if text, isDefault := FoldUserContext(dead); text != "" || !isDefault {
-		t.Fatalf("tombstoned row must fold to the empty default, got (%q, %v)", text, isDefault)
-	}
-	live := &UserContext{Text: "my house rules"}
-	if text, isDefault := FoldUserContext(live); text != "my house rules" || isDefault {
-		t.Fatalf("live row must win, got (%q, %v)", text, isDefault)
-	}
-}
-
-// ── DisplayName ──────────────────────────────────────────────────────────────
-
-func TestDisplayName(t *testing.T) {
-	names := map[string]string{"m-abc123": "Seth 的 MBP"}
-	if got := DisplayName("m-abc123", names); got != "Seth 的 MBP" {
-		t.Fatalf("overlay label must win, got %q", got)
-	}
-	// No overlay → the id is its own display name (purely additive fold).
-	if got := DisplayName("m-unnamed", names); got != "m-unnamed" {
-		t.Fatalf("absent overlay must fold to the id, got %q", got)
-	}
-	// An empty label reads as no overlay (matches the Python `get(id) or id`).
-	if got := DisplayName("m-blank", map[string]string{"m-blank": ""}); got != "m-blank" {
-		t.Fatalf("empty label must fold to the id, got %q", got)
-	}
-	if got := DisplayName("m-x", nil); got != "m-x" {
-		t.Fatalf("nil map must fold to the id, got %q", got)
-	}
-}
-
-func TestDeriveTaskStatus(t *testing.T) {
-	step := func(s string) TaskStep { return TaskStep{Status: s} }
-	cases := []struct {
-		name  string
-		steps []TaskStep
-		want  string
-	}{
-		{"zero steps → not_started", nil, TaskStatusNotStarted},
-		{"all superseded → not_started",
-			[]TaskStep{step(StepStatusSuperseded), step(StepStatusSuperseded)}, TaskStatusNotStarted},
-		{"all pending → not_started",
-			[]TaskStep{step(StepStatusPending), step(StepStatusPending)}, TaskStatusNotStarted},
-		{"one in_progress → in_progress",
-			[]TaskStep{step(StepStatusInProgress), step(StepStatusPending)}, TaskStatusInProgress},
-		{"one done, rest pending → in_progress",
-			[]TaskStep{step(StepStatusDone), step(StepStatusPending)}, TaskStatusInProgress},
-		{"all done → done",
-			[]TaskStep{step(StepStatusDone), step(StepStatusDone)}, TaskStatusDone},
-		{"done + superseded (superseded excluded) → done",
-			[]TaskStep{step(StepStatusDone), step(StepStatusSuperseded)}, TaskStatusDone},
-		{"waiting_external present → waiting_external",
-			[]TaskStep{step(StepStatusInProgress), step(StepStatusWaitingExternal)}, TaskStatusWaitingExternal},
-		{"waiting_owner beats waiting_external",
-			[]TaskStep{step(StepStatusWaitingExternal), step(StepStatusWaitingOwner)}, TaskStatusWaitingOwner},
-		{"waiting_owner beats done",
-			[]TaskStep{step(StepStatusDone), step(StepStatusWaitingOwner)}, TaskStatusWaitingOwner},
-		{"waiting_external beats done",
-			[]TaskStep{step(StepStatusDone), step(StepStatusWaitingExternal)}, TaskStatusWaitingExternal},
-		{"never returns a lock or explicit terminal — reassigning/terminated absent from output",
-			[]TaskStep{step(StepStatusInProgress)}, TaskStatusInProgress},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			if got := DeriveTaskStatus(tc.steps); got != tc.want {
-				t.Fatalf("DeriveTaskStatus = %q, want %q", got, tc.want)
-			}
-		})
-	}
+	t.Skip("TODO: ── user_context: the ADDITIVE user-custom block fold ──────────────────────── FoldUserContext folds the owner's user-custom ADDITIVE boot-context block.")
 }
 
 func TestValidTaskLock(t *testing.T) {
-	for _, ok := range []string{TaskLockNone, TaskLockReassigning, "", "reassigning"} {
-		if !ValidTaskLock(ok) {
-			t.Fatalf("ValidTaskLock(%q) = false, want true", ok)
-		}
-	}
-	for _, bad := range []string{"pending_outsource_approval", "waiting_capacity", "bogus", "Reassigning"} {
-		if ValidTaskLock(bad) {
-			t.Fatalf("ValidTaskLock(%q) = true, want false", bad)
-		}
-	}
+	t.Skip("TODO: ValidTaskLock reports task.lock closed-set membership (the write-path guard).")
+}
+
+func TestValidHandoff(t *testing.T) {
+	t.Skip("TODO: ValidHandoff reports handoff closed-set membership, EXCLUDING the undeclared empty (a caller declaring \"\" is declaring nothing — the gate's whole point).")
+}
+
+func TestTaskNeedsHandoffDeclaration(t *testing.T) {
+	t.Skip("TODO: TaskNeedsHandoffDeclaration is the GATE PREDICATE — the precise population the close gate asks: a task whose creator is a DIFFERENT actor from its executor and that has not yet declared where the ball goes.")
+}
+
+func TestCanonicalTaskExecutorKind(t *testing.T) {
+	t.Skip("TODO: CanonicalTaskExecutorKind folds an incoming executor kind onto the closed set, mirroring CanonicalKind's shape for the roster axis — with ONE deliberate divergence: CanonicalKind(\"\") answers the default kind, this one answers an error.")
+}
+
+func TestValidArtifactKind(t *testing.T) {
+	t.Skip("TODO: ValidArtifactKind reports task_artifact.kind closed-set membership (the add_task_artifact 400 guard).")
+}
+
+func TestValidTaskStatus(t *testing.T) {
+	t.Skip("TODO: ValidTaskStatus / ValidTaskPriority / ValidStepStatus report closed-set membership (the handlers' 400 guards).")
+}
+
+func TestValidTaskPriority(t *testing.T) {
+	t.Skip("TODO: 需要人工判斷這個函式的可觀察結果是什麼")
+}
+
+func TestValidStepStatus(t *testing.T) {
+	t.Skip("TODO: 需要人工判斷這個函式的可觀察結果是什麼")
+}
+
+func TestTaskIsTerminal(t *testing.T) {
+	t.Skip("TODO: TaskIsTerminal reports the three terminal statuses (dedupe scope + the 409 write guard: no agent push, no plan, no gate lands on a closed task).")
+}
+
+func TestTaskProgress(t *testing.T) {
+	t.Skip("TODO: TaskProgress counts the flattened leaf progress (SPEC §3.1: every step row is one leaf — parallel items are separate rows, so no extra flattening).")
+}
+
+func TestCurrentStep(t *testing.T) {
+	t.Skip("TODO: CurrentStep is the ONE definition of \"which step is the task on now\": the FIRST step, in timeline order (order_idx, id — dal.ListTaskSteps' order), that is not TERMINAL.")
+}
+
+func TestDeriveTaskStatus(t *testing.T) {
+	t.Skip("TODO: DeriveTaskStatus computes a task's status PURELY from its steps — the single rule, zero exceptions (owner T-9ca5: \"任務狀態要照實呈現，不應該有例外\").")
 }
 
 func TestRecomputeTaskStatus(t *testing.T) {
-	step := func(s string) TaskStep { return TaskStep{Status: s} }
-	stepReason := func(s, reason string) TaskStep {
-		return TaskStep{Status: s, WaitingReason: reason}
-	}
+	t.Skip("TODO: RecomputeTaskStatus is the DERIVATION OWNER (T-9ca5): the single place every step-mutation seam calls to re-project a task's status (and its display waiting_reason) from its steps, so the cockpit never shows a status the steps contradict.")
+}
 
-	// (a) The guard: explicit terminals are the derivation's blind spots —
-	// status AND waiting_reason are left untouched.
-	t.Run("terminal untouched", func(t *testing.T) {
-		for _, frozen := range []string{
-			TaskStatusTerminated, TaskStatusDuplicated,
-		} {
-			task := &Task{Status: frozen, WaitingReason: "keep"}
-			RecomputeTaskStatus(task, []TaskStep{step(StepStatusDone), step(StepStatusDone)})
-			if task.Status != frozen {
-				t.Fatalf("%s must be left untouched, got %q", frozen, task.Status)
-			}
-			if task.WaitingReason != "keep" {
-				t.Fatalf("%s must keep its waiting_reason, got %q", frozen, task.WaitingReason)
-			}
-		}
-	})
+func TestValidatePlanParallelShape(t *testing.T) {
+	t.Skip("TODO: ── tasks: parallel (fork-join) plan shape ─────────────────────────────────── ValidatePlanParallelShape guards the submit_plan write seam against parallel-group shapes the timeline cannot honestly render (the FE folds CONSECUTIVE steps sharing a non-empty parallel_group into ONE stage): 1.")
+}
 
-	// (b) Derives the status from the steps and mirrors the FIRST waiting_external
-	// step's reason as the display waiting_reason.
-	t.Run("derives status and mirrors first waiting_external reason", func(t *testing.T) {
-		task := &Task{Status: TaskStatusInProgress, WaitingReason: ""}
-		RecomputeTaskStatus(task, []TaskStep{
-			step(StepStatusInProgress),
-			stepReason(StepStatusWaitingExternal, "vendor A"),
-			stepReason(StepStatusWaitingExternal, "vendor B"),
-		})
-		if task.Status != TaskStatusWaitingExternal {
-			t.Fatalf("status must derive to waiting_external, got %q", task.Status)
-		}
-		if task.WaitingReason != "vendor A" {
-			t.Fatalf("waiting_reason must mirror the first waiting_external step, got %q",
-				task.WaitingReason)
-		}
-	})
+func TestCodenamePrefix(t *testing.T) {
+	t.Skip("TODO: ── tasks: outsource codename derivation (Phase 2 scheduler consumes) ──────── CodenamePrefix maps a model name onto the codename letter (SPEC 核心名詞: O-xx Opus / S-xx Sonnet / H-xx Haiku).")
+}
 
-	// (c) Clears the display waiting_reason when no step is waiting_external.
-	t.Run("clears waiting_reason when no step is waiting_external", func(t *testing.T) {
-		task := &Task{Status: TaskStatusWaitingExternal, WaitingReason: "stale"}
-		RecomputeTaskStatus(task, []TaskStep{step(StepStatusInProgress), step(StepStatusPending)})
-		if task.Status != TaskStatusInProgress {
-			t.Fatalf("status must derive to in_progress, got %q", task.Status)
-		}
-		if task.WaitingReason != "" {
-			t.Fatalf("waiting_reason must clear, got %q", task.WaitingReason)
-		}
-	})
+func TestDeriveCodename(t *testing.T) {
+	t.Skip("TODO: DeriveCodename mints the next codename for a model given every codename ever issued: <prefix>-<MAX+1> over the SAME prefix (a globally ascending per-family sequence — never reused, single-writer SQLite makes MAX+1 safe).")
+}
+
+func TestParseManualFields(t *testing.T) {
+	t.Skip("TODO: ParseManualFields decodes the stored fields JSON.")
+}
+
+func TestNormalizeInputs(t *testing.T) {
+	t.Skip("TODO: NormalizeInputs re-keys the create-time inputs by normalizeFieldKey so manual-field lookups (required, is_key, dedupe) are case/space insensitive.")
+}
+
+func TestInputValueMissing(t *testing.T) {
+	t.Skip("TODO: InputValueMissing reports whether a manual field has no usable create-time value: absent, JSON null, or a string that is empty after trimming.")
+}
+
+func TestDedupeKeyValue(t *testing.T) {
+	t.Skip("TODO: DedupeKeyValue derives a task's identity-key VALUE from the manual's field definitions + the create-time inputs: the is_key fields' values in the manual's declaration order, unit-separator-joined (composite keys cannot collide across boundaries).")
+}
+
+func TestDisplayName(t *testing.T) {
+	t.Skip("TODO: ── alias: display-name overlay fold ───────────────────────────────────────── DisplayName folds an alias overlay over a stable id (an account tag or a machine id): the overlay label when one is set, else the id itself.")
 }

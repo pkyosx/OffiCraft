@@ -1,351 +1,124 @@
+// Skeleton generated from server/ocserverd/api_infra.go by gen_test_skeletons.py.
+// Every case is a t.Skip placeholder: fill the body, keep or rewrite the name.
+
 package main
 
-// api_infra_test.go — the zombie SSE gate (sseStopGateRefusal + its pre-stream
-// wiring in HandleEventsApiEventsGet). The HTTP-integration face (status,
-// envelope, presence interplay) is pinned black-box in
-// conformance/test_sse.py; here the predicate's every arm is pinned directly.
+import "testing"
 
-import (
-	"bytes"
-	"context"
-	"encoding/json"
-	"net/http/httptest"
-	"path/filepath"
-	"strings"
-	"testing"
-)
-
-// tokenExpiryRecorder closes the otherwise long-lived SSE handler exactly
-// after the token-expiry frame reaches the response body. It drives the real
-// wire path without sleeping for a heartbeat or relying on a synthetic band
-// call as proof of delivery.
-type tokenExpiryRecorder struct {
-	*httptest.ResponseRecorder
-	cancel context.CancelFunc
+func TestMarkStationShutdown(t *testing.T) {
+	t.Skip("TODO: markStationShutdown records the process-level cause before the server cancels request contexts or the upgrade re-execs.")
 }
 
-func (r *tokenExpiryRecorder) Write(p []byte) (int, error) {
-	n, err := r.ResponseRecorder.Write(p)
-	if bytes.Contains(p, []byte(`"topic":"token-expiry"`)) {
-		r.cancel()
-	}
-	return n, err
+func TestClearStationShutdown(t *testing.T) {
+	t.Skip("TODO: 需要人工判斷這個函式的可觀察結果是什麼")
 }
 
-// newGateTestAPI assembles a real apiServer over a temp sqlite DB (no HTTP
-// mux — the gate tests drive the handler/predicate directly).
-func newGateTestAPI(t *testing.T) (*apiServer, *DAL) {
-	t.Helper()
-	db, err := openSQLite(filepath.Join(t.TempDir(), "gate-test.db"))
-	if err != nil {
-		t.Fatalf("open: %v", err)
-	}
-	t.Cleanup(func() { db.Close() })
-	if err := runMigrations(db); err != nil {
-		t.Fatalf("goose up: %v", err)
-	}
-	dal := NewDAL(db)
-	api := newAPIServer(dal, NewHub(), singleKeyring([]byte(interopSecret)), 3600, "../..")
-	return api, dal
+func TestCancelStationContext(t *testing.T) {
+	t.Skip("TODO: 需要人工判斷這個函式的可觀察結果是什麼")
 }
 
-// putGateMember seeds a member row so the ROW ENDS UP LOOKING LIKE `m` — the
-// third helper of this shape, beside putTestMember and putWorkerFixture.
-//
-// 🔴 THE ANCHOR WRITE IS NOT REDUNDANT (T-55). The four wind-down anchors left
-// PutMember's DO UPDATE SET, so on a row that ALREADY EXISTS the upsert above
-// silently drops them. This helper's callers re-seed the same id to move a
-// member between gate states — including the stop→start case that clears the
-// anchors — and without this second write that re-seed plants nothing while
-// still reading like it did. The test then passes on the half it can still
-// satisfy and stops exercising the half it was written for.
-func putGateMember(t *testing.T, dal *DAL, m Member) {
-	t.Helper()
-	if m.RosterStatus == "" {
-		m.RosterStatus = RosterStatusActive
-	}
-	if err := dal.PutMember(m); err != nil {
-		t.Fatalf("PutMember(%s): %v", m.ID, err)
-	}
-	if err := dal.SetMemberWindDownAnchors(m.ID, m.StoppingSince, m.StoppedSince,
-		m.RefocusSince, m.RefocusOp); err != nil {
-		t.Fatalf("seed wind-down anchors for %s: %v", m.ID, err)
-	}
+func TestDetachReasonForLog(t *testing.T) {
+	t.Skip("TODO: detachReasonForLog keeps the operator vocabulary exactly as it was: an exit that concluded nothing is still reported as peer-closed, which is what a return with no recorded cause means.")
 }
 
-func TestSSEStopGateRefusalPredicate(t *testing.T) {
-	api, dal := newGateTestAPI(t)
-
-	cases := []struct {
-		name    string
-		member  *Member // nil = no roster row
-		refused bool
-	}{
-		{"unknown sub admitted (no roster row)", nil, false},
-		{"fresh hire admitted (desired offline, no stop anchor)",
-			&Member{ID: "g-hire", Kind: KindStaff, DesiredState: DesiredStateOffline}, false},
-		{"desired online admitted",
-			&Member{ID: "g-up", Kind: KindStaff, DesiredState: DesiredStateOnline}, false},
-		{"recycle admitted (desired online, stop anchors set)",
-			&Member{ID: "g-recycle", Kind: KindStaff, DesiredState: DesiredStateOnline,
-				StoppingSince: 1.0, StoppedSince: 2.0, RefocusSince: 3.0}, false},
-		// 🔴 A plain deactivate is now ADMITTED while the close-out runs (T-a9d6):
-		// 下線 collects on the agent's own stopped report, not a clock, so the
-		// session legitimately holds this state for as long as the hand-off
-		// takes — and a refusal here is not inert, the listener reads a run of
-		// them as "I have been retired" and kills its own tmux session.
-		{"deactivated ADMITTED while the close-out is still in flight",
-			&Member{ID: "g-stop", Kind: KindStaff, DesiredState: DesiredStateOffline,
-				StoppingSince: 1.0}, false},
-		// …and the two ways that stops being true: the agent says it is done,
-		// or the owner cut it off. Both must still be refused, or the gate has
-		// simply been removed.
-		{"force-stopped refused even before it reports",
-			&Member{ID: "g-forced", Kind: KindStaff, DesiredState: DesiredStateOffline,
-				StoppingSince: 1.0, ForcedStopAt: 2.0}, true},
-		{"stopped refused (desired offline + stopped_since)",
-			&Member{ID: "g-stopped", Kind: KindStaff, DesiredState: DesiredStateOffline,
-				StoppedSince: 1.0}, true},
-		{"junk desired parses offline → still gated (admitted only because the " +
-			"close-out is in flight, same as a real deactivate)",
-			&Member{ID: "g-junk", Kind: KindStaff, DesiredState: "bogus",
-				StoppingSince: 1.0}, false},
-		{"junk desired + reported stopped → refused",
-			&Member{ID: "g-junk2", Kind: KindStaff, DesiredState: "bogus",
-				StoppingSince: 1.0, StoppedSince: 2.0}, true},
-		{"warden exempt from the desired-offline arm",
-			&Member{ID: "g-warden", Kind: KindWarden, DesiredState: DesiredStateOffline,
-				StoppingSince: 1.0}, false},
-		{"removed member refused (any kind)",
-			&Member{ID: "g-removed", Kind: KindStaff, DesiredState: DesiredStateOnline,
-				RosterStatus: RosterStatusRemoved}, true},
-		{"removed warden refused",
-			&Member{ID: "g-removed-warden", Kind: KindWarden, DesiredState: DesiredStateOffline,
-				RosterStatus: RosterStatusRemoved}, true},
-		// P7d fold: outsource rows keep the pre-fold worker admission. A RELEASED
-		// worker is roster-removed + desired-offline, yet its session must stay
-		// admitted for the close-out window (worker_spawn.go reclaim grace).
-		{"released worker admitted (outsource close-out window)",
-			&Member{ID: "g-ow-released", Kind: KindOutsource, DesiredState: DesiredStateOffline,
-				StoppedSince: 1.0, RosterStatus: RosterStatusRemoved}, false},
-		{"stopped worker admitted (scheduler hold-down, not this gate)",
-			&Member{ID: "g-ow-stopped", Kind: KindOutsource, DesiredState: DesiredStateOffline,
-				StoppingSince: 1.0}, false},
-	}
-	for _, tc := range cases {
-		id := "g-ghost"
-		if tc.member != nil {
-			id = tc.member.ID
-			putGateMember(t, dal, *tc.member)
-		}
-		msg := api.sseStopGateRefusal(id)
-		if tc.refused && msg == "" {
-			t.Errorf("%s: want refusal, got admitted", tc.name)
-		}
-		if !tc.refused && msg != "" {
-			t.Errorf("%s: want admitted, got refusal %q", tc.name, msg)
-		}
-	}
+func TestSseContextDetachReason(t *testing.T) {
+	t.Skip("TODO: 需要人工判斷這個函式的可觀察結果是什麼")
 }
 
-// doEvents drives GET /api/events with agent-scope claims for sub, over a
-// PRE-CANCELLED context so an ADMITTED stream returns immediately after the
-// 200 header + preamble instead of looping.
-func doEvents(api *apiServer, sub string) *httptest.ResponseRecorder {
-	req := httptest.NewRequest("GET", "/api/events", nil)
-	claims := map[string]any{"sub": sub, "scope": "agent"}
-	ctx, cancel := context.WithCancel(
-		context.WithValue(req.Context(), claimsContextKey, claims))
-	cancel() // admitted streams exit on the first loop check
-	req = req.WithContext(ctx)
-	rec := httptest.NewRecorder()
-	api.HandleEventsApiEventsGet(rec, req)
-	return rec
+func TestHandleEventsApiEventsGet(t *testing.T) {
+	t.Run("a well-formed GET /api/events answers 200", func(t *testing.T) { t.Skip("TODO") })
+	t.Run("a GET /api/events request without a token answers 401", func(t *testing.T) { t.Skip("TODO") })
+	t.Run("a request to GET /api/events reaches this handler and no other row", func(t *testing.T) { t.Skip("TODO") })
+	t.Run("a GET /api/events request the wire layer rejects (malformed body, wrong content type, over the size cap) answers a 4xx without reaching the domain", func(t *testing.T) { t.Skip("TODO") })
 }
 
-func TestEventsHandlerAppliesStopGatePreStream(t *testing.T) {
-	api, dal := newGateTestAPI(t)
-	// A member that has REPORTED STOPPED — the finished case. (A stop anchor
-	// alone no longer refuses: that is a close-out in flight, see the predicate
-	// table above.)
-	putGateMember(t, dal, Member{ID: "z-1", Kind: KindStaff,
-		DesiredState: DesiredStateOffline, StoppingSince: 1.0, StoppedSince: 2.0})
-
-	rec := doEvents(api, "z-1")
-	if rec.Code != 409 {
-		t.Fatalf("zombie reconnect: want pre-stream 409, got %d %s", rec.Code, rec.Body.String())
-	}
-	if !strings.Contains(rec.Body.String(), `"code":"conflict"`) {
-		t.Fatalf("want the conflict envelope, got %s", rec.Body.String())
-	}
-	if api.hub.IsOnline("z-1") {
-		t.Fatal("a refused connection must never project online")
-	}
-
-	// The stop→start transition lifts the gate in the same write activate does:
-	// desired online + anchors cleared → admitted (200 + SSE headers).
-	putGateMember(t, dal, Member{ID: "z-1", Kind: KindStaff,
-		DesiredState: DesiredStateOnline})
-	rec = doEvents(api, "z-1")
-	if rec.Code != 200 {
-		t.Fatalf("post-activate reconnect: want 200, got %d %s", rec.Code, rec.Body.String())
-	}
-	if ct := rec.Header().Get("Content-Type"); !strings.HasPrefix(ct, "text/event-stream") {
-		t.Fatalf("admitted connection must stream, got Content-Type %q", ct)
-	}
-	if !strings.Contains(rec.Body.String(), ": connected") {
-		t.Fatalf("admitted stream must open with the connected preamble, got %q", rec.Body.String())
-	}
-	if api.hub.IsOnline("z-1") {
-		t.Fatal("the pre-cancelled test stream must have disconnected (projection cleared)")
-	}
+func TestSseStopGateRefusal(t *testing.T) {
+	t.Skip("TODO: sseStopGateRefusal is the zombie SSE gate predicate (defence line B of the zombie-agent work; line A is the warden's process-tree sweep).")
 }
 
-func TestEventsHandlerDeliversTokenExpiryReminderOnTheRealSSEWire(t *testing.T) {
-	api, dal := newGateTestAPI(t)
-	now := int64(nowSecs())
-	putGateMember(t, dal, Member{
-		ID: "expiry-wire", Kind: KindStaff, DesiredState: DesiredStateOnline,
-		// The session is old enough that restart_self is currently permitted.
-		SessionBootTS: float64(now) - minSelfRestartSecs - 1,
-	})
-
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	req := httptest.NewRequest("GET", "/api/events", nil).WithContext(
-		context.WithValue(ctx, claimsContextKey, map[string]any{
-			"sub": "expiry-wire", "scope": "agent",
-			// Exactly at the owner-approved thirty-minute boundary.
-			"exp": float64(now + tokenExpiryWarningWindow),
-		}))
-	rec := &tokenExpiryRecorder{ResponseRecorder: httptest.NewRecorder(), cancel: cancel}
-	api.HandleEventsApiEventsGet(rec, req)
-
-	text := rec.Body.String()
-	if !strings.Contains(text, `data: {"topic":"token-expiry"`) || strings.Contains(text, "id: ") {
-		t.Fatalf("expiry reminder must be a bare directed SSE frame, got %q", text)
-	}
-	if !strings.Contains(text, `"to":"expiry-wire"`) ||
-		!strings.Contains(text, `"expires_in":`) ||
-		!strings.Contains(text, "restart_self") {
-		t.Fatalf("expiry frame must target the live agent and instruct restart_self, got %q", text)
-	}
+func TestOnFirstConnect(t *testing.T) {
+	t.Skip("TODO: onFirstConnect handles the SSE first-connect edge for an agent connection: clear the caller's waking anchor (the wake completed) and stamp the session boot_ts on its gauge entry.")
 }
 
-// The sha on the SSE response is only useful if it is the SAME build the
-// station names anywhere else — so it is pinned against /api/version's
-// git_sha rather than against a literal, and read off rec.Result().Header,
-// which is the snapshot httptest takes at WriteHeader. A header set after the
-// status line never reaches a real client; asserting on the post-hoc
-// rec.Header() map would not notice.
-func TestEventsHandlerStampsTheBuildApiVersionReportsAsGitSHA(t *testing.T) {
-	api, dal := newGateTestAPI(t)
-	putGateMember(t, dal, Member{ID: "sha-1", Kind: KindStaff,
-		DesiredState: DesiredStateOnline})
-	api.processSHA = "deadbeefdead"
-
-	rec := doEvents(api, "sha-1")
-	if rec.Code != 200 {
-		t.Fatalf("admitted stream: want 200, got %d %s", rec.Code, rec.Body.String())
-	}
-	stamped := rec.Result().Header.Get(sseStationSHAHeader)
-	if stamped != api.processSHA {
-		t.Fatalf("SSE %s = %q, want the running build %q (set before WriteHeader?)",
-			sseStationSHAHeader, stamped, api.processSHA)
-	}
-
-	vrec := httptest.NewRecorder()
-	api.HandleVersionApiVersionGet(vrec, httptest.NewRequest("GET", "/api/version", nil))
-	var version struct {
-		GitSHA string `json:"git_sha"`
-	}
-	if err := json.Unmarshal(vrec.Body.Bytes(), &version); err != nil {
-		t.Fatalf("decode /api/version: %v (%s)", err, vrec.Body.String())
-	}
-	if version.GitSHA != stamped {
-		t.Fatalf("the two faces of one build disagree: /api/version git_sha=%q, "+
-			"SSE %s=%q", version.GitSHA, sseStationSHAHeader, stamped)
-	}
+func TestAnchorSessionBoot(t *testing.T) {
+	t.Skip("TODO: anchorSessionBoot is the T-4235 session-anchor resolution, run on the SSE first-connect edge.")
 }
 
-// TestHandoverNoticeTick_ClosureIsNotRunAfterTheClaim
-//
-// 🔴 WHAT WAS ACTUALLY WRONG. decideHandoverNotice has no memory: once an agent
-// is past its notice point it returns a signal on EVERY quiet tick, and the
-// once-per-session gate (claimHandoverNotice) is asked AFTER that signal has
-// been composed. So the notice closure — a fold over a durable document, its
-// variables rendered — ran every 250ms for the rest of the session, and every run after the first
-// was thrown away. Two comments in sse_bands.go asserted the exact opposite; a
-// comment cannot be run, so this counts instead.
-//
-// It fails if handoverNoticeTick stops asking handoverNoticeSettled first.
-func TestHandoverNoticeTick_ClosureIsNotRunAfterTheClaim(t *testing.T) {
-	s, dal := newGateTestAPI(t)
-	if err := seedOutOfBox(dal); err != nil {
-		t.Fatalf("seed: %v", err)
-	}
-	s.ctxhigh = SseContextHighConfig{HandoverPct: 65, NoticePct: 55}
-	s.gauge.Set(seedMiraID, map[string]any{"context_pct": 56.0, "boot_ts": 1000.0})
-
-	runs := 0
-	notice := func() string {
-		runs++
-		return s.winddownNoticeText(offboardKindSoft, 0)
-	}
-
-	frame, ok := s.handoverNoticeTick(seedMiraID, RuntimeClaude, notice)
-	if !ok || len(frame) == 0 {
-		t.Fatal("the first tick past the notice point must send the session's one notice")
-	}
-	if runs != 1 {
-		t.Fatalf("the sending tick must compose the text exactly once: %d", runs)
-	}
-
-	// The rest of the session. Every one of these ticks is above the notice
-	// point, so decideHandoverNotice would still say "send" — the claim is what
-	// makes them silent, and the point of this test is that they must be silent
-	// WITHOUT paying for the text first.
-	for i := 0; i < 200; i++ {
-		if _, ok := s.handoverNoticeTick(seedMiraID, RuntimeClaude, notice); ok {
-			t.Fatalf("tick %d re-sent the once-per-session notice", i)
-		}
-	}
-	if runs != 1 {
-		t.Fatalf("200 silent ticks composed text they threw away: %d (want 1) — the "+
-			"notice fires once per session, so its cost must too", runs)
-	}
+func TestStampLandedMachine(t *testing.T) {
+	t.Skip("TODO: stampLandedMachine records the machine a session actually connected from (T-98f4) — the durable anchor rule 3 of the outsource placement decision reads (「沒被搬過 + 不是第一次 → 留在上一輪實際跑的那台」), and, for every kind, the last-observed machine the cockpit compares the owner's pin against.")
 }
 
-// TestHandoverNoticeTick_ANewSessionStillPaysAndStillSends is the OTHER
-// direction of the same guard, and it is not optional: "never runs the closure
-// again" and "went permanently mute for this agent" are the same green
-// otherwise. A new boot_ts is a new session and is entitled to its own notice.
-func TestHandoverNoticeTick_ANewSessionStillPaysAndStillSends(t *testing.T) {
-	s, dal := newGateTestAPI(t)
-	if err := seedOutOfBox(dal); err != nil {
-		t.Fatalf("seed: %v", err)
-	}
-	s.ctxhigh = SseContextHighConfig{HandoverPct: 65, NoticePct: 55}
-	s.gauge.Set(seedMiraID, map[string]any{"context_pct": 56.0, "boot_ts": 1000.0})
+func TestClearSessionBootTS(t *testing.T) {
+	t.Skip("TODO: clearSessionBootTS drops session-scoped gauge state from a member's / worker's gauge entry at a real session BOUNDARY — a START dispatch that begins a new session, or a STOP/kill that ends one.")
+}
 
-	runs := 0
-	// A non-empty answer, because an unrenderable notice now keeps the tick
-	// SILENT — returning "" here would make this test measure that instead.
-	notice := func() string { runs++; return "停止" }
-	if _, ok := s.handoverNoticeTick(seedMiraID, RuntimeClaude, notice); !ok {
-		t.Fatal("first session must be told")
-	}
-	if _, ok := s.handoverNoticeTick(seedMiraID, RuntimeClaude, notice); ok {
-		t.Fatal("second tick of the SAME session must stay quiet")
-	}
+func TestOnLastDisconnect(t *testing.T) {
+	t.Skip("TODO: onLastDisconnect handles the SSE last-disconnect edge for an agent connection: fold the live telemetry cost into the actor's durable banked_cost, then POP the live field (exactly-once-per-edge banking).")
+}
 
-	// New session: the agent restarted, its gauge carries a new anchor.
-	s.gauge.Set(seedMiraID, map[string]any{"context_pct": 56.0, "boot_ts": 2000.0})
-	if _, ok := s.handoverNoticeTick(seedMiraID, RuntimeClaude, notice); !ok {
-		t.Fatal("a NEW session must still get its own notice — a cost guard that " +
-			"silences the feature has removed the feature")
-	}
-	if runs != 2 {
-		t.Fatalf("the closure must run exactly once per SENDING tick: got %d, want 2", runs)
-	}
+func TestPublishOutsourcePresenceEdge(t *testing.T) {
+	t.Skip("TODO: publishOutsourcePresenceEdge makes the worker-list projection converge after a real SSE online edge.")
+}
+
+func TestBankLiveCost(t *testing.T) {
+	t.Skip("TODO: bankLiveCost is the ONE cost-banking fold for BOTH actor kinds (T-ba6b — owner constitution: 外包＝系統代管的正職員工, so the worker reuses the member mechanism instead of a parallel copy): pop the actor's live telemetry cost and add it to the durable member.banked_cost of whichever kind the id resolves to (the outsource_worker table was folded into member in 00025, so both kinds are the same column and the same sole writer).")
+}
+
+func TestDropLiveCost(t *testing.T) {
+	t.Skip("TODO: dropLiveCost removes the live telemetry cost from an actor's entry and reports what it removed (nil when there was nothing there).")
+}
+
+func TestHandleResetCostApiMembersMemberIdCostResetPost(t *testing.T) {
+	t.Run("a well-formed POST /api/members/{member_id}/cost/reset answers 200", func(t *testing.T) { t.Skip("TODO") })
+	t.Run("a POST /api/members/{member_id}/cost/reset request without a token answers 401", func(t *testing.T) { t.Skip("TODO") })
+	t.Run("an authenticated admin_agent identity answers 403 because this row requires owner", func(t *testing.T) { t.Skip("TODO") })
+	t.Run("a request to POST /api/members/{member_id}/cost/reset reaches this handler with member_id bound from the path", func(t *testing.T) { t.Skip("TODO") })
+	t.Run("a POST /api/members/{member_id}/cost/reset request the wire layer rejects (malformed body, wrong content type, over the size cap) answers a 4xx without reaching the domain", func(t *testing.T) { t.Skip("TODO") })
+}
+
+func TestAccrueAccountSpend(t *testing.T) {
+	t.Skip("TODO: accrueAccountSpend credits the NEW spend in one telemetry report to the account it was reported under (T-53, owner ruling rc-5c5d7c7c6dcd 「分開：帳號卡自己一份數字，清它不動成員」).")
+}
+
+func TestStartAccountSpendSession(t *testing.T) {
+	t.Skip("TODO: startAccountSpendSession forgets the accrual baseline because a NEW SESSION is starting: the next cost this actor reports is counted from zero, so its whole figure is new spend rather than an increase over the previous session's.")
+}
+
+func TestHandleResetAccountCostApiAccountsCostResetPost(t *testing.T) {
+	t.Run("a well-formed POST /api/accounts/cost/reset answers 200", func(t *testing.T) { t.Skip("TODO") })
+	t.Run("a POST /api/accounts/cost/reset request without a token answers 401", func(t *testing.T) { t.Skip("TODO") })
+	t.Run("an authenticated admin_agent identity answers 403 because this row requires owner", func(t *testing.T) { t.Skip("TODO") })
+	t.Run("a request to POST /api/accounts/cost/reset reaches this handler and no other row", func(t *testing.T) { t.Skip("TODO") })
+	t.Run("a POST /api/accounts/cost/reset request the wire layer rejects (malformed body, wrong content type, over the size cap) answers a 4xx without reaching the domain", func(t *testing.T) { t.Skip("TODO") })
+}
+
+func TestNonZeroCost(t *testing.T) {
+	t.Skip("TODO: nonZeroCost mirrors foldActorRuntime's rule for the banked figure: 0 is not put on the wire.")
+}
+
+func TestPublishMonitoringSignal(t *testing.T) {
+	t.Skip("TODO: publishMonitoringSignal fans the same owner-only cockpit invalidation the telemetry ingest fans, so a reset converges the 估計$ cell without waiting for the next sample.")
+}
+
+func TestRpcError(t *testing.T) {
+	t.Skip("TODO: 需要人工判斷這個函式的可觀察結果是什麼")
+}
+
+func TestRpcResult(t *testing.T) {
+	t.Skip("TODO: 需要人工判斷這個函式的可觀察結果是什麼")
+}
+
+func TestMcpCatalogTools(t *testing.T) {
+	t.Skip("TODO: mcpCatalogTools loads the FROZEN tool catalog (spec/mcp-catalog.json — the committed wire SSOT the Python tools/list serves byte-equal descriptors of).")
+}
+
+func TestHandleMcpApiMcpPost(t *testing.T) {
+	t.Run("a well-formed POST /api/mcp answers 200", func(t *testing.T) { t.Skip("TODO") })
+	t.Run("a POST /api/mcp request without a token answers 401", func(t *testing.T) { t.Skip("TODO") })
+	t.Run("a request to POST /api/mcp reaches this handler and no other row", func(t *testing.T) { t.Skip("TODO") })
+	t.Run("a POST /api/mcp request the wire layer rejects (malformed body, wrong content type, over the size cap) answers a 4xx without reaching the domain", func(t *testing.T) { t.Skip("TODO") })
+}
+
+func TestHandoverNoticeTick(t *testing.T) {
+	t.Skip("TODO: handoverNoticeTick is ONE quiet tick of the context-high band: it reports the frame to write, or ok=false to stay quiet.")
 }

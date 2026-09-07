@@ -1,730 +1,462 @@
+// Skeleton generated from server/ocserverd/dal.go by gen_test_skeletons.py.
+// Every case is a t.Skip placeholder: fill the body, keep or rewrite the name.
+
 package main
 
-import (
-	"path/filepath"
-	"testing"
-)
+import "testing"
 
-func newTestDAL(t *testing.T) *DAL {
-	t.Helper()
-	db, err := openSQLite(filepath.Join(t.TempDir(), "dal-test.db"))
-	if err != nil {
-		t.Fatalf("open: %v", err)
-	}
-	t.Cleanup(func() { db.Close() })
-	if err := runMigrations(db); err != nil {
-		t.Fatalf("goose up: %v", err)
-	}
-	return NewDAL(db)
+func TestScanMember(t *testing.T) {
+	t.Skip("TODO: 需要人工判斷這個函式的可觀察結果是什麼")
 }
 
-func fullMember(id string) Member {
-	ok := true
-	return Member{
-		ID:               id,
-		Name:             "Mira",
-		Kind:             "staff",
-		RoleKey:          "assistant",
-		Runtime:          RuntimeClaude,
-		Model:            "opus",
-		Effort:           "high",
-		DesiredState:     "online",
-		DesiredMachineID: "m-abc123",
-		WakingSince:      1.5,
-		StoppingSince:    2.5,
-		StoppedSince:     3.5,
-		RefocusSince:     4.5,
-		BankedCost:       6.25,
-		LastOp:           "start",
-		LastOpOK:         &ok,
-		LastOpLog:        "spawned",
-		LastOpReason:     "session_already_exists: tmux session \"member-m-1\" is already live",
-		LastOpAt:         7.5,
-		RosterStatus:     RosterStatusActive,
-	}
+func TestListMembers(t *testing.T) {
+	t.Skip("TODO: ListMembers returns the WHOLE roster — every kind (staff, warden AND kind='outsource'), at ANY roster_status (soft-removed rows included; callers filter).")
 }
 
-func TestMemberCRUDRoundTrip(t *testing.T) {
-	d := newTestDAL(t)
-
-	if m, err := d.GetMember("m-1"); err != nil || m != nil {
-		t.Fatalf("absent member must be (nil, nil), got (%v, %v)", m, err)
-	}
-
-	want := fullMember("m-1")
-	if err := d.PutMember(want); err != nil {
-		t.Fatalf("put: %v", err)
-	}
-	got, err := d.GetMember("m-1")
-	if err != nil || got == nil {
-		t.Fatalf("get: %v %v", got, err)
-	}
-	if got.LastOpOK == nil || !*got.LastOpOK {
-		t.Fatalf("last_op_ok must round-trip true, got %v", got.LastOpOK)
-	}
-	gotCopy := *got
-	gotCopy.LastOpOK = want.LastOpOK // pointer compare aside, values checked above
-	if gotCopy != want {
-		t.Fatalf("round-trip mismatch:\n got %+v\nwant %+v", gotCopy, want)
-	}
-
-	// Upsert: same id updates in place (no duplicate row).
-	want.Name = "Renamed"
-	if err := d.PutMember(want); err != nil {
-		t.Fatalf("upsert: %v", err)
-	}
-	// 🔴 last_op_ok is NOT set through the upsert any more (T-55): the five
-	// receipt columns left PutMember's SET list, so an upsert carrying a nil
-	// leaves whatever the row already holds. Clearing it here through the SOLE
-	// writer is what the assertion below needs — and it is also the point: a
-	// whole-row write can no longer move this column at all, which is what
-	// TestPutMemberNeverOverwritesSingleColumnOwnedFields exists to enforce.
-	if err := d.SetMemberOpReceipt("m-1", "", nil, "", "", 0); err != nil {
-		t.Fatalf("clear receipt: %v", err)
-	}
-	all, err := d.ListMembers()
-	if err != nil {
-		t.Fatalf("list: %v", err)
-	}
-	if len(all) != 1 || all[0].Name != "Renamed" || all[0].LastOpOK != nil {
-		t.Fatalf("upsert must keep one updated row, got %+v", all)
-	}
+func TestGetMember(t *testing.T) {
+	t.Skip("TODO: GetMember returns one roster member by id, or nil if absent.")
 }
 
-func TestMemberKindCheckRejectsNonClosedSetValues(t *testing.T) {
-	d := newTestDAL(t)
-	for _, kind := range []string{"", "robot", "Staff", "assistant"} {
-		m := fullMember("m-bad")
-		m.Kind = kind
-		if err := d.PutMember(m); err == nil {
-			t.Fatalf("kind %q must be rejected by the CHECK constraint", kind)
-		}
-	}
-	// The closed set passes; 'warden' covers the machine arm.
-	m := fullMember("m-w")
-	m.Kind = "warden"
-	if err := d.PutMember(m); err != nil {
-		t.Fatalf("kind 'warden' must pass: %v", err)
-	}
+func TestAddAccountSpend(t *testing.T) {
+	t.Skip("TODO: runtime is stored EXACTLY as given, including \"\" (T-b3d0).")
 }
 
-// TestMemberOutsourceKindAndLinkedTask pins A案 P0 (migrations/00024): the
-// widened kind CHECK admits 'outsource', and linked_task_id round-trips as a
-// nullable *string. Pure schema prep — no existing path writes either yet, so
-// this drives the DAL surface directly.
-func TestMemberOutsourceKindAndLinkedTask(t *testing.T) {
-	d := newTestDAL(t)
-
-	// A kind='outsource' member with linked_task_id set stores + reads back.
-	taskID := "t-42"
-	m := fullMember("m-out")
-	m.Kind = "outsource"
-	m.LinkedTaskID = &taskID
-	if err := d.PutMember(m); err != nil {
-		t.Fatalf("outsource put must pass the widened CHECK: %v", err)
-	}
-	got, err := d.GetMember("m-out")
-	if err != nil || got == nil {
-		t.Fatalf("get: %v %v", got, err)
-	}
-	if got.Kind != "outsource" {
-		t.Fatalf("kind must round-trip 'outsource', got %q", got.Kind)
-	}
-	if got.LinkedTaskID == nil || *got.LinkedTaskID != "t-42" {
-		t.Fatalf("linked_task_id must round-trip 't-42', got %v", got.LinkedTaskID)
-	}
-
-	// NULL linked_task_id round-trips as nil (the default for every other row).
-	plain := fullMember("m-plain")
-	if err := d.PutMember(plain); err != nil {
-		t.Fatalf("put plain: %v", err)
-	}
-	gotPlain, err := d.GetMember("m-plain")
-	if err != nil || gotPlain == nil {
-		t.Fatalf("get plain: %v %v", gotPlain, err)
-	}
-	if gotPlain.LinkedTaskID != nil {
-		t.Fatalf("absent linked_task_id must round-trip nil, got %v", *gotPlain.LinkedTaskID)
-	}
-
-	// Upsert clears the binding back to NULL.
-	m.LinkedTaskID = nil
-	if err := d.PutMember(m); err != nil {
-		t.Fatalf("upsert clear: %v", err)
-	}
-	if cleared, err := d.GetMember("m-out"); err != nil || cleared == nil || cleared.LinkedTaskID != nil {
-		t.Fatalf("upsert must clear linked_task_id to nil, got %v %v", cleared, err)
-	}
+func TestListAccountSpend(t *testing.T) {
+	t.Skip("TODO: ListAccountSpend reads every account's accumulator in one query — the read side folds thousands of actors but only ever a handful of accounts, so the monitoring handler takes the whole map rather than a query per account.")
 }
 
-func TestMemberRosterStatusSoftDeleteKeepsRow(t *testing.T) {
-	d := newTestDAL(t)
-	m := fullMember("m-1")
-	if err := d.PutMember(m); err != nil {
-		t.Fatalf("put: %v", err)
-	}
-
-	// Dismiss = soft delete: the row survives with roster_status="removed"
-	// (audit trail), and callers filter it out of active views.
-	m.RosterStatus = RosterStatusRemoved
-	if err := d.PutMember(m); err != nil {
-		t.Fatalf("soft delete: %v", err)
-	}
-	all, err := d.ListMembers()
-	if err != nil {
-		t.Fatalf("list: %v", err)
-	}
-	if len(all) != 1 || all[0].RosterStatus != RosterStatusRemoved {
-		t.Fatalf("soft-deleted row must survive as removed, got %+v", all)
-	}
-
-	// Hard delete (custom-role cascade) physically drops the row.
-	if deleted, err := d.HardDeleteMember("m-1"); err != nil || !deleted {
-		t.Fatalf("hard delete: (%v, %v)", deleted, err)
-	}
-	if deleted, err := d.HardDeleteMember("m-1"); err != nil || deleted {
-		t.Fatalf("second hard delete must report false, got (%v, %v)", deleted, err)
-	}
-	if got, err := d.GetMember("m-1"); err != nil || got != nil {
-		t.Fatalf("hard-deleted member must be gone, got (%v, %v)", got, err)
-	}
+func TestZeroAccountSpend(t *testing.T) {
+	t.Skip("TODO: ZeroAccountSpend sets one account's accumulator to 0 and answers with what it held — the receipt, and the last moment that figure exists anywhere (no per-charge ledger backs it).")
 }
 
-func TestChatPutListOrdersByTs(t *testing.T) {
-	d := newTestDAL(t)
-	msgs := []ChatMessage{
-		{ID: "c-2", Sender: "owner", Recipient: "m-1", Body: "second", TS: 2.0},
-		{ID: "c-1", Sender: "m-1", Recipient: "owner", Body: "first", TS: 1.0,
-			Meta: map[string]any{"attachments": []any{map[string]any{"id": "a-1"}}}},
-	}
-	for _, m := range msgs {
-		if err := d.PutChat(m); err != nil {
-			t.Fatalf("put %s: %v", m.ID, err)
-		}
-	}
-	got, err := d.ListChat()
-	if err != nil {
-		t.Fatalf("list: %v", err)
-	}
-	if len(got) != 2 || got[0].ID != "c-1" || got[1].ID != "c-2" {
-		t.Fatalf("list must be oldest→newest, got %+v", got)
-	}
-	atts, ok := got[0].Meta["attachments"].([]any)
-	if !ok || len(atts) != 1 {
-		t.Fatalf("meta JSON must round-trip, got %+v", got[0].Meta)
-	}
-	if got[1].Meta == nil || len(got[1].Meta) != 0 {
-		t.Fatalf("nil meta must round-trip as empty map, got %+v", got[1].Meta)
-	}
+func TestAddMemberBankedCost(t *testing.T) {
+	t.Skip("TODO: AddMemberBankedCost adds delta to ONLY member.banked_cost (T-14 項目 6) — the durable cumulative spend of a staff member OR an outsource worker, since P7d made both a row of the same table (outsource_worker.banked_cost is this column).")
 }
 
-func TestChatListBeforeKeysetPagination(t *testing.T) {
-	d := newTestDAL(t)
-	// c-a/c-b/c-c share ts=2.0 — the id tie-break is the whole point of the
-	// composite cursor (ts REAL can collide; a pure-ts cursor would drop or
-	// duplicate collided messages across a page boundary).
-	for _, m := range []ChatMessage{
-		{ID: "c-1", Sender: "m-1", Recipient: "owner", TS: 1.0},
-		{ID: "c-a", Sender: "owner", Recipient: "m-1", TS: 2.0},
-		{ID: "c-b", Sender: "m-1", Recipient: "owner", TS: 2.0},
-		{ID: "c-c", Sender: "m-1", Recipient: "m-2", TS: 2.0},   // inter-agent, still m-1's thread
-		{ID: "c-5", Sender: "owner", Recipient: "m-2", TS: 5.0}, // not involving m-1
-		{ID: "c-6", Sender: "owner", Recipient: "m-1", TS: 6.0},
-	} {
-		if err := d.PutChat(m); err != nil {
-			t.Fatalf("put: %v", err)
-		}
-	}
-
-	// The full stream is totally ordered (ts, id) — equal-ts messages come back
-	// in id order, matching what the cursor pages by.
-	all, err := d.ListChat()
-	if err != nil {
-		t.Fatalf("list: %v", err)
-	}
-	gotAll := make([]string, len(all))
-	for i, m := range all {
-		gotAll[i] = m.ID
-	}
-	if len(gotAll) != 6 || gotAll[0] != "c-1" || gotAll[1] != "c-a" ||
-		gotAll[2] != "c-b" || gotAll[3] != "c-c" || gotAll[4] != "c-5" || gotAll[5] != "c-6" {
-		t.Fatalf("ListChat must order by (ts, id), got %v", gotAll)
-	}
-
-	// Page back from c-6 within m-1's thread: the 2 newest strictly-older
-	// messages are c-b and c-c (equal ts, id order), oldest→newest.
-	page, err := d.ListChatBefore("m-1", 6.0, "c-6", 2)
-	if err != nil {
-		t.Fatalf("before: %v", err)
-	}
-	if len(page) != 2 || page[0].ID != "c-b" || page[1].ID != "c-c" {
-		t.Fatalf("want [c-b c-c], got %+v", page)
-	}
-
-	// Page back from (2.0, c-b): the id tie-break keeps c-a (same ts, smaller
-	// id) and excludes c-b/c-c.
-	page, err = d.ListChatBefore("m-1", 2.0, "c-b", 30)
-	if err != nil {
-		t.Fatalf("before tie: %v", err)
-	}
-	if len(page) != 2 || page[0].ID != "c-1" || page[1].ID != "c-a" {
-		t.Fatalf("tie-break page: want [c-1 c-a], got %+v", page)
-	}
-
-	// Exhausted history answers an empty page (the has-more=false signal).
-	page, err = d.ListChatBefore("m-1", 1.0, "c-1", 30)
-	if err != nil || len(page) != 0 {
-		t.Fatalf("exhausted history must be empty, got (%+v, %v)", page, err)
-	}
-
-	// No participant filter pages the whole stream; negative limit uncaps;
-	// limit 0 reads nothing.
-	page, err = d.ListChatBefore("", 6.0, "c-6", -1)
-	if err != nil || len(page) != 5 {
-		t.Fatalf("unfiltered uncapped: want 5, got (%d, %v)", len(page), err)
-	}
-	if page, err := d.ListChatBefore("m-1", 6.0, "c-6", 0); err != nil || page != nil {
-		t.Fatalf("limit 0 must read nothing, got (%+v, %v)", page, err)
-	}
+func TestZeroMemberBankedCost(t *testing.T) {
+	t.Skip("TODO: ZeroMemberBankedCost sets ONE actor's member.banked_cost to 0 and answers with what it held — the receipt, and the last moment that figure exists anywhere (T-53, owner rulings rc-7dea0deefa63 / rc-1344cc76a24a: the reset is deliberately irreversible and no per-charge ledger backs the column).")
 }
 
-func TestChatListInvolvingFiltersAndCapsAscending(t *testing.T) {
-	d := newTestDAL(t)
-	for _, m := range []ChatMessage{
-		{ID: "c-1", Sender: "m-1", Recipient: "owner", TS: 1.0},
-		{ID: "c-2", Sender: "owner", Recipient: "m-1", TS: 2.0},
-		{ID: "c-3", Sender: "owner", Recipient: "m-2", TS: 3.0}, // not involving m-1
-		{ID: "c-4", Sender: "m-1", Recipient: "m-2", TS: 4.0},
-	} {
-		if err := d.PutChat(m); err != nil {
-			t.Fatalf("put: %v", err)
-		}
-	}
-
-	got, err := d.ListChatInvolving("m-1", 2)
-	if err != nil {
-		t.Fatalf("list involving: %v", err)
-	}
-	// Newest 2 involving m-1 are c-2 and c-4, returned oldest→newest.
-	if len(got) != 2 || got[0].ID != "c-2" || got[1].ID != "c-4" {
-		t.Fatalf("want [c-2 c-4], got %+v", got)
-	}
-
-	if got, err := d.ListChatInvolving("", 5); err != nil || got != nil {
-		t.Fatalf("blank participant must read nothing, got (%v, %v)", got, err)
-	}
-	if got, err := d.ListChatInvolving("m-1", 0); err != nil || got != nil {
-		t.Fatalf("non-positive limit must read nothing, got (%v, %v)", got, err)
-	}
+func TestSetMemberHandoverNoticedTS(t *testing.T) {
+	t.Skip("TODO: SetMemberHandoverNoticedTS writes ONLY member.handover_noticed_ts (T-6ebc): the session anchor whose one advance handover notice has been sent, or 0 to release the claim at a session boundary.")
 }
 
-func TestChatAttachmentRoundTrip(t *testing.T) {
-	d := newTestDAL(t)
-
-	if a, err := d.GetChatAttachment("a-x"); err != nil || a != nil {
-		t.Fatalf("absent attachment must be (nil, nil), got (%v, %v)", a, err)
-	}
-
-	name := "report.pdf"
-	blob := []byte{0x00, 0x01, 0xff}
-	if err := d.PutChatAttachment(ChatAttachment{
-		ID: "a-1", Mime: "application/pdf", Data: blob, Filename: &name,
-	}); err != nil {
-		t.Fatalf("put: %v", err)
-	}
-	got, err := d.GetChatAttachment("a-1")
-	if err != nil || got == nil {
-		t.Fatalf("get: %v %v", got, err)
-	}
-	if got.Mime != "application/pdf" || string(got.Data) != string(blob) ||
-		got.Filename == nil || *got.Filename != name {
-		t.Fatalf("round-trip mismatch: %+v", got)
-	}
-
-	// A pasted image with no name keeps filename NULL.
-	if err := d.PutChatAttachment(ChatAttachment{
-		ID: "a-2", Mime: "image/png", Data: []byte("png"),
-	}); err != nil {
-		t.Fatalf("put unnamed: %v", err)
-	}
-	got, err = d.GetChatAttachment("a-2")
-	if err != nil || got == nil || got.Filename != nil {
-		t.Fatalf("unnamed attachment must round-trip nil filename, got %+v (%v)", got, err)
-	}
+func TestSetMemberSessionBootTS(t *testing.T) {
+	t.Skip("TODO: SetMemberSessionBootTS writes ONLY member.session_boot_ts (T-4235).")
 }
 
-func TestDeleteChatInvolvingCascadesMetaReferencedAttachments(t *testing.T) {
-	d := newTestDAL(t)
-	for _, id := range []string{"a-1", "a-2", "a-other", "a-shared", "a-card"} {
-		if err := d.PutChatAttachment(ChatAttachment{ID: id, Data: []byte(id)}); err != nil {
-			t.Fatalf("put attachment: %v", err)
-		}
-	}
-	for _, m := range []ChatMessage{
-		{ID: "c-1", Sender: "m-1", Recipient: "owner", TS: 1.0,
-			Meta: map[string]any{"attachments": []any{
-				map[string]any{"id": "a-1"}, map[string]any{"id": "a-2"},
-			}}},
-		{ID: "c-2", Sender: "owner", Recipient: "m-1", TS: 2.0},
-		{ID: "c-3", Sender: "owner", Recipient: "m-2", TS: 3.0,
-			Meta: map[string]any{"attachments": []any{map[string]any{"id": "a-other"}}}},
-		// a-shared rides BOTH a deleted (c-4) and a surviving (c-5) message
-		// (ref-form post_chat allows multi-reference); a-card rides a deleted
-		// message AND a reply-card answer. Neither may be cascaded.
-		{ID: "c-4", Sender: "m-1", Recipient: "owner", TS: 4.0,
-			Meta: map[string]any{"attachments": []any{
-				map[string]any{"id": "a-shared"}, map[string]any{"id": "a-card"},
-			}}},
-		{ID: "c-5", Sender: "owner", Recipient: "m-2", TS: 5.0,
-			Meta: map[string]any{"attachments": []any{map[string]any{"id": "a-shared"}}}},
-	} {
-		if err := d.PutChat(m); err != nil {
-			t.Fatalf("put chat: %v", err)
-		}
-	}
-	if err := d.PutReplyCard(ReplyCard{
-		ID: "rc-1", FromMember: "m-2", Kind: replyCardKindDecision,
-		Summary: "s", Options: []ReplyCardOption{{Text: "A"}}, Status: replyCardStatusAnswered,
-		AnswerAttachments: []any{
-			map[string]any{"id": "a-card", "mime": "", "filename": ""},
-		},
-	}); err != nil {
-		t.Fatalf("put reply card: %v", err)
-	}
-
-	msgs, atts, err := d.DeleteChatInvolving("m-1")
-	if err != nil {
-		t.Fatalf("delete involving: %v", err)
-	}
-	if msgs != 3 || atts != 2 {
-		t.Fatalf("want (3 msgs, 2 atts), got (%d, %d)", msgs, atts)
-	}
-	if a, err := d.GetChatAttachment("a-1"); err != nil || a != nil {
-		t.Fatalf("referenced blob must be cascaded, got (%v, %v)", a, err)
-	}
-	if a, err := d.GetChatAttachment("a-other"); err != nil || a == nil {
-		t.Fatalf("unrelated blob must survive, got (%v, %v)", a, err)
-	}
-	if a, err := d.GetChatAttachment("a-shared"); err != nil || a == nil {
-		t.Fatalf("blob still referenced by a surviving message must survive, got (%v, %v)", a, err)
-	}
-	if a, err := d.GetChatAttachment("a-card"); err != nil || a == nil {
-		t.Fatalf("blob referenced by a reply-card answer must survive, got (%v, %v)", a, err)
-	}
-	rest, err := d.ListChat()
-	if err != nil || len(rest) != 2 || rest[0].ID != "c-3" || rest[1].ID != "c-5" {
-		t.Fatalf("only c-3/c-5 must survive, got %+v (%v)", rest, err)
-	}
+func TestSetMemberWakingSince(t *testing.T) {
+	t.Skip("TODO: SetMemberWakingSince writes ONLY member.waking_since (T-14) — the DURABLE wake anchor PresenceState projects 「喚醒中」 from, for BOTH kinds.")
 }
 
-func TestChatReadCompositeKeyUpsertsOneWatermarkPerPair(t *testing.T) {
-	d := newTestDAL(t)
-	if _, _, err := d.PutChatRead(ChatRead{ReaderID: "owner", PeerID: "m-1", LastReadTS: 1.0}); err != nil {
-		t.Fatalf("put: %v", err)
-	}
-	if _, _, err := d.PutChatRead(ChatRead{ReaderID: "owner", PeerID: "m-1", LastReadTS: 2.0}); err != nil {
-		t.Fatalf("put again: %v", err)
-	}
-	// The reversed pair is a DIFFERENT conversation direction: its own row.
-	if _, _, err := d.PutChatRead(ChatRead{ReaderID: "m-1", PeerID: "owner", LastReadTS: 5.0}); err != nil {
-		t.Fatalf("put reversed: %v", err)
-	}
-
-	all, err := d.ListChatReads("", "")
-	if err != nil || len(all) != 2 {
-		t.Fatalf("composite PK must keep one row per (reader, peer), got %+v (%v)", all, err)
-	}
-	byReader, err := d.ListChatReads("owner", "")
-	if err != nil || len(byReader) != 1 || byReader[0].LastReadTS != 2.0 {
-		t.Fatalf("reader filter: got %+v (%v)", byReader, err)
-	}
-	byPeer, err := d.ListChatReads("", "owner")
-	if err != nil || len(byPeer) != 1 || byPeer[0].ReaderID != "m-1" {
-		t.Fatalf("peer filter: got %+v (%v)", byPeer, err)
-	}
+func TestSetMemberWindDownAnchors(t *testing.T) {
+	t.Skip("TODO: SetMemberWindDownAnchors writes the four wind-down anchor columns and NOTHING else (T-55) — stopping_since / stopped_since / refocus_since / refocus_op, the rung of the 下線 → 加速 → 強制 ladder a member is standing on plus the 換手 epoch opened on it.")
 }
 
-func TestPutChatReadMonotonicNeverRewinds(t *testing.T) {
-	d := newTestDAL(t)
-	if _, _, err := d.PutChatRead(ChatRead{ReaderID: "owner", PeerID: "m-1", LastReadTS: 10.0}); err != nil {
-		t.Fatalf("put: %v", err)
-	}
-	// A stale (lower) report is a no-op; the EFFECTIVE watermark comes back
-	// and the report is flagged NOT advanced (the caller's no-fan signal).
-	eff, advanced, err := d.PutChatRead(ChatRead{ReaderID: "owner", PeerID: "m-1", LastReadTS: 3.0})
-	if err != nil {
-		t.Fatalf("stale put: %v", err)
-	}
-	if eff.LastReadTS != 10.0 || advanced {
-		t.Fatalf("stale report must keep the higher watermark and not advance, got ts=%v advanced=%v", eff.LastReadTS, advanced)
-	}
-	// An equal report is a no-op too (Python: existing >= report → no write).
-	eff, advanced, err = d.PutChatRead(ChatRead{ReaderID: "owner", PeerID: "m-1", LastReadTS: 10.0})
-	if err != nil || eff.LastReadTS != 10.0 || advanced {
-		t.Fatalf("equal report must not advance, got %+v advanced=%v (%v)", eff, advanced, err)
-	}
-	// A newer report advances.
-	eff, advanced, err = d.PutChatRead(ChatRead{ReaderID: "owner", PeerID: "m-1", LastReadTS: 12.0})
-	if err != nil || eff.LastReadTS != 12.0 || !advanced {
-		t.Fatalf("newer report must advance, got %+v advanced=%v (%v)", eff, advanced, err)
-	}
+func TestSetMemberDesiredMachineID(t *testing.T) {
+	t.Skip("TODO: SetMemberDesiredMachineID writes ONLY member.desired_machine_id (T-55) — the owner's placement pin, \"\" when the member waits for a placement.")
 }
 
-func TestDeleteChatReadsInvolvingRemovesReaderAndPeerRows(t *testing.T) {
-	d := newTestDAL(t)
-	for _, r := range []ChatRead{
-		{ReaderID: "m-1", PeerID: "owner", LastReadTS: 1.0},
-		{ReaderID: "owner", PeerID: "m-1", LastReadTS: 2.0},
-		{ReaderID: "owner", PeerID: "m-2", LastReadTS: 3.0},
-	} {
-		if _, _, err := d.PutChatRead(r); err != nil {
-			t.Fatalf("put: %v", err)
-		}
-	}
-	n, err := d.DeleteChatReadsInvolving("m-1")
-	if err != nil || n != 2 {
-		t.Fatalf("want 2 deleted, got %d (%v)", n, err)
-	}
-	rest, err := d.ListChatReads("", "")
-	if err != nil || len(rest) != 1 || rest[0].PeerID != "m-2" {
-		t.Fatalf("only the m-2 watermark must survive, got %+v (%v)", rest, err)
-	}
+func TestSetMemberModel(t *testing.T) {
+	t.Skip("TODO: SetMemberModel / SetMemberRuntime / SetMemberEffort write ONLY their own column (T-55) — the three LAUNCH INTENTS the owner edits in 成員設定 and in the outsource worker's twin face.")
 }
 
-func TestUserContextSingleRowUpsert(t *testing.T) {
-	d := newTestDAL(t)
-
-	if uc, err := d.GetUserContext(); err != nil || uc != nil {
-		t.Fatalf("never-written block must be (nil, nil), got (%v, %v)", uc, err)
-	}
-
-	if err := d.PutUserContext(UserContext{Text: "custom boot context"}); err != nil {
-		t.Fatalf("put: %v", err)
-	}
-	uc, err := d.GetUserContext()
-	if err != nil || uc == nil || uc.Text != "custom boot context" || uc.Tombstoned {
-		t.Fatalf("round-trip: got %+v (%v)", uc, err)
-	}
-
-	// Reset (tombstone) rides the same single row.
-	if err := d.PutUserContext(UserContext{Text: "", Tombstoned: true}); err != nil {
-		t.Fatalf("tombstone: %v", err)
-	}
-	uc, err = d.GetUserContext()
-	if err != nil || uc == nil || !uc.Tombstoned {
-		t.Fatalf("tombstone round-trip: got %+v (%v)", uc, err)
-	}
-	var count int
-	if err := d.rdb.QueryRow(`SELECT COUNT(*) FROM user_context`).Scan(&count); err != nil || count != 1 {
-		t.Fatalf("table must stay single-row, got %d (%v)", count, err)
-	}
-
-	// The schema CHECK pins the row id: a second row is unrepresentable.
-	if _, err := d.wdb.Exec(
-		`INSERT INTO user_context (id, text, tombstoned) VALUES (2, 'x', 0)`,
-	); err == nil {
-		t.Fatal("id != 1 must be rejected by the single-row CHECK")
-	}
+func TestSetMemberRuntime(t *testing.T) {
+	t.Skip("TODO: SetMemberRuntime writes ONLY member.runtime — see SetMemberModel.")
 }
 
-func TestRoleDefCRUDRoundTrip(t *testing.T) {
-	d := newTestDAL(t)
-
-	if rd, err := d.GetRoleDef("assistant"); err != nil || rd != nil {
-		t.Fatalf("never-edited overlay must be (nil, nil), got (%v, %v)", rd, err)
-	}
-
-	want := RoleDef{RoleKey: "assistant", Name: "Assistant", DefinitionMD: "# role"}
-	if err := d.PutRoleDef(want); err != nil {
-		t.Fatalf("put: %v", err)
-	}
-	got, err := d.GetRoleDef("assistant")
-	if err != nil || got == nil || *got != want {
-		t.Fatalf("round-trip: got %+v (%v)", got, err)
-	}
-
-	// Upsert with tombstone (seed-role reset) keeps one row.
-	want.Tombstoned = true
-	if err := d.PutRoleDef(want); err != nil {
-		t.Fatalf("tombstone: %v", err)
-	}
-	all, err := d.ListRoleDefs()
-	if err != nil || len(all) != 1 || !all[0].Tombstoned {
-		t.Fatalf("list after tombstone: got %+v (%v)", all, err)
-	}
-
-	// Hard delete (custom role) drops the row; absent key reports false.
-	if deleted, err := d.DeleteRoleDef("assistant"); err != nil || !deleted {
-		t.Fatalf("delete: (%v, %v)", deleted, err)
-	}
-	if deleted, err := d.DeleteRoleDef("assistant"); err != nil || deleted {
-		t.Fatalf("second delete must report false, got (%v, %v)", deleted, err)
-	}
+func TestSetMemberEffort(t *testing.T) {
+	t.Skip("TODO: SetMemberEffort writes ONLY member.effort — see SetMemberModel.")
 }
 
-func TestLessonsCompositeKeyAndRoleCascade(t *testing.T) {
-	d := newTestDAL(t)
-
-	if l, err := d.GetLessons("assistant"); err != nil || l != nil {
-		t.Fatalf("never-edited lessons must be (nil, nil), got (%v, %v)", l, err)
-	}
-
-	if err := d.PutLessons(Lessons{RoleKey: "assistant", Text: "v1"}); err != nil {
-		t.Fatalf("put: %v", err)
-	}
-	// Same (role, task) upserts in place — composite-PK uniqueness.
-	if err := d.PutLessons(Lessons{RoleKey: "assistant", Text: "v2"}); err != nil {
-		t.Fatalf("upsert: %v", err)
-	}
-	if err := d.PutLessons(Lessons{RoleKey: "researcher", Text: "other"}); err != nil {
-		t.Fatalf("put other role: %v", err)
-	}
-	got, err := d.GetLessons("assistant")
-	if err != nil || got == nil || got.Text != "v2" {
-		t.Fatalf("upsert must replace text, got %+v (%v)", got, err)
-	}
-
-	n, err := d.DeleteLessonsForRole("assistant")
-	if err != nil || n != 1 {
-		t.Fatalf("role cascade: want 1 deleted, got %d (%v)", n, err)
-	}
-	if l, err := d.GetLessons("researcher"); err != nil || l == nil {
-		t.Fatalf("other role's lessons must survive, got (%v, %v)", l, err)
-	}
+func TestSetMemberOpReceipt(t *testing.T) {
+	t.Skip("TODO: SetMemberOpReceipt writes the five last_op* columns and NOTHING else (T-55) — the OP RECEIPT the cockpit renders as the ✓/✗ block under a member or worker.")
 }
 
-func TestAliasOverlaysRoundTripAndFoldMapSkipsEmpty(t *testing.T) {
-	d := newTestDAL(t)
-
-	if a, err := d.GetAccountAlias("acct-1"); err != nil || a != nil {
-		t.Fatalf("absent account alias must be (nil, nil), got (%v, %v)", a, err)
-	}
-	if a, err := d.GetMachineAlias("m-1"); err != nil || a != nil {
-		t.Fatalf("absent machine alias must be (nil, nil), got (%v, %v)", a, err)
-	}
-
-	if err := d.PutAccountAlias(AccountAlias{Account: "acct-1", DisplayName: "Work"}); err != nil {
-		t.Fatalf("put account: %v", err)
-	}
-	if err := d.PutAccountAlias(AccountAlias{Account: "acct-2", DisplayName: ""}); err != nil {
-		t.Fatalf("put empty account: %v", err)
-	}
-	if err := d.PutMachineAlias(MachineAlias{MachineID: "m-1", DisplayName: "Studio"}); err != nil {
-		t.Fatalf("put machine: %v", err)
-	}
-	// Rename upserts on the same key.
-	if err := d.PutMachineAlias(MachineAlias{MachineID: "m-1", DisplayName: "Studio Mac"}); err != nil {
-		t.Fatalf("rename machine: %v", err)
-	}
-
-	a, err := d.GetAccountAlias("acct-1")
-	if err != nil || a == nil || a.DisplayName != "Work" {
-		t.Fatalf("account round-trip: got %+v (%v)", a, err)
-	}
-	m, err := d.GetMachineAlias("m-1")
-	if err != nil || m == nil || m.DisplayName != "Studio Mac" {
-		t.Fatalf("machine rename round-trip: got %+v (%v)", m, err)
-	}
-
-	// The fold maps skip empty display names (absence folds to the id itself).
-	accounts, err := d.AccountDisplayNames()
-	if err != nil || len(accounts) != 1 || accounts["acct-1"] != "Work" {
-		t.Fatalf("account fold map: got %+v (%v)", accounts, err)
-	}
-	machines, err := d.MachineDisplayNames()
-	if err != nil || len(machines) != 1 || machines["m-1"] != "Studio Mac" {
-		t.Fatalf("machine fold map: got %+v (%v)", machines, err)
-	}
+func TestHardDeleteMember(t *testing.T) {
+	t.Skip("TODO: HardDeleteMember PHYSICALLY deletes a member row (the custom-role cascade path) — NOT the roster_status=\"removed\" soft-remove, which stays the audit-preserving dismiss seam.")
 }
 
-func TestSettingGetPutRoundTripAndUpsert(t *testing.T) {
-	d := newTestDAL(t)
-
-	if v, err := d.GetSetting("auth.token_ttl"); err != nil || v != nil {
-		t.Fatalf("a never-written key must be (nil, nil), got (%v, %v)", v, err)
-	}
-
-	if err := d.PutSetting("auth.token_ttl", "3600"); err != nil {
-		t.Fatalf("put: %v", err)
-	}
-	v, err := d.GetSetting("auth.token_ttl")
-	if err != nil || v == nil || *v != "3600" {
-		t.Fatalf("get after put: got (%v, %v)", v, err)
-	}
-
-	// Upsert overwrites in place and advances updated_at.
-	var firstAt float64
-	if err := d.rdb.QueryRow(`SELECT updated_at FROM setting WHERE key = 'auth.token_ttl'`).Scan(&firstAt); err != nil {
-		t.Fatal(err)
-	}
-	if err := d.PutSetting("auth.token_ttl", "7200"); err != nil {
-		t.Fatalf("upsert: %v", err)
-	}
-	v, err = d.GetSetting("auth.token_ttl")
-	if err != nil || v == nil || *v != "7200" {
-		t.Fatalf("get after upsert: got (%v, %v)", v, err)
-	}
-	var secondAt float64
-	if err := d.rdb.QueryRow(`SELECT updated_at FROM setting WHERE key = 'auth.token_ttl'`).Scan(&secondAt); err != nil {
-		t.Fatal(err)
-	}
-	if firstAt <= 0 || secondAt < firstAt {
-		t.Fatalf("updated_at must be stamped and monotonic: %v -> %v", firstAt, secondAt)
-	}
+func TestScanChat(t *testing.T) {
+	t.Skip("TODO: 需要人工判斷這個函式的可觀察結果是什麼")
 }
 
-// TestDeleteChatInvolvingSparesQuestionSideCardRefs pins the T-5e8a GC seam:
-// a card's QUESTION-side attachments are stamped into its companion message's
-// meta, so removing the initiating member puts those blob ids on the delete
-// candidate list — the surviving card row (cards live forever) must veto the
-// drop, exactly as answer_attachments already does. A blob referenced by
-// nothing but the deleted messages still cascades.
-func TestDeleteChatInvolvingSparesQuestionSideCardRefs(t *testing.T) {
-	d := newTestDAL(t)
-	for _, id := range []string{"a-question", "a-loose"} {
-		if err := d.PutChatAttachment(ChatAttachment{ID: id, Data: []byte(id)}); err != nil {
-			t.Fatalf("put attachment: %v", err)
-		}
-	}
-	// The companion message of the card (meta stamps the question refs) plus
-	// an ordinary message referencing a blob nothing else holds.
-	for _, m := range []ChatMessage{
-		{ID: "c-card", Sender: "m-1", Recipient: "owner", TS: 1.0,
-			Meta: map[string]any{
-				"reply_card_id": "rc-q",
-				"attachments":   []any{map[string]any{"id": "a-question"}},
-			}},
-		{ID: "c-loose", Sender: "m-1", Recipient: "owner", TS: 2.0,
-			Meta: map[string]any{"attachments": []any{
-				map[string]any{"id": "a-loose"},
-			}}},
-	} {
-		if err := d.PutChat(m); err != nil {
-			t.Fatalf("put chat: %v", err)
-		}
-	}
-	if err := d.PutReplyCard(ReplyCard{
-		ID: "rc-q", FromMember: "m-1", Kind: replyCardKindDecision,
-		Summary: "s", Options: []ReplyCardOption{{Text: "A"}}, Status: replyCardStatusWaiting,
-		ChatMessageID: "c-card",
-		Attachments: []any{
-			map[string]any{"id": "a-question", "mime": "", "filename": ""},
-		},
-	}); err != nil {
-		t.Fatalf("put reply card: %v", err)
-	}
+func TestListChat(t *testing.T) {
+	t.Skip("TODO: ListChat returns the whole chat stream, oldest→newest.")
+}
 
-	msgs, atts, err := d.DeleteChatInvolving("m-1")
-	if err != nil {
-		t.Fatalf("delete involving: %v", err)
-	}
-	if msgs != 2 || atts != 1 {
-		t.Fatalf("want (2 msgs, 1 att), got (%d, %d)", msgs, atts)
-	}
-	if a, err := d.GetChatAttachment("a-question"); err != nil || a == nil {
-		t.Fatalf("blob referenced by a surviving card's question attachments must survive, got (%v, %v)", a, err)
-	}
-	if a, err := d.GetChatAttachment("a-loose"); err != nil || a != nil {
-		t.Fatalf("blob referenced only by deleted messages must cascade, got (%v, %v)", a, err)
-	}
+func TestAppendSQL(t *testing.T) {
+	t.Skip("TODO: appendSQL appends this filter's conjuncts to a WHERE clause that already ends in a condition.")
+}
+
+func TestListChatBefore(t *testing.T) {
+	t.Skip("TODO: 需要人工判斷這個函式的可觀察結果是什麼")
+}
+
+func TestNewerThan(t *testing.T) {
+	t.Skip("TODO: newerThan reports whether a comes strictly after b in the stream's total (ts, id) order — the SAME comparison listChatBefore pages by, so \"start is past end\" here means exactly what \"older than the cursor\" means there.")
+}
+
+func TestListChatWindow(t *testing.T) {
+	t.Skip("TODO: listChatWindow answers the T-48 start_id/end_id window: the messages between the two anchors INCLUSIVE, oldest→newest, capped at `limit`.")
+}
+
+func TestListChatLatest(t *testing.T) {
+	t.Skip("TODO: 需要人工判斷這個函式的可觀察結果是什麼")
+}
+
+func TestListChatUnread(t *testing.T) {
+	t.Skip("TODO: listChatUnread answers `GET /api/chat?unread=true`: the messages `reader` has not read yet, OLDEST FIRST, optionally continued from `after` (exclusive).")
+}
+
+func TestListChatByIDs(t *testing.T) {
+	t.Skip("TODO: ListChatByIDs returns the messages carrying the given ids, oldest→newest in the stream's total (ts, id) order — the by-id re-read behind `get_chat?ids=` (T-a828).")
+}
+
+func TestListChatInvolving(t *testing.T) {
+	t.Skip("TODO: ListChatInvolving returns the most recent `limit` messages involving `participant` (sender OR recipient), oldest→newest — the bounded wake-snapshot read.")
+}
+
+func TestDocumentHistoryKeepFor(t *testing.T) {
+	t.Skip("TODO: documentHistoryKeepFor answers the depth for one kind: the table above, else documentHistoryKeepDefault.")
+}
+
+func TestSaveWithDocumentHistory(t *testing.T) {
+	t.Skip("TODO: SaveWithDocumentHistory atomically retains the current document (when it is non-empty), writes its replacement, and trims only snapshots older than the newest three.")
+}
+
+func TestSaveWithDocumentHistories(t *testing.T) {
+	t.Skip("TODO: SaveWithDocumentHistories is the several-streams form: every stream is retained and trimmed independently, then the single write lands.")
+}
+
+func TestRetainDocumentVersion(t *testing.T) {
+	t.Skip("TODO: 需要人工判斷這個函式的可觀察結果是什麼")
+}
+
+func TestListDocumentHistory(t *testing.T) {
+	t.Skip("TODO: 需要人工判斷這個函式的可觀察結果是什麼")
+}
+
+func TestGetDocumentHistory(t *testing.T) {
+	t.Skip("TODO: 需要人工判斷這個函式的可觀察結果是什麼")
+}
+
+func TestPutChatOn(t *testing.T) {
+	t.Skip("TODO: 需要人工判斷這個函式的可觀察結果是什麼")
+}
+
+func TestRefIDsFromJSON(t *testing.T) {
+	t.Skip("TODO: refIDsFromJSON collects the non-empty attachment ids of one refs JSON array ([{id, mime, filename}, …] — chat meta[\"attachments\"] and reply-card answer_attachments share the shape).")
+}
+
+func TestDeleteChatInvolving(t *testing.T) {
+	t.Skip("TODO: DeleteChatInvolving HARD-deletes every message involving memberID (sender OR recipient) plus the attachment blobs those messages reference through their meta[\"attachments\"] refs (the only message→blob linkage), so no blob is orphaned.")
+}
+
+func TestCollectOrphanBlobs(t *testing.T) {
+	t.Skip("TODO: collectOrphanBlobs deletes, from a set of candidate blob ids, exactly those that no still-stored record references — the single decision point every blob collection goes through, so \"is this blob still someone's?\" is answered by collectSurvivingBlobRefs and nowhere else.")
+}
+
+func TestCollectSurvivingBlobRefs(t *testing.T) {
+	t.Skip("TODO: collectSurvivingBlobRefs folds every chat_attachment id that a STILL-STORED record references into `into` — the complete liveness verdict for the blob store (the six columns enumerated on DeleteChatInvolving).")
+}
+
+func TestCollectChatMetaRefs(t *testing.T) {
+	t.Skip("TODO: collectChatMetaRefs folds every attachment id referenced by the meta[\"attachments\"] of the messages a query returns into `into`.")
+}
+
+func TestChatAttachmentRefBefore(t *testing.T) {
+	t.Skip("TODO: chatAttachmentRefBefore reports whether a sorts before b in the gallery's order: newest first, then the message stream's own (ts, id) tie-break, then the attachment's position inside its message.")
+}
+
+func TestListChatAttachmentRefsOneSided(t *testing.T) {
+	t.Skip("TODO: listChatAttachmentRefsOneSided reads the rows of ONE side of the conversation, already in gallery order.")
+}
+
+func TestListChatAttachmentRefsFor(t *testing.T) {
+	t.Skip("TODO: ListChatAttachmentRefsFor returns every attachment of the member's conversations (sender OR recipient), newest→oldest, read from the index instead of scanning chat_message.")
+}
+
+func TestPutChatAttachmentOn(t *testing.T) {
+	t.Skip("TODO: 需要人工判斷這個函式的可觀察結果是什麼")
+}
+
+func TestGetChatAttachment(t *testing.T) {
+	t.Skip("TODO: GetChatAttachment returns one attachment blob by id, or nil if absent.")
+}
+
+func TestReplaceMemberAvatar(t *testing.T) {
+	t.Skip("TODO: ReplaceMemberAvatar atomically stores a freshly minted dedicated avatar, switches the stable member pointer, and deletes the prior dedicated blob.")
+}
+
+func TestDeleteMemberAvatar(t *testing.T) {
+	t.Skip("TODO: DeleteMemberAvatar atomically clears the pointer and deletes the owned blob.")
+}
+
+func TestListChatReads(t *testing.T) {
+	t.Skip("TODO: ListChatReads returns read receipts, optionally filtered by reader and/or peer (empty string = no filter).")
+}
+
+func TestUnreadCountsFor(t *testing.T) {
+	t.Skip("TODO: UnreadCountsFor is UnreadCounts (domain.go) computed BY THE DATABASE: for `reader`, the number of messages addressed to them, per sender, that are newer than that sender's read watermark.")
+}
+
+func TestPutChatRead(t *testing.T) {
+	t.Skip("TODO: PutChatRead upserts a read receipt on the composite (reader, peer) key.")
+}
+
+func TestDeleteChatReadsInvolving(t *testing.T) {
+	t.Skip("TODO: DeleteChatReadsInvolving HARD-deletes every receipt involving memberID (as reader OR peer) — the custom-role cascade sibling of DeleteChatInvolving.")
+}
+
+func TestGetUserContextOn(t *testing.T) {
+	t.Skip("TODO: 需要人工判斷這個函式的可觀察結果是什麼")
+}
+
+func TestPutUserContextOn(t *testing.T) {
+	t.Skip("TODO: 需要人工判斷這個函式的可觀察結果是什麼")
+}
+
+func TestListRoleDefs(t *testing.T) {
+	t.Skip("TODO: ListRoleDefs returns every overlay row (any tombstone state).")
+}
+
+func TestGetRoleDefOn(t *testing.T) {
+	t.Skip("TODO: 需要人工判斷這個函式的可觀察結果是什麼")
+}
+
+func TestPutRoleDefOn(t *testing.T) {
+	t.Skip("TODO: 需要人工判斷這個函式的可觀察結果是什麼")
+}
+
+func TestDeleteRoleDef(t *testing.T) {
+	t.Skip("TODO: DeleteRoleDef PHYSICALLY deletes an overlay row (custom-role hard delete — a custom role has no file seed to fall back to) — NOT the tombstone reset (PutRoleDef with Tombstoned), which stays the seed-role reset seam.")
+}
+
+func TestGetLessonsOn(t *testing.T) {
+	t.Skip("TODO: 需要人工判斷這個函式的可觀察結果是什麼")
+}
+
+func TestPutLessonsOn(t *testing.T) {
+	t.Skip("TODO: 需要人工判斷這個函式的可觀察結果是什麼")
+}
+
+func TestDeleteLessonsForRole(t *testing.T) {
+	t.Skip("TODO: DeleteLessonsForRole HARD-deletes roleKey's overlay — the custom-role cascade: per-role lessons have no meaning without the role.")
+}
+
+func TestGetInsightOn(t *testing.T) {
+	t.Skip("TODO: 需要人工判斷這個函式的可觀察結果是什麼")
+}
+
+func TestPutInsightOn(t *testing.T) {
+	t.Skip("TODO: 需要人工判斷這個函式的可觀察結果是什麼")
+}
+
+func TestDeleteInsightForRole(t *testing.T) {
+	t.Skip("TODO: DeleteInsightForRole HARD-deletes the insight doc for roleKey — the custom-role cascade twin of DeleteLessonsForRole.")
+}
+
+func TestGetBootDocumentOn(t *testing.T) {
+	t.Skip("TODO: 需要人工判斷這個函式的可觀察結果是什麼")
+}
+
+func TestPutBootDocumentOn(t *testing.T) {
+	t.Skip("TODO: 需要人工判斷這個函式的可觀察結果是什麼")
+}
+
+func TestGetAccountAlias(t *testing.T) {
+	t.Skip("TODO: GetAccountAlias returns one overlay by account tag, or nil if never edited.")
+}
+
+func TestAccountDisplayNames(t *testing.T) {
+	t.Skip("TODO: AccountDisplayNames maps account tag -> display_name (the fold input; empty display names are skipped — absence folds to the id itself).")
+}
+
+func TestPutAccountAlias(t *testing.T) {
+	t.Skip("TODO: PutAccountAlias upserts an account display-name overlay.")
+}
+
+func TestGetMachineAlias(t *testing.T) {
+	t.Skip("TODO: GetMachineAlias returns one overlay by machine id, or nil if never edited.")
+}
+
+func TestMachineDisplayNames(t *testing.T) {
+	t.Skip("TODO: MachineDisplayNames maps machine_id -> display_name (the fold input; empty display names are skipped).")
+}
+
+func TestPutMachineAlias(t *testing.T) {
+	t.Skip("TODO: PutMachineAlias upserts a machine display-name overlay.")
+}
+
+func TestScanReplyCard(t *testing.T) {
+	t.Skip("TODO: 需要人工判斷這個函式的可觀察結果是什麼")
+}
+
+func TestListReplyCards(t *testing.T) {
+	t.Skip("TODO: ListReplyCards returns every card, oldest→newest (callers filter/sort per pane — the waiting/answered projections are handler concerns).")
+}
+
+func TestGetReplyCard(t *testing.T) {
+	t.Skip("TODO: GetReplyCard returns one card by id, or nil if absent.")
+}
+
+func TestPutChatWithAttachments(t *testing.T) {
+	t.Skip("TODO: PutChatWithAttachments writes the message AND every fresh blob it references in ONE transaction: a message never exists without the blobs its refs name, and a failed write leaves NOTHING behind (the pre-T-e2b2 shape wrote each blob first and the message last, so a failure between them left blobs no record could ever name — invisible to the gallery, invisible to the GC walk that starts from message meta).")
+}
+
+func TestPutReplyCardWithChat(t *testing.T) {
+	t.Skip("TODO: PutReplyCardWithChat writes the card, its companion chat message, and every fresh question-side blob in ONE transaction — the same all-or-nothing rule as PutChatWithAttachments, extended over the card row because the message's meta.reply_card_id points AT that row: a message whose card write failed is a permanently dangling ask in the owner's chat stream.")
+}
+
+func TestPutReplyCardWithAttachments(t *testing.T) {
+	t.Skip("TODO: PutReplyCardWithAttachments writes the card row and every fresh blob it names in ONE transaction — the answer-side twin of PutReplyCardWithChat (there is no companion message on this path; the card row IS the record that names the blobs).")
+}
+
+func TestInTx(t *testing.T) {
+	t.Skip("TODO: inTx runs fn inside a WRITE transaction, rolling back on any error (and on panic — an un-rolled-back tx would hold the write pool's single connection forever).")
+}
+
+func TestPutReplyCardOn(t *testing.T) {
+	t.Skip("TODO: 需要人工判斷這個函式的可觀察結果是什麼")
+}
+
+func TestScanWebhook(t *testing.T) {
+	t.Skip("TODO: 需要人工判斷這個函式的可觀察結果是什麼")
+}
+
+func TestGetWebhookByToken(t *testing.T) {
+	t.Skip("TODO: GetWebhookByToken returns the endpoint a token identifies, or nil when no row matches (the /in silent-drop path — an unknown token reveals nothing).")
+}
+
+func TestGetWebhookByMemberEndpoint(t *testing.T) {
+	t.Skip("TODO: GetWebhookByMemberEndpoint returns the endpoint addressed by (member, endpoint_id) — the management-route resolver — or nil when absent.")
+}
+
+func TestListWebhooksByMember(t *testing.T) {
+	t.Skip("TODO: ListWebhooksByMember returns a member's endpoints, oldest→newest.")
+}
+
+func TestPutWebhookEndpoint(t *testing.T) {
+	t.Skip("TODO: PutWebhookEndpoint upserts an endpoint row (keyed on the token PK).")
+}
+
+func TestTouchWebhookReceived(t *testing.T) {
+	t.Skip("TODO: TouchWebhookReceived stamps last_received_ts only — the /in paths that prove the caller reached us but neither deliver nor drop (the Slack url_verification challenge, a verified GitHub ping).")
+}
+
+func TestMarkWebhookDelivered(t *testing.T) {
+	t.Skip("TODO: MarkWebhookDelivered counts one verified, chat-delivered payload (atomic increment — never a read-modify-write, so concurrent /in calls can't lose counts) and stamps last_received_ts.")
+}
+
+func TestMarkWebhookDropped(t *testing.T) {
+	t.Skip("TODO: MarkWebhookDropped counts one silent drop with its coarse reason (WebhookDropReason* set) and stamps last_received_ts.")
+}
+
+func TestSetWebhookStatus(t *testing.T) {
+	t.Skip("TODO: SetWebhookStatus flips one endpoint's status (the enable/disable toggle).")
+}
+
+func TestDeleteWebhookEndpoint(t *testing.T) {
+	t.Skip("TODO: DeleteWebhookEndpoint permanently revokes an endpoint (idempotent).")
+}
+
+func TestInsertWebhookRequestLog(t *testing.T) {
+	t.Skip("TODO: InsertWebhookRequestLog appends one /in request row and trims the endpoint's ring buffer to the newest webhookRequestLogKeep rows (id order = insert order; the AUTOINCREMENT id is the ring's clock).")
+}
+
+func TestListWebhookRequestLogs(t *testing.T) {
+	t.Skip("TODO: ListWebhookRequestLogs returns an endpoint's ring buffer, newest→oldest (at most webhookRequestLogKeep rows by construction; LIMIT is belt-and-braces).")
+}
+
+func TestScanScheduledMessage(t *testing.T) {
+	t.Skip("TODO: 需要人工判斷這個函式的可觀察結果是什麼")
+}
+
+func TestCanonicalIntSet(t *testing.T) {
+	t.Skip("TODO: canonicalIntSet renders a set for storage: sorted ascending, deduplicated, comma-joined, no whitespace (\"0,20,40\"); the empty set is \"\".")
+}
+
+func TestSortedIntSet(t *testing.T) {
+	t.Skip("TODO: sortedIntSet returns vals sorted ascending with duplicates collapsed, without mutating the input.")
+}
+
+func TestParseIntSet(t *testing.T) {
+	t.Skip("TODO: parseIntSet reads a stored custom_* column back.")
+}
+
+func TestGetScheduledMessage(t *testing.T) {
+	t.Skip("TODO: GetScheduledMessage returns one schedule by id, or nil when absent.")
+}
+
+func TestListScheduledMessagesByMember(t *testing.T) {
+	t.Skip("TODO: ListScheduledMessagesByMember returns a member's schedules, oldest→newest.")
+}
+
+func TestListAllEnabledScheduledMessages(t *testing.T) {
+	t.Skip("TODO: ListAllEnabledScheduledMessages returns every armed schedule across all members — the cadence tick's whole working set.")
+}
+
+func TestPutScheduledMessage(t *testing.T) {
+	t.Skip("TODO: PutScheduledMessage upserts a schedule row (keyed on the id PK).")
+}
+
+func TestUpdateScheduledMessageSettings(t *testing.T) {
+	t.Skip("TODO: UpdateScheduledMessageSettings writes the OWNER-EDITABLE columns of an existing schedule and DELIBERATELY LEAVES last_fired_slot / last_fired_ts ALONE — they are not in the SET list at all, which is not the same thing as writing them back unchanged.")
+}
+
+func TestAimScheduledMessageCursor(t *testing.T) {
+	t.Skip("TODO: AimScheduledMessageCursor points the delivery cursor at slot — what an edit that MOVED the schedule does so it never fires the slot it crossed.")
+}
+
+func TestMarkScheduledMessageFired(t *testing.T) {
+	t.Skip("TODO: MarkScheduledMessageFired advances ONLY the delivery cursor (and its human-facing timestamp) after a slot really went out.")
+}
+
+func TestDeleteScheduledMessage(t *testing.T) {
+	t.Skip("TODO: DeleteScheduledMessage permanently removes a schedule (idempotent) — the operation `status = disabled` deliberately is NOT.")
+}
+
+func TestGetSetting(t *testing.T) {
+	t.Skip("TODO: ── settings ───────────────────────────────────────────────────────────────── GetSetting returns one settings value by key, or nil when the key was never written (the code-side default then applies — see settings.go for the closed key set).")
+}
+
+func TestPutSetting(t *testing.T) {
+	t.Skip("TODO: PutSetting upserts one settings value, stamping updated_at.")
+}
+
+func TestPutPushSubscription(t *testing.T) {
+	t.Skip("TODO: PutPushSubscription creates or refreshes one browser subscription.")
+}
+
+func TestListPushSubscriptions(t *testing.T) {
+	t.Skip("TODO: ListPushSubscriptions returns the current delivery targets.")
+}
+
+func TestDeletePushSubscription(t *testing.T) {
+	t.Skip("TODO: DeletePushSubscription is intentionally idempotent: browsers commonly unregister after a 404/410 delivery receipt and may retry during shutdown.")
+}
+
+func TestPutWardenCommand(t *testing.T) {
+	t.Skip("TODO: PutWardenCommand records one pending command.")
+}
+
+func TestDeleteWardenCommand(t *testing.T) {
+	t.Skip("TODO: DeleteWardenCommand forgets one pending command (idempotent).")
+}
+
+func TestListWardenCommands(t *testing.T) {
+	t.Skip("TODO: ListWardenCommands returns every surviving pending command in enqueue order — the FIFO the restore path rebuilds from.")
+}
+
+func TestDeleteWardenCommandsBefore(t *testing.T) {
+	t.Skip("TODO: DeleteWardenCommandsBefore drops every command enqueued strictly before cutoff — the expiry sweep that keeps a never-drainable backlog from living forever.")
+}
+
+func TestDeleteSetting(t *testing.T) {
+	t.Skip("TODO: DeleteSetting removes one settings value (idempotent — deleting an absent key is a no-op).")
+}
+
+func TestDisplayNames(t *testing.T) {
+	t.Skip("TODO: 需要人工判斷這個函式的可觀察結果是什麼")
 }

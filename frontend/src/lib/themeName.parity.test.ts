@@ -53,7 +53,7 @@ function goVerdicts(): Record<string, string> {
   try {
     execFileSync(
       "go",
-      ["test", "./", "-run", "^TestThemeNameVerdictsEmit$", "-count=1"],
+      ["test", "./", "-tags", "octool", "-run", "^TestThemeNameVerdictsEmit$", "-count=1"],
       {
         cwd: SERVER,
         encoding: "utf8",

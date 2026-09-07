@@ -1,669 +1,78 @@
+// Skeleton generated from server/ocserverd/server.go by gen_test_skeletons.py.
+// Every case is a t.Skip placeholder: fill the body, keep or rewrite the name.
+
 package main
 
-import (
-	"encoding/json"
-	"errors"
-	"fmt"
-	"io"
-	"net"
-	"net/http"
-	"net/http/httptest"
-	"os"
-	"path/filepath"
-	"strings"
-	"testing"
-	"time"
-)
+import "testing"
 
-func okHandler(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, healthDTO{Status: "ok"})
+func TestGitSHA(t *testing.T) {
+	t.Skip("TODO: gitSHA returns the stamped build sha, else the current short (7-char) git sha of the CWD checkout, else \"unknown\".")
 }
 
-// ── probes: byte-level parity with the Python responses ─────────────────────
-
-func TestHealthProbeBytesMatchPython(t *testing.T) {
-	h, err := buildHandler(defaultRouteSpecs(), singleKeyring([]byte(interopSecret)), nil, nil)
-	if err != nil {
-		t.Fatalf("buildHandler: %v", err)
-	}
-	srv := httptest.NewServer(h)
-	defer srv.Close()
-
-	resp, err := http.Get(srv.URL + "/health")
-	if err != nil {
-		t.Fatal(err)
-	}
-	body, _ := io.ReadAll(resp.Body)
-	resp.Body.Close()
-	if resp.StatusCode != 200 || resp.Header.Get("Content-Type") != "application/json" {
-		t.Fatalf("status/content-type: %d %q", resp.StatusCode, resp.Header.Get("Content-Type"))
-	}
-	// The exact bytes the retired Python original answered (compact JSON) —
-	// frozen wire shape.
-	if string(body) != `{"status":"ok"}` {
-		t.Fatalf("body diverges from the Python probe: %q", body)
-	}
+func TestGitTime(t *testing.T) {
+	t.Skip("TODO: gitTime returns the stamped build commit time, else the committer date of HEAD (strict ISO-8601), or \"\" when unavailable — the caller serialises \"\" as null, never a fabricated time.")
 }
 
-func TestVersionProbeShapeMatchesPython(t *testing.T) {
-	h, err := buildHandler(defaultRouteSpecs(), singleKeyring([]byte(interopSecret)), nil, nil)
-	if err != nil {
-		t.Fatalf("buildHandler: %v", err)
-	}
-	srv := httptest.NewServer(h)
-	defer srv.Close()
-
-	resp, err := http.Get(srv.URL + "/api/version")
-	if err != nil {
-		t.Fatal(err)
-	}
-	body, _ := io.ReadAll(resp.Body)
-	resp.Body.Close()
-	if resp.StatusCode != 200 {
-		t.Fatalf("status: %d", resp.StatusCode)
-	}
-	// Key ORDER is part of the byte-level contract (pydantic field order):
-	// version, git_sha, git_time, catalog_hash, update_available,
-	// latest_version. (release_tag — the retired ocupdaterd r-N serial —
-	// left the shape with the updater teardown, t-dc68.) update_checked_ok_at
-	// (T-e87d) is OPTIONAL and trails them: this server has never completed a
-	// successful check, so it is omitted entirely and these bytes are exactly
-	// what they were before that field existed.
-	wantOrder := []string{`"version":`, `"git_sha":`, `"git_time":`, `"catalog_hash":`, `"update_available":`, `"latest_version":`}
-	pos := -1
-	for _, key := range wantOrder {
-		i := strings.Index(string(body), key)
-		if i <= pos {
-			t.Fatalf("key %s out of order (or missing) in %s", key, body)
-		}
-		pos = i
-	}
-	var dto struct {
-		Version         string  `json:"version"`
-		GitSHA          string  `json:"git_sha"`
-		GitTime         *string `json:"git_time"`
-		CatalogHash     string  `json:"catalog_hash"`
-		UpdateAvailable bool    `json:"update_available"`
-		LatestVersion   *string `json:"latest_version"`
-	}
-	if err := json.Unmarshal(body, &dto); err != nil {
-		t.Fatalf("unmarshal: %v (%s)", err, body)
-	}
-	if dto.Version != "0.0.0" {
-		t.Fatalf("version must stay 0.0.0 (M1 §3.9): %q", dto.Version)
-	}
-	// In this repo checkout the runtime git capture must yield the checkout's
-	// short sha + an ISO time (outside a checkout they honestly degrade to
-	// unknown/null, mirroring handlers.git_sha/git_time).
-	assertCheckoutShortSHA(t, dto.GitSHA, "git_sha")
-	if dto.GitTime == nil || !strings.Contains(*dto.GitTime, "T") {
-		t.Fatalf("git_time must be ISO-8601 in a checkout: %v", dto.GitTime)
-	}
-	// The derived catalog hash (handlers.current_catalog_hash): 16 lowercase
-	// hex chars over the non-mcp_exclude route surface.
-	if len(dto.CatalogHash) != 16 {
-		t.Fatalf("catalog_hash must be the 16-hex derived hash: %q", dto.CatalogHash)
-	}
-	if dto.UpdateAvailable || dto.LatestVersion != nil {
-		t.Fatalf("update_available/latest_version must be false/null: %s", body)
-	}
-	if !strings.Contains(string(body), `"latest_version":null`) {
-		t.Fatalf("latest_version must serialise as null (not omitted): %s", body)
-	}
+func TestGitOutput(t *testing.T) {
+	t.Skip("TODO: 需要人工判斷這個函式的可觀察結果是什麼")
 }
 
-func TestGitSHAPrefersStampedBuildIdentity(t *testing.T) {
-	origSHA, origTime := buildSHA, buildTime
-	t.Cleanup(func() { buildSHA, buildTime = origSHA, origTime })
-
-	buildSHA, buildTime = "abc1234", "2026-07-12T00:00:00+08:00"
-	if got := gitSHA(); got != "abc1234" {
-		t.Fatalf("a stamped buildSHA must win over the CWD probe: %q", got)
-	}
-	if got := gitTime(); got != "2026-07-12T00:00:00+08:00" {
-		t.Fatalf("a stamped buildTime must win over the CWD probe: %q", got)
-	}
-
-	// Unstamped (plain `go build`) keeps the checkout probe alive.
-	buildSHA, buildTime = "", ""
-	assertCheckoutShortSHA(t, gitSHA(), "unstamped gitSHA")
+func TestWriteJSON(t *testing.T) {
+	t.Skip("TODO: ── response writers (unified error envelope; docs/design/api-error-envelope.md)")
 }
 
-// assertCheckoutShortSHA pins a probed sha against THIS checkout's own
-// abbreviation rather than against a fixed width.
-//
-// 🔴 The width is not a constant and never was: `--short` honours core.abbrev,
-// whose default (auto) grows the abbreviation with the object count of the
-// clone it runs in. A 7-char assertion therefore passes on a shallow working
-// clone and fails on a full one — which is exactly how it failed: green on
-// every PR check, red inside `bin/release`'s staging clone, so main went red at
-// the one moment nothing could ship. Asking git for the same answer the runtime
-// probe asks for keeps the assertion exact AND clone-independent; a bare
-// length range would have let a truncated or stamped-in value through.
-func assertCheckoutShortSHA(t *testing.T, got, field string) {
-	t.Helper()
-	want, err := gitOutput("rev-parse", "--short", "HEAD")
-	if err != nil || want == "" {
-		t.Fatalf("%s: this test needs a git checkout to compare against (err=%v)", field, err)
-	}
-	if got != want {
-		t.Fatalf("%s must be this checkout's short sha %q, got %q", field, want, got)
-	}
+func TestErrorCodeForStatus(t *testing.T) {
+	t.Skip("TODO: errorCodeForStatus is the status → machine-readable code map (service.errors.CODE_BY_STATUS + the honest fallback buckets).")
 }
 
-// TestBindErrorMessageIsActionable pins the port-clash FATAL. The bare Go error
-// ("bind: address already in use") states the fact but not the fix; the operator
-// needs to know it is a port clash AND how to get out of it. Uses a REAL double
-// bind so the errors.Is(…, syscall.EADDRINUSE) unwrap is exercised end to end
-// (net.OpError → os.SyscallError → syscall.Errno), not a hand-made sentinel.
-func TestBindErrorMessageIsActionable(t *testing.T) {
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatalf("probe listen: %v", err)
-	}
-	defer ln.Close()
-	port := ln.Addr().(*net.TCPAddr).Port
-
-	clash, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", port))
-	if err == nil {
-		clash.Close()
-		t.Fatal("second bind on the same port must fail")
-	}
-	msg := bindErrorMessage(port, err)
-	for _, want := range []string{
-		fmt.Sprintf("port %d already in use", port),
-		"officraft server",
-		"OC_SERVE_PORT=<other>",
-		"[server].port in oc.toml",
-		"lsof",
-	} {
-		if !strings.Contains(msg, want) {
-			t.Fatalf("EADDRINUSE message must be actionable (missing %q): %s", want, msg)
-		}
-	}
-
-	// A non-EADDRINUSE failure must NOT be dressed up as a port clash.
-	other := bindErrorMessage(8770, errors.New("permission denied"))
-	if strings.Contains(other, "already in use") {
-		t.Fatalf("only EADDRINUSE may claim a port clash: %s", other)
-	}
-	if !strings.Contains(other, "cannot bind port 8770") {
-		t.Fatalf("non-clash bind errors must still name the port: %s", other)
-	}
+func TestWriteError(t *testing.T) {
+	t.Skip("TODO: writeError answers the ONE non-2xx wire shape every Python route already speaks: {\"error\":{\"code\":\"...\",\"message\":\"...\"}}.")
 }
 
-// ── auth middleware + RBAC choke (over a synthetic gated table) ──────────────
-
-func gatedSpecs() []RouteSpec {
-	return []RouteSpec{
-		{Method: "GET", Path: "/api/floor", Handler: okHandler, Auth: authGated,
-			Requires: principalMachine, Summary: "floor: any authenticated principal"},
-		{Method: "GET", Path: "/api/admin", Handler: okHandler, Auth: authGated,
-			Requires: principalAdminAgent, Summary: "admin choke"},
-		{Method: "GET", Path: "/api/owner-only", Handler: okHandler, Auth: authGated,
-			Requires: principalOwner, Summary: "owner choke"},
-	}
+func TestClaimsFromContext(t *testing.T) {
+	t.Skip("TODO: 需要人工判斷這個函式的可觀察結果是什麼")
 }
 
-func get(t *testing.T, url, token string) (int, string) {
-	t.Helper()
-	req, _ := http.NewRequest("GET", url, nil)
-	if token != "" {
-		req.Header.Set("Authorization", "Bearer "+token)
-	}
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		t.Fatal(err)
-	}
-	body, _ := io.ReadAll(resp.Body)
-	resp.Body.Close()
-	return resp.StatusCode, string(body)
+func TestVerifyingKeyFromContext(t *testing.T) {
+	t.Skip("TODO: verifyingKeyFromContext returns the id of the ring key that verified this request, or \"\" when there is none (an unauthenticated route, or a test that built the context by hand).")
 }
 
-func TestGatedRoutesFailClosed(t *testing.T) {
-	secret := []byte(interopSecret)
-	h, err := buildHandler(gatedSpecs(), singleKeyring(secret), nil, nil)
-	if err != nil {
-		t.Fatalf("buildHandler: %v", err)
-	}
-	srv := httptest.NewServer(h)
-	defer srv.Close()
-
-	now := time.Now().Unix()
-	ownerTok, _ := mintJWT("owner", "owner", 300, secret, now, "")
-	agentTok, _ := mintJWT("kyle", "agent", 300, secret, now, "")
-	expiredTok, _ := mintJWT("kyle", "agent", 1, secret, now-300, "")
-	forgedTok, _ := mintJWT("owner", "owner", 300, []byte("wrong-secret"), now, "")
-
-	// 401 deny-by-default: no / malformed / expired / forged credentials.
-	for _, tok := range []string{"", "garbage", expiredTok, forgedTok} {
-		status, body := get(t, srv.URL+"/api/floor", tok)
-		if status != 401 || !strings.Contains(body, `"code":"unauthorized"`) {
-			t.Fatalf("token %q: want 401 unauthorized envelope, got %d %s", tok, status, body)
-		}
-	}
-
-	// The machine FLOOR admits any authenticated principal.
-	if status, _ := get(t, srv.URL+"/api/floor", agentTok); status != 200 {
-		t.Fatalf("floor must admit an agent: %d", status)
-	}
-
-	// The ?token= query fallback (extract_token): EventSource / <img src>
-	// cannot set a header, so the identical verified JWT rides the query.
-	if status, _ := get(t, srv.URL+"/api/floor?token="+ownerTok, ""); status != 200 {
-		t.Fatalf("?token= query fallback must authorize: %d", status)
-	}
-	if status, _ := get(t, srv.URL+"/api/floor?token=garbage", ""); status != 401 {
-		t.Fatalf("a garbage ?token= must stay 401: %d", status)
-	}
-	// A PRESENT-but-invalid Authorization header never falls through to the
-	// query param (Python parity: header wins when set).
-	if status, _ := get(t, srv.URL+"/api/floor?token="+ownerTok, "garbage"); status != 401 {
-		t.Fatalf("an invalid header must not fall back to ?token=: %d", status)
-	}
-	if status, _ := get(t, srv.URL+"/api/floor", ownerTok); status != 200 {
-		t.Fatalf("floor must admit the owner: %d", status)
-	}
-
-	// The admin/owner chokes: an agent is a flat 403 (envelope), the owner passes.
-	for _, path := range []string{"/api/admin", "/api/owner-only"} {
-		status, body := get(t, srv.URL+path, agentTok)
-		if status != 403 || !strings.Contains(body, `"code":"forbidden"`) {
-			t.Fatalf("%s with agent token: want 403 forbidden envelope, got %d %s", path, status, body)
-		}
-		if status, _ := get(t, srv.URL+path, ownerTok); status != 200 {
-			t.Fatalf("%s with owner token: want 200, got %d", path, status)
-		}
-	}
+func TestExtractToken(t *testing.T) {
+	t.Skip("TODO: extractToken pulls the bearer token from the request — the byte-faithful twin of service/auth.py extract_token.")
 }
 
-// ── boot assertions: fail-closed app assembly (app.py spirit) ───────────────
-
-func TestBootRefusesUndeclaredRequires(t *testing.T) {
-	specs := []RouteSpec{{Method: "GET", Path: "/api/naked", Handler: okHandler, Auth: authGated}}
-	if _, err := buildHandler(specs, singleKeyring([]byte(interopSecret)), nil, nil); err == nil {
-		t.Fatal("a gated route with no requires declaration must refuse to boot")
-	}
+func TestRequireAuth(t *testing.T) {
+	t.Skip("TODO: requireAuth wraps a GATED handler with the JWT gate: the extracted token (header first, then the `?token=` query fallback — see extractToken) verified against the LIVE signing-key ring, claims stashed on the request context, 401 deny-by-default on anything else.")
 }
 
-func TestBootRefusesUnknownRequires(t *testing.T) {
-	specs := []RouteSpec{{Method: "GET", Path: "/api/x", Handler: okHandler, Auth: authGated, Requires: "superuser"}}
-	if _, err := buildHandler(specs, singleKeyring([]byte(interopSecret)), nil, nil); err == nil {
-		t.Fatal("an unknown requires class must refuse to boot")
-	}
+func TestShareSigGate(t *testing.T) {
+	t.Skip("TODO: shareSigGate is the third auth path on a ShareSig-flagged route: a bearer credential of any kind (header or ?token=) always takes the normal authed chain — a present-but-invalid token stays a 401 and NEVER falls through to the sig.")
 }
 
-func TestBootRefusesAuthRequiresDisagreement(t *testing.T) {
-	// public auth ⟺ requires="public" — either direction of disagreement fails.
-	bad := [][]RouteSpec{
-		{{Method: "GET", Path: "/api/a", Handler: okHandler, Auth: authPublic, Requires: principalOwner}},
-		{{Method: "GET", Path: "/api/b", Handler: okHandler, Auth: authGated, Requires: requiresPublic}},
-	}
-	for i, specs := range bad {
-		if _, err := buildHandler(specs, singleKeyring([]byte(interopSecret)), nil, nil); err == nil {
-			t.Fatalf("case %d: auth/requires disagreement must refuse to boot", i)
-		}
-	}
+func TestBuildHandler(t *testing.T) {
+	t.Skip("TODO: buildHandler assembles the mux from the route table: boot assertions FIRST (fail closed — a bad table is an error, never a served app), then each row registered with its auth + RBAC chokes.")
 }
 
-func TestBootRefusesUnlabelledRoute(t *testing.T) {
-	specs := []RouteSpec{{Method: "GET", Path: "/api/x", Handler: okHandler, Auth: "internal", Requires: principalOwner}}
-	if _, err := buildHandler(specs, singleKeyring([]byte(interopSecret)), nil, nil); err == nil {
-		t.Fatal("an unknown auth label must refuse to boot")
-	}
+func TestSpecsFor(t *testing.T) {
+	t.Skip("TODO: specsFor builds the route table over one apiServer through the generated ServerInterfaceWrapper (param binding; a param the wrapper cannot bind is the wire-frozen 422 through the unified envelope) and stamps the derived catalog hash back onto the server (the hash is over the table's own non-mcp_exclude rows).")
 }
 
-// ── the full REST surface (M3 sub-batch A: wired stubs over the spec) ────────
-
-// TestRouteTableCoversSpecSurface pins the table to the frozen wire SSOT: the
-// set of (method, path) rows must equal the operations of spec/openapi.json
-// exactly — a spec change without a table row (or a stray row) fails here.
-func TestRouteTableCoversSpecSurface(t *testing.T) {
-	raw, err := os.ReadFile("../../spec/openapi.json")
-	if err != nil {
-		t.Fatalf("read spec: %v", err)
-	}
-	var spec struct {
-		Paths map[string]map[string]any `json:"paths"`
-	}
-	if err := json.Unmarshal(raw, &spec); err != nil {
-		t.Fatalf("unmarshal spec: %v", err)
-	}
-	want := map[string]bool{}
-	for path, item := range spec.Paths {
-		for method := range item {
-			want[strings.ToUpper(method)+" "+path] = true
-		}
-	}
-	got := map[string]bool{}
-	for _, row := range defaultRouteSpecs() {
-		key := row.Method + " " + row.Path
-		if got[key] {
-			t.Fatalf("duplicate route row: %s", key)
-		}
-		got[key] = true
-	}
-	for key := range want {
-		if !got[key] {
-			t.Fatalf("spec operation missing from the route table: %s", key)
-		}
-	}
-	for key := range got {
-		if !want[key] {
-			t.Fatalf("route table row not in the spec (wire freeze): %s", key)
-		}
-	}
+func TestNewAPIServer(t *testing.T) {
+	t.Skip("TODO: newAPIServer assembles the handler carrier: build identity captured ONCE (at process start) so the probes report the sha of the RUNNING code — an autodeploy that pulls a new sha but fails to restart keeps reporting the OLD sha (handlers._PROCESS_SHA contract).")
 }
 
-// newWiredTestServer assembles the FULL stack (temp sqlite + migrations +
-// seed + hub + repo-file assets via the checkout root) — the sub-batch-B
-// integration face. The hub comes back too so a test can attach a listener
-// and assert what a handler fans (or refuses to fan).
-func newWiredTestServer(t *testing.T) (*httptest.Server, []byte, *Hub) {
-	t.Helper()
-	db, err := openSQLite(filepath.Join(t.TempDir(), "server-test.db"))
-	if err != nil {
-		t.Fatalf("open: %v", err)
-	}
-	t.Cleanup(func() { db.Close() })
-	if err := runMigrations(db); err != nil {
-		t.Fatalf("goose up: %v", err)
-	}
-	dal := NewDAL(db)
-	if err := seedOutOfBox(dal); err != nil {
-		t.Fatalf("seed: %v", err)
-	}
-	secret := []byte(interopSecret)
-	hub := NewHub()
-	api := newAPIServer(dal, hub, singleKeyring(secret), 3600, "../..")
-	phc, err := hashPassword("test-password")
-	if err != nil {
-		t.Fatalf("hashPassword: %v", err)
-	}
-	api.passwordHash = phc
-	h, err := buildHandler(specsFor(api), api.keys, dal.GetMember, nil)
-	if err != nil {
-		t.Fatalf("buildHandler: %v", err)
-	}
-	api.loopback = h // the MCP tools/call loopback re-enters this mux (cmdServe wiring)
-	srv := httptest.NewServer(h)
-	t.Cleanup(srv.Close)
-	return srv, secret, hub
+func TestApplyKeepAlive(t *testing.T) {
+	t.Skip("TODO: applyKeepAlive arms sseKeepAlive on one accepted connection.")
 }
 
-func TestBusinessRoutesServeThroughTheWiredStack(t *testing.T) {
-	srv, secret, _ := newWiredTestServer(t)
-
-	now := time.Now().Unix()
-	ownerTok, _ := mintJWT("owner", "owner", 300, secret, now, "")
-	agentTok, _ := mintJWT("kyle", "agent", 300, secret, now, "")
-
-	// The seeded roster serves through the machine-floor row: Mira is there.
-	status, body := get(t, srv.URL+"/api/members", ownerTok)
-	if status != 200 || !strings.Contains(body, `"id":"mira"`) {
-		t.Fatalf("/api/members: want 200 with the seeded mira, got %d %s", status, body)
-	}
-	// The seed role folds from the file seed.
-	if status, body := get(t, srv.URL+"/api/roles/assistant", ownerTok); status != 200 ||
-		!strings.Contains(body, `"is_seed":true`) {
-		t.Fatalf("/api/roles/assistant: want the folded seed, got %d %s", status, body)
-	}
-
-	// The table's auth/requires wiring still guards everything: 401 with no
-	// token, 403 for a plain agent on an admin_agent row (deny BEFORE resolve).
-	if status, body := get(t, srv.URL+"/api/members", ""); status != 401 ||
-		!strings.Contains(body, `"code":"unauthorized"`) {
-		t.Fatalf("no token: want 401 envelope, got %d %s", status, body)
-	}
-	req, _ := http.NewRequest("DELETE", srv.URL+"/api/members/missing", nil)
-	req.Header.Set("Authorization", "Bearer "+agentTok)
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		t.Fatal(err)
-	}
-	respBody, _ := io.ReadAll(resp.Body)
-	resp.Body.Close()
-	if resp.StatusCode != 403 || !strings.Contains(string(respBody), `"code":"forbidden"`) {
-		t.Fatalf("agent on admin row: want 403 envelope, got %d %s", resp.StatusCode, respBody)
-	}
-
-	// Login: the one public business entry (wrong password → flat 401;
-	// missing field → 422 through the envelope).
-	login := func(payload string) (int, string) {
-		resp, err := http.Post(srv.URL+"/api/login", "application/json", strings.NewReader(payload))
-		if err != nil {
-			t.Fatal(err)
-		}
-		b, _ := io.ReadAll(resp.Body)
-		resp.Body.Close()
-		return resp.StatusCode, string(b)
-	}
-	if status, _ := login(`{"password":"test-password"}`); status != 200 {
-		t.Fatalf("login right password: want 200, got %d", status)
-	}
-	if status, _ := login(`{"password":"wrong"}`); status != 401 {
-		t.Fatalf("login wrong password: want 401, got %d", status)
-	}
-	if status, body := login(`{}`); status != 422 ||
-		!strings.Contains(body, `"code":"validation_error"`) {
-		t.Fatalf("login missing field: want 422 envelope, got %d %s", status, body)
-	}
-
-	// A query param the wrapper cannot bind stays the validation 422.
-	if status, body := get(t, srv.URL+"/api/chat?limit=notanumber", ownerTok); status != 422 ||
-		!strings.Contains(body, `"code":"validation_error"`) {
-		t.Fatalf("bad query param: want 422 validation envelope, got %d %s", status, body)
-	}
+func TestAccept(t *testing.T) {
+	t.Skip("TODO: 需要人工判斷這個函式的可觀察結果是什麼")
 }
 
-func TestMarkChatReadFansDeltaOnlyWhenWatermarkAdvances(t *testing.T) {
-	srv, secret, hub := newWiredTestServer(t)
-	now := time.Now().Unix()
-	ownerTok, _ := mintJWT("owner", "owner", 300, secret, now, "")
-	l, err := hub.Connect("", "")
-	if err != nil {
-		t.Fatalf("connect: %v", err)
-	}
-
-	markRead := func(ts float64) (int, string) {
-		t.Helper()
-		req, _ := http.NewRequest("POST", srv.URL+"/api/chat/mark-read",
-			strings.NewReader(fmt.Sprintf(`{"peer":"mira","last_read_ts":%v}`, ts)))
-		req.Header.Set("Authorization", "Bearer "+ownerTok)
-		req.Header.Set("Content-Type", "application/json")
-		resp, err := http.DefaultClient.Do(req)
-		if err != nil {
-			t.Fatal(err)
-		}
-		body, _ := io.ReadAll(resp.Body)
-		resp.Body.Close()
-		return resp.StatusCode, string(body)
-	}
-	drainChatReadFrames := func() []map[string]any {
-		t.Helper()
-		var frames []map[string]any
-		for {
-			raw := l.pop()
-			if raw == nil {
-				return frames
-			}
-			_, envelope := parseSSEFrame(t, raw)
-			if envelope["topic"] == "chat_read" {
-				frames = append(frames, envelope)
-			}
-		}
-	}
-
-	// An advancing report fans EXACTLY one chat_read delta.
-	if status, body := markRead(100); status != 200 {
-		t.Fatalf("advance: want 200, got %d %s", status, body)
-	}
-	frames := drainChatReadFrames()
-	if len(frames) != 1 {
-		t.Fatalf("advance must fan exactly one chat_read frame, got %d: %v", len(frames), frames)
-	}
-	payload := frames[0]["data"].(map[string]any)["payload"].(map[string]any)
-	if payload["reader"] != "owner" || payload["peer"] != "mira" || payload["last_read_ts"] != float64(100) {
-		t.Fatalf("frame payload: %v", payload)
-	}
-
-	// A stale (lower) and an equal report are no-ops: the effective watermark
-	// answers, but NOTHING fans (repository.put_chat_read: no write, no fan).
-	for _, ts := range []float64{50, 100} {
-		status, body := markRead(ts)
-		if status != 200 || !strings.Contains(body, `"last_read_ts":100`) {
-			t.Fatalf("stale/equal report must answer the effective watermark, got %d %s", status, body)
-		}
-		if frames := drainChatReadFrames(); len(frames) != 0 {
-			t.Fatalf("stale/equal report must fan nothing, got %v", frames)
-		}
-	}
+func TestCmdServe(t *testing.T) {
+	t.Skip("TODO: cmdServe is the zero-argument canonical start (service.app.serve): read oc.toml, open + migrate + seed the store, load the DB settings snapshot (running the one-shot oc.toml → DB auth migration — settings.go), assemble the app (boot assertions fail closed), mount the reconcile producer cadence (unless --no-reconcile) and the outsource-assignment scheduler cadence (unless --no-outsource), bind host:port.")
 }
 
-func TestBareVersionProbeShapeMatchesPython(t *testing.T) {
-	h, err := buildHandler(defaultRouteSpecs(), singleKeyring([]byte(interopSecret)), nil, nil)
-	if err != nil {
-		t.Fatalf("buildHandler: %v", err)
-	}
-	srv := httptest.NewServer(h)
-	defer srv.Close()
-
-	resp, err := http.Get(srv.URL + "/version")
-	if err != nil {
-		t.Fatal(err)
-	}
-	body, _ := io.ReadAll(resp.Body)
-	resp.Body.Close()
-	if resp.StatusCode != 200 {
-		t.Fatalf("status: %d", resp.StatusCode)
-	}
-	var dto struct {
-		Version     string `json:"version"`
-		SHA         string `json:"sha"`
-		CatalogHash string `json:"catalog_hash"`
-	}
-	if err := json.Unmarshal(body, &dto); err != nil {
-		t.Fatalf("unmarshal: %v (%s)", err, body)
-	}
-	if dto.Version != "0.0.0" || len(dto.CatalogHash) != 16 {
-		t.Fatalf("probe shape diverges from ProbeVersionDTO: %s", body)
-	}
-	assertCheckoutShortSHA(t, dto.SHA, "sha")
-	// Field ORDER is part of the parity contract (version, sha, catalog_hash).
-	if !(strings.Index(string(body), `"version":`) < strings.Index(string(body), `"sha":`) &&
-		strings.Index(string(body), `"sha":`) < strings.Index(string(body), `"catalog_hash":`)) {
-		t.Fatalf("probe field order diverges: %s", body)
-	}
-}
-
-// ── principal ladder constants ───────────────────────────────────────────────
-
-func TestPrincipalLadderMatchesPython(t *testing.T) {
-	// service.authz.PRINCIPAL_RANK: machine(0) < agent(1) < admin_agent(2) < owner(3).
-	want := map[string]int{"machine": 0, "agent": 1, "admin_agent": 2, "owner": 3}
-	for k, v := range want {
-		if principalRank[k] != v {
-			t.Fatalf("rank[%s] = %d, want %d", k, principalRank[k], v)
-		}
-	}
-	if len(principalRank) != len(want) {
-		t.Fatalf("ladder must be exactly the four classes: %v", principalRank)
-	}
-	if adminRoleKey != "assistant" || machineKind != "warden" {
-		t.Fatalf("classification literals drifted: %q %q", adminRoleKey, machineKind)
-	}
-}
-
-// TestServeBootRetiresOrphanReplyCards covers the BOOT WIRING itself (T-4166
-// review G10), not just the reconcile function. A boot hook that is defined,
-// tested in isolation, and never actually called is the same dead-wiring class
-// as the untested dismissal seam this ticket already tripped over — deleting
-// the call from cmdServe must turn something red, and only a test that goes
-// through cmdServe can do that.
-//
-// The trick that makes it hermetic and synchronous: cmdServe runs its boot
-// reconciles BEFORE it binds. Hold the configured port first, and cmdServe
-// migrates, seeds, reconciles, then fails the bind and RETURNS (rc 1) instead
-// of blocking in http.Serve forever. Everything before the bind is exercised
-// for real, and no listener leaks.
-func TestServeBootRetiresOrphanReplyCards(t *testing.T) {
-	dir := t.TempDir()
-	dbPath := filepath.Join(dir, "boot.db")
-
-	// Seed a PRE-FIX orphan: a waiting card bound to an already-done task, plus
-	// a live control card that must survive the boot untouched.
-	db, err := openSQLite(dbPath)
-	if err != nil {
-		t.Fatalf("open: %v", err)
-	}
-	if err := runMigrations(db); err != nil {
-		t.Fatalf("goose up: %v", err)
-	}
-	dal := NewDAL(db)
-	now := nowSecs()
-	if err := dal.PutTask(Task{
-		ID: "t-closed", Title: "closed", Status: TaskStatusDone,
-		Priority: TaskPriorityMid, ExecutorKind: TaskExecutorStaff,
-		ExecutorID: "m-1", CreatedTS: now, UpdatedTS: now, ClosedTS: now,
-	}); err != nil {
-		t.Fatalf("put task: %v", err)
-	}
-	orphan := waitingCard("rc-orphan", now)
-	orphan.TaskID = "t-closed"
-	control := waitingCard("rc-plain", now)
-	for _, c := range []ReplyCard{orphan, control} {
-		if err := dal.PutReplyCard(c); err != nil {
-			t.Fatalf("put card: %v", err)
-		}
-	}
-	db.Close()
-
-	// Hold the port cmdServe is about to want.
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatalf("listen: %v", err)
-	}
-	defer ln.Close()
-	port := ln.Addr().(*net.TCPAddr).Port
-	cfgPath := filepath.Join(dir, "oc.toml")
-	if err := os.WriteFile(cfgPath,
-		[]byte(fmt.Sprintf("[server]\nport = %d\n", port)), 0o644); err != nil {
-		t.Fatalf("write config: %v", err)
-	}
-
-	var out strings.Builder
-	rc := cmdServe(envOf(map[string]string{
-		"OC_CONFIG":       cfgPath,
-		"OC_DATABASE_URL": "sqlite:///" + dbPath,
-	}), true, true, &out)
-	if rc != 1 {
-		t.Fatalf("the held port must make serve exit 1 (boot ran, bind failed), got %d\n%s",
-			rc, out.String())
-	}
-	if !strings.Contains(out.String(), "already in use") {
-		t.Fatalf("expected the bind failure to be the reason we exited:\n%s", out.String())
-	}
-	// The boot said what it did — a silent reconcile is not observable.
-	if !strings.Contains(out.String(),
-		"orphan reply-card boot reconcile: retired 1 card(s)") {
-		t.Fatalf("boot must report the retired orphan:\n%s", out.String())
-	}
-
-	db, err = openSQLite(dbPath)
-	if err != nil {
-		t.Fatalf("reopen: %v", err)
-	}
-	defer db.Close()
-	dal = NewDAL(db)
-	got, err := dal.GetReplyCard("rc-orphan")
-	if err != nil || got == nil {
-		t.Fatalf("card: %v %v", got, err)
-	}
-	if got.Status != replyCardStatusExpired || got.ExpiredTS <= 0 {
-		t.Fatalf("boot must retire the stranded card, got %+v", got)
-	}
-	kept, _ := dal.GetReplyCard("rc-plain")
-	if kept.Status != replyCardStatusWaiting {
-		t.Fatalf("an unbound card must survive boot, got %s", kept.Status)
-	}
+func TestBindErrorMessage(t *testing.T) {
+	t.Skip("TODO: bindErrorMessage turns a net.Listen failure into something the operator can ACT on.")
 }

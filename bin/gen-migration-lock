@@ -147,7 +147,7 @@ trap 'rm -f "$LOG"' EXIT
 
 set +e
 ( cd "$ROOT/server/ocserverd" && OC_WRITE_MIGRATION_LOCK=1 \
-    go test . -count=1 -v -run '^TestWriteMigrationLock$' ) 2>&1 | tee "$LOG"
+    go test . -tags octool -count=1 -v -run '^TestWriteMigrationLock$' ) 2>&1 | tee "$LOG"
 rc="${PIPESTATUS[0]}"
 set -e
 [[ "$rc" == "0" ]] || exit "$rc"
