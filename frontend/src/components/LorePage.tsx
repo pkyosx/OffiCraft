@@ -98,7 +98,13 @@ import { navigateHash } from "../lib/hashRoute";
 import { Avatar } from "./Avatar";
 import { FilterPanel } from "./FilterPanel";
 import { MultiSelectFilter } from "./MultiSelectFilter";
-import { ChatBubbleIcon, ChevronDownIcon, ChevronRightIcon } from "./icons";
+import {
+  BookIcon,
+  ChatBubbleIcon,
+  CheckIcon,
+  ChevronDownIcon,
+  ChevronRightIcon,
+} from "./icons";
 import "./lore.css";
 
 /** 捲到底一次載這麼多 (spec §6). The SAME number is the "is there more" test:
@@ -634,6 +640,21 @@ export function LorePage() {
         clearLabel={t.lore.clearFilters}
         onClear={anyFilter ? clearFilters : undefined}
       >
+        {/* 🔴 THE ORDER IS THE 任務頁'S ORDER, and it is not decoration (owner,
+            2026-09-07: 「The order of buttons / filters matters」「make them
+            consistent with task」). That row reads 負責人 → 類型 → 狀態 → 清除篩選,
+            so this one reads 撰寫人 → 範圍 → 狀態 → 清除篩選: WHO, then WHICH
+            REGISTER, then WHAT STATE. A reader who has learned one page should
+            not have to re-learn where things are on the other, and two pages
+            that disagree teach that the position means nothing. */}
+        <MultiSelectFilter
+          noun={t.lore.filterAuthorNoun}
+          allLabel={t.lore.filterAuthorAll}
+          testId="lore-filter-author"
+          options={authorOptions}
+          selected={authors}
+          onChange={setAuthors}
+        />
         {/* 範圍 — the KIND, on its own. It used to share a dropdown with the
             manual list, which made a list of tasks look like it had non-tasks
             mixed into it (owner, card rc-0376bf875757). The three labels are the
@@ -654,9 +675,11 @@ export function LorePage() {
           onChange={(next) => setScopeKinds(next as Set<LoreScopeKind>)}
         />
         {/* The second half of a scope, one list per kind that HAS one, and each
-            appears only while its kind is ticked. 成員傳承 has none: its key is a
-            member id, which neither list can narrow — offering one would ask a
-            question about the wrong roster. */}
+            appears only while its kind is ticked — directly after the 範圍 it
+            narrows, never after 狀態, or the pair would read as two unrelated
+            fields. 成員傳承 has none: its key is a member id, which neither list
+            can narrow — offering one would ask a question about the wrong
+            roster. */}
         {scopeKinds.has("role") && (
           <MultiSelectFilter
             noun={t.lore.filterRoleNoun}
@@ -688,14 +711,6 @@ export function LorePage() {
           ]}
           selected={states}
           onChange={(next) => setStates(next as Set<LoreEntryState>)}
-        />
-        <MultiSelectFilter
-          noun={t.lore.filterAuthorNoun}
-          allLabel={t.lore.filterAuthorAll}
-          testId="lore-filter-author"
-          options={authorOptions}
-          selected={authors}
-          onChange={setAuthors}
         />
       </FilterPanel>
 
@@ -878,6 +893,48 @@ function LoreRow({
       onKeyDown={onRowToggleKeyDown}
     >
       <div className="lore-row__head">
+        {/* 🔴 THE BADGE ORDER IS 任務卡'S ORDER (owner, 2026-09-07: 「The order
+            of buttons / filters matters」「make them consistent with task」).
+            That card reads 編號 → 優先權 → 狀態 → 類型, so this row reads
+            編號 → 狀態 → 屬於. The id comes FIRST on both because it is what you
+            quote to somebody else; it used to sit second here, behind the state,
+            and the two pages disagreed about where a reader's eye should land.
+            傳承 has no 優先權 — there is nothing to put in that slot, and
+            inventing one to fill the gap would be consistency in the shape only. */}
+        {/* 條目編號, right of the status chip. It is a <button>, so the row's
+            own toggle handler lets it through the same way it lets the status
+            chip through — clicking the id copies it and does NOT expand the
+            row. */}
+        <button
+          type="button"
+          className="lore-row__id-badge"
+          data-testid="lore-entry-id"
+          aria-label={msg.loreCopyEntryId(entry.id)}
+          title={msg.loreCopyEntryId(entry.id)}
+          onClick={copyEntryId}
+        >
+          {/* 🔴 THE SAME BADGE AS 任務卡's, DOWN TO THE `#` AND THE ICON. The two
+              are the same thing — 「這一筆的編號」, click to copy — and they were
+              drawn two different ways: the task carried a glyph and a `#`, the
+              entry carried neither. The owner spotted it by putting the two
+              screenshots side by side, which is how a difference like this gets
+              found: never by reading one page against its own spec.
+              The icon differs (a book, not a checklist) because it names WHICH
+              register the number belongs to — the same icon the 傳承 tab uses.
+              What is shared is the SHAPE; what identifies is the glyph. */}
+          {copied ? <CheckIcon size={13} /> : <BookIcon size={13} />}#
+          {entry.id}
+          {copied && (
+            <span
+              className="lore-row__id-badge-copied"
+              role="status"
+              data-testid="lore-entry-id-copied"
+            >
+              {t.lore.entryIdCopied}
+            </span>
+          )}
+        </button>
+
         {/* ONE status badge, and it is also the control (spec §6). The menu
             hangs from the badge's LEFT edge — .lore-row__status-pop pins
             left:0 — because the badge sits at the row's left end and a
@@ -925,30 +982,6 @@ function LoreRow({
             </div>
           )}
         </div>
-
-        {/* 條目編號, right of the status chip. It is a <button>, so the row's
-            own toggle handler lets it through the same way it lets the status
-            chip through — clicking the id copies it and does NOT expand the
-            row. */}
-        <button
-          type="button"
-          className="lore-row__id-badge"
-          data-testid="lore-entry-id"
-          aria-label={msg.loreCopyEntryId(entry.id)}
-          title={msg.loreCopyEntryId(entry.id)}
-          onClick={copyEntryId}
-        >
-          {entry.id}
-          {copied && (
-            <span
-              className="lore-row__id-badge-copied"
-              role="status"
-              data-testid="lore-entry-id-copied"
-            >
-              {t.lore.entryIdCopied}
-            </span>
-          )}
-        </button>
 
         {/* 屬於 — which scope pays for this entry.
             🔴 IT IS ON THE COLLAPSED ROW, WHICH IS THE WHOLE POINT. It used to

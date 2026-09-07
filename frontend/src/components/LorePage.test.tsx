@@ -909,3 +909,107 @@ describe("LorePage — 收斂到單一範圍時，上限線回得來", () => {
     expect(line.textContent).toContain("10000");
   });
 });
+
+// ────────────────────────────────────────────────────────────────────────────
+// 順序 (owner, 2026-09-07: 「The order of buttons / filters matters」
+// 「make them consistent with task」「The consistency is very important」).
+//
+// 🔴 ORDER IS THE ONE PROPERTY NOTHING ELSE ON THIS PAGE PROTECTS. Every other
+// spec here asks whether a thing is PRESENT and whether it CARRIES the right
+// value; a row whose badges are shuffled passes all of them, renders cleanly,
+// and is wrong only against the other page — which no test on this page ever
+// looks at. So it drifts by the ordinary act of adding a field near the top of
+// a JSX block, silently, and the person who notices is the reader who has to
+// re-learn a layout they already knew.
+//
+// The two orders are copied FROM 任務頁, and this spec writes them out
+// literally so a future change has to state the new order rather than arrive at
+// one by accident:
+//   篩選列  撰寫人 → 範圍 → (角色 / 手冊) → 狀態        (任務頁: 負責人 → 類型 → 狀態)
+//   列上    編號 → 狀態 → 屬於                          (任務卡: 編號 → 優先權 → 狀態 → 類型)
+describe("LorePage — 順序跟任務頁一致", () => {
+  it("puts the filters in the 任務頁 order, and the second-half lists beside the 範圍 they narrow", async () => {
+    vi.spyOn(api, "listRoles").mockResolvedValue([
+      { key: "assistant", name: "特助" },
+    ] as never);
+    stubList(page([mkEntry({ id: "L-1" })]));
+    const { container } = renderPage();
+    await waitFor(() => expect(renderedIds(container)).toHaveLength(1));
+
+    const idsInDomOrder = () =>
+      Array.from(
+        container.querySelectorAll(
+          '[data-testid^="lore-filter-"]:not([data-testid*="-opt-"])',
+        ),
+      )
+        .map((el) => el.getAttribute("data-testid")!)
+        // FilterPanel's own wrapper ids share the prefix; only the FIELDS are
+        // being ordered here.
+        .filter((id) =>
+          [
+            "lore-filter-author",
+            "lore-filter-scope",
+            "lore-filter-role",
+            "lore-filter-manual",
+            "lore-filter-state",
+          ].includes(id),
+        );
+
+    expect(idsInDomOrder()).toEqual([
+      "lore-filter-author",
+      "lore-filter-scope",
+      "lore-filter-state",
+    ]);
+
+    // 角色 appears BETWEEN 範圍 and 狀態 — beside the 範圍 it narrows, not
+    // stranded after an unrelated field.
+    const trigger = container.querySelector<HTMLElement>(
+      '[data-testid="lore-filter-scope"]',
+    )!;
+    fireEvent.click(trigger);
+    fireEvent.click(
+      container.querySelector<HTMLElement>(
+        '[data-testid="lore-filter-scope-opt-role"] input',
+      )!,
+    );
+    await waitFor(() =>
+      expect(idsInDomOrder()).toEqual([
+        "lore-filter-author",
+        "lore-filter-scope",
+        "lore-filter-role",
+        "lore-filter-state",
+      ]),
+    );
+  });
+
+  it("puts the entry id FIRST on the row, ahead of the state badge", async () => {
+    stubList(page([mkEntry({ id: "L-9", state: "pinned" })]));
+    const { container } = renderPage();
+    await waitFor(() => expect(renderedIds(container)).toHaveLength(1));
+
+    const row = rowById(container, "L-9");
+    const marks = Array.from(
+      row.querySelectorAll(
+        '[data-testid="lore-entry-id"], [data-testid="lore-state"], [data-testid="lore-scope"]',
+      ),
+    ).map((el) => el.getAttribute("data-testid"));
+
+    // 🔴 The id LEADS, the way 任務卡's #T-1 does. It is what you quote to
+    // somebody else, so it is what the eye should land on first — and it landed
+    // second here until the owner put the two screenshots side by side.
+    expect(marks).toEqual(["lore-entry-id", "lore-state", "lore-scope"]);
+  });
+
+  it("draws the id badge like 任務卡's — the # and a glyph, not a bare number", async () => {
+    stubList(page([mkEntry({ id: "L-9" })]));
+    const { container } = renderPage();
+    await waitFor(() => expect(renderedIds(container)).toHaveLength(1));
+
+    const badge = container.querySelector<HTMLElement>(
+      '[data-testid="lore-entry-id"]',
+    )!;
+    // Same three parts 任務卡's badge has: a glyph, a `#`, the number.
+    expect(badge.querySelector("svg")).not.toBeNull();
+    expect(badge.textContent).toContain("#L-9");
+  });
+});

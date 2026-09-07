@@ -170,6 +170,12 @@
   cursor: pointer;
   transition: background 0.15s, border-color 0.15s;
 }
+/* The glyph inside the badge — same rule as 任務卡's (.task-card__id-badge svg),
+ * so the two badges line up their icon the same way rather than one of them
+ * shrinking under a long id. */
+.lore-row__id-badge svg {
+  flex: none;
+}
 .lore-row__id-badge:hover {
   background: color-mix(in srgb, var(--color-task-id) 20%, transparent);
 }

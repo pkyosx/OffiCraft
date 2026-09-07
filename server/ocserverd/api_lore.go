@@ -208,9 +208,16 @@ const (
 		"sorts ahead of every other entry in its scope and therefore survives the " +
 		"cap at the expense of everyone else's, so who pins is not the writer's " +
 		"call. Ask the owner or an admin agent."
+	// ⚠️ THIS MESSAGE USED TO QUOTE THE GLOBAL CONTEXT VERBATIM 「只寫你自己那
+	// 一份，也只處置你自己寫的那幾筆。」 so a refused caller could go and read the
+	// rule. The owner removed that sentence from the document (2026-09-07), and
+	// a quotation of a sentence that no longer exists is worse than no
+	// quotation: it sends the reader looking for something they will not find,
+	// and nothing tells them the pointer is stale. So the message states the
+	// rule itself rather than citing a place.
 	loreGovernanceRefusalOwn = "you may only 失效 or 提到最新 an entry you WROTE — " +
-		"this one has a different author. 「只寫你自己那一份，也只處置你自己寫的那幾筆。」 " +
-		"An admin agent or the owner can act on any entry."
+		"this one has a different author, and an entry is governed by the member " +
+		"who wrote it. An admin agent or the owner can act on any entry."
 )
 
 // callerMayGovernLore is the ONE predicate behind both governance verbs, and it
