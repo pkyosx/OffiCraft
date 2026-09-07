@@ -523,4 +523,28 @@ describe("MonitorPage AI Sessions — column sort", () => {
     fireEvent.click(header);
     expect(column(1)).toEqual(["alpha", "beta"]);
   });
+
+  // Found by the independent review (Lumi), not by this file: every fixture
+  // above gives a member the SAME name in its roster row and its session row,
+  // so `roster?.name ?? session.name` collapsing to plain `session.name` left
+  // all fifteen checks green. The member column is the one column whose two
+  // lanes do not share a source, which is exactly why it needed a fixture that
+  // makes the two disagree.
+  it("takes a member's name from the roster, not from the session row", async () => {
+    listMembers.mockResolvedValue([
+      { id: "mem-eva", name: "Eva Renamed", kind: "staff" } as Member,
+    ]);
+    getMonitoring.mockResolvedValue({
+      accounts: [],
+      machines: [],
+      sessions: [session({ id: "mem-eva", name: "Eva Stale" })],
+    });
+    renderMonitor();
+
+    await screen.findByText("Eva Renamed");
+    expect(memberNames()).toEqual(["Eva Renamed"]);
+    // and the sort key follows the printed value, not the session's
+    fireEvent.click(screen.getByTestId("mon-sort-member"));
+    expect(memberNames()).toEqual(["Eva Renamed"]);
+  });
 });
