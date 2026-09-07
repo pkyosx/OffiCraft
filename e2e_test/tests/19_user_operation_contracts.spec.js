@@ -29,6 +29,18 @@ function chip(scope, idx) {
   );
 }
 
+// 請示 PAGE SURFACE ONLY. A row on the 請示 page mounts COLLAPSED since owner
+// 2026-09-07 — it is a title, and the composer this contract is about only
+// exists once the row is opened and its one-card read lands.
+async function openPageCard(pageCard) {
+  const toggle = pageCard.getByTestId('reply-card-toggle');
+  if ((await toggle.getAttribute('aria-expanded')) !== 'true') {
+    await toggle.click();
+  }
+  await expect(toggle).toHaveAttribute('aria-expanded', 'true');
+  await expect(pageCard.getByTestId('card-loading')).toHaveCount(0);
+}
+
 // 🔴 T-91: THE CREATE ANSWERS A RECEIPT, NOT THE CARD. POST /api/reply-cards
 // used to hand back the whole ReplyCardDTO; it now answers
 // {id, chat_message_id, created_ts, attachments} — every field the handler
@@ -127,6 +139,7 @@ test.describe('user-operation contract · single card draft preservation', () =>
     await repliesTab(page).click();
     const waiting = page.getByTestId('waiting-card').filter({ hasText: summary });
     await expect(waiting).toBeVisible();
+    await openPageCard(waiting);
     await waiting.locator('.chat__input').fill(draft);
     await chip(waiting, 1).click();
 
@@ -136,6 +149,7 @@ test.describe('user-operation contract · single card draft preservation', () =>
       .getByTestId('answered-card')
       .filter({ hasText: summary });
     await expect(answered).toBeVisible();
+    await openPageCard(answered);
     const finalAnswer = answered.getByTestId('final-answer');
     // UOC_ASSERT id=UOC-RC-SINGLE-DRAFT screen=replies-page name=single_option_keeps_draft_on_replies_page
     await expect(
@@ -172,7 +186,8 @@ test.describe('user-operation contract · single card draft preservation', () =>
     await expect(chatCard).toBeVisible();
     // A chat card mounts COLLAPSED since owner c-6f054c1cb481 (2026-09-04) —
     // the composer this contract is about only exists once it is opened. The
-    // 請示 page and the task-page embed above/below did NOT change.
+    // 請示 page above opens the same way through its own toggle; the task-page
+    // embed below did NOT change.
     await chatCard.getByTestId('chat-reply-card-expand').click();
     await chatCard.locator('.chat__input').fill(draft);
     await chip(chatCard, 1).click();
