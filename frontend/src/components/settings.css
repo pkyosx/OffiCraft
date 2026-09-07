@@ -1483,6 +1483,16 @@
   border-radius: 12px;
   background: color-mix(in srgb, var(--color-overlay) 2%, transparent);
 }
+/* Same 2x2 opt-in as the 轉派 dialog's .task-reassign__seg--grid2, for the same
+   reason and with the same per-callsite opt-in: a flex row cannot fit four
+   `gpt-5.6-*` slugs at 390px, and with no flex-wrap here it squeezes them until
+   each label breaks across three lines. Only the Codex 模型 picker opts in —
+   Claude's four one-word slugs still fit the row. Pinned by
+   frontend/visual-guards/codex-model-chips.ct.spec.tsx. */
+.manual-seg--grid2 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+}
 .manual-seg__cell {
   flex: 1;
   padding: 10px 12px;

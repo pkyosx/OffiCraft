@@ -3,9 +3,15 @@
 // CODEX_MODEL_OPTIONS is the ONE definition of the Codex quick-pick chips
 // (TaskManualsPage and TaskReassignDialog import it, and CodexModelSelect
 // renders it). The identifier a chip reports is what ships to the server as the
-// launch model, so it is pinned literally: `gpt-6-astra` is the slug the Codex
-// app-server's `model/list` answers with, and a chip labelled right but
-// reporting a stale slug would launch the wrong model silently.
+// launch model, so it is pinned literally — a chip labelled right but reporting
+// a stale slug would launch the wrong model silently.
+//
+// `gpt-6-astra` is a MEASUREMENT, not a guarantee: on 2026-09-07, on eva-m5,
+// codex-cli 0.153.4's `codex app-server` answered `model/list` with
+// {"id":"gpt-6-astra","displayName":"GPT-6-Astra"}, and that release's binary
+// contains `"slug": "gpt-6-astra"`. Nothing in this repo re-checks that against
+// a live Codex, so the day the app-server renames the slug this literal goes
+// quietly wrong and no test here turns red — re-measure before trusting it.
 
 import { describe, it, expect, vi } from "vitest";
 import { render, fireEvent } from "@testing-library/react";

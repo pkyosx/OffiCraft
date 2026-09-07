@@ -995,15 +995,23 @@ function Segmented<T extends string>({
   onPick,
   testidPrefix,
   ariaLabel,
+  className,
 }: {
   options: { value: T; label: string }[];
   value: T | null;
   onPick: (v: T) => void;
   testidPrefix: string;
   ariaLabel: string;
+  /** Optional layout modifier (e.g. the 2x2 grid the Codex 模型 picker uses so
+   * its four long slugs neither squeeze nor leave a lone chip at 390px). */
+  className?: string;
 }) {
   return (
-    <div className="manual-seg" role="radiogroup" aria-label={ariaLabel}>
+    <div
+      className={`manual-seg${className ? ` ${className}` : ""}`}
+      role="radiogroup"
+      aria-label={ariaLabel}
+    >
       {options.map((o) => (
         <button
           key={o.value}
@@ -1316,6 +1324,7 @@ function AssigneeCard({
                       onPick={setModelDraft}
                       testidPrefix="manual-assignee-model"
                       ariaLabel={t.settings.assigneeModelLabel}
+                      className="manual-seg--grid2"
                     />
                     <input
                       className="manual-input manual-assignee__model"

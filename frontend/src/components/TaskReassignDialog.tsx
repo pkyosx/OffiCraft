@@ -329,6 +329,7 @@ export function TaskReassignDialog({
                       onPick={setModelDraft}
                       testidPrefix="reassign-model"
                       ariaLabel={t.settings.assigneeModelLabel}
+                      className="task-reassign__seg--grid2"
                     />
                     <input
                       className="task-reassign__input"
