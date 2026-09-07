@@ -1984,11 +1984,19 @@ _HAPPY_LORE_BODY = "conf happy lore body"
 
 
 def _happy_lore_entry(ctx: HCtx) -> str:
-    """A fresh 傳承 entry under the scratch agent's OWN role; returns its id.
+    """A fresh 傳承 entry under the scratch agent ITSELF; returns its id.
 
-    The ROLE arm is used rather than the manual arm because it needs no task
-    fixture: the scope is read from the caller's roster row, and this file's
-    scratch agent is hired with its own throwaway role_key.
+    🔴 THIS DOCSTRING USED TO SAY "under the scratch agent's OWN role ... hired
+    with its own throwaway role_key", and that was never true of this file: the
+    HCtx above is built with role_key="" (see _happy_ctx). Before T-33's third
+    position the mismatch showed up as a plain 400 — 「you have no role」 — and
+    the docstring is what made that look like a server bug rather than a wrong
+    claim about the fixture.
+
+    The writer's own boot document is the scope either way; which KIND of scope
+    that is depends on the writer. A roster row with a role_key files under
+    `role`; one without — an outsource member, and this scratch agent — files
+    under `agent`, keyed by the member id. No task fixture is needed for either.
     """
     r = ctx.client.post(
         "/api/lore",
@@ -2002,8 +2010,16 @@ def _happy_lore_entry(ctx: HCtx) -> str:
 def _check_lore_written(ctx: HCtx, r: httpx.Response) -> None:
     d = r.json()
     assert d["id"].startswith("L-"), d
-    assert d["scope_kind"] == "role", d
-    assert d["scope_key"] == ctx.agent.role_key, d
+    # 🔴 `agent`, not `role`, and it is a statement about THIS FIXTURE rather
+    # than about the route: the scratch agent carries role_key="" (_happy_ctx),
+    # so the writer's own boot document is its own, keyed by its member id. The
+    # `role` arm of the same door is covered by the auth matrix, whose agent
+    # identities do carry role keys.
+    assert d["scope_kind"] == "agent", d
+    assert d["scope_key"] == ctx.agent.member_id, d
+    # It named no task, so there was nothing about where this landed that the
+    # writer could not predict — the explanatory sentence must stay empty.
+    assert d["filed_note"] == "", d
     assert d["state"] == "active", d
     assert d["author_id"] == ctx.agent.member_id, d
     # The two timestamps start EQUAL and only effective_ts ever moves; the bump

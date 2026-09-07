@@ -18,8 +18,10 @@ Third conformance batch. What this file pins, MUST by MUST:
   * §2  boot-context assembly reproduced BYTE-FOR-BYTE from the seed files
         (language-neutral assets under seeds/ — data, not code)
         plus API-visible overlay state: block order, "\\n\\n" joins, the single
-        trailing "\\n", the exact block headers, and the two blocks that are
-        skipped entirely when they fold blank (使用者自訂 and 判準/# Insight).
+        trailing "\\n", the exact block headers, and the three blocks that are
+        skipped entirely when they fold blank (使用者自訂, 判準/# Insight, and
+        the T-33 傳承 block, which is absent — heading and all — when the role
+        has no live entries that fit the cap).
         This suite is the VERBATIM authority for that assembly — spec §2.2
         carries the shape and delegates the exact formatting here;
   * §2  bootstrap == the same fold regardless of overlay state (overlay-wins
@@ -259,6 +261,108 @@ def _rendered(text: str, join: str = "\n\n") -> str:
     return head + join + body if sep else text
 
 
+def _expected_lore_block(client, owner_token, role_key: str) -> str:
+    """Rebuild the 傳承 block (T-33) the staff fold appends after 長期筆記.
+
+    🔴 THE RENDERING AND THE SELECTION ARE HAND-WRITTEN HERE, on purpose. Only
+    the DATA comes from the wire (`GET /api/lore`) — exactly the way this file
+    treats Insight and Lessons: it takes the text and spells the heading out
+    itself. Asking the server for a ready-made block and pasting it in would
+    make this assertion true against ANY implementation, which is the same as
+    not asserting it.
+
+    Every formatting rule below is read off the server source:
+
+      * block heading `# 傳承`               — `loreBlockHeading`,
+                                               server/ocserverd/lore_select.go:121
+      * per-entry `\\n\\n## <id> <title>`      — renderLoreBlock,
+                                               lore_select.go:141-144 (the id is
+                                               rendered because it is the handle
+                                               a write face takes back)
+      * `（置頂）` suffix on a PINNED entry   — lore_select.go:145-147
+      * body appended after `\\n\\n`, and     — lore_select.go:148-152
+        omitted entirely when it trims blank
+      * an EMPTY selection renders ""        — lore_select.go:135-137, and the
+        and is dropped from the join rather    caller drops "" instead of joining
+        than joined as a blank part            it, assets.go:570-576
+      * selection order: pinned group first, — ListLoreEntriesLive's ORDER BY,
+        then effective_ts DESC, seq DESC       server/ocserverd/dal_lore.go:168-178
+      * retired entries are excluded          — same WHERE clause, dal_lore.go:171
+      * cap walk: accumulate title+body in    — selectLoreForScope,
+        CHARACTERS (code points, never          lore_select.go:66-68 and 107-115
+        bytes) and STOP at the first entry
+        that does not fit — no skipping,
+        no truncation
+      * cap <= 0 means "no room", not         — lore_select.go:96-102
+        "unlimited"
+
+    🔴 ORDER: `GET /api/lore` does NOT list in the fold's order. The list face
+    runs ListLoreEntriesPage (dal_lore.go:201-229), whose ORDER BY is a THREE
+    group CASE — pinned, active, retired — while the fold runs
+    ListLoreEntriesLive (dal_lore.go:168-178), a TWO group order over live rows
+    only. Restricted to the non-retired rows the two happen to agree today, so
+    this function does not lean on that: it drops `retired` itself and re-sorts
+    with the fold's key.
+    """
+    entries: list[dict] = []
+    cap_chars = 0
+    limit, offset = 200, 0
+    while True:
+        r = client.get(
+            "/api/lore",
+            params={
+                "scope_kind": "role",
+                "scope_key": role_key,
+                "limit": limit,
+                "offset": offset,
+            },
+            headers=_auth(owner_token),
+        )
+        assert r.status_code == 200, r.text
+        page = r.json()
+        # cap_chars is the `lore_cap_chars_role` SETTING in force, answered only
+        # because the filter converged on ONE scope. It is a number, not a
+        # decision: the walk that spends it is written out below.
+        cap_chars = page["cap_chars"]
+        entries += page["entries"]
+        if len(page["entries"]) < limit:
+            break
+        offset += limit
+
+    live = [e for e in entries if e["state"] != "retired"]
+    live.sort(key=lambda e: (0 if e["state"] == "pinned" else 1,
+                             -e["effective_ts"], -e["seq"]))
+
+    chosen: list[dict] = []
+    used = 0
+    if cap_chars > 0:
+        for e in live:
+            # CHARACTERS, not bytes: Go counts these with
+            # utf8.RuneCountInString and Python's len() over a str is the same
+            # unit (code points). The heading/blank-line scaffolding is NOT
+            # charged — the cap is a budget over what somebody wrote.
+            cost = len(e["title"]) + len(e["body"])
+            if used + cost > cap_chars:
+                break  # STOP, do not skip ahead to a smaller entry
+            used += cost
+            chosen.append(e)
+
+    # 🔴 NOTHING AT ALL when nothing was selected — not even a separator. The
+    # caller drops "" rather than joining it, so an empty scope must leave the
+    # assembled document byte-identical to the pre-T-33 fold.
+    if not chosen:
+        return ""
+    out = "# 傳承"
+    for e in chosen:
+        out += f"\n\n## {e['id']} {e['title'].strip()}"
+        if e["state"] == "pinned":
+            out += "（置頂）"
+        body = e["body"].strip()
+        if body:
+            out += f"\n\n{body}"
+    return out
+
+
 def _expected_context(client, owner_token, role_key: str, user_text: str) -> str:
     role = client.get(f"/api/roles/{role_key}", headers=_auth(owner_token)).json()
     lessons = client.get(
@@ -277,7 +381,11 @@ def _expected_context(client, owner_token, role_key: str, user_text: str) -> str
     # one of them; if they disagree about FORMATTING, this file wins by design.
     #
     # Order (must match §2.2): 系統互動 → 使用者自訂 → 角色定義 → 判準 →
-    # 學習筆記 → 啟動步驟.
+    # 學習筆記 → 傳承 → 啟動步驟.
+    #
+    # 傳承 (T-33) sits between 長期筆記 and the recency-authoritative 啟動步驟
+    # tail (server/ocserverd/assets.go:553-578) and, like 使用者自訂 and 判準,
+    # is dropped ENTIRELY — no header, no blank line — when it is empty.
     #
     # 使用者自訂 and 判準 are each dropped entirely when they fold blank. The
     # gate is the FOLDED TEXT — deliberately not is_default and not has_seed,
@@ -291,10 +399,10 @@ def _expected_context(client, owner_token, role_key: str, user_text: str) -> str
     )
     if insight["text"].strip():
         parts.append(f"# Insight ({role_key})\n\n{insight['text'].strip()}")
-    parts += [
-        f"# Lessons ({role_key})\n\n{lessons['text'].strip()}",
-        _rendered(_seed("boot_sequence.md")).strip(),
-    ]
+    parts.append(f"# Lessons ({role_key})\n\n{lessons['text'].strip()}")
+    if lore := _expected_lore_block(client, owner_token, role_key):
+        parts.append(lore)
+    parts.append(_rendered(_seed("boot_sequence.md")).strip())
     return "\n\n".join(parts) + "\n"
 
 
