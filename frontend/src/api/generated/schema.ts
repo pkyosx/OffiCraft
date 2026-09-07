@@ -18,8 +18,8 @@ export interface paths {
         get: operations["handle_list_lore_entries_api_lore_get"];
         put?: never;
         /**
-         * Write ONE 傳承 entry (never editable afterwards). ``task_id`` picks the scope: absent = your own role; present = that task's type. No role (outsource) or no task type (臨時任務) is a 400 -- neither falls back to the other. An over-cap title or body is a 400 that writes nothing.
-         * @description Write ONE 傳承 entry (never editable afterwards). ``task_id`` picks the scope: absent = your own role; present = that task's type. No role (outsource) or no task type (臨時任務) is a 400 -- neither falls back to the other. An over-cap title or body is a 400 that writes nothing.
+         * Write ONE 傳承 entry (never editable afterwards). ``task_id`` picks the scope, and there is ALWAYS somewhere for it to land: a task that carries a TYPE files under that type's manual; no task at all, OR a task with no type (臨時任務), files into your OWN boot document -- your role if you are staff, yourself if you are an outsource member (who has no role for a role scope to name). The untyped-task case answers a ``scope_note`` saying where it actually went, because you asked for a manual and did not get one. Only a caller with no roster row at all is a 400 -- there is no boot document to file into. An over-cap title or body is a 400 that writes nothing.
+         * @description Write ONE 傳承 entry (never editable afterwards). ``task_id`` picks the scope, and there is ALWAYS somewhere for it to land: a task that carries a TYPE files under that type's manual; no task at all, OR a task with no type (臨時任務), files into your OWN boot document -- your role if you are staff, yourself if you are an outsource member (who has no role for a role scope to name). The untyped-task case answers a ``scope_note`` saying where it actually went, because you asked for a manual and did not get one. Only a caller with no roster row at all is a 400 -- there is no boot document to file into. An over-cap title or body is a 400 that writes nothing.
          */
         post: operations["handle_write_lore_entry_api_lore_post"];
         delete?: never;
