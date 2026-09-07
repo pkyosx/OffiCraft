@@ -10,7 +10,7 @@
 #
 # WHY THAT CANNOT BE CAUGHT ANYWHERE ELSE. Every existing check around this
 # script is about whether the GENERATOR ran: the wrapper greps for the test's
-# end marker, and migration_lock_t75_test.go checks the lock's CONTENT. Nothing
+# end marker, and server/ocserverd/migration_lock.go checks the lock's CONTENT. Nothing
 # looks at the sentence the human reads. The lock can be correct, the generator
 # green, the whole suite green, and the closing line still be a lie about
 # whether the reader has work to do — which is precisely the state that shipped.
@@ -31,7 +31,7 @@
 #
 # WHAT IS NOT ASSERTED. This guard never runs the generator, so it says nothing
 # about whether migration.lock's CONTENT is right; that is
-# migration_lock_t75_test.go's job. It also does not prove the real run wires
+# server/ocserverd/migration_lock.go's job. It also does not prove the real run wires
 # ENTRIES_LINE correctly beyond the pass-through checked here.
 set -euo pipefail
 # 🔴 WITHOUT THIS, THE FIXTURES CAN FAIL SILENTLY AND THE GUARD STILL SAYS ok.

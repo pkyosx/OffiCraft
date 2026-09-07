@@ -1,0 +1,183 @@
+#!/usr/bin/env bash
+# Refuse a branch that touches a migration which has ALREADY BEEN RELEASED.
+#
+# ── THE RULE ─────────────────────────────────────────────────────────────────
+# A new migration must be numbered ABOVE every number origin/main already
+# declares, and a migration at or below that maximum must not be edited, renamed
+# or deleted. goose writes one row per version and never revisits it:
+#
+#   * a number BELOW the released maximum stops every already-upgraded station
+#     from booting (`found N missing migrations before current version …`) while
+#     a fresh install sees nothing wrong at all — an empty DB has no gap;
+#   * EDITING a released migration reaches new installs only. Every station that
+#     already upgraded keeps the old schema and NOTHING ANYWHERE ERRORS. Two
+#     populations, two schemas, complete silence.
+#
+# Both are irreversible by the time anyone can see them. The fix is always the
+# same and it is never "adjust the old one": add a NEW migration above the max.
+#
+# ── WHY THIS EXISTS SEPARATELY FROM migration.lock ───────────────────────────
+# 🔴 REGENERATING THE LOCK MAKES THE LOCK'S OWN CHECK GO GREEN. Edit a released
+# migration, run bin/gen-migration-lock, and migration.lock now honestly
+# describes the tree — which is all that check ever claimed. The rule that the
+# edit was NOT ALLOWED can only come from a baseline, and this script is the one
+# that reads it, off `git diff` rather than off the lock, so it survives the lock
+# being rewritten.
+#
+# ── 🔴 IT FAILS WHEN IT CANNOT ANSWER ────────────────────────────────────────
+# Every way of not knowing — origin/main does not resolve, no merge base, the
+# migration directory is missing from the baseline, an implausibly small corpus —
+# exits NON-ZERO and says which. "I could not check" and "there is nothing wrong"
+# must never arrive as the same result: a check that goes quiet when its baseline
+# disappears is a check that switched itself off, and in CI that is precisely
+# when it was supposed to speak. In CI this needs actions/checkout with
+# `fetch-depth: 0`; a shallow clone has no origin/main to compare against.
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$ROOT"
+
+BASE_REF="${OC_RELEASED_MIGRATIONS_BASE:-origin/main}"
+SQL_DIR="server/ocserverd/migrations"
+PKG_DIR="server/ocserverd"
+
+# The corpus floor. It is not a count of today's migrations (that would need
+# bumping forever and would be a second, drifting statement of how many there
+# are); it is low enough to be permanent and high enough that a baseline listing
+# which lost its way cannot pass as a clean one.
+MIN_BASELINE_MIGRATIONS=40
+
+die() {
+  echo "FAIL — check-released-migrations: $1" >&2
+  shift
+  for line in "$@"; do echo "  $line" >&2; done
+  exit 1
+}
+
+command -v git >/dev/null 2>&1 || die "git is not on PATH, so there is no baseline to compare against."
+
+git rev-parse --is-inside-work-tree >/dev/null 2>&1 ||
+  die "$ROOT is not inside a git work tree, so there is no baseline to compare against."
+
+BASE_SHA="$(git rev-parse --verify --quiet "$BASE_REF^{commit}" || true)"
+if [[ -z "$BASE_SHA" ]]; then
+  die "'$BASE_REF' does not resolve in this checkout." \
+    "There is no baseline, so this check has NOT passed — it did not run." \
+    "Locally:  git fetch origin main" \
+    "In CI:    the job's actions/checkout needs 'fetch-depth: 0'."
+fi
+
+MERGE_BASE="$(git merge-base "$BASE_SHA" HEAD 2>/dev/null || true)"
+if [[ -z "$MERGE_BASE" ]]; then
+  die "HEAD and $BASE_REF ($BASE_SHA) share no merge base." \
+    "Nothing can be said about which migrations this branch added, so this is a refusal," \
+    "not a pass. A shallow clone is the usual cause; fetch the full history."
+fi
+
+# migration_number PATH — echo the zero-padded number a migration path declares,
+# or nothing when the path is not a migration. Both sources are covered:
+#   server/ocserverd/migrations/NNNNN_*.sql   (the .sql half)
+#   server/ocserverd/migration_NNNNN_*.go     (the Go half, tests excluded)
+# The Go migrations do NOT live under migrations/ — a listing of that directory
+# alone is the incomplete denominator this repo's duplicate-version guard exists
+# to kill, so it is not used here either.
+migration_number() {
+  local path="$1" base
+  case "$path" in
+  "$SQL_DIR"/*.sql)
+    base="${path##*/}"
+    ;;
+  "$PKG_DIR"/migration_*.go)
+    base="${path##*/}"
+    case "$base" in
+    *_test.go) return 0 ;; # a migration's TEST is not the migration
+    esac
+    base="${base#migration_}"
+    ;;
+  *)
+    return 0
+    ;;
+  esac
+  local digits="${base%%_*}"
+  [[ "$digits" =~ ^[0-9]+$ ]] || return 0
+  echo "$digits"
+}
+
+# ── the baseline: every migration number $BASE_REF already declares ──────────
+baseline_paths="$(git ls-tree -r --name-only "$BASE_SHA" -- "$SQL_DIR" "$PKG_DIR" 2>/dev/null || true)"
+[[ -n "$baseline_paths" ]] ||
+  die "git ls-tree found nothing under $SQL_DIR or $PKG_DIR at $BASE_REF ($BASE_SHA)." \
+    "Either those paths moved or the baseline is not what this script thinks it is." \
+    "Zero migrations would let every number pass, so this is a refusal."
+
+baseline_count=0
+baseline_max=0
+while IFS= read -r p; do
+  [[ -n "$p" ]] || continue
+  n="$(migration_number "$p")"
+  [[ -n "$n" ]] || continue
+  baseline_count=$((baseline_count + 1))
+  # 10# forces base 10: 00008 is not octal, and 00009 would be a hard error.
+  v=$((10#$n))
+  ((v > baseline_max)) && baseline_max="$v"
+done <<<"$baseline_paths"
+
+if ((baseline_count < MIN_BASELINE_MIGRATIONS)); then
+  die "$BASE_REF ($BASE_SHA) declares only $baseline_count migration(s) (floor $MIN_BASELINE_MIGRATIONS)." \
+    "A corpus that small is not this repo's, so the maximum derived from it means nothing" \
+    "and every number on this branch would look new. This is a refusal, not a pass."
+fi
+
+printf '[check-released-migrations] baseline %s (%s): %d migration(s), maximum %05d\n' \
+  "$BASE_REF" "${BASE_SHA:0:12}" "$baseline_count" "$baseline_max"
+
+# ── this branch's own changes, against the merge base ────────────────────────
+changed="$(git diff --name-only "$MERGE_BASE" HEAD)"
+
+violations=()
+added=()
+while IFS= read -r p; do
+  [[ -n "$p" ]] || continue
+  n="$(migration_number "$p")"
+  [[ -n "$n" ]] || continue
+  v=$((10#$n))
+  if ((v <= baseline_max)); then
+    violations+=("$(printf '%05d  %s' "$v" "$p")")
+  else
+    added+=("$(printf '%05d  %s' "$v" "$p")")
+  fi
+done <<<"$changed"
+
+if ((${#added[@]} > 0)); then
+  echo "[check-released-migrations] new migrations on this branch (all above ${baseline_max}):"
+  printf '  %s\n' "${added[@]}"
+fi
+
+if ((${#violations[@]} > 0)); then
+  echo "FAIL — check-released-migrations: this branch touches migration(s) at or below the" >&2
+  printf 'released maximum %05d, which %s already declares:\n' "$baseline_max" "$BASE_REF" >&2
+  printf '  %s\n' "${violations[@]}" >&2
+  cat >&2 <<'MSG'
+
+不要改已上線的 migration，請改成新增一支。
+DO NOT EDIT A MIGRATION THAT HAS ALREADY SHIPPED — ADD A NEW ONE INSTEAD.
+
+goose records one row per version and never runs that version again:
+  * editing one reaches BRAND-NEW INSTALLS ONLY. Every station that already
+    upgraded keeps the old schema and nothing anywhere errors — two populations,
+    two schemas, complete silence.
+  * numbering one at or below the released maximum stops every already-upgraded
+    station from booting, while a fresh install looks perfectly fine.
+Renaming or deleting one is the same event wearing a different name.
+
+FIX: revert the change to the file above and put the intent in a NEW migration
+numbered above the maximum printed here. Then run bin/gen-migration-lock.
+
+If the change is purely MECHANICAL (a repo-wide rename or a formatting pass that
+reached a Go migration) there is no automatic way out and this check does not
+pretend there is: decide deliberately, say which in the PR, and get it reviewed.
+MSG
+  exit 1
+fi
+
+echo "[check-released-migrations] OK — no migration at or below ${baseline_max} was touched."

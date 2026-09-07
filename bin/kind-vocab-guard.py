@@ -256,7 +256,7 @@ SKIP_FILES = {
 
 # ── the two exemptions, both DISCOVERED rather than listed ───────────────────
 # 1. APPLIED MIGRATIONS. `migration.lock` freezes a content hash per shipped
-#    migration and migration_lock_t75_test.go fails if one is edited, so an
+#    migration and server/ocserverd/migration_lock.go fails if one is edited, so an
 #    already-locked .sql is APPLIED HISTORY, not a live copy of the vocabulary:
 #    it is REQUIRED to keep saying what it said. A red row there is one nobody
 #    is allowed to act on, and an alarm nobody may answer is one everybody

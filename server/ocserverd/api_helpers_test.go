@@ -97,6 +97,10 @@ func TestNewHexID(t *testing.T) {
 	t.Skip("TODO: newHexID mints a server-side id: n random lowercase hex chars (the Python uuid4().hex[:n] convention behind m-/c-/att-/r- ids).")
 }
 
+func TestStrOrEmpty(t *testing.T) {
+	t.Skip("TODO: strOrEmpty dereferences an optional request-body string.")
+}
+
 func TestIntOr(t *testing.T) {
 	t.Skip("TODO: intOr dereferences an optional request-body int, falling back to the field's declared default.")
 }

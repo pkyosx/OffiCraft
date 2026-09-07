@@ -145,9 +145,11 @@ OC_ROUND=(
   lint-kind-vocab
   lint-shadow-claim
   lint-user-operation-contract
+  check-released-migrations
   lint-chat-pushdown
   drift-ocapi
   drift-mcp-catalog
+  drift-migration-lock
   lint-conformance-blackbox
   scan-tcc-anchor
   scan-tracked-paths

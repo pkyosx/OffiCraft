@@ -29,6 +29,10 @@ func TestWriteHeader(t *testing.T) {
 	t.Skip("TODO: 需要人工判斷這個函式的可觀察結果是什麼")
 }
 
+func TestWrite(t *testing.T) {
+	t.Skip("TODO: 需要人工判斷這個函式的可觀察結果是什麼")
+}
+
 func TestLoopbackCall(t *testing.T) {
 	t.Skip("TODO: loopbackCall re-enters the app's own mux in-process (spec/mcp.md §3.2), forwarding the caller's Authorization header verbatim so the auth gate, the RBAC choke, the wrapper param binding, and the handler guards run exactly as for a direct REST call.")
 }

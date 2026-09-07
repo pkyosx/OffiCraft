@@ -1,6 +1,6 @@
 package main
 
-// migration_lock_t75_judgement_test.go — the lock's judgement driven with
+// migration_lock_judgement_test.go — the lock's judgement driven with
 // corpora that are actually WRONG.
 //
 // 🔴 WHY THIS FILE IS NOT OPTIONAL. TestMigrationLockMatchesTheTree runs against
@@ -402,7 +402,7 @@ func TestMigrationLockPrefixJudgement(t *testing.T) {
 // asks whether the CONTENTS agree; this one asks whether the two things being
 // compared are the real two things.
 func TestMigrationLockCheckIsReachedAtAll(t *testing.T) {
-	tree := migrationLockTreeEntries(t)
+	tree := treeEntries(t)
 	if len(tree) < migrationLockMinSQL+migrationLockMinGo {
 		t.Fatalf("the shared enumeration returned %d migrations — below the anti-vacuity floor, "+
 			"so every comparison built on it would be trivially true", len(tree))

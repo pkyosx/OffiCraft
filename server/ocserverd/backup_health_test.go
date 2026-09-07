@@ -33,6 +33,10 @@ func TestNoteScheduledOutcome(t *testing.T) {
 	t.Skip("TODO: noteScheduledOutcome records what a scheduled backup attempt actually did.")
 }
 
+func TestReport(t *testing.T) {
+	t.Skip("TODO: report is what the endpoint serves.")
+}
+
 func TestArmBackupHealth(t *testing.T) {
 	t.Skip("TODO: armBackupHealth is called SYNCHRONOUSLY by cmdServe before the watchdog goroutine starts.")
 }

@@ -1,0 +1,32 @@
+#!/usr/bin/env bash
+# Verify server/ocserverd/migration.lock still describes the tree it sits in.
+#
+# ── WHAT THIS ANSWERS, AND WHAT IT DOES NOT ──────────────────────────────────
+# It is the CLASS A question only: does the committed lock honestly describe THIS
+# tree's migrations? It needs no baseline, so it is as alive on main as on a PR.
+#
+# 🔴 IT DOES NOT SAY THAT AN EDIT WAS ALLOWED. Edit an already-released migration
+# and re-run bin/gen-migration-lock and this goes green — the lock now honestly
+# describes the tree. The rule that says "you may not touch a released migration"
+# is bin/check-released-migrations, which reads git rather than the lock for
+# exactly that reason.
+#
+# ── WHY IT IS A WRAPPER AROUND A SUBCOMMAND ──────────────────────────────────
+# The enumeration reads the go:embed FS the server hands goose and AST-walks
+# package main, neither of which is reachable from outside that package. The one
+# thing that must never happen here is a SECOND enumeration: a checker listing
+# migrations differently from the writer validates a corpus that was never
+# written, and stays green while doing it. So both halves are modes of one
+# subcommand and this script only invokes it.
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+# The package embeds seedsdist/docsdist/webdist/bindist; without them it does not
+# compile, and a fresh clone has none of them (they are gitignored).
+make -C "$ROOT" build-embed-assets >/dev/null
+
+# Run FROM the package directory: every path the subcommand reads (the lock, the
+# .go migrations, migrations/) is relative to it.
+cd "$ROOT/server/ocserverd"
+exec go run . migration-lock --check

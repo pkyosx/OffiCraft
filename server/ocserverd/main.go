@@ -25,6 +25,8 @@ var subcommands = []struct{ name, help string }{
 	{"set-password", "store the owner password's argon2id hash in DB settings ($OC_NEW_PASSWORD)"},
 	{"claim-token", "print the one-shot first-run claim code (exit 3 once a password is set)"},
 	{"mfa-disable", "clear the owner's TOTP second factor (lost-authenticator recovery)"},
+	{"migration-lock", "--write / --check server/ocserverd/migration.lock (run from that directory)"},
+	{"theme-name-verdicts", "<cases.json> <verdicts.json>: this side of the Go/TS theme-name parity check"},
 }
 
 // noSubcommand is the internal dispatch key for "the argv named no subcommand"
@@ -37,7 +39,7 @@ func usage(out io.Writer) {
 	fmt.Fprintln(out, "")
 	fmt.Fprintln(out, "subcommands:")
 	for _, s := range subcommands {
-		fmt.Fprintf(out, "  %-13s %s\n", s.name, s.help)
+		fmt.Fprintf(out, "  %-20s %s\n", s.name, s.help)
 	}
 	fmt.Fprintln(out, "")
 	fmt.Fprintln(out, "flags (serve):")
@@ -111,6 +113,20 @@ func realMain(argv []string, env func(string) string, out io.Writer) int {
 			return 2
 		}
 		return cmdMFADisable(env, out)
+
+	// migration-lock and theme-name-verdicts are the two DEVELOPMENT subcommands:
+	// they touch no database and no config, and they exist because both of them
+	// need code that is only reachable from inside package main — the go:embed
+	// migration FS and the AST of this package for the first, the theme-bundle
+	// validator for the second. Before T-125 both lived in _test.go files behind
+	// a build tag for exactly that reason, which made two things that are not
+	// tests look like tests. bin/gen-migration-lock, bin/check-migration-lock and
+	// frontend/src/lib/themeName.parity.test.ts are their callers.
+	case "migration-lock":
+		return cmdMigrationLock(rest, out)
+
+	case "theme-name-verdicts":
+		return cmdThemeNameVerdicts(rest, out)
 
 	case "-h", "--help", "help":
 		usage(out)

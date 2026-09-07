@@ -13,6 +13,10 @@ func TestNewSSEClient(t *testing.T) {
 	t.Skip("TODO: newSSEClient builds the long-lived HTTP client for the SSE downlink.")
 }
 
+func TestConnectOnce(t *testing.T) {
+	t.Skip("TODO: connectOnce dials GET /api/events, and — on a 200 — streams its body through scanSSE until the stream ends.")
+}
+
 func TestHandlePayload(t *testing.T) {
 	t.Skip("TODO: handlePayload is the bridge from ONE SSE data payload to the command dispatch core.")
 }
@@ -23,6 +27,10 @@ func TestCommandTargetLabel(t *testing.T) {
 
 func TestNextSSEBackoff(t *testing.T) {
 	t.Skip("TODO: nextSSEBackoff doubles cur, clamped to capd.")
+}
+
+func TestSleepCtx(t *testing.T) {
+	t.Skip("TODO: sleepCtx sleeps d via the injectable seam, but treats a cancelled ctx as an immediate stop signal (checked before AND after the sleep).")
 }
 
 func TestResolveClaudeBin(t *testing.T) {

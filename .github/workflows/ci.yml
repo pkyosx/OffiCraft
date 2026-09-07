@@ -162,7 +162,7 @@ jobs:
           # every mutation it caught" -- was FALSE and is retracted: a Go
           # migration registered under a computed name escaped the lock's AST
           # scan entirely. gooseGoVersionCount now corroborates that scan against
-          # goose's own registry. See migration_lock_shared_test.go's header for
+          # goose's own registry. See server/ocserverd/migration_lock.go's header for
           # what is and is not claimed.)
           #
           # Deleting this line DOES go red now, and that is new in T-75 -- it
@@ -280,12 +280,14 @@ jobs:
           check-latest: false
           cache: npm
           cache-dependency-path: frontend/package-lock.json
-      - run: bash bin/run-checks.sh drift-ocapi drift-schema-ts drift-theme-tokens drift-message-keys drift-fonts drift-mcp-catalog
+      - run: bash bin/run-checks.sh drift-ocapi drift-schema-ts drift-theme-tokens drift-message-keys drift-fonts drift-mcp-catalog drift-migration-lock
 
   # ---------------------------------------------------------------------------
   # contract-guards — the stdlib-python3 scanners over tracked files, each shipped
   # WITH its own positive control (the Makefile target runs both halves; a scanner
-  # nobody verified still prints all green).
+  # nobody verified still prints all green) — plus check-released-migrations,
+  # which is here rather than with the Go cells because it needs neither Go nor a
+  # build: it reads git. What it DOES need is this cell's fetch-depth: 0.
   contract-guards:
     # oc-job-role: gate
     runs-on: macos-15
@@ -295,9 +297,12 @@ jobs:
         with:
           # The user-operation guard compares every changed contract block with
           # the PR base; a shallow checkout would turn that provenance check into
-          # an unverified guess.
+          # an unverified guess. check-released-migrations reads origin/main for
+          # the same kind of reason and REFUSES (non-zero) when it cannot resolve
+          # one — so this line is what keeps that check from arriving as a red
+          # that says nothing about the branch.
           fetch-depth: 0
-      - run: bash bin/run-checks.sh lint-uplink-contract lint-effort-vocab lint-kind-vocab lint-shadow-claim lint-user-operation-contract
+      - run: bash bin/run-checks.sh lint-uplink-contract lint-effort-vocab lint-kind-vocab lint-shadow-claim lint-user-operation-contract check-released-migrations
 
   # ---------------------------------------------------------------------------
   # conformance — the black-box import lint (fast, static) and then the full

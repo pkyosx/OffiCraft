@@ -21,6 +21,10 @@ func TestSubcmdTag(t *testing.T) {
 	t.Skip("TODO: subcmdTag is the log prefix for whichever subcommand owns this installer.")
 }
 
+func TestLogf(t *testing.T) {
+	t.Skip("TODO: 需要人工判斷這個函式的可觀察結果是什麼")
+}
+
 func TestErrf(t *testing.T) {
 	t.Skip("TODO: 需要人工判斷這個函式的可觀察結果是什麼")
 }
@@ -83,6 +87,10 @@ func TestTokfileWriter(t *testing.T) {
 
 func TestOsTokfileWriter(t *testing.T) {
 	t.Skip("TODO: osTokfileWriter wires the narrow write to the real filesystem for callers that have no sysOps of their own (the self-renewal loop).")
+}
+
+func TestWrite(t *testing.T) {
+	t.Skip("TODO: write puts token at path 0600 via a fresh temp + atomic rename (bash installer step 3): the temp is written 0600 and chmod-confirmed, so the token is NEVER exposed at loose perms even if the destination pre-exists 0644; rename replaces atomically (no write-then-chmod window on the live path).")
 }
 
 func TestCleanup(t *testing.T) {

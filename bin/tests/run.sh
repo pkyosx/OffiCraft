@@ -440,7 +440,7 @@ fi
 # to date." printed AFTER the generator had rewritten the file — it had compared
 # nothing, and on 2026-09-04 a reader believed it. Nothing else here looks at the
 # sentence a human reads: the wrapper only greps for the generator's end marker,
-# and migration_lock_t75_test.go only checks the lock's content. This guard
+# and server/ocserverd/migration_lock.go only checks the lock's content. This guard
 # drives the script's reporting stage through its --report-state seam against
 # clean / dirty / untracked / no-git fixtures, so it needs no Go toolchain.
 GENLOCKSIGNAL="$HERE/gen-migration-lock-signal-guard.sh"

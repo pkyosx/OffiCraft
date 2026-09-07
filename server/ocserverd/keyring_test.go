@@ -37,6 +37,10 @@ func TestLoadKeyring(t *testing.T) {
 	t.Skip("TODO: loadKeyring reads the ring from the settings store, falling back to the single pre-ring key when this install has never rotated.")
 }
 
+func TestPersist(t *testing.T) {
+	t.Skip("TODO: persist writes the ring to the settings store.")
+}
+
 func TestPersistRing(t *testing.T) {
 	t.Skip("TODO: persistRing writes an EXPLICIT key set, taking no lock of its own — so a caller holding the write lock can persist the state it is about to install without releasing it.")
 }

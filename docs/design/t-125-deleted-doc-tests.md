@@ -81,34 +81,41 @@ owner 於 `c-c2d4d068a694` 指示：「如果有跟文件相關的，一樣刪�
 
 ---
 
-## 這一包保留下來的兩個零件
+## 這一包裡兩個「名字叫測試、其實不是測試」的東西
 
-有兩個東西名字叫測試、實際上不是測試——它們借用測試機制，只是為了取得「在 package 內部執行程式碼」這個入場券（Go 的一個資料夾就是一個 package，這是唯一的門）。
+有兩段程式借用測試機制，只是為了取得「在 package 內部執行程式碼」這個入場券（Go 的一個資料夾就是一個 package，這是唯一的門）：
 
-| 檔案 | 它實際是什麼 |
+| 它實際是什麼 | 為什麼非得在 package 內部 |
 |---|---|
-| `migration_lock_gen_tool_test.go` | `migration.lock` 的**產生器**。之所以不做成 `bin/` 底下的獨立程式，是因為列舉遷移需要讀 package 內部的東西；拆出去會逼出**第二份列舉實作**，而兩份實作悄悄分歧正是這件事最可能出錯的方式 |
-| `theme_name_parity_tool_test.go` | 佈景主題名稱比對的 **Go 半邊**。它本身不做任何斷言，只是把 Go 這一邊對 61 個名稱的判定結果寫出來，由前端那支測試做比對。存在的理由是 Go 與 JavaScript 各自帶自己的 Unicode 表，版本升級時間不同就會分歧 |
+| `migration.lock` 的**產生器** | 列舉遷移要讀 `go:embed` 的 FS、還要 AST 掃這個 package；拆成 `bin/` 底下的獨立程式會逼出**第二份列舉實作**，而兩份實作悄悄分歧正是這件事最可能出錯的方式——檢查會拿一份沒人寫過的清單去驗，而且是綠的 |
+| 佈景主題名稱比對的 **Go 半邊** | 它要呼叫 `validateThemeBundles`。它本身不做任何斷言，只是把 Go 這一邊對 61 個名稱的判定寫出來，由前端那支測試比對。存在的理由是 Go 與 JavaScript 各自帶自己的 Unicode 表，版本升級時間不同就會分歧 |
 
-**區分方式**（owner 於 `c-636bca532297` 要求）：位置上分不開，改用兩層——
+### 🔴 中途走過一次錯路，在此更正
 
-1. **檔名**：`*_tool_test.go`
-2. **編譯標記** `//go:build octool`：平常 `go test ./...` 完全看不到它們；只有帶 `-tags octool` 才看得到。**這一層是機械強制的**，以後有人想把新的零件寫成測試，除非他也去加標記，否則會被當成一般測試混進來，而加標記是刻意動作，程式碼審查看得見
+第一版的做法是：檔名 `*_tool_test.go` ＋ 編譯標記 `//go:build octool`，讓平常的 `go test ./...` 看不到它們。**owner 否決了**（逐字）：
 
-兩個呼叫端已跟著更新：`bin/gen-migration-lock` 與 `frontend/src/lib/themeName.parity.test.ts` 各加一個標記參數。
+> 「但這種應該屬於CI check，不要叫做什麼__test」
+> 「然後放在bin下面讓makefile包裝再讓workflow呼叫」
 
-### ⚠️ 遷移清單那一組：四個檔，但只有一個是零件
+⇒ **判準：「在 package 內部」是 Go 的限制，不是「要寫成測試」的理由。子指令同樣在 package 內部，而且它的名字說的就是它做的事。** 標記那條路只是把一個錯誤的名字用另一個機制蓋起來，讀的人還是先看到 `_test.go`。
+
+現在的形狀（`//go:build octool` 已完全不存在）：
+
+| 東西 | 現在住哪 | 誰呼叫 |
+|---|---|---|
+| 共用列舉、render/parse、兩個判定 | `server/ocserverd/migration_lock.go`（一般原始檔） | 子指令與測試都呼叫同一份 |
+| 產生器 | `ocserverd migration-lock --write` | `bin/gen-migration-lock` |
+| 清單對不對得上這棵樹 | `ocserverd migration-lock --check` | `bin/check-migration-lock` → `make drift-migration-lock` → workflow |
+| 佈景主題名稱的 Go 判定 | `ocserverd theme-name-verdicts <cases> <out>` | `frontend/src/lib/themeName.parity.test.ts` |
+| 不准動已上線的遷移 | `bin/check-released-migrations`（讀 git，不讀 lock） | `make check-released-migrations` → workflow |
+
+### ⚠️ 遷移清單那一組：真正的測試留下來了
 
 `migration.lock` 是一份清單，記錄到目前為止有哪幾支資料庫遷移、每一支的內容是什麼。它存在的目的是**防止有人偷改已經上線過的遷移腳本**——那會造成新舊環境的資料結構不同，而且不會有任何症狀。
 
-跟這份清單有關的東西散在四個檔案裡，而且互相依賴（共用的程式碼寫在其中一個檔裡，其餘都在呼叫它），所以「只保留其中一兩支」做不到。但那四個裡面其實有**兩種**東西：
+`migration_lock_test.go` 與 `migration_lock_judgement_test.go` **維持一般測試**，照常在 CI 裡跑；它們測的就是搬到 `migration_lock.go` 的那些函式。
 
-| 是什麼 | 檔案 | 處理 |
-|---|---|---|
-| 真正的檢查：清單跟實際的遷移對不對得上、有沒有人偷改已上線的遷移 | `migration_lock_test.go`、`migration_lock_judgement_test.go`、`migration_lock_shared_test.go` | **維持一般測試**，照常在 CI 裡跑 |
-| 零件：產生那份清單的程式 | `migration_lock_gen_tool_test.go` | 加 `octool` 標記 |
+🔴 **第一版我把整組四個檔都當成零件標記起來，那是錯的。** 整組標記之後，那兩支真正的檢查會**從 CI 消失**，而「檢查沒跑」跟「檢查通過」在 CI 畫面上長得一模一樣。
+⇒ **判準：分類的軸是「它是不是測試」，不是「它屬不屬於這個主題」。同一個主題裡可以同時有零件與真測試。**
 
-🔴 **第一版我把四個檔整組標記成零件，那是錯的。** 整組標記之後，那兩支真正的檢查會**從 CI 消失**，而「檢查沒跑」跟「檢查通過」在 CI 畫面上長得一模一樣。
-⇒ **判準：分標記的軸是「它是不是測試」，不是「它屬不屬於這個主題」。同一個主題裡可以同時有零件與真測試。**
-
-正反兩個方向都實測過：不帶標記時 `go test -list` 列得出那兩支真正的檢查、列不出零件；帶 `-tags octool` 時列得出零件。
+🔴 **兩道檢查不能互相代替，而且很容易以為可以。** 編輯一支已上線的遷移之後跑產生器，`--check` 會變綠——因為 lock 現在誠實地描述了這棵樹，那是它唯一宣稱過的事。說「這個編輯不被允許」需要基準線，那是 `bin/check-released-migrations` 的工作，所以它讀 `git diff`、不讀 lock：它必須在 lock 被重新產生之後還活著。

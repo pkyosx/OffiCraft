@@ -3,23 +3,28 @@
 # (rarely, and only before it ships) editing a migration.
 #
 # ── WHY THIS IS A WRAPPER AND NOT THE GENERATOR ──────────────────────────────
-# The generator is TestWriteMigrationLock in package main
-# (server/ocserverd/migration_lock_t75_gen_test.go), and that is deliberate. The
-# lock's checker enumerates migrations by reading the go:embed FS the server
-# hands goose and by AST-walking this package for goose registrations; neither is
-# reachable from outside package main. A standalone generator would have to
-# re-implement both — and then the checker would be validating a DIFFERENT set of
-# migrations than the one that was written, while staying green. So there is one
-# enumeration function and both halves CALL it. This script is the human-facing
-# handle, nothing more.
+# The generator is `ocserverd migration-lock --write` (package main,
+# server/ocserverd/migration_lock.go), and that is deliberate. The lock's checker
+# enumerates migrations by reading the go:embed FS the server hands goose and by
+# AST-walking this package for goose registrations; neither is reachable from
+# outside package main. A standalone generator would have to re-implement both —
+# and then the checker would be validating a DIFFERENT set of migrations than the
+# one that was written, while staying green. So there is one enumeration function
+# and both halves CALL it. This script is the human-facing handle, nothing more.
+#
+# ⚠️ IT USED TO BE A `go test`, WITH A BUILD TAG, FOR THAT SAME REASON — a thing
+# that is not a test wearing a test's name because package-internal code had
+# nowhere else runnable to sit. T-125 made it a subcommand instead; the sharing
+# is unchanged (still one enumeration, called by both halves).
 #
 # ── WHY IT GREPS FOR A MARKER INSTEAD OF TRUSTING rc ─────────────────────────
-# `go test -run <pattern>` that matches NOTHING prints `ok` and exits 0 — byte
-# for byte what a real pass looks like. A typo in the pattern, a renamed test, a
-# body replaced by t.Skip: all of them arrive here as a silent success and leave
-# the lock untouched while this script reports victory. So the generator prints
-# its own marker as its last act and this script requires it, the same posture
-# bin/run-checks.sh takes with the Makefile.
+# A zero exit says "nothing failed", not "something ran". As a `go test` this was
+# acute — a `-run` pattern matching NOTHING prints `ok` and exits 0, byte for
+# byte what a real pass looks like — and the subcommand form removes that
+# particular trap without removing the class: a body cut short by an early return
+# exits 0 just the same. So the generator prints its own marker as its last act
+# and this script requires it, the same posture bin/run-checks.sh takes with the
+# Makefile.
 # ── WHY THE LAST LINE ASKS GIT INSTEAD OF ASSERTING ──────────────────────────
 # This script used to end with an UNCONDITIONAL "migration.lock is up to date.",
 # printed AFTER the generator had already rewritten the whole file. It had
@@ -54,7 +59,7 @@ LOCK_REL="server/ocserverd/migration.lock"
 print_append_only_advice() {
   echo "[gen-migration-lock] New migrations must appear as lines APPENDED at the END. A changed"
   echo "[gen-migration-lock] line in the middle means an already-released migration was edited or"
-  echo "[gen-migration-lock] removed — see migration_lock_t75_test.go before pushing."
+  echo "[gen-migration-lock] removed — see server/ocserverd/migration_lock.go before pushing."
 }
 
 # report_lock_state ENTRIES-LINE — print what actually happened. ENTRIES-LINE is
@@ -145,21 +150,18 @@ make -C "$ROOT" build-embed-assets >/dev/null
 LOG="$(mktemp -t oc-gen-migration-lock.XXXXXX)"
 trap 'rm -f "$LOG"' EXIT
 
+# The subcommand reads the lock, the .go migrations and migrations/ by paths
+# relative to the package directory, so it is run FROM there.
 set +e
-( cd "$ROOT/server/ocserverd" && OC_WRITE_MIGRATION_LOCK=1 \
-    go test . -tags octool -count=1 -v -run '^TestWriteMigrationLock$' ) 2>&1 | tee "$LOG"
+( cd "$ROOT/server/ocserverd" && go run . migration-lock --write ) 2>&1 | tee "$LOG"
 rc="${PIPESTATUS[0]}"
 set -e
 [[ "$rc" == "0" ]] || exit "$rc"
 
-if ! grep -qF -- "=== RUN   TestWriteMigrationLock" "$LOG"; then
-  echo "FAIL — go test exited 0 but TestWriteMigrationLock never started. A -run pattern that" >&2
-  echo "matches no test prints 'ok' and exits 0, which is exactly what you just saw." >&2
-  exit 1
-fi
 if ! grep -qF -- "$MARKER" "$LOG"; then
-  echo "FAIL — TestWriteMigrationLock ran but never reached its end marker ('$MARKER')." >&2
-  echo "It was skipped, or its body no longer writes the lock. The lock on disk is UNCHANGED." >&2
+  echo "FAIL — 'ocserverd migration-lock --write' exited 0 but never reached its end marker" >&2
+  echo "('$MARKER'). Its body no longer writes the lock, or it returned early. The lock on disk" >&2
+  echo "is UNCHANGED, whatever rc says." >&2
   exit 1
 fi
 

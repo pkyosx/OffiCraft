@@ -17,6 +17,10 @@ func TestConfigPath(t *testing.T) {
 	t.Skip("TODO: configPath resolves the oc.toml location: $OC_CONFIG (when set non-empty) wins, else the CWD-relative convention default (see the module comment).")
 }
 
+func TestLoadConfig(t *testing.T) {
+	t.Skip("TODO: loadConfig reads oc.toml at path.")
+}
+
 func TestResolveDSN(t *testing.T) {
 	t.Skip("TODO: resolveDSN applies the dal.engine resolution order: $OC_DATABASE_URL → oc.toml [storage].dsn → the ABSOLUTE convention default under the instance's canonical root (~/.officraft{-<ns>}/server/data).")
 }

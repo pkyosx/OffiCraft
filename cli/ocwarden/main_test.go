@@ -5,6 +5,10 @@ package main
 
 import "testing"
 
+func TestLoadConfig(t *testing.T) {
+	t.Skip("TODO: loadConfig resolves OC_* env into a Config.")
+}
+
 func TestReadTokfile(t *testing.T) {
 	t.Skip("TODO: readTokfile resolves the exec-warden token from a token file, mirroring the retired bin/warden-go launcher.")
 }
@@ -15,6 +19,14 @@ func TestTokfilePath(t *testing.T) {
 
 func TestTokfileEnv(t *testing.T) {
 	t.Skip("TODO: tokfileEnv wraps env so an unset OC_TOKEN falls back to the token file (OC_WARDEN_TOKFILE, else $HOME/.officraft/warden/exec-warden.tok).")
+}
+
+func TestJwtSub(t *testing.T) {
+	t.Skip("TODO: jwtSub reads the `sub` claim of a JWT WITHOUT verifying (identity-display only).")
+}
+
+func TestRun(t *testing.T) {
+	t.Skip("TODO: Run execs one argv.")
 }
 
 func TestParseBattery(t *testing.T) {
@@ -57,6 +69,10 @@ func TestErrorMessageOf(t *testing.T) {
 	t.Skip("TODO: errorMessageOf pulls `error.message` out of the server's error envelope ({\"error\":{\"code\",\"message\"}}).")
 }
 
+func TestNextBackoff(t *testing.T) {
+	t.Skip("TODO: 需要人工判斷這個函式的可觀察結果是什麼")
+}
+
 func TestRunOnce(t *testing.T) {
 	t.Skip("TODO: runOnce runs ONE collect->build->POST cycle.")
 }
@@ -71,4 +87,8 @@ func TestWaitGraceful(t *testing.T) {
 
 func TestWireUpdaterSeams(t *testing.T) {
 	t.Skip("TODO: --------------------------------------------------------------------------- cli (mirrors warden/cli.py) --------------------------------------------------------------------------- wireUpdaterSeams connects the SSE side to the self-updater: the three places a wake can come from, in one function so they can be asserted.")
+}
+
+func TestRealMain(t *testing.T) {
+	t.Skip("TODO: 需要人工判斷這個函式的可觀察結果是什麼")
 }
