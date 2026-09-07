@@ -147,6 +147,7 @@ OC_ROUND=(
   lint-user-operation-contract
   check-released-migrations
   lint-chat-pushdown
+  drift-openapi
   drift-ocapi
   drift-mcp-catalog
   drift-sse-topics

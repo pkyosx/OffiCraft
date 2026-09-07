@@ -1,0 +1,82 @@
+#!/usr/bin/env bash
+# officraft — regenerate spec/openapi.json from the Go SSOT (spec/ocapi/ocapi.go).
+#
+# ── THE SPEC IS NO LONGER A HAND-WRITTEN FILE ────────────────────────────────
+# It was, until owner ruling rc-d6826c70b6ee [0]. spec/openapi.json is now a
+# 100% GENERATED artifact with ONE source: spec/ocapi/ocapi.go, where every
+# schema is a Go type and every operation a handler-shaped func. The renderer
+# reads that file with go/ast — not reflect — because most of the contract lives
+# in comments (//oc: directives + //oc:doc prose), which reflect cannot see.
+# The directive vocabulary is documented in spec/ocapi/VOCABULARY.md.
+#
+# 🔴 NEVER HAND-EDIT spec/openapi.json. Edit the Go file and re-run this. The
+# drift-openapi gate re-renders and diffs, so a hand edit comes back red.
+#
+# ── WHY IT GREPS FOR A MARKER INSTEAD OF TRUSTING rc ─────────────────────────
+# A zero exit says "nothing failed", not "something ran" — a body cut short by an
+# early return exits 0 just the same. The renderer prints its own marker as its
+# last act and this script requires it (the posture bin/gen-sse-topics takes).
+#
+# Usage: bin/gen-openapi [<out-file>]
+#   no arg     — rewrite the committed spec/openapi.json in place.
+#   <out-file> — write there instead, leaving the committed file untouched (the
+#                drift-openapi gate renders to a temp file and diffs).
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+MARKER='[gen-openapi] wrote'
+OUT_REL="spec/openapi.json"
+SRC_REL="spec/ocapi/ocapi.go"
+
+OUT="${1:-$ROOT/$OUT_REL}"
+case "$OUT" in
+  /*) ;;
+  *) OUT="$PWD/$OUT" ;;
+esac
+
+GO="$(command -v go 2>/dev/null || true)"
+if [[ -z "$GO" ]]; then
+  for cand in /opt/homebrew/bin/go /usr/local/go/bin/go /usr/local/bin/go; do
+    [[ -x "$cand" ]] && GO="$cand" && break
+  done
+fi
+if [[ -z "$GO" ]]; then
+  echo "[gen-openapi] go not found — install: brew install go" >&2
+  exit 1
+fi
+
+log="$(mktemp -t oc-gen-openapi.XXXXXX)"
+trap 'rm -f "$log"' EXIT
+
+# Run FROM the module directory (go run ./gen needs it); both paths are absolute.
+(cd "$ROOT/spec/ocapi" && "$GO" run ./gen "$ROOT/$SRC_REL" "$OUT") | tee "$log"
+
+if ! grep -qF "$MARKER" "$log"; then
+  echo "[gen-openapi] FAIL — the renderer exited 0 without printing its write marker"
+  echo "  ($MARKER). A zero exit is not evidence that anything was rendered; nothing"
+  echo "  here trusts it. Look at the output above."
+  exit 1
+fi
+
+# Ask git whether the committed file now differs, rather than asserting it does
+# not: a file left dirty by an EARLIER run still needs reviewing and committing,
+# and a before/after checksum of THIS run alone would call that "no change".
+if [[ "$OUT" != "$ROOT/$OUT_REL" ]]; then
+  echo "[gen-openapi] wrote to $OUT (committed $OUT_REL untouched)"
+  exit 0
+fi
+if ! command -v git >/dev/null 2>&1 || ! git -C "$ROOT" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+  echo "[gen-openapi] could NOT check whether $OUT_REL differs from the committed copy"
+  echo "  (no usable git here). Diff it yourself before concluding there is nothing to commit."
+  exit 0
+fi
+if status="$(git -C "$ROOT" status --porcelain -- "$OUT_REL")"; then
+  if [[ -n "$status" ]]; then
+    echo "[gen-openapi] $OUT_REL DIFFERS from the committed copy — review and commit it:"
+    echo "  git add $OUT_REL"
+  else
+    echo "[gen-openapi] $OUT_REL matches the committed copy — nothing to commit."
+  fi
+else
+  echo "[gen-openapi] could NOT check whether $OUT_REL differs (git errored). Diff it yourself."
+fi
