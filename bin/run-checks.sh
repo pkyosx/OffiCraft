@@ -77,7 +77,15 @@ if [[ "${1:-}" == "--lane" ]]; then
     echo "FAIL — bin/run-checks.sh --lane takes exactly one lane name." >&2
     exit 2
   fi
-  while IFS= read -r t; do TARGETS+=("$t"); done < <(ci_round_lane "$ROOT" "$2")
+  # Command substitution, NOT `< <(...)`: a process substitution DISCARDS the
+  # reader's exit status, so a malformed round list would silently yield a
+  # SHORTER lane and this wrapper would then dutifully assert only the targets
+  # that survived. Same fail-open an independent review found in bin/ci.sh.
+  if ! lane_raw="$(ci_round_lane "$ROOT" "$2")"; then
+    echo "FAIL — could not expand lane '$2' from the round list." >&2
+    exit 2
+  fi
+  while IFS= read -r t; do [[ -n "$t" ]] && TARGETS+=("$t"); done <<< "$lane_raw"
   if [[ ${#TARGETS[@]} -eq 0 ]]; then
     echo "FAIL — lane '$2' expanded to no checks." >&2
     exit 2

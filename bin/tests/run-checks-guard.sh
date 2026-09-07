@@ -246,5 +246,21 @@ else
   bad "C10 — --lane lane-one lane-two should be refused: $OUT"
 fi
 
+# ── C11: a malformed round row must not yield a SHORTER, GREEN lane ──────────
+# Found by an independent review, in bin/ci.sh: the round was collected with a
+# process substitution, which DISCARDS the reader's exit status. A malformed row
+# was skipped, the well-formed targets ran, and the round printed its all-clear
+# with rc 0. The same shape sat one layer down in ci_round_targets, which piped
+# through awk and reported AWK's success. Both are command substitution now, and
+# this case is what keeps them that way.
+printf 'lane-one good-a\nlane-one this row has too many fields\n' >"$REAL/bin/lib/ci-round.txt"
+run_wrapper "$REAL" --lane lane-one; rc=$?
+if [[ "$rc" -ne 0 ]]; then
+  ok "C11 — a malformed round row REFUSES the lane (rc=$rc) instead of silently running the rows that happened to parse"
+else
+  bad "C11 — a malformed row must not produce a short, green lane: $OUT"
+fi
+mk_root "$REAL" "$SRC"   # restore the fixture's round list for anything after this
+
 printf 'run-checks wrapper contract tests: %d ok, %d failed\n' "$PASS" "$FAIL"
 [[ "$FAIL" -eq 0 ]]

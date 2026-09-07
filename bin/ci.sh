@@ -140,8 +140,20 @@ echo "[ci] commit $CI_SHA ($CI_BRANCH, tree $CI_TREE) — started $(date -u '+%Y
 # succeeded instantly". Each target prints its own `[oc-check-done] <target>` and
 # the wrapper requires the marker of every target IT WAS ASKED FOR.
 source "$ROOT/bin/lib/ci-round.sh"
+# ⚠️ COMMAND SUBSTITUTION, NOT `< <(...)`. This was written as a process
+# substitution first and that is FAIL-OPEN: the reader's non-zero exit is
+# discarded by the shell, so a malformed row was skipped, the well-formed
+# targets ran, and the round still printed `[ci] all green` with rc 0. An
+# independent review reproduced it with a minimal fixture. `if ! x="$(...)"`
+# propagates the status, which is the whole point.
+if ! oc_round_raw="$(ci_round_targets "$ROOT")"; then
+  echo "[ci] FAIL — could not read the round list; refusing to run a PARTIAL round and call it green." >&2
+  exit 1
+fi
 OC_ROUND=()
-while IFS= read -r oc_target; do OC_ROUND+=("$oc_target"); done < <(ci_round_targets "$ROOT")
+while IFS= read -r oc_target; do
+  [[ -n "$oc_target" ]] && OC_ROUND+=("$oc_target")
+done <<< "$oc_round_raw"
 if [[ ${#OC_ROUND[@]} -eq 0 ]]; then
   echo "[ci] FAIL — the round list produced no checks; refusing to report a green over an empty round." >&2
   exit 1

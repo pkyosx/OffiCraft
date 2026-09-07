@@ -408,13 +408,24 @@ lint-chat-pushdown:
 # The round list and the Makefile must name the same checks (T-127), asserted as
 # a set difference BOTH WAYS plus non-zero denominators.
 #
-# ⚠️ THIS TARGET GUARDS THE LIST THAT NAMES THIS TARGET. That is deliberate and
-# it is not circular: bin/lib/ci-round.txt puts lint-ci-round in the
-# contract-guards lane, so the cloud runs it because the list says to, and it
-# then checks the list. Removing its own line makes the guard stop running AND
-# makes the remaining checks unguarded — which is exactly the failure the
-# two-way difference is there to name, so deleting the line reddens on the
-# `Makefile target with no round line` side before it can go quiet.
+# ⚠️ THIS TARGET GUARDS THE LIST THAT NAMES THIS TARGET, and that circularity
+# had a real hole in it.
+#
+# 🔴 WHAT I WROTE HERE FIRST WAS WRONG, and it is worth leaving the correction
+# rather than the conclusion: I claimed that deleting this target's own row
+# "reddens on the `Makefile target with no round line` side before it can go
+# quiet". An independent review MEASURED it and it does not. Delete the row and
+# the target leaves the contract-guards lane, so the guard is never invoked at
+# all — rc 0, nothing red, and the round is now unguarded. Every other target is
+# safe from this (drop its row and the two-way difference names it); this one
+# was the single target whose removal was invisible.
+#
+# What makes it not-quiet now is bin/tests/run.sh, which runs this guard as part
+# of test-bin-guards as well. Two independent lanes reach it, so a removed row
+# still reddens — measured, in bin-guards, naming the missing row.
+#
+# ⇒ The general form, since I got it wrong in a comment: a guard's comment must
+# say what was OBSERVED to redden, not what the author expects to redden.
 #
 # The selftest is the positive control: a green from the guard means nothing
 # unless the guard can be shown to redden on a tree that deserves it.

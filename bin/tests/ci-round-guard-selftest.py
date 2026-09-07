@@ -143,5 +143,90 @@ case("M6 no declared gate job at all FAILS instead of passing over an empty set"
      m6, expect_red=True, expect_msg="pass over an empty set")
 
 
+# ═════════════════════════════════════════════════════════════════════════════
+# THE WORKFLOW-SIDE MUTANTS
+# ═════════════════════════════════════════════════════════════════════════════
+# Every case below was built by an INDEPENDENT REVIEW against a candidate this
+# guard had already declared green. All three passed every check that existed at
+# the time, and in all three the cell went green while running nothing. They are
+# fixtures now so the hole cannot come back quietly.
+
+
+def _first_lane_run_span(yml: str, job: str) -> tuple[int, int]:
+    i = yml.index(f"\n  {job}:")
+    j = yml.index("bash bin/run-checks.sh --lane", i)
+    return j, yml.index("\n", j)
+
+
+def w1(tree: Path) -> None:
+    """The `run:` line deleted outright — the cell keeps only its checkout."""
+    y = tree / YML_REL
+    t = y.read_text()
+    j, k = _first_lane_run_span(t, "contract-guards")
+    y.write_text(t[: t.rindex("\n", 0, j) + 1] + t[k + 1 :])
+
+
+case("W1 a gate whose lane invocation was DELETED reddens and names the job",
+     w1, expect_red=True, expect_msg="contract-guards")
+
+
+def w2(tree: Path) -> None:
+    """The line points at somebody else's lane."""
+    y = tree / YML_REL
+    t = y.read_text()
+    j, _ = _first_lane_run_span(t, "contract-guards")
+    old = '--lane "${{ github.job }}"'
+    at = t.index(old, j)
+    y.write_text(t[:at] + "--lane hygiene" + t[at + len(old) :])
+
+
+case("W2 a gate invoking the WRONG lane reddens and names the job",
+     w2, expect_red=True, expect_msg="contract-guards")
+
+
+def w3(tree: Path) -> None:
+    """The invocation wrapped in `echo` — the tokens are all still there."""
+    y = tree / YML_REL
+    t = y.read_text()
+    j, _ = _first_lane_run_span(t, "go-checks")
+    y.write_text(t[:j] + "echo " + t[j:])
+
+
+case("W3 a gate whose wrapper call is inside `echo` reddens — a name is not an invocation",
+     w3, expect_red=True, expect_msg="go-checks")
+
+
+def w4(tree: Path) -> None:
+    """A brand-new gate job that runs no checks at all."""
+    y = tree / YML_REL
+    t = y.read_text()
+    i = t.index("\n  tcc-anchor:") + 1
+    block = (
+        "  brand-new-gate:\n"
+        "    # oc-job-role: gate\n"
+        "    runs-on: macos-15\n"
+        "    steps:\n"
+        "      - uses: actions/checkout@v5\n\n"
+    )
+    y.write_text(t[:i] + block + t[i:])
+
+
+case("W4 a NEW gate job with no lane reddens rather than becoming a required check that runs nothing",
+     w4, expect_red=True, expect_msg="brand-new-gate")
+
+
+# ── CRLF: the guard and the runtime must not disagree about the round ────────
+# Found the same way. The runtime's awk carried the \r into the target name and
+# handed it to make; this guard read the same file through Python's universal
+# newlines and saw a clean name. Green here, dead round there.
+def w5(tree: Path) -> None:
+    f = tree / ROUND_REL
+    f.write_bytes(f.read_bytes().replace(b"\n", b"\r\n"))
+
+
+case("W5 a CRLF round list is REFUSED, so the guard and the runtime cannot disagree about it",
+     w5, expect_red=True, expect_msg="carriage return")
+
+
 print(f"ci-round guard selftest: {PASS} ok, {FAIL} failed")
 sys.exit(1 if FAIL else 0)
