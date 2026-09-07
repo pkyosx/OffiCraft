@@ -14,8 +14,8 @@
 //   .manual-seg does NOT wrap → the 4 chips squeeze instead, and each label
 //     breaks across three lines (`gpt-` / `5.6-` / `terra`).
 //
-// The fix for both is a grid, and a grid has its own failure at the other end
-// of the range: 任務手冊 is a page, not a max-width modal, so it keeps growing.
+// The fix for both is a grid, and a grid has its own failures at the OTHER
+// widths: 任務手冊 is a page, not a max-width modal, so it keeps growing.
 // MEASURED at 1280 with a hard `1fr 1fr`, the group is 958 wide and the chips
 // become 4 x 471 on two rows — an 11-character label in a half-width button —
 // while the 投入程度 row directly below stays 4 x 233 on one, so the two
@@ -112,7 +112,12 @@ function groupOf(page: Page, anchorTestId: string) {
 }
 
 /** The narrow contract: even rows, nothing left over, nothing squeezed. */
-async function assertNoOrphanChip(where: string, group: Locator, prefix: string) {
+async function assertNoOrphanChip(
+  where: string,
+  group: Locator,
+  prefix: string,
+  width: number
+) {
   const chips = await readChips(group, prefix);
   const groupWidth = (await group.boundingBox())!.width;
 
@@ -129,7 +134,7 @@ async function assertNoOrphanChip(where: string, group: Locator, prefix: string)
         `of group w=${Math.round(groupWidth)}; the other ${chips.length - 1} ` +
         `of ${chips.length} chips share ${rows.length - 1} row(s))`
     ),
-    `${where}: no chip is left alone on its own row at 390px`
+    `${where}: no chip is left alone on its own row at ${width}px`
   ).toEqual([]);
 
   // 2. No chip stretches to own the whole row — the visual half of the same
@@ -139,7 +144,7 @@ async function assertNoOrphanChip(where: string, group: Locator, prefix: string)
     full.map(
       (c) => `${c.id} (w=${Math.round(c.width)} of group w=${Math.round(groupWidth)})`
     ),
-    `${where}: no chip spans the full width of the picker at 390px`
+    `${where}: no chip spans the full width of the picker at ${width}px`
   ).toEqual([]);
 
   // 3. No label wraps. This is the opposite failure (`.manual-seg` has no
@@ -147,7 +152,7 @@ async function assertNoOrphanChip(where: string, group: Locator, prefix: string)
   const wrapped = chips.filter((c) => c.lines > 1);
   expect(
     wrapped.map((c) => `${c.id} (label on ${c.lines} lines, w=${Math.round(c.width)})`),
-    `${where}: every chip keeps its label on ONE line at 390px`
+    `${where}: every chip keeps its label on ONE line at ${width}px`
   ).toEqual([]);
 }
 
@@ -175,7 +180,8 @@ test("轉派 dialog 模型: the Codex model chips leave no orphan at 390px", asy
   await assertNoOrphanChip(
     "轉派 dialog 模型",
     groupOf(page, "reassign-model-gpt-6-astra"),
-    "reassign-model"
+    "reassign-model",
+    390
   );
 });
 
@@ -191,21 +197,39 @@ test("轉派 dialog 投入程度: the effort chips leave no orphan at 390px", as
   await assertNoOrphanChip(
     "轉派 dialog 投入程度",
     groupOf(page, "reassign-effort-max"),
-    "reassign-effort"
+    "reassign-effort",
+    390
   );
 });
 
-test("任務手冊 負責成員 模型: the Codex model chips leave no orphan at 390px", async ({
-  mount,
-  page,
-}) => {
-  await openManualCodex(mount, page, 390);
-  await assertNoOrphanChip(
-    "任務手冊 負責成員 模型",
-    groupOf(page, "manual-assignee-model-gpt-6-astra"),
-    "manual-assignee-model"
-  );
-});
+// 任務手冊 is a PAGE: its picker keeps every width between a phone and a desk,
+// so one sample cannot stand for the narrow end. These three are the widths a
+// width-derived track count got wrong, MEASURED by sweeping 320→1600 in 10px
+// steps against `repeat(auto-fit, minmax(120px, 1fr))`:
+//
+//   320  group 238 — ONE track: four full-width chips stacked, 4 rows.
+//   390  group 308 — two tracks. The phone this ticket started from.
+//   520  group 438 — THREE tracks: 3 chips then a 4th alone on row two. The
+//        middle of a 470–588 band, and the exact shape the class exists to
+//        prevent, reintroduced between the two widths that were checked.
+//
+// With 4 chips, an ODD track count is the bug, so the layout may never derive
+// one from the available width: settings.css writes 4 and 2 literally. These
+// cases are what makes that non-negotiable.
+for (const width of [320, 390, 520]) {
+  test(`任務手冊 負責成員 模型: the Codex model chips leave no orphan at ${width}px`, async ({
+    mount,
+    page,
+  }) => {
+    await openManualCodex(mount, page, width);
+    await assertNoOrphanChip(
+      `任務手冊 負責成員 模型 @${width}`,
+      groupOf(page, "manual-assignee-model-gpt-6-astra"),
+      "manual-assignee-model",
+      width
+    );
+  });
+}
 
 // The wide end, which the 390px cases cannot see: fixing the phone by splitting
 // the chips in two costs the desktop, and the way that reads is the mismatch

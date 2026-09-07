@@ -1483,25 +1483,45 @@
   border-radius: 12px;
   background: color-mix(in srgb, var(--color-overlay) 2%, transparent);
 }
-/* Width-driven opt-in for the Codex 模型 picker, for the same reason as the
-   轉派 dialog's .task-reassign__seg--grid2 and with the same per-callsite
-   opt-in: a flex row cannot fit four `gpt-5.6-*` slugs at 390px, and with no
-   flex-wrap here it squeezes them until each label breaks across three lines.
-   Only the Codex 模型 picker opts in — Claude's four one-word slugs still fit
-   the row.
+/* Layout opt-in for the Codex 模型 picker, for the same reason as the 轉派
+   dialog's .task-reassign__seg--grid2 and with the same per-callsite opt-in: a
+   flex row cannot fit four `gpt-5.6-*` slugs at 390px, and with no flex-wrap
+   here it squeezes them until each label breaks across three lines. Only the
+   Codex 模型 picker opts in — Claude's four one-word slugs still fit the row.
 
-   The track count is NOT fixed at two, unlike the 轉派 dialog's class. This
-   control is on a page that grows with the viewport, so a hard 2x2 buys 390px
-   at the cost of 1280px: MEASURED at 1280 with `1fr 1fr`, the group is 958 wide
-   and each chip becomes 471 (an 11-character label in a half-width button) on
-   two rows, while the 投入程度 row directly below stays 4 x 233 on one — the two
-   controls stop lining up. auto-fit collapses the empty tracks, so the same
-   declaration is 2x2 at 390px and 4 x 233 (aligned with 投入程度) at 1280px, with
-   no media query. Both widths are pinned by
+   NOT named --grid2, and not two fixed tracks, because this control is on a
+   PAGE that grows with the viewport rather than inside a max-width modal (which
+   is why 轉派's class keeps both the name and the hard 1fr 1fr — see tasks.css).
+   MEASURED at 1280 with `1fr 1fr`: group 958, four chips at 471 each — an
+   11-character label in a half-width button — on two rows, while the 投入程度
+   row directly below stayed 4 x 233 on one. The two controls stopped lining up.
+
+   🔴 The track count is spelled out as TWO LITERAL EVEN COUNTS on purpose. The
+   obvious one-liner, `repeat(auto-fit, minmax(120px, 1fr))`, fixes both ends and
+   opens a hole in the middle: MEASURED by sweeping the viewport 320→1600, it
+   lands on THREE tracks for every width from 470 to 588 (group 388–506) — 3
+   chips then a 4th alone on row two, the exact shape this class exists to
+   prevent — and on ONE track at 320 (group 238), four full-width chips stacked.
+   With 4 items, any odd track count IS the bug, so no declaration here may be
+   able to produce one. 2 and 4 are the only counts written, and neither is
+   computed from the available width.
+
+   The breakpoint is the settings sheet's existing 720px, not a new number.
+   MEASURED across the whole range, 320→1600 in 10px steps: 129 widths, 41 of
+   them 2x2 and 88 of them 4-across, and NOTHING else. At the boundary itself
+   720 → group 638 (2 x 311) and 730 → group 648 (4 x 155); at the extremes
+   320 → group 238 (2 x 111) and 1280 → group 958 (4 x 233, the column positions
+   the 投入程度 row below uses). Every chip keeps its label on one line at all of
+   them. The narrow end, the boundary band and the wide end are pinned by
    frontend/visual-guards/codex-model-chips.ct.spec.tsx. */
-.manual-seg--grid2 {
+.manual-seg--chips4 {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  grid-template-columns: repeat(4, 1fr);
+}
+@media (max-width: 720px) {
+  .manual-seg--chips4 {
+    grid-template-columns: repeat(2, 1fr);
+  }
 }
 .manual-seg__cell {
   flex: 1;

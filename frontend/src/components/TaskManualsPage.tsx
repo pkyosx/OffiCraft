@@ -1002,8 +1002,8 @@ function Segmented<T extends string>({
   onPick: (v: T) => void;
   testidPrefix: string;
   ariaLabel: string;
-  /** Optional layout modifier (e.g. the 2x2 grid the Codex 模型 picker uses so
-   * its four long slugs neither squeeze nor leave a lone chip at 390px). */
+  /** Optional layout modifier (e.g. the even-column grid the Codex 模型 picker
+   * uses so its four long slugs neither squeeze nor leave a lone chip). */
   className?: string;
 }) {
   return (
@@ -1324,7 +1324,7 @@ function AssigneeCard({
                       onPick={setModelDraft}
                       testidPrefix="manual-assignee-model"
                       ariaLabel={t.settings.assigneeModelLabel}
-                      className="manual-seg--grid2"
+                      className="manual-seg--chips4"
                     />
                     <input
                       className="manual-input manual-assignee__model"

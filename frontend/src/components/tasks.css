@@ -1975,10 +1975,11 @@ button.task-card__waiting--dep:focus-visible {
    the same shape — 低/中/高 at w=93 then 最高 alone on row two at w=292 of a
    302-wide group. 轉給/轉外包 has two cells and keeps the flex row, so chip COUNT
    alone does not select the grid — the class is opted into per callsite.
-   Two tracks are hard-coded here, unlike .manual-seg--grid2's auto-fit, because
-   this control lives in .confirm-modal__box (max-width 420px): the group is 302
-   wide at 390px and 372 at every wider viewport, so it never has room for a
-   third track and never has to widen back out. The 390px geometry of both
+   Two tracks are hard-coded here, and unlike .manual-seg--chips4 this class
+   needs no second regime, because the control lives in .confirm-modal__box
+   (max-width 420px): MEASURED, the group is 302 wide at 390px and 372 at every
+   wider viewport, so it never has room for a third track and never has to widen
+   back out. The 390px geometry of both
    pickers is pinned by frontend/visual-guards/codex-model-chips.ct.spec.tsx. */
 .task-reassign__seg--grid2 {
   display: grid;
