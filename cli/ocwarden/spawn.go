@@ -119,7 +119,7 @@ type StartParams struct {
 	Runtime  string // claude (default) | codex
 	Model    string
 	// Effort is the member's owner-set reasoning-effort launch intent
-	// (low/medium/high/max, from member.effort server-side). Empty ⇒ the historic
+	// (low/medium/high/xhigh/max, from member.effort server-side). Empty ⇒ the historic
 	// "medium" default, keeping an old frame's launch line byte-identical.
 	Effort      string
 	SessionName string
@@ -1259,7 +1259,7 @@ func (d SpawnDeps) start(p StartParams) SpawnOutcome {
 	if runtimeName == "codex" {
 		command = buildCodexLaunchCommand(d.WardenBin, d.CodexBin, workdir,
 			personaFile, tokenFile, p.MemberID, base, session, socket, p.Model, p.Effort,
-			extraEnv, envRendered)
+			extraEnv, envRendered, d.logf)
 	} else {
 		command = buildLaunchCommandWithEnv(d.ClaudeBin, workdir, mcpConfigPath, appendSys,
 			tokenFile, p.MemberID, base, session, socket, p.Model, p.Effort, settingsPath, extraEnv, envRendered)

@@ -55,7 +55,7 @@
 | 狀態 | 離線 / 喚醒中 / 線上 / 停止中 / 已停止（`office.presence` 五個值）|
 | AI 執行環境 | Claude Code 或 Codex —— **agent 回報過的值**，沒回報過是 `—` |
 | 模型 | **agent 最近一次開機回報**的模型，沒回報過是 `—`（不是設定值）|
-| 思考強度（Effort）| 低 / 中 / 高 / 最高（`mp.effortOf`）|
+| 思考強度（Effort）| 低 / 中 / 高 / 極高 / 最高（`mp.effortOf`）|
 
 ### 成員狀態機
 presence 是 **server 端算出來的**，不是 agent 自報的心跳狀態。核心錨點只有兩個變數：

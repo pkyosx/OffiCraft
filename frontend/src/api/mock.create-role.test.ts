@@ -1,6 +1,6 @@
 // Mock↔server parity for createRole (POST /api/roles): the mock must reject an
 // unknown effort with the SAME message and status the server does — the server
-// appends the offending value (`effort must be one of [high low max medium];
+// appends the offending value (`effort must be one of [high low max medium xhigh];
 // got '<value>'`, ocserverd/api_roles.go:128-129), and the mock used to answer
 // a different, value-less string.
 //
@@ -30,12 +30,12 @@ describe("mock createRole — effort 422 parity", () => {
     // Byte-for-byte the Go writeError message (ocserverd/api_roles.go:128-129),
     // including the offending value.
     expect(api.serverMessage).toBe(
-      "effort must be one of [high low max medium]; got 'extreme'"
+      "effort must be one of [high low max medium xhigh]; got 'extreme'"
     );
   });
 
-  it("accepts the closed low/medium/high/max effort vocabulary", async () => {
-    for (const effort of ["low", "medium", "high", "max"] as const) {
+  it("accepts the closed low/medium/high/xhigh/max effort vocabulary", async () => {
+    for (const effort of ["low", "medium", "high", "xhigh", "max"] as const) {
       const r = await mockApi.createRole({ name: `Role ${effort}`, effort });
       // T-91: the create receipt carries the minted ids, not the member row —
       // the launch knob it accepted is read back off the member it minted.

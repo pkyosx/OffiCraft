@@ -376,7 +376,7 @@ func TestStart_CodexUsesSidecarWithoutTUINudge(t *testing.T) {
 	wantCmd := buildCodexLaunchCommand(
 		deps.WardenBin, deps.CodexBin, fxWorkdir, fxPersona, fxTokenFile,
 		"alice", fxBase, "member-alice", fxSocket, "gpt-5.6", "high",
-		[][2]string{{"OC_EFFORT", "high"}}, "",
+		[][2]string{{"OC_EFFORT", "high"}}, "", nil,
 	)
 	if !run.sawArgv("tmux", "-L", fxSocket, "new-session", "-d", "-s", "member-alice", "-x", "160", "-y", "50", wantCmd) {
 		t.Errorf("expected Codex sidecar tmux launch; calls:\n%v", run.calls)

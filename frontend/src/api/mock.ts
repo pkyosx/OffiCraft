@@ -2727,11 +2727,11 @@ export const mockApi: Api = {
     // model/effort launch intents (M2-2) — same closed effort vocabulary the
     // server enforces (422 → throw), model stays a free string.
     if (patch.effort !== undefined) {
-      if (!["low", "medium", "high", "max"].includes(patch.effort)) {
+      if (!["low", "medium", "high", "xhigh", "max"].includes(patch.effort)) {
         throw mockApiError(
           `http 422 for PATCH /api/members/${id}`,
           422,
-          "effort must be one of ['high', 'low', 'max', 'medium']"
+          "effort must be one of ['high', 'low', 'max', 'medium', 'xhigh']"
         );
       }
       w.effort = patch.effort;
@@ -4089,8 +4089,8 @@ export const mockApi: Api = {
       newMember = m;
     } else {
       const effort = target.effort.trim() || "medium";
-      if (!["low", "medium", "high", "max"].includes(effort)) {
-        throw badRequest("target.effort must be one of low, medium, high, max");
+      if (!["low", "medium", "high", "xhigh", "max"].includes(effort)) {
+        throw badRequest("target.effort must be one of low, medium, high, xhigh, max");
       }
       // The machine preference is a SPAWN-time knob with no mock surface (no
       // scheduler here) — validated by the server, dropped honestly here.
@@ -5957,13 +5957,13 @@ export const mockApi: Api = {
     const memberName =
       (input.memberName ?? "").trim() || pickMockMemberName();
     const effort = input.effort ?? "medium";
-    if (!["low", "medium", "high", "max"].includes(effort)) {
+    if (!["low", "medium", "high", "xhigh", "max"].includes(effort)) {
       // Byte-for-byte the server's message (ocserverd/api_roles.go:128-129):
       // the offending value rides along in `; got '<value>'`.
       throw mockApiError(
         "http 422 for POST /api/roles",
         422,
-        `effort must be one of [high low max medium]; got '${effort}'`
+        `effort must be one of [high low max medium xhigh]; got '${effort}'`
       );
     }
     const hex = () =>

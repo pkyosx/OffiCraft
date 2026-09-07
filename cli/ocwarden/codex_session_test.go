@@ -35,6 +35,7 @@ func TestBuildCodexLaunchCommandKeepsTokenOutOfArgv(t *testing.T) {
 		"high",
 		nil,
 		"",
+		nil,
 	)
 	for _, want := range []string{
 		`OC_TOKEN="$(/bin/cat /tmp/member-m-1/.oc-token)"`,
@@ -54,16 +55,79 @@ func TestBuildCodexLaunchCommandKeepsTokenOutOfArgv(t *testing.T) {
 }
 
 func TestNormalizeCodexEffort(t *testing.T) {
-	for input, want := range map[string]string{
-		"": "medium", "low": "low", "medium": "medium", "high": "high",
-		// max is the level T-dbd4 added. It has to survive VERBATIM: this func
-		// is an allowlist, not a ladder, so a level missing from it does not get
-		// nudged down a notch — it lands in the same catch-all as a typo.
-		"max":     "max",
-		"extreme": "medium",
+	// The `recognised` half is the load-bearing one and the reason this map is
+	// pairs rather than strings: the launch VALUE for an unknown level is
+	// "medium", which is byte-identical to a member genuinely configured at
+	// medium. Only the flag separates them, so a test that pinned the string
+	// alone was blind to the exact defect this func was found to have (T-dbd4:
+	// a new level selectable in the cockpit, stored, read back, and launched at
+	// medium with nothing going red).
+	//
+	// This map is an ALLOWLIST, not a ladder: a level missing from the accepted
+	// arm is not nudged down a notch, it lands in the same catch-all as a typo.
+	// It is also NOT exhaustive over the vocabulary — bin/effort-vocab-guard.py
+	// is what pins this func against server/ocserverd/api_helpers.go:validEffort,
+	// and adding a level here without adding it there (or vice versa) reddens
+	// `make lint-effort-vocab`, not this test.
+	for input, want := range map[string]struct {
+		level      string
+		recognised bool
+	}{
+		"":       {"medium", true},
+		"low":    {"low", true},
+		"medium": {"medium", true},
+		"high":   {"high", true},
+		"xhigh":  {"xhigh", true},
+		"max":    {"max", true},
+		// Unknown: still launched at medium (a warden older than its server must
+		// boot the member rather than refuse it), but never SILENTLY.
+		"extreme": {"medium", false},
 	} {
-		if got := normalizeCodexEffort(input); got != want {
-			t.Errorf("%q: got %q want %q", input, got, want)
+		level, recognised := normalizeCodexEffort(input)
+		if level != want.level || recognised != want.recognised {
+			t.Errorf("%q: got (%q, %v) want (%q, %v)",
+				input, level, recognised, want.level, want.recognised)
+		}
+	}
+}
+
+func TestBuildCodexLaunchCommandAnnouncesAnUnknownEffort(t *testing.T) {
+	// An unknown level reaching the launcher is invisible from the cockpit: the
+	// member still shows the effort the owner picked while the session runs at
+	// medium. The diagnostic line is the ONLY place that difference exists, so
+	// its absence is the bug, not a missing nicety.
+	build := func(effort string) (string, []string) {
+		var lines []string
+		cmd := buildCodexLaunchCommand(
+			"/opt/officraft/ocwarden", "/opt/homebrew/bin/codex", "/tmp/member-m-1",
+			"/tmp/member-m-1/persona.md", "/tmp/member-m-1/.oc-token", "m-1",
+			"http://127.0.0.1:7755", "member-m-1", "officraft-e2e", "", effort, nil, "",
+			func(format string, a ...any) { lines = append(lines, fmt.Sprintf(format, a...)) },
+		)
+		return cmd, lines
+	}
+
+	cmd, lines := build("extreme")
+	if !strings.Contains(cmd, "--effort medium") {
+		t.Fatalf("an unknown effort must still launch, at medium:\n%s", cmd)
+	}
+	if len(lines) != 1 {
+		t.Fatalf("an unknown effort must be announced exactly once, got %d line(s): %v",
+			len(lines), lines)
+	}
+	for _, want := range []string{"extreme", "medium"} {
+		if !strings.Contains(lines[0], want) {
+			t.Errorf("the announcement must name %q so the reader can tell WHICH "+
+				"level was dropped and what ran instead; got: %s", want, lines[0])
+		}
+	}
+
+	// Negative control: the configured levels and the historic blank default must
+	// stay silent, or the line is noise everyone learns to scroll past.
+	for _, quiet := range []string{"", "low", "medium", "high", "xhigh", "max"} {
+		if _, lines := build(quiet); len(lines) != 0 {
+			t.Errorf("effort %q is a level this warden knows; it must launch "+
+				"silently, got: %v", quiet, lines)
 		}
 	}
 }
