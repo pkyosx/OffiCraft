@@ -184,6 +184,23 @@ export function toPresence(
 }
 
 /**
+ * Collapse the five-state lifecycle onto the FROZEN tri-state `status`
+ * (stopping → online, stopped → offline; the other three map 1:1).
+ *
+ * Shared by every projection that has to fill both fields of a `Member` from
+ * ONE presence word — the member wire seam below and OfficePage's synthetic
+ * outsource chat peer. Keeping it in one place is what stops the two halves of
+ * a peer from disagreeing about the same word.
+ */
+export function toStatus(presence: MemberLifecycle): MemberStatus {
+  return presence === "stopping"
+    ? "online"
+    : presence === "stopped"
+      ? "offline"
+      : presence;
+}
+
+/**
  * Map one wire member → the view-model `Member`. Every field's source is noted.
  */
 export function toMember(w: WireMember): Member {
@@ -212,12 +229,7 @@ export function toMember(w: WireMember): Member {
     // the nearest tri-state tint (stopping→online, stopped→offline) so the
     // legacy presence dot never renders an out-of-union value; the
     // full five-state lifecycle rides on `lifecycle` below.
-    status:
-      presence === "stopping"
-        ? "online"
-        : presence === "stopped"
-          ? "offline"
-          : presence,
+    status: toStatus(presence),
     // lifecycle carries the REAL five-state presence verbatim (backend guarantees
     // one of offline/waking/online/stopping/stopped). Honest passthrough — never
     // a fabricated value.

@@ -523,6 +523,41 @@ else
   bad "bin/tests/mcp-catalog-generator.sh is missing"
 fi
 
+# ── the round list: the ONE place a check is written down (T-127) ────────────
+# 🔴 THIS SUITE IS DISPATCHED FROM HERE **IN ADDITION TO** its own lane, and the
+# reason is a hole an independent review found rather than anything designed:
+# lint-ci-round runs because bin/lib/ci-round.txt gives it a row, and it is the
+# thing that checks that file — so DELETING ITS OWN ROW removed it from the
+# contract-guards lane and the guard simply never ran. rc 0, nothing red, the
+# round now unguarded. Every OTHER target is safe from that (drop its row and
+# the two-way difference names it); the guard was the one target whose removal
+# was invisible, and the Makefile comment claimed the opposite.
+#
+# Being reached from bin-guards as well means the two lanes would BOTH have to
+# be sabotaged. Measured: with the row deleted, `bin/run-checks.sh --lane
+# contract-guards` goes green and this dispatch goes red naming the missing row.
+CIROUND="$HERE/../ci-round-guard.py"
+CIROUND_SELFTEST="$HERE/ci-round-guard-selftest.py"
+echo
+if [[ -f "$CIROUND" ]]; then
+  if python3 "$CIROUND"; then
+    ok "round list and Makefile name the same checks (reached from bin-guards, not only from its own lane)"
+  else
+    bad "ci-round guard FAILED (see output above)"
+  fi
+else
+  bad "bin/ci-round-guard.py is missing"
+fi
+if [[ -f "$CIROUND_SELFTEST" ]]; then
+  if python3 "$CIROUND_SELFTEST"; then
+    ok "ci-round guard selftest passed (its positive controls still redden)"
+  else
+    bad "ci-round guard selftest FAILED (see output above)"
+  fi
+else
+  bad "bin/tests/ci-round-guard-selftest.py is missing"
+fi
+
 # ── the wrapper that proves a check RAN: its own contract (T-4d88) ───────────
 # bin/run-checks.sh runs `make <targets>` and then requires each target's own
 # `[oc-check-done] <target>` line, because a zero exit says "nothing failed",

@@ -65,7 +65,7 @@ useTasks 把 statusFilter 轉成重複的 ?statuses=；執行者與類型篩選�
 
 useOutsourceWorkers 只讀 /api/outsource-workers 與 settings，並訂 outsource_worker、task、chat、chat_read；不可加回 tasks 或 task-manuals 全歷史 join。server DTO 已帶 task_no、created_ts、type key/name。
 
-外包列顯示 O- 代號、task type 加真實 presence 點、可點的任務編號與 unread badge，**以及綁定任務的標題（獨立一行，hover 給全文）**；不顯模型與狀態字。⚠️ 標題那條不要照舊規則拔掉：2026-07-16 的「不顯標題」已被 owner 2026-07-23 推翻（T-3451），現行畫面由 `OutsourcePanel.test.tsx` 的 `outsource-task-title-<id>` 斷言釘住——照舊句去拔 title 會直接弄紅那一條。任務編號就是 task id 本身（T-5291 起不再截短），所以「不顯識別鍵」那條**不適用於它**——那串就是要給人抄走貼回去用的。排序以 task created_ts 為準，終態 worker 從 live list 消失。聊天使用 ow- id；header 可用 synthetic member，但不要在 chat header 重複 rail presence。上限 -1 是無限、0 是暫停指派；settings 未載入時只顯目前數，不捏上限。
+外包列顯示 O- 代號、task type 加真實 presence 點、可點的任務編號與 unread badge，**以及綁定任務的標題（獨立一行，hover 給全文）**；不顯模型與狀態字。⚠️ 標題那條不要照舊規則拔掉：2026-07-16 的「不顯標題」已被 owner 2026-07-23 推翻（T-3451），現行畫面由 `OutsourcePanel.test.tsx` 的 `outsource-task-title-<id>` 斷言釘住——照舊句去拔 title 會直接弄紅那一條。任務編號就是 task id 本身（T-5291 起不再截短），所以「不顯識別鍵」那條**不適用於它**——那串就是要給人抄走貼回去用的。排序以 task created_ts 為準，終態 worker 從 live list 消失。聊天使用 ow- id；header 可用 synthetic member，但不要在 chat header 重複 rail presence。那個 synthetic member 的 `lifecycle` 是 worker 的**真實 presence**（缺值落 offline），不是寫死的 online——外包聊天室因此跟正職走同一條路：非 online 時 composer 不鎖、顯示排隊提示與就地 ⚡喚醒，喚醒打的是 `restartWorker`（正職是 `activateMember`）。⚠️ 這兩半是一件事：只把寫死的 online 拿掉而不接 `onWake`，composer 會鎖死且沒有出口。不要為外包另開分支、元件或旗標。上限 -1 是無限、0 是暫停指派；settings 未載入時只顯目前數，不捏上限。
 
 ## 任務手冊
 

@@ -356,6 +356,13 @@ cat >"$SCANNER" <<'RUBY_EOF'
 require 'yaml'
 
 TARGET = ARGV[1] || 'test-go'
+# The lane TARGET belongs to, when the caller knows it (T-127). Since the cloud
+# cells stopped naming targets, the step that runs test-go says only
+# `--lane "${{ github.job }}"` — so "which job runs it" is answered by the round
+# list plus the job's own id, not by finding the word in the run script. The
+# fixtures below still spell targets out, and that path is untouched: this is an
+# ADDITIONAL way for a step to count, never a replacement.
+LANE = ARGV[2].to_s.empty? ? nil : ARGV[2]
 text = File.read(ARGV[0], mode: 'r:UTF-8')
 doc = begin
   YAML.safe_load(text, aliases: false)
@@ -371,6 +378,21 @@ LEADERS = %w[if then else elif fi do done while until case esac sudo time exec e
 # what separates `bash bin/run-checks.sh … test-go` from a step called
 # "explain test-go" or a comment about it.
 NON_RUNNERS = %w[echo printf : true false].freeze
+
+# A gate cell reaching its checks through the lane door: `bin/run-checks.sh
+# --lane <something>`. It says nothing about WHICH lane — the caller pairs it
+# with the job id, because that is what the workflow interpolates.
+def lane_door?(script)
+  script.to_s.each_line do |line|
+    line = line.sub(/#.*\z/, '')
+    line.split(SEPARATORS).each do |seg|
+      toks = seg.strip.sub(/\A[({]\s*/, '').split(/\s+/)
+      next if toks.empty?
+      return true if toks.any? { |t| t.end_with?('bin/run-checks.sh') } && toks.include?('--lane')
+    end
+  end
+  false
+end
 
 def runs_target?(script, target)
   script.to_s.each_line do |line|
@@ -406,7 +428,10 @@ jobs.each do |name, job|
   job_tm = nil unless job_tm.is_a?(Numeric)
   running = []
   steps.each_with_index do |s, i|
-    next unless s.is_a?(Hash) && runs_target?(s['run'], TARGET)
+    next unless s.is_a?(Hash)
+    direct = runs_target?(s['run'], TARGET)
+    via_lane = LANE && name == LANE && lane_door?(s['run'])
+    next unless direct || via_lane
     st = s['timeout-minutes']
     st = nil unless st.is_a?(Numeric)
     running << [i, s['name'], st]
@@ -444,8 +469,18 @@ else
 end
 RUBY_EOF
 
+# The lane a target is assigned to, straight out of THE round list — the same
+# file bin/ci.sh and every cloud cell read. Empty when the target has no line,
+# which the scanner then treats as "no lane known" rather than guessing.
+round_lane_of() { # TARGET -> lane | ""
+  local f="$ROOT/bin/lib/ci-round.txt"
+  [[ -f "$f" ]] || return 0
+  awk -v t="$1" '{sub(/#.*/,"")} NF==2 && $2==t {print $1; exit}' "$f"
+}
+
 ci_job_ceiling() { # FILE [TARGET] -> "<job>\t<minutes>\t<job|step#N>" or a NO-*/MULTIPLE-* word
-  "$RUBY" "$SCANNER" "$1" "${2:-test-go}" 2>&1
+  local target="${2:-test-go}"
+  "$RUBY" "$SCANNER" "$1" "$target" "$(round_lane_of "$target")" 2>&1
 }
 
 # ── the verdict, one function, used by fixtures / mutants / the real tree ────

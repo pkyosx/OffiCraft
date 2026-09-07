@@ -20,19 +20,32 @@
 #
 # ONE DEFINITION, AND THIS FILE IS NOT IT (T-4d88)
 # Every check is a named target in the repo-root Makefile, and its implementation
-# lives in exactly one recipe there. Each cell below calls the targets it owns —
-# `bash bin/run-checks.sh <target> <target>` — and contains no test path, no npm
-# script name, no module list and no gate logic of its own. A cell can choose
-# WHICH checks it runs; it cannot restate HOW, so a cloud round and a local round
-# cannot drift. If you are about to add a test invocation here: add a target to
-# the Makefile.
+# lives in exactly one recipe there. WHICH checks a cell owns is not written here
+# either (T-127): each gate cell runs `bash bin/run-checks.sh --lane
+# "${{ github.job }}"` and bin/lib/ci-round.txt answers with that lane's targets.
+# So this file contains no test path, no npm script name, no module list, no gate
+# logic — and now no check name at all.
+#
+# ⚠️ WHY THAT LAST ONE MATTERS: until T-127 each cell DID type its targets out,
+# which made this file a second copy of the round that bin/ci.sh also carried,
+# with nothing comparing the two. Three checks had already been missed that way
+# and every one was found by a person afterwards, never by a mechanism. There is
+# no longer a list here to fall behind. If you are about to add a test invocation
+# here: add a target to the Makefile and a line to bin/lib/ci-round.txt.
+#
+# 🔴 A GATE JOB'S KEY IS ITS LANE, so renaming one silently changes which checks
+# it runs — and the same name is its required status check context in main's
+# branch protection, which lives on GitHub and cannot be fixed by the pull
+# request that breaks it. lint-ci-round reddens on a lane that is not a declared
+# gate job; nothing in this repo can catch the branch-protection half.
 #
 # WHY THE WRAPPER AND NOT A BARE `make`: a zero exit says "nothing failed", not
 # "something ran". A target whose recipe is emptied, commented out or cut short
 # by an early exit succeeds instantly and in silence. Every check target ends by
 # printing its own `[oc-check-done] <target>` line, and run-checks.sh requires
-# the marker of every target IT WAS ASKED FOR — so each cell is held to its OWN
-# checks, and no cell (and no list in this file) enumerates anybody else's.
+# the marker of every target IT WAS ASKED FOR — including the targets a `--lane`
+# expanded to, which are asserted one by one exactly as typed ones are. So each
+# cell is held to its OWN checks and enumerates nobody else's.
 # This protection is not new: the deleted macOS subset script was tee'd and
 # grepped for its final marker for exactly this reason, and that home went with
 # the script.
@@ -162,7 +175,7 @@ jobs:
           # every mutation it caught" -- was FALSE and is retracted: a Go
           # migration registered under a computed name escaped the lock's AST
           # scan entirely. gooseGoVersionCount now corroborates that scan against
-          # goose's own registry. See server/ocserverd/migration_lock.go's header for
+          # goose's own registry. See migration_lock_shared_test.go's header for
           # what is and is not claimed.)
           #
           # Deleting this line DOES go red now, and that is new in T-75 -- it
@@ -183,7 +196,7 @@ jobs:
           # Only server/ocserverd has third-party deps (hence a go.sum); the
           # cli/ modules are stdlib-only. setup-go errors on an unresolved path.
           cache-dependency-path: server/ocserverd/go.sum
-      - run: bash bin/run-checks.sh lint-go-naming lint-go-fmt lint-go-vet build-go test-go test-system-interaction-examples
+      - run: bash bin/run-checks.sh --lane "${{ github.job }}"
 
   # ---------------------------------------------------------------------------
   # frontend — typecheck, the static CSS/token lints, and the jsdom unit suite.
@@ -228,7 +241,10 @@ jobs:
       # all: ChatArea's own comments name `check-chat-area-key.mjs` as THE thing
       # holding a latent cross-room bug shut, so a PR that deleted the key would
       # have gone green and the next reader would have stopped suspecting it.
-      - run: bash bin/run-checks.sh lint-ts lint-css-tokens lint-css-token-roles lint-async-landing lint-chat-area-key test-frontend-unit
+      # T-127 closed the ROUTE that mistake took — a cell no longer names its
+      # checks, so there is nothing here to add a target to and forget. The two
+      # named above are in this lane today because bin/lib/ci-round.txt says so.
+      - run: bash bin/run-checks.sh --lane "${{ github.job }}"
 
   # ---------------------------------------------------------------------------
   # frontend-ct — real-browser layout + paint guards. Separate from
@@ -252,7 +268,7 @@ jobs:
           check-latest: false
           cache: npm
           cache-dependency-path: frontend/package-lock.json
-      - run: bash bin/run-checks.sh test-frontend-ct
+      - run: bash bin/run-checks.sh --lane "${{ github.job }}"
 
   # ---------------------------------------------------------------------------
   # drift — the regenerate-and-byte-compare class, together because they share
@@ -280,14 +296,12 @@ jobs:
           check-latest: false
           cache: npm
           cache-dependency-path: frontend/package-lock.json
-      - run: bash bin/run-checks.sh drift-ocapi drift-schema-ts drift-theme-tokens drift-message-keys drift-fonts drift-mcp-catalog drift-sse-topics drift-migration-lock
+      - run: bash bin/run-checks.sh --lane "${{ github.job }}"
 
   # ---------------------------------------------------------------------------
   # contract-guards — the stdlib-python3 scanners over tracked files, each shipped
   # WITH its own positive control (the Makefile target runs both halves; a scanner
-  # nobody verified still prints all green) — plus check-released-migrations,
-  # which is here rather than with the Go cells because it needs neither Go nor a
-  # build: it reads git. What it DOES need is this cell's fetch-depth: 0.
+  # nobody verified still prints all green).
   contract-guards:
     # oc-job-role: gate
     runs-on: macos-15
@@ -297,12 +311,9 @@ jobs:
         with:
           # The user-operation guard compares every changed contract block with
           # the PR base; a shallow checkout would turn that provenance check into
-          # an unverified guess. check-released-migrations reads origin/main for
-          # the same kind of reason and REFUSES (non-zero) when it cannot resolve
-          # one — so this line is what keeps that check from arriving as a red
-          # that says nothing about the branch.
+          # an unverified guess.
           fetch-depth: 0
-      - run: bash bin/run-checks.sh lint-uplink-contract lint-effort-vocab lint-kind-vocab lint-shadow-claim lint-user-operation-contract check-released-migrations
+      - run: bash bin/run-checks.sh --lane "${{ github.job }}"
 
   # ---------------------------------------------------------------------------
   # conformance — the black-box import lint (fast, static) and then the full
@@ -320,7 +331,7 @@ jobs:
           go-version: '1.26.4'
           check-latest: false
           cache-dependency-path: server/ocserverd/go.sum
-      - run: bash bin/run-checks.sh lint-conformance-blackbox test-conformance
+      - run: bash bin/run-checks.sh --lane "${{ github.job }}"
 
   # ---------------------------------------------------------------------------
   # hygiene — what is TRACKED (path denylist) and what is IN the files (gitleaks).
@@ -335,7 +346,7 @@ jobs:
       # the target can afford to treat "not found" as a failure.
       - name: install gitleaks
         run: brew install gitleaks
-      - run: bash bin/run-checks.sh scan-tracked-paths scan-secrets
+      - run: bash bin/run-checks.sh --lane "${{ github.job }}"
 
   # ---------------------------------------------------------------------------
   # bin-guards — its own cell by owner ruling: the bin/ guard suites are the
@@ -359,7 +370,7 @@ jobs:
           check-latest: false
           cache: npm
           cache-dependency-path: frontend/package-lock.json
-      - run: bash bin/run-checks.sh test-bin-guards
+      - run: bash bin/run-checks.sh --lane "${{ github.job }}"
 
   # ---------------------------------------------------------------------------
   # tcc-anchor — its own cell by owner ruling. The one owner-approved committed
@@ -372,7 +383,7 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v5
-      - run: bash bin/run-checks.sh scan-tcc-anchor
+      - run: bash bin/run-checks.sh --lane "${{ github.job }}"
 
   # ---------------------------------------------------------------------------
   # e2e-isolation-guard — the hermetic safety layer that keeps the DESTRUCTIVE
@@ -385,7 +396,7 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v5
-      - run: bash bin/run-checks.sh test-e2e-isolation-guard
+      - run: bash bin/run-checks.sh --lane "${{ github.job }}"
 
   # ---------------------------------------------------------------------------
   # macos-e2e — the real-browser end-to-end suite against an isolated station.
@@ -593,9 +604,11 @@ jobs:
   # approval environment and no confirmation gate here.
   #
   # WHY macos-15: bin/release publish refuses to run anywhere but darwin/arm64
-  # (the asset IS darwin-arm64), it runs the FULL bin/ci.sh inside a staging
-  # worktree at the target commit before it builds, and then it builds the real
-  # product.
+  # (the asset IS darwin-arm64), and it builds the real product there.
+  # ⚠️ THIS USED TO SAY it runs the full bin/ci.sh in a staging worktree first.
+  # That stopped being true at T-7e6c, which replaced the local round with a read
+  # of THIS workflow's verdict on the same commit (owner card rc-56fecb4d5aa3);
+  # bin/release has had no non-comment call to ci.sh since. Checked on 0f84a859.
   #
   # WHY needs LISTS EVERY GATE JOB: "the trunk is green" has to mean all of the
   # checks, not the cheap ones. A `needs` that falls behind a newly-added gate
@@ -626,8 +639,9 @@ jobs:
     # reviewed as one. bin/tests/auto-beta-guard.sh requires both.
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: macos-15
-    # A budget, not a measurement: full bin/ci.sh on a hosted macOS runner plus a
-    # real product build plus the upload.
+    # A budget, not a measurement: reading this round's verdict on a hosted macOS
+    # runner plus a real product build plus the upload. (It used to include a
+    # full local bin/ci.sh; T-7e6c removed that — see the note on runs-on above.)
     timeout-minutes: 90
     # The ONLY elevated permission in this workflow, and it lives on this job
     # alone — the workflow default stays read-only, so the gate cells cannot write
@@ -670,8 +684,11 @@ jobs:
           cache: npm
           cache-dependency-path: frontend/package-lock.json
 
-      # bin/release runs the full bin/ci.sh, whose secret scan treats a missing
-      # gitleaks as a FAILURE rather than a skip. Same reason hygiene installs it.
+      # bin/release builds the product here, and the secret scan in this repo
+      # treats a missing gitleaks as a FAILURE rather than a skip — so the tool
+      # has to be present on this runner. Same reason hygiene installs it.
+      # (This line used to say bin/release runs the full bin/ci.sh. It has not
+      # done that since T-7e6c.)
       - name: install gitleaks
         run: brew install gitleaks
 

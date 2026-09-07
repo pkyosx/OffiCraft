@@ -108,6 +108,7 @@ REGEN_PAIR_GATE = $(P) \
   lint-shadow-claim lint-user-operation-contract \
   lint-conformance-blackbox lint-ts lint-css-tokens lint-css-token-roles \
   lint-async-landing lint-chat-area-key lint-chat-pushdown \
+  lint-ci-round \
   build-embed-assets build-go build-frontend-deps \
   test-e2e-isolation-guard test-bin-guards test-go test-system-interaction-examples \
   test-frontend-unit \
@@ -404,6 +405,37 @@ lint-chat-pushdown:
 	echo "[lint-chat-pushdown] the chat page stays pushed down; unread counting has one entry point"; \
 	python3 bin/chat-pushdown-guard.py; \
 	python3 bin/tests/chat-pushdown-guard-selftest.py; \
+	$(DONE)
+
+# The round list and the Makefile must name the same checks (T-127), asserted as
+# a set difference BOTH WAYS plus non-zero denominators.
+#
+# ⚠️ THIS TARGET GUARDS THE LIST THAT NAMES THIS TARGET, and that circularity
+# had a real hole in it.
+#
+# 🔴 WHAT I WROTE HERE FIRST WAS WRONG, and it is worth leaving the correction
+# rather than the conclusion: I claimed that deleting this target's own row
+# "reddens on the `Makefile target with no round line` side before it can go
+# quiet". An independent review MEASURED it and it does not. Delete the row and
+# the target leaves the contract-guards lane, so the guard is never invoked at
+# all — rc 0, nothing red, and the round is now unguarded. Every other target is
+# safe from this (drop its row and the two-way difference names it); this one
+# was the single target whose removal was invisible.
+#
+# What makes it not-quiet now is bin/tests/run.sh, which runs this guard as part
+# of test-bin-guards as well. Two independent lanes reach it, so a removed row
+# still reddens — measured, in bin-guards, naming the missing row.
+#
+# ⇒ The general form, since I got it wrong in a comment: a guard's comment must
+# say what was OBSERVED to redden, not what the author expects to redden.
+#
+# The selftest is the positive control: a green from the guard means nothing
+# unless the guard can be shown to redden on a tree that deserves it.
+lint-ci-round:
+	@$(P) \
+	echo "[lint-ci-round] the round list and the Makefile name the same checks, and every lane is a gate job"; \
+	python3 bin/ci-round-guard.py; \
+	python3 bin/tests/ci-round-guard-selftest.py; \
 	$(DONE)
 
 # The chat surface's async-landing census (T-48). It reads source text — which

@@ -68,8 +68,19 @@ trap 'rm -rf "$WORK"' EXIT
 # ── the fixture tree ─────────────────────────────────────────────────────────
 mk_root() { # mk_root <dir> <script-to-install>
   local dir="$1" script="$2"
-  mkdir -p "$dir/bin"
+  mkdir -p "$dir/bin/lib"
   cp "$script" "$dir/bin/run-checks.sh"
+  # T-127: the wrapper reads THE round list through this library, so the fixture
+  # tree needs both. The library is copied from the real tree (it is the thing
+  # under test on the --lane cases); the list is a fixture of its own, so these
+  # cases never depend on which checks the repo happens to have today.
+  cp "$ROOT/bin/lib/ci-round.sh" "$dir/bin/lib/ci-round.sh"
+  {
+    printf '# fixture round list\n'
+    printf 'lane-one good-a\n'
+    printf 'lane-one good-b\n'
+    printf 'lane-two silent\n'
+  } >"$dir/bin/lib/ci-round.txt"
   # Tabs are load-bearing in a Makefile; printf keeps them explicit.
   {
     printf 'good-a:\n\t@echo "[good-a] working"; echo "[oc-check-done] good-a"\n'
@@ -186,6 +197,70 @@ else
     bad "C6 — the mutant still failed (rc=$rc), so C3's red is not attributable to the marker check; something else in this fixture is red: $OUT"
   fi
 fi
+
+# ═════════════════════════════════════════════════════════════════════════════
+# THE LANE DOOR (T-127)
+# ═════════════════════════════════════════════════════════════════════════════
+# `--lane` is how every cloud gate cell now asks for its checks, and it exists so
+# that .github/workflows/ci.yml contains no target name to fall behind. The whole
+# value of that depends on ONE property: expansion must not soften the marker
+# assertion. A lane that expanded and then asserted nothing would be a silent
+# hole in the exact place the old hand-typed lists were.
+
+# ── C7: a lane expands and every expanded target is still asserted ───────────
+run_wrapper "$REAL" --lane lane-one; rc=$?
+if [[ "$rc" -eq 0 ]] && [[ "$OUT" == *"good-a"* ]] && [[ "$OUT" == *"good-b"* ]]; then
+  ok "C7 — --lane expands to that lane's targets and runs them (both named in the summary)"
+else
+  bad "C7 — --lane lane-one should run good-a and good-b and pass (rc=$rc): $OUT"
+fi
+
+# ── C8: THE ONE THAT MATTERS — expansion does not soften the assertion ───────
+# lane-two holds `silent`, whose recipe succeeds without reaching its own end.
+# Named directly, C3 already proves that is refused. Through the lane door it
+# must be refused identically, and the message must NAME the target — otherwise
+# a reader cannot tell which check in the lane never ran.
+run_wrapper "$REAL" --lane lane-two; rc=$?
+if [[ "$rc" -ne 0 ]] && [[ "$OUT" == *"silent"* ]]; then
+  ok "C8 — a target reached through --lane is held to its own end marker exactly as a named one is, and the failure names it"
+else
+  bad "C8 — --lane lane-two must fail naming 'silent' (rc=$rc): $OUT"
+fi
+
+# ── C9: an unknown lane FAILS; it must never be an empty, green round ────────
+# "Nothing ran" and "nothing failed" are the same picture, and an empty round
+# exits 0. A cell asking for a lane nobody assigned is a wiring mistake, and a
+# wiring mistake that reports success is how a check disappears without a trace.
+run_wrapper "$REAL" --lane lane-nobody-assigned; rc=$?
+if [[ "$rc" -ne 0 ]] && [[ "$OUT" == *"lane-nobody-assigned"* ]]; then
+  ok "C9 — an unknown lane is refused and named, rather than expanding to an empty (and therefore green) round"
+else
+  bad "C9 — an unknown lane must fail and name itself (rc=$rc): $OUT"
+fi
+
+# ── C10: --lane takes exactly one lane ───────────────────────────────────────
+run_wrapper "$REAL" --lane lane-one lane-two; rc=$?
+if [[ "$rc" -ne 0 ]]; then
+  ok "C10 — --lane with more than one argument is refused (rc=$rc), so a second lane cannot be silently dropped"
+else
+  bad "C10 — --lane lane-one lane-two should be refused: $OUT"
+fi
+
+# ── C11: a malformed round row must not yield a SHORTER, GREEN lane ──────────
+# Found by an independent review, in bin/ci.sh: the round was collected with a
+# process substitution, which DISCARDS the reader's exit status. A malformed row
+# was skipped, the well-formed targets ran, and the round printed its all-clear
+# with rc 0. The same shape sat one layer down in ci_round_targets, which piped
+# through awk and reported AWK's success. Both are command substitution now, and
+# this case is what keeps them that way.
+printf 'lane-one good-a\nlane-one this row has too many fields\n' >"$REAL/bin/lib/ci-round.txt"
+run_wrapper "$REAL" --lane lane-one; rc=$?
+if [[ "$rc" -ne 0 ]]; then
+  ok "C11 — a malformed round row REFUSES the lane (rc=$rc) instead of silently running the rows that happened to parse"
+else
+  bad "C11 — a malformed row must not produce a short, green lane: $OUT"
+fi
+mk_root "$REAL" "$SRC"   # restore the fixture's round list for anything after this
 
 printf 'run-checks wrapper contract tests: %d ok, %d failed\n' "$PASS" "$FAIL"
 [[ "$FAIL" -eq 0 ]]

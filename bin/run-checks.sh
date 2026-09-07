@@ -24,18 +24,33 @@
 # then requires the marker of EVERY target it was asked for. A missing one is a
 # non-zero exit naming the target, not a warning.
 #
-# ── WHY THE CALLER PASSES THE TARGETS ONCE, AND ONLY ITS OWN ─────────────────
-# The expected markers are DERIVED from this invocation's own arguments. There is
-# deliberately no list of "all the checks" anywhere in here or in the workflow:
-# such a list is a second enumeration of what CI runs, it drifts from the real
-# one, and killing that duplication is the whole of T-4d88. A caller declares
-# which checks it owns exactly once — in the command it runs — and is held to
-# precisely that set, not to anybody else's.
+# ── WHERE THE TARGETS COME FROM ─────────────────────────────────────────────
+# The expected markers are DERIVED from what this invocation was asked to run,
+# and are asserted one per target no matter which of the two doors was used:
 #
-# ⚠️ WHAT THIS IS NOT: it is NOT a check that the cloud cells collectively cover
-# every target in the Makefile. That is a different (and deliberately absent)
-# assertion. This one answers only: "did THIS invocation's checks each run to
-# their own end?"
+#   * NAMED TARGETS — `bin/run-checks.sh lint-ts test-frontend-unit`. What a
+#     developer reaches for while working on their own area.
+#   * `--lane <lane>` — expand that lane out of bin/lib/ci-round.txt and assert
+#     every target it expands to. This is the door the cloud gate cells use.
+#
+# T-4d88 killed three copies of HOW each check runs (they moved into one Makefile
+# recipe each). What it did NOT kill was the second copy of WHICH checks run:
+# bin/ci.sh listed them and .github/workflows/ci.yml listed them again, by hand,
+# and nothing compared the two. T-127 removed the workflow's copy — the cells now
+# ask for a lane, and bin/lib/ci-round.txt is the only place a target is written
+# down. `--lane` is that door; it is not a second enumeration, it is the end of
+# the second enumeration.
+#
+# ⚠️ EXPANSION DOES NOT SOFTEN THE ASSERTION, and that matters more here than
+# anywhere: this wrapper's marker requirement is the ONLY thing standing between
+# "every check passed" and "a recipe was emptied and succeeded instantly". A lane
+# is expanded FIRST and then held to every target it produced, exactly as if a
+# caller had typed them out. An unknown or empty lane is a hard failure rather
+# than an empty round, because a round of zero checks exits 0 and looks green.
+#
+# ⚠️ WHAT THIS IS STILL NOT: it does not assert that the lanes COLLECTIVELY cover
+# every target in the Makefile. That assertion exists now, but it lives in
+# `lint-ci-round` (bin/ci-round-guard.py), not here.
 #
 # ── WHAT IT DOES NOT COVER ───────────────────────────────────────────────────
 #  1. A recipe gutted with the marker line LEFT BEHIND still prints it. The
@@ -48,8 +63,39 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+source "$ROOT/bin/lib/ci-round.sh"
 
-if [[ $# -eq 0 ]]; then
+# `--lane <lane>` expands to that lane's targets and is then indistinguishable
+# from having typed them: TARGETS is what the marker assertion below reads, and
+# there is only one of it. A lane that names nothing, or names a lane the round
+# list does not carry, exits non-zero from ci_round_lane rather than yielding an
+# empty TARGETS — an empty round asserts nothing and exits 0, which is the one
+# outcome this whole file exists to refuse.
+TARGETS=()
+if [[ "${1:-}" == "--lane" ]]; then
+  if [[ $# -ne 2 ]]; then
+    echo "FAIL — bin/run-checks.sh --lane takes exactly one lane name." >&2
+    exit 2
+  fi
+  # Command substitution, NOT `< <(...)`: a process substitution DISCARDS the
+  # reader's exit status, so a malformed round list would silently yield a
+  # SHORTER lane and this wrapper would then dutifully assert only the targets
+  # that survived. Same fail-open an independent review found in bin/ci.sh.
+  if ! lane_raw="$(ci_round_lane "$ROOT" "$2")"; then
+    echo "FAIL — could not expand lane '$2' from the round list." >&2
+    exit 2
+  fi
+  while IFS= read -r t; do [[ -n "$t" ]] && TARGETS+=("$t"); done <<< "$lane_raw"
+  if [[ ${#TARGETS[@]} -eq 0 ]]; then
+    echo "FAIL — lane '$2' expanded to no checks." >&2
+    exit 2
+  fi
+  echo "[run-checks] lane '$2' expands to ${#TARGETS[@]} check(s): ${TARGETS[*]}"
+else
+  TARGETS=("$@")
+fi
+
+if [[ ${#TARGETS[@]} -eq 0 ]]; then
   echo "FAIL — bin/run-checks.sh needs at least one Makefile target: an empty round would assert nothing." >&2
   exit 2
 fi
@@ -58,13 +104,13 @@ LOG="$(mktemp -t oc-run-checks.XXXXXX)"
 trap 'rm -f "$LOG"' EXIT
 
 set +e
-make -C "$ROOT" "$@" 2>&1 | tee "$LOG"
+make -C "$ROOT" "${TARGETS[@]}" 2>&1 | tee "$LOG"
 rc="${PIPESTATUS[0]}"
 set -e
 [[ "$rc" == "0" ]] || exit "$rc"
 
 missing=()
-for target in "$@"; do
+for target in "${TARGETS[@]}"; do
   grep -qFx "[oc-check-done] $target" "$LOG" || missing+=("$target")
 done
 
@@ -76,4 +122,4 @@ if [[ ${#missing[@]} -gt 0 ]]; then
   exit 1
 fi
 
-echo "[run-checks] all $# check(s) reported their own end marker: $*"
+echo "[run-checks] all ${#TARGETS[@]} check(s) reported their own end marker: ${TARGETS[*]}"

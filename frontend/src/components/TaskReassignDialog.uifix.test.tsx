@@ -8,11 +8,15 @@
 //      so this file only locks the class HOOK the rule targets
 //      (task-badge--lock-reassigning) + the task-lock testid. The hue/overlay
 //      layout is verified by the CT visual guard (lock-badge-*).
-//   2. 模型 picker lays its 4 chips out as a fixed 2x2 (grid2 modifier) while
-//      投入程度 / 轉給-轉外包 keep the flex row, AND a selected 模型 chip carries
-//      the SAME active class as a selected 投入程度 chip. The 2x2 GEOMETRY is a
-//      CSS grid (untestable in jsdom); what is locked here is the modifier
-//      class that switches it on and the shared active-class consistency.
+//   2. The 模型 and 投入程度 pickers lay their 4 chips out as a fixed 2x2 (grid2
+//      modifier) while 轉給-轉外包, which has two cells, keeps the flex row, AND
+//      a selected 模型 chip carries the SAME active class as a selected 投入程度
+//      chip. The 2x2 GEOMETRY is a CSS grid (untestable in jsdom); what is
+//      locked here is the modifier class that switches it on and the shared
+//      active-class consistency.
+//      投入程度 was on the flex row until T-129: MEASURED at 390px it wrapped
+//      into 低/中/高 then 最高 alone at w=292 of a 302-wide group — the very
+//      shape the 模型 modifier exists to prevent.
 
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { render, fireEvent, within, waitFor } from "@testing-library/react";
@@ -106,7 +110,7 @@ describe("轉派中 lock badge — orthogonal overlay class hook", () => {
 });
 
 describe("模型 picker — 2x2 grid modifier + selection parity with 投入程度", () => {
-  it("puts the grid2 modifier on the 模型 group only, not 投入程度", async () => {
+  it("puts the grid2 modifier on the 4-chip groups, not on 轉給/轉外包", async () => {
     __injectMockTask(mkTask({}));
     const { findByTestId } = renderPage();
     const dialog = await openOutsourceFace(findByTestId);
@@ -118,18 +122,25 @@ describe("模型 picker — 2x2 grid modifier + selection parity with 投入程�
     const effortGroup = within(dialog)
       .getByTestId("reassign-effort-medium")
       .closest(".task-reassign__seg");
+    const kindGroup = within(dialog)
+      .getByTestId("reassign-kind-outsource")
+      .closest(".task-reassign__seg");
 
     expect(modelGroup).not.toBeNull();
     expect(effortGroup).not.toBeNull();
+    expect(kindGroup).not.toBeNull();
     // 模型: 4 chips → 2x2 grid, so haiku never wraps alone (owner review).
     expect(
       modelGroup!.classList.contains("task-reassign__seg--grid2")
     ).toBe(true);
-    // 投入程度: its cells stay a flex row — must NOT inherit the grid. (Deliberately
-    // not stated as a count: it was "3 chips" until T-dbd4 added max, and the
-    // assertion below never depended on the number.)
+    // 投入程度: same four-cell shape, same wrap, same fix (T-129).
     expect(
       effortGroup!.classList.contains("task-reassign__seg--grid2")
+    ).toBe(true);
+    // 轉給/轉外包 has two cells that fit the row — it must NOT inherit the grid.
+    // The opt-in is per callsite, not a rule derived from chip count.
+    expect(
+      kindGroup!.classList.contains("task-reassign__seg--grid2")
     ).toBe(false);
   });
 
