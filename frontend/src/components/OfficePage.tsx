@@ -3,6 +3,7 @@ import { useI18n } from "../i18n";
 import type { Member } from "../types";
 import type { OutsourceWorkerView } from "../api/adapter";
 import { api } from "../api";
+import { toStatus } from "../api/mappers";
 import { useMembers } from "../hooks/useMembers";
 import { useMonitoring } from "../hooks/useMonitoring";
 import { useOutsourceWorkers } from "../hooks/useOutsourceWorkers";
@@ -24,8 +25,10 @@ import "./office.css";
 // A fully-shaped Member with honest-empty telemetry, for the SYNTHESIZED chat
 // peers the office projects onto ChatArea's Member contract: a LIVE outsource
 // worker, or a released/removed peer whose read-only history we still render.
-// Defaults are OFFLINE/stopped so the composer LOCKS (read-only) and no
-// presence is fabricated; callers override (e.g. a live worker → online).
+// Defaults are OFFLINE/stopped so no presence is fabricated; callers override
+// (a live worker overrides with its REAL presence, T-128). Whether the composer
+// LOCKS is not decided here — it locks for a peer with no queue path, i.e. one
+// the caller passes no `onWake`, which is the released/removed peer only.
 function blankChatPeer(id: string, name: string, kind: Member["kind"]): Member {
   return {
     id,
@@ -237,13 +240,21 @@ export function OfficePage({
     : undefined;
   // The synthetic chat identity for a LIVE worker: ChatArea renders name /
   // composer-lock / unread anchors off a Member shape, so project the worker
-  // onto one. lifecycle "online" here is a CHAT-CAPABILITY flag (it drives
-  // ChatArea's composer lock), NOT a presence claim: presence display is
-  // REPLACED by headerSub below, so nothing about it reaches the screen — the
-  // rail's dot is the one presence surface (T-59d6 retired the old「live worker
-  // 恆 online」invariant for DISPLAY). Whether an offline worker's composer
-  // should also lock/queue like an offline member's is a separate owner
-  // decision and is deliberately NOT changed here.
+  // onto one.
+  //
+  // 🔴 T-128: presence is the worker's REAL presence, not a hardwired "online".
+  // It used to be pinned online as a "chat-capability flag" because ChatArea's
+  // composer lock reads `lifecycle`, and locking the only outsource composer
+  // with no way out would have been worse than lying. That trade is gone: the
+  // outsource branch below now wires `onWake` (the SAME prop the 正職 branch
+  // wires), so a non-online worker takes the identical path a non-online member
+  // takes — unlocked composer, 「訊息會排隊」 notice, in-place ⚡喚醒 — instead
+  // of a fabricated online. Removing the hardwire WITHOUT wiring onWake locks
+  // the composer dead; the two belong in one change.
+  //
+  // `undefined` presence (released / never dispatched / older server) floors to
+  // offline, the same honest floor `toMember` uses and `presenceVisual` paints.
+  const workerPresence = workerPeer?.presence ?? "offline";
   const workerMember: Member | undefined = workerPeer
     ? {
         ...blankChatPeer(
@@ -251,8 +262,8 @@ export function OfficePage({
           msg.outsourceLabel(workerPeer.codename),
           "outsource",
         ),
-        status: "online",
-        lifecycle: "online",
+        status: toStatus(workerPresence),
+        lifecycle: workerPresence,
         model: workerPeer.model,
         avatarUrl: workerPeer.avatarUrl,
         // ChatArea snapshots this before its own mark-read clears the room
@@ -775,6 +786,20 @@ export function OfficePage({
               members={members}
               workers={outsource.workers}
               onOpenDetail={() => setWorkerDetailId(workerPeer.id)}
+              // T-128 就地喚醒, 外包版. The SAME ChatArea prop the 正職 branch
+              // below wires — that is the whole point: an offline worker's chat
+              // is offered the identical queue notice + ⚡喚醒 row rather than a
+              // second, outsource-only surface. The verb differs because the
+              // wake VERB differs (a worker is re-dispatched via restartWorker,
+              // the 喚醒 the detail panel already fires since T-7526; a member
+              // is activateMember). It resolves VOID, which ChatArea already
+              // handles — no `activationPending` verdict exists on this wire, so
+              // none is fabricated. No refetch here: the outsource_worker SSE
+              // delta refetches the list, exactly as the detail panel's 喚醒
+              // relies on, and the presence flip clears the optimistic pending.
+              onWake={async () => {
+                await api.restartWorker(workerPeer.id);
+              }}
               draftSeed={seedFor(workerPeer.id)}
               // T-3451: the bound task's FULL title under the 任務編號·type sub —
               // owner: 外包側 header 同樣顯示完整 title. Rides the wire echo.
