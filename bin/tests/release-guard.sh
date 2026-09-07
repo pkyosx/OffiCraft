@@ -884,8 +884,9 @@ check "G2 …and NOTHING was built" "" "$(cat "$BUILD_WIRE")"
 check "G2 …and gh was never invoked" "" "$(cat "$GHWIRE")"
 
 # G2b — macos-e2e SPECIFICALLY, and it is not a duplicate of G2. It is the one
-# required job with no counterpart in bin/ci.sh's 29 targets: the real-browser
-# e2e round. Reading GitHub's verdict is what brought it inside the gate at all,
+# required job with no counterpart anywhere in bin/ci.sh's round (that round is
+# bin/lib/ci-round.txt; its size is not restated here, because a number in prose
+# goes stale silently): the real-browser e2e round. Reading GitHub's verdict is what brought it inside the gate at all,
 # and the next person to drop it from auto-beta's `needs` — or from the gate's
 # required list — must be told by a test rather than by a customer.
 gh_jobs_json 'macos-e2e=absent'

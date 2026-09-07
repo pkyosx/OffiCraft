@@ -77,11 +77,15 @@ the black-box conformance suite, the real-browser end-to-end suite, and the
 host-shaped guard suites. The authoritative definition of every check is the repo-root `Makefile` — one
 named target per check, each implemented exactly once — not the workflow file
 and not here. Read the targets rather than trusting a list in prose:
-`grep -nE '^[a-z][a-z0-9-]*:' Makefile`, and `grep -n 'run-checks' .github/workflows/ci.yml`
-for which cell calls which. (That second query said `grep -n 'make '` until an
-independent review ran it and got zero lines: the cells invoke the targets
-through `bin/run-checks.sh`, never `make` directly — a query that answers nothing
-is worse than none, because it reads as if it were checked.)
+`grep -nE '^[a-z][a-z0-9-]*:' Makefile`, and `bin/lib/ci-round.txt`
+for which lane runs which target. (`grep -n 'run-checks' .github/workflows/ci.yml`
+used to answer this, until every gate job's `run:` step was collapsed to
+`bash bin/run-checks.sh --lane "${{ github.job }}"` — the job id is the lane
+name, and the target list moved to `bin/lib/ci-round.txt`, so that grep no
+longer shows a target name anywhere. Before that it said `grep -n 'make '`
+until an independent review ran it and got zero lines: the cells invoke the
+targets through `bin/run-checks.sh`, never `make` directly — a query that
+answers nothing is worse than none, because it reads as if it were checked.)
 
 **The bar for merging:** every check on the pull request has reached a
 conclusion, and every check is `success` — except for the jobs that only run
@@ -142,7 +146,21 @@ To run only part of it, name the targets instead: `bash bin/run-checks.sh <targe
 (target names: `grep -nE '^[a-z][a-z0-9-]*:' Makefile`). That wrapper's own
 all-clear line is what tells you it passed; it deliberately cannot print the
 whole-run marker `bin/ci.sh` ends with, and a guard enforces that no other script
-is even capable of printing it.
+is even capable of printing it. This by-target form is for you, locally — the
+cloud side calls the same wrapper by lane, not by target
+(`bash bin/run-checks.sh --lane "${{ github.job }}"`), and the lane-to-target
+mapping lives in `bin/lib/ci-round.txt`, the one place that list is written down.
+
+⚠️ **That cloud line is enforced VERBATIM, and you cannot vary it in the
+workflow.** `lint-ci-round` requires every gate cell to carry exactly one `run:`
+step that IS that string — no condition around it, no `|| true`, no `&`, no
+extra lines, not even a comment. The rule is that strict because a weaker one
+was measured to fail: while this was checked by shape ("is the wrapper in
+command position?"), two independent reviewers each wrapped the call in
+`if false; then … fi`, and the guard called the cell routed while it ran
+nothing. A shape test cannot see control flow, so the form is pinned instead.
+If a cell genuinely needs another shape, change `bin/ci-round-guard.py` in the
+same commit — deliberately, where a reviewer sees it.
 
 Push a branch to your fork and open the pull request; the cloud round starts
 from there on its own — this repository does not hold fork runs for maintainer

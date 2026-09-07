@@ -456,9 +456,11 @@ macos-e2e"
 # not softened — the EVIDENCE moved, and it is a superset of what the local round
 # could produce:
 #
-#   * COVERAGE GOES UP, measurably. `bin/ci.sh` has 29 targets and macos-e2e is
-#     not one of them: the real-browser e2e round only ever existed as a GitHub
-#     job. So the old gate ran a round that structurally COULD NOT include the
+#   * COVERAGE GOES UP, measurably. macos-e2e is not in `bin/ci.sh`'s round at
+#     all — the real-browser e2e round only ever existed as a GitHub job. (How
+#     many targets that round has is deliberately not written here: it is
+#     `grep -cvE '^\s*(#|$)' bin/lib/ci-round.txt`, and a number copied into
+#     prose goes stale without anything turning red.) So the old gate ran a round that structurally COULD NOT include the
 #     one check that exercises real behaviour, while calling itself "the only
 #     behavioural verification". Reading the round fixes that.
 #   * It is the same code, on the same commit, on the same runner image — and it

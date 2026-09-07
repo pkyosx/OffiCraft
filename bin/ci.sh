@@ -60,10 +60,12 @@
 # quota). It is default-OFF and declares itself by filename
 # (*.live-agent.spec.js), so nothing anywhere has to remember to exclude it.
 #
-# WHAT RUNS WHERE is deliberately not enumerated in any doc: read the target list
-# below for this round, and `grep -n 'run-checks' .github/workflows/ci.yml` for
-# the cloud cells. Both name Makefile targets, so neither can describe a check the
-# other implements differently.
+# WHAT RUNS WHERE is deliberately not enumerated in any doc, and since T-127 it is
+# not enumerated in two places either: bin/lib/ci-round.txt is the ONE list. This
+# round is all of it, in file order; each cloud cell is one lane of it, selected by
+# that job's own id. ⚠️ Asking `grep -n 'run-checks' .github/workflows/ci.yml` used
+# to answer "which checks run in the cloud" and no longer does — the cells name no
+# targets. Read the round list.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -116,10 +118,18 @@ fi
 echo "[ci] commit $CI_SHA ($CI_BRANCH, tree $CI_TREE) — started $(date -u '+%Y-%m-%dT%H:%M:%SZ')"
 
 # ---------------------------------------------------------------------------
-# The round: every check this repo has, as Makefile target names, in an order
-# that satisfies the two constraints in the header. A single `make` invocation
-# rather than one per group, so a shared prerequisite (staging, npm ci) runs
-# exactly once no matter how many targets need it.
+# The round: every check this repo has, read from bin/lib/ci-round.txt in file
+# order. A single `make` invocation rather than one per group, so a shared
+# prerequisite (staging, npm ci) runs exactly once no matter how many targets
+# need it.
+#
+# ⚠️ THIS ARRAY USED TO BE TYPED OUT HERE, and that is the thing T-127 removed.
+# The same set was also typed out in .github/workflows/ci.yml, ten times, once
+# per cloud cell — and nothing compared the two. Three checks had already been
+# missed that way and not one was caught by a mechanism; `lint-chat-pushdown`
+# was still missing from every cloud cell on 0f84a859, so the check that decides
+# whether anything may land never ran it. Both sides now read the same file: the
+# local round is all of it, a cloud cell is one lane of it.
 #
 # make itself fails fast: the first target whose recipe exits non-zero stops the
 # invocation, which trips `set -e` here, which means the marker at the bottom is
@@ -128,44 +138,26 @@ echo "[ci] commit $CI_SHA ($CI_BRANCH, tree $CI_TREE) — started $(date -u '+%Y
 # It goes through bin/run-checks.sh rather than calling make directly because rc
 # alone cannot tell "every check passed" from "a check's recipe was emptied and
 # succeeded instantly". Each target prints its own `[oc-check-done] <target>` and
-# the wrapper requires the marker of every target IT WAS ASKED FOR — which is
-# this array, so there is no second list of the round anywhere.
-OC_ROUND=(
-  build-embed-assets
-  test-e2e-isolation-guard
-  test-bin-guards
-  lint-go-naming
-  lint-go-fmt
-  lint-go-vet
-  build-go
-  test-go
-  test-system-interaction-examples
-  lint-uplink-contract
-  lint-effort-vocab
-  lint-kind-vocab
-  lint-shadow-claim
-  lint-user-operation-contract
-  lint-chat-pushdown
-  drift-ocapi
-  drift-mcp-catalog
-  lint-conformance-blackbox
-  scan-tcc-anchor
-  scan-tracked-paths
-  scan-secrets
-  build-frontend-deps
-  lint-ts
-  lint-css-tokens
-  lint-css-token-roles
-  lint-async-landing
-  lint-chat-area-key
-  drift-theme-tokens
-  drift-message-keys
-  drift-fonts
-  test-frontend-unit
-  test-frontend-ct
-  drift-schema-ts
-  test-conformance
-)
+# the wrapper requires the marker of every target IT WAS ASKED FOR.
+source "$ROOT/bin/lib/ci-round.sh"
+# ⚠️ COMMAND SUBSTITUTION, NOT `< <(...)`. This was written as a process
+# substitution first and that is FAIL-OPEN: the reader's non-zero exit is
+# discarded by the shell, so a malformed row was skipped, the well-formed
+# targets ran, and the round still printed `[ci] all green` with rc 0. An
+# independent review reproduced it with a minimal fixture. `if ! x="$(...)"`
+# propagates the status, which is the whole point.
+if ! oc_round_raw="$(ci_round_targets "$ROOT")"; then
+  echo "[ci] FAIL — could not read the round list; refusing to run a PARTIAL round and call it green." >&2
+  exit 1
+fi
+OC_ROUND=()
+while IFS= read -r oc_target; do
+  [[ -n "$oc_target" ]] && OC_ROUND+=("$oc_target")
+done <<< "$oc_round_raw"
+if [[ ${#OC_ROUND[@]} -eq 0 ]]; then
+  echo "[ci] FAIL — the round list produced no checks; refusing to report a green over an empty round." >&2
+  exit 1
+fi
 echo "[ci] round of ${#OC_ROUND[@]} checks: ${OC_ROUND[*]}"
 bash bin/run-checks.sh "${OC_ROUND[@]}"
 

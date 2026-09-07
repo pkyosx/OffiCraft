@@ -1,0 +1,86 @@
+# THE round. One line per check: <lane> <target>.
+#
+# ── WHY THIS FILE EXISTS (T-127) ────────────────────────────────────────────
+# Until T-127 the set of checks was written down TWICE: once in bin/ci.sh as the
+# local round, and once in .github/workflows/ci.yml as ten hand-typed argument
+# lists. Nothing compared them. Three targets had already been missed that way,
+# and not one of the three was caught by a mechanism — each was noticed by a
+# person, afterwards, by chance. `lint-chat-pushdown` was still missing on
+# 0f84a859: named in the local round, named in NO cloud cell, therefore run by
+# nothing that decides whether a change may land.
+#
+# The fix is not a comparison. A comparison detects the mistake after someone
+# makes it; this file removes the second place to write. The cloud cells no
+# longer name any target at all — each one asks for ITS OWN LANE, and the lane
+# is this file's first column. There is nothing left in .github/workflows/ to
+# forget to update.
+#
+# ── THE LANE IS THE GATE JOB'S OWN ID ───────────────────────────────────────
+# Column 1 is the `jobs:` key of a job in .github/workflows/ci.yml that declares
+# `# oc-job-role: gate`. That is not a convention this file invented: the gate
+# job ids ALREADY are these names, and they are also the required status check
+# contexts in the branch protection on main — which lives on GitHub, not in this
+# repo, and therefore cannot be fixed in the same pull request that breaks it.
+# 🔴 SO: never rename a job to change a lane. Renaming a gate job silently
+# detaches it from a required context and every pull request in the repo waits
+# forever for a check that will never report.
+#
+# ── ORDER IS LOAD-BEARING, FOR THE LOCAL ROUND ONLY ─────────────────────────
+# bin/ci.sh runs these top to bottom in ONE make invocation. build-embed-assets
+# must come before anything that runs `go test` or builds ocserverd, and
+# build-frontend-deps before anything that needs node_modules. Both are also
+# declared prerequisites in the Makefile, so a cloud lane that names only a
+# downstream target still gets them; the order here is what a single local
+# invocation needs. Everything else in the order is diagnostic preference.
+#
+# ── WHAT STILL HAS TO BE WRITTEN BY HAND, AND WHAT CATCHES IT ───────────────
+# Adding a check is: write the Makefile target, then add its line here. The
+# second half is NOT structural — you can still forget it. `lint-ci-round` is
+# what makes that loud: it takes the set difference BOTH WAYS between this
+# file's targets and the Makefile's named targets, and reddens on either. It
+# runs in the contract-guards lane, so a forgotten line cannot reach main.
+# What IS structural is the half that used to break: the cloud has no list.
+#
+# ⚠️ ORDER WITHIN A LANE MATTERS FOR ONE REASON: `make` stops at the first
+# recipe that fails, so a check placed after a failing one does not run — and
+# this repo has already shipped a new check that sat behind a red one and
+# therefore never executed in the cloud at all. lint-ci-round is FIRST in its
+# lane deliberately: it is the cheapest check in the round and it is the one
+# guarding this file, so it must not be reachable only when everything else
+# already passed.
+
+go-checks           build-embed-assets
+e2e-isolation-guard test-e2e-isolation-guard
+bin-guards          test-bin-guards
+go-checks           lint-go-naming
+go-checks           lint-go-fmt
+go-checks           lint-go-vet
+go-checks           build-go
+go-checks           test-go
+go-checks           test-system-interaction-examples
+contract-guards     lint-ci-round
+contract-guards     lint-uplink-contract
+contract-guards     lint-effort-vocab
+contract-guards     lint-kind-vocab
+contract-guards     lint-shadow-claim
+contract-guards     lint-user-operation-contract
+contract-guards     lint-chat-pushdown
+drift-checks        drift-ocapi
+drift-checks        drift-mcp-catalog
+conformance         lint-conformance-blackbox
+tcc-anchor          scan-tcc-anchor
+hygiene             scan-tracked-paths
+hygiene             scan-secrets
+frontend-checks     build-frontend-deps
+frontend-checks     lint-ts
+frontend-checks     lint-css-tokens
+frontend-checks     lint-css-token-roles
+frontend-checks     lint-async-landing
+frontend-checks     lint-chat-area-key
+drift-checks        drift-theme-tokens
+drift-checks        drift-message-keys
+drift-checks        drift-fonts
+frontend-checks     test-frontend-unit
+frontend-ct         test-frontend-ct
+drift-checks        drift-schema-ts
+conformance         test-conformance
