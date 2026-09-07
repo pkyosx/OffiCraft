@@ -107,13 +107,9 @@ else
   fi
 fi
 
-RUNNER="$ROOT/bin/tests/run.sh"
-if grep -qE '^[[:space:]]*RULEDEFER="\$HERE/rule-defer-guard\.sh"[[:space:]]*$' "$RUNNER" &&
-  grep -qE '^[[:space:]]*if run_guard "\$RULEDEFER"; then[[:space:]]*$' "$RUNNER"; then
-  ok "bin/tests/run.sh still dispatches this guard through run_guard"
-else
-  bad "bin/tests/run.sh no longer dispatches this guard"
-fi
+# 這裡原本有一段「確認 bin/tests/run.sh 還有派送這支守衛」的檢查。已移除
+# （owner 裁定 c-2c14a29eef1f）：防止別人刪掉某個檢查的測試沒有意義 ——
+# 同一個人也可以順手改掉這個測試，而真的要刪一定會經過 PR。
 
 echo "rule-defer review-digest tests: $PASS ok, $FAIL failed"
 [[ "$FAIL" == "0" ]]
