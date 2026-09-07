@@ -38,6 +38,13 @@ import { I18nProvider } from "../i18n";
 import { LorePage } from "./LorePage";
 import { __resetMock } from "../api/mock";
 import { api } from "../api";
+// The 可變動作面 specs need to build a REFUSAL, and the refusal has to be the
+// same class the adapters throw — `runAction` branches on `status` and reads
+// `serverMessage`, neither of which a plain Error carries.
+import { ApiError } from "../api/errors";
+// The action-error copy is asserted by VALUE, not by "is non-empty": an error
+// line saying the wrong sentence is a line that passed a non-empty check.
+import { zh } from "../i18n/locales/zh";
 import type {
   ChatAttachmentInput,
   LoreEntryPageView,
@@ -1605,5 +1612,206 @@ describe("LorePage — 內容是 markdown", () => {
     expect(
       container.querySelector('[data-testid="lore-body"]')!.textContent,
     ).toContain("note_size_chars");
+  });
+});
+
+// ────────────────────────────────────────────────────────────────────────────
+// 可變動作面 — 失效 / 生效 / 置頂 / 提到最新, and the 403 path `runAction`
+// exists for.
+//
+// 🔴 WHY THESE ARE FOUR SPECS AND NOT ONE. The four actions share `runAction`
+// but each one names its OWN api call and its OWN target value. A single spec
+// that drove all four would go green while three of them were gutted, because
+// the fourth's call would satisfy it. Split, a gutted action reddens exactly
+// its own line.
+//
+// 🔴 AND WHY THE 403 SPEC IS THE ONE THAT MATTERS MOST. 置頂 is admin-only and
+// 失效/生效/提到最新 is author-or-admin, so a refusal is a REACHABLE answer, not
+// a bug. A swallowed 403 and 「什麼都沒發生」 are the same pixels: the row keeps
+// its old badge either way. `lore-action-error` carrying WORDS is the only
+// thing that tells those two apart, so the spec asserts the element exists AND
+// that it says something.
+describe("LorePage — 可變動作面", () => {
+  /** Two rows, always. Acting on the SECOND one is what makes the id
+   * assertion real — a call hardwired to the first entry would pass against a
+   * one-row fixture. */
+  function twoRows(secondState: LoreEntryView["state"] = "active") {
+    return page([
+      mkEntry({ id: "L-1", state: "active" }),
+      mkEntry({ id: "L-2", state: secondState }),
+    ]);
+  }
+
+  /** Open the 狀態 menu ON ONE ROW and click one of its items. */
+  function chooseState(
+    container: HTMLElement,
+    entryId: string,
+    next: LoreEntryView["state"],
+  ) {
+    const row = rowById(container, entryId);
+    fireEvent.click(row.querySelector('[data-testid="lore-state"]')!);
+    const item = row.querySelector(`[data-testid="lore-state-${next}"]`);
+    if (!item) throw new Error(`no ${next} menu item on ${entryId}`);
+    fireEvent.click(item);
+  }
+
+  function bump(container: HTMLElement, entryId: string) {
+    fireEvent.click(
+      rowById(container, entryId).querySelector('[data-testid="lore-bump"]')!,
+    );
+  }
+
+  async function renderTwo(secondState: LoreEntryView["state"] = "active") {
+    const list = stubList(twoRows(secondState));
+    const { container } = renderPage();
+    await waitFor(() => expect(renderedIds(container)).toHaveLength(2));
+    return { container, list };
+  }
+
+  it("失效 asks the server for retired, on the entry that was clicked", async () => {
+    const set = vi
+      .spyOn(api, "setLoreEntryState")
+      .mockResolvedValue(undefined);
+    const { container } = await renderTwo("active");
+
+    chooseState(container, "L-2", "retired");
+
+    await waitFor(() => expect(set).toHaveBeenCalledTimes(1));
+    expect(set).toHaveBeenCalledWith("L-2", "retired");
+  });
+
+  it("生效 asks the server for active, on the entry that was clicked", async () => {
+    const set = vi
+      .spyOn(api, "setLoreEntryState")
+      .mockResolvedValue(undefined);
+    const { container } = await renderTwo("retired");
+
+    chooseState(container, "L-2", "active");
+
+    await waitFor(() => expect(set).toHaveBeenCalledTimes(1));
+    expect(set).toHaveBeenCalledWith("L-2", "active");
+  });
+
+  it("置頂 asks the server for pinned, on the entry that was clicked", async () => {
+    const set = vi
+      .spyOn(api, "setLoreEntryState")
+      .mockResolvedValue(undefined);
+    const { container } = await renderTwo("active");
+
+    chooseState(container, "L-2", "pinned");
+
+    await waitFor(() => expect(set).toHaveBeenCalledTimes(1));
+    expect(set).toHaveBeenCalledWith("L-2", "pinned");
+  });
+
+  it("提到最新 calls bump on the entry that was clicked", async () => {
+    // 🔴 A DIFFERENT ROUTE, NOT A FOURTH STATE. 提到最新 moves `effectiveTs`
+    // and leaves `state` alone, so it must NOT arrive as a setState call.
+    const set = vi
+      .spyOn(api, "setLoreEntryState")
+      .mockResolvedValue(undefined);
+    const bumpSpy = vi.spyOn(api, "bumpLoreEntry").mockResolvedValue(undefined);
+    const { container } = await renderTwo("active");
+
+    bump(container, "L-2");
+
+    await waitFor(() => expect(bumpSpy).toHaveBeenCalledTimes(1));
+    expect(bumpSpy).toHaveBeenCalledWith("L-2");
+    expect(set).not.toHaveBeenCalled();
+  });
+
+  // ── 403 必須讀起來像被拒絕 ────────────────────────────────────────────────
+  it("a refused 置頂 SAYS SO — the error line is on screen and carries words", async () => {
+    vi.spyOn(api, "setLoreEntryState").mockRejectedValue(
+      new ApiError("http 403 for POST /api/lore/L-2/state", 403, "forbidden", ""),
+    );
+    const { container } = await renderTwo("active");
+    expect(
+      container.querySelector('[data-testid="lore-action-error"]'),
+    ).toBeNull();
+
+    chooseState(container, "L-2", "pinned");
+
+    const line = await waitFor(() => {
+      const el = container.querySelector<HTMLElement>(
+        '[data-testid="lore-action-error"]',
+      );
+      if (!el) throw new Error("no action error line");
+      return el;
+    });
+    // Presence alone is not the property: an empty red div reads as a glitch,
+    // not as a refusal. The envelope carried no sentence here, so this is our
+    // own copy — and it must be the REFUSAL copy, not the generic failure one.
+    expect(line.textContent).toBe(zh.lore.forbidden);
+    expect(line.textContent).not.toBe(zh.lore.actionFailed);
+  });
+
+  it("a refused 提到最新 SAYS SO, in the server's own words when it sent any", async () => {
+    // 🔴 The server's sentence says WHICH of the two rules refused
+    // (admin-only vs author-or-admin). Dropping it for our generic copy loses
+    // the only part the reader could act on.
+    vi.spyOn(api, "bumpLoreEntry").mockRejectedValue(
+      new ApiError(
+        "http 403 for POST /api/lore/L-2/bump",
+        403,
+        "forbidden",
+        "只有撰寫人或管理員可以提到最新",
+      ),
+    );
+    const { container } = await renderTwo("active");
+
+    bump(container, "L-2");
+
+    await waitFor(() =>
+      expect(
+        container.querySelector('[data-testid="lore-action-error"]')?.textContent,
+      ).toBe("只有撰寫人或管理員可以提到最新"),
+    );
+  });
+
+  // ── 成功之後清單真的重讀 ──────────────────────────────────────────────────
+  it("a successful action re-asks the server for the list", async () => {
+    // The four actions all MOVE an entry between groups (or within one), and
+    // the page renders the server's grouping, never its own. Without the
+    // re-read the row stays where it was and the screen quietly disagrees with
+    // the database.
+    vi.spyOn(api, "setLoreEntryState").mockResolvedValue(undefined);
+    const { container, list } = await renderTwo("active");
+    expect(list).toHaveBeenCalledTimes(1);
+
+    chooseState(container, "L-2", "pinned");
+
+    await waitFor(() => expect(list).toHaveBeenCalledTimes(2));
+  });
+
+  // ── 失敗之後畫面沒有假裝成功 ──────────────────────────────────────────────
+  it("a refused action leaves the badge on its OLD value and re-asks nothing", async () => {
+    // 🔴 READ, NOT ASSUMED: `runAction` writes NOTHING to `entries` before the
+    // await — the badge is rendered from the server's `entry.state`, and the
+    // only writer is the list load. So there is no optimistic value to roll
+    // back, and the property to pin is that none appears. `setReloadNonce` is
+    // inside the try AFTER the await, so a refusal must not re-read either —
+    // a re-read on failure would repaint the row and read as "it went through,
+    // then came back".
+    vi.spyOn(api, "setLoreEntryState").mockRejectedValue(
+      new ApiError("http 403 for POST /api/lore/L-2/state", 403, "forbidden", ""),
+    );
+    const { container, list } = await renderTwo("active");
+    const badge = () =>
+      rowById(container, "L-2").querySelector('[data-testid="lore-state"]')!
+        .textContent;
+    expect(badge()).toBe(zh.lore.stateActive);
+
+    chooseState(container, "L-2", "pinned");
+
+    await waitFor(() =>
+      expect(
+        container.querySelector('[data-testid="lore-action-error"]'),
+      ).not.toBeNull(),
+    );
+    // Not 置頂. Not a row that moved into the 置頂 group.
+    expect(badge()).toBe(zh.lore.stateActive);
+    expect(renderedIds(container)).toEqual(["L-1", "L-2"]);
+    expect(list).toHaveBeenCalledTimes(1);
   });
 });
