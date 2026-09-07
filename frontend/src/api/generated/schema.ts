@@ -4810,7 +4810,11 @@ export interface components {
             body: string;
             /**
              * Task Id
-             * @description The task whose TYPE this entry belongs to. Omit (or "") to write a role entry under your own role instead. A task carrying no type is refused, never redirected.
+             * @description The task whose TYPE this entry belongs to. Send a TASK id here, not a type_key — the server reads the type off the task, which is also what records where the lesson came from.
+             *
+             *     What decides the scope is the EFFECTIVE RELATED TASK: this task when it carries a type, and NULL otherwise. NULL covers BOTH omitting this field and naming a 臨時任務 that carries no type, and it files the entry under the writer's OWN boot document — ``role`` for staff, ``agent`` for an outsource member (owner 2026-09-07, card rc-3c24fdc61ed3).
+             *
+             *     🔴 A task carrying no type used to be REFUSED here. It is not any more, and the refusal was retired rather than relaxed: the owner ruled that a task with no type is not a place an entry could hang in the first place, so naming one is the same input as naming none, not a request that got redirected. When that happens ``filed_note`` on the response says so in one sentence, because the caller cannot otherwise tell the two 200s apart.
              */
             task_id?: string | null;
         };

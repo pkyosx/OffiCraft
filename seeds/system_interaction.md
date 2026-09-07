@@ -461,6 +461,45 @@ ocagent download <attachment id>
 
 ⚠️ **不要為了讓一筆傳承進到某本手冊，去改那張任務的類型。** 類型決定的是那張任務怎麼被執行，不是你的傳承收在哪裡。
 
+🔴 **`task_id` 填的是一張任務的編號，不是任務類型的代號。** 伺服器自己去那張任務上讀類型，也因此那一筆傳承會記得它是從哪張任務學來的。填類型代號會得到「找不到這張任務」。
+
+寫進手冊（那張任務有類型）：
+
+```jsonc
+// OffiCraft MCP tool: write_lore_entry
+{
+  "method": "tools/call",
+  "params": {
+    "name": "write_lore_entry",
+    "arguments": {
+      "title": "驗證外部整合時，成功回應不代表資料完整",
+      "body": "只以 request 成功作為驗收依據會漏掉缺資料的情況，還要驗證關鍵資料是否正確產生。",
+      // 一張任務的編號。伺服器去那張任務上讀類型。
+      "task_id": "<task id>"
+    }
+  }
+}
+```
+
+寫進你自己的開機檔（不指定任務）：
+
+```jsonc
+// OffiCraft MCP tool: write_lore_entry
+{
+  "method": "tools/call",
+  "params": {
+    "name": "write_lore_entry",
+    "arguments": {
+      // task_id 整個不填。正職進他角色那一份，外包進他自己那一份。
+      "title": "零命中的預設解讀是查法寫錯了",
+      "body": "查不到東西時先配一個一定查得到的對照，確認量具沒壞，再下沒有的結論。"
+    }
+  }
+}
+```
+
+填了任務、而那張任務沒有類型時，**寫入一樣會成功**，回應會多一句 `filed_note` 告訴你這一筆去了你自己的開機檔。
+
 開機檔那個位置與手冊那個位置的上限各自獨立，**不相加**。
 
 ## 附錄 A：取得 MCP tool 與 CLI tool 使用說明
