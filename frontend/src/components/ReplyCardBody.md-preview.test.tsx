@@ -53,6 +53,19 @@ function mkCard(over: Partial<ReplyCard>): ReplyCard {
   };
 }
 
+/** Open every card the 等我回覆 page is showing — its rows are collapsed until
+ * clicked and the card is read on expand (owner 2026-09-07). */
+async function openCards() {
+  for (const btn of document.querySelectorAll<HTMLElement>(
+    '[data-testid="reply-card-toggle"]'
+  )) {
+    if (btn.getAttribute("aria-expanded") === "false") fireEvent.click(btn);
+  }
+  await waitFor(() =>
+    expect(document.querySelectorAll('[data-testid="card-loading"]')).toHaveLength(0)
+  );
+}
+
 afterEach(() => {
   vi.restoreAllMocks();
   __resetMock();
@@ -68,6 +81,7 @@ describe("reply-card question attachments: .md preview (T-7bc2)", () => {
       </I18nProvider>
     );
     await findByTestId("waiting-card");
+    await openCards();
     const mdButtons = container.querySelectorAll(
       ".reply-card__question-atts button.chat__msg-file"
     );
@@ -99,6 +113,7 @@ describe("reply-card question attachments: .md preview (T-7bc2)", () => {
       </I18nProvider>
     );
     await findByTestId("waiting-card");
+    await openCards();
     fireEvent.click(container.querySelector("button.chat__msg-file")!);
     await waitFor(() =>
       expect(getByRole("heading", { name: "design-proposal" })).toBeTruthy()
@@ -125,6 +140,7 @@ describe("reply-card question attachments: .md preview (T-7bc2)", () => {
       </I18nProvider>
     );
     await findByTestId("waiting-card");
+    await openCards();
     const file = container.querySelector<HTMLButtonElement>("button.chat__msg-file");
     expect(file).not.toBeNull();
     expect(container.querySelector("a.chat__msg-file")).toBeNull();

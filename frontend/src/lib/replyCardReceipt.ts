@@ -17,7 +17,11 @@
 // That type is what keeps this file honest: a receipt can no longer be stored
 // where a card is rendered, so the blanking described above cannot come back by
 // somebody deleting the merge and passing the write's answer straight through.
-import type { ReplyCard, ReplyCardWriteReceipt } from "../api/adapter";
+import type {
+  ReplyCard,
+  ReplyCardRow,
+  ReplyCardWriteReceipt,
+} from "../api/adapter";
 
 /** `before` (the card on screen, read from the server) with ONLY the transition
  * the write just performed folded in. */
@@ -29,6 +33,24 @@ export function mergeReplyCardWrite(
     ...before,
     status: receipt.status,
     answer: receipt.answer,
+    answeredTs: receipt.answeredTs,
+    expiredTs: receipt.expiredTs,
+  };
+}
+
+/** The same fold onto a LIGHT PANE ROW (`ReplyCardRow`). A row has no `answer`
+ * to update — the digest is not mapped and the expanded card is a full read —
+ * so only the transition and its stamps move. Kept separate from the card merge
+ * rather than made generic: the two shapes carry different fields, and one
+ * signature that accepted either would be the first step back to storing a
+ * receipt where a card is rendered. */
+export function mergeReplyCardRowWrite(
+  before: ReplyCardRow,
+  receipt: ReplyCardWriteReceipt
+): ReplyCardRow {
+  return {
+    ...before,
+    status: receipt.status,
     answeredTs: receipt.answeredTs,
     expiredTs: receipt.expiredTs,
   };

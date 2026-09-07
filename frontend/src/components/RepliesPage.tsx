@@ -5,21 +5,23 @@
 //              display sort over the server's longest-waiting-first list —
 //              T-b07f); every card wears the SAME style — no longest-waiting
 //              highlight (owner ruled it out, T-9ea9).
-//              Each card: initiator (avatar + name + role),
-//              jump-to-origin, 標為過期 (terminal, double-confirm; this cockpit
-//              button is the owner's entry — the API also admits an admin agent
-//              and, since T-1b88, the card's own author —
-//              T-1aa4), 已等你 {t} (ticking, computed from createdTs), the
-//              question, then the SHARED ReplyCardWaitingBody (quick-reply
-//              chips + typed composer).
 //   近期已處理 — cards answered OR expired within 24h, merged newest-handled
-//              first: answered cards keep the SHARED ReplyCardAnsweredBody
-//              (final answer tagged 你選的/AI 建議, 查看當初選項, 重新決定);
-//              expired cards render the grey terminal ReplyCardExpiredBody
-//              (已過期 tag; no reopen). COLLAPSED BY DEFAULT (vibe-clicking
-//              style): only the title row (「近期已處理 · N」 + hint) shows;
-//              the row is a toggle button that expands/collapses the list. Not
+//              first. The PANE is collapsed by default (vibe-clicking style)
+//              and its lists are not even fetched until it is opened; not
 //              persisted — every visit starts collapsed.
+//
+// 🔴 EVERY CARD IN BOTH PANES STARTS COLLAPSED, AND OPENING ONE IS WHAT READS
+// IT (owner ruling 2026-09-07). The panes are lists of LIGHT ROWS
+// (`ReplyCardRow`: the ask's title, its status and its stamps — no body, no
+// options, no chat anchor), because `?view=full` is gone from the wire; a row
+// draws the collapsed line and NOTHING more can be drawn from it. Opening a row
+// reads that ONE card (`api.getReplyCard`) and only then renders the head
+// (initiator + 跳到原訊息 + 標為過期), the task ref, the question and the SHARED
+// ReplyCardBody. This is the SAME mechanism the inline chat card
+// (ChatReplyCard) has used since T-48 — copied deliberately, not re-invented:
+// two surfaces with two different lazy-load rules is how they drift.
+// A card also CLOSES again on a second click (owner 2026-09-07): before this,
+// the only way out of an opened card was to answer it or mark it expired.
 //
 // The card interiors live in ReplyCardBody.tsx, SHARED with B3's inline chat
 // card (ChatReplyCard) so the two surfaces can never drift. Answering is the
@@ -29,10 +31,14 @@
 // question still matters). The nav badge (waiting count) and the chat unread
 // red dot are independent signals: answering here never touches the red dot.
 
-import { useEffect, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { useI18n } from "../i18n";
 import { api } from "../api";
-import type { ReplyCard, ReplyCardAnswerInput } from "../api/adapter";
+import type {
+  ReplyCard,
+  ReplyCardAnswerInput,
+  ReplyCardRow,
+} from "../api/adapter";
 import { isHttpStatus } from "../api/errors";
 import { useMembers } from "../hooks/useMembers";
 import { useReplyCards } from "../hooks/useReplyCards";
@@ -65,7 +71,7 @@ const HANDLED_WINDOW_SECONDS = 24 * 3600;
 
 /** A handled card's pane stamp (answeredTs / expiredTs — whichever its
  * terminal state carries). */
-function handledTsOf(card: ReplyCard): number | null {
+function handledTsOf(card: ReplyCardRow): number | null {
   return card.status === "expired"
     ? (card.expiredTs ?? null)
     : card.answeredTs;
@@ -170,7 +176,7 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
   // The live row wins over the fetched one when the page already holds it: the
   // panes are kept in sync by SSE + the write-adoption in useReplyCards, and a
   // one-shot GET is a snapshot from one instant.
-  const foundCard =
+  const foundCard: ReplyCardRow | null =
     lookup.state === "found"
       ? (waiting.find((c) => c.id === lookup.card.id) ??
         handled.find((c) => c.id === lookup.card.id) ??
@@ -303,14 +309,14 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
   // computed over. Two copies of this predicate would let a future edit narrow
   // one and not the other, and the symptom — a name offered with a count no
   // list can produce — would look like a counting bug rather than a window one.
-  const withinHandledWindow = (c: ReplyCard) => {
+  const withinHandledWindow = (c: ReplyCardRow) => {
     const ts = handledTsOf(c);
     return ts !== null && nowTs - ts < HANDLED_WINDOW_SECONDS;
   };
 
   // 開卡人 predicate. An empty set is "no constraint", so an unticked axis is
   // free rather than exclusive — same convention as 任務頁's three dropdowns.
-  const passesOpener = (c: ReplyCard) =>
+  const passesOpener = (c: ReplyCardRow) =>
     openerFilter.size === 0 || openerFilter.has(c.from);
 
   // 🔴 THE 開卡人 AXIS ANDs WITH THE ID, IT DOES NOT REPLACE IT. An id names ONE
@@ -336,6 +342,118 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
       ? [foundCard]
       : []
     : handled.filter((c) => passesOpener(c) && withinHandledWindow(c));
+  // ── 開卡了哪一張 (owner 2026-09-07) ─────────────────────────────────────────
+  // A row is a TITLE, not a card: since `?view=full` left the wire the panes
+  // carry `ReplyCardRow`s, so the only thing this page can draw without asking
+  // the server is the collapsed line. `expandedIds` is which rows the owner has
+  // opened, `openCards` the ONE-card reads those opens produced, `openErrors`
+  // the ids whose read failed (an opened row must say so rather than sit empty).
+  //
+  // NOT PERSISTED, and every visit starts with everything closed — the same
+  // posture as the 近期已處理 pane's own toggle, and as ChatReplyCard's stub.
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(() => new Set());
+  const [openCards, setOpenCards] = useState<Map<string, ReplyCard>>(
+    () => new Map()
+  );
+  const [openErrors, setOpenErrors] = useState<Set<string>>(() => new Set());
+
+  // A DEEP LINK OPENS ITS CARD. `#replies/card/<id>` (a notification tap, a
+  // shared link) is a request for THAT card, so landing on a collapsed line the
+  // owner still has to click would be a step backwards from what the link used
+  // to do. Only the routed id — everything else on the page stays closed.
+  useEffect(() => {
+    if (!replyCardId) return;
+    setExpandedIds((prev) =>
+      prev.has(replyCardId) ? prev : new Set(prev).add(replyCardId)
+    );
+  }, [replyCardId]);
+
+  /** Toggle one card open/closed. Closing is a real exit (owner 2026-09-07:
+   * answering and 標為過期 used to be the only ways out of an opened card), and
+   * it also DROPS the read below, so re-opening reads the card again rather
+   * than showing whatever it said minutes ago. */
+  function toggleCard(id: string) {
+    setExpandedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  // The row's own version stamp. It is what decides that a card ALREADY READ is
+  // stale — an answer from another window (or this page's own write, which
+  // useReplyCards folds into the row) moves the row's status/stamps, and the
+  // fetched card must follow or an opened card would keep rendering 待回覆 chips
+  // for a card the server has settled.
+  const rowVersion = (row: ReplyCardRow) =>
+    `${row.status}:${row.answeredTs ?? 0}:${row.expiredTs ?? 0}`;
+
+  const rowsById = new Map<string, ReplyCardRow>();
+  for (const row of [...waiting, ...handled]) rowsById.set(row.id, row);
+  if (foundCard) rowsById.set(foundCard.id, foundCard);
+
+  // Which version of each open id has been READ (or is being read). One entry
+  // per open card, so a row that has not moved is never re-fetched — and a row
+  // that HAS moved is fetched exactly once per move, which is what keeps this
+  // from looping against a server that disagrees with the row.
+  const readVersionsRef = useRef<Map<string, string>>(new Map());
+  const readCard = useCallback(async (id: string) => {
+    try {
+      const card = await api.getReplyCard(id);
+      setOpenCards((prev) => new Map(prev).set(id, card));
+      setOpenErrors((prev) => {
+        if (!prev.has(id)) return prev;
+        const next = new Set(prev);
+        next.delete(id);
+        return next;
+      });
+    } catch (e) {
+      console.warn("RepliesPage: card read failed", e);
+      setOpenErrors((prev) => new Set(prev).add(id));
+    }
+  }, []);
+
+  // 🔴 THE ONLY PLACE A CARD IS READ. Opening a row does not fetch by itself —
+  // it flips `expandedIds`, and this effect notices. That keeps "which cards are
+  // open" and "which cards have been read" from being two rules that can
+  // disagree, and it means a row moving underneath an open card re-reads it for
+  // free (the version key changes).
+  useEffect(() => {
+    const seen = readVersionsRef.current;
+    for (const id of expandedIds) {
+      const row = rowsById.get(id);
+      // No row means this pane is not showing the card at all — the one it just
+      // answered, before the 近期已處理 pane has been loaded. Nothing renders it,
+      // so reading it would buy a request for a card that is off screen; the
+      // version check below re-reads it the moment a pane lists it again.
+      if (!row) continue;
+      const version = rowVersion(row);
+      if (seen.get(id) === version) continue;
+      seen.set(id, version);
+      void readCard(id);
+    }
+    for (const id of [...seen.keys()]) {
+      if (!expandedIds.has(id)) {
+        // Closed: forget both the read and its version, so re-opening is a
+        // fresh read rather than a stale card the owner cannot tell is stale.
+        seen.delete(id);
+        setOpenCards((prev) => {
+          if (!prev.has(id)) return prev;
+          const next = new Map(prev);
+          next.delete(id);
+          return next;
+        });
+        setOpenErrors((prev) => {
+          if (!prev.has(id)) return prev;
+          const next = new Set(prev);
+          next.delete(id);
+          return next;
+        });
+      }
+    }
+  });
+
   // ── 開卡人 options + counts ────────────────────────────────────────────────
   // 🔴 COUNTED OVER THE PANES BEFORE THE OPENER AXIS NARROWS THEM. That is the
   // whole reason this axis stays usable: count the ALREADY-narrowed rows and a
@@ -418,7 +536,7 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
       (m.roleName || m.role);
     return { name: m.name, role };
   }
-  function whoOf(card: ReplyCard): { name: string; role: string } {
+  function whoOf(card: ReplyCardRow): { name: string; role: string } {
     return whoOfId(card.from);
   }
 
@@ -623,60 +741,122 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
     );
   }
 
-  function renderWaitingCard(card: ReplyCard) {
+  /** The collapsed line — what a row draws with NO read at all: the caret, the
+   * ask's title, and the stamp its status carries. Copied from ChatReplyCard's
+   * stub (T-48) on purpose; the stamp is this pane's own, and it is free
+   * because the light row carries the timestamps. */
+  function renderCollapsedRow(row: ReplyCardRow, stamps: ReactNode) {
+    const open = expandedIds.has(row.id);
     return (
-      <article key={card.id} id={`reply-card-${card.id}`} tabIndex={-1} className="reply-card" data-testid="waiting-card">
-        {renderHead(
-          card,
+      <button
+        type="button"
+        className="reply-card__collapsed-row"
+        aria-expanded={open}
+        onClick={() => toggleCard(row.id)}
+        data-testid="reply-card-toggle"
+        data-reply-card-id={row.id}
+      >
+        <ChevronRightIcon
+          size={12}
+          className={`reply-card__caret${open ? " reply-card__caret--open" : ""}`}
+        />
+        <span className="reply-card__collapsed-summary">{row.summary}</span>
+        {stamps}
+      </button>
+    );
+  }
+
+  /** What an OPEN row shows while its one-card read is in flight or has failed.
+   * An opened card that renders nothing at all is indistinguishable from an
+   * empty ask, which is the one thing this must not look like. */
+  function renderOpenState(id: string) {
+    return openErrors.has(id) ? (
+      <div className="reply-card__error" data-testid="card-load-error">
+        {t.replies.loadError}
+      </div>
+    ) : (
+      <div className="reply-card__hint" data-testid="card-loading">
+        {t.replies.lookupLoading}
+      </div>
+    );
+  }
+
+  function renderWaitingCard(row: ReplyCardRow) {
+    const card = openCards.get(row.id);
+    return (
+      <article
+        key={row.id}
+        id={`reply-card-${row.id}`}
+        tabIndex={-1}
+        className={`reply-card${
+          expandedIds.has(row.id) ? "" : " reply-card--collapsed"
+        }`}
+        data-testid="waiting-card"
+      >
+        {renderCollapsedRow(
+          row,
           // Two stamps, one column: the ABSOLUTE opened-at (date always
           // included — Seth 2026-07-13: reply-card times are absolute, no
           // relative-only display) above the existing ticking waited counter.
           <span className="reply-card__stamps">
             <span className="reply-card__opened-at" data-testid="opened-at">
-              {msg.replyOpenedAt(formatAbsolute(card.createdTs, nowTs))}
+              {msg.replyOpenedAt(formatAbsolute(row.createdTs, nowTs))}
             </span>
             <span className="reply-card__waited" data-testid="waited">
-              {msg.replyWaited(formatDuration(nowTs - card.createdTs))}
+              {msg.replyWaited(formatDuration(nowTs - row.createdTs))}
             </span>
-          </span>,
-          true
+          </span>
         )}
-        {renderTaskRef(card)}
+        {expandedIds.has(row.id) &&
+          (card ? (
+            <>
+              {renderHead(card, undefined, card.status === "waiting")}
+              {renderTaskRef(card)}
 
-        {/* T-a20b: summary is agent-authored free text, same as body one line
-         * down — it had no business rendering as plain text while its sibling
-         * went through Markdown. */}
-        <Markdown source={card.summary} className="reply-card__summary doc-md" />
-        {card.body && (
-          <Markdown source={card.body} className="reply-card__body doc-md" />
-        )}
-        {/* QUESTION-side attachments (T-5e8a): thumbnails/chips under the
-         * body — click an image to preview in the page's lightbox. */}
-        <ReplyCardQuestionAttachments card={card} />
+              {/* T-a20b: summary is agent-authored free text, same as body one
+               * line down — it had no business rendering as plain text while
+               * its sibling went through Markdown. */}
+              <Markdown
+                source={card.summary}
+                className="reply-card__summary doc-md"
+              />
+              {card.body && (
+                <Markdown source={card.body} className="reply-card__body doc-md" />
+              )}
+              {/* QUESTION-side attachments (T-5e8a): thumbnails/chips under the
+               * body — click an image to preview in the page's lightbox. */}
+              <ReplyCardQuestionAttachments card={card} />
 
-        <ReplyCardWaitingBody
-          card={card}
-          onAnswer={(input) => doAnswer(card.id, input)}
-        />
+              {card.status === "waiting" && (
+                <ReplyCardWaitingBody
+                  card={card}
+                  onAnswer={(input) => doAnswer(card.id, input)}
+                />
+              )}
+            </>
+          ) : (
+            renderOpenState(row.id)
+          ))}
       </article>
     );
   }
 
-  function renderHandledCard(card: ReplyCard) {
-    const expired = card.status === "expired";
-    const ts = handledTsOf(card);
+  function renderHandledCard(row: ReplyCardRow) {
+    const expired = row.status === "expired";
+    const ts = handledTsOf(row);
+    const card = openCards.get(row.id);
     return (
       <article
-        key={card.id}
-        id={`reply-card-${card.id}`}
+        key={row.id}
+        id={`reply-card-${row.id}`}
         tabIndex={-1}
         className={`reply-card ${
           expired ? "reply-card--expired" : "reply-card--answered"
-        }`}
+        }${expandedIds.has(row.id) ? "" : " reply-card--collapsed"}`}
         data-testid={expired ? "expired-card" : "answered-card"}
       >
-        {renderHead(
-          card,
+        {renderCollapsedRow(
+          row,
           // Absolute date+time (7/13 09:05) — the bare hh:mm was ambiguous
           // the moment a card aged past midnight.
           ts !== null ? (
@@ -687,22 +867,33 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
             </span>
           ) : undefined
         )}
-        {renderTaskRef(card)}
+        {expandedIds.has(row.id) &&
+          (card ? (
+            <>
+              {renderHead(card)}
+              {renderTaskRef(card)}
 
-        {/* T-a20b — same free-text contract as the waiting card above. */}
-        <Markdown source={card.summary} className="reply-card__summary doc-md" />
-        {/* The question's attachments outlive its settling — same strip on a
-         * handled card (answered/expired). */}
-        <ReplyCardQuestionAttachments card={card} />
+              {/* T-a20b — same free-text contract as the waiting card above. */}
+              <Markdown
+                source={card.summary}
+                className="reply-card__summary doc-md"
+              />
+              {/* The question's attachments outlive its settling — same strip on
+               * a handled card (answered/expired). */}
+              <ReplyCardQuestionAttachments card={card} />
 
-        {expired ? (
-          <ReplyCardExpiredBody card={card} />
-        ) : (
-          <ReplyCardAnsweredBody
-            card={card}
-            onReanswer={(input) => doReanswer(card.id, input)}
-          />
-        )}
+              {card.status === "expired" ? (
+                <ReplyCardExpiredBody card={card} />
+              ) : card.status === "answered" ? (
+                <ReplyCardAnsweredBody
+                  card={card}
+                  onReanswer={(input) => doReanswer(card.id, input)}
+                />
+              ) : null}
+            </>
+          ) : (
+            renderOpenState(row.id)
+          ))}
       </article>
     );
   }

@@ -478,9 +478,11 @@
 .reply-card__caret--open {
   transform: rotate(90deg);
 }
-/* Collapsed stub for a not-yet-expanded answered inline chat card (owner rule
- * 已回覆卡預設不載): one low-emphasis clickable row — caret + 已回覆 tag + the
- * ask summary — that expands (and only then fetches) the full card. */
+/* Collapsed stub for a not-yet-expanded card: one low-emphasis clickable row —
+ * caret + (on the chat surface) a status tag + the ask summary — that expands,
+ * and only then fetches, the full card. Worn by BOTH surfaces: the inline chat
+ * card (owner rule 已回覆卡預設不載) and, since owner 2026-09-07, every row of
+ * the 等我回覆 page's two panes. */
 .reply-card--collapsed {
   padding: 0;
 }

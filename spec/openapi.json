@@ -16691,7 +16691,7 @@
     },
     "/api/reply-cards": {
       "get": {
-        "description": "The reply-card list — LIGHT rows (``list_reply_cards`` MCP tool; owner ruling:\n卡只需要 title+決策). ``?status=waiting`` (the default) returns cards still\nwaiting on the owner, longest-waiting first; ``?status=answered`` returns cards\nanswered within the last 24h, newest answer first; ``?status=expired`` returns\ncards the owner marked expired within the last 24h (keyed off ``expired_ts``),\nnewest first. Each row carries the card's\n``summary`` (its title) and — on an answered row — the decision DIGEST\n(every circled option's index + original wording, an answer-text preview, the\nattachment count), NEVER the ``body`` or the full ``options`` text; pull one\ncard in full with ``get_reply_card``. ``?limit=N`` (N > 0) caps the rows AFTER\nthe pane's ordering (the pane's first N survive); absent / non-positive = the\nwhole pane.\n\n``?view=full`` (OPTIONAL) returns the SAME pane, the same rows, in the same\norder, as FULL ``ReplyCardDTO`` objects — body, the full ``options`` text, the\nuntruncated answer, attachment refs, the chat anchor — i.e. byte-for-byte what\nthat pane's rows would have yielded as one ``get_reply_card`` EACH. It exists\nfor one reason: a renderer that draws the whole card (the cockpit's panes and\nits inline chat cards do) had to follow the light list with one\n``GET /api/reply-cards/{card_id}`` PER ROW, so opening one pane costs one\nround trip per waiting card. The win is the ROUND TRIPS, not the bytes — a\nfull pane is very nearly the same number of bytes either way.\n``?view=light``, or the parameter absent, is the LIGHT default: the response\nthis route has always returned, unchanged to the byte. Any OTHER value is a\n400 naming both — falling back to light on a typo would restore the per-row\nfan-out silently, which is the exact cost this parameter removes.\n``view`` is DELIBERATELY absent from the ``list_reply_cards`` MCP tool: the\nlight row IS the agent-facing contract (owner ruling above), and a lever that\npulls whole panes of full cards into an agent's context would undo precisely\nwhat T-3f31 shrank. The agent path to a full card is still ``get_reply_card``,\none card at a time, chosen deliberately.",
+        "description": "The reply-card list — LIGHT rows (``list_reply_cards`` MCP tool; owner ruling:\n卡只需要 title+決策). ``?status=waiting`` (the default) returns cards still\nwaiting on the owner, longest-waiting first; ``?status=answered`` returns cards\nanswered within the last 24h, newest answer first; ``?status=expired`` returns\ncards the owner marked expired within the last 24h (keyed off ``expired_ts``),\nnewest first. Each row carries the card's\n``summary`` (its title) and — on an answered row — the decision DIGEST\n(every circled option's index + original wording, an answer-text preview, the\nattachment count), NEVER the ``body`` or the full ``options`` text; pull one\ncard in full with ``get_reply_card``. ``?limit=N`` (N > 0) caps the rows AFTER\nthe pane's ordering (the pane's first N survive); absent / non-positive = the\nwhole pane.\n\nTHERE IS ONE SHAPE AND IT IS THE LIGHT ROW. The ``?view=full`` projection is\nGONE (owner ruling 2026-09-07): a second response shape on one route made every\nreader special-case which arm it was holding, and the round trips it saved were\nspent drawing whole cards nobody had opened. The cockpit's panes now render the\nlight row COLLAPSED and fetch ``get_reply_card`` for the ONE card the owner\nopens — the same posture the inline chat card has always had — so a whole pane\ncosts one request and an unopened card costs none. ``view`` is not accepted;\nlike any other unknown query parameter it is ignored.",
         "operationId": "handle_list_reply_cards_api_reply_cards_get",
         "parameters": [
           {
@@ -16725,22 +16725,6 @@
               ],
               "title": "Limit"
             }
-          },
-          {
-            "in": "query",
-            "name": "view",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "View"
-            }
           }
         ],
         "responses": {
@@ -16748,20 +16732,10 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "anyOf": [
-                    {
-                      "items": {
-                        "$ref": "#/components/schemas/ReplyCardListItemDTO"
-                      },
-                      "type": "array"
-                    },
-                    {
-                      "items": {
-                        "$ref": "#/components/schemas/ReplyCardDTO"
-                      },
-                      "type": "array"
-                    }
-                  ],
+                  "items": {
+                    "$ref": "#/components/schemas/ReplyCardListItemDTO"
+                  },
+                  "type": "array",
                   "title": "Response Handle List Reply Cards Api Reply Cards Get"
                 }
               }

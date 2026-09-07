@@ -133,6 +133,13 @@ export type WireTeardownHereResult =
  * jump-to-origin anchor); `answered_ts` / `answer` are null while waiting. */
 export type WireReplyCard = components["schemas"]["ReplyCardDTO"];
 
+/** Mirrors `ReplyCardListItemDTO`: ONE LIGHT row of a reply-card pane — the
+ * only shape `GET /api/reply-cards` serves (the `?view=full` projection was
+ * removed, owner 2026-09-07). It carries no body, no option text, no
+ * attachments and no chat anchor: those live on the single-card read. */
+export type WireReplyCardRow =
+  components["schemas"]["ReplyCardListItemDTO"];
+
 /** Mirrors `ReplyCardAnswerDTO`: the stored answer on an answered card.
  * `option_idxs` is null for a pure free-text answer, otherwise the deduped,
  * ascending list of every circled option's index; `attachments` are served

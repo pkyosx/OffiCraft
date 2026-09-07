@@ -84,6 +84,7 @@ import type {
   WireChatRead,
   WireChatGalleryEntry,
   WireReplyCard,
+  WireReplyCardRow,
   WireReplyCardReceipt,
   WireReplyCardOption,
   WireWebhookEndpoint,
@@ -115,6 +116,7 @@ import type {
   ChatReadReceipt,
   GalleryAttachment,
   ReplyCard,
+  ReplyCardRow,
   ReplyCardWriteReceipt,
   ReplyCardOption,
   ServerSettingsView,
@@ -418,6 +420,34 @@ export function toGalleryAttachment(
  * and there is no positional fallback to guess with. */
 export function toReplyCardOption(w: WireReplyCardOption): ReplyCardOption {
   return { text: w.text, aiPick: w.ai_pick ?? false };
+}
+
+/** Map one wire LIGHT list row → the view-model `ReplyCardRow`. It maps only
+ * what the pane draws collapsed (title, who asked, status + its stamps, the
+ * task ref); the answered row's decision digest is deliberately dropped —
+ * nothing renders it, and the expanded card is a full `getReplyCard` read.
+ *
+ * 🔴 DO NOT "COMPLETE" THIS INTO A `ReplyCard`. The wire has no body, no option
+ * text and no chat anchor here; filling those with "" / [] would produce an
+ * object that renders as a card with its question silently missing. */
+export function toReplyCardRow(w: WireReplyCardRow): ReplyCardRow {
+  return {
+    id: w.id,
+    from: w.from,
+    kind: w.kind,
+    summary: w.summary ?? "",
+    status: w.status as ReplyCardRow["status"],
+    createdTs: w.created_ts ?? 0,
+    answeredTs: w.answered_ts,
+    expiredTs: w.expired_ts,
+    task: w.task
+      ? {
+          id: w.task.id,
+          typeKey: w.task.type_key ?? "",
+          title: w.task.title ?? "",
+        }
+      : null,
+  };
 }
 
 export function toReplyCard(w: WireReplyCard): ReplyCard {

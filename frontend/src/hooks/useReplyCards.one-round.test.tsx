@@ -61,6 +61,21 @@ function renderPage() {
   );
 }
 
+/** Open every card on screen: the panes render collapsed rows and read a card
+ * only when it is opened (owner 2026-09-07), so the option chips and 標為過期
+ * these tests click do not exist until then. Opening reads ONE card each and
+ * never touches `listReplyCards`, which is what this file counts. */
+async function openCards() {
+  for (const btn of document.querySelectorAll<HTMLElement>(
+    '[data-testid="reply-card-toggle"]'
+  )) {
+    if (btn.getAttribute("aria-expanded") === "false") fireEvent.click(btn);
+  }
+  await waitFor(() =>
+    expect(document.querySelectorAll('[data-testid="card-loading"]')).toHaveLength(0)
+  );
+}
+
 beforeEach(() => {
   __resetMock();
   window.location.hash = "";
@@ -79,6 +94,7 @@ describe("useReplyCards — one owner action costs one refetch round", () => {
     const { findAllByTestId, queryAllByTestId } = renderPage();
     const cards = await findAllByTestId("waiting-card");
     expect(cards).toHaveLength(3);
+    await openCards();
 
     // Spy AFTER the mount fetch has settled, so the count below is the cost of
     // the answer alone.
@@ -106,6 +122,7 @@ describe("useReplyCards — one owner action costs one refetch round", () => {
     const { findAllByTestId, findByTestId, queryAllByTestId } = renderPage();
     const cards = await findAllByTestId("waiting-card");
     expect(cards).toHaveLength(2);
+    await openCards();
 
     const listSpy = vi.spyOn(api, "listReplyCards");
 

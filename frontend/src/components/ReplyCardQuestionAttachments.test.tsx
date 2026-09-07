@@ -63,6 +63,19 @@ function mkCard(over: Partial<ReplyCard>): ReplyCard {
   };
 }
 
+/** Open every card the 等我回覆 page is showing — its rows are collapsed until
+ * clicked and the card is read on expand (owner 2026-09-07). */
+async function openCards() {
+  for (const btn of document.querySelectorAll<HTMLElement>(
+    '[data-testid="reply-card-toggle"]'
+  )) {
+    if (btn.getAttribute("aria-expanded") === "false") fireEvent.click(btn);
+  }
+  await waitFor(() =>
+    expect(document.querySelectorAll('[data-testid="card-loading"]')).toHaveLength(0)
+  );
+}
+
 beforeEach(() => {
   __resetMock();
   window.location.hash = "";
@@ -83,6 +96,7 @@ describe("reply-card question attachments", () => {
       </I18nProvider>
     );
     await findByTestId("waiting-card");
+    await openCards();
 
     // The strip: one image thumbnail + one shared-popup trigger under its filename.
     const strip = container.querySelector(".reply-card__question-atts");
@@ -154,6 +168,7 @@ describe("reply-card question attachments", () => {
       </I18nProvider>
     );
     await findByTestId("waiting-card");
+    await openCards();
     expect(container.querySelector(".reply-card__question-atts")).toBeNull();
   });
 });

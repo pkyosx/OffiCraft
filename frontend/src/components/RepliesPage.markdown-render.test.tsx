@@ -4,7 +4,7 @@
 // (ReplyCardBody.tsx is shared; the body row itself lives in each wrapper).
 
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { render, fireEvent } from "@testing-library/react";
+import { render, fireEvent, waitFor } from "@testing-library/react";
 import { I18nProvider } from "../i18n";
 import { RepliesPage } from "./RepliesPage";
 import { ReplyCardsProvider } from "../hooks/useReplyCards";
@@ -40,6 +40,20 @@ function renderPage() {
   );
 }
 
+/** Open every card on screen — the panes render collapsed rows and read the
+ * card on expand (owner 2026-09-07), and the markdown under test lives in that
+ * read card. */
+async function openCards() {
+  for (const btn of document.querySelectorAll<HTMLElement>(
+    '[data-testid="reply-card-toggle"]'
+  )) {
+    if (btn.getAttribute("aria-expanded") === "false") fireEvent.click(btn);
+  }
+  await waitFor(() =>
+    expect(document.querySelectorAll('[data-testid="card-loading"]')).toHaveLength(0)
+  );
+}
+
 beforeEach(() => {
   __resetMock();
   window.location.hash = "";
@@ -56,6 +70,7 @@ describe("RepliesPage markdown render (T-13af)", () => {
     );
     const { findAllByTestId } = renderPage();
     const [card] = await findAllByTestId("waiting-card");
+    await openCards();
 
     const body = card.querySelector(".reply-card__body")!;
     expect(body.querySelector("strong")?.textContent).toBe("注意");
@@ -75,6 +90,7 @@ describe("RepliesPage markdown render (T-13af)", () => {
     );
     const { findAllByTestId } = renderPage();
     const [card] = await findAllByTestId("waiting-card");
+    await openCards();
 
     const body = card.querySelector(".reply-card__body")!;
     expect(body.classList.contains("doc-md")).toBe(true);
@@ -87,6 +103,7 @@ describe("RepliesPage markdown render (T-13af)", () => {
     __injectMockReplyCard(mkCard({ body: "<img src=x onerror=alert(1)>" }));
     const { findAllByTestId } = renderPage();
     const [card] = await findAllByTestId("waiting-card");
+    await openCards();
 
     const body = card.querySelector(".reply-card__body")!;
     expect(body.querySelector("img")).toBeNull();
@@ -102,6 +119,7 @@ describe("RepliesPage markdown render (T-13af)", () => {
     );
     const { findAllByTestId } = renderPage();
     const [card] = await findAllByTestId("waiting-card");
+    await openCards();
 
     const summary = card.querySelector(".reply-card__summary")!;
     // positive control — the scope really holds the summary's text
@@ -125,6 +143,7 @@ describe("RepliesPage markdown render (T-13af)", () => {
     // 近期已處理 is collapsed by default — open it to reach the handled card.
     fireEvent.click(await findByTestId("answered-toggle"));
     const card = await findByTestId("answered-card");
+    await openCards();
 
     const summary = card.querySelector(".reply-card__summary")!;
     // positive control — the scope really holds the summary's text
