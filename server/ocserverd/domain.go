@@ -1949,3 +1949,83 @@ func DisplayName(id string, names map[string]string) string {
 	}
 	return id
 }
+
+// ── T-33 傳承（lore） ────────────────────────────────────────────────────────
+
+// LoreScopeRole / LoreScopeManual are the two scopes a lore entry can belong
+// to, and they are the whole set. The pair is a CLOSED vocabulary enforced by a
+// CHECK in migrations/00093, so a third value cannot be stored even by a hand
+// edit.
+//
+// 🔴 THEY ARE NOT INTERCHANGEABLE FALLBACKS FOR ONE ANOTHER. A write that
+// cannot resolve a manual scope (a task with no type) must be REFUSED, never
+// filed under the caller's role instead: that would charge every boot of that
+// role for a lesson about a task type it will never work on, while the type
+// that needed it still gets nothing — and no error anywhere would say so.
+const (
+	LoreScopeRole   = "role"
+	LoreScopeManual = "manual"
+)
+
+// LoreStateActive / LoreStatePinned / LoreStateRetired are a lore entry's three
+// mutually exclusive states — one column, not three flags (see 00093).
+//
+//   - active  — ordinary; ordered by effective_ts among its peers.
+//   - pinned  — sorted ahead of every active entry, so it survives the cap.
+//   - retired — excluded from every reader-facing fold. NOT deleted: the entry
+//     stays readable on the cockpit with its reason, and can be brought back.
+const (
+	LoreStateActive  = "active"
+	LoreStatePinned  = "pinned"
+	LoreStateRetired = "retired"
+)
+
+// ValidLoreState reports whether s names one of the three states. The write
+// faces gate on this rather than on a local switch so the closed set has one
+// definition on the Go side too.
+func ValidLoreState(s string) bool {
+	switch s {
+	case LoreStateActive, LoreStatePinned, LoreStateRetired:
+		return true
+	}
+	return false
+}
+
+// loreRoleCapCharsDefault / loreManualCapCharsDefault are the shipped budgets of
+// the two folds — how many characters of lore a staff boot document and a task
+// manual read may carry.
+//
+// 🔴 THE TWO BUDGETS DO NOT ADD UP AND ARE NEVER SUMMED. They are spent by
+// different readers at different moments: the role budget is paid by every boot
+// of that role, the manual budget by whoever opens that type's manual. A single
+// shared number would make a role's traditions compete with a task type's for
+// the same room, which is a trade nobody wants to make.
+//
+// loreTitleCapCharsDefault / loreBodyCapCharsDefault bound ONE entry at the
+// moment it is written. The owner set these himself on 2026-09-07, lowering the
+// title from 140 to 80 and the body from 1000 to 500.
+//
+// 🔴 THESE FOUR DO NOT INHERIT THE doc.cap_chars.* "只能調高" RULE, and the
+// difference is not an oversight. That rule exists to protect documents that are
+// REWRITTEN in place: lowering their cap would put a legal stored document into
+// shrink-only mode, unable to be saved again until somebody cut it. A lore entry
+// has no edit path at all, so a lowered cap cannot strand one — it binds the
+// NEXT write and nothing else. Their floors are therefore real floors, and the
+// owner can turn all four knobs in both directions.
+const (
+	loreRoleCapCharsDefault   = 10000
+	loreManualCapCharsDefault = 10000
+	loreTitleCapCharsDefault  = 80
+	loreBodyCapCharsDefault   = 500
+)
+
+// The bounds on those four knobs. The floors are small but non-zero: zero is
+// "no room" everywhere in this file (selectLoreForScope reads it that way), and
+// a cap that silently switches the whole feature off is a state the settings
+// page has no way to explain.
+const (
+	minLoreFoldCapChars  = 100
+	maxLoreFoldCapChars  = maxDocCapChars
+	minLoreEntryCapChars = 10
+	maxLoreEntryCapChars = 10000
+)
