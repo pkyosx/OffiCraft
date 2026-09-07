@@ -494,6 +494,10 @@ func newAPIServer(dal *DAL, hub *Hub, keys *keyring, tokenTTL int64, root assetR
 		docCapCharsSystemInteraction: systemInteractionCapCharsDefault,
 		docCapCharsBootSequence:      bootSequenceCapCharsDefault,
 		docCapCharsOffboard:          offboardCapCharsDefault,
+		loreCapCharsRole:             loreRoleCapCharsDefault,
+		loreCapCharsManual:           loreManualCapCharsDefault,
+		loreCapCharsTitle:            loreTitleCapCharsDefault,
+		loreCapCharsBody:             loreBodyCapCharsDefault,
 		chatBudgetChars:              chatBudgetCharsDefault,
 		stepNoteCapChars:             stepNoteCapCharsDefault,
 		backupRetain:                 backupRetainDefault,
@@ -679,6 +683,10 @@ func cmdServe(env func(string) string, noReconcile, noOutsource bool, out io.Wri
 	api.docCapCharsSystemInteraction = auth.docCapCharsSystemInteraction
 	api.docCapCharsBootSequence = auth.docCapCharsBootSequence
 	api.docCapCharsOffboard = auth.docCapCharsOffboard
+	api.loreCapCharsRole = auth.loreCapCharsRole
+	api.loreCapCharsManual = auth.loreCapCharsManual
+	api.loreCapCharsTitle = auth.loreCapCharsTitle
+	api.loreCapCharsBody = auth.loreCapCharsBody
 	api.chatBudgetChars = auth.chatBudgetChars
 	api.stepNoteCapChars = auth.stepNoteCapChars
 	api.backupRetain = auth.backupRetain

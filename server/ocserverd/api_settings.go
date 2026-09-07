@@ -586,6 +586,35 @@ func (s *apiServer) HandleUpdateSettingsApiSettingsPatch(w http.ResponseWriter, 
 				minStepNoteCapChars, maxStepNoteCapChars))
 		return
 	}
+	// lore.cap_chars.* (T-33) — the four 傳承 knobs, checked on their own and NOT
+	// as rows in the capRange table above, for the same reason chat_budget_chars
+	// and step_note_cap_chars are not: that table's shared message says the floor
+	// is the shipped default and the cap can only be RAISED, and about these four
+	// that sentence would be false. A 傳承 entry has no edit path at all, so a
+	// lowered cap cannot strand one that is already stored — it binds the next
+	// write and nothing else. The owner lowered two of them himself the day they
+	// shipped (title 140→80, body 1000→500).
+	//
+	// Two ranges, not one: the FOLD budgets are document-sized and the ENTRY
+	// bounds are sentence-sized, so a shared range would either let a title grow
+	// to a document or stop a fold from holding more than a paragraph.
+	loreRange := []struct {
+		field    *int
+		name     string
+		min, max int
+	}{
+		{body.LoreCapCharsRole, "lore_cap_chars_role", minLoreFoldCapChars, maxLoreFoldCapChars},
+		{body.LoreCapCharsManual, "lore_cap_chars_manual", minLoreFoldCapChars, maxLoreFoldCapChars},
+		{body.LoreCapCharsTitle, "lore_cap_chars_title", minLoreEntryCapChars, maxLoreEntryCapChars},
+		{body.LoreCapCharsBody, "lore_cap_chars_body", minLoreEntryCapChars, maxLoreEntryCapChars},
+	}
+	for _, c := range loreRange {
+		if c.field != nil && (*c.field < c.min || *c.field > c.max) {
+			writeError(w, http.StatusUnprocessableEntity,
+				fmt.Sprintf("%s must be between %d and %d characters", c.name, c.min, c.max))
+			return
+		}
+	}
 	// backup_retain (T-8) — checked on its own too. It is not a character count,
 	// its unit is FILES, and it is the only knob on this endpoint whose value
 	// causes DELETION, so it does not belong in a table whose shared message
@@ -790,6 +819,10 @@ func (s *apiServer) HandleUpdateSettingsApiSettingsPatch(w http.ResponseWriter, 
 		{body.ChatBudgetChars, settingChatBudgetChars, &s.chatBudgetChars},
 		{body.StepNoteCapChars, settingStepNoteCapChars, &s.stepNoteCapChars},
 		{body.BackupRetain, settingBackupRetain, &s.backupRetain},
+		{body.LoreCapCharsRole, settingLoreCapCharsRole, &s.loreCapCharsRole},
+		{body.LoreCapCharsManual, settingLoreCapCharsManual, &s.loreCapCharsManual},
+		{body.LoreCapCharsTitle, settingLoreCapCharsTitle, &s.loreCapCharsTitle},
+		{body.LoreCapCharsBody, settingLoreCapCharsBody, &s.loreCapCharsBody},
 	}
 	for _, c := range capWrite {
 		if c.field == nil {
@@ -966,6 +999,10 @@ func (s *apiServer) settingsView() settingsDTO {
 		DocCapCharsSystemInteraction: s.docCapCharsSystemInteraction,
 		DocCapCharsBootSequence:      s.docCapCharsBootSequence,
 		DocCapCharsOffboard:          s.docCapCharsOffboard,
+		LoreCapCharsRole:             s.loreCapCharsRole,
+		LoreCapCharsManual:           s.loreCapCharsManual,
+		LoreCapCharsTitle:            s.loreCapCharsTitle,
+		LoreCapCharsBody:             s.loreCapCharsBody,
 		ChatBudgetChars:              s.chatBudgetChars,
 		StepNoteCapChars:             s.stepNoteCapChars,
 		BackupRetain:                 s.backupRetain,

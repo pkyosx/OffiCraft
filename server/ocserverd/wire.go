@@ -125,7 +125,19 @@ type settingsDTO struct {
 	// T-c9b4). NOT a doc cap: it bounds a block repacked on every read, so unlike
 	// the seven above it may be lowered as well as raised, and its ceiling is its
 	// own (tied to resumeChatFetch, see domain.go).
-	ChatBudgetChars int `json:"chat_budget_chars"`
+	// The four 傳承 knobs (T-33; lore.cap_chars.*). Two FOLD budgets — how much
+	// lore a staff boot document carries for one role, and how much
+	// get_task_manual appends after a type's learnings — and two ENTRY bounds on
+	// one write's title and body.
+	//
+	// 🔴 The two fold budgets are NEVER summed. They are spent by different
+	// readers at different moments, so one shared number would make a role's
+	// traditions compete with a task type's for the same room.
+	LoreCapCharsRole   int `json:"lore_cap_chars_role"`
+	LoreCapCharsManual int `json:"lore_cap_chars_manual"`
+	LoreCapCharsTitle  int `json:"lore_cap_chars_title"`
+	LoreCapCharsBody   int `json:"lore_cap_chars_body"`
+	ChatBudgetChars    int `json:"chat_budget_chars"`
 	// StepNoteCapChars is the ceiling on ONE task step's working note
 	// (task.step_note_cap_chars; T-119). Also not a doc cap and also lowerable:
 	// it is enforced only when a note is written, so an over-cap note keeps

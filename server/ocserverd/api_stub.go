@@ -125,6 +125,19 @@ type apiServer struct {
 	docCapCharsSystemInteraction int
 	docCapCharsBootSequence      int
 	docCapCharsOffboard          int
+	// loreCapChars* are the live T-33 傳承 knobs (DB lore.cap_chars.{role,
+	// manual,title,body}). The two FOLD budgets are read at request time by the
+	// two exits through loreRoleCap() / loreManualCap(); the two ENTRY bounds by
+	// the write face through loreTitleCap() / loreBodyCap().
+	//
+	// Four fields and four accessors rather than one loreCap(kind): which cap a
+	// call site is entitled to is a property of the seam, not a runtime argument,
+	// so a parameter would let the boot fold quietly measure itself against the
+	// title cap and still compile.
+	loreCapCharsRole   int
+	loreCapCharsManual int
+	loreCapCharsTitle  int
+	loreCapCharsBody   int
 	// chatBudgetChars is the live budget of the wake snapshot's chat block (DB
 	// chat.budget_chars; T-c9b4). Read through chatBudget() by
 	// resumeSnapshotParts — the ONE place the number enters the packer, which is
@@ -676,6 +689,42 @@ func (s *apiServer) offboardCap() int {
 // costs one function body, not nine call sites.
 func (s *apiServer) taskEventCap() int {
 	return taskEventCapCharsDefault
+}
+
+// loreRoleCap / loreManualCap are the live FOLD budgets of the two lore exits
+// (T-33). Read at request time like every cap above, so a PATCH takes effect on
+// the next boot document with no restart.
+//
+// 🔴 THE TWO ARE INDEPENDENT AND ARE NEVER ADDED. A role's traditions are paid
+// for by every boot of that role; a task type's are paid for by whoever opens
+// that manual. Summing them, or serving one where the other belongs, would make
+// one reader's budget depend on an unrelated reader's writing.
+func (s *apiServer) loreRoleCap() int {
+	s.settingsMu.RLock()
+	defer s.settingsMu.RUnlock()
+	return s.loreCapCharsRole
+}
+
+func (s *apiServer) loreManualCap() int {
+	s.settingsMu.RLock()
+	defer s.settingsMu.RUnlock()
+	return s.loreCapCharsManual
+}
+
+// loreTitleCap / loreBodyCap bound ONE entry at the moment it is written. They
+// are what the write face refuses against, and — unlike the doc caps — they may
+// be lowered: an entry has no edit path, so a smaller cap can never strand one
+// that is already stored.
+func (s *apiServer) loreTitleCap() int {
+	s.settingsMu.RLock()
+	defer s.settingsMu.RUnlock()
+	return s.loreCapCharsTitle
+}
+
+func (s *apiServer) loreBodyCap() int {
+	s.settingsMu.RLock()
+	defer s.settingsMu.RUnlock()
+	return s.loreCapCharsBody
 }
 
 // chatBudget is the live wake-snapshot chat budget (chat.budget_chars;
