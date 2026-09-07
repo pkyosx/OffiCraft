@@ -146,6 +146,7 @@ import {
 } from "./mappers";
 import {
   DOC_CAP_CHARS_DEFAULTS,
+  DOC_CAP_CHARS_MIN,
   BOOT_DOC_CAP_CHARS_DEFAULTS,
   BOOT_DOC_HISTORY_KEPT,
   TASK_EVENT_CAP_CHARS_DEFAULT,
@@ -1064,6 +1065,26 @@ const mockLoreEntries: LoreEntryView[] = [
     effectiveTs: 1788450000,
     createdTs: 1788450000,
     updatedTs: 1788450000,
+  },
+  // The agent scope, present so the third filter item answers with a real row
+  // instead of an empty list nobody can tell from a broken request. Its
+  // `scopeKey` is a MEMBER id (ow-7d8ad859dd9b, the outsource row on the mock
+  // roster) — not a role key, because a contractor carries no role. Its author
+  // is that same worker: agent lore is written by the member it loads into.
+  {
+    id: "L-5",
+    seq: 5,
+    scopeKind: "agent",
+    scopeKey: "ow-7d8ad859dd9b",
+    title: "交接路徑要寫絕對路徑",
+    body: "留給下一個人的路徑一律寫絕對路徑——對方在別的工作目錄下撲空，得到的訊息跟那一輪根本沒跑一模一樣。",
+    authorId: "ow-7d8ad859dd9b",
+    sourceTaskId: "",
+    state: "active",
+    retireReason: "",
+    effectiveTs: 1788460000,
+    createdTs: 1788460000,
+    updatedTs: 1788460000,
   },
 ];
 
@@ -4844,10 +4865,19 @@ export const mockApi: Api = {
     let capChars = 0;
     let firstDroppedId = "";
     if (opts?.scopeKind && opts?.scopeKey) {
+      // 🔴 THREE KINDS, TWO KNOBS — that is the ruling, not an oversight.
+      // owner rc-3c24fdc61ed3 [0]: the agent scope SHARES the role knob
+      // (`lore.cap_chars.role`) instead of getting a fifth one, which is why
+      // the cockpit calls that row 成員傳承字數上限. Spelled out per kind rather
+      // than left as "anything that is not manual", so that a fourth scope
+      // arriving later has to be assigned a knob on purpose instead of
+      // inheriting this one by falling off the end.
       capChars =
         opts.scopeKind === "manual"
           ? mockServerSettings.lore_cap_chars_manual
-          : mockServerSettings.lore_cap_chars_role;
+          : opts.scopeKind === "agent" || opts.scopeKind === "role"
+            ? mockServerSettings.lore_cap_chars_role
+            : 0;
       let used = 0;
       for (const e of ordered.filter((x) => x.state !== "retired")) {
         const cost = [...e.title].length + [...e.body].length;
@@ -4876,6 +4906,13 @@ export const mockApi: Api = {
     const made: LoreEntryView = {
       id: `L-${seq}`,
       seq,
+      // The mock's writer is `mira`, a STAFF member who holds the `assistant`
+      // role — so a non-task write from her really is role lore, and that is
+      // the only reason this reads "role". It is not the old "not manual ⇒
+      // role" default: an outsource writer would produce `scopeKind: "agent"`
+      // with its own member id as the key. Nothing in this file can write as
+      // an outsource worker today, so that branch has no fixture rather than a
+      // wrong one.
       scopeKind: entry.taskId ? "manual" : "role",
       scopeKey: entry.taskId ? "tm-mock" : "assistant",
       title: entry.title,
@@ -5574,54 +5611,32 @@ export const mockApi: Api = {
         "outsource_max_parallel must be between -1 and 20 (-1 = unlimited)"
       );
     }
-    // Server parity (T-3aeb / T-ae38 / T-30f1): each floor IS that segment's
-    // shipped default, so a document cap can only ever be raised. Duty's floor
-    // is its OWN default, not the others' — sharing one number here would make
-    // the owner's Duty default unreachable through this surface. The numbers
-    // are read from DOC_CAP_CHARS_DEFAULTS, never restated.
-    for (const [field, wire, min] of [
-      [patch.docCapCharsDuty, "doc_cap_chars_duty", DOC_CAP_CHARS_DEFAULTS.duty],
-      [
-        patch.docCapCharsInsight,
-        "doc_cap_chars_insight",
-        DOC_CAP_CHARS_DEFAULTS.insight,
-      ],
-      [
-        patch.docCapCharsLearning,
-        "doc_cap_chars_learning",
-        DOC_CAP_CHARS_DEFAULTS.learning,
-      ],
-      [
-        patch.docCapCharsManualSop,
-        "doc_cap_chars_manual_sop",
-        DOC_CAP_CHARS_DEFAULTS.manualSop,
-      ],
-      [
-        patch.docCapCharsManualLearnings,
-        "doc_cap_chars_manual_learnings",
-        DOC_CAP_CHARS_DEFAULTS.manualLearnings,
-      ],
-      [
-        patch.docCapCharsSystemInteraction,
-        "doc_cap_chars_system_interaction",
-        DOC_CAP_CHARS_DEFAULTS.systemInteraction,
-      ],
-      [
-        patch.docCapCharsBootSequence,
-        "doc_cap_chars_boot_sequence",
-        DOC_CAP_CHARS_DEFAULTS.bootSequence,
-      ],
-      [
-        patch.docCapCharsOffboard,
-        "doc_cap_chars_offboard",
-        DOC_CAP_CHARS_DEFAULTS.offboard,
-      ],
+    // Server parity (T-3aeb / T-ae38 / T-30f1; floor rewritten by the owner's
+    // 2026-09-07 ruling on card rc-5b66ba099e28, option [1]): all eight caps
+    // share ONE floor, `DOC_CAP_CHARS_MIN`, so each moves in both directions.
+    // They were raise-only, each floored at its own shipped default, on the
+    // reasoning that lowering one stranded existing legal documents; it does
+    // not — DocCapBlocked judges only the write in front of it, stored content
+    // is never truncated and still reads back, and an over-cap document still
+    // saves while it is getting shorter.
+    for (const [field, wire] of [
+      [patch.docCapCharsDuty, "doc_cap_chars_duty"],
+      [patch.docCapCharsInsight, "doc_cap_chars_insight"],
+      [patch.docCapCharsLearning, "doc_cap_chars_learning"],
+      [patch.docCapCharsManualSop, "doc_cap_chars_manual_sop"],
+      [patch.docCapCharsManualLearnings, "doc_cap_chars_manual_learnings"],
+      [patch.docCapCharsSystemInteraction, "doc_cap_chars_system_interaction"],
+      [patch.docCapCharsBootSequence, "doc_cap_chars_boot_sequence"],
+      [patch.docCapCharsOffboard, "doc_cap_chars_offboard"],
     ] as const) {
-      if (field !== undefined && (field < min || field > 100000)) {
+      if (
+        field !== undefined &&
+        (field < DOC_CAP_CHARS_MIN || field > 100000)
+      ) {
         throw mockApiError(
           "http 422 for PATCH /api/settings",
           422,
-          `${wire} must be between ${min} and 100000 characters — the floor is the shipped default, so the document cap can only be raised, never lowered`
+          `${wire} must be between ${DOC_CAP_CHARS_MIN} and 100000 characters — a lowered cap binds the next write only; stored content over it is never truncated and still reads back`
         );
       }
     }
@@ -5639,9 +5654,9 @@ export const mockApi: Api = {
         `backup_retain must be between ${BACKUP_RETAIN_MIN} and ${BACKUP_RETAIN_MAX} backups per pool`
       );
     }
-    // T-c9b4: checked on its own, NOT as a row above — it has its own ceiling,
-    // and the message above ("the floor is the shipped default … can only be
-    // raised") would be a lie about a knob that may be turned down.
+    // T-c9b4: checked on its own, NOT as a row above — its floor and ceiling
+    // are both its own, so the message above would quote a range that does not
+    // apply to it.
     if (
       patch.chatBudgetChars !== undefined &&
       (patch.chatBudgetChars < CHAT_BUDGET_CHARS_MIN ||
@@ -5653,9 +5668,8 @@ export const mockApi: Api = {
         `chat_budget_chars must be between ${CHAT_BUDGET_CHARS_MIN} and ${CHAT_BUDGET_CHARS_MAX} characters`
       );
     }
-    // T-119: checked on its own for the same reason — it may be turned DOWN,
-    // so the doc caps' "the floor is the shipped default" message is a lie
-    // about it.
+    // T-119: checked on its own for the same reason — its range is its own, so
+    // the doc caps' message would quote the wrong numbers at it.
     if (
       patch.stepNoteCapChars !== undefined &&
       (patch.stepNoteCapChars < STEP_NOTE_CAP_CHARS_MIN ||

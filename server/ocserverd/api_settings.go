@@ -522,35 +522,34 @@ func (s *apiServer) HandleUpdateSettingsApiSettingsPatch(w http.ResponseWriter, 
 			"warden_credential_lifetime_secs "+wardenCredLifetimeRangeMsg)
 		return
 	}
-	// Each floor is THAT segment's shipped default, so a knob only ever RAISES
-	// its cap (owner 2026-07-31). Lowering one would strand every document that
-	// is legal today in shrink-only mode — the refusal says so rather than
-	// making the caller infer it from a bare range. Five independent knobs:
-	// three role-journal segments since T-ae38, and the manual's SOP and
-	// learnings since T-30f1. Duty's floor is minDutyCapChars, NOT the other
-	// four's minDocCapChars, or its own shipped default would be unreachable
-	// from this surface. The numbers live in domain.go — do not restate them
-	// here. Every knob must appear in this table: a missing row is not a
-	// missing check, it is an UNCHECKED cap that the load face will later
-	// refuse to boot on.
+	// EIGHT independent knobs, ONE shared floor, and every one of them turns in
+	// BOTH directions (owner 2026-09-07, card rc-5b66ba099e28, option [1]).
+	// Until then each floor was that segment's own shipped default, so a knob
+	// could only ever be raised; the reasoning behind that, and why it no longer
+	// holds, is written out at minDocCapChars in domain.go. The numbers live
+	// there — do not restate them here.
+	//
+	// Every knob must appear in this table: a missing row is not a missing
+	// check, it is an UNCHECKED cap that the load face will later refuse to
+	// boot on.
 	capRange := []struct {
 		field *int
 		name  string
 		min   int
 	}{
-		{body.DocCapCharsDuty, "doc_cap_chars_duty", minDutyCapChars},
+		{body.DocCapCharsDuty, "doc_cap_chars_duty", minDocCapChars},
 		{body.DocCapCharsInsight, "doc_cap_chars_insight", minDocCapChars},
 		{body.DocCapCharsLearning, "doc_cap_chars_learning", minDocCapChars},
 		{body.DocCapCharsManualSop, "doc_cap_chars_manual_sop", minDocCapChars},
 		{body.DocCapCharsManualLearnings, "doc_cap_chars_manual_learnings", minDocCapChars},
-		{body.DocCapCharsSystemInteraction, "doc_cap_chars_system_interaction", minSystemInteractionCapChars},
-		{body.DocCapCharsBootSequence, "doc_cap_chars_boot_sequence", minBootSequenceCapChars},
-		{body.DocCapCharsOffboard, "doc_cap_chars_offboard", minOffboardCapChars},
+		{body.DocCapCharsSystemInteraction, "doc_cap_chars_system_interaction", minDocCapChars},
+		{body.DocCapCharsBootSequence, "doc_cap_chars_boot_sequence", minDocCapChars},
+		{body.DocCapCharsOffboard, "doc_cap_chars_offboard", minDocCapChars},
 	}
 	for _, c := range capRange {
 		if c.field != nil && (*c.field < c.min || *c.field > maxDocCapChars) {
 			writeError(w, http.StatusUnprocessableEntity,
-				fmt.Sprintf("%s must be between %d and %d characters — the floor is the shipped default, so the document cap can only be raised, never lowered",
+				fmt.Sprintf("%s must be between %d and %d characters — a lowered cap binds the next write only; stored content over it is never truncated and still reads back",
 					c.name, c.min, maxDocCapChars))
 			return
 		}

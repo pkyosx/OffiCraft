@@ -822,7 +822,7 @@ func loadAuthSettings(d *DAL, cfg Config, logf func(string)) (authSettings, erro
 		*dst = n
 		return nil
 	}
-	if err := loadCap(settingDocCapCharsDuty, minDutyCapChars, maxDocCapChars,
+	if err := loadCap(settingDocCapCharsDuty, minDocCapChars, maxDocCapChars,
 		&out.docCapCharsDuty, dutyCapCharsDefault); err != nil {
 		return out, err
 	}
@@ -842,15 +842,15 @@ func loadAuthSettings(d *DAL, cfg Config, logf func(string)) (authSettings, erro
 		&out.docCapCharsManualLearnings, contextDocMaxCharsDefault); err != nil {
 		return out, err
 	}
-	if err := loadCap(settingDocCapCharsSystemInteraction, minSystemInteractionCapChars, maxDocCapChars,
+	if err := loadCap(settingDocCapCharsSystemInteraction, minDocCapChars, maxDocCapChars,
 		&out.docCapCharsSystemInteraction, systemInteractionCapCharsDefault); err != nil {
 		return out, err
 	}
-	if err := loadCap(settingDocCapCharsBootSequence, minBootSequenceCapChars, maxDocCapChars,
+	if err := loadCap(settingDocCapCharsBootSequence, minDocCapChars, maxDocCapChars,
 		&out.docCapCharsBootSequence, bootSequenceCapCharsDefault); err != nil {
 		return out, err
 	}
-	if err := loadCap(settingDocCapCharsOffboard, minOffboardCapChars, maxDocCapChars,
+	if err := loadCap(settingDocCapCharsOffboard, minDocCapChars, maxDocCapChars,
 		&out.docCapCharsOffboard, offboardCapCharsDefault); err != nil {
 		return out, err
 	}

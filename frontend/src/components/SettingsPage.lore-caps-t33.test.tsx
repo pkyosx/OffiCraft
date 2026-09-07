@@ -3,13 +3,16 @@
 //
 // 🔴 WHAT IS ACTUALLY BEING LOCKED HERE IS THAT THEY GO DOWN. Four number
 // fields that only ever go up would look identical on screen, pass a "the row
-// renders" test, and be wrong — the whole reason these four are not rows of
-// DOC_CAP_FIELDS is that every knob in that table has floor == its own shipped
-// default, because lowering a document cap strands existing legal documents in
-// shrink-only mode. A 傳承 entry has no edit path at all, so a smaller cap
-// strands nothing; the owner lowered two of them himself the day they shipped
-// (title 140 → 80, body 1000 → 500). A test that only typed a LARGER number
-// would pass against the wrong implementation.
+// renders" test, and be wrong — the owner lowered two of these himself the day
+// they shipped (title 140 → 80, body 1000 → 500), so a test that only ever
+// typed a LARGER number would pass against the wrong implementation.
+//
+// Going down is no longer what separates these four from DOC_CAP_FIELDS: since
+// owner 2026-09-07 (card rc-5b66ba099e28 option [1]) every knob in that table
+// shares one floor of DOC_CAP_CHARS_MIN and turns both ways too. What still
+// separates them is the RANGE — the two ENTRY bounds here are sentence-sized
+// (LORE_ENTRY_CAP_CHARS_MIN is 10, and a floor of 100 would forbid the 80 the
+// owner is sitting on), which is what the last case below pins.
 //
 // Deliberately NOT locked: where these four sit in the list. T-119's row has a
 // position assertion because the owner reviewed the page and asked for that

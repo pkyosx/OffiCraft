@@ -119,6 +119,17 @@ export const DOC_CAP_CHARS_DEFAULTS: DocCaps = {
   taskEvent: TASK_EVENT_CAP_CHARS_DEFAULT,
 };
 
+/** The floor every adjustable `doc.cap_chars.*` knob shares, mirroring
+ * `minDocCapChars` in server/ocserverd/domain.go (owner 2026-09-07, card
+ * rc-5b66ba099e28 option [1]). Until then each knob's floor was its OWN shipped
+ * default, which made all eight raise-only; they now move in both directions,
+ * because a lowered cap binds only the write in front of it — stored content is
+ * never truncated and still reads back, and an over-cap document can still be
+ * saved while it is getting shorter. It is 100 rather than 0 because a cap of
+ * zero switches a document off entirely, a state the settings page cannot
+ * explain. */
+export const DOC_CAP_CHARS_MIN = 100;
+
 /**
  * How many retained revisions a boot-context block keeps (T-791e). TEN, where
  * every other document keeps three — the owner's ruling, for the workflow this
@@ -301,11 +312,11 @@ export const CAPPED_FIELDS: Record<DocumentKind, readonly string[]> = {
  * server's own 400 surfaces in the dialog exactly as it did before.
  *
  * `cap` abstains the same way and for the same reason (T-3aeb). Falling back to
- * the shipped default while the setting is still loading would be WRONG in the
- * one direction that matters: the cap can only ever be RAISED, so judging by
- * the default can only ever grey out a revision the server would have accepted
- * — the "greyed out with a reason that is not true" failure this module's
- * header calls the worse of the two.
+ * the shipped default while the setting is still loading would be judging by a
+ * number nobody is enforcing: since owner 2026-09-07 a cap moves in BOTH
+ * directions, so the default can sit either side of the live value, and the
+ * failure that follows is the one this module's header calls the worse of the
+ * two — a revision greyed out with a reason that is not true.
  */
 export function docCapBlockedFields(
   kind: DocumentKind,

@@ -1229,8 +1229,9 @@ export interface ServerSettingsPatch {
    * attempts to renew before the intended end of life. */
   wardenCredentialLifetimeSecs?: number;
   outsourceMaxParallel?: number;
-  /** T-ae38 document size caps, in characters. Each must be between THAT
-   * segment's shipped default (`DOC_CAP_CHARS_DEFAULTS`) and 100000. */
+  /** T-ae38 document size caps, in characters. Each must be between
+   * `DOC_CAP_CHARS_MIN` (100 since owner 2026-09-07) and 100000 — one shared
+   * floor, so every one of them may be lowered as well as raised. */
   docCapCharsDuty?: number;
   docCapCharsInsight?: number;
   docCapCharsLearning?: number;
@@ -3116,7 +3117,14 @@ export type LoreEntryState = "active" | "pinned" | "retired";
 export interface LoreEntryView {
   id: string;
   seq: number;
-  scopeKind: "role" | "manual";
+  /** 🔴 FOUR VALUES, AND THE FOURTH IS NOT A SCOPE. "role" | "agent" |
+   * "manual" are the three scopes the server has; "unknown" is what a cockpit
+   * older than the server calls a scope it has never heard of. It exists so
+   * that an unrecognised kind can be carried WITHOUT being renamed into one of
+   * the real three — see `toLoreEntry`. Nothing may be requested as "unknown"
+   * (`LoreListOptions.scopeKind` deliberately omits it), so it only ever
+   * arrives, never departs. */
+  scopeKind: "role" | "agent" | "manual" | "unknown";
   scopeKey: string;
   title: string;
   body: string;
@@ -3133,7 +3141,9 @@ export interface LoreEntryView {
  * parameter — see `Api.listLoreEntries` for why none of them may become a
  * client-side filter. */
 export interface LoreListOptions {
-  scopeKind?: "role" | "manual";
+  /** The three scopes that can be ASKED for. "unknown" is absent on purpose:
+   * it is a reading of an answer, not a question anyone can pose. */
+  scopeKind?: "role" | "agent" | "manual";
   scopeKey?: string;
   state?: LoreEntryState;
   authorId?: string;

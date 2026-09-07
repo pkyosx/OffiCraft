@@ -12,11 +12,12 @@
 //  2. THE ROLE-DEFINITION EDITOR SHOWS ITS USAGE. Duty carried NEITHER field on
 //     the wire before this ticket, so an agent that had just condensed its own
 //     role definition had to ask someone else to measure the doc.
-//  3. EACH SETTINGS ROW WRITES ITS OWN KEY, and Duty's local floor is its own
-//     smaller default. A row that reads one setting and PATCHes another is
-//     invisible until someone notices the wrong number moved; sharing the other
-//     three's floor would make the field locally reject the value the server
-//     ships with.
+//  3. EACH SETTINGS ROW WRITES ITS OWN KEY, and every row goes DOWN as well as
+//     up — one shared floor of DOC_CAP_CHARS_MIN since owner 2026-09-07 (card
+//     rc-5b66ba099e28 option [1]). A row that reads one setting and PATCHes
+//     another is invisible until someone notices the wrong number moved; a row
+//     that silently kept its old raise-only floor would look identical on
+//     screen to one that turns both ways.
 //
 // 🔴 THE THREE CAPS ARE SET TO THREE DIFFERENT NUMBERS throughout. Before
 // T-ae38 there was ONE setting, so every "the cap shown is N" assertion was
@@ -29,16 +30,21 @@ import { I18nProvider } from "../i18n";
 import { zh } from "../i18n/locales/zh";
 import { SettingsPage } from "./SettingsPage";
 import { __resetMock, mockApi } from "../api/mock";
-import { DOC_CAP_CHARS_DEFAULTS, capForKind } from "../api/docCap";
+import {
+  DOC_CAP_CHARS_DEFAULTS,
+  DOC_CAP_CHARS_MIN,
+  capForKind,
+} from "../api/docCap";
 
 const s = zh.settings;
 const mp = zh.mp;
 
 // Deliberately far apart, and none of them equal to another (see the header).
-// Insight/Learning stay at or above their shipped defaults because each floor
-// IS that segment's own default — the server (and the mock) 422s anything
-// lower. They are written relative to DOC_CAP_CHARS_DEFAULTS so that raising a
-// default cannot silently push a fixture below its own floor.
+// These three sit ABOVE their shipped defaults, which since owner 2026-09-07 is
+// a free choice rather than a constraint — the one floor all five rows share is
+// DOC_CAP_CHARS_MIN, so a smaller number would be legal too. They stay written
+// relative to DOC_CAP_CHARS_DEFAULTS so that these readout fixtures keep saying
+// "not the default" whichever way a default later moves.
 const DUTY_CAP = DOC_CAP_CHARS_DEFAULTS.duty + 500;
 const INSIGHT_CAP = DOC_CAP_CHARS_DEFAULTS.insight + 2000;
 const LEARNING_CAP = DOC_CAP_CHARS_DEFAULTS.learning * 2;
@@ -221,33 +227,42 @@ describe("T-ae38 / T-30f1 — five knobs, each writing its own key", () => {
     expect(after.docCapCharsManualSop).toBe(DOC_CAP_CHARS_DEFAULTS.manualSop);
   });
 
-  it("the Duty row's local floor is its own, NOT the other three's", async () => {
-    // 🔴 Sharing the other three's floor would make this field locally reject
-    // every value between the shipped Duty default and that floor — including
-    // the value it is sitting on. 1200 is a legal Duty cap; the row must
-    // accept it.
+  it("the Duty row goes BELOW its shipped default, down to the shared floor", async () => {
+    // 🔴 Owner 2026-09-07 (card rc-5b66ba099e28 option [1]): the floor is
+    // DOC_CAP_CHARS_MIN for every row, not each row's own shipped default. So
+    // a value UNDER the shipped Duty default is legal now, and the row must
+    // store it — the assertion that used to sit here refused 999 and would
+    // pass against a knob that is still raise-only.
     const utils = await openParamsPage();
     const input = utils.getByLabelText(s.docCapDuty);
-    fireEvent.change(input, { target: { value: "1200" } });
-    fireEvent.blur(input);
-    expect((await mockApi.getServerSettings()).docCapCharsDuty).toBe(1200);
-
-    // CONTROL, so the pass above is not just "this row never validates":
-    // below Duty's OWN floor is still refused locally and writes nothing.
+    expect(999).toBeLessThan(DOC_CAP_CHARS_DEFAULTS.duty);
     fireEvent.change(input, { target: { value: "999" } });
     fireEvent.blur(input);
-    expect((await mockApi.getServerSettings()).docCapCharsDuty).toBe(1200);
+    expect((await mockApi.getServerSettings()).docCapCharsDuty).toBe(999);
+
+    // CONTROL, so the pass above is not just "this row never validates":
+    // under the SHARED floor is still refused locally and writes nothing.
+    fireEvent.change(input, { target: { value: String(DOC_CAP_CHARS_MIN - 1) } });
+    fireEvent.blur(input);
+    expect((await mockApi.getServerSettings()).docCapCharsDuty).toBe(999);
   });
 
-  it("the Learning row still refuses 1200 — its floor is its own default", async () => {
-    // The other side of the same coin: per-row floors, not one relaxed number.
+  it("the Learning row takes 1200 too — the floor is shared, not per-row", async () => {
+    // The other side of the same coin. 1200 is far below Learning's own
+    // shipped default and was refused while each row carried its own floor;
+    // one shared floor is what makes it legal, and this is the row where the
+    // gap between the two rules is widest.
     const utils = await openParamsPage();
     const input = utils.getByLabelText(s.docCapLearning);
+    expect(1200).toBeLessThan(DOC_CAP_CHARS_DEFAULTS.learning);
     fireEvent.change(input, { target: { value: "1200" } });
     fireEvent.blur(input);
-    expect((await mockApi.getServerSettings()).docCapCharsLearning).toBe(
-      DOC_CAP_CHARS_DEFAULTS.learning
-    );
+    expect((await mockApi.getServerSettings()).docCapCharsLearning).toBe(1200);
+
+    // CONTROL: the shared floor is a real floor, not an absent one.
+    fireEvent.change(input, { target: { value: String(DOC_CAP_CHARS_MIN - 1) } });
+    fireEvent.blur(input);
+    expect((await mockApi.getServerSettings()).docCapCharsLearning).toBe(1200);
   });
 });
 

@@ -8,15 +8,16 @@
 // before the owner clicks save, instead of letting them collect an HTTP 422
 // that reads like a broken system.
 //
-// 🔴 THESE ARE DELIBERATELY NOT IN docCap.ts, AND THE FLOOR IS WHY — the same
-// reason chatBudget.ts and stepNoteCap.ts are their own files. Every
-// `doc.cap_chars.*` knob has floor == its own shipped default, because lowering
-// a document cap puts existing legal documents into shrink-only mode. A 傳承
-// entry has NO EDIT PATH AT ALL, so a lowered cap cannot strand one that is
-// already stored — it binds the next write and nothing else. The owner lowered
-// two of them himself the day they shipped (title 140 → 80, body 1000 → 500),
-// so filing them under the table whose whole meaning is "up only" would put a
-// claim into the settings page that is false about these four rows.
+// 🔴 THESE ARE DELIBERATELY NOT IN docCap.ts, AND THE RANGES ARE WHY — the same
+// reason chatBudget.ts and stepNoteCap.ts are their own files. It is no longer
+// the direction: since owner 2026-09-07 (card rc-5b66ba099e28 option [1]) the
+// eight `doc.cap_chars.*` knobs share one floor of DOC_CAP_CHARS_MIN and turn
+// both ways, as these four always have. What differs is the numbers — the doc
+// caps run DOC_CAP_CHARS_MIN..100000, and the two ENTRY bounds below are
+// sentence-sized (10..10000: the owner lowered two of them himself the day they
+// shipped, title 140 → 80 and body 1000 → 500, and a floor of 100 would forbid
+// the 80 he is sitting on). Filing them as rows of a table that states one
+// range would put a bound on this page that is false about these four.
 //
 // 🔴 TWO RANGES, NOT ONE. The two FOLD budgets are document-sized (how much
 // 傳承 a boot document or a manual read carries); the two ENTRY bounds are

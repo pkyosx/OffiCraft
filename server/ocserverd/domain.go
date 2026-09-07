@@ -1128,19 +1128,31 @@ const (
 	taskEventCapCharsDefault = 15000
 )
 
-// min*CapChars / maxDocCapChars bound the adjustable caps. Each floor is THAT
-// segment's own default by design (see above), not a coincidence to be "tidied
-// up" into one shared number — putting the other segments' floor on Duty would
-// make dutyCapCharsDefault unreachable from the settings surface. The same
-// applies to the two boot-context document kinds: their floors are their own
-// defaults, so an owner can only ever RAISE them.
+// minDocCapChars / maxDocCapChars bound all eight adjustable document caps.
+//
+// 🔴 ONE SHARED FLOOR, AND IT IS NOT THE SHIPPED DEFAULT (owner 2026-09-07,
+// card rc-5b66ba099e28, option [1]). Until then each floor was THAT segment's
+// own shipped default, which made every knob one-way: raise only. The reason
+// given was that lowering one would strand every currently legal document in
+// shrink-only mode. Two things retired that reason.
+//
+// First, the owner asked for the other direction in his own words — 「可以下調，
+// 為什麼不可以；下調以後既往不咎，但是無法用超過大小的寫入」 — and that is
+// already exactly what the cap does: DocCapBlocked checks only the write in
+// front of it, existing content is never truncated and still reads back.
+//
+// Second, "stranded" overstated it. DocCapBlocked passes a write that is over
+// the cap as long as it is SHORTER than what is stored (see its three rules), so
+// an over-cap document is not frozen — it can still be edited in the shrinking
+// direction, which is the direction someone cutting it back would be going
+// anyway. Six documents on the tree are living on that path today.
+//
+// The floor is 100 rather than 0 for the same reason minLoreFoldCapChars is:
+// zero means "no room" everywhere in this file, and a cap that silently switches
+// a whole document off is a state the settings page has no way to explain.
 const (
-	minDocCapChars               = contextDocMaxCharsDefault
-	minDutyCapChars              = dutyCapCharsDefault
-	minSystemInteractionCapChars = systemInteractionCapCharsDefault
-	minBootSequenceCapChars      = bootSequenceCapCharsDefault
-	minOffboardCapChars          = offboardCapCharsDefault
-	maxDocCapChars               = 100000
+	minDocCapChars = 100
+	maxDocCapChars = 100000
 )
 
 // chatBudgetCharsDefault / minChatBudgetChars / maxChatBudgetChars bound the
@@ -1148,12 +1160,13 @@ const (
 // spends, see api_chat.go). It was the hard-coded constant 8000 until this
 // change made it the `chat.budget_chars` setting.
 //
-// 🔴 THE FLOOR IS NOT THE DEFAULT, unlike every doc.cap_chars.* above. Those
-// floors equal their own defaults because LOWERING a document cap puts existing
-// legal documents into shrink-only mode — a real, permanent cost. The chat
-// block carries no such state: it is repacked from scratch on every read, so a
-// smaller budget just returns fewer messages next time. Copying the doc-cap
-// rule here would mean the knob could only ever go up, which is not "adjustable".
+// 🔴 THE FLOOR IS ITS OWN NUMBER, not a copy of the doc caps'. Both turn in
+// both directions since 2026-09-07 (see minDocCapChars), so the difference is
+// no longer direction — it is what a lowered value costs. A smaller document cap
+// leaves an over-cap document editable only in the shrinking direction until
+// somebody cuts it; a smaller chat budget costs nothing that lasts, because the
+// block is repacked from scratch on every read and simply carries fewer messages
+// next time. 1000 is sized against a useful snapshot, not against that risk.
 //
 // 🔴 THE CEILING IS TIED TO resumeChatFetch, not picked round. That constant's
 // own comment derives 500 as a FLOOR from this budget: the cheapest possible
@@ -1173,13 +1186,12 @@ const (
 // was the hard-coded chatBodyMaxChars (4000) until the owner made it adjustable
 // and raised the shipped value to 10000 (2026-09-06).
 //
-// 🔴 THE FLOOR IS NOT THE DEFAULT, same as the chat budget above and unlike
-// every doc.cap_chars.* knob. The doc caps refuse to go below their own default
-// because lowering one puts existing legal documents into shrink-only mode. A
-// step note is checked ONLY on write and has no shrink-only mode to fall into:
-// an over-cap note keeps reading back in full (get_task_step still serves the
-// whole text) and merely cannot be edited until it is shortened. The owner
-// asked for a knob that turns both ways, so the floor is a floor.
+// 🔴 THE FLOOR IS ITS OWN NUMBER, same as the chat budget above. Every
+// doc.cap_chars.* knob turns in both directions too since 2026-09-07 (see
+// minDocCapChars), so what separates this one is the size of the number, not
+// its direction: a step note is checked ONLY on write, keeps reading back in
+// full when it is over (get_task_step still serves the whole text), and merely
+// cannot be edited until it is shortened.
 //
 // 🔴 IT DOES NOT GOVERN chatBodyMaxChars' OTHER TWO USERS. A chat message body
 // (api_chat.go) and the task-level handover note (HandleReassignTask...) keep
@@ -1952,18 +1964,36 @@ func DisplayName(id string, names map[string]string) string {
 
 // ── T-33 傳承（lore） ────────────────────────────────────────────────────────
 
-// LoreScopeRole / LoreScopeManual are the two scopes a lore entry can belong
-// to, and they are the whole set. The pair is a CLOSED vocabulary enforced by a
-// CHECK in migrations/00093, so a third value cannot be stored even by a hand
-// edit.
+// LoreScopeRole / LoreScopeAgent / LoreScopeManual are the three scopes a lore
+// entry can belong to, and they are the whole set. The trio is a CLOSED
+// vocabulary enforced by a CHECK in migrations/00093, so a fourth value cannot
+// be stored even by a hand edit.
 //
-// 🔴 THEY ARE NOT INTERCHANGEABLE FALLBACKS FOR ONE ANOTHER. A write that
-// cannot resolve a manual scope (a task with no type) must be REFUSED, never
-// filed under the caller's role instead: that would charge every boot of that
-// role for a lesson about a task type it will never work on, while the type
-// that needed it still gets nothing — and no error anywhere would say so.
+// 🔴 WHICH ONE A WRITE LANDS IN IS DECIDED BY ONE QUESTION, not by a chain of
+// fallbacks (owner 2026-09-07, correcting this file's earlier rule): what is the
+// EFFECTIVE RELATED TASK — the named task when it carries a type, and NULL
+// otherwise, which includes both "no task named" and "a 臨時任務 that carries no
+// type". A 臨時任務 is not a request that got re-routed; it is not a place an
+// entry can hang in the first place, so it is the same input as naming no task
+// at all.
+//
+//	effective task ⇒ manual, keyed by that type_key. Staff and outsource alike.
+//	NULL, staff     ⇒ role,   keyed by the writer's role_key.
+//	NULL, outsource ⇒ agent,  keyed by the writer's own member id.
+//
+// The last row is the one the owner added on 2026-09-07 (card rc-3c24fdc61ed3);
+// before it, that write was refused outright and an outsource member had
+// nowhere to put anything it learned outside a typed task.
+//
+// 🔴 role AND agent ARE STILL NOT FALLBACKS FOR manual. A write that names a
+// typed task never lands in either of them, and a write that resolves to NULL
+// never lands in manual. Filing a one-off task's lesson under the writer would
+// charge every one of its future boots for it while the task type that needed
+// such a lesson still got nothing — and the write would answer 200, so nobody
+// would ever look.
 const (
 	LoreScopeRole   = "role"
+	LoreScopeAgent  = "agent"
 	LoreScopeManual = "manual"
 )
 
@@ -2005,13 +2035,12 @@ func ValidLoreState(s string) bool {
 // moment it is written. The owner set these himself on 2026-09-07, lowering the
 // title from 140 to 80 and the body from 1000 to 500.
 //
-// 🔴 THESE FOUR DO NOT INHERIT THE doc.cap_chars.* "只能調高" RULE, and the
-// difference is not an oversight. That rule exists to protect documents that are
-// REWRITTEN in place: lowering their cap would put a legal stored document into
-// shrink-only mode, unable to be saved again until somebody cut it. A lore entry
-// has no edit path at all, so a lowered cap cannot strand one — it binds the
-// NEXT write and nothing else. Their floors are therefore real floors, and the
-// owner can turn all four knobs in both directions.
+// 🔴 ALL FOUR TURN IN BOTH DIRECTIONS, and since 2026-09-07 so does every
+// doc.cap_chars.* knob (see minDocCapChars), so this is no longer the exception
+// it was written as. What is still true of these four specifically is WHY a
+// lowered cap costs nothing at all here: a lore entry has no edit path, so a
+// smaller cap cannot even put a stored one into the shrink-only state a
+// rewritten document lands in — it binds the NEXT write and nothing else.
 const (
 	loreRoleCapCharsDefault   = 10000
 	loreManualCapCharsDefault = 10000

@@ -38,7 +38,7 @@ import { DocCard } from "./DocCard";
 import { LessonsCard } from "./LessonsCard";
 import { InsightCard } from "./InsightCard";
 import { navigateHash } from "../lib/hashRoute";
-import { DOC_CAP_CHARS_DEFAULTS } from "../api/docCap";
+import { DOC_CAP_CHARS_MIN } from "../api/docCap";
 import {
   CHAT_BUDGET_CHARS_MAX,
   CHAT_BUDGET_CHARS_MIN,
@@ -65,12 +65,14 @@ import {
  * ServerSettingsPatch field, so the row cannot read one setting and write
  * another.
  *
- * `min` is per row and is NOT decoration: Duty's floor is its OWN shipped
- * default. Sharing the other segments' floor here would make the local guard
- * reject the value the server ships with — the field would refuse its own
- * current contents. The numbers come from DOC_CAP_CHARS_DEFAULTS (docCap.ts,
- * mirroring server/ocserverd/domain.go) and are never restated: they are
- * owner-adjustable settings, so a literal here is a guard that goes stale. */
+ * `min` is ONE SHARED FLOOR since owner 2026-09-07 (card rc-5b66ba099e28,
+ * option [1]): every row is `DOC_CAP_CHARS_MIN`, so each knob moves in BOTH
+ * directions instead of raising only. It was per-row before, each row carrying
+ * its own shipped default, on the reasoning that lowering a cap stranded
+ * existing legal documents; it does not — a lowered cap binds the next write,
+ * nothing stored is truncated, and an over-cap document still saves while it is
+ * getting shorter. The number comes from docCap.ts (mirroring
+ * server/ocserverd/domain.go's `minDocCapChars`) and is never restated here. */
 type DocCapField =
   | "docCapCharsDuty"
   | "docCapCharsInsight"
@@ -82,11 +84,11 @@ const DOC_CAP_FIELDS: Record<
   DocCapField,
   { min: number; inputId: string; labelKey: "docCapDuty" | "docCapInsight" | "docCapLearning" | "docCapManualSop" | "docCapManualLearnings"; subKey: "docCapDutySub" | "docCapInsightSub" | "docCapLearningSub" | "docCapManualSopSub" | "docCapManualLearningsSub" }
 > = {
-  docCapCharsDuty: { min: DOC_CAP_CHARS_DEFAULTS.duty, inputId: "param-doc-cap-duty", labelKey: "docCapDuty", subKey: "docCapDutySub" },
-  docCapCharsInsight: { min: DOC_CAP_CHARS_DEFAULTS.insight, inputId: "param-doc-cap-insight", labelKey: "docCapInsight", subKey: "docCapInsightSub" },
-  docCapCharsLearning: { min: DOC_CAP_CHARS_DEFAULTS.learning, inputId: "param-doc-cap-learning", labelKey: "docCapLearning", subKey: "docCapLearningSub" },
-  docCapCharsManualSop: { min: DOC_CAP_CHARS_DEFAULTS.manualSop, inputId: "param-doc-cap-manual-sop", labelKey: "docCapManualSop", subKey: "docCapManualSopSub" },
-  docCapCharsManualLearnings: { min: DOC_CAP_CHARS_DEFAULTS.manualLearnings, inputId: "param-doc-cap-manual-learnings", labelKey: "docCapManualLearnings", subKey: "docCapManualLearningsSub" },
+  docCapCharsDuty: { min: DOC_CAP_CHARS_MIN, inputId: "param-doc-cap-duty", labelKey: "docCapDuty", subKey: "docCapDutySub" },
+  docCapCharsInsight: { min: DOC_CAP_CHARS_MIN, inputId: "param-doc-cap-insight", labelKey: "docCapInsight", subKey: "docCapInsightSub" },
+  docCapCharsLearning: { min: DOC_CAP_CHARS_MIN, inputId: "param-doc-cap-learning", labelKey: "docCapLearning", subKey: "docCapLearningSub" },
+  docCapCharsManualSop: { min: DOC_CAP_CHARS_MIN, inputId: "param-doc-cap-manual-sop", labelKey: "docCapManualSop", subKey: "docCapManualSopSub" },
+  docCapCharsManualLearnings: { min: DOC_CAP_CHARS_MIN, inputId: "param-doc-cap-manual-learnings", labelKey: "docCapManualLearnings", subKey: "docCapManualLearningsSub" },
 };
 
 const DOC_CAP_ORDER: DocCapField[] = [
@@ -103,15 +105,14 @@ const DOC_CAP_ORDER: DocCapField[] = [
  * store). Like `DOC_CAP_FIELDS` the key IS the ServerSettingsView /
  * ServerSettingsPatch field, so a row cannot read one setting and write another.
  *
- * 🔴 A SEPARATE TABLE FROM `DOC_CAP_FIELDS`, AND THE FLOOR IS WHY — the same
- * ruling that gave the chat budget and the step-note cap their own rows. Every
- * entry in that table carries floor == its own shipped default, because lowering
- * a document cap strands existing legal documents in shrink-only mode. A 傳承
- * entry has NO EDIT PATH AT ALL, so a lower cap cannot strand one that is
- * already stored — it binds the next write and nothing else. The owner lowered
+ * 🔴 A SEPARATE TABLE FROM `DOC_CAP_FIELDS`, AND THE RANGES ARE WHY — the same
+ * ruling that gave the chat budget and the step-note cap their own rows. That
+ * table carries one shared floor of `DOC_CAP_CHARS_MIN` and a ceiling of 100000;
+ * these four sit in two ranges of their own, neither of them that one. Both
+ * tables go DOWN as well as up: a doc cap binds the next write against a STORED
+ * document (owner 2026-09-07), and a 傳承 entry has NO EDIT PATH AT ALL, so a
+ * smaller cap cannot strand one that is already stored either. The owner lowered
  * two of these himself the day they shipped (title 140 → 80, body 1000 → 500).
- * Putting them in `DOC_CAP_FIELDS` would have been a table-driven convenience
- * bought by writing a false sentence into the page.
  *
  * They are a TABLE rather than four hand-written rows because, unlike the chat
  * budget and the step-note cap, these four are the same shape as each other —
@@ -1574,16 +1575,17 @@ function ServerParams({
     if (n !== settings.monitoringRefreshSeconds) void onSave({ monitoringRefreshSeconds: n });
   }
 
-  // Each floor is THAT segment's shipped default, so a knob only raises its own
-  // cap (owner 2026-07-31; five of them since T-30f1) — the local guard mirrors
-  // the server's 422 range exactly, INCLUDING Duty's own smaller floor. Reusing
-  // the other four's floor here would locally reject the shipped Duty default.
+  // One shared floor since owner 2026-09-07 (card rc-5b66ba099e28, option [1]),
+  // so each of these knobs goes DOWN as well as up — the local guard mirrors the
+  // server's 422 range exactly, which is now DOC_CAP_CHARS_MIN..100000 for all
+  // of them. It was each segment's own shipped default until that ruling.
   // T-c9b4: the wake snapshot's chat budget. Deliberately its OWN row and its
-  // own commit rather than a sixth entry in DOC_CAP_FIELDS — that table's floor
-  // is each segment's shipped default and its ceiling is 100000, and neither is
-  // true here. This one may be turned DOWN (the block is repacked on every read,
-  // so a smaller budget just returns fewer messages), and its ceiling is pinned
-  // to how many messages the server reads before packing.
+  // own commit rather than a sixth entry in DOC_CAP_FIELDS — that table's range
+  // is DOC_CAP_CHARS_MIN..100000 and neither bound is true here. Both tables now
+  // go DOWN as well as up (owner 2026-09-07), but for different reasons: a doc
+  // cap binds the next write against a STORED document, while this block is
+  // repacked on every read, so a smaller budget just returns fewer messages. Its
+  // ceiling is pinned to how many messages the server reads before packing.
   function commitChatBudget() {
     if (!settings || chatBudgetDraft === null) return;
     const n = Number(chatBudgetDraft);
@@ -1601,9 +1603,9 @@ function ServerParams({
   }
 
   // T-119: the step-note cap. Its own row and its own commit for the same
-  // reason as the chat budget — this one may be turned DOWN, so it does not
-  // belong in DOC_CAP_FIELDS whose floor is each segment's shipped default.
-  // Lowering it costs nothing already stored: the cap is checked only on write.
+  // reason as the chat budget — its range is its own (STEP_NOTE_CAP_CHARS_MIN..
+  // MAX), not DOC_CAP_FIELDS' DOC_CAP_CHARS_MIN..100000. Lowering it costs
+  // nothing already stored: the cap is checked only on write.
   function commitStepNoteCap() {
     if (!settings || stepNoteCapDraft === null) return;
     const n = Number(stepNoteCapDraft);

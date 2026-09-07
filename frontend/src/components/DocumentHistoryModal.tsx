@@ -153,8 +153,9 @@ export function DocumentHistoryModal({
    * Resolved by the host for the same reason `actorLine` is: a modal pulling
    * its own copy would refetch the settings every time a row is clicked.
    * `undefined` while it loads, which makes the cap verdict abstain rather than
-   * judge by the shipped default — a cap can only ever be RAISED, so the
-   * default can only ever mark a revision the server would have accepted. */
+   * judge by the shipped default — since owner 2026-09-07 a cap moves in BOTH
+   * directions, so the default can sit either side of the live value and the
+   * verdict it produces answers to a number nobody is enforcing. */
   docCaps?: DocCaps;
   /** Step back to the version LIST this reader was opened from (T-1f39, owner
    * 2026-07-31). Omitted where there is no list behind it. Distinct from

@@ -117,6 +117,10 @@ export const en: Dict = {
     filterTaskNoun: "Task",
     filterTaskAll: "All",
     filterRoleLore: "None · role lore",
+    // The third scope: an outsource worker has no role, so its lore hangs off
+    // its own member id. It sits BESIDE the role item, not under it — on the
+    // wire it is a scope_kind of its own.
+    filterAgentLore: "None · member lore",
     filterRoleNoun: "Role",
     filterRoleAll: "All roles",
     filterStateNoun: "State",
@@ -2011,22 +2015,24 @@ export const en: Dict = {
     // they no longer share one ruler.
     docCapDuty: "Duty size cap",
     docCapDutySub:
-      "Per-role limit on the role definition. The floor is this segment's own shipped default (smaller than every other segment's) and the ceiling is 100000, so this can only be raised — lowering it would leave documents that are legal today able to shrink only.",
+      "Per-role limit on the role definition (its shipped default is smaller than every other segment's). The floor is 100 and the ceiling is 100000, and it moves in both directions — lowering it truncates nothing already stored and nothing stops reading back, it binds the next write only; a role definition already over the cap can still be saved as long as the new version is shorter than the old one.",
     docCapInsight: "Insight size cap",
     docCapInsightSub:
-      "Per-role limit on the insight doc. The floor is the shipped default and the ceiling is 100000, so this can only be raised.",
+      "Per-role limit on the insight doc. The floor is 100 and the ceiling is 100000, and it moves in both directions — a lowered cap binds the next write only; stored content is never truncated and still reads back, and a doc already over the cap still saves as long as the new version is shorter.",
     docCapLearning: "Learning size cap",
     docCapLearningSub:
-      "Per-role limit on the lessons doc. The floor is the shipped default and the ceiling is 100000, so this can only be raised.",
+      "Per-role limit on the lessons doc. The floor is 100 and the ceiling is 100000, and it moves in both directions — a lowered cap binds the next write only; stored content is never truncated and still reads back, and a doc already over the cap still saves as long as the new version is shorter.",
     docCapManualSop: "Task manual SOP size cap",
     docCapManualSopSub:
-      "Limit on a task manual's SOP (the plan blueprint). Independent of the field below — the SOP is refined in place while the learnings accumulate, so one number could only ever be right for one of them. The floor is the shipped default and the ceiling is 100000, so this can only be raised.",
+      "Limit on a task manual's SOP (the plan blueprint). Independent of the field below — the SOP is refined in place while the learnings accumulate, so one number could only ever be right for one of them. The floor is 100 and the ceiling is 100000, and it moves in both directions — a lowered cap binds the next write only; a stored SOP is never truncated and still reads back, and one already over the cap still saves as long as the new version is shorter.",
     docCapManualLearnings: "Task manual learnings size cap",
     docCapManualLearningsSub:
-      "Limit on a task manual's learnings doc, independent of the SOP cap above. The floor is the shipped default and the ceiling is 100000, so this can only be raised.",
+      "Limit on a task manual's learnings doc, independent of the SOP cap above. The floor is 100 and the ceiling is 100000, and it moves in both directions — a lowered cap binds the next write only; stored content is never truncated and still reads back, and a doc already over the cap still saves as long as the new version is shorter.",
     // T-c9b4: the wake snapshot's chat budget. Deliberately not folded into the
-    // doc-cap wording above — those floors are their own shipped defaults and
-    // can only be raised; this one moves in both directions.
+    // doc-cap wording above — both directions are now legal on both sides (owner
+    // 2026-09-07 dropped every doc-cap floor to 100), but the numbers differ, and
+    // so does the reason lowering is harmless: those caps guard STORED documents,
+    // this budget guards a block repacked on every read.
     // T-8: backup retention N. The sub-label carries the two facts the integer
     // cannot — versions-not-days and per-pool-not-per-directory — because the
     // person who needs them is the one turning the knob.
@@ -2064,12 +2070,12 @@ export const en: Dict = {
     // integer cannot — that it may be lowered, and that it governs the step
     // note alone — because both are what the person turning the knob will
     // otherwise get wrong.
-    loreCapRole: "Role lore size cap",
+    loreCapRole: "Member lore size cap",
     loreCapRoleSub:
-      "How many characters of lore a role's boot document carries. An entry that does not fit is left out WHOLE — never truncated, and with no error anywhere. Independent of the task-manual cap below; the two are never summed. This one may be lowered: an entry cannot be edited, so a smaller cap only changes which entries load next time and strands nothing already stored.",
+      "How many characters of lore a member's boot document carries — a staff member reads the lore of their role, an outsource worker reads the lore it wrote itself. An entry that does not fit is left out WHOLE — never truncated, and with no error anywhere. Independent of the task-manual cap below; the two are never summed. This one may be lowered: an entry cannot be edited, so a smaller cap only changes which entries load next time and strands nothing already stored.",
     loreCapManual: "Task manual lore size cap",
     loreCapManualSub:
-      "How many characters of lore are appended after a task type's learnings when its manual is read. This block enters nobody's boot document — staff and outsource alike. Independent of the role cap above. May be lowered.",
+      "How many characters of lore are appended after a task type's learnings when its manual is read. This block enters nobody's boot document — staff and outsource alike. Independent of the member cap above. May be lowered.",
     loreCapTitle: "Lore title size cap",
     loreCapTitleSub:
       "The longest title one lore entry may carry. An over-cap write is refused and stores nothing. May be lowered; it binds the next write only and leaves stored entries untouched.",
