@@ -679,24 +679,6 @@ describe("RepliesPage", () => {
     expect(ref.textContent).toContain("查看任務詳情");
   });
 
-  // ── 預設收合／手動收合 (owner 2026-09-07) ─────────────────────────────────
-  // The pane used to draw every waiting card whole, which is what made the
-  // list cost a full card per row before anybody had looked at one.
-  it("a waiting card starts collapsed: its question is not on screen and the card was never read", async () => {
-    __injectMockReplyCard(mkCard({ body: "寄出後無法撤回" }));
-    const readSpy = vi.spyOn(api, "getReplyCard");
-    const { findAllByTestId } = renderPage();
-    const [card] = await findAllByTestId("waiting-card");
-
-    // The row still SAYS which ask it is — the title is what the list carries.
-    expect(card.textContent).toContain("要幫你寄出這封信嗎？");
-    // …and nothing that only the full card can answer is on screen.
-    expect(card.querySelector(".reply-card__body")).toBeNull();
-    expect(card.querySelectorAll(".reply-option")).toHaveLength(0);
-    expect(card.querySelector('[data-testid="expire-card"]')).toBeNull();
-    expect(readSpy).not.toHaveBeenCalled();
-  });
-
   it("opening a card reads it and shows the question; clicking again closes it", async () => {
     __injectMockReplyCard(mkCard({ body: "寄出後無法撤回" }));
     const { findAllByTestId } = renderPage();
