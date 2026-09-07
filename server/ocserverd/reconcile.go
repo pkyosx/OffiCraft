@@ -2595,10 +2595,7 @@ func (s *apiServer) clearRecycleMarkersOnRespawn(members []Member) {
 		if s.hub.IsOnline(m.ID) {
 			continue // still online = recycle-PENDING (dump in flight), not a respawn
 		}
-		m.RefocusSince = 0.0
-		m.RefocusOp = ""
-		m.StoppedSince = 0.0
-		m.StoppingSince = 0.0
+		clearWindDownRow(windDownAnchorRowOfMember(m))
 		if err := s.persistMemberWindDownAnchors(*m); err != nil {
 			reconcileLog("recycle: loop-break ANCHOR write failed for %s: %v", m.ID, err)
 			continue

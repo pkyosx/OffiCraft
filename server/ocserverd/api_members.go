@@ -104,8 +104,7 @@ func (s *apiServer) persistMemberOpReceipt(m Member, trigger string) error {
 // one it creates is bounded, visible as a 500, and re-armable. That is the
 // argument — not that this direction is free.
 func (s *apiServer) persistMemberWindDownAnchors(m Member) error {
-	return s.dal.SetMemberWindDownAnchors(m.ID, m.StoppingSince, m.StoppedSince,
-		m.RefocusSince, m.RefocusOp)
+	return s.persistWindDownAnchors(windDownAnchorRowOfMember(&m))
 }
 
 // persistWorkerWindDownAnchors is the outsource face of the call above. It reads
@@ -114,9 +113,134 @@ func (s *apiServer) persistMemberWindDownAnchors(m Member) error {
 // call has no business triggering. There is no second table behind it:
 // DAL.PutOutsourceWorker IS PutMember(memberFromWorker(w)), so a worker row is a
 // member row with kind='outsource' and these four columns are the same columns.
+//
+// 🔴 IT TAKES A VALUE AND THE ADAPTER BELOW TAKES ITS ADDRESS, which is the
+// whole reason this signature did not change in T-65 包⑤: `&w` is the address of
+// THIS FUNCTION'S OWN COPY, so nothing a caller passed can be written through
+// the row. Handing the row a caller's *OutsourceWorker instead would make a
+// persist call able to mutate the caller's snapshot — a door that does not exist
+// today and must not be opened by an adapter.
+//
+// 🔴 AND THAT IS THE GENERAL RULE FOR EVERY windDownAnchorRow, not a quirk of
+// this one function: THE ROW'S ALIASING IS DECIDED ENTIRELY AT THE CALL SITE,
+// and BOTH readings compile and both stay green.
+//
+//	windDownAnchorRowOf…(&x)     // x is a VALUE parameter or local
+//	  ⇒ the row aliases a COPY. collectWindDownRow / clearWindDownRow /
+//	    openWindDownRow mutate that copy, and the caller must persist it itself.
+//
+//	windDownAnchorRowOf…(x)      // x is already *Member / *OutsourceWorker
+//	  ⇒ the row aliases THE CALLER'S ROW. The same three helpers now mutate
+//	    state the caller's later code, and its returns, will read.
+//
+// 🔴 EVERY CALL SITE IS NAMED BELOW, and that completeness is the point rather
+// than the illustration. An earlier draft of this warning listed TWO
+// pointer-shaped sites and stopped — which is the exact shape of the "three
+// funnels" sentence this same package had to fix one commit earlier, and it is
+// worse than no warning at all: a reader working in one of the sites the list
+// skipped concludes he is outside its scope.
+//
+// VALUE-shaped (4) — the row aliases a copy:
+//
+//	persistMemberWindDownAnchors / persistWorkerWindDownAnchors (this file, the
+//	  two value params above), collectWorkerHandover, collectWorkerStop.
+//
+// POINTER-shaped (10) — the row aliases the caller's row:
+//
+//	*Member (5): HandleForceStopMember…, HandleReportStopping…,
+//	  HandleReportStopped… (all three this file, `m` from resolveMember /
+//	  resolveSelf); consumeRestartAfterStop (member_ownerop_winddown.go, `m` is
+//	  its own PARAMETER, so the mutation escapes to ITS caller);
+//	  clearRecycleMarkersOnRespawn (reconcile.go, `m := &members[i]` — the
+//	  mutation lands in the CALLER'S SLICE).
+//	*OutsourceWorker (5): clearWorkerRefocus (`fresh` from the DAL),
+//	  workerReportWaking, workerReportStopping, workerReportStopped (all
+//	  worker_spawn.go, `w` from resolveLiveWorker); consumeWorkerRestartAfterStop
+//	  (member_ownerop_winddown.go, `w` is its own PARAMETER — same escape).
+//
+// 📌 MEASURED 2026-09-07: `grep -rn --include='*.go' 'windDownAnchorRowOf' .`
+// over non-test files = 19 hits, of which 5 are this comment and the two
+// definitions with their doc line, leaving 14 calls = 4 + 10. Positive control
+// on the same ruler: `windDownAnchorRow{` = 2 (the two adapter bodies); negative
+// control `windDownAnchorRowOfZZZ` = 0. Re-run those three before trusting the
+// counts — nothing keeps them true but the next person doing exactly that.
+//
+// Neither shape is wrong; picking the wrong one is. Copy a call from a
+// value-shaped funnel into a pointer-shaped one and the mutation silently
+// escapes (or the reverse: it silently does not land). Nothing type-checks the
+// difference and no test in this package distinguishes the two by construction —
+// the guard is reading the receiver's declaration before copying the line.
 func (s *apiServer) persistWorkerWindDownAnchors(w OutsourceWorker) error {
-	return s.dal.SetMemberWindDownAnchors(w.ID, w.StoppingSince, w.StoppedSince,
-		w.RefocusSince, w.RefocusOp)
+	return s.persistWindDownAnchors(windDownAnchorRowOfWorker(&w))
+}
+
+// ── 收口 anchors: ONE row, both populations (T-65 包⑤) ───────────────────────
+//
+// windDownAnchorRow names the four wind-down anchor columns plus the id they
+// belong to, BY POINTER — the same shape stopVerbRow uses below and for the same
+// reason: the two populations' anchor code was two hand-kept copies of one body,
+// and nothing mechanical held them equal.
+//
+// The pointers are load-bearing rather than decorative because this row has FOUR
+// bodies behind it and three of them WRITE. persistWindDownAnchors only reads
+// the four columns; the other three (all in member_ownerop_winddown.go) write
+// through the row:
+//
+//	openWindDownRow     latch stopping_since if no epoch is open  — 3 call sites
+//	collectWindDownRow  latch stopped_since once, report `prior`  — 4 call sites
+//	clearWindDownRow    wipe all four, the epoch is over          — 5 call sites
+//
+// A value struct would have made every one of those impossible to share and left
+// each rule as hand-copied lines at a dozen sites, which is exactly what 包⑤
+// removed.
+//
+// ⚠️ ID IS A VALUE, not a pointer, and deliberately: no verb in either funnel
+// moves a row's id, so an id that could be written through would be a door with
+// nothing behind it.
+type windDownAnchorRow struct {
+	ID            string
+	StoppingSince *float64
+	StoppedSince  *float64
+	RefocusSince  *float64
+	RefocusOp     *string
+}
+
+// windDownAnchorRowOfMember / windDownAnchorRowOfWorker are pure address-taking
+// adapters and must stay that way, for the reason stopVerbRowOfMember gives: any
+// logic here would be logic that exists twice again.
+//
+// 🔴 NEITHER OF THEM GOES THROUGH memberFromWorker. That projection mints
+// activated_ts as a side effect, which is why the worker face reads the four
+// columns straight off the worker row; an adapter that "simplified" the worker
+// arm into memberFromWorker(w) would be a silent behaviour change that nothing
+// in this package reads.
+func windDownAnchorRowOfMember(m *Member) windDownAnchorRow {
+	return windDownAnchorRow{
+		ID:            m.ID,
+		StoppingSince: &m.StoppingSince,
+		StoppedSince:  &m.StoppedSince,
+		RefocusSince:  &m.RefocusSince,
+		RefocusOp:     &m.RefocusOp,
+	}
+}
+
+func windDownAnchorRowOfWorker(w *OutsourceWorker) windDownAnchorRow {
+	return windDownAnchorRow{
+		ID:            w.ID,
+		StoppingSince: &w.StoppingSince,
+		StoppedSince:  &w.StoppedSince,
+		RefocusSince:  &w.RefocusSince,
+		RefocusOp:     &w.RefocusOp,
+	}
+}
+
+// persistWindDownAnchors is THE body of the anchor write, for both populations.
+// The ordering rule that governs its callers — BEFORE the whole-row write — is
+// spelled out at persistMemberWindDownAnchors above and did not move here,
+// because it is a rule about CALL SITES and this function cannot enforce it.
+func (s *apiServer) persistWindDownAnchors(row windDownAnchorRow) error {
+	return s.dal.SetMemberWindDownAnchors(row.ID, *row.StoppingSince,
+		*row.StoppedSince, *row.RefocusSince, *row.RefocusOp)
 }
 
 // publishMemberPatch fans the member delta and nothing else. It is putMember's
@@ -1360,7 +1484,17 @@ func clearMemberHandoverMarker(m *Member) {
 // these five columns twice (api_members.go's force-stop against
 // api_outsource.go's), and its fifth, stopping_since, follows a DIFFERENT rule on
 // each side, so folding it in would be a behaviour change rather than a
-// convergence. That one belongs to 包④/包⑤. It does NOT make a MIS-WIRED adapter safe — stopVerbRowOfWorker could
+// convergence.
+//
+// ⚠️ THIS USED TO SAY 「that one belongs to 包④/包⑤」 AND IT NO LONGER DOES:
+// 包④ and 包⑤ have both landed without touching 強制停止's stopping_since —
+// 包⑤ was scoped to a zero-behaviour-change refactor of the 收口 funnels. The
+// gap is still open and still unowned. It is the 強制停止 pull-back arm the
+// parity whitelist's 強制停止|stopping_since and |noticed rows describe: ONE
+// production edit on the staff handler closes both. Naming a package that has
+// already shipped would have turned this into a claim that the work was done.
+//
+// It does NOT make a MIS-WIRED adapter safe — stopVerbRowOfWorker could
 // hand back a pointer to the wrong field and applyStopVerbRow would faithfully
 // write the wrong column. That failure has to be caught one layer up, at the
 // handler seam, and it is: block ① of TestVerbPopulationParityMatrix drives the
@@ -1462,9 +1596,17 @@ func stopVerbRowOfWorker(w *OutsourceWorker) stopVerbRow {
 //
 // 🔴 THAT LAST SENTENCE IS STAFF-SCOPED, and it did not have to say so while it
 // lived at the staff call site. It does now: decideDown is the MEMBER reconcile
-// path, and a stopped WORKER never reaches a tick at all — runOutsourceTick
-// `continue`s on desired_state=offline, which is why the worker side collects
-// inline instead. See the 停止（離線起點）rows in the parity whitelist. Caught
+// path, and the worker side collects inline instead.
+//
+// ⚠️ THE REASON GIVEN HERE USED TO BE 「a stopped WORKER never reaches a tick at
+// all — runOutsourceTick `continue`s on desired_state=offline」, AND THAT IS TOO
+// STRONG (measured against outsource_sched.go, T-65 包⑤). The `continue` exists
+// only on the WorkerStatusAssigned branch; the WorkerStatusActive branch calls
+// autoHandoverWorker unconditionally and guards only the FSM afterwards, so a
+// desired-offline ACTIVE worker enters the tick and can be collected there
+// (autoHandoverWorker's stop arm → collectWorkerStop). The inline collect is the
+// FAST path, not the only one. See the 停止（離線起點）rows in the parity
+// whitelist, which carries the same correction with its measurements. Caught
 // by independent review, which is the failure mode this move creates: a
 // paragraph that was true where it stood becomes a claim about both
 // populations the moment it is hoisted into shared code.
@@ -1579,9 +1721,7 @@ func (s *apiServer) HandleForceStopMemberApiMembersMemberIdForceStopPost(w http.
 	// queued earlier in this wind-down is cancelled. This is what keeps
 	// 重新聚焦 → 強制停止 different from 強制停止 → 重新聚焦.
 	clearRestartIntent(m)
-	if m.StoppingSince <= 0.0 {
-		m.StoppingSince = nowSecs()
-	}
+	openWindDownRow(windDownAnchorRowOfMember(m), nowSecs())
 	// The record that this session was cut off (T-a9d6). Force-stop sends no
 	// notice — the recipient is about to stop existing, so a sentence meant to
 	// change its behaviour has no one to change — and that silence is exactly
@@ -1946,9 +2086,7 @@ func (s *apiServer) HandleReportStoppingApiSelfStoppingPost(w http.ResponseWrite
 		s.writeSelfReportReceipt(w, *fresh)
 		return
 	}
-	if m.StoppingSince <= 0.0 {
-		m.StoppingSince = nowSecs()
-	}
+	openWindDownRow(windDownAnchorRowOfMember(m), nowSecs())
 	if err := s.persistMemberWindDownAnchors(*m); err != nil {
 		internalError(w, err)
 		return
@@ -2002,10 +2140,7 @@ func (s *apiServer) HandleReportStoppedApiSelfStoppedPost(w http.ResponseWriter,
 	//
 	// desired_state decides what follows, and neither arm needs a special case
 	// here: online respawns on the next tick's plain START, offline stays down.
-	recycleKill := m.StoppedSince <= 0.0
-	if m.StoppedSince <= 0.0 {
-		m.StoppedSince = nowSecs()
-	}
+	recycleKill, _ := collectWindDownRow(windDownAnchorRowOfMember(m), nowSecs())
 	if err := s.persistMemberWindDownAnchors(*m); err != nil {
 		internalError(w, err)
 		return
