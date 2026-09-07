@@ -64,6 +64,16 @@ during T-dbd4's review rounds — they are measurements, not predictions:
     cheapest way to opt a line in.)
   * A COUNT instead of a list — "the 3-item picker", "three levels". There is no
     listing to compare, so nothing here can see it.
+  * An array literal whose FIRST element is the empty string — `[]string{"",
+    "low", "medium", ...}`. The array-literal shape has to start on a quoted
+    WORD, so `""` in front hides the whole list even when the line carries the
+    marker. Renaming the line is therefore not always enough to opt a copy in;
+    the blank has to move off the front too. (Found live during T-131 review, in
+    a negative control this guard could not see: deleting a level from it left
+    the run green AND the printed count unchanged at 56, so the "a narrowed scan
+    shows up as a smaller number" safety net does not cover a copy that was never
+    counted. Both halves were fixed by naming the loop variable for the
+    vocabulary and asserting the blank default separately; the count went to 58.)
   * A switch whose function is not named normalize*Effort*, a TS union under a
     type name other than Effort, or a file whose suffix is not in TEXT_SUFFIXES.
   * ITS OWN ZH_LABEL TABLE, below — one more hand-written copy of the vocabulary

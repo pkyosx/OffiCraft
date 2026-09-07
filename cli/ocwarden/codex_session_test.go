@@ -123,13 +123,23 @@ func TestBuildCodexLaunchCommandAnnouncesAnUnknownEffort(t *testing.T) {
 		}
 	}
 
-	// Negative control: the configured levels and the historic blank default must
-	// stay silent, or the line is noise everyone learns to scroll past.
-	for _, quiet := range []string{"", "low", "medium", "high", "xhigh", "max"} {
-		if _, lines := build(quiet); len(lines) != 0 {
+	// Negative control: a configured level must stay silent, or the line is noise
+	// everyone learns to scroll past.
+	//
+	// The loop variable is named for the vocabulary on purpose: effort-vocab-guard
+	// discovers copies by shape on a line that also says "effort", so a list named
+	// `quiet` is a copy of the vocabulary that the guard cannot see. The blank
+	// default is asserted separately rather than as the list's first element —
+	// the guard's array-literal shape cannot start on an empty string, so a list
+	// beginning with "" is invisible to it whatever the name.
+	for _, quietEffort := range []string{"low", "medium", "high", "xhigh", "max"} {
+		if _, lines := build(quietEffort); len(lines) != 0 {
 			t.Errorf("effort %q is a level this warden knows; it must launch "+
-				"silently, got: %v", quiet, lines)
+				"silently, got: %v", quietEffort, lines)
 		}
+	}
+	if _, lines := build(""); len(lines) != 0 {
+		t.Errorf("the historic blank default must launch silently, got: %v", lines)
 	}
 }
 
@@ -202,12 +212,19 @@ func TestRunCodexSessionAnnouncesAnUnknownEffort(t *testing.T) {
 	}
 
 	// Negative control: a level this warden knows must run silently, or the line
-	// is noise everyone learns to scroll past.
-	for _, quiet := range []string{"low", "medium", "high", "xhigh", "max"} {
-		if out := run(quiet); strings.Contains(out, "is not a level this warden knows") {
+	// is noise everyone learns to scroll past. Named for the vocabulary so the
+	// guard can see this copy — see the note on the launcher's negative control.
+	for _, quietEffort := range []string{"low", "medium", "high", "xhigh", "max"} {
+		if out := run(quietEffort); strings.Contains(out, "is not a level this warden knows") {
 			t.Errorf("effort %q is a level this warden knows; it must run "+
-				"silently, got:\n%s", quiet, out)
+				"silently, got:\n%s", quietEffort, out)
 		}
+	}
+	// The blank default reaches this subcommand too, and it is a level the warden
+	// knows; the launcher's negative control asserts the same for its own half.
+	if out := run(""); strings.Contains(out, "is not a level this warden knows") {
+		t.Errorf("the historic blank default is a level this warden knows; it must "+
+			"run silently, got:\n%s", out)
 	}
 }
 
