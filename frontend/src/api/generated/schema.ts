@@ -4742,13 +4742,6 @@ export interface components {
              * @description The role_key when ``scope_kind`` is ``role``; the writer's own member id when it is ``agent``; the task manual's ``type_key`` when it is ``manual``.
              */
             scope_key: string;
-            /**
-             * Filed Note
-             * @description Empty on every ordinary write. It carries one sentence in exactly one case: the write named a ``task_id`` whose task carries NO type, so the effective related task was NULL and the entry was filed under the writer's own boot document rather than under a manual.
-             *
-             *     It exists because the writer has no other way to learn that. Whether the task it named happens to carry a type is not something the writer holds in mind at the moment of the write, and both outcomes answer 200 — so without this sentence the two are indistinguishable from the caller's side. It REPORTS where the entry went; it is not a warning that a request was re-routed, because a task with no type was never a place an entry could hang.
-             */
-            filed_note: string;
             /** Title */
             title: string;
             /** Body */
@@ -4814,7 +4807,7 @@ export interface components {
              *
              *     What decides the scope is the EFFECTIVE RELATED TASK: this task when it carries a type, and NULL otherwise. NULL covers BOTH omitting this field and naming a 臨時任務 that carries no type, and it files the entry under the writer's OWN boot document — ``role`` for staff, ``agent`` for an outsource member (owner 2026-09-07, card rc-3c24fdc61ed3).
              *
-             *     🔴 A task carrying no type used to be REFUSED here. It is not any more, and the refusal was retired rather than relaxed: the owner ruled that a task with no type is not a place an entry could hang in the first place, so naming one is the same input as naming none, not a request that got redirected. When that happens ``filed_note`` on the response says so in one sentence, because the caller cannot otherwise tell the two 200s apart.
+             *     🔴 A task carrying no type used to be REFUSED here. It is not any more, and the refusal was retired rather than relaxed: the owner ruled that a task with no type is not a place an entry could hang in the first place, so naming one is the same input as naming none, not a request that got redirected. When that happens ``scope_note`` on the write receipt says so in one sentence, because the caller cannot otherwise tell the two 200s apart.
              */
             task_id?: string | null;
         };
@@ -4867,6 +4860,81 @@ export interface components {
              *     🔴 IT IS COMPUTED BY THE SAME ``selectLoreForScope`` THE TWO FOLDS RUN, over the WHOLE scope and not over this page. A client cannot derive it: paging cuts the list before the budget is spent, and re-adding the title/body lengths in the client would be a SECOND copy of the picking rule that drifts from the real one without anything turning red. Read this field; do not recompute it.
              */
             first_dropped_id: string;
+        };
+        /**
+         * LoreEntryWriteReceiptDTO
+         * @description Bounded receipt for ``POST /api/lore`` (write_lore_entry) (T-33). It used to answer with the whole LoreEntryDTO, so the ``title`` and ``body`` the agent had just written came straight back into its context window — a body sized by ``lore_cap_chars_body`` paid for twice on one call. Owner ruling 2026-09-07, verbatim: 「別這樣 浪費 context 我們才修一輪不要回傳自己寫出去的 payload」; the rule it applies is the one T-91's receipts already follow (2026-09-05: 「自己發送出去的內容，除了像是 ID 這類的，或是真的需要從回覆得知的，其他都不應該再回傳回來。」).
+         *
+         *     EVERY FIELD HERE IS MINTED OR DECIDED BY THE HANDLER, none is an echo. What is dropped: ``title`` and ``body`` (just sent), ``author_id`` (the verified caller, which is the caller), ``source_task_id`` (the ``task_id`` just sent), plus ``state``, ``retire_reason``, ``effective_ts`` and ``updated_ts``, which on a fresh write are constants — a new entry is always ``active`` with no reason, and all three of its timestamps equal ``created_ts``. Call ``list_lore_entries`` (``GET /api/lore``) for the entry itself.
+         *
+         *     ``scope_kind`` and ``scope_key`` STAY, and they are why this receipt is more than an id. WHICH of the three boot documents an entry landed in is decided SERVER-SIDE, off the effective related task and off the caller's own roster row — a caller that named a task cannot predict it, and it is the machine-readable half of what ``scope_note`` says in a sentence.
+         */
+        LoreEntryWriteReceiptDTO: {
+            /**
+             * Id
+             * @description ``L-<n>``, MINTED HERE, ``n`` ascending globally. The handle ``set_lore_entry_state`` and ``bump_lore_entry`` take as ``entry_id``, and the one thing the caller cannot compute.
+             */
+            id: string;
+            /**
+             * Seq
+             * @description The number behind the id, assigned here — also the stable tie-break when two entries carry the same ``effective_ts``.
+             */
+            seq: number;
+            /**
+             * Scope Kind
+             * @description ``role``, ``agent`` or ``manual`` — WHERE THIS ENTRY WAS FILED, which the server decided and the caller did not ask for. The deciding question is the EFFECTIVE RELATED TASK: the named task when it carries a type, and NULL otherwise, where "otherwise" covers BOTH naming no task and naming a 臨時任務 that carries no type. An effective task gives ``manual``; NULL gives ``role`` for staff and ``agent`` for an outsource member, who holds no role for ``role`` to name.
+             */
+            scope_kind: string;
+            /**
+             * Scope Key
+             * @description The role_key when ``scope_kind`` is ``role``; the writer's own member id when it is ``agent``; the task manual's ``type_key`` when it is ``manual``. Together with ``scope_kind`` it is the filter that reads this entry back out of ``list_lore_entries``.
+             */
+            scope_key: string;
+            /**
+             * Created Ts
+             * Format: double
+             * @description The SERVER's stamp for the entry, epoch seconds. The caller does not send it and cannot backdate it. ``effective_ts`` and ``updated_ts`` are not on this receipt because on a fresh write both equal this one — they can only come apart later, and the receipt for that move reports them.
+             */
+            created_ts: number;
+            /**
+             * Scope Note
+             * @description Empty on every ordinary write. It carries one sentence in exactly one case: the write named a ``task_id`` whose task carries NO type, so the effective related task was NULL and the entry was filed under the writer's own boot document rather than under a manual.
+             *
+             *     It exists because the writer has no other way to learn that. Whether the task it named happens to carry a type is not something the writer holds in mind at the moment of the write, and both outcomes answer 200 — so without this sentence the two are indistinguishable from the caller's side. It REPORTS where the entry went; it is not a warning that a request was re-routed, because a task with no type was never a place an entry could hang.
+             *
+             *     It is on the RECEIPT and not on ``LoreEntryDTO``, where it used to live as ``filed_note``: only a write can produce it, so on every row ``GET /api/lore`` serves it was an always-empty column riding every entry of every page.
+             */
+            scope_note: string;
+        };
+        /**
+         * LoreEntryStateReceiptDTO
+         * @description Bounded receipt for the two 傳承 GOVERNANCE writes — ``POST /api/lore/{entry_id}/state`` (set_lore_entry_state) and ``POST /api/lore/{entry_id}/bump`` (bump_lore_entry) (T-33). Both used to answer with the whole LoreEntryDTO, so an entry's ``title`` and ``body`` came home on every 置頂 / 失效 / 提到最新 — a payload the caller had never sent, on a call whose entire content is one state word or nothing at all. Owner ruling 2026-09-07: 「不要回傳自己寫出去的 payload」, read together with the 2026-09-05 rule that only ids and what the write itself decides ride home.
+         *
+         *     ONE SHAPE FOR BOTH DOORS. They move the same row's mutable surface and neither can report anything the other cannot: the state door writes ``state`` (and ``retire_reason``, which it stores only with ``retired`` and clears otherwise), the bump door writes ``effective_ts``, and both stamp ``updated_ts``. Two shapes would be two answers to one question, free to drift. What is dropped is the read-only half — ``seq``, ``scope_kind``, ``scope_key``, ``title``, ``body``, ``author_id``, ``source_task_id``, ``created_ts`` — none of which either verb can change; call ``list_lore_entries`` (``GET /api/lore``) for the entry itself.
+         */
+        LoreEntryStateReceiptDTO: {
+            /**
+             * Id
+             * @description The entry that was moved, echoed from the path. An id, which the owner's rule exempts in as many words (「除了像是 ID 這類的」): it is what lets a caller match this answer to the request it made.
+             */
+            id: string;
+            /**
+             * State
+             * @description ``active`` | ``pinned`` | ``retired`` — the state the entry is in AFTER this write, read back from the stored row. On the state door it confirms the asked-for move landed. On the bump door the caller sent no state at all, and this is where it learns 提到最新 did NOT change one — a bump reorders, it does not revive a retired entry.
+             */
+            state: string;
+            /**
+             * Effective Ts
+             * Format: double
+             * @description The entry's ordering key as it now stands, epoch seconds. On the bump door this is the SERVER's new now-stamp, which is the whole point of the call and the one value the caller cannot compute — two entries bumped from two machines still order by one clock. On the state door it is untouched, which is how a caller sees that retiring or reviving did not reorder anything.
+             */
+            effective_ts: number;
+            /**
+             * Updated Ts
+             * Format: double
+             * @description The SERVER's stamp for THIS write, epoch seconds. It moves on both doors and on every call, so it — not ``effective_ts`` — is what says the write happened at all.
+             */
+            updated_ts: number;
         };
         /**
          * @description Response of ``GET /api/diff``: BOTH sides of one comparison in a single answer.
@@ -11784,7 +11852,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["LoreEntryDTO"];
+                    "application/json": components["schemas"]["LoreEntryWriteReceiptDTO"];
                 };
             };
             /** @description Validation error (unified error envelope). */
@@ -11837,7 +11905,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["LoreEntryDTO"];
+                    "application/json": components["schemas"]["LoreEntryStateReceiptDTO"];
                 };
             };
             /** @description Validation error (unified error envelope). */
@@ -11886,7 +11954,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["LoreEntryDTO"];
+                    "application/json": components["schemas"]["LoreEntryStateReceiptDTO"];
                 };
             };
             /** @description Validation error (unified error envelope). */

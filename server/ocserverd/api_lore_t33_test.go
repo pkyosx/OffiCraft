@@ -57,23 +57,46 @@ func TestWriteLoreWithNoTaskFilesUnderTheCallersOwnRole(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("want 200, got %d %s", rec.Code, rec.Body.String())
 	}
-	var dto LoreEntryDTO
+	var dto LoreEntryWriteReceiptDTO
 	if err := json.Unmarshal(rec.Body.Bytes(), &dto); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
 	if dto.ScopeKind != LoreScopeRole || dto.ScopeKey != "researcher" {
 		t.Fatalf("scope = %s/%s, want role/researcher", dto.ScopeKind, dto.ScopeKey)
 	}
-	if dto.AuthorId != me {
+	// 🔴 THE REST IS ASSERTED AGAINST THE STORED ROW, NOT THE RESPONSE. The write
+	// answers a bounded receipt (T-33, owner 2026-09-07), so author_id, state and
+	// effective_ts no longer ride home — but they are still properties of the
+	// write, and a receipt that stopped carrying them must not also stop them
+	// being checked. Reading the row is the stricter check anyway: it is what the
+	// next reader will see.
+	stored, err := s.dal.GetLoreEntry(dto.Id)
+	if err != nil {
+		t.Fatalf("GetLoreEntry: %v", err)
+	}
+	if stored == nil {
+		t.Fatalf("the receipt named %q and no such row was stored", dto.Id)
+	}
+	if stored.AuthorID != me {
 		t.Fatalf("author_id = %q, want %q — the writer is PINNED at write time",
-			dto.AuthorId, me)
+			stored.AuthorID, me)
 	}
-	if dto.State != LoreStateActive {
-		t.Fatalf("state = %q, want %q", dto.State, LoreStateActive)
+	if stored.State != LoreStateActive {
+		t.Fatalf("state = %q, want %q", stored.State, LoreStateActive)
 	}
-	if dto.CreatedTs != dto.EffectiveTs {
+	if stored.CreatedTS != stored.EffectiveTS {
 		t.Fatalf("created_ts %v != effective_ts %v — they start equal",
-			dto.CreatedTs, dto.EffectiveTs)
+			stored.CreatedTS, stored.EffectiveTS)
+	}
+	// The one timestamp the receipt DOES carry must be the stored one, or the
+	// receipt is reporting a write other than the one that landed.
+	if dto.CreatedTs != stored.CreatedTS {
+		t.Fatalf("receipt created_ts %v != stored %v", dto.CreatedTs, stored.CreatedTS)
+	}
+	// 🔴 AND THE ECHO IS GONE. The body is what the caller just sent; if it comes
+	// home the whole change is undone, and nothing else here would notice.
+	if strings.Contains(rec.Body.String(), "內容") {
+		t.Fatalf("the write echoed the body back: %s", rec.Body.String())
 	}
 }
 
@@ -101,7 +124,7 @@ func TestWriteLoreWithNoRoleFilesUnderTheWritersOwnId(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("want 200, got %d %s", rec.Code, rec.Body.String())
 	}
-	var dto LoreEntryDTO
+	var dto LoreEntryWriteReceiptDTO
 	if err := json.Unmarshal(rec.Body.Bytes(), &dto); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
@@ -118,10 +141,10 @@ func TestWriteLoreWithNoRoleFilesUnderTheWritersOwnId(t *testing.T) {
 	if len(blank) != 0 {
 		t.Fatalf("the entry also landed in the role scope under an EMPTY key: %+v", blank)
 	}
-	// No filed_note: the writer named no task, so nothing about where this went
+	// No scope_note: the writer named no task, so nothing about where this went
 	// was unpredictable from its own request.
-	if dto.FiledNote != "" {
-		t.Fatalf("filed_note = %q, want empty — this write named no task", dto.FiledNote)
+	if dto.ScopeNote != "" {
+		t.Fatalf("scope_note = %q, want empty — this write named no task", dto.ScopeNote)
 	}
 }
 
@@ -182,7 +205,7 @@ func TestWriteLoreAgainstAnUntypedTaskFilesUnderTheWritersOwnBootDocument(t *tes
 		t.Fatalf("want 200 for a task with no type_key, got %d %s",
 			rec.Code, rec.Body.String())
 	}
-	var dto LoreEntryDTO
+	var dto LoreEntryWriteReceiptDTO
 	if err := json.Unmarshal(rec.Body.Bytes(), &dto); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
@@ -202,13 +225,13 @@ func TestWriteLoreAgainstAnUntypedTaskFilesUnderTheWritersOwnBootDocument(t *tes
 	// 🔴 AND THE RESPONSE SAYS SO. This is the one case the writer could not have
 	// predicted: it named a task and the entry went somewhere else. Without this
 	// sentence the two outcomes are indistinguishable on the wire — both are 200.
-	if dto.FiledNote == "" {
-		t.Fatalf("filed_note is empty — a write that named a task and landed in the " +
+	if dto.ScopeNote == "" {
+		t.Fatalf("scope_note is empty — a write that named a task and landed in the " +
 			"writer's own boot document must SAY so; the writer has no other way to " +
 			"learn whether the task it named carried a type")
 	}
-	if !strings.Contains(dto.FiledNote, adhoc.ID) {
-		t.Fatalf("filed_note %q must name the task that carried no type", dto.FiledNote)
+	if !strings.Contains(dto.ScopeNote, adhoc.ID) {
+		t.Fatalf("scope_note %q must name the task that carried no type", dto.ScopeNote)
 	}
 }
 
@@ -236,15 +259,15 @@ func TestWriteLoreAgainstAnUntypedTaskByAnOutsourceMemberFilesUnderItsOwnId(t *t
 	if rec.Code != http.StatusOK {
 		t.Fatalf("want 200, got %d %s", rec.Code, rec.Body.String())
 	}
-	var dto LoreEntryDTO
+	var dto LoreEntryWriteReceiptDTO
 	if err := json.Unmarshal(rec.Body.Bytes(), &dto); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
 	if dto.ScopeKind != LoreScopeAgent || dto.ScopeKey != "ow-lore-2" {
 		t.Fatalf("scope = %s/%s, want agent/ow-lore-2", dto.ScopeKind, dto.ScopeKey)
 	}
-	if dto.FiledNote == "" {
-		t.Fatalf("filed_note is empty — this write named a task and landed elsewhere")
+	if dto.ScopeNote == "" {
+		t.Fatalf("scope_note is empty — this write named a task and landed elsewhere")
 	}
 }
 
@@ -266,15 +289,25 @@ func TestWriteLoreAgainstATypedTaskFilesUnderThatType(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("want 200, got %d %s", rec.Code, rec.Body.String())
 	}
-	var dto LoreEntryDTO
+	var dto LoreEntryWriteReceiptDTO
 	if err := json.Unmarshal(rec.Body.Bytes(), &dto); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
 	if dto.ScopeKind != LoreScopeManual || dto.ScopeKey != "tm-review" {
 		t.Fatalf("scope = %s/%s, want manual/tm-review", dto.ScopeKind, dto.ScopeKey)
 	}
-	if dto.SourceTaskId != typed.ID {
-		t.Fatalf("source_task_id = %q, want %q", dto.SourceTaskId, typed.ID)
+	// source_task_id is the task the caller just named, so it does not ride home
+	// on the receipt (T-33). It is still RECORDED, and that is checked where it
+	// now lives — on the stored row.
+	stored, err := s.dal.GetLoreEntry(dto.Id)
+	if err != nil {
+		t.Fatalf("GetLoreEntry: %v", err)
+	}
+	if stored == nil {
+		t.Fatalf("the receipt named %q and no such row was stored", dto.Id)
+	}
+	if stored.SourceTaskID != typed.ID {
+		t.Fatalf("source_task_id = %q, want %q", stored.SourceTaskID, typed.ID)
 	}
 	// The role scope stays empty: the two are not interchangeable.
 	role, err := s.dal.ListLoreEntriesLive(LoreScopeRole, "researcher")
@@ -322,7 +355,7 @@ func TestSetLoreStateClearsTheReasonOnTheWayBack(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("seed write: %d %s", rec.Code, rec.Body.String())
 	}
-	var seeded LoreEntryDTO
+	var seeded LoreEntryWriteReceiptDTO
 	if err := json.Unmarshal(rec.Body.Bytes(), &seeded); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
@@ -346,17 +379,29 @@ func TestSetLoreStateClearsTheReasonOnTheWayBack(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("revive: %d %s", rec.Code, rec.Body.String())
 	}
-	var after LoreEntryDTO
+	var after LoreEntryStateReceiptDTO
 	if err := json.Unmarshal(rec.Body.Bytes(), &after); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
 	if after.State != LoreStateActive {
 		t.Fatalf("state = %q, want %q", after.State, LoreStateActive)
 	}
-	if after.RetireReason != "" {
+	// 🔴 retire_reason IS NOT ON THE RECEIPT (T-33) — the governance receipt
+	// carries id/state/effective_ts/updated_ts. The clearing is a property of the
+	// STORED row, which is what the next reader and both folds see, so that is
+	// where it is asserted. Reading it off the response only ever proved the
+	// response.
+	stored, err := s.dal.GetLoreEntry(seeded.Id)
+	if err != nil {
+		t.Fatalf("GetLoreEntry: %v", err)
+	}
+	if stored == nil {
+		t.Fatalf("no such row after the revive: %q", seeded.Id)
+	}
+	if stored.RetireReason != "" {
 		t.Fatalf("retire_reason = %q on a %s entry — a live entry must not carry "+
 			"the explanation for a retirement that was undone",
-			after.RetireReason, after.State)
+			stored.RetireReason, stored.State)
 	}
 }
 
@@ -613,7 +658,7 @@ func seedLoreEntryBy(t *testing.T, s *apiServer, author, title string) string {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("seed write as %s: %d %s", author, rec.Code, rec.Body.String())
 	}
-	var dto LoreEntryDTO
+	var dto LoreEntryWriteReceiptDTO
 	if err := json.Unmarshal(rec.Body.Bytes(), &dto); err != nil {
 		t.Fatalf("decode: %v", err)
 	}

@@ -4900,7 +4900,11 @@ export const mockApi: Api = {
     };
   },
 
-  async writeLoreEntry(entry: LoreEntryWrite): Promise<LoreEntryView> {
+  // 🔴 THE THREE WRITES RESOLVE TO NOTHING, matching the http seam: the routes
+  // answer bounded receipts (T-33) and the cockpit reconciles by refetching.
+  // The mock still MUTATES its store, which is the part any caller can observe
+  // — through listLoreEntries, exactly as against a real server.
+  async writeLoreEntry(entry: LoreEntryWrite): Promise<void> {
     const now = Date.now() / 1000;
     const seq = mockLoreEntries.length + 1;
     const made: LoreEntryView = {
@@ -4926,14 +4930,13 @@ export const mockApi: Api = {
       updatedTs: now,
     };
     mockLoreEntries.push(made);
-    return structuredClone(made);
   },
 
   async setLoreEntryState(
     entryId: string,
     state: LoreEntryState,
     retireReason?: string
-  ): Promise<LoreEntryView> {
+  ): Promise<void> {
     const e = mockLoreEntries.find((x) => x.id === entryId);
     if (!e) {
       throw mockApiError(
@@ -4947,10 +4950,9 @@ export const mockApi: Api = {
     // must not keep showing the explanation for a retirement that was undone.
     e.retireReason = state === "retired" ? (retireReason ?? "") : "";
     e.updatedTs = Date.now() / 1000;
-    return structuredClone(e);
   },
 
-  async bumpLoreEntry(entryId: string): Promise<LoreEntryView> {
+  async bumpLoreEntry(entryId: string): Promise<void> {
     const e = mockLoreEntries.find((x) => x.id === entryId);
     if (!e) {
       throw mockApiError(
@@ -4962,7 +4964,6 @@ export const mockApi: Api = {
     // createdTs is NOT touched — that is what makes a bump reversible.
     e.effectiveTs = Date.now() / 1000;
     e.updatedTs = e.effectiveTs;
-    return structuredClone(e);
   },
 
   async listDocs(): Promise<DocSummaryView[]> {

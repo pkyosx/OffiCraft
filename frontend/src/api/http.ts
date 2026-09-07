@@ -93,7 +93,6 @@ import type {
   TaskManualView,
   TaskManualPatch,
   DocSummaryView,
-  LoreEntryView,
   LoreEntryPageView,
   LoreEntryState,
   LoreEntryWrite,
@@ -164,7 +163,6 @@ import {
   toThemeListItem,
   toThemeWriteReceipt,
   toThemeDeleteResult,
-  toLoreEntry,
   toLoreEntryPage,
 } from "./mappers";
 // The one wire type this seam names directly: GET /api/reply-cards serves a
@@ -2195,26 +2193,36 @@ export const httpApi: Api = {
     return toLoreEntryPage(wire);
   },
 
-  async writeLoreEntry(entry: LoreEntryWrite): Promise<LoreEntryView> {
-    // POST /api/lore -> LoreEntryDTO. task_id is omitted rather than sent as ""
-    // when there is none: "" and absent both mean "a role entry" on this route
-    // today, and sending the one that has to be special-cased is how that
-    // equivalence quietly becomes load-bearing.
+  async writeLoreEntry(entry: LoreEntryWrite): Promise<void> {
+    // POST /api/lore -> LoreEntryWriteReceiptDTO {id, seq, scope_kind,
+    // scope_key, created_ts, scope_note} — a bounded receipt, not the entry
+    // (T-33). The title and the body are what this caller just sent, and for an
+    // agent the second copy lands in its context window; the receipt carries
+    // only what the server decided. The value is DISCARDED here for the same
+    // reason postChat discards its receipt: the cockpit reconciles by
+    // refetching, and a receipt dressed up as a LoreEntryView would be a
+    // half-entry with the missing halves silently zeroed.
+    //
+    // task_id is omitted rather than sent as "" when there is none: "" and
+    // absent both mean "the writer's own boot document" on this route today,
+    // and sending the one that has to be special-cased is how that equivalence
+    // quietly becomes load-bearing.
     const body: { title: string; body: string; task_id?: string } = {
       title: entry.title,
       body: entry.body,
     };
     if (entry.taskId) body.task_id = entry.taskId;
-    const wire = unwrap(await client.POST("/api/lore", { body }));
-    return toLoreEntry(wire);
+    unwrap(await client.POST("/api/lore", { body }));
   },
 
   async setLoreEntryState(
     entryId: string,
     state: LoreEntryState,
     retireReason?: string,
-  ): Promise<LoreEntryView> {
-    // POST /api/lore/{entry_id}/state -> LoreEntryDTO.
+  ): Promise<void> {
+    // POST /api/lore/{entry_id}/state -> LoreEntryStateReceiptDTO {id, state,
+    // effective_ts, updated_ts} — the bounded receipt both governance doors
+    // answer (T-33). Discarded; LorePage refetches.
     //
     // retire_reason rides only with `retired`. The server clears any stored
     // value on the other two, and this face does not send one for them either:
@@ -2223,25 +2231,24 @@ export const httpApi: Api = {
     // in the wrong place.
     const body: { state: string; retire_reason?: string } = { state };
     if (state === "retired" && retireReason) body.retire_reason = retireReason;
-    const wire = unwrap(
+    unwrap(
       await client.POST("/api/lore/{entry_id}/state", {
         params: { path: { entry_id: entryId } },
         body,
       }),
     );
-    return toLoreEntry(wire);
   },
 
-  async bumpLoreEntry(entryId: string): Promise<LoreEntryView> {
-    // POST /api/lore/{entry_id}/bump -> LoreEntryDTO. No body: the new
-    // effective_ts is the SERVER's clock, never a time the client picked, so
-    // two entries bumped from two machines still order by one clock.
-    const wire = unwrap(
+  async bumpLoreEntry(entryId: string): Promise<void> {
+    // POST /api/lore/{entry_id}/bump -> LoreEntryStateReceiptDTO, discarded.
+    // No body: the new effective_ts is the SERVER's clock, never a time the
+    // client picked, so two entries bumped from two machines still order by one
+    // clock — and the receipt is where a caller that needs it reads that stamp.
+    unwrap(
       await client.POST("/api/lore/{entry_id}/bump", {
         params: { path: { entry_id: entryId } },
       }),
     );
-    return toLoreEntry(wire);
   },
 
   async listDocs(): Promise<DocSummaryView[]> {

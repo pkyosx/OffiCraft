@@ -2542,21 +2542,31 @@ export interface Api {
   listLoreEntries(opts?: LoreListOptions): Promise<LoreEntryPageView>;
   /** Write ONE 傳承 entry (`POST /api/lore`). Writing is an AGENT act — this
    * exists on the seam for completeness and for tests, not because the cockpit
-   * offers a compose form (spec §5: 寫入只走 MCP). */
-  writeLoreEntry(entry: LoreEntryWrite): Promise<LoreEntryView>;
+   * offers a compose form (spec §5: 寫入只走 MCP).
+   *
+   * 🔴 RESOLVES TO NOTHING, like `postChat`. The route answers a bounded
+   * receipt (`LoreEntryWriteReceiptDTO`, T-33) rather than the entry, and the
+   * cockpit reconciles by REFETCHING the list — so surfacing the receipt here
+   * would publish a half-entry that looks like a `LoreEntryView` and is not
+   * one. Read the entry back with `listLoreEntries`. */
+  writeLoreEntry(entry: LoreEntryWrite): Promise<void>;
   /** Move one entry to active / pinned / retired
    * (`POST /api/lore/{entry_id}/state`). `retireReason` is stored only with
    * `retired` and is CLEARED by the other two — a live entry must not keep
-   * showing the explanation for a retirement that was undone. */
+   * showing the explanation for a retirement that was undone.
+   *
+   * Resolves to nothing, for the reason above: the route answers
+   * `LoreEntryStateReceiptDTO` and `LorePage` refetches. */
   setLoreEntryState(
     entryId: string,
     state: LoreEntryState,
     retireReason?: string,
-  ): Promise<LoreEntryView>;
+  ): Promise<void>;
   /** 提到最新 (`POST /api/lore/{entry_id}/bump`): set `effectiveTs` to now so the
    * entry sorts to the front of its group. `createdTs` is NOT touched, which is
-   * what makes this reversible. */
-  bumpLoreEntry(entryId: string): Promise<LoreEntryView>;
+   * what makes this reversible. Resolves to nothing — same receipt, same
+   * refetch. */
+  bumpLoreEntry(entryId: string): Promise<void>;
   // ── Product guide (the 使用說明 nav tab) ──────────────────────────────────
   /** List the product-guide docs (`GET /api/docs`) — the 使用說明 landing
    * (slug + title cards). The same embed Mira reads via get_doc. */

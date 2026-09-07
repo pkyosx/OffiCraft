@@ -49,7 +49,9 @@ function wireEntry(
     seq: 1,
     scope_kind: scopeKind,
     scope_key: scopeKey,
-    filed_note: "",
+    // `filed_note` used to sit here. It moved to the WRITE receipt as
+    // `scope_note` (T-33): only a write can produce it, so on a row served by
+    // GET /api/lore it was an always-empty column on every entry of every page.
     title: "交接路徑要寫絕對路徑",
     body: "對方在別的工作目錄下撲空，訊息跟那一輪沒跑一模一樣。",
     author_id: "ow-7d8ad859dd9b",

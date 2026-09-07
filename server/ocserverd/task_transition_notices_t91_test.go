@@ -178,10 +178,17 @@ func TestListTaskRowAlreadyCarriedTheReassignHold(t *testing.T) {
 // ONE DOCUMENT, BOTH IDENTITIES. The owner's generalisation requirement,
 // verbatim: 「轉交給外包跟轉交給一個目前離線的正職應該要有同樣一套方法」. The staff
 // fold and the outsource worker's boot context are built from the SAME
-// boot_sequence seed (TestWorkerBootContextIsTheStaffFoldMinusThePersona pins
-// that they are byte-subtractions of one another), so the takeover instruction
-// must be reachable from both — and it must be reachable because it is in the
-// shared document, not because someone wrote it twice.
+// boot_sequence seed (TestBothBootPathsShareSlots124ByteForByte pins that slots
+// 1, 2 and 4 are byte-identical across the two assembly paths), so the takeover
+// instruction must be reachable from both — and it must be reachable because it
+// is in the shared document, not because someone wrote it twice.
+//
+// 🔴 THAT CITATION WAS RE-POINTED, NOT JUST RENAMED (T-33, 2026-09-07). It used
+// to name TestWorkerBootContextIsTheStaffFoldMinusThePersona, which said the two
+// documents are byte-subtractions of ONE ANOTHER. That test is retired: the
+// worker's slot 3 is no longer empty, so the subtraction is false. The sentence
+// above survives because the takeover instruction lives in slot 4, which the
+// replacement still compares byte for byte.
 //
 // The assertion is on MACHINE IDENTIFIERS (`claim_task`, the `reassigning` lock
 // value, the `reassigned_from` field name), never on the sentence around them:

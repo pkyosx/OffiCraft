@@ -166,14 +166,25 @@ func (s *apiServer) HandleWriteLoreEntryApiLorePost(w http.ResponseWriter, r *ht
 		internalError(w, err)
 		return
 	}
-	dto := newLoreEntryDTO(entry)
+	// 🔴 A BOUNDED RECEIPT, NOT THE ENTRY. The title and the body are what this
+	// caller just sent, and for an agent the second copy lands in its context
+	// window (owner 2026-09-07: 「不要回傳自己寫出去的 payload」). What comes back
+	// is only what the server decided: the minted id and seq, WHERE it was filed,
+	// and the stamp. list_lore_entries serves the entry itself.
+	dto := LoreEntryWriteReceiptDTO{
+		Id:        entry.ID,
+		Seq:       entry.Seq,
+		ScopeKind: entry.ScopeKind,
+		ScopeKey:  entry.ScopeKey,
+		CreatedTs: entry.CreatedTS,
+	}
 	// Design §5, owner-approved: SAY where it went, but only in the one case the
 	// writer could not have predicted. It named a task, that task carries no
 	// type, so the effective related task was NULL and this landed in the
 	// writer's own boot document. Every other write already reads its own answer
 	// off scope_kind / scope_key.
 	if untypedTask {
-		dto.FiledNote = "任務 " + taskID + " 沒有類型，所以這一筆寫進了你自己的開機檔（" +
+		dto.ScopeNote = "任務 " + taskID + " 沒有類型，所以這一筆寫進了你自己的開機檔（" +
 			scopeKind + " / " + scopeKey + "），不是任何一本任務手冊。"
 	}
 	writeJSON(w, http.StatusOK, dto)
@@ -332,10 +343,18 @@ func (s *apiServer) HandleBumpLoreEntryApiLoreEntryIdBumpPost(w http.ResponseWri
 	s.writeLoreEntryByID(w, entryID)
 }
 
-// writeLoreEntryByID re-reads and answers with the STORED row rather than with
-// a copy the handler assembled from what it just sent. The two faces cannot
-// then disagree about what actually landed — which is the only way a caller can
-// verify a write it did not watch.
+// writeLoreEntryByID re-reads and answers with a bounded receipt built from the
+// STORED row rather than from a copy the handler assembled out of what it just
+// sent. The re-read is the point: the two faces cannot then disagree about what
+// actually landed, which is the only way a caller can verify a write it did not
+// watch.
+//
+// 🔴 THE RECEIPT CARRIES THE MUTABLE HALF ONLY. Both governance verbs answer
+// through here, and neither can change the title, the body, the author or the
+// scope — echoing those back would hand the caller a payload it never sent, on
+// a call whose whole content is one state word (owner 2026-09-07). The four
+// fields are what these two doors actually move; list_lore_entries serves the
+// rest.
 func (s *apiServer) writeLoreEntryByID(w http.ResponseWriter, entryID string) {
 	e, err := s.dal.GetLoreEntry(entryID)
 	if err != nil {
@@ -346,7 +365,12 @@ func (s *apiServer) writeLoreEntryByID(w http.ResponseWriter, entryID string) {
 		writeError(w, http.StatusNotFound, "no such lore entry: "+entryID)
 		return
 	}
-	writeJSON(w, http.StatusOK, newLoreEntryDTO(*e))
+	writeJSON(w, http.StatusOK, LoreEntryStateReceiptDTO{
+		Id:          e.ID,
+		State:       e.State,
+		EffectiveTs: e.EffectiveTS,
+		UpdatedTs:   e.UpdatedTS,
+	})
 }
 
 // GET /api/lore — list_lore_entries.
@@ -445,8 +469,11 @@ func (s *apiServer) HandleListLoreEntriesApiLoreGet(w http.ResponseWriter, r *ht
 	writeJSON(w, http.StatusOK, out)
 }
 
-// newLoreEntryDTO is the ONE row→wire projection, so every face answers with
-// the same shape from the same fields.
+// newLoreEntryDTO is the ONE row→wire projection for the READ face, so every
+// row of every page is built from the same fields. The three writes do NOT come
+// through here any more: they answer bounded receipts (T-33, owner 2026-09-07),
+// because what a write can tell a caller is what the SERVER decided, and the
+// whole entry is what the caller already had.
 func newLoreEntryDTO(e LoreEntry) LoreEntryDTO {
 	return LoreEntryDTO{
 		Id:           e.ID,

@@ -2008,8 +2008,14 @@ def _happy_lore_entry(ctx: HCtx) -> str:
 
 
 def _check_lore_written(ctx: HCtx, r: httpx.Response) -> None:
+    # LoreEntryWriteReceiptDTO (T-33): the write answers a BOUNDED RECEIPT, not
+    # the entry. `title`, `body`, `author_id`, `state`, `effective_ts` and
+    # `updated_ts` are gone on purpose — they are what the caller just sent, or
+    # constants on a fresh write. What is asserted here is what the SERVER
+    # decided and the caller could not have known.
     d = r.json()
     assert d["id"].startswith("L-"), d
+    assert d["seq"] >= 1, d
     # 🔴 `agent`, not `role`, and it is a statement about THIS FIXTURE rather
     # than about the route: the scratch agent carries role_key="" (_happy_ctx),
     # so the writer's own boot document is its own, keyed by its member id. The
@@ -2019,25 +2025,38 @@ def _check_lore_written(ctx: HCtx, r: httpx.Response) -> None:
     assert d["scope_key"] == ctx.agent.member_id, d
     # It named no task, so there was nothing about where this landed that the
     # writer could not predict — the explanatory sentence must stay empty.
-    assert d["filed_note"] == "", d
-    assert d["state"] == "active", d
-    assert d["author_id"] == ctx.agent.member_id, d
-    # The two timestamps start EQUAL and only effective_ts ever moves; the bump
-    # row below is what proves they can come apart.
-    assert d["created_ts"] == d["effective_ts"], d
+    assert d["scope_note"] == "", d
+    assert d["created_ts"] > 0, d
+    # 🔴 THE ECHO IS GONE, asserted as an ABSENCE. A server that went back to
+    # answering the whole entry would still satisfy every line above, because
+    # every key above is also on LoreEntryDTO.
+    assert _HAPPY_LORE_BODY not in r.text, r.text
+    assert "author_id" not in d, d
 
 
 def _check_lore_bumped(_ctx: HCtx, r: httpx.Response) -> None:
+    # LoreEntryStateReceiptDTO (T-33) — the same four keys as the state door.
     d = r.json()
-    # 提到最新 moves effective_ts and leaves created_ts alone — which is the
-    # whole reason there are two columns.
-    assert d["effective_ts"] >= d["created_ts"], d
+    assert d["id"].startswith("L-"), d
+    # 提到最新 moves effective_ts and touches nothing else about the state; the
+    # entry it bumped was written active moments earlier by _happy_lore_entry.
+    assert d["state"] == "active", d
+    assert d["effective_ts"] > 0, d
+    # updated_ts is stamped by THIS write, so it cannot be behind the bump it
+    # is reporting.
+    assert d["updated_ts"] >= d["effective_ts"], d
+    assert _HAPPY_LORE_BODY not in r.text, r.text
 
 
 def _check_lore_retired(_ctx: HCtx, r: httpx.Response) -> None:
     d = r.json()
     assert d["state"] == "retired", d
-    assert d["retire_reason"] == "conf happy retire reason", d
+    # `retire_reason` is NOT on the governance receipt: it is what this very
+    # request sent. That it was STORED (and cleared on the way back) is pinned
+    # by TestSetLoreStateClearsTheReasonOnTheWayBack in the server unit tests,
+    # which reads the row rather than the response.
+    assert "retire_reason" not in d, d
+    assert _HAPPY_LORE_BODY not in r.text, r.text
 
 
 def _check_lore_list(_ctx: HCtx, r: httpx.Response) -> None:
