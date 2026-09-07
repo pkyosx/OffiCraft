@@ -44,6 +44,7 @@ func TestAnnouncementNamesTheDatabaseAndWhereItCameFrom(t *testing.T) {
 		wantConfig string
 		wantSource string
 		wantFile   string
+		wantHowTo  bool
 	}{
 		{
 			// The dangerous one. No config file, no override: the resolution is
@@ -52,12 +53,14 @@ func TestAnnouncementNamesTheDatabaseAndWhereItCameFrom(t *testing.T) {
 			env:        map[string]string{},
 			wantConfig: "config file = none",
 			wantSource: "the built-in default",
+			wantHowTo:  true,
 		},
 		{
 			name:       "database overridden by env",
 			env:        map[string]string{envDatabaseURL: "sqlite:///" + db},
 			wantConfig: "config file = none",
 			wantSource: "$" + envDatabaseURL,
+			wantHowTo:  true,
 		},
 		{
 			// PRECEDENCE. Both are set and they disagree; the announcement must
@@ -105,6 +108,18 @@ func TestAnnouncementNamesTheDatabaseAndWhereItCameFrom(t *testing.T) {
 			}
 			if tc.wantFile != "" && !strings.Contains(got, tc.wantFile) {
 				t.Errorf("expected the announced file to be %q in:\n%s", tc.wantFile, got)
+			}
+			// The instruction half. "config file = none" is a fact people
+			// have read past; the run that has no config file must also say
+			// what to type to give it one — and the run that HAS one must not,
+			// or "always printed" and "printed when it is missing" are the same
+			// output.
+			howTo := "set " + envConfigPath + "=/path/to/oc.toml"
+			if tc.wantHowTo && !strings.Contains(got, howTo) {
+				t.Errorf("no config file was found, but nothing told the reader how to specify one (looked for %q) in:\n%s", howTo, got)
+			}
+			if !tc.wantHowTo && strings.Contains(got, howTo) {
+				t.Errorf("a config file WAS found at %s, yet the how-to-specify-one line still printed in:\n%s — printing it unconditionally makes it noise and makes the no-config case indistinguishable", tc.wantConfig, got)
 			}
 			if !strings.Contains(got, tc.wantSource) {
 				t.Errorf("no source attribution %q in:\n%s — a path with no source reads as \"that is what I asked for\", which is the misreading this whole change exists to stop", tc.wantSource, got)

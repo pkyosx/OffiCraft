@@ -142,6 +142,10 @@ func announceResolution(name string, env func(string) string, out io.Writer) (cf
 			where = filepath.Join(wd, cfgPath)
 		}
 		fmt.Fprintf(out, "[ocserverd] %s: config file = none (looked at %s, from %s)\n", name, where, cfgFrom)
+		// Same register as the line above, and for the same reason: not a
+		// warning, an instruction. The fact alone ("config file = none") is
+		// what people have been reading past; this says what to type instead.
+		fmt.Fprintf(out, "[ocserverd] %s: to point this run at a config file, set %s=/path/to/oc.toml or run from a directory containing oc.toml; without one, every config value is the built-in default.\n", name, envConfigPath)
 	}
 	fmt.Fprintf(out, "[ocserverd] %s: database    = %s, from %s\n", name, announcedTarget(dsn), dsnSource(env, cfg))
 	return cfg, dsn, 0
