@@ -151,6 +151,17 @@ cloud side calls the same wrapper by lane, not by target
 (`bash bin/run-checks.sh --lane "${{ github.job }}"`), and the lane-to-target
 mapping lives in `bin/lib/ci-round.txt`, the one place that list is written down.
 
+⚠️ **That cloud line is enforced VERBATIM, and you cannot vary it in the
+workflow.** `lint-ci-round` requires every gate cell to carry exactly one `run:`
+step that IS that string — no condition around it, no `|| true`, no `&`, no
+extra lines, not even a comment. The rule is that strict because a weaker one
+was measured to fail: while this was checked by shape ("is the wrapper in
+command position?"), two independent reviewers each wrapped the call in
+`if false; then … fi`, and the guard called the cell routed while it ran
+nothing. A shape test cannot see control flow, so the form is pinned instead.
+If a cell genuinely needs another shape, change `bin/ci-round-guard.py` in the
+same commit — deliberately, where a reviewer sees it.
+
 Push a branch to your fork and open the pull request; the cloud round starts
 from there on its own — this repository does not hold fork runs for maintainer
 approval, so you should see checks moving within a minute or two of opening the

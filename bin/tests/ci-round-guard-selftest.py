@@ -228,5 +228,98 @@ case("W5 a CRLF round list is REFUSED, so the guard and the runtime cannot disag
      w5, expect_red=True, expect_msg="carriage return")
 
 
+# ---------------------------------------------------------------------------
+# W6-W10 — THE CONTROL-FLOW FAMILY.
+#
+# Two independent reviewers (Lumi and Joey), working separately on candidate
+# cc5f543c, produced the SAME mutant within minutes of each other: wrap the
+# route in `if false; then … fi`. The wrapper is still in command position on
+# its own line, so the guard's line-by-line tokeniser counted it as routed,
+# printed "each really invoking its own lane in command position", and the cell
+# ran nothing.
+#
+# The lesson is not "block `if false`". A line-by-line tokeniser cannot see
+# control flow AT ALL, so every one of W6-W9 is the same hole wearing different
+# clothes and a blacklist would have to grow forever. The fix requires the route
+# step to BE the canonical string; these fixtures exist to keep anyone from
+# relaxing that back into a shape test. W10 pins the COST of that strictness
+# (even a comment is refused) so it is a decision on the record, not a surprise.
+def _replace_route(tree: Path, job: str, repl: str) -> None:
+    y = tree / YML_REL
+    t = y.read_text()
+    j, k = _first_lane_run_span(t, job)
+    start = t.rindex("\n", 0, j) + 1
+    y.write_text(t[:start] + repl + t[k:])
+
+
+ROUTE_MUTANTS = [
+    ("W6 a route inside `if false` reddens — an unreachable call is not a call",
+     '      - run: |\n          if false; then\n            bash bin/run-checks.sh --lane "${{ github.job }}"\n          fi'),
+    ("W7 a route ending in `|| true` reddens — a swallowed failure is a green cell that failed",
+     '      - run: bash bin/run-checks.sh --lane "${{ github.job }}" || true'),
+    ("W8 a BACKGROUNDED route reddens — the cell would not wait for it or read its status",
+     '      - run: bash bin/run-checks.sh --lane "${{ github.job }}" &'),
+    ("W9 a route behind a false short-circuit reddens — `[ 1 = 2 ] &&` runs nothing either",
+     '      - run: \'[ 1 = 2 ] && bash bin/run-checks.sh --lane "${{ github.job }}"\''),
+    ("W10 even a COMMENT above the route reddens — the strictness is exact, and that is the cost",
+     '      - run: |\n          # route\n          bash bin/run-checks.sh --lane "${{ github.job }}"'),
+]
+
+for _label, _repl in ROUTE_MUTANTS:
+    case(_label,
+         (lambda r: (lambda tree: _replace_route(tree, "go-checks", r)))(_repl),
+         expect_red=True, expect_msg="go-checks")
+
+
+# W11 — a correct route with a DECOY beside it. Nothing ran twice and nothing
+# was skipped, but a second mention is either dead text or a round nobody
+# counted; either way the next reader cannot tell which line is load-bearing.
+def w11(tree: Path) -> None:
+    _replace_route(
+        tree, "go-checks",
+        '      - run: bash bin/run-checks.sh --lane "${{ github.job }}"\n'
+        '      - run: echo bash bin/run-checks.sh --lane "${{ github.job }}"',
+    )
+
+
+case("W11 a second `run:` step mentioning the wrapper reddens, even beside a correct route",
+     w11, expect_red=True, expect_msg="go-checks")
+
+
+# W12 — the exemption list is the one door left open on purpose, so it must not
+# be openable QUIETLY. Joey's mutant: add a gate that runs nothing, then add its
+# name to EXEMPT_GATES. That edit cannot be forbidden, but a stale entry can be,
+# and so can an unjustified one.
+# NOTE this one mutates the GUARD, not the tree, so it cannot go through case():
+# case() always runs the repo's own guard against a temp tree, and EXEMPT_GATES
+# lives in the guard. It runs a mutated COPY of the guard against the clean tree.
+def _run_mutated_guard(edit) -> subprocess.CompletedProcess:
+    with tempfile.TemporaryDirectory(prefix="oc-ci-round-selftest.guard.") as tmp:
+        tree = Path(tmp) / "tree"
+        tree.mkdir()
+        build_tree(tree)
+        gcopy = Path(tmp) / "guard.py"
+        gcopy.write_text(edit(GUARD.read_text()))
+        return subprocess.run(
+            [sys.executable, str(gcopy), str(tree)], capture_output=True, text=True
+        )
+
+
+_r = _run_mutated_guard(
+    lambda t: t.replace("EXEMPT_GATES = {\n", 'EXEMPT_GATES = {\n    "ghost-gate": "left behind",\n', 1)
+)
+report(_r.returncode != 0 and "ghost-gate" in (_r.stdout + _r.stderr),
+       "W12 an EXEMPT_GATES entry naming no gate job reddens — a stale exemption is dead cover",
+       f"rc={_r.returncode} out={(_r.stdout + _r.stderr).strip()[:200]}")
+
+_r = _run_mutated_guard(
+    lambda t: t.replace(
+        '"macos-e2e": (', '"macos-e2e": "", "unused-key-macos-e2e": (', 1)
+)
+report(_r.returncode != 0 and "macos-e2e" in (_r.stdout + _r.stderr),
+       "W13 an EXEMPT_GATES entry with an EMPTY reason reddens — an unjustified exemption is a silent channel",
+       f"rc={_r.returncode} out={(_r.stdout + _r.stderr).strip()[:200]}")
+
+
 print(f"ci-round guard selftest: {PASS} ok, {FAIL} failed")
 sys.exit(1 if FAIL else 0)

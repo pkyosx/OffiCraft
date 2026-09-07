@@ -59,7 +59,27 @@ CI_YML = ROOT / ".github" / "workflows" / "ci.yml"
 # happen to have a lane run it", and a NEW gate job that runs nothing at all
 # would sail through — which is one keystroke away from the hole this guard
 # exists to close. Same shape as auto-beta-guard's W1x exemption set.
-EXEMPT_GATES = {"macos-e2e"}
+# ⚠️ A REASON IS MANDATORY, and that is the whole difference between this and a
+# bare allowlist. An independent review (Joey) showed the obvious attack: add a
+# gate that runs nothing, then add its name here, and the guard goes quiet. That
+# cannot be prevented outright — an exemption list that cannot be edited is not
+# an exemption list. What CAN be done is make the edit expensive to write and
+# impossible to hide: it is a change to a Python file (a reviewer sees it in the
+# diff, unlike a line buried in a workflow cell), and the entry does not compile
+# into an exemption unless someone writes down WHY in the same commit.
+# A stale entry — one naming a job that is no longer a gate — is itself an error,
+# so the list cannot quietly accumulate cover for jobs that no longer exist.
+#
+# THIS REMAINS A NAMED DESIGN BOUNDARY, not a closed door: anyone who can land a
+# reviewed commit can widen it. It is called out in the PR description as such.
+EXEMPT_GATES = {
+    "macos-e2e": (
+        "It runs the macOS end-to-end suite directly and has never gone through "
+        "bin/run-checks.sh, so it owns no lane in the round list. Corroborated "
+        "outside the repo: main's branch protection requires 11 contexts, the "
+        "round list carries 10 lanes, and macos-e2e is the whole of the difference."
+    ),
+}
 
 # Command-position tokenisation, same rules as bin/tests/ci-run-checks-entrypoint-guard.sh.
 SEPARATORS = re.compile(r"\|\||&&|[;|&]")
@@ -69,6 +89,28 @@ LEADERS = {
     "source", ".",
 }
 SHELLS = {"bash", "sh", "zsh"}
+
+# THE ONE FORM A GATE MAY ROUTE IN. Not a style rule — the only thing that makes
+# "this cell really runs its lane" DECIDABLE.
+#
+# ⚠️ WHY EXACT EQUALITY AND NOT A TOKEN TEST. The previous rule asked whether the
+# wrapper stood in COMMAND POSITION, judged line by line. An independent review
+# (Lumi, on cc5f543c) wrapped the route in `if false; then … fi`: the wrapper is
+# in command position on its own line, so the guard counted it as routed, said so
+# in as many words, and the cell ran nothing. A line-by-line tokeniser CANNOT see
+# control flow — `while false`, `case`, `[ 1 = 2 ] &&` are the same hole wearing
+# other clothes, so blacklisting `if false` would only move it.
+#
+# Requiring the script to BE this string makes the whole family unwriteable
+# rather than detectable, which is the criterion the owner set for this ticket.
+# Measured at the time of writing: all ten gate cells already carry this line
+# verbatim, so the rule needs no exception list at all.
+#
+# THE COST, STATED: a cell that one day genuinely needs an env prefix or a
+# condition cannot get one by editing the workflow — someone must change THIS
+# file on purpose. That is the intended trade, not an oversight.
+CANONICAL_ROUTE = 'bash bin/run-checks.sh --lane "${{ github.job }}"'
+
 ASSIGN = re.compile(r"\A[A-Za-z_][A-Za-z0-9_]*=")
 
 FAILURES: list[str] = []
@@ -210,7 +252,15 @@ def parser_is_real(ruby: str) -> bool:
 
 
 def lane_invocations(script: str) -> list[str]:
-    """The lanes this `run:` script REALLY invokes, in command position.
+    """The lanes this `run:` script names in COMMAND POSITION, line by line.
+
+    ⚠️ READ WHAT THIS CAN AND CANNOT ANSWER. It is a SECOND layer, kept for depth
+    and for naming what a broken cell invokes instead. It is NOT what decides
+    "this cell really runs its lane" — it cannot be, because it judges each line
+    on its own and therefore cannot see control flow: `if false; then <route>; fi`
+    satisfies it (measured on cc5f543c, by two independent reviewers separately).
+    The load-bearing rule is the CANONICAL_ROUTE equality above. Do not restore
+    this function to that role.
 
     Returns one entry per genuine `bin/run-checks.sh --lane <x>` call. The lane
     is returned verbatim, including `${{ github.job }}`.
@@ -285,6 +335,43 @@ def check_every_lane_is_really_invoked(round_lanes: list[str], gates: list[str])
         if lane not in jobs:
             fail(f"lane `{lane}` names no job in ci.yml at all")
             continue
+
+        # (a) EXACTLY ONE `run:` step that IS the canonical route, character for
+        #     character. This is what closes the control-flow family; the
+        #     command-position test below is kept as a second, independent layer.
+        canonical = [sc for sc in jobs[lane] if sc.strip() == CANONICAL_ROUTE]
+        if len(canonical) != 1:
+            near = [sc.strip() for sc in jobs[lane] if "run-checks.sh" in sc]
+            if not near:
+                detail = "it has no `run:` step mentioning bin/run-checks.sh at all."
+            else:
+                shown = near[0].replace("\n", "\\n")
+                if len(shown) > 160:
+                    shown = shown[:160] + "…"
+                detail = (
+                    f"it has {len(near)} step(s) that MENTION the wrapper but "
+                    f"{len(canonical)} that ARE the route. Closest: `{shown}`"
+                )
+            fail(
+                f"gate job `{lane}` does not route through the one permitted form — {detail} "
+                f"A gate's route step must be EXACTLY `{CANONICAL_ROUTE}` and nothing else: "
+                f"no condition, no `||`, no backgrounding, no extra lines. Anything else can be "
+                f"green while the cell runs nothing (measured: `if false; then <route>; fi` passed "
+                f"the older command-position test). Change {Path(__file__).name} on purpose if this "
+                f"cell truly needs another shape."
+            )
+            continue
+
+        # (b) And no OTHER step in the same job may mention the wrapper, so a
+        #     decoy cannot sit beside the real one and confuse a later reader.
+        strays = [sc.strip() for sc in jobs[lane] if "run-checks.sh" in sc and sc.strip() != CANONICAL_ROUTE]
+        if strays:
+            fail(
+                f"gate job `{lane}` routes correctly but has {len(strays)} OTHER `run:` step(s) "
+                f"mentioning bin/run-checks.sh; a second mention is either a dead decoy or a second "
+                f"round nobody counted. Remove it."
+            )
+
         hits: list[str] = []
         for script in jobs[lane]:
             for got in lane_invocations(script):
@@ -303,12 +390,27 @@ def check_every_lane_is_really_invoked(round_lanes: list[str], gates: list[str])
             fail(f"gate job `{lane}` invokes its own lane {len(mine)} times; expected exactly once")
 
     for job in sorted(set(gates)):
-        if job in round_lanes or job in EXEMPT_GATES:
+        if job in round_lanes:
+            continue
+        if job in EXEMPT_GATES:
+            if not EXEMPT_GATES[job].strip():
+                fail(
+                    f"gate job `{job}` is in EXEMPT_GATES with an EMPTY reason. An exemption nobody "
+                    f"had to justify is a silent channel; write why it owns no lane."
+                )
             continue
         fail(
             f"gate job `{job}` has no lane in {ROUND.name} and is not in EXEMPT_GATES — "
             f"a required check that runs none of this repo's checks. Give it a lane, or add it to "
             f"EXEMPT_GATES in {Path(__file__).name} on purpose."
+        )
+
+    # An exemption for a job that is no longer a gate is dead cover: it stops
+    # meaning anything, and the next gate to take that name inherits the silence.
+    for job in sorted(set(EXEMPT_GATES) - set(gates)):
+        fail(
+            f"EXEMPT_GATES names `{job}`, which is not a gate job in ci.yml. A stale exemption is "
+            f"cover for a job that no longer exists — remove it, or fix the name."
         )
 
 
@@ -377,7 +479,7 @@ def main() -> int:
         f"[lint-ci-round] ok — {len(round_targets)} checks, "
         f"{len(set(round_lanes))} lanes, all present in the Makefile ({len(mk_targets)} targets) "
         f"and every lane is one of {len(gates)} declared gate jobs, "
-        f"each really invoking its own lane in command position"
+        f"each routing its own lane through the one permitted form (verified verbatim, not by shape)"
     )
     return 0
 
