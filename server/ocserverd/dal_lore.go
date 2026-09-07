@@ -1,7 +1,7 @@
 package main
 
 // dal_lore.go — T-33 傳承（lore）: the durable access layer over
-// migrations/00093 (`lore_entries` + `lore_entries_seq`).
+// migrations/00093 (`lore_entry` + `lore_entry_seq`).
 //
 // The surface is deliberately SMALLER than CRUD, and the missing letter is the
 // U. There is no UpdateLoreEntry and no method anywhere in this file that can
@@ -19,7 +19,7 @@ import (
 	"strconv"
 )
 
-// LoreEntry mirrors one lore_entries row. Field-for-column; nothing derived.
+// LoreEntry mirrors one lore_entry row. Field-for-column; nothing derived.
 type LoreEntry struct {
 	ID        string // "L-" + Seq
 	Seq       int
@@ -93,7 +93,7 @@ func (d *DAL) CreateLoreEntryMintingID(e LoreEntry) (LoreEntry, error) {
 	e.ID = loreIDPrefix + strconv.Itoa(n)
 
 	if _, err := tx.Exec(
-		`INSERT INTO lore_entries (`+loreEntryColumns+`)
+		`INSERT INTO lore_entry (`+loreEntryColumns+`)
 		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		e.ID, e.Seq, e.ScopeKind, e.ScopeKey, e.Title, e.Body,
 		e.AuthorID, e.SourceTaskID, e.State, e.RetireReason,
@@ -110,17 +110,17 @@ func mintLoreNumber(tx *sql.Tx) (int, error) {
 	for attempt := 0; attempt < loreMintRetryLimit; attempt++ {
 		var next int
 		if err := tx.QueryRow(
-			`SELECT next FROM lore_entries_seq WHERE id = 1`).Scan(&next); err != nil {
+			`SELECT next FROM lore_entry_seq WHERE id = 1`).Scan(&next); err != nil {
 			if errors.Is(err, sql.ErrNoRows) {
 				// The single row is a schema invariant (00093 seeds it, the CHECK
 				// forbids a second). Absent ⇒ this file is not the schema we think
 				// it is; say so rather than inventing a counter.
-				return 0, errors.New("lore_entries_seq row is missing — database not migrated")
+				return 0, errors.New("lore_entry_seq row is missing — database not migrated")
 			}
 			return 0, err
 		}
 		res, err := tx.Exec(
-			`UPDATE lore_entries_seq SET next = next + 1 WHERE id = 1 AND next = ?`, next)
+			`UPDATE lore_entry_seq SET next = next + 1 WHERE id = 1 AND next = ?`, next)
 		if err != nil {
 			return 0, err
 		}
@@ -134,14 +134,14 @@ func mintLoreNumber(tx *sql.Tx) (int, error) {
 	}
 	return 0, fmt.Errorf(
 		"could not claim a lore number in %d attempts — every compare-and-set on "+
-			"lore_entries_seq reported 0 rows", loreMintRetryLimit)
+			"lore_entry_seq reported 0 rows", loreMintRetryLimit)
 }
 
 // GetLoreEntry reads one entry by id. nil, nil = no such entry (the caller maps
 // that to 404; it is not an error).
 func (d *DAL) GetLoreEntry(id string) (*LoreEntry, error) {
 	e, err := scanLoreEntry(d.rdb.QueryRow(
-		`SELECT `+loreEntryColumns+` FROM lore_entries WHERE id = ?`, id))
+		`SELECT `+loreEntryColumns+` FROM lore_entry WHERE id = ?`, id))
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
@@ -167,7 +167,7 @@ func (d *DAL) GetLoreEntry(id string) (*LoreEntry, error) {
 // clauses to drift apart, and this way the retired filter is written once.
 func (d *DAL) ListLoreEntriesLive(scopeKind, scopeKey string) ([]LoreEntry, error) {
 	rows, err := d.rdb.Query(
-		`SELECT `+loreEntryColumns+` FROM lore_entries
+		`SELECT `+loreEntryColumns+` FROM lore_entry
 		 WHERE scope_kind = ? AND scope_key = ? AND state != ?
 		 ORDER BY (state = ?) DESC, effective_ts DESC, seq DESC`,
 		scopeKind, scopeKey, LoreStateRetired, LoreStatePinned)
@@ -199,7 +199,7 @@ type loreListFilter struct {
 // needs pinned-before-the-rest, while the page shows everything and needs the
 // retired collected at the bottom rather than interleaved by timestamp.
 func (d *DAL) ListLoreEntriesPage(f loreListFilter, limit, offset int) ([]LoreEntry, error) {
-	query := `SELECT ` + loreEntryColumns + ` FROM lore_entries WHERE 1=1`
+	query := `SELECT ` + loreEntryColumns + ` FROM lore_entry WHERE 1=1`
 	var args []any
 	if f.ScopeKind != "" {
 		query += ` AND scope_kind = ?`
@@ -253,7 +253,7 @@ func collectLoreEntries(rows *sql.Rows) ([]LoreEntry, error) {
 // 🔴 It cannot touch title or body. There is no edit path; see the file header.
 func (d *DAL) SetLoreEntryState(id, state, retireReason string, updatedTS float64) (bool, error) {
 	res, err := d.wdb.Exec(
-		`UPDATE lore_entries SET state = ?, retire_reason = ?, updated_ts = ?
+		`UPDATE lore_entry SET state = ?, retire_reason = ?, updated_ts = ?
 		 WHERE id = ?`, state, retireReason, updatedTS, id)
 	if err != nil {
 		return false, err
@@ -271,7 +271,7 @@ func (d *DAL) SetLoreEntryState(id, state, retireReason string, updatedTS float6
 // the only copy of the original date.
 func (d *DAL) BumpLoreEntryEffective(id string, ts float64) (bool, error) {
 	res, err := d.wdb.Exec(
-		`UPDATE lore_entries SET effective_ts = ?, updated_ts = ? WHERE id = ?`,
+		`UPDATE lore_entry SET effective_ts = ?, updated_ts = ? WHERE id = ?`,
 		ts, ts, id)
 	if err != nil {
 		return false, err

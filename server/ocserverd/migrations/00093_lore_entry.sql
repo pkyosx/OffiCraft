@@ -35,7 +35,7 @@
 -- (`pinned`, `retired`) would admit the pinned-AND-retired row, which the
 -- selection order has no answer for, and nothing would refuse to write it. The
 -- CHECK is what makes exclusivity a schema fact.
-CREATE TABLE lore_entries (
+CREATE TABLE lore_entry (
     -- 'L-' + seq. TEXT rather than the integer so it is the same shape as every
     -- other id on the wire and so the display number is never re-derived at a
     -- second site.
@@ -73,8 +73,8 @@ CREATE TABLE lore_entries (
 -- The selection index, in the order the selector reads: narrow to one scope,
 -- drop the retired, then walk newest-effective first. `state` sits before
 -- `effective_ts` because the selector filters on it and does not range over it.
-CREATE INDEX idx_lore_entries_scope_state_effective
-    ON lore_entries (scope_kind, scope_key, state, effective_ts DESC);
+CREATE INDEX idx_lore_entry_scope_state_effective
+    ON lore_entry (scope_kind, scope_key, state, effective_ts DESC);
 
 -- The display-number counter, the same one-row shape (and the same
 -- compare-and-set claim) as task_id_seq from 00060. `next` is the number the
@@ -83,14 +83,14 @@ CREATE INDEX idx_lore_entries_scope_state_effective
 -- The property is UNIQUENESS, not contiguity: a rolled-back write returns its
 -- number and nobody is hurt by the gap, while two entries called L-7 would make
 -- the id ambiguous on every face that shows one.
-CREATE TABLE lore_entries_seq (
+CREATE TABLE lore_entry_seq (
     id   INTEGER PRIMARY KEY CHECK (id = 1),
     next INTEGER NOT NULL
 );
 
-INSERT INTO lore_entries_seq (id, next) VALUES (1, 1);
+INSERT INTO lore_entry_seq (id, next) VALUES (1, 1);
 
 -- +goose Down
-DROP TABLE lore_entries_seq;
-DROP INDEX idx_lore_entries_scope_state_effective;
-DROP TABLE lore_entries;
+DROP TABLE lore_entry_seq;
+DROP INDEX idx_lore_entry_scope_state_effective;
+DROP TABLE lore_entry;
