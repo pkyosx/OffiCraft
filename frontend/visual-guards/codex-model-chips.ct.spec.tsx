@@ -1,29 +1,43 @@
-// T-129 — the Codex 模型 quick-pick chips at 390px, in BOTH pickers that render
-// CODEX_MODEL_OPTIONS (轉派 dialog · 任務手冊 負責成員 editor).
+// T-129 — the segmented quick-pick rows in the two outsource pickers
+// (轉派 dialog · 任務手冊 負責成員 editor): Codex 模型 in both, plus the 轉派
+// dialog's 投入程度 row, which has the same four-cell shape and had the same bug.
 //
-// Adding gpt-6-astra took the vocabulary from 3 chips to 4, and 4 `gpt-5.6-*`
-// slugs do not fit one row in a phone's ~300px content column. The two ways
-// that goes wrong are opposite, and each picker had one of them:
+// Adding gpt-6-astra took the Codex vocabulary from 3 chips to 4, and 4
+// `gpt-5.6-*` slugs do not fit one row in a phone's ~300px content column. The
+// two ways that goes wrong are opposite, and each picker had one of them:
 //
 //   .task-reassign__seg wraps → the 4th chip drops onto a row of its own and
 //     stretches to the full width, centered. That is the shape tasks.css
-//     records as an owner review calling it "broken".
+//     records as an owner review calling it "broken". 投入程度 was already in
+//     that shape before this ticket (MEASURED: 最高 alone at w=292 of a
+//     302-wide group), which is why it is pinned here too.
 //   .manual-seg does NOT wrap → the 4 chips squeeze instead, and each label
 //     breaks across three lines (`gpt-` / `5.6-` / `terra`).
 //
-// Both are invisible to the vitest suite (jsdom has no layout engine), so the
-// contract lives here as real-browser geometry: no chip alone on a row, no chip
-// spanning the row, no label on more than one line.
-import { test, expect, type Locator } from "@playwright/experimental-ct-react";
+// The fix for both is a grid, and a grid has its own failure at the other end
+// of the range: 任務手冊 is a page, not a max-width modal, so it keeps growing.
+// MEASURED at 1280 with a hard `1fr 1fr`, the group is 958 wide and the chips
+// become 4 x 471 on two rows — an 11-character label in a half-width button —
+// while the 投入程度 row directly below stays 4 x 233 on one, so the two
+// controls stop lining up. So this file pins BOTH ends: narrow (no orphan, no
+// squeeze) and wide (one row, columns agreeing with the sibling picker).
+//
+// All of it is invisible to the vitest suite (jsdom has no layout engine), so
+// the contract lives here as real-browser geometry, asserted as position
+// relationships rather than pixel snapshots.
+import {
+  test,
+  expect,
+  type Locator,
+  type Page,
+} from "@playwright/experimental-ct-react";
 import {
   ManualCodexChipsStory,
   ReassignCodexChipsStory,
 } from "./stories/CodexModelChipsStory";
 
-const SLUGS = ["gpt-6-astra", "gpt-5.6-terra", "gpt-5.6-sol", "gpt-5.6-luna"];
-
 type Chip = {
-  slug: string;
+  id: string;
   x: number;
   y: number;
   width: number;
@@ -32,16 +46,50 @@ type Chip = {
 };
 
 /** How many line boxes the chip's own label occupies. A squeezed chip breaks
- * `gpt-5.6-terra` into three; a chip with room keeps it at one. */
-async function readChip(slug: string, chip: Locator): Promise<Chip> {
+ * `gpt-5.6-terra` into three; a chip with room keeps it at one.
+ *
+ * ⚠️ ASSUMPTION: the chip's label is a bare text node (`Segmented` renders
+ * `{o.label}` as the button's only child). `getClientRects()` over a range
+ * returns one rect per LINE BOX only for text; wrap the label in a `<span>` or
+ * put an icon beside it and the count becomes rects-per-element — 1 however the
+ * text wraps. Nothing turns red that day, the assertion just stops meaning
+ * anything, so if the chip markup ever gains a child element, re-derive this
+ * number instead of trusting it. */
+async function readChip(id: string, chip: Locator): Promise<Chip> {
   const box = await chip.boundingBox();
-  expect(box, `chip ${slug} has no box`).not.toBeNull();
+  expect(box, `chip ${id} has no box`).not.toBeNull();
   const lines = await chip.evaluate((el) => {
     const range = document.createRange();
     range.selectNodeContents(el);
     return range.getClientRects().length;
   });
-  return { slug, ...box!, lines };
+  return { id, ...box!, lines };
+}
+
+/** Every chip the picker actually rendered, in DOM order.
+ *
+ * The denominator is READ OFF THE PICKER, never a literal list in this file. A
+ * literal would keep passing while measuring a subset: add a 5th Codex model
+ * and the new chip — the one that would be the orphan — is the one the guard
+ * cannot see, so it would go red naming an innocent chip, or stay green.
+ * (Importing CODEX_MODEL_OPTIONS is not available here: a ct spec's non-JSX
+ * imports are really loaded in Node, and ModelEffortEditor reaches `../i18n` →
+ * `../api` → `src/api/seeds.ts`, which imports `seeds/*.md?raw` and cannot be
+ * parsed by the spec loader. MEASURED: it fails at collection with
+ * "SyntaxError: seeds/system_interaction.md: Unexpected token (1:0)".)
+ * What each chip REPORTS as its slug is a separate contract, pinned literally
+ * by src/components/ModelEffortEditor.test.tsx. */
+async function readChips(group: Locator, prefix: string): Promise<Chip[]> {
+  const cells = await group.getByRole("radio").all();
+  expect(cells.length, `${prefix}: the picker rendered chips`).toBeGreaterThan(0);
+  const chips: Chip[] = [];
+  for (const cell of cells) {
+    const testid = await cell.getAttribute("data-testid");
+    expect(testid, `${prefix}: every chip carries a data-testid`).toBeTruthy();
+    expect(testid, `${prefix}: chip testids are ${prefix}-*`).toContain(`${prefix}-`);
+    chips.push(await readChip(testid!.slice(prefix.length + 1), cell));
+  }
+  return chips;
 }
 
 /** Chips whose vertical extents overlap are on the same visual row. */
@@ -57,14 +105,15 @@ function rowsOf(chips: Chip[]): Chip[][] {
   return rows;
 }
 
-async function assertNoOrphanChip(where: string, group: Locator, prefix: string) {
-  const chips: Chip[] = [];
-  for (const slug of SLUGS) {
-    const chip = group.getByTestId(`${prefix}-${slug}`);
-    await expect(chip, `${where}: chip ${slug} is rendered`).toBeVisible();
-    chips.push(await readChip(slug, chip));
-  }
+function groupOf(page: Page, anchorTestId: string) {
+  return page
+    .locator('[role="radiogroup"]')
+    .filter({ has: page.getByTestId(anchorTestId) });
+}
 
+/** The narrow contract: even rows, nothing left over, nothing squeezed. */
+async function assertNoOrphanChip(where: string, group: Locator, prefix: string) {
+  const chips = await readChips(group, prefix);
   const groupWidth = (await group.boundingBox())!.width;
 
   // 1. No chip sits alone on a row the others share — the orphan. This is the
@@ -76,11 +125,11 @@ async function assertNoOrphanChip(where: string, group: Locator, prefix: string)
   expect(
     orphans.map(
       (c) =>
-        `${c.slug} (alone on its row at y=${Math.round(c.y)}, w=${Math.round(c.width)} ` +
+        `${c.id} (alone on its row at y=${Math.round(c.y)}, w=${Math.round(c.width)} ` +
         `of group w=${Math.round(groupWidth)}; the other ${chips.length - 1} ` +
-        `chips share ${rows.length - 1} row(s))`
+        `of ${chips.length} chips share ${rows.length - 1} row(s))`
     ),
-    `${where}: no Codex model chip is left alone on its own row at 390px`
+    `${where}: no chip is left alone on its own row at 390px`
   ).toEqual([]);
 
   // 2. No chip stretches to own the whole row — the visual half of the same
@@ -88,48 +137,113 @@ async function assertNoOrphanChip(where: string, group: Locator, prefix: string)
   const full = chips.filter((c) => c.width > groupWidth * 0.9);
   expect(
     full.map(
-      (c) => `${c.slug} (w=${Math.round(c.width)} of group w=${Math.round(groupWidth)})`
+      (c) => `${c.id} (w=${Math.round(c.width)} of group w=${Math.round(groupWidth)})`
     ),
-    `${where}: no Codex model chip spans the full width of the picker`
+    `${where}: no chip spans the full width of the picker at 390px`
   ).toEqual([]);
 
   // 3. No label wraps. This is the opposite failure (`.manual-seg` has no
   //    flex-wrap): the chips stay on one row by breaking their own text.
   const wrapped = chips.filter((c) => c.lines > 1);
   expect(
-    wrapped.map((c) => `${c.slug} (label on ${c.lines} lines, w=${Math.round(c.width)})`),
-    `${where}: every Codex model chip keeps its slug on ONE line at 390px`
+    wrapped.map((c) => `${c.id} (label on ${c.lines} lines, w=${Math.round(c.width)})`),
+    `${where}: every chip keeps its label on ONE line at 390px`
   ).toEqual([]);
 }
 
-test("轉派 dialog: the 4 Codex model chips leave no orphan at 390px", async ({
-  mount,
-  page,
-}) => {
-  await page.setViewportSize({ width: 390, height: 900 });
-  await mount(<ReassignCodexChipsStory />);
+type Mount = Parameters<Parameters<typeof test>[1]>[0]["mount"];
 
+async function openReassignCodex(mount: Mount, page: Page, width: number) {
+  await page.setViewportSize({ width, height: 900 });
+  await mount(<ReassignCodexChipsStory />);
   await page.getByTestId("reassign-kind-outsource").click();
   await page.getByTestId("reassign-runtime").selectOption("codex");
+}
 
-  const group = page
-    .locator('[role="radiogroup"]')
-    .filter({ has: page.getByTestId("reassign-model-gpt-6-astra") });
-  await assertNoOrphanChip("轉派 dialog", group, "reassign-model");
-});
+async function openManualCodex(mount: Mount, page: Page, width: number) {
+  await page.setViewportSize({ width, height: 900 });
+  await mount(<ManualCodexChipsStory widthPx={width} />);
+  await page.getByTestId("manual-assignee-edit").click();
+  await page.getByTestId("manual-assignee-runtime").selectOption("codex");
+}
 
-test("任務手冊 負責成員: the 4 Codex model chips leave no orphan at 390px", async ({
+test("轉派 dialog 模型: the Codex model chips leave no orphan at 390px", async ({
   mount,
   page,
 }) => {
-  await page.setViewportSize({ width: 390, height: 900 });
-  await mount(<ManualCodexChipsStory widthPx={390} />);
+  await openReassignCodex(mount, page, 390);
+  await assertNoOrphanChip(
+    "轉派 dialog 模型",
+    groupOf(page, "reassign-model-gpt-6-astra"),
+    "reassign-model"
+  );
+});
 
-  await page.getByTestId("manual-assignee-edit").click();
-  await page.getByTestId("manual-assignee-runtime").selectOption("codex");
+// Not introduced by T-129 — 投入程度 has had four cells since T-dbd4 added max,
+// and on the wrapping flex row it was already the exact shape this ticket is
+// about. Fixed and pinned here because it is the same control, one section
+// below the one that was fixed.
+test("轉派 dialog 投入程度: the effort chips leave no orphan at 390px", async ({
+  mount,
+  page,
+}) => {
+  await openReassignCodex(mount, page, 390);
+  await assertNoOrphanChip(
+    "轉派 dialog 投入程度",
+    groupOf(page, "reassign-effort-max"),
+    "reassign-effort"
+  );
+});
 
-  const group = page
-    .locator('[role="radiogroup"]')
-    .filter({ has: page.getByTestId("manual-assignee-model-gpt-6-astra") });
-  await assertNoOrphanChip("任務手冊 負責成員", group, "manual-assignee-model");
+test("任務手冊 負責成員 模型: the Codex model chips leave no orphan at 390px", async ({
+  mount,
+  page,
+}) => {
+  await openManualCodex(mount, page, 390);
+  await assertNoOrphanChip(
+    "任務手冊 負責成員 模型",
+    groupOf(page, "manual-assignee-model-gpt-6-astra"),
+    "manual-assignee-model"
+  );
+});
+
+// The wide end, which the 390px cases cannot see: fixing the phone by splitting
+// the chips in two costs the desktop, and the way that reads is the mismatch
+// with 投入程度 — the identical control directly below, on a plain flex row. So
+// the contract is stated against that sibling rather than a pixel count.
+test("任務手冊 負責成員 模型 @1280: the chips stay on one row, aligned with 投入程度", async ({
+  mount,
+  page,
+}) => {
+  await openManualCodex(mount, page, 1280);
+
+  const modelGroup = groupOf(page, "manual-assignee-model-gpt-6-astra");
+  const effortGroup = groupOf(page, "manual-assignee-effort-max");
+  const model = await readChips(modelGroup, "manual-assignee-model");
+  const effort = await readChips(effortGroup, "manual-assignee-effort");
+  const groupWidth = Math.round((await modelGroup.boundingBox())!.width);
+
+  // 1. The chips are not split across rows while there is room for one row.
+  //    Stated against 投入程度 so it cannot be satisfied by a viewport that
+  //    merely happens to be large: whatever fits the effort cells fits these.
+  const modelRows = rowsOf(model);
+  const effortRows = rowsOf(effort);
+  expect(
+    modelRows.map(
+      (r) => `[${r.map((c) => `${c.id} w=${Math.round(c.width)}`).join(", ")}]`
+    ),
+    `任務手冊 負責成員 模型 @1280: the ${model.length} Codex model chips share as ` +
+      `few rows in their ${groupWidth}px group as the ${effort.length} 投入程度 ` +
+      `cells below them (${effortRows.length})`
+  ).toHaveLength(effortRows.length);
+
+  // 2. …and they land on the same columns. This is the half a reader sees: two
+  //    stacked four-cell controls whose edges do not agree.
+  const cols = (chips: Chip[]) =>
+    [...new Set(chips.map((c) => `x=${Math.round(c.x)} w=${Math.round(c.width)}`))].sort();
+  expect(
+    cols(model),
+    "任務手冊 負責成員 模型 @1280: the Codex model chips sit on the same columns " +
+      "as the 投入程度 cells below them"
+  ).toEqual(cols(effort));
 });

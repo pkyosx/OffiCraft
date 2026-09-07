@@ -1483,15 +1483,25 @@
   border-radius: 12px;
   background: color-mix(in srgb, var(--color-overlay) 2%, transparent);
 }
-/* Same 2x2 opt-in as the 轉派 dialog's .task-reassign__seg--grid2, for the same
-   reason and with the same per-callsite opt-in: a flex row cannot fit four
-   `gpt-5.6-*` slugs at 390px, and with no flex-wrap here it squeezes them until
-   each label breaks across three lines. Only the Codex 模型 picker opts in —
-   Claude's four one-word slugs still fit the row. Pinned by
+/* Width-driven opt-in for the Codex 模型 picker, for the same reason as the
+   轉派 dialog's .task-reassign__seg--grid2 and with the same per-callsite
+   opt-in: a flex row cannot fit four `gpt-5.6-*` slugs at 390px, and with no
+   flex-wrap here it squeezes them until each label breaks across three lines.
+   Only the Codex 模型 picker opts in — Claude's four one-word slugs still fit
+   the row.
+
+   The track count is NOT fixed at two, unlike the 轉派 dialog's class. This
+   control is on a page that grows with the viewport, so a hard 2x2 buys 390px
+   at the cost of 1280px: MEASURED at 1280 with `1fr 1fr`, the group is 958 wide
+   and each chip becomes 471 (an 11-character label in a half-width button) on
+   two rows, while the 投入程度 row directly below stays 4 x 233 on one — the two
+   controls stop lining up. auto-fit collapses the empty tracks, so the same
+   declaration is 2x2 at 390px and 4 x 233 (aligned with 投入程度) at 1280px, with
+   no media query. Both widths are pinned by
    frontend/visual-guards/codex-model-chips.ct.spec.tsx. */
 .manual-seg--grid2 {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
 }
 .manual-seg__cell {
   flex: 1;

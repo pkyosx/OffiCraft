@@ -1970,10 +1970,16 @@ button.task-card__waiting--dep:focus-visible {
    an owner review calling it "broken" (that attribution is INHERITED from the
    white-labelled initial tree, 8e573a7e; it cannot be checked against this
    repo's history, so treat the owner quote as hearsay and the layout claim as
-   the load-bearing part). 投入程度 also has four cells since T-dbd4 added max,
-   and 轉給/轉外包 has two; both keep the flex row, so chip COUNT alone does not
-   select the grid — the class is opted into per callsite. The 390px geometry
-   is pinned by frontend/visual-guards/codex-model-chips.ct.spec.tsx. */
+   the load-bearing part). 投入程度 opts in too: it has had four cells since
+   T-dbd4 added max, and MEASURED at 390px on the flex row it produced exactly
+   the same shape — 低/中/高 at w=93 then 最高 alone on row two at w=292 of a
+   302-wide group. 轉給/轉外包 has two cells and keeps the flex row, so chip COUNT
+   alone does not select the grid — the class is opted into per callsite.
+   Two tracks are hard-coded here, unlike .manual-seg--grid2's auto-fit, because
+   this control lives in .confirm-modal__box (max-width 420px): the group is 302
+   wide at 390px and 372 at every wider viewport, so it never has room for a
+   third track and never has to widen back out. The 390px geometry of both
+   pickers is pinned by frontend/visual-guards/codex-model-chips.ct.spec.tsx. */
 .task-reassign__seg--grid2 {
   display: grid;
   grid-template-columns: 1fr 1fr;
