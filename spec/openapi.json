@@ -9768,7 +9768,7 @@
     },
     "/api/lore/{entry_id}/state": {
       "post": {
-        "description": "Move one 傳承 entry to active / pinned / retired. Retiring is not deleting -- the entry keeps its id and can be moved back; ``retire_reason`` is stored only with retired and cleared by the other two.",
+        "description": "Move one 傳承 entry to active / pinned / retired. 置頂 and un-置頂 are ADMIN-ONLY (owner ruling): a pinned entry sorts ahead of every other entry in its scope and so survives the cap at the others' expense. 失效 and 生效 are open to the entry's own AUTHOR -- anyone else is a 403 -- and admin capability is unrestricted. Retiring is not deleting: the entry keeps its id and can be moved back; ``retire_reason`` is stored only with retired and cleared by the other two.",
         "operationId": "handle_set_lore_entry_state_api_lore__entry_id__state_post",
         "parameters": [
           {
@@ -9833,21 +9833,21 @@
             "description": "Server error (unified error envelope)."
           }
         },
-        "summary": "Move one 傳承 entry to active / pinned / retired. Retiring is not deleting -- the entry keeps its id and can be moved back; ``retire_reason`` is stored only with retired and cleared by the other two.",
+        "summary": "Move one 傳承 entry to active / pinned / retired. 置頂 and un-置頂 are ADMIN-ONLY (owner ruling): a pinned entry sorts ahead of every other entry in its scope and so survives the cap at the others' expense. 失效 and 生效 are open to the entry's own AUTHOR -- anyone else is a 403 -- and admin capability is unrestricted. Retiring is not deleting: the entry keeps its id and can be moved back; ``retire_reason`` is stored only with retired and cleared by the other two.",
         "x-mcp": {
           "include": true,
           "order": 129,
           "name": "set_lore_entry_state",
-          "description": "Move one 傳承 entry to active / pinned / retired. Retiring is not deleting -- the entry keeps its id and can be moved back; ``retire_reason`` is stored only with retired and cleared by the other two.",
+          "description": "Move one 傳承 entry to active / pinned / retired. 置頂 and un-置頂 are ADMIN-ONLY (owner ruling): a pinned entry sorts ahead of every other entry in its scope and so survives the cap at the others' expense. 失效 and 生效 are open to the entry's own AUTHOR -- anyone else is a 403 -- and admin capability is unrestricted. Retiring is not deleting: the entry keeps its id and can be moved back; ``retire_reason`` is stored only with retired and cleared by the other two.",
           "legacy": {
-            "descriptor": "{\n        \"description\": \"Move one 傳承 entry to active / pinned / retired. Retiring is not deleting -- the entry keeps its id and can be moved back; ``retire_reason`` is stored only with retired and cleared by the other two.\",\n        \"inputSchema\": {\n          \"properties\": {\n            \"entry_id\": {\n              \"type\": \"string\"\n            },\n            \"state\": {\n              \"type\": \"string\"\n            },\n            \"retire_reason\": {\n              \"type\": \"string\"\n            }\n          },\n          \"required\": [\n            \"entry_id\",\n            \"state\"\n          ],\n          \"type\": \"object\"\n        },\n        \"name\": \"set_lore_entry_state\"\n      }"
+            "descriptor": "{\n        \"description\": \"Move one 傳承 entry to active / pinned / retired. 置頂 and un-置頂 are ADMIN-ONLY (owner ruling): a pinned entry sorts ahead of every other entry in its scope and so survives the cap at the others' expense. 失效 and 生效 are open to the entry's own AUTHOR -- anyone else is a 403 -- and admin capability is unrestricted. Retiring is not deleting: the entry keeps its id and can be moved back; ``retire_reason`` is stored only with retired and cleared by the other two.\",\n        \"inputSchema\": {\n          \"properties\": {\n            \"entry_id\": {\n              \"type\": \"string\"\n            },\n            \"state\": {\n              \"type\": \"string\"\n            },\n            \"retire_reason\": {\n              \"type\": \"string\"\n            }\n          },\n          \"required\": [\n            \"entry_id\",\n            \"state\"\n          ],\n          \"type\": \"object\"\n        },\n        \"name\": \"set_lore_entry_state\"\n      }"
           }
         }
       }
     },
     "/api/lore/{entry_id}/bump": {
       "post": {
-        "description": "提到最新: set one 傳承 entry's ``effective_ts`` to now so it sorts to the front of its group. ``created_ts`` is NOT touched, which is what makes this reversible.",
+        "description": "提到最新: set one 傳承 entry's ``effective_ts`` to now so it sorts to the front of its group. Only the entry's own AUTHOR may bump it (admin capability is unrestricted) -- a bump moves an entry ahead of other people's under a shared cap, so it spends somebody else's room. ``created_ts`` is NOT touched, which is what makes this reversible.",
         "operationId": "handle_bump_lore_entry_api_lore__entry_id__bump_post",
         "parameters": [
           {
@@ -9902,14 +9902,14 @@
             "description": "Server error (unified error envelope)."
           }
         },
-        "summary": "提到最新: set one 傳承 entry's ``effective_ts`` to now so it sorts to the front of its group. ``created_ts`` is NOT touched, which is what makes this reversible.",
+        "summary": "提到最新: set one 傳承 entry's ``effective_ts`` to now so it sorts to the front of its group. Only the entry's own AUTHOR may bump it (admin capability is unrestricted) -- a bump moves an entry ahead of other people's under a shared cap, so it spends somebody else's room. ``created_ts`` is NOT touched, which is what makes this reversible.",
         "x-mcp": {
           "include": true,
           "order": 130,
           "name": "bump_lore_entry",
-          "description": "提到最新: set one 傳承 entry's ``effective_ts`` to now so it sorts to the front of its group. ``created_ts`` is NOT touched, which is what makes this reversible.",
+          "description": "提到最新: set one 傳承 entry's ``effective_ts`` to now so it sorts to the front of its group. Only the entry's own AUTHOR may bump it (admin capability is unrestricted) -- a bump moves an entry ahead of other people's under a shared cap, so it spends somebody else's room. ``created_ts`` is NOT touched, which is what makes this reversible.",
           "legacy": {
-            "descriptor": "{\n        \"description\": \"提到最新: set one 傳承 entry's ``effective_ts`` to now so it sorts to the front of its group. ``created_ts`` is NOT touched, which is what makes this reversible.\",\n        \"inputSchema\": {\n          \"properties\": {\n            \"entry_id\": {\n              \"type\": \"string\"\n            }\n          },\n          \"required\": [\n            \"entry_id\"\n          ],\n          \"type\": \"object\"\n        },\n        \"name\": \"bump_lore_entry\"\n      }"
+            "descriptor": "{\n        \"description\": \"提到最新: set one 傳承 entry's ``effective_ts`` to now so it sorts to the front of its group. Only the entry's own AUTHOR may bump it (admin capability is unrestricted) -- a bump moves an entry ahead of other people's under a shared cap, so it spends somebody else's room. ``created_ts`` is NOT touched, which is what makes this reversible.\",\n        \"inputSchema\": {\n          \"properties\": {\n            \"entry_id\": {\n              \"type\": \"string\"\n            }\n          },\n          \"required\": [\n            \"entry_id\"\n          ],\n          \"type\": \"object\"\n        },\n        \"name\": \"bump_lore_entry\"\n      }"
           }
         }
       }

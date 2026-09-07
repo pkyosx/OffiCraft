@@ -376,6 +376,29 @@ const (
 // `Requires` value on the route instead? If yes, put it there — the table is
 // enumerable, a handler body is not.
 var authzOutsideRouteTable = map[string]string{
+	// ── 傳承 governance (T-33; owner ruling 2026-09-07) ───────────────────────
+	//
+	// Neither of these can be a route floor, and that is a property of the
+	// decision rather than of how the code happens to be shaped.
+	"api_lore.go :: HandleSetLoreEntryStateApiLoreEntryIdStatePost :: principalAtLeast(s.principalOfRequest(r), principalAdminAgent)": "" +
+		"ONE door (POST /api/lore/{entry_id}/state) performs three transitions with TWO " +
+		"floors: 置頂 and its undo are admin-only (owner: 「置頂只有你跟 admin」) because a " +
+		"pinned entry sorts ahead of everyone else's and so survives the fold's cap at " +
+		"their expense, while 失效 and 生效 are open to the entry's own author. A single " +
+		"Requires value cannot say both, so the row carries the LOWER floor (agent) and " +
+		"the higher one is decided here, against the request BODY and the state of the " +
+		"row being moved — neither of which the route table can see. Splitting pinning " +
+		"onto its own route was the alternative and was rejected: it puts one state " +
+		"machine behind two doors that can then disagree about the transitions.",
+	"api_lore.go :: callerMayGovernLore :: principalAtLeast(s.principalOfRequest(r), principalAdminAgent)": "" +
+		"caller-vs-TARGET rule, which no route floor can express: 失效 and 提到最新 are " +
+		"agent-floor but act only on an entry the caller is the recorded AUTHOR of " +
+		"(author_id, pinned at write time), with admin capability unrestricted. Owner " +
+		"ruling 2026-09-07, and the Global Context sentence it comes from: 「只寫你自己那" +
+		"一份，也只處置你自己寫的那幾筆。」 It is ONE predicate shared by both verbs on " +
+		"purpose — they ask the same question of the same caller about the same row, so " +
+		"two copies could only drift into one of them being wider than the ruling.",
+
 	// ── owner-only presentation folds (not access control, but they DO branch
 	// on the principal, so a re-grade must see them) ──────────────────────────
 	"account_display.go :: accountDisplayFold :: s.principalOfRequest(r) == principalOwner": "" +

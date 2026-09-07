@@ -160,7 +160,52 @@ func loreOverCapMsg(field string, got, capChars int) string {
 		"after it is written, so it is refused whole rather than truncated."
 }
 
+// loreGovernanceRefusalPin / loreGovernanceRefusalOwn are the two refusals the
+// governance verbs answer. They are constants so the message a caller reads is
+// the same wherever the check is made, and so a test can pin the DISTINCTION
+// rather than a substring that happens to appear in both.
+const (
+	loreGovernanceRefusalPin = "置頂／取消置頂 is an admin decision — a pinned entry " +
+		"sorts ahead of every other entry in its scope and therefore survives the " +
+		"cap at the expense of everyone else's, so who pins is not the writer's " +
+		"call. Ask the owner or an admin agent."
+	loreGovernanceRefusalOwn = "you may only 失效 or 提到最新 an entry you WROTE — " +
+		"this one has a different author. 「只寫你自己那一份，也只處置你自己寫的那幾筆。」 " +
+		"An admin agent or the owner can act on any entry."
+)
+
+// callerMayGovernLore is the ONE predicate behind both governance verbs, and it
+// is written once for the same reason the selector is: retire and bump ask the
+// SAME question of the SAME caller about the SAME row, so two copies could only
+// ever drift into one of them being wider than the owner's ruling.
+//
+// Admin capability (an admin agent, or the owner) is unrestricted. Everyone
+// else may act only on an entry they are the recorded author of — and author_id
+// is the value PINNED at write time, so the answer does not change when the
+// roster does.
+//
+// 🔴 IT DOES NOT COVER PINNING. Pinning has a HIGHER floor than "your own"
+// (owner: 「置頂只有你跟 admin」), so it is a separate check at the one door
+// that can perform it — folding it in here would make it look like a writer
+// could pin their own entry, which is exactly what was ruled out.
+func (s *apiServer) callerMayGovernLore(r *http.Request, e LoreEntry) bool {
+	if principalAtLeast(s.principalOfRequest(r), principalAdminAgent) {
+		return true
+	}
+	actor := currentActor(r)
+	return actor != "" && actor == e.AuthorID
+}
+
 // POST /api/lore/{entry_id}/state — set_lore_entry_state.
+//
+// 🔴 WHY THE TWO FLOORS ARE ENFORCED IN THE BODY AND NOT ON THE ROUTE. This one
+// door performs three transitions with two different floors: 置頂 and its undo
+// are admin-only, while 失效 and 生效 are open to the entry's own author. The
+// route table's `Requires` is a single minimum for the whole row, so it carries
+// the LOWER of the two (agent) and the higher one is checked here, against the
+// body and against the row being moved. Splitting pinning onto its own route
+// was the alternative; it would have put one state machine behind two doors
+// that could then disagree about the transitions.
 func (s *apiServer) HandleSetLoreEntryStateApiLoreEntryIdStatePost(w http.ResponseWriter, r *http.Request, entryID string) {
 	var body LoreEntryStateDTO
 	if !decodeJSONBodyStrict(w, r, &body, "state") {
@@ -173,6 +218,34 @@ func (s *apiServer) HandleSetLoreEntryStateApiLoreEntryIdStatePost(w http.Respon
 				LoreStateRetired+" — got "+strconv.Quote(state))
 		return
 	}
+
+	// The row is read BEFORE the decision, because both floors are properties of
+	// the row: who wrote it, and whether this move pins or un-pins it.
+	current, err := s.dal.GetLoreEntry(entryID)
+	if err != nil {
+		internalError(w, err)
+		return
+	}
+	if current == nil {
+		writeError(w, http.StatusNotFound, "no such lore entry: "+entryID)
+		return
+	}
+
+	if !principalAtLeast(s.principalOfRequest(r), principalAdminAgent) {
+		// 🔴 BOTH DIRECTIONS. Moving an entry INTO pinned and moving a pinned
+		// entry OUT are the same decision seen from two sides: if un-pinning were
+		// open to the author, any writer could demote an entry the owner pinned,
+		// and the admin-only floor on pinning would buy nothing.
+		if state == LoreStatePinned || current.State == LoreStatePinned {
+			writeError(w, http.StatusForbidden, loreGovernanceRefusalPin)
+			return
+		}
+		if !s.callerMayGovernLore(r, *current) {
+			writeError(w, http.StatusForbidden, loreGovernanceRefusalOwn)
+			return
+		}
+	}
+
 	reason := ""
 	if body.RetireReason != nil {
 		reason = strings.TrimSpace(*body.RetireReason)
@@ -198,7 +271,27 @@ func (s *apiServer) HandleSetLoreEntryStateApiLoreEntryIdStatePost(w http.Respon
 }
 
 // POST /api/lore/{entry_id}/bump — bump_lore_entry (提到最新).
+//
+// Author-only at the agent floor, admin unrestricted — the same predicate the
+// state door uses. 提到最新 moves an entry ahead of other people's entries under
+// a shared cap, so it is a claim on somebody else's room; making it open to any
+// agent would let one caller quietly push everyone else's lessons out of every
+// boot of a role it does not even hold.
 func (s *apiServer) HandleBumpLoreEntryApiLoreEntryIdBumpPost(w http.ResponseWriter, r *http.Request, entryID string) {
+	current, err := s.dal.GetLoreEntry(entryID)
+	if err != nil {
+		internalError(w, err)
+		return
+	}
+	if current == nil {
+		writeError(w, http.StatusNotFound, "no such lore entry: "+entryID)
+		return
+	}
+	if !s.callerMayGovernLore(r, *current) {
+		writeError(w, http.StatusForbidden, loreGovernanceRefusalOwn)
+		return
+	}
+
 	ok, err := s.dal.BumpLoreEntryEffective(entryID, nowSecs())
 	if err != nil {
 		internalError(w, err)

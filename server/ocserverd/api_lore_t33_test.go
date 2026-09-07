@@ -234,19 +234,22 @@ func TestSetLoreStateClearsTheReasonOnTheWayBack(t *testing.T) {
 		t.Fatalf("retire: %d %s", rec.Code, rec.Body.String())
 	}
 
+	// Back to active — NOT to pinned: 置頂 is admin-only (see TestPinningIsAdminOnly),
+	// and the author's own way back is 生效. That the reason is cleared is a
+	// property of the transition, not of which non-retired state it lands in.
 	rec = httptest.NewRecorder()
 	s.HandleSetLoreEntryStateApiLoreEntryIdStatePost(rec,
 		taskReq(t, "POST", "/api/lore/"+seeded.Id+"/state",
-			map[string]any{"state": LoreStatePinned}, me, "agent"), seeded.Id)
+			map[string]any{"state": LoreStateActive}, me, "agent"), seeded.Id)
 	if rec.Code != http.StatusOK {
-		t.Fatalf("pin: %d %s", rec.Code, rec.Body.String())
+		t.Fatalf("revive: %d %s", rec.Code, rec.Body.String())
 	}
 	var after LoreEntryDTO
 	if err := json.Unmarshal(rec.Body.Bytes(), &after); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
-	if after.State != LoreStatePinned {
-		t.Fatalf("state = %q, want %q", after.State, LoreStatePinned)
+	if after.State != LoreStateActive {
+		t.Fatalf("state = %q, want %q", after.State, LoreStateActive)
 	}
 	if after.RetireReason != "" {
 		t.Fatalf("retire_reason = %q on a %s entry — a live entry must not carry "+
@@ -461,4 +464,178 @@ func readSourceForLoreGuard(t *testing.T, name string) string {
 		t.Fatalf("read %s: %v", name, err)
 	}
 	return string(b)
+}
+
+// ── governance floors (owner ruling, 2026-09-07) ────────────────────────────
+
+// seedLoreEntryBy writes one entry as `author` and returns its id.
+func seedLoreEntryBy(t *testing.T, s *apiServer, author, title string) string {
+	t.Helper()
+	rec := postLore(t, s, author, map[string]any{"title": title, "body": "內容"})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("seed write as %s: %d %s", author, rec.Code, rec.Body.String())
+	}
+	var dto LoreEntryDTO
+	if err := json.Unmarshal(rec.Body.Bytes(), &dto); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	return dto.Id
+}
+
+func postLoreState(t *testing.T, s *apiServer, sub, entryID string, body any) *httptest.ResponseRecorder {
+	t.Helper()
+	rec := httptest.NewRecorder()
+	scope := "agent"
+	if sub == wireOwnerID {
+		scope = "owner"
+	}
+	s.HandleSetLoreEntryStateApiLoreEntryIdStatePost(rec,
+		taskReq(t, "POST", "/api/lore/"+entryID+"/state", body, sub, scope), entryID)
+	return rec
+}
+
+func postLoreBump(t *testing.T, s *apiServer, sub, entryID string) *httptest.ResponseRecorder {
+	t.Helper()
+	rec := httptest.NewRecorder()
+	scope := "agent"
+	if sub == wireOwnerID {
+		scope = "owner"
+	}
+	s.HandleBumpLoreEntryApiLoreEntryIdBumpPost(rec,
+		taskReq(t, "POST", "/api/lore/"+entryID+"/bump", nil, sub, scope), entryID)
+	return rec
+}
+
+// TestPinningIsAdminOnly — 「置頂只有你跟 admin」. A plain agent cannot pin, not
+// even its OWN entry: a pinned entry sorts ahead of everybody else's and so
+// survives the cap at their expense, which is not the writer's call.
+func TestPinningIsAdminOnly(t *testing.T) {
+	s := loreTestServer(t)
+	me := hireLoreStaff(t, s, "m-gov-1", "researcher")
+	mine := seedLoreEntryBy(t, s, me, "我自己寫的")
+
+	rec := postLoreState(t, s, me, mine, map[string]any{"state": LoreStatePinned})
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("a plain agent pinning its OWN entry: want 403, got %d %s",
+			rec.Code, rec.Body.String())
+	}
+	// ...and nothing moved.
+	row, err := s.dal.GetLoreEntry(mine)
+	if err != nil || row == nil {
+		t.Fatalf("GetLoreEntry: %v / %v", row, err)
+	}
+	if row.State != LoreStateActive {
+		t.Fatalf("state = %q after a refused pin, want %q", row.State, LoreStateActive)
+	}
+
+	// The owner may.
+	if rec := postLoreState(t, s, wireOwnerID, mine,
+		map[string]any{"state": LoreStatePinned}); rec.Code != http.StatusOK {
+		t.Fatalf("owner pinning: want 200, got %d %s", rec.Code, rec.Body.String())
+	}
+}
+
+// TestUnpinningIsAdminOnlyToo — both directions, and this is the half that is
+// easy to leave open. If the AUTHOR could un-pin, any writer could demote an
+// entry the owner pinned and the admin-only floor would buy nothing.
+func TestUnpinningIsAdminOnlyToo(t *testing.T) {
+	s := loreTestServer(t)
+	me := hireLoreStaff(t, s, "m-gov-2", "researcher")
+	mine := seedLoreEntryBy(t, s, me, "我自己寫的")
+	if rec := postLoreState(t, s, wireOwnerID, mine,
+		map[string]any{"state": LoreStatePinned}); rec.Code != http.StatusOK {
+		t.Fatalf("owner pin: %d %s", rec.Code, rec.Body.String())
+	}
+
+	rec := postLoreState(t, s, me, mine, map[string]any{"state": LoreStateActive})
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("the author un-pinning its own pinned entry: want 403, got %d %s",
+			rec.Code, rec.Body.String())
+	}
+	row, err := s.dal.GetLoreEntry(mine)
+	if err != nil || row == nil {
+		t.Fatalf("GetLoreEntry: %v / %v", row, err)
+	}
+	if row.State != LoreStatePinned {
+		t.Fatalf("state = %q after a refused un-pin, want it still pinned", row.State)
+	}
+}
+
+// TestRetireAndBumpAreAuthorOnly — 「只寫你自己那一份，也只處置你自己寫的那幾筆。」
+func TestRetireAndBumpAreAuthorOnly(t *testing.T) {
+	s := loreTestServer(t)
+	me := hireLoreStaff(t, s, "m-gov-3", "researcher")
+	other := hireLoreStaff(t, s, "m-gov-4", "researcher")
+	theirs := seedLoreEntryBy(t, s, other, "別人寫的")
+
+	rec := postLoreState(t, s, me, theirs, map[string]any{"state": LoreStateRetired})
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("retiring somebody else's entry: want 403, got %d %s",
+			rec.Code, rec.Body.String())
+	}
+	rec = postLoreBump(t, s, me, theirs)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("bumping somebody else's entry: want 403, got %d %s",
+			rec.Code, rec.Body.String())
+	}
+	row, err := s.dal.GetLoreEntry(theirs)
+	if err != nil || row == nil {
+		t.Fatalf("GetLoreEntry: %v / %v", row, err)
+	}
+	if row.State != LoreStateActive {
+		t.Fatalf("state = %q after two refused writes, want %q untouched",
+			row.State, LoreStateActive)
+	}
+
+	// The AUTHOR may do both.
+	if rec := postLoreBump(t, s, other, theirs); rec.Code != http.StatusOK {
+		t.Fatalf("the author bumping its own entry: want 200, got %d %s",
+			rec.Code, rec.Body.String())
+	}
+	if rec := postLoreState(t, s, other, theirs,
+		map[string]any{"state": LoreStateRetired, "retire_reason": "過時了"}); rec.Code != http.StatusOK {
+		t.Fatalf("the author retiring its own entry: want 200, got %d %s",
+			rec.Code, rec.Body.String())
+	}
+	// ...and so may an admin, on somebody else's.
+	if rec := postLoreState(t, s, wireOwnerID, theirs,
+		map[string]any{"state": LoreStateActive}); rec.Code != http.StatusOK {
+		t.Fatalf("owner reviving somebody else's entry: want 200, got %d %s",
+			rec.Code, rec.Body.String())
+	}
+}
+
+// TestGovernanceRefusalsAreDistinguishable — the pin refusal and the not-yours
+// refusal must not be the same sentence, or a caller cannot tell "ask an admin"
+// from "that is not your entry".
+func TestGovernanceRefusalsAreDistinguishable(t *testing.T) {
+	s := loreTestServer(t)
+	me := hireLoreStaff(t, s, "m-gov-5", "researcher")
+	other := hireLoreStaff(t, s, "m-gov-6", "researcher")
+	mine := seedLoreEntryBy(t, s, me, "我的")
+	theirs := seedLoreEntryBy(t, s, other, "別人的")
+
+	pinRec := postLoreState(t, s, me, mine, map[string]any{"state": LoreStatePinned})
+	ownRec := postLoreState(t, s, me, theirs, map[string]any{"state": LoreStateRetired})
+	if pinRec.Body.String() == ownRec.Body.String() {
+		t.Fatalf("both refusals read identically: %s", pinRec.Body.String())
+	}
+	if !strings.Contains(pinRec.Body.String(), "置頂") {
+		t.Fatalf("the pin refusal does not name 置頂: %s", pinRec.Body.String())
+	}
+}
+
+// TestGovernanceOnAnUnknownEntryIs404NotAForbidden — the row is read before the
+// floors are applied, so a typo answers "no such entry" rather than a 403 that
+// would tell the caller an entry exists.
+func TestGovernanceOnAnUnknownEntryIs404NotAForbidden(t *testing.T) {
+	s := loreTestServer(t)
+	hireLoreStaff(t, s, "m-gov-7", "researcher")
+	if rec := postLoreBump(t, s, "m-gov-7", "L-999"); rec.Code != http.StatusNotFound {
+		t.Fatalf("bump on an unknown id: want 404, got %d %s", rec.Code, rec.Body.String())
+	}
+	if rec := postLoreState(t, s, "m-gov-7", "L-999",
+		map[string]any{"state": LoreStateRetired}); rec.Code != http.StatusNotFound {
+		t.Fatalf("state on an unknown id: want 404, got %d %s", rec.Code, rec.Body.String())
+	}
 }

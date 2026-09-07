@@ -4841,10 +4841,10 @@ type ServerInterface interface {
 	// Write ONE 傳承 entry (never editable afterwards). “task_id“ picks the scope: absent = your own role; present = that task's type. No role (outsource) or no task type (臨時任務) is a 400 -- neither falls back to the other. An over-cap title or body is a 400 that writes nothing.
 	// (POST /api/lore)
 	HandleWriteLoreEntryApiLorePost(w http.ResponseWriter, r *http.Request)
-	// 提到最新: set one 傳承 entry's “effective_ts“ to now so it sorts to the front of its group. “created_ts“ is NOT touched, which is what makes this reversible.
+	// 提到最新: set one 傳承 entry's “effective_ts“ to now so it sorts to the front of its group. Only the entry's own AUTHOR may bump it (admin capability is unrestricted) -- a bump moves an entry ahead of other people's under a shared cap, so it spends somebody else's room. “created_ts“ is NOT touched, which is what makes this reversible.
 	// (POST /api/lore/{entry_id}/bump)
 	HandleBumpLoreEntryApiLoreEntryIdBumpPost(w http.ResponseWriter, r *http.Request, entryId string)
-	// Move one 傳承 entry to active / pinned / retired. Retiring is not deleting -- the entry keeps its id and can be moved back; “retire_reason“ is stored only with retired and cleared by the other two.
+	// Move one 傳承 entry to active / pinned / retired. 置頂 and un-置頂 are ADMIN-ONLY (owner ruling): a pinned entry sorts ahead of every other entry in its scope and so survives the cap at the others' expense. 失效 and 生效 are open to the entry's own AUTHOR -- anyone else is a 403 -- and admin capability is unrestricted. Retiring is not deleting: the entry keeps its id and can be moved back; “retire_reason“ is stored only with retired and cleared by the other two.
 	// (POST /api/lore/{entry_id}/state)
 	HandleSetLoreEntryStateApiLoreEntryIdStatePost(w http.ResponseWriter, r *http.Request, entryId string)
 	// List machines (active wardens): machine_id/display_name/online.

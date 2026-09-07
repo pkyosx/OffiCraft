@@ -4499,7 +4499,7 @@
         "name": "list_lore_entries"
       },
     {
-        "description": "Move one 傳承 entry to active / pinned / retired. Retiring is not deleting -- the entry keeps its id and can be moved back; ``retire_reason`` is stored only with retired and cleared by the other two.",
+        "description": "Move one 傳承 entry to active / pinned / retired. 置頂 and un-置頂 are ADMIN-ONLY (owner ruling): a pinned entry sorts ahead of every other entry in its scope and so survives the cap at the others' expense. 失效 and 生效 are open to the entry's own AUTHOR -- anyone else is a 403 -- and admin capability is unrestricted. Retiring is not deleting: the entry keeps its id and can be moved back; ``retire_reason`` is stored only with retired and cleared by the other two.",
         "inputSchema": {
           "properties": {
             "entry_id": {
@@ -4521,7 +4521,7 @@
         "name": "set_lore_entry_state"
       },
     {
-        "description": "提到最新: set one 傳承 entry's ``effective_ts`` to now so it sorts to the front of its group. ``created_ts`` is NOT touched, which is what makes this reversible.",
+        "description": "提到最新: set one 傳承 entry's ``effective_ts`` to now so it sorts to the front of its group. Only the entry's own AUTHOR may bump it (admin capability is unrestricted) -- a bump moves an entry ahead of other people's under a shared cap, so it spends somebody else's room. ``created_ts`` is NOT touched, which is what makes this reversible.",
         "inputSchema": {
           "properties": {
             "entry_id": {
