@@ -107,6 +107,37 @@ func announcedTarget(dsn string) string {
 	return fmt.Sprintf("%s (DSN %s)", abs, dsn)
 }
 
+// howToPointAtAConfigFile is the instruction half of the no-config
+// announcement, and both of its halves were WRONG in the first version.
+//
+//  1. It ended "without one, every config value is the built-in default", and
+//     the very next line the reader sees disproves it: resolveDSN's FIRST
+//     branch is $OC_DATABASE_URL (config.go, and the module comment states the
+//     order), so a run with that variable set is announced as
+//     "database = …, from $OC_DATABASE_URL" one line after being told
+//     everything is a default. That reader — wrong directory, someone else's
+//     DSN in the environment — is the exact person this announcement exists
+//     for. The sentence now claims only what the absence of oc.toml actually
+//     buys: oc.toml supplied nothing, and the documented order decides the
+//     rest.
+//
+//  2. "or run from a directory containing oc.toml" is an instruction the
+//     reader cannot act on when $OC_CONFIG is set: configPath returns it
+//     unconditionally and never falls back to ./oc.toml, so someone standing
+//     in a directory that DOES have an oc.toml, with $OC_CONFIG naming a file
+//     that is not there, is told to go and do the thing he is already doing.
+//     It is also the wrong lesson to teach at this particular scene: the
+//     module comment calls $OC_CONFIG the canonical deployment path and the
+//     CWD-relative lookup the fallback, and this whole announcement exists
+//     because somebody ran a command from the wrong directory.
+func howToPointAtAConfigFile(env func(string) string) string {
+	const tail = "Without one, nothing is read from oc.toml — $" + envDatabaseURL + " and the built-in defaults decide the rest."
+	if env(envConfigPath) != "" {
+		return fmt.Sprintf("to point this run at a config file, set %s=/path/to/oc.toml; it is set now, but names a file that is not there, and while it is set ./oc.toml is not consulted. %s", envConfigPath, tail)
+	}
+	return fmt.Sprintf("to point this run at a config file, set %s=/path/to/oc.toml or run from a directory containing oc.toml. %s", envConfigPath, tail)
+}
+
 // announceResolution is THE seam every command goes through to learn which
 // database it is about to touch. It deliberately bundles loadConfig + the
 // retired-key warnings + resolveDSN + the announcement into one call, so that a
@@ -142,6 +173,10 @@ func announceResolution(name string, env func(string) string, out io.Writer) (cf
 			where = filepath.Join(wd, cfgPath)
 		}
 		fmt.Fprintf(out, "[ocserverd] %s: config file = none (looked at %s, from %s)\n", name, where, cfgFrom)
+		// Same register as the line above, and for the same reason: not a
+		// warning, an instruction. The fact alone ("config file = none") is
+		// what people have been reading past; this says what to type instead.
+		fmt.Fprintf(out, "[ocserverd] %s: %s\n", name, howToPointAtAConfigFile(env))
 	}
 	fmt.Fprintf(out, "[ocserverd] %s: database    = %s, from %s\n", name, announcedTarget(dsn), dsnSource(env, cfg))
 	return cfg, dsn, 0
