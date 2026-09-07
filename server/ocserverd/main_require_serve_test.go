@@ -11,6 +11,13 @@ import (
 	"time"
 )
 
+// envOf builds the env lookup realMain takes. It lived in the old config_test.go,
+// which T-125 replaced with a skeleton; it is kept here because this file is the
+// only remaining caller.
+func envOf(m map[string]string) func(string) string {
+	return func(k string) string { return m[k] }
+}
+
 // lockedWriter is an io.Writer safe to read from the test goroutine while a
 // realMain call that refused to return (a mutant that actually starts serving)
 // is still writing into it.
