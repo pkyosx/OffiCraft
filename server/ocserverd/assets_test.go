@@ -106,12 +106,18 @@ func TestSystemInteractionSeedTeachesTheAdHocTaskRuleTheServerEnforces(t *testin
 	//
 	// 🔴 THE ANCHORS ARE THE RULE, NOT ONE SENTENCE'S WORDING. They were
 	// re-pointed on 2026-09-07 when the owner asked for the section to be
-	// shortened (「不用解釋太多 sample payload 只需要一份」): the prose moved, the
-	// rule did not. Re-point them again the same way if the wording moves — what
-	// must never be dropped is a pair covering BOTH halves of the routing rule.
+	// shortened (「不用解釋太多 sample payload 只需要一份」), and again the same day
+	// when he asked for the staff-vs-outsource half of the destination sentence
+	// to go (「這一段可以移除」, which took 「外包寫進他自己的那一份」 with it): the
+	// prose moved, the rule did not. Re-point them the same way if the wording
+	// moves again — what must never be dropped is a set covering BOTH halves of
+	// the routing rule, condition AND destination.
 	for _, want := range []string{
+		// half one: the write named a task that HAS a type -> that type's manual
+		"掛在那個類型的手冊上",
+		// half two: no task, or a task with no type -> the writer's own boot document
 		"或那張任務沒有類型（臨時任務）",
-		"外包寫進他自己的那一份",
+		"⇒ 寫進你自己的開機檔，你下次開機就會讀到",
 	} {
 		if strings.Count(section, want) != 1 {
 			t.Fatalf("the shipped seed must teach the rule the server enforces — missing or "+
