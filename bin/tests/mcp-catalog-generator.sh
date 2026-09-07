@@ -50,9 +50,26 @@ if ! grep -qE '^[[:space:]]+drift-mcp-catalog[[:space:]]*(\\)?$' "$MAKEFILE"; th
   exit 1
 fi
 
-WORKFLOW="$ROOT/.github/workflows/ci.yml"
-if ! grep -qE '^[[:space:]]*- run: bash bin/run-checks\.sh .*[[:space:]]drift-mcp-catalog([[:space:]]|$)' "$WORKFLOW"; then
-  echo "[mcp-catalog-test] FAIL — no cloud cell runs drift-mcp-catalog (.github/workflows/ci.yml)"
+# Does a cloud cell run drift-mcp-catalog?
+#
+# ⚠️ THIS USED TO GREP ci.yml FOR THE TARGET'S NAME, and that stopped being the
+# right question in T-127: the gate cells no longer name any target — each asks
+# for its own lane and bin/lib/ci-round.txt is the only place a target is written
+# down. Grepping the workflow now answers "no cell runs it" for every target in
+# the repo, which is a red that says nothing.
+#
+# The question is unchanged, so only the place to ask it moved: the round list
+# says which lane owns drift-mcp-catalog, and lint-ci-round is what holds that
+# lane to being a real gate job. A missing line here still means no cloud cell
+# runs it.
+ROUND="$ROOT/bin/lib/ci-round.txt"
+if [[ ! -f "$ROUND" ]]; then
+  echo "[mcp-catalog-test] FAIL — the round list is missing: $ROUND"
+  exit 1
+fi
+CATALOG_LANE="$(awk '{sub(/#.*/,"")} NF==2 && $2=="drift-mcp-catalog" {print $1; exit}' "$ROUND")"
+if [[ -z "$CATALOG_LANE" ]]; then
+  echo "[mcp-catalog-test] FAIL — drift-mcp-catalog has no line in bin/lib/ci-round.txt, so no cloud lane runs it"
   exit 1
 fi
 

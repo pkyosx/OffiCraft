@@ -108,6 +108,7 @@ REGEN_PAIR_GATE = $(P) \
   lint-shadow-claim lint-user-operation-contract \
   lint-conformance-blackbox lint-ts lint-css-tokens lint-css-token-roles \
   lint-async-landing lint-chat-area-key lint-chat-pushdown \
+  lint-ci-round \
   build-embed-assets build-go build-frontend-deps \
   test-e2e-isolation-guard test-bin-guards test-go test-system-interaction-examples \
   test-frontend-unit \
@@ -402,6 +403,26 @@ lint-chat-pushdown:
 	echo "[lint-chat-pushdown] the chat page stays pushed down; unread counting has one entry point"; \
 	python3 bin/chat-pushdown-guard.py; \
 	python3 bin/tests/chat-pushdown-guard-selftest.py; \
+	$(DONE)
+
+# The round list and the Makefile must name the same checks (T-127), asserted as
+# a set difference BOTH WAYS plus non-zero denominators.
+#
+# ⚠️ THIS TARGET GUARDS THE LIST THAT NAMES THIS TARGET. That is deliberate and
+# it is not circular: bin/lib/ci-round.txt puts lint-ci-round in the
+# contract-guards lane, so the cloud runs it because the list says to, and it
+# then checks the list. Removing its own line makes the guard stop running AND
+# makes the remaining checks unguarded — which is exactly the failure the
+# two-way difference is there to name, so deleting the line reddens on the
+# `Makefile target with no round line` side before it can go quiet.
+#
+# The selftest is the positive control: a green from the guard means nothing
+# unless the guard can be shown to redden on a tree that deserves it.
+lint-ci-round:
+	@$(P) \
+	echo "[lint-ci-round] the round list and the Makefile name the same checks, and every lane is a gate job"; \
+	python3 bin/ci-round-guard.py; \
+	python3 bin/tests/ci-round-guard-selftest.py; \
 	$(DONE)
 
 # The chat surface's async-landing census (T-48). It reads source text — which
