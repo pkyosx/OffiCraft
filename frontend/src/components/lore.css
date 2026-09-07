@@ -196,9 +196,12 @@
  * margin-left:auto, so the scope stays next to the id and the ▸/▾ stays put.
  *
  * `min-width: 0` + the ellipsis on the name: a long manual display name must
- * shorten rather than push the ▸/▾ off the row. The KIND never truncates — it
- * is the half that answers 「這是哪一種」, and half a kind word is worse than a
- * shortened name. */
+ * shorten rather than push the ▸/▾ off the row.
+ *
+ * 🔴 THERE IS NO LONGER A TEXT KIND PREFIX (owner 2026-09-08: 「這個不必要」).
+ * The kind is carried by the GLYPH inside the badge — person for 成員傳承, gear
+ * for 任務傳承 — so `.lore-row__scope-glyph` must never be hidden or shrunk to
+ * nothing: with the word gone it is the only thing telling the two apart. */
 .lore-row__scope {
   display: inline-flex;
   /* `center`, not `baseline`: the NAME half is a pill (.lore-badge--type) with
@@ -210,9 +213,11 @@
   font-size: 12px;
   color: var(--color-text-muted);
 }
-.lore-row__scope-kind {
+/* The kind glyph inside the badge. `flex: none` so it never gives up its box to
+ * a long name — the NAME truncates, the kind does not, exactly as the text
+ * prefix used to be the half that never shortened. */
+.lore-row__scope-glyph {
   flex: none;
-  white-space: pre;
 }
 /* The name text INSIDE the badge — copied from tasks.css `.task-card__type`,
  * the span that lives inside 任務卡's 類型 badge. */
@@ -251,13 +256,52 @@ button.lore-row__scope-chip:hover {
   color: var(--color-text);
   white-space: pre-wrap;
 }
-/* 內容預設一行截斷 (spec §6). */
+/* 內容預設一行截斷 (spec §6), and 內容 is now the ONLY thing 展開／收合 governs
+ * — owner 2026-09-08, card rc-2e10ee03b97c: 「唯一要折疊的是 content」.
+ *
+ * 🔴 THE CLAMP IS ON THE RENDERED BOX, NOT ON THE SOURCE STRING. The body is
+ * markdown now, and cutting the source to one line's worth of characters would
+ * hand the parser a half-open `**` or an unterminated fence — i.e. it would
+ * render something that is not the entry. `-webkit-line-clamp` clamps what was
+ * already laid out, so the parse is always of the whole text. */
 .lore-row__body--clamped {
   display: -webkit-box;
   -webkit-line-clamp: 1;
   -webkit-box-orient: vertical;
   overflow: hidden;
   white-space: normal;
+}
+/* The markdown skin, handed the bits of `.doc-md` back that fight a row — the
+ * same three the chat bubble hands back (office.css .chat__msg-text.doc-md):
+ * a document's padding, its own colour, and its 1.75 page leading. The parser
+ * has already resolved every newline into block structure (and, with `breaks`,
+ * into <br>), so the row's own `pre-wrap` has nothing left to do and would only
+ * resurface source indentation as literal spaces. */
+.lore-row__body-md.doc-md {
+  padding: 0;
+  font-size: inherit;
+  line-height: inherit;
+  color: inherit;
+  white-space: normal;
+  min-width: 0;
+}
+.lore-row__body-md.doc-md > :first-child {
+  margin-top: 0;
+}
+.lore-row__body-md.doc-md > :last-child {
+  margin-bottom: 0;
+}
+.lore-row__body-md.doc-md p {
+  margin: 6px 0;
+}
+.lore-row__body-md.doc-md ul,
+.lore-row__body-md.doc-md ol {
+  margin: 6px 0;
+  padding-left: 20px;
+}
+.lore-row__body-md.doc-md pre,
+.lore-row__body-md.doc-md table {
+  margin: 6px 0;
 }
 
 /* ── 線以下的條目：內容轉灰 ──

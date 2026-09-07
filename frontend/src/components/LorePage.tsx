@@ -103,6 +103,7 @@ import { navigateHash } from "../lib/hashRoute";
 import { Avatar } from "./Avatar";
 import { ComposerAttachmentPreview } from "./ComposerAttachmentPreview";
 import { FilterPanel } from "./FilterPanel";
+import { Markdown } from "./Markdown";
 import { MultiSelectFilter } from "./MultiSelectFilter";
 import {
   BookIcon,
@@ -113,6 +114,7 @@ import {
   GearIcon,
   PaperclipIcon,
   SendIcon,
+  UserIcon,
 } from "./icons";
 import "./lore.css";
 // The staged-attachment preview strip (ComposerAttachmentPreview) draws the
@@ -121,6 +123,13 @@ import "./lore.css";
 // whichever page happened to be mounted first (frontend/.claude/rules/
 // css-layout-traps.md).
 import "./office.css";
+// The 內容 renders through the shared <Markdown>, which wears the `.doc-md`
+// document skin — declared in settings.css. This page imports it rather than
+// free-riding on whichever page happened to mount first, the same convention
+// DocUsage.tsx states (styleOwnership: the one time a component drew another
+// sheet's block without importing it, the styles vanished the day the last
+// transitive importer changed).
+import "./settings.css";
 
 /** 捲到底一次載這麼多 (spec §6). The SAME number is the "is there more" test:
  * a page shorter than this is the last one. */
@@ -181,38 +190,49 @@ export function LorePage() {
   const { workers } = useOutsourceWorkers();
   const { manuals } = useTaskManuals();
 
-  // ── 篩選: THREE AXES, ALL QUERY PARAMETERS, none a client-side pass ────────
+  // ── 篩選: FOUR CONTROLS OVER THREE WIRE AXES, all query parameters, none a
+  //    client-side pass ──────────────────────────────────────────────────────
   //
-  // 🔴 THERE USED TO BE FOUR CONTROLS AND NOW THERE ARE THREE (owner
-  // 2026-09-07, card rc-a43100fd0486). His words: 「我從使用者或是任務手冊作為
-  // filter 另外就是狀態 三個而已」「你完全可以抄 task」. So the row is
-  // 撰寫人 → 屬於 → 狀態 → 清除篩選, which is the 任務頁's shape
-  // (任務編號 → 負責人 → 類型 → 狀態 → 清除篩選) with its search box dropped —
-  // 傳承 has no id anybody types.
+  // The row is 所有撰寫人 → 所有成員傳承 → 所有任務傳承 → 所有狀態 → 清除篩選
+  // (owner 2026-09-08, verbatim, in that order). It is still the 任務頁's shape
+  // — 負責人 → 類型 → 狀態 — with its id search box dropped, because 傳承 has no
+  // id anybody types.
   //
-  // 🔴 THE 範圍 DROPDOWN IS GONE, AND ITS REMOVAL IS THE POINT RATHER THAN A
-  // SIMPLIFICATION. It offered 角色傳承 / 成員傳承 / 任務傳承 — and 角色傳承 no
-  // longer exists (the scopes collapsed to two in the same ruling), which left
-  // it a two-item list whose two items are exactly the two halves of 屬於. A
-  // control that asks "which kind?" beside one that asks "which one?" is two
-  // questions where the reader has one.
+  // 🔴 THE MEMBER CONTROL IS A ROUTE THAT DID NOT EXIST, NOT A SECOND 撰寫人.
+  // The two ask different questions and, more to the point, they travel on
+  // DIFFERENT WIRE AXES. 撰寫人 sends `authorIds` — 「誰寫的」 — which produces no
+  // scope at all. The 上限線 needs the server to answer `capChars`, and the
+  // server only answers it when the request carries EXACTLY ONE scope kind and
+  // EXACTLY ONE scope key. So while members appeared on this page only under
+  // 撰寫人, there was no path by which a 成員傳承 cap line could ever be asked
+  // for. 所有成員傳承 sends `scope_kinds=[agent]` + `scope_keys=[<member id>]`,
+  // which is that path.
   //
-  // 屬於 asks the whole question at once: every MEMBER and every TASK MANUAL in
-  // one multi-select. Its option values carry the kind (see `belongsValue`), so
-  // the request still names both wire axes precisely.
+  // 🔴 IT SHARES BOTH SCOPE AXES WITH 所有任務傳承, and that is why the two are
+  // held in ONE state set below rather than two. Ticking one of each sends two
+  // kinds and two keys, the server answers 0/"" and the page draws no line —
+  // the same honest answer an unfiltered page gets. The page never re-derives
+  // that rule; it reads the server's answer.
+  //
+  // 🔴 AN EARLIER RULING SAID THE OPPOSITE AND HAS BEEN SUPERSEDED. On
+  // 2026-09-07 the owner saw ONE combined 屬於 dropdown listing members and
+  // manuals together and sent it back: 「成員的 filter 不是左邊那個嗎 你第二個
+  // filter 應該只需要放任務」. What he rejected was one control asking two
+  // questions; members were then dropped from the scope axis entirely, which is
+  // what took the 成員傳承 cap line off the board. The 2026-09-08 ruling
+  // restores the member axis as its OWN control — two controls, one question
+  // each — and it is that ruling this code follows.
   //
   // ⚠️ NO COUNT BADGE, DELIBERATELY. The 任務頁's 狀態 pill reads 「狀態 · N」;
-  // this one must not. Owner, same card: 「we dont need count」 — and the page
-  // could not honestly produce one anyway, because 傳承 loads by scrolling, so
-  // any number computed here counts the rows fetched SO FAR and would keep
-  // changing as the reader scrolls without anything having changed.
+  // this one must not. Owner, card rc-a43100fd0486: 「we dont need count」 — and
+  // the page could not honestly produce one anyway, because 傳承 loads by
+  // scrolling, so any number computed here counts the rows fetched SO FAR and
+  // would keep changing as the reader scrolls without anything having changed.
   //
-  // 🔴 THE 上限線 STILL NEEDS EXACTLY ONE SCOPE, and 屬於 is what produces one:
-  // ticking a single member (or a single manual) sends one kind and one key,
-  // which is the server's condition for answering `capChars`. Tick two and the
-  // server answers 0/"" and the page draws no line — the same honest answer an
-  // unfiltered page gets. The page never re-derives that rule; it reads the
-  // server's answer.
+  // `belongs` holds BOTH scope controls' ticks as `"<kind>:<key>"` values (see
+  // `belongsValue`). One set, because one pair of wire axes: splitting it into
+  // two states would mean re-merging them at every read and would let the two
+  // halves disagree about what was sent.
   const [belongs, setBelongs] = useState<Set<string>>(new Set());
   const [states, setStates] = useState<Set<LoreEntryState>>(new Set());
   const [authors, setAuthors] = useState<Set<string>>(new Set());
@@ -258,6 +278,29 @@ export function LorePage() {
     setStates(new Set());
     setAuthors(new Set());
   }
+
+  // ONE state set, TWO controls. Each scope control sees only the ticks whose
+  // value carries its own kind, and writing back replaces only that kind's
+  // ticks — the other control's are carried through untouched. Doing it this
+  // way (rather than two states merged at send time) means there is exactly one
+  // place that holds what was ticked, so the request and the two pills cannot
+  // disagree about it.
+  const ticksOfKind = useCallback(
+    (kind: LoreScopeKind) =>
+      new Set([...belongs].filter((v) => splitBelongs(v).kind === kind)),
+    [belongs]
+  );
+  const setTicksOfKind = useCallback(
+    (kind: LoreScopeKind, next: Set<string>) =>
+      setBelongs(
+        (prev) =>
+          new Set([
+            ...[...prev].filter((v) => splitBelongs(v).kind !== kind),
+            ...next,
+          ])
+      ),
+    []
+  );
 
   // ── the page's own data ────────────────────────────────────────────────
   const [entries, setEntries] = useState<LoreEntryView[]>([]);
@@ -443,14 +486,30 @@ export function LorePage() {
    * determined. Those rows appear on the unfiltered page — which is the page
    * this one opens on — so this arm renders in practice and its raw-key
    * fallback is what makes such an entry identifiable at all. */
-  // 🔴 THE NAME ALONE DOES NOT ANSWER THE QUESTION THE OWNER ASKED. A chip
-  // reading 「特助」 does not say whether that is a role or a manual, and on 全部
-  // — where the page opens — every kind is mixed together. So the scope answers
-  // in two parts: WHICH KIND, then WHICH ONE. Same two words the cap line opens
-  // with, from the same i18n keys.
+  // 🔴 THE NAME ALONE DOES NOT ANSWER THE QUESTION THE OWNER ASKED. A badge
+  // reading 「特助」 does not say whether that is a member or a manual, and on
+  // 全部 — where the page opens — every kind is mixed together. So the scope
+  // carries TWO things: WHICH KIND, and WHICH ONE.
+  //
+  // 🔴 THE KIND IS NOW A VALUE, NOT A LABEL, AND THAT IS THE WHOLE CHANGE.
+  // It used to be the WORD 「成員傳承 · 」 / 「任務傳承 · 」 printed to the left
+  // of the badge. Owner removed that prefix on 2026-09-08 with a screenshot of
+  // it circled: 「這個不必要」. So the kind is returned as the raw discriminator
+  // and the row spends it on an ICON instead (person vs gear) — one badge, and
+  // the glyph says which kind it is.
+  //
+  // ⚠️ WHICH MEANS THE ICON IS NOW THE ONLY DISCRIMINATOR ON A CLOSED ROW.
+  // With the word gone, a member's entry and a manual's entry whose names
+  // happen to match are the same pixels except for that glyph. Dropping the
+  // icon "because the badge already carries the name" undoes the very thing the
+  // 屬於 badge was added for (card rc-11734523eb52).
+  //
+  // `kind` is "" for the unknown arm: an entry the migration could not place
+  // names no kind and gets no glyph, because inventing one would state a fact
+  // the server never sent.
   const resolveScope = useCallback(
     (entry: LoreEntryView): {
-      kindLabel: string;
+      kind: "" | LoreScopeKind;
       label: string;
       manualKey: string;
     } => {
@@ -459,7 +518,7 @@ export function LorePage() {
         // author resolver so a departed member reads the same way in both
         // places.
         return {
-          kindLabel: t.lore.scopeKindAgent,
+          kind: "agent",
           label: resolveAuthor(entry.scopeKey).text,
           manualKey: "",
         };
@@ -467,7 +526,7 @@ export function LorePage() {
       if (entry.scopeKind === "manual") {
         const m = manuals.find((x) => x.typeKey === entry.scopeKey);
         return {
-          kindLabel: t.lore.scopeKindManual,
+          kind: "manual",
           label: m?.displayName || entry.scopeKey,
           manualKey: entry.scopeKey,
         };
@@ -475,18 +534,12 @@ export function LorePage() {
       // An unknown kind names no kind — inventing one here would state a fact
       // the server never sent.
       return {
-        kindLabel: "",
+        kind: "",
         label: entry.scopeKey || t.lore.scopeUnknown,
         manualKey: "",
       };
     },
-    [
-      manuals,
-      resolveAuthor,
-      t.lore.scopeUnknown,
-      t.lore.scopeKindAgent,
-      t.lore.scopeKindManual,
-    ]
+    [manuals, resolveAuthor, t.lore.scopeUnknown]
   );
 
   const authorAvatar = useCallback(
@@ -626,33 +679,27 @@ export function LorePage() {
   const capLineText =
     scopeName + t.lore.capLineMid + cap.capChars + t.lore.capLineTail;
 
-  // 任務 — every TASK MANUAL, and ONLY manuals.
+  // 任務傳承 — every TASK MANUAL, and ONLY manuals.
   //
-  // 🔴 MEMBERS ARE DELIBERATELY NOT HERE, AND THAT IS A CORRECTION. This list
-  // briefly carried every member as well, on the reading that 「我從使用者或是任
-  // 務手冊作為 filter」 described ONE control offering both. The owner rejected
-  // that the moment he saw it (2026-09-07, with a screenshot of this very
-  // dropdown): 「成員的 filter 不是左邊那個嗎 你第二個 filter 應該只需要放任務」.
-  // The member axis is the 撰寫人 control to the left — offering members again
-  // here asks the same question twice, and the two answers can disagree.
-  //
-  // It also matches the design mock, which this page is supposed to follow and
-  // which has said 「所有任務」 the whole time. What went wrong was not that the
-  // mock was unread: the spec text was EDITED to describe what had been built
-  // instead. A document that is rewritten to agree with the code cannot
-  // contradict the code, which is the only thing a spec is for.
-  //
-  // 🔴 THE KIND PREFIX STAYS IN THE VALUE even though only one kind can appear
-  // now. It is what puts `scope_kinds=["manual"]` on the request beside
-  // `scope_keys`, so the server still narrows on BOTH axes; dropping it because
-  // "there is only one kind" would make the wire depend on that staying true.
+  // 🔴 THE KIND PREFIX IS IN THE VALUE, and it is what puts
+  // `scope_kinds=["manual"]` on the request beside `scope_keys`, so the server
+  // narrows on BOTH axes. It is also what lets ONE state set back TWO controls:
+  // the prefix is how each control finds its own ticks again (see
+  // `ticksOfKind`).
   const belongsOptions = manuals.map((m) => ({
     value: belongsValue("manual", m.typeKey),
     label: m.displayName || m.typeKey,
   }));
-  // 撰寫人 options are the LIVE roster only. An author who has left cannot be
-  // offered here (there is no list of departed ids to offer), which is the same
-  // fact the row states by dropping their 傳訊息 icon.
+  // 🔴 THE LIVE ROSTER, BUILT ONCE AND READ BY TWO CONTROLS. 撰寫人 and
+  // 成員傳承 offer the SAME people — they differ in which wire axis the tick
+  // rides, not in who is on the list — so the list is derived once here. Two
+  // separately-built lists would be two lists that can drift, and a name that
+  // is offered as a 撰寫人 but not as a 成員 (or the reverse) is a gap nobody
+  // would ever see reported.
+  //
+  // Options are the LIVE roster only. An author who has left cannot be offered
+  // here (there is no list of departed ids to offer), which is the same fact the
+  // row states by dropping their 傳訊息 icon.
   //
   // 🔴 kind === "staff" is an ALLOW-list, not a "drop the warden" deny-list, and
   // it is the same one the 辦公室 roster uses. A machine-layer member cannot be
@@ -663,15 +710,24 @@ export function LorePage() {
   // 「這個人還沒寫過」, not as 「這個人不可能寫」. Owner hit this on the trial
   // station (card rc-11734523eb52). A deny-list would let the next machine-layer
   // kind back in silently; this cannot.
-  const authorOptions = [
+  const roster = [
     ...members
       .filter((m) => m.kind === "staff")
-      .map((m) => ({ value: m.id, label: m.name })),
+      .map((m) => ({ id: m.id, label: m.name })),
     ...workers.map((w) => ({
-      value: w.id,
+      id: w.id,
       label: w.codename ? msg.outsourceLabel(w.codename) : w.id,
     })),
   ];
+  const authorOptions = roster.map((r) => ({ value: r.id, label: r.label }));
+  // 成員傳承 — the SAME people, carried on the SCOPE axis instead. The value is
+  // prefixed `agent:` so the request says `scope_kinds=["agent"]` +
+  // `scope_keys=[<member id>]`, which is the only shape the server will answer
+  // a member's `capChars` for.
+  const memberScopeOptions = roster.map((r) => ({
+    value: belongsValue("agent", r.id),
+    label: r.label,
+  }));
 
   return (
     <div className="lore" ref={scrollRef} data-testid="lore-page">
@@ -695,18 +751,20 @@ export function LorePage() {
         clearLabel={t.lore.clearFilters}
         onClear={anyFilter ? clearFilters : undefined}
       >
-        {/* 🔴 THE ORDER IS THE 任務頁'S ORDER, and it is not decoration (owner,
-            2026-09-07: 「The order of buttons / filters matters」「make them
-            consistent with task」「你完全可以抄 task」). That row reads
-            負責人 → 類型 → 狀態 → 清除篩選, so this one reads
-            撰寫人 → 屬於 → 狀態 → 清除篩選: WHO WROTE IT, then WHAT IT BELONGS
-            TO, then WHAT STATE. A reader who has learned one page should not
-            have to re-learn where things are on the other, and two pages that
-            disagree teach that the position means nothing.
+        {/* 🔴 THE ORDER IS THE OWNER'S, VERBATIM (2026-09-08):
+            所有撰寫人 → 所有成員傳承 → 所有任務傳承 → 所有狀態 → 清除篩選.
+            WHO WROTE IT, then WHICH MEMBER it belongs to, then WHICH MANUAL,
+            then WHAT STATE. It is still the 任務頁's order (負責人 → 類型 →
+            狀態) with the scope half split in two, because a reader who has
+            learned one page should not have to re-learn where things are on the
+            other.
 
             The 任務頁 has a 任務編號 search box ahead of all of these; this page
             has no counterpart because a 傳承 id (L-7) is not something anyone
-            goes looking for by typing it. */}
+            goes looking for by typing it.
+
+            Nothing here appears conditionally — a filter row whose fields come
+            and go as you tick is a row whose shape the reader cannot learn. */}
         <MultiSelectFilter
           noun={t.lore.filterAuthorNoun}
           allLabel={t.lore.filterAuthorAll}
@@ -715,25 +773,33 @@ export function LorePage() {
           selected={authors}
           onChange={setAuthors}
         />
-        {/* 任務 — WHICH task manual, and only that. It replaced the 範圍 + 角色 +
-            手冊 trio (owner, card rc-a43100fd0486): 範圍's three options were the
-            thing being collapsed away, and the two key lists behind it were the
-            same question asked twice.
-            🔴 IT DOES NOT OFFER MEMBERS. It briefly did, and the owner sent back
-            a screenshot of this dropdown the same day: 「成員的 filter 不是左邊那
-            個嗎 你第二個 filter 應該只需要放任務」. The member axis is 撰寫人, to
-            the left of this control; listing members here asks the same question
-            twice in one row, and two controls answering one question can
-            disagree. The design mock has said 「所有任務」 throughout.
-            Nothing here appears conditionally — a filter row whose fields come
-            and go as you tick is a row whose shape the reader cannot learn. */}
+        {/* 成員傳承 — WHICH member's lore, on the SCOPE axis.
+            🔴 THIS IS NOT THE SAME QUESTION AS 撰寫人 EVEN THOUGH THE NAMES ARE
+            THE SAME PEOPLE. 撰寫人 asks who WROTE the entry and sends
+            `authorIds`; this asks whose lore the entry IS and sends
+            `scope_kinds=[agent]` + `scope_keys=[<member id>]`. Only the second
+            shape can make the server answer `capChars`, which is why this
+            control exists at all — see the axes comment at the top of the
+            component. */}
+        <MultiSelectFilter
+          noun={t.lore.filterMemberNoun}
+          allLabel={t.lore.filterMemberAll}
+          testId="lore-filter-member"
+          options={memberScopeOptions}
+          selected={ticksOfKind("agent")}
+          onChange={(next) => setTicksOfKind("agent", next)}
+        />
+        {/* 任務傳承 — WHICH task manual. Same wire axes as the control above it;
+            ticking one in each sends two kinds and two keys, and the server
+            answers no cap line. That is stated in the axes comment rather than
+            prevented here: the page does not re-implement the server's rule. */}
         <MultiSelectFilter
           noun={t.lore.filterTaskNoun}
           allLabel={t.lore.filterTaskAll}
           testId="lore-filter-belongs"
           options={belongsOptions}
-          selected={belongs}
-          onChange={setBelongs}
+          selected={ticksOfKind("manual")}
+          onChange={(next) => setTicksOfKind("manual", next)}
         />
         <MultiSelectFilter
           noun={t.lore.filterStateNoun}
@@ -830,8 +896,9 @@ function LoreRow({
   avatar: { src?: string; kind: "member" | "outsource" | "owner" | "assistant" } | null;
   /** 屬於, already resolved. `manualKey` non-empty is the ONLY thing that makes
    * the pill clickable — the row never re-derives that from `entry.scopeKind`,
-   * so there is one place that decides it (resolveScope). */
-  scope: { kindLabel: string; label: string; manualKey: string };
+   * so there is one place that decides it (resolveScope). `kind` is what picks
+   * the glyph, and it comes from the same one place. */
+  scope: { kind: "" | LoreScopeKind; label: string; manualKey: string };
   onOpenChat: (peerId: string, entryId: string) => void;
   onOpenManual: (typeKey: string) => void;
   onSetState: (id: string, next: LoreEntryState) => void;
@@ -1035,37 +1102,55 @@ function LoreRow({
             It is a <button> when it leads somewhere, so the row's closest()
             filter lets the click through to the manual instead of toggling. */}
         <span className="lore-row__scope" data-testid="lore-scope">
-          {scope.kindLabel !== "" && (
-            <span className="lore-row__scope-kind">
-              {scope.kindLabel}
-              {t.lore.capLineSep}
-            </span>
-          )}
-          {/* The NAME half is the 任務卡's 類型 badge, copied value-for-value
+          {/* 🔴 THE TEXT PREFIX 「成員傳承 · 」/「任務傳承 · 」 IS GONE (owner
+              2026-09-08, screenshot with it circled: 「這個不必要」). What is
+              left is ONE badge, and the GLYPH carries the kind:
+                · 任務傳承 → 齒輪, and the badge is a <button> that opens the
+                  manual's settings page — unchanged.
+                · 成員傳承 → the person glyph, the same UserIcon the 任務卡's
+                  負責人 chip falls back to through <Avatar>. Not a button: a
+                  member has no page to land on, and a pill that looks clickable
+                  and goes nowhere is the dead affordance LoreAuthorChip exists
+                  to avoid.
+                · unknown → no glyph at all. There is no kind to name.
+              🔴 EXACTLY ONE ARM RUNS, BECAUSE `scope.kind` IS ONE VALUE. The
+              owner's rule 「一次只可能會出現一個」 is not enforced by a check
+              here; it is a property of the data — resolveScope returns a single
+              discriminator — and this chain is written as one if/else over it so
+              there is no arrangement of props that could show both.
+              The badge itself is the 任務卡's 類型 badge, copied value-for-value
               under lore names (.lore-badge--type ← tasks.css .task-badge--type;
-              owner: 「傳承條目的樣子跟任務卡不一樣，我要它一樣」). Clickable ⇒ a
-              <button> carrying the 齒輪, exactly as task-card__type-chip does;
-              otherwise the same pill as a plain <span>. The KIND half stays
-              muted prefix text — only the name was asked to become a badge. */}
-          {scope.manualKey === "" ? (
-            <span
-              className="lore-badge lore-badge--type"
-              data-testid="lore-scope-name"
-            >
-              <span className="lore-row__scope-name">{scope.label}</span>
-            </span>
-          ) : (
+              owner: 「傳承條目的樣子跟任務卡不一樣，我要它一樣」). */}
+          {scope.kind === "manual" ? (
             <button
               type="button"
               className="lore-badge lore-badge--type lore-row__scope-chip"
               data-testid="lore-scope-name"
+              data-scope-kind="manual"
               aria-label={msg.loreOpenManual(scope.label)}
               title={msg.loreOpenManual(scope.label)}
               onClick={() => onOpenManual(scope.manualKey)}
             >
-              <GearIcon size={13} />
+              <GearIcon
+                size={13}
+                className="lore-row__scope-glyph lore-row__scope-glyph--task"
+              />
               <span className="lore-row__scope-name">{scope.label}</span>
             </button>
+          ) : (
+            <span
+              className="lore-badge lore-badge--type"
+              data-testid="lore-scope-name"
+              data-scope-kind={scope.kind}
+            >
+              {scope.kind === "agent" && (
+                <UserIcon
+                  size={13}
+                  className="lore-row__scope-glyph lore-row__scope-glyph--member"
+                />
+              )}
+              <span className="lore-row__scope-name">{scope.label}</span>
+            </span>
           )}
         </span>
 
@@ -1082,76 +1167,118 @@ function LoreRow({
 
       <h3 className="lore-row__title">{entry.title}</h3>
 
-      {/* 內容預設一行截斷 — one line collapsed, in full when expanded. */}
+      {/* 🔴 內容 IS THE ONE THING 展開／收合 STILL CONTROLS (owner 2026-09-08,
+          card rc-2e10ee03b97c, superseding his own ruling 90 seconds earlier:
+          「我覺得好像應該唯一要折疊的是 content 然後要支援 md format」). So the
+          clamp stays HERE, and everything below — 撰寫人 / 生效期 / 失效理由 —
+          moved OUT of `expanded` and now shows on a closed row too. The earlier
+          reading (「才五百字好像沒什麼好折疊的」 ⇒ body always full, meta still
+          hidden) was the exact opposite arrangement and is dead.
+
+          🔴 THE TRUNCATION IS OF THE RENDERED OUTPUT, NEVER OF THE SOURCE. It
+          is CSS (-webkit-line-clamp on .lore-row__body--clamped): the markdown
+          is parsed in full and the BOX shows one line of it. Slicing the source
+          string to N characters would cut a `**` or a fence in half and hand
+          the parser something that is not the entry's markdown at all.
+
+          🔴 MARKDOWN GOES THROUGH THE SHARED, XSS-SAFE RENDERER, exactly as the
+          chat bubble does (ChatArea.tsx:2052). Never dangerouslySetInnerHTML:
+          a 傳承 body is agent-authored free text.
+          `breaks` for the same reason chat turns it on — this text was WRITTEN
+          as plain text, where Enter meant "new line", and standard markdown's
+          soft-wrap would silently join every such line into one run-on.
+
+          ⚠️ WHAT THIS COSTS THE ENTRIES THAT ALREADY EXIST, stated rather than
+          papered over: every stored body was written under a plain-text
+          contract, so characters that are now syntax are now read as syntax.
+          Chat had the identical problem with the identical corpus and did NOT
+          escape the text (it renders `m.body` raw through the same component),
+          and this follows chat — one behaviour for one kind of text, rather
+          than a second, page-local escaping rule that would make the same
+          sentence render two ways on two pages. What limits the blast radius is
+          the renderer's own inline set: only `**bold**`, `` `code` `` and
+          links. `_` is NOT inline syntax there, so a body carrying
+          `note_size_chars` is unaffected — the case that prompted the worry. */}
       <div
         className={`lore-row__body${
           expanded ? "" : " lore-row__body--clamped"
         }`}
         data-testid="lore-body"
       >
-        {entry.body}
+        <Markdown source={entry.body} className="lore-row__body-md doc-md" breaks />
       </div>
 
-      {/* The box to write to this entry's author — OUTSIDE `expanded`, the way
-          任務卡's message box is always on the card (owner: 「訊息輸入框預設就要
-          在」). It used to sit inside the expanded body under 撰寫人; a reader
-          who wanted to ask one question about a row they could already read had
-          to open the row first, which is a step the 任務 page does not ask for.
+      {/* 🔴 ALWAYS RENDERED — NOT `expanded &&` ANY MORE (owner 2026-09-08,
+          card rc-2e10ee03b97c). 展開／收合 now governs the CONTENT's length and
+          nothing else, so 撰寫人 / 生效期 / 失效理由 are on the closed row too.
+          Re-wrapping this in `expanded` would put the page back to hiding the
+          three rows the owner asked to see. */}
+      <div className="lore-row__meta">
+        {/* 撰寫人自成一列: label left, avatar+name pill right, and the
+            傳訊息 icon INSIDE the pill. */}
+        <span className="lore-row__meta-label">{t.lore.authorLabel}</span>
+        <LoreAuthorChip
+          author={author}
+          avatar={avatar}
+          onOpenChat={(peerId) => onOpenChat(peerId, entry.id)}
+        />
+
+        {/* 生效期 directly UNDER 撰寫人 (owner: 「生效期移到撰寫人下面一列」) —
+            with the composer lifted out of this grid, the two label rows are
+            now adjacent instead of being split by a writing surface. */}
+        <span className="lore-row__meta-label">{t.lore.effectiveLabel}</span>
+        <div className="lore-row__effective">
+          <span className="lore-row__effective-ts" data-testid="lore-effective">
+            {formatAbsolute(entry.effectiveTs, Date.now() / 1000)}
+          </span>
+          <button
+            type="button"
+            className="lore-row__bump"
+            data-testid="lore-bump"
+            onClick={() => onBump(entry.id)}
+          >
+            {t.lore.bump}
+          </button>
+        </div>
+
+        {/* 失效理由沒填就整列不顯示 — no label, no empty value, no dash. An
+            empty reason is not a reason, and a row that renders one teaches
+            the reader that retirements come without explanations. */}
+        {entry.retireReason !== "" && (
+          <>
+            <span className="lore-row__meta-label">
+              {t.lore.retireReasonLabel}
+            </span>
+            <span
+              className="lore-row__retire-reason"
+              data-testid="lore-retire-reason"
+            >
+              {entry.retireReason}
+            </span>
+          </>
+        )}
+      </div>
+
+      {/* The box to write to this entry's author — LAST ON THE CARD, in BOTH
+          states (owner 2026-09-08, screenshot: 「訊息匡應該在最下方」). It sat
+          between 內容 and 撰寫人／生效期, which put a writing surface in the
+          middle of the things you read.
+          🔴 IT IS OUTSIDE `expanded` AND MUST STAY OUTSIDE IT, the way 任務卡's
+          message box is always on the card (owner: 「訊息輸入框預設就要在」). A
+          reader who wants to ask one question about a row they can already read
+          should not have to open the row first — a step the 任務 page does not
+          ask for. Putting it after the expanded block is what satisfies BOTH
+          rulings at once: collapsed, the block above renders nothing and this is
+          the last thing on the card anyway; expanded, it is below 撰寫人 /
+          生效期 / 失效理由. Moving it back INSIDE `expanded` to "put it at the
+          bottom" would trade one owner ruling for the other.
           🔴 Only a reachable author gets one. The departed author's pill is
           deliberately not a button, and a composer that sends to nobody would be
           that same dead affordance in a larger shape.
-          It is no longer a cell of `.lore-row__meta`'s grid, so lore.css gives
-          it the full row width itself rather than a `grid-column` span. */}
+          It is not a cell of `.lore-row__meta`'s grid, so lore.css gives it the
+          full row width itself rather than a `grid-column` span. */}
       {author.peerId !== "" && (
         <LoreAuthorComposer entryId={entry.id} author={author} />
-      )}
-
-      {expanded && (
-        <div className="lore-row__meta">
-          {/* 撰寫人自成一列: label left, avatar+name pill right, and the
-              傳訊息 icon INSIDE the pill. */}
-          <span className="lore-row__meta-label">{t.lore.authorLabel}</span>
-          <LoreAuthorChip
-            author={author}
-            avatar={avatar}
-            onOpenChat={(peerId) => onOpenChat(peerId, entry.id)}
-          />
-
-          {/* 生效期 directly UNDER 撰寫人 (owner: 「生效期移到撰寫人下面一列」) —
-              with the composer lifted out of this grid, the two label rows are
-              now adjacent instead of being split by a writing surface. */}
-          <span className="lore-row__meta-label">{t.lore.effectiveLabel}</span>
-          <div className="lore-row__effective">
-            <span className="lore-row__effective-ts" data-testid="lore-effective">
-              {formatAbsolute(entry.effectiveTs, Date.now() / 1000)}
-            </span>
-            <button
-              type="button"
-              className="lore-row__bump"
-              data-testid="lore-bump"
-              onClick={() => onBump(entry.id)}
-            >
-              {t.lore.bump}
-            </button>
-          </div>
-
-          {/* 失效理由沒填就整列不顯示 — no label, no empty value, no dash. An
-              empty reason is not a reason, and a row that renders one teaches
-              the reader that retirements come without explanations. */}
-          {entry.retireReason !== "" && (
-            <>
-              <span className="lore-row__meta-label">
-                {t.lore.retireReasonLabel}
-              </span>
-              <span
-                className="lore-row__retire-reason"
-                data-testid="lore-retire-reason"
-              >
-                {entry.retireReason}
-              </span>
-            </>
-          )}
-        </div>
       )}
     </article>
   );

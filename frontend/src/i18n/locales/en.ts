@@ -143,23 +143,33 @@ export const en: Dict = {
     capLineSep: " · ",
     capLineMid: " cap ",
     capLineTail: " characters — nothing below this line is loaded",
-    // The filter row: 撰寫人 → 屬於 → 狀態 → 清除篩選, the 任務頁's order minus
-    // its id search box (owner 2026-09-07, card rc-a43100fd0486:
-    // 「你完全可以抄 task」).
+    // The filter row: author → member lore → task lore → state → clear, the
+    // order and the names the owner dictated on 2026-09-08 (所有撰寫人 / 所有
+    // 成員傳承 / 所有任務傳承 / 所有狀態). It is the 任務頁's shape minus its id
+    // search box — a 傳承 id is not something anybody goes looking for by typing
+    // it.
     //
-    // 🔴 THREE FIELDS WHERE THERE WERE FOUR. 範圍 / 角色 / 手冊 are gone and
-    // 屬於 replaced all three: 範圍's options were the scope trio being
-    // collapsed, and the two key lists behind it were the same question asked
-    // twice. 屬於 lists every member and every manual in one multi-select; its
-    // option labels are built from the scopeKind* words above, so a name in the
-    // filter reads the same as the same name on a row.
+    // 🔴 THE MEMBER FIELD IS A ROUTE THAT WAS MISSING, NOT A COPY OF 撰寫人.
+    // 撰寫人 sends `authorIds`, which produces NO scope; the server only answers
+    // `capChars` when the request carries exactly one scope kind and exactly one
+    // scope key. While members appeared only under 撰寫人, nothing on this page
+    // could ask for a member's 上限線 at all. This field sends
+    // scope_kinds=[agent] + scope_keys=[<member id>], which is that route.
+    // It shares those two wire axes with the task field, so ticking one of each
+    // sends two kinds and two keys and the server answers 0 — no line. That is
+    // the honest answer, not a defect.
     clearFilters: "Clear filters",
-    filterTaskNoun: "Task",
-    filterTaskAll: "All tasks",
-    filterStateNoun: "State",
-    filterStateAll: "All states",
     filterAuthorNoun: "Author",
     filterAuthorAll: "All authors",
+    // The member field's options ARE the live roster — the same source 撰寫人
+    // draws from — and its words come from the scopeKind* pair above, so a name
+    // in the filter reads the same as the same name on a row's badge.
+    filterMemberNoun: "Member lore",
+    filterMemberAll: "All member lore",
+    filterTaskNoun: "Task lore",
+    filterTaskAll: "All task lore",
+    filterStateNoun: "State",
+    filterStateAll: "All states",
     // The whole row is the expand/collapse surface.
     expandCard: "Expand this lore entry",
     collapseCard: "Collapse this lore entry",

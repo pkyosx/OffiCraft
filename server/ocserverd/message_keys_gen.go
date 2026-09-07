@@ -191,6 +191,8 @@ var messageKeys = map[string]bool{
 	"lore.expandCard":                                  true,
 	"lore.filterAuthorAll":                             true,
 	"lore.filterAuthorNoun":                            true,
+	"lore.filterMemberAll":                             true,
+	"lore.filterMemberNoun":                            true,
 	"lore.filterStateAll":                              true,
 	"lore.filterStateNoun":                             true,
 	"lore.filterTaskAll":                               true,

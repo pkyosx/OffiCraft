@@ -380,10 +380,18 @@ describe("LorePage — 屬於", () => {
     expect(orphan.tagName).toBe("SPAN");
     // The raw key, so the reader can at least say WHICH one it is.
     expect(orphan.textContent).toContain("r-9f31c0d84a17");
-    // 🔴 AND NO KIND WORD. Labelling it 成員傳承 or 任務傳承 would assert an
-    // owner the migration explicitly refused to choose — the one thing this arm
-    // exists to avoid.
+    // 🔴 AND NO KIND AT ALL. Stamping it with the person glyph or the gear
+    // would assert an owner the migration explicitly refused to choose — the
+    // one thing this arm exists to avoid.
+    //
+    // ⚠️ THE TEXT HALF OF THIS ASSERTION IS NOW VACUOUS AND THE GLYPH HALF IS
+    // NOT. Since the kind word was removed from every badge (owner 2026-09-08),
+    // 「no 成員傳承 text」 is true of EVERY row and would pass for an orphan
+    // wearing the member glyph. The glyph lines below are what this spec now
+    // rests on; the two text lines are kept only to catch a re-introduced
+    // prefix landing on the one arm that must never name a kind.
     const chip = orphan.closest('[data-testid="lore-scope"]')!;
+    expect(chip.querySelectorAll(".lore-row__scope-glyph")).toHaveLength(0);
     expect(chip.textContent).not.toContain("成員傳承");
     expect(chip.textContent).not.toContain("任務傳承");
   });
@@ -436,18 +444,19 @@ describe("LorePage — 條目編號", () => {
     // would look like it worked while doing something the reader did not ask
     // for.
     //
-    // ⚠️ This used to assert 「屬於 is absent」 and read that absence as 「still
-    // collapsed」. That proxy died the day 屬於 moved onto the collapsed row —
-    // and a proxy that dies by becoming ALWAYS-TRUE or ALWAYS-FALSE takes the
-    // spec with it silently. 撰寫人 is the expanded-only element now, so the
-    // signal is its absence, and the clamp on the body says the same thing a
-    // second way.
+    // ⚠️ THIS ASSERTION HAS NOW OUTLIVED TWO PROXIES, WHICH IS WHY IT IS ON THE
+    // STATE ITSELF. It first read 「屬於 is absent」 and 屬於 moved onto the
+    // collapsed row; it then read 「撰寫人 is absent」 and 撰寫人 moved onto the
+    // collapsed row too (owner 2026-09-08: 展開／收合 governs the CONTENT and
+    // nothing else). Each move turned the guard ALWAYS-TRUE without failing.
+    // `aria-expanded` is the row's own state, so it cannot be relocated out
+    // from under this line. The clamp says the same thing a second way, and it
+    // is the only remaining thing 展開 actually changes.
     expect(
-      container.querySelector('[data-testid="lore-author-row"]'),
-    ).toBeNull();
-    expect(
-      container.querySelector('[data-testid="lore-author-link"]'),
-    ).toBeNull();
+      container
+        .querySelector('[data-testid="lore-row"]')!
+        .getAttribute("aria-expanded"),
+    ).toBe("false");
     expect(
       container.querySelector('[data-testid="lore-body"]')?.className,
     ).toContain("lore-row__body--clamped");
@@ -553,14 +562,13 @@ describe("LorePage — 屬於 在收合的列上就說得出是哪一種", () =>
     const { container } = renderPage();
     await waitFor(() => expect(renderedIds(container)).toHaveLength(2));
 
-    // NOT expanded — no click anywhere. The 撰寫人 row is the expanded-only
-    // element, so its absence is what says these rows are still closed.
-    expect(
-      container.querySelectorAll('[data-testid="lore-author-row"]'),
-    ).toHaveLength(0);
-    expect(
-      container.querySelectorAll('[data-testid="lore-author-link"]'),
-    ).toHaveLength(0);
+    // NOT expanded — no click anywhere. Asserted on the rows' own
+    // `aria-expanded`, because every element that used to be expanded-only
+    // (屬於, then 撰寫人) has since moved onto the closed row; a proxy that keeps
+    // moving is a proxy that keeps going silently always-true.
+    for (const id of ["L-1", "L-2"]) {
+      expect(rowById(container, id).getAttribute("aria-expanded")).toBe("false");
+    }
 
     // 🔴 PRESENCE IS ITS OWN ASSERTION, on its own line. Reading .textContent
     // off a `!`-asserted querySelector would make a MISSING pill fail inside an
@@ -569,21 +577,46 @@ describe("LorePage — 屬於 在收合的列上就說得出是哪一種", () =>
     const scopeOf = (id: string) => {
       const el = rowById(container, id).querySelector('[data-testid="lore-scope"]');
       expect(el).not.toBeNull();
-      return el!.textContent!.replace(/\s+/g, " ").trim();
+      return el as HTMLElement;
     };
+    const memberScope = scopeOf("L-1");
+    const manualScope = scopeOf("L-2");
 
-    // Both are reachable while closed…
-    const memberText = scopeOf("L-1");
-    const manualText = scopeOf("L-2");
+    // 🔴 THE TEXT NO LONGER DISCRIMINATES AT ALL, AND THAT IS THE POINT OF THIS
+    // REWRITE. Until 2026-09-08 the badge carried a word prefix (「成員傳承 · 」
+    // / 「任務傳承 · 」) and this spec asserted on it. Owner removed the prefix
+    // (「這個不必要」), so both rows now read exactly 「Mira」 — the two are
+    // character-for-character identical and the GLYPH is the only thing left
+    // telling them apart. Assert that first, so this line fails if anyone drops
+    // an icon back out of the badge.
+    expect(memberScope.textContent!.trim()).toBe(manualScope.textContent!.trim());
 
-    // …and they do not read the same. 🔴 This inequality is the assertion that
-    // survives a rename of either word; asserting the literal 「成員傳承 · Mira」
-    // would also pass for a page that printed the kind and dropped the name.
-    expect(memberText).not.toBe(manualText);
-    expect(memberText).toContain("成員傳承");
-    expect(memberText).toContain("Mira");
-    expect(manualText).toContain("任務傳承");
-    expect(manualText).toContain("Mira");
+    const member = memberScope.querySelector(".lore-row__scope-glyph--member");
+    const task = manualScope.querySelector(".lore-row__scope-glyph--task");
+    expect(member).not.toBeNull();
+    expect(task).not.toBeNull();
+    // 🔴 AND THE TWO GLYPHS ARE ACTUALLY DIFFERENT DRAWINGS. A class name is a
+    // label; two <svg>s wearing different class names could be the same icon,
+    // which would look — on the closed list this spec exists for — exactly like
+    // no discrimination at all. Comparing the rendered SVG bodies is what makes
+    // that impossible.
+    expect(member!.innerHTML).not.toBe(task!.innerHTML);
+
+    // 🔴 一次只出現一個 (owner 2026-09-08). Not two glyphs on one badge, and
+    // never the other kind's glyph on this one.
+    expect(memberScope.querySelectorAll(".lore-row__scope-glyph")).toHaveLength(1);
+    expect(manualScope.querySelectorAll(".lore-row__scope-glyph")).toHaveLength(1);
+    expect(
+      memberScope.querySelector(".lore-row__scope-glyph--task"),
+    ).toBeNull();
+    expect(
+      manualScope.querySelector(".lore-row__scope-glyph--member"),
+    ).toBeNull();
+
+    // The name itself is still there — a badge that lost the name and kept the
+    // glyph would pass every line above.
+    expect(memberScope.textContent).toContain("Mira");
+    expect(manualScope.textContent).toContain("Mira");
   });
 
   it("names an outsource member's entry the same way a staff member's is named", async () => {
@@ -593,7 +626,11 @@ describe("LorePage — 屬於 在收合的列上就說得出是哪一種", () =>
     // display side while sharing one scope on the wire.
     const agent = await scopePillFor("agent", "ow-nobody");
     const chip = agent.closest('[data-testid="lore-scope"]')!;
-    expect(chip.textContent).toContain("成員傳承");
+    // The kind is the GLYPH now, not a word (owner 2026-09-08 removed the text
+    // prefix), so 「same way a staff member's is named」 is asserted on the
+    // person glyph rather than on 「成員傳承」.
+    expect(chip.querySelector(".lore-row__scope-glyph--member")).not.toBeNull();
+    expect(chip.querySelector(".lore-row__scope-glyph--task")).toBeNull();
     // The member is not on the live roster, so the raw id is the honest label.
     expect(chip.textContent).toContain("ow-nobody");
   });
@@ -621,7 +658,12 @@ describe("LorePage — 內嵌輸入框", () => {
    * moved it onto the collapsed row (「訊息輸入框預設就要在（不用展開）」, the
    * 任務卡 behaviour), so every spec below now also states that the box is
    * reachable without a click — a `waitFor` that never resolves is how a
-   * regression back into `expanded &&` shows up here. */
+   * regression back into `expanded &&` shows up here.
+   *
+   * ⚠️ IT NO LONGER CHECKS 「撰寫人 is absent」. That line was a second reading
+   * of 「the row is closed」, and 撰寫人 stopped being expanded-only on
+   * 2026-09-08 — keeping it would have been a guard that can only fail for the
+   * wrong reason. `aria-expanded` below is the state itself. */
   async function openComposer(entryId = "L-7", authorId = "mira") {
     stubList(page([mkEntry({ id: entryId, state: "active", authorId })]));
     const { container } = renderPage();
@@ -642,9 +684,6 @@ describe("LorePage — 內嵌輸入框", () => {
         .querySelector('[data-testid="lore-row"]')!
         .getAttribute("aria-expanded"),
     ).toBe("false");
-    expect(
-      container.querySelector('[data-testid="lore-author-link"]'),
-    ).toBeNull();
     return container;
   }
 
@@ -935,7 +974,7 @@ describe("LorePage — 篩選器複選", () => {
     );
   });
 
-  it("has exactly three fields, and 範圍 / 角色 / 手冊 are gone", async () => {
+  it("has exactly four fields, and 範圍 / 角色 / 手冊 are gone", async () => {
     vi.spyOn(api, "listTaskManuals").mockResolvedValue([
       { typeKey: "review-pr", displayName: "PR 審查", purpose: "", fields: [] },
     ] as never);
@@ -943,11 +982,12 @@ describe("LorePage — 篩選器複選", () => {
     const { container } = renderPage();
     await waitFor(() => expect(renderedIds(container)).toHaveLength(1));
 
-    // 🔴 ABSENCE IS THE ASSERTION HERE. The owner asked for three filters
-    // (「我從使用者或是任務手冊作為 filter 另外就是狀態 三個而已」), and a page
-    // that ADDED 屬於 while keeping the old three would satisfy every other spec
-    // in this file: 屬於 works, the order test still finds its three, and the
-    // screen merely has two extra dropdowns nobody mentioned.
+    // 🔴 ABSENCE IS THE ASSERTION HERE. The owner named FOUR controls on
+    // 2026-09-08 (所有撰寫人 / 所有成員傳承 / 所有任務傳承 / 所有狀態), and a
+    // page that ADDED the member axis while keeping the old 範圍 / 角色 / 手冊
+    // trio would satisfy every other spec in this file: each control works, the
+    // order test still finds its four, and the screen merely has three extra
+    // dropdowns nobody mentioned.
     for (const gone of [
       "lore-filter-scope",
       "lore-filter-role",
@@ -957,11 +997,42 @@ describe("LorePage — 篩選器複選", () => {
     }
     for (const present of [
       "lore-filter-author",
+      "lore-filter-member",
       "lore-filter-belongs",
       "lore-filter-state",
     ]) {
       expect(container.querySelector(`[data-testid="${present}"]`)).not.toBeNull();
     }
+  });
+
+  // 🔴 ALL FOUR SAY 「所有」, NOT 「全部」 (owner 2026-09-08, verbatim:
+  // 「所有撰寫人 / 所有成員傳承 / 所有任務傳承 / 所有狀態」). Three of these
+  // labels already existed and two of them said 「全部」 — the row was mixing
+  // two words for one idea, which teaches a reader that the two mean different
+  // kinds of "no constraint". Nothing else in this file reads a default label,
+  // so without this spec the row can drift back a word at a time.
+  it("names all four unconstrained states 「所有…」, and never 「全部」", async () => {
+    stubList(page([mkEntry({ id: "L-1" })]));
+    const { container } = renderPage();
+    await waitFor(() => expect(renderedIds(container)).toHaveLength(1));
+
+    const labelOf = (testId: string) =>
+      container
+        .querySelector<HTMLElement>(`[data-testid="${testId}"]`)!
+        .textContent!.replace(/\s+/g, "");
+
+    expect(labelOf("lore-filter-author")).toContain("所有撰寫人");
+    expect(labelOf("lore-filter-member")).toContain("所有成員傳承");
+    expect(labelOf("lore-filter-belongs")).toContain("所有任務傳承");
+    expect(labelOf("lore-filter-state")).toContain("所有狀態");
+
+    // 🔴 AND THE OTHER WORD IS NOWHERE ON THE ROW. 「所有 X」 being present does
+    // not say 「全部 X」 is gone: a row rendering both would pass every line
+    // above. This is the half that fails when one label is reverted.
+    const row = container.querySelector<HTMLElement>(
+      '[data-testid="lore-filter"]',
+    )!;
+    expect(row.textContent).not.toContain("全部");
   });
 
   it("offers every manual and NO members — the member axis is 撰寫人", async () => {
@@ -994,11 +1065,13 @@ describe("LorePage — 篩選器複選", () => {
       ).not.toBeNull();
     }
 
-    // 🔴 AND NO MEMBER IS OFFERED HERE. The owner sent back a screenshot of this
-    // dropdown listing 「成員傳承 · Mira」 (2026-09-07): 「成員的 filter 不是左邊
-    // 那個嗎 你第二個 filter 應該只需要放任務」. The member axis is 撰寫人, to the
-    // left; offering members again here asks one question with two controls,
-    // and two controls answering one question can disagree.
+    // 🔴 AND NO MEMBER IS OFFERED IN THIS ONE. Members have their OWN control
+    // since 2026-09-08 (lore-filter-member, immediately to the left); this is
+    // the manuals control and it must stay manuals-only, because the two
+    // together are what make 「exactly one kind, exactly one key」 reachable at
+    // all. A single dropdown listing both was what the owner rejected on
+    // 2026-09-07 (「你第二個 filter 應該只需要放任務」) and putting members back
+    // in here would rebuild it.
     for (const absent of ["agent:mira", "agent:ow-7d8ad859dd9b"]) {
       expect(
         container.querySelector(
@@ -1170,10 +1243,10 @@ describe("LorePage — 收斂到單一範圍時，上限線回得來", () => {
 // The two orders are copied FROM 任務頁, and this spec writes them out
 // literally so a future change has to state the new order rather than arrive at
 // one by accident:
-//   篩選列  撰寫人 → 屬於 → 狀態                       (任務頁: 負責人 → 類型 → 狀態)
+//   篩選列  撰寫人 → 成員傳承 → 任務傳承 → 狀態      (owner 2026-09-08, verbatim)
 //   列上    編號 → 狀態 → 屬於                          (任務卡: 編號 → 優先權 → 狀態 → 類型)
 describe("LorePage — 順序跟任務頁一致", () => {
-  it("puts the three filters in the 任務頁 order, and keeps that order as they are used", async () => {
+  it("puts the four filters in the owner's order, and keeps that order as they are used", async () => {
     vi.spyOn(api, "listTaskManuals").mockResolvedValue([
       { typeKey: "review-pr", displayName: "PR 審查", purpose: "", fields: [] },
     ] as never);
@@ -1193,6 +1266,7 @@ describe("LorePage — 順序跟任務頁一致", () => {
         .filter((id) =>
           [
             "lore-filter-author",
+            "lore-filter-member",
             "lore-filter-belongs",
             "lore-filter-state",
           ].includes(id),
@@ -1200,6 +1274,7 @@ describe("LorePage — 順序跟任務頁一致", () => {
 
     expect(idsInDomOrder()).toEqual([
       "lore-filter-author",
+      "lore-filter-member",
       "lore-filter-belongs",
       "lore-filter-state",
     ]);
@@ -1220,6 +1295,7 @@ describe("LorePage — 順序跟任務頁一致", () => {
     await waitFor(() =>
       expect(idsInDomOrder()).toEqual([
         "lore-filter-author",
+        "lore-filter-member",
         "lore-filter-belongs",
         "lore-filter-state",
       ]),
@@ -1255,5 +1331,266 @@ describe("LorePage — 順序跟任務頁一致", () => {
     // Same three parts 任務卡's badge has: a glyph, a `#`, the number.
     expect(badge.querySelector("svg")).not.toBeNull();
     expect(badge.textContent).toContain("#L-9");
+  });
+});
+
+// ────────────────────────────────────────────────────────────────────────────
+// 成員傳承的上限線 (owner 2026-09-08).
+//
+// 🔴 WHY THIS EXISTS AT ALL. The server answers `capChars` only for a request
+// carrying EXACTLY ONE scope kind and EXACTLY ONE scope key. Between 2026-09-07
+// and this change the only place a member appeared on this page was 撰寫人,
+// which sends `authorIds` and produces NO scope — so there was no sequence of
+// clicks that could make a 成員傳承 cap line appear. Nothing was broken on
+// screen: the page rendered, the filter worked, the rows were right, and the
+// line was simply unreachable. That is the shape of defect a test has to be
+// written for deliberately, because no screenshot shows it.
+//
+// The three specs below are the three paths, and they only mean something
+// TOGETHER: ① the line comes back, ② two scopes still silence it (the honest
+// existing behaviour, which a fix aimed at ① could easily trample), ③ 撰寫人
+// does not touch it (which is what says ② is about SCOPES and not about
+// "any two filters").
+describe("LorePage — 成員傳承的上限線", () => {
+  /** Answers as the server does: a cap ONLY when the request converged on a
+   * single kind AND a single key. Everything below asserts against this rule
+   * rather than restating it, so a page that invented its own line fails. */
+  function stubCapWhenSingleScope() {
+    return vi.spyOn(api, "listLoreEntries").mockImplementation(async (o) => {
+      const one = o?.scopeKinds?.length === 1 && o?.scopeKeys?.length === 1;
+      return {
+        entries: [
+          mkEntry({ id: "L-1", state: "active" }),
+          mkEntry({ id: "L-2", state: "active" }),
+        ],
+        limit: 30,
+        offset: 0,
+        capChars: one ? 8000 : 0,
+        firstDroppedId: one ? "L-2" : "",
+      };
+    });
+  }
+
+  function tick(container: HTMLElement, testId: string, value: string) {
+    const trigger = container.querySelector<HTMLElement>(
+      `[data-testid="${testId}"]`,
+    )!;
+    if (trigger.getAttribute("aria-expanded") !== "true") {
+      fireEvent.click(trigger);
+    }
+    fireEvent.click(
+      container.querySelector<HTMLElement>(
+        `[data-testid="${testId}-opt-${value}"] input`,
+      )!,
+    );
+  }
+
+  it("① one member ticked, no manual ⇒ the line comes back, named 成員傳承 · Mira", async () => {
+    const spy = stubCapWhenSingleScope();
+    const { container } = renderPage();
+    await waitFor(() => expect(renderedIds(container)).toHaveLength(2));
+    // Nothing ticked ⇒ no scope ⇒ no line. Asserted so the line below is a
+    // CHANGE and not a thing that was always on screen.
+    expect(container.querySelector('[data-testid="lore-cap-line"]')).toBeNull();
+
+    tick(container, "lore-filter-member", "agent:mira");
+
+    // 🔴 THE REQUEST IS THE FIRST ASSERTION, because it is what the server
+    // judges. A page that drew a line without sending one kind and one key
+    // would be drawing a budget nobody answered for.
+    await waitFor(() => {
+      const sent = spy.mock.calls[spy.mock.calls.length - 1][0];
+      expect(sent?.scopeKinds).toEqual(["agent"]);
+      expect(sent?.scopeKeys).toEqual(["mira"]);
+    });
+
+    const line = await waitFor(() => {
+      const el = container.querySelector('[data-testid="lore-cap-line"]');
+      if (!el) throw new Error("the 成員傳承 上限線 did not appear");
+      return el;
+    });
+    // Named, not merely present: a line carrying the wrong scope's name tells
+    // the reader about a budget they are not looking at.
+    expect(line.textContent).toContain("成員傳承");
+    expect(line.textContent).toContain("Mira");
+    expect(line.textContent).toContain("8000");
+  });
+
+  it("② one member AND one manual ⇒ two kinds, two keys, and NO line", async () => {
+    vi.spyOn(api, "listTaskManuals").mockResolvedValue([
+      { typeKey: "review-pr", displayName: "PR 審查", purpose: "", fields: [] },
+    ] as never);
+    const spy = stubCapWhenSingleScope();
+    const { container } = renderPage();
+    await waitFor(() => expect(renderedIds(container)).toHaveLength(2));
+
+    tick(container, "lore-filter-member", "agent:mira");
+    // The line is up at this point — asserting it FIRST is what makes the
+    // disappearance below an event rather than a state that never changed.
+    await waitFor(() =>
+      expect(
+        container.querySelector('[data-testid="lore-cap-line"]'),
+      ).not.toBeNull(),
+    );
+
+    tick(container, "lore-filter-belongs", "manual:review-pr");
+
+    // 🔴 BOTH CONTROLS RIDE THE SAME TWO WIRE AXES. That is the mechanism the
+    // "no line" answer follows from, so it is asserted rather than assumed.
+    await waitFor(() => {
+      const sent = spy.mock.calls[spy.mock.calls.length - 1][0];
+      expect([...(sent?.scopeKinds ?? [])].sort()).toEqual(["agent", "manual"]);
+      expect([...(sent?.scopeKeys ?? [])].sort()).toEqual(["mira", "review-pr"]);
+    });
+    await waitFor(() =>
+      expect(
+        container.querySelector('[data-testid="lore-cap-line"]'),
+      ).toBeNull(),
+    );
+  });
+
+  it("③ 撰寫人 never touches the line — it sends no scope at all", async () => {
+    const spy = stubCapWhenSingleScope();
+    const { container } = renderPage();
+    await waitFor(() => expect(renderedIds(container)).toHaveLength(2));
+
+    // With a member scope in force the line is up…
+    tick(container, "lore-filter-member", "agent:mira");
+    await waitFor(() =>
+      expect(
+        container.querySelector('[data-testid="lore-cap-line"]'),
+      ).not.toBeNull(),
+    );
+
+    // …and ticking 撰寫人 must not disturb it. 撰寫人 is `authorIds`: a
+    // different axis entirely, and one the server's cap rule never reads.
+    tick(container, "lore-filter-author", "mira");
+    await waitFor(() => {
+      const sent = spy.mock.calls[spy.mock.calls.length - 1][0];
+      expect(sent?.authorIds).toEqual(["mira"]);
+      // 🔴 THE SCOPE AXES ARE UNCHANGED. If 撰寫人 ever started contributing a
+      // scope key, this page would silently gain a second key and lose the
+      // line — the failure would look like "the line disappeared for no
+      // reason", which is the hardest kind to trace back here.
+      expect(sent?.scopeKinds).toEqual(["agent"]);
+      expect(sent?.scopeKeys).toEqual(["mira"]);
+    });
+    expect(
+      container.querySelector('[data-testid="lore-cap-line"]'),
+    ).not.toBeNull();
+  });
+});
+
+// ────────────────────────────────────────────────────────────────────────────
+// 卡片版面 (owner 2026-09-08).
+describe("LorePage — 訊息框在最下方", () => {
+  it("is the LAST thing on the card, closed and open alike", async () => {
+    stubList(page([mkEntry({ id: "L-7", authorId: "mira" })]));
+    const { container } = renderPage();
+    await waitFor(() => expect(renderedIds(container)).toHaveLength(1));
+    const row = rowById(container, "L-7");
+
+    // 🔴 ASSERTED AS "LAST CHILD", NOT AS "AFTER 內容". Owner's words were
+    // 「訊息匡應該在最下方」 and the box used to sit between 內容 and
+    // 撰寫人／生效期 — a version that merely moved it below 內容 would still be
+    // in the middle of the card and would pass a weaker check.
+    const lastOf = (el: HTMLElement) =>
+      (el.lastElementChild as HTMLElement).getAttribute("data-testid");
+    expect(lastOf(row)).toBe("lore-author-composer");
+    expect(row.getAttribute("aria-expanded")).toBe("false");
+
+    // And it stays last once the row is open — the two states are separate
+    // arrangements of the same JSX and only one of them is exercised by a test
+    // that never clicks.
+    fireEvent.click(row.querySelector('[data-testid="lore-body"]')!);
+    await waitFor(() =>
+      expect(row.getAttribute("aria-expanded")).toBe("true"),
+    );
+    expect(lastOf(row)).toBe("lore-author-composer");
+  });
+});
+
+describe("LorePage — 折疊的只有內容", () => {
+  it("keeps 撰寫人 / 生效期 on the CLOSED row and clamps only the body", async () => {
+    stubList(page([mkEntry({ id: "L-7", authorId: "mira" })]));
+    const { container } = renderPage();
+    await waitFor(() => expect(renderedIds(container)).toHaveLength(1));
+    const row = rowById(container, "L-7");
+
+    // 🔴 CLOSED, and the three meta rows are already there (owner 2026-09-08:
+    // 「唯一要折疊的是 content」). They were expanded-only until this change.
+    expect(row.getAttribute("aria-expanded")).toBe("false");
+    expect(row.querySelector('[data-testid="lore-author-link"]')).not.toBeNull();
+    expect(row.querySelector('[data-testid="lore-effective"]')).not.toBeNull();
+    expect(row.querySelector('[data-testid="lore-bump"]')).not.toBeNull();
+
+    // …and the body — the one thing 展開 still governs — is clamped.
+    const body = () =>
+      row.querySelector<HTMLElement>('[data-testid="lore-body"]')!;
+    expect(body().className).toContain("lore-row__body--clamped");
+
+    fireEvent.click(body());
+    await waitFor(() => expect(row.getAttribute("aria-expanded")).toBe("true"));
+    // 🔴 THE OTHER DIRECTION IS THE HALF THAT FAILS FOR A CARD THAT DROPPED
+    // 展開／收合 ENTIRELY. Owner asked for the content to unfold, not for the
+    // fold to go away; a body that is never clamped passes the line above.
+    expect(body().className).not.toContain("lore-row__body--clamped");
+  });
+});
+
+// ────────────────────────────────────────────────────────────────────────────
+// 內容走 markdown (owner 2026-09-08: 「要支援 md format」).
+describe("LorePage — 內容是 markdown", () => {
+  it("renders markdown structure instead of printing the source characters", async () => {
+    stubList(
+      page([
+        mkEntry({
+          id: "L-1",
+          body: "**重點** 和 `code`\n\n- 一\n- 二",
+        }),
+      ]),
+    );
+    const { container } = renderPage();
+    await waitFor(() => expect(renderedIds(container)).toHaveLength(1));
+    const body = container.querySelector<HTMLElement>(
+      '[data-testid="lore-body"]',
+    )!;
+
+    // 🔴 STRUCTURE, NOT TEXT. `.textContent` contains 「重點」 both before and
+    // after this change — a plain-text <div> would pass any assertion written
+    // against the words. The ELEMENTS are what only a renderer can produce.
+    expect(body.querySelector("strong")?.textContent).toBe("重點");
+    expect(body.querySelector("code")?.textContent).toBe("code");
+    expect(body.querySelectorAll("li")).toHaveLength(2);
+    // And the source markers are gone from the reading surface.
+    expect(body.textContent).not.toContain("**");
+  });
+
+  it("does not inject markup — the renderer builds elements, never HTML", async () => {
+    // 🔴 A 傳承 body is AGENT-authored free text. The shared renderer never uses
+    // dangerouslySetInnerHTML, and this pins that the wiring did not route
+    // around it: the tag must survive as TEXT and must not become an element.
+    stubList(page([mkEntry({ id: "L-1", body: "<img src=x onerror=1>" })]));
+    const { container } = renderPage();
+    await waitFor(() => expect(renderedIds(container)).toHaveLength(1));
+    const body = container.querySelector<HTMLElement>(
+      '[data-testid="lore-body"]',
+    )!;
+    expect(body.querySelector("img")).toBeNull();
+    expect(body.textContent).toContain("<img src=x onerror=1>");
+  });
+
+  it("leaves an underscore-bearing identifier alone", async () => {
+    // The corpus that already exists was written as PLAIN TEXT, so the worry is
+    // that a stored body's punctuation is now read as syntax. `_` is not inline
+    // syntax in this renderer, and this is the case that prompted the question
+    // (a live entry carrying `note_size_chars`), pinned so a future switch to a
+    // fuller markdown engine has to notice it.
+    stubList(page([mkEntry({ id: "L-1", body: "看 note_size_chars 這個欄位" })]));
+    const { container } = renderPage();
+    await waitFor(() => expect(renderedIds(container)).toHaveLength(1));
+    expect(
+      container.querySelector('[data-testid="lore-body"]')!.textContent,
+    ).toContain("note_size_chars");
   });
 });
