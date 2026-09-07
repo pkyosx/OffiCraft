@@ -143,7 +143,9 @@ parity 的 roll-call 不列卡片內部欄位。守著這一切的只有
 class 名 `.reply-tag--ai` / `.reply-option--ai` **不要改**:`TaskReplyCard` 借用前者
 畫自己的徽章。
 
-`GET /api/reply-cards` 只回一種形狀 —— 輕量列（`ReplyCardRow`），`?view=full` 已經移除（owner 2026-09-07）。**pane 的每一張卡預設收合，點開才打單張 `getReplyCard`**，跟聊天串內嵌卡（`ChatReplyCard`）同一套做法；再點一次會收合，收合會把讀回來的卡丟掉，所以重開是一次新的讀。輕量列只帶 title/status/時間戳/task ref —— 不要把它補成 `ReplyCard`（body/options/chat message id 在單張才有，補成 "" 會畫出一張問題不見了的卡而且不會丟錯）。等待卡的 expire 規則以 server 為準：owner/admin 或卡片作者可過期自己的 waiting 卡；其他人 403，已回答 409。
+`GET /api/reply-cards` 只回一種形狀 —— 輕量列（`ReplyCardRow`），`?view=full` 已經移除（owner 2026-09-07）。**pane 的卡預設收合，點開才打單張 `getReplyCard`**，跟聊天串內嵌卡（`ChatReplyCard`）同一套做法；再點一次會收合，收合會把讀回來的卡丟掉，所以重開是一次新的讀。⚠️ **例外只有一個：待回覆那一欄「清單順序的第一張」由頁面自己打開**（owner 2026-09-07 `rc-cd351785b83d` [0]、`rc-fa7e4c9bce42` [0]）——進頁面時一張，之後每當 owner 手上那張離開待回覆（回答或標為過期）就再開下一張，讓他一張接一張處理完，中間不用點。🔴 **但 owner 自己收合過任何一張待回覆卡之後就停止**：收合＝「這張先放著」，這時再彈一張出來是在跟他作對。那個「他表達過意願」的狀態是 `RepliesPage` 的 `autoOpenOffRef`（ref，不是每次重算的衍生值），只在離開頁面（component unmount）時歸零，跟 `expandedIds` 同一個生命週期。⚠️ **那一格今天沒有測試守著**（它的本質是否定，找不到正向寫法），只由碼本身保證——`autoOpenOffRef` 只有 `toggleCard` 的收合分支會寫，改動時自己看碼。展開的那兩件事由 `RepliesPage.test.tsx` 的「opens the leading 待回覆 card on arrival」「answering the leading card opens the next one」「標為過期 on the leading card opens the next one too」釘住。
+
+輕量列只帶 title/status/時間戳/task ref —— 不要把它補成 `ReplyCard`（body/options/chat message id 在單張才有，補成 "" 會畫出一張問題不見了的卡而且不會丟錯）。等待卡的 expire 規則以 server 為準：owner/admin 或卡片作者可過期自己的 waiting 卡；其他人 403，已回答 409。
 
 hash route #office/chat/<id>/msg/<msgId> 只做一次定位與 highlight。產生它的是「請示」頁的**跳到原訊息**與任務卡內嵌回覆卡的**在聊天室回覆**（外加使用者自己留存的舊 URL）；聊天氣泡引用列的**看原訊息**不走這條，它撈那一則開覆蓋層（見下方「看原訊息」一節）。⚠️ T-0b78 曾把那兩顆也改成覆蓋層，owner 2026-08-29 裁定「1 跟 2 變回去原本那樣」—— 所以不要順手把它們改回覆蓋層。
 

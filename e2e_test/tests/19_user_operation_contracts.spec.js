@@ -29,15 +29,26 @@ function chip(scope, idx) {
   );
 }
 
-// 請示 PAGE SURFACE ONLY. A row on the 請示 page mounts COLLAPSED since owner
-// 2026-09-07 — it is a title, and the composer this contract is about only
-// exists once the row is opened and its one-card read lands.
+// 請示 PAGE SURFACE ONLY. A row on the 請示 page is a TITLE since owner
+// 2026-09-07 — the composer this contract is about only exists once the row is
+// opened and its one-card read lands.
+//
+// ⚠️ 待回覆's LEADING row opens ITSELF (owner rc-cd351785b83d) and that open
+// lands one React commit after the row first paints, so "read the attribute,
+// then click if it says false" can aim a click at a row that has since opened
+// — and that click CLOSES it. The read+click is therefore retried until the
+// row is actually open, which also makes the helper safe to call on a row
+// somebody else already opened.
 async function openPageCard(pageCard) {
   const toggle = pageCard.getByTestId('reply-card-toggle');
-  if ((await toggle.getAttribute('aria-expanded')) !== 'true') {
-    await toggle.click();
-  }
-  await expect(toggle).toHaveAttribute('aria-expanded', 'true');
+  await expect(async () => {
+    if ((await toggle.getAttribute('aria-expanded')) !== 'true') {
+      await toggle.click();
+    }
+    await expect(toggle).toHaveAttribute('aria-expanded', 'true', {
+      timeout: 1000,
+    });
+  }).toPass();
   await expect(pageCard.getByTestId('card-loading')).toHaveCount(0);
 }
 

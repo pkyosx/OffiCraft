@@ -201,14 +201,25 @@ async function expandChatCard(chatCard) {
 // 請示 PAGE SURFACE ONLY. Since owner 2026-09-07 a row on the 請示 page is a
 // TITLE: the list carries summaries, and the card itself (options, composer,
 // 你選的 row) is read one card at a time when the reader opens the row. So
-// every assertion below that looks INSIDE a page card has to open it first —
-// only a `#replies/card/<id>` deep link arrives already open.
+// every assertion below that looks INSIDE a page card has to open it first
+// (a `#replies/card/<id>` deep link and 待回覆's leading row arrive open).
+//
+// ⚠️ 待回覆's LEADING row opens ITSELF (owner rc-cd351785b83d) and that open
+// lands one React commit after the row first paints, so "read the attribute,
+// then click if it says false" can aim a click at a row that has since opened
+// — and that click CLOSES it. The read+click is therefore retried until the
+// row is actually open, which also makes the helper safe to call on a row
+// somebody else already opened.
 async function openPageCard(pageCard) {
   const toggle = pageCard.getByTestId('reply-card-toggle');
-  if ((await toggle.getAttribute('aria-expanded')) !== 'true') {
-    await toggle.click();
-  }
-  await expect(toggle).toHaveAttribute('aria-expanded', 'true');
+  await expect(async () => {
+    if ((await toggle.getAttribute('aria-expanded')) !== 'true') {
+      await toggle.click();
+    }
+    await expect(toggle).toHaveAttribute('aria-expanded', 'true', {
+      timeout: 1000,
+    });
+  }).toPass();
   // The open row shows a placeholder until its one-card read lands; wait for
   // the read rather than racing the body's first paint.
   await expect(pageCard.getByTestId('card-loading')).toHaveCount(0);

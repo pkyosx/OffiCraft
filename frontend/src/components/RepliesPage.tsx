@@ -10,8 +10,8 @@
 //              and its lists are not even fetched until it is opened; not
 //              persisted — every visit starts collapsed.
 //
-// 🔴 EVERY CARD IN BOTH PANES STARTS COLLAPSED, AND OPENING ONE IS WHAT READS
-// IT (owner ruling 2026-09-07). The panes are lists of LIGHT ROWS
+// 🔴 A CARD IS COLLAPSED UNTIL IT IS OPENED, AND OPENING ONE IS WHAT READS IT
+// (owner ruling 2026-09-07). The panes are lists of LIGHT ROWS
 // (`ReplyCardRow`: the ask's title, its status and its stamps — no body, no
 // options, no chat anchor), because `?view=full` is gone from the wire; a row
 // draws the collapsed line and NOTHING more can be drawn from it. Opening a row
@@ -22,6 +22,9 @@
 // two surfaces with two different lazy-load rules is how they drift.
 // A card also CLOSES again on a second click (owner 2026-09-07): before this,
 // the only way out of an opened card was to answer it or mark it expired.
+// The ONE exception to "starts collapsed" is the LEADING 待回覆 card, which the
+// page opens for the owner — on arrival and again whenever the card he was on
+// leaves the pane — until he shuts one himself (see autoOpenOffRef below).
 //
 // The card interiors live in ReplyCardBody.tsx, SHARED with B3's inline chat
 // card (ChatReplyCard) so the two surfaces can never drift. Answering is the
@@ -349,8 +352,9 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
   // opened, `openCards` the ONE-card reads those opens produced, `openErrors`
   // the ids whose read failed (an opened row must say so rather than sit empty).
   //
-  // NOT PERSISTED, and every visit starts with everything closed — the same
-  // posture as the 近期已處理 pane's own toggle, and as ChatReplyCard's stub.
+  // NOT PERSISTED. The 待回覆 pane's leading card opens by itself (see below);
+  // everything else starts closed — the same posture as the 近期已處理 pane's
+  // own toggle, and as ChatReplyCard's stub.
   const [expandedIds, setExpandedIds] = useState<Set<string>>(() => new Set());
   const [openCards, setOpenCards] = useState<Map<string, ReplyCard>>(
     () => new Map()
@@ -368,6 +372,8 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
     );
   }, [replyCardId]);
 
+  const autoOpenOffRef = useRef(false);
+
   /** Toggle one card open/closed. Closing is a real exit (owner 2026-09-07:
    * answering and 標為過期 used to be the only ways out of an opened card), and
    * it also DROPS the read below, so re-opening reads the card again rather
@@ -375,11 +381,43 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
   function toggleCard(id: string) {
     setExpandedIds((prev) => {
       const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
+      if (next.has(id)) {
+        next.delete(id);
+        // Shutting a 待回覆 card is the owner saying「這張先放著」. From here on
+        // the page stops opening cards for him (see autoOpenOffRef).
+        if (waitingSorted.some((row) => row.id === id))
+          autoOpenOffRef.current = true;
+      } else next.add(id);
       return next;
     });
   }
+
+  // ── 一張接一張 (owner rc-cd351785b83d [0], rc-fa7e4c9bce42 [0]) ────────────
+  // The LEADING 待回覆 card opens by itself: on arrival, and again each time the
+  // one the owner was working on leaves the pane (answered or 標為過期), so a
+  // sitting of asks is worked through without a click between cards.
+  //
+  // 🔴 UNTIL HE SHUTS ONE HIMSELF. `autoOpenOffRef` latches on that gesture and
+  // stays latched for the rest of the visit — collapsing a card IS「先放著」,
+  // and popping the next one open in its place is the page arguing with him.
+  // It is a REF, not derived state: the whole point is that it survives every
+  // later recompute of who is open. It resets only by leaving the page (this
+  // component unmounting), same as `expandedIds` itself — a fresh visit is a
+  // fresh sitting, so the leading card opens again.
+  //
+  // The condition is "no card in the pane is open", not "the first one is
+  // open": that single test covers arrival, the card leaving after an answer,
+  // and the deep-link case (a routed card narrows the pane to itself, so it is
+  // already open and nothing else is chosen for him).
+  useEffect(() => {
+    if (autoOpenOffRef.current) return;
+    const lead = waitingSorted[0];
+    if (!lead) return;
+    if (waitingSorted.some((row) => expandedIds.has(row.id))) return;
+    setExpandedIds((prev) =>
+      prev.has(lead.id) ? prev : new Set(prev).add(lead.id)
+    );
+  });
 
   // The row's own version stamp. It is what decides that a card ALREADY READ is
   // stale — an answer from another window (or this page's own write, which

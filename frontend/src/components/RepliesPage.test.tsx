@@ -10,6 +10,11 @@
 //   3b. 近期已回覆 is COLLAPSED by default — only the toggle row (title · N +
 //      hint) renders; clicking expands the answered cards, clicking again
 //      collapses. Not persisted (component state only).
+//   3c. 待回覆's LEADING card opens itself — on arrival, and again whenever the
+//      card the owner just dealt with leaves the pane — so a stack of asks is
+//      worked through without a click between cards. It stops for the rest of
+//      the visit once he shuts one himself (「先放著」); that half is NOT
+//      pinned here — see the rule file, it is code-only.
 //   4. 查看當初選項 expands the original options; 重新決定 re-arms them + shows
 //      the composer; picking another option updates the answer in place
 //      (stays answered); 取消 keeps the original answer.
@@ -650,12 +655,19 @@ describe("RepliesPage", () => {
   });
 
   it("opening a card reads it and shows the question; clicking again closes it", async () => {
-    __injectMockReplyCard(mkCard({ body: "寄出後無法撤回" }));
+    // TWO cards, and the one under test is the SECOND: the leading card opens
+    // itself, so a click on it would be a close, not an open.
+    const now = Date.now() / 1000;
+    __injectMockReplyCard(mkCard({ id: "rc-lead", createdTs: now - 60 }));
+    __injectMockReplyCard(
+      mkCard({ id: "rc-2nd", body: "寄出後無法撤回", createdTs: now - 3600 })
+    );
     const { findAllByTestId } = renderPage();
-    const [card] = await findAllByTestId("waiting-card");
+    const card = (await findAllByTestId("waiting-card"))[1];
     const toggle = card.querySelector<HTMLElement>(
       '[data-testid="reply-card-toggle"]'
     )!;
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
 
     fireEvent.click(toggle);
     await waitFor(() =>
@@ -676,6 +688,118 @@ describe("RepliesPage", () => {
     expect(toggle.getAttribute("aria-expanded")).toBe("false");
     // Still the same row, still naming its ask — closing is not removing.
     expect(card.textContent).toContain("要幫你寄出這封信嗎？");
+  });
+
+  // ── 一張接一張 (owner rc-cd351785b83d [0], rc-fa7e4c9bce42 [0]) ────────────
+  // The owner sits down to a stack of asks and works through it without a click
+  // between cards: the leading one is already open when he arrives, and the next
+  // one opens itself the moment the one he dealt with leaves the pane.
+
+  const expandedOf = (card: Element) =>
+    card
+      .querySelector('[data-testid="reply-card-toggle"]')!
+      .getAttribute("aria-expanded");
+
+  it("opens the leading 待回覆 card on arrival — its question on screen, the rest still rows", async () => {
+    const now = Date.now() / 1000;
+    __injectMockReplyCard(
+      mkCard({ id: "rc-lead", summary: "第一個請示", body: "先看這一張", createdTs: now - 60 })
+    );
+    __injectMockReplyCard(
+      mkCard({ id: "rc-next", summary: "第二個請示", body: "再看這一張", createdTs: now - 3600 })
+    );
+
+    const { findAllByTestId } = renderPage();
+    const cards = await findAllByTestId("waiting-card");
+    await waitFor(() =>
+      expect(expandedOf(cards[0]), "the leading card must be open").toBe("true")
+    );
+    await waitFor(() =>
+      expect(cards[0].textContent, "its question must be on screen").toContain(
+        "先看這一張"
+      )
+    );
+    expect(cards[0].querySelectorAll(".reply-option")).toHaveLength(2);
+    // Only the leading one — the rest are the collapsed lines they always were,
+    // each still naming its ask.
+    expect(expandedOf(cards[1])).toBe("false");
+    expect(cards[1].textContent).toContain("第二個請示");
+  });
+
+  it("answering the leading card opens the next one, with its question on screen", async () => {
+    const now = Date.now() / 1000;
+    __injectMockReplyCard(
+      mkCard({ id: "rc-lead", summary: "第一個請示", body: "先看這一張", createdTs: now - 60 })
+    );
+    __injectMockReplyCard(
+      mkCard({ id: "rc-next", summary: "第二個請示", body: "再看這一張", createdTs: now - 3600 })
+    );
+
+    const { findAllByTestId } = renderPage();
+    const cards = await findAllByTestId("waiting-card");
+    await waitFor(() =>
+      expect(expandedOf(cards[0]), "the leading card must be open").toBe("true")
+    );
+    await waitFor(() =>
+      expect(cards[0].querySelectorAll(".reply-option")).toHaveLength(2)
+    );
+
+    fireEvent.click(cards[0].querySelectorAll(".reply-option")[0]);
+
+    await waitFor(async () =>
+      expect(await findAllByTestId("waiting-card")).toHaveLength(1)
+    );
+    const [remaining] = await findAllByTestId("waiting-card");
+    await waitFor(() =>
+      expect(
+        expandedOf(remaining),
+        "the next card must open by itself"
+      ).toBe("true")
+    );
+    await waitFor(() =>
+      expect(remaining.textContent, "its question must be on screen").toContain(
+        "再看這一張"
+      )
+    );
+    expect(remaining.querySelectorAll(".reply-option")).toHaveLength(2);
+  });
+
+  it("標為過期 on the leading card opens the next one too", async () => {
+    const now = Date.now() / 1000;
+    __injectMockReplyCard(
+      mkCard({ id: "rc-lead", summary: "第一個請示", body: "先看這一張", createdTs: now - 60 })
+    );
+    __injectMockReplyCard(
+      mkCard({ id: "rc-next", summary: "第二個請示", body: "再看這一張", createdTs: now - 3600 })
+    );
+
+    const { findAllByTestId, findByTestId } = renderPage();
+    const cards = await findAllByTestId("waiting-card");
+    await waitFor(() =>
+      expect(expandedOf(cards[0]), "the leading card must be open").toBe("true")
+    );
+    await waitFor(() =>
+      expect(cards[0].querySelector('[data-testid="expire-card"]')).toBeTruthy()
+    );
+
+    fireEvent.click(cards[0].querySelector('[data-testid="expire-card"]')!);
+    fireEvent.click(await findByTestId("expire-confirm-btn"));
+
+    await waitFor(async () =>
+      expect(await findAllByTestId("waiting-card")).toHaveLength(1)
+    );
+    const [remaining] = await findAllByTestId("waiting-card");
+    await waitFor(() =>
+      expect(
+        expandedOf(remaining),
+        "the next card must open by itself"
+      ).toBe("true")
+    );
+    await waitFor(() =>
+      expect(remaining.textContent, "its question must be on screen").toContain(
+        "再看這一張"
+      )
+    );
   });
 
   // The negative half: no task means the row says nothing about a task —
