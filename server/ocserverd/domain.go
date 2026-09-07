@@ -1964,35 +1964,52 @@ func DisplayName(id string, names map[string]string) string {
 
 // ── T-33 傳承（lore） ────────────────────────────────────────────────────────
 
-// LoreScopeRole / LoreScopeAgent / LoreScopeManual are the three scopes a lore
-// entry can belong to, and they are the whole set. The trio is a CLOSED
-// vocabulary enforced by a CHECK in migrations/00093, so a fourth value cannot
-// be stored even by a hand edit.
+// LoreScopeAgent / LoreScopeManual are the TWO scopes a lore entry can belong
+// to, and they are the whole set (owner 2026-09-07, card rc-a43100fd0486 [0]:
+// 「應該已經沒有角色傳承」「只有成員跟任務傳承兩種」).
+//
+// 🔴 THERE WAS A THIRD, `role`, AND IT IS GONE FROM THE GO VOCABULARY. Every
+// entry that carried it was rekeyed onto the ONE member sitting under that role
+// by migrations/00100. Why that is a rekey and not a loss: staff were one-to-one
+// with their role in practice (owner c-712174eb0720), so the role key and that
+// member's id named the SAME set of readers, and the fold that reads them is the
+// same function with a different scope.
+//
+// ⚠️ WHAT THE OWNER KNOWINGLY GAVE UP, so nobody re-derives it as a bug: if two
+// members are ever put under one role they no longer share a 傳承 — each learns
+// its own. That trade was put to him in writing before he chose this, and today
+// no role carries two members. Nothing in the schema ENFORCES one-member-per-role
+// (member.role_key has no UNIQUE index and the hire face does not check), so this
+// is a property of the roster as it stands, not an invariant — see 00100's header.
+//
+// 🔴 THE DB CHECK IS STILL THE OLD TRIO, DELIBERATELY. migrations/00093 admits
+// ('role','agent','manual') and 00100 does NOT narrow it, because 00100 leaves
+// behind — on purpose — any 'role' row whose member was ambiguous. Those orphans
+// must stay STORABLE and READABLE; a tightened CHECK would have turned "we could
+// not tell whose this is" into "this row cannot exist", which is the silent
+// deletion the migration was written to avoid. An orphan reaches the cockpit on
+// the unfiltered page and renders through the client's unknown-kind arm, which is
+// how it stays visible without pretending to be one of the two live scopes.
 //
 // 🔴 WHICH ONE A WRITE LANDS IN IS DECIDED BY ONE QUESTION, not by a chain of
-// fallbacks (owner 2026-09-07, correcting this file's earlier rule): what is the
-// EFFECTIVE RELATED TASK — the named task when it carries a type, and NULL
-// otherwise, which includes both "no task named" and "a 臨時任務 that carries no
-// type". A 臨時任務 is not a request that got re-routed; it is not a place an
-// entry can hang in the first place, so it is the same input as naming no task
-// at all.
+// fallbacks (owner 2026-09-07): what is the EFFECTIVE RELATED TASK — the named
+// task when it carries a type, and NULL otherwise, which includes both "no task
+// named" and "a 臨時任務 that carries no type". A 臨時任務 is not a request that
+// got re-routed; it is not a place an entry can hang in the first place, so it is
+// the same input as naming no task at all.
 //
 //	effective task ⇒ manual, keyed by that type_key. Staff and outsource alike.
-//	NULL, staff     ⇒ role,   keyed by the writer's role_key.
-//	NULL, outsource ⇒ agent,  keyed by the writer's own member id.
+//	NULL           ⇒ agent,  keyed by the writer's OWN member id. Staff and
+//	                 outsource alike — this is the collapse: the staff arm used
+//	                 to key by role_key and now keys by the writer, so there is
+//	                 no longer a branch here for the two kinds of writer.
 //
-// The last row is the one the owner added on 2026-09-07 (card rc-3c24fdc61ed3);
-// before it, that write was refused outright and an outsource member had
-// nowhere to put anything it learned outside a typed task.
-//
-// 🔴 role AND agent ARE STILL NOT FALLBACKS FOR manual. A write that names a
-// typed task never lands in either of them, and a write that resolves to NULL
-// never lands in manual. Filing a one-off task's lesson under the writer would
-// charge every one of its future boots for it while the task type that needed
-// such a lesson still got nothing — and the write would answer 200, so nobody
-// would ever look.
+// 🔴 agent IS STILL NOT A FALLBACK FOR manual. A write that names a typed task
+// never lands in agent, and a write that resolves to NULL never lands in manual.
+// Filing a one-off task's lesson under the writer would charge every one of its
+// future boots for it while the task type that needed such a lesson still got
+// nothing — and the write would answer 200, so nobody would ever look.
 const (
-	LoreScopeRole   = "role"
 	LoreScopeAgent  = "agent"
 	LoreScopeManual = "manual"
 )
@@ -2022,14 +2039,23 @@ func ValidLoreState(s string) bool {
 }
 
 // loreRoleCapCharsDefault / loreManualCapCharsDefault are the shipped budgets of
-// the two folds — how many characters of lore a staff boot document and a task
+// the two folds — how many characters of lore a MEMBER's boot document and a task
 // manual read may carry.
 //
+// ⚠️ THE NAME SAYS `role`, THE BUDGET IS THE MEMBER ONE. This constant and its
+// setting key (`lore.cap_chars.role`) were named when the member fold was keyed
+// by role_key; T-33's collapse to two scopes rekeyed the fold onto the member and
+// did NOT rename the knob. Renaming it would change a settings key the owner has
+// already turned, which is his to decide and not this ticket's — so the name is
+// stale and the meaning is stated here instead of being guessed from it. There is
+// still exactly ONE knob behind both member-scoped folds (staff and outsource),
+// which is why nothing new was opened: it was already shared before the collapse.
+//
 // 🔴 THE TWO BUDGETS DO NOT ADD UP AND ARE NEVER SUMMED. They are spent by
-// different readers at different moments: the role budget is paid by every boot
-// of that role, the manual budget by whoever opens that type's manual. A single
-// shared number would make a role's traditions compete with a task type's for
-// the same room, which is a trade nobody wants to make.
+// different readers at different moments: this budget is paid by every boot of
+// that member, the manual budget by whoever opens that type's manual. A single
+// shared number would make one member's 傳承 compete with a task type's for the
+// same room, which is a trade nobody wants to make.
 //
 // loreTitleCapCharsDefault / loreBodyCapCharsDefault bound ONE entry at the
 // moment it is written. The owner set these himself on 2026-09-07, lowering the

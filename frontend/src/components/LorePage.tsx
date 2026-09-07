@@ -82,7 +82,6 @@ import type {
 import { isHttpStatus, serverMessageOf } from "../api/errors";
 import { useMembers } from "../hooks/useMembers";
 import { useOutsourceWorkers } from "../hooks/useOutsourceWorkers";
-import { useRoles } from "../hooks/useRoles";
 import { useIsMobile } from "../hooks/useIsMobile";
 import { useTaskManuals } from "../hooks/useTaskManuals";
 import {
@@ -134,89 +133,112 @@ interface AuthorIdentity {
   peerId: string;
 }
 
-/** The three scopes that can be ASKED for — the same closed set
- * `LoreListOptions.scopeKind` names. `MultiSelectFilter` speaks in plain
- * strings because it is shared with pages whose axes are open-ended, so the
- * narrowing happens ONCE, at the two controls whose option lists are these
- * literals and nothing else. */
+/** The two scopes that can be ASKED for — the same closed set
+ * `LoreListOptions.scopeKind` names. */
 type LoreScopeKind = NonNullable<LoreListOptions["scopeKind"]>;
+
+/** 屬於 packs BOTH halves of a scope into one option value: `"<kind>:<key>"`.
+ *
+ * 🔴 THE PREFIX IS NOT DECORATION AND MUST NOT BE DROPPED. The 屬於 list mixes
+ * two kinds of thing — members and task manuals — and their keys come from
+ * different namespaces that nothing keeps apart: a member id is minted by the
+ * server, a manual's `type_key` is typed by a person, and a station whose
+ * manual is called `mira` would make the bare key ambiguous. The pair, kept
+ * together from the option straight through to the request, is what stops one
+ * tick asking about two different things.
+ *
+ * It is also what lets the request name the KINDS: `scope_kinds` and
+ * `scope_keys` are separate axes on the wire, so the page has to be able to say
+ * "these keys, and only these kinds" — which it cannot do from bare keys. */
+function belongsValue(kind: LoreScopeKind, key: string): string {
+  return `${kind}:${key}`;
+}
+
+function splitBelongs(v: string): { kind: LoreScopeKind; key: string } {
+  const i = v.indexOf(":");
+  return { kind: v.slice(0, i) as LoreScopeKind, key: v.slice(i + 1) };
+}
 
 export function LorePage() {
   const { t, msg } = useI18n();
   const { members } = useMembers();
   const { workers } = useOutsourceWorkers();
-  const { roles } = useRoles();
   const { manuals } = useTaskManuals();
 
-  // ── 篩選 (all four axes are QUERY PARAMETERS, none is a client-side pass) ──
+  // ── 篩選: THREE AXES, ALL QUERY PARAMETERS, none a client-side pass ────────
   //
-  // 🔴 範圍 IS ITS OWN CONTROL NOW, AND EVERY AXIS IS MULTI-SELECT (owner
-  // rc-0376bf875757 [1]). The old shape put two different questions in one
-  // dropdown — 「哪一本手冊」 and 「不屬於任何任務的那兩種」 — so the list read as
-  // a task list with strange things mixed into it, which is what the owner hit.
-  // Now: pick the KIND first (角色傳承 / 成員傳承 / 任務傳承), and the second
-  // half appears only for the kinds that have one.
+  // 🔴 THERE USED TO BE FOUR CONTROLS AND NOW THERE ARE THREE (owner
+  // 2026-09-07, card rc-a43100fd0486). His words: 「我從使用者或是任務手冊作為
+  // filter 另外就是狀態 三個而已」「你完全可以抄 task」. So the row is
+  // 撰寫人 → 屬於 → 狀態 → 清除篩選, which is the 任務頁's shape
+  // (任務編號 → 負責人 → 類型 → 狀態 → 清除篩選) with its search box dropped —
+  // 傳承 has no id anybody types.
   //
-  // The three kind labels are the SAME WORDS the row's 屬於 chip and the 上限線
-  // use, from the same i18n keys. They used to differ (「無 · 角色傳承」 in the
-  // filter, 「角色傳承」 on the row) and two wordings for one thing is a question
-  // the reader has to answer before they can read either.
+  // 🔴 THE 範圍 DROPDOWN IS GONE, AND ITS REMOVAL IS THE POINT RATHER THAN A
+  // SIMPLIFICATION. It offered 角色傳承 / 成員傳承 / 任務傳承 — and 角色傳承 no
+  // longer exists (the scopes collapsed to two in the same ruling), which left
+  // it a two-item list whose two items are exactly the two halves of 屬於. A
+  // control that asks "which kind?" beside one that asks "which one?" is two
+  // questions where the reader has one.
   //
-  // `roleKeys` / `manualKeys` are the SECOND half of a scope. A budget belongs
-  // to ONE scope, and a kind alone names a kind, not a scope — the server
-  // answers `capChars: 0` for it and the page correctly draws no line. Picking
-  // exactly one kind AND exactly one key is what makes the 上限線 appear, which
-  // is most of what this page is for.
+  // 屬於 asks the whole question at once: every MEMBER and every TASK MANUAL in
+  // one multi-select. Its option values carry the kind (see `belongsValue`), so
+  // the request still names both wire axes precisely.
   //
-  // ⚠️ SO THE LINE GOES QUIET WHENEVER THE RANGE IS BROADER THAN ONE SCOPE, and
-  // that is the cost the owner accepted when he chose full multi-select: two
-  // ranges mean two budgets and there is one place on screen for a line, so no
-  // line can honestly be drawn. The server is the one that decides this (it
-  // answers 0/""); the page does not re-derive the rule.
-  const [scopeKinds, setScopeKinds] = useState<Set<LoreScopeKind>>(new Set());
-  const [roleKeys, setRoleKeys] = useState<Set<string>>(new Set());
-  const [manualKeys, setManualKeys] = useState<Set<string>>(new Set());
+  // ⚠️ NO COUNT BADGE, DELIBERATELY. The 任務頁's 狀態 pill reads 「狀態 · N」;
+  // this one must not. Owner, same card: 「we dont need count」 — and the page
+  // could not honestly produce one anyway, because 傳承 loads by scrolling, so
+  // any number computed here counts the rows fetched SO FAR and would keep
+  // changing as the reader scrolls without anything having changed.
+  //
+  // 🔴 THE 上限線 STILL NEEDS EXACTLY ONE SCOPE, and 屬於 is what produces one:
+  // ticking a single member (or a single manual) sends one kind and one key,
+  // which is the server's condition for answering `capChars`. Tick two and the
+  // server answers 0/"" and the page draws no line — the same honest answer an
+  // unfiltered page gets. The page never re-derives that rule; it reads the
+  // server's answer.
+  const [belongs, setBelongs] = useState<Set<string>>(new Set());
   const [states, setStates] = useState<Set<LoreEntryState>>(new Set());
   const [authors, setAuthors] = useState<Set<string>>(new Set());
 
-  // 🔴 A KEY ONLY TRAVELS WHILE ITS KIND IS SELECTED. Unticking 角色傳承 while
-  // roles stay ticked must not keep sending those role keys: `scope_kinds` and
-  // `scope_keys` are ANDed on the wire, so an orphaned key would silently
-  // narrow — or empty — a page the reader believes they widened. The state is
-  // kept rather than wiped so re-ticking the kind restores the picks, and the
-  // FILTER is what drops them.
+  // 🔴 THE KIND SET IS DERIVED FROM WHAT IS TICKED, NEVER SENT WHOLE. Ticking
+  // only members sends `scope_kinds=[agent]`; only manuals sends `[manual]`;
+  // both sends both. Sending both kinds unconditionally would widen every
+  // member-only page to include manuals, because the two axes are ANDed on the
+  // wire and a kind nobody ticked would still admit its rows.
   //
-  // 成員傳承 has no second half: an agent scope's key is a MEMBER id, not a role
-  // key, so neither list can narrow it. Sending the kind alone is the honest
-  // request.
+  // ⚠️ WHAT THE AND-ING CANNOT EXPRESS, stated because it is a real (small) gap
+  // rather than a thing this page gets right. With one member and one manual
+  // ticked the request is (kind ∈ {agent, manual}) AND (key ∈ {m-x, tm-y}) — so
+  // a manual whose `type_key` happened to be `m-x` would also match. The wire
+  // has no per-pair form to say otherwise, and this is strictly narrower than
+  // what the page sent before, so it is left as is and written down here rather
+  // than papered over with a client-side pass (which would break paging: see
+  // this file's header).
   const opts = useMemo<LoreListOptions>(() => {
     const next: LoreListOptions = {};
-    if (scopeKinds.size > 0) next.scopeKinds = [...scopeKinds];
-    const keys = [
-      ...(scopeKinds.has("role") ? roleKeys : []),
-      ...(scopeKinds.has("manual") ? manualKeys : []),
-    ];
+    const kinds = new Set<LoreScopeKind>();
+    const keys: string[] = [];
+    for (const v of belongs) {
+      const { kind, key } = splitBelongs(v);
+      kinds.add(kind);
+      keys.push(key);
+    }
+    if (kinds.size > 0) next.scopeKinds = [...kinds];
     if (keys.length > 0) next.scopeKeys = keys;
     if (states.size > 0) next.states = [...states];
     if (authors.size > 0) next.authorIds = [...authors];
     return next;
-  }, [scopeKinds, roleKeys, manualKeys, states, authors]);
+  }, [belongs, states, authors]);
 
-  // What 清除篩選 keys on. It asks whether anything the reader can SEE is
-  // narrowing the page, so it counts the two key sets only while their kind is
-  // selected — the same rule `opts` sends by, or the button would offer to
-  // clear a constraint that is not in force.
-  const anyFilter =
-    scopeKinds.size > 0 ||
-    states.size > 0 ||
-    authors.size > 0 ||
-    (scopeKinds.has("role") && roleKeys.size > 0) ||
-    (scopeKinds.has("manual") && manualKeys.size > 0);
+  // What 清除篩選 keys on: whether anything the reader can SEE is narrowing the
+  // page. With one control per axis this is now exactly "is any set non-empty",
+  // and there is no longer a way for a tick to be held in state while not being
+  // in force — which is what the old four-control version had to reason about.
+  const anyFilter = belongs.size > 0 || states.size > 0 || authors.size > 0;
 
   function clearFilters() {
-    setScopeKinds(new Set());
-    setRoleKeys(new Set());
-    setManualKeys(new Set());
+    setBelongs(new Set());
     setStates(new Set());
     setAuthors(new Set());
   }
@@ -384,22 +406,27 @@ export function LorePage() {
 
   /** 屬於 — which scope this ONE entry rides, resolved for display.
    *
-   * The three scopes are not interchangeable and the row must not blur them:
-   * `role` rides that role's STAFF boot document, `agent` rides ONE member's
-   * own boot document (the outsource exit — that member has no role for `role`
-   * to name), `manual` rides that task manual's response. Only `manual` is
-   * CLICKABLE, and the asymmetry is deliberate: a task manual has a settings
-   * page to land on, a role and a member do not, and a pill that looks
-   * clickable but goes nowhere is worse than a plain one (owner did not
-   * overrule this on card rc-11734523eb52).
+   * The two scopes are not interchangeable and the row must not blur them:
+   * `agent` rides ONE member's own boot document — staff and outsource alike
+   * since the scopes collapsed — and `manual` rides that task manual's
+   * response. Only `manual` is CLICKABLE, and the asymmetry is deliberate: a
+   * task manual has a settings page to land on, a member does not, and a pill
+   * that looks clickable but goes nowhere is worse than a plain one (owner did
+   * not overrule this on card rc-11734523eb52).
    *
    * 🔴 EVERY UNRESOLVED CASE FALLS BACK TO THE RAW KEY, never to a blank and
-   * never to a guess. A deleted role, a deleted manual and a departed member
-   * all still have entries riding them, and 「rc-…」 tells the reader something
-   * whereas an empty cell tells them the field is broken. `unknown` is the
-   * fourth arm and is NOT a scope — it is what a cockpit older than the server
-   * calls a kind it has never heard of, so it must never be renamed into one of
-   * the real three (see LoreEntryView.scopeKind). */
+   * never to a guess. A deleted manual and a departed member both still have
+   * entries riding them, and 「rc-…」 tells the reader something whereas an
+   * empty cell tells them the field is broken. `unknown` is the third arm and
+   * is NOT a scope, so it must never be renamed into one of the real two (see
+   * LoreEntryView.scopeKind).
+   *
+   * 🔴 `unknown` IS A LIVE ARM ON EVERY STATION, NOT A FUTURE-PROOFING HATCH.
+   * It is what the retired `role` kind maps to, and the server's migration
+   * deliberately left that value on any entry whose owning member could not be
+   * determined. Those rows appear on the unfiltered page — which is the page
+   * this one opens on — so this arm renders in practice and its raw-key
+   * fallback is what makes such an entry identifiable at all. */
   // 🔴 THE NAME ALONE DOES NOT ANSWER THE QUESTION THE OWNER ASKED. A chip
   // reading 「特助」 does not say whether that is a role or a manual, and on 全部
   // — where the page opens — every kind is mixed together. So the scope answers
@@ -411,17 +438,10 @@ export function LorePage() {
       label: string;
       manualKey: string;
     } => {
-      if (entry.scopeKind === "role") {
-        const r = roles.find((x) => x.key === entry.scopeKey);
-        return {
-          kindLabel: t.lore.scopeKindRole,
-          label: r?.name || entry.scopeKey,
-          manualKey: "",
-        };
-      }
       if (entry.scopeKind === "agent") {
-        // scopeKey is a MEMBER id here, not a role key. Reuse the author
-        // resolver so a departed member reads the same way in both places.
+        // scopeKey is a MEMBER id here — staff and outsource alike. Reuse the
+        // author resolver so a departed member reads the same way in both
+        // places.
         return {
           kindLabel: t.lore.scopeKindAgent,
           label: resolveAuthor(entry.scopeKey).text,
@@ -445,11 +465,9 @@ export function LorePage() {
       };
     },
     [
-      roles,
       manuals,
       resolveAuthor,
       t.lore.scopeUnknown,
-      t.lore.scopeKindRole,
       t.lore.scopeKindAgent,
       t.lore.scopeKindManual,
     ]
@@ -572,7 +590,12 @@ export function LorePage() {
   // name, and if the two ever disagree the line still appears or not by the
   // server's answer alone. Re-deriving the DECISION here is the drift the whole
   // 上限線 design is built to avoid.
-  const soleKind = scopeKinds.size === 1 ? [...scopeKinds][0] : "";
+  //
+  // 🔴 BOTH HALVES COME FROM `opts`, NOT FROM `belongs`. They have to describe
+  // the request the server answered: `opts` is what was sent, and reading the
+  // control's own state instead would let the name drift from the page whenever
+  // the two disagree — which is exactly when a wrong name is hardest to notice.
+  const soleKind = opts.scopeKinds?.length === 1 ? opts.scopeKinds[0] : "";
   const soleKey = opts.scopeKeys?.length === 1 ? opts.scopeKeys[0] : "";
   const scopeName =
     soleKind === "" || soleKey === ""
@@ -581,20 +604,55 @@ export function LorePage() {
         ? t.lore.scopeKindManual +
           t.lore.capLineSep +
           (manuals.find((x) => x.typeKey === soleKey)?.displayName || soleKey)
-        : t.lore.scopeKindRole +
+        : t.lore.scopeKindAgent +
           t.lore.capLineSep +
-          (roles.find((r) => r.key === soleKey)?.name || soleKey);
+          resolveAuthor(soleKey).text;
   const capLineText =
     scopeName + t.lore.capLineMid + cap.capChars + t.lore.capLineTail;
 
-  const roleOptions = roles.map((r) => ({ value: r.key, label: r.name || r.key }));
-  // The VALUE is the bare type_key now, not a `manual:` prefixed one: it goes
-  // straight into `scope_keys`, and the kind it belongs to is said separately by
-  // the 範圍 filter. The prefix existed only to pack two axes into one dropdown.
-  const manualOptions = manuals.map((m) => ({
-    value: m.typeKey,
-    label: m.displayName || m.typeKey,
-  }));
+  // 屬於 — every MEMBER, then every TASK MANUAL, in one list.
+  //
+  // 🔴 THE LABELS CARRY THE KIND WORD, and that is not clutter. This one list
+  // mixes people and manuals, and a bare name cannot say which: the owner
+  // already hit exactly this on the row chip (「特助」 does not tell you whether
+  // that is a person or a manual), and a station may legitimately have a manual
+  // whose display name matches a member's. The two words are the SAME i18n keys
+  // the row's 屬於 chip and the 上限線 use, so one thing is named one way
+  // everywhere.
+  //
+  // 🔴 MEMBERS COME FIRST AND MANUALS SECOND, matching the order the owner said
+  // it in (「我從使用者或是任務手冊作為 filter」) and the order the two scopes are
+  // written in everywhere else in this feature.
+  //
+  // ⚠️ ONE ASYMMETRY WITH THE 撰寫人 LIST BELOW, on purpose: that one is an
+  // ALLOW-list of kinds that can WRITE, and it excludes the warden because a
+  // machine principal is refused at the route. This list is about what an entry
+  // can BELONG to, which is a different question — but the answer happens to be
+  // the same set, because only a member that can write can accumulate 傳承. It
+  // is spelled out separately rather than shared so that the two can diverge
+  // without one silently redefining the other.
+  const belongsOptions = [
+    ...members
+      .filter((m) => m.kind === "staff")
+      .map((m) => ({
+        value: belongsValue("agent", m.id),
+        label: t.lore.scopeKindAgent + t.lore.capLineSep + m.name,
+      })),
+    ...workers.map((w) => ({
+      value: belongsValue("agent", w.id),
+      label:
+        t.lore.scopeKindAgent +
+        t.lore.capLineSep +
+        (w.codename ? msg.outsourceLabel(w.codename) : w.id),
+    })),
+    ...manuals.map((m) => ({
+      value: belongsValue("manual", m.typeKey),
+      label:
+        t.lore.scopeKindManual +
+        t.lore.capLineSep +
+        (m.displayName || m.typeKey),
+    })),
+  ];
   // 撰寫人 options are the LIVE roster only. An author who has left cannot be
   // offered here (there is no list of departed ids to offer), which is the same
   // fact the row states by dropping their 傳訊息 icon.
@@ -642,11 +700,16 @@ export function LorePage() {
       >
         {/* 🔴 THE ORDER IS THE 任務頁'S ORDER, and it is not decoration (owner,
             2026-09-07: 「The order of buttons / filters matters」「make them
-            consistent with task」). That row reads 負責人 → 類型 → 狀態 → 清除篩選,
-            so this one reads 撰寫人 → 範圍 → 狀態 → 清除篩選: WHO, then WHICH
-            REGISTER, then WHAT STATE. A reader who has learned one page should
-            not have to re-learn where things are on the other, and two pages
-            that disagree teach that the position means nothing. */}
+            consistent with task」「你完全可以抄 task」). That row reads
+            負責人 → 類型 → 狀態 → 清除篩選, so this one reads
+            撰寫人 → 屬於 → 狀態 → 清除篩選: WHO WROTE IT, then WHAT IT BELONGS
+            TO, then WHAT STATE. A reader who has learned one page should not
+            have to re-learn where things are on the other, and two pages that
+            disagree teach that the position means nothing.
+
+            The 任務頁 has a 任務編號 search box ahead of all of these; this page
+            has no counterpart because a 傳承 id (L-7) is not something anyone
+            goes looking for by typing it. */}
         <MultiSelectFilter
           noun={t.lore.filterAuthorNoun}
           allLabel={t.lore.filterAuthorAll}
@@ -655,51 +718,20 @@ export function LorePage() {
           selected={authors}
           onChange={setAuthors}
         />
-        {/* 範圍 — the KIND, on its own. It used to share a dropdown with the
-            manual list, which made a list of tasks look like it had non-tasks
-            mixed into it (owner, card rc-0376bf875757). The three labels are the
-            same words the row's 屬於 chip uses, from the same i18n keys. */}
+        {/* 屬於 — WHICH member or WHICH manual, one control, always visible.
+            It replaced the 範圍 + 角色 + 手冊 trio (owner, card rc-a43100fd0486):
+            範圍's three options were the thing being collapsed away, and the two
+            key lists behind it were the same question asked twice. Nothing here
+            appears conditionally any more — a filter row whose fields come and
+            go as you tick is a row whose shape the reader cannot learn. */}
         <MultiSelectFilter
-          noun={t.lore.filterScopeNoun}
-          allLabel={t.lore.filterScopeAll}
-          testId="lore-filter-scope"
-          options={[
-            { value: "role", label: t.lore.scopeKindRole },
-            // Beside 角色傳承, not inside it: an outsource worker has no role, so
-            // its lore hangs off its own member id and it is a KIND of its own
-            // on the wire.
-            { value: "agent", label: t.lore.scopeKindAgent },
-            { value: "manual", label: t.lore.scopeKindManual },
-          ]}
-          selected={scopeKinds}
-          onChange={(next) => setScopeKinds(next as Set<LoreScopeKind>)}
+          noun={t.lore.filterBelongsNoun}
+          allLabel={t.lore.filterBelongsAll}
+          testId="lore-filter-belongs"
+          options={belongsOptions}
+          selected={belongs}
+          onChange={setBelongs}
         />
-        {/* The second half of a scope, one list per kind that HAS one, and each
-            appears only while its kind is ticked — directly after the 範圍 it
-            narrows, never after 狀態, or the pair would read as two unrelated
-            fields. 成員傳承 has none: its key is a member id, which neither list
-            can narrow — offering one would ask a question about the wrong
-            roster. */}
-        {scopeKinds.has("role") && (
-          <MultiSelectFilter
-            noun={t.lore.filterRoleNoun}
-            allLabel={t.lore.filterRoleAll}
-            testId="lore-filter-role"
-            options={roleOptions}
-            selected={roleKeys}
-            onChange={setRoleKeys}
-          />
-        )}
-        {scopeKinds.has("manual") && (
-          <MultiSelectFilter
-            noun={t.lore.filterManualNoun}
-            allLabel={t.lore.filterManualAll}
-            testId="lore-filter-manual"
-            options={manualOptions}
-            selected={manualKeys}
-            onChange={setManualKeys}
-          />
-        )}
         <MultiSelectFilter
           noun={t.lore.filterStateNoun}
           allLabel={t.lore.filterStateAll}

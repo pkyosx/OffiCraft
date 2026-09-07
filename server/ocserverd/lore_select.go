@@ -4,9 +4,23 @@ package main
 //
 // 🔴 THIS FILE IS THE ONLY PLACE THAT DECIDES WHICH LORE ENTRIES A READER GETS.
 // There are THREE exits, and every one of them calls selectLoreForScope:
-//   1. the STAFF boot document        — scope_kind='role',   assets.go buildBootContext
+//   1. the STAFF boot document        — scope_kind='agent',  assets.go buildBootContext
 //   2. the OUTSOURCE boot document    — scope_kind='agent',  worker_spawn.go buildWorkerBootContext
 //   3. GET /api/task-manuals/{key}    — scope_kind='manual', api_taskmanuals.go writeTaskManual
+//
+// 🔴 EXITS 1 AND 2 NOW ASK FOR THE SAME SCOPE, and they are still listed
+// separately because they are still two independently written assemblies. Exit 1
+// said scope_kind='role' until the owner collapsed the scopes on 2026-09-07
+// (card rc-a43100fd0486 [0]); it now keys by the staff member's own id, which is
+// what exit 2 has always done. Same scope, same knob (loreRoleCap), two call
+// sites — so the divergence this file exists to prevent is now a divergence in
+// WHICH MEMBER each side names, not in which kind.
+//
+// ⚠️ EXIT 1 IS CONDITIONAL, and nothing else on this list is: buildBootContext
+// is also the cockpit's ROLE PREVIEW, called with no member at all, and with no
+// member there is no id to key by — so it emits no 傳承 block rather than an
+// arbitrary one. A count of "three exits" that assumed three calls always happen
+// would be wrong on that path.
 //
 // ⚠️ THE SECOND ONE USED TO BE MISSING FROM THIS LIST, and a comment that
 // undercounts the exits is worse than one that says nothing: the next person

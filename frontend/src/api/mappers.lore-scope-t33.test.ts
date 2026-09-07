@@ -65,15 +65,34 @@ function wireEntry(
 }
 
 describe("toLoreEntry scope_kind", () => {
-  it("carries each of the three real scopes through under its own name", () => {
+  it("carries each of the two real scopes through under its own name", () => {
     // 🔴 `agent` IS THE ONE THIS FILE IS NAMED AFTER. Under the old narrowing
     // this line read "role" and every assertion about it passed elsewhere,
     // because nothing else looked.
-    expect(toLoreEntry(wireEntry("role", "assistant")).scopeKind).toBe("role");
     expect(toLoreEntry(wireEntry("agent", "ow-7d8ad859dd9b")).scopeKind).toBe(
       "agent",
     );
     expect(toLoreEntry(wireEntry("manual", "tm-mock")).scopeKind).toBe("manual");
+  });
+
+  it("maps the RETIRED `role` scope to unknown, and never to agent", () => {
+    // 🔴 THIS ASSERTION REVERSED ON 2026-09-07, and the reversal is the change.
+    // `role` was a real scope until the owner collapsed the three into two
+    // (card rc-a43100fd0486 [0]); the server's migration rekeyed what it could
+    // onto members and DELIBERATELY LEFT the rest at `role` rather than guess
+    // an owner. So this value still arrives from live servers and this line is
+    // about a row a reader will actually see, not about an old wire format.
+    const legacy = toLoreEntry(wireEntry("role", "r-9f31c0d84a17"));
+    // 🔴 `not.toBe("agent")` IS THE LOAD-BEARING HALF. The tempting "cleanup"
+    // is to map `role` onto `agent` so the row renders with a kind word — which
+    // would present an entry whose owner was explicitly undetermined as though
+    // it belonged to a specific member, silently and irreversibly.
+    expect(legacy.scopeKind).not.toBe("agent");
+    expect(legacy.scopeKind).not.toBe("manual");
+    expect(legacy.scopeKind).toBe("unknown");
+    // The role_key survives verbatim: it is the only thing that says which
+    // role this orphan came from, and it is what a person needs to place it.
+    expect(legacy.scopeKey).toBe("r-9f31c0d84a17");
   });
 
   it("does not rename a scope it has never heard of into one it has", () => {
@@ -82,7 +101,6 @@ describe("toLoreEntry scope_kind", () => {
     // three `not` lines, not the "unknown" spelling: it must not be able to
     // pass by landing on a real kind.
     const future = toLoreEntry(wireEntry("station", "st-1")).scopeKind;
-    expect(future).not.toBe("role");
     expect(future).not.toBe("agent");
     expect(future).not.toBe("manual");
     expect(future).toBe("unknown");
@@ -103,7 +121,7 @@ describe("toLoreEntry scope_kind", () => {
     expect(view.scopeKey).toBe("st-1");
   });
 
-  it("treats an empty scope_kind as unknown, not as role", () => {
+  it("treats an empty scope_kind as unknown, not as a real scope", () => {
     // A truncated or defaulted row is the cheapest way to reintroduce the old
     // bug — `"" ? ... : "role"` is exactly the shape that was there.
     expect(toLoreEntry(wireEntry("", "")).scopeKind).toBe("unknown");

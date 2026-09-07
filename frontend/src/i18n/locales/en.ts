@@ -122,28 +122,40 @@ export const en: Dict = {
     // Retire reason — the whole row is hidden when it is empty.
     retireReasonLabel: "Retire reason",
     // The scope-kind names. ONE source per word: they name the 屬於 chip on
-    // every row AND open the named cap line. They used to be called
-    // capLineRolePrefix / capLineManualPrefix, a name that pinned them to the
-    // cap line and invited the next caller to write a second copy.
-    scopeKindRole: "Role lore",
-    // An outsource worker has no role; its lore hangs off its own member id.
+    // every row, the 屬於 filter's option labels, AND the named cap line. They
+    // used to be called capLineRolePrefix / capLineManualPrefix, a name that
+    // pinned them to the cap line and invited the next caller to write a second
+    // copy.
+    //
+    // 🔴 THERE WERE THREE AND NOW THERE ARE TWO. `scopeKindRole` ("Role lore")
+    // was removed when the owner collapsed the scopes on 2026-09-07 (card
+    // rc-a43100fd0486 [0]). It is NOT kept "for the legacy rows": an entry the
+    // migration could not place renders through the unknown arm, which shows the
+    // raw key and no kind word at all — because the honest thing to say about
+    // such a row is that nobody has decided what it belongs to, and calling it
+    // 角色傳承 would name a scope this product no longer has.
+    //
+    // Every member's lore hangs off its own member id — staff and outsource
+    // alike.
     scopeKindAgent: "Member lore",
     scopeKindManual: "Task lore",
     // The remaining fragments of the named cap line.
     capLineSep: " · ",
     capLineMid: " cap ",
     capLineTail: " characters — nothing below this line is loaded",
-    // The filter row. 範圍 is its own field now (it used to share a dropdown
-    // with the manual list, which made a task list look like it had non-tasks
-    // mixed in). The three scope words come from the scopeKind* keys — the same
-    // source the row's 屬於 chip and the cap line use.
+    // The filter row: 撰寫人 → 屬於 → 狀態 → 清除篩選, the 任務頁's order minus
+    // its id search box (owner 2026-09-07, card rc-a43100fd0486:
+    // 「你完全可以抄 task」).
+    //
+    // 🔴 THREE FIELDS WHERE THERE WERE FOUR. 範圍 / 角色 / 手冊 are gone and
+    // 屬於 replaced all three: 範圍's options were the scope trio being
+    // collapsed, and the two key lists behind it were the same question asked
+    // twice. 屬於 lists every member and every manual in one multi-select; its
+    // option labels are built from the scopeKind* words above, so a name in the
+    // filter reads the same as the same name on a row.
     clearFilters: "Clear filters",
-    filterScopeNoun: "Scope",
-    filterScopeAll: "All scopes",
-    filterRoleNoun: "Role",
-    filterRoleAll: "All roles",
-    filterManualNoun: "Manual",
-    filterManualAll: "All manuals",
+    filterBelongsNoun: "Belongs to",
+    filterBelongsAll: "Everything",
     filterStateNoun: "State",
     filterStateAll: "All states",
     filterAuthorNoun: "Author",

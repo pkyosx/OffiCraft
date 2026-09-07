@@ -91,7 +91,7 @@ func TestSelectLoreKeepsTheListersOrder(t *testing.T) {
 		loreFixture("L-1", LoreStatePinned, 10),
 		loreFixture("L-2", LoreStateActive, 10),
 	}}
-	sel, err := selectLoreForScope(lister, LoreScopeRole, "assistant", 1000)
+	sel, err := selectLoreForScope(lister, LoreScopeAgent, "m-staff-1", 1000)
 	if err != nil {
 		t.Fatalf("selectLoreForScope: %v", err)
 	}
@@ -122,7 +122,7 @@ func TestSelectLoreStopsAtTheFirstEntryThatDoesNotFit(t *testing.T) {
 		loreFixture("L-2", LoreStateActive, 50), // 80+50 = 130 > 100 ⇒ stop here
 		loreFixture("L-3", LoreStateActive, 10), // would fit in the leftover 20
 	}}
-	sel, err := selectLoreForScope(lister, LoreScopeRole, "assistant", 100)
+	sel, err := selectLoreForScope(lister, LoreScopeAgent, "m-staff-1", 100)
 	if err != nil {
 		t.Fatalf("selectLoreForScope: %v", err)
 	}
@@ -146,7 +146,7 @@ func TestSelectLoreTakesEverythingThatExactlyFills(t *testing.T) {
 		loreFixture("L-1", LoreStateActive, 60),
 		loreFixture("L-2", LoreStateActive, 40), // 60+40 = 100 == the cap
 	}}
-	sel, err := selectLoreForScope(lister, LoreScopeRole, "assistant", 100)
+	sel, err := selectLoreForScope(lister, LoreScopeAgent, "m-staff-1", 100)
 	if err != nil {
 		t.Fatalf("selectLoreForScope: %v", err)
 	}
@@ -165,7 +165,7 @@ func TestSelectLoreRefusesAnEntryBiggerThanTheWholeCap(t *testing.T) {
 		loreFixture("L-1", LoreStateActive, 500),
 		loreFixture("L-2", LoreStateActive, 10),
 	}}
-	sel, err := selectLoreForScope(lister, LoreScopeRole, "assistant", 100)
+	sel, err := selectLoreForScope(lister, LoreScopeAgent, "m-staff-1", 100)
 	if err != nil {
 		t.Fatalf("selectLoreForScope: %v", err)
 	}
@@ -188,7 +188,7 @@ func TestSelectLoreCountsCharactersNotBytes(t *testing.T) {
 	lister := &fakeLoreLister{entries: []LoreEntry{
 		{ID: "L-1", Title: "標", Body: "題內容", State: LoreStateActive}, // 4 chars, 12 bytes
 	}}
-	sel, err := selectLoreForScope(lister, LoreScopeRole, "assistant", 10)
+	sel, err := selectLoreForScope(lister, LoreScopeAgent, "m-staff-1", 10)
 	if err != nil {
 		t.Fatalf("selectLoreForScope: %v", err)
 	}
@@ -205,7 +205,7 @@ func TestSelectLoreReadsZeroCapAsNoRoom(t *testing.T) {
 	lister := &fakeLoreLister{entries: []LoreEntry{
 		loreFixture("L-1", LoreStateActive, 1),
 	}}
-	sel, err := selectLoreForScope(lister, LoreScopeRole, "assistant", 0)
+	sel, err := selectLoreForScope(lister, LoreScopeAgent, "m-staff-1", 0)
 	if err != nil {
 		t.Fatalf("selectLoreForScope: %v", err)
 	}
@@ -222,7 +222,7 @@ func TestSelectLoreReadsZeroCapAsNoRoom(t *testing.T) {
 func TestSelectLoreSurfacesTheListerError(t *testing.T) {
 	boom := errors.New("database is closed")
 	_, err := selectLoreForScope(&fakeLoreLister{err: boom},
-		LoreScopeRole, "assistant", 100)
+		LoreScopeAgent, "m-staff-1", 100)
 	if !errors.Is(err, boom) {
 		t.Fatalf("err = %v, want the lister's own error — an empty fold and a "+
 			"broken database must not look the same", err)
@@ -231,7 +231,7 @@ func TestSelectLoreSurfacesTheListerError(t *testing.T) {
 
 // TestRenderLoreBlockIsEmptyForAnEmptySelection. Both exits append this
 // unconditionally, so a heading with nothing under it would be a claim ("this
-// role has no traditions") that the empty selection does not support — the cap
+// member has no traditions") that the empty selection does not support — the cap
 // may be zero, or everything may be retired.
 func TestRenderLoreBlockIsEmptyForAnEmptySelection(t *testing.T) {
 	if got := renderLoreBlock(loreSelection{Entries: []LoreEntry{}}); got != "" {

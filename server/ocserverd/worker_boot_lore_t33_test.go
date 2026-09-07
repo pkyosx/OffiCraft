@@ -34,11 +34,28 @@ import (
 	"testing"
 )
 
-// workerBootLoreFixture stands up one server carrying a staff role entry and an
-// outsource member entry, and returns both assembled documents.
+// workerBootLoreFixture stands up one server carrying one staff member's entry
+// and one outsource member's entry, and returns both assembled documents.
 //
 // Both folds run on ONE server so the shared slots are the same bytes by
 // construction rather than by a second re-derivation of them here.
+//
+// 🔴 SINCE THE SCOPES COLLAPSED, BOTH MARKERS SIT IN THE SAME SCOPE KIND AND
+// DIFFER ONLY BY KEY (owner 2026-09-07, card rc-a43100fd0486 [0]). That makes
+// TestNeitherBootPathCarriesTheOtherScopesLore STRICTER than it was, not weaker:
+// before, an implementation that ignored the scope KEY and selected on kind
+// alone would still have separated these two documents, because one was `role`
+// and the other `agent`. Now both are `agent`, so only a selection that honours
+// the key keeps them apart — the exact bug the test names, and one it could not
+// previously have caught.
+//
+// 🔴 A REAL *Member IS PASSED TO buildBootContext, WHERE nil USED TO DO. It has
+// to be: the staff fold keys its 傳承 by the member id now, and buildBootContext
+// with no member has no id to key by and deliberately emits no lore block at all
+// (the cockpit's role PREVIEW path). Passing nil here would leave the staff side
+// permanently empty and every assertion below would pass while testing nothing —
+// which is why the inertness checks at the bottom of this fixture are load-bearing
+// rather than decorative.
 func workerBootLoreFixture(t *testing.T) (staffDoc, workerDoc, workerID string) {
 	t.Helper()
 	s := newWorkerTestServer(t)
@@ -47,21 +64,28 @@ func workerBootLoreFixture(t *testing.T) (staffDoc, workerDoc, workerID string) 
 		t.Fatalf("put user context: %v", err)
 	}
 
-	staff, err := s.buildBootContext("", nil)
+	// A staff member on the roster, carrying a role_key. The role is set on
+	// purpose even though nothing keys by it any more: it is what makes an
+	// implementation that quietly went back to keying by role FAIL here rather
+	// than find an empty string and emit nothing.
+	staffMember := &Member{
+		ID: "m-t33boot", Name: "Staffer", Kind: KindStaff, RoleKey: defaultBootRole,
+		Runtime: RuntimeClaude, RosterStatus: RosterStatusActive,
+	}
+	if err := s.dal.PutMember(*staffMember); err != nil {
+		t.Fatalf("PutMember: %v", err)
+	}
+
+	staff, err := s.buildBootContext("", staffMember)
 	if err != nil || staff == nil {
 		t.Fatalf("buildBootContext: %v", err)
 	}
-	// The role the staff fold actually resolved to — asking it rather than
-	// naming one keeps this fixture correct if the default role is renamed.
-	if staff.RoleKey == "" {
-		t.Fatalf("the staff fold resolved no role, so a role-scoped entry has nothing to hang on")
-	}
 	workerID = "ow-t33boot"
-	seedLore(t, s.dal, LoreScopeRole, staff.RoleKey, "ROLE-SCOPED-MARKER", LoreStateActive, 100)
-	seedLore(t, s.dal, LoreScopeAgent, workerID, "AGENT-SCOPED-MARKER", LoreStateActive, 100)
+	seedLore(t, s.dal, LoreScopeAgent, staffMember.ID, "STAFF-SCOPED-MARKER", LoreStateActive, 100)
+	seedLore(t, s.dal, LoreScopeAgent, workerID, "WORKER-SCOPED-MARKER", LoreStateActive, 100)
 
 	// Rebuild the staff document so it carries the entry seeded above.
-	staff, err = s.buildBootContext("", nil)
+	staff, err = s.buildBootContext("", staffMember)
 	if err != nil || staff == nil {
 		t.Fatalf("buildBootContext (after seeding): %v", err)
 	}
@@ -78,10 +102,11 @@ func workerBootLoreFixture(t *testing.T) (staffDoc, workerDoc, workerID string) 
 
 	// The fixture must actually contain both entries, or every assertion built on
 	// it is about a document that has nothing in the slot under test.
-	if !strings.Contains(staff.Context, "ROLE-SCOPED-MARKER") {
-		t.Fatalf("fixture is inert: the staff document carries no role-scoped 傳承")
+	if !strings.Contains(staff.Context, "STAFF-SCOPED-MARKER") {
+		t.Fatalf("fixture is inert: the staff document carries no member-scoped 傳承 — " +
+			"slot 3 on the staff path is empty, so nothing below is being tested")
 	}
-	if !strings.Contains(worker, "AGENT-SCOPED-MARKER") {
+	if !strings.Contains(worker, "WORKER-SCOPED-MARKER") {
 		t.Fatalf("fixture is inert: the outsource document carries no agent-scoped 傳承 — " +
 			"slot 3 is still empty on the worker path, so nothing below is being tested")
 	}
@@ -135,7 +160,7 @@ func cutSlot3(t *testing.T, doc, startAnchor string, minSpan int) (string, int) 
 func TestBothBootPathsShareSlots124ByteForByte(t *testing.T) {
 	staffDoc, workerDoc, _ := workerBootLoreFixture(t)
 
-	// The staff persona begins at 角色說明 and runs through 判準 → 長期筆記 → 角色傳承.
+	// The staff persona begins at 角色說明 and runs through 判準 → 長期筆記 → 傳承.
 	staffRest, staffCut := cutSlot3(t, staffDoc, "# Role: ", 200)
 	// The worker's slot 3 is the lore block alone, so it begins at that heading.
 	workerRest, _ := cutSlot3(t, workerDoc, loreBlockHeading+"\n\n## ", 20)
@@ -159,24 +184,23 @@ func TestBothBootPathsShareSlots124ByteForByte(t *testing.T) {
 
 // TestNeitherBootPathCarriesTheOtherScopesLore is the half the old equality could
 // not express. Each path fills its own slot 3, and the failure this catches is a
-// selection that reads the wrong scope — which produces NO error, just a member
-// reading somebody else's traditions or missing its own.
+// selection that reads the wrong scope KEY — which produces NO error, just a
+// member reading somebody else's traditions or missing its own.
 func TestNeitherBootPathCarriesTheOtherScopesLore(t *testing.T) {
 	staffDoc, workerDoc, workerID := workerBootLoreFixture(t)
 
-	if strings.Contains(staffDoc, "AGENT-SCOPED-MARKER") {
-		t.Errorf("the STAFF boot document carries an agent-scoped 傳承 entry. " +
-			"agent scope is keyed by one member id and rides that member's own " +
-			"document only; a role's readers must never be charged for it.")
+	if strings.Contains(staffDoc, "WORKER-SCOPED-MARKER") {
+		t.Errorf("the STAFF boot document carries the OUTSOURCE member's 傳承 entry. " +
+			"Both scopes are `agent` now, so the only thing separating them is the " +
+			"scope KEY — this fires when the selection stopped honouring it.")
 	}
 	if strings.Contains(staffDoc, workerID) {
-		t.Errorf("the STAFF boot document names outsource member %s — the agent scope "+
-			"leaked into the role fold", workerID)
+		t.Errorf("the STAFF boot document names outsource member %s — one member's "+
+			"scope leaked into another's fold", workerID)
 	}
-	if strings.Contains(workerDoc, "ROLE-SCOPED-MARKER") {
-		t.Errorf("the OUTSOURCE boot document carries a role-scoped 傳承 entry. " +
-			"An outsource member has no role, so a role's traditions name nothing " +
-			"it could act on.")
+	if strings.Contains(workerDoc, "STAFF-SCOPED-MARKER") {
+		t.Errorf("the OUTSOURCE boot document carries the STAFF member's 傳承 entry. " +
+			"A member reads its own 傳承 and nobody else's.")
 	}
 	// And the persona itself never crosses either: slot 3 on the worker path is
 	// the lore block and nothing else.

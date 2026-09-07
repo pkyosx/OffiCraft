@@ -2065,16 +2065,16 @@ DEGRADED: dict[str, str] = {
         "tests (keyring_rotation_t62_test.go, api_signing_keys_t62_test.go)."
     ),
     "POST /api/lore": (
-        "the owner face is pinned at 400, not 200, and no cell reaches the "
-        "write's OUTSOURCE arm. The 400 is the route's own semantics (the owner "
-        "has no roster row, so there is no boot document of his own to file "
-        "under), not a weakened probe — but it does mean this row's only 2xx "
-        "faces are role-keyed ones. The outsource arm (a roster row whose "
-        "role_key is \"\" → filed under the member's own id, scope_kind "
-        "`agent`) needs an identity that is at or above the agent floor AND "
-        "carries a blank role_key; the only blank-role identity this suite "
-        "builds is the warden, which sits BELOW that floor and is a derived "
-        "403. Both arms and the 400 are pinned in the server unit tests "
+        "the owner face is pinned at 400, not 200. That is the route's own "
+        "semantics (the owner has no roster row, so there is no boot document "
+        "of his own to file under), not a weakened probe. "
+        "🔴 THE TWO-ARM CAVEAT THAT USED TO BE HERE IS OBSOLETE: this note "
+        "described a staff arm (role_key → scope_kind `role`) and an outsource "
+        "arm (blank role_key → scope_kind `agent`) that this suite could not "
+        "both reach. The owner collapsed the scopes on 2026-09-07 (card "
+        "rc-a43100fd0486 [0]), so there is ONE arm — every writer files under "
+        "its own member id — and the identities this suite does build exercise "
+        "it. The refusal and the scope are pinned in the server unit tests "
         "(api_lore_t33_test.go)."
     ),
     "POST /api/lore/{entry_id}/state": (

@@ -4732,14 +4732,16 @@ export interface components {
             seq: number;
             /**
              * Scope Kind
-             * @description ``role``, ``agent`` or ``manual``, and the three are not interchangeable. A ``role`` entry rides the STAFF boot document of that role; an ``agent`` entry rides ONE member's own boot document and is written only by an outsource member, who has no role for ``role`` to name; a ``manual`` entry rides ``get_task_manual``.
+             * @description ``agent`` or ``manual``, and the two are not interchangeable. An ``agent`` entry rides ONE member's own boot document — staff and outsource alike; a ``manual`` entry rides ``get_task_manual``.
              *
-             *     Which one a write lands in is decided by ONE question — the EFFECTIVE RELATED TASK: the named task when it carries a type, and NULL otherwise, where "otherwise" covers BOTH naming no task and naming a 臨時任務 that carries no type. An effective task gives ``manual``; NULL gives ``role`` for staff and ``agent`` for an outsource member.
+             *     Which one a write lands in is decided by ONE question — the EFFECTIVE RELATED TASK: the named task when it carries a type, and NULL otherwise, where "otherwise" covers BOTH naming no task and naming a 臨時任務 that carries no type. An effective task gives ``manual``; NULL gives ``agent``, keyed by the writer itself.
+             *
+             *     🔴 A THIRD VALUE, ``role``, WAS RETIRED ON 2026-09-07 (owner, card rc-a43100fd0486 [0]: 「只有成員跟任務傳承兩種」). Every role-scoped entry was rekeyed onto the one member under that role, and ``role`` is no longer writable and no longer an accepted ``scope_kinds`` filter value — sending it is a 400, not an empty page. READERS MUST STILL TOLERATE IT: the migration deliberately left in place any entry whose member could not be determined (no active member under that role, or more than one), so ``role`` can still come back on an unfiltered page and a client that switches exhaustively on the two live values must have a fallback arm rather than crashing or renaming it into one of them.
              */
             scope_kind: string;
             /**
              * Scope Key
-             * @description The role_key when ``scope_kind`` is ``role``; the writer's own member id when it is ``agent``; the task manual's ``type_key`` when it is ``manual``.
+             * @description The writer's own member id when ``scope_kind`` is ``agent``; the task manual's ``type_key`` when it is ``manual``. A surviving legacy ``role`` row (see ``scope_kind``) still carries a role_key here.
              */
             scope_key: string;
             /** Title */
@@ -4781,12 +4783,16 @@ export interface components {
         };
         /**
          * LoreEntryWriteDTO
-         * @description Write ONE 傳承 entry (T-33). ``task_id`` decides the scope, and it decides it alone:
+         * @description Write ONE 傳承 entry (T-33). The EFFECTIVE RELATED TASK decides the scope, and it decides it alone:
          *
-         *     * absent or "" ⇒ a ROLE entry under the CALLER'S OWN role_key, read from the roster by the verified token subject — never from a client field.
-         *     * present ⇒ a MANUAL entry under that task's ``type_key``.
+         *     * a named task that carries a ``type_key`` ⇒ a MANUAL entry under that type.
+         *     * anything else ⇒ an AGENT entry under the CALLER'S OWN member id, read from the roster by the verified token subject — never from a client field. "Anything else" covers BOTH naming no task and naming a 臨時任務 that carries no type: a task with no type is not a place an entry can hang, so it is the same input as naming none.
          *
-         *     Both arms can be refused and NEITHER falls through to the other: a caller with no role (an outsource worker) is a 400 because there is no role to file under, and a task with no type (a 臨時任務) is a 400 because there is no manual to file under. Filing an untyped task's lesson under the caller's role instead would charge every boot of that role for a lesson about work it will never do, while the type that needed it still received nothing — and no error anywhere would say so.
+         *     Staff and outsource members take the same arm. They used to differ — staff filed under their role_key — until the owner collapsed the scopes to two on 2026-09-07 (card rc-a43100fd0486 [0]).
+         *
+         *     NEITHER ARM FALLS THROUGH TO THE OTHER. Filing an untyped task's lesson under a manual would charge a task TYPE for a lesson about work it will never do, while the writer who needed it kept nothing — and no error anywhere would say so. The one refusal left is a caller with NO ROSTER ROW at all (the owner): there is no boot document of his own for an entry to ride, so it is a 400.
+         *
+         *     A write that named a task and landed in the writer's own document says so in ``scope_note`` — it is the one outcome the caller could not predict from its own request.
          *
          *     An over-cap ``title`` or ``body`` is a 400 that writes NOTHING, and nothing is truncated. The caps are the ``lore_cap_chars_title`` / ``lore_cap_chars_body`` settings, in characters.
          */
@@ -4867,7 +4873,7 @@ export interface components {
          *
          *     EVERY FIELD HERE IS MINTED OR DECIDED BY THE HANDLER, none is an echo. What is dropped: ``title`` and ``body`` (just sent), ``author_id`` (the verified caller, which is the caller), ``source_task_id`` (the ``task_id`` just sent), plus ``state``, ``retire_reason``, ``effective_ts`` and ``updated_ts``, which on a fresh write are constants — a new entry is always ``active`` with no reason, and all three of its timestamps equal ``created_ts``. Call ``list_lore_entries`` (``GET /api/lore``) for the entry itself.
          *
-         *     ``scope_kind`` and ``scope_key`` STAY, and they are why this receipt is more than an id. WHICH of the three boot documents an entry landed in is decided SERVER-SIDE, off the effective related task and off the caller's own roster row — a caller that named a task cannot predict it, and it is the machine-readable half of what ``scope_note`` says in a sentence.
+         *     ``scope_kind`` and ``scope_key`` STAY, and they are why this receipt is more than an id. WHICH of the two boot documents an entry landed in is decided SERVER-SIDE, off the effective related task and off the caller's own roster row — a caller that named a task cannot predict it, and it is the machine-readable half of what ``scope_note`` says in a sentence.
          */
         LoreEntryWriteReceiptDTO: {
             /**
@@ -4882,12 +4888,12 @@ export interface components {
             seq: number;
             /**
              * Scope Kind
-             * @description ``role``, ``agent`` or ``manual`` — WHERE THIS ENTRY WAS FILED, which the server decided and the caller did not ask for. The deciding question is the EFFECTIVE RELATED TASK: the named task when it carries a type, and NULL otherwise, where "otherwise" covers BOTH naming no task and naming a 臨時任務 that carries no type. An effective task gives ``manual``; NULL gives ``role`` for staff and ``agent`` for an outsource member, who holds no role for ``role`` to name.
+             * @description ``agent`` or ``manual`` — WHERE THIS ENTRY WAS FILED, which the server decided and the caller did not ask for. The deciding question is the EFFECTIVE RELATED TASK: the named task when it carries a type, and NULL otherwise, where "otherwise" covers BOTH naming no task and naming a 臨時任務 that carries no type. An effective task gives ``manual``; NULL gives ``agent``, keyed by the writer's own member id — staff and outsource alike since the 2026-09-07 collapse (card rc-a43100fd0486 [0]). A write can never produce the retired ``role`` value.
              */
             scope_kind: string;
             /**
              * Scope Key
-             * @description The role_key when ``scope_kind`` is ``role``; the writer's own member id when it is ``agent``; the task manual's ``type_key`` when it is ``manual``. Together with ``scope_kind`` it is the filter that reads this entry back out of ``list_lore_entries``.
+             * @description The writer's own member id when ``scope_kind`` is ``agent``; the task manual's ``type_key`` when it is ``manual``. Together with ``scope_kind`` it is the filter that reads this entry back out of ``list_lore_entries``.
              */
             scope_key: string;
             /**
@@ -10836,9 +10842,22 @@ export interface components {
             fields: components["schemas"]["TaskManualFieldDTO"][];
             /**
              * Learnings
+             * @description The manual's LEARNINGS DOCUMENT — the stored text a write face writes, and nothing else. 🔴 IT NO LONGER CARRIES THE 傳承 BLOCK. Lore used to be appended onto this field, which left it full of text while ``learnings_chars`` (which counts the STORED document) reported 0, and nothing on the wire said which half of the field that number was about. Owner ruling 2026-09-07 split them: the block is served on ``lore``, beside this field. A reader that wants what a member effectively sees concatenates the two ITSELF — and can then see that it did, which is exactly what the merged field took away.
              * @default
              */
             learnings: string;
+            /**
+             * Lore
+             * @description The rendered 傳承 block for this manual's task type: the entries selected for it, newest first, under a ``# 傳承`` heading. EMPTY STRING when the type has no live entries — a real answer, not an omission. 🔴 IT IS NOT PART OF ``learnings`` AND IS NOT STORED ANYWHERE. It is assembled per read from the lore entries, so a caller that reads it and writes it back into the learnings document duplicates it on every cycle; the learnings write faces strip a trailing block for that exact reason. Read it, do not re-send it. 🔴 IF YOU ARE FOLLOWING A WRITTEN PROCEDURE THAT ONLY MENTIONS ``learnings``, THIS FIELD IS THE PART THAT PROCEDURE PREDATES — the type's accumulated experience lives here now.
+             * @default
+             */
+            lore: string;
+            /**
+             * Lore Chars
+             * @description Size of ``lore`` in CHARACTERS. A SEPARATE number from ``learnings_chars`` on purpose: the two fields are written by different paths and judged against different caps, so ``learnings_chars`` sizes what a writer may edit while this one sizes what the server assembled. Neither substitutes for the other, and it is their SUM that approximates what a member effectively reads.
+             * @default 0
+             */
+            lore_chars: number;
             /**
              * Purpose
              * @default
@@ -11782,10 +11801,10 @@ export interface operations {
     handle_list_lore_entries_api_lore_get: {
         parameters: {
             query?: {
-                /** @description REPEATABLE scope-kind set (``?scope_kinds=role&scope_kinds=manual``) — the cockpit's 範圍 filter is multi-select (owner rc-0376bf875757 [1]), so the page asks for exactly the kinds that are ticked instead of downloading every scope and filtering in the browser. Accepted values: ``role``, ``agent``, ``manual``; ANY other element is a 400 that NAMES the offending value — never a silently dropped one, because 「查無資料」 and 「你打錯字」 look identical on the wire. 🔴 PLURAL WINS. When this and its singular twin are BOTH sent, this one is the filter and the singular is ignored — they are neither ANDed nor unioned. Absent, or present but all-blank, falls back to the singular; both empty means no constraint on this axis. NOTE the 上限線: ``cap_chars`` / ``first_dropped_id`` are answered only when the EFFECTIVE scope_kind set holds exactly ONE value AND the effective scope_key set holds exactly ONE — a budget belongs to a scope, so a page spanning two or more has no single one to report and answers 0 / "". additive-optional. */
+                /** @description REPEATABLE scope-kind set (``?scope_kinds=agent&scope_kinds=manual``). Accepted values: ``agent``, ``manual``; ANY other element is a 400 that NAMES the offending value — never a silently dropped one, because 「查無資料」 and 「你打錯字」 look identical on the wire. 🔴 ``role`` IS NOW ONE OF THOSE REFUSED VALUES. It was the third scope until 2026-09-07 (owner, card rc-a43100fd0486 [0]) and every client written before then knows it, so it is the one wrong value likely to arrive from a real caller — answering 200-with-no-rows would tell them their 傳承 had been deleted rather than that their vocabulary is old. Refusing it does NOT hide the legacy rows the migration deliberately left at ``role``: those still come back on any page that does not constrain this axis. 🔴 PLURAL WINS. When this and its singular twin are BOTH sent, this one is the filter and the singular is ignored — they are neither ANDed nor unioned. Absent, or present but all-blank, falls back to the singular; both empty means no constraint on this axis. NOTE the 上限線: ``cap_chars`` / ``first_dropped_id`` are answered only when the EFFECTIVE scope_kind set holds exactly ONE value AND the effective scope_key set holds exactly ONE — a budget belongs to a scope, so a page spanning two or more has no single one to report and answers 0 / "". additive-optional. */
                 scope_kinds?: string[];
                 scope_kind?: string | null;
-                /** @description REPEATABLE scope-key set (``?scope_keys=assistant&scope_keys=researcher``) — the multi-select twin of ``scope_key``. The keys are free-form (a role_key, a member id or a manual's type_key, depending on the kind beside them), so there is no closed set to check against and no 400: a key nobody carries answers 200 with no rows for that key. 🔴 PLURAL WINS. When this and its singular twin are BOTH sent, this one is the filter and the singular is ignored — they are neither ANDed nor unioned. Absent, or present but all-blank, falls back to the singular; both empty means no constraint on this axis. NOTE the 上限線: ``cap_chars`` / ``first_dropped_id`` are answered only when the EFFECTIVE scope_kind set holds exactly ONE value AND the effective scope_key set holds exactly ONE — a budget belongs to a scope, so a page spanning two or more has no single one to report and answers 0 / "". additive-optional. */
+                /** @description REPEATABLE scope-key set (``?scope_keys=m-1a2b&scope_keys=tm-review``) — the multi-select twin of ``scope_key``. The keys are free-form (a member id or a manual's type_key, depending on the kind beside them), so there is no closed set to check against and no 400: a key nobody carries answers 200 with no rows for that key. 🔴 PLURAL WINS. When this and its singular twin are BOTH sent, this one is the filter and the singular is ignored — they are neither ANDed nor unioned. Absent, or present but all-blank, falls back to the singular; both empty means no constraint on this axis. NOTE the 上限線: ``cap_chars`` / ``first_dropped_id`` are answered only when the EFFECTIVE scope_kind set holds exactly ONE value AND the effective scope_key set holds exactly ONE — a budget belongs to a scope, so a page spanning two or more has no single one to report and answers 0 / "". additive-optional. */
                 scope_keys?: string[];
                 scope_key?: string | null;
                 /** @description REPEATABLE state set (``?states=active&states=pinned``) — the multi-select twin of ``state``, so the 狀態 filter can tick more than one row. Accepted values: ``active``, ``pinned``, ``retired``; ANY other element is a 400 that NAMES the offending value rather than being dropped, for the same reason the singular does it — an ignored typo returns an empty page that reads exactly like a real "there are none". 🔴 PLURAL WINS. When this and its singular twin are BOTH sent, this one is the filter and the singular is ignored — they are neither ANDed nor unioned. Absent, or present but all-blank, falls back to the singular; both empty means no constraint on this axis. additive-optional. */

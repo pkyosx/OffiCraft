@@ -176,9 +176,14 @@ func (s *apiServer) buildWorkerBootContext(w OutsourceWorker, t Task, manual *Ta
 		return "", err
 	}
 
-	// 傳承 (T-33) — the AGENT exit, slot 3. Keyed by this worker's own member id,
-	// never by a role: an outsource member's roster row carries no role_key, so
-	// LoreScopeRole names nothing here.
+	// 傳承 (T-33) — the AGENT exit, slot 3. Keyed by this worker's own member id.
+	//
+	// 🔴 THIS LINE DID NOT CHANGE WHEN THE SCOPES COLLAPSED, AND THAT IS THE
+	// POINT. There used to be a role scope beside this one and the staff exit in
+	// assets.go used it; owner removed it on 2026-09-07 (card rc-a43100fd0486
+	// [0]) and the staff exit moved ONTO this shape. So this is no longer "the
+	// outsource special case" — it is the one member-scoped fold, and assets.go
+	// now calls selectLoreForScope with the same scope and the same knob.
 	//
 	// 🔴 THE SELECTION IS NOT MADE HERE. selectLoreForScope (lore_select.go) is
 	// the one implementation of that rule; the staff exit in assets.go and the
@@ -187,10 +192,11 @@ func (s *apiServer) buildWorkerBootContext(w OutsourceWorker, t Task, manual *Ta
 	// condition forbids, and the way it would show up is one member's entry
 	// appearing in one exit and not the other, with no error anywhere.
 	//
-	// It shares the ROLE budget knob rather than opening a fifth one (owner, card
-	// rc-3c24fdc61ed3): both are the same spend — the 傳承 block in one reader's
-	// own boot document, paid at every boot — so two numbers would only be two
-	// places to make the same decision.
+	// The budget knob is loreRoleCap() — one knob for every member-scoped fold
+	// (owner, card rc-3c24fdc61ed3): it is the same spend, the 傳承 block in one
+	// reader's own boot document paid at every boot, so two numbers would only be
+	// two places to make the same decision. Its NAME still says role; see
+	// domain.go for why it was not renamed here.
 	var b strings.Builder
 	b.WriteString(head)
 	b.WriteString("\n\n")

@@ -695,10 +695,17 @@ func (s *apiServer) taskEventCap() int {
 // (T-33). Read at request time like every cap above, so a PATCH takes effect on
 // the next boot document with no restart.
 //
-// 🔴 THE TWO ARE INDEPENDENT AND ARE NEVER ADDED. A role's traditions are paid
-// for by every boot of that role; a task type's are paid for by whoever opens
-// that manual. Summing them, or serving one where the other belongs, would make
-// one reader's budget depend on an unrelated reader's writing.
+// ⚠️ loreRoleCap IS THE MEMBER BUDGET. Since the scopes collapsed to two (owner
+// 2026-09-07, rc-a43100fd0486 [0]) there is no role scope for it to be the
+// budget OF; it is what every member-scoped fold spends — the staff exit in
+// assets.go and the outsource exit in worker_spawn.go, which now ask for the
+// same scope. The function and its setting key keep the old name because
+// renaming a live settings key is the owner's call, not this ticket's.
+//
+// 🔴 THE TWO ARE INDEPENDENT AND ARE NEVER ADDED. One member's 傳承 is paid for
+// by every boot of that member; a task type's is paid for by whoever opens that
+// manual. Summing them, or serving one where the other belongs, would make one
+// reader's budget depend on an unrelated reader's writing.
 func (s *apiServer) loreRoleCap() int {
 	s.settingsMu.RLock()
 	defer s.settingsMu.RUnlock()

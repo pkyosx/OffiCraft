@@ -3127,14 +3127,24 @@ export type LoreEntryState = "active" | "pinned" | "retired";
 export interface LoreEntryView {
   id: string;
   seq: number;
-  /** 🔴 FOUR VALUES, AND THE FOURTH IS NOT A SCOPE. "role" | "agent" |
-   * "manual" are the three scopes the server has; "unknown" is what a cockpit
-   * older than the server calls a scope it has never heard of. It exists so
-   * that an unrecognised kind can be carried WITHOUT being renamed into one of
-   * the real three — see `toLoreEntry`. Nothing may be requested as "unknown"
-   * (`LoreListOptions.scopeKind` deliberately omits it), so it only ever
-   * arrives, never departs. */
-  scopeKind: "role" | "agent" | "manual" | "unknown";
+  /** 🔴 THREE VALUES, AND THE THIRD IS NOT A SCOPE. "agent" | "manual" are the
+   * two scopes the server has; "unknown" is what this cockpit calls a scope it
+   * cannot name. It exists so that an unrecognised kind can be carried WITHOUT
+   * being renamed into one of the real ones — see `toLoreEntry`. Nothing may be
+   * requested as "unknown" (`LoreListOptions.scopeKind` deliberately omits it),
+   * so it only ever arrives, never departs.
+   *
+   * 🔴 "unknown" IS NOW A LIVE ARM, NOT JUST A FORWARD-COMPATIBILITY HATCH. It
+   * used to mean only "a cockpit older than the server". Since the scopes
+   * collapsed from three to two (owner 2026-09-07, card rc-a43100fd0486 [0]) it
+   * ALSO catches the retired `role` value, which the server's migration
+   * deliberately left on any entry whose owning member could not be determined.
+   * Those rows are real, current, and reachable on the unfiltered page — so this
+   * arm has to RENDER, not merely not-crash. Do not "clean it up" by mapping
+   * `role` onto `agent`: that would file an entry whose owner was explicitly
+   * undetermined under a specific member, which is the exact guess the migration
+   * refused to make. */
+  scopeKind: "agent" | "manual" | "unknown";
   scopeKey: string;
   title: string;
   body: string;
@@ -3151,9 +3161,11 @@ export interface LoreEntryView {
  * parameter — see `Api.listLoreEntries` for why none of them may become a
  * client-side filter. */
 export interface LoreListOptions {
-  /** The three scopes that can be ASKED for. "unknown" is absent on purpose:
-   * it is a reading of an answer, not a question anyone can pose. */
-  scopeKind?: "role" | "agent" | "manual";
+  /** The two scopes that can be ASKED for. "unknown" is absent on purpose: it
+   * is a reading of an answer, not a question anyone can pose. `role` is absent
+   * because the server now REFUSES it with a 400 — sending it would turn a page
+   * into an error rather than narrowing it. */
+  scopeKind?: "agent" | "manual";
   scopeKey?: string;
   state?: LoreEntryState;
   authorId?: string;
@@ -3179,7 +3191,7 @@ export interface LoreListOptions {
    * exactly one — a budget belongs to a scope, and two scopes have two different
    * budgets with no single line between them. Tick two 範圍 and the page gets
    * 0 / "", which is the same honest answer an unfiltered page gets. */
-  scopeKinds?: ("role" | "agent" | "manual")[];
+  scopeKinds?: ("agent" | "manual")[];
   scopeKeys?: string[];
   states?: LoreEntryState[];
   authorIds?: string[];

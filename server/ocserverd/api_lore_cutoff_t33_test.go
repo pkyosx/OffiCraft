@@ -60,7 +60,7 @@ func TestListNamesTheEntryTheFoldActuallyDropped(t *testing.T) {
 	// Newest effective first, so the display order is the reverse of the write
 	// order and the drop falls in the middle of the list, not at its tail.
 	page := listLore(t, s, me, HandleListLoreEntriesApiLoreGetParams{
-		ScopeKind: strp(LoreScopeRole), ScopeKey: strp(defaultBootRole),
+		ScopeKind: strp(LoreScopeAgent), ScopeKey: strp(me),
 		Limit: intp(1),
 	})
 	if page.CapChars != 20 {
@@ -79,7 +79,7 @@ func TestListNamesTheEntryTheFoldActuallyDropped(t *testing.T) {
 	// Which titles those ids carry, and which entry sits immediately above the
 	// line, read off the full ordered list.
 	full := listLore(t, s, me, HandleListLoreEntriesApiLoreGetParams{
-		ScopeKind: strp(LoreScopeRole), ScopeKey: strp(defaultBootRole),
+		ScopeKind: strp(LoreScopeAgent), ScopeKey: strp(me),
 		Limit: intp(30),
 	})
 	if len(full.Entries) != len(titles) {
@@ -219,9 +219,9 @@ func TestListDrawsNoLineWhenTheFilterNamesNoSingleScope(t *testing.T) {
 	}{
 		{"no filter at all", HandleListLoreEntriesApiLoreGetParams{}},
 		{"kind without key", HandleListLoreEntriesApiLoreGetParams{
-			ScopeKind: strp(LoreScopeRole)}},
+			ScopeKind: strp(LoreScopeAgent)}},
 		{"key without kind", HandleListLoreEntriesApiLoreGetParams{
-			ScopeKey: strp(defaultBootRole)}},
+			ScopeKey: strp(me)}},
 	} {
 		page := listLore(t, s, me, tc.params)
 		if page.CapChars != 0 || page.FirstDroppedId != "" {
@@ -246,7 +246,7 @@ func TestListReportsNoDropWhenEverythingFits(t *testing.T) {
 		}
 	}
 	page := listLore(t, s, me, HandleListLoreEntriesApiLoreGetParams{
-		ScopeKind: strp(LoreScopeRole), ScopeKey: strp(defaultBootRole),
+		ScopeKind: strp(LoreScopeAgent), ScopeKey: strp(me),
 	})
 	if page.CapChars != 10000 {
 		t.Fatalf("cap_chars = %d, want 10000", page.CapChars)

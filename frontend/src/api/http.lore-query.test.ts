@@ -49,8 +49,8 @@ afterEach(() => {
 describe("httpApi.listLoreEntries · the multi-select sets go on the wire (T-33)", () => {
   it("sends one repeated parameter per ticked value, with the EXACT values", async () => {
     await httpApi.listLoreEntries({
-      scopeKinds: ["role", "manual"],
-      scopeKeys: ["assistant", "tm-review"],
+      scopeKinds: ["agent", "manual"],
+      scopeKeys: ["mira", "tm-review"],
       states: ["active", "pinned"],
       authorIds: ["mira", "nova"],
     });
@@ -58,16 +58,13 @@ describe("httpApi.listLoreEntries · the multi-select sets go on the wire (T-33)
     expect(u.pathname).toBe("/api/lore");
     // The VALUES and their ORDER, not merely "a scope_kinds param exists" —
     // asking for the wrong two kinds is the same bug as asking for all of them.
-    expect(u.searchParams.getAll("scope_kinds")).toEqual(["role", "manual"]);
-    expect(u.searchParams.getAll("scope_keys")).toEqual([
-      "assistant",
-      "tm-review",
-    ]);
+    expect(u.searchParams.getAll("scope_kinds")).toEqual(["agent", "manual"]);
+    expect(u.searchParams.getAll("scope_keys")).toEqual(["mira", "tm-review"]);
     expect(u.searchParams.getAll("states")).toEqual(["active", "pinned"]);
     expect(u.searchParams.getAll("author_ids")).toEqual(["mira", "nova"]);
     // Repeated, NOT comma-joined into one value — the server binds these as an
-    // array and a single "role,manual" would be one unknown kind, a 400.
-    expect(u.search).toContain("scope_kinds=role&scope_kinds=manual");
+    // array and a single "agent,manual" would be one unknown kind, a 400.
+    expect(u.search).toContain("scope_kinds=agent&scope_kinds=manual");
   });
 
   it("omits an empty set entirely rather than sending an empty parameter", async () => {
@@ -91,14 +88,14 @@ describe("httpApi.listLoreEntries · the multi-select sets go on the wire (T-33)
     // The frozen wire is untouched: a caller written before the ruling sends
     // exactly what it always sent, and sends none of the plural names.
     await httpApi.listLoreEntries({
-      scopeKind: "role",
-      scopeKey: "assistant",
+      scopeKind: "agent",
+      scopeKey: "mira",
       state: "active",
       authorId: "mira",
     });
     const u = lastUrl();
-    expect(u.searchParams.get("scope_kind")).toBe("role");
-    expect(u.searchParams.get("scope_key")).toBe("assistant");
+    expect(u.searchParams.get("scope_kind")).toBe("agent");
+    expect(u.searchParams.get("scope_key")).toBe("mira");
     expect(u.searchParams.get("state")).toBe("active");
     expect(u.searchParams.get("author_id")).toBe("mira");
     expect(u.searchParams.has("states")).toBe(false);

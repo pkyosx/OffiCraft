@@ -68,74 +68,30 @@ func TestReadSeedFileErrsWhenEmbedMiss(t *testing.T) {
 	}
 }
 
-// TestSystemInteractionSeedTeachesTheAdHocTaskRuleTheServerActuallyEnforCES
-// pins the ONE sentence in the shipped seed that a reader acts on directly, and
-// it exists because that sentence and the server can disagree SILENTLY: a member
-// following a stale handbook makes a write it was told would be refused, or does
-// not make one it was told to make, and nothing anywhere errors.
+// 🔴 A TEST WAS DELETED HERE ON 2026-09-07, and the deletion is recorded rather
+// than silent so that a future reader can tell "this guard was retired by a
+// decision" from "this guard was never written".
 //
-// 🔴 THIS TEST USED TO PIN THE OPPOSITE RULE, under the name
-// TestSystemInteractionSeedIncludesTheOwnerAdHocOutsourceRule and the heading
-// 「### 學習經驗寫入位置」. It required the seed to say 「外包成員＋臨時任務 ⇒ 沒有
-// 你該寫的位置」. The owner overturned that on 2026-09-07 in one sentence —
-// 「臨時任務跟無關乎任何任務一樣都是給 NULL」 — and the server was changed to
-// match (api_lore.go: an effective related task, or the writer's own boot
-// document). The old assertion would now hold the handbook to a rule the code
-// no longer runs, so it is repinned rather than removed.
+// It was TestSystemInteractionSeedTeachesTheAdHocTaskRuleTheServerEnforces, and
+// it required the shipped 系統互動 seed to carry a 「### 傳承寫入位置」 section
+// teaching the rule api_lore.go actually runs. The owner ruled the section out
+// of existence (card rc-61fde477ac54 圈 [1], verbatim: 「不就是不要放回去 —— 我
+// 就是不要這一節，拿掉守它的那支測試」). A guard whose subject the owner has
+// removed has nothing left to guard, so it goes with it.
 //
-// It deliberately pins BOTH directions: the new rule must be present, AND the
-// retired refusal must be gone. Presence alone would stay green on a seed that
-// carried both sentences and contradicted itself.
-func TestSystemInteractionSeedTeachesTheAdHocTaskRuleTheServerEnforces(t *testing.T) {
-	seed, err := assetRoot("").readSeedFile(systemInteractionSeedMD)
-	if err != nil {
-		t.Fatalf("read system_interaction.md: %v (run bin/build-seedsdist)", err)
-	}
-
-	const heading = "### 傳承寫入位置"
-	start := strings.Index(seed, heading)
-	if start < 0 {
-		t.Fatalf("shipped system interaction seed is missing %q", heading)
-	}
-	section := seed[start:]
-	if end := strings.Index(section, "\n## "); end >= 0 {
-		section = section[:end]
-	}
-
-	// The rule as the server runs it, in the two halves a reader has to act on.
-	//
-	// 🔴 THE ANCHORS ARE THE RULE, NOT ONE SENTENCE'S WORDING. They were
-	// re-pointed on 2026-09-07 when the owner asked for the section to be
-	// shortened (「不用解釋太多 sample payload 只需要一份」), and again the same day
-	// when he asked for the staff-vs-outsource half of the destination sentence
-	// to go (「這一段可以移除」, which took 「外包寫進他自己的那一份」 with it): the
-	// prose moved, the rule did not. Re-point them the same way if the wording
-	// moves again — what must never be dropped is a set covering BOTH halves of
-	// the routing rule, condition AND destination.
-	for _, want := range []string{
-		// half one: the write named a task that HAS a type -> that type's manual
-		"掛在那個類型的手冊上",
-		// half two: no task, or a task with no type -> the writer's own boot document
-		"或那張任務沒有類型（臨時任務）",
-		"⇒ 寫進你自己的開機檔，你下次開機就會讀到",
-	} {
-		if strings.Count(section, want) != 1 {
-			t.Fatalf("the shipped seed must teach the rule the server enforces — missing or "+
-				"duplicated %q; %s", want, seedExcerpt(systemInteractionSeedMD, section))
-		}
-	}
-
-	// 🔴 And the retired refusal must be GONE, not merely outvoted. A member
-	// reading 「沒有你該寫的位置」 stops before it writes, so the sentence does
-	// damage even when a correct one sits beside it.
-	for _, gone := range []string{"沒有你該寫的位置", "寫入會被拒絕"} {
-		if strings.Contains(section, gone) {
-			t.Fatalf("the shipped seed still carries the RETIRED refusal %q — the server "+
-				"files that write under the writer's own boot document now (owner "+
-				"2026-09-07); %s", gone, seedExcerpt(systemInteractionSeedMD, section))
-		}
-	}
-}
+// ⚠️ IT WAS GUARDING TWO THINGS, AND ONLY ONE OF THEM WAS RULED OUT. Its second
+// half required a pair of RETIRED sentences — 「沒有你該寫的位置」 and
+// 「寫入會被拒絕」 — to be ABSENT. Those describe a refusal the server stopped
+// performing on 2026-09-07, and they are actively harmful independent of the
+// section: a member reading 「沒有你該寫的位置」 stops before it writes, even
+// with correct wording beside it. That protection was INCIDENTAL to the section
+// (its search was scoped to the section's body, which no longer exists) and its
+// loss was NOT part of the owner's ruling. Measured at the time of deletion:
+// both phrases occur 0 times in seeds/system_interaction.md and in
+// seedsdist/system_interaction.md — verified with a positive control on the same
+// grep, so the zero is an absence and not a broken query. Nothing now stops them
+// coming back. Whether to re-guard that, over the WHOLE seed rather than one
+// section, is an open question for the owner and deliberately not answered here.
 
 func TestBuildBootContextSelectsRuntimeBootSequence(t *testing.T) {
 	s := newWorkerTestServer(t)

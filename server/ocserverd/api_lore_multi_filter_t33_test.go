@@ -178,8 +178,22 @@ func TestBadPluralFilterValueIsRefusedNotIgnored(t *testing.T) {
 			"retried", "states"},
 		{"a bad scope_kind beside a good one",
 			HandleListLoreEntriesApiLoreGetParams{
-				ScopeKinds: strsp(LoreScopeRole, "roles")},
+				ScopeKinds: strsp(LoreScopeAgent, "roles")},
 			"roles", "scope_kinds"},
+		// 🔴 `role` IS THE RETIRED VALUE AND IS NOW ITSELF OUT OF VOCABULARY.
+		// It gets its own row because it is the one bad value a real client is
+		// likely to send — every cockpit and every script written before the
+		// 2026-09-07 collapse (card rc-a43100fd0486 [0]) knows it. Answering
+		// 200-with-no-rows would tell those callers their 傳承 was deleted; the
+		// 400 tells them their vocabulary is old, which is the true thing.
+		{"the retired `role` kind, alone",
+			HandleListLoreEntriesApiLoreGetParams{
+				ScopeKinds: strsp("role")},
+			"role", "scope_kinds"},
+		{"the retired `role` kind beside a live one",
+			HandleListLoreEntriesApiLoreGetParams{
+				ScopeKinds: strsp(LoreScopeManual, "role")},
+			"role", "scope_kinds"},
 	} {
 		rec := listLoreRaw(t, s, me, tc.params)
 		// 🔴 THE STATUS CODE IS THE ASSERTION. An implementation that skipped the
@@ -243,7 +257,7 @@ func TestCapLineAnswersForOneScopeAndGoesQuietForSeveral(t *testing.T) {
 	// ── DIRECTION 1: exactly one kind and exactly one key ⇒ the line IS drawn,
 	// and it names the right entry. ────────────────────────────────────────────
 	one := listLore(t, s, me, HandleListLoreEntriesApiLoreGetParams{
-		ScopeKinds: strsp(LoreScopeRole), ScopeKeys: strsp(defaultBootRole),
+		ScopeKinds: strsp(LoreScopeAgent), ScopeKeys: strsp(me),
 		Limit: intp(30),
 	})
 	if one.CapChars != 20 {
@@ -253,7 +267,7 @@ func TestCapLineAnswersForOneScopeAndGoesQuietForSeveral(t *testing.T) {
 			"client.", one.CapChars)
 	}
 	if len(one.Entries) != 6 {
-		t.Fatalf("the role scope holds 6 entries, the page returned %d",
+		t.Fatalf("the writer's own scope holds 6 entries, the page returned %d",
 			len(one.Entries))
 	}
 	if one.FirstDroppedId == "" {
@@ -282,14 +296,14 @@ func TestCapLineAnswersForOneScopeAndGoesQuietForSeveral(t *testing.T) {
 		params HandleListLoreEntriesApiLoreGetParams
 	}{
 		{"two kinds, one key", HandleListLoreEntriesApiLoreGetParams{
-			ScopeKinds: strsp(LoreScopeRole, LoreScopeManual),
-			ScopeKeys:  strsp(defaultBootRole)}},
+			ScopeKinds: strsp(LoreScopeAgent, LoreScopeManual),
+			ScopeKeys:  strsp(me)}},
 		{"one kind, two keys", HandleListLoreEntriesApiLoreGetParams{
-			ScopeKinds: strsp(LoreScopeRole),
-			ScopeKeys:  strsp(defaultBootRole, "another-role")}},
+			ScopeKinds: strsp(LoreScopeAgent),
+			ScopeKeys:  strsp(me, "m-somebody-else")}},
 		{"two of each", HandleListLoreEntriesApiLoreGetParams{
-			ScopeKinds: strsp(LoreScopeRole, LoreScopeManual),
-			ScopeKeys:  strsp(defaultBootRole, "tm-multi")}},
+			ScopeKinds: strsp(LoreScopeAgent, LoreScopeManual),
+			ScopeKeys:  strsp(me, "tm-multi")}},
 	} {
 		page := listLoreRaw(t, s, me, tc.params)
 		if page.Code != http.StatusOK {
@@ -337,7 +351,7 @@ func TestEachAxisFiltersOnItsOwnColumn(t *testing.T) {
 	mk := func(title, scopeKey, authorID string) string {
 		t.Helper()
 		e, err := s.dal.CreateLoreEntryMintingID(LoreEntry{
-			ScopeKind:   LoreScopeRole,
+			ScopeKind:   LoreScopeAgent,
 			ScopeKey:    scopeKey,
 			Title:       title,
 			Body:        "body of " + title,

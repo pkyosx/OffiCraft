@@ -550,29 +550,47 @@ func (s *apiServer) buildBootContext(role string, member *Member) (*bootContext,
 		parts = append(parts, "# Insight ("+roleKey+")\n\n"+insightBody)
 	}
 	parts = append(parts, lessonsTitle+"\n\n"+lessonsBody)
-	// 傳承 (T-33) — the ROLE exit, appended immediately after 長期筆記 and before
-	// the recency-authoritative 啟動步驟 tail. This is slot 3's own material: it
-	// is keyed by role, so it belongs with the persona and nowhere else.
+	// 傳承 (T-33) — the MEMBER exit, appended immediately after 長期筆記 and
+	// before the recency-authoritative 啟動步驟 tail.
 	//
-	// 🔴 ONLY STAFF REACH THIS LINE. Outsource workers assemble their boot
-	// context in buildWorkerBootContext, which is the staff fold MINUS slot 3 —
-	// a worker has no role, so a role's traditions name nothing it could read.
-	// Nothing was added to that path and nothing here is conditional on the
-	// reader: the difference stays exactly where it already was.
+	// 🔴 THIS USED TO BE KEYED BY ROLE AND IS NOW KEYED BY THE MEMBER. Owner
+	// collapsed the three scopes to two on 2026-09-07 (card rc-a43100fd0486 [0]),
+	// so a staff member's 傳承 hangs off its own id exactly the way an outsource
+	// worker's already did in buildWorkerBootContext. The two exits are now the
+	// same question asked of the same scope with the same budget; what still
+	// differs between the two boot folds is everything ELSE in slot 3 (角色說明 /
+	// 判準 / 長期筆記), which staff have and workers do not.
+	//
+	// 🔴 THE CAP IS s.loreRoleCap() AND THAT IS NOT A MISTAKE. It is the
+	// member-fold budget wearing a stale name — the same knob buildWorkerBootContext
+	// has always read for this same scope. s.loreManualCap() is the OTHER exit and
+	// swapping them would silently spend a task type's budget on a person. No knob
+	// was added or retuned here; see domain.go's note on the name.
 	//
 	// 🔴 The selection is NOT made here. selectLoreForScope (lore_select.go) is
 	// the one implementation of that rule and the manual exit calls the same
 	// function; see its header before adding a second one.
-	loreSel, err := selectLoreForScope(s.dal, LoreScopeRole, roleKey, s.loreRoleCap())
-	if err != nil {
-		return nil, err
-	}
-	// An empty block renders as "", and the empty string is dropped rather than
-	// joined in: "\n\n" between two parts would otherwise put a blank gap where
-	// a section was not emitted, which is a difference in the assembled document
-	// that no test of the sections themselves would catch.
-	if block := renderLoreBlock(loreSel); block != "" {
-		parts = append(parts, block)
+	//
+	// ⚠️ member IS NIL ON THE PREVIEW PATH. buildBootContext is also called with
+	// no member to render a ROLE's boot document for the cockpit (no member_id ⇒
+	// no token, see the route). There is no member id to key by then, and there
+	// is no honest substitute: role_key would resurrect the scope this ticket
+	// removed, and picking "the member under this role" would make a preview show
+	// one person's 傳承 as if it belonged to the role. So the block is OMITTED —
+	// the preview stops claiming to show a 傳承 section it cannot address, rather
+	// than showing a wrong one.
+	if member != nil {
+		loreSel, err := selectLoreForScope(s.dal, LoreScopeAgent, member.ID, s.loreRoleCap())
+		if err != nil {
+			return nil, err
+		}
+		// An empty block renders as "", and the empty string is dropped rather
+		// than joined in: "\n\n" between two parts would otherwise put a blank
+		// gap where a section was not emitted, which is a difference in the
+		// assembled document that no test of the sections themselves would catch.
+		if block := renderLoreBlock(loreSel); block != "" {
+			parts = append(parts, block)
+		}
 	}
 	parts = append(parts, strings.TrimSpace(bootSeed))
 	name := roleDTO.Name

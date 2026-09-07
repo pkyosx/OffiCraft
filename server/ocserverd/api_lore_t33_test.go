@@ -27,7 +27,10 @@ func loreTestServer(t *testing.T) *apiServer {
 }
 
 // hireLoreStaff puts a staff member with a role on the roster and returns its
-// id — the identity a role-scoped write is filed under.
+// id. The roleKey argument is still taken and still stored: since the scopes
+// collapsed it is no longer what a write is FILED under, and that is exactly
+// what several tests below now assert — a fixture that stopped setting a role
+// could not tell "keyed by the member" from "there was no role to key by".
 func hireLoreStaff(t *testing.T, s *apiServer, id, roleKey string) string {
 	t.Helper()
 	if err := s.dal.PutMember(Member{
@@ -47,9 +50,17 @@ func postLore(t *testing.T, s *apiServer, sub string, body any) *httptest.Respon
 	return rec
 }
 
-// TestWriteLoreWithNoTaskFilesUnderTheCallersOwnRole — the ROLE arm, and the
-// scope key comes from the ROSTER, never from the request.
-func TestWriteLoreWithNoTaskFilesUnderTheCallersOwnRole(t *testing.T) {
+// TestWriteLoreWithNoTaskFilesUnderTheCallersOwnMemberId — the MEMBER arm, and
+// the scope key comes from the ROSTER, never from the request.
+//
+// 🔴 THIS TEST USED TO WANT role/researcher. Owner collapsed the scopes on
+// 2026-09-07 (card rc-a43100fd0486 [0]): staff no longer file under their role,
+// they file under themselves, exactly as outsource members already did. The
+// fixture still GIVES this member a role_key, and that is the discriminating
+// part — an implementation that kept keying by role would have a non-empty role
+// to key by and would fail here, whereas a fixture with no role would let both
+// implementations pass.
+func TestWriteLoreWithNoTaskFilesUnderTheCallersOwnMemberId(t *testing.T) {
 	s := loreTestServer(t)
 	me := hireLoreStaff(t, s, "m-lore-1", "researcher")
 
@@ -61,8 +72,18 @@ func TestWriteLoreWithNoTaskFilesUnderTheCallersOwnRole(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &dto); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
-	if dto.ScopeKind != LoreScopeRole || dto.ScopeKey != "researcher" {
-		t.Fatalf("scope = %s/%s, want role/researcher", dto.ScopeKind, dto.ScopeKey)
+	if dto.ScopeKind != LoreScopeAgent || dto.ScopeKey != me {
+		t.Fatalf("scope = %s/%s, want agent/%s — a staff member's 傳承 hangs off "+
+			"its own member id, not off %q, since the scopes collapsed to two",
+			dto.ScopeKind, dto.ScopeKey, me, "researcher")
+	}
+	// 🔴 AND IT DID NOT LAND UNDER THE ROLE KEY UNDER SOME OTHER KIND EITHER. The
+	// check above pins the pair; this one catches the implementation that swapped
+	// only the kind and kept feeding it m.RoleKey, which would answer
+	// agent/researcher and satisfy any assertion that looked at one field.
+	if dto.ScopeKey == "researcher" {
+		t.Fatalf("scope_key is the ROLE key %q — the kind was changed and the key "+
+			"was not", dto.ScopeKey)
 	}
 	// 🔴 THE REST IS ASSERTED AGAINST THE STORED ROW, NOT THE RESPONSE. The write
 	// answers a bounded receipt (T-33, owner 2026-09-07), so author_id, state and
@@ -109,8 +130,12 @@ func TestWriteLoreWithNoTaskFilesUnderTheCallersOwnRole(t *testing.T) {
 // typed task. It now files under its OWN member id, which rides its own boot
 // document and nobody else's.
 //
-// The scope key comes from the VERIFIED token subject, never from the request —
-// same rule the role arm has always had.
+// The scope key comes from the VERIFIED token subject, never from the request.
+// Since the 2026-09-07 collapse (card rc-a43100fd0486 [0]) this is no longer a
+// second arm beside a role arm — it is the ONLY member arm, and staff enter it
+// through the same door. This test is kept separate anyway because it is the
+// kind of writer with NO role_key at all: it proves the door does not quietly
+// depend on there being one.
 func TestWriteLoreWithNoRoleFilesUnderTheWritersOwnId(t *testing.T) {
 	s := loreTestServer(t)
 	if err := s.dal.PutMember(Member{
@@ -131,15 +156,21 @@ func TestWriteLoreWithNoRoleFilesUnderTheWritersOwnId(t *testing.T) {
 	if dto.ScopeKind != LoreScopeAgent || dto.ScopeKey != "ow-lore-1" {
 		t.Fatalf("scope = %s/%s, want agent/ow-lore-1", dto.ScopeKind, dto.ScopeKey)
 	}
-	// 🔴 AND IT DID NOT ALSO LAND IN THE ROLE SCOPE. An implementation that filed
-	// under "" (the writer's empty role_key) would answer 200 and set scope_kind
-	// itself, so the DTO alone cannot tell the two apart.
-	blank, err := s.dal.ListLoreEntriesLive(LoreScopeRole, "")
+	// 🔴 AND NOTHING LANDED UNDER AN EMPTY KEY. An implementation that filed under
+	// "" (this writer's empty role_key) would answer 200 and set scope_kind
+	// itself, so the DTO alone cannot tell the two apart. The scan is over the
+	// WHOLE table rather than one scope: the old version of this check asked
+	// ListLoreEntriesLive(LoreScopeRole, ""), which stopped being able to fail
+	// the moment the role scope was removed — it would have gone on passing
+	// while asserting nothing.
+	all, err := s.dal.ListLoreEntriesPage(loreListFilter{}, 30, 0)
 	if err != nil {
-		t.Fatalf("ListLoreEntriesLive: %v", err)
+		t.Fatalf("ListLoreEntriesPage: %v", err)
 	}
-	if len(blank) != 0 {
-		t.Fatalf("the entry also landed in the role scope under an EMPTY key: %+v", blank)
+	for _, e := range all {
+		if e.ScopeKey == "" {
+			t.Fatalf("an entry landed under an EMPTY scope key: %+v", e)
+		}
 	}
 	// No scope_note: the writer named no task, so nothing about where this went
 	// was unpredictable from its own request.
@@ -209,9 +240,10 @@ func TestWriteLoreAgainstAnUntypedTaskFilesUnderTheWritersOwnBootDocument(t *tes
 	if err := json.Unmarshal(rec.Body.Bytes(), &dto); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
-	// The writer here is STAFF, so its own boot document is its role's.
-	if dto.ScopeKind != LoreScopeRole || dto.ScopeKey != "researcher" {
-		t.Fatalf("scope = %s/%s, want role/researcher", dto.ScopeKind, dto.ScopeKey)
+	// The writer here is STAFF, and since the collapse its own boot document is
+	// its OWN — not its role's.
+	if dto.ScopeKind != LoreScopeAgent || dto.ScopeKey != me {
+		t.Fatalf("scope = %s/%s, want agent/%s", dto.ScopeKind, dto.ScopeKey, me)
 	}
 	// 🔴 The half that outlived the ruling: no manual was charged for this.
 	page, err := s.dal.ListLoreEntriesPage(loreListFilter{ScopeKinds: []string{LoreScopeManual}}, 30, 0)
@@ -309,13 +341,16 @@ func TestWriteLoreAgainstATypedTaskFilesUnderThatType(t *testing.T) {
 	if stored.SourceTaskID != typed.ID {
 		t.Fatalf("source_task_id = %q, want %q", stored.SourceTaskID, typed.ID)
 	}
-	// The role scope stays empty: the two are not interchangeable.
-	role, err := s.dal.ListLoreEntriesLive(LoreScopeRole, "researcher")
+	// The WRITER's own scope stays empty: the two are not interchangeable. Keyed
+	// by the member id, because that is what the writer's own scope is now — the
+	// old version of this check looked in role/researcher, which after the
+	// collapse is a scope nothing can write to, so it could no longer fail.
+	mine, err := s.dal.ListLoreEntriesLive(LoreScopeAgent, me)
 	if err != nil {
 		t.Fatalf("ListLoreEntriesLive: %v", err)
 	}
-	if len(role) != 0 {
-		t.Fatalf("a manual entry leaked into the role scope: %+v", role)
+	if len(mine) != 0 {
+		t.Fatalf("a manual entry leaked into the writer's own scope: %+v", mine)
 	}
 }
 

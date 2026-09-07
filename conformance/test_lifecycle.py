@@ -261,8 +261,22 @@ def _rendered(text: str, join: str = "\n\n") -> str:
     return head + join + body if sep else text
 
 
-def _expected_lore_block(client, owner_token, role_key: str) -> str:
+def _expected_lore_block(client, owner_token, member_id: str) -> str:
     """Rebuild the 傳承 block (T-33) the staff fold appends after 長期筆記.
+
+    🔴 KEYED BY THE MEMBER, NOT BY THE ROLE, AND THE EMPTY-STRING CASE IS THE
+    ONE TO READ CAREFULLY. The owner collapsed the 傳承 scopes to two on
+    2026-09-07 (card rc-a43100fd0486 [0]): a staff member's 傳承 hangs off its
+    own member id, and `scope_kind='role'` is retired. buildBootContext is also
+    the cockpit's ROLE PREVIEW — called with NO member — and on that path there
+    is no id to key by, so the server emits no 傳承 block at all rather than an
+    arbitrary one. `member_id == ""` is exactly that path, and this function
+    returns "" for it.
+
+    ⚠️ SO A CALLER PASSING "" GETS A VACUOUSLY-TRUE COMPARISON FOR THIS BLOCK.
+    That is honest (the server emits nothing either) but it is not a test of the
+    傳承 fold, and no caller should read it as one. The fold is exercised where a
+    real member id is available; see the call sites.
 
     🔴 THE RENDERING AND THE SELECTION ARE HAND-WRITTEN HERE, on purpose. Only
     the DATA comes from the wire (`GET /api/lore`) — exactly the way this file
@@ -311,8 +325,8 @@ def _expected_lore_block(client, owner_token, role_key: str) -> str:
         r = client.get(
             "/api/lore",
             params={
-                "scope_kind": "role",
-                "scope_key": role_key,
+                "scope_kind": "agent",
+                "scope_key": member_id,
                 "limit": limit,
                 "offset": offset,
             },
@@ -323,6 +337,11 @@ def _expected_lore_block(client, owner_token, role_key: str) -> str:
         # cap_chars is the `lore_cap_chars_role` SETTING in force, answered only
         # because the filter converged on ONE scope. It is a number, not a
         # decision: the walk that spends it is written out below.
+        #
+        # ⚠️ THE SETTING KEY STILL SAYS `role` AND THE SCOPE IS `agent`. The knob
+        # was not renamed when the scopes collapsed — renaming a live settings
+        # key is the owner's call — so the name is stale and the meaning is what
+        # this comment says: it is the budget every member-scoped fold spends.
         cap_chars = page["cap_chars"]
         entries += page["entries"]
         if len(page["entries"]) < limit:
@@ -363,7 +382,9 @@ def _expected_lore_block(client, owner_token, role_key: str) -> str:
     return out
 
 
-def _expected_context(client, owner_token, role_key: str, user_text: str) -> str:
+def _expected_context(
+    client, owner_token, role_key: str, user_text: str, member_id: str = ""
+) -> str:
     role = client.get(f"/api/roles/{role_key}", headers=_auth(owner_token)).json()
     lessons = client.get(
         f"/api/lessons/{role_key}", headers=_auth(owner_token)
@@ -384,8 +405,17 @@ def _expected_context(client, owner_token, role_key: str, user_text: str) -> str
     # 學習筆記 → 傳承 → 啟動步驟.
     #
     # 傳承 (T-33) sits between 長期筆記 and the recency-authoritative 啟動步驟
-    # tail (server/ocserverd/assets.go:553-578) and, like 使用者自訂 and 判準,
-    # is dropped ENTIRELY — no header, no blank line — when it is empty.
+    # tail (server/ocserverd/assets.go) and, like 使用者自訂 and 判準, is dropped
+    # ENTIRELY — no header, no blank line — when it is empty.
+    #
+    # 🔴 IT IS KEYED BY `member_id`, AND A BLANK ONE MEANS THE BLOCK IS ABSENT.
+    # Since the 2026-09-07 scope collapse the staff fold reads the MEMBER's 傳承,
+    # so the preview path (POST /api/bootstrap with no member_id) has nothing to
+    # key by and emits no block. Callers that assemble a preview pass "" and get
+    # the same nothing; callers holding a real member pass its id and get the
+    # real fold. Defaulting this parameter to "" is deliberate — the preview is
+    # what most of this file exercises — but it does mean a caller that HAS a
+    # member and forgets to pass it gets a silently weaker comparison.
     #
     # 使用者自訂 and 判準 are each dropped entirely when they fold blank. The
     # gate is the FOLDED TEXT — deliberately not is_default and not has_seed,
@@ -400,7 +430,7 @@ def _expected_context(client, owner_token, role_key: str, user_text: str) -> str
     if insight["text"].strip():
         parts.append(f"# Insight ({role_key})\n\n{insight['text'].strip()}")
     parts.append(f"# Lessons ({role_key})\n\n{lessons['text'].strip()}")
-    if lore := _expected_lore_block(client, owner_token, role_key):
+    if lore := _expected_lore_block(client, owner_token, member_id):
         parts.append(lore)
     parts.append(_rendered(_seed("boot_sequence.md")).strip())
     return "\n\n".join(parts) + "\n"

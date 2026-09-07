@@ -387,17 +387,28 @@ var authzOutsideRouteTable = map[string]string{
 	// return 403, it files one member's 傳承 under a scope other members read, and
 	// the fold then charges them the cap for it. That is a governance outcome
 	// arrived at without any door refusing anything.
-	"api_lore.go :: HandleWriteLoreEntryApiLorePost :: m.RoleKey != \"\"": "" +
-		"NOT a floor, and could not be one: staff and outsource are BOTH allowed " +
-		"through this route, so there is no Requires value that separates them. What " +
-		"the predicate separates is the scope the entry is filed under — a caller " +
-		"whose roster row carries a role_key files under LoreScopeRole (staff are " +
-		"one-to-one with their role, owner c-712174eb0720, so keying by role names " +
-		"the same set of readers), and one whose row carries none files under " +
-		"LoreScopeAgent keyed by its own member id (owner rc-3c24fdc61ed3). It reads " +
-		"the CALLER's roster row, which is why the scan is right to see it, and the " +
-		"consequence is guarded by TestNeitherBootPathCarriesTheOtherScopesLore " +
-		"rather than by an authz test.",
+	// 🔴 ONE ENTRY WAS REMOVED FROM THIS MAP ON 2026-09-07 AND THE REMOVAL IS
+	// RECORDED HERE RATHER THAN BEING SILENT, because a governance re-grade that
+	// sees a shorter list has no way to tell "this decision was retired" from
+	// "somebody dropped an inconvenient row".
+	//
+	// The entry was:
+	//   api_lore.go :: HandleWriteLoreEntryApiLorePost :: m.RoleKey != ""
+	// and it described a predicate that decided WHERE a 傳承 write landed: a
+	// caller whose roster row carried a role_key filed under the role scope,
+	// one whose row carried none filed under its own member id. Owner collapsed
+	// the scopes to two (card rc-a43100fd0486 [0]), so both now file under the
+	// writer's own member id and the branch is gone from the code — the stale
+	// check below is what forced this deletion rather than letting the key rot.
+	//
+	// NOTHING REPLACED IT, and that is the right outcome rather than an omission:
+	// the governance risk it named was one member's 傳承 being filed under a scope
+	// OTHER members read, and with the fold keyed by the writer's own id there is
+	// no longer a predicate that can get that wrong. The remaining routing choice
+	// (manual vs. the writer's own document) turns on the named TASK's type_key,
+	// not on anything about the caller, so it is not an authorization decision at
+	// all. The consequence is still guarded by
+	// TestNeitherBootPathCarriesTheOtherScopesLore.
 	"api_lore.go :: HandleSetLoreEntryStateApiLoreEntryIdStatePost :: principalAtLeast(s.principalOfRequest(r), principalAdminAgent)": "" +
 		"ONE door (POST /api/lore/{entry_id}/state) performs three transitions with TWO " +
 		"floors: 置頂 and its undo are admin-only (owner: 「置頂只有你跟 admin」) because a " +

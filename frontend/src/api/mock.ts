@@ -1002,15 +1002,25 @@ function withManualSizes(m: StoredTaskManual): TaskManualView {
 // marker-stripping and "an alert must not look like an ordinary quote" have a
 // fixture (the latter is only decidable in a real browser — see the CT spec).
 /** 傳承 fixture (T-33). Enough rows, and enough LENGTH, that the default
- * 10,000-character role budget is not trivially satisfied — a fixture whose
+ * 10,000-character member budget is not trivially satisfied — a fixture whose
  * every row fits can never show the 上限線 the page exists to draw, so the
- * cockpit would be built against a case that never occurs. */
+ * cockpit would be built against a case that never occurs.
+ *
+ * 🔴 THREE KINDS OF ROW, AND THE THIRD IS THE ONE PEOPLE WILL WANT TO DELETE.
+ * Since the scopes collapsed to two (owner 2026-09-07, card rc-a43100fd0486
+ * [0]) the live rows are `agent` (keyed by a member id — staff and outsource
+ * alike) and `manual` (keyed by a type_key). L-6 is neither: it is an ORPHAN,
+ * a row the server's migration deliberately left at the retired `role` value
+ * because it could not determine which member it belonged to. The wire still
+ * sends those, `toLoreEntry` maps them to "unknown", and the page must render
+ * them — so the fixture carries one. Without it the "unknown" arm has no
+ * fixture at all and could be deleted with the whole suite staying green. */
 const mockLoreEntries: LoreEntryView[] = [
   {
     id: "L-1",
     seq: 1,
-    scopeKind: "role",
-    scopeKey: "assistant",
+    scopeKind: "agent",
+    scopeKey: "mira",
     title: "成功回應不代表資料完整",
     body: "驗證外部整合時，不能只以 request 成功作為驗收依據，還要確認關鍵資料真的產生了。",
     authorId: "mira",
@@ -1024,8 +1034,8 @@ const mockLoreEntries: LoreEntryView[] = [
   {
     id: "L-2",
     seq: 2,
-    scopeKind: "role",
-    scopeKey: "assistant",
+    scopeKind: "agent",
+    scopeKey: "mira",
     title: "零命中的預設解讀是查法寫錯了",
     body: "掃描回空的時候先跑一次陽性對照，確認量具本身還會命中，再去解釋那個零。",
     authorId: "mira",
@@ -1039,8 +1049,8 @@ const mockLoreEntries: LoreEntryView[] = [
   {
     id: "L-3",
     seq: 3,
-    scopeKind: "role",
-    scopeKey: "assistant",
+    scopeKind: "agent",
+    scopeKey: "mira",
     title: "退出碼要落檔再讀",
     body: "cmd 後面接 echo 的話，回報的退出碼是那一行 echo 的，紅的會跑成綠的。",
     authorId: "m-gone",
@@ -1066,11 +1076,13 @@ const mockLoreEntries: LoreEntryView[] = [
     createdTs: 1788450000,
     updatedTs: 1788450000,
   },
-  // The agent scope, present so the third filter item answers with a real row
-  // instead of an empty list nobody can tell from a broken request. Its
-  // `scopeKey` is a MEMBER id (ow-7d8ad859dd9b, the outsource row on the mock
-  // roster) — not a role key, because a contractor carries no role. Its author
-  // is that same worker: agent lore is written by the member it loads into.
+  // A SECOND member's rows, so that "keyed by a member id" has a fixture where
+  // the two members are actually different people. L-1..L-3 are Mira's (staff);
+  // this one is the outsource worker ow-7d8ad859dd9b's. Its author is that same
+  // worker: member lore is written by the member it loads into. Two distinct
+  // member keys under ONE scope kind is what gives the 屬於 filter something to
+  // discriminate with — with only one member on file, a filter that ignored the
+  // key entirely would look identical to one that honoured it.
   {
     id: "L-5",
     seq: 5,
@@ -1085,6 +1097,28 @@ const mockLoreEntries: LoreEntryView[] = [
     effectiveTs: 1788460000,
     createdTs: 1788460000,
     updatedTs: 1788460000,
+  },
+  // 🔴 THE ORPHAN. On the wire this row's scope_kind is the retired literal
+  // "role"; `toLoreEntry` maps every unrecognised kind to "unknown", which is
+  // what it is stored as here because that is the only thing this type can
+  // hold. It exists because the server's migration REFUSED to guess: this role
+  // had no single active member under it, so rekeying it onto one would have
+  // filed somebody's 傳承 under a stranger with no way to undo it. The page has
+  // to show it — an orphan nobody can see is the same as a deleted one.
+  {
+    id: "L-6",
+    seq: 6,
+    scopeKind: "unknown",
+    scopeKey: "r-9f31c0d84a17",
+    title: "留下來的孤兒不是壞掉的資料",
+    body: "這一筆原本掛在一個角色底下，而那個角色現在沒有唯一一位在職成員，所以搬遷沒有動它。它讀得到、改得動，等有人決定它屬於誰。",
+    authorId: "m-gone",
+    sourceTaskId: "",
+    state: "active",
+    retireReason: "",
+    effectiveTs: 1788440000,
+    createdTs: 1788440000,
+    updatedTs: 1788440000,
   },
 ];
 
@@ -4885,17 +4919,21 @@ export const mockApi: Api = {
     let firstDroppedId = "";
     if (kinds.length === 1 && keys.length === 1) {
       const scopeKind = kinds[0];
-      // 🔴 THREE KINDS, TWO KNOBS — that is the ruling, not an oversight.
-      // owner rc-3c24fdc61ed3 [0]: the agent scope SHARES the role knob
-      // (`lore.cap_chars.role`) instead of getting a fifth one, which is why
-      // the cockpit calls that row 成員傳承字數上限. Spelled out per kind rather
-      // than left as "anything that is not manual", so that a fourth scope
-      // arriving later has to be assigned a knob on purpose instead of
-      // inheriting this one by falling off the end.
+      // 🔴 TWO KINDS, TWO KNOBS, AND THE MEMBER KNOB STILL CARRIES THE OLD
+      // NAME. `lore.cap_chars.role` is the budget every member-scoped fold
+      // spends (owner rc-3c24fdc61ed3 [0] put the agent scope on it rather than
+      // opening a fifth knob; the 2026-09-07 collapse then put staff on the same
+      // scope). The key was NOT renamed — that would change a live setting the
+      // owner has already turned. Spelled out per kind rather than left as
+      // "anything that is not manual", so that a scope arriving later has to be
+      // assigned a knob on purpose instead of inheriting this one by falling off
+      // the end — which is also why an "unknown" kind gets 0 rather than a
+      // plausible number: there is no honest budget to report for a scope this
+      // client cannot name.
       capChars =
         scopeKind === "manual"
           ? mockServerSettings.lore_cap_chars_manual
-          : scopeKind === "agent" || scopeKind === "role"
+          : scopeKind === "agent"
             ? mockServerSettings.lore_cap_chars_role
             : 0;
       let used = 0;
@@ -4930,15 +4968,12 @@ export const mockApi: Api = {
     const made: LoreEntryView = {
       id: `L-${seq}`,
       seq,
-      // The mock's writer is `mira`, a STAFF member who holds the `assistant`
-      // role — so a non-task write from her really is role lore, and that is
-      // the only reason this reads "role". It is not the old "not manual ⇒
-      // role" default: an outsource writer would produce `scopeKind: "agent"`
-      // with its own member id as the key. Nothing in this file can write as
-      // an outsource worker today, so that branch has no fixture rather than a
-      // wrong one.
-      scopeKind: entry.taskId ? "manual" : "role",
-      scopeKey: entry.taskId ? "tm-mock" : "assistant",
+      // The mock's writer is `mira`. Since the collapse a non-task write files
+      // under the WRITER'S OWN member id whether the writer is staff or
+      // outsource, so the key here is her id and not her `assistant` role key —
+      // which is exactly the difference this line used to get wrong.
+      scopeKind: entry.taskId ? "manual" : "agent",
+      scopeKey: entry.taskId ? "tm-mock" : "mira",
       title: entry.title,
       body: entry.body,
       authorId: "mira",

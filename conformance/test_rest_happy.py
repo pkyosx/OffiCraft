@@ -1993,10 +1993,11 @@ def _happy_lore_entry(ctx: HCtx) -> str:
     the docstring is what made that look like a server bug rather than a wrong
     claim about the fixture.
 
-    The writer's own boot document is the scope either way; which KIND of scope
-    that is depends on the writer. A roster row with a role_key files under
-    `role`; one without — an outsource member, and this scratch agent — files
-    under `agent`, keyed by the member id. No task fixture is needed for either.
+    The writer's own boot document is the scope, and since the 2026-09-07 scope
+    collapse (owner, card rc-a43100fd0486 [0]) that is ONE kind for every
+    writer: `agent`, keyed by the member id. It used to depend on the writer — a
+    roster row with a role_key filed under `role` — and that branch is gone. No
+    task fixture is needed.
     """
     r = ctx.client.post(
         "/api/lore",
@@ -2016,11 +2017,12 @@ def _check_lore_written(ctx: HCtx, r: httpx.Response) -> None:
     d = r.json()
     assert d["id"].startswith("L-"), d
     assert d["seq"] >= 1, d
-    # 🔴 `agent`, not `role`, and it is a statement about THIS FIXTURE rather
-    # than about the route: the scratch agent carries role_key="" (_happy_ctx),
-    # so the writer's own boot document is its own, keyed by its member id. The
-    # `role` arm of the same door is covered by the auth matrix, whose agent
-    # identities do carry role keys.
+    # 🔴 `agent`, AND THIS IS NOW A STATEMENT ABOUT THE ROUTE, not about the
+    # fixture. It used to be fixture-dependent: the scratch agent carries
+    # role_key="" (_happy_ctx), and a writer WITH a role_key would have answered
+    # `role`. The owner collapsed the scopes on 2026-09-07 (card
+    # rc-a43100fd0486 [0]), so every writer — staff and outsource — files under
+    # its own member id and there is no second arm left for a fixture to select.
     assert d["scope_kind"] == "agent", d
     assert d["scope_key"] == ctx.agent.member_id, d
     # It named no task, so there was nothing about where this landed that the

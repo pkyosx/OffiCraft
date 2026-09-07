@@ -1980,7 +1980,7 @@ export function toMemberResumeSummary(
 /** One wire entry → one view entry.
  *
  * `scope_kind` is narrowed from the wire's plain `string` to the union the UI
- * switches on. The three the server has are matched by name; anything else
+ * switches on. The two the server has are matched by name; anything else
  * becomes "unknown".
  *
  * 🔴 THIS USED TO SAY "role" INSTEAD OF "unknown", AND THAT WAS THE BUG.
@@ -1995,8 +1995,16 @@ export function toMemberResumeSummary(
  *
  * "unknown" keeps the property the old fallback was actually protecting — no
  * throw, the row still renders with its own real title, body and author — while
- * dropping the part nobody asked for. It is never equal to "role", "agent" or
- * "manual", so it can never be swept into a filter that did not name it. */
+ * dropping the part nobody asked for. It is never equal to "agent" or "manual",
+ * so it can never be swept into a filter that did not name it.
+ *
+ * 🔴 AND `role` NOW TAKES THAT ARM, WHICH IS THE POINT OF KEEPING IT. The scope
+ * was retired on 2026-09-07 (owner, card rc-a43100fd0486 [0]) and its entries
+ * were rekeyed onto members — EXCEPT the ones whose member the migration could
+ * not determine, which it deliberately left at `role` rather than guess. Those
+ * arrive here today. Adding `role` back to this list to make them "render
+ * nicely" would re-create exactly the bug this comment opens with: an entry
+ * whose owner is explicitly undetermined, presented as if it had one. */
 export function toLoreEntry(
   w: components["schemas"]["LoreEntryDTO"],
 ): LoreEntryView {
@@ -2004,9 +2012,7 @@ export function toLoreEntry(
     id: w.id,
     seq: w.seq,
     scopeKind:
-      w.scope_kind === "role" ||
-      w.scope_kind === "agent" ||
-      w.scope_kind === "manual"
+      w.scope_kind === "agent" || w.scope_kind === "manual"
         ? w.scope_kind
         : "unknown",
     scopeKey: w.scope_key,

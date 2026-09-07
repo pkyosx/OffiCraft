@@ -48,33 +48,36 @@ func seedLore(t *testing.T, d *DAL, scopeKind, scopeKey, title, state string, ef
 // among the actives and this list would fail loudly rather than subtly.
 func TestLoreLiveOrderIsPinnedFirstThenNewestEffective(t *testing.T) {
 	d := newTestDAL(t)
-	seedLore(t, d, LoreScopeRole, "assistant", "one", LoreStateActive, 20)   // L-1
-	seedLore(t, d, LoreScopeRole, "assistant", "two", LoreStatePinned, 5)    // L-2
-	seedLore(t, d, LoreScopeRole, "assistant", "three", LoreStateActive, 30) // L-3
-	seedLore(t, d, LoreScopeRole, "assistant", "four", LoreStatePinned, 10)  // L-4
-	seedLore(t, d, LoreScopeRole, "assistant", "five", LoreStateRetired, 99) // L-5
+	seedLore(t, d, LoreScopeAgent, "m-staff-1", "one", LoreStateActive, 20)   // L-1
+	seedLore(t, d, LoreScopeAgent, "m-staff-1", "two", LoreStatePinned, 5)    // L-2
+	seedLore(t, d, LoreScopeAgent, "m-staff-1", "three", LoreStateActive, 30) // L-3
+	seedLore(t, d, LoreScopeAgent, "m-staff-1", "four", LoreStatePinned, 10)  // L-4
+	seedLore(t, d, LoreScopeAgent, "m-staff-1", "five", LoreStateRetired, 99) // L-5
 
-	got, err := d.ListLoreEntriesLive(LoreScopeRole, "assistant")
+	got, err := d.ListLoreEntriesLive(LoreScopeAgent, "m-staff-1")
 	if err != nil {
 		t.Fatalf("ListLoreEntriesLive: %v", err)
 	}
 	wantLoreIDs(t, got, []string{"L-4", "L-2", "L-3", "L-1"})
 }
 
-// TestLoreLiveIsScopedToOneScope — a role's lore and a task type's lore share a
-// table and must never leak into one another's fold. Both fixtures use the same
-// scope_key string on purpose: a query that filtered on scope_key alone, or on
-// scope_kind alone, would return both and this fails.
+// TestLoreLiveIsScopedToOneScope — a member's lore and a task type's lore share
+// a table and must never leak into one another's fold. Both fixtures use the
+// same scope_key string on purpose: a query that filtered on scope_key alone, or
+// on scope_kind alone, would return both and this fails. That collision is not
+// hypothetical since the scopes collapsed to two — an agent key is a member id
+// and a manual key is a free-form type_key, and nothing stops one station
+// choosing a type_key that reads like an id.
 func TestLoreLiveIsScopedToOneScope(t *testing.T) {
 	d := newTestDAL(t)
-	seedLore(t, d, LoreScopeRole, "shared-key", "role one", LoreStateActive, 10)     // L-1
+	seedLore(t, d, LoreScopeAgent, "shared-key", "member one", LoreStateActive, 10)   // L-1
 	seedLore(t, d, LoreScopeManual, "shared-key", "manual one", LoreStateActive, 20) // L-2
 
-	role, err := d.ListLoreEntriesLive(LoreScopeRole, "shared-key")
+	agent, err := d.ListLoreEntriesLive(LoreScopeAgent, "shared-key")
 	if err != nil {
-		t.Fatalf("ListLoreEntriesLive(role): %v", err)
+		t.Fatalf("ListLoreEntriesLive(agent): %v", err)
 	}
-	wantLoreIDs(t, role, []string{"L-1"})
+	wantLoreIDs(t, agent, []string{"L-1"})
 
 	manual, err := d.ListLoreEntriesLive(LoreScopeManual, "shared-key")
 	if err != nil {
@@ -87,8 +90,8 @@ func TestLoreLiveIsScopedToOneScope(t *testing.T) {
 // write order, with seq agreeing with the id.
 func TestLoreIDsAscendAndAreMintedOnce(t *testing.T) {
 	d := newTestDAL(t)
-	first := seedLore(t, d, LoreScopeRole, "assistant", "one", LoreStateActive, 1)
-	second := seedLore(t, d, LoreScopeRole, "assistant", "two", LoreStateActive, 2)
+	first := seedLore(t, d, LoreScopeAgent, "m-staff-1", "one", LoreStateActive, 1)
+	second := seedLore(t, d, LoreScopeAgent, "m-staff-1", "two", LoreStateActive, 2)
 	third := seedLore(t, d, LoreScopeManual, "some-type", "three", LoreStateActive, 3)
 
 	if first.ID != "L-1" || second.ID != "L-2" || third.ID != "L-3" {
@@ -106,7 +109,7 @@ func TestLoreIDsAscendAndAreMintedOnce(t *testing.T) {
 // Mutant that must redden this: writing created_ts in BumpLoreEntryEffective.
 func TestBumpMovesEffectiveAndLeavesCreated(t *testing.T) {
 	d := newTestDAL(t)
-	e := seedLore(t, d, LoreScopeRole, "assistant", "one", LoreStateActive, 100)
+	e := seedLore(t, d, LoreScopeAgent, "m-staff-1", "one", LoreStateActive, 100)
 
 	if ok, err := d.BumpLoreEntryEffective(e.ID, 900); err != nil || !ok {
 		t.Fatalf("BumpLoreEntryEffective: ok=%v err=%v", ok, err)
@@ -129,10 +132,10 @@ func TestBumpMovesEffectiveAndLeavesCreated(t *testing.T) {
 // in the column. The expected list is written out for both moments.
 func TestBumpReordersTheFold(t *testing.T) {
 	d := newTestDAL(t)
-	old := seedLore(t, d, LoreScopeRole, "assistant", "old", LoreStateActive, 10)
-	seedLore(t, d, LoreScopeRole, "assistant", "new", LoreStateActive, 20)
+	old := seedLore(t, d, LoreScopeAgent, "m-staff-1", "old", LoreStateActive, 10)
+	seedLore(t, d, LoreScopeAgent, "m-staff-1", "new", LoreStateActive, 20)
 
-	before, err := d.ListLoreEntriesLive(LoreScopeRole, "assistant")
+	before, err := d.ListLoreEntriesLive(LoreScopeAgent, "m-staff-1")
 	if err != nil {
 		t.Fatalf("ListLoreEntriesLive: %v", err)
 	}
@@ -141,7 +144,7 @@ func TestBumpReordersTheFold(t *testing.T) {
 	if _, err := d.BumpLoreEntryEffective(old.ID, 30); err != nil {
 		t.Fatalf("BumpLoreEntryEffective: %v", err)
 	}
-	after, err := d.ListLoreEntriesLive(LoreScopeRole, "assistant")
+	after, err := d.ListLoreEntriesLive(LoreScopeAgent, "m-staff-1")
 	if err != nil {
 		t.Fatalf("ListLoreEntriesLive: %v", err)
 	}
@@ -152,12 +155,12 @@ func TestBumpReordersTheFold(t *testing.T) {
 // leaves the fold and is still readable by id, with its reason.
 func TestRetireHidesFromTheFoldButKeepsTheRow(t *testing.T) {
 	d := newTestDAL(t)
-	e := seedLore(t, d, LoreScopeRole, "assistant", "one", LoreStateActive, 10)
+	e := seedLore(t, d, LoreScopeAgent, "m-staff-1", "one", LoreStateActive, 10)
 
 	if ok, err := d.SetLoreEntryState(e.ID, LoreStateRetired, "superseded", 50); err != nil || !ok {
 		t.Fatalf("SetLoreEntryState: ok=%v err=%v", ok, err)
 	}
-	live, err := d.ListLoreEntriesLive(LoreScopeRole, "assistant")
+	live, err := d.ListLoreEntriesLive(LoreScopeAgent, "m-staff-1")
 	if err != nil {
 		t.Fatalf("ListLoreEntriesLive: %v", err)
 	}
@@ -174,7 +177,7 @@ func TestRetireHidesFromTheFoldButKeepsTheRow(t *testing.T) {
 	if _, err := d.SetLoreEntryState(e.ID, LoreStateActive, "", 60); err != nil {
 		t.Fatalf("un-retire: %v", err)
 	}
-	back, err := d.ListLoreEntriesLive(LoreScopeRole, "assistant")
+	back, err := d.ListLoreEntriesLive(LoreScopeAgent, "m-staff-1")
 	if err != nil {
 		t.Fatalf("ListLoreEntriesLive: %v", err)
 	}
@@ -205,10 +208,10 @@ func TestSetStateOnAnUnknownEntryReportsMiss(t *testing.T) {
 // pins that the filter narrows before the page is cut.
 func TestLorePageOrderIsPinnedActiveRetired(t *testing.T) {
 	d := newTestDAL(t)
-	seedLore(t, d, LoreScopeRole, "assistant", "a", LoreStateActive, 20)  // L-1
-	seedLore(t, d, LoreScopeRole, "assistant", "b", LoreStateRetired, 99) // L-2
-	seedLore(t, d, LoreScopeRole, "assistant", "c", LoreStatePinned, 1)   // L-3
-	seedLore(t, d, LoreScopeRole, "assistant", "d", LoreStateActive, 30)  // L-4
+	seedLore(t, d, LoreScopeAgent, "m-staff-1", "a", LoreStateActive, 20)  // L-1
+	seedLore(t, d, LoreScopeAgent, "m-staff-1", "b", LoreStateRetired, 99) // L-2
+	seedLore(t, d, LoreScopeAgent, "m-staff-1", "c", LoreStatePinned, 1)   // L-3
+	seedLore(t, d, LoreScopeAgent, "m-staff-1", "d", LoreStateActive, 30)  // L-4
 
 	page, err := d.ListLoreEntriesPage(loreListFilter{}, 30, 0)
 	if err != nil {

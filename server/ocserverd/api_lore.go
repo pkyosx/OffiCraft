@@ -110,21 +110,43 @@ func (s *apiServer) HandleWriteLoreEntryApiLorePost(w http.ResponseWriter, r *ht
 		scopeKind, scopeKey = LoreScopeManual, typeKey
 	} else {
 		// ── the WRITER'S OWN BOOT DOCUMENT arm ──────────────────────────────
-		// Staff file under their role, outsource members under themselves. The
-		// split is not a preference: an outsource member's roster row carries no
-		// role_key, so LoreScopeRole has nothing to name for them, and reusing it
-		// would put a member id in the column that holds role keys — one column
-		// holding two kinds of thing with no field saying which.
+		// 🔴 WHY THERE IS ONLY ONE SCOPE HERE NOW. This used to fork: staff filed
+		// under their ROLE (LoreScopeRole, keyed by role_key), outsource members
+		// under THEMSELVES. Owner collapsed it on 2026-09-07 (card
+		// rc-a43100fd0486 [0]) — 「只有成員跟任務傳承兩種」 — so both file under
+		// the writer's own member id and the role scope no longer exists.
 		//
-		// Staff are one-to-one with their role (owner, c-712174eb0720), so keying
-		// their half by role rather than by member is the same set of readers.
+		// It is the same set of readers, not a widening: staff are one-to-one
+		// with their role in the roster as it stands (owner c-712174eb0720), so
+		// the role key and the member id named the same one boot document. What
+		// the collapse buys is that the column now holds ONE kind of thing — a
+		// member id — where before it held a role key on some rows and a member
+		// id on others with no field saying which.
+		//
+		// ⚠️ AND WHAT IT COSTS, stated so nobody re-derives it as a bug: two
+		// members under one role would no longer share a 傳承. Nothing enforces
+		// one-member-per-role (member.role_key carries no UNIQUE index and the
+		// hire face does not check), so that is a fact about today's roster, not
+		// a guarantee. The owner was told this in writing before choosing.
 		actor := currentActor(r)
 		m, err := s.callerRosterRow(r)
 		if err != nil {
 			internalError(w, err)
 			return
 		}
+		// 🔴 THE TWO REFUSALS ARE ORDERED BY WHAT THE CALLER CAN DO ABOUT THEM,
+		// and they are kept apart even though one scope now serves every writer.
+		// callerRosterRow returns (nil, nil) for BOTH "no verified identity" and
+		// "verified, but no such roster row", so a single nil test would answer
+		// one sentence to two different problems — and the one the owner hits
+		// (he has a token and no roster row) would read as if his token were bad.
+		// Testing `actor` first is what keeps them distinguishable.
 		switch {
+		case actor == "":
+			writeError(w, http.StatusBadRequest,
+				"this request carries no verified member identity, so there is no 開機檔 "+
+					"to file a 傳承 entry under.")
+			return
 		case m == nil:
 			// The owner has no roster row at all. Nothing to file under, and
 			// inventing one would be a scope nobody reads.
@@ -133,15 +155,16 @@ func (s *apiServer) HandleWriteLoreEntryApiLorePost(w http.ResponseWriter, r *ht
 					"A 傳承 entry is filed under the writer's own boot document or under a "+
 					"typed task's manual; pass a typed task's task_id to write 任務傳承 instead.")
 			return
-		case m.RoleKey != "":
-			scopeKind, scopeKey = LoreScopeRole, m.RoleKey
-		case actor != "":
-			scopeKind, scopeKey = LoreScopeAgent, actor
 		default:
-			writeError(w, http.StatusBadRequest,
-				"this request carries no verified member identity, so there is no 開機檔 "+
-					"to file a 傳承 entry under.")
-			return
+			// 🔴 m.ID, NOT m.RoleKey, AND NOT `actor`. Not RoleKey because the
+			// role scope is gone (see domain.go) — staff and outsource file the
+			// same way now, which is why this arm has no branch left in it. And
+			// m.ID rather than the token subject because m is the row we actually
+			// resolved: the two are equal by construction today (callerRosterRow
+			// looks the row up BY the subject), and writing the resolved row's own
+			// id means a future change to that lookup cannot quietly start filing
+			// entries under a key no roster row carries.
+			scopeKind, scopeKey = LoreScopeAgent, m.ID
 		}
 	}
 
@@ -407,11 +430,20 @@ func (s *apiServer) HandleListLoreEntriesApiLoreGet(w http.ResponseWriter, r *ht
 	// say so — which is the same failure as the singular case, only harder to
 	// notice because some rows still come back. The message names the offending
 	// VALUE and the parameter that actually carried it.
+	// 🔴 `role` IS NOT ON THIS LIST ANY MORE, AND ASKING FOR IT IS NOW A 400.
+	// The scope was collapsed into `agent` (owner 2026-09-07, rc-a43100fd0486
+	// [0]); a caller still sending it is holding a vocabulary the server no
+	// longer has, and answering 200-with-no-rows would tell them their entries
+	// were gone rather than that their filter was. Note what this does NOT do:
+	// it does not hide the orphan rows migrations/00100 deliberately left at
+	// scope_kind='role'. Those still come back on any page that does not
+	// constrain this axis — which is the page the cockpit opens on — so an
+	// orphan stays findable even though it can no longer be filtered FOR.
 	for _, k := range kinds {
-		if k != LoreScopeRole && k != LoreScopeAgent && k != LoreScopeManual {
+		if k != LoreScopeAgent && k != LoreScopeManual {
 			writeError(w, http.StatusBadRequest,
-				loreFilterParamName("scope_kind", kindsPlural)+" must be "+LoreScopeRole+
-					", "+LoreScopeAgent+" or "+LoreScopeManual+" — got "+strconv.Quote(k))
+				loreFilterParamName("scope_kind", kindsPlural)+" must be "+
+					LoreScopeAgent+" or "+LoreScopeManual+" — got "+strconv.Quote(k))
 			return
 		}
 	}
