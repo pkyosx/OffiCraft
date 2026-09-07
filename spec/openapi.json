@@ -167,12 +167,24 @@
               "description": "The offset actually applied.",
               "title": "Offset",
               "type": "integer"
+            },
+            "cap_chars": {
+              "description": "The fold budget in force for the ONE scope this request's filter converged on — ``lore_cap_chars_role`` or ``lore_cap_chars_manual``. It is 0 when ``scope_kind`` and ``scope_key`` did not BOTH name a single scope, because a budget belongs to a scope and a page spanning several has no single one to report.",
+              "title": "Cap Chars",
+              "type": "integer"
+            },
+            "first_dropped_id": {
+              "description": "The id of the first entry that does NOT fit inside ``cap_chars`` — the entry the 上限線 is drawn above. It is \"\" when the whole scope fits, and \"\" when ``cap_chars`` is 0.\n\n🔴 IT IS COMPUTED BY THE SAME ``selectLoreForScope`` THE TWO FOLDS RUN, over the WHOLE scope and not over this page. A client cannot derive it: paging cuts the list before the budget is spent, and re-adding the title/body lengths in the client would be a SECOND copy of the picking rule that drifts from the real one without anything turning red. Read this field; do not recompute it.",
+              "title": "First Dropped Id",
+              "type": "string"
             }
           },
           "required": [
             "entries",
             "limit",
-            "offset"
+            "offset",
+            "cap_chars",
+            "first_dropped_id"
           ],
           "title": "LoreEntryListDTO",
           "additionalProperties": false,

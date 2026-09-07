@@ -383,6 +383,36 @@ func (s *apiServer) HandleListLoreEntriesApiLoreGet(w http.ResponseWriter, r *ht
 	for _, e := range entries {
 		out.Entries = append(out.Entries, newLoreEntryDTO(e))
 	}
+
+	// 上限線: which entry is the first one the fold will NOT carry. The cockpit
+	// draws a line above it and greys everything below.
+	//
+	// 🔴 THE ANSWER COMES FROM selectLoreForScope — the same function both folds
+	// run — and NOT from a rule restated here or in the client. Two reasons, and
+	// the second is the one that bites:
+	//   1. It is not derivable from this page. The page is cut by limit/offset
+	//      long before the budget is spent, so a client adding up the rows it can
+	//      see would draw the line in the wrong place on every page but the first.
+	//   2. A second copy of the picking rule drifts silently. Whoever later
+	//      changes the sort, the exclusion of retired, or the tie-break would fix
+	//      the fold and leave the line pointing at a different entry — and a line
+	//      in the wrong place looks exactly like a line in the right place.
+	// It is answered only when the filter converged on ONE scope: a budget belongs
+	// to a scope, so a page spanning several has no single one to report, and 0/""
+	// says that honestly instead of naming an arbitrary one.
+	if f.ScopeKind != "" && f.ScopeKey != "" {
+		capChars := s.loreRoleCap()
+		if f.ScopeKind == LoreScopeManual {
+			capChars = s.loreManualCap()
+		}
+		sel, err := selectLoreForScope(s.dal, f.ScopeKind, f.ScopeKey, capChars)
+		if err != nil {
+			internalError(w, err)
+			return
+		}
+		out.CapChars = capChars
+		out.FirstDroppedId = sel.FirstDroppedID
+	}
 	writeJSON(w, http.StatusOK, out)
 }
 

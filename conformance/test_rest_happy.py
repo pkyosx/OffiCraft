@@ -2028,6 +2028,14 @@ def _check_lore_list(_ctx: HCtx, r: httpx.Response) -> None:
     d = r.json()
     assert isinstance(d["entries"], list), d
     assert d["limit"] >= 1 and d["offset"] == 0, d
+    # The 上限線 fields. This row sends NO scope filter, so the answer must be
+    # the honest empty one: a budget belongs to a scope, and a page spanning
+    # several has no single one to report. Asserting the empty answer here is
+    # what makes a server that reports SOME scope's cap for an unfiltered page
+    # fail — a wrong cap draws a line in the wrong place, and a line in the
+    # wrong place looks exactly like a line in the right place.
+    assert d["cap_chars"] == 0, d
+    assert d["first_dropped_id"] == "", d
 
 
 HAPPY: dict[str, Happy] = {

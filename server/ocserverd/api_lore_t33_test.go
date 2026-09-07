@@ -276,6 +276,35 @@ func TestSetLoreStateRejectsAnUnknownState(t *testing.T) {
 // TestRoleLoreLandsInTheStaffBootDocumentAfterTheLessons is EXIT 1, asserted on
 // the assembled document: the literal entry text must be IN it, and it must sit
 // AFTER the 長期筆記 heading and BEFORE the boot-sequence tail.
+// loreBlockAt reports where the APPENDED 傳承 block starts in an assembled
+// document, or -1 when the document carries none.
+//
+// 🔴 IT ANCHORS THE HEADING TO THE START OF A LINE, and that is not
+// fastidiousness — a plain strings.Index(doc, loreBlockHeading) is WRONG here
+// and was wrong silently. The handbook these documents are assembled around now
+// has a section headed 「### 傳承寫入位置」, and "### 傳承…" CONTAINS "# 傳承",
+// so an unanchored search finds the handbook's prose and reports the block as
+// present in a document that has none — and, in the document that does have
+// one, reports it thousands of characters too early. Both readings look exactly
+// like a real answer.
+//
+// This mirrors what stripTrailingLoreBlock does in production (lore_select.go:
+// LastIndex of "\n"+loreBlockHeading, then a check that the heading ends its
+// line), which is why production was never affected: only these tests were
+// asking the question the loose way.
+func loreBlockAt(doc string) int {
+	if strings.HasPrefix(doc, loreBlockHeading+"\n") || doc == loreBlockHeading {
+		return 0
+	}
+	if i := strings.Index(doc, "\n"+loreBlockHeading+"\n"); i >= 0 {
+		return i + 1
+	}
+	if strings.HasSuffix(doc, "\n"+loreBlockHeading) {
+		return len(doc) - len(loreBlockHeading)
+	}
+	return -1
+}
+
 func TestRoleLoreLandsInTheStaffBootDocumentAfterTheLessons(t *testing.T) {
 	s := loreTestServer(t)
 	me := hireLoreStaff(t, s, "m-lore-6", defaultBootRole)
@@ -296,7 +325,7 @@ func TestRoleLoreLandsInTheStaffBootDocumentAfterTheLessons(t *testing.T) {
 
 	doc := ctx.Context
 	lessonsAt := strings.Index(doc, "# Lessons ("+defaultBootRole+")")
-	loreAt := strings.Index(doc, loreBlockHeading)
+	loreAt := loreBlockAt(doc)
 	titleAt := strings.Index(doc, "傳承標題甲")
 	bodyAt := strings.Index(doc, "傳承內容甲")
 	if lessonsAt < 0 {
@@ -329,11 +358,18 @@ func TestRoleLoreDoesNotReachTheOutsourceBootContext(t *testing.T) {
 	if err != nil {
 		t.Fatalf("buildWorkerBootContext: %v", err)
 	}
-	for _, forbidden := range []string{loreBlockHeading, "傳承標題乙", "傳承內容乙"} {
+	if loreBlockAt(ctx) >= 0 {
+		t.Fatalf("the outsource boot context now carries an appended %q block — a "+
+			"worker has no role, so a role's 傳承 names nothing it can read, and "+
+			"this path was not to be touched at all", loreBlockHeading)
+	}
+	// The entry's own text, separately: a block could in principle be absent
+	// while the text leaked in some other way, and these two literals say so
+	// without depending on the heading at all.
+	for _, forbidden := range []string{"傳承標題乙", "傳承內容乙"} {
 		if strings.Contains(ctx, forbidden) {
-			t.Fatalf("the outsource boot context now carries %q — a worker has no "+
-				"role, so a role's 傳承 names nothing it can read, and this path was "+
-				"not to be touched at all", forbidden)
+			t.Fatalf("the outsource boot context now carries %q — a role's 傳承 "+
+				"must not reach the worker path", forbidden)
 		}
 	}
 }

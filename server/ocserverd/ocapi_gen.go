@@ -1438,7 +1438,14 @@ type LoreEntryDTO struct {
 //
 // The filter is applied in the QUERY, before the page is cut. A client that pages first and filters afterwards cannot tell "this page happens to hold none of them" from "there are none", and any count it draws from the visible rows is wrong.
 type LoreEntryListDTO struct {
-	Entries []LoreEntryDTO `json:"entries"`
+	// CapChars The fold budget in force for the ONE scope this request's filter converged on — ``lore_cap_chars_role`` or ``lore_cap_chars_manual``. It is 0 when ``scope_kind`` and ``scope_key`` did not BOTH name a single scope, because a budget belongs to a scope and a page spanning several has no single one to report.
+	CapChars int            `json:"cap_chars"`
+	Entries  []LoreEntryDTO `json:"entries"`
+
+	// FirstDroppedId The id of the first entry that does NOT fit inside ``cap_chars`` — the entry the 上限線 is drawn above. It is "" when the whole scope fits, and "" when ``cap_chars`` is 0.
+	//
+	// 🔴 IT IS COMPUTED BY THE SAME ``selectLoreForScope`` THE TWO FOLDS RUN, over the WHOLE scope and not over this page. A client cannot derive it: paging cuts the list before the budget is spent, and re-adding the title/body lengths in the client would be a SECOND copy of the picking rule that drifts from the real one without anything turning red. Read this field; do not recompute it.
+	FirstDroppedId string `json:"first_dropped_id"`
 
 	// Limit The page size actually applied — not necessarily the one asked for.
 	Limit int `json:"limit"`
