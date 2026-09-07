@@ -4,123 +4,9 @@
 package main
 
 import (
-	"encoding/json"
-	"io"
-	"net/http"
-	"net/http/httptest"
-	"path/filepath"
 	"strings"
 	"testing"
 )
-
-// newChatTestServer assembles the full handler stack (routing + auth gate +
-// RBAC choke) over a fresh DB, with one active staff member "mira" on the
-// roster, and answers with an owner token exchanged at POST
-// /api/auth/set-password.
-func newChatTestServer(t *testing.T) (*apiServer, *httptest.Server, string) {
-	t.Helper()
-	d := newChatTestDAL(t)
-	if err := d.PutMember(Member{
-		ID:           "mira",
-		Name:         "Mira",
-		Kind:         KindStaff,
-		RoleKey:      "assistant",
-		RosterStatus: RosterStatusActive,
-	}); err != nil {
-		t.Fatalf("PutMember: %v", err)
-	}
-	cfg := defaultConfig()
-	auth, err := loadAuthSettings(d, cfg, func(string) {})
-	if err != nil {
-		t.Fatalf("loadAuthSettings: %v", err)
-	}
-	claim, err := ensureFirstRunClaimToken(d, auth.passwordHash != "", func(string) {})
-	if err != nil {
-		t.Fatalf("ensureFirstRunClaimToken: %v", err)
-	}
-	api := newAPIServer(d, NewHub(), singleKeyring(auth.secret), auth.ownerTokenTTL, "../..")
-	api.agentTokenTTL = auth.agentTokenTTL
-	api.passwordHash = auth.passwordHash
-	api.passwordChangedAt = auth.passwordChangedAt
-	api.ctxhigh = auth.ctxhigh
-	h, err := buildHandler(specsFor(api), api.keys, d.GetMember, api.authPasswordChangedAt)
-	if err != nil {
-		t.Fatalf("buildHandler: %v", err)
-	}
-	srv := httptest.NewServer(h)
-	t.Cleanup(srv.Close)
-
-	status, data := chatJSON(t, "POST", srv.URL+"/api/auth/set-password", "",
-		`{"password":"chat-test-pass","claim_token":"`+claim+`"}`)
-	if status != 200 {
-		t.Fatalf("set-password: %d %v", status, data)
-	}
-	owner, _ := data["token"].(string)
-	if owner == "" {
-		t.Fatalf("set-password must mint an owner token: %v", data)
-	}
-	return api, srv, owner
-}
-
-func newChatTestDAL(t *testing.T) *DAL {
-	t.Helper()
-	db, err := openSQLite(filepath.Join(t.TempDir(), "chat-test.db"))
-	if err != nil {
-		t.Fatalf("open: %v", err)
-	}
-	t.Cleanup(func() { db.Close() })
-	if err := runMigrations(db); err != nil {
-		t.Fatalf("goose up: %v", err)
-	}
-	return NewDAL(db)
-}
-
-// chatAgentToken is the session credential the spawn path hands a member —
-// minted through the production mint, not hand-assembled.
-func chatAgentToken(t *testing.T, api *apiServer) string {
-	t.Helper()
-	tok, err := api.mintAgentToken("mira", "", 3600)
-	if err != nil {
-		t.Fatalf("mintAgentToken: %v", err)
-	}
-	return tok
-}
-
-func chatJSON(t *testing.T, method, url, token, body string) (int, map[string]any) {
-	t.Helper()
-	req, err := http.NewRequest(method, url, strings.NewReader(body))
-	if err != nil {
-		t.Fatal(err)
-	}
-	req.Header.Set("Content-Type", "application/json")
-	if token != "" {
-		req.Header.Set("Authorization", "Bearer "+token)
-	}
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer resp.Body.Close()
-	raw, _ := io.ReadAll(resp.Body)
-	var parsed any
-	if len(raw) > 0 {
-		if err := json.Unmarshal(raw, &parsed); err != nil {
-			t.Fatalf("non-JSON body (%d): %s", resp.StatusCode, raw)
-		}
-	}
-	data, _ := parsed.(map[string]any)
-	return resp.StatusCode, data
-}
-
-func chatErrorMessage(t *testing.T, data map[string]any) string {
-	t.Helper()
-	body, ok := data["error"].(map[string]any)
-	if !ok {
-		t.Fatalf("no error object in the response: %v", data)
-	}
-	msg, _ := body["message"].(string)
-	return msg
-}
 
 func TestPublishChatRead(t *testing.T) {
 	t.Skip("TODO: publishChatRead fans one chat_read delta for an EFFECTIVE watermark (repository.put_chat_read parity: key {owner}::{reader}::{peer}, payload {reader, peer, last_read_ts} — spec/sse.md §2.2).")
@@ -163,207 +49,217 @@ func TestPendingAttachments(t *testing.T) {
 
 func TestPostChat(t *testing.T) {
 	t.Run("a message with a recipient and a body answers 200 and a receipt naming the recipient", func(t *testing.T) {
-		_, srv, owner := newChatTestServer(t)
+		_, h, _, owner := newAPITestServer(t)
 
-		status, data := chatJSON(t, "POST", srv.URL+"/api/chat", owner,
+		status, data := apiJSON(t, h, "POST", "/api/chat", owner,
 			`{"to":"mira","body":"hi"}`)
 		if status != 200 {
 			t.Fatalf("want 200, got %d (%v)", status, data)
 		}
-		if data["to"] != "mira" {
-			t.Fatalf("receipt to: want \"mira\", got %v", data["to"])
-		}
-		if id, _ := data["id"].(string); id == "" {
-			t.Fatalf("the receipt must name the minted message id, got %v", data["id"])
-		}
+		apiWantBody(t, data, map[string]any{
+			"id":          apiAnyString,
+			"to":          "mira",
+			"ts":          apiAnyNumber,
+			"attachments": []any{},
+		})
 	})
 
 	t.Run("a request without a token answers 401", func(t *testing.T) {
-		_, srv, _ := newChatTestServer(t)
+		_, h, _, _ := newAPITestServer(t)
 
-		if status, data := chatJSON(t, "POST", srv.URL+"/api/chat", "",
-			`{"to":"mira","body":"hi"}`); status != 401 {
+		status, data := apiJSON(t, h, "POST", "/api/chat", "",
+			`{"to":"mira","body":"hi"}`)
+		if status != 401 {
 			t.Fatalf("want 401, got %d (%v)", status, data)
 		}
+		apiWantError(t, data, "unauthorized", "missing credentials")
 	})
 
 	t.Run("a request missing `to` answers 422", func(t *testing.T) {
-		_, srv, owner := newChatTestServer(t)
+		_, h, _, owner := newAPITestServer(t)
 
-		if status, data := chatJSON(t, "POST", srv.URL+"/api/chat", owner,
-			`{"body":"hi"}`); status != 422 {
+		status, data := apiJSON(t, h, "POST", "/api/chat", owner, `{"body":"hi"}`)
+		if status != 422 {
 			t.Fatalf("want 422, got %d (%v)", status, data)
 		}
+		apiWantError(t, data, "validation_error", "field required: to")
 	})
 
 	t.Run("a body over the character cap answers 400 telling the caller to move the content to an attachment", func(t *testing.T) {
-		api, srv, _ := newChatTestServer(t)
-		agent := chatAgentToken(t, api)
+		api, h, _, _ := newAPITestServer(t)
+		agent := apiTestAgentToken(t, api, "mira", "")
 
-		status, data := chatJSON(t, "POST", srv.URL+"/api/chat", agent,
+		status, data := apiJSON(t, h, "POST", "/api/chat", agent,
 			`{"to":"owner","body":"`+strings.Repeat("x", 4001)+`"}`)
 		if status != 400 {
 			t.Fatalf("want 400, got %d (%v)", status, data)
 		}
-		if got := chatErrorMessage(t, data); got != "message body is 4001 chars, over the 4000-char limit. "+
-			"Put long content in an attachment (ocagent upload) and keep the message to a short pointer." {
-			t.Fatalf("over-cap message: %q", got)
-		}
+		apiWantError(t, data, "validation_error",
+			"message body is 4001 chars, over the 4000-char limit. "+
+				"Put long content in an attachment (ocagent upload) and keep the message to a short pointer.")
 	})
 
 	t.Run("the owner may post a body over the character cap and gets 200", func(t *testing.T) {
-		_, srv, owner := newChatTestServer(t)
+		_, h, _, owner := newAPITestServer(t)
 
-		if status, data := chatJSON(t, "POST", srv.URL+"/api/chat", owner,
-			`{"to":"mira","body":"`+strings.Repeat("x", 4001)+`"}`); status != 200 {
+		status, data := apiJSON(t, h, "POST", "/api/chat", owner,
+			`{"to":"mira","body":"`+strings.Repeat("x", 4001)+`"}`)
+		if status != 200 {
 			t.Fatalf("want 200, got %d (%v)", status, data)
 		}
+		apiWantBody(t, data, map[string]any{
+			"id":          apiAnyString,
+			"to":          "mira",
+			"ts":          apiAnyNumber,
+			"attachments": []any{},
+		})
 	})
 
 	t.Run("more than ten attachments answers 400", func(t *testing.T) {
-		_, srv, owner := newChatTestServer(t)
+		_, h, _, owner := newAPITestServer(t)
 
 		items := strings.TrimSuffix(strings.Repeat(`{"id":"att-nope"},`, 11), ",")
-		status, data := chatJSON(t, "POST", srv.URL+"/api/chat", owner,
+		status, data := apiJSON(t, h, "POST", "/api/chat", owner,
 			`{"to":"mira","body":"hi","attachments":[`+items+`]}`)
 		if status != 400 {
 			t.Fatalf("want 400, got %d (%v)", status, data)
 		}
-		if got := chatErrorMessage(t, data); got != "a message may carry at most 10 attachments" {
-			t.Fatalf("over-count message: %q", got)
-		}
+		apiWantError(t, data, "validation_error", "a message may carry at most 10 attachments")
 	})
 
 	t.Run("an empty body with no attachment answers 400", func(t *testing.T) {
-		_, srv, owner := newChatTestServer(t)
+		_, h, _, owner := newAPITestServer(t)
 
-		status, data := chatJSON(t, "POST", srv.URL+"/api/chat", owner,
+		status, data := apiJSON(t, h, "POST", "/api/chat", owner,
 			`{"to":"mira","body":""}`)
 		if status != 400 {
 			t.Fatalf("want 400, got %d (%v)", status, data)
 		}
-		if got := chatErrorMessage(t, data); got != "message must carry text or an attachment" {
-			t.Fatalf("empty-message message: %q", got)
-		}
+		apiWantError(t, data, "validation_error", "message must carry text or an attachment")
 	})
 
 	t.Run("a message carrying meta answers 200 and a receipt naming the recipient", func(t *testing.T) {
-		_, srv, owner := newChatTestServer(t)
+		_, h, _, owner := newAPITestServer(t)
 
-		status, data := chatJSON(t, "POST", srv.URL+"/api/chat", owner,
+		status, data := apiJSON(t, h, "POST", "/api/chat", owner,
 			`{"to":"mira","body":"hi","meta":{"source":"cli"}}`)
 		if status != 200 {
 			t.Fatalf("want 200, got %d (%v)", status, data)
 		}
-		if data["to"] != "mira" {
-			t.Fatalf("receipt to: want \"mira\", got %v", data["to"])
-		}
+		apiWantBody(t, data, map[string]any{
+			"id":          apiAnyString,
+			"to":          "mira",
+			"ts":          apiAnyNumber,
+			"attachments": []any{},
+		})
 	})
 
 	t.Run("a reply to a message that exists answers 200", func(t *testing.T) {
-		_, srv, owner := newChatTestServer(t)
+		_, h, _, owner := newAPITestServer(t)
 
-		_, first := chatJSON(t, "POST", srv.URL+"/api/chat", owner,
+		firstStatus, first := apiJSON(t, h, "POST", "/api/chat", owner,
 			`{"to":"mira","body":"the original"}`)
-		quoted, _ := first["id"].(string)
-		if quoted == "" {
-			t.Fatalf("the first post must mint an id: %v", first)
+		if firstStatus != 200 {
+			t.Fatalf("want 200, got %d (%v)", firstStatus, first)
 		}
+		apiWantBody(t, first, map[string]any{
+			"id":          apiAnyString,
+			"to":          "mira",
+			"ts":          apiAnyNumber,
+			"attachments": []any{},
+		})
+		quoted, _ := first["id"].(string)
 
-		status, data := chatJSON(t, "POST", srv.URL+"/api/chat", owner,
+		status, data := apiJSON(t, h, "POST", "/api/chat", owner,
 			`{"to":"mira","body":"quoting you","reply_to":"`+quoted+`"}`)
 		if status != 200 {
 			t.Fatalf("want 200, got %d (%v)", status, data)
 		}
-		if data["to"] != "mira" {
-			t.Fatalf("receipt to: want \"mira\", got %v", data["to"])
-		}
+		apiWantBody(t, data, map[string]any{
+			"id":          apiAnyString,
+			"to":          "mira",
+			"ts":          apiAnyNumber,
+			"attachments": []any{},
+		})
 	})
 
 	t.Run("a reply to a message that does not exist answers 400", func(t *testing.T) {
-		_, srv, owner := newChatTestServer(t)
+		_, h, _, owner := newAPITestServer(t)
 
-		status, data := chatJSON(t, "POST", srv.URL+"/api/chat", owner,
+		status, data := apiJSON(t, h, "POST", "/api/chat", owner,
 			`{"to":"mira","body":"quoting nothing","reply_to":"c-nosuchmessage"}`)
 		if status != 400 {
 			t.Fatalf("want 400, got %d (%v)", status, data)
 		}
-		if got := chatErrorMessage(t, data); got != "reply_to names no message (c-nosuchmessage) — "+
-			"you can only reply to a message that exists; re-read the conversation and use the id it carries" {
-			t.Fatalf("unknown reply_to message: %q", got)
-		}
+		apiWantError(t, data, "validation_error",
+			"reply_to names no message (c-nosuchmessage) — you can only reply to a "+
+				"message that exists; re-read the conversation and use the id it carries")
 	})
 
 	t.Run("a message addressed to a member that is not on the roster answers 404", func(t *testing.T) {
-		_, srv, owner := newChatTestServer(t)
+		_, h, _, owner := newAPITestServer(t)
 
-		status, data := chatJSON(t, "POST", srv.URL+"/api/chat", owner,
+		status, data := apiJSON(t, h, "POST", "/api/chat", owner,
 			`{"to":"ghost","body":"hi"}`)
 		if status != 404 {
 			t.Fatalf("want 404, got %d (%v)", status, data)
 		}
-		if got := chatErrorMessage(t, data); got != "chat recipient 'ghost' not found" {
-			t.Fatalf("unknown recipient message: %q", got)
-		}
+		apiWantError(t, data, "not_found", "chat recipient 'ghost' not found")
 	})
 
 	t.Run("a message carrying an inline attachment answers 200 and a receipt listing the attachment that landed", func(t *testing.T) {
-		_, srv, owner := newChatTestServer(t)
+		_, h, _, owner := newAPITestServer(t)
 
-		status, data := chatJSON(t, "POST", srv.URL+"/api/chat", owner,
+		status, data := apiJSON(t, h, "POST", "/api/chat", owner,
 			`{"to":"mira","body":"see this","attachments":[`+
 				`{"data_b64":"aGVsbG8=","filename":"notes.txt","mime":"text/plain"}]}`)
 		if status != 200 {
 			t.Fatalf("want 200, got %d (%v)", status, data)
 		}
-		list, _ := data["attachments"].([]any)
-		if len(list) != 1 {
-			t.Fatalf("receipt attachments: want 1 entry, got %v", data["attachments"])
-		}
-		att, _ := list[0].(map[string]any)
-		if att["filename"] != "notes.txt" {
-			t.Fatalf("attachment filename: want \"notes.txt\", got %v", att["filename"])
-		}
-		if att["mime"] != "text/plain" {
-			t.Fatalf("attachment mime: want \"text/plain\", got %v", att["mime"])
-		}
-		if att["is_image"] != false {
-			t.Fatalf("attachment is_image: want false, got %v", att["is_image"])
-		}
-		id, _ := att["id"].(string)
-		if id == "" {
-			t.Fatalf("the receipt must name the minted attachment id, got %v", att["id"])
-		}
-		if url, _ := att["url"].(string); !strings.HasPrefix(url, "/api/chat/attachment/") {
-			t.Fatalf("attachment url: want the \"/api/chat/attachment/\" prefix, got %v", att["url"])
+		apiWantBody(t, data, map[string]any{
+			"id": apiAnyString,
+			"to": "mira",
+			"ts": apiAnyNumber,
+			"attachments": []any{map[string]any{
+				"id":       apiAnyString,
+				"url":      apiAnyString,
+				"filename": "notes.txt",
+				"mime":     "text/plain",
+				"is_image": false,
+			}},
+		})
+		att, _ := data["attachments"].([]any)[0].(map[string]any)
+		if url, _ := att["url"].(string); url != "/api/chat/attachment/"+att["id"].(string) {
+			t.Fatalf("attachment url: want the serve path for %v, got %v", att["id"], att["url"])
 		}
 	})
 
 	t.Run("an attachment referencing an id that does not exist answers 400", func(t *testing.T) {
-		_, srv, owner := newChatTestServer(t)
+		_, h, _, owner := newAPITestServer(t)
 
-		status, data := chatJSON(t, "POST", srv.URL+"/api/chat", owner,
+		status, data := apiJSON(t, h, "POST", "/api/chat", owner,
 			`{"to":"mira","body":"hi","attachments":[{"id":"att-nosuchblob"}]}`)
 		if status != 400 {
 			t.Fatalf("want 400, got %d (%v)", status, data)
 		}
-		if got := chatErrorMessage(t, data); got != "attachment 'att-nosuchblob' not found" {
-			t.Fatalf("unknown attachment message: %q", got)
-		}
+		apiWantError(t, data, "validation_error", "attachment 'att-nosuchblob' not found")
 	})
 
 	t.Run("a member posting to the owner answers 200 and a receipt naming the owner", func(t *testing.T) {
-		api, srv, _ := newChatTestServer(t)
-		agent := chatAgentToken(t, api)
+		api, h, _, _ := newAPITestServer(t)
+		agent := apiTestAgentToken(t, api, "mira", "")
 
-		status, data := chatJSON(t, "POST", srv.URL+"/api/chat", agent,
+		status, data := apiJSON(t, h, "POST", "/api/chat", agent,
 			`{"to":"owner","body":"hi boss"}`)
 		if status != 200 {
 			t.Fatalf("want 200, got %d (%v)", status, data)
 		}
-		if data["to"] != "owner" {
-			t.Fatalf("receipt to: want \"owner\", got %v", data["to"])
-		}
+		apiWantBody(t, data, map[string]any{
+			"id":          apiAnyString,
+			"to":          "owner",
+			"ts":          apiAnyNumber,
+			"attachments": []any{},
+		})
 	})
 }
 

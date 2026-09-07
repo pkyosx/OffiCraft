@@ -3,30 +3,335 @@
 
 package main
 
-import "testing"
+import (
+	"net/http/httptest"
+	"strings"
+	"sync"
+	"testing"
+	"time"
+)
 
 func TestValidatePushContactEmail(t *testing.T) {
 	t.Skip("TODO: validatePushContactEmail accepts a single trimmed local@domain address on a public domain.")
 }
 
+// apiTestShippedSettings is the WHOLE settings body a freshly claimed server
+// serves — every field written out, so a scenario table only has to name what
+// its patch moved and nothing can change unnoticed.
+func apiTestShippedSettings() map[string]any {
+	return map[string]any{
+		"owner_token_ttl":                  86400,
+		"agent_token_ttl":                  604800,
+		"handover_pct":                     50,
+		"notice_pct":                       40,
+		"codex_compaction_threshold":       3,
+		"codex_notice_round":               2,
+		"monitoring_refresh_seconds":       5,
+		"outsource_max_parallel":           3,
+		"accelerated_grace_secs":           120,
+		"warden_credential_lifetime_secs":  2592000,
+		"doc_cap_chars_duty":               1000,
+		"doc_cap_chars_insight":            15000,
+		"doc_cap_chars_learning":           15000,
+		"doc_cap_chars_manual_sop":         15000,
+		"doc_cap_chars_manual_learnings":   15000,
+		"doc_cap_chars_system_interaction": 60000,
+		"doc_cap_chars_boot_sequence":      15000,
+		"doc_cap_chars_offboard":           15000,
+		"chat_budget_chars":                6000,
+		"step_note_cap_chars":              10000,
+		"backup_retain":                    5,
+		"updater_receive_beta":             false,
+		"updater_auto_update":              false,
+		"org_name":                         "",
+		"owner_name":                       "",
+		"push_contact_email":               "",
+		"display_theme":                    "",
+		"display_language":                 "",
+		"display_wide":                     false,
+		"suggested_replies_reply_card":     []any{},
+		"suggested_replies_task_message":   []any{},
+		"onboarding":                       nil,
+	}
+}
+
 func TestHandleAuthStatusApiAuthStatusGet(t *testing.T) {
-	t.Run("a well-formed GET /api/auth/status answers 200", func(t *testing.T) { t.Skip("TODO") })
-	t.Run("a request to GET /api/auth/status reaches this handler and no other row", func(t *testing.T) { t.Skip("TODO") })
-	t.Run("a GET /api/auth/status request the wire layer rejects (malformed body, wrong content type, over the size cap) answers a 4xx without reaching the domain", func(t *testing.T) { t.Skip("TODO") })
+	t.Run("a first-run server answers 200 with no password set and no factor required", func(t *testing.T) {
+		_, h, _, _ := newAPITestStack(t)
+
+		status, data := apiJSON(t, h, "GET", "/api/auth/status", "", "")
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		apiWantBody(t, data, map[string]any{"password_set": false, "mfa_required": false})
+	})
+
+	t.Run("a claimed server answers 200 with the password set", func(t *testing.T) {
+		_, h, _, _ := newAPITestServer(t)
+
+		status, data := apiJSON(t, h, "GET", "/api/auth/status", "", "")
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		apiWantBody(t, data, map[string]any{"password_set": true, "mfa_required": false})
+	})
+
+	t.Run("an armed factor answers 200 with mfa_required true", func(t *testing.T) {
+		api, h, d, _ := newAPITestServer(t)
+		apiTestArmMFA(t, api, d)
+
+		status, data := apiJSON(t, h, "GET", "/api/auth/status", "", "")
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		apiWantBody(t, data, map[string]any{"password_set": true, "mfa_required": true})
+	})
 }
 
 func TestHandleSetPasswordApiAuthSetPasswordPost(t *testing.T) {
-	t.Run("a well-formed POST /api/auth/set-password answers 200", func(t *testing.T) { t.Skip("TODO") })
-	t.Run("a request to POST /api/auth/set-password reaches this handler and no other row", func(t *testing.T) { t.Skip("TODO") })
-	t.Run("a POST /api/auth/set-password request the wire layer rejects (malformed body, wrong content type, over the size cap) answers a 4xx without reaching the domain", func(t *testing.T) { t.Skip("TODO") })
+	t.Run("the claim token plus a long enough password answers 200 and a bearer owner token", func(t *testing.T) {
+		_, h, _, claim := newAPITestStack(t)
+
+		status, data := apiJSON(t, h, "POST", "/api/auth/set-password", "",
+			`{"password":"first-run-pass","claim_token":"`+claim+`"}`)
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		apiWantBody(t, data, map[string]any{
+			"token":      apiAnyString,
+			"token_type": "bearer",
+			"expires_in": 86400,
+			"owner_id":   "owner",
+		})
+	})
+
+	t.Run("the new password answers 200 at the login door", func(t *testing.T) {
+		_, h, _, claim := newAPITestStack(t)
+		apiJSON(t, h, "POST", "/api/auth/set-password", "",
+			`{"password":"first-run-pass","claim_token":"`+claim+`"}`)
+
+		status, data := apiJSON(t, h, "POST", "/api/login", "", `{"password":"first-run-pass"}`)
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		apiWantBody(t, data, map[string]any{
+			"token":      apiAnyString,
+			"token_type": "bearer",
+			"expires_in": 86400,
+			"owner_id":   "owner",
+		})
+	})
+
+	t.Run("a request missing `claim_token` answers 422", func(t *testing.T) {
+		_, h, _, _ := newAPITestStack(t)
+
+		status, data := apiJSON(t, h, "POST", "/api/auth/set-password", "",
+			`{"password":"first-run-pass"}`)
+		if status != 422 {
+			t.Fatalf("want 422, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "validation_error", "field required: claim_token")
+	})
+
+	t.Run("a password under eight characters answers 422", func(t *testing.T) {
+		_, h, _, claim := newAPITestStack(t)
+
+		status, data := apiJSON(t, h, "POST", "/api/auth/set-password", "",
+			`{"password":"short","claim_token":"`+claim+`"}`)
+		if status != 422 {
+			t.Fatalf("want 422, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "validation_error", "password must be at least 8 characters")
+	})
+
+	t.Run("setting a password on a claimed server answers 409", func(t *testing.T) {
+		_, h, _, _ := newAPITestServer(t)
+
+		status, data := apiJSON(t, h, "POST", "/api/auth/set-password", "",
+			`{"password":"second-attempt","claim_token":"whatever"}`)
+		if status != 409 {
+			t.Fatalf("want 409, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "conflict", "a password is already set")
+	})
+
+	t.Run("a claim token that does not match answers 401", func(t *testing.T) {
+		_, h, _, _ := newAPITestStack(t)
+
+		status, data := apiJSON(t, h, "POST", "/api/auth/set-password", "",
+			`{"password":"first-run-pass","claim_token":"not-the-claim-token"}`)
+		if status != 401 {
+			t.Fatalf("want 401, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "unauthorized", "invalid claim token")
+	})
+
+	t.Run("a storage fault while the claim token is read answers 500", func(t *testing.T) {
+		_, h, d, claim := newAPITestStack(t)
+		if err := d.rdb.Close(); err != nil {
+			t.Fatalf("close: %v", err)
+		}
+
+		status, data := apiJSON(t, h, "POST", "/api/auth/set-password", "",
+			`{"password":"first-run-pass","claim_token":"`+claim+`"}`)
+		if status != 500 {
+			t.Fatalf("want 500, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "internal_error", "internal error: sql: database is closed")
+	})
+
+	t.Run("a storage fault while the hash is stored answers 500", func(t *testing.T) {
+		_, h, d, claim := newAPITestStack(t)
+		if err := d.wdb.Close(); err != nil {
+			t.Fatalf("close: %v", err)
+		}
+
+		status, data := apiJSON(t, h, "POST", "/api/auth/set-password", "",
+			`{"password":"first-run-pass","claim_token":"`+claim+`"}`)
+		if status != 500 {
+			t.Fatalf("want 500, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "internal_error", "internal error: sql: database is closed")
+	})
+
+	t.Run("attempts beyond the in-flight cap answer 429 with a one-second Retry-After", func(t *testing.T) {
+		api, h, _, _ := newAPITestStack(t)
+		api.credentialFailureFloor = 2 * time.Second
+
+		codes := make(chan int, 8)
+		var wg sync.WaitGroup
+		for i := 0; i < 8; i++ {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				req := httptest.NewRequest("POST", "/api/auth/set-password",
+					strings.NewReader(`{"password":"first-run-pass","claim_token":"wrong"}`))
+				req.Header.Set("Content-Type", "application/json")
+				rec := httptest.NewRecorder()
+				h.ServeHTTP(rec, req)
+				codes <- rec.Code
+				if rec.Code == 429 && rec.Header().Get("Retry-After") != "1" {
+					t.Errorf("Retry-After: want \"1\", got %q", rec.Header().Get("Retry-After"))
+				}
+			}()
+		}
+		wg.Wait()
+		close(codes)
+		throttled := 0
+		for code := range codes {
+			if code == 429 {
+				throttled++
+			}
+		}
+		if throttled != 4 {
+			t.Fatalf("want 4 of 8 concurrent attempts refused for concurrency, got %d", throttled)
+		}
+	})
 }
 
 func TestHandleChangePasswordApiAuthChangePasswordPost(t *testing.T) {
-	t.Run("a well-formed POST /api/auth/change-password answers 200", func(t *testing.T) { t.Skip("TODO") })
-	t.Run("a POST /api/auth/change-password request without a token answers 401", func(t *testing.T) { t.Skip("TODO") })
-	t.Run("an authenticated admin_agent identity answers 403 because this row requires owner", func(t *testing.T) { t.Skip("TODO") })
-	t.Run("a request to POST /api/auth/change-password reaches this handler and no other row", func(t *testing.T) { t.Skip("TODO") })
-	t.Run("a POST /api/auth/change-password request the wire layer rejects (malformed body, wrong content type, over the size cap) answers a 4xx without reaching the domain", func(t *testing.T) { t.Skip("TODO") })
+	t.Run("the current password plus a new one answers 200 and a fresh bearer owner token", func(t *testing.T) {
+		_, h, _, owner := newAPITestServer(t)
+
+		status, data := apiJSON(t, h, "POST", "/api/auth/change-password", owner,
+			`{"current_password":"`+apiTestOwnerPassword+`","new_password":"a-brand-new-pass"}`)
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		apiWantBody(t, data, map[string]any{
+			"token":      apiAnyString,
+			"token_type": "bearer",
+			"expires_in": 86400,
+			"owner_id":   "owner",
+		})
+	})
+
+	t.Run("the new password answers 200 at the login door", func(t *testing.T) {
+		_, h, _, owner := newAPITestServer(t)
+		apiJSON(t, h, "POST", "/api/auth/change-password", owner,
+			`{"current_password":"`+apiTestOwnerPassword+`","new_password":"a-brand-new-pass"}`)
+
+		status, data := apiJSON(t, h, "POST", "/api/login", "", `{"password":"a-brand-new-pass"}`)
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		apiWantBody(t, data, map[string]any{
+			"token":      apiAnyString,
+			"token_type": "bearer",
+			"expires_in": 86400,
+			"owner_id":   "owner",
+		})
+	})
+
+	t.Run("a request missing `new_password` answers 422", func(t *testing.T) {
+		_, h, _, owner := newAPITestServer(t)
+
+		status, data := apiJSON(t, h, "POST", "/api/auth/change-password", owner,
+			`{"current_password":"`+apiTestOwnerPassword+`"}`)
+		if status != 422 {
+			t.Fatalf("want 422, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "validation_error", "field required: new_password")
+	})
+
+	t.Run("a new password under eight characters answers 422", func(t *testing.T) {
+		_, h, _, owner := newAPITestServer(t)
+
+		status, data := apiJSON(t, h, "POST", "/api/auth/change-password", owner,
+			`{"current_password":"`+apiTestOwnerPassword+`","new_password":"short"}`)
+		if status != 422 {
+			t.Fatalf("want 422, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "validation_error", "new_password must be at least 8 characters")
+	})
+
+	t.Run("a wrong current password answers 401", func(t *testing.T) {
+		_, h, _, owner := newAPITestServer(t)
+
+		status, data := apiJSON(t, h, "POST", "/api/auth/change-password", owner,
+			`{"current_password":"not-the-password","new_password":"a-brand-new-pass"}`)
+		if status != 401 {
+			t.Fatalf("want 401, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "unauthorized", "invalid password")
+	})
+
+	t.Run("a request without a token answers 401", func(t *testing.T) {
+		_, h, _, _ := newAPITestServer(t)
+
+		status, data := apiJSON(t, h, "POST", "/api/auth/change-password", "",
+			`{"current_password":"x","new_password":"a-brand-new-pass"}`)
+		if status != 401 {
+			t.Fatalf("want 401, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "unauthorized", "missing credentials")
+	})
+
+	t.Run("an authenticated admin_agent identity answers 403 because this row requires owner", func(t *testing.T) {
+		api, h, _, _ := newAPITestServer(t)
+		admin := apiTestAgentToken(t, api, "mira", "")
+
+		status, data := apiJSON(t, h, "POST", "/api/auth/change-password", admin,
+			`{"current_password":"x","new_password":"a-brand-new-pass"}`)
+		if status != 403 {
+			t.Fatalf("want 403, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "forbidden", "principal not permitted")
+	})
+
+	t.Run("a storage fault while the new hash is stored answers 500", func(t *testing.T) {
+		_, h, d, owner := newAPITestServer(t)
+		if err := d.wdb.Close(); err != nil {
+			t.Fatalf("close: %v", err)
+		}
+
+		status, data := apiJSON(t, h, "POST", "/api/auth/change-password", owner,
+			`{"current_password":"`+apiTestOwnerPassword+`","new_password":"a-brand-new-pass"}`)
+		if status != 500 {
+			t.Fatalf("want 500, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "internal_error", "internal error: sql: database is closed")
+	})
 }
 
 func TestWriteOwnerToken(t *testing.T) {
@@ -34,19 +339,558 @@ func TestWriteOwnerToken(t *testing.T) {
 }
 
 func TestHandleGetSettingsApiSettingsGet(t *testing.T) {
-	t.Run("a well-formed GET /api/settings answers 200", func(t *testing.T) { t.Skip("TODO") })
-	t.Run("a GET /api/settings request without a token answers 401", func(t *testing.T) { t.Skip("TODO") })
-	t.Run("an authenticated agent identity answers 403 because this row requires admin_agent", func(t *testing.T) { t.Skip("TODO") })
-	t.Run("a request to GET /api/settings reaches this handler and no other row", func(t *testing.T) { t.Skip("TODO") })
-	t.Run("a GET /api/settings request the wire layer rejects (malformed body, wrong content type, over the size cap) answers a 4xx without reaching the domain", func(t *testing.T) { t.Skip("TODO") })
+	t.Run("a claimed server answers 200 with the shipped defaults", func(t *testing.T) {
+		_, h, _, owner := newAPITestServer(t)
+
+		status, data := apiJSON(t, h, "GET", "/api/settings", owner, "")
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		apiWantBody(t, data, apiTestShippedSettings())
+	})
+
+	t.Run("a request without a token answers 401", func(t *testing.T) {
+		_, h, _, _ := newAPITestServer(t)
+
+		status, data := apiJSON(t, h, "GET", "/api/settings", "", "")
+		if status != 401 {
+			t.Fatalf("want 401, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "unauthorized", "missing credentials")
+	})
+
+	t.Run("an authenticated agent identity answers 403 because this row requires admin_agent", func(t *testing.T) {
+		api, h, _, _ := newAPITestServer(t)
+		agent := apiTestAgentToken(t, api, apiTestPlainAgentID, "")
+
+		status, data := apiJSON(t, h, "GET", "/api/settings", agent, "")
+		if status != 403 {
+			t.Fatalf("want 403, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "forbidden", "principal not permitted")
+	})
+
+	t.Run("an authenticated admin_agent identity answers 200", func(t *testing.T) {
+		api, h, _, _ := newAPITestServer(t)
+		admin := apiTestAgentToken(t, api, "mira", "")
+
+		status, data := apiJSON(t, h, "GET", "/api/settings", admin, "")
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		apiWantBody(t, data, apiTestShippedSettings())
+	})
 }
 
 func TestHandleUpdateSettingsApiSettingsPatch(t *testing.T) {
-	t.Run("a well-formed PATCH /api/settings answers 200", func(t *testing.T) { t.Skip("TODO") })
-	t.Run("a PATCH /api/settings request without a token answers 401", func(t *testing.T) { t.Skip("TODO") })
-	t.Run("an authenticated agent identity answers 403 because this row requires admin_agent", func(t *testing.T) { t.Skip("TODO") })
-	t.Run("a request to PATCH /api/settings reaches this handler and no other row", func(t *testing.T) { t.Skip("TODO") })
-	t.Run("a PATCH /api/settings request the wire layer rejects (malformed body, wrong content type, over the size cap) answers a 4xx without reaching the domain", func(t *testing.T) { t.Skip("TODO") })
+	t.Run("a patch of every numeric knob answers 200 with the new values", func(t *testing.T) {
+		_, h, _, owner := newAPITestServer(t)
+
+		status, data := apiJSON(t, h, "PATCH", "/api/settings", owner, `{
+			"owner_token_ttl":43200,
+			"agent_token_ttl":2592000,
+			"notice_pct":45,
+			"handover_pct":80,
+			"codex_notice_round":4,
+			"codex_compaction_threshold":6,
+			"monitoring_refresh_seconds":30,
+			"accelerated_grace_secs":90,
+			"warden_credential_lifetime_secs":864000,
+			"outsource_max_parallel":-1,
+			"doc_cap_chars_duty":2000,
+			"doc_cap_chars_insight":20000,
+			"doc_cap_chars_learning":20000,
+			"doc_cap_chars_manual_sop":20000,
+			"doc_cap_chars_manual_learnings":20000,
+			"doc_cap_chars_system_interaction":70000,
+			"doc_cap_chars_boot_sequence":20000,
+			"doc_cap_chars_offboard":20000,
+			"chat_budget_chars":9000,
+			"step_note_cap_chars":20000,
+			"backup_retain":9
+		}`)
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		want := apiTestShippedSettings()
+		want["owner_token_ttl"] = 43200
+		want["agent_token_ttl"] = 2592000
+		want["notice_pct"] = 45
+		want["handover_pct"] = 80
+		want["codex_notice_round"] = 4
+		want["codex_compaction_threshold"] = 6
+		want["monitoring_refresh_seconds"] = 30
+		want["accelerated_grace_secs"] = 90
+		want["warden_credential_lifetime_secs"] = 864000
+		want["outsource_max_parallel"] = -1
+		want["doc_cap_chars_duty"] = 2000
+		want["doc_cap_chars_insight"] = 20000
+		want["doc_cap_chars_learning"] = 20000
+		want["doc_cap_chars_manual_sop"] = 20000
+		want["doc_cap_chars_manual_learnings"] = 20000
+		want["doc_cap_chars_system_interaction"] = 70000
+		want["doc_cap_chars_boot_sequence"] = 20000
+		want["doc_cap_chars_offboard"] = 20000
+		want["chat_budget_chars"] = 9000
+		want["step_note_cap_chars"] = 20000
+		want["backup_retain"] = 9
+		apiWantBody(t, data, want)
+	})
+
+	t.Run("a patch of every text and toggle knob answers 200 with the new values", func(t *testing.T) {
+		_, h, _, owner := newAPITestServer(t)
+
+		status, data := apiJSON(t, h, "PATCH", "/api/settings", owner, `{
+			"updater_receive_beta":true,
+			"updater_auto_update":true,
+			"org_name":"  Studio Nine  ",
+			"owner_name":"  Eva  ",
+			"push_contact_email":"  eva@example.com  ",
+			"display_theme":"office",
+			"display_language":"en",
+			"display_wide":true,
+			"suggested_replies_reply_card":["  yes  ","","no"],
+			"suggested_replies_task_message":["on it"]
+		}`)
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		want := apiTestShippedSettings()
+		want["updater_receive_beta"] = true
+		want["updater_auto_update"] = true
+		want["org_name"] = "Studio Nine"
+		want["owner_name"] = "Eva"
+		want["push_contact_email"] = "eva@example.com"
+		want["display_theme"] = "office"
+		want["display_language"] = "en"
+		want["display_wide"] = true
+		want["suggested_replies_reply_card"] = []any{"yes", "no"}
+		want["suggested_replies_task_message"] = []any{"on it"}
+		apiWantBody(t, data, want)
+	})
+
+	t.Run("an empty patch answers 200 leaving every value alone", func(t *testing.T) {
+		_, h, _, owner := newAPITestServer(t)
+
+		status, data := apiJSON(t, h, "PATCH", "/api/settings", owner, `{}`)
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		apiWantBody(t, data, apiTestShippedSettings())
+	})
+
+	t.Run("an explicitly empty suggested-reply list answers 200 and clears it", func(t *testing.T) {
+		_, h, _, owner := newAPITestServer(t)
+		apiJSON(t, h, "PATCH", "/api/settings", owner, `{"suggested_replies_reply_card":["yes"]}`)
+
+		status, data := apiJSON(t, h, "PATCH", "/api/settings", owner,
+			`{"suggested_replies_reply_card":[]}`)
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		apiWantBody(t, data, apiTestShippedSettings())
+	})
+
+	t.Run("clearing the studio and owner names answers 200 with both empty", func(t *testing.T) {
+		_, h, _, owner := newAPITestServer(t)
+		apiJSON(t, h, "PATCH", "/api/settings", owner, `{"org_name":"Studio Nine","owner_name":"Eva"}`)
+
+		status, data := apiJSON(t, h, "PATCH", "/api/settings", owner,
+			`{"org_name":"","owner_name":"","push_contact_email":"","display_theme":"","display_language":""}`)
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		apiWantBody(t, data, apiTestShippedSettings())
+	})
+
+	t.Run("an owner_token_ttl outside the whitelist answers 422", func(t *testing.T) {
+		_, h, _, owner := newAPITestServer(t)
+
+		status, data := apiJSON(t, h, "PATCH", "/api/settings", owner, `{"owner_token_ttl":99}`)
+		if status != 422 {
+			t.Fatalf("want 422, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "validation_error", "owner_token_ttl must be one of 43200, 86400, 604800, 2592000 seconds")
+	})
+
+	t.Run("an agent_token_ttl outside the whitelist answers 422", func(t *testing.T) {
+		_, h, _, owner := newAPITestServer(t)
+
+		status, data := apiJSON(t, h, "PATCH", "/api/settings", owner, `{"agent_token_ttl":99}`)
+		if status != 422 {
+			t.Fatalf("want 422, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "validation_error", "agent_token_ttl must be one of 43200, 86400, 604800, 2592000 seconds")
+	})
+
+	t.Run("a handover_pct outside its range answers 422", func(t *testing.T) {
+		_, h, _, owner := newAPITestServer(t)
+
+		status, data := apiJSON(t, h, "PATCH", "/api/settings", owner, `{"handover_pct":39}`)
+		if status != 422 {
+			t.Fatalf("want 422, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "validation_error", "handover_pct must be between 40 and 90")
+	})
+
+	t.Run("a notice_pct outside its range answers 422", func(t *testing.T) {
+		_, h, _, owner := newAPITestServer(t)
+
+		status, data := apiJSON(t, h, "PATCH", "/api/settings", owner, `{"notice_pct":90}`)
+		if status != 422 {
+			t.Fatalf("want 422, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "validation_error", "notice_pct must be between 1 and 89")
+	})
+
+	t.Run("a codex_compaction_threshold outside its range answers 422", func(t *testing.T) {
+		_, h, _, owner := newAPITestServer(t)
+
+		status, data := apiJSON(t, h, "PATCH", "/api/settings", owner, `{"codex_compaction_threshold":11}`)
+		if status != 422 {
+			t.Fatalf("want 422, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "validation_error", "codex_compaction_threshold must be between 1 and 10")
+	})
+
+	t.Run("a codex_notice_round outside its range answers 422", func(t *testing.T) {
+		_, h, _, owner := newAPITestServer(t)
+
+		status, data := apiJSON(t, h, "PATCH", "/api/settings", owner, `{"codex_notice_round":11}`)
+		if status != 422 {
+			t.Fatalf("want 422, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "validation_error", "codex_notice_round must be between 1 and 10")
+	})
+
+	t.Run("a notice_pct that does not land before handover_pct answers 422", func(t *testing.T) {
+		_, h, _, owner := newAPITestServer(t)
+
+		status, data := apiJSON(t, h, "PATCH", "/api/settings", owner,
+			`{"notice_pct":60,"handover_pct":60}`)
+		if status != 422 {
+			t.Fatalf("want 422, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "validation_error", "notice_pct must be strictly below handover_pct")
+	})
+
+	t.Run("a codex_notice_round that does not land before the threshold answers 422", func(t *testing.T) {
+		_, h, _, owner := newAPITestServer(t)
+
+		status, data := apiJSON(t, h, "PATCH", "/api/settings", owner,
+			`{"codex_notice_round":5,"codex_compaction_threshold":5}`)
+		if status != 422 {
+			t.Fatalf("want 422, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "validation_error", "codex_notice_round must be strictly below codex_compaction_threshold")
+	})
+
+	t.Run("a monitoring_refresh_seconds outside its range answers 422", func(t *testing.T) {
+		_, h, _, owner := newAPITestServer(t)
+
+		status, data := apiJSON(t, h, "PATCH", "/api/settings", owner, `{"monitoring_refresh_seconds":61}`)
+		if status != 422 {
+			t.Fatalf("want 422, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "validation_error", "monitoring_refresh_seconds must be between 1 and 60")
+	})
+
+	t.Run("an accelerated_grace_secs outside its range answers 422", func(t *testing.T) {
+		_, h, _, owner := newAPITestServer(t)
+
+		status, data := apiJSON(t, h, "PATCH", "/api/settings", owner, `{"accelerated_grace_secs":9}`)
+		if status != 422 {
+			t.Fatalf("want 422, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "validation_error", "accelerated_grace_secs must be between 10 and 3600 seconds")
+	})
+
+	t.Run("an outsource_max_parallel outside its range answers 422", func(t *testing.T) {
+		_, h, _, owner := newAPITestServer(t)
+
+		status, data := apiJSON(t, h, "PATCH", "/api/settings", owner, `{"outsource_max_parallel":21}`)
+		if status != 422 {
+			t.Fatalf("want 422, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "validation_error", "outsource_max_parallel must be between -1 and 20 (-1 = unlimited)")
+	})
+
+	t.Run("a warden_credential_lifetime_secs outside its range answers 422", func(t *testing.T) {
+		_, h, _, owner := newAPITestServer(t)
+
+		status, data := apiJSON(t, h, "PATCH", "/api/settings", owner,
+			`{"warden_credential_lifetime_secs":3600}`)
+		if status != 422 {
+			t.Fatalf("want 422, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "validation_error", "warden_credential_lifetime_secs must be between 86400 and 34560000 seconds "+
+			"(one day through 400 days) — a warden renews at two thirds of the lifetime, so the "+
+			"remaining third is the window an offline machine has to get a replacement, and below "+
+			"a day that window stops surviving a working day of downtime")
+	})
+
+	t.Run("a document cap below its shipped floor answers 422", func(t *testing.T) {
+		_, h, _, owner := newAPITestServer(t)
+
+		status, data := apiJSON(t, h, "PATCH", "/api/settings", owner, `{"doc_cap_chars_insight":14999}`)
+		if status != 422 {
+			t.Fatalf("want 422, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "validation_error", "doc_cap_chars_insight must be between 15000 and 100000 characters — "+
+			"the floor is the shipped default, so the document cap can only be raised, never lowered")
+	})
+
+	t.Run("a chat_budget_chars outside its range answers 422", func(t *testing.T) {
+		_, h, _, owner := newAPITestServer(t)
+
+		status, data := apiJSON(t, h, "PATCH", "/api/settings", owner, `{"chat_budget_chars":13001}`)
+		if status != 422 {
+			t.Fatalf("want 422, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "validation_error", "chat_budget_chars must be between 1000 and 13000 characters")
+	})
+
+	t.Run("a step_note_cap_chars outside its range answers 422", func(t *testing.T) {
+		_, h, _, owner := newAPITestServer(t)
+
+		status, data := apiJSON(t, h, "PATCH", "/api/settings", owner, `{"step_note_cap_chars":999}`)
+		if status != 422 {
+			t.Fatalf("want 422, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "validation_error", "step_note_cap_chars must be between 1000 and 100000 characters")
+	})
+
+	t.Run("a backup_retain outside its range answers 422", func(t *testing.T) {
+		_, h, _, owner := newAPITestServer(t)
+
+		status, data := apiJSON(t, h, "PATCH", "/api/settings", owner, `{"backup_retain":21}`)
+		if status != 422 {
+			t.Fatalf("want 422, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "validation_error", "backup_retain must be between 1 and 20 backups per pool")
+	})
+
+	t.Run("an org_name over the character cap answers 422", func(t *testing.T) {
+		_, h, _, owner := newAPITestServer(t)
+
+		status, data := apiJSON(t, h, "PATCH", "/api/settings", owner,
+			`{"org_name":"`+strings.Repeat("x", 81)+`"}`)
+		if status != 422 {
+			t.Fatalf("want 422, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "validation_error", "org_name must be at most 80 characters")
+	})
+
+	t.Run("an owner_name over the character cap answers 422", func(t *testing.T) {
+		_, h, _, owner := newAPITestServer(t)
+
+		status, data := apiJSON(t, h, "PATCH", "/api/settings", owner,
+			`{"owner_name":"`+strings.Repeat("x", 81)+`"}`)
+		if status != 422 {
+			t.Fatalf("want 422, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "validation_error", "owner_name must be at most 80 characters")
+	})
+
+	t.Run("a push_contact_email that is not an address answers 422", func(t *testing.T) {
+		_, h, _, owner := newAPITestServer(t)
+
+		status, data := apiJSON(t, h, "PATCH", "/api/settings", owner,
+			`{"push_contact_email":"not-an-address"}`)
+		if status != 422 {
+			t.Fatalf("want 422, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "validation_error", "push_contact_email must be an email address like name@example.com")
+	})
+
+	t.Run("a display_theme nothing defines answers 422", func(t *testing.T) {
+		_, h, _, owner := newAPITestServer(t)
+
+		status, data := apiJSON(t, h, "PATCH", "/api/settings", owner, `{"display_theme":"midnight"}`)
+		if status != 422 {
+			t.Fatalf("want 422, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "validation_error", `display_theme must be "", office, or an existing custom theme id`)
+	})
+
+	t.Run("a display_language outside the vocabulary answers 422", func(t *testing.T) {
+		_, h, _, owner := newAPITestServer(t)
+
+		status, data := apiJSON(t, h, "PATCH", "/api/settings", owner, `{"display_language":"fr"}`)
+		if status != 422 {
+			t.Fatalf("want 422, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "validation_error", "display_language must be one of zh, en")
+	})
+
+	t.Run("a suggested reply-card entry over the character cap answers 422", func(t *testing.T) {
+		_, h, _, owner := newAPITestServer(t)
+
+		status, data := apiJSON(t, h, "PATCH", "/api/settings", owner,
+			`{"suggested_replies_reply_card":["`+strings.Repeat("x", 121)+`"]}`)
+		if status != 422 {
+			t.Fatalf("want 422, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "validation_error", "suggested_replies_reply_card must be at most 120 characters per entry")
+	})
+
+	t.Run("a suggested task-message list over the entry cap answers 422", func(t *testing.T) {
+		_, h, _, owner := newAPITestServer(t)
+
+		entries := strings.TrimSuffix(strings.Repeat(`"ok",`, 21), ",")
+		status, data := apiJSON(t, h, "PATCH", "/api/settings", owner,
+			`{"suggested_replies_task_message":[`+entries+`]}`)
+		if status != 422 {
+			t.Fatalf("want 422, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "validation_error", "suggested_replies_task_message must be at most 20 entries")
+	})
+
+	t.Run("dismissing an onboarding banner that is not there answers 409", func(t *testing.T) {
+		_, h, _, owner := newAPITestServer(t)
+
+		status, data := apiJSON(t, h, "PATCH", "/api/settings", owner, `{"onboarding_dismissed":true}`)
+		if status != 409 {
+			t.Fatalf("want 409, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "conflict", "no onboarding banner is up to dismiss — the first-run report is absent or not in a failed state")
+	})
+
+	t.Run("a body that is not JSON answers 422", func(t *testing.T) {
+		_, h, _, owner := newAPITestServer(t)
+
+		status, data := apiJSON(t, h, "PATCH", "/api/settings", owner, `not json`)
+		if status != 422 {
+			t.Fatalf("want 422, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "validation_error",
+			"invalid request body: invalid character 'o' in literal null (expecting 'u')")
+	})
+
+	t.Run("a request without a token answers 401", func(t *testing.T) {
+		_, h, _, _ := newAPITestServer(t)
+
+		status, data := apiJSON(t, h, "PATCH", "/api/settings", "", `{}`)
+		if status != 401 {
+			t.Fatalf("want 401, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "unauthorized", "missing credentials")
+	})
+
+	t.Run("an authenticated agent identity answers 403 because this row requires admin_agent", func(t *testing.T) {
+		api, h, _, _ := newAPITestServer(t)
+		agent := apiTestAgentToken(t, api, apiTestPlainAgentID, "")
+
+		status, data := apiJSON(t, h, "PATCH", "/api/settings", agent, `{}`)
+		if status != 403 {
+			t.Fatalf("want 403, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "forbidden", "principal not permitted")
+	})
+
+	t.Run("a storage fault while the theme is checked answers 500", func(t *testing.T) {
+		_, h, d, owner := newAPITestServer(t)
+		if err := d.rdb.Close(); err != nil {
+			t.Fatalf("close: %v", err)
+		}
+
+		status, data := apiJSON(t, h, "PATCH", "/api/settings", owner, `{"display_theme":"midnight"}`)
+		if status != 500 {
+			t.Fatalf("want 500, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "internal_error", "internal error: sql: database is closed")
+	})
+
+	t.Run("a storage fault while any one knob is written answers 500", func(t *testing.T) {
+		_, h, d, owner := newAPITestServer(t)
+		if err := d.wdb.Close(); err != nil {
+			t.Fatalf("close: %v", err)
+		}
+
+		for _, patch := range []string{
+			`{"owner_token_ttl":43200}`,
+			`{"agent_token_ttl":43200}`,
+			`{"handover_pct":80}`,
+			`{"notice_pct":45}`,
+			`{"codex_compaction_threshold":6}`,
+			`{"codex_notice_round":1}`,
+			`{"monitoring_refresh_seconds":30}`,
+			`{"accelerated_grace_secs":90}`,
+			`{"warden_credential_lifetime_secs":864000}`,
+			`{"outsource_max_parallel":-1}`,
+			`{"doc_cap_chars_duty":2000}`,
+			`{"chat_budget_chars":9000}`,
+			`{"step_note_cap_chars":20000}`,
+			`{"backup_retain":9}`,
+			`{"updater_receive_beta":true}`,
+			`{"updater_auto_update":true}`,
+			`{"org_name":"Studio Nine"}`,
+			`{"owner_name":"Eva"}`,
+			`{"push_contact_email":"eva@example.com"}`,
+			`{"display_theme":"office"}`,
+			`{"display_language":"en"}`,
+			`{"display_wide":true}`,
+			`{"suggested_replies_reply_card":["yes"]}`,
+			`{"suggested_replies_task_message":["on it"]}`,
+		} {
+			status, data := apiJSON(t, h, "PATCH", "/api/settings", owner, patch)
+			if status != 500 {
+				t.Fatalf("%s: want 500, got %d (%v)", patch, status, data)
+			}
+		}
+	})
+
+	t.Run("a storage fault while the theme is checked answers 500", func(t *testing.T) {
+		_, h, d, owner := newAPITestServer(t)
+		if err := d.rdb.Close(); err != nil {
+			t.Fatalf("close: %v", err)
+		}
+
+		status, data := apiJSON(t, h, "PATCH", "/api/settings", owner, `{"display_theme":"midnight"}`)
+		if status != 500 {
+			t.Fatalf("want 500, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "internal_error", "internal error: sql: database is closed")
+	})
+
+	t.Run("a storage fault while any one knob is written answers 500", func(t *testing.T) {
+		_, h, d, owner := newAPITestServer(t)
+		if err := d.wdb.Close(); err != nil {
+			t.Fatalf("close: %v", err)
+		}
+
+		for _, patch := range []string{
+			`{"owner_token_ttl":43200}`,
+			`{"agent_token_ttl":43200}`,
+			`{"handover_pct":80}`,
+			`{"notice_pct":45}`,
+			`{"codex_compaction_threshold":6}`,
+			`{"codex_notice_round":1}`,
+			`{"monitoring_refresh_seconds":30}`,
+			`{"accelerated_grace_secs":90}`,
+			`{"warden_credential_lifetime_secs":864000}`,
+			`{"outsource_max_parallel":-1}`,
+			`{"doc_cap_chars_duty":2000}`,
+			`{"chat_budget_chars":9000}`,
+			`{"step_note_cap_chars":20000}`,
+			`{"backup_retain":9}`,
+			`{"updater_receive_beta":true}`,
+			`{"updater_auto_update":true}`,
+			`{"org_name":"Studio Nine"}`,
+			`{"owner_name":"Eva"}`,
+			`{"push_contact_email":"eva@example.com"}`,
+			`{"display_theme":"office"}`,
+			`{"display_language":"en"}`,
+			`{"display_wide":true}`,
+			`{"suggested_replies_reply_card":["yes"]}`,
+			`{"suggested_replies_task_message":["on it"]}`,
+		} {
+			status, data := apiJSON(t, h, "PATCH", "/api/settings", owner, patch)
+			if status != 500 {
+				t.Fatalf("%s: want 500, got %d (%v)", patch, status, data)
+			}
+		}
+	})
 }
 
 func TestSettingsView(t *testing.T) {
