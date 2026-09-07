@@ -15,6 +15,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 	"unicode/utf8"
 )
 
@@ -71,6 +72,37 @@ func (s *apiServer) writeTaskManual(w http.ResponseWriter, m TaskManual) {
 	if err != nil {
 		internalError(w, err)
 		return
+	}
+	// 傳承 (T-33) — the MANUAL exit. The type's lore rides out APPENDED TO
+	// `learnings`, after the learnings document's own text.
+	//
+	// 🔴 IT IS APPENDED TO THE FIELD, NOT ADDED AS A NEW ONE, and that is what
+	// makes it reach anybody. `learnings` is what a planner already reads before
+	// planning a task's steps; a new sibling field would be served to every
+	// client and read by none of them until each was taught to look, and the
+	// agents that most need this are the ones following a written procedure that
+	// does not mention it.
+	//
+	// 🔴 THIS DOES NOT ENTER ANY BOOT DOCUMENT. Task lore is fetched when
+	// somebody opens the manual, which is where staff and outsource behave
+	// identically — the role/outsource asymmetry lives on the OTHER exit and
+	// stops there.
+	//
+	// 🔴 learnings_chars / learnings_cap_chars are NOT recomputed over the
+	// appended text, on purpose: they are what a WRITER sizes an edit against,
+	// and the write face writes the stored document, not this rendering. A size
+	// that counted material the writer cannot edit would refuse writes that fit.
+	sel, err := selectLoreForScope(s.dal, LoreScopeManual, m.TypeKey, s.loreManualCap())
+	if err != nil {
+		internalError(w, err)
+		return
+	}
+	if block := renderLoreBlock(sel); block != "" {
+		if strings.TrimSpace(dto.Learnings) == "" {
+			dto.Learnings = block
+		} else {
+			dto.Learnings = strings.TrimRight(dto.Learnings, "\n") + "\n\n" + block
+		}
 	}
 	writeJSON(w, http.StatusOK, dto)
 }

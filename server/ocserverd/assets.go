@@ -549,9 +549,32 @@ func (s *apiServer) buildBootContext(role string, member *Member) (*bootContext,
 	if insightBody := strings.TrimSpace(insight.Text); insightBody != "" {
 		parts = append(parts, "# Insight ("+roleKey+")\n\n"+insightBody)
 	}
-	parts = append(parts,
-		lessonsTitle+"\n\n"+lessonsBody,
-		strings.TrimSpace(bootSeed))
+	parts = append(parts, lessonsTitle+"\n\n"+lessonsBody)
+	// 傳承 (T-33) — the ROLE exit, appended immediately after 長期筆記 and before
+	// the recency-authoritative 啟動步驟 tail. This is slot 3's own material: it
+	// is keyed by role, so it belongs with the persona and nowhere else.
+	//
+	// 🔴 ONLY STAFF REACH THIS LINE. Outsource workers assemble their boot
+	// context in buildWorkerBootContext, which is the staff fold MINUS slot 3 —
+	// a worker has no role, so a role's traditions name nothing it could read.
+	// Nothing was added to that path and nothing here is conditional on the
+	// reader: the difference stays exactly where it already was.
+	//
+	// 🔴 The selection is NOT made here. selectLoreForScope (lore_select.go) is
+	// the one implementation of that rule and the manual exit calls the same
+	// function; see its header before adding a second one.
+	loreSel, err := selectLoreForScope(s.dal, LoreScopeRole, roleKey, s.loreRoleCap())
+	if err != nil {
+		return nil, err
+	}
+	// An empty block renders as "", and the empty string is dropped rather than
+	// joined in: "\n\n" between two parts would otherwise put a blank gap where
+	// a section was not emitted, which is a difference in the assembled document
+	// that no test of the sections themselves would catch.
+	if block := renderLoreBlock(loreSel); block != "" {
+		parts = append(parts, block)
+	}
+	parts = append(parts, strings.TrimSpace(bootSeed))
 	name := roleDTO.Name
 	if member != nil {
 		name = member.Name
