@@ -114,6 +114,18 @@ CANONICAL_ROUTE = 'bash bin/run-checks.sh --lane "${{ github.job }}"'
 # The only keys a gate job may carry. An ALLOWLIST for the same reason the route
 # is pinned rather than inspected: it refuses the key nobody has thought of yet.
 GATE_JOB_KEYS = {"runs-on", "steps", "timeout-minutes"}
+#
+# ⚠️ NOT CLOSED BY THIS, and the mechanism below is MEASURED, not reasoned:
+# `runs-on` naming a label no runner carries is an allowed key with a bad value,
+# so the allowlist passes it. It still fails safe — but NOT for the reason first
+# written here. This comment originally claimed "the job never starts, so its
+# required context never reports". That was an inference and it was WRONG. An
+# independent review (Lumi) measured GitHub's actual behaviour: the job stays
+# QUEUED and fails only after 24 hours, so the required check is `pending` until
+# then and `timed_out`/`failure` afterwards. Both fail branch protection, so the
+# conclusion holds — but a check that reports failure late is a different thing
+# from one that never reports, and the next person reasoning from the wrong
+# mechanism would get a wrong answer somewhere else.
 
 ASSIGN = re.compile(r"\A[A-Za-z_][A-Za-z0-9_]*=")
 
@@ -356,6 +368,52 @@ def check_every_lane_is_really_invoked(round_lanes: list[str], gates: list[str])
         fail("ci.yml did not parse as YAML (GitHub would report a startup failure: zero jobs, no checks)")
         return
 
+    # EVERY GATE JOB'S OWN KEYS, as an ALLOWLIST — and note this loops over
+    # `gates`, NOT over `round_lanes`.
+    #
+    # ⚠️ IT USED TO SIT INSIDE THE LANE LOOP, and an independent review (Lumi, on
+    # 51b3231d) measured what that cost: `macos-e2e` is exempt, so it is not in
+    # round_lanes, so it never reached this check at all. Giving it
+    # `strategy: {matrix: {include: []}}` left the guard green with its summary
+    # line unchanged. The claim "a gate job's keys must be a subset of
+    # GATE_JOB_KEYS" was FALSE as implemented — true of ten jobs, asserted of
+    # eleven, which is worse than not asserting it.
+    #
+    # The bug was one `continue` doing two jobs. Being exempt means ONE thing:
+    # this gate owns no lane. It has never meant "this gate is unconstrained".
+    # So the key check runs for EVERY gate, and only the lane-route check below
+    # skips the exempt ones.
+    #
+    # A blacklist would not do here either: the next silencing key ships whenever
+    # GitHub decides, and an allowlist refuses it without anyone naming it first.
+    # That property is what W17/W20 demonstrate, using INVENTED keys — it needs no
+    # claim about what any particular real key does at runtime.
+    #
+    # ⚠️ WHAT IS AND IS NOT MEASURED HERE. Measured in this repo: across all eleven
+    # gate jobs the keys in use are exactly the three in GATE_JOB_KEYS, so this
+    # costs nothing today; and each of `if:`, `continue-on-error:`, `strategy:` and
+    # an invented key is REFUSED by this allowlist (fixtures W18-W20, W22-W24).
+    # NOT measured in this repo: what GitHub actually does at runtime with an empty
+    # `strategy.matrix`. An earlier version of this comment asserted it "produces
+    # no instance at all" as settled fact — it was not measured here and the claim
+    # is withdrawn (caught by Lumi). The allowlist does not need it: the rule is
+    # "not on the list", not "known to be dangerous".
+    for job in sorted(set(gates)):
+        if job not in jobs:
+            continue
+        stray_job_keys = sorted(set(jobs[job].get("job_keys", [])) - GATE_JOB_KEYS)
+        if stray_job_keys:
+            fail(
+                f"gate job `{job}` carries {', '.join('`' + k + ':`' for k in stray_job_keys)} at the "
+                f"job level. A gate job may only carry {', '.join(sorted(GATE_JOB_KEYS))} — anything "
+                f"else may change whether the cell runs at all while it still reports success — "
+                f"`if:` and `continue-on-error:` are the known ones, and the rule is an allowlist "
+                f"precisely so it does not depend on that list being complete. THIS APPLIES TO "
+                f"EXEMPT GATES TOO: exemption means the job owns no lane, not that it is "
+                f"unconstrained. If this job genuinely needs that key, add it to GATE_JOB_KEYS in "
+                f"{Path(__file__).name} in the same commit, where a reviewer sees it."
+            )
+
     for lane in sorted(set(round_lanes)):
         if lane not in jobs:
             fail(f"lane `{lane}` names no job in ci.yml at all")
@@ -365,33 +423,6 @@ def check_every_lane_is_really_invoked(round_lanes: list[str], gates: list[str])
         #     character. This is what closes the control-flow family; the
         #     command-position test below is kept as a second, independent layer.
         steps = jobs[lane].get("steps", [])
-        job_keys = set(jobs[lane].get("job_keys", []))
-
-        # (0) THE JOB'S OWN KEYS, as an ALLOWLIST — deliberately not a list of
-        #     banned ones. A blacklist only ever closes the key somebody already
-        #     thought of: `if:` skips every step, `continue-on-error:` makes the
-        #     cell green regardless, an empty `strategy.matrix` produces no
-        #     instance at all, `needs:` on a skipped job skips this one too — and
-        #     the next such key ships whenever GitHub decides. An allowlist
-        #     refuses all of them, including the ones nobody has named yet.
-        #     Measured: across all eleven gate jobs the keys in use are exactly
-        #     these three, so this costs nothing today.
-        #     ⚠️ NOT closed by this: `runs-on` naming a label no runner carries.
-        #     That is an allowed key with a bad value, and it fails SAFE — the
-        #     job never starts, so its required context never reports and the
-        #     pull request cannot merge. A cell that runs nothing while going
-        #     GREEN is the failure this guard exists for; one that never reports
-        #     blocks by itself.
-        stray_job_keys = sorted(job_keys - GATE_JOB_KEYS)
-        if stray_job_keys:
-            fail(
-                f"gate job `{lane}` carries {', '.join('`' + k + ':`' for k in stray_job_keys)} at the "
-                f"job level. A gate job may only carry {', '.join(sorted(GATE_JOB_KEYS))} — anything "
-                f"else can stop the cell from running while it still reports success (`if:` skips it, "
-                f"`continue-on-error:` discards the verdict, an empty `strategy.matrix` produces no "
-                f"instance). If this job genuinely needs that key, add it to GATE_JOB_KEYS in "
-                f"{Path(__file__).name} in the same commit, where a reviewer sees it."
-            )
 
         # (1) EXACTLY ONE step that IS the route — and the step is judged as a
         #     WHOLE NODE, not by its `run:` string. `run` must be its only key:

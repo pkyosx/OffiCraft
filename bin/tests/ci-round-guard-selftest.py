@@ -312,13 +312,25 @@ report(_r.returncode != 0 and "ghost-gate" in (_r.stdout + _r.stderr),
        "W12 an EXEMPT_GATES entry naming no gate job reddens — a stale exemption is dead cover",
        f"rc={_r.returncode} out={(_r.stdout + _r.stderr).strip()[:200]}")
 
+# ⚠️ W13 USED TO PASS FOR THE WRONG REASON, and the way it was found is worth
+# keeping. Its mutation set macos-e2e's reason to "" AND left a second, unused
+# key behind, which tripped the STALE-ENTRY rule as well; that rule's message
+# names `unused-key-macos-e2e`, which CONTAINS "macos-e2e", so the assertion
+# passed even with the empty-reason check disabled. A fixture that reddens for
+# a rule other than the one it is named after is not guarding that rule.
+#
+# Found by reverse-verification — disabling each rule in a copy of the guard and
+# checking which fixtures notice. Every other rule here has a fixture that
+# notices; this one did not. The mutation now changes ONLY the reason, and the
+# assertion is on the empty-reason message rather than on a job name that two
+# different rules both print.
 _r = _run_mutated_guard(
-    lambda t: t.replace(
-        '"macos-e2e": (', '"macos-e2e": "", "unused-key-macos-e2e": (', 1)
+    lambda t: t.replace('"macos-e2e": (', '"macos-e2e": "" and (', 1)
 )
-report(_r.returncode != 0 and "macos-e2e" in (_r.stdout + _r.stderr),
+_out = _r.stdout + _r.stderr
+report(_r.returncode != 0 and "EMPTY reason" in _out,
        "W13 an EXEMPT_GATES entry with an EMPTY reason reddens — an unjustified exemption is a silent channel",
-       f"rc={_r.returncode} out={(_r.stdout + _r.stderr).strip()[:200]}")
+       f"rc={_r.returncode} out={_out.strip()[:200]}")
 
 
 # ---------------------------------------------------------------------------
@@ -394,6 +406,49 @@ _r = _run_mutated_guard(
 report(_r.returncode != 0 and "positive control" in (_r.stdout + _r.stderr),
        "W21 a parser whose output shape drifted is REFUSED by its own positive control, not believed",
        f"rc={_r.returncode} out={(_r.stdout + _r.stderr).strip()[:200]}")
+
+
+# ---------------------------------------------------------------------------
+# W22-W24 — THE EXEMPT GATE IS STILL A GATE.
+#
+# Round 4. The job-key allowlist landed inside the `round_lanes` loop, so the one
+# EXEMPT gate never reached it. What Lumi MEASURED on 51b3231d is precisely this:
+# giving `macos-e2e` a `strategy: {matrix: {include: []}}` left the GUARD at rc=0
+# with its summary line unchanged.
+#
+# ⚠️ That is a measurement about the guard, NOT about GitHub. An earlier version of
+# this comment said the job "produced no instance at all" and credited that to the
+# same measurement — it did not; nobody in this package ran that workflow. The
+# runtime claim is withdrawn (caught by Lumi). It is also not needed: the rule is
+# an allowlist, so a key is refused for not being on the list, and W24 makes that
+# point with a key that has no runtime behaviour to appeal to.
+#
+# The bug was one `continue` doing two jobs. Exemption means ONE thing — this
+# gate owns no lane — and never meant "unconstrained". W22-W24 pin the exempt
+# gate specifically, because every other fixture here uses a LANE-owning job and
+# so cannot see this class of mistake: the guard was asserting of eleven jobs
+# what it checked on ten, which is worse than asserting nothing.
+def _exempt_job_key(tree: Path, extra: str) -> None:
+    y = tree / YML_REL
+    t = y.read_text()
+    i = t.index("\n  macos-e2e:")
+    at = t.index("    runs-on:", i)
+    y.write_text(t[:at] + extra + "\n" + t[at:])
+
+
+EXEMPT_KEYS = [
+    ("W22 an EXEMPT gate with a job-level `strategy:` reddens — it is not on the allowlist (what GitHub does with an empty matrix at runtime is NOT measured in this package)",
+     "    strategy:\n      matrix:\n        include: []"),
+    ("W23 an EXEMPT gate with a job-level `if:` reddens — exemption is about lanes, not about running",
+     "    if: false"),
+    ("W24 an EXEMPT gate with an INVENTED job key reddens — the allowlist covers it too",
+     "    some-job-key-nobody-has-thought-of: whatever"),
+]
+
+for _label, _extra in EXEMPT_KEYS:
+    case(_label,
+         (lambda e: (lambda tree: _exempt_job_key(tree, e)))(_extra),
+         expect_red=True, expect_msg="macos-e2e")
 
 
 print(f"ci-round guard selftest: {PASS} ok, {FAIL} failed")
