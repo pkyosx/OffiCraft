@@ -98,6 +98,11 @@ export const en: Dict = {
     actionActivate: "Activate",
     actionPin: "Pin",
     // The author gets a row of its own.
+    scopeLabel: "Scope",
+    scopeUnknown: "Unknown scope",
+    openManualLabel: "Open task manual",
+    copyEntryIdLabel: "Copy entry id",
+    entryIdCopied: "Copied",
     authorLabel: "Author",
     authorUnknown: "—",
     messageAuthor: "Message the author",

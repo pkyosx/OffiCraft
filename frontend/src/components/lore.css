@@ -151,6 +151,36 @@
   gap: 8px;
 }
 
+.lore-row__id-badge {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin: 0;
+  padding: 2px 9px;
+  border-radius: var(--radius-pill);
+  border: 1px solid color-mix(in srgb, var(--color-task-id) 45%, transparent);
+  background: color-mix(in srgb, var(--color-task-id) 12%, transparent);
+  font-family: ui-monospace, "SFMono-Regular", Menlo, monospace;
+  font-size: 12px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
+  color: var(--color-task-id);
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+.lore-row__id-badge:hover {
+  background: color-mix(in srgb, var(--color-task-id) 20%, transparent);
+}
+/* the transient 「已複製」 pill — sits inline after the id, same as 任務卡. */
+.lore-row__id-badge-copied {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: normal;
+  opacity: 0.85;
+}
+
 .lore-row__title {
   margin: 0;
   font-size: 14.5px;

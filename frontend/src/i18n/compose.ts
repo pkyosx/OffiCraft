@@ -64,6 +64,9 @@ export interface Messages {
   replyExpireConfirmBody: (summary: string) => string;
   replySelectedCount: (n: number) => string;
   replyPickedOptions: (options: string[]) => string;
+  // ── 傳承 ──
+  loreCopyEntryId: (entryId: string) => string;
+  loreOpenManual: (manualName: string) => string;
   // ── office ──
   outsourceLabel: (codename: string) => string;
   // ── worker detail ──
@@ -272,6 +275,12 @@ export function makeMessages(t: Dict, language: Lang): Messages {
     // file uses, so a multi-select decision is punctuated like a list and not
     // like a sentence someone concatenated.
     replyPickedOptions: (options) => options.join(listSep),
+
+    // LABEL shape, the same join 任務卡's 複製任務編號 uses — zh and en both put
+    // a space between the verb phrase and the id.
+    loreCopyEntryId: (entryId) => `${t.lore.copyEntryIdLabel} ${entryId}`,
+    loreOpenManual: (manualName) =>
+      `${t.lore.openManualLabel} ${manualName}`,
 
     // The outsource identity label has ONE source of the word 外包 now: the
     // section title. It used to have two (a title leaf and an identically

@@ -96,6 +96,13 @@ export const zh = {
     actionRetire: "失效",
     actionActivate: "生效",
     actionPin: "置頂",
+    // 屬於 —— 這一筆騎在哪個範圍上，展開後的第一列
+    scopeLabel: "屬於",
+    scopeUnknown: "未知範圍",
+    openManualLabel: "開啟任務手冊",
+    // 條目編號 chip（照任務卡編號的做法：點了複製）
+    copyEntryIdLabel: "複製條目編號",
+    entryIdCopied: "已複製",
     // 撰寫人自成一列
     authorLabel: "撰寫人",
     authorUnknown: "—",

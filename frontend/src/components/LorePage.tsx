@@ -54,8 +54,14 @@
 //   · counts / progress bars / percentages — spec §6 names all three as things
 //     the 上限線 must not become. The line says where the budget runs out; it
 //     does not report how full it is.
-//   · the scope on the row itself — the 任務 dropdown says which scope is on
-//     screen, so stamping it on every row would repeat the filter N times.
+// WAS "NOT HERE, ON PURPOSE", NOW ON EVERY ROW — 屬於 (owner, card
+// rc-11734523eb52). The old reason was that the 任務 dropdown already says which
+// scope is on screen, so stamping it per row would repeat the filter N times.
+// That reason only holds on a FILTERED screen. On 全部 — which is where the page
+// opens — every scope is mixed together and the reader has no way to tell a
+// 角色傳承 from one manual's, which is exactly what the owner hit. The filter
+// answers 「我要看哪一批」; the row has to answer 「這一筆是誰的」, and those are
+// different questions.
 
 import {
   useCallback,
@@ -82,6 +88,7 @@ import {
   useWorkerCodenames,
 } from "../hooks/useWorkerCodenames";
 import { avatarKindForMember } from "../lib/avatarKind";
+import { copyText } from "../lib/clipboard";
 import { formatAbsolute } from "../lib/dateFormat";
 import { navigateHash } from "../lib/hashRoute";
 import { Avatar } from "./Avatar";
@@ -336,6 +343,47 @@ export function LorePage() {
     [members, workers, releasedCodenames, msg, t.lore.authorUnknown]
   );
 
+  /** 屬於 — which scope this ONE entry rides, resolved for display.
+   *
+   * The three scopes are not interchangeable and the row must not blur them:
+   * `role` rides that role's STAFF boot document, `agent` rides ONE member's
+   * own boot document (the outsource exit — that member has no role for `role`
+   * to name), `manual` rides that task manual's response. Only `manual` is
+   * CLICKABLE, and the asymmetry is deliberate: a task manual has a settings
+   * page to land on, a role and a member do not, and a pill that looks
+   * clickable but goes nowhere is worse than a plain one (owner did not
+   * overrule this on card rc-11734523eb52).
+   *
+   * 🔴 EVERY UNRESOLVED CASE FALLS BACK TO THE RAW KEY, never to a blank and
+   * never to a guess. A deleted role, a deleted manual and a departed member
+   * all still have entries riding them, and 「rc-…」 tells the reader something
+   * whereas an empty cell tells them the field is broken. `unknown` is the
+   * fourth arm and is NOT a scope — it is what a cockpit older than the server
+   * calls a kind it has never heard of, so it must never be renamed into one of
+   * the real three (see LoreEntryView.scopeKind). */
+  const resolveScope = useCallback(
+    (entry: LoreEntryView): { label: string; manualKey: string } => {
+      if (entry.scopeKind === "role") {
+        const r = roles.find((x) => x.key === entry.scopeKey);
+        return { label: r?.name || entry.scopeKey, manualKey: "" };
+      }
+      if (entry.scopeKind === "agent") {
+        // scopeKey is a MEMBER id here, not a role key. Reuse the author
+        // resolver so a departed member reads the same way in both places.
+        return { label: resolveAuthor(entry.scopeKey).text, manualKey: "" };
+      }
+      if (entry.scopeKind === "manual") {
+        const m = manuals.find((x) => x.typeKey === entry.scopeKey);
+        return {
+          label: m?.displayName || entry.scopeKey,
+          manualKey: entry.scopeKey,
+        };
+      }
+      return { label: entry.scopeKey || t.lore.scopeUnknown, manualKey: "" };
+    },
+    [roles, manuals, resolveAuthor, t.lore.scopeUnknown]
+  );
+
   const authorAvatar = useCallback(
     (id: string) => {
       const m = members.find((x) => x.id === id);
@@ -382,6 +430,13 @@ export function LorePage() {
 
   function openChat(peerId: string) {
     navigateHash({ page: "office", chatId: peerId });
+  }
+
+  // 屬於 → the task-type settings hub, the SAME jump the 任務卡's 類型 chip
+  // makes (TaskCard.openTypeSettings). Only a manual scope has a page to land
+  // on; role and agent scopes render as plain text and never call this.
+  function openManual(typeKey: string) {
+    navigateHash({ page: "settings", manualKey: typeKey });
   }
 
   // ── grouping + where the line falls ────────────────────────────────────
@@ -443,8 +498,20 @@ export function LorePage() {
   // 撰寫人 options are the LIVE roster only. An author who has left cannot be
   // offered here (there is no list of departed ids to offer), which is the same
   // fact the row states by dropping their 傳訊息 icon.
+  //
+  // 🔴 kind === "staff" is an ALLOW-list, not a "drop the warden" deny-list, and
+  // it is the same one the 辦公室 roster uses. A machine-layer member cannot be
+  // an author at all: POST /api/lore requires principalAgent, classifyMember
+  // sends kind "warden" to principalMachine (rank 0 < 1), so the request is a
+  // 403 at the route and never reaches the handler. Offering it is offering a
+  // choice whose result is ALWAYS an empty list — and an empty list reads as
+  // 「這個人還沒寫過」, not as 「這個人不可能寫」. Owner hit this on the trial
+  // station (card rc-11734523eb52). A deny-list would let the next machine-layer
+  // kind back in silently; this cannot.
   const authorOptions = [
-    ...members.map((m) => ({ value: m.id, label: m.name })),
+    ...members
+      .filter((m) => m.kind === "staff")
+      .map((m) => ({ value: m.id, label: m.name })),
     ...workers.map((w) => ({
       value: w.id,
       label: w.codename ? msg.outsourceLabel(w.codename) : w.id,
@@ -573,7 +640,9 @@ export function LorePage() {
                     dimmed={dimmed}
                     author={resolveAuthor(entry.authorId)}
                     avatar={authorAvatar(entry.authorId)}
+                    scope={resolveScope(entry)}
                     onOpenChat={openChat}
+                    onOpenManual={openManual}
                     onSetState={setEntryState}
                     onBump={bumpEntry}
                   />
@@ -642,7 +711,9 @@ function LoreRow({
   dimmed,
   author,
   avatar,
+  scope,
   onOpenChat,
+  onOpenManual,
   onSetState,
   onBump,
 }: {
@@ -650,11 +721,16 @@ function LoreRow({
   dimmed: boolean;
   author: AuthorIdentity;
   avatar: { src?: string; kind: "member" | "outsource" | "owner" | "assistant" } | null;
+  /** 屬於, already resolved. `manualKey` non-empty is the ONLY thing that makes
+   * the pill clickable — the row never re-derives that from `entry.scopeKind`,
+   * so there is one place that decides it (resolveScope). */
+  scope: { label: string; manualKey: string };
   onOpenChat: (peerId: string) => void;
+  onOpenManual: (typeKey: string) => void;
   onSetState: (id: string, next: LoreEntryState) => void;
   onBump: (id: string) => void;
 }) {
-  const { t } = useI18n();
+  const { t, msg } = useI18n();
   const [expanded, setExpanded] = useState(false);
   const [stateOpen, setStateOpen] = useState(false);
   const statusRef = useRef<HTMLDivElement>(null);
@@ -705,6 +781,28 @@ function LoreRow({
       : s === "active"
         ? t.lore.actionActivate
         : t.lore.actionPin;
+  }
+
+  // 條目編號 chip — the 任務卡's 編號 chip, same behaviour (owner: 「傳承的 id
+  // 沒有顯示出來 像 task 那樣」, c-c933a2b41c54). Click copies the id, and the
+  // 已複製 flag is set ONLY when the clipboard write actually succeeded:
+  // copyText returns false on a denied clipboard and a chip that lied would be
+  // worse than one that did nothing. The timer is cleared on unmount so a row
+  // that scrolls away mid-feedback cannot setState on a dead component.
+  const [copied, setCopied] = useState(false);
+  const copiedTimer = useRef<number | null>(null);
+  useEffect(
+    () => () => {
+      if (copiedTimer.current != null) window.clearTimeout(copiedTimer.current);
+    },
+    []
+  );
+  async function copyEntryId() {
+    const ok = await copyText(entry.id);
+    if (!ok) return;
+    setCopied(true);
+    if (copiedTimer.current != null) window.clearTimeout(copiedTimer.current);
+    copiedTimer.current = window.setTimeout(() => setCopied(false), 1600);
   }
 
   return (
@@ -771,6 +869,30 @@ function LoreRow({
           )}
         </div>
 
+        {/* 條目編號, right of the status chip. It is a <button>, so the row's
+            own toggle handler lets it through the same way it lets the status
+            chip through — clicking the id copies it and does NOT expand the
+            row. */}
+        <button
+          type="button"
+          className="lore-row__id-badge"
+          data-testid="lore-entry-id"
+          aria-label={msg.loreCopyEntryId(entry.id)}
+          title={msg.loreCopyEntryId(entry.id)}
+          onClick={copyEntryId}
+        >
+          {entry.id}
+          {copied && (
+            <span
+              className="lore-row__id-badge-copied"
+              role="status"
+              data-testid="lore-entry-id-copied"
+            >
+              {t.lore.entryIdCopied}
+            </span>
+          )}
+        </button>
+
         {/* A pure STATE INDICATOR: aria-hidden, no role, pointer-events:none in
             CSS, and a DIFFERENT ICON per state rather than one icon rotated. */}
         <span
@@ -796,6 +918,27 @@ function LoreRow({
 
       {expanded && (
         <div className="lore-row__meta">
+          {/* 屬於 — which scope this entry rides. FIRST row on purpose: it is
+              the entry's most basic fact (which boot document or manual pays
+              for it), and 撰寫人 only makes sense once you know where. */}
+          <span className="lore-row__meta-label">{t.lore.scopeLabel}</span>
+          {scope.manualKey === "" ? (
+            <span className="lore-row__chip" data-testid="lore-scope">
+              {scope.label}
+            </span>
+          ) : (
+            <button
+              type="button"
+              className="lore-row__chip lore-row__chip--link"
+              data-testid="lore-scope"
+              aria-label={msg.loreOpenManual(scope.label)}
+              title={msg.loreOpenManual(scope.label)}
+              onClick={() => onOpenManual(scope.manualKey)}
+            >
+              {scope.label}
+            </button>
+          )}
+
           {/* 撰寫人自成一列: label left, avatar+name pill right, and the
               傳訊息 icon INSIDE the pill. */}
           <span className="lore-row__meta-label">{t.lore.authorLabel}</span>

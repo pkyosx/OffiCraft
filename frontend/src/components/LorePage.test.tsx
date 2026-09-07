@@ -244,3 +244,166 @@ describe("LorePage — 撰寫人", () => {
     expect(plain.textContent).toContain("m-gone");
   });
 });
+
+// ────────────────────────────────────────────────────────────────────────────
+// The three things the owner hit on the trial station (cards rc-11734523eb52 +
+// c-c933a2b41c54). All three share one shape: the screen looked FINE. Nothing
+// was missing in a way that draws the eye — a dropdown had one option too many,
+// and a row simply did not say two facts about itself. So each guard below has
+// to assert a POSITIVE next to the negative, or it would pass on an empty page.
+// ────────────────────────────────────────────────────────────────────────────
+
+/** The roster the 撰寫人 dropdown is built from. `m-server-self` is the real
+ * seed's machine-layer member, name and all — the very row the owner circled. */
+function stubRoster() {
+  vi.spyOn(api, "listMembers").mockResolvedValue([
+    {
+      id: "mira",
+      name: "Mira",
+      kind: "staff",
+      role: "assistant",
+      status: "online",
+      lifecycle: "online",
+      unreadCount: 0,
+    },
+    {
+      id: "m-server-self",
+      name: "伺服器這一台",
+      kind: "warden",
+      role: "",
+      status: "offline",
+      lifecycle: "offline",
+      unreadCount: 0,
+    },
+  ] as never);
+}
+
+function authorOptionValues(container: HTMLElement): string[] {
+  const sel = container.querySelector<HTMLSelectElement>(
+    '[data-testid="lore-filter-author"]',
+  );
+  if (!sel) throw new Error("no 撰寫人 dropdown");
+  return Array.from(sel.options).map((o) => o.value);
+}
+
+describe("LorePage — 撰寫人下拉只列寫得出傳承的身分", () => {
+  it("drops the machine-layer member and keeps the staff one", async () => {
+    stubRoster();
+    stubList(page([mkEntry({ id: "e1" })]));
+    const { container } = renderPage();
+
+    await waitFor(() => expect(renderedIds(container)).toHaveLength(1));
+    await waitFor(() =>
+      expect(authorOptionValues(container)).toContain("mira"),
+    );
+
+    // 🔴 THE POSITIVE IS THE POINT. "m-server-self is absent" is also true of a
+    // dropdown that failed to load, of a roster that arrived empty, and of a
+    // testid that no longer matches — three bugs this guard must NOT pass. So
+    // the staff member has to be present in the SAME assertion pass.
+    const values = authorOptionValues(container);
+    expect(values).toContain("mira");
+    expect(values).not.toContain("m-server-self");
+  });
+});
+
+/** Build a page whose single row rides `scopeKind` / `scopeKey`, expand it, and
+ * hand back the 屬於 pill. */
+async function scopePillFor(
+  scopeKind: LoreEntryView["scopeKind"],
+  scopeKey: string,
+): Promise<HTMLElement> {
+  stubList(page([mkEntry({ id: "s1", scopeKind, scopeKey })]));
+  const { container } = renderPage();
+  await waitFor(() => expect(renderedIds(container)).toHaveLength(1));
+  fireEvent.click(rowById(container, "s1"));
+  const pill = await waitFor(() => {
+    const el = container.querySelector<HTMLElement>('[data-testid="lore-scope"]');
+    if (!el) throw new Error("no 屬於 pill");
+    return el;
+  });
+  return pill;
+}
+
+describe("LorePage — 屬於", () => {
+  it("names the manual and jumps to it; role and agent name but do not jump", async () => {
+    vi.spyOn(api, "listTaskManuals").mockResolvedValue([
+      { typeKey: "review-pr", displayName: "PR 審查", purpose: "", fields: [] },
+    ] as never);
+    vi.spyOn(api, "listRoles").mockResolvedValue([
+      { key: "assistant", name: "特助" },
+    ] as never);
+
+    const manual = await scopePillFor("manual", "review-pr");
+    expect(manual.tagName).toBe("BUTTON");
+    expect(manual.textContent).toContain("PR 審查");
+    window.location.hash = "";
+    fireEvent.click(manual);
+    // The SAME jump the 任務卡's 類型 chip makes.
+    expect(window.location.hash).toBe("#settings/manuals/review-pr");
+  });
+
+  it("renders a role scope as plain text, never as a dead button", async () => {
+    vi.spyOn(api, "listRoles").mockResolvedValue([
+      { key: "assistant", name: "特助" },
+    ] as never);
+    const role = await scopePillFor("role", "assistant");
+    // 🔴 Asserting only "no href" would pass for a pill that LOOKS clickable and
+    // goes nowhere — the same failure LoreAuthorChip guards against. A role has
+    // no page to land on, so it must not be a button at all.
+    expect(role.tagName).toBe("SPAN");
+    expect(role.textContent).toContain("特助");
+  });
+
+  it("falls back to the raw key rather than rendering an empty cell", async () => {
+    // A manual that has since been deleted. The entry still rides its type_key
+    // and the reader must still be told WHICH one — a blank cell reads as a
+    // broken field, and it is the failure this fallback exists to prevent.
+    vi.spyOn(api, "listTaskManuals").mockResolvedValue([] as never);
+    const gone = await scopePillFor("manual", "deleted-type");
+    expect(gone.textContent).toContain("deleted-type");
+  });
+
+  it("never renames an unknown scope into one of the real three", async () => {
+    // A cockpit older than the server. `unknown` is NOT a scope; carrying it
+    // through unrenamed is what stops this page inventing a fourth meaning for
+    // one of the three that exist.
+    const unknown = await scopePillFor("unknown", "some-future-key");
+    expect(unknown.tagName).toBe("SPAN");
+    expect(unknown.textContent).toContain("some-future-key");
+  });
+});
+
+describe("LorePage — 條目編號", () => {
+  it("shows the id, copies it on click, and does NOT expand the row", async () => {
+    const copied: string[] = [];
+    Object.assign(navigator, {
+      clipboard: {
+        writeText: (s: string) => {
+          copied.push(s);
+          return Promise.resolve();
+        },
+      },
+    });
+    stubList(page([mkEntry({ id: "L-7" })]));
+    const { container } = renderPage();
+    await waitFor(() => expect(renderedIds(container)).toHaveLength(1));
+
+    const badge = container.querySelector<HTMLElement>(
+      '[data-testid="lore-entry-id"]',
+    )!;
+    expect(badge).not.toBeNull();
+    expect(badge.textContent).toContain("L-7");
+
+    fireEvent.click(badge);
+    await waitFor(() => expect(copied).toEqual(["L-7"]));
+
+    // 🔴 The row must stay COLLAPSED. The id badge sits inside the row, whose
+    // whole surface is the expand toggle; a badge that both copies and expands
+    // would look like it worked while doing something the reader did not ask
+    // for. 屬於 only renders when expanded, so its absence IS the assertion.
+    expect(
+      container.querySelector('[data-testid="lore-scope"]'),
+    ).toBeNull();
+  });
+});
