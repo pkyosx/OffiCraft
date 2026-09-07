@@ -45,10 +45,12 @@ if ! grep -qE '^drift-mcp-catalog:' "$MAKEFILE" \
   echo "[mcp-catalog-test] FAIL — Makefile is missing the drift-mcp-catalog byte-diff gate"
   exit 1
 fi
-if ! grep -qE '^[[:space:]]+drift-mcp-catalog[[:space:]]*(\\)?$' "$MAKEFILE"; then
-  echo "[mcp-catalog-test] FAIL — drift-mcp-catalog is not on the .PHONY continuation list"
-  exit 1
-fi
+# The .PHONY membership check that stood here is GONE (owner ruling, c-771223472903).
+# It required the target's name to sit ALONE on its continuation line, so adding a
+# neighbour to that line failed the build — it asserted where a word sits in a file,
+# not anything the build does. .PHONY membership only matters if a FILE of that name
+# appears, and the two checks above already prove the target exists and a cloud cell
+# calls it by name.
 
 WORKFLOW="$ROOT/.github/workflows/ci.yml"
 if ! grep -qE '^[[:space:]]*- run: bash bin/run-checks\.sh .*[[:space:]]drift-mcp-catalog([[:space:]]|$)' "$WORKFLOW"; then

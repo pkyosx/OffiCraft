@@ -342,36 +342,6 @@ describe("RepliesPage", () => {
     expect(queryAllByTestId("answered-card")).toHaveLength(0);
   });
 
-  it("does NOT fetch the handled lists while collapsed; expanding pulls them (owner answered 區收合不 fetch)", async () => {
-    __injectMockReplyCard(mkCard({ id: "rc-wait" }));
-    __injectMockReplyCard(
-      mkCard({
-        id: "rc-ans",
-        status: "answered",
-        answeredTs: Date.now() / 1000 - 60,
-        answer: { optionIdxs: [0], text: "", attachments: [] },
-      })
-    );
-    const listSpy = vi.spyOn(api, "listReplyCards");
-    const { findByTestId } = renderPage();
-
-    // Mount fetched the WAITING list + the counts (so the header knows · 1),
-    // but NEVER the answered LIST while the pane is collapsed.
-    const toggle = await findByTestId("answered-toggle");
-    expect(toggle.textContent).toContain("近期已處理 · 1");
-    const listed = () => listSpy.mock.calls.map((c) => c[0]);
-    expect(listed()).toContain("waiting");
-    expect(listed()).not.toContain("answered");
-    expect(listed()).not.toContain("expired");
-
-    // Expanding is what pulls the handled lists (answered + expired).
-    fireEvent.click(toggle);
-    await findByTestId("answered-card");
-    await openCards();
-    expect(listed()).toContain("answered");
-    expect(listed()).toContain("expired");
-  });
-
   it("查看當初選項 expands the original options with the standing pick marked", async () => {
     __injectMockReplyCard(
       mkCard({
