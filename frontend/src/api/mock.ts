@@ -1109,7 +1109,7 @@ const mockLoreEntries: LoreEntryView[] = [
     id: "L-6",
     seq: 6,
     scopeKind: "unknown",
-    scopeKey: "r-9f31c0d84a17",
+    scopeKey: "r-legacy-orphan",
     title: "留下來的孤兒不是壞掉的資料",
     body: "這一筆原本掛在一個角色底下，而那個角色現在沒有唯一一位在職成員，所以搬遷沒有動它。它讀得到、改得動，等有人決定它屬於誰。",
     authorId: "m-gone",

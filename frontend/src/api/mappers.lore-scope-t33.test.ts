@@ -82,7 +82,7 @@ describe("toLoreEntry scope_kind", () => {
     // onto members and DELIBERATELY LEFT the rest at `role` rather than guess
     // an owner. So this value still arrives from live servers and this line is
     // about a row a reader will actually see, not about an old wire format.
-    const legacy = toLoreEntry(wireEntry("role", "r-9f31c0d84a17"));
+    const legacy = toLoreEntry(wireEntry("role", "r-legacy-orphan"));
     // 🔴 `not.toBe("agent")` IS THE LOAD-BEARING HALF. The tempting "cleanup"
     // is to map `role` onto `agent` so the row renders with a kind word — which
     // would present an entry whose owner was explicitly undetermined as though
@@ -92,7 +92,7 @@ describe("toLoreEntry scope_kind", () => {
     expect(legacy.scopeKind).toBe("unknown");
     // The role_key survives verbatim: it is the only thing that says which
     // role this orphan came from, and it is what a person needs to place it.
-    expect(legacy.scopeKey).toBe("r-9f31c0d84a17");
+    expect(legacy.scopeKey).toBe("r-legacy-orphan");
   });
 
   it("does not rename a scope it has never heard of into one it has", () => {

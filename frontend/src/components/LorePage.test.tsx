@@ -376,10 +376,10 @@ describe("LorePage — 屬於", () => {
     // deliberately left `scope_kind='role'` on every entry whose owning member
     // it could not determine, and `toLoreEntry` maps that to "unknown". Such a
     // row arrives on the unfiltered page — the page this one opens on.
-    const orphan = await scopePillFor("unknown", "r-9f31c0d84a17");
+    const orphan = await scopePillFor("unknown", "r-legacy-orphan");
     expect(orphan.tagName).toBe("SPAN");
     // The raw key, so the reader can at least say WHICH one it is.
-    expect(orphan.textContent).toContain("r-9f31c0d84a17");
+    expect(orphan.textContent).toContain("r-legacy-orphan");
     // 🔴 AND NO KIND AT ALL. Stamping it with the person glyph or the gear
     // would assert an owner the migration explicitly refused to choose — the
     // one thing this arm exists to avoid.

@@ -70,7 +70,7 @@ func TestLoreLiveOrderIsPinnedFirstThenNewestEffective(t *testing.T) {
 // choosing a type_key that reads like an id.
 func TestLoreLiveIsScopedToOneScope(t *testing.T) {
 	d := newTestDAL(t)
-	seedLore(t, d, LoreScopeAgent, "shared-key", "member one", LoreStateActive, 10)   // L-1
+	seedLore(t, d, LoreScopeAgent, "shared-key", "member one", LoreStateActive, 10)  // L-1
 	seedLore(t, d, LoreScopeManual, "shared-key", "manual one", LoreStateActive, 20) // L-2
 
 	agent, err := d.ListLoreEntriesLive(LoreScopeAgent, "shared-key")

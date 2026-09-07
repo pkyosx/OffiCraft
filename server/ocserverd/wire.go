@@ -2863,17 +2863,17 @@ type taskManualDTO struct {
 	// caller was watching. A client reading it about sop_md gets a number that
 	// is merely stale rather than absent, which is why the split fields are the
 	// ones the descriptions point at.
-	LearningsChars    int            `json:"learnings_chars"`
-	SopMDChars        int            `json:"sop_md_chars"`
-	LearningsCapChars int            `json:"learnings_cap_chars"`
-	SopMDCapChars     int            `json:"sop_md_cap_chars"`
-	CapChars          int            `json:"cap_chars"`
-	TypeKey           string         `json:"type_key"`
-	DisplayName       string         `json:"display_name"`
-	Purpose           string         `json:"purpose"`
-	Fields            []ManualField  `json:"fields"`
-	SopMD             string         `json:"sop_md"`
-	Learnings         string         `json:"learnings"`
+	LearningsChars    int           `json:"learnings_chars"`
+	SopMDChars        int           `json:"sop_md_chars"`
+	LearningsCapChars int           `json:"learnings_cap_chars"`
+	SopMDCapChars     int           `json:"sop_md_cap_chars"`
+	CapChars          int           `json:"cap_chars"`
+	TypeKey           string        `json:"type_key"`
+	DisplayName       string        `json:"display_name"`
+	Purpose           string        `json:"purpose"`
+	Fields            []ManualField `json:"fields"`
+	SopMD             string        `json:"sop_md"`
+	Learnings         string        `json:"learnings"`
 	// Lore is the rendered lore block for this manual, and it is a FIELD OF ITS
 	// OWN rather than text appended to Learnings (owner ruling 2026-09-07:
 	// 「get_task_manual 應該 learning 跟 lore 還是分開的欄位」).
