@@ -68,14 +68,31 @@ func TestReadSeedFileErrsWhenEmbedMiss(t *testing.T) {
 	}
 }
 
-func TestSystemInteractionSeedIncludesTheOwnerAdHocOutsourceRule(t *testing.T) {
+// TestSystemInteractionSeedTeachesTheAdHocTaskRuleTheServerActuallyEnforCES
+// pins the ONE sentence in the shipped seed that a reader acts on directly, and
+// it exists because that sentence and the server can disagree SILENTLY: a member
+// following a stale handbook makes a write it was told would be refused, or does
+// not make one it was told to make, and nothing anywhere errors.
+//
+// 🔴 THIS TEST USED TO PIN THE OPPOSITE RULE, under the name
+// TestSystemInteractionSeedIncludesTheOwnerAdHocOutsourceRule and the heading
+// 「### 學習經驗寫入位置」. It required the seed to say 「外包成員＋臨時任務 ⇒ 沒有
+// 你該寫的位置」. The owner overturned that on 2026-09-07 in one sentence —
+// 「臨時任務跟無關乎任何任務一樣都是給 NULL」 — and the server was changed to
+// match (api_lore.go: an effective related task, or the writer's own boot
+// document). The old assertion would now hold the handbook to a rule the code
+// no longer runs, so it is repinned rather than removed.
+//
+// It deliberately pins BOTH directions: the new rule must be present, AND the
+// retired refusal must be gone. Presence alone would stay green on a seed that
+// carried both sentences and contradicted itself.
+func TestSystemInteractionSeedTeachesTheAdHocTaskRuleTheServerEnforces(t *testing.T) {
 	seed, err := assetRoot("").readSeedFile(systemInteractionSeedMD)
 	if err != nil {
 		t.Fatalf("read system_interaction.md: %v (run bin/build-seedsdist)", err)
 	}
 
-	const heading = "### 學習經驗寫入位置"
-	const rule = "- 你是外包成員、而且執行的是臨時任務（沒有任務類型）時，不要寫入任何學習經驗 —— 這種情況沒有你該寫的位置。正確的做法是開這張任務的人在建立時就綁定對的任務類型"
+	const heading = "### 傳承寫入位置"
 	start := strings.Index(seed, heading)
 	if start < 0 {
 		t.Fatalf("shipped system interaction seed is missing %q", heading)
@@ -84,12 +101,27 @@ func TestSystemInteractionSeedIncludesTheOwnerAdHocOutsourceRule(t *testing.T) {
 	if end := strings.Index(section, "\n## "); end >= 0 {
 		section = section[:end]
 	}
-	if strings.Count(section, rule) != 1 {
-		t.Fatalf("shipped seed must contain the owner-approved ad-hoc outsource rule exactly once; %s",
-			seedExcerpt(systemInteractionSeedMD, section))
+
+	// The rule as the server runs it, in the two halves a reader has to act on.
+	for _, want := range []string{
+		"**臨時任務（沒有類型的任務）跟沒有填相關任務是同一件事**",
+		"外包寫進他自己的那一份",
+	} {
+		if strings.Count(section, want) != 1 {
+			t.Fatalf("the shipped seed must teach the rule the server enforces — missing or "+
+				"duplicated %q; %s", want, seedExcerpt(systemInteractionSeedMD, section))
+		}
 	}
-	if strings.Contains(section, "- \""+strings.TrimPrefix(rule, "- ")) {
-		t.Fatal("shipped seed must not wrap the owner-approved rule in outer quotes")
+
+	// 🔴 And the retired refusal must be GONE, not merely outvoted. A member
+	// reading 「沒有你該寫的位置」 stops before it writes, so the sentence does
+	// damage even when a correct one sits beside it.
+	for _, gone := range []string{"沒有你該寫的位置", "寫入會被拒絕"} {
+		if strings.Contains(section, gone) {
+			t.Fatalf("the shipped seed still carries the RETIRED refusal %q — the server "+
+				"files that write under the writer's own boot document now (owner "+
+				"2026-09-07); %s", gone, seedExcerpt(systemInteractionSeedMD, section))
+		}
 	}
 }
 

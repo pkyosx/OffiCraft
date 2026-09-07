@@ -1979,17 +1979,36 @@ export function toMemberResumeSummary(
 
 /** One wire entry → one view entry.
  *
- * `scope_kind` is widened from the wire's plain `string` to the two-value union
- * the UI switches on. An unrecognised value maps to "role" rather than throwing:
- * a future third scope must not blank the whole 傳承 page for a reader on an
- * older cockpit, and the row still renders with its own real text. */
+ * `scope_kind` is narrowed from the wire's plain `string` to the union the UI
+ * switches on. The three the server has are matched by name; anything else
+ * becomes "unknown".
+ *
+ * 🔴 THIS USED TO SAY "role" INSTEAD OF "unknown", AND THAT WAS THE BUG.
+ * The old rule ("an unrecognised value maps to \"role\" rather than throwing")
+ * bought the right thing — an older cockpit must not blank the whole 傳承 page
+ * when a new scope appears — with the wrong coin: it did not merely tolerate an
+ * unknown kind, it RENAMED it into a real one. When the server gained "agent",
+ * every outsource entry arrived here and was relabelled a role entry: collected
+ * by a 角色 filter, counted as role lore, with no error anywhere to say so. A
+ * wrong answer that cannot be told apart from a right one is worse than a blank
+ * row, which is at least visibly missing something.
+ *
+ * "unknown" keeps the property the old fallback was actually protecting — no
+ * throw, the row still renders with its own real title, body and author — while
+ * dropping the part nobody asked for. It is never equal to "role", "agent" or
+ * "manual", so it can never be swept into a filter that did not name it. */
 export function toLoreEntry(
   w: components["schemas"]["LoreEntryDTO"],
 ): LoreEntryView {
   return {
     id: w.id,
     seq: w.seq,
-    scopeKind: w.scope_kind === "manual" ? "manual" : "role",
+    scopeKind:
+      w.scope_kind === "role" ||
+      w.scope_kind === "agent" ||
+      w.scope_kind === "manual"
+        ? w.scope_kind
+        : "unknown",
     scopeKey: w.scope_key,
     title: w.title,
     body: w.body,

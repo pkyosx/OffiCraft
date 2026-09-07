@@ -189,6 +189,7 @@ var messageKeys = map[string]bool{
 	"lore.empty":                                       true,
 	"lore.emptyFiltered":                               true,
 	"lore.expandCard":                                  true,
+	"lore.filterAgentLore":                             true,
 	"lore.filterAuthorAll":                             true,
 	"lore.filterAuthorNoun":                            true,
 	"lore.filterRoleAll":                               true,

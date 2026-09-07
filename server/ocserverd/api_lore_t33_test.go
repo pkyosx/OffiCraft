@@ -77,9 +77,18 @@ func TestWriteLoreWithNoTaskFilesUnderTheCallersOwnRole(t *testing.T) {
 	}
 }
 
-// TestWriteLoreWithNoRoleIs400 — a caller with no role has no 角色傳承 to write
-// into. The refusal must NAME that, not fall through to some default role.
-func TestWriteLoreWithNoRoleIs400(t *testing.T) {
+// TestWriteLoreWithNoRoleFilesUnderTheWritersOwnId — the AGENT arm.
+//
+// 🔴 THIS TEST USED TO ASSERT THE OPPOSITE (TestWriteLoreWithNoRoleIs400: a
+// caller with no role was refused). The owner overturned that on 2026-09-07,
+// card rc-3c24fdc61ed3: an outsource member has no role by construction, so the
+// old refusal meant it had nowhere at all to put anything it learned outside a
+// typed task. It now files under its OWN member id, which rides its own boot
+// document and nobody else's.
+//
+// The scope key comes from the VERIFIED token subject, never from the request —
+// same rule the role arm has always had.
+func TestWriteLoreWithNoRoleFilesUnderTheWritersOwnId(t *testing.T) {
 	s := loreTestServer(t)
 	if err := s.dal.PutMember(Member{
 		ID: "ow-lore-1", Name: "Contractor", Kind: KindOutsource, RoleKey: "",
@@ -89,10 +98,46 @@ func TestWriteLoreWithNoRoleIs400(t *testing.T) {
 	}
 
 	rec := postLore(t, s, "ow-lore-1", map[string]any{"title": "x", "body": "y"})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("want 200, got %d %s", rec.Code, rec.Body.String())
+	}
+	var dto LoreEntryDTO
+	if err := json.Unmarshal(rec.Body.Bytes(), &dto); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if dto.ScopeKind != LoreScopeAgent || dto.ScopeKey != "ow-lore-1" {
+		t.Fatalf("scope = %s/%s, want agent/ow-lore-1", dto.ScopeKind, dto.ScopeKey)
+	}
+	// 🔴 AND IT DID NOT ALSO LAND IN THE ROLE SCOPE. An implementation that filed
+	// under "" (the writer's empty role_key) would answer 200 and set scope_kind
+	// itself, so the DTO alone cannot tell the two apart.
+	blank, err := s.dal.ListLoreEntriesLive(LoreScopeRole, "")
+	if err != nil {
+		t.Fatalf("ListLoreEntriesLive: %v", err)
+	}
+	if len(blank) != 0 {
+		t.Fatalf("the entry also landed in the role scope under an EMPTY key: %+v", blank)
+	}
+	// No filed_note: the writer named no task, so nothing about where this went
+	// was unpredictable from its own request.
+	if dto.FiledNote != "" {
+		t.Fatalf("filed_note = %q, want empty — this write named no task", dto.FiledNote)
+	}
+}
+
+// TestWriteLoreWithNoRosterRowIs400 — the refusal that SURVIVED the ruling. The
+// owner has no roster row at all, so there is no boot document of his own for an
+// entry to ride, and inventing a scope for him would create one nobody reads.
+//
+// It matters that this is still here: the ruling widened who may write, and the
+// cheap way to implement "let outsource through" is to stop checking at all.
+func TestWriteLoreWithNoRosterRowIs400(t *testing.T) {
+	s := loreTestServer(t)
+
+	rec := postLore(t, s, "nobody-on-the-roster", map[string]any{"title": "x", "body": "y"})
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("want 400, got %d %s", rec.Code, rec.Body.String())
 	}
-	// And NOTHING was written anywhere — in particular, not under a default role.
 	page, err := s.dal.ListLoreEntriesPage(loreListFilter{}, 30, 0)
 	if err != nil {
 		t.Fatalf("ListLoreEntriesPage: %v", err)
@@ -102,17 +147,23 @@ func TestWriteLoreWithNoRoleIs400(t *testing.T) {
 	}
 }
 
-// TestWriteLoreAgainstAnUntypedTaskIs400AndIsNotFiledUnderTheRole is the
-// branch the spec calls out in red: a 臨時任務 has no type, and the lesson must
-// NOT be filed under the caller's role instead.
+// TestWriteLoreAgainstAnUntypedTaskFilesUnderTheWritersOwnBootDocument.
 //
-// 🔴 THE SECOND HALF OF THIS TEST IS THE POINT. A 400 alone would still pass
-// against an implementation that answered 400 and wrote a role entry anyway,
-// and a 200-with-role-fallback is the exact bug: every boot of that role would
-// pay for the entry, the task type that needed it would never see it, and
-// nothing would report anything. So the assertion is BOTH the status AND that
-// the role scope is still empty.
-func TestWriteLoreAgainstAnUntypedTaskIs400AndIsNotFiledUnderTheRole(t *testing.T) {
+// 🔴 THIS TEST USED TO ASSERT THE OPPOSITE — it was
+// TestWriteLoreAgainstAnUntypedTaskIs400AndIsNotFiledUnderTheRole, and it
+// called the refusal "the branch the spec calls out in red". The owner
+// overturned it on 2026-09-07 in one sentence: 「臨時任務跟無關乎任何任務一樣都是
+// 給 NULL」. Under that reading the old refusal was answering the wrong question.
+// A task with no type is not a request that got re-routed to somewhere it did
+// not ask for — it is not a place an entry can hang AT ALL, so it is the same
+// input as naming no task, and the same answer follows: the writer's own boot
+// document.
+//
+// 🔴 WHAT THE OLD TEST GUARDED IS STILL GUARDED, and it is the second half here:
+// the entry must NOT reach any manual. That was always the real hazard — an
+// entry charged to a task TYPE that will never work on it — and it is untouched
+// by the ruling.
+func TestWriteLoreAgainstAnUntypedTaskFilesUnderTheWritersOwnBootDocument(t *testing.T) {
 	s := loreTestServer(t)
 	me := hireLoreStaff(t, s, "m-lore-2", "researcher")
 
@@ -127,22 +178,73 @@ func TestWriteLoreAgainstAnUntypedTaskIs400AndIsNotFiledUnderTheRole(t *testing.
 
 	rec := postLore(t, s, me, map[string]any{
 		"title": "一件事", "body": "內容", "task_id": adhoc.ID})
-	if rec.Code != http.StatusBadRequest {
-		t.Fatalf("want 400 for a task with no type_key, got %d %s",
+	if rec.Code != http.StatusOK {
+		t.Fatalf("want 200 for a task with no type_key, got %d %s",
 			rec.Code, rec.Body.String())
 	}
-	if !strings.Contains(rec.Body.String(), "沒有類型") {
-		t.Fatalf("the refusal must say the task has no type; got %s", rec.Body.String())
+	var dto LoreEntryDTO
+	if err := json.Unmarshal(rec.Body.Bytes(), &dto); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	// The writer here is STAFF, so its own boot document is its role's.
+	if dto.ScopeKind != LoreScopeRole || dto.ScopeKey != "researcher" {
+		t.Fatalf("scope = %s/%s, want role/researcher", dto.ScopeKind, dto.ScopeKey)
+	}
+	// 🔴 The half that outlived the ruling: no manual was charged for this.
+	page, err := s.dal.ListLoreEntriesPage(loreListFilter{ScopeKind: LoreScopeManual}, 30, 0)
+	if err != nil {
+		t.Fatalf("ListLoreEntriesPage: %v", err)
+	}
+	if len(page) != 0 {
+		t.Fatalf("a 臨時任務 entry reached a task manual: %+v — that charges a task "+
+			"TYPE for a lesson about a one-off piece of work", page)
+	}
+	// 🔴 AND THE RESPONSE SAYS SO. This is the one case the writer could not have
+	// predicted: it named a task and the entry went somewhere else. Without this
+	// sentence the two outcomes are indistinguishable on the wire — both are 200.
+	if dto.FiledNote == "" {
+		t.Fatalf("filed_note is empty — a write that named a task and landed in the " +
+			"writer's own boot document must SAY so; the writer has no other way to " +
+			"learn whether the task it named carried a type")
+	}
+	if !strings.Contains(dto.FiledNote, adhoc.ID) {
+		t.Fatalf("filed_note %q must name the task that carried no type", dto.FiledNote)
+	}
+}
+
+// TestWriteLoreAgainstAnUntypedTaskByAnOutsourceMemberFilesUnderItsOwnId — the
+// same door, entered by the member kind the ruling was actually about.
+func TestWriteLoreAgainstAnUntypedTaskByAnOutsourceMemberFilesUnderItsOwnId(t *testing.T) {
+	s := loreTestServer(t)
+	if err := s.dal.PutMember(Member{
+		ID: "ow-lore-2", Name: "Contractor", Kind: KindOutsource, RoleKey: "",
+		Runtime: RuntimeClaude, RosterStatus: RosterStatusActive,
+	}); err != nil {
+		t.Fatalf("PutMember: %v", err)
+	}
+	adhoc, err := s.dal.CreateTaskMintingID(Task{
+		Title: "一張臨時任務", TypeKey: "", ExecutorKind: TaskExecutorOutsource,
+		ExecutorID: "ow-lore-2", CreatorID: "ow-lore-2", Priority: TaskPriorityMid,
+		CreatedTS: 1, UpdatedTS: 1,
+	}, nil)
+	if err != nil {
+		t.Fatalf("CreateTaskMintingID: %v", err)
 	}
 
-	role, err := s.dal.ListLoreEntriesLive(LoreScopeRole, "researcher")
-	if err != nil {
-		t.Fatalf("ListLoreEntriesLive: %v", err)
+	rec := postLore(t, s, "ow-lore-2", map[string]any{
+		"title": "一件事", "body": "內容", "task_id": adhoc.ID})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("want 200, got %d %s", rec.Code, rec.Body.String())
 	}
-	if len(role) != 0 {
-		t.Fatalf("an untyped task's entry was SILENTLY filed under the caller's "+
-			"role: %+v — that charges every boot of that role for a lesson the "+
-			"task type never receives", role)
+	var dto LoreEntryDTO
+	if err := json.Unmarshal(rec.Body.Bytes(), &dto); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if dto.ScopeKind != LoreScopeAgent || dto.ScopeKey != "ow-lore-2" {
+		t.Fatalf("scope = %s/%s, want agent/ow-lore-2", dto.ScopeKind, dto.ScopeKey)
+	}
+	if dto.FiledNote == "" {
+		t.Fatalf("filed_note is empty — this write named a task and landed elsewhere")
 	}
 }
 

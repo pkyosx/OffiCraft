@@ -30,23 +30,21 @@ const (
 	loreListMaxLimit     = 200
 )
 
-// callerLoreRoleKey resolves the role a caller's own lore would be filed under:
-// the role_key on the caller's roster row, read by the VERIFIED token subject
-// and never from a client field (root CLAUDE.md §14).
+// callerRosterRow reads the caller's OWN roster row, resolved from the VERIFIED
+// token subject and never from a client field (root CLAUDE.md §14).
 //
-// It returns "" when the caller has no role to file under, which is a real and
-// ordinary state — an outsource worker has none by construction, and the owner
-// has no roster row at all. "" is a REFUSAL, never a licence to pick a role.
-func (s *apiServer) callerLoreRoleKey(r *http.Request) (string, error) {
+// nil is a real and ordinary answer, not an error: the owner has no roster row
+// at all. It is distinct from a row whose RoleKey is "", which is what an
+// outsource member has by construction — and the write face treats those two as
+// different outcomes, so this returns the row rather than a role key. Answering
+// with the key alone collapsed them into one "" and was why an outsource member
+// used to be refused with a sentence about roles.
+func (s *apiServer) callerRosterRow(r *http.Request) (*Member, error) {
 	actor := currentActor(r)
 	if actor == "" {
-		return "", nil
+		return nil, nil
 	}
-	m, err := s.dal.GetMember(actor)
-	if err != nil || m == nil {
-		return "", err
-	}
-	return m.RoleKey, nil
+	return s.dal.GetMember(actor)
 }
 
 // POST /api/lore — write_lore_entry.
@@ -81,24 +79,18 @@ func (s *apiServer) HandleWriteLoreEntryApiLorePost(w http.ResponseWriter, r *ht
 		taskID = strings.TrimSpace(*body.TaskId)
 	}
 
-	scopeKind, scopeKey := "", ""
-	if taskID == "" {
-		// ── the ROLE arm ────────────────────────────────────────────────────
-		roleKey, err := s.callerLoreRoleKey(r)
-		if err != nil {
-			internalError(w, err)
-			return
-		}
-		if roleKey == "" {
-			writeError(w, http.StatusBadRequest,
-				"you have no role, so there is no 角色傳承 to write into. "+
-					"A 傳承 entry is filed either under the writer's role or under a "+
-					"task's type; pass task_id to write into that task type's 任務傳承 instead.")
-			return
-		}
-		scopeKind, scopeKey = LoreScopeRole, roleKey
-	} else {
-		// ── the MANUAL arm ──────────────────────────────────────────────────
+	// 🔴 ONE QUESTION DECIDES THE SCOPE, and it is asked here: what is the
+	// EFFECTIVE RELATED TASK? The named task when it carries a type; NULL
+	// otherwise — and "otherwise" covers BOTH naming no task and naming a
+	// 臨時任務, because a task with no type is not a place an entry can hang.
+	// The owner corrected this file's earlier rule to exactly that on 2026-09-07
+	// (「臨時任務跟無關乎任何任務一樣都是給 NULL」); see LoreScope* in domain.go.
+	//
+	// untypedTask records that the second door was reached THROUGH a named task
+	// rather than by naming none. Nothing about the write changes — it is what
+	// lets the response say so, below.
+	typeKey, untypedTask := "", false
+	if taskID != "" {
 		t, err := s.dal.GetTask(taskID)
 		if err != nil {
 			internalError(w, err)
@@ -108,23 +100,49 @@ func (s *apiServer) HandleWriteLoreEntryApiLorePost(w http.ResponseWriter, r *ht
 			writeError(w, http.StatusBadRequest, "no such task: "+taskID)
 			return
 		}
-		if strings.TrimSpace(t.TypeKey) == "" {
-			// 🔴 THIS DOES NOT FALL BACK TO THE ROLE ARM, and the refusal is the
-			// whole point of the branch. A 臨時任務 carries no type, so there is no
-			// manual for its lesson to belong to. Filing it under the writer's role
-			// instead would charge every future boot of that role for a lesson about
-			// a one-off piece of work, while the task types that genuinely needed
-			// such a lesson still received nothing — and the write would answer 200,
-			// so nobody would ever look. The boot document already tells agents that
-			// a 臨時任務 has no place to write to; this is that sentence enforced.
-			writeError(w, http.StatusBadRequest,
-				"這張任務沒有類型，沒有可寫的位置 — task "+taskID+" carries no type_key "+
-					"(a 臨時任務), so there is no 任務傳承 to file this under. It is NOT "+
-					"filed under your role instead. Write it against a typed task, or "+
-					"omit task_id to write 角色傳承 deliberately.")
+		typeKey = strings.TrimSpace(t.TypeKey)
+		untypedTask = typeKey == ""
+	}
+
+	scopeKind, scopeKey := "", ""
+	if typeKey != "" {
+		// ── the MANUAL arm ──────────────────────────────────────────────────
+		scopeKind, scopeKey = LoreScopeManual, typeKey
+	} else {
+		// ── the WRITER'S OWN BOOT DOCUMENT arm ──────────────────────────────
+		// Staff file under their role, outsource members under themselves. The
+		// split is not a preference: an outsource member's roster row carries no
+		// role_key, so LoreScopeRole has nothing to name for them, and reusing it
+		// would put a member id in the column that holds role keys — one column
+		// holding two kinds of thing with no field saying which.
+		//
+		// Staff are one-to-one with their role (owner, c-712174eb0720), so keying
+		// their half by role rather than by member is the same set of readers.
+		actor := currentActor(r)
+		m, err := s.callerRosterRow(r)
+		if err != nil {
+			internalError(w, err)
 			return
 		}
-		scopeKind, scopeKey = LoreScopeManual, strings.TrimSpace(t.TypeKey)
+		switch {
+		case m == nil:
+			// The owner has no roster row at all. Nothing to file under, and
+			// inventing one would be a scope nobody reads.
+			writeError(w, http.StatusBadRequest,
+				"you have no roster row, so there is no 開機檔 of your own to write into. "+
+					"A 傳承 entry is filed under the writer's own boot document or under a "+
+					"typed task's manual; pass a typed task's task_id to write 任務傳承 instead.")
+			return
+		case m.RoleKey != "":
+			scopeKind, scopeKey = LoreScopeRole, m.RoleKey
+		case actor != "":
+			scopeKind, scopeKey = LoreScopeAgent, actor
+		default:
+			writeError(w, http.StatusBadRequest,
+				"this request carries no verified member identity, so there is no 開機檔 "+
+					"to file a 傳承 entry under.")
+			return
+		}
 	}
 
 	now := nowSecs()
@@ -148,7 +166,17 @@ func (s *apiServer) HandleWriteLoreEntryApiLorePost(w http.ResponseWriter, r *ht
 		internalError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, newLoreEntryDTO(entry))
+	dto := newLoreEntryDTO(entry)
+	// Design §5, owner-approved: SAY where it went, but only in the one case the
+	// writer could not have predicted. It named a task, that task carries no
+	// type, so the effective related task was NULL and this landed in the
+	// writer's own boot document. Every other write already reads its own answer
+	// off scope_kind / scope_key.
+	if untypedTask {
+		dto.FiledNote = "任務 " + taskID + " 沒有類型，所以這一筆寫進了你自己的開機檔（" +
+			scopeKind + " / " + scopeKey + "），不是任何一本任務手冊。"
+	}
+	writeJSON(w, http.StatusOK, dto)
 }
 
 // loreOverCapMsg names the field, what was sent and what is allowed. All three,
@@ -339,9 +367,10 @@ func (s *apiServer) HandleListLoreEntriesApiLoreGet(w http.ResponseWriter, r *ht
 	// A filter value outside its closed set is a 400 rather than a silently
 	// empty page: "no entries match role_kind=roles" and "there are none" look
 	// identical on the wire, and the caller would read the typo as an answer.
-	if f.ScopeKind != "" && f.ScopeKind != LoreScopeRole && f.ScopeKind != LoreScopeManual {
+	if f.ScopeKind != "" && f.ScopeKind != LoreScopeRole &&
+		f.ScopeKind != LoreScopeAgent && f.ScopeKind != LoreScopeManual {
 		writeError(w, http.StatusBadRequest,
-			"scope_kind must be "+LoreScopeRole+" or "+LoreScopeManual+
+			"scope_kind must be "+LoreScopeRole+", "+LoreScopeAgent+" or "+LoreScopeManual+
 				" — got "+strconv.Quote(f.ScopeKind))
 		return
 	}

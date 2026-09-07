@@ -112,15 +112,29 @@ const (
 //
 //  1. 系統互動   — the shared seed, byte-for-byte identical to staff's;
 //  2. 使用者自訂 — the owner's additive block, skipped entirely when blank;
-//  3. the persona — staff read 角色說明 → 判準 → 長期筆記 here (the 判準 block is
-//     itself skipped when that role's insight folds blank). A worker has no role,
-//     so it reads NOTHING here. That is the entire difference.
+//  3. the persona — staff read 角色說明 → 判準 → 長期筆記 → 角色傳承 here (the 判準
+//     block is itself skipped when that role's insight folds blank). A worker has
+//     no role, so it reads none of that. What it DOES read here, and the only
+//     thing, is its OWN 傳承 — the entries it wrote under LoreScopeAgent in
+//     earlier lives, keyed by its member id.
 //  4. 啟動步驟   — the boot-sequence seed for the worker's OWN runtime, which
 //     carries that runtime's 執行環境 section. Recency-authoritative, LAST.
 //
-// Not one word is written for outsource readers anywhere in this document; the
-// assembled result is byte-for-byte the staff fold with slot 3 taken out, and
-// TestWorkerBootContextIsTheStaffFoldMinusThePersona asserts exactly that.
+// 🔴 SLOT 3 STOPPED BEING EMPTY ON 2026-09-07 (owner, card rc-3c24fdc61ed3), and
+// two things this file used to say went with it.
+//
+// The first was 「not one word is written for outsource readers anywhere in this
+// document」. What goes into slot 3 now is not prose someone wrote FOR outsource
+// readers — that is the thing the sentence existed to forbid, and it is still
+// forbidden. It is what THIS member wrote itself, and the owner ruled the two
+// are different in kind. Nothing here is a second copy of anything staff read.
+//
+// The second was the equality TestWorkerBootContextIsTheStaffFoldMinusThePersona
+// pinned. That test was the only thing keeping the two assembly paths in step,
+// so it was not loosened into a weaker version of itself — it was replaced by
+// two NARROWER assertions that together say more than it did: slots 1, 2 and 4
+// are byte-for-byte identical across the two paths, and neither path's slot 3
+// can ever carry the other's lore scope. See worker_boot_lore_t33_test.go.
 //
 // WHAT THIS ASSEMBLY NO LONGER CONTAINS, and why (all T-4595):
 //
@@ -162,9 +176,36 @@ func (s *apiServer) buildWorkerBootContext(w OutsourceWorker, t Task, manual *Ta
 		return "", err
 	}
 
+	// 傳承 (T-33) — the AGENT exit, slot 3. Keyed by this worker's own member id,
+	// never by a role: an outsource member's roster row carries no role_key, so
+	// LoreScopeRole names nothing here.
+	//
+	// 🔴 THE SELECTION IS NOT MADE HERE. selectLoreForScope (lore_select.go) is
+	// the one implementation of that rule; the staff exit in assets.go and the
+	// manual exit in api_taskmanuals.go call the same function with a different
+	// scope. Writing a second selection here is what the ticket's first hard
+	// condition forbids, and the way it would show up is one member's entry
+	// appearing in one exit and not the other, with no error anywhere.
+	//
+	// It shares the ROLE budget knob rather than opening a fifth one (owner, card
+	// rc-3c24fdc61ed3): both are the same spend — the 傳承 block in one reader's
+	// own boot document, paid at every boot — so two numbers would only be two
+	// places to make the same decision.
 	var b strings.Builder
 	b.WriteString(head)
 	b.WriteString("\n\n")
+	loreSel, err := selectLoreForScope(s.dal, LoreScopeAgent, w.ID, s.loreRoleCap())
+	if err != nil {
+		return "", err
+	}
+	// An empty block renders as "" and is skipped entirely rather than joined in:
+	// writing the separator anyway would leave a blank gap exactly where a
+	// section was not emitted, which is a difference in the assembled document
+	// that no test of the sections themselves would catch.
+	if block := renderLoreBlock(loreSel); block != "" {
+		b.WriteString(block)
+		b.WriteString("\n\n")
+	}
 	b.WriteString(bootSeq)
 	b.WriteString("\n")
 	return b.String(), nil

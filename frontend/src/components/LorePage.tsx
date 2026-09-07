@@ -126,10 +126,11 @@ export function LorePage() {
   // ── 篩選 (all four axes are QUERY PARAMETERS, none is a client-side pass) ──
   //
   // `scope` is one control carrying the spec's 任務下拉: "" = 全部,
-  // "role" = the explicit 「無 · 角色傳承」 item, "manual:<typeKey>" = one task
-  // type. The item the spec names by hand exists because 「這一筆不屬於任何任務」
-  // is a real answer about a real entry, and an empty dropdown slot does not
-  // say it.
+  // "role" = the explicit 「無 · 角色傳承」 item, "agent" = 「無 · 成員傳承」
+  // (the outsource scope the server gained in T-33), "manual:<typeKey>" = one
+  // task type. The two items the spec names by hand exist because
+  // 「這一筆不屬於任何任務」 is a real answer about a real entry, and an empty
+  // dropdown slot does not say it.
   //
   // `roleKey` is the SECOND half of a role scope. It exists because a budget
   // belongs to ONE scope, and `scopeKind: "role"` alone names a kind, not a
@@ -147,6 +148,14 @@ export function LorePage() {
     if (scope === "role") {
       next.scopeKind = "role";
       if (roleKey) next.scopeKey = roleKey;
+    } else if (scope === "agent") {
+      // No second half yet. An agent scope's key is a MEMBER id, not a role
+      // key, so the 角色 dropdown cannot narrow it and offering it would ask a
+      // question about the wrong list. Sending the kind alone is the honest
+      // request: the server answers `capChars: 0` for a kind that has not
+      // converged on one scope, and the page correctly draws no 上限線 — the
+      // same thing it already does for a bare `scopeKind: "role"`.
+      next.scopeKind = "agent";
     } else if (scope.startsWith("manual:")) {
       next.scopeKind = "manual";
       next.scopeKey = scope.slice("manual:".length);
@@ -481,6 +490,13 @@ export function LorePage() {
             // it is the answer 「這一筆不屬於任何任務」, and it is a filter value
             // of its own (scopeKind: "role").
             { value: "role", label: t.lore.filterRoleLore },
+            // The third scope. It sits beside 角色傳承 rather than inside it
+            // because it is a KIND of its own on the wire (scopeKind: "agent"):
+            // an outsource worker has no role, so its lore hangs off its own
+            // member id. The settings knob these two share is a separate
+            // question from the filter, and sharing one does not merge them
+            // here.
+            { value: "agent", label: t.lore.filterAgentLore },
             ...manualOptions,
           ]}
         />

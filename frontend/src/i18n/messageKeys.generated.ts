@@ -188,6 +188,7 @@ export const MESSAGE_KEYS: readonly string[] = [
   "lore.empty",
   "lore.emptyFiltered",
   "lore.expandCard",
+  "lore.filterAgentLore",
   "lore.filterAuthorAll",
   "lore.filterAuthorNoun",
   "lore.filterRoleAll",

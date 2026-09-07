@@ -4732,14 +4732,23 @@ export interface components {
             seq: number;
             /**
              * Scope Kind
-             * @description ``role`` or ``manual``. The two are not interchangeable: a role entry rides the STAFF boot document, a manual entry rides ``get_task_manual``.
+             * @description ``role``, ``agent`` or ``manual``, and the three are not interchangeable. A ``role`` entry rides the STAFF boot document of that role; an ``agent`` entry rides ONE member's own boot document and is written only by an outsource member, who has no role for ``role`` to name; a ``manual`` entry rides ``get_task_manual``.
+             *
+             *     Which one a write lands in is decided by ONE question — the EFFECTIVE RELATED TASK: the named task when it carries a type, and NULL otherwise, where "otherwise" covers BOTH naming no task and naming a 臨時任務 that carries no type. An effective task gives ``manual``; NULL gives ``role`` for staff and ``agent`` for an outsource member.
              */
             scope_kind: string;
             /**
              * Scope Key
-             * @description The role_key when ``scope_kind`` is ``role``; the task manual's ``type_key`` when it is ``manual``.
+             * @description The role_key when ``scope_kind`` is ``role``; the writer's own member id when it is ``agent``; the task manual's ``type_key`` when it is ``manual``.
              */
             scope_key: string;
+            /**
+             * Filed Note
+             * @description Empty on every ordinary write. It carries one sentence in exactly one case: the write named a ``task_id`` whose task carries NO type, so the effective related task was NULL and the entry was filed under the writer's own boot document rather than under a manual.
+             *
+             *     It exists because the writer has no other way to learn that. Whether the task it named happens to carry a type is not something the writer holds in mind at the moment of the write, and both outcomes answer 200 — so without this sentence the two are indistinguishable from the caller's side. It REPORTS where the entry went; it is not a warning that a request was re-routed, because a task with no type was never a place an entry could hang.
+             */
+            filed_note: string;
             /** Title */
             title: string;
             /** Body */

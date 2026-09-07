@@ -11,10 +11,14 @@
 -- `AddNamedMigrationContext("NNNNN` family) before this lands.
 --
 -- WHAT A LORE ENTRY IS. One short thing somebody learned, written once and
--- never edited, that later boots of the same ROLE (or later readers of the same
--- task TYPE) are handed for free. Two scopes, one table:
+-- never edited, that later boots of the same ROLE or the same MEMBER (or later
+-- readers of the same task TYPE) are handed for free. Three scopes, one table:
 --
 --   scope_kind='role'   ⇒ scope_key is a role_key   — rides the STAFF boot doc.
+--   scope_kind='agent'  ⇒ scope_key is a member id  — rides that ONE member's
+--                         boot doc. Written only by an outsource member, who has
+--                         no role for the first scope to name (owner 2026-09-07,
+--                         card rc-3c24fdc61ed3). Staff never produce one.
 --   scope_kind='manual' ⇒ scope_key is a task manual type_key — rides
 --                         GET /api/task-manuals/{type_key}.
 --
@@ -46,7 +50,7 @@ CREATE TABLE lore_entry (
     -- has to CAST a substring is a sort that goes wrong on the first id that
     -- does not match the assumed shape.
     seq            INTEGER NOT NULL,
-    scope_kind     TEXT    NOT NULL CHECK (scope_kind IN ('role', 'manual')),
+    scope_kind     TEXT    NOT NULL CHECK (scope_kind IN ('role', 'agent', 'manual')),
     scope_key      TEXT    NOT NULL,
     title          TEXT    NOT NULL,
     body           TEXT    NOT NULL,
