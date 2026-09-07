@@ -365,7 +365,7 @@ export function TaskReassignDialog({
                   onPick={(v) => setEffortDraft(v)}
                   testidPrefix="reassign-effort"
                   ariaLabel={t.settings.assigneeEffort}
-                  className="task-reassign__seg--grid2"
+                  className="task-reassign__seg--grid3"
                 />
               </div>
 

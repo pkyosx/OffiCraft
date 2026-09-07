@@ -8,15 +8,17 @@
 //      so this file only locks the class HOOK the rule targets
 //      (task-badge--lock-reassigning) + the task-lock testid. The hue/overlay
 //      layout is verified by the CT visual guard (lock-badge-*).
-//   2. The 模型 and 投入程度 pickers lay their 4 chips out as a fixed 2x2 (grid2
-//      modifier) while 轉給-轉外包, which has two cells, keeps the flex row, AND
-//      a selected 模型 chip carries the SAME active class as a selected 投入程度
-//      chip. The 2x2 GEOMETRY is a CSS grid (untestable in jsdom); what is
-//      locked here is the modifier class that switches it on and the shared
-//      active-class consistency.
+//   2. The 模型 pickers lay their 4 chips out as a fixed 2x2 (grid2 modifier)
+//      and 投入程度 lays its 5 out on three tracks (grid3), while 轉給-轉外包,
+//      which has two cells, keeps the flex row, AND a selected 模型 chip carries
+//      the SAME active class as a selected 投入程度 chip. The GEOMETRY is a CSS
+//      grid (untestable in jsdom); what is locked here is the modifier class
+//      that switches it on and the shared active-class consistency.
 //      投入程度 was on the flex row until T-129: MEASURED at 390px it wrapped
 //      into 低/中/高 then 最高 alone at w=292 of a 302-wide group — the very
-//      shape the 模型 modifier exists to prevent.
+//      shape the 模型 modifier exists to prevent. It shared grid2 with 模型
+//      until T-131 added a fifth level, at which point two tracks reproduced
+//      that shape one row lower (MEASURED at 390px: 最高 alone at w=143).
 
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { render, fireEvent, within, waitFor } from "@testing-library/react";
@@ -109,8 +111,8 @@ describe("轉派中 lock badge — orthogonal overlay class hook", () => {
   });
 });
 
-describe("模型 picker — 2x2 grid modifier + selection parity with 投入程度", () => {
-  it("puts the grid2 modifier on the 4-chip groups, not on 轉給/轉外包", async () => {
+describe("模型 picker — grid modifiers + selection parity with 投入程度", () => {
+  it("gives each group the grid modifier its chip count needs, and 轉給/轉外包 none", async () => {
     __injectMockTask(mkTask({}));
     const { findByTestId } = renderPage();
     const dialog = await openOutsourceFace(findByTestId);
@@ -133,14 +135,22 @@ describe("模型 picker — 2x2 grid modifier + selection parity with 投入程�
     expect(
       modelGroup!.classList.contains("task-reassign__seg--grid2")
     ).toBe(true);
-    // 投入程度: same four-cell shape, same wrap, same fix (T-129).
+    // 投入程度: 5 chips since xhigh (T-131). Two tracks would leave the fifth
+    // alone on a row of its own — the very shape --grid2 exists to prevent —
+    // so this group takes three.
+    expect(
+      effortGroup!.classList.contains("task-reassign__seg--grid3")
+    ).toBe(true);
     expect(
       effortGroup!.classList.contains("task-reassign__seg--grid2")
-    ).toBe(true);
-    // 轉給/轉外包 has two cells that fit the row — it must NOT inherit the grid.
+    ).toBe(false);
+    // 轉給/轉外包 has two cells that fit the row — it must NOT inherit a grid.
     // The opt-in is per callsite, not a rule derived from chip count.
     expect(
       kindGroup!.classList.contains("task-reassign__seg--grid2")
+    ).toBe(false);
+    expect(
+      kindGroup!.classList.contains("task-reassign__seg--grid3")
     ).toBe(false);
   });
 

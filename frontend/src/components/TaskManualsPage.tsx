@@ -1324,7 +1324,7 @@ function AssigneeCard({
                       onPick={setModelDraft}
                       testidPrefix="manual-assignee-model"
                       ariaLabel={t.settings.assigneeModelLabel}
-                      className="manual-seg--chips4"
+                      className="manual-seg--effort-aligned"
                     />
                     <input
                       className="manual-input manual-assignee__model"

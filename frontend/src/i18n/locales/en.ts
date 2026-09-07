@@ -1034,7 +1034,7 @@ export const en: Dict = {
       low: "Low",
       medium: "Medium",
       high: "High",
-      xhigh: "Extra High",
+      xhigh: "X-High",
       max: "Max",
     } as Record<Effort, string>,
     modelEffortSave: "Save",

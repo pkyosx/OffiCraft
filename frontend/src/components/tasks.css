@@ -1970,13 +1970,15 @@ button.task-card__waiting--dep:focus-visible {
    an owner review calling it "broken" (that attribution is INHERITED from the
    white-labelled initial tree, 8e573a7e; it cannot be checked against this
    repo's history, so treat the owner quote as hearsay and the layout claim as
-   the load-bearing part). 投入程度 opts in too: it has had four cells since
-   T-dbd4 added max, and MEASURED at 390px on the flex row it produced exactly
-   the same shape — 低/中/高 at w=93 then 最高 alone on row two at w=292 of a
-   302-wide group. 轉給/轉外包 has two cells and keeps the flex row, so chip COUNT
-   alone does not select the grid — the class is opted into per callsite.
-   Two tracks are hard-coded here, and unlike .manual-seg--chips4 this class
-   needs no second regime, because the control lives in .confirm-modal__box
+   the load-bearing part). 投入程度 used to opt in here as well — it had four
+   cells from T-dbd4's max until T-131's xhigh, and MEASURED at 390px on the flex
+   row it produced exactly the same shape as the 模型 pickers (低/中/高 at w=93
+   then 最高 alone on row two at w=292 of a 302-wide group). At five cells it
+   needs a different track count and has moved to --grid3 below. 轉給/轉外包 has
+   two cells and keeps the flex row, so chip COUNT alone does not select the grid
+   — the class is opted into per callsite.
+   Two tracks are hard-coded here, and unlike .manual-seg--effort-aligned
+   this class needs no second regime, because the control lives in .confirm-modal__box
    (max-width 420px): MEASURED, the group is 302 wide at 390px and 372 at every
    wider viewport, so it never has room for a third track and never has to widen
    back out. The 390px geometry of both
@@ -1984,6 +1986,32 @@ button.task-card__waiting--dep:focus-visible {
 .task-reassign__seg--grid2 {
   display: grid;
   grid-template-columns: 1fr 1fr;
+}
+/* 投入程度, from its fifth level (xhigh) on. Two tracks read 2+2+1 with five
+   cells, and MEASURED at 390px that is 最高 alone on row three at w=143 of a
+   302-wide group — the very orphan --grid2 exists to prevent, one row further
+   down. Three tracks give 3+2 (MEASURED at 390px: chips at w=93, both rows hold
+   at least two, every label on one line), and the trailing empty cell on row two
+   is the only shape five items can take in a grid of equal tracks.
+   AN ODD TRACK COUNT IS FINE HERE, which is not a contradiction of
+   .manual-seg--effort-aligned's "with 4 items any odd track count IS the
+   bug": the invariant under both is `count % tracks != 1`, i.e. never leave exactly one
+   item on the last row. 4 % 3 = 1 (bad, hence 2 and 4 there); 5 % 2 = 1 (bad,
+   hence not --grid2 here); 5 % 3 = 2 (good). A SIXTH level would still be fine
+   at three tracks (6 % 3 = 0), a seventh would not — this number is derived from
+   the vocabulary size, never from the available width. */
+.task-reassign__seg--grid3 {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+}
+/* The cell's 72px floor below is a FLEX-row minimum. In a three-track grid the
+   track already sets the width, and the floor would instead push the chips past
+   the group's own box on a small phone: MEASURED at a 320px viewport, the modal
+   group is 232 wide (70.7px tracks) — with the floor the chips come out at w=72
+   and the third one ends at x=276 against a group that ends at 275; without it,
+   w=70 and inside. */
+.task-reassign__seg--grid3 .task-reassign__seg-cell {
+  min-width: 0;
 }
 .task-reassign__seg-cell {
   flex: 1;

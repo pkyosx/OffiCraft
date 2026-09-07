@@ -18,9 +18,13 @@
 // widths: 任務手冊 is a page, not a max-width modal, so it keeps growing.
 // MEASURED at 1280 with a hard `1fr 1fr`, the group is 958 wide and the chips
 // become 4 x 471 on two rows — an 11-character label in a half-width button —
-// while the 投入程度 row directly below stays 4 x 233 on one, so the two
-// controls stop lining up. So this file pins BOTH ends: narrow (no orphan, no
-// squeeze) and wide (one row, columns agreeing with the sibling picker).
+// while the 投入程度 row directly below stays on one, so the two controls stop
+// lining up. So this file pins BOTH ends: narrow (no orphan, no squeeze) and
+// wide (one row, columns agreeing with the sibling picker).
+//
+// T-131 added a FIFTH 投入程度 level (xhigh), so the two rows no longer hold the
+// same number of cells and "agreeing" became a PREFIX relation rather than an
+// equal set — see the @1280 case at the bottom of this file.
 //
 // All of it is invisible to the vitest suite (jsdom has no layout engine), so
 // the contract lives here as real-browser geometry, asserted as position
@@ -303,12 +307,37 @@ test("任務手冊 負責成員 模型 @1280: the chips stay on one row, aligned
   ).toHaveLength(effortRows.length);
 
   // 2. …and they land on the same columns. This is the half a reader sees: two
-  //    stacked four-cell controls whose edges do not agree.
+  //    stacked controls whose edges do not agree.
+  //
+  //    PREFIX, not set equality. The two controls do not hold the same number of
+  //    cells — the counts are read off the pickers above (model.length Codex
+  //    models, effort.length 投入程度 levels; 4 and 5 in this build, and neither
+  //    is written here) — so "the same columns" cannot mean the same SET: with
+  //    4 ≠ 5, a track count that makes both column sets identical exists only at
+  //    3 tracks, which puts a model chip alone on a second row, the very shape
+  //    this file exists to prevent (MEASURED, T-131: of k = 2..6 tracks, only
+  //    k = 3 equalises both, and it orphans). What a reader actually sees lining
+  //    up is the LEFT-ALIGNED PREFIX: every model chip sits on the effort cell
+  //    directly above/below it, same x, same width, and the row simply ends one
+  //    column early. That is falsifiable — a different track count, a different
+  //    gap or a different start all break it — so it is the property pinned.
   const cols = (chips: Chip[]) =>
-    [...new Set(chips.map((c) => `x=${Math.round(c.x)} w=${Math.round(c.width)}`))].sort();
+    chips
+      .map((c) => `x=${Math.round(c.x)} w=${Math.round(c.width)}`)
+      .sort((a, b) => Number(a.split(" ")[0].slice(2)) - Number(b.split(" ")[0].slice(2)));
+  const modelCols = cols(model);
+  const effortCols = cols(effort);
   expect(
-    cols(model),
-    "任務手冊 負責成員 模型 @1280: the Codex model chips sit on the same columns " +
-      "as the 投入程度 cells below them"
-  ).toEqual(cols(effort));
+    modelCols.length,
+    `任務手冊 負責成員 模型 @1280: there are fewer Codex model chips ` +
+      `(${model.length}) than 投入程度 cells (${effort.length}), so the model row ` +
+      `can only cover a PREFIX of the effort columns`
+  ).toBeLessThanOrEqual(effortCols.length);
+  expect(
+    modelCols,
+    "任務手冊 負責成員 模型 @1280: the Codex model chips sit on the FIRST " +
+      `${model.length} of the ${effort.length} columns the 投入程度 cells below ` +
+      `them use — same x, same width, ending ${effort.length - model.length} ` +
+      `column(s) early (投入程度 columns measured: ${effortCols.join(" | ")})`
+  ).toEqual(effortCols.slice(0, modelCols.length));
 });
