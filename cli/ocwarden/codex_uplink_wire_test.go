@@ -71,7 +71,7 @@ func TestCodexUplinkBodies(t *testing.T) {
 		})
 	})
 
-	want := []capture{
+	wantCaptures := []capture{
 		{
 			run:   "identity",
 			route: "/api/monitoring/telemetry",
@@ -111,8 +111,8 @@ func TestCodexUplinkBodies(t *testing.T) {
 			},
 		},
 	}
-	if !reflect.DeepEqual(sent, want) {
-		t.Errorf("the sidecar put\n  %#v\non the wire, want\n  %#v", sent, want)
+	if !reflect.DeepEqual(sent, wantCaptures) {
+		t.Errorf("the sidecar put\n  %#v\non the wire, want\n  %#v", sent, wantCaptures)
 	}
 
 	for _, one := range sent {
@@ -131,8 +131,10 @@ func TestCodexUplinkBodies(t *testing.T) {
 		}
 	}
 
-	if committed := manifestUplinkPaths(t, "cli/ocwarden/codex_uplink_wire_test.go"); !maps.Equal(driven, committed) {
-		t.Errorf("cli/uplinks.json commits %v to this wire test, but the producers put %v "+
-			"on the wire", committed, driven)
+	want := manifestUplinkPaths(t, "cli/ocwarden/codex_uplink_wire_test.go")
+	if !maps.Equal(driven, want) {
+		t.Fatalf("cli/uplinks.json commits %v to this wire test, but the producers put %v "+
+			"on the wire", want, driven)
 	}
+
 }
