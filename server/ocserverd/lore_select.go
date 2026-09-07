@@ -3,18 +3,27 @@ package main
 // lore_select.go — T-33 傳承（lore）: 挑條目的邏輯，只有這一份.
 //
 // 🔴 THIS FILE IS THE ONLY PLACE THAT DECIDES WHICH LORE ENTRIES A READER GETS.
-// There are two exits — the staff boot document (scope_kind='role', assets.go
-// buildBootContext) and GET /api/task-manuals/{type_key} (scope_kind='manual',
-// api_taskmanuals.go writeTaskManual) — and BOTH call selectLoreForScope. A
-// second implementation is forbidden, and not as a style preference: the two
+// There are THREE exits, and every one of them calls selectLoreForScope:
+//   1. the STAFF boot document        — scope_kind='role',   assets.go buildBootContext
+//   2. the OUTSOURCE boot document    — scope_kind='agent',  worker_spawn.go buildWorkerBootContext
+//   3. GET /api/task-manuals/{key}    — scope_kind='manual', api_taskmanuals.go writeTaskManual
+//
+// ⚠️ THE SECOND ONE USED TO BE MISSING FROM THIS LIST, and a comment that
+// undercounts the exits is worse than one that says nothing: the next person
+// takes inventory from here, finds two, and never looks for the third. It cost
+// somebody a whole round of verifying an exit that does not exist while the one
+// that does went unchecked (owner approved the agent scope in rc-3c24fdc61ed3;
+// this header simply never caught up).
+//
+// A second implementation is forbidden, and not as a style preference: the
 // exits are read by different audiences at different moments, so a divergence
 // between them shows up as "the entry I wrote is in the manual but not in my
-// boot doc", which nobody can debug from the outside because both faces look
-// correct on their own. The rule is one function, two call sites.
+// boot doc", which nobody can debug from the outside because every face looks
+// correct on its own. The rule is one function, N call sites.
 //
-// If you are here to add a THIRD exit: call this function. If you are here
-// because this rule is inconvenient, the thing to change is this function, not
-// your call site.
+// If you are here to add a FOURTH exit: call this function, and add it to the
+// list above. If you are here because this rule is inconvenient, the thing to
+// change is this function, not your call site.
 
 import (
 	"strings"
