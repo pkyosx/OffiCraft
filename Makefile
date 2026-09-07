@@ -114,7 +114,8 @@ REGEN_PAIR_GATE = $(P) \
   test-frontend-ct test-conformance \
   scan-tracked-paths scan-secrets scan-tcc-anchor \
   drift-ocapi drift-schema-ts drift-theme-tokens drift-message-keys drift-fonts \
-  drift-mcp-catalog drift-migration-lock check-released-migrations
+  drift-mcp-catalog \
+  drift-migration-lock check-released-migrations
 
 # ===========================================================================
 # build
