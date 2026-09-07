@@ -414,8 +414,17 @@ export function LorePage() {
       .catch((e) => {
         console.warn("LorePage: page load failed", e);
         // NOT `error`: the rows already on screen are real and stay. Only the
-        // "there might be more" promise failed, so the sentinel keeps saying
-        // 載入中… and another scroll retries.
+        // "there might be more" promise failed, and another scroll retries.
+        //
+        // 🔴 THE READER IS TOLD NOTHING, AND THIS COMMENT USED TO CLAIM THEY
+        // WERE. It said the sentinel keeps saying 載入中… — it does not: the
+        // `finally` below clears `fetchingMore`, so the sentinel renders the
+        // empty string. A failed page 2 is therefore pixel-identical to
+        // 「there are only 30 傳承」. The swallow itself follows the tree's
+        // existing convention (useChat.loadOlder does the same and useChat.ts
+        // tracks it as a known gap), so it is left alone here rather than made
+        // to differ from the other page — but do not read this catch as if it
+        // surfaced anything.
       })
       .finally(() => {
         if (gen === genRef.current) setFetchingMore(false);
