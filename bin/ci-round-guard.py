@@ -111,6 +111,10 @@ SHELLS = {"bash", "sh", "zsh"}
 # file on purpose. That is the intended trade, not an oversight.
 CANONICAL_ROUTE = 'bash bin/run-checks.sh --lane "${{ github.job }}"'
 
+# The only keys a gate job may carry. An ALLOWLIST for the same reason the route
+# is pinned rather than inspected: it refuses the key nobody has thought of yet.
+GATE_JOB_KEYS = {"runs-on", "steps", "timeout-minutes"}
+
 ASSIGN = re.compile(r"\A[A-Za-z_][A-Za-z0-9_]*=")
 
 FAILURES: list[str] = []
@@ -203,7 +207,14 @@ out = {}
 jobs.each do |name, job|
   next unless job.is_a?(Hash)
   steps = job['steps'].is_a?(Array) ? job['steps'] : []
-  out[name] = steps.map { |st| st.is_a?(Hash) ? st['run'].to_s : '' }
+  # WHOLE step mappings, not just each step's `run:` string. A step is a NODE:
+  # `if:` beside a byte-perfect `run:` makes GitHub skip the step entirely, and
+  # a guard that reads only `run` cannot see it (found by an independent review
+  # on 83ab4b19, immediately after the `run:` string itself was pinned).
+  out[name] = {
+    'steps' => steps.map { |st| st.is_a?(Hash) ? st : {} },
+    'job_keys' => job.keys,
+  }
 end
 puts JSON.generate(out)
 """
@@ -213,8 +224,8 @@ def ruby_bin() -> str | None:
     return shutil.which("ruby")
 
 
-def parse_workflow_jobs(path: Path, ruby: str) -> dict[str, list[str]] | None:
-    """job id -> list of `run:` scripts, via ruby + psych.
+def parse_workflow_jobs(path: Path, ruby: str) -> dict[str, dict] | None:
+    """job id -> {'steps': [whole step mappings], 'job_keys': [...]}, via ruby + psych.
 
     Line scanning is not good enough for this question. `echo bash
     bin/run-checks.sh --lane` and a real invocation differ only in COMMAND
@@ -246,9 +257,23 @@ def parser_is_real(ruby: str) -> bool:
         if parse_workflow_jobs(bad, ruby) is not None:
             return False
         good = Path(tmp) / "good.yml"
-        good.write_text("jobs:\n  a:\n    steps:\n      - run: echo hi\n")
+        # The control asserts the SHAPE the checks below rely on: whole step
+        # mappings (so a sibling `if:` is visible) plus the job's own key list.
+        # It is deliberately exact — when the dump grew from `run:` strings to
+        # whole nodes, this control failed first and said so, which is the job
+        # a positive control exists to do.
+        good.write_text(
+            "jobs:\n  a:\n    if: always()\n    steps:\n"
+            "      - run: echo hi\n      - if: false\n        run: echo no\n"
+        )
         parsed = parse_workflow_jobs(good, ruby)
-        return parsed == {"a": ["echo hi"]}
+        if not isinstance(parsed, dict) or set(parsed) != {"a"}:
+            return False
+        got = parsed["a"]
+        return (
+            got.get("steps") == [{"run": "echo hi"}, {"if": False, "run": "echo no"}]
+            and set(got.get("job_keys", [])) == {"if", "steps"}
+        )
 
 
 def lane_invocations(script: str) -> list[str]:
@@ -339,9 +364,67 @@ def check_every_lane_is_really_invoked(round_lanes: list[str], gates: list[str])
         # (a) EXACTLY ONE `run:` step that IS the canonical route, character for
         #     character. This is what closes the control-flow family; the
         #     command-position test below is kept as a second, independent layer.
-        canonical = [sc for sc in jobs[lane] if sc.strip() == CANONICAL_ROUTE]
+        steps = jobs[lane].get("steps", [])
+        job_keys = set(jobs[lane].get("job_keys", []))
+
+        # (0) THE JOB'S OWN KEYS, as an ALLOWLIST — deliberately not a list of
+        #     banned ones. A blacklist only ever closes the key somebody already
+        #     thought of: `if:` skips every step, `continue-on-error:` makes the
+        #     cell green regardless, an empty `strategy.matrix` produces no
+        #     instance at all, `needs:` on a skipped job skips this one too — and
+        #     the next such key ships whenever GitHub decides. An allowlist
+        #     refuses all of them, including the ones nobody has named yet.
+        #     Measured: across all eleven gate jobs the keys in use are exactly
+        #     these three, so this costs nothing today.
+        #     ⚠️ NOT closed by this: `runs-on` naming a label no runner carries.
+        #     That is an allowed key with a bad value, and it fails SAFE — the
+        #     job never starts, so its required context never reports and the
+        #     pull request cannot merge. A cell that runs nothing while going
+        #     GREEN is the failure this guard exists for; one that never reports
+        #     blocks by itself.
+        stray_job_keys = sorted(job_keys - GATE_JOB_KEYS)
+        if stray_job_keys:
+            fail(
+                f"gate job `{lane}` carries {', '.join('`' + k + ':`' for k in stray_job_keys)} at the "
+                f"job level. A gate job may only carry {', '.join(sorted(GATE_JOB_KEYS))} — anything "
+                f"else can stop the cell from running while it still reports success (`if:` skips it, "
+                f"`continue-on-error:` discards the verdict, an empty `strategy.matrix` produces no "
+                f"instance). If this job genuinely needs that key, add it to GATE_JOB_KEYS in "
+                f"{Path(__file__).name} in the same commit, where a reviewer sees it."
+            )
+
+        # (1) EXACTLY ONE step that IS the route — and the step is judged as a
+        #     WHOLE NODE, not by its `run:` string. `run` must be its only key:
+        #     `if:` beside a byte-perfect `run:` skips the step, `env:`/`shell:`
+        #     change what actually executes, `continue-on-error:` discards the
+        #     verdict. Requiring the node's shape closes all of them at once
+        #     instead of naming them one at a time.
+        canonical = [
+            st for st in steps
+            if isinstance(st, dict)
+            and str(st.get("run", "")).strip() == CANONICAL_ROUTE
+            and set(st.keys()) == {"run"}
+        ]
+        route_text_only = [
+            st for st in steps
+            if isinstance(st, dict) and str(st.get("run", "")).strip() == CANONICAL_ROUTE
+        ]
+        if len(canonical) != 1 and len(route_text_only) == 1:
+            extra = sorted(set(route_text_only[0].keys()) - {"run"})
+            fail(
+                f"gate job `{lane}`'s route step carries {', '.join('`' + k + ':`' for k in extra)} "
+                f"beside its `run:`. The command is byte-perfect and still does not run as written: "
+                f"`if:` SKIPS the step outright, `continue-on-error:` throws the verdict away, "
+                f"`env:`/`shell:` change what executes. A gate's route step must carry `run:` and "
+                f"nothing else. IF YOU MEANT THIS: the route's shape is pinned in "
+                f"{Path(__file__).name} (CANONICAL_ROUTE and the key check beside it) — widen it "
+                f"there, in the same commit, so the change is reviewed rather than buried in a "
+                f"workflow cell."
+            )
+            continue
         if len(canonical) != 1:
-            near = [sc.strip() for sc in jobs[lane] if "run-checks.sh" in sc]
+            near = [str(st.get("run", "")).strip() for st in steps
+                    if isinstance(st, dict) and "run-checks.sh" in str(st.get("run", ""))]
             if not near:
                 detail = "it has no `run:` step mentioning bin/run-checks.sh at all."
             else:
@@ -364,7 +447,9 @@ def check_every_lane_is_really_invoked(round_lanes: list[str], gates: list[str])
 
         # (b) And no OTHER step in the same job may mention the wrapper, so a
         #     decoy cannot sit beside the real one and confuse a later reader.
-        strays = [sc.strip() for sc in jobs[lane] if "run-checks.sh" in sc and sc.strip() != CANONICAL_ROUTE]
+        strays = [str(st.get("run", "")).strip() for st in steps
+                  if isinstance(st, dict) and "run-checks.sh" in str(st.get("run", ""))
+                  and str(st.get("run", "")).strip() != CANONICAL_ROUTE]
         if strays:
             fail(
                 f"gate job `{lane}` routes correctly but has {len(strays)} OTHER `run:` step(s) "
@@ -373,7 +458,7 @@ def check_every_lane_is_really_invoked(round_lanes: list[str], gates: list[str])
             )
 
         hits: list[str] = []
-        for script in jobs[lane]:
+        for script in [str(st.get("run", "")) for st in steps if isinstance(st, dict)]:
             for got in lane_invocations(script):
                 # `${{ github.job }}` IS this job's own id, which is the lane.
                 hits.append(lane if got in ("${{github.job}}", "${{ github.job }}") else got)

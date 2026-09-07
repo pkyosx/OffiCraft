@@ -321,5 +321,80 @@ report(_r.returncode != 0 and "macos-e2e" in (_r.stdout + _r.stderr),
        f"rc={_r.returncode} out={(_r.stdout + _r.stderr).strip()[:200]}")
 
 
+# ---------------------------------------------------------------------------
+# W14-W20 — THE STEP-KEY AND JOB-KEY FAMILIES.
+#
+# Round 3 of independent review. Lumi and Joey, again separately, both landed on
+# the same next mutant the moment the `run:` STRING was pinned: put `if: false`
+# on the step BESIDE a byte-perfect `run:`. GitHub skips the step; a guard that
+# reads only the `run` key cannot see it.
+#
+# The delegator's read at the time was that this had no end — `if`, then
+# `continue-on-error`, then `timeout-minutes`, then whatever GitHub ships next —
+# and that a different design was needed. That is true OF A BLACKLIST. These
+# checks are ALLOWLISTS: a route step's keys must be exactly {run}, and a gate
+# job's keys must be a subset of GATE_JOB_KEYS. An allowlist refuses the key
+# nobody has thought of yet, which is what W17 and W20 exist to prove — they use
+# invented keys that mean nothing to anyone.
+def _route_step_with(tree: Path, extra: str) -> None:
+    _replace_route(
+        tree, "go-checks",
+        f'      - {extra}\n        run: bash bin/run-checks.sh --lane "${{{{ github.job }}}}"',
+    )
+
+
+STEP_KEYS = [
+    ("W14 `if:` beside a byte-perfect route reddens — GitHub skips the step, the cell stays green",
+     "if: ${{ false }}"),
+    ("W15 `continue-on-error:` on the route reddens — the verdict would be thrown away",
+     "continue-on-error: true"),
+    ("W16 `shell:` on the route reddens — it changes what actually executes",
+     "shell: python"),
+    ("W17 an INVENTED key on the route reddens — the rule is an allowlist, not a list of banned keys",
+     "some-key-nobody-has-thought-of: whatever"),
+]
+
+for _label, _extra in STEP_KEYS:
+    case(_label,
+         (lambda e: (lambda tree: _route_step_with(tree, e)))(_extra),
+         expect_red=True, expect_msg="go-checks")
+
+
+def _job_key(tree: Path, extra: str) -> None:
+    y = tree / YML_REL
+    t = y.read_text()
+    i = t.index("\n  go-checks:")
+    at = t.index("    runs-on:", i)
+    y.write_text(t[:at] + extra + "\n" + t[at:])
+
+
+JOB_KEYS = [
+    ("W18 a job-level `if:` reddens — it skips every step while the cell still reports success",
+     "    if: false"),
+    ("W19 a job-level `continue-on-error:` reddens — the cell would be green whatever happened inside",
+     "    continue-on-error: true"),
+    ("W20 an INVENTED job-level key reddens — the job allowlist closes `strategy`/`needs` and whatever ships next",
+     "    some-job-key-nobody-has-thought-of: whatever"),
+]
+
+for _label, _extra in JOB_KEYS:
+    case(_label,
+         (lambda e: (lambda tree: _job_key(tree, e)))(_extra),
+         expect_red=True, expect_msg="go-checks")
+
+
+# W21 — the parser's own positive control must be load-bearing. When the dump
+# grew from `run:` strings to whole step nodes, parser_is_real() failed FIRST and
+# said so, before any verdict about ci.yml was reached. Pin that: a parser whose
+# output shape no longer matches what the checks read must be refused outright,
+# not quietly believed.
+_r = _run_mutated_guard(
+    lambda t: t.replace("'job_keys' => job.keys,", "'job_keys' => [],", 1)
+)
+report(_r.returncode != 0 and "positive control" in (_r.stdout + _r.stderr),
+       "W21 a parser whose output shape drifted is REFUSED by its own positive control, not believed",
+       f"rc={_r.returncode} out={(_r.stdout + _r.stderr).strip()[:200]}")
+
+
 print(f"ci-round guard selftest: {PASS} ok, {FAIL} failed")
 sys.exit(1 if FAIL else 0)
