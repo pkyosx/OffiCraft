@@ -3,7 +3,10 @@
 
 package main
 
-import "testing"
+import (
+	"net/http/httptest"
+	"testing"
+)
 
 func TestGitSHA(t *testing.T) {
 	t.Skip("TODO: gitSHA returns the stamped build sha, else the current short (7-char) git sha of the CWD checkout, else \"unknown\".")
@@ -18,7 +21,37 @@ func TestGitOutput(t *testing.T) {
 }
 
 func TestWriteJSON(t *testing.T) {
-	t.Skip("TODO: ── response writers (unified error envelope; docs/design/api-error-envelope.md)")
+	t.Run("a serialisable body is written as the JSON answer", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+
+		writeJSON(rec, 201, map[string]string{"status": "restarting"})
+
+		if rec.Code != 201 {
+			t.Fatalf("want 201, got %d", rec.Code)
+		}
+		if got := rec.Body.String(); got != `{"status":"restarting"}` {
+			t.Fatalf("body: %q", got)
+		}
+		if got := rec.Header().Get("Content-Type"); got != "application/json" {
+			t.Fatalf("content-type: %q", got)
+		}
+	})
+
+	t.Run("a body JSON cannot carry answers 500 in plain text", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+
+		writeJSON(rec, 200, make(chan int))
+
+		if rec.Code != 500 {
+			t.Fatalf("want 500, got %d", rec.Code)
+		}
+		if got := rec.Body.String(); got != "internal server error\n" {
+			t.Fatalf("body: %q", got)
+		}
+		if got := rec.Header().Get("Content-Type"); got != "text/plain; charset=utf-8" {
+			t.Fatalf("content-type: %q", got)
+		}
+	})
 }
 
 func TestErrorCodeForStatus(t *testing.T) {

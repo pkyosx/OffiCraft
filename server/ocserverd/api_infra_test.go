@@ -3,7 +3,13 @@
 
 package main
 
-import "testing"
+import (
+	"bytes"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"testing"
+)
 
 func TestMarkStationShutdown(t *testing.T) {
 	t.Skip("TODO: markStationShutdown records the process-level cause before the server cancels request contexts or the upgrade re-execs.")
@@ -25,7 +31,45 @@ func TestSseContextDetachReason(t *testing.T) {
 	t.Skip("TODO: 需要人工判斷這個函式的可觀察結果是什麼")
 }
 
+// sseUnflushableWriter is a response writer with no Flush method — the one
+// shape GET /api/events refuses before it opens a stream.
+type sseUnflushableWriter struct {
+	header http.Header
+	status int
+	body   bytes.Buffer
+}
+
+func (w *sseUnflushableWriter) Header() http.Header         { return w.header }
+func (w *sseUnflushableWriter) WriteHeader(status int)      { w.status = status }
+func (w *sseUnflushableWriter) Write(p []byte) (int, error) { return w.body.Write(p) }
+
 func TestHandleEventsApiEventsGet(t *testing.T) {
+	t.Run("a connection whose response writer cannot stream answers 500", func(t *testing.T) {
+		api, _, _, _ := newAPITestServer(t)
+		dashboard := apiTestListen(t, api, "")
+
+		w := &sseUnflushableWriter{header: http.Header{}}
+		api.HandleEventsApiEventsGet(w, httptest.NewRequest("GET", "/api/events", nil))
+
+		if w.status != 500 {
+			t.Fatalf("want 500, got %d (%s)", w.status, w.body.String())
+		}
+		var got any
+		if err := json.Unmarshal(w.body.Bytes(), &got); err != nil {
+			t.Fatalf("non-JSON body: %s", w.body.String())
+		}
+		apiWantValue(t, "body", got, map[string]any{
+			"error": map[string]any{
+				"code":    "internal_error",
+				"message": "streaming unsupported",
+			},
+		})
+		if ct := w.header.Get("Content-Type"); ct != "application/json" {
+			t.Fatalf("want application/json, got %q", ct)
+		}
+		dashboard.wantFrames()
+	})
+
 	t.Run("a well-formed GET /api/events answers 200", func(t *testing.T) { t.Skip("TODO") })
 	t.Run("a GET /api/events request without a token answers 401", func(t *testing.T) { t.Skip("TODO") })
 	t.Run("a request to GET /api/events reaches this handler and no other row", func(t *testing.T) { t.Skip("TODO") })
