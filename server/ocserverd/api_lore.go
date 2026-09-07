@@ -417,8 +417,10 @@ func (s *apiServer) HandleListLoreEntriesApiLoreGet(w http.ResponseWriter, r *ht
 	keys, _ := loreFilterValues(params.ScopeKeys, params.ScopeKey)
 	states, statesPlural := loreFilterValues(params.States, params.State)
 	authors, _ := loreFilterValues(params.AuthorIds, params.AuthorId)
+	entryIDs, _ := loreFilterValues(params.EntryIds, params.EntryId)
 	f := loreListFilter{
 		ScopeKinds: kinds, ScopeKeys: keys, States: states, AuthorIDs: authors,
+		EntryIDs: entryIDs,
 	}
 	// A filter value outside its closed set is a 400 rather than a silently
 	// empty page: "no entries match role_kind=roles" and "there are none" look
@@ -456,6 +458,24 @@ func (s *apiServer) HandleListLoreEntriesApiLoreGet(w http.ResponseWriter, r *ht
 			return
 		}
 	}
+	// 🔴 THERE IS NO SUCH LOOP FOR entry_id, AND THAT IS NOT AN OMISSION. The two
+	// axes above are refused per element because each has a CLOSED VOCABULARY: a
+	// caller sending `roles` or `pinnd` holds a word the server does not have, and
+	// only a 400 can say so — the empty page it would otherwise get reads as 「你的
+	// 傳承不見了」. An id has no vocabulary to be outside of. It is an OPEN
+	// identifier space, which is exactly why `scope_key` and `author_id` are not
+	// checked either (see their descriptions in the spec: free-form ⇒ no closed set
+	// ⇒ no 400), and 「no entry carries this number」 is the TRUE answer to a
+	// well-formed id, not a report of a typo.
+	//
+	// Nor is 「L-」 + digits worth enforcing as a shape. Every id this server mints
+	// has it (dal_lore.go:76), but a shape check would refuse only the values that
+	// could never match while still answering an empty page for `L-99999` — the
+	// far likelier miss, and the one a check cannot catch. It would buy a refusal
+	// for the easy case and leave the hard case exactly as it is, at the price of
+	// a second copy of the id shape that a later re-mint would have to remember.
+	// 任務頁 makes the same call: a committed id that resolves to nothing is a
+	// 404 read as 找不到 (useTasks.ts:209), never a bad-request.
 
 	limit := loreListDefaultLimit
 	if params.Limit != nil {

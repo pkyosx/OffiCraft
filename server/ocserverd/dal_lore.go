@@ -205,11 +205,22 @@ func (d *DAL) ListLoreEntriesLive(scopeKind, scopeKey string) ([]LoreEntry, erro
 // 🔴 The filter travels WITH the paging, never after it. Filtering a page that
 // was already cut client-side makes 「捲到底沒有了」 and 「真的沒有了」 the same
 // picture, and makes any count computed off the visible rows wrong.
+//
+// 🔴 EntryIDs IS THE 傳承編號 AXIS AND IT MATCHES EXACTLY, never as a substring.
+// 「跟 task 一樣」 (owner): the 任務頁 id field resolves a committed id by asking
+// the server for THAT ONE id (useTasks.ts:201 `api.getTask(anchorId)`) and pairs
+// the answer to the row by equality (TasksPage.tsx:458
+// `tasks.find((x) => x.id === appliedId)`). Nothing on that page ever compares a
+// PREFIX or an infix. A substring axis here would look friendlier and would be a
+// different filter: `L-1` would drag in L-10…L-19 on a page that is ALSO cut by
+// limit/offset, so the extra rows would push the ones actually asked for off the
+// end of the batch.
 type loreListFilter struct {
 	ScopeKinds []string
 	ScopeKeys  []string
 	States     []string
 	AuthorIDs  []string
+	EntryIDs   []string
 }
 
 // loreInClause renders one axis as ` AND <column> IN (?,?,…)` plus its args, or
@@ -250,6 +261,12 @@ func (d *DAL) ListLoreEntriesPage(f loreListFilter, limit, offset int) ([]LoreEn
 		{"scope_key", f.ScopeKeys},
 		{"state", f.States},
 		{"author_id", f.AuthorIDs},
+		// The 傳承編號 axis. It is `id` and not `seq` because the id IS the number
+		// the cockpit shows ("L-" + seq, dal_lore.go:76) and therefore the string a
+		// reader copies out of the list and types back in; matching on seq would
+		// mean parsing the prefix off first and answering nothing for anyone who
+		// pasted what they saw.
+		{"id", f.EntryIDs},
 	} {
 		clause, clauseArgs := loreInClause(axis.column, axis.vals)
 		query += clause
