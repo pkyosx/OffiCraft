@@ -521,10 +521,17 @@ func TestRoleLoreDoesNotReachTheOutsourceBootContext(t *testing.T) {
 	}
 }
 
-// TestManualLoreLandsAfterTheLearningsInTheManualRead is EXIT 2, asserted on
-// the wire body: the entry text appears, and it appears AFTER the learnings
-// text that was already there.
-func TestManualLoreLandsAfterTheLearningsInTheManualRead(t *testing.T) {
+// TestManualLoreRidesItsOwnFieldInTheManualRead is EXIT 2, asserted on the wire
+// body. It used to be called …LandsAfterTheLearnings… and asserted the ORDER of
+// two things inside one field; the owner overturned that shape on 2026-09-07
+// (「get_task_manual 應該 learning 跟 lore 還是分開的欄位」), so the question is no
+// longer "which came first" but "did they stay apart".
+//
+// 🔴 IT PINS ALL FOUR CORNERS, and it has to. Serving the block on `lore` while
+// ALSO leaving it on `learnings` would satisfy any single one of these, and
+// that half-migrated state is the likely regression: it is what every caller
+// that "just adds the new field" produces.
+func TestManualLoreRidesItsOwnFieldInTheManualRead(t *testing.T) {
 	s := loreTestServer(t)
 	me := hireLoreStaff(t, s, "m-lore-8", "researcher")
 	if err := s.dal.PutTaskManual(TaskManual{
@@ -557,27 +564,48 @@ func TestManualLoreLandsAfterTheLearningsInTheManualRead(t *testing.T) {
 		Learnings         string `json:"learnings"`
 		LearningsChars    int    `json:"learnings_chars"`
 		LearningsCapChars int    `json:"learnings_cap_chars"`
+		Lore              string `json:"lore"`
+		LoreChars         int    `json:"lore_chars"`
 	}
 	if err := json.Unmarshal(rec.Body.Bytes(), &dto); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
-	learnAt := strings.Index(dto.Learnings, "既有的學習內容")
-	loreAt := strings.Index(dto.Learnings, "傳承標題丙")
-	if learnAt < 0 {
-		t.Fatalf("the manual's own learnings vanished: %q", dto.Learnings)
+
+	// CORNER 1 — the entry reached the read AT ALL, on its own field. Without
+	// this the three below would pass on a response that simply serves nothing.
+	if !strings.Contains(dto.Lore, "傳承標題丙") {
+		t.Fatalf("the entry did not reach `lore`: %q", dto.Lore)
 	}
-	if loreAt < 0 {
-		t.Fatalf("the entry did not reach the manual read: %q", dto.Learnings)
+	if !strings.Contains(dto.Lore, loreBlockHeading) {
+		t.Fatalf("`lore` is not a rendered 傳承 block: %q", dto.Lore)
 	}
-	if loreAt < learnAt {
-		t.Fatalf("傳承 was placed BEFORE the learnings: %q", dto.Learnings)
+
+	// CORNER 2 — `learnings` is the STORED DOCUMENT AND NOTHING ELSE. Equality,
+	// not "contains": a half-migration that appends as well as splits still
+	// contains the stored text, and would slip past a containment check.
+	if dto.Learnings != "既有的學習內容" {
+		t.Fatalf("learnings = %q, want the stored document verbatim and alone — "+
+			"the 傳承 block rides `lore` now", dto.Learnings)
 	}
-	// 🔴 learnings_chars still measures the STORED document, because that is what
-	// a WRITER sizes an edit against. If it grew to cover the appended block, an
-	// edit that fits would start being refused.
+
+	// CORNER 3 — learnings_chars still measures the STORED document, because
+	// that is what a WRITER sizes an edit against. If it grew to cover the
+	// rendering, an edit that fits would start being refused.
 	if want := len([]rune("既有的學習內容")); dto.LearningsChars != want {
 		t.Fatalf("learnings_chars = %d, want %d — it must measure the STORED "+
-			"document, not the rendering", dto.LearningsChars, want)
+			"document", dto.LearningsChars, want)
+	}
+
+	// CORNER 4 — lore_chars measures `lore`. This is the number whose ABSENCE
+	// produced the owner's report: a field full of text beside a count of 0,
+	// with nothing saying the count was about the other half.
+	if want := len([]rune(dto.Lore)); dto.LoreChars != want {
+		t.Fatalf("lore_chars = %d, want %d — it must measure the `lore` field it "+
+			"is named after", dto.LoreChars, want)
+	}
+	if dto.LoreChars == 0 {
+		t.Fatalf("lore_chars = 0 while `lore` carries %q — this is exactly the "+
+			"shape the owner reported on learnings/learnings_chars", dto.Lore)
 	}
 }
 

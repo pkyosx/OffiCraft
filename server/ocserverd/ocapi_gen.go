@@ -3698,15 +3698,23 @@ type TaskManualDTO struct {
 	CapChars    *int                 `json:"cap_chars,omitempty"`
 	DisplayName string               `json:"display_name"`
 	Fields      []TaskManualFieldDTO `json:"fields"`
-	Learnings   *string              `json:"learnings,omitempty"`
+
+	// Learnings The manual's LEARNINGS DOCUMENT — the stored text a write face writes, and nothing else. 🔴 IT NO LONGER CARRIES THE 傳承 BLOCK. Lore used to be appended onto this field, which left it full of text while ``learnings_chars`` (which counts the STORED document) reported 0, and nothing on the wire said which half of the field that number was about. Owner ruling 2026-09-07 split them: the block is served on ``lore``, beside this field. A reader that wants what a member effectively sees concatenates the two ITSELF — and can then see that it did, which is exactly what the merged field took away.
+	Learnings *string `json:"learnings,omitempty"`
 
 	// LearningsCapChars The cap on `learnings` now in force, in CHARACTERS (the doc.cap_chars.manual_learnings setting). Served on the READ face so an agent can size an edit BEFORE writing it. Independent of sop_md_cap_chars since T-30f1.
 	LearningsCapChars *int `json:"learnings_cap_chars,omitempty"`
 
 	// LearningsChars Size of `learnings` in CHARACTERS. Reported PER CAPPED DOCUMENT rather than as one total, because learnings and sop_md are judged separately — against their own caps since T-30f1. The listing carries the same measurement without the text (TaskManualListItemDTO).
-	LearningsChars *int    `json:"learnings_chars,omitempty"`
-	Purpose        *string `json:"purpose,omitempty"`
-	SopMd          *string `json:"sop_md,omitempty"`
+	LearningsChars *int `json:"learnings_chars,omitempty"`
+
+	// Lore The rendered 傳承 block for this manual's task type: the entries selected for it, newest first, under a ``# 傳承`` heading. EMPTY STRING when the type has no live entries — a real answer, not an omission. 🔴 IT IS NOT PART OF ``learnings`` AND IS NOT STORED ANYWHERE. It is assembled per read from the lore entries, so a caller that reads it and writes it back into the learnings document duplicates it on every cycle; the learnings write faces strip a trailing block for that exact reason. Read it, do not re-send it. 🔴 IF YOU ARE FOLLOWING A WRITTEN PROCEDURE THAT ONLY MENTIONS ``learnings``, THIS FIELD IS THE PART THAT PROCEDURE PREDATES — the type's accumulated experience lives here now.
+	Lore *string `json:"lore,omitempty"`
+
+	// LoreChars Size of ``lore`` in CHARACTERS. A SEPARATE number from ``learnings_chars`` on purpose: the two fields are written by different paths and judged against different caps, so ``learnings_chars`` sizes what a writer may edit while this one sizes what the server assembled. Neither substitutes for the other, and it is their SUM that approximates what a member effectively reads.
+	LoreChars *int    `json:"lore_chars,omitempty"`
+	Purpose   *string `json:"purpose,omitempty"`
+	SopMd     *string `json:"sop_md,omitempty"`
 
 	// SopMdCapChars The cap on `sop_md` now in force, in CHARACTERS (the doc.cap_chars.manual_sop setting). See learnings_cap_chars.
 	SopMdCapChars *int `json:"sop_md_cap_chars,omitempty"`

@@ -26,9 +26,16 @@ import (
 )
 
 // readManualLearnings returns what GET /api/task-manuals/{type_key} SERVES as
-// `learnings` — document plus whatever the read face appends. This is the
-// string an agent following the documented merge procedure is holding.
-func readManualLearnings(t *testing.T, s *apiServer, typeKey string) string {
+// `learnings`, and readManualLore returns what it serves as `lore`.
+//
+// 🔴 THESE ARE TWO FIELDS SINCE 2026-09-07, and that is the whole point of the
+// tests below. Lore used to be appended onto `learnings`, so the string an
+// agent held after a read was document+block and writing it back stored the
+// block — the read/write growth this file exists for. Now `learnings` is the
+// stored document alone and the block rides `lore`, so the growth loop has no
+// way to start. The write-face strip guards stay anyway: they cover a caller
+// that concatenates the two itself, or a human who pastes a block in.
+func readManualFields(t *testing.T, s *apiServer, typeKey string) (learnings, lore string) {
 	t.Helper()
 	rec := httptest.NewRecorder()
 	s.HandleGetTaskManualApiTaskManualsTypeKeyGet(rec,
@@ -38,11 +45,12 @@ func readManualLearnings(t *testing.T, s *apiServer, typeKey string) string {
 	}
 	var dto struct {
 		Learnings string `json:"learnings"`
+		Lore      string `json:"lore"`
 	}
 	if err := json.Unmarshal(rec.Body.Bytes(), &dto); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
-	return dto.Learnings
+	return dto.Learnings, dto.Lore
 }
 
 func storedManualLearnings(t *testing.T, s *apiServer, typeKey string) string {
@@ -89,11 +97,30 @@ func TestManualLearningsDoNotGrowAcrossReadWriteCycles(t *testing.T) {
 
 	sizes := make([]int, 0, 3)
 	for round := 0; round < 3; round++ {
-		served := readManualLearnings(t, s, "tm-grow")
-		if !strings.Contains(served, loreBlockHeading) {
-			t.Fatalf("round %d: the read face stopped serving the 傳承 block, so this "+
-				"test is no longer exercising the loop it exists for: %q", round, served)
+		served, lore := readManualFields(t, s, "tm-grow")
+
+		// FIXTURE GUARD, kept and re-aimed. There really is a lore block on
+		// this manual to be confused about — if there were not, everything
+		// below would pass without touching the thing it is about.
+		if !strings.Contains(lore, loreBlockHeading) {
+			t.Fatalf("round %d: the read face is not serving a 傳承 block on `lore` at "+
+				"all, so this test is not exercising the loop it exists for: %q",
+				round, lore)
 		}
+
+		// 🔴 THE ASSERTION THAT REPLACED THE OLD ONE, and it is stronger. The
+		// old shape served document+block on one field and this test proved
+		// the round trip did not GROW the stored document. Now the two are
+		// separate fields, so the honest question is not "does it grow" but
+		// "did they stay separate" — a regression that re-appended the block
+		// would put it back here, and the growth check below would go red one
+		// round later for a reason nothing named.
+		if strings.Contains(served, loreBlockHeading) {
+			t.Fatalf("round %d: `learnings` carries the 傳承 block again — the two "+
+				"fields were split precisely so a reader holding `learnings` holds "+
+				"only the stored document: %q", round, served)
+		}
+
 		rec := httptest.NewRecorder()
 		s.HandleWriteTaskLearningsApiTaskManualsTypeKeyLearningsPost(rec,
 			taskReq(t, "POST", "/api/task-manuals/tm-grow/learnings",

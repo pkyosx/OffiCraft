@@ -2874,8 +2874,23 @@ type taskManualDTO struct {
 	Fields            []ManualField  `json:"fields"`
 	SopMD             string         `json:"sop_md"`
 	Learnings         string         `json:"learnings"`
-	Assignee          map[string]any `json:"assignee"`
-	UpdatedTS         float64        `json:"updated_ts"`
+	// Lore is the rendered lore block for this manual, and it is a FIELD OF ITS
+	// OWN rather than text appended to Learnings (owner ruling 2026-09-07:
+	// 「get_task_manual 應該 learning 跟 lore 還是分開的欄位」).
+	//
+	// 🔴 THE OLD SHAPE PRODUCED A FIELD THAT LIED ABOUT ITSELF. Lore used to be
+	// concatenated onto Learnings, while LearningsChars kept counting only the
+	// STORED document — deliberately, because a writer sizes an edit against
+	// what it can edit. The result reached the owner as a manual whose
+	// learnings field was full of text and whose learnings_chars said 0, with
+	// nothing marking which half was which. Two things in one field cannot both
+	// be measured by one number; splitting the field is what makes both numbers
+	// honest, so LoreChars counts THIS field and LearningsChars is once again
+	// the size of the thing the write face writes.
+	Lore      string         `json:"lore"`
+	LoreChars int            `json:"lore_chars"`
+	Assignee  map[string]any `json:"assignee"`
+	UpdatedTS float64        `json:"updated_ts"`
 }
 
 // taskManualListItemDTO is one row of GET /api/task-manuals: the type's
