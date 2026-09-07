@@ -407,3 +407,69 @@ describe("LorePage — 條目編號", () => {
     ).toBeNull();
   });
 });
+
+// ────────────────────────────────────────────────────────────────────────────
+// 撰寫人跳過去要「帶著編號」(owner rc-abf2c90d887c option ②).
+//
+// 🔴 THE JUMP IS NOT THE THING BEING GUARDED — the seed is. A jump that lands
+// on the right person with an EMPTY composer looks completely correct on
+// screen: the office opens, the chat is the right one, the cursor blinks. The
+// reader types 「這條還適用嗎」 and the author receives a sentence with no
+// subject, holding dozens of entries, and has to ask which one back — which is
+// the exact question the jump existed to save. Nothing errors, nothing is
+// missing from the screen, and the damage lands on the OTHER person's side.
+//
+// So the assertion is on the ROUTE THAT GETS WRITTEN, and it is written twice
+// with two different rows. One row alone would still pass if every row seeded
+// the FIRST entry's id (the `entry.id` inside the row map is the value at
+// risk); it takes a second row with a different id to tell "carries this row's
+// id" apart from "carries some id".
+describe("LorePage — 撰寫人跳過去帶著條目編號", () => {
+  beforeEach(() => {
+    window.location.hash = "";
+  });
+
+  it("seeds the composer with THIS row's entry id, not merely with an id", async () => {
+    stubList(
+      page([
+        mkEntry({ id: "L-7", state: "active", authorId: "mira" }),
+        mkEntry({ id: "L-31", state: "active", authorId: "mira" }),
+      ]),
+    );
+    const { container } = renderPage();
+
+    await waitFor(() => expect(renderedIds(container)).toHaveLength(2));
+
+    // 撰寫人 lives in the expanded body.
+    fireEvent.click(rowById(container, "L-7"));
+    const first = rowById(container, "L-7");
+    await waitFor(() =>
+      expect(
+        first.querySelector('[data-testid="lore-author-link"]'),
+      ).not.toBeNull(),
+    );
+    fireEvent.click(
+      first.querySelector<HTMLElement>('[data-testid="lore-author-link"]')!,
+    );
+
+    // The whole route, not a substring: 「有帶東西過去」 and 「帶對了」 are
+    // different claims, and `toContain("compose")` would accept the first for
+    // the second.
+    expect(window.location.hash).toBe("#office/chat/mira/compose/L-7");
+
+    // The SECOND row, same author, different id. A page that hardcoded or
+    // captured one entry's id would still be sitting on L-7 here.
+    fireEvent.click(rowById(container, "L-31"));
+    const second = rowById(container, "L-31");
+    await waitFor(() =>
+      expect(
+        second.querySelector('[data-testid="lore-author-link"]'),
+      ).not.toBeNull(),
+    );
+    fireEvent.click(
+      second.querySelector<HTMLElement>('[data-testid="lore-author-link"]')!,
+    );
+
+    expect(window.location.hash).toBe("#office/chat/mira/compose/L-31");
+  });
+});
