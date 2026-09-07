@@ -93,6 +93,11 @@ import type {
   TaskManualView,
   TaskManualPatch,
   DocSummaryView,
+  LoreEntryView,
+  LoreEntryPageView,
+  LoreEntryState,
+  LoreEntryWrite,
+  LoreListOptions,
   DocView,
   RolePatch,
   RoleCreateInput,
@@ -159,6 +164,8 @@ import {
   toThemeListItem,
   toThemeWriteReceipt,
   toThemeDeleteResult,
+  toLoreEntry,
+  toLoreEntryPage,
 } from "./mappers";
 // The one wire type this seam names directly: GET /api/reply-cards serves a
 // UNION (light rows | full cards) and `?view=full` is what picks the second
@@ -2155,6 +2162,88 @@ export const httpApi: Api = {
     );
   },
 
+  // ── 傳承 (T-33) ──────────────────────────────────────────────────────────
+
+  async listLoreEntries(opts?: LoreListOptions): Promise<LoreEntryPageView> {
+    // GET /api/lore -> LoreEntryListDTO.
+    //
+    // 🔴 EVERY NARROWING IS A QUERY PARAMETER. Nothing here downloads a list and
+    // filters it: the server applies the filter inside the query, before the
+    // page is cut, so a count or a 上限線 taken from the answer is about the
+    // whole filtered scope rather than about the rows that happened to land on
+    // this page. Filtering client-side would make 「捲到底沒有了」 and 「真的沒有
+    // 了」 the same picture.
+    //
+    // An OMITTED field is left out of the query entirely rather than sent
+    // empty: "" is a value the server would have to decide the meaning of, and
+    // "no filter on this axis" is not something a value can say.
+    const query: {
+      scope_kind?: string;
+      scope_key?: string;
+      state?: string;
+      author_id?: string;
+      limit?: number;
+      offset?: number;
+    } = {};
+    if (opts?.scopeKind) query.scope_kind = opts.scopeKind;
+    if (opts?.scopeKey) query.scope_key = opts.scopeKey;
+    if (opts?.state) query.state = opts.state;
+    if (opts?.authorId) query.author_id = opts.authorId;
+    if (opts?.limit !== undefined) query.limit = opts.limit;
+    if (opts?.offset !== undefined) query.offset = opts.offset;
+    const wire = unwrap(await client.GET("/api/lore", { params: { query } }));
+    return toLoreEntryPage(wire);
+  },
+
+  async writeLoreEntry(entry: LoreEntryWrite): Promise<LoreEntryView> {
+    // POST /api/lore -> LoreEntryDTO. task_id is omitted rather than sent as ""
+    // when there is none: "" and absent both mean "a role entry" on this route
+    // today, and sending the one that has to be special-cased is how that
+    // equivalence quietly becomes load-bearing.
+    const body: { title: string; body: string; task_id?: string } = {
+      title: entry.title,
+      body: entry.body,
+    };
+    if (entry.taskId) body.task_id = entry.taskId;
+    const wire = unwrap(await client.POST("/api/lore", { body }));
+    return toLoreEntry(wire);
+  },
+
+  async setLoreEntryState(
+    entryId: string,
+    state: LoreEntryState,
+    retireReason?: string,
+  ): Promise<LoreEntryView> {
+    // POST /api/lore/{entry_id}/state -> LoreEntryDTO.
+    //
+    // retire_reason rides only with `retired`. The server clears any stored
+    // value on the other two, and this face does not send one for them either:
+    // a reason travelling with 生效 would be a value the caller believes it set
+    // and the server threw away, which is the shape that later reads as a bug
+    // in the wrong place.
+    const body: { state: string; retire_reason?: string } = { state };
+    if (state === "retired" && retireReason) body.retire_reason = retireReason;
+    const wire = unwrap(
+      await client.POST("/api/lore/{entry_id}/state", {
+        params: { path: { entry_id: entryId } },
+        body,
+      }),
+    );
+    return toLoreEntry(wire);
+  },
+
+  async bumpLoreEntry(entryId: string): Promise<LoreEntryView> {
+    // POST /api/lore/{entry_id}/bump -> LoreEntryDTO. No body: the new
+    // effective_ts is the SERVER's clock, never a time the client picked, so
+    // two entries bumped from two machines still order by one clock.
+    const wire = unwrap(
+      await client.POST("/api/lore/{entry_id}/bump", {
+        params: { path: { entry_id: entryId } },
+      }),
+    );
+    return toLoreEntry(wire);
+  },
+
   async listDocs(): Promise<DocSummaryView[]> {
     // GET /api/docs -> DocSummaryDTO[] (slug + title).
     const wire = unwrap(await client.GET("/api/docs"));
@@ -2471,6 +2560,10 @@ export const httpApi: Api = {
       doc_cap_chars_offboard?: number;
       chat_budget_chars?: number;
       step_note_cap_chars?: number;
+      lore_cap_chars_role?: number;
+      lore_cap_chars_manual?: number;
+      lore_cap_chars_title?: number;
+      lore_cap_chars_body?: number;
       backup_retain?: number;
       updater_receive_beta?: boolean;
       updater_auto_update?: boolean;
@@ -2531,6 +2624,18 @@ export const httpApi: Api = {
     }
     if (patch.stepNoteCapChars !== undefined) {
       body.step_note_cap_chars = patch.stepNoteCapChars;
+    }
+    if (patch.loreCapCharsRole !== undefined) {
+      body.lore_cap_chars_role = patch.loreCapCharsRole;
+    }
+    if (patch.loreCapCharsManual !== undefined) {
+      body.lore_cap_chars_manual = patch.loreCapCharsManual;
+    }
+    if (patch.loreCapCharsTitle !== undefined) {
+      body.lore_cap_chars_title = patch.loreCapCharsTitle;
+    }
+    if (patch.loreCapCharsBody !== undefined) {
+      body.lore_cap_chars_body = patch.loreCapCharsBody;
     }
     if (patch.backupRetain !== undefined) {
       body.backup_retain = patch.backupRetain;

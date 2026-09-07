@@ -1,0 +1,391 @@
+/* 傳承 page + 傳承 row (T-33, spec §6).
+ *
+ * 🔴 THESE ARE COPIES OF tasks.css RULES, NOT A SHARED SHEET, AND THAT IS
+ * DELIBERATE. The 傳承 row wears the 任務卡's design language — same badge pill,
+ * same popover, same label/value grid, same ▸/▾ corner — but tasks.css belongs
+ * to the 任務 page. Importing it here (or widening a `.task-card__*` selector to
+ * cover a lore row) would mean a change made for this page can silently change
+ * how a task card looks, and vice versa. So the vocabulary is copied under
+ * `.lore-*` names and the two pages can diverge without either surprising the
+ * other. What was copied, and from where:
+ *
+ *   .lore-badge              ← tasks.css .task-badge
+ *   .lore-row__status(-chip) ← .task-card__status / button.task-card__status-chip
+ *   .lore-row__menu-pop      ← .task-card__menu-pop
+ *   .lore-row__menu-item     ← .task-card__menu-item (+ --active = accent/700)
+ *   .lore-row__expand-mark   ← .task-card__expand-mark
+ *   .lore-row__meta / __chip ← .task-card__meta / __chip
+ *
+ * Colours are theme tokens only — no literals.
+ *
+ * LorePage.tsx imports this file itself (frontend/.claude/rules/
+ * css-layout-traps.md: 用了哪份 CSS 的 class,就要自己 import 那份 CSS). */
+
+/* The page IS the scrollport — LorePage's 捲到底 gate measures this element. */
+.lore {
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+  height: 100%;
+  min-height: 0;
+  overflow-y: auto;
+  padding-bottom: 12px;
+}
+
+.lore__error {
+  padding: 10px 14px;
+  border-radius: var(--radius-card);
+  border: 1px solid var(--color-danger);
+  background: color-mix(in srgb, var(--color-danger) 14%, transparent);
+  color: var(--color-danger);
+  font-size: 13px;
+}
+
+.lore__empty {
+  padding: 18px 0;
+  color: var(--color-text-muted);
+  font-size: 13px;
+}
+
+/* ── 篩選欄位 ──
+ * FilterPanel owns the ROW (filter-panel.css); these are the fields inside it.
+ * The pill look mirrors .tasks__filter. */
+.lore__filter-field {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.lore__filter-label {
+  font-size: 12.5px;
+  color: var(--color-text-muted);
+  opacity: 0.75;
+}
+.lore__filter {
+  padding: 7px 10px;
+  border-radius: var(--radius-pill);
+  border: 1px solid color-mix(in srgb, var(--color-overlay) 10%, transparent);
+  background: var(--color-card);
+  color: var(--color-text);
+  font-size: 13px;
+  cursor: pointer;
+  max-width: 220px;
+}
+
+/* ── the three groups ── */
+.lore__group {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.lore__group-title {
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+  opacity: 0.75;
+}
+
+/* ── 具名上限線 ──
+ * A rule with a sentence on it, drawn immediately ABOVE the first entry that
+ * does not fit the scope's budget.
+ *
+ * 🔴 NO PERCENTAGE, NO 已用 x/y, NO BAR (spec §6 rules all three out). It says
+ * WHICH budget and HOW BIG, and nothing about how full it is — the rows below
+ * it already say what does not make it in. The colour is the danger token
+ * because crossing it has a consequence (that content is not loaded), not
+ * because anything is broken. */
+.lore__cap-line {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 6px 0 2px;
+  color: var(--color-danger);
+  font-size: 11.5px;
+  font-weight: 700;
+}
+.lore__cap-line::before,
+.lore__cap-line::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: color-mix(in srgb, var(--color-danger) 45%, transparent);
+}
+.lore__cap-line-text {
+  flex: none;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.lore__more {
+  padding: 8px 0 4px;
+  min-height: 20px;
+  color: var(--color-text-muted);
+  font-size: 12.5px;
+  text-align: center;
+}
+
+/* ── one 傳承 row ──
+ * The whole row is the toggle surface, so it takes the pointer cursor and a
+ * focus ring; the ▸/▾ mark is only a mirror of that state. */
+.lore-row {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px 16px;
+  border-radius: var(--radius-card);
+  border: 1px solid color-mix(in srgb, var(--color-overlay) 8%, transparent);
+  background: var(--color-card);
+  text-align: left;
+  cursor: pointer;
+}
+.lore-row:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+
+.lore-row__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.lore-row__title {
+  margin: 0;
+  font-size: 14.5px;
+  font-weight: 600;
+  line-height: 1.4;
+  color: var(--color-text);
+}
+
+.lore-row__body {
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--color-text);
+  white-space: pre-wrap;
+}
+/* 內容預設一行截斷 (spec §6). */
+.lore-row__body--clamped {
+  display: -webkit-box;
+  -webkit-line-clamp: 1;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  white-space: normal;
+}
+
+/* ── 線以下的條目：內容轉灰 ──
+ * 🔴 THE CONTENT ONLY. The status badge and every button keep their normal
+ * colour (spec §6), because they are still live controls — the entry below the
+ * line is exactly the one an owner is most likely to want to 置頂 or 失效, and
+ * greying the way to do that would fight the reason the line is drawn.
+ * Deliberately NOT `.lore-row--dimmed { opacity }` on the row: that would take
+ * the controls down with it. */
+.lore-row--dimmed .lore-row__title,
+.lore-row--dimmed .lore-row__body,
+.lore-row--dimmed .lore-row__meta-label,
+.lore-row--dimmed .lore-row__author,
+.lore-row--dimmed .lore-row__effective-ts,
+.lore-row--dimmed .lore-row__retire-reason {
+  color: var(--color-text-muted);
+  opacity: 0.55;
+}
+
+/* ── status badge (copy of .task-badge) ── */
+.lore-badge {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 10px;
+  border-radius: var(--radius-pill);
+  border: 1px solid color-mix(in srgb, var(--color-overlay) 10%, transparent);
+  font-size: 11.5px;
+  font-weight: 700;
+  white-space: nowrap;
+  color: var(--color-text-muted);
+}
+.lore-badge::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+}
+.lore-badge--state-pinned {
+  color: var(--color-accent);
+  border-color: color-mix(in srgb, var(--color-accent) 40%, transparent);
+}
+.lore-badge--state-active {
+  color: var(--color-success);
+  border-color: color-mix(in srgb, var(--color-success) 40%, transparent);
+}
+.lore-badge--state-retired {
+  color: var(--color-text-muted);
+}
+
+/* ── badge → state menu (copy of .task-card__status / __status-chip) ── */
+.lore-row__status {
+  position: relative;
+  flex: none;
+  display: inline-flex;
+}
+button.lore-row__status-chip {
+  margin: 0;
+  background: transparent;
+  font: inherit;
+  font-size: 11.5px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+button.lore-row__status-chip:hover {
+  background: color-mix(in srgb, var(--color-overlay) 6%, transparent);
+}
+/* 「點了在徽章左緣下方開小選單」 — anchored to the badge's LEFT edge. */
+.lore-row__status-pop {
+  left: 0;
+  right: auto;
+  min-width: 132px;
+}
+.lore-row__menu-pop {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 4px);
+  z-index: 20;
+  min-width: 150px;
+  padding: 6px;
+  border-radius: 12px;
+  border: 1px solid color-mix(in srgb, var(--color-overlay) 8%, transparent);
+  background: var(--color-card);
+  box-shadow: 0 10px 30px color-mix(in srgb, var(--color-shadow) 45%, transparent);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.lore-row__menu-item {
+  padding: 7px 10px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--color-text);
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.lore-row__menu-item:hover {
+  background: color-mix(in srgb, var(--color-overlay) 6%, transparent);
+}
+/* 「當前值用強調色＋700」 — the twin of .task-card__menu-item--active. */
+.lore-row__menu-item--active {
+  color: var(--color-accent);
+  font-weight: 700;
+}
+
+/* ── ▸/▾ (copy of .task-card__expand-mark) ──
+ * pointer-events:none cascades to the inline svg, so a click here lands on the
+ * row underneath — the mark is a state mirror, never a control. */
+.lore-row__expand-mark {
+  flex: none;
+  align-self: center;
+  margin-left: auto;
+  display: inline-flex;
+  pointer-events: none;
+  line-height: 1;
+  color: var(--color-text-muted);
+  opacity: 0.7;
+}
+
+/* ── label column (copy of .task-card__meta) ──
+ * Two columns so every label cell takes the widest label's width and the value
+ * pills line up — language-agnostic, no hard-coded label width. */
+.lore-row__meta {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  align-items: center;
+  gap: 7px 12px;
+}
+.lore-row__meta-label {
+  font-size: 12.5px;
+  color: var(--color-text-muted);
+  opacity: 0.75;
+}
+.lore-row__chip {
+  justify-self: start;
+  max-width: 100%;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  margin: 0;
+  padding: 3px 10px;
+  border-radius: var(--radius-pill);
+  border: 1px solid color-mix(in srgb, var(--color-overlay) 10%, transparent);
+  background: color-mix(in srgb, var(--color-overlay) 4%, transparent);
+  font: inherit;
+  font-size: 12.5px;
+  text-align: left;
+  text-decoration: none;
+  color: var(--color-text);
+}
+.lore-row__chip svg {
+  flex: none;
+  color: var(--color-text-muted);
+}
+button.lore-row__chip--link {
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+.lore-row__chip--link:hover {
+  background: color-mix(in srgb, var(--color-overlay) 8%, transparent);
+  border-color: color-mix(in srgb, var(--color-accent) 45%, transparent);
+}
+.lore-row__chip--link:hover .lore-row__author,
+.lore-row__chip--link:hover svg {
+  color: var(--color-accent);
+}
+.lore-row__author {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ── 生效期 left, 提到最新 right, one row ── */
+.lore-row__effective {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-width: 0;
+}
+.lore-row__effective-ts {
+  font-size: 12.5px;
+  color: var(--color-text);
+  white-space: nowrap;
+}
+.lore-row__bump {
+  flex: none;
+  margin: 0;
+  padding: 3px 10px;
+  border-radius: var(--radius-pill);
+  border: 1px solid color-mix(in srgb, var(--color-overlay) 10%, transparent);
+  background: transparent;
+  color: var(--color-text-muted);
+  font: inherit;
+  font-size: 12.5px;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+.lore-row__bump:hover {
+  color: var(--color-accent);
+  border-color: color-mix(in srgb, var(--color-accent) 45%, transparent);
+}
+
+.lore-row__retire-reason {
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--color-text);
+  min-width: 0;
+}

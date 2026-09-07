@@ -9,6 +9,7 @@ import type { components } from "./generated/schema";
 import { DOC_CAP_CHARS_DEFAULTS } from "./docCap";
 import { CHAT_BUDGET_CHARS_DEFAULT } from "./chatBudget";
 import { STEP_NOTE_CAP_CHARS_DEFAULT } from "./stepNoteCap";
+import { LORE_CAP_CHARS_DEFAULTS } from "./loreCap";
 import { BACKUP_RETAIN_DEFAULT } from "./backupRetain";
 import {
   readSuggestedRepliesReplyCard,
@@ -146,6 +147,9 @@ import type {
   ThemeWriteReceipt,
   ThemeDeleteResult,
   TaskExecutorKind,
+  LoreEntryView,
+  LoreEntryState,
+  LoreEntryPageView,
 } from "./adapter";
 
 /** The five real presence words, as a runtime set — the type union's twin. */
@@ -1185,6 +1189,15 @@ export function toServerSettings(w: WireServerSettings): ServerSettingsView {
     // against a server too old to send the field, 0 would read as "no note may
     // be written at all", which is the one answer that is never right.
     stepNoteCapChars: w.step_note_cap_chars ?? STEP_NOTE_CAP_CHARS_DEFAULT,
+    // T-33 傳承 knobs. Same "?? the shipped default, never 0" reasoning: against
+    // a server too old to send these, 0 on a fold budget reads as "carry no
+    // 傳承 at all" and 0 on an entry bound as "refuse every write" — in both
+    // cases the one answer that is never right, and in both cases silent.
+    loreCapCharsRole: w.lore_cap_chars_role ?? LORE_CAP_CHARS_DEFAULTS.role,
+    loreCapCharsManual:
+      w.lore_cap_chars_manual ?? LORE_CAP_CHARS_DEFAULTS.manual,
+    loreCapCharsTitle: w.lore_cap_chars_title ?? LORE_CAP_CHARS_DEFAULTS.title,
+    loreCapCharsBody: w.lore_cap_chars_body ?? LORE_CAP_CHARS_DEFAULTS.body,
     // T-8 backup retention. Same "?? the shipped default, never 0" reasoning:
     // against a server too old to send the field, 0 would render as "keep no
     // backups", which is the one answer that is never right — and it is the
@@ -1959,5 +1972,57 @@ export function toMemberResumeSummary(
     // panel never has to distinguish "no marker" from "marker down".
     roster: (w.roster ?? []).map(toResumeRosterMember),
     machines: w.machines ? toResumeMachines(w.machines) : null,
+  };
+}
+
+// ── 傳承 (T-33) ────────────────────────────────────────────────────────────
+
+/** One wire entry → one view entry.
+ *
+ * `scope_kind` is widened from the wire's plain `string` to the two-value union
+ * the UI switches on. An unrecognised value maps to "role" rather than throwing:
+ * a future third scope must not blank the whole 傳承 page for a reader on an
+ * older cockpit, and the row still renders with its own real text. */
+export function toLoreEntry(
+  w: components["schemas"]["LoreEntryDTO"],
+): LoreEntryView {
+  return {
+    id: w.id,
+    seq: w.seq,
+    scopeKind: w.scope_kind === "manual" ? "manual" : "role",
+    scopeKey: w.scope_key,
+    title: w.title,
+    body: w.body,
+    authorId: w.author_id,
+    sourceTaskId: w.source_task_id,
+    state: toLoreEntryState(w.state),
+    retireReason: w.retire_reason,
+    effectiveTs: w.effective_ts,
+    createdTs: w.created_ts,
+    updatedTs: w.updated_ts,
+  };
+}
+
+/** The wire's `state` string → the three-value union.
+ *
+ * 🔴 THE FALLBACK IS `active`, AND IT IS NOT ARBITRARY. `retired` is the one
+ * value that changes what the reader is looking at — a retired entry is
+ * excluded from both folds — so guessing `retired` for a value this cockpit
+ * does not know would tell the reader an entry is out of circulation when it
+ * may not be. `active` is the honest 「這一筆在流通中，我不確定它被標成什麼」. */
+function toLoreEntryState(s: string): LoreEntryState {
+  return s === "pinned" || s === "retired" || s === "active" ? s : "active";
+}
+
+/** One wire page → one view page, carrying the 上限線 through untouched. */
+export function toLoreEntryPage(
+  w: components["schemas"]["LoreEntryListDTO"],
+): LoreEntryPageView {
+  return {
+    entries: (w.entries ?? []).map(toLoreEntry),
+    limit: w.limit,
+    offset: w.offset,
+    capChars: w.cap_chars,
+    firstDroppedId: w.first_dropped_id,
   };
 }

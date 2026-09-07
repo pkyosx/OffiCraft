@@ -53,6 +53,9 @@ export const zh = {
     officeUnread: "有未讀訊息",
     replies: "請示",
     tasks: "任務",
+    // 傳承 (T-33) — 任務右邊、監控左邊。它讀的是「上一輪學到的東西」,離任務
+    // 最近,所以排在任務旁邊而不是被塞進設定。
+    lore: "傳承",
     monitor: "監控",
     // 使用說明 — 主導覽最右的分頁(owner:「user guide 改放在 tab 中,監控的
     // 右邊」)。分頁標籤與頁面標題分開兩個 key:標籤要短,標題可以完整。
@@ -67,6 +70,65 @@ export const zh = {
     title: "使用說明",
     loadError: "載入使用說明失敗，請稍後重試",
     empty: "還沒有說明頁",
+  },
+  // ── 傳承(T-33,spec §6)──
+  // 一整個自己的分頁,設計語言照任務卡。這裡只放「字」;為什麼這樣排、線怎麼畫
+  // 寫在 components/LorePage.tsx 的檔頭。
+  //
+  // 🔴 界線那一句是「具名的」:它要說出是哪一個 scope 的哪一個額度。所以它由
+  // 四個片段拼出來(prefix · 名字 + 上限 + 數字 + 尾巴),而不是一個帶參數的
+  // function —— dict 的 function leaf 不進 message-key 白名單,主題包就改不到
+  // 它裡面任何一個字(見 i18n/compose.ts 檔頭)。
+  lore: {
+    title: "傳承",
+    loadError: "載入傳承失敗，請稍後重試",
+    empty: "還沒有任何傳承",
+    emptyFiltered: "沒有符合篩選條件的傳承",
+    // 三群的標題。順序固定 置頂 → 生效中 → 已失效,不給改。
+    groupPinned: "置頂",
+    groupActive: "生效中",
+    groupRetired: "已失效",
+    // 一顆狀態徽章 + 點開的小選單
+    stateMenuLabel: "變更狀態",
+    statePinned: "置頂",
+    stateActive: "生效中",
+    stateRetired: "已失效",
+    actionRetire: "失效",
+    actionActivate: "生效",
+    actionPin: "置頂",
+    // 撰寫人自成一列
+    authorLabel: "撰寫人",
+    authorUnknown: "—",
+    messageAuthor: "傳訊息給撰寫人",
+    // 生效期與提到最新同一行
+    effectiveLabel: "生效期",
+    bump: "提到最新",
+    // 失效理由 —— 沒填就整列不顯示
+    retireReasonLabel: "失效理由",
+    // 具名上限線的四個片段
+    capLineRolePrefix: "角色傳承",
+    capLineManualPrefix: "任務傳承",
+    capLineSep: " · ",
+    capLineMid: " 上限 ",
+    capLineTail: " 字，以下不會被載入",
+    // 篩選列
+    clearFilters: "清除篩選",
+    filterTaskNoun: "任務",
+    filterTaskAll: "全部",
+    filterRoleLore: "無 · 角色傳承",
+    filterRoleNoun: "角色",
+    filterRoleAll: "全部角色",
+    filterStateNoun: "狀態",
+    filterStateAll: "全部狀態",
+    filterAuthorNoun: "撰寫人",
+    filterAuthorAll: "全部撰寫人",
+    // 整列可點展開／收合
+    expandCard: "展開這一筆傳承",
+    collapseCard: "收合這一筆傳承",
+    loadingMore: "載入中…",
+    // 動作失敗要看得見(403 也是)——不要靜靜失敗
+    actionFailed: "這個動作沒有成功，請稍後再試",
+    forbidden: "你沒有權限做這個動作",
   },
   notifications: {
     dismiss: "關閉提示",
@@ -2059,6 +2121,18 @@ export const zh = {
     // T-119:步驟備註字數上限。說明文字必須講出它「可以調低」與「只管步驟
     // 備註」這兩件事,因為前者是它跟上面五格文件上限相反的地方,後者是轉這個
     // 旋鈕的人最容易誤以為連帶變寬的東西。
+    loreCapRole: "角色傳承字數上限",
+    loreCapRoleSub:
+      "一個角色的開機檔裡，傳承那一段最多載入多少字。裝不下的整筆不載入，不會被截斷，也不會有任何錯誤訊息。與下面的任務傳承各自獨立，兩個數字不相加。可以調低——條目不能編輯，調低只影響下次載入哪幾筆，不會弄壞任何已經寫好的條目。",
+    loreCapManual: "任務傳承字數上限",
+    loreCapManualSub:
+      "讀一本任務手冊時，接在學習經驗後面的傳承最多多少字。這一段不進任何人的開機檔，正職與外包一視同仁。與上面的角色傳承各自獨立。可以調低。",
+    loreCapTitle: "傳承標題字數上限",
+    loreCapTitleSub:
+      "一筆傳承的標題最多幾個字。超過的寫入會被拒絕,一個字都不會寫進去。可以調低,調低只擋接下來的寫入,已經存好的條目不受影響。",
+    loreCapBody: "傳承內容字數上限",
+    loreCapBodySub:
+      "一筆傳承的內容最多幾個字。超過的寫入會被拒絕,一個字都不會寫進去。可以調低,已經存好的條目不受影響。",
     stepNoteCap: "任務步驟備註字數上限",
     stepNoteCapSub:
       "一個任務步驟的備註可以寫多少字。可以調低,調低不會弄丟已經寫好的內容。",

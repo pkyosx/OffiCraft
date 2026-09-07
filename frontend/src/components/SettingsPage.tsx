@@ -47,6 +47,12 @@ import {
   STEP_NOTE_CAP_CHARS_MAX,
   STEP_NOTE_CAP_CHARS_MIN,
 } from "../api/stepNoteCap";
+import {
+  LORE_FOLD_CAP_CHARS_MIN,
+  LORE_FOLD_CAP_CHARS_MAX,
+  LORE_ENTRY_CAP_CHARS_MIN,
+  LORE_ENTRY_CAP_CHARS_MAX,
+} from "../api/loreCap";
 import { BACKUP_RETAIN_MAX, BACKUP_RETAIN_MIN } from "../api/backupRetain";
 import {
   SUGGESTED_REPLIES_MAX_ENTRIES,
@@ -89,6 +95,87 @@ const DOC_CAP_ORDER: DocCapField[] = [
   "docCapCharsLearning",
   "docCapCharsManualSop",
   "docCapCharsManualLearnings",
+];
+
+/** The four 傳承 knobs (T-33), in the order the parameters card lists them: the
+ * two FOLD budgets first (how much 傳承 a boot document / a manual read
+ * carries), then the two ENTRY bounds (the longest title and body one write may
+ * store). Like `DOC_CAP_FIELDS` the key IS the ServerSettingsView /
+ * ServerSettingsPatch field, so a row cannot read one setting and write another.
+ *
+ * 🔴 A SEPARATE TABLE FROM `DOC_CAP_FIELDS`, AND THE FLOOR IS WHY — the same
+ * ruling that gave the chat budget and the step-note cap their own rows. Every
+ * entry in that table carries floor == its own shipped default, because lowering
+ * a document cap strands existing legal documents in shrink-only mode. A 傳承
+ * entry has NO EDIT PATH AT ALL, so a lower cap cannot strand one that is
+ * already stored — it binds the next write and nothing else. The owner lowered
+ * two of these himself the day they shipped (title 140 → 80, body 1000 → 500).
+ * Putting them in `DOC_CAP_FIELDS` would have been a table-driven convenience
+ * bought by writing a false sentence into the page.
+ *
+ * They are a TABLE rather than four hand-written rows because, unlike the chat
+ * budget and the step-note cap, these four are the same shape as each other —
+ * two pairs sharing two ranges. `min`/`max` are per row for that reason: the
+ * fold budgets and the entry bounds do not share a range. */
+type LoreCapField =
+  | "loreCapCharsRole"
+  | "loreCapCharsManual"
+  | "loreCapCharsTitle"
+  | "loreCapCharsBody";
+
+const LORE_CAP_FIELDS: Record<
+  LoreCapField,
+  {
+    min: number;
+    max: number;
+    inputId: string;
+    labelKey:
+      | "loreCapRole"
+      | "loreCapManual"
+      | "loreCapTitle"
+      | "loreCapBody";
+    subKey:
+      | "loreCapRoleSub"
+      | "loreCapManualSub"
+      | "loreCapTitleSub"
+      | "loreCapBodySub";
+  }
+> = {
+  loreCapCharsRole: {
+    min: LORE_FOLD_CAP_CHARS_MIN,
+    max: LORE_FOLD_CAP_CHARS_MAX,
+    inputId: "param-lore-cap-role",
+    labelKey: "loreCapRole",
+    subKey: "loreCapRoleSub",
+  },
+  loreCapCharsManual: {
+    min: LORE_FOLD_CAP_CHARS_MIN,
+    max: LORE_FOLD_CAP_CHARS_MAX,
+    inputId: "param-lore-cap-manual",
+    labelKey: "loreCapManual",
+    subKey: "loreCapManualSub",
+  },
+  loreCapCharsTitle: {
+    min: LORE_ENTRY_CAP_CHARS_MIN,
+    max: LORE_ENTRY_CAP_CHARS_MAX,
+    inputId: "param-lore-cap-title",
+    labelKey: "loreCapTitle",
+    subKey: "loreCapTitleSub",
+  },
+  loreCapCharsBody: {
+    min: LORE_ENTRY_CAP_CHARS_MIN,
+    max: LORE_ENTRY_CAP_CHARS_MAX,
+    inputId: "param-lore-cap-body",
+    labelKey: "loreCapBody",
+    subKey: "loreCapBodySub",
+  },
+};
+
+const LORE_CAP_ORDER: LoreCapField[] = [
+  "loreCapCharsRole",
+  "loreCapCharsManual",
+  "loreCapCharsTitle",
+  "loreCapCharsBody",
 ];
 import { Breadcrumbs, type Crumb } from "./Breadcrumbs";
 import {
@@ -1380,6 +1467,11 @@ function ServerParams({
   >({});
   const [chatBudgetDraft, setChatBudgetDraft] = useState<string | null>(null);
   const [stepNoteCapDraft, setStepNoteCapDraft] = useState<string | null>(null);
+  // T-33: four independent 傳承 caps, so four independent drafts — a shared
+  // draft would make typing in one field snap the other three back.
+  const [loreCapDrafts, setLoreCapDrafts] = useState<
+    Partial<Record<LoreCapField, string>>
+  >({});
   const [backupRetainDraft, setBackupRetainDraft] = useState<string | null>(
     null
   );
@@ -1526,6 +1618,29 @@ function ServerParams({
     }
     setStepNoteCapDraft(null);
     if (n !== settings.stepNoteCapChars) void onSave({ stepNoteCapChars: n });
+  }
+
+  // T-33: the four 傳承 caps. One commit for all four because the row that is
+  // being committed carries its own range — unlike commitDocCap, whose ceiling
+  // is a literal 100000 shared by every row it serves.
+  function commitLoreCap(field: LoreCapField) {
+    const draft = loreCapDrafts[field];
+    if (!settings || draft === undefined) return;
+    const n = Number(draft);
+    const spec = LORE_CAP_FIELDS[field];
+    const clear = () =>
+      setLoreCapDrafts((d) => {
+        const next = { ...d };
+        delete next[field];
+        return next;
+      });
+    if (!Number.isInteger(n) || n < spec.min || n > spec.max) {
+      setRangeError(true);
+      clear();
+      return;
+    }
+    clear();
+    if (n !== settings[field]) void onSave({ [field]: n });
   }
 
   // T-8: backup retention N. Its own row and its own commit for the same reason
@@ -1821,6 +1936,39 @@ function ServerParams({
               <span className="param-pct__sign">{t.settings.chars}</span>
             </div>
           </div>
+
+          {/* T-33 傳承 caps — LAST of the character caps, immediately before the
+              backup row, and NOT up with the doc caps where they started.
+              🔴 SettingsPage.step-note-cap-t119.test.tsx asserts that the
+              step-note row is the IMMEDIATE next sibling of the task-manual
+              learnings row, and its comment records why: the owner reviewed the
+              shipped page and asked for that position by name, so it is an
+              acceptance condition rather than styling. Four rows inserted above
+              it broke that adjacency, and the cheap fix — editing the assertion
+              — would have quietly spent a decision the owner had already made.
+              Sitting here, these four keep every character cap contiguous and
+              leave 備份保留份數 (whose unit is FILES, not characters) last. */}
+          {LORE_CAP_ORDER.map((field) => {
+            const spec = LORE_CAP_FIELDS[field];
+            const label = t.settings[spec.labelKey];
+            return (
+              <div className="param-row" key={field}>
+                <div className="param-row__body">
+                  <div className="param-row__name">{label}</div>
+                  <div className="param-row__sub">{t.settings[spec.subKey]}</div>
+                </div>
+                <div className="param-pct">
+                  <input id={spec.inputId} className="param-input" type="number"
+                    min={spec.min} max={spec.max}
+                    aria-label={label}
+                    value={loreCapDrafts[field] ?? String(settings[field])}
+                    onChange={(e) => { setRangeError(false); onClearSaveError(); setLoreCapDrafts((d) => ({ ...d, [field]: e.target.value })); }}
+                    onBlur={() => commitLoreCap(field)} onKeyDown={(e) => { if (e.key === "Enter") commitLoreCap(field); }} />
+                  <span className="param-pct__sign">{t.settings.chars}</span>
+                </div>
+              </div>
+            );
+          })}
 
           <div className="param-row">
             <div className="param-row__body">

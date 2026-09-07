@@ -178,6 +178,19 @@ export function FileTextIcon({ size = 16, className }: IconProps) {
   );
 }
 
+/** Open-book glyph — the 傳承 nav tab's fallback icon (T-33). Deliberately NOT
+ * FileTextIcon, which the 使用說明 tab already wears two slots away: two tabs
+ * carrying the same glyph is exactly the thing a nav bar cannot afford. A book
+ * (something handed on and read) rather than a page (something written once). */
+export function BookIcon({ size = 16, className }: IconProps) {
+  return (
+    <svg {...base(size)} className={className}>
+      <path d="M12 6.5A3.5 3.5 0 0 0 8.5 3H3v14h5.5a3.5 3.5 0 0 1 3.5 3.5Z" />
+      <path d="M12 6.5A3.5 3.5 0 0 1 15.5 3H21v14h-5.5a3.5 3.5 0 0 0-3.5 3.5Z" />
+    </svg>
+  );
+}
+
 /** Photo/gallery glyph (lucide "image"): the chat header's file-and-image
  * gallery toggle (M2-3). */
 export function ImageIcon({ size = 16, className }: IconProps) {

@@ -1118,6 +1118,19 @@ export interface ServerSettingsView {
    * chat message body keep their own 4,000-character server constant. Default
    * and range in `stepNoteCap.ts` (mirroring server/ocserverd/domain.go). */
   stepNoteCapChars: number;
+  /** T-33: the four 傳承 knobs. The first two are FOLD budgets — how much 傳承 a
+   * staff boot document carries for one role, and how much `get_task_manual`
+   * appends after a type's learnings. They are never summed: different readers
+   * pay them at different moments. The last two bound ONE entry's title and
+   * body at write time.
+   * NOT document caps — a 傳承 entry has no edit path, so a lowered cap cannot
+   * strand anything already stored and all four may be turned DOWN as well as
+   * up. Defaults and the two ranges in `loreCap.ts` (mirroring
+   * server/ocserverd/domain.go). */
+  loreCapCharsRole: number;
+  loreCapCharsManual: number;
+  loreCapCharsTitle: number;
+  loreCapCharsBody: number;
   /** T-8: N — how many database backup files rotation KEEPS. Everything past N
    * is DELETED from disk. Two things the number does not carry and the settings
    * copy therefore has to say: it counts VERSIONS, not days, and it is PER POOL
@@ -1236,6 +1249,15 @@ export interface ServerSettingsPatch {
   /** T-119 step-note cap; range 1000..100000 (stepNoteCap.ts). The floor is NOT
    * the shipped default — this one may be turned down. */
   stepNoteCapChars?: number;
+  /** T-33 傳承 knobs. The two FOLD budgets take 100..100000 and the two ENTRY
+   * bounds take 10..10000 (loreCap.ts) — two ranges, because a title and a boot
+   * document are not the same size of thing. NONE of the four floors is the
+   * shipped default: all four may be turned down, since an entry cannot be
+   * edited and so cannot be stranded by a smaller cap. */
+  loreCapCharsRole?: number;
+  loreCapCharsManual?: number;
+  loreCapCharsTitle?: number;
+  loreCapCharsBody?: number;
   /** T-8 backup retention N; range 1..20 (backupRetain.ts). Lowering it DELETES
    * the files it puts out of range on the next backup. */
   backupRetain?: number;
@@ -2506,6 +2528,34 @@ export interface Api {
    * (non-terminal) tasks of the type → 409 (throws — the UI surfaces the
    * human-readable 先讓任務結束 message); unknown → 404. */
   deleteTaskManual(typeKey: string): Promise<void>;
+  // ── 傳承 (the 傳承 nav tab, T-33) ─────────────────────────────────────────
+  /** One page of 傳承 entries (`GET /api/lore`).
+   *
+   * 🔴 THE FILTER TRAVELS WITH THE PAGE. Every narrowing the page offers is a
+   * query parameter, never a client-side `.filter()` on a downloaded list: a
+   * page that filters after paging cannot tell 「這一頁剛好沒有」 from
+   * 「根本沒有」, and the 上限線 it draws would fall in the wrong place.
+   *
+   * The order is FIXED (置頂 → 生效中 → 已失效, newest effective first inside
+   * each group) and is not a parameter. */
+  listLoreEntries(opts?: LoreListOptions): Promise<LoreEntryPageView>;
+  /** Write ONE 傳承 entry (`POST /api/lore`). Writing is an AGENT act — this
+   * exists on the seam for completeness and for tests, not because the cockpit
+   * offers a compose form (spec §5: 寫入只走 MCP). */
+  writeLoreEntry(entry: LoreEntryWrite): Promise<LoreEntryView>;
+  /** Move one entry to active / pinned / retired
+   * (`POST /api/lore/{entry_id}/state`). `retireReason` is stored only with
+   * `retired` and is CLEARED by the other two — a live entry must not keep
+   * showing the explanation for a retirement that was undone. */
+  setLoreEntryState(
+    entryId: string,
+    state: LoreEntryState,
+    retireReason?: string,
+  ): Promise<LoreEntryView>;
+  /** 提到最新 (`POST /api/lore/{entry_id}/bump`): set `effectiveTs` to now so the
+   * entry sorts to the front of its group. `createdTs` is NOT touched, which is
+   * what makes this reversible. */
+  bumpLoreEntry(entryId: string): Promise<LoreEntryView>;
   // ── Product guide (the 使用說明 nav tab) ──────────────────────────────────
   /** List the product-guide docs (`GET /api/docs`) — the 使用說明 landing
    * (slug + title cards). The same embed Mira reads via get_doc. */
@@ -3040,4 +3090,82 @@ export interface Api {
   subscribeConnection(
     onState: (state: SseConnectionState) => void
   ): () => void;
+}
+
+// ── 傳承 (T-33) ────────────────────────────────────────────────────────────
+
+/** The three mutually exclusive states one entry can be in. */
+export type LoreEntryState = "active" | "pinned" | "retired";
+
+/** ONE 傳承 entry.
+ *
+ * 🔴 `title` and `body` ARE NEVER EDITABLE. No route changes them, so what is
+ * read here is what was written. The mutable surface is `state`,
+ * `retireReason` and `effectiveTs` — which is why the cockpit offers 失效 /
+ * 生效 / 置頂 / 提到最新 and no edit affordance at all.
+ *
+ * `effectiveTs` vs `createdTs`: `createdTs` is when it was written and never
+ * moves; `effectiveTs` starts equal to it and is what 提到最新 sets to now. The
+ * fold reads `effectiveTs`; `createdTs` surviving is what makes a bump
+ * reversible and explicable afterwards.
+ *
+ * `authorId` is the writer's member id AS IT WAS at the moment of the write,
+ * pinned. It is not re-resolved against the roster: a writer who has since left
+ * still wrote this. A client that cannot find the id on the live roster drops
+ * the writer's live affordances (the 傳訊息 icon), NEVER the entry. */
+export interface LoreEntryView {
+  id: string;
+  seq: number;
+  scopeKind: "role" | "manual";
+  scopeKey: string;
+  title: string;
+  body: string;
+  authorId: string;
+  sourceTaskId: string;
+  state: LoreEntryState;
+  retireReason: string;
+  effectiveTs: number;
+  createdTs: number;
+  updatedTs: number;
+}
+
+/** The server-side narrowing one list request may carry. Every field is a query
+ * parameter — see `Api.listLoreEntries` for why none of them may become a
+ * client-side filter. */
+export interface LoreListOptions {
+  scopeKind?: "role" | "manual";
+  scopeKey?: string;
+  state?: LoreEntryState;
+  authorId?: string;
+  limit?: number;
+  offset?: number;
+}
+
+/** One page, plus where the 上限線 falls.
+ *
+ * 🔴 `firstDroppedId` IS NOT DERIVABLE HERE AND MUST NOT BE RECOMPUTED. The
+ * server answers it from the same selector both folds run, over the WHOLE
+ * scope; this page is cut by `limit`/`offset` long before the budget is spent,
+ * so adding up the visible rows would draw the line in the wrong place on every
+ * page but the first — and a line in the wrong place looks exactly like a line
+ * in the right place.
+ *
+ * Both are the empty answer (0 and "") when the request did not converge on ONE
+ * scope, because a budget belongs to a scope and a page spanning several has no
+ * single one to report. `firstDroppedId` is also "" when the whole scope fits. */
+export interface LoreEntryPageView {
+  entries: LoreEntryView[];
+  limit: number;
+  offset: number;
+  capChars: number;
+  firstDroppedId: string;
+}
+
+/** What a write carries. `taskId` decides the scope and decides it alone:
+ * omitted ⇒ a ROLE entry under the caller's own role; present ⇒ a MANUAL entry
+ * under that task's type. Neither arm falls through to the other. */
+export interface LoreEntryWrite {
+  title: string;
+  body: string;
+  taskId?: string;
 }

@@ -94,6 +94,11 @@ import type {
   AccountCostResetReceipt,
   CostResetReceipt,
   TaskArtifactVersionView,
+  LoreEntryView,
+  LoreEntryPageView,
+  LoreEntryState,
+  LoreEntryWrite,
+  LoreListOptions,
 } from "./adapter";
 import type {
   WireMember,
@@ -159,6 +164,13 @@ import {
   STEP_NOTE_CAP_CHARS_MAX,
   STEP_NOTE_CAP_CHARS_MIN,
 } from "./stepNoteCap";
+import {
+  LORE_CAP_CHARS_DEFAULTS,
+  LORE_FOLD_CAP_CHARS_MIN,
+  LORE_FOLD_CAP_CHARS_MAX,
+  LORE_ENTRY_CAP_CHARS_MIN,
+  LORE_ENTRY_CAP_CHARS_MAX,
+} from "./loreCap";
 import {
   BACKUP_RETAIN_DEFAULT,
   BACKUP_RETAIN_MAX,
@@ -988,6 +1000,85 @@ function withManualSizes(m: StoredTaskManual): TaskManualView {
 // plus a `> [!NOTE]` alert AND a plain blockquote in the same doc, so both the
 // marker-stripping and "an alert must not look like an ordinary quote" have a
 // fixture (the latter is only decidable in a real browser — see the CT spec).
+/** 傳承 fixture (T-33). Enough rows, and enough LENGTH, that the default
+ * 10,000-character role budget is not trivially satisfied — a fixture whose
+ * every row fits can never show the 上限線 the page exists to draw, so the
+ * cockpit would be built against a case that never occurs. */
+const mockLoreEntries: LoreEntryView[] = [
+  {
+    id: "L-1",
+    seq: 1,
+    scopeKind: "role",
+    scopeKey: "assistant",
+    title: "成功回應不代表資料完整",
+    body: "驗證外部整合時，不能只以 request 成功作為驗收依據，還要確認關鍵資料真的產生了。",
+    authorId: "mira",
+    sourceTaskId: "",
+    state: "pinned",
+    retireReason: "",
+    effectiveTs: 1788600000,
+    createdTs: 1788500000,
+    updatedTs: 1788600000,
+  },
+  {
+    id: "L-2",
+    seq: 2,
+    scopeKind: "role",
+    scopeKey: "assistant",
+    title: "零命中的預設解讀是查法寫錯了",
+    body: "掃描回空的時候先跑一次陽性對照，確認量具本身還會命中，再去解釋那個零。",
+    authorId: "mira",
+    sourceTaskId: "",
+    state: "active",
+    retireReason: "",
+    effectiveTs: 1788400000,
+    createdTs: 1788400000,
+    updatedTs: 1788400000,
+  },
+  {
+    id: "L-3",
+    seq: 3,
+    scopeKind: "role",
+    scopeKey: "assistant",
+    title: "退出碼要落檔再讀",
+    body: "cmd 後面接 echo 的話，回報的退出碼是那一行 echo 的，紅的會跑成綠的。",
+    authorId: "m-gone",
+    sourceTaskId: "",
+    state: "retired",
+    retireReason: "已經寫進 SOP，這一筆不再需要單獨佔一格。",
+    effectiveTs: 1788300000,
+    createdTs: 1788300000,
+    updatedTs: 1788700000,
+  },
+  {
+    id: "L-4",
+    seq: 4,
+    scopeKind: "manual",
+    scopeKey: "tm-mock",
+    title: "手冊傳承不進任何人的開機檔",
+    body: "這一類條目只在讀那本手冊的時候拿得到，正職與外包一視同仁。",
+    authorId: "mira",
+    sourceTaskId: "T-1",
+    state: "active",
+    retireReason: "",
+    effectiveTs: 1788450000,
+    createdTs: 1788450000,
+    updatedTs: 1788450000,
+  },
+];
+
+/** The FIXED display order (spec §6): 置頂 → 生效中 → 已失效, newest effective
+ * first inside each group, `seq` as the tie-break so two entries sharing an
+ * effective timestamp still order the same way on every read. It is not
+ * configurable — the filter is. */
+function mockLoreOrder(a: LoreEntryView, b: LoreEntryView): number {
+  const rank = (s: LoreEntryView["state"]) =>
+    s === "pinned" ? 0 : s === "active" ? 1 : 2;
+  if (rank(a.state) !== rank(b.state)) return rank(a.state) - rank(b.state);
+  if (a.effectiveTs !== b.effectiveTs) return b.effectiveTs - a.effectiveTs;
+  return b.seq - a.seq;
+}
+
 const mockDocs: DocView[] = [
   {
     slug: "install",
@@ -1973,6 +2064,10 @@ const DEFAULT_MOCK_SETTINGS = {
   chat_budget_chars: CHAT_BUDGET_CHARS_DEFAULT,
   // T-119 step-note cap, served for the same reason as everything above.
   step_note_cap_chars: STEP_NOTE_CAP_CHARS_DEFAULT,
+  lore_cap_chars_role: LORE_CAP_CHARS_DEFAULTS.role,
+  lore_cap_chars_manual: LORE_CAP_CHARS_DEFAULTS.manual,
+  lore_cap_chars_title: LORE_CAP_CHARS_DEFAULTS.title,
+  lore_cap_chars_body: LORE_CAP_CHARS_DEFAULTS.body,
   // T-8 backup retention N, served for the same reason as everything above: a
   // settings DTO missing a field the server always sends is a mock the page can
   // go green against while the real one breaks.
@@ -4726,6 +4821,113 @@ export const mockApi: Api = {
     emitTopic("task_manual");
   },
 
+  // ── 傳承 (T-33) ──────────────────────────────────────────────────────────
+  //
+  // 🔴 THE MOCK APPLIES THE FILTER AND THE CAP THE SAME WAY THE SERVER DOES,
+  // in the same order — filter, then sort, then spend the budget, then cut the
+  // page. A mock that pages first would let a page-then-filter bug pass every
+  // mock-mode test and only appear against the real server, which is the one
+  // place nobody is looking when the cockpit is being built.
+
+  async listLoreEntries(opts?: LoreListOptions): Promise<LoreEntryPageView> {
+    const matches = mockLoreEntries.filter(
+      (e) =>
+        (!opts?.scopeKind || e.scopeKind === opts.scopeKind) &&
+        (!opts?.scopeKey || e.scopeKey === opts.scopeKey) &&
+        (!opts?.state || e.state === opts.state) &&
+        (!opts?.authorId || e.authorId === opts.authorId)
+    );
+    const ordered = [...matches].sort(mockLoreOrder);
+
+    // The 上限線, over the WHOLE converged scope and before the page is cut —
+    // never over the rows this call happens to return.
+    let capChars = 0;
+    let firstDroppedId = "";
+    if (opts?.scopeKind && opts?.scopeKey) {
+      capChars =
+        opts.scopeKind === "manual"
+          ? mockServerSettings.lore_cap_chars_manual
+          : mockServerSettings.lore_cap_chars_role;
+      let used = 0;
+      for (const e of ordered.filter((x) => x.state !== "retired")) {
+        const cost = [...e.title].length + [...e.body].length;
+        if (used + cost > capChars) {
+          firstDroppedId = e.id;
+          break;
+        }
+        used += cost;
+      }
+    }
+
+    const limit = opts?.limit ?? 30;
+    const offset = opts?.offset ?? 0;
+    return {
+      entries: structuredClone(ordered.slice(offset, offset + limit)),
+      limit,
+      offset,
+      capChars,
+      firstDroppedId,
+    };
+  },
+
+  async writeLoreEntry(entry: LoreEntryWrite): Promise<LoreEntryView> {
+    const now = Date.now() / 1000;
+    const seq = mockLoreEntries.length + 1;
+    const made: LoreEntryView = {
+      id: `L-${seq}`,
+      seq,
+      scopeKind: entry.taskId ? "manual" : "role",
+      scopeKey: entry.taskId ? "tm-mock" : "assistant",
+      title: entry.title,
+      body: entry.body,
+      authorId: "mira",
+      sourceTaskId: entry.taskId ?? "",
+      state: "active",
+      retireReason: "",
+      effectiveTs: now,
+      createdTs: now,
+      updatedTs: now,
+    };
+    mockLoreEntries.push(made);
+    return structuredClone(made);
+  },
+
+  async setLoreEntryState(
+    entryId: string,
+    state: LoreEntryState,
+    retireReason?: string
+  ): Promise<LoreEntryView> {
+    const e = mockLoreEntries.find((x) => x.id === entryId);
+    if (!e) {
+      throw mockApiError(
+        `http 404 for POST /api/lore/${entryId}/state`,
+        404,
+        "no such 傳承 entry"
+      );
+    }
+    e.state = state;
+    // Cleared by the two live states, exactly as the server does: a live entry
+    // must not keep showing the explanation for a retirement that was undone.
+    e.retireReason = state === "retired" ? (retireReason ?? "") : "";
+    e.updatedTs = Date.now() / 1000;
+    return structuredClone(e);
+  },
+
+  async bumpLoreEntry(entryId: string): Promise<LoreEntryView> {
+    const e = mockLoreEntries.find((x) => x.id === entryId);
+    if (!e) {
+      throw mockApiError(
+        `http 404 for POST /api/lore/${entryId}/bump`,
+        404,
+        "no such 傳承 entry"
+      );
+    }
+    // createdTs is NOT touched — that is what makes a bump reversible.
+    e.effectiveTs = Date.now() / 1000;
+    e.updatedTs = e.effectiveTs;
+    return structuredClone(e);
+  },
+
   async listDocs(): Promise<DocSummaryView[]> {
     return mockDocs.map((d) => ({ slug: d.slug, title: d.title }));
   },
@@ -5465,6 +5667,45 @@ export const mockApi: Api = {
         `step_note_cap_chars must be between ${STEP_NOTE_CAP_CHARS_MIN} and ${STEP_NOTE_CAP_CHARS_MAX} characters`
       );
     }
+    // T-33 傳承 knobs. TWO ranges, not one: the fold budgets are
+    // document-sized and the entry bounds are sentence-sized, so a shared range
+    // would either let a title grow into a document or stop a fold from holding
+    // more than a paragraph. None of the four floors is its shipped default —
+    // an entry cannot be edited, so a lower cap strands nothing already stored.
+    for (const [field, value, min, max] of [
+      [
+        "lore_cap_chars_role",
+        patch.loreCapCharsRole,
+        LORE_FOLD_CAP_CHARS_MIN,
+        LORE_FOLD_CAP_CHARS_MAX,
+      ],
+      [
+        "lore_cap_chars_manual",
+        patch.loreCapCharsManual,
+        LORE_FOLD_CAP_CHARS_MIN,
+        LORE_FOLD_CAP_CHARS_MAX,
+      ],
+      [
+        "lore_cap_chars_title",
+        patch.loreCapCharsTitle,
+        LORE_ENTRY_CAP_CHARS_MIN,
+        LORE_ENTRY_CAP_CHARS_MAX,
+      ],
+      [
+        "lore_cap_chars_body",
+        patch.loreCapCharsBody,
+        LORE_ENTRY_CAP_CHARS_MIN,
+        LORE_ENTRY_CAP_CHARS_MAX,
+      ],
+    ] as [string, number | undefined, number, number][]) {
+      if (value !== undefined && (value < min || value > max)) {
+        throw mockApiError(
+          "http 422 for PATCH /api/settings",
+          422,
+          `${field} must be between ${min} and ${max} characters`
+        );
+      }
+    }
     if (
       patch.orgName !== undefined &&
       [...patch.orgName.trim()].length > 80
@@ -5603,6 +5844,18 @@ export const mockApi: Api = {
     }
     if (patch.stepNoteCapChars !== undefined) {
       mockServerSettings.step_note_cap_chars = patch.stepNoteCapChars;
+    }
+    if (patch.loreCapCharsRole !== undefined) {
+      mockServerSettings.lore_cap_chars_role = patch.loreCapCharsRole;
+    }
+    if (patch.loreCapCharsManual !== undefined) {
+      mockServerSettings.lore_cap_chars_manual = patch.loreCapCharsManual;
+    }
+    if (patch.loreCapCharsTitle !== undefined) {
+      mockServerSettings.lore_cap_chars_title = patch.loreCapCharsTitle;
+    }
+    if (patch.loreCapCharsBody !== undefined) {
+      mockServerSettings.lore_cap_chars_body = patch.loreCapCharsBody;
     }
     if (patch.backupRetain !== undefined) {
       mockServerSettings.backup_retain = patch.backupRetain;

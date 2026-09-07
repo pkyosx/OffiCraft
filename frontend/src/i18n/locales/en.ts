@@ -52,6 +52,9 @@ export const en: Dict = {
     officeUnread: "Unread messages",
     replies: "Ask",
     tasks: "Task",
+    // 傳承 (T-33) — between Task and Monitor. What it lists is what the last
+    // round learned, which sits closest to the tasks that produced it.
+    lore: "Lore",
     monitor: "Monitor",
     // 使用說明 — the rightmost main nav tab (owner: it belongs next to Monitor,
     // not buried in Settings). Separate key from the page title on purpose: a
@@ -66,6 +69,67 @@ export const en: Dict = {
     title: "User guide",
     loadError: "Failed to load the user guide. Please try again.",
     empty: "No guide pages yet",
+  },
+  // ── 傳承 / Lore (T-33, spec §6) ──
+  // Its own tab, wearing the task-card design language. Only the words live
+  // here; why the groups are ordered the way they are, and where the cap line
+  // is drawn, is documented in components/LorePage.tsx.
+  //
+  // 🔴 The cap line is NAMED — it has to say which scope's budget it is. It is
+  // therefore assembled from four fragments (prefix · name + mid + number +
+  // tail) rather than one interpolation function: a function leaf is excluded
+  // from the message-key whitelist, so a theme pack could not re-word a single
+  // word inside it (see i18n/compose.ts).
+  lore: {
+    title: "Lore",
+    loadError: "Failed to load lore. Please try again.",
+    empty: "No lore yet",
+    emptyFiltered: "No lore matches these filters",
+    // The three groups. The order is FIXED: pinned → active → retired.
+    groupPinned: "Pinned",
+    groupActive: "Active",
+    groupRetired: "Retired",
+    // One status badge + the little menu it drops.
+    stateMenuLabel: "Change state",
+    statePinned: "Pinned",
+    stateActive: "Active",
+    stateRetired: "Retired",
+    actionRetire: "Retire",
+    actionActivate: "Activate",
+    actionPin: "Pin",
+    // The author gets a row of its own.
+    authorLabel: "Author",
+    authorUnknown: "—",
+    messageAuthor: "Message the author",
+    // Effective-from and 提到最新 share one row.
+    effectiveLabel: "Effective",
+    bump: "Bump to latest",
+    // Retire reason — the whole row is hidden when it is empty.
+    retireReasonLabel: "Retire reason",
+    // The four fragments of the named cap line.
+    capLineRolePrefix: "Role lore",
+    capLineManualPrefix: "Task lore",
+    capLineSep: " · ",
+    capLineMid: " cap ",
+    capLineTail: " characters — nothing below this line is loaded",
+    // The filter row.
+    clearFilters: "Clear filters",
+    filterTaskNoun: "Task",
+    filterTaskAll: "All",
+    filterRoleLore: "None · role lore",
+    filterRoleNoun: "Role",
+    filterRoleAll: "All roles",
+    filterStateNoun: "State",
+    filterStateAll: "All states",
+    filterAuthorNoun: "Author",
+    filterAuthorAll: "All authors",
+    // The whole row is the expand/collapse surface.
+    expandCard: "Expand this lore entry",
+    collapseCard: "Collapse this lore entry",
+    loadingMore: "Loading…",
+    // A failed action (403 included) must be visible — never a silent no-op.
+    actionFailed: "That action did not go through. Please try again.",
+    forbidden: "You do not have permission to do that.",
   },
   notifications: {
     dismiss: "Dismiss notification",
@@ -2000,6 +2064,18 @@ export const en: Dict = {
     // integer cannot — that it may be lowered, and that it governs the step
     // note alone — because both are what the person turning the knob will
     // otherwise get wrong.
+    loreCapRole: "Role lore size cap",
+    loreCapRoleSub:
+      "How many characters of lore a role's boot document carries. An entry that does not fit is left out WHOLE — never truncated, and with no error anywhere. Independent of the task-manual cap below; the two are never summed. This one may be lowered: an entry cannot be edited, so a smaller cap only changes which entries load next time and strands nothing already stored.",
+    loreCapManual: "Task manual lore size cap",
+    loreCapManualSub:
+      "How many characters of lore are appended after a task type's learnings when its manual is read. This block enters nobody's boot document — staff and outsource alike. Independent of the role cap above. May be lowered.",
+    loreCapTitle: "Lore title size cap",
+    loreCapTitleSub:
+      "The longest title one lore entry may carry. An over-cap write is refused and stores nothing. May be lowered; it binds the next write only and leaves stored entries untouched.",
+    loreCapBody: "Lore body size cap",
+    loreCapBodySub:
+      "The longest body one lore entry may carry. An over-cap write is refused and stores nothing. May be lowered; stored entries are untouched.",
     stepNoteCap: "Task step note size cap",
     stepNoteCapSub:
       "How many characters one task step's note may hold. It can be lowered as well as raised, and lowering it loses nothing already written.",
