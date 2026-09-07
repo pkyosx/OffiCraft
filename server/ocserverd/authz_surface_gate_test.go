@@ -380,6 +380,24 @@ var authzOutsideRouteTable = map[string]string{
 	//
 	// Neither of these can be a route floor, and that is a property of the
 	// decision rather than of how the code happens to be shaped.
+	// 🔴 THIS ONE REFUSES NOBODY, AND IT IS STILL HERE ON PURPOSE. Every other
+	// entry in this map names a door that says no. This one decides WHERE a write
+	// lands, and it is listed because a governance re-grade asking "what does the
+	// Requires column not cover?" needs to see it: getting it wrong does not
+	// return 403, it files one member's 傳承 under a scope other members read, and
+	// the fold then charges them the cap for it. That is a governance outcome
+	// arrived at without any door refusing anything.
+	"api_lore.go :: HandleWriteLoreEntryApiLorePost :: m.RoleKey != \"\"": "" +
+		"NOT a floor, and could not be one: staff and outsource are BOTH allowed " +
+		"through this route, so there is no Requires value that separates them. What " +
+		"the predicate separates is the scope the entry is filed under — a caller " +
+		"whose roster row carries a role_key files under LoreScopeRole (staff are " +
+		"one-to-one with their role, owner c-712174eb0720, so keying by role names " +
+		"the same set of readers), and one whose row carries none files under " +
+		"LoreScopeAgent keyed by its own member id (owner rc-3c24fdc61ed3). It reads " +
+		"the CALLER's roster row, which is why the scan is right to see it, and the " +
+		"consequence is guarded by TestNeitherBootPathCarriesTheOtherScopesLore " +
+		"rather than by an authz test.",
 	"api_lore.go :: HandleSetLoreEntryStateApiLoreEntryIdStatePost :: principalAtLeast(s.principalOfRequest(r), principalAdminAgent)": "" +
 		"ONE door (POST /api/lore/{entry_id}/state) performs three transitions with TWO " +
 		"floors: 置頂 and its undo are admin-only (owner: 「置頂只有你跟 admin」) because a " +
