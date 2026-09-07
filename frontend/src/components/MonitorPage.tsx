@@ -560,8 +560,11 @@ export function MonitorPage() {
   // array is built member-lane-then-worker-lane, each lane in the order it
   // already had (the worker lane's own 任務建立時間 新→舊 sort lives in
   // useOutsourceWorkers and is preserved by construction), so the DEFAULT screen
-  // is byte-for-byte the previous one. Only a click reorders anything, and the
-  // sort below is stable, so equal cells still fall back to this same order.
+  // shows the rows in exactly the previous ORDER. Not the previous markup: the
+  // headers are now buttons and every row carries data-session-row, so a DOM
+  // snapshot of the default screen is NOT unchanged — only the ordering is, and
+  // that is what B3 asked for. Only a click reorders anything, and the sort
+  // below is stable, so equal cells still fall back to this same order.
   const sessionRows: SessionRowItem[] = [
     ...aiSessions.map((s): SessionRowItem => {
       const roster = members.find((m) => m.id === s.id);
