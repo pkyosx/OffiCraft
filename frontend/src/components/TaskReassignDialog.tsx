@@ -329,6 +329,7 @@ export function TaskReassignDialog({
                       onPick={setModelDraft}
                       testidPrefix="reassign-model"
                       ariaLabel={t.settings.assigneeModelLabel}
+                      className="task-reassign__seg--grid2"
                     />
                     <input
                       className="task-reassign__input"
@@ -364,6 +365,7 @@ export function TaskReassignDialog({
                   onPick={(v) => setEffortDraft(v)}
                   testidPrefix="reassign-effort"
                   ariaLabel={t.settings.assigneeEffort}
+                  className="task-reassign__seg--grid2"
                 />
               </div>
 
