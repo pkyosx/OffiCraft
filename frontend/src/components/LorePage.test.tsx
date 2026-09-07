@@ -631,8 +631,17 @@ describe("LorePage — 內嵌輸入框", () => {
         container.querySelector('[data-testid="lore-msg-input"]'),
       ).not.toBeNull(),
     );
-    // The row really is closed: 撰寫人 is the expanded-only element.
-    expect(container.querySelector('[data-testid="lore-author-row"]')).toBeNull();
+    // The row really is closed. 🔴 ASSERT ON `aria-expanded`, WHICH IS THE
+    // STATE ITSELF. This used to read `lore-author-row` and that testid is
+    // rendered ONLY on the DEPARTED-author branch (peerId === ""), so for the
+    // reachable author every call here uses it was null whether the row was
+    // open or shut — a guard that could not fail. Verified by planting the
+    // mutant it was supposed to catch: it stayed green.
+    expect(
+      container
+        .querySelector('[data-testid="lore-row"]')!
+        .getAttribute("aria-expanded"),
+    ).toBe("false");
     expect(
       container.querySelector('[data-testid="lore-author-link"]'),
     ).toBeNull();
@@ -719,14 +728,22 @@ describe("LorePage — 內嵌輸入框", () => {
     )!;
 
     fireEvent.click(composer);
-    expect(container.querySelector('[data-testid="lore-author-row"]')).toBeNull();
+    expect(
+      container
+        .querySelector('[data-testid="lore-row"]')!
+        .getAttribute("aria-expanded"),
+    ).toBe("false");
 
     const box = container.querySelector<HTMLTextAreaElement>(
       '[data-testid="lore-msg-input"]',
     )!;
     fireEvent.click(box);
     fireEvent.change(box, { target: { value: "打字不該把卡片摺起來" } });
-    expect(container.querySelector('[data-testid="lore-author-row"]')).toBeNull();
+    expect(
+      container
+        .querySelector('[data-testid="lore-row"]')!
+        .getAttribute("aria-expanded"),
+    ).toBe("false");
     expect(box.value).toBe("打字不該把卡片摺起來");
   });
 
