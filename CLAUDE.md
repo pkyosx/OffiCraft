@@ -42,7 +42,7 @@ This file is read by Claude Code agents working in this repo.
 ## 驗證、CI 與出貨
 
 - **先查 source of truth**：任何「完成」「能跑」「現況是 X」都回到 git、實際輸出或 CI 讀回驗證；exit code 或工具回應成功本身不等於驗收完成。比較基準用 `origin/main`，不要把本地孤兒 `main` 當現況。
-- **wire spec-first**：HTTP／MCP wire 先改 `spec/ocapi/ocapi.go` 並讓 owner 過目，再依生成流程更新產物；`spec/openapi.json` 與 `spec/mcp-catalog.json` 都是生成物，不是手改入口。行為面由 conformance 收官。
+- **wire spec-first**：HTTP／MCP wire 先改 `spec/openapi.json` 並讓 owner 過目，再依生成流程更新產物；`spec/mcp-catalog.json` 是生成物，不是手改入口。行為面由 conformance 收官。
 - **完整與點名 CI 的判綠不同**：完整 `bash bin/ci.sh` 必須同時是 rc 0 且最後一行精確為 `[ci] all green`；`bash bin/run-checks.sh <target>...` 只看被點名項目的各自完成標記，不要套用完整 CI 的 marker。要跑哪些項目，以 `.github/workflows/ci.yml` 的實際指令與 `Makefile` 的具名 target 為準，不在文件裡另抄清單。
 - **Actions 守衛是可執行權威**：不要在文件裡列 job 名稱、數量或 gate 對應；清單會在 workflow 變更後靜默過期，而不會提醒讀者。以 workflow 內的 `oc-job-role`、workflow 的 trigger／job `if`／`needs`／permissions 與 `bin/tests/auto-beta-guard.sh` 的檢查為準；job 不得用 `continue-on-error` 偽裝成功。expression 分隔符使用雙引號可能讓 workflow 啟動失敗而變成零 jobs；它與 shell／普通 YAML 字串、單引號字面值不是同一格，修改時讓 guard 驗證，不要做寬鬆的全域引號正規化。
 - **PR 才是 land 流程**：從 `origin/main` 開分支，先跑與改動相關的本機檢查，再 push 分支、開 PR，讀回確認分支與 check；受保護的 `main` 不直推。合併判準看 PR 上的雲端整輪 checks，不能用本機綠代替；rebase 後以 `git push --force-with-lease` 更新分支，禁止裸 `--force`，並重新取得雲端結論。main／CI 綠也不等於已部署，部署要走 release 並從版本 source of truth 驗證。

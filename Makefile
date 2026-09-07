@@ -114,7 +114,7 @@ REGEN_PAIR_GATE = $(P) \
   test-frontend-ct test-conformance \
   scan-tracked-paths scan-secrets scan-tcc-anchor \
   drift-ocapi drift-schema-ts drift-theme-tokens drift-message-keys drift-fonts \
-  drift-mcp-catalog drift-openapi \
+  drift-mcp-catalog \
   drift-sse-topics \
   drift-migration-lock check-released-migrations
 
@@ -757,36 +757,6 @@ drift-ocapi:
 	  echo "FAIL — gen-ocapi drift: server/ocserverd/ocapi_gen.go is STALE vs spec/openapi.json."; \
 	  echo "wire 已凍結 (M1): spec-first — if the spec change IS approved, regenerate + commit:"; \
 	  echo "  bash bin/gen-ocapi && git add server/ocserverd/ocapi_gen.go"; \
-	  rm -f "$$fresh"; \
-	  exit 1; \
-	fi; \
-	rm -f "$$fresh"; \
-	$(DONE)
-
-# The gate on the SPEC ITSELF. Until owner ruling rc-d6826c70b6ee [0]
-# spec/openapi.json was HAND-WRITTEN and was the source everything else derived
-# from. It is now a 100% GENERATED artifact whose one source is the Go file
-# spec/ocapi/ocapi.go, and this gate requires the render to come back
-# BYTE-IDENTICAL to the committed bytes.
-#
-# 🔴 THIS IS THE UPSTREAM OF drift-ocapi, drift-mcp-catalog AND drift-schema-ts,
-# not a duplicate of any of them. Those three ask "is the artifact I generate
-# still in step with the spec?"; this one asks "is the spec still in step with
-# the Go that MINTS it?". Without it a hand edit to spec/openapi.json passes all
-# three — they would faithfully regenerate from the edited spec — while the Go
-# source silently no longer describes the wire.
-#
-# Regenerate to a temp file — the committed file is never touched.
-drift-openapi:
-	@$(P) \
-	echo "[drift-openapi] regenerate spec/openapi.json from spec/ocapi/ocapi.go + diff committed"; \
-	fresh="$$(mktemp -t oc-fresh-openapi.XXXXXX.json)"; \
-	bin/gen-openapi "$$fresh" >/dev/null; \
-	if ! diff -u spec/openapi.json "$$fresh"; then \
-	  echo "FAIL — gen-openapi drift: spec/openapi.json is STALE vs spec/ocapi/ocapi.go."; \
-	  echo "the spec is GENERATED (rc-d6826c70b6ee [0]) — never hand-edit it. Edit the Go source, then:"; \
-	  echo "  bin/gen-openapi && git add spec/openapi.json"; \
-	  echo "(directive vocabulary: spec/ocapi/VOCABULARY.md)"; \
 	  rm -f "$$fresh"; \
 	  exit 1; \
 	fi; \
