@@ -1978,6 +1978,58 @@ def _check_manual_learnings_written(ctx: HCtx, r: httpx.Response) -> None:
 
 
 
+# ── 傳承 (T-33) ──────────────────────────────────────────────────────────────
+_HAPPY_LORE_TITLE = "conf happy lore title"
+_HAPPY_LORE_BODY = "conf happy lore body"
+
+
+def _happy_lore_entry(ctx: HCtx) -> str:
+    """A fresh 傳承 entry under the scratch agent's OWN role; returns its id.
+
+    The ROLE arm is used rather than the manual arm because it needs no task
+    fixture: the scope is read from the caller's roster row, and this file's
+    scratch agent is hired with its own throwaway role_key.
+    """
+    r = ctx.client.post(
+        "/api/lore",
+        json={"title": _HAPPY_LORE_TITLE, "body": _HAPPY_LORE_BODY},
+        headers=_auth(ctx.agent.token),
+    )
+    assert r.status_code == 200, f"happy lore failed: {r.status_code} {r.text}"
+    return r.json()["id"]
+
+
+def _check_lore_written(ctx: HCtx, r: httpx.Response) -> None:
+    d = r.json()
+    assert d["id"].startswith("L-"), d
+    assert d["scope_kind"] == "role", d
+    assert d["scope_key"] == ctx.agent.role_key, d
+    assert d["state"] == "active", d
+    assert d["author_id"] == ctx.agent.member_id, d
+    # The two timestamps start EQUAL and only effective_ts ever moves; the bump
+    # row below is what proves they can come apart.
+    assert d["created_ts"] == d["effective_ts"], d
+
+
+def _check_lore_bumped(_ctx: HCtx, r: httpx.Response) -> None:
+    d = r.json()
+    # 提到最新 moves effective_ts and leaves created_ts alone — which is the
+    # whole reason there are two columns.
+    assert d["effective_ts"] >= d["created_ts"], d
+
+
+def _check_lore_retired(_ctx: HCtx, r: httpx.Response) -> None:
+    d = r.json()
+    assert d["state"] == "retired", d
+    assert d["retire_reason"] == "conf happy retire reason", d
+
+
+def _check_lore_list(_ctx: HCtx, r: httpx.Response) -> None:
+    d = r.json()
+    assert isinstance(d["entries"], list), d
+    assert d["limit"] >= 1 and d["offset"] == 0, d
+
+
 HAPPY: dict[str, Happy] = {
     # ── public ───────────────────────────────────────────────────────────────
     "GET /api/health": Happy(identity="none"),
@@ -3360,6 +3412,24 @@ HAPPY: dict[str, Happy] = {
         check=lambda _c, r: _expect(
             r, lambda d: any(row["slug"] == "why" for row in d)
         ),
+    ),
+    # ── 傳承 (T-33) ─────────────────────────────────────────────────────────
+    "POST /api/lore": Happy(
+        identity="agent",
+        body={"title": _HAPPY_LORE_TITLE, "body": _HAPPY_LORE_BODY},
+        check=_check_lore_written,
+    ),
+    "GET /api/lore": Happy(identity="agent", check=_check_lore_list),
+    "POST /api/lore/{entry_id}/state": Happy(
+        identity="agent",
+        path=lambda ctx: f"/api/lore/{_happy_lore_entry(ctx)}/state",
+        body={"state": "retired", "retire_reason": "conf happy retire reason"},
+        check=_check_lore_retired,
+    ),
+    "POST /api/lore/{entry_id}/bump": Happy(
+        identity="agent",
+        path=lambda ctx: f"/api/lore/{_happy_lore_entry(ctx)}/bump",
+        check=_check_lore_bumped,
     ),
     "GET /api/docs/{slug}": Happy(
         path="/api/docs/why",

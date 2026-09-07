@@ -1399,6 +1399,84 @@ type LoginDTO struct {
 	Password string  `json:"password"`
 }
 
+// LoreEntryDTO One 傳承 entry (T-33). Written once and NEVER edited: no route changes “title“ or “body“, so what you read here is what was written. The mutable surface is “state“ (active / pinned / retired), “retire_reason“ and “effective_ts“.
+//
+// “effective_ts“ vs “created_ts“: “created_ts“ is when the entry was written and never moves; “effective_ts“ starts equal to it and is what “bump_lore_entry“ sets to now. The fold's selection order reads “effective_ts“, so bumping is how an old entry is brought back to the front — and because “created_ts“ survives, the bump is reversible and explicable afterwards.
+//
+// “author_id“ is the writer's member id AS IT WAS at the moment of the write, pinned. It is not re-resolved against the roster: a writer who has since left still wrote this. A client that cannot find the id on the live roster should drop the writer's live affordances, never the entry.
+type LoreEntryDTO struct {
+	AuthorId    string  `json:"author_id"`
+	Body        string  `json:"body"`
+	CreatedTs   float64 `json:"created_ts"`
+	EffectiveTs float64 `json:"effective_ts"`
+
+	// Id ``L-<n>``, ``n`` ascending globally. This is the handle every write face takes as ``entry_id``.
+	Id string `json:"id"`
+
+	// RetireReason Why it was retired, or "". Meaningful only while ``state`` is ``retired``, and cleared when the entry is moved back.
+	RetireReason string `json:"retire_reason"`
+
+	// ScopeKey The role_key when ``scope_kind`` is ``role``; the task manual's ``type_key`` when it is ``manual``.
+	ScopeKey string `json:"scope_key"`
+
+	// ScopeKind ``role`` or ``manual``. The two are not interchangeable: a role entry rides the STAFF boot document, a manual entry rides ``get_task_manual``.
+	ScopeKind string `json:"scope_kind"`
+
+	// Seq The number behind the id — also the stable tie-break when two entries carry the same ``effective_ts``.
+	Seq int `json:"seq"`
+
+	// SourceTaskId The task the write happened inside, or "". Provenance only — nothing branches on it.
+	SourceTaskId string `json:"source_task_id"`
+
+	// State ``active`` | ``pinned`` | ``retired`` — exactly one, always. ``pinned`` sorts ahead of every active entry so it survives the fold's cap; ``retired`` is excluded from both folds but is NOT deleted and can be moved back.
+	State     string  `json:"state"`
+	Title     string  `json:"title"`
+	UpdatedTs float64 `json:"updated_ts"`
+}
+
+// LoreEntryListDTO One page of 傳承 entries (T-33), in the fixed display order: pinned, then active, then retired, newest “effective_ts“ first inside each group. THE ORDER IS NOT CONFIGURABLE — the filter is.
+//
+// The filter is applied in the QUERY, before the page is cut. A client that pages first and filters afterwards cannot tell "this page happens to hold none of them" from "there are none", and any count it draws from the visible rows is wrong.
+type LoreEntryListDTO struct {
+	Entries []LoreEntryDTO `json:"entries"`
+
+	// Limit The page size actually applied — not necessarily the one asked for.
+	Limit int `json:"limit"`
+
+	// Offset The offset actually applied.
+	Offset int `json:"offset"`
+}
+
+// LoreEntryStateDTO Move one 傳承 entry between its three mutually exclusive states (T-33). “retire_reason“ is stored only with “retired“ and is CLEARED by a move to “active“ or “pinned“ — a live entry must not keep displaying the explanation for a retirement that was undone.
+//
+// Retiring is not deleting: the entry stays readable, keeps its id, and can be moved back.
+type LoreEntryStateDTO struct {
+	// RetireReason Why it is being retired. Ignored — and any stored value cleared — for the other two states.
+	RetireReason *string `json:"retire_reason,omitempty"`
+
+	// State ``active`` | ``pinned`` | ``retired``. Anything else is a 400.
+	State string `json:"state"`
+}
+
+// LoreEntryWriteDTO Write ONE 傳承 entry (T-33). “task_id“ decides the scope, and it decides it alone:
+//
+// * absent or "" ⇒ a ROLE entry under the CALLER'S OWN role_key, read from the roster by the verified token subject — never from a client field.
+// * present ⇒ a MANUAL entry under that task's “type_key“.
+//
+// Both arms can be refused and NEITHER falls through to the other: a caller with no role (an outsource worker) is a 400 because there is no role to file under, and a task with no type (a 臨時任務) is a 400 because there is no manual to file under. Filing an untyped task's lesson under the caller's role instead would charge every boot of that role for a lesson about work it will never do, while the type that needed it still received nothing — and no error anywhere would say so.
+//
+// An over-cap “title“ or “body“ is a 400 that writes NOTHING, and nothing is truncated. The caps are the “lore_cap_chars_title“ / “lore_cap_chars_body“ settings, in characters.
+type LoreEntryWriteDTO struct {
+	// Body The entry itself, at most ``lore_cap_chars_body`` characters.
+	Body string `json:"body"`
+
+	// TaskId The task whose TYPE this entry belongs to. Omit (or "") to write a role entry under your own role instead. A task carrying no type is refused, never redirected.
+	TaskId *string `json:"task_id,omitempty"`
+
+	// Title The entry's one-line heading, at most ``lore_cap_chars_title`` characters.
+	Title string `json:"title"`
+}
+
 // MachineClaimDTO Redeem a one-time machine claim code (“POST /api/machines/claim“).
 //
 // “code“ is the single-use, short-lived (600 s) code the onboard /
@@ -3021,6 +3099,18 @@ type SettingsDTO struct {
 	// HandoverPct The SECOND of the two offboard points: the FINAL notice, and the point the automatic handover itself fires. Must be 40..90 and strictly greater than notice_pct.
 	HandoverPct int `json:"handover_pct"`
 
+	// LoreCapCharsBody The longest ``body`` ONE 傳承 entry may be written with, in characters (T-33). An over-cap write is refused whole; half a lesson is not a shorter lesson. Unlike the ``doc_cap_chars_*`` knobs this one may be LOWERED as well as raised. Those floors equal their own shipped defaults because lowering one strands an existing legal document in shrink-only mode; a 傳承 entry has NO edit path at all, so a smaller cap cannot strand anything already stored — it binds the next write and nothing else. The adjustable range is 10..10000.
+	LoreCapCharsBody *int `json:"lore_cap_chars_body,omitempty"`
+
+	// LoreCapCharsManual How many characters of 傳承 ``get_task_manual`` appends after a type's ``learnings`` (T-33) — spent by whoever opens that manual, staff and outsource alike, since this fold enters no boot document. INDEPENDENT of ``lore_cap_chars_role``. Unlike the ``doc_cap_chars_*`` knobs this one may be LOWERED as well as raised. Those floors equal their own shipped defaults because lowering one strands an existing legal document in shrink-only mode; a 傳承 entry has NO edit path at all, so a smaller cap cannot strand anything already stored — it binds the next write and nothing else. The adjustable range is 100..100000.
+	LoreCapCharsManual *int `json:"lore_cap_chars_manual,omitempty"`
+
+	// LoreCapCharsRole How many characters of 傳承 a STAFF boot document carries for one role (T-33) — spent by every boot of that role. INDEPENDENT of ``lore_cap_chars_manual``; the two are never summed, because they are paid by different readers at different moments. Unlike the ``doc_cap_chars_*`` knobs this one may be LOWERED as well as raised. Those floors equal their own shipped defaults because lowering one strands an existing legal document in shrink-only mode; a 傳承 entry has NO edit path at all, so a smaller cap cannot strand anything already stored — it binds the next write and nothing else. The adjustable range is 100..100000.
+	LoreCapCharsRole *int `json:"lore_cap_chars_role,omitempty"`
+
+	// LoreCapCharsTitle The longest ``title`` ONE 傳承 entry may be written with, in characters (T-33). An over-cap write is refused whole — nothing partial is stored and nothing is truncated. Unlike the ``doc_cap_chars_*`` knobs this one may be LOWERED as well as raised. Those floors equal their own shipped defaults because lowering one strands an existing legal document in shrink-only mode; a 傳承 entry has NO edit path at all, so a smaller cap cannot strand anything already stored — it binds the next write and nothing else. The adjustable range is 10..10000.
+	LoreCapCharsTitle *int `json:"lore_cap_chars_title,omitempty"`
+
 	// MonitoringRefreshSeconds Minimum interval between monitoring and machine refreshes, in seconds (1 through 60).
 	MonitoringRefreshSeconds *int `json:"monitoring_refresh_seconds,omitempty"`
 
@@ -3133,6 +3223,18 @@ type SettingsUpdateDTO struct {
 
 	// HandoverPct The SECOND offboard point: the FINAL notice, and where the automatic handover fires. 40..90, and strictly greater than notice_pct (the pair is validated together against the POST-patch values, so either one may be sent alone).
 	HandoverPct *int `json:"handover_pct,omitempty"`
+
+	// LoreCapCharsBody The longest ``body`` ONE 傳承 entry may be written with, in characters (T-33). An over-cap write is refused whole; half a lesson is not a shorter lesson. Unlike the ``doc_cap_chars_*`` knobs this one may be LOWERED as well as raised. Those floors equal their own shipped defaults because lowering one strands an existing legal document in shrink-only mode; a 傳承 entry has NO edit path at all, so a smaller cap cannot strand anything already stored — it binds the next write and nothing else. The adjustable range is 10..10000.
+	LoreCapCharsBody *int `json:"lore_cap_chars_body,omitempty"`
+
+	// LoreCapCharsManual How many characters of 傳承 ``get_task_manual`` appends after a type's ``learnings`` (T-33) — spent by whoever opens that manual, staff and outsource alike, since this fold enters no boot document. INDEPENDENT of ``lore_cap_chars_role``. Unlike the ``doc_cap_chars_*`` knobs this one may be LOWERED as well as raised. Those floors equal their own shipped defaults because lowering one strands an existing legal document in shrink-only mode; a 傳承 entry has NO edit path at all, so a smaller cap cannot strand anything already stored — it binds the next write and nothing else. The adjustable range is 100..100000.
+	LoreCapCharsManual *int `json:"lore_cap_chars_manual,omitempty"`
+
+	// LoreCapCharsRole How many characters of 傳承 a STAFF boot document carries for one role (T-33) — spent by every boot of that role. INDEPENDENT of ``lore_cap_chars_manual``; the two are never summed, because they are paid by different readers at different moments. Unlike the ``doc_cap_chars_*`` knobs this one may be LOWERED as well as raised. Those floors equal their own shipped defaults because lowering one strands an existing legal document in shrink-only mode; a 傳承 entry has NO edit path at all, so a smaller cap cannot strand anything already stored — it binds the next write and nothing else. The adjustable range is 100..100000.
+	LoreCapCharsRole *int `json:"lore_cap_chars_role,omitempty"`
+
+	// LoreCapCharsTitle The longest ``title`` ONE 傳承 entry may be written with, in characters (T-33). An over-cap write is refused whole — nothing partial is stored and nothing is truncated. Unlike the ``doc_cap_chars_*`` knobs this one may be LOWERED as well as raised. Those floors equal their own shipped defaults because lowering one strands an existing legal document in shrink-only mode; a 傳承 entry has NO edit path at all, so a smaller cap cannot strand anything already stored — it binds the next write and nothing else. The adjustable range is 10..10000.
+	LoreCapCharsTitle *int `json:"lore_cap_chars_title,omitempty"`
 
 	// MonitoringRefreshSeconds Minimum interval between monitoring and machine refreshes, in seconds. Must be 1 through 60.
 	MonitoringRefreshSeconds *int `json:"monitoring_refresh_seconds,omitempty"`
@@ -4201,6 +4303,16 @@ type HandleGetDiffShareLinkApiDiffShareLinkGetParams struct {
 	LabelAfter  *string `form:"label_after,omitempty" json:"label_after,omitempty"`
 }
 
+// HandleListLoreEntriesApiLoreGetParams defines parameters for HandleListLoreEntriesApiLoreGet.
+type HandleListLoreEntriesApiLoreGetParams struct {
+	ScopeKind *string `form:"scope_kind,omitempty" json:"scope_kind,omitempty"`
+	ScopeKey  *string `form:"scope_key,omitempty" json:"scope_key,omitempty"`
+	State     *string `form:"state,omitempty" json:"state,omitempty"`
+	AuthorId  *string `form:"author_id,omitempty" json:"author_id,omitempty"`
+	Limit     *int    `form:"limit,omitempty" json:"limit,omitempty"`
+	Offset    *int    `form:"offset,omitempty" json:"offset,omitempty"`
+}
+
 // HandleListMembersApiMembersGetParams defines parameters for HandleListMembersApiMembersGet.
 type HandleListMembersApiMembersGetParams struct {
 	Fields *string `form:"fields,omitempty" json:"fields,omitempty"`
@@ -4324,6 +4436,12 @@ type HandlePatchLessonsApiLessonsRoleKeyPatchPostJSONRequestBody = LessonsPatchD
 
 // HandleLoginApiLoginPostJSONRequestBody defines body for HandleLoginApiLoginPost for application/json ContentType.
 type HandleLoginApiLoginPostJSONRequestBody = LoginDTO
+
+// HandleWriteLoreEntryApiLorePostJSONRequestBody defines body for HandleWriteLoreEntryApiLorePost for application/json ContentType.
+type HandleWriteLoreEntryApiLorePostJSONRequestBody = LoreEntryWriteDTO
+
+// HandleSetLoreEntryStateApiLoreEntryIdStatePostJSONRequestBody defines body for HandleSetLoreEntryStateApiLoreEntryIdStatePost for application/json ContentType.
+type HandleSetLoreEntryStateApiLoreEntryIdStatePostJSONRequestBody = LoreEntryStateDTO
 
 // HandleOnboardMachineApiMachinesPostJSONRequestBody defines body for HandleOnboardMachineApiMachinesPost for application/json ContentType.
 type HandleOnboardMachineApiMachinesPostJSONRequestBody = MachineOnboardDTO
@@ -4717,6 +4835,18 @@ type ServerInterface interface {
 	// Owner login: exchange the password for an owner-scoped JWT.
 	// (POST /api/login)
 	HandleLoginApiLoginPost(w http.ResponseWriter, r *http.Request)
+	// List 傳承 entries, filtered SERVER-SIDE and paged in the fixed order pinned -> active -> retired, newest first inside each group. The order is not configurable; the filter is.
+	// (GET /api/lore)
+	HandleListLoreEntriesApiLoreGet(w http.ResponseWriter, r *http.Request, params HandleListLoreEntriesApiLoreGetParams)
+	// Write ONE 傳承 entry (never editable afterwards). “task_id“ picks the scope: absent = your own role; present = that task's type. No role (outsource) or no task type (臨時任務) is a 400 -- neither falls back to the other. An over-cap title or body is a 400 that writes nothing.
+	// (POST /api/lore)
+	HandleWriteLoreEntryApiLorePost(w http.ResponseWriter, r *http.Request)
+	// 提到最新: set one 傳承 entry's “effective_ts“ to now so it sorts to the front of its group. “created_ts“ is NOT touched, which is what makes this reversible.
+	// (POST /api/lore/{entry_id}/bump)
+	HandleBumpLoreEntryApiLoreEntryIdBumpPost(w http.ResponseWriter, r *http.Request, entryId string)
+	// Move one 傳承 entry to active / pinned / retired. Retiring is not deleting -- the entry keeps its id and can be moved back; “retire_reason“ is stored only with retired and cleared by the other two.
+	// (POST /api/lore/{entry_id}/state)
+	HandleSetLoreEntryStateApiLoreEntryIdStatePost(w http.ResponseWriter, r *http.Request, entryId string)
 	// List machines (active wardens): machine_id/display_name/online.
 	// (GET /api/machines)
 	HandleListMachinesApiMachinesGet(w http.ResponseWriter, r *http.Request)
@@ -6585,6 +6715,170 @@ func (siw *ServerInterfaceWrapper) HandleLoginApiLoginPost(w http.ResponseWriter
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.HandleLoginApiLoginPost(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// HandleListLoreEntriesApiLoreGet operation middleware
+func (siw *ServerInterfaceWrapper) HandleListLoreEntriesApiLoreGet(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params HandleListLoreEntriesApiLoreGetParams
+
+	// ------------- Optional query parameter "scope_kind" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "scope_kind", r.URL.Query(), &params.ScopeKind, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "scope_kind"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "scope_kind", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "scope_key" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "scope_key", r.URL.Query(), &params.ScopeKey, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "scope_key"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "scope_key", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "state" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "state", r.URL.Query(), &params.State, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "state"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "state", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "author_id" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "author_id", r.URL.Query(), &params.AuthorId, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "author_id"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "author_id", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "limit"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "offset" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "offset", r.URL.Query(), &params.Offset, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "offset"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "offset", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.HandleListLoreEntriesApiLoreGet(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// HandleWriteLoreEntryApiLorePost operation middleware
+func (siw *ServerInterfaceWrapper) HandleWriteLoreEntryApiLorePost(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.HandleWriteLoreEntryApiLorePost(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// HandleBumpLoreEntryApiLoreEntryIdBumpPost operation middleware
+func (siw *ServerInterfaceWrapper) HandleBumpLoreEntryApiLoreEntryIdBumpPost(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "entry_id" -------------
+	var entryId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "entry_id", r.PathValue("entry_id"), &entryId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "entry_id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.HandleBumpLoreEntryApiLoreEntryIdBumpPost(w, r, entryId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// HandleSetLoreEntryStateApiLoreEntryIdStatePost operation middleware
+func (siw *ServerInterfaceWrapper) HandleSetLoreEntryStateApiLoreEntryIdStatePost(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "entry_id" -------------
+	var entryId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "entry_id", r.PathValue("entry_id"), &entryId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "entry_id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.HandleSetLoreEntryStateApiLoreEntryIdStatePost(w, r, entryId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -9951,6 +10245,10 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/lessons/{role_key}", wrapper.HandleReplaceLessonsApiLessonsRoleKeyPost)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/lessons/{role_key}/patch", wrapper.HandlePatchLessonsApiLessonsRoleKeyPatchPost)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/login", wrapper.HandleLoginApiLoginPost)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/lore", wrapper.HandleListLoreEntriesApiLoreGet)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/lore", wrapper.HandleWriteLoreEntryApiLorePost)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/lore/{entry_id}/bump", wrapper.HandleBumpLoreEntryApiLoreEntryIdBumpPost)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/lore/{entry_id}/state", wrapper.HandleSetLoreEntryStateApiLoreEntryIdStatePost)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/machines", wrapper.HandleListMachinesApiMachinesGet)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/machines", wrapper.HandleOnboardMachineApiMachinesPost)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/machines/claim", wrapper.HandleClaimMachineTokenApiMachinesClaimPost)

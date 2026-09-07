@@ -4400,6 +4400,92 @@
         "type": "object"
       },
       "name": "replace_task_artifact"
-    }
+    },
+    {
+        "description": "Write ONE 傳承 entry (never editable afterwards). ``task_id`` picks the scope: absent = your own role; present = that task's type. No role (outsource) or no task type (臨時任務) is a 400 -- neither falls back to the other. An over-cap title or body is a 400 that writes nothing.",
+        "inputSchema": {
+          "properties": {
+            "title": {
+              "type": "string"
+            },
+            "body": {
+              "type": "string"
+            },
+            "task_id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "title",
+            "body"
+          ],
+          "type": "object"
+        },
+        "name": "write_lore_entry"
+      },
+    {
+        "description": "List 傳承 entries, filtered SERVER-SIDE and paged in the fixed order pinned -> active -> retired, newest first inside each group. The order is not configurable; the filter is.",
+        "inputSchema": {
+          "properties": {
+            "scope_kind": {
+              "type": "string"
+            },
+            "scope_key": {
+              "type": "string"
+            },
+            "state": {
+              "type": "string"
+            },
+            "author_id": {
+              "type": "string"
+            },
+            "limit": {
+              "type": "integer"
+            },
+            "offset": {
+              "type": "integer"
+            }
+          },
+          "type": "object"
+        },
+        "name": "list_lore_entries"
+      },
+    {
+        "description": "Move one 傳承 entry to active / pinned / retired. Retiring is not deleting -- the entry keeps its id and can be moved back; ``retire_reason`` is stored only with retired and cleared by the other two.",
+        "inputSchema": {
+          "properties": {
+            "entry_id": {
+              "type": "string"
+            },
+            "state": {
+              "type": "string"
+            },
+            "retire_reason": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "entry_id",
+            "state"
+          ],
+          "type": "object"
+        },
+        "name": "set_lore_entry_state"
+      },
+    {
+        "description": "提到最新: set one 傳承 entry's ``effective_ts`` to now so it sorts to the front of its group. ``created_ts`` is NOT touched, which is what makes this reversible.",
+        "inputSchema": {
+          "properties": {
+            "entry_id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "entry_id"
+          ],
+          "type": "object"
+        },
+        "name": "bump_lore_entry"
+      }
   ]
 }

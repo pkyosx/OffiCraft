@@ -2356,5 +2356,55 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			Summary:  "強制停止 an outsource worker: kill the session NOW and hold it down; says nothing to it. Third rung of 停止 -> 加速停止 -> 強制停止. Answers with a bounded receipt (``id``), not the roster row — call ``list_outsource_workers`` when you need the rest.",
 			MCPTool:  "force_stop_outsource_worker",
 		},
+		// ── 傳承 (T-33) ─────────────────────────────────────────────────────
+		// 🔴 APPENDED AT THE END, like every tool block before them. The MCP tool
+		// surface has ONE order shared by this table, spec/openapi.json's
+		// x-mcp.order and conformance/routes_manifest.json, and x-mcp.order must be
+		// the consecutive range 0..N-1 — so a tool inserted in the middle renumbers
+		// every tool after it. These four took 127..130.
+		//
+		// WRITING IS MCP-ONLY AND THE FLOOR IS `agent`: an entry is written by the
+		// agent that just learned the thing, in the moment, out of its own work.
+		// The three governance verbs sit at the same floor rather than at
+		// admin_agent because retiring a lesson that turned out to be wrong is the
+		// same act as having written it, done by the same kind of caller — and
+		// nothing here destroys anything: retire is reversible, and there is no
+		// delete.
+		{
+			Method:   "POST",
+			Path:     "/api/lore",
+			Handler:  w.HandleWriteLoreEntryApiLorePost,
+			Auth:     authGated,
+			Requires: principalAgent,
+			Summary:  "Write ONE 傳承 entry (never editable afterwards). ``task_id`` picks the scope: absent = your own role; present = that task's type. No role (outsource) or no task type (臨時任務) is a 400 -- neither falls back to the other. An over-cap title or body is a 400 that writes nothing.",
+			MCPTool:  "write_lore_entry",
+		},
+		{
+			Method:   "GET",
+			Path:     "/api/lore",
+			Handler:  w.HandleListLoreEntriesApiLoreGet,
+			Auth:     authGated,
+			Requires: principalAgent,
+			Summary:  "List 傳承 entries, filtered SERVER-SIDE and paged in the fixed order pinned -> active -> retired, newest first inside each group. The order is not configurable; the filter is.",
+			MCPTool:  "list_lore_entries",
+		},
+		{
+			Method:   "POST",
+			Path:     "/api/lore/{entry_id}/state",
+			Handler:  w.HandleSetLoreEntryStateApiLoreEntryIdStatePost,
+			Auth:     authGated,
+			Requires: principalAgent,
+			Summary:  "Move one 傳承 entry to active / pinned / retired. Retiring is not deleting -- the entry keeps its id and can be moved back; ``retire_reason`` is stored only with retired and cleared by the other two.",
+			MCPTool:  "set_lore_entry_state",
+		},
+		{
+			Method:   "POST",
+			Path:     "/api/lore/{entry_id}/bump",
+			Handler:  w.HandleBumpLoreEntryApiLoreEntryIdBumpPost,
+			Auth:     authGated,
+			Requires: principalAgent,
+			Summary:  "提到最新: set one 傳承 entry's ``effective_ts`` to now so it sorts to the front of its group. ``created_ts`` is NOT touched, which is what makes this reversible.",
+			MCPTool:  "bump_lore_entry",
+		},
 	}
 }

@@ -1,6 +1,183 @@
 {
   "components": {
     "schemas": {
+        "LoreEntryDTO": {
+          "description": "One 傳承 entry (T-33). Written once and NEVER edited: no route changes ``title`` or ``body``, so what you read here is what was written. The mutable surface is ``state`` (active / pinned / retired), ``retire_reason`` and ``effective_ts``.\n\n``effective_ts`` vs ``created_ts``: ``created_ts`` is when the entry was written and never moves; ``effective_ts`` starts equal to it and is what ``bump_lore_entry`` sets to now. The fold's selection order reads ``effective_ts``, so bumping is how an old entry is brought back to the front — and because ``created_ts`` survives, the bump is reversible and explicable afterwards.\n\n``author_id`` is the writer's member id AS IT WAS at the moment of the write, pinned. It is not re-resolved against the roster: a writer who has since left still wrote this. A client that cannot find the id on the live roster should drop the writer's live affordances, never the entry.",
+          "properties": {
+            "id": {
+              "description": "``L-<n>``, ``n`` ascending globally. This is the handle every write face takes as ``entry_id``.",
+              "title": "Id",
+              "type": "string"
+            },
+            "seq": {
+              "description": "The number behind the id — also the stable tie-break when two entries carry the same ``effective_ts``.",
+              "title": "Seq",
+              "type": "integer"
+            },
+            "scope_kind": {
+              "description": "``role`` or ``manual``. The two are not interchangeable: a role entry rides the STAFF boot document, a manual entry rides ``get_task_manual``.",
+              "title": "Scope Kind",
+              "type": "string"
+            },
+            "scope_key": {
+              "description": "The role_key when ``scope_kind`` is ``role``; the task manual's ``type_key`` when it is ``manual``.",
+              "title": "Scope Key",
+              "type": "string"
+            },
+            "title": {
+              "title": "Title",
+              "type": "string"
+            },
+            "body": {
+              "title": "Body",
+              "type": "string"
+            },
+            "author_id": {
+              "title": "Author Id",
+              "type": "string"
+            },
+            "source_task_id": {
+              "description": "The task the write happened inside, or \"\". Provenance only — nothing branches on it.",
+              "title": "Source Task Id",
+              "type": "string"
+            },
+            "state": {
+              "description": "``active`` | ``pinned`` | ``retired`` — exactly one, always. ``pinned`` sorts ahead of every active entry so it survives the fold's cap; ``retired`` is excluded from both folds but is NOT deleted and can be moved back.",
+              "title": "State",
+              "type": "string"
+            },
+            "retire_reason": {
+              "description": "Why it was retired, or \"\". Meaningful only while ``state`` is ``retired``, and cleared when the entry is moved back.",
+              "title": "Retire Reason",
+              "type": "string"
+            },
+            "effective_ts": {
+              "format": "double",
+              "title": "Effective Ts",
+              "type": "number"
+            },
+            "created_ts": {
+              "format": "double",
+              "title": "Created Ts",
+              "type": "number"
+            },
+            "updated_ts": {
+              "format": "double",
+              "title": "Updated Ts",
+              "type": "number"
+            }
+          },
+          "required": [
+            "id",
+            "seq",
+            "scope_kind",
+            "scope_key",
+            "title",
+            "body",
+            "author_id",
+            "source_task_id",
+            "state",
+            "retire_reason",
+            "effective_ts",
+            "created_ts",
+            "updated_ts"
+          ],
+          "title": "LoreEntryDTO",
+          "additionalProperties": false,
+          "type": "object"
+        },
+        "LoreEntryWriteDTO": {
+          "description": "Write ONE 傳承 entry (T-33). ``task_id`` decides the scope, and it decides it alone:\n\n* absent or \"\" ⇒ a ROLE entry under the CALLER'S OWN role_key, read from the roster by the verified token subject — never from a client field.\n* present ⇒ a MANUAL entry under that task's ``type_key``.\n\nBoth arms can be refused and NEITHER falls through to the other: a caller with no role (an outsource worker) is a 400 because there is no role to file under, and a task with no type (a 臨時任務) is a 400 because there is no manual to file under. Filing an untyped task's lesson under the caller's role instead would charge every boot of that role for a lesson about work it will never do, while the type that needed it still received nothing — and no error anywhere would say so.\n\nAn over-cap ``title`` or ``body`` is a 400 that writes NOTHING, and nothing is truncated. The caps are the ``lore_cap_chars_title`` / ``lore_cap_chars_body`` settings, in characters.",
+          "properties": {
+            "title": {
+              "description": "The entry's one-line heading, at most ``lore_cap_chars_title`` characters.",
+              "title": "Title",
+              "type": "string"
+            },
+            "body": {
+              "description": "The entry itself, at most ``lore_cap_chars_body`` characters.",
+              "title": "Body",
+              "type": "string"
+            },
+            "task_id": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The task whose TYPE this entry belongs to. Omit (or \"\") to write a role entry under your own role instead. A task carrying no type is refused, never redirected.",
+              "title": "Task Id"
+            }
+          },
+          "required": [
+            "title",
+            "body"
+          ],
+          "title": "LoreEntryWriteDTO",
+          "additionalProperties": false,
+          "type": "object"
+        },
+        "LoreEntryStateDTO": {
+          "description": "Move one 傳承 entry between its three mutually exclusive states (T-33). ``retire_reason`` is stored only with ``retired`` and is CLEARED by a move to ``active`` or ``pinned`` — a live entry must not keep displaying the explanation for a retirement that was undone.\n\nRetiring is not deleting: the entry stays readable, keeps its id, and can be moved back.",
+          "properties": {
+            "state": {
+              "description": "``active`` | ``pinned`` | ``retired``. Anything else is a 400.",
+              "title": "State",
+              "type": "string"
+            },
+            "retire_reason": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Why it is being retired. Ignored — and any stored value cleared — for the other two states.",
+              "title": "Retire Reason"
+            }
+          },
+          "required": [
+            "state"
+          ],
+          "title": "LoreEntryStateDTO",
+          "additionalProperties": false,
+          "type": "object"
+        },
+        "LoreEntryListDTO": {
+          "description": "One page of 傳承 entries (T-33), in the fixed display order: pinned, then active, then retired, newest ``effective_ts`` first inside each group. THE ORDER IS NOT CONFIGURABLE — the filter is.\n\nThe filter is applied in the QUERY, before the page is cut. A client that pages first and filters afterwards cannot tell \"this page happens to hold none of them\" from \"there are none\", and any count it draws from the visible rows is wrong.",
+          "properties": {
+            "entries": {
+              "items": {
+                "$ref": "#/components/schemas/LoreEntryDTO"
+              },
+              "title": "Entries",
+              "type": "array"
+            },
+            "limit": {
+              "description": "The page size actually applied — not necessarily the one asked for.",
+              "title": "Limit",
+              "type": "integer"
+            },
+            "offset": {
+              "description": "The offset actually applied.",
+              "title": "Offset",
+              "type": "integer"
+            }
+          },
+          "required": [
+            "entries",
+            "limit",
+            "offset"
+          ],
+          "title": "LoreEntryListDTO",
+          "additionalProperties": false,
+          "type": "object"
+        },
       "DiffPairDTO": {
         "description": "Response of ``GET /api/diff``: BOTH sides of one comparison in a single answer.\n\nOne route for the pair, never one per side, and that is the security shape rather than a convenience: the ``?sig=`` credential signs exactly what one request returns, so a holder of an external link cannot swap an address or relabel a column and still present a server-minted signature.",
         "properties": {
@@ -5941,6 +6118,30 @@
       "SettingsDTO": {
         "description": "The org-adjustable settings surface (`GET /api/settings`; owner or admin agent). `owner_token_ttl` controls owner-login JWTs; `agent_token_ttl` controls member and outsource-worker JWTs. They are independent and apply to newly minted tokens. Existing deployments migrate their former shared `auth.token_ttl` value into both successor settings, preserving current behaviour.",
         "properties": {
+          "lore_cap_chars_role": {
+            "default": 10000,
+            "description": "How many characters of 傳承 a STAFF boot document carries for one role (T-33) — spent by every boot of that role. INDEPENDENT of ``lore_cap_chars_manual``; the two are never summed, because they are paid by different readers at different moments. Unlike the ``doc_cap_chars_*`` knobs this one may be LOWERED as well as raised. Those floors equal their own shipped defaults because lowering one strands an existing legal document in shrink-only mode; a 傳承 entry has NO edit path at all, so a smaller cap cannot strand anything already stored — it binds the next write and nothing else. The adjustable range is 100..100000.",
+            "title": "Lore Cap Chars Role",
+            "type": "integer"
+          },
+          "lore_cap_chars_manual": {
+            "default": 10000,
+            "description": "How many characters of 傳承 ``get_task_manual`` appends after a type's ``learnings`` (T-33) — spent by whoever opens that manual, staff and outsource alike, since this fold enters no boot document. INDEPENDENT of ``lore_cap_chars_role``. Unlike the ``doc_cap_chars_*`` knobs this one may be LOWERED as well as raised. Those floors equal their own shipped defaults because lowering one strands an existing legal document in shrink-only mode; a 傳承 entry has NO edit path at all, so a smaller cap cannot strand anything already stored — it binds the next write and nothing else. The adjustable range is 100..100000.",
+            "title": "Lore Cap Chars Manual",
+            "type": "integer"
+          },
+          "lore_cap_chars_title": {
+            "default": 80,
+            "description": "The longest ``title`` ONE 傳承 entry may be written with, in characters (T-33). An over-cap write is refused whole — nothing partial is stored and nothing is truncated. Unlike the ``doc_cap_chars_*`` knobs this one may be LOWERED as well as raised. Those floors equal their own shipped defaults because lowering one strands an existing legal document in shrink-only mode; a 傳承 entry has NO edit path at all, so a smaller cap cannot strand anything already stored — it binds the next write and nothing else. The adjustable range is 10..10000.",
+            "title": "Lore Cap Chars Title",
+            "type": "integer"
+          },
+          "lore_cap_chars_body": {
+            "default": 500,
+            "description": "The longest ``body`` ONE 傳承 entry may be written with, in characters (T-33). An over-cap write is refused whole; half a lesson is not a shorter lesson. Unlike the ``doc_cap_chars_*`` knobs this one may be LOWERED as well as raised. Those floors equal their own shipped defaults because lowering one strands an existing legal document in shrink-only mode; a 傳承 entry has NO edit path at all, so a smaller cap cannot strand anything already stored — it binds the next write and nothing else. The adjustable range is 10..10000.",
+            "title": "Lore Cap Chars Body",
+            "type": "integer"
+          },
           "codex_compaction_threshold": {
             "default": 3,
             "description": "Codex context-compaction threshold, 1 through 10.",
@@ -6151,6 +6352,54 @@
       "SettingsUpdateDTO": {
         "description": "Partial settings edit (`PATCH /api/settings`) — only supplied fields change,\neffective immediately (no restart). `owner_token_ttl` and `agent_token_ttl` are\nindependent and each MUST be one of 43200 / 86400 / 604800 / 2592000 seconds\n(12h / 24h / 7d / 30d — a whitelist, so a stray 0 can never lock future logins\nor agent mints out); owner changes apply from the next login and agent changes\nfrom the next bootstrap, reconcile, or outsource spawn. The offboard points are a\nPAIR (T-a9d6): `notice_pct` is the SOFT notice and `handover_pct` is the FINAL one\n(and the point the handover itself fires). `handover_pct` MUST be 40..90,\n`notice_pct` MUST be 1..89, and `notice_pct` MUST be strictly below\n`handover_pct` — the pair is checked against the POST-patch values, so either may\nbe sent on its own, and a pair that would cross is a 422 rather than being\nquietly reordered. `codex_notice_round` / `codex_compaction_threshold` are the\nsame pair on the codex axis (rounds, 1..10, notice strictly below threshold).\nAnything else is a 422. `outsource_max_parallel` MUST be -1..20 (-1 = 無限/unlimited — no global cap; 0 pauses outsource assignment).\n`updater_receive_beta` toggles whether the GitHub-release update check also\nadmits prereleases; `updater_auto_update` toggles unattended background\nself-upgrade to the newest admissible release (both booleans, default false;\nthe manual upgrade endpoint is unaffected). The five document caps (T-ae38;\nthe manual's one became two in T-30f1) are independent knobs. Each one MUST be\nbetween THAT segment's shipped default (the `default` on the matching\n`SettingsDTO` field — Duty's is its own, much smaller number) and 100000. The floor equalling the shipped default is the\npoint: a cap can only ever be RAISED (owner ruling 2026-07-31), because\nlowering one would turn documents that are legal today into shrink-only ones.",
         "properties": {
+          "lore_cap_chars_role": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "How many characters of 傳承 a STAFF boot document carries for one role (T-33) — spent by every boot of that role. INDEPENDENT of ``lore_cap_chars_manual``; the two are never summed, because they are paid by different readers at different moments. Unlike the ``doc_cap_chars_*`` knobs this one may be LOWERED as well as raised. Those floors equal their own shipped defaults because lowering one strands an existing legal document in shrink-only mode; a 傳承 entry has NO edit path at all, so a smaller cap cannot strand anything already stored — it binds the next write and nothing else. The adjustable range is 100..100000.",
+            "title": "Lore Cap Chars Role"
+          },
+          "lore_cap_chars_manual": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "How many characters of 傳承 ``get_task_manual`` appends after a type's ``learnings`` (T-33) — spent by whoever opens that manual, staff and outsource alike, since this fold enters no boot document. INDEPENDENT of ``lore_cap_chars_role``. Unlike the ``doc_cap_chars_*`` knobs this one may be LOWERED as well as raised. Those floors equal their own shipped defaults because lowering one strands an existing legal document in shrink-only mode; a 傳承 entry has NO edit path at all, so a smaller cap cannot strand anything already stored — it binds the next write and nothing else. The adjustable range is 100..100000.",
+            "title": "Lore Cap Chars Manual"
+          },
+          "lore_cap_chars_title": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The longest ``title`` ONE 傳承 entry may be written with, in characters (T-33). An over-cap write is refused whole — nothing partial is stored and nothing is truncated. Unlike the ``doc_cap_chars_*`` knobs this one may be LOWERED as well as raised. Those floors equal their own shipped defaults because lowering one strands an existing legal document in shrink-only mode; a 傳承 entry has NO edit path at all, so a smaller cap cannot strand anything already stored — it binds the next write and nothing else. The adjustable range is 10..10000.",
+            "title": "Lore Cap Chars Title"
+          },
+          "lore_cap_chars_body": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The longest ``body`` ONE 傳承 entry may be written with, in characters (T-33). An over-cap write is refused whole; half a lesson is not a shorter lesson. Unlike the ``doc_cap_chars_*`` knobs this one may be LOWERED as well as raised. Those floors equal their own shipped defaults because lowering one strands an existing legal document in shrink-only mode; a 傳承 entry has NO edit path at all, so a smaller cap cannot strand anything already stored — it binds the next write and nothing else. The adjustable range is 10..10000.",
+            "title": "Lore Cap Chars Body"
+          },
           "codex_compaction_threshold": {
             "anyOf": [
               {"type": "integer"},
@@ -9295,6 +9544,376 @@
   },
   "openapi": "3.1.0",
   "paths": {
+    "/api/lore": {
+      "get": {
+        "description": "List 傳承 entries, filtered SERVER-SIDE and paged in the fixed order pinned -> active -> retired, newest first inside each group. The order is not configurable; the filter is.",
+        "operationId": "handle_list_lore_entries_api_lore_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "scope_kind",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Scope Kind"
+            }
+          },
+          {
+            "in": "query",
+            "name": "scope_key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Scope Key"
+            }
+          },
+          {
+            "in": "query",
+            "name": "state",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "State"
+            }
+          },
+          {
+            "in": "query",
+            "name": "author_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Author Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Limit"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Offset"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LoreEntryListDTO"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Validation error (unified error envelope)."
+          },
+          "4XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Client error (unified error envelope)."
+          },
+          "5XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Server error (unified error envelope)."
+          }
+        },
+        "summary": "List 傳承 entries, filtered SERVER-SIDE and paged in the fixed order pinned -> active -> retired, newest first inside each group. The order is not configurable; the filter is.",
+        "x-mcp": {
+          "include": true,
+          "order": 128,
+          "name": "list_lore_entries",
+          "description": "List 傳承 entries, filtered SERVER-SIDE and paged in the fixed order pinned -> active -> retired, newest first inside each group. The order is not configurable; the filter is.",
+          "legacy": {
+            "descriptor": "{\n        \"description\": \"List 傳承 entries, filtered SERVER-SIDE and paged in the fixed order pinned -> active -> retired, newest first inside each group. The order is not configurable; the filter is.\",\n        \"inputSchema\": {\n          \"properties\": {\n            \"scope_kind\": {\n              \"type\": \"string\"\n            },\n            \"scope_key\": {\n              \"type\": \"string\"\n            },\n            \"state\": {\n              \"type\": \"string\"\n            },\n            \"author_id\": {\n              \"type\": \"string\"\n            },\n            \"limit\": {\n              \"type\": \"integer\"\n            },\n            \"offset\": {\n              \"type\": \"integer\"\n            }\n          },\n          \"type\": \"object\"\n        },\n        \"name\": \"list_lore_entries\"\n      }"
+          }
+        }
+      },
+      "post": {
+        "description": "Write ONE 傳承 entry (never editable afterwards). ``task_id`` picks the scope: absent = your own role; present = that task's type. No role (outsource) or no task type (臨時任務) is a 400 -- neither falls back to the other. An over-cap title or body is a 400 that writes nothing.",
+        "operationId": "handle_write_lore_entry_api_lore_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LoreEntryWriteDTO"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LoreEntryDTO"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Validation error (unified error envelope)."
+          },
+          "4XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Client error (unified error envelope)."
+          },
+          "5XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Server error (unified error envelope)."
+          }
+        },
+        "summary": "Write ONE 傳承 entry (never editable afterwards). ``task_id`` picks the scope: absent = your own role; present = that task's type. No role (outsource) or no task type (臨時任務) is a 400 -- neither falls back to the other. An over-cap title or body is a 400 that writes nothing.",
+        "x-mcp": {
+          "include": true,
+          "order": 127,
+          "name": "write_lore_entry",
+          "description": "Write ONE 傳承 entry (never editable afterwards). ``task_id`` picks the scope: absent = your own role; present = that task's type. No role (outsource) or no task type (臨時任務) is a 400 -- neither falls back to the other. An over-cap title or body is a 400 that writes nothing.",
+          "legacy": {
+            "descriptor": "{\n        \"description\": \"Write ONE 傳承 entry (never editable afterwards). ``task_id`` picks the scope: absent = your own role; present = that task's type. No role (outsource) or no task type (臨時任務) is a 400 -- neither falls back to the other. An over-cap title or body is a 400 that writes nothing.\",\n        \"inputSchema\": {\n          \"properties\": {\n            \"title\": {\n              \"type\": \"string\"\n            },\n            \"body\": {\n              \"type\": \"string\"\n            },\n            \"task_id\": {\n              \"type\": \"string\"\n            }\n          },\n          \"required\": [\n            \"title\",\n            \"body\"\n          ],\n          \"type\": \"object\"\n        },\n        \"name\": \"write_lore_entry\"\n      }"
+          }
+        }
+      }
+    },
+    "/api/lore/{entry_id}/state": {
+      "post": {
+        "description": "Move one 傳承 entry to active / pinned / retired. Retiring is not deleting -- the entry keeps its id and can be moved back; ``retire_reason`` is stored only with retired and cleared by the other two.",
+        "operationId": "handle_set_lore_entry_state_api_lore__entry_id__state_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "entry_id",
+            "required": true,
+            "schema": {
+              "title": "Entry Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LoreEntryStateDTO"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LoreEntryDTO"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Validation error (unified error envelope)."
+          },
+          "4XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Client error (unified error envelope)."
+          },
+          "5XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Server error (unified error envelope)."
+          }
+        },
+        "summary": "Move one 傳承 entry to active / pinned / retired. Retiring is not deleting -- the entry keeps its id and can be moved back; ``retire_reason`` is stored only with retired and cleared by the other two.",
+        "x-mcp": {
+          "include": true,
+          "order": 129,
+          "name": "set_lore_entry_state",
+          "description": "Move one 傳承 entry to active / pinned / retired. Retiring is not deleting -- the entry keeps its id and can be moved back; ``retire_reason`` is stored only with retired and cleared by the other two.",
+          "legacy": {
+            "descriptor": "{\n        \"description\": \"Move one 傳承 entry to active / pinned / retired. Retiring is not deleting -- the entry keeps its id and can be moved back; ``retire_reason`` is stored only with retired and cleared by the other two.\",\n        \"inputSchema\": {\n          \"properties\": {\n            \"entry_id\": {\n              \"type\": \"string\"\n            },\n            \"state\": {\n              \"type\": \"string\"\n            },\n            \"retire_reason\": {\n              \"type\": \"string\"\n            }\n          },\n          \"required\": [\n            \"entry_id\",\n            \"state\"\n          ],\n          \"type\": \"object\"\n        },\n        \"name\": \"set_lore_entry_state\"\n      }"
+          }
+        }
+      }
+    },
+    "/api/lore/{entry_id}/bump": {
+      "post": {
+        "description": "提到最新: set one 傳承 entry's ``effective_ts`` to now so it sorts to the front of its group. ``created_ts`` is NOT touched, which is what makes this reversible.",
+        "operationId": "handle_bump_lore_entry_api_lore__entry_id__bump_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "entry_id",
+            "required": true,
+            "schema": {
+              "title": "Entry Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LoreEntryDTO"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Validation error (unified error envelope)."
+          },
+          "4XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Client error (unified error envelope)."
+          },
+          "5XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Server error (unified error envelope)."
+          }
+        },
+        "summary": "提到最新: set one 傳承 entry's ``effective_ts`` to now so it sorts to the front of its group. ``created_ts`` is NOT touched, which is what makes this reversible.",
+        "x-mcp": {
+          "include": true,
+          "order": 130,
+          "name": "bump_lore_entry",
+          "description": "提到最新: set one 傳承 entry's ``effective_ts`` to now so it sorts to the front of its group. ``created_ts`` is NOT touched, which is what makes this reversible.",
+          "legacy": {
+            "descriptor": "{\n        \"description\": \"提到最新: set one 傳承 entry's ``effective_ts`` to now so it sorts to the front of its group. ``created_ts`` is NOT touched, which is what makes this reversible.\",\n        \"inputSchema\": {\n          \"properties\": {\n            \"entry_id\": {\n              \"type\": \"string\"\n            }\n          },\n          \"required\": [\n            \"entry_id\"\n          ],\n          \"type\": \"object\"\n        },\n        \"name\": \"bump_lore_entry\"\n      }"
+          }
+        }
+      }
+    },
     "/api/accounts/cost/reset": {
       "post": {
         "description": "Reset ONE ACCOUNT's own accumulated spend to zero — the cockpit's 帳號歸零 button (owner ruling rc-5c5d7c7c6dcd, 2026-09-02, option 0「分開：帳號卡自己一份數字，清它不動成員」, refining rc-efae958cef40).\n\n🔴 THIS DOES NOT TOUCH ANY ACTOR. That separation IS the ruling: the owner asked for the account figure and the per-member figure to be clearable independently, because what he watches is spend per account. Pressing this leaves every member's and worker's 估計$ exactly as it was, and pressing the per-actor button leaves this figure exactly as it was.\n\nWHAT THE ACCOUNT FIGURE IS, since this ruling: an ACCUMULATOR OF ITS OWN, not a fold over the actors currently on the account. Every telemetry report that raises an actor's cost adds the INCREASE to the account it was reported under; this route sets that accumulator back to 0 and it starts counting again. The account card therefore answers 「這個帳號從上次歸零到現在花了多少」.\n\nWHY NOT 「the sum of the actors, minus what you cleared」, which is the obvious cheap shape: an actor's spend can LEAVE the sum (removing a member hard-deletes the row AND its telemetry entry; the per-actor reset clears one on purpose), and the sum would then sit below the cleared watermark. The card would show 「沒花錢」 while spending continued, for as long as it took the sum to climb back — silently under-reporting with nothing to flag it. An accumulator cannot enter that state: money already spent is a historical fact and does not leave it, which is the same reasoning that keeps a released worker's spend in the account total.\n\n🔴 IRREVERSIBLE. Nothing is retained, there is no undo route, and no per-charge ledger exists behind the accumulator — the response is a RECEIPT of the figure as it stood immediately before the write, which is the last moment it exists anywhere. The cockpit is expected to confirm first.\n\nIDEMPOTENT: an account already at zero, or one nobody has ever reported under, answers 200 with `cleared_cost` null — null meaning there was nothing to clear, not that zero was cleared, the same null semantics the read side and `CostResetDTO` use. An account tag is a free telemetry string with no roster row, so an unknown tag is NOT a 404: 「沒有這個帳號」 and 「這個帳號沒東西可清」 are the same answer. A blank `account` is a 422.\n\nTHE ACCOUNT KEY TRAVELS IN THE BODY, not in the path, and the neighbouring `PATCH /api/accounts/{account_id}` is not a precedent for doing otherwise. A real account key is a compound free string that contains `/` (`<identifier>/<org uuid>`) and usually `@`. An encoded slash does survive Go's own mux (measured, not assumed), but it does not reliably survive every proxy in front of it, and that route has only ever been exercised with a slash-free tag. On an IRREVERSIBLE destructive call, a key that silently arrives split or decoded would hit the wrong target — a risk with no upside next to a JSON field.\n\nA `monitoring` signal fans out so the cockpit refetches.\n\nRBAC: route-table ``requires=\"owner\"`` and MCP-excluded, identical to the per-actor route and for the same reason — destroying the owner's own spend record is not something an agent does on his behalf. Any other caller → 403.",
