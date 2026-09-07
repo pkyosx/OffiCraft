@@ -19,7 +19,7 @@ import (
 // subcommands is the plumbing-only CLI surface. Kept as data so the usage text
 // and the dispatch stay in one place (mirrors cli/ocagent/main.go).
 var subcommands = []struct{ name, help string }{
-	{"serve", "run the server (default): read oc.toml, bind loopback:[server].port"},
+	{"serve", "run the server (must be spelled out): read oc.toml, bind loopback:[server].port"},
 	{"migrate", "apply goose migrations to the resolved [storage] DSN (sqlite)"},
 	{"backup", "take one online snapshot of this instance's database (single consistent file)"},
 	{"set-password", "store the owner password's argon2id hash in DB settings ($OC_NEW_PASSWORD)"},
@@ -27,8 +27,12 @@ var subcommands = []struct{ name, help string }{
 	{"mfa-disable", "clear the owner's TOTP second factor (lost-authenticator recovery)"},
 }
 
+// noSubcommand is the internal dispatch key for "the argv named no subcommand"
+// — zero arguments, or a leading flag other than -h/--help.
+const noSubcommand = "\x00no-subcommand"
+
 func usage(out io.Writer) {
-	fmt.Fprintln(out, "usage: ocserverd [subcommand] [flags]")
+	fmt.Fprintln(out, "usage: ocserverd <subcommand> [flags]")
 	fmt.Fprintln(out, "  officraft Go server daemon (plumbing skeleton).")
 	fmt.Fprintln(out, "")
 	fmt.Fprintln(out, "subcommands:")
@@ -49,17 +53,20 @@ func usage(out io.Writer) {
 // accessor, and the output sink. Returns the process exit code (mirrors
 // cli/ocagent/main.go realMain).
 func realMain(argv []string, env func(string) string, out io.Writer) int {
-	// Default subcommand is serve (the zero-argument canonical start, mirroring
-	// bin/serve). A leading flag (e.g. `ocserverd --no-reconcile`) also means
-	// serve — except the help flags, which route to usage (exit 0).
-	cmd, rest := "serve", argv
-	if len(argv) > 0 {
-		switch {
-		case argv[0] == "-h" || argv[0] == "--help":
-			cmd, rest = "help", nil
-		case argv[0] != "" && argv[0][0] != '-':
-			cmd, rest = argv[0], argv[1:]
-		}
+	// The subcommand must be named. serve is NOT the default any more (T-107):
+	// starting a station opens the database, snapshots it, and runs migrations,
+	// so a bare `ocserverd` — or one carrying only flags, e.g. a mistyped
+	// `ocserverd --no-reconcile` — must not be able to reach that path. Both of
+	// those now print the subcommand list and exit 2 without touching anything.
+	// The help flags keep their own route (usage, exit 0), and every rescue
+	// subcommand is reached exactly as before.
+	cmd, rest := noSubcommand, []string(nil)
+	switch {
+	case len(argv) == 0: // no subcommand
+	case argv[0] == "-h" || argv[0] == "--help":
+		cmd = "help"
+	case argv[0] != "" && argv[0][0] != '-':
+		cmd, rest = argv[0], argv[1:]
 	}
 
 	switch cmd {
@@ -108,6 +115,12 @@ func realMain(argv []string, env func(string) string, out io.Writer) int {
 	case "-h", "--help", "help":
 		usage(out)
 		return 0
+
+	case noSubcommand:
+		fmt.Fprintln(out, "[ocserverd] no subcommand given — `serve` is no longer implied; nothing was read or written")
+		fmt.Fprintln(out, "")
+		usage(out)
+		return 2
 
 	default:
 		fmt.Fprintf(out, "[ocserverd] unknown subcommand %q\n\n", cmd)

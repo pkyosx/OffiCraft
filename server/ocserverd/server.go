@@ -583,8 +583,8 @@ func (l keepAliveListener) Accept() (net.Conn, error) {
 
 const stationShutdownTimeout = 5 * time.Second
 
-// cmdServe is the zero-argument canonical start (service.app.serve): read
-// oc.toml, open + migrate + seed the store, load the DB settings snapshot
+// cmdServe is the canonical start (service.app.serve), reached only by an
+// explicit `serve` since T-107: read oc.toml, open + migrate + seed the store, load the DB settings snapshot
 // (running the one-shot oc.toml → DB auth migration — settings.go), assemble
 // the app (boot assertions fail closed), mount the reconcile producer cadence
 // (unless --no-reconcile) and the outsource-assignment scheduler cadence
