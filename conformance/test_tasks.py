@@ -245,7 +245,7 @@ def test_full_task_loop(client, owner_token, executor):
     assert created["receipt"]["deduped"] is False
     task = created["task"]
     assert task["status"] == "not_started"
-    assert task["executor_kind"] == "member"
+    assert task["executor_kind"] == "staff"
     # task_no IS the id (T-5291, owner 2026-08-25) — before that it was a
     # SEPARATELY DERIVED display value, not the id. The old shape is
     # deliberately not named: it changed more than once across this ticket's
@@ -660,7 +660,7 @@ def test_create_dedupes_open_tasks_and_reopens_after_terminal(
     type_key = _new_manual(
         client, owner_token,
         fields=[{"name": "pr", "required": True, "is_key": True}],
-        assignee={"kind": "member", "member_id": executor.member_id},
+        assignee={"kind": "staff", "member_id": executor.member_id},
     )
     first = _create_task(client, executor, title="review 9",
                          type_key=type_key, inputs={"pr": "9"})
@@ -1171,7 +1171,7 @@ def test_manual_crud_and_delete_guard(client, owner_token, executor):
         fields=[{"name": "pr", "required": True, "is_key": True},
                 {"name": "repo", "required": False, "is_key": False}],
         sop_md="# SOP\n1. read the diff",
-        assignee={"kind": "member", "member_id": executor.member_id},
+        assignee={"kind": "staff", "member_id": executor.member_id},
     )
     # The read face folds it all back.
     r = client.get(f"/api/task-manuals/{type_key}", headers=_auth(owner_token))
@@ -1179,7 +1179,7 @@ def test_manual_crud_and_delete_guard(client, owner_token, executor):
     manual = r.json()
     assert manual["purpose"] == "review incoming PRs"
     assert [f["name"] for f in manual["fields"]] == ["pr", "repo"]
-    assert manual["assignee"]["kind"] == "member"
+    assert manual["assignee"]["kind"] == "staff"
     # The list face carries it.
     listed = client.get("/api/task-manuals", headers=_auth(owner_token)).json()
     assert type_key in {m["type_key"] for m in listed}
@@ -1253,7 +1253,7 @@ def test_agent_supplied_assignee_is_403_on_create_and_edit(
     """Sentinel: the T-6020 opening of the assignee gate stops at admin_agent —
     a PLAIN agent is still a flat 403 on both faces, and the refused call writes
     nothing."""
-    assignee = {"kind": "member", "member_id": executor.member_id}
+    assignee = {"kind": "staff", "member_id": executor.member_id}
     # Create carrying assignee → 403, and the manual is NOT created.
     type_key = f"conf-gov-type-{uuid.uuid4().hex[:8]}"
     r = client.post("/api/task-manuals",
@@ -1274,12 +1274,12 @@ def test_agent_supplied_assignee_is_403_on_create_and_edit(
     # The owner's assignee writes keep working on BOTH faces.
     r = client.post(f"/api/task-manuals/{existing}",
                     json={"assignee": assignee}, headers=_auth(owner_token))
-    assert _manual_written(client, owner_token, r)["assignee"]["kind"] == "member"
+    assert _manual_written(client, owner_token, r)["assignee"]["kind"] == "staff"
     owner_type = f"conf-gov-type-{uuid.uuid4().hex[:8]}"
     r = client.post("/api/task-manuals",
                     json={"type_key": owner_type, "assignee": assignee},
                     headers=_auth(owner_token))
-    assert _manual_written(client, owner_token, r)["assignee"]["kind"] == "member"
+    assert _manual_written(client, owner_token, r)["assignee"]["kind"] == "staff"
 
 
 def test_admin_agent_may_set_a_manual_assignee(
@@ -1288,7 +1288,7 @@ def test_admin_agent_may_set_a_manual_assignee(
     """T-6020 (owner ruling 2026-07-26): the assignee gate's floor moved from
     owner to admin_agent, so the admin 助理 sets who executes a task type on
     BOTH faces — create and edit."""
-    assignee = {"kind": "member", "member_id": executor.member_id}
+    assignee = {"kind": "staff", "member_id": executor.member_id}
     type_key = f"conf-adm-type-{uuid.uuid4().hex[:8]}"
     r = client.post("/api/task-manuals",
                     json={"type_key": type_key, "assignee": assignee},
@@ -1356,7 +1356,7 @@ def test_agent_manual_authorship_via_mcp_tools(client, executor):
     # The governance boundary holds over MCP too: assignee → isError (403).
     r = _call("update_task_manual",
               {"type_key": type_key,
-               "assignee": {"kind": "member", "member_id": executor.member_id}})
+               "assignee": {"kind": "staff", "member_id": executor.member_id}})
     assert r.status_code == 200, f"{r.status_code} {r.text}"
     assert r.json()["result"]["isError"] is True, "assignee over MCP must 403"
 
@@ -2015,7 +2015,7 @@ def test_create_task_dedupes_across_field_name_case(client, owner_token, executo
     type_key = _new_manual(
         client, owner_token,
         fields=[{"name": "PR Link", "required": True, "is_key": True}],
-        assignee={"kind": "member", "member_id": executor.member_id},
+        assignee={"kind": "staff", "member_id": executor.member_id},
     )
     first = _create_task(client, executor, title="review",
                          type_key=type_key, inputs={"PR Link": "https://x/1"})
@@ -2032,7 +2032,7 @@ def test_create_task_k1_rejects_empty_identity_key(client, owner_token, executor
     type_key = _new_manual(
         client, owner_token,
         fields=[{"name": "PR Link", "required": True, "is_key": True}],
-        assignee={"kind": "member", "member_id": executor.member_id},
+        assignee={"kind": "staff", "member_id": executor.member_id},
     )
     r = client.post("/api/tasks",
                     json={"title": "no key", "type_key": type_key,
@@ -2049,7 +2049,7 @@ def test_create_task_warns_on_undefined_fields(client, owner_token, executor):
     type_key = _new_manual(
         client, owner_token,
         fields=[{"name": "PR Link", "required": True, "is_key": True}],
-        assignee={"kind": "member", "member_id": executor.member_id},
+        assignee={"kind": "staff", "member_id": executor.member_id},
     )
     # A typed create carrying a field the manual does not define → 200 + warning.
     created = _create_task(client, executor, title="w1", type_key=type_key,
@@ -2187,7 +2187,7 @@ def test_reassign_hands_over_to_a_member_and_only_they_take_over(
     card_id = r.json()["id"]
 
     r = _reassign(client, owner_token, task["id"],
-                  {"kind": "member", "member_id": new_id}, note="接手備註")
+                  {"kind": "staff", "member_id": new_id}, note="接手備註")
     assert r.status_code == 200, r.text
     body = r.json()
     # T-91: reassign answers taskWriteReceiptDTO — the task's CARD, not the
@@ -2202,7 +2202,7 @@ def test_reassign_hands_over_to_a_member_and_only_they_take_over(
     # (a done step + pending steps → in_progress).
     assert body["lock"] == "reassigning"
     assert body["status"] == "in_progress"
-    assert body["executor_kind"] == "member"
+    assert body["executor_kind"] == "staff"
     assert body["executor_id"] == new_id
     # identity untouched — `id` is spelled task_id on the receipt, and
     # dedupe_key is not a card field, so it is checked where it lives.
@@ -2314,7 +2314,7 @@ def test_dispatch_target_machine_must_resolve(
         assert r.status_code == 404, f"reassign {bad!r}: {r.status_code} {r.text}"
         # The refusal changed nothing — the task is still the member's.
         after = _get_task(client, owner_token, task["id"])
-        assert after["executor_kind"] == "member", after
+        assert after["executor_kind"] == "staff", after
         assert after["executor_id"] == executor.member_id, after
     task = _create_task(client, executor, title="發包 real machine")["task"]
     assert _reassign(client, owner_token, task["id"],
@@ -2328,7 +2328,7 @@ def test_reassign_guards(client, owner_token, executor):
     一般正職) may 發包 its task (outsource → 2xx) but may NOT hand it to another
     member (member target → 403 — owner/Mira's channel only)."""
     task = _create_task(client, executor, title="guard me")["task"]
-    member_target = {"kind": "member", "member_id": executor.member_id}
+    member_target = {"kind": "staff", "member_id": executor.member_id}
 
     fresh = hire_member(client, owner_token, "conf-reassign-guard-tgt")
     # ② a NON-executor agent may not reassign someone else's task — executor
@@ -2336,12 +2336,12 @@ def test_reassign_guards(client, owner_token, executor):
     intruder_id = hire_member(client, owner_token, "conf-reassign-intruder")
     intruder = mint_member_token(client, owner_token, intruder_id, ttl_days=1)
     assert _reassign(client, intruder, task["id"],
-                     {"kind": "member", "member_id": fresh}).status_code == 403
+                     {"kind": "staff", "member_id": fresh}).status_code == 403
     # rule 7: the OWN executor (一般正職) reassigning to another MEMBER is 403 —
     # a member handover is owner/Mira's alone.
     own = _create_task(client, executor, title="my own to hand over")["task"]
     assert _reassign(client, executor.token, own["id"],
-                     {"kind": "member", "member_id": fresh}).status_code == 403
+                     {"kind": "staff", "member_id": fresh}).status_code == 403
     # rule 7 positive: the OWN executor MAY turn it into a 發包 (outsource → 2xx),
     # on a SEPARATE fresh task so the mutation never disturbs the checks below.
     outsourced = _create_task(client, executor, title="my own to 發包")["task"]
@@ -2353,9 +2353,9 @@ def test_reassign_guards(client, owner_token, executor):
     # warden target / unknown member → 400.
     warden_id = hire_member(client, owner_token, "conf-reassign-warden", kind="warden")
     assert _reassign(client, owner_token, task["id"],
-                     {"kind": "member", "member_id": warden_id}).status_code == 400
+                     {"kind": "staff", "member_id": warden_id}).status_code == 400
     assert _reassign(client, owner_token, task["id"],
-                     {"kind": "member", "member_id": "m-nobody"}).status_code == 400
+                     {"kind": "staff", "member_id": "m-nobody"}).status_code == 400
     # A FROZEN task IS reassignable (owner ruling 2026-08-11, T-b9f6 —
     # 「我不覺得凍結的東西應該不能轉派 我覺得應該移除凍結不能轉派的限制」).
     # This block used to assert 400 「unfreeze it before reassigning」; it is
@@ -2368,7 +2368,7 @@ def test_reassign_guards(client, owner_token, executor):
                        json={"priority": "frozen"},
                        headers=_auth(owner_token)).status_code == 200
     assert _reassign(client, owner_token, task["id"],
-                     {"kind": "member", "member_id": fresh}).status_code == 200
+                     {"kind": "staff", "member_id": fresh}).status_code == 200
     assert client.get(f"/api/tasks/{task['id']}",
                       headers=_auth(owner_token)).json()["priority"] == "frozen"
     # Hand it back so the rest of this test keeps its original fixture, and
@@ -2381,4 +2381,4 @@ def test_reassign_guards(client, owner_token, executor):
     assert client.post(f"/api/tasks/{task['id']}/terminate",
                        headers=_auth(owner_token)).status_code == 200
     assert _reassign(client, owner_token, task["id"],
-                     {"kind": "member", "member_id": fresh}).status_code == 409
+                     {"kind": "staff", "member_id": fresh}).status_code == 409

@@ -33,7 +33,7 @@ function mkTask(over: Partial<TaskView>): TaskView {
   return {
     id: "T-e987", taskNo: "T-e987", title: "高頻更新的任務", typeKey: "",
     description: "", status: "in_progress", priority: "high",
-    executorKind: "member", executorId: "mira", creatorId: "", dedupeKey: "",
+    executorKind: "staff", executorId: "mira", creatorId: "", dedupeKey: "",
     deps: [], waitingReason: "", duplicateOf: "", createdTs: 1000, updatedTs: 2000,
     closedTs: null, progressDone: 4, progressTotal: 6, steps: [], ...over,
   };
@@ -132,10 +132,10 @@ describe("TaskCard stepless-detail (T-71e8)", () => {
 describe("TaskCard transitional copy (T-71e8 · B)", () => {
   it("assigned member + zero leaves → 「等待 <name> 建立 Steps」", async () => {
     const onHydrate = vi.fn(async () =>
-      mkTask({ executorKind: "member", executorId: "mira", progressDone: 0, progressTotal: 0, steps: [] })
+      mkTask({ executorKind: "staff", executorId: "mira", progressDone: 0, progressTotal: 0, steps: [] })
     );
     const { findByTestId } = renderCard(
-      mkTask({ executorKind: "member", executorId: "mira", progressDone: 0, progressTotal: 0 }),
+      mkTask({ executorKind: "staff", executorId: "mira", progressDone: 0, progressTotal: 0 }),
       onHydrate
     );
     fireEvent.click(await findByTestId("task-card"));

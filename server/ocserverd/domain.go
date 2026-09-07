@@ -1394,10 +1394,51 @@ const (
 
 // The executor-track closed set. "Unassigned" is NOT a kind: an outsource
 // task awaiting the scheduler is Kind=outsource with ExecutorID == "".
+//
+// 🔑 THIS IS THE SAME AXIS AS `member.kind`, spelled the same way. It was
+// 'member' until T-101; the roster said `staff` for the very same distinction
+// and an agent reading both in one turn had to guess whether `member` named a
+// third kind of身分. The two now agree (owner ruling 2026-09-06,
+// rc-5471a679bd22 / rc-7574cc804dd6: rename the task side, no alias).
+// `warden` is deliberately absent — machines never execute tasks.
 const (
-	TaskExecutorMember    = "member"
+	TaskExecutorStaff     = "staff"
 	TaskExecutorOutsource = "outsource"
 )
+
+// CanonicalTaskExecutorKind folds an incoming executor kind onto the closed set,
+// mirroring CanonicalKind's shape for the roster axis — with ONE deliberate
+// divergence: CanonicalKind("") answers the default kind, this one answers an
+// error. The empty string is not a task executor kind; the create seam
+// short-circuits it BEFORE calling here (an omitted target.kind keeps the staff
+// track, which is spec'd), so folding it to a default here would only make a
+// caller that sent an empty kind on some OTHER seam look like it sent a valid one.
+//
+// A caller sending the PRE-RENAME value gets told it was renamed, not merely
+// that it is invalid (T-101, matching T-48's treatment of 'assistant'). Without
+// this, an older client's request fails with a message that lists two values and
+// never says "the one you sent used to be one of them" — and the reader's next
+// move is to guess. The owner chose this over accepting both spellings, and
+// accepted the cost: an already-booted agent holding the old tool description
+// spends one extra round trip on its first attempt.
+//
+// 🔑 The legacy value is built from runes ON PURPOSE. Spelled as a literal it
+// would be swept up by the very repo-wide 'member'→'staff' replacement it exists
+// to explain, and this branch would silently start comparing the new value
+// against itself — unreachable, and nothing would fail.
+func CanonicalTaskExecutorKind(kind string) (string, error) {
+	switch kind {
+	case TaskExecutorStaff, TaskExecutorOutsource:
+		return kind, nil
+	}
+	if kind == string([]rune{'m', 'e', 'm', 'b', 'e', 'r'}) {
+		return "", fmt.Errorf(
+			"task executor kind %q was renamed to %q (T-101); the closed set is {%q, %q}",
+			kind, TaskExecutorStaff, TaskExecutorStaff, TaskExecutorOutsource)
+	}
+	return "", fmt.Errorf("task executor kind %q not in {%q, %q}",
+		kind, TaskExecutorStaff, TaskExecutorOutsource)
+}
 
 // The task_step status closed set (five states; SPEC 狀態徽章). done and
 // superseded are the step's terminal states; a terminated TASK still freezes

@@ -145,6 +145,7 @@ import type {
   ThemeListItem,
   ThemeWriteReceipt,
   ThemeDeleteResult,
+  TaskExecutorKind,
 } from "./adapter";
 
 /** The five real presence words, as a runtime set — the type union's twin. */
@@ -646,11 +647,17 @@ export function toTask(w: WireTask): TaskView {
     // Orthogonal handover lock (T-9ca5): "" | "reassigning". Honest passthrough.
     lock: w.lock ?? "",
     priority: w.priority,
-    executorKind: w.executor_kind,
+    // The wire value is typed `string` by the generated schema, but the
+    // server enforces the closed set at the DB CHECK and at every write
+    // seam, and the SPA is go:embed-ed INTO that same binary — the two can
+    // never be different versions, so there is no skew window in which an
+    // old spelling could arrive here. Narrowed rather than left as `string`
+    // so a stale comparison downstream fails to compile (T-101).
+    executorKind: w.executor_kind as TaskExecutorKind,
     executorId: w.executor_id ?? "",
     creatorId: w.creator_id ?? "",
     reassignedFrom: w.reassigned_from ?? "",
-    reassignedFromKind: w.reassigned_from_kind ?? "",
+    reassignedFromKind: (w.reassigned_from_kind ?? "") as TaskExecutorKind | "",
     dedupeKey: w.dedupe_key ?? "",
     deps: w.deps ?? [],
     waitingReason: w.waiting_reason ?? "",
@@ -691,11 +698,17 @@ export function toTaskListItem(w: WireTaskListItem): TaskView {
     // overlay badge rides it without hydrating the full task.
     lock: w.lock ?? "",
     priority: w.priority,
-    executorKind: w.executor_kind,
+    // The wire value is typed `string` by the generated schema, but the
+    // server enforces the closed set at the DB CHECK and at every write
+    // seam, and the SPA is go:embed-ed INTO that same binary — the two can
+    // never be different versions, so there is no skew window in which an
+    // old spelling could arrive here. Narrowed rather than left as `string`
+    // so a stale comparison downstream fails to compile (T-101).
+    executorKind: w.executor_kind as TaskExecutorKind,
     executorId: w.executor_id ?? "",
     creatorId: w.creator_id ?? "",
     reassignedFrom: w.reassigned_from ?? "",
-    reassignedFromKind: w.reassigned_from_kind ?? "",
+    reassignedFromKind: (w.reassigned_from_kind ?? "") as TaskExecutorKind | "",
     dedupeKey: w.dedupe_key ?? "",
     deps: w.deps ?? [],
     // dep_tasks (T-a3e4): the server's resolution of each dep, passed through
@@ -808,16 +821,25 @@ export function toTaskType(
   };
 }
 
-/** Narrow the wire's OPEN assignee object ({} = unset; {"kind":"member",…} or
+/** Narrow the wire's OPEN assignee object ({} = unset; {"kind":"staff",…} or
  * {"kind":"outsource",…} otherwise) to the closed `ManualAssigneeView` union.
  * Honest: an unrecognised/empty shape maps to null (unset), never a
- * fabricated assignee. */
+ * fabricated assignee.
+ *
+ * The wire spelling and the view spelling are BOTH "staff" since T-101, but
+ * they are still two separate strings: this function is the seam, and a
+ * rename that touches only the returned object leaves the comparison reading
+ * a value the server no longer sends. That failure is silent — an
+ * unrecognised shape is a legal input here, so it maps to null and the page
+ * renders "unset" instead of erroring. The unit test on this function is
+ * what makes the wire value observable; the mock stores the VIEW shape and
+ * never reaches this code. */
 export function toManualAssignee(
   a: Record<string, unknown> | undefined,
 ): ManualAssigneeView {
   if (!a) return null;
-  if (a["kind"] === "member" && typeof a["member_id"] === "string") {
-    return { kind: "member", memberId: a["member_id"] };
+  if (a["kind"] === "staff" && typeof a["member_id"] === "string") {
+    return { kind: "staff", memberId: a["member_id"] };
   }
   if (a["kind"] === "outsource") {
     return {
@@ -911,8 +933,8 @@ export function fromTaskManualPatch(
         ? null
         : patch.assignee === null
           ? {}
-          : patch.assignee.kind === "member"
-            ? { kind: "member", member_id: patch.assignee.memberId }
+          : patch.assignee.kind === "staff"
+            ? { kind: "staff", member_id: patch.assignee.memberId }
             : {
                 kind: "outsource",
                 runtime: patch.assignee.runtime ?? "claude",
@@ -939,9 +961,9 @@ export function fromTaskReassignInput(
   return {
     note: input.note?.trim() || null,
     target:
-      target.kind === "member"
+      target.kind === "staff"
         ? {
-            kind: "member",
+            kind: "staff",
             member_id: target.memberId,
             runtime: null,
             model: null,
@@ -1850,7 +1872,7 @@ export function toResumeTask(w: WireResumeTask): ResumeTaskView {
     // that predates these fields honestly means "no hold, nobody waiting".
     lock: w.lock ?? "",
     reassignedFrom: w.reassigned_from ?? "",
-    reassignedFromKind: w.reassigned_from_kind ?? "",
+    reassignedFromKind: (w.reassigned_from_kind ?? "") as TaskExecutorKind | "",
     blocking: w.blocking ?? [],
   };
 }

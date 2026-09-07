@@ -781,7 +781,7 @@ func seedManualWithKey(t *testing.T, api *apiServer, typeKey string) {
 	if err := api.dal.PutTaskManual(TaskManual{
 		TypeKey:  typeKey,
 		Fields:   `[{"name":"pr","required":true,"is_key":true}]`,
-		Assignee: `{"kind":"member","member_id":"m-exec"}`,
+		Assignee: `{"kind":"staff","member_id":"m-exec"}`,
 	}); err != nil {
 		t.Fatalf("seed manual: %v", err)
 	}
@@ -799,7 +799,7 @@ func seedManualWithLabel(t *testing.T, api *apiServer, typeKey, displayName stri
 		TypeKey:     typeKey,
 		DisplayName: displayName,
 		Fields:      `[{"name":"pr","required":true,"is_key":true}]`,
-		Assignee:    `{"kind":"member","member_id":"m-exec"}`,
+		Assignee:    `{"kind":"staff","member_id":"m-exec"}`,
 	}); err != nil {
 		t.Fatalf("seed manual: %v", err)
 	}
@@ -886,7 +886,7 @@ func TestCreateTypedTaskAssignedToMemberIsThatMembersAlone(t *testing.T) {
 	if err := api.dal.PutTaskManual(TaskManual{
 		TypeKey:  "review",
 		Fields:   `[{"name":"pr","required":true,"is_key":true}]`,
-		Assignee: `{"kind":"member","member_id":"m-exec"}`,
+		Assignee: `{"kind":"staff","member_id":"m-exec"}`,
 	}); err != nil {
 		t.Fatalf("seed manual: %v", err)
 	}
@@ -3095,7 +3095,7 @@ func TestReconcileTaskStatusesOnBoot(t *testing.T) {
 	// reconcile SHOULD correct this to in_progress.
 	if err := api.dal.PutTask(Task{
 		ID: "t-drift", TypeKey: "tm-x", Title: "drift", Status: TaskStatusNotStarted,
-		Priority: TaskPriorityMid, ExecutorKind: TaskExecutorMember, ExecutorID: "m-1",
+		Priority: TaskPriorityMid, ExecutorKind: TaskExecutorStaff, ExecutorID: "m-1",
 		CreatedTS: 1000, UpdatedTS: 1000,
 	}); err != nil {
 		t.Fatalf("put drift task: %v", err)
@@ -3108,7 +3108,7 @@ func TestReconcileTaskStatusesOnBoot(t *testing.T) {
 	// A terminal control: reconcile must not re-derive it.
 	if err := api.dal.PutTask(Task{
 		ID: "t-term", TypeKey: "tm-x", Title: "term", Status: TaskStatusTerminated,
-		Priority: TaskPriorityMid, ExecutorKind: TaskExecutorMember, ExecutorID: "m-1",
+		Priority: TaskPriorityMid, ExecutorKind: TaskExecutorStaff, ExecutorID: "m-1",
 		CreatedTS: 1000, UpdatedTS: 1000,
 	}); err != nil {
 		t.Fatalf("put terminal task: %v", err)
@@ -3128,5 +3128,80 @@ func TestReconcileTaskStatusesOnBoot(t *testing.T) {
 	term, _ := api.dal.GetTask("t-term")
 	if term.Status != TaskStatusTerminated {
 		t.Fatalf("boot reconcile must leave a terminal task untouched, got %q", term.Status)
+	}
+}
+
+// The one behaviour change T-101 landed: an out-of-set `target.kind` on create
+// is a 400 instead of a silent fall-through to the staff track. It is pinned
+// here because the failure it replaces was invisible — the old handler answered
+// 200 with a normal-looking staff task, so a 發包 that lost its target and a
+// 發包 that was never asked for read identically, in the response and on the row.
+//
+// The pre-rename value is built from runes on purpose (same reason as
+// CanonicalTaskExecutorKind): written as a literal, a repo-wide rename sweep
+// would rewrite it into the CURRENT value and this case would quietly start
+// asserting that a legal value is refused.
+func TestCreateTaskRefusesATargetKindOutsideTheClosedSet(t *testing.T) {
+	api := newTasksTestServer(t)
+	api.noOutsource = true
+	putMemberRow(t, api, "m-exec", KindStaff, "")
+
+	body := func(kind any) map[string]any {
+		b := map[string]any{"title": "t", "executor_member_id": "m-exec"}
+		if kind != nil {
+			b["target"] = map[string]any{"kind": kind}
+		}
+		return b
+	}
+	preRename := string([]rune{'m', 'e', 'm', 'b', 'e', 'r'})
+
+	for _, kind := range []string{"outsourced", "Outsource", "zzz", preRename} {
+		rec := createTaskAs(t, api, body(kind), "m-exec", "agent")
+		if rec.Code != http.StatusBadRequest {
+			t.Fatalf("target.kind=%q must be 400, got %d %s", kind, rec.Code, rec.Body.String())
+		}
+		if !strings.Contains(rec.Body.String(), "target.kind") {
+			t.Fatalf("target.kind=%q: the 400 must name the field, got %s", kind, rec.Body.String())
+		}
+	}
+	// The renamed-away value is told it was RENAMED, not merely that it is
+	// unknown — owner ruling rc-7574cc804dd6. Without this the caller's next
+	// move is to guess which of the two remaining values it meant.
+	rec := createTaskAs(t, api, body(preRename), "m-exec", "agent")
+	if !strings.Contains(rec.Body.String(), "renamed") {
+		t.Fatalf("the pre-rename spelling must be told it was renamed, got %s", rec.Body.String())
+	}
+
+	// The two accepted shapes still pass, so the refusal above is the closed set
+	// talking and not the create path being broken.
+	for _, kind := range []any{nil, "staff", ""} {
+		if rec := createTaskAs(t, api, body(kind), "m-exec", "agent"); rec.Code != http.StatusOK {
+			t.Fatalf("target.kind=%v must still create (200), got %d %s", kind, rec.Code, rec.Body.String())
+		}
+	}
+
+	// An EMPTY kind is the one value the closed set does NOT refuse, and the
+	// spec says so: it is not validated and the WHOLE target block is discarded
+	// down the staff path. That discard is the only silent path this package
+	// still has — nothing goes red when it breaks, the 發包 just quietly comes
+	// back as a staff task — so the fields that would have dispatched are sent
+	// alongside the empty kind and the resulting row is read back.
+	rec = createTaskAs(t, api, map[string]any{
+		"title": "t", "executor_member_id": "m-exec",
+		"target": map[string]any{"kind": "", "model": "sonnet", "effort": "high"},
+	}, "m-exec", "agent")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("an empty target.kind must still create (200), got %d %s", rec.Code, rec.Body.String())
+	}
+	var created struct {
+		TaskID       string `json:"task_id"`
+		ExecutorKind string `json:"executor_kind"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &created); err != nil {
+		t.Fatalf("decode create receipt: %v (%s)", err, rec.Body.String())
+	}
+	if created.ExecutorKind != TaskExecutorStaff {
+		t.Fatalf("an empty target.kind must be discarded down the staff path, got executor_kind=%q",
+			created.ExecutorKind)
 	}
 }

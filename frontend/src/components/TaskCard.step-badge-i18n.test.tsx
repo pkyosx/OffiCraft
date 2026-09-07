@@ -53,7 +53,7 @@ describe("TaskCard step 徽章 i18n (T-6f11)", () => {
       description: "",
       status: "waiting_external",
       priority: "mid",
-      executorKind: "member",
+      executorKind: "staff",
       executorId: "mira",
       creatorId: "",
       dedupeKey: "",

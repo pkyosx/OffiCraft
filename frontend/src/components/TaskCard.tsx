@@ -217,7 +217,7 @@ export function TaskCard({
   const releasedCodenames = useWorkerCodenames(releasedWorkerIds);
   const releasedAvatarUrls = useWorkerAvatarUrls(releasedWorkerIds);
   const member =
-    task.executorKind === "member"
+    task.executorKind === "staff"
       ? members.find((m) => m.id === task.executorId)
       : undefined;
   const worker =
@@ -236,7 +236,7 @@ export function TaskCard({
   const releasedExecutorCodename = releasedCodenames.get(task.executorId);
   const executorText = unassigned
     ? t.tasks.unassigned
-    : task.executorKind === "member"
+    : task.executorKind === "staff"
       ? member?.name || task.executorId
       : worker
         ? `${msg.outsourceLabel(worker.codename)} · ${worker.model || "—"} · ${
@@ -1889,7 +1889,7 @@ export function TaskCard({
           placeholder={t.tasks.messagePlaceholder(
             unassigned
               ? t.tasks.unassigned
-              : task.executorKind === "member"
+              : task.executorKind === "staff"
                 ? member?.name || task.executorId
                 : worker
                   ? msg.outsourceLabel(worker.codename)
@@ -2021,7 +2021,7 @@ export function TaskCard({
             // way as the message-box placeholder above.
             <div className="task-card__transition" data-testid="task-transition">
               {msg.taskPlanningBy(
-                task.executorKind === "member"
+                task.executorKind === "staff"
                   ? member?.name || task.executorId
                   : worker
                     ? msg.outsourceLabel(worker.codename)

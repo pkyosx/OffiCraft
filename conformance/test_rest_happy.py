@@ -980,7 +980,7 @@ def _happy_reassigning_task(ctx: HCtx) -> str:
     """A fresh task under the `reassigning` LOCK whose NEW executor is the happy
     agent — so the happy agent may CLAIM it (the claim endpoint is
     executor-guarded). Created executed by a fresh member, then the owner
-    reassigns it (kind=member) to the happy agent → lock=reassigning."""
+    reassigns it (kind=staff) to the happy agent → lock=reassigning."""
     r = ctx.client.post(
         "/api/tasks",
         json={"title": "conf happy claim task",
@@ -992,7 +992,7 @@ def _happy_reassigning_task(ctx: HCtx) -> str:
     task_id = r.json()["task_id"]
     r = ctx.client.post(
         f"/api/tasks/{task_id}/reassign",
-        json={"target": {"kind": "member", "member_id": ctx.agent.member_id}},
+        json={"target": {"kind": "staff", "member_id": ctx.agent.member_id}},
         headers=_auth(ctx.owner_token),
     )
     assert r.status_code == 200, f"happy reassign failed: {r.status_code} {r.text}"
@@ -1912,7 +1912,7 @@ def _check_task_created(ctx: HCtx, r: httpx.Response) -> None:
     # The executor pair is the placement the SERVER chose, which is why it rides
     # a write that echoes nothing else — see the read-face check below, which
     # proves the receipt reports the placement that was actually stored.
-    assert d["executor_kind"] == "member", d
+    assert d["executor_kind"] == "staff", d
     assert d["executor_id"] == ctx.agent.member_id, d
     # The task the create opened is asserted on the read face, because the
     # create no longer serves it: a route that minted an id and stored nothing,

@@ -166,7 +166,7 @@ function task(id: string, status = "in_progress", over = {}) {
     status,
     title: id,
     priority: "medium",
-    executorKind: "member",
+    executorKind: "staff",
     executorId: "m-open",
     deps: ["t-dep"],
     // The server-side dep join the LIGHT list carries (T-a3e4). It is what lets

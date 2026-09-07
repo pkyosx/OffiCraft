@@ -292,7 +292,7 @@ const WIRE: WireResumeSummary = {
     {
       id: "m-planner",
       name: "普朗克",
-      kind: "member",
+      kind: "staff",
       role_name: "規劃",
       duty: "把票拆成可以被執行的形狀",
       current_task: "",

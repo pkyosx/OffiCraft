@@ -208,7 +208,7 @@ var identityKindIdents = map[string]bool{
 	"KindWarden":            true,
 	"KindOutsource":         true,
 	"machineKind":           true,
-	"TaskExecutorMember":    true,
+	"TaskExecutorStaff":     true,
 	"TaskExecutorOutsource": true,
 }
 
@@ -892,7 +892,7 @@ var identityGateLedger = map[string]string{
 
 	// ── task executor kind: the 正職／外包 axis on the TASK side ────────────
 	//
-	// TaskExecutorMember / TaskExecutorOutsource are a different field from
+	// TaskExecutorStaff / TaskExecutorOutsource are a different field from
 	// Member.Kind and answer a different question ("who is this task FOR"),
 	// but they are the same axis and the same ticket's subject, so they are
 	// scanned and listed rather than declared out of scope.
@@ -901,7 +901,7 @@ var identityGateLedger = map[string]string{
 		"(pinned at 2) and the reason covers both — it is the `isOutsource` argument " +
 		"to authorizeTaskCreate, and the guard on inheriting the dispatch spec " +
 		"(runtime/model/effort/machine), which only a 發包 task has.",
-	"api_tasks.go :: HandleCreateTaskApiTasksPost :: executorKind == TaskExecutorMember": "" +
+	"api_tasks.go :: HandleCreateTaskApiTasksPost :: executorKind == TaskExecutorStaff": "" +
 		"the other arm: a member-executed task needs an explicit executor id, an " +
 		"outsource one is minted by the scheduler. A required-fields difference that " +
 		"follows from workers not existing until they are minted.",
@@ -910,7 +910,7 @@ var identityGateLedger = map[string]string{
 		"assignee (manualAssignee) folded into the canonical executorKind. Not the " +
 		"request's target.kind, which is the separate " +
 		"`trimString(body.Target.Kind)` entry below.",
-	"api_tasks.go :: HandleCreateTaskApiTasksPost :: kind == TaskExecutorMember": "" +
+	"api_tasks.go :: HandleCreateTaskApiTasksPost :: kind == TaskExecutorStaff": "" +
 		"the other half of that same normalisation.",
 	"api_tasks.go :: HandleCreateTaskApiTasksPost :: trimString(body.Target.Kind) == TaskExecutorOutsource": "" +
 		"T-23cf create matrix: the TARGET's executor kind as a request field, paired " +
@@ -934,7 +934,7 @@ var identityGateLedger = map[string]string{
 		"write, so the successor is minted now rather than up to a cadence period " +
 		"later — the twin of create_task's seam. Both exist only on the 發包 arm " +
 		"because a member reassign has its executor in hand already.",
-	"api_tasks.go :: HandleReassignTaskApiTasksTaskIdReassignPost :: kind == TaskExecutorMember": "" +
+	"api_tasks.go :: HandleReassignTaskApiTasksTaskIdReassignPost :: kind == TaskExecutorStaff": "" +
 		"the executor RE-POINT write, member arm: bind ExecutorID to the member just " +
 		"resolved and RESET the row's outsource dispatch columns to their unset shape " +
 		"(runtime back to the default, model/effort/machine emptied, dispatched false — " +
@@ -947,14 +947,14 @@ var identityGateLedger = map[string]string{
 		"the neighbouring entry, and there is no kind normalisation in this handler " +
 		"at all — `kind` is a plain trimString of the request field.)",
 	"api_tasks.go :: HandleReassignTaskApiTasksTaskIdReassignPost :: m.Kind == KindOutsource": "" +
-		"P7d fold parity: an outsource ROW is never a 'member'-kind reassign target — " +
+		"P7d fold parity: an outsource ROW is never a 'staff'-kind reassign target — " +
 		"outsource executors are minted fresh by the outsource arm. Refusing here is " +
 		"what keeps the two arms from both claiming the same worker. Also in " +
 		"authzOutsideRouteTable.",
 	"api_tasks.go :: HandleReassignTaskApiTasksTaskIdReassignPost :: m.Kind == KindWarden": "" +
 		"a warden is never a task executor — machine-vs-person. Also in " +
 		"authzOutsideRouteTable.",
-	"api_tasks.go :: HandleReassignTaskApiTasksTaskIdReassignPost :: t.ExecutorKind == TaskExecutorMember": "" +
+	"api_tasks.go :: HandleReassignTaskApiTasksTaskIdReassignPost :: t.ExecutorKind == TaskExecutorStaff": "" +
 		"the already-the-executor conflict check, scoped to the member arm because the " +
 		"outsource arm has no stable executor id to compare against before the mint.",
 	"api_tasks.go :: HandleClaimTaskApiTasksTaskIdClaimPost :: t.ReassignedFromKind == TaskExecutorOutsource": "" +

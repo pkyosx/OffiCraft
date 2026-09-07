@@ -18,7 +18,7 @@ func TestProbeOpenKeepsUnknownNonTerminalStatus(t *testing.T) {
 	mk := func(id, status string) {
 		if err := s.dal.PutTask(Task{
 			ID: id, TypeKey: "tm-x", Title: id, Status: status,
-			Priority: TaskPriorityMid, ExecutorKind: TaskExecutorMember,
+			Priority: TaskPriorityMid, ExecutorKind: TaskExecutorStaff,
 			ExecutorID: "m-1", CreatedTS: 1000, UpdatedTS: 1000,
 		}); err != nil {
 			t.Fatal(err)

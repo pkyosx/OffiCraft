@@ -241,20 +241,146 @@ func TestUpgradingADatabaseThatAlreadyHasTasks(t *testing.T) {
 	}
 
 	// ② populate it the way a live database is populated.
+	//
+	// 🔴 THE EXECUTOR KIND HERE IS THE PRE-RENAME SPELLING, WRITTEN AS A
+	// LITERAL, AND IT HAS TO BE. This seeds at schema version 59, where the
+	// CHECK still reads IN ('member','outsource') — 00088 renames it to 'staff'
+	// only in step ③ below. Using TaskExecutorStaff here fails the CHECK at
+	// INSERT time, which is a test bug, not a product one: a database being
+	// upgraded from version 59 contains the OLD value by definition.
+	const preRenameExecutorKind = "member" // kind-vocab-guard:legacy
 	pre := NewDAL(db)
 	now := nowSecs()
 	for _, id := range []string{"t-72dd79b666d0", "t-ced055e27e9f", "T-5"} {
 		if err := pre.PutTask(Task{ID: id, Title: "pre-upgrade " + id,
 			Status: TaskStatusNotStarted, Priority: TaskPriorityMid,
-			ExecutorKind: TaskExecutorMember, ExecutorID: "m-exec",
+			ExecutorKind: preRenameExecutorKind, ExecutorID: "m-exec",
+			ReassignedFrom: "m-old", ReassignedFromKind: preRenameExecutorKind,
 			CreatedTS: now, UpdatedTS: now}); err != nil {
 			t.Fatalf("seed %s: %v", id, err)
 		}
 	}
 
+	// The SAME vocabulary is also stored inside a JSON blob with no CHECK behind
+	// it, and that is the highest-risk copy in the package: a manual whose
+	// assignee still spells the retired kind stops binding an executor at all,
+	// and create_task then refuses with a message that names executor_member_id
+	// rather than the assignee. Five manuals on the live station carried the old
+	// value when this was written, two of them on the shipping path.
+	if _, err := db.Exec(
+		`INSERT INTO task_manual (type_key, assignee) VALUES (?, ?), (?, ?), (?, ?)`,
+		"tm-pre-staff", `{"kind":"`+preRenameExecutorKind+`","member_id":"m-exec","unknown_key":7}`,
+		"tm-pre-outsource", `{"kind":"outsource","model":"opus"}`,
+		"tm-pre-unset", `{}`,
+	); err != nil {
+		t.Fatalf("seed manuals: %v", err)
+	}
+
 	// ③ upgrade.
 	if err := runMigrations(db); err != nil {
 		t.Fatalf("goose up: %v", err)
+	}
+
+	// The rows seeded at version 59 carried the pre-rename kind in BOTH kind
+	// columns; 00088 must have renamed them in place. Asserted HERE because this
+	// is the only test that starts from a POPULATED OLD schema — a fresh
+	// database has no pre-rename row for the migration to act on, so a rename
+	// that silently skipped existing rows would pass everywhere else.
+	//
+	// 🔴 reassigned_from_kind IS THE HALF THAT NEEDS AN ASSERTION, and that was
+	// measured rather than assumed. executor_kind carries the new CHECK, so a
+	// migration that forgot to rename it cannot even complete — goose fails on
+	// the INSERT and every test that runs migrations goes red. Asserting only
+	// that column would therefore have been an assertion with no teeth, hidden
+	// behind a louder failure. reassigned_from_kind has NO CHECK and admits '',
+	// so dropping its CASE leaves a migration that succeeds, a database that
+	// looks upgraded, and a column still speaking the retired word. Nothing
+	// else in the tree notices.
+	for _, col := range []string{"executor_kind", "reassigned_from_kind"} {
+		var stale int
+		if err := db.QueryRow(
+			`SELECT count(*) FROM task WHERE `+col+` = ?`, preRenameExecutorKind,
+		).Scan(&stale); err != nil {
+			t.Fatalf("count pre-rename %s: %v", col, err)
+		}
+		if stale != 0 {
+			t.Errorf("00088 left %d task row(s) with %s on the pre-rename value",
+				stale, col)
+		}
+		var renamed int
+		if err := db.QueryRow(
+			`SELECT count(*) FROM task WHERE `+col+` = ?`, TaskExecutorStaff,
+		).Scan(&renamed); err != nil {
+			t.Fatalf("count renamed %s: %v", col, err)
+		}
+		if renamed != 3 {
+			t.Errorf("00088 renamed %s on %d of the 3 seeded rows", col, renamed)
+		}
+	}
+
+	// 🔴 THE COLUMN DEFAULT IS A SECOND COPY OF THE VOCABULARY AND IT NEEDS ITS
+	// OWN ASSERTION. The CHECK and the DEFAULT are written on the same line of
+	// the schema and are easy to read as one thing; they fail differently. A
+	// migration that renames the CHECK but leaves DEFAULT 'member' produces a
+	// table whose every existing row is correct — the assertions above stay
+	// green — and whose next INSERT that omits the column writes a value its
+	// own CHECK rejects. So the write fails at the far end, in create_task,
+	// naming a constraint rather than the rename.
+	//
+	// This is asserted rather than inferred because the inference was MEASURED
+	// WRONG: reverting the DEFAULT alone left every assertion in this block
+	// green. What reddened was TestMigrateTaskReassignedFrom, and only because
+	// that unrelated test happens to INSERT a row omitting executor_kind. The
+	// coverage was real but accidental — one edit to that test's column list
+	// and the DEFAULT half goes unguarded with nothing to say so.
+	var defaultKind string
+	if err := db.QueryRow(
+		`INSERT INTO task (id, title, type_key, status, executor_id)
+		 VALUES ('t-default-probe', 'probe', 'tm-pre-unset', 'not_started', 'm-exec')
+		 RETURNING executor_kind`,
+	).Scan(&defaultKind); err != nil {
+		// A CHECK failure HERE is the DEFAULT half breaking, not a broken
+		// probe: the row names no executor_kind, so the only value that can
+		// violate the constraint is the one the DEFAULT supplied. Said out
+		// loud because the driver's message names the constraint and never
+		// the default — which is the same misdirection this assertion exists
+		// to stop users hitting in create_task.
+		t.Fatalf("00088 left the executor_kind DEFAULT on a value its own "+
+			"CHECK rejects — an INSERT omitting the column cannot land: %v", err)
+	}
+	if defaultKind != TaskExecutorStaff {
+		t.Errorf("00088 left the executor_kind DEFAULT on %q; a row inserted "+
+			"without the column must land on %q, or the column's own CHECK "+
+			"refuses it", defaultKind, TaskExecutorStaff)
+	}
+	// The probe is an EXTRA row in a table whose population later assertions
+	// count exactly. Removed here rather than at the end so the two facts stay
+	// adjacent: this row exists to be read once, and it must not be visible to
+	// anything after that.
+	if _, err := db.Exec(`DELETE FROM task WHERE id = 't-default-probe'`); err != nil {
+		t.Fatalf("remove probe row: %v", err)
+	}
+
+	// The assignee blob: the kind renamed, EVERY OTHER KEY byte-identical. The
+	// second half is the point — json_set on `$.kind` is used instead of writing
+	// a fresh object precisely so member_id and any key the validator stores
+	// without reading (it accepts unknown sub-keys verbatim) survive. A blob
+	// rewrite would pass a "kind is staff" assertion while silently dropping
+	// them.
+	for _, tc := range []struct{ typeKey, want string }{
+		{"tm-pre-staff", `{"kind":"staff","member_id":"m-exec","unknown_key":7}`},
+		{"tm-pre-outsource", `{"kind":"outsource","model":"opus"}`},
+		{"tm-pre-unset", `{}`},
+	} {
+		var got string
+		if err := db.QueryRow(
+			`SELECT assignee FROM task_manual WHERE type_key = ?`, tc.typeKey,
+		).Scan(&got); err != nil {
+			t.Fatalf("read assignee %s: %v", tc.typeKey, err)
+		}
+		if got != tc.want {
+			t.Errorf("assignee %s after 00088:\n got  %s\n want %s", tc.typeKey, got, tc.want)
+		}
 	}
 
 	// the counter must clear the highest EXISTING T-<n>, not restart at 1
@@ -281,7 +407,7 @@ func TestUpgradingADatabaseThatAlreadyHasTasks(t *testing.T) {
 	// and the next mint lands clear of them
 	minted, err := pre.CreateTaskMintingID(Task{Title: "post-upgrade",
 		Status: TaskStatusNotStarted, Priority: TaskPriorityMid,
-		ExecutorKind: TaskExecutorMember, ExecutorID: "m-exec",
+		ExecutorKind: TaskExecutorStaff, ExecutorID: "m-exec",
 		CreatedTS: now, UpdatedTS: now}, nil)
 	if err != nil {
 		t.Fatalf("mint after upgrade: %v", err)

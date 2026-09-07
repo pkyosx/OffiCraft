@@ -172,7 +172,7 @@ func TestLegacyRandomHexTaskIDsStayUsable(t *testing.T) {
 	now := nowSecs()
 	if err := api.dal.PutTask(Task{
 		ID: legacy, Title: "legacy task", Status: TaskStatusNotStarted,
-		Priority: TaskPriorityMid, ExecutorKind: TaskExecutorMember,
+		Priority: TaskPriorityMid, ExecutorKind: TaskExecutorStaff,
 		ExecutorID: "m-exec", CreatedTS: now, UpdatedTS: now,
 	}); err != nil {
 		t.Fatalf("seed legacy task: %v", err)
@@ -362,7 +362,7 @@ func TestGetTaskAcceptsTheTaskNoTheAgentWasHanded(t *testing.T) {
 	now := nowSecs()
 	if err := api.dal.PutTask(Task{
 		ID: legacy, Title: "legacy task", Status: TaskStatusNotStarted,
-		Priority: TaskPriorityMid, ExecutorKind: TaskExecutorMember,
+		Priority: TaskPriorityMid, ExecutorKind: TaskExecutorStaff,
 		ExecutorID: "m-exec", CreatedTS: now, UpdatedTS: now,
 	}); err != nil {
 		t.Fatalf("seed legacy task: %v", err)

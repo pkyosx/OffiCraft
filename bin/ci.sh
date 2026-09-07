@@ -142,6 +142,7 @@ OC_ROUND=(
   test-system-interaction-examples
   lint-uplink-contract
   lint-effort-vocab
+  lint-kind-vocab
   lint-shadow-claim
   lint-user-operation-contract
   lint-chat-pushdown

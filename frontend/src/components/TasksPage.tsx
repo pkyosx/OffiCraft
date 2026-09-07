@@ -341,7 +341,7 @@ export function TasksPage() {
 
   // The executor key a task filters under (mirrors matchesExecutor's mapping).
   function executorKeyOf(task: TaskView): string {
-    if (task.executorKind === "member") return task.executorId;
+    if (task.executorKind === "staff") return task.executorId;
     return task.executorId === "" ? "unassigned" : "outsource";
   }
 
@@ -421,7 +421,7 @@ export function TasksPage() {
       value: m.id,
       label: m.name,
       count: executorCount(
-        (x) => x.executorKind === "member" && x.executorId === m.id
+        (x) => x.executorKind === "staff" && x.executorId === m.id
       ),
     })),
   ]

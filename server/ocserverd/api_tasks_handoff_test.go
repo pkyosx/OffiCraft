@@ -31,7 +31,7 @@ func seedHandoffTask(t *testing.T, api *apiServer, id, creator, executor string,
 	t.Helper()
 	task := Task{
 		ID: id, Title: "handoff fixture", Status: TaskStatusInProgress,
-		Priority: TaskPriorityMid, ExecutorKind: TaskExecutorMember,
+		Priority: TaskPriorityMid, ExecutorKind: TaskExecutorStaff,
 		ExecutorID: executor, CreatorID: creator, CreatedTS: 100, UpdatedTS: 100,
 	}
 	if err := api.dal.PutTask(task); err != nil {
@@ -286,7 +286,7 @@ func TestHandoffFollowUpRefusesAnUnusableSuccessor(t *testing.T) {
 			makeSuc: func(api *apiServer) string {
 				id := "t-dead00000001"
 				_ = api.dal.PutTask(Task{ID: id, Status: TaskStatusDone,
-					Priority: TaskPriorityMid, ExecutorKind: TaskExecutorMember,
+					Priority: TaskPriorityMid, ExecutorKind: TaskExecutorStaff,
 					ExecutorID: "m-x", ClosedTS: 1})
 				return id
 			},
@@ -732,7 +732,7 @@ func TestSentinelADepOnAnAlreadyClosedBlockerNeverHoldsTheQueue(t *testing.T) {
 	putOutsourceManual(t, api, "build-it", "claude-sonnet-4-5", 2)
 	dev := createOutsourceTask(t, api, "build-it", "implement")
 	if err := api.dal.PutTask(Task{ID: "t-dddd00000002", Status: TaskStatusDone,
-		Priority: TaskPriorityMid, ExecutorKind: TaskExecutorMember,
+		Priority: TaskPriorityMid, ExecutorKind: TaskExecutorStaff,
 		ExecutorID: "m-exec", ClosedTS: 5}); err != nil {
 		t.Fatalf("seed closed blocker: %v", err)
 	}
@@ -881,7 +881,7 @@ func TestSentinelAnAlreadyClosedDependentIsNeverReleasedOrAnnounced(t *testing.T
 	// out-of-order close), so it is terminal with a settled UpdatedTS.
 	done := Task{
 		ID: "t-ffff00000002", Title: "already finished", Status: TaskStatusDone,
-		Priority: TaskPriorityMid, ExecutorKind: TaskExecutorMember,
+		Priority: TaskPriorityMid, ExecutorKind: TaskExecutorStaff,
 		ExecutorID: "m-next", CreatorID: "m-creator",
 		CreatedTS: 10, UpdatedTS: 20, ClosedTS: 20,
 	}
@@ -929,7 +929,7 @@ func TestATerminalDependentDoesNotAutoSatisfyTheGate(t *testing.T) {
 	if err := api.dal.PutTask(Task{
 		ID: "t-gggg00000002", Title: "a follow-up that already finished",
 		Status: TaskStatusDone, Priority: TaskPriorityMid,
-		ExecutorKind: TaskExecutorMember, ExecutorID: "m-next",
+		ExecutorKind: TaskExecutorStaff, ExecutorID: "m-next",
 		CreatorID: "m-creator", CreatedTS: 10, UpdatedTS: 20, ClosedTS: 20,
 	}); err != nil {
 		t.Fatalf("seed terminal dependent: %v", err)

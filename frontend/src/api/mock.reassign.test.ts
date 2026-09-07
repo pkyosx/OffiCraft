@@ -113,7 +113,7 @@ beforeEach(() => {
 describe("mock reassign — member target", () => {
   it("re-points the executor, enters reassigning, and notifies BOTH sides", async () => {
     const task = mkTask({
-      executorKind: "member",
+      executorKind: "staff",
       executorId: "someone-else",
       title: "交接目標",
       waitingReason: "等供應商回信",
@@ -125,7 +125,7 @@ describe("mock reassign — member target", () => {
     // BACK. Every property below is about the STORED task, which is where the
     // cockpit reads it too.
     await mockApi.reassignTask(task.id, {
-      target: { kind: "member", memberId: "mira" },
+      target: { kind: "staff", memberId: "mira" },
       note: "先看 PR #12",
     });
     const after = await mockApi.getTask(task.id);
@@ -135,14 +135,14 @@ describe("mock reassign — member target", () => {
     // handover rides task.lock.
     expect(after.status).toBe("in_progress");
     expect(after.lock).toBe("reassigning");
-    expect(after.executorKind).toBe("member");
+    expect(after.executorKind).toBe("staff");
     expect(after.executorId).toBe("mira");
     // Leaving waiting_external clears its reason (the server does the same).
     expect(after.waitingReason).toBe("");
 
     // T-ba04: the predecessor is stamped on the task.
     expect(after.reassignedFrom).toBe("someone-else");
-    expect(after.reassignedFromKind).toBe("member");
+    expect(after.reassignedFromKind).toBe("staff");
 
     // The NEW executor is told who its predecessor is and to claim the task
     // itself. A system message, never an owner DM (T-ba04).
@@ -177,7 +177,7 @@ describe("mock reassign — member target", () => {
   it("expires the task's waiting cards and rewinds non-terminal steps", async () => {
     const card = mkCard({});
     const task = mkTask({
-      executorKind: "member",
+      executorKind: "staff",
       executorId: "someone-else",
       steps: [
         mkStep({ name: "done-one", status: "done" }),
@@ -190,7 +190,7 @@ describe("mock reassign — member target", () => {
     __injectMockReplyCard(card);
 
     await mockApi.reassignTask(task.id, {
-      target: { kind: "member", memberId: "mira" },
+      target: { kind: "staff", memberId: "mira" },
     });
 
     // Terminal step rows are history and survive; everything else rewinds.
@@ -207,24 +207,24 @@ describe("mock reassign — member target", () => {
   });
 
   it("rejects a warden / unknown / already-executor member target", async () => {
-    const task = mkTask({ executorKind: "member", executorId: "mira" });
+    const task = mkTask({ executorKind: "staff", executorId: "mira" });
     __injectMockTask(task);
 
     // Machines never execute tasks.
     await expect(
       mockApi.reassignTask(task.id, {
-        target: { kind: "member", memberId: "warden-mbp5" },
+        target: { kind: "staff", memberId: "warden-mbp5" },
       })
     ).rejects.toMatchObject({ status: 400 });
     await expect(
       mockApi.reassignTask(task.id, {
-        target: { kind: "member", memberId: "nobody" },
+        target: { kind: "staff", memberId: "nobody" },
       })
     ).rejects.toMatchObject({ status: 400 });
     // A no-op reassign is a conflict, not a silent success.
     await expect(
       mockApi.reassignTask(task.id, {
-        target: { kind: "member", memberId: "mira" },
+        target: { kind: "staff", memberId: "mira" },
       })
     ).rejects.toMatchObject({ status: 409 });
   });
@@ -306,7 +306,7 @@ describe("mock reassign — task-level guards", () => {
 
     await expect(
       mockApi.reassignTask(closed.id, {
-        target: { kind: "member", memberId: "mira" },
+        target: { kind: "staff", memberId: "mira" },
       })
     ).rejects.toMatchObject({ status: 409 });
 
@@ -316,14 +316,14 @@ describe("mock reassign — task-level guards", () => {
     // still means "do not advance this": the reassign only ARRANGES the
     // handover, and the scheduler still refuses to wake anybody.
     await mockApi.reassignTask(frozen.id, {
-      target: { kind: "member", memberId: "mira" },
+      target: { kind: "staff", memberId: "mira" },
     });
   });
 
   it("404s an unknown task", async () => {
     await expect(
       mockApi.reassignTask("task-ghost", {
-        target: { kind: "member", memberId: "mira" },
+        target: { kind: "staff", memberId: "mira" },
       })
     ).rejects.toBeInstanceOf(ApiError);
   });

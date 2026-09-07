@@ -56,7 +56,7 @@ func t3201NearCap(t *testing.T, s *apiServer, actor string) {
 		Fields: "[]", Assignee: "{}", SopMD: fill(12500), Learnings: fill(12500)}))
 	must(s.dal.PutTask(Task{ID: "t-t3201000001", TypeKey: "tm-t3201",
 		Title: "probe", Status: TaskStatusInProgress, Priority: "mid", ExecutorID: actor,
-		ExecutorKind: "member", CreatorID: wireOwnerID}))
+		ExecutorKind: TaskExecutorStaff, CreatorID: wireOwnerID}))
 	must(s.dal.PutTaskStep(TaskStep{ID: "ts-t3201000001", TaskID: "t-t3201000001",
 		OrderIdx: 0, Name: "probe step", Status: StepStatusInProgress, Note: fill(3200)}))
 }

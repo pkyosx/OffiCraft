@@ -26,7 +26,7 @@ import { useState } from "react";
 import { useI18n } from "../i18n";
 import { effortText } from "../i18n/compose";
 import type { Effort, Member } from "../types";
-import type { TaskReassignInput, TaskView } from "../api/adapter";
+import type { TaskExecutorKind, TaskReassignInput, TaskView } from "../api/adapter";
 import { serverMessageOf } from "../api/errors";
 import { useMachines } from "../hooks/useMachines";
 import { useMonitoring } from "../hooks/useMonitoring";
@@ -140,10 +140,10 @@ export function TaskReassignDialog({
   const roster = members.filter(
     (m) =>
       m.kind === "staff" &&
-      !(task.executorKind === "member" && m.id === task.executorId)
+      !(task.executorKind === "staff" && m.id === task.executorId)
   );
 
-  const [kindDraft, setKindDraft] = useState<"member" | "outsource">("member");
+  const [kindDraft, setKindDraft] = useState<TaskExecutorKind>("staff");
   const [memberDraft, setMemberDraft] = useState(roster[0]?.id ?? "");
   const [runtimeDraft, setRuntimeDraft] = useState<"claude" | "codex">("claude");
   const [modelDraft, setModelDraft] = useState("");
@@ -171,7 +171,7 @@ export function TaskReassignDialog({
   }
 
   async function commit() {
-    if (kindDraft === "member" && !memberDraft) {
+    if (kindDraft === "staff" && !memberDraft) {
       setError(t.tasks.reassignPickMember);
       return;
     }
@@ -181,8 +181,8 @@ export function TaskReassignDialog({
     }
     const input: TaskReassignInput = {
       target:
-        kindDraft === "member"
-          ? { kind: "member", memberId: memberDraft }
+        kindDraft === "staff"
+          ? { kind: "staff", memberId: memberDraft }
           : {
               kind: "outsource",
               runtime: runtimeDraft,
@@ -230,7 +230,7 @@ export function TaskReassignDialog({
 
           <Segmented
             options={[
-              { value: "member", label: t.tasks.reassignToMember },
+              { value: "staff", label: t.tasks.reassignToMember },
               { value: "outsource", label: t.tasks.reassignToOutsource },
             ]}
             value={kindDraft}
@@ -242,7 +242,7 @@ export function TaskReassignDialog({
             ariaLabel={msg.taskReassignTitle(task.taskNo)}
           />
 
-          {kindDraft === "member" && (
+          {kindDraft === "staff" && (
             <div className="task-reassign__section">
               <div className="task-reassign__label">
                 {t.tasks.reassignPickMember}

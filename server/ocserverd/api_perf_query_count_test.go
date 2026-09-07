@@ -452,7 +452,7 @@ func seedDepFanout(t *testing.T, s *apiServer, depN int) string {
 	blockedID := "t-fanout000001"
 	if err := s.dal.PutTask(Task{
 		ID: blockedID, Title: "被擋的", Status: TaskStatusInProgress,
-		Priority: TaskPriorityMid, ExecutorKind: TaskExecutorMember,
+		Priority: TaskPriorityMid, ExecutorKind: TaskExecutorStaff,
 		ExecutorID: "m-1", CreatedTS: 1000, UpdatedTS: 1000,
 	}); err != nil {
 		t.Fatal(err)
@@ -462,7 +462,7 @@ func seedDepFanout(t *testing.T, s *apiServer, depN int) string {
 		id := fmt.Sprintf("t-dep%010d", i)
 		if err := s.dal.PutTask(Task{
 			ID: id, Title: fmt.Sprintf("阻擋者 %d", i), Status: TaskStatusDone,
-			Priority: TaskPriorityMid, ExecutorKind: TaskExecutorMember,
+			Priority: TaskPriorityMid, ExecutorKind: TaskExecutorStaff,
 			ExecutorID: "m-1", CreatedTS: 100, UpdatedTS: 100, ClosedTS: 200,
 		}); err != nil {
 			t.Fatal(err)

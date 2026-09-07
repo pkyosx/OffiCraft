@@ -603,7 +603,7 @@ func TestServeBootRetiresOrphanReplyCards(t *testing.T) {
 	now := nowSecs()
 	if err := dal.PutTask(Task{
 		ID: "t-closed", Title: "closed", Status: TaskStatusDone,
-		Priority: TaskPriorityMid, ExecutorKind: TaskExecutorMember,
+		Priority: TaskPriorityMid, ExecutorKind: TaskExecutorStaff,
 		ExecutorID: "m-1", CreatedTS: now, UpdatedTS: now, ClosedTS: now,
 	}); err != nil {
 		t.Fatalf("put task: %v", err)

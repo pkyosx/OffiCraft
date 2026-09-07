@@ -43,7 +43,7 @@ function seedHolder(): void {
     description: "",
     status: "in_progress",
     priority: "high",
-    executorKind: "member",
+    executorKind: "staff",
     executorId: "mira",
     creatorId: "owner",
     dedupeKey: "",

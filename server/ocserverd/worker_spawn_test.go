@@ -360,7 +360,7 @@ func TestWorkerBootContextIsInvariantToTheTaskAndItsManual(t *testing.T) {
 	takeover := plain
 	takeover.Lock = TaskLockReassigning
 	takeover.ReassignedFrom = "m-pred"
-	takeover.ReassignedFromKind = TaskExecutorMember
+	takeover.ReassignedFromKind = TaskExecutorStaff
 	takeover.Description = "把 42 號 PR 看完"
 	takeover.HandoverNote = "先跑既有測試"
 	takeover.HandoverNoteTS = 1
@@ -2136,7 +2136,7 @@ func TestCloseoutReport_MemberTask_NoDismissal(t *testing.T) {
 	task := putTaskFixture(t, s, Task{
 		ID: "t-00000000000d", Title: "ad-hoc thing",
 		Status: TaskStatusDone, Priority: TaskPriorityMid,
-		ExecutorKind: TaskExecutorMember, ExecutorID: "mira", ClosedTS: 1,
+		ExecutorKind: TaskExecutorStaff, ExecutorID: "mira", ClosedTS: 1,
 	})
 	// An UNRELATED live worker on another task must be untouched by this
 	// member close-out (the dismissal is task-scoped).

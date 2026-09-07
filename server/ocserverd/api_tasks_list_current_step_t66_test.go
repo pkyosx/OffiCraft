@@ -46,7 +46,7 @@ func t66PutTask(t *testing.T, s *apiServer, id, title string) {
 	t.Helper()
 	if err := s.dal.PutTask(Task{
 		ID: id, Title: title, Status: TaskStatusInProgress,
-		Priority: TaskPriorityMid, ExecutorKind: TaskExecutorMember,
+		Priority: TaskPriorityMid, ExecutorKind: TaskExecutorStaff,
 		ExecutorID: "m-1", CreatedTS: 1000, UpdatedTS: 1000,
 	}); err != nil {
 		t.Fatal(err)
