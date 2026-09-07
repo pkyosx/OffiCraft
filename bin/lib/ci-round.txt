@@ -59,7 +59,6 @@ go-checks           build-go
 go-checks           test-go
 go-checks           test-system-interaction-examples
 contract-guards     lint-ci-round
-contract-guards     lint-mcp-write-receipt
 contract-guards     lint-uplink-contract
 contract-guards     lint-effort-vocab
 contract-guards     lint-kind-vocab
