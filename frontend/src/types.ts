@@ -90,8 +90,19 @@ export interface Member {
   estimatedCost: number | null;
   bankedCost: number | null;
 
-  /** tmux session name (`member-<id>`) for `$ tmux -L officraft attach -t <session>`. */
-  tmuxSession: string;
+  /** The WHOLE ready-to-paste terminal attach command, served by the station
+   * (wire `terminal_attach_command`, T-139) and rendered/copied verbatim.
+   *
+   * 🔴 THIS REPLACED `tmuxSession`, AND THE REPLACEMENT IS THE GUARD. The client
+   * used to hold the session name and re-derive `tmux -L officraft attach -t
+   * <session>` around it — a socket literal that is correct on the main instance
+   * only, so on a namespaced station it attached to a DIFFERENT tmux server.
+   * There is no session name on this type any more, so there is nothing left to
+   * assemble a command out of.
+   *
+   * "" means the STATION did not send one (a server older than T-139) — never
+   * "this row has no session"; the field is served unconditionally. */
+  terminalAttachCommand: string;
 
   /**
    * Epoch seconds of the last refocus intent (`refocus_since`), or `null` when

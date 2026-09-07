@@ -532,6 +532,7 @@ export const MESSAGE_KEYS: readonly string[] = [
   "mp.standby",
   "mp.terminal",
   "mp.terminalHint",
+  "mp.terminalUnavailable",
   "mp.wake",
   "mp.wakeManual",
   "mp.wakePendingNote",
@@ -1315,4 +1316,5 @@ export const MESSAGE_KEYS: readonly string[] = [
   "workerDetail.task",
   "workerDetail.terminal",
   "workerDetail.terminalHint",
+  "workerDetail.terminalUnavailable",
 ];

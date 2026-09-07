@@ -890,8 +890,12 @@ export function WorkerDetailPanel({
         lastOpLog: worker.lastOpLog,
         lastOpReason: worker.lastOpReason,
         lastOpAt: worker.lastOpAt,
-        tmuxSession: `member-${worker.id}`,
+        // T-139: was `member-${worker.id}` — a THIRD independent copy of the
+        // session-naming rule, wrapped downstream in a hardcoded socket. The
+        // station composes the whole line now.
+        terminalAttachCommand: worker.terminalAttachCommand ?? "",
         terminalHint: t.workerDetail.terminalHint,
+        terminalUnavailable: t.workerDetail.terminalUnavailable,
         // Initial-prompt PREVIEW (boot-context): re-fetched when the viewed
         // worker changes. The honest caveat rides the note (目前版本重組,
         // 非派工當下逐字版). Hidden when the fetch handler is unwired.

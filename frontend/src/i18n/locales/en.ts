@@ -607,6 +607,8 @@ export const en: Dict = {
     copied: "Copied",
     terminalHint:
       "Paste this in your own terminal to attach to this worker's session.",
+    terminalUnavailable:
+      "This station's server version does not provide an attach command.",
     // Initial-prompt preview (boot-context): a worker never stores its verbatim
     // dispatch-time persona, so the server re-runs the same assembly — the hint
     // and note both flag that it is today's version. Since T-4595 that assembly
@@ -1202,6 +1204,8 @@ export const en: Dict = {
     copied: "Copied",
     terminalHint:
       "Paste this in your own terminal to attach to this member's session.",
+    terminalUnavailable:
+      "This station's server version does not provide an attach command.",
     initialPrompt: "Initial prompt",
     promptLoading: "Loading…",
     promptError: "Failed to load initial prompt",

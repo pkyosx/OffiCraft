@@ -48,7 +48,8 @@ var memberReadFaceKeys = []string{
 	"forced_stop_at", "id", "kind", "last_op", "last_op_at", "last_op_log",
 	"last_op_ok", "last_op_reason", "machine", "model", "name", "owner_id",
 	"presence", "refocus_deadline", "refocus_op", "refocus_since", "role_key",
-	"role_name", "roster_status", "runtime", "schema_version", "unread_count",
+	"role_name", "roster_status", "runtime", "schema_version",
+	"terminal_attach_command", "unread_count",
 }
 
 // The worker row as list_outsource_workers / get_outsource_worker serve it.
@@ -63,7 +64,7 @@ var workerReadFaceKeys = []string{
 	"machine", "model", "presence", "refocus_deadline", "refocus_op",
 	"refocus_since", "runtime", "status", "task_created_ts", "task_id", "task_no",
 	"task_status", "task_title", "task_type_key", "task_type_name",
-	"unread_count",
+	"terminal_attach_command", "unread_count",
 }
 
 func marshalledKeys(t *testing.T, v any) []string {

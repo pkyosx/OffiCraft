@@ -50,7 +50,7 @@ const mkMember = (over: Partial<Member> = {}): Member => ({
   contextPct: null,
   estimatedCost: null,
   bankedCost: null,
-  tmuxSession: "member-eva",
+  terminalAttachCommand: "tmux -L officraft attach -t member-eva",
   refocusSince: null,
   lastOp: "",
   lastOpOk: null,

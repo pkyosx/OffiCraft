@@ -97,8 +97,9 @@ function mkInput(over: Partial<AgentDetailVmInput> = {}): AgentDetailVmInput {
     lastOpLog: "",
     lastOpReason: "",
     lastOpAt: 1,
-    tmuxSession: "member-m-1",
+    terminalAttachCommand: "tmux -L officraft attach -t member-m-1",
     terminalHint: "hint",
+    terminalUnavailable: "no command",
     ...over,
   };
 }

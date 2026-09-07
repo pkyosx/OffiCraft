@@ -7139,6 +7139,18 @@ export interface components {
              */
             schema_version: number;
             /**
+             * Terminal Attach Command
+             * @description The COMPLETE, ready-to-paste shell command that attaches a terminal to this row's tmux session, composed server-side and served verbatim (T-139). Clients display and copy it AS-IS and MUST NOT assemble one of their own out of the parts: the ``tmux -L`` socket is the bare ``officraft`` only on the main instance and ``officraft-<ns>`` on a namespaced one (``[server].namespace``, the same value this station bakes into every warden it installs), so a client-side socket literal attaches to a DIFFERENT tmux server and silently drops the owner into another station's sessions.
+             *
+             *     ALWAYS SERVED, on every row, with no liveness or desired-state gate — the cockpit has always shown this line unconditionally, and making it conditional would delete something the owner can see today. An empty string therefore means exactly ONE thing: a server too old to serve the field. A client reading it empty MUST fall back to showing nothing (or saying this server provides none) and MUST NOT reconstruct the command — the reconstruction is the defect.
+             *
+             *     IT RESTS ON A NAMED CHEAP ASSUMPTION (owner 2026-09-08): that the tmux server holding this row's session is a warden THIS station installed, so this station's namespace keys it. An agent living on a warden some OTHER station installed gets a socket name that does not exist on that host, and the attach fails to find a server. That is not a regression — see WAS.
+             *
+             *     WAS: every client re-derived ``tmux -L officraft attach -t member-<id>`` from its own hardcoded socket and session-name literals — correct only for the unnamespaced instance, and one more copy to drift each time. Additive-optional.
+             * @default
+             */
+            terminal_attach_command: string;
+            /**
              * Unread Count
              * @default 0
              */
@@ -7730,6 +7742,18 @@ export interface components {
              * @default
              */
             task_type_name: string;
+            /**
+             * Terminal Attach Command
+             * @description The COMPLETE, ready-to-paste shell command that attaches a terminal to this row's tmux session, composed server-side and served verbatim (T-139). Clients display and copy it AS-IS and MUST NOT assemble one of their own out of the parts: the ``tmux -L`` socket is the bare ``officraft`` only on the main instance and ``officraft-<ns>`` on a namespaced one (``[server].namespace``, the same value this station bakes into every warden it installs), so a client-side socket literal attaches to a DIFFERENT tmux server and silently drops the owner into another station's sessions.
+             *
+             *     ALWAYS SERVED, on every row, with no liveness or desired-state gate — the cockpit has always shown this line unconditionally, and making it conditional would delete something the owner can see today. An empty string therefore means exactly ONE thing: a server too old to serve the field. A client reading it empty MUST fall back to showing nothing (or saying this server provides none) and MUST NOT reconstruct the command — the reconstruction is the defect.
+             *
+             *     IT RESTS ON A NAMED CHEAP ASSUMPTION (owner 2026-09-08): that the tmux server holding this row's session is a warden THIS station installed, so this station's namespace keys it. An agent living on a warden some OTHER station installed gets a socket name that does not exist on that host, and the attach fails to find a server. That is not a regression — see WAS.
+             *
+             *     WAS: every client re-derived ``tmux -L officraft attach -t member-<id>`` from its own hardcoded socket and session-name literals — correct only for the unnamespaced instance, and one more copy to drift each time. Additive-optional.
+             * @default
+             */
+            terminal_attach_command: string;
             /**
              * Unread Count
              * @description The CALLER's unread chat-message count for this worker's conversation (the same chat_read watermark inverse the member roster serves) — the office 外包 row's red badge. Optional-with-default: absent reads as 0 for older clients.

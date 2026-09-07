@@ -533,6 +533,7 @@ var messageKeys = map[string]bool{
 	"mp.standby":                                       true,
 	"mp.terminal":                                      true,
 	"mp.terminalHint":                                  true,
+	"mp.terminalUnavailable":                           true,
 	"mp.wake":                                          true,
 	"mp.wakeManual":                                    true,
 	"mp.wakePendingNote":                               true,
@@ -1316,4 +1317,5 @@ var messageKeys = map[string]bool{
 	"workerDetail.task":                                true,
 	"workerDetail.terminal":                            true,
 	"workerDetail.terminalHint":                        true,
+	"workerDetail.terminalUnavailable":                 true,
 }
