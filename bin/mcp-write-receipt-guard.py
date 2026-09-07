@@ -84,8 +84,9 @@ writes (49 of which declare a JSON body on both ends), on the pre-T-133 spec:
 THE GAP IS BETWEEN 50% AND 60%, AND THE THRESHOLD SITS INSIDE THE GAP. 0.6 is
 not a number somebody liked; it is the widest separation this distribution
 offers, and moving it either way costs something nameable — 0.5 pulls in
-`post_chat` and `update_scheduled_message`, 0.9 drops `ingest_agent_context`,
-which is one of the two routes the rule was written for. Above the line: both
+`post_chat` and `update_scheduled_message`, 0.9 drops BOTH owner-named routes
+(`ingest_agent_context` at 60% and `ingest_telemetry` at 88%) and leaves the
+rule firing only on the one route that is already exempt. Above the line: both
 owner-named routes plus `update_settings`, which is the one standing exemption.
 Below it: every settled receipt on this tree. So the exemption list stays at ONE
 entry under this rule, where subset coverage would have made it five.
@@ -123,11 +124,14 @@ of them:
     now stands)". Both halves are wrong when measured. (a) The partial echo is
     now IN scope — it is the whole point of the ratio above, and it is what
     recovers `ingest_telemetry`, which no earlier version of this rule could see.
-    (b) The predicted cost was FOUR routes, not five: `ingest_agent_context` as
-    it now stands takes {context_pct, compaction_count, rate_limits} and answers
-    {agent_id, ts}, which is a superset of nothing, so it never appears under
-    subset coverage. The four names above are the measured set; the fifth was a
-    guess sitting in a list of facts.
+    (b) The prediction said five; the MEASURED cost on this tree is FOUR.
+    `ingest_agent_context` as it now stands takes {context_pct,
+    compaction_count, rate_limits} and answers {agent_id, ts}, so the response
+    is not a superset of the request and it never appears under subset coverage.
+    The first four names above are the measured set; the fifth was a guess
+    sitting in a list of facts. (It was not even wrong about the OLD tree — on
+    the pre-T-133 spec `ingest_agent_context` answered a superset and subset
+    coverage did fire on all five. What the prediction got wrong is the tense.)
   * A BIG ANSWER THAT IS HALF ECHO. The ratio is taken over the RESPONSE, so a
     3-field answer of which 2 came from the caller (67%) is a violation while a
     20-field answer of which 10 did (50%) is not. That is on purpose — what this

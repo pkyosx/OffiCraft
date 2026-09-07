@@ -47,9 +47,12 @@ threshold quietly moved to 0.9.
 
 ⚠️ The `exemption-overclaims-a-rule` case below is the same lesson learned the
 expensive way. Rule 2's only real violation is on an EXEMPT route that also
-breaks rule 1, so deleting rule 2 outright left the guard byte-identically green:
-the exemption simply went on standing, and the count on the green line was the
-only thing that moved. Exemptions now name the rules they excuse and the guard
+breaks rule 1, so deleting rule 2 outright left the guard GREEN — exit 0, no
+finding, nothing to review: the exemption simply went on standing, and the count
+on the green line was the only thing that moved. (Not byte-identical, which is a
+weaker claim than it sounds and is not the one being made here — the breakdown
+count is exactly what moved. Byte-identity is the SET-EQUALITY story in the
+guard's own docstring, where the rejected rule fired on nothing at all.) Exemptions now name the rules they excuse and the guard
 holds them to exactly that set, which is what makes a deleted rule a red line
 instead of a smaller number nobody reads.
 
