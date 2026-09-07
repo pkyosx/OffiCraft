@@ -25,6 +25,7 @@ import "./model-effort-editor.css";
 export const MODEL_QUICK_PICKS = ["fable", "opus", "sonnet", "haiku"] as const;
 /** Suggested Codex App Server model identifiers (the input remains free-form). */
 export const CODEX_MODEL_OPTIONS = [
+  "gpt-6-astra",
   "gpt-5.6-terra",
   "gpt-5.6-sol",
   "gpt-5.6-luna",
