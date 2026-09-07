@@ -103,8 +103,14 @@ func TestSystemInteractionSeedTeachesTheAdHocTaskRuleTheServerEnforces(t *testin
 	}
 
 	// The rule as the server runs it, in the two halves a reader has to act on.
+	//
+	// 🔴 THE ANCHORS ARE THE RULE, NOT ONE SENTENCE'S WORDING. They were
+	// re-pointed on 2026-09-07 when the owner asked for the section to be
+	// shortened (「不用解釋太多 sample payload 只需要一份」): the prose moved, the
+	// rule did not. Re-point them again the same way if the wording moves — what
+	// must never be dropped is a pair covering BOTH halves of the routing rule.
 	for _, want := range []string{
-		"**臨時任務（沒有類型的任務）跟沒有填相關任務是同一件事**",
+		"或那張任務沒有類型（臨時任務）",
 		"外包寫進他自己的那一份",
 	} {
 		if strings.Count(section, want) != 1 {
