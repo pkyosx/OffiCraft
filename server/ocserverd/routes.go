@@ -38,7 +38,7 @@ type RouteSpec struct {
 	// ladder machine < agent < admin_agent < owner; "public" on public routes).
 	// The boot assertion refuses to start when a row is undeclared or
 	// contradicts its auth label.
-	Requires string
+	Requires principalClass
 	// Summary is the human/tool description (also the future MCP tool description).
 	Summary string
 	// MCPExclude keeps this route OUT of the MCP tool surface (infra endpoints).
@@ -92,18 +92,6 @@ func verifyDiffShareSig(keys *keyring, r *http.Request, sig string) bool {
 // self-contradicting row at startup: they checked, at run time, facts that are
 // now unsayable at compile time.
 
-// principalClass is the floor a gated route admits. It is a STRUCT, not a
-// string, so a typo (Gated("superuser", …)) is a compile error rather than a
-// row nothing can satisfy — the case the deleted assertion used to catch.
-type principalClass struct{ name string }
-
-var (
-	classOwner      = principalClass{principalOwner}
-	classAdminAgent = principalClass{principalAdminAgent}
-	classAgent      = principalClass{principalAgent}
-	classMachine    = principalClass{principalMachine}
-)
-
 // routeDef is a row MINUS who may call it. Everything the table hand-writes
 // lives here; Auth and Requires deliberately do not, so they can only ever be
 // set by the two constructors below.
@@ -122,7 +110,7 @@ type routeDef struct {
 // rather than a row that silently serves with an empty auth label.
 type routeRow struct{ RouteSpec }
 
-func (d routeDef) row(auth, requires string) routeRow {
+func (d routeDef) row(auth string, requires principalClass) routeRow {
 	return routeRow{RouteSpec{
 		Method: d.Method, Path: d.Path, Handler: d.Handler,
 		Auth: auth, Requires: requires, Summary: d.Summary,
@@ -136,7 +124,7 @@ func Public(d routeDef) routeRow { return d.row(authPublic, requiresPublic) }
 
 // Gated is a route behind the auth choke. The class is the FIRST argument, so
 // forgetting it is "not enough arguments in call to Gated" at compile time.
-func Gated(c principalClass, d routeDef) routeRow { return d.row(authGated, c.name) }
+func Gated(c principalClass, d routeDef) routeRow { return d.row(authGated, c) }
 
 // routeSpecs builds the route table over the generated wrapper (which binds
 // path/query params, then dispatches into apiServer). Row order, auth labels,
@@ -219,7 +207,7 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 		//       subscribe and nothing legitimate to do with the owner's.
 		//
 		// Each of the five carries its own one-line reminder below.
-		Gated(classOwner, routeDef{
+		Gated(principalOwner, routeDef{
 			Method:  "POST",
 			Path:    "/api/mint",
 			Handler: w.HandleMintApiMintPost,
@@ -243,7 +231,7 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			Summary:    "First-run: set the owner password (one-shot claim token gate).",
 			MCPExclude: true, // a credential seam, never an agent tool
 		}),
-		Gated(classOwner, routeDef{
+		Gated(principalOwner, routeDef{
 			Method:  "POST",
 			Path:    "/api/auth/change-password",
 			Handler: w.HandleChangePasswordApiAuthChangePasswordPost,
@@ -258,28 +246,28 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 		// authenticates. An admin_agent that could reach them could weaken the
 		// credential that governs it, and arming or disarming the owner's factor
 		// is never something an agent does on the owner's behalf.
-		Gated(classOwner, routeDef{
+		Gated(principalOwner, routeDef{
 			Method:     "GET",
 			Path:       "/api/auth/mfa",
 			Handler:    w.HandleMfaStateApiAuthMfaGet,
 			Summary:    "Read the owner's second-factor state (offered + enrolled).",
 			MCPExclude: true,
 		}),
-		Gated(classOwner, routeDef{
+		Gated(principalOwner, routeDef{
 			Method:     "POST",
 			Path:       "/api/auth/mfa/offer",
 			Handler:    w.HandleMfaOfferApiAuthMfaOfferPost,
 			Summary:    "Turn the second-factor feature on or off for this server.",
 			MCPExclude: true,
 		}),
-		Gated(classOwner, routeDef{
+		Gated(principalOwner, routeDef{
 			Method:     "POST",
 			Path:       "/api/auth/mfa/enroll",
 			Handler:    w.HandleMfaEnrollApiAuthMfaEnrollPost,
 			Summary:    "Begin TOTP enrolment: mint a pending secret + otpauth URI.",
 			MCPExclude: true,
 		}),
-		Gated(classOwner, routeDef{
+		Gated(principalOwner, routeDef{
 			Method:     "POST",
 			Path:       "/api/auth/mfa/activate",
 			Handler:    w.HandleMfaActivateApiAuthMfaActivatePost,
@@ -292,35 +280,35 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 		// authenticates EVERY caller, the calling agent included. An
 		// admin_agent that could reach them could rotate the key that governs
 		// it, or remove the key its own credential is signed under.
-		Gated(classOwner, routeDef{
+		Gated(principalOwner, routeDef{
 			Method:     "GET",
 			Path:       "/api/auth/signing-keys",
 			Handler:    w.HandleSigningKeysApiAuthSigningKeysGet,
 			Summary:    "List the signing keys: id, when it was made, which one signs.",
 			MCPExclude: true,
 		}),
-		Gated(classOwner, routeDef{
+		Gated(principalOwner, routeDef{
 			Method:     "POST",
 			Path:       "/api/auth/signing-keys/rotate",
 			Handler:    w.HandleSigningKeyRotateApiAuthSigningKeysRotatePost,
 			Summary:    "Mint a new signing key and hand signing over to it; the old one stays, verifying.",
 			MCPExclude: true,
 		}),
-		Gated(classOwner, routeDef{
+		Gated(principalOwner, routeDef{
 			Method:     "POST",
 			Path:       "/api/auth/signing-keys/{key_id}/remove",
 			Handler:    w.HandleSigningKeyRemoveApiAuthSigningKeysKeyIdRemovePost,
 			Summary:    "Remove a retired key, revoking everything it signed. Refuses the signing key.",
 			MCPExclude: true,
 		}),
-		Gated(classOwner, routeDef{
+		Gated(principalOwner, routeDef{
 			Method:     "POST",
 			Path:       "/api/auth/mfa/disable",
 			Handler:    w.HandleMfaDisableApiAuthMfaDisablePost,
 			Summary:    "Turn the second factor off (password + live code required).",
 			MCPExclude: true,
 		}),
-		Gated(classAdminAgent, routeDef{
+		Gated(principalAdminAgent, routeDef{
 			// T-6020: opened to admin_agent (owner 2026-07-26) — running the
 			// office needs the office's own knobs.
 			Method:  "GET",
@@ -329,7 +317,7 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			Summary: "Read the org-adjustable settings (owner/admin agent).",
 			MCPTool: "get_settings",
 		}),
-		Gated(classAdminAgent, routeDef{
+		Gated(principalAdminAgent, routeDef{
 			// T-6020: opened to admin_agent (owner 2026-07-26).
 			Method:  "PATCH",
 			Path:    "/api/settings",
@@ -344,28 +332,28 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			Summary: "Edit the org-adjustable settings (owner/admin agent) — only the fields you send change, and the change is live immediately. This tool's input schema is the field list; read the current values with get_settings first.",
 			MCPTool: "update_settings",
 		}),
-		Gated(classOwner, routeDef{
+		Gated(principalOwner, routeDef{
 			Method: http.MethodGet, Path: "/api/push/public-key", Handler: w.HandleGetPushPublicKeyApiPushPublicKeyGet,
 			Summary: "Read the VAPID public key for this owner's browser.",
 			// T-6020: owner 2026-07-26 explicitly declined to open this to
 			// admin_agent — browser Web Push is the owner's personal device.
 			MCPExclude: true,
 		}),
-		Gated(classOwner, routeDef{
+		Gated(principalOwner, routeDef{
 			Method: http.MethodPost, Path: "/api/push/subscription", Handler: w.HandleCreatePushSubscriptionApiPushSubscriptionPost,
 			Summary: "Save this owner's browser Web Push subscription.",
 			// T-6020: owner 2026-07-26 explicitly declined to open this to
 			// admin_agent — browser Web Push is the owner's personal device.
 			MCPExclude: true,
 		}),
-		Gated(classOwner, routeDef{
+		Gated(principalOwner, routeDef{
 			Method: http.MethodDelete, Path: "/api/push/subscription", Handler: w.HandleDeletePushSubscriptionApiPushSubscriptionDelete,
 			Summary: "Remove this owner's browser Web Push subscription.",
 			// T-6020: owner 2026-07-26 explicitly declined to open this to
 			// admin_agent — browser Web Push is the owner's personal device.
 			MCPExclude: true,
 		}),
-		Gated(classAdminAgent, routeDef{
+		Gated(principalAdminAgent, routeDef{
 			// T-6020: opened to admin_agent (owner 2026-07-26).
 			Method:  "GET",
 			Path:    "/api/release/check",
@@ -373,7 +361,7 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			Summary: "Check GitHub Releases for a newer official OffiCraft version.",
 			MCPTool: "check_release",
 		}),
-		Gated(classAdminAgent, routeDef{
+		Gated(principalAdminAgent, routeDef{
 			// T-29c7: the cockpit's theme import box takes a LINK. Floor is
 			// admin_agent because that is exactly the floor of the write that
 			// stores the imported theme — a caller who could fetch but not store
@@ -390,7 +378,7 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			Summary:    "Fetch a theme bundle from a link (owner/admin agent).",
 			MCPExclude: true,
 		}),
-		Gated(classAdminAgent, routeDef{
+		Gated(principalAdminAgent, routeDef{
 			// T-6020: opened to admin_agent (owner 2026-07-26) — the admin 助理
 			// runs software upgrades; a PLAIN agent still cannot self-upgrade
 			// the server (the admin_agent choke keeps rank<2 out).
@@ -401,14 +389,14 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			MCPTool: "upgrade_station",
 		}),
 		// ── Gated infra seams ────────────────────────────────────────────────
-		Gated(classMachine, routeDef{
+		Gated(principalMachine, routeDef{
 			Method:     "GET",
 			Path:       "/api/events",
 			Handler:    w.HandleEventsApiEventsGet,
 			Summary:    "SSE delta stream (owner-scoped fan-out; reconcile-by-refetch).",
 			MCPExclude: true, // a live stream is not a callable tool
 		}),
-		Gated(classMachine, routeDef{
+		Gated(principalMachine, routeDef{
 			Method:     "POST",
 			Path:       "/api/mcp",
 			Handler:    w.HandleMcpApiMcpPost,
@@ -416,20 +404,20 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			MCPExclude: true, // the MCP endpoint is the transport, not a tool
 		}),
 		// ── Members — roster + presence + lifecycle ──────────────────────────
-		Gated(classMachine, routeDef{
+		Gated(principalMachine, routeDef{
 			Method:  "GET",
 			Path:    "/api/members",
 			Handler: w.HandleListMembersApiMembersGet,
 			Summary: "List every member that has not been removed, including outsource members by default (presence-derived MemberDTO[]). fields=light returns an identity-only projection that preserves kind.",
 		}),
-		Gated(classMachine, routeDef{
+		Gated(principalMachine, routeDef{
 			Method:  "POST",
 			Path:    "/api/members",
 			Handler: w.HandleHireMemberApiMembersPost,
 			Summary: "Hire a member (server mints the id). An omitted runtime is stored UNSET and resolved from the target host's reported runtime capabilities at first placement (a codex-only host grows a codex member) rather than written as claude; only claude/codex are accepted when you do name one; effort defaults to medium and is validated; a hire that names kind or role_key is admin-gated. Answers with a bounded receipt (``id``), not the roster row — call ``get_member`` when you need the rest.",
 			MCPTool: "hire_member",
 		}),
-		Gated(classMachine, routeDef{
+		Gated(principalMachine, routeDef{
 			Method:  "GET",
 			Path:    "/api/members/{member_id}",
 			Handler: w.HandleGetMemberApiMembersMemberIdGet,
@@ -451,14 +439,14 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 		// This note exists so the NEXT permission audit does not re-open the
 		// question: it was asked, it was ruled on, and the answer was no change.
 		// Raising this row needs a fresh owner ruling, not a tidy-up commit.
-		Gated(classMachine, routeDef{
+		Gated(principalMachine, routeDef{
 			Method:  "PATCH",
 			Path:    "/api/members/{member_id}",
 			Handler: w.HandleUpdateMemberApiMembersMemberIdPatch,
 			Summary: "Partially update a member's name / runtime / model / effort. Blank name, invalid runtime or invalid effort → 422, and changing a launch-intent field arms a graceful handover. Answers with a bounded receipt (``id``), not the roster row — call ``get_member`` when you need the rest.",
 			MCPTool: "update_member",
 		}),
-		Gated(classOwner, routeDef{
+		Gated(principalOwner, routeDef{
 			Method:  http.MethodPut,
 			Path:    "/api/members/{member_id}/avatar",
 			Handler: w.HandlePutMemberAvatarApiMembersMemberIdAvatarPut,
@@ -468,7 +456,7 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			Summary:    "Upload or replace a member's personal avatar (owner only).",
 			MCPExclude: true,
 		}),
-		Gated(classOwner, routeDef{
+		Gated(principalOwner, routeDef{
 			Method:  http.MethodDelete,
 			Path:    "/api/members/{member_id}/avatar",
 			Handler: w.HandleDeleteMemberAvatarApiMembersMemberIdAvatarDelete,
@@ -477,35 +465,35 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			Summary:    "Remove a member's personal avatar (owner only).",
 			MCPExclude: true,
 		}),
-		Gated(classAdminAgent, routeDef{
+		Gated(principalAdminAgent, routeDef{
 			Method:  "POST",
 			Path:    "/api/members/{member_id}/activate",
 			Handler: w.HandleActivateMemberApiMembersMemberIdActivatePost,
 			Summary: "Activate: write desired_state=online intent (does NOT flip online). Answers with a bounded receipt (``id``, ``activation_pending``, ``last_op_reason``), not the roster row — call ``get_member`` when you need the rest.",
 			MCPTool: "activate_member",
 		}),
-		Gated(classAdminAgent, routeDef{
+		Gated(principalAdminAgent, routeDef{
 			Method:  "POST",
 			Path:    "/api/members/{member_id}/relocate",
 			Handler: w.HandleRelocateMemberApiMembersMemberIdRelocatePost,
 			Summary: "Relocate a member to a machine (placement only; never touches desired_state). Also accepts an outsource-worker id: the same move-one-agent verb relocates the worker. machine_id is REQUIRED (owner 2026-07-27): a relocate NAMES the destination machine and no longer doubles as an unpin — an absent key is a 422, an explicit null or \"\" is a 400. Answers with a bounded receipt (``id``, ``relocation_pending``, ``relocation_deferred``), not the roster row — call ``get_member`` when you need the rest.",
 			MCPTool: "relocate_member", // owner-cockpit 改機器 + admin-agent 工具 (T-8655): Mira 可經 MCP 把 member 搬機; 權限仍 principalAdminAgent (一般 agent 擋)。P7c: member_id 也吃 worker id (ow-…) — handler falls through to the worker relocate core (外包對齊正職)
 		}),
-		Gated(classAdminAgent, routeDef{
+		Gated(principalAdminAgent, routeDef{
 			Method:  "POST",
 			Path:    "/api/members/{member_id}/deactivate",
 			Handler: w.HandleDeactivateMemberApiMembersMemberIdDeactivatePost,
 			Summary: "Deactivate: desired_state=offline + stamp stopping_since (retains row). Answers with a bounded receipt (``id``), not the roster row — call ``get_member`` when you need the rest.",
 			MCPTool: "deactivate_member",
 		}),
-		Gated(classAdminAgent, routeDef{
+		Gated(principalAdminAgent, routeDef{
 			Method:  "POST",
 			Path:    "/api/members/{member_id}/force-stop",
 			Handler: w.HandleForceStopMemberApiMembersMemberIdForceStopPost,
 			Summary: "Force-stop: robust STOP now. On the offboard arm the server starts no clock of its own -- collection is the agent's report_stopped, the deadline the owner opens with 加速停止, or this. Answers with a bounded receipt (``id``), not the roster row — call ``get_member`` when you need the rest.",
 			MCPTool: "force_stop_member",
 		}),
-		Gated(classOwner, routeDef{
+		Gated(principalOwner, routeDef{
 			Method:  "POST",
 			Path:    "/api/members/{member_id}/cost/reset",
 			Handler: w.HandleResetCostApiMembersMemberIdCostResetPost,
@@ -521,7 +509,7 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			// legitimate to do with the owner's spend record.
 			MCPExclude: true,
 		}),
-		Gated(classOwner, routeDef{
+		Gated(principalOwner, routeDef{
 			Method:  "POST",
 			Path:    "/api/accounts/cost/reset",
 			Handler: w.HandleResetAccountCostApiAccountsCostResetPost,
@@ -540,42 +528,42 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			// irreversible call. See the spec entry.
 			MCPExclude: true,
 		}),
-		Gated(classMachine, routeDef{
+		Gated(principalMachine, routeDef{
 			Method:  "POST",
 			Path:    "/api/self/waking",
 			Handler: w.HandleReportWakingApiSelfWakingPost,
 			Summary: "report_waking(): stamp the caller's waking + clear recycle markers. Answers with a bounded receipt (``id``, ``desired_state``, ``refocus_op``, ``refocus_deadline``), not the member row — call ``get_member`` when you need the rest.",
 			MCPTool: "report_waking",
 		}),
-		Gated(classMachine, routeDef{
+		Gated(principalMachine, routeDef{
 			Method:  "POST",
 			Path:    "/api/self/stopping",
 			Handler: w.HandleReportStoppingApiSelfStoppingPost,
 			Summary: "report_stopping(): stamp the caller's stopping_since (graceful stop). Answers with a bounded receipt (``id``, ``desired_state``, ``refocus_op``, ``refocus_deadline``), not the member row — call ``get_member`` when you need the rest.",
 			MCPTool: "report_stopping",
 		}),
-		Gated(classMachine, routeDef{
+		Gated(principalMachine, routeDef{
 			Method:  "POST",
 			Path:    "/api/self/stopped",
 			Handler: w.HandleReportStoppedApiSelfStoppedPost,
 			Summary: "report_stopped(): tell the server you have FINISHED your close-out. 🔴 THIS CALL DOES NOT, BY ITSELF, END YOUR SESSION, and it does not always cause anything to end it — which of the four things happened is in the receipt's ``stop_effect``, and it is the only way to tell them apart:\n\n* ``collected`` — a kill was dispatched by this call. You are being collected.\n* ``latched_for_collect`` — nothing was sent yet, but the next reconcile tick collects you off the latch this call wrote. You are being collected, one tick later.\n* ``recorded_only`` — 🔴 the end of this session was RECORDED AND NOTHING ELSE. No wind-down is open and nothing is holding you down, so NO KILL FOLLOWS and you will be started again. You have not been stopped, you have been noted. If you meant to stay down, someone with the authority to set your desired state has to do that — reporting again will not.\n* ``already_reported`` — you had already reported stopped, so THIS CALL DID NOTHING AT ALL. Whatever your first report set in motion, or failed to, still stands. Calling a third time changes nothing either.\n\nThe rest of the receipt is ``id``, ``desired_state``, ``refocus_op`` and ``refocus_deadline``, not the member row — call ``get_member`` when you need the rest.",
 			MCPTool: "report_stopped",
 		}),
-		Gated(classMachine, routeDef{
+		Gated(principalMachine, routeDef{
 			Method:  "POST",
 			Path:    "/api/self/refocus",
 			Handler: w.HandleRestartSelfApiSelfRefocusPost,
 			Summary: "restart_self(): self-triggered recycle (online-only 409; min-liveness 429; wind-down-ladder 409). Answers with a bounded receipt (``id``, ``desired_state``, ``refocus_op``, ``refocus_deadline``), not the member row — call ``get_member`` when you need the rest.",
 			MCPTool: "restart_self",
 		}),
-		Gated(classAdminAgent, routeDef{
+		Gated(principalAdminAgent, routeDef{
 			Method:  "POST",
 			Path:    "/api/members/{member_id}/refocus",
 			Handler: w.HandleRefocusMemberApiMembersMemberIdRefocusPost,
 			Summary: "Refocus a member's context (online-only, else 409). Answers with a bounded receipt (``id``), not the roster row — call ``get_member`` when you need the rest.",
 			MCPTool: "refocus_member",
 		}),
-		Gated(classAdminAgent, routeDef{
+		Gated(principalAdminAgent, routeDef{
 			Method:  "DELETE",
 			Path:    "/api/members/{member_id}",
 			Handler: w.HandleDismissMemberApiMembersMemberIdDelete,
@@ -602,28 +590,28 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 		// which was simply false on the machine floor — that sentence was
 		// rewritten in the same change rather than left as a comment that
 		// argued the code was safe.
-		Gated(classAdminAgent, routeDef{
+		Gated(principalAdminAgent, routeDef{
 			Method:     "GET",
 			Path:       "/api/members/{member_id}/webhooks",
 			Handler:    w.HandleListWebhooksApiMembersMemberIdWebhooksGet,
 			Summary:    "List a member's webhook endpoints (WebhookEndpointDTO[]).",
 			MCPExclude: true,
 		}),
-		Gated(classAdminAgent, routeDef{
+		Gated(principalAdminAgent, routeDef{
 			Method:     "POST",
 			Path:       "/api/members/{member_id}/webhooks",
 			Handler:    w.HandleCreateWebhookApiMembersMemberIdWebhooksPost,
 			Summary:    "Create a webhook endpoint (server mints the token).",
 			MCPExclude: true,
 		}),
-		Gated(classAdminAgent, routeDef{
+		Gated(principalAdminAgent, routeDef{
 			Method:     "PATCH",
 			Path:       "/api/members/{member_id}/webhooks/{endpoint_id}",
 			Handler:    w.HandleUpdateWebhookApiMembersMemberIdWebhooksEndpointIdPatch,
 			Summary:    "Toggle status / edit purpose of a webhook endpoint.",
 			MCPExclude: true,
 		}),
-		Gated(classAdminAgent, routeDef{
+		Gated(principalAdminAgent, routeDef{
 			Method:     "DELETE",
 			Path:       "/api/members/{member_id}/webhooks/{endpoint_id}",
 			Handler:    w.HandleDeleteWebhookApiMembersMemberIdWebhooksEndpointIdDelete,
@@ -633,7 +621,7 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 		// Debug ring buffer — raw external payloads. T-6020 (owner 2026-07-26)
 		// opened it to admin_agent; a PLAIN agent still cannot see another
 		// channel's unverified input through this side door.
-		Gated(classAdminAgent, routeDef{
+		Gated(principalAdminAgent, routeDef{
 			Method:  "GET",
 			Path:    "/api/members/{member_id}/webhooks/{endpoint_id}/requests",
 			Handler: w.HandleListWebhookRequestsApiMembersMemberIdWebhooksEndpointIdRequestsGet,
@@ -671,28 +659,28 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 		// calling any of these four still gets 403, and that is the correct
 		// answer, not a gap. routes_t63bf_scheduled_message_mcp_test.go pins
 		// both halves (the tools exist AND the floor did not move).
-		Gated(classAdminAgent, routeDef{
+		Gated(principalAdminAgent, routeDef{
 			Method:  "GET",
 			Path:    "/api/members/{member_id}/scheduled-messages",
 			Handler: w.HandleListScheduledMessagesApiMembersMemberIdScheduledMessagesGet,
 			Summary: "List one member's scheduled messages — 定期訊息, the wall-clock alarm that wakes that member with a chat message on a repeating cadence. admin_agent floor: the owner, or an admin assistant setting these up on the owner's behalf; an ordinary agent gets 403 even for its own member_id. Rows come oldest→newest and each carries the whole schedule — label, body, cadence, the slot fields `hour`/`minute`/`day_of_week`/`day_of_month`, the four `custom` sets, timezone, and the enabled/disabled toggle — plus the delivery cursor `last_fired_slot`/`last_fired_ts`. Read this before update_scheduled_message: that call is a partial edit against these stored values, and it re-aims the cursor only for a slot field whose value actually CHANGES. 404 if the member is absent or soft-removed.",
 			MCPTool: "list_scheduled_messages",
 		}),
-		Gated(classAdminAgent, routeDef{
+		Gated(principalAdminAgent, routeDef{
 			Method:  "POST",
 			Path:    "/api/members/{member_id}/scheduled-messages",
 			Handler: w.HandleCreateScheduledMessageApiMembersMemberIdScheduledMessagesPost,
 			Summary: "Create a scheduled message on one member — 定期訊息, the mechanism for waking a member on a repeating wall-clock slot: at each due slot the server delivers `body` verbatim down the ORDINARY chat path, from the synthetic sender `sched:<schedule_id>`. admin_agent floor: the owner, or an admin assistant setting one up on the owner's behalf; an ordinary agent gets 403 even for its own member_id. The recipient follows chat's rule, so an `ow-` outsource worker is a legal target as well as a staff member. `body`, `cadence` and `timezone` are always required; `hour`/`minute` are required by `daily`/`weekly`/`monthly` and ignored by `custom` FOR SCHEDULING — their range is still checked under every cadence, so `hour: 99` is a 422 even for `custom`, which instead requires `custom_days`/`custom_hours`/`custom_minutes` (`custom_months` may be omitted to mean all twelve; an explicit empty set is a 422). Those conditional rules are NOT expressible in this schema — a wrong combination comes back as a 422 rather than folding into a silent midnight. TWO fields are the exception and they fail SILENTLY: `day_of_week` (used by `weekly`) and `day_of_month` (used by `monthly`) are NOT required — omit either one and the create returns 200 having defaulted it to 0 (Sunday) and 1 (the first of the month). 'Every Friday at 09:00' sent without `day_of_week` is a Sunday alarm and nothing reports it, so send the field explicitly whenever the cadence reads it. `timezone` must NAME A PLACE: `Local` and the empty string are refused with 422 even though they resolve, because they hand \"what time is it\" to wherever the server happens to run. Missed slots are never backfilled — only the slot most recently elapsed is ever considered — and the cursor starts at creation time, so a `daily` 09:00 schedule created at 10:00 does not fire today. 404 if the member is absent or soft-removed. Answers with a bounded receipt (``id``, ``member_id``, ``label``, ``body_size_chars``, ``cadence``, ``custom_months``, ``day_of_month``, ``day_of_week``, ``status``, ``last_fired_slot``, ``last_fired_ts``, ``created_ts``), not the schedule — call ``list_scheduled_messages`` when you need the rest.",
 			MCPTool: "create_scheduled_message",
 		}),
-		Gated(classAdminAgent, routeDef{
+		Gated(principalAdminAgent, routeDef{
 			Method:  "PATCH",
 			Path:    "/api/members/{member_id}/scheduled-messages/{schedule_id}",
 			Handler: w.HandleUpdateScheduledMessageApiMembersMemberIdScheduledMessagesScheduleIdPatch,
 			Summary: "Update one scheduled message, including the enabled/disabled toggle (`status`) — 定期訊息, the wall-clock wake-up for one member. admin_agent floor: the owner, or an admin assistant acting on the owner's behalf; an ordinary agent gets 403 even for its own member_id. PATCH semantics: only the fields you send change, and `id`/`member_id` are immutable. The create-side validation applies unchanged — `hour`/`minute` required by `daily`/`weekly`/`monthly` and ignored by `custom` for scheduling though still range-checked under every cadence, the custom sets never empty, `timezone` never `Local` or the empty string — all 422. Editing a timing field to a DIFFERENT value re-aims the delivery cursor to the slot most recently elapsed, so the edit never retroactively fires the slot it crossed; re-sending a value the schedule already holds moves nothing, which is what makes a whole-form save safe. `disabled` suspends firing and is reversible — it is not a lifecycle state; delete_scheduled_message is the permanent removal. 404 if the member or the schedule is absent. Answers with a bounded receipt (``id``, ``member_id``, ``label``, ``body_size_chars``, ``cadence``, ``custom_months``, ``day_of_month``, ``day_of_week``, ``status``, ``last_fired_slot``, ``last_fired_ts``, ``created_ts``), not the schedule — call ``list_scheduled_messages`` when you need the rest.",
 			MCPTool: "update_scheduled_message",
 		}),
-		Gated(classAdminAgent, routeDef{
+		Gated(principalAdminAgent, routeDef{
 			Method:  "DELETE",
 			Path:    "/api/members/{member_id}/scheduled-messages/{schedule_id}",
 			Handler: w.HandleDeleteScheduledMessageApiMembersMemberIdScheduledMessagesScheduleIdDelete,
@@ -709,7 +697,7 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 		// another member's resume snapshot; a plain agent -> 403.
 		// /api/resume-summary and its identity lock are unchanged by this
 		// addition.
-		Gated(classAdminAgent, routeDef{
+		Gated(principalAdminAgent, routeDef{
 			Method:  "GET",
 			Path:    "/api/members/{member_id}/resume-summary",
 			Handler: w.HandleGetMemberResumeSummaryApiMembersMemberIdResumeSummaryGet,
@@ -727,19 +715,19 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			MCPExclude: true,
 		}),
 		// ── Chat ─────────────────────────────────────────────────────────────
-		Gated(classMachine, routeDef{
+		Gated(principalMachine, routeDef{
 			Method:  "POST",
 			Path:    "/api/chat",
 			Handler: w.HandlePostChatApiChatPost,
 			Summary: "Post a chat message (sender = verified JWT sub; auto SSE fan-out). ``to`` must name the owner or an active AI member; unknown, removed, and machine ids are rejected. Presence is not a gate: an offline member keeps its durable mailbox. Answers with a bounded receipt (``id``, ``ts``, ``to``, ``attachments``), not the message — call ``get_chat`` when you need the rest.",
 		}),
-		Gated(classMachine, routeDef{
+		Gated(principalMachine, routeDef{
 			Method:  "GET",
 			Path:    "/api/chat",
 			Handler: w.HandleListChatApiChatGet,
 			Summary: "List the chat stream (?with=<id>&limit=<n>; oldest→newest). Answers an OBJECT {messages, next_cursor}, never a bare array: next_cursor is opaque, send it back as cursor= for the next page, and its ABSENCE — not a short page — is the only 'nothing more' signal. Your unread backfill: unread=true returns the OLDEST unread addressed to you, judged against the per-sender watermark, and still marks nothing read. Narrow either side with sender= / recipient=. Window by message id: start_id walks TOWARDS THE NEWEST, end_id TOWARDS THE OLDEST, both inclusive. The older before_ts + before_id cursor still works but is deprecated. Re-read specific messages by id: ids=<id>&ids=<id>. THIS ROUTE NEVER MARKS ANYTHING READ (T-48) — to mark a conversation read, call mark_read explicitly.",
 		}),
-		Gated(classMachine, routeDef{
+		Gated(principalMachine, routeDef{
 			Method:     "GET",
 			Path:       "/api/chat/attachment/{attachment_id}",
 			Handler:    w.HandleGetChatAttachmentApiChatAttachmentAttachmentIdGet,
@@ -748,7 +736,7 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			MCPTool:    "get_chat_attachment",
 			ShareSig:   verifyAttachmentShareSig,
 		}),
-		Gated(classMachine, routeDef{
+		Gated(principalMachine, routeDef{
 			Method:  "GET",
 			Path:    "/api/chat/attachments/{attachment_id}/share-link",
 			Handler: w.HandleGetChatAttachmentShareLinkApiChatAttachmentsAttachmentIdShareLinkGet,
@@ -773,55 +761,55 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			// widening this seam any further.
 			MCPTool: "get_chat_attachment_share_link",
 		}),
-		Gated(classMachine, routeDef{
+		Gated(principalMachine, routeDef{
 			Method:  "GET",
 			Path:    "/api/chat/attachments",
 			Handler: w.HandleListChatAttachmentsApiChatAttachmentsGet,
 			Summary: "List every attachment of a member's conversations " +
 				"(?with=<member_id>; flattened, sender-labelled, newest→oldest).",
 		}),
-		Gated(classMachine, routeDef{
+		Gated(principalMachine, routeDef{
 			Method:     "POST",
 			Path:       "/api/chat/attachments",
 			Handler:    w.HandleUploadChatAttachmentApiChatAttachmentsPost,
 			Summary:    "Upload one attachment blob (raw octet-stream body; returns the light ref). ?filename= is capped at 128 characters (Unicode runes, not bytes); a longer one is refused with a 400 rather than truncated.",
 			MCPExclude: true, // a binary ingest seam like the blob GET, not a tool
 		}),
-		Gated(classMachine, routeDef{
+		Gated(principalMachine, routeDef{
 			Method:  "POST",
 			Path:    "/api/chat/mark-read",
 			Handler: w.HandleMarkChatReadApiChatMarkReadPost,
 			Summary: "Mark a conversation read up to a watermark (reader = verified sub).",
 		}),
-		Gated(classMachine, routeDef{
+		Gated(principalMachine, routeDef{
 			Method:  "GET",
 			Path:    "/api/chat/reads",
 			Handler: w.HandleListChatReadsApiChatReadsGet,
 			Summary: "List chat read receipts (?with=<peer>; per-conversation watermark).",
 		}),
 		// ── Reply cards (等我回覆卡) ─────────────────────────────────────────
-		Gated(classMachine, routeDef{
+		Gated(principalMachine, routeDef{
 			Method:  "POST",
 			Path:    "/api/reply-cards",
 			Handler: w.HandleCreateReplyCardApiReplyCardsPost,
 			Summary: "Open a reply card: an ask the owner must answer (options ≤4 on a single card, ≤20 on a multi card, each carrying its own ai_pick flag; select_mode single|multi). linked_task is REQUIRED and has no default — every card must SAY whether it is about a task, because the server no longer infers one. Send linked_task={\"task_id\": ..., \"step_id\": ...} to bind the ask to the step it is about: that step (and its task) enters waiting_owner until the owner answers. Send linked_task=null when the ask is not about a task — it opens as a plain unbound 請示. BOTH ids are required in the object form: a task_id with NO step_id is a 400, because a card bound to a task but to no step places no 等我回覆 hold, so the task would finish underneath your question and the owner's answer would then be rejected for good. Omitting linked_task entirely is a 400 that names both legal shapes. Optional attachments ride the question (same shape as post_chat: {id} from `ocagent upload` / POST /api/chat/attachments, or inline data_b64). Answers with a bounded receipt (``id``, ``chat_message_id``, ``created_ts``, ``attachments``), not the card — call ``get_reply_card`` when you need the rest.",
 			MCPTool: "create_reply_card",
 		}),
-		Gated(classMachine, routeDef{
+		Gated(principalMachine, routeDef{
 			Method:  "GET",
 			Path:    "/api/reply-cards",
 			Handler: w.HandleListReplyCardsApiReplyCardsGet,
 			Summary: "List light reply-card rows (summary and decision digest, without the full body/options). status is waiting (the default, longest-waiting first), answered (the last 24 hours) or expired (the last 24 hours); a positive limit is applied after each pane is ordered. Read one card in full with get_reply_card.",
 			MCPTool: "list_reply_cards",
 		}),
-		Gated(classMachine, routeDef{
+		Gated(principalMachine, routeDef{
 			Method:     "GET",
 			Path:       "/api/reply-cards/count",
 			Handler:    w.HandleReplyCardCountApiReplyCardsCountGet,
 			Summary:    "Waiting reply-card count (the cockpit badge).",
 			MCPExclude: true, // a UI badge convenience, not an agent tool
 		}),
-		Gated(classMachine, routeDef{
+		Gated(principalMachine, routeDef{
 			Method:     "GET",
 			Path:       "/api/chat/unread-count",
 			Handler:    w.HandleChatUnreadCountApiChatUnreadCountGet,
@@ -829,7 +817,7 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			MCPExclude: true, // a UI badge convenience, not an agent tool
 		}),
 		// ── Comparisons: a URL, not an attachment (T-59) ─────────────────────
-		Gated(classMachine, routeDef{
+		Gated(principalMachine, routeDef{
 			Method:  "GET",
 			Path:    "/api/diff",
 			Handler: w.HandleGetDiffApiDiffGet,
@@ -843,7 +831,7 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			// labels (verifyDiffShareSig). There is no second bypass anywhere.
 			ShareSig: verifyDiffShareSig,
 		}),
-		Gated(classMachine, routeDef{
+		Gated(principalMachine, routeDef{
 			Method:  "GET",
 			Path:    "/api/diff/share-link",
 			Handler: w.HandleGetDiffShareLinkApiDiffShareLinkGet,
@@ -854,7 +842,7 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			// permanence lives — read sharesig.go before widening this.
 			MCPTool: "get_diff_share_link",
 		}),
-		Gated(classMachine, routeDef{
+		Gated(principalMachine, routeDef{
 			Method:  "GET",
 			Path:    "/api/reply-cards/{card_id}",
 			Handler: w.HandleGetReplyCardApiReplyCardsCardIdGet,
@@ -865,14 +853,14 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 		// admin_agent — the admin 助理 answers on the owner's behalf. A plain
 		// agent still cannot close its own card (rank<2 → 403), so "no agent
 		// self-answers its own 請示" survives.
-		Gated(classAdminAgent, routeDef{
+		Gated(principalAdminAgent, routeDef{
 			Method:  "POST",
 			Path:    "/api/reply-cards/{card_id}/answer",
 			Handler: w.HandleAnswerReplyCardApiReplyCardsCardIdAnswerPost,
 			Summary: "Answer a waiting reply card — the only positive close. Answers with a bounded receipt (``id``, ``status``, ``answered_ts``, ``expired_ts``, ``answer``, ``task_id``, ``step_id``), not the whole card — call ``get_reply_card`` when you need the rest.",
 			MCPTool: "answer_reply_card",
 		}),
-		Gated(classAdminAgent, routeDef{
+		Gated(principalAdminAgent, routeDef{
 			Method:  "PUT",
 			Path:    "/api/reply-cards/{card_id}/answer",
 			Handler: w.HandleReanswerReplyCardApiReplyCardsCardIdAnswerPut,
@@ -895,7 +883,7 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 		// says who may call this, routes_t6020_governance_test.go keeps this row
 		// in a SEPARATE named table (t6020Revised) rather than dropping it: the
 		// 2026-07-26 ruling and its 2026-08-07 revision both stay on the record.
-		Gated(classAgent, routeDef{
+		Gated(principalAgent, routeDef{
 			Method:  "POST",
 			Path:    "/api/reply-cards/{card_id}/expire",
 			Handler: w.HandleExpireReplyCardApiReplyCardsCardIdExpirePost,
@@ -903,27 +891,27 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			MCPTool: "expire_reply_card",
 		}),
 		// ── Agent context gauge + monitoring ─────────────────────────────────
-		Gated(classMachine, routeDef{
+		Gated(principalMachine, routeDef{
 			Method:  "POST",
 			Path:    "/api/agent/context",
 			Handler: w.HandleIngestAgentContextApiAgentContextPost,
 			Summary: "Ingest an agent's context gauge (in-memory; bad body → 400).",
 			MCPTool: "ingest_agent_context",
 		}),
-		Gated(classMachine, routeDef{
+		Gated(principalMachine, routeDef{
 			Method:  "POST",
 			Path:    "/api/monitoring/telemetry",
 			Handler: w.HandleIngestTelemetryApiMonitoringTelemetryPost,
 			Summary: "Ingest warden telemetry (hardware/limits/tokens/cost/self_update).",
 			MCPTool: "ingest_telemetry",
 		}),
-		Gated(classMachine, routeDef{
+		Gated(principalMachine, routeDef{
 			Method:  "GET",
 			Path:    "/api/monitoring",
 			Handler: w.HandleGetMonitoringApiMonitoringGet,
 			Summary: "Monitoring telemetry (roster + context + warden push; honest — else).",
 		}),
-		Gated(classAdminAgent, routeDef{
+		Gated(principalAdminAgent, routeDef{
 			Method:  "GET",
 			Path:    "/api/backup-health",
 			Handler: w.HandleGetBackupHealthApiBackupHealthGet,
@@ -937,14 +925,14 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			MCPExclude: true,
 		}),
 		// ── Display-name overlays ────────────────────────────────────────────
-		Gated(classMachine, routeDef{
+		Gated(principalMachine, routeDef{
 			Method:  "PATCH",
 			Path:    "/api/accounts/{account_id}",
 			Handler: w.HandleUpdateAccountApiAccountsAccountIdPatch,
 			Summary: "Set an account's display name (id = stable tag). Blank name → 422.",
 			MCPTool: "update_account",
 		}),
-		Gated(classMachine, routeDef{
+		Gated(principalMachine, routeDef{
 			Method:  "PATCH",
 			Path:    "/api/machines/{machine_id}",
 			Handler: w.HandleUpdateMachineApiMachinesMachineIdPatch,
@@ -959,21 +947,21 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			Summary:    "One-line remote warden installer (curl|bash; token+id in URL query).",
 			MCPExclude: true, // a bash installer script, not an agent tool
 		}),
-		Gated(classMachine, routeDef{
+		Gated(principalMachine, routeDef{
 			Method:  "GET",
 			Path:    "/api/machines",
 			Handler: w.HandleListMachinesApiMachinesGet,
 			Summary: "List machines (active wardens): machine_id/display_name/online.",
 			MCPTool: "list_machines",
 		}),
-		Gated(classAdminAgent, routeDef{
+		Gated(principalAdminAgent, routeDef{
 			Method:     "POST",
 			Path:       "/api/machines",
 			Handler:    w.HandleOnboardMachineApiMachinesPost,
 			Summary:    "Onboard a machine: new warden member (id == machine id) + exec-token.",
 			MCPExclude: true, // a credential-mint seam (like /api/mint), not an agent tool
 		}),
-		Gated(classAdminAgent, routeDef{
+		Gated(principalAdminAgent, routeDef{
 			Method:     "GET",
 			Path:       "/api/machines/{machine_id}/boot-command",
 			Handler:    w.HandleMachineBootCommandApiMachinesMachineIdBootCommandGet,
@@ -993,7 +981,7 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 		// principalMachine is the LOWEST rank and an ordinary agent clears it —
 		// but principalAgent would lock the WARDEN out (machine ranks BELOW
 		// agent), so the warden-only property lives in the handler, not here.
-		Gated(classMachine, routeDef{
+		Gated(principalMachine, routeDef{
 			Method:     "POST",
 			Path:       "/api/machines/renew-credential",
 			Handler:    w.HandleRenewMachineCredentialApiMachinesRenewCredentialPost,
@@ -1005,7 +993,7 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 		// seam above because the same caller asks it, one poll before asking that
 		// one — a higher floor would lock the warden out of the question it exists
 		// to answer.
-		Gated(classMachine, routeDef{
+		Gated(principalMachine, routeDef{
 			Method:     "GET",
 			Path:       "/api/machines/credential-policy",
 			Handler:    w.HandleMachineCredentialPolicyApiMachinesCredentialPolicyGet,
@@ -1015,28 +1003,28 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 		// T-6020 (owner 2026-07-26): the two on-server host lifecycle faces open
 		// to admin_agent — installing/tearing down the server host's own warden
 		// is office operations. A plain agent is still 403 (rank<2).
-		Gated(classAdminAgent, routeDef{
+		Gated(principalAdminAgent, routeDef{
 			Method:  "POST",
 			Path:    "/api/machines/{machine_id}/bootstrap-here",
 			Handler: w.HandleBootstrapHereApiMachinesMachineIdBootstrapHerePost,
 			Summary: "Bootstrap on server: runs `ocwarden install --force` on the SERVER's own host. machine_id is NOT a target — this verb has no way to reach another machine, and naming one is refused (409); the server-local machine is the only value it accepts, and the install overwrites the existing one, which is how you repair this host's warden. To install a different machine, fetch that machine's own boot command with GET /api/machines/{machine_id}/boot-command and run it on that host.",
 			MCPTool: "install_warden_on_server_host",
 		}),
-		Gated(classAdminAgent, routeDef{
+		Gated(principalAdminAgent, routeDef{
 			Method:  "POST",
 			Path:    "/api/machines/{machine_id}/teardown-here",
 			Handler: w.HandleTeardownHereApiMachinesMachineIdTeardownHerePost,
 			Summary: "Teardown on server: runs `ocwarden teardown` on the SERVER's own host. machine_id is NOT a target — this verb has no way to reach another machine, and naming one is refused (409). The server-local machine is refused too (retiring it revokes credentials fleet-wide). To retire another machine use uninstall_machine then delete_machine; to repair the server host's own warden use install_warden_on_server_host, which runs `install --force` over the existing install.",
 			MCPTool: "uninstall_warden_on_server_host",
 		}),
-		Gated(classAdminAgent, routeDef{
+		Gated(principalAdminAgent, routeDef{
 			Method:  "POST",
 			Path:    "/api/machines/{member_id}/uninstall",
 			Handler: w.HandleUninstallMachineApiMachinesMemberIdUninstallPost,
 			Summary: "Uninstall a machine: drive the uninstall RPC to its warden.",
 			MCPTool: "uninstall_machine",
 		}),
-		Gated(classAdminAgent, routeDef{
+		Gated(principalAdminAgent, routeDef{
 			// T-6020: opened to admin_agent (owner 2026-07-26) — same floor as
 			// uninstall_machine right above, which was already admin_agent.
 			Method:  "POST",
@@ -1045,7 +1033,7 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			Summary: "Upgrade a machine: kick its warden's self-update NOW.",
 			MCPTool: "upgrade_warden",
 		}),
-		Gated(classAdminAgent, routeDef{
+		Gated(principalAdminAgent, routeDef{
 			Method:  "DELETE",
 			Path:    "/api/machines/{member_id}",
 			Handler: w.HandleDeleteMachineApiMachinesMemberIdDelete,
@@ -1068,21 +1056,21 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			MCPExclude: true, // a binary download, not an agent tool
 		}),
 		// ── User context / roles / lessons / bootstrap ───────────────────────
-		Gated(classMachine, routeDef{
+		Gated(principalMachine, routeDef{
 			Method:  "GET",
 			Path:    "/api/global-context",
 			Handler: w.HandleGetGlobalContextApiGlobalContextGet,
 			Summary: "Read the user-custom additive context block (empty = is_default).",
 			MCPTool: "get_global_context",
 		}),
-		Gated(classAdminAgent, routeDef{
+		Gated(principalAdminAgent, routeDef{
 			Method:  "POST",
 			Path:    "/api/global-context",
 			Handler: w.HandleReplaceGlobalContextApiGlobalContextPost,
 			Summary: "Whole-block replace of the user-custom additive block ({text}). text is REQUIRED; unknown keys are rejected. Replacing existing content with an empty block needs allow_shrink=true (or use reset_global_context). Answers with a bounded receipt (``is_default``, ``size_chars``, ``sha256``), not the block — call ``get_global_context`` when you need the rest.",
 			MCPTool: "replace_global_context",
 		}),
-		Gated(classAdminAgent, routeDef{
+		Gated(principalAdminAgent, routeDef{
 			Method:  "POST",
 			Path:    "/api/global-context/reset",
 			Handler: w.HandleResetGlobalContextApiGlobalContextResetPost,
@@ -1103,42 +1091,42 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 		// silent: an agent that never boots is never there to report it, which is
 		// also why the reset route has to work from the cockpit alone, with no
 		// live agent and no MCP client anywhere in the path.
-		Gated(classMachine, routeDef{
+		Gated(principalMachine, routeDef{
 			Method:  "GET",
 			Path:    "/api/system-interaction",
 			Handler: w.HandleGetSystemInteractionApiSystemInteractionGet,
 			Summary: "Read the 系統互動 block of the boot context — the shared studio handbook every agent reads at boot. Folded: the owner's edit when one exists, otherwise the shipped factory seed, with is_default saying which of the two you are holding and has_seed saying a factory version exists to go back to. The reply carries size_chars/cap_chars (this document's own size limit, in characters) and is_default/has_seed, so a caller can size an edit before making it and can tell an edited block from the shipped one.",
 			MCPTool: "get_system_interaction",
 		}),
-		Gated(classAdminAgent, routeDef{
+		Gated(principalAdminAgent, routeDef{
 			Method:  "POST",
 			Path:    "/api/system-interaction",
 			Handler: w.HandleReplaceSystemInteractionApiSystemInteractionPost,
 			Summary: "Replace the EDITABLE HALF of the 系統互動 block of the boot context ({body}) — the handbook every agent reads at boot. body is REQUIRED and unknown keys are rejected; emptying a body that had content needs allow_shrink=true. This document carries NO read-only head today (T-6f44, owner's decision 4 removed it), so the body IS the whole document; the head machinery still exists for the kinds that do carry one, and there is no way to write a head on any face. The stored result is judged against the doc.cap_chars.system_interaction cap unconditionally, and the refusal tells you what you wrote, the cap, and what is already stored. The shipped seed is never overwritten, so reset_system_interaction always gets the factory text back; the version this write replaces is retained in the document history (a save that changes nothing retains nothing). Owner or admin assistant only. Answers with a bounded receipt (``kind``, ``key``, ``is_default``, ``size_chars``, ``cap_chars``, ``sha256``), not the document — call ``get_system_interaction`` when you need the rest.",
 			MCPTool: "replace_system_interaction",
 		}),
-		Gated(classAdminAgent, routeDef{
+		Gated(principalAdminAgent, routeDef{
 			Method:  "POST",
 			Path:    "/api/system-interaction/reset",
 			Handler: w.HandleResetSystemInteractionApiSystemInteractionResetPost,
 			Summary: "Restore the 系統互動 block to the FACTORY text shipped with this build (idempotent tombstone of the overlay). No length cap is applied on this path — the factory text is part of the product, so no setting can block the way back to it. The overlay being discarded is retained in the document history, so the reset is itself recoverable. Owner or admin assistant only. Answers with a bounded receipt (``kind``, ``key``, ``is_default``, ``size_chars``, ``cap_chars``, ``sha256``), not the document — call ``get_system_interaction`` when you need the rest.",
 			MCPTool: "reset_system_interaction",
 		}),
-		Gated(classMachine, routeDef{
+		Gated(principalMachine, routeDef{
 			Method:  "GET",
 			Path:    "/api/boot-sequence/{runtime_key}",
 			Handler: w.HandleGetBootSequenceApiBootSequenceRuntimeKeyGet,
 			Summary: "Read one runtime's 啟動步驟 block — the boot checklist that ends that runtime's boot context. runtime_key is 'claude' or 'codex'; they are separate documents because step 3 of the two says opposite things (claude mounts its own `ocagent listen`, codex must not — the sidecar owns it), so any other value is a 404 rather than a silent fallback to claude. Folded: the owner's edit when one exists, otherwise the shipped factory seed. The reply carries size_chars/cap_chars (this document's own size limit, in characters) and is_default/has_seed, so a caller can size an edit before making it and can tell an edited block from the shipped one.",
 			MCPTool: "get_boot_sequence",
 		}),
-		Gated(classAdminAgent, routeDef{
+		Gated(principalAdminAgent, routeDef{
 			Method:  "POST",
 			Path:    "/api/boot-sequence/{runtime_key}",
 			Handler: w.HandleReplaceBootSequenceApiBootSequenceRuntimeKeyPost,
 			Summary: "Replace the EDITABLE HALF of the 啟動步驟 block of ONE runtime ({runtime_key, body}). runtime_key is 'claude' or 'codex' and the two are separate documents whose step 3 contradicts each other, so writing the wrong one leaves those agents unable to come online — and nothing that never boots reports it. body is REQUIRED and unknown keys are rejected; emptying a body that had content needs allow_shrink=true. Neither runtime's document carries a read-only head today (T-6f44, owner's decision 4 removed it), so the body IS the whole document; the head machinery still exists for the kinds that do carry one, and there is no way to write a head on any face. The stored result is judged against the doc.cap_chars.boot_sequence cap (one cap, both runtimes, each measured on its own text); the refusal tells you what you wrote, the cap, and what is stored. The shipped seed is never overwritten, so reset_boot_sequence always gets the factory text back. Owner or admin assistant only. Answers with a bounded receipt (``kind``, ``key``, ``is_default``, ``size_chars``, ``cap_chars``, ``sha256``), not the document — call ``get_boot_sequence`` when you need the rest.",
 			MCPTool: "replace_boot_sequence",
 		}),
-		Gated(classAdminAgent, routeDef{
+		Gated(principalAdminAgent, routeDef{
 			Method:  "POST",
 			Path:    "/api/boot-sequence/{runtime_key}/reset",
 			Handler: w.HandleResetBootSequenceApiBootSequenceRuntimeKeyResetPost,
@@ -1150,21 +1138,21 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 		// at the machine floor (every agent is handed this text when its session
 		// is collected), write at admin_agent (it is the last instruction an
 		// agent gets, with nobody online afterwards to correct it).
-		Gated(classMachine, routeDef{
+		Gated(principalMachine, routeDef{
 			Method:  "GET",
 			Path:    "/api/offboard",
 			Handler: w.HandleGetOffboardApiOffboardGet,
 			Summary: "Read the 〈停止〉 block — the wrap-up checklist the server hands an agent at the moment it is about to collect that session. It is a SINGLETON: one document for every agent and every runtime, keyed `global` like the 系統互動 block. Folded: the owner's edit when one exists, otherwise the shipped factory seed, with is_default saying which of the two you are holding and has_seed saying a factory version exists to go back to. The reply carries size_chars/cap_chars (this document's own size limit, in characters) and is_default/has_seed, so a caller can size an edit before making it and can tell an edited block from the shipped one.",
 			MCPTool: "get_offboard",
 		}),
-		Gated(classAdminAgent, routeDef{
+		Gated(principalAdminAgent, routeDef{
 			Method:  "POST",
 			Path:    "/api/offboard",
 			Handler: w.HandleReplaceOffboardApiOffboardPost,
 			Summary: "Replace the EDITABLE HALF of the 〈停止〉 block ({body}) — the wrap-up checklist an agent is handed when its session is being collected. body is REQUIRED and unknown keys are rejected; emptying a body that had content needs allow_shrink=true. This document carries NO read-only head today (T-6f44, owner's decision 4 removed it), so the body IS the whole document; the head machinery still exists for the kinds that do carry one, and there is no way to write a head on any face. The stored result is judged against the doc.cap_chars.offboard cap unconditionally, and the refusal tells you what you wrote, the cap, and what is already stored. The shipped seed is never overwritten, so reset_offboard always gets the factory text back; the version this write replaces is retained in the document history (a save that changes nothing retains nothing). Owner or admin assistant only. Answers with a bounded receipt (``kind``, ``key``, ``is_default``, ``size_chars``, ``cap_chars``, ``sha256``), not the document — call ``get_offboard`` when you need the rest.",
 			MCPTool: "replace_offboard",
 		}),
-		Gated(classAdminAgent, routeDef{
+		Gated(principalAdminAgent, routeDef{
 			Method:  "POST",
 			Path:    "/api/offboard/reset",
 			Handler: w.HandleResetOffboardApiOffboardResetPost,
@@ -1200,35 +1188,35 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 		// read-only — but nothing in the registry sets the flag right now, and
 		// TestBootDocRegistry_NoDocumentIsReadOnly is what keeps that a
 		// statement rather than a hole.
-		Gated(classMachine, routeDef{
+		Gated(principalMachine, routeDef{
 			Method:  "GET",
 			Path:    "/api/boot-docs/{kind}/{key}",
 			Handler: w.HandleGetBootDocApiBootDocsKindKeyGet,
 			Summary: "Read one block of the boot context by kind/key, folded (the owner's edit ⊕ the shipped seed). Carries size_chars/cap_chars so an edit can be sized before it is made, is_default/has_seed to tell an edited block from the shipped one, and read_only for the blocks that are shown but may never be edited. An unknown kind or key is a 404 that names the keys that exist.",
 			MCPTool: "get_boot_doc",
 		}),
-		Gated(classAdminAgent, routeDef{
+		Gated(principalAdminAgent, routeDef{
 			Method:  "POST",
 			Path:    "/api/boot-docs/{kind}/{key}",
 			Handler: w.HandleReplaceBootDocApiBootDocsKindKeyPost,
 			Summary: "Replace the EDITABLE HALF of one boot-context block ({kind, key, body}) — text every agent reads at boot, or is sent when a lifecycle event happens to it. body is REQUIRED and unknown keys are rejected; emptying a body that had content needs allow_shrink=true. The stored result is judged against that block's own cap. A read-only block refuses with 405 for every caller. The read-only head is NOT sent and cannot be: the server joins the shipped head back on, so no caller has any way to write it. Owner or admin assistant only. Answers with a bounded receipt (``kind``, ``key``, ``is_default``, ``size_chars``, ``cap_chars``, ``sha256``), not the document — call ``get_boot_doc`` when you need the rest.",
 			MCPTool: "replace_boot_doc",
 		}),
-		Gated(classAdminAgent, routeDef{
+		Gated(principalAdminAgent, routeDef{
 			Method:  "POST",
 			Path:    "/api/boot-docs/{kind}/{key}/reset",
 			Handler: w.HandleResetBootDocApiBootDocsKindKeyResetPost,
 			Summary: "Restore one boot-context block to the FACTORY text shipped with this build (idempotent tombstone of the overlay). No length cap applies on this path — the way back to factory text is never blocked by a setting, which is what makes it the recovery route after an edit that stopped agents from booting. The discarded overlay is retained in the document history. Owner or admin assistant only. Answers with a bounded receipt (``kind``, ``key``, ``is_default``, ``size_chars``, ``cap_chars``, ``sha256``), not the document — call ``get_boot_doc`` when you need the rest.",
 			MCPTool: "reset_boot_doc",
 		}),
-		Gated(classMachine, routeDef{
+		Gated(principalMachine, routeDef{
 			Method:  "GET",
 			Path:    "/api/roles",
 			Handler: w.HandleListRolesApiRolesGet,
 			Summary: "List role definitions (seed defaults + owner edits) WITHOUT the persona bodies: each row is the role identity plus its definition size and cap, never definition_md itself. Read the one role you want with get_role.",
 			MCPTool: "list_roles",
 		}),
-		Gated(classMachine, routeDef{
+		Gated(principalMachine, routeDef{
 			Method:  "GET",
 			Path:    "/api/doc-sizes",
 			Handler: w.HandlePeekDocSizesApiDocSizesGet,
@@ -1239,42 +1227,42 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			Summary: "Size-only overview of the capped documents on the station: each role's role definition / insight / lessons, and each task manual's SOP / learnings, as size_chars plus the cap_chars in force for THAT segment (the five segments have five separate caps — each is reported against its own). THE LISTING IS KEYED BY ROLE, AND THAT IS ITS LIMIT. T-2 removed the lessons task_type axis, so a role now has exactly ONE lessons document and it is the one reported here — the old 'default bucket only' gap is gone. What remains is narrower still and it is now INSIGHT-ONLY: nothing validates a role_key against the roster on the INSIGHT write face, so an admin or the owner can write insight under a role_key no role carries; such a document spends the insight cap and, having no role to hang off, never appears here. The LESSONS write face no longer has that gap — replace_lessons and patch_lessons refuse with 404 any role_key that nothing could read: neither a role that folds (which is what this listing walks, and what every boot loads) nor a member carrying that role_key (which cannot boot, but can be minted a token that reads the doc). A role_key on neither list now fails instead of silently producing an unreachable document. list_roles is the roster this listing is derived from — a document under a name that is not on it is not on this page either. Carries NO document text, so it costs a few hundred bytes. Use it to find which long-lived document is nearly full, then read only that one (get_role / get_insight / get_lessons / get_task_manual). It is the only way to see insight and lessons sizes in bulk — no listing reports those at any price; the manual sizes and caps are also on every list_task_manuals row, and a role definition's size and cap are already on every list_roles row.",
 			MCPTool: "peek_doc_sizes",
 		}),
-		Gated(classAdminAgent, routeDef{
+		Gated(principalAdminAgent, routeDef{
 			Method:  "POST",
 			Path:    "/api/roles",
 			Handler: w.HandleCreateRoleApiRolesPost,
 			Summary: "Create a custom role + its founding member (one pair per call). runtime is claude/codex; absent = stored UNSET and resolved at the founding member's first placement from the host's reported capabilities, not written as claude. Answers with a bounded receipt (``role_key``, ``member_id``, ``member_name``), not the role and member objects — call ``get_role`` when you need the rest.",
 			MCPTool: "create_role",
 		}),
-		Gated(classMachine, routeDef{
+		Gated(principalMachine, routeDef{
 			Method:  "GET",
 			Path:    "/api/roles/{role}",
 			Handler: w.HandleGetRoleApiRolesRoleGet,
 			Summary: "Read one role definition (unknown → 404).",
 			MCPTool: "get_role",
 		}),
-		Gated(classAdminAgent, routeDef{
+		Gated(principalAdminAgent, routeDef{
 			Method:  "POST",
 			Path:    "/api/roles/{role}",
 			Handler: w.HandleUpdateRoleApiRolesRolePost,
 			Summary: "Edit a role definition ({name?, definition_md?}; locked names skip). Answers with a bounded receipt (``key``, ``name``, ``is_default``, ``is_seed``, ``size_chars``, ``cap_chars``, ``sha256``), not the duty document — call ``get_role`` when you need the rest.",
 			MCPTool: "update_role",
 		}),
-		Gated(classAdminAgent, routeDef{
+		Gated(principalAdminAgent, routeDef{
 			Method:  "POST",
 			Path:    "/api/roles/{role}/reset",
 			Handler: w.HandleResetRoleApiRolesRoleResetPost,
 			Summary: "Reset a role definition to seed (idempotent tombstone overlay). Answers with a bounded receipt (``key``, ``name``, ``is_default``, ``is_seed``, ``size_chars``, ``cap_chars``, ``sha256``), not the duty document — call ``get_role`` when you need the rest.",
 			MCPTool: "reset_role",
 		}),
-		Gated(classAdminAgent, routeDef{
+		Gated(principalAdminAgent, routeDef{
 			Method:  "DELETE",
 			Path:    "/api/roles/{role}",
 			Handler: w.HandleDeleteRoleApiRolesRoleDelete,
 			Summary: "Hard-delete a custom role + its members (seed → 403; online → 409).",
 			MCPTool: "delete_role",
 		}),
-		Gated(classMachine, routeDef{
+		Gated(principalMachine, routeDef{
 			Method:  "GET",
 			Path:    "/api/insight/{role_key}",
 			Handler: w.HandleGetInsightApiInsightRoleKeyGet,
@@ -1287,7 +1275,7 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			Summary: "Read a per-role insight doc - this role's accumulated judgement calls and trade-offs (per role_key). A role may ship with a factory seed, and that seed is PER-ROLE (seeds/insight_<role_key>.md) - today only the assistant has one; a role without one reads genuinely empty until it writes. is_default=true means THIS ROLE has never written its own, whether what you are reading is the factory wording or nothing at all. Separate from the lessons doc on purpose: lessons record what happened and what to do next time, insight records how this role weighs a call. Like lessons, reading is unrestricted: any authenticated identity may read ANY role's insight - it is SEPARATE, not private.",
 			MCPTool: "get_insight",
 		}),
-		Gated(classAgent, routeDef{
+		Gated(principalAgent, routeDef{
 			Method:  "POST",
 			Path:    "/api/insight/{role_key}",
 			Handler: w.HandleReplaceInsightApiInsightRoleKeyPost,
@@ -1301,14 +1289,14 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			Summary: "Whole-doc replace of a per-role insight doc ({text}). text is REQUIRED; unknown keys are rejected. Replacing existing content with an empty doc needs allow_shrink=true. Only the role's own agents (and admin) may WRITE it. Answers with a bounded receipt (``role_key``, ``is_default``, ``has_seed``, ``size_chars``, ``cap_chars``, ``sha256``), not the folded doc — call ``get_insight`` when you need the rest.",
 			MCPTool: "replace_insight",
 		}),
-		Gated(classAgent, routeDef{
+		Gated(principalAgent, routeDef{
 			Method:  "POST",
 			Path:    "/api/insight/{role_key}/patch",
 			Handler: w.HandlePatchInsightApiInsightRoleKeyPatchPost,
 			Summary: "Patch a per-role insight doc by unique anchors ({edits:[{old,new}]}). Only the role's own agents (and admin) may WRITE it.",
 			MCPTool: "patch_insight",
 		}),
-		Gated(classAgent, routeDef{
+		Gated(principalAgent, routeDef{
 			Method:  "POST",
 			Path:    "/api/insight/{role_key}/reset",
 			Handler: w.HandleResetInsightApiInsightRoleKeyResetPost,
@@ -1322,14 +1310,14 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			Summary: "Reset a per-role insight doc back to its factory seed (idempotent tombstone of the overlay) - the counterpart of reset_role on the Duty block. A role with NO seed file (seeds/insight_<role_key>.md) returns 404: there must be a factory version to reset TO. No length cap is applied on this path, matching reset_role - the factory text is part of the product. The overlay you are discarding is retained as a document-history revision, so the reset is recoverable. Only the role's own agents (and admin) may do it. Answers with a bounded receipt (``role_key``, ``is_default``, ``has_seed``, ``size_chars``, ``cap_chars``, ``sha256``), not the folded doc — call ``get_insight`` when you need the rest.",
 			MCPTool: "reset_insight",
 		}),
-		Gated(classMachine, routeDef{
+		Gated(principalMachine, routeDef{
 			Method:  "GET",
 			Path:    "/api/lessons/{role_key}",
 			Handler: w.HandleGetLessonsApiLessonsRoleKeyGet,
 			Summary: "Read a per-role lessons doc (per role_key; overlay ⊕ seed).",
 			MCPTool: "get_lessons",
 		}),
-		Gated(classAgent, routeDef{
+		Gated(principalAgent, routeDef{
 			Method:  "POST",
 			Path:    "/api/lessons/{role_key}",
 			Handler: w.HandleReplaceLessonsApiLessonsRoleKeyPost,
@@ -1363,7 +1351,7 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			Summary: "Replace the WHOLE per-role lessons document. text is REQUIRED and unknown keys are rejected; only that role's agent or an admin may write it; role_key must be addressable — a role that folds (list_roles), or a member carrying that role_key (list_members) — or the write is refused 404, so a lessons doc can no longer be created under a name nothing on this station could ever read; emptying or sharply shrinking it needs allow_shrink=true; and the result is still judged against the lessons cap. Answers with a bounded receipt (``role_key``, ``size_chars``, ``cap_chars``, ``sha256``), not the journal — call ``get_lessons`` when you need the rest.",
 			MCPTool: "replace_lessons",
 		}),
-		Gated(classAgent, routeDef{
+		Gated(principalAgent, routeDef{
 			Method:  "POST",
 			Path:    "/api/lessons/{role_key}/patch",
 			Handler: w.HandlePatchLessonsApiLessonsRoleKeyPatchPost,
@@ -1373,21 +1361,21 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			Summary: "Patch a per-role lessons doc by unique anchors ({edits:[{old,new}]}). role_key must be addressable — a role that folds (list_roles), or a member carrying that role_key (list_members) — or the patch is refused 404.",
 			MCPTool: "patch_lessons",
 		}),
-		Gated(classMachine, routeDef{
+		Gated(principalMachine, routeDef{
 			Method:  "GET",
 			Path:    "/api/resume-summary",
 			Handler: w.HandleResumeSummaryApiResumeSummaryGet,
 			Summary: "Bounded LIGHT wake snapshot for the caller (identity-locked; recent chat + light open-task rows + size overview — peek sizes first, pull detail via get_task). CHAT is packed newest-first under a CHARACTER BUDGET, not a fixed message count, and stopping at the last message that still fits; each message carries from_name/to_name beside the ids and ts_display (full date + time + zone offset) beside the epoch ts, and folds in its reply card as `card` when it has one — read every ts_display against the top-level `generated_at`. TWO DIFFERENT things can be missing and they are marked DIFFERENTLY: `body_omitted_chars` > 0 means THAT message is here with that many characters COLLAPSED away (another agent's line — the owner's line and your own hand-off notes to yourself are carried in full), re-read it with get_chat; `chat_earlier_omitted` is the other kind and it is a MAYBE, not a fact: that line was cut at a read or budget limit and nothing looked past the cut, so whole messages may be missing from this payload entirely — it is raised even when there is in fact nothing older. Its hint tells you how to CHECK and fetch them. The two are asymmetric ON PURPOSE: the collapse marker is CERTAIN (that message IS here, shortened, exact count); this one is not, and only the fetch settles it. Also carries the STUDIO FLOOR you wake up onto: roster (every member and contractor, each with online/offline status, the machine it runs on, and its duty capped at 1000 chars with `…` marking a cut, the cap applied after the doc's own leading title line is removed — who to ask for help; no insight/learning by owner ruling. Contractors additionally carry their bound task's status, waiting_reason, and step progress (progress_done/progress_total) — members leave these at their zero value; a contractor's 0/0 is ambiguous (a task with no steps yet, or no task at all) and task_status is what tells them apart, non-empty vs empty) and machines (the machine list plus you_are_on, your server-recorded machine binding — never derive it from a hostname).",
 			MCPTool: "resume_summary",
 		}),
-		Gated(classMachine, routeDef{
+		Gated(principalMachine, routeDef{
 			Method:  "GET",
 			Path:    "/api/resume-summary-size",
 			Handler: w.HandlePeekResumeSummarySizeApiResumeSummarySizeGet,
 			Summary: "Size-only PEEK of the wake snapshot (identity-locked; overview counts/sizes + estimated_total_chars, NO chat/task content). estimated_total_chars is exactly chat_chars + tasks_detail_chars + roster_chars + machines_chars + steps_on_answered_card_chars, all five reported in overview: the WHOLE chat block as the snapshot renders it (chat_chars is the rendered block's cost, NOT the sum of the message bodies), plus the plan text its task rows omit, the two studio-floor blocks, and the named steps sitting on an answered card — what pulling the snapshot actually costs. Step one of the two-step boot: call this FIRST to size resume_summary, then either call resume_summary directly (small) or hand the pull to a cheap sub-agent that returns a digest (large).",
 			MCPTool: "peek_resume_summary_size",
 		}),
-		Gated(classAdminAgent, routeDef{
+		Gated(principalAdminAgent, routeDef{
 			Method:     "POST",
 			Path:       "/api/bootstrap",
 			Handler:    w.HandleBootstrapApiBootstrapPost,
@@ -1399,35 +1387,35 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 		// ladder places agent(1) above machine/warden(0), so a warden can
 		// never write tasks; the executor guard on the report rows is the
 		// handlers' (caller == executor, admin capability excepted — §14).
-		Gated(classMachine, routeDef{
+		Gated(principalMachine, routeDef{
 			Method:  "GET",
 			Path:    "/api/tasks",
 			Handler: w.HandleListTasksApiTasksGet,
 			Summary: "List tasks (?executor=&type=&status=, or statuses=[…] for a SET of states — every filter given is ANDed; LIGHT list items — id/task_no/title/type_key/status/priority/executor/creator_id/progress/timestamps/deps + dep_tasks + current_step_id/current_step_name, WITHOUT steps/description/inputs). Ask for the states you actually want (`statuses: [\"not_started\", \"in_progress\"]`) instead of listing everything and filtering yourself — the whole history is a large answer. `statuses` also accepts \"reassigning\", which matches the handover LOCK rather than the status column. `dep_tasks` already carries each blocker's task_no/title/status, so a blocked task needs no follow-up get_task just to name what it is waiting for. `current_step_id`/`current_step_name` name the step each task is ON right now: the FIRST step in plan order that is neither done nor superseded — the same step the wake snapshot points at. BOTH ARE THE EMPTY STRING in exactly two cases — the task has no plan yet (no steps at all), or every step has finished — and that empty means THERE IS NO CURRENT STEP; never read it as \"the first step\". The two fields are that step's id and that step's name, and nothing else about the step. The list still carries NO step rows (no dod text) — only those two fields; call get_task for a task's full detail (steps, description, inputs).",
 			MCPTool: "list_tasks",
 		}),
-		Gated(classAgent, routeDef{
+		Gated(principalAgent, routeDef{
 			Method:  "POST",
 			Path:    "/api/tasks",
 			Handler: w.HandleCreateTaskApiTasksPost,
 			Summary: "Create a task (dedupes on the manual's key; ad-hoc when type_key omitted). Pass target.kind=outsource to drop the task as an unassigned outsource task (發包); target.runtime is claude/codex (absent = claude). The existing outsource scheduler then spawns workers against the global concurrency cap (outsourceParallelCap) — below the cap it starts immediately, at the cap it queues for capacity and is picked up automatically when a slot frees. No owner-approval card and no per-task approval; the owner may reassign a still-queued task at any time. Caller authorization (正職授權矩陣, T-23cf): an outsource worker may never create a task; a 發包 create is open to any 正職 (owner/admin included); a typed task the manual assigns to member X may be created only by X (owner/admin NOT exempt); an ad-hoc task with a member executor may name only the caller itself unless the caller is owner/admin (a 一般正職 may self-execute or 發包, never assign another member). Answers with a bounded receipt (``task_id``, ``executor_kind``, ``executor_id``, ``deduped``, ``title``, ``status``, ``warnings``), not the task — call ``get_task`` when you need the rest. ``task_no`` is GONE from this answer (owner ruling rc-f1c0fd3cf124): it was the same string as ``task_id``, byte for byte, and the sibling task writes had already dropped it for that reason. The executor pair is what the SERVER chose — on a typed create it comes from the manual's assignee, so a caller that sent only ``type_key`` learns its placement here; an empty ``executor_id`` under ``outsource`` means the scheduler has not minted the worker yet.",
 			MCPTool: "create_task",
 		}),
-		Gated(classMachine, routeDef{
+		Gated(principalMachine, routeDef{
 			Method:     "GET",
 			Path:       "/api/tasks/count",
 			Handler:    w.HandleTaskCountApiTasksCountGet,
 			Summary:    "Open task count (the tasks nav badge).",
 			MCPExclude: true, // a UI badge convenience, not an agent tool
 		}),
-		Gated(classMachine, routeDef{
+		Gated(principalMachine, routeDef{
 			Method:  "GET",
 			Path:    "/api/tasks/{task_id}",
 			Handler: w.HandleGetTaskApiTasksTaskIdGet,
 			Summary: "Read one task — and read it knowing it is a SUMMARY, not the whole of it: the response says so itself (``detail_level`` = ``summary``, ``notes_included`` = false). WHAT IS COMPLETE HERE: the task's own fields, its deps, its progress counts, its gate cards, and EVERY ONE of its steps. The step list has no cap, no paging and no truncation of any kind — the rows you get back are all the rows there are, so a step that is not here does not exist on this task. WHAT IS OMITTED, AND EXACTLY HOW MUCH OF IT: each step's working-note TEXT (T-66). In its place every step carries ``note_size_chars`` — the EXACT number of characters of note sitting on the server for that step, where 0 means that step genuinely has no note — and ``note_cap_chars``, the ceiling. A positive ``note_size_chars`` is a precise promise that that many characters are waiting for you, and ``get_task_step(task_id, step_id)`` is the one call that returns them, one step at a time. Read the sizes first, then fetch only the notes you actually need. THE PINNED DELIVERABLES ARE OMITTED THE SAME WAY, AND SINCE T-92 THERE IS NOT EVEN AN INDEX OF THEM: ``artifact_count`` is the only thing said about them here — an EXACT, un-truncated, un-capped count, 0 meaning the task genuinely has nothing pinned. No array, no ids, no names: ``list_task_artifacts(task_id)`` returns every artifact on the ticket, complete, in ONE call, and there is deliberately no per-artifact read. Ask for that list when you are going to USE an artifact; a count is what you need to know one exists. Unknown id → 404.",
 			MCPTool: "get_task",
 		}),
-		Gated(classAgent, routeDef{
+		Gated(principalAgent, routeDef{
 			// T-6020: opened to admin_agent (owner 2026-07-26). T-b56e (owner
 			// 2026-08-20, card rc-b896e3f641e7 option 0) opened it further, to
 			// a 正職 member acting on ITS OWN task — so the floor here is
@@ -1438,14 +1426,14 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			Summary: "Terminate a task — close it as terminated, the only status change that does not go through the task's own step reports. WHO: the owner, an admin agent, or the task's OWN executor when that executor is a 正職 member (T-b56e, owner 2026-08-20 card rc-b896e3f641e7). A member terminating SOMEONE ELSE's task is a flat 403. An OUTSOURCE worker is refused HERE even on its own task — the owner's ruling named 執行者 and did not reach the contractor lifecycle, so this door stays shut until one does. ⚠️ THAT IS A FACT ABOUT THIS ROUTE, NOT A SYSTEM-WIDE GUARANTEE that a worker cannot close its own task: mark_duplicate sits at the same principalAgent floor, gates on callerMayDriveTask with no such subtraction, and reaches the same closeTask — measured 2026-08-20, 200 duplicated. Shutting that door too needs its own ruling. Non-terminal only (already closed → 409). Answers with a bounded receipt (``artifact_count``, ``closed_ts``, ``deps``, ``description_sha256``, ``description_size_chars``, ``duplicate_of``, ``executor_id``, ``executor_kind``, ``lock``, ``progress_done``, ``progress_total``, ``status``, ``task_id``, ``title``), not the task — call ``get_task`` when you need the rest.",
 			MCPTool: "terminate_task",
 		}),
-		Gated(classAgent, routeDef{
+		Gated(principalAgent, routeDef{
 			Method:  "POST",
 			Path:    "/api/tasks/{task_id}/priority",
 			Handler: w.HandleSetTaskPriorityApiTasksTaskIdPriorityPost,
 			Summary: "Set a task's priority (owner/admin agent any value on any task; the task's own executor any value on their task — frozen INCLUDED, and whoever may freeze may unfreeze, T-6020). The actor who sets frozen is recorded on the task as frozen_by and the field clears when the task leaves frozen. Anyone else is a flat 403. Answers with a bounded receipt (task_id, priority, frozen_by), not the whole task — use get_task when you need the rest.",
 			MCPTool: "set_task_priority",
 		}),
-		Gated(classAdminAgent, routeDef{
+		Gated(principalAdminAgent, routeDef{
 			// T-6020: opened to admin_agent (owner 2026-07-26) — the admin 助理
 			// pings a task's executor. Plain agents still 403.
 			Method:  "POST",
@@ -1454,7 +1442,7 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			Summary: "Message the task's executor (owner/admin agent; task context auto-attached). Answers with a bounded receipt (``id``, ``ts``, ``to``, ``attachments``), not the message — call ``get_chat`` when you need the rest. ``to`` is the executor the server delivered to: you did not name it (you named a task), and a later read cannot recompute it, because the executor can change between two calls.",
 			MCPTool: "post_task_message",
 		}),
-		Gated(classAgent, routeDef{
+		Gated(principalAgent, routeDef{
 			Method:  "POST",
 			Path:    "/api/tasks/{task_id}/plan",
 			Handler: w.HandleSubmitTaskPlanApiTasksTaskIdPlanPost,
@@ -1477,7 +1465,7 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 		// asserts the two agree, so this row sits where the two it folds in sit
 		// — not next to the GET row it shares a path with. Moving it moves the
 		// tool in tools/list.
-		Gated(classAgent, routeDef{
+		Gated(principalAgent, routeDef{
 			Method:  "POST",
 			Path:    "/api/tasks/{task_id}",
 			Handler: w.HandleUpdateTaskApiTasksTaskIdPost,
@@ -1491,7 +1479,7 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 		// ruling to reword a card had nowhere to land. Executor-guarded like
 		// every other task-driving write (callerMayDriveTask §14); the CREATOR
 		// gets no standing from having created it (owner ruling).
-		Gated(classAgent, routeDef{
+		Gated(principalAgent, routeDef{
 			Method:  "POST",
 			Path:    "/api/tasks/{task_id}/description",
 			Handler: w.HandleUpdateTaskDescriptionApiTasksTaskIdDescriptionPost,
@@ -1511,7 +1499,7 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 		// not a clear, because create_task refuses one too (owner card
 		// rc-796541192519, option ①). Kept adjacent to its twin because the MCP
 		// catalogue's element-wise order mirrors this table.
-		Gated(classAgent, routeDef{
+		Gated(principalAgent, routeDef{
 			Method:  "POST",
 			Path:    "/api/tasks/{task_id}/title",
 			Handler: w.HandleUpdateTaskTitleApiTasksTaskIdTitlePost,
@@ -1520,28 +1508,28 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			// frontend and existing HTTP clients, the TOOL does not.
 			MCPExclude: true,
 		}),
-		Gated(classAgent, routeDef{
+		Gated(principalAgent, routeDef{
 			Method:  "POST",
 			Path:    "/api/tasks/{task_id}/duplicate",
 			Handler: w.HandleMarkTaskDuplicateApiTasksTaskIdDuplicatePost,
 			Summary: "Mark a not-yet-terminal task duplicated, pointing at an existing final original (executor/owner). A blank original, an original that cannot be found, a self-reference, a chained duplicate and a target that is already pointed at are all refused. Closing across executors creates a handoff_follow_up, and no dependency is added. Answers with a bounded receipt (``artifact_count``, ``closed_ts``, ``deps``, ``description_sha256``, ``description_size_chars``, ``duplicate_of``, ``executor_id``, ``executor_kind``, ``lock``, ``progress_done``, ``progress_total``, ``status``, ``task_id``, ``title``), not the task — call ``get_task`` when you need the rest.",
 			MCPTool: "mark_duplicate",
 		}),
-		Gated(classAgent, routeDef{
+		Gated(principalAgent, routeDef{
 			Method:  "POST",
 			Path:    "/api/tasks/{task_id}/steps/{step_id}/status",
 			Handler: w.HandleUpdateTaskStepStatusApiTasksTaskIdStepsStepIdStatusPost,
 			Summary: "Report a step status (pending/in_progress/waiting_external/done). Entering waiting_external requires a non-blank waiting_reason (422 otherwise); the task status is derived from its steps. T-74f8 交棒閘: if this report would CLOSE the task (every step done) AND the task's creator is not its executor, the call is REFUSED with 422 unless you say where the ball goes IN THIS SAME CALL — handoff='return_to_creator' (recorded on the task and nothing else — no task is opened and nobody is notified), handoff='follow_up' + handoff_task_id=<a successor task you already created> (the server hangs this task off it as a dependency, and closing this one releases it), or handoff='none' + handoff_note=<why nothing follows>. The gate stands aside by itself when a non-terminal task already depends on this one — you never see it if the handover is already real. It refuses BEFORE writing anything, so a refused report leaves the plan fully editable: create the successor task, then re-send this same report with the declaration. This is your LAST chance — once the task closes it can never be replanned (submit_plan becomes a permanent 409).",
 			MCPTool: "update_step_status",
 		}),
-		Gated(classAgent, routeDef{
+		Gated(principalAgent, routeDef{
 			Method:  "POST",
 			Path:    "/api/tasks/{task_id}/steps/{step_id}/note",
 			Handler: w.HandleUpdateTaskStepNoteApiTasksTaskIdStepsStepIdNotePost,
 			Summary: "Write this step's working note: where the work stands and what comes next — the field the handover SOP means by 「把還在進行中的工作寫回 task step note」. WHAT TO WRITE — three things, then stop: (1) STATE — one sentence on where this step actually got to; (2) NEXT — one sentence on what whoever takes over does next; (3) EVIDENCE POINTERS — version ids, file and log paths, what you verified YOURSELF versus what you are taking on someone's word, and the limits of what was NOT done. Long narrative does not live here: reasoning and scope belong in the task description, reports and diffs belong on the task as artifacts. The note is the current state — not a report, not an append-only log. Writable in ANY step status (pending, in_progress, waiting_owner, waiting_external, done, superseded), unlike `waiting_reason`, which is locked to waiting_external. Wholesale write: `note` replaces whatever was there and \"\" clears it, so rewrite it as the work moves rather than appending; a note over the step note cap (counted in runes) is refused — that ceiling is the `task.step_note_cap_chars` setting, and every face that carries a note reports the live value as `note_cap_chars` — read it rather than assuming a number, because the setting is adjustable and this sentence is not regenerated when it moves. Same executor/admin gate as every other task-driving write (403 otherwise). ⚠️ A task auto-closes when its last step is reported done and a closed task 409s — so write the note BEFORE the report that finishes the last step, not after. The receipt carries `size_chars` / `cap_chars`, so the room left is on every write instead of only on the 400 that refuses one; `get_task` reports the same pair per step as `note_size_chars` / `note_cap_chars`, but since T-66 it no longer carries the note TEXT — read a note back with `get_task_step(task_id, step_id)`, which answers that one step in full.",
 			MCPTool: "update_step_note",
 		}),
-		Gated(classAgent, routeDef{
+		Gated(principalAgent, routeDef{
 			Method:  "POST",
 			Path:    "/api/tasks/{task_id}/steps/{step_id}/note/patch",
 			Handler: w.HandlePatchTaskStepNoteApiTasksTaskIdStepsStepIdNotePatchPost,
@@ -1562,28 +1550,28 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 		// readable by any authenticated principal through the task view; a
 		// stricter floor here would close nothing and would only make the note
 		// unreachable through the tool that exists to serve it.
-		Gated(classMachine, routeDef{
+		Gated(principalMachine, routeDef{
 			Method:  "GET",
 			Path:    "/api/tasks/{task_id}/steps/{step_id}",
 			Handler: w.HandleGetTaskStepApiTasksTaskIdStepsStepIdGet,
 			Summary: "Read ONE step of one task IN FULL — the companion read to ``get_task``, which answers a SUMMARY. This response declares ``detail_level`` = ``full`` and carries that single step's ENTIRE working note (``note``) alongside its ``note_size_chars`` / ``note_cap_chars``, its status, DoD, ``waiting_reason``, gate flags, ``parallel_group``, bound ``reply_card_id`` and that card's live ``reply_card_status``. It carries NOTHING about the task itself and NOTHING about any other step, and that is the point: ``get_task`` tells you WHICH steps have a note (``note_size_chars`` > 0) and exactly how big it is, and this tool fetches one of them without dragging the whole ticket along. Same read floor as ``get_task`` — any authenticated principal may read any task's step; there is no executor gate on a READ. 404 for an unknown task, and 404 for a step id that exists but belongs to a DIFFERENT task: a step is only ever readable through its own task, so a wrong task_id never leaks somebody else's step.",
 			MCPTool: "get_task_step",
 		}),
-		Gated(classAgent, routeDef{
+		Gated(principalAgent, routeDef{
 			Method:  "POST",
 			Path:    "/api/tasks/{task_id}/deps",
 			Handler: w.HandleSetTaskDepsApiTasksTaskIdDepsPost,
 			Summary: "Replace the blocking-deps list wholesale. Answers with a bounded receipt (``artifact_count``, ``closed_ts``, ``deps``, ``description_sha256``, ``description_size_chars``, ``duplicate_of``, ``executor_id``, ``executor_kind``, ``lock``, ``progress_done``, ``progress_total``, ``status``, ``task_id``, ``title``), not the task — call ``get_task`` when you need the rest.",
 			MCPTool: "set_task_deps",
 		}),
-		Gated(classAgent, routeDef{
+		Gated(principalAgent, routeDef{
 			Method:  "POST",
 			Path:    "/api/tasks/{task_id}/closeout",
 			Handler: w.HandleReportTaskCloseoutApiTasksTaskIdCloseoutPost,
 			Summary: "Report the task's close-out follow-ups done (terminal tasks only; idempotent).",
 			MCPTool: "report_task_closeout",
 		}),
-		Gated(classAgent, routeDef{
+		Gated(principalAgent, routeDef{
 			// ② opened to agent (was admin_agent): an agent reassigns/hands over a
 			// task it EXECUTES (handler executor-guard, callerMayDriveTask §14);
 			// owner/admin still drive any task. An outsource target still funnels
@@ -1594,7 +1582,7 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			Summary: "Reassign a task to a staff member or a fresh outsource worker (executor-guarded: a plain agent may reassign only a task it executes; owner/admin drive any task). Caller authorization (正職授權矩陣, T-23cf): owner/admin may hand a task to any active member or 發包 it to a fresh outsource worker; a 一般正職 may only turn its own task into a 發包 (a staff target is 403); an outsource worker may not reassign at all. An outsource target uses target.runtime claude/codex (absent = claude), lands the task unassigned for the scheduler to spawn under the global parallel cap, and enters the reassigning handover state. Answers with a bounded receipt (``artifact_count``, ``closed_ts``, ``deps``, ``description_sha256``, ``description_size_chars``, ``duplicate_of``, ``executor_id``, ``executor_kind``, ``lock``, ``progress_done``, ``progress_total``, ``status``, ``task_id``, ``title``), not the task — call ``get_task`` when you need the rest.",
 			MCPTool: "reassign_task",
 		}),
-		Gated(classAgent, routeDef{
+		Gated(principalAgent, routeDef{
 			// T-9ca5: the NEW executor takes over a reassigned task — clears the
 			// reassigning LOCK and fires the predecessor worker (the takeover the
 			// retired task-status report used to perform on the successor's
@@ -1607,7 +1595,7 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			Summary: "Take over a reassigned task (the new executor claims it): clears the reassigning lock and fires the predecessor worker. The task status stays derived from its steps; only the lock is cleared. 409 if the task is not under the reassigning lock. Answers with a bounded receipt (``artifact_count``, ``closed_ts``, ``deps``, ``description_sha256``, ``description_size_chars``, ``duplicate_of``, ``executor_id``, ``executor_kind``, ``lock``, ``progress_done``, ``progress_total``, ``status``, ``task_id``, ``title``), not the task — call ``get_task`` when you need the rest.",
 			MCPTool: "claim_task",
 		}),
-		Gated(classAgent, routeDef{
+		Gated(principalAgent, routeDef{
 			// The executing agent pins deliverables onto its own task card
 			// (requires=agent; the handler's executor guard — caller == executor,
 			// admin capability excepted — §14, same as the other agent write rows).
@@ -1617,7 +1605,7 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			Summary: "Register a deliverable (file, image, or link) onto the task's artifact set — the pinned deliverables shown on the task card. This verb only ADDS, and is repeatable: call it again to pin one more. To change what an ALREADY-PINNED deliverable points at, use replace_task_artifact instead of remove+add: it keeps the artifact id. THIS IS THE DOOR YOU HAVE FOR A LOCAL FILE, and it takes two steps: put the bytes in the store first (the chat-attachment upload), then pin that id here with kind=file|image + attachment_id. There IS a one-call route that stores and pins in the same transaction (POST /api/tasks/{task_id}/artifacts/upload, raw body), but nothing you can call reaches it today — it is excluded from the MCP tool set and no CLI subcommand drives it, so it is there for an HTTP client written directly against the REST API. Mind the gap the two steps leave: an upload with no pin after it leaves a blob nothing points at, which nothing goes looking for either. Use THIS call for a link (kind=link + url), or to pin a blob that is ALREADY in the store — an attachment someone sent you in chat, a file you pinned elsewhere — with kind=file|image + attachment_id, which is what that field is for now: reusing an existing blob rather than uploading a second copy of the same bytes. name is REQUIRED and is the display name (a link title such as \"PR #123\", a report's title), capped at 48 characters — Unicode runes, so 48 CJK characters fit — and a blank one is refused. description is optional prose about what this deliverable IS and why it is worth opening, capped at 256 runes; it is what the next reader has to go on, because a task response carries only a COUNT of artifacts. Both caps refuse rather than truncate, and both bind NEW writes only — artifacts pinned before they existed keep whatever they have. For a link, the url must begin with https:// or http:// and be at most 2048 characters (Unicode runes); anything else is refused with a 400 and never truncated, because the cockpit renders this string as a link the owner clicks. Answers with a bounded receipt (task_id, artifact_id, artifact_count), not the whole task.",
 			MCPTool: "add_task_artifact",
 		}),
-		Gated(classAgent, routeDef{
+		Gated(principalAgent, routeDef{
 			// Un-pin — SAME permission model as add (owner ruling 2026-07-18
 			// "Agent 自己應該也要可以刪除"): requires=agent + the handler's executor
 			// guard (caller == executor, admin/owner excepted — §14). The agent
@@ -1629,7 +1617,7 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			Summary: "Un-pin (remove) one artifact from a task's artifact set — the counterpart to add_task_artifact. You may remove artifacts from a task you are the executor of (the owner/assistant may remove on any task). Give the task id and the artifact id — the id returned when it was added, or from list_task_artifacts, which since T-92 is where artifact ids come from: get_task answers a count and carries none. The LIVE blob of a FILE or IMAGE is left intact, and on such an artifact that was never replaced only the pin on the card is removed. ⚠️ A LINK IS THE EXCEPTION and it is the one that can lose content: its ``text/uri-list`` blob is USUALLY its own — but not by construction: migration 00086 deduped identical targets, so 705 live link rows share 642 distinct blobs and two artifacts CAN point at the same one. Un-pinning hands it to the collector because a link does not QUALIFY for that exemption — the exemption exists for uploaded blobs that may also be riding a chat message, which a uri-list blob never is — and because sharing is real, the verdict has to be the collector's rather than settled at the un-pin (owner rc-27107ca914a7). It is not deleted outright — it joins the candidate list and survives if anything still-stored still references it — but do not read ``only the pin is removed`` as covering a link. BUT IF YOU HAD REPLACED IT, un-pinning also destroys its past: every retained version of this artifact is deleted in the same breath, and the files only those versions pointed at go with them, unrecoverably. ONLY WHILE THE TASK IS STILL OPEN: once a task closes (done / terminated / duplicated) its deliverable set is frozen in every direction — remove is refused with the same 409 as add and replace. So swap a deliverable BEFORE you close the task, not after; after the close it can neither be removed nor put back. Answers with a bounded receipt (task_id, artifact_id, artifact_count), not the whole task.",
 			MCPTool: "remove_task_artifact",
 		}),
-		Gated(classMachine, routeDef{
+		Gated(principalMachine, routeDef{
 			// T-66 (owner c-cd063427fb2f / c-f2d0fecb1168): the full-artifact read
 			// the shared task projection stopped carrying. It sits here, directly
 			// after the two artifact WRITES, because x-mcp.order must be the
@@ -1647,7 +1635,7 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			Summary: "Read one task's pinned deliverables IN FULL — and since T-92 the ONLY call that returns an artifact row at all: ``get_task`` answers ``artifact_count`` and nothing else, no ids and no names. Answers ``{task_id, artifacts_detail_level, artifacts}`` where every artifact on the task is present, oldest→newest, complete: ``id``, ``kind`` (file|image|link), ``name`` (never empty — derived read-time from the blob's filename or the link target when the row has no stored name), ``description`` (the prose, possibly empty and possibly longer than the 256-rune write cap), ``url`` (where to go for the content — the blob serve path for a file/image, the external address for a link), ``mime`` (the blob's own content type — the authoritative answer to what the bytes are, which ``kind`` cannot give, since file covers .md and .pdf and .zip alike), ``filename`` (the BLOB'S OWN name, NOT the display name — ``name`` is that: it is what separates a .md from a .pdf from a .zip when ``mime`` says ``application/octet-stream``, which is what the agent upload path says about most of the reports pinned here, and it is empty for a link and for a file whose blob is gone), ``created_ts``, ``created_by``, ``version_count`` and ``attachment_id`` (the row's own blob id — the address ``ocagent diff`` takes, so a member can compare a deliverable without re-uploading it; for a LINK it is the ``text/uri-list`` blob holding the target, which ``url`` does not expose at all). ⚠️ This call is where that id COMES FROM: ``get_task`` answers a count, so this is the only place a member can pick one up in the first place. (One other response carries it — the artifact-history read, for RETAINED PREVIOUS versions rather than the live row — but it is ``x-mcp: include=false``, so it is not on the tool surface at all.). ONE call answers the WHOLE ticket, and that is deliberate — there is no per-artifact read, because whoever opens a task's deliverables wants the set (a 32-artifact ticket would otherwise cost 32 calls), whereas a step note is read one at a time and ``get_task_step`` is per-step for exactly that reason. Blob metadata is resolved read-time and is honest-empty when the underlying blob is gone — never fabricated. A task with nothing pinned answers ``artifacts: []``, not a 404; an unknown task id is a 404. Same read floor as ``get_task``: any authenticated principal may read any task's artifacts, and no field here was behind a stricter door before.",
 			MCPTool: "list_task_artifacts",
 		}),
-		Gated(classAgent, routeDef{
+		Gated(principalAgent, routeDef{
 			// T-92 — the ONE-CALL door: raw bytes in, a pinned deliverable out.
 			// MCPExclude for the same reason POST /api/chat/attachments carries
 			// it: the body is binary, which cannot ride inside a JSON tool call.
@@ -1660,7 +1648,7 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			Summary:    "Pin a LOCAL file or image onto this task as a deliverable in ONE call (T-92, owner card rc-210fc77beea1): the raw request body IS the bytes (``application/octet-stream``; NOT base64, NOT multipart), the server stores the blob AND registers the artifact in the same transaction, and the answer is the ordinary add receipt \u2014 the new artifact's id plus the resulting count. THIS IS THE ONE-CALL PATH for bytes on disk \u2014 though no MCP tool and no CLI subcommand drives it today, so only a client written directly against this REST API can take it. The reason it exists is not convenience: upload-then-bind is TWO steps with a gap in the middle, and a caller who takes the first and not the second leaves a blob that nothing references and that nothing goes looking for \u2014 the collector runs when a retained version falls off the end, not as a sweep. One call has no such gap. ``?name=`` is REQUIRED (48 runes, refused not truncated, blank refused) and ``?description=`` optional (256 runes); ``?filename=`` and ``?mime=`` describe the BLOB exactly as they do on the chat-attachment upload, with an omitted mime falling back to a magic-byte image sniff and then ``application/octet-stream``. The request ``Content-Type`` header is deliberately IGNORED \u2014 clients default it to ``application/octet-stream``, indistinguishable from a real declaration; ``?mime=`` is the explicit channel. ``kind`` is not a parameter: an image mime pins ``image``, anything else pins ``file``. Size caps are the chat upload's exactly (one mechanism, not two): 20 MB for an ``image/*`` blob, 100 MB otherwise, with an over-cap or empty body a flat 400. Permission and freeze are add's exactly: the task's executor (admin excepted), 409 on a terminal task. Excluded from the MCP tool surface \u2014 a binary ingest seam like the chat-attachment upload, not a tool; ``add_task_artifact`` remains the JSON door for a link, or for reusing a blob already in the store.",
 			MCPExclude: true,
 		}),
-		Gated(classAgent, routeDef{
+		Gated(principalAgent, routeDef{
 			// T-92 — the raw-body twin of replace, same reasoning as the add-side
 			// upload above. It refuses a LINK artifact rather than converting it:
 			// the kind is immutable across versions.
@@ -1670,7 +1658,7 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			Summary:    "Replace a pinned file/image deliverable's content from a LOCAL file in ONE call (T-92) — the raw-body twin of ``replace_task_artifact``, keeping the artifact id exactly as that verb does. The request body IS the new bytes (``application/octet-stream``), the server stores the blob and swaps the live row in the same transaction, and the answer is the ordinary replace receipt (task_id, artifact_id, artifact_count, version_count). It exists for the same reason the add-side upload does: upload-then-replace leaves an unreferenced blob behind whenever the second step does not happen. ``?name=`` and ``?description=`` are OPTIONAL and an omitted one is CARRIED FORWARD, exactly as on the JSON replace; ``?filename=``/``?mime=`` describe the new blob. THE KIND CANNOT CHANGE: this route refuses a LINK artifact with a 400 rather than converting it, and the sniffed image/file distinction must match what is pinned. Permission, freeze, retention and blob collection are the JSON replace's exactly. Excluded from the MCP tool surface — a binary ingest seam, not a tool.",
 			MCPExclude: true,
 		}),
-		Gated(classAgent, routeDef{
+		Gated(principalAgent, routeDef{
 			// T-60 replace — the THIRD verb on the same set, so it carries the
 			// same permission model as add and remove (requires=agent + the
 			// handler's executor guard, admin/owner excepted) and the same
@@ -1683,7 +1671,7 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			Summary: "Replace the CONTENT of one already-pinned deliverable while its artifact id stays exactly the same — the card keeps pointing at the same artifact and what sits behind it changes. Use this instead of remove+add whenever you are shipping a corrected version of something you already pinned: remove+add mints a NEW id, so anyone holding the old one is left pointing at nothing. For a file/image whose new bytes are on disk the one-call door is the task-scoped upload (POST /api/tasks/{task_id}/artifact/{artifact_id}/replace/upload, raw body); use THIS call to point a file/image at a blob already in the store (attachment_id), or to change a link's target (url). THE KIND CANNOT CHANGE ACROSS VERSIONS: a file artifact stays a file artifact, so sending a url for one (or an attachment_id for a link, or an explicit kind that differs from what is pinned) is a 400 — un-pin it and register a new artifact if the kind is what you meant to change. name and description are optional here and an omitted one is CARRIED FORWARD: a replacement is a corrected version of the same deliverable, so you never re-type either just to swap the content. Sending one replaces it, and the length caps (48 runes for name, 256 for description) are checked ONLY against a value you actually send — omit the field and whatever is stored stands, however long it is. A blank name is refused, because every deliverable has a name; a blank description clears it. ⚠️ Some clients serialise an empty string as an omitted field, so \"omit to keep\" is reliable and \"send blank to clear\" is not — do not build on the latter. The version you replaced is KEPT and readable, but only the most recent few are retained: the oldest falls off the end for good when a newer one arrives, and the file it pointed at is deleted with it, so a version that has scrolled off is not recoverable from anywhere. ONLY WHILE THE TASK IS STILL OPEN: once a task closes (done / terminated / duplicated) its deliverable set is frozen in every direction — replace is refused with the same 409 as add and remove, and admin/owner are not exempt. For a link, the url must begin with https:// or http:// and be at most 2048 characters (Unicode runes), refused with a 400 otherwise; and UNLIKE name and description it is re-validated on EVERY call - it has no carry-forward - so a caller that only means to change the name must still send back a url that passes. Answers with a bounded receipt (task_id, artifact_id, artifact_count, version_count), not the whole task.",
 			MCPTool: "replace_task_artifact",
 		}),
-		Gated(classAgent, routeDef{
+		Gated(principalAgent, routeDef{
 			// The version list behind the cockpit's artifact popover. MCPExclude
 			// by decision (T-60): the agent that replaced a deliverable already
 			// knows what it replaced, and the reader this list exists for is the
@@ -1703,14 +1691,14 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 		// api_tasks.go. A worker reads its task through get_task like everyone
 		// else, and reports its wake through report_waking like everyone else.
 		// ── Outsource panel (M3) ─────────────────────────────────────────────
-		Gated(classMachine, routeDef{
+		Gated(principalMachine, routeDef{
 			Method:  "GET",
 			Path:    "/api/outsource-workers",
 			Handler: w.HandleListOutsourceWorkersApiOutsourceWorkersGet,
 			Summary: "List live outsource workers (codename, model, effort, task).",
 			MCPTool: "list_outsource_workers",
 		}),
-		Gated(classMachine, routeDef{
+		Gated(principalMachine, routeDef{
 			// T-f190: single-worker read for the detail panel's post-relocate
 			// refresh. A cockpit read face, not an agent tool → MCPExclude.
 			Method:     "GET",
@@ -1719,7 +1707,7 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			Summary:    "Read one outsource worker by id (detail-panel refresh).",
 			MCPExclude: true,
 		}),
-		Gated(classAdminAgent, routeDef{
+		Gated(principalAdminAgent, routeDef{
 			// T-ba6b: the detail panel's initial-prompt preview — a live
 			// re-assembly of the worker boot context (the member /api/bootstrap
 			// preview's worker twin; no token minted). The text embeds the full
@@ -1731,7 +1719,7 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			Summary: "Read an outsource worker's boot-context preview (owner/admin agent).",
 			MCPTool: "get_outsource_worker_boot_context",
 		}),
-		Gated(classAdminAgent, routeDef{
+		Gated(principalAdminAgent, routeDef{
 			// T-f190 改機器; P7c (gate rc-2786636f30e5) drops the floor to
 			// admin_agent — 外包對齊正職, the exact member relocate floor, so an
 			// admin 助理 can move a worker too. STAYS MCPExclude on purpose: the
@@ -1745,7 +1733,7 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			Summary:    "Relocate an outsource worker to a machine (admin-gated). Answers with a bounded receipt (``id``, ``relocation_pending``, ``relocation_deferred``), not the roster row — call ``list_outsource_workers`` when you need the rest.",
 			MCPExclude: true,
 		}),
-		Gated(classAdminAgent, routeDef{
+		Gated(principalAdminAgent, routeDef{
 			// T-32e1/T-f190 worker lifecycle ops — owner mental model "外包只是
 			// 系統會幫我產生跟刪除的正職員工", so each reuses a member mechanism.
 			// T-6020 (owner 2026-07-26) put FOUR of them at the SAME admin_agent
@@ -1764,14 +1752,14 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			Summary: "Refocus (換手) an outsource worker (owner/admin agent). Needs a live session, 409 otherwise — EXCEPT on a worker whose stop is in flight or has landed, where it answers 200 and QUEUES the restart (restart_after_stop); the stop itself is honoured as-is. A worker nobody ever asked to stop is still a 409. Answers with a bounded receipt (``id``), not the roster row — call ``list_outsource_workers`` when you need the rest.",
 			MCPTool: "refocus_outsource_worker",
 		}),
-		Gated(classAdminAgent, routeDef{
+		Gated(principalAdminAgent, routeDef{
 			Method:  "POST",
 			Path:    "/api/outsource-workers/{id}/stop",
 			Handler: w.HandleStopOutsourceWorkerApiOutsourceWorkersIdStopPost,
 			Summary: "Stop (停止) an outsource worker: ask it to work its 〈停止〉 document and wait for its own report_stopped -- no kill, no deadline (owner/admin agent). Answers with a bounded receipt (``id``), not the roster row — call ``list_outsource_workers`` when you need the rest.",
 			MCPTool: "stop_outsource_worker",
 		}),
-		Gated(classAdminAgent, routeDef{
+		Gated(principalAdminAgent, routeDef{
 			Method:  "POST",
 			Path:    "/api/outsource-workers/{id}/restart",
 			Handler: w.HandleRestartOutsourceWorkerApiOutsourceWorkersIdRestartPost,
@@ -1801,7 +1789,7 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 		// This note exists so the NEXT permission audit does not re-open the
 		// question, the way this one had to re-open T-5336's. Raising this row
 		// needs a fresh owner ruling, not a tidy-up commit.
-		Gated(classMachine, routeDef{
+		Gated(principalMachine, routeDef{
 			Method:  "POST",
 			Path:    "/api/outsource-workers/{id}/model",
 			Handler: w.HandleSetOutsourceWorkerModelApiOutsourceWorkersIdModelPost,
@@ -1812,35 +1800,35 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 		// (purpose / fields / SOP / learnings); the assignee face and delete are
 		// GOVERNANCE, floor admin_agent since T-6020 (owner 2026-07-26; the
 		// in-handler assignee gate answers 403 below that floor)
-		Gated(classMachine, routeDef{
+		Gated(principalMachine, routeDef{
 			Method:  "GET",
 			Path:    "/api/task-manuals",
 			Handler: w.HandleListTaskManualsApiTaskManualsGet,
 			Summary: "List task types WITHOUT their long documents: each row is the type identity (type_key / display_name / purpose), its input fields and its assignee setting, plus the SIZES of sop_md and learnings and the cap each is judged against. The SOP and the learnings text are not on this answer at all — read the one type you picked with get_task_manual.",
 			MCPTool: "list_task_manuals",
 		}),
-		Gated(classAgent, routeDef{
+		Gated(principalAgent, routeDef{
 			Method:  "POST",
 			Path:    "/api/task-manuals",
 			Handler: w.HandleCreateTaskManualApiTaskManualsPost,
 			Summary: "Create a task type: pass display_name; the server mints and returns the tm- type_key id (legacy explicit type_key still accepted; duplicate → 409; assignee = owner/admin agent). An outsource assignee may select runtime claude/codex; absent = claude. Answers with a bounded receipt (``type_key``, ``updated_ts``, ``learnings_chars``, ``learnings_cap_chars``, ``learnings_sha256``, ``sop_md_chars``, ``sop_md_cap_chars``, ``sop_md_sha256``), not the manual — call ``get_task_manual`` when you need the rest.",
 			MCPTool: "create_task_manual",
 		}),
-		Gated(classMachine, routeDef{
+		Gated(principalMachine, routeDef{
 			Method:  "GET",
 			Path:    "/api/task-manuals/{type_key}",
 			Handler: w.HandleGetTaskManualApiTaskManualsTypeKeyGet,
 			Summary: "Read one task manual (purpose/fields/SOP/learnings/assignee). The SOP and the learnings are judged by two SEPARATE caps: read sop_md_cap_chars and learnings_cap_chars. The older cap_chars is DEPRECATED — it carries the LEARNINGS cap only and says nothing about sop_md, so read sop_md_cap_chars for the SOP.",
 			MCPTool: "get_task_manual",
 		}),
-		Gated(classAgent, routeDef{
+		Gated(principalAgent, routeDef{
 			Method:  "POST",
 			Path:    "/api/task-manuals/{type_key}",
 			Handler: w.HandleUpdateTaskManualApiTaskManualsTypeKeyPost,
 			Summary: "Edit a task manual (partial; content fields agent-editable; assignee = owner/admin agent). An outsource assignee may select runtime claude/codex; absent = claude. Only the fields you name change, so omitting a field is safe — but unknown keys are rejected rather than dropped: the learnings doc goes in learnings (NOT text — that is write_task_learnings' field name). The SOP and the learnings are judged by two SEPARATE caps: read sop_md_cap_chars and learnings_cap_chars. The older cap_chars is DEPRECATED — it carries the LEARNINGS cap only and says nothing about sop_md, so read sop_md_cap_chars for the SOP. Answers with a bounded receipt (``type_key``, ``updated_ts``, ``learnings_chars``, ``learnings_cap_chars``, ``learnings_sha256``, ``sop_md_chars``, ``sop_md_cap_chars``, ``sop_md_sha256``), not the manual — call ``get_task_manual`` when you need the rest.",
 			MCPTool: "update_task_manual",
 		}),
-		Gated(classAdminAgent, routeDef{
+		Gated(principalAdminAgent, routeDef{
 			// T-6020: opened to admin_agent (owner 2026-07-26).
 			Method:  "DELETE",
 			Path:    "/api/task-manuals/{type_key}",
@@ -1848,21 +1836,21 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			Summary: "Delete a task type (open tasks of the type → 409).",
 			MCPTool: "delete_task_manual",
 		}),
-		Gated(classAgent, routeDef{
+		Gated(principalAgent, routeDef{
 			Method:  "POST",
 			Path:    "/api/task-manuals/{type_key}/learnings",
 			Handler: w.HandleWriteTaskLearningsApiTaskManualsTypeKeyLearningsPost,
 			Summary: "Whole-doc replace of a type's learnings (task-close write-back). The doc text goes in text (NOT learnings — that is update_task_manual's field name); text is REQUIRED and unknown keys are rejected. Wiping existing learnings needs allow_shrink=true. Answers with a bounded receipt (``type_key``, ``size_chars``, ``cap_chars``, ``sha256``), not the learnings text — call ``get_task_manual`` when you need the rest.",
 			MCPTool: "write_task_learnings",
 		}),
-		Gated(classAgent, routeDef{
+		Gated(principalAgent, routeDef{
 			Method:  "POST",
 			Path:    "/api/task-manuals/{type_key}/learnings/patch",
 			Handler: w.HandlePatchTaskLearningsApiTaskManualsTypeKeyLearningsPatchPost,
 			Summary: "Patch a type's learnings by unique anchors ({edits:[{old,new}]}) — the learnings twin of patch_lessons, so the write cost scales with the CHANGE, not the whole (30k-char) doc, and re-typing the whole doc can no longer silently drop content. Edits apply in order; a non-empty old must match the current learnings EXACTLY ONCE (0 or >1 hits reject the WHOLE batch with a 400, zero writes — the unique anchor also acts as an optimistic lock); an empty old appends. Wiping the doc, or shrinking it below a tenth, needs allow_shrink=true.",
 			MCPTool: "patch_task_learnings",
 		}),
-		Gated(classAgent, routeDef{
+		Gated(principalAgent, routeDef{
 			Method:  "POST",
 			Path:    "/api/task-manuals/{type_key}/sop/patch",
 			Handler: w.HandlePatchTaskSopApiTaskManualsTypeKeySopPatchPost,
@@ -1877,14 +1865,14 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 		// (global context, role definition, lessons, task manual), which is why
 		// they sit after the last of those write faces instead of inside any one
 		// group. Restore is a write, so it takes the agent floor.
-		Gated(classMachine, routeDef{
+		Gated(principalMachine, routeDef{
 			Method:  "GET",
 			Path:    "/api/document-history/{kind}/{key}",
 			Handler: w.HandleListDocumentHistoryApiDocumentHistoryKindKeyGet,
 			Summary: "READ the CATALOGUE of retained versions of one editable document: which versions exist, when each was replaced and by whom, whether each was a tombstone, and HOW LONG each of its fields was. It does NOT carry the versions themselves — a version list is how you CHOOSE one, and choosing does not need the prose; fetch the one you picked with get_document_version. Read-only, newest first, and only the most recent few are kept — HOW MANY is per-document and is not stated here, because it differs by kind and this sentence would go stale silently; what you get back is the answer. Putting a version BACK is deliberately not an agent tool — the owner does that from the cockpit — so this cannot change anything.\n\nWHICH DOCUMENTS THIS COVERS, AND WHAT `key` LOOKS LIKE FOR EACH, ARE DELIBERATELY NOT LISTED HERE. A list of kinds — or of key shapes — written into a description goes stale the moment a new editable document ships, and NOTHING turns red when it does: this description used to enumerate six kinds and a key shape per kind, and both had already gone stale before the lists were taken out. Two rules you can actually execute replace them.\n\nADDRESSING: `kind` and `key` are validated by the same server-side gate that answers get_document_seed, so whatever that tool can address, this one can too, and the two can never silently disagree. A `kind` this server does not know is refused with 400; a retired kind is refused with 400 naming the series that replaced it. Some kinds also police the shape of `key` before answering — a key this kind does not serve, or one that fails that kind's required shape, is refused with 400 naming the problem. Neither is something to guess at: ask and read the answer.\n\nCOVERAGE: a syntactically valid `key` that simply has no retained versions yet is not an error — it returns an empty list, the honest 'nothing has been saved here', not a gap to work around.",
 			MCPTool: "list_document_history",
 		}),
-		Gated(classMachine, routeDef{
+		Gated(principalMachine, routeDef{
 			Method:  "GET",
 			Path:    "/api/document-history/{kind}/{key}/seed",
 			Handler: w.HandleGetDocumentSeedApiDocumentHistoryKindKeySeedGet,
@@ -1903,7 +1891,7 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			// write verb to open — restore and reset keep their own gates.
 			MCPTool: "get_document_seed",
 		}),
-		Gated(classMachine, routeDef{
+		Gated(principalMachine, routeDef{
 			Method:  "GET",
 			Path:    "/api/document-history/{kind}/{key}/{id}",
 			Handler: w.HandleGetDocumentVersionApiDocumentHistoryKindKeyIdGet,
@@ -1923,7 +1911,7 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			// keeps its MCPExclude.
 			MCPTool: "get_document_version",
 		}),
-		Gated(classAgent, routeDef{
+		Gated(principalAgent, routeDef{
 			Method:  "POST",
 			Path:    "/api/document-history/{kind}/{key}/{id}/restore",
 			Handler: w.HandleRestoreDocumentHistoryApiDocumentHistoryKindKeyIdRestorePost,
@@ -1942,21 +1930,21 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 		// field questions (get_global_context's flag — assistant classifies as
 		// admin_agent ≥ machine, so it can call them). The asset route serves the
 		// referenced images and is not a callable tool.
-		Gated(classMachine, routeDef{
+		Gated(principalMachine, routeDef{
 			Method:  "GET",
 			Path:    "/api/docs",
 			Handler: w.HandleListDocsApiDocsGet,
 			Summary: "List the product-guide docs (slug + title).",
 			MCPTool: "list_docs",
 		}),
-		Gated(classMachine, routeDef{
+		Gated(principalMachine, routeDef{
 			Method:  "GET",
 			Path:    "/api/docs/{slug}",
 			Handler: w.HandleGetDocApiDocsSlugGet,
 			Summary: "Read one product-guide doc in full (markdown; unknown slug → 404).",
 			MCPTool: "get_doc",
 		}),
-		Gated(classMachine, routeDef{
+		Gated(principalMachine, routeDef{
 			Method:     "GET",
 			Path:       "/api/docs/assets/{name}",
 			Handler:    w.HandleGetDocAssetApiDocsAssetsNameGet,
@@ -1997,28 +1985,28 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 		// made ruling #1 usable, and the two must be read together. A later reader
 		// who "restores" whole bundles here to make the list richer would be
 		// undoing the half that made agents able to call it at all.
-		Gated(classAdminAgent, routeDef{
+		Gated(principalAdminAgent, routeDef{
 			Method:  "GET",
 			Path:    "/api/themes",
 			Handler: w.HandleListThemesApiThemesGet,
 			Summary: "List the saved custom themes — id and name only, in list order (owner/admin agent).",
 			MCPTool: "list_themes",
 		}),
-		Gated(classAdminAgent, routeDef{
+		Gated(principalAdminAgent, routeDef{
 			Method:  "GET",
 			Path:    "/api/themes/{theme_id}",
 			Handler: w.HandleGetThemeApiThemesThemeIdGet,
 			Summary: "Read one saved custom theme (unknown id → 404).",
 			MCPTool: "get_theme",
 		}),
-		Gated(classAdminAgent, routeDef{
+		Gated(principalAdminAgent, routeDef{
 			Method:  http.MethodPut,
 			Path:    "/api/themes/{theme_id}",
 			Handler: w.HandlePutThemeApiThemesThemeIdPut,
 			Summary: "Create or replace ONE custom theme; the bundle's id must match the path (owner/admin agent).",
 			MCPTool: "put_theme",
 		}),
-		Gated(classAdminAgent, routeDef{
+		Gated(principalAdminAgent, routeDef{
 			Method:  "DELETE",
 			Path:    "/api/themes/{theme_id}",
 			Handler: w.HandleDeleteThemeApiThemesThemeIdDelete,
@@ -2036,21 +2024,21 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 		// must be the consecutive range 0..N-1, so a NEW tool is appended or every
 		// tool after it is renumbered. The escalation ladder is a reading order for
 		// the OWNER, and it lives in the cockpit row (MemberActionButtons), not here.
-		Gated(classAdminAgent, routeDef{
+		Gated(principalAdminAgent, routeDef{
 			Method:  "POST",
 			Path:    "/api/members/{member_id}/accelerated-stop",
 			Handler: w.HandleAcceleratedStopMemberApiMembersMemberIdAcceleratedStopPost,
 			Summary: "加速停止: put an ALREADY-OPEN wind-down on the stop.accelerated_grace_secs clock and tell the member. 409 if nothing is winding down -- press 停止 first. Middle rung of 停止 -> 加速停止 -> 強制停止. Answers with a bounded receipt (``id``), not the roster row — call ``get_member`` when you need the rest.",
 			MCPTool: "accelerated_stop_member",
 		}),
-		Gated(classAdminAgent, routeDef{
+		Gated(principalAdminAgent, routeDef{
 			Method:  "POST",
 			Path:    "/api/outsource-workers/{id}/accelerated-stop",
 			Handler: w.HandleAcceleratedStopOutsourceWorkerApiOutsourceWorkersIdAcceleratedStopPost,
 			Summary: "加速停止 an outsource worker: put its ALREADY-OPEN wind-down (a 停止 or a 換手) on the stop.accelerated_grace_secs clock and tell it. 409 if none is open. Answers with a bounded receipt (``id``), not the roster row — call ``list_outsource_workers`` when you need the rest.",
 			MCPTool: "accelerated_stop_outsource_worker",
 		}),
-		Gated(classAdminAgent, routeDef{
+		Gated(principalAdminAgent, routeDef{
 			Method:  "POST",
 			Path:    "/api/outsource-workers/{id}/force-stop",
 			Handler: w.HandleForceStopOutsourceWorkerApiOutsourceWorkersIdForceStopPost,
