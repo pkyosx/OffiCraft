@@ -386,6 +386,63 @@ func TestStart_CodexUsesSidecarWithoutTUINudge(t *testing.T) {
 	}
 }
 
+// An effort level this warden does not know is coerced to medium, and that
+// divergence is announced on the REAL spawn path — start() must hand the
+// diagnostic channel down to the codex launch builder. Passing nil there leaves
+// the coercion silent: the cockpit keeps showing the owner's level while the
+// session runs at medium, with nothing anywhere saying so.
+func TestStart_CodexUnknownEffortAnnouncesTheDowngrade(t *testing.T) {
+	hasKey := "tmux -L officraft has-session -t member-alice"
+	pidKey := "tmux -L officraft display-message -p -t member-alice #{pane_pid}"
+	run := &recRunner{
+		out: map[string]string{pidKey: "6262\n"},
+		err: map[string]error{hasKey: errAbsent()},
+	}
+	var log []string
+	deps := newStartDeps(t, run, map[string]string{})
+	deps.CodexBin = "/opt/homebrew/bin/codex"
+	deps.WardenBin = "/opt/officraft/ocwarden"
+	deps.Logf = capturingLogf(&log)
+
+	const unknown = "ultra"
+	out := deps.start(StartParams{
+		MemberID:       "alice",
+		PersonaContext: "PERSONA-BODY-HERE",
+		MemberToken:    fxToken,
+		Role:           "assistant",
+		Runtime:        "codex",
+		Model:          "gpt-5.6",
+		Effort:         unknown,
+		SessionName:    "member-alice",
+	})
+	if !out.OK {
+		t.Fatalf("outcome = %+v, want a successful launch", out)
+	}
+
+	// The wording is not the contract; carrying BOTH levels is. A line naming
+	// only one of them cannot tell the reader what diverged from what.
+	var announced string
+	for _, line := range log {
+		if strings.Contains(line, unknown) && strings.Contains(line, "medium") {
+			announced = line
+			break
+		}
+	}
+	if announced == "" {
+		t.Fatalf("the %q -> medium downgrade was never announced on the spawn path; log:\n%s",
+			unknown, joinLog(log))
+	}
+
+	wantCmd := buildCodexLaunchCommand(
+		deps.WardenBin, deps.CodexBin, fxWorkdir, fxPersona, fxTokenFile,
+		"alice", fxBase, "member-alice", fxSocket, "gpt-5.6", unknown,
+		[][2]string{{"OC_EFFORT", unknown}}, "", nil,
+	)
+	if !run.sawArgv("tmux", "-L", fxSocket, "new-session", "-d", "-s", "member-alice", "-x", "160", "-y", "50", wantCmd) {
+		t.Errorf("expected the coerced Codex launch; calls:\n%v", run.calls)
+	}
+}
+
 func TestStart_CodexLoggedOutFailsBeforeLaunch(t *testing.T) {
 	run := &recRunner{err: map[string]error{
 		"/opt/homebrew/bin/codex login status": errors.New("not logged in"),
