@@ -846,14 +846,26 @@ export interface paths {
          *     the token (deny-by-default) and fixes the single data scope, and the lookup is
          *     scoped to that owner — a blob outside the owner's scope (or nonexistent) is a
          *     404, so a caller can not fetch another owner's attachment. Returns the raw
-         *     bytes with the stored ``mime`` as the media type.
+         *     bytes with the stored ``mime`` as the media type, except a generic
+         *     ``application/octet-stream`` blob whose filename ends .json is served as
+         *     ``application/json`` so the inline response renders in a browser.
          *
          *     DISPOSITION SPLIT (M2-3 gallery「開新分頁預覽」 vs 「下載」): an IMAGE is
          *     served with no disposition at all (unchanged — ``<img src>`` keeps working);
-         *     any other PREVIEWABLE mime (text/*, application/pdf — see
-         *     ``_is_previewable_mime``) is served ``inline; filename="<name>"`` so a new
-         *     tab RENDERS it instead of force-downloading; everything else keeps
-         *     ``attachment; filename="<name>"`` and downloads under its original name.
+         *     any other PREVIEWABLE blob (text/*, application/pdf, application/json, and
+         *     a generic/unknown blob whose FILENAME ends .json — see ``isPreviewableAttachment``) is
+         *     served ``inline; filename="<name>"`` so a new tab RENDERS it instead of
+         *     force-downloading; everything else keeps ``attachment; filename="<name>"``
+         *     and downloads under its original name.
+         *
+         *     THE FILENAME IS FALLBACK EVIDENCE, not a declared-type override. A declared
+         *     non-generic MIME remains authoritative. A blob uploaded
+         *     without a declared mime is stored ``application/octet-stream`` — the
+         *     magic-byte sniff speaks for images only — and that is how most
+         *     agent-uploaded JSON arrives, so the mime alone cannot answer for it. The
+         *     upload path now reads the same name-to-mime table, so a blob stored from
+         *     here on carries ``application/json``; reading the name here is what makes
+         *     the ones stored BEFORE that still preview.
          *
          *     SECURITY: an inline ``text/html`` blob would otherwise execute
          *     attacker-supplied script ON THIS ORIGIN (an agent-uploaded page could read

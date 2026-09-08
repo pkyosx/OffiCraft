@@ -1073,6 +1073,10 @@ export const zh = {
     // Markdown.tsx render(不是開新分頁看原始碼)。
     // T-7bc2: the chip itself is the trigger now — no separate "action" label.
     mdPreview: {
+      // 壞掉的 JSON 不給一片空白、也不給錯誤畫面：讀者是來看內容的，而內容
+      // 就算不是合法 JSON 也還是讀得懂。原文照顯示，另外用一行講明為什麼沒
+      // 有縮排。（owner rc-38132b95dcf7 圈 [1]）
+      jsonUnparseable: "這不是合法的 JSON，無法排版；以下是檔案的原始內容。",
       download: "下載",
       close: "關閉預覽",
       loading: "載入預覽中…",

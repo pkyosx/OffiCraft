@@ -42,8 +42,8 @@ function mountOverlay(mime: string, title = "mock.html") {
   );
 }
 
-describe("isInlineDisplayableMime (mirror of the server's isPreviewableMime)", () => {
-  it("accepts exactly image/*, text/* and application/pdf", () => {
+describe("isInlineDisplayableMime (mirror of the server's isPreviewableAttachment)", () => {
+  it("accepts image/*, text/*, application/pdf and application/json", () => {
     for (const m of [
       "image/png",
       "image/svg+xml",
@@ -51,15 +51,22 @@ describe("isInlineDisplayableMime (mirror of the server's isPreviewableMime)", (
       "text/plain",
       "text/markdown",
       "application/pdf",
+      "application/json",
+      "application/json; charset=utf-8",
     ]) {
       expect(`${m}=${isInlineDisplayableMime(m)}`).toBe(`${m}=true`);
     }
+  });
+  it("accepts a .json filename when the mime is octet-stream", () => {
+    expect(isInlineDisplayableMime("application/octet-stream", "report.json")).toBe(true);
+    expect(isInlineDisplayableMime("application/octet-stream", "REPORT.JSON")).toBe(true);
+    expect(isInlineDisplayableMime("application/octet-stream", "report.zip")).toBe(false);
+    expect(isInlineDisplayableMime("application/zip", "report.json")).toBe(false);
   });
   it("rejects the mimes the server sends as Content-Disposition: attachment", () => {
     for (const m of [
       "application/zip",
       "application/octet-stream",
-      "application/json",
       "video/mp4",
       "",
     ]) {
@@ -168,7 +175,7 @@ describe("MarkdownPreviewOverlay — 在新頁面顯示 (T-36)", () => {
         ? "T-36 REGRESSION: 「在新頁面顯示」 is offered on application/zip — the " +
           "server sends that as Content-Disposition: attachment, so the button " +
           "would DOWNLOAD the file instead of showing it. The gate must mirror " +
-          "the server's isPreviewableMime (image/* | text/* | application/pdf)."
+          "the server's isPreviewableAttachment rule."
         : "absent",
     ).toBe("absent");
     expect(

@@ -239,7 +239,7 @@ export function MarkdownPreviewOverlay({
   const diff = diffParams !== undefined;
   const unavailable = url !== undefined && !image && !previewableText;
   // T-36 — WHOSE CALL IS "opens in a tab"? THE SERVER'S. This mirrors
-  // api_chat.go's isPreviewableMime, which is what decides between
+  // api_chat.go's isPreviewableAttachment, which is what decides between
   // `Content-Disposition: inline` and `attachment` on the serve route. Offering
   // 「在新頁面顯示」 on anything else would be a lie: the browser would download
   // the file instead of showing it, and the button would look broken.
@@ -248,7 +248,7 @@ export function MarkdownPreviewOverlay({
   // still cannot be drawn here, but the browser can show it perfectly well in a
   // tab of its own, and that is the whole request.
   const inlineInBrowser =
-    attachmentId !== undefined && isInlineDisplayableMime(mime ?? "text/markdown");
+    attachmentId !== undefined && isInlineDisplayableMime(mime ?? "text/markdown", typeName);
   // T-36 (B2) — WHICH files deserve the plain-words note? ONLY the ones that
   // look like they should answer a click. An .html page carries buttons and
   // input boxes that will sit dead in the new tab, and the reader has to be
@@ -260,6 +260,10 @@ export function MarkdownPreviewOverlay({
   // button's own condition.
   const interactiveLooking = looksInteractiveInNewTab(mime ?? "text/markdown", typeName);
   const plainText = previewableText && !isMarkdownAttachment(mime ?? "text/markdown", typeName);
+  // JSON rides the SAME <pre> as .txt/.log — one plain-text surface, not a
+  // second renderer. All that is added is the indenting, and the one line that
+  // says why it is missing when the bytes will not parse.
+  const jsonAttachment = plainText && isJsonAttachment(mime ?? "text/markdown", typeName);
   const source = inlineSource ?? fetched;
   const [zoom, setZoom] = useState(1);
   // The bytes the header's 下載 link points at. A stored blob needs the ?token=
@@ -980,7 +984,23 @@ export function MarkdownPreviewOverlay({
              * unstyled code, no callout colour. One class, same document look
              * as the surface the file was opened from. */
             plainText ? (
-              <pre className="md-preview__text">{source}</pre>
+              jsonAttachment ? (
+                (() => {
+                  const { body, unparseable } = formatJsonForPreview(source);
+                  return (
+                    <>
+                      {unparseable ? (
+                        <div className="md-preview__status">
+                          {t.chat.mdPreview.jsonUnparseable}
+                        </div>
+                      ) : null}
+                      <pre className="md-preview__text">{body}</pre>
+                    </>
+                  );
+                })()
+              ) : (
+                <pre className="md-preview__text">{source}</pre>
+              )
             ) : <Markdown
               source={source}
               className="md-preview__md doc-md"
@@ -1011,7 +1031,7 @@ export function isMarkdownAttachment(mime: string, filename: string): boolean {
 }
 
 /** Whether the BROWSER will display these bytes in a tab of its own instead of
- * downloading them. This is a mirror of the server's `isPreviewableMime`
+ * downloading them. This is a mirror of the server's `isPreviewableAttachment`
  * (server/ocserverd/api_chat.go): that function is what picks
  * `Content-Disposition: inline` over `attachment` on the serve route, so it —
  * not this file — is the source of truth for the answer. Keep the two in step;
@@ -1021,9 +1041,18 @@ export function isMarkdownAttachment(mime: string, filename: string): boolean {
  * ⚠️ NOT the same question as `isPreviewableTextAttachment` below, and the two
  * must not be merged: that one asks what THIS overlay can render in-panel and
  * is narrow on purpose. */
-export function isInlineDisplayableMime(mime: string): boolean {
+export function isInlineDisplayableMime(mime: string, filename = ""): boolean {
+  const baseMime = mime.split(";")[0]!.trim().toLowerCase();
   return (
-    mime.startsWith("image/") || mime.startsWith("text/") || mime === "application/pdf"
+    baseMime.startsWith("image/") ||
+    baseMime.startsWith("text/") ||
+    baseMime === "application/pdf" ||
+    baseMime === "application/json" ||
+    // A blob uploaded without a declared type is stored as
+    // application/octet-stream — which is what most of this station's JSON
+    // is — so the name is the only evidence left. The server reads it too.
+    (baseMime === "" || baseMime === "application/octet-stream") &&
+      /\.json$/i.test(filename)
   );
 }
 
@@ -1049,5 +1078,35 @@ export function looksInteractiveInNewTab(mime: string, filename: string): boolea
 /** The stored text formats supported by the shared attachment modal. Keep this
  * narrow: HTML/PDF and arbitrary text/* remain outside this preview contract. */
 export function isPreviewableTextAttachment(mime: string, filename: string): boolean {
-  return isMarkdownAttachment(mime, filename) || /\.(txt|log)$/i.test(filename);
+  return (
+    isMarkdownAttachment(mime, filename) ||
+    /\.(txt|log)$/i.test(filename) ||
+    isJsonAttachment(mime, filename)
+  );
+}
+
+/** JSON by declared type, or by a .json suffix when the MIME is generic. The
+ * name half is not redundant: an agent that uploads without naming a type gets
+ * application/octet-stream, which is how most of this station's JSON is stored. */
+export function isJsonAttachment(mime: string, filename: string): boolean {
+  const base = mime.split(";")[0]!.trim().toLowerCase();
+  return (
+    base === "application/json" ||
+    (base === "" || base === "application/octet-stream") && /\.json$/i.test(filename)
+  );
+}
+
+/** Pretty-print JSON for the in-panel preview, or hand back the raw text when
+ * it will not parse.
+ *
+ * The failure path is the point. Bad JSON must not render as a blank panel or
+ * an error screen: the reader came to SEE THE BYTES, and the bytes are still
+ * readable even when they are not valid JSON. So the text is shown as it was
+ * stored, with one line saying why it is not indented. */
+export function formatJsonForPreview(text: string): { body: string; unparseable: boolean } {
+  try {
+    return { body: JSON.stringify(JSON.parse(text), null, 2), unparseable: false };
+  } catch {
+    return { body: text, unparseable: true };
+  }
 }

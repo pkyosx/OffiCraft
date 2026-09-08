@@ -1017,6 +1017,10 @@ export const en: Dict = {
     // download; the overlay renders via Markdown.tsx (not the raw-source new tab).
     // T-7bc2: the chip itself is the trigger now — no separate "action" label.
     mdPreview: {
+      // 壞掉的 JSON 不給一片空白、也不給錯誤畫面：讀者是來看內容的，而內容
+      // 就算不是合法 JSON 也還是讀得懂。原文照顯示，另外用一行講明為什麼沒
+      // 有縮排。（owner rc-38132b95dcf7 圈 [1]）
+      jsonUnparseable: "This is not valid JSON, so it cannot be indented. The raw file contents are below.",
       download: "Download",
       close: "Close preview",
       loading: "Loading preview…",
