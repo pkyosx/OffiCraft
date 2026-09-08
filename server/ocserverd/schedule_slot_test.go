@@ -276,6 +276,24 @@ func TestSlotIsAfterCursor(t *testing.T) {
 	}
 }
 
+func TestSlotKey(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		slot time.Time
+		want string
+	}{
+		{name: "UTC uses an explicit zero offset", slot: time.Date(2026, 9, 7, 9, 30, 0, 0, time.UTC), want: "2026-09-07T09:30+00:00"},
+		{name: "a positive offset stays part of the cursor identity", slot: time.Date(2026, 9, 7, 9, 30, 0, 0, time.FixedZone("Taipei", 8*60*60)), want: "2026-09-07T09:30+08:00"},
+		{name: "a negative offset stays part of the cursor identity", slot: time.Date(2026, 9, 7, 9, 30, 0, 0, time.FixedZone("New York", -4*60*60)), want: "2026-09-07T09:30-04:00"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := slotKey(tc.slot); got != tc.want {
+				t.Fatalf("slotKey(%s) = %q, want %q", tc.slot, got, tc.want)
+			}
+		})
+	}
+}
+
 func TestCurrentSlotKey(t *testing.T) {
 	for _, tc := range []struct {
 		name string

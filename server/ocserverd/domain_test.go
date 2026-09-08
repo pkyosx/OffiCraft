@@ -1951,3 +1951,101 @@ func TestDisplayName(t *testing.T) {
 		}
 	})
 }
+
+func TestValidWebhookStatus(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		status string
+		want   bool
+	}{
+		{name: "enabled is accepted", status: WebhookStatusEnabled, want: true},
+		{name: "disabled is accepted", status: WebhookStatusDisabled, want: true},
+		{name: "blank is rejected", status: "", want: false},
+		{name: "an unknown status is rejected", status: "paused", want: false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := ValidWebhookStatus(tc.status); got != tc.want {
+				t.Fatalf("ValidWebhookStatus(%q) = %v, want %v", tc.status, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestWholeDocWipeBlocked(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		before string
+		after  string
+		want   bool
+	}{
+		{name: "content replaced by whitespace is blocked", before: "lessons", after: "  \n", want: true},
+		{name: "blank content remains allowed to stay blank", before: " \n", after: "", want: false},
+		{name: "content replaced by other content is allowed", before: "lessons", after: "updated", want: false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := WholeDocWipeBlocked(tc.before, tc.after); got != tc.want {
+				t.Fatalf("WholeDocWipeBlocked(%q, %q) = %v, want %v", tc.before, tc.after, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestStepIsTerminal(t *testing.T) {
+	for _, tc := range []struct {
+		status string
+		want   bool
+	}{
+		{status: StepStatusDone, want: true},
+		{status: StepStatusSuperseded, want: true},
+		{status: StepStatusPending, want: false},
+		{status: StepStatusInProgress, want: false},
+		{status: StepStatusWaitingOwner, want: false},
+		{status: "unknown", want: false},
+	} {
+		t.Run(tc.status, func(t *testing.T) {
+			if got := StepIsTerminal(tc.status); got != tc.want {
+				t.Fatalf("StepIsTerminal(%q) = %v, want %v", tc.status, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestCanAgentStepTransition(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		from, to string
+		want     bool
+	}{
+		{name: "pending starts work", from: StepStatusPending, to: StepStatusInProgress, want: true},
+		{name: "work completes", from: StepStatusInProgress, to: StepStatusDone, want: true},
+		{name: "work waits for an external condition", from: StepStatusInProgress, to: StepStatusWaitingExternal, want: true},
+		{name: "external condition resumes work", from: StepStatusWaitingExternal, to: StepStatusInProgress, want: true},
+		{name: "pending cannot complete directly", from: StepStatusPending, to: StepStatusDone, want: false},
+		{name: "waiting owner cannot be changed by an agent report", from: StepStatusWaitingOwner, to: StepStatusInProgress, want: false},
+		{name: "terminal work cannot reopen", from: StepStatusDone, to: StepStatusInProgress, want: false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := CanAgentStepTransition(tc.from, tc.to); got != tc.want {
+				t.Fatalf("CanAgentStepTransition(%q, %q) = %v, want %v", tc.from, tc.to, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestNormalizeFieldKey(t *testing.T) {
+	for _, tc := range []struct {
+		input string
+		want  string
+	}{
+		{input: "  PR Link ", want: "pr link"},
+		{input: "PR  Link", want: "pr  link"},
+		{input: "備註", want: "備註"},
+		{input: "   ", want: ""},
+	} {
+		t.Run(tc.input, func(t *testing.T) {
+			if got := normalizeFieldKey(tc.input); got != tc.want {
+				t.Fatalf("normalizeFieldKey(%q) = %q, want %q", tc.input, got, tc.want)
+			}
+		})
+	}
+}

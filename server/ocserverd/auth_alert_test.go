@@ -6,14 +6,55 @@ package main
 import (
 	"encoding/json"
 	"testing"
+	"time"
 )
 
 func TestNoteFactorRefusedAfterCorrectPassword(t *testing.T) {
-	t.Skip("TODO: noteFactorRefusedAfterCorrectPassword records one 「password correct, second factor wrong」 login refusal and, at most once per authAlertInterval, hands the accumulated count to a goroutine that tells the assistant.")
+	deliveries := make(chan int, 2)
+	api := &apiServer{authAlertDeliver: func(count int) { deliveries <- count }}
+	first := time.Unix(1000, 0)
+
+	api.noteFactorRefusedAfterCorrectPassword(first)
+	select {
+	case got := <-deliveries:
+		if got != 1 {
+			t.Fatalf("first alert count = %d, want 1", got)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("first alert was not dispatched")
+	}
+
+	api.noteFactorRefusedAfterCorrectPassword(first.Add(time.Second))
+	select {
+	case got := <-deliveries:
+		t.Fatalf("suppressed alert count = %d, want no alert inside the interval", got)
+	default:
+	}
+
+	api.noteFactorRefusedAfterCorrectPassword(first.Add(authAlertInterval))
+	select {
+	case got := <-deliveries:
+		if got != 2 {
+			t.Fatalf("next alert count = %d, want 2", got)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("next alert was not dispatched")
+	}
 }
 
 func TestDispatchAuthAlert(t *testing.T) {
-	t.Skip("TODO: dispatchAuthAlert is the one indirection in this file, and it exists so the asynchrony above is FALSIFIABLE rather than merely visible: a test can install a deliverer that blocks for seconds and assert the caller still returned immediately.")
+	deliveries := make(chan int, 1)
+	api := &apiServer{authAlertDeliver: func(count int) { deliveries <- count }}
+
+	api.dispatchAuthAlert(7)
+	select {
+	case got := <-deliveries:
+		if got != 7 {
+			t.Fatalf("delivered count = %d, want 7", got)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("custom alert delivery was not called")
+	}
 }
 
 func TestDeliverPasswordExposedAlert(t *testing.T) {

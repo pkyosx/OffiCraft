@@ -4,18 +4,59 @@
 package main
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 )
 
 func TestLogWebhookRequest(t *testing.T) {
-	t.Skip("TODO: logWebhookRequest records one resolved /in request into the endpoint's debug ring buffer (newest 5 kept).")
+	_, h, _, owner := newAPITestServer(t)
+	token := apiTestWebhookToken(t, h, owner, "kip", `{"endpoint_id":"alerts","purpose":"CI"}`)
+	req := httptest.NewRequest(http.MethodPost, "/in?t="+token, strings.NewReader(`{"event":"deployed"}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Webhook-Source", "ci")
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST /in status = %d, want 200", rec.Code)
+	}
+	if got := rec.Body.String(); got != `{"status":"ok"}` {
+		t.Fatalf("POST /in body = %q, want %q", got, `{"status":"ok"}`)
+	}
+	apiWantWebhookRequests(t, h, owner, "alerts", map[string]any{
+		"ts":        apiAnyNumber,
+		"outcome":   "delivered",
+		"headers":   `{"Content-Type":["application/json"],"X-Webhook-Source":["ci"]}`,
+		"body":      `{"event":"deployed"}`,
+		"truncated": false,
+	})
 }
 
 func TestNewWebhookToken(t *testing.T) {
-	t.Skip("TODO: newWebhookToken mints a high-entropy, unguessable, URL-safe opaque token (32 bytes of crypto/rand → base64url, ~43 chars).")
+	seen := map[string]bool{}
+	for i := 0; i < 8; i++ {
+		token := newWebhookToken()
+		if len(token) != 43 {
+			t.Fatalf("newWebhookToken() length = %d, want 43", len(token))
+		}
+		if strings.ContainsAny(token, "+/=") {
+			t.Fatalf("newWebhookToken() = %q, want raw URL-safe base64 without padding", token)
+		}
+		raw, err := base64.RawURLEncoding.DecodeString(token)
+		if err != nil {
+			t.Fatalf("newWebhookToken() = %q is not raw URL-safe base64: %v", token, err)
+		}
+		if len(raw) != 32 {
+			t.Fatalf("newWebhookToken() decoded length = %d, want 32", len(raw))
+		}
+		if seen[token] {
+			t.Fatalf("newWebhookToken() repeated token %q", token)
+		}
+		seen[token] = true
+	}
 }
 
 func TestHandleListWebhooksApiMembersMemberIdWebhooksGet(t *testing.T) {
@@ -543,7 +584,32 @@ func TestHandleDeleteWebhookApiMembersMemberIdWebhooksEndpointIdDelete(t *testin
 }
 
 func TestResolveWebhook(t *testing.T) {
-	t.Skip("TODO: resolveWebhook returns the endpoint addressed by (member, endpoint_id), folding an absent member OR an absent endpoint to errNotFound (the 404 face).")
+	t.Run("an existing endpoint is resolved by its member and endpoint id through the debug route", func(t *testing.T) {
+		_, h, _, owner := newAPITestServer(t)
+		apiTestWebhookToken(t, h, owner, "kip", `{"endpoint_id":"alerts","purpose":"CI"}`)
+
+		apiWantWebhookRequests(t, h, owner, "alerts")
+	})
+
+	t.Run("an endpoint absent for an existing member folds to the endpoint not-found response", func(t *testing.T) {
+		_, h, _, owner := newAPITestServer(t)
+		status, data := apiJSON(t, h, http.MethodGet,
+			"/api/members/kip/webhooks/missing/requests", owner, "")
+		if status != http.StatusNotFound {
+			t.Fatalf("GET missing webhook requests status = %d, want 404 (%v)", status, data)
+		}
+		apiWantError(t, data, "not_found", "webhook endpoint 'missing' not found")
+	})
+
+	t.Run("a member absent from the roster folds to the endpoint-labelled not-found response", func(t *testing.T) {
+		_, h, _, owner := newAPITestServer(t)
+		status, data := apiJSON(t, h, http.MethodGet,
+			"/api/members/ghost/webhooks/alerts/requests", owner, "")
+		if status != http.StatusNotFound {
+			t.Fatalf("GET absent-member webhook requests status = %d, want 404 (%v)", status, data)
+		}
+		apiWantError(t, data, "not_found", "webhook endpoint 'alerts' not found")
+	})
 }
 
 func TestHandleReceiveWebhookInPost(t *testing.T) {
@@ -931,5 +997,24 @@ func TestHandleListWebhookRequestsApiMembersMemberIdWebhooksEndpointIdRequestsGe
 }
 
 func TestWriteWebhookAccepted(t *testing.T) {
-	t.Skip("TODO: writeWebhookAccepted is the single silent acknowledgement — byte-identical for an accepted and an ignored call so the response never leaks endpoint existence.")
+	_, h, _, owner := newAPITestServer(t)
+	token := apiTestWebhookToken(t, h, owner, "kip", `{"endpoint_id":"alerts","purpose":"CI"}`)
+
+	ignored := apiRequest(t, h, http.MethodPost, "/in?t=unknown-token", "", `{"event":"ignored"}`)
+	if ignored.Code != http.StatusOK || ignored.Body.String() != `{"status":"ok"}` {
+		t.Fatalf("unknown token response = (%d, %q), want (200, %q)", ignored.Code, ignored.Body.String(), `{"status":"ok"}`)
+	}
+	if got := ignored.Header().Get("Content-Type"); got != "application/json" {
+		t.Fatalf("unknown token content type = %q, want application/json", got)
+	}
+	apiWantNoChatWithKip(t, h, owner)
+
+	accepted := apiRequest(t, h, http.MethodPost, "/in?t="+token, "", `{"event":"delivered"}`)
+	if accepted.Code != ignored.Code || accepted.Body.String() != ignored.Body.String() {
+		t.Fatalf("accepted response = (%d, %q), ignored response = (%d, %q); acknowledgements must be byte-identical",
+			accepted.Code, accepted.Body.String(), ignored.Code, ignored.Body.String())
+	}
+	if got := accepted.Header().Get("Content-Type"); got != ignored.Header().Get("Content-Type") {
+		t.Fatalf("accepted content type = %q, ignored content type = %q", got, ignored.Header().Get("Content-Type"))
+	}
 }
