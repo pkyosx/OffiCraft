@@ -64,6 +64,7 @@ var messageKeys = map[string]bool{
 	"chat.mdPreview.diffSideSeed":                      true,
 	"chat.mdPreview.download":                          true,
 	"chat.mdPreview.error":                             true,
+	"chat.mdPreview.jsonUnparseable":                   true,
 	"chat.mdPreview.loading":                           true,
 	"chat.mdPreview.newTabStaticNote":                  true,
 	"chat.mdPreview.next":                              true,

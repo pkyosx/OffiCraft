@@ -42,13 +42,21 @@ import { MarkdownPreviewOverlay } from "./MarkdownPreviewOverlay";
 const OWNER_ID = "owner";
 
 /** FE mirror of the server's preview/download split
- * (the server previewable-mime table): previewable mimes are served
- * inline → open in a new tab; the rest are forced downloads. */
-export function isPreviewableMime(mime: string): boolean {
+ * (`isPreviewableAttachment`, server/ocserverd/api_chat.go): previewable blobs
+ * are served inline → open in a new tab; the rest are forced downloads.
+ *
+ * `filename` is part of the question, not a convenience: a blob uploaded
+ * without a declared type is stored as application/octet-stream, and most of
+ * the JSON in this station arrives that way, so the mime alone cannot answer
+ * for it. The server reads the name for the same reason and by the same rule —
+ * keep the two in step. */
+export function isPreviewableMime(mime: string, filename = ""): boolean {
   return (
     mime.startsWith("image/") ||
     mime.startsWith("text/") ||
-    mime === "application/pdf"
+    mime === "application/pdf" ||
+    mime === "application/json" ||
+    /\.json$/i.test(filename)
   );
 }
 

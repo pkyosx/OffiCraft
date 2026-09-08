@@ -325,6 +325,22 @@ func sniffAttachmentMime(raw []byte) string {
 	return attachmentOctetStream
 }
 
+// attachmentMimeForName answers the mime a FILENAME implies, for the blobs the
+// magic-byte sniff cannot speak for. The sniff only knows images, so every
+// agent-uploaded .json arrives as application/octet-stream unless the client
+// declares a mime by hand — and octet-stream is what the preview/download split
+// reads as "download this". Naming the format here fixes it at the source, for
+// every client at once, rather than teaching each reader to guess.
+//
+// Deliberately ONE format. The previewable set is narrow on purpose; JSON is in
+// it because the owner asked for JSON (rc-ab005893c16c), and YAML/CSV are not.
+func attachmentMimeForName(filename string) string {
+	if strings.HasSuffix(strings.ToLower(strings.TrimSpace(filename)), ".json") {
+		return "application/json"
+	}
+	return ""
+}
+
 // chatBadRequest carries a handler-raised 400 message through the decode path.
 type chatBadRequest struct{ msg string }
 
@@ -390,6 +406,14 @@ func resolveChatAttachment(raw []byte, filename, mimeType string) (*ChatAttachme
 	resolved := strings.TrimSpace(mimeType)
 	if resolved == "" {
 		resolved = sniffAttachmentMime(raw)
+		// The sniff speaks for images only; anything else lands on
+		// octet-stream, so the filename is the next-best evidence. A declared
+		// mime is never second-guessed — only the fallback is refined.
+		if resolved == attachmentOctetStream {
+			if byName := attachmentMimeForName(filename); byName != "" {
+				resolved = byName
+			}
+		}
 	}
 	isImage := strings.HasPrefix(resolved, "image/")
 	if isImage && len(raw) > chatAttachmentImageMaxBytes {
@@ -1642,11 +1666,21 @@ func trimChatPageNewer(msgs []ChatMessage, limit int) ([]ChatMessage, string) {
 	return msgs, encodeChatCursor(chatCursorNewer, chatAnchor{TS: last.TS, ID: last.ID})
 }
 
-// isPreviewableMime: a mime the browser renders in a new tab (image/*, text/*,
-// application/pdf) — the preview/download split (handlers._is_previewable_mime).
-func isPreviewableMime(m string) bool {
-	return strings.HasPrefix(m, "image/") || strings.HasPrefix(m, "text/") ||
-		m == "application/pdf"
+// isPreviewableAttachment: does the browser render these bytes in a tab of its
+// own (image/*, text/*, application/pdf, application/json) rather than
+// force-downloading them — the preview/download split.
+//
+// It takes the FILENAME as well as the mime because the mime alone is not
+// enough evidence: a blob uploaded without a declared type is stored as
+// application/octet-stream, and most of the JSON in this station arrives that
+// way. attachmentMimeForName is the same table the upload path uses, so a blob
+// stored before that path existed still previews.
+func isPreviewableAttachment(mime, filename string) bool {
+	if strings.HasPrefix(mime, "image/") || strings.HasPrefix(mime, "text/") ||
+		mime == "application/pdf" || mime == "application/json" {
+		return true
+	}
+	return attachmentMimeForName(filename) != ""
 }
 
 // GET /api/chat/attachment/{attachment_id} — serve the raw blob under its
@@ -1680,7 +1714,7 @@ func (s *apiServer) HandleGetChatAttachmentApiChatAttachmentAttachmentIdGet(w ht
 		safe := strings.ReplaceAll(asciiName, `"`, `\"`)
 		dispSuffix := `filename="` + safe + `"; filename*=UTF-8''` +
 			url.QueryEscape(name)
-		if isPreviewableMime(att.Mime) {
+		if isPreviewableAttachment(att.Mime, name) {
 			w.Header().Set("Content-Disposition", "inline; "+dispSuffix)
 			w.Header().Set("Content-Security-Policy", "sandbox")
 		} else {
