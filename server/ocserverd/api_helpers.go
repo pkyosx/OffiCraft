@@ -384,7 +384,8 @@ func writeResolveError(w http.ResponseWriter, err error, what, id string) {
 // Valid effort levels (handlers._MEMBER_EFFORTS): a closed vocabulary — an
 // unknown effort is a 422, never silently coerced.
 func validEffort(effort string) bool {
-	return effort == "low" || effort == "medium" || effort == "high" || effort == "max"
+	return effort == "low" || effort == "medium" || effort == "high" ||
+		effort == "xhigh" || effort == "max"
 }
 
 const (

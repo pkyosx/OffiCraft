@@ -1413,7 +1413,7 @@ func TestHandleSetOutsourceWorkerModelApiOutsourceWorkersIdModelPost(t *testing.
 		if status != 422 {
 			t.Fatalf("want 422, got %d (%v)", status, data)
 		}
-		apiWantError(t, data, "validation_error", "effort must be one of [high low max medium]; got 'turbo'")
+		apiWantError(t, data, "validation_error", "effort must be one of [high low max medium xhigh]; got 'turbo'")
 		apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, nil))
 		dashboard.wantFrames()
 	})

@@ -83,7 +83,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Ingest an agent's context gauge (in-memory; bad body → 400).
+         * Ingest an agent's context gauge (in-memory; bad body → 400). Answers with a bounded receipt (``agent_id``, ``ts``), not the stored entry echoed back — call ``get_monitoring`` when you need the rest.
          * @description - Reports the CALLER's own context-window gauge; the key is your token, so an agent can never report for another.
          *     - Stored in memory only — the gauge resets when the server restarts.
          *     - A non-numeric `context_pct` is a flat 400, not a 422.
@@ -626,7 +626,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Mark a conversation read up to a watermark (reader = verified sub).
+         * Mark a conversation read up to a watermark (reader = verified sub). Answers with a bounded receipt (``peer_id``, ``last_read_ts``, ``advanced``), not the stored entry echoed back — call ``get_chat_reads`` when you need the rest.
          * @description - The ONLY way to clear unread; reading a chat list or thread marks nothing.
          *     - `peer` is the other participant, `last_read_ts` the newest message you have seen; a blank `peer` is 422.
          *     - The watermark only ever ADVANCES, so a stale report never rewinds it.
@@ -1500,7 +1500,7 @@ export interface paths {
         /**
          * Partially update a member's name / runtime / model / effort. Blank name, invalid runtime or invalid effort → 422, and changing a launch-intent field arms a graceful handover. Answers with a bounded receipt (``id``), not the roster row — call ``get_member`` when you need the rest.
          * @description - Only the fields you send change: name, runtime, model, effort.
-         *     - A blank `name`, a runtime outside claude/codex, or an effort outside low/medium/high/max is a 422.
+         *     - A blank `name`, a runtime outside claude/codex, or an effort outside low/medium/high/xhigh/max is a 422.
          *     - A runtime change applies at the next wake or recycle, not immediately.
          *     - The `id` and every observed lifecycle field (presence, desired state, status) are untouched.
          */
@@ -1915,7 +1915,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Ingest warden telemetry (hardware/limits/tokens/cost/self_update).
+         * Ingest warden telemetry (hardware/limits/tokens/cost/self_update). Answers with a bounded receipt (``agent_id``, ``machine``, ``ts``), not the stored entry echoed back — call ``get_monitoring`` when you need the rest.
          * @description - Each report is MERGED onto the previous one, so a partial report never clears a sibling field.
          *     - Stored in memory only: every figure is lost on server restart and starts honestly empty.
          *     - The entry is always keyed to YOU, the caller — you cannot report another agent's telemetry.
@@ -2469,7 +2469,7 @@ export interface paths {
          * Create a custom role + its founding member (one pair per call). runtime is claude/codex; absent = stored UNSET and resolved at the founding member's first placement from the host's reported capabilities, not written as claude. Answers with a bounded receipt (``role_key``, ``member_id``, ``member_name``), not the role and member objects — call ``get_role`` when you need the rest.
          * @description - Creates one custom role plus its one founding member; one pair per call, both ids server-minted.
          *     - The role's definition starts from a fixed template, not a blank page.
-         *     - `runtime`, `model` and `effort` take effect on the next wake; effort outside low/medium/high/max is 422.
+         *     - `runtime`, `model` and `effort` take effect on the next wake; effort outside low/medium/high/xhigh/max is 422.
          *     - Admin agent only.
          *     - Emits a `member` event; a client holding the stream learns of this without polling.
          */
@@ -3716,27 +3716,6 @@ export interface components {
             account: string;
         };
         /**
-         * AgentContextDTO
-         * @description Echo of a stored gauge entry (``POST /api/agent/context`` response).
-         */
-        AgentContextDTO: {
-            /** Agent Id */
-            agent_id: string;
-            /**
-             * Compaction Count
-             * @description Codex App Server context compactions in this live session; null for runtimes that do not report it.
-             */
-            compaction_count?: number;
-            /** Context Pct */
-            context_pct: number;
-            /** Rate Limits */
-            rate_limits?: {
-                [key: string]: unknown;
-            };
-            /** Ts */
-            ts: number;
-        };
-        /**
          * AgentContextIngestDTO
          * @description Inbound agent context-gauge report (``POST /api/agent/context``). The gauge
          *     key is the CALLER (the verified JWT ``sub``), NEVER a self-reported ``agent_id``
@@ -3756,6 +3735,26 @@ export interface components {
             rate_limits?: {
                 [key: string]: unknown;
             };
+        };
+        /**
+         * AgentContextReceiptDTO
+         * @description Bounded receipt returned after ``POST /api/agent/context`` (ingest_agent_context) (T-133). It used to answer ``AgentContextDTO``, an echo of the gauge entry the caller had just written — ``context_pct``, ``compaction_count`` and the whole free-form ``rate_limits`` object, all of them the caller's own body handed straight back.
+         *
+         *     The two fields left are the two the caller did not send. ``agent_id`` is the verified JWT sub the gauge was filed under — this route takes NO agent_id in its body (it was removed so an agent can only ever report its own context), so the receipt is the only place the attribution is visible. ``ts`` is the server's stamp. The gauge itself is served by ``get_monitoring``.
+         *
+         *     This route MERGES onto the prior entry, so what is stored after a call is not in general what the call sent; that is a reason to read the gauge deliberately, not a reason to ship it back on every report.
+         */
+        AgentContextReceiptDTO: {
+            /**
+             * Agent Id
+             * @description The identity the gauge entry was filed under — the verified JWT sub. The body carries no agent_id at all, so this is the only place the attribution appears.
+             */
+            agent_id: string;
+            /**
+             * Ts
+             * @description The server's stamp on the merged gauge entry, in epoch seconds. The freshness the context-high band and the cockpit judge the gauge by.
+             */
+            ts: number;
         };
         /**
          * AgentLifecycleReceiptDTO
@@ -3803,77 +3802,6 @@ export interface components {
          * @enum {string}
          */
         AgentRuntime: "claude" | "codex";
-        /**
-         * AgentTelemetryDTO
-         * @description Echo of a stored telemetry entry (``POST /api/monitoring/telemetry``).
-         */
-        AgentTelemetryDTO: {
-            /** Account */
-            account?: string | null;
-            /** Agent Id */
-            agent_id: string;
-            /** Binaries */
-            binaries?: {
-                [key: string]: unknown;
-            } | null;
-            /**
-             * Claude
-             * @description Echo of the stored claude CLI probe (see ``AgentTelemetryIngestDTO.claude`` — T-97ee); null when never reported.
-             */
-            claude?: {
-                [key: string]: unknown;
-            } | null;
-            /** Command Result */
-            command_result?: {
-                [key: string]: unknown;
-            } | null;
-            /** Cost */
-            cost?: number | null;
-            /**
-             * Cutover Effect
-             * @description Echo of the stored cutover-effect verdict (see ``AgentTelemetryIngestDTO.cutover_effect``); null when never reported.
-             */
-            cutover_effect?: string | null;
-            /** Effort */
-            effort?: string | null;
-            /** Hardware */
-            hardware?: {
-                [key: string]: unknown;
-            } | null;
-            /** Machine */
-            machine?: string | null;
-            /** Rate Limits */
-            rate_limits?: {
-                [key: string]: unknown;
-            } | null;
-            /**
-             * Runtime Key
-             * @description The provider runtime that produced this session telemetry. null when an older reporter did not identify it.
-             */
-            runtime?: components["schemas"]["AgentRuntime"] | null;
-            /**
-             * Runtimes
-             * @description Warden heartbeats only — provider-neutral machine runtime capabilities keyed by runtime name. null when never reported.
-             */
-            runtimes?: {
-                [key: string]: components["schemas"]["RuntimeCapabilityDTO"];
-            } | null;
-            /** Self Update */
-            self_update?: {
-                [key: string]: unknown;
-            } | null;
-            /** Tokens */
-            tokens?: {
-                [key: string]: number;
-            } | null;
-            /** Ts */
-            ts: number;
-            /**
-             * Warden Shape
-             * @description Echo of the stored warden shape verdict (see ``AgentTelemetryIngestDTO.warden_shape``); null when never reported.
-             */
-            warden_shape?: string | null;
-        };
         /**
          * AgentTelemetryIngestDTO
          * @description Inbound warden/agent telemetry report (``POST /api/monitoring/telemetry``).
@@ -4046,6 +3974,31 @@ export interface components {
              * @description Warden heartbeats only — which SHAPE this warden is actually running under, read from the PARENT process's executable path (the only signal that cannot lie: an anchor file existing on disk does NOT mean launchd is executing it). ``anchor`` = the parent exe is the deployed anchor binary; ``legacy`` = the parent is launchd itself, i.e. launchd execs the swappable ocwarden directly; ``unknown`` = the warden could not read its parent. OMITTED by every warden build older than the anchor-cutover release — absent is NOT a synonym for ``unknown`` and the server must never infer one from the other: absent means 'this machine has not received the new build yet', ``unknown`` means 'the new build ran and could not tell'. Permissive like the other scalars here: a value outside the three states is a flat 400, never a 422.
              */
             warden_shape?: unknown;
+        };
+        /**
+         * AgentTelemetryReceiptDTO
+         * @description Bounded receipt returned after ``POST /api/monitoring/telemetry`` (ingest_telemetry) (T-133). It used to answer ``AgentTelemetryDTO``, whose own description called it an "Echo of a stored telemetry entry": 17 fields, carrying back the whole MERGED entry — the hardware snapshot, the binary fingerprints, the runtimes probe, the rate-limit windows and the token counts the caller had just uploaded. A warden heartbeat is the largest body an agent sends on any schedule, and every byte of it came back.
+         *
+         *     WHAT IS LEFT IS WHAT THE CALLER COULD NOT COMPUTE. ``machine`` is the attribution the SERVER decided: it comes from the verified token's machine_id claim FIRST and falls back to the self-reported ``machine`` only for a claim-less token, so a reporter that sent one machine can be stored under another and the old echo was the only place that showed it. ``ts`` is the server's own stamp, and ``agent_id`` is the identity the entry was filed under. Everything else is recoverable from ``get_monitoring``, at the moment a caller wants it rather than at the moment it wrote.
+         *
+         *     This is a MERGE endpoint: a partial report leaves the other fields of the stored entry alone. That is exactly why echoing the merged entry was so expensive — a one-field report answered with the accumulated whole.
+         */
+        AgentTelemetryReceiptDTO: {
+            /**
+             * Agent Id
+             * @description The identity this report was filed under — the verified JWT sub, never a self-report. A reporter that believed it was somebody else learns it here.
+             */
+            agent_id: string;
+            /**
+             * Machine
+             * @description The machine the entry was ATTRIBUTED to, which is not necessarily the one the body named: the verified token's machine_id claim wins, and the payload ``machine`` is consulted only when the token carries no claim (long-lived /api/mint tokens and outsource-worker tokens mint machine_id "none" by design). Null when neither source supplied one.
+             */
+            machine?: string | null;
+            /**
+             * Ts
+             * @description The server's own stamp on the merged entry, in epoch seconds. The freshness every cockpit read of this entry is judged against, and not something the reporter's clock decides.
+             */
+            ts: number;
         };
         /**
          * AliasDTO
@@ -4641,6 +4594,31 @@ export interface components {
              * @description Opaque continuation token for the next page IN THIS PATH'S DIRECTION, ABSENT (or empty) when there is none. Feed it back verbatim as ``?cursor=``. Its absence is the ONLY end-of-walk signal — a page shorter than ``limit`` is not one. It encodes a ``(ts, id)`` position and never an offset, so pages cannot shift under a concurrent post; do not parse or construct one. The default listing continues TOWARDS THE OLDER and ``unread=true`` TOWARDS THE NEWER; ``ids``, ``start_id`` and ``end_id`` never carry one.
              */
             next_cursor?: string;
+        };
+        /**
+         * ChatMarkReadReceiptDTO
+         * @description Bounded receipt returned after ``POST /api/chat/mark-read`` (post_chat_mark-read) (T-133). It used to answer ``ChatReadDTO`` — the READ surface, the same type ``GET /api/chat/reads`` serves — of whose three fields two were the caller's own input: ``reader_id`` is always the verified sub, i.e. the caller, and ``last_read_ts`` is the number just sent.
+         *
+         *     WHAT THE OLD ANSWER COULD NOT SAY, and this one does: the watermark is MONOTONIC, so a stale report is a silent no-op. The old body echoed the EFFECTIVE watermark but gave no way to tell an accepted report from a rejected one that happened to sit at the same number, and the handler had computed that bit already (it gates the SSE publish). ``advanced`` is that bit, and it is here or nowhere — no read serves it.
+         *
+         *     ``peer_id`` stays because a receipt that cannot say which conversation it acted on is unreadable next to a log of several; one drain files one receipt PER SENDER. ``reader_id`` is dropped: it is the caller, on every call, with no exception the caller could not already compute.
+         */
+        ChatMarkReadReceiptDTO: {
+            /**
+             * Advanced
+             * @description True when THIS call moved the watermark. False when the report was stale and the stored watermark was already at or past it — a 200 that changed nothing. The server publishes the read-receipt signal on true only, so this is the same bit the rest of the fleet sees.
+             */
+            advanced: boolean;
+            /**
+             * Last Read Ts
+             * @description The watermark now in force for this conversation AFTER the monotonic clamp. Equal to what was sent when the report advanced it, and equal to the PREVIOUS (higher) watermark when it did not — which is why ``advanced`` is a separate field and not something a caller can infer by comparing this against what it sent.
+             */
+            last_read_ts: number;
+            /**
+             * Peer Id
+             * @description The conversation this receipt is for — the ``peer`` the caller sent, trimmed. Kept for readability next to a log of several receipts, not as news.
+             */
+            peer_id: string;
         };
         /**
          * ChatMessageDTO
@@ -6111,7 +6089,7 @@ export interface components {
          * MemberUpdateDTO
          * @description Partial edit of a member's owner-editable fields (§3.4 #11). Every field is
          *     optional (PATCH). A blank ``name`` is a 422; an ``effort`` outside
-         *     low/medium/high/max or a ``runtime`` outside claude/codex is a 422. Changing
+         *     low/medium/high/xhigh/max or a ``runtime`` outside claude/codex is a 422. Changing
          *     runtime takes effect on the next wake/recycle. The server owns everything else.
          */
         MemberUpdateDTO: {
@@ -7470,7 +7448,7 @@ export interface components {
          *     colliding with an existing roster member. ``runtime`` / ``model`` / ``effort``
          *     are the member's launch knobs — runtime is claude/codex (omitted ⇒ stored UNSET, resolved at the founding member's first placement from the host's reported capabilities),
          *     model is a free string (blank/omitted ⇒ selected-runtime default), effort is
-         *     the closed low/medium/high/max vocabulary (unknown → 422; omitted ⇒ medium). The
+         *     the closed low/medium/high/xhigh/max vocabulary (unknown → 422; omitted ⇒ medium). The
          *     server mints BOTH ids (role key + member id) — never client-supplied.
          */
         RoleCreateDTO: {
@@ -8850,7 +8828,7 @@ export interface components {
         };
         /**
          * TaskCreateTargetDTO
-         * @description Optional dispatch target (agent 發包給外包). When present with ``kind='outsource'`` the task is created as an **unassigned outsource task** — no owner-approval card and no per-task approval. The existing outsource scheduler then picks up unassigned outsource tasks against the global concurrency cap (``outsourceParallelCap``, owner-configurable in the cockpit; default unchanged): below the cap it mints a fresh worker immediately, at the cap it queues for capacity and is picked up automatically when a slot frees. The owner may reassign a still-queued task (to a staff member or another outsource) at any time. ``runtime`` is claude/codex (absent = claude); ``model`` is the worker's model (blank/absent = selected-runtime default); ``effort`` is low|medium|high|max (absent = ``medium``); ``machine`` is the machine the worker boots on (a machine id that must resolve; absent inherits — see below). Any of ``runtime``/``model``/``effort``/``machine`` that is OMITTED is INHERITED: a TYPED task takes the type manual's outsource assignee, a FREE (ad-hoc) task takes the DISPATCHING member's own runtime/model/effort and the machine it is itself pinned to (發包 without a spec means "one like me"). ``runtime`` and ``model`` inherit together — an inherited model is kept only under the runtime it belongs to, else the runtime's default model applies. ``effort`` falls back to ``medium``. ``machine`` has NO final fallback: when nothing names one the task carries no placement and no worker is started until one is chosen. The resolved spec is persisted on the task row and re-read on handover/rebirth, never re-derived. Absent (or ``kind='staff'``) keeps the current create semantics (manual assignee / ``executor_member_id``). ``kind`` is a closed set: any value that is neither ``staff`` nor ``outsource`` is a 400 (T-101), and the pre-rename ``member`` is answered with a message saying it was renamed to ``staff``. kind-vocab-guard:legacy An EMPTY ``kind`` is the one exception - it is not validated, and the whole target block is discarded down the staff path.
+         * @description Optional dispatch target (agent 發包給外包). When present with ``kind='outsource'`` the task is created as an **unassigned outsource task** — no owner-approval card and no per-task approval. The existing outsource scheduler then picks up unassigned outsource tasks against the global concurrency cap (``outsourceParallelCap``, owner-configurable in the cockpit; default unchanged): below the cap it mints a fresh worker immediately, at the cap it queues for capacity and is picked up automatically when a slot frees. The owner may reassign a still-queued task (to a staff member or another outsource) at any time. ``runtime`` is claude/codex (absent = claude); ``model`` is the worker's model (blank/absent = selected-runtime default); ``effort`` is low|medium|high|xhigh|max (absent = ``medium``); ``machine`` is the machine the worker boots on (a machine id that must resolve; absent inherits — see below). Any of ``runtime``/``model``/``effort``/``machine`` that is OMITTED is INHERITED: a TYPED task takes the type manual's outsource assignee, a FREE (ad-hoc) task takes the DISPATCHING member's own runtime/model/effort and the machine it is itself pinned to (發包 without a spec means "one like me"). ``runtime`` and ``model`` inherit together — an inherited model is kept only under the runtime it belongs to, else the runtime's default model applies. ``effort`` falls back to ``medium``. ``machine`` has NO final fallback: when nothing names one the task carries no placement and no worker is started until one is chosen. The resolved spec is persisted on the task row and re-read on handover/rebirth, never re-derived. Absent (or ``kind='staff'``) keeps the current create semantics (manual assignee / ``executor_member_id``). ``kind`` is a closed set: any value that is neither ``staff`` nor ``outsource`` is a 400 (T-101), and the pre-rename ``member`` is answered with a message saying it was renamed to ``staff``. kind-vocab-guard:legacy An EMPTY ``kind`` is the one exception - it is not validated, and the whole target block is discarded down the staff path.
          */
         TaskCreateTargetDTO: {
             /**
@@ -9674,7 +9652,7 @@ export interface components {
         };
         /**
          * TaskReassignTargetDTO
-         * @description The reassignment target. ``kind='staff'`` requires ``member_id`` — an ACTIVE roster member below the warden layer (a warden or an inactive/unknown member is a 400). ``kind='outsource'`` lands the task unassigned for the scheduler to spawn a fresh worker under the global parallel cap (no owner-approval card; T-35e0): ``runtime`` is claude/codex (absent = claude); ``model`` is the worker's model (blank/absent = selected-runtime default); ``effort`` is low|medium|high|max (absent = ``medium``); ``machine`` is the machine the worker boots on — a machine id that must resolve; absent inherits (see below). An offline machine is NOT substituted at spawn time: nothing is dispatched and the reason is recorded on the worker. Any of ``runtime``/``model``/``effort``/``machine`` that is OMITTED is INHERITED: a TYPED task takes the type manual's outsource assignee, a FREE (ad-hoc) task takes the DISPATCHING member's own runtime/model/effort and the machine it is itself pinned to (發包 without a spec means "one like me"). ``runtime`` and ``model`` inherit together — an inherited model is kept only under the runtime it belongs to, else the runtime's default model applies. ``effort`` falls back to ``medium``. ``machine`` has NO final fallback: when nothing names one the task carries no placement and no worker is started until one is chosen. The resolved spec is persisted on the task row and re-read on handover/rebirth, never re-derived.
+         * @description The reassignment target. ``kind='staff'`` requires ``member_id`` — an ACTIVE roster member below the warden layer (a warden or an inactive/unknown member is a 400). ``kind='outsource'`` lands the task unassigned for the scheduler to spawn a fresh worker under the global parallel cap (no owner-approval card; T-35e0): ``runtime`` is claude/codex (absent = claude); ``model`` is the worker's model (blank/absent = selected-runtime default); ``effort`` is low|medium|high|xhigh|max (absent = ``medium``); ``machine`` is the machine the worker boots on — a machine id that must resolve; absent inherits (see below). An offline machine is NOT substituted at spawn time: nothing is dispatched and the reason is recorded on the worker. Any of ``runtime``/``model``/``effort``/``machine`` that is OMITTED is INHERITED: a TYPED task takes the type manual's outsource assignee, a FREE (ad-hoc) task takes the DISPATCHING member's own runtime/model/effort and the machine it is itself pinned to (發包 without a spec means "one like me"). ``runtime`` and ``model`` inherit together — an inherited model is kept only under the runtime it belongs to, else the runtime's default model applies. ``effort`` falls back to ``medium``. ``machine`` has NO final fallback: when nothing names one the task carries no placement and no worker is started until one is chosen. The resolved spec is persisted on the task row and re-read on handover/rebirth, never re-derived.
          */
         TaskReassignTargetDTO: {
             /**
@@ -10653,7 +10631,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["AgentContextDTO"];
+                    "application/json": components["schemas"]["AgentContextReceiptDTO"];
                 };
             };
             /** @description Validation error (unified error envelope). */
@@ -11984,7 +11962,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ChatReadDTO"];
+                    "application/json": components["schemas"]["ChatMarkReadReceiptDTO"];
                 };
             };
             /** @description Validation error (unified error envelope). */
@@ -15097,7 +15075,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["AgentTelemetryDTO"];
+                    "application/json": components["schemas"]["AgentTelemetryReceiptDTO"];
                 };
             };
             /** @description Validation error (unified error envelope). */

@@ -49,8 +49,8 @@ func newChatServer(t *testing.T, list string, chatStatus, receiptStatus int) *ma
 			}
 			_ = json.Unmarshal(raw, &receipt)
 			w.WriteHeader(receiptStatus)
-			_, _ = w.Write([]byte(`{"reader_id":"kyle","peer_id":"` + receipt.Peer +
-				`","last_read_ts":0}`))
+			_, _ = w.Write([]byte(`{"peer_id":"` + receipt.Peer +
+				`","last_read_ts":0,"advanced":true}`))
 			return
 		}
 		w.WriteHeader(chatStatus)

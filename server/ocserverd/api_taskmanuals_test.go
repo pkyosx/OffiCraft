@@ -305,7 +305,7 @@ func TestHandleCreateTaskManualApiTaskManualsPost(t *testing.T) {
 		dashboard := apiTestListen(t, api, "")
 
 		status, data := apiJSON(t, h, "POST", "/api/task-manuals", admin,
-			`{"display_name":"派工","assignee":{"kind":"member","member_id":"kip"}}`)
+			`{"display_name":"派工","assignee":{"kind":"member","member_id":"kip"}}`) // kind-vocab-guard:legacy
 		if status != 400 {
 			t.Fatalf("want 400, got %d (%v)", status, data)
 		}

@@ -301,7 +301,7 @@ fires no change event, so it would be a rule that only sometimes works.
 The selected adapter receives the shared launch knobs:
 
 - `model`: provider-specific free string; blank uses that provider's default.
-- `effort`: exact shared vocabulary `low | medium | high | max`; omitted uses `medium`.
+- `effort`: exact shared vocabulary `low | medium | high | xhigh | max`; omitted uses `medium`.
 - Codex sandbox: `danger-full-access`.
 - Codex approvals: `never`.
 

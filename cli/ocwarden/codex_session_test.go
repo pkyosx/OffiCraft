@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"os"
@@ -100,16 +101,21 @@ func (s *codexTestSession) paneLines(t *testing.T) []string {
 }
 
 func TestBuildCodexLaunchCommand(t *testing.T) {
-	got := buildCodexLaunchCommand(
-		"/usr/local/bin/ocwarden", "/opt/homebrew/bin/codex", "/Users/seth/work/ow-1",
-		"/Users/seth/work/ow-1/PERSONA.md", "/Users/seth/work/ow-1/.token",
-		"ow-1", "https://officraft.example", "oc-ow-1", "/tmp/oc.sock",
-		"gpt-5-codex", "extreme",
-		[][2]string{{"OC_ROLE", "builder"}, {"OC_NOTE", "it's fine"}},
-		"/Users/seth/work/ow-1/.env",
-	)
+	build := func(effort string) (string, []string) {
+		var logged []string
+		cmd := buildCodexLaunchCommand(
+			"/usr/local/bin/ocwarden", "/opt/homebrew/bin/codex", "/Users/seth/work/ow-1",
+			"/Users/seth/work/ow-1/PERSONA.md", "/Users/seth/work/ow-1/.token",
+			"ow-1", "https://officraft.example", "oc-ow-1", "/tmp/oc.sock",
+			"gpt-5-codex", effort,
+			[][2]string{{"OC_ROLE", "builder"}, {"OC_NOTE", "it's fine"}},
+			"/Users/seth/work/ow-1/.env",
+			func(format string, a ...any) { logged = append(logged, fmt.Sprintf(format, a...)) },
+		)
+		return cmd, logged
+	}
 
-	want := "cd /Users/seth/work/ow-1; " +
+	const goldenPrefix = "cd /Users/seth/work/ow-1; " +
 		"[ -f /Users/seth/work/ow-1/.env ] && . /Users/seth/work/ow-1/.env; " +
 		`export OC_TOKEN="$(/bin/cat /Users/seth/work/ow-1/.token)" ` +
 		"OC_BASE=https://officraft.example OC_ID=ow-1 OC_SESSION=oc-ow-1 " +
@@ -119,45 +125,85 @@ func TestBuildCodexLaunchCommand(t *testing.T) {
 		"--codex-bin /opt/homebrew/bin/codex " +
 		"--workdir /Users/seth/work/ow-1 " +
 		"--persona /Users/seth/work/ow-1/PERSONA.md " +
-		"--agent-id ow-1 --model gpt-5-codex --effort medium"
-	if got != want {
-		t.Errorf("buildCodexLaunchCommand =\n%q\nwant\n%q", got, want)
-	}
-}
+		"--agent-id ow-1 --model gpt-5-codex --effort "
 
-func TestBuildCodexLaunchCommandWithoutRenderedEnv(t *testing.T) {
-	got := buildCodexLaunchCommand(
-		"/usr/local/bin/ocwarden", "/opt/homebrew/bin/codex", "/w", "/w/P.md", "/w/.token",
-		"ow-2", "https://x.test", "oc-ow-2", "/tmp/s.sock", "", "high", nil, "",
-	)
+	const unknownEffortLog = `codex launch: effort "extreme" is not a level this warden knows; ` +
+		`launching at "medium". The cockpit will keep showing "extreme", so this line is the ` +
+		`only place the difference is visible — upgrade the warden if the server has grown a level.`
 
-	want := "cd /w; " +
-		`export OC_TOKEN="$(/bin/cat /w/.token)" OC_BASE=https://x.test OC_ID=ow-2 ` +
-		"OC_SESSION=oc-ow-2 OC_TMUX_SOCKET=/tmp/s.sock; " +
-		`export PATH=/w:"$PATH"; ` +
-		"exec /usr/local/bin/ocwarden codex-session --codex-bin /opt/homebrew/bin/codex " +
-		"--workdir /w --persona /w/P.md --agent-id ow-2 --model '' --effort high"
-	if got != want {
-		t.Errorf("buildCodexLaunchCommand =\n%q\nwant\n%q", got, want)
-	}
+	t.Run("an effort this warden does not know still launches, at medium, and is announced once", func(t *testing.T) {
+		got, logged := build("extreme")
+
+		if want := goldenPrefix + "medium"; got != want {
+			t.Errorf("buildCodexLaunchCommand =\n%q\nwant\n%q", got, want)
+		}
+		if want := []string{unknownEffortLog}; !reflect.DeepEqual(logged, want) {
+			t.Errorf("diagnostics =\n%q\nwant\n%q", logged, want)
+		}
+	})
+
+	t.Run("every effort this warden knows reaches the sidecar verbatim and silently", func(t *testing.T) {
+		for _, tc := range []struct{ in, want string }{
+			{"low", "low"},
+			{"medium", "medium"},
+			{"high", "high"},
+			{"xhigh", "xhigh"},
+			{"max", "max"},
+			{"  high  ", "high"},
+			{"", "medium"},
+		} {
+			got, logged := build(tc.in)
+
+			if want := goldenPrefix + tc.want; got != want {
+				t.Errorf("effort %q: buildCodexLaunchCommand =\n%q\nwant\n%q", tc.in, got, want)
+			}
+			if len(logged) != 0 {
+				t.Errorf("effort %q is a level this warden knows, but it announced %q", tc.in, logged)
+			}
+		}
+	})
+
+	t.Run("a launch without a diagnostic channel survives an effort this warden does not know", func(t *testing.T) {
+		got := buildCodexLaunchCommand(
+			"/usr/local/bin/ocwarden", "/opt/homebrew/bin/codex", "/w", "/w/P.md", "/w/.token",
+			"ow-2", "https://x.test", "oc-ow-2", "/tmp/s.sock", "", "extreme", nil, "", nil,
+		)
+
+		want := "cd /w; " +
+			`export OC_TOKEN="$(/bin/cat /w/.token)" OC_BASE=https://x.test OC_ID=ow-2 ` +
+			"OC_SESSION=oc-ow-2 OC_TMUX_SOCKET=/tmp/s.sock; " +
+			`export PATH=/w:"$PATH"; ` +
+			"exec /usr/local/bin/ocwarden codex-session --codex-bin /opt/homebrew/bin/codex " +
+			"--workdir /w --persona /w/P.md --agent-id ow-2 --model '' --effort medium"
+		if got != want {
+			t.Errorf("buildCodexLaunchCommand =\n%q\nwant\n%q", got, want)
+		}
+	})
 }
 
 func TestNormalizeCodexEffort(t *testing.T) {
-	cases := []struct{ in, want string }{
-		{"low", "low"},
-		{"high", "high"},
-		{"max", "max"},
-		{"medium", "medium"},
-		{"  high  ", "high"},
-		{"", "medium"},
-		{"   ", "medium"},
-		{"HIGH", "medium"},
-		{"extreme", "medium"},
-		{"minimal", "medium"},
+	cases := []struct {
+		in    string
+		want  string
+		known bool
+	}{
+		{"low", "low", true},
+		{"medium", "medium", true},
+		{"high", "high", true},
+		{"xhigh", "xhigh", true},
+		{"max", "max", true},
+		{"  high  ", "high", true},
+		{"", "medium", true},
+		{"   ", "medium", true},
+		{"HIGH", "medium", false},
+		{"extreme", "medium", false},
+		{"minimal", "medium", false},
 	}
 	for _, tc := range cases {
-		if got := normalizeCodexEffort(tc.in); got != tc.want {
-			t.Errorf("normalizeCodexEffort(%q) = %q, want %q", tc.in, got, tc.want)
+		got, known := normalizeCodexEffort(tc.in)
+		if got != tc.want || known != tc.known {
+			t.Errorf("normalizeCodexEffort(%q) = (%q, %v), want (%q, %v)",
+				tc.in, got, known, tc.want, tc.known)
 		}
 	}
 }
@@ -1759,6 +1805,37 @@ func TestRunCodexSession(t *testing.T) {
 		}
 		if !strings.Contains(out.String(), "app-server\n") {
 			t.Errorf("the stub was run as %q, want it invoked with the app-server subcommand", out.String())
+		}
+	})
+
+	t.Run("an --effort this warden does not know runs at medium and is announced in the pane", func(t *testing.T) {
+		run := func(effort string) string {
+			work := t.TempDir()
+			t.Setenv("HOME", work)
+			codexBin := filepath.Join(work, "codex")
+			if err := os.WriteFile(codexBin, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+				t.Fatalf("stage codex stub: %v", err)
+			}
+			out := &lockedBuffer{}
+			runCodexSession([]string{
+				"--codex-bin", codexBin, "--workdir", work,
+				"--persona", filepath.Join(work, "P.md"), "--effort", effort,
+			}, env, out)
+			return out.String()
+		}
+
+		got := run("bogus")
+		const wantLine = "[codex] --effort \"bogus\" is not a level this warden knows; running at \"medium\"\n"
+		if !strings.Contains(got, wantLine) {
+			t.Errorf("runCodexSession printed %q, want it to carry %q", got, wantLine)
+		}
+		if i, j := strings.Index(got, wantLine), strings.Index(got, "[codex] App Server started"); i < 0 || j < 0 || i > j {
+			t.Errorf("runCodexSession printed %q, want the effort announcement before the session even starts", got)
+		}
+		for _, effort := range []string{"low", "medium", "high", "xhigh", "max", ""} {
+			if out := run(effort); strings.Contains(out, "is not a level this warden knows") {
+				t.Errorf("effort %q is a level this warden knows, but the pane said %q", effort, out)
+			}
 		}
 	})
 }

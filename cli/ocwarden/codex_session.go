@@ -36,7 +36,7 @@ func (s *codexSession) reportRejectedCodexPost(path string, status int) {
 
 func buildCodexLaunchCommand(wardenBin, codexBin, workdir, personaFile, tokenFile,
 	agentID, base, session, socket, model, effort string, extraEnv [][2]string,
-	envRendered string) string {
+	envRendered string, logf func(string, ...any)) string {
 	cd := "cd " + shellQuote(workdir) + "; "
 	if envRendered != "" {
 		cd += "[ -f " + shellQuote(envRendered) + " ] && . " + shellQuote(envRendered) + "; "
@@ -54,6 +54,13 @@ func buildCodexLaunchCommand(wardenBin, codexBin, workdir, personaFile, tokenFil
 	}
 	exports := "export " + strings.Join(kvs, " ") + "; "
 	exports += "export PATH=" + shellQuote(workdir) + `:"$PATH"; `
+	launchEffort, recognised := normalizeCodexEffort(effort)
+	if !recognised && logf != nil {
+		logf("codex launch: effort %q is not a level this warden knows; launching at %q. "+
+			"The cockpit will keep showing %q, so this line is the only place the "+
+			"difference is visible — upgrade the warden if the server has grown a level.",
+			effort, launchEffort, effort)
+	}
 	parts := []string{
 		shellQuote(wardenBin), "codex-session",
 		"--codex-bin", shellQuote(codexBin),
@@ -61,17 +68,38 @@ func buildCodexLaunchCommand(wardenBin, codexBin, workdir, personaFile, tokenFil
 		"--persona", shellQuote(personaFile),
 		"--agent-id", shellQuote(agentID),
 		"--model", shellQuote(model),
-		"--effort", shellQuote(normalizeCodexEffort(effort)),
+		"--effort", shellQuote(launchEffort),
 	}
 	return cd + exports + "exec " + strings.Join(parts, " ")
 }
 
-func normalizeCodexEffort(effort string) string {
+// normalizeCodexEffort maps the member's configured effort onto the value the
+// Codex sidecar is actually started with, and reports whether it RECOGNISED it.
+//
+// The second return is the whole point. Until T-131 this was a bare string and
+// the default arm swallowed every unknown level into "medium" — selectable in
+// the cockpit, storable, readable back, and wrong only in the one place nobody
+// can see. Nothing went red for it.
+//
+// It still coerces rather than refusing: a warden binary is upgraded separately
+// from the server (ocwarden upgrade), so a server that has grown a level always
+// runs ahead of some warden for a while. Refusing there would turn "launched at
+// the wrong effort" into "this member cannot boot at all", and this package's
+// spawn path is fail-safe by construction everywhere else (a missing agent-env
+// file, an unstampable claude path, a failed anchor cutover all log and carry
+// on; only a nudge-eating pretrust failure aborts, because that one spawns a
+// zombie). A session at medium is a working session. So the coercion stays and
+// the SILENCE goes: the caller says it out loud.
+func normalizeCodexEffort(effort string) (string, bool) {
 	switch strings.TrimSpace(effort) {
-	case "low", "high", "max":
-		return strings.TrimSpace(effort)
+	case "low", "medium", "high", "xhigh", "max":
+		return strings.TrimSpace(effort), true
+	case "":
+		// Not a coercion: an omitted effort has always meant medium, and an old
+		// frame's launch line must stay byte-identical.
+		return "medium", true
 	default:
-		return "medium"
+		return "medium", false
 	}
 }
 
@@ -1080,10 +1108,17 @@ func runCodexSession(argv []string, env func(string) string, out io.Writer) int 
 		_ = cmd.Process.Kill()
 		_ = cmd.Wait()
 	}()
+	// Normalised a SECOND time here on purpose: the sidecar is a subcommand and
+	// its --effort can come from anywhere, not only from buildCodexLaunchCommand.
+	sessionEffort, recognisedEffort := normalizeCodexEffort(*effort)
 	s := &codexSession{
 		in: stdin, messages: codexAppReader(stdout), nextID: 0,
 		base: normalizeBase(env("OC_BASE")), token: env("OC_TOKEN"), workdir: *workdir,
-		model: *model, effort: normalizeCodexEffort(*effort), account: codexAccountKey(), out: out,
+		model: *model, effort: sessionEffort, account: codexAccountKey(), out: out,
+	}
+	if !recognisedEffort {
+		s.activity("--effort %q is not a level this warden knows; running at %q",
+			*effort, sessionEffort)
 	}
 	s.activity("App Server started · model %s", func() string {
 		if *model == "" {

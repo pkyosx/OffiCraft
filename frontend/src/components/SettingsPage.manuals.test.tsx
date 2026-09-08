@@ -32,6 +32,14 @@ import {
 } from "../api/mock";
 import { mockApiError } from "../api/errorCodes";
 import { api } from "../api";
+import {
+  EFFORT_LABELS_EN,
+  EFFORT_SLUGS,
+  clearLocale,
+  optionTexts,
+  optionValues,
+  useEnglishLocale,
+} from "../test/effortOptions";
 import type { TaskManualView, TaskView } from "../api/adapter";
 
 let seq = 0;
@@ -104,6 +112,7 @@ let updateManualPatches: Record<string, unknown>[] = [];
 
 beforeEach(() => {
   __resetMock();
+  clearLocale();
   window.location.hash = "";
   updateManualPatches = [];
   vi.spyOn(api, "updateTaskManual").mockImplementation(async (key, patch) => {
@@ -710,6 +719,22 @@ describe("設定 › 任務手冊 — detail", () => {
     expect(queryByTestId("manual-entry-learnings")).not.toBeNull();
   });
 
+  it("負責成員 投入程度 offers exactly the five English levels in the dropdown", async () => {
+    useEnglishLocale();
+    __injectMockTaskManual(mkManual({ typeKey: "review-pr" }));
+    const { findByTestId, getByTestId } = await renderManualsList();
+    fireEvent.click(await findByTestId("manual-open-review-pr"));
+    fireEvent.click(getByTestId("manual-assignee-edit"));
+    fireEvent.click(getByTestId("manual-assignee-kind-outsource"));
+
+    const select = getByTestId("manual-assignee-effort");
+    expect(select.tagName).toBe("SELECT");
+    // EXACTLY, not "contains": a containment check cannot see a sixth option
+    // appear or "X-High" quietly revert to "Extra High".
+    expect(optionTexts(select)).toEqual([...EFFORT_LABELS_EN]);
+    expect(optionValues(select)).toEqual([...EFFORT_SLUGS]);
+  });
+
   it("負責成員 editor sets an outsource assignee (chips + segmented + stepper + machine)", async () => {
     __injectMockTaskManual(mkManual({ typeKey: "review-pr" }));
     const { findByTestId, getByTestId } = await renderManualsList();
@@ -723,8 +748,10 @@ describe("設定 › 任務手冊 — detail", () => {
     fireEvent.click(getByTestId("manual-assignee-kind-outsource"));
     // Model = the member panel's quick-pick chips (opus is one of them).
     fireEvent.click(getByTestId("manual-assignee-model-opus"));
-    // 投入程度 = 低/中/高/最高 segmented.
-    fireEvent.click(getByTestId("manual-assignee-effort-high"));
+    // 投入程度 = a 低/中/高/極高/最高 dropdown (T-131, owner 2026-09-08).
+    fireEvent.change(getByTestId("manual-assignee-effort"), {
+      target: { value: "high" },
+    });
     // 雇用數量 = −/＋ stepper: 1 → 2.
     fireEvent.click(getByTestId("manual-assignee-copies-inc"));
     expect(getByTestId("manual-assignee-copies").textContent).toBe("2");

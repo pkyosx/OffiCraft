@@ -119,7 +119,7 @@ type StartParams struct {
 	Runtime  string // claude (default) | codex
 	Model    string
 	// Effort is the member's owner-set reasoning-effort launch intent
-	// (low/medium/high/max, from member.effort server-side). Empty ⇒ the historic
+	// (low/medium/high/xhigh/max, from member.effort server-side). Empty ⇒ the historic
 	// "medium" default, keeping an old frame's launch line byte-identical.
 	Effort      string
 	SessionName string
@@ -1206,8 +1206,15 @@ func (d SpawnDeps) start(p StartParams) SpawnOutcome {
 	// agent's env so the statusLine reporter (ocagent context-report) can render
 	// the ⚡<effort> badge — the effort is a --effort FLAG to claude, never on
 	// stdin, so the status line has no other way to see it. Mirror the same
-	// empty→"medium" default the --effort flag resolves to (buildLaunchCommandWithEnv),
-	// so the env value and the flag value never disagree.
+	// empty→"medium" default the --effort flag resolves to (buildLaunchCommandWithEnv).
+	// That keeps env and flag in step for CLAUDE, which passes the level through
+	// verbatim. It does NOT hold for codex: normalizeCodexEffort coerces a level
+	// this warden does not know down to "medium" (announcing it), so for an
+	// unrecognised effort OC_EFFORT carries the owner's intent while the session
+	// actually runs at medium. Nothing reads OC_EFFORT for that decision today —
+	// the statusLine reporter renders the harness's own reported effort, never
+	// this variable (cli/CLAUDE.md, contextreport.go) — so the divergence is
+	// currently unobservable rather than harmless by construction.
 	effortEnv := p.Effort
 	if effortEnv == "" {
 		effortEnv = "medium"
@@ -1259,7 +1266,7 @@ func (d SpawnDeps) start(p StartParams) SpawnOutcome {
 	if runtimeName == "codex" {
 		command = buildCodexLaunchCommand(d.WardenBin, d.CodexBin, workdir,
 			personaFile, tokenFile, p.MemberID, base, session, socket, p.Model, p.Effort,
-			extraEnv, envRendered)
+			extraEnv, envRendered, d.logf)
 	} else {
 		command = buildLaunchCommandWithEnv(d.ClaudeBin, workdir, mcpConfigPath, appendSys,
 			tokenFile, p.MemberID, base, session, socket, p.Model, p.Effort, settingsPath, extraEnv, envRendered)

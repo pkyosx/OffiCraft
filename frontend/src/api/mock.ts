@@ -45,6 +45,7 @@ import type {
   ChatMessage,
   ChatReplyQuote,
   ChatReadReceipt,
+  ChatMarkReadReceipt,
   ChatAttachmentInput,
   PushSubscriptionInput,
   ChatAttachmentView,
@@ -1298,6 +1299,11 @@ function findTask(id: string): MockTaskRow {
     );
   }
   return t;
+}
+
+/** The stored watermark for one conversation, 0 when none was ever recorded. */
+function readWatermark(reader: string, peer: string): number {
+  return chatReads.get(`${reader}::${peer}`)?.lastReadTs ?? 0;
 }
 
 function markRead(reader: string, peer: string, lastReadTs: number): ChatReadReceipt {
@@ -2722,11 +2728,11 @@ export const mockApi: Api = {
     // model/effort launch intents (M2-2) — same closed effort vocabulary the
     // server enforces (422 → throw), model stays a free string.
     if (patch.effort !== undefined) {
-      if (!["low", "medium", "high", "max"].includes(patch.effort)) {
+      if (!["low", "medium", "high", "xhigh", "max"].includes(patch.effort)) {
         throw mockApiError(
           `http 422 for PATCH /api/members/${id}`,
           422,
-          "effort must be one of ['high', 'low', 'max', 'medium']"
+          "effort must be one of ['high', 'low', 'max', 'medium', 'xhigh']"
         );
       }
       w.effort = patch.effort;
@@ -3492,10 +3498,18 @@ export const mockApi: Api = {
   async markChatRead(mark: {
     peer: string;
     lastReadTs: number;
-  }): Promise<ChatReadReceipt> {
+  }): Promise<ChatMarkReadReceipt> {
     // Record the OWNER's read watermark for this peer conversation (reader =
-    // MOCK_OWNER_ID, matching the BE's verified-sub stamp). Monotonic.
-    return markRead(MOCK_OWNER_ID, mark.peer, mark.lastReadTs);
+    // MOCK_OWNER_ID, matching the BE's verified-sub stamp). Monotonic, and the
+    // receipt says whether THIS call moved it — same bounded shape the server
+    // answers (T-133).
+    const before = readWatermark(MOCK_OWNER_ID, mark.peer);
+    const receipt = markRead(MOCK_OWNER_ID, mark.peer, mark.lastReadTs);
+    return {
+      peerId: receipt.peerId,
+      lastReadTs: receipt.lastReadTs,
+      advanced: receipt.lastReadTs > before,
+    };
   },
 
   async listChatReads(peer: string): Promise<ChatReadReceipt[]> {
@@ -4085,8 +4099,8 @@ export const mockApi: Api = {
       newMember = m;
     } else {
       const effort = target.effort.trim() || "medium";
-      if (!["low", "medium", "high", "max"].includes(effort)) {
-        throw badRequest("target.effort must be one of low, medium, high, max");
+      if (!["low", "medium", "high", "xhigh", "max"].includes(effort)) {
+        throw badRequest("target.effort must be one of low, medium, high, xhigh, max");
       }
       // The machine preference is a SPAWN-time knob with no mock surface (no
       // scheduler here) — validated by the server, dropped honestly here.
@@ -5953,13 +5967,13 @@ export const mockApi: Api = {
     const memberName =
       (input.memberName ?? "").trim() || pickMockMemberName();
     const effort = input.effort ?? "medium";
-    if (!["low", "medium", "high", "max"].includes(effort)) {
+    if (!["low", "medium", "high", "xhigh", "max"].includes(effort)) {
       // Byte-for-byte the server's message (ocserverd/api_roles.go:128-129):
       // the offending value rides along in `; got '<value>'`.
       throw mockApiError(
         "http 422 for POST /api/roles",
         422,
-        `effort must be one of [high low max medium]; got '${effort}'`
+        `effort must be one of [high low max medium xhigh]; got '${effort}'`
       );
     }
     const hex = () =>

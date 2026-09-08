@@ -779,7 +779,7 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			Method:  "POST",
 			Path:    "/api/chat/mark-read",
 			Handler: w.HandleMarkChatReadApiChatMarkReadPost,
-			Summary: "Mark a conversation read up to a watermark (reader = verified sub).",
+			Summary: "Mark a conversation read up to a watermark (reader = verified sub). Answers with a bounded receipt (``peer_id``, ``last_read_ts``, ``advanced``), not the stored entry echoed back — call ``get_chat_reads`` when you need the rest.",
 		}),
 		Gated(principalMachine, routeDef{
 			Method:  "GET",
@@ -895,14 +895,14 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			Method:  "POST",
 			Path:    "/api/agent/context",
 			Handler: w.HandleIngestAgentContextApiAgentContextPost,
-			Summary: "Ingest an agent's context gauge (in-memory; bad body → 400).",
+			Summary: "Ingest an agent's context gauge (in-memory; bad body → 400). Answers with a bounded receipt (``agent_id``, ``ts``), not the stored entry echoed back — call ``get_monitoring`` when you need the rest.",
 			MCPTool: "ingest_agent_context",
 		}),
 		Gated(principalMachine, routeDef{
 			Method:  "POST",
 			Path:    "/api/monitoring/telemetry",
 			Handler: w.HandleIngestTelemetryApiMonitoringTelemetryPost,
-			Summary: "Ingest warden telemetry (hardware/limits/tokens/cost/self_update).",
+			Summary: "Ingest warden telemetry (hardware/limits/tokens/cost/self_update). Answers with a bounded receipt (``agent_id``, ``machine``, ``ts``), not the stored entry echoed back — call ``get_monitoring`` when you need the rest.",
 			MCPTool: "ingest_telemetry",
 		}),
 		Gated(principalMachine, routeDef{

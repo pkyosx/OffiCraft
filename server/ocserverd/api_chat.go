@@ -1805,10 +1805,10 @@ func (s *apiServer) HandleMarkChatReadApiChatMarkReadPost(w http.ResponseWriter,
 	if advanced {
 		s.publishChatRead(effective, requestTrigger(r))
 	}
-	writeJSON(w, http.StatusOK, chatReadDTO{
-		ReaderID:   effective.ReaderID,
+	writeJSON(w, http.StatusOK, chatMarkReadReceiptDTO{
 		PeerID:     effective.PeerID,
 		LastReadTS: effective.LastReadTS,
+		Advanced:   advanced,
 	})
 }
 

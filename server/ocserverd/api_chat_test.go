@@ -871,7 +871,7 @@ func TestHandleListChatAttachmentsApiChatAttachmentsGet(t *testing.T) {
 }
 
 func TestHandleMarkChatReadApiChatMarkReadPost(t *testing.T) {
-	t.Run("marking a conversation read answers the stored watermark and fans one owner-only chat_read frame", func(t *testing.T) {
+	t.Run("marking a conversation read answers a receipt saying it advanced and fans one owner-only chat_read frame", func(t *testing.T) {
 		api, h, _, owner := newAPITestServer(t)
 		dashboard := apiTestListen(t, api, "")
 		peer := apiTestListen(t, api, "mira")
@@ -883,9 +883,9 @@ func TestHandleMarkChatReadApiChatMarkReadPost(t *testing.T) {
 			t.Fatalf("want 200, got %d (%v)", status, data)
 		}
 		apiWantBody(t, data, map[string]any{
-			"reader_id":    "owner",
 			"peer_id":      "mira",
 			"last_read_ts": float64(5),
+			"advanced":     true,
 		})
 		dashboard.wantFrames(map[string]any{
 			"seq":   1,
@@ -912,7 +912,7 @@ func TestHandleMarkChatReadApiChatMarkReadPost(t *testing.T) {
 		})
 	})
 
-	t.Run("a watermark behind the stored one answers the stored one and fans nothing", func(t *testing.T) {
+	t.Run("a watermark behind the stored one answers the standing watermark with advanced false and fans nothing", func(t *testing.T) {
 		api, h, _, owner := newAPITestServer(t)
 		apiJSON(t, h, "POST", "/api/chat/mark-read", owner, `{"peer":"mira","last_read_ts":5}`)
 		dashboard := apiTestListen(t, api, "")
@@ -923,9 +923,9 @@ func TestHandleMarkChatReadApiChatMarkReadPost(t *testing.T) {
 			t.Fatalf("want 200, got %d (%v)", status, data)
 		}
 		apiWantBody(t, data, map[string]any{
-			"reader_id":    "owner",
 			"peer_id":      "mira",
 			"last_read_ts": float64(5),
+			"advanced":     false,
 		})
 		dashboard.wantFrames()
 		apiWantChatReads(t, h, owner, map[string]any{

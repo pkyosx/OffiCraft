@@ -1223,7 +1223,7 @@ func TestHandleReassignTaskApiTasksTaskIdReassignPost(t *testing.T) {
 		if status != 400 {
 			t.Fatalf("want 400, got %d (%v)", status, data)
 		}
-		apiWantError(t, data, "validation_error", "target.effort must be one of low, medium, high, max")
+		apiWantError(t, data, "validation_error", "target.effort must be one of low, medium, high, xhigh, max")
 	})
 
 	t.Run("an outsource target with a runtime outside the closed set answers 400", func(t *testing.T) {
@@ -1740,7 +1740,7 @@ func TestHandleCreateTaskApiTasksPost(t *testing.T) {
 		if status != 400 {
 			t.Fatalf("want 400, got %d (%v)", status, data)
 		}
-		apiWantError(t, data, "validation_error", "target.effort must be one of low, medium, high, max")
+		apiWantError(t, data, "validation_error", "target.effort must be one of low, medium, high, xhigh, max")
 	})
 
 	t.Run("an outsource dispatch naming a machine nothing carries answers 404", func(t *testing.T) {

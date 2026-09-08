@@ -1008,6 +1008,37 @@ func TestStart(t *testing.T) {
 		}
 	})
 
+	t.Run("a codex spawn at an effort this warden does not know launches at medium and logs it", func(t *testing.T) {
+		h := newSpawnHarness()
+		d := h.deps()
+		d.CodexBin = "/usr/local/bin/codex"
+		d.WardenBin = "/Users/eva/.officraft/warden/ocwarden"
+		p := startParamsM1()
+		p.Runtime = "codex"
+		p.Model = "gpt-5"
+		p.Effort = "xxhigh"
+
+		if got := d.start(p); !got.OK {
+			t.Fatalf("outcome = %+v, want OK", got)
+		}
+		wantLaunch := "tmux -L officraft new-session -d -s member-m1 -x 160 -y 50 " +
+			`cd /w/m1; export OC_TOKEN="$(/bin/cat /w/m1/.oc-token)" ` +
+			`OC_BASE=http://127.0.0.1:7755 OC_ID=m1 OC_SESSION=member-m1 OC_TMUX_SOCKET=officraft ` +
+			`OC_EFFORT=xxhigh; export PATH=/w/m1:"$PATH"; ` +
+			`exec /Users/eva/.officraft/warden/ocwarden codex-session ` +
+			`--codex-bin /usr/local/bin/codex --workdir /w/m1 --persona /w/m1/persona.md ` +
+			`--agent-id m1 --model gpt-5 --effort medium`
+		if h.runner.calls[2] != wantLaunch {
+			t.Errorf("launch call =\n%s\nwant\n%s", h.runner.calls[2], wantLaunch)
+		}
+		wantLog := `codex launch: effort "xxhigh" is not a level this warden knows; ` +
+			`launching at "medium". The cockpit will keep showing "xxhigh", so this line is the ` +
+			`only place the difference is visible — upgrade the warden if the server has grown a level.`
+		if !reflect.DeepEqual(h.logs, []string{wantLog}) {
+			t.Errorf("warden logs =\n%q\nwant\n%q", h.logs, []string{wantLog})
+		}
+	})
+
 	t.Run("an explicit session name and role default are honoured", func(t *testing.T) {
 		h := newSpawnHarness()
 		h.runner.script["tmux -L officraft has-session -t custom-session"] =

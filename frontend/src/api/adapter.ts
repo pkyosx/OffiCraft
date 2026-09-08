@@ -244,6 +244,20 @@ export interface ChatReadReceipt {
   lastReadTs: number;
 }
 
+/**
+ * What `markChatRead` answers (T-133). NOT a `ChatReadReceipt`: the write route
+ * used to hand back the READ surface, of which the caller already knew every
+ * field — the reader is the caller and the watermark is the number just sent.
+ * `advanced` is the part it could not know: the watermark is monotonic, so a
+ * stale report is a 200 that changed nothing, and `lastReadTs` is what is in
+ * force AFTER that clamp.
+ */
+export interface ChatMarkReadReceipt {
+  peerId: string;
+  lastReadTs: number;
+  advanced: boolean;
+}
+
 /** The scrollback keyset cursor (T-bf82): the (ts, id) of the OLDEST message
  * the caller already holds — `listChat` with this returns the page strictly
  * OLDER than that point. Composite on purpose: `ts` (epoch REAL) can collide,
@@ -1326,7 +1340,7 @@ export interface ServerSettingsPatch {
 
 /** Fields the owner may edit on a member (PATCH; every field optional).
  * `model` is a FREE string (spawn --model is a free string; "" ⇒ CLI default);
- * `effort` is the closed low/medium/high/max vocabulary (server 422s outside it).
+ * `effort` is the closed low/medium/high/xhigh/max vocabulary (server 422s outside it).
  * Both are LAUNCH INTENTS — a change takes effect on the member's NEXT wake /
  * handover (the reconcile START payload bakes them into the launch command). */
 export interface MemberPatch {
@@ -1365,7 +1379,7 @@ export interface RolePatch {
  * `RoleCreateDTO`). `name` = the role title; `memberName` is OPTIONAL — omitted
  * (the create flow's default) ⇒ the SERVER picks a fresh Mira-style name from
  * its pool, never colliding with an existing roster member; `model` free string
- * / `effort` low|medium|high|max are the member's launch knobs (omitted ⇒ server
+ * / `effort` low|medium|high|xhigh|max are the member's launch knobs (omitted ⇒ server
  * defaults: "" / "medium"). */
 export interface RoleCreateInput {
   name: string;
@@ -2144,11 +2158,13 @@ export interface Api {
   }): Promise<void>;
   /** Mark a conversation (with `peer`) read up to `lastReadTs` — the caller's own
    * read watermark (reader = the verified JWT sub server-side; anti-spoof). The
-   * watermark is monotonic; a stale ts is a no-op. Returns the effective receipt. */
+   * watermark is monotonic; a stale ts is a no-op. Answers a bounded receipt —
+   * the effective watermark plus whether THIS call advanced it — never the read
+   * surface (T-133). */
   markChatRead(mark: {
     peer: string;
     lastReadTs: number;
-  }): Promise<ChatReadReceipt>;
+  }): Promise<ChatMarkReadReceipt>;
   /** List read receipts for a `peer` conversation (`GET /api/chat/reads?with=`).
    * The UI reads the PEER's receipt to know how far the peer has read the owner's
    * messages (drives the per-message "read ✓" badge). */
@@ -2737,7 +2753,7 @@ export interface Api {
    * The server mints both ids; the role doc starts from the 「你是誰 / 你做什麼」
    * fill-me template; the member starts OFFLINE (never spawns) with the given
    * model/effort launch knobs. 422 (throws) on a blank name/memberName or an
-   * effort outside low/medium/high/max.
+   * effort outside low/medium/high/xhigh/max.
    */
   createRole(input: RoleCreateInput): Promise<RoleCreateResult>;
   /**

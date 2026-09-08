@@ -641,6 +641,40 @@ func TestHandleUpdateMemberApiMembersMemberIdPatch(t *testing.T) {
 		dashboard.wantFrames()
 	})
 
+	t.Run("every level the effort vocabulary accepts is stored, and one outside it answers 422 storing nothing", func(t *testing.T) {
+		_, h, _, owner := newAPITestServer(t)
+
+		for _, level := range []string{"low", "medium", "high", "xhigh", "max"} {
+			status, data := apiJSON(t, h, "PATCH", "/api/members/kip", owner,
+				`{"effort":"`+level+`"}`)
+			if status != 200 {
+				t.Fatalf("effort %q: want 200, got %d (%v)", level, status, data)
+			}
+			apiWantBody(t, data, map[string]any{"id": "kip"})
+			status, stored := apiJSON(t, h, "GET", "/api/members/kip", owner, "")
+			if status != 200 {
+				t.Fatalf("effort %q read back: want 200, got %d (%v)", level, status, stored)
+			}
+			if stored["effort"] != level {
+				t.Fatalf("effort %q: stored effort = %#v", level, stored["effort"])
+			}
+		}
+
+		status, data := apiJSON(t, h, "PATCH", "/api/members/kip", owner, `{"effort":"turbo"}`)
+		if status != 422 {
+			t.Fatalf("want 422, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "validation_error",
+			"effort must be one of [high low max medium xhigh]; got 'turbo'")
+		status, stored := apiJSON(t, h, "GET", "/api/members/kip", owner, "")
+		if status != 200 {
+			t.Fatalf("read back after the refusal: want 200, got %d (%v)", status, stored)
+		}
+		if stored["effort"] != "max" {
+			t.Fatalf("the refused level was stored anyway: effort = %#v", stored["effort"])
+		}
+	})
+
 	t.Run("a request without a token answers 401", func(t *testing.T) {
 		_, h, _, _ := newAPITestServer(t)
 

@@ -1474,7 +1474,8 @@
   min-width: 220px;
 }
 
-/* full-width segmented control (指定成員/外包 · 模型 · 投入程度) */
+/* full-width segmented control (指定成員/外包 · 模型). 投入程度 left this control
+   in T-131 — it is a dropdown now (owner 2026-09-08). */
 .manual-seg {
   display: flex;
   gap: 6px;
@@ -1493,8 +1494,11 @@
    PAGE that grows with the viewport rather than inside a max-width modal (which
    is why 轉派's class keeps both the name and the hard 1fr 1fr — see tasks.css).
    MEASURED at 1280 with `1fr 1fr`: group 958, four chips at 471 each — an
-   11-character label in a half-width button — on two rows, while the 投入程度
-   row directly below stayed 4 x 233 on one. The two controls stopped lining up.
+   11-character label in a half-width button — on two rows. (Until T-131 the
+   reason that read as WRONG rather than merely wide was the 投入程度 chip row
+   directly below, which stayed 4 x 233 on one row; that row is a dropdown now,
+   so this class no longer has a sibling to line up with — see the note in
+   codex-model-chips.ct.spec.tsx's @1280 case.)
 
    🔴 The track count is spelled out as TWO LITERAL EVEN COUNTS on purpose. The
    obvious one-liner, `repeat(auto-fit, minmax(120px, 1fr))`, fixes both ends and
@@ -1510,9 +1514,8 @@
    MEASURED across the whole range, 320→1600 in 10px steps: 129 widths, 41 of
    them 2x2 and 88 of them 4-across, and NOTHING else. At the boundary itself
    720 → group 638 (2 x 311) and 730 → group 648 (4 x 155); at the extremes
-   320 → group 238 (2 x 111) and 1280 → group 958 (4 x 233, the column positions
-   the 投入程度 row below uses). Every chip keeps its label on one line at all of
-   them. The narrow end, the boundary band and the wide end are pinned by
+   320 → group 238 (2 x 111) and 1280 → group 958 (4 x 233). Every chip keeps
+   its label on one line at all of them. The narrow end, the boundary band and the wide end are pinned by
    frontend/visual-guards/codex-model-chips.ct.spec.tsx. */
 .manual-seg--chips4 {
   display: grid;

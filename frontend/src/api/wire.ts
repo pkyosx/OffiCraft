@@ -37,6 +37,12 @@ export type WireChatMessage = components["schemas"]["ChatMessageDTO"];
  * watermark. */
 export type WireChatRead = components["schemas"]["ChatReadDTO"];
 
+/** Mirrors `ChatMarkReadReceiptDTO` — the bounded answer to
+ * `POST /api/chat/mark-read` (T-133). Not the read surface: it carries the
+ * post-clamp watermark and whether this call advanced it. */
+export type WireChatMarkReadReceipt =
+  components["schemas"]["ChatMarkReadReceiptDTO"];
+
 /** Mirrors `WebhookEndpointDTO` (M4 回呼端點): one webhook endpoint bound to a
  * member. `token` is the opaque secret, owner-facing only. */
 export type WireWebhookEndpoint = components["schemas"]["WebhookEndpointDTO"];

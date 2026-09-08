@@ -570,7 +570,7 @@ func TestHandleCreateRoleApiRolesPost(t *testing.T) {
 		if status != 422 {
 			t.Fatalf("want 422, got %d (%v)", status, data)
 		}
-		apiWantError(t, data, "validation_error", "effort must be one of [high low max medium]; got 'bogus'")
+		apiWantError(t, data, "validation_error", "effort must be one of [high low max medium xhigh]; got 'bogus'")
 		dashboard.wantFrames()
 	})
 

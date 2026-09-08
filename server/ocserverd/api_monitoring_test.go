@@ -12,8 +12,8 @@ import (
 )
 
 func TestHandleIngestAgentContextApiAgentContextPost(t *testing.T) {
-	t.Run("a numeric context_pct answers 200 and a receipt naming the caller", func(t *testing.T) {
-		api, h, _, _ := newAPITestServer(t)
+	t.Run("a numeric context_pct answers a receipt naming the caller, and the gauge is readable afterwards", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
 		agent := apiTestAgentToken(t, api, "mira", "")
 
 		status, data := apiJSON(t, h, "POST", "/api/agent/context", agent, `{"context_pct":42.5}`)
@@ -21,15 +21,22 @@ func TestHandleIngestAgentContextApiAgentContextPost(t *testing.T) {
 			t.Fatalf("want 200, got %d (%v)", status, data)
 		}
 		apiWantBody(t, data, map[string]any{
-			"agent_id":    "mira",
-			"context_pct": 42.5,
-			"rate_limits": map[string]any{},
-			"ts":          apiAnyNumber,
+			"agent_id": "mira",
+			"ts":       apiAnyNumber,
 		})
+
+		status, view := apiJSON(t, h, "GET", "/api/monitoring", owner, "")
+		if status != 200 {
+			t.Fatalf("monitoring: want 200, got %d (%v)", status, view)
+		}
+		sessions := apiTestSessionsByID(t, view, "mira", "kip", "m-server-self")
+		want := apiTestMonitoringSession("mira", "Mira", "Assistant")
+		want["context_pct"] = 42.5
+		apiWantBody(t, sessions["mira"], want)
 	})
 
-	t.Run("a report carrying a compaction count and rate limits answers 200 echoing both", func(t *testing.T) {
-		api, h, _, _ := newAPITestServer(t)
+	t.Run("a report carrying a compaction count answers the same two-field receipt, and both numbers are readable afterwards", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
 		agent := apiTestAgentToken(t, api, "mira", "")
 
 		status, data := apiJSON(t, h, "POST", "/api/agent/context", agent,
@@ -38,14 +45,19 @@ func TestHandleIngestAgentContextApiAgentContextPost(t *testing.T) {
 			t.Fatalf("want 200, got %d (%v)", status, data)
 		}
 		apiWantBody(t, data, map[string]any{
-			"agent_id":         "mira",
-			"context_pct":      10,
-			"compaction_count": 3,
-			"rate_limits": map[string]any{
-				"five_hour": map[string]any{"used_pct": 12},
-			},
-			"ts": apiAnyNumber,
+			"agent_id": "mira",
+			"ts":       apiAnyNumber,
 		})
+
+		status, view := apiJSON(t, h, "GET", "/api/monitoring", owner, "")
+		if status != 200 {
+			t.Fatalf("monitoring: want 200, got %d (%v)", status, view)
+		}
+		sessions := apiTestSessionsByID(t, view, "mira", "kip", "m-server-self")
+		want := apiTestMonitoringSession("mira", "Mira", "Assistant")
+		want["context_pct"] = 10
+		want["compaction_count"] = 3
+		apiWantBody(t, sessions["mira"], want)
 	})
 
 	t.Run("a context_pct that is not a number answers 400", func(t *testing.T) {
@@ -188,8 +200,8 @@ func TestFoldWorkerCommandResult(t *testing.T) {
 }
 
 func TestHandleIngestTelemetryApiMonitoringTelemetryPost(t *testing.T) {
-	t.Run("a full warden report answers 200 echoing every block back", func(t *testing.T) {
-		api, h, _, _ := newAPITestServer(t)
+	t.Run("a full warden report answers a three-field receipt, and the blocks it carried show up on the monitoring view", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
 		warden := apiTestAgentToken(t, api, "m-server-self", "m-server-self")
 
 		status, data := apiJSON(t, h, "POST", "/api/monitoring/telemetry", warden, `{
@@ -213,25 +225,41 @@ func TestHandleIngestTelemetryApiMonitoringTelemetryPost(t *testing.T) {
 		apiWantBody(t, data, map[string]any{
 			"agent_id": "m-server-self",
 			"machine":  "m-server-self",
-			"account":  nil,
-			"rate_limits": map[string]any{
-				"five_hour": map[string]any{"used_pct": 5},
-			},
-			"tokens":   map[string]any{"input": 10},
-			"hardware": map[string]any{"cpu_pct": 12.5, "ram_pct": 40, "ac_power": true},
-			"binaries": map[string]any{"ocagent": "1.0.0"},
-			"claude":   map[string]any{"version": "2.0.0"},
-			"runtime":  "claude",
-			"runtimes": map[string]any{
-				"claude": map[string]any{"installed": true, "logged_in": true, "version": "2.0.0"},
-			},
-			"cost":           1.25,
-			"effort":         "high",
-			"self_update":    map[string]any{"binary": "ocwarden"},
-			"command_result": nil,
-			"warden_shape":   "anchor",
-			"cutover_effect": "effective",
-			"ts":             apiAnyNumber,
+			"ts":       apiAnyNumber,
+		})
+
+		status, view := apiJSON(t, h, "GET", "/api/monitoring", owner, "")
+		if status != 200 {
+			t.Fatalf("monitoring: want 200, got %d (%v)", status, view)
+		}
+		sessions := apiTestSessionsByID(t, view, "mira", "kip", "m-server-self")
+		wantSession := apiTestMonitoringSession("m-server-self", "伺服器這一台", "")
+		wantSession["machine"] = "m-server-self"
+		wantSession["runtime"] = "claude"
+		wantSession["model"] = "opus"
+		wantSession["effort"] = "high"
+		wantSession["cost"] = 1.25
+		wantSession["tokens"] = map[string]any{"input": 10}
+		apiWantBody(t, sessions["m-server-self"], wantSession)
+		wantMachine := apiTestMonitoringMachine()
+		wantMachine["cpu_pct"] = 12.5
+		wantMachine["ram_pct"] = 40
+		wantMachine["ac_power"] = true
+		wantMachine["bin_status"] = "stale"
+		wantMachine["claude_version"] = "2.0.0"
+		wantMachine["runtime_capabilities"] = map[string]any{
+			"claude": map[string]any{"installed": true, "logged_in": true, "version": "2.0.0"},
+		}
+		wantMachine["hardware_ts"] = apiAnyNumber
+		wantMachine["hardware_stale"] = false
+		wantMachine["runtime_capabilities_ts"] = apiAnyNumber
+		wantMachine["runtime_capabilities_stale"] = false
+		wantMachine["warden_shape"] = "anchor"
+		wantMachine["cutover_effect"] = "effective"
+		apiWantBody(t, view, map[string]any{
+			"sessions": view["sessions"],
+			"machines": []any{wantMachine},
+			"accounts": view["accounts"],
 		})
 	})
 
@@ -245,28 +273,14 @@ func TestHandleIngestTelemetryApiMonitoringTelemetryPost(t *testing.T) {
 			t.Fatalf("want 200, got %d (%v)", status, data)
 		}
 		apiWantBody(t, data, map[string]any{
-			"agent_id":       "mira",
-			"machine":        "box-nine",
-			"account":        nil,
-			"rate_limits":    nil,
-			"tokens":         map[string]any{"input": 1},
-			"hardware":       nil,
-			"binaries":       nil,
-			"claude":         nil,
-			"runtime":        nil,
-			"runtimes":       nil,
-			"cost":           nil,
-			"effort":         nil,
-			"self_update":    nil,
-			"command_result": nil,
-			"warden_shape":   nil,
-			"cutover_effect": nil,
-			"ts":             apiAnyNumber,
+			"agent_id": "mira",
+			"machine":  "box-nine",
+			"ts":       apiAnyNumber,
 		})
 	})
 
-	t.Run("a partial report answers 200 leaving the blocks it does not carry alone", func(t *testing.T) {
-		api, h, _, _ := newAPITestServer(t)
+	t.Run("a partial report leaves the blocks it does not carry alone, which the monitoring view is the only place to see", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
 		agent := apiTestAgentToken(t, api, "mira", "")
 		apiJSON(t, h, "POST", "/api/monitoring/telemetry", agent, `{"effort":"high"}`)
 
@@ -275,28 +289,24 @@ func TestHandleIngestTelemetryApiMonitoringTelemetryPost(t *testing.T) {
 			t.Fatalf("want 200, got %d (%v)", status, data)
 		}
 		apiWantBody(t, data, map[string]any{
-			"agent_id":       "mira",
-			"machine":        nil,
-			"account":        nil,
-			"rate_limits":    nil,
-			"tokens":         nil,
-			"hardware":       nil,
-			"binaries":       nil,
-			"claude":         nil,
-			"runtime":        nil,
-			"runtimes":       nil,
-			"cost":           2,
-			"effort":         "high",
-			"self_update":    nil,
-			"command_result": nil,
-			"warden_shape":   nil,
-			"cutover_effect": nil,
-			"ts":             apiAnyNumber,
+			"agent_id": "mira",
+			"machine":  nil,
+			"ts":       apiAnyNumber,
 		})
+
+		status, view := apiJSON(t, h, "GET", "/api/monitoring", owner, "")
+		if status != 200 {
+			t.Fatalf("monitoring: want 200, got %d (%v)", status, view)
+		}
+		sessions := apiTestSessionsByID(t, view, "mira", "kip", "m-server-self")
+		want := apiTestMonitoringSession("mira", "Mira", "Assistant")
+		want["effort"] = "high"
+		want["cost"] = 2
+		apiWantBody(t, sessions["mira"], want)
 	})
 
-	t.Run("a command_result receipt answers 200 echoing the receipt", func(t *testing.T) {
-		api, h, _, _ := newAPITestServer(t)
+	t.Run("a command_result receipt answers the bounded receipt and folds onto the addressed member's last_op fields", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
 		warden := apiTestAgentToken(t, api, "m-server-self", "m-server-self")
 
 		status, data := apiJSON(t, h, "POST", "/api/monitoring/telemetry", warden,
@@ -305,30 +315,19 @@ func TestHandleIngestTelemetryApiMonitoringTelemetryPost(t *testing.T) {
 			t.Fatalf("want 200, got %d (%v)", status, data)
 		}
 		apiWantBody(t, data, map[string]any{
-			"agent_id":    "m-server-self",
-			"machine":     "m-server-self",
-			"account":     nil,
-			"rate_limits": nil,
-			"tokens":      nil,
-			"hardware":    nil,
-			"binaries":    nil,
-			"claude":      nil,
-			"runtime":     nil,
-			"runtimes":    nil,
-			"cost":        nil,
-			"effort":      nil,
-			"self_update": nil,
-			"command_result": map[string]any{
-				"rpc":       "start",
-				"member_id": "mira",
-				"ok":        true,
-				"reason":    "started",
-				"at":        "2026-01-01T00:00:00Z",
-			},
-			"warden_shape":   nil,
-			"cutover_effect": nil,
-			"ts":             apiAnyNumber,
+			"agent_id": "m-server-self",
+			"machine":  "m-server-self",
+			"ts":       apiAnyNumber,
 		})
+
+		status, member := apiJSON(t, h, "GET", "/api/members/mira", owner, "")
+		if status != 200 {
+			t.Fatalf("member read back: want 200, got %d (%v)", status, member)
+		}
+		if member["last_op"] != "start" || member["last_op_ok"] != true ||
+			member["last_op_reason"] != "started" || member["last_op_at"] != float64(1767225600) {
+			t.Fatalf("the command_result did not fold onto the member: %v", member)
+		}
 	})
 
 	t.Run("a body carrying none of the declared blocks answers 400 naming them all", func(t *testing.T) {
@@ -381,35 +380,35 @@ func TestHandleIngestTelemetryApiMonitoringTelemetryPost(t *testing.T) {
 		}
 	})
 
-	t.Run("a runtimes block carrying explicit nulls answers 200", func(t *testing.T) {
-		api, h, _, _ := newAPITestServer(t)
-		agent := apiTestAgentToken(t, api, "mira", "")
+	t.Run("a runtimes block carrying explicit nulls is accepted, and the monitoring view reports only the fields that were not null", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		warden := apiTestAgentToken(t, api, "m-server-self", "m-server-self")
 
-		status, data := apiJSON(t, h, "POST", "/api/monitoring/telemetry", agent,
+		status, data := apiJSON(t, h, "POST", "/api/monitoring/telemetry", warden,
 			`{"runtimes":{"codex":{"installed":false,"logged_in":null,"version":null}}}`)
 		if status != 200 {
 			t.Fatalf("want 200, got %d (%v)", status, data)
 		}
 		apiWantBody(t, data, map[string]any{
-			"agent_id":    "mira",
-			"machine":     nil,
-			"account":     nil,
-			"rate_limits": nil,
-			"tokens":      nil,
-			"hardware":    nil,
-			"binaries":    nil,
-			"claude":      nil,
-			"runtime":     nil,
-			"runtimes": map[string]any{
-				"codex": map[string]any{"installed": false, "logged_in": nil, "version": nil},
-			},
-			"cost":           nil,
-			"effort":         nil,
-			"self_update":    nil,
-			"command_result": nil,
-			"warden_shape":   nil,
-			"cutover_effect": nil,
-			"ts":             apiAnyNumber,
+			"agent_id": "m-server-self",
+			"machine":  "m-server-self",
+			"ts":       apiAnyNumber,
+		})
+
+		status, view := apiJSON(t, h, "GET", "/api/monitoring", owner, "")
+		if status != 200 {
+			t.Fatalf("monitoring: want 200, got %d (%v)", status, view)
+		}
+		wantMachine := apiTestMonitoringMachine()
+		wantMachine["runtime_capabilities"] = map[string]any{
+			"codex": map[string]any{"installed": false},
+		}
+		wantMachine["runtime_capabilities_ts"] = apiAnyNumber
+		wantMachine["runtime_capabilities_stale"] = false
+		apiWantBody(t, view, map[string]any{
+			"sessions": view["sessions"],
+			"machines": []any{wantMachine},
+			"accounts": view["accounts"],
 		})
 	})
 
