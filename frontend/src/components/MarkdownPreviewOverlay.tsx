@@ -239,7 +239,7 @@ export function MarkdownPreviewOverlay({
   const diff = diffParams !== undefined;
   const unavailable = url !== undefined && !image && !previewableText;
   // T-36 — WHOSE CALL IS "opens in a tab"? THE SERVER'S. This mirrors
-  // api_chat.go's isPreviewableMime, which is what decides between
+  // api_chat.go's isPreviewableAttachment, which is what decides between
   // `Content-Disposition: inline` and `attachment` on the serve route. Offering
   // 「在新頁面顯示」 on anything else would be a lie: the browser would download
   // the file instead of showing it, and the button would look broken.
@@ -1031,7 +1031,7 @@ export function isMarkdownAttachment(mime: string, filename: string): boolean {
 }
 
 /** Whether the BROWSER will display these bytes in a tab of its own instead of
- * downloading them. This is a mirror of the server's `isPreviewableMime`
+ * downloading them. This is a mirror of the server's `isPreviewableAttachment`
  * (server/ocserverd/api_chat.go): that function is what picks
  * `Content-Disposition: inline` over `attachment` on the serve route, so it —
  * not this file — is the source of truth for the answer. Keep the two in step;
@@ -1042,15 +1042,17 @@ export function isMarkdownAttachment(mime: string, filename: string): boolean {
  * must not be merged: that one asks what THIS overlay can render in-panel and
  * is narrow on purpose. */
 export function isInlineDisplayableMime(mime: string, filename = ""): boolean {
+  const baseMime = mime.split(";")[0]!.trim().toLowerCase();
   return (
-    mime.startsWith("image/") ||
-    mime.startsWith("text/") ||
-    mime === "application/pdf" ||
-    mime === "application/json" ||
+    baseMime.startsWith("image/") ||
+    baseMime.startsWith("text/") ||
+    baseMime === "application/pdf" ||
+    baseMime === "application/json" ||
     // A blob uploaded without a declared type is stored as
     // application/octet-stream — which is what most of this station's JSON
     // is — so the name is the only evidence left. The server reads it too.
-    /\.json$/i.test(filename)
+    (baseMime === "" || baseMime === "application/octet-stream") &&
+      /\.json$/i.test(filename)
   );
 }
 
@@ -1083,12 +1085,15 @@ export function isPreviewableTextAttachment(mime: string, filename: string): boo
   );
 }
 
-/** JSON, by declared type or by name. The name half is not redundant: an agent
- * that uploads without naming a type gets application/octet-stream, which is
- * how most of this station's JSON is stored. */
+/** JSON by declared type, or by a .json suffix when the MIME is generic. The
+ * name half is not redundant: an agent that uploads without naming a type gets
+ * application/octet-stream, which is how most of this station's JSON is stored. */
 export function isJsonAttachment(mime: string, filename: string): boolean {
   const base = mime.split(";")[0]!.trim().toLowerCase();
-  return base === "application/json" || /\.json$/i.test(filename);
+  return (
+    base === "application/json" ||
+    (base === "" || base === "application/octet-stream") && /\.json$/i.test(filename)
+  );
 }
 
 /** Pretty-print JSON for the in-panel preview, or hand back the raw text when

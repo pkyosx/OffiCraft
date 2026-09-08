@@ -341,6 +341,10 @@ func attachmentMimeForName(filename string) string {
 	return ""
 }
 
+func attachmentMimeBase(mimeType string) string {
+	return strings.ToLower(strings.TrimSpace(strings.SplitN(mimeType, ";", 2)[0]))
+}
+
 // chatBadRequest carries a handler-raised 400 message through the decode path.
 type chatBadRequest struct{ msg string }
 
@@ -1674,19 +1678,23 @@ func trimChatPageNewer(msgs []ChatMessage, limit int) ([]ChatMessage, string) {
 // enough evidence: a blob uploaded without a declared type is stored as
 // application/octet-stream, and most of the JSON in this station arrives that
 // way. attachmentMimeForName is the same table the upload path uses, so a blob
-// stored before that path existed still previews.
+// stored before that path existed still previews. A declared non-generic MIME
+// remains authoritative.
 func isPreviewableAttachment(mime, filename string) bool {
-	if strings.HasPrefix(mime, "image/") || strings.HasPrefix(mime, "text/") ||
-		mime == "application/pdf" || mime == "application/json" {
+	base := attachmentMimeBase(mime)
+	if strings.HasPrefix(base, "image/") || strings.HasPrefix(base, "text/") ||
+		base == "application/pdf" || base == "application/json" {
 		return true
 	}
-	return attachmentMimeForName(filename) != ""
+	return (base == "" || base == attachmentOctetStream) && attachmentMimeForName(filename) != ""
 }
 
 // GET /api/chat/attachment/{attachment_id} — serve the raw blob under its
-// stored mime. Non-image previewables go inline + CSP sandbox (an inline HTML
-// blob must never script on this origin); other non-images download under
-// their original name (RFC 5987 filename* + ASCII fallback).
+// stored mime, with the filename fallback applied to generic octet-stream JSON
+// so an inline legacy blob gets a browser-renderable media type. Non-image
+// previewables go inline + CSP sandbox (an inline HTML blob must never script on
+// this origin); other non-images download under their original name (RFC 5987
+// filename* + ASCII fallback).
 func (s *apiServer) HandleGetChatAttachmentApiChatAttachmentAttachmentIdGet(w http.ResponseWriter, r *http.Request, attachmentId string) {
 	att, err := s.dal.GetChatAttachment(attachmentId)
 	if err != nil {
@@ -1697,11 +1705,11 @@ func (s *apiServer) HandleGetChatAttachmentApiChatAttachmentAttachmentIdGet(w ht
 		writeError(w, http.StatusNotFound, "attachment '"+attachmentId+"' not found")
 		return
 	}
+	name := attachmentId
+	if att.Filename != nil && *att.Filename != "" {
+		name = *att.Filename
+	}
 	if !strings.HasPrefix(att.Mime, "image/") {
-		name := attachmentId
-		if att.Filename != nil && *att.Filename != "" {
-			name = *att.Filename
-		}
 		asciiName := strings.Map(func(r rune) rune {
 			if r > 127 {
 				return -1
@@ -1724,6 +1732,11 @@ func (s *apiServer) HandleGetChatAttachmentApiChatAttachmentAttachmentIdGet(w ht
 	mediaType := att.Mime
 	if mediaType == "" {
 		mediaType = attachmentOctetStream
+	}
+	if attachmentMimeBase(mediaType) == attachmentOctetStream {
+		if byName := attachmentMimeForName(name); byName != "" {
+			mediaType = byName
+		}
 	}
 	if _, _, err := mime.ParseMediaType(mediaType); err != nil {
 		mediaType = attachmentOctetStream

@@ -15,6 +15,8 @@ import { I18nProvider } from "../i18n";
 import { api } from "../api";
 import {
   MarkdownPreviewOverlay,
+  formatJsonForPreview,
+  isJsonAttachment,
   isMarkdownAttachment,
 } from "./MarkdownPreviewOverlay";
 import { AlertTriangleIcon } from "./icons";
@@ -33,6 +35,27 @@ describe("isMarkdownAttachment", () => {
     expect(isMarkdownAttachment("application/pdf", "report.pdf")).toBe(false);
     expect(isMarkdownAttachment("image/png", "shot.png")).toBe(false);
     expect(isMarkdownAttachment("text/plain", "notes.txt")).toBe(false);
+  });
+});
+
+describe("isJsonAttachment and formatJsonForPreview", () => {
+  it("recognizes declared JSON and an octet-stream .json filename", () => {
+    expect(isJsonAttachment("application/json", "report.data")).toBe(true);
+    expect(isJsonAttachment("application/json; charset=utf-8", "report.data")).toBe(true);
+    expect(isJsonAttachment("application/octet-stream", "REPORT.JSON")).toBe(true);
+    expect(isJsonAttachment("application/octet-stream", "report.txt")).toBe(false);
+    expect(isJsonAttachment("application/zip", "report.json")).toBe(false);
+  });
+
+  it("indents valid JSON and preserves invalid JSON for the caller", () => {
+    expect(formatJsonForPreview('{"name":"Mira","items":[1,2]}')).toEqual({
+      body: '{\n  "name": "Mira",\n  "items": [\n    1,\n    2\n  ]\n}',
+      unparseable: false,
+    });
+    expect(formatJsonForPreview('{"name":}')).toEqual({
+      body: '{"name":}',
+      unparseable: true,
+    });
   });
 });
 
@@ -295,6 +318,55 @@ describe("MarkdownPreviewOverlay", () => {
         .querySelector(".md-preview__md")!
         .classList.contains("doc-md"),
     ).toBe(true);
+  });
+
+  it("fetches a JSON attachment and renders its contents with indentation", async () => {
+    globalThis.fetch = vi.fn(async () => ({
+      ok: true,
+      text: async () => '{"name":"Mira","items":[1,2]}',
+    })) as unknown as typeof fetch;
+    render(
+      <I18nProvider>
+        <MarkdownPreviewOverlay
+          title="report.json"
+          url="/api/chat/attachment/att-json"
+          attachmentId="att-json"
+          mime="application/octet-stream"
+          onClose={() => {}}
+        />
+      </I18nProvider>,
+    );
+
+    await waitFor(() =>
+      expect(document.body.querySelector("pre.md-preview__text")).toBeTruthy(),
+    );
+    expect(document.body.querySelector("pre.md-preview__text")?.textContent).toBe(
+      '{\n  "name": "Mira",\n  "items": [\n    1,\n    2\n  ]\n}',
+    );
+  });
+
+  it("shows invalid JSON unchanged with the unparseable explanation", async () => {
+    const raw = '{"name":}';
+    globalThis.fetch = vi.fn(async () => ({
+      ok: true,
+      text: async () => raw,
+    })) as unknown as typeof fetch;
+    render(
+      <I18nProvider>
+        <MarkdownPreviewOverlay
+          title="broken.json"
+          url="/api/chat/attachment/att-broken-json"
+          attachmentId="att-broken-json"
+          mime="application/json"
+          onClose={() => {}}
+        />
+      </I18nProvider>,
+    );
+
+    await waitFor(() =>
+      expect(screen.getByText(zh.chat.mdPreview.jsonUnparseable)).toBeTruthy(),
+    );
+    expect(document.body.querySelector("pre.md-preview__text")?.textContent).toBe(raw);
   });
 
   // A message body is a CHAT surface: Enter means "new line" there, and the

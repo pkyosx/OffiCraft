@@ -296,8 +296,9 @@ for (const [shotName, label, className, itemClassName] of ENTRY_FIXTURES) {
     ).toBeVisible();
     await expect(popup.getByRole("link", { name: "下載" })).toBeVisible();
     // T-36 — the fixture's mime is application/pdf, which `isInlineDisplayableMime`
-    // accepts (the mirror of the server's isPreviewableMime: image/* ∪ text/* ∪
-    // application/pdf), so this popup now carries 「在新頁面顯示」 and the biggest
+    // accepts (the mirror of the server's isPreviewableAttachment: image/* ∪
+    // text/* ∪ application/pdf ∪ application/json ∪ .json), so this popup now
+    // carries 「在新頁面顯示」 and the biggest
     // line on the screen points AT that control instead of at 下載.
     //
     // WHAT THIS PAIR STILL GUARDS, and why it is two assertions and not one: the

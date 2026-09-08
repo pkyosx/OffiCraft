@@ -92,6 +92,62 @@ func TestUploadChatAttachment(t *testing.T) {
 		t.Fatalf("unnamed non-image: %v", ref)
 	}
 
+	// The image-only sniff cannot identify JSON, so an unnamed MIME falls back
+	// to the filename. A declared MIME remains authoritative even when the
+	// filename suggests JSON.
+	ref = uploadBlob(t, srv.URL, agentTok, "?filename=report.json", []byte(`{"ok":true}`))
+	jsonID, _ := ref["id"].(string)
+	if ref["mime"] != "application/json" || ref["filename"] != "report.json" {
+		t.Fatalf("JSON filename fallback: %v", ref)
+	}
+	ref = uploadBlob(t, srv.URL, agentTok,
+		"?filename=declared.json&mime=application/zip", []byte(`{"ok":true}`))
+	if ref["mime"] != "application/zip" || ref["filename"] != "declared.json" {
+		t.Fatalf("declared MIME must not be second-guessed: %v", ref)
+	}
+	ref = uploadBlob(t, srv.URL, agentTok,
+		"?filename=legacy.json&mime=application/octet-stream", []byte(`{"legacy":true}`))
+	legacyJSONID, _ := ref["id"].(string)
+	if ref["mime"] != attachmentOctetStream || ref["filename"] != "legacy.json" {
+		t.Fatalf("declared octet MIME must remain authoritative: %v", ref)
+	}
+
+	// The resolved JSON blob is served inline, which is the server-side half of
+	// the preview/download contract.
+	req, err := http.NewRequest("GET", srv.URL+"/api/chat/attachment/"+jsonID, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Authorization", "Bearer "+agentTok)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK || resp.Header.Get("Content-Type") != "application/json" ||
+		!strings.HasPrefix(resp.Header.Get("Content-Disposition"), "inline;") {
+		t.Fatalf("JSON attachment must be served inline: status=%d disposition=%q",
+			resp.StatusCode, resp.Header.Get("Content-Disposition"))
+	}
+	legacyReq, err := http.NewRequest("GET", srv.URL+"/api/chat/attachment/"+legacyJSONID, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacyReq.Header.Set("Authorization", "Bearer "+agentTok)
+	legacyResp, err := http.DefaultClient.Do(legacyReq)
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacyBody, _ := io.ReadAll(legacyResp.Body)
+	legacyResp.Body.Close()
+	if legacyResp.StatusCode != http.StatusOK || legacyResp.Header.Get("Content-Type") != "application/json" ||
+		!strings.HasPrefix(legacyResp.Header.Get("Content-Disposition"), "inline;") ||
+		string(legacyBody) != `{"legacy":true}` {
+		t.Fatalf("legacy JSON must render with JSON media type: status=%d type=%q disposition=%q body=%q",
+			legacyResp.StatusCode, legacyResp.Header.Get("Content-Type"),
+			legacyResp.Header.Get("Content-Disposition"), string(legacyBody))
+	}
+
 	// Faults are flat 400s: empty body, >100MB body, >20MB image.
 	for name, tc := range map[string]struct {
 		query string
@@ -112,6 +168,30 @@ func TestUploadChatAttachment(t *testing.T) {
 	// Gated like every chat route.
 	if status, _ := doRaw(t, "POST", srv.URL+"/api/chat/attachments", "", "", []byte("x")); status != 401 {
 		t.Fatalf("anonymous upload must 401, got %d", status)
+	}
+}
+
+func TestIsPreviewableAttachment(t *testing.T) {
+	for _, tc := range []struct {
+		name, mime, filename string
+		want                 bool
+	}{
+		{"image", "image/webp", "", true},
+		{"text", "text/plain", "", true},
+		{"pdf", "application/pdf", "", true},
+		{"json MIME", "application/json", "", true},
+		{"json MIME with parameter", "application/json; charset=utf-8", "", true},
+		{"octet JSON filename", attachmentOctetStream, "report.json", true},
+		{"octet non-JSON filename", attachmentOctetStream, "report.zip", false},
+		{"declared binary wins over JSON suffix", "application/zip", "report.json", false},
+		{"binary", "application/zip", "report.zip", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := isPreviewableAttachment(tc.mime, tc.filename); got != tc.want {
+				t.Fatalf("isPreviewableAttachment(%q, %q) = %v, want %v",
+					tc.mime, tc.filename, got, tc.want)
+			}
+		})
 	}
 }
 
