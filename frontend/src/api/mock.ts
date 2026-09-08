@@ -1025,7 +1025,18 @@ const mockLoreEntries: LoreEntryView[] = [
     scopeKind: "agent",
     scopeKey: "mira",
     title: "成功回應不代表資料完整",
-    body: "驗證外部整合時，不能只以 request 成功作為驗收依據，還要確認關鍵資料真的產生了。",
+    // 🔴 THE ONLY SEEDED BODY THAT IS MARKDOWN, AND IT IS SEEDED ON PURPOSE.
+    // 傳承本體是 markdown 算繪的（T-33），而在這一筆之前六筆種子沒有任何一筆
+    // 帶標記語法或換行 —— 所以 scripts/shots.mjs 拍出來的畫面**不會顯示**
+    // markdown 有沒有在運作，看的人會把「純文字看起來正常」讀成「markdown 好了」。
+    // 它同時夠長，能讓摺疊（只有本體會摺）在畫面上真的摺起來。
+    body:
+      "驗證外部整合時，**不能只以 request 成功作為驗收依據**，還要確認關鍵資料真的產生了。\n\n" +
+      "常見的三種假綠燈：\n\n" +
+      "- 對方回 `200`，但 body 裡的 `errors` 是非空陣列\n" +
+      "- 寫入成功，但寫進了另一個租戶的表\n" +
+      "- 非同步任務只回「已排入」，真正失敗發生在十分鐘後，沒有人在看\n\n" +
+      "驗收條件要寫成「那一筆資料查得到」，而不是「那個呼叫沒有丟例外」。",
     authorId: "mira",
     sourceTaskId: "",
     state: "pinned",

@@ -116,7 +116,95 @@ const TARGETS = [
       await page.waitForTimeout(400);
     },
   },
+
+  // ── 傳承 (T-33) ───────────────────────────────────────────────────────────
+  // 🔴 THE WHOLE POINT OF THESE FOUR. The 上線 gate on this ticket
+  // (rc-df89e012e29d) says in as many words 「沒有人看過畫面」, and until now
+  // that was structurally true rather than an oversight: the 傳承 page had ZERO
+  // entries in this list, the visual guards mount single components, and the
+  // one place a whole page could be photographed is this file. Nobody skipped a
+  // step — there was no step.
+  //
+  // The 傳承 page needs no --seed hook: unlike replyCards/tasks, mock.ts ships
+  // `mockLoreEntries` already populated, and those six rows deliberately cover
+  // the branches the owner asked about — 三種 state, agent/manual/unknown 三種
+  // 歸屬, and a DEPARTED author (m-gone) whose composer must not render.
+  { name: "l1-lore-list", hash: "lore" },
+  {
+    // The four filters read 所有撰寫人 / 所有成員傳承 / 所有任務傳承 / 所有狀態
+    // (owner ruling). A shot of the closed row shows the labels; this one shows
+    // that the first of them actually opens onto real names.
+    name: "l2-lore-filter-open",
+    hash: "lore",
+    act: async (page) => {
+      await page.click('[data-testid="lore-filter-author"]');
+      await page.waitForTimeout(300);
+    },
+  },
+  {
+    // ⚠️ THIS IS THE ONE THAT CAN LIE IF THE FIXTURE IS PLAIN TEXT. 本體是
+    // markdown 算繪的,而 markdown 算繪壞掉的樣子是「標記語法原封不動印出來」——
+    // 在一筆沒有任何標記的種子上,壞掉跟正常長得一模一樣。L-1 因此是唯一帶
+    // markdown 的種子(見 mock.ts 上的紅字),它同時夠長,能讓摺疊真的摺起來。
+    // 只有本體會摺,所以這張同時是「摺的是哪一段」的證據。
+    name: "l3-lore-expanded-markdown",
+    hash: "lore",
+    act: async (page) => {
+      await loreRow(page, "L-1").locator('[data-testid="lore-expand-mark"]').click();
+      await page.waitForTimeout(400);
+    },
+    // 展開的必須是 L-1 那一列,而且 markdown 必須是**算繪後**的:
+    // 算繪壞掉的樣子是把標記語法原樣印出來,所以看到字面上的 ** 或 `
+    // 就是壞的。同時確認清單真的被算成 <li>,不是三行純文字。
+    verify: async (page) => {
+      const row = loreRow(page, "L-1");
+      const body = row.locator('[data-testid="lore-body"]');
+      const text = (await body.textContent()) ?? "";
+      if (/\*\*|`/.test(text)) {
+        throw new Error("markdown 沒有算繪:本體裡出現了字面上的標記符號");
+      }
+      const items = await body.locator("li").count();
+      if (items !== 3) throw new Error(`預期 3 個 <li>,實際 ${items}`);
+      if (!(await body.locator("strong").count())) {
+        throw new Error("本體裡沒有任何 <strong>,粗體沒有算繪");
+      }
+    },
+  },
+  {
+    // 離職的外包不該看到 composer。這張拍的是 L-3(authorId: m-gone),
+    // 它同時是 retired 那一筆,所以退役理由也在同一張上。
+    name: "l4-lore-departed-author",
+    hash: "lore",
+    act: async (page) => {
+      // 🔁 這裡本來用 marks.nth(2) 抓「第三列」,拍到的是別筆,而照片看起來
+      // 完全像對的。位置不是身分:列的順序由分組（置頂／生效中／退役）決定,
+      // 而分組會隨資料變。所以改成按 id 定址。
+      const row = loreRow(page, "L-3");
+      await row.scrollIntoViewIfNeeded();
+      await row.locator('[data-testid="lore-expand-mark"]').click();
+      await page.waitForTimeout(400);
+    },
+    // 這張唯一要證的事就是「離職的撰寫人身上沒有輸入框」。
+    verify: async (page) => {
+      const row = loreRow(page, "L-3");
+      if (!(await row.count())) throw new Error("L-3 不在畫面上");
+      const composers = await row
+        .locator('[data-testid="lore-author-composer"]')
+        .count();
+      if (composers !== 0) {
+        throw new Error("離職撰寫人(m-gone)那一列仍然算繪了輸入框");
+      }
+    },
+  },
 ];
+// 傳承的列**按 id 定址,不按位置**。列的順序是分組出來的(置頂／生效中／退役),
+// 所以 nth(n) 綁的是「目前資料剛好排成這樣」,不是那一筆條目 —— 換一筆種子的狀態,
+// 同一個 nth 就靜靜地指向別人,而照片不會抗議。
+const loreRow = (page, entryId) =>
+  page.locator('[data-testid="lore-row"]').filter({
+    has: page.locator('[data-testid="lore-entry-id"]', { hasText: entryId }),
+  });
+
 const VIEWPORT = { width: 1440, height: 900 };
 const DEVICE_SCALE_FACTOR = 2;
 
@@ -439,6 +527,26 @@ async function main() {
           summary ? summary.replace(/\s+/g, " ").trim() : "(none)"
         } | outcome: ${outcome}`
       );
+      // 🔴 A SHOT THAT CANNOT PROVE ITS OWN CLAIM MUST FAIL, NOT DEVELOP.
+      // The `applied:` line above only speaks about the FILTER FIELDS, so a
+      // target whose claim is about anything else (which row is open, whether a
+      // control is absent) got no check at all — and that is not hypothetical:
+      // l4 shipped in its first run naming 「離職撰寫人」 while photographing a
+      // different row, and the picture looked exactly like a pass, because
+      // every state looks like a pass in a picture. `verify` is the target's
+      // own assertion about the state it claims; throwing here loses the whole
+      // run, which is the point — a wrong picture is worse than no picture,
+      // since it is the one a reviewer will believe.
+      if (target.verify) {
+        try {
+          await target.verify(page);
+        } catch (e) {
+          throw new Error(
+            `[shots] ${target.name}: verify failed — the shot would have ` +
+              `photographed a state it does not claim. ${e.message}`
+          );
+        }
+      }
       const file = path.join(OUT_DIR, `${target.name}.png`);
       await page.screenshot({ path: file });
       console.log(`[shots] ${target.name} → ${file}`);
