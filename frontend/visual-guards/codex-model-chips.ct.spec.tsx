@@ -1,6 +1,6 @@
 // T-129 — the segmented quick-pick rows in the two outsource pickers
-// (轉派 dialog · 任務手冊 負責成員 editor): Codex 模型 in both, plus the 轉派
-// dialog's 投入程度 row, which has the same four-cell shape and had the same bug.
+// (轉派 dialog · 任務手冊 負責成員 editor): Codex 模型 in both. It covered the
+// 轉派 dialog's 投入程度 row too until T-131 made that a dropdown — see below.
 //
 // Adding gpt-6-astra took the Codex vocabulary from 3 chips to 4, and 4
 // `gpt-5.6-*` slugs do not fit one row in a phone's ~300px content column. The
@@ -8,19 +8,24 @@
 //
 //   .task-reassign__seg wraps → the 4th chip drops onto a row of its own and
 //     stretches to the full width, centered. That is the shape tasks.css
-//     records as an owner review calling it "broken". 投入程度 was already in
-//     that shape before this ticket (MEASURED: 最高 alone at w=292 of a
-//     302-wide group), which is why it is pinned here too.
+//     records as an owner review calling it "broken". 投入程度 was in that
+//     shape too (MEASURED: 最高 alone at w=292 of a 302-wide group), which is
+//     why it used to be pinned here as well.
 //   .manual-seg does NOT wrap → the 4 chips squeeze instead, and each label
 //     breaks across three lines (`gpt-` / `5.6-` / `terra`).
 //
 // The fix for both is a grid, and a grid has its own failures at the OTHER
 // widths: 任務手冊 is a page, not a max-width modal, so it keeps growing.
 // MEASURED at 1280 with a hard `1fr 1fr`, the group is 958 wide and the chips
-// become 4 x 471 on two rows — an 11-character label in a half-width button —
-// while the 投入程度 row directly below stays 4 x 233 on one, so the two
-// controls stop lining up. So this file pins BOTH ends: narrow (no orphan, no
-// squeeze) and wide (one row, columns agreeing with the sibling picker).
+// become 4 x 471 on two rows — an 11-character label in a half-width button.
+// So this file pins BOTH ends: narrow (no orphan, no squeeze) and wide (one
+// row).
+//
+// T-131 turned 投入程度 into a DROPDOWN (owner 2026-09-08): five English labels
+// do not fit one phone-width row and the vocabulary keeps growing. So this file
+// no longer measures 投入程度 at all, and the @1280 case at the bottom can no
+// longer state its contract against that sibling — see the note there for what
+// that costs.
 //
 // All of it is invisible to the vitest suite (jsdom has no layout engine), so
 // the contract lives here as real-browser geometry, asserted as position
@@ -185,23 +190,6 @@ test("轉派 dialog 模型: the Codex model chips leave no orphan at 390px", asy
   );
 });
 
-// Not introduced by T-129 — 投入程度 has had four cells since T-dbd4 added max,
-// and on the wrapping flex row it was already the exact shape this ticket is
-// about. Fixed and pinned here because it is the same control, one section
-// below the one that was fixed.
-test("轉派 dialog 投入程度: the effort chips leave no orphan at 390px", async ({
-  mount,
-  page,
-}) => {
-  await openReassignCodex(mount, page, 390);
-  await assertNoOrphanChip(
-    "轉派 dialog 投入程度",
-    groupOf(page, "reassign-effort-max"),
-    "reassign-effort",
-    390
-  );
-});
-
 // 任務手冊 is a PAGE: its picker keeps every width between a phone and a desk,
 // so one sample cannot stand for the narrow end. These three are the widths a
 // width-derived track count got wrong, MEASURED by sweeping 320→1600 in 10px
@@ -273,42 +261,37 @@ for (const { width, columns } of [
 }
 
 // The wide end, which the 390px cases cannot see: fixing the phone by splitting
-// the chips in two costs the desktop, and the way that reads is the mismatch
-// with 投入程度 — the identical control directly below, on a plain flex row. So
-// the contract is stated against that sibling rather than a pixel count.
-test("任務手冊 負責成員 模型 @1280: the chips stay on one row, aligned with 投入程度", async ({
+// the chips in two costs the desktop — MEASURED with a hard `1fr 1fr` the group
+// is 958 wide at 1280 and the 4 chips become 4 x 471 on TWO rows, an
+// 11-character label in a half-width button.
+//
+// ⚠️ WHAT THIS CASE LOST IN T-131. Until then the contract was stated against
+// 投入程度 — the identical control one section below, whose cells gave the
+// columns these chips had to agree with — so a wrong track count reddened by
+// disagreeing with a real sibling rather than with a number in this file.
+// 投入程度 is a dropdown now (owner 2026-09-08), so that sibling is gone and
+// there is nothing left to state the contract against except the picker's own
+// shape: ONE row, no orphan, no squeeze. That is strictly weaker — a track
+// count of 4 and of 8 both keep 4 chips on one row at 1280 — and nothing in
+// this repo now pins the model row's columns to anything outside itself.
+test("任務手冊 負責成員 模型 @1280: the chips stay on one row", async ({
   mount,
   page,
 }) => {
   await openManualCodex(mount, page, 1280);
 
   const modelGroup = groupOf(page, "manual-assignee-model-gpt-6-astra");
-  const effortGroup = groupOf(page, "manual-assignee-effort-max");
   const model = await readChips(modelGroup, "manual-assignee-model");
-  const effort = await readChips(effortGroup, "manual-assignee-effort");
   const groupWidth = Math.round((await modelGroup.boundingBox())!.width);
 
-  // 1. The chips are not split across rows while there is room for one row.
-  //    Stated against 投入程度 so it cannot be satisfied by a viewport that
-  //    merely happens to be large: whatever fits the effort cells fits these.
   const modelRows = rowsOf(model);
-  const effortRows = rowsOf(effort);
   expect(
     modelRows.map(
       (r) => `[${r.map((c) => `${c.id} w=${Math.round(c.width)}`).join(", ")}]`
     ),
-    `任務手冊 負責成員 模型 @1280: the ${model.length} Codex model chips share as ` +
-      `few rows in their ${groupWidth}px group as the ${effort.length} 投入程度 ` +
-      `cells below them (${effortRows.length})`
-  ).toHaveLength(effortRows.length);
+    `任務手冊 負責成員 模型 @1280: the ${model.length} Codex model chips fit on ONE ` +
+      `row in their ${groupWidth}px group`
+  ).toHaveLength(1);
 
-  // 2. …and they land on the same columns. This is the half a reader sees: two
-  //    stacked four-cell controls whose edges do not agree.
-  const cols = (chips: Chip[]) =>
-    [...new Set(chips.map((c) => `x=${Math.round(c.x)} w=${Math.round(c.width)}`))].sort();
-  expect(
-    cols(model),
-    "任務手冊 負責成員 模型 @1280: the Codex model chips sit on the same columns " +
-      "as the 投入程度 cells below them"
-  ).toEqual(cols(effort));
+  await assertNoOrphanChip("任務手冊 負責成員 模型 @1280", modelGroup, "manual-assignee-model", 1280);
 });

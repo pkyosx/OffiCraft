@@ -859,7 +859,7 @@ func (s *apiServer) HandleHireMemberApiMembersPost(w http.ResponseWriter, r *htt
 	}
 	if body.Effort != nil && !validEffort(*body.Effort) {
 		writeError(w, http.StatusUnprocessableEntity,
-			"effort must be one of [high low max medium]; got '"+*body.Effort+"'")
+			"effort must be one of [high low max medium xhigh]; got '"+*body.Effort+"'")
 		return
 	}
 	// UNSET when the caller names none. The empty runtime is the durable
@@ -1014,7 +1014,7 @@ func (s *apiServer) HandleUpdateMemberApiMembersMemberIdPatch(w http.ResponseWri
 	if body.Effort != nil {
 		if !validEffort(*body.Effort) {
 			writeError(w, http.StatusUnprocessableEntity,
-				"effort must be one of [high low max medium]; got '"+*body.Effort+"'")
+				"effort must be one of [high low max medium xhigh]; got '"+*body.Effort+"'")
 			return
 		}
 		launchIntentChanged = launchIntentChanged || *body.Effort != m.Effort
