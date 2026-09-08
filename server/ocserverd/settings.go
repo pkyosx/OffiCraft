@@ -196,7 +196,24 @@ const (
 	// block that is repacked from scratch on every read and is therefore free to
 	// move in both directions. See domain.go for the range and why its ceiling is
 	// tied to resumeChatFetch.
-	settingChatBudgetChars = "chat.budget_chars"
+	// settingLoreCapChars* (T-33 傳承) are the four lore knobs: the two FOLD
+	// budgets (how much lore a staff boot document / a task manual read carries)
+	// and the two ENTRY bounds (the longest title and body one write may store).
+	//
+	// 🔴 THEY ARE `lore.` KEYS AND NOT `doc.cap_chars.*` ONES, deliberately.
+	// Every `doc.cap_chars.*` key carries the 只能調高 rule — its floor IS its
+	// default — because lowering one strands an existing legal document in
+	// shrink-only mode. A lore entry has NO edit path, so nothing stored can be
+	// stranded by a lower cap; it binds the next write only. The owner asked for
+	// knobs that turn both ways (and used them the same day, taking the title
+	// from 140 to 80 and the body from 1000 to 500), so filing them under the
+	// prefix whose whole meaning is "up only" would have been a lie an agent
+	// reading get_settings has no way to see through.
+	settingLoreCapCharsRole   = "lore.cap_chars.role"
+	settingLoreCapCharsManual = "lore.cap_chars.manual"
+	settingLoreCapCharsTitle  = "lore.cap_chars.title"
+	settingLoreCapCharsBody   = "lore.cap_chars.body"
+	settingChatBudgetChars    = "chat.budget_chars"
 	// settingStepNoteCapChars (T-119) is the ceiling on ONE task step's working
 	// note — what both note write faces refuse a longer note against, and what
 	// get_task / get_task_step report as note_cap_chars. It was the hard-coded
@@ -295,10 +312,11 @@ const (
 	// (the setting table is key/value — migrations/00002_settings.sql), which is
 	// why there is no migration: a new key needs no DDL.
 	//
-	// TWO KEYS, NOT ONE, and no nested object: answering a 請示卡 and writing to
-	// a task in progress are different conversations, so one list's sentences
-	// are wrong in the other's box (owner ruling). Two rows also keep "change
-	// only one of them" a single PATCH-time write instead of an unlocked
+	// ONE KEY PER BOX, and no nested object: answering a 請示卡, writing to a task
+	// in progress and asking a 傳承 entry's writer about what he wrote are three
+	// different conversations, so one list's sentences are wrong in another's box
+	// (owner ruling; the 傳承 list is the third, T-33). Separate rows also keep
+	// "change only one of them" a single PATCH-time write instead of an unlocked
 	// read-modify-write over one shared blob.
 	//
 	// ABSENT ROW = the empty list, and so is a stored `[]`: "the owner
@@ -307,6 +325,7 @@ const (
 	// over it, never a part of it.
 	settingSuggestedRepliesReplyCard   = "suggested_replies.reply_card"
 	settingSuggestedRepliesTaskMessage = "suggested_replies.task_message"
+	settingSuggestedRepliesLoreMessage = "suggested_replies.lore_message"
 	// [T-16a1 P2 / T-83ef] `display.custom_themes` — the row that used to hold
 	// every saved theme as one JSON array — HAS NO CONSTANT HERE ANY MORE, and
 	// that is deliberate rather than an oversight:
@@ -430,6 +449,10 @@ type authSettings struct {
 	docCapCharsSystemInteraction int    // doc.cap_chars.system_interaction (default systemInteractionCapCharsDefault)
 	docCapCharsBootSequence      int    // doc.cap_chars.boot_sequence (default bootSequenceCapCharsDefault; ONE cap, both runtimes)
 	docCapCharsOffboard          int    // doc.cap_chars.offboard (default offboardCapCharsDefault)
+	loreCapCharsRole             int    // lore.cap_chars.role (default loreRoleCapCharsDefault)
+	loreCapCharsManual           int    // lore.cap_chars.manual (default loreManualCapCharsDefault)
+	loreCapCharsTitle            int    // lore.cap_chars.title (default loreTitleCapCharsDefault)
+	loreCapCharsBody             int    // lore.cap_chars.body (default loreBodyCapCharsDefault)
 	chatBudgetChars              int    // chat.budget_chars (default chatBudgetCharsDefault)
 	stepNoteCapChars             int    // task.step_note_cap_chars (default stepNoteCapCharsDefault)
 	backupRetain                 int    // backup.retain (default backupRetainDefault; N is PER POOL, and counts versions not days)
@@ -441,11 +464,13 @@ type authSettings struct {
 	displayTheme                 string // display.theme ("" = never set → frontend cache/default)
 	displayLanguage              string // display.language ("" = never set → frontend cache/default)
 	displayWide                  bool   // display.wide (default false = the narrow centred column)
-	// suggested_replies.* (T-122) — the two one-click 建議回覆 lists, each stored
-	// as a JSON array of strings. nil/empty = the owner configured none, which
-	// draws no chips and is an ordinary state, not a failure.
+	// suggested_replies.* (T-122; the 傳承 list added by T-33) — the one-click
+	// 建議回覆 lists, one per box, each stored as a JSON array of strings.
+	// nil/empty = the owner configured none, which draws no chips and is an
+	// ordinary state, not a failure.
 	suggestedRepliesReplyCard   []string // suggested_replies.reply_card
 	suggestedRepliesTaskMessage []string // suggested_replies.task_message
+	suggestedRepliesLoreMessage []string // suggested_replies.lore_message
 }
 
 // maxSuggestedReplies / maxSuggestedReplyLen bound each 建議回覆 list (T-122).
@@ -801,7 +826,7 @@ func loadAuthSettings(d *DAL, cfg Config, logf func(string)) (authSettings, erro
 		*dst = n
 		return nil
 	}
-	if err := loadCap(settingDocCapCharsDuty, minDutyCapChars, maxDocCapChars,
+	if err := loadCap(settingDocCapCharsDuty, minDocCapChars, maxDocCapChars,
 		&out.docCapCharsDuty, dutyCapCharsDefault); err != nil {
 		return out, err
 	}
@@ -821,16 +846,38 @@ func loadAuthSettings(d *DAL, cfg Config, logf func(string)) (authSettings, erro
 		&out.docCapCharsManualLearnings, contextDocMaxCharsDefault); err != nil {
 		return out, err
 	}
-	if err := loadCap(settingDocCapCharsSystemInteraction, minSystemInteractionCapChars, maxDocCapChars,
+	if err := loadCap(settingDocCapCharsSystemInteraction, minDocCapChars, maxDocCapChars,
 		&out.docCapCharsSystemInteraction, systemInteractionCapCharsDefault); err != nil {
 		return out, err
 	}
-	if err := loadCap(settingDocCapCharsBootSequence, minBootSequenceCapChars, maxDocCapChars,
+	if err := loadCap(settingDocCapCharsBootSequence, minDocCapChars, maxDocCapChars,
 		&out.docCapCharsBootSequence, bootSequenceCapCharsDefault); err != nil {
 		return out, err
 	}
-	if err := loadCap(settingDocCapCharsOffboard, minOffboardCapChars, maxDocCapChars,
+	if err := loadCap(settingDocCapCharsOffboard, minDocCapChars, maxDocCapChars,
 		&out.docCapCharsOffboard, offboardCapCharsDefault); err != nil {
+		return out, err
+	}
+
+	// lore.cap_chars.* (T-33) — range-checked at load for the same reason as
+	// everything above: a hand-edited row must never install a value the PATCH
+	// face refuses. Their floors are NOT their defaults (see settingLoreCapChars*
+	// above), so loadCap is passed a real minimum here rather than the shipped
+	// number.
+	if err := loadCap(settingLoreCapCharsRole, minLoreFoldCapChars, maxLoreFoldCapChars,
+		&out.loreCapCharsRole, loreRoleCapCharsDefault); err != nil {
+		return out, err
+	}
+	if err := loadCap(settingLoreCapCharsManual, minLoreFoldCapChars, maxLoreFoldCapChars,
+		&out.loreCapCharsManual, loreManualCapCharsDefault); err != nil {
+		return out, err
+	}
+	if err := loadCap(settingLoreCapCharsTitle, minLoreEntryCapChars, maxLoreEntryCapChars,
+		&out.loreCapCharsTitle, loreTitleCapCharsDefault); err != nil {
+		return out, err
+	}
+	if err := loadCap(settingLoreCapCharsBody, minLoreEntryCapChars, maxLoreEntryCapChars,
+		&out.loreCapCharsBody, loreBodyCapCharsDefault); err != nil {
 		return out, err
 	}
 
@@ -885,6 +932,10 @@ func loadAuthSettings(d *DAL, cfg Config, logf func(string)) (authSettings, erro
 	}
 	if err := loadSuggestedReplies(settingSuggestedRepliesTaskMessage,
 		&out.suggestedRepliesTaskMessage); err != nil {
+		return out, err
+	}
+	if err := loadSuggestedReplies(settingSuggestedRepliesLoreMessage,
+		&out.suggestedRepliesLoreMessage); err != nil {
 		return out, err
 	}
 

@@ -376,6 +376,61 @@ const (
 // `Requires` value on the route instead? If yes, put it there — the table is
 // enumerable, a handler body is not.
 var authzOutsideRouteTable = map[string]string{
+	// ── 傳承 governance (T-33; owner ruling 2026-09-07) ───────────────────────
+	//
+	// Neither of these can be a route floor, and that is a property of the
+	// decision rather than of how the code happens to be shaped.
+	// 🔴 THIS ONE REFUSES NOBODY, AND IT IS STILL HERE ON PURPOSE. Every other
+	// entry in this map names a door that says no. This one decides WHERE a write
+	// lands, and it is listed because a governance re-grade asking "what does the
+	// Requires column not cover?" needs to see it: getting it wrong does not
+	// return 403, it files one member's 傳承 under a scope other members read, and
+	// the fold then charges them the cap for it. That is a governance outcome
+	// arrived at without any door refusing anything.
+	// 🔴 ONE ENTRY WAS REMOVED FROM THIS MAP ON 2026-09-07 AND THE REMOVAL IS
+	// RECORDED HERE RATHER THAN BEING SILENT, because a governance re-grade that
+	// sees a shorter list has no way to tell "this decision was retired" from
+	// "somebody dropped an inconvenient row".
+	//
+	// The entry was:
+	//   api_lore.go :: HandleWriteLoreEntryApiLorePost :: m.RoleKey != ""
+	// and it described a predicate that decided WHERE a 傳承 write landed: a
+	// caller whose roster row carried a role_key filed under the role scope,
+	// one whose row carried none filed under its own member id. Owner collapsed
+	// the scopes to two (card rc-a43100fd0486 [0]), so both now file under the
+	// writer's own member id and the branch is gone from the code — the stale
+	// check below is what forced this deletion rather than letting the key rot.
+	//
+	// NOTHING REPLACED IT, and that is the right outcome rather than an omission:
+	// the governance risk it named was one member's 傳承 being filed under a scope
+	// OTHER members read, and with the fold keyed by the writer's own id there is
+	// no longer a predicate that can get that wrong. The remaining routing choice
+	// (manual vs. the writer's own document) turns on the named TASK's type_key,
+	// not on anything about the caller, so it is not an authorization decision at
+	// all. The consequence is still guarded by
+	// TestNeitherBootPathCarriesTheOtherScopesLore.
+	"api_lore.go :: HandleSetLoreEntryStateApiLoreEntryIdStatePost :: principalAtLeast(s.principalOfRequest(r), principalAdminAgent)": "" +
+		"ONE door (POST /api/lore/{entry_id}/state) performs three transitions with TWO " +
+		"floors: 置頂 and its undo are admin-only (owner: 「置頂只有你跟 admin」) because a " +
+		"pinned entry sorts ahead of everyone else's and so survives the fold's cap at " +
+		"their expense, while 失效 and 生效 are open to the entry's own author. A single " +
+		"Requires value cannot say both, so the row carries the LOWER floor (agent) and " +
+		"the higher one is decided here, against the request BODY and the state of the " +
+		"row being moved — neither of which the route table can see. Splitting pinning " +
+		"onto its own route was the alternative and was rejected: it puts one state " +
+		"machine behind two doors that can then disagree about the transitions.",
+	"api_lore.go :: callerMayGovernLore :: principalAtLeast(s.principalOfRequest(r), principalAdminAgent)": "" +
+		"caller-vs-TARGET rule, which no route floor can express: 失效 and 提到最新 are " +
+		"agent-floor but act only on an entry the caller is the recorded AUTHOR of " +
+		"(author_id, pinned at write time), with admin capability unrestricted. Owner " +
+		"ruling 2026-09-07. This used to cite the Global Context sentence the ruling " +
+		"came from, but the owner removed that sentence from the document the same day, " +
+		"so the rule is stated here instead of pointed at: a citation of a sentence that " +
+		"no longer exists sends the reader looking for something they cannot find, and " +
+		"nothing tells them the pointer is stale. It is ONE predicate shared by both verbs on " +
+		"purpose — they ask the same question of the same caller about the same row, so " +
+		"two copies could only drift into one of them being wider than the ruling.",
+
 	// ── owner-only presentation folds (not access control, but they DO branch
 	// on the principal, so a re-grade must see them) ──────────────────────────
 	"account_display.go :: accountDisplayFold :: s.principalOfRequest(r) == principalOwner": "" +

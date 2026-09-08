@@ -52,6 +52,9 @@ export const en: Dict = {
     officeUnread: "Unread messages",
     replies: "Ask",
     tasks: "Task",
+    // 傳承 (T-33) — between Task and Monitor. What it lists is what the last
+    // round learned, which sits closest to the tasks that produced it.
+    lore: "Lore",
     monitor: "Monitor",
     // 使用說明 — the rightmost main nav tab (owner: it belongs next to Monitor,
     // not buried in Settings). Separate key from the page title on purpose: a
@@ -66,6 +69,114 @@ export const en: Dict = {
     title: "User guide",
     loadError: "Failed to load the user guide. Please try again.",
     empty: "No guide pages yet",
+  },
+  // ── 傳承 / Lore (T-33, spec §6) ──
+  // Its own tab, wearing the task-card design language. Only the words live
+  // here; why the groups are ordered the way they are, and where the cap line
+  // is drawn, is documented in components/LorePage.tsx.
+  //
+  // 🔴 The cap line is NAMED — it has to say which scope's budget it is. It is
+  // therefore assembled from four fragments (prefix · name + mid + number +
+  // tail) rather than one interpolation function: a function leaf is excluded
+  // from the message-key whitelist, so a theme pack could not re-word a single
+  // word inside it (see i18n/compose.ts).
+  lore: {
+    title: "Lore",
+    loadError: "Failed to load lore. Please try again.",
+    empty: "No lore yet",
+    emptyFiltered: "No lore matches these filters",
+    // The three groups. The order is FIXED: pinned → active → retired.
+    groupPinned: "Pinned",
+    groupActive: "Active",
+    groupRetired: "Retired",
+    // One status badge + the little menu it drops.
+    stateMenuLabel: "Change state",
+    statePinned: "Pinned",
+    stateActive: "Active",
+    stateRetired: "Retired",
+    actionRetire: "Retire",
+    actionActivate: "Activate",
+    actionPin: "Pin",
+    scopeUnknown: "Unknown scope",
+    openManualLabel: "Open task manual",
+    copyEntryIdLabel: "Copy entry id",
+    entryIdCopied: "Copied",
+    authorLabel: "Author",
+    authorUnknown: "—",
+    messageAuthor: "Message the author",
+    // The inline composer: write from the author row itself, without first
+    // jumping to the office.
+    messagePlaceholder: (name: string) => `Message ${name}…`,
+    messageSend: "Send",
+    // 🔴 The ONLY place on screen that says the id is prepended for you.
+    // Without it what gets sent differs from what the writer typed and nothing
+    // tells them.
+    messagePrefixNote: (entryId: string) => `Sent starting with ${entryId}`,
+    // A failed send must be visible AND must keep the draft — retyping is the
+    // one punishment this box must never hand out.
+    messageFailed: "That message did not go out. Your text is kept — send again.",
+    messageSent: "Sent",
+    // Effective-from and 提到最新 share one row.
+    effectiveLabel: "Effective",
+    bump: "Bump to latest",
+    // Retire reason — the whole row is hidden when it is empty.
+    retireReasonLabel: "Retire reason",
+    // The scope-kind names. ONE source per word: they name the 屬於 chip on
+    // every row, the 屬於 filter's option labels, AND the named cap line. They
+    // used to be called capLineRolePrefix / capLineManualPrefix, a name that
+    // pinned them to the cap line and invited the next caller to write a second
+    // copy.
+    //
+    // 🔴 THERE WERE THREE AND NOW THERE ARE TWO. `scopeKindRole` ("Role lore")
+    // was removed when the owner collapsed the scopes on 2026-09-07 (card
+    // rc-a43100fd0486 [0]). It is NOT kept "for the legacy rows": an entry the
+    // migration could not place renders through the unknown arm, which shows the
+    // raw key and no kind word at all — because the honest thing to say about
+    // such a row is that nobody has decided what it belongs to, and calling it
+    // 角色傳承 would name a scope this product no longer has.
+    //
+    // Every member's lore hangs off its own member id — staff and outsource
+    // alike.
+    scopeKindAgent: "Member lore",
+    scopeKindManual: "Task lore",
+    // The remaining fragments of the named cap line.
+    capLineSep: " · ",
+    capLineMid: " cap ",
+    capLineTail: " characters — nothing below this line is loaded",
+    // The filter row: author → member lore → task lore → state → clear, the
+    // order and the names the owner dictated on 2026-09-08 (所有撰寫人 / 所有
+    // 成員傳承 / 所有任務傳承 / 所有狀態). It is the 任務頁's shape minus its id
+    // search box — a 傳承 id is not something anybody goes looking for by typing
+    // it.
+    //
+    // 🔴 THE MEMBER FIELD IS A ROUTE THAT WAS MISSING, NOT A COPY OF 撰寫人.
+    // 撰寫人 sends `authorIds`, which produces NO scope; the server only answers
+    // `capChars` when the request carries exactly one scope kind and exactly one
+    // scope key. While members appeared only under 撰寫人, nothing on this page
+    // could ask for a member's 上限線 at all. This field sends
+    // scope_kinds=[agent] + scope_keys=[<member id>], which is that route.
+    // It shares those two wire axes with the task field, so ticking one of each
+    // sends two kinds and two keys and the server answers 0 — no line. That is
+    // the honest answer, not a defect.
+    clearFilters: "Clear filters",
+    filterAuthorNoun: "Author",
+    filterAuthorAll: "All authors",
+    // The member field's options ARE the live roster — the same source 撰寫人
+    // draws from — and its words come from the scopeKind* pair above, so a name
+    // in the filter reads the same as the same name on a row's badge.
+    filterMemberNoun: "Member lore",
+    filterMemberAll: "All member lore",
+    filterTaskNoun: "Task lore",
+    filterTaskAll: "All task lore",
+    filterStateNoun: "State",
+    filterStateAll: "All states",
+    // The whole row is the expand/collapse surface.
+    expandCard: "Expand this lore entry",
+    collapseCard: "Collapse this lore entry",
+    loadingMore: "Loading…",
+    // A failed action (403 included) must be visible — never a silent no-op.
+    actionFailed: "That action did not go through. Please try again.",
+    forbidden: "You do not have permission to do that.",
   },
   notifications: {
     dismiss: "Dismiss notification",
@@ -1951,22 +2062,24 @@ export const en: Dict = {
     // they no longer share one ruler.
     docCapDuty: "Duty size cap",
     docCapDutySub:
-      "Per-role limit on the role definition. The floor is this segment's own shipped default (smaller than every other segment's) and the ceiling is 100000, so this can only be raised — lowering it would leave documents that are legal today able to shrink only.",
+      "Per-role limit on the role definition (its shipped default is smaller than every other segment's). The floor is 100 and the ceiling is 100000, and it moves in both directions — lowering it truncates nothing already stored and nothing stops reading back, it binds the next write only; a role definition already over the cap can still be saved as long as the new version is shorter than the old one.",
     docCapInsight: "Insight size cap",
     docCapInsightSub:
-      "Per-role limit on the insight doc. The floor is the shipped default and the ceiling is 100000, so this can only be raised.",
+      "Per-role limit on the insight doc. The floor is 100 and the ceiling is 100000, and it moves in both directions — a lowered cap binds the next write only; stored content is never truncated and still reads back, and a doc already over the cap still saves as long as the new version is shorter.",
     docCapLearning: "Learning size cap",
     docCapLearningSub:
-      "Per-role limit on the lessons doc. The floor is the shipped default and the ceiling is 100000, so this can only be raised.",
+      "Per-role limit on the lessons doc. The floor is 100 and the ceiling is 100000, and it moves in both directions — a lowered cap binds the next write only; stored content is never truncated and still reads back, and a doc already over the cap still saves as long as the new version is shorter.",
     docCapManualSop: "Task manual SOP size cap",
     docCapManualSopSub:
-      "Limit on a task manual's SOP (the plan blueprint). Independent of the field below — the SOP is refined in place while the learnings accumulate, so one number could only ever be right for one of them. The floor is the shipped default and the ceiling is 100000, so this can only be raised.",
+      "Limit on a task manual's SOP (the plan blueprint). Independent of the field below — the SOP is refined in place while the learnings accumulate, so one number could only ever be right for one of them. The floor is 100 and the ceiling is 100000, and it moves in both directions — a lowered cap binds the next write only; a stored SOP is never truncated and still reads back, and one already over the cap still saves as long as the new version is shorter.",
     docCapManualLearnings: "Task manual learnings size cap",
     docCapManualLearningsSub:
-      "Limit on a task manual's learnings doc, independent of the SOP cap above. The floor is the shipped default and the ceiling is 100000, so this can only be raised.",
+      "Limit on a task manual's learnings doc, independent of the SOP cap above. The floor is 100 and the ceiling is 100000, and it moves in both directions — a lowered cap binds the next write only; stored content is never truncated and still reads back, and a doc already over the cap still saves as long as the new version is shorter.",
     // T-c9b4: the wake snapshot's chat budget. Deliberately not folded into the
-    // doc-cap wording above — those floors are their own shipped defaults and
-    // can only be raised; this one moves in both directions.
+    // doc-cap wording above — both directions are now legal on both sides (owner
+    // 2026-09-07 dropped every doc-cap floor to 100), but the numbers differ, and
+    // so does the reason lowering is harmless: those caps guard STORED documents,
+    // this budget guards a block repacked on every read.
     // T-8: backup retention N. The sub-label carries the two facts the integer
     // cannot — versions-not-days and per-pool-not-per-directory — because the
     // person who needs them is the one turning the knob.
@@ -1974,17 +2087,21 @@ export const en: Dict = {
     backupRetainSub:
       "How many database backup files are kept. Everything past this number is DELETED from disk on the next backup — it is not moved aside and it cannot be recovered. Two things this number is NOT. It counts VERSIONS, NOT DAYS: it is a count of files, so how far back it reaches depends entirely on how many backups those days happened to produce — a busy day can use the whole allowance in under three days, a quiet one can stretch it past a week. And it is PER POOL, NOT PER DIRECTORY: routine backups (scheduled and manual) and pre-migration backups keep separate allowances, so 5 here means up to TEN files on disk, not five. The range is 1 to 20; the ceiling is a disk budget, since the space used is roughly two times this number times the size of one backup.",
     backupRetainUnit: "backups per pool",
-    // T-122: the two suggested-reply lists. Two rows and not one, deliberately —
-    // answering a reply card and writing to a task in progress are different
-    // conversations, so a sentence written for one is wrong in the other's box
-    // (owner ruling). An empty list is a legal value: that box then shows no
-    // suggestion buttons at all.
+    // T-122 (+ the lore list, T-33): the three suggested-reply lists. One row
+    // per box and not one shared row, deliberately — answering a reply card,
+    // writing to a task in progress and asking the writer of a lore entry about
+    // it are different conversations, so a sentence written for one is wrong in
+    // another's box (owner ruling). An empty list is a legal value: that box
+    // then shows no suggestion buttons at all.
     suggestedRepliesReplyCard: "Reply-card suggestions",
     suggestedRepliesReplyCardSub:
       "Sentences you can drop in with one tap when answering a reply card.",
     suggestedRepliesTaskMessage: "Task-message suggestions",
     suggestedRepliesTaskMessageSub:
       "Sentences you can drop in with one tap when messaging on a task.",
+    suggestedRepliesLoreMessage: "Lore-message suggestions",
+    suggestedRepliesLoreMessageSub:
+      "Sentences you can drop in with one tap when messaging a lore entry's writer.",
     suggestedReplyPlaceholder: "e.g. Got it, go ahead",
     suggestedReplyAdd: "Add a sentence",
     suggestedReplyRemove: "Remove this sentence",
@@ -2004,6 +2121,18 @@ export const en: Dict = {
     // integer cannot — that it may be lowered, and that it governs the step
     // note alone — because both are what the person turning the knob will
     // otherwise get wrong.
+    loreCapRole: "Member lore size cap",
+    loreCapRoleSub:
+      "How many characters of lore a member's boot document carries — a staff member reads the lore of their role, an outsource worker reads the lore it wrote itself. An entry that does not fit is left out WHOLE — never truncated, and with no error anywhere. Independent of the task-manual cap below; the two are never summed. This one may be lowered: an entry cannot be edited, so a smaller cap only changes which entries load next time and strands nothing already stored.",
+    loreCapManual: "Task manual lore size cap",
+    loreCapManualSub:
+      "How many characters of lore are appended after a task type's learnings when its manual is read. This block enters nobody's boot document — staff and outsource alike. Independent of the member cap above. May be lowered.",
+    loreCapTitle: "Lore title size cap",
+    loreCapTitleSub:
+      "The longest title one lore entry may carry. An over-cap write is refused and stores nothing. May be lowered; it binds the next write only and leaves stored entries untouched.",
+    loreCapBody: "Lore body size cap",
+    loreCapBodySub:
+      "The longest body one lore entry may carry. An over-cap write is refused and stores nothing. May be lowered; stored entries are untouched.",
     stepNoteCap: "Task step note size cap",
     stepNoteCapSub:
       "How many characters one task step's note may hold. It can be lowered as well as raised, and lowering it loses nothing already written.",

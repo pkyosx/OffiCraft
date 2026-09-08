@@ -68,30 +68,30 @@ func TestReadSeedFileErrsWhenEmbedMiss(t *testing.T) {
 	}
 }
 
-func TestSystemInteractionSeedIncludesTheOwnerAdHocOutsourceRule(t *testing.T) {
-	seed, err := assetRoot("").readSeedFile(systemInteractionSeedMD)
-	if err != nil {
-		t.Fatalf("read system_interaction.md: %v (run bin/build-seedsdist)", err)
-	}
-
-	const heading = "### 學習經驗寫入位置"
-	const rule = "- 你是外包成員、而且執行的是臨時任務（沒有任務類型）時，不要寫入任何學習經驗 —— 這種情況沒有你該寫的位置。正確的做法是開這張任務的人在建立時就綁定對的任務類型"
-	start := strings.Index(seed, heading)
-	if start < 0 {
-		t.Fatalf("shipped system interaction seed is missing %q", heading)
-	}
-	section := seed[start:]
-	if end := strings.Index(section, "\n## "); end >= 0 {
-		section = section[:end]
-	}
-	if strings.Count(section, rule) != 1 {
-		t.Fatalf("shipped seed must contain the owner-approved ad-hoc outsource rule exactly once; %s",
-			seedExcerpt(systemInteractionSeedMD, section))
-	}
-	if strings.Contains(section, "- \""+strings.TrimPrefix(rule, "- ")) {
-		t.Fatal("shipped seed must not wrap the owner-approved rule in outer quotes")
-	}
-}
+// 🔴 A TEST WAS DELETED HERE ON 2026-09-07, and the deletion is recorded rather
+// than silent so that a future reader can tell "this guard was retired by a
+// decision" from "this guard was never written".
+//
+// It was TestSystemInteractionSeedTeachesTheAdHocTaskRuleTheServerEnforces, and
+// it required the shipped 系統互動 seed to carry a 「### 傳承寫入位置」 section
+// teaching the rule api_lore.go actually runs. The owner ruled the section out
+// of existence (card rc-61fde477ac54 圈 [1], verbatim: 「不就是不要放回去 —— 我
+// 就是不要這一節，拿掉守它的那支測試」). A guard whose subject the owner has
+// removed has nothing left to guard, so it goes with it.
+//
+// ⚠️ IT WAS GUARDING TWO THINGS, AND ONLY ONE OF THEM WAS RULED OUT. Its second
+// half required a pair of RETIRED sentences — 「沒有你該寫的位置」 and
+// 「寫入會被拒絕」 — to be ABSENT. Those describe a refusal the server stopped
+// performing on 2026-09-07, and they are actively harmful independent of the
+// section: a member reading 「沒有你該寫的位置」 stops before it writes, even
+// with correct wording beside it. That protection was INCIDENTAL to the section
+// (its search was scoped to the section's body, which no longer exists) and its
+// loss was NOT part of the owner's ruling. Measured at the time of deletion:
+// both phrases occur 0 times in seeds/system_interaction.md and in
+// seedsdist/system_interaction.md — verified with a positive control on the same
+// grep, so the zero is an absence and not a broken query. Nothing now stops them
+// coming back. Whether to re-guard that, over the WHOLE seed rather than one
+// section, is an open question for the owner and deliberately not answered here.
 
 func TestBuildBootContextSelectsRuntimeBootSequence(t *testing.T) {
 	s := newWorkerTestServer(t)

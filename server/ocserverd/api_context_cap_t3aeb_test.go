@@ -241,21 +241,28 @@ func TestReplaceLessonsReceiptReportsSizeAndCap(t *testing.T) {
 
 // ── the setting's own surface ────────────────────────────────────────────────
 
-// TestUpdateSettingsDocCapCharsRange pins the range the owner set, both ends,
-// and the floor's REASON: the floor is the shipped default, so there is no such
-// thing as lowering this cap.
+// TestUpdateSettingsDocCapCharsRange pins the range the owner set, both ends.
+//
+// 🔴 THE FLOOR IS NO LONGER THE SHIPPED DEFAULT (owner 2026-09-07, card
+// rc-5b66ba099e28, option [1]). It is minDocCapChars for every knob, and the
+// assertion that carries that ruling is `belowShipped`: a value UNDER the
+// segment's own shipped default, but at or above the shared floor, must be
+// ACCEPTED. Put any shipped default back as a floor and that one line goes red,
+// which is the only way this file can tell the two rules apart — every other
+// assertion here passes under both.
 //
 // 🔴 EVERY knob is exercised, not just one. Until T-30f1 this test drove only
 // `doc_cap_chars_learning`, so a knob whose floor was written as the wrong
-// constant — say the manual halves given Duty's much smaller minimum, which
-// would let the owner lower them — went green here. A per-knob table is the
-// only shape that fails when a row is missing or holds the wrong floor.
+// constant went green here. A per-knob table is the only shape that fails when
+// a row is missing or holds the wrong floor. The three boot-context knobs were
+// added to the table on 2026-09-07: the comment claimed "every knob" while the
+// table held five of eight, so the claim was checking nothing for three of them.
 func TestUpdateSettingsDocCapCharsRange(t *testing.T) {
 	knobs := []struct {
-		field string
-		key   string
-		floor int
-		live  func(*apiServer) int
+		field   string
+		key     string
+		shipped int // what GET serves before anyone patches
+		live    func(*apiServer) int
 	}{
 		{"doc_cap_chars_duty", settingDocCapCharsDuty, dutyCapCharsDefault,
 			func(s *apiServer) int { return s.dutyCap() }},
@@ -267,6 +274,12 @@ func TestUpdateSettingsDocCapCharsRange(t *testing.T) {
 			func(s *apiServer) int { return s.manualSopCap() }},
 		{"doc_cap_chars_manual_learnings", settingDocCapCharsManualLearnings, contextDocMaxCharsDefault,
 			func(s *apiServer) int { return s.manualLearningsCap() }},
+		{"doc_cap_chars_system_interaction", settingDocCapCharsSystemInteraction, systemInteractionCapCharsDefault,
+			func(s *apiServer) int { return s.systemInteractionCap() }},
+		{"doc_cap_chars_boot_sequence", settingDocCapCharsBootSequence, bootSequenceCapCharsDefault,
+			func(s *apiServer) int { return s.bootSequenceCap() }},
+		{"doc_cap_chars_offboard", settingDocCapCharsOffboard, offboardCapCharsDefault,
+			func(s *apiServer) int { return s.offboardCap() }},
 	}
 	for _, k := range knobs {
 		t.Run(k.field, func(t *testing.T) {
@@ -282,14 +295,12 @@ func TestUpdateSettingsDocCapCharsRange(t *testing.T) {
 			// never puts on the wire: absent reads as the Go zero value, and the
 			// frontend's `?? DEFAULT` fallback would otherwise disguise it.
 			if status, data := doJSON(t, "GET", srv.URL+"/api/settings", owner, ""); status != 200 ||
-				data[k.field] != float64(k.floor) {
+				data[k.field] != float64(k.shipped) {
 				t.Fatalf("GET must serve %s's default: %d %v", k.field, status, data[k.field])
 			}
 
-			// Below the floor is refused — including the value one under the
-			// default, which is the shape a "let me lower it a little" attempt
-			// actually takes.
-			below := strconv.Itoa(k.floor - 1)
+			// Below the shared floor is refused.
+			below := strconv.Itoa(minDocCapChars - 1)
 			for _, body := range []string{
 				`{"` + k.field + `":` + below + `}`,
 				`{"` + k.field + `":0}`,
@@ -304,12 +315,25 @@ func TestUpdateSettingsDocCapCharsRange(t *testing.T) {
 			if v, err := d.GetSetting(k.key); err != nil || v != nil {
 				t.Fatalf("a rejected patch must write nothing to %s: %v %v", k.key, v, err)
 			}
-			if got := k.live(api); got != k.floor {
+			if got := k.live(api); got != k.shipped {
 				t.Fatalf("a rejected patch must not move %s's live cap: %d", k.field, got)
 			}
 
+			// 🔴 THE RULING. One under the shipped default is the exact shape a
+			// "let me lower it a little" attempt takes, and it must now SUCCEED.
+			// This is the assertion, and the only one, that a floor put back at
+			// the shipped default would fail.
+			belowShipped := strconv.Itoa(k.shipped - 1)
+			if status, data := patchSettings(t, srv.URL, owner, `{"`+k.field+`":`+belowShipped+`}`); status != 200 {
+				t.Fatalf("%s must be LOWERABLE below its shipped default %d: want 200, got %d: %v",
+					k.field, k.shipped, status, data)
+			}
+			if got := k.live(api); got != k.shipped-1 {
+				t.Fatalf("%s lowered below its shipped default must be live immediately, got %d", k.field, got)
+			}
+
 			// Both ends of the range are accepted, durable, and live.
-			for _, n := range []string{strconv.Itoa(k.floor), "100000", "42000"} {
+			for _, n := range []string{strconv.Itoa(minDocCapChars), "100000", "42000"} {
 				status, data := patchSettings(t, srv.URL, owner, `{"`+k.field+`":`+n+`}`)
 				if status != 200 {
 					t.Fatalf("PATCH %s=%s: want 200, got %d: %v", k.field, n, status, data)
@@ -345,15 +369,26 @@ func TestLoadAuthSettingsRejectsAnOutOfRangeDocCap(t *testing.T) {
 	// Every key, for the reason the PATCH-face table above gives: a key missing
 	// from the load face is never range-checked at all, and the way that shows
 	// up is a server that boots happily on a cap the PATCH face would refuse.
-	keys := map[string]int{
-		settingDocCapCharsDuty:            dutyCapCharsDefault,
-		settingDocCapCharsInsight:         contextDocMaxCharsDefault,
-		settingDocCapCharsLearning:        contextDocMaxCharsDefault,
-		settingDocCapCharsManualSop:       contextDocMaxCharsDefault,
-		settingDocCapCharsManualLearnings: contextDocMaxCharsDefault,
+	//
+	// 🔴 The value mapped to each key is its SHIPPED DEFAULT, and since
+	// 2026-09-07 that is no longer the same thing as its floor — the floor is
+	// minDocCapChars for all eight. The two faces have to agree on which of the
+	// two they enforce, so the pair of assertions below checks exactly that:
+	// under the shared floor must fail the boot load, and one under the shipped
+	// default must LOAD. The three boot-context keys were added the same day;
+	// they had never been range-checked here at all.
+	shipped := map[string]int{
+		settingDocCapCharsDuty:              dutyCapCharsDefault,
+		settingDocCapCharsInsight:           contextDocMaxCharsDefault,
+		settingDocCapCharsLearning:          contextDocMaxCharsDefault,
+		settingDocCapCharsManualSop:         contextDocMaxCharsDefault,
+		settingDocCapCharsManualLearnings:   contextDocMaxCharsDefault,
+		settingDocCapCharsSystemInteraction: systemInteractionCapCharsDefault,
+		settingDocCapCharsBootSequence:      bootSequenceCapCharsDefault,
+		settingDocCapCharsOffboard:          offboardCapCharsDefault,
 	}
-	for key, floor := range keys {
-		for _, bad := range []string{strconv.Itoa(floor - 1), "100001", "0", "-5", "lots"} {
+	for key, def := range shipped {
+		for _, bad := range []string{strconv.Itoa(minDocCapChars - 1), "100001", "0", "-5", "lots"} {
 			d := newTestDAL(t)
 			if err := d.PutSetting(key, bad); err != nil {
 				t.Fatalf("PutSetting: %v", err)
@@ -364,14 +399,21 @@ func TestLoadAuthSettingsRejectsAnOutOfRangeDocCap(t *testing.T) {
 				t.Fatalf("%s=%q must fail the boot load, not be silently accepted", key, bad)
 			}
 		}
-		// Positive control: at the floor the same key loads. Without it, a load
-		// face that refused everything would satisfy the loop above.
-		d := newTestDAL(t)
-		if err := d.PutSetting(key, strconv.Itoa(floor)); err != nil {
-			t.Fatalf("PutSetting: %v", err)
-		}
-		if _, err := loadAuthSettings(d, defaultConfig(), func(string) {}); err != nil {
-			t.Fatalf("%s at its floor must load: %v", key, err)
+		// Positive control: at the shared floor the same key loads. Without it, a
+		// load face that refused everything would satisfy the loop above.
+		//
+		// 🔴 And one under the SHIPPED DEFAULT loads too — a row the owner
+		// lowered by hand must survive a restart. Put the shipped default back
+		// as this face's floor and this second case goes red while the first
+		// stays green, which is what tells the two rules apart.
+		for _, good := range []string{strconv.Itoa(minDocCapChars), strconv.Itoa(def - 1)} {
+			d := newTestDAL(t)
+			if err := d.PutSetting(key, good); err != nil {
+				t.Fatalf("PutSetting: %v", err)
+			}
+			if _, err := loadAuthSettings(d, defaultConfig(), func(string) {}); err != nil {
+				t.Fatalf("%s=%s is in range and must load: %v", key, good, err)
+			}
 		}
 	}
 }

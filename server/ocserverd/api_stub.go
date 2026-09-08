@@ -125,6 +125,19 @@ type apiServer struct {
 	docCapCharsSystemInteraction int
 	docCapCharsBootSequence      int
 	docCapCharsOffboard          int
+	// loreCapChars* are the live T-33 傳承 knobs (DB lore.cap_chars.{role,
+	// manual,title,body}). The two FOLD budgets are read at request time by the
+	// two exits through loreRoleCap() / loreManualCap(); the two ENTRY bounds by
+	// the write face through loreTitleCap() / loreBodyCap().
+	//
+	// Four fields and four accessors rather than one loreCap(kind): which cap a
+	// call site is entitled to is a property of the seam, not a runtime argument,
+	// so a parameter would let the boot fold quietly measure itself against the
+	// title cap and still compile.
+	loreCapCharsRole   int
+	loreCapCharsManual int
+	loreCapCharsTitle  int
+	loreCapCharsBody   int
 	// chatBudgetChars is the live budget of the wake snapshot's chat block (DB
 	// chat.budget_chars; T-c9b4). Read through chatBudget() by
 	// resumeSnapshotParts — the ONE place the number enters the packer, which is
@@ -181,13 +194,15 @@ type apiServer struct {
 	// default) = the centred ~1040px content column the cockpit ships with; true
 	// lifts that cap. NOT an agent read path.
 	displayWide bool
-	// suggestedRepliesReplyCard / suggestedRepliesTaskMessage are the owner's
-	// one-click 建議回覆 (DB suggested_replies.*; T-122), live copies of the two
+	// suggestedRepliesReplyCard / suggestedRepliesTaskMessage /
+	// suggestedRepliesLoreMessage are the owner's one-click 建議回覆 (DB
+	// suggested_replies.*; T-122, the 傳承 one added by T-33), live copies of the
 	// lists GET /api/settings serves and PATCH replaces. Each is REPLACED
 	// wholesale on a patch and never mutated in place, so a reader holding the
 	// slice under settingsMu can keep it.
 	suggestedRepliesReplyCard   []string
 	suggestedRepliesTaskMessage []string
+	suggestedRepliesLoreMessage []string
 	// selfBase is this server's OWN loopback base URL ("http://127.0.0.1:PORT"),
 	// stamped by cmdServe once the bind address is known. It exists for the ONE
 	// in-process caller that needs an OC_BASE with no HTTP request to derive it
@@ -676,6 +691,49 @@ func (s *apiServer) offboardCap() int {
 // costs one function body, not nine call sites.
 func (s *apiServer) taskEventCap() int {
 	return taskEventCapCharsDefault
+}
+
+// loreRoleCap / loreManualCap are the live FOLD budgets of the two lore exits
+// (T-33). Read at request time like every cap above, so a PATCH takes effect on
+// the next boot document with no restart.
+//
+// ⚠️ loreRoleCap IS THE MEMBER BUDGET. Since the scopes collapsed to two (owner
+// 2026-09-07, rc-a43100fd0486 [0]) there is no role scope for it to be the
+// budget OF; it is what every member-scoped fold spends — the staff exit in
+// assets.go and the outsource exit in worker_spawn.go, which now ask for the
+// same scope. The function and its setting key keep the old name because
+// renaming a live settings key is the owner's call, not this ticket's.
+//
+// 🔴 THE TWO ARE INDEPENDENT AND ARE NEVER ADDED. One member's 傳承 is paid for
+// by every boot of that member; a task type's is paid for by whoever opens that
+// manual. Summing them, or serving one where the other belongs, would make one
+// reader's budget depend on an unrelated reader's writing.
+func (s *apiServer) loreRoleCap() int {
+	s.settingsMu.RLock()
+	defer s.settingsMu.RUnlock()
+	return s.loreCapCharsRole
+}
+
+func (s *apiServer) loreManualCap() int {
+	s.settingsMu.RLock()
+	defer s.settingsMu.RUnlock()
+	return s.loreCapCharsManual
+}
+
+// loreTitleCap / loreBodyCap bound ONE entry at the moment it is written. They
+// are what the write face refuses against, and — unlike the doc caps — they may
+// be lowered: an entry has no edit path, so a smaller cap can never strand one
+// that is already stored.
+func (s *apiServer) loreTitleCap() int {
+	s.settingsMu.RLock()
+	defer s.settingsMu.RUnlock()
+	return s.loreCapCharsTitle
+}
+
+func (s *apiServer) loreBodyCap() int {
+	s.settingsMu.RLock()
+	defer s.settingsMu.RUnlock()
+	return s.loreCapCharsBody
 }
 
 // chatBudget is the live wake-snapshot chat budget (chat.budget_chars;

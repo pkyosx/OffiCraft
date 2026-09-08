@@ -1494,7 +1494,10 @@ func (d *DAL) PutTaskManual(m TaskManual) error {
 	return putTaskManualOn(d.wdb, m)
 }
 
+// The 傳承 backstop on the learnings column — see putLessonsOn (dal.go) for why
+// it sits at this layer as well as at every handler.
 func putTaskManualOn(ex sqlExecer, m TaskManual) error {
+	m.Learnings = stripTrailingLoreBlock(m.Learnings)
 	_, err := ex.Exec(`
 		INSERT INTO task_manual (`+taskManualColumns+`)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?)

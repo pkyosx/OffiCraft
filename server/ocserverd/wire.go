@@ -125,7 +125,19 @@ type settingsDTO struct {
 	// T-c9b4). NOT a doc cap: it bounds a block repacked on every read, so unlike
 	// the seven above it may be lowered as well as raised, and its ceiling is its
 	// own (tied to resumeChatFetch, see domain.go).
-	ChatBudgetChars int `json:"chat_budget_chars"`
+	// The four 傳承 knobs (T-33; lore.cap_chars.*). Two FOLD budgets — how much
+	// lore a staff boot document carries for one role, and how much
+	// get_task_manual appends after a type's learnings — and two ENTRY bounds on
+	// one write's title and body.
+	//
+	// 🔴 The two fold budgets are NEVER summed. They are spent by different
+	// readers at different moments, so one shared number would make a role's
+	// traditions compete with a task type's for the same room.
+	LoreCapCharsRole   int `json:"lore_cap_chars_role"`
+	LoreCapCharsManual int `json:"lore_cap_chars_manual"`
+	LoreCapCharsTitle  int `json:"lore_cap_chars_title"`
+	LoreCapCharsBody   int `json:"lore_cap_chars_body"`
+	ChatBudgetChars    int `json:"chat_budget_chars"`
 	// StepNoteCapChars is the ceiling on ONE task step's working note
 	// (task.step_note_cap_chars; T-119). Also not a doc cap and also lowerable:
 	// it is enforced only when a note is written, so an over-cap note keeps
@@ -167,18 +179,21 @@ type settingsDTO struct {
 	// two prefs above this is a plain bool with no "never set" state — false IS
 	// the shipped narrow look, so an untouched install reads exactly right.
 	DisplayWide bool `json:"display_wide"`
-	// SuggestedRepliesReplyCard / SuggestedRepliesTaskMessage are the owner's
-	// one-click 建議回覆 (suggested_replies.*; T-122) — the sentences the cockpit
-	// offers under a 請示卡 reply box and under a 任務 message box respectively.
-	// TWO lists, not one: the two boxes are different conversations, so a
-	// sentence written for one is wrong in the other.
+	// SuggestedRepliesReplyCard / SuggestedRepliesTaskMessage /
+	// SuggestedRepliesLoreMessage are the owner's one-click 建議回覆
+	// (suggested_replies.*; T-122, the 傳承 one added by T-33) — the sentences the
+	// cockpit offers under a 請示卡 reply box, under a 任務 message box, and under a
+	// 傳承 entry's message box respectively. ONE LIST PER BOX, not one shared one:
+	// the three boxes are three different conversations, so a sentence written
+	// for one is wrong in the others.
 	//
-	// 🔴 NEVER null on the wire. The spec types both as `array`, and "" the owner
-	// configured none is the ordinary state — it must serialize as [] so a
+	// 🔴 NEVER null on the wire. The spec types all three as `array`, and "the
+	// owner configured none" is the ordinary state — it must serialize as [] so a
 	// reader never has to tell "none" apart from "missing". settingsView
 	// normalizes it.
 	SuggestedRepliesReplyCard   []string `json:"suggested_replies_reply_card"`
 	SuggestedRepliesTaskMessage []string `json:"suggested_replies_task_message"`
+	SuggestedRepliesLoreMessage []string `json:"suggested_replies_lore_message"`
 	// Onboarding (T-ba62) is the first-run onboarding report, or nil when
 	// onboarding never ran on this database. It rides the OWNER-GATED settings
 	// read on purpose: a failed step's Detail carries the raw `ocwarden install`
@@ -2857,19 +2872,34 @@ type taskManualDTO struct {
 	// caller was watching. A client reading it about sop_md gets a number that
 	// is merely stale rather than absent, which is why the split fields are the
 	// ones the descriptions point at.
-	LearningsChars    int            `json:"learnings_chars"`
-	SopMDChars        int            `json:"sop_md_chars"`
-	LearningsCapChars int            `json:"learnings_cap_chars"`
-	SopMDCapChars     int            `json:"sop_md_cap_chars"`
-	CapChars          int            `json:"cap_chars"`
-	TypeKey           string         `json:"type_key"`
-	DisplayName       string         `json:"display_name"`
-	Purpose           string         `json:"purpose"`
-	Fields            []ManualField  `json:"fields"`
-	SopMD             string         `json:"sop_md"`
-	Learnings         string         `json:"learnings"`
-	Assignee          map[string]any `json:"assignee"`
-	UpdatedTS         float64        `json:"updated_ts"`
+	LearningsChars    int           `json:"learnings_chars"`
+	SopMDChars        int           `json:"sop_md_chars"`
+	LearningsCapChars int           `json:"learnings_cap_chars"`
+	SopMDCapChars     int           `json:"sop_md_cap_chars"`
+	CapChars          int           `json:"cap_chars"`
+	TypeKey           string        `json:"type_key"`
+	DisplayName       string        `json:"display_name"`
+	Purpose           string        `json:"purpose"`
+	Fields            []ManualField `json:"fields"`
+	SopMD             string        `json:"sop_md"`
+	Learnings         string        `json:"learnings"`
+	// Lore is the rendered lore block for this manual, and it is a FIELD OF ITS
+	// OWN rather than text appended to Learnings (owner ruling 2026-09-07:
+	// 「get_task_manual 應該 learning 跟 lore 還是分開的欄位」).
+	//
+	// 🔴 THE OLD SHAPE PRODUCED A FIELD THAT LIED ABOUT ITSELF. Lore used to be
+	// concatenated onto Learnings, while LearningsChars kept counting only the
+	// STORED document — deliberately, because a writer sizes an edit against
+	// what it can edit. The result reached the owner as a manual whose
+	// learnings field was full of text and whose learnings_chars said 0, with
+	// nothing marking which half was which. Two things in one field cannot both
+	// be measured by one number; splitting the field is what makes both numbers
+	// honest, so LoreChars counts THIS field and LearningsChars is once again
+	// the size of the thing the write face writes.
+	Lore      string         `json:"lore"`
+	LoreChars int            `json:"lore_chars"`
+	Assignee  map[string]any `json:"assignee"`
+	UpdatedTS float64        `json:"updated_ts"`
 }
 
 // taskManualListItemDTO is one row of GET /api/task-manuals: the type's

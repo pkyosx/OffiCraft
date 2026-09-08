@@ -1068,8 +1068,12 @@ def test_task_message_rides_chat_with_task_context(client, owner_token, executor
     assert msg["meta"]["task_id"] == task["id"]
     assert msg["meta"]["task_title"] == "msg target"
     # The visible body is prefixed with the task's display number so the
-    # executor's message is self-identifying (owner 2026-07-14).
-    assert msg["body"] == f"[{task['task_no']}] how is it going?"
+    # executor's message is self-identifying (owner 2026-07-14). The prefix
+    # NAMES the id kind — 「[TaskID=…]」, not a bare 「[T-1]」 — because the
+    # reader is an AI member and nothing in seeds/ or docs/ ever teaches it
+    # that a T- prefix means a task; it has to infer, and an inference that
+    # goes wrong is silent (owner 2026-09-08, rc-379631993586 「ok. B.」).
+    assert msg["body"] == f"[TaskID={task['task_no']}] how is it going?"
     # An empty message is refused.
     assert client.post(f"/api/tasks/{task['id']}/message", json={},
                        headers=_auth(owner_token)).status_code == 400

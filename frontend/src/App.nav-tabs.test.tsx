@@ -4,9 +4,14 @@
 // (owner 2026-07-22:「user guide 改放在 tab 中,監控的右邊,不要放在 settings
 // 裡」). What is locked here is the part a screenshot conveys and a component
 // test otherwise cannot:
-//   1. ORDER — 辦公室 / 請示 / 任務 / 監控 / 使用說明, with 使用說明 LAST, i.e.
-//      immediately to the right of 監控. The owner's红框 was a position, so
+//   1. ORDER — 辦公室 / 請示 / 任務 / 傳承 / 監控 / 使用說明, with 使用說明 LAST,
+//      i.e. immediately to the right of 監控. The owner's红框 was a position, so
 //      position is the requirement; "the tab exists somewhere" would not be.
+//      T-33 inserted 傳承 between 任務 and 監控. That is a WIDENING of the strip,
+//      not a reversal of the ruling this test was written for: the ruling was
+//      about where 使用說明 sits relative to 監控, and the second assertion
+//      below — the one that states it as a RELATION rather than a literal list
+//      — is the one that carries it and is untouched.
 //   2. It routes: clicking it writes #guide and renders the guide page.
 //   3. It is a NAV tab, not a settings sub-page — opening Settings deactivates
 //      it, exactly like every sibling tab.
@@ -28,6 +33,7 @@ vi.mock("./hooks/useOrgName", () => ({
 vi.mock("./components/OfficePage", () => ({ OfficePage: () => null }));
 vi.mock("./components/RepliesPage", () => ({ RepliesPage: () => null }));
 vi.mock("./components/TasksPage", () => ({ TasksPage: () => null }));
+vi.mock("./components/LorePage", () => ({ LorePage: () => null }));
 vi.mock("./components/MonitorPage", () => ({ MonitorPage: () => null }));
 vi.mock("./components/SettingsPage", () => ({ SettingsPage: () => null }));
 // The guide body itself is exercised in GuidePage.test.tsx; here we only need
@@ -64,6 +70,7 @@ describe("主導覽分頁", () => {
       zh.nav.office,
       zh.nav.replies,
       zh.nav.tasks,
+      zh.nav.lore,
       zh.nav.monitor,
       zh.nav.guide,
     ]);

@@ -228,9 +228,12 @@ func validateAvatars(avatars *map[string]string, where string) error {
 }
 
 // navIconKeyAllowed is the closed set of nav-tab keys a navIcons overlay may
-// carry — the five nav tabs of App.tsx (`Tab` type). Any other key is a 422.
+// carry — the nav tabs of App.tsx (`Tab` type). Any other key is a 422.
+// Twin of NAV_ICON_KEYS in frontend/src/lib/themeBundleCore.ts; T-33's 傳承 tab
+// was added to both in one change, since a key one side accepts and the other
+// rejects is a theme pack that half-imports.
 var navIconKeyAllowed = map[string]bool{
-	"office": true, "replies": true, "tasks": true, "monitor": true, "guide": true,
+	"office": true, "replies": true, "tasks": true, "lore": true, "monitor": true, "guide": true,
 }
 
 // validateLogo validates a bundle's optional single studio-logo image (T-ea81).

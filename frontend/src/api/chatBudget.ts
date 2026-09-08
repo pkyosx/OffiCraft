@@ -7,12 +7,15 @@
 // settings field can refuse an out-of-range value before the owner clicks save,
 // instead of letting them collect an HTTP 422 that reads like a broken system.
 //
-// 🔴 THIS IS DELIBERATELY NOT IN docCap.ts, and the floor is why. Every
-// `doc.cap_chars.*` knob has floor == its own shipped default, because lowering
-// a document cap puts existing legal documents into shrink-only mode. The chat
-// block has no such state — it is repacked from scratch on every read — so this
-// budget is adjustable in BOTH directions, and folding it in beside the doc caps
-// would put a knob with the opposite rule under a heading that states theirs.
+// 🔴 THIS IS DELIBERATELY NOT IN docCap.ts, and the RANGE is why. It is no
+// longer the direction: since owner 2026-09-07 (card rc-5b66ba099e28 option
+// [1]) the eight `doc.cap_chars.*` knobs share one floor of DOC_CAP_CHARS_MIN
+// and turn both ways, exactly as this one always has. What has not converged is
+// the numbers — the doc caps run DOC_CAP_CHARS_MIN..100000, and this budget is
+// a per-read packing allowance with its own 1000..13000 (the ceiling below is
+// tied to a server window, not to a document size). Folding it into a table
+// whose rows all state one range would either silently widen this knob or
+// narrow those.
 //
 // 🔴 The ceiling is not a round number either: the server reads a bounded window
 // of newest messages before packing, and that window has to be able to overrun

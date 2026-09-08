@@ -95,6 +95,11 @@ import type {
   AccountCostResetReceipt,
   CostResetReceipt,
   TaskArtifactVersionView,
+  LoreEntryView,
+  LoreEntryPageView,
+  LoreEntryState,
+  LoreEntryWrite,
+  LoreListOptions,
 } from "./adapter";
 import type {
   WireMember,
@@ -142,6 +147,7 @@ import {
 } from "./mappers";
 import {
   DOC_CAP_CHARS_DEFAULTS,
+  DOC_CAP_CHARS_MIN,
   BOOT_DOC_CAP_CHARS_DEFAULTS,
   BOOT_DOC_HISTORY_KEPT,
   TASK_EVENT_CAP_CHARS_DEFAULT,
@@ -161,15 +167,24 @@ import {
   STEP_NOTE_CAP_CHARS_MIN,
 } from "./stepNoteCap";
 import {
+  LORE_CAP_CHARS_DEFAULTS,
+  LORE_FOLD_CAP_CHARS_MIN,
+  LORE_FOLD_CAP_CHARS_MAX,
+  LORE_ENTRY_CAP_CHARS_MIN,
+  LORE_ENTRY_CAP_CHARS_MAX,
+} from "./loreCap";
+import {
   BACKUP_RETAIN_DEFAULT,
   BACKUP_RETAIN_MAX,
   BACKUP_RETAIN_MIN,
 } from "./backupRetain";
 import {
+  SUGGESTED_REPLIES_LORE_MESSAGE_FIELD,
   SUGGESTED_REPLIES_MAX_ENTRIES,
   SUGGESTED_REPLIES_REPLY_CARD_FIELD,
   SUGGESTED_REPLIES_TASK_MESSAGE_FIELD,
   SUGGESTED_REPLY_MAX_LEN,
+  withSuggestedRepliesLoreMessage,
   withSuggestedRepliesReplyCard,
   withSuggestedRepliesTaskMessage,
 } from "./suggestedReplies";
@@ -989,6 +1004,150 @@ function withManualSizes(m: StoredTaskManual): TaskManualView {
 // plus a `> [!NOTE]` alert AND a plain blockquote in the same doc, so both the
 // marker-stripping and "an alert must not look like an ordinary quote" have a
 // fixture (the latter is only decidable in a real browser — see the CT spec).
+/** 傳承 fixture (T-33). Enough rows, and enough LENGTH, that the default
+ * 10,000-character member budget is not trivially satisfied — a fixture whose
+ * every row fits can never show the 上限線 the page exists to draw, so the
+ * cockpit would be built against a case that never occurs.
+ *
+ * 🔴 THREE KINDS OF ROW, AND THE THIRD IS THE ONE PEOPLE WILL WANT TO DELETE.
+ * Since the scopes collapsed to two (owner 2026-09-07, card rc-a43100fd0486
+ * [0]) the live rows are `agent` (keyed by a member id — staff and outsource
+ * alike) and `manual` (keyed by a type_key). L-6 is neither: it is an ORPHAN,
+ * a row the server's migration deliberately left at the retired `role` value
+ * because it could not determine which member it belonged to. The wire still
+ * sends those, `toLoreEntry` maps them to "unknown", and the page must render
+ * them — so the fixture carries one. Without it the "unknown" arm has no
+ * fixture at all and could be deleted with the whole suite staying green. */
+const mockLoreEntries: LoreEntryView[] = [
+  {
+    id: "L-1",
+    seq: 1,
+    scopeKind: "agent",
+    scopeKey: "mira",
+    title: "成功回應不代表資料完整",
+    // 🔴 THE ONLY SEEDED BODY THAT IS MARKDOWN, AND IT IS SEEDED ON PURPOSE.
+    // 傳承本體是 markdown 算繪的（T-33），而在這一筆之前六筆種子沒有任何一筆
+    // 帶標記語法或換行 —— 所以 scripts/shots.mjs 拍出來的畫面**不會顯示**
+    // markdown 有沒有在運作，看的人會把「純文字看起來正常」讀成「markdown 好了」。
+    // 它同時夠長，能讓摺疊（只有本體會摺）在畫面上真的摺起來。
+    body:
+      "驗證外部整合時，**不能只以 request 成功作為驗收依據**，還要確認關鍵資料真的產生了。\n\n" +
+      "常見的三種假綠燈：\n\n" +
+      "- 對方回 `200`，但 body 裡的 `errors` 是非空陣列\n" +
+      "- 寫入成功，但寫進了另一個租戶的表\n" +
+      "- 非同步任務只回「已排入」，真正失敗發生在十分鐘後，沒有人在看\n\n" +
+      "驗收條件要寫成「那一筆資料查得到」，而不是「那個呼叫沒有丟例外」。",
+    authorId: "mira",
+    sourceTaskId: "",
+    state: "pinned",
+    retireReason: "",
+    effectiveTs: 1788600000,
+    createdTs: 1788500000,
+    updatedTs: 1788600000,
+  },
+  {
+    id: "L-2",
+    seq: 2,
+    scopeKind: "agent",
+    scopeKey: "mira",
+    title: "零命中的預設解讀是查法寫錯了",
+    body: "掃描回空的時候先跑一次陽性對照，確認量具本身還會命中，再去解釋那個零。",
+    authorId: "mira",
+    sourceTaskId: "",
+    state: "active",
+    retireReason: "",
+    effectiveTs: 1788400000,
+    createdTs: 1788400000,
+    updatedTs: 1788400000,
+  },
+  {
+    id: "L-3",
+    seq: 3,
+    scopeKind: "agent",
+    scopeKey: "mira",
+    title: "退出碼要落檔再讀",
+    body: "cmd 後面接 echo 的話，回報的退出碼是那一行 echo 的，紅的會跑成綠的。",
+    authorId: "m-gone",
+    sourceTaskId: "",
+    state: "retired",
+    retireReason: "已經寫進 SOP，這一筆不再需要單獨佔一格。",
+    effectiveTs: 1788300000,
+    createdTs: 1788300000,
+    updatedTs: 1788700000,
+  },
+  {
+    id: "L-4",
+    seq: 4,
+    scopeKind: "manual",
+    scopeKey: "tm-mock",
+    title: "手冊傳承不進任何人的開機檔",
+    body: "這一類條目只在讀那本手冊的時候拿得到，正職與外包一視同仁。",
+    authorId: "mira",
+    sourceTaskId: "T-1",
+    state: "active",
+    retireReason: "",
+    effectiveTs: 1788450000,
+    createdTs: 1788450000,
+    updatedTs: 1788450000,
+  },
+  // A SECOND member's rows, so that "keyed by a member id" has a fixture where
+  // the two members are actually different people. L-1..L-3 are Mira's (staff);
+  // this one is the outsource worker ow-7d8ad859dd9b's. Its author is that same
+  // worker: member lore is written by the member it loads into. Two distinct
+  // member keys under ONE scope kind is what gives the 屬於 filter something to
+  // discriminate with — with only one member on file, a filter that ignored the
+  // key entirely would look identical to one that honoured it.
+  {
+    id: "L-5",
+    seq: 5,
+    scopeKind: "agent",
+    scopeKey: "ow-7d8ad859dd9b",
+    title: "交接路徑要寫絕對路徑",
+    body: "留給下一個人的路徑一律寫絕對路徑——對方在別的工作目錄下撲空，得到的訊息跟那一輪根本沒跑一模一樣。",
+    authorId: "ow-7d8ad859dd9b",
+    sourceTaskId: "",
+    state: "active",
+    retireReason: "",
+    effectiveTs: 1788460000,
+    createdTs: 1788460000,
+    updatedTs: 1788460000,
+  },
+  // 🔴 THE ORPHAN. On the wire this row's scope_kind is the retired literal
+  // "role"; `toLoreEntry` maps every unrecognised kind to "unknown", which is
+  // what it is stored as here because that is the only thing this type can
+  // hold. It exists because the server's migration REFUSED to guess: this role
+  // had no single active member under it, so rekeying it onto one would have
+  // filed somebody's 傳承 under a stranger with no way to undo it. The page has
+  // to show it — an orphan nobody can see is the same as a deleted one.
+  {
+    id: "L-6",
+    seq: 6,
+    scopeKind: "unknown",
+    scopeKey: "r-legacy-orphan",
+    title: "留下來的孤兒不是壞掉的資料",
+    body: "這一筆原本掛在一個角色底下，而那個角色現在沒有唯一一位在職成員，所以搬遷沒有動它。它讀得到、改得動，等有人決定它屬於誰。",
+    authorId: "m-gone",
+    sourceTaskId: "",
+    state: "active",
+    retireReason: "",
+    effectiveTs: 1788440000,
+    createdTs: 1788440000,
+    updatedTs: 1788440000,
+  },
+];
+
+/** The FIXED display order (spec §6): 置頂 → 生效中 → 已失效, newest effective
+ * first inside each group, `seq` as the tie-break so two entries sharing an
+ * effective timestamp still order the same way on every read. It is not
+ * configurable — the filter is. */
+function mockLoreOrder(a: LoreEntryView, b: LoreEntryView): number {
+  const rank = (s: LoreEntryView["state"]) =>
+    s === "pinned" ? 0 : s === "active" ? 1 : 2;
+  if (rank(a.state) !== rank(b.state)) return rank(a.state) - rank(b.state);
+  if (a.effectiveTs !== b.effectiveTs) return b.effectiveTs - a.effectiveTs;
+  return b.seq - a.seq;
+}
+
 const mockDocs: DocView[] = [
   {
     slug: "install",
@@ -1979,6 +2138,10 @@ const DEFAULT_MOCK_SETTINGS = {
   chat_budget_chars: CHAT_BUDGET_CHARS_DEFAULT,
   // T-119 step-note cap, served for the same reason as everything above.
   step_note_cap_chars: STEP_NOTE_CAP_CHARS_DEFAULT,
+  lore_cap_chars_role: LORE_CAP_CHARS_DEFAULTS.role,
+  lore_cap_chars_manual: LORE_CAP_CHARS_DEFAULTS.manual,
+  lore_cap_chars_title: LORE_CAP_CHARS_DEFAULTS.title,
+  lore_cap_chars_body: LORE_CAP_CHARS_DEFAULTS.body,
   // T-8 backup retention N, served for the same reason as everything above: a
   // settings DTO missing a field the server always sends is a mock the page can
   // go green against while the real one breaks.
@@ -1994,12 +2157,13 @@ const DEFAULT_MOCK_SETTINGS = {
   // Owner nickname (T-0b41) — "" out of the box, mirroring the server (the
   // profile pill shows the localized default until the owner sets a nickname).
   owner_name: "",
-  // 建議回覆 (T-122) — BOTH lists empty out of the box, mirroring the server.
-  // Empty means the box shows no chips at all, which is the state a fresh
-  // install is in. Written through api/suggestedReplies.ts so the two field
-  // names still live in exactly one module.
+  // 建議回覆 (T-122; the 傳承 list T-33) — EVERY list empty out of the box,
+  // mirroring the server. Empty means the box shows no chips at all, which is
+  // the state a fresh install is in. Written through api/suggestedReplies.ts so
+  // the field names still live in exactly one module.
   [SUGGESTED_REPLIES_REPLY_CARD_FIELD]: [] as string[],
   [SUGGESTED_REPLIES_TASK_MESSAGE_FIELD]: [] as string[],
+  [SUGGESTED_REPLIES_LORE_MESSAGE_FIELD]: [] as string[],
   push_contact_email: "",
   // Cockpit display prefs (T-0b41-p2) — "" out of the box, mirroring the server
   // (the frontend keeps its localStorage cache / default until the owner picks).
@@ -3433,6 +3597,13 @@ export const mockApi: Api = {
     body: string;
     attachments?: ChatAttachmentInput[];
     replyTo?: string;
+    // Accepted and DROPPED, on purpose. `meta` is read by an AGENT off the
+    // stored row, and the mock has no agent and no meta on its ChatMessage
+    // view — there is no screen in offline preview whose appearance depends on
+    // it. Taking the parameter keeps the mock a faithful stand-in for the
+    // adapter's signature (a caller that sends meta must not fail to compile
+    // against the mock); pretending to store it would be the dishonest half.
+    meta?: Record<string, unknown>;
   }): Promise<void> {
     // Record the owner's message into the in-memory log and echo it back. The
     // sender is MOCK_OWNER_ID ("owner") — matching the real backend, which
@@ -4329,7 +4500,15 @@ export const mockApi: Api = {
     // Server parity: the stored body is the TRIMMED text prefixed with the
     // task's display number so the executor sees which task the ruling is
     // about (an attachment-only message keeps the empty body — no prefix).
-    const body = hasBody ? `[${t.taskNo}] ${trimmed}` : trimmed;
+    //
+    // 🔴 THE PREFIX NAMES THE KIND — `[TaskID=…]`, not a bare `[T-1]` (owner
+    // 2026-09-08, rc-379631993586「ok. B.」). Kept in step with api_tasks.go
+    // because the comment above says "Server parity" and NOTHING CHECKS IT:
+    // no drift gate compares this mock against the Go handler, so the only
+    // thing holding the two shapes together is that whoever changes one reads
+    // this line. The four NOTICE heads below (轉派／接手／解除阻擋) still carry
+    // the bare shape — that is deliberate, they are a separate ruling.
+    const body = hasBody ? `[TaskID=${t.taskNo}] ${trimmed}` : trimmed;
     chatLog.push({
       id: `mock-task-msg-${stamp}`,
       from: MOCK_OWNER_ID,
@@ -4738,6 +4917,151 @@ export const mockApi: Api = {
     // readable revision of a deleted document makes 「永久移除」 false.
     for (const kind of MANUAL_KINDS) dropDocumentHistory(kind, typeKey);
     emitTopic("task_manual");
+  },
+
+  // ── 傳承 (T-33) ──────────────────────────────────────────────────────────
+  //
+  // 🔴 THE MOCK APPLIES THE FILTER AND THE CAP THE SAME WAY THE SERVER DOES,
+  // in the same order — filter, then sort, then spend the budget, then cut the
+  // page. A mock that pages first would let a page-then-filter bug pass every
+  // mock-mode test and only appear against the real server, which is the one
+  // place nobody is looking when the cockpit is being built.
+
+  async listLoreEntries(opts?: LoreListOptions): Promise<LoreEntryPageView> {
+    // 🔴 THE PRECEDENCE IS MIRRORED, NOT REINVENTED. Each axis has a plural set
+    // and a singular scalar; when both are given the SET wins and the scalar is
+    // ignored — never ANDed, never unioned. A mock that ANDed them would let a
+    // cockpit bug (sending both, meaning the set) pass every mock-mode test and
+    // appear only against the real server, which is the one place nobody is
+    // looking while the page is being built. An empty/absent set falls back to
+    // the scalar; both empty means this axis does not narrow at all.
+    const axis = <T extends string>(plural: T[] | undefined, single: T | undefined): T[] =>
+      plural && plural.length > 0 ? plural : single ? [single] : [];
+    const kinds = axis(opts?.scopeKinds, opts?.scopeKind);
+    const keys = axis(opts?.scopeKeys, opts?.scopeKey);
+    const states = axis(opts?.states, opts?.state);
+    const authors = axis(opts?.authorIds, opts?.authorId);
+    const matches = mockLoreEntries.filter(
+      (e) =>
+        (kinds.length === 0 || kinds.includes(e.scopeKind as (typeof kinds)[number])) &&
+        (keys.length === 0 || keys.includes(e.scopeKey)) &&
+        (states.length === 0 || states.includes(e.state)) &&
+        (authors.length === 0 || authors.includes(e.authorId))
+    );
+    const ordered = [...matches].sort(mockLoreOrder);
+
+    // The 上限線, over the WHOLE converged scope and before the page is cut —
+    // never over the rows this call happens to return.
+    //
+    // 🔴 CONVERGED MEANS EXACTLY ONE OF EACH, which is a LENGTH test and not a
+    // non-empty one. Two ticked 範圍 span two scopes with two different budgets
+    // behind them, so there is no single cap to report and no single entry that
+    // is 「the first one dropped」 — 0 / "" is the honest answer, the same one an
+    // unfiltered page gets.
+    let capChars = 0;
+    let firstDroppedId = "";
+    if (kinds.length === 1 && keys.length === 1) {
+      const scopeKind = kinds[0];
+      // 🔴 TWO KINDS, TWO KNOBS, AND THE MEMBER KNOB STILL CARRIES THE OLD
+      // NAME. `lore.cap_chars.role` is the budget every member-scoped fold
+      // spends (owner rc-3c24fdc61ed3 [0] put the agent scope on it rather than
+      // opening a fifth knob; the 2026-09-07 collapse then put staff on the same
+      // scope). The key was NOT renamed — that would change a live setting the
+      // owner has already turned. Spelled out per kind rather than left as
+      // "anything that is not manual", so that a scope arriving later has to be
+      // assigned a knob on purpose instead of inheriting this one by falling off
+      // the end — which is also why an "unknown" kind gets 0 rather than a
+      // plausible number: there is no honest budget to report for a scope this
+      // client cannot name.
+      capChars =
+        scopeKind === "manual"
+          ? mockServerSettings.lore_cap_chars_manual
+          : scopeKind === "agent"
+            ? mockServerSettings.lore_cap_chars_role
+            : 0;
+      let used = 0;
+      for (const e of ordered.filter((x) => x.state !== "retired")) {
+        const cost = [...e.title].length + [...e.body].length;
+        if (used + cost > capChars) {
+          firstDroppedId = e.id;
+          break;
+        }
+        used += cost;
+      }
+    }
+
+    const limit = opts?.limit ?? 30;
+    const offset = opts?.offset ?? 0;
+    return {
+      entries: structuredClone(ordered.slice(offset, offset + limit)),
+      limit,
+      offset,
+      capChars,
+      firstDroppedId,
+    };
+  },
+
+  // 🔴 THE THREE WRITES RESOLVE TO NOTHING, matching the http seam: the routes
+  // answer bounded receipts (T-33) and the cockpit reconciles by refetching.
+  // The mock still MUTATES its store, which is the part any caller can observe
+  // — through listLoreEntries, exactly as against a real server.
+  async writeLoreEntry(entry: LoreEntryWrite): Promise<void> {
+    const now = Date.now() / 1000;
+    const seq = mockLoreEntries.length + 1;
+    const made: LoreEntryView = {
+      id: `L-${seq}`,
+      seq,
+      // The mock's writer is `mira`. Since the collapse a non-task write files
+      // under the WRITER'S OWN member id whether the writer is staff or
+      // outsource, so the key here is her id and not her `assistant` role key —
+      // which is exactly the difference this line used to get wrong.
+      scopeKind: entry.taskId ? "manual" : "agent",
+      scopeKey: entry.taskId ? "tm-mock" : "mira",
+      title: entry.title,
+      body: entry.body,
+      authorId: "mira",
+      sourceTaskId: entry.taskId ?? "",
+      state: "active",
+      retireReason: "",
+      effectiveTs: now,
+      createdTs: now,
+      updatedTs: now,
+    };
+    mockLoreEntries.push(made);
+  },
+
+  async setLoreEntryState(
+    entryId: string,
+    state: LoreEntryState,
+    retireReason?: string
+  ): Promise<void> {
+    const e = mockLoreEntries.find((x) => x.id === entryId);
+    if (!e) {
+      throw mockApiError(
+        `http 404 for POST /api/lore/${entryId}/state`,
+        404,
+        "no such 傳承 entry"
+      );
+    }
+    e.state = state;
+    // Cleared by the two live states, exactly as the server does: a live entry
+    // must not keep showing the explanation for a retirement that was undone.
+    e.retireReason = state === "retired" ? (retireReason ?? "") : "";
+    e.updatedTs = Date.now() / 1000;
+  },
+
+  async bumpLoreEntry(entryId: string): Promise<void> {
+    const e = mockLoreEntries.find((x) => x.id === entryId);
+    if (!e) {
+      throw mockApiError(
+        `http 404 for POST /api/lore/${entryId}/bump`,
+        404,
+        "no such 傳承 entry"
+      );
+    }
+    // createdTs is NOT touched — that is what makes a bump reversible.
+    e.effectiveTs = Date.now() / 1000;
+    e.updatedTs = e.effectiveTs;
   },
 
   async listDocs(): Promise<DocSummaryView[]> {
@@ -5386,54 +5710,32 @@ export const mockApi: Api = {
         "outsource_max_parallel must be between -1 and 20 (-1 = unlimited)"
       );
     }
-    // Server parity (T-3aeb / T-ae38 / T-30f1): each floor IS that segment's
-    // shipped default, so a document cap can only ever be raised. Duty's floor
-    // is its OWN default, not the others' — sharing one number here would make
-    // the owner's Duty default unreachable through this surface. The numbers
-    // are read from DOC_CAP_CHARS_DEFAULTS, never restated.
-    for (const [field, wire, min] of [
-      [patch.docCapCharsDuty, "doc_cap_chars_duty", DOC_CAP_CHARS_DEFAULTS.duty],
-      [
-        patch.docCapCharsInsight,
-        "doc_cap_chars_insight",
-        DOC_CAP_CHARS_DEFAULTS.insight,
-      ],
-      [
-        patch.docCapCharsLearning,
-        "doc_cap_chars_learning",
-        DOC_CAP_CHARS_DEFAULTS.learning,
-      ],
-      [
-        patch.docCapCharsManualSop,
-        "doc_cap_chars_manual_sop",
-        DOC_CAP_CHARS_DEFAULTS.manualSop,
-      ],
-      [
-        patch.docCapCharsManualLearnings,
-        "doc_cap_chars_manual_learnings",
-        DOC_CAP_CHARS_DEFAULTS.manualLearnings,
-      ],
-      [
-        patch.docCapCharsSystemInteraction,
-        "doc_cap_chars_system_interaction",
-        DOC_CAP_CHARS_DEFAULTS.systemInteraction,
-      ],
-      [
-        patch.docCapCharsBootSequence,
-        "doc_cap_chars_boot_sequence",
-        DOC_CAP_CHARS_DEFAULTS.bootSequence,
-      ],
-      [
-        patch.docCapCharsOffboard,
-        "doc_cap_chars_offboard",
-        DOC_CAP_CHARS_DEFAULTS.offboard,
-      ],
+    // Server parity (T-3aeb / T-ae38 / T-30f1; floor rewritten by the owner's
+    // 2026-09-07 ruling on card rc-5b66ba099e28, option [1]): all eight caps
+    // share ONE floor, `DOC_CAP_CHARS_MIN`, so each moves in both directions.
+    // They were raise-only, each floored at its own shipped default, on the
+    // reasoning that lowering one stranded existing legal documents; it does
+    // not — DocCapBlocked judges only the write in front of it, stored content
+    // is never truncated and still reads back, and an over-cap document still
+    // saves while it is getting shorter.
+    for (const [field, wire] of [
+      [patch.docCapCharsDuty, "doc_cap_chars_duty"],
+      [patch.docCapCharsInsight, "doc_cap_chars_insight"],
+      [patch.docCapCharsLearning, "doc_cap_chars_learning"],
+      [patch.docCapCharsManualSop, "doc_cap_chars_manual_sop"],
+      [patch.docCapCharsManualLearnings, "doc_cap_chars_manual_learnings"],
+      [patch.docCapCharsSystemInteraction, "doc_cap_chars_system_interaction"],
+      [patch.docCapCharsBootSequence, "doc_cap_chars_boot_sequence"],
+      [patch.docCapCharsOffboard, "doc_cap_chars_offboard"],
     ] as const) {
-      if (field !== undefined && (field < min || field > 100000)) {
+      if (
+        field !== undefined &&
+        (field < DOC_CAP_CHARS_MIN || field > 100000)
+      ) {
         throw mockApiError(
           "http 422 for PATCH /api/settings",
           422,
-          `${wire} must be between ${min} and 100000 characters — the floor is the shipped default, so the document cap can only be raised, never lowered`
+          `${wire} must be between ${DOC_CAP_CHARS_MIN} and 100000 characters — a lowered cap binds the next write only; stored content over it is never truncated and still reads back`
         );
       }
     }
@@ -5451,9 +5753,9 @@ export const mockApi: Api = {
         `backup_retain must be between ${BACKUP_RETAIN_MIN} and ${BACKUP_RETAIN_MAX} backups per pool`
       );
     }
-    // T-c9b4: checked on its own, NOT as a row above — it has its own ceiling,
-    // and the message above ("the floor is the shipped default … can only be
-    // raised") would be a lie about a knob that may be turned down.
+    // T-c9b4: checked on its own, NOT as a row above — its floor and ceiling
+    // are both its own, so the message above would quote a range that does not
+    // apply to it.
     if (
       patch.chatBudgetChars !== undefined &&
       (patch.chatBudgetChars < CHAT_BUDGET_CHARS_MIN ||
@@ -5465,9 +5767,8 @@ export const mockApi: Api = {
         `chat_budget_chars must be between ${CHAT_BUDGET_CHARS_MIN} and ${CHAT_BUDGET_CHARS_MAX} characters`
       );
     }
-    // T-119: checked on its own for the same reason — it may be turned DOWN,
-    // so the doc caps' "the floor is the shipped default" message is a lie
-    // about it.
+    // T-119: checked on its own for the same reason — its range is its own, so
+    // the doc caps' message would quote the wrong numbers at it.
     if (
       patch.stepNoteCapChars !== undefined &&
       (patch.stepNoteCapChars < STEP_NOTE_CAP_CHARS_MIN ||
@@ -5478,6 +5779,45 @@ export const mockApi: Api = {
         422,
         `step_note_cap_chars must be between ${STEP_NOTE_CAP_CHARS_MIN} and ${STEP_NOTE_CAP_CHARS_MAX} characters`
       );
+    }
+    // T-33 傳承 knobs. TWO ranges, not one: the fold budgets are
+    // document-sized and the entry bounds are sentence-sized, so a shared range
+    // would either let a title grow into a document or stop a fold from holding
+    // more than a paragraph. None of the four floors is its shipped default —
+    // an entry cannot be edited, so a lower cap strands nothing already stored.
+    for (const [field, value, min, max] of [
+      [
+        "lore_cap_chars_role",
+        patch.loreCapCharsRole,
+        LORE_FOLD_CAP_CHARS_MIN,
+        LORE_FOLD_CAP_CHARS_MAX,
+      ],
+      [
+        "lore_cap_chars_manual",
+        patch.loreCapCharsManual,
+        LORE_FOLD_CAP_CHARS_MIN,
+        LORE_FOLD_CAP_CHARS_MAX,
+      ],
+      [
+        "lore_cap_chars_title",
+        patch.loreCapCharsTitle,
+        LORE_ENTRY_CAP_CHARS_MIN,
+        LORE_ENTRY_CAP_CHARS_MAX,
+      ],
+      [
+        "lore_cap_chars_body",
+        patch.loreCapCharsBody,
+        LORE_ENTRY_CAP_CHARS_MIN,
+        LORE_ENTRY_CAP_CHARS_MAX,
+      ],
+    ] as [string, number | undefined, number, number][]) {
+      if (value !== undefined && (value < min || value > max)) {
+        throw mockApiError(
+          "http 422 for PATCH /api/settings",
+          422,
+          `${field} must be between ${min} and ${max} characters`
+        );
+      }
     }
     if (
       patch.orgName !== undefined &&
@@ -5511,6 +5851,7 @@ export const mockApi: Api = {
     for (const [wire, list] of [
       [SUGGESTED_REPLIES_REPLY_CARD_FIELD, patch.suggestedRepliesReplyCard],
       [SUGGESTED_REPLIES_TASK_MESSAGE_FIELD, patch.suggestedRepliesTaskMessage],
+      [SUGGESTED_REPLIES_LORE_MESSAGE_FIELD, patch.suggestedRepliesLoreMessage],
     ] as const) {
       if (list === undefined) continue;
       const entries = list.map((v) => v.trim()).filter((v) => v.length > 0);
@@ -5618,6 +5959,18 @@ export const mockApi: Api = {
     if (patch.stepNoteCapChars !== undefined) {
       mockServerSettings.step_note_cap_chars = patch.stepNoteCapChars;
     }
+    if (patch.loreCapCharsRole !== undefined) {
+      mockServerSettings.lore_cap_chars_role = patch.loreCapCharsRole;
+    }
+    if (patch.loreCapCharsManual !== undefined) {
+      mockServerSettings.lore_cap_chars_manual = patch.loreCapCharsManual;
+    }
+    if (patch.loreCapCharsTitle !== undefined) {
+      mockServerSettings.lore_cap_chars_title = patch.loreCapCharsTitle;
+    }
+    if (patch.loreCapCharsBody !== undefined) {
+      mockServerSettings.lore_cap_chars_body = patch.loreCapCharsBody;
+    }
     if (patch.backupRetain !== undefined) {
       mockServerSettings.backup_retain = patch.backupRetain;
     }
@@ -5633,8 +5986,8 @@ export const mockApi: Api = {
     if (patch.ownerName !== undefined) {
       mockServerSettings.owner_name = patch.ownerName.trim();
     }
-    // 建議回覆 (T-122): each list is REPLACED wholesale and independently — the
-    // two rows are two rows for exactly this reason.
+    // 建議回覆 (T-122; the 傳承 list T-33): each list is REPLACED wholesale and
+    // independently — the rows are separate rows for exactly this reason.
     if (patch.suggestedRepliesReplyCard !== undefined) {
       mockServerSettings = withSuggestedRepliesReplyCard(
         mockServerSettings,
@@ -5647,6 +6000,14 @@ export const mockApi: Api = {
       mockServerSettings = withSuggestedRepliesTaskMessage(
         mockServerSettings,
         patch.suggestedRepliesTaskMessage
+          .map((v) => v.trim())
+          .filter((v) => v.length > 0),
+      );
+    }
+    if (patch.suggestedRepliesLoreMessage !== undefined) {
+      mockServerSettings = withSuggestedRepliesLoreMessage(
+        mockServerSettings,
+        patch.suggestedRepliesLoreMessage
           .map((v) => v.trim())
           .filter((v) => v.length > 0),
       );

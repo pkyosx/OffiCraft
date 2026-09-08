@@ -38,7 +38,7 @@ import { DocCard } from "./DocCard";
 import { LessonsCard } from "./LessonsCard";
 import { InsightCard } from "./InsightCard";
 import { navigateHash } from "../lib/hashRoute";
-import { DOC_CAP_CHARS_DEFAULTS } from "../api/docCap";
+import { DOC_CAP_CHARS_MIN } from "../api/docCap";
 import {
   CHAT_BUDGET_CHARS_MAX,
   CHAT_BUDGET_CHARS_MIN,
@@ -47,6 +47,12 @@ import {
   STEP_NOTE_CAP_CHARS_MAX,
   STEP_NOTE_CAP_CHARS_MIN,
 } from "../api/stepNoteCap";
+import {
+  LORE_FOLD_CAP_CHARS_MIN,
+  LORE_FOLD_CAP_CHARS_MAX,
+  LORE_ENTRY_CAP_CHARS_MIN,
+  LORE_ENTRY_CAP_CHARS_MAX,
+} from "../api/loreCap";
 import { BACKUP_RETAIN_MAX, BACKUP_RETAIN_MIN } from "../api/backupRetain";
 import {
   SUGGESTED_REPLIES_MAX_ENTRIES,
@@ -59,12 +65,14 @@ import {
  * ServerSettingsPatch field, so the row cannot read one setting and write
  * another.
  *
- * `min` is per row and is NOT decoration: Duty's floor is its OWN shipped
- * default. Sharing the other segments' floor here would make the local guard
- * reject the value the server ships with — the field would refuse its own
- * current contents. The numbers come from DOC_CAP_CHARS_DEFAULTS (docCap.ts,
- * mirroring server/ocserverd/domain.go) and are never restated: they are
- * owner-adjustable settings, so a literal here is a guard that goes stale. */
+ * `min` is ONE SHARED FLOOR since owner 2026-09-07 (card rc-5b66ba099e28,
+ * option [1]): every row is `DOC_CAP_CHARS_MIN`, so each knob moves in BOTH
+ * directions instead of raising only. It was per-row before, each row carrying
+ * its own shipped default, on the reasoning that lowering a cap stranded
+ * existing legal documents; it does not — a lowered cap binds the next write,
+ * nothing stored is truncated, and an over-cap document still saves while it is
+ * getting shorter. The number comes from docCap.ts (mirroring
+ * server/ocserverd/domain.go's `minDocCapChars`) and is never restated here. */
 type DocCapField =
   | "docCapCharsDuty"
   | "docCapCharsInsight"
@@ -76,11 +84,11 @@ const DOC_CAP_FIELDS: Record<
   DocCapField,
   { min: number; inputId: string; labelKey: "docCapDuty" | "docCapInsight" | "docCapLearning" | "docCapManualSop" | "docCapManualLearnings"; subKey: "docCapDutySub" | "docCapInsightSub" | "docCapLearningSub" | "docCapManualSopSub" | "docCapManualLearningsSub" }
 > = {
-  docCapCharsDuty: { min: DOC_CAP_CHARS_DEFAULTS.duty, inputId: "param-doc-cap-duty", labelKey: "docCapDuty", subKey: "docCapDutySub" },
-  docCapCharsInsight: { min: DOC_CAP_CHARS_DEFAULTS.insight, inputId: "param-doc-cap-insight", labelKey: "docCapInsight", subKey: "docCapInsightSub" },
-  docCapCharsLearning: { min: DOC_CAP_CHARS_DEFAULTS.learning, inputId: "param-doc-cap-learning", labelKey: "docCapLearning", subKey: "docCapLearningSub" },
-  docCapCharsManualSop: { min: DOC_CAP_CHARS_DEFAULTS.manualSop, inputId: "param-doc-cap-manual-sop", labelKey: "docCapManualSop", subKey: "docCapManualSopSub" },
-  docCapCharsManualLearnings: { min: DOC_CAP_CHARS_DEFAULTS.manualLearnings, inputId: "param-doc-cap-manual-learnings", labelKey: "docCapManualLearnings", subKey: "docCapManualLearningsSub" },
+  docCapCharsDuty: { min: DOC_CAP_CHARS_MIN, inputId: "param-doc-cap-duty", labelKey: "docCapDuty", subKey: "docCapDutySub" },
+  docCapCharsInsight: { min: DOC_CAP_CHARS_MIN, inputId: "param-doc-cap-insight", labelKey: "docCapInsight", subKey: "docCapInsightSub" },
+  docCapCharsLearning: { min: DOC_CAP_CHARS_MIN, inputId: "param-doc-cap-learning", labelKey: "docCapLearning", subKey: "docCapLearningSub" },
+  docCapCharsManualSop: { min: DOC_CAP_CHARS_MIN, inputId: "param-doc-cap-manual-sop", labelKey: "docCapManualSop", subKey: "docCapManualSopSub" },
+  docCapCharsManualLearnings: { min: DOC_CAP_CHARS_MIN, inputId: "param-doc-cap-manual-learnings", labelKey: "docCapManualLearnings", subKey: "docCapManualLearningsSub" },
 };
 
 const DOC_CAP_ORDER: DocCapField[] = [
@@ -89,6 +97,86 @@ const DOC_CAP_ORDER: DocCapField[] = [
   "docCapCharsLearning",
   "docCapCharsManualSop",
   "docCapCharsManualLearnings",
+];
+
+/** The four 傳承 knobs (T-33), in the order the parameters card lists them: the
+ * two FOLD budgets first (how much 傳承 a boot document / a manual read
+ * carries), then the two ENTRY bounds (the longest title and body one write may
+ * store). Like `DOC_CAP_FIELDS` the key IS the ServerSettingsView /
+ * ServerSettingsPatch field, so a row cannot read one setting and write another.
+ *
+ * 🔴 A SEPARATE TABLE FROM `DOC_CAP_FIELDS`, AND THE RANGES ARE WHY — the same
+ * ruling that gave the chat budget and the step-note cap their own rows. That
+ * table carries one shared floor of `DOC_CAP_CHARS_MIN` and a ceiling of 100000;
+ * these four sit in two ranges of their own, neither of them that one. Both
+ * tables go DOWN as well as up: a doc cap binds the next write against a STORED
+ * document (owner 2026-09-07), and a 傳承 entry has NO EDIT PATH AT ALL, so a
+ * smaller cap cannot strand one that is already stored either. The owner lowered
+ * two of these himself the day they shipped (title 140 → 80, body 1000 → 500).
+ *
+ * They are a TABLE rather than four hand-written rows because, unlike the chat
+ * budget and the step-note cap, these four are the same shape as each other —
+ * two pairs sharing two ranges. `min`/`max` are per row for that reason: the
+ * fold budgets and the entry bounds do not share a range. */
+type LoreCapField =
+  | "loreCapCharsRole"
+  | "loreCapCharsManual"
+  | "loreCapCharsTitle"
+  | "loreCapCharsBody";
+
+const LORE_CAP_FIELDS: Record<
+  LoreCapField,
+  {
+    min: number;
+    max: number;
+    inputId: string;
+    labelKey:
+      | "loreCapRole"
+      | "loreCapManual"
+      | "loreCapTitle"
+      | "loreCapBody";
+    subKey:
+      | "loreCapRoleSub"
+      | "loreCapManualSub"
+      | "loreCapTitleSub"
+      | "loreCapBodySub";
+  }
+> = {
+  loreCapCharsRole: {
+    min: LORE_FOLD_CAP_CHARS_MIN,
+    max: LORE_FOLD_CAP_CHARS_MAX,
+    inputId: "param-lore-cap-role",
+    labelKey: "loreCapRole",
+    subKey: "loreCapRoleSub",
+  },
+  loreCapCharsManual: {
+    min: LORE_FOLD_CAP_CHARS_MIN,
+    max: LORE_FOLD_CAP_CHARS_MAX,
+    inputId: "param-lore-cap-manual",
+    labelKey: "loreCapManual",
+    subKey: "loreCapManualSub",
+  },
+  loreCapCharsTitle: {
+    min: LORE_ENTRY_CAP_CHARS_MIN,
+    max: LORE_ENTRY_CAP_CHARS_MAX,
+    inputId: "param-lore-cap-title",
+    labelKey: "loreCapTitle",
+    subKey: "loreCapTitleSub",
+  },
+  loreCapCharsBody: {
+    min: LORE_ENTRY_CAP_CHARS_MIN,
+    max: LORE_ENTRY_CAP_CHARS_MAX,
+    inputId: "param-lore-cap-body",
+    labelKey: "loreCapBody",
+    subKey: "loreCapBodySub",
+  },
+};
+
+const LORE_CAP_ORDER: LoreCapField[] = [
+  "loreCapCharsRole",
+  "loreCapCharsManual",
+  "loreCapCharsTitle",
+  "loreCapCharsBody",
 ];
 import { Breadcrumbs, type Crumb } from "./Breadcrumbs";
 import {
@@ -1153,12 +1241,14 @@ const TTL_CHOICES = [43200, 86400, 604800, 2592000] as const;
  * value rather than leaving a lie on screen.
  */
 /** ONE editable 建議回覆 list (T-122) — the 參數設定 face of
- * `suggested_replies.reply_card` / `suggested_replies.task_message`.
+ * `suggested_replies.reply_card` / `suggested_replies.task_message` /
+ * `suggested_replies.lore_message`.
  *
- * Two of these are mounted, one per list, and they share nothing but this
- * component: the owner ruled the 請示卡 box and the 任務 box get separate
- * settings, so each editor holds its own draft and saves its own field. A save
- * sends ONE field, which is what keeps "edit one list" from rewriting the other.
+ * Three of these are mounted, one per list, and they share nothing but this
+ * component: the owner ruled the 請示卡 box, the 任務 box and the 傳承 box get
+ * separate settings, so each editor holds its own draft and saves its own
+ * field. A save sends ONE field, which is what keeps "edit one list" from
+ * rewriting another.
  *
  * The draft is `null` until the owner touches something, so a value arriving
  * from the server flows straight through; once touched, the draft owns the
@@ -1380,6 +1470,11 @@ function ServerParams({
   >({});
   const [chatBudgetDraft, setChatBudgetDraft] = useState<string | null>(null);
   const [stepNoteCapDraft, setStepNoteCapDraft] = useState<string | null>(null);
+  // T-33: four independent 傳承 caps, so four independent drafts — a shared
+  // draft would make typing in one field snap the other three back.
+  const [loreCapDrafts, setLoreCapDrafts] = useState<
+    Partial<Record<LoreCapField, string>>
+  >({});
   const [backupRetainDraft, setBackupRetainDraft] = useState<string | null>(
     null
   );
@@ -1482,16 +1577,17 @@ function ServerParams({
     if (n !== settings.monitoringRefreshSeconds) void onSave({ monitoringRefreshSeconds: n });
   }
 
-  // Each floor is THAT segment's shipped default, so a knob only raises its own
-  // cap (owner 2026-07-31; five of them since T-30f1) — the local guard mirrors
-  // the server's 422 range exactly, INCLUDING Duty's own smaller floor. Reusing
-  // the other four's floor here would locally reject the shipped Duty default.
+  // One shared floor since owner 2026-09-07 (card rc-5b66ba099e28, option [1]),
+  // so each of these knobs goes DOWN as well as up — the local guard mirrors the
+  // server's 422 range exactly, which is now DOC_CAP_CHARS_MIN..100000 for all
+  // of them. It was each segment's own shipped default until that ruling.
   // T-c9b4: the wake snapshot's chat budget. Deliberately its OWN row and its
-  // own commit rather than a sixth entry in DOC_CAP_FIELDS — that table's floor
-  // is each segment's shipped default and its ceiling is 100000, and neither is
-  // true here. This one may be turned DOWN (the block is repacked on every read,
-  // so a smaller budget just returns fewer messages), and its ceiling is pinned
-  // to how many messages the server reads before packing.
+  // own commit rather than a sixth entry in DOC_CAP_FIELDS — that table's range
+  // is DOC_CAP_CHARS_MIN..100000 and neither bound is true here. Both tables now
+  // go DOWN as well as up (owner 2026-09-07), but for different reasons: a doc
+  // cap binds the next write against a STORED document, while this block is
+  // repacked on every read, so a smaller budget just returns fewer messages. Its
+  // ceiling is pinned to how many messages the server reads before packing.
   function commitChatBudget() {
     if (!settings || chatBudgetDraft === null) return;
     const n = Number(chatBudgetDraft);
@@ -1509,9 +1605,9 @@ function ServerParams({
   }
 
   // T-119: the step-note cap. Its own row and its own commit for the same
-  // reason as the chat budget — this one may be turned DOWN, so it does not
-  // belong in DOC_CAP_FIELDS whose floor is each segment's shipped default.
-  // Lowering it costs nothing already stored: the cap is checked only on write.
+  // reason as the chat budget — its range is its own (STEP_NOTE_CAP_CHARS_MIN..
+  // MAX), not DOC_CAP_FIELDS' DOC_CAP_CHARS_MIN..100000. Lowering it costs
+  // nothing already stored: the cap is checked only on write.
   function commitStepNoteCap() {
     if (!settings || stepNoteCapDraft === null) return;
     const n = Number(stepNoteCapDraft);
@@ -1526,6 +1622,29 @@ function ServerParams({
     }
     setStepNoteCapDraft(null);
     if (n !== settings.stepNoteCapChars) void onSave({ stepNoteCapChars: n });
+  }
+
+  // T-33: the four 傳承 caps. One commit for all four because the row that is
+  // being committed carries its own range — unlike commitDocCap, whose ceiling
+  // is a literal 100000 shared by every row it serves.
+  function commitLoreCap(field: LoreCapField) {
+    const draft = loreCapDrafts[field];
+    if (!settings || draft === undefined) return;
+    const n = Number(draft);
+    const spec = LORE_CAP_FIELDS[field];
+    const clear = () =>
+      setLoreCapDrafts((d) => {
+        const next = { ...d };
+        delete next[field];
+        return next;
+      });
+    if (!Number.isInteger(n) || n < spec.min || n > spec.max) {
+      setRangeError(true);
+      clear();
+      return;
+    }
+    clear();
+    if (n !== settings[field]) void onSave({ [field]: n });
   }
 
   // T-8: backup retention N. Its own row and its own commit for the same reason
@@ -1822,6 +1941,39 @@ function ServerParams({
             </div>
           </div>
 
+          {/* T-33 傳承 caps — LAST of the character caps, immediately before the
+              backup row, and NOT up with the doc caps where they started.
+              🔴 SettingsPage.step-note-cap-t119.test.tsx asserts that the
+              step-note row is the IMMEDIATE next sibling of the task-manual
+              learnings row, and its comment records why: the owner reviewed the
+              shipped page and asked for that position by name, so it is an
+              acceptance condition rather than styling. Four rows inserted above
+              it broke that adjacency, and the cheap fix — editing the assertion
+              — would have quietly spent a decision the owner had already made.
+              Sitting here, these four keep every character cap contiguous and
+              leave 備份保留份數 (whose unit is FILES, not characters) last. */}
+          {LORE_CAP_ORDER.map((field) => {
+            const spec = LORE_CAP_FIELDS[field];
+            const label = t.settings[spec.labelKey];
+            return (
+              <div className="param-row" key={field}>
+                <div className="param-row__body">
+                  <div className="param-row__name">{label}</div>
+                  <div className="param-row__sub">{t.settings[spec.subKey]}</div>
+                </div>
+                <div className="param-pct">
+                  <input id={spec.inputId} className="param-input" type="number"
+                    min={spec.min} max={spec.max}
+                    aria-label={label}
+                    value={loreCapDrafts[field] ?? String(settings[field])}
+                    onChange={(e) => { setRangeError(false); onClearSaveError(); setLoreCapDrafts((d) => ({ ...d, [field]: e.target.value })); }}
+                    onBlur={() => commitLoreCap(field)} onKeyDown={(e) => { if (e.key === "Enter") commitLoreCap(field); }} />
+                  <span className="param-pct__sign">{t.settings.chars}</span>
+                </div>
+              </div>
+            );
+          })}
+
           <div className="param-row">
             <div className="param-row__body">
               <div className="param-row__name">{t.settings.backupRetain}</div>
@@ -1838,9 +1990,10 @@ function ServerParams({
             </div>
           </div>
 
-          {/* T-122: TWO lists, TWO rows. The owner ruled 「任務跟請示卡要是不同的
-              參數設定」 (c-85c28e708b81), so each row saves its OWN field and a
-              save never carries the other one. */}
+          {/* T-122: ONE list, ONE row, per message box. The owner ruled 「任務跟
+              請示卡要是不同的參數設定」 (c-85c28e708b81), and T-33 added the 傳承
+              box on the same ruling, so each row saves its OWN field and a save
+              never carries another one. */}
           <SuggestedRepliesEditor
             label={t.settings.suggestedRepliesReplyCard}
             sub={t.settings.suggestedRepliesReplyCardSub}
@@ -1857,6 +2010,15 @@ function ServerParams({
             value={settings.suggestedRepliesTaskMessage}
             onTouch={() => { setRangeError(false); onClearSaveError(); }}
             onCommit={(next) => { void onSave({ suggestedRepliesTaskMessage: next }); }}
+          />
+
+          <SuggestedRepliesEditor
+            label={t.settings.suggestedRepliesLoreMessage}
+            sub={t.settings.suggestedRepliesLoreMessageSub}
+            idPrefix="param-suggested-lore-message"
+            value={settings.suggestedRepliesLoreMessage}
+            onTouch={() => { setRangeError(false); onClearSaveError(); }}
+            onCommit={(next) => { void onSave({ suggestedRepliesLoreMessage: next }); }}
           />
 
           {(saveError || rangeError) && (

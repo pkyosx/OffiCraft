@@ -9,8 +9,10 @@ import type { components } from "./generated/schema";
 import { DOC_CAP_CHARS_DEFAULTS } from "./docCap";
 import { CHAT_BUDGET_CHARS_DEFAULT } from "./chatBudget";
 import { STEP_NOTE_CAP_CHARS_DEFAULT } from "./stepNoteCap";
+import { LORE_CAP_CHARS_DEFAULTS } from "./loreCap";
 import { BACKUP_RETAIN_DEFAULT } from "./backupRetain";
 import {
+  readSuggestedRepliesLoreMessage,
   readSuggestedRepliesReplyCard,
   readSuggestedRepliesTaskMessage,
 } from "./suggestedReplies";
@@ -148,6 +150,9 @@ import type {
   ThemeWriteReceipt,
   ThemeDeleteResult,
   TaskExecutorKind,
+  LoreEntryView,
+  LoreEntryState,
+  LoreEntryPageView,
 } from "./adapter";
 
 /** The five real presence words, as a runtime set — the type union's twin. */
@@ -1198,6 +1203,15 @@ export function toServerSettings(w: WireServerSettings): ServerSettingsView {
     // against a server too old to send the field, 0 would read as "no note may
     // be written at all", which is the one answer that is never right.
     stepNoteCapChars: w.step_note_cap_chars ?? STEP_NOTE_CAP_CHARS_DEFAULT,
+    // T-33 傳承 knobs. Same "?? the shipped default, never 0" reasoning: against
+    // a server too old to send these, 0 on a fold budget reads as "carry no
+    // 傳承 at all" and 0 on an entry bound as "refuse every write" — in both
+    // cases the one answer that is never right, and in both cases silent.
+    loreCapCharsRole: w.lore_cap_chars_role ?? LORE_CAP_CHARS_DEFAULTS.role,
+    loreCapCharsManual:
+      w.lore_cap_chars_manual ?? LORE_CAP_CHARS_DEFAULTS.manual,
+    loreCapCharsTitle: w.lore_cap_chars_title ?? LORE_CAP_CHARS_DEFAULTS.title,
+    loreCapCharsBody: w.lore_cap_chars_body ?? LORE_CAP_CHARS_DEFAULTS.body,
     // T-8 backup retention. Same "?? the shipped default, never 0" reasoning:
     // against a server too old to send the field, 0 would render as "keep no
     // backups", which is the one answer that is never right — and it is the
@@ -1214,11 +1228,13 @@ export function toServerSettings(w: WireServerSettings): ServerSettingsView {
     // Owner nickname (T-0b41; schema-optional for DTO-compat — the Go wire
     // always emits it). "" = never set; the profile pill substitutes t.user.
     ownerName: w.owner_name ?? "",
-    // 建議回覆 (T-122), TWO independent lists. Read structurally through the one
-    // module that knows the wire names: a server predating T-122 omits both,
+    // 建議回覆 (T-122; the 傳承 list T-33), THREE independent lists. Read
+    // structurally through the one module that knows the wire names: a server
+    // predating T-122 omits all of them and one predating T-33 omits the last,
     // and absent ⇒ [] ⇒ nothing renders, which is honestly what it means.
     suggestedRepliesReplyCard: readSuggestedRepliesReplyCard(w),
     suggestedRepliesTaskMessage: readSuggestedRepliesTaskMessage(w),
+    suggestedRepliesLoreMessage: readSuggestedRepliesLoreMessage(w),
     pushContactEmail: w.push_contact_email ?? "",
     // Cockpit display prefs (T-0b41-p2; schema-optional for DTO-compat — the Go
     // wire always emits them). "" = never set; the frontend keeps its
@@ -1972,5 +1988,82 @@ export function toMemberResumeSummary(
     // panel never has to distinguish "no marker" from "marker down".
     roster: (w.roster ?? []).map(toResumeRosterMember),
     machines: w.machines ? toResumeMachines(w.machines) : null,
+  };
+}
+
+// ── 傳承 (T-33) ────────────────────────────────────────────────────────────
+
+/** One wire entry → one view entry.
+ *
+ * `scope_kind` is narrowed from the wire's plain `string` to the union the UI
+ * switches on. The two the server has are matched by name; anything else
+ * becomes "unknown".
+ *
+ * 🔴 THIS USED TO SAY "role" INSTEAD OF "unknown", AND THAT WAS THE BUG.
+ * The old rule ("an unrecognised value maps to \"role\" rather than throwing")
+ * bought the right thing — an older cockpit must not blank the whole 傳承 page
+ * when a new scope appears — with the wrong coin: it did not merely tolerate an
+ * unknown kind, it RENAMED it into a real one. When the server gained "agent",
+ * every outsource entry arrived here and was relabelled a role entry: collected
+ * by a 角色 filter, counted as role lore, with no error anywhere to say so. A
+ * wrong answer that cannot be told apart from a right one is worse than a blank
+ * row, which is at least visibly missing something.
+ *
+ * "unknown" keeps the property the old fallback was actually protecting — no
+ * throw, the row still renders with its own real title, body and author — while
+ * dropping the part nobody asked for. It is never equal to "agent" or "manual",
+ * so it can never be swept into a filter that did not name it.
+ *
+ * 🔴 AND `role` NOW TAKES THAT ARM, WHICH IS THE POINT OF KEEPING IT. The scope
+ * was retired on 2026-09-07 (owner, card rc-a43100fd0486 [0]) and its entries
+ * were rekeyed onto members — EXCEPT the ones whose member the migration could
+ * not determine, which it deliberately left at `role` rather than guess. Those
+ * arrive here today. Adding `role` back to this list to make them "render
+ * nicely" would re-create exactly the bug this comment opens with: an entry
+ * whose owner is explicitly undetermined, presented as if it had one. */
+export function toLoreEntry(
+  w: components["schemas"]["LoreEntryDTO"],
+): LoreEntryView {
+  return {
+    id: w.id,
+    seq: w.seq,
+    scopeKind:
+      w.scope_kind === "agent" || w.scope_kind === "manual"
+        ? w.scope_kind
+        : "unknown",
+    scopeKey: w.scope_key,
+    title: w.title,
+    body: w.body,
+    authorId: w.author_id,
+    sourceTaskId: w.source_task_id,
+    state: toLoreEntryState(w.state),
+    retireReason: w.retire_reason,
+    effectiveTs: w.effective_ts,
+    createdTs: w.created_ts,
+    updatedTs: w.updated_ts,
+  };
+}
+
+/** The wire's `state` string → the three-value union.
+ *
+ * 🔴 THE FALLBACK IS `active`, AND IT IS NOT ARBITRARY. `retired` is the one
+ * value that changes what the reader is looking at — a retired entry is
+ * excluded from both folds — so guessing `retired` for a value this cockpit
+ * does not know would tell the reader an entry is out of circulation when it
+ * may not be. `active` is the honest 「這一筆在流通中，我不確定它被標成什麼」. */
+function toLoreEntryState(s: string): LoreEntryState {
+  return s === "pinned" || s === "retired" || s === "active" ? s : "active";
+}
+
+/** One wire page → one view page, carrying the 上限線 through untouched. */
+export function toLoreEntryPage(
+  w: components["schemas"]["LoreEntryListDTO"],
+): LoreEntryPageView {
+  return {
+    entries: (w.entries ?? []).map(toLoreEntry),
+    limit: w.limit,
+    offset: w.offset,
+    capChars: w.cap_chars,
+    firstDroppedId: w.first_dropped_id,
   };
 }

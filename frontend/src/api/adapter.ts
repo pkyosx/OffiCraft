@@ -1132,6 +1132,19 @@ export interface ServerSettingsView {
    * chat message body keep their own 4,000-character server constant. Default
    * and range in `stepNoteCap.ts` (mirroring server/ocserverd/domain.go). */
   stepNoteCapChars: number;
+  /** T-33: the four 傳承 knobs. The first two are FOLD budgets — how much 傳承 a
+   * staff boot document carries for one role, and how much `get_task_manual`
+   * appends after a type's learnings. They are never summed: different readers
+   * pay them at different moments. The last two bound ONE entry's title and
+   * body at write time.
+   * NOT document caps — a 傳承 entry has no edit path, so a lowered cap cannot
+   * strand anything already stored and all four may be turned DOWN as well as
+   * up. Defaults and the two ranges in `loreCap.ts` (mirroring
+   * server/ocserverd/domain.go). */
+  loreCapCharsRole: number;
+  loreCapCharsManual: number;
+  loreCapCharsTitle: number;
+  loreCapCharsBody: number;
   /** T-8: N — how many database backup files rotation KEEPS. Everything past N
    * is DELETED from disk. Two things the number does not carry and the settings
    * copy therefore has to say: it counts VERSIONS, not days, and it is PER POOL
@@ -1159,6 +1172,10 @@ export interface ServerSettingsView {
    * the reply-card one by owner ruling — the two boxes are different
    * conversations — so one being empty says nothing about the other. */
   suggestedRepliesTaskMessage: string[];
+  /** The 建議回覆 offered under a 傳承 entry's message box (T-33) — the box that
+   * writes to the person who WROTE that entry. A THIRD separate list, for the
+   * same reason: one being empty says nothing about the other two. */
+  suggestedRepliesLoreMessage: string[];
   /** Contact email used as this deployment's Web Push VAPID identity. Empty
    * means delivery is disabled until the owner configures a public address. */
   pushContactEmail: string;
@@ -1230,8 +1247,9 @@ export interface ServerSettingsPatch {
    * attempts to renew before the intended end of life. */
   wardenCredentialLifetimeSecs?: number;
   outsourceMaxParallel?: number;
-  /** T-ae38 document size caps, in characters. Each must be between THAT
-   * segment's shipped default (`DOC_CAP_CHARS_DEFAULTS`) and 100000. */
+  /** T-ae38 document size caps, in characters. Each must be between
+   * `DOC_CAP_CHARS_MIN` (100 since owner 2026-09-07) and 100000 — one shared
+   * floor, so every one of them may be lowered as well as raised. */
   docCapCharsDuty?: number;
   docCapCharsInsight?: number;
   docCapCharsLearning?: number;
@@ -1250,6 +1268,15 @@ export interface ServerSettingsPatch {
   /** T-119 step-note cap; range 1000..100000 (stepNoteCap.ts). The floor is NOT
    * the shipped default — this one may be turned down. */
   stepNoteCapChars?: number;
+  /** T-33 傳承 knobs. The two FOLD budgets take 100..100000 and the two ENTRY
+   * bounds take 10..10000 (loreCap.ts) — two ranges, because a title and a boot
+   * document are not the same size of thing. NONE of the four floors is the
+   * shipped default: all four may be turned down, since an entry cannot be
+   * edited and so cannot be stranded by a smaller cap. */
+  loreCapCharsRole?: number;
+  loreCapCharsManual?: number;
+  loreCapCharsTitle?: number;
+  loreCapCharsBody?: number;
   /** T-8 backup retention N; range 1..20 (backupRetain.ts). Lowering it DELETES
    * the files it puts out of range on the next backup. */
   backupRetain?: number;
@@ -1271,6 +1298,9 @@ export interface ServerSettingsPatch {
   /** The 任務 message-box 建議回覆 (T-122), replaced WHOLESALE. Same bounds as
    * above, and independent of it: patching one never touches the other. */
   suggestedRepliesTaskMessage?: string[];
+  /** The 傳承 message-box 建議回覆 (T-33), replaced WHOLESALE. Same bounds again,
+   * and independent of both: patching one never touches another. */
+  suggestedRepliesLoreMessage?: string[];
   /** Web Push VAPID contact email; empty clears it and disables delivery. */
   pushContactEmail?: string;
   /** The owner's cockpit visual theme (T-0b41-p2); "" (unset) | "office" (the
@@ -2120,6 +2150,17 @@ export interface Api {
      * only writer of the stored link; a forged `meta.reply_to` is dropped.
      * Omitted on an ordinary post. */
     replyTo?: string;
+    /** Machine-readable keys stored ON the message, for a reader that must not
+     * have to parse the visible body. The 傳承 composer sends
+     * `{ lore_entry_id }` here so an agent knows which entry the message is
+     * about; the human-facing 「[LoreID=…]」 prefix is display and may be
+     * reworded, this is not.
+     *
+     * 🔴 TWO KEYS ARE NOT YOURS TO SET. The server DELETES `reply_to` (use the
+     * `replyTo` param — the server is the only writer of that link) and
+     * OVERWRITES `attachments` when the post carries any. Every other key is
+     * stored verbatim. Omitted ⇒ no keys of its own. */
+    meta?: Record<string, unknown>;
   }): Promise<void>;
   /** Mark a conversation (with `peer`) read up to `lastReadTs` — the caller's own
    * read watermark (reader = the verified JWT sub server-side; anti-spoof). The
@@ -2522,6 +2563,44 @@ export interface Api {
    * (non-terminal) tasks of the type → 409 (throws — the UI surfaces the
    * human-readable 先讓任務結束 message); unknown → 404. */
   deleteTaskManual(typeKey: string): Promise<void>;
+  // ── 傳承 (the 傳承 nav tab, T-33) ─────────────────────────────────────────
+  /** One page of 傳承 entries (`GET /api/lore`).
+   *
+   * 🔴 THE FILTER TRAVELS WITH THE PAGE. Every narrowing the page offers is a
+   * query parameter, never a client-side `.filter()` on a downloaded list: a
+   * page that filters after paging cannot tell 「這一頁剛好沒有」 from
+   * 「根本沒有」, and the 上限線 it draws would fall in the wrong place.
+   *
+   * The order is FIXED (置頂 → 生效中 → 已失效, newest effective first inside
+   * each group) and is not a parameter. */
+  listLoreEntries(opts?: LoreListOptions): Promise<LoreEntryPageView>;
+  /** Write ONE 傳承 entry (`POST /api/lore`). Writing is an AGENT act — this
+   * exists on the seam for completeness and for tests, not because the cockpit
+   * offers a compose form (spec §5: 寫入只走 MCP).
+   *
+   * 🔴 RESOLVES TO NOTHING, like `postChat`. The route answers a bounded
+   * receipt (`LoreEntryWriteReceiptDTO`, T-33) rather than the entry, and the
+   * cockpit reconciles by REFETCHING the list — so surfacing the receipt here
+   * would publish a half-entry that looks like a `LoreEntryView` and is not
+   * one. Read the entry back with `listLoreEntries`. */
+  writeLoreEntry(entry: LoreEntryWrite): Promise<void>;
+  /** Move one entry to active / pinned / retired
+   * (`POST /api/lore/{entry_id}/state`). `retireReason` is stored only with
+   * `retired` and is CLEARED by the other two — a live entry must not keep
+   * showing the explanation for a retirement that was undone.
+   *
+   * Resolves to nothing, for the reason above: the route answers
+   * `LoreEntryStateReceiptDTO` and `LorePage` refetches. */
+  setLoreEntryState(
+    entryId: string,
+    state: LoreEntryState,
+    retireReason?: string,
+  ): Promise<void>;
+  /** 提到最新 (`POST /api/lore/{entry_id}/bump`): set `effectiveTs` to now so the
+   * entry sorts to the front of its group. `createdTs` is NOT touched, which is
+   * what makes this reversible. Resolves to nothing — same receipt, same
+   * refetch. */
+  bumpLoreEntry(entryId: string): Promise<void>;
   // ── Product guide (the 使用說明 nav tab) ──────────────────────────────────
   /** List the product-guide docs (`GET /api/docs`) — the 使用說明 landing
    * (slug + title cards). The same embed Mira reads via get_doc. */
@@ -3056,4 +3135,129 @@ export interface Api {
   subscribeConnection(
     onState: (state: SseConnectionState) => void
   ): () => void;
+}
+
+// ── 傳承 (T-33) ────────────────────────────────────────────────────────────
+
+/** The three mutually exclusive states one entry can be in. */
+export type LoreEntryState = "active" | "pinned" | "retired";
+
+/** ONE 傳承 entry.
+ *
+ * 🔴 `title` and `body` ARE NEVER EDITABLE. No route changes them, so what is
+ * read here is what was written. The mutable surface is `state`,
+ * `retireReason` and `effectiveTs` — which is why the cockpit offers 失效 /
+ * 生效 / 置頂 / 提到最新 and no edit affordance at all.
+ *
+ * `effectiveTs` vs `createdTs`: `createdTs` is when it was written and never
+ * moves; `effectiveTs` starts equal to it and is what 提到最新 sets to now. The
+ * fold reads `effectiveTs`; `createdTs` surviving is what makes a bump
+ * reversible and explicable afterwards.
+ *
+ * `authorId` is the writer's member id AS IT WAS at the moment of the write,
+ * pinned. It is not re-resolved against the roster: a writer who has since left
+ * still wrote this. A client that cannot find the id on the live roster drops
+ * the writer's live affordances (the 傳訊息 icon), NEVER the entry. */
+export interface LoreEntryView {
+  id: string;
+  seq: number;
+  /** 🔴 THREE VALUES, AND THE THIRD IS NOT A SCOPE. "agent" | "manual" are the
+   * two scopes the server has; "unknown" is what this cockpit calls a scope it
+   * cannot name. It exists so that an unrecognised kind can be carried WITHOUT
+   * being renamed into one of the real ones — see `toLoreEntry`. Nothing may be
+   * requested as "unknown" (`LoreListOptions.scopeKind` deliberately omits it),
+   * so it only ever arrives, never departs.
+   *
+   * 🔴 "unknown" IS NOW A LIVE ARM, NOT JUST A FORWARD-COMPATIBILITY HATCH. It
+   * used to mean only "a cockpit older than the server". Since the scopes
+   * collapsed from three to two (owner 2026-09-07, card rc-a43100fd0486 [0]) it
+   * ALSO catches the retired `role` value, which the server's migration
+   * deliberately left on any entry whose owning member could not be determined.
+   * Those rows are real, current, and reachable on the unfiltered page — so this
+   * arm has to RENDER, not merely not-crash. Do not "clean it up" by mapping
+   * `role` onto `agent`: that would file an entry whose owner was explicitly
+   * undetermined under a specific member, which is the exact guess the migration
+   * refused to make. */
+  scopeKind: "agent" | "manual" | "unknown";
+  scopeKey: string;
+  title: string;
+  body: string;
+  authorId: string;
+  sourceTaskId: string;
+  state: LoreEntryState;
+  retireReason: string;
+  effectiveTs: number;
+  createdTs: number;
+  updatedTs: number;
+}
+
+/** The server-side narrowing one list request may carry. Every field is a query
+ * parameter — see `Api.listLoreEntries` for why none of them may become a
+ * client-side filter. */
+export interface LoreListOptions {
+  /** The two scopes that can be ASKED for. "unknown" is absent on purpose: it
+   * is a reading of an answer, not a question anyone can pose. `role` is absent
+   * because the server now REFUSES it with a 400 — sending it would turn a page
+   * into an error rather than narrowing it. */
+  scopeKind?: "agent" | "manual";
+  scopeKey?: string;
+  state?: LoreEntryState;
+  authorId?: string;
+  /** 🔴 THE PLURAL HALF, AND IT WINS. The 清單頁's 範圍 / 狀態 / 作者 filters are
+   * multi-select (owner rc-0376bf875757 [1]), so each axis has a SET spelling
+   * beside its scalar one; both are sent as the repeatable query parameter the
+   * spec declares, never as a client-side filter.
+   *
+   * When a set and its scalar twin are both given, the SET is the filter and
+   * the scalar is ignored — the server does not AND them, does not union them,
+   * and neither does anything here. The scalars are kept only so callers written
+   * before the ruling keep working unchanged; a caller that has moved to the
+   * sets should stop sending them rather than sending both.
+   *
+   * An EMPTY array is not a filter that matches nothing — it is 「no constraint
+   * on this axis」, the same as omitting the field, and `listLoreEntries` leaves
+   * it out of the query entirely so the server never has to decide what an empty
+   * set means.
+   *
+   * 🔴 `scopeKinds` / `scopeKeys` ALSO DECIDE WHETHER THERE IS A 上限線 AT ALL.
+   * `capChars`/`firstDroppedId` come back non-empty only when the effective
+   * scope_kind set holds EXACTLY ONE value and the effective scope_key set holds
+   * exactly one — a budget belongs to a scope, and two scopes have two different
+   * budgets with no single line between them. Tick two 範圍 and the page gets
+   * 0 / "", which is the same honest answer an unfiltered page gets. */
+  scopeKinds?: ("agent" | "manual")[];
+  scopeKeys?: string[];
+  states?: LoreEntryState[];
+  authorIds?: string[];
+  limit?: number;
+  offset?: number;
+}
+
+/** One page, plus where the 上限線 falls.
+ *
+ * 🔴 `firstDroppedId` IS NOT DERIVABLE HERE AND MUST NOT BE RECOMPUTED. The
+ * server answers it from the same selector both folds run, over the WHOLE
+ * scope; this page is cut by `limit`/`offset` long before the budget is spent,
+ * so adding up the visible rows would draw the line in the wrong place on every
+ * page but the first — and a line in the wrong place looks exactly like a line
+ * in the right place.
+ *
+ * Both are the empty answer (0 and "") when the request did not converge on ONE
+ * scope, because a budget belongs to a scope and a page spanning several has no
+ * single one to report. `firstDroppedId` is also "" when the whole scope fits. */
+export interface LoreEntryPageView {
+  entries: LoreEntryView[];
+  limit: number;
+  offset: number;
+  capChars: number;
+  firstDroppedId: string;
+}
+
+/** What a write carries. `taskId` decides the scope and decides it alone:
+ * omitted ⇒ a ROLE entry under the caller's own role; present ⇒ a MANUAL entry
+ * under that task's type. Neither arm falls through to the other. */
+export interface LoreEntryWrite {
+  title: string;
+  body: string;
+  taskId?: string;
 }

@@ -59,9 +59,19 @@ export interface ThemeBundle {
 export const AVATAR_KINDS = ["member", "outsource", "owner", "assistant"] as const;
 export type AvatarKind = (typeof AVATAR_KINDS)[number];
 
-/** The nav tabs a navIcons overlay may key on — the closed set of the five main
- * nav tabs, identical to App.tsx's `Tab` type (T-ea81). */
-export const NAV_ICON_KEYS = ["office", "replies", "tasks", "monitor", "guide"] as const;
+/** The nav tabs a navIcons overlay may key on — the closed set of the main nav
+ * tabs, identical to App.tsx's `Tab` type (T-ea81). T-33 added `lore`; its twin
+ * `navIconKeyAllowed` in server/ocserverd/avatar_bundle.go was widened in the
+ * same change, because a key this side accepts and that side 422s is a theme
+ * pack that imports on one screen and not the other. */
+export const NAV_ICON_KEYS = [
+  "office",
+  "replies",
+  "tasks",
+  "lore",
+  "monitor",
+  "guide",
+] as const;
 export type NavIconKey = (typeof NAV_ICON_KEYS)[number];
 
 /** The chrome zones a backgrounds overlay may key on — the twin of the Go

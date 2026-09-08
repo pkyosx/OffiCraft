@@ -874,7 +874,7 @@ describe("TasksPage", () => {
     // self-identifying (owner 2026-07-14).
     await waitFor(async () => {
       const thread = await api.listChat("mira");
-      expect(thread.map((m) => m.body)).toContain(`[${task.taskNo}] 先做 P0 的部分`);
+      expect(thread.map((m) => m.body)).toContain(`[TaskID=${task.taskNo}] 先做 P0 的部分`);
     });
     // Sent → the box clears (retry keeps content only on failure).
     await waitFor(() =>

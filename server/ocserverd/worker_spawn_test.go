@@ -231,95 +231,17 @@ func TestBuildWorkerBootContext_RuntimeGuidanceIsTheSeedsOwnAndItIsLast(t *testi
 	}
 }
 
-// TestWorkerBootContextIsTheStaffFoldMinusThePersona — T-4595, the whole ruling
-// in one equality.
+// TestWorkerBootContextIsTheStaffFoldMinusThePersona LIVED HERE and was RETIRED
+// on 2026-09-07 (owner, card rc-3c24fdc61ed3). It pinned 「外包的開機檔 ＝ 正職的
+// 開機檔扣掉第 3 格」, which stopped being true the moment slot 3 on the worker
+// path started carrying that member's own 傳承.
 //
-// 「外包的 boot context ＝ 正職的 boot context 扣掉第 3 格（角色說明→判準→長期筆記）。
-// 一個字都不為外包另寫。」
-//
-// So the want is BUILT FROM THE STAFF FOLD: take the document a staff member
-// actually receives, cut the persona slot out of it, and require the worker's
-// document to equal what is left, byte for byte. That is deliberately not a
-// "contains" assertion — every weaker form was satisfied by the assembly this
-// change replaced, which carried an overlay, an identity block, the whole bound
-// task, the whole type manual, and a second copy of the runtime guidance.
-//
-// Both folds run on ONE server with a non-blank owner block, so the shared
-// slots are the same bytes on both sides by construction rather than by a
-// second re-derivation of them here.
-//
-// 🔴 SCOPE, MEASURED — IT GUARDS THE ASSEMBLY, NOT THE SEED TEXT. Because the
-// want is built FROM the staff fold, any edit to a shared seed moves BOTH sides
-// of the equality and this stays green. An independent review confirmed it:
-// changing a sentence of prose in system_interaction.md (verified to reach the
-// embed) left the ENTIRE ocserverd suite passing, this test included; inserting
-// a single "\n" on the worker side alone turned exactly this test red. So it
-// answers "are the two documents still the same shape?" and says NOTHING about
-// whether the shared documents still say the right thing. This deliberately
-// says nothing about whether the shared documents contain particular prose;
-// content choices are not a runtime assembly contract.
-func TestWorkerBootContextIsTheStaffFoldMinusThePersona(t *testing.T) {
-	s := newWorkerTestServer(t)
-	const ownerMark = "T4595-OWNER-CUSTOM-MARKER"
-	if err := s.dal.PutUserContext(UserContext{Text: ownerMark}); err != nil {
-		t.Fatalf("put user context: %v", err)
-	}
-
-	staff, err := s.buildBootContext("", nil)
-	if err != nil || staff == nil {
-		t.Fatalf("buildBootContext: %v", err)
-	}
-	worker, err := s.buildWorkerBootContext(
-		OutsourceWorker{ID: "ow-eq", Codename: "O-9", Model: "opus", Effort: "high",
-			Runtime: RuntimeClaude},
-		Task{ID: "t-aabbccddeeff", TypeKey: "review-pr", Title: "Review PR 42",
-			Priority: TaskPriorityHigh},
-		&TaskManual{TypeKey: "review-pr", DisplayName: "審查 PR",
-			Purpose: "review 一個 PR", SopMD: "先看 diff 再留結論"})
-	if err != nil {
-		t.Fatalf("buildWorkerBootContext: %v", err)
-	}
-
-	// Cut slot 3 out of the staff document: everything from the 角色說明 header
-	// up to (but not including) the START of slot 4, plus the "\n\n" that joined
-	// it to the block before.
-	//
-	// Slot 4 no longer BEGINS at the 啟動步驟 heading: the owner's 2026-08-15
-	// rewrite hoisted the runtime 執行環境 note into a top-level section that
-	// leads the block. Cutting at 啟動步驟 would leave that note on one side of
-	// the equality only — which is how this anchor announced the change.
-	role := strings.Index(staff.Context, "# Role: ")
-	boot := strings.Index(staff.Context, "# Claude Code 執行環境")
-	if role < 0 || boot < 0 || role >= boot {
-		t.Fatalf("cannot locate slot 3 in the staff fold (角色說明=%d 啟動步驟=%d) — "+
-			"the staff assembly moved and this equality must be re-derived", role, boot)
-	}
-	// Positive control: the persona really is a substantial block, so "minus
-	// slot 3" is a real subtraction and not a no-op that makes this vacuous.
-	if boot-role < 200 {
-		t.Fatalf("staff slot 3 is only %d bytes — too small to be the persona; "+
-			"the subtraction below would prove nothing", boot-role)
-	}
-	want := staff.Context[:role] + staff.Context[boot:]
-
-	// And prove the owner block is on BOTH sides, above the cut: if it were
-	// still fourth (the pre-T-4595 staff order) it would sit inside the excised
-	// span and this equality could hold while the two documents disagreed about
-	// where the owner's additions live.
-	if o := strings.Index(want, ownerMark); o < 0 || o > role {
-		t.Fatalf("使用者自訂 must sit in slot 2, above the persona (found at %d, cut at %d)", o, role)
-	}
-
-	if worker != want {
-		t.Errorf("outsource boot context is not the staff fold minus slot 3\n"+
-			"got  %d bytes\nwant %d bytes\n"+
-			"外包的 boot context ＝ 正職的扣掉第 3 格（角色說明→判準→長期筆記），"+
-			"一個字都不為外包另寫（T-4595）\n"+
-			"⚠️ 這顆守的是【組裝結構】，不是 seed 的文字內容：want 由正職那份實際產出"+
-			"切出來，所以改 seed 會讓兩邊一起移動、這顆不會紅。",
-			len(worker), len(want))
-	}
-}
+// 🔴 IT WAS NOT LOOSENED INTO A WEAKER VERSION OF ITSELF, and it was not simply
+// deleted: it was the only thing keeping the two assembly paths in step. It is
+// replaced by TWO NARROWER assertions in worker_boot_lore_t33_test.go — slots 1,
+// 2 and 4 still compared byte for byte, plus a new one saying neither path's
+// slot 3 can carry the other's lore scope. Read that file's header before
+// touching either of them.
 
 // T-ba04: a worker minted onto a task that is in `reassigning` gets a TAKEOVER
 // section in its boot context — who its predecessor is (id) + the "hand over

@@ -7,13 +7,14 @@
 // settings field can refuse an out-of-range value before the owner clicks save,
 // instead of letting them collect an HTTP 422 that reads like a broken system.
 //
-// 🔴 THIS IS DELIBERATELY NOT IN docCap.ts, and the floor is why — the same
-// reason chatBudget.ts is its own file. Every `doc.cap_chars.*` knob has
-// floor == its own shipped default, because lowering a document cap puts
-// existing legal documents into shrink-only mode. A step note is measured only
-// when it is WRITTEN, so a note already over a lowered cap still reads back in
-// full and merely becomes uneditable; the owner asked for a knob that turns
-// both ways, so the floor here is a floor.
+// 🔴 THIS IS DELIBERATELY NOT IN docCap.ts, and the RANGE is why — the same
+// reason chatBudget.ts is its own file. It is no longer the direction: since
+// owner 2026-09-07 (card rc-5b66ba099e28 option [1]) the eight
+// `doc.cap_chars.*` knobs share one floor of DOC_CAP_CHARS_MIN and turn both
+// ways, as this one always has. What differs is the numbers — the doc caps run
+// DOC_CAP_CHARS_MIN..100000, and this one's floor is 1000, because a step note
+// is one agent's handover line rather than a document, and a note capped at a
+// couple of hundred characters cannot carry a handover at all.
 //
 // 🔴 IT GOVERNS THE STEP NOTE ALONE. The task-level handover note and a chat
 // message body keep their own 4,000-character server constant (owner ruling

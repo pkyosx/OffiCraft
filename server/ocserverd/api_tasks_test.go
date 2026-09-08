@@ -2642,6 +2642,14 @@ func TestPeekResumeSummarySizeEmptyCallerCountsAreZeroButHeaderIsNot(t *testing.
 // the visible text is prefixed with the task's display number so the executor
 // sees which task the ruling is about (owner 2026-07-14). meta.task_id stays
 // the machine linkage.
+//
+// 🔴 THE PREFIX IS SPELLED OUT AS A LITERAL BELOW, `TaskID=` INCLUDED (owner
+// rc-01a07b1b2a12 / rc-379631993586 「ok. B.」). Building the wanted string the
+// same way the handler does would make this test agree with whatever shape the
+// handler happens to have — including the bare 「[T-33] 」 it used to send, which
+// says an id without saying what kind of id it is. The literal is also the
+// guard on the "not translated" half: an i18n lookup could not produce this
+// exact byte sequence for every locale.
 func TestTaskMessageBodyCarriesTaskNo(t *testing.T) {
 	api := newTasksTestServer(t)
 	task := createAdHocTask(t, api, "m-exec")
@@ -2670,7 +2678,7 @@ func TestTaskMessageBodyCarriesTaskNo(t *testing.T) {
 		t.Fatalf("load the message the receipt names: %v %v", stored, err)
 	}
 	msg := newChatMessageDTO(stored[0])
-	if want := "[" + TaskNo(task.ID) + "] 先做 P0 的部分"; msg.Body != want {
+	if want := "[TaskID=" + task.ID + "] 先做 P0 的部分"; msg.Body != want {
 		t.Fatalf("body: want %q, got %q", want, msg.Body)
 	}
 	// The machine linkage is untouched — still in meta.

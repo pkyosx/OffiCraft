@@ -213,6 +213,10 @@ export function ThemeSettings({ crumbs }: { crumbs: Crumb[] }) {
     office: useRef<HTMLInputElement>(null),
     replies: useRef<HTMLInputElement>(null),
     tasks: useRef<HTMLInputElement>(null),
+    // T-33 added the 傳承 tab to NAV_ICON_KEYS; this map is keyed by that set,
+    // so a missing entry is a compile error rather than a nav row whose 上傳
+    // button silently does nothing.
+    lore: useRef<HTMLInputElement>(null),
     monitor: useRef<HTMLInputElement>(null),
     guide: useRef<HTMLInputElement>(null),
   };

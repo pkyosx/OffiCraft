@@ -1128,19 +1128,31 @@ const (
 	taskEventCapCharsDefault = 15000
 )
 
-// min*CapChars / maxDocCapChars bound the adjustable caps. Each floor is THAT
-// segment's own default by design (see above), not a coincidence to be "tidied
-// up" into one shared number — putting the other segments' floor on Duty would
-// make dutyCapCharsDefault unreachable from the settings surface. The same
-// applies to the two boot-context document kinds: their floors are their own
-// defaults, so an owner can only ever RAISE them.
+// minDocCapChars / maxDocCapChars bound all eight adjustable document caps.
+//
+// 🔴 ONE SHARED FLOOR, AND IT IS NOT THE SHIPPED DEFAULT (owner 2026-09-07,
+// card rc-5b66ba099e28, option [1]). Until then each floor was THAT segment's
+// own shipped default, which made every knob one-way: raise only. The reason
+// given was that lowering one would strand every currently legal document in
+// shrink-only mode. Two things retired that reason.
+//
+// First, the owner asked for the other direction in his own words — 「可以下調，
+// 為什麼不可以；下調以後既往不咎，但是無法用超過大小的寫入」 — and that is
+// already exactly what the cap does: DocCapBlocked checks only the write in
+// front of it, existing content is never truncated and still reads back.
+//
+// Second, "stranded" overstated it. DocCapBlocked passes a write that is over
+// the cap as long as it is SHORTER than what is stored (see its three rules), so
+// an over-cap document is not frozen — it can still be edited in the shrinking
+// direction, which is the direction someone cutting it back would be going
+// anyway. Six documents on the tree are living on that path today.
+//
+// The floor is 100 rather than 0 for the same reason minLoreFoldCapChars is:
+// zero means "no room" everywhere in this file, and a cap that silently switches
+// a whole document off is a state the settings page has no way to explain.
 const (
-	minDocCapChars               = contextDocMaxCharsDefault
-	minDutyCapChars              = dutyCapCharsDefault
-	minSystemInteractionCapChars = systemInteractionCapCharsDefault
-	minBootSequenceCapChars      = bootSequenceCapCharsDefault
-	minOffboardCapChars          = offboardCapCharsDefault
-	maxDocCapChars               = 100000
+	minDocCapChars = 100
+	maxDocCapChars = 100000
 )
 
 // chatBudgetCharsDefault / minChatBudgetChars / maxChatBudgetChars bound the
@@ -1148,12 +1160,13 @@ const (
 // spends, see api_chat.go). It was the hard-coded constant 8000 until this
 // change made it the `chat.budget_chars` setting.
 //
-// 🔴 THE FLOOR IS NOT THE DEFAULT, unlike every doc.cap_chars.* above. Those
-// floors equal their own defaults because LOWERING a document cap puts existing
-// legal documents into shrink-only mode — a real, permanent cost. The chat
-// block carries no such state: it is repacked from scratch on every read, so a
-// smaller budget just returns fewer messages next time. Copying the doc-cap
-// rule here would mean the knob could only ever go up, which is not "adjustable".
+// 🔴 THE FLOOR IS ITS OWN NUMBER, not a copy of the doc caps'. Both turn in
+// both directions since 2026-09-07 (see minDocCapChars), so the difference is
+// no longer direction — it is what a lowered value costs. A smaller document cap
+// leaves an over-cap document editable only in the shrinking direction until
+// somebody cuts it; a smaller chat budget costs nothing that lasts, because the
+// block is repacked from scratch on every read and simply carries fewer messages
+// next time. 1000 is sized against a useful snapshot, not against that risk.
 //
 // 🔴 THE CEILING IS TIED TO resumeChatFetch, not picked round. That constant's
 // own comment derives 500 as a FLOOR from this budget: the cheapest possible
@@ -1173,13 +1186,12 @@ const (
 // was the hard-coded chatBodyMaxChars (4000) until the owner made it adjustable
 // and raised the shipped value to 10000 (2026-09-06).
 //
-// 🔴 THE FLOOR IS NOT THE DEFAULT, same as the chat budget above and unlike
-// every doc.cap_chars.* knob. The doc caps refuse to go below their own default
-// because lowering one puts existing legal documents into shrink-only mode. A
-// step note is checked ONLY on write and has no shrink-only mode to fall into:
-// an over-cap note keeps reading back in full (get_task_step still serves the
-// whole text) and merely cannot be edited until it is shortened. The owner
-// asked for a knob that turns both ways, so the floor is a floor.
+// 🔴 THE FLOOR IS ITS OWN NUMBER, same as the chat budget above. Every
+// doc.cap_chars.* knob turns in both directions too since 2026-09-07 (see
+// minDocCapChars), so what separates this one is the size of the number, not
+// its direction: a step note is checked ONLY on write, keeps reading back in
+// full when it is over (get_task_step still serves the whole text), and merely
+// cannot be edited until it is shortened.
 //
 // 🔴 IT DOES NOT GOVERN chatBodyMaxChars' OTHER TWO USERS. A chat message body
 // (api_chat.go) and the task-level handover note (HandleReassignTask...) keep
@@ -1949,3 +1961,126 @@ func DisplayName(id string, names map[string]string) string {
 	}
 	return id
 }
+
+// ── T-33 傳承（lore） ────────────────────────────────────────────────────────
+
+// LoreScopeAgent / LoreScopeManual are the TWO scopes a lore entry can belong
+// to, and they are the whole set (owner 2026-09-07, card rc-a43100fd0486 [0]:
+// 「應該已經沒有角色傳承」「只有成員跟任務傳承兩種」).
+//
+// 🔴 THERE WAS A THIRD, `role`, AND IT IS GONE FROM THE GO VOCABULARY. Every
+// entry that carried it was rekeyed onto the ONE member sitting under that role
+// by migrations/00100. Why that is a rekey and not a loss: staff were one-to-one
+// with their role in practice (owner c-712174eb0720), so the role key and that
+// member's id named the SAME set of readers, and the fold that reads them is the
+// same function with a different scope.
+//
+// ⚠️ WHAT THE OWNER KNOWINGLY GAVE UP, so nobody re-derives it as a bug: if two
+// members are ever put under one role they no longer share a 傳承 — each learns
+// its own. That trade was put to him in writing before he chose this, and today
+// no role carries two members. Nothing in the schema ENFORCES one-member-per-role
+// (member.role_key has no UNIQUE index and the hire face does not check), so this
+// is a property of the roster as it stands, not an invariant — see 00100's header.
+//
+// 🔴 THE DB CHECK IS STILL THE OLD TRIO, DELIBERATELY. migrations/00093 admits
+// ('role','agent','manual') and 00100 does NOT narrow it, because 00100 leaves
+// behind — on purpose — any 'role' row whose member was ambiguous. Those orphans
+// must stay STORABLE and READABLE; a tightened CHECK would have turned "we could
+// not tell whose this is" into "this row cannot exist", which is the silent
+// deletion the migration was written to avoid. An orphan reaches the cockpit on
+// the unfiltered page and renders through the client's unknown-kind arm, which is
+// how it stays visible without pretending to be one of the two live scopes.
+//
+// 🔴 WHICH ONE A WRITE LANDS IN IS DECIDED BY ONE QUESTION, not by a chain of
+// fallbacks (owner 2026-09-07): what is the EFFECTIVE RELATED TASK — the named
+// task when it carries a type, and NULL otherwise, which includes both "no task
+// named" and "a 臨時任務 that carries no type". A 臨時任務 is not a request that
+// got re-routed; it is not a place an entry can hang in the first place, so it is
+// the same input as naming no task at all.
+//
+//	effective task ⇒ manual, keyed by that type_key. Staff and outsource alike.
+//	NULL           ⇒ agent,  keyed by the writer's OWN member id. Staff and
+//	                 outsource alike — this is the collapse: the staff arm used
+//	                 to key by role_key and now keys by the writer, so there is
+//	                 no longer a branch here for the two kinds of writer.
+//
+// 🔴 agent IS STILL NOT A FALLBACK FOR manual. A write that names a typed task
+// never lands in agent, and a write that resolves to NULL never lands in manual.
+// Filing a one-off task's lesson under the writer would charge every one of its
+// future boots for it while the task type that needed such a lesson still got
+// nothing — and the write would answer 200, so nobody would ever look.
+const (
+	LoreScopeAgent  = "agent"
+	LoreScopeManual = "manual"
+)
+
+// LoreStateActive / LoreStatePinned / LoreStateRetired are a lore entry's three
+// mutually exclusive states — one column, not three flags (see 00093).
+//
+//   - active  — ordinary; ordered by effective_ts among its peers.
+//   - pinned  — sorted ahead of every active entry, so it survives the cap.
+//   - retired — excluded from every reader-facing fold. NOT deleted: the entry
+//     stays readable on the cockpit with its reason, and can be brought back.
+const (
+	LoreStateActive  = "active"
+	LoreStatePinned  = "pinned"
+	LoreStateRetired = "retired"
+)
+
+// ValidLoreState reports whether s names one of the three states. The write
+// faces gate on this rather than on a local switch so the closed set has one
+// definition on the Go side too.
+func ValidLoreState(s string) bool {
+	switch s {
+	case LoreStateActive, LoreStatePinned, LoreStateRetired:
+		return true
+	}
+	return false
+}
+
+// loreRoleCapCharsDefault / loreManualCapCharsDefault are the shipped budgets of
+// the two folds — how many characters of lore a MEMBER's boot document and a task
+// manual read may carry.
+//
+// ⚠️ THE NAME SAYS `role`, THE BUDGET IS THE MEMBER ONE. This constant and its
+// setting key (`lore.cap_chars.role`) were named when the member fold was keyed
+// by role_key; T-33's collapse to two scopes rekeyed the fold onto the member and
+// did NOT rename the knob. Renaming it would change a settings key the owner has
+// already turned, which is his to decide and not this ticket's — so the name is
+// stale and the meaning is stated here instead of being guessed from it. There is
+// still exactly ONE knob behind both member-scoped folds (staff and outsource),
+// which is why nothing new was opened: it was already shared before the collapse.
+//
+// 🔴 THE TWO BUDGETS DO NOT ADD UP AND ARE NEVER SUMMED. They are spent by
+// different readers at different moments: this budget is paid by every boot of
+// that member, the manual budget by whoever opens that type's manual. A single
+// shared number would make one member's 傳承 compete with a task type's for the
+// same room, which is a trade nobody wants to make.
+//
+// loreTitleCapCharsDefault / loreBodyCapCharsDefault bound ONE entry at the
+// moment it is written. The owner set these himself on 2026-09-07, lowering the
+// title from 140 to 80 and the body from 1000 to 500.
+//
+// 🔴 ALL FOUR TURN IN BOTH DIRECTIONS, and since 2026-09-07 so does every
+// doc.cap_chars.* knob (see minDocCapChars), so this is no longer the exception
+// it was written as. What is still true of these four specifically is WHY a
+// lowered cap costs nothing at all here: a lore entry has no edit path, so a
+// smaller cap cannot even put a stored one into the shrink-only state a
+// rewritten document lands in — it binds the NEXT write and nothing else.
+const (
+	loreRoleCapCharsDefault   = 10000
+	loreManualCapCharsDefault = 10000
+	loreTitleCapCharsDefault  = 80
+	loreBodyCapCharsDefault   = 500
+)
+
+// The bounds on those four knobs. The floors are small but non-zero: zero is
+// "no room" everywhere in this file (selectLoreForScope reads it that way), and
+// a cap that silently switches the whole feature off is a state the settings
+// page has no way to explain.
+const (
+	minLoreFoldCapChars  = 100
+	maxLoreFoldCapChars  = maxDocCapChars
+	minLoreEntryCapChars = 10
+	maxLoreEntryCapChars = 10000
+)

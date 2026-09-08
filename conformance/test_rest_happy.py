@@ -1742,7 +1742,10 @@ def _check_task_message(ctx: HCtx, r: httpx.Response) -> None:
     # The task binding is what makes this route different from plain chat.
     assert posted["meta"]["task_id"], posted
     # task_no IS the id (T-5291), so the prefix is computable from the binding.
-    assert posted["body"].startswith(f"[{posted['meta']['task_id']}] "), posted
+    # The prefix NAMES the kind (「[TaskID=…]」, owner 2026-09-08
+    # rc-379631993586) — a bare 「[T-1]」 asks the reader to already know what
+    # a T- means, and that reader is an AI member with no document teaching it.
+    assert posted["body"].startswith(f"[TaskID={posted['meta']['task_id']}] "), posted
 
 
 def _check_card_opened(ctx: HCtx, r: httpx.Response) -> None:
@@ -1976,6 +1979,103 @@ def _check_manual_learnings_written(ctx: HCtx, r: httpx.Response) -> None:
     assert g.status_code == 200, f"{g.status_code} {g.text}"
     assert g.json()["learnings"] == _HAPPY_MANUAL_LEARNINGS, g.text
 
+
+
+# ── 傳承 (T-33) ──────────────────────────────────────────────────────────────
+_HAPPY_LORE_TITLE = "conf happy lore title"
+_HAPPY_LORE_BODY = "conf happy lore body"
+
+
+def _happy_lore_entry(ctx: HCtx) -> str:
+    """A fresh 傳承 entry under the scratch agent ITSELF; returns its id.
+
+    🔴 THIS DOCSTRING USED TO SAY "under the scratch agent's OWN role ... hired
+    with its own throwaway role_key", and that was never true of this file: the
+    HCtx above is built with role_key="" (see _happy_ctx). Before T-33's third
+    position the mismatch showed up as a plain 400 — 「you have no role」 — and
+    the docstring is what made that look like a server bug rather than a wrong
+    claim about the fixture.
+
+    The writer's own boot document is the scope, and since the 2026-09-07 scope
+    collapse (owner, card rc-a43100fd0486 [0]) that is ONE kind for every
+    writer: `agent`, keyed by the member id. It used to depend on the writer — a
+    roster row with a role_key filed under `role` — and that branch is gone. No
+    task fixture is needed.
+    """
+    r = ctx.client.post(
+        "/api/lore",
+        json={"title": _HAPPY_LORE_TITLE, "body": _HAPPY_LORE_BODY},
+        headers=_auth(ctx.agent.token),
+    )
+    assert r.status_code == 200, f"happy lore failed: {r.status_code} {r.text}"
+    return r.json()["id"]
+
+
+def _check_lore_written(ctx: HCtx, r: httpx.Response) -> None:
+    # LoreEntryWriteReceiptDTO (T-33): the write answers a BOUNDED RECEIPT, not
+    # the entry. `title`, `body`, `author_id`, `state`, `effective_ts` and
+    # `updated_ts` are gone on purpose — they are what the caller just sent, or
+    # constants on a fresh write. What is asserted here is what the SERVER
+    # decided and the caller could not have known.
+    d = r.json()
+    assert d["id"].startswith("L-"), d
+    assert d["seq"] >= 1, d
+    # 🔴 `agent`, AND THIS IS NOW A STATEMENT ABOUT THE ROUTE, not about the
+    # fixture. It used to be fixture-dependent: the scratch agent carries
+    # role_key="" (_happy_ctx), and a writer WITH a role_key would have answered
+    # `role`. The owner collapsed the scopes on 2026-09-07 (card
+    # rc-a43100fd0486 [0]), so every writer — staff and outsource — files under
+    # its own member id and there is no second arm left for a fixture to select.
+    assert d["scope_kind"] == "agent", d
+    assert d["scope_key"] == ctx.agent.member_id, d
+    # It named no task, so there was nothing about where this landed that the
+    # writer could not predict — the explanatory sentence must stay empty.
+    assert d["scope_note"] == "", d
+    assert d["created_ts"] > 0, d
+    # 🔴 THE ECHO IS GONE, asserted as an ABSENCE. A server that went back to
+    # answering the whole entry would still satisfy every line above, because
+    # every key above is also on LoreEntryDTO.
+    assert _HAPPY_LORE_BODY not in r.text, r.text
+    assert "author_id" not in d, d
+
+
+def _check_lore_bumped(_ctx: HCtx, r: httpx.Response) -> None:
+    # LoreEntryStateReceiptDTO (T-33) — the same four keys as the state door.
+    d = r.json()
+    assert d["id"].startswith("L-"), d
+    # 提到最新 moves effective_ts and touches nothing else about the state; the
+    # entry it bumped was written active moments earlier by _happy_lore_entry.
+    assert d["state"] == "active", d
+    assert d["effective_ts"] > 0, d
+    # updated_ts is stamped by THIS write, so it cannot be behind the bump it
+    # is reporting.
+    assert d["updated_ts"] >= d["effective_ts"], d
+    assert _HAPPY_LORE_BODY not in r.text, r.text
+
+
+def _check_lore_retired(_ctx: HCtx, r: httpx.Response) -> None:
+    d = r.json()
+    assert d["state"] == "retired", d
+    # `retire_reason` is NOT on the governance receipt: it is what this very
+    # request sent. That it was STORED (and cleared on the way back) is pinned
+    # by TestSetLoreStateClearsTheReasonOnTheWayBack in the server unit tests,
+    # which reads the row rather than the response.
+    assert "retire_reason" not in d, d
+    assert _HAPPY_LORE_BODY not in r.text, r.text
+
+
+def _check_lore_list(_ctx: HCtx, r: httpx.Response) -> None:
+    d = r.json()
+    assert isinstance(d["entries"], list), d
+    assert d["limit"] >= 1 and d["offset"] == 0, d
+    # The 上限線 fields. This row sends NO scope filter, so the answer must be
+    # the honest empty one: a budget belongs to a scope, and a page spanning
+    # several has no single one to report. Asserting the empty answer here is
+    # what makes a server that reports SOME scope's cap for an unfiltered page
+    # fail — a wrong cap draws a line in the wrong place, and a line in the
+    # wrong place looks exactly like a line in the right place.
+    assert d["cap_chars"] == 0, d
+    assert d["first_dropped_id"] == "", d
 
 
 HAPPY: dict[str, Happy] = {
@@ -3391,6 +3491,24 @@ HAPPY: dict[str, Happy] = {
         check=lambda _c, r: _expect(
             r, lambda d: any(row["slug"] == "why" for row in d)
         ),
+    ),
+    # ── 傳承 (T-33) ─────────────────────────────────────────────────────────
+    "POST /api/lore": Happy(
+        identity="agent",
+        body={"title": _HAPPY_LORE_TITLE, "body": _HAPPY_LORE_BODY},
+        check=_check_lore_written,
+    ),
+    "GET /api/lore": Happy(identity="agent", check=_check_lore_list),
+    "POST /api/lore/{entry_id}/state": Happy(
+        identity="agent",
+        path=lambda ctx: f"/api/lore/{_happy_lore_entry(ctx)}/state",
+        body={"state": "retired", "retire_reason": "conf happy retire reason"},
+        check=_check_lore_retired,
+    ),
+    "POST /api/lore/{entry_id}/bump": Happy(
+        identity="agent",
+        path=lambda ctx: f"/api/lore/{_happy_lore_entry(ctx)}/bump",
+        check=_check_lore_bumped,
     ),
     "GET /api/docs/{slug}": Happy(
         path="/api/docs/why",

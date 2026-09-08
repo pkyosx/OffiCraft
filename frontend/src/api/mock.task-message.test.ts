@@ -44,7 +44,7 @@ describe("mock task message box — server parity", () => {
     await mockApi.postTaskMessage(task.id, { body: "  先做 P0 的部分  " });
 
     const thread = await mockApi.listChat("mira");
-    expect(thread.map((m) => m.body)).toContain("[T-abcd] 先做 P0 的部分");
+    expect(thread.map((m) => m.body)).toContain("[TaskID=T-abcd] 先做 P0 的部分");
   });
 
   it("keeps an attachment-only message body empty (no prefix)", async () => {

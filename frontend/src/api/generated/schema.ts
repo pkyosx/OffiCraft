@@ -4,6 +4,70 @@
  */
 
 export interface paths {
+    "/api/lore": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List 傳承 entries, filtered SERVER-SIDE and paged in the fixed order pinned -> active -> retired, newest first inside each group. The order is not configurable; the filter is.
+         * @description List 傳承 entries, filtered SERVER-SIDE and paged in the fixed order pinned -> active -> retired, newest first inside each group. The order is not configurable; the filter is.
+         */
+        get: operations["handle_list_lore_entries_api_lore_get"];
+        put?: never;
+        /**
+         * Write ONE 傳承 entry (never editable afterwards). ``task_id`` picks the scope, and there is ALWAYS somewhere for it to land: a task that carries a TYPE files under that type's manual; no task at all, OR a task with no type (臨時任務), files into your OWN boot document -- your role if you are staff, yourself if you are an outsource member (who has no role for a role scope to name). The untyped-task case answers a ``scope_note`` saying where it actually went, because you asked for a manual and did not get one. Only a caller with no roster row at all is a 400 -- there is no boot document to file into. An over-cap title or body is a 400 that writes nothing.
+         * @description Write ONE 傳承 entry (never editable afterwards). ``task_id`` picks the scope, and there is ALWAYS somewhere for it to land: a task that carries a TYPE files under that type's manual; no task at all, OR a task with no type (臨時任務), files into your OWN boot document -- your role if you are staff, yourself if you are an outsource member (who has no role for a role scope to name). The untyped-task case answers a ``scope_note`` saying where it actually went, because you asked for a manual and did not get one. Only a caller with no roster row at all is a 400 -- there is no boot document to file into. An over-cap title or body is a 400 that writes nothing.
+         */
+        post: operations["handle_write_lore_entry_api_lore_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/lore/{entry_id}/state": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Move one 傳承 entry to active / pinned / retired. 置頂 and un-置頂 are ADMIN-ONLY (owner ruling): a pinned entry sorts ahead of every other entry in its scope and so survives the cap at the others' expense. 失效 and 生效 are open to the entry's own AUTHOR -- anyone else is a 403 -- and admin capability is unrestricted. Retiring is not deleting: the entry keeps its id and can be moved back; ``retire_reason`` is stored only with retired and cleared by the other two.
+         * @description Move one 傳承 entry to active / pinned / retired. 置頂 and un-置頂 are ADMIN-ONLY (owner ruling): a pinned entry sorts ahead of every other entry in its scope and so survives the cap at the others' expense. 失效 and 生效 are open to the entry's own AUTHOR -- anyone else is a 403 -- and admin capability is unrestricted. Retiring is not deleting: the entry keeps its id and can be moved back; ``retire_reason`` is stored only with retired and cleared by the other two.
+         */
+        post: operations["handle_set_lore_entry_state_api_lore__entry_id__state_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/lore/{entry_id}/bump": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * 提到最新: set one 傳承 entry's ``effective_ts`` to now so it sorts to the front of its group. Only the entry's own AUTHOR may bump it (admin capability is unrestricted) -- a bump moves an entry ahead of other people's under a shared cap, so it spends somebody else's room. ``created_ts`` is NOT touched, which is what makes this reversible.
+         * @description 提到最新: set one 傳承 entry's ``effective_ts`` to now so it sorts to the front of its group. Only the entry's own AUTHOR may bump it (admin capability is unrestricted) -- a bump moves an entry ahead of other people's under a shared cap, so it spends somebody else's room. ``created_ts`` is NOT touched, which is what makes this reversible.
+         */
+        post: operations["handle_bump_lore_entry_api_lore__entry_id__bump_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/accounts/cost/reset": {
         parameters: {
             query?: never;
@@ -2892,7 +2956,7 @@ export interface paths {
         };
         /**
          * Read an outsource worker's boot-context preview (owner/admin agent).
-         * @description Read the outsource worker's boot-context PREVIEW (T-ba6b): the server re-assembles the boot text with the SAME fold the spawn path uses (buildWorkerBootContext), WITHOUT minting any token. Since T-4595 that fold is the STAFF boot context minus the persona slot — 系統互動 + 使用者自訂 + the boot sequence for the worker's own runtime, with no outsource-only document, no 你的身分 block, no bound task and no type manual. Owner/admin-agent cockpit read (T-6020; the floor is unchanged, and it is now the only thing keeping this read narrow — the text no longer embeds the task or the manual). 404 for an unknown worker or a worker whose bound task is gone. HONEST caveat the UI must carry: this is today's re-assembly, not a verbatim spawn-time record — nothing is stored (no prompt column, no migration).
+         * @description Read the outsource worker's boot-context PREVIEW (T-ba6b): the server re-assembles the boot text with the SAME fold the spawn path uses (buildWorkerBootContext), WITHOUT minting any token. Since T-4595 that fold is the STAFF boot context minus the persona slot — 系統互動 + 使用者自訂 + the boot sequence for the worker's own runtime, with no outsource-only document, no 你的身分 block, no bound task and no type manual — but WITH that worker's own 傳承 block (T-33, LoreScopeAgent keyed on its member id), which is the one part that differs from worker to worker. Owner/admin-agent cockpit read (T-6020; the floor is unchanged, and it is now the only thing keeping this read narrow — the text no longer embeds the task or the manual). 404 for an unknown worker or a worker whose bound task is gone. HONEST caveat the UI must carry: this is today's re-assembly, not a verbatim spawn-time record — nothing is stored (no prompt column, no migration).
          */
         get: operations["handle_get_worker_boot_context_api_outsource_workers__id__boot_context_get"];
         put?: never;
@@ -4647,6 +4711,237 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /**
+         * LoreEntryDTO
+         * @description One 傳承 entry (T-33). Written once and NEVER edited: no route changes ``title`` or ``body``, so what you read here is what was written. The mutable surface is ``state`` (active / pinned / retired), ``retire_reason`` and ``effective_ts``.
+         *
+         *     ``effective_ts`` vs ``created_ts``: ``created_ts`` is when the entry was written and never moves; ``effective_ts`` starts equal to it and is what ``bump_lore_entry`` sets to now. The fold's selection order reads ``effective_ts``, so bumping is how an old entry is brought back to the front — and because ``created_ts`` survives, the bump is reversible and explicable afterwards.
+         *
+         *     ``author_id`` is the writer's member id AS IT WAS at the moment of the write, pinned. It is not re-resolved against the roster: a writer who has since left still wrote this. A client that cannot find the id on the live roster should drop the writer's live affordances, never the entry.
+         */
+        LoreEntryDTO: {
+            /**
+             * Id
+             * @description ``L-<n>``, ``n`` ascending globally. This is the handle every write face takes as ``entry_id``.
+             */
+            id: string;
+            /**
+             * Seq
+             * @description The number behind the id — also the stable tie-break when two entries carry the same ``effective_ts``.
+             */
+            seq: number;
+            /**
+             * Scope Kind
+             * @description ``agent`` or ``manual``, and the two are not interchangeable. An ``agent`` entry rides ONE member's own boot document — staff and outsource alike; a ``manual`` entry rides ``get_task_manual``.
+             *
+             *     Which one a write lands in is decided by ONE question — the EFFECTIVE RELATED TASK: the named task when it carries a type, and NULL otherwise, where "otherwise" covers BOTH naming no task and naming a 臨時任務 that carries no type. An effective task gives ``manual``; NULL gives ``agent``, keyed by the writer itself.
+             *
+             *     🔴 A THIRD VALUE, ``role``, WAS RETIRED ON 2026-09-07 (owner, card rc-a43100fd0486 [0]: 「只有成員跟任務傳承兩種」). Every role-scoped entry was rekeyed onto the one member under that role, and ``role`` is no longer writable and no longer an accepted ``scope_kinds`` filter value — sending it is a 400, not an empty page. READERS MUST STILL TOLERATE IT: the migration deliberately left in place any entry whose member could not be determined (no active member under that role, or more than one), so ``role`` can still come back on an unfiltered page and a client that switches exhaustively on the two live values must have a fallback arm rather than crashing or renaming it into one of them.
+             */
+            scope_kind: string;
+            /**
+             * Scope Key
+             * @description The writer's own member id when ``scope_kind`` is ``agent``; the task manual's ``type_key`` when it is ``manual``. A surviving legacy ``role`` row (see ``scope_kind``) still carries a role_key here.
+             */
+            scope_key: string;
+            /** Title */
+            title: string;
+            /** Body */
+            body: string;
+            /** Author Id */
+            author_id: string;
+            /**
+             * Source Task Id
+             * @description The task the write happened inside, or "". Provenance only — nothing branches on it.
+             */
+            source_task_id: string;
+            /**
+             * State
+             * @description ``active`` | ``pinned`` | ``retired`` — exactly one, always. ``pinned`` sorts ahead of every active entry so it survives the fold's cap; ``retired`` is excluded from both folds but is NOT deleted and can be moved back.
+             */
+            state: string;
+            /**
+             * Retire Reason
+             * @description Why it was retired, or "". Meaningful only while ``state`` is ``retired``, and cleared when the entry is moved back.
+             */
+            retire_reason: string;
+            /**
+             * Effective Ts
+             * Format: double
+             */
+            effective_ts: number;
+            /**
+             * Created Ts
+             * Format: double
+             */
+            created_ts: number;
+            /**
+             * Updated Ts
+             * Format: double
+             */
+            updated_ts: number;
+        };
+        /**
+         * LoreEntryWriteDTO
+         * @description Write ONE 傳承 entry (T-33). The EFFECTIVE RELATED TASK decides the scope, and it decides it alone:
+         *
+         *     * a named task that carries a ``type_key`` ⇒ a MANUAL entry under that type.
+         *     * anything else ⇒ an AGENT entry under the CALLER'S OWN member id, read from the roster by the verified token subject — never from a client field. "Anything else" covers BOTH naming no task and naming a 臨時任務 that carries no type: a task with no type is not a place an entry can hang, so it is the same input as naming none.
+         *
+         *     Staff and outsource members take the same arm. They used to differ — staff filed under their role_key — until the owner collapsed the scopes to two on 2026-09-07 (card rc-a43100fd0486 [0]).
+         *
+         *     NEITHER ARM FALLS THROUGH TO THE OTHER. Filing an untyped task's lesson under a manual would charge a task TYPE for a lesson about work it will never do, while the writer who needed it kept nothing — and no error anywhere would say so. The one refusal left is a caller with NO ROSTER ROW at all (the owner): there is no boot document of his own for an entry to ride, so it is a 400.
+         *
+         *     A write that named a task and landed in the writer's own document says so in ``scope_note`` — it is the one outcome the caller could not predict from its own request.
+         *
+         *     An over-cap ``title`` or ``body`` is a 400 that writes NOTHING, and nothing is truncated. The caps are the ``lore_cap_chars_title`` / ``lore_cap_chars_body`` settings, in characters.
+         */
+        LoreEntryWriteDTO: {
+            /**
+             * Title
+             * @description The entry's one-line heading, at most ``lore_cap_chars_title`` characters.
+             */
+            title: string;
+            /**
+             * Body
+             * @description The entry itself, at most ``lore_cap_chars_body`` characters.
+             */
+            body: string;
+            /**
+             * Task Id
+             * @description The task whose TYPE this entry belongs to. Send a TASK id here, not a type_key — the server reads the type off the task, which is also what records where the lesson came from.
+             *
+             *     What decides the scope is the EFFECTIVE RELATED TASK: this task when it carries a type, and NULL otherwise. NULL covers BOTH omitting this field and naming a 臨時任務 that carries no type, and it files the entry under the writer's OWN boot document — ``role`` for staff, ``agent`` for an outsource member (owner 2026-09-07, card rc-3c24fdc61ed3).
+             *
+             *     🔴 A task carrying no type used to be REFUSED here. It is not any more, and the refusal was retired rather than relaxed: the owner ruled that a task with no type is not a place an entry could hang in the first place, so naming one is the same input as naming none, not a request that got redirected. When that happens ``scope_note`` on the write receipt says so in one sentence, because the caller cannot otherwise tell the two 200s apart.
+             */
+            task_id?: string | null;
+        };
+        /**
+         * LoreEntryStateDTO
+         * @description Move one 傳承 entry between its three mutually exclusive states (T-33). ``retire_reason`` is stored only with ``retired`` and is CLEARED by a move to ``active`` or ``pinned`` — a live entry must not keep displaying the explanation for a retirement that was undone.
+         *
+         *     Retiring is not deleting: the entry stays readable, keeps its id, and can be moved back.
+         */
+        LoreEntryStateDTO: {
+            /**
+             * State
+             * @description ``active`` | ``pinned`` | ``retired``. Anything else is a 400.
+             */
+            state: string;
+            /**
+             * Retire Reason
+             * @description Why it is being retired. Ignored — and any stored value cleared — for the other two states.
+             */
+            retire_reason?: string | null;
+        };
+        /**
+         * LoreEntryListDTO
+         * @description One page of 傳承 entries (T-33), in the fixed display order: pinned, then active, then retired, newest ``effective_ts`` first inside each group. THE ORDER IS NOT CONFIGURABLE — the filter is.
+         *
+         *     The filter is applied in the QUERY, before the page is cut. A client that pages first and filters afterwards cannot tell "this page happens to hold none of them" from "there are none", and any count it draws from the visible rows is wrong.
+         */
+        LoreEntryListDTO: {
+            /** Entries */
+            entries: components["schemas"]["LoreEntryDTO"][];
+            /**
+             * Limit
+             * @description The page size actually applied — not necessarily the one asked for.
+             */
+            limit: number;
+            /**
+             * Offset
+             * @description The offset actually applied.
+             */
+            offset: number;
+            /**
+             * Cap Chars
+             * @description The fold budget in force for the ONE scope this request's filter converged on — ``lore_cap_chars_role`` or ``lore_cap_chars_manual``. It is 0 when ``scope_kind`` and ``scope_key`` did not BOTH name a single scope, because a budget belongs to a scope and a page spanning several has no single one to report.
+             */
+            cap_chars: number;
+            /**
+             * First Dropped Id
+             * @description The id of the first entry that does NOT fit inside ``cap_chars`` — the entry the 上限線 is drawn above. It is "" when the whole scope fits, and "" when ``cap_chars`` is 0.
+             *
+             *     🔴 IT IS COMPUTED BY THE SAME ``selectLoreForScope`` THE TWO FOLDS RUN, over the WHOLE scope and not over this page. A client cannot derive it: paging cuts the list before the budget is spent, and re-adding the title/body lengths in the client would be a SECOND copy of the picking rule that drifts from the real one without anything turning red. Read this field; do not recompute it.
+             */
+            first_dropped_id: string;
+        };
+        /**
+         * LoreEntryWriteReceiptDTO
+         * @description Bounded receipt for ``POST /api/lore`` (write_lore_entry) (T-33). It used to answer with the whole LoreEntryDTO, so the ``title`` and ``body`` the agent had just written came straight back into its context window — a body sized by ``lore_cap_chars_body`` paid for twice on one call. Owner ruling 2026-09-07, verbatim: 「別這樣 浪費 context 我們才修一輪不要回傳自己寫出去的 payload」; the rule it applies is the one T-91's receipts already follow (2026-09-05: 「自己發送出去的內容，除了像是 ID 這類的，或是真的需要從回覆得知的，其他都不應該再回傳回來。」).
+         *
+         *     EVERY FIELD HERE IS MINTED OR DECIDED BY THE HANDLER, none is an echo. What is dropped: ``title`` and ``body`` (just sent), ``author_id`` (the verified caller, which is the caller), ``source_task_id`` (the ``task_id`` just sent), plus ``state``, ``retire_reason``, ``effective_ts`` and ``updated_ts``, which on a fresh write are constants — a new entry is always ``active`` with no reason, and all three of its timestamps equal ``created_ts``. Call ``list_lore_entries`` (``GET /api/lore``) for the entry itself.
+         *
+         *     ``scope_kind`` and ``scope_key`` STAY, and they are why this receipt is more than an id. WHICH of the two boot documents an entry landed in is decided SERVER-SIDE, off the effective related task and off the caller's own roster row — a caller that named a task cannot predict it, and it is the machine-readable half of what ``scope_note`` says in a sentence.
+         */
+        LoreEntryWriteReceiptDTO: {
+            /**
+             * Id
+             * @description ``L-<n>``, MINTED HERE, ``n`` ascending globally. The handle ``set_lore_entry_state`` and ``bump_lore_entry`` take as ``entry_id``, and the one thing the caller cannot compute.
+             */
+            id: string;
+            /**
+             * Seq
+             * @description The number behind the id, assigned here — also the stable tie-break when two entries carry the same ``effective_ts``.
+             */
+            seq: number;
+            /**
+             * Scope Kind
+             * @description ``agent`` or ``manual`` — WHERE THIS ENTRY WAS FILED, which the server decided and the caller did not ask for. The deciding question is the EFFECTIVE RELATED TASK: the named task when it carries a type, and NULL otherwise, where "otherwise" covers BOTH naming no task and naming a 臨時任務 that carries no type. An effective task gives ``manual``; NULL gives ``agent``, keyed by the writer's own member id — staff and outsource alike since the 2026-09-07 collapse (card rc-a43100fd0486 [0]). A write can never produce the retired ``role`` value.
+             */
+            scope_kind: string;
+            /**
+             * Scope Key
+             * @description The writer's own member id when ``scope_kind`` is ``agent``; the task manual's ``type_key`` when it is ``manual``. Together with ``scope_kind`` it is the filter that reads this entry back out of ``list_lore_entries``.
+             */
+            scope_key: string;
+            /**
+             * Created Ts
+             * Format: double
+             * @description The SERVER's stamp for the entry, epoch seconds. The caller does not send it and cannot backdate it. ``effective_ts`` and ``updated_ts`` are not on this receipt because on a fresh write both equal this one — they can only come apart later, and the receipt for that move reports them.
+             */
+            created_ts: number;
+            /**
+             * Scope Note
+             * @description Empty on every ordinary write. It carries one sentence in exactly one case: the write named a ``task_id`` whose task carries NO type, so the effective related task was NULL and the entry was filed under the writer's own boot document rather than under a manual.
+             *
+             *     It exists because the writer has no other way to learn that. Whether the task it named happens to carry a type is not something the writer holds in mind at the moment of the write, and both outcomes answer 200 — so without this sentence the two are indistinguishable from the caller's side. It REPORTS where the entry went; it is not a warning that a request was re-routed, because a task with no type was never a place an entry could hang.
+             *
+             *     It is on the RECEIPT and not on ``LoreEntryDTO``, where it used to live as ``filed_note``: only a write can produce it, so on every row ``GET /api/lore`` serves it was an always-empty column riding every entry of every page.
+             */
+            scope_note: string;
+        };
+        /**
+         * LoreEntryStateReceiptDTO
+         * @description Bounded receipt for the two 傳承 GOVERNANCE writes — ``POST /api/lore/{entry_id}/state`` (set_lore_entry_state) and ``POST /api/lore/{entry_id}/bump`` (bump_lore_entry) (T-33). Both used to answer with the whole LoreEntryDTO, so an entry's ``title`` and ``body`` came home on every 置頂 / 失效 / 提到最新 — a payload the caller had never sent, on a call whose entire content is one state word or nothing at all. Owner ruling 2026-09-07: 「不要回傳自己寫出去的 payload」, read together with the 2026-09-05 rule that only ids and what the write itself decides ride home.
+         *
+         *     ONE SHAPE FOR BOTH DOORS. They move the same row's mutable surface and neither can report anything the other cannot: the state door writes ``state`` (and ``retire_reason``, which it stores only with ``retired`` and clears otherwise), the bump door writes ``effective_ts``, and both stamp ``updated_ts``. Two shapes would be two answers to one question, free to drift. What is dropped is the read-only half — ``seq``, ``scope_kind``, ``scope_key``, ``title``, ``body``, ``author_id``, ``source_task_id``, ``created_ts`` — none of which either verb can change; call ``list_lore_entries`` (``GET /api/lore``) for the entry itself.
+         */
+        LoreEntryStateReceiptDTO: {
+            /**
+             * Id
+             * @description The entry that was moved, echoed from the path. An id, which the owner's rule exempts in as many words (「除了像是 ID 這類的」): it is what lets a caller match this answer to the request it made.
+             */
+            id: string;
+            /**
+             * State
+             * @description ``active`` | ``pinned`` | ``retired`` — the state the entry is in AFTER this write, read back from the stored row. On the state door it confirms the asked-for move landed. On the bump door the caller sent no state at all, and this is where it learns 提到最新 did NOT change one — a bump reorders, it does not revive a retired entry.
+             */
+            state: string;
+            /**
+             * Effective Ts
+             * Format: double
+             * @description The entry's ordering key as it now stands, epoch seconds. On the bump door this is the SERVER's new now-stamp, which is the whole point of the call and the one value the caller cannot compute — two entries bumped from two machines still order by one clock. On the state door it is untouched, which is how a caller sees that retiring or reviving did not reorder anything.
+             */
+            effective_ts: number;
+            /**
+             * Updated Ts
+             * Format: double
+             * @description The SERVER's stamp for THIS write, epoch seconds. It moves on both doors and on every call, so it — not ``effective_ts`` — is what says the write happened at all.
+             */
+            updated_ts: number;
+        };
         /**
          * @description Response of ``GET /api/diff``: BOTH sides of one comparison in a single answer.
          *
@@ -8807,6 +9102,30 @@ export interface components {
          */
         SettingsDTO: {
             /**
+             * Lore Cap Chars Role
+             * @description How many characters of 傳承 a STAFF boot document carries for one role (T-33) — spent by every boot of that role. INDEPENDENT of ``lore_cap_chars_manual``; the two are never summed, because they are paid by different readers at different moments. Unlike the ``doc_cap_chars_*`` knobs this one may be LOWERED as well as raised. Those floors equal their own shipped defaults because lowering one strands an existing legal document in shrink-only mode; a 傳承 entry has NO edit path at all, so a smaller cap cannot strand anything already stored — it binds the next write and nothing else. The adjustable range is 100..100000.
+             * @default 10000
+             */
+            lore_cap_chars_role: number;
+            /**
+             * Lore Cap Chars Manual
+             * @description How many characters of 傳承 ``get_task_manual`` appends after a type's ``learnings`` (T-33) — spent by whoever opens that manual, staff and outsource alike, since this fold enters no boot document. INDEPENDENT of ``lore_cap_chars_role``. Unlike the ``doc_cap_chars_*`` knobs this one may be LOWERED as well as raised. Those floors equal their own shipped defaults because lowering one strands an existing legal document in shrink-only mode; a 傳承 entry has NO edit path at all, so a smaller cap cannot strand anything already stored — it binds the next write and nothing else. The adjustable range is 100..100000.
+             * @default 10000
+             */
+            lore_cap_chars_manual: number;
+            /**
+             * Lore Cap Chars Title
+             * @description The longest ``title`` ONE 傳承 entry may be written with, in characters (T-33). An over-cap write is refused whole — nothing partial is stored and nothing is truncated. Unlike the ``doc_cap_chars_*`` knobs this one may be LOWERED as well as raised. Those floors equal their own shipped defaults because lowering one strands an existing legal document in shrink-only mode; a 傳承 entry has NO edit path at all, so a smaller cap cannot strand anything already stored — it binds the next write and nothing else. The adjustable range is 10..10000.
+             * @default 80
+             */
+            lore_cap_chars_title: number;
+            /**
+             * Lore Cap Chars Body
+             * @description The longest ``body`` ONE 傳承 entry may be written with, in characters (T-33). An over-cap write is refused whole; half a lesson is not a shorter lesson. Unlike the ``doc_cap_chars_*`` knobs this one may be LOWERED as well as raised. Those floors equal their own shipped defaults because lowering one strands an existing legal document in shrink-only mode; a 傳承 entry has NO edit path at all, so a smaller cap cannot strand anything already stored — it binds the next write and nothing else. The adjustable range is 10..10000.
+             * @default 500
+             */
+            lore_cap_chars_body: number;
+            /**
              * Codex Compaction Threshold
              * @description Codex context-compaction threshold, 1 through 10.
              * @default 3
@@ -8965,6 +9284,11 @@ export interface components {
              */
             suggested_replies_task_message?: string[];
             /**
+             * Suggested Replies Lore Message
+             * @description The one-click 建議回覆 offered under a 傳承 entry's message box (T-33) — the box that writes to the person who WROTE that entry. A THIRD separate list, for the same reason the other two are separate: asking 「這條還適用嗎」 about a lesson someone left behind is not answering a 請示卡 and not steering a task in progress, so one list's sentences are wrong in another's box. [] (the default) means no chips are drawn there, and the message box works exactly as it does without them.
+             */
+            suggested_replies_lore_message?: string[];
+            /**
              * Agent Token Ttl
              * @description Agent and outsource-worker JWT lifetime in seconds. Fresh installs default to 7 days.
              * @default 604800
@@ -9014,6 +9338,26 @@ export interface components {
          *     lowering one would turn documents that are legal today into shrink-only ones.
          */
         SettingsUpdateDTO: {
+            /**
+             * Lore Cap Chars Role
+             * @description How many characters of 傳承 a STAFF boot document carries for one role (T-33) — spent by every boot of that role. INDEPENDENT of ``lore_cap_chars_manual``; the two are never summed, because they are paid by different readers at different moments. Unlike the ``doc_cap_chars_*`` knobs this one may be LOWERED as well as raised. Those floors equal their own shipped defaults because lowering one strands an existing legal document in shrink-only mode; a 傳承 entry has NO edit path at all, so a smaller cap cannot strand anything already stored — it binds the next write and nothing else. The adjustable range is 100..100000.
+             */
+            lore_cap_chars_role?: number | null;
+            /**
+             * Lore Cap Chars Manual
+             * @description How many characters of 傳承 ``get_task_manual`` appends after a type's ``learnings`` (T-33) — spent by whoever opens that manual, staff and outsource alike, since this fold enters no boot document. INDEPENDENT of ``lore_cap_chars_role``. Unlike the ``doc_cap_chars_*`` knobs this one may be LOWERED as well as raised. Those floors equal their own shipped defaults because lowering one strands an existing legal document in shrink-only mode; a 傳承 entry has NO edit path at all, so a smaller cap cannot strand anything already stored — it binds the next write and nothing else. The adjustable range is 100..100000.
+             */
+            lore_cap_chars_manual?: number | null;
+            /**
+             * Lore Cap Chars Title
+             * @description The longest ``title`` ONE 傳承 entry may be written with, in characters (T-33). An over-cap write is refused whole — nothing partial is stored and nothing is truncated. Unlike the ``doc_cap_chars_*`` knobs this one may be LOWERED as well as raised. Those floors equal their own shipped defaults because lowering one strands an existing legal document in shrink-only mode; a 傳承 entry has NO edit path at all, so a smaller cap cannot strand anything already stored — it binds the next write and nothing else. The adjustable range is 10..10000.
+             */
+            lore_cap_chars_title?: number | null;
+            /**
+             * Lore Cap Chars Body
+             * @description The longest ``body`` ONE 傳承 entry may be written with, in characters (T-33). An over-cap write is refused whole; half a lesson is not a shorter lesson. Unlike the ``doc_cap_chars_*`` knobs this one may be LOWERED as well as raised. Those floors equal their own shipped defaults because lowering one strands an existing legal document in shrink-only mode; a 傳承 entry has NO edit path at all, so a smaller cap cannot strand anything already stored — it binds the next write and nothing else. The adjustable range is 10..10000.
+             */
+            lore_cap_chars_body?: number | null;
             /**
              * Codex Compaction Threshold
              * @description Codex context-compaction threshold, 1 through 10.
@@ -9149,6 +9493,11 @@ export interface components {
              * @description Replace the 任務 message-box 建議回覆 list wholesale (T-122). Same bounds as suggested_replies_reply_card — at most 20 entries, each trimmed and at most 120 runes, over either is a 422 that writes nothing, and an explicit empty array is legal — but a SEPARATE list: patching one never touches the other. 🔴 null is NOT "clear": an omitted field and an explicit null both mean LEAVE THIS LIST UNCHANGED, so an agent that sends null to empty the list gets a 200 and no change at all. To clear it, send [].
              */
             suggested_replies_task_message?: string[] | null;
+            /**
+             * Suggested Replies Lore Message
+             * @description Replace the 傳承 message-box 建議回覆 list wholesale (T-33) — the box that writes to the person who wrote that 傳承 entry. Same bounds as suggested_replies_reply_card — at most 20 entries, each trimmed and at most 120 runes, over either is a 422 that writes nothing, and an explicit empty array is legal — but a SEPARATE list: patching one never touches another. 🔴 null is NOT "clear": an omitted field and an explicit null both mean LEAVE THIS LIST UNCHANGED, so an agent that sends null to empty the list gets a 200 and no change at all. To clear it, send [].
+             */
+            suggested_replies_lore_message?: string[] | null;
             /** Outsource Max Parallel */
             outsource_max_parallel?: number | null;
             /** Agent Token Ttl */
@@ -10481,9 +10830,22 @@ export interface components {
             fields: components["schemas"]["TaskManualFieldDTO"][];
             /**
              * Learnings
+             * @description The manual's LEARNINGS DOCUMENT — the stored text a write face writes, and nothing else. 🔴 IT NO LONGER CARRIES THE 傳承 BLOCK. Lore used to be appended onto this field, which left it full of text while ``learnings_chars`` (which counts the STORED document) reported 0, and nothing on the wire said which half of the field that number was about. Owner ruling 2026-09-07 split them: the block is served on ``lore``, beside this field. A reader that wants what a member effectively sees concatenates the two ITSELF — and can then see that it did, which is exactly what the merged field took away.
              * @default
              */
             learnings: string;
+            /**
+             * Lore
+             * @description The rendered 傳承 block for this manual's task type: the entries selected for it, newest first, under a ``# 傳承`` heading. EMPTY STRING when the type has no live entries — a real answer, not an omission. 🔴 IT IS NOT PART OF ``learnings`` AND IS NOT STORED ANYWHERE. It is assembled per read from the lore entries, so a caller that reads it and writes it back into the learnings document duplicates it on every cycle; the learnings write faces strip a trailing block for that exact reason. Read it, do not re-send it. 🔴 IF YOU ARE FOLLOWING A WRITTEN PROCEDURE THAT ONLY MENTIONS ``learnings``, THIS FIELD IS THE PART THAT PROCEDURE PREDATES — the type's accumulated experience lives here now.
+             * @default
+             */
+            lore: string;
+            /**
+             * Lore Chars
+             * @description Size of ``lore`` in CHARACTERS. A SEPARATE number from ``learnings_chars`` on purpose: the two fields are written by different paths and judged against different caps, so ``learnings_chars`` sizes what a writer may edit while this one sizes what the server assembled. Neither substitutes for the other, and it is their SUM that approximates what a member effectively reads.
+             * @default 0
+             */
+            lore_chars: number;
             /**
              * Purpose
              * @default
@@ -11409,7 +11771,7 @@ export interface components {
         };
         /**
          * WorkerBootContextDTO
-         * @description The outsource worker's boot-context PREVIEW (GET /api/outsource-workers/{id}/boot-context, T-ba6b) — the worker twin of the member panel's /api/bootstrap preview. The server re-runs the SAME buildWorkerBootContext fold the spawn path uses. Since T-4595 that fold is the STAFF boot context minus the persona slot (系統互動 + 使用者自訂 + the boot sequence for the worker's own runtime); it carries no outsource-only document, no identity block, no bound task and no type manual, so it does not vary with them. HONEST: this is what the boot context would look like NOW — the seeds may have changed since spawn, and nothing is stored. Never carries a worker token.
+         * @description The outsource worker's boot-context PREVIEW (GET /api/outsource-workers/{id}/boot-context, T-ba6b) — the worker twin of the member panel's /api/bootstrap preview. The server re-runs the SAME buildWorkerBootContext fold the spawn path uses. Since T-4595 that fold is the STAFF boot context minus the persona slot (系統互動 + 使用者自訂 + the boot sequence for the worker's own runtime); it carries no outsource-only document, no identity block, no bound task and no type manual, so it does not vary with them. It DOES carry this worker's own 傳承 block (T-33, LoreScopeAgent keyed on the worker's member id) — the one part of this text that differs from worker to worker, and it changes when that worker's entries are written, retired or bumped. HONEST: this is what the boot context would look like NOW — the seeds may have changed since spawn, and nothing is stored. Never carries a worker token.
          */
         WorkerBootContextDTO: {
             /** Context */
@@ -11424,6 +11786,224 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    handle_list_lore_entries_api_lore_get: {
+        parameters: {
+            query?: {
+                /** @description REPEATABLE scope-kind set (``?scope_kinds=agent&scope_kinds=manual``). Accepted values: ``agent``, ``manual``; ANY other element is a 400 that NAMES the offending value — never a silently dropped one, because 「查無資料」 and 「你打錯字」 look identical on the wire. 🔴 ``role`` IS NOW ONE OF THOSE REFUSED VALUES. It was the third scope until 2026-09-07 (owner, card rc-a43100fd0486 [0]) and every client written before then knows it, so it is the one wrong value likely to arrive from a real caller — answering 200-with-no-rows would tell them their 傳承 had been deleted rather than that their vocabulary is old. Refusing it does NOT hide the legacy rows the migration deliberately left at ``role``: those still come back on any page that does not constrain this axis. 🔴 PLURAL WINS. When this and its singular twin are BOTH sent, this one is the filter and the singular is ignored — they are neither ANDed nor unioned. Absent, or present but all-blank, falls back to the singular; both empty means no constraint on this axis. NOTE the 上限線: ``cap_chars`` / ``first_dropped_id`` are answered only when the EFFECTIVE scope_kind set holds exactly ONE value AND the effective scope_key set holds exactly ONE — a budget belongs to a scope, so a page spanning two or more has no single one to report and answers 0 / "". additive-optional. */
+                scope_kinds?: string[];
+                scope_kind?: string | null;
+                /** @description REPEATABLE scope-key set (``?scope_keys=m-1a2b&scope_keys=tm-review``) — the multi-select twin of ``scope_key``. The keys are free-form (a member id or a manual's type_key, depending on the kind beside them), so there is no closed set to check against and no 400: a key nobody carries answers 200 with no rows for that key. 🔴 PLURAL WINS. When this and its singular twin are BOTH sent, this one is the filter and the singular is ignored — they are neither ANDed nor unioned. Absent, or present but all-blank, falls back to the singular; both empty means no constraint on this axis. NOTE the 上限線: ``cap_chars`` / ``first_dropped_id`` are answered only when the EFFECTIVE scope_kind set holds exactly ONE value AND the effective scope_key set holds exactly ONE — a budget belongs to a scope, so a page spanning two or more has no single one to report and answers 0 / "". additive-optional. */
+                scope_keys?: string[];
+                scope_key?: string | null;
+                /** @description REPEATABLE state set (``?states=active&states=pinned``) — the multi-select twin of ``state``, so the 狀態 filter can tick more than one row. Accepted values: ``active``, ``pinned``, ``retired``; ANY other element is a 400 that NAMES the offending value rather than being dropped, for the same reason the singular does it — an ignored typo returns an empty page that reads exactly like a real "there are none". 🔴 PLURAL WINS. When this and its singular twin are BOTH sent, this one is the filter and the singular is ignored — they are neither ANDed nor unioned. Absent, or present but all-blank, falls back to the singular; both empty means no constraint on this axis. additive-optional. */
+                states?: string[];
+                state?: string | null;
+                /** @description REPEATABLE author set (``?author_ids=mira&author_ids=nova``) — the multi-select twin of ``author_id``. Member ids are free-form and are matched literally against the author PINNED at write time, so there is no closed set and no 400; an id nobody carries simply contributes no rows. 🔴 PLURAL WINS. When this and its singular twin are BOTH sent, this one is the filter and the singular is ignored — they are neither ANDed nor unioned. Absent, or present but all-blank, falls back to the singular; both empty means no constraint on this axis. additive-optional. */
+                author_ids?: string[];
+                author_id?: string | null;
+                /** @description REPEATABLE 傳承編號 set (``?entry_ids=L-12&entry_ids=L-30``) — the multi-select twin of ``entry_id``, and the axis behind the 傳承編號 search box the design calls for (LORE_SPEC.md §6). 🔴 IT MATCHES THE WHOLE ID, EXACTLY — never a prefix and never a substring. Owner 2026-09-08 asked for it 「跟 task 一樣」, and 任務頁 resolves a committed id by asking for THAT ONE id (``useTasks.ts:201`` ``api.getTask(anchorId)``) and pairs it to a row by equality (``TasksPage.tsx:458`` ``x.id === appliedId``); nothing there ever compares part of an id. A substring axis would also interact badly with paging: ``L-1`` would drag L-10…L-19 into a batch that limit/offset then cuts, pushing the entry actually asked for off the end. 🔴 IT IS APPLIED IN SQL, WITH THE PAGE — like every other axis here, and for the reason the whole filter exists: this list is scroll-to-load, so an id narrowed client-side would make 「捲到底沒有了」 and 「真的沒有了」 the same picture and would draw the 上限線 in the wrong place. An id is an OPEN identifier space, so there is NO closed set to check and NO 400 — the same call ``scope_keys``/``author_ids`` make. An id no entry carries answers 200 with no rows, which is the true answer, and no ``L-`` + digits shape is enforced: it would refuse only the ids that could never match while still answering an empty page for ``L-99999``, the likelier miss. 🔴 PLURAL WINS. When this and its singular twin are BOTH sent, this one is the filter and the singular is ignored — they are neither ANDed nor unioned. Absent, or present but all-blank, falls back to the singular; both empty means no constraint on this axis, which is IDENTICAL to not sending the parameter at all (an empty set is 「do not narrow」, never 「match nothing」). NOTE the 上限線 is unaffected: ``cap_chars`` / ``first_dropped_id`` still depend only on the effective scope_kind and scope_key sets holding exactly one value each — a budget belongs to a scope, and naming one entry does not name a scope. additive-optional. */
+                entry_ids?: string[];
+                entry_id?: string | null;
+                limit?: number | null;
+                offset?: number | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LoreEntryListDTO"];
+                };
+            };
+            /** @description Validation error (unified error envelope). */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+            /** @description Client error (unified error envelope). */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+            /** @description Server error (unified error envelope). */
+            "5XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+        };
+    };
+    handle_write_lore_entry_api_lore_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LoreEntryWriteDTO"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LoreEntryWriteReceiptDTO"];
+                };
+            };
+            /** @description Validation error (unified error envelope). */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+            /** @description Client error (unified error envelope). */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+            /** @description Server error (unified error envelope). */
+            "5XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+        };
+    };
+    handle_set_lore_entry_state_api_lore__entry_id__state_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                entry_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LoreEntryStateDTO"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LoreEntryStateReceiptDTO"];
+                };
+            };
+            /** @description Validation error (unified error envelope). */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+            /** @description Client error (unified error envelope). */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+            /** @description Server error (unified error envelope). */
+            "5XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+        };
+    };
+    handle_bump_lore_entry_api_lore__entry_id__bump_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                entry_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LoreEntryStateReceiptDTO"];
+                };
+            };
+            /** @description Validation error (unified error envelope). */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+            /** @description Client error (unified error envelope). */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+            /** @description Server error (unified error envelope). */
+            "5XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+        };
+    };
     handle_reset_account_cost_api_accounts_cost_reset_post: {
         parameters: {
             query?: never;
