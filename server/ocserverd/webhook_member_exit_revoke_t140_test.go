@@ -9,7 +9,7 @@ package main
 //     a 404 where a 200 was wanted;
 //   - the REVOCATION half fails SILENTLY — the endpoint row simply outlives
 //     its member and nothing anywhere says so. That half is a database
-//     TRIGGER (migrations/00094), which is invisible from the Go side, so one
+//     TRIGGER (migrations/00101), which is invisible from the Go side, so one
 //     of the tests below writes the member row in RAW SQL and never touches a
 //     handler: if it passes, no Go code was involved.
 //
@@ -413,7 +413,7 @@ func TestMemberExitRevoke_NeedsNoGoCode(t *testing.T) {
 // verb and the exit trigger now BOTH owe.
 //
 // 🔴 IT EXISTS BECAUSE ONE OF THE TWO CLEANERS IS ABOUT TO LOOK REDUNDANT.
-// DeleteWebhookEndpoint deletes the log rows by hand and 00094's
+// DeleteWebhookEndpoint deletes the log rows by hand and 00101's
 // webhook_endpoint_bd_logs trigger deletes them again underneath it; T-140
 // deliberately left the hand-written half in place rather than converge them in
 // the same step. This test is what tells whoever removes it that the trigger

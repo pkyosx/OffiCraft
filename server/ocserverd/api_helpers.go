@@ -326,7 +326,7 @@ const (
 	//
 	// 🔴 THE WEBHOOK SEAMS ARE NO LONGER ON THIS LIST (T-140). They passed
 	// staffOnly for one stated reason — "nothing reclaims a webhook token when
-	// a worker is released" — and 00094_webhook_revoke_on_member_exit.sql is
+	// a worker is released" — and 00101_webhook_revoke_on_member_exit.sql is
 	// what reclaims it: leaving the roster now deletes the member's endpoint
 	// rows, by trigger, whichever door the member left through. create /
 	// update / revoke ask anyMember; the public POST /in inlet asks
