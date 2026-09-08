@@ -62,6 +62,7 @@ func TestActivateMember_LandedNoPending(t *testing.T) {
 	m.DesiredState = DesiredStateOffline
 	m.DesiredMachineID = "mach-live"
 	putTestMember(t, s, m)
+	s.telemetry.Set(m.ID, map[string]any{"cost": 3.25})
 
 	rec := httptest.NewRecorder()
 	s.HandleActivateMemberApiMembersMemberIdActivatePost(rec,
@@ -77,6 +78,12 @@ func TestActivateMember_LandedNoPending(t *testing.T) {
 	}
 	if _, present := raw["activation_pending"]; present {
 		t.Fatalf("a LANDED activate must not report pending: %s", rec.Body.String())
+	}
+	if got, _ := s.dal.GetMember(m.ID); got == nil || got.BankedCost != 3.25 {
+		t.Fatalf("offline activate must bank the replaced generation's cost: %+v", got)
+	}
+	if _, ok := s.telemetry.Get(m.ID)["cost"]; ok {
+		t.Fatal("offline activate left the replaced generation's live cost behind")
 	}
 	// Sanity: the START really was dispatched (otherwise the assertion above
 	// would pass for the wrong reason — nothing decided at all).
@@ -110,10 +117,12 @@ func TestActivateMember_UnbuildableFrameSurfacesPending(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("activate: %d %s", rec.Code, rec.Body.String())
 	}
-	// Sanity: nothing was dispatched (otherwise the assertion below would be
-	// checking a case that never occurred).
-	if frames := drainFrames(t, s, "mach-live"); len(frames) != 0 {
-		t.Fatalf("fixture is wrong — a START did land: %+v", frames)
+	// Sanity: the replacement START did not land. Offline activate may still
+	// dispatch its stop-before-start handoff before the frame build fails.
+	for _, frame := range drainFrames(t, s, "mach-live") {
+		if frame.RPC == reconcileCmdStart {
+			t.Fatalf("fixture is wrong — a START did land: %+v", frame)
+		}
 	}
 	var body struct {
 		ActivationPending *bool `json:"activation_pending"`
@@ -192,8 +201,16 @@ func TestActivateMember_AlreadyOnlineIsNotPending(t *testing.T) {
 
 	m := testAgent("m-awake")
 	m.DesiredMachineID = "mach-live"
+	m.StoppingSince = 1001
+	m.StoppedSince = 1002
+	m.RefocusSince = 1000
+	m.RefocusOp = refocusOpRefocus
+	m.WakingSince = 1003
+	m.RestartAfterStop = true
 	putTestMember(t, s, m)
-	connectOnline(t, s, "m-awake") // she holds her own SSE = online
+	memberSession := connectOnline(t, s, "m-awake") // she holds her own SSE = online
+	drainHubFrames(memberSession)
+	drainFrames(t, s, "mach-live")
 
 	rec := httptest.NewRecorder()
 	s.HandleActivateMemberApiMembersMemberIdActivatePost(rec,
@@ -206,5 +223,25 @@ func TestActivateMember_AlreadyOnlineIsNotPending(t *testing.T) {
 	}
 	if _, present := raw["activation_pending"]; present {
 		t.Fatalf("an already-online member must not report pending: %s", rec.Body.String())
+	}
+	if rec.Code != http.StatusOK {
+		t.Fatalf("activate: %d %s", rec.Code, rec.Body.String())
+	}
+	after, _ := s.dal.GetMember("m-awake")
+	if after == nil {
+		t.Fatal("activate removed the already-online member")
+	}
+	if after.StoppingSince != 0 || after.WakingSince != 0 {
+		t.Fatalf("online activate must clear stop/wake anchors: %+v", after)
+	}
+	if after.StoppedSince != 1002 || after.RefocusSince != 1000 || after.RefocusOp != refocusOpRefocus {
+		t.Fatalf("online activate must preserve the active wind-down epoch: %+v", after)
+	}
+	if after.RestartAfterStop {
+		t.Fatalf("online activate must consume restart_after_stop: %+v", after)
+	}
+	assertNoFrame(t, memberSession, "online activate")
+	if frames := drainFrames(t, s, "mach-live"); len(frames) != 0 {
+		t.Fatalf("online activate must not dispatch a replacement: %+v", frames)
 	}
 }

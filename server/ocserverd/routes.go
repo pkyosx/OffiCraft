@@ -483,7 +483,7 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			Handler:  w.HandleActivateMemberApiMembersMemberIdActivatePost,
 			Auth:     authGated,
 			Requires: principalAdminAgent,
-			Summary:  "Activate: write desired_state=online intent (does NOT flip online). Answers with a bounded receipt (``id``, ``activation_pending``, ``last_op_reason``), not the roster row — call ``get_member`` when you need the rest.",
+			Summary:  "Activate: write desired_state=online intent (does NOT flip online). A live member clears stopping_since/waking_since and consumes restart_after_stop while preserving its active refocus/stopped epoch; it updates the owner roster only without killing/reconciling or sending a lifecycle notice. An offline generation clears its old wind-down, banks live cost, and uses stop-before-start. Answers with a bounded receipt (``id``, ``activation_pending``, ``last_op_reason``), not the roster row — call ``get_member`` when you need the rest.",
 			MCPTool:  "activate_member",
 		},
 		{
@@ -501,7 +501,7 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			Handler:  w.HandleDeactivateMemberApiMembersMemberIdDeactivatePost,
 			Auth:     authGated,
 			Requires: principalAdminAgent,
-			Summary:  "Deactivate: desired_state=offline + stamp stopping_since (retains row). Answers with a bounded receipt (``id``), not the roster row — call ``get_member`` when you need the rest.",
+			Summary:  "Deactivate: desired_state=offline + stamp stopping_since (retains row); with no live session, immediately collect/bank/dispatch the stop. Answers with a bounded receipt (``id``), not the roster row — call ``get_member`` when you need the rest.",
 			MCPTool:  "deactivate_member",
 		},
 		{

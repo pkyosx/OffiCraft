@@ -54,7 +54,7 @@
 
 ## 7. force-revive
 
-- `activate` 是 force-revive：會清 `stopping_since`／`waking_since`，不被 winding-down gate 擋，即使 member 正 stopping 或 online 也回 200。reconcile 對 genuine stopped terminal 也走相同 revive 規則；不要把 activate 當成只允許 offline 的普通 wake。
+- `activate` 會寫入 `desired_state=online`，但不直接翻轉實際 `online`。對仍有 live session 的 member，它清 `stopping_since`／`waking_since`、消費 `restart_after_stop`，保留目前的 refocus/stopped epoch，且只更新 owner 名冊，不殺 session、不 reconcile，也不送 lifecycle notice。對沒有 live session 的 generation，它清掉舊 wind-down、先結算 live cost 並走 stop→start；不要把 activate 當成只允許 offline 的普通 wake，也不要把 live activate 當成無條件 force-revive。
 
 ## 8. 修改與驗證
 

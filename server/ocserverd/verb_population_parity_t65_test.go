@@ -142,10 +142,7 @@ type terminalState struct {
 	// The THIRD non-database column, and the only one whose reader is the AGENT
 	// rather than the warden or the owner. Observed from a cockpit SSE
 	// connection opened after the seeding and drained after the handler
-	// returned. A verb can converge on all nine row columns, on the dispatch and
-	// on the money, and still differ on whether the session about to end was
-	// TOLD to close out — which is the difference between a hand-off and a
-	// yank, and it appears in no column above.
+	// returned. Plain owner-only roster refreshes are not lifecycle notices.
 	Noticed noticeSet
 }
 
@@ -235,9 +232,9 @@ func liveCostPresent(api *apiServer, subjectID string) bool {
 
 // noticeSet is what this verb SAID to the subject on its own SSE stream, as one
 // writable literal. It folds every member-topic frame addressed to the subject
-// that the verb fanned, into three answers.
+// that the verb fanned, into two answers.
 //
-// 🔴 THREE CLASSES, NOT FOUR, AND THE REASON IS NAMED. The obvious fourth shape
+// 🔴 TWO CLASSES, NOT FOUR, AND THE REASON IS NAMED. The obvious third shape
 // is soft-vs-final — 「你有 N 秒」 versus 「照自己的節奏收尾」 — and this column
 // deliberately does NOT distinguish them. Telling them apart without breaking
 // this file's rule 2 (every expectation is a hand-transcribed LITERAL, nothing
@@ -279,14 +276,6 @@ const (
 	// that gained a putMember would read as still-silent. The measured one says
 	// it is a property of THIS HANDLER FAMILY, which is a thing an edit can break.
 	noticedNothing noticeSet = ""
-	// noticedPlain — a member-topic frame arrived and carried no
-	// offboard_notice. 🔴 NO CELL IS EXPECTED TO BE THIS TODAY; it is here so
-	// that the shape has a NAME rather than collapsing into noticedNothing,
-	// which is the same reason costLost exists above. The two are wildly
-	// different facts about a stop — 「the cockpit was told and the agent was
-	// told nothing」 versus 「nobody was told anything」 — and a column that
-	// folded them together would score a lost 預告 as a lost connection.
-	noticedPlain noticeSet = "delta"
 	// noticedNotice — at least one member-topic frame carried offboard_notice:
 	// the subject was shown the wind-down sequence.
 	noticedNotice noticeSet = "notice"
@@ -368,9 +357,6 @@ func noticedFor(t *testing.T, l *hubListener, subjectID string) noticeSet {
 		if data == nil || data["key"] != key {
 			continue
 		}
-		if out == noticedNothing {
-			out = noticedPlain
-		}
 		payload, _ := data["payload"].(map[string]any)
 		if payload == nil {
 			continue
@@ -451,213 +437,6 @@ type knownDivergence struct {
 }
 
 var knownDivergences = []knownDivergence{
-	// ── 起來 (activate ↔ restart) ──────────────────────────────────────────
-	//
-	// 🔴 FIVE ROWS WERE DELETED FROM HERE IN T-65 包④ — waking_since,
-	// stopped_since, refocus_since, refocus_op and banked_cost — and one sentence
-	// covers all five: 喚醒 on a RUNNING worker no longer displaces the session,
-	// so on this (live-session) seed there is no replaced epoch to reset and no
-	// dying session's spend to bank, and the outsource literal now reads exactly
-	// what the 正職 one reads. waking_since is the odd one out: it converged
-	// because 包④ added the clear on BOTH arms, deleting the divergence its own
-	// 🔴 note in api_outsource.go had named as 「the same 正職／外包 divergence T-14
-	// exists to delete, one layer up」.
-	//
-	// ⚠️ THREE OF THEM ARE NOT UNIVERSALLY CLOSED, and that is why 起來（離線起點）
-	// exists below. stopped_since / refocus_since / refocus_op still diverge on
-	// the arm where the worker has NO session: there a session really is being
-	// replaced, so 外包 restart clears all three (`if !sessionAliveReceipt`) while
-	// 正職 activate writes back what it read on either arm. Deleting these rows
-	// outright would have retired a live divergence on the strength of a seed
-	// that cannot see it, so they moved to the verb label that can.
-
-	{
-		verb: "起來", field: "dispatched",
-		why: "🔴 THE DIRECTION OF THIS ROW REVERSED IN T-65 包④, and the reversal is " +
-			"the substance of the package. It used to read 「外包 sends stop+start, 正職 " +
-			"sends one stop」 — two frames against one, for opposite reasons. It now " +
-			"reads 「正職 sends one stop, 外包 sends NOTHING」, and the 外包 half is no " +
-			"longer an accident of anything: `outcome = ownerOpOutcome{AlreadyRunning: " +
-			"true}` and respawnWorkerForOwnerOp — the call the kill lives behind — is " +
-			"reached only under `if !sessionAliveReceipt` (api_outsource.go). That is " +
-			"the owner's 2026-09-06 ruling (rc-1f591528a6d0 圈 [0]) 「正在跑就不動它」 " +
-			"written as code. 正職 activate still dispatches its one STOP BY ACCIDENT: " +
-			"it clears stopping_since and waking_since and deliberately clears NEITHER " +
-			"refocus_since NOR stopped_since (api_members.go:1051-1057), so the " +
-			"reconcile it fires at :1086 walks into decideUp's recycle arm — online, an " +
-			"open refocus epoch, dump already done (reconcile.go:562, AgentStopped at " +
-			":1235) — and kills the session it just told to come up. " +
-			"⚠️ SO THE REMAINING GAP IS ENTIRELY ON THE 正職 SIDE NOW, and it is the " +
-			"WORSE side to be on: 外包 leaves a running session alone, 正職 kills it. " +
-			"包④ converged 喚醒 by moving 外包 to the ruled behaviour; whoever closes this " +
-			"row has to move 正職, and the question is the one the deleted anchor rows " +
-			"asked all along — 「should activate clear the refocus epoch」 — not 「should " +
-			"活化 keep dispatching」. " +
-			"📌 THIS ROW IS WHY THE COLUMN EXISTS: the divergence is invisible to all nine " +
-			"database columns above it — both sides end desired=online with the same " +
-			"anchors — and no test in this package saw it before the column was added.",
-	},
-
-	{
-		verb: "起來", field: "noticed",
-		why: "🔴 THE SECOND ROW ON THE SAME ROOT, and the one that reaches the AGENT. " +
-			"正職 activate leaves refocus_since AS READ (api_members.go:1051-1057), so " +
-			"the row its putMember fans at :1071 is still inside a refocus epoch — and " +
-			"offboardKindOf's ONLINE arm carries a notice on refocus_since > 0 alone " +
-			"(api_members.go:300-303), with winddownKindFor answering soft for 重新聚焦. " +
-			"So the 起來 press ends by handing the agent 「work the sequence, then call " +
-			"report_stopped yourself」: the member was told to come UP and, in the same " +
-			"breath, shown a wind-down. 外包 restart says nothing at all, and as of T-65 " +
-			"包④ that is true on BOTH its arms for a simpler reason than before — " +
-			"this handler reaches NO member-topic publisher at all: it never calls " +
-			"openWorkerHandoverGrace, and api_outsource.go calls putMember nowhere " +
-			"(0 call sites, measured T-65 包⑤), so PutOutsourceWorker — which " +
-			"deliberately fans no member patch (dal.go:512) — is the only write it " +
-			"makes. 🔴 THE REASON USED TO BE STATED AS 「openWorkerHandoverGrace is " +
-			"the worker's ONLY member-topic publisher」 AND THAT IS FALSE: six other " +
-			"worker-id publishes ride s.putMember(memberFromWorker(w)) in " +
-			"worker_spawn.go (both collect funnels and all three self-report folds). " +
-			"The corrected reason is scoped to this handler, which is the scope the " +
-			"cell actually depends on. " +
-			"⚠️ SCOPE: 包④ converged the ROW and the KILL for 喚醒; it did not touch what " +
-			"正職 says, so this row survives. It is NOT a permanent difference, and the " +
-			"question whoever closes it has to answer is the same ONE question the " +
-			"`dispatched` row above asks: 「should activate clear the refocus epoch」. " +
-			"Answer it yes and the stray dispatch and this sentence fall out together; " +
-			"answer it per-column and you will fix two symptoms of one cause twice.",
-	},
-
-	// ── 起來（離線起點）: the arm where the clean sheet is still a divergence ──
-	//
-	// 🔴 A SEPARATE VERB LABEL ON PURPOSE, the same reason 停止（離線起點）has one:
-	// the whitelist is keyed (verb, field), so folding these into 起來 would make
-	// them read as excuses for the LIVE row too — and on the live row all three
-	// of these cells converged in 包④ and must keep being converged.
-	{
-		verb: "起來（離線起點）", field: "stopped_since",
-		why: "外包 restart assigns worker.StoppedSince = 0.0 inside `if " +
-			"!sessionAliveReceipt` (api_outsource.go) — 「A RESTART STARTS A NEW SESSION, " +
-			"SO IT STARTS FROM A CLEAN SHEET」 (T-ed79 #11), and on THIS arm one really " +
-			"is being started: the anchor dates the session being REPLACED, and the pair " +
-			"(refocus>0 ∧ stopped>0) is read by workerHasStateToFlush as 「already " +
-			"collected」, which shoots the next 改機器 / 換 model on the spot with no " +
-			"close-out. 正職 activate touches neither anchor on either arm: " +
-			"clearMemberHandoverMarker's own comment states 「activate clears " +
-			"stopping_since and waking_since and deliberately clears NEITHER " +
-			"refocus_since nor stopped_since」. The two clear sets are complements, not " +
-			"one set of two sizes. ⚠️ T-65 包④ NARROWED THIS ROW RATHER THAN CLOSING IT: " +
-			"the same cell on a LIVE session converged (外包 now leaves the anchor alone " +
-			"there, because nothing is being replaced), so the divergence that is left " +
-			"is exactly this arm and no wider.",
-	},
-	{
-		verb: "起來（離線起點）", field: "refocus_since",
-		why: "Same clear-set complement as stopped_since above, and the same 包④ " +
-			"narrowing: on the arm with NO live session 外包 restart zeroes " +
-			"worker.RefocusSince, while 正職 activate leaves it and " +
-			"persistMemberWindDownAnchors writes back the value it read. On a LIVE " +
-			"session the two now agree — 外包 leaves it alone, because the epoch it " +
-			"dates belongs to the session that is still up and clearing it would cancel " +
-			"a running 加速停止 or 換手 silently.",
-	},
-	{
-		verb: "起來（離線起點）", field: "refocus_op",
-		why: "The cause travels with its epoch: on the no-session arm 外包 restart " +
-			"zeroes worker.RefocusOp alongside RefocusSince, and 正職 activate writes " +
-			"back what it read. Converged on the live arm as of T-65 包④, for the same " +
-			"reason refocus_since is — there is no epoch ending, so its cause is not " +
-			"stale.",
-	},
-	{
-		verb: "起來（離線起點）", field: "dispatched",
-		why: "THE THREE NON-DATABASE COLUMNS ON THIS ARM ARE ONE FACT COUNTED THREE " +
-			"TIMES, and this is the first of them: 外包 restart on a worker with no " +
-			"session still DISPLACES — respawnWorkerForOwnerOpNow → respawnWorkerNow " +
-			"resolves the remembered placement and kills it before dispatching the " +
-			"fresh START, so the drain reads stop+start. 正職 activate sends the START " +
-			"alone: with the member offline, decideUp has no recycle arm to walk into " +
-			"(that arm is what produces the lone `stop` on the LIVE 起來 row, and it " +
-			"needs online=true). ⚠️ NOT THE SAME DIVERGENCE AS THE 起來 `dispatched` " +
-			"ROW even though both cells disagree — there the 外包 side sends NOTHING and " +
-			"正職 sends a stray kill; here 外包 sends one frame MORE. A future " +
-			"convergence has to answer both, and only the live row is settled by the " +
-			"owner's 2026-09-06 ruling.",
-	},
-	{
-		verb: "起來（離線起點）", field: "banked_cost",
-		why: "SAME ROOT AS THE `dispatched` ROW ABOVE, one column further out: the " +
-			"displacement reaches respawnWorkerNow, which banks the dying session's " +
-			"live cost BEFORE the kill (「so the respawn never zeroes the visible " +
-			"spend」). 正職 activate ends no session of its own on this arm — it sends a " +
-			"START and nothing else — so nothing is folded and the live figure stays " +
-			"live. ⚠️ It is NOT a permanent difference: it is the bank that belongs to " +
-			"a kill, and it disappears the day the two sides agree about the kill.",
-	},
-	{
-		verb: "起來（離線起點）", field: "noticed",
-		why: "THE THIRD COLUMN ON THE SAME ROOT, and the one that reaches the AGENT — " +
-			"identical in cause and direction to the 起來 `noticed` row, because the " +
-			"正職 half has no liveness branch and behaves the same on both arms: " +
-			"activate leaves refocus_since AS READ (api_members.go:1051-1057), so the " +
-			"row its putMember fans is still inside a refocus epoch, offboardKindOf's " +
-			"arm carries a notice on refocus_since > 0 alone (api_members.go:300-303), " +
-			"and winddownKindFor answers soft for 重新聚焦 — the member is told to come " +
-			"UP and shown a wind-down in the same breath. 外包 restart says nothing on " +
-			"either arm: openWorkerHandoverGrace (the worker's ONLY member-topic " +
-			"publisher, worker_spawn.go:2259) is not called by this handler, and " +
-			"PutOutsourceWorker deliberately fans no member patch (dal.go:512). It is " +
-			"listed twice rather than once because the whitelist is keyed (verb, " +
-			"field) and a row that covered both would be an excuse the matrix could " +
-			"not retire one arm at a time.",
-	},
-
-	// ── 停止 / 加速停止 / 重新聚焦 / 改機器 / 換 model on banked_cost ────────
-	// NO ROWS. The RESULT is measured — the three parity tests are green, so both
-	// cells really do read costUntouched on all five. The MECHANISM behind it is
-	// NOT one story, and an earlier draft of this comment told it as one. Split:
-	//
-	//  停止 / 加速停止 / 重新聚焦 — structural. The handler calls
-	//  openWorkerHandoverGrace directly (api_outsource.go:736 / :643 / :529) and
-	//  its ONLINE arm publishes a 預告 and returns without reaching either kill
-	//  funnel, so no fold can run on either population.
-	//
-	//  🔴 改機器 / 換 model — NOT structural, and do not read this row as if it
-	//  were. They never touch openWorkerHandoverGrace directly: they enter the
-	//  owner-op funnel at worker_spawn.go:1595-1604, which has THREE exits that
-	//  DO bank — workerHasStateToFlush false (:1604 → respawnWorkerForOwnerOpNow
-	//  → respawnWorkerNow → bankLiveCost at :1954), and openOwnerOpHandover's two
-	//  persist-failure fallbacks (:1836, :1842, the same respawn). The ladder
-	//  refusal (:1827) reaches no fold either way. So these two cells are
-	//  costUntouched because TODAY'S FIXTURE lands on the happy path, not because
-	//  banking is unreachable — change what workerHasStateToFlush answers and
-	//  they start banking, silently, with this comment still claiming they cannot.
-	//
-	// 🔴 AND DO NOT RE-DERIVE THIS FROM `dispatched`. An earlier draft offered the
-	// `dispatchedNothing` literals on these five as corroboration — "no kill left,
-	// so no kill banked". That inference is BACKWARDS: stopWorkerNow banks BEFORE
-	// the kill and skips the enqueue entirely when the target is empty
-	// (worker_spawn.go:1983 then :1985-1994), which is a banked-but-dispatched-
-	// nothing path. An empty dispatch cell is evidence about the FIFO and nothing
-	// at all about the money — which is the whole reason this column exists.
-	//
-	// ⚠️ Nothing mechanical guards the paragraph above: TestVerbPopulationParity-
-	// WhitelistIsExplained checks that each divergence ROW carries a why, and this
-	// is prose, not a row. It is a universal negative maintained by hand.
-
-	// ── 重新聚焦 (refocus) — THE ROW CONVERGED IN T-65 包②; THE SENTENCE DID NOT ──
-	// Both rows that stood here are DELETED rather than widened: 「重新聚焦｜
-	// http_status」 (200 vs 409) and 「重新聚焦｜restart_after_stop」 (staff-only
-	// column). The worker face now takes the same aStopWasEverAskedFor branch the
-	// member face does — see queueWorkerRestartAfterStop (member_ownerop_winddown.go)
-	// and the 🔴 block in the worker refocus handler. Block ① is what proves it:
-	// the two literals for this verb are now identical, so a regression on either
-	// side reddens the matrix rather than being absorbed by a whitelist row.
-	//
-	// ⚠️ AND THIS HEADER USED TO END 「no rows left」, WHICH IS NO LONGER TRUE. 包②
-	// converged every DATABASE column of this verb and the two sides still say
-	// different things on the wire — which is the whole argument for a
-	// non-database column existing at all, restated by the verb that was already
-	// declared finished.
 	{
 		verb: "重新聚焦", field: "noticed",
 		why: "包② CONVERGED THE ROW AND THE SENTENCE DID NOT COME WITH IT. Both faces " +
@@ -681,108 +460,6 @@ var knownDivergences = []knownDivergence{
 			"defensible convergence is therefore in EITHER direction and nobody has ruled " +
 			"which; this row exists so that the next person to look does not have to " +
 			"rediscover that 包② left a difference behind.",
-	},
-
-	// ── 強制停止 (force-stop) ──────────────────────────────────────────────
-	// ── 停止（離線起點）: what 包③ did NOT converge, and why ───────────────
-	//
-	// 🔴 ALL THREE ROWS BELOW ARE ONE FACT WEARING THREE HATS: on a subject with
-	// no session, the worker verb COLLECTS its own close-out on the spot
-	// (openWorkerHandoverGrace → collectWorkerStop) and the staff verb hands the
-	// subject to the reconcile tick instead. They are three rows and not one
-	// because the whitelist is keyed per FIELD, and a reader who converges one of
-	// them must be told which of the three they just changed.
-	//
-	// 包③ deliberately did NOT converge this. The collect funnel is 包⑤'s whole
-	// subject (worker_spawn.go's ~810 lines against member_ownerop_winddown.go's
-	// ~666), and pulling it forward would mean either giving the staff verb a
-	// collect it does not have — a behaviour change, not a convergence — or
-	// taking the worker's away, which recon坐實 would silently strand it.
-	//
-	// 🔴 BUT NOT FOR THE REASON THIS PARAGRAPH USED TO GIVE, and the old one was
-	// TOO STRONG in a way that would mislead whoever converges this. It said:
-	// 「runOutsourceTick `continue`s on desired_state=offline, so a stopped worker
-	// NEVER REACHES THE FSM at all and nothing downstream would ever collect it」.
-	// Read against outsource_sched.go (T-65 包⑤), the first half is true only for
-	// ONE of the two branches and the second half is FALSE:
-	//
-	//   * WorkerStatusAssigned — the `continue` really is there, and a
-	//     desired-offline ASSIGNED worker leaves the tick untouched.
-	//   * WorkerStatusActive — there is NO such `continue`. The tick calls
-	//     autoHandoverWorker UNCONDITIONALLY, and only afterwards guards the FSM
-	//     with `if fresh.DesiredState != DesiredStateOffline`. So a desired-offline
-	//     ACTIVE worker DOES enter the tick; what it skips is the FSM, not the
-	//     tick — and autoHandoverWorker's stop arm (worker_spawn.go, the
-	//     `w.DesiredState == DesiredStateOffline` block) collects it through
-	//     collectWorkerStop on either stop-session-gone or
-	//     stop-accelerated-deadline.
-	//
-	// ⇒ The inline collect is the worker's FAST path, not its only one. The real
-	// reason not to take it away is the ASSIGNED branch plus the two arms that
-	// never fire on a plain 停止 (recycleGraceFor answers "not clocked", so an
-	// online worker waits indefinitely by the owner's own ruling) — a narrower
-	// claim than the old sentence, and the narrower one is the true one.
-	{
-		verb: "停止（離線起點）", field: "stopped_since",
-		why: "外包 openWorkerHandoverGrace's `!hub.IsOnline` arm calls collectWorkerStop, " +
-			"which latches StoppedSince = nowSecs() before it kills. 正職 writes no " +
-			"stopped_since at all: decideDown's `!obs.Online ⇒ converged offline` branch " +
-			"is what ends a staff stop, and the tick reaches an offline member. The worker " +
-			"tick does not — runOutsourceTick skips desired_state=offline outright — which " +
-			"is WHY the worker side collects inline. Converging this belongs to 包⑤ " +
-			"(收口漏斗合一), where both funnels are on the table at once.",
-	},
-	{
-		verb: "停止（離線起點）", field: "dispatched",
-		why: "the same collect, seen from the warden FIFO: collectWorkerStop ends in " +
-			"stopWorkerNow, so ONE stop frame leaves for the worker's machine. 正職 " +
-			"dispatches nothing — cancellingWake is false for an offline member " +
-			"(waking_since is unset), so dispatchRobustStopNow is not called, and " +
-			"reconcileMemberNow's converged-offline branch queues no RPC. ⚠️ There is a " +
-			"SECOND, unmeasured divergence hiding under this cell: the two populations " +
-			"resolve WHICH machine a kill goes to through different functions in " +
-			"different order — resolveWorkerKillTarget asks s.workerSpawnTarget first " +
-			"and falls back to hub.MachineOf (empty ⇒ dispatch NOTHING), while " +
-			"memberKillTargetWarden asks hub.MachineOf first and falls back to " +
-			"wardenTargetOf, the PINNED machine — which has a THIRD outcome of its own: " +
-			"it also answers empty when the pin carries no active warden, so 「正職 always " +
-			"has a fallback」 would be too strong and is not what this says. This fixture " +
-			"cannot see any of it, and 🔴 NOT for the reason an earlier draft of this " +
-			"sentence gave: it said 「both seeds pin and CONNECT the same machine」, which " +
-			"is FALSE for this row — neither side is connected here, that is the whole " +
-			"point of the row, so hub.MachineOf is empty on both. They agree by two " +
-			"OTHER roads: 正職 through wardenTargetOf(DesiredMachineID) and 外包 through " +
-			"the workerSpawnTarget entry newActiveWorker writes unconditionally, online " +
-			"or not. Caught by independent review. Named here rather than left " +
-			"unwritten — it is 包⑤'s to settle.",
-	},
-	{
-		verb: "停止（離線起點）", field: "banked_cost",
-		why: "🔴 PERMANENT DIFFERENCE — TWO POPULATIONS, TWO BANKING EDGES, THE SAME " +
-			"TERMINAL AMOUNT (re-judged T-65 包⑤; an earlier draft of this row read as " +
-			"an unsettled convergence question and it is not one). 外包 banks INSIDE the " +
-			"kill funnel: collectWorkerStop ends in stopWorkerNow, which calls " +
-			"bankLiveCost before the kill, so the money is durable in the same instant " +
-			"the session dies. 正職 banks on the SSE LAST-DISCONNECT edge instead — " +
-			"api_infra.go's stream defer fires onLastDisconnect → bankLiveCost when " +
-			"hub.Disconnect reports last. Production has exactly THREE bankLiveCost call " +
-			"sites (api_infra.go, and worker_spawn.go's respawnWorkerNow / stopWorkerNow) " +
-			"and no staff path holds one, which is why this cell reads live and not " +
-			"banked. ⚠️ WHAT THIS CELL MEASURES IS IMMEDIACY, NOT MONEY, and the fixture " +
-			"is why: watchMemberDeltas and the seeds keep the subject's SSE connection up " +
-			"for the whole run and only disconnect it in t.Cleanup, AFTER the terminal " +
-			"read. So the staff arm is read at the moment the handler returns, which is " +
-			"before its banking edge exists. TestForceStoppedStaffCostBanksOnTheDisconnect" +
-			"Edge (forcestop_bank_lastdisconnect_t65_test.go) drives that edge through " +
-			"the real GET /api/events handler and pins BOTH halves — untouched at return, " +
-			"banked after the disconnect — so this sentence is a measurement rather than " +
-			"prose that can rot. 🔴 CONVERGING IT IS STILL THE WRONG MOVE, and this is " +
-			"the row that says why: routing the worker through the staff dispatch " +
-			"(dispatchRobustStopNow) would delete the only unconditional bank on a stop " +
-			"and leave the money to a disconnect edge that NEVER ARRIVES for a subject " +
-			"that is already offline — precisely the population this row is about. " +
-			"costLost exists as a distinct literal for that outcome and must never become " +
-			"the answer here.",
 	},
 	{
 		verb: "強制停止", field: "banked_cost",
@@ -835,74 +512,6 @@ var knownDivergences = []knownDivergence{
 			"the one that would have failed (measured 2026-09-06, T-65 包③). Verify " +
 			"this column with a pattern that matches `parity` — 136 tests, and the " +
 			"mutant then fails as 強制停止 want Cost:banked / got Cost:live.",
-	},
-	{
-		verb: "強制停止", field: "stopping_since",
-		why: "外包 force-stop pulls a FUTURE anchor back: `if worker.StoppingSince <= 0.0 " +
-			"|| worker.StoppingSince > forcedAt { worker.StoppingSince = forcedAt }` " +
-			"(api_outsource.go). 正職 force-stop has only the first arm: `if " +
-			"m.StoppingSince <= 0.0 { m.StoppingSince = nowSecs() }` (api_members.go), so " +
-			"a future stamp survives. 🔴 THE SECOND ARM IS LOAD-BEARING AND ITS REASON IS " +
-			"ON THE RECORD: `git log -S 'worker.StoppingSince > forcedAt' -- " +
-			"server/ocserverd/api_outsource.go` returns exactly one commit, 7bc889c3 " +
-			"(T-c996, #245), whose message says the two anchors are stamped together " +
-			"because 「forcedEpochLive scopes the record to a live epoch (forced_stop_at " +
-			">= stopping_since); one without the other leaves a worker that announced its " +
-			"own wind-down reading as \"still working its close-out\", which is the arm " +
-			"that speaks」. forcedEpochLive (api_members.go) is `ForcedStopAt > 0 && " +
-			"StoppingSince > 0 && ForcedStopAt >= StoppingSince`, so the pull-back is what " +
-			"keeps that invariant true: force-stop sets ForcedStopAt = forcedAt, and a " +
-			"stopping_since ahead of forcedAt would make forcedEpochLive FALSE. " +
-			"⇒ THE DIRECTION OF THIS ROW IS THE OPPOSITE OF WHAT IT LOOKS LIKE: the side " +
-			"that may be defective is 正職, which lacks the arm — a staff row whose " +
-			"stopping_since sat in the future would come out of 強制停止 reading as a " +
-			"GRACEFUL wind-down still in progress (notice sent, deadline granted, " +
-			"加速停止 admitted), which is precisely the state T-c996 removed. " +
-			"⚠️ REACHABILITY, stated with its scope: independent review grepped every " +
-			"`.StoppingSince = ` assignment in non-test server code and found the staff-" +
-			"side writers all write nowSecs() / now / 0.0 / stopEpochAnchor(…, nowSecs()) " +
-			"— that grep found NO production path that stamps a FUTURE staff " +
-			"stopping_since. That is the reach of one grep, not a proof of impossibility. " +
-			"So today the divergence is unreachable in effect; if a path is ever found or " +
-			"added, the fix belongs on the 正職 side (give it the second arm), not here.",
-	},
-	{
-		verb: "強制停止", field: "noticed",
-		why: "🔴 THIS ROW IS NOT A DESIGN DIFFERENCE — IT IS A RULED INVARIANT BEING " +
-			"VIOLATED ON THE 正職 SIDE, and it is the SAME missing arm the stopping_since " +
-			"row above describes, now visible as something an agent actually receives. " +
-			"The ruling is that force-stop SAYS NOTHING (api_members.go:249-276: 「the " +
-			"recipient is about to stop existing, so a sentence meant to change its " +
-			"behaviour has no one to change」; reconfirmed 2026-08-18 after the owner " +
-			"nearly reversed it, c-7b2163781ee2 → c-5c8bc3d7362d). Its enforcement is " +
-			"forcedEpochLive = ForcedStopAt > 0 && StoppingSince > 0 && ForcedStopAt >= " +
-			"StoppingSince. This case seeds stopping_since in the FUTURE and the staff " +
-			"handler has only `if m.StoppingSince <= 0.0 { m.StoppingSince = nowSecs() }` " +
-			"(api_members.go:1458), so the future stamp survives while ForcedStopAt is " +
-			"stamped at nowSecs() — the third term is FALSE, forcedEpochLive is false, " +
-			"gracefulStopEpochOpen is TRUE, and the putMember at :1479 hands the session " +
-			"it is about to kill the full soft sequence. 外包 is silent by TWO independent " +
-			"guards: its force-stop reaches no member-topic publisher at all — the five " +
-			"openWorkerHandoverGrace call sites (api_outsource.go:483/:597/:691, " +
-			"worker_spawn.go:1845/:2573) are none of them on this path, AND " +
-			"api_outsource.go calls putMember nowhere at all, which is the half an " +
-			"earlier draft left out and needed: the grace publisher is NOT the worker's " +
-			"only member-topic publisher (six more ride putMember(memberFromWorker) in " +
-			"worker_spawn.go), so 「no openWorkerHandoverGrace on this path」 alone would " +
-			"not have settled it. Measured T-65 包⑤. Its pull-back also keeps " +
-			"forcedEpochLive true so a frame would carry nothing anyway. " +
-			"⚠️ WHY IT IS WHITELISTED RATHER THAN FIXED HERE: the fix is a production " +
-			"change on the 正職 handler (give it the pull-back arm), which is what the " +
-			"stopping_since row already says the fix is — ONE edit closes BOTH rows, and " +
-			"it belongs to whoever takes that decision, not to the column that found it. " +
-			"⚠️ AND THE REACHABILITY CAVEAT ON THE ROW ABOVE APPLIES VERBATIM AND IS NOT " +
-			"A DISMISSAL: independent review's grep found no production path that stamps " +
-			"a FUTURE staff stopping_since, so today this is reachable through the " +
-			"fixture and not known to be reachable in production. That is the reach of " +
-			"one grep. What THIS row adds is the cost if it ever is: the stopping_since " +
-			"row could be read as a cosmetic anchor difference, and it is not — the same " +
-			"missing arm makes a killed staff session receive a 預告 telling it to work " +
-			"its close-out, which is precisely the frame T-a9d6 removed.",
 	},
 }
 
@@ -1279,21 +888,14 @@ func parityCases() []verbCase {
 				Refocus: anchorPast, RefocusOp: refocusOpRefocus,
 				Waking: anchorZero, RestartAfterStop: false,
 				DesiredMachineID: parityMachineA,
-				// activate leaves refocus_since/stopped_since AS READ (api_members.go:1051-1057),
-				// so reconcileMemberNow (:1086) meets decideUp's recycle arm — online +
-				// an open refocus epoch whose dump is done (reconcile.go:562, AgentStopped
-				// at :1235) — and fires ONE stop. An ACCIDENT of what activate does not
-				// clear, not a designed part of 起來.
-				Dispatched: "stop",
+				// A live activate only clears the stop/wake anchors and consumes the
+				// queued restart intent. It preserves the active wind-down epoch,
+				// skips reconcile, and therefore neither kills nor banks the session.
+				Dispatched: dispatchedNothing,
 				Cost:       costUntouched,
-				// activate clears stopping_since and waking_since and leaves
-				// refocus_since AS READ (api_members.go:1051-1057), so the row putMember
-				// fans at :1071 is still inside a refocus epoch. offboardKindOf's ONLINE
-				// arm carries a notice on refocus_since > 0 alone (api_members.go:300-303),
-				// and winddownKindFor(重新聚焦) answers soft — so 起來 ends by handing the
-				// agent the wind-down sequence. Same clear-set complement as the four
-				// whitelist rows on this verb, one layer further out again.
-				Noticed: noticedNotice,
+				// The persisted row refresh is owner-only, so preserving the epoch does
+				// not re-announce a lifecycle notice to the live member.
+				Noticed: noticedNothing,
 			},
 			// 外包 restart, LIVE ARM (T-65 包④ — this seed holds a live session, so
 			// `sessionAliveReceipt` is true): worker.DesiredState = DesiredStateOnline;
@@ -1317,8 +919,7 @@ func parityCases() []verbCase {
 				// and respawnWorkerForOwnerOp is only called under `if
 				// !sessionAliveReceipt` (api_outsource.go). The kill lives behind that
 				// call, so not making it IS the behaviour change.
-				// ⚠️ NOT EQUAL BY CONSTRUCTION TO THE 正職 CELL ABOVE — that one really
-				// does send a frame; this one is whitelisted below for exactly that.
+				// The staff and worker live arms both leave the running session alone.
 				Dispatched: dispatchedNothing,
 				// No session ends, so respawnWorkerNow's bank-before-kill is never
 				// reached and the live figure is still on the row.
@@ -1372,15 +973,13 @@ func parityCases() []verbCase {
 					api.HandleRestartOutsourceWorkerApiOutsourceWorkersIdRestartPost)
 				return workerTerminal(t, api, id, code.Code, notices)
 			},
-			// 正職 activate: the same four assignments as the live row —
-			// m.StoppingSince = 0.0; m.WakingSince = 0.0; m.DesiredState =
-			// DesiredStateOnline; clearRestartIntent(m). It has no liveness branch at
-			// all, so stopped_since / refocus_since / refocus_op are written back as
-			// read here exactly as they are there.
+			// 正職 activate on an offline generation clears the complete old
+			// wind-down row, banks the old live cost, and uses stop-before-start
+			// before reconcile dispatches the replacement.
 			wantStaff: terminalState{
 				Status: http.StatusOK, DesiredState: DesiredStateOnline,
-				Stopping: anchorZero, Stopped: anchorPast,
-				Refocus: anchorPast, RefocusOp: refocusOpRefocus,
+				Stopping: anchorZero, Stopped: anchorZero,
+				Refocus: anchorZero, RefocusOp: "",
 				// 🔴 PAST, NOT ZERO, AND IT IS THE START THAT PUTS IT BACK. activate's
 				// own `m.WakingSince = 0.0` really does run — the anchor read here is a
 				// FRESH one, stamped by the spawn notify on the START below. On the
@@ -1392,12 +991,11 @@ func parityCases() []verbCase {
 				// decideUp on a member that is NOT online: no recycle arm to walk into
 				// (that arm is what produces the lone `stop` on the live 起來 row), so
 				// the reconcile does the plain thing and starts it.
-				Dispatched: dispatchSet(reconcileCmdStart),
-				Cost:       costUntouched,
-				// activate leaves refocus_since AS READ, so the row its putMember fans
-				// is still inside a refocus epoch and offboardKindOf puts a soft notice
-				// on the wire — the same road as the live row, and just as unasked-for.
-				Noticed: noticedNotice,
+				Dispatched: "start+stop",
+				Cost:       costBanked,
+				// The old row is cleared before the persisted update, so no lifecycle
+				// notice is emitted for the replaced generation.
+				Noticed: noticedNothing,
 			},
 			// 外包 restart, NOT-RUNNING ARM: worker.DesiredState = DesiredStateOnline;
 			// worker.StoppingSince = 0.0; worker.WakingSince = 0.0; and then, inside
@@ -1529,20 +1127,16 @@ func parityCases() []verbCase {
 				return workerTerminal(t, api, id, code.Code, notices)
 			},
 			// 正職: the five row writes are applyStopVerbRow's, same as the online
-			// row. cancellingWake is false (an offline member with waking_since=0
-			// is not waking), so no dispatchRobustStopNow; reconcileMemberNow then
-			// lands in decideDown's FIRST branch — `!obs.Online` ⇒ converged
-			// offline — which dispatches nothing and latches nothing.
+			// row. An offline member now takes the same collect funnel as the worker.
 			wantStaff: terminalState{
 				Status: http.StatusOK, DesiredState: DesiredStateOffline,
-				Stopping: anchorPast, Stopped: anchorZero,
+				Stopping: anchorPast, Stopped: anchorPast,
 				Refocus: anchorZero, RefocusOp: "",
 				Waking: anchorZero, RestartAfterStop: false,
 				DesiredMachineID: parityMachineA,
-				Dispatched:       dispatchedNothing,
-				Cost:             costUntouched,
-				// the notice rides the handler's own putMember, exactly as online.
-				Noticed: noticedNotice,
+				Dispatched:       dispatchSet(reconcileCmdStop),
+				Cost:             costBanked,
+				Noticed:          noticedNotice,
 			},
 			// 外包: the same five row writes, and then openWorkerHandoverGrace takes
 			// its `!hub.IsOnline` arm. desired_state is already offline (this verb
@@ -1654,11 +1248,10 @@ func parityCases() []verbCase {
 					api.HandleForceStopOutsourceWorkerApiOutsourceWorkersIdForceStopPost)
 				return workerTerminal(t, api, id, code.Code, notices)
 			},
-			// 正職: `if m.StoppingSince <= 0.0 { m.StoppingSince = nowSecs() }` —
-			// the future stamp is NOT touched.
+			// 正職 now clamps a future stamp to the force-stop instant.
 			wantStaff: terminalState{
 				Status: http.StatusOK, DesiredState: DesiredStateOffline,
-				Stopping: anchorFuture, Stopped: anchorZero,
+				Stopping: anchorPast, Stopped: anchorZero,
 				Refocus: anchorZero, RefocusOp: "",
 				Waking: anchorZero, RestartAfterStop: false,
 				DesiredMachineID: parityMachineA,
@@ -1667,21 +1260,7 @@ func parityCases() []verbCase {
 				// of it. This handler never calls reconcileMemberNow at all.
 				Dispatched: "stop",
 				Cost:       costUntouched,
-				// 🔴 A SOFT 預告 IS FANNED AT A MEMBER BEING KILLED, AND THAT IS A REAL
-				// DEFECT THIS COLUMN FOUND — not a property anybody chose. force-stop is
-				// ruled SILENT (api_members.go:249-276, reconfirmed 2026-08-18 after the
-				// owner nearly reversed it), and the enforcement is forcedEpochLive:
-				// ForcedStopAt > 0 && StoppingSince > 0 && ForcedStopAt >= StoppingSince.
-				// This case seeds stopping_since in the FUTURE (parityFuture = 4.0e9) and
-				// the staff handler has only `if m.StoppingSince <= 0.0 { … }`
-				// (api_members.go:1458), so the future stamp survives while ForcedStopAt is
-				// stamped at nowSecs() — the third term is FALSE, forcedEpochLive is false,
-				// gracefulStopEpochOpen is TRUE, and the putMember at :1479 hands the
-				// dying session the full 「work the sequence, then call report_stopped
-				// yourself」 text. ⚠️ The literal is what the handler DOES today, not what
-				// it should do — see the 強制停止|noticed whitelist row, which is where the
-				// direction of the fix is argued.
-				Noticed: noticedNotice,
+				Noticed:    noticedNothing,
 			},
 			// 外包: `if worker.StoppingSince <= 0.0 || worker.StoppingSince > forcedAt
 			// { worker.StoppingSince = forcedAt }` — the second arm pulls it back.

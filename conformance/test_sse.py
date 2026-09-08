@@ -914,8 +914,9 @@ def test_close_out_in_flight_reconnect_admitted_then_refused_once_stopped(
     # …and it never projected online (the whole point of the gate).
     assert _presence(client, owner_token, agent.member_id) == "stopped"
 
-    # stop→start: activate clears the anchors + flips desired_state in ONE
-    # write — the gate lifts atomically and the next connect streams again.
+    # stop→start: offline activate clears the old generation, banks its live
+    # cost, and performs the stop-before-start handoff before the next connect
+    # streams again.
     r = client.post(
         f"/api/members/{agent.member_id}/activate", json={},
         headers=_auth(owner_token),

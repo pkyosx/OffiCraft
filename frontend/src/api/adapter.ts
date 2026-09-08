@@ -1891,7 +1891,8 @@ export interface Api {
    * re-pins for the next wake), but it NEVER touches desired_state — unlike
    * `activateMember`, a relocate is not a wake. Does NOT flip online; the caller
    * refetches. Distinct from `activateMember(id, machineId)`, which is the
-   * spawn/wake path (force-revive desired_state=online + machine bind).
+   * spawn/wake path (desired_state=online + machine bind; live sessions stay
+   * in place while offline generations use the stop→start handoff).
    *
    * 🔴 RETURNS {@link MemberRelocateResult} for the same reason activateMember
    * does (T-7fa1): a relocate whose recycle STOP/START never reached a warden

@@ -11,7 +11,8 @@ import (
 
 // TestRelocateMember_PlacementOnly is the CORE contract, NARROWED by T-14 項目 7:
 // relocate writes the owner-pinned desired_machine_id and never flips
-// desired_state itself — the sharp contrast with activate, which force-revives.
+// desired_state itself — the sharp contrast with activate, which also writes
+// the online intent and has separate live/offline lifecycle arms.
 //
 // 🔴 WHAT THIS TEST NO LONGER COVERS, and did not notice it had stopped:
 // "an offline member relocated stays offline" is now true only of a member that

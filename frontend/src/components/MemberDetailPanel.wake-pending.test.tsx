@@ -159,7 +159,7 @@ describe("MemberDetailPanel · wake-pending instant feedback", () => {
       </I18nProvider>
     );
     // The local bridge clears: the spawn button is back to its plain rescue
-    // label (server-driven waking keeps it enabled as the force-revive path).
+    // label (server-driven waking keeps it enabled as the rescue path).
     await waitFor(() => expect(utils.queryByText(pendingLabel)).toBeNull());
     expect(utils.getByText(wakeLabel).closest("button")).not.toBeNull();
   });
