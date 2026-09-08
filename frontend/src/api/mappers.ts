@@ -12,6 +12,7 @@ import { STEP_NOTE_CAP_CHARS_DEFAULT } from "./stepNoteCap";
 import { LORE_CAP_CHARS_DEFAULTS } from "./loreCap";
 import { BACKUP_RETAIN_DEFAULT } from "./backupRetain";
 import {
+  readSuggestedRepliesLoreMessage,
   readSuggestedRepliesReplyCard,
   readSuggestedRepliesTaskMessage,
 } from "./suggestedReplies";
@@ -1227,11 +1228,13 @@ export function toServerSettings(w: WireServerSettings): ServerSettingsView {
     // Owner nickname (T-0b41; schema-optional for DTO-compat — the Go wire
     // always emits it). "" = never set; the profile pill substitutes t.user.
     ownerName: w.owner_name ?? "",
-    // 建議回覆 (T-122), TWO independent lists. Read structurally through the one
-    // module that knows the wire names: a server predating T-122 omits both,
+    // 建議回覆 (T-122; the 傳承 list T-33), THREE independent lists. Read
+    // structurally through the one module that knows the wire names: a server
+    // predating T-122 omits all of them and one predating T-33 omits the last,
     // and absent ⇒ [] ⇒ nothing renders, which is honestly what it means.
     suggestedRepliesReplyCard: readSuggestedRepliesReplyCard(w),
     suggestedRepliesTaskMessage: readSuggestedRepliesTaskMessage(w),
+    suggestedRepliesLoreMessage: readSuggestedRepliesLoreMessage(w),
     pushContactEmail: w.push_contact_email ?? "",
     // Cockpit display prefs (T-0b41-p2; schema-optional for DTO-compat — the Go
     // wire always emits them). "" = never set; the frontend keeps its

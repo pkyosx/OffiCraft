@@ -349,6 +349,21 @@
               "description": "Replace the 建議回覆 list offered under a 任務 message box (T-122) wholesale. Same bounds as suggested_replies_reply_card — at most 20 entries, each trimmed and at most 120 runes, over either is a 422 that writes nothing, and an explicit empty array is legal — but a SEPARATE list by owner ruling: answering a 請示卡 and writing to a task in progress are different conversations, and patching one list never touches the other. Read the current list from get_settings before sending: this replaces it, it does not append. 🔴 null is NOT \"clear\": an omitted field and an explicit null both mean LEAVE THIS LIST UNCHANGED, so an agent that sends null to empty the list gets a 200 and no change at all. To clear it, send [].",
               "title": "Suggested Replies Task Message"
             },
+"suggested_replies_lore_message": {
+              "anyOf": [
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Replace the 建議回覆 list offered under a 傳承 entry's message box (T-33) wholesale — that box writes to the person who WROTE the entry. Same bounds as suggested_replies_reply_card — at most 20 entries, each trimmed and at most 120 runes, over either is a 422 that writes nothing, and an explicit empty array is legal — but a SEPARATE list by owner ruling: asking about a 傳承 entry, answering a 請示卡 and writing to a task in progress are three different conversations, and patching one list never touches another. Read the current list from get_settings before sending: this replaces it, it does not append. 🔴 null is NOT \"clear\": an omitted field and an explicit null both mean LEAVE THIS LIST UNCHANGED, so an agent that sends null to empty the list gets a 200 and no change at all. To clear it, send [].",
+              "title": "Suggested Replies Lore Message"
+            },
             "agent_token_ttl": {
               "anyOf": [
                 {

@@ -1,10 +1,12 @@
 // hooks/useSuggestedReplies.ts — the 建議回覆 the two reply boxes offer (T-122).
 //
-// TWO LISTS, TWO HOOKS: `useSuggestedRepliesReplyCard` for the 請示卡 composer,
-// `useSuggestedRepliesTaskMessage` for the 任務 message box. The owner ruled the
-// two boxes get separate lists — answering a 請示卡 and writing to a task in
-// progress are different conversations — so a box reads ITS list and only its
-// list. Whichever one is empty, the other still renders.
+// ONE LIST PER BOX, ONE HOOK PER LIST: `useSuggestedRepliesReplyCard` for the
+// 請示卡 composer, `useSuggestedRepliesTaskMessage` for the 任務 message box, and
+// `useSuggestedRepliesLoreMessage` for the 傳承 entry's message box (T-33). The
+// owner ruled the boxes get separate lists — answering a 請示卡, writing to a
+// task in progress and asking a 傳承 entry's writer about it are different
+// conversations — so a box reads ITS list and only its list. Whichever ones are
+// empty, the others still render.
 //
 // Same seam as useOrgName / useOwnerName: the values live on `/api/settings` and
 // are read through `loadServerSettings`, never through a direct settings call of
@@ -34,7 +36,16 @@
 import { useEffect, useState } from "react";
 import { loadServerSettings } from "./sharedServerSettings";
 
-type SuggestedRepliesBox = "replyCard" | "taskMessage";
+type SuggestedRepliesBox = "replyCard" | "taskMessage" | "loreMessage";
+
+/** box → the `ServerSettingsView` property carrying that box's list. Spelled as
+ * literals for the reason the block below explains; the map is here so adding a
+ * box is one row rather than another arm of a nested ternary. */
+const SETTINGS_FIELD: Record<SuggestedRepliesBox, string> = {
+  replyCard: "suggestedRepliesReplyCard",
+  taskMessage: "suggestedRepliesTaskMessage",
+  loreMessage: "suggestedRepliesLoreMessage",
+};
 
 /** ⚠️ THE FIELD NAMES BELOW ARE STRING LITERALS, DELIBERATELY, AND THAT COSTS
  * SOMETHING. Reading a value typed `unknown` cannot also be bound to
@@ -51,11 +62,7 @@ type SuggestedRepliesBox = "replyCard" | "taskMessage";
  * the only question the caller asks. */
 function listFrom(s: unknown, box: SuggestedRepliesBox): string[] {
   if (typeof s !== "object" || s === null) return [];
-  const raw = (s as Record<string, unknown>)[
-    box === "replyCard"
-      ? "suggestedRepliesReplyCard"
-      : "suggestedRepliesTaskMessage"
-  ];
+  const raw = (s as Record<string, unknown>)[SETTINGS_FIELD[box]];
   if (!Array.isArray(raw)) return [];
   // Blanks go too, not just non-strings: a whitespace-only entry renders as an
   // unlabelled but CLICKABLE chip that pastes whitespace into the box. Same rule
@@ -107,4 +114,10 @@ export function useSuggestedRepliesReplyCard(): string[] {
  * arrive. Independent of the reply-card list. */
 export function useSuggestedRepliesTaskMessage(): string[] {
   return useSuggestedReplies("taskMessage");
+}
+
+/** The owner's 建議回覆 for a 傳承 entry's message box (T-33), or `[]` until (or
+ * unless) they arrive. Independent of the other two lists. */
+export function useSuggestedRepliesLoreMessage(): string[] {
+  return useSuggestedReplies("loreMessage");
 }

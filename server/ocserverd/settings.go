@@ -312,10 +312,11 @@ const (
 	// (the setting table is key/value — migrations/00002_settings.sql), which is
 	// why there is no migration: a new key needs no DDL.
 	//
-	// TWO KEYS, NOT ONE, and no nested object: answering a 請示卡 and writing to
-	// a task in progress are different conversations, so one list's sentences
-	// are wrong in the other's box (owner ruling). Two rows also keep "change
-	// only one of them" a single PATCH-time write instead of an unlocked
+	// ONE KEY PER BOX, and no nested object: answering a 請示卡, writing to a task
+	// in progress and asking a 傳承 entry's writer about what he wrote are three
+	// different conversations, so one list's sentences are wrong in another's box
+	// (owner ruling; the 傳承 list is the third, T-33). Separate rows also keep
+	// "change only one of them" a single PATCH-time write instead of an unlocked
 	// read-modify-write over one shared blob.
 	//
 	// ABSENT ROW = the empty list, and so is a stored `[]`: "the owner
@@ -324,6 +325,7 @@ const (
 	// over it, never a part of it.
 	settingSuggestedRepliesReplyCard   = "suggested_replies.reply_card"
 	settingSuggestedRepliesTaskMessage = "suggested_replies.task_message"
+	settingSuggestedRepliesLoreMessage = "suggested_replies.lore_message"
 	// [T-16a1 P2 / T-83ef] `display.custom_themes` — the row that used to hold
 	// every saved theme as one JSON array — HAS NO CONSTANT HERE ANY MORE, and
 	// that is deliberate rather than an oversight:
@@ -462,11 +464,13 @@ type authSettings struct {
 	displayTheme                 string // display.theme ("" = never set → frontend cache/default)
 	displayLanguage              string // display.language ("" = never set → frontend cache/default)
 	displayWide                  bool   // display.wide (default false = the narrow centred column)
-	// suggested_replies.* (T-122) — the two one-click 建議回覆 lists, each stored
-	// as a JSON array of strings. nil/empty = the owner configured none, which
-	// draws no chips and is an ordinary state, not a failure.
+	// suggested_replies.* (T-122; the 傳承 list added by T-33) — the one-click
+	// 建議回覆 lists, one per box, each stored as a JSON array of strings.
+	// nil/empty = the owner configured none, which draws no chips and is an
+	// ordinary state, not a failure.
 	suggestedRepliesReplyCard   []string // suggested_replies.reply_card
 	suggestedRepliesTaskMessage []string // suggested_replies.task_message
+	suggestedRepliesLoreMessage []string // suggested_replies.lore_message
 }
 
 // maxSuggestedReplies / maxSuggestedReplyLen bound each 建議回覆 list (T-122).
@@ -928,6 +932,10 @@ func loadAuthSettings(d *DAL, cfg Config, logf func(string)) (authSettings, erro
 	}
 	if err := loadSuggestedReplies(settingSuggestedRepliesTaskMessage,
 		&out.suggestedRepliesTaskMessage); err != nil {
+		return out, err
+	}
+	if err := loadSuggestedReplies(settingSuggestedRepliesLoreMessage,
+		&out.suggestedRepliesLoreMessage); err != nil {
 		return out, err
 	}
 

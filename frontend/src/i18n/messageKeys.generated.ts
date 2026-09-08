@@ -1021,6 +1021,8 @@ export const MESSAGE_KEYS: readonly string[] = [
   "settings.stepNoteCapSub",
   "settings.stopSection",
   "settings.suggestedRepliesFull",
+  "settings.suggestedRepliesLoreMessage",
+  "settings.suggestedRepliesLoreMessageSub",
   "settings.suggestedRepliesReplyCard",
   "settings.suggestedRepliesReplyCardSub",
   "settings.suggestedRepliesTaskMessage",

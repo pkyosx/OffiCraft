@@ -1241,12 +1241,14 @@ const TTL_CHOICES = [43200, 86400, 604800, 2592000] as const;
  * value rather than leaving a lie on screen.
  */
 /** ONE editable 建議回覆 list (T-122) — the 參數設定 face of
- * `suggested_replies.reply_card` / `suggested_replies.task_message`.
+ * `suggested_replies.reply_card` / `suggested_replies.task_message` /
+ * `suggested_replies.lore_message`.
  *
- * Two of these are mounted, one per list, and they share nothing but this
- * component: the owner ruled the 請示卡 box and the 任務 box get separate
- * settings, so each editor holds its own draft and saves its own field. A save
- * sends ONE field, which is what keeps "edit one list" from rewriting the other.
+ * Three of these are mounted, one per list, and they share nothing but this
+ * component: the owner ruled the 請示卡 box, the 任務 box and the 傳承 box get
+ * separate settings, so each editor holds its own draft and saves its own
+ * field. A save sends ONE field, which is what keeps "edit one list" from
+ * rewriting another.
  *
  * The draft is `null` until the owner touches something, so a value arriving
  * from the server flows straight through; once touched, the draft owns the
@@ -1988,9 +1990,10 @@ function ServerParams({
             </div>
           </div>
 
-          {/* T-122: TWO lists, TWO rows. The owner ruled 「任務跟請示卡要是不同的
-              參數設定」 (c-85c28e708b81), so each row saves its OWN field and a
-              save never carries the other one. */}
+          {/* T-122: ONE list, ONE row, per message box. The owner ruled 「任務跟
+              請示卡要是不同的參數設定」 (c-85c28e708b81), and T-33 added the 傳承
+              box on the same ruling, so each row saves its OWN field and a save
+              never carries another one. */}
           <SuggestedRepliesEditor
             label={t.settings.suggestedRepliesReplyCard}
             sub={t.settings.suggestedRepliesReplyCardSub}
@@ -2007,6 +2010,15 @@ function ServerParams({
             value={settings.suggestedRepliesTaskMessage}
             onTouch={() => { setRangeError(false); onClearSaveError(); }}
             onCommit={(next) => { void onSave({ suggestedRepliesTaskMessage: next }); }}
+          />
+
+          <SuggestedRepliesEditor
+            label={t.settings.suggestedRepliesLoreMessage}
+            sub={t.settings.suggestedRepliesLoreMessageSub}
+            idPrefix="param-suggested-lore-message"
+            value={settings.suggestedRepliesLoreMessage}
+            onTouch={() => { setRangeError(false); onClearSaveError(); }}
+            onCommit={(next) => { void onSave({ suggestedRepliesLoreMessage: next }); }}
           />
 
           {(saveError || rangeError) && (

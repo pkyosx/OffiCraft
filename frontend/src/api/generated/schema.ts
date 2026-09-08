@@ -9284,6 +9284,11 @@ export interface components {
              */
             suggested_replies_task_message?: string[];
             /**
+             * Suggested Replies Lore Message
+             * @description The one-click 建議回覆 offered under a 傳承 entry's message box (T-33) — the box that writes to the person who WROTE that entry. A THIRD separate list, for the same reason the other two are separate: asking 「這條還適用嗎」 about a lesson someone left behind is not answering a 請示卡 and not steering a task in progress, so one list's sentences are wrong in another's box. [] (the default) means no chips are drawn there, and the message box works exactly as it does without them.
+             */
+            suggested_replies_lore_message?: string[];
+            /**
              * Agent Token Ttl
              * @description Agent and outsource-worker JWT lifetime in seconds. Fresh installs default to 7 days.
              * @default 604800
@@ -9488,6 +9493,11 @@ export interface components {
              * @description Replace the 任務 message-box 建議回覆 list wholesale (T-122). Same bounds as suggested_replies_reply_card — at most 20 entries, each trimmed and at most 120 runes, over either is a 422 that writes nothing, and an explicit empty array is legal — but a SEPARATE list: patching one never touches the other. 🔴 null is NOT "clear": an omitted field and an explicit null both mean LEAVE THIS LIST UNCHANGED, so an agent that sends null to empty the list gets a 200 and no change at all. To clear it, send [].
              */
             suggested_replies_task_message?: string[] | null;
+            /**
+             * Suggested Replies Lore Message
+             * @description Replace the 傳承 message-box 建議回覆 list wholesale (T-33) — the box that writes to the person who wrote that 傳承 entry. Same bounds as suggested_replies_reply_card — at most 20 entries, each trimmed and at most 120 runes, over either is a 422 that writes nothing, and an explicit empty array is legal — but a SEPARATE list: patching one never touches another. 🔴 null is NOT "clear": an omitted field and an explicit null both mean LEAVE THIS LIST UNCHANGED, so an agent that sends null to empty the list gets a 200 and no change at all. To clear it, send [].
+             */
+            suggested_replies_lore_message?: string[] | null;
             /** Outsource Max Parallel */
             outsource_max_parallel?: number | null;
             /** Agent Token Ttl */

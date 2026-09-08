@@ -194,13 +194,15 @@ type apiServer struct {
 	// default) = the centred ~1040px content column the cockpit ships with; true
 	// lifts that cap. NOT an agent read path.
 	displayWide bool
-	// suggestedRepliesReplyCard / suggestedRepliesTaskMessage are the owner's
-	// one-click 建議回覆 (DB suggested_replies.*; T-122), live copies of the two
+	// suggestedRepliesReplyCard / suggestedRepliesTaskMessage /
+	// suggestedRepliesLoreMessage are the owner's one-click 建議回覆 (DB
+	// suggested_replies.*; T-122, the 傳承 one added by T-33), live copies of the
 	// lists GET /api/settings serves and PATCH replaces. Each is REPLACED
 	// wholesale on a patch and never mutated in place, so a reader holding the
 	// slice under settingsMu can keep it.
 	suggestedRepliesReplyCard   []string
 	suggestedRepliesTaskMessage []string
+	suggestedRepliesLoreMessage []string
 	// selfBase is this server's OWN loopback base URL ("http://127.0.0.1:PORT"),
 	// stamped by cmdServe once the bind address is known. It exists for the ONE
 	// in-process caller that needs an OC_BASE with no HTTP request to derive it

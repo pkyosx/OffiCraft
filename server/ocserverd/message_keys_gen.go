@@ -1022,6 +1022,8 @@ var messageKeys = map[string]bool{
 	"settings.stepNoteCapSub":                          true,
 	"settings.stopSection":                             true,
 	"settings.suggestedRepliesFull":                    true,
+	"settings.suggestedRepliesLoreMessage":             true,
+	"settings.suggestedRepliesLoreMessageSub":          true,
 	"settings.suggestedRepliesReplyCard":               true,
 	"settings.suggestedRepliesReplyCardSub":            true,
 	"settings.suggestedRepliesTaskMessage":             true,

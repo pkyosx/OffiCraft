@@ -2087,17 +2087,21 @@ export const en: Dict = {
     backupRetainSub:
       "How many database backup files are kept. Everything past this number is DELETED from disk on the next backup — it is not moved aside and it cannot be recovered. Two things this number is NOT. It counts VERSIONS, NOT DAYS: it is a count of files, so how far back it reaches depends entirely on how many backups those days happened to produce — a busy day can use the whole allowance in under three days, a quiet one can stretch it past a week. And it is PER POOL, NOT PER DIRECTORY: routine backups (scheduled and manual) and pre-migration backups keep separate allowances, so 5 here means up to TEN files on disk, not five. The range is 1 to 20; the ceiling is a disk budget, since the space used is roughly two times this number times the size of one backup.",
     backupRetainUnit: "backups per pool",
-    // T-122: the two suggested-reply lists. Two rows and not one, deliberately —
-    // answering a reply card and writing to a task in progress are different
-    // conversations, so a sentence written for one is wrong in the other's box
-    // (owner ruling). An empty list is a legal value: that box then shows no
-    // suggestion buttons at all.
+    // T-122 (+ the lore list, T-33): the three suggested-reply lists. One row
+    // per box and not one shared row, deliberately — answering a reply card,
+    // writing to a task in progress and asking the writer of a lore entry about
+    // it are different conversations, so a sentence written for one is wrong in
+    // another's box (owner ruling). An empty list is a legal value: that box
+    // then shows no suggestion buttons at all.
     suggestedRepliesReplyCard: "Reply-card suggestions",
     suggestedRepliesReplyCardSub:
       "Sentences you can drop in with one tap when answering a reply card.",
     suggestedRepliesTaskMessage: "Task-message suggestions",
     suggestedRepliesTaskMessageSub:
       "Sentences you can drop in with one tap when messaging on a task.",
+    suggestedRepliesLoreMessage: "Lore-message suggestions",
+    suggestedRepliesLoreMessageSub:
+      "Sentences you can drop in with one tap when messaging a lore entry's writer.",
     suggestedReplyPlaceholder: "e.g. Got it, go ahead",
     suggestedReplyAdd: "Add a sentence",
     suggestedReplyRemove: "Remove this sentence",

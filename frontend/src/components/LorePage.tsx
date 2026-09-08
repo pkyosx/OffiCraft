@@ -84,6 +84,7 @@ import { isHttpStatus, serverMessageOf } from "../api/errors";
 import { useMembers } from "../hooks/useMembers";
 import { useOutsourceWorkers } from "../hooks/useOutsourceWorkers";
 import { useIsMobile } from "../hooks/useIsMobile";
+import { useSuggestedRepliesLoreMessage } from "../hooks/useSuggestedReplies";
 import { useTaskManuals } from "../hooks/useTaskManuals";
 import {
   ATTACH_ACCEPT,
@@ -105,6 +106,7 @@ import { ComposerAttachmentPreview } from "./ComposerAttachmentPreview";
 import { FilterPanel } from "./FilterPanel";
 import { Markdown } from "./Markdown";
 import { MultiSelectFilter } from "./MultiSelectFilter";
+import { SuggestedReplies, appendSuggestion } from "./SuggestedReplies";
 import {
   BookIcon,
   ChatBubbleIcon,
@@ -1360,6 +1362,10 @@ function LoreAuthorComposer({
 }): ReactNode {
   const { t } = useI18n();
   const isMobile = useIsMobile();
+  // The owner's 建議回覆 for THIS box (T-33) — its own settings list, never the
+  // 請示卡 or 任務 one. Empty (the shipped state, and the answer to a failed
+  // settings read) renders nothing at all, and the box is untouched by it.
+  const suggestedReplies = useSuggestedRepliesLoreMessage();
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
   const [failed, setFailed] = useState(false);
@@ -1521,6 +1527,20 @@ function LoreAuthorComposer({
           {t.lore.messageSend}
         </button>
       </div>
+      {/* T-33: a pick FILLS this box and leaves the send to the owner — the same
+       * rule the other two boxes keep. This message goes to the entry's writer
+       * and cannot be recalled, so a mis-tap must cost a keystroke, never a
+       * message. It sits OUTSIDE `.lore-row__composer-row` (the flex row holding
+       * the 📎, the textarea and 送出): a row of its own, under that one, as on
+       * 任務卡. */}
+      <SuggestedReplies
+        replies={suggestedReplies}
+        testId="lore-suggested-replies"
+        onPick={(suggestion) => {
+          setDraft((cur) => appendSuggestion(cur, suggestion));
+          boxRef.current?.focus();
+        }}
+      />
       {failed && (
         <div
           className="lore-row__composer-error"

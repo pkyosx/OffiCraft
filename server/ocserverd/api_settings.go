@@ -688,7 +688,8 @@ func (s *apiServer) HandleUpdateSettingsApiSettingsPatch(w http.ResponseWriter, 
 			return
 		}
 	}
-	// suggested_replies.* (T-122) — canonicalized (trim, drop blanks) and bounds
+	// suggested_replies.* (T-122; the 傳承 list T-33) — canonicalized (trim, drop
+	// blanks) and bounds
 	// checked HERE, before the lock, like every other field on this endpoint: a
 	// 422 writes nothing. Over either bound is a REFUSAL, never a truncation —
 	// a shortened sentence is a sentence the owner never wrote, and it would be
@@ -699,7 +700,8 @@ func (s *apiServer) HandleUpdateSettingsApiSettingsPatch(w http.ResponseWriter, 
 	// difference is real: there "fires always" and "fires never" are one
 	// keystroke apart, while here the empty list just means a reply box with no
 	// chips above it — which is exactly how the box shipped.
-	var suggestedRepliesReplyCard, suggestedRepliesTaskMessage []string
+	var suggestedRepliesReplyCard, suggestedRepliesTaskMessage,
+		suggestedRepliesLoreMessage []string
 	if body.SuggestedRepliesReplyCard != nil {
 		list, err := canonicalSuggestedReplies(*body.SuggestedRepliesReplyCard)
 		if err != nil {
@@ -717,6 +719,15 @@ func (s *apiServer) HandleUpdateSettingsApiSettingsPatch(w http.ResponseWriter, 
 			return
 		}
 		suggestedRepliesTaskMessage = list
+	}
+	if body.SuggestedRepliesLoreMessage != nil {
+		list, err := canonicalSuggestedReplies(*body.SuggestedRepliesLoreMessage)
+		if err != nil {
+			writeError(w, http.StatusUnprocessableEntity,
+				fmt.Sprintf("suggested_replies_lore_message %v", err))
+			return
+		}
+		suggestedRepliesLoreMessage = list
 	}
 	s.settingsMu.Lock()
 	if body.OwnerTokenTtl != nil {
@@ -918,11 +929,12 @@ func (s *apiServer) HandleUpdateSettingsApiSettingsPatch(w http.ResponseWriter, 
 		}
 		s.displayWide = *body.DisplayWide
 	}
-	// suggested_replies.* (T-122) — written wholesale like the caps above rather
-	// than compared first: the value is a list, "did it change" is not a `!=`,
-	// and PutSetting on an unchanged row costs one write of the same bytes. The
-	// two keys are written INDEPENDENTLY, which is the whole reason they are two
-	// rows: patching one list can never read-modify-write the other.
+	// suggested_replies.* (T-122; the 傳承 list T-33) — written wholesale like the
+	// caps above rather than compared first: the value is a list, "did it change"
+	// is not a `!=`, and PutSetting on an unchanged row costs one write of the
+	// same bytes. The keys are written INDEPENDENTLY, which is the whole reason
+	// they are separate rows: patching one list can never read-modify-write
+	// another.
 	if body.SuggestedRepliesReplyCard != nil {
 		if err := s.dal.PutSetting(settingSuggestedRepliesReplyCard,
 			encodeSuggestedReplies(suggestedRepliesReplyCard)); err != nil {
@@ -940,6 +952,15 @@ func (s *apiServer) HandleUpdateSettingsApiSettingsPatch(w http.ResponseWriter, 
 			return
 		}
 		s.suggestedRepliesTaskMessage = suggestedRepliesTaskMessage
+	}
+	if body.SuggestedRepliesLoreMessage != nil {
+		if err := s.dal.PutSetting(settingSuggestedRepliesLoreMessage,
+			encodeSuggestedReplies(suggestedRepliesLoreMessage)); err != nil {
+			s.settingsMu.Unlock()
+			internalError(w, err)
+			return
+		}
+		s.suggestedRepliesLoreMessage = suggestedRepliesLoreMessage
 	}
 	s.settingsMu.Unlock()
 	// onboarding_dismissed (T-0648) is written OUTSIDE settingsMu, and last:
@@ -1019,6 +1040,7 @@ func (s *apiServer) settingsView() settingsDTO {
 		// response body shares a slice with the live snapshot.
 		SuggestedRepliesReplyCard:   append([]string{}, s.suggestedRepliesReplyCard...),
 		SuggestedRepliesTaskMessage: append([]string{}, s.suggestedRepliesTaskMessage...),
+		SuggestedRepliesLoreMessage: append([]string{}, s.suggestedRepliesLoreMessage...),
 		// Read from the DAL, NOT from the settings snapshot: onboarding runs in
 		// its own goroutine and finishes after this handler returned, so a
 		// boot-time snapshot would serve a permanently stale "running".

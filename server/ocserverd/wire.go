@@ -179,18 +179,21 @@ type settingsDTO struct {
 	// two prefs above this is a plain bool with no "never set" state — false IS
 	// the shipped narrow look, so an untouched install reads exactly right.
 	DisplayWide bool `json:"display_wide"`
-	// SuggestedRepliesReplyCard / SuggestedRepliesTaskMessage are the owner's
-	// one-click 建議回覆 (suggested_replies.*; T-122) — the sentences the cockpit
-	// offers under a 請示卡 reply box and under a 任務 message box respectively.
-	// TWO lists, not one: the two boxes are different conversations, so a
-	// sentence written for one is wrong in the other.
+	// SuggestedRepliesReplyCard / SuggestedRepliesTaskMessage /
+	// SuggestedRepliesLoreMessage are the owner's one-click 建議回覆
+	// (suggested_replies.*; T-122, the 傳承 one added by T-33) — the sentences the
+	// cockpit offers under a 請示卡 reply box, under a 任務 message box, and under a
+	// 傳承 entry's message box respectively. ONE LIST PER BOX, not one shared one:
+	// the three boxes are three different conversations, so a sentence written
+	// for one is wrong in the others.
 	//
-	// 🔴 NEVER null on the wire. The spec types both as `array`, and "" the owner
-	// configured none is the ordinary state — it must serialize as [] so a
+	// 🔴 NEVER null on the wire. The spec types all three as `array`, and "the
+	// owner configured none" is the ordinary state — it must serialize as [] so a
 	// reader never has to tell "none" apart from "missing". settingsView
 	// normalizes it.
 	SuggestedRepliesReplyCard   []string `json:"suggested_replies_reply_card"`
 	SuggestedRepliesTaskMessage []string `json:"suggested_replies_task_message"`
+	SuggestedRepliesLoreMessage []string `json:"suggested_replies_lore_message"`
 	// Onboarding (T-ba62) is the first-run onboarding report, or nil when
 	// onboarding never ran on this database. It rides the OWNER-GATED settings
 	// read on purpose: a failed step's Detail carries the raw `ocwarden install`
