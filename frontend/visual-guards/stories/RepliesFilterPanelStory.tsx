@@ -36,6 +36,7 @@
 // families without the story re-implementing theming.
 import { I18nProvider } from "../../src/i18n";
 import { RepliesPage } from "../../src/components/RepliesPage";
+import App from "../../src/App";
 import { ReplyCardsProvider } from "../../src/hooks/useReplyCards";
 import { FilterPanel } from "../../src/components/FilterPanel";
 import { IdFilterInput } from "../../src/components/IdFilterInput";
@@ -67,6 +68,29 @@ export function RepliesPageStory({ theme }: { theme: "light" | "dark" }) {
           </ReplyCardsProvider>
         </main>
       </div>
+    </I18nProvider>
+  );
+}
+
+/** The production shell with the requested page selected, including topbar and
+ * nav. The width preference is set before I18nProvider reads it. */
+export function AppPageStory({
+  page,
+  theme,
+  wide = false,
+}: {
+  page: "tasks" | "replies";
+  theme: "light" | "dark";
+  wide?: boolean;
+}) {
+  document.documentElement.setAttribute("data-theme", theme);
+  window.localStorage.setItem("oc.wide", wide ? "true" : "false");
+  window.location.hash = `#${page}`;
+  return (
+    <I18nProvider>
+      <ReplyCardsProvider>
+        <App onLogout={() => {}} />
+      </ReplyCardsProvider>
     </I18nProvider>
   );
 }
