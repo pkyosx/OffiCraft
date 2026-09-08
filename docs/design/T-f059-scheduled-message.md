@@ -393,8 +393,10 @@ tick 就送」。倒推法看得到那個舊槽 ⇒ 升級後第一個 tick 會�
 
 ## 收件對象：正職與外包都可以
 
-⚠️ **不要用 `resolveMember`**（`api_helpers.go`）：它**明確排除 `kind == outsource`**，
-所以今天 webhook 端點根本綁不到 `ow-` worker。
+⚠️ **不要用 `resolveMember(…, staffOnly)`**（`api_helpers.go`）：`staffOnly` 這個 scope
+**明確排除 `kind == outsource`**，本票當下 webhook 端點就是因此綁不到 `ow-` worker。
+（T-140 之後這條已不再描述 webhook：create／update／revoke 都改吃 `anyMember`，
+`/in` 則直接改用下面這條 `resolveChatRecipient`。）
 
 聊天可以送給外包（`resolveChatRecipient` 同時允許 `KindStaff` 與 `KindOutsource`），
 而定期訊息就是一則聊天訊息 ⇒ **用聊天那一套的收件者判準**。
