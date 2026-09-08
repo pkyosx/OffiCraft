@@ -1333,8 +1333,8 @@ func TestCanonicalTaskExecutorKind(t *testing.T) {
 	})
 
 	t.Run("the pre-rename value is refused with a message naming the rename", func(t *testing.T) {
-		got, err := CanonicalTaskExecutorKind("member")
-		want := `task executor kind "member" was renamed to "staff" (T-101); the closed set is {"staff", "outsource"}`
+		got, err := CanonicalTaskExecutorKind("member")                                                                // kind-vocab-guard:legacy
+		want := `task executor kind "member" was renamed to "staff" (T-101); the closed set is {"staff", "outsource"}` // kind-vocab-guard:legacy
 		if got != "" || err == nil || err.Error() != want {
 			t.Fatalf("CanonicalTaskExecutorKind(member) = (%q, %v), want (\"\", %s)", got, err, want)
 		}
