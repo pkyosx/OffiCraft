@@ -47,7 +47,7 @@ const baseVM: Omit<AgentDetailVM, "testIdPrefix"> = {
   lastOpLog: "",
   lastOpReason: "",
   lastOpAt: null,
-  tmuxSession: "member-mira",
+  terminalAttachCommand: "tmux -L officraft attach -t member-mira",
   terminalHint: "hint",
 };
 
@@ -108,7 +108,7 @@ export function CostResetWorkerStory() {
         vm={{
           ...baseVM,
           testIdPrefix: "worker-detail",
-          tmuxSession: "worker-ow-1",
+          terminalAttachCommand: "tmux -L officraft attach -t member-ow-1",
           onResetCost: async () => {},
         }}
       />

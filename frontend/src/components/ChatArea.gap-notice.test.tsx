@@ -45,7 +45,7 @@ function mkMember(id: string, name: string): Member {
     id, name, role: "assistant", status: "online", lifecycle: "online",
     model: "opus", effort: "medium", kind: "staff", desiredMachineId: "",
     machine: null, account: null, contextPct: null, estimatedCost: null,
-    bankedCost: null, tmuxSession: `member-${id}`, refocusSince: null,
+    bankedCost: null, terminalAttachCommand: `tmux -L officraft attach -t member-${id}`, refocusSince: null,
     lastOp: "", lastOpOk: null, lastOpLog: "", lastOpAt: null, unreadCount: 0,
   };
 }

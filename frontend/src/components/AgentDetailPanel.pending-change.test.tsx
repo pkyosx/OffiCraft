@@ -72,7 +72,7 @@ function mkSettled(over: Partial<Member> = {}): Member {
     contextPct: null,
     estimatedCost: null,
     bankedCost: null,
-    tmuxSession: "member-mira",
+    terminalAttachCommand: "tmux -L officraft attach -t member-mira",
     refocusSince: null,
     lastOp: "",
     lastOpOk: null,

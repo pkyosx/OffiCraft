@@ -1295,6 +1295,10 @@ func TestNewOutsourceWorkerDTO_GoldenWireShape(t *testing.T) {
 		accountDisplay: func(raw string) string { return "alice@example.com" },
 		delegatedBy:    "Bob",
 		typeDisplay:    func(key string) string { return "程式碼審查 (" + key + ")" },
+		// A NAMESPACED station's command (T-139). The golden must show a
+		// socket no derivation on this side could invent, or a builder that
+		// re-derived it from the id would reproduce the golden exactly.
+		terminalAttach: "tmux -L officraft-seth attach -t member-ow-1",
 	}
 	cases := []struct {
 		name string
@@ -1306,7 +1310,7 @@ func TestNewOutsourceWorkerDTO_GoldenWireShape(t *testing.T) {
 		{
 			name: "every field populated",
 			w:    fullWorker, task: fullTask, p: fullProjection,
-			want: `{"id":"ow-1","avatar_url":"","codename":"O-7","runtime":"claude","model":"claude-sonnet-4-5","effort":"high","actual_model":"claude-opus-5","actual_runtime":"codex","actual_effort":"medium","status":"active","task_id":"t-1","task_title":"review 1","task_status":"in_progress","task_no":"t-1","task_created_ts":900,"task_type_key":"tm-review","task_type_name":"程式碼審查 (tm-review)","created_ts":1000,"unread_count":4,"presence":"online","machine":"Mac Studio (mac-1)","desired_machine_id":"mac-2","actual_machine":"mac-1","account":"alice@example.com","context_pct":42,"cost":1.5,"banked_cost":3.25,"last_op":"worker_start","last_op_ok":true,"last_op_log":"spawned ok","last_op_reason":"","last_op_at":1501,"creator_id":"m-9","delegated_by":"Bob","refocus_since":1600,"refocus_op":"context_high","refocus_deadline":1720,"desired_state":"online"}`,
+			want: `{"id":"ow-1","avatar_url":"","codename":"O-7","runtime":"claude","model":"claude-sonnet-4-5","effort":"high","actual_model":"claude-opus-5","actual_runtime":"codex","actual_effort":"medium","status":"active","task_id":"t-1","task_title":"review 1","task_status":"in_progress","task_no":"t-1","task_created_ts":900,"task_type_key":"tm-review","task_type_name":"程式碼審查 (tm-review)","created_ts":1000,"unread_count":4,"presence":"online","machine":"Mac Studio (mac-1)","desired_machine_id":"mac-2","actual_machine":"mac-1","account":"alice@example.com","context_pct":42,"cost":1.5,"banked_cost":3.25,"last_op":"worker_start","last_op_ok":true,"last_op_log":"spawned ok","last_op_reason":"","last_op_at":1501,"creator_id":"m-9","delegated_by":"Bob","refocus_since":1600,"refocus_op":"context_high","refocus_deadline":1720,"desired_state":"online","terminal_attach_command":"tmux -L officraft-seth attach -t member-ow-1"}`,
 		},
 		{
 			name: "bare row honest empties",
@@ -1315,8 +1319,11 @@ func TestNewOutsourceWorkerDTO_GoldenWireShape(t *testing.T) {
 				Status: WorkerStatusAssigned, CreatedTS: 1999.0},
 			// presence "offline", not "waking": T-14 retired the CreatedTS
 			// fallback — a row nobody has dispatched has no wake in flight.
+			// terminal_attach_command is "" because this projection carries
+			// none — the builder must NOT invent one from the id (T-139); the
+			// composition happens in projectWorker, where the namespace is.
 			task: nil, p: outsourceWorkerProjection{now: 2000.0},
-			want: `{"id":"ow-2","avatar_url":"","codename":"O-8","runtime":"claude","model":"claude-haiku-4-5","effort":"","actual_model":"","actual_runtime":"","actual_effort":"","status":"assigned","task_id":"t-2","task_title":"","task_status":"","task_no":"","task_created_ts":0,"task_type_key":"","task_type_name":"","created_ts":1999,"unread_count":0,"presence":"offline","machine":"","desired_machine_id":"","actual_machine":"","account":null,"context_pct":null,"cost":null,"banked_cost":null,"last_op":"","last_op_ok":null,"last_op_log":"","last_op_reason":"","last_op_at":0,"creator_id":"","delegated_by":"","refocus_since":0,"refocus_op":"","refocus_deadline":0,"desired_state":""}`,
+			want: `{"id":"ow-2","avatar_url":"","codename":"O-8","runtime":"claude","model":"claude-haiku-4-5","effort":"","actual_model":"","actual_runtime":"","actual_effort":"","status":"assigned","task_id":"t-2","task_title":"","task_status":"","task_no":"","task_created_ts":0,"task_type_key":"","task_type_name":"","created_ts":1999,"unread_count":0,"presence":"offline","machine":"","desired_machine_id":"","actual_machine":"","account":null,"context_pct":null,"cost":null,"banked_cost":null,"last_op":"","last_op_ok":null,"last_op_log":"","last_op_reason":"","last_op_at":0,"creator_id":"","delegated_by":"","refocus_since":0,"refocus_op":"","refocus_deadline":0,"desired_state":"","terminal_attach_command":""}`,
 		},
 	}
 	for _, c := range cases {

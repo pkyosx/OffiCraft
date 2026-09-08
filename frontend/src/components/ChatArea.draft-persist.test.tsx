@@ -47,7 +47,7 @@ function mkMember(id: string, name: string): Member {
     contextPct: null,
     estimatedCost: null,
     bankedCost: null,
-    tmuxSession: `member-${id}`,
+    terminalAttachCommand: `tmux -L officraft attach -t member-${id}`,
     refocusSince: null,
     lastOp: "",
     lastOpOk: null,

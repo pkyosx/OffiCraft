@@ -267,10 +267,12 @@ export function toMember(w: WireMember): Member {
     estimatedCost: null,
     bankedCost: null,
 
-    // tmux session name: mirror the real backend rule — reconcile.py names every
-    // member-spawned session `member-<id>` (id lowercased); attach uses the
-    // `officraft` socket (spawn.py DEFAULT_SOCKET). NOT the old raw-id fixture.
-    tmuxSession: `member-${w.id.toLowerCase()}`,
+    // The attach command comes down WHOLE from the station (T-139). This used
+    // to mirror the backend's session-naming rule here and let the panel wrap
+    // `tmux -L officraft …` around it — one client-side copy of a socket name
+    // that is only right on the unnamespaced instance. "" = a server too old to
+    // serve it; the panel says so rather than reconstructing one.
+    terminalAttachCommand: w.terminal_attach_command ?? "",
     // The member wire carries no lessons (those come from the lessons doc, not
     // wired in M1). The initial boot prompt is NOT baked into the member view —
     // it is fetched on demand from /api/bootstrap (see api.getBootstrap).
@@ -824,6 +826,10 @@ export function toOutsourceWorker(w: WireOutsourceWorker): OutsourceWorkerView {
     refocusDeadline:
       w.refocus_deadline && w.refocus_deadline > 0 ? w.refocus_deadline : null,
     desiredState: w.desired_state ?? "online",
+    // The SAME whole-command passthrough the member mapper does (T-139) — the
+    // worker panel used to derive `member-<id>` itself, a THIRD independent copy
+    // of the naming rule. "" = a server too old to serve it.
+    terminalAttachCommand: w.terminal_attach_command ?? "",
   };
 }
 

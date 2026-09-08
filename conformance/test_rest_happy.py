@@ -261,7 +261,8 @@ _MEMBER_READ_KEYS = {
     "forced_stop_at", "id", "kind", "last_op", "last_op_at", "last_op_log",
     "last_op_ok", "last_op_reason", "machine", "model", "name", "owner_id",
     "presence", "refocus_deadline", "refocus_op", "refocus_since", "role_key",
-    "role_name", "roster_status", "runtime", "schema_version", "unread_count",
+    "role_name", "roster_status", "runtime", "schema_version",
+    "terminal_attach_command", "unread_count",
 }
 _WORKER_READ_KEYS = {
     "account", "actual_effort", "actual_machine", "actual_model",
@@ -272,7 +273,7 @@ _WORKER_READ_KEYS = {
     "machine", "model", "presence", "refocus_deadline", "refocus_op",
     "refocus_since", "runtime", "status", "task_created_ts", "task_id",
     "task_no", "task_status", "task_title", "task_type_key", "task_type_name",
-    "unread_count",
+    "terminal_attach_command", "unread_count",
 }
 
 _DEAD_ON_READ = {"activation_pending", "relocation_pending", "relocation_deferred"}

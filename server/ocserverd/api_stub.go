@@ -211,9 +211,11 @@ type apiServer struct {
 	// (tests / migrate), where onboarding never runs.
 	selfBase string
 	// namespace is the [server].namespace instance key ("" = main instance).
-	// It leaves the server on exactly two surfaces: the install.sh install line
-	// and the bootstrap/teardown-here child env (OC_NAMESPACE) — the single
-	// cross-plane propagation line for same-machine multi-instance.
+	// It leaves the server on exactly three surfaces: the install.sh install
+	// line, the bootstrap/teardown-here child env (OC_NAMESPACE) — the single
+	// cross-plane propagation line for same-machine multi-instance — and, since
+	// T-139, the terminal_attach_command the two agent DTOs serve, which needs
+	// it to name the `tmux -L` socket THIS station's wardens opened.
 	namespace string
 	// ctxhigh is the context-high band config the /api/events stream loop
 	// evaluates each quiet tick (DB ctx.* settings; defaults when unset).

@@ -52,6 +52,7 @@ function mkWireMember(over: Partial<WireMember>): WireMember {
     refocus_since: 0,
     schema_version: 1,
     unread_count: 0,
+    terminal_attach_command: "tmux -L officraft attach -t member-m-1",
     ...over,
   };
 }

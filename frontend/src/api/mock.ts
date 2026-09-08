@@ -237,6 +237,17 @@ import type { ThemeBundle } from "../lib/themeBundle";
 // deletable, in-place Install.
 const MOCK_SERVER_SELF_ID = "m-server-self";
 
+// 🔴 THE ONE PLACE IN THE FRONTEND TREE THAT COMPOSES THIS STRING, and it is
+// here because this file IS the stand-in server (T-139). The real station
+// composes terminal_attach_command from its own [server].namespace; the mock
+// has no namespace, so it models the main instance. Nothing under
+// src/components or src/lib may do this — there the whole point is that the
+// command arrives finished. The frontend guard test names this function as the
+// single exception.
+function mockTerminalAttachCommand(agentID: string): string {
+  return `tmux -L officraft attach -t member-${agentID.toLowerCase()}`;
+}
+
 // ── Fixture: out-of-box Mira, in WIRE shape (mirrors what /api/members returns).
 // Offline, never online (last_alive 0 → honest "尚未上線"), no telemetry.
 const MOCK_WIRE_MEMBERS: WireMember[] = [
@@ -245,6 +256,7 @@ const MOCK_WIRE_MEMBERS: WireMember[] = [
   // (is_self=true via listMachines), and is NOT deletable. Offline until it reports.
   {
     id: MOCK_SERVER_SELF_ID,
+    terminal_attach_command: mockTerminalAttachCommand(MOCK_SERVER_SELF_ID),
     name: "伺服器這一台",
     kind: "warden",
     role_key: "",
@@ -276,6 +288,7 @@ const MOCK_WIRE_MEMBERS: WireMember[] = [
   },
   {
     id: "mira",
+    terminal_attach_command: mockTerminalAttachCommand("mira"),
     name: "Mira",
     kind: "staff", // mirror the real seed (dbseed.go: Mira kind=KindStaff)
     role_key: "assistant",
@@ -317,6 +330,7 @@ const MOCK_WIRE_MEMBERS: WireMember[] = [
   // its id. Offline / never-online — no fabricated telemetry.
   {
     id: "warden-mbp5",
+    terminal_attach_command: mockTerminalAttachCommand("warden-mbp5"),
     name: "Warden · mbp5",
     kind: "warden",
     role_key: "assistant",
@@ -366,6 +380,7 @@ const MOCK_WIRE_MEMBERS: WireMember[] = [
   // what the DATA looks like, which is the point.
   {
     id: "ow-7d8ad859dd9b",
+    terminal_attach_command: mockTerminalAttachCommand("ow-7d8ad859dd9b"),
     name: "O-179", // a worker reads by its codename, never a personal name
     kind: "outsource",
     role_key: "", // contractors carry no role — their duty is the bound task
@@ -1407,6 +1422,19 @@ function withWorkerTaskJoin(w: OutsourceWorkerView): OutsourceWorkerView {
     taskTypeKey: typeKey,
     taskTypeName:
       taskManuals.find((m) => m.typeKey === typeKey)?.displayName ?? "",
+    // The station composes the attach command in projectWorker — the SAME
+    // shared read projection this function is the mock's copy of (T-139). A
+    // mock that left it blank would put every mock-mode panel on the
+    // old-server fallback while the real one showed a command.
+    //
+    // 🔴 `??`, NOT `||`: an injected value WINS, including an injected "".
+    // That is what lets a fixture model a station this mock cannot be — a
+    // NAMESPACED one, or a pre-T-139 one that serves no command at all. With
+    // the mock's own value forced, every worker-panel assertion would be
+    // measuring a main-instance string that a client-side re-derivation
+    // reproduces exactly, and the test could not tell the two apart.
+    terminalAttachCommand:
+      w.terminalAttachCommand ?? mockTerminalAttachCommand(w.id),
   };
 }
 
@@ -5171,6 +5199,7 @@ export const mockApi: Api = {
 
     wireMembers.push({
       id: machineId,
+      terminal_attach_command: mockTerminalAttachCommand(machineId),
       name: name || machineId,
       kind: "warden",
       role_key: "assistant",
@@ -6352,6 +6381,7 @@ export const mockApi: Api = {
     const memberId = `m-${hex()}`;
     const wireMember: WireMember = {
       id: memberId,
+      terminal_attach_command: mockTerminalAttachCommand(memberId),
       name: memberName,
       kind: "",
       role_key: roleKey,

@@ -68,6 +68,10 @@ func (s *apiServer) projectWorker(
 		accountDisplay: accountDisplay,
 		delegatedBy:    s.workerDelegatedName(task),
 		typeDisplay:    func(key string) string { return typeNames[key] },
+		// T-139: composed HERE because this is where [server].namespace is in
+		// scope. Unconditional — no online / desired-state gate; see
+		// terminal_attach.go for why the empty string had to stay free.
+		terminalAttach: terminalAttachCommand(s.namespace, worker.ID),
 	})
 }
 

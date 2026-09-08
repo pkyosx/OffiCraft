@@ -288,6 +288,12 @@ type memberDTO struct {
 	RosterStatus  string  `json:"roster_status"`
 	OwnerID       string  `json:"owner_id"`
 	SchemaVersion int     `json:"schema_version"`
+	// TerminalAttachCommand is the whole shell command, composed server-side
+	// (terminal_attach.go) and served verbatim — NOT the session name it
+	// contains. The socket half is namespace-dependent, so a client that keeps
+	// assembling one from its own literals attaches to another station's tmux
+	// server (T-139).
+	TerminalAttachCommand string `json:"terminal_attach_command"`
 }
 
 type machineDTO struct {
@@ -3109,6 +3115,11 @@ type outsourceWorkerDTO struct {
 	RefocusOp       string  `json:"refocus_op"`
 	RefocusDeadline float64 `json:"refocus_deadline"`
 	DesiredState    string  `json:"desired_state"`
+	// TerminalAttachCommand is the whole shell command, composed server-side
+	// (terminal_attach.go) and served verbatim. The SAME derivation the member
+	// DTO serves, on the SAME "member-<id>" session namespace a worker has
+	// booted under since P5b — one function, two DTOs, never two rules (T-139).
+	TerminalAttachCommand string `json:"terminal_attach_command"`
 }
 
 // outsourceWorkerProjection carries the per-worker runtime facts the DTO folds
@@ -3147,6 +3158,12 @@ type outsourceWorkerProjection struct {
 	// task_type_name empty and the client falls back to the raw key, exactly
 	// as it did when it looked the manuals up itself.
 	typeDisplay func(string) string
+	// terminalAttach is the fully-composed attach command for this worker
+	// (T-139). CARRIED, not derived here: the namespace half of it is the
+	// SERVER's ([server].namespace) and this projection is built by a method
+	// that has it, while newOutsourceWorkerDTO is a free function that does
+	// not — deriving it downstream would need a second copy of the namespace.
+	terminalAttach string
 }
 
 // newTaskStepDTO projects one step row onto the wire. cardStatus maps a bound
@@ -3707,6 +3724,7 @@ func newOutsourceWorkerDTO(w OutsourceWorker, task *Task, p outsourceWorkerProje
 	// expression, two callers, is the whole point.
 	dto.RefocusDeadline = winddownDeadlineOf(memberFromWorker(w), p.cfg)
 	dto.DesiredState = w.DesiredState
+	dto.TerminalAttachCommand = p.terminalAttach
 	return dto
 }
 

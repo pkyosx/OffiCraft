@@ -54,7 +54,7 @@ function mkMember(unreadCount: number): Member {
     contextPct: null,
     estimatedCost: null,
     bankedCost: null,
-    tmuxSession: "",
+    terminalAttachCommand: "",
     refocusSince: null,
     lastOp: "",
     lastOpOk: null,

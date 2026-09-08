@@ -1666,8 +1666,9 @@ export function MemberDetailPanel({
         lastOpLog: member.lastOpLog,
         lastOpReason: member.lastOpReason,
         lastOpAt: member.lastOpAt,
-        tmuxSession: member.tmuxSession,
+        terminalAttachCommand: member.terminalAttachCommand,
         terminalHint: t.mp.terminalHint,
+        terminalUnavailable: t.mp.terminalUnavailable,
         // Initial boot prompt: fetched live from /api/bootstrap by ROLE (the
         // server mints NO token for a role-only preview), re-fetched when the
         // viewed member's role changes.

@@ -673,6 +673,7 @@ export const zh = {
     copyCommand: "複製指令",
     copied: "已複製",
     terminalHint: "在你自己的終端機貼上這行，即可接上這位外包的工作階段。",
+    terminalUnavailable: "這個版本的伺服器沒有提供接上終端的指令。",
     // 初始 PROMPT 預覽（boot-context）：外包沒存派工當下的逐字 persona，伺服器
     // 用同一套組裝即時重組，故 hint 與 note 都要誠實標明「目前版本」。
     // T-4595 起這份就是正職那份扣掉整個 persona——角色說明、判準、長期筆記
@@ -1244,6 +1245,7 @@ export const zh = {
     copyCommand: "複製指令",
     copied: "已複製",
     terminalHint: "在你自己的終端機貼上執行，即可接上這個成員的 session。",
+    terminalUnavailable: "這個版本的伺服器沒有提供接上終端的指令。",
     initialPrompt: "初始 PROMPT",
     promptLoading: "載入中…",
     promptError: "讀取初始 PROMPT 失敗",

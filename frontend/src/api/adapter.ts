@@ -859,6 +859,12 @@ export interface OutsourceWorkerView {
    * worker panel's identity action row. "" from a
    * pre-column row reads as online. */
   desiredState?: string;
+  /** The WHOLE ready-to-paste terminal attach command (wire
+   * `terminal_attach_command`, T-139), rendered and copied verbatim. Same
+   * contract as `Member.terminalAttachCommand`: no session name reaches the
+   * client, so no client can assemble one; "" means the station is older than
+   * the field, NOT that the row has no session. */
+  terminalAttachCommand?: string;
   /* 🔴 NO `relocationPending` / `relocationDeferred` / `activationPending` HERE,
    * and the absence is deliberate rather than an oversight (T-91, owner
    * 2026-09-06). They were response-only signals (T-ed79 #5/#12) that an owner

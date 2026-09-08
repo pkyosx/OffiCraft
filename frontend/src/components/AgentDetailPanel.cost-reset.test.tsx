@@ -53,7 +53,7 @@ function mkMember(over: Partial<Member> = {}): Member {
     contextPct: null,
     estimatedCost: 1.5,
     bankedCost: 4,
-    tmuxSession: "member-mira",
+    terminalAttachCommand: "tmux -L officraft attach -t member-mira",
     refocusSince: null,
     lastOp: "",
     lastOpOk: null,
