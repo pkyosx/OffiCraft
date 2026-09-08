@@ -323,9 +323,16 @@ const (
 	//     handler catches the refusal and falls through to the worker relocate
 	//     core (P7c, rc-2786636f30e5). Widen it and an ow- id takes the member
 	//     reconcile path instead, which is not the same operation.
-	//   - webhook create / update / revoke, and the public POST /in inlet:
-	//     nothing reclaims a webhook token when a worker is released, and /in is
-	//     the only UNAUTHENTICATED surface here.
+	//
+	// 🔴 THE WEBHOOK SEAMS ARE NO LONGER ON THIS LIST (T-140). They passed
+	// staffOnly for one stated reason — "nothing reclaims a webhook token when
+	// a worker is released" — and 00094_webhook_revoke_on_member_exit.sql is
+	// what reclaims it: leaving the roster now deletes the member's endpoint
+	// rows, by trigger, whichever door the member left through. create /
+	// update / revoke ask anyMember; the public POST /in inlet asks
+	// resolveChatRecipient instead, because its whole effect is one chat to
+	// that member. Widening the KIND did not widen the FLOOR — all four verbs
+	// are still principalAdminAgent in routes.go.
 	staffOnly
 )
 
