@@ -273,7 +273,7 @@ func TestValidateManualAssignee(t *testing.T) {
 			"kind": "outsource", "machine": "auto",
 		}, want: "assignee machine must be a machine id; \"auto\" is not a machine"},
 		{name: "the retired member kind names its replacement", assignee: map[string]any{
-			"kind": "member", "member_id": "kip",
+			"kind": "member", "member_id": "kip", // kind-vocab-guard:legacy
 		}, want: "assignee kind: task executor kind \"member\" was renamed to \"staff\" (T-101); the closed set is {\"staff\", \"outsource\"}"},
 		{name: "an unknown assignee kind is rejected", assignee: map[string]any{
 			"kind": "warden",
