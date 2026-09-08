@@ -5,8 +5,9 @@ package main
 //
 // THE VERB IS THE CHEAP HALF. What is worth asserting is that the seam it calls
 // is wired to RenewNow and not to Kick. Both are `func()`, both are non-nil, both
-// wake the same loop — and one of them renews nothing, because a warden
-// credential has no expiry and a bare wake finds nothing due. `!= nil` cannot
+// wake the same loop — and one of them renews nothing, because a bare wake asks
+// only "is this credential old enough" and a station demand is not a property of
+// the token at all, so it finds nothing due. `!= nil` cannot
 // tell them apart, so these tests CALL what production wired and look at what it
 // did, the way renewwiring_reached_test.go settles the same class of question.
 
@@ -96,8 +97,9 @@ func TestWireUpdaterSeams_RenewRaisesTheDemandOnTheUpdaterItWasGiven(t *testing.
 
 	if !up.renewDemanded.Load() {
 		t.Fatal("calling the wired renewal seam did not raise the demand on the " +
-			"updater — a warden credential has no expiry, so a seam wired to a plain " +
-			"wake would find nothing due and this machine would never renew")
+			"updater — the station's demand is not a property of the token, so a seam " +
+			"wired to a plain wake would find nothing due and this machine would " +
+			"never renew on a retired key")
 	}
 }
 

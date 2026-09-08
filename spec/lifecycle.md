@@ -398,8 +398,8 @@ ceiling of the warden lifetime setting (§1.6).
 
   🔴 **Cut 4 was, until T-80, a cut nobody could afford to make.** It reaches warden
   credentials and nothing got them out of its way: the renewal path (§1.4) existed and was
-  wired, but its only trigger was an approaching expiry and a warden credential has none,
-  so it never ran. Pressing remove therefore meant every machine in the fleet losing its
+  wired, but its only trigger was an approaching expiry and a warden credential had none
+  at the time, so it never ran. Pressing remove therefore meant every machine in the fleet losing its
   credential in the same instant, with no mechanism to give them new ones — which is why
   no key had ever been removed, and why "we can revoke a credential" was a sentence with
   no operation behind it.
@@ -466,7 +466,8 @@ thing that needed replacing.
 contract because the two failed independently: the endpoint has existed and worked since
 T-fc53's first landing, while nothing on any machine ever called it on a clock. The trigger
 asked how much of the credential's ORIGINAL lifetime remained, which is `exp` minus `iat`,
-and warden credentials carry no `exp` (§1.3) — so the question had no answer and the
+and warden credentials carried no `exp` at the time (they carry one again since §1.6) — so
+the question had no answer and the
 implementation read "no answer" as "not due". Every warden in the fleet has therefore
 answered "not due" on every poll since the feature shipped.
 

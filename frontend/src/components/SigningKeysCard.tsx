@@ -24,7 +24,8 @@ import { formatAbsolute } from "../lib/dateFormat";
  *    — credentials AND the file share links derived from it (owner ruling,
  *    card rc-cf9c27c07442) — with no grace period and no notice to whoever
  *    holds them. So it goes through a confirmation that spells out both, plus
- *    the thing nobody would guess: warden credentials carry no expiry, so
+ *    the thing nobody would guess: warden credentials are long-lived (months,
+ *    and the ones predating T-fc53 第二段 have no expiry at all), so
  *    "wait a few days and the old tokens will have lapsed" is FALSE for them.
  *    The question is whether every machine has come back ON THE CURRENT KEY — reconnecting while still holding a credential the outgoing key signed is not convergence (T-80).
  *

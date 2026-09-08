@@ -4,11 +4,12 @@ package main
 // remaining, the adjustable lifetime that sets the threshold, and the stagger
 // that keeps the fleet from acting in one instant.
 //
-// 🔴 WHY THESE ARMS AND NOT OTHERS. The credential this decides about is
-// permanent today, so the direction that costs money is EAGERNESS: a predicate
-// that says yes too readily puts every machine on the mint endpoint on every
-// poll and execs the whole fleet at once. The direction that costs a HOST is
-// laziness, and it only starts costing one when expiries come back (第二段). So
+// 🔴 WHY THESE ARMS AND NOT OTHERS. When 第一段 landed, the credential this
+// decides about was permanent, so the only direction that cost anything was
+// EAGERNESS: a predicate that says yes too readily puts every machine on the
+// mint endpoint on every poll and execs the whole fleet at once. 第二段 gave the
+// credentials an exp, so LAZINESS now costs a HOST as well — a machine that
+// misses its retry window needs a hand re-install. So
 // every "is due" arm below is paired with a "is not due" control on a token that
 // differs in exactly one field — a version of this code that simply always said
 // yes has to fail one of each pair.
@@ -29,8 +30,9 @@ const testDay = 24 * time.Hour
 // a file whose subject is arithmetic.
 func fmtI64(n int64) string { return strconv.FormatInt(n, 10) }
 
-// permanentToken is the credential shape that actually exists in the field: a
-// `sub`, an `iat`, and NO `exp`. Every fixture in this file uses it, because a
+// permanentToken is the pre-第二段 credential shape, still in the field on every
+// machine that has not yet renewed: a `sub`, an `iat`, and NO `exp`. Every
+// fixture in this file uses it, because a
 // fixture carrying an exp would be answered by the expiry arm and would prove
 // nothing about the arm this ticket added.
 func permanentToken(t *testing.T, sub string, issued time.Time) string {

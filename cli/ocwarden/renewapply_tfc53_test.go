@@ -254,8 +254,9 @@ func TestMaybeRenewCredential_WriteFailureNeverExecs(t *testing.T) {
 }
 
 // TestMaybeRenewCredential_NotDueDoesNothing is the control for the whole file:
-// a credential with no expiry (what warden credentials carry today) must never
-// send a request, so the machinery above is not simply "renew every poll".
+// a credential that is not due — including one with no expiry at all, which is
+// what every warden installed before T-fc53 第二段 is holding — must never send a
+// request, so the machinery above is not simply "renew every poll".
 func TestMaybeRenewCredential_NotDueDoesNothing(t *testing.T) {
 	now := time.Unix(1_800_000_000, 0)
 	tokfile := filepath.Join(t.TempDir(), "exec-warden.tok")

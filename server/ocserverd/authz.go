@@ -116,7 +116,8 @@ func resolvePrincipal(claims map[string]any, lookup func(id string) (*Member, er
 // machine that is still talking.
 //
 // WHICH LAYER — per-request roster read, NOT sign-time binding. Sign-time
-// binding cannot solve this at all: warden tokens are permanent and member
+// binding cannot solve this at all: warden tokens live up to 400 days too (and
+// those minted before T-fc53 第二段 never expire at all) and member
 // tokens can last up to 400 days, and they are already in the field on hosts
 // the server can no longer reach. There is nothing to un-sign. Revocation of
 // an already-issued bearer token is

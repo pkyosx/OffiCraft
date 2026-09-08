@@ -2,13 +2,16 @@ package main
 
 // renew_demand_t80_test.go — the station-demanded credential replacement (T-80).
 //
-// WHAT THIS FEATURE IS. A warden credential carries no expiry, so the renewal
-// path that already exists (renew.go / renewapply.go) never fires: its only
-// question is "is this credential running out", and the answer is permanently no.
-// That is why removing a retired signing key would today cut every machine off at
-// once — nothing would have replaced the credentials it signed. The `renew`
-// warden-command is the second reason to renew, raised by the station because it
-// is the only party that knows which key signed what (the JWT header is a
+// WHAT THIS FEATURE IS. When this landed a warden credential carried no expiry,
+// so the renewal path that already exists (renew.go / renewapply.go) never fired:
+// its only question was "is this credential running out", and the answer was
+// permanently no. That is why removing a retired signing key would have cut every
+// machine off at once — nothing would have replaced the credentials it signed.
+// T-fc53 gave the credentials a clock again (第一段 an age trigger, 第二段 an exp),
+// and this verb is STILL not redundant: a credential signed by a retired key is
+// worthless at whatever age it happens to be, and no clock can see that. The
+// `renew` warden-command is the second reason to renew, raised by the station
+// because it is the only party that knows which key signed what (the JWT header is a
 // constant; there is no kid to read locally).
 //
 // WHAT THESE TESTS ARE FOR. The dangerous half of this feature is not "does a

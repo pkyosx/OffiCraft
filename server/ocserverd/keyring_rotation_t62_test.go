@@ -419,8 +419,8 @@ func TestT62_LoadRefusesWhenTheActiveIdNamesNoKey(t *testing.T) {
 
 // TestT62_AnEmptyRingRefusesToMintRatherThanSignUnderNothing. An empty HMAC key
 // is a perfectly valid HMAC key, so without a refusal the server would answer
-// 200 with a token signed under nothing — and on the warden path that token
-// carries no exp at all.
+// 200 with a token signed under nothing — and on the warden path, before T-fc53
+// 第二段, that token carried no exp at all.
 func TestT62_AnEmptyRingRefusesToMintRatherThanSignUnderNothing(t *testing.T) {
 	empty := singleKeyring(nil)
 	if len(empty.signingSecret()) != 0 {

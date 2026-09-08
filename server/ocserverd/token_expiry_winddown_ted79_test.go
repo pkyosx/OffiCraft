@@ -255,14 +255,15 @@ func TestTokenExpiry_DerivationMatchesTheTokenTheStartPathMints(t *testing.T) {
 	}
 
 	// Not derivable → 0, and every caller treats 0 as "do nothing". A warden's
-	// credential is minted with NO exp at all (mintJWTWithoutExpiry), so asking
-	// this question about one would invent an expiry that does not exist.
+	// credential is minted on its own lifetime setting and anchored on the mint
+	// (T-fc53 第二段; before that it had no exp at all), so asking this question
+	// about one would invent an expiry it does not have.
 	warden := testAgent("mach-ed79")
 	warden.Kind = KindWarden
 	warden.SessionBootTS = mintedAt
 	if got := tokenExpiryOf(warden, ttl); got != 0 {
-		t.Errorf("a warden got a derived token expiry of %v — its credential has no "+
-			"exp claim at all", got)
+		t.Errorf("a warden got a derived token expiry of %v — its credential does "+
+			"not come from the inputs this derivation models", got)
 	}
 	unanchored := testAgent("m-ed79-unanchored")
 	if got := tokenExpiryOf(unanchored, ttl); got != 0 {

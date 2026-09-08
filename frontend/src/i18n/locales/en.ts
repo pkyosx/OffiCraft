@@ -1733,7 +1733,7 @@ export const en: Dict = {
     removeConfirmBody:
       "Everything this key signed stops working the moment you confirm, with no grace period and no notice to anyone: credentials signed by it are refused, and the share links produced under it — file links and comparison links alike — break too.",
     removeConfirmWarden:
-      "⚠️ Machine (warden) credentials carry no expiry and never lapse on their own. What decides whether this is safe is whether every machine has moved ONTO THE CURRENT KEY — not how many days have passed, and not merely whether it reconnected: a machine that came back still holding a credential signed by this key drops off the moment you press remove. A machine that is offline cannot move until it comes back.",
+      "⚠️ Machine (warden) credentials are long-lived — months, not days — and the ones on machines installed before credentials were given expiries back never lapse at all. Waiting is therefore not the answer. What decides whether this is safe is whether every machine has moved ONTO THE CURRENT KEY — not how many days have passed, and not merely whether it reconnected: a machine that came back still holding a credential signed by this key drops off the moment you press remove. A machine that is offline cannot move until it comes back.",
     removeConfirmCancel: "Cancel",
     removeConfirmOk: "Remove it",
     actionFailed: "That action did not go through, and the server gave no reason.",
@@ -2054,7 +2054,7 @@ export const en: Dict = {
       "How long an agent has once 加速停止 is pressed — and the same clock the second context threshold runs. The agent is told this exact instant (10–3600)",
     wardenCredentialLifetime: "Machine credential lifetime",
     wardenCredentialLifetimeSub:
-      "How long a machine's credential is meant to live. Each machine replaces its own credential once that credential is two thirds of this old, spread out by up to an hour so the whole fleet does not renew at the same moment. Lowering it makes machines renew sooner; nothing expires because of it (86400–34560000)",
+      "How long a machine's credential lives — this is the expiry stamped into it, and the number each machine renews against. Each machine replaces its own credential once that credential is two thirds of this old, spread out by up to an hour so the whole fleet does not renew at the same moment. A machine that misses the remaining third has to be re-installed by hand. Lowering it never shortens a credential already issued (86400–34560000)",
     rounds: "rounds",
     // T-ae38 (split again by T-30f1): one cap became many. Deleting from these
     // documents costs wildly different amounts — a role definition is a

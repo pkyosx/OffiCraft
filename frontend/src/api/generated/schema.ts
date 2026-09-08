@@ -453,7 +453,7 @@ export interface paths {
          *
          *     The moment this returns, every token signed by that key is refused, and every attachment share link produced under it stops working: a share `?sig=` is an HMAC under a key derived from the signing key, so it is governed by the ring too (owner ruling, card rc-cf9c27c07442). There is no grace period and holders are not notified — which is why the timing is a person's decision and never a timer's.
          *
-         *     ⚠️ Warden credentials carry NO `exp`, so "wait for the old tokens to expire" is not a strategy for them: they are valid until their key leaves the ring. The question to answer before calling this is whether every machine has come back ON THE CURRENT KEY (`token_key_current` on GET /api/machines), not how many days have passed and not merely whether it reconnected: a machine that reconnected while still holding a credential this key signed drops off the moment this returns.
+         *     ⚠️ Warden credentials expire again since T-fc53, but "wait for the old tokens to expire" is still not the strategy: a credential lives up to the full `auth.warden_credential_lifetime_secs` (90 days by default) and machines installed before that change carry no `exp` at all. The question to answer before calling this is whether every machine has come back ON THE CURRENT KEY (`token_key_current` on GET /api/machines), not how many days have passed and not merely whether it reconnected: a machine that reconnected while still holding a credential this key signed drops off the moment this returns.
          *
          *     The key that is currently SIGNING cannot be removed (409) — rotate first, then remove the one that stepped down. An unknown `key_id` is a 404.
          */
@@ -1821,11 +1821,13 @@ export interface paths {
          *     ``display_name`` (required, 422 if blank) is the human label; it is written as a
          *     MachineAlias overlay keyed by the machine id (== member.id).
          *
-         *     The response carries the member id (== machine_id), a permanent exec-token
-         *     (``scope="agent"``, ``sub=member_id``, no ``exp`` claim; ``expires_in=0``), and the
+         *     The response carries the member id (== machine_id), an exec-token
+         *     (``scope="agent"``, ``sub=member_id``, ``exp = iat +
+         *     auth.warden_credential_lifetime_secs``; ``expires_in`` is that same lifetime), and the
          *     copy-paste ``boot_command`` the operator runs on that machine to install the
          *     warden (identity rides in the token's ``sub``). ``ttl_days`` remains accepted for
-         *     request compatibility but does not alter the permanent warden credential.
+         *     request compatibility but does not alter the warden credential's lifetime, which
+         *     comes from ``auth.warden_credential_lifetime_secs`` alone.
          */
         post: operations["handle_onboard_machine_api_machines_post"];
         delete?: never;
@@ -1847,7 +1849,7 @@ export interface paths {
          * Exchange a one-time claim code for the machine's exec-token.
          * @description Exchange a one-time claim code for the machine's exec-token (``POST /api/machines/claim``).
          *
-         *     The onboard / boot-command responses no longer template the machine's long-lived exec-token into the copy-paste one-liner; they mint a short-lived (600 s), SINGLE-USE claim code instead and the served ``install.sh?code=`` script calls this endpoint to redeem it. On a valid, unexpired, unused code the response carries a freshly minted permanent exec-token (``scope="agent"``, ``sub=machine_id``, no ``exp`` claim — the same mint every warden install path performs) plus ``expires_in=0`` and the ``machine_id`` the token is bound to. Redemption CONSUMES the code atomically: a second call with the same code — or any invalid/expired code — is a flat 401 with no hint which it was (no guessing oracle).
+         *     The onboard / boot-command responses no longer template the machine's long-lived exec-token into the copy-paste one-liner; they mint a short-lived (600 s), SINGLE-USE claim code instead and the served ``install.sh?code=`` script calls this endpoint to redeem it. On a valid, unexpired, unused code the response carries a freshly minted exec-token (``scope="agent"``, ``sub=machine_id``, ``exp = iat + auth.warden_credential_lifetime_secs`` — the same mint every warden install path performs) plus ``expires_in`` = that same lifetime and the ``machine_id`` the token is bound to. Redemption CONSUMES the code atomically: a second call with the same code — or any invalid/expired code — is a flat 401 with no hint which it was (no guessing oracle).
          *
          *     Auth: PUBLIC — the code IS the credential (possession proves the caller holds a boot command the owner just minted). Codes live in memory only (TTL 600 s); a server restart voids them, which reads as expiry.
          */
@@ -1899,7 +1901,7 @@ export interface paths {
          *
          *     It answers ONE number: ``lifetime_secs``, the org setting ``auth.warden_credential_lifetime_secs`` -- how long a machine (warden) credential is meant to live. A warden polls this every 15 minutes and renews its own credential once that credential is two thirds of ``lifetime_secs`` old, measured from the ``iat`` claim, plus a per-machine stagger of up to one hour.
          *
-         *     WHY THE ENDPOINT EXISTS AT ALL. The threshold used to be readable off the credential itself (``exp`` minus ``iat``). Warden credentials carry no ``exp``, so that subtraction has nothing to work with and the number lives only in the owner's settings -- this is how it reaches the fleet.
+         *     WHY THE ENDPOINT EXISTS AT ALL, INCLUDING NOW THAT THE CREDENTIAL CARRIES AN ``exp`` AGAIN. The threshold used to be readable off the credential itself (``exp`` minus ``iat``); that stopped working while warden credentials were permanent, and the number moved into the owner's settings, which is what this route publishes. T-fc53 put the ``exp`` back and the endpoint STAYS: every warden installed before that change is holding a credential with no ``exp`` to subtract, and an ``exp`` is fixed at MINT time, so a token records the lifetime it was minted under rather than the live one.
          *
          *     IT NAMES NO TARGET AND CARRIES NO CREDENTIAL MATERIAL. The answer is identical for every caller; the per-machine stagger is computed on the warden, not served, so nothing here varies by who asks and nothing here is secret to one machine.
          *
@@ -1954,7 +1956,8 @@ export interface paths {
          *     installer for an existing machine again later (Seth: "I can get the machine
          *     boot command anytime") without re-onboarding (which would mint a NEW machine).
          *     Resolves the ACTIVE warden member whose id IS ``machine_id`` (404 otherwise),
-         *     RE-MINTS a fresh permanent exec-token (no ``exp`` claim; ``expires_in=0``),
+         *     RE-MINTS a fresh exec-token (``exp = iat +
+         *     auth.warden_credential_lifetime_secs``; ``expires_in`` is that same lifetime),
          *     and rebuilds the one-liner via the shared ``_build_boot_command``.
          *
          *     Governance: the SAME ``requires="admin_agent"`` route choke onboard uses. Route
@@ -1987,8 +1990,9 @@ export interface paths {
          *     The common case is that the officraft server RUNS ON the machine being
          *     provisioned, so instead of copy-pasting the boot command into a shell the owner
          *     clicks once and the server installs the warden locally. It resolves the ACTIVE
-         *     warden member (404 otherwise), re-mints a fresh permanent exec-token (no ``exp``
-         *     claim), resolves the ocwarden binary the SAME way ``handle_warden_binary`` does
+         *     warden member (404 otherwise), re-mints a fresh exec-token (carrying ``exp = iat +
+         *     auth.warden_credential_lifetime_secs``, like every other warden install path),
+         *     resolves the ocwarden binary the SAME way ``handle_warden_binary`` does
          *     (503 if absent), and runs ``<ocwarden> install`` as a subprocess.
          *
          *     Governance: ``requires="admin_agent"`` — the SAME admin choke onboard uses
@@ -5349,8 +5353,9 @@ export interface components {
          *     installer for an EXISTING machine again later without re-onboarding.
          *     ``machine_id`` is the warden member id; ``boot_command`` is the same
          *     curl-download-then-install one-liner onboard builds (it embeds ``machine_id``
-         *     as OC_ID); ``token`` is a FRESHLY re-minted permanent exec-token (``scope="agent"``,
-         *     ``sub=machine_id``, no ``exp`` claim) and ``expires_in`` is ``0``.
+         *     as OC_ID); ``token`` is a FRESHLY re-minted exec-token (``scope="agent"``,
+         *     ``sub=machine_id``, ``exp = iat + auth.warden_credential_lifetime_secs``) and
+         *     ``expires_in`` is that same lifetime in seconds.
          *
          *     ``claim_code`` is a fresh short-lived (``claim_expires_in`` = 600 s), single-use code
          *     the ``boot_command`` embeds (``install.sh?code=``) instead of the exec-token; the served
@@ -6653,7 +6658,7 @@ export interface components {
          * MachineCredentialPolicyDTO
          * @description The station's machine-credential policy (``GET /api/machines/credential-policy``).
          *
-         *     ``lifetime_secs`` is the org setting ``auth.warden_credential_lifetime_secs``: how long a machine (warden) credential is meant to live. It is NOT an expiry and nothing enforces it at the auth gate -- warden credentials still carry no ``exp``. It is the input to the warden's own renewal threshold: two thirds of it, measured from the credential's ``iat``, plus a per-machine stagger.
+         *     ``lifetime_secs`` is the org setting ``auth.warden_credential_lifetime_secs``: how long a machine (warden) credential is meant to live. It is BOTH the expiry stamped into the credential (``exp = iat + lifetime_secs``, T-fc53) and the input to the warden's own renewal threshold: two thirds of it, measured from the credential's ``iat``, plus a per-machine stagger. Credentials minted before that change carry no ``exp`` and go on being accepted until the machine renews.
          */
         MachineCredentialPolicyDTO: {
             /** Lifetime Secs */
@@ -6663,9 +6668,10 @@ export interface components {
          * MachineClaimResultDTO
          * @description The claim-code redemption result (``POST /api/machines/claim``).
          *
-         *     ``token`` is the freshly minted permanent machine exec-token (``scope="agent"``,
-         *     ``sub=machine_id`` — the same mint every warden install path performs); it omits
-         *     ``exp`` and answers ``expires_in=0``. ``machine_id`` is the warden member the
+         *     ``token`` is the freshly minted machine exec-token (``scope="agent"``,
+         *     ``sub=machine_id`` — the same mint every warden install path performs); it carries
+         *     ``exp = iat + auth.warden_credential_lifetime_secs`` and answers ``expires_in`` =
+         *     that same lifetime in seconds. ``machine_id`` is the warden member the
          *     token is bound to.
          */
         MachineClaimResultDTO: {
@@ -6811,8 +6817,9 @@ export interface components {
          *     surfaced under the machine-model name (the machine id == the warden member's own
          *     id — the binding key agents store in their ``desired_machine_id`` column). ``token``
          *     is
-         *     the freshly minted permanent exec-token (``scope="agent"``, ``sub=member_id``) with
-         *     no ``exp`` claim; ``expires_in`` is ``0``. ``boot_command`` is the copy-paste line
+         *     the freshly minted exec-token (``scope="agent"``, ``sub=member_id``) carrying
+         *     ``exp = iat + auth.warden_credential_lifetime_secs``; ``expires_in`` is that same
+         *     lifetime in seconds. ``boot_command`` is the copy-paste line
          *     the operator runs ON that machine to install the warden (identity rides in the
          *     token's ``sub``, not a templated machine id).
          *
@@ -9465,7 +9472,7 @@ export interface components {
             accelerated_grace_secs?: number | null;
             /**
              * Warden Credential Lifetime Secs
-             * @description How long a MACHINE (warden) credential is meant to live, in seconds. Must be 86400 through 34560000 (one day through 400 days). A warden renews its own credential once that credential is two thirds of this old, plus a per-machine stagger of up to one hour so that LOWERING this value does not put the whole fleet on the mint endpoint inside one poll. The floor is one day because the last third of the lifetime is the retry window: at the 15-minute poll a one-day lifetime still leaves about 32 attempts. Wardens pick a change up within one poll interval. Warden credentials carry no `exp` today, so this governs renewal only and nothing expires because of it. Read the current value from get_settings rather than assuming a number.
+             * @description How long a MACHINE (warden) credential is meant to live, in seconds. Must be 86400 through 34560000 (one day through 400 days). A warden renews its own credential once that credential is two thirds of this old, plus a per-machine stagger of up to one hour so that LOWERING this value does not put the whole fleet on the mint endpoint inside one poll. The floor is one day because the last third of the lifetime is the retry window: at the 15-minute poll a one-day lifetime still leaves about 32 attempts. Wardens pick a change up within one poll interval. It is ALSO the expiry stamped into the credential (`exp = iat + this`, T-fc53), so a machine that misses its whole retry window needs a hand re-install; lowering the value never shortens a credential already issued, because an `exp` is fixed at mint time. Read the current value from get_settings rather than assuming a number.
              */
             warden_credential_lifetime_secs?: number | null;
             /**

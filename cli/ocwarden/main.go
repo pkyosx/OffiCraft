@@ -753,8 +753,9 @@ func waitGraceful(wg *sync.WaitGroup, grace time.Duration) {
 //
 // WHY renew IS NOT Kick. `update` and a reconnect are two producers of the same
 // coalesced self-update wake, so both are Kick. `renew` is not: a bare Kick wakes
-// a cycle that finds nothing to do, because a warden credential carries no expiry
-// and the renewal check therefore answers "not due" (renewapply.go). RenewNow
+// a cycle that finds nothing to do, because the station's demand is not a
+// property of the token at all and the renewal check therefore answers "not due"
+// on a credential that is not yet old enough (renew.go / renewapply.go). RenewNow
 // raises the demand first. Wiring Renew to Kick would compile, run, log nothing
 // and renew nothing.
 func wireUpdaterSeams(transport *sseTransport, up *updater) {

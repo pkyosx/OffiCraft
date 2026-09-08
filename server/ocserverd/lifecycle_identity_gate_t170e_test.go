@@ -639,10 +639,12 @@ var identityGateLedger = map[string]string{
 		"the T-14 項目 4B credential floor SKIPS machine rows. Machine-vs-person, not " +
 		"正職／外包 — an outsource row and an assistant row are both subject to the floor " +
 		"here, on the same line, which is the code-level sameness the constitution asks " +
-		"for. The exemption exists because a warden credential is scope=\"agent\" with " +
-		"NO exp (mintWardenToken), so a floor raised above one could never expire out " +
-		"of the way: the machine would be off the fleet permanently and only a hand " +
-		"re-install would bring it back. Warden does not call report_waking today, but " +
+		"for. The exemption exists because a warden refused HERE is refused on " +
+		"POST /api/machines/renew-credential too, so the one path off the refused " +
+		"credential is shut at the same instant and the recovery is a hand re-install. " +
+		"(Before T-fc53 第二段 the reason was stronger: the credential had NO exp, so " +
+		"such a floor could never expire out of the way at all.) " +
+		"Warden does not call report_waking today, but " +
 		"that is a property of the client today, not a contract — pinned by " +
 		"TestAgentIatFloor_WardenPermanentTokenIsExempt.",
 	"authz.go :: isRemovedMachine :: m.Kind == machineKind": "" +
@@ -654,9 +656,11 @@ var identityGateLedger = map[string]string{
 		"An agent that obtained one would hold a permanent token; this is the guard " +
 		"that keeps the exemption attached to the credential and not to a caller.",
 	"api_auth.go :: mintWardenToken :: m.Kind != machineKind": "" +
-		"the same refusal at the mint site — a warden token has no exp claim at all, " +
-		"so handing one to a non-machine row would be a permanent credential for an " +
-		"agent. Machine-vs-person axis.",
+		"the same refusal at the mint site — a warden token is minted on its own " +
+		"lifetime (auth.warden_credential_lifetime_secs, not agent_token_ttl), so " +
+		"handing one to a non-machine row would give an agent a credential on the " +
+		"machine clock and, before T-fc53 第二段, on no clock at all. " +
+		"Machine-vs-person axis.",
 	"api_auth.go :: noteTokenKeyObservation :: m.Kind != machineKind": "" +
 		"T-80. Machine-vs-person axis, and NOT the 正職／外包 one: the arms are " +
 		"'a row whose credential stands between the owner and a key removal' versus " +
@@ -777,12 +781,15 @@ var identityGateLedger = map[string]string{
 		"read `Kind != KindStaff`, which swept outsource in with warden while the " +
 		"comment justified only the warden half — an exemption wider than its own " +
 		"reason, and one of the two historical 外包-missing-a-formality failures. It now " +
-		"names the ONE exempt kind (a warden's token is minted without an exp claim, so " +
-		"asking about its expiry would invent a deadline), which is what stops the next " +
+		"names the ONE exempt kind (a warden's token is minted on a DIFFERENT clock — " +
+		"exp = iat + auth.warden_credential_lifetime_secs, anchored on the mint rather " +
+		"than on the session boot this function models — and before T-fc53 第二段 it " +
+		"carried no exp at all), which is what stops the next " +
 		"kind inheriting an exemption nobody decided to give it.",
 	"sse_bands.go :: decideTokenExpirySignal :: member.Kind == KindWarden": "" +
 		"the SSE-side twin of tokenExpiryOf's exemption, and it must stay in step with " +
-		"it: a warden's token has no exp, so there is no expiry to signal. Named as the " +
+		"it: a warden's token is not on agent_token_ttl and renews itself, so there is " +
+		"no expiry for this band to signal. Named as the " +
 		"one exempt kind for the same reason, NOT as an assistant allow-list.",
 
 	// ── reconcile / dispatch: machine-vs-person, not 正職／外包 ──────────────

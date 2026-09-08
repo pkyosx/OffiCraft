@@ -37,10 +37,14 @@ const renewCredentialPath = "/api/machines/renew-credential"
 // is the same for every machine, and the per-machine stagger is computed here
 // (renew.go) rather than served, so nothing about this response varies by caller.
 //
-// 🔴 WHY THE STATION HAS TO BE ASKED AT ALL. The lifetime used to be readable off
-// the credential itself: exp minus iat. Warden credentials have no exp, so that
-// subtraction has nothing to work with, and the number now lives only in the
-// owner's settings. Failing to get it is NOT an error condition — the last
+// 🔴 WHY THE STATION HAS TO BE ASKED AT ALL, INCLUDING NOW THAT THE CREDENTIAL
+// CARRIES AN exp AGAIN. The lifetime used to be readable off the credential
+// itself: exp minus iat. That stopped working while warden credentials were
+// permanent, and the number moved into the owner's settings. T-fc53 第二段 put
+// the exp back and this stays, for the two reasons written out in renew.go: the
+// machines that have never renewed are exactly the ones holding an exp-less
+// credential, and an exp records the lifetime AT MINT TIME rather than the live
+// one. Failing to get it is NOT an error condition — the last
 // answer, or the shipped default, stands (see refreshCredentialPolicy).
 const credentialPolicyPath = "/api/machines/credential-policy"
 
@@ -349,9 +353,12 @@ func (u *updater) maybeRenewCredential() bool {
 	//
 	// The test is the strongest one that every REAL credential passes: it parses as
 	// a JWT carrying a `sub`, and that `sub` is the identity this process is already
-	// running as. Deliberately NOT jwtLifetime: warden credentials carry no exp
-	// today, so demanding one would reject every genuine renewal — a check that a
-	// lie and the truth both fail is not a check. jwtIssuedAt would pass today, and
+	// running as. Deliberately NOT jwtLifetime: when this guard was written warden
+	// credentials carried no exp (before T-fc53 第二段), so demanding one would
+	// have rejected every genuine renewal — a check that a lie and the truth both
+	// fail is not a check. A renewal minted today does carry an exp, and this is
+	// still not the place to read it: `sub` is what binds the credential to THIS
+	// machine, which is the property being guarded. jwtIssuedAt would pass too, and
 	// it is still not used here: `iat` is what the AGE arm reads, so requiring it
 	// here would make this guard and that arm fail together on the same malformed
 	// token instead of independently.

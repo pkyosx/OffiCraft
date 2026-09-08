@@ -10,9 +10,11 @@ package main
 // produces — same header ({"alg":"HS256","typ":"JWT"}), same claim ORDER
 // (sub, scope, iat, exp[, machine_id]), same compact JSON (no spaces), same
 // unpadded base64url — so a token minted by either daemon verifies on the
-// other under the shared secret. Warden credentials are the sole exception:
-// their server-only mint path intentionally omits exp, so a deleted machine's
-// roster row — not a timer — is their revocation seam.
+// other under the shared secret. Warden credentials go through the same mint and
+// carry an exp like everything else since T-fc53 第二段; the exp-less shape their
+// server-only path used to produce is still ACCEPTED at verify (see verifyJWT)
+// because machines installed before that change are holding one, and for those a
+// deleted machine's roster row — not a timer — remains the revocation seam.
 
 import (
 	"crypto/hmac"
@@ -100,9 +102,9 @@ func mintJWTClaims(claims jwtClaims, secret []byte) (string, error) {
 	// (errNoSigningKey), documented as "a state the server must refuse to mint
 	// in rather than silently sign with something else" — and wired to nothing;
 	// five callers open-coded the check and two did not have it at all, one of
-	// them the WARDEN path, whose credentials carry no exp. An empty key is a
-	// perfectly valid HMAC key, so without this the server would have handed out
-	// a permanent credential signed under nothing and said 200. (Found by
+	// them the WARDEN path, whose credentials carried no exp at the time. An
+	// empty key is a perfectly valid HMAC key, so without this the server would
+	// have handed out a permanent credential signed under nothing and said 200. (Found by
 	// independent review; not reachable today because requireAuth refuses
 	// everything while the ring is empty, which is precisely why it could sit
 	// there unnoticed.)

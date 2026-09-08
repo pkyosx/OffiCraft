@@ -235,10 +235,11 @@ func credentialRenewJitter(machineID string, base time.Duration) time.Duration {
 // renewAfter is the age at which this machine renews (credentialRenewAfter).
 //
 // TWO ARMS, AND THE SECOND IS NOT DEAD WEIGHT. The AGE arm is the one that fires
-// today, because warden credentials carry no exp. The EXPIRY arm is kept because
-// it answers the same question from a fact the credential carries ITSELF: once
-// credentials are given expiries back (T-fc53 第二段), a machine whose policy
-// fetch has been failing for weeks still renews on time. Two independent paths to
+// on every machine, because `iat` is on every credential this station has ever
+// minted while `exp` is absent from every one minted before T-fc53 第二段. The
+// EXPIRY arm answers the same question from a fact the credential carries
+// ITSELF, and 第二段 put that fact back: a machine whose policy fetch has been
+// failing for weeks still renews on time. Two independent paths to
 // one decision is normally the shape this repo removes; here they are deliberate,
 // because they fail independently — one needs the station reachable, the other
 // needs nothing at all — and they agree by construction (both are "past two
