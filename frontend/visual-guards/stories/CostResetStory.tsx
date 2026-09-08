@@ -108,7 +108,7 @@ export function CostResetWorkerStory() {
         vm={{
           ...baseVM,
           testIdPrefix: "worker-detail",
-          terminalAttachCommand: "tmux -L officraft attach -t worker-ow-1",
+          terminalAttachCommand: "tmux -L officraft attach -t member-ow-1",
           onResetCost: async () => {},
         }}
       />
