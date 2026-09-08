@@ -179,10 +179,12 @@ import {
   BACKUP_RETAIN_MIN,
 } from "./backupRetain";
 import {
+  SUGGESTED_REPLIES_LORE_MESSAGE_FIELD,
   SUGGESTED_REPLIES_MAX_ENTRIES,
   SUGGESTED_REPLIES_REPLY_CARD_FIELD,
   SUGGESTED_REPLIES_TASK_MESSAGE_FIELD,
   SUGGESTED_REPLY_MAX_LEN,
+  withSuggestedRepliesLoreMessage,
   withSuggestedRepliesReplyCard,
   withSuggestedRepliesTaskMessage,
 } from "./suggestedReplies";
@@ -2144,12 +2146,13 @@ const DEFAULT_MOCK_SETTINGS = {
   // Owner nickname (T-0b41) — "" out of the box, mirroring the server (the
   // profile pill shows the localized default until the owner sets a nickname).
   owner_name: "",
-  // 建議回覆 (T-122) — BOTH lists empty out of the box, mirroring the server.
-  // Empty means the box shows no chips at all, which is the state a fresh
-  // install is in. Written through api/suggestedReplies.ts so the two field
-  // names still live in exactly one module.
+  // 建議回覆 (T-122; the 傳承 list T-33) — EVERY list empty out of the box,
+  // mirroring the server. Empty means the box shows no chips at all, which is
+  // the state a fresh install is in. Written through api/suggestedReplies.ts so
+  // the field names still live in exactly one module.
   [SUGGESTED_REPLIES_REPLY_CARD_FIELD]: [] as string[],
   [SUGGESTED_REPLIES_TASK_MESSAGE_FIELD]: [] as string[],
+  [SUGGESTED_REPLIES_LORE_MESSAGE_FIELD]: [] as string[],
   push_contact_email: "",
   // Cockpit display prefs (T-0b41-p2) — "" out of the box, mirroring the server
   // (the frontend keeps its localStorage cache / default until the owner picks).
@@ -3583,6 +3586,13 @@ export const mockApi: Api = {
     body: string;
     attachments?: ChatAttachmentInput[];
     replyTo?: string;
+    // Accepted and DROPPED, on purpose. `meta` is read by an AGENT off the
+    // stored row, and the mock has no agent and no meta on its ChatMessage
+    // view — there is no screen in offline preview whose appearance depends on
+    // it. Taking the parameter keeps the mock a faithful stand-in for the
+    // adapter's signature (a caller that sends meta must not fail to compile
+    // against the mock); pretending to store it would be the dishonest half.
+    meta?: Record<string, unknown>;
   }): Promise<void> {
     // Record the owner's message into the in-memory log and echo it back. The
     // sender is MOCK_OWNER_ID ("owner") — matching the real backend, which
@@ -5822,6 +5832,7 @@ export const mockApi: Api = {
     for (const [wire, list] of [
       [SUGGESTED_REPLIES_REPLY_CARD_FIELD, patch.suggestedRepliesReplyCard],
       [SUGGESTED_REPLIES_TASK_MESSAGE_FIELD, patch.suggestedRepliesTaskMessage],
+      [SUGGESTED_REPLIES_LORE_MESSAGE_FIELD, patch.suggestedRepliesLoreMessage],
     ] as const) {
       if (list === undefined) continue;
       const entries = list.map((v) => v.trim()).filter((v) => v.length > 0);
@@ -5956,8 +5967,8 @@ export const mockApi: Api = {
     if (patch.ownerName !== undefined) {
       mockServerSettings.owner_name = patch.ownerName.trim();
     }
-    // 建議回覆 (T-122): each list is REPLACED wholesale and independently — the
-    // two rows are two rows for exactly this reason.
+    // 建議回覆 (T-122; the 傳承 list T-33): each list is REPLACED wholesale and
+    // independently — the rows are separate rows for exactly this reason.
     if (patch.suggestedRepliesReplyCard !== undefined) {
       mockServerSettings = withSuggestedRepliesReplyCard(
         mockServerSettings,
@@ -5970,6 +5981,14 @@ export const mockApi: Api = {
       mockServerSettings = withSuggestedRepliesTaskMessage(
         mockServerSettings,
         patch.suggestedRepliesTaskMessage
+          .map((v) => v.trim())
+          .filter((v) => v.length > 0),
+      );
+    }
+    if (patch.suggestedRepliesLoreMessage !== undefined) {
+      mockServerSettings = withSuggestedRepliesLoreMessage(
+        mockServerSettings,
+        patch.suggestedRepliesLoreMessage
           .map((v) => v.trim())
           .filter((v) => v.length > 0),
       );

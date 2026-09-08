@@ -464,10 +464,30 @@ export function LorePage() {
       const m = members.find((x) => x.id === id);
       if (m) return { text: m.name, peerId: id };
       if (id.startsWith("ow-")) {
-        const cn =
-          workers.find((x) => x.id === id)?.codename ??
-          releasedCodenames.get(id);
-        return { text: cn ? msg.outsourceLabel(cn) : id, peerId: id };
+        // 🔴 THE CODENAME AND THE AFFORDANCE COME FROM DIFFERENT LISTS, AND
+        // THAT IS THE WHOLE POINT. `useWorkerCodenames` resolves a RELEASED
+        // worker's codename through the per-id route (the list routes drop
+        // released rows), so a 外包 who has left still gets his NAME on the row
+        // — he wrote this entry and that does not stop being true. What he no
+        // longer gets is `peerId`, because reachability is a fact about the
+        // LIVE roster and only `workers` speaks for it.
+        //
+        // Before this, a released worker whose codename still resolved got a
+        // non-empty peerId, so the chip stayed a button and the composer
+        // rendered under it — and the reader only found out after typing a
+        // message and pressing send, where the SERVER refused it (a chat
+        // recipient must be the owner or a member still on the roster). The
+        // failure landed after the work, on a screen that had promised
+        // otherwise. Hiding the box moves the refusal to before the typing.
+        //
+        // An id that resolves to no codename at all falls through the same
+        // arm with `text: id` — the raw key, never a blank.
+        const live = workers.find((x) => x.id === id);
+        const cn = live?.codename ?? releasedCodenames.get(id);
+        return {
+          text: cn ? msg.outsourceLabel(cn) : id,
+          peerId: live ? id : "",
+        };
       }
       // 🔴 NOT ON THE ROSTER. `authorId` is pinned at write time and is never
       // re-resolved, so a writer who has since left still wrote this entry —
@@ -1381,10 +1401,34 @@ function LoreAuthorComposer({
     setSending(true);
     setSent(false);
     try {
-      // The id LEADS the message, the same shape 任務卡 sends 「[T-1] …」 in.
+      // The id LEADS the message, the same shape the 任務 message box sends
+      // 「[TaskID=T-33] …」 in — and it now NAMES THE KIND OF ID it carries
+      // (owner rc-01a07b1b2a12 [0][1][2], rc-379631993586 「ok. B.」). 「[L-3] …」
+      // said the id without ever saying what it was an id OF, which is only
+      // readable by someone who already knows both id namespaces.
+      //
+      // 🔴 THE LITERAL IS WRITTEN HERE AND IS NOT AN i18n KEY, deliberately.
+      // That is the reason the owner picked this form: the reader on the other
+      // end is an agent, not this browser, and a prefix that changed with the
+      // cockpit's language would be a prefix nothing can match on.
+      //
+      // 🔴 `meta.lore_entry_id` IS THE OTHER HALF AND IS NOT A DUPLICATE OF IT.
+      // The prefix is for a PERSON and is display — the owner can reword it,
+      // and a round of 外觀 work already deleted the note that used to sit
+      // beside it. `meta` is for a PROGRAM: an agent receiving this message has
+      // to know WHICH ENTRY it is about without parsing a human-facing string
+      // that is free to change. The task message box has carried meta.task_id
+      // since it existed; this box carried an empty meta until now.
+      //
+      // The server copies unknown meta keys through WHOLESALE — read, not
+      // assumed: HandlePostChatApiChatPost (api_chat.go) builds its map from
+      // body.Meta, then `delete`s `reply_to` (it is the only writer of that
+      // link) and OVERWRITES `attachments` when the post carries any. Every
+      // other key, this one included, is stored verbatim.
       await api.postChat({
         to: author.peerId,
-        body: `[${entryId}] ${draft.trim()}`,
+        body: `[LoreID=${entryId}] ${draft.trim()}`,
+        meta: { lore_entry_id: entryId },
         ...(attachments.length > 0 ? { attachments } : {}),
       });
       setDraft("");

@@ -492,6 +492,39 @@ describe("httpApi · postChat carries the reply link (T-4e95)", () => {
     await httpApi.postChat({ to: "m1", body: "普通訊息" });
     expect(JSON.parse(String((await lastRequest()).body)).reply_to).toBe("");
   });
+
+  // T-33: the 傳承 box sends `meta.lore_entry_id` so an agent knows WHICH ENTRY
+  // the message is about without parsing the human-facing 「[LoreID=…]」 prefix.
+  // The component-level spec asserts what LorePage hands the client; this one
+  // asserts the byte that leaves the browser — the layer in between is exactly
+  // where a field gets silently dropped, and nothing else in this repo watches
+  // it (the mock adapter never reaches this file, and conformance drives the
+  // server from Python).
+  it("passes an arbitrary meta object straight through to the wire", async () => {
+    fetchMock.mockImplementation(async () => jsonResponse(WIRE_MSG));
+    await httpApi.postChat({
+      to: "m1",
+      body: "[LoreID=L-7] 這條還適用嗎",
+      meta: { lore_entry_id: "L-7" },
+    });
+    expect(JSON.parse(String((await lastRequest()).body)).meta).toEqual({
+      lore_entry_id: "L-7",
+    });
+  });
+
+  it("omits meta entirely when the caller sends none", async () => {
+    // Not `{}` and not null: an ordinary post's body stays byte-identical to
+    // what it was before meta existed. `undefined` would vanish in JSON either
+    // way, so the assertion is on the KEY, not on the value.
+    fetchMock.mockImplementation(async () => jsonResponse(WIRE_MSG));
+    await httpApi.postChat({ to: "m1", body: "普通訊息" });
+    expect(
+      Object.prototype.hasOwnProperty.call(
+        JSON.parse(String((await lastRequest()).body)),
+        "meta",
+      ),
+    ).toBe(false);
+  });
 });
 
 describe("httpApi · reply-card answer body (ReplyCardAnswerPostDTO)", () => {

@@ -1172,6 +1172,10 @@ export interface ServerSettingsView {
    * the reply-card one by owner ruling — the two boxes are different
    * conversations — so one being empty says nothing about the other. */
   suggestedRepliesTaskMessage: string[];
+  /** The 建議回覆 offered under a 傳承 entry's message box (T-33) — the box that
+   * writes to the person who WROTE that entry. A THIRD separate list, for the
+   * same reason: one being empty says nothing about the other two. */
+  suggestedRepliesLoreMessage: string[];
   /** Contact email used as this deployment's Web Push VAPID identity. Empty
    * means delivery is disabled until the owner configures a public address. */
   pushContactEmail: string;
@@ -1294,6 +1298,9 @@ export interface ServerSettingsPatch {
   /** The 任務 message-box 建議回覆 (T-122), replaced WHOLESALE. Same bounds as
    * above, and independent of it: patching one never touches the other. */
   suggestedRepliesTaskMessage?: string[];
+  /** The 傳承 message-box 建議回覆 (T-33), replaced WHOLESALE. Same bounds again,
+   * and independent of both: patching one never touches another. */
+  suggestedRepliesLoreMessage?: string[];
   /** Web Push VAPID contact email; empty clears it and disables delivery. */
   pushContactEmail?: string;
   /** The owner's cockpit visual theme (T-0b41-p2); "" (unset) | "office" (the
@@ -2143,6 +2150,17 @@ export interface Api {
      * only writer of the stored link; a forged `meta.reply_to` is dropped.
      * Omitted on an ordinary post. */
     replyTo?: string;
+    /** Machine-readable keys stored ON the message, for a reader that must not
+     * have to parse the visible body. The 傳承 composer sends
+     * `{ lore_entry_id }` here so an agent knows which entry the message is
+     * about; the human-facing 「[LoreID=…]」 prefix is display and may be
+     * reworded, this is not.
+     *
+     * 🔴 TWO KEYS ARE NOT YOURS TO SET. The server DELETES `reply_to` (use the
+     * `replyTo` param — the server is the only writer of that link) and
+     * OVERWRITES `attachments` when the post carries any. Every other key is
+     * stored verbatim. Omitted ⇒ no keys of its own. */
+    meta?: Record<string, unknown>;
   }): Promise<void>;
   /** Mark a conversation (with `peer`) read up to `lastReadTs` — the caller's own
    * read watermark (reader = the verified JWT sub server-side; anti-spoof). The

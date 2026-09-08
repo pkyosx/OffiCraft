@@ -713,7 +713,10 @@ describe("LorePage — 內嵌輸入框", () => {
     // 🔴 The WHOLE body, and the id at the FRONT. `toContain("L-7")` would also
     // pass for an id appended after the sentence, which does not solve the
     // problem the prefix exists for — the author reads the first words.
-    expect(posted[0].body).toBe("[L-7] 這條還適用嗎");
+    // The shape spells out WHICH KIND of id it carries since owner
+    // rc-01a07b1b2a12 / rc-379631993586 「ok. B.」; the bare 「[L-7] 」 it replaced
+    // was indistinguishable from the 任務 box's own bracket.
+    expect(posted[0].body).toBe("[LoreID=L-7] 這條還適用嗎");
     expect(posted[0].to).toBe("mira");
 
     // The box empties on success, and the screen says it went.
@@ -757,7 +760,7 @@ describe("LorePage — 內嵌輸入框", () => {
     );
 
     await waitFor(() => expect(posted).toHaveLength(1));
-    expect(posted[0].body).toBe("[L-31] 這條還適用嗎");
+    expect(posted[0].body).toBe("[LoreID=L-31] 這條還適用嗎");
   });
 
   // 🔴 THE BOX ON THE COLLAPSED ROW SITS ON THE ROW'S OWN TOGGLE SURFACE.
@@ -827,7 +830,7 @@ describe("LorePage — 內嵌輸入框", () => {
 
     fireEvent.click(send);
     await waitFor(() => expect(posted).toHaveLength(1));
-    expect(posted[0].body).toBe("[L-7] ");
+    expect(posted[0].body).toBe("[LoreID=L-7] ");
     expect(posted[0].attachments).toHaveLength(1);
     expect(posted[0].attachments![0].filename).toBe("note.txt");
   });
