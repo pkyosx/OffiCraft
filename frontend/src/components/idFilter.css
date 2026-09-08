@@ -110,5 +110,7 @@
 }
 .id-filter:focus-visible {
   outline: 2px solid color-mix(in srgb, var(--color-overlay) 35%, transparent);
-  outline-offset: 1px;
+  /* The first field sits at the .tasks/.replies scrollport edge. Keep the
+   * keyboard indicator inside its border box so that edge cannot clip it. */
+  outline-offset: -1px;
 }
