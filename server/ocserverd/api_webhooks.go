@@ -16,6 +16,7 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"time"
@@ -113,7 +114,7 @@ func (s *apiServer) HandleCreateWebhookApiMembersMemberIdWebhooksPost(w http.Res
 	if !decodeJSONBodyRequired(w, r, &body, "endpoint_id") {
 		return
 	}
-	m, err := s.resolveMember(memberId, staffOnly)
+	m, err := s.resolveMember(memberId, anyMember)
 	if err != nil {
 		writeResolveError(w, err, "member", memberId)
 		return
@@ -176,7 +177,7 @@ func (s *apiServer) HandleUpdateWebhookApiMembersMemberIdWebhooksEndpointIdPatch
 	if !decodeJSONBody(w, r, &body) {
 		return
 	}
-	e, err := s.resolveWebhook(memberId, endpointId, staffOnly)
+	e, err := s.resolveWebhook(memberId, endpointId, anyMember)
 	if err != nil {
 		writeResolveError(w, err, "webhook endpoint", endpointId)
 		return
@@ -208,7 +209,7 @@ func (s *apiServer) HandleUpdateWebhookApiMembersMemberIdWebhooksEndpointIdPatch
 // DELETE /api/members/{member_id}/webhooks/{endpoint_id} — permanent revocation
 // (the token can never deliver again).
 func (s *apiServer) HandleDeleteWebhookApiMembersMemberIdWebhooksEndpointIdDelete(w http.ResponseWriter, r *http.Request, memberId, endpointId string) {
-	e, err := s.resolveWebhook(memberId, endpointId, staffOnly)
+	e, err := s.resolveWebhook(memberId, endpointId, anyMember)
 	if err != nil {
 		writeResolveError(w, err, "webhook endpoint", endpointId)
 		return
@@ -323,9 +324,29 @@ func (s *apiServer) HandleReceiveWebhookInPost(w http.ResponseWriter, r *http.Re
 			return
 		}
 	}
-	m, err := s.resolveMember(e.MemberID, staffOnly)
+	// 🔴 THE INLET'S DOOR IS THE CHAT DOOR, and that is deliberate. An accepted
+	// call's whole effect is ONE synthesised chat_message to this member
+	// (投遞方式 A above), so the question "may this arrive?" is exactly the
+	// question resolveChatRecipient already answers for every other sender:
+	// the row must be ACTIVE and kind staff-or-outsource. A removed member and
+	// a warden are both refused there, so neither needs a rule of its own here
+	// — 「請不要再製造分岔」(owner, station-wide). Contractors are admitted
+	// because they are admitted as chat recipients, not because this seam was
+	// widened by hand.
+	//
+	// wireOwnerID is refused BEFORE the call: it is a legal chat address but
+	// never a member row, so an endpoint carrying it cannot have come from the
+	// create seam (which resolves a real member) — only from corrupt data, and
+	// this is the one UNAUTHENTICATED surface in the system.
+	if e.MemberID == wireOwnerID {
+		_ = s.dal.MarkWebhookDropped(e.Token, WebhookDropReasonMemberGone, receivedTS)
+		s.logWebhookRequest(e.Token, r, payload, webhookOutcomeDroppedPrefix+WebhookDropReasonMemberGone, receivedTS)
+		s.writeWebhookAccepted(w)
+		return
+	}
+	recipientID, err := s.resolveChatRecipient(e.MemberID)
 	if err != nil {
-		if err == errNotFound {
+		if errors.Is(err, errNotFound) {
 			_ = s.dal.MarkWebhookDropped(e.Token, WebhookDropReasonMemberGone, receivedTS)
 			s.logWebhookRequest(e.Token, r, payload, webhookOutcomeDroppedPrefix+WebhookDropReasonMemberGone, receivedTS)
 			s.writeWebhookAccepted(w)
@@ -339,7 +360,7 @@ func (s *apiServer) HandleReceiveWebhookInPost(w http.ResponseWriter, r *http.Re
 	msg := ChatMessage{
 		ID:        "c-" + newHexID(12),
 		Sender:    "hook:" + e.EndpointID,
-		Recipient: m.ID,
+		Recipient: recipientID,
 		Body:      string(payload),
 		TS:        nowSecs(),
 		Meta: map[string]any{
