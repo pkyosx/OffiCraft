@@ -1,57 +1,351 @@
-// Skeleton generated from server/ocserverd/api_replycards.go by gen_test_skeletons.py.
-// Every case is a t.Skip placeholder: fill the body, keep or rewrite the name.
-
 package main
 
 import (
 	"encoding/json"
+	"io"
 	"net/http"
+	"net/http/httptest"
+	"reflect"
 	"strings"
 	"testing"
 )
 
 func TestPublishReplyCard(t *testing.T) {
-	t.Skip("TODO: publishReplyCard fans one reply_card delta (create / answer / revision all ride op patch; spec/sse.md §2.2 — the payload is the partial {id, from, status} hint, never the answer).")
+	t.Run("an answered card publishes its partial delta to the owner and initiator", func(t *testing.T) {
+		api, _, _, _ := newAPITestServer(t)
+		dashboard := apiTestListen(t, api, "")
+		initiator := apiTestListen(t, api, "mira")
+
+		api.publishReplyCard(ReplyCard{
+			ID: "rc-1", FromMember: "mira", Status: "answered",
+		}, "owner")
+
+		want := apiTestReplyCardFrame(1, "rc-1", "mira", "answered", "owner")
+		dashboard.wantFrames(want)
+		initiator.wantFrames(want)
+	})
 }
 
 func TestWaitingReplyCards(t *testing.T) {
-	t.Skip("TODO: waitingReplyCards projects the 待回覆 pane: status waiting, longest-waiting first (created ascending).")
+	t.Run("waiting cards are ordered from oldest to newest and other statuses are omitted", func(t *testing.T) {
+		got := waitingReplyCards([]ReplyCard{
+			{ID: "late", Status: "waiting", CreatedTS: 30},
+			{ID: "answered", Status: "answered", CreatedTS: 1},
+			{ID: "early", Status: "waiting", CreatedTS: 10},
+			{ID: "same", Status: "waiting", CreatedTS: 10},
+		})
+		want := []ReplyCard{
+			{ID: "early", Status: "waiting", CreatedTS: 10},
+			{ID: "same", Status: "waiting", CreatedTS: 10},
+			{ID: "late", Status: "waiting", CreatedTS: 30},
+		}
+		if !reflect.DeepEqual(got, want) {
+			t.Fatalf("waitingReplyCards = %#v, want %#v", got, want)
+		}
+	})
 }
 
 func TestRecentAnsweredReplyCards(t *testing.T) {
-	t.Skip("TODO: recentAnsweredReplyCards projects the 近期已回覆 pane: answered within the 24h window (keyed off the LATEST answer ts — a revision re-enters the window), newest answer first.")
+	t.Run("answered cards inside the 24-hour window are newest first and the boundary is included", func(t *testing.T) {
+		got := recentAnsweredReplyCards([]ReplyCard{
+			{ID: "old", Status: "answered", AnsweredTS: 13599},
+			{ID: "boundary", Status: "answered", AnsweredTS: 13600},
+			{ID: "newest", Status: "answered", AnsweredTS: 99990},
+			{ID: "waiting", Status: "waiting", AnsweredTS: 99999},
+		}, 100000)
+		want := []ReplyCard{
+			{ID: "newest", Status: "answered", AnsweredTS: 99990},
+			{ID: "boundary", Status: "answered", AnsweredTS: 13600},
+		}
+		if !reflect.DeepEqual(got, want) {
+			t.Fatalf("recentAnsweredReplyCards = %#v, want %#v", got, want)
+		}
+	})
 }
 
 func TestRecentExpiredReplyCards(t *testing.T) {
-	t.Skip("TODO: recentExpiredReplyCards projects the recently-expired pane: expired within the 24h window (keyed off expired_ts — the same retention the answered pane holds), newest first.")
+	t.Run("expired cards inside the 24-hour window are newest first and the boundary is included", func(t *testing.T) {
+		got := recentExpiredReplyCards([]ReplyCard{
+			{ID: "old", Status: "expired", ExpiredTS: 13599},
+			{ID: "boundary", Status: "expired", ExpiredTS: 13600},
+			{ID: "newest", Status: "expired", ExpiredTS: 99990},
+			{ID: "answered", Status: "answered", ExpiredTS: 99999},
+		}, 100000)
+		want := []ReplyCard{
+			{ID: "newest", Status: "expired", ExpiredTS: 99990},
+			{ID: "boundary", Status: "expired", ExpiredTS: 13600},
+		}
+		if !reflect.DeepEqual(got, want) {
+			t.Fatalf("recentExpiredReplyCards = %#v, want %#v", got, want)
+		}
+	})
 }
 
 func TestValidateReplyCardOptions(t *testing.T) {
-	t.Skip("TODO: validateReplyCardOptions enforces the quick-reply contract: at least one option, at most as many as the card's select_mode allows (single 4, multi 20), each with non-blank text (trimmed in place), plus the ai_pick budget that same select_mode allows (\"\" = no violation).")
+	pick := true
+	optionSet := func(n int) []ReplyCardOptionDTO {
+		options := make([]ReplyCardOptionDTO, n)
+		for i := range options {
+			options[i].Text = "option"
+		}
+		return options
+	}
+	t.Run("valid option text is trimmed and its recommendation flag is preserved", func(t *testing.T) {
+		got, problem := validateReplyCardOptions([]ReplyCardOptionDTO{
+			{Text: "  ship  ", AiPick: &pick},
+			{Text: "hold"},
+		}, "single")
+		if problem != "" {
+			t.Fatalf("validateReplyCardOptions(valid) problem = %q", problem)
+		}
+		want := []ReplyCardOption{{Text: "ship", AIPick: true}, {Text: "hold"}}
+		if !reflect.DeepEqual(got, want) {
+			t.Fatalf("validateReplyCardOptions(valid) = %#v, want %#v", got, want)
+		}
+	})
+
+	cases := []struct {
+		name    string
+		options []ReplyCardOptionDTO
+		mode    string
+		want    string
+	}{
+		{name: "empty", want: "options must carry at least one choice"},
+		{name: "single cap", options: optionSet(5), mode: "single", want: "a single-select card may carry at most 4 options"},
+		{name: "multi cap", options: optionSet(21), mode: "multi", want: "a multi-select card may carry at most 20 options"},
+		{name: "blank", options: []ReplyCardOptionDTO{{Text: "  "}}, mode: "single", want: "options must not be blank"},
+		{name: "two single recommendations", options: []ReplyCardOptionDTO{{Text: "one", AiPick: &pick}, {Text: "two", AiPick: &pick}}, mode: "single", want: "a single-select card may mark at most one option ai_pick"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, problem := validateReplyCardOptions(tc.options, tc.mode)
+			if problem != tc.want {
+				t.Fatalf("validateReplyCardOptions problem = %q, want %q", problem, tc.want)
+			}
+		})
+	}
 }
 
 func TestNormalizeAnswerOptionIdxs(t *testing.T) {
-	t.Skip("TODO: normalizeAnswerOptionIdxs is the ONE place a circled-option list becomes its stored form: deduped, ascending.")
+	t.Run("duplicate and unordered indices are stored once in ascending order", func(t *testing.T) {
+		got := normalizeAnswerOptionIdxs([]int{2, 0, 2, -1, 0})
+		want := []int{-1, 0, 2}
+		if !reflect.DeepEqual(got, want) {
+			t.Fatalf("normalizeAnswerOptionIdxs = %#v, want %#v", got, want)
+		}
+	})
+	t.Run("an empty index list is represented as nil", func(t *testing.T) {
+		if got := normalizeAnswerOptionIdxs([]int{}); got != nil {
+			t.Fatalf("normalizeAnswerOptionIdxs(empty) = %#v, want nil", got)
+		}
+	})
+	t.Run("a nil index list remains nil", func(t *testing.T) {
+		if got := normalizeAnswerOptionIdxs(nil); got != nil {
+			t.Fatalf("normalizeAnswerOptionIdxs(nil) = %#v, want nil", got)
+		}
+	})
 }
 
 func TestOpenReplyCard(t *testing.T) {
-	t.Skip("TODO: openReplyCard is the ONE create machinery both entry points share (the plain POST /api/reply-cards ask AND the M3 task-gate arming): validate the body, mint the card + its companion chat message (initiator → owner, meta.reply_card_id), store both, fan the chat + reply_card deltas.")
+	t.Run("a valid ask stores its card and companion message and publishes both deltas", func(t *testing.T) {
+		api, _, d, _ := newAPITestServer(t)
+		dashboard := apiTestListen(t, api, "")
+		initiator := apiTestListen(t, api, "mira")
+		wantPushed := apiTestWebPushSink(t, api)
+		pick := true
+		body := "full question body"
+		card, problem, err := api.openReplyCard("mira", ReplyCardCreateDTO{
+			Kind:    ReplyCardCreateDTOKind("decision"),
+			Summary: "ship this",
+			Body:    &body,
+			Options: []ReplyCardOptionDTO{{Text: "ship", AiPick: &pick}, {Text: "hold"}},
+		}, "", "")
+		if err != nil || problem != "" {
+			t.Fatalf("openReplyCard = card:%#v problem:%q err:%v", card, problem, err)
+		}
+		if card == nil {
+			t.Fatal("openReplyCard returned nil card")
+		}
+		if card.ID == "" || card.ChatMessageID == "" || card.CreatedTS <= 0 || card.FromMember != "mira" ||
+			card.Kind != "decision" || card.Summary != "ship this" || card.Body != "full question body" ||
+			card.SelectMode != "single" || card.Status != "waiting" {
+			t.Fatalf("opened card = %#v", card)
+		}
+
+		stored, err := d.GetReplyCard(card.ID)
+		if err != nil || stored == nil {
+			t.Fatalf("GetReplyCard: %#v, %v", stored, err)
+		}
+		if stored.ID != card.ID || stored.FromMember != "mira" || stored.Kind != "decision" ||
+			stored.Summary != "ship this" || stored.Body != "full question body" ||
+			!reflect.DeepEqual(stored.Options, []ReplyCardOption{{Text: "ship", AIPick: true}, {Text: "hold"}}) ||
+			stored.SelectMode != "single" || stored.Status != "waiting" || stored.TaskID != "" || stored.TaskStepID != "" {
+			t.Fatalf("stored card = %#v", stored)
+		}
+		messages, err := d.ListChat()
+		if err != nil || len(messages) != 1 {
+			t.Fatalf("ListChat = %d messages, err %v", len(messages), err)
+		}
+		message := messages[0]
+		if message.ID != card.ChatMessageID || message.Sender != "mira" || message.Recipient != "owner" ||
+			message.Body != "ship this" || !reflect.DeepEqual(message.Meta, map[string]any{"reply_card_id": card.ID}) {
+			t.Fatalf("companion message = %#v", message)
+		}
+
+		chatFrame := map[string]any{
+			"seq": 1, "topic": "chat", "op": "patch",
+			"data": map[string]any{
+				"entity": "chat", "key": "owner::" + card.ChatMessageID,
+				"epoch": 1, "deleted": false,
+				"payload": map[string]any{"id": card.ChatMessageID, "from": "mira", "to": "owner"},
+			},
+			"ts": apiAnyNumber, "trigger": "mira",
+		}
+		cardFrame := apiTestReplyCardFrame(2, card.ID, "mira", "waiting", "mira")
+		dashboard.wantFrames(chatFrame, cardFrame)
+		initiator.wantFrames(chatFrame, cardFrame)
+		wantPushed(map[string]any{
+			"kind": "reply_card", "chat_id": card.ChatMessageID, "reply_card_id": card.ID,
+			"title": "OffiCraft：需要你決定", "body": "你有一張新的請示卡。", "needs_decision": true,
+		})
+	})
+
+	t.Run("a task binding without a step returns the complete structural error", func(t *testing.T) {
+		api, _, _, _ := newAPITestServer(t)
+		_, problem, err := api.openReplyCard("mira", ReplyCardCreateDTO{
+			Kind:    ReplyCardCreateDTOKind("decision"),
+			Summary: "orphan",
+			Options: []ReplyCardOptionDTO{{Text: "yes"}},
+		}, "T-1", "")
+		want := "refusing to mint a reply card bound to task 'T-1' with no step: a step-less task binding places no 等我回覆 hold and orphans the card when the task closes"
+		if err == nil || problem != "" || err.Error() != want {
+			t.Fatalf("step-less binding = problem:%q err:%v, want %q", problem, err, want)
+		}
+	})
 }
 
 func TestReplyCardDTOOf(t *testing.T) {
-	t.Skip("TODO: replyCardDTOOf builds the served card view, resolving the task reference when the card was armed from a task gate (SPEC §3.6 請示 → 任務 jump); a plain chat 請示 serialises task: null.")
+	t.Run("an unbound waiting card is projected with the complete full-card shape", func(t *testing.T) {
+		api, _, _, _ := newAPITestServer(t)
+		card := ReplyCard{
+			ID: "rc-1", FromMember: "mira", Kind: "decision",
+			Summary: "ask", Body: "body", Options: []ReplyCardOption{{Text: "yes"}},
+			Status: "waiting", CreatedTS: 12, ChatMessageID: "c-1",
+		}
+		got, err := api.replyCardDTOOf(card)
+		if err != nil {
+			t.Fatalf("replyCardDTOOf(unbound): %v", err)
+		}
+		want := replyCardDTO{
+			ID: "rc-1", From: "mira", Kind: "decision", Summary: "ask", Body: "body",
+			Options: []ReplyCardOption{{Text: "yes"}}, SelectMode: "single", Status: "waiting", CreatedTS: 12,
+			Attachments: []chatAttachmentDTO{}, ChatMessageID: "c-1",
+		}
+		if !reflect.DeepEqual(got, want) {
+			t.Fatalf("unbound dto = %#v, want %#v", got, want)
+		}
+	})
+
+	t.Run("a task-bound waiting card carries the task id, type and title", func(t *testing.T) {
+		api, _, d, _ := newAPITestServer(t)
+		task := dalTestTask("T-1")
+		if err := d.PutTask(task); err != nil {
+			t.Fatalf("PutTask: %v", err)
+		}
+		card := ReplyCard{
+			ID: "rc-1", FromMember: "mira", Kind: "decision",
+			Summary: "ask", Body: "body", Options: []ReplyCardOption{{Text: "yes"}},
+			Status: "waiting", CreatedTS: 12, ChatMessageID: "c-1", TaskID: "T-1", TaskStepID: "ts-1",
+		}
+		got, err := api.replyCardDTOOf(card)
+		if err != nil {
+			t.Fatalf("replyCardDTOOf(bound): %v", err)
+		}
+		want := replyCardDTO{
+			ID: "rc-1", From: "mira", Kind: "decision", Summary: "ask", Body: "body",
+			Options: []ReplyCardOption{{Text: "yes"}}, SelectMode: "single", Status: "waiting", CreatedTS: 12,
+			Attachments: []chatAttachmentDTO{}, ChatMessageID: "c-1",
+			Task: &taskRefDTO{ID: "T-1", TypeKey: "type-alpha", Title: "reconcile the yard ledger"},
+		}
+		if !reflect.DeepEqual(got, want) {
+			t.Fatalf("bound dto = %#v, want %#v", got, want)
+		}
+	})
 }
 
 func TestWriteReplyCard(t *testing.T) {
-	t.Skip("TODO: writeReplyCard is the common single-card READ response tail.")
+	t.Run("a waiting action card is encoded with every full-card field", func(t *testing.T) {
+		api, _, _, _ := newAPITestServer(t)
+		rec := httptest.NewRecorder()
+		api.writeReplyCard(rec, ReplyCard{
+			ID: "rc-1", FromMember: "mira", Kind: "action",
+			Summary: "do it", Body: "details", Options: []ReplyCardOption{{Text: "yes", AIPick: true}},
+			SelectMode: "multi", Status: "waiting", CreatedTS: 12, ChatMessageID: "c-1",
+		})
+		if rec.Code != http.StatusOK {
+			t.Fatalf("writeReplyCard status = %d, want 200", rec.Code)
+		}
+		apiWantBody(t, apiTestDecodeJSONBody(t, rec), map[string]any{
+			"id": "rc-1", "from": "mira", "kind": "action", "summary": "do it", "body": "details",
+			"options": []any{map[string]any{"text": "yes", "ai_pick": true}},
+			"select_mode": "multi", "status": "waiting", "created_ts": 12,
+			"attachments": []any{}, "answered_ts": nil, "expired_ts": nil,
+			"chat_message_id": "c-1", "answer": nil, "task": nil,
+		})
+	})
 }
 
 func TestWriteReplyCardCreateReceipt(t *testing.T) {
-	t.Skip("TODO: writeReplyCardCreateReceipt answers create_reply_card (T-91).")
+	t.Run("a create receipt reports only the minted ids, timestamp and landed attachments", func(t *testing.T) {
+		api, _, _, _ := newAPITestServer(t)
+		rec := httptest.NewRecorder()
+		api.writeReplyCardCreateReceipt(rec, ReplyCard{
+			ID: "rc-1", ChatMessageID: "c-1", CreatedTS: 12,
+		})
+		if rec.Code != http.StatusOK {
+			t.Fatalf("writeReplyCardCreateReceipt status = %d, want 200", rec.Code)
+		}
+		apiWantBody(t, apiTestDecodeJSONBody(t, rec), map[string]any{
+			"id": "rc-1", "chat_message_id": "c-1", "created_ts": 12, "attachments": []any{},
+		})
+	})
 }
 
 func TestWriteReplyCardTransitionReceipt(t *testing.T) {
-	t.Skip("TODO: writeReplyCardTransitionReceipt answers the three card TRANSITIONS — answer, reanswer and expire (T-91).")
+	t.Run("an answered transition reports its normalized answer and released step", func(t *testing.T) {
+		api, _, _, _ := newAPITestServer(t)
+		rec := httptest.NewRecorder()
+		api.writeReplyCardTransitionReceipt(rec, ReplyCard{
+			ID: "rc-1", Status: "answered", AnsweredTS: 14,
+			AnswerOptionIdxs: []int{0, 2}, AnswerText: "approved", TaskID: "T-1", TaskStepID: "ts-1",
+		})
+		if rec.Code != http.StatusOK {
+			t.Fatalf("answered receipt status = %d, want 200", rec.Code)
+		}
+		apiWantBody(t, apiTestDecodeJSONBody(t, rec), map[string]any{
+			"id": "rc-1", "status": "answered", "answered_ts": 14, "expired_ts": nil,
+			"answer": map[string]any{
+				"option_idxs": []any{0, 2}, "text": "approved", "attachments": []any{},
+			},
+			"task_id": "T-1", "step_id": "ts-1",
+		})
+	})
+
+	t.Run("an expired transition reports the expiry and no answer", func(t *testing.T) {
+		api, _, _, _ := newAPITestServer(t)
+		rec := httptest.NewRecorder()
+		api.writeReplyCardTransitionReceipt(rec, ReplyCard{
+			ID: "rc-2", Status: "expired", ExpiredTS: 15,
+			TaskID: "T-2", TaskStepID: "ts-2",
+		})
+		if rec.Code != http.StatusOK {
+			t.Fatalf("expired receipt status = %d, want 200", rec.Code)
+		}
+		apiWantBody(t, apiTestDecodeJSONBody(t, rec), map[string]any{
+			"id": "rc-2", "status": "expired", "answered_ts": nil, "expired_ts": 15,
+			"answer": nil, "task_id": "T-2", "step_id": "ts-2",
+		})
+	})
 }
 
 func TestHandleCreateReplyCardApiReplyCardsPost(t *testing.T) {
@@ -382,11 +676,74 @@ func apiTestReplyCardFrame(seq int, cardID, from, status, trigger string) map[st
 }
 
 func TestReplyCardListItemOf(t *testing.T) {
-	t.Skip("TODO: replyCardListItemOf builds one LIGHT list row (T-3f31 owner ruling: 卡只需要 title+決策): summary + status/timestamps + the decision digest on an answered card (picked option index + its ORIGINAL wording, answer text truncated to a preview, attachment COUNT) — never the body or the options full text (get_reply_card serves those).")
+	api, _, d, _ := newAPITestServer(t)
+	task := dalTestTask("T-1")
+	if err := d.PutTask(task); err != nil {
+		t.Fatalf("PutTask: %v", err)
+	}
+
+	answerText := strings.Repeat("字", replyCardAnswerTextPreview+1)
+	answeredAt := 14.0
+	got, err := api.replyCardListItemOf(ReplyCard{
+		ID: "rc-1", FromMember: "mira", Kind: replyCardKindDecision,
+		Summary: "choose a route", Body: "private question body",
+		Options: []ReplyCardOption{{Text: "first"}, {Text: "second"}, {Text: "third"}},
+		Status: replyCardStatusAnswered, CreatedTS: 12, AnsweredTS: answeredAt,
+		AnswerOptionIdxs: []int{2, 0, 99}, AnswerText: answerText,
+		AnswerAttachments: []any{"att-1", "att-2"}, TaskID: task.ID,
+	})
+	if err != nil {
+		t.Fatalf("replyCardListItemOf: %v", err)
+	}
+	wantText := string([]rune(answerText)[:replyCardAnswerTextPreview]) + "…"
+	want := replyCardListItemDTO{
+		ID: "rc-1", From: "mira", Kind: replyCardKindDecision,
+		Summary: "choose a route", Status: replyCardStatusAnswered, CreatedTS: 12,
+		AnsweredTS: &answeredAt,
+		Answer: &replyCardAnswerBriefDTO{
+			OptionIdxs: []int{2, 0, 99}, Options: []string{"third", "first"},
+			Text: wantText, Attachments: 2,
+		},
+		Task: &taskRefDTO{ID: task.ID, TypeKey: task.TypeKey, Title: task.Title},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("answered list item = %#v, want %#v", got, want)
+	}
+
+	if got, err := api.replyCardListItemOf(ReplyCard{
+		ID: "rc-waiting", FromMember: "mira", Kind: replyCardKindAction,
+		Summary: "still waiting", Status: replyCardStatusWaiting, CreatedTS: 10,
+	}); err != nil {
+		t.Fatalf("waiting replyCardListItemOf: %v", err)
+	} else if got.Answer != nil || got.AnsweredTS != nil || got.ExpiredTS != nil || got.Task != nil {
+		t.Fatalf("waiting list item carries terminal fields: %#v", got)
+	}
+
+	expiredAt := 15.0
+	if got, err := api.replyCardListItemOf(ReplyCard{
+		ID: "rc-expired", FromMember: "mira", Kind: replyCardKindAction,
+		Summary: "stale ask", Status: replyCardStatusExpired, CreatedTS: 11,
+		ExpiredTS: expiredAt, AnswerText: "must not become a digest",
+	}); err != nil {
+		t.Fatalf("expired replyCardListItemOf: %v", err)
+	} else if got.ExpiredTS == nil || *got.ExpiredTS != expiredAt || got.Answer != nil || got.AnsweredTS != nil {
+		t.Fatalf("expired list item = %#v", got)
+	}
 }
 
 func TestReplyCardOptionWording(t *testing.T) {
-	t.Skip("TODO: replyCardOptionWording resolves the circled indices back to the ORIGINAL wording, one entry per index and in the same order.")
+	card := ReplyCard{
+		Options: []ReplyCardOption{{Text: "first"}, {Text: "second"}, {Text: "third"}},
+		AnswerOptionIdxs: []int{2, 0, 99, -1, 0},
+	}
+	got := replyCardOptionWording(card)
+	want := []string{"third", "first", "first"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("replyCardOptionWording = %#v, want %#v", got, want)
+	}
+	if got := replyCardOptionWording(ReplyCard{AnswerOptionIdxs: []int{0}}); got == nil || len(got) != 0 {
+		t.Fatalf("replyCardOptionWording with no options = %#v, want empty", got)
+	}
 }
 
 func TestHandleListReplyCardsApiReplyCardsGet(t *testing.T) {
@@ -734,27 +1091,366 @@ func TestHandleGetReplyCardApiReplyCardsCardIdGet(t *testing.T) {
 }
 
 func TestApplyReplyCardAnswer(t *testing.T) {
-	t.Skip("TODO: applyReplyCardAnswer validates + stores one answer (shared by POST answer and PUT re-answer — same body, same rules), stamps answered_ts, fans the delta and writes the card DTO.")
+	t.Run("an answer is normalized, persisted, fanned, and returned as a transition receipt", func(t *testing.T) {
+		api, _, d, owner := newAPITestServer(t)
+		card := ReplyCard{
+			ID: "rc-1", FromMember: "kip", Kind: replyCardKindAction,
+			Summary: "choose routes", Options: []ReplyCardOption{
+				{Text: "first"}, {Text: "second"}, {Text: "third"},
+			}, SelectMode: "multi", Status: "waiting", CreatedTS: 12,
+			ChatMessageID: "c-1",
+		}
+		if err := d.PutReplyCard(card); err != nil {
+			t.Fatalf("PutReplyCard: %v", err)
+		}
+		dashboard := apiTestListen(t, api, "")
+
+		var req *http.Request
+		taskTestUnderCaller(t, api, d, owner, func(r *http.Request) {
+			req = r
+			r.Body = io.NopCloser(strings.NewReader(`{"option_idxs":[2,0,2],"text":" approved "}`))
+		})
+		rec := httptest.NewRecorder()
+		api.applyReplyCardAnswer(rec, req, card)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("applyReplyCardAnswer status = %d, want 200 (%s)", rec.Code, rec.Body.String())
+		}
+		apiWantBody(t, apiTestDecodeJSONBody(t, rec), map[string]any{
+			"id": "rc-1", "status": "answered", "answered_ts": apiAnyNumber,
+			"expired_ts": nil,
+			"answer": map[string]any{
+				"option_idxs": []any{0, 2}, "text": "approved", "attachments": []any{},
+			},
+			"task_id": "", "step_id": "",
+		})
+
+		stored, err := d.GetReplyCard(card.ID)
+		if err != nil || stored == nil {
+			t.Fatalf("GetReplyCard: %#v, %v", stored, err)
+		}
+		if stored.Status != "answered" || stored.AnsweredTS <= 0 || stored.ExpiredTS != 0 ||
+			!reflect.DeepEqual(stored.AnswerOptionIdxs, []int{0, 2}) ||
+			stored.AnswerText != "approved" || len(stored.AnswerAttachments) != 0 {
+			t.Fatalf("stored answer = %#v", stored)
+		}
+		dashboard.wantFrames(apiTestReplyCardFrame(1, "rc-1", "kip", "answered", "owner"))
+	})
+
+	t.Run("an empty answer returns a validation error and leaves the card waiting", func(t *testing.T) {
+		api, _, d, owner := newAPITestServer(t)
+		card := ReplyCard{
+			ID: "rc-1", FromMember: "kip", Kind: replyCardKindDecision,
+			Summary: "choose", Options: []ReplyCardOption{{Text: "yes"}},
+			SelectMode: "single", Status: "waiting", CreatedTS: 12,
+		}
+		if err := d.PutReplyCard(card); err != nil {
+			t.Fatalf("PutReplyCard: %v", err)
+		}
+		dashboard := apiTestListen(t, api, "")
+		var req *http.Request
+		taskTestUnderCaller(t, api, d, owner, func(r *http.Request) {
+			req = r
+			r.Body = io.NopCloser(strings.NewReader(`{"option_idxs":[]}`))
+		})
+		rec := httptest.NewRecorder()
+		api.applyReplyCardAnswer(rec, req, card)
+		if rec.Code != http.StatusBadRequest {
+			t.Fatalf("applyReplyCardAnswer status = %d, want 400 (%s)", rec.Code, rec.Body.String())
+		}
+		apiWantError(t, apiTestDecodeJSONBody(t, rec), "validation_error",
+			"answer must carry an option, text, or an attachment")
+		dashboard.wantFrames()
+		stored, err := d.GetReplyCard(card.ID)
+		if err != nil || stored == nil {
+			t.Fatalf("GetReplyCard: %#v, %v", stored, err)
+		}
+		if stored.Status != "waiting" || stored.AnsweredTS != 0 || stored.AnswerText != "" ||
+			stored.AnswerOptionIdxs != nil || len(stored.AnswerAttachments) != 0 {
+			t.Fatalf("card changed after invalid answer = %#v", stored)
+		}
+	})
 }
 
 func TestReleaseCardHold(t *testing.T) {
-	t.Skip("TODO: releaseCardHold releases the waiting_owner HOLD a reply card placed on a task/step, fired when — and only when — the card leaves waiting through an OWNER action: the FIRST answer (POST /answer: waiting → answered) or the expire action (POST /expire: waiting → expired).")
+	t.Run("settling a held card restores its step and task and publishes the task state", func(t *testing.T) {
+		api, _, d, _ := newAPITestServer(t)
+		task := dalTestTask("T-1")
+		task.Status = "waiting_owner"
+		step := dalTestStep("ts-1", task.ID)
+		step.Status = "waiting_owner"
+		step.ReplyCardID = "rc-1"
+		card := ReplyCard{ID: "rc-1", FromMember: "kip", Kind: "decision", Status: "answered", TaskID: task.ID, TaskStepID: step.ID}
+		if err := d.PutTask(task); err != nil {
+			t.Fatalf("PutTask: %v", err)
+		}
+		if err := d.PutTaskStep(step); err != nil {
+			t.Fatalf("PutTaskStep: %v", err)
+		}
+		if err := d.PutReplyCard(card); err != nil {
+			t.Fatalf("PutReplyCard: %v", err)
+		}
+		dashboard := apiTestListen(t, api, "")
+		executor := apiTestListen(t, api, task.ExecutorID)
+
+		if err := api.releaseCardHold(card, "owner"); err != nil {
+			t.Fatalf("releaseCardHold: %v", err)
+		}
+		steps, err := d.ListTaskSteps(task.ID)
+		if err != nil {
+			t.Fatalf("ListTaskSteps: %v", err)
+		}
+		if len(steps) != 1 || steps[0].Status != "in_progress" || steps[0].ReplyCardID != "rc-1" {
+			t.Fatalf("released step = %#v", steps)
+		}
+		stored, err := d.GetTask(task.ID)
+		if err != nil || stored == nil {
+			t.Fatalf("GetTask: %#v, %v", stored, err)
+		}
+		if stored.Status != "in_progress" || stored.UpdatedTS <= task.UpdatedTS || stored.ClosedTS != 0 {
+			t.Fatalf("released task = %#v", stored)
+		}
+		frame := map[string]any{
+			"seq": 1, "topic": "task", "op": "patch",
+			"data": map[string]any{
+				"entity": "task", "key": "owner::T-1", "epoch": 1, "deleted": false,
+				"payload": map[string]any{"id": "T-1", "priority": "high", "status": "in_progress"},
+			},
+			"ts": apiAnyNumber, "trigger": "owner",
+		}
+		dashboard.wantFrames(frame)
+		executor.wantFrames(frame)
+	})
+
+	t.Run("a terminal task remains closed when its orphaned card is settled", func(t *testing.T) {
+		api, _, d, _ := newAPITestServer(t)
+		task := dalTestTask("T-1")
+		task.Status = "done"
+		task.ClosedTS = 30
+		step := dalTestStep("ts-1", task.ID)
+		step.Status = "waiting_owner"
+		step.ReplyCardID = "rc-1"
+		card := ReplyCard{ID: "rc-1", FromMember: "kip", Kind: "decision", Status: "answered", TaskID: task.ID, TaskStepID: step.ID}
+		if err := d.PutTask(task); err != nil {
+			t.Fatalf("PutTask: %v", err)
+		}
+		if err := d.PutTaskStep(step); err != nil {
+			t.Fatalf("PutTaskStep: %v", err)
+		}
+		if err := d.PutReplyCard(card); err != nil {
+			t.Fatalf("PutReplyCard: %v", err)
+		}
+		if err := api.releaseCardHold(card, "owner"); err != nil {
+			t.Fatalf("releaseCardHold: %v", err)
+		}
+		storedTask, err := d.GetTask(task.ID)
+		if err != nil || storedTask == nil {
+			t.Fatalf("GetTask: %#v, %v", storedTask, err)
+		}
+		if !reflect.DeepEqual(*storedTask, task) {
+			t.Fatalf("terminal task changed: got %#v, want %#v", *storedTask, task)
+		}
+		storedSteps, err := d.ListTaskSteps(task.ID)
+		if err != nil {
+			t.Fatalf("ListTaskSteps: %v", err)
+		}
+		if len(storedSteps) != 1 || !reflect.DeepEqual(storedSteps[0], step) {
+			t.Fatalf("terminal task step changed: got %#v, want %#v", storedSteps, step)
+		}
+	})
 }
 
 func TestExpireWaitingCards(t *testing.T) {
-	t.Skip("TODO: expireWaitingCards is the SERVER-SIDE card sweep: it applies the exact semantics of the expire route (status flip + expired_ts + releaseCardHold + delta) to every waiting card the predicate selects.")
+	t.Run("the sweep expires only selected waiting cards and publishes their terminal state", func(t *testing.T) {
+		api, _, d, _ := newAPITestServer(t)
+		cards := []ReplyCard{
+			{ID: "rc-target", FromMember: "mira", Kind: "decision", Status: "waiting", CreatedTS: 10},
+			{ID: "rc-other", FromMember: "mira", Kind: "decision", Status: "waiting", CreatedTS: 11},
+			{ID: "rc-answered", FromMember: "mira", Kind: "decision", Status: "answered", CreatedTS: 12},
+		}
+		for _, card := range cards {
+			if err := d.PutReplyCard(card); err != nil {
+				t.Fatalf("PutReplyCard(%q): %v", card.ID, err)
+			}
+		}
+		dashboard := apiTestListen(t, api, "")
+		initiator := apiTestListen(t, api, "mira")
+
+		count, err := api.expireWaitingCards(func(card ReplyCard) bool {
+			return card.ID == "rc-target"
+		}, 42, "sweep")
+		if err != nil {
+			t.Fatalf("expireWaitingCards: %v", err)
+		}
+		if count != 1 {
+			t.Fatalf("expired count = %d, want 1", count)
+		}
+		got, err := d.ListReplyCards()
+		if err != nil {
+			t.Fatalf("ListReplyCards: %v", err)
+		}
+		want := []ReplyCard{
+			{ID: "rc-target", FromMember: "mira", Kind: "decision", Status: "expired", CreatedTS: 10, ExpiredTS: 42},
+			{ID: "rc-other", FromMember: "mira", Kind: "decision", Status: "waiting", CreatedTS: 11},
+			{ID: "rc-answered", FromMember: "mira", Kind: "decision", Status: "answered", CreatedTS: 12},
+		}
+		if !reflect.DeepEqual(got, want) {
+			t.Fatalf("reply cards after sweep = %#v, want %#v", got, want)
+		}
+		frame := apiTestReplyCardFrame(1, "rc-target", "mira", "expired", "sweep")
+		dashboard.wantFrames(frame)
+		initiator.wantFrames(frame)
+	})
 }
 
 func TestExpireWaitingCardsForTask(t *testing.T) {
-	t.Skip("TODO: expireWaitingCardsForTask sweeps every waiting card bound to one task — the task is being reassigned away from its asker, or has just landed terminal (closeTask): either way nobody is left to consume an answer, so the card must not keep sitting in the owner's 等我回覆 pane counting toward the 紅點 with a 409 as its only reward.")
+	t.Run("cards bound to the named task expire while cards for other tasks remain waiting", func(t *testing.T) {
+		api, _, d, _ := newAPITestServer(t)
+		cards := []ReplyCard{
+			{ID: "rc-task", FromMember: "mira", Kind: "decision", Status: "waiting", CreatedTS: 10, TaskID: "T-1", TaskStepID: "ts-1"},
+			{ID: "rc-other", FromMember: "mira", Kind: "decision", Status: "waiting", CreatedTS: 11, TaskID: "T-2", TaskStepID: "ts-2"},
+			{ID: "rc-plain", FromMember: "mira", Kind: "decision", Status: "waiting", CreatedTS: 12},
+		}
+		for _, card := range cards {
+			if err := d.PutReplyCard(card); err != nil {
+				t.Fatalf("PutReplyCard(%q): %v", card.ID, err)
+			}
+		}
+		dashboard := apiTestListen(t, api, "")
+
+		count, err := api.expireWaitingCardsForTask("T-1", 42, "reassign")
+		if err != nil {
+			t.Fatalf("expireWaitingCardsForTask: %v", err)
+		}
+		if count != 1 {
+			t.Fatalf("expired count = %d, want 1", count)
+		}
+		got, err := d.ListReplyCards()
+		if err != nil {
+			t.Fatalf("ListReplyCards: %v", err)
+		}
+		if got[0].Status != "expired" || got[0].ExpiredTS != 42 || got[1].Status != "waiting" || got[2].Status != "waiting" {
+			t.Fatalf("cards after task sweep = %#v", got)
+		}
+		dashboard.wantFrames(apiTestReplyCardFrame(1, "rc-task", "mira", "expired", "reassign"))
+	})
+
+	t.Run("an empty task id is rejected before any card is selected", func(t *testing.T) {
+		api, _, _, _ := newAPITestServer(t)
+		_, err := api.expireWaitingCardsForTask("", 42, "reassign")
+		if err == nil || err.Error() != "expireWaitingCardsForTask: blank task id" {
+			t.Fatalf("empty task id error = %v", err)
+		}
+	})
 }
 
 func TestExpireWaitingCardsFromMember(t *testing.T) {
-	t.Skip("TODO: expireWaitingCardsFromMember sweeps every waiting card OPENED BY one member, fired when that member is dismissed (HandleDismissMember / dismissOutsourceWorkerByID): the asker is gone, so no answer can ever be delivered to it.")
+	t.Run("cards opened by the dismissed member expire while other authors remain waiting", func(t *testing.T) {
+		api, _, d, _ := newAPITestServer(t)
+		cards := []ReplyCard{
+			{ID: "rc-member", FromMember: "mira", Kind: "decision", Status: "waiting", CreatedTS: 10},
+			{ID: "rc-other", FromMember: "kip", Kind: "decision", Status: "waiting", CreatedTS: 11},
+			{ID: "rc-answered", FromMember: "mira", Kind: "decision", Status: "answered", CreatedTS: 12},
+		}
+		for _, card := range cards {
+			if err := d.PutReplyCard(card); err != nil {
+				t.Fatalf("PutReplyCard(%q): %v", card.ID, err)
+			}
+		}
+		dashboard := apiTestListen(t, api, "")
+		initiator := apiTestListen(t, api, "mira")
+
+		count, err := api.expireWaitingCardsFromMember("mira", 42, "dismiss")
+		if err != nil {
+			t.Fatalf("expireWaitingCardsFromMember: %v", err)
+		}
+		if count != 1 {
+			t.Fatalf("expired count = %d, want 1", count)
+		}
+		got, err := d.ListReplyCards()
+		if err != nil {
+			t.Fatalf("ListReplyCards: %v", err)
+		}
+		if got[0].Status != "expired" || got[0].ExpiredTS != 42 || got[1].Status != "waiting" || got[2].Status != "answered" {
+			t.Fatalf("cards after member sweep = %#v", got)
+		}
+		frame := apiTestReplyCardFrame(1, "rc-member", "mira", "expired", "dismiss")
+		dashboard.wantFrames(frame)
+		initiator.wantFrames(frame)
+	})
+
+	t.Run("an empty member id is rejected before any card is selected", func(t *testing.T) {
+		api, _, _, _ := newAPITestServer(t)
+		_, err := api.expireWaitingCardsFromMember("", 42, "dismiss")
+		if err == nil || err.Error() != "expireWaitingCardsFromMember: blank member id" {
+			t.Fatalf("empty member id error = %v", err)
+		}
+	})
 }
 
 func TestReconcileOrphanReplyCardsOnBoot(t *testing.T) {
-	t.Skip("TODO: reconcileOrphanReplyCardsOnBoot retires the EXISTING orphans (T-4166 存量): a waiting card whose bound task is already terminal can never be answered (the answer route 409s it) and can never leave the owner's pane on its own, so it pins the cockpit red dot forever.")
+	t.Run("waiting cards bound to closed or missing tasks expire while live and unbound cards remain", func(t *testing.T) {
+		api, _, d, _ := newAPITestServer(t)
+		closed := dalTestTask("T-closed")
+		closed.Status = "done"
+		live := dalTestTask("T-live")
+		live.Status = "in_progress"
+		for _, task := range []Task{closed, live} {
+			if err := d.PutTask(task); err != nil {
+				t.Fatalf("PutTask(%q): %v", task.ID, err)
+			}
+		}
+		cards := []ReplyCard{
+			{ID: "rc-closed", FromMember: "mira", Kind: "decision", Status: "waiting", CreatedTS: 10, TaskID: "T-closed", TaskStepID: "ts-closed"},
+			{ID: "rc-missing", FromMember: "mira", Kind: "decision", Status: "waiting", CreatedTS: 11, TaskID: "T-missing", TaskStepID: "ts-missing"},
+			{ID: "rc-live", FromMember: "mira", Kind: "decision", Status: "waiting", CreatedTS: 12, TaskID: "T-live", TaskStepID: "ts-live"},
+			{ID: "rc-plain", FromMember: "mira", Kind: "decision", Status: "waiting", CreatedTS: 13},
+		}
+		for _, card := range cards {
+			if err := d.PutReplyCard(card); err != nil {
+				t.Fatalf("PutReplyCard(%q): %v", card.ID, err)
+			}
+		}
+		dashboard := apiTestListen(t, api, "")
+		initiator := apiTestListen(t, api, "mira")
+
+		count, err := api.reconcileOrphanReplyCardsOnBoot()
+		if err != nil {
+			t.Fatalf("reconcileOrphanReplyCardsOnBoot: %v", err)
+		}
+		if count != 2 {
+			t.Fatalf("reconciled count = %d, want 2", count)
+		}
+		got, err := d.ListReplyCards()
+		if err != nil {
+			t.Fatalf("ListReplyCards: %v", err)
+		}
+		if got[0].Status != "expired" || got[0].ExpiredTS <= 0 || got[1].Status != "expired" || got[1].ExpiredTS <= 0 ||
+			got[2].Status != "waiting" || got[3].Status != "waiting" {
+			t.Fatalf("cards after boot reconciliation = %#v", got)
+		}
+		closedAfter, err := d.GetTask("T-closed")
+		if err != nil || closedAfter == nil {
+			t.Fatalf("GetTask(T-closed): %#v, %v", closedAfter, err)
+		}
+		if !reflect.DeepEqual(*closedAfter, closed) {
+			t.Fatalf("closed task changed: got %#v, want %#v", *closedAfter, closed)
+		}
+		liveAfter, err := d.GetTask("T-live")
+		if err != nil || liveAfter == nil {
+			t.Fatalf("GetTask(T-live): %#v, %v", liveAfter, err)
+		}
+		if !reflect.DeepEqual(*liveAfter, live) {
+			t.Fatalf("live task changed: got %#v, want %#v", *liveAfter, live)
+		}
+		dashboard.wantFrames(
+			apiTestReplyCardFrame(1, "rc-closed", "mira", "expired", "boot-reconcile"),
+			apiTestReplyCardFrame(2, "rc-missing", "mira", "expired", "boot-reconcile"),
+		)
+		initiator.wantFrames(
+			apiTestReplyCardFrame(1, "rc-closed", "mira", "expired", "boot-reconcile"),
+			apiTestReplyCardFrame(2, "rc-missing", "mira", "expired", "boot-reconcile"),
+		)
+	})
 }
 
 func TestHandleAnswerReplyCardApiReplyCardsCardIdAnswerPost(t *testing.T) {
@@ -1107,7 +1803,47 @@ func TestHandleReanswerReplyCardApiReplyCardsCardIdAnswerPut(t *testing.T) {
 }
 
 func TestCallerMayExpireCard(t *testing.T) {
-	t.Skip("TODO: callerMayExpireCard is the in-handler half of the T-1b88 authorization (owner 2026-08-07, card rc-3ff94b116970): admin capability may expire any card, and an ordinary agent may expire exactly the cards IT opened.")
+	t.Run("the owner and admin agent may expire a card opened by another member", func(t *testing.T) {
+		api, _, d, owner := newAPITestServer(t)
+		card := ReplyCard{ID: "rc-1", FromMember: "kip"}
+		for _, tc := range []struct {
+			name  string
+			token string
+		}{
+			{name: "owner", token: owner},
+			{name: "admin agent", token: apiTestAgentToken(t, api, "mira", "")},
+		} {
+			t.Run(tc.name, func(t *testing.T) {
+				taskTestUnderCaller(t, api, d, tc.token, func(r *http.Request) {
+					if !api.callerMayExpireCard(r, card) {
+						t.Fatalf("callerMayExpireCard(%q) = false, want true", tc.name)
+					}
+				})
+			})
+		}
+	})
+
+	t.Run("a plain agent may expire only a card it opened", func(t *testing.T) {
+		api, _, d, _ := newAPITestServer(t)
+		token := apiTestAgentToken(t, api, apiTestPlainAgentID, "")
+		for _, tc := range []struct {
+			name     string
+			from     string
+			wantPass bool
+		}{
+			{name: "own card", from: apiTestPlainAgentID, wantPass: true},
+			{name: "another member card", from: "mira", wantPass: false},
+		} {
+			t.Run(tc.name, func(t *testing.T) {
+				taskTestUnderCaller(t, api, d, token, func(r *http.Request) {
+					got := api.callerMayExpireCard(r, ReplyCard{ID: "rc-1", FromMember: tc.from})
+					if got != tc.wantPass {
+						t.Fatalf("callerMayExpireCard(from=%q) = %v, want %v", tc.from, got, tc.wantPass)
+					}
+				})
+			})
+		}
+	})
 }
 
 func TestHandleExpireReplyCardApiReplyCardsCardIdExpirePost(t *testing.T) {

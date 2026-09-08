@@ -4,6 +4,7 @@
 package main
 
 import (
+	"reflect"
 	"sort"
 	"strconv"
 	"strings"
@@ -160,43 +161,440 @@ func TestHandleIngestAgentContextApiAgentContextPost(t *testing.T) {
 }
 
 func TestTeleNum(t *testing.T) {
-	t.Skip("TODO: teleNum shapes a telemetry numeric: bool / non-number / negative sentinel (-1 = 未量到) → nil, NEVER a fabricated 0 (handlers._tele_num).")
+	cases := []struct {
+		name    string
+		input   any
+		want    float64
+		present bool
+	}{
+		{name: "positive", input: float64(12.5), want: 12.5, present: true},
+		{name: "zero", input: float64(0), want: 0, present: true},
+		{name: "negative sentinel", input: float64(-1)},
+		{name: "bool", input: true},
+		{name: "string", input: "12.5"},
+		{name: "nil", input: nil},
+	}
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			got := teleNum(tc.input)
+			if !tc.present {
+				if got != nil {
+					t.Fatalf("teleNum(%#v) = %v, want nil", tc.input, *got)
+				}
+				return
+			}
+			if got == nil {
+				t.Fatalf("teleNum(%#v) = nil, want %v", tc.input, tc.want)
+			}
+			if *got != tc.want {
+				t.Fatalf("teleNum(%#v) = %v, want %v", tc.input, *got, tc.want)
+			}
+		})
+	}
 }
 
 func TestTeleBool(t *testing.T) {
-	t.Skip("TODO: teleBool shapes a telemetry boolean: absent / non-bool stays honest-nil.")
+	cases := []struct {
+		name    string
+		input   any
+		want    bool
+		present bool
+	}{
+		{name: "true", input: true, want: true, present: true},
+		{name: "false", input: false, want: false, present: true},
+		{name: "string", input: "true"},
+		{name: "number", input: float64(1)},
+		{name: "nil", input: nil},
+	}
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			got := teleBool(tc.input)
+			if !tc.present {
+				if got != nil {
+					t.Fatalf("teleBool(%#v) = %v, want nil", tc.input, *got)
+				}
+				return
+			}
+			if got == nil {
+				t.Fatalf("teleBool(%#v) = nil, want %v", tc.input, tc.want)
+			}
+			if *got != tc.want {
+				t.Fatalf("teleBool(%#v) = %v, want %v", tc.input, *got, tc.want)
+			}
+		})
+	}
 }
 
 func TestHardwareInvalidKeys(t *testing.T) {
-	t.Skip("TODO: hardwareInvalidKeys names the declared hardware keys that are PRESENT in this sample but carry a value the reader cannot use — sorted, empty when the sample is clean.")
+	cases := []struct {
+		name  string
+		input map[string]any
+		want  []string
+	}{
+		{name: "clean", input: map[string]any{
+			"cpu_pct":     float64(12.5),
+			"ram_pct":     float64(41),
+			"battery_pct": float64(-1),
+			"ac_power":    true,
+		}, want: []string{}},
+		{name: "wrong declared types with unknown and null values", input: map[string]any{
+			"cpu_pct":     "12.5",
+			"ram_pct":     nil,
+			"battery_pct": float64(90),
+			"ac_power":    "yes",
+			"new_probe":   "ignored",
+		}, want: []string{"ac_power", "cpu_pct"}},
+	}
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			if got := hardwareInvalidKeys(tc.input); !reflect.DeepEqual(got, tc.want) {
+				t.Fatalf("hardwareInvalidKeys(%#v) = %#v, want %#v", tc.input, got, tc.want)
+			}
+		})
+	}
 }
 
 func TestCommandResultAtEpoch(t *testing.T) {
-	t.Skip("TODO: commandResultAtEpoch parses a command_result \"at\" (RFC3339 from the warden; a bare epoch number accepted for robustness; garbage → 0.0 so a bad timestamp can never shortcut presence).")
+	cases := []struct {
+		name  string
+		input any
+		want  float64
+	}{
+		{name: "number", input: float64(1720000000.5), want: 1720000000.5},
+		{name: "RFC3339", input: "2026-01-01T00:00:00Z", want: 1767225600},
+		{name: "blank", input: " ", want: 0},
+		{name: "garbage", input: "not a timestamp", want: 0},
+		{name: "other type", input: true, want: 0},
+	}
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			if got := commandResultAtEpoch(tc.input); got != tc.want {
+				t.Fatalf("commandResultAtEpoch(%#v) = %v, want %v", tc.input, got, tc.want)
+			}
+		})
+	}
 }
 
 func TestIsStopNoopReceipt(t *testing.T) {
-	t.Skip("TODO: isStopNoopReceipt reports whether a command_result receipt is a no-op stop: an OK stop whose reason carries the no_such_session code.")
+	cases := []struct {
+		name   string
+		rpc    string
+		ok     *bool
+		reason string
+		want   bool
+	}{
+		{name: "member stop", rpc: "stop", ok: boolPtr(true), reason: "no_such_session: missing", want: true},
+		{name: "worker stop", rpc: "worker_stop", ok: boolPtr(true), reason: "no_such_session: missing", want: true},
+		{name: "failed stop", rpc: "stop", ok: boolPtr(false), reason: "no_such_session: missing", want: false},
+		{name: "other rpc", rpc: "start", ok: boolPtr(true), reason: "no_such_session: missing", want: false},
+		{name: "unknown result", rpc: "stop", ok: nil, reason: "no_such_session: missing", want: false},
+		{name: "embedded code", rpc: "stop", ok: boolPtr(true), reason: "failed: no_such_session", want: false},
+	}
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			if got := isStopNoopReceipt(tc.rpc, tc.ok, tc.reason); got != tc.want {
+				t.Fatalf("isStopNoopReceipt(%q, %#v, %q) = %v, want %v",
+					tc.rpc, tc.ok, tc.reason, got, tc.want)
+			}
+		})
+	}
 }
 
 func TestSupersededDispatchClue(t *testing.T) {
-	t.Skip("TODO: supersededDispatchClue returns a one-line carry-forward of the member's CURRENT last_op_reason when that reason is a dispatch-level diagnosis (the \"nothing ever came back\" story) about to be replaced by an execution receipt (the \"the machine acted and here is what happened\" story).")
+	cases := []struct {
+		name   string
+		member Member
+		want   string
+	}{
+		{name: "dispatch diagnosis", member: Member{LastOpAt: 1720000000, LastOpReason: "wake_timeout: machine never woke"}, want: "[superseded dispatch diagnosis @1720000000] wake_timeout: machine never woke"},
+		{name: "different reason", member: Member{LastOpAt: 1720000000, LastOpReason: "stopped"}, want: ""},
+		{name: "bare code", member: Member{LastOpAt: 1720000000, LastOpReason: "wake_timeout"}, want: ""},
+		{name: "empty", member: Member{}, want: ""},
+	}
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			if got := supersededDispatchClue(tc.member); got != tc.want {
+				t.Fatalf("supersededDispatchClue(%#v) = %q, want %q", tc.member, got, tc.want)
+			}
+		})
+	}
 }
 
 func TestStringOf(t *testing.T) {
-	t.Skip("TODO: stringOf / boolPtrOf are the two type assertions the receipt reads use, named once so the pre-routing peek at rpc/ok/reason cannot drift from the per-fold reads further down (they must agree — the peek decides whether the folds' own isStopNoopReceipt verdict is about to fire).")
+	cases := []struct {
+		name  string
+		input any
+		want  string
+	}{
+		{name: "string", input: "stop", want: "stop"},
+		{name: "empty", input: "", want: ""},
+		{name: "number", input: float64(1), want: ""},
+		{name: "nil", input: nil, want: ""},
+	}
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			if got := stringOf(tc.input); got != tc.want {
+				t.Fatalf("stringOf(%#v) = %q, want %q", tc.input, got, tc.want)
+			}
+		})
+	}
 }
 
 func TestBoolPtrOf(t *testing.T) {
-	t.Skip("TODO: 需要人工判斷這個函式的可觀察結果是什麼")
+	cases := []struct {
+		name    string
+		input   any
+		want    bool
+		present bool
+	}{
+		{name: "true", input: true, want: true, present: true},
+		{name: "false", input: false, want: false, present: true},
+		{name: "string", input: "true"},
+		{name: "number", input: float64(1)},
+		{name: "nil", input: nil},
+	}
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			got := boolPtrOf(tc.input)
+			if !tc.present {
+				if got != nil {
+					t.Fatalf("boolPtrOf(%#v) = %v, want nil", tc.input, *got)
+				}
+				return
+			}
+			if got == nil {
+				t.Fatalf("boolPtrOf(%#v) = nil, want %v", tc.input, tc.want)
+			}
+			if *got != tc.want {
+				t.Fatalf("boolPtrOf(%#v) = %v, want %v", tc.input, *got, tc.want)
+			}
+		})
+	}
 }
 
 func TestFoldCommandResult(t *testing.T) {
-	t.Skip("TODO: foldCommandResult folds ONE warden command_result receipt onto the addressed member's last_op* fields (handlers._fold_command_result).")
+	t.Run("a receipt is trimmed to the addressed member, persisted with its full outcome, and fanned to the owner and member", func(t *testing.T) {
+		api, _, d, _ := newAPITestServer(t)
+		before := apiTestMemberRow(t, d, "kip")
+		dashboard := apiTestListen(t, api, "")
+		self := apiTestListen(t, api, "kip")
+		bystander := apiTestListen(t, api, "mira")
+
+		api.foldCommandResult(map[string]any{
+			"member_id": " kip ", "rpc": "start", "ok": true,
+			"reason": "started", "log": "session started", "at": "2026-01-01T00:00:00Z",
+		}, "telemetry", "m-server-self")
+
+		want := before
+		want.LastOp = "start"
+		want.LastOpOK = boolPtr(true)
+		want.LastOpReason = "started"
+		want.LastOpLog = "session started"
+		want.LastOpAt = 1767225600
+		apiTestWantEqual(t, "stored member", apiTestMemberRow(t, d, "kip"), want)
+		frame := apiTestMemberFrame(1, "patch", "kip",
+			apiTestMemberPayload("kip", "Kip", "active", ""), "telemetry")
+		dashboard.wantFrames(frame)
+		self.wantFrames(frame)
+		bystander.wantFrames()
+	})
+
+	t.Run("a missing log falls back to reason and an untyped ok stays NULL", func(t *testing.T) {
+		api, _, d, _ := newAPITestServer(t)
+		before := apiTestMemberRow(t, d, "kip")
+		dashboard := apiTestListen(t, api, "")
+
+		api.foldCommandResult(map[string]any{
+			"member_id": "kip", "rpc": "stop", "ok": "unknown",
+			"reason": "stop refused", "at": float64(1720000000),
+		}, "telemetry", "m-server-self")
+
+		want := before
+		want.LastOp = "stop"
+		want.LastOpOK = nil
+		want.LastOpReason = "stop refused"
+		want.LastOpLog = "stop refused"
+		want.LastOpAt = 1720000000
+		apiTestWantEqual(t, "stored member", apiTestMemberRow(t, d, "kip"), want)
+		dashboard.wantFrames(apiTestMemberFrame(1, "patch", "kip",
+			apiTestMemberPayload("kip", "Kip", "active", ""), "telemetry"))
+	})
+
+	t.Run("a successful no-such-session stop leaves the existing receipt untouched and fans nothing", func(t *testing.T) {
+		api, _, d, _ := newAPITestServer(t)
+		before := apiTestMemberRow(t, d, "kip")
+		before.LastOp = "start"
+		before.LastOpOK = boolPtr(true)
+		before.LastOpLog = "session started"
+		before.LastOpReason = "started"
+		before.LastOpAt = 1720000000
+		if err := d.SetMemberOpReceipt(before.ID, before.LastOp, before.LastOpOK,
+			before.LastOpLog, before.LastOpReason, before.LastOpAt); err != nil {
+			t.Fatalf("SetMemberOpReceipt: %v", err)
+		}
+		dashboard := apiTestListen(t, api, "")
+
+		api.foldCommandResult(map[string]any{
+			"member_id": "kip", "rpc": "stop", "ok": true,
+			"reason": "no_such_session: nothing to kill", "log": "no session",
+			"at": float64(1720000100),
+		}, "telemetry", "m-server-self")
+
+		apiTestWantEqual(t, "stored member", apiTestMemberRow(t, d, "kip"), before)
+		dashboard.wantFrames()
+	})
+
+	t.Run("an unknown or blank member id is ignored without creating a row or fan", func(t *testing.T) {
+		for _, memberID := range []string{"", "ghost"} {
+			t.Run(map[string]string{"": "blank", "ghost": "unknown"}[memberID], func(t *testing.T) {
+				api, _, d, _ := newAPITestServer(t)
+				dashboard := apiTestListen(t, api, "")
+
+				api.foldCommandResult(map[string]any{
+					"member_id": memberID, "rpc": "start", "ok": true,
+					"reason": "started", "log": "started", "at": float64(1720000000),
+				}, "telemetry", "m-server-self")
+
+				if memberID != "" {
+					got, err := d.GetMember(memberID)
+					if err != nil {
+						t.Fatalf("GetMember(%q): %v", memberID, err)
+					}
+					if got != nil {
+						t.Fatalf("unknown member was created: %#v", got)
+					}
+				}
+				dashboard.wantFrames()
+			})
+		}
+	})
+
+	t.Run("a successful uninstall converges desired state before publishing the receipt", func(t *testing.T) {
+		api, _, d, _ := newAPITestServer(t)
+		before := apiTestMemberRow(t, d, "kip")
+		before.DesiredState = DesiredStateOnline
+		if err := d.PutMember(before); err != nil {
+			t.Fatalf("PutMember: %v", err)
+		}
+		dashboard := apiTestListen(t, api, "")
+
+		api.foldCommandResult(map[string]any{
+			"member_id": "kip", "rpc": "uninstall", "ok": true,
+			"reason": "uninstalled", "log": "teardown complete", "at": float64(1720000200),
+		}, "telemetry", "m-server-self")
+
+		want := before
+		want.DesiredState = DesiredStateOffline
+		want.LastOp = "uninstall"
+		want.LastOpOK = boolPtr(true)
+		want.LastOpReason = "uninstalled"
+		want.LastOpLog = "teardown complete"
+		want.LastOpAt = 1720000200
+		apiTestWantEqual(t, "stored member", apiTestMemberRow(t, d, "kip"), want)
+		payload := apiTestMemberPayload("kip", "Kip", "active", DesiredStateOffline)
+		dashboard.wantFrames(
+			apiTestMemberFrame(1, "patch", "kip", payload, "telemetry"),
+			apiTestMemberFrame(2, "patch", "kip", payload, "telemetry"),
+		)
+	})
 }
 
 func TestFoldWorkerCommandResult(t *testing.T) {
-	t.Skip("TODO: foldWorkerCommandResult folds ONE warden worker command_result receipt (worker_start / worker_stop, T-9ccf) onto the addressed outsource_worker row's last_op* fields — the worker twin of foldCommandResult's member fold, reusing the SAME clamps and three-valued ok.")
+	t.Run("a worker receipt persists the five outcome fields, leaves lifecycle alone, and reaches only the owner", func(t *testing.T) {
+		api, h, d, owner := newAPITestServer(t)
+		apiTestWorkerFixture(t, h, d, owner, "ow-abc123", WorkerStatusAssigned)
+		before, err := d.GetOutsourceWorker("ow-abc123")
+		if err != nil || before == nil {
+			t.Fatalf("GetOutsourceWorker before: %v %v", before, err)
+		}
+		dashboard := apiTestListen(t, api, "")
+		workerListener := apiTestListen(t, api, "ow-abc123")
+
+		api.foldWorkerCommandResult("ow-abc123", map[string]any{
+			"rpc": "worker_stop", "ok": false, "reason": "stop failed",
+			"at": float64(1720000000),
+		}, "warden-1")
+
+		want := *before
+		want.LastOp = "worker_stop"
+		want.LastOpOK = boolPtr(false)
+		want.LastOpLog = "stop failed"
+		want.LastOpReason = "stop failed"
+		want.LastOpAt = 1720000000
+		after, err := d.GetOutsourceWorker("ow-abc123")
+		if err != nil || after == nil {
+			t.Fatalf("GetOutsourceWorker after: %v %v", after, err)
+		}
+		apiTestWantEqual(t, "stored worker", *after, want)
+		dashboard.wantFrames(apiTestWorkerDelta(2, "assigned", "warden-1"))
+		workerListener.wantFrames()
+	})
+
+	t.Run("a no-such-session worker stop leaves the existing receipt untouched and fans nothing", func(t *testing.T) {
+		api, h, d, owner := newAPITestServer(t)
+		apiTestWorkerFixture(t, h, d, owner, "ow-abc123", WorkerStatusAssigned)
+		before, err := d.GetOutsourceWorker("ow-abc123")
+		if err != nil || before == nil {
+			t.Fatalf("GetOutsourceWorker before: %v %v", before, err)
+		}
+		before.LastOp = "worker_start"
+		before.LastOpOK = boolPtr(true)
+		before.LastOpLog = "started"
+		before.LastOpReason = "started"
+		before.LastOpAt = 1720000000
+		if err := d.SetMemberOpReceipt(before.ID, before.LastOp, before.LastOpOK,
+			before.LastOpLog, before.LastOpReason, before.LastOpAt); err != nil {
+			t.Fatalf("SetMemberOpReceipt: %v", err)
+		}
+		dashboard := apiTestListen(t, api, "")
+
+		api.foldWorkerCommandResult("ow-abc123", map[string]any{
+			"rpc": "worker_stop", "ok": true,
+			"reason": "no_such_session: nothing to kill", "log": "no session",
+			"at": float64(1720000100),
+		}, "warden-1")
+
+		after, err := d.GetOutsourceWorker("ow-abc123")
+		if err != nil || after == nil {
+			t.Fatalf("GetOutsourceWorker after: %v %v", after, err)
+		}
+		apiTestWantEqual(t, "stored worker", *after, *before)
+		dashboard.wantFrames()
+	})
+
+	t.Run("a refused worker start records its failure and benches the attempted machine", func(t *testing.T) {
+		api, h, d, owner := newAPITestServer(t)
+		apiTestWorkerFixture(t, h, d, owner, "ow-abc123", WorkerStatusAssigned)
+		api.workerSpawnTarget["ow-abc123"] = "m-server-self"
+		dashboard := apiTestListen(t, api, "")
+
+		api.foldWorkerCommandResult("ow-abc123", map[string]any{
+			"rpc": "start", "ok": false, "reason": "machine refused",
+			"log": "start refused", "at": float64(1720000200),
+		}, "warden-1")
+
+		worker, err := d.GetOutsourceWorker("ow-abc123")
+		if err != nil || worker == nil {
+			t.Fatalf("GetOutsourceWorker: %v %v", worker, err)
+		}
+		if worker.LastOp != "start" || worker.LastOpOK == nil || *worker.LastOpOK ||
+			worker.LastOpLog != "start refused" || worker.LastOpReason != "machine refused" ||
+			worker.LastOpAt != 1720000200 {
+			t.Fatalf("worker receipt = %#v", worker)
+		}
+		if !api.workerMachineCoolingOn("ow-abc123", "m-server-self", nowSecs()) {
+			t.Fatalf("the refused target was not benched")
+		}
+		dashboard.wantFrames(apiTestWorkerDelta(2, "assigned", "warden-1"))
+	})
 }
 
 func TestHandleIngestTelemetryApiMonitoringTelemetryPost(t *testing.T) {
@@ -547,39 +945,345 @@ func TestHandleIngestTelemetryApiMonitoringTelemetryPost(t *testing.T) {
 }
 
 func TestStampReportedLaunchFacts(t *testing.T) {
-	t.Skip("TODO: stampReportedLaunchFacts persists a session's live self-reported model, runtime and effort onto the caller's OWN roster row (identity-from-token: agentID is the verified sub).")
+	t.Run("a report is trimmed, persisted on the named roster row, and fanned to that row and the owner", func(t *testing.T) {
+		api, _, d, _ := newAPITestServer(t)
+		before := apiTestMemberRow(t, d, "kip")
+		dashboard := apiTestListen(t, api, "")
+		self := apiTestListen(t, api, "kip")
+		bystander := apiTestListen(t, api, "mira")
+
+		api.stampReportedLaunchFacts("kip", " opus ", " codex ", " high ", "telemetry")
+
+		want := before
+		want.ActualModel = "opus"
+		want.ActualRuntime = "codex"
+		want.ActualEffort = "high"
+		apiTestWantEqual(t, "stored member", apiTestMemberRow(t, d, "kip"), want)
+		frame := apiTestMemberFrame(1, "patch", "kip",
+			apiTestMemberPayload("kip", "Kip", "active", ""), "telemetry")
+		dashboard.wantFrames(frame)
+		self.wantFrames(frame)
+		bystander.wantFrames()
+	})
+
+	t.Run("blank reported facts do not erase existing values or publish a frame", func(t *testing.T) {
+		api, _, d, _ := newAPITestServer(t)
+		before := apiTestMemberRow(t, d, "kip")
+		before.ActualModel = "old-model"
+		before.ActualRuntime = "old-runtime"
+		before.ActualEffort = "old-effort"
+		if err := d.PutMember(before); err != nil {
+			t.Fatalf("PutMember: %v", err)
+		}
+		dashboard := apiTestListen(t, api, "")
+
+		api.stampReportedLaunchFacts("kip", " ", "", "\t", "telemetry")
+
+		apiTestWantEqual(t, "stored member", apiTestMemberRow(t, d, "kip"), before)
+		dashboard.wantFrames()
+	})
+
+	t.Run("a partial report changes only its non-blank facts", func(t *testing.T) {
+		api, _, d, _ := newAPITestServer(t)
+		before := apiTestMemberRow(t, d, "kip")
+		before.ActualModel = "old-model"
+		before.ActualRuntime = "old-runtime"
+		before.ActualEffort = "old-effort"
+		if err := d.PutMember(before); err != nil {
+			t.Fatalf("PutMember: %v", err)
+		}
+		dashboard := apiTestListen(t, api, "")
+
+		api.stampReportedLaunchFacts("kip", " new-model ", "", "new-effort", "telemetry")
+
+		want := before
+		want.ActualModel = "new-model"
+		want.ActualEffort = "new-effort"
+		apiTestWantEqual(t, "stored member", apiTestMemberRow(t, d, "kip"), want)
+		dashboard.wantFrames(apiTestMemberFrame(1, "patch", "kip",
+			apiTestMemberPayload("kip", "Kip", "active", ""), "telemetry"))
+	})
+
+	t.Run("an unchanged report publishes nothing", func(t *testing.T) {
+		api, _, d, _ := newAPITestServer(t)
+		before := apiTestMemberRow(t, d, "kip")
+		before.ActualModel = "opus"
+		before.ActualRuntime = "codex"
+		before.ActualEffort = "high"
+		if err := d.PutMember(before); err != nil {
+			t.Fatalf("PutMember: %v", err)
+		}
+		dashboard := apiTestListen(t, api, "")
+
+		api.stampReportedLaunchFacts("kip", "opus", "codex", "high", "telemetry")
+
+		apiTestWantEqual(t, "stored member", apiTestMemberRow(t, d, "kip"), before)
+		dashboard.wantFrames()
+	})
+
+	t.Run("an unknown or dismissed roster row is unchanged and receives no frame", func(t *testing.T) {
+		for _, dismissed := range []bool{false, true} {
+			name := "unknown"
+			id := "ghost"
+			if dismissed {
+				name = "dismissed"
+				id = "kip"
+			}
+			t.Run(name, func(t *testing.T) {
+				api, _, d, _ := newAPITestServer(t)
+				var before Member
+				if dismissed {
+					before = apiTestMemberRow(t, d, id)
+					before.RosterStatus = RosterStatusRemoved
+					if err := d.PutMember(before); err != nil {
+						t.Fatalf("PutMember: %v", err)
+					}
+				}
+				dashboard := apiTestListen(t, api, "")
+
+				api.stampReportedLaunchFacts(id, "opus", "codex", "high", "telemetry")
+
+				if dismissed {
+					apiTestWantEqual(t, "dismissed member", apiTestMemberRow(t, d, id), before)
+				} else {
+					got, err := d.GetMember(id)
+					if err != nil {
+						t.Fatalf("GetMember(%q): %v", id, err)
+					}
+					if got != nil {
+						t.Fatalf("unknown member was created: %#v", got)
+					}
+				}
+				dashboard.wantFrames()
+			})
+		}
+	})
 }
 
 func TestOrUnknown(t *testing.T) {
-	t.Skip("TODO: 需要人工判斷這個函式的可觀察結果是什麼")
+	cases := []struct {
+		name  string
+		input any
+		want  any
+	}{
+		{name: "nil", input: nil, want: "?"},
+		{name: "string", input: "claude", want: "claude"},
+		{name: "zero", input: float64(0), want: float64(0)},
+		{name: "false", input: false, want: false},
+	}
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			if got := orUnknown(tc.input); !reflect.DeepEqual(got, tc.want) {
+				t.Fatalf("orUnknown(%#v) = %#v, want %#v", tc.input, got, tc.want)
+			}
+		})
+	}
 }
 
 func TestEntryStr(t *testing.T) {
-	t.Skip("TODO: 需要人工判斷這個函式的可觀察結果是什麼")
+	entry := map[string]any{"ok": "value", "wrong": float64(1)}
+	cases := []struct {
+		name    string
+		key     string
+		want    string
+		present bool
+	}{
+		{name: "matching string", key: "ok", want: "value", present: true},
+		{name: "wrong type", key: "wrong"},
+		{name: "absent", key: "absent"},
+	}
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			got := entryStr(entry, tc.key)
+			if !tc.present {
+				if got != nil {
+					t.Fatalf("entryStr(%q) = %q, want nil", tc.key, *got)
+				}
+				return
+			}
+			if got == nil {
+				t.Fatalf("entryStr(%q) = nil, want %q", tc.key, tc.want)
+			}
+			if *got != tc.want {
+				t.Fatalf("entryStr(%q) = %q, want %q", tc.key, *got, tc.want)
+			}
+		})
+	}
 }
 
 func TestEntryObj(t *testing.T) {
-	t.Skip("TODO: 需要人工判斷這個函式的可觀察結果是什麼")
+	object := map[string]any{"nested": true}
+	entry := map[string]any{"ok": object, "wrong": "object"}
+	cases := []struct {
+		name    string
+		key     string
+		want    map[string]any
+		present bool
+	}{
+		{name: "matching object", key: "ok", want: object, present: true},
+		{name: "wrong type", key: "wrong"},
+		{name: "absent", key: "absent"},
+	}
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			got := entryObj(entry, tc.key)
+			if !tc.present {
+				if got != nil {
+					t.Fatalf("entryObj(%q) = %#v, want nil", tc.key, got)
+				}
+				return
+			}
+			if !reflect.DeepEqual(got, tc.want) {
+				t.Fatalf("entryObj(%q) = %#v, want %#v", tc.key, got, tc.want)
+			}
+		})
+	}
 }
 
 func TestEntryNum(t *testing.T) {
-	t.Skip("TODO: 需要人工判斷這個函式的可觀察結果是什麼")
+	entry := map[string]any{"ok": float64(12.5), "wrong": "12.5"}
+	cases := []struct {
+		name    string
+		key     string
+		want    float64
+		present bool
+	}{
+		{name: "matching number", key: "ok", want: 12.5, present: true},
+		{name: "wrong type", key: "wrong"},
+		{name: "absent", key: "absent"},
+	}
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			got := entryNum(entry, tc.key)
+			if !tc.present {
+				if got != nil {
+					t.Fatalf("entryNum(%q) = %v, want nil", tc.key, *got)
+				}
+				return
+			}
+			if got == nil {
+				t.Fatalf("entryNum(%q) = nil, want %v", tc.key, tc.want)
+			}
+			if *got != tc.want {
+				t.Fatalf("entryNum(%q) = %v, want %v", tc.key, *got, tc.want)
+			}
+		})
+	}
 }
 
 func TestRuntimeCapabilitiesStampOf(t *testing.T) {
-	t.Skip("TODO: runtimeCapabilitiesStampOf reads WHEN the entry's capability probe was taken.")
+	cases := []struct {
+		name  string
+		entry map[string]any
+		want  float64
+	}{
+		{name: "stamp", entry: map[string]any{"runtimes_ts": float64(1720000000)}, want: 1720000000},
+		{name: "wrong type", entry: map[string]any{"runtimes_ts": "1720000000"}, want: 0},
+		{name: "absent", entry: map[string]any{}, want: 0},
+	}
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			if got := runtimeCapabilitiesStampOf(tc.entry); got != tc.want {
+				t.Fatalf("runtimeCapabilitiesStampOf(%#v) = %v, want %v", tc.entry, got, tc.want)
+			}
+		})
+	}
 }
 
 func TestRateLimitStampOf(t *testing.T) {
-	t.Skip("TODO: 需要人工判斷這個函式的可觀察結果是什麼")
+	cases := []struct {
+		name  string
+		entry map[string]any
+		want  float64
+	}{
+		{name: "stamp", entry: map[string]any{"rate_limits_ts": float64(1720000000)}, want: 1720000000},
+		{name: "wrong type", entry: map[string]any{"rate_limits_ts": "1720000000"}, want: 0},
+		{name: "absent", entry: map[string]any{}, want: 0},
+	}
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			if got := rateLimitStampOf(tc.entry); got != tc.want {
+				t.Fatalf("rateLimitStampOf(%#v) = %v, want %v", tc.entry, got, tc.want)
+			}
+		})
+	}
 }
 
 func TestUsableRateLimitWindow(t *testing.T) {
-	t.Skip("TODO: 需要人工判斷這個函式的可觀察結果是什麼")
+	cases := []struct {
+		name       string
+		raw        any
+		windowSec  float64
+		now        float64
+		wantWindow map[string]any
+		wantReset  float64
+		wantOK     bool
+	}{
+		{
+			name:       "valid numeric reset",
+			raw:        map[string]any{"used_percentage": float64(25), "resets_at": float64(1720003600)},
+			windowSec:  3600,
+			now:        1720001800,
+			wantWindow: map[string]any{"used_percentage": float64(25), "resets_at": float64(1720003600)},
+			wantReset:  1720003600,
+			wantOK:     true,
+		},
+		{
+			name:       "valid RFC3339 reset",
+			raw:        map[string]any{"resets_at": "2026-01-01T01:00:00Z"},
+			windowSec:  3600,
+			now:        1767227400,
+			wantWindow: map[string]any{"resets_at": "2026-01-01T01:00:00Z"},
+			wantReset:  1767229200,
+			wantOK:     true,
+		},
+		{name: "before window", raw: map[string]any{"resets_at": float64(1720003600)}, windowSec: 3600, now: 1719999999},
+		{name: "at reset", raw: map[string]any{"resets_at": float64(1720003600)}, windowSec: 3600, now: 1720003600},
+		{name: "missing reset", raw: map[string]any{"used_percentage": float64(25)}, windowSec: 3600, now: 1720001800},
+		{name: "not an object", raw: "window", windowSec: 3600, now: 1720001800},
+		{name: "non-positive window", raw: map[string]any{"resets_at": float64(1720003600)}, windowSec: 0, now: 1720001800},
+	}
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			window, resetAt, ok := usableRateLimitWindow(tc.raw, tc.windowSec, tc.now)
+			if !reflect.DeepEqual(window, tc.wantWindow) {
+				t.Errorf("window = %#v, want %#v", window, tc.wantWindow)
+			}
+			if resetAt != tc.wantReset {
+				t.Errorf("resetAt = %v, want %v", resetAt, tc.wantReset)
+			}
+			if ok != tc.wantOK {
+				t.Errorf("ok = %v, want %v", ok, tc.wantOK)
+			}
+		})
+	}
 }
 
 func TestHardwareStampOf(t *testing.T) {
-	t.Skip("TODO: hardwareStampOf reads WHEN the entry's hardware sample was taken.")
+	cases := []struct {
+		name  string
+		entry map[string]any
+		want  float64
+	}{
+		{name: "stamp", entry: map[string]any{"hardware_ts": float64(1720000000)}, want: 1720000000},
+		{name: "wrong type", entry: map[string]any{"hardware_ts": "1720000000"}, want: 0},
+		{name: "absent", entry: map[string]any{}, want: 0},
+	}
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			if got := hardwareStampOf(tc.entry); got != tc.want {
+				t.Fatalf("hardwareStampOf(%#v) = %v, want %v", tc.entry, got, tc.want)
+			}
+		})
+	}
 }
 
 // apiTestMonitoringSession is a session row with nothing observed on it yet —
@@ -909,5 +1613,26 @@ func TestHandleGetMonitoringApiMonitoringGet(t *testing.T) {
 }
 
 func TestAnyOrNil(t *testing.T) {
-	t.Skip("TODO: anyOrNil widens a possibly-nil typed map to `any` so ShapeWindows sees a true nil (a typed nil inside any is not nil to a type switch on map).")
+	var nilMap map[string]any
+	cases := []struct {
+		name  string
+		input map[string]any
+		want  any
+	}{
+		{name: "nil", input: nilMap, want: nil},
+		{name: "empty", input: map[string]any{}, want: map[string]any{}},
+		{name: "value", input: map[string]any{
+			"five_hour": map[string]any{"used_pct": float64(10)},
+		}, want: map[string]any{
+			"five_hour": map[string]any{"used_pct": float64(10)},
+		}},
+	}
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			if got := anyOrNil(tc.input); !reflect.DeepEqual(got, tc.want) {
+				t.Fatalf("anyOrNil(%#v) = %#v, want %#v", tc.input, got, tc.want)
+			}
+		})
+	}
 }
