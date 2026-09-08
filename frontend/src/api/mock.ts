@@ -45,6 +45,7 @@ import type {
   ChatMessage,
   ChatReplyQuote,
   ChatReadReceipt,
+  ChatMarkReadReceipt,
   ChatAttachmentInput,
   PushSubscriptionInput,
   ChatAttachmentView,
@@ -1297,6 +1298,11 @@ function findTask(id: string): MockTaskRow {
     );
   }
   return t;
+}
+
+/** The stored watermark for one conversation, 0 when none was ever recorded. */
+function readWatermark(reader: string, peer: string): number {
+  return chatReads.get(`${reader}::${peer}`)?.lastReadTs ?? 0;
 }
 
 function markRead(reader: string, peer: string, lastReadTs: number): ChatReadReceipt {
@@ -3491,10 +3497,18 @@ export const mockApi: Api = {
   async markChatRead(mark: {
     peer: string;
     lastReadTs: number;
-  }): Promise<ChatReadReceipt> {
+  }): Promise<ChatMarkReadReceipt> {
     // Record the OWNER's read watermark for this peer conversation (reader =
-    // MOCK_OWNER_ID, matching the BE's verified-sub stamp). Monotonic.
-    return markRead(MOCK_OWNER_ID, mark.peer, mark.lastReadTs);
+    // MOCK_OWNER_ID, matching the BE's verified-sub stamp). Monotonic, and the
+    // receipt says whether THIS call moved it — same bounded shape the server
+    // answers (T-133).
+    const before = readWatermark(MOCK_OWNER_ID, mark.peer);
+    const receipt = markRead(MOCK_OWNER_ID, mark.peer, mark.lastReadTs);
+    return {
+      peerId: receipt.peerId,
+      lastReadTs: receipt.lastReadTs,
+      advanced: receipt.lastReadTs > before,
+    };
   },
 
   async listChatReads(peer: string): Promise<ChatReadReceipt[]> {

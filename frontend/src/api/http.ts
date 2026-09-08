@@ -64,6 +64,7 @@ import type {
   ChatAnchor,
   ChatMessage,
   ChatReadReceipt,
+  ChatMarkReadReceipt,
   ChatAttachmentInput,
   PushSubscriptionInput,
   GalleryAttachment,
@@ -114,6 +115,7 @@ import {
   toMember,
   toChatMessage,
   toChatRead,
+  toChatMarkReadReceipt,
   toGalleryAttachment,
   toReplyCard,
   toReplyCardWriteReceipt,
@@ -1548,16 +1550,18 @@ export const httpApi: Api = {
   async markChatRead(mark: {
     peer: string;
     lastReadTs: number;
-  }): Promise<ChatReadReceipt> {
-    // POST /api/chat/mark-read {peer, last_read_ts} -> ChatReadDTO. The reader is
-    // stamped server-side from the verified JWT sub (anti-spoof); the watermark is
-    // monotonic (a stale ts is a server-side no-op). Returns the effective receipt.
+  }): Promise<ChatMarkReadReceipt> {
+    // POST /api/chat/mark-read {peer, last_read_ts} -> ChatMarkReadReceiptDTO.
+    // The reader is stamped server-side from the verified JWT sub (anti-spoof),
+    // so it is never on this wire — it is the caller. The watermark is monotonic
+    // (a stale ts is a server-side no-op), and `advanced` is the only way to tell
+    // that apart from a report that landed (T-133).
     const wire = unwrap(
       await client.POST("/api/chat/mark-read", {
         body: { peer: mark.peer, last_read_ts: mark.lastReadTs },
       }),
     );
-    return toChatRead(wire);
+    return toChatMarkReadReceipt(wire);
   },
 
   async listChatReads(peer: string): Promise<ChatReadReceipt[]> {

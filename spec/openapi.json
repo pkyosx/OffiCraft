@@ -78,41 +78,6 @@
         "required": ["kind", "key", "content"],
         "type": "object"
       },
-      "AgentContextDTO": {
-        "description": "Echo of a stored gauge entry (``POST /api/agent/context`` response).",
-        "properties": {
-          "agent_id": {
-            "title": "Agent Id",
-            "type": "string"
-          },
-          "context_pct": {
-            "title": "Context Pct",
-            "type": "number"
-          },
-          "compaction_count": {
-            "description": "Codex App Server context compactions in this live session; null for runtimes that do not report it.",
-            "title": "Compaction Count",
-            "type": "integer"
-          },
-          "rate_limits": {
-            "additionalProperties": true,
-            "title": "Rate Limits",
-            "type": "object"
-          },
-          "ts": {
-            "title": "Ts",
-            "type": "number"
-          }
-        },
-        "required": [
-          "agent_id",
-          "context_pct",
-          "ts"
-        ],
-        "title": "AgentContextDTO",
-        "additionalProperties": false,
-        "type": "object"
-      },
       "AgentContextIngestDTO": {
         "description": "Inbound agent context-gauge report (``POST /api/agent/context``). The gauge\nkey is the CALLER (the verified JWT ``sub``), NEVER a self-reported ``agent_id``\n(identity-from-token audit) — the field was removed, so an agent can only ever\nreport its OWN context. ``context_pct`` is permissive so the handler returns a\nclean 400 (not a Pydantic 422) on a non-numeric value.",
         "properties": {
@@ -130,208 +95,6 @@
           }
         },
         "title": "AgentContextIngestDTO",
-        "additionalProperties": false,
-        "type": "object"
-      },
-      "AgentTelemetryDTO": {
-        "description": "Echo of a stored telemetry entry (``POST /api/monitoring/telemetry``).",
-        "properties": {
-          "account": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Account"
-          },
-          "agent_id": {
-            "title": "Agent Id",
-            "type": "string"
-          },
-          "binaries": {
-            "anyOf": [
-              {
-                "additionalProperties": true,
-                "type": "object"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Binaries"
-          },
-          "claude": {
-            "anyOf": [
-              {
-                "additionalProperties": true,
-                "type": "object"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Echo of the stored claude CLI probe (see ``AgentTelemetryIngestDTO.claude`` — T-97ee); null when never reported.",
-            "title": "Claude"
-          },
-          "command_result": {
-            "anyOf": [
-              {
-                "additionalProperties": true,
-                "type": "object"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Command Result"
-          },
-          "cost": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Cost"
-          },
-          "cutover_effect": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Echo of the stored cutover-effect verdict (see ``AgentTelemetryIngestDTO.cutover_effect``); null when never reported.",
-            "title": "Cutover Effect"
-          },
-          "effort": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Effort"
-          },
-          "hardware": {
-            "anyOf": [
-              {
-                "additionalProperties": true,
-                "type": "object"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Hardware"
-          },
-          "machine": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Machine"
-          },
-          "rate_limits": {
-            "anyOf": [
-              {
-                "additionalProperties": true,
-                "type": "object"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Rate Limits"
-          },
-          "runtime": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/AgentRuntime"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "The provider runtime that produced this session telemetry. null when an older reporter did not identify it.",
-            "title": "Runtime Key"
-          },
-          "runtimes": {
-            "anyOf": [
-              {
-                "additionalProperties": {
-                  "$ref": "#/components/schemas/RuntimeCapabilityDTO"
-                },
-                "type": "object"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Warden heartbeats only — provider-neutral machine runtime capabilities keyed by runtime name. null when never reported.",
-            "title": "Runtimes"
-          },
-          "self_update": {
-            "anyOf": [
-              {
-                "additionalProperties": true,
-                "type": "object"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Self Update"
-          },
-          "tokens": {
-            "anyOf": [
-              {
-                "additionalProperties": {
-                  "type": "integer"
-                },
-                "type": "object"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Tokens"
-          },
-          "ts": {
-            "title": "Ts",
-            "type": "number"
-          },
-          "warden_shape": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Echo of the stored warden shape verdict (see ``AgentTelemetryIngestDTO.warden_shape``); null when never reported.",
-            "title": "Warden Shape"
-          }
-        },
-        "required": [
-          "agent_id",
-          "ts"
-        ],
-        "title": "AgentTelemetryDTO",
         "additionalProperties": false,
         "type": "object"
       },
@@ -5938,6 +5701,90 @@
         "additionalProperties": false,
         "type": "object"
       },
+      "AgentContextReceiptDTO": {
+        "description": "Bounded receipt returned after ``POST /api/agent/context`` (ingest_agent_context) (T-133). It used to answer ``AgentContextDTO``, an echo of the gauge entry the caller had just written — ``context_pct``, ``compaction_count`` and the whole free-form ``rate_limits`` object, all of them the caller's own body handed straight back.\n\nThe two fields left are the two the caller did not send. ``agent_id`` is the verified JWT sub the gauge was filed under — this route takes NO agent_id in its body (it was removed so an agent can only ever report its own context), so the receipt is the only place the attribution is visible. ``ts`` is the server's stamp. The gauge itself is served by ``get_monitoring``.\n\nThis route MERGES onto the prior entry, so what is stored after a call is not in general what the call sent; that is a reason to read the gauge deliberately, not a reason to ship it back on every report.",
+        "properties": {
+          "agent_id": {
+            "description": "The identity the gauge entry was filed under — the verified JWT sub. The body carries no agent_id at all, so this is the only place the attribution appears.",
+            "title": "Agent Id",
+            "type": "string"
+          },
+          "ts": {
+            "description": "The server's stamp on the merged gauge entry, in epoch seconds. The freshness the context-high band and the cockpit judge the gauge by.",
+            "title": "Ts",
+            "type": "number"
+          }
+        },
+        "required": [
+          "agent_id",
+          "ts"
+        ],
+        "title": "AgentContextReceiptDTO",
+        "additionalProperties": false,
+        "type": "object"
+      },
+      "AgentTelemetryReceiptDTO": {
+        "description": "Bounded receipt returned after ``POST /api/monitoring/telemetry`` (ingest_telemetry) (T-133). It used to answer ``AgentTelemetryDTO``, whose own description called it an \"Echo of a stored telemetry entry\": 17 fields, carrying back the whole MERGED entry — the hardware snapshot, the binary fingerprints, the runtimes probe, the rate-limit windows and the token counts the caller had just uploaded. A warden heartbeat is the largest body an agent sends on any schedule, and every byte of it came back.\n\nWHAT IS LEFT IS WHAT THE CALLER COULD NOT COMPUTE. ``machine`` is the attribution the SERVER decided: it comes from the verified token's machine_id claim FIRST and falls back to the self-reported ``machine`` only for a claim-less token, so a reporter that sent one machine can be stored under another and the old echo was the only place that showed it. ``ts`` is the server's own stamp, and ``agent_id`` is the identity the entry was filed under. Everything else is recoverable from ``get_monitoring``, at the moment a caller wants it rather than at the moment it wrote.\n\nThis is a MERGE endpoint: a partial report leaves the other fields of the stored entry alone. That is exactly why echoing the merged entry was so expensive — a one-field report answered with the accumulated whole.",
+        "properties": {
+          "agent_id": {
+            "description": "The identity this report was filed under — the verified JWT sub, never a self-report. A reporter that believed it was somebody else learns it here.",
+            "title": "Agent Id",
+            "type": "string"
+          },
+          "machine": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The machine the entry was ATTRIBUTED to, which is not necessarily the one the body named: the verified token's machine_id claim wins, and the payload ``machine`` is consulted only when the token carries no claim (long-lived /api/mint tokens and outsource-worker tokens mint machine_id \"none\" by design). Null when neither source supplied one.",
+            "title": "Machine"
+          },
+          "ts": {
+            "description": "The server's own stamp on the merged entry, in epoch seconds. The freshness every cockpit read of this entry is judged against, and not something the reporter's clock decides.",
+            "title": "Ts",
+            "type": "number"
+          }
+        },
+        "required": [
+          "agent_id",
+          "ts"
+        ],
+        "title": "AgentTelemetryReceiptDTO",
+        "additionalProperties": false,
+        "type": "object"
+      },
+      "ChatMarkReadReceiptDTO": {
+        "description": "Bounded receipt returned after ``POST /api/chat/mark-read`` (post_chat_mark-read) (T-133). It used to answer ``ChatReadDTO`` — the READ surface, the same type ``GET /api/chat/reads`` serves — of whose three fields two were the caller's own input: ``reader_id`` is always the verified sub, i.e. the caller, and ``last_read_ts`` is the number just sent.\n\nWHAT THE OLD ANSWER COULD NOT SAY, and this one does: the watermark is MONOTONIC, so a stale report is a silent no-op. The old body echoed the EFFECTIVE watermark but gave no way to tell an accepted report from a rejected one that happened to sit at the same number, and the handler had computed that bit already (it gates the SSE publish). ``advanced`` is that bit, and it is here or nowhere — no read serves it.\n\n``peer_id`` stays because a receipt that cannot say which conversation it acted on is unreadable next to a log of several; one drain files one receipt PER SENDER. ``reader_id`` is dropped: it is the caller, on every call, with no exception the caller could not already compute.",
+        "properties": {
+          "peer_id": {
+            "description": "The conversation this receipt is for — the ``peer`` the caller sent, trimmed. Kept for readability next to a log of several receipts, not as news.",
+            "title": "Peer Id",
+            "type": "string"
+          },
+          "last_read_ts": {
+            "description": "The watermark now in force for this conversation AFTER the monotonic clamp. Equal to what was sent when the report advanced it, and equal to the PREVIOUS (higher) watermark when it did not — which is why ``advanced`` is a separate field and not something a caller can infer by comparing this against what it sent.",
+            "title": "Last Read Ts",
+            "type": "number"
+          },
+          "advanced": {
+            "description": "True when THIS call moved the watermark. False when the report was stale and the stored watermark was already at or past it — a 200 that changed nothing. The server publishes the read-receipt signal on true only, so this is the same bit the rest of the fleet sees.",
+            "title": "Advanced",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "peer_id",
+          "last_read_ts",
+          "advanced"
+        ],
+        "title": "ChatMarkReadReceiptDTO",
+        "additionalProperties": false,
+        "type": "object"
+      },
       "SettingsDTO": {
         "description": "The org-adjustable settings surface (`GET /api/settings`; owner or admin agent). `owner_token_ttl` controls owner-login JWTs; `agent_token_ttl` controls member and outsource-worker JWTs. They are independent and apply to newly minted tokens. Existing deployments migrate their former shared `auth.token_ttl` value into both successor settings, preserving current behaviour.",
         "properties": {
@@ -9505,7 +9352,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/AgentContextDTO"
+                  "$ref": "#/components/schemas/AgentContextReceiptDTO"
                 }
               }
             },
@@ -9542,14 +9389,14 @@
             "description": "Server error (unified error envelope)."
           }
         },
-        "summary": "Ingest an agent's context gauge (in-memory; bad body → 400).",
+        "summary": "Ingest an agent's context gauge (in-memory; bad body → 400). Answers with a bounded receipt (``agent_id``, ``ts``), not the stored entry echoed back — call ``get_monitoring`` when you need the rest.",
         "x-mcp": {
           "include": true,
           "order": 38,
           "name": "ingest_agent_context",
-          "description": "Ingest an agent's context gauge (in-memory; bad body → 400).",
+          "description": "Ingest an agent's context gauge (in-memory; bad body → 400). Answers with a bounded receipt (``agent_id``, ``ts``), not the stored entry echoed back — call ``get_monitoring`` when you need the rest.",
           "legacy": {
-            "descriptor": "{\n      \"description\": \"Ingest an agent's context gauge (in-memory; bad body \\u2192 400).\",\n      \"inputSchema\": {\n        \"properties\": {\n          \"compaction_count\": {\n            \"default\": null,\n            \"description\": \"Optional non-negative live Codex compaction count. Identity remains the verified JWT sub.\",\n            \"title\": \"Compaction Count\"\n          },\n          \"context_pct\": {\n            \"default\": null,\n            \"description\": \"How full this session's context window is, on a 0-100 PERCENT scale. The only check is that it is a JSON number - anything else is a flat 400 - with no range check at all, and the value is stored and echoed back exactly as sent. The scale is the whole point: this is the number the server's context-high band compares against the owner's PAIR of offboard points — notice_pct (the soft notice) and handover_pct (the final one, and where the handover fires), both whole percents. Reporting 0.85 for 'eighty-five percent' therefore sits below both and neither the notice nor the handover ever fires, while reporting 500 is above both and they fire at once. Both answer 200 and are indistinguishable in the response.\",\n            \"title\": \"Context Pct\"\n          },\n          \"rate_limits\": {\n            \"additionalProperties\": true,\n            \"description\": \"Free-form rate-limit gauge for this session. Its keys and values are copied into the store as they arrive - nothing is validated, so a misspelt key is kept just as faithfully as a correct one. The trap is the word MERGE: this call merges onto the session's previous entry, but rate_limits is the exception and is overwritten on EVERY call, so a report that omits it replaces whatever you last sent with an empty object and answers 200. Send the whole gauge every time, or the previous one is gone.\",\n            \"title\": \"Rate Limits\",\n            \"type\": \"object\"\n          }\n        },\n        \"additionalProperties\": false,\n        \"type\": \"object\"\n      },\n      \"name\": \"ingest_agent_context\"\n    }"
+            "descriptor": "{\n      \"description\": \"Ingest an agent's context gauge (in-memory; bad body \\u2192 400). Answers with a bounded receipt (``agent_id``, ``ts``), not the stored entry echoed back \\u2014 call ``get_monitoring`` when you need the rest.\",\n      \"inputSchema\": {\n        \"properties\": {\n          \"compaction_count\": {\n            \"default\": null,\n            \"description\": \"Optional non-negative live Codex compaction count. Identity remains the verified JWT sub.\",\n            \"title\": \"Compaction Count\"\n          },\n          \"context_pct\": {\n            \"default\": null,\n            \"description\": \"How full this session's context window is, on a 0-100 PERCENT scale. The only check is that it is a JSON number - anything else is a flat 400 - with no range check at all, and the value is stored exactly as sent. The reply is a bounded receipt (agent_id, ts), not the stored entry echoed back, so nothing in it repeats the number you sent; call get_monitoring when you need to read the gauge back. The scale is the whole point: this is the number the server's context-high band compares against the owner's PAIR of offboard points — notice_pct (the soft notice) and handover_pct (the final one, and where the handover fires), both whole percents. Reporting 0.85 for 'eighty-five percent' therefore sits below both and neither the notice nor the handover ever fires, while reporting 500 is above both and they fire at once. Both answer 200 and are indistinguishable in the response.\",\n            \"title\": \"Context Pct\"\n          },\n          \"rate_limits\": {\n            \"additionalProperties\": true,\n            \"description\": \"Free-form rate-limit gauge for this session. Its keys and values are copied into the store as they arrive - nothing is validated, so a misspelt key is kept just as faithfully as a correct one. The trap is the word MERGE: this call merges onto the session's previous entry, but rate_limits is the exception and is overwritten on EVERY call, so a report that omits it replaces whatever you last sent with an empty object and answers 200. Send the whole gauge every time, or the previous one is gone.\",\n            \"title\": \"Rate Limits\",\n            \"type\": \"object\"\n          }\n        },\n        \"additionalProperties\": false,\n        \"type\": \"object\"\n      },\n      \"name\": \"ingest_agent_context\"\n    }"
           }
         }
       }
@@ -11374,7 +11221,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ChatReadDTO"
+                  "$ref": "#/components/schemas/ChatMarkReadReceiptDTO"
                 }
               }
             },
@@ -11411,14 +11258,14 @@
             "description": "Server error (unified error envelope)."
           }
         },
-        "summary": "Mark a conversation read up to a watermark (reader = verified sub).",
+        "summary": "Mark a conversation read up to a watermark (reader = verified sub). Answers with a bounded receipt (``peer_id``, ``last_read_ts``, ``advanced``), not the stored entry echoed back — call ``get_chat_reads`` when you need the rest.",
         "x-mcp": {
           "include": true,
           "order": 29,
           "name": "post_chat_mark-read",
-          "description": "Mark a conversation read up to a watermark (reader = verified sub).",
+          "description": "Mark a conversation read up to a watermark (reader = verified sub). Answers with a bounded receipt (``peer_id``, ``last_read_ts``, ``advanced``), not the stored entry echoed back — call ``get_chat_reads`` when you need the rest.",
           "legacy": {
-            "descriptor": "{\n      \"description\": \"Mark a conversation read up to a watermark (reader = verified sub).\",\n      \"inputSchema\": {\n        \"properties\": {\n          \"last_read_ts\": {\n            \"default\": 0.0,\n            \"description\": \"Mark everything up to this timestamp as read. The watermark only ever moves FORWARD: a value at or below the one already stored changes nothing. That makes two easy mistakes silent - a timestamp in the wrong unit (these are epoch SECONDS, fractional) and OMITTING the field entirely, which sends 0 and therefore cannot advance anything you have already read. Nothing in the response announces whether it moved: the reply carries exactly three fields (reader_id, peer_id, last_read_ts) and the status is 200 either way. What it does give you is the EFFECTIVE stored watermark in last_read_ts, so compare that against the value you sent - getting back something higher than you sent means yours was stale and nothing happened.\",\n            \"title\": \"Last Read Ts\",\n            \"type\": \"number\"\n          },\n          \"peer\": {\n            \"description\": \"Whose conversation to mark as read. Only blankness is refused (422); the value is NEVER checked against the roster, so a misspelled peer is upserted as a read receipt for a conversation nobody is having and answers 200. The receipt you meant to file is not filed, and nothing in the response distinguishes the two cases.\",\n            \"title\": \"Peer\",\n            \"type\": \"string\"\n          }\n        },\n        \"required\": [\n          \"peer\"\n        ],\n        \"additionalProperties\": false,\n        \"type\": \"object\"\n      },\n      \"name\": \"post_chat_mark-read\"\n    }"
+            "descriptor": "{\n      \"description\": \"Mark a conversation read up to a watermark (reader = verified sub). Answers with a bounded receipt (``peer_id``, ``last_read_ts``, ``advanced``), not the stored entry echoed back \\u2014 call ``get_chat_reads`` when you need the rest.\",\n      \"inputSchema\": {\n        \"properties\": {\n          \"last_read_ts\": {\n            \"default\": 0.0,\n            \"description\": \"Mark everything up to this timestamp as read. The watermark only ever moves FORWARD: a value at or below the one already stored changes nothing. That makes two easy mistakes silent - a timestamp in the wrong unit (these are epoch SECONDS, fractional) and OMITTING the field entirely, which sends 0 and therefore cannot advance anything you have already read. The reply is a bounded receipt (peer_id, last_read_ts, advanced), not the stored entry echoed back, and advanced is exactly the bit that used to be missing: true when THIS call moved the watermark, false when the report was stale and changed nothing. The last_read_ts it carries is the EFFECTIVE one after the monotonic clamp - equal to what you sent when it advanced, and the previous higher value when it did not - and the status is 200 either way. Call get_chat_reads when you need the rest of the stored entry.\",\n            \"title\": \"Last Read Ts\",\n            \"type\": \"number\"\n          },\n          \"peer\": {\n            \"description\": \"Whose conversation to mark as read. Only blankness is refused (422); the value is NEVER checked against the roster, so a misspelled peer is upserted as a read receipt for a conversation nobody is having and answers 200. The receipt you meant to file is not filed, and nothing in the response distinguishes the two cases.\",\n            \"title\": \"Peer\",\n            \"type\": \"string\"\n          }\n        },\n        \"required\": [\n          \"peer\"\n        ],\n        \"additionalProperties\": false,\n        \"type\": \"object\"\n      },\n      \"name\": \"post_chat_mark-read\"\n    }"
           }
         }
       }
@@ -15664,7 +15511,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/AgentTelemetryDTO"
+                  "$ref": "#/components/schemas/AgentTelemetryReceiptDTO"
                 }
               }
             },
@@ -15701,14 +15548,14 @@
             "description": "Server error (unified error envelope)."
           }
         },
-        "summary": "Ingest warden telemetry (hardware/limits/tokens/cost/self_update).",
+        "summary": "Ingest warden telemetry (hardware/limits/tokens/cost/self_update). Answers with a bounded receipt (``agent_id``, ``machine``, ``ts``), not the stored entry echoed back — call ``get_monitoring`` when you need the rest.",
         "x-mcp": {
           "include": true,
           "order": 39,
           "name": "ingest_telemetry",
-          "description": "Ingest warden telemetry (hardware/limits/tokens/cost/self_update).",
+          "description": "Ingest warden telemetry (hardware/limits/tokens/cost/self_update). Answers with a bounded receipt (``agent_id``, ``machine``, ``ts``), not the stored entry echoed back — call ``get_monitoring`` when you need the rest.",
           "legacy": {
-            "descriptor": "{\n      \"description\": \"Ingest warden telemetry (hardware/limits/tokens/cost/self_update).\",\n      \"inputSchema\": {\n        \"properties\": {\n          \"account\": {\n            \"default\": null,\n            \"description\": \"Which billing account this session is drawing on. It is READ ONLY IN COMPANY WITH runtime, and the failure is worse than a dropped field: send a perfectly valid account WITHOUT runtime and the server does not merely ignore it, it CLEARS the account pairing already recorded for this entry and returns 200. A previously correct display therefore goes blank because of a report that carried the right value. A non-string value is dropped silently to empty by the same path. Always send runtime alongside account.\",\n            \"title\": \"Account\"\n          },\n          \"account_label\": {\n            \"default\": null,\n            \"description\": \"Human-readable label for the account. It rides the same path as account - read only in company with runtime, dropped silently when the value is not a string - and it is HARDER to notice going wrong than account is, because the ingest response does not echo it back at all. There is no field in the reply to compare against what you sent, so a dropped label is invisible from the call site; the only way to see it is to read the monitoring view afterwards.\",\n            \"title\": \"Account Label\"\n          },\n          \"binaries\": {\n            \"default\": null,\n            \"description\": \"Warden heartbeats only — the content fingerprint of the binaries this host is ACTUALLY running: an object keyed by binary name (ocwarden, ocagent, officraft) whose values are that live file's sha256 12-hex prefix. The server diffs them against the build it has embedded to derive the machine's bin_status (current / stale / absent = honest unknown), so a heartbeat that omits this leaves the machine's upgrade state unknowable rather than current. Deliberately a content hash, not a version number.\",\n            \"title\": \"Binaries\"\n          },\n          \"claude\": {\n            \"default\": null,\n            \"description\": \"Warden heartbeats only — the host's local claude CLI probe. Presence-only, NEVER a secret value. All sub-fields optional: version (string — the resolved claude binary's --version first token; absent = unresolved or probe failed), cred_file (bool — ~/.claude/.credentials.json exists), sub_readable (bool — that file exists AND its claudeAiOauth.subscriptionType is non-blank, the exact readability the account-key derivation needs), keychain (bool — macOS login-keychain item present; ABSENT, not false, on non-darwin where the probe cannot answer). Send it so the roster can tell whether this host can actually run Claude.\",\n            \"title\": \"Claude\",\n            \"type\": \"object\"\n          },\n          \"command_result\": {\n            \"default\": null,\n            \"description\": \"Receipt for a command this reporter was asked to run. The only check is that the value is an object. Everything inside is best-effort: an unknown member id, an unknown worker, or a receipt that matches no outstanding command is written to the server's stderr and then swallowed, and the call answers 200 either way. A 200 here means the report was accepted, NOT that it was matched to anything - if you need to know the result was recorded, read the state it should have changed.\",\n            \"title\": \"Command Result\"\n          },\n          \"cost\": {\n            \"default\": null,\n            \"description\": \"Accumulated cost for this session. The ONLY check is that the value is a number - there is no sign check, no unit check and no upper or lower bound, so a negative figure, a value in the wrong currency, or one off by a factor of a thousand is stored verbatim and answers 200. It becomes what the monitoring view reports, so the number is trusted exactly as far as the caller computing it.\",\n            \"title\": \"Cost\"\n          },\n          \"effort\": {\n            \"default\": null,\n            \"description\": \"The reasoning-effort level this session is actually running at. The ONLY check is that the value is a string: unlike hire_member and update_member, which validate against the known effort levels, this path deliberately does NOT, so any string at all is accepted and overwrites the recorded effort. A typo is not refused, it is displayed - the monitoring view will report whatever you sent as though it were a real level.\",\n            \"title\": \"Effort\"\n          },\n          \"hardware\": {\n            \"default\": null,\n            \"description\": \"Hardware readings for this machine. Nothing is validated AT INGEST: keys the schema does not declare are stored and then never read by anything, and a declared key carrying the wrong type is accepted here and only surfaces much later, on the READ side, as an entry in hardware_invalid. So a 200 from this call says nothing about whether the readings will be usable - the report and the complaint are separated by a whole round trip.\",\n            \"title\": \"Hardware\"\n          },\n          \"machine\": {\n            \"default\": null,\n            \"description\": \"Which machine this telemetry is about. It is CONSULTED ONLY IF the caller's token carries no machine claim: when the token does carry one, this field is not compared, not validated and not reported on - it is simply never read, and the call answers 200 exactly as if it had been honoured. So a wrong value here is undetectable from the response, and a right value is redundant. Send it only when reporting from a caller whose token is not already bound to a machine.\",\n            \"title\": \"Machine\"\n          },\n          \"model\": {\n            \"default\": null,\n            \"description\": \"The model this session is actually running. The only check is that the value is a string, and there is no allow-list - an unknown or misspelled model is stored and displayed as though real. An EMPTY string is a silent no-op: it is accepted, changes nothing, and answers 200 like any other report, so 'I reported the model' and 'the model was recorded' are not the same statement.\",\n            \"title\": \"Model\"\n          },\n        \"rate_limits\": {\n          \"default\": null,\n          \"description\": \"Rate-limit state for this account. The ONLY check is that the value is an object; every key and value inside is stored unvalidated, so a misspelled key or a wrong unit is accepted and answers 200. What is stored here drives the pacing figures a reader sees, so a wrong shape does not fail loudly - it produces a confident-looking number that is not true.\",\n          \"title\": \"Rate Limits\"\n        },\n        \"runtime\": {\n          \"default\": null,\n          \"title\": \"Runtime\"\n        },\n        \"runtimes\": {\n          \"default\": null,\n          \"title\": \"Runtimes\"\n        },\n        \"self_update\": {\n            \"default\": null,\n            \"description\": \"Self-update status for the reporting binary. The ONLY check is that the value is an object - anything else is a flat 400, 'self_update must be an object' - and nothing inside it is checked. What you send IS kept: it is merged onto this reporter's telemetry entry and echoed back on THIS response under self_update, so a misspelled sub-key reads back looking fine and is simply never used by anything. The one place a wrong shape shows up is a line on the SERVER's stderr, which prints binary, old_hash, new_hash and at, substituting '?' for whatever is missing - and you cannot see it. Two consequences worth planning for: that entry is an IN-MEMORY map, so everything here is gone the moment the server re-execs; and this endpoint MERGES, so omitting self_update does not clear it - the previous report's value stays on the entry and is echoed back to you again.\",\n            \"title\": \"Self Update\"\n          },\n          \"tokens\": {\n            \"default\": null,\n            \"description\": \"Token counters for this session. The ONLY check is that the value is an object - the shape INSIDE it is not validated at all, so a misspelled counter name, a missing field or a string where a number belongs is stored as sent and answers 200. Nothing downstream will tell you the shape was wrong; the counters simply do not add up wherever they are read.\",\n            \"title\": \"Tokens\"\n          }\n        },\n        \"additionalProperties\": false,\n        \"type\": \"object\"\n      },\n      \"name\": \"ingest_telemetry\"\n    }"
+            "descriptor": "{\n      \"description\": \"Ingest warden telemetry (hardware/limits/tokens/cost/self_update). Answers with a bounded receipt (``agent_id``, ``machine``, ``ts``), not the stored entry echoed back \\u2014 call ``get_monitoring`` when you need the rest.\",\n      \"inputSchema\": {\n        \"properties\": {\n          \"account\": {\n            \"default\": null,\n            \"description\": \"Which billing account this session is drawing on. It is READ ONLY IN COMPANY WITH runtime, and the failure is worse than a dropped field: send a perfectly valid account WITHOUT runtime and the server does not merely ignore it, it CLEARS the account pairing already recorded for this entry and returns 200. A previously correct display therefore goes blank because of a report that carried the right value. A non-string value is dropped silently to empty by the same path. Always send runtime alongside account.\",\n            \"title\": \"Account\"\n          },\n          \"account_label\": {\n            \"default\": null,\n            \"description\": \"Human-readable label for the account. It rides the same path as account - read only in company with runtime, dropped silently when the value is not a string - and it is HARDER to notice going wrong than account is, because the ingest response does not echo it back at all. There is no field in the reply to compare against what you sent, so a dropped label is invisible from the call site; the only way to see it is to read the monitoring view afterwards.\",\n            \"title\": \"Account Label\"\n          },\n          \"binaries\": {\n            \"default\": null,\n            \"description\": \"Warden heartbeats only — the content fingerprint of the binaries this host is ACTUALLY running: an object keyed by binary name (ocwarden, ocagent, officraft) whose values are that live file's sha256 12-hex prefix. The server diffs them against the build it has embedded to derive the machine's bin_status (current / stale / absent = honest unknown), so a heartbeat that omits this leaves the machine's upgrade state unknowable rather than current. Deliberately a content hash, not a version number.\",\n            \"title\": \"Binaries\"\n          },\n          \"claude\": {\n            \"default\": null,\n            \"description\": \"Warden heartbeats only — the host's local claude CLI probe. Presence-only, NEVER a secret value. All sub-fields optional: version (string — the resolved claude binary's --version first token; absent = unresolved or probe failed), cred_file (bool — ~/.claude/.credentials.json exists), sub_readable (bool — that file exists AND its claudeAiOauth.subscriptionType is non-blank, the exact readability the account-key derivation needs), keychain (bool — macOS login-keychain item present; ABSENT, not false, on non-darwin where the probe cannot answer). Send it so the roster can tell whether this host can actually run Claude.\",\n            \"title\": \"Claude\",\n            \"type\": \"object\"\n          },\n          \"command_result\": {\n            \"default\": null,\n            \"description\": \"Receipt for a command this reporter was asked to run. The only check is that the value is an object. Everything inside is best-effort: an unknown member id, an unknown worker, or a receipt that matches no outstanding command is written to the server's stderr and then swallowed, and the call answers 200 either way. A 200 here means the report was accepted, NOT that it was matched to anything - if you need to know the result was recorded, read the state it should have changed.\",\n            \"title\": \"Command Result\"\n          },\n          \"cost\": {\n            \"default\": null,\n            \"description\": \"Accumulated cost for this session. The ONLY check is that the value is a number - there is no sign check, no unit check and no upper or lower bound, so a negative figure, a value in the wrong currency, or one off by a factor of a thousand is stored verbatim and answers 200. It becomes what the monitoring view reports, so the number is trusted exactly as far as the caller computing it.\",\n            \"title\": \"Cost\"\n          },\n          \"effort\": {\n            \"default\": null,\n            \"description\": \"The reasoning-effort level this session is actually running at. The ONLY check is that the value is a string: unlike hire_member and update_member, which validate against the known effort levels, this path deliberately does NOT, so any string at all is accepted and overwrites the recorded effort. A typo is not refused, it is displayed - the monitoring view will report whatever you sent as though it were a real level.\",\n            \"title\": \"Effort\"\n          },\n          \"hardware\": {\n            \"default\": null,\n            \"description\": \"Hardware readings for this machine. Nothing is validated AT INGEST: keys the schema does not declare are stored and then never read by anything, and a declared key carrying the wrong type is accepted here and only surfaces much later, on the READ side, as an entry in hardware_invalid. So a 200 from this call says nothing about whether the readings will be usable - the report and the complaint are separated by a whole round trip.\",\n            \"title\": \"Hardware\"\n          },\n          \"machine\": {\n            \"default\": null,\n            \"description\": \"Which machine this telemetry is about. It is CONSULTED ONLY IF the caller's token carries no machine claim: when the token does carry one, this field is not compared, not validated and not reported on - it is simply never read, and the call answers 200 exactly as if it had been honoured. So a wrong value here is undetectable from the response, and a right value is redundant. Send it only when reporting from a caller whose token is not already bound to a machine.\",\n            \"title\": \"Machine\"\n          },\n          \"model\": {\n            \"default\": null,\n            \"description\": \"The model this session is actually running. The only check is that the value is a string, and there is no allow-list - an unknown or misspelled model is stored and displayed as though real. An EMPTY string is a silent no-op: it is accepted, changes nothing, and answers 200 like any other report, so 'I reported the model' and 'the model was recorded' are not the same statement.\",\n            \"title\": \"Model\"\n          },\n        \"rate_limits\": {\n          \"default\": null,\n          \"description\": \"Rate-limit state for this account. The ONLY check is that the value is an object; every key and value inside is stored unvalidated, so a misspelled key or a wrong unit is accepted and answers 200. What is stored here drives the pacing figures a reader sees, so a wrong shape does not fail loudly - it produces a confident-looking number that is not true.\",\n          \"title\": \"Rate Limits\"\n        },\n        \"runtime\": {\n          \"default\": null,\n          \"title\": \"Runtime\"\n        },\n        \"runtimes\": {\n          \"default\": null,\n          \"title\": \"Runtimes\"\n        },\n        \"self_update\": {\n            \"default\": null,\n            \"description\": \"Self-update status for the reporting binary. The ONLY check is that the value is an object - anything else is a flat 400, 'self_update must be an object' - and nothing inside it is checked. What you send IS kept: it is merged onto this reporter's telemetry entry. But the reply is a bounded receipt (agent_id, machine, ts), not the stored entry echoed back, so nothing you sent comes back on this response and a misspelled sub-key is simply never used by anything. The one place a wrong shape shows up is a line on the SERVER's stderr, which prints binary, old_hash, new_hash and at, substituting '?' for whatever is missing - and you cannot see it. Two consequences worth planning for: that entry is an IN-MEMORY map, so everything here is gone the moment the server re-execs; and this endpoint MERGES, so omitting self_update does not clear it - the previous report's value stays on the entry. Call get_monitoring when you need to read the entry back.\",\n            \"title\": \"Self Update\"\n          },\n          \"tokens\": {\n            \"default\": null,\n            \"description\": \"Token counters for this session. The ONLY check is that the value is an object - the shape INSIDE it is not validated at all, so a misspelled counter name, a missing field or a string where a number belongs is stored as sent and answers 200. Nothing downstream will tell you the shape was wrong; the counters simply do not add up wherever they are read.\",\n            \"title\": \"Tokens\"\n          }\n        },\n        \"additionalProperties\": false,\n        \"type\": \"object\"\n      },\n      \"name\": \"ingest_telemetry\"\n    }"
           }
         }
       }

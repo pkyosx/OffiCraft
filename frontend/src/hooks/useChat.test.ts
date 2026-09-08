@@ -10,16 +10,19 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { renderHook, act, waitFor } from "@testing-library/react";
-import type { ChatMessage } from "../api/adapter";
+import type { ChatMessage, ChatMarkReadReceipt } from "../api/adapter";
 
 const h = vi.hoisted(() => {
   return {
     listChat: vi.fn<(withId: string, limit?: number) => Promise<unknown[]>>(),
     listChatReads: vi.fn(async (_peer: string) => [] as unknown[]),
-    markChatRead: vi.fn(async () => ({
-      readerId: "owner",
+    // Typed against the real receipt so tsc — not just a passing assertion —
+    // is what catches this mock drifting from the wire. useChat discards the
+    // value, so a wrong shape here would otherwise never redden anything.
+    markChatRead: vi.fn(async (): Promise<ChatMarkReadReceipt> => ({
       peerId: "b",
       lastReadTs: 1,
+      advanced: true,
     })),
     postChat: vi.fn(async () => ({}) as unknown),
     sseHandler: null as ((topic: string) => void) | null,
