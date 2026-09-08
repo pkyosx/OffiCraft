@@ -1,24 +1,265 @@
-// Skeleton generated from server/ocserverd/api_insight.go by gen_test_skeletons.py.
-// Every case is a t.Skip placeholder: fill the body, keep or rewrite the name.
-
 package main
 
-import "testing"
+import (
+	"net/http"
+	"net/http/httptest"
+	"testing"
+)
 
 func TestFoldInsightDTO(t *testing.T) {
-	t.Skip("TODO: Per-role INSIGHT doc (T-3809) — the third block of the role journal, beside Duty (role_def.definition_md) and Learning (lessons.text).")
+	const assistantInsightSeed = `# 接案窗口
+
+接到請求時，先釐清處理方式、任務安排與任務類型。需要 Owner 裁定時，開卡向 Owner 確認以下事項，並在同一張卡一次帶齊：
+
+1. **處理方式與執行者**
+
+   **由特助維持統一窗口**
+   若選擇由特助維持統一窗口，特助作為單一對口，負責接收與整理需求、將需求交給執行者、追蹤處理進度並回傳結果。特助向執行者說明，本案的對接窗口是特助，不是 Owner（負責人）；執行者將進度與問題回報特助，需要 Owner 裁定時由特助整理後開卡確認，執行者不直接向 Owner 溝通；請求方持續向特助對接。
+
+   **直接轉交給執行者**
+   若選擇直接轉交，窗口向指定的執行者明確交代需求範圍與下一步後退出處理鏈；後續由執行者與請求方直接對接並處理。
+
+2. **建立任務與任務類型**
+   若要建立任務，卡上至少提供：
+   - **問題與預期結果：** 要解決的問題、影響程度與發生可能性，以及問題解決後預期的情境。
+   - **預計解法與範圍：** 預計如何解決、這次要處理的工作範圍，以及可能遺留的問題或新產生的風險。
+   - **任務類型：** 符合的候選任務類型及其適用範圍，供請求方選擇；若沒有合適類型，標明差距並交由 Owner 確認，不自行套用相近類型。
+   - **任務優先權：** 根據問題的影響程度、發生可能性與其他時程因素，提出建議的處理優先權。
+   - **執行安排：** 預期執行者、執行機器、runtime／model、effort。
+
+待 Owner 裁定的項目直接標明，交由 Owner 確認。
+
+# 操作導覽窗口
+
+## 取得並回答使用說明
+
+- 先按問題找來源：功能、規則與設定查控制台說明文件；MCP 操作看當前工具的說明與 schema；CLI 指令先看 ` + "`ocagent <子命令> --help`" + `；任務流程查任務手冊。
+- 讀完後再回答，必要時對照目前系統的實際資料；說清楚適用條件、操作路徑與目前有效性。
+- 找不到說明，或說明與實況不一致時，明確說出不確定與差異，不自行補出規則、欄位或權限。
+
+## 代為執行受限操作
+
+- 先確認操作目標、對象、範圍、理由與完成條件。
+- 特助的權限比一般成員大；Owner 交辦的 OffiCraft 操作也包含在代為執行範圍內。請求明確、責任清楚且在權限內時，代為執行並回報實際結果。
+- 需要 Owner 決定、核可或授權時，整理必要資訊後開一張卡交 Owner 裁定，不代替 Owner 做決定；內容不清楚或超出權限範圍時，先補齊資訊或確認。
+`
+
+	t.Run("an unedited seeded role returns its factory text as the default DTO", func(t *testing.T) {
+		api, _, _, _ := newAPITestServer(t)
+		got, err := api.foldInsightDTO("assistant")
+		if err != nil {
+			t.Fatalf("foldInsightDTO(seed): %v", err)
+		}
+		if got == nil {
+			t.Fatal("foldInsightDTO(seed) = nil")
+		}
+		apiWantValue(t, "dto", apiTestJSONOf(t, got), map[string]any{
+			"size_chars":     1089,
+			"cap_chars":      15000,
+			"role_key":       "assistant",
+			"text":           assistantInsightSeed,
+			"owner_id":       "owner",
+			"schema_version": 3,
+			"is_default":     true,
+			"has_seed":       true,
+		})
+	})
+
+	t.Run("a live overlay replaces factory text while the factory seed remains available", func(t *testing.T) {
+		api, _, d, _ := newAPITestServer(t)
+		if err := d.PutInsight(Insight{RoleKey: "assistant", Text: "mine"}); err != nil {
+			t.Fatalf("PutInsight: %v", err)
+		}
+
+		got, err := api.foldInsightDTO("assistant")
+		if err != nil {
+			t.Fatalf("foldInsightDTO(overlay): %v", err)
+		}
+		apiWantValue(t, "dto", apiTestJSONOf(t, got), map[string]any{
+			"size_chars":     4,
+			"cap_chars":      15000,
+			"role_key":       "assistant",
+			"text":           "mine",
+			"owner_id":       "owner",
+			"schema_version": 3,
+			"is_default":     false,
+			"has_seed":       true,
+		})
+	})
+
+	t.Run("a tombstoned overlay restores the factory text and default flag", func(t *testing.T) {
+		api, _, d, _ := newAPITestServer(t)
+		if err := d.PutInsight(Insight{RoleKey: "assistant", Text: "old", Tombstoned: true}); err != nil {
+			t.Fatalf("PutInsight: %v", err)
+		}
+
+		got, err := api.foldInsightDTO("assistant")
+		if err != nil {
+			t.Fatalf("foldInsightDTO(tombstoned): %v", err)
+		}
+		apiWantValue(t, "dto", apiTestJSONOf(t, got), map[string]any{
+			"size_chars":     1089,
+			"cap_chars":      15000,
+			"role_key":       "assistant",
+			"text":           assistantInsightSeed,
+			"owner_id":       "owner",
+			"schema_version": 3,
+			"is_default":     true,
+			"has_seed":       true,
+		})
+	})
+
+	t.Run("a role without a factory seed returns an empty default DTO", func(t *testing.T) {
+		api, _, _, _ := newAPITestServer(t)
+		got, err := api.foldInsightDTO("engineer")
+		if err != nil {
+			t.Fatalf("foldInsightDTO(no seed): %v", err)
+		}
+		apiWantValue(t, "dto", apiTestJSONOf(t, got), map[string]any{
+			"size_chars":     0,
+			"cap_chars":      15000,
+			"role_key":       "engineer",
+			"text":           "",
+			"owner_id":       "owner",
+			"schema_version": 3,
+			"is_default":     true,
+			"has_seed":       false,
+		})
+	})
 }
 
 func TestInsightWriteAuthz(t *testing.T) {
-	t.Skip("TODO: insightWriteAuthz enforces the per-role insight WRITE authz shared by EVERY face that writes this document — replace_insight, patch_insight, reset_insight (T-6501), and api_document_history.go's restore of kind \"insight\": a caller at or above principalAdminAgent (owner, and the admin agent) writes ANY role's insight; everyone else writes ONLY its own member's role_key (read from the roster by the verified sub, never a client field).")
+	t.Run("the owner and admin agent may write any role's insight", func(t *testing.T) {
+		api, _, d, owner := newAPITestServer(t)
+		for _, tc := range []struct {
+			name  string
+			token string
+		}{
+			{name: "owner", token: owner},
+			{name: "admin agent", token: apiTestAgentToken(t, api, "mira", "")},
+		} {
+			t.Run(tc.name, func(t *testing.T) {
+				rec := httptest.NewRecorder()
+				var allowed bool
+				taskTestUnderCaller(t, api, d, tc.token, func(r *http.Request) {
+					allowed = api.insightWriteAuthz(rec, r, "engineer")
+				})
+				if !allowed {
+					t.Fatal("insightWriteAuthz refused a privileged caller")
+				}
+				if rec.Code != http.StatusOK || rec.Body.Len() != 0 {
+					t.Fatalf("privileged authorization wrote an unexpected response: %d %q", rec.Code, rec.Body.String())
+				}
+			})
+		}
+	})
+
+	t.Run("a plain agent may write only its own role's insight", func(t *testing.T) {
+		api, _, d, _ := newAPITestServer(t)
+		rec := httptest.NewRecorder()
+		var allowed bool
+		taskTestUnderCaller(t, api, d, apiTestAgentToken(t, api, "kip", ""), func(r *http.Request) {
+			allowed = api.insightWriteAuthz(rec, r, "engineer")
+		})
+		if !allowed {
+			t.Fatal("insightWriteAuthz refused the caller's own role")
+		}
+		if rec.Code != http.StatusOK || rec.Body.Len() != 0 {
+			t.Fatalf("allowed authorization wrote an unexpected response: %d %q", rec.Code, rec.Body.String())
+		}
+	})
+
+	t.Run("a plain agent writing another role's insight answers 403", func(t *testing.T) {
+		api, _, d, _ := newAPITestServer(t)
+		rec := httptest.NewRecorder()
+		var allowed bool
+		taskTestUnderCaller(t, api, d, apiTestAgentToken(t, api, "kip", ""), func(r *http.Request) {
+			allowed = api.insightWriteAuthz(rec, r, "assistant")
+		})
+		if allowed {
+			t.Fatal("insightWriteAuthz allowed a caller to write another role")
+		}
+		if rec.Code != http.StatusForbidden {
+			t.Fatalf("status = %d, want 403 (%s)", rec.Code, rec.Body.String())
+		}
+		apiWantError(t, apiTestDecodeJSONBody(t, rec), "forbidden",
+			"an agent may only write its own role's insight")
+	})
+
+	t.Run("a roleless outsource caller cannot write any role's insight", func(t *testing.T) {
+		api, _, d, _ := newAPITestServer(t)
+		if err := d.PutMember(Member{
+			ID: "ow-roleless", Name: "Roleless worker", Kind: KindOutsource,
+			RosterStatus: RosterStatusActive,
+		}); err != nil {
+			t.Fatalf("PutMember: %v", err)
+		}
+		rec := httptest.NewRecorder()
+		var allowed bool
+		taskTestUnderCaller(t, api, d, apiTestAgentToken(t, api, "ow-roleless", ""), func(r *http.Request) {
+			allowed = api.insightWriteAuthz(rec, r, "engineer")
+		})
+		if allowed {
+			t.Fatal("insightWriteAuthz allowed a roleless caller")
+		}
+		if rec.Code != http.StatusForbidden {
+			t.Fatalf("status = %d, want 403 (%s)", rec.Code, rec.Body.String())
+		}
+		apiWantError(t, apiTestDecodeJSONBody(t, rec), "forbidden",
+			"an agent may only write its own role's insight")
+	})
 }
 
 func TestInsightHistorySnapshot(t *testing.T) {
-	t.Skip("TODO: insightHistorySnapshot renders the retained revision of an insight doc.")
+	for name, tc := range map[string]struct {
+		current *Insight
+		want    string
+	}{
+		"no row":               {current: nil, want: `{}`},
+		"a live empty row":     {current: &Insight{RoleKey: "engineer"}, want: `{"text":"","tombstoned":"false"}`},
+		"a tombstoned row":     {current: &Insight{RoleKey: "engineer", Text: "保留版本", Tombstoned: true}, want: `{"text":"保留版本","tombstoned":"true"}`},
+		"a live row with text": {current: &Insight{RoleKey: "engineer", Text: "如何權衡"}, want: `{"text":"如何權衡","tombstoned":"false"}`},
+	} {
+		t.Run(name, func(t *testing.T) {
+			got, err := insightHistorySnapshot(tc.current)
+			if err != nil {
+				t.Fatalf("insightHistorySnapshot: %v", err)
+			}
+			if got != tc.want {
+				t.Fatalf("snapshot = %q, want %q", got, tc.want)
+			}
+		})
+	}
 }
 
 func TestInsightSnapshotIn(t *testing.T) {
-	t.Skip("TODO: insightSnapshotIn is what SaveWithDocumentHistory calls from INSIDE the write transaction.")
+	t.Run("the transaction reader returns the addressed insight document", func(t *testing.T) {
+		_, _, d, _ := newAPITestServer(t)
+		if err := d.PutInsight(Insight{
+			RoleKey: "engineer", Text: "交易前洞見", Tombstoned: true,
+		}); err != nil {
+			t.Fatalf("PutInsight: %v", err)
+		}
+
+		got, err := insightSnapshotIn("engineer")(d.rdb)
+		if err != nil {
+			t.Fatalf("insightSnapshotIn: %v", err)
+		}
+		if got != `{"text":"交易前洞見","tombstoned":"true"}` {
+			t.Fatalf("snapshot = %q, want %q", got, `{"text":"交易前洞見","tombstoned":"true"}`)
+		}
+	})
+
+	t.Run("the transaction reader represents an absent insight document as the empty object", func(t *testing.T) {
+		_, _, d, _ := newAPITestServer(t)
+		got, err := insightSnapshotIn("r-missing")(d.rdb)
+		if err != nil {
+			t.Fatalf("insightSnapshotIn: %v", err)
+		}
+		if got != `{}` {
+			t.Fatalf("snapshot = %q, want %q", got, `{}`)
+		}
+	})
 }
 
 func TestHandleGetInsightApiInsightRoleKeyGet(t *testing.T) {
@@ -181,7 +422,38 @@ func TestHandleResetInsightApiInsightRoleKeyResetPost(t *testing.T) {
 }
 
 func TestInsightReceiptOf(t *testing.T) {
-	t.Skip("TODO: insightReceiptOf reduces the read face's fold to the write face's receipt (T-91), for the verb that answers FROM A RE-READ (reset).")
+	t.Run("the reset receipt keeps the folded role, flags, size, cap and hash", func(t *testing.T) {
+		api, _, _, _ := newAPITestServer(t)
+		dto, err := api.foldInsightDTO("assistant")
+		if err != nil {
+			t.Fatalf("foldInsightDTO: %v", err)
+		}
+
+		got := insightReceiptOf(dto)
+		apiWantValue(t, "receipt", apiTestJSONOf(t, got), map[string]any{
+			"role_key":   "assistant",
+			"is_default": true,
+			"has_seed":   true,
+			"size_chars": 1089,
+			"cap_chars":  15000,
+			"sha256":     "bfce6af1fc381233ae8755a4b8c9a7a58aacb417705b0e70b03736e955c7063f",
+		})
+	})
+
+	t.Run("the receipt omits the folded text and other DTO metadata", func(t *testing.T) {
+		got := insightReceiptOf(&insightDTO{
+			RoleKey: "engineer", Text: "I1", SizeChars: 2, CapChars: 15000,
+			OwnerID: "owner", SchemaVersion: 3, IsDefault: false, HasSeed: true,
+		})
+		apiWantValue(t, "receipt", apiTestJSONOf(t, got), map[string]any{
+			"role_key":   "engineer",
+			"is_default": false,
+			"has_seed":   true,
+			"size_chars": 2,
+			"cap_chars":  15000,
+			"sha256":     "c2818bc4e5ec4ae4a357a0df6fed73652e169ec676f7d4718cfb6807c5f7d1b0",
+		})
+	})
 }
 
 func TestHandleReplaceInsightApiInsightRoleKeyPost(t *testing.T) {

@@ -4,7 +4,9 @@
 package main
 
 import (
+	"encoding/json"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -12,7 +14,32 @@ import (
 )
 
 func TestValidatePushContactEmail(t *testing.T) {
-	t.Skip("TODO: validatePushContactEmail accepts a single trimmed local@domain address on a public domain.")
+	for _, tc := range []struct {
+		name    string
+		address string
+		want    string
+	}{
+		{name: "simple public address", address: "eva@hardcoretech.link"},
+		{name: "plus tag and subdomain", address: "owner+push@alerts.hardcoretech.link"},
+		{name: "missing at sign", address: "eva.hardcoretech.link", want: "push_contact_email must be an email address like name@example.com"},
+		{name: "display name", address: "Eva <eva@hardcoretech.link>", want: "push_contact_email must be a single plain address, without a mailto: prefix or display name"},
+		{name: "private domain", address: "eva@studio.local", want: `push_contact_email cannot use the reserved domain "studio.local" — push gateways reject it`},
+		{name: "not a public domain", address: "eva@localhost", want: "push_contact_email must use a real public domain"},
+		{name: "too long", address: strings.Repeat("a", maxPushContactEmailLen+1), want: "push_contact_email must be at most 254 characters"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			err := validatePushContactEmail(tc.address)
+			if tc.want == "" {
+				if err != nil {
+					t.Fatalf("validatePushContactEmail(%q): %v", tc.address, err)
+				}
+				return
+			}
+			if err == nil || err.Error() != tc.want {
+				t.Fatalf("validatePushContactEmail(%q): want %q, got %v", tc.address, tc.want, err)
+			}
+		})
+	}
 }
 
 // apiTestShippedSettings is the WHOLE settings body a freshly claimed server
@@ -308,7 +335,49 @@ func TestHandleChangePasswordApiAuthChangePasswordPost(t *testing.T) {
 }
 
 func TestWriteOwnerToken(t *testing.T) {
-	t.Skip("TODO: writeOwnerToken mints and writes the owner tokenDTO.")
+	t.Run("writes a verifiable owner token with the requested expiry", func(t *testing.T) {
+		api, _, _, _ := newAPITestServer(t)
+		now, ttl := int64(1700000000), int64(3600)
+		rec := httptest.NewRecorder()
+
+		api.writeOwnerToken(rec, ttl, now)
+		if rec.Code != 200 {
+			t.Fatalf("want 200, got %d (%s)", rec.Code, rec.Body.String())
+		}
+		var body map[string]any
+		if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+			t.Fatalf("decode token response: %v", err)
+		}
+		apiWantBody(t, body, map[string]any{
+			"token":      apiAnyString,
+			"token_type": "bearer",
+			"expires_in": float64(ttl),
+			"owner_id":   wireOwnerID,
+		})
+		token, _ := body["token"].(string)
+		claims, err := verifyJWT(token, api.keys.signingSecret(), now)
+		if err != nil {
+			t.Fatalf("verify owner token: %v", err)
+		}
+		apiWantValue(t, "claims", any(claims), any(map[string]any{
+			"sub": wireOwnerID, "scope": "owner", "iat": float64(now), "exp": float64(now + ttl),
+		}))
+	})
+
+	t.Run("refuses to mint when the signing key is absent", func(t *testing.T) {
+		api, _, _, _ := newAPITestStackWithoutSigningSecret(t)
+		rec := httptest.NewRecorder()
+
+		api.writeOwnerToken(rec, 3600, 1700000000)
+		if rec.Code != 401 {
+			t.Fatalf("want 401, got %d (%s)", rec.Code, rec.Body.String())
+		}
+		var body map[string]any
+		if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+			t.Fatalf("decode error response: %v", err)
+		}
+		apiWantError(t, body, "unauthorized", "auth not configured")
+	})
 }
 
 func TestHandleGetSettingsApiSettingsGet(t *testing.T) {
@@ -763,5 +832,49 @@ func TestHandleUpdateSettingsApiSettingsPatch(t *testing.T) {
 }
 
 func TestSettingsView(t *testing.T) {
-	t.Skip("TODO: settingsView assembles the SettingsDTO body from the live in-memory snapshot.")
+	api, h, _, owner := newAPITestServer(t)
+	got := api.settingsView()
+	want := settingsDTO{
+		OwnerTokenTTL:                86400,
+		AgentTokenTTL:                604800,
+		HandoverPct:                  50,
+		NoticePct:                    40,
+		CodexCompactionThreshold:     3,
+		CodexNoticeRound:             2,
+		MonitoringRefreshSeconds:     5,
+		OutsourceMaxParallel:         3,
+		AcceleratedGraceSecs:         120,
+		WardenCredentialLifetimeSecs: 2592000,
+		DocCapCharsDuty:              1000,
+		DocCapCharsInsight:           15000,
+		DocCapCharsLearning:          15000,
+		DocCapCharsManualSop:         15000,
+		DocCapCharsManualLearnings:   15000,
+		DocCapCharsSystemInteraction: 60000,
+		DocCapCharsBootSequence:      15000,
+		DocCapCharsOffboard:          15000,
+		ChatBudgetChars:              6000,
+		StepNoteCapChars:             10000,
+		BackupRetain:                 5,
+		OrgName:                      "",
+		OwnerName:                    "",
+		PushContactEmail:             "",
+		DisplayTheme:                 "",
+		DisplayLanguage:              "",
+		SuggestedRepliesReplyCard:    []string{},
+		SuggestedRepliesTaskMessage:  []string{},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("settingsView defaults:\n got %+v\nwant %+v", got, want)
+	}
+
+	asPatchSettings(t, h, owner, `{"org_name":"Studio Nine","suggested_replies_reply_card":["yes"]}`)
+	got = api.settingsView()
+	if got.OrgName != "Studio Nine" || !reflect.DeepEqual(got.SuggestedRepliesReplyCard, []string{"yes"}) {
+		t.Fatalf("settingsView did not expose live settings: %+v", got)
+	}
+	got.SuggestedRepliesReplyCard[0] = "changed"
+	if api.suggestedRepliesReplyCard[0] != "yes" {
+		t.Fatalf("settingsView returned an aliased suggestion slice: %v", api.suggestedRepliesReplyCard)
+	}
 }

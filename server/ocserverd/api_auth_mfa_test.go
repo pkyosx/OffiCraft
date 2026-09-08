@@ -3,18 +3,110 @@
 
 package main
 
-import "testing"
+import (
+	"strconv"
+	"testing"
+)
 
 func TestMfaIssuer(t *testing.T) {
-	t.Skip("TODO: mfaIssuer / mfaAccount label the entry in the owner's authenticator app.")
+	t.Run("uses the product fallback until a studio name is configured", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+
+		if got := api.mfaIssuer(); got != "OffiCraft" {
+			t.Fatalf("default issuer: want OffiCraft, got %q", got)
+		}
+
+		asPatchSettings(t, h, owner, `{"org_name":"Studio Nine"}`)
+		if got := api.mfaIssuer(); got != "Studio Nine" {
+			t.Fatalf("configured issuer: want Studio Nine, got %q", got)
+		}
+	})
 }
 
 func TestMfaAccount(t *testing.T) {
-	t.Skip("TODO: 需要人工判斷這個函式的可觀察結果是什麼")
+	t.Run("uses the wire owner id until an owner name is configured", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+
+		if got := api.mfaAccount(); got != wireOwnerID {
+			t.Fatalf("default account: want %q, got %q", wireOwnerID, got)
+		}
+
+		asPatchSettings(t, h, owner, `{"owner_name":"Eva"}`)
+		if got := api.mfaAccount(); got != "Eva" {
+			t.Fatalf("configured account: want Eva, got %q", got)
+		}
+	})
 }
 
 func TestVerifyAndSpendTOTP(t *testing.T) {
-	t.Skip("TODO: verifyAndSpendTOTP is THE second-factor check, and the ONLY place the replay floor moves.")
+	t.Run("accepts one live code, persists its floor, and refuses its replay", func(t *testing.T) {
+		api, _, d, _ := newAPITestServer(t)
+		secret := apiTestArmMFA(t, api, d)
+		key, err := decodeTOTPSecret(secret)
+		if err != nil {
+			t.Fatalf("decodeTOTPSecret: %v", err)
+		}
+		now := int64(1700000000)
+		step := now / totpStepSecs
+		code := totpCodeAt(key, step)
+
+		ok, err := api.verifyAndSpendTOTP(code, now)
+		if err != nil || !ok {
+			t.Fatalf("first verification: want true, nil; got %v, %v", ok, err)
+		}
+		if api.totpLastStep != step {
+			t.Fatalf("live replay floor: want %d, got %d", step, api.totpLastStep)
+		}
+		stored, err := d.GetSetting(settingTOTPLastStep)
+		if err != nil {
+			t.Fatalf("GetSetting: %v", err)
+		}
+		if stored == nil || *stored != strconv.FormatInt(step, 10) {
+			t.Fatalf("stored replay floor: want %d, got %v", step, stored)
+		}
+
+		ok, err = api.verifyAndSpendTOTP(code, now)
+		if err != nil || ok {
+			t.Fatalf("replayed verification: want false, nil; got %v, %v", ok, err)
+		}
+		if api.totpLastStep != step {
+			t.Fatalf("replayed verification changed floor to %d", api.totpLastStep)
+		}
+	})
+
+	t.Run("ignores invalid codes without moving the floor", func(t *testing.T) {
+		api, _, d, _ := newAPITestServer(t)
+		apiTestArmMFA(t, api, d)
+		floor := int64(1700000000) / totpStepSecs
+		api.totpLastStep = floor - 1
+		if err := d.PutSetting(settingTOTPLastStep, strconv.FormatInt(floor-1, 10)); err != nil {
+			t.Fatalf("PutSetting: %v", err)
+		}
+
+		ok, err := api.verifyAndSpendTOTP("000000", 1700000000)
+		if err != nil || ok {
+			t.Fatalf("invalid verification: want false, nil; got %v, %v", ok, err)
+		}
+		if api.totpLastStep != floor-1 {
+			t.Fatalf("invalid verification changed floor to %d", api.totpLastStep)
+		}
+		stored, err := d.GetSetting(settingTOTPLastStep)
+		if err != nil {
+			t.Fatalf("GetSetting: %v", err)
+		}
+		if stored == nil || *stored != strconv.FormatInt(floor-1, 10) {
+			t.Fatalf("invalid verification changed stored floor: %v", stored)
+		}
+	})
+
+	t.Run("allows any code when no factor is armed", func(t *testing.T) {
+		api, _, _, _ := newAPITestServer(t)
+
+		ok, err := api.verifyAndSpendTOTP("not-a-totp-code", 1700000000)
+		if err != nil || !ok {
+			t.Fatalf("MFA-off verification: want true, nil; got %v, %v", ok, err)
+		}
+	})
 }
 
 func TestHandleMfaStateApiAuthMfaGet(t *testing.T) {

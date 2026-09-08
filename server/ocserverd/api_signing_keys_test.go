@@ -8,8 +8,20 @@ import (
 	"testing"
 )
 
-func TestSigningKeysDTO(t *testing.T) {
-	t.Skip("TODO: signingKeysDTO is the wire answer for all three routes: the WHOLE ring, oldest first.")
+func TestSigningKeysDTOReturnsTheWholeRingOldestFirst(t *testing.T) {
+	api, _, _, _ := newAPITestServer(t)
+	api.keys = newKeyring([]signingKey{
+		{ID: "k-old", Key: []byte("old secret"), CreatedTS: 0},
+		{ID: "k-new", Key: []byte("new secret"), CreatedTS: 42},
+	}, "k-new")
+
+	got := api.signingKeysDTO()
+	apiWantBody(t, apiHelpersWire(t, got), map[string]any{
+		"keys": []any{
+			map[string]any{"key_id": "k-old", "created_ts": 0, "is_signing": false},
+			map[string]any{"key_id": "k-new", "created_ts": 42, "is_signing": true},
+		},
+	})
 }
 
 // apiRing reads the ring back through the route that serves it.

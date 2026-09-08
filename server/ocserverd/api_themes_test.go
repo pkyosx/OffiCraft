@@ -6,6 +6,7 @@ package main
 import (
 	"encoding/json"
 	"net/http"
+	"reflect"
 	"testing"
 )
 
@@ -525,13 +526,73 @@ func TestHandleDeleteThemeApiThemesThemeIdDelete(t *testing.T) {
 }
 
 func TestDecodeStoredThemeBundle(t *testing.T) {
-	t.Skip("TODO: decodeStoredThemeBundle turns one stored row back into the wire DTO.")
+	t.Run("decodes the stored bundle and prunes wording codes this build does not know", func(t *testing.T) {
+		row := CustomTheme{
+			ID: "dusk",
+			Bundle: `{"id":"dusk","name":"Dusk","colors":{"--color-bg":"#101418"},` +
+				`"wording":{"zh":{"nav.tasks":"活兒","no.such.code":"gone"}}}`,
+		}
+		got, err := decodeStoredThemeBundle(row)
+		if err != nil {
+			t.Fatalf("decodeStoredThemeBundle: %v", err)
+		}
+		if got.Id != "dusk" || got.Name != "Dusk" || got.Colors["--color-bg"] != "#101418" {
+			t.Fatalf("decoded bundle: %+v", got)
+		}
+		if got.Wording == nil || !reflect.DeepEqual(*got.Wording, map[string]map[string]string{
+			"zh": {"nav.tasks": "活兒"},
+		}) {
+			t.Fatalf("wording prune: %+v", got.Wording)
+		}
+	})
+
+	t.Run("returns the row id in an invalid-bundle error", func(t *testing.T) {
+		_, err := decodeStoredThemeBundle(CustomTheme{ID: "dusk", Bundle: `{not json`})
+		if err == nil {
+			t.Fatal("decodeStoredThemeBundle: want an error")
+		}
+		if err.Error() != `stored theme "dusk" is not a decodable bundle: invalid character 'n' looking for beginning of object key string` {
+			t.Fatalf("decodeStoredThemeBundle error: got %q", err)
+		}
+	})
 }
 
 func TestMarshalThemeBundle(t *testing.T) {
-	t.Skip("TODO: marshalThemeBundle renders a validated bundle to the JSON text the table stores.")
+	got, err := marshalThemeBundle(ThemeBundleDTO{
+		Id: "dusk", Name: "Dusk",
+		Colors: map[string]string{"--color-text": "#ffffff", "--color-bg": "#101418"},
+	})
+	if err != nil {
+		t.Fatalf("marshalThemeBundle: %v", err)
+	}
+	if got != `{"colors":{"--color-bg":"#101418","--color-text":"#ffffff"},"id":"dusk","name":"Dusk"}` {
+		t.Fatalf("marshalThemeBundle: got %q", got)
+	}
 }
 
 func TestDisplayThemeExists(t *testing.T) {
-	t.Skip("TODO: displayThemeExists reports whether a proposed display.theme value names something that can actually be applied: \"\" (unset), a built-in, or a custom theme that HAS A ROW right now.")
+	api, _, d, _ := newAPITestServer(t)
+	if err := d.PutCustomTheme("dusk", `{"id":"dusk"}`); err != nil {
+		t.Fatalf("PutCustomTheme: %v", err)
+	}
+
+	for _, tc := range []struct {
+		theme string
+		want  bool
+	}{
+		{theme: "", want: true},
+		{theme: "office", want: true},
+		{theme: "dusk", want: true},
+		{theme: "missing", want: false},
+	} {
+		t.Run(tc.theme, func(t *testing.T) {
+			got, err := api.displayThemeExists(tc.theme)
+			if err != nil {
+				t.Fatalf("displayThemeExists(%q): %v", tc.theme, err)
+			}
+			if got != tc.want {
+				t.Fatalf("displayThemeExists(%q): want %v, got %v", tc.theme, tc.want, got)
+			}
+		})
+	}
 }

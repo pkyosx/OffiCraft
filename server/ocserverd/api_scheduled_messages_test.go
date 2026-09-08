@@ -4,7 +4,10 @@
 package main
 
 import (
+	"errors"
 	"net/http"
+	"net/http/httptest"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -644,13 +647,126 @@ func TestHandleDeleteScheduledMessageApiMembersMemberIdScheduledMessagesSchedule
 }
 
 func TestResolveCustomMonths(t *testing.T) {
-	t.Skip("TODO: resolveCustomMonths decides what `custom_months` a request means, and it is the ONLY place in the server where an ABSENT set carries a meaning.")
+	sent := []int{2, 8}
+	empty := []int{}
+	for _, tt := range []struct {
+		name    string
+		cadence string
+		stored  []int
+		sent    *[]int
+		want    []int
+	}{
+		{name: "sent values are used verbatim", cadence: ScheduledMessageCadenceCustom, stored: []int{1}, sent: &sent, want: []int{2, 8}},
+		{name: "sent empty values stay empty", cadence: ScheduledMessageCadenceCustom, stored: []int{1}, sent: &empty, want: []int{}},
+		{name: "non custom keeps stored values", cadence: ScheduledMessageCadenceDaily, stored: []int{4, 9}, want: []int{4, 9}},
+		{name: "custom keeps an existing set", cadence: ScheduledMessageCadenceCustom, stored: []int{3, 7}, want: []int{3, 7}},
+		{name: "new custom defaults to every month", cadence: ScheduledMessageCadenceCustom, want: []int{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			got := resolveCustomMonths(tt.cadence, tt.stored, tt.sent)
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Fatalf("resolveCustomMonths(%q, %#v, %#v) = %#v, want %#v", tt.cadence, tt.stored, tt.sent, got, tt.want)
+			}
+		})
+	}
 }
 
-func TestResolveScheduledMessage(t *testing.T) {
-	t.Skip("TODO: resolveScheduledMessage returns the schedule addressed by (member, schedule_id), folding an absent member, an absent schedule, OR a schedule belonging to a DIFFERENT member onto errNotFound.")
+func TestResolveScheduledMessageReturnsOnlyTheAddressedMembersSchedule(t *testing.T) {
+	api, h, _, owner := newAPITestServer(t)
+	id := apiTestStandup(t, h, owner, "kip")
+
+	got, err := api.resolveScheduledMessage("kip", id)
+	if err != nil {
+		t.Fatalf("resolveScheduledMessage() error = %v", err)
+	}
+	if got == nil || got.ID != id || got.MemberID != "kip" {
+		t.Fatalf("resolveScheduledMessage() = %#v, want schedule %q for kip", got, id)
+	}
+
+	for _, tt := range []struct {
+		name       string
+		memberID   string
+		scheduleID string
+	}{
+		{name: "unknown member", memberID: "ghost", scheduleID: id},
+		{name: "unknown schedule", memberID: "kip", scheduleID: "missing"},
+		{name: "schedule owned by another member", memberID: "mira", scheduleID: id},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := api.resolveScheduledMessage(tt.memberID, tt.scheduleID)
+			if got != nil || !errors.Is(err, errNotFound) {
+				t.Fatalf("resolveScheduledMessage(%q, %q) = %#v, %v; want nil, errNotFound", tt.memberID, tt.scheduleID, got, err)
+			}
+		})
+	}
 }
 
-func TestValidateScheduledMessage(t *testing.T) {
-	t.Skip("TODO: validateScheduledMessage applies the domain invariants to a fully assembled row and writes the 422 face on the first failure.")
+func TestValidateScheduledMessageWritesTheFirstInvalidInvariant(t *testing.T) {
+	api, _, _, _ := newAPITestServer(t)
+	valid := ScheduledMessage{
+		Body: "standup", Cadence: ScheduledMessageCadenceDaily,
+		DayOfWeek: 0, DayOfMonth: 1, Hour: 9, Minute: 30,
+		Timezone: "Asia/Taipei",
+	}
+
+	t.Run("valid schedule passes without writing a response", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		if !api.validateScheduledMessage(rec, valid) {
+			t.Fatal("validateScheduledMessage() rejected a valid schedule")
+		}
+		if rec.Body.Len() != 0 {
+			t.Fatalf("valid schedule wrote %q", rec.Body.String())
+		}
+	})
+
+	for _, tt := range []struct {
+		name    string
+		mutate  func(*ScheduledMessage)
+		message string
+	}{
+		{
+			name:    "invalid cadence",
+			mutate:  func(m *ScheduledMessage) { m.Cadence = "hourly" },
+			message: "cadence must be one of ['daily' 'weekly' 'monthly' 'custom']; got 'hourly'",
+		},
+		{
+			name:    "blank body",
+			mutate:  func(m *ScheduledMessage) { m.Body = " \t" },
+			message: "body cannot be blank",
+		},
+		{
+			name:    "invalid wall clock",
+			mutate:  func(m *ScheduledMessage) { m.Hour = 24 },
+			message: "hour must be between 0 and 23; got 24",
+		},
+		{
+			name: "empty custom set",
+			mutate: func(m *ScheduledMessage) {
+				m.Cadence = ScheduledMessageCadenceCustom
+				m.CustomMonths = []int{}
+				m.CustomDays = []int{1}
+				m.CustomHours = []int{9}
+				m.CustomMinutes = []int{0}
+			},
+			message: "custom_months cannot be empty when cadence is 'custom'; list every value that should fire (an empty set would be read as either 'always' or 'never', and those must not be one keystroke apart) (to mean every month, OMIT the field entirely rather than sending [])",
+		},
+		{
+			name:    "unknown timezone",
+			mutate:  func(m *ScheduledMessage) { m.Timezone = "Mars/Olympus" },
+			message: "timezone 'Mars/Olympus' is not a known IANA timezone name",
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			candidate := valid
+			tt.mutate(&candidate)
+			rec := httptest.NewRecorder()
+			if api.validateScheduledMessage(rec, candidate) {
+				t.Fatal("validateScheduledMessage() accepted an invalid schedule")
+			}
+			if rec.Code != http.StatusUnprocessableEntity {
+				t.Fatalf("status = %d, want 422 (%s)", rec.Code, rec.Body.String())
+			}
+			apiWantError(t, apiHelpersWritten(t, rec), "validation_error", tt.message)
+		})
+	}
 }

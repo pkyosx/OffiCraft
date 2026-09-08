@@ -10,8 +10,25 @@ import (
 	"testing"
 )
 
-func TestValidThemeFetchURL(t *testing.T) {
-	t.Skip("TODO: validThemeFetchURL is the FORMAT check the owner did allow: the address must parse, must be absolute, and must be http/https.")
+func TestValidThemeFetchURLAcceptsOnlyAbsoluteHTTPURLs(t *testing.T) {
+	for _, tt := range []struct {
+		name string
+		raw  string
+		want bool
+	}{
+		{name: "http URL", raw: "http://example.test/theme.json", want: true},
+		{name: "https URL with surrounding whitespace", raw: "  https://example.test/theme.json  ", want: true},
+		{name: "relative path", raw: "/theme.json", want: false},
+		{name: "missing host", raw: "https:///theme.json", want: false},
+		{name: "unsupported scheme", raw: "ftp://example.test/theme.json", want: false},
+		{name: "blank", raw: "", want: false},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := validThemeFetchURL(tt.raw); got != tt.want {
+				t.Fatalf("validThemeFetchURL(%q) = %t, want %t", tt.raw, got, tt.want)
+			}
+		})
+	}
 }
 
 // themeFetchStub stands in for whatever is on the far end of a pasted link. The

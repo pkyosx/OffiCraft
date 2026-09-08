@@ -1,10 +1,10 @@
-// Skeleton generated from server/ocserverd/api_roles.go by gen_test_skeletons.py.
-// Every case is a t.Skip placeholder: fill the body, keep or rewrite the name.
-
 package main
 
 import (
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -30,7 +30,30 @@ func apiTestLessonsUnaddressableMsg(roleKey string) string {
 }
 
 func TestHistoryJSON(t *testing.T) {
-	t.Skip("TODO: 需要人工判斷這個函式的可觀察結果是什麼")
+	t.Run("a supported value is encoded as its JSON object", func(t *testing.T) {
+		type historyEntry struct {
+			Text  string `json:"text"`
+			Count int    `json:"count"`
+		}
+
+		got, err := historyJSON(historyEntry{Text: "note", Count: 2})
+		if err != nil {
+			t.Fatalf("historyJSON: %v", err)
+		}
+		if got != `{"text":"note","count":2}` {
+			t.Fatalf("historyJSON = %q, want %q", got, `{"text":"note","count":2}`)
+		}
+	})
+
+	t.Run("an unsupported value answers an empty string and its marshal error", func(t *testing.T) {
+		got, err := historyJSON(func() {})
+		if got != "" {
+			t.Fatalf("historyJSON unsupported value = %q, want empty string", got)
+		}
+		if err == nil || err.Error() != "json: unsupported type: func()" {
+			t.Fatalf("historyJSON unsupported error = %v, want json: unsupported type: func()", err)
+		}
+	})
 }
 
 func TestHandleGetGlobalContextApiGlobalContextGet(t *testing.T) {
@@ -207,7 +230,35 @@ func TestHandleReplaceGlobalContextApiGlobalContextPost(t *testing.T) {
 }
 
 func TestGlobalContextReceiptOf(t *testing.T) {
-	t.Skip("TODO: globalContextReceiptOf reduces the read face's DTO to the write face's receipt.")
+	t.Run("a receipt keeps the default flag and reports rune size and hash of the stored text", func(t *testing.T) {
+		got := globalContextReceiptOf(&globalContextDTO{
+			Text:          "é😊",
+			OwnerID:       "owner",
+			SchemaVersion: 3,
+			IsDefault:     true,
+			OrgName:       "Studio",
+		})
+		want := globalContextReceiptDTO{
+			IsDefault: true,
+			SizeChars: 2,
+			Sha256:    "a94589e1b89859b57430d91195095e623e7aefe07d4426d4788ae716a24dd36a",
+		}
+		if got != want {
+			t.Fatalf("globalContextReceiptOf = %#v, want %#v", got, want)
+		}
+	})
+
+	t.Run("a stored empty replacement keeps the non-default state and the empty-text hash", func(t *testing.T) {
+		got := globalContextReceiptOf(&globalContextDTO{IsDefault: false})
+		want := globalContextReceiptDTO{
+			IsDefault: false,
+			SizeChars: 0,
+			Sha256:    "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+		}
+		if got != want {
+			t.Fatalf("globalContextReceiptOf empty = %#v, want %#v", got, want)
+		}
+	})
 }
 
 func TestHandleResetGlobalContextApiGlobalContextResetPost(t *testing.T) {
@@ -284,7 +335,27 @@ func TestHandleResetGlobalContextApiGlobalContextResetPost(t *testing.T) {
 }
 
 func TestListRoleKeys(t *testing.T) {
-	t.Skip("TODO: ── role definitions ───────────────────────────────────────────────────────── listRoleKeys is the role roster in wire order: seed roles FIRST, then every custom role (non-tombstoned overlay with no file seed).")
+	t.Run("the seed role leads active custom roles while seed overlays and tombstones stay off the roster", func(t *testing.T) {
+		api, _, d, _ := newAPITestServer(t)
+		for _, role := range []RoleDef{
+			{RoleKey: "assistant", Name: "Changed", DefinitionMD: "# Changed"},
+			{RoleKey: "r-design", Name: "Design", DefinitionMD: "# Duty"},
+			{RoleKey: "r-gone", Name: "Gone", Tombstoned: true},
+		} {
+			if err := d.PutRoleDef(role); err != nil {
+				t.Fatalf("PutRoleDef(%q): %v", role.RoleKey, err)
+			}
+		}
+
+		got, err := api.listRoleKeys()
+		if err != nil {
+			t.Fatalf("listRoleKeys: %v", err)
+		}
+		want := []string{"assistant", "r-design"}
+		if !reflect.DeepEqual(got, want) {
+			t.Fatalf("listRoleKeys = %#v, want %#v", got, want)
+		}
+	})
 }
 
 func TestHandleListRolesApiRolesGet(t *testing.T) {
@@ -773,7 +844,31 @@ func TestHandleUpdateRoleApiRolesRolePost(t *testing.T) {
 }
 
 func TestRoleDefReceiptOf(t *testing.T) {
-	t.Skip("TODO: roleDefReceiptOf reduces the read face's DTO to the write face's receipt, for the verbs that ANSWER FROM A RE-READ (reset).")
+	t.Run("a receipt keeps role identity flags and read-face size while hashing the definition", func(t *testing.T) {
+		got := roleDefReceiptOf(&roleDefDTO{
+			SizeChars:     2,
+			CapChars:      1000,
+			Key:           "assistant",
+			Name:          "Assistant",
+			DefinitionMD:  "é😊",
+			OwnerID:       "owner",
+			SchemaVersion: 3,
+			IsDefault:     false,
+			IsSeed:        true,
+		})
+		want := roleDefReceiptDTO{
+			Key:       "assistant",
+			Name:      "Assistant",
+			IsDefault: false,
+			IsSeed:    true,
+			SizeChars: 2,
+			CapChars:  1000,
+			Sha256:    "a94589e1b89859b57430d91195095e623e7aefe07d4426d4788ae716a24dd36a",
+		}
+		if got != want {
+			t.Fatalf("roleDefReceiptOf = %#v, want %#v", got, want)
+		}
+	})
 }
 
 func TestHandleResetRoleApiRolesRoleResetPost(t *testing.T) {
@@ -1188,19 +1283,224 @@ func TestHandleDeleteRoleApiRolesRoleDelete(t *testing.T) {
 }
 
 func TestRefuseRetiredLessonsQuery(t *testing.T) {
-	t.Skip("TODO: refuseRetiredLessonsQuery answers the retired task_type when it arrives as a QUERY parameter on any of the three lessons HTTP routes, and reports whether the handler may proceed.")
+	t.Run("a request without the retired query key may proceed without a response", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest("GET", "/api/lessons/engineer", nil)
+		if !refuseRetiredLessonsQuery(rec, req) {
+			t.Fatal("a request without task_type must proceed")
+		}
+		if rec.Body.Len() != 0 {
+			t.Fatalf("unexpected response body: %s", rec.Body.String())
+		}
+	})
+
+	t.Run("presence of the retired query key is rejected on every lessons route even when blank", func(t *testing.T) {
+		for _, tc := range []struct {
+			name   string
+			method string
+			target string
+		}{
+			{name: "get", method: "GET", target: "/api/lessons/engineer?task_type=build"},
+			{name: "replace", method: "POST", target: "/api/lessons/engineer?task_type="},
+			{name: "patch", method: "POST", target: "/api/lessons/engineer/patch?task_type=build"},
+		} {
+			t.Run(tc.name, func(t *testing.T) {
+				rec := httptest.NewRecorder()
+				req := httptest.NewRequest(tc.method, tc.target, nil)
+				if refuseRetiredLessonsQuery(rec, req) {
+					t.Fatal("a request carrying task_type must be refused")
+				}
+				if rec.Code != http.StatusBadRequest {
+					t.Fatalf("want 400, got %d", rec.Code)
+				}
+				apiWantError(t, apiHelpersWritten(t, rec), "validation_error", apiTestLessonsTaskTypeRetiredMsg)
+			})
+		}
+	})
 }
 
 func TestFillLessonsIdentityArgs(t *testing.T) {
-	t.Skip("TODO: fillLessonsIdentityArgs folds the identity-derivable default into a get_lessons / replace_lessons / patch_lessons MCP call so an agent's lessons round-trip lands on the SAME per-role doc the boot context injects into its persona (T-d483), and refuses the retired task_type argument.")
+	t.Run("each lessons tool fills a blank agent role from the verified roster identity", func(t *testing.T) {
+		api, _, d, _ := newAPITestServer(t)
+		agent := apiTestAgentToken(t, api, apiTestPlainAgentID, "")
+
+		apiHelpersGated(t, api, d, agent, func(r *http.Request) {
+			for _, name := range []string{"get_lessons", "replace_lessons", "patch_lessons"} {
+				arguments := map[string]any{}
+				if err := api.fillLessonsIdentityArgs(r, name, arguments); err != nil {
+					t.Fatalf("fillLessonsIdentityArgs(%q): %v", name, err)
+				}
+				apiWantValue(t, name+" arguments", any(arguments), any(map[string]any{
+					"role_key": "engineer",
+				}))
+			}
+		})
+	})
+
+	t.Run("an explicit role is preserved and an unrelated tool is not rewritten", func(t *testing.T) {
+		api, _, d, _ := newAPITestServer(t)
+		agent := apiTestAgentToken(t, api, apiTestPlainAgentID, "")
+
+		apiHelpersGated(t, api, d, agent, func(r *http.Request) {
+			arguments := map[string]any{"role_key": "assistant"}
+			if err := api.fillLessonsIdentityArgs(r, "get_lessons", arguments); err != nil {
+				t.Fatalf("explicit role: %v", err)
+			}
+			apiWantValue(t, "explicit role arguments", any(arguments), any(map[string]any{
+				"role_key": "assistant",
+			}))
+
+			unrelated := map[string]any{"task_type": "legacy"}
+			if err := api.fillLessonsIdentityArgs(r, "get_role", unrelated); err != nil {
+				t.Fatalf("unrelated tool: %v", err)
+			}
+			apiWantValue(t, "unrelated arguments", any(unrelated), any(map[string]any{
+				"task_type": "legacy",
+			}))
+		})
+	})
+
+	t.Run("the retired task_type is refused by presence and prevents identity filling", func(t *testing.T) {
+		api, _, d, _ := newAPITestServer(t)
+		agent := apiTestAgentToken(t, api, apiTestPlainAgentID, "")
+
+		apiHelpersGated(t, api, d, agent, func(r *http.Request) {
+			arguments := map[string]any{"role_key": "", "task_type": ""}
+			err := api.fillLessonsIdentityArgs(r, "get_lessons", arguments)
+			if err == nil || err.Error() != apiTestLessonsTaskTypeRetiredMsg {
+				t.Fatalf("retired task_type error = %v, want %q", err, apiTestLessonsTaskTypeRetiredMsg)
+			}
+			apiWantValue(t, "refused arguments", any(arguments), any(map[string]any{
+				"role_key":  "",
+				"task_type": "",
+			}))
+		})
+	})
+
+	t.Run("an owner request keeps a blank role because the owner has no member role", func(t *testing.T) {
+		api, _, d, owner := newAPITestServer(t)
+
+		apiHelpersGated(t, api, d, owner, func(r *http.Request) {
+			arguments := map[string]any{}
+			if err := api.fillLessonsIdentityArgs(r, "get_lessons", arguments); err != nil {
+				t.Fatalf("owner blank role: %v", err)
+			}
+			apiWantValue(t, "owner arguments", any(arguments), any(map[string]any{}))
+		})
+	})
 }
 
 func TestLessonsWriteAuthz(t *testing.T) {
-	t.Skip("TODO: lessonsWriteAuthz enforces the per-role lessons WRITE authz shared by replace_lessons and patch_lessons: a caller at or above principalAdminAgent (owner, and the admin agent) writes ANY role's lessons; everyone else writes ONLY its own member's role_key (read from the roster by the verified sub, never a client field).")
+	assertAllowed := func(t *testing.T, api *apiServer, d *DAL, token, roleKey string) {
+		t.Helper()
+		apiHelpersGated(t, api, d, token, func(r *http.Request) {
+			rec := httptest.NewRecorder()
+			if !api.lessonsWriteAuthz(rec, r, roleKey) {
+				t.Fatalf("lessonsWriteAuthz(%q) refused an allowed caller", roleKey)
+			}
+			if rec.Body.Len() != 0 {
+				t.Fatalf("allowed caller received a response: %s", rec.Body.String())
+			}
+		})
+	}
+
+	t.Run("the owner may write any role's lessons", func(t *testing.T) {
+		api, _, d, owner := newAPITestServer(t)
+		assertAllowed(t, api, d, owner, "role-owned-by-another")
+	})
+
+	t.Run("the admin agent may write any role's lessons", func(t *testing.T) {
+		api, _, d, _ := newAPITestServer(t)
+		admin := apiTestAgentToken(t, api, "mira", "")
+		assertAllowed(t, api, d, admin, "engineer")
+	})
+
+	t.Run("a plain agent may write its own member role's lessons", func(t *testing.T) {
+		api, _, d, _ := newAPITestServer(t)
+		agent := apiTestAgentToken(t, api, apiTestPlainAgentID, "")
+		assertAllowed(t, api, d, agent, "engineer")
+	})
+
+	t.Run("a plain agent writing another role receives a forbidden error", func(t *testing.T) {
+		api, _, d, _ := newAPITestServer(t)
+		agent := apiTestAgentToken(t, api, apiTestPlainAgentID, "")
+
+		apiHelpersGated(t, api, d, agent, func(r *http.Request) {
+			rec := httptest.NewRecorder()
+			if api.lessonsWriteAuthz(rec, r, "assistant") {
+				t.Fatal("a plain agent must not write another role's lessons")
+			}
+			if rec.Code != http.StatusForbidden {
+				t.Fatalf("want 403, got %d", rec.Code)
+			}
+			apiWantError(t, apiHelpersWritten(t, rec), "forbidden", "an agent may only write its own role's lessons")
+		})
+	})
+
+	t.Run("a warden cannot write a member role's lessons", func(t *testing.T) {
+		api, _, d, _ := newAPITestServer(t)
+		warden := apiHelpersWardenToken(t, api, d, ServerSelfHost)
+
+		apiHelpersGated(t, api, d, warden, func(r *http.Request) {
+			rec := httptest.NewRecorder()
+			if api.lessonsWriteAuthz(rec, r, "engineer") {
+				t.Fatal("a warden must not write an agent role's lessons")
+			}
+			if rec.Code != http.StatusForbidden {
+				t.Fatalf("want 403, got %d", rec.Code)
+			}
+			apiWantError(t, apiHelpersWritten(t, rec), "forbidden", "an agent may only write its own role's lessons")
+		})
+	})
 }
 
 func TestRequireLessonsAddressableRole(t *testing.T) {
-	t.Skip("TODO: requireLessonsAddressableRole refuses a lessons WRITE addressed to a role_key that NOTHING on this station can ever address again, and reports whether the handler may proceed.")
+	assertAddressable := func(t *testing.T, api *apiServer, roleKey string) {
+		t.Helper()
+		rec := httptest.NewRecorder()
+		if !api.requireLessonsAddressableRole(rec, roleKey) {
+			t.Fatalf("requireLessonsAddressableRole(%q) refused an addressable role", roleKey)
+		}
+		if rec.Body.Len() != 0 {
+			t.Fatalf("addressable role received a response: %s", rec.Body.String())
+		}
+	}
+
+	t.Run("a seeded role is addressable through the folded role definition", func(t *testing.T) {
+		api, _, _, _ := newAPITestServer(t)
+		assertAddressable(t, api, "assistant")
+	})
+
+	t.Run("an active custom role is addressable through its role definition", func(t *testing.T) {
+		api, _, d, _ := newAPITestServer(t)
+		if err := d.PutRoleDef(RoleDef{RoleKey: "r-design", Name: "Design", DefinitionMD: "# Duty"}); err != nil {
+			t.Fatalf("PutRoleDef: %v", err)
+		}
+		assertAddressable(t, api, "r-design")
+	})
+
+	t.Run("a role carried by a member is addressable without a role definition", func(t *testing.T) {
+		api, _, d, _ := newAPITestServer(t)
+		if err := d.PutMember(Member{
+			ID: "m-routed", Name: "Routed", Kind: KindStaff,
+			RoleKey: "role-by-member", RosterStatus: RosterStatusActive,
+		}); err != nil {
+			t.Fatalf("PutMember: %v", err)
+		}
+		assertAddressable(t, api, "role-by-member")
+	})
+
+	t.Run("a role carried by neither a definition nor a member answers not found", func(t *testing.T) {
+		api, _, _, _ := newAPITestServer(t)
+		rec := httptest.NewRecorder()
+		if api.requireLessonsAddressableRole(rec, "nosuch") {
+			t.Fatal("an unaddressable role must be refused")
+		}
+		if rec.Code != http.StatusNotFound {
+			t.Fatalf("want 404, got %d", rec.Code)
+		}
+		apiWantError(t, apiHelpersWritten(t, rec), "not_found", apiTestLessonsUnaddressableMsg("nosuch"))
+	})
 }
 
 func TestHandleGetLessonsApiLessonsRoleKeyGet(t *testing.T) {

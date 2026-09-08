@@ -6,6 +6,7 @@ package main
 import (
 	"encoding/json"
 	"net/http"
+	"net/http/httptest"
 	"testing"
 )
 
@@ -107,15 +108,92 @@ func apiTestHandoverDelta(seq int, desiredState string, notice any, trigger stri
 }
 
 func TestProjectWorker(t *testing.T) {
-	t.Skip("TODO: projectWorker builds one worker DTO with the T-f190 runtime fold.")
+	api, _, _, _ := newAPITestServer(t)
+	worker := OutsourceWorker{
+		ID: "ow-abc123", Codename: "Contractor", Runtime: "claude",
+		Model: "sonnet", Effort: "medium", TaskID: "T-1",
+		Status: WorkerStatusActive, CreatedTS: 12,
+	}
+	task := &Task{ID: "T-1", Title: "Ship the crate", Status: TaskStatusInProgress,
+		TypeKey: "crate", CreatorID: wireOwnerID, CreatedTS: 10}
+	tele := map[string]map[string]any{
+		worker.ID: {"account": "acct-1", accountRuntimeKey: "claude", "cost": 2.5, "machine": "m-tele"},
+	}
+	gauge := map[string]map[string]any{worker.ID: {"context_pct": 30.0}}
+	machineNames := map[string]string{"m-dispatch": "Dispatch box", "m-tele": "Telemetry box"}
+	accountDisplay := func(key string) string { return "Studio " + key }
+	typeNames := map[string]string{"crate": "裝箱"}
+
+	t.Run("uses the in-memory dispatch target when one exists", func(t *testing.T) {
+		api.workerSpawnTarget[worker.ID] = "m-dispatch"
+		got := api.projectWorker(worker, task, 3, 1700000000, tele, gauge, machineNames,
+			accountDisplay, typeNames)
+
+		if got.Machine != "Dispatch box" {
+			t.Fatalf("machine: want Dispatch box, got %q", got.Machine)
+		}
+		if got.TaskTitle != task.Title || got.TaskTypeName != "裝箱" {
+			t.Fatalf("task projection: %+v", got)
+		}
+		if got.UnreadCount != 3 || got.Account == nil || *got.Account != "Studio acct-1" {
+			t.Fatalf("runtime projection: %+v", got)
+		}
+	})
+
+	t.Run("falls back to the observed telemetry host after a restart", func(t *testing.T) {
+		delete(api.workerSpawnTarget, worker.ID)
+		got := api.projectWorker(worker, task, 0, 1700000000, tele, gauge, machineNames,
+			accountDisplay, typeNames)
+
+		if got.Machine != "Telemetry box" {
+			t.Fatalf("machine fallback: want Telemetry box, got %q", got.Machine)
+		}
+	})
 }
 
 func TestTaskTypeDisplayNames(t *testing.T) {
-	t.Skip("TODO: taskTypeDisplayNames folds the manuals into type_key → display label, the resolution behind outsourceWorkerDTO.task_type_name (T-a3e4).")
+	api, _, d, _ := newAPITestServer(t)
+	for _, manual := range []TaskManual{
+		{TypeKey: "crate", DisplayName: "裝箱"},
+		{TypeKey: "raw-key", DisplayName: ""},
+	} {
+		if err := d.PutTaskManual(manual); err != nil {
+			t.Fatalf("PutTaskManual(%q): %v", manual.TypeKey, err)
+		}
+	}
+
+	got := api.taskTypeDisplayNames()
+	if got["crate"] != "裝箱" {
+		t.Fatalf("display name for crate: want 裝箱, got %q", got["crate"])
+	}
+	if _, ok := got["raw-key"]; ok {
+		t.Fatalf("blank display name should be omitted: %v", got)
+	}
 }
 
 func TestWorkerDelegatedName(t *testing.T) {
-	t.Skip("TODO: workerDelegatedName resolves the MEMBER display name behind a task's creator, for the detail panel's 委託人 line (T-f190 item 2).")
+	api, _, d, _ := newAPITestServer(t)
+	if err := d.PutMember(Member{ID: "kip", Name: "Kip", Kind: KindStaff}); err != nil {
+		t.Fatalf("PutMember: %v", err)
+	}
+
+	for _, tc := range []struct {
+		name string
+		task *Task
+		want string
+	}{
+		{name: "nil task", task: nil, want: ""},
+		{name: "owner creator", task: &Task{CreatorID: wireOwnerID}, want: ""},
+		{name: "empty creator", task: &Task{}, want: ""},
+		{name: "known member", task: &Task{CreatorID: "kip"}, want: "Kip"},
+		{name: "removed member", task: &Task{CreatorID: "ghost"}, want: ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := api.workerDelegatedName(tc.task); got != tc.want {
+				t.Fatalf("workerDelegatedName: want %q, got %q", tc.want, got)
+			}
+		})
+	}
 }
 
 func TestHandleListOutsourceWorkersApiOutsourceWorkersGet(t *testing.T) {
@@ -564,7 +642,48 @@ func TestHandleRelocateOutsourceWorkerApiOutsourceWorkersIdRelocatePost(t *testi
 }
 
 func TestRelocateWorkerByID(t *testing.T) {
-	t.Skip("TODO: relocateWorkerByID is the shared 改機器 core: validate the pin, persist it, kill+re-dispatch, respond with the fresh projection.")
+	api, h, d, owner := newAPITestServer(t)
+	apiTestWorkerFixture(t, h, d, owner, "ow-abc123", WorkerStatusAssigned)
+
+	t.Run("persists a valid machine pin and answers a receipt", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodPost, "/api/outsource-workers/ow-abc123/relocate", nil)
+		api.relocateWorkerByID(rec, req, "ow-abc123", "m-server-self")
+		if rec.Code != http.StatusOK {
+			t.Fatalf("want 200, got %d (%s)", rec.Code, rec.Body.String())
+		}
+		var body map[string]any
+		if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+			t.Fatalf("decode receipt: %v", err)
+		}
+		if body["id"] != "ow-abc123" {
+			t.Fatalf("receipt id: want ow-abc123, got %v", body["id"])
+		}
+		worker, err := d.GetOutsourceWorker("ow-abc123")
+		if err != nil {
+			t.Fatalf("GetOutsourceWorker: %v", err)
+		}
+		if worker == nil || worker.DesiredMachineID != "m-server-self" {
+			t.Fatalf("persisted machine pin: %+v", worker)
+		}
+	})
+
+	t.Run("refuses an unknown machine before touching the worker", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodPost, "/api/outsource-workers/ow-abc123/relocate", nil)
+		api.relocateWorkerByID(rec, req, "ow-abc123", "m-nope")
+		if rec.Code != http.StatusNotFound {
+			t.Fatalf("want 404, got %d (%s)", rec.Code, rec.Body.String())
+		}
+		var body map[string]any
+		if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+			t.Fatalf("decode error: %v", err)
+		}
+		errBody, ok := body["error"].(map[string]any)
+		if !ok || errBody["code"] != "not_found" {
+			t.Fatalf("error code: want not_found, got %v", body["error"])
+		}
+	})
 }
 
 func TestHandleRefocusOutsourceWorkerApiOutsourceWorkersIdRefocusPost(t *testing.T) {

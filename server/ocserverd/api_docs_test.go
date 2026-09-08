@@ -7,32 +7,126 @@ import (
 	"bytes"
 	"encoding/json"
 	"net/http"
+	"reflect"
 	"strings"
 	"testing"
+	"testing/fstest"
 )
 
-func TestDocTitle(t *testing.T) {
-	t.Skip("TODO: docTitle extracts a doc's display title: the first \"# \" heading, else the slug (a doc with no heading still addresses/lists honestly).")
+func TestDocTitleUsesFirstHeadingOrSlug(t *testing.T) {
+	tests := []struct {
+		name string
+		md   string
+		slug string
+		want string
+	}{
+		{name: "first heading", md: "intro\n# Product guide\n# Later", slug: "guide", want: "Product guide"},
+		{name: "trimmed heading", md: "  #  Spaced title  \n", slug: "guide", want: "Spaced title"},
+		{name: "no heading", md: "intro\n## Section", slug: "guide", want: "guide"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := docTitle(tt.md, tt.slug); got != tt.want {
+				t.Fatalf("docTitle(%q, %q) = %q, want %q", tt.md, tt.slug, got, tt.want)
+			}
+		})
+	}
 }
 
-func TestRewriteDocAssetPaths(t *testing.T) {
-	t.Skip("TODO: rewriteDocAssetPaths makes a doc's RELATIVE image references resolvable from any render surface: `](assets/x.png)` / `](./assets/x.png)` → the absolute served asset endpoint.")
+func TestRewriteDocAssetPathsMakesRelativeImagesAbsolute(t *testing.T) {
+	md := "![one](assets/one.png) ![two](./assets/two.svg) ![url](https://example.com/x.png)"
+	want := "![one](/api/docs/assets/one.png) ![two](/api/docs/assets/two.svg) ![url](https://example.com/x.png)"
+	if got := rewriteDocAssetPaths(md); got != want {
+		t.Fatalf("rewriteDocAssetPaths() = %q, want %q", got, want)
+	}
 }
 
-func TestDocOrderRank(t *testing.T) {
-	t.Skip("TODO: docOrderRank returns a slug's position in docReadingOrder, or len(list) for an unranked slug so it falls to the tail (alphabetical among the unranked).")
+func TestDocOrderRankPlacesKnownSlugsBeforeUnknown(t *testing.T) {
+	if got := docOrderRank("why"); got != 0 {
+		t.Fatalf("docOrderRank(why) = %d, want 0", got)
+	}
+	if got := docOrderRank("troubleshooting"); got != len(docReadingOrder)-1 {
+		t.Fatalf("docOrderRank(troubleshooting) = %d, want %d", got, len(docReadingOrder)-1)
+	}
+	if got := docOrderRank("new-doc"); got != len(docReadingOrder) {
+		t.Fatalf("docOrderRank(new-doc) = %d, want %d", got, len(docReadingOrder))
+	}
 }
 
-func TestListDocsFrom(t *testing.T) {
-	t.Skip("TODO: listDocsFrom reads every top-level *.md in the doc FS (the assets/ subtree and .gitkeep are skipped), sorted by the guide's reading order (docReadingOrder; unranked docs fall to the tail, alphabetical among themselves) for a coherent, stable surface.")
+func TestListDocsFromReturnsTopLevelMarkdownInReadingOrder(t *testing.T) {
+	fsys := fstest.MapFS{
+		"zebra.md":          {Data: []byte("no heading")},
+		"alpha.md":          {Data: []byte("# Alpha")},
+		"why.md":            {Data: []byte("# Why")},
+		"install.md":        {Data: []byte("# Install")},
+		"notes.txt":         {Data: []byte("ignored")},
+		".gitkeep":          {Data: nil},
+		"assets/image.png":  {Data: []byte("ignored asset")},
+		"assets/nested.dat": {Data: []byte("ignored asset")},
+	}
+
+	got, err := listDocsFrom(fsys)
+	if err != nil {
+		t.Fatalf("listDocsFrom() error = %v", err)
+	}
+	want := []docSummaryDTO{
+		{Slug: "why", Title: "Why"},
+		{Slug: "install", Title: "Install"},
+		{Slug: "alpha", Title: "Alpha"},
+		{Slug: "zebra", Title: "zebra"},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("listDocsFrom() = %#v, want %#v", got, want)
+	}
 }
 
-func TestReadDocFrom(t *testing.T) {
-	t.Skip("TODO: readDocFrom folds one doc by slug (nil = unknown → caller 404s).")
+func TestReadDocFromReturnsRewrittenDocumentOrNil(t *testing.T) {
+	fsys := fstest.MapFS{
+		"guide.md": {Data: []byte("# Guide\n![diagram](./assets/diagram.png)")},
+	}
+
+	got := readDocFrom(fsys, "guide")
+	if got == nil {
+		t.Fatal("readDocFrom() returned nil for an existing document")
+	}
+	want := &docDTO{
+		Slug:       "guide",
+		Title:      "Guide",
+		MarkdownMD: "# Guide\n![diagram](/api/docs/assets/diagram.png)",
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("readDocFrom() = %#v, want %#v", got, want)
+	}
+
+	for _, slug := range []string{"missing", "", "../guide", "nested/guide"} {
+		if got := readDocFrom(fsys, slug); got != nil {
+			t.Fatalf("readDocFrom(%q) = %#v, want nil", slug, got)
+		}
+	}
 }
 
-func TestReadDocAssetFrom(t *testing.T) {
-	t.Skip("TODO: readDocAssetFrom returns a doc image's bytes + its content-type (ok=false = a missing/traversing name → the caller 404s).")
+func TestReadDocAssetFromReturnsBytesAndContentTypeOrFalse(t *testing.T) {
+	fsys := fstest.MapFS{
+		"assets/icon.png":   {Data: []byte("png bytes")},
+		"assets/data.weird": {Data: []byte("unknown bytes")},
+	}
+
+	got, contentType, ok := readDocAssetFrom(fsys, "icon.png")
+	if !ok || contentType != "image/png" || !bytes.Equal(got, []byte("png bytes")) {
+		t.Fatalf("readDocAssetFrom(icon.png) = (%q, %q, %t), want (%q, image/png, true)", got, contentType, ok, "png bytes")
+	}
+
+	got, contentType, ok = readDocAssetFrom(fsys, "data.weird")
+	if !ok || contentType != "application/octet-stream" || !bytes.Equal(got, []byte("unknown bytes")) {
+		t.Fatalf("readDocAssetFrom(data.weird) = (%q, %q, %t), want (%q, application/octet-stream, true)", got, contentType, ok, "unknown bytes")
+	}
+
+	for _, name := range []string{"missing.png", "", "../icon.png", "nested/icon.png"} {
+		got, contentType, ok := readDocAssetFrom(fsys, name)
+		if ok || got != nil || contentType != "" {
+			t.Fatalf("readDocAssetFrom(%q) = (%q, %q, %t), want (nil, empty, false)", name, got, contentType, ok)
+		}
+	}
 }
 
 // apiDocList drives GET /api/docs and asserts the WHOLE array — the route

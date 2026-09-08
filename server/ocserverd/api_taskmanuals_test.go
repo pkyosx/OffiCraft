@@ -1,40 +1,334 @@
-// Skeleton generated from server/ocserverd/api_taskmanuals.go by gen_test_skeletons.py.
-// Every case is a t.Skip placeholder: fill the body, keep or rewrite the name.
+// API tests for task manual reads, writes, authorization and history.
 
 package main
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
+	"net/http/httptest"
 	"testing"
 )
 
 func TestTaskManualSopHistorySnapshot(t *testing.T) {
-	t.Skip("TODO: The two split snapshots carry ONE field each, and answer \"{}\" — the sentinel SaveWithDocumentHistories reads as \"nothing worth retaining\" — when that field is empty.")
+	for _, tt := range []struct {
+		name   string
+		manual TaskManual
+		want   string
+	}{
+		{
+			name:   "an empty SOP retains no revision",
+			manual: TaskManual{SopMD: "", Learnings: "學習目前版"},
+			want:   "{}",
+		},
+		{
+			name:   "a non-empty SOP is retained without the learnings document",
+			manual: TaskManual{SopMD: "# SOP\n步驟一", Learnings: "學習目前版"},
+			want:   `{"sop_md":"# SOP\n步驟一"}`,
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := taskManualSopHistorySnapshot(tt.manual)
+			if err != nil {
+				t.Fatalf("taskManualSopHistorySnapshot: %v", err)
+			}
+			if got != tt.want {
+				t.Fatalf("snapshot = %q, want %q", got, tt.want)
+			}
+		})
+	}
 }
 
 func TestTaskManualLearningsHistorySnapshot(t *testing.T) {
-	t.Skip("TODO: 需要人工判斷這個函式的可觀察結果是什麼")
+	for _, tt := range []struct {
+		name   string
+		manual TaskManual
+		want   string
+	}{
+		{
+			name:   "an empty learnings document retains no revision",
+			manual: TaskManual{SopMD: "# SOP", Learnings: ""},
+			want:   "{}",
+		},
+		{
+			name:   "a non-empty learnings document is retained without the SOP",
+			manual: TaskManual{SopMD: "# SOP", Learnings: "第一課\n"},
+			want:   `{"learnings":"第一課\n"}`,
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := taskManualLearningsHistorySnapshot(tt.manual)
+			if err != nil {
+				t.Fatalf("taskManualLearningsHistorySnapshot: %v", err)
+			}
+			if got != tt.want {
+				t.Fatalf("snapshot = %q, want %q", got, tt.want)
+			}
+		})
+	}
 }
 
 func TestResolveTaskManual(t *testing.T) {
-	t.Skip("TODO: resolveTaskManual returns the manual for typeKey (errNotFound when absent).")
+	t.Run("an existing type key returns the stored manual row", func(t *testing.T) {
+		api, _, d, _ := newAPITestServer(t)
+		want := TaskManual{
+			TypeKey:     "tm-quote",
+			DisplayName: "報價",
+			Purpose:     "對客戶報價",
+			Fields:      `[{"name":"客戶","required":true,"is_key":true}]`,
+			SopMD:       "# SOP\n步驟一",
+			Learnings:   "第一課",
+			Assignee:    `{"kind":"staff","member_id":"kip"}`,
+			UpdatedTS:   42.5,
+		}
+		if err := d.PutTaskManual(want); err != nil {
+			t.Fatalf("PutTaskManual: %v", err)
+		}
+
+		got, err := api.resolveTaskManual("tm-quote")
+		if err != nil {
+			t.Fatalf("resolveTaskManual: %v", err)
+		}
+		if got == nil {
+			t.Fatal("resolveTaskManual returned nil for an existing manual")
+		}
+		if *got != want {
+			t.Fatalf("resolveTaskManual = %#v, want %#v", *got, want)
+		}
+	})
+
+	t.Run("an unknown type key returns errNotFound without a row", func(t *testing.T) {
+		api, _, _, _ := newAPITestServer(t)
+
+		got, err := api.resolveTaskManual("tm-ghost")
+		if !errors.Is(err, errNotFound) {
+			t.Fatalf("resolveTaskManual: want errNotFound, got %v", err)
+		}
+		if got != nil {
+			t.Fatalf("resolveTaskManual returned %#v beside errNotFound", got)
+		}
+	})
 }
 
 func TestWriteTaskManual(t *testing.T) {
-	t.Skip("TODO: writeTaskManual is the common single-manual READ response tail.")
+	t.Run("the read response contains the complete manual and both document measurements", func(t *testing.T) {
+		api, _, _, _ := newAPITestServer(t)
+		rec := httptest.NewRecorder()
+
+		api.writeTaskManual(rec, TaskManual{
+			TypeKey:     "tm-quote",
+			DisplayName: "報價",
+			Purpose:     "對客戶報價",
+			Fields:      `[{"name":"客戶","required":true,"is_key":true}]`,
+			SopMD:       "# SOP\n步驟一",
+			Learnings:   "第一課",
+			Assignee:    `{"kind":"staff","member_id":"kip"}`,
+			UpdatedTS:   42.5,
+		})
+
+		if rec.Code != http.StatusOK {
+			t.Fatalf("want 200, got %d", rec.Code)
+		}
+		if got := rec.Header().Get("Content-Type"); got != "application/json" {
+			t.Fatalf("Content-Type = %q, want %q", got, "application/json")
+		}
+		apiWantBody(t, apiTestDecodeJSONBody(t, rec), map[string]any{
+			"type_key":            "tm-quote",
+			"display_name":        "報價",
+			"purpose":             "對客戶報價",
+			"fields":              []any{map[string]any{"name": "客戶", "required": true, "is_key": true}},
+			"sop_md":              "# SOP\n步驟一",
+			"learnings":           "第一課",
+			"assignee":            map[string]any{"kind": "staff", "member_id": "kip"},
+			"learnings_chars":     3,
+			"sop_md_chars":        9,
+			"learnings_cap_chars": 15000,
+			"sop_md_cap_chars":    15000,
+			"cap_chars":           15000,
+			"updated_ts":          42.5,
+		})
+	})
+
+	t.Run("a corrupt stored fields document answers an internal error", func(t *testing.T) {
+		api, _, _, _ := newAPITestServer(t)
+		rec := httptest.NewRecorder()
+
+		api.writeTaskManual(rec, TaskManual{TypeKey: "tm-quote", Fields: "{not json"})
+
+		if rec.Code != http.StatusInternalServerError {
+			t.Fatalf("want 500, got %d", rec.Code)
+		}
+		apiWantError(t, apiTestDecodeJSONBody(t, rec), "internal_error",
+			"internal error: task_manual fields: bad JSON: invalid character 'n' looking for beginning of object key string")
+	})
 }
 
 func TestWriteTaskManualReceipt(t *testing.T) {
-	t.Skip("TODO: writeTaskManualReceipt answers create_task_manual and update_task_manual (T-91).")
+	api, _, _, _ := newAPITestServer(t)
+	manual := TaskManual{
+		TypeKey:   "tm-quote",
+		SopMD:     "# SOP\n步驟一",
+		Learnings: "第一課",
+		UpdatedTS: 42.5,
+	}
+	for _, tt := range []struct {
+		name           string
+		wroteSop       bool
+		wroteLearnings bool
+		want           map[string]any
+	}{
+		{
+			name:           "a write that touched neither document returns neither document receipt",
+			wroteSop:       false,
+			wroteLearnings: false,
+			want: map[string]any{
+				"type_key":   "tm-quote",
+				"updated_ts": 42.5,
+			},
+		},
+		{
+			name:           "a SOP write returns only the SOP size cap and hash",
+			wroteSop:       true,
+			wroteLearnings: false,
+			want: map[string]any{
+				"type_key":         "tm-quote",
+				"updated_ts":       42.5,
+				"sop_md_chars":     9,
+				"sop_md_cap_chars": 15000,
+				"sop_md_sha256":    "4463e39266c9a31c7dea3dc806c1567c97c34ed1d69af09aaedf4a302bc78aad",
+			},
+		},
+		{
+			name:           "a learnings write returns only the learnings size cap and hash",
+			wroteSop:       false,
+			wroteLearnings: true,
+			want: map[string]any{
+				"type_key":            "tm-quote",
+				"updated_ts":          42.5,
+				"learnings_chars":     3,
+				"learnings_cap_chars": 15000,
+				"learnings_sha256":    "7c50dedd8cc42f2f1e96dc6a013e49de801c5a445f9569e9045c6ec63409e3f9",
+			},
+		},
+		{
+			name:           "a write that touched both documents returns both independent receipts",
+			wroteSop:       true,
+			wroteLearnings: true,
+			want: map[string]any{
+				"type_key":            "tm-quote",
+				"updated_ts":          42.5,
+				"sop_md_chars":        9,
+				"sop_md_cap_chars":    15000,
+				"sop_md_sha256":       "4463e39266c9a31c7dea3dc806c1567c97c34ed1d69af09aaedf4a302bc78aad",
+				"learnings_chars":     3,
+				"learnings_cap_chars": 15000,
+				"learnings_sha256":    "7c50dedd8cc42f2f1e96dc6a013e49de801c5a445f9569e9045c6ec63409e3f9",
+			},
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			rec := httptest.NewRecorder()
+			api.writeTaskManualReceipt(rec, manual, tt.wroteSop, tt.wroteLearnings)
+
+			if rec.Code != http.StatusOK {
+				t.Fatalf("want 200, got %d", rec.Code)
+			}
+			apiWantBody(t, apiTestDecodeJSONBody(t, rec), tt.want)
+		})
+	}
 }
 
 func TestValidateManualAssignee(t *testing.T) {
-	t.Skip("TODO: validateManualAssignee checks an incoming assignee object: {} unsets; a populated object must carry a legal kind — \"staff\" (with a non-blank member_id) or \"outsource\".")
+	for _, tt := range []struct {
+		name     string
+		assignee map[string]any
+		want     string
+	}{
+		{name: "an empty object unsets the assignee", assignee: map[string]any{}, want: ""},
+		{name: "a staff assignee with a member id is valid", assignee: map[string]any{
+			"kind": "staff", "member_id": "kip",
+		}, want: ""},
+		{name: "a staff assignee without a member id is rejected", assignee: map[string]any{
+			"kind": "staff",
+		}, want: "assignee kind 'staff' requires a member_id"},
+		{name: "an outsource assignee accepts every valid placement option", assignee: map[string]any{
+			"kind": "outsource", "runtime": "codex", "effort": "xhigh", "copies": float64(0), "machine": "m-server-self",
+		}, want: ""},
+		{name: "an outsource assignee may omit optional placement options", assignee: map[string]any{
+			"kind": "outsource",
+		}, want: ""},
+		{name: "an unsupported outsource runtime is rejected", assignee: map[string]any{
+			"kind": "outsource", "runtime": "python",
+		}, want: "assignee runtime must be 'claude' or 'codex'"},
+		{name: "an unsupported outsource effort is rejected", assignee: map[string]any{
+			"kind": "outsource", "effort": "urgent",
+		}, want: "assignee effort must be one of low, medium, high, xhigh, max"},
+		{name: "negative outsource copies are rejected", assignee: map[string]any{
+			"kind": "outsource", "copies": float64(-1),
+		}, want: "assignee copies must be a number >= 0 (0 = unlimited)"},
+		{name: "a non-string outsource machine is rejected", assignee: map[string]any{
+			"kind": "outsource", "machine": 42,
+		}, want: "assignee machine must be a machine id"},
+		{name: "the retired auto placement is rejected", assignee: map[string]any{
+			"kind": "outsource", "machine": "auto",
+		}, want: "assignee machine must be a machine id; \"auto\" is not a machine"},
+		{name: "the retired member kind names its replacement", assignee: map[string]any{
+			"kind": "member", "member_id": "kip",
+		}, want: "assignee kind: task executor kind \"member\" was renamed to \"staff\" (T-101); the closed set is {\"staff\", \"outsource\"}"},
+		{name: "an unknown assignee kind is rejected", assignee: map[string]any{
+			"kind": "warden",
+		}, want: "assignee kind: task executor kind \"warden\" not in {\"staff\", \"outsource\"}"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := validateManualAssignee(tt.assignee); got != tt.want {
+				t.Fatalf("validateManualAssignee(%#v) = %q, want %q", tt.assignee, got, tt.want)
+			}
+		})
+	}
 }
 
 func TestResolveManualAssigneeMachine(t *testing.T) {
-	t.Skip("TODO: resolveManualAssigneeMachine confirms an outsource assignee's `machine` names a machine that actually exists, writing the resolve error and returning false when it does not.")
+	api, _, _, _ := newAPITestServer(t)
+
+	for _, tt := range []struct {
+		name     string
+		assignee map[string]any
+		want     bool
+	}{
+		{name: "a staff assignee does not resolve a machine", assignee: map[string]any{
+			"kind": "staff", "machine": "m-ghost",
+		}, want: true},
+		{name: "an outsource assignee without a machine remains valid", assignee: map[string]any{
+			"kind": "outsource",
+		}, want: true},
+		{name: "an outsource assignee on a live machine resolves", assignee: map[string]any{
+			"kind": "outsource", "machine": ServerSelfHost,
+		}, want: true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			rec := httptest.NewRecorder()
+			if got := api.resolveManualAssigneeMachine(rec, tt.assignee); got != tt.want {
+				t.Fatalf("resolveManualAssigneeMachine(%#v) = %v, want %v", tt.assignee, got, tt.want)
+			}
+			if rec.Code != http.StatusOK || rec.Body.Len() != 0 {
+				t.Fatalf("valid assignee wrote status %d and body %q", rec.Code, rec.Body.String())
+			}
+		})
+	}
+
+	t.Run("an outsource assignee on an unknown machine answers not found", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+
+		if got := api.resolveManualAssigneeMachine(rec, map[string]any{
+			"kind": "outsource", "machine": "m-ghost",
+		}); got {
+			t.Fatal("resolveManualAssigneeMachine returned true for an unknown machine")
+		}
+		if rec.Code != http.StatusNotFound {
+			t.Fatalf("want 404, got %d", rec.Code)
+		}
+		apiWantError(t, apiTestDecodeJSONBody(t, rec), "not_found", "machine 'm-ghost' not found")
+	})
 }
 
 func apiTestCreateTaskManual(t *testing.T, h http.Handler, token, body string) string {

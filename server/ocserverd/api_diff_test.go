@@ -1,20 +1,66 @@
-// Skeleton generated from server/ocserverd/api_diff.go by gen_test_skeletons.py.
-// Every case is a t.Skip placeholder: fill the body, keep or rewrite the name.
-
 package main
 
 import (
 	"net/http"
+	"net/http/httptest"
 	"net/url"
+	"reflect"
 	"testing"
 )
 
 func TestDiffPageQuery(t *testing.T) {
-	t.Skip("TODO: diffPageQuery builds the page URL's query.")
+	tests := []struct {
+		name                                        string
+		before, after, labelBefore, labelAfter, sig string
+		want                                        string
+	}{
+		{
+			name:        "addresses labels and signature are URL encoded",
+			before:      "att-0123456789ab",
+			after:       "doc:global_context/global/current/text",
+			labelBefore: "初始 版本",
+			labelAfter:  "現在",
+			sig:         "sig/+=",
+			want:        "after=doc%3Aglobal_context%2Fglobal%2Fcurrent%2Ftext&before=att-0123456789ab&label_after=%E7%8F%BE%E5%9C%A8&label_before=%E5%88%9D%E5%A7%8B+%E7%89%88%E6%9C%AC&sig=sig%2F%2B%3D",
+		},
+		{
+			name:   "empty optional values are left out",
+			before: "left",
+			after:  "right",
+			want:   "after=right&before=left",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := diffPageQuery(tc.before, tc.after, tc.labelBefore, tc.labelAfter, tc.sig)
+			if got != tc.want {
+				t.Fatalf("diffPageQuery() = %q, want %q", got, tc.want)
+			}
+		})
+	}
 }
 
 func TestOptString(t *testing.T) {
-	t.Skip("TODO: optString reads an optional query parameter WITHOUT trimming it.")
+	empty := ""
+	padded := " att-0123456789ab "
+	label := " 初始版本 "
+	for _, tc := range []struct {
+		name  string
+		input *string
+		want  string
+	}{
+		{name: "nil optional parameter is empty", input: nil, want: ""},
+		{name: "present empty parameter is empty", input: &empty, want: ""},
+		{name: "address padding is preserved", input: &padded, want: " att-0123456789ab "},
+		{name: "label padding is preserved", input: &label, want: " 初始版本 "},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := optString(tc.input); got != tc.want {
+				t.Fatalf("optString() = %q, want %q", got, tc.want)
+			}
+		})
+	}
 }
 
 // apiDiffSeededSides files two stored blobs through the real upload route and
@@ -459,21 +505,267 @@ func mustParseQuery(t *testing.T, raw string) url.Values {
 }
 
 func TestDiffSidesSayable(t *testing.T) {
-	t.Skip("TODO: diffSidesSayable judges the SHAPE of both sides before anything is read, and writes the 422 itself.")
+	for _, tc := range []struct {
+		name          string
+		before, after string
+		wantOK        bool
+		wantStatus    int
+		wantError     string
+	}{
+		{
+			name:       "two sayable addresses leave a successful empty response",
+			before:     "att-0123456789ab",
+			after:      "doc:global_context/global/current/text",
+			wantOK:     true,
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "an invalid before side names the before side",
+			before:     "att-nope",
+			after:      "att-0123456789ab",
+			wantStatus: http.StatusUnprocessableEntity,
+			wantError:  "the before side: 'att-nope' is neither a stored attachment id (att- plus 12 hex digits) nor a document address (doc:<kind>/<key>/<at>/<field>)",
+		},
+		{
+			name:       "an invalid after side names the after side",
+			before:     "att-0123456789ab",
+			after:      "doc:global_context/global/current",
+			wantStatus: http.StatusUnprocessableEntity,
+			wantError:  "the after side: 'doc:global_context/global/current' is not a document address — it is doc:<kind>/<key>/<at>/<field>, where <at> is current, seed or a revision id",
+		},
+		{
+			name:       "an empty before side names the missing comparison side",
+			before:     "",
+			after:      "att-0123456789ab",
+			wantStatus: http.StatusUnprocessableEntity,
+			wantError:  "the before side: a comparison side must name a stored attachment id (att-…) or a document (doc:<kind>/<key>/<at>/<field>)",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			rec := httptest.NewRecorder()
+			if got := diffSidesSayable(rec, tc.before, tc.after); got != tc.wantOK {
+				t.Fatalf("diffSidesSayable() = %v, want %v", got, tc.wantOK)
+			}
+			if rec.Code != tc.wantStatus {
+				t.Fatalf("status = %d, want %d", rec.Code, tc.wantStatus)
+			}
+			if tc.wantError == "" {
+				if rec.Body.Len() != 0 {
+					t.Fatalf("body = %q, want empty", rec.Body.String())
+				}
+				return
+			}
+			apiWantError(t, apiTestDecodeJSONBody(t, rec), "validation_error", tc.wantError)
+		})
+	}
 }
 
 func TestResolveDiffSide(t *testing.T) {
-	t.Skip("TODO: resolveDiffSide turns one address into the column the reader draws.")
+	t.Run("a stored attachment returns its bytes and media type", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		id := apiDiffUpload(t, h, owner, "report.txt", "the report")
+
+		got := api.resolveDiffSide(id, "before")
+		apiWantValue(t, "side", apiTestJSONOf(t, got), map[string]any{
+			"address": id, "gone": false, "label": "before", "mime": "text/plain", "text": "the report",
+		})
+	})
+
+	t.Run("a missing attachment is marked gone with its reason and heading", func(t *testing.T) {
+		api, _, _, _ := newAPITestServer(t)
+
+		got := api.resolveDiffSide("att-000000000000", "before")
+		apiWantValue(t, "side", apiTestJSONOf(t, got), map[string]any{
+			"address": "att-000000000000", "gone": true, "label": "before",
+			"gone_reason": "attachment 'att-000000000000' is no longer stored",
+		})
+	})
+
+	t.Run("a live document returns its text and heading without a media type", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		if status, data := apiJSON(t, h, "POST", "/api/global-context", owner, `{"text":"current rules"}`); status != http.StatusOK {
+			t.Fatalf("write global context: %d %v", status, data)
+		}
+
+		got := api.resolveDiffSide("doc:global_context/global/current/text", "current")
+		apiWantValue(t, "side", apiTestJSONOf(t, got), map[string]any{
+			"address": "doc:global_context/global/current/text", "gone": false,
+			"label": "current", "text": "current rules",
+		})
+	})
 }
 
 func TestDiffGone(t *testing.T) {
-	t.Skip("TODO: 需要人工判斷這個函式的可觀察結果是什麼")
+	label := "before"
+	mime := "text/plain"
+	text := "old bytes"
+	got := diffGone(DiffSideDTO{
+		Address: "att-0123456789ab", Label: &label, Mime: &mime, Text: &text,
+	}, "attachment was removed")
+
+	apiWantValue(t, "side", apiTestJSONOf(t, got), map[string]any{
+		"address": "att-0123456789ab", "gone": true, "label": "before",
+		"gone_reason": "attachment was removed",
+	})
 }
 
 func TestDiffDocContent(t *testing.T) {
-	t.Skip("TODO: diffDocContent answers one document address as the SAME field map a retained revision carries — which is what lets one reader compare any two of the three points in time against each other.")
+	t.Run("the global context seed is an empty tombstone document", func(t *testing.T) {
+		api, _, _, _ := newAPITestServer(t)
+		got, ok, err := api.diffDocContent(diffDocAddress{
+			Kind: "global_context", Key: "global", At: diffAtSeed, Field: "text",
+		})
+		if err != nil {
+			t.Fatalf("diffDocContent: %v", err)
+		}
+		want := map[string]string{"text": "", "tombstoned": "true"}
+		if !ok || !reflect.DeepEqual(got, want) {
+			t.Fatalf("content = %#v, present = %v, want %#v, true", got, ok, want)
+		}
+	})
+
+	t.Run("the current address returns the live field map", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		if status, data := apiJSON(t, h, "POST", "/api/global-context", owner, `{"text":"current rules"}`); status != http.StatusOK {
+			t.Fatalf("write global context: %d %v", status, data)
+		}
+
+		got, ok, err := api.diffDocContent(diffDocAddress{
+			Kind: "global_context", Key: "global", At: diffAtCurrent, Field: "text",
+		})
+		if err != nil {
+			t.Fatalf("diffDocContent: %v", err)
+		}
+		want := map[string]string{"text": "current rules"}
+		if !ok || !reflect.DeepEqual(got, want) {
+			t.Fatalf("content = %#v, present = %v, want %#v, true", got, ok, want)
+		}
+	})
+
+	t.Run("a retained revision returns the complete field map it stored", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		for _, body := range []string{`{"text":"v1"}`, `{"text":"v2"}`} {
+			if status, data := apiJSON(t, h, "POST", "/api/global-context", owner, body); status != http.StatusOK {
+				t.Fatalf("write global context: %d %v", status, data)
+			}
+		}
+
+		got, ok, err := api.diffDocContent(diffDocAddress{
+			Kind: "global_context", Key: "global", At: "1", Field: "text",
+		})
+		if err != nil {
+			t.Fatalf("diffDocContent: %v", err)
+		}
+		want := map[string]string{"text": "v1", "tombstoned": "false"}
+		if !ok || !reflect.DeepEqual(got, want) {
+			t.Fatalf("content = %#v, present = %v, want %#v, true", got, ok, want)
+		}
+	})
+
+	t.Run("a revision that is not retained is absent without an error", func(t *testing.T) {
+		api, _, _, _ := newAPITestServer(t)
+		got, ok, err := api.diffDocContent(diffDocAddress{
+			Kind: "global_context", Key: "global", At: "99", Field: "text",
+		})
+		if err != nil {
+			t.Fatalf("diffDocContent: %v", err)
+		}
+		if got != nil || ok {
+			t.Fatalf("content = %#v, present = %v, want nil, false", got, ok)
+		}
+	})
+
+	t.Run("an unknown document kind is absent without an error", func(t *testing.T) {
+		api, _, _, _ := newAPITestServer(t)
+		got, ok, err := api.diffDocContent(diffDocAddress{
+			Kind: "not_a_document", Key: "global", At: diffAtCurrent, Field: "text",
+		})
+		if err != nil {
+			t.Fatalf("diffDocContent: %v", err)
+		}
+		if got != nil || ok {
+			t.Fatalf("content = %#v, present = %v, want nil, false", got, ok)
+		}
+	})
 }
 
 func TestCurrentDocumentContent(t *testing.T) {
-	t.Skip("TODO: currentDocumentContent reads the LIVE content of one editable document in the field names its retained revisions carry.")
+	api, _, d, _ := newAPITestServer(t)
+	if err := d.PutUserContext(UserContext{Text: "context text"}); err != nil {
+		t.Fatalf("PutUserContext: %v", err)
+	}
+	if err := d.PutRoleDef(RoleDef{
+		RoleKey: "r-current", Name: "Current", DefinitionMD: "# current",
+	}); err != nil {
+		t.Fatalf("PutRoleDef: %v", err)
+	}
+	if err := d.PutLessons(Lessons{RoleKey: "r-current", Text: "lesson text"}); err != nil {
+		t.Fatalf("PutLessons: %v", err)
+	}
+	if err := d.PutInsight(Insight{RoleKey: "r-current", Text: "insight text"}); err != nil {
+		t.Fatalf("PutInsight: %v", err)
+	}
+	if err := d.PutBootDocument(BootDocument{Kind: "offboard", Key: "global", Text: "offboard text"}); err != nil {
+		t.Fatalf("PutBootDocument: %v", err)
+	}
+	if err := d.PutTaskManual(TaskManual{
+		TypeKey: "tm-current", SopMD: "SOP text", Learnings: "learning text",
+	}); err != nil {
+		t.Fatalf("PutTaskManual: %v", err)
+	}
+	if err := d.PutTask(Task{
+		ID: "T-current", Title: "task title", Description: "task description",
+		Inputs: map[string]any{}, Status: TaskStatusNotStarted, Priority: TaskPriorityMid,
+		ExecutorKind: KindStaff, ExecutorID: "kip", CreatorID: "owner",
+	}); err != nil {
+		t.Fatalf("PutTask: %v", err)
+	}
+
+	for _, tc := range []struct {
+		name       string
+		kind, key  string
+		want       map[string]string
+		wantExists bool
+	}{
+		{name: "global context returns its live text", kind: "global_context", key: "global", want: map[string]string{"text": "context text"}, wantExists: true},
+		{name: "a role definition returns its live definition field", kind: "role_definition", key: "r-current", want: map[string]string{"definition_md": "# current"}, wantExists: true},
+		{name: "lessons returns its live text field", kind: "lessons", key: "r-current", want: map[string]string{"text": "lesson text"}, wantExists: true},
+		{name: "insight returns its live text field", kind: "insight", key: "r-current", want: map[string]string{"text": "insight text"}, wantExists: true},
+		{name: "a boot document returns its whole live text", kind: "offboard", key: "global", want: map[string]string{"text": "offboard text"}, wantExists: true},
+		{name: "a task manual returns its live SOP", kind: docKindTaskManualSop, key: "tm-current", want: map[string]string{"sop_md": "SOP text"}, wantExists: true},
+		{name: "a task manual returns its live learnings", kind: docKindTaskManualLearnings, key: "tm-current", want: map[string]string{"learnings": "learning text"}, wantExists: true},
+		{name: "a task returns its live title", kind: docKindTaskTitle, key: "T-current", want: map[string]string{"title": "task title"}, wantExists: true},
+		{name: "a task returns its live description", kind: docKindTaskDescription, key: "T-current", want: map[string]string{"description": "task description"}, wantExists: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got, ok, err := api.currentDocumentContent(tc.kind, tc.key)
+			if err != nil {
+				t.Fatalf("currentDocumentContent: %v", err)
+			}
+			if ok != tc.wantExists || !reflect.DeepEqual(got, tc.want) {
+				t.Fatalf("content = %#v, present = %v, want %#v, %v", got, ok, tc.want, tc.wantExists)
+			}
+		})
+	}
+
+	for _, tc := range []struct {
+		name      string
+		kind, key string
+	}{
+		{name: "a wrong global context key is absent", kind: "global_context", key: "other"},
+		{name: "an unknown role definition is absent", kind: "role_definition", key: "r-missing"},
+		{name: "a missing task manual is absent", kind: docKindTaskManualSop, key: "tm-missing"},
+		{name: "a missing task is absent", kind: docKindTaskDescription, key: "T-missing"},
+		{name: "an unknown kind is absent", kind: "not_a_document", key: "global"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got, ok, err := api.currentDocumentContent(tc.kind, tc.key)
+			if err != nil {
+				t.Fatalf("currentDocumentContent: %v", err)
+			}
+			if got != nil || ok {
+				t.Fatalf("content = %#v, present = %v, want nil, false", got, ok)
+			}
+		})
+	}
 }
