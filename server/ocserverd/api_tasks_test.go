@@ -1,128 +1,2264 @@
-// Skeleton generated from server/ocserverd/api_tasks.go by gen_test_skeletons.py.
-// Every case is a t.Skip placeholder: fill the body, keep or rewrite the name.
-
 package main
 
 import (
 	"encoding/json"
+	"errors"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"reflect"
 	"strings"
 	"testing"
 )
 
+func taskTestUnderCaller(t *testing.T, api *apiServer, d *DAL, token string, inspect func(r *http.Request)) {
+	t.Helper()
+	reached := false
+	gate := requireAuth(api.keys, api.authPasswordChangedAt, d.GetMember,
+		http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			reached = true
+			inspect(r)
+		}))
+	req := httptest.NewRequest("POST", "/api/tasks/T-1/plan", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	rec := httptest.NewRecorder()
+	gate.ServeHTTP(rec, req)
+	if !reached {
+		t.Fatalf("the credential never reached the predicate: %d %s", rec.Code, rec.Body.String())
+	}
+}
+
 func TestTaskLog(t *testing.T) {
-	t.Skip("TODO: taskLog emits one task-lifecycle observability line to stderr.")
+	t.Run("the formatted line reaches stderr under one [task] prefix and one trailing newline", func(t *testing.T) {
+		r, w, err := os.Pipe()
+		if err != nil {
+			t.Fatalf("os.Pipe: %v", err)
+		}
+		saved := os.Stderr
+		os.Stderr = w
+		taskLog("close %s: reply-card sweep failed (cards left waiting): %v",
+			"T-7", errors.New("database is locked"))
+		os.Stderr = saved
+		if err := w.Close(); err != nil {
+			t.Fatalf("close pipe: %v", err)
+		}
+		out, err := io.ReadAll(r)
+		if err != nil {
+			t.Fatalf("read pipe: %v", err)
+		}
+		if string(out) != "[task] close T-7: reply-card sweep failed (cards left waiting): database is locked\n" {
+			t.Fatalf("stderr: got %q", out)
+		}
+	})
+
+	t.Run("a format with no args is emitted verbatim rather than percent-expanded", func(t *testing.T) {
+		r, w, err := os.Pipe()
+		if err != nil {
+			t.Fatalf("os.Pipe: %v", err)
+		}
+		saved := os.Stderr
+		os.Stderr = w
+		taskLog("boot-reconcile: nothing to align")
+		os.Stderr = saved
+		if err := w.Close(); err != nil {
+			t.Fatalf("close pipe: %v", err)
+		}
+		out, err := io.ReadAll(r)
+		if err != nil {
+			t.Fatalf("read pipe: %v", err)
+		}
+		if string(out) != "[task] boot-reconcile: nothing to align\n" {
+			t.Fatalf("stderr: got %q", out)
+		}
+	})
 }
 
 func TestPublishTask(t *testing.T) {
-	t.Skip("TODO: ── SSE fan helpers (spec/sse.md §2.2 — hint payloads, never full bodies) ────")
+	t.Run("the delta reaches the owner cockpit and the executor as an id/status/priority hint", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		apiJSON(t, h, "POST", "/api/tasks", owner,
+			`{"title":"Ship it","executor_member_id":"kip","description":"the whole story"}`)
+		task, err := api.resolveTask("T-1")
+		if err != nil {
+			t.Fatalf("resolveTask: %v", err)
+		}
+		dashboard := apiTestListen(t, api, "")
+		executor := apiTestListen(t, api, "kip")
+		bystander := apiTestListen(t, api, "mira")
+
+		api.publishTask(*task, "kip")
+
+		taskFrame := map[string]any{
+			"seq":   2,
+			"topic": "task",
+			"op":    "patch",
+			"data": map[string]any{
+				"entity":  "task",
+				"key":     "owner::T-1",
+				"epoch":   2,
+				"deleted": false,
+				"payload": map[string]any{"id": "T-1", "priority": "mid", "status": "not_started"},
+			},
+			"ts":      apiAnyNumber,
+			"trigger": "kip",
+		}
+		dashboard.wantFrames(taskFrame)
+		executor.wantFrames(taskFrame)
+		bystander.wantFrames()
+	})
+
+	t.Run("a task with no executor narrows the fan to the owner cockpit alone", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"Ship it","executor_member_id":"kip"}`)
+		task, err := api.resolveTask("T-1")
+		if err != nil {
+			t.Fatalf("resolveTask: %v", err)
+		}
+		unbound := *task
+		unbound.ExecutorID = ""
+		dashboard := apiTestListen(t, api, "")
+		formerExecutor := apiTestListen(t, api, "kip")
+
+		api.publishTask(unbound, "owner")
+
+		dashboard.wantFrames(map[string]any{
+			"seq":   2,
+			"topic": "task",
+			"op":    "patch",
+			"data": map[string]any{
+				"entity":  "task",
+				"key":     "owner::T-1",
+				"epoch":   2,
+				"deleted": false,
+				"payload": map[string]any{"id": "T-1", "priority": "mid", "status": "not_started"},
+			},
+			"ts":      apiAnyNumber,
+			"trigger": "owner",
+		})
+		formerExecutor.wantFrames()
+	})
+
+	t.Run("the payload carries the task's current status and priority, not the ones it was created with", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"Ship it","executor_member_id":"kip"}`)
+		apiJSON(t, h, "POST", "/api/tasks/T-1/priority", owner, `{"priority":"high"}`)
+		apiJSON(t, h, "POST", "/api/tasks/T-1/terminate", owner, "")
+		task, err := api.resolveTask("T-1")
+		if err != nil {
+			t.Fatalf("resolveTask: %v", err)
+		}
+		dashboard := apiTestListen(t, api, "")
+
+		api.publishTask(*task, "owner")
+
+		dashboard.wantFrames(map[string]any{
+			"seq":   5,
+			"topic": "task",
+			"op":    "patch",
+			"data": map[string]any{
+				"entity":  "task",
+				"key":     "owner::T-1",
+				"epoch":   5,
+				"deleted": false,
+				"payload": map[string]any{"id": "T-1", "priority": "high", "status": "terminated"},
+			},
+			"ts":      apiAnyNumber,
+			"trigger": "owner",
+		})
+	})
 }
 
 func TestInheritDispatchSpec(t *testing.T) {
-	t.Skip("TODO: inheritDispatchSpec fills the fields a 發包 left unset.")
+	t.Run("an explicitly dispatched spec keeps every field it named and gains nothing from either source", func(t *testing.T) {
+		got := inheritDispatchSpec(
+			dispatchSpec{Runtime: "codex", Model: "gpt-5", Effort: "high", Machine: "m-dispatch"},
+			&outsourceTypeSpec{Runtime: "claude", Model: "opus", Effort: "low", Machine: "m-manual"},
+			&Member{Runtime: "claude", Model: "sonnet", Effort: "max", DesiredMachineID: "m-creator"},
+		)
+		want := dispatchSpec{Runtime: "codex", Model: "gpt-5", Effort: "high", Machine: "m-dispatch"}
+		if got != want {
+			t.Fatalf("want %#v, got %#v", want, got)
+		}
+	})
+
+	t.Run("a typed dispatch takes the manual's whole spec and never the dispatcher's", func(t *testing.T) {
+		got := inheritDispatchSpec(
+			dispatchSpec{},
+			&outsourceTypeSpec{Runtime: "claude", Model: "opus", Effort: "low", Machine: "m-manual"},
+			&Member{Runtime: "codex", Model: "gpt-5", Effort: "max", DesiredMachineID: "m-creator"},
+		)
+		want := dispatchSpec{Runtime: "claude", Model: "opus", Effort: "low", Machine: "m-manual"}
+		if got != want {
+			t.Fatalf("want %#v, got %#v", want, got)
+		}
+	})
+
+	t.Run("a manual that leaves the machine blank falls through to the dispatcher's own pin", func(t *testing.T) {
+		got := inheritDispatchSpec(
+			dispatchSpec{},
+			&outsourceTypeSpec{Runtime: "claude", Model: "opus", Effort: "low"},
+			&Member{Runtime: "claude", Model: "sonnet", Effort: "max", DesiredMachineID: "m-creator"},
+		)
+		want := dispatchSpec{Runtime: "claude", Model: "opus", Effort: "low", Machine: "m-creator"}
+		if got != want {
+			t.Fatalf("want %#v, got %#v", want, got)
+		}
+	})
+
+	t.Run("an ad-hoc dispatch with no manual inherits the dispatcher's runtime, model, effort and machine", func(t *testing.T) {
+		got := inheritDispatchSpec(
+			dispatchSpec{}, nil,
+			&Member{Runtime: "codex", Model: "gpt-5", Effort: "high", DesiredMachineID: "m-creator"},
+		)
+		want := dispatchSpec{Runtime: "codex", Model: "gpt-5", Effort: "high", Machine: "m-creator"}
+		if got != want {
+			t.Fatalf("want %#v, got %#v", want, got)
+		}
+	})
+
+	t.Run("a manual naming a claude runtime drops the dispatcher's codex model and keeps its machine", func(t *testing.T) {
+		got := inheritDispatchSpec(
+			dispatchSpec{},
+			&outsourceTypeSpec{Runtime: "claude", Effort: "medium"},
+			&Member{Runtime: "codex", Model: "gpt-5", Effort: "high", DesiredMachineID: "m-codex-box"},
+		)
+		want := dispatchSpec{Runtime: "claude", Model: "", Effort: "medium", Machine: "m-codex-box"}
+		if got != want {
+			t.Fatalf("want %#v, got %#v", want, got)
+		}
+	})
+
+	t.Run("with neither a manual nor a dispatcher only the two defaults land and the machine stays unset", func(t *testing.T) {
+		got := inheritDispatchSpec(dispatchSpec{}, nil, nil)
+		want := dispatchSpec{Runtime: "claude", Effort: "medium"}
+		if got != want {
+			t.Fatalf("want %#v, got %#v", want, got)
+		}
+	})
 }
 
 func TestFillDispatchSpecFrom(t *testing.T) {
-	t.Skip("TODO: fillDispatchSpecFrom copies ONE source's fields into the slots spec leaves empty — never over an already-decided field, and applying NO defaults of its own (defaults belong to defaultedDispatchSpec, once, after every source has had its turn; baked in here they would pre-empt a later source's runtime and then drop its model as \"another runtime's\").")
+	t.Run("every empty slot takes the source's value and no decided field is overwritten", func(t *testing.T) {
+		got := fillDispatchSpecFrom(
+			dispatchSpec{Runtime: "codex", Effort: "high"},
+			dispatchSpec{Runtime: "claude", Model: "opus", Effort: "low", Machine: "m-src"})
+		want := dispatchSpec{Runtime: "codex", Model: "", Effort: "high", Machine: "m-src"}
+		if got != want {
+			t.Fatalf("want %#v, got %#v", want, got)
+		}
+	})
+
+	t.Run("an empty source leaves the spec exactly as it arrived and applies no defaults of its own", func(t *testing.T) {
+		got := fillDispatchSpecFrom(dispatchSpec{}, dispatchSpec{})
+		if got != (dispatchSpec{}) {
+			t.Fatalf("want the zero spec, got %#v", got)
+		}
+	})
+
+	t.Run("a source model rides along only when the source names the runtime being dispatched", func(t *testing.T) {
+		same := fillDispatchSpecFrom(dispatchSpec{Runtime: "codex"},
+			dispatchSpec{Runtime: "codex", Model: "gpt-5"})
+		if want := (dispatchSpec{Runtime: "codex", Model: "gpt-5"}); same != want {
+			t.Fatalf("same runtime: want %#v, got %#v", want, same)
+		}
+		crossed := fillDispatchSpecFrom(dispatchSpec{Runtime: "claude"},
+			dispatchSpec{Runtime: "codex", Model: "gpt-5"})
+		if want := (dispatchSpec{Runtime: "claude"}); crossed != want {
+			t.Fatalf("crossed runtime: want %#v, got %#v", want, crossed)
+		}
+	})
+
+	t.Run("a source whose runtime is blank states nothing: neither runtime nor its model is taken", func(t *testing.T) {
+		got := fillDispatchSpecFrom(dispatchSpec{}, dispatchSpec{Model: "gpt-5", Machine: "m-src"})
+		want := dispatchSpec{Machine: "m-src"}
+		if got != want {
+			t.Fatalf("want %#v, got %#v", want, got)
+		}
+	})
+
+	t.Run("a source runtime outside the closed set is refused, and its model with it", func(t *testing.T) {
+		got := fillDispatchSpecFrom(dispatchSpec{}, dispatchSpec{Runtime: "gemini", Model: "flash"})
+		if got != (dispatchSpec{}) {
+			t.Fatalf("want the zero spec, got %#v", got)
+		}
+	})
+
+	t.Run("a source runtime with surrounding whitespace is normalized before it is taken", func(t *testing.T) {
+		got := fillDispatchSpecFrom(dispatchSpec{}, dispatchSpec{Runtime: "  codex  ", Model: "gpt-5"})
+		want := dispatchSpec{Runtime: "codex", Model: "gpt-5"}
+		if got != want {
+			t.Fatalf("want %#v, got %#v", want, got)
+		}
+	})
+
+	t.Run("an effort outside the closed set is refused rather than copied", func(t *testing.T) {
+		got := fillDispatchSpecFrom(dispatchSpec{}, dispatchSpec{Effort: "turbo"})
+		if got != (dispatchSpec{}) {
+			t.Fatalf("want the zero spec, got %#v", got)
+		}
+	})
 }
 
 func TestDefaultedDispatchSpec(t *testing.T) {
-	t.Skip("TODO: defaultedDispatchSpec applies the only two defaults there are: a runtime, and an effort.")
+	t.Run("an empty spec gains a claude runtime and a medium effort and still names no machine", func(t *testing.T) {
+		got := defaultedDispatchSpec(dispatchSpec{})
+		want := dispatchSpec{Runtime: "claude", Effort: "medium"}
+		if got != want {
+			t.Fatalf("want %#v, got %#v", want, got)
+		}
+	})
+
+	t.Run("a spec that already decided both fields is returned untouched", func(t *testing.T) {
+		got := defaultedDispatchSpec(dispatchSpec{Runtime: "codex", Model: "gpt-5", Effort: "max", Machine: "m-1"})
+		want := dispatchSpec{Runtime: "codex", Model: "gpt-5", Effort: "max", Machine: "m-1"}
+		if got != want {
+			t.Fatalf("want %#v, got %#v", want, got)
+		}
+	})
+
+	t.Run("a model with no runtime keeps the model and defaults only the runtime around it", func(t *testing.T) {
+		got := defaultedDispatchSpec(dispatchSpec{Model: "gpt-5"})
+		want := dispatchSpec{Runtime: "claude", Model: "gpt-5", Effort: "medium"}
+		if got != want {
+			t.Fatalf("want %#v, got %#v", want, got)
+		}
+	})
 }
 
 func TestPublishOutsourceWorker(t *testing.T) {
-	t.Skip("TODO: 需要人工判斷這個函式的可觀察結果是什麼")
+	t.Run("the worker delta is fanned to the owner cockpit alone as an id/codename/status hint", func(t *testing.T) {
+		api, h, d, owner := newAPITestServer(t)
+		apiTestWorkerFixture(t, h, d, owner, "ow-abc123", WorkerStatusAssigned)
+		worker, err := d.GetOutsourceWorker("ow-abc123")
+		if err != nil || worker == nil {
+			t.Fatalf("GetOutsourceWorker: %v %#v", err, worker)
+		}
+		dashboard := apiTestListen(t, api, "")
+		executor := apiTestListen(t, api, "kip")
+		theWorkerItself := apiTestListen(t, api, "ow-abc123")
+
+		api.publishOutsourceWorker(*worker, "owner")
+
+		dashboard.wantFrames(map[string]any{
+			"seq":   2,
+			"topic": "outsource_worker",
+			"op":    "patch",
+			"data": map[string]any{
+				"entity":  "outsource_worker",
+				"key":     "owner::ow-abc123",
+				"epoch":   2,
+				"deleted": false,
+				"payload": map[string]any{
+					"id": "ow-abc123", "codename": "Contractor", "status": "assigned",
+				},
+			},
+			"ts":      apiAnyNumber,
+			"trigger": "owner",
+		})
+		executor.wantFrames()
+		theWorkerItself.wantFrames()
+	})
 }
 
 func TestPublishTaskManual(t *testing.T) {
-	t.Skip("TODO: 需要人工判斷這個函式的可觀察結果是什麼")
+	t.Run("the manual delta is fanned to the owner cockpit alone and carries no payload", func(t *testing.T) {
+		api, _, _, _ := newAPITestServer(t)
+		dashboard := apiTestListen(t, api, "")
+		agent := apiTestListen(t, api, "kip")
+
+		api.publishTaskManual("weekly_report", "owner")
+
+		dashboard.wantFrames(map[string]any{
+			"seq":   1,
+			"topic": "task_manual",
+			"op":    "patch",
+			"data": map[string]any{
+				"entity":  "task_manual",
+				"key":     "owner::weekly_report",
+				"epoch":   1,
+				"deleted": false,
+				"payload": nil,
+			},
+			"ts":      apiAnyNumber,
+			"trigger": "owner",
+		})
+		agent.wantFrames()
+	})
 }
 
 func TestResolveTask(t *testing.T) {
-	t.Skip("TODO: ── shared plumbing ────────────────────────────────────────────────────────── resolveTask returns the task for taskID (errNotFound when absent).")
+	t.Run("an id on the roster answers the whole stored row", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		apiJSON(t, h, "POST", "/api/tasks", owner,
+			`{"title":"Ship it","executor_member_id":"kip","description":"the whole story"}`)
+
+		got, err := api.resolveTask("T-1")
+		if err != nil {
+			t.Fatalf("resolveTask: %v", err)
+		}
+		if got.CreatedTS <= 0 || got.UpdatedTS <= 0 {
+			t.Fatalf("want stamped timestamps, got created %v updated %v", got.CreatedTS, got.UpdatedTS)
+		}
+		row := *got
+		row.CreatedTS, row.UpdatedTS = 0, 0
+		want := Task{
+			ID: "T-1", Title: "Ship it", Description: "the whole story",
+			Status: "not_started", Priority: "mid",
+			ExecutorKind: "staff", ExecutorID: "kip", CreatorID: "owner",
+			Inputs: map[string]any{}, OutsourceRuntime: "claude",
+		}
+		if !reflect.DeepEqual(row, want) {
+			t.Fatalf("want %#v, got %#v", want, row)
+		}
+	})
+
+	t.Run("an id no task carries answers errNotFound and no row", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"Ship it","executor_member_id":"kip"}`)
+
+		got, err := api.resolveTask("T-999")
+		if !errors.Is(err, errNotFound) {
+			t.Fatalf("want errNotFound, got %v", err)
+		}
+		if got != nil {
+			t.Fatalf("want no row beside the error, got %#v", got)
+		}
+	})
 }
 
 func TestTaskDTOOf(t *testing.T) {
-	t.Skip("TODO: taskDTOOf assembles the full served view of one task (steps + deps).")
+	t.Run("the served view carries the steps, both dependency directions, the card status and the artifact count", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		apiJSON(t, h, "POST", "/api/tasks", owner,
+			`{"title":"Ship it","executor_member_id":"kip","description":"the whole story"}`)
+		apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"Blocker","executor_member_id":"kip"}`)
+		apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"Waiter","executor_member_id":"kip"}`)
+		apiJSON(t, h, "POST", "/api/tasks/T-1/deps", owner, `{"blocked_by":["T-2"]}`)
+		apiJSON(t, h, "POST", "/api/tasks/T-3/deps", owner, `{"blocked_by":["T-1"]}`)
+		agent := apiTestAgentToken(t, api, "kip", "")
+		apiJSON(t, h, "POST", "/api/tasks/T-1/plan", agent,
+			`{"steps":[{"name":"Draft","dod":"a draft exists"},{"name":"Review","dod":"a review is signed off"}]}`)
+		_, planned := apiJSON(t, h, "GET", "/api/tasks/T-1", owner, "")
+		steps, _ := planned["steps"].([]any)
+		firstStep, _ := steps[0].(map[string]any)["id"].(string)
+		secondStep, _ := steps[1].(map[string]any)["id"].(string)
+		apiJSON(t, h, "POST", "/api/tasks/T-1/steps/"+firstStep+"/status", agent, `{"status":"in_progress"}`)
+		_, card := apiJSON(t, h, "POST", "/api/reply-cards", agent,
+			`{"kind":"decision","summary":"要不要出貨","options":[{"text":"出"}],`+
+				`"linked_task":{"task_id":"T-1","step_id":"`+secondStep+`"}}`)
+		cardID, _ := card["id"].(string)
+		apiJSON(t, h, "POST", "/api/tasks/T-1/artifact", agent,
+			`{"kind":"link","name":"PR #123","url":"https://example.com/pr/123"}`)
+
+		task, err := api.resolveTask("T-1")
+		if err != nil {
+			t.Fatalf("resolveTask: %v", err)
+		}
+		dto, err := api.taskDTOOf(*task)
+		if err != nil {
+			t.Fatalf("taskDTOOf: %v", err)
+		}
+		raw, err := json.Marshal(dto)
+		if err != nil {
+			t.Fatalf("marshal: %v", err)
+		}
+		var got any
+		if err := json.Unmarshal(raw, &got); err != nil {
+			t.Fatalf("unmarshal: %v", err)
+		}
+		apiWantValue(t, "dto", got, map[string]any{
+			"id":                   "T-1",
+			"task_no":              "T-1",
+			"type_key":             "",
+			"title":                "Ship it",
+			"dedupe_key":           "",
+			"inputs":               map[string]any{},
+			"description":          "the whole story",
+			"duplicate_of":         "",
+			"status":               "waiting_owner",
+			"lock":                 "",
+			"priority":             "mid",
+			"executor_kind":        "staff",
+			"executor_id":          "kip",
+			"creator_id":           "owner",
+			"reassigned_from":      "",
+			"reassigned_from_kind": "",
+			"handover_note":        "",
+			"handover_note_ts":     0,
+			"handover_note_by":     "",
+			"waiting_reason":       "",
+			"created_ts":           apiAnyNumber,
+			"updated_ts":           apiAnyNumber,
+			"closed_ts":            nil,
+			"deps":                 []any{"T-2"},
+			"steps": []any{
+				map[string]any{
+					"id":                firstStep,
+					"task_id":           "T-1",
+					"order_idx":         0,
+					"name":              "Draft",
+					"dod":               "a draft exists",
+					"status":            "in_progress",
+					"parallel_group":    "",
+					"is_gate":           false,
+					"reply_card_id":     "",
+					"reply_card_status": "",
+					"waiting_reason":    "",
+					"note_size_chars":   0,
+					"note_cap_chars":    10000,
+					"started_ts":        apiAnyNumber,
+					"finished_ts":       0,
+				},
+				map[string]any{
+					"id":                secondStep,
+					"task_id":           "T-1",
+					"order_idx":         1,
+					"name":              "Review",
+					"dod":               "a review is signed off",
+					"status":            "waiting_owner",
+					"parallel_group":    "",
+					"is_gate":           false,
+					"reply_card_id":     cardID,
+					"reply_card_status": "waiting",
+					"waiting_reason":    "",
+					"note_size_chars":   0,
+					"note_cap_chars":    10000,
+					"started_ts":        apiAnyNumber,
+					"finished_ts":       0,
+				},
+			},
+			"detail_level":      "summary",
+			"notes_included":    false,
+			"progress_done":     0,
+			"progress_total":    2,
+			"closeout_reported": false,
+			"artifact_count":    1,
+			"handoff":           "",
+			"handoff_note":      "",
+			"handoff_task_id":   "",
+			"blocking": []any{map[string]any{
+				"id": "T-3", "task_no": "T-3", "title": "Waiter", "status": "not_started",
+			}},
+			"frozen_by": "",
+		})
+	})
+
+	t.Run("a bare task carries empty collections rather than nulls", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"Ship it","executor_member_id":"kip"}`)
+		task, err := api.resolveTask("T-1")
+		if err != nil {
+			t.Fatalf("resolveTask: %v", err)
+		}
+		dto, err := api.taskDTOOf(*task)
+		if err != nil {
+			t.Fatalf("taskDTOOf: %v", err)
+		}
+		raw, err := json.Marshal(dto)
+		if err != nil {
+			t.Fatalf("marshal: %v", err)
+		}
+		var got map[string]any
+		if err := json.Unmarshal(raw, &got); err != nil {
+			t.Fatalf("unmarshal: %v", err)
+		}
+		apiWantValue(t, "dto.steps", got["steps"], []any{})
+		apiWantValue(t, "dto.deps", got["deps"], []any{})
+		apiWantValue(t, "dto.blocking", got["blocking"], []any{})
+		apiWantValue(t, "dto.artifact_count", got["artifact_count"], 0)
+		apiWantValue(t, "dto.progress_total", got["progress_total"], 0)
+	})
 }
 
 func TestBlockingTasksOf(t *testing.T) {
-	t.Skip("TODO: blockingTasksOf resolves the REVERSE dependency edge of one task (T-91): the non-terminal tasks that name it in their own blocked_by, as the same display refs the forward direction serves.")
+	t.Run("every non-terminal waiter comes back as a display ref, and a terminated one is dropped", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"Blocker","executor_member_id":"kip"}`)
+		apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"Live waiter","executor_member_id":"kip"}`)
+		apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"Dead waiter","executor_member_id":"kip"}`)
+		apiJSON(t, h, "POST", "/api/tasks/T-2/deps", owner, `{"blocked_by":["T-1"]}`)
+		apiJSON(t, h, "POST", "/api/tasks/T-3/deps", owner, `{"blocked_by":["T-1"]}`)
+
+		before, err := api.blockingTasksOf("T-1")
+		if err != nil {
+			t.Fatalf("blockingTasksOf: %v", err)
+		}
+		want := []taskDepRefDTO{
+			{ID: "T-2", TaskNo: "T-2", Title: "Live waiter", Status: "not_started"},
+			{ID: "T-3", TaskNo: "T-3", Title: "Dead waiter", Status: "not_started"},
+		}
+		if !reflect.DeepEqual(before, want) {
+			t.Fatalf("want %#v, got %#v", want, before)
+		}
+
+		if code, data := apiJSON(t, h, "POST", "/api/tasks/T-3/terminate", owner, ""); code != 200 {
+			t.Fatalf("terminate: %d %v", code, data)
+		}
+		after, err := api.blockingTasksOf("T-1")
+		if err != nil {
+			t.Fatalf("blockingTasksOf: %v", err)
+		}
+		if !reflect.DeepEqual(after, want[:1]) {
+			t.Fatalf("want %#v, got %#v", want[:1], after)
+		}
+	})
+
+	t.Run("a task nobody waits on answers an empty slice rather than nil", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"Blocker","executor_member_id":"kip"}`)
+
+		got, err := api.blockingTasksOf("T-1")
+		if err != nil {
+			t.Fatalf("blockingTasksOf: %v", err)
+		}
+		if got == nil || len(got) != 0 {
+			t.Fatalf("want an empty non-nil slice, got %#v", got)
+		}
+	})
+
+	t.Run("the forward edge is not the answer: the blocker of a task is not its waiter", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"Blocker","executor_member_id":"kip"}`)
+		apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"Waiter","executor_member_id":"kip"}`)
+		apiJSON(t, h, "POST", "/api/tasks/T-2/deps", owner, `{"blocked_by":["T-1"]}`)
+
+		got, err := api.blockingTasksOf("T-2")
+		if err != nil {
+			t.Fatalf("blockingTasksOf: %v", err)
+		}
+		if len(got) != 0 {
+			t.Fatalf("want nothing waiting on T-2, got %#v", got)
+		}
+	})
 }
 
 func TestTaskArtifactDTOs(t *testing.T) {
-	t.Skip("TODO: taskArtifactDTOs lists one task's artifacts and projects them onto the wire, resolving the referenced chat_attachment for EVERY kind since T-92 — a link's target now lives in a text/uri-list blob, so a link row needs its blob too, and it needs the BYTES rather than only the metadata.")
+	t.Run("a replaced deliverable reports its retained versions and the set stays oldest first", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"Ship it","executor_member_id":"kip"}`)
+		agent := apiTestAgentToken(t, api, "kip", "")
+		_, pinned := apiJSON(t, h, "POST", "/api/tasks/T-1/artifact", agent,
+			`{"kind":"link","name":"PR #123","description":"the change itself","url":"https://example.com/pr/123"}`)
+		replacedID, _ := pinned["artifact_id"].(string)
+		apiJSON(t, h, "POST", "/api/tasks/T-1/artifact/"+replacedID+"/replace", agent,
+			`{"url":"https://example.com/pr/124"}`)
+		_, second := apiJSON(t, h, "POST", "/api/tasks/T-1/artifact", agent,
+			`{"kind":"link","name":"PR #125","url":"https://example.com/pr/125"}`)
+		untouchedID, _ := second["artifact_id"].(string)
+
+		got, err := api.taskArtifactDTOs("T-1")
+		if err != nil {
+			t.Fatalf("taskArtifactDTOs: %v", err)
+		}
+		raw, err := json.Marshal(got)
+		if err != nil {
+			t.Fatalf("marshal: %v", err)
+		}
+		var decoded any
+		if err := json.Unmarshal(raw, &decoded); err != nil {
+			t.Fatalf("unmarshal: %v", err)
+		}
+		apiWantValue(t, "artifacts", decoded, []any{
+			map[string]any{
+				"id":            replacedID,
+				"kind":          "link",
+				"attachment_id": apiAnyString,
+				"name":          "PR #123",
+				"description":   "the change itself",
+				"filename":      "",
+				"mime":          "text/uri-list",
+				"url":           "https://example.com/pr/124",
+				"created_ts":    apiAnyNumber,
+				"created_by":    "kip",
+				"version_count": 2,
+			},
+			map[string]any{
+				"id":            untouchedID,
+				"kind":          "link",
+				"attachment_id": apiAnyString,
+				"name":          "PR #125",
+				"description":   "",
+				"filename":      "",
+				"mime":          "text/uri-list",
+				"url":           "https://example.com/pr/125",
+				"created_ts":    apiAnyNumber,
+				"created_by":    "kip",
+				"version_count": 1,
+			},
+		})
+	})
+
+	t.Run("a row whose blob is gone reads honest-empty and falls back to its own id for a name", func(t *testing.T) {
+		api, h, d, owner := newAPITestServer(t)
+		apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"Ship it","executor_member_id":"kip"}`)
+		if err := d.PutTaskArtifact(TaskArtifact{
+			ID: "ta-dangling", TaskID: "T-1", Kind: "file",
+			AttachmentID: "att-000000000000", CreatedTS: 1750000000, CreatedBy: "kip",
+		}); err != nil {
+			t.Fatalf("PutTaskArtifact: %v", err)
+		}
+
+		got, err := api.taskArtifactDTOs("T-1")
+		if err != nil {
+			t.Fatalf("taskArtifactDTOs: %v", err)
+		}
+		raw, err := json.Marshal(got)
+		if err != nil {
+			t.Fatalf("marshal: %v", err)
+		}
+		var decoded any
+		if err := json.Unmarshal(raw, &decoded); err != nil {
+			t.Fatalf("unmarshal: %v", err)
+		}
+		apiWantValue(t, "artifacts", decoded, []any{map[string]any{
+			"id":            "ta-dangling",
+			"kind":          "file",
+			"attachment_id": "att-000000000000",
+			"name":          "#dangling",
+			"description":   "",
+			"filename":      "",
+			"mime":          "",
+			"url":           "",
+			"created_ts":    float64(1750000000),
+			"created_by":    "kip",
+			"version_count": 1,
+		}})
+	})
+
+	t.Run("a task with nothing pinned answers an empty slice rather than nil", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"Ship it","executor_member_id":"kip"}`)
+
+		got, err := api.taskArtifactDTOs("T-1")
+		if err != nil {
+			t.Fatalf("taskArtifactDTOs: %v", err)
+		}
+		if got == nil || len(got) != 0 {
+			t.Fatalf("want an empty non-nil slice, got %#v", got)
+		}
+	})
 }
 
 func TestReplyCardStatusesForSteps(t *testing.T) {
-	t.Skip("TODO: replyCardStatusesForSteps maps each step's bound reply_card_id → the card's live status (\"waiting\"/\"answered\") for the read-time reply_card_status the task-embedded TaskReplyCard reads to lazy-load answered cards (and the board reads to derive the H4 badge without the child round-trip).")
+	t.Run("each bound card resolves to its live status and a repeated pointer is looked up once", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		agent := apiTestAgentToken(t, api, "kip", "")
+		_, waiting := apiJSON(t, h, "POST", "/api/reply-cards", agent,
+			`{"kind":"decision","summary":"要不要出貨","options":[{"text":"出"}],"linked_task":null}`)
+		waitingID, _ := waiting["id"].(string)
+		_, settled := apiJSON(t, h, "POST", "/api/reply-cards", agent,
+			`{"kind":"decision","summary":"要不要漲價","options":[{"text":"漲"}],"linked_task":null}`)
+		settledID, _ := settled["id"].(string)
+		if code, data := apiJSON(t, h, "POST", "/api/reply-cards/"+settledID+"/answer", owner,
+			`{"option_idxs":[0]}`); code != 200 {
+			t.Fatalf("answer: %d %v", code, data)
+		}
+
+		got := api.replyCardStatusesForSteps([]TaskStep{
+			{ID: "ts-1", ReplyCardID: waitingID},
+			{ID: "ts-2", ReplyCardID: settledID},
+			{ID: "ts-3", ReplyCardID: waitingID},
+		})
+		want := map[string]string{waitingID: "waiting", settledID: "answered"}
+		if !reflect.DeepEqual(got, want) {
+			t.Fatalf("want %#v, got %#v", want, got)
+		}
+	})
+
+	t.Run("card-less steps and a dangling pointer leave the map empty rather than inventing a status", func(t *testing.T) {
+		api, _, _, _ := newAPITestServer(t)
+
+		got := api.replyCardStatusesForSteps([]TaskStep{
+			{ID: "ts-1"},
+			{ID: "ts-2", ReplyCardID: "rc-000000000000"},
+		})
+		if got == nil || len(got) != 0 {
+			t.Fatalf("want an empty non-nil map, got %#v", got)
+		}
+	})
 }
 
 func TestStepCardSettled(t *testing.T) {
-	t.Skip("TODO: stepCardSettled reports whether the step's LATEST bound reply card (the reply_card_id pointer — historical cards deliberately out of scope) exists and has left waiting through a settling action (answered / expired): the submit_plan preservation test of T-1aea.")
+	settledCases := func(t *testing.T) (*apiServer, string, string, string) {
+		t.Helper()
+		api, h, _, owner := newAPITestServer(t)
+		agent := apiTestAgentToken(t, api, "kip", "")
+		_, waiting := apiJSON(t, h, "POST", "/api/reply-cards", agent,
+			`{"kind":"decision","summary":"要不要出貨","options":[{"text":"出"}],"linked_task":null}`)
+		waitingID, _ := waiting["id"].(string)
+		_, answered := apiJSON(t, h, "POST", "/api/reply-cards", agent,
+			`{"kind":"decision","summary":"要不要漲價","options":[{"text":"漲"}],"linked_task":null}`)
+		answeredID, _ := answered["id"].(string)
+		if code, data := apiJSON(t, h, "POST", "/api/reply-cards/"+answeredID+"/answer", owner,
+			`{"option_idxs":[0]}`); code != 200 {
+			t.Fatalf("answer: %d %v", code, data)
+		}
+		_, expired := apiJSON(t, h, "POST", "/api/reply-cards", agent,
+			`{"kind":"decision","summary":"要不要加班","options":[{"text":"加"}],"linked_task":null}`)
+		expiredID, _ := expired["id"].(string)
+		if code, data := apiJSON(t, h, "POST", "/api/reply-cards/"+expiredID+"/expire", agent, `{}`); code != 200 {
+			t.Fatalf("expire: %d %v", code, data)
+		}
+		return api, waitingID, answeredID, expiredID
+	}
+
+	t.Run("a card that left waiting through an answer or an expiry reads settled", func(t *testing.T) {
+		api, _, answeredID, expiredID := settledCases(t)
+		for _, cardID := range []string{answeredID, expiredID} {
+			got, err := api.stepCardSettled(TaskStep{ID: "ts-1", ReplyCardID: cardID})
+			if err != nil {
+				t.Fatalf("stepCardSettled: %v", err)
+			}
+			if !got {
+				t.Fatalf("card %s must read settled", cardID)
+			}
+		}
+	})
+
+	t.Run("a still-waiting card, a card-less step and a dangling pointer all read unsettled", func(t *testing.T) {
+		api, waitingID, _, _ := settledCases(t)
+		for _, step := range []TaskStep{
+			{ID: "ts-1", ReplyCardID: waitingID},
+			{ID: "ts-2"},
+			{ID: "ts-3", ReplyCardID: "rc-000000000000"},
+		} {
+			got, err := api.stepCardSettled(step)
+			if err != nil {
+				t.Fatalf("stepCardSettled(%s): %v", step.ID, err)
+			}
+			if got {
+				t.Fatalf("step %s must read unsettled", step.ID)
+			}
+		}
+	})
 }
 
 func TestWriteTask(t *testing.T) {
-	t.Skip("TODO: writeTask is the common single-task response tail.")
+	t.Run("the read face answers the whole object — steps, deps and all — as JSON", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		apiJSON(t, h, "POST", "/api/tasks", owner,
+			`{"title":"Ship it","executor_member_id":"kip","description":"the whole story"}`)
+		apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"Blocker","executor_member_id":"kip"}`)
+		apiJSON(t, h, "POST", "/api/tasks/T-1/deps", owner, `{"blocked_by":["T-2"]}`)
+		agent := apiTestAgentToken(t, api, "kip", "")
+		apiJSON(t, h, "POST", "/api/tasks/T-1/plan", agent,
+			`{"steps":[{"name":"Draft","dod":"a draft exists"}]}`)
+		apiJSON(t, h, "POST", "/api/tasks/T-1/artifact", agent,
+			`{"kind":"link","name":"PR #123","url":"https://example.com/pr/123"}`)
+		_, planned := apiJSON(t, h, "GET", "/api/tasks/T-1", owner, "")
+		stepID, _ := planned["steps"].([]any)[0].(map[string]any)["id"].(string)
+
+		rec := apiRequest(t, h, "GET", "/api/tasks/T-1", owner, "")
+		if rec.Code != 200 {
+			t.Fatalf("want 200, got %d (%s)", rec.Code, rec.Body.String())
+		}
+		if ct := rec.Header().Get("Content-Type"); ct != "application/json" {
+			t.Fatalf("Content-Type: got %q", ct)
+		}
+		var got any
+		if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+			t.Fatalf("non-JSON body: %s", rec.Body.String())
+		}
+		apiWantValue(t, "body", got, map[string]any{
+			"id":                   "T-1",
+			"task_no":              "T-1",
+			"type_key":             "",
+			"title":                "Ship it",
+			"dedupe_key":           "",
+			"inputs":               map[string]any{},
+			"description":          "the whole story",
+			"duplicate_of":         "",
+			"status":               "not_started",
+			"lock":                 "",
+			"priority":             "mid",
+			"executor_kind":        "staff",
+			"executor_id":          "kip",
+			"creator_id":           "owner",
+			"reassigned_from":      "",
+			"reassigned_from_kind": "",
+			"handover_note":        "",
+			"handover_note_ts":     0,
+			"handover_note_by":     "",
+			"waiting_reason":       "",
+			"created_ts":           apiAnyNumber,
+			"updated_ts":           apiAnyNumber,
+			"closed_ts":            nil,
+			"deps":                 []any{"T-2"},
+			"steps": []any{map[string]any{
+				"id":                stepID,
+				"task_id":           "T-1",
+				"order_idx":         0,
+				"name":              "Draft",
+				"dod":               "a draft exists",
+				"status":            "pending",
+				"parallel_group":    "",
+				"is_gate":           false,
+				"reply_card_id":     "",
+				"reply_card_status": "",
+				"waiting_reason":    "",
+				"note_size_chars":   0,
+				"note_cap_chars":    10000,
+				"started_ts":        0,
+				"finished_ts":       0,
+			}},
+			"detail_level":      "summary",
+			"notes_included":    false,
+			"progress_done":     0,
+			"progress_total":    1,
+			"closeout_reported": false,
+			"artifact_count":    1,
+			"handoff":           "",
+			"handoff_note":      "",
+			"handoff_task_id":   "",
+			"blocking":          []any{},
+			"frozen_by":         "",
+		})
+	})
 }
 
 func TestWriteTaskWriteReceipt(t *testing.T) {
-	t.Skip("TODO: writeTaskWriteReceipt is the common tail of the EIGHT task-driving writes that used to answer with the whole taskDTO (T-91): update_task and its title and description twins, claim, reassign, terminate, mark_duplicate and set_task_deps.")
+	t.Run("the receipt reports the progress pair, the dep ids, the artifact count and the description as a size and a hash", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		apiJSON(t, h, "POST", "/api/tasks", owner,
+			`{"title":"Ship it","executor_member_id":"kip","description":"the whole story"}`)
+		apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"Blocker","executor_member_id":"kip"}`)
+		apiJSON(t, h, "POST", "/api/tasks/T-1/deps", owner, `{"blocked_by":["T-2"]}`)
+		agent := apiTestAgentToken(t, api, "kip", "")
+		apiJSON(t, h, "POST", "/api/tasks/T-1/plan", agent,
+			`{"steps":[{"name":"Draft","dod":"a draft exists"},{"name":"Review","dod":"a review is signed off"}]}`)
+		_, planned := apiJSON(t, h, "GET", "/api/tasks/T-1", owner, "")
+		stepID, _ := planned["steps"].([]any)[0].(map[string]any)["id"].(string)
+		apiJSON(t, h, "POST", "/api/tasks/T-1/steps/"+stepID+"/status", agent, `{"status":"in_progress"}`)
+		apiJSON(t, h, "POST", "/api/tasks/T-1/steps/"+stepID+"/status", agent, `{"status":"done"}`)
+		apiJSON(t, h, "POST", "/api/tasks/T-1/artifact", agent,
+			`{"kind":"link","name":"PR #123","url":"https://example.com/pr/123"}`)
+
+		status, data := apiJSON(t, h, "POST", "/api/tasks/T-1/terminate", owner, "")
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		apiWantBody(t, data, map[string]any{
+			"task_id":                "T-1",
+			"title":                  "Ship it",
+			"status":                 "terminated",
+			"executor_id":            "kip",
+			"executor_kind":          "staff",
+			"lock":                   "",
+			"closed_ts":              apiAnyNumber,
+			"duplicate_of":           "",
+			"deps":                   []any{"T-2"},
+			"progress_done":          1,
+			"progress_total":         2,
+			"artifact_count":         1,
+			"description_size_chars": 15,
+			"description_sha256":     "b383ff20e6eca765a309361d7f24a2bc029dc07d3ff7e2932791594942d42760",
+		})
+	})
+
+	t.Run("the description size is counted in runes rather than bytes", func(t *testing.T) {
+		_, h, _, owner := newAPITestServer(t)
+		apiJSON(t, h, "POST", "/api/tasks", owner,
+			`{"title":"Ship it","executor_member_id":"kip","description":"出貨已經完成"}`)
+
+		status, data := apiJSON(t, h, "POST", "/api/tasks/T-1/terminate", owner, "")
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		apiWantValue(t, "body.description_size_chars", data["description_size_chars"], 6)
+		apiWantValue(t, "body.description_sha256", data["description_sha256"],
+			"20b2c8cce5d0d217e83169f5213aeea90d023da35c4e0255406e2c3f7047c4b1")
+	})
+
+	t.Run("a task marked duplicate reports the original it points at", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"Original","executor_member_id":"kip"}`)
+		apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"The copy","executor_member_id":"kip"}`)
+		agent := apiTestAgentToken(t, api, "kip", "")
+
+		status, data := apiJSON(t, h, "POST", "/api/tasks/T-2/duplicate", agent, `{"duplicate_of":"T-1"}`)
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		apiWantBody(t, data, map[string]any{
+			"task_id":                "T-2",
+			"title":                  "The copy",
+			"status":                 "duplicated",
+			"executor_id":            "kip",
+			"executor_kind":          "staff",
+			"lock":                   "",
+			"closed_ts":              apiAnyNumber,
+			"duplicate_of":           "T-1",
+			"deps":                   []any{},
+			"progress_done":          0,
+			"progress_total":         0,
+			"artifact_count":         0,
+			"description_size_chars": 0,
+			"description_sha256":     "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+		})
+	})
 }
 
 func TestWriteTaskArtifactReceipt(t *testing.T) {
-	t.Skip("TODO: writeTaskArtifactReceipt is the common tail of the two artifact writes: the artifact just touched plus the resulting set size (T-a98d — these used to answer with the whole task, ~80k characters for a one-line pin).")
+	t.Run("un-pinning one of two deliverables answers the artifact just touched and the shrunken set size", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"Ship it","executor_member_id":"kip"}`)
+		agent := apiTestAgentToken(t, api, "kip", "")
+		_, first := apiJSON(t, h, "POST", "/api/tasks/T-1/artifact", agent,
+			`{"kind":"link","name":"PR #123","url":"https://example.com/pr/123"}`)
+		removedID, _ := first["artifact_id"].(string)
+		apiJSON(t, h, "POST", "/api/tasks/T-1/artifact", agent,
+			`{"kind":"link","name":"PR #124","url":"https://example.com/pr/124"}`)
+
+		status, data := apiJSON(t, h, "DELETE", "/api/tasks/T-1/artifact/"+removedID, agent, "")
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		apiWantBody(t, data, map[string]any{
+			"task_id":        "T-1",
+			"artifact_id":    removedID,
+			"artifact_count": 1,
+		})
+	})
+
+	t.Run("un-pinning the last deliverable answers an empty set", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"Ship it","executor_member_id":"kip"}`)
+		agent := apiTestAgentToken(t, api, "kip", "")
+		_, pinned := apiJSON(t, h, "POST", "/api/tasks/T-1/artifact", agent,
+			`{"kind":"link","name":"PR #123","url":"https://example.com/pr/123"}`)
+		artifactID, _ := pinned["artifact_id"].(string)
+
+		status, data := apiJSON(t, h, "DELETE", "/api/tasks/T-1/artifact/"+artifactID, agent, "")
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		apiWantBody(t, data, map[string]any{
+			"task_id":        "T-1",
+			"artifact_id":    artifactID,
+			"artifact_count": 0,
+		})
+	})
 }
 
 func TestWriteTaskCloseoutReceipt(t *testing.T) {
-	t.Skip("TODO: writeTaskCloseoutReceipt is the common tail of BOTH close-out exits — the first (stamping) report and the idempotent no-op repeat (T-bb70).")
+	t.Run("a task that reached done reports that status, and the repeat answers the first stamp again", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"Ship it","executor_member_id":"kip"}`)
+		agent := apiTestAgentToken(t, api, "kip", "")
+		apiJSON(t, h, "POST", "/api/tasks/T-1/plan", agent,
+			`{"steps":[{"name":"Draft","dod":"a draft exists"}]}`)
+		_, planned := apiJSON(t, h, "GET", "/api/tasks/T-1", owner, "")
+		stepID, _ := planned["steps"].([]any)[0].(map[string]any)["id"].(string)
+		apiJSON(t, h, "POST", "/api/tasks/T-1/steps/"+stepID+"/status", agent, `{"status":"in_progress"}`)
+		apiJSON(t, h, "POST", "/api/tasks/T-1/steps/"+stepID+"/status", agent,
+			`{"status":"done","handoff":"none","handoff_note":"nothing follows this"}`)
+
+		status, first := apiJSON(t, h, "POST", "/api/tasks/T-1/closeout", agent, "")
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, first)
+		}
+		apiWantBody(t, first, map[string]any{
+			"task_id":           "T-1",
+			"task_status":       "done",
+			"closeout_reported": true,
+			"closeout_ts":       apiAnyNumber,
+		})
+		stamp, _ := first["closeout_ts"].(float64)
+
+		status, repeat := apiJSON(t, h, "POST", "/api/tasks/T-1/closeout", agent, "")
+		if status != 200 {
+			t.Fatalf("repeat: want 200, got %d (%v)", status, repeat)
+		}
+		apiWantBody(t, repeat, map[string]any{
+			"task_id":           "T-1",
+			"task_status":       "done",
+			"closeout_reported": true,
+			"closeout_ts":       stamp,
+		})
+	})
 }
 
 func TestWriteTaskStepStatusReceipt(t *testing.T) {
-	t.Skip("TODO: 需要人工判斷這個函式的可觀察結果是什麼")
+	t.Run("a step held on an external party reports its reason beside the re-derived task status", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"Ship it","executor_member_id":"kip"}`)
+		agent := apiTestAgentToken(t, api, "kip", "")
+		apiJSON(t, h, "POST", "/api/tasks/T-1/plan", agent,
+			`{"steps":[{"name":"Draft","dod":"a draft exists"},{"name":"Review","dod":"a review is signed off"}]}`)
+		_, planned := apiJSON(t, h, "GET", "/api/tasks/T-1", owner, "")
+		stepID, _ := planned["steps"].([]any)[0].(map[string]any)["id"].(string)
+		apiJSON(t, h, "POST", "/api/tasks/T-1/steps/"+stepID+"/status", agent, `{"status":"in_progress"}`)
+
+		status, data := apiJSON(t, h, "POST", "/api/tasks/T-1/steps/"+stepID+"/status", agent,
+			`{"status":"waiting_external","waiting_reason":"the carrier has not answered"}`)
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		apiWantBody(t, data, map[string]any{
+			"task_id":        "T-1",
+			"step_id":        stepID,
+			"step_status":    "waiting_external",
+			"waiting_reason": "the carrier has not answered",
+			"task_status":    "waiting_external",
+			"closed_ts":      nil,
+			"progress_done":  0,
+			"progress_total": 2,
+		})
+	})
+
+	t.Run("the report that finishes the last step reports the closed task and the stamped closure", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"Ship it","executor_member_id":"kip"}`)
+		agent := apiTestAgentToken(t, api, "kip", "")
+		apiJSON(t, h, "POST", "/api/tasks/T-1/plan", agent,
+			`{"steps":[{"name":"Draft","dod":"a draft exists"},{"name":"Review","dod":"a review is signed off"}]}`)
+		_, planned := apiJSON(t, h, "GET", "/api/tasks/T-1", owner, "")
+		steps, _ := planned["steps"].([]any)
+		firstStep, _ := steps[0].(map[string]any)["id"].(string)
+		lastStep, _ := steps[1].(map[string]any)["id"].(string)
+		for _, stepID := range []string{firstStep, lastStep} {
+			apiJSON(t, h, "POST", "/api/tasks/T-1/steps/"+stepID+"/status", agent, `{"status":"in_progress"}`)
+			if stepID == firstStep {
+				apiJSON(t, h, "POST", "/api/tasks/T-1/steps/"+stepID+"/status", agent, `{"status":"done"}`)
+			}
+		}
+
+		status, data := apiJSON(t, h, "POST", "/api/tasks/T-1/steps/"+lastStep+"/status", agent,
+			`{"status":"done","handoff":"none","handoff_note":"nothing follows this"}`)
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		apiWantBody(t, data, map[string]any{
+			"task_id":        "T-1",
+			"step_id":        lastStep,
+			"step_status":    "done",
+			"waiting_reason": "",
+			"task_status":    "done",
+			"closed_ts":      apiAnyNumber,
+			"progress_done":  2,
+			"progress_total": 2,
+		})
+	})
 }
 
 func TestCallerMayDriveTask(t *testing.T) {
-	t.Skip("TODO: callerMayDriveTask enforces the executor guard on the agent report routes (plan / status / step status / gate / deps): the caller must BE the task's executor — the caller-identity convention (root CLAUDE.md §14: a non-admin agent only ever operates itself; admin capability — owner or admin agent — may act on any task).")
+	t.Run("the task's own executor may drive it", func(t *testing.T) {
+		api, h, d, owner := newAPITestServer(t)
+		apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"Ship it","executor_member_id":"kip"}`)
+		task, err := api.resolveTask("T-1")
+		if err != nil {
+			t.Fatalf("resolveTask: %v", err)
+		}
+		taskTestUnderCaller(t, api, d, apiTestAgentToken(t, api, "kip", ""), func(r *http.Request) {
+			if !api.callerMayDriveTask(r, *task) {
+				t.Fatal("the executor must be allowed to drive its own task")
+			}
+		})
+	})
+
+	t.Run("owner scope and admin capability drive a task they do not execute", func(t *testing.T) {
+		api, h, d, owner := newAPITestServer(t)
+		apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"Ship it","executor_member_id":"kip"}`)
+		task, err := api.resolveTask("T-1")
+		if err != nil {
+			t.Fatalf("resolveTask: %v", err)
+		}
+		for _, token := range []string{owner, apiTestAgentToken(t, api, "mira", "")} {
+			taskTestUnderCaller(t, api, d, token, func(r *http.Request) {
+				if !api.callerMayDriveTask(r, *task) {
+					t.Fatalf("%s must be allowed to drive any task", currentActor(r))
+				}
+			})
+		}
+	})
+
+	t.Run("a plain agent that is not the executor may not drive it", func(t *testing.T) {
+		api, h, d, owner := newAPITestServer(t)
+		apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"Ship it","executor_member_id":"mira"}`)
+		task, err := api.resolveTask("T-1")
+		if err != nil {
+			t.Fatalf("resolveTask: %v", err)
+		}
+		taskTestUnderCaller(t, api, d, apiTestAgentToken(t, api, "kip", ""), func(r *http.Request) {
+			if api.callerMayDriveTask(r, *task) {
+				t.Fatal("a non-executor plain agent must be refused")
+			}
+		})
+	})
+
+	t.Run("the creator of an unbound task earns no standing at this door", func(t *testing.T) {
+		api, h, d, _ := newAPITestServer(t)
+		agent := apiTestAgentToken(t, api, "kip", "")
+		apiJSON(t, h, "POST", "/api/tasks", agent, `{"title":"Contracted out","target":{"kind":"outsource"}}`)
+		task, err := api.resolveTask("T-1")
+		if err != nil {
+			t.Fatalf("resolveTask: %v", err)
+		}
+		unbound := *task
+		unbound.ExecutorID = ""
+		if err := d.PutTask(unbound); err != nil {
+			t.Fatalf("PutTask: %v", err)
+		}
+		if unbound.CreatorID != "kip" {
+			t.Fatalf("want the ticket created by kip, got %q", unbound.CreatorID)
+		}
+		taskTestUnderCaller(t, api, d, agent, func(r *http.Request) {
+			if api.callerMayDriveTask(r, unbound) {
+				t.Fatal("the creator must not drive an unbound task")
+			}
+		})
+	})
 }
 
 func TestCallerMayEditTaskText(t *testing.T) {
-	t.Skip("TODO: callerMayEditTaskText is callerMayDriveTask widened by exactly one structural fact: while a task has NO executor at all (executor_id == \"\"), its CREATOR counts as the executor — but only at the text-only doors (T-52).")
+	t.Run("the creator of a task with no executor at all may edit its text", func(t *testing.T) {
+		api, h, d, _ := newAPITestServer(t)
+		agent := apiTestAgentToken(t, api, "kip", "")
+		apiJSON(t, h, "POST", "/api/tasks", agent, `{"title":"Contracted out","target":{"kind":"outsource"}}`)
+		task, err := api.resolveTask("T-1")
+		if err != nil {
+			t.Fatalf("resolveTask: %v", err)
+		}
+		unbound := *task
+		unbound.ExecutorID = ""
+		if err := d.PutTask(unbound); err != nil {
+			t.Fatalf("PutTask: %v", err)
+		}
+		taskTestUnderCaller(t, api, d, agent, func(r *http.Request) {
+			if !api.callerMayEditTaskText(r, unbound) {
+				t.Fatal("the creator of an unbound task must be allowed at the text doors")
+			}
+		})
+	})
+
+	t.Run("the moment an executor is bound the creator is back to refused", func(t *testing.T) {
+		api, h, d, _ := newAPITestServer(t)
+		agent := apiTestAgentToken(t, api, "kip", "")
+		apiJSON(t, h, "POST", "/api/tasks", agent, `{"title":"Contracted out","target":{"kind":"outsource"}}`)
+		task, err := api.resolveTask("T-1")
+		if err != nil {
+			t.Fatalf("resolveTask: %v", err)
+		}
+		bound := *task
+		bound.ExecutorID = "mira"
+		bound.ExecutorKind = TaskExecutorStaff
+		if err := d.PutTask(bound); err != nil {
+			t.Fatalf("PutTask: %v", err)
+		}
+		taskTestUnderCaller(t, api, d, agent, func(r *http.Request) {
+			if api.callerMayEditTaskText(r, bound) {
+				t.Fatal("a bound task closes the creator's door")
+			}
+		})
+	})
+
+	t.Run("a plain agent that neither executes nor created the task is refused", func(t *testing.T) {
+		api, h, d, _ := newAPITestServer(t)
+		creator := apiTestAgentToken(t, api, "mira", "")
+		apiJSON(t, h, "POST", "/api/tasks", creator, `{"title":"Contracted out","target":{"kind":"outsource"}}`)
+		task, err := api.resolveTask("T-1")
+		if err != nil {
+			t.Fatalf("resolveTask: %v", err)
+		}
+		unbound := *task
+		unbound.ExecutorID = ""
+		if err := d.PutTask(unbound); err != nil {
+			t.Fatalf("PutTask: %v", err)
+		}
+		taskTestUnderCaller(t, api, d, apiTestAgentToken(t, api, "kip", ""), func(r *http.Request) {
+			if api.callerMayEditTaskText(r, unbound) {
+				t.Fatal("a bystander must be refused")
+			}
+		})
+	})
+
+	t.Run("an unbound task with no creator at all admits nobody but admin capability", func(t *testing.T) {
+		api, h, d, owner := newAPITestServer(t)
+		apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"Contracted out","target":{"kind":"outsource"}}`)
+		task, err := api.resolveTask("T-1")
+		if err != nil {
+			t.Fatalf("resolveTask: %v", err)
+		}
+		orphan := *task
+		orphan.CreatorID = ""
+		orphan.ExecutorID = ""
+		if err := d.PutTask(orphan); err != nil {
+			t.Fatalf("PutTask: %v", err)
+		}
+		taskTestUnderCaller(t, api, d, apiTestAgentToken(t, api, "kip", ""), func(r *http.Request) {
+			if api.callerMayEditTaskText(r, orphan) {
+				t.Fatal("the empty string is not an actor")
+			}
+		})
+		taskTestUnderCaller(t, api, d, owner, func(r *http.Request) {
+			if !api.callerMayEditTaskText(r, orphan) {
+				t.Fatal("owner scope still passes on the drive rule alone")
+			}
+		})
+	})
 }
 
 func TestCallerMayWriteHandover(t *testing.T) {
-	t.Skip("TODO: callerMayWriteHandover is callerMayDriveTask PLUS one narrow, time-boxed exception (T-91): while a task sits under the `reassigning` lock, the PREDECESSOR stamped on it may still write the handover record.")
+	handedOver := func(t *testing.T) (*apiServer, http.Handler, *DAL, string) {
+		t.Helper()
+		api, h, d, owner := newAPITestServer(t)
+		apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"Ship it","executor_member_id":"kip"}`)
+		apiJSON(t, h, "POST", "/api/tasks/T-1/reassign", owner,
+			`{"target":{"kind":"staff","member_id":"mira"}}`)
+		return api, h, d, owner
+	}
+
+	t.Run("the predecessor stamped on a task under the handover lock may still write it", func(t *testing.T) {
+		api, _, d, _ := handedOver(t)
+		task, err := api.resolveTask("T-1")
+		if err != nil {
+			t.Fatalf("resolveTask: %v", err)
+		}
+		if task.Lock != TaskLockReassigning || task.ReassignedFrom != "kip" {
+			t.Fatalf("want the reassigning lock stamped from kip, got lock %q from %q",
+				task.Lock, task.ReassignedFrom)
+		}
+		taskTestUnderCaller(t, api, d, apiTestAgentToken(t, api, "kip", ""), func(r *http.Request) {
+			if !api.callerMayWriteHandover(r, *task) {
+				t.Fatal("the predecessor must keep the pen for the handover record")
+			}
+			if api.callerMayDriveTask(r, *task) {
+				t.Fatal("the exception must not widen the drive guard")
+			}
+		})
+	})
+
+	t.Run("claiming the task closes the predecessor's window", func(t *testing.T) {
+		api, h, d, _ := handedOver(t)
+		successor := apiTestAgentToken(t, api, "mira", "")
+		if code, data := apiJSON(t, h, "POST", "/api/tasks/T-1/claim", successor, ""); code != 200 {
+			t.Fatalf("claim: %d %v", code, data)
+		}
+		task, err := api.resolveTask("T-1")
+		if err != nil {
+			t.Fatalf("resolveTask: %v", err)
+		}
+		if task.Lock != "" || task.ReassignedFrom != "kip" {
+			t.Fatalf("want the lock cleared with the predecessor still stamped, got lock %q from %q",
+				task.Lock, task.ReassignedFrom)
+		}
+		taskTestUnderCaller(t, api, d, apiTestAgentToken(t, api, "kip", ""), func(r *http.Request) {
+			if api.callerMayWriteHandover(r, *task) {
+				t.Fatal("the window closes with the lock")
+			}
+		})
+	})
+
+	t.Run("a third party under the same lock is refused", func(t *testing.T) {
+		api, _, d, _ := handedOver(t)
+		if err := d.PutMember(Member{
+			ID: "rex", Name: "Rex", Kind: KindStaff, RoleKey: "engineer",
+			RosterStatus: RosterStatusActive,
+		}); err != nil {
+			t.Fatalf("PutMember: %v", err)
+		}
+		task, err := api.resolveTask("T-1")
+		if err != nil {
+			t.Fatalf("resolveTask: %v", err)
+		}
+		taskTestUnderCaller(t, api, d, apiTestAgentToken(t, api, "rex", ""), func(r *http.Request) {
+			if api.callerMayWriteHandover(r, *task) {
+				t.Fatal("the exception names one predecessor, not everybody")
+			}
+		})
+	})
+
+	t.Run("the successor and owner scope pass on the drive rule alone", func(t *testing.T) {
+		api, _, d, owner := handedOver(t)
+		task, err := api.resolveTask("T-1")
+		if err != nil {
+			t.Fatalf("resolveTask: %v", err)
+		}
+		for _, token := range []string{owner, apiTestAgentToken(t, api, "mira", "")} {
+			taskTestUnderCaller(t, api, d, token, func(r *http.Request) {
+				if !api.callerMayWriteHandover(r, *task) {
+					t.Fatalf("%s must pass", currentActor(r))
+				}
+			})
+		}
+	})
 }
 
 func TestTaskCallerOf(t *testing.T) {
-	t.Skip("TODO: taskCallerOf resolves the caller's facets from the verified claims (the twin of resolvePrincipal that also hands back the member row).")
+	t.Run("an owner credential classifies as owner and needs no roster row", func(t *testing.T) {
+		api, _, d, owner := newAPITestServer(t)
+		taskTestUnderCaller(t, api, d, owner, func(r *http.Request) {
+			c, err := api.taskCallerOf(r)
+			if err != nil {
+				t.Fatalf("taskCallerOf: %v", err)
+			}
+			if c.principal != principalOwner || c.actorID != "owner" || c.member != nil {
+				t.Fatalf("got %#v", c)
+			}
+			if !c.isAdminCapable() || c.isOutsource() {
+				t.Fatalf("owner: admin=%v outsource=%v", c.isAdminCapable(), c.isOutsource())
+			}
+		})
+	})
+
+	t.Run("a plain staff credential hands back the roster row and the agent class", func(t *testing.T) {
+		api, _, d, _ := newAPITestServer(t)
+		token := apiTestAgentToken(t, api, "kip", "")
+		taskTestUnderCaller(t, api, d, token, func(r *http.Request) {
+			c, err := api.taskCallerOf(r)
+			if err != nil {
+				t.Fatalf("taskCallerOf: %v", err)
+			}
+			if c.principal != principalAgent || c.actorID != "kip" {
+				t.Fatalf("got %#v", c)
+			}
+			if c.member == nil || c.member.ID != "kip" || c.member.Kind != KindStaff {
+				t.Fatalf("member: %#v", c.member)
+			}
+			if c.isAdminCapable() || c.isOutsource() {
+				t.Fatalf("kip: admin=%v outsource=%v", c.isAdminCapable(), c.isOutsource())
+			}
+		})
+	})
+
+	t.Run("the assistant's credential classifies as admin_agent", func(t *testing.T) {
+		api, _, d, _ := newAPITestServer(t)
+		token := apiTestAgentToken(t, api, "mira", "")
+		taskTestUnderCaller(t, api, d, token, func(r *http.Request) {
+			c, err := api.taskCallerOf(r)
+			if err != nil {
+				t.Fatalf("taskCallerOf: %v", err)
+			}
+			if c.principal != principalAdminAgent || !c.isAdminCapable() {
+				t.Fatalf("got %#v", c)
+			}
+		})
+	})
+
+	t.Run("an outsource worker's credential is the one that answers isOutsource", func(t *testing.T) {
+		api, h, d, owner := newAPITestServer(t)
+		apiTestWorkerFixture(t, h, d, owner, "ow-abc123", WorkerStatusAssigned)
+		token := apiTestAgentToken(t, api, "ow-abc123", "")
+		taskTestUnderCaller(t, api, d, token, func(r *http.Request) {
+			c, err := api.taskCallerOf(r)
+			if err != nil {
+				t.Fatalf("taskCallerOf: %v", err)
+			}
+			if c.principal != principalAgent || !c.isOutsource() || c.isAdminCapable() {
+				t.Fatalf("got %#v", c)
+			}
+		})
+	})
+
+	t.Run("a sub with no roster row resolves to a plain agent carrying no member", func(t *testing.T) {
+		api, _, d, _ := newAPITestServer(t)
+		token := apiTestAgentToken(t, api, "kip", "")
+		if _, err := d.HardDeleteMember("kip"); err != nil {
+			t.Fatalf("HardDeleteMember: %v", err)
+		}
+		taskTestUnderCaller(t, api, d, token, func(r *http.Request) {
+			c, err := api.taskCallerOf(r)
+			if err != nil {
+				t.Fatalf("taskCallerOf: %v", err)
+			}
+			if c.principal != principalAgent || c.actorID != "kip" || c.member != nil {
+				t.Fatalf("got %#v", c)
+			}
+			if c.isOutsource() {
+				t.Fatal("a missing row must not read as an outsource worker")
+			}
+		})
+	})
 }
 
 func TestAuthorizeTaskCreate(t *testing.T) {
-	t.Skip("TODO: authorizeTaskCreate is the caller-side create gate of the 正職授權矩陣 (T-23cf phase 2).")
+	outsourceCaller := taskCaller{
+		principal: principalAgent, actorID: "ow-abc123",
+		member: &Member{ID: "ow-abc123", Kind: KindOutsource},
+	}
+	staffCaller := taskCaller{
+		principal: principalAgent, actorID: "kip",
+		member: &Member{ID: "kip", Kind: KindStaff, RoleKey: "engineer"},
+	}
+	adminCaller := taskCaller{
+		principal: principalAdminAgent, actorID: "mira",
+		member: &Member{ID: "mira", Kind: KindStaff, RoleKey: "assistant"},
+	}
+	ownerCaller := taskCaller{principal: principalOwner, actorID: "owner"}
+
+	t.Run("an outsource worker is refused before any other rule is consulted", func(t *testing.T) {
+		code, reason := authorizeTaskCreate(outsourceCaller, true, "ow-abc123", "")
+		if code != 403 || reason != "outsource workers may not create tasks" {
+			t.Fatalf("got (%d, %q)", code, reason)
+		}
+	})
+
+	t.Run("a typed task the manual assigns to someone else is refused even for the owner", func(t *testing.T) {
+		want := "a typed task assigned to member 'kip' may only be created by that member"
+		for _, c := range []taskCaller{ownerCaller, adminCaller} {
+			code, reason := authorizeTaskCreate(c, false, "kip", "kip")
+			if code != 403 || reason != want {
+				t.Fatalf("%s: got (%d, %q)", c.actorID, code, reason)
+			}
+		}
+	})
+
+	t.Run("naming the target outsource does not slip a foreign typed task past rule 3", func(t *testing.T) {
+		code, reason := authorizeTaskCreate(adminCaller, true, "kip", "")
+		if code != 403 ||
+			reason != "a typed task assigned to member 'kip' may only be created by that member" {
+			t.Fatalf("got (%d, %q)", code, reason)
+		}
+	})
+
+	t.Run("the manual's own assignee may create its typed task, dispatched or not", func(t *testing.T) {
+		if code, reason := authorizeTaskCreate(staffCaller, false, "kip", "kip"); code != 0 || reason != "" {
+			t.Fatalf("self-executed: got (%d, %q)", code, reason)
+		}
+		if code, reason := authorizeTaskCreate(staffCaller, true, "kip", ""); code != 0 || reason != "" {
+			t.Fatalf("dispatched: got (%d, %q)", code, reason)
+		}
+	})
+
+	t.Run("any staff caller may open an untyped 發包 ticket", func(t *testing.T) {
+		for _, c := range []taskCaller{ownerCaller, adminCaller, staffCaller} {
+			if code, reason := authorizeTaskCreate(c, true, "", ""); code != 0 || reason != "" {
+				t.Fatalf("%s: got (%d, %q)", c.actorID, code, reason)
+			}
+		}
+	})
+
+	t.Run("a plain staff caller may name only itself as the executor of an ad-hoc task", func(t *testing.T) {
+		if code, reason := authorizeTaskCreate(staffCaller, false, "", "kip"); code != 0 || reason != "" {
+			t.Fatalf("self: got (%d, %q)", code, reason)
+		}
+		code, reason := authorizeTaskCreate(staffCaller, false, "", "mira")
+		if code != 403 || reason != "an ad-hoc task may only name yourself as executor "+
+			"(or be dispatched to an outsource worker)" {
+			t.Fatalf("another member: got (%d, %q)", code, reason)
+		}
+	})
+
+	t.Run("admin capability hands an ad-hoc task to any executor", func(t *testing.T) {
+		for _, c := range []taskCaller{ownerCaller, adminCaller} {
+			if code, reason := authorizeTaskCreate(c, false, "", "kip"); code != 0 || reason != "" {
+				t.Fatalf("%s: got (%d, %q)", c.actorID, code, reason)
+			}
+		}
+	})
 }
 
 func TestCloseTask(t *testing.T) {
-	t.Skip("TODO: closeTask applies the terminal-status side effects (done AND terminated): stamp closed_ts, retire every waiting reply card still bound to the task, release every bound outsource worker (the panel row disappears; the row itself is the audit trail) and fan their deltas.")
+	t.Run("the close stamps the status, retires the waiting card, releases the bound worker and fans all three", func(t *testing.T) {
+		api, h, d, owner := newAPITestServer(t)
+		apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"Ship it","executor_member_id":"kip"}`)
+		if err := d.PutOutsourceWorker(OutsourceWorker{
+			ID: "ow-abc123", Codename: "Contractor", TaskID: "T-1",
+			Status: WorkerStatusAssigned, Runtime: "claude", Model: "sonnet", Effort: "medium",
+		}); err != nil {
+			t.Fatalf("PutOutsourceWorker: %v", err)
+		}
+		agent := apiTestAgentToken(t, api, "kip", "")
+		apiJSON(t, h, "POST", "/api/tasks/T-1/plan", agent,
+			`{"steps":[{"name":"Draft","dod":"a draft exists"}]}`)
+		steps, err := d.ListTaskSteps("T-1")
+		if err != nil {
+			t.Fatalf("ListTaskSteps: %v", err)
+		}
+		apiJSON(t, h, "POST", "/api/tasks/T-1/steps/"+steps[0].ID+"/status", agent, `{"status":"in_progress"}`)
+		code, card := apiJSON(t, h, "POST", "/api/reply-cards", agent,
+			`{"kind":"decision","summary":"要不要出貨","options":[{"text":"出"}],`+
+				`"linked_task":{"task_id":"T-1","step_id":"`+steps[0].ID+`"}}`)
+		if code != 200 {
+			t.Fatalf("open the card: %d %v", code, card)
+		}
+		cardID, _ := card["id"].(string)
+		task, err := api.resolveTask("T-1")
+		if err != nil {
+			t.Fatalf("resolveTask: %v", err)
+		}
+		dashboard := apiTestListen(t, api, "")
+
+		if err := api.closeTask(task, TaskStatusTerminated, 1750000000, "owner"); err != nil {
+			t.Fatalf("closeTask: %v", err)
+		}
+
+		if task.Status != "terminated" || task.ClosedTS != 1750000000 || task.UpdatedTS != 1750000000 {
+			t.Fatalf("returned task: %#v", *task)
+		}
+		stored, err := api.resolveTask("T-1")
+		if err != nil {
+			t.Fatalf("resolveTask: %v", err)
+		}
+		if stored.Status != "terminated" || stored.ClosedTS != 1750000000 {
+			t.Fatalf("stored task: %#v", *stored)
+		}
+		retired, err := d.GetReplyCard(cardID)
+		if err != nil || retired == nil {
+			t.Fatalf("GetReplyCard: %v %#v", err, retired)
+		}
+		if retired.Status != "expired" {
+			t.Fatalf("card status: %q", retired.Status)
+		}
+		worker, err := d.GetOutsourceWorker("ow-abc123")
+		if err != nil || worker == nil {
+			t.Fatalf("GetOutsourceWorker: %v %#v", err, worker)
+		}
+		if worker.Status != "released" {
+			t.Fatalf("worker status: %q", worker.Status)
+		}
+		notices, err := d.ListChat()
+		if err != nil {
+			t.Fatalf("ListChat: %v", err)
+		}
+		if len(notices) != 2 {
+			t.Fatalf("want the card's companion message and the close-out notice, got %v", notices)
+		}
+		closeNotice := notices[1]
+		if closeNotice.Recipient != "kip" || closeNotice.Meta["closed_by"] != "owner" {
+			t.Fatalf("close-out notice: %#v", closeNotice)
+		}
+
+		dashboard.wantFrames(
+			map[string]any{
+				"seq":   7,
+				"topic": "reply_card",
+				"op":    "patch",
+				"data": map[string]any{
+					"entity":  "reply_card",
+					"key":     "owner::" + cardID,
+					"epoch":   7,
+					"deleted": false,
+					"payload": map[string]any{"id": cardID, "from": "kip", "status": "expired"},
+				},
+				"ts":      apiAnyNumber,
+				"trigger": "owner",
+			},
+			map[string]any{
+				"seq":   8,
+				"topic": "outsource_worker",
+				"op":    "patch",
+				"data": map[string]any{
+					"entity":  "outsource_worker",
+					"key":     "owner::ow-abc123",
+					"epoch":   8,
+					"deleted": false,
+					"payload": map[string]any{
+						"id": "ow-abc123", "codename": "Contractor", "status": "released",
+					},
+				},
+				"ts":      apiAnyNumber,
+				"trigger": "owner",
+			},
+			map[string]any{
+				"seq":   9,
+				"topic": "task",
+				"op":    "patch",
+				"data": map[string]any{
+					"entity":  "task",
+					"key":     "owner::T-1",
+					"epoch":   9,
+					"deleted": false,
+					"payload": map[string]any{"id": "T-1", "priority": "mid", "status": "terminated"},
+				},
+				"ts":      apiAnyNumber,
+				"trigger": "owner",
+			},
+			map[string]any{
+				"seq":   10,
+				"topic": "chat",
+				"op":    "patch",
+				"data": map[string]any{
+					"entity":  "chat",
+					"key":     "owner::" + closeNotice.ID,
+					"epoch":   10,
+					"deleted": false,
+					"payload": map[string]any{
+						"id": closeNotice.ID, "from": wireSystemSender, "to": "kip",
+					},
+				},
+				"ts":      apiAnyNumber,
+				"trigger": "owner",
+			},
+		)
+	})
+
+	t.Run("an ad-hoc task with no manual to fold learnings into is still sent the close-out notice", func(t *testing.T) {
+		api, h, d, owner := newAPITestServer(t)
+		apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"Ship it","executor_member_id":"kip"}`)
+		task, err := api.resolveTask("T-1")
+		if err != nil {
+			t.Fatalf("resolveTask: %v", err)
+		}
+		dashboard := apiTestListen(t, api, "")
+		executor := apiTestListen(t, api, "kip")
+
+		if err := api.closeTask(task, TaskStatusDone, 1750000000, "kip"); err != nil {
+			t.Fatalf("closeTask: %v", err)
+		}
+
+		notices, err := d.ListChat()
+		if err != nil {
+			t.Fatalf("ListChat: %v", err)
+		}
+		if len(notices) != 1 {
+			t.Fatalf("want the one close-out notice, got %v", notices)
+		}
+		notice := notices[0]
+		if notice.Sender != wireSystemSender || notice.Recipient != "kip" ||
+			notice.Meta["task_id"] != "T-1" || notice.Meta["closed_by"] != "kip" {
+			t.Fatalf("close-out notice: %#v", notice)
+		}
+
+		taskFrame := map[string]any{
+			"seq":   2,
+			"topic": "task",
+			"op":    "patch",
+			"data": map[string]any{
+				"entity":  "task",
+				"key":     "owner::T-1",
+				"epoch":   2,
+				"deleted": false,
+				"payload": map[string]any{"id": "T-1", "priority": "mid", "status": "done"},
+			},
+			"ts":      apiAnyNumber,
+			"trigger": "kip",
+		}
+		noticeFrame := map[string]any{
+			"seq":   3,
+			"topic": "chat",
+			"op":    "patch",
+			"data": map[string]any{
+				"entity":  "chat",
+				"key":     "owner::" + notice.ID,
+				"epoch":   3,
+				"deleted": false,
+				"payload": map[string]any{"id": notice.ID, "from": wireSystemSender, "to": "kip"},
+			},
+			"ts":      apiAnyNumber,
+			"trigger": "kip",
+		}
+		dashboard.wantFrames(taskFrame, noticeFrame)
+		executor.wantFrames(taskFrame, noticeFrame)
+	})
+
+	t.Run("the tasks blocked by the closed one are released and told so", func(t *testing.T) {
+		api, h, d, owner := newAPITestServer(t)
+		apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"Blocker","executor_member_id":"kip"}`)
+		apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"Waiter","executor_member_id":"mira"}`)
+		apiJSON(t, h, "POST", "/api/tasks/T-2/deps", owner, `{"blocked_by":["T-1"]}`)
+		task, err := api.resolveTask("T-1")
+		if err != nil {
+			t.Fatalf("resolveTask: %v", err)
+		}
+
+		if err := api.closeTask(task, TaskStatusDone, 1750000000, "kip"); err != nil {
+			t.Fatalf("closeTask: %v", err)
+		}
+
+		rows, err := d.ListChat()
+		if err != nil {
+			t.Fatalf("ListChat: %v", err)
+		}
+		if len(rows) != 2 {
+			t.Fatalf("want the release notice and the close-out notice, got %v", rows)
+		}
+		release := rows[0]
+		if release.Recipient != "mira" || release.Meta["task_id"] != "T-2" ||
+			release.Meta["task_title"] != "Waiter" {
+			t.Fatalf("release notice: %#v", release)
+		}
+		if release.Sender != wireSystemSender {
+			t.Fatalf("release notice sender: %q", release.Sender)
+		}
+		if rows[1].Recipient != "kip" || rows[1].Meta["task_id"] != "T-1" {
+			t.Fatalf("close-out notice: %#v", rows[1])
+		}
+
+		waiter, err := api.resolveTask("T-2")
+		if err != nil {
+			t.Fatalf("resolveTask: %v", err)
+		}
+		if waiter.Status != "not_started" || waiter.ClosedTS != 0 {
+			t.Fatalf("the released waiter must stay open, got %#v", *waiter)
+		}
+	})
 }
 
 func TestNameWithIDSlot(t *testing.T) {
-	t.Skip("TODO: nameWithIDSlot composes the ONE slot that has to carry TWO facts: 「銀月（mira）」.")
+	t.Run("a named party carries both facts in one slot", func(t *testing.T) {
+		if got := nameWithIDSlot("銀月", "mira"); got != "銀月（mira）" {
+			t.Fatalf("got %q", got)
+		}
+	})
+
+	t.Run("a party with no name is named by its id alone", func(t *testing.T) {
+		if got := nameWithIDSlot("", "mira"); got != "mira" {
+			t.Fatalf("got %q", got)
+		}
+	})
+
+	t.Run("a label that already is the id is not repeated in a parenthesis", func(t *testing.T) {
+		if got := nameWithIDSlot("mira", "mira"); got != "mira" {
+			t.Fatalf("got %q", got)
+		}
+	})
+
+	t.Run("an empty id under a label still composes the parenthesis", func(t *testing.T) {
+		if got := nameWithIDSlot("銀月", ""); got != "銀月（）" {
+			t.Fatalf("got %q", got)
+		}
+	})
 }
 
 func TestDeriveAndPersistTask(t *testing.T) {
-	t.Skip("TODO: deriveAndPersistTask is the DERIVATION SEAM (T-9ca5 \"任務狀態全推導\"): the single call every step-mutation path funnels through to re-project the task's status (and display waiting_reason) from its steps, persist it, and fan the delta.")
+	t.Run("the task's status is re-projected from its steps, persisted and fanned", func(t *testing.T) {
+		api, h, d, owner := newAPITestServer(t)
+		apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"Ship it","executor_member_id":"kip"}`)
+		agent := apiTestAgentToken(t, api, "kip", "")
+		apiJSON(t, h, "POST", "/api/tasks/T-1/plan", agent,
+			`{"steps":[{"name":"Draft","dod":"a draft exists"},{"name":"Review","dod":"a review is signed off"}]}`)
+		steps, err := d.ListTaskSteps("T-1")
+		if err != nil {
+			t.Fatalf("ListTaskSteps: %v", err)
+		}
+		steps[0].Status = StepStatusWaitingExternal
+		steps[0].WaitingReason = "the carrier has not answered"
+		if err := d.PutTaskStep(steps[0]); err != nil {
+			t.Fatalf("PutTaskStep: %v", err)
+		}
+		task, err := api.resolveTask("T-1")
+		if err != nil {
+			t.Fatalf("resolveTask: %v", err)
+		}
+		dashboard := apiTestListen(t, api, "")
+
+		if err := api.deriveAndPersistTask(task, 1750000000, "kip"); err != nil {
+			t.Fatalf("deriveAndPersistTask: %v", err)
+		}
+
+		if task.Status != "waiting_external" || task.WaitingReason != "the carrier has not answered" ||
+			task.UpdatedTS != 1750000000 || task.ClosedTS != 0 {
+			t.Fatalf("returned task: %#v", *task)
+		}
+		stored, err := api.resolveTask("T-1")
+		if err != nil {
+			t.Fatalf("resolveTask: %v", err)
+		}
+		if stored.Status != "waiting_external" || stored.WaitingReason != "the carrier has not answered" {
+			t.Fatalf("stored task: %#v", *stored)
+		}
+		dashboard.wantFrames(map[string]any{
+			"seq":   3,
+			"topic": "task",
+			"op":    "patch",
+			"data": map[string]any{
+				"entity":  "task",
+				"key":     "owner::T-1",
+				"epoch":   3,
+				"deleted": false,
+				"payload": map[string]any{"id": "T-1", "priority": "mid", "status": "waiting_external"},
+			},
+			"ts":      apiAnyNumber,
+			"trigger": "kip",
+		})
+	})
+
+	t.Run("a derivation that lands on done runs the whole close rather than only writing the status", func(t *testing.T) {
+		api, h, d, owner := newAPITestServer(t)
+		apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"Ship it","executor_member_id":"kip"}`)
+		if err := d.PutOutsourceWorker(OutsourceWorker{
+			ID: "ow-abc123", Codename: "Contractor", TaskID: "T-1",
+			Status: WorkerStatusAssigned, Runtime: "claude", Model: "sonnet", Effort: "medium",
+		}); err != nil {
+			t.Fatalf("PutOutsourceWorker: %v", err)
+		}
+		agent := apiTestAgentToken(t, api, "kip", "")
+		apiJSON(t, h, "POST", "/api/tasks/T-1/plan", agent,
+			`{"steps":[{"name":"Draft","dod":"a draft exists"}]}`)
+		steps, err := d.ListTaskSteps("T-1")
+		if err != nil {
+			t.Fatalf("ListTaskSteps: %v", err)
+		}
+		steps[0].Status = StepStatusDone
+		if err := d.PutTaskStep(steps[0]); err != nil {
+			t.Fatalf("PutTaskStep: %v", err)
+		}
+		task, err := api.resolveTask("T-1")
+		if err != nil {
+			t.Fatalf("resolveTask: %v", err)
+		}
+
+		if err := api.deriveAndPersistTask(task, 1750000000, "kip"); err != nil {
+			t.Fatalf("deriveAndPersistTask: %v", err)
+		}
+
+		if task.Status != "done" || task.ClosedTS != 1750000000 {
+			t.Fatalf("returned task: %#v", *task)
+		}
+		worker, err := d.GetOutsourceWorker("ow-abc123")
+		if err != nil || worker == nil {
+			t.Fatalf("GetOutsourceWorker: %v %#v", err, worker)
+		}
+		if worker.Status != "released" {
+			t.Fatalf("the close must release the bound worker, got %q", worker.Status)
+		}
+	})
+
+	t.Run("an already closed task is left exactly as it was and nothing is fanned", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"Ship it","executor_member_id":"kip"}`)
+		apiJSON(t, h, "POST", "/api/tasks/T-1/terminate", owner, "")
+		before, err := api.resolveTask("T-1")
+		if err != nil {
+			t.Fatalf("resolveTask: %v", err)
+		}
+		task := *before
+		dashboard := apiTestListen(t, api, "")
+
+		if err := api.deriveAndPersistTask(&task, 1750000000, "kip"); err != nil {
+			t.Fatalf("deriveAndPersistTask: %v", err)
+		}
+
+		if !reflect.DeepEqual(task, *before) {
+			t.Fatalf("want the task untouched, got %#v", task)
+		}
+		after, err := api.resolveTask("T-1")
+		if err != nil {
+			t.Fatalf("resolveTask: %v", err)
+		}
+		if !reflect.DeepEqual(*after, *before) {
+			t.Fatalf("want the stored row untouched, got %#v", *after)
+		}
+		dashboard.wantFrames()
+	})
 }
 
 func TestReconcileTaskStatusesOnBoot(t *testing.T) {
-	t.Skip("TODO: reconcileTaskStatusesOnBoot aligns every non-terminal task's stored status with what its steps derive to (owner T-9ca5 ⑤: 上線時既有不一致一次對齊) — a one-shot at startup after task status became fully derived.")
+	t.Run("a drifted status is realigned, an all-done plan is closed, and consistent rows are left alone", func(t *testing.T) {
+		api, h, d, owner := newAPITestServer(t)
+		apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"Drifted","executor_member_id":"kip"}`)
+		apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"Finished","executor_member_id":"kip"}`)
+		apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"Consistent","executor_member_id":"kip"}`)
+		agent := apiTestAgentToken(t, api, "kip", "")
+		for _, id := range []string{"T-1", "T-2", "T-3"} {
+			apiJSON(t, h, "POST", "/api/tasks/"+id+"/plan", agent,
+				`{"steps":[{"name":"Draft","dod":"a draft exists"}]}`)
+		}
+		drifted, err := d.ListTaskSteps("T-1")
+		if err != nil {
+			t.Fatalf("ListTaskSteps: %v", err)
+		}
+		drifted[0].Status = StepStatusInProgress
+		if err := d.PutTaskStep(drifted[0]); err != nil {
+			t.Fatalf("PutTaskStep: %v", err)
+		}
+		finished, err := d.ListTaskSteps("T-2")
+		if err != nil {
+			t.Fatalf("ListTaskSteps: %v", err)
+		}
+		finished[0].Status = StepStatusDone
+		if err := d.PutTaskStep(finished[0]); err != nil {
+			t.Fatalf("PutTaskStep: %v", err)
+		}
+		consistentBefore, err := api.resolveTask("T-3")
+		if err != nil {
+			t.Fatalf("resolveTask: %v", err)
+		}
+
+		fixed, err := api.reconcileTaskStatusesOnBoot()
+		if err != nil {
+			t.Fatalf("reconcileTaskStatusesOnBoot: %v", err)
+		}
+		if fixed != 2 {
+			t.Fatalf("want two rows corrected, got %d", fixed)
+		}
+
+		realigned, err := api.resolveTask("T-1")
+		if err != nil {
+			t.Fatalf("resolveTask: %v", err)
+		}
+		if realigned.Status != "in_progress" || realigned.ClosedTS != 0 {
+			t.Fatalf("drifted task: %#v", *realigned)
+		}
+		closed, err := api.resolveTask("T-2")
+		if err != nil {
+			t.Fatalf("resolveTask: %v", err)
+		}
+		if closed.Status != "done" || closed.ClosedTS <= 0 {
+			t.Fatalf("finished task: %#v", *closed)
+		}
+		consistentAfter, err := api.resolveTask("T-3")
+		if err != nil {
+			t.Fatalf("resolveTask: %v", err)
+		}
+		if !reflect.DeepEqual(*consistentAfter, *consistentBefore) {
+			t.Fatalf("want the consistent row untouched, got %#v", *consistentAfter)
+		}
+	})
+
+	t.Run("the display waiting_reason is realigned too", func(t *testing.T) {
+		api, h, d, owner := newAPITestServer(t)
+		apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"Held","executor_member_id":"kip"}`)
+		agent := apiTestAgentToken(t, api, "kip", "")
+		apiJSON(t, h, "POST", "/api/tasks/T-1/plan", agent,
+			`{"steps":[{"name":"Draft","dod":"a draft exists"}]}`)
+		steps, err := d.ListTaskSteps("T-1")
+		if err != nil {
+			t.Fatalf("ListTaskSteps: %v", err)
+		}
+		steps[0].Status = StepStatusWaitingExternal
+		steps[0].WaitingReason = "the carrier has not answered"
+		if err := d.PutTaskStep(steps[0]); err != nil {
+			t.Fatalf("PutTaskStep: %v", err)
+		}
+
+		fixed, err := api.reconcileTaskStatusesOnBoot()
+		if err != nil {
+			t.Fatalf("reconcileTaskStatusesOnBoot: %v", err)
+		}
+		if fixed != 1 {
+			t.Fatalf("want one row corrected, got %d", fixed)
+		}
+		got, err := api.resolveTask("T-1")
+		if err != nil {
+			t.Fatalf("resolveTask: %v", err)
+		}
+		if got.Status != "waiting_external" || got.WaitingReason != "the carrier has not answered" {
+			t.Fatalf("held task: %#v", *got)
+		}
+	})
+
+	t.Run("a terminal task drifting from its steps is skipped, because its status is not derived", func(t *testing.T) {
+		api, h, d, owner := newAPITestServer(t)
+		apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"Terminated","executor_member_id":"kip"}`)
+		agent := apiTestAgentToken(t, api, "kip", "")
+		apiJSON(t, h, "POST", "/api/tasks/T-1/plan", agent,
+			`{"steps":[{"name":"Draft","dod":"a draft exists"}]}`)
+		apiJSON(t, h, "POST", "/api/tasks/T-1/terminate", owner, "")
+		steps, err := d.ListTaskSteps("T-1")
+		if err != nil {
+			t.Fatalf("ListTaskSteps: %v", err)
+		}
+		steps[0].Status = StepStatusInProgress
+		if err := d.PutTaskStep(steps[0]); err != nil {
+			t.Fatalf("PutTaskStep: %v", err)
+		}
+		before, err := api.resolveTask("T-1")
+		if err != nil {
+			t.Fatalf("resolveTask: %v", err)
+		}
+
+		fixed, err := api.reconcileTaskStatusesOnBoot()
+		if err != nil {
+			t.Fatalf("reconcileTaskStatusesOnBoot: %v", err)
+		}
+		if fixed != 0 {
+			t.Fatalf("want nothing corrected, got %d", fixed)
+		}
+		after, err := api.resolveTask("T-1")
+		if err != nil {
+			t.Fatalf("resolveTask: %v", err)
+		}
+		if !reflect.DeepEqual(*after, *before) {
+			t.Fatalf("want the terminal row untouched, got %#v", *after)
+		}
+	})
+
+	t.Run("a station whose every task already agrees with its steps corrects nothing", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"Ship it","executor_member_id":"kip"}`)
+
+		fixed, err := api.reconcileTaskStatusesOnBoot()
+		if err != nil {
+			t.Fatalf("reconcileTaskStatusesOnBoot: %v", err)
+		}
+		if fixed != 0 {
+			t.Fatalf("want nothing corrected, got %d", fixed)
+		}
+	})
 }
 
 func TestManualAssignee(t *testing.T) {
-	t.Skip("TODO: manualAssignee decodes a manual's assignee JSON ({} = unset → nil map).")
+	t.Run("an object decodes to the map it carries", func(t *testing.T) {
+		got, err := manualAssignee(TaskManual{Assignee: `{"kind":"outsource","copies":2,"machine":"m-1"}`})
+		if err != nil {
+			t.Fatalf("manualAssignee: %v", err)
+		}
+		want := map[string]any{"kind": "outsource", "copies": float64(2), "machine": "m-1"}
+		if !reflect.DeepEqual(got, want) {
+			t.Fatalf("want %#v, got %#v", want, got)
+		}
+	})
+
+	t.Run("an unset assignee decodes to an empty map rather than nil", func(t *testing.T) {
+		got, err := manualAssignee(TaskManual{Assignee: ""})
+		if err != nil {
+			t.Fatalf("manualAssignee: %v", err)
+		}
+		if got == nil || len(got) != 0 {
+			t.Fatalf("want an empty non-nil map, got %#v", got)
+		}
+	})
+
+	t.Run("the literal empty object also decodes to an empty map", func(t *testing.T) {
+		got, err := manualAssignee(TaskManual{Assignee: "{}"})
+		if err != nil {
+			t.Fatalf("manualAssignee: %v", err)
+		}
+		if got == nil || len(got) != 0 {
+			t.Fatalf("want an empty non-nil map, got %#v", got)
+		}
+	})
+
+	t.Run("assignee JSON that is not an object answers the decode error and no map", func(t *testing.T) {
+		got, err := manualAssignee(TaskManual{Assignee: `["mira"]`})
+		if err == nil {
+			t.Fatalf("want a decode error, got %#v", got)
+		}
+		if got != nil {
+			t.Fatalf("want no map alongside the error, got %#v", got)
+		}
+	})
 }
 
 func TestResumeTasksFor(t *testing.T) {
-	t.Skip("TODO: resumeTasksFor assembles the bounded task block of the wake snapshot (SPEC §6.2 — a handover resumes in-flight tasks, not just chat) as LIGHT rows (T-3f31 owner ruling: 任務不該包含細節 — no steps/DoD text ride the snapshot; each row names the task, its status/priority and the current node id + NAME, current = the first non-done step).")
+	t.Run("the row names the task, its current node and the plan text it omits", func(t *testing.T) {
+		api, h, d, owner := newAPITestServer(t)
+		apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"Ship it","executor_member_id":"kip"}`)
+		apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"Waiter","executor_member_id":"mira"}`)
+		apiJSON(t, h, "POST", "/api/tasks/T-2/deps", owner, `{"blocked_by":["T-1"]}`)
+		agent := apiTestAgentToken(t, api, "kip", "")
+		apiJSON(t, h, "POST", "/api/tasks/T-1/plan", agent,
+			`{"steps":[{"name":"Draft","dod":"a draft exists"},{"name":"Review","dod":"a review is signed off"}]}`)
+		steps, err := d.ListTaskSteps("T-1")
+		if err != nil {
+			t.Fatalf("ListTaskSteps: %v", err)
+		}
+		apiJSON(t, h, "POST", "/api/tasks/T-1/steps/"+steps[0].ID+"/status", agent, `{"status":"in_progress"}`)
+		apiJSON(t, h, "POST", "/api/tasks/T-1/steps/"+steps[0].ID+"/status", agent, `{"status":"done"}`)
+
+		rows, total, err := api.resumeTasksFor("kip", nil)
+		if err != nil {
+			t.Fatalf("resumeTasksFor: %v", err)
+		}
+		if total != 1 {
+			t.Fatalf("want one open task, got %d", total)
+		}
+		raw, err := json.Marshal(rows)
+		if err != nil {
+			t.Fatalf("marshal: %v", err)
+		}
+		var got any
+		if err := json.Unmarshal(raw, &got); err != nil {
+			t.Fatalf("unmarshal: %v", err)
+		}
+		apiWantValue(t, "rows", got, []any{map[string]any{
+			"id":                   "T-1",
+			"task_no":              "T-1",
+			"type_key":             "",
+			"title":                "Ship it",
+			"status":               "in_progress",
+			"priority":             "mid",
+			"waiting_reason":       "",
+			"current_step_id":      steps[1].ID,
+			"current_step_name":    "Review",
+			"progress_done":        1,
+			"progress_total":       2,
+			"detail_chars":         47,
+			"updated_ts":           apiAnyNumber,
+			"lock":                 "",
+			"reassigned_from":      "",
+			"reassigned_from_kind": "",
+			"blocking":             []any{"T-2"},
+			"answered_card_steps":  []any{},
+		}})
+	})
+
+	t.Run("a step sitting on an answered card is pointed at, and one on a waiting card is not", func(t *testing.T) {
+		api, h, d, owner := newAPITestServer(t)
+		apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"Ship it","executor_member_id":"kip"}`)
+		agent := apiTestAgentToken(t, api, "kip", "")
+		apiJSON(t, h, "POST", "/api/tasks/T-1/plan", agent,
+			`{"steps":[{"name":"Draft","dod":"a draft exists"}]}`)
+		steps, err := d.ListTaskSteps("T-1")
+		if err != nil {
+			t.Fatalf("ListTaskSteps: %v", err)
+		}
+		apiJSON(t, h, "POST", "/api/tasks/T-1/steps/"+steps[0].ID+"/status", agent, `{"status":"in_progress"}`)
+		code, card := apiJSON(t, h, "POST", "/api/reply-cards", agent,
+			`{"kind":"decision","summary":"要不要出貨","options":[{"text":"出"}],`+
+				`"linked_task":{"task_id":"T-1","step_id":"`+steps[0].ID+`"}}`)
+		if code != 200 {
+			t.Fatalf("open the card: %d %v", code, card)
+		}
+		cardID, _ := card["id"].(string)
+
+		waiting, err := d.GetReplyCard(cardID)
+		if err != nil || waiting == nil {
+			t.Fatalf("GetReplyCard: %v %#v", err, waiting)
+		}
+		held, _, err := api.resumeTasksFor("kip", map[string]ReplyCard{cardID: *waiting})
+		if err != nil {
+			t.Fatalf("resumeTasksFor: %v", err)
+		}
+		if len(held) != 1 || len(held[0].AnsweredCardSteps) != 0 {
+			t.Fatalf("a waiting card must point at nothing, got %#v", held)
+		}
+
+		if code, data := apiJSON(t, h, "POST", "/api/reply-cards/"+cardID+"/answer", owner,
+			`{"option_idxs":[0]}`); code != 200 {
+			t.Fatalf("answer: %d %v", code, data)
+		}
+		answered, err := d.GetReplyCard(cardID)
+		if err != nil || answered == nil {
+			t.Fatalf("GetReplyCard: %v %#v", err, answered)
+		}
+		released, _, err := api.resumeTasksFor("kip", map[string]ReplyCard{cardID: *answered})
+		if err != nil {
+			t.Fatalf("resumeTasksFor: %v", err)
+		}
+		if len(released) != 1 {
+			t.Fatalf("want the one open task, got %#v", released)
+		}
+		want := []resumeAnsweredCardStepDTO{{StepID: steps[0].ID, StepName: "Draft", CardID: cardID}}
+		if !reflect.DeepEqual(released[0].AnsweredCardSteps, want) {
+			t.Fatalf("want %#v, got %#v", want, released[0].AnsweredCardSteps)
+		}
+	})
+
+	t.Run("the block is capped at five rows while the total counts every open task", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		for i := 0; i < 7; i++ {
+			apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"Ship it","executor_member_id":"kip"}`)
+		}
+		apiJSON(t, h, "POST", "/api/tasks/T-1/terminate", owner, "")
+
+		rows, total, err := api.resumeTasksFor("kip", nil)
+		if err != nil {
+			t.Fatalf("resumeTasksFor: %v", err)
+		}
+		if len(rows) != 5 {
+			t.Fatalf("want five rows, got %d", len(rows))
+		}
+		if total != 6 {
+			t.Fatalf("want six open tasks, got %d", total)
+		}
+	})
+
+	t.Run("no actor at all answers an empty block and no total", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"Ship it","executor_member_id":"kip"}`)
+
+		rows, total, err := api.resumeTasksFor("", nil)
+		if err != nil {
+			t.Fatalf("resumeTasksFor: %v", err)
+		}
+		if rows == nil || len(rows) != 0 || total != 0 {
+			t.Fatalf("got %#v, %d", rows, total)
+		}
+	})
 }
 
 func TestHandleListTasksApiTasksGet(t *testing.T) {
@@ -386,11 +2522,79 @@ func TestHandleListTasksApiTasksGet(t *testing.T) {
 }
 
 func TestParseTaskStatusSet(t *testing.T) {
-	t.Skip("TODO: parseTaskStatusSet folds the repeatable ?statuses= param into a lookup set.")
+	t.Run("an absent param yields no set at all rather than an empty one", func(t *testing.T) {
+		set, bad := parseTaskStatusSet(nil)
+		if set != nil || bad != "" {
+			t.Fatalf("want (nil, \"\"), got (%#v, %q)", set, bad)
+		}
+	})
+
+	t.Run("every repeat folds into the lookup set, trimmed and deduplicated", func(t *testing.T) {
+		set, bad := parseTaskStatusSet(&[]string{" in_progress ", "in_progress", "reassigning", ""})
+		if bad != "" {
+			t.Fatalf("want no bad status, got %q", bad)
+		}
+		want := map[string]bool{"in_progress": true, "reassigning": true}
+		if !reflect.DeepEqual(set, want) {
+			t.Fatalf("want %#v, got %#v", want, set)
+		}
+	})
+
+	t.Run("a param present but empty yields an empty set, not a nil one", func(t *testing.T) {
+		set, bad := parseTaskStatusSet(&[]string{})
+		if bad != "" {
+			t.Fatalf("want no bad status, got %q", bad)
+		}
+		if set == nil || len(set) != 0 {
+			t.Fatalf("want an empty non-nil set, got %#v", set)
+		}
+	})
+
+	t.Run("a status outside the vocabulary is named back and no set is built", func(t *testing.T) {
+		set, bad := parseTaskStatusSet(&[]string{"in_progress", "frozen"})
+		if bad != "frozen" {
+			t.Fatalf("want the offending value back, got %q", bad)
+		}
+		if set != nil {
+			t.Fatalf("want no set beside the refusal, got %#v", set)
+		}
+	})
 }
 
 func TestTaskStatusSetMatch(t *testing.T) {
-	t.Skip("TODO: taskStatusSetMatch reports whether one task belongs to a ?statuses= set.")
+	t.Run("a task whose status is in the set matches", func(t *testing.T) {
+		if !taskStatusSetMatch(Task{Status: "in_progress"}, map[string]bool{"in_progress": true}) {
+			t.Fatal("want a match on the status itself")
+		}
+	})
+
+	t.Run("a task whose status is not in the set does not match", func(t *testing.T) {
+		if taskStatusSetMatch(Task{Status: "not_started"}, map[string]bool{"in_progress": true}) {
+			t.Fatal("want no match")
+		}
+	})
+
+	t.Run("an open task under the handover lock matches the reassigning row", func(t *testing.T) {
+		task := Task{Status: "not_started", Lock: "reassigning"}
+		if !taskStatusSetMatch(task, map[string]bool{"reassigning": true}) {
+			t.Fatal("want the lock to answer the reassigning row")
+		}
+		if taskStatusSetMatch(task, map[string]bool{"in_progress": true}) {
+			t.Fatal("the lock must not answer any other row")
+		}
+	})
+
+	t.Run("a terminated task still carrying the lock residue does not match reassigning", func(t *testing.T) {
+		if taskStatusSetMatch(Task{Status: "terminated", Lock: "reassigning"}, map[string]bool{"reassigning": true}) {
+			t.Fatal("want the residue read as residue, not as intent")
+		}
+	})
+
+	t.Run("an empty set matches nothing", func(t *testing.T) {
+		if taskStatusSetMatch(Task{Status: "in_progress", Lock: "reassigning"}, map[string]bool{}) {
+			t.Fatal("want no match against an empty set")
+		}
+	})
 }
 
 func TestHandleTaskCountApiTasksCountGet(t *testing.T) {
@@ -555,7 +2759,93 @@ func TestHandleGetTaskApiTasksTaskIdGet(t *testing.T) {
 }
 
 func TestCallerMayTerminateTask(t *testing.T) {
-	t.Skip("TODO: ── C.2 owner actions ──────────────────────────────────────────────────────── callerMayTerminateTask is the terminate gate.")
+	t.Run("owner scope and admin capability may terminate a task they do not execute", func(t *testing.T) {
+		api, h, d, owner := newAPITestServer(t)
+		apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"Ship it","executor_member_id":"kip"}`)
+		task, err := api.resolveTask("T-1")
+		if err != nil {
+			t.Fatalf("resolveTask: %v", err)
+		}
+		for _, token := range []string{owner, apiTestAgentToken(t, api, "mira", "")} {
+			taskTestUnderCaller(t, api, d, token, func(r *http.Request) {
+				ok, reason := api.callerMayTerminateTask(r, *task)
+				if !ok || reason != "" {
+					t.Fatalf("%s: got (%v, %q)", currentActor(r), ok, reason)
+				}
+			})
+		}
+	})
+
+	t.Run("the staff executor may terminate its own task", func(t *testing.T) {
+		api, h, d, owner := newAPITestServer(t)
+		apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"Ship it","executor_member_id":"kip"}`)
+		task, err := api.resolveTask("T-1")
+		if err != nil {
+			t.Fatalf("resolveTask: %v", err)
+		}
+		taskTestUnderCaller(t, api, d, apiTestAgentToken(t, api, "kip", ""), func(r *http.Request) {
+			ok, reason := api.callerMayTerminateTask(r, *task)
+			if !ok || reason != "" {
+				t.Fatalf("got (%v, %q)", ok, reason)
+			}
+		})
+	})
+
+	t.Run("a plain agent that is not the executor is refused by the executor guard", func(t *testing.T) {
+		api, h, d, owner := newAPITestServer(t)
+		apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"Ship it","executor_member_id":"mira"}`)
+		task, err := api.resolveTask("T-1")
+		if err != nil {
+			t.Fatalf("resolveTask: %v", err)
+		}
+		taskTestUnderCaller(t, api, d, apiTestAgentToken(t, api, "kip", ""), func(r *http.Request) {
+			ok, reason := api.callerMayTerminateTask(r, *task)
+			if ok || reason != executorGuardRefusal {
+				t.Fatalf("got (%v, %q)", ok, reason)
+			}
+		})
+	})
+
+	t.Run("an outsource worker is refused its own task with the sentence that names the way out", func(t *testing.T) {
+		api, h, d, owner := newAPITestServer(t)
+		apiTestWorkerFixture(t, h, d, owner, "ow-abc123", WorkerStatusAssigned)
+		task, err := api.resolveTask("T-1")
+		if err != nil {
+			t.Fatalf("resolveTask: %v", err)
+		}
+		bound := *task
+		bound.ExecutorID = "ow-abc123"
+		bound.ExecutorKind = TaskExecutorOutsource
+		if err := d.PutTask(bound); err != nil {
+			t.Fatalf("PutTask: %v", err)
+		}
+		taskTestUnderCaller(t, api, d, apiTestAgentToken(t, api, "ow-abc123", ""), func(r *http.Request) {
+			ok, reason := api.callerMayTerminateTask(r, bound)
+			if ok || reason != "an outsource worker may not terminate its own task; "+
+				"ask the owner or an admin agent" {
+				t.Fatalf("got (%v, %q)", ok, reason)
+			}
+		})
+	})
+
+	t.Run("an executor whose roster row is gone is refused rather than waved through", func(t *testing.T) {
+		api, h, d, owner := newAPITestServer(t)
+		apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"Ship it","executor_member_id":"kip"}`)
+		task, err := api.resolveTask("T-1")
+		if err != nil {
+			t.Fatalf("resolveTask: %v", err)
+		}
+		token := apiTestAgentToken(t, api, "kip", "")
+		if _, err := d.HardDeleteMember("kip"); err != nil {
+			t.Fatalf("HardDeleteMember: %v", err)
+		}
+		taskTestUnderCaller(t, api, d, token, func(r *http.Request) {
+			ok, reason := api.callerMayTerminateTask(r, *task)
+			if ok || reason != executorGuardRefusal {
+				t.Fatalf("got (%v, %q)", ok, reason)
+			}
+		})
+	})
 }
 
 func TestHandleTerminateTaskApiTasksTaskIdTerminatePost(t *testing.T) {
@@ -1479,11 +3769,149 @@ func TestHandleClaimTaskApiTasksTaskIdClaimPost(t *testing.T) {
 }
 
 func TestExecutorLabel(t *testing.T) {
-	t.Skip("TODO: executorLabel resolves a human-facing label for a task executor given its kind + id (T-ba04 handover pairing): a member's display name (falling back to its id), or \"外包 <codename>\" for an outsource worker (falling back to its id).")
+	t.Run("a staff executor is labelled by its display name", func(t *testing.T) {
+		api, _, _, _ := newAPITestServer(t)
+		if got := api.executorLabel(TaskExecutorStaff, "kip"); got != "Kip" {
+			t.Fatalf("got %q", got)
+		}
+	})
+
+	t.Run("an outsource executor is labelled by its codename under the 外包 prefix", func(t *testing.T) {
+		api, h, d, owner := newAPITestServer(t)
+		apiTestWorkerFixture(t, h, d, owner, "ow-abc123", WorkerStatusAssigned)
+		if got := api.executorLabel(TaskExecutorOutsource, "ow-abc123"); got != "外包 Contractor" {
+			t.Fatalf("got %q", got)
+		}
+	})
+
+	t.Run("a member with no display name falls back to its own id", func(t *testing.T) {
+		api, _, d, _ := newAPITestServer(t)
+		if err := d.PutMember(Member{
+			ID: "rex", Kind: KindStaff, RoleKey: "engineer", RosterStatus: RosterStatusActive,
+		}); err != nil {
+			t.Fatalf("PutMember: %v", err)
+		}
+		if got := api.executorLabel(TaskExecutorStaff, "rex"); got != "rex" {
+			t.Fatalf("got %q", got)
+		}
+	})
+
+	t.Run("an id on no roster at all is its own label", func(t *testing.T) {
+		api, _, _, _ := newAPITestServer(t)
+		if got := api.executorLabel(TaskExecutorStaff, "ghost"); got != "ghost" {
+			t.Fatalf("got %q", got)
+		}
+	})
+
+	t.Run("a worker read as staff answers its bare codename, without the 外包 prefix", func(t *testing.T) {
+		api, h, d, owner := newAPITestServer(t)
+		apiTestWorkerFixture(t, h, d, owner, "ow-abc123", WorkerStatusAssigned)
+		if got := api.executorLabel(TaskExecutorStaff, "ow-abc123"); got != "Contractor" {
+			t.Fatalf("staff kind over a worker id: got %q", got)
+		}
+	})
+
+	t.Run("a staff member read as outsource has no worker row and falls back to its id", func(t *testing.T) {
+		api, _, _, _ := newAPITestServer(t)
+		if got := api.executorLabel(TaskExecutorOutsource, "kip"); got != "kip" {
+			t.Fatalf("got %q", got)
+		}
+	})
+
+	t.Run("a kind outside the two the label knows falls back to the id", func(t *testing.T) {
+		api, _, _, _ := newAPITestServer(t)
+		if got := api.executorLabel("member", "kip"); got != "kip" {
+			t.Fatalf("got %q", got)
+		}
+	})
+
+	t.Run("no executor at all is labelled with nothing", func(t *testing.T) {
+		api, _, _, _ := newAPITestServer(t)
+		if got := api.executorLabel(TaskExecutorStaff, ""); got != "" {
+			t.Fatalf("got %q", got)
+		}
+	})
 }
 
 func TestPostTaskChat(t *testing.T) {
-	t.Skip("TODO: postTaskChat posts one server-authored task-context chat message (the reassign handover notices — the task-message route's meta shape: task_id / task_title / task_type ride along for the client linkage).")
+	t.Run("the durable row carries the task linkage in its meta and the delta reaches both parties", func(t *testing.T) {
+		api, h, d, owner := newAPITestServer(t)
+		apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"Ship it","executor_member_id":"kip"}`)
+		task, err := api.resolveTask("T-1")
+		if err != nil {
+			t.Fatalf("resolveTask: %v", err)
+		}
+		dashboard := apiTestListen(t, api, "")
+		recipient := apiTestListen(t, api, "kip")
+		bystander := apiTestListen(t, api, "mira")
+
+		api.postTaskChat(*task, wireSystemSender, "kip", "請把交接資訊寫上去", "owner",
+			map[string]any{"closed_by": "owner"})
+
+		rows, err := d.ListChat()
+		if err != nil {
+			t.Fatalf("ListChat: %v", err)
+		}
+		if len(rows) != 1 {
+			t.Fatalf("want exactly one durable row, got %v", rows)
+		}
+		msg := rows[0]
+		if msg.Sender != wireSystemSender || msg.Recipient != "kip" ||
+			msg.Body != "請把交接資訊寫上去" || msg.TS <= 0 {
+			t.Fatalf("row: %#v", msg)
+		}
+		if !strings.HasPrefix(msg.ID, "c-") {
+			t.Fatalf("id: %q", msg.ID)
+		}
+		wantMeta := map[string]any{
+			"task_id": "T-1", "task_title": "Ship it", "task_type": "", "closed_by": "owner",
+		}
+		if !reflect.DeepEqual(msg.Meta, wantMeta) {
+			t.Fatalf("meta: want %#v, got %#v", wantMeta, msg.Meta)
+		}
+
+		chatFrame := map[string]any{
+			"seq":   2,
+			"topic": "chat",
+			"op":    "patch",
+			"data": map[string]any{
+				"entity":  "chat",
+				"key":     "owner::" + msg.ID,
+				"epoch":   2,
+				"deleted": false,
+				"payload": map[string]any{"id": msg.ID, "from": wireSystemSender, "to": "kip"},
+			},
+			"ts":      apiAnyNumber,
+			"trigger": "owner",
+		}
+		dashboard.wantFrames(chatFrame)
+		recipient.wantFrames(chatFrame)
+		bystander.wantFrames()
+	})
+
+	t.Run("with no extra meta the row carries the task linkage alone", func(t *testing.T) {
+		api, h, d, owner := newAPITestServer(t)
+		apiJSON(t, h, "POST", "/api/tasks", owner,
+			`{"title":"Ship it","executor_member_id":"kip"}`)
+		task, err := api.resolveTask("T-1")
+		if err != nil {
+			t.Fatalf("resolveTask: %v", err)
+		}
+
+		api.postTaskChat(*task, "mira", "kip", "你被解除阻擋了", "mira", nil)
+
+		rows, err := d.ListChat()
+		if err != nil {
+			t.Fatalf("ListChat: %v", err)
+		}
+		if len(rows) != 1 {
+			t.Fatalf("want exactly one durable row, got %v", rows)
+		}
+		wantMeta := map[string]any{"task_id": "T-1", "task_title": "Ship it", "task_type": ""}
+		if !reflect.DeepEqual(rows[0].Meta, wantMeta) {
+			t.Fatalf("meta: want %#v, got %#v", wantMeta, rows[0].Meta)
+		}
+	})
 }
 
 func TestHandleCreateTaskApiTasksPost(t *testing.T) {
@@ -2712,7 +5140,143 @@ func TestHandleUpdateTaskStepStatusApiTasksTaskIdStepsStepIdStatusPost(t *testin
 }
 
 func TestArmStepWithCard(t *testing.T) {
-	t.Skip("TODO: armStepWithCard applies the card→step waiting state machine behind the ONE card-open path — create_reply_card carrying an explicit linked_task {task_id, step_id} (T-18 collapsed the two entrances into it): the step enters waiting_owner carrying the CURRENT card (reply_card_id points at the latest ask; the card's own task/step birth marks keep the full history), started_ts stamps on first touch, and the task follows into waiting_owner — UNLESS the step sits inside a parallel group, where flipping the WHOLE task would lie while sibling lanes still run (the ValidatePlanParallelShape rationale).")
+	t.Run("the armed step enters waiting_owner carrying the card, and the task follows it", func(t *testing.T) {
+		api, h, d, owner := newAPITestServer(t)
+		apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"Ship it","executor_member_id":"kip"}`)
+		agent := apiTestAgentToken(t, api, "kip", "")
+		apiJSON(t, h, "POST", "/api/tasks/T-1/plan", agent,
+			`{"steps":[{"name":"Draft","dod":"a draft exists"},{"name":"Review","dod":"a review is signed off"}]}`)
+		steps, err := d.ListTaskSteps("T-1")
+		if err != nil {
+			t.Fatalf("ListTaskSteps: %v", err)
+		}
+		task, err := api.resolveTask("T-1")
+		if err != nil {
+			t.Fatalf("resolveTask: %v", err)
+		}
+		dashboard := apiTestListen(t, api, "")
+		executor := apiTestListen(t, api, "kip")
+
+		step := steps[0]
+		if err := api.armStepWithCard(task, &step, "rc-abc123def456", "kip"); err != nil {
+			t.Fatalf("armStepWithCard: %v", err)
+		}
+
+		if step.Status != "waiting_owner" || step.ReplyCardID != "rc-abc123def456" || step.StartedTS <= 0 {
+			t.Fatalf("returned step: %#v", step)
+		}
+		if task.Status != "waiting_owner" {
+			t.Fatalf("returned task status: %q", task.Status)
+		}
+		stored, err := d.ListTaskSteps("T-1")
+		if err != nil {
+			t.Fatalf("ListTaskSteps: %v", err)
+		}
+		if stored[0].Status != "waiting_owner" || stored[0].ReplyCardID != "rc-abc123def456" ||
+			stored[0].StartedTS != step.StartedTS {
+			t.Fatalf("stored armed step: %#v", stored[0])
+		}
+		if stored[1].Status != "pending" || stored[1].ReplyCardID != "" {
+			t.Fatalf("the sibling step must be untouched: %#v", stored[1])
+		}
+		reread, err := api.resolveTask("T-1")
+		if err != nil {
+			t.Fatalf("resolveTask: %v", err)
+		}
+		if reread.Status != "waiting_owner" || reread.ClosedTS != 0 {
+			t.Fatalf("stored task: %#v", *reread)
+		}
+
+		taskFrame := map[string]any{
+			"seq":   3,
+			"topic": "task",
+			"op":    "patch",
+			"data": map[string]any{
+				"entity":  "task",
+				"key":     "owner::T-1",
+				"epoch":   3,
+				"deleted": false,
+				"payload": map[string]any{"id": "T-1", "priority": "mid", "status": "waiting_owner"},
+			},
+			"ts":      apiAnyNumber,
+			"trigger": "kip",
+		}
+		dashboard.wantFrames(taskFrame)
+		executor.wantFrames(taskFrame)
+	})
+
+	t.Run("a step already under way keeps its first touch and only the card pointer moves", func(t *testing.T) {
+		api, h, d, owner := newAPITestServer(t)
+		apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"Ship it","executor_member_id":"kip"}`)
+		agent := apiTestAgentToken(t, api, "kip", "")
+		apiJSON(t, h, "POST", "/api/tasks/T-1/plan", agent,
+			`{"steps":[{"name":"Draft","dod":"a draft exists"}]}`)
+		steps, err := d.ListTaskSteps("T-1")
+		if err != nil {
+			t.Fatalf("ListTaskSteps: %v", err)
+		}
+		apiJSON(t, h, "POST", "/api/tasks/T-1/steps/"+steps[0].ID+"/status", agent, `{"status":"in_progress"}`)
+		started, err := d.ListTaskSteps("T-1")
+		if err != nil {
+			t.Fatalf("ListTaskSteps: %v", err)
+		}
+		if started[0].StartedTS <= 0 {
+			t.Fatalf("want a stamped first touch, got %#v", started[0])
+		}
+		task, err := api.resolveTask("T-1")
+		if err != nil {
+			t.Fatalf("resolveTask: %v", err)
+		}
+
+		step := started[0]
+		if err := api.armStepWithCard(task, &step, "rc-abc123def456", "kip"); err != nil {
+			t.Fatalf("armStepWithCard: %v", err)
+		}
+
+		if step.StartedTS != started[0].StartedTS {
+			t.Fatalf("started_ts moved: was %v, now %v", started[0].StartedTS, step.StartedTS)
+		}
+		stored, err := d.ListTaskSteps("T-1")
+		if err != nil {
+			t.Fatalf("ListTaskSteps: %v", err)
+		}
+		if stored[0].Status != "waiting_owner" || stored[0].ReplyCardID != "rc-abc123def456" {
+			t.Fatalf("stored step: %#v", stored[0])
+		}
+	})
+
+	t.Run("a step inside a parallel group flips the whole task too", func(t *testing.T) {
+		api, h, d, owner := newAPITestServer(t)
+		apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"Ship it","executor_member_id":"kip"}`)
+		agent := apiTestAgentToken(t, api, "kip", "")
+		apiJSON(t, h, "POST", "/api/tasks/T-1/plan", agent,
+			`{"steps":[{"name":"Draft","dod":"a draft exists","parallel_group":"g1"},`+
+				`{"name":"Review","dod":"a review is signed off","parallel_group":"g1"}]}`)
+		steps, err := d.ListTaskSteps("T-1")
+		if err != nil {
+			t.Fatalf("ListTaskSteps: %v", err)
+		}
+		if steps[0].ParallelGroup != "g1" {
+			t.Fatalf("want a lane step, got %#v", steps[0])
+		}
+		task, err := api.resolveTask("T-1")
+		if err != nil {
+			t.Fatalf("resolveTask: %v", err)
+		}
+
+		step := steps[0]
+		if err := api.armStepWithCard(task, &step, "rc-abc123def456", "kip"); err != nil {
+			t.Fatalf("armStepWithCard: %v", err)
+		}
+
+		reread, err := api.resolveTask("T-1")
+		if err != nil {
+			t.Fatalf("resolveTask: %v", err)
+		}
+		if reread.Status != "waiting_owner" {
+			t.Fatalf("stored task status: %q", reread.Status)
+		}
+	})
 }
 
 func TestHandleSetTaskDepsApiTasksTaskIdDepsPost(t *testing.T) {
@@ -3004,11 +5568,100 @@ func TestHandleReportTaskCloseoutApiTasksTaskIdCloseoutPost(t *testing.T) {
 }
 
 func TestArtifactTextOrError(t *testing.T) {
-	t.Skip("TODO: artifactTextOrError validates the pair and writes the 400 itself, returning ok=false when it did.")
+	t.Run("both fields trim and pass, writing nothing to the response", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		rawName, rawDescription := "  the report  ", "  what it says  "
+		name, description, ok := artifactTextOrError(rec, &rawName, &rawDescription)
+		if !ok || name != "the report" || description != "what it says" {
+			t.Fatalf("got (%q, %q, %v)", name, description, ok)
+		}
+		if rec.Body.Len() != 0 {
+			t.Fatalf("want an untouched response, got %q", rec.Body.String())
+		}
+	})
+
+	t.Run("absent pointers read as not sent and yield the empty pair", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		name, description, ok := artifactTextOrError(rec, nil, nil)
+		if !ok || name != "" || description != "" {
+			t.Fatalf("got (%q, %q, %v)", name, description, ok)
+		}
+		if rec.Body.Len() != 0 {
+			t.Fatalf("want an untouched response, got %q", rec.Body.String())
+		}
+	})
+
+	t.Run("a name one rune over the cap writes the 400 itself and returns the empty pair", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		rawName, rawDescription := strings.Repeat("a", 49), "kept"
+		name, description, ok := artifactTextOrError(rec, &rawName, &rawDescription)
+		if ok || name != "" || description != "" {
+			t.Fatalf("got (%q, %q, %v)", name, description, ok)
+		}
+		if rec.Code != 400 {
+			t.Fatalf("want 400, got %d", rec.Code)
+		}
+		var body map[string]any
+		if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+			t.Fatalf("non-JSON body: %s", rec.Body.String())
+		}
+		apiWantError(t, body, "validation_error", "artifact name is 49 chars, over the 48-char limit")
+	})
+
+	t.Run("a name exactly at the cap passes", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		rawName := strings.Repeat("a", 48)
+		name, _, ok := artifactTextOrError(rec, &rawName, nil)
+		if !ok || name != rawName {
+			t.Fatalf("got (%q, %v)", name, ok)
+		}
+	})
+
+	t.Run("a description one rune over the cap writes its own 400", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		rawName, rawDescription := "fine", strings.Repeat("字", 257)
+		name, description, ok := artifactTextOrError(rec, &rawName, &rawDescription)
+		if ok || name != "" || description != "" {
+			t.Fatalf("got (%q, %q, %v)", name, description, ok)
+		}
+		if rec.Code != 400 {
+			t.Fatalf("want 400, got %d", rec.Code)
+		}
+		var body map[string]any
+		if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+			t.Fatalf("non-JSON body: %s", rec.Body.String())
+		}
+		apiWantError(t, body, "validation_error", "artifact description is 257 chars, over the 256-char limit")
+	})
 }
 
 func TestMintLinkTargetBlob(t *testing.T) {
-	t.Skip("TODO: mintLinkTargetBlob turns a link target into the blob that will hold it, and returns the id to point the artifact at.")
+	t.Run("the minted blob carries the url as its bytes under the uri-list mime and the id points at it", func(t *testing.T) {
+		id, att := mintLinkTargetBlob("https://example.com/pr/123")
+		if att == nil {
+			t.Fatal("want a blob")
+		}
+		if id != att.ID {
+			t.Fatalf("the returned id %q does not address the blob %q", id, att.ID)
+		}
+		if !strings.HasPrefix(att.ID, "att-") || len(att.ID) != len("att-")+12 {
+			t.Fatalf("blob id: got %q", att.ID)
+		}
+		if att.Mime != "text/uri-list" {
+			t.Fatalf("mime: got %q", att.Mime)
+		}
+		if string(att.Data) != "https://example.com/pr/123" {
+			t.Fatalf("bytes: got %q", att.Data)
+		}
+	})
+
+	t.Run("two mints of the same url are two distinct blobs", func(t *testing.T) {
+		first, _ := mintLinkTargetBlob("https://example.com/pr/123")
+		second, _ := mintLinkTargetBlob("https://example.com/pr/123")
+		if first == second {
+			t.Fatalf("want two ids, got %q twice", first)
+		}
+	})
 }
 
 func TestHandleAddTaskArtifactApiTasksTaskIdArtifactPost(t *testing.T) {
@@ -3426,11 +6079,116 @@ func TestHandleRemoveTaskArtifactApiTasksTaskIdArtifactArtifactIdDelete(t *testi
 }
 
 func TestTaskFrozenDeliverablesRefusal(t *testing.T) {
-	t.Skip("TODO: taskFrozenDeliverablesRefusal is the ONE sentence all three artifact verbs refuse a closed task with.")
+	t.Run("the sentence names the task and the terminal status that froze it", func(t *testing.T) {
+		got := taskFrozenDeliverablesRefusal(Task{ID: "T-7", Status: "done"})
+		if got != "task 'T-7' is closed (done) — its deliverables are frozen" {
+			t.Fatalf("got %q", got)
+		}
+	})
+
+	t.Run("a terminated task is refused with the same sentence carrying its own status", func(t *testing.T) {
+		got := taskFrozenDeliverablesRefusal(Task{ID: "T-9", Status: "terminated"})
+		if got != "task 'T-9' is closed (terminated) — its deliverables are frozen" {
+			t.Fatalf("got %q", got)
+		}
+	})
 }
 
 func TestArtifactOnTask(t *testing.T) {
-	t.Skip("TODO: artifactOnTask resolves the (task, artifact) pair the per-artifact routes address and answers every guard they share, in the ONE order the wire documents for the WRITE verbs: 404 task → 403 not the executor (admin excepted, §14) → 409 the task is closed → 404 artifact → 400 the artifact belongs to a different task.")
+	pinned := func(t *testing.T) (*apiServer, http.Handler, string, string) {
+		t.Helper()
+		api, h, _, owner := newAPITestServer(t)
+		apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"Ship it","executor_member_id":"kip"}`)
+		agent := apiTestAgentToken(t, api, "kip", "")
+		_, artifact := apiJSON(t, h, "POST", "/api/tasks/T-1/artifact", agent,
+			`{"kind":"link","name":"PR #123","url":"https://example.com/pr/123"}`)
+		artifactID, _ := artifact["artifact_id"].(string)
+		return api, h, owner, artifactID
+	}
+
+	t.Run("a task id nothing carries answers 404 before anything else is looked at", func(t *testing.T) {
+		_, h, owner, artifactID := pinned(t)
+
+		status, data := apiJSON(t, h, "DELETE", "/api/tasks/T-999/artifact/"+artifactID, owner, "")
+		if status != 404 {
+			t.Fatalf("want 404, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "not_found", "task 'T-999' not found")
+	})
+
+	t.Run("a caller who is neither the executor nor admin is refused before the task's state is probed", func(t *testing.T) {
+		api, h, owner, artifactID := pinned(t)
+		apiJSON(t, h, "POST", "/api/tasks/T-1/terminate", owner, "")
+		bystander := apiTestAgentToken(t, api, "mira", "")
+		if _, err := api.dal.HardDeleteMember("mira"); err != nil {
+			t.Fatalf("HardDeleteMember: %v", err)
+		}
+
+		status, data := apiJSON(t, h, "DELETE", "/api/tasks/T-1/artifact/"+artifactID, bystander, "")
+		if status != 403 {
+			t.Fatalf("want 403, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "forbidden", executorGuardRefusal)
+	})
+
+	t.Run("a closed task answers the freeze even for the owner and even for an artifact id it never carried", func(t *testing.T) {
+		_, h, owner, _ := pinned(t)
+		apiJSON(t, h, "POST", "/api/tasks/T-1/terminate", owner, "")
+
+		status, data := apiJSON(t, h, "DELETE", "/api/tasks/T-1/artifact/ta-nosuchthing", owner, "")
+		if status != 409 {
+			t.Fatalf("want 409, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "conflict",
+			"task 'T-1' is closed (terminated) — its deliverables are frozen")
+	})
+
+	t.Run("an artifact id nothing carries answers 404 naming it", func(t *testing.T) {
+		_, h, owner, _ := pinned(t)
+
+		status, data := apiJSON(t, h, "DELETE", "/api/tasks/T-1/artifact/ta-nosuchthing", owner, "")
+		if status != 404 {
+			t.Fatalf("want 404, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "not_found", "artifact 'ta-nosuchthing' not found")
+	})
+
+	t.Run("an artifact pinned to another task answers 400 naming both", func(t *testing.T) {
+		_, h, owner, artifactID := pinned(t)
+		apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"Another","executor_member_id":"kip"}`)
+
+		status, data := apiJSON(t, h, "DELETE", "/api/tasks/T-2/artifact/"+artifactID, owner, "")
+		if status != 400 {
+			t.Fatalf("want 400, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "validation_error",
+			"artifact '"+artifactID+"' does not belong to task 'T-2'")
+	})
+
+	t.Run("the read face runs neither guard: a bystander reads a closed task's version history", func(t *testing.T) {
+		api, h, owner, artifactID := pinned(t)
+		agent := apiTestAgentToken(t, api, "kip", "")
+		apiJSON(t, h, "POST", "/api/tasks/T-1/artifact/"+artifactID+"/replace", agent,
+			`{"url":"https://example.com/pr/124"}`)
+		apiJSON(t, h, "POST", "/api/tasks/T-1/terminate", owner, "")
+		bystander := apiTestAgentToken(t, api, "mira", "")
+		if _, err := api.dal.HardDeleteMember("mira"); err != nil {
+			t.Fatalf("HardDeleteMember: %v", err)
+		}
+
+		rec := apiRequest(t, h, "GET", "/api/tasks/T-1/artifact/"+artifactID+"/history", bystander, "")
+		if rec.Code != 200 {
+			t.Fatalf("want 200, got %d (%s)", rec.Code, rec.Body.String())
+		}
+		var versions any
+		if err := json.Unmarshal(rec.Body.Bytes(), &versions); err != nil {
+			t.Fatalf("non-JSON body: %s", rec.Body.String())
+		}
+		rows, ok := versions.([]any)
+		if !ok || len(rows) != 1 {
+			t.Fatalf("want the one retained version, got %v", versions)
+		}
+	})
 }
 
 func TestHandleReplaceTaskArtifactApiTasksTaskIdArtifactArtifactIdReplacePost(t *testing.T) {
@@ -3880,15 +6638,129 @@ func TestHandleReplaceTaskArtifactApiTasksTaskIdArtifactArtifactIdReplacePost(t 
 }
 
 func TestWriteTaskArtifactReplaceReceipt(t *testing.T) {
-	t.Skip("TODO: writeTaskArtifactReplaceReceipt is the bounded answer BOTH replace doors give — the JSON one and the raw-body one.")
+	t.Run("the receipt counts the whole set while the version count belongs to the one artifact replaced", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"Ship it","executor_member_id":"kip"}`)
+		agent := apiTestAgentToken(t, api, "kip", "")
+		_, pinned := apiJSON(t, h, "POST", "/api/tasks/T-1/artifact", agent,
+			`{"kind":"link","name":"PR #123","url":"https://example.com/pr/123"}`)
+		replacedID, _ := pinned["artifact_id"].(string)
+		_, other := apiJSON(t, h, "POST", "/api/tasks/T-1/artifact", agent,
+			`{"kind":"link","name":"PR #124","url":"https://example.com/pr/124"}`)
+		untouchedID, _ := other["artifact_id"].(string)
+		apiJSON(t, h, "POST", "/api/tasks/T-1/artifact/"+replacedID+"/replace", agent,
+			`{"url":"https://example.com/pr/125"}`)
+
+		status, data := apiJSON(t, h, "POST", "/api/tasks/T-1/artifact/"+replacedID+"/replace", agent,
+			`{"url":"https://example.com/pr/126"}`)
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		apiWantBody(t, data, map[string]any{
+			"task_id":        "T-1",
+			"artifact_id":    replacedID,
+			"artifact_count": 2,
+			"version_count":  3,
+		})
+
+		status, untouched := apiJSON(t, h, "POST", "/api/tasks/T-1/artifact/"+untouchedID+"/replace", agent,
+			`{"url":"https://example.com/pr/127"}`)
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, untouched)
+		}
+		apiWantBody(t, untouched, map[string]any{
+			"task_id":        "T-1",
+			"artifact_id":    untouchedID,
+			"artifact_count": 2,
+			"version_count":  2,
+		})
+	})
+
+	t.Run("the raw-body replace door answers the same receipt shape", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"Ship it","executor_member_id":"kip"}`)
+		agent := apiTestAgentToken(t, api, "kip", "")
+		_, pinned := apiJSON(t, h, "POST",
+			"/api/tasks/T-1/artifacts/upload?name=the+report&filename=report.md&mime=text/markdown",
+			agent, "# v1\n")
+		artifactID, _ := pinned["artifact_id"].(string)
+		apiJSON(t, h, "POST", "/api/tasks/T-1/artifact/"+artifactID+"/replace/upload?filename=report-v2.md&mime=text/markdown",
+			agent, "# v2\n")
+
+		status, data := apiJSON(t, h, "POST",
+			"/api/tasks/T-1/artifact/"+artifactID+"/replace/upload?filename=report-v3.md&mime=text/markdown",
+			agent, "# v3\n")
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		apiWantBody(t, data, map[string]any{
+			"task_id":        "T-1",
+			"artifact_id":    artifactID,
+			"artifact_count": 1,
+			"version_count":  3,
+		})
+	})
 }
 
 func TestArtifactLinkURLRefusal(t *testing.T) {
-	t.Skip("TODO: artifactLinkURLRefusal validates a link artifact's url and answers the refusal sentence, or \"\" when the url passes.")
+	t.Run("both whitelisted schemes pass with no refusal", func(t *testing.T) {
+		if got := artifactLinkURLRefusal("https://example.com/pr/123"); got != "" {
+			t.Fatalf("https: got %q", got)
+		}
+		if got := artifactLinkURLRefusal("http://example.com/pr/123"); got != "" {
+			t.Fatalf("http: got %q", got)
+		}
+	})
+
+	t.Run("the scheme is matched case-insensitively", func(t *testing.T) {
+		if got := artifactLinkURLRefusal("HTTPS://example.com/pr/123"); got != "" {
+			t.Fatalf("got %q", got)
+		}
+	})
+
+	t.Run("any other scheme is refused by the sentence naming the two that pass", func(t *testing.T) {
+		for _, url := range []string{"javascript:alert(1)", "data:text/plain,hi", "ftp://example.com", "example.com", ""} {
+			if got := artifactLinkURLRefusal(url); got != "url must start with https:// or http://" {
+				t.Fatalf("%q: got %q", url, got)
+			}
+		}
+	})
+
+	t.Run("a url exactly at the cap passes and one rune over is refused by its measured length", func(t *testing.T) {
+		prefix := "https://example.com/"
+		atCap := prefix + strings.Repeat("a", 2048-len(prefix))
+		if got := artifactLinkURLRefusal(atCap); got != "" {
+			t.Fatalf("at the cap: got %q", got)
+		}
+		if got := artifactLinkURLRefusal(atCap + "a"); got != "url is 2049 chars, over the 2048-char limit" {
+			t.Fatalf("one over: got %q", got)
+		}
+	})
+
+	t.Run("the length is counted in runes, so a wide url under the cap is not refused for its bytes", func(t *testing.T) {
+		wide := "https://example.com/" + strings.Repeat("字", 1000)
+		if got := artifactLinkURLRefusal(wide); got != "" {
+			t.Fatalf("got %q", got)
+		}
+	})
 }
 
 func TestArtifactKindRefusal(t *testing.T) {
-	t.Skip("TODO: artifactKindRefusal is the one sentence every cross-kind replacement is refused with — written once so the three ways to ask for one (an explicit kind, a url on a file, an attachment_id on a link) cannot answer differently about the same rule.")
+	t.Run("the sentence names the pinned kind, the asked kind and the way out", func(t *testing.T) {
+		got := artifactKindRefusal("link", "file")
+		if got != "artifact kind cannot change across versions: this artifact is a link "+
+			"and the replacement asks for a file — un-pin it and register a new artifact instead" {
+			t.Fatalf("got %q", got)
+		}
+	})
+
+	t.Run("the other direction reads the same sentence with the two kinds swapped", func(t *testing.T) {
+		got := artifactKindRefusal("image", "link")
+		if got != "artifact kind cannot change across versions: this artifact is a image "+
+			"and the replacement asks for a link — un-pin it and register a new artifact instead" {
+			t.Fatalf("got %q", got)
+		}
+	})
 }
 
 func TestHandleListTaskArtifactHistoryApiTasksTaskIdArtifactArtifactIdHistoryGet(t *testing.T) {

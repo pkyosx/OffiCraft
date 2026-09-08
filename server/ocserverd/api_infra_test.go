@@ -1,14 +1,14 @@
-// Skeleton generated from server/ocserverd/api_infra.go by gen_test_skeletons.py.
-// Every case is a t.Skip placeholder: fill the body, keep or rewrite the name.
-
 package main
 
 import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
+	"sort"
 	"strings"
 	"sync"
 	"testing"
@@ -16,23 +16,164 @@ import (
 )
 
 func TestMarkStationShutdown(t *testing.T) {
-	t.Skip("TODO: markStationShutdown records the process-level cause before the server cancels request contexts or the upgrade re-execs.")
+	t.Run("a stream opened while the marker stands is greeted and then ends itself, while an unmarked station holds the same stream open", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		dashboard := apiTestListen(t, api, "")
+
+		held := apiEventsStream(t, h, owner, "")
+		select {
+		case <-held.done:
+			t.Fatalf("premise: an unmarked station must hold the stream open, got %q", held.text())
+		case <-time.After(400 * time.Millisecond):
+		}
+
+		api.markStationShutdown()
+
+		closing := apiEventsStream(t, h, owner, "")
+		select {
+		case <-closing.done:
+		case <-time.After(10 * time.Second):
+			t.Fatalf("a stream must end itself while the station is closing, got %q", closing.text())
+		}
+		if closing.code() != 200 {
+			t.Fatalf("want 200, got %d", closing.code())
+		}
+		if got := closing.text(); got != ": connected\n\n" {
+			t.Fatalf("want only the greeting, got %q", got)
+		}
+		dashboard.wantFrames()
+	})
+
+	t.Run("the marker is what the SSE context detach reason reads, and marking again leaves the same one answer", func(t *testing.T) {
+		api, _, _, _ := newAPITestServer(t)
+		if got := api.sseContextDetachReason(); got != "peer-closed" {
+			t.Fatalf("premise: a running station reads %q", got)
+		}
+
+		api.markStationShutdown()
+		api.markStationShutdown()
+
+		if got := api.sseContextDetachReason(); got != "station-shutdown" {
+			t.Fatalf("want station-shutdown, got %q", got)
+		}
+	})
 }
 
 func TestClearStationShutdown(t *testing.T) {
-	t.Skip("TODO: 需要人工判斷這個函式的可觀察結果是什麼")
+	t.Run("clearing the marker puts the reason back and lets a stream be held open again", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		api.markStationShutdown()
+
+		api.clearStationShutdown()
+
+		if got := api.sseContextDetachReason(); got != "peer-closed" {
+			t.Fatalf("want peer-closed, got %q", got)
+		}
+		stream := apiEventsStream(t, h, owner, "")
+		select {
+		case <-stream.done:
+			t.Fatalf("a cleared station must hold the stream open, got %q", stream.text())
+		case <-time.After(400 * time.Millisecond):
+		}
+		if got := stream.text(); got != ": connected\n\n" {
+			t.Fatalf("want only the greeting, got %q", got)
+		}
+	})
+
+	t.Run("clearing a station that was never marked leaves it exactly where it was", func(t *testing.T) {
+		api, _, _, _ := newAPITestServer(t)
+
+		api.clearStationShutdown()
+
+		if got := api.sseContextDetachReason(); got != "peer-closed" {
+			t.Fatalf("want peer-closed, got %q", got)
+		}
+	})
 }
 
 func TestCancelStationContext(t *testing.T) {
-	t.Skip("TODO: 需要人工判斷這個函式的可觀察結果是什麼")
+	t.Run("the wired cancel is called, so the station context ends as cancelled", func(t *testing.T) {
+		api, _, _, _ := newAPITestServer(t)
+		ctx, cancel := context.WithCancel(context.Background())
+		t.Cleanup(cancel)
+		api.stationCancel = cancel
+
+		api.cancelStationContext()
+
+		select {
+		case <-ctx.Done():
+		case <-time.After(5 * time.Second):
+			t.Fatalf("the station context must be done")
+		}
+		if err := ctx.Err(); err != context.Canceled {
+			t.Fatalf("want context.Canceled, got %v", err)
+		}
+	})
+
+	t.Run("a station with no cancel wired is a no-op rather than a panic", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		dashboard := apiTestListen(t, api, "")
+
+		api.cancelStationContext()
+
+		if got := api.sseContextDetachReason(); got != "peer-closed" {
+			t.Fatalf("want peer-closed, got %q", got)
+		}
+		stream := apiEventsStream(t, h, owner, "")
+		select {
+		case <-stream.done:
+			t.Fatalf("nothing may have been cancelled, got %q", stream.text())
+		case <-time.After(400 * time.Millisecond):
+		}
+		dashboard.wantFrames()
+	})
 }
 
 func TestDetachReasonForLog(t *testing.T) {
-	t.Skip("TODO: detachReasonForLog keeps the operator vocabulary exactly as it was: an exit that concluded nothing is still reported as peer-closed, which is what a return with no recorded cause means.")
+	t.Run("an exit that concluded nothing is still reported as peer-closed", func(t *testing.T) {
+		if got := detachReasonForLog(sseDetachReasonUnset); got != "peer-closed" {
+			t.Fatalf("want peer-closed, got %q", got)
+		}
+	})
+
+	t.Run("every concluded cause is printed exactly as it was recorded", func(t *testing.T) {
+		for _, reason := range []string{
+			sseDetachReasonTakeover,
+			sseDetachReasonPeerClosed,
+			sseDetachReasonWriteFailed,
+			sseDetachReasonStationShutdown,
+			"something nobody records",
+		} {
+			if got := detachReasonForLog(reason); got != reason {
+				t.Fatalf("detachReasonForLog(%q) = %q", reason, got)
+			}
+		}
+	})
 }
 
 func TestSseContextDetachReason(t *testing.T) {
-	t.Skip("TODO: 需要人工判斷這個函式的可觀察結果是什麼")
+	t.Run("a context that ended on a running station reads as the peer closing", func(t *testing.T) {
+		api, _, _, _ := newAPITestServer(t)
+
+		if got := api.sseContextDetachReason(); got != "peer-closed" {
+			t.Fatalf("want peer-closed, got %q", got)
+		}
+	})
+
+	t.Run("the same ended context reads as the station closing once the shutdown marker stands, and reverts when it is cleared", func(t *testing.T) {
+		api, _, _, _ := newAPITestServer(t)
+		api.markStationShutdown()
+
+		if got := api.sseContextDetachReason(); got != "station-shutdown" {
+			t.Fatalf("want station-shutdown, got %q", got)
+		}
+
+		api.clearStationShutdown()
+
+		if got := api.sseContextDetachReason(); got != "peer-closed" {
+			t.Fatalf("want peer-closed, got %q", got)
+		}
+	})
 }
 
 // sseUnflushableWriter is a response writer with no Flush method — the one
@@ -265,39 +406,751 @@ func TestHandleEventsApiEventsGet(t *testing.T) {
 }
 
 func TestSseStopGateRefusal(t *testing.T) {
-	t.Skip("TODO: sseStopGateRefusal is the zombie SSE gate predicate (defence line B of the zombie-agent work; line A is the warden's process-tree sweep).")
+	t.Run("an id the roster does not know and an ordinary active member are both admitted", func(t *testing.T) {
+		api, _, _, _ := newAPITestServer(t)
+
+		if got := api.sseStopGateRefusal("ghost"); got != "" {
+			t.Fatalf("an unknown sub must be admitted, got %q", got)
+		}
+		if got := api.sseStopGateRefusal("kip"); got != "" {
+			t.Fatalf("an active member must be admitted, got %q", got)
+		}
+	})
+
+	t.Run("a member working its close-out is still admitted, and refused the moment it reports stopped", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		agent := apiTestAgentToken(t, api, "kip", "")
+		if status, data := apiJSON(t, h, "POST", "/api/members/kip/deactivate", owner, ""); status != 200 {
+			t.Fatalf("deactivate: want 200, got %d (%v)", status, data)
+		}
+
+		if got := api.sseStopGateRefusal("kip"); got != "" {
+			t.Fatalf("a close-out in flight must be admitted, got %q", got)
+		}
+
+		if status, data := apiJSON(t, h, "POST", "/api/self/stopped", agent, ""); status != 200 {
+			t.Fatalf("report stopped: want 200, got %d (%v)", status, data)
+		}
+
+		if got := api.sseStopGateRefusal("kip"); got != "member 'kip' has a stop in effect (desired_state=offline) — "+
+			"SSE refused (a stopped member must not re-project online; activate it to reconnect)" {
+			t.Fatalf("a finished close-out must be refused, got %q", got)
+		}
+	})
+
+	t.Run("a member the owner force-stopped is refused without waiting for it to report", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		if status, data := apiJSON(t, h, "POST", "/api/members/kip/force-stop", owner, ""); status != 200 {
+			t.Fatalf("force-stop: want 200, got %d (%v)", status, data)
+		}
+
+		if got := api.sseStopGateRefusal("kip"); got != "member 'kip' has a stop in effect (desired_state=offline) — "+
+			"SSE refused (a stopped member must not re-project online; activate it to reconnect)" {
+			t.Fatalf("want the stop refusal, got %q", got)
+		}
+	})
+
+	t.Run("activating the member again lifts the gate", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		if status, data := apiJSON(t, h, "POST", "/api/members/kip/force-stop", owner, ""); status != 200 {
+			t.Fatalf("force-stop: want 200, got %d (%v)", status, data)
+		}
+
+		if status, data := apiJSON(t, h, "POST", "/api/members/kip/activate", owner, ""); status != 200 {
+			t.Fatalf("activate: want 200, got %d (%v)", status, data)
+		}
+
+		if got := api.sseStopGateRefusal("kip"); got != "" {
+			t.Fatalf("an activated member must be admitted, got %q", got)
+		}
+	})
+
+	t.Run("a dismissed member is refused with the roster wording instead", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		if status, data := apiJSON(t, h, "DELETE", "/api/members/kip", owner, ""); status != 200 {
+			t.Fatalf("dismiss: want 200, got %d (%v)", status, data)
+		}
+
+		if got := api.sseStopGateRefusal("kip"); got != "member 'kip' is removed from the roster — "+
+			"SSE refused (a dismissed member must not re-project online)" {
+			t.Fatalf("want the roster refusal, got %q", got)
+		}
+	})
+
+	t.Run("an outsource worker keeps the pre-fold admission even once its row is released", func(t *testing.T) {
+		api, h, d, owner := newAPITestServer(t)
+		apiTestWorkerFixture(t, h, d, owner, "ow-abc123", WorkerStatusReleased)
+
+		if got := api.sseStopGateRefusal("ow-abc123"); got != "" {
+			t.Fatalf("a released worker must be admitted, got %q", got)
+		}
+	})
 }
 
 func TestOnFirstConnect(t *testing.T) {
-	t.Skip("TODO: onFirstConnect handles the SSE first-connect edge for an agent connection: clear the caller's waking anchor (the wake completed) and stamp the session boot_ts on its gauge entry.")
+	t.Run("the waking anchor the member reported is spent and the session is anchored in both stores", func(t *testing.T) {
+		api, h, d, _ := newAPITestServer(t)
+		agent := apiTestAgentToken(t, api, "kip", "")
+		if status, data := apiJSON(t, h, "POST", "/api/self/waking", agent, ""); status != 200 {
+			t.Fatalf("report waking: want 200, got %d (%v)", status, data)
+		}
+		if m := infraTestMember(t, d, "kip"); m.WakingSince <= 0 {
+			t.Fatalf("premise: the waking anchor must stand, got %v", m.WakingSince)
+		}
+		dashboard := apiTestListen(t, api, "")
+
+		api.onFirstConnect("kip")
+
+		m := infraTestMember(t, d, "kip")
+		if m.WakingSince != 0 {
+			t.Fatalf("the waking anchor must be spent, got %v", m.WakingSince)
+		}
+		if m.SessionBootTS <= 0 {
+			t.Fatalf("the session must be anchored durably, got %v", m.SessionBootTS)
+		}
+		if got := api.gauge.Get("kip")["boot_ts"]; got != m.SessionBootTS {
+			t.Fatalf("the gauge anchor %v must agree with the durable %v", got, m.SessionBootTS)
+		}
+		dashboard.wantFrames(map[string]any{
+			"seq":   2,
+			"topic": "member",
+			"op":    "patch",
+			"data": map[string]any{
+				"entity":  "member",
+				"key":     "owner::kip",
+				"epoch":   2,
+				"deleted": false,
+				"payload": map[string]any{
+					"id":            "kip",
+					"name":          "Kip",
+					"owner_id":      "owner",
+					"status":        "active",
+					"desired_state": "",
+				},
+			},
+			"ts":      apiAnyNumber,
+			"trigger": "kip",
+		})
+	})
+
+	t.Run("a member with no waking anchor is anchored without a roster write of any kind", func(t *testing.T) {
+		api, _, d, _ := newAPITestServer(t)
+		before := infraTestMember(t, d, "kip")
+		dashboard := apiTestListen(t, api, "")
+
+		api.onFirstConnect("kip")
+
+		after := infraTestMember(t, d, "kip")
+		if after.SessionBootTS <= 0 {
+			t.Fatalf("the session must be anchored durably, got %v", after.SessionBootTS)
+		}
+		before.SessionBootTS = after.SessionBootTS
+		if !reflect.DeepEqual(after, before) {
+			t.Fatalf("nothing else may move:\n got %+v\nwant %+v", after, before)
+		}
+		dashboard.wantFrames()
+	})
+
+	t.Run("a reconnect mid-session leaves the anchor exactly where the first connect put it", func(t *testing.T) {
+		api, _, d, _ := newAPITestServer(t)
+		api.onFirstConnect("kip")
+		anchored := infraTestMember(t, d, "kip").SessionBootTS
+
+		api.onFirstConnect("kip")
+
+		if got := infraTestMember(t, d, "kip").SessionBootTS; got != anchored {
+			t.Fatalf("the anchor moved from %v to %v", anchored, got)
+		}
+		if got := api.gauge.Get("kip")["boot_ts"]; got != anchored {
+			t.Fatalf("the gauge anchor moved to %v, want %v", got, anchored)
+		}
+	})
+
+	t.Run("a worker's connect fans the presence delta the owner's worker list converges on", func(t *testing.T) {
+		api, h, d, owner := newAPITestServer(t)
+		apiTestWorkerFixture(t, h, d, owner, "ow-abc123", WorkerStatusActive)
+		dashboard := apiTestListen(t, api, "")
+
+		api.onFirstConnect("ow-abc123")
+
+		if got := infraTestMember(t, d, "ow-abc123").SessionBootTS; got <= 0 {
+			t.Fatalf("the worker's session must be anchored, got %v", got)
+		}
+		dashboard.wantFrames(apiTestWorkerDelta(2, "active", "server"))
+	})
 }
 
 func TestAnchorSessionBoot(t *testing.T) {
-	t.Skip("TODO: anchorSessionBoot is the T-4235 session-anchor resolution, run on the SSE first-connect edge.")
+	t.Run("a session nobody has anchored yet is stamped in both stores at once", func(t *testing.T) {
+		api, _, d, _ := newAPITestServer(t)
+
+		api.anchorSessionBoot("kip")
+
+		anchored := infraTestMember(t, d, "kip").SessionBootTS
+		if anchored <= 0 {
+			t.Fatalf("the durable anchor must be stamped, got %v", anchored)
+		}
+		if got := api.gauge.Get("kip")["boot_ts"]; got != anchored {
+			t.Fatalf("the gauge anchor %v must be the durable one %v", got, anchored)
+		}
+	})
+
+	t.Run("a station re-exec that emptied the gauge restores the anchor from the roster rather than minting a new one", func(t *testing.T) {
+		api, _, d, _ := newAPITestServer(t)
+		api.anchorSessionBoot("kip")
+		anchored := infraTestMember(t, d, "kip").SessionBootTS
+		api.gauge.Delete("kip")
+
+		api.anchorSessionBoot("kip")
+
+		if got := api.gauge.Get("kip")["boot_ts"]; got != anchored {
+			t.Fatalf("the restored gauge anchor is %v, want the durable %v", got, anchored)
+		}
+		if got := infraTestMember(t, d, "kip").SessionBootTS; got != anchored {
+			t.Fatalf("the durable anchor moved to %v, want %v", got, anchored)
+		}
+	})
+
+	t.Run("a gauge anchor with no durable twin is adopted, never overwritten with now", func(t *testing.T) {
+		api, _, d, _ := newAPITestServer(t)
+		api.gauge.Set("kip", map[string]any{"boot_ts": 1700000000.0, "context_pct": 12.0})
+
+		api.anchorSessionBoot("kip")
+
+		if got := api.gauge.Get("kip")["boot_ts"]; got != 1700000000.0 {
+			t.Fatalf("the gauge anchor must be left where it was, got %v", got)
+		}
+		if got := infraTestMember(t, d, "kip").SessionBootTS; got != 1700000000.0 {
+			t.Fatalf("the durable anchor must adopt the gauge's, got %v", got)
+		}
+		if got := api.gauge.Get("kip")["context_pct"]; got != 12.0 {
+			t.Fatalf("the rest of the gauge entry must survive, context_pct = %v", got)
+		}
+	})
+
+	t.Run("an id the roster does not know is anchored in the gauge alone, and a second call leaves it there", func(t *testing.T) {
+		api, _, d, _ := newAPITestServer(t)
+
+		api.anchorSessionBoot("ghost")
+
+		anchored, ok := api.gauge.Get("ghost")["boot_ts"].(float64)
+		if !ok || anchored <= 0 {
+			t.Fatalf("the gauge anchor must be stamped, got %v", api.gauge.Get("ghost"))
+		}
+		row, err := d.GetMember("ghost")
+		if err != nil || row != nil {
+			t.Fatalf("no roster row may be created, got %v (%v)", row, err)
+		}
+
+		api.anchorSessionBoot("ghost")
+
+		if got := api.gauge.Get("ghost")["boot_ts"]; got != anchored {
+			t.Fatalf("the anchor moved from %v to %v", anchored, got)
+		}
+	})
+
+	t.Run("an anchor that is already in agreement is left alone, and nothing is fanned to anybody", func(t *testing.T) {
+		api, _, d, _ := newAPITestServer(t)
+		api.anchorSessionBoot("kip")
+		anchored := infraTestMember(t, d, "kip").SessionBootTS
+		dashboard := apiTestListen(t, api, "")
+
+		api.anchorSessionBoot("kip")
+
+		if got := api.gauge.Get("kip")["boot_ts"]; got != anchored {
+			t.Fatalf("the gauge anchor moved to %v, want %v", got, anchored)
+		}
+		dashboard.wantFrames()
+	})
 }
 
 func TestStampLandedMachine(t *testing.T) {
-	t.Skip("TODO: stampLandedMachine records the machine a session actually connected from (T-98f4) — the durable anchor rule 3 of the outsource placement decision reads (「沒被搬過 + 不是第一次 → 留在上一輪實際跑的那台」), and, for every kind, the last-observed machine the cockpit compares the owner's pin against.")
+	t.Run("a connection from the machine the member is pinned to records the landing and fans the roster delta", func(t *testing.T) {
+		api, _, d, _ := newAPITestServer(t)
+		if got := infraTestMember(t, d, "mira").LastMachineID; got != "" {
+			t.Fatalf("premise: nothing may be recorded yet, got %q", got)
+		}
+		dashboard := apiTestListen(t, api, "")
+
+		api.stampLandedMachine("mira", ServerSelfHost)
+
+		if got := infraTestMember(t, d, "mira").LastMachineID; got != ServerSelfHost {
+			t.Fatalf("want the landing recorded, got %q", got)
+		}
+		dashboard.wantFrames(map[string]any{
+			"seq":   1,
+			"topic": "member",
+			"op":    "patch",
+			"data": map[string]any{
+				"entity":  "member",
+				"key":     "owner::mira",
+				"epoch":   1,
+				"deleted": false,
+				"payload": map[string]any{
+					"id":            "mira",
+					"name":          "Mira",
+					"owner_id":      "owner",
+					"status":        "active",
+					"desired_state": "offline",
+				},
+			},
+			"ts":      apiAnyNumber,
+			"trigger": "mira",
+		})
+	})
+
+	t.Run("a second connection from the same machine costs neither a write nor a delta", func(t *testing.T) {
+		api, _, d, _ := newAPITestServer(t)
+		api.stampLandedMachine("mira", ServerSelfHost)
+		before := infraTestMember(t, d, "mira")
+		dashboard := apiTestListen(t, api, "")
+
+		api.stampLandedMachine("mira", ServerSelfHost)
+
+		if !reflect.DeepEqual(infraTestMember(t, d, "mira"), before) {
+			t.Fatalf("the row must be untouched:\n got %+v\nwant %+v", infraTestMember(t, d, "mira"), before)
+		}
+		dashboard.wantFrames()
+	})
+
+	t.Run("a claim from anywhere but the pinned machine leaves the known landing alone", func(t *testing.T) {
+		api, _, d, _ := newAPITestServer(t)
+		api.stampLandedMachine("mira", ServerSelfHost)
+		dashboard := apiTestListen(t, api, "")
+
+		api.stampLandedMachine("mira", "m-elsewhere")
+
+		if got := infraTestMember(t, d, "mira").LastMachineID; got != ServerSelfHost {
+			t.Fatalf("a wanderer must not rewrite the landing, got %q", got)
+		}
+		dashboard.wantFrames()
+	})
+
+	t.Run("a claimless connection and an id the roster does not know both record nothing", func(t *testing.T) {
+		api, _, d, _ := newAPITestServer(t)
+		dashboard := apiTestListen(t, api, "")
+
+		api.stampLandedMachine("mira", "")
+		api.stampLandedMachine("ghost", ServerSelfHost)
+
+		if got := infraTestMember(t, d, "mira").LastMachineID; got != "" {
+			t.Fatalf("a blank claim must record nothing, got %q", got)
+		}
+		row, err := d.GetMember("ghost")
+		if err != nil || row != nil {
+			t.Fatalf("no roster row may be created, got %v (%v)", row, err)
+		}
+		dashboard.wantFrames()
+	})
+
+	t.Run("a member with no pin at all is left alone, because nothing can confirm the claim", func(t *testing.T) {
+		api, _, d, _ := newAPITestServer(t)
+		if got := infraTestMember(t, d, "kip").DesiredMachineID; got != "" {
+			t.Fatalf("premise: kip must carry no pin, got %q", got)
+		}
+		dashboard := apiTestListen(t, api, "")
+
+		api.stampLandedMachine("kip", ServerSelfHost)
+
+		if got := infraTestMember(t, d, "kip").LastMachineID; got != "" {
+			t.Fatalf("an unverifiable connection must record nothing, got %q", got)
+		}
+		dashboard.wantFrames()
+	})
 }
 
 func TestClearSessionBootTS(t *testing.T) {
-	t.Skip("TODO: clearSessionBootTS drops session-scoped gauge state from a member's / worker's gauge entry at a real session BOUNDARY — a START dispatch that begins a new session, or a STOP/kill that ends one.")
+	t.Run("the session-scoped gauge state and both durable session columns go, while the report itself stays", func(t *testing.T) {
+		api, h, d, _ := newAPITestServer(t)
+		agent := apiTestAgentToken(t, api, "kip", "")
+		api.onFirstConnect("kip")
+		if status, data := apiJSON(t, h, "POST", "/api/agent/context", agent,
+			`{"context_pct":45,"compaction_count":3}`); status != 200 {
+			t.Fatalf("context ingest: want 200, got %d (%v)", status, data)
+		}
+		if err := d.SetMemberHandoverNoticedTS("kip", 1700000007); err != nil {
+			t.Fatalf("SetMemberHandoverNoticedTS: %v", err)
+		}
+		dashboard := apiTestListen(t, api, "")
+
+		api.clearSessionBootTS("kip")
+
+		infraWantGaugeKeys(t, api, "kip", "rate_limits", "ts")
+		m := infraTestMember(t, d, "kip")
+		if m.SessionBootTS != 0 {
+			t.Fatalf("the durable anchor must be zeroed, got %v", m.SessionBootTS)
+		}
+		if m.HandoverNoticedTS != 0 {
+			t.Fatalf("the notice claim must be zeroed, got %v", m.HandoverNoticedTS)
+		}
+		dashboard.wantFrames()
+	})
+
+	t.Run("clearing again is a clean no-op, and so is clearing an id with no gauge entry and no roster row", func(t *testing.T) {
+		api, h, d, _ := newAPITestServer(t)
+		agent := apiTestAgentToken(t, api, "kip", "")
+		api.onFirstConnect("kip")
+		if status, data := apiJSON(t, h, "POST", "/api/agent/context", agent, `{"context_pct":45}`); status != 200 {
+			t.Fatalf("context ingest: want 200, got %d (%v)", status, data)
+		}
+		api.clearSessionBootTS("kip")
+		before := infraTestMember(t, d, "kip")
+
+		api.clearSessionBootTS("kip")
+		api.clearSessionBootTS("ghost")
+
+		if !reflect.DeepEqual(infraTestMember(t, d, "kip"), before) {
+			t.Fatalf("the row must be untouched:\n got %+v\nwant %+v", infraTestMember(t, d, "kip"), before)
+		}
+		infraWantGaugeKeys(t, api, "kip", "rate_limits", "ts")
+		if entry := api.gauge.Get("ghost"); entry != nil {
+			t.Fatalf("no gauge entry may be created, got %v", entry)
+		}
+		row, err := d.GetMember("ghost")
+		if err != nil || row != nil {
+			t.Fatalf("no roster row may be created, got %v (%v)", row, err)
+		}
+	})
+
+	t.Run("the next connect after a boundary mints a fresh anchor rather than inheriting the old one", func(t *testing.T) {
+		api, _, d, _ := newAPITestServer(t)
+		api.onFirstConnect("kip")
+		first := infraTestMember(t, d, "kip").SessionBootTS
+
+		api.clearSessionBootTS("kip")
+		api.onFirstConnect("kip")
+
+		second := infraTestMember(t, d, "kip").SessionBootTS
+		if second <= first {
+			t.Fatalf("the new session must anchor later than %v, got %v", first, second)
+		}
+		if got := api.gauge.Get("kip")["boot_ts"]; got != second {
+			t.Fatalf("the gauge anchor %v must be the durable one %v", got, second)
+		}
+	})
 }
 
 func TestOnLastDisconnect(t *testing.T) {
-	t.Skip("TODO: onLastDisconnect handles the SSE last-disconnect edge for an agent connection: fold the live telemetry cost into the actor's durable banked_cost, then POP the live field (exactly-once-per-edge banking).")
+	t.Run("a member's live figure is folded into its durable banked figure and the live field is popped", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		agent := apiTestAgentToken(t, api, "kip", "")
+		if status, data := apiJSON(t, h, "POST", "/api/monitoring/telemetry", agent, `{"cost":2.5}`); status != 200 {
+			t.Fatalf("telemetry: want 200, got %d (%v)", status, data)
+		}
+		dashboard := apiTestListen(t, api, "")
+
+		api.onLastDisconnect("kip")
+
+		apiWantValue(t, "session", any(apiTestSession(t, h, owner, "kip")), map[string]any{
+			"id":          "kip",
+			"name":        "Kip",
+			"presence":    "offline",
+			"cost":        nil,
+			"banked_cost": 2.5,
+			"account":     "",
+			"context_pct": nil,
+			"effort":      "",
+			"machine":     "",
+			"model":       "",
+			"role":        "",
+			"runtime":     "",
+			"tokens":      nil,
+		})
+		dashboard.wantFrames(map[string]any{
+			"seq":   2,
+			"topic": "member",
+			"op":    "patch",
+			"data": map[string]any{
+				"entity":  "member",
+				"key":     "owner::kip",
+				"epoch":   2,
+				"deleted": false,
+				"payload": map[string]any{
+					"id":            "kip",
+					"name":          "Kip",
+					"owner_id":      "owner",
+					"status":        "active",
+					"desired_state": "",
+				},
+			},
+			"ts":      apiAnyNumber,
+			"trigger": "kip",
+		})
+	})
+
+	t.Run("a worker's figure banks on the same edge and its presence delta is what the owner's list is given", func(t *testing.T) {
+		api, h, d, owner := newAPITestServer(t)
+		apiTestWorkerFixture(t, h, d, owner, "ow-abc123", WorkerStatusActive)
+		worker := apiTestAgentToken(t, api, "ow-abc123", "")
+		if status, data := apiJSON(t, h, "POST", "/api/monitoring/telemetry", worker, `{"cost":2.5}`); status != 200 {
+			t.Fatalf("telemetry: want 200, got %d (%v)", status, data)
+		}
+		dashboard := apiTestListen(t, api, "")
+
+		api.onLastDisconnect("ow-abc123")
+
+		if got := infraTestMember(t, d, "ow-abc123").BankedCost; got != 2.5 {
+			t.Fatalf("want the worker's 2.5 banked, got %v", got)
+		}
+		if _, present := api.telemetry.Get("ow-abc123")["cost"]; present {
+			t.Fatalf("the live figure must be popped, entry = %v", api.telemetry.Get("ow-abc123"))
+		}
+		dashboard.wantFrames(apiTestWorkerDelta(3, "active", "server"))
+	})
+
+	t.Run("an edge that fires again banks nothing a second time", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		agent := apiTestAgentToken(t, api, "kip", "")
+		if status, data := apiJSON(t, h, "POST", "/api/monitoring/telemetry", agent, `{"cost":2.5}`); status != 200 {
+			t.Fatalf("telemetry: want 200, got %d (%v)", status, data)
+		}
+		api.onLastDisconnect("kip")
+
+		api.onLastDisconnect("kip")
+
+		if row := apiTestSession(t, h, owner, "kip"); row["banked_cost"] != 2.5 {
+			t.Fatalf("want 2.5 banked exactly once, got %v", row["banked_cost"])
+		}
+	})
 }
 
 func TestPublishOutsourcePresenceEdge(t *testing.T) {
-	t.Skip("TODO: publishOutsourcePresenceEdge makes the worker-list projection converge after a real SSE online edge.")
+	t.Run("a live worker's edge fans the canonical worker delta to the owner cockpit alone", func(t *testing.T) {
+		api, h, d, owner := newAPITestServer(t)
+		apiTestWorkerFixture(t, h, d, owner, "ow-abc123", WorkerStatusAssigned)
+		dashboard := apiTestListen(t, api, "")
+		bystander := apiTestListen(t, api, "kip")
+
+		api.publishOutsourcePresenceEdge("ow-abc123")
+
+		dashboard.wantFrames(apiTestWorkerDelta(2, "assigned", "server"))
+		bystander.wantFrames()
+	})
+
+	t.Run("a released worker, a staff id and an id nobody carries are all silent", func(t *testing.T) {
+		api, h, d, owner := newAPITestServer(t)
+		apiTestWorkerFixture(t, h, d, owner, "ow-abc123", WorkerStatusReleased)
+		dashboard := apiTestListen(t, api, "")
+
+		api.publishOutsourcePresenceEdge("ow-abc123")
+		api.publishOutsourcePresenceEdge("kip")
+		api.publishOutsourcePresenceEdge("ghost")
+
+		dashboard.wantFrames()
+	})
 }
 
 func TestBankLiveCost(t *testing.T) {
-	t.Skip("TODO: bankLiveCost is the ONE cost-banking fold for BOTH actor kinds (T-ba6b — owner constitution: 外包＝系統代管的正職員工, so the worker reuses the member mechanism instead of a parallel copy): pop the actor's live telemetry cost and add it to the durable member.banked_cost of whichever kind the id resolves to (the outsource_worker table was folded into member in 00025, so both kinds are the same column and the same sole writer).")
+	t.Run("a staff member's live figure moves into the durable column and the fold fans the member delta", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		agent := apiTestAgentToken(t, api, "kip", "")
+		if status, data := apiJSON(t, h, "POST", "/api/monitoring/telemetry", agent, `{"cost":2.5}`); status != 200 {
+			t.Fatalf("telemetry: want 200, got %d (%v)", status, data)
+		}
+		dashboard := apiTestListen(t, api, "")
+		subject := apiTestListen(t, api, "kip")
+
+		api.bankLiveCost("kip")
+
+		apiWantValue(t, "session", any(apiTestSession(t, h, owner, "kip")), map[string]any{
+			"id":          "kip",
+			"name":        "Kip",
+			"presence":    "online",
+			"cost":        nil,
+			"banked_cost": 2.5,
+			"account":     "",
+			"context_pct": nil,
+			"effort":      "",
+			"machine":     "",
+			"model":       "",
+			"role":        "",
+			"runtime":     "",
+			"tokens":      nil,
+		})
+		memberFrame := map[string]any{
+			"seq":   2,
+			"topic": "member",
+			"op":    "patch",
+			"data": map[string]any{
+				"entity":  "member",
+				"key":     "owner::kip",
+				"epoch":   2,
+				"deleted": false,
+				"payload": map[string]any{
+					"id":            "kip",
+					"name":          "Kip",
+					"owner_id":      "owner",
+					"status":        "active",
+					"desired_state": "",
+				},
+			},
+			"ts":      apiAnyNumber,
+			"trigger": "kip",
+		}
+		dashboard.wantFrames(memberFrame)
+		subject.wantFrames(memberFrame)
+	})
+
+	t.Run("a second fold on the same actor adds nothing, because the live figure is popped", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		agent := apiTestAgentToken(t, api, "kip", "")
+		if status, data := apiJSON(t, h, "POST", "/api/monitoring/telemetry", agent, `{"cost":2.5}`); status != 200 {
+			t.Fatalf("telemetry: want 200, got %d (%v)", status, data)
+		}
+		api.bankLiveCost("kip")
+		dashboard := apiTestListen(t, api, "")
+
+		api.bankLiveCost("kip")
+
+		if row := apiTestSession(t, h, owner, "kip"); row["banked_cost"] != 2.5 {
+			t.Fatalf("want 2.5 banked exactly once, got %v", row["banked_cost"])
+		}
+		dashboard.wantFrames()
+	})
+
+	t.Run("two sessions' figures accumulate in the one durable column", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		agent := apiTestAgentToken(t, api, "kip", "")
+		if status, data := apiJSON(t, h, "POST", "/api/monitoring/telemetry", agent, `{"cost":2.5}`); status != 200 {
+			t.Fatalf("telemetry: want 200, got %d (%v)", status, data)
+		}
+		api.bankLiveCost("kip")
+		if status, data := apiJSON(t, h, "POST", "/api/monitoring/telemetry", agent, `{"cost":1.25}`); status != 200 {
+			t.Fatalf("telemetry: want 200, got %d (%v)", status, data)
+		}
+
+		api.bankLiveCost("kip")
+
+		if row := apiTestSession(t, h, owner, "kip"); row["banked_cost"] != 3.75 {
+			t.Fatalf("want 3.75 banked, got %v", row["banked_cost"])
+		}
+	})
+
+	t.Run("a worker banks into the same column without a member delta naming its id", func(t *testing.T) {
+		api, h, d, owner := newAPITestServer(t)
+		apiTestWorkerFixture(t, h, d, owner, "ow-abc123", WorkerStatusActive)
+		worker := apiTestAgentToken(t, api, "ow-abc123", "")
+		if status, data := apiJSON(t, h, "POST", "/api/monitoring/telemetry", worker, `{"cost":2.5}`); status != 200 {
+			t.Fatalf("telemetry: want 200, got %d (%v)", status, data)
+		}
+		dashboard := apiTestListen(t, api, "")
+
+		api.bankLiveCost("ow-abc123")
+
+		if got := infraTestMember(t, d, "ow-abc123").BankedCost; got != 2.5 {
+			t.Fatalf("want 2.5 banked, got %v", got)
+		}
+		if _, present := api.telemetry.Get("ow-abc123")["cost"]; present {
+			t.Fatalf("the live figure must be popped, entry = %v", api.telemetry.Get("ow-abc123"))
+		}
+		dashboard.wantFrames()
+	})
+
+	t.Run("an id that resolves to neither kind keeps its live figure rather than destroying it", func(t *testing.T) {
+		api, _, _, _ := newAPITestServer(t)
+		api.telemetry.Set("ghost", map[string]any{"cost": 2.5})
+		dashboard := apiTestListen(t, api, "")
+
+		api.bankLiveCost("ghost")
+
+		if got := api.telemetry.Get("ghost")["cost"]; got != 2.5 {
+			t.Fatalf("the live figure must survive, got %v", got)
+		}
+		dashboard.wantFrames()
+	})
+
+	t.Run("an actor with nothing live banks nothing and writes nothing", func(t *testing.T) {
+		api, _, d, _ := newAPITestServer(t)
+		before := infraTestMember(t, d, "kip")
+		dashboard := apiTestListen(t, api, "")
+
+		api.bankLiveCost("kip")
+
+		if !reflect.DeepEqual(infraTestMember(t, d, "kip"), before) {
+			t.Fatalf("the row must be untouched:\n got %+v\nwant %+v", infraTestMember(t, d, "kip"), before)
+		}
+		dashboard.wantFrames()
+	})
 }
 
 func TestDropLiveCost(t *testing.T) {
-	t.Skip("TODO: dropLiveCost removes the live telemetry cost from an actor's entry and reports what it removed (nil when there was nothing there).")
+	t.Run("the live figure is removed and reported back, leaving the rest of the entry standing", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		agent := apiTestAgentToken(t, api, "kip", "")
+		if status, data := apiJSON(t, h, "POST", "/api/monitoring/telemetry", agent,
+			`{"cost":2.5,"account":"acct/x","runtime":"claude"}`); status != 200 {
+			t.Fatalf("telemetry: want 200, got %d (%v)", status, data)
+		}
+
+		got := api.dropLiveCost("kip")
+
+		if got == nil || *got != 2.5 {
+			t.Fatalf("want the 2.5 it removed, got %v", got)
+		}
+		if _, present := api.telemetry.Get("kip")["cost"]; present {
+			t.Fatalf("the live figure must be gone, entry = %v", api.telemetry.Get("kip"))
+		}
+		apiWantValue(t, "session", any(apiTestSession(t, h, owner, "kip")), map[string]any{
+			"id":          "kip",
+			"name":        "Kip",
+			"presence":    "offline",
+			"cost":        nil,
+			"banked_cost": nil,
+			"account":     "",
+			"context_pct": nil,
+			"effort":      "",
+			"machine":     "",
+			"model":       "",
+			"role":        "",
+			"runtime":     "claude",
+			"tokens":      nil,
+		})
+	})
+
+	t.Run("an actor whose entry carries no live figure reports nothing removed", func(t *testing.T) {
+		api, h, _, _ := newAPITestServer(t)
+		agent := apiTestAgentToken(t, api, "kip", "")
+		if status, data := apiJSON(t, h, "POST", "/api/monitoring/telemetry", agent,
+			`{"account":"acct/x","runtime":"claude"}`); status != 200 {
+			t.Fatalf("telemetry: want 200, got %d (%v)", status, data)
+		}
+
+		if got := api.dropLiveCost("kip"); got != nil {
+			t.Fatalf("want nil, got %v", *got)
+		}
+		if account := api.telemetry.Get("kip")["account"]; account != "acct/x" {
+			t.Fatalf("the rest of the entry must survive, account = %v", account)
+		}
+	})
+
+	t.Run("an actor with no entry at all reports nothing removed", func(t *testing.T) {
+		api, _, _, _ := newAPITestServer(t)
+
+		if got := api.dropLiveCost("ghost"); got != nil {
+			t.Fatalf("want nil, got %v", *got)
+		}
+		if entry := api.telemetry.Get("ghost"); entry != nil {
+			t.Fatalf("no entry may be created, got %v", entry)
+		}
+	})
+
+	t.Run("dropping twice reports the figure once", func(t *testing.T) {
+		api, h, _, _ := newAPITestServer(t)
+		agent := apiTestAgentToken(t, api, "kip", "")
+		if status, data := apiJSON(t, h, "POST", "/api/monitoring/telemetry", agent, `{"cost":2.5}`); status != 200 {
+			t.Fatalf("telemetry: want 200, got %d (%v)", status, data)
+		}
+
+		first := api.dropLiveCost("kip")
+		second := api.dropLiveCost("kip")
+
+		if first == nil || *first != 2.5 {
+			t.Fatalf("first drop: want 2.5, got %v", first)
+		}
+		if second != nil {
+			t.Fatalf("second drop: want nil, got %v", *second)
+		}
+	})
 }
 
 func TestHandleResetCostApiMembersMemberIdCostResetPost(t *testing.T) {
@@ -525,11 +1378,174 @@ func TestHandleResetCostApiMembersMemberIdCostResetPost(t *testing.T) {
 }
 
 func TestAccrueAccountSpend(t *testing.T) {
-	t.Skip("TODO: accrueAccountSpend credits the NEW spend in one telemetry report to the account it was reported under (T-53, owner ruling rc-5c5d7c7c6dcd 「分開：帳號卡自己一份數字，清它不動成員」).")
+	t.Run("only the increase over the last credited report is added to the account card", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		agent := apiTestAgentToken(t, api, "kip", "")
+
+		for _, report := range []string{
+			`{"cost":2.5,"account":"acct/x","runtime":"claude"}`,
+			`{"cost":4,"account":"acct/x","runtime":"claude"}`,
+		} {
+			if status, data := apiJSON(t, h, "POST", "/api/monitoring/telemetry", agent, report); status != 200 {
+				t.Fatalf("telemetry %s: want 200, got %d (%v)", report, status, data)
+			}
+		}
+
+		apiWantValue(t, "account", any(apiTestAccount(t, h, owner, "acct/x")), map[string]any{
+			"account":      "acct/x",
+			"display_name": "acct/x",
+			"cost":         4.0,
+			"machine":      "",
+			"five_hour":    nil,
+			"seven_day":    nil,
+		})
+	})
+
+	t.Run("a report lower than the last is a session counting from zero, so its whole figure is new spend", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		agent := apiTestAgentToken(t, api, "kip", "")
+
+		for _, report := range []string{
+			`{"cost":4,"account":"acct/x","runtime":"claude"}`,
+			`{"cost":1,"account":"acct/x","runtime":"claude"}`,
+		} {
+			if status, data := apiJSON(t, h, "POST", "/api/monitoring/telemetry", agent, report); status != 200 {
+				t.Fatalf("telemetry %s: want 200, got %d (%v)", report, status, data)
+			}
+		}
+
+		if row := apiTestAccount(t, h, owner, "acct/x"); row["cost"] != 5.0 {
+			t.Fatalf("want 5 on the card, got %v", row["cost"])
+		}
+	})
+
+	t.Run("re-reporting the same cumulative figure credits nothing twice", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		agent := apiTestAgentToken(t, api, "kip", "")
+
+		for i := 0; i < 3; i++ {
+			if status, data := apiJSON(t, h, "POST", "/api/monitoring/telemetry", agent,
+				`{"cost":2.5,"account":"acct/x","runtime":"claude"}`); status != 200 {
+				t.Fatalf("telemetry: want 200, got %d (%v)", status, data)
+			}
+		}
+
+		if row := apiTestAccount(t, h, owner, "acct/x"); row["cost"] != 2.5 {
+			t.Fatalf("want 2.5 on the card, got %v", row["cost"])
+		}
+	})
+
+	t.Run("the credit follows the account the report named, and a reporter that names none makes no card", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		agent := apiTestAgentToken(t, api, "kip", "")
+		nameless := apiTestAgentToken(t, api, "mira", "")
+		if status, data := apiJSON(t, h, "POST", "/api/monitoring/telemetry", agent,
+			`{"cost":2.5,"account":"acct/x","runtime":"claude"}`); status != 200 {
+			t.Fatalf("telemetry: want 200, got %d (%v)", status, data)
+		}
+
+		if status, data := apiJSON(t, h, "POST", "/api/monitoring/telemetry", nameless, `{"cost":9}`); status != 200 {
+			t.Fatalf("telemetry: want 200, got %d (%v)", status, data)
+		}
+
+		if row := apiTestAccount(t, h, owner, "acct/x"); row["cost"] != 2.5 {
+			t.Fatalf("the named account must keep its 2.5, got %v", row["cost"])
+		}
+		if row := apiTestAccount(t, h, owner, ""); row != nil {
+			t.Fatalf("an unnamed account must not become a card, got %v", row)
+		}
+	})
+
+	t.Run("an entry the ingest never gave a numeric cost credits nothing at all", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+
+		api.accrueAccountSpend(map[string]any{"account": "acct/x"})
+		api.accrueAccountSpend(map[string]any{"cost": 2.5})
+
+		if row := apiTestAccount(t, h, owner, "acct/x"); row != nil {
+			t.Fatalf("no card may be created, got %v", row)
+		}
+	})
 }
 
 func TestStartAccountSpendSession(t *testing.T) {
-	t.Skip("TODO: startAccountSpendSession forgets the accrual baseline because a NEW SESSION is starting: the next cost this actor reports is counted from zero, so its whole figure is new spend rather than an increase over the previous session's.")
+	t.Run("the next report after a session start is credited whole rather than as an increase", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		agent := apiTestAgentToken(t, api, "kip", "")
+		if status, data := apiJSON(t, h, "POST", "/api/monitoring/telemetry", agent,
+			`{"cost":2.5,"account":"acct/x","runtime":"claude"}`); status != 200 {
+			t.Fatalf("telemetry: want 200, got %d (%v)", status, data)
+		}
+
+		api.startAccountSpendSession("kip")
+
+		if status, data := apiJSON(t, h, "POST", "/api/monitoring/telemetry", agent,
+			`{"cost":2.5,"account":"acct/x","runtime":"claude"}`); status != 200 {
+			t.Fatalf("telemetry: want 200, got %d (%v)", status, data)
+		}
+		if row := apiTestAccount(t, h, owner, "acct/x"); row["cost"] != 5.0 {
+			t.Fatalf("want 5 on the card, got %v", row["cost"])
+		}
+	})
+
+	t.Run("without the boundary the same repeated figure is credited once", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		agent := apiTestAgentToken(t, api, "kip", "")
+
+		for i := 0; i < 2; i++ {
+			if status, data := apiJSON(t, h, "POST", "/api/monitoring/telemetry", agent,
+				`{"cost":2.5,"account":"acct/x","runtime":"claude"}`); status != 200 {
+				t.Fatalf("telemetry: want 200, got %d (%v)", status, data)
+			}
+		}
+
+		if row := apiTestAccount(t, h, owner, "acct/x"); row["cost"] != 2.5 {
+			t.Fatalf("want 2.5 on the card, got %v", row["cost"])
+		}
+	})
+
+	t.Run("the boundary a waking report announces is the one the member's own route reaches", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		agent := apiTestAgentToken(t, api, "kip", "")
+		if status, data := apiJSON(t, h, "POST", "/api/monitoring/telemetry", agent,
+			`{"cost":2.5,"account":"acct/x","runtime":"claude"}`); status != 200 {
+			t.Fatalf("telemetry: want 200, got %d (%v)", status, data)
+		}
+
+		if status, data := apiJSON(t, h, "POST", "/api/self/waking", agent, ""); status != 200 {
+			t.Fatalf("report waking: want 200, got %d (%v)", status, data)
+		}
+
+		if status, data := apiJSON(t, h, "POST", "/api/monitoring/telemetry", agent,
+			`{"cost":2.5,"account":"acct/x","runtime":"claude"}`); status != 200 {
+			t.Fatalf("telemetry: want 200, got %d (%v)", status, data)
+		}
+		if row := apiTestAccount(t, h, owner, "acct/x"); row["cost"] != 5.0 {
+			t.Fatalf("want 5 on the card, got %v", row["cost"])
+		}
+	})
+
+	t.Run("an actor with no baseline to forget keeps its entry and its live figure exactly as they were", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		agent := apiTestAgentToken(t, api, "kip", "")
+		if status, data := apiJSON(t, h, "POST", "/api/monitoring/telemetry", agent, `{"cost":2.5}`); status != 200 {
+			t.Fatalf("telemetry: want 200, got %d (%v)", status, data)
+		}
+		before := api.telemetry.Get("kip")
+
+		api.startAccountSpendSession("kip")
+		api.startAccountSpendSession("ghost")
+
+		if !reflect.DeepEqual(api.telemetry.Get("kip"), before) {
+			t.Fatalf("the entry must be untouched:\n got %v\nwant %v", api.telemetry.Get("kip"), before)
+		}
+		if entry := api.telemetry.Get("ghost"); entry != nil {
+			t.Fatalf("no entry may be created, got %v", entry)
+		}
+		if row := apiTestSession(t, h, owner, "kip"); row["cost"] != 2.5 {
+			t.Fatalf("the live figure must survive, got %v", row["cost"])
+		}
+	})
 }
 
 func TestHandleResetAccountCostApiAccountsCostResetPost(t *testing.T) {
@@ -715,23 +1731,208 @@ func TestHandleResetAccountCostApiAccountsCostResetPost(t *testing.T) {
 }
 
 func TestNonZeroCost(t *testing.T) {
-	t.Skip("TODO: nonZeroCost mirrors foldActorRuntime's rule for the banked figure: 0 is not put on the wire.")
+	t.Run("zero is not put on the wire at all", func(t *testing.T) {
+		if got := nonZeroCost(0); got != nil {
+			t.Fatalf("want nil, got %v", *got)
+		}
+	})
+
+	t.Run("any other figure comes back as the value itself", func(t *testing.T) {
+		for _, want := range []float64{2.5, 0.0001, -3} {
+			got := nonZeroCost(want)
+			if got == nil {
+				t.Fatalf("nonZeroCost(%v): want the figure, got nil", want)
+			}
+			if *got != want {
+				t.Fatalf("nonZeroCost(%v) = %v", want, *got)
+			}
+		}
+	})
 }
 
 func TestPublishMonitoringSignal(t *testing.T) {
-	t.Skip("TODO: publishMonitoringSignal fans the same owner-only cockpit invalidation the telemetry ingest fans, so a reset converges the 估計$ cell without waiting for the next sample.")
+	t.Run("the invalidation is fanned to the owner cockpit alone, naming the actor and the trigger", func(t *testing.T) {
+		api, _, _, _ := newAPITestServer(t)
+		dashboard := apiTestListen(t, api, "")
+		subject := apiTestListen(t, api, "kip")
+		bystander := apiTestListen(t, api, "mira")
+
+		api.publishMonitoringSignal("kip", "owner")
+
+		dashboard.wantFrames(map[string]any{
+			"seq":   1,
+			"topic": "monitoring",
+			"op":    "signal",
+			"data": map[string]any{
+				"entity":  "monitoring",
+				"key":     "kip",
+				"epoch":   1,
+				"deleted": false,
+				"payload": nil,
+			},
+			"ts":      apiAnyNumber,
+			"trigger": "owner",
+		})
+		subject.wantFrames()
+		bystander.wantFrames()
+	})
+
+	t.Run("an account tag is fanned under the same signal, and two calls are two frames", func(t *testing.T) {
+		api, _, _, _ := newAPITestServer(t)
+		dashboard := apiTestListen(t, api, "")
+
+		api.publishMonitoringSignal("acct/x", triggerServer)
+		api.publishMonitoringSignal("acct/x", "kip")
+
+		dashboard.wantFrames(map[string]any{
+			"seq":   1,
+			"topic": "monitoring",
+			"op":    "signal",
+			"data": map[string]any{
+				"entity":  "monitoring",
+				"key":     "acct/x",
+				"epoch":   1,
+				"deleted": false,
+				"payload": nil,
+			},
+			"ts":      apiAnyNumber,
+			"trigger": "server",
+		}, map[string]any{
+			"seq":   2,
+			"topic": "monitoring",
+			"op":    "signal",
+			"data": map[string]any{
+				"entity":  "monitoring",
+				"key":     "acct/x",
+				"epoch":   2,
+				"deleted": false,
+				"payload": nil,
+			},
+			"ts":      apiAnyNumber,
+			"trigger": "kip",
+		})
+	})
 }
 
 func TestRpcError(t *testing.T) {
-	t.Skip("TODO: 需要人工判斷這個函式的可觀察結果是什麼")
+	t.Run("the error envelope is written as a 200 JSON body carrying the id, the code and the message", func(t *testing.T) {
+		w := httptest.NewRecorder()
+
+		rpcError(w, 7, rpcInvalidRequest, "invalid request: method must be a string")
+
+		if w.Code != 200 {
+			t.Fatalf("want 200, got %d", w.Code)
+		}
+		if got := w.Header().Get("Content-Type"); got != "application/json" {
+			t.Fatalf("want application/json, got %q", got)
+		}
+		if got := w.Body.String(); got != `{"error":{"code":-32600,"message":"invalid request: method must be a string"},"id":7,"jsonrpc":"2.0"}` {
+			t.Fatalf("body = %s", got)
+		}
+	})
+
+	t.Run("an id the caller never sent is written as null rather than dropped", func(t *testing.T) {
+		w := httptest.NewRecorder()
+
+		rpcError(w, nil, rpcParseError, "parse error: body is not valid JSON")
+
+		if got := w.Body.String(); got != `{"error":{"code":-32700,"message":"parse error: body is not valid JSON"},"id":null,"jsonrpc":"2.0"}` {
+			t.Fatalf("body = %s", got)
+		}
+	})
 }
 
 func TestRpcResult(t *testing.T) {
-	t.Skip("TODO: 需要人工判斷這個函式的可觀察結果是什麼")
+	t.Run("the result envelope is written as a 200 JSON body carrying the id and the result", func(t *testing.T) {
+		w := httptest.NewRecorder()
+
+		rpcResult(w, "a", map[string]any{"protocolVersion": mcpProtocolVersion})
+
+		if w.Code != 200 {
+			t.Fatalf("want 200, got %d", w.Code)
+		}
+		if got := w.Header().Get("Content-Type"); got != "application/json" {
+			t.Fatalf("want application/json, got %q", got)
+		}
+		if got := w.Body.String(); got != `{"id":"a","jsonrpc":"2.0","result":{"protocolVersion":"2025-06-18"}}` {
+			t.Fatalf("body = %s", got)
+		}
+	})
+
+	t.Run("an empty result is written as an empty object, not as null", func(t *testing.T) {
+		w := httptest.NewRecorder()
+
+		rpcResult(w, 2, map[string]any{})
+
+		if got := w.Body.String(); got != `{"id":2,"jsonrpc":"2.0","result":{}}` {
+			t.Fatalf("body = %s", got)
+		}
+	})
 }
 
 func TestMcpCatalogTools(t *testing.T) {
-	t.Skip("TODO: mcpCatalogTools loads the FROZEN tool catalog (spec/mcp-catalog.json — the committed wire SSOT the Python tools/list serves byte-equal descriptors of).")
+	t.Run("the frozen catalog is served whole, every descriptor carrying exactly a name, a description and an input schema", func(t *testing.T) {
+		api, _, _, _ := newAPITestServer(t)
+
+		tools, err := api.mcpCatalogTools()
+
+		if err != nil {
+			t.Fatalf("mcpCatalogTools: %v", err)
+		}
+		if len(tools) != 127 {
+			t.Fatalf("want the frozen catalog's 127 descriptors, got %d", len(tools))
+		}
+		names := []string{}
+		seen := map[string]bool{}
+		for i, raw := range tools {
+			tool, ok := raw.(map[string]any)
+			if !ok {
+				t.Fatalf("descriptor %d is not an object: %#v", i, raw)
+			}
+			apiWantValue(t, fmt.Sprintf("tool[%d]", i), any(tool), map[string]any{
+				"name":        apiAnyString,
+				"description": apiAnyString,
+				"inputSchema": tool["inputSchema"],
+			})
+			schema, ok := tool["inputSchema"].(map[string]any)
+			if !ok || schema["type"] != "object" {
+				t.Fatalf("descriptor %d has no object input schema: %#v", i, tool["inputSchema"])
+			}
+			name, _ := tool["name"].(string)
+			if seen[name] {
+				t.Fatalf("%q is listed twice", name)
+			}
+			seen[name] = true
+			names = append(names, name)
+		}
+		if names[0] != "get_version" || names[len(names)-1] != "replace_task_artifact" {
+			t.Fatalf("the catalog order moved: first %q, last %q", names[0], names[len(names)-1])
+		}
+		apiWantValue(t, "get_version", tools[0], map[string]any{
+			"name": "get_version",
+			"description": "Read the build identity this station is RUNNING: version, git sha, git time and the MCP catalog hash, " +
+				"plus the cached update status and `update_checked_ok_at`, the time that update check last SUCCEEDED " +
+				"(absent = it never has, so `update_available: false` is not evidence of being up to date). " +
+				"Settle whether something is deployed by git sha ancestry, never by the version string.",
+			"inputSchema": map[string]any{"type": "object", "properties": map[string]any{}},
+		})
+	})
+
+	t.Run("the descriptors are the same list tools/list serves", func(t *testing.T) {
+		api, h, owner := apiTestMCPServer(t)
+
+		tools, err := api.mcpCatalogTools()
+		if err != nil {
+			t.Fatalf("mcpCatalogTools: %v", err)
+		}
+		status, data := apiMCP(t, h, owner, `{"jsonrpc":"2.0","id":1,"method":"tools/list"}`)
+
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		result, _ := data["result"].(map[string]any)
+		apiWantValue(t, "tools/list", result["tools"], tools)
+	})
 }
 
 func TestHandleMcpApiMcpPost(t *testing.T) {
@@ -1145,7 +2346,196 @@ func TestHandleMcpApiMcpPost(t *testing.T) {
 }
 
 func TestHandoverNoticeTick(t *testing.T) {
-	t.Skip("TODO: handoverNoticeTick is ONE quiet tick of the context-high band: it reports the frame to write, or ok=false to stay quiet.")
+	t.Run("a session below its notice point stays quiet and never runs the notice source", func(t *testing.T) {
+		api, h, _, _ := newAPITestServer(t)
+		agent := apiTestAgentToken(t, api, "kip", "")
+		api.onFirstConnect("kip")
+		if status, data := apiJSON(t, h, "POST", "/api/agent/context", agent, `{"context_pct":10}`); status != 200 {
+			t.Fatalf("context ingest: want 200, got %d (%v)", status, data)
+		}
+		calls := 0
+
+		frame, ok := api.handoverNoticeTick("kip", "claude", func() string {
+			calls++
+			return "close out and hand over"
+		})
+
+		if ok || frame != nil {
+			t.Fatalf("want a quiet tick, got %q", frame)
+		}
+		if calls != 0 {
+			t.Fatalf("the notice source ran %d times", calls)
+		}
+	})
+
+	t.Run("past the notice point the tick reports the directed context-high frame once, and every later tick is quiet without composing anything", func(t *testing.T) {
+		api, h, d, _ := newAPITestServer(t)
+		agent := apiTestAgentToken(t, api, "kip", "")
+		api.onFirstConnect("kip")
+		if status, data := apiJSON(t, h, "POST", "/api/agent/context", agent, `{"context_pct":45}`); status != 200 {
+			t.Fatalf("context ingest: want 200, got %d (%v)", status, data)
+		}
+		calls := 0
+		notice := func() string {
+			calls++
+			return "close out and hand over"
+		}
+
+		frame, ok := api.handoverNoticeTick("kip", "claude", notice)
+
+		if !ok {
+			t.Fatalf("want a frame, got quiet")
+		}
+		if got := string(frame); got != `data: {"topic":"context-high","data":{"topic":"context-high","to":"kip",`+
+			`"level":"warn","pct":45.0,"reason":"close out and hand over"}}`+"\n\n" {
+			t.Fatalf("frame = %q", got)
+		}
+		anchor := infraTestMember(t, d, "kip").SessionBootTS
+		if got := infraTestMember(t, d, "kip").HandoverNoticedTS; got != anchor {
+			t.Fatalf("the claim must name this session's anchor %v, got %v", anchor, got)
+		}
+		if calls != 1 {
+			t.Fatalf("the notice source ran %d times, want 1", calls)
+		}
+
+		again, ok := api.handoverNoticeTick("kip", "claude", notice)
+
+		if ok || again != nil {
+			t.Fatalf("the session's one notice is spent, got %q", again)
+		}
+		if calls != 1 {
+			t.Fatalf("the notice source ran %d times after the claim, want 1", calls)
+		}
+	})
+
+	t.Run("a new session after a real boundary is entitled to its own notice", func(t *testing.T) {
+		api, h, _, _ := newAPITestServer(t)
+		agent := apiTestAgentToken(t, api, "kip", "")
+		api.onFirstConnect("kip")
+		if status, data := apiJSON(t, h, "POST", "/api/agent/context", agent, `{"context_pct":45}`); status != 200 {
+			t.Fatalf("context ingest: want 200, got %d (%v)", status, data)
+		}
+		notice := func() string { return "close out and hand over" }
+		if _, ok := api.handoverNoticeTick("kip", "claude", notice); !ok {
+			t.Fatalf("premise: the first session must be told")
+		}
+
+		api.clearSessionBootTS("kip")
+		api.onFirstConnect("kip")
+		if status, data := apiJSON(t, h, "POST", "/api/agent/context", agent, `{"context_pct":45}`); status != 200 {
+			t.Fatalf("context ingest: want 200, got %d (%v)", status, data)
+		}
+
+		if _, ok := api.handoverNoticeTick("kip", "claude", notice); !ok {
+			t.Fatalf("a fresh session must be told too")
+		}
+	})
+
+	t.Run("a member already winding down is told nothing, and its notice is not spent on the silence", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		agent := apiTestAgentToken(t, api, "kip", "")
+		if status, data := apiJSON(t, h, "POST", "/api/members/kip/force-stop", owner, ""); status != 200 {
+			t.Fatalf("force-stop: want 200, got %d (%v)", status, data)
+		}
+		api.onFirstConnect("kip")
+		if status, data := apiJSON(t, h, "POST", "/api/agent/context", agent, `{"context_pct":45}`); status != 200 {
+			t.Fatalf("context ingest: want 200, got %d (%v)", status, data)
+		}
+		calls := 0
+		notice := func() string {
+			calls++
+			return "close out and hand over"
+		}
+
+		frame, ok := api.handoverNoticeTick("kip", "claude", notice)
+
+		if ok || frame != nil {
+			t.Fatalf("want silence, got %q", frame)
+		}
+		if calls != 0 {
+			t.Fatalf("the notice source ran %d times", calls)
+		}
+
+		if status, data := apiJSON(t, h, "POST", "/api/members/kip/activate", owner, ""); status != 200 {
+			t.Fatalf("activate: want 200, got %d (%v)", status, data)
+		}
+		api.onFirstConnect("kip")
+		if status, data := apiJSON(t, h, "POST", "/api/agent/context", agent, `{"context_pct":45}`); status != 200 {
+			t.Fatalf("context ingest: want 200, got %d (%v)", status, data)
+		}
+
+		if _, ok := api.handoverNoticeTick("kip", "claude", notice); !ok {
+			t.Fatalf("a cleared wind-down must leave the notice unspent")
+		}
+	})
+
+	t.Run("a session with no anchor at all is quiet, because a notice off an unrecognisable anchor could never be claimed", func(t *testing.T) {
+		api, h, _, _ := newAPITestServer(t)
+		agent := apiTestAgentToken(t, api, "kip", "")
+		if status, data := apiJSON(t, h, "POST", "/api/agent/context", agent, `{"context_pct":45}`); status != 200 {
+			t.Fatalf("context ingest: want 200, got %d (%v)", status, data)
+		}
+		calls := 0
+
+		frame, ok := api.handoverNoticeTick("kip", "claude", func() string {
+			calls++
+			return "close out and hand over"
+		})
+
+		if ok || frame != nil {
+			t.Fatalf("want silence, got %q", frame)
+		}
+		if calls != 0 {
+			t.Fatalf("the notice source ran %d times", calls)
+		}
+	})
+
+	t.Run("a notice source with nothing to say leaves the session's one notice unspent", func(t *testing.T) {
+		api, h, _, _ := newAPITestServer(t)
+		agent := apiTestAgentToken(t, api, "kip", "")
+		api.onFirstConnect("kip")
+		if status, data := apiJSON(t, h, "POST", "/api/agent/context", agent, `{"context_pct":45}`); status != 200 {
+			t.Fatalf("context ingest: want 200, got %d (%v)", status, data)
+		}
+
+		frame, ok := api.handoverNoticeTick("kip", "claude", func() string { return "" })
+
+		if ok || frame != nil {
+			t.Fatalf("want silence, got %q", frame)
+		}
+		if _, ok := api.handoverNoticeTick("kip", "claude", func() string { return "close out and hand over" }); !ok {
+			t.Fatalf("the notice must still be available")
+		}
+	})
+}
+
+// infraTestMember reads one roster row back, for the durable half of an edge
+// whose other half is in memory.
+func infraTestMember(t *testing.T, d *DAL, id string) Member {
+	t.Helper()
+	m, err := d.GetMember(id)
+	if err != nil {
+		t.Fatalf("GetMember(%q): %v", id, err)
+	}
+	if m == nil {
+		t.Fatalf("GetMember(%q): no row", id)
+	}
+	return *m
+}
+
+// infraWantGaugeKeys asserts an actor's in-memory gauge entry carries exactly
+// these keys — the surface a session boundary adds to and takes from.
+func infraWantGaugeKeys(t *testing.T, api *apiServer, id string, want ...string) {
+	t.Helper()
+	got := []string{}
+	for key := range api.gauge.Get(id) {
+		got = append(got, key)
+	}
+	sort.Strings(got)
+	sort.Strings(want)
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("gauge %q keys: want %v, got %v", id, want, got)
+	}
 }
 
 // apiEventStream is one live GET /api/events connection driven through the

@@ -1,9 +1,14 @@
-// Skeleton generated from server/ocserverd/api_bootdocs.go by gen_test_skeletons.py.
-// Every case is a t.Skip placeholder: fill the body, keep or rewrite the name.
-
 package main
 
-import "testing"
+import (
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"reflect"
+	"strings"
+	"testing"
+	"unicode/utf8"
+)
 
 // apiTestTaskCloseoutSeed is the task close-out document exactly as this build
 // ships it: the read-only head the server fills in, the marker line, and the
@@ -17,96 +22,1372 @@ const (
 	apiTestTaskCloseoutBody = "先用 `get_task` 讀這張票（票號就是 id，直接餵給它），看它屬於哪一本任務手冊（欄位 `type_key`）。\n\n若這一趟有值得留下的經驗（踩坑、更好做法），先用 get_task_manual 讀現況，再用 patch_task_learnings（type_key 用上一步讀到的值）只把改動的那一段送回**那本**任務手冊：改既有段落就用它的唯一錨點，第一次寫或要新增就用空錨點追加。不要用 write_task_learnings 做整份取代 —— 讀取後到寫入之間別人新增的內容會被無聲蓋掉；用 `ocagent clean <path>` 移除這個任務的暫存檔/資料夾、收掉臨時 branch/worktree 與跑著的臨時程序；票已經結束的話，最後用 report_task_closeout 回報後續已處理完。⚠️ 你若是**被換手、而這張票還在跑**，這一支會回 409 —— 那一步就跳過，票沒結束就沒有結案可報，這一段的寫回與清理照做。\n"
 )
 
+const apiTestBootDocMarker = "<!-- ↑唯讀區（程式產生，改不動）｜↓本體（可編輯，零變數） -->"
+
+// apiTestTakeoverFreshSeed is the 〈新任務〉 document exactly as this build ships
+// it — the smallest split document, so its whole text can be written down beside
+// the folds that produce it.
+const (
+	apiTestTakeoverFreshSeed = "[{task_no}] 你接手了這張任務。\n\n<!-- ↑唯讀區（程式產生，改不動）｜↓本體（可編輯，零變數） -->\n\n請先讀任務內容，準備好後由你自己呼叫 claim_task（認領）解除轉派鎖再開始執行；任務狀態一律照步驟推導，不必也不能自己報。\n"
+	apiTestTakeoverFreshHead = "[{task_no}] 你接手了這張任務。"
+	apiTestTakeoverFreshBody = "請先讀任務內容，準備好後由你自己呼叫 claim_task（認領）解除轉派鎖再開始執行；任務狀態一律照步驟推導，不必也不能自己報。\n"
+)
+
+// apiTestUnblockedHead / apiTestUnblockedBody are the two halves of 〈解除阻擋〉,
+// the one document of the ten whose body is a bullet list and whose join is
+// therefore a blank line.
+const (
+	apiTestUnblockedHead = "[{blocked_task_no}] 擋著這張任務的前置任務已經結束，它不再擋著你。"
+	apiTestUnblockedBody = "- **還沒開始**：請 get_task 讀內容、submit_plan 規劃步驟後開始執行。\n- **已經在進行中**：接著推進，不必重新規劃。\n- **優先權是凍結**：先問清楚為什麼被凍結，等能解凍的人解開再動。\n"
+)
+
+// apiTestAcceleratedHeadAt is the 〈加速停止〉 head as it renders for the instant
+// 1767225600, the epoch second the wind-down tests hand it.
+const apiTestAcceleratedHeadAt = "你的結束時刻是 2026-01-01T00:00:00Z。"
+
+// apiTestCloseoutHeadFilled is 〈任務結案〉's head with both of its names filled.
+const apiTestCloseoutHeadFilled = "任務 T-1 已結束，關閉的人是 owner。"
+
+// apiTestBootDocRow is one expected row of bootDocRegistry, written out rather
+// than read off the registry: the two lists are compared, so a kind added,
+// dropped or re-declared shows up here as a failure.
+type apiTestBootDocRow struct {
+	kind     string
+	keys     []string
+	seeds    []string
+	docNames []string
+	capChars int
+	vars     []string
+	split    bool
+	join     string
+	readOnly bool
+}
+
+var apiTestBootDocRows = []apiTestBootDocRow{
+	{
+		kind: "system_interaction", keys: []string{"global"},
+		seeds: []string{"system_interaction.md"}, docNames: []string{"system interaction block"},
+		capChars: 60000, vars: nil, split: false, join: "", readOnly: false,
+	}, {
+		kind: "boot_sequence", keys: []string{"claude", "codex"},
+		seeds:    []string{"boot_sequence.md", "boot_sequence_codex.md"},
+		docNames: []string{"boot steps (claude)", "boot steps (codex)"},
+		capChars: 15000, vars: nil, split: false, join: "", readOnly: false,
+	}, {
+		kind: "offboard", keys: []string{"global"},
+		seeds: []string{"offboard.md"}, docNames: []string{"Stop document"},
+		capChars: 15000, vars: []string{}, split: false, join: "", readOnly: false,
+	}, {
+		kind: "accelerated_stop", keys: []string{"global"},
+		seeds: []string{"accelerated_stop.md"}, docNames: []string{"accelerated stop sequence"},
+		capChars: 15000, vars: []string{"deadline"}, split: true, join: "\n", readOnly: false,
+	}, {
+		kind: "task_closeout", keys: []string{"global"},
+		seeds: []string{"task_closeout.md"}, docNames: []string{"task close-out procedure"},
+		capChars: 15000, vars: []string{"task_no", "closed_by"}, split: true, join: "\n", readOnly: false,
+	}, {
+		kind: "task_reassign_predecessor", keys: []string{"global"},
+		seeds:    []string{"task_reassign_predecessor.md"},
+		docNames: []string{"task reassignment document (to the predecessor)"},
+		capChars: 15000, vars: []string{"task_no"}, split: true, join: "", readOnly: false,
+	}, {
+		kind: "task_takeover_with_predecessor", keys: []string{"global"},
+		seeds:    []string{"task_takeover_with_predecessor.md"},
+		docNames: []string{"task reassignment document (to the successor)"},
+		capChars: 15000, vars: []string{"task_no", "predecessor"}, split: true, join: "", readOnly: false,
+	}, {
+		kind: "task_takeover_fresh", keys: []string{"global"},
+		seeds: []string{"task_takeover_fresh.md"}, docNames: []string{"new task document"},
+		capChars: 15000, vars: []string{"task_no"}, split: true, join: "", readOnly: false,
+	}, {
+		kind: "task_unblocked", keys: []string{"global"},
+		seeds: []string{"task_unblocked.md"}, docNames: []string{"dependency-released notice"},
+		capChars: 15000, vars: []string{"blocked_task_no"}, split: true, join: "\n\n", readOnly: false,
+	},
+}
+
 func TestBootDocRegFor(t *testing.T) {
-	t.Skip("TODO: bootDocRegFor finds the row for a kind.")
+	t.Run("every kind this build ships answers its own row, and the registry holds those nine and nothing else", func(t *testing.T) {
+		api, _, _, _ := newAPITestServer(t)
+
+		if len(bootDocRegistry) != len(apiTestBootDocRows) {
+			t.Fatalf("bootDocRegistry holds %d kinds, want %d", len(bootDocRegistry), len(apiTestBootDocRows))
+		}
+		for i, want := range apiTestBootDocRows {
+			if bootDocRegistry[i].Kind != want.kind {
+				t.Fatalf("bootDocRegistry[%d].Kind = %q, want %q", i, bootDocRegistry[i].Kind, want.kind)
+			}
+			reg, ok := bootDocRegFor(want.kind)
+			if !ok {
+				t.Fatalf("bootDocRegFor(%q): not found", want.kind)
+			}
+			if !reflect.DeepEqual(reg.Keys, want.keys) {
+				t.Fatalf("%s Keys = %#v, want %#v", want.kind, reg.Keys, want.keys)
+			}
+			if !reflect.DeepEqual(reg.Vars, want.vars) {
+				t.Fatalf("%s Vars = %#v, want %#v", want.kind, reg.Vars, want.vars)
+			}
+			if reg.Split != want.split || reg.Join != want.join || reg.ReadOnly != want.readOnly {
+				t.Fatalf("%s Split/Join/ReadOnly = %v/%q/%v, want %v/%q/%v",
+					want.kind, reg.Split, reg.Join, reg.ReadOnly, want.split, want.join, want.readOnly)
+			}
+			if got := reg.Cap(api); got != want.capChars {
+				t.Fatalf("%s Cap = %d, want %d", want.kind, got, want.capChars)
+			}
+			for j, key := range want.keys {
+				if got := reg.SeedFor(key); got != want.seeds[j] {
+					t.Fatalf("%s SeedFor(%q) = %q, want %q", want.kind, key, got, want.seeds[j])
+				}
+				if got := reg.DocName(key); got != want.docNames[j] {
+					t.Fatalf("%s DocName(%q) = %q, want %q", want.kind, key, got, want.docNames[j])
+				}
+			}
+		}
+	})
+
+	t.Run("a kind nobody registered answers the zero row and not-found, so no seed or cap can be read off it", func(t *testing.T) {
+		for _, kind := range []string{"bogus", "", "System_Interaction", "task_description"} {
+			reg, ok := bootDocRegFor(kind)
+			if ok {
+				t.Fatalf("bootDocRegFor(%q) reported found", kind)
+			}
+			if !reflect.DeepEqual(reg, bootDocReg{}) {
+				t.Fatalf("bootDocRegFor(%q) = %#v, want the zero row", kind, reg)
+			}
+		}
+	})
 }
 
 func TestServes(t *testing.T) {
-	t.Skip("TODO: 需要人工判斷這個函式的可觀察結果是什麼")
+	t.Run("a kind serves exactly the keys it declares, and nothing that merely resembles one", func(t *testing.T) {
+		bootSequence, _ := bootDocRegFor("boot_sequence")
+		closeout, _ := bootDocRegFor("task_closeout")
+		for name, c := range map[string]struct {
+			reg  bootDocReg
+			key  string
+			want bool
+		}{
+			"the claude boot sequence":                 {bootSequence, "claude", true},
+			"the codex boot sequence":                  {bootSequence, "codex", true},
+			"a boot sequence addressed as a singleton": {bootSequence, "global", false},
+			"a boot sequence with a capitalised key":   {bootSequence, "Codex", false},
+			"a boot sequence with no key at all":       {bootSequence, "", false},
+			"the task close-out singleton":             {closeout, "global", true},
+			"the task close-out under a runtime key":   {closeout, "claude", false},
+			"the zero row, which serves nothing":       {bootDocReg{}, "global", false},
+		} {
+			if got := c.reg.serves(c.key); got != c.want {
+				t.Fatalf("%s: serves(%q) = %v, want %v", name, c.key, got, c.want)
+			}
+		}
+	})
 }
 
 func TestMustBootDocSpec(t *testing.T) {
-	t.Skip("TODO: mustBootDocSpec resolves a pair this binary is built with.")
+	t.Run("a pair this binary is built with resolves to the whole spec that pair declares", func(t *testing.T) {
+		api, _, _, _ := newAPITestServer(t)
+
+		got := api.mustBootDocSpec("task_closeout", "global")
+
+		want := bootDocSpec{
+			Kind: "task_closeout", Key: "global", SeedFile: "task_closeout.md", Cap: 15000,
+			DocName: "task close-out procedure", Vars: []string{"task_no", "closed_by"},
+			Split: true, Join: "\n", ReadOnly: false,
+		}
+		if !reflect.DeepEqual(got, want) {
+			t.Fatalf("spec = %#v, want %#v", got, want)
+		}
+	})
+
+	t.Run("a pair no row addresses panics naming the pair rather than degrading to an empty spec", func(t *testing.T) {
+		api, _, _, _ := newAPITestServer(t)
+
+		for name, c := range map[string]struct{ kind, key, want string }{
+			"an unregistered kind":      {"bogus", "global", "boot document bogus/global is not in bootDocRegistry"},
+			"a key the kind refuses":    {"task_closeout", "claude", "boot document task_closeout/claude is not in bootDocRegistry"},
+			"a boot sequence with none": {"boot_sequence", "", "boot document boot_sequence/ is not in bootDocRegistry"},
+		} {
+			func() {
+				defer func() {
+					got, _ := recover().(string)
+					if got != c.want {
+						t.Fatalf("%s: recovered %#v, want %q", name, got, c.want)
+					}
+				}()
+				api.mustBootDocSpec(c.kind, c.key)
+				t.Fatalf("%s: mustBootDocSpec returned instead of panicking", name)
+			}()
+		}
+	})
 }
 
 func TestBootDocSpecFor(t *testing.T) {
-	t.Skip("TODO: bootDocSpecFor resolves ANY (kind, key) pair naming an editable boot-context block — the form the document-history faces address documents in.")
+	t.Run("every (kind, key) pair the registry serves resolves to the seed, cap, name and split rules that pair declares", func(t *testing.T) {
+		api, _, _, _ := newAPITestServer(t)
+
+		for _, row := range apiTestBootDocRows {
+			for i, key := range row.keys {
+				got, ok := api.bootDocSpecFor(row.kind, key)
+				if !ok {
+					t.Fatalf("bootDocSpecFor(%q, %q): not found", row.kind, key)
+				}
+				want := bootDocSpec{
+					Kind: row.kind, Key: key, SeedFile: row.seeds[i], Cap: row.capChars,
+					DocName: row.docNames[i], Vars: row.vars,
+					Split: row.split, Join: row.join, ReadOnly: row.readOnly,
+				}
+				if !reflect.DeepEqual(got, want) {
+					t.Fatalf("bootDocSpecFor(%q, %q) = %#v, want %#v", row.kind, key, got, want)
+				}
+			}
+		}
+	})
+
+	t.Run("a kind that declares no variables at all is told apart from one that declares an empty set", func(t *testing.T) {
+		api, _, _, _ := newAPITestServer(t)
+
+		unvalidated, _ := api.bootDocSpecFor("system_interaction", "global")
+		validated, _ := api.bootDocSpecFor("offboard", "global")
+
+		if unvalidated.Vars != nil {
+			t.Fatalf("system_interaction Vars = %#v, want nil", unvalidated.Vars)
+		}
+		if validated.Vars == nil || len(validated.Vars) != 0 {
+			t.Fatalf("offboard Vars = %#v, want an empty non-nil slice", validated.Vars)
+		}
+	})
+
+	t.Run("a pair naming no document answers the zero spec and not-found", func(t *testing.T) {
+		api, _, _, _ := newAPITestServer(t)
+
+		for name, c := range map[string]struct{ kind, key string }{
+			"an unregistered kind":                               {"bogus", "global"},
+			"a registered kind under a wrong key":                {"task_closeout", "bogus"},
+			"a boot sequence under a wrong case":                 {"boot_sequence", "Codex"},
+			"a document-history kind from elsewhere in the tree": {"task_manual", "global"},
+			"no kind and no key at all":                          {"", ""},
+		} {
+			got, ok := api.bootDocSpecFor(c.kind, c.key)
+			if ok {
+				t.Fatalf("%s: bootDocSpecFor(%q, %q) reported found", name, c.kind, c.key)
+			}
+			if !reflect.DeepEqual(got, bootDocSpec{}) {
+				t.Fatalf("%s: spec = %#v, want the zero spec", name, got)
+			}
+		}
+	})
 }
 
 func TestBootDocHistoryKeyKnown(t *testing.T) {
-	t.Skip("TODO: bootDocHistoryKeyKnown is bootDocSpecFor's server-free half: does this (kind, key) name one of these documents at all?")
+	t.Run("it answers true for exactly the pairs bootDocSpecFor resolves, without a server to ask", func(t *testing.T) {
+		api, _, _, _ := newAPITestServer(t)
+
+		for _, row := range apiTestBootDocRows {
+			for _, key := range row.keys {
+				if !bootDocHistoryKeyKnown(row.kind, key) {
+					t.Fatalf("bootDocHistoryKeyKnown(%q, %q) = false", row.kind, key)
+				}
+			}
+		}
+		for name, c := range map[string]struct{ kind, key string }{
+			"an unregistered kind":                {"bogus", "global"},
+			"a registered kind under a wrong key": {"task_closeout", "bogus"},
+			"a boot sequence under a wrong case":  {"boot_sequence", "Codex"},
+			"no kind and no key at all":           {"", ""},
+		} {
+			if bootDocHistoryKeyKnown(c.kind, c.key) {
+				t.Fatalf("%s: bootDocHistoryKeyKnown(%q, %q) = true", name, c.kind, c.key)
+			}
+			if _, ok := api.bootDocSpecFor(c.kind, c.key); ok {
+				t.Fatalf("%s: bootDocSpecFor disagrees and resolves the pair", name)
+			}
+		}
+	})
 }
 
 func TestUnknownBootDocKeyMsg(t *testing.T) {
-	t.Skip("TODO: unknownBootDocKeyMsg names the keys that DO exist for this kind, for the same reason writeUnknownBootSequence does: a caller holding a typo needs to be able to tell it from a document that is simply empty.")
+	t.Run("a kind nobody registered is told so, and a bad key is told the keys that kind does serve", func(t *testing.T) {
+		for name, c := range map[string]struct{ kind, key, want string }{
+			"an unregistered kind": {"bogus", "global",
+				"document history kind 'bogus' names no editable document on this server"},
+			"an empty kind": {"", "global",
+				"document history kind '' names no editable document on this server"},
+			"a typo against the two-key kind": {"boot_sequence", "opus",
+				"document history key 'opus' does not name a boot_sequence document — the key is 'claude' or 'codex'"},
+			"a typo against a singleton kind": {"task_closeout", "zz",
+				"document history key 'zz' does not name a task_closeout document — the key is 'global'"},
+			"an empty key against a singleton kind": {"accelerated_stop", "",
+				"document history key '' does not name a accelerated_stop document — the key is 'global'"},
+		} {
+			if got := unknownBootDocKeyMsg(c.kind, c.key); got != c.want {
+				t.Fatalf("%s: got %q, want %q", name, got, c.want)
+			}
+		}
+	})
 }
 
 func TestFoldBootDocDTO(t *testing.T) {
-	t.Skip("TODO: 🔴 DocName IS USER-FACING PROSE, NOT AN IDENTIFIER (T-6f44).")
+	t.Run("a split document nobody has edited folds the shipped seed into the whole text, its read-only head and the half a write takes", func(t *testing.T) {
+		api, _, _, _ := newAPITestServer(t)
+
+		dto, err := api.foldBootDocDTO(api.mustBootDocSpec("task_takeover_fresh", "global"))
+		if err != nil {
+			t.Fatalf("foldBootDocDTO: %v", err)
+		}
+		apiWantValue(t, "dto", apiTestJSONOf(t, dto), map[string]any{
+			"size_chars":     127,
+			"cap_chars":      15000,
+			"kind":           "task_takeover_fresh",
+			"key":            "global",
+			"text":           apiTestTakeoverFreshSeed,
+			"read_only_head": apiTestTakeoverFreshHead,
+			"body":           apiTestTakeoverFreshBody,
+			"owner_id":       "owner",
+			"schema_version": 3,
+			"is_default":     true,
+			"has_seed":       true,
+			"read_only":      false,
+		})
+	})
+
+	t.Run("an overlay replaces the body under the shipped head and stops the document reading as the default", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		apiJSON(t, h, "POST", "/api/boot-docs/task_takeover_fresh/global", owner, `{"body":"F1"}`)
+
+		dto, err := api.foldBootDocDTO(api.mustBootDocSpec("task_takeover_fresh", "global"))
+		if err != nil {
+			t.Fatalf("foldBootDocDTO: %v", err)
+		}
+		apiWantValue(t, "dto", apiTestJSONOf(t, dto), map[string]any{
+			"size_chars":     63,
+			"cap_chars":      15000,
+			"kind":           "task_takeover_fresh",
+			"key":            "global",
+			"text":           apiTestTakeoverFreshHead + "\n\n" + apiTestBootDocMarker + "\n\nF1",
+			"read_only_head": apiTestTakeoverFreshHead,
+			"body":           "F1",
+			"owner_id":       "owner",
+			"schema_version": 3,
+			"is_default":     false,
+			"has_seed":       true,
+			"read_only":      false,
+		})
+	})
+
+	t.Run("a kind that declares no read-only half names none, and its whole text is the half a write takes", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		apiJSON(t, h, "POST", "/api/offboard", owner, `{"body":"O1"}`)
+
+		dto, err := api.foldBootDocDTO(api.mustBootDocSpec("offboard", "global"))
+		if err != nil {
+			t.Fatalf("foldBootDocDTO: %v", err)
+		}
+		apiWantValue(t, "dto", apiTestJSONOf(t, dto), map[string]any{
+			"size_chars":     2,
+			"cap_chars":      15000,
+			"kind":           "offboard",
+			"key":            "global",
+			"text":           "O1",
+			"read_only_head": "",
+			"body":           "O1",
+			"owner_id":       "owner",
+			"schema_version": 3,
+			"is_default":     false,
+			"has_seed":       true,
+			"read_only":      false,
+		})
+	})
+
+	t.Run("a stored row from before the marker existed folds head-less, and its whole text reads as the body", func(t *testing.T) {
+		api, _, d, _ := newAPITestServer(t)
+		if err := d.PutBootDocument(BootDocument{
+			Kind: "task_takeover_fresh", Key: "global", Text: "written before the marker existed",
+		}); err != nil {
+			t.Fatalf("PutBootDocument: %v", err)
+		}
+
+		dto, err := api.foldBootDocDTO(api.mustBootDocSpec("task_takeover_fresh", "global"))
+		if err != nil {
+			t.Fatalf("foldBootDocDTO: %v", err)
+		}
+		apiWantValue(t, "dto", apiTestJSONOf(t, dto), map[string]any{
+			"size_chars":     33,
+			"cap_chars":      15000,
+			"kind":           "task_takeover_fresh",
+			"key":            "global",
+			"text":           "written before the marker existed",
+			"read_only_head": "",
+			"body":           "written before the marker existed",
+			"owner_id":       "owner",
+			"schema_version": 3,
+			"is_default":     false,
+			"has_seed":       true,
+			"read_only":      false,
+		})
+	})
 }
 
 func TestSystemInteractionText(t *testing.T) {
-	t.Skip("TODO: systemInteractionText / bootSequenceText are what the BOOT FOLDS read (buildBootContext for staff, worker_sharedcore.go for outsource).")
+	t.Run("the boot fold reads the shipped block byte for byte, the same bytes the cockpit is served", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		_, data := apiJSON(t, h, "GET", "/api/system-interaction", owner, "")
+
+		got, err := api.systemInteractionText()
+		if err != nil {
+			t.Fatalf("systemInteractionText: %v", err)
+		}
+		if got != data["text"] {
+			t.Fatalf("the boot fold and the read face disagree (%d vs %d runes)",
+				utf8.RuneCountInString(got), utf8.RuneCountInString(data["text"].(string)))
+		}
+		if n := utf8.RuneCountInString(got); n != 16617 {
+			t.Fatalf("the shipped block is %d runes, want 16617", n)
+		}
+	})
+
+	t.Run("an owner edit reaches the boot fold in place of the shipped block", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		apiJSON(t, h, "POST", "/api/system-interaction", owner, `{"body":"S1"}`)
+
+		got, err := api.systemInteractionText()
+		if err != nil {
+			t.Fatalf("systemInteractionText: %v", err)
+		}
+		if got != "S1" {
+			t.Fatalf("systemInteractionText = %q, want %q", got, "S1")
+		}
+	})
 }
 
 func TestWinddownNoticeText(t *testing.T) {
-	t.Skip("TODO: winddownNoticeText is the WHOLE notice a member being wound down receives: the document for this kind, its {variables} filled from the live facts, and its two halves joined the way this kind joins them (T-3201).")
+	t.Run("a soft wind-down is sent the whole Stop document and no instant at all", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		apiJSON(t, h, "POST", "/api/offboard", owner, `{"body":"O1"}`)
+		dashboard := apiTestListen(t, api, "")
+
+		if got := api.winddownNoticeText(offboardKindSoft, 0); got != "O1" {
+			t.Fatalf("soft notice = %q, want %q", got, "O1")
+		}
+		if got := api.winddownNoticeText(offboardKindSoft, 1767225600); got != "O1" {
+			t.Fatalf("a clock on the soft arm changed the notice: %q", got)
+		}
+		dashboard.wantFrames()
+	})
+
+	t.Run("the shipped Stop document is what a soft wind-down reads when nobody has edited it", func(t *testing.T) {
+		api, _, _, _ := newAPITestServer(t)
+
+		if got := api.winddownNoticeText(offboardKindSoft, 0); got != apiTestOffboardNotice {
+			t.Fatalf("soft notice is not the shipped 〈停止〉 document (%d runes)", utf8.RuneCountInString(got))
+		}
+	})
+
+	t.Run("the final call reads the accelerated-stop document with the deadline rendered UTC above its body", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		apiJSON(t, h, "POST", "/api/boot-docs/accelerated_stop/global", owner, `{"body":"A1"}`)
+
+		got := api.winddownNoticeText(offboardKindFinal, 1767225600)
+
+		if want := apiTestAcceleratedHeadAt + "\nA1"; got != want {
+			t.Fatalf("final notice = %q, want %q", got, want)
+		}
+	})
+
+	t.Run("a final call with no clock sends nothing rather than a 1970 deadline", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		apiJSON(t, h, "POST", "/api/boot-docs/accelerated_stop/global", owner, `{"body":"A1"}`)
+
+		for name, deadline := range map[string]float64{"no clock": 0, "a clock before the epoch": -1} {
+			if got := api.winddownNoticeText(offboardKindFinal, deadline); got != "" {
+				t.Fatalf("%s: final notice = %q, want the empty string", name, got)
+			}
+		}
+	})
+
+	t.Run("a stored accelerated-stop row from before the marker existed sends nothing rather than the instructions with the deadline sliced off", func(t *testing.T) {
+		api, _, d, _ := newAPITestServer(t)
+		if err := d.PutBootDocument(BootDocument{
+			Kind: "accelerated_stop", Key: "global", Text: "written before the marker existed",
+		}); err != nil {
+			t.Fatalf("PutBootDocument: %v", err)
+		}
+
+		if got := api.winddownNoticeText(offboardKindFinal, 1767225600); got != "" {
+			t.Fatalf("final notice = %q, want the empty string", got)
+		}
+	})
 }
 
 func TestTaskEventBodyText(t *testing.T) {
-	t.Skip("TODO: taskEventBodyText is the EDITABLE HALF of a task-event document, with no read-only head — for a caller that wants the document's INSTRUCTIONS without its statement of fact.")
+	t.Run("it answers the instructions alone, with neither the head's claim nor the document's trailing newline", func(t *testing.T) {
+		api, _, _, _ := newAPITestServer(t)
+
+		got := api.taskEventBodyText("task_takeover_fresh")
+
+		if want := strings.TrimSuffix(apiTestTakeoverFreshBody, "\n"); got != want {
+			t.Fatalf("body = %q, want %q", got, want)
+		}
+	})
+
+	t.Run("an owner edit is the half this caller reads, and the shipped head is still not in it", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		apiJSON(t, h, "POST", "/api/boot-docs/task_closeout/global", owner, `{"body":"C1"}`)
+
+		if got := api.taskEventBodyText("task_closeout"); got != "C1" {
+			t.Fatalf("body = %q, want %q", got, "C1")
+		}
+	})
+
+	t.Run("a stored row from before the marker existed answers nothing rather than a document whose head cannot be told from its body", func(t *testing.T) {
+		api, _, d, _ := newAPITestServer(t)
+		if err := d.PutBootDocument(BootDocument{
+			Kind: "task_closeout", Key: "global", Text: "written before the marker existed",
+		}); err != nil {
+			t.Fatalf("PutBootDocument: %v", err)
+		}
+
+		if got := api.taskEventBodyText("task_closeout"); got != "" {
+			t.Fatalf("body = %q, want the empty string", got)
+		}
+	})
 }
 
 func TestTaskNoticeText(t *testing.T) {
-	t.Skip("TODO: taskNoticeText is the WHOLE chat notice one TASK event posts to the executor it concerns: the document for this kind, its {variables} filled from the live task facts, and its two halves joined the way this kind joins them (T-3201).")
+	t.Run("the shipped 〈新任務〉 notice runs its filled head into its body inside one paragraph, trimmed to a single chat row", func(t *testing.T) {
+		api, _, _, _ := newAPITestServer(t)
+		dashboard := apiTestListen(t, api, "")
+
+		got := api.taskNoticeText("task_takeover_fresh", map[string]string{"task_no": "T-9"})
+
+		want := "[T-9] " + strings.TrimPrefix(apiTestTakeoverFreshHead, "[{task_no}] ") +
+			strings.TrimSuffix(apiTestTakeoverFreshBody, "\n")
+		if got != want {
+			t.Fatalf("notice = %q, want %q", got, want)
+		}
+		dashboard.wantFrames()
+	})
+
+	t.Run("both of the close-out document's names are filled and its own join is used", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		apiJSON(t, h, "POST", "/api/boot-docs/task_closeout/global", owner, `{"body":"C1"}`)
+
+		got := api.taskNoticeText("task_closeout",
+			map[string]string{"task_no": "T-1", "closed_by": "owner"})
+
+		if want := apiTestCloseoutHeadFilled + "\nC1"; got != want {
+			t.Fatalf("notice = %q, want %q", got, want)
+		}
+	})
+
+	t.Run("a name the caller left out sends nothing rather than a sentence with the braces still in it", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		apiJSON(t, h, "POST", "/api/boot-docs/task_closeout/global", owner, `{"body":"C1"}`)
+
+		for name, values := range map[string]map[string]string{
+			"only one of the two names": {"task_no": "T-1"},
+			"no names at all":           {},
+			"nothing supplied at all":   nil,
+		} {
+			if got := api.taskNoticeText("task_closeout", values); got != "" {
+				t.Fatalf("%s: notice = %q, want the empty string", name, got)
+			}
+		}
+	})
+
+	t.Run("a value the document never names is ignored rather than appended", func(t *testing.T) {
+		api, _, _, _ := newAPITestServer(t)
+
+		with := api.taskNoticeText("task_takeover_fresh",
+			map[string]string{"task_no": "T-9", "predecessor": "mira"})
+		without := api.taskNoticeText("task_takeover_fresh", map[string]string{"task_no": "T-9"})
+
+		if with != without {
+			t.Fatalf("an unnamed value changed the notice: %q vs %q", with, without)
+		}
+	})
 }
 
 func TestEventNoticeText(t *testing.T) {
-	t.Skip("TODO: eventNoticeText is the one road from a document to the bytes an agent reads: fold the overlay over the seed, fill the names this kind declares, join the halves.")
+	t.Run("each kind joins its two halves its own way, so the same fold renders three shapes", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		apiJSON(t, h, "POST", "/api/boot-docs/task_takeover_fresh/global", owner, `{"body":"F1"}`)
+		apiJSON(t, h, "POST", "/api/boot-docs/task_closeout/global", owner, `{"body":"C1"}`)
+		apiJSON(t, h, "POST", "/api/boot-docs/task_unblocked/global", owner, `{"body":"U1"}`)
+
+		for name, c := range map[string]struct {
+			kind   string
+			values map[string]string
+			want   string
+		}{
+			"the paragraph join runs the head into the body": {
+				"task_takeover_fresh", map[string]string{"task_no": "T-9"}, "[T-9] 你接手了這張任務。F1"},
+			"the single-newline join stacks the body under the sentence": {
+				"task_closeout", map[string]string{"task_no": "T-1", "closed_by": "owner"},
+				apiTestCloseoutHeadFilled + "\nC1"},
+			"the blank-line join separates the sentence from a bullet list": {
+				"task_unblocked", map[string]string{"blocked_task_no": "T-3"},
+				"[T-3] 擋著這張任務的前置任務已經結束，它不再擋著你。\n\nU1"},
+		} {
+			got := api.eventNoticeText(api.mustBootDocSpec(c.kind, "global"), c.values)
+			if got != c.want {
+				t.Fatalf("%s: got %q, want %q", name, got, c.want)
+			}
+		}
+	})
+
+	t.Run("a kind with no read-only half is rendered whole, marker line and all being absent", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		apiJSON(t, h, "POST", "/api/offboard", owner, `{"body":"O1\n\nO2"}`)
+
+		got := api.eventNoticeText(api.mustBootDocSpec("offboard", "global"), map[string]string{})
+
+		if got != "O1\n\nO2" {
+			t.Fatalf("notice = %q, want %q", got, "O1\n\nO2")
+		}
+	})
+
+	t.Run("a split kind whose stored text carries no marker is refused rather than sent head-less", func(t *testing.T) {
+		api, _, d, _ := newAPITestServer(t)
+		if err := d.PutBootDocument(BootDocument{
+			Kind: "task_unblocked", Key: "global", Text: "written before the marker existed",
+		}); err != nil {
+			t.Fatalf("PutBootDocument: %v", err)
+		}
+
+		got := api.eventNoticeText(api.mustBootDocSpec("task_unblocked", "global"),
+			map[string]string{"blocked_task_no": "T-3"})
+
+		if got != "" {
+			t.Fatalf("notice = %q, want the empty string", got)
+		}
+	})
+
+	t.Run("the shipped 〈解除阻擋〉 notice is the whole document with the marker gone and the number filled", func(t *testing.T) {
+		api, _, _, _ := newAPITestServer(t)
+
+		got := api.eventNoticeText(api.mustBootDocSpec("task_unblocked", "global"),
+			map[string]string{"blocked_task_no": "T-3"})
+
+		want := "[T-3] " + strings.TrimPrefix(apiTestUnblockedHead, "[{blocked_task_no}] ") +
+			"\n\n" + apiTestUnblockedBody
+		if got != want {
+			t.Fatalf("notice = %q, want %q", got, want)
+		}
+	})
 }
 
 func TestBootSequenceText(t *testing.T) {
-	t.Skip("TODO: 需要人工判斷這個函式的可觀察結果是什麼")
+	t.Run("each runtime reads its own document, and editing one leaves the other's alone", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		apiJSON(t, h, "POST", "/api/boot-sequence/claude", owner, `{"body":"B1"}`)
+
+		claude, err := api.bootSequenceText("claude")
+		if err != nil {
+			t.Fatalf("bootSequenceText(claude): %v", err)
+		}
+		if claude != "B1" {
+			t.Fatalf("claude sequence = %q, want %q", claude, "B1")
+		}
+		codex, err := api.bootSequenceText("codex")
+		if err != nil {
+			t.Fatalf("bootSequenceText(codex): %v", err)
+		}
+		if n := utf8.RuneCountInString(codex); n != 2203 {
+			t.Fatalf("the codex sequence is %d runes, want the shipped 2203", n)
+		}
+	})
+
+	t.Run("a runtime with no sequence of its own reads the claude document rather than an empty one", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		apiJSON(t, h, "POST", "/api/boot-sequence/claude", owner, `{"body":"B1"}`)
+		apiJSON(t, h, "POST", "/api/boot-sequence/codex", owner, `{"body":"B2"}`)
+
+		for _, runtime := range []string{"opus", "Codex", ""} {
+			got, err := api.bootSequenceText(runtime)
+			if err != nil {
+				t.Fatalf("bootSequenceText(%q): %v", runtime, err)
+			}
+			if got != "B1" {
+				t.Fatalf("bootSequenceText(%q) = %q, want the claude document %q", runtime, got, "B1")
+			}
+		}
+	})
+
+	t.Run("the shipped claude sequence is what an unedited server boots on", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		_, data := apiJSON(t, h, "GET", "/api/boot-sequence/claude", owner, "")
+
+		got, err := api.bootSequenceText("claude")
+		if err != nil {
+			t.Fatalf("bootSequenceText: %v", err)
+		}
+		if got != data["text"] {
+			t.Fatalf("the boot fold and the read face disagree (%d runes)", utf8.RuneCountInString(got))
+		}
+		if n := utf8.RuneCountInString(got); n != 3124 {
+			t.Fatalf("the shipped claude sequence is %d runes, want 3124", n)
+		}
+	})
 }
 
 func TestBootDocSnapshotIn(t *testing.T) {
-	t.Skip("TODO: bootDocSnapshotIn is what SaveWithDocumentHistory calls from INSIDE the write transaction — the same posture insightSnapshotIn takes, and for the same reason: the retained revision must be the state THIS write replaced, not a value the handler folded earlier, or two racing writers retain one common ancestor and the version written between them becomes unrecoverable.")
+	t.Run("it serialises the row as it stands inside the transaction, text and tombstone together", func(t *testing.T) {
+		_, h, d, owner := newAPITestServer(t)
+		apiJSON(t, h, "POST", "/api/offboard", owner, `{"body":"O1"}`)
+
+		got, err := bootDocSnapshotIn("offboard", "global")(d.rdb)
+
+		if err != nil {
+			t.Fatalf("snapshot: %v", err)
+		}
+		if want := `{"text":"O1","tombstoned":"false"}`; got != want {
+			t.Fatalf("snapshot = %q, want %q", got, want)
+		}
+	})
+
+	t.Run("a reset row is retained as the tombstone it is, not as the seed it now reads back as", func(t *testing.T) {
+		_, h, d, owner := newAPITestServer(t)
+		apiJSON(t, h, "POST", "/api/offboard", owner, `{"body":"O1"}`)
+		apiJSON(t, h, "POST", "/api/offboard/reset", owner, "")
+
+		got, err := bootDocSnapshotIn("offboard", "global")(d.rdb)
+
+		if err != nil {
+			t.Fatalf("snapshot: %v", err)
+		}
+		if want := `{"text":"","tombstoned":"true"}`; got != want {
+			t.Fatalf("snapshot = %q, want %q", got, want)
+		}
+	})
+
+	t.Run("a document nobody has ever written snapshots to the empty object, which retains no revision", func(t *testing.T) {
+		_, _, d, _ := newAPITestServer(t)
+
+		got, err := bootDocSnapshotIn("offboard", "global")(d.rdb)
+
+		if err != nil {
+			t.Fatalf("snapshot: %v", err)
+		}
+		if got != "{}" {
+			t.Fatalf("snapshot = %q, want %q", got, "{}")
+		}
+	})
 }
 
 func TestBootDocHistorySnapshot(t *testing.T) {
-	t.Skip("TODO: 需要人工判斷這個函式的可觀察結果是什麼")
+	t.Run("a row is retained as its text and its tombstone flag, and no row at all as the empty object", func(t *testing.T) {
+		for name, c := range map[string]struct {
+			row  *BootDocument
+			want string
+		}{
+			"an edited row": {
+				&BootDocument{Kind: "offboard", Key: "global", Text: "O1"},
+				`{"text":"O1","tombstoned":"false"}`},
+			"a tombstoned row": {
+				&BootDocument{Kind: "offboard", Key: "global", Text: "O1", Tombstoned: true},
+				`{"text":"O1","tombstoned":"true"}`},
+			"a row holding an empty document": {
+				&BootDocument{Kind: "offboard", Key: "global"},
+				`{"text":"","tombstoned":"false"}`},
+			"no row at all": {nil, "{}"},
+		} {
+			got, err := bootDocHistorySnapshot(c.row)
+			if err != nil {
+				t.Fatalf("%s: %v", name, err)
+			}
+			if got != c.want {
+				t.Fatalf("%s: got %q, want %q", name, got, c.want)
+			}
+		}
+	})
 }
 
 func TestPublishBootDoc(t *testing.T) {
-	t.Skip("TODO: publishBootDoc fans the change on the `global_context` topic.")
+	t.Run("the change is fanned to the owner cockpit alone on the global_context topic, carrying no payload", func(t *testing.T) {
+		api, _, d, owner := newAPITestServer(t)
+		var req *http.Request
+		taskTestUnderCaller(t, api, d, owner, func(r *http.Request) { req = r })
+		dashboard := apiTestListen(t, api, "")
+		bystander := apiTestListen(t, api, "kip")
+
+		api.publishBootDoc(req)
+
+		dashboard.wantFrames(map[string]any{
+			"seq":   1,
+			"topic": "global_context",
+			"op":    "patch",
+			"data": map[string]any{
+				"entity":  "global_context",
+				"key":     "owner",
+				"epoch":   1,
+				"deleted": false,
+				"payload": nil,
+			},
+			"ts":      apiAnyNumber,
+			"trigger": "owner",
+		})
+		bystander.wantFrames()
+	})
+
+	t.Run("the frame is attributed to whoever made the request", func(t *testing.T) {
+		api, _, d, _ := newAPITestServer(t)
+		agent := apiTestAgentToken(t, api, "kip", "")
+		var req *http.Request
+		taskTestUnderCaller(t, api, d, agent, func(r *http.Request) { req = r })
+		dashboard := apiTestListen(t, api, "")
+
+		api.publishBootDoc(req)
+
+		dashboard.wantFrames(map[string]any{
+			"seq":   1,
+			"topic": "global_context",
+			"op":    "patch",
+			"data": map[string]any{
+				"entity":  "global_context",
+				"key":     "owner",
+				"epoch":   1,
+				"deleted": false,
+				"payload": nil,
+			},
+			"ts":      apiAnyNumber,
+			"trigger": "kip",
+		})
+	})
 }
 
 func TestWriteBootDoc(t *testing.T) {
-	t.Skip("TODO: writeBootDoc is the one write path shared by replace and reset, and the one place the no-op rule lives.")
+	t.Run("a write that changes the text stores it, retains the revision it replaced and fans the delta", func(t *testing.T) {
+		api, h, d, owner := newAPITestServer(t)
+		apiJSON(t, h, "POST", "/api/offboard", owner, `{"body":"O1"}`)
+		spec := api.mustBootDocSpec("offboard", "global")
+		current, err := api.foldBootDocDTO(spec)
+		if err != nil {
+			t.Fatalf("foldBootDocDTO: %v", err)
+		}
+		var req *http.Request
+		taskTestUnderCaller(t, api, d, owner, func(r *http.Request) { req = r })
+		dashboard := apiTestListen(t, api, "")
+
+		wrote, err := api.writeBootDoc(req, spec, current,
+			BootDocument{Kind: "offboard", Key: "global", Text: "O2"}, "O2")
+
+		if err != nil || !wrote {
+			t.Fatalf("writeBootDoc = %v, %v", wrote, err)
+		}
+		after, err := api.foldBootDocDTO(spec)
+		if err != nil {
+			t.Fatalf("foldBootDocDTO: %v", err)
+		}
+		if after.Text != "O2" || after.IsDefault {
+			t.Fatalf("stored document = %q (is_default %v)", after.Text, after.IsDefault)
+		}
+		apiWantValue(t, "history", apiTestBootDocHistory(t, d, "offboard", "global"), []any{
+			map[string]any{"actor": "owner", "content": `{"text":"O1","tombstoned":"false"}`},
+		})
+		dashboard.wantFrames(map[string]any{
+			"seq":   2,
+			"topic": "global_context",
+			"op":    "patch",
+			"data": map[string]any{
+				"entity":  "global_context",
+				"key":     "owner",
+				"epoch":   2,
+				"deleted": false,
+				"payload": nil,
+			},
+			"ts":      apiAnyNumber,
+			"trigger": "owner",
+		})
+	})
+
+	t.Run("a write that changes nothing stores nothing, retains nothing and fans nothing", func(t *testing.T) {
+		api, h, d, owner := newAPITestServer(t)
+		apiJSON(t, h, "POST", "/api/offboard", owner, `{"body":"O1"}`)
+		spec := api.mustBootDocSpec("offboard", "global")
+		current, err := api.foldBootDocDTO(spec)
+		if err != nil {
+			t.Fatalf("foldBootDocDTO: %v", err)
+		}
+		var req *http.Request
+		taskTestUnderCaller(t, api, d, owner, func(r *http.Request) { req = r })
+		dashboard := apiTestListen(t, api, "")
+
+		wrote, err := api.writeBootDoc(req, spec, current,
+			BootDocument{Kind: "offboard", Key: "global", Text: "O1"}, "O1")
+
+		if err != nil || wrote {
+			t.Fatalf("writeBootDoc = %v, %v", wrote, err)
+		}
+		after, err := api.foldBootDocDTO(spec)
+		if err != nil {
+			t.Fatalf("foldBootDocDTO: %v", err)
+		}
+		if after.Text != "O1" || after.IsDefault {
+			t.Fatalf("stored document = %q (is_default %v)", after.Text, after.IsDefault)
+		}
+		apiWantValue(t, "history", apiTestBootDocHistory(t, d, "offboard", "global"), []any{})
+		dashboard.wantFrames()
+	})
+
+	t.Run("adopting the shipped bytes as an edit changes no text and is still a write, because the next reset turns on it", func(t *testing.T) {
+		api, _, d, owner := newAPITestServer(t)
+		spec := api.mustBootDocSpec("offboard", "global")
+		current, err := api.foldBootDocDTO(spec)
+		if err != nil {
+			t.Fatalf("foldBootDocDTO: %v", err)
+		}
+		if !current.IsDefault {
+			t.Fatalf("the fixture document is already edited: %#v", current)
+		}
+		var req *http.Request
+		taskTestUnderCaller(t, api, d, owner, func(r *http.Request) { req = r })
+		dashboard := apiTestListen(t, api, "")
+
+		wrote, err := api.writeBootDoc(req, spec, current,
+			BootDocument{Kind: "offboard", Key: "global", Text: current.Text}, current.Text)
+
+		if err != nil || !wrote {
+			t.Fatalf("writeBootDoc = %v, %v", wrote, err)
+		}
+		after, err := api.foldBootDocDTO(spec)
+		if err != nil {
+			t.Fatalf("foldBootDocDTO: %v", err)
+		}
+		if after.Text != current.Text || after.IsDefault {
+			t.Fatalf("stored document reads as default %v after adopting the seed", after.IsDefault)
+		}
+		apiWantValue(t, "history", apiTestBootDocHistory(t, d, "offboard", "global"), []any{})
+		dashboard.wantFrames(map[string]any{
+			"seq":   1,
+			"topic": "global_context",
+			"op":    "patch",
+			"data": map[string]any{
+				"entity":  "global_context",
+				"key":     "owner",
+				"epoch":   1,
+				"deleted": false,
+				"payload": nil,
+			},
+			"ts":      apiAnyNumber,
+			"trigger": "owner",
+		})
+	})
+}
+
+// apiTestBootDocHistory is the retained revisions of one document, newest
+// first, reduced to the two facts a caller of writeBootDoc can observe.
+func apiTestBootDocHistory(t *testing.T, d *DAL, kind, key string) any {
+	t.Helper()
+	rows, err := d.ListDocumentHistory(kind, key)
+	if err != nil {
+		t.Fatalf("ListDocumentHistory: %v", err)
+	}
+	out := []any{}
+	for _, row := range rows {
+		out = append(out, map[string]any{"actor": row.ActorID, "content": row.ContentJSON})
+	}
+	return out
 }
 
 func TestReplaceBootDoc(t *testing.T) {
-	t.Skip("TODO: replaceBootDoc is the whole-BODY replace shared by every write face.")
+	t.Run("the body a caller reads back is the body it may write, and writing it changes only the default flag", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		_, read := apiJSON(t, h, "GET", "/api/boot-docs/task_closeout/global", owner, "")
+		dashboard := apiTestListen(t, api, "")
+
+		status, data := apiJSON(t, h, "POST", "/api/boot-docs/task_closeout/global", owner,
+			`{"body":`+apiTestJSONString(t, read["body"].(string))+`}`)
+
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		apiWantBody(t, data, map[string]any{
+			"kind":       "task_closeout",
+			"key":        "global",
+			"is_default": false,
+			"size_chars": 511,
+			"cap_chars":  15000,
+			"sha256":     "62a219c766233550b8c5c91e1a6f30a5b6d9833019e60cd302e50616a34d0108",
+		})
+		_, after := apiJSON(t, h, "GET", "/api/boot-docs/task_closeout/global", owner, "")
+		if after["text"] != read["text"] || after["body"] != read["body"] {
+			t.Fatalf("the round trip changed the document: %q", after["text"])
+		}
+		dashboard.wantFrames(map[string]any{
+			"seq":   1,
+			"topic": "global_context",
+			"op":    "patch",
+			"data": map[string]any{
+				"entity":  "global_context",
+				"key":     "owner",
+				"epoch":   1,
+				"deleted": false,
+				"payload": nil,
+			},
+			"ts":      apiAnyNumber,
+			"trigger": "owner",
+		})
+	})
+
+	t.Run("a body over the cap is refused with the three numbers and writes nothing", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		dashboard := apiTestListen(t, api, "")
+
+		status, data := apiJSON(t, h, "POST", "/api/boot-docs/task_closeout/global", owner,
+			`{"body":"`+strings.Repeat("x", 15001)+`"}`)
+
+		if status != 400 {
+			t.Fatalf("want 400, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "validation_error",
+			"the task close-out procedure you are writing is 15076 chars, over the 15000-char cap, "+
+				"and is not shorter than the 511 chars already stored — nothing was written. What is "+
+				"already stored is never truncated, but every update must land at or under the cap, or "+
+				"at least come out SHORTER than what is there now. Drop stale or superseded material as "+
+				"part of this write (or in a shrinking write first), then write again.")
+		_, after := apiJSON(t, h, "GET", "/api/boot-docs/task_closeout/global", owner, "")
+		apiWantValue(t, "text", after["text"], apiTestTaskCloseoutSeed)
+		dashboard.wantFrames()
+	})
+
+	t.Run("a body naming a variable is refused and writes nothing, because nothing fills a name below the line", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		dashboard := apiTestListen(t, api, "")
+
+		status, data := apiJSON(t, h, "POST", "/api/boot-docs/task_closeout/global", owner,
+			`{"body":"closing {task_no}"}`)
+
+		if status != 400 {
+			t.Fatalf("want 400, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "validation_error",
+			"the task close-out procedure uses {task_no} below the line `"+apiTestBootDocMarker+
+				"` — the editable half carries no variables at all, because nothing fills them there "+
+				"and they would reach an agent with the braces still in them. Put facts that vary in "+
+				"the read-only head, or write them out. Nothing was written.")
+		_, after := apiJSON(t, h, "GET", "/api/boot-docs/task_closeout/global", owner, "")
+		apiWantValue(t, "text", after["text"], apiTestTaskCloseoutSeed)
+		dashboard.wantFrames()
+	})
+
+	t.Run("a read-only document is refused before anything is read, written or fanned", func(t *testing.T) {
+		api, _, d, owner := newAPITestServer(t)
+		var req *http.Request
+		taskTestUnderCaller(t, api, d, owner, func(r *http.Request) { req = r })
+		spec := api.mustBootDocSpec("task_takeover_fresh", "global")
+		spec.ReadOnly = true
+		dashboard := apiTestListen(t, api, "")
+		rec := httptest.NewRecorder()
+
+		api.replaceBootDoc(rec, req, spec, "F1", false)
+
+		if rec.Code != 405 {
+			t.Fatalf("want 405, got %d (%s)", rec.Code, rec.Body.String())
+		}
+		apiWantError(t, apiTestDecodeJSONBody(t, rec), "method_not_allowed",
+			"the new task document is a read-only document — it is shown so you can see what "+
+				"agents are told, but no caller may edit it and there is no version of it other "+
+				"than the shipped one; nothing was written")
+		stored, err := d.GetBootDocument("task_takeover_fresh", "global")
+		if err != nil || stored != nil {
+			t.Fatalf("an overlay row was written: %#v (%v)", stored, err)
+		}
+		dashboard.wantFrames()
+	})
+}
+
+// apiTestJSONString quotes a string as a JSON literal, for a request body built
+// around a document the server itself just answered with.
+func apiTestJSONString(t *testing.T, s string) string {
+	t.Helper()
+	raw, err := json.Marshal(s)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	return string(raw)
+}
+
+// apiTestDecodeJSONBody decodes the answer of a handler called directly, the
+// way apiJSON decodes one driven through the whole stack.
+func apiTestDecodeJSONBody(t *testing.T, rec *httptest.ResponseRecorder) map[string]any {
+	t.Helper()
+	var data map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &data); err != nil {
+		t.Fatalf("non-JSON body (%d): %s", rec.Code, rec.Body.String())
+	}
+	return data
 }
 
 func TestBootDocReceiptOf(t *testing.T) {
-	t.Skip("TODO: bootDocReceiptOf reduces the READ face's fold to the WRITE face's receipt (T-91).")
+	t.Run("the receipt keeps the address, the default flag and the size and hash of the whole stored document", func(t *testing.T) {
+		api, _, _, _ := newAPITestServer(t)
+		dto, err := api.foldBootDocDTO(api.mustBootDocSpec("task_takeover_fresh", "global"))
+		if err != nil {
+			t.Fatalf("foldBootDocDTO: %v", err)
+		}
+
+		got := bootDocReceiptOf(dto)
+
+		apiWantValue(t, "receipt", apiTestJSONOf(t, got), map[string]any{
+			"kind":       "task_takeover_fresh",
+			"key":        "global",
+			"is_default": true,
+			"size_chars": 127,
+			"cap_chars":  15000,
+			"sha256":     "caeacca0168ce3f556c6770133957bf9c380696913f18b707c34ce18fc73772f",
+		})
+	})
+
+	t.Run("it says nothing about the text, the head, the body or the owner the fold carried", func(t *testing.T) {
+		got := bootDocReceiptOf(&bootDocDTO{
+			SizeChars: 2, CapChars: 15000, Kind: "offboard", Key: "global",
+			Text: "O1", ReadOnlyHead: "a head", Body: "O1", OwnerID: "owner",
+			SchemaVersion: 3, IsDefault: false, HasSeed: true, ReadOnly: true,
+		})
+
+		apiWantValue(t, "receipt", apiTestJSONOf(t, got), map[string]any{
+			"kind":       "offboard",
+			"key":        "global",
+			"is_default": false,
+			"size_chars": 2,
+			"cap_chars":  15000,
+			"sha256":     "5b1f94750d53ab84b5f3fb4bf25b8bf15b162f800f004ae2709b56fdc53a5fb7",
+		})
+	})
 }
 
 func TestBootDocStoredText(t *testing.T) {
-	t.Skip("TODO: bootDocStoredText turns a caller's BODY into the bytes that get stored, by joining the SHIPPED head back on.")
+	t.Run("a split kind gets the SHIPPED head joined back on, whatever is stored now", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		apiJSON(t, h, "POST", "/api/boot-docs/task_closeout/global", owner, `{"body":"C1"}`)
+
+		got, err := api.bootDocStoredText(api.mustBootDocSpec("task_closeout", "global"), "C2")
+
+		if err != nil {
+			t.Fatalf("bootDocStoredText: %v", err)
+		}
+		if want := apiTestTaskCloseoutHead + "\n\n" + apiTestBootDocMarker + "\n\nC2"; got != want {
+			t.Fatalf("stored text = %q, want %q", got, want)
+		}
+	})
+
+	t.Run("a kind with no read-only half stores the body byte for byte", func(t *testing.T) {
+		api, _, _, _ := newAPITestServer(t)
+
+		got, err := api.bootDocStoredText(api.mustBootDocSpec("offboard", "global"), "O1\n\nO2")
+
+		if err != nil {
+			t.Fatalf("bootDocStoredText: %v", err)
+		}
+		if got != "O1\n\nO2" {
+			t.Fatalf("stored text = %q, want %q", got, "O1\n\nO2")
+		}
+	})
+
+	t.Run("a split kind whose seed carries no marker errors rather than storing the body alone", func(t *testing.T) {
+		api, _, _, _ := newAPITestServer(t)
+
+		for name, spec := range map[string]bootDocSpec{
+			"a seed that is not shipped at all": {Kind: "k", Key: "g", Split: true, SeedFile: "no_such_seed.md"},
+			"a shipped seed with no marker":     {Kind: "k", Key: "g", Split: true, SeedFile: "offboard.md"},
+		} {
+			got, err := api.bootDocStoredText(spec, "X")
+			if got != "" {
+				t.Fatalf("%s: stored text = %q, want the empty string", name, got)
+			}
+			want := "boot document k/g is declared split but its seed carries no " +
+				apiTestBootDocMarker + " line"
+			if err == nil || err.Error() != want {
+				t.Fatalf("%s: err = %v, want %q", name, err, want)
+			}
+		}
+	})
 }
 
 func TestBootDocBodyOf(t *testing.T) {
-	t.Skip("TODO: bootDocBodyOf reads the EDITABLE half out of a stored document.")
+	t.Run("a split kind answers the half under the marker, and everything else answers the whole text", func(t *testing.T) {
+		api, _, _, _ := newAPITestServer(t)
+		split := api.mustBootDocSpec("task_takeover_fresh", "global")
+		unsplit := api.mustBootDocSpec("offboard", "global")
+
+		for name, c := range map[string]struct {
+			spec bootDocSpec
+			text string
+			want string
+		}{
+			"a split kind over a document carrying the marker": {
+				split, apiTestTakeoverFreshSeed, apiTestTakeoverFreshBody},
+			"a split kind over a row stored before the marker existed": {
+				split, "written before the marker existed", "written before the marker existed"},
+			"a split kind over an empty document": {split, "", ""},
+			"a kind with no read-only half, over a document that carries the marker anyway": {
+				unsplit, apiTestTakeoverFreshSeed, apiTestTakeoverFreshSeed},
+			"a kind with no read-only half, over its own document": {unsplit, "O1", "O1"},
+		} {
+			if got := bootDocBodyOf(c.spec, c.text); got != c.want {
+				t.Fatalf("%s: got %q, want %q", name, got, c.want)
+			}
+		}
+	})
 }
 
 func TestBootDocBodyRefusal(t *testing.T) {
-	t.Skip("TODO: bootDocBodyRefusal is the ONE content rule left on the write face: the editable half names no variables.")
+	t.Run("a split kind refuses any variable below the line, and accepts a body that names none", func(t *testing.T) {
+		api, _, _, _ := newAPITestServer(t)
+		spec := api.mustBootDocSpec("task_closeout", "global")
+
+		refused := bootDocBodyRefusal(spec, "closing {task_no} for {closed_by}")
+
+		want := "the task close-out procedure uses {task_no}, {closed_by} below the line `" +
+			apiTestBootDocMarker + "` — the editable half carries no variables at all, because " +
+			"nothing fills them there and they would reach an agent with the braces still in " +
+			"them. Put facts that vary in the read-only head, or write them out. Nothing was written."
+		if refused != want {
+			t.Fatalf("refusal = %q, want %q", refused, want)
+		}
+		if got := bootDocBodyRefusal(spec, "closing the ticket"); got != "" {
+			t.Fatalf("a clean body was refused: %q", got)
+		}
+	})
+
+	t.Run("a kind with no read-only half is judged as one text against the variables it declares", func(t *testing.T) {
+		api, _, _, _ := newAPITestServer(t)
+		spec := api.mustBootDocSpec("offboard", "global")
+
+		refused := bootDocBodyRefusal(spec, "you are at {where}")
+
+		want := "the Stop document you are writing uses {where}, which is not one of its " +
+			"variables — nothing was written. this document declares no variables at all. " +
+			"A variable nothing fills reaches an agent with the braces still in it."
+		if refused != want {
+			t.Fatalf("refusal = %q, want %q", refused, want)
+		}
+		if got := bootDocBodyRefusal(spec, "stop cleanly"); got != "" {
+			t.Fatalf("a clean body was refused: %q", got)
+		}
+	})
+
+	t.Run("a kind that declares no variables at all opts out of the syntax entirely, split or not", func(t *testing.T) {
+		api, _, _, _ := newAPITestServer(t)
+
+		for name, spec := range map[string]bootDocSpec{
+			"the block that quotes JSON in its body": api.mustBootDocSpec("system_interaction", "global"),
+			"a boot sequence":                        api.mustBootDocSpec("boot_sequence", "claude"),
+			"a split kind that declares none": {
+				Kind: "k", Key: "g", DocName: "made-up document", Split: true, Vars: nil},
+		} {
+			if got := bootDocBodyRefusal(spec, `{"id": "<attachment id>"} and {task_no}`); got != "" {
+				t.Fatalf("%s: refusal = %q, want the empty string", name, got)
+			}
+		}
+	})
+
+	t.Run("a document that declares a variable and uses it in the head half is still refused when it is the BODY that names it", func(t *testing.T) {
+		api, _, _, _ := newAPITestServer(t)
+		spec := api.mustBootDocSpec("accelerated_stop", "global")
+
+		got := bootDocBodyRefusal(spec, "your deadline is {deadline}")
+
+		want := "the accelerated stop sequence uses {deadline} below the line `" +
+			apiTestBootDocMarker + "` — the editable half carries no variables at all, because " +
+			"nothing fills them there and they would reach an agent with the braces still in " +
+			"them. Put facts that vary in the read-only head, or write them out. Nothing was written."
+		if got != want {
+			t.Fatalf("refusal = %q, want %q", got, want)
+		}
+	})
 }
 
 func TestResetBootDoc(t *testing.T) {
-	t.Skip("TODO: resetBootDoc tombstones the overlay so the folded read falls back to the SHIPPED seed.")
+	t.Run("a document with no shipped default answers 404 and writes nothing", func(t *testing.T) {
+		api, _, d, owner := newAPITestServer(t)
+		var req *http.Request
+		taskTestUnderCaller(t, api, d, owner, func(r *http.Request) { req = r })
+		dashboard := apiTestListen(t, api, "")
+		rec := httptest.NewRecorder()
+
+		api.resetBootDoc(rec, req, bootDocSpec{Kind: "offboard", Key: "global", SeedFile: "no_such_seed.md"})
+
+		if rec.Code != 404 {
+			t.Fatalf("want 404, got %d (%s)", rec.Code, rec.Body.String())
+		}
+		apiWantError(t, apiTestDecodeJSONBody(t, rec), "not_found",
+			"document 'offboard/global' has no shipped default to reset to")
+		stored, err := d.GetBootDocument("offboard", "global")
+		if err != nil || stored != nil {
+			t.Fatalf("an overlay row was written: %#v (%v)", stored, err)
+		}
+		dashboard.wantFrames()
+	})
+
+	t.Run("a read-only document is refused rather than answered with a no-op success", func(t *testing.T) {
+		api, h, d, owner := newAPITestServer(t)
+		apiJSON(t, h, "POST", "/api/boot-docs/task_takeover_fresh/global", owner, `{"body":"F1"}`)
+		var req *http.Request
+		taskTestUnderCaller(t, api, d, owner, func(r *http.Request) { req = r })
+		spec := api.mustBootDocSpec("task_takeover_fresh", "global")
+		spec.ReadOnly = true
+		dashboard := apiTestListen(t, api, "")
+		rec := httptest.NewRecorder()
+
+		api.resetBootDoc(rec, req, spec)
+
+		if rec.Code != 405 {
+			t.Fatalf("want 405, got %d (%s)", rec.Code, rec.Body.String())
+		}
+		apiWantError(t, apiTestDecodeJSONBody(t, rec), "method_not_allowed",
+			"the new task document is a read-only document — it is shown so you can see what "+
+				"agents are told, but no caller may edit it and there is no version of it other "+
+				"than the shipped one; nothing was written")
+		_, after := apiJSON(t, h, "GET", "/api/boot-docs/task_takeover_fresh/global", owner, "")
+		apiWantValue(t, "body", after["body"], "F1")
+		dashboard.wantFrames()
+	})
+
+	t.Run("the reset falls the folded read back to the shipped seed and retains the edit it replaced", func(t *testing.T) {
+		api, h, d, owner := newAPITestServer(t)
+		apiJSON(t, h, "POST", "/api/boot-docs/task_takeover_fresh/global", owner, `{"body":"F1"}`)
+		var req *http.Request
+		taskTestUnderCaller(t, api, d, owner, func(r *http.Request) { req = r })
+		dashboard := apiTestListen(t, api, "")
+		rec := httptest.NewRecorder()
+
+		api.resetBootDoc(rec, req, api.mustBootDocSpec("task_takeover_fresh", "global"))
+
+		if rec.Code != 200 {
+			t.Fatalf("want 200, got %d (%s)", rec.Code, rec.Body.String())
+		}
+		apiWantBody(t, apiTestDecodeJSONBody(t, rec), map[string]any{
+			"kind":       "task_takeover_fresh",
+			"key":        "global",
+			"is_default": true,
+			"size_chars": 127,
+			"cap_chars":  15000,
+			"sha256":     "caeacca0168ce3f556c6770133957bf9c380696913f18b707c34ce18fc73772f",
+		})
+		_, after := apiJSON(t, h, "GET", "/api/boot-docs/task_takeover_fresh/global", owner, "")
+		apiWantValue(t, "text", after["text"], apiTestTakeoverFreshSeed)
+		apiWantValue(t, "history", apiTestBootDocHistory(t, d, "task_takeover_fresh", "global"), []any{
+			map[string]any{
+				"actor":   "owner",
+				"content": `{"text":"` + apiTestTakeoverFreshHead + `\n\n\u003c!-- ↑唯讀區（程式產生，改不動）｜↓本體（可編輯，零變數） --\u003e\n\nF1","tombstoned":"false"}`,
+			},
+		})
+		dashboard.wantFrames(map[string]any{
+			"seq":   2,
+			"topic": "global_context",
+			"op":    "patch",
+			"data": map[string]any{
+				"entity":  "global_context",
+				"key":     "owner",
+				"epoch":   2,
+				"deleted": false,
+				"payload": nil,
+			},
+			"ts":      apiAnyNumber,
+			"trigger": "owner",
+		})
+	})
 }
 
 func TestHandleGetSystemInteractionApiSystemInteractionGet(t *testing.T) {
@@ -761,15 +2042,86 @@ func TestHandleResetBootSequenceApiBootSequenceRuntimeKeyResetPost(t *testing.T)
 }
 
 func TestWriteUnknownBootSequence(t *testing.T) {
-	t.Skip("TODO: writeUnknownBootSequence NAMES the runtimes that exist.")
+	t.Run("the refusal names both runtimes that have a boot sequence, so a typo is not read as a server with none", func(t *testing.T) {
+		for _, runtimeKey := range []string{"opus", "Codex", ""} {
+			rec := httptest.NewRecorder()
+
+			writeUnknownBootSequence(rec, runtimeKey)
+
+			if rec.Code != 404 {
+				t.Fatalf("%q: want 404, got %d (%s)", runtimeKey, rec.Code, rec.Body.String())
+			}
+			apiWantError(t, apiTestDecodeJSONBody(t, rec), "not_found",
+				"no boot sequence for runtime '"+runtimeKey+"' — the runtimes with their own "+
+					"boot sequence are 'claude' and 'codex'")
+		}
+	})
 }
 
 func TestBootDocReadOnlyRefusal(t *testing.T) {
-	t.Skip("TODO: bootDocReadOnlyRefusal is the ONE sentence every write face answers for a read-only document, the way docCapRefusal and docWipeRefusal are the one text behind their gates.")
+	t.Run("the refusal says what the document is rather than which permission the caller lacks", func(t *testing.T) {
+		for _, docName := range []string{"new task document", "dependency-released notice"} {
+			got := bootDocReadOnlyRefusal(bootDocSpec{Kind: "k", Key: "g", DocName: docName})
+
+			want := "the " + docName + " is a read-only document — it is shown so you can see " +
+				"what agents are told, but no caller may edit it and there is no version of it " +
+				"other than the shipped one; nothing was written"
+			if got != want {
+				t.Fatalf("refusal = %q, want %q", got, want)
+			}
+		}
+	})
 }
 
 func TestGenericBootDocSpec(t *testing.T) {
-	t.Skip("TODO: genericBootDocSpec resolves the {kind}/{key} pair the three generic faces take, answering the SAME refusal all three times: a kind nobody registered says so, and a key that kind does not serve is told which keys it does.")
+	t.Run("a pair this server serves resolves to its whole spec and writes nothing to the response", func(t *testing.T) {
+		api, _, _, _ := newAPITestServer(t)
+		rec := httptest.NewRecorder()
+
+		got, ok := api.genericBootDocSpec(rec, "offboard", "global")
+
+		if !ok {
+			t.Fatalf("genericBootDocSpec refused a served pair: %s", rec.Body.String())
+		}
+		want := bootDocSpec{
+			Kind: "offboard", Key: "global", SeedFile: "offboard.md", Cap: 15000,
+			DocName: "Stop document", Vars: []string{}, Split: false, Join: "", ReadOnly: false,
+		}
+		if !reflect.DeepEqual(got, want) {
+			t.Fatalf("spec = %#v, want %#v", got, want)
+		}
+		if rec.Body.Len() != 0 {
+			t.Fatalf("the resolver wrote to the response: %s", rec.Body.String())
+		}
+	})
+
+	t.Run("a kind nobody registered answers 404 saying so, and a bad key answers 404 naming the keys that kind serves", func(t *testing.T) {
+		api, _, _, _ := newAPITestServer(t)
+
+		for name, c := range map[string]struct{ kind, key, want string }{
+			"an unregistered kind": {"bogus", "global",
+				"document history kind 'bogus' names no editable document on this server"},
+			"a key the kind refuses": {"task_closeout", "claude",
+				"document history key 'claude' does not name a task_closeout document — the key is 'global'"},
+			"a boot sequence under a wrong case": {"boot_sequence", "Codex",
+				"document history key 'Codex' does not name a boot_sequence document — the key is 'claude' or 'codex'"},
+		} {
+			rec := httptest.NewRecorder()
+
+			got, ok := api.genericBootDocSpec(rec, c.kind, c.key)
+
+			if ok {
+				t.Fatalf("%s: genericBootDocSpec resolved %#v", name, got)
+			}
+			if !reflect.DeepEqual(got, bootDocSpec{}) {
+				t.Fatalf("%s: spec = %#v, want the zero spec", name, got)
+			}
+			if rec.Code != 404 {
+				t.Fatalf("%s: want 404, got %d (%s)", name, rec.Code, rec.Body.String())
+			}
+			apiWantError(t, apiTestDecodeJSONBody(t, rec), "not_found", c.want)
+		}
+	})
 }
 
 func TestHandleGetBootDocApiBootDocsKindKeyGet(t *testing.T) {

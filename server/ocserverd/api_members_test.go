@@ -5,75 +5,924 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
+	"net/http"
+	"net/http/httptest"
+	"reflect"
 	"testing"
+	"time"
 )
 
 const apiTestPNGBytes = "\x89PNG\r\n\x1a\nfake"
 
 const apiTestOffboardNotice = "# 停止\n\n下線過程中，所有重要資料都不可以只留在本機 —— 重啟之後你可能在另一台機器上。\n\n- git commit 要推送到 remote。\n- 產物（artifact）要上傳到 task 底下。\n\n## 1. 你收到的是哪一種\n\n你讀到的是這一份，就代表**沒有人在對你倒數**：收尾照自己的節奏做完，收乾淨比收得快重要。\n\n⚠️ **但「沒有時鐘」不等於「沒有終點」。**\n**先確認這一段對不對你說話：它只對「外包 worker（`ow-` 開頭）被搬到另一台機器」那一條路成立。**\n你是正職成員的話，重新聚焦／換機器／換模型／自我重啟都是**先把你停掉、下一個 tick 才叫接班的起來**，\n接班的不會在你收尾時同時活著，你手上的 token 整段收尾都有效 —— **不要為了一個不存在的窗口趕工**，\n收乾淨仍然比收得快重要。外包 worker 跨機器搬家則相反：舊那一輪還活在 A、新的 START 已經送到 B，\n兩台機器的防重複守衛各自只看得到自己那台，所以兩輪會真的同時活著。在那條路上：\n**接班的那一輪一開機回報，你手上的 token 就當場失效**——不是被倒數收掉，是接班的來了。\n症狀跟 token 過期一模一樣：**你之後每一個 MCP 呼叫都 401，而且沒有任何一句話告訴你為什麼**。\n所以**只有被搬家的外包 worker** 要先把別人需要的東西寫出去（`post_chat` 給自己、task step、\n教訓回寫），細節放後面；寫完再慢慢收本機的暫存。這是 owner 明知代價後選的（交接可能斷在半路），\n不是故障，**別重試、別當成 server 壞了**。\n\n## 2. 開始下線\n\n1. 呼叫 MCP `report_stopping()`。\n2. 用 MCP `post_chat` 發給自己：現況、在途工作、阻塞點、下一步，以及有哪些 sub agent 在做什麼、跑多久了。\n3. 把在途的 sub agent 寫進 task step。**這一格沒被更新過，就代表它沒交件，下一代要重派。**\n\n## 3. 結束 sub agent\n\n- 等 sub agent 自己完成。\n- **每個 sub agent 一結束就當場更新** `post_chat` 與 task step，不要留到最後。\n\n## 4. 收尾\n\n1. 用 `ocagent clean <path>` 移除暫存檔/資料夾（不要用 `rm -rf`，他可能讓你彈出確認視窗而停住）。\n   - 它回非 0 多半是**這次指錯路徑**（例如指到工作目錄外面），不是壞了：換一個路徑再叫一次，不要為了收暫存停在這裡。\n2. 把這一輪的重要教訓回寫到長期記憶。**要寫進哪一份、怎麼寫，看開機說明「記憶與學習」那一節，那裡是權威**；只送改動的那一段。\n3. 呼叫 MCP `report_stopped()`，**然後讀回應裡的 `stop_effect`**。這一呼**不一定**會結束你的 session，四個值意思不同：\n   - `collected` —— 這一呼把刀送出去了，你正在被收。⚠️ **如果你收到這個值之後還活著、還被派事，那就是它沒成功**（伺服器把刀送出去之前的最後一步寫入可能失敗而沒有回報）。**這種情況不要再呼一次**（見 `already_reported`，重呼什麼都不會做），直接 `post_chat` 告訴有權改 `desired_state` 的人。\n   - `latched_for_collect` —— 這一呼沒送刀，但下一個 tick 會來收你。也是正在被收。\n   - `recorded_only` —— 🔴 **只是被記下來，沒有任何人在收你**。不會有刀、你不會停，過一下就會被再叫起來繼續花錢。**不要以為自己已經停了**；再呼一次也不會改變（見下一項）。要真的停下來，得由有權改 `desired_state` 的人來改，用 `post_chat` 告訴他你收到的是這個值。\n   - `already_reported` —— 你之前已經報過停了，**這一呼什麼都沒做**。第一次那呼的結果（不管是好是壞）仍然算數，重呼不是重試。\n"
 
+const apiTestAcceleratedNotice = "你的結束時刻是 1970-01-01T00:18:40Z。\n# 加速停止\n\n下線過程中，所有重要資料都不可以只留在本機 —— 重啟之後你可能在另一台機器上。\n\n- git commit 要推送到 remote。\n- 產物（artifact）要上傳到 task 底下。\n\n## 1. 你收到的是哪一種\n\n你讀到的是這一份，就代表**你在倒數中**：上面那一行的結束時刻就是死線。過了那個時刻你會被直接收掉，所以**先保交接、後保細節**。\n\n⚠️ **倒數不是唯一的終點，而且第二個終點可能更早到。**\n**先確認這一段對不對你說話：它只對「外包 worker（`ow-` 開頭）被搬到另一台機器」那一條路成立。**\n你是正職成員的話，重新聚焦／換機器／換模型／自我重啟都是**先把你停掉、下一個 tick 才叫接班的起來**，\n接班的不會在你收尾時同時活著，你手上的 token 整段收尾都有效 —— **不要為了一個不存在的窗口趕工**，\n收乾淨仍然比收得快重要。外包 worker 跨機器搬家則相反：舊那一輪還活在 A、新的 START 已經送到 B，\n兩台機器的防重複守衛各自只看得到自己那台，所以兩輪會真的同時活著。在那條路上：\n**接班的那一輪一開機回報，你手上的 token 就當場失效**——不是被倒數收掉，是接班的來了。\n症狀跟 token 過期一模一樣：**你之後每一個 MCP 呼叫都 401，而且沒有任何一句話告訴你為什麼**。\n所以**只有被搬家的外包 worker** 要先把別人需要的東西寫出去（`post_chat` 給自己、task step、\n教訓回寫），細節放後面；寫完再慢慢收本機的暫存。這是 owner 明知代價後選的（交接可能斷在半路），\n不是故障，**別重試、別當成 server 壞了**。\n\n## 2. 開始下線\n\n1. 呼叫 MCP `report_stopping()`。\n2. 用 MCP `post_chat` 發給自己：現況、在途工作、阻塞點、下一步，以及有哪些 sub agent 在做什麼、跑多久了。\n3. 把在途的 sub agent 寫進 task step。**這一格沒被更新過，就代表它沒交件，下一代要重派。**\n\n## 3. 結束 sub agent\n\n- 請 sub agent 立刻把手上的東西收尾並結束，把目前狀態寫回 server，至少包含已驗證的內容、證據位置、剩餘工作與未檢查範圍。\n- **每個 sub agent 一結束就當場更新** `post_chat` 與 task step，不要留到最後。\n\n## 4. 收尾\n\n1. 用 `ocagent clean <path>` 移除暫存檔/資料夾（不要用 `rm -rf`，他可能讓你彈出確認視窗而停住）。\n   - 它回非 0 多半是**這次指錯路徑**（例如指到工作目錄外面），不是壞了：換一個路徑再叫一次，不要為了收暫存停在這裡。\n2. 把這一輪的重要教訓回寫到長期記憶。**要寫進哪一份、怎麼寫，看開機說明「記憶與學習」那一節，那裡是權威**；只送改動的那一段。\n3. 呼叫 MCP `report_stopped()`，**然後讀回應裡的 `stop_effect`**。這一呼**不一定**會結束你的 session，四個值意思不同：\n   - `collected` —— 這一呼把刀送出去了，你正在被收。⚠️ **如果你收到這個值之後還活著、還被派事，那就是它沒成功**（伺服器把刀送出去之前的最後一步寫入可能失敗而沒有回報）。**這種情況不要再呼一次**（見 `already_reported`，重呼什麼都不會做），直接 `post_chat` 告訴有權改 `desired_state` 的人。\n   - `latched_for_collect` —— 這一呼沒送刀，但下一個 tick 會來收你。也是正在被收。\n   - `recorded_only` —— 🔴 **只是被記下來，沒有任何人在收你**。不會有刀、你不會停，過一下就會被再叫起來繼續花錢。**不要以為自己已經停了**；再呼一次也不會改變（見下一項）。要真的停下來，得由有權改 `desired_state` 的人來改，用 `post_chat` 告訴他你收到的是這個值。\n   - `already_reported` —— 你之前已經報過停了，**這一呼什麼都沒做**。第一次那呼的結果（不管是好是壞）仍然算數，重呼不是重試。\n"
+
+const apiTestOffboardWriteBackClause = "先用 `get_task` 讀這張票（票號就是 id，直接餵給它），看它屬於哪一本任務手冊（欄位 `type_key`）。\n\n若這一趟有值得留下的經驗（踩坑、更好做法），先用 get_task_manual 讀現況，再用 patch_task_learnings（type_key 用上一步讀到的值）只把改動的那一段送回**那本**任務手冊：改既有段落就用它的唯一錨點，第一次寫或要新增就用空錨點追加。不要用 write_task_learnings 做整份取代 —— 讀取後到寫入之間別人新增的內容會被無聲蓋掉；用 `ocagent clean <path>` 移除這個任務的暫存檔/資料夾、收掉臨時 branch/worktree 與跑著的臨時程序；票已經結束的話，最後用 report_task_closeout 回報後續已處理完。⚠️ 你若是**被換手、而這張票還在跑**，這一支會回 409 —— 那一步就跳過，票沒結束就沒有結案可報，這一段的寫回與清理照做。"
+
+func apiTestMemberFrame(seq int, op, id string, payload any, trigger string) map[string]any {
+	return map[string]any{
+		"seq": seq, "topic": "member", "op": op,
+		"data": map[string]any{
+			"entity": "member", "key": "owner::" + id,
+			"epoch": seq, "deleted": op == "remove", "payload": payload,
+		},
+		"ts": apiAnyNumber, "trigger": trigger,
+	}
+}
+
+func apiTestMemberPayload(id, name, status, desired string) map[string]any {
+	return map[string]any{
+		"id": id, "name": name, "status": status,
+		"desired_state": desired, "owner_id": "owner",
+	}
+}
+
+func apiTestMemberRow(t *testing.T, d *DAL, id string) Member {
+	t.Helper()
+	m, err := d.GetMember(id)
+	if err != nil {
+		t.Fatalf("GetMember(%q): %v", id, err)
+	}
+	if m == nil {
+		t.Fatalf("GetMember(%q): no such row", id)
+	}
+	return *m
+}
+
+func apiTestWantEqual(t *testing.T, label string, got, want any) {
+	t.Helper()
+	if reflect.DeepEqual(got, want) {
+		return
+	}
+	wantJSON, _ := json.Marshal(want)
+	gotJSON, _ := json.Marshal(got)
+	t.Fatalf("%s:\n want %s\n  got %s", label, wantJSON, gotJSON)
+}
+
+func apiTestAuthedRequest(t *testing.T, api *apiServer, d *DAL, token string) *http.Request {
+	t.Helper()
+	var captured *http.Request
+	gate := requireAuth(api.keys, nil, d.GetMember, http.HandlerFunc(
+		func(_ http.ResponseWriter, r *http.Request) { captured = r }))
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest("POST", "/api/self/waking", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	gate.ServeHTTP(rec, req)
+	if captured == nil {
+		t.Fatalf("the auth gate refused the credential: %d %s", rec.Code, rec.Body.String())
+	}
+	return captured
+}
+
+func apiTestTypedTaskWorker(t *testing.T, api *apiServer, h http.Handler, d *DAL, owner, typeKey string) Member {
+	t.Helper()
+	apiTestWorkerFixture(t, h, d, owner, "ow-abc123", WorkerStatusActive)
+	if typeKey != "" {
+		task, err := d.GetTask("T-1")
+		if err != nil || task == nil {
+			t.Fatalf("GetTask: %v %v", task, err)
+		}
+		task.TypeKey = typeKey
+		if err := d.PutTask(*task); err != nil {
+			t.Fatalf("PutTask: %v", err)
+		}
+	}
+	_ = api
+	return apiTestMemberRow(t, d, "ow-abc123")
+}
+
 func TestPutMember(t *testing.T) {
-	t.Skip("TODO: putMember validates + persists a member and fans the member delta: a dismiss (roster_status=removed, the soft delete) rides as op=remove (deleted:true, payload null — Repository.put_member parity); every other write is a patch carrying the partial convenience payload (spec/sse.md §2.2: {id, name, status, desired_state, owner_id}).")
+	t.Run("a valid row is persisted whole and its patch reaches the dashboard and that member alone", func(t *testing.T) {
+		api, _, d, _ := newAPITestServer(t)
+		before := apiTestMemberRow(t, d, "kip")
+		dashboard := apiTestListen(t, api, "")
+		self := apiTestListen(t, api, "kip")
+		bystander := apiTestListen(t, api, "mira")
+
+		m := before
+		m.Name = "Kipling"
+		m.DesiredState = DesiredStateOnline
+		if err := api.putMember(m, "owner"); err != nil {
+			t.Fatalf("putMember: %v", err)
+		}
+
+		want := before
+		want.Name = "Kipling"
+		want.DesiredState = DesiredStateOnline
+		apiTestWantEqual(t, "stored row", apiTestMemberRow(t, d, "kip"), want)
+		frame := apiTestMemberFrame(1, "patch", "kip",
+			apiTestMemberPayload("kip", "Kipling", "active", "online"), "owner")
+		dashboard.wantFrames(frame)
+		self.wantFrames(frame)
+		bystander.wantFrames()
+	})
+
+	t.Run("a removed roster status rides as op=remove carrying a null payload, and the row stays in the table", func(t *testing.T) {
+		api, _, d, _ := newAPITestServer(t)
+		before := apiTestMemberRow(t, d, "kip")
+		dashboard := apiTestListen(t, api, "")
+		self := apiTestListen(t, api, "kip")
+
+		m := before
+		m.RosterStatus = RosterStatusRemoved
+		if err := api.putMember(m, "owner"); err != nil {
+			t.Fatalf("putMember: %v", err)
+		}
+
+		want := before
+		want.RosterStatus = RosterStatusRemoved
+		apiTestWantEqual(t, "stored row", apiTestMemberRow(t, d, "kip"), want)
+		frame := apiTestMemberFrame(1, "remove", "kip", nil, "owner")
+		dashboard.wantFrames(frame)
+		self.wantFrames(frame)
+	})
+
+	t.Run("a kind outside the closed set is refused by name, writes nothing and fans nothing", func(t *testing.T) {
+		api, _, d, _ := newAPITestServer(t)
+		before := apiTestMemberRow(t, d, "kip")
+		dashboard := apiTestListen(t, api, "")
+
+		m := before
+		m.Kind = "ghost"
+		m.Name = "Kipling"
+		err := api.putMember(m, "owner")
+		if err == nil {
+			t.Fatalf("want a refusal, got nil")
+		}
+		if err.Error() != `member kip: kind "ghost" not in {"staff", "warden", "outsource"}` {
+			t.Fatalf("refusal text: %q", err.Error())
+		}
+		apiTestWantEqual(t, "stored row", apiTestMemberRow(t, d, "kip"), before)
+		dashboard.wantFrames()
+	})
+
+	t.Run("a runtime outside the closed set is refused while a blank runtime is accepted", func(t *testing.T) {
+		api, _, d, _ := newAPITestServer(t)
+		before := apiTestMemberRow(t, d, "kip")
+		dashboard := apiTestListen(t, api, "")
+
+		m := before
+		m.Runtime = "gpt"
+		err := api.putMember(m, "owner")
+		if err == nil {
+			t.Fatalf("want a refusal, got nil")
+		}
+		if err.Error() != `member kip: runtime "gpt" not in {"claude", "codex"}` {
+			t.Fatalf("refusal text: %q", err.Error())
+		}
+		apiTestWantEqual(t, "stored row", apiTestMemberRow(t, d, "kip"), before)
+		dashboard.wantFrames()
+
+		blank := before
+		blank.Runtime = ""
+		if err := api.putMember(blank, "owner"); err != nil {
+			t.Fatalf("a blank runtime must be accepted: %v", err)
+		}
+		apiTestWantEqual(t, "stored row", apiTestMemberRow(t, d, "kip"), before)
+		dashboard.wantFrames(apiTestMemberFrame(1, "patch", "kip",
+			apiTestMemberPayload("kip", "Kip", "active", ""), "owner"))
+	})
 }
 
 func TestPersistMemberOpReceipt(t *testing.T) {
-	t.Skip("TODO: persistMemberOpReceipt stores the five last_op* columns of an ALREADY-STAMPED member row through their sole writer, then fans the member delta (T-55).")
+	t.Run("only the five receipt columns land, and the fanned delta carries the caller's snapshot rather than the stored row", func(t *testing.T) {
+		api, _, d, _ := newAPITestServer(t)
+		before := apiTestMemberRow(t, d, "kip")
+		dashboard := apiTestListen(t, api, "")
+		self := apiTestListen(t, api, "kip")
+		bystander := apiTestListen(t, api, "mira")
+
+		ok := true
+		m := before
+		m.Name = "Kipling"
+		m.LastOp = "activate"
+		m.LastOpOK = &ok
+		m.LastOpLog = "start dispatched"
+		m.LastOpReason = "owner pressed it"
+		m.LastOpAt = 1700000000
+		if err := api.persistMemberOpReceipt(m, "owner"); err != nil {
+			t.Fatalf("persistMemberOpReceipt: %v", err)
+		}
+
+		want := before
+		want.LastOp = "activate"
+		want.LastOpOK = &ok
+		want.LastOpLog = "start dispatched"
+		want.LastOpReason = "owner pressed it"
+		want.LastOpAt = 1700000000
+		apiTestWantEqual(t, "stored row", apiTestMemberRow(t, d, "kip"), want)
+		frame := apiTestMemberFrame(1, "patch", "kip",
+			apiTestMemberPayload("kip", "Kipling", "active", ""), "owner")
+		dashboard.wantFrames(frame)
+		self.wantFrames(frame)
+		bystander.wantFrames()
+	})
+
+	t.Run("a receipt whose ok flag is nil is stored as nil rather than as false", func(t *testing.T) {
+		api, _, d, _ := newAPITestServer(t)
+		notOK := false
+		stamped := apiTestMemberRow(t, d, "kip")
+		stamped.LastOp = "deactivate"
+		stamped.LastOpOK = &notOK
+		if err := api.persistMemberOpReceipt(stamped, "owner"); err != nil {
+			t.Fatalf("persistMemberOpReceipt: %v", err)
+		}
+		if got := apiTestMemberRow(t, d, "kip"); got.LastOpOK == nil || *got.LastOpOK {
+			t.Fatalf("want a stored false, got %v", got.LastOpOK)
+		}
+
+		cleared := apiTestMemberRow(t, d, "kip")
+		cleared.LastOpOK = nil
+		if err := api.persistMemberOpReceipt(cleared, "owner"); err != nil {
+			t.Fatalf("persistMemberOpReceipt: %v", err)
+		}
+		if got := apiTestMemberRow(t, d, "kip"); got.LastOpOK != nil {
+			t.Fatalf("want a stored nil, got %v", *got.LastOpOK)
+		}
+	})
+
+	t.Run("a receipt naming a row the roster does not carry writes nobody and still fans the delta", func(t *testing.T) {
+		api, _, d, _ := newAPITestServer(t)
+		dashboard := apiTestListen(t, api, "")
+
+		if err := api.persistMemberOpReceipt(Member{ID: "nope", Name: "Nobody",
+			Kind: KindStaff, RosterStatus: RosterStatusActive, LastOp: "activate"}, "owner"); err != nil {
+			t.Fatalf("persistMemberOpReceipt: %v", err)
+		}
+
+		if row, err := d.GetMember("nope"); err != nil || row != nil {
+			t.Fatalf("want no row minted, got %v %v", row, err)
+		}
+		dashboard.wantFrames(apiTestMemberFrame(1, "patch", "nope",
+			apiTestMemberPayload("nope", "Nobody", "active", ""), "owner"))
+	})
 }
 
 func TestWindDownAnchorRowOfMember(t *testing.T) {
-	t.Skip("TODO: windDownAnchorRowOfMember / windDownAnchorRowOfWorker are pure address-taking adapters and must stay that way, for the reason stopVerbRowOfMember gives: any logic here would be logic that exists twice again.")
+	t.Run("the four pointers name the member's own anchor columns and the id is a copy", func(t *testing.T) {
+		m := Member{ID: "kip", Name: "Kip", Kind: KindStaff, RosterStatus: RosterStatusActive,
+			StoppingSince: 1, StoppedSince: 2, RefocusSince: 3, RefocusOp: refocusOpRefocus}
+		row := windDownAnchorRowOfMember(&m)
+
+		if row.ID != "kip" {
+			t.Fatalf("row id: %q", row.ID)
+		}
+		if *row.StoppingSince != 1 || *row.StoppedSince != 2 || *row.RefocusSince != 3 ||
+			*row.RefocusOp != refocusOpRefocus {
+			t.Fatalf("row reads %v %v %v %q", *row.StoppingSince, *row.StoppedSince,
+				*row.RefocusSince, *row.RefocusOp)
+		}
+
+		row.ID = "somebody-else"
+		*row.StoppingSince = 10
+		*row.StoppedSince = 20
+		*row.RefocusSince = 30
+		*row.RefocusOp = refocusOpAcceleratedStop
+		apiTestWantEqual(t, "member", m, Member{ID: "kip", Name: "Kip", Kind: KindStaff,
+			RosterStatus: RosterStatusActive, StoppingSince: 10, StoppedSince: 20,
+			RefocusSince: 30, RefocusOp: refocusOpAcceleratedStop})
+	})
+
+	t.Run("a row taken over a copy leaves the original member untouched", func(t *testing.T) {
+		original := Member{ID: "kip", Kind: KindStaff, StoppingSince: 1, StoppedSince: 2,
+			RefocusSince: 3, RefocusOp: refocusOpRefocus}
+		copied := original
+		row := windDownAnchorRowOfMember(&copied)
+		*row.StoppingSince = 99
+		*row.RefocusOp = ""
+
+		apiTestWantEqual(t, "the original", original, Member{ID: "kip", Kind: KindStaff,
+			StoppingSince: 1, StoppedSince: 2, RefocusSince: 3, RefocusOp: refocusOpRefocus})
+		apiTestWantEqual(t, "the copy", copied, Member{ID: "kip", Kind: KindStaff,
+			StoppingSince: 99, StoppedSince: 2, RefocusSince: 3, RefocusOp: ""})
+	})
 }
 
 func TestWindDownAnchorRowOfWorker(t *testing.T) {
-	t.Skip("TODO: 需要人工判斷這個函式的可觀察結果是什麼")
+	t.Run("the four pointers name the worker's own anchor columns and the id is a copy", func(t *testing.T) {
+		w := OutsourceWorker{ID: "ow-abc123", Codename: "Contractor", Status: WorkerStatusActive,
+			StoppingSince: 1, StoppedSince: 2, RefocusSince: 3, RefocusOp: refocusOpRefocus}
+		row := windDownAnchorRowOfWorker(&w)
+
+		if row.ID != "ow-abc123" {
+			t.Fatalf("row id: %q", row.ID)
+		}
+		if *row.StoppingSince != 1 || *row.StoppedSince != 2 || *row.RefocusSince != 3 ||
+			*row.RefocusOp != refocusOpRefocus {
+			t.Fatalf("row reads %v %v %v %q", *row.StoppingSince, *row.StoppedSince,
+				*row.RefocusSince, *row.RefocusOp)
+		}
+
+		row.ID = "ow-somebody-else"
+		*row.StoppingSince = 10
+		*row.StoppedSince = 20
+		*row.RefocusSince = 30
+		*row.RefocusOp = refocusOpAcceleratedStop
+		apiTestWantEqual(t, "worker", w, OutsourceWorker{ID: "ow-abc123", Codename: "Contractor",
+			Status: WorkerStatusActive, StoppingSince: 10, StoppedSince: 20,
+			RefocusSince: 30, RefocusOp: refocusOpAcceleratedStop})
+	})
+
+	t.Run("a row taken over a copy leaves the original worker untouched", func(t *testing.T) {
+		original := OutsourceWorker{ID: "ow-abc123", StoppingSince: 1, StoppedSince: 2,
+			RefocusSince: 3, RefocusOp: refocusOpRefocus}
+		copied := original
+		row := windDownAnchorRowOfWorker(&copied)
+		*row.StoppedSince = 99
+		*row.RefocusSince = 0
+
+		apiTestWantEqual(t, "the original", original, OutsourceWorker{ID: "ow-abc123",
+			StoppingSince: 1, StoppedSince: 2, RefocusSince: 3, RefocusOp: refocusOpRefocus})
+		apiTestWantEqual(t, "the copy", copied, OutsourceWorker{ID: "ow-abc123",
+			StoppingSince: 1, StoppedSince: 99, RefocusSince: 0, RefocusOp: refocusOpRefocus})
+	})
 }
 
 func TestPersistWindDownAnchors(t *testing.T) {
-	t.Skip("TODO: persistWindDownAnchors is THE body of the anchor write, for both populations.")
+	t.Run("the four anchors land on the member row, nothing else moves and no delta is fanned", func(t *testing.T) {
+		api, _, d, _ := newAPITestServer(t)
+		before := apiTestMemberRow(t, d, "kip")
+		dashboard := apiTestListen(t, api, "")
+		self := apiTestListen(t, api, "kip")
+
+		m := before
+		m.Name = "Kipling"
+		m.StoppingSince = 1000
+		m.StoppedSince = 1100
+		m.RefocusSince = 900
+		m.RefocusOp = refocusOpRefocus
+		if err := api.persistWindDownAnchors(windDownAnchorRowOfMember(&m)); err != nil {
+			t.Fatalf("persistWindDownAnchors: %v", err)
+		}
+
+		want := before
+		want.StoppingSince = 1000
+		want.StoppedSince = 1100
+		want.RefocusSince = 900
+		want.RefocusOp = refocusOpRefocus
+		apiTestWantEqual(t, "stored row", apiTestMemberRow(t, d, "kip"), want)
+		dashboard.wantFrames()
+		self.wantFrames()
+	})
+
+	t.Run("zeroed anchors are written as zeroes rather than skipped", func(t *testing.T) {
+		api, _, d, _ := newAPITestServer(t)
+		open := apiTestMemberRow(t, d, "kip")
+		open.StoppingSince = 1000
+		open.RefocusSince = 900
+		open.RefocusOp = refocusOpRefocus
+		if err := api.persistWindDownAnchors(windDownAnchorRowOfMember(&open)); err != nil {
+			t.Fatalf("persistWindDownAnchors: %v", err)
+		}
+		before := apiTestMemberRow(t, d, "kip")
+
+		cleared := before
+		cleared.StoppingSince = 0
+		cleared.StoppedSince = 0
+		cleared.RefocusSince = 0
+		cleared.RefocusOp = ""
+		if err := api.persistWindDownAnchors(windDownAnchorRowOfMember(&cleared)); err != nil {
+			t.Fatalf("persistWindDownAnchors: %v", err)
+		}
+
+		want := before
+		want.StoppingSince = 0
+		want.StoppedSince = 0
+		want.RefocusSince = 0
+		want.RefocusOp = ""
+		apiTestWantEqual(t, "stored row", apiTestMemberRow(t, d, "kip"), want)
+	})
+
+	t.Run("an id the roster does not carry is a clean no-op that mints nobody", func(t *testing.T) {
+		api, _, d, _ := newAPITestServer(t)
+		dashboard := apiTestListen(t, api, "")
+
+		ghost := Member{ID: "nope", StoppingSince: 1000, RefocusOp: refocusOpRefocus}
+		if err := api.persistWindDownAnchors(windDownAnchorRowOfMember(&ghost)); err != nil {
+			t.Fatalf("persistWindDownAnchors: %v", err)
+		}
+
+		if row, err := d.GetMember("nope"); err != nil || row != nil {
+			t.Fatalf("want no row minted, got %v %v", row, err)
+		}
+		dashboard.wantFrames()
+	})
+
+	t.Run("the worker face writes the same four columns onto an outsource row", func(t *testing.T) {
+		api, h, d, owner := newAPITestServer(t)
+		apiTestWorkerFixture(t, h, d, owner, "ow-abc123", WorkerStatusActive)
+		before, err := d.GetOutsourceWorker("ow-abc123")
+		if err != nil || before == nil {
+			t.Fatalf("GetOutsourceWorker: %v %v", before, err)
+		}
+		dashboard := apiTestListen(t, api, "")
+
+		w := *before
+		w.Codename = "Renamed"
+		w.StoppingSince = 1000
+		w.StoppedSince = 1100
+		w.RefocusSince = 900
+		w.RefocusOp = refocusOpAcceleratedStop
+		if err := api.persistWorkerWindDownAnchors(w); err != nil {
+			t.Fatalf("persistWorkerWindDownAnchors: %v", err)
+		}
+
+		after, err := d.GetOutsourceWorker("ow-abc123")
+		if err != nil || after == nil {
+			t.Fatalf("GetOutsourceWorker: %v %v", after, err)
+		}
+		want := *before
+		want.StoppingSince = 1000
+		want.StoppedSince = 1100
+		want.RefocusSince = 900
+		want.RefocusOp = refocusOpAcceleratedStop
+		apiTestWantEqual(t, "stored worker", *after, want)
+		dashboard.wantFrames()
+	})
 }
 
 func TestPublishMemberPatch(t *testing.T) {
-	t.Skip("TODO: publishMemberPatch fans the member delta and nothing else.")
+	t.Run("an active member's patch reaches the dashboard and that member alone, and writes nothing", func(t *testing.T) {
+		api, _, d, _ := newAPITestServer(t)
+		before := apiTestMemberRow(t, d, "kip")
+		dashboard := apiTestListen(t, api, "")
+		self := apiTestListen(t, api, "kip")
+		bystander := apiTestListen(t, api, "mira")
+
+		api.publishMemberPatch(before, "owner")
+
+		apiTestWantEqual(t, "stored row", apiTestMemberRow(t, d, "kip"), before)
+		frame := apiTestMemberFrame(1, "patch", "kip",
+			apiTestMemberPayload("kip", "Kip", "active", ""), "owner")
+		dashboard.wantFrames(frame)
+		self.wantFrames(frame)
+		bystander.wantFrames()
+	})
+
+	t.Run("a removed member rides as op=remove carrying a null payload", func(t *testing.T) {
+		api, _, d, _ := newAPITestServer(t)
+		m := apiTestMemberRow(t, d, "kip")
+		m.RosterStatus = RosterStatusRemoved
+		dashboard := apiTestListen(t, api, "")
+		self := apiTestListen(t, api, "kip")
+
+		api.publishMemberPatch(m, "server")
+
+		frame := apiTestMemberFrame(1, "remove", "kip", nil, "server")
+		dashboard.wantFrames(frame)
+		self.wantFrames(frame)
+	})
+
+	t.Run("a member under a graceful stop carries the wind-down sentence in the frame", func(t *testing.T) {
+		api, _, d, _ := newAPITestServer(t)
+		m := apiTestMemberRow(t, d, "kip")
+		m.DesiredState = DesiredStateOffline
+		m.StoppingSince = 1000
+		dashboard := apiTestListen(t, api, "")
+
+		api.publishMemberPatch(m, "owner")
+
+		payload := apiTestMemberPayload("kip", "Kip", "active", "offline")
+		payload["offboard_notice"] = apiTestOffboardNotice
+		dashboard.wantFrames(apiTestMemberFrame(1, "patch", "kip", payload, "owner"))
+	})
 }
 
 func TestMemberDeltaPayload(t *testing.T) {
-	t.Skip("TODO: memberDeltaPayload is the member delta's partial convenience payload (repository._member_payload — the client reconciles by refetch).")
+	t.Run("a staff row is projected onto the five convenience keys and nothing else", func(t *testing.T) {
+		got := memberDeltaPayload(Member{ID: "kip", Name: "Kip", Kind: KindStaff,
+			RoleKey: "engineer", Runtime: "claude", Model: "sonnet",
+			DesiredState: DesiredStateOnline, RosterStatus: RosterStatusActive,
+			StoppingSince: 1000, ForcedStopAt: 900})
+		apiTestWantEqual(t, "payload", got, map[string]any{
+			"id": "kip", "name": "Kip", "status": "active",
+			"desired_state": "online", "owner_id": "owner",
+		})
+	})
+
+	t.Run("a dismissed row keeps the same five keys and reports its removed roster status", func(t *testing.T) {
+		got := memberDeltaPayload(Member{ID: "kip", Name: "Kip", Kind: KindStaff,
+			RosterStatus: RosterStatusRemoved})
+		apiTestWantEqual(t, "payload", got, map[string]any{
+			"id": "kip", "name": "Kip", "status": "removed",
+			"desired_state": "", "owner_id": "owner",
+		})
+	})
+
+	t.Run("an outsource row is projected the same way, by codename-as-name", func(t *testing.T) {
+		got := memberDeltaPayload(memberFromWorker(OutsourceWorker{ID: "ow-abc123",
+			Codename: "Contractor", Status: WorkerStatusAssigned, TaskID: "T-1",
+			DesiredState: DesiredStateOffline}))
+		apiTestWantEqual(t, "payload", got, map[string]any{
+			"id": "ow-abc123", "name": "Contractor", "status": "active",
+			"desired_state": "offline", "owner_id": "owner",
+		})
+	})
 }
 
 func TestOffboardDeltaPayload(t *testing.T) {
-	t.Skip("TODO: offboardDeltaPayload is memberDeltaPayload plus the offboard notice, and it is the whole of \"改回真的推播\" (owner 2026-08-16, card rc-66b82a584c4d): the SERVER composes the sentence and carries the 〈停止〉 steps in the frame it pushes, instead of the agent fetching them back over HTTP once it notices it is being collected.")
+	t.Run("a member nobody is winding down carries the five keys and no notice key at all", func(t *testing.T) {
+		api, _, d, _ := newAPITestServer(t)
+		apiTestWantEqual(t, "payload", api.offboardDeltaPayload(apiTestMemberRow(t, d, "kip")),
+			map[string]any{"id": "kip", "name": "Kip", "status": "active",
+				"desired_state": "", "owner_id": "owner"})
+	})
+
+	t.Run("a member under a graceful stop carries the soft wind-down document", func(t *testing.T) {
+		api, _, d, _ := newAPITestServer(t)
+		m := apiTestMemberRow(t, d, "kip")
+		m.DesiredState = DesiredStateOffline
+		m.StoppingSince = 1000
+
+		apiTestWantEqual(t, "payload", api.offboardDeltaPayload(m),
+			map[string]any{"id": "kip", "name": "Kip", "status": "active",
+				"desired_state": "offline", "owner_id": "owner",
+				"offboard_notice": apiTestOffboardNotice})
+	})
+
+	t.Run("a member the owner accelerated carries the accelerated document with its deadline rendered", func(t *testing.T) {
+		api, _, d, _ := newAPITestServer(t)
+		m := apiTestMemberRow(t, d, "kip")
+		m.DesiredState = DesiredStateOffline
+		m.StoppingSince = 1000
+		m.RefocusOp = refocusOpAcceleratedStop
+
+		apiTestWantEqual(t, "payload", api.offboardDeltaPayload(m),
+			map[string]any{"id": "kip", "name": "Kip", "status": "active",
+				"desired_state": "offline", "owner_id": "owner",
+				"offboard_notice": apiTestAcceleratedNotice})
+	})
+
+	t.Run("a member whose stop epoch was forced is told nothing at all", func(t *testing.T) {
+		api, _, d, _ := newAPITestServer(t)
+		m := apiTestMemberRow(t, d, "kip")
+		m.DesiredState = DesiredStateOffline
+		m.StoppingSince = 1000
+		m.ForcedStopAt = 1000
+
+		apiTestWantEqual(t, "payload", api.offboardDeltaPayload(m),
+			map[string]any{"id": "kip", "name": "Kip", "status": "active",
+				"desired_state": "offline", "owner_id": "owner"})
+	})
 }
 
 func TestOffboardKindOf(t *testing.T) {
-	t.Skip("TODO: offboardKindOf answers the two questions every offboard delta turns on: does this member carry a notice at all, and is it the SOFT one or the FINAL call.")
+	cases := []struct {
+		name    string
+		member  Member
+		kind    string
+		carries bool
+	}{
+		{"a member with no wind-down at all carries no notice",
+			Member{ID: "kip"}, "", false},
+		{"a desired-offline member with no stop anchor carries no notice",
+			Member{ID: "kip", DesiredState: DesiredStateOffline}, "", false},
+		{"a graceful stop epoch is the soft sentence",
+			Member{ID: "kip", DesiredState: DesiredStateOffline, StoppingSince: 1000},
+			offboardKindSoft, true},
+		{"a stop epoch the owner accelerated is the final call",
+			Member{ID: "kip", DesiredState: DesiredStateOffline, StoppingSince: 1000,
+				RefocusOp: refocusOpAcceleratedStop}, offboardKindFinal, true},
+		{"a stop epoch marked by an unclocked cause is still the soft sentence",
+			Member{ID: "kip", DesiredState: DesiredStateOffline, StoppingSince: 1000,
+				RefocusOp: refocusOpRefocus}, offboardKindSoft, true},
+		{"a stop epoch that a force-stop opened says nothing",
+			Member{ID: "kip", DesiredState: DesiredStateOffline, StoppingSince: 1000,
+				ForcedStopAt: 1000}, "", false},
+		{"an online member with no refocus epoch carries no notice",
+			Member{ID: "kip", DesiredState: DesiredStateOnline}, "", false},
+		{"an online member under 重新聚焦 is the soft sentence",
+			Member{ID: "kip", DesiredState: DesiredStateOnline, RefocusSince: 1000,
+				RefocusOp: refocusOpRefocus}, offboardKindSoft, true},
+		{"an online member at the second context threshold is the final call",
+			Member{ID: "kip", DesiredState: DesiredStateOnline, RefocusSince: 1000,
+				RefocusOp: refocusOpContextHigh}, offboardKindFinal, true},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			kind, carries := offboardKindOf(c.member, 0)
+			if kind != c.kind || carries != c.carries {
+				t.Fatalf("want (%q, %v), got (%q, %v)", c.kind, c.carries, kind, carries)
+			}
+			late, lateCarries := offboardKindOf(c.member, 1.8e9)
+			if late != kind || lateCarries != carries {
+				t.Fatalf("the clock moved the answer: (%q, %v) then (%q, %v)",
+					kind, carries, late, lateCarries)
+			}
+		})
+	}
 }
 
 func TestForcedEpochLive(t *testing.T) {
-	t.Skip("TODO: forcedEpochLive: the stop this member is currently under was opened by a FORCE-stop, not by 下線.")
+	cases := []struct {
+		name   string
+		member Member
+		want   bool
+	}{
+		{"a member that was never force-stopped is not under a forced epoch",
+			Member{StoppingSince: 1000}, false},
+		{"a force-stop record with no open stop epoch is not a live one",
+			Member{ForcedStopAt: 1000}, false},
+		{"a force-stop stamped after this epoch opened is live",
+			Member{StoppingSince: 1000, ForcedStopAt: 1001}, true},
+		{"a force-stop stamped on the same tick as the epoch is live",
+			Member{StoppingSince: 1000, ForcedStopAt: 1000}, true},
+		{"a force-stop that predates this epoch belongs to an earlier session",
+			Member{StoppingSince: 1000, ForcedStopAt: 999}, false},
+		{"a member with neither anchor is not under a forced epoch",
+			Member{}, false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := forcedEpochLive(c.member); got != c.want {
+				t.Fatalf("want %v, got %v", c.want, got)
+			}
+		})
+	}
 }
 
 func TestStopEpochAnchor(t *testing.T) {
-	t.Skip("TODO: stopEpochAnchor answers what stopping_since must hold after a 停止 lands on this row: NOW for an ordinary stop, and the value it already carries when the epoch under way is a live FORCED one.")
+	cases := []struct {
+		name   string
+		member Member
+		want   float64
+	}{
+		{"a first stop on a clean row anchors at now", Member{}, 2000},
+		{"an ordinary re-stamp moves the anchor to now",
+			Member{StoppingSince: 1000}, 2000},
+		{"a live forced epoch keeps the anchor it already carries",
+			Member{StoppingSince: 1000, ForcedStopAt: 1000}, 1000},
+		{"a force-stop older than this epoch does not hold the anchor back",
+			Member{StoppingSince: 1000, ForcedStopAt: 999}, 2000},
+		{"a force-stop record with no open epoch does not hold the anchor back",
+			Member{ForcedStopAt: 1000}, 2000},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := stopEpochAnchor(c.member, 2000); got != c.want {
+				t.Fatalf("want %v, got %v", c.want, got)
+			}
+		})
+	}
 }
 
 func TestOffboardNoticeFor(t *testing.T) {
-	t.Skip("TODO: offboardNoticeFor is the WHOLE wind-down sentence for this member: the document its arm reads, plus the manual write-back clause when the member has one.")
+	t.Run("the soft kind answers the 停止 document verbatim", func(t *testing.T) {
+		api, _, d, _ := newAPITestServer(t)
+		m := apiTestMemberRow(t, d, "kip")
+		m.DesiredState = DesiredStateOffline
+		m.StoppingSince = 1000
+
+		if got := api.offboardNoticeFor(m, offboardKindSoft); got != apiTestOffboardNotice {
+			t.Fatalf("soft notice: %q", got)
+		}
+	})
+
+	t.Run("the final kind answers the 加速停止 document with this epoch's deadline rendered", func(t *testing.T) {
+		api, _, d, _ := newAPITestServer(t)
+		m := apiTestMemberRow(t, d, "kip")
+		m.DesiredState = DesiredStateOffline
+		m.StoppingSince = 1000
+		m.RefocusOp = refocusOpAcceleratedStop
+
+		if got := api.offboardNoticeFor(m, offboardKindFinal); got != apiTestAcceleratedNotice {
+			t.Fatalf("final notice: %q", got)
+		}
+	})
+
+	t.Run("a final call with no clock behind it renders nothing at all", func(t *testing.T) {
+		api, _, d, _ := newAPITestServer(t)
+		m := apiTestMemberRow(t, d, "kip")
+		m.RefocusOp = refocusOpAcceleratedStop
+
+		if got := api.offboardNoticeFor(m, offboardKindFinal); got != "" {
+			t.Fatalf("want an empty notice, got %q", got)
+		}
+	})
+
+	t.Run("an outsource member bound to a typed task carries the write-back clause after the document", func(t *testing.T) {
+		api, h, d, owner := newAPITestServer(t)
+		w := apiTestTypedTaskWorker(t, api, h, d, owner, "delivery")
+
+		want := apiTestOffboardNotice + "\n\n" + apiTestOffboardWriteBackClause
+		if got := api.offboardNoticeFor(w, offboardKindSoft); got != want {
+			t.Fatalf("outsource notice: %q", got)
+		}
+	})
+
+	t.Run("a staff member is asked for no write-back clause", func(t *testing.T) {
+		api, _, d, _ := newAPITestServer(t)
+
+		if got := api.offboardNoticeFor(apiTestMemberRow(t, d, "kip"), offboardKindSoft); got != apiTestOffboardNotice {
+			t.Fatalf("staff notice: %q", got)
+		}
+	})
 }
 
 func TestOffboardManualWriteBackFor(t *testing.T) {
-	t.Skip("TODO: offboardManualWriteBackFor resolves the 記憶回寫 clause for THIS member: the worker's bound task decides whether there is a 手冊 to write back into, and offboardManualWriteBack composes the sentence.")
+	t.Run("an outsource member bound to a typed task is given the 任務結案 body", func(t *testing.T) {
+		api, h, d, owner := newAPITestServer(t)
+		w := apiTestTypedTaskWorker(t, api, h, d, owner, "delivery")
+
+		if got := api.offboardManualWriteBackFor(w); got != apiTestOffboardWriteBackClause {
+			t.Fatalf("clause: %q", got)
+		}
+	})
+
+	t.Run("an outsource member whose task has no type is asked for nothing", func(t *testing.T) {
+		api, h, d, owner := newAPITestServer(t)
+		w := apiTestTypedTaskWorker(t, api, h, d, owner, "")
+
+		if got := api.offboardManualWriteBackFor(w); got != "" {
+			t.Fatalf("want no clause, got %q", got)
+		}
+	})
+
+	t.Run("an outsource member bound to no task at all is asked for nothing", func(t *testing.T) {
+		api, h, d, owner := newAPITestServer(t)
+		w := apiTestTypedTaskWorker(t, api, h, d, owner, "delivery")
+		unbound := w
+		unbound.LinkedTaskID = nil
+
+		if got := api.offboardManualWriteBackFor(unbound); got != "" {
+			t.Fatalf("want no clause, got %q", got)
+		}
+		empty := ""
+		unbound.LinkedTaskID = &empty
+		if got := api.offboardManualWriteBackFor(unbound); got != "" {
+			t.Fatalf("want no clause, got %q", got)
+		}
+	})
+
+	t.Run("a staff member bound to the same typed task is asked for nothing", func(t *testing.T) {
+		api, h, d, owner := newAPITestServer(t)
+		w := apiTestTypedTaskWorker(t, api, h, d, owner, "delivery")
+		staff := apiTestMemberRow(t, d, "kip")
+		staff.LinkedTaskID = w.LinkedTaskID
+
+		if got := api.offboardManualWriteBackFor(staff); got != "" {
+			t.Fatalf("want no clause, got %q", got)
+		}
+	})
+
+	t.Run("an outsource member whose task row is gone is asked for nothing", func(t *testing.T) {
+		api, h, d, owner := newAPITestServer(t)
+		w := apiTestTypedTaskWorker(t, api, h, d, owner, "delivery")
+		missing := "T-does-not-exist"
+		w.LinkedTaskID = &missing
+
+		if got := api.offboardManualWriteBackFor(w); got != "" {
+			t.Fatalf("want no clause, got %q", got)
+		}
+	})
 }
 
 func TestResolveAvatarMember(t *testing.T) {
-	t.Skip("TODO: resolveAvatarMember admits active staff and outsource rows but rejects wardens: a machine is infrastructure, not a person with a visual identity.")
+	t.Run("an active staff row is answered whole", func(t *testing.T) {
+		api, _, d, _ := newAPITestServer(t)
+
+		got, err := api.resolveAvatarMember("kip")
+		if err != nil {
+			t.Fatalf("resolveAvatarMember: %v", err)
+		}
+		apiTestWantEqual(t, "member", *got, apiTestMemberRow(t, d, "kip"))
+	})
+
+	t.Run("a warden row is answered too, so the refusal is the handler's and not this resolver's", func(t *testing.T) {
+		api, _, d, _ := newAPITestServer(t)
+
+		got, err := api.resolveAvatarMember("m-server-self")
+		if err != nil {
+			t.Fatalf("resolveAvatarMember: %v", err)
+		}
+		apiTestWantEqual(t, "member", *got, apiTestMemberRow(t, d, "m-server-self"))
+		if got.Kind != KindWarden {
+			t.Fatalf("want a warden row, got kind %q", got.Kind)
+		}
+	})
+
+	t.Run("an outsource row is answered whole", func(t *testing.T) {
+		api, h, d, owner := newAPITestServer(t)
+		apiTestWorkerFixture(t, h, d, owner, "ow-abc123", WorkerStatusActive)
+
+		got, err := api.resolveAvatarMember("ow-abc123")
+		if err != nil {
+			t.Fatalf("resolveAvatarMember: %v", err)
+		}
+		apiTestWantEqual(t, "member", *got, apiTestMemberRow(t, d, "ow-abc123"))
+	})
+
+	t.Run("a dismissed row is not found", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		if status, data := apiJSON(t, h, "DELETE", "/api/members/kip", owner, ""); status != 200 {
+			t.Fatalf("dismiss: %d %v", status, data)
+		}
+
+		got, err := api.resolveAvatarMember("kip")
+		if got != nil || !errors.Is(err, errNotFound) {
+			t.Fatalf("want errNotFound and no member, got %v %v", got, err)
+		}
+	})
+
+	t.Run("an id the roster never carried is not found", func(t *testing.T) {
+		api, _, _, _ := newAPITestServer(t)
+
+		got, err := api.resolveAvatarMember("nope")
+		if got != nil || !errors.Is(err, errNotFound) {
+			t.Fatalf("want errNotFound and no member, got %v %v", got, err)
+		}
+	})
 }
 
 func TestPublishMemberAvatarChanged(t *testing.T) {
-	t.Skip("TODO: 需要人工判斷這個函式的可觀察結果是什麼")
+	t.Run("a staff member's change rides the member topic to the dashboard and to that member alone", func(t *testing.T) {
+		api, _, d, _ := newAPITestServer(t)
+		m := apiTestMemberRow(t, d, "kip")
+		dashboard := apiTestListen(t, api, "")
+		self := apiTestListen(t, api, "kip")
+		bystander := apiTestListen(t, api, "mira")
+
+		api.publishMemberAvatarChanged(m, "owner")
+
+		frame := apiTestMemberFrame(1, "patch", "kip",
+			apiTestMemberPayload("kip", "Kip", "active", ""), "owner")
+		dashboard.wantFrames(frame)
+		self.wantFrames(frame)
+		bystander.wantFrames()
+	})
+
+	t.Run("a staff member under a graceful stop carries the wind-down sentence with it", func(t *testing.T) {
+		api, _, d, _ := newAPITestServer(t)
+		m := apiTestMemberRow(t, d, "kip")
+		m.DesiredState = DesiredStateOffline
+		m.StoppingSince = 1000
+		dashboard := apiTestListen(t, api, "")
+
+		api.publishMemberAvatarChanged(m, "owner")
+
+		payload := apiTestMemberPayload("kip", "Kip", "active", "offline")
+		payload["offboard_notice"] = apiTestOffboardNotice
+		dashboard.wantFrames(apiTestMemberFrame(1, "patch", "kip", payload, "owner"))
+	})
+
+	t.Run("an outsource member's change rides the outsource_worker topic and reaches the owner alone", func(t *testing.T) {
+		api, h, d, owner := newAPITestServer(t)
+		apiTestWorkerFixture(t, h, d, owner, "ow-abc123", WorkerStatusActive)
+		m := apiTestMemberRow(t, d, "ow-abc123")
+		dashboard := apiTestListen(t, api, "")
+		self := apiTestListen(t, api, "ow-abc123")
+
+		api.publishMemberAvatarChanged(m, "owner")
+
+		dashboard.wantFrames(apiTestWorkerDelta(2, "active", "owner"))
+		self.wantFrames()
+	})
 }
 
 func TestMemberAvatarResult(t *testing.T) {
-	t.Skip("TODO: 需要人工判斷這個函式的可觀察結果是什麼")
+	decode := func(t *testing.T, dto MemberAvatarDTO) map[string]any {
+		t.Helper()
+		raw, err := json.Marshal(dto)
+		if err != nil {
+			t.Fatalf("marshal: %v", err)
+		}
+		var got map[string]any
+		if err := json.Unmarshal(raw, &got); err != nil {
+			t.Fatalf("unmarshal: %v", err)
+		}
+		return got
+	}
+
+	t.Run("a stored avatar answers its minted address with the mime and filename beside it", func(t *testing.T) {
+		filename := "portrait.png"
+		got := decode(t, memberAvatarResult(
+			Member{ID: "kip", AvatarAttachmentID: "ava-0001"}, "image/png", &filename))
+
+		apiWantBody(t, got, map[string]any{
+			"member_id":  "kip",
+			"avatar_url": "/api/chat/attachment/ava-0001",
+			"mime":       "image/png",
+			"filename":   "portrait.png",
+		})
+	})
+
+	t.Run("a member carrying no avatar answers the empty address", func(t *testing.T) {
+		got := decode(t, memberAvatarResult(Member{ID: "kip"}, "", nil))
+
+		apiWantBody(t, got, map[string]any{"member_id": "kip", "avatar_url": ""})
+	})
+
+	t.Run("a blank mime omits the key while a filename left nil omits its own", func(t *testing.T) {
+		got := decode(t, memberAvatarResult(
+			Member{ID: "kip", AvatarAttachmentID: "ava-0002"}, "", nil))
+
+		apiWantBody(t, got, map[string]any{
+			"member_id":  "kip",
+			"avatar_url": "/api/chat/attachment/ava-0002",
+		})
+	})
 }
 
 func TestHandlePutMemberAvatarApiMembersMemberIdAvatarPut(t *testing.T) {
@@ -967,23 +1816,185 @@ func TestHandleRelocateMemberApiMembersMemberIdRelocatePost(t *testing.T) {
 }
 
 func TestMemberHeldDownReceipt(t *testing.T) {
-	t.Skip("TODO: memberHeldDownReceipt is the sentence a staff owner-verb leaves on the row when it was SAVED and nothing was started, because the owner has this member held down (T-ed79 #4 / #14).")
+	t.Run("the sentence names the verb that was saved and the 活化 that would start it", func(t *testing.T) {
+		want := "held_down: the 重新聚焦 was saved, but nothing was started — " +
+			"this member is stopped; 活化 it when you want it to run"
+		if got := memberHeldDownReceipt("重新聚焦"); got != want {
+			t.Fatalf("want %q, got %q", want, got)
+		}
+	})
+
+	t.Run("a different verb changes only the verb", func(t *testing.T) {
+		want := "held_down: the 改機器 was saved, but nothing was started — " +
+			"this member is stopped; 活化 it when you want it to run"
+		if got := memberHeldDownReceipt("改機器"); got != want {
+			t.Fatalf("want %q, got %q", want, got)
+		}
+	})
+
+	t.Run("an empty verb still leaves the held-down reason readable", func(t *testing.T) {
+		want := "held_down: the  was saved, but nothing was started — " +
+			"this member is stopped; 活化 it when you want it to run"
+		if got := memberHeldDownReceipt(""); got != want {
+			t.Fatalf("want %q, got %q", want, got)
+		}
+	})
 }
 
 func TestClearMemberHandoverMarker(t *testing.T) {
-	t.Skip("TODO: clearMemberHandoverMarker zeroes the 換手 epoch a staff STOP has just made meaningless — the worker /stop's two lines, given a name (T-ed79 parity #9).")
+	t.Run("the 換手 epoch is zeroed and every other anchor on the row is left alone", func(t *testing.T) {
+		m := Member{ID: "kip", Name: "Kip", Kind: KindStaff, RosterStatus: RosterStatusActive,
+			DesiredState: DesiredStateOffline, RefocusSince: 1000, RefocusOp: refocusOpRefocus,
+			StoppingSince: 1100, StoppedSince: 1200, ForcedStopAt: 900,
+			RestartAfterStop: true, WakingSince: 800, SessionBootTS: 700}
+
+		clearMemberHandoverMarker(&m)
+
+		apiTestWantEqual(t, "member", m, Member{ID: "kip", Name: "Kip", Kind: KindStaff,
+			RosterStatus: RosterStatusActive, DesiredState: DesiredStateOffline,
+			RefocusSince: 0, RefocusOp: "", StoppingSince: 1100, StoppedSince: 1200,
+			ForcedStopAt: 900, RestartAfterStop: true, WakingSince: 800, SessionBootTS: 700})
+	})
+
+	t.Run("a row that carries no 換手 epoch is left exactly as it stood", func(t *testing.T) {
+		m := Member{ID: "kip", Kind: KindStaff, StoppingSince: 1100, ForcedStopAt: 900}
+
+		clearMemberHandoverMarker(&m)
+
+		apiTestWantEqual(t, "member", m, Member{ID: "kip", Kind: KindStaff,
+			StoppingSince: 1100, ForcedStopAt: 900})
+	})
 }
 
 func TestStopVerbRowOfMember(t *testing.T) {
-	t.Skip("TODO: stopVerbRowOfMember / stopVerbRowOfWorker are pure address-taking adapters and must stay that way: any logic here would be logic that exists twice again, which is the thing this file just deleted.")
+	t.Run("the five pointers name the member's own 停止 columns", func(t *testing.T) {
+		m := Member{ID: "kip", Kind: KindStaff, DesiredState: DesiredStateOnline,
+			RefocusSince: 3, RefocusOp: refocusOpRefocus, RestartAfterStop: true,
+			StoppingSince: 1}
+		row := stopVerbRowOfMember(&m)
+
+		if *row.DesiredState != DesiredStateOnline || *row.RefocusSince != 3 ||
+			*row.RefocusOp != refocusOpRefocus || !*row.RestartAfterStop ||
+			*row.StoppingSince != 1 {
+			t.Fatalf("row reads %q %v %q %v %v", *row.DesiredState, *row.RefocusSince,
+				*row.RefocusOp, *row.RestartAfterStop, *row.StoppingSince)
+		}
+
+		*row.DesiredState = DesiredStateOffline
+		*row.RefocusSince = 30
+		*row.RefocusOp = refocusOpAcceleratedStop
+		*row.RestartAfterStop = false
+		*row.StoppingSince = 10
+		apiTestWantEqual(t, "member", m, Member{ID: "kip", Kind: KindStaff,
+			DesiredState: DesiredStateOffline, RefocusSince: 30,
+			RefocusOp: refocusOpAcceleratedStop, RestartAfterStop: false,
+			StoppingSince: 10})
+	})
+
+	t.Run("a row taken over a copy leaves the original member untouched", func(t *testing.T) {
+		original := Member{ID: "kip", Kind: KindStaff, DesiredState: DesiredStateOnline,
+			RestartAfterStop: true, StoppingSince: 1}
+		copied := original
+		row := stopVerbRowOfMember(&copied)
+		*row.DesiredState = DesiredStateOffline
+		*row.RestartAfterStop = false
+
+		apiTestWantEqual(t, "the original", original, Member{ID: "kip", Kind: KindStaff,
+			DesiredState: DesiredStateOnline, RestartAfterStop: true, StoppingSince: 1})
+		apiTestWantEqual(t, "the copy", copied, Member{ID: "kip", Kind: KindStaff,
+			DesiredState: DesiredStateOffline, RestartAfterStop: false, StoppingSince: 1})
+	})
 }
 
 func TestStopVerbRowOfWorker(t *testing.T) {
-	t.Skip("TODO: 需要人工判斷這個函式的可觀察結果是什麼")
+	t.Run("the five pointers name the worker's own 停止 columns", func(t *testing.T) {
+		w := OutsourceWorker{ID: "ow-abc123", Codename: "Contractor",
+			DesiredState: DesiredStateOnline, RefocusSince: 3, RefocusOp: refocusOpRefocus,
+			RestartAfterStop: true, StoppingSince: 1}
+		row := stopVerbRowOfWorker(&w)
+
+		if *row.DesiredState != DesiredStateOnline || *row.RefocusSince != 3 ||
+			*row.RefocusOp != refocusOpRefocus || !*row.RestartAfterStop ||
+			*row.StoppingSince != 1 {
+			t.Fatalf("row reads %q %v %q %v %v", *row.DesiredState, *row.RefocusSince,
+				*row.RefocusOp, *row.RestartAfterStop, *row.StoppingSince)
+		}
+
+		*row.DesiredState = DesiredStateOffline
+		*row.RefocusSince = 30
+		*row.RefocusOp = refocusOpAcceleratedStop
+		*row.RestartAfterStop = false
+		*row.StoppingSince = 10
+		apiTestWantEqual(t, "worker", w, OutsourceWorker{ID: "ow-abc123",
+			Codename: "Contractor", DesiredState: DesiredStateOffline, RefocusSince: 30,
+			RefocusOp: refocusOpAcceleratedStop, RestartAfterStop: false,
+			StoppingSince: 10})
+	})
+
+	t.Run("a row taken over a copy leaves the original worker untouched", func(t *testing.T) {
+		original := OutsourceWorker{ID: "ow-abc123", DesiredState: DesiredStateOnline,
+			RestartAfterStop: true, StoppingSince: 1}
+		copied := original
+		row := stopVerbRowOfWorker(&copied)
+		*row.StoppingSince = 10
+		*row.RefocusOp = refocusOpRefocus
+
+		apiTestWantEqual(t, "the original", original, OutsourceWorker{ID: "ow-abc123",
+			DesiredState: DesiredStateOnline, RestartAfterStop: true, StoppingSince: 1})
+		apiTestWantEqual(t, "the copy", copied, OutsourceWorker{ID: "ow-abc123",
+			DesiredState: DesiredStateOnline, RestartAfterStop: true, StoppingSince: 10,
+			RefocusOp: refocusOpRefocus})
+	})
 }
 
 func TestApplyStopVerbRow(t *testing.T) {
-	t.Skip("TODO: applyStopVerbRow is THE body of 停止, for both populations.")
+	t.Run("a 停止 on a running member writes offline, clears the 換手 epoch and the queued restart, and anchors at now", func(t *testing.T) {
+		m := Member{ID: "kip", Name: "Kip", Kind: KindStaff, RosterStatus: RosterStatusActive,
+			DesiredState: DesiredStateOnline, RefocusSince: 900, RefocusOp: refocusOpRefocus,
+			RestartAfterStop: true, StoppedSince: 800, WakingSince: 700}
+
+		applyStopVerbRow(stopVerbRowOfMember(&m), m, 2000)
+
+		apiTestWantEqual(t, "member", m, Member{ID: "kip", Name: "Kip", Kind: KindStaff,
+			RosterStatus: RosterStatusActive, DesiredState: DesiredStateOffline,
+			RefocusSince: 0, RefocusOp: "", RestartAfterStop: false,
+			StoppingSince: 2000, StoppedSince: 800, WakingSince: 700})
+	})
+
+	t.Run("a 停止 landing on a live forced epoch leaves that epoch's anchor where it stands", func(t *testing.T) {
+		m := Member{ID: "kip", Kind: KindStaff, DesiredState: DesiredStateOnline,
+			StoppingSince: 1000, ForcedStopAt: 1000, RestartAfterStop: true}
+
+		applyStopVerbRow(stopVerbRowOfMember(&m), m, 2000)
+
+		apiTestWantEqual(t, "member", m, Member{ID: "kip", Kind: KindStaff,
+			DesiredState: DesiredStateOffline, StoppingSince: 1000, ForcedStopAt: 1000,
+			RestartAfterStop: false})
+	})
+
+	t.Run("the anchor is decided by the snapshot rather than by the row being written", func(t *testing.T) {
+		m := Member{ID: "kip", Kind: KindStaff}
+		snapshot := Member{ID: "kip", Kind: KindStaff, StoppingSince: 1000, ForcedStopAt: 1000}
+
+		applyStopVerbRow(stopVerbRowOfMember(&m), snapshot, 2000)
+
+		apiTestWantEqual(t, "member", m, Member{ID: "kip", Kind: KindStaff,
+			DesiredState: DesiredStateOffline, StoppingSince: 1000})
+	})
+
+	t.Run("the worker face writes the same five columns", func(t *testing.T) {
+		w := OutsourceWorker{ID: "ow-abc123", Codename: "Contractor",
+			Status: WorkerStatusActive, DesiredState: DesiredStateOnline,
+			RefocusSince: 900, RefocusOp: refocusOpRefocus, RestartAfterStop: true,
+			StoppedSince: 800}
+
+		applyStopVerbRow(stopVerbRowOfWorker(&w), memberFromWorker(w), 2000)
+
+		apiTestWantEqual(t, "worker", w, OutsourceWorker{ID: "ow-abc123",
+			Codename: "Contractor", Status: WorkerStatusActive,
+			DesiredState: DesiredStateOffline, RefocusSince: 0, RefocusOp: "",
+			RestartAfterStop: false, StoppingSince: 2000, StoppedSince: 800})
+	})
 }
 
 func TestHandleDeactivateMemberApiMembersMemberIdDeactivatePost(t *testing.T) {
@@ -1547,11 +2558,117 @@ func TestHandleDismissMemberApiMembersMemberIdDelete(t *testing.T) {
 }
 
 func TestResolveSelf(t *testing.T) {
-	t.Skip("TODO: ── self-report presence (identity from token, NO member_id target) ────────── resolveSelf is the caller's own live member (404 when it has no roster row — e.g.")
+	t.Run("an agent's own live row is answered whole", func(t *testing.T) {
+		api, _, d, _ := newAPITestServer(t)
+		r := apiTestAuthedRequest(t, api, d, apiTestAgentToken(t, api, "kip", ""))
+
+		got, err := api.resolveSelf(r)
+		if err != nil {
+			t.Fatalf("resolveSelf: %v", err)
+		}
+		apiTestWantEqual(t, "member", *got, apiTestMemberRow(t, d, "kip"))
+	})
+
+	t.Run("an outsource worker's own row is answered rather than folded away", func(t *testing.T) {
+		api, h, d, owner := newAPITestServer(t)
+		apiTestWorkerFixture(t, h, d, owner, "ow-abc123", WorkerStatusActive)
+		r := apiTestAuthedRequest(t, api, d, apiTestAgentToken(t, api, "ow-abc123", ""))
+
+		got, err := api.resolveSelf(r)
+		if err != nil {
+			t.Fatalf("resolveSelf: %v", err)
+		}
+		apiTestWantEqual(t, "member", *got, apiTestMemberRow(t, d, "ow-abc123"))
+	})
+
+	t.Run("the owner has no roster row of its own, so its token resolves to not found", func(t *testing.T) {
+		api, _, d, owner := newAPITestServer(t)
+		r := apiTestAuthedRequest(t, api, d, owner)
+
+		got, err := api.resolveSelf(r)
+		if got != nil || !errors.Is(err, errNotFound) {
+			t.Fatalf("want errNotFound and no member, got %v %v", got, err)
+		}
+	})
+
+	t.Run("a member dismissed after its credential was issued resolves to not found", func(t *testing.T) {
+		api, h, d, owner := newAPITestServer(t)
+		r := apiTestAuthedRequest(t, api, d, apiTestAgentToken(t, api, "kip", ""))
+		if status, data := apiJSON(t, h, "DELETE", "/api/members/kip", owner, ""); status != 200 {
+			t.Fatalf("dismiss: %d %v", status, data)
+		}
+
+		got, err := api.resolveSelf(r)
+		if got != nil || !errors.Is(err, errNotFound) {
+			t.Fatalf("want errNotFound and no member, got %v %v", got, err)
+		}
+	})
 }
 
 func TestStampAgentIatFloor(t *testing.T) {
-	t.Skip("TODO: stampAgentIatFloor raises the caller's own member credential floor to the `iat` of the token the caller is holding right now (T-14 項目 4B).")
+	t.Run("the floor lands on the caller's own iat and no other column moves", func(t *testing.T) {
+		api, _, d, _ := newAPITestServer(t)
+		before := apiTestMemberRow(t, d, "kip")
+		dashboard := apiTestListen(t, api, "")
+		issued := time.Now().Unix() - 100
+		token, err := mintJWT("kip", "agent", 3600, api.keys.signingSecret(), issued, "")
+		if err != nil {
+			t.Fatalf("mintJWT: %v", err)
+		}
+		r := apiTestAuthedRequest(t, api, d, token)
+
+		if err := api.stampAgentIatFloor(r); err != nil {
+			t.Fatalf("stampAgentIatFloor: %v", err)
+		}
+
+		want := before
+		want.AgentIatFloor = float64(issued)
+		apiTestWantEqual(t, "stored row", apiTestMemberRow(t, d, "kip"), want)
+		dashboard.wantFrames()
+	})
+
+	t.Run("a later credential raises the floor and an earlier one cannot lower it", func(t *testing.T) {
+		api, _, d, _ := newAPITestServer(t)
+		early := time.Now().Unix() - 100
+		late := time.Now().Unix()
+		earlyToken, err := mintJWT("kip", "agent", 3600, api.keys.signingSecret(), early, "")
+		if err != nil {
+			t.Fatalf("mintJWT: %v", err)
+		}
+		lateToken, err := mintJWT("kip", "agent", 3600, api.keys.signingSecret(), late, "")
+		if err != nil {
+			t.Fatalf("mintJWT: %v", err)
+		}
+		earlyRequest := apiTestAuthedRequest(t, api, d, earlyToken)
+		lateRequest := apiTestAuthedRequest(t, api, d, lateToken)
+
+		if err := api.stampAgentIatFloor(lateRequest); err != nil {
+			t.Fatalf("stampAgentIatFloor: %v", err)
+		}
+		if got := apiTestMemberRow(t, d, "kip").AgentIatFloor; got != float64(late) {
+			t.Fatalf("want the floor at %v, got %v", late, got)
+		}
+		if err := api.stampAgentIatFloor(earlyRequest); err != nil {
+			t.Fatalf("stampAgentIatFloor: %v", err)
+		}
+		if got := apiTestMemberRow(t, d, "kip").AgentIatFloor; got != float64(late) {
+			t.Fatalf("the floor moved backwards to %v", got)
+		}
+	})
+
+	t.Run("the floor stamped for one member leaves every other roster row alone", func(t *testing.T) {
+		api, _, d, _ := newAPITestServer(t)
+		mira := apiTestMemberRow(t, d, "mira")
+		warden := apiTestMemberRow(t, d, "m-server-self")
+		r := apiTestAuthedRequest(t, api, d, apiTestAgentToken(t, api, "kip", ""))
+
+		if err := api.stampAgentIatFloor(r); err != nil {
+			t.Fatalf("stampAgentIatFloor: %v", err)
+		}
+
+		apiTestWantEqual(t, "mira", apiTestMemberRow(t, d, "mira"), mira)
+		apiTestWantEqual(t, "the warden", apiTestMemberRow(t, d, "m-server-self"), warden)
+	})
 }
 
 func TestHandleReportWakingApiSelfWakingPost(t *testing.T) {
