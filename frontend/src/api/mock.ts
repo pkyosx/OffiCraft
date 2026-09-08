@@ -4489,7 +4489,15 @@ export const mockApi: Api = {
     // Server parity: the stored body is the TRIMMED text prefixed with the
     // task's display number so the executor sees which task the ruling is
     // about (an attachment-only message keeps the empty body — no prefix).
-    const body = hasBody ? `[${t.taskNo}] ${trimmed}` : trimmed;
+    //
+    // 🔴 THE PREFIX NAMES THE KIND — `[TaskID=…]`, not a bare `[T-1]` (owner
+    // 2026-09-08, rc-379631993586「ok. B.」). Kept in step with api_tasks.go
+    // because the comment above says "Server parity" and NOTHING CHECKS IT:
+    // no drift gate compares this mock against the Go handler, so the only
+    // thing holding the two shapes together is that whoever changes one reads
+    // this line. The four NOTICE heads below (轉派／接手／解除阻擋) still carry
+    // the bare shape — that is deliberate, they are a separate ruling.
+    const body = hasBody ? `[TaskID=${t.taskNo}] ${trimmed}` : trimmed;
     chatLog.push({
       id: `mock-task-msg-${stamp}`,
       from: MOCK_OWNER_ID,

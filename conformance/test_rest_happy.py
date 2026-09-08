@@ -1742,7 +1742,10 @@ def _check_task_message(ctx: HCtx, r: httpx.Response) -> None:
     # The task binding is what makes this route different from plain chat.
     assert posted["meta"]["task_id"], posted
     # task_no IS the id (T-5291), so the prefix is computable from the binding.
-    assert posted["body"].startswith(f"[{posted['meta']['task_id']}] "), posted
+    # The prefix NAMES the kind (「[TaskID=…]」, owner 2026-09-08
+    # rc-379631993586) — a bare 「[T-1]」 asks the reader to already know what
+    # a T- means, and that reader is an AI member with no document teaching it.
+    assert posted["body"].startswith(f"[TaskID={posted['meta']['task_id']}] "), posted
 
 
 def _check_card_opened(ctx: HCtx, r: httpx.Response) -> None:
