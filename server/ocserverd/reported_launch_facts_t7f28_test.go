@@ -170,9 +170,9 @@ func TestStampReportedLaunchFacts_PersistsAllThreeIndependently(t *testing.T) {
 		t.Fatalf("unreported member already carries reported values: %+v", m)
 	}
 
-	s.stampReportedLaunchFacts("mira", "claude-opus-5", RuntimeCodex, "xhigh", "test")
+	s.stampReportedLaunchFacts("mira", "claude-opus-5", RuntimeCodex, "ludicrous", "test")
 	if m := read(); m.ActualModel != "claude-opus-5" ||
-		m.ActualRuntime != RuntimeCodex || m.ActualEffort != "xhigh" {
+		m.ActualRuntime != RuntimeCodex || m.ActualEffort != "ludicrous" {
 		t.Fatalf("first report did not persist all three: %+v", m)
 	}
 
@@ -182,7 +182,7 @@ func TestStampReportedLaunchFacts_PersistsAllThreeIndependently(t *testing.T) {
 	if m.ActualRuntime != RuntimeClaude {
 		t.Errorf("actual_runtime = %q, want claude", m.ActualRuntime)
 	}
-	if m.ActualModel != "claude-opus-5" || m.ActualEffort != "xhigh" {
+	if m.ActualModel != "claude-opus-5" || m.ActualEffort != "ludicrous" {
 		t.Errorf("a partial report erased a neighbour: %+v", m)
 	}
 

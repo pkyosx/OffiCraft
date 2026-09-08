@@ -13,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 )
 
@@ -35,6 +36,7 @@ func TestBuildCodexLaunchCommandKeepsTokenOutOfArgv(t *testing.T) {
 		"high",
 		nil,
 		"",
+		nil,
 	)
 	for _, want := range []string{
 		`OC_TOKEN="$(/bin/cat /tmp/member-m-1/.oc-token)"`,
@@ -54,17 +56,175 @@ func TestBuildCodexLaunchCommandKeepsTokenOutOfArgv(t *testing.T) {
 }
 
 func TestNormalizeCodexEffort(t *testing.T) {
-	for input, want := range map[string]string{
-		"": "medium", "low": "low", "medium": "medium", "high": "high",
-		// max is the level T-dbd4 added. It has to survive VERBATIM: this func
-		// is an allowlist, not a ladder, so a level missing from it does not get
-		// nudged down a notch — it lands in the same catch-all as a typo.
-		"max":     "max",
-		"extreme": "medium",
+	// The `recognised` half is the load-bearing one and the reason this map is
+	// pairs rather than strings: the launch VALUE for an unknown level is
+	// "medium", which is byte-identical to a member genuinely configured at
+	// medium. Only the flag separates them, so a test that pinned the string
+	// alone was blind to the exact defect this func was found to have (T-dbd4:
+	// a new level selectable in the cockpit, stored, read back, and launched at
+	// medium with nothing going red).
+	//
+	// This map is an ALLOWLIST, not a ladder: a level missing from the accepted
+	// arm is not nudged down a notch, it lands in the same catch-all as a typo.
+	// It is also NOT exhaustive over the vocabulary — bin/effort-vocab-guard.py
+	// is what pins this func against server/ocserverd/api_helpers.go:validEffort,
+	// and adding a level here without adding it there (or vice versa) reddens
+	// `make lint-effort-vocab`, not this test.
+	for input, want := range map[string]struct {
+		level      string
+		recognised bool
+	}{
+		"":       {"medium", true},
+		"low":    {"low", true},
+		"medium": {"medium", true},
+		"high":   {"high", true},
+		"xhigh":  {"xhigh", true},
+		"max":    {"max", true},
+		// Unknown: still launched at medium (a warden older than its server must
+		// boot the member rather than refuse it), but never SILENTLY.
+		"extreme": {"medium", false},
 	} {
-		if got := normalizeCodexEffort(input); got != want {
-			t.Errorf("%q: got %q want %q", input, got, want)
+		level, recognised := normalizeCodexEffort(input)
+		if level != want.level || recognised != want.recognised {
+			t.Errorf("%q: got (%q, %v) want (%q, %v)",
+				input, level, recognised, want.level, want.recognised)
 		}
+	}
+}
+
+func TestBuildCodexLaunchCommandAnnouncesAnUnknownEffort(t *testing.T) {
+	// An unknown level reaching the launcher is invisible from the cockpit: the
+	// member still shows the effort the owner picked while the session runs at
+	// medium. The diagnostic line is the ONLY place that difference exists, so
+	// its absence is the bug, not a missing nicety.
+	build := func(effort string) (string, []string) {
+		var lines []string
+		cmd := buildCodexLaunchCommand(
+			"/opt/officraft/ocwarden", "/opt/homebrew/bin/codex", "/tmp/member-m-1",
+			"/tmp/member-m-1/persona.md", "/tmp/member-m-1/.oc-token", "m-1",
+			"http://127.0.0.1:7755", "member-m-1", "officraft-e2e", "", effort, nil, "",
+			func(format string, a ...any) { lines = append(lines, fmt.Sprintf(format, a...)) },
+		)
+		return cmd, lines
+	}
+
+	cmd, lines := build("extreme")
+	if !strings.Contains(cmd, "--effort medium") {
+		t.Fatalf("an unknown effort must still launch, at medium:\n%s", cmd)
+	}
+	if len(lines) != 1 {
+		t.Fatalf("an unknown effort must be announced exactly once, got %d line(s): %v",
+			len(lines), lines)
+	}
+	for _, want := range []string{"extreme", "medium"} {
+		if !strings.Contains(lines[0], want) {
+			t.Errorf("the announcement must name %q so the reader can tell WHICH "+
+				"level was dropped and what ran instead; got: %s", want, lines[0])
+		}
+	}
+
+	// Negative control: a configured level must stay silent, or the line is noise
+	// everyone learns to scroll past.
+	//
+	// The loop variable is named for the vocabulary on purpose: effort-vocab-guard
+	// discovers copies by shape on a line that also says "effort", so a list named
+	// `quiet` is a copy of the vocabulary that the guard cannot see. The blank
+	// default is asserted separately rather than as the list's first element —
+	// the guard's array-literal shape cannot start on an empty string, so a list
+	// beginning with "" is invisible to it whatever the name.
+	for _, quietEffort := range []string{"low", "medium", "high", "xhigh", "max"} {
+		if _, lines := build(quietEffort); len(lines) != 0 {
+			t.Errorf("effort %q is a level this warden knows; it must launch "+
+				"silently, got: %v", quietEffort, lines)
+		}
+	}
+	if _, lines := build(""); len(lines) != 0 {
+		t.Errorf("the historic blank default must launch silently, got: %v", lines)
+	}
+}
+
+// lockedBuffer is a bytes.Buffer that survives being written from more than one
+// goroutine — see the comment at its only use site.
+type lockedBuffer struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (b *lockedBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.Write(p)
+}
+
+func (b *lockedBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.String()
+}
+
+func TestRunCodexSessionAnnouncesAnUnknownEffort(t *testing.T) {
+	// The SECOND normalisation, and the one buildCodexLaunchCommand's test cannot
+	// reach: `ocwarden codex-session --effort <x>` is a subcommand, so its effort
+	// can arrive from an operator's hand or an older launch line, not only from
+	// the launcher above. Both halves coerce; both must say so.
+	//
+	// The stub app-server exits immediately, so the session gets EOF on the first
+	// response it waits for and returns without burning the app-server timeout.
+	// Everything asserted here is already on `out` by then: the effort line is
+	// emitted before `initialize` is even sent.
+	run := func(effort string) string {
+		dir := t.TempDir()
+		stub := filepath.Join(dir, "codex-stub")
+		if err := os.WriteFile(stub, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+			t.Fatalf("write stub app-server: %v", err)
+		}
+		persona := filepath.Join(dir, "persona.md")
+		if err := os.WriteFile(persona, []byte("persona\n"), 0o644); err != nil {
+			t.Fatalf("write persona: %v", err)
+		}
+		// codexAccountKey() reads ~/.codex/auth.json, which holds live credentials
+		// on a developer machine. Point HOME at the temp dir before it runs.
+		t.Setenv("HOME", dir)
+		// NOT a bare bytes.Buffer. runCodexSession hands the same writer to
+		// cmd.Stderr, and os/exec copies a non-*os.File stderr on its own
+		// goroutine — so an unsynchronised buffer races with the session's own
+		// writes and silently LOSES lines. It loses exactly the lines this test
+		// exists to see, which reads as a missing announcement rather than as a
+		// broken harness.
+		out := &lockedBuffer{}
+		runCodexSession([]string{
+			"--codex-bin", stub, "--workdir", dir, "--persona", persona,
+			"--agent-id", "m-1", "--effort", effort,
+		}, func(string) string { return "" }, out)
+		return out.String()
+	}
+
+	got := run("bogus")
+	if !strings.Contains(got, "is not a level this warden knows") {
+		t.Fatalf("an unknown --effort was coerced SILENTLY: the pane is the only "+
+			"place this difference exists, and nothing named it.\n%s", got)
+	}
+	for _, want := range []string{"bogus", "medium"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("the announcement must name %q so the reader can tell WHICH "+
+				"level was dropped and what actually ran; got:\n%s", want, got)
+		}
+	}
+
+	// Negative control: a level this warden knows must run silently, or the line
+	// is noise everyone learns to scroll past. Named for the vocabulary so the
+	// guard can see this copy — see the note on the launcher's negative control.
+	for _, quietEffort := range []string{"low", "medium", "high", "xhigh", "max"} {
+		if out := run(quietEffort); strings.Contains(out, "is not a level this warden knows") {
+			t.Errorf("effort %q is a level this warden knows; it must run "+
+				"silently, got:\n%s", quietEffort, out)
+		}
+	}
+	// The blank default reaches this subcommand too, and it is a level the warden
+	// knows; the launcher's negative control asserts the same for its own half.
+	if out := run(""); strings.Contains(out, "is not a level this warden knows") {
+		t.Errorf("the historic blank default is a level this warden knows; it must "+
+			"run silently, got:\n%s", out)
 	}
 }
 

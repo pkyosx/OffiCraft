@@ -277,7 +277,7 @@ def _(root: Path) -> None:
     path.write_text(
         path.read_text().replace(
             '\treturn level\n',
-            '\t// e.g. "xhigh" arrives here and is rendered verbatim\n\treturn level\n',
+            '\t// e.g. "ludicrous" arrives here and is rendered verbatim\n\treturn level\n',
         )
     )
 

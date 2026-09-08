@@ -184,7 +184,7 @@ func (s *apiServer) HandleCreateRoleApiRolesPost(w http.ResponseWriter, r *http.
 	}
 	if body.Effort != nil && !validEffort(*body.Effort) {
 		writeError(w, http.StatusUnprocessableEntity,
-			"effort must be one of [high low max medium]; got '"+*body.Effort+"'")
+			"effort must be one of [high low max medium xhigh]; got '"+*body.Effort+"'")
 		return
 	}
 	// UNSET when the caller names none — the cockpit's 招攬新成員 sends only a

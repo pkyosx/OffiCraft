@@ -98,7 +98,7 @@ describe("TaskCard 轉派 entry + dialog", () => {
     // name a machine (owner 2026-07-19), so the machine section mounts without it.
     fireEvent.click(within(dialog).getByTestId("reassign-kind-outsource"));
     expect(within(dialog).getByTestId("reassign-model-opus")).toBeTruthy();
-    expect(within(dialog).getByTestId("reassign-effort-high")).toBeTruthy();
+    expect(within(dialog).getByTestId("reassign-effort")).toBeTruthy();
     expect(within(dialog).getByText("機器")).toBeTruthy();
     expect(within(dialog).queryByTestId("reassign-machine-auto")).toBeNull();
     // The member list is gone with its face.
@@ -198,7 +198,9 @@ describe("TaskCard 轉派 commit", () => {
 
     fireEvent.click(within(dialog).getByTestId("reassign-kind-outsource"));
     fireEvent.click(within(dialog).getByTestId("reassign-model-sonnet"));
-    fireEvent.click(within(dialog).getByTestId("reassign-effort-low"));
+    fireEvent.change(within(dialog).getByTestId("reassign-effort"), {
+      target: { value: "low" },
+    });
     // A reassign must name a machine now (no 自動分配 default) — pick the first
     // machine row the registry offers so commit() isn't blocked by the guard.
     const machineRow = await waitFor(() => {

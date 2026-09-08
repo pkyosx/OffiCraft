@@ -332,6 +332,7 @@ export function AgentDetailPanel({
     shownEffort === "low" ||
     shownEffort === "medium" ||
     shownEffort === "high" ||
+    shownEffort === "xhigh" ||
     shownEffort === "max"
       ? effortText(t, shownEffort)
       : null;

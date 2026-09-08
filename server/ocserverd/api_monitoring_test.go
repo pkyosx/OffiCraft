@@ -1036,7 +1036,7 @@ func TestGetMonitoring_ReportedLaunchFactsSurviveAReExec(t *testing.T) {
 		telemetry: newMemStore(), gauge: newMemStore()}
 	seedWorker(t, s, "ow-eva", "E1", 0, WorkerStatusActive)
 	if rec := doIngestTelemetry(s, "ow-eva", "m-abc123",
-		`{"runtime":"claude","model":"claude-opus-5","effort":"xhigh"}`); rec.Code != 200 {
+		`{"runtime":"claude","model":"claude-opus-5","effort":"ludicrous"}`); rec.Code != 200 {
 		t.Fatalf("ingest: %d %s", rec.Code, rec.Body.String())
 	}
 	s.telemetry = newMemStore() // what a server re-exec does
@@ -1046,7 +1046,7 @@ func TestGetMonitoring_ReportedLaunchFactsSurviveAReExec(t *testing.T) {
 	for _, c := range []struct{ field, want string }{
 		{"model", "claude-opus-5"},
 		{"runtime", RuntimeClaude},
-		{"effort", "xhigh"},
+		{"effort", "ludicrous"},
 	} {
 		if row[c.field] != c.want {
 			t.Errorf("%s after re-exec = %v, want %q (durable column)",
@@ -1067,7 +1067,7 @@ func TestGetMonitoring_ReportedLaunchFactsNeverFallBackToTheConfiguredValue(t *t
 	configured := fullMember("mira")
 	configured.Runtime = RuntimeClaude
 	configured.Model = "opus"
-	configured.Effort = "xhigh"
+	configured.Effort = "ludicrous"
 	if err := s.dal.PutMember(configured); err != nil {
 		t.Fatalf("seed member: %v", err)
 	}

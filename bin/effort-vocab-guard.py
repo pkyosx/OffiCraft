@@ -64,8 +64,32 @@ during T-dbd4's review rounds — they are measurements, not predictions:
     cheapest way to opt a line in.)
   * A COUNT instead of a list — "the 3-item picker", "three levels". There is no
     listing to compare, so nothing here can see it.
+  * An array literal whose FIRST element is the empty string — `[]string{"",
+    "low", "medium", ...}`. The array-literal shape has to start on a quoted
+    WORD, so `""` in front hides the whole list even when the line carries the
+    marker. Renaming the line is therefore not always enough to opt a copy in;
+    the blank has to move off the front too. (Found live during T-131 review, in
+    a negative control this guard could not see: deleting a level from it left
+    the run green AND the printed count unchanged at 56, so the "a narrowed scan
+    shows up as a smaller number" safety net does not cover a copy that was never
+    counted. Both halves were fixed by naming the loop variable for the
+    vocabulary and asserting the blank default separately; the count went to 58.)
   * A switch whose function is not named normalize*Effort*, a TS union under a
     type name other than Effort, or a file whose suffix is not in TEXT_SUFFIXES.
+  * ITS OWN ZH_LABEL TABLE, below — one more hand-written copy of the vocabulary
+    than the count this guard prints, and the one copy it is STRUCTURALLY unable
+    to catch: SKIP_FILES excludes this file, so the predicate cannot count
+    itself. What that costs was measured, not predicted. Deleting
+    `"極高": "xhigh"` from ZH_LABEL exits rc=1 — and the red names 12 rows in 5
+    INNOCENT files (docs/design/SPEC.md, docs/guide/interface.md,
+    docs/guide/members.md, frontend/src/components/SettingsPage.manuals.test.tsx
+    and two lines of frontend/src/components/TaskManualsPage.tsx), every one of
+    them a zh listing now read as missing xhigh. The file that was actually
+    edited appears in no row. Worse, the failure block signs off with "Fix the
+    copies, not this guard", which points the reader straight at those five
+    files — every one of which is correct. So: a zh listing going red while the
+    English copy beside it stays green means suspect THIS TABLE first, and the
+    sign-off is wrong in exactly that case.
 
 NOT a bypass, and listed here because an earlier version of this paragraph said it
 was: a list ASSEMBLED AT RUNTIME (string concatenation, strings.Join) reddens
@@ -79,7 +103,7 @@ it belongs to the doc-truth step of a change, not to a green here.
 
 REPORTED effort is a different thing and is NOT in scope. `actual_effort` /
 `effortLabel` render whatever the harness reports, verbatim and unvalidated, by
-design (cli/CLAUDE.md is explicit about the passthrough). A value like "xhigh"
+design (cli/CLAUDE.md is explicit about the passthrough). A value like "ludicrous"
 appearing there says only that the channel accepts any string; it is not a
 configurable level and must not be dragged into this set.
 
@@ -127,7 +151,7 @@ EFFORT_MARKER = re.compile(r"effort|思考強度|投入", re.I)
 # its rendering here too — that edit is the point, not an obstacle.
 # Matched longest-first so a multi-character label wins over a substring of it
 # (最高 must not be read as 高).
-ZH_LABEL = {"低": "low", "中": "medium", "高": "high", "最高": "max"}
+ZH_LABEL = {"低": "low", "中": "medium", "高": "high", "極高": "xhigh", "最高": "max"}
 ZH_TOKEN = "(?:" + "|".join(sorted(ZH_LABEL, key=len, reverse=True)) + ")"
 
 

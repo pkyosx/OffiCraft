@@ -272,6 +272,53 @@ func TestUpdateMember_RuntimeRoundTripsAndValidates(t *testing.T) {
 	}
 }
 
+// TestUpdateMember_EffortRoundTripsAndValidates is the only Go test standing
+// behind validEffort ITSELF. bin/effort-vocab-guard.py proves the hand-written
+// copies of the vocabulary agree with that gate — it cannot prove the gate is
+// right: deleting a level from validEffort and from every copy leaves the guard
+// green. So the level list is pinned here, at the door that actually 422s.
+// Mutant (run: it is the ONLY red in the package): dropping "xhigh" from
+// validEffort → "PATCH effort=xhigh: want 200, got 422". Note WHICH half caught
+// it — the 422's level list is a hand-written copy in the handler, so it goes on
+// naming xhigh while the gate no longer accepts it. The accept half is the one
+// that cannot be fooled that way; the message assertion below pins the other
+// direction, a gate that grows a level the door never advertises.
+func TestUpdateMember_EffortRoundTripsAndValidates(t *testing.T) {
+	api := newTasksTestServer(t)
+	if err := api.dal.PutMember(fullMember("mira")); err != nil {
+		t.Fatalf("put member: %v", err)
+	}
+	rec := httptest.NewRecorder()
+	api.HandleUpdateMemberApiMembersMemberIdPatch(rec,
+		taskReq(t, "PATCH", "/api/members/mira",
+			map[string]any{"effort": "xhigh"}, wireOwnerID, "owner"), "mira")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("PATCH effort=xhigh: want 200, got %d %s", rec.Code, rec.Body.String())
+	}
+	// Read back off the STORED ROW, not the receipt: a handler that accepted the
+	// value and dropped it on the floor would pass a status-only assertion.
+	stored, err := api.dal.GetMember("mira")
+	if err != nil || stored == nil {
+		t.Fatalf("read back member: %v", err)
+	}
+	if stored.Effort != "xhigh" {
+		t.Fatalf("stored effort = %q, want xhigh", stored.Effort)
+	}
+
+	rec = httptest.NewRecorder()
+	api.HandleUpdateMemberApiMembersMemberIdPatch(rec,
+		taskReq(t, "PATCH", "/api/members/mira",
+			map[string]any{"effort": "ludicrous"}, wireOwnerID, "owner"), "mira")
+	if rec.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("unknown effort: want 422, got %d %s", rec.Code, rec.Body.String())
+	}
+	// The refusal must NAME the level, so the vocabulary the door advertises is
+	// pinned too and not just the one it accepts.
+	if body := rec.Body.String(); !strings.Contains(body, "xhigh") {
+		t.Fatalf("the 422 must name xhigh among the levels it accepts, got %s", body)
+	}
+}
+
 // TestGetMember_WorkerSelfReadResolves (T-ea82): the ONE exception to the ow-
 // 404 — a worker reading its OWN row (the ocagent recycle/wind-down hooks'
 // refetch) gets the member DTO, desired_state + refocus_since included; the
