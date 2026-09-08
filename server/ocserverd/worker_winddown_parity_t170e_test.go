@@ -269,13 +269,16 @@ func TestTokenExpiry_AnOutsourceSessionIsDerivableToo(t *testing.T) {
 	}
 
 	// The one kind that really is exempt stays exempt: a warden's credential is
-	// minted by mintWardenToken with NO exp claim at all.
+	// minted by mintWardenToken on its OWN lifetime setting, anchored on the mint
+	// rather than on session boot, so neither input this function takes applies to
+	// it (T-fc53 第二段; before that it carried no exp at all).
 	warden := testAgent("mach-170e")
 	warden.Kind = KindWarden
 	warden.SessionBootTS = mintedAt
 	if got := tokenExpiryOf(warden, ttl); got != 0 {
-		t.Fatalf("a warden got a derived token expiry of %v — its credential has no "+
-			"exp claim at all", got)
+		t.Fatalf("a warden got a derived token expiry of %v — its credential is not "+
+			"on agent_token_ttl and is not anchored on session boot, so this "+
+			"derivation cannot speak about it", got)
 	}
 }
 

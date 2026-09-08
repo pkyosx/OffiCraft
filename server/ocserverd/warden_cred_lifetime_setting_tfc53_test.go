@@ -3,9 +3,13 @@ package main
 // warden_cred_lifetime_setting_tfc53_test.go — T-fc53 第一段: the machine
 // credential lifetime is an owner-typed SETTING, and the fleet can read it.
 //
-// 🔴 WHAT THIS FILE IS ACTUALLY GUARDING. The setting is inert on this side —
-// nothing here mints differently, refuses differently, or expires anything
-// because of it. Its ONLY consumer is off this machine: each warden polls
+// 🔴 WHAT THIS FILE IS ACTUALLY GUARDING. It was written while the setting was
+// inert on this side — "nothing here mints differently, refuses differently, or
+// expires anything because of it". T-fc53 第二段 changed that: mintWardenToken
+// stamps exp = iat + this value, and THAT half is guarded in api_machines_test.go
+// (TestWardenCredentialsCarryTheConfiguredLifetimeAcrossAllMachineMintPaths).
+// What this file still guards is the OTHER consumer, which is off this machine
+// entirely: each warden polls
 // GET /api/machines/credential-policy and derives its own renewal threshold from
 // the answer. So the failure this file has to catch is not "the value is wrong",
 // it is "the value never leaves the building" — a knob that saves, reads back
@@ -70,6 +74,14 @@ func readCredentialPolicy(t *testing.T, api *apiServer) map[string]any {
 // cosmetic choice: it is the number every warden already assumes when it cannot
 // reach the station, so a station whose default disagreed with the fleet's would
 // change behaviour for nobody's benefit the moment the endpoint went down.
+//
+// THE DEFAULT IS 30 DAYS (owner 2026-09-08, card rc-f2b96594c621, option [0],
+// verbatim 「合，預設取 30 天（跟主線現在一致，正式站行為不變）」): the production
+// station has no row for this setting, so this number IS its behaviour. The
+// NUMBER is spelled out here rather than read from wardenCredLifetimeSecsDefault
+// deliberately: a test that reads the constant it is guarding asserts nothing
+// about the constant, and this value is now stamped into every machine
+// credential the station mints.
 func TestWardenCredLifetime_UnsetIsThirtyDaysOnEveryFace(t *testing.T) {
 	api := resumeCtxServer(t)
 	const thirtyDays = 30 * 86400
@@ -92,6 +104,22 @@ func TestWardenCredLifetime_UnsetIsThirtyDaysOnEveryFace(t *testing.T) {
 		t.Errorf("boot-time load with no row: got %d, want %d",
 			loaded.wardenCredLifetimeSecs, thirtyDays)
 	}
+
+	// 🔴 THE STATION'S DEFAULT AND THE WARDEN'S BUILT-IN DEFAULT MUST BE THE
+	// SAME NUMBER, and nothing compiles them together: they live in different
+	// modules (credentialLifetimeDefaultSecs, cli/ocwarden/renew.go). A drift is
+	// silent — it only shows on machines that cannot reach the policy endpoint,
+	// which are exactly the machines nobody is looking at.
+	//
+	// NOTHING IN THIS PACKAGE CATCHES THAT DRIFT, and an earlier version of this
+	// comment claimed otherwise while comparing two literals declared beside each
+	// other. credentialLifetimeDefaultSecs lives in a different Go module and is
+	// not importable from here, so no edit to it can turn any test in this file
+	// red. Each end pins its OWN number against a written-out
+	// literal instead — the assertions above for the station,
+	// TestCredentialLifetimeDefaultSecs_IsThirtyDays
+	// (cli/ocwarden/renew_age_tfc53_test.go) for the warden — so moving one side
+	// alone is red in that side's package.
 }
 
 // TestWardenCredLifetime_APatchReachesTheFleetFace is the ticket's acceptance in

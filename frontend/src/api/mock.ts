@@ -5157,9 +5157,13 @@ export const mockApi: Api = {
     const name = displayName.trim();
     const machineId = `m-${Math.random().toString(36).slice(2, 10)}`;
     const token = `mock-warden-token-${Math.random().toString(36).slice(2, 14)}`;
-    // Warden exec credentials are permanent on the real server. Keep the
-    // legacy request option in the adapter signature for wire compatibility,
-    // but do not let it fabricate a finite expiry in the mock.
+    // Warden exec credentials expire on the org setting since T-fc53 (they were
+    // PERMANENT, answering expires_in=0, until then). The mock answers the same
+    // number its own settings face reports, because that is the invariant the
+    // real server holds: expires_in IS auth.warden_credential_lifetime_secs.
+    // The legacy ttlDays request option stays in the adapter signature for wire
+    // compatibility and must not reach this number — on the real server it does
+    // not either.
     // The boot command embeds a short-lived single-use claim code, never the
     // token (mirrors the real POST /api/machines onboard shape).
     const claimCode = `mock-claim-code-${Math.random().toString(36).slice(2, 14)}`;
@@ -5201,7 +5205,7 @@ export const mockApi: Api = {
       member_id: machineId,
       machine_id: machineId,
       token,
-      expires_in: 0,
+      expires_in: mockServerSettings.warden_credential_lifetime_secs,
       boot_command: bootCommand,
       claim_code: claimCode,
       claim_expires_in: 600,

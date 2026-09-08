@@ -1173,7 +1173,9 @@ export function toServerSettings(w: WireServerSettings): ServerSettingsView {
     // 2592000 (30 days) is the server's shipped default, the value a fleet that
     // never touched the knob renews on — and the same number a warden falls back
     // to when it cannot reach the credential-policy endpoint, so a server too
-    // old to send the field reads here exactly as the machines behave.
+    // old to send the field reads here exactly as the machines behave. T-fc53
+    // 第二段 made the same number the credential's expiry, so a stale copy here
+    // would now show the owner a lifetime no machine on that station keeps.
     wardenCredentialLifetimeSecs: w.warden_credential_lifetime_secs ?? 2592000,
     outsourceMaxParallel: w.outsource_max_parallel ?? 0,
     // ?? that segment's shipped default, not 0: a server too old to send the

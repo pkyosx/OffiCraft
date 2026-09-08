@@ -753,8 +753,9 @@ func waitGraceful(wg *sync.WaitGroup, grace time.Duration) {
 //
 // WHY renew IS NOT Kick. `update` and a reconnect are two producers of the same
 // coalesced self-update wake, so both are Kick. `renew` is not: a bare Kick wakes
-// a cycle that finds nothing to do, because a warden credential carries no expiry
-// and the renewal check therefore answers "not due" (renewapply.go). RenewNow
+// a cycle that finds nothing to do, because the station's demand is not a
+// property of the token at all and the renewal check therefore answers "not due"
+// on a credential that is not yet old enough (renew.go / renewapply.go). RenewNow
 // raises the demand first. Wiring Renew to Kick would compile, run, log nothing
 // and renew nothing.
 func wireUpdaterSeams(transport *sseTransport, up *updater) {
@@ -962,8 +963,8 @@ func realMain(argv []string, env func(string) string, out io.Writer) int {
 		// 🔴 NOTHING GUARDS THIS CALL SITE, AND THAT IS A STATEMENT, NOT AN OVERSIGHT.
 		// Delete these three lines, or just the `go up.run(ctx)` below, and the whole
 		// package stays green: self-update and credential renewal stop fleet-wide,
-		// silently, and with credentials carrying a 30-day life the machines start
-		// falling off the roster a month later. The third and cheapest-looking edit
+		// silently, and with credentials carrying a 30-day life (T-fc53 第二段 put
+		// the exp back) the machines start falling off the roster a month later. The third and cheapest-looking edit
 		// is `rawEnv{lookup: renv}` — one identifier, reads like a typo, compiles
 		// (the struct only stops the bare `renv`, which is deliberate: it makes the
 		// substitution a visible decision instead of an accident) — and it hands the

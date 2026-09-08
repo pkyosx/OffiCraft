@@ -4,11 +4,12 @@ package main
 // remaining, the adjustable lifetime that sets the threshold, and the stagger
 // that keeps the fleet from acting in one instant.
 //
-// 🔴 WHY THESE ARMS AND NOT OTHERS. The credential this decides about is
-// permanent today, so the direction that costs money is EAGERNESS: a predicate
-// that says yes too readily puts every machine on the mint endpoint on every
-// poll and execs the whole fleet at once. The direction that costs a HOST is
-// laziness, and it only starts costing one when expiries come back (第二段). So
+// 🔴 WHY THESE ARMS AND NOT OTHERS. When 第一段 landed, the credential this
+// decides about was permanent, so the only direction that cost anything was
+// EAGERNESS: a predicate that says yes too readily puts every machine on the
+// mint endpoint on every poll and execs the whole fleet at once. 第二段 gave the
+// credentials an exp, so LAZINESS now costs a HOST as well — a machine that
+// misses its retry window needs a hand re-install. So
 // every "is due" arm below is paired with a "is not due" control on a token that
 // differs in exactly one field — a version of this code that simply always said
 // yes has to fail one of each pair.
@@ -29,8 +30,9 @@ const testDay = 24 * time.Hour
 // a file whose subject is arithmetic.
 func fmtI64(n int64) string { return strconv.FormatInt(n, 10) }
 
-// permanentToken is the credential shape that actually exists in the field: a
-// `sub`, an `iat`, and NO `exp`. Every fixture in this file uses it, because a
+// permanentToken is the pre-第二段 credential shape, still in the field on every
+// machine that has not yet renewed: a `sub`, an `iat`, and NO `exp`. Every
+// fixture in this file uses it, because a
 // fixture carrying an exp would be answered by the expiry arm and would prove
 // nothing about the arm this ticket added.
 func permanentToken(t *testing.T, sub string, issued time.Time) string {
@@ -152,6 +154,27 @@ func TestCredentialDueForRenewal_AZeroThresholdDisablesTheAgeArm(t *testing.T) {
 // ② the threshold: turning the station's lifetime into an age
 // ---------------------------------------------------------------------------
 
+// TestCredentialLifetimeDefaultSecs_IsThirtyDays writes the warden's built-in
+// default out as a plain number, because every other use of it in this package
+// derives the expected value from the constant itself and therefore holds for any
+// value it is given. The station ships the same number as the default of
+// auth.warden_credential_lifetime_secs and nothing compiles the two together, so
+// each end pins its own against the same literal.
+//
+// THIS TEST IS THE ONLY THING IN cli/ocwarden THAT MOVING THE CONSTANT TURNS RED:
+// every other test here derives its expectation from the constant, so the value
+// itself is unasserted anywhere else.
+func TestCredentialLifetimeDefaultSecs_IsThirtyDays(t *testing.T) {
+	const thirtyDaysInSeconds = 2592000
+	if credentialLifetimeDefaultSecs != thirtyDaysInSeconds {
+		t.Errorf("credentialLifetimeDefaultSecs = %d s, want %d s (30 days, owner "+
+			"2026-09-08 card rc-f2b96594c621). A machine that cannot reach the policy "+
+			"endpoint renews on this number, so it must equal the lifetime the station "+
+			"actually issues",
+			credentialLifetimeDefaultSecs, thirtyDaysInSeconds)
+	}
+}
+
 func TestCredentialRenewAfter_TranslatesTheLifetimeAndRefusesNonsense(t *testing.T) {
 	// No machine id ⇒ no stagger, so these assertions are about the arithmetic
 	// alone. The stagger has its own test below.
@@ -184,7 +207,7 @@ func TestCredentialRenewAfter_TranslatesTheLifetimeAndRefusesNonsense(t *testing
 				"renews on its next poll",
 		},
 		{
-			name: "the shipped thirty days",
+			name: "thirty days, the shipped default",
 			secs: 30 * 86400,
 			want: 20 * testDay,
 			why:  "unchanged from the expiry rule — two thirds of thirty days is twenty",
@@ -297,10 +320,11 @@ func TestCredentialRenewJitter_IsBoundedByTheRetryWindowItEatsInto(t *testing.T)
 		t.Errorf("jitter %s exceeds an eighth of a %s threshold — at short lifetimes the "+
 			"stagger would consume the retry window it is supposed to sit inside", j, tiny)
 	}
-	// Control: at the shipped threshold the cap is 2.5 days and does NOT bite, so
-	// the assertion above is measuring the cap rather than a jitter that is always
-	// tiny.
-	if credentialRenewJitter(thisMachine, 20*testDay) == 0 {
+	// Control: at a 10-day threshold the cap is 1.25 days and does NOT bite, so the
+	// assertion above is measuring the cap rather than a jitter that is always
+	// tiny. The shipped threshold is longer still — two thirds of 30 days is 20,
+	// whose cap is 2.5 days — so 10 days is the harsher control of the two.
+	if credentialRenewJitter(thisMachine, 10*testDay) == 0 {
 		t.Fatal("the control failed: this id gets no stagger even at the shipped " +
 			"threshold, so the cap assertion above proves nothing")
 	}
@@ -332,6 +356,13 @@ func TestRefreshCredentialPolicy_AdoptsAnAnswerAndSurvivesEveryNonAnswer(t *test
 			want: previous,
 			why: "a 404 is the ORDINARY case during a rollout — every machine sees it " +
 				"until the station lands. It must not disturb the number in hand",
+		},
+		{
+			name: "a 404 that still carries a decodable body", status: http.StatusNotFound,
+			body: []byte(`{"lifetime_secs":12345}`), want: previous,
+			why: "the status is checked in its own right. The other non-200 arms all send " +
+				"an empty body, so the unmarshal failure answers them first and a build " +
+				"with no status check at all passes every one of them",
 		},
 		{
 			name: "the station errors", status: http.StatusInternalServerError,

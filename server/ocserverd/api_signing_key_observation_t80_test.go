@@ -30,7 +30,7 @@ import (
 )
 
 // t80Warden plants an ACTIVE warden roster row — the only kind of row this
-// feature stamps — and hands back the permanent credential a real warden holds.
+// feature stamps — and hands back the credential a real warden holds.
 //
 // KindWarden is the same string machineKind names ("warden"); the in-flight
 // 'assistant' → 'staff' kind rename does not touch it, so nothing here is
@@ -42,7 +42,8 @@ func t80Warden(t *testing.T, api *apiServer, id, name string) string {
 		DesiredState: DesiredStateOffline, RosterStatus: RosterStatusActive,
 	})
 	// mintWardenToken is the production mint for this credential shape: scope
-	// "agent", no exp, no machine_id binding. Going through it rather than
+	// "agent", no machine_id binding, and since T-fc53 第二段 an exp taken from
+	// auth.warden_credential_lifetime_secs. Going through it rather than
 	// hand-rolling a token means a change to how warden credentials are signed
 	// reaches these tests.
 	m, err := api.dal.GetMember(id)
@@ -298,8 +299,9 @@ func TestARefusedCredentialNeverNamesAKeyOnTheWire(t *testing.T) {
 //
 // Two machines authenticate on the original key. The ring rotates. One is
 // re-credentialled; the other KEEPS CALLING ON ITS OLD TOKEN, which is what a
-// machine nobody has touched actually does — warden credentials are permanent
-// and the old key still verifies, so the requests keep succeeding. On the wire
+// machine nobody has touched actually does — a warden credential lives for
+// months (and one minted before T-fc53 第二段 does not expire at all) and the old
+// key still verifies, so the requests keep succeeding. On the wire
 // the re-credentialled one reads as on the current key and the untouched one
 // still names the OLD key and reads as not current.
 //

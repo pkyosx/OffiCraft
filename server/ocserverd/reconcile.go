@@ -2429,9 +2429,37 @@ const tokenExpiryLeadSecs = 3600.0
 //     add.
 //
 // ⚠️ EXACTLY ONE KIND IS EXEMPT, and the reason is a property of its credential,
-// not of what it is: a WARDEN's token is minted by mintWardenToken →
-// mintJWTWithoutExpiry, with NO exp claim at all, so it never expires and asking
-// this question about one would invent a deadline that does not exist.
+// not of what it is: a WARDEN's token is minted by mintWardenToken, which is a
+// DIFFERENT mint on a DIFFERENT clock from the one this function models.
+//
+// 🔴 THE REASON CHANGED IN T-fc53 第二段 AND THE EXEMPTION DID NOT, so read the
+// reason rather than inheriting the line. Until 第二段 a warden credential had no
+// `exp` at all, and this comment said so: asking when it expired would have
+// invented a deadline that did not exist. It has one again now. The exemption
+// survives because BOTH inputs below are wrong for a warden, and each on its own
+// is enough:
+//
+//   - THE LIFETIME IS NOT agent_token_ttl. A warden credential's exp is
+//     iat + auth.warden_credential_lifetime_secs (default 30 days), a different
+//     owner setting from the one passed in here (default 7 days). Substituting one
+//     for the other does not produce an over-estimate or an under-estimate, it
+//     produces an unrelated number.
+//   - THE ANCHOR IS NOT SessionBootTS. That column is stamped on an agent
+//     SESSION's first SSE connect, at or after the mint of THAT session's token.
+//     A warden's credential is minted once at install and then replaced by its own
+//     renewal loop, on no schedule this column knows about; a warden that
+//     reconnects has not been re-credentialed.
+//
+// AND THE ACTION WOULD BE WRONG EVEN IF THE ARITHMETIC WERE RIGHT. What this pass
+// stamps is a 停止 wind-down asking an agent to file a close-out over MCP. A
+// warden files none of that, and it has its own answer to a credential running
+// out — it renews (cli/ocwarden/renew.go, at two thirds of the same lifetime), so
+// a healthy warden is never inside this lead in the first place.
+//
+// ⚠️ NOTHING HERE IS A SUBSTITUTE FOR A WARDEN-EXPIRY ALARM, and there is none:
+// no pass on this station reports a machine whose credential is running out or
+// whose renewal has stopped happening. That gap is recorded at
+// wardenCredLifetimeSecsDefault (settings.go), not closed here.
 //
 // 🔴 This gate used to read `Kind != KindStaff`, which swept OUTSOURCE in
 // with warden while the comment explained only the warden half — the classic

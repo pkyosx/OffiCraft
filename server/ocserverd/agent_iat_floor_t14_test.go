@@ -199,14 +199,22 @@ func TestAgentIatFloor_TheWakingCallerIsNeverLockedOutByItsOwnStamp(t *testing.T
 // TestAgentIatFloor_WardenPermanentTokenIsExempt pins the one exclusion that
 // cannot be left to a coincidence of today's client.
 //
-// mintWardenToken issues scope="agent" credentials with NO exp for a machine
-// member, so a warden token is indistinguishable from an agent token by scope
-// alone. cli/ocwarden does not call report_waking today — but that is a fact
-// about today's warden, not a contract. If one line there ever raised a floor
-// above a credential that can never expire out of the way, every machine
-// carrying an older permanent token would go dark PERMANENTLY, with a re-install
-// as the only recovery. The gate therefore excludes Kind == machineKind by
-// name.
+// mintWardenToken issues scope="agent" credentials for a machine member, so a
+// warden token is indistinguishable from an agent token by scope alone.
+// cli/ocwarden does not call report_waking today — but that is a fact about
+// today's warden, not a contract. If one line there ever raised a floor above a
+// machine's credential, that machine could not renew either (the renewal
+// endpoint sits behind this same gate), so the one path out is shut at the same
+// instant and the recovery is a hand re-install. The gate therefore excludes
+// Kind == machineKind by name.
+//
+// 🔴 THIS TEST MINTS THE PRE-第二段 SHAPE ON PURPOSE — mintJWTWithoutExpiry, a
+// PERMANENT credential — and that is not a leftover. Every machine installed
+// before T-fc53 第二段 is holding exactly this, and it is the population the
+// exemption matters most for: it has no exp to expire out of the way at all, so
+// a floor raised above one would be permanent rather than bounded. The
+// exp-BEARING shape the station mints today is covered in the second arm below,
+// through the real mint.
 //
 // Mutant: drop the machineKind exclusion from agentIatFloorRefusal → the AFTER
 // arm here turns 401 and this test is red.
@@ -244,6 +252,26 @@ func TestAgentIatFloor_WardenPermanentTokenIsExempt(t *testing.T) {
 			"agent iat floor (it has no exp to expire out of the way — refusing it "+
 			"takes the machine off the fleet until someone re-installs it by hand), "+
 			"got %d %s", st, body)
+	}
+
+	// ── the shape the station mints TODAY (T-fc53 第二段: it carries an exp) ──
+	//
+	// The gate keys on KIND, not on the presence of exp, so this arm should be
+	// redundant — and that is exactly why it is written down. Giving warden
+	// credentials an expiry back is the change most likely to prompt someone to
+	// "simplify" the exemption on the grounds that a warden token can now expire
+	// out of the way like any other; every assertion above would stay green
+	// while doing it, because they all exercise the exp-less shape.
+	current, err := api.mintWardenToken(Member{ID: "m-t14-box", Kind: KindWarden})
+	if err != nil {
+		t.Fatalf("mint the current warden credential shape: %v", err)
+	}
+	if st, body := revokeCall(t, "GET", srv.URL+"/api/members", current, ""); st != http.StatusOK {
+		t.Fatalf("a machine's CURRENT (exp-bearing) credential was refused by the "+
+			"agent iat floor: %d %s — the exemption is on the member's kind, and a "+
+			"warden refused here cannot reach POST /api/machines/renew-credential "+
+			"either, so it stays off the fleet until its credential runs out and "+
+			"somebody re-installs the host", st, body)
 	}
 }
 

@@ -591,8 +591,9 @@ type BackupHealthDTO struct {
 // installer for an EXISTING machine again later without re-onboarding.
 // “machine_id“ is the warden member id; “boot_command“ is the same
 // curl-download-then-install one-liner onboard builds (it embeds “machine_id“
-// as OC_ID); “token“ is a FRESHLY re-minted permanent exec-token (“scope="agent"“,
-// “sub=machine_id“, no “exp“ claim) and “expires_in“ is “0“.
+// as OC_ID); “token“ is a FRESHLY re-minted exec-token (“scope="agent"“,
+// “sub=machine_id“, “exp = iat + auth.warden_credential_lifetime_secs“) and
+// “expires_in“ is that same lifetime in seconds.
 //
 // “claim_code“ is a fresh short-lived (“claim_expires_in“ = 600 s), single-use code
 // the “boot_command“ embeds (“install.sh?code=“) instead of the exec-token; the served
@@ -1556,9 +1557,10 @@ type MachineClaimDTO struct {
 
 // MachineClaimResultDTO The claim-code redemption result (“POST /api/machines/claim“).
 //
-// “token“ is the freshly minted permanent machine exec-token (“scope="agent"“,
-// “sub=machine_id“ — the same mint every warden install path performs); it omits
-// “exp“ and answers “expires_in=0“. “machine_id“ is the warden member the
+// “token“ is the freshly minted machine exec-token (“scope="agent"“,
+// “sub=machine_id“ — the same mint every warden install path performs); it carries
+// “exp = iat + auth.warden_credential_lifetime_secs“ and answers “expires_in“ =
+// that same lifetime in seconds. “machine_id“ is the warden member the
 // token is bound to.
 type MachineClaimResultDTO struct {
 	ExpiresIn int    `json:"expires_in"`
@@ -1568,7 +1570,7 @@ type MachineClaimResultDTO struct {
 
 // MachineCredentialPolicyDTO The station's machine-credential policy (“GET /api/machines/credential-policy“).
 //
-// “lifetime_secs“ is the org setting “auth.warden_credential_lifetime_secs“: how long a machine (warden) credential is meant to live. It is NOT an expiry and nothing enforces it at the auth gate -- warden credentials still carry no “exp“. It is the input to the warden's own renewal threshold: two thirds of it, measured from the credential's “iat“, plus a per-machine stagger.
+// “lifetime_secs“ is the org setting “auth.warden_credential_lifetime_secs“: how long a machine (warden) credential is meant to live. It is BOTH the expiry stamped into the credential (“exp = iat + lifetime_secs“, T-fc53) and the input to the warden's own renewal threshold: two thirds of it, measured from the credential's “iat“, plus a per-machine stagger. Credentials minted before that change carry no “exp“ and go on being accepted until the machine renews.
 type MachineCredentialPolicyDTO struct {
 	LifetimeSecs int `json:"lifetime_secs"`
 }
@@ -1657,8 +1659,9 @@ type MachineOnboardDTO struct {
 // surfaced under the machine-model name (the machine id == the warden member's own
 // id — the binding key agents store in their “desired_machine_id“ column). “token“
 // is
-// the freshly minted permanent exec-token (“scope="agent"“, “sub=member_id“) with
-// no “exp“ claim; “expires_in“ is “0“. “boot_command“ is the copy-paste line
+// the freshly minted exec-token (“scope="agent"“, “sub=member_id“) carrying
+// “exp = iat + auth.warden_credential_lifetime_secs“; “expires_in“ is that same
+// lifetime in seconds. “boot_command“ is the copy-paste line
 // the operator runs ON that machine to install the warden (identity rides in the
 // token's “sub“, not a templated machine id).
 //
@@ -3215,7 +3218,7 @@ type SettingsDTO struct {
 	UpdaterAutoUpdate           *bool     `json:"updater_auto_update,omitempty"`
 	UpdaterReceiveBeta          *bool     `json:"updater_receive_beta,omitempty"`
 
-	// WardenCredentialLifetimeSecs How long a MACHINE (warden) credential is meant to live, in seconds (86400 through 34560000 -- one day through 400 days). It is the number every warden's renewal threshold is derived from: a warden replaces its own credential once that credential is two thirds of this old, measured from the `iat` claim it carries, plus a per-machine stagger of up to one hour. Wardens read it from `GET /api/machines/credential-policy` on their 15-minute poll, so a change reaches the fleet within one interval; a warden that cannot reach that endpoint keeps using the shipped default rather than failing. NOTE: warden credentials still carry NO `exp`, so this value governs RENEWAL ONLY -- nothing expires because of it, and a renewal that does not complete leaves the machine on a credential that keeps working.
+	// WardenCredentialLifetimeSecs How long a MACHINE (warden) credential is meant to live, in seconds (86400 through 34560000 -- one day through 400 days). It is the number every warden's renewal threshold is derived from: a warden replaces its own credential once that credential is two thirds of this old, measured from the `iat` claim it carries, plus a per-machine stagger of up to one hour. Wardens read it from `GET /api/machines/credential-policy` on their 15-minute poll, so a change reaches the fleet within one interval; a warden that cannot reach that endpoint keeps using the shipped default rather than failing. It is ALSO the credential's expiry: the warden mint stamps `exp = iat + this` (T-fc53). A renewal that does not complete inside the remaining third therefore takes that machine off the fleet until someone re-installs it by hand, and nothing on the station reports that it happened. Lowering this value does not shorten credentials already issued -- an `exp` is fixed at mint time.
 	WardenCredentialLifetimeSecs *int `json:"warden_credential_lifetime_secs,omitempty"`
 }
 
@@ -3341,7 +3344,7 @@ type SettingsUpdateDTO struct {
 	UpdaterAutoUpdate           *bool     `json:"updater_auto_update,omitempty"`
 	UpdaterReceiveBeta          *bool     `json:"updater_receive_beta,omitempty"`
 
-	// WardenCredentialLifetimeSecs How long a MACHINE (warden) credential is meant to live, in seconds. Must be 86400 through 34560000 (one day through 400 days). A warden renews its own credential once that credential is two thirds of this old, plus a per-machine stagger of up to one hour so that LOWERING this value does not put the whole fleet on the mint endpoint inside one poll. The floor is one day because the last third of the lifetime is the retry window: at the 15-minute poll a one-day lifetime still leaves about 32 attempts. Wardens pick a change up within one poll interval. Warden credentials carry no `exp` today, so this governs renewal only and nothing expires because of it. Read the current value from get_settings rather than assuming a number.
+	// WardenCredentialLifetimeSecs How long a MACHINE (warden) credential is meant to live, in seconds. Must be 86400 through 34560000 (one day through 400 days). A warden renews its own credential once that credential is two thirds of this old, plus a per-machine stagger of up to one hour so that LOWERING this value does not put the whole fleet on the mint endpoint inside one poll. The floor is one day because the last third of the lifetime is the retry window: at the 15-minute poll a one-day lifetime still leaves about 32 attempts. Wardens pick a change up within one poll interval. It is ALSO the expiry stamped into the credential (`exp = iat + this`, T-fc53), so a machine that misses its whole retry window needs a hand re-install; lowering the value never shortens a credential already issued, because an `exp` is fixed at mint time. Read the current value from get_settings rather than assuming a number.
 	WardenCredentialLifetimeSecs *int `json:"warden_credential_lifetime_secs,omitempty"`
 }
 

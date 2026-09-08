@@ -213,8 +213,12 @@ type Member struct {
 	// the skew between the two clocks.
 	//
 	// 🔴 Warden rows carry it like any other row, and the READ side declines to
-	// consult it for them (authz.go agentIatFloorRefusal). A warden credential
-	// has no exp, so a floor above one could never expire out of the way.
+	// consult it for them (authz.go agentIatFloorRefusal). A warden refused by
+	// the floor is refused on /api/machines/renew-credential too, so the one path
+	// off the refused credential is shut at the same instant. (The reason was
+	// stronger before T-fc53 第二段 — a warden credential had no exp at all, so a
+	// floor above one could never expire out of the way; it now un-sticks when
+	// the credential expires, which is still a hand re-install.)
 	//
 	// Written through SetMemberAgentIatFloor only; a whole-row write carries it
 	// on INSERT but never onto an EXISTING row (mfAgentIatFloor declares it

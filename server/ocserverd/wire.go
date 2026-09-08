@@ -97,10 +97,17 @@ type settingsDTO struct {
 	AcceleratedGraceSecs int `json:"accelerated_grace_secs"`
 
 	// WardenCredentialLifetimeSecs is how long a MACHINE credential is meant to
-	// live (auth.warden_credential_lifetime_secs; T-fc53). It drives RENEWAL only —
-	// warden credentials still carry no exp — so a change here can never take a
-	// machine off the network; it moves the age at which each warden goes and
-	// fetches a replacement.
+	// live (auth.warden_credential_lifetime_secs; T-fc53). It drives BOTH halves
+	// since 第二段: the age at which each warden goes and fetches a replacement
+	// (two thirds of it), and the `exp` the mint stamps into the credential
+	// (`exp = iat + this`, api_auth.go mintWardenToken).
+	//
+	// 🔴 SO A CHANGE HERE CAN TAKE A MACHINE OFF THE NETWORK. It used to say the
+	// opposite — "warden credentials still carry no exp, so a change here can
+	// never take a machine off the network" — and that was true only while the
+	// credentials were permanent. A machine that does not complete a renewal
+	// inside the remaining third is refused by the station and needs a hand
+	// re-install, and nothing here reports that it happened.
 	WardenCredentialLifetimeSecs int `json:"warden_credential_lifetime_secs"`
 	// DocCapChars* are the live size caps on the accumulating context
 	// documents, in CHARACTERS (runes) — the same unit the patch receipts and

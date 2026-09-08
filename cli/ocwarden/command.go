@@ -82,10 +82,12 @@ const (
 	// on the server's say-so; this one cannot, however it is forged.
 	//
 	// WHY A VERB AND NOT A LONGER EXPIRY. The renewal path already exists and is
-	// wired; the only thing missing was a reason to run that is not "the
-	// credential is about to expire", because warden credentials are permanent
-	// (server mintWardenToken → mintJWTWithoutExpiry) and therefore never due.
-	// This is that reason.
+	// wired; what was missing was a reason to run that is not "the credential is
+	// about to expire". When this verb was written that was the ONLY missing
+	// reason, because warden credentials were permanent and therefore never due.
+	// T-fc53 gave them a clock again (第一段 an age-based trigger, 第二段 an exp),
+	// and this verb is STILL not redundant: a credential signed by a retired key
+	// is worthless at whatever age it happens to be, and no clock can see that.
 	//
 	// An older warden that predates this verb refuses the frame as unknown-rpc
 	// below — logged + skipped, the reader loop unharmed — so it is safe to send
