@@ -1201,6 +1201,13 @@ def test_warden_command_band_start_frame(
             except ValueError:
                 return False
 
+        stop_ev = warden.wait_for(_is_cmd, timeout=8.0)
+        assert stop_ev["id"] is None, f"command frames carry NO id: line: {stop_ev}"
+        stop_frame = json.loads(stop_ev["data"])
+        assert stop_frame["data"] == {
+            "rpc": "stop", "args": {"member_id": member_id}
+        }, stop_frame
+
         ev = warden.wait_for(_is_cmd, timeout=8.0)
         assert ev["id"] is None, f"command frames carry NO id: line: {ev}"
         frame = json.loads(ev["data"])
