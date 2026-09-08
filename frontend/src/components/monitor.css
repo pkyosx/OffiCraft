@@ -170,6 +170,28 @@
 .mon-table__left {
   text-align: left !important;
 }
+
+/* §3 sortable column header. A real <button> (Tab-reachable, Enter/Space for
+   free) that has to LOOK like the plain header text it replaced, so it inherits
+   the th's font and colour instead of restating them. The arrow slot keeps its
+   width whether or not this column is the sorted one, so picking a column does
+   not nudge the header labels sideways. */
+.mon-sort {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+.mon-sort__arrow {
+  display: inline-block;
+  min-width: 1em;
+  font-size: 0.85em;
+}
 .mon-table__strong {
   font-weight: 600;
   color: var(--color-text-strong);
