@@ -393,11 +393,12 @@ const (
 
 // The auth.warden_credential_lifetime_secs bounds (T-fc53).
 //
-// THE DEFAULT IS 90 DAYS (owner 2026-09-06 18:36, verbatim 「加回去預設 90 天可
-// 以調整」). It was 30 while the setting drove renewal only; giving the credential
-// an `exp` again (T-fc53 第二段) is what made the number a real deadline, and the
-// owner moved it at the same moment. Changing it is one PATCH away — that is the
-// 「可以調整」 half, and it was already true before this package.
+// THE DEFAULT IS 30 DAYS (owner 2026-09-08, card rc-f2b96594c621, option [0],
+// verbatim 「合，預設取 30 天（跟主線現在一致，正式站行為不變）」). The reason it is
+// this number and not a taste: the production station has no row for this
+// setting, so whatever stands here IS that station's behaviour — moving the
+// default moves production without anyone typing anything. Changing it on a
+// given station is one PATCH away.
 //
 // 🔴 THE TWO CONDITIONS THIS WHOLE MECHANISM SILENTLY FAILS UNDER. Both are
 // timing properties of the world, neither is checked anywhere, and both are
@@ -405,7 +406,7 @@ const (
 // reports a warden that failed to renew.
 //
 //	① A SIGNING KEY MUST STAY ON THE RING FOR AT LEAST TWO THIRDS OF THIS
-//	   LIFETIME AFTER IT STOPS SIGNING — 60 days at the default — unless the
+//	   LIFETIME AFTER IT STOPS SIGNING — 20 days at the default — unless the
 //	   fleet is known to have converged. A warden replaces its credential at
 //	   two thirds of the lifetime (cli/ocwarden/renew.go), so that is how long
 //	   the last credential signed by a stepped-down key can still be in service.
@@ -418,7 +419,7 @@ const (
 //	   row says yes and unsafe otherwise, however many days have passed.
 //
 //	② A MACHINE OFF THE NETWORK FOR LONGER THAN ITS RETRY WINDOW NOW LOSES ITS
-//	   CREDENTIAL FOR GOOD — the last third of the lifetime, 30 days at the
+//	   CREDENTIAL FOR GOOD — the last third of the lifetime, 10 days at the
 //	   default. This is NEW with the expiry: while credentials were permanent a
 //	   host that missed every renewal for a year came back and kept working. Now
 //	   it comes back, is refused, and needs a re-install by hand. The window is
@@ -461,7 +462,7 @@ const (
 // long-lived credential on this station already lives under. Naming the same
 // number twice was rejected: this one is derived from it.
 const (
-	wardenCredLifetimeSecsDefault = 90 * 86400
+	wardenCredLifetimeSecsDefault = 30 * 86400
 	minWardenCredLifetimeSecs     = 86400
 	maxWardenCredLifetimeSecs     = int(maxAgentTTLSecs)
 )

@@ -67,7 +67,7 @@ Two operator actions, and no timer anywhere:
   with no grace period. It is a human's decision precisely because it has no undo.
   ⚠️ Warden credentials expire again since §1.6, but "wait for the old tokens to expire" is
   still the SLOW strategy rather than the answer: a machine's credential lives up to the
-  full lifetime (90 days by default) and is replaced at two thirds of it, so a key that has
+  full lifetime (30 days by default) and is replaced at two thirds of it, so a key that has
   stopped signing may still have credentials in service for two thirds of a lifetime. The
   test is `token_key_current` on `GET /api/machines`, not the calendar (§1.6 condition 1).
   Credentials minted before §1.6 carry no `exp` at all and are valid until their key leaves
@@ -105,7 +105,7 @@ retired `var/jwt_secret` fallback file has no successor.
 | `POST /api/mint` (owner-gated) | `agent` / `body.member_id` | `min(ttl_days*86400, 400 days)` — the 400-day ceiling MUST cap every long-lived agent token, and an `exp` is ALWAYS stamped (`mintJWT` computes `now + ttl` unconditionally; `ttl_days: 0` mints a token that is already expired, never a permanent one). 🔴 For a member whose `kind` is NOT `warden`, the ceiling is not a guarantee of lifetime: the token carries NO exemption from the §1.2 cut 3 agent floor, so it dies the moment that member next reports waking, however many days are left on it (owner 2026-08-30, rc-162a4ace086d option 0 — asked and accepted). A long-lived token handed to an external script therefore stops working at that member's next boot. 🔴 THE `kind="warden"` CASE IS THE EXCEPTION AND IT IS OPEN ON PURPOSE. This route resolves its target with `staffOnly`, which refuses `kind='outsource'` and NOTHING ELSE — so a mint MAY be aimed at a machine (warden) member, and §1.2 cut 3 exempts `kind="warden"` rows by design. The resulting token is therefore an `agent`-scope credential that NO boot report can end. It is NOT unrevocable: it still expires (≤ 400 days), and removing that machine from the roster still refuses it through the cut 2 machine revocation. What is missing is only the boot cut. Two guards were proposed for this — refusing a machine target here, and raising the floor at dispatch time — and owner DEFERRED both on 2026-08-31, verbatim 「都先不加」(rc-b08b0a5d678b, free text, no option selected). That is a POSTPONEMENT, not an accepted permanent gap: this paragraph MUST be revisited rather than read as a settled design. | none |
 | `POST /api/bootstrap` (with `member_id`) | `agent` / member id | DB setting `auth.agent_token_ttl` (default **604800 s**) | `member.desired_machine_id` (omitted if empty) |
 | reconcile START payload (server-side, per spawn) | `agent` / member id | `auth.agent_token_ttl` | `member.desired_machine_id` |
-| machine onboard / boot-command / bootstrap-here exec-token | `agent` / warden member id | DB setting `auth.warden_credential_lifetime_secs` (default **7776000 s** = 90 days; §1.6) — `exp = iat + lifetime`, response `expires_in` = the same number | none (warden tokens carry no placement claim) |
+| machine onboard / boot-command / bootstrap-here exec-token | `agent` / warden member id | DB setting `auth.warden_credential_lifetime_secs` (default **2592000 s** = 30 days; §1.6) — `exp = iat + lifetime`, response `expires_in` = the same number | none (warden tokens carry no placement claim) |
 | `POST /api/machines/claim` (public; redeems a one-time claim code) | `agent` / warden member id | `auth.warden_credential_lifetime_secs` — the same mint used by every warden install path | none (warden tokens carry no placement claim) |
 | `POST /api/machines/renew-credential` (a warden replacing its OWN credential — §1.4) | `agent` / the caller's own warden member id | `auth.warden_credential_lifetime_secs` — the SAME mint as the install paths above, deliberately not a second one | none (warden tokens carry no placement claim) |
 
@@ -489,8 +489,9 @@ evidence that a credential is or is not due.
   integer (seconds). It MUST be accepted anywhere in **86400 .. 34560000** (one day
   through 400 days, the §1.3 ceiling) and refused with a 422 outside it, by ONE predicate
   that the write face and the boot-time loader BOTH use — a value that saves MUST NOT be a
-  value the next start refuses. Its default is **7776000** (90 days; owner 2026-09-06
-  「加回去預設 90 天可以調整」 — it was 2592000 while §1.6 had not landed).
+  value the next start refuses. Its default is **2592000** (30 days; owner 2026-09-08,
+  card rc-f2b96594c621 「合，預設取 30 天（跟主線現在一致，正式站行為不變）」 — the
+  production station has no row for this setting, so the default IS its behaviour).
   It MUST NOT be reduced to a pick-list: the reason to change it is to observe a renewal
   without waiting out a full lifetime, and the useful values are not the ones a list of
   four would contain (owner 2026-09-06).
@@ -578,13 +579,13 @@ does not know them will read the machinery above as self-sufficient, and it is n
 1. **A signing key MUST remain on the ring for at least two thirds of the lifetime after it
    stops signing, unless the fleet is known to have converged.** A warden replaces its
    credential at two thirds of the lifetime (§1.5), so that is how long the last credential
-   signed by a stepped-down key can still be in service — 60 days at the default. Removing
+   signed by a stepped-down key can still be in service — 20 days at the default. Removing
    the key before then refuses every machine still holding one, at once, with no grace
    (§1.3 cut 4). The instrument is `token_key_current` on `GET /api/machines`, not the
    calendar: removal is safe when every machine has come back on the current key, and
    unsafe otherwise however many days have passed.
 2. **A machine off the network for longer than its retry window now loses its credential
-   permanently** — the last third of the lifetime, 30 days at the default. This is NEW with
+   permanently** — the last third of the lifetime, 10 days at the default. This is NEW with
    the expiry: while credentials were permanent, a host that missed every renewal for a year
    came back and kept working. It now comes back, is refused, and needs a re-install by
    hand.

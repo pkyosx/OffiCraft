@@ -2109,9 +2109,9 @@ const DEFAULT_MOCK_SETTINGS = {
   // 加速停止 grace — mirrors the server's shipped default (StoppingTimeoutSecs).
   accelerated_grace_secs: 120,
   // T-fc53 warden credential lifetime — mirrors the server's shipped default
-  // (90 days; 30 until 第二段). Hard-coded rather than derived so the mock still shows the fleet
+  // (30 days). Hard-coded rather than derived so the mock still shows the fleet
   // default the day someone changes the constant on only one side.
-  warden_credential_lifetime_secs: 7776000,
+  warden_credential_lifetime_secs: 2592000,
   // M3 global outsource cap — mirrors the server's code-side default (3).
   outsource_max_parallel: 3,
   // T-ae38 document size caps — mirror the server's shipped defaults, which

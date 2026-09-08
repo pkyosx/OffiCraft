@@ -303,7 +303,7 @@ const (
 // ⚠️ THE STRENGTH OF THAT SENTENCE MOVED IN T-fc53 第二段, the exemption did not.
 // It used to read "a credential that can never expire out of the way … would go
 // dark PERMANENTLY", which was true while warden credentials carried no exp.
-// They carry one again (90 days by default), so a refused machine now un-sticks
+// They carry one again (30 days by default), so a refused machine now un-sticks
 // itself when that credential expires and the host is reinstalled — the harm is
 // bounded rather than infinite. It is still a machine off the fleet for as long
 // as its credential lives, which is why nothing here changes. Pinned by

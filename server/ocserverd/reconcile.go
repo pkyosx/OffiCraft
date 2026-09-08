@@ -2440,7 +2440,7 @@ const tokenExpiryLeadSecs = 3600.0
 // is enough:
 //
 //   - THE LIFETIME IS NOT agent_token_ttl. A warden credential's exp is
-//     iat + auth.warden_credential_lifetime_secs (default 90 days), a different
+//     iat + auth.warden_credential_lifetime_secs (default 30 days), a different
 //     owner setting from the one passed in here (default 7 days). Substituting one
 //     for the other does not produce an over-estimate or an under-estimate, it
 //     produces an unrelated number.

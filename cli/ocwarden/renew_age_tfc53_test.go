@@ -154,23 +154,24 @@ func TestCredentialDueForRenewal_AZeroThresholdDisablesTheAgeArm(t *testing.T) {
 // ② the threshold: turning the station's lifetime into an age
 // ---------------------------------------------------------------------------
 
-// TestCredentialLifetimeDefaultSecs_IsNinetyDays writes the warden's built-in
+// TestCredentialLifetimeDefaultSecs_IsThirtyDays writes the warden's built-in
 // default out as a plain number, because every other use of it in this package
 // derives the expected value from the constant itself and therefore holds for any
 // value it is given. The station ships the same number as the default of
 // auth.warden_credential_lifetime_secs and nothing compiles the two together, so
 // each end pins its own against the same literal.
 //
-// Measured: setting credentialLifetimeDefaultSecs to 30 days fails THIS test and
-// nothing else in cli/ocwarden, and before it existed that edit kept the whole
-// package green.
-func TestCredentialLifetimeDefaultSecs_IsNinetyDays(t *testing.T) {
-	const ninetyDaysInSeconds = 7776000
-	if credentialLifetimeDefaultSecs != ninetyDaysInSeconds {
-		t.Errorf("credentialLifetimeDefaultSecs = %d s, want %d s (90 days, owner "+
-			"2026-09-06). A machine that cannot reach the policy endpoint renews on "+
-			"this number, so it must equal the lifetime the station actually issues",
-			credentialLifetimeDefaultSecs, ninetyDaysInSeconds)
+// THIS TEST IS THE ONLY THING IN cli/ocwarden THAT MOVING THE CONSTANT TURNS RED:
+// every other test here derives its expectation from the constant, so the value
+// itself is unasserted anywhere else.
+func TestCredentialLifetimeDefaultSecs_IsThirtyDays(t *testing.T) {
+	const thirtyDaysInSeconds = 2592000
+	if credentialLifetimeDefaultSecs != thirtyDaysInSeconds {
+		t.Errorf("credentialLifetimeDefaultSecs = %d s, want %d s (30 days, owner "+
+			"2026-09-08 card rc-f2b96594c621). A machine that cannot reach the policy "+
+			"endpoint renews on this number, so it must equal the lifetime the station "+
+			"actually issues",
+			credentialLifetimeDefaultSecs, thirtyDaysInSeconds)
 	}
 }
 
@@ -206,7 +207,7 @@ func TestCredentialRenewAfter_TranslatesTheLifetimeAndRefusesNonsense(t *testing
 				"renews on its next poll",
 		},
 		{
-			name: "thirty days, what this used to ship",
+			name: "thirty days, the shipped default",
 			secs: 30 * 86400,
 			want: 20 * testDay,
 			why:  "unchanged from the expiry rule — two thirds of thirty days is twenty",
@@ -319,11 +320,11 @@ func TestCredentialRenewJitter_IsBoundedByTheRetryWindowItEatsInto(t *testing.T)
 		t.Errorf("jitter %s exceeds an eighth of a %s threshold — at short lifetimes the "+
 			"stagger would consume the retry window it is supposed to sit inside", j, tiny)
 	}
-	// Control: at a 20-day threshold the cap is 2.5 days and does NOT bite, so the
+	// Control: at a 10-day threshold the cap is 1.25 days and does NOT bite, so the
 	// assertion above is measuring the cap rather than a jitter that is always
-	// tiny. The shipped threshold is longer still — two thirds of 90 days is 60,
-	// whose cap is 7.5 days — so 20 days is the harsher control of the two.
-	if credentialRenewJitter(thisMachine, 20*testDay) == 0 {
+	// tiny. The shipped threshold is longer still — two thirds of 30 days is 20,
+	// whose cap is 2.5 days — so 10 days is the harsher control of the two.
+	if credentialRenewJitter(thisMachine, 10*testDay) == 0 {
 		t.Fatal("the control failed: this id gets no stagger even at the shipped " +
 			"threshold, so the cap assertion above proves nothing")
 	}

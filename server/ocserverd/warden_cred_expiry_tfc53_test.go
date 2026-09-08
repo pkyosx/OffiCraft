@@ -111,16 +111,16 @@ func TestTokenExpiryOf_WardenIsExemptForReasonsTheExpiryDidNotChange(t *testing.
 // enforces either, and nothing here does.
 //
 // What this DOES catch is the numbers going stale. Both figures are stated in
-// days in prose ("60 days", "30 days"), and the only thing that makes them true
+// days in prose ("20 days", "10 days"), and the only thing that makes them true
 // is the default they are derived from. Move the default and the prose is silently
-// wrong — a reader would then wait 60 days on a 30-day margin, which is the exact
+// wrong — a reader would then wait 20 days on a 10-day margin, which is the exact
 // mistake the prose exists to prevent.
 func TestWardenCredLifetime_TheFailureConditionNumbersAreDerivedNotTyped(t *testing.T) {
 	const day = 86400
 
 	// The prose next to wardenCredLifetimeSecsDefault and in spec/lifecycle.md §1.6.
-	const proseKeyRetentionDays = 60 // "two thirds of the lifetime"
-	const proseRetryWindowDays = 30  // "the last third of the lifetime"
+	const proseKeyRetentionDays = 20 // "two thirds of the lifetime"
+	const proseRetryWindowDays = 10  // "the last third of the lifetime"
 
 	if got := wardenCredLifetimeSecsDefault * 2 / 3 / day; got != proseKeyRetentionDays {
 		t.Errorf("two thirds of the shipped lifetime is %d days, but settings.go and "+

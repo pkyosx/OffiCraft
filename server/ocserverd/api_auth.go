@@ -45,8 +45,8 @@ func (s *apiServer) mintMemberToken(m Member, ttl int64) (string, error) {
 // SAME credential shape. A ttl argument would be five places to keep in step; the
 // lifetime is read here, once, from the live setting.
 //
-// 🔴 T-fc53 第二段: THE CREDENTIAL HAS AN `exp` AGAIN (owner 2026-09-06
-// 「加回去預設 90 天可以調整」). It used to be minted through
+// 🔴 T-fc53 第二段: THE CREDENTIAL HAS AN `exp` AGAIN (owner 2026-09-06).
+// It used to be minted through
 // mintJWTWithoutExpiry, i.e. permanent. What makes that safe to reverse is the
 // renewal path landed in 第一段: every warden replaces its own credential at two
 // thirds of this same lifetime, so a healthy machine is never within a third of

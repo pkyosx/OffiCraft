@@ -795,8 +795,8 @@ func (s *apiServer) HandleRenewMachineCredentialApiMachinesRenewCredentialPost(w
 // the warden — and the endpoint STAYS, for two reasons. First, every warden
 // installed before 第二段 is holding a credential with no exp, so a threshold read
 // off the token would answer "not due" on exactly the machines that most need to
-// renew. Second, an exp is fixed at MINT time: a credential minted under a 90-day
-// lifetime keeps quoting 90 days after the owner lowers the setting, so the token
+// renew. Second, an exp is fixed at MINT time: a credential minted under a 30-day
+// lifetime keeps quoting 30 days after the owner lowers the setting, so the token
 // is a record of what the lifetime WAS, and this endpoint is the only thing that
 // says what it IS.
 //

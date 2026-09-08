@@ -354,7 +354,7 @@ type updater struct {
 	// "zero seconds" — and credentialRenewAfter turns that into the shipped default.
 	//
 	// 🔴 IT IS IN MEMORY ONLY, AND THAT IS THE SAFE DIRECTION. Nothing persists it,
-	// so a restart forgets the station's answer and falls back to the 90-day default
+	// so a restart forgets the station's answer and falls back to the 30-day default
 	// until the next poll re-reads it. The failure that buys: a machine can never be
 	// stuck on a stale SHORT lifetime it wrote down once — the only value it can be
 	// stuck on is the conservative default. Persisting it would add a file whose

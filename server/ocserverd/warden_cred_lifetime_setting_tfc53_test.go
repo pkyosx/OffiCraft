@@ -19,7 +19,7 @@ package main
 // Accordingly every face is read TWICE — once at the shipped default and once
 // after a PATCH — and the pair must MOVE. Asserting only the post-PATCH value
 // passes for a face that hard-codes it; asserting only the default passes for a
-// face that hard-codes 90 days, which is what the wardens already assume.
+// face that hard-codes 30 days, which is what the wardens already assume.
 
 import (
 	"encoding/json"
@@ -70,38 +70,39 @@ func readCredentialPolicy(t *testing.T, api *apiServer) map[string]any {
 	return out
 }
 
-// TestWardenCredLifetime_UnsetIsNinetyDaysOnEveryFace. The default is not a
+// TestWardenCredLifetime_UnsetIsThirtyDaysOnEveryFace. The default is not a
 // cosmetic choice: it is the number every warden already assumes when it cannot
 // reach the station, so a station whose default disagreed with the fleet's would
 // change behaviour for nobody's benefit the moment the endpoint went down.
 //
-// It was ...UnsetIsThirtyDaysOnEveryFace until T-fc53 第二段, when the owner moved
-// the default to 90 days (2026-09-06 18:36 「加回去預設 90 天可以調整」) in the same
-// breath as putting the expiry back. The NUMBER is spelled out here rather than
-// read from wardenCredLifetimeSecsDefault deliberately: a test that reads the
-// constant it is guarding asserts nothing about the constant, and this value is
-// now stamped into every machine credential the station mints.
-func TestWardenCredLifetime_UnsetIsNinetyDaysOnEveryFace(t *testing.T) {
+// THE DEFAULT IS 30 DAYS (owner 2026-09-08, card rc-f2b96594c621, option [0],
+// verbatim 「合，預設取 30 天（跟主線現在一致，正式站行為不變）」): the production
+// station has no row for this setting, so this number IS its behaviour. The
+// NUMBER is spelled out here rather than read from wardenCredLifetimeSecsDefault
+// deliberately: a test that reads the constant it is guarding asserts nothing
+// about the constant, and this value is now stamped into every machine
+// credential the station mints.
+func TestWardenCredLifetime_UnsetIsThirtyDaysOnEveryFace(t *testing.T) {
 	api := resumeCtxServer(t)
-	const ninetyDays = 90 * 86400
+	const thirtyDays = 30 * 86400
 
-	if got := api.wardenCredLifetimeValue(); got != ninetyDays {
-		t.Errorf("live accessor with no row: got %d, want %d", got, ninetyDays)
+	if got := api.wardenCredLifetimeValue(); got != thirtyDays {
+		t.Errorf("live accessor with no row: got %d, want %d", got, thirtyDays)
 	}
-	if got := wardenCredLifetimeSettings(t, api).WardenCredentialLifetimeSecs; got != ninetyDays {
-		t.Errorf("GET /api/settings with no row: got %d, want %d", got, ninetyDays)
+	if got := wardenCredLifetimeSettings(t, api).WardenCredentialLifetimeSecs; got != thirtyDays {
+		t.Errorf("GET /api/settings with no row: got %d, want %d", got, thirtyDays)
 	}
-	if got := readCredentialPolicy(t, api)["lifetime_secs"]; got != float64(ninetyDays) {
+	if got := readCredentialPolicy(t, api)["lifetime_secs"]; got != float64(thirtyDays) {
 		t.Errorf("GET /api/machines/credential-policy with no row: got %v, want %d",
-			got, ninetyDays)
+			got, thirtyDays)
 	}
 	loaded, err := loadAuthSettings(api.dal, defaultConfig(), func(string) {})
 	if err != nil {
 		t.Fatalf("load settings: %v", err)
 	}
-	if loaded.wardenCredLifetimeSecs != ninetyDays {
+	if loaded.wardenCredLifetimeSecs != thirtyDays {
 		t.Errorf("boot-time load with no row: got %d, want %d",
-			loaded.wardenCredLifetimeSecs, ninetyDays)
+			loaded.wardenCredLifetimeSecs, thirtyDays)
 	}
 
 	// 🔴 THE STATION'S DEFAULT AND THE WARDEN'S BUILT-IN DEFAULT MUST BE THE
@@ -112,10 +113,11 @@ func TestWardenCredLifetime_UnsetIsNinetyDaysOnEveryFace(t *testing.T) {
 	//
 	// NOTHING IN THIS PACKAGE CATCHES THAT DRIFT, and an earlier version of this
 	// comment claimed otherwise while comparing two literals declared beside each
-	// other. Measured: setting credentialLifetimeDefaultSecs to 30 days leaves the
-	// tests in this file green. Each end pins its OWN number against a written-out
+	// other. credentialLifetimeDefaultSecs lives in a different Go module and is
+	// not importable from here, so no edit to it can turn any test in this file
+	// red. Each end pins its OWN number against a written-out
 	// literal instead — the assertions above for the station,
-	// TestCredentialLifetimeDefaultSecs_IsNinetyDays
+	// TestCredentialLifetimeDefaultSecs_IsThirtyDays
 	// (cli/ocwarden/renew_age_tfc53_test.go) for the warden — so moving one side
 	// alone is red in that side's package.
 }

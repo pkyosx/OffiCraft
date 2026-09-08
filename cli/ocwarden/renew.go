@@ -54,7 +54,7 @@ package main
 // changes is where the number comes from: the lifetime is no longer readable off
 // the credential, so the station publishes it (GET /api/machines/credential-policy)
 // and this process keeps the last answer. A machine that has never had an answer
-// uses the shipped default, which is the owner-ruled 90 days.
+// uses the shipped default, which is the owner-ruled 30 days.
 
 import (
 	"encoding/base64"
@@ -65,20 +65,20 @@ import (
 )
 
 // renewAtRemainingFraction is the share of a credential's ORIGINAL lifetime
-// that, once left, starts renewal attempts. At the owner-ruled 90-day lifetime
-// this is thirty days.
+// that, once left, starts renewal attempts. At the owner-ruled 30-day lifetime
+// this is ten days.
 //
 // WHY A FRACTION AND NOT A NUMBER OF DAYS. The lifetime is an owner-adjustable
 // setting. A hard-coded threshold survives only the lifetime it was written
 // for: shorten the lifetime past it and every credential is born already due,
 // so the fleet renews on every poll forever. A fraction moves with it.
 //
-// WHY A THIRD. What this threshold actually buys is a RETRY WINDOW: thirty days
-// at the fifteen-minute poll is roughly three thousand attempts, so a machine has
-// to be off for thirty days straight before its credential really dies. A quarter
+// WHY A THIRD. What this threshold actually buys is a RETRY WINDOW: ten days
+// at the fifteen-minute poll is roughly a thousand attempts, so a machine has
+// to be off for ten days straight before its credential really dies. A quarter
 // would also do; there is no reason to make the window smaller. What it must
 // not be is generous enough to have every machine renewing for most of its
-// life — at a third, a healthy machine spends sixty days doing nothing and
+// life — at a third, a healthy machine spends twenty days doing nothing and
 // renews once per lifetime.
 //
 // 🔴 SINCE T-fc53 第二段 "REALLY DIES" IS LITERAL. The credential now carries an
@@ -96,8 +96,8 @@ const renewAtRemainingFraction = 1.0 / 3.0
 const (
 	// credentialLifetimeDefaultSecs is what this warden assumes the station's
 	// credential lifetime is until the station tells it otherwise. It is the
-	// owner-ruled 90 days (owner 2026-09-06), i.e. the same value the station
-	// ships as the default of auth.warden_credential_lifetime_secs.
+	// owner-ruled 30 days (owner 2026-09-08, card rc-f2b96594c621), i.e. the same
+	// value the station ships as the default of auth.warden_credential_lifetime_secs.
 	//
 	// 🔴 THE DEFAULT IS NOT A FALLBACK NOBODY REACHES. It is what EVERY machine
 	// uses on its first poll after an upgrade, and it is what a machine uses for
@@ -118,7 +118,7 @@ const (
 	// that cannot reach the policy endpoint renew early and forever, which is the
 	// fleet-wide behaviour the endpoint exists to avoid. The margin belongs in the
 	// retry window, not in a second guess about the same number.
-	credentialLifetimeDefaultSecs = int64(90 * 24 * 60 * 60)
+	credentialLifetimeDefaultSecs = int64(30 * 24 * 60 * 60)
 
 	// credentialLifetimeFloorSecs is the SHORTEST lifetime this process will act
 	// on, whatever the station says. It mirrors minWardenCredLifetimeSecs on the
@@ -207,8 +207,8 @@ func credentialRenewAfter(lifetimeSecs int64, machineID string) time.Duration {
 // stagger eats into the retry window, and the retry window is what stops a
 // machine that was switched off for a while from losing its credential. Bounding
 // it at an eighth of the threshold means it can never be more than a small slice
-// of that window whatever lifetime the owner picks — at the shipped 90 days the
-// cap is 7.5 days and the hour applies untouched; only an absurdly short
+// of that window whatever lifetime the owner picks — at the shipped 30 days the
+// cap is 2.5 days and the hour applies untouched; only an absurdly short
 // lifetime could ever make the cap bite, and then it bites in the safe direction.
 func credentialRenewJitter(machineID string, base time.Duration) time.Duration {
 	if machineID == "" {

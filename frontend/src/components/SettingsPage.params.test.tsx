@@ -52,11 +52,11 @@ describe("SettingsPage · 參數調整", () => {
     // number is the owner's, and docs/guide/members.md sends him HERE to change
     // it — until this row existed the only way to move it was the API.
     expect((utils.getByLabelText(s.acceleratedGrace) as HTMLInputElement).value).toBe("120");
-    // 機器憑證壽命 (T-fc53). The shipped 90 days must be readable HERE (it was 30
-    // until 第二段): a fleet renews on this number whether or not anyone ever
+    // 機器憑證壽命 (T-fc53). The shipped 30 days must be readable HERE: a fleet
+    // renews on this number whether or not anyone ever
     // opened the API, and since 第二段 the same number is the credential's expiry,
     // so the page has to show what the machines are actually running on.
-    expect((utils.getByLabelText(s.wardenCredentialLifetime) as HTMLInputElement).value).toBe("7776000");
+    expect((utils.getByLabelText(s.wardenCredentialLifetime) as HTMLInputElement).value).toBe("2592000");
   });
 
   it("changing the login TTL patches the server immediately", async () => {
