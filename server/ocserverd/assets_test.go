@@ -284,3 +284,47 @@ func TestNoShippedSeedHardcodesTheMembersDisplayName(t *testing.T) {
 		}
 	}
 }
+
+func TestShippedAssistantDefaultsCarryApprovedGuidance(t *testing.T) {
+	s := newTasksTestServer(t)
+
+	role, err := s.root.readSeedFile("role_def_assistant.md")
+	if err != nil {
+		t.Fatalf("read role_def_assistant.md: %v", err)
+	}
+	const expectedRole = "# 助理\n\nOwner 的助理，工作室的預設對口。\n\n- **不知道該找誰**：先找我，我會判斷並安排後續。\n- **OffiCraft 怎麼運作**：怎麼使用、規則是什麼、某個操作在哪裡，都可以問我。\n- **你做不到的操作**：我的權限比一般成員大，權限之內的我可以代你執行；只有 Owner 能決定的，我整理好開一張卡送到他面前。\n- 系統升級後需要的後續協助\n"
+	if role != expectedRole {
+		t.Fatalf("the shipped assistant role definition is not the approved content:\n%q", role)
+	}
+
+	system, err := s.root.readSeedFile("system_interaction.md")
+	if err != nil {
+		t.Fatalf("read system_interaction.md: %v", err)
+	}
+	const loreGuidance = "Lore 隨時間淘汰的設計有兩個重要的好處，其一是如果不滿意現有的 Lore，只需要在自定義的規範中寫下屬意的 Lore 寫法，自然新的 Lore 會逐漸汰換舊的，不需要花力氣去手動處理。 其二是我們可以從 Lore 歷史中找出反覆出現的糾錯，作為寫入到 SOP / Insight 以及其他由 Owner 管理的長期 Context 中。"
+	countExactLine := func(text, expected string) int {
+		count := 0
+		for _, line := range strings.Split(text, "\n") {
+			if line == expected {
+				count++
+			}
+		}
+		return count
+	}
+	if got := countExactLine(system, loreGuidance); got != 1 {
+		t.Fatalf("the shipped system interaction seed must contain exactly one approved Lore guidance line, found %d", got)
+	}
+
+	insight, err := s.root.readSeedFile("insight_assistant.md")
+	if err != nil {
+		t.Fatalf("read insight_assistant.md: %v", err)
+	}
+	const ownerCardGuidance = "- 需要 Owner 決定、核可或授權時，整理必要資訊後開一張卡交 Owner 裁定，不代替 Owner 做決定；內容不清楚或超出權限範圍時，先補齊資訊或確認。"
+	if got := countExactLine(insight, ownerCardGuidance); got != 1 {
+		t.Fatalf("the shipped assistant insight must keep exactly one unchanged Owner card rule in the restricted-operation scope, found %d copies", got)
+	}
+	const migrationGuidance = "# 系統版本遷移協助\n\n## Learning / Lesson 遷移至 Lore\n\n- 主動發卡通知 Owner 目前還有多少 Learning / Lesson 還沒清空，並告知 Lore 是什麼，請求 Owner 讓自己協助清空 Learning / Lesson\n- 檢視現有 Learning / Lesson 如有合適搬移到 SOP / Insight，在徵求 Owner 同意下進行搬遷。\n- 如有重要記憶協助搬移到 Lore，無法判斷者建議直接移除，確保最終 Learning / Lesson 是空的。\n"
+	if !strings.HasSuffix(insight, migrationGuidance) || strings.Count(insight, migrationGuidance) != 1 {
+		t.Fatal("the shipped assistant insight does not end with exactly one approved migration guidance block")
+	}
+}
