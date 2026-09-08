@@ -3,7 +3,12 @@
 
 package main
 
-import "testing"
+import (
+	"encoding/json"
+	"net/http"
+	"strings"
+	"testing"
+)
 
 func TestPublishReplyCard(t *testing.T) {
 	t.Skip("TODO: publishReplyCard fans one reply_card delta (create / answer / revision all ride op patch; spec/sse.md §2.2 — the payload is the partial {id, from, status} hint, never the answer).")
@@ -113,9 +118,267 @@ func TestHandleCreateReplyCardApiReplyCardsPost(t *testing.T) {
 			"needs_decision": true,
 		})
 	})
-	t.Run("a POST /api/reply-cards request without a token answers 401", func(t *testing.T) { t.Skip("TODO") })
-	t.Run("a request to POST /api/reply-cards reaches this handler and no other row", func(t *testing.T) { t.Skip("TODO") })
-	t.Run("a POST /api/reply-cards request the wire layer rejects (malformed body, wrong content type, over the size cap) answers a 4xx without reaching the domain", func(t *testing.T) { t.Skip("TODO") })
+	t.Run("an omitted linked_task answers 400 naming both legal shapes and opens no card", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		agent := apiTestAgentToken(t, api, "mira", "")
+		dashboard := apiTestListen(t, api, "")
+		wantPushed := apiTestWebPushSink(t, api)
+
+		status, data := apiJSON(t, h, "POST", "/api/reply-cards", agent,
+			`{"kind":"decision","summary":"要不要出貨","options":[{"text":"出"}]}`)
+		if status != 400 {
+			t.Fatalf("want 400, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "validation_error",
+			"linked_task is required and has no default — say whether this ask is about a task. "+
+				"Two legal shapes: send linked_task=null if it is NOT about a task (a plain unbound 請示), "+
+				"or linked_task={\"task_id\": \"t-...\", \"step_id\": \"ts-...\"} to bind the ask to the "+
+				"step it is about, which then holds in waiting_owner until you are answered. The server does "+
+				"not infer a binding from the work you hold: a guess that missed used to open a card with no "+
+				"等我回覆 hold and tell you nothing.")
+		dashboard.wantFrames()
+		wantPushed()
+		apiTestWantNoReplyCards(t, h, owner)
+	})
+
+	t.Run("a linked_task naming a task but no step answers 400 and opens no card", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		agent := apiTestAgentToken(t, api, "mira", "")
+		dashboard := apiTestListen(t, api, "")
+		wantPushed := apiTestWebPushSink(t, api)
+
+		status, data := apiJSON(t, h, "POST", "/api/reply-cards", agent,
+			`{"kind":"decision","summary":"要不要出貨","options":[{"text":"出"}],"linked_task":{"task_id":"T-1","step_id":""}}`)
+		if status != 400 {
+			t.Fatalf("want 400, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "validation_error",
+			"linked_task.step_id is required: a card bound to a task but to no step places no 等我回覆 hold, "+
+				"so the task would finish underneath your question and the owner's answer would then be "+
+				"rejected for good. Send linked_task={\"task_id\": \"t-...\", \"step_id\": \"ts-...\"} "+
+				"naming the step you are on, or linked_task=null if this ask is not about a task.")
+		dashboard.wantFrames()
+		wantPushed()
+		apiTestWantNoReplyCards(t, h, owner)
+	})
+
+	t.Run("a linked_task naming a step but no task answers 400 and opens no card", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		agent := apiTestAgentToken(t, api, "mira", "")
+		dashboard := apiTestListen(t, api, "")
+
+		status, data := apiJSON(t, h, "POST", "/api/reply-cards", agent,
+			`{"kind":"decision","summary":"要不要出貨","options":[{"text":"出"}],"linked_task":{"task_id":"","step_id":"ts-1"}}`)
+		if status != 400 {
+			t.Fatalf("want 400, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "validation_error",
+			"linked_task.task_id is required: name the task the step belongs to, or send linked_task=null "+
+				"if this ask is not about a task.")
+		dashboard.wantFrames()
+		apiTestWantNoReplyCards(t, h, owner)
+	})
+
+	t.Run("a linked_task naming a task nobody created answers 404 and opens no card", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		agent := apiTestAgentToken(t, api, "mira", "")
+		dashboard := apiTestListen(t, api, "")
+
+		status, data := apiJSON(t, h, "POST", "/api/reply-cards", agent,
+			`{"kind":"decision","summary":"要不要出貨","options":[{"text":"出"}],"linked_task":{"task_id":"T-9","step_id":"ts-1"}}`)
+		if status != 404 {
+			t.Fatalf("want 404, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "not_found", "task 'T-9' not found")
+		dashboard.wantFrames()
+		apiTestWantNoReplyCards(t, h, owner)
+	})
+
+	t.Run("a kind outside decision and action answers 400 and opens no card", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		agent := apiTestAgentToken(t, api, "mira", "")
+		dashboard := apiTestListen(t, api, "")
+
+		status, data := apiJSON(t, h, "POST", "/api/reply-cards", agent,
+			`{"kind":"poll","summary":"要不要出貨","options":[{"text":"出"}],"linked_task":null}`)
+		if status != 400 {
+			t.Fatalf("want 400, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "validation_error", "kind must be 'decision' or 'action'")
+		dashboard.wantFrames()
+		apiTestWantNoReplyCards(t, h, owner)
+	})
+
+	t.Run("a blank summary answers 400 and opens no card", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		agent := apiTestAgentToken(t, api, "mira", "")
+		dashboard := apiTestListen(t, api, "")
+
+		status, data := apiJSON(t, h, "POST", "/api/reply-cards", agent,
+			`{"kind":"decision","summary":"   ","options":[{"text":"出"}],"linked_task":null}`)
+		if status != 400 {
+			t.Fatalf("want 400, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "validation_error", "summary must not be blank")
+		dashboard.wantFrames()
+		apiTestWantNoReplyCards(t, h, owner)
+	})
+
+	t.Run("a select_mode outside single and multi answers 400 and opens no card", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		agent := apiTestAgentToken(t, api, "mira", "")
+		dashboard := apiTestListen(t, api, "")
+
+		status, data := apiJSON(t, h, "POST", "/api/reply-cards", agent,
+			`{"kind":"decision","summary":"要不要出貨","select_mode":"many","options":[{"text":"出"}],"linked_task":null}`)
+		if status != 400 {
+			t.Fatalf("want 400, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "validation_error", "select_mode must be 'single' or 'multi'")
+		dashboard.wantFrames()
+		apiTestWantNoReplyCards(t, h, owner)
+	})
+
+	t.Run("a card carrying no option at all answers 400 and opens no card", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		agent := apiTestAgentToken(t, api, "mira", "")
+		dashboard := apiTestListen(t, api, "")
+
+		status, data := apiJSON(t, h, "POST", "/api/reply-cards", agent,
+			`{"kind":"decision","summary":"要不要出貨","options":[],"linked_task":null}`)
+		if status != 400 {
+			t.Fatalf("want 400, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "validation_error", "options must carry at least one choice")
+		dashboard.wantFrames()
+		apiTestWantNoReplyCards(t, h, owner)
+	})
+
+	t.Run("a fifth option on a single-select card answers 400 and opens no card", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		agent := apiTestAgentToken(t, api, "mira", "")
+		dashboard := apiTestListen(t, api, "")
+
+		status, data := apiJSON(t, h, "POST", "/api/reply-cards", agent,
+			`{"kind":"decision","summary":"要不要出貨","options":[{"text":"甲"},{"text":"乙"},{"text":"丙"},{"text":"丁"},{"text":"戊"}],"linked_task":null}`)
+		if status != 400 {
+			t.Fatalf("want 400, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "validation_error", "a single-select card may carry at most 4 options")
+		dashboard.wantFrames()
+		apiTestWantNoReplyCards(t, h, owner)
+	})
+
+	t.Run("a second ai_pick on a single-select card answers 400 and opens no card", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		agent := apiTestAgentToken(t, api, "mira", "")
+		dashboard := apiTestListen(t, api, "")
+
+		status, data := apiJSON(t, h, "POST", "/api/reply-cards", agent,
+			`{"kind":"decision","summary":"要不要出貨","options":[{"text":"出","ai_pick":true},{"text":"不出","ai_pick":true}],"linked_task":null}`)
+		if status != 400 {
+			t.Fatalf("want 400, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "validation_error", "a single-select card may mark at most one option ai_pick")
+		dashboard.wantFrames()
+		apiTestWantNoReplyCards(t, h, owner)
+	})
+
+	t.Run("a blank option text answers 400 and opens no card", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		agent := apiTestAgentToken(t, api, "mira", "")
+		dashboard := apiTestListen(t, api, "")
+
+		status, data := apiJSON(t, h, "POST", "/api/reply-cards", agent,
+			`{"kind":"decision","summary":"要不要出貨","options":[{"text":"  "}],"linked_task":null}`)
+		if status != 400 {
+			t.Fatalf("want 400, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "validation_error", "options must not be blank")
+		dashboard.wantFrames()
+		apiTestWantNoReplyCards(t, h, owner)
+	})
+
+	t.Run("an omitted summary key answers 422 and opens no card", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		agent := apiTestAgentToken(t, api, "mira", "")
+		dashboard := apiTestListen(t, api, "")
+
+		status, data := apiJSON(t, h, "POST", "/api/reply-cards", agent,
+			`{"kind":"decision","options":[{"text":"出"}],"linked_task":null}`)
+		if status != 422 {
+			t.Fatalf("want 422, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "validation_error", "field required: summary")
+		dashboard.wantFrames()
+		apiTestWantNoReplyCards(t, h, owner)
+	})
+
+	t.Run("a request without a token answers 401", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		dashboard := apiTestListen(t, api, "")
+		wantPushed := apiTestWebPushSink(t, api)
+
+		status, data := apiJSON(t, h, "POST", "/api/reply-cards", "",
+			`{"kind":"decision","summary":"要不要出貨","options":[{"text":"出"}],"linked_task":null}`)
+		if status != 401 {
+			t.Fatalf("want 401, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "unauthorized", "missing credentials")
+		dashboard.wantFrames()
+		wantPushed()
+		apiTestWantNoReplyCards(t, h, owner)
+	})
+}
+
+func apiTestOpenReplyCard(t *testing.T, h http.Handler, token, body string) string {
+	t.Helper()
+	status, data := apiJSON(t, h, "POST", "/api/reply-cards", token, body)
+	if status != 200 {
+		t.Fatalf("open reply card: %d %v", status, data)
+	}
+	id, _ := data["id"].(string)
+	if id == "" {
+		t.Fatalf("open reply card must mint an id: %v", data)
+	}
+	return id
+}
+
+func apiTestReplyCardPane(t *testing.T, h http.Handler, token, query string) []any {
+	t.Helper()
+	rec := apiRequest(t, h, "GET", "/api/reply-cards"+query, token, "")
+	if rec.Code != 200 {
+		t.Fatalf("list reply cards%s: %d %s", query, rec.Code, rec.Body.String())
+	}
+	var got []any
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("non-JSON body: %s", rec.Body.String())
+	}
+	return got
+}
+
+func apiTestWantNoReplyCards(t *testing.T, h http.Handler, token string) {
+	t.Helper()
+	apiWantValue(t, "waiting pane", any(apiTestReplyCardPane(t, h, token, "")), any([]any{}))
+	_, counts := apiJSON(t, h, "GET", "/api/reply-cards/count", token, "")
+	apiWantBody(t, counts, map[string]any{"waiting": 0, "answered": 0, "expired": 0})
+}
+
+func apiTestReplyCardFrame(seq int, cardID, from, status, trigger string) map[string]any {
+	return map[string]any{
+		"seq":   seq,
+		"topic": "reply_card",
+		"op":    "patch",
+		"data": map[string]any{
+			"entity":  "reply_card",
+			"key":     "owner::" + cardID,
+			"epoch":   seq,
+			"deleted": false,
+			"payload": map[string]any{"id": cardID, "from": from, "status": status},
+		},
+		"ts":      apiAnyNumber,
+		"trigger": trigger,
+	}
 }
 
 func TestReplyCardListItemOf(t *testing.T) {
@@ -127,24 +390,347 @@ func TestReplyCardOptionWording(t *testing.T) {
 }
 
 func TestHandleListReplyCardsApiReplyCardsGet(t *testing.T) {
-	t.Run("a well-formed GET /api/reply-cards answers 200", func(t *testing.T) { t.Skip("TODO") })
-	t.Run("a GET /api/reply-cards request without a token answers 401", func(t *testing.T) { t.Skip("TODO") })
-	t.Run("a request to GET /api/reply-cards reaches this handler and no other row", func(t *testing.T) { t.Skip("TODO") })
-	t.Run("a GET /api/reply-cards request the wire layer rejects (malformed body, wrong content type, over the size cap) answers a 4xx without reaching the domain", func(t *testing.T) { t.Skip("TODO") })
+	t.Run("a station holding no card answers an empty waiting pane", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		dashboard := apiTestListen(t, api, "")
+
+		apiWantValue(t, "waiting pane", any(apiTestReplyCardPane(t, h, owner, "")), any([]any{}))
+		dashboard.wantFrames()
+	})
+
+	t.Run("the waiting pane leads with the longest-waiting card and carries no body or options", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		admin := apiTestAgentToken(t, api, "mira", "")
+		agent := apiTestAgentToken(t, api, apiTestPlainAgentID, "")
+		first := apiTestOpenReplyCard(t, h, agent,
+			`{"kind":"decision","summary":"要不要漲價","body":"客戶議價","options":[{"text":"漲","ai_pick":true},{"text":"不漲"}],"linked_task":null}`)
+		second := apiTestOpenReplyCard(t, h, admin,
+			`{"kind":"action","summary":"請批出貨","select_mode":"multi","options":[{"text":"甲"},{"text":"乙"},{"text":"丙"}],"linked_task":null}`)
+		dashboard := apiTestListen(t, api, "")
+
+		apiWantValue(t, "waiting pane", any(apiTestReplyCardPane(t, h, owner, "")), any([]any{
+			map[string]any{
+				"id":          first,
+				"from":        apiTestPlainAgentID,
+				"kind":        "decision",
+				"summary":     "要不要漲價",
+				"status":      "waiting",
+				"created_ts":  apiAnyNumber,
+				"answered_ts": nil,
+				"expired_ts":  nil,
+				"answer":      nil,
+				"task":        nil,
+			},
+			map[string]any{
+				"id":          second,
+				"from":        "mira",
+				"kind":        "action",
+				"summary":     "請批出貨",
+				"status":      "waiting",
+				"created_ts":  apiAnyNumber,
+				"answered_ts": nil,
+				"expired_ts":  nil,
+				"answer":      nil,
+				"task":        nil,
+			},
+		}))
+		dashboard.wantFrames()
+	})
+
+	t.Run("a positive limit keeps the pane's first rows", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		agent := apiTestAgentToken(t, api, apiTestPlainAgentID, "")
+		first := apiTestOpenReplyCard(t, h, agent,
+			`{"kind":"decision","summary":"要不要漲價","options":[{"text":"漲"}],"linked_task":null}`)
+		apiTestOpenReplyCard(t, h, agent,
+			`{"kind":"decision","summary":"要不要出貨","options":[{"text":"出"}],"linked_task":null}`)
+
+		apiWantValue(t, "waiting pane", any(apiTestReplyCardPane(t, h, owner, "?limit=1")), any([]any{
+			map[string]any{
+				"id":          first,
+				"from":        apiTestPlainAgentID,
+				"kind":        "decision",
+				"summary":     "要不要漲價",
+				"status":      "waiting",
+				"created_ts":  apiAnyNumber,
+				"answered_ts": nil,
+				"expired_ts":  nil,
+				"answer":      nil,
+				"task":        nil,
+			},
+		}))
+	})
+
+	t.Run("the answered pane leads with the newest answer and digests every circled option", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		agent := apiTestAgentToken(t, api, apiTestPlainAgentID, "")
+		single := apiTestOpenReplyCard(t, h, agent,
+			`{"kind":"decision","summary":"要不要漲價","options":[{"text":"漲"},{"text":"不漲"}],"linked_task":null}`)
+		multi := apiTestOpenReplyCard(t, h, agent,
+			`{"kind":"action","summary":"請批出貨","select_mode":"multi","options":[{"text":"甲"},{"text":"乙"},{"text":"丙"}],"linked_task":null}`)
+		apiJSON(t, h, "POST", "/api/reply-cards/"+single+"/answer", owner, `{"option_idxs":[0],"text":"就漲"}`)
+		apiJSON(t, h, "POST", "/api/reply-cards/"+multi+"/answer", owner, `{"option_idxs":[2,0]}`)
+
+		apiWantValue(t, "answered pane", any(apiTestReplyCardPane(t, h, owner, "?status=answered")), any([]any{
+			map[string]any{
+				"id":          multi,
+				"from":        apiTestPlainAgentID,
+				"kind":        "action",
+				"summary":     "請批出貨",
+				"status":      "answered",
+				"created_ts":  apiAnyNumber,
+				"answered_ts": apiAnyNumber,
+				"expired_ts":  nil,
+				"answer": map[string]any{
+					"option_idxs": []any{0, 2},
+					"options":     []any{"甲", "丙"},
+					"text":        "",
+					"attachments": 0,
+				},
+				"task": nil,
+			},
+			map[string]any{
+				"id":          single,
+				"from":        apiTestPlainAgentID,
+				"kind":        "decision",
+				"summary":     "要不要漲價",
+				"status":      "answered",
+				"created_ts":  apiAnyNumber,
+				"answered_ts": apiAnyNumber,
+				"expired_ts":  nil,
+				"answer": map[string]any{
+					"option_idxs": []any{0},
+					"options":     []any{"漲"},
+					"text":        "就漲",
+					"attachments": 0,
+				},
+				"task": nil,
+			},
+		}))
+	})
+
+	t.Run("an answer longer than the preview is truncated on the digest with an ellipsis", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		agent := apiTestAgentToken(t, api, apiTestPlainAgentID, "")
+		card := apiTestOpenReplyCard(t, h, agent,
+			`{"kind":"decision","summary":"要不要漲價","options":[{"text":"漲"}],"linked_task":null}`)
+		apiJSON(t, h, "POST", "/api/reply-cards/"+card+"/answer", owner,
+			`{"text":"`+strings.Repeat("字", 201)+`"}`)
+
+		apiWantValue(t, "answered pane", any(apiTestReplyCardPane(t, h, owner, "?status=answered")), any([]any{
+			map[string]any{
+				"id":          card,
+				"from":        apiTestPlainAgentID,
+				"kind":        "decision",
+				"summary":     "要不要漲價",
+				"status":      "answered",
+				"created_ts":  apiAnyNumber,
+				"answered_ts": apiAnyNumber,
+				"expired_ts":  nil,
+				"answer": map[string]any{
+					"option_idxs": nil,
+					"options":     []any{},
+					"text":        strings.Repeat("字", 200) + "…",
+					"attachments": 0,
+				},
+				"task": nil,
+			},
+		}))
+	})
+
+	t.Run("the expired pane carries the retired card keyed off its expiry stamp", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		agent := apiTestAgentToken(t, api, apiTestPlainAgentID, "")
+		card := apiTestOpenReplyCard(t, h, agent,
+			`{"kind":"decision","summary":"要不要漲價","options":[{"text":"漲"}],"linked_task":null}`)
+		apiJSON(t, h, "POST", "/api/reply-cards/"+card+"/expire", agent, `{}`)
+
+		apiWantValue(t, "expired pane", any(apiTestReplyCardPane(t, h, owner, "?status=expired")), any([]any{
+			map[string]any{
+				"id":          card,
+				"from":        apiTestPlainAgentID,
+				"kind":        "decision",
+				"summary":     "要不要漲價",
+				"status":      "expired",
+				"created_ts":  apiAnyNumber,
+				"answered_ts": nil,
+				"expired_ts":  apiAnyNumber,
+				"answer":      nil,
+				"task":        nil,
+			},
+		}))
+		apiWantValue(t, "waiting pane", any(apiTestReplyCardPane(t, h, owner, "")), any([]any{}))
+	})
+
+	t.Run("a status outside the three panes answers 400", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		dashboard := apiTestListen(t, api, "")
+
+		status, data := apiJSON(t, h, "GET", "/api/reply-cards?status=settled", owner, "")
+		if status != 400 {
+			t.Fatalf("want 400, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "validation_error", "status must be 'waiting', 'answered' or 'expired'")
+		dashboard.wantFrames()
+	})
+
+	t.Run("a request without a token answers 401", func(t *testing.T) {
+		_, h, _, _ := newAPITestServer(t)
+
+		status, data := apiJSON(t, h, "GET", "/api/reply-cards", "", "")
+		if status != 401 {
+			t.Fatalf("want 401, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "unauthorized", "missing credentials")
+	})
 }
 
 func TestHandleReplyCardCountApiReplyCardsCountGet(t *testing.T) {
-	t.Run("a well-formed GET /api/reply-cards/count answers 200", func(t *testing.T) { t.Skip("TODO") })
-	t.Run("a GET /api/reply-cards/count request without a token answers 401", func(t *testing.T) { t.Skip("TODO") })
-	t.Run("a request to GET /api/reply-cards/count reaches this handler and no other row", func(t *testing.T) { t.Skip("TODO") })
-	t.Run("a GET /api/reply-cards/count request the wire layer rejects (malformed body, wrong content type, over the size cap) answers a 4xx without reaching the domain", func(t *testing.T) { t.Skip("TODO") })
+	t.Run("a station holding no card answers three zeroes", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		dashboard := apiTestListen(t, api, "")
+
+		status, data := apiJSON(t, h, "GET", "/api/reply-cards/count", owner, "")
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		apiWantBody(t, data, map[string]any{"waiting": 0, "answered": 0, "expired": 0})
+		dashboard.wantFrames()
+	})
+
+	t.Run("each of the three panes is counted separately", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		agent := apiTestAgentToken(t, api, apiTestPlainAgentID, "")
+		answered := apiTestOpenReplyCard(t, h, agent,
+			`{"kind":"decision","summary":"要不要漲價","options":[{"text":"漲"}],"linked_task":null}`)
+		expired := apiTestOpenReplyCard(t, h, agent,
+			`{"kind":"decision","summary":"要不要出貨","options":[{"text":"出"}],"linked_task":null}`)
+		apiTestOpenReplyCard(t, h, agent,
+			`{"kind":"decision","summary":"還在等","options":[{"text":"等"}],"linked_task":null}`)
+		apiJSON(t, h, "POST", "/api/reply-cards/"+answered+"/answer", owner, `{"option_idxs":[0]}`)
+		apiJSON(t, h, "POST", "/api/reply-cards/"+expired+"/expire", agent, `{}`)
+		dashboard := apiTestListen(t, api, "")
+
+		status, data := apiJSON(t, h, "GET", "/api/reply-cards/count", owner, "")
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		apiWantBody(t, data, map[string]any{"waiting": 1, "answered": 1, "expired": 1})
+		dashboard.wantFrames()
+	})
+
+	t.Run("a request without a token answers 401", func(t *testing.T) {
+		_, h, _, _ := newAPITestServer(t)
+
+		status, data := apiJSON(t, h, "GET", "/api/reply-cards/count", "", "")
+		if status != 401 {
+			t.Fatalf("want 401, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "unauthorized", "missing credentials")
+	})
 }
 
 func TestHandleGetReplyCardApiReplyCardsCardIdGet(t *testing.T) {
-	t.Run("a well-formed GET /api/reply-cards/{card_id} answers 200", func(t *testing.T) { t.Skip("TODO") })
-	t.Run("a GET /api/reply-cards/{card_id} request without a token answers 401", func(t *testing.T) { t.Skip("TODO") })
-	t.Run("a request to GET /api/reply-cards/{card_id} reaches this handler with card_id bound from the path", func(t *testing.T) { t.Skip("TODO") })
-	t.Run("a GET /api/reply-cards/{card_id} request the wire layer rejects (malformed body, wrong content type, over the size cap) answers a 4xx without reaching the domain", func(t *testing.T) { t.Skip("TODO") })
+	t.Run("a waiting card is served in full with its body, options and chat anchor", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		agent := apiTestAgentToken(t, api, apiTestPlainAgentID, "")
+		statusCode, created := apiJSON(t, h, "POST", "/api/reply-cards", agent,
+			`{"kind":"decision","summary":"要不要漲價","body":"客戶議價","options":[{"text":"漲","ai_pick":true},{"text":"不漲"}],"linked_task":null}`)
+		if statusCode != 200 {
+			t.Fatalf("open card: %d %v", statusCode, created)
+		}
+		cardID, _ := created["id"].(string)
+		messageID, _ := created["chat_message_id"].(string)
+		dashboard := apiTestListen(t, api, "")
+
+		status, data := apiJSON(t, h, "GET", "/api/reply-cards/"+cardID, owner, "")
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		apiWantBody(t, data, map[string]any{
+			"id":      cardID,
+			"from":    apiTestPlainAgentID,
+			"kind":    "decision",
+			"summary": "要不要漲價",
+			"body":    "客戶議價",
+			"options": []any{
+				map[string]any{"text": "漲", "ai_pick": true},
+				map[string]any{"text": "不漲", "ai_pick": false},
+			},
+			"select_mode":     "single",
+			"status":          "waiting",
+			"created_ts":      apiAnyNumber,
+			"attachments":     []any{},
+			"answered_ts":     nil,
+			"expired_ts":      nil,
+			"chat_message_id": messageID,
+			"answer":          nil,
+			"task":            nil,
+		})
+		dashboard.wantFrames()
+	})
+
+	t.Run("an answered card carries the stored answer beside the original wording", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		agent := apiTestAgentToken(t, api, apiTestPlainAgentID, "")
+		statusCode, created := apiJSON(t, h, "POST", "/api/reply-cards", agent,
+			`{"kind":"decision","summary":"要不要漲價","options":[{"text":"漲"},{"text":"不漲"}],"linked_task":null}`)
+		if statusCode != 200 {
+			t.Fatalf("open card: %d %v", statusCode, created)
+		}
+		cardID, _ := created["id"].(string)
+		messageID, _ := created["chat_message_id"].(string)
+		apiJSON(t, h, "POST", "/api/reply-cards/"+cardID+"/answer", owner, `{"option_idxs":[1],"text":"先撐著"}`)
+
+		status, data := apiJSON(t, h, "GET", "/api/reply-cards/"+cardID, owner, "")
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		apiWantBody(t, data, map[string]any{
+			"id":      cardID,
+			"from":    apiTestPlainAgentID,
+			"kind":    "decision",
+			"summary": "要不要漲價",
+			"body":    "",
+			"options": []any{
+				map[string]any{"text": "漲", "ai_pick": false},
+				map[string]any{"text": "不漲", "ai_pick": false},
+			},
+			"select_mode":     "single",
+			"status":          "answered",
+			"created_ts":      apiAnyNumber,
+			"attachments":     []any{},
+			"answered_ts":     apiAnyNumber,
+			"expired_ts":      nil,
+			"chat_message_id": messageID,
+			"answer": map[string]any{
+				"option_idxs": []any{1},
+				"text":        "先撐著",
+				"attachments": []any{},
+			},
+			"task": nil,
+		})
+	})
+
+	t.Run("an unknown card id answers 404", func(t *testing.T) {
+		_, h, _, owner := newAPITestServer(t)
+
+		status, data := apiJSON(t, h, "GET", "/api/reply-cards/rc-ghost", owner, "")
+		if status != 404 {
+			t.Fatalf("want 404, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "not_found", "reply card 'rc-ghost' not found")
+	})
+
+	t.Run("a request without a token answers 401", func(t *testing.T) {
+		_, h, _, _ := newAPITestServer(t)
+
+		status, data := apiJSON(t, h, "GET", "/api/reply-cards/rc-ghost", "", "")
+		if status != 401 {
+			t.Fatalf("want 401, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "unauthorized", "missing credentials")
+	})
 }
 
 func TestApplyReplyCardAnswer(t *testing.T) {
@@ -172,19 +758,352 @@ func TestReconcileOrphanReplyCardsOnBoot(t *testing.T) {
 }
 
 func TestHandleAnswerReplyCardApiReplyCardsCardIdAnswerPost(t *testing.T) {
-	t.Run("a well-formed POST /api/reply-cards/{card_id}/answer answers 200", func(t *testing.T) { t.Skip("TODO") })
-	t.Run("a POST /api/reply-cards/{card_id}/answer request without a token answers 401", func(t *testing.T) { t.Skip("TODO") })
-	t.Run("an authenticated agent identity answers 403 because this row requires admin_agent", func(t *testing.T) { t.Skip("TODO") })
-	t.Run("a request to POST /api/reply-cards/{card_id}/answer reaches this handler with card_id bound from the path", func(t *testing.T) { t.Skip("TODO") })
-	t.Run("a POST /api/reply-cards/{card_id}/answer request the wire layer rejects (malformed body, wrong content type, over the size cap) answers a 4xx without reaching the domain", func(t *testing.T) { t.Skip("TODO") })
+	openSingle := func(t *testing.T, h http.Handler, token string) string {
+		t.Helper()
+		return apiTestOpenReplyCard(t, h, token,
+			`{"kind":"decision","summary":"要不要漲價","options":[{"text":"漲"},{"text":"不漲"}],"linked_task":null}`)
+	}
+	wantWaiting := func(t *testing.T, h http.Handler, owner, cardID string) {
+		t.Helper()
+		_, data := apiJSON(t, h, "GET", "/api/reply-cards/"+cardID, owner, "")
+		apiWantValue(t, "card.status", data["status"], "waiting")
+		apiWantValue(t, "card.answer", data["answer"], nil)
+		apiWantValue(t, "card.answered_ts", data["answered_ts"], nil)
+	}
+
+	t.Run("a first answer flips the card to answered and fans the delta to the owner and the asker", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		agent := apiTestAgentToken(t, api, apiTestPlainAgentID, "")
+		cardID := openSingle(t, h, agent)
+		dashboard := apiTestListen(t, api, "")
+		asker := apiTestListen(t, api, apiTestPlainAgentID)
+		bystander := apiTestListen(t, api, "mira")
+		wantPushed := apiTestWebPushSink(t, api)
+
+		status, data := apiJSON(t, h, "POST", "/api/reply-cards/"+cardID+"/answer", owner,
+			`{"option_idxs":[0],"text":"就漲"}`)
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		apiWantBody(t, data, map[string]any{
+			"id":          cardID,
+			"status":      "answered",
+			"answered_ts": apiAnyNumber,
+			"expired_ts":  nil,
+			"answer": map[string]any{
+				"option_idxs": []any{0},
+				"text":        "就漲",
+				"attachments": []any{},
+			},
+			"task_id": "",
+			"step_id": "",
+		})
+		frame := apiTestReplyCardFrame(3, cardID, apiTestPlainAgentID, "answered", "owner")
+		dashboard.wantFrames(frame)
+		asker.wantFrames(frame)
+		bystander.wantFrames()
+		wantPushed()
+	})
+
+	t.Run("the circled options are stored deduped and ascending", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		agent := apiTestAgentToken(t, api, apiTestPlainAgentID, "")
+		cardID := apiTestOpenReplyCard(t, h, agent,
+			`{"kind":"action","summary":"請批出貨","select_mode":"multi","options":[{"text":"甲"},{"text":"乙"},{"text":"丙"}],"linked_task":null}`)
+
+		status, data := apiJSON(t, h, "POST", "/api/reply-cards/"+cardID+"/answer", owner,
+			`{"option_idxs":[2,0,2]}`)
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		apiWantBody(t, data, map[string]any{
+			"id":          cardID,
+			"status":      "answered",
+			"answered_ts": apiAnyNumber,
+			"expired_ts":  nil,
+			"answer": map[string]any{
+				"option_idxs": []any{0, 2},
+				"text":        "",
+				"attachments": []any{},
+			},
+			"task_id": "",
+			"step_id": "",
+		})
+	})
+
+	t.Run("an answer carrying no option, no text and no attachment answers 400 and leaves the card waiting", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		agent := apiTestAgentToken(t, api, apiTestPlainAgentID, "")
+		cardID := openSingle(t, h, agent)
+		dashboard := apiTestListen(t, api, "")
+		wantPushed := apiTestWebPushSink(t, api)
+
+		status, data := apiJSON(t, h, "POST", "/api/reply-cards/"+cardID+"/answer", owner, `{"option_idxs":[]}`)
+		if status != 400 {
+			t.Fatalf("want 400, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "validation_error", "answer must carry an option, text, or an attachment")
+		dashboard.wantFrames()
+		wantPushed()
+		wantWaiting(t, h, owner, cardID)
+	})
+
+	t.Run("an option index the card does not have answers 400 and leaves the card waiting", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		agent := apiTestAgentToken(t, api, apiTestPlainAgentID, "")
+		cardID := openSingle(t, h, agent)
+		dashboard := apiTestListen(t, api, "")
+
+		status, data := apiJSON(t, h, "POST", "/api/reply-cards/"+cardID+"/answer", owner, `{"option_idxs":[5]}`)
+		if status != 400 {
+			t.Fatalf("want 400, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "validation_error", "option_idxs out of range")
+		dashboard.wantFrames()
+		wantWaiting(t, h, owner, cardID)
+	})
+
+	t.Run("a second index on a single-select card answers 400 and leaves the card waiting", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		agent := apiTestAgentToken(t, api, apiTestPlainAgentID, "")
+		cardID := openSingle(t, h, agent)
+		dashboard := apiTestListen(t, api, "")
+
+		status, data := apiJSON(t, h, "POST", "/api/reply-cards/"+cardID+"/answer", owner, `{"option_idxs":[0,1]}`)
+		if status != 400 {
+			t.Fatalf("want 400, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "validation_error",
+			"this card is single-select: option_idxs may carry at most one index")
+		dashboard.wantFrames()
+		wantWaiting(t, h, owner, cardID)
+	})
+
+	t.Run("a card that is already answered answers 409 and keeps the first answer", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		agent := apiTestAgentToken(t, api, apiTestPlainAgentID, "")
+		cardID := openSingle(t, h, agent)
+		apiJSON(t, h, "POST", "/api/reply-cards/"+cardID+"/answer", owner, `{"option_idxs":[0],"text":"就漲"}`)
+		dashboard := apiTestListen(t, api, "")
+
+		status, data := apiJSON(t, h, "POST", "/api/reply-cards/"+cardID+"/answer", owner, `{"option_idxs":[1]}`)
+		if status != 409 {
+			t.Fatalf("want 409, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "conflict",
+			"reply card '"+cardID+"' is already answered — revise it via PUT (重新決定)")
+		dashboard.wantFrames()
+		_, card := apiJSON(t, h, "GET", "/api/reply-cards/"+cardID, owner, "")
+		apiWantValue(t, "card.answer", card["answer"], map[string]any{
+			"option_idxs": []any{0},
+			"text":        "就漲",
+			"attachments": []any{},
+		})
+	})
+
+	t.Run("a card that already expired answers 409 and stays expired", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		agent := apiTestAgentToken(t, api, apiTestPlainAgentID, "")
+		cardID := openSingle(t, h, agent)
+		apiJSON(t, h, "POST", "/api/reply-cards/"+cardID+"/expire", agent, `{}`)
+		dashboard := apiTestListen(t, api, "")
+
+		status, data := apiJSON(t, h, "POST", "/api/reply-cards/"+cardID+"/answer", owner, `{"option_idxs":[0]}`)
+		if status != 409 {
+			t.Fatalf("want 409, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "conflict",
+			"reply card '"+cardID+"' is expired — a terminal state; the agent opens a new card if the question still matters")
+		dashboard.wantFrames()
+		_, card := apiJSON(t, h, "GET", "/api/reply-cards/"+cardID, owner, "")
+		apiWantValue(t, "card.status", card["status"], "expired")
+		apiWantValue(t, "card.answer", card["answer"], nil)
+	})
+
+	t.Run("an unknown card id answers 404", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		dashboard := apiTestListen(t, api, "")
+
+		status, data := apiJSON(t, h, "POST", "/api/reply-cards/rc-ghost/answer", owner, `{"option_idxs":[0]}`)
+		if status != 404 {
+			t.Fatalf("want 404, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "not_found", "reply card 'rc-ghost' not found")
+		dashboard.wantFrames()
+	})
+
+	t.Run("an authenticated agent identity answers 403 because this row requires admin_agent", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		agent := apiTestAgentToken(t, api, apiTestPlainAgentID, "")
+		cardID := openSingle(t, h, agent)
+		dashboard := apiTestListen(t, api, "")
+
+		status, data := apiJSON(t, h, "POST", "/api/reply-cards/"+cardID+"/answer", agent, `{"option_idxs":[0]}`)
+		if status != 403 {
+			t.Fatalf("want 403, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "forbidden", "principal not permitted")
+		dashboard.wantFrames()
+		wantWaiting(t, h, owner, cardID)
+	})
+
+	t.Run("a request without a token answers 401", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		agent := apiTestAgentToken(t, api, apiTestPlainAgentID, "")
+		cardID := openSingle(t, h, agent)
+		dashboard := apiTestListen(t, api, "")
+
+		status, data := apiJSON(t, h, "POST", "/api/reply-cards/"+cardID+"/answer", "", `{"option_idxs":[0]}`)
+		if status != 401 {
+			t.Fatalf("want 401, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "unauthorized", "missing credentials")
+		dashboard.wantFrames()
+		wantWaiting(t, h, owner, cardID)
+	})
 }
 
 func TestHandleReanswerReplyCardApiReplyCardsCardIdAnswerPut(t *testing.T) {
-	t.Run("a well-formed PUT /api/reply-cards/{card_id}/answer answers 200", func(t *testing.T) { t.Skip("TODO") })
-	t.Run("a PUT /api/reply-cards/{card_id}/answer request without a token answers 401", func(t *testing.T) { t.Skip("TODO") })
-	t.Run("an authenticated agent identity answers 403 because this row requires admin_agent", func(t *testing.T) { t.Skip("TODO") })
-	t.Run("a request to PUT /api/reply-cards/{card_id}/answer reaches this handler with card_id bound from the path", func(t *testing.T) { t.Skip("TODO") })
-	t.Run("a PUT /api/reply-cards/{card_id}/answer request the wire layer rejects (malformed body, wrong content type, over the size cap) answers a 4xx without reaching the domain", func(t *testing.T) { t.Skip("TODO") })
+	openAnswered := func(t *testing.T, h http.Handler, agent, owner string) string {
+		t.Helper()
+		cardID := apiTestOpenReplyCard(t, h, agent,
+			`{"kind":"decision","summary":"要不要漲價","options":[{"text":"漲"},{"text":"不漲"}],"linked_task":null}`)
+		if status, data := apiJSON(t, h, "POST", "/api/reply-cards/"+cardID+"/answer", owner,
+			`{"option_idxs":[0],"text":"就漲"}`); status != 200 {
+			t.Fatalf("first answer: %d %v", status, data)
+		}
+		return cardID
+	}
+
+	t.Run("a revision replaces the stored answer and keeps the card answered", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		agent := apiTestAgentToken(t, api, apiTestPlainAgentID, "")
+		cardID := openAnswered(t, h, agent, owner)
+		dashboard := apiTestListen(t, api, "")
+		asker := apiTestListen(t, api, apiTestPlainAgentID)
+		bystander := apiTestListen(t, api, "mira")
+		wantPushed := apiTestWebPushSink(t, api)
+
+		status, data := apiJSON(t, h, "PUT", "/api/reply-cards/"+cardID+"/answer", owner, `{"text":"改主意"}`)
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		apiWantBody(t, data, map[string]any{
+			"id":          cardID,
+			"status":      "answered",
+			"answered_ts": apiAnyNumber,
+			"expired_ts":  nil,
+			"answer": map[string]any{
+				"option_idxs": nil,
+				"text":        "改主意",
+				"attachments": []any{},
+			},
+			"task_id": "",
+			"step_id": "",
+		})
+		frame := apiTestReplyCardFrame(4, cardID, apiTestPlainAgentID, "answered", "owner")
+		dashboard.wantFrames(frame)
+		asker.wantFrames(frame)
+		bystander.wantFrames()
+		wantPushed()
+		_, card := apiJSON(t, h, "GET", "/api/reply-cards/"+cardID, owner, "")
+		apiWantValue(t, "card.answer", card["answer"], map[string]any{
+			"option_idxs": nil,
+			"text":        "改主意",
+			"attachments": []any{},
+		})
+	})
+
+	t.Run("a card still waiting answers 409 and stays waiting", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		agent := apiTestAgentToken(t, api, apiTestPlainAgentID, "")
+		cardID := apiTestOpenReplyCard(t, h, agent,
+			`{"kind":"decision","summary":"要不要漲價","options":[{"text":"漲"}],"linked_task":null}`)
+		dashboard := apiTestListen(t, api, "")
+
+		status, data := apiJSON(t, h, "PUT", "/api/reply-cards/"+cardID+"/answer", owner, `{"text":"改主意"}`)
+		if status != 409 {
+			t.Fatalf("want 409, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "conflict",
+			"reply card '"+cardID+"' is not answered yet — answer it via POST")
+		dashboard.wantFrames()
+		_, card := apiJSON(t, h, "GET", "/api/reply-cards/"+cardID, owner, "")
+		apiWantValue(t, "card.status", card["status"], "waiting")
+		apiWantValue(t, "card.answer", card["answer"], nil)
+	})
+
+	t.Run("an expired card answers 409 and cannot be re-decided", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		agent := apiTestAgentToken(t, api, apiTestPlainAgentID, "")
+		cardID := apiTestOpenReplyCard(t, h, agent,
+			`{"kind":"decision","summary":"要不要漲價","options":[{"text":"漲"}],"linked_task":null}`)
+		apiJSON(t, h, "POST", "/api/reply-cards/"+cardID+"/expire", agent, `{}`)
+		dashboard := apiTestListen(t, api, "")
+
+		status, data := apiJSON(t, h, "PUT", "/api/reply-cards/"+cardID+"/answer", owner, `{"text":"改主意"}`)
+		if status != 409 {
+			t.Fatalf("want 409, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "conflict",
+			"reply card '"+cardID+"' is expired — a terminal state; it cannot be re-decided")
+		dashboard.wantFrames()
+		_, card := apiJSON(t, h, "GET", "/api/reply-cards/"+cardID, owner, "")
+		apiWantValue(t, "card.status", card["status"], "expired")
+		apiWantValue(t, "card.answer", card["answer"], nil)
+	})
+
+	t.Run("an unknown card id answers 404", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		dashboard := apiTestListen(t, api, "")
+
+		status, data := apiJSON(t, h, "PUT", "/api/reply-cards/rc-ghost/answer", owner, `{"text":"改主意"}`)
+		if status != 404 {
+			t.Fatalf("want 404, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "not_found", "reply card 'rc-ghost' not found")
+		dashboard.wantFrames()
+	})
+
+	t.Run("an authenticated agent identity answers 403 because this row requires admin_agent", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		agent := apiTestAgentToken(t, api, apiTestPlainAgentID, "")
+		cardID := openAnswered(t, h, agent, owner)
+		dashboard := apiTestListen(t, api, "")
+
+		status, data := apiJSON(t, h, "PUT", "/api/reply-cards/"+cardID+"/answer", agent, `{"text":"改主意"}`)
+		if status != 403 {
+			t.Fatalf("want 403, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "forbidden", "principal not permitted")
+		dashboard.wantFrames()
+		_, card := apiJSON(t, h, "GET", "/api/reply-cards/"+cardID, owner, "")
+		apiWantValue(t, "card.answer", card["answer"], map[string]any{
+			"option_idxs": []any{0},
+			"text":        "就漲",
+			"attachments": []any{},
+		})
+	})
+
+	t.Run("a request without a token answers 401", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		agent := apiTestAgentToken(t, api, apiTestPlainAgentID, "")
+		cardID := openAnswered(t, h, agent, owner)
+		dashboard := apiTestListen(t, api, "")
+
+		status, data := apiJSON(t, h, "PUT", "/api/reply-cards/"+cardID+"/answer", "", `{"text":"改主意"}`)
+		if status != 401 {
+			t.Fatalf("want 401, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "unauthorized", "missing credentials")
+		dashboard.wantFrames()
+		_, card := apiJSON(t, h, "GET", "/api/reply-cards/"+cardID, owner, "")
+		apiWantValue(t, "card.answer", card["answer"], map[string]any{
+			"option_idxs": []any{0},
+			"text":        "就漲",
+			"attachments": []any{},
+		})
+	})
 }
 
 func TestCallerMayExpireCard(t *testing.T) {
@@ -192,9 +1111,171 @@ func TestCallerMayExpireCard(t *testing.T) {
 }
 
 func TestHandleExpireReplyCardApiReplyCardsCardIdExpirePost(t *testing.T) {
-	t.Run("a well-formed POST /api/reply-cards/{card_id}/expire answers 200", func(t *testing.T) { t.Skip("TODO") })
-	t.Run("a POST /api/reply-cards/{card_id}/expire request without a token answers 401", func(t *testing.T) { t.Skip("TODO") })
-	t.Run("an authenticated machine identity answers 403 because this row requires agent", func(t *testing.T) { t.Skip("TODO") })
-	t.Run("a request to POST /api/reply-cards/{card_id}/expire reaches this handler with card_id bound from the path", func(t *testing.T) { t.Skip("TODO") })
-	t.Run("a POST /api/reply-cards/{card_id}/expire request the wire layer rejects (malformed body, wrong content type, over the size cap) answers a 4xx without reaching the domain", func(t *testing.T) { t.Skip("TODO") })
+	openCard := func(t *testing.T, h http.Handler, token string) string {
+		t.Helper()
+		return apiTestOpenReplyCard(t, h, token,
+			`{"kind":"decision","summary":"要不要漲價","options":[{"text":"漲"},{"text":"不漲"}],"linked_task":null}`)
+	}
+	wantWaiting := func(t *testing.T, h http.Handler, owner, cardID string) {
+		t.Helper()
+		_, card := apiJSON(t, h, "GET", "/api/reply-cards/"+cardID, owner, "")
+		apiWantValue(t, "card.status", card["status"], "waiting")
+		apiWantValue(t, "card.expired_ts", card["expired_ts"], nil)
+	}
+
+	t.Run("the card's own author retires it and fans the expired delta", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		agent := apiTestAgentToken(t, api, apiTestPlainAgentID, "")
+		cardID := openCard(t, h, agent)
+		dashboard := apiTestListen(t, api, "")
+		asker := apiTestListen(t, api, apiTestPlainAgentID)
+		bystander := apiTestListen(t, api, "mira")
+		wantPushed := apiTestWebPushSink(t, api)
+
+		status, data := apiJSON(t, h, "POST", "/api/reply-cards/"+cardID+"/expire", agent, `{}`)
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		apiWantBody(t, data, map[string]any{
+			"id":          cardID,
+			"status":      "expired",
+			"answered_ts": nil,
+			"expired_ts":  apiAnyNumber,
+			"answer":      nil,
+			"task_id":     "",
+			"step_id":     "",
+		})
+		frame := apiTestReplyCardFrame(3, cardID, apiTestPlainAgentID, "expired", apiTestPlainAgentID)
+		dashboard.wantFrames(frame)
+		asker.wantFrames(frame)
+		bystander.wantFrames()
+		wantPushed()
+		_, card := apiJSON(t, h, "GET", "/api/reply-cards/"+cardID, owner, "")
+		apiWantValue(t, "card.status", card["status"], "expired")
+		apiWantValue(t, "card.answer", card["answer"], nil)
+	})
+
+	t.Run("an admin agent retires a card it did not open", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		agent := apiTestAgentToken(t, api, apiTestPlainAgentID, "")
+		admin := apiTestAgentToken(t, api, "mira", "")
+		cardID := openCard(t, h, agent)
+		dashboard := apiTestListen(t, api, "")
+
+		status, data := apiJSON(t, h, "POST", "/api/reply-cards/"+cardID+"/expire", admin, `{}`)
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		apiWantBody(t, data, map[string]any{
+			"id":          cardID,
+			"status":      "expired",
+			"answered_ts": nil,
+			"expired_ts":  apiAnyNumber,
+			"answer":      nil,
+			"task_id":     "",
+			"step_id":     "",
+		})
+		dashboard.wantFrames(apiTestReplyCardFrame(3, cardID, apiTestPlainAgentID, "expired", "mira"))
+		apiWantValue(t, "waiting pane", any(apiTestReplyCardPane(t, h, owner, "")), any([]any{}))
+	})
+
+	t.Run("an agent that did not open the card answers 403 and leaves it waiting", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		agent := apiTestAgentToken(t, api, apiTestPlainAgentID, "")
+		admin := apiTestAgentToken(t, api, "mira", "")
+		cardID := openCard(t, h, admin)
+		dashboard := apiTestListen(t, api, "")
+
+		status, data := apiJSON(t, h, "POST", "/api/reply-cards/"+cardID+"/expire", agent, `{}`)
+		if status != 403 {
+			t.Fatalf("want 403, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "forbidden",
+			"only the card's own author (or the owner / an admin agent) may mark it expired")
+		dashboard.wantFrames()
+		wantWaiting(t, h, owner, cardID)
+	})
+
+	t.Run("an already answered card answers 409 and keeps its answer", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		agent := apiTestAgentToken(t, api, apiTestPlainAgentID, "")
+		cardID := openCard(t, h, agent)
+		apiJSON(t, h, "POST", "/api/reply-cards/"+cardID+"/answer", owner, `{"option_idxs":[0],"text":"就漲"}`)
+		dashboard := apiTestListen(t, api, "")
+
+		status, data := apiJSON(t, h, "POST", "/api/reply-cards/"+cardID+"/expire", agent, `{}`)
+		if status != 409 {
+			t.Fatalf("want 409, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "conflict",
+			"reply card '"+cardID+"' is already answered — only a waiting card can expire")
+		dashboard.wantFrames()
+		_, card := apiJSON(t, h, "GET", "/api/reply-cards/"+cardID, owner, "")
+		apiWantValue(t, "card.status", card["status"], "answered")
+		apiWantValue(t, "card.answer", card["answer"], map[string]any{
+			"option_idxs": []any{0},
+			"text":        "就漲",
+			"attachments": []any{},
+		})
+	})
+
+	t.Run("an already expired card answers 409", func(t *testing.T) {
+		api, h, _, _ := newAPITestServer(t)
+		agent := apiTestAgentToken(t, api, apiTestPlainAgentID, "")
+		cardID := openCard(t, h, agent)
+		apiJSON(t, h, "POST", "/api/reply-cards/"+cardID+"/expire", agent, `{}`)
+		dashboard := apiTestListen(t, api, "")
+
+		status, data := apiJSON(t, h, "POST", "/api/reply-cards/"+cardID+"/expire", agent, `{}`)
+		if status != 409 {
+			t.Fatalf("want 409, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "conflict",
+			"reply card '"+cardID+"' is already expired — only a waiting card can expire")
+		dashboard.wantFrames()
+	})
+
+	t.Run("an unknown card id answers 404", func(t *testing.T) {
+		api, h, _, _ := newAPITestServer(t)
+		agent := apiTestAgentToken(t, api, apiTestPlainAgentID, "")
+		dashboard := apiTestListen(t, api, "")
+
+		status, data := apiJSON(t, h, "POST", "/api/reply-cards/rc-ghost/expire", agent, `{}`)
+		if status != 404 {
+			t.Fatalf("want 404, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "not_found", "reply card 'rc-ghost' not found")
+		dashboard.wantFrames()
+	})
+
+	t.Run("an authenticated machine identity answers 403 because this row requires agent", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		agent := apiTestAgentToken(t, api, apiTestPlainAgentID, "")
+		machine := apiTestAgentToken(t, api, ServerSelfHost, "")
+		cardID := openCard(t, h, agent)
+		dashboard := apiTestListen(t, api, "")
+
+		status, data := apiJSON(t, h, "POST", "/api/reply-cards/"+cardID+"/expire", machine, `{}`)
+		if status != 403 {
+			t.Fatalf("want 403, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "forbidden", "principal not permitted")
+		dashboard.wantFrames()
+		wantWaiting(t, h, owner, cardID)
+	})
+
+	t.Run("a request without a token answers 401", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		agent := apiTestAgentToken(t, api, apiTestPlainAgentID, "")
+		cardID := openCard(t, h, agent)
+		dashboard := apiTestListen(t, api, "")
+
+		status, data := apiJSON(t, h, "POST", "/api/reply-cards/"+cardID+"/expire", "", `{}`)
+		if status != 401 {
+			t.Fatalf("want 401, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "unauthorized", "missing credentials")
+		dashboard.wantFrames()
+		wantWaiting(t, h, owner, cardID)
+	})
 }

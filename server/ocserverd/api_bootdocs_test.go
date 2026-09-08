@@ -5,6 +5,18 @@ package main
 
 import "testing"
 
+// apiTestTaskCloseoutSeed is the task close-out document exactly as this build
+// ships it: the read-only head the server fills in, the marker line, and the
+// editable body under it. The three constants are the three halves the read
+// face names.
+const (
+	apiTestTaskCloseoutSeed = "任務 {task_no} 已結束，關閉的人是 {closed_by}。\n\n<!-- ↑唯讀區（程式產生，改不動）｜↓本體（可編輯，零變數） -->\n\n先用 `get_task` 讀這張票（票號就是 id，直接餵給它），看它屬於哪一本任務手冊（欄位 `type_key`）。\n\n若這一趟有值得留下的經驗（踩坑、更好做法），先用 get_task_manual 讀現況，再用 patch_task_learnings（type_key 用上一步讀到的值）只把改動的那一段送回**那本**任務手冊：改既有段落就用它的唯一錨點，第一次寫或要新增就用空錨點追加。不要用 write_task_learnings 做整份取代 —— 讀取後到寫入之間別人新增的內容會被無聲蓋掉；用 `ocagent clean <path>` 移除這個任務的暫存檔/資料夾、收掉臨時 branch/worktree 與跑著的臨時程序；票已經結束的話，最後用 report_task_closeout 回報後續已處理完。⚠️ 你若是**被換手、而這張票還在跑**，這一支會回 409 —— 那一步就跳過，票沒結束就沒有結案可報，這一段的寫回與清理照做。\n"
+
+	apiTestTaskCloseoutHead = "任務 {task_no} 已結束，關閉的人是 {closed_by}。"
+
+	apiTestTaskCloseoutBody = "先用 `get_task` 讀這張票（票號就是 id，直接餵給它），看它屬於哪一本任務手冊（欄位 `type_key`）。\n\n若這一趟有值得留下的經驗（踩坑、更好做法），先用 get_task_manual 讀現況，再用 patch_task_learnings（type_key 用上一步讀到的值）只把改動的那一段送回**那本**任務手冊：改既有段落就用它的唯一錨點，第一次寫或要新增就用空錨點追加。不要用 write_task_learnings 做整份取代 —— 讀取後到寫入之間別人新增的內容會被無聲蓋掉；用 `ocagent clean <path>` 移除這個任務的暫存檔/資料夾、收掉臨時 branch/worktree 與跑著的臨時程序；票已經結束的話，最後用 report_task_closeout 回報後續已處理完。⚠️ 你若是**被換手、而這張票還在跑**，這一支會回 409 —— 那一步就跳過，票沒結束就沒有結案可報，這一段的寫回與清理照做。\n"
+)
+
 func TestBootDocRegFor(t *testing.T) {
 	t.Skip("TODO: bootDocRegFor finds the row for a kind.")
 }
@@ -98,10 +110,70 @@ func TestResetBootDoc(t *testing.T) {
 }
 
 func TestHandleGetSystemInteractionApiSystemInteractionGet(t *testing.T) {
-	t.Run("a well-formed GET /api/system-interaction answers 200", func(t *testing.T) { t.Skip("TODO") })
-	t.Run("a GET /api/system-interaction request without a token answers 401", func(t *testing.T) { t.Skip("TODO") })
-	t.Run("a request to GET /api/system-interaction reaches this handler and no other row", func(t *testing.T) { t.Skip("TODO") })
-	t.Run("a GET /api/system-interaction request the wire layer rejects (malformed body, wrong content type, over the size cap) answers a 4xx without reaching the domain", func(t *testing.T) { t.Skip("TODO") })
+	t.Run("an edited document answers the overlay, its size and the flags that say it is an edit", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		apiJSON(t, h, "POST", "/api/system-interaction", owner, `{"body":"S1"}`)
+		dashboard := apiTestListen(t, api, "")
+
+		status, data := apiJSON(t, h, "GET", "/api/system-interaction", owner, "")
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		apiWantBody(t, data, map[string]any{
+			"size_chars":     2,
+			"cap_chars":      60000,
+			"kind":           "system_interaction",
+			"key":            "global",
+			"text":           "S1",
+			"read_only_head": "",
+			"body":           "S1",
+			"owner_id":       "owner",
+			"schema_version": 3,
+			"is_default":     false,
+			"has_seed":       true,
+			"read_only":      false,
+		})
+		dashboard.wantFrames()
+	})
+
+	t.Run("an ordinary agent identity may read it, because this row sits at the machine floor", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		apiJSON(t, h, "POST", "/api/system-interaction", owner, `{"body":"S1"}`)
+		agent := apiTestAgentToken(t, api, "kip", "")
+
+		status, data := apiJSON(t, h, "GET", "/api/system-interaction", agent, "")
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		apiWantBody(t, data, map[string]any{
+			"size_chars":     2,
+			"cap_chars":      60000,
+			"kind":           "system_interaction",
+			"key":            "global",
+			"text":           "S1",
+			"read_only_head": "",
+			"body":           "S1",
+			"owner_id":       "owner",
+			"schema_version": 3,
+			"is_default":     false,
+			"has_seed":       true,
+			"read_only":      false,
+		})
+	})
+
+	t.Run("the read of the shipped seed nobody has edited", func(t *testing.T) {
+		t.Skip("not written: the shipped 系統互動 seed is 16,617 characters, and this file's rule is that an expectation is a hand-written literal of the whole answer. The bytes are already pinned on this document by TestHandleResetSystemInteractionApiSystemInteractionResetPost, which asserts is_default true, size_chars 16617 and the sha256 of that exact text.")
+	})
+
+	t.Run("a request without a token answers 401", func(t *testing.T) {
+		_, h, _, _ := newAPITestServer(t)
+
+		status, data := apiJSON(t, h, "GET", "/api/system-interaction", "", "")
+		if status != 401 {
+			t.Fatalf("want 401, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "unauthorized", "missing credentials")
+	})
 }
 
 func TestHandleReplaceSystemInteractionApiSystemInteractionPost(t *testing.T) {
@@ -295,10 +367,89 @@ func TestHandleResetSystemInteractionApiSystemInteractionResetPost(t *testing.T)
 }
 
 func TestHandleGetOffboardApiOffboardGet(t *testing.T) {
-	t.Run("a well-formed GET /api/offboard answers 200", func(t *testing.T) { t.Skip("TODO") })
-	t.Run("a GET /api/offboard request without a token answers 401", func(t *testing.T) { t.Skip("TODO") })
-	t.Run("a request to GET /api/offboard reaches this handler and no other row", func(t *testing.T) { t.Skip("TODO") })
-	t.Run("a GET /api/offboard request the wire layer rejects (malformed body, wrong content type, over the size cap) answers a 4xx without reaching the domain", func(t *testing.T) { t.Skip("TODO") })
+	t.Run("a document nobody has edited answers the shipped 〈停止〉 text flagged default", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		dashboard := apiTestListen(t, api, "")
+
+		status, data := apiJSON(t, h, "GET", "/api/offboard", owner, "")
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		apiWantBody(t, data, map[string]any{
+			"size_chars":     1770,
+			"cap_chars":      15000,
+			"kind":           "offboard",
+			"key":            "global",
+			"text":           apiTestOffboardNotice,
+			"read_only_head": "",
+			"body":           apiTestOffboardNotice,
+			"owner_id":       "owner",
+			"schema_version": 3,
+			"is_default":     true,
+			"has_seed":       true,
+			"read_only":      false,
+		})
+		dashboard.wantFrames()
+	})
+
+	t.Run("an edited document answers the overlay in place of the seed", func(t *testing.T) {
+		_, h, _, owner := newAPITestServer(t)
+		apiJSON(t, h, "POST", "/api/offboard", owner, `{"body":"O1"}`)
+
+		status, data := apiJSON(t, h, "GET", "/api/offboard", owner, "")
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		apiWantBody(t, data, map[string]any{
+			"size_chars":     2,
+			"cap_chars":      15000,
+			"kind":           "offboard",
+			"key":            "global",
+			"text":           "O1",
+			"read_only_head": "",
+			"body":           "O1",
+			"owner_id":       "owner",
+			"schema_version": 3,
+			"is_default":     false,
+			"has_seed":       true,
+			"read_only":      false,
+		})
+	})
+
+	t.Run("an ordinary agent identity may read it, because this row sits at the machine floor", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		apiJSON(t, h, "POST", "/api/offboard", owner, `{"body":"O1"}`)
+		agent := apiTestAgentToken(t, api, "kip", "")
+
+		status, data := apiJSON(t, h, "GET", "/api/offboard", agent, "")
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		apiWantBody(t, data, map[string]any{
+			"size_chars":     2,
+			"cap_chars":      15000,
+			"kind":           "offboard",
+			"key":            "global",
+			"text":           "O1",
+			"read_only_head": "",
+			"body":           "O1",
+			"owner_id":       "owner",
+			"schema_version": 3,
+			"is_default":     false,
+			"has_seed":       true,
+			"read_only":      false,
+		})
+	})
+
+	t.Run("a request without a token answers 401", func(t *testing.T) {
+		_, h, _, _ := newAPITestServer(t)
+
+		status, data := apiJSON(t, h, "GET", "/api/offboard", "", "")
+		if status != 401 {
+			t.Fatalf("want 401, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "unauthorized", "missing credentials")
+	})
 }
 
 func TestHandleReplaceOffboardApiOffboardPost(t *testing.T) {
@@ -395,10 +546,101 @@ func TestHandleResetOffboardApiOffboardResetPost(t *testing.T) {
 }
 
 func TestHandleGetBootSequenceApiBootSequenceRuntimeKeyGet(t *testing.T) {
-	t.Run("a well-formed GET /api/boot-sequence/{runtime_key} answers 200", func(t *testing.T) { t.Skip("TODO") })
-	t.Run("a GET /api/boot-sequence/{runtime_key} request without a token answers 401", func(t *testing.T) { t.Skip("TODO") })
-	t.Run("a request to GET /api/boot-sequence/{runtime_key} reaches this handler with runtime_key bound from the path", func(t *testing.T) { t.Skip("TODO") })
-	t.Run("a GET /api/boot-sequence/{runtime_key} request the wire layer rejects (malformed body, wrong content type, over the size cap) answers a 4xx without reaching the domain", func(t *testing.T) { t.Skip("TODO") })
+	t.Run("an edited runtime answers its own overlay and the other runtime keeps its own", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		apiJSON(t, h, "POST", "/api/boot-sequence/claude", owner, `{"body":"B1"}`)
+		apiJSON(t, h, "POST", "/api/boot-sequence/codex", owner, `{"body":"B2"}`)
+		dashboard := apiTestListen(t, api, "")
+
+		status, data := apiJSON(t, h, "GET", "/api/boot-sequence/claude", owner, "")
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		apiWantBody(t, data, map[string]any{
+			"size_chars":     2,
+			"cap_chars":      15000,
+			"kind":           "boot_sequence",
+			"key":            "claude",
+			"text":           "B1",
+			"read_only_head": "",
+			"body":           "B1",
+			"owner_id":       "owner",
+			"schema_version": 3,
+			"is_default":     false,
+			"has_seed":       true,
+			"read_only":      false,
+		})
+
+		status, data = apiJSON(t, h, "GET", "/api/boot-sequence/codex", owner, "")
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		apiWantBody(t, data, map[string]any{
+			"size_chars":     2,
+			"cap_chars":      15000,
+			"kind":           "boot_sequence",
+			"key":            "codex",
+			"text":           "B2",
+			"read_only_head": "",
+			"body":           "B2",
+			"owner_id":       "owner",
+			"schema_version": 3,
+			"is_default":     false,
+			"has_seed":       true,
+			"read_only":      false,
+		})
+		dashboard.wantFrames()
+	})
+
+	t.Run("an ordinary agent identity may read it, because this row sits at the machine floor", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		apiJSON(t, h, "POST", "/api/boot-sequence/claude", owner, `{"body":"B1"}`)
+		agent := apiTestAgentToken(t, api, "kip", "")
+
+		status, data := apiJSON(t, h, "GET", "/api/boot-sequence/claude", agent, "")
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		apiWantBody(t, data, map[string]any{
+			"size_chars":     2,
+			"cap_chars":      15000,
+			"kind":           "boot_sequence",
+			"key":            "claude",
+			"text":           "B1",
+			"read_only_head": "",
+			"body":           "B1",
+			"owner_id":       "owner",
+			"schema_version": 3,
+			"is_default":     false,
+			"has_seed":       true,
+			"read_only":      false,
+		})
+	})
+
+	t.Run("a runtime with no boot sequence answers 404 naming the runtimes that have one", func(t *testing.T) {
+		_, h, _, owner := newAPITestServer(t)
+
+		status, data := apiJSON(t, h, "GET", "/api/boot-sequence/Codex", owner, "")
+		if status != 404 {
+			t.Fatalf("want 404, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "not_found",
+			"no boot sequence for runtime 'Codex' — the runtimes with their own boot sequence are 'claude' and 'codex'")
+	})
+
+	t.Run("the read of the shipped seed nobody has edited", func(t *testing.T) {
+		t.Skip("not written: the shipped claude 啟動步驟 seed is 3,124 characters and the codex one is its own document again, and this file's rule is that an expectation is a hand-written literal of the whole answer. Those bytes are already pinned by TestHandleResetBootSequenceApiBootSequenceRuntimeKeyResetPost, which asserts is_default true, size_chars 3124 and the sha256 of that exact text.")
+	})
+
+	t.Run("a request without a token answers 401", func(t *testing.T) {
+		_, h, _, _ := newAPITestServer(t)
+
+		status, data := apiJSON(t, h, "GET", "/api/boot-sequence/claude", "", "")
+		if status != 401 {
+			t.Fatalf("want 401, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "unauthorized", "missing credentials")
+	})
 }
 
 func TestHandleReplaceBootSequenceApiBootSequenceRuntimeKeyPost(t *testing.T) {
@@ -531,10 +773,109 @@ func TestGenericBootDocSpec(t *testing.T) {
 }
 
 func TestHandleGetBootDocApiBootDocsKindKeyGet(t *testing.T) {
-	t.Run("a well-formed GET /api/boot-docs/{kind}/{key} answers 200", func(t *testing.T) { t.Skip("TODO") })
-	t.Run("a GET /api/boot-docs/{kind}/{key} request without a token answers 401", func(t *testing.T) { t.Skip("TODO") })
-	t.Run("a request to GET /api/boot-docs/{kind}/{key} reaches this handler with kind, key bound from the path", func(t *testing.T) { t.Skip("TODO") })
-	t.Run("a GET /api/boot-docs/{kind}/{key} request the wire layer rejects (malformed body, wrong content type, over the size cap) answers a 4xx without reaching the domain", func(t *testing.T) { t.Skip("TODO") })
+	t.Run("a document nobody has edited answers the shipped text split into the half a write takes and the half it cannot", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		dashboard := apiTestListen(t, api, "")
+
+		status, data := apiJSON(t, h, "GET", "/api/boot-docs/task_closeout/global", owner, "")
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		apiWantBody(t, data, map[string]any{
+			"size_chars":     511,
+			"cap_chars":      15000,
+			"kind":           "task_closeout",
+			"key":            "global",
+			"text":           apiTestTaskCloseoutSeed,
+			"read_only_head": apiTestTaskCloseoutHead,
+			"body":           apiTestTaskCloseoutBody,
+			"owner_id":       "owner",
+			"schema_version": 3,
+			"is_default":     true,
+			"has_seed":       true,
+			"read_only":      false,
+		})
+		dashboard.wantFrames()
+	})
+
+	t.Run("an edited document answers the overlay still joined under the shipped head", func(t *testing.T) {
+		_, h, _, owner := newAPITestServer(t)
+		apiJSON(t, h, "POST", "/api/boot-docs/task_closeout/global", owner, `{"body":"C1"}`)
+
+		status, data := apiJSON(t, h, "GET", "/api/boot-docs/task_closeout/global", owner, "")
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		apiWantBody(t, data, map[string]any{
+			"size_chars":     77,
+			"cap_chars":      15000,
+			"kind":           "task_closeout",
+			"key":            "global",
+			"text":           apiTestTaskCloseoutHead + "\n\n<!-- ↑唯讀區（程式產生，改不動）｜↓本體（可編輯，零變數） -->\n\nC1",
+			"read_only_head": apiTestTaskCloseoutHead,
+			"body":           "C1",
+			"owner_id":       "owner",
+			"schema_version": 3,
+			"is_default":     false,
+			"has_seed":       true,
+			"read_only":      false,
+		})
+	})
+
+	t.Run("an ordinary agent identity may read it, because this row sits at the machine floor", func(t *testing.T) {
+		api, h, _, _ := newAPITestServer(t)
+		agent := apiTestAgentToken(t, api, "kip", "")
+
+		status, data := apiJSON(t, h, "GET", "/api/boot-docs/task_closeout/global", agent, "")
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		apiWantBody(t, data, map[string]any{
+			"size_chars":     511,
+			"cap_chars":      15000,
+			"kind":           "task_closeout",
+			"key":            "global",
+			"text":           apiTestTaskCloseoutSeed,
+			"read_only_head": apiTestTaskCloseoutHead,
+			"body":           apiTestTaskCloseoutBody,
+			"owner_id":       "owner",
+			"schema_version": 3,
+			"is_default":     true,
+			"has_seed":       true,
+			"read_only":      false,
+		})
+	})
+
+	t.Run("a kind this server does not serve answers 404", func(t *testing.T) {
+		_, h, _, owner := newAPITestServer(t)
+
+		status, data := apiJSON(t, h, "GET", "/api/boot-docs/bogus/global", owner, "")
+		if status != 404 {
+			t.Fatalf("want 404, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "not_found", "document history kind 'bogus' names no editable document on this server")
+	})
+
+	t.Run("a key this kind does not serve answers 404 naming the keys it does", func(t *testing.T) {
+		_, h, _, owner := newAPITestServer(t)
+
+		status, data := apiJSON(t, h, "GET", "/api/boot-docs/task_closeout/bogus", owner, "")
+		if status != 404 {
+			t.Fatalf("want 404, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "not_found",
+			"document history key 'bogus' does not name a task_closeout document — the key is 'global'")
+	})
+
+	t.Run("a request without a token answers 401", func(t *testing.T) {
+		_, h, _, _ := newAPITestServer(t)
+
+		status, data := apiJSON(t, h, "GET", "/api/boot-docs/task_closeout/global", "", "")
+		if status != 401 {
+			t.Fatalf("want 401, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "unauthorized", "missing credentials")
+	})
 }
 
 func TestHandleReplaceBootDocApiBootDocsKindKeyPost(t *testing.T) {
