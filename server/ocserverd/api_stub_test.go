@@ -10,27 +10,173 @@ func TestHealth(t *testing.T) {
 }
 
 func TestHandleHealthHealthGet(t *testing.T) {
-	t.Run("a well-formed GET /health answers 200", func(t *testing.T) { t.Skip("TODO") })
-	t.Run("a request to GET /health reaches this handler and no other row", func(t *testing.T) { t.Skip("TODO") })
-	t.Run("a GET /health request the wire layer rejects (malformed body, wrong content type, over the size cap) answers a 4xx without reaching the domain", func(t *testing.T) { t.Skip("TODO") })
+	t.Run("the deploy liveness probe answers ok to a caller carrying no credentials at all", func(t *testing.T) {
+		api, h, _, _ := newAPITestServer(t)
+		dashboard := apiTestListen(t, api, "")
+
+		status, data := apiJSON(t, h, "GET", "/health", "", "")
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		apiWantBody(t, data, map[string]any{"status": "ok"})
+		dashboard.wantFrames()
+	})
+
+	t.Run("an owner credential is served the identical answer, because the row is public rather than merely open", func(t *testing.T) {
+		_, h, _, owner := newAPITestServer(t)
+
+		status, data := apiJSON(t, h, "GET", "/health", owner, "")
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		apiWantBody(t, data, map[string]any{"status": "ok"})
+	})
+
+	t.Run("another method on /health is refused 405 instead of falling through to some other row", func(t *testing.T) {
+		_, h, _, _ := newAPITestServer(t)
+
+		status, data := apiJSON(t, h, "POST", "/health", "", "")
+		if status != 405 {
+			t.Fatalf("want 405, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "method_not_allowed", "method not allowed")
+	})
+
+	t.Run("a GET /health request the wire layer rejects (malformed body, wrong content type, over the size cap) answers a 4xx without reaching the domain", func(t *testing.T) {
+		t.Skip("structurally unproducible: this GET decodes no request body and the " +
+			"stack carries no content-type or size middleware, so no wire-layer 4xx " +
+			"exists to observe — measured: a `{{{` body on this route still answers 200.")
+	})
 }
 
 func TestHandleHealthApiHealthGet(t *testing.T) {
-	t.Run("a well-formed GET /api/health answers 200", func(t *testing.T) { t.Skip("TODO") })
-	t.Run("a request to GET /api/health reaches this handler and no other row", func(t *testing.T) { t.Skip("TODO") })
-	t.Run("a GET /api/health request the wire layer rejects (malformed body, wrong content type, over the size cap) answers a 4xx without reaching the domain", func(t *testing.T) { t.Skip("TODO") })
+	t.Run("the api liveness probe answers ok to a caller carrying no credentials at all", func(t *testing.T) {
+		api, h, _, _ := newAPITestServer(t)
+		dashboard := apiTestListen(t, api, "")
+
+		status, data := apiJSON(t, h, "GET", "/api/health", "", "")
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		apiWantBody(t, data, map[string]any{"status": "ok"})
+		dashboard.wantFrames()
+	})
+
+	t.Run("the api probe and the deploy probe answer the same body, so an ops check may use either", func(t *testing.T) {
+		_, h, _, _ := newAPITestServer(t)
+
+		_, viaAPI := apiJSON(t, h, "GET", "/api/health", "", "")
+		_, viaDeploy := apiJSON(t, h, "GET", "/health", "", "")
+		apiWantBody(t, viaAPI, map[string]any{"status": "ok"})
+		apiWantValue(t, "deploy probe", any(viaDeploy), any(viaAPI))
+	})
+
+	t.Run("another method on /api/health is refused 405 instead of falling through to some other row", func(t *testing.T) {
+		_, h, _, _ := newAPITestServer(t)
+
+		status, data := apiJSON(t, h, "POST", "/api/health", "", "")
+		if status != 405 {
+			t.Fatalf("want 405, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "method_not_allowed", "method not allowed")
+	})
+
+	t.Run("a GET /api/health request the wire layer rejects (malformed body, wrong content type, over the size cap) answers a 4xx without reaching the domain", func(t *testing.T) {
+		t.Skip("structurally unproducible: this GET decodes no request body and the " +
+			"stack carries no content-type or size middleware, so no wire-layer 4xx " +
+			"exists to observe — measured: a `{{{` body on this route still answers 200.")
+	})
 }
 
 func TestHandleVersionApiVersionGet(t *testing.T) {
-	t.Run("a well-formed GET /api/version answers 200", func(t *testing.T) { t.Skip("TODO") })
-	t.Run("a request to GET /api/version reaches this handler and no other row", func(t *testing.T) { t.Skip("TODO") })
-	t.Run("a GET /api/version request the wire layer rejects (malformed body, wrong content type, over the size cap) answers a 4xx without reaching the domain", func(t *testing.T) { t.Skip("TODO") })
+	t.Run("a station that has never reached GitHub reports its build identity with no newer version known and no successful-check stamp", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		dashboard := apiTestListen(t, api, "")
+
+		status, data := apiJSON(t, h, "GET", "/api/version", owner, "")
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		apiWantBody(t, data, map[string]any{
+			"version":          "0.0.0",
+			"git_sha":          apiAnyString,
+			"git_time":         apiAnyString,
+			"catalog_hash":     apiAnyString,
+			"update_available": false,
+			"latest_version":   nil,
+		})
+		dashboard.wantFrames()
+	})
+
+	t.Run("the row is public: a caller with no credentials is served the same build identity as the owner", func(t *testing.T) {
+		_, h, _, owner := newAPITestServer(t)
+
+		_, anonymous := apiJSON(t, h, "GET", "/api/version", "", "")
+		_, asOwner := apiJSON(t, h, "GET", "/api/version", owner, "")
+		apiWantValue(t, "anonymous", any(anonymous), any(asOwner))
+	})
+
+	t.Run("another method on /api/version is refused 405 instead of falling through to some other row", func(t *testing.T) {
+		_, h, _, _ := newAPITestServer(t)
+
+		status, data := apiJSON(t, h, "POST", "/api/version", "", "")
+		if status != 405 {
+			t.Fatalf("want 405, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "method_not_allowed", "method not allowed")
+	})
+
+	t.Run("a GET /api/version request the wire layer rejects (malformed body, wrong content type, over the size cap) answers a 4xx without reaching the domain", func(t *testing.T) {
+		t.Skip("structurally unproducible: this GET decodes no request body and the " +
+			"stack carries no content-type or size middleware, so no wire-layer 4xx " +
+			"exists to observe — measured: a `{{{` body on this route still answers 200.")
+	})
 }
 
 func TestHandleProbeVersionVersionGet(t *testing.T) {
-	t.Run("a well-formed GET /version answers 200", func(t *testing.T) { t.Skip("TODO") })
-	t.Run("a request to GET /version reaches this handler and no other row", func(t *testing.T) { t.Skip("TODO") })
-	t.Run("a GET /version request the wire layer rejects (malformed body, wrong content type, over the size cap) answers a 4xx without reaching the domain", func(t *testing.T) { t.Skip("TODO") })
+	t.Run("the deploy probe carries only the three fields an autodeploy compares, and nothing about updates", func(t *testing.T) {
+		api, h, _, _ := newAPITestServer(t)
+		dashboard := apiTestListen(t, api, "")
+
+		status, data := apiJSON(t, h, "GET", "/version", "", "")
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		apiWantBody(t, data, map[string]any{
+			"version":      "0.0.0",
+			"sha":          apiAnyString,
+			"catalog_hash": apiAnyString,
+		})
+		dashboard.wantFrames()
+	})
+
+	t.Run("the deploy probe and /api/version describe the SAME build, so a sha compare against either settles the same question", func(t *testing.T) {
+		_, h, _, owner := newAPITestServer(t)
+
+		_, probe := apiJSON(t, h, "GET", "/version", "", "")
+		_, full := apiJSON(t, h, "GET", "/api/version", owner, "")
+		apiWantBody(t, probe, map[string]any{
+			"version":      full["version"],
+			"sha":          full["git_sha"],
+			"catalog_hash": full["catalog_hash"],
+		})
+	})
+
+	t.Run("another method on /version is refused 405 instead of falling through to some other row", func(t *testing.T) {
+		_, h, _, _ := newAPITestServer(t)
+
+		status, data := apiJSON(t, h, "POST", "/version", "", "")
+		if status != 405 {
+			t.Fatalf("want 405, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "method_not_allowed", "method not allowed")
+	})
+
+	t.Run("a GET /version request the wire layer rejects (malformed body, wrong content type, over the size cap) answers a 4xx without reaching the domain", func(t *testing.T) {
+		t.Skip("structurally unproducible: this GET decodes no request body and the " +
+			"stack carries no content-type or size middleware, so no wire-layer 4xx " +
+			"exists to observe — measured: a `{{{` body on this route still answers 200.")
+	})
 }
 
 func TestAuthPasswordHash(t *testing.T) {
