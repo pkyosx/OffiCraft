@@ -129,7 +129,27 @@ const TARGETS = [
   // `mockLoreEntries` already populated, and those six rows deliberately cover
   // the branches the owner asked about — 三種 state, agent/manual/unknown 三種
   // 歸屬, and a DEPARTED author (m-gone) whose composer must not render.
-  { name: "l1-lore-list", hash: "lore" },
+  {
+    name: "l1-lore-list",
+    hash: "lore",
+    // 這張沒有 act,所以它宣稱的是「預設進來就長這樣」——那也是一個宣稱。
+    // 驗四個篩選鈕都在(少一個就不是 owner 裁的那一列了)、而且真的有列。
+    // 空清單也會拍出一張很像樣的圖,只是那是 lore-empty,不是這張要的東西。
+    verify: async (page) => {
+      for (const id of [
+        "lore-filter-author",
+        "lore-filter-member",
+        "lore-filter-belongs",
+        "lore-filter-state",
+      ]) {
+        if (!(await page.locator(`[data-testid="${id}"]`).count())) {
+          throw new Error(`篩選列少了 ${id}`);
+        }
+      }
+      const rows = await page.locator('[data-testid="lore-row"]').count();
+      if (rows < 3) throw new Error(`只有 ${rows} 列,拍到的可能是空狀態`);
+    },
+  },
   {
     // The four filters read 所有撰寫人 / 所有成員傳承 / 所有任務傳承 / 所有狀態
     // (owner ruling). A shot of the closed row shows the labels; this one shows
@@ -139,6 +159,17 @@ const TARGETS = [
     act: async (page) => {
       await page.click('[data-testid="lore-filter-author"]');
       await page.waitForTimeout(300);
+    },
+    // 「開起來」才是這張的重點:關著的篩選列 l1 已經拍過了,再拍一次關著的
+    // 不證明任何事。MultiSelectFilter 的每個選項是 `${testId}-opt-<value>`,
+    // 所以數得到選項就代表選單真的展開、而且真的有人名可挑。
+    verify: async (page) => {
+      const opts = await page
+        .locator('[data-testid^="lore-filter-author-opt-"]')
+        .count();
+      if (opts < 1) {
+        throw new Error(`撰寫人選單數到 ${opts} 個選項,選單沒展開`);
+      }
     },
   },
   {
