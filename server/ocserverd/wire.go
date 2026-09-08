@@ -650,36 +650,42 @@ type chatReadDTO struct {
 	LastReadTS float64 `json:"last_read_ts"`
 }
 
-type agentContextDTO struct {
-	AgentID         string         `json:"agent_id"`
-	CompactionCount *int           `json:"compaction_count,omitempty"`
-	ContextPct      float64        `json:"context_pct"`
-	RateLimits      map[string]any `json:"rate_limits"`
-	TS              float64        `json:"ts"`
+// chatMarkReadReceiptDTO is the bounded answer to POST /api/chat/mark-read
+// (T-133), which used to answer chatReadDTO above — the READ surface GET
+// /api/chat/reads serves. Two of that type's three fields were the caller's own
+// input (reader_id is always the verified sub, i.e. the caller), and the one
+// thing the caller could not compute was missing: the watermark is monotonic, so
+// a stale report is a silent no-op and the echoed watermark looked identical
+// either way. Advanced is that bit — the same one that gates the SSE publish.
+type chatMarkReadReceiptDTO struct {
+	PeerID     string  `json:"peer_id"`
+	LastReadTS float64 `json:"last_read_ts"`
+	Advanced   bool    `json:"advanced"`
 }
 
-type agentTelemetryDTO struct {
-	AgentID       string         `json:"agent_id"`
-	Machine       *string        `json:"machine"`
-	Account       *string        `json:"account"`
-	RateLimits    map[string]any `json:"rate_limits"`
-	Tokens        map[string]any `json:"tokens"`
-	Hardware      map[string]any `json:"hardware"`
-	Binaries      map[string]any `json:"binaries"`
-	Claude        map[string]any `json:"claude"`
-	Runtime       *string        `json:"runtime"`
-	Runtimes      map[string]any `json:"runtimes"`
-	Cost          *float64       `json:"cost"`
-	Effort        *string        `json:"effort"`
-	SelfUpdate    map[string]any `json:"self_update"`
-	CommandResult map[string]any `json:"command_result"`
-	// WardenShape echoes the stored launchd-shape verdict so the POST response
-	// round-trips what was just merged; nil when this reporter has never sent one.
-	WardenShape *string `json:"warden_shape"`
-	// CutoverEffect echoes the stored cutover-effect verdict, same round-trip
-	// contract as WardenShape above.
-	CutoverEffect *string `json:"cutover_effect"`
-	TS            float64 `json:"ts"`
+// agentContextReceiptDTO is the bounded answer to POST /api/agent/context
+// (T-133). What it drops is what the caller had just sent: context_pct,
+// compaction_count and the whole free-form rate_limits object. What it keeps is
+// the pair the caller could not compute — the identity the gauge was filed under
+// (the verified sub; the body carries no agent_id at all) and the server's own
+// stamp. The gauge is served by GET /api/monitoring.
+type agentContextReceiptDTO struct {
+	AgentID string  `json:"agent_id"`
+	TS      float64 `json:"ts"`
+}
+
+// agentTelemetryReceiptDTO is the bounded answer to POST /api/monitoring/telemetry
+// (T-133). The 17-field echo it replaces handed a warden's whole merged entry
+// back on every heartbeat — hardware, binaries, runtimes, rate limits, tokens.
+//
+// Machine is the one field here that is NOT a restatement of the request: the
+// attribution comes from the verified token's machine_id claim first and falls
+// back to the self-reported machine only for a claim-less token, so a reporter
+// can be stored under a machine it did not name and this is where that shows.
+type agentTelemetryReceiptDTO struct {
+	AgentID string  `json:"agent_id"`
+	Machine *string `json:"machine"`
+	TS      float64 `json:"ts"`
 }
 
 type monitoringSessionDTO struct {

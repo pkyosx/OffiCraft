@@ -244,6 +244,20 @@ export interface ChatReadReceipt {
   lastReadTs: number;
 }
 
+/**
+ * What `markChatRead` answers (T-133). NOT a `ChatReadReceipt`: the write route
+ * used to hand back the READ surface, of which the caller already knew every
+ * field — the reader is the caller and the watermark is the number just sent.
+ * `advanced` is the part it could not know: the watermark is monotonic, so a
+ * stale report is a 200 that changed nothing, and `lastReadTs` is what is in
+ * force AFTER that clamp.
+ */
+export interface ChatMarkReadReceipt {
+  peerId: string;
+  lastReadTs: number;
+  advanced: boolean;
+}
+
 /** The scrollback keyset cursor (T-bf82): the (ts, id) of the OLDEST message
  * the caller already holds — `listChat` with this returns the page strictly
  * OLDER than that point. Composite on purpose: `ts` (epoch REAL) can collide,
@@ -2132,11 +2146,13 @@ export interface Api {
   }): Promise<void>;
   /** Mark a conversation (with `peer`) read up to `lastReadTs` — the caller's own
    * read watermark (reader = the verified JWT sub server-side; anti-spoof). The
-   * watermark is monotonic; a stale ts is a no-op. Returns the effective receipt. */
+   * watermark is monotonic; a stale ts is a no-op. Answers a bounded receipt —
+   * the effective watermark plus whether THIS call advanced it — never the read
+   * surface (T-133). */
   markChatRead(mark: {
     peer: string;
     lastReadTs: number;
-  }): Promise<ChatReadReceipt>;
+  }): Promise<ChatMarkReadReceipt>;
   /** List read receipts for a `peer` conversation (`GET /api/chat/reads?with=`).
    * The UI reads the PEER's receipt to know how far the peer has read the owner's
    * messages (drives the per-message "read ✓" badge). */

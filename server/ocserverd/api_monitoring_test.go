@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"net/http/httptest"
 	"reflect"
+	"sort"
 	"strings"
 	"testing"
 )
@@ -37,6 +38,76 @@ func doIngestTelemetry(api *apiServer, sub, machineClaim, body string) *httptest
 	rec := httptest.NewRecorder()
 	api.HandleIngestTelemetryApiMonitoringTelemetryPost(rec, req)
 	return rec
+}
+
+// receiptKeys reads a bounded-receipt response back as its sorted key set. The
+// assertion these two tests make is on the EXACT set: a receipt that grows the
+// old echo back one field at a time is how this regresses, and a check for the
+// presence of the fields that survived would stay green through all of it.
+func receiptKeys(t *testing.T, rec *httptest.ResponseRecorder) []string {
+	t.Helper()
+	var body map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("receipt is not an object: %v (%s)", err, rec.Body.String())
+	}
+	keys := make([]string, 0, len(body))
+	for k := range body {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
+}
+
+// TestHandleIngestTelemetry_AnswersABoundedReceipt pins the T-133 reshape. The
+// body below is a fat one on purpose — a real warden heartbeat — because the
+// old answer was an echo of the MERGED entry, so the more a reporter sent the
+// more came back.
+func TestHandleIngestTelemetry_AnswersABoundedReceipt(t *testing.T) {
+	api := &apiServer{telemetry: newMemStore(), hub: NewHub()}
+	rec := doIngestTelemetry(api, "m-1", "m-claimed",
+		`{"machine": "m-self-reported", "hardware": {"cpu_pct": 1}, `+
+			`"binaries": {"ocwarden": "aaa111"}, "rate_limits": {"primary_used_pct": 4}, `+
+			`"tokens": {"input": 10}, "cost": 1.5}`)
+	if rec.Code != 200 {
+		t.Fatalf("ingest: %d %s", rec.Code, rec.Body.String())
+	}
+	if got, want := receiptKeys(t, rec), []string{"agent_id", "machine", "ts"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("receipt keys = %v, want exactly %v", got, want)
+	}
+	// machine is the one field here that is NOT a restatement of the request:
+	// the token claim wins over the self-report, and this is where that shows.
+	var body map[string]any
+	_ = json.Unmarshal(rec.Body.Bytes(), &body)
+	if body["agent_id"] != "m-1" || body["machine"] != "m-claimed" {
+		t.Fatalf("receipt = %v, want the verified sub and the CLAIMED machine", body)
+	}
+}
+
+// TestHandleIngestAgentContext_AnswersABoundedReceipt is the same pin for the
+// gauge. agent_id is the whole point of the receipt: the body carries no
+// agent_id at all (it was removed so an agent can only report its own context),
+// so the attribution appears nowhere else on this call.
+func TestHandleIngestAgentContext_AnswersABoundedReceipt(t *testing.T) {
+	api := &apiServer{gauge: newMemStore(), hub: NewHub()}
+	req := httptest.NewRequest("POST", "/api/agent/context",
+		strings.NewReader(`{"context_pct": 42, "compaction_count": 3, `+
+			`"rate_limits": {"primary_used_pct": 9}}`))
+	req = req.WithContext(context.WithValue(req.Context(), claimsContextKey,
+		map[string]any{"sub": "m-9", "scope": "agent"}))
+	rec := httptest.NewRecorder()
+	api.HandleIngestAgentContextApiAgentContextPost(rec, req)
+	if rec.Code != 200 {
+		t.Fatalf("ingest: %d %s", rec.Code, rec.Body.String())
+	}
+	if got, want := receiptKeys(t, rec), []string{"agent_id", "ts"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("receipt keys = %v, want exactly %v", got, want)
+	}
+	// The gauge itself still lands in full — the receipt got smaller, the write
+	// did not. Without this, every key assertion above would also pass on a
+	// handler that had stopped storing anything.
+	if got := api.gauge.Get("m-9")["context_pct"]; got != 42.0 {
+		t.Fatalf("stored context_pct = %v, want the reported 42", got)
+	}
 }
 
 func TestHandleIngestTelemetry_MachineClaimOverridesSelfReport(t *testing.T) {
@@ -113,10 +184,11 @@ func TestHandleIngestTelemetry_RuntimeCapabilities(t *testing.T) {
 	}
 }
 
-func TestHandleIngestTelemetry_BinariesFingerprintsFoldAndEcho(t *testing.T) {
+func TestHandleIngestTelemetry_BinariesFingerprintsFoldOntoTheEntry(t *testing.T) {
 	api := &apiServer{telemetry: newMemStore(), hub: NewHub()}
 	// A binaries-only heartbeat is a valid telemetry POST (first-class field),
-	// and the fingerprints fold onto the entry + echo back.
+	// and the fingerprints fold onto the entry. Since T-133 the response is a
+	// bounded receipt, so the STORE is the only place the fold is visible.
 	rec := doIngestTelemetry(api, "m-1", "m-1",
 		`{"binaries": {"ocwarden": "aaa111", "ocagent": "bbb222"}}`)
 	if rec.Code != 200 {
@@ -126,9 +198,6 @@ func TestHandleIngestTelemetry_BinariesFingerprintsFoldAndEcho(t *testing.T) {
 	bins, _ := entry["binaries"].(map[string]any)
 	if bins["ocwarden"] != "aaa111" || bins["ocagent"] != "bbb222" {
 		t.Fatalf("binaries fold = %v, want the reported fingerprints", bins)
-	}
-	if !strings.Contains(rec.Body.String(), `"ocwarden":"aaa111"`) {
-		t.Fatalf("echo must carry binaries: %s", rec.Body.String())
 	}
 	// A later hardware-only heartbeat must not clobber the stored fingerprints.
 	if rec := doIngestTelemetry(api, "m-1", "m-1", `{"hardware": {"cpu_pct": 1}}`); rec.Code != 200 {
@@ -144,10 +213,11 @@ func TestHandleIngestTelemetry_BinariesFingerprintsFoldAndEcho(t *testing.T) {
 	}
 }
 
-func TestHandleIngestTelemetry_ClaudeProbeFoldAndEcho(t *testing.T) {
+func TestHandleIngestTelemetry_ClaudeProbeFoldsOntoTheEntry(t *testing.T) {
 	api := &apiServer{telemetry: newMemStore(), hub: NewHub()}
 	// A claude-only heartbeat is a valid telemetry POST (first-class field),
-	// and the probe folds onto the entry + echoes back (T-97ee).
+	// and the probe folds onto the entry (T-97ee). Since T-133 the response is a
+	// bounded receipt, so the STORE is the only place the fold is visible.
 	rec := doIngestTelemetry(api, "m-1", "m-1",
 		`{"claude": {"version": "2.1.211", "cred_file": true, "sub_readable": false, "keychain": true}}`)
 	if rec.Code != 200 {
@@ -158,9 +228,6 @@ func TestHandleIngestTelemetry_ClaudeProbeFoldAndEcho(t *testing.T) {
 	if probe["version"] != "2.1.211" || probe["cred_file"] != true ||
 		probe["sub_readable"] != false || probe["keychain"] != true {
 		t.Fatalf("claude fold = %v, want the reported probe", probe)
-	}
-	if !strings.Contains(rec.Body.String(), `"version":"2.1.211"`) {
-		t.Fatalf("echo must carry claude: %s", rec.Body.String())
 	}
 	// A later hardware-only heartbeat must not clobber the stored probe.
 	if rec := doIngestTelemetry(api, "m-1", "m-1", `{"hardware": {"cpu_pct": 1}}`); rec.Code != 200 {
@@ -183,16 +250,16 @@ func TestHandleIngestTelemetry_ClaudeProbeFoldAndEcho(t *testing.T) {
 	}
 }
 
-// TestHandleIngestTelemetry_WardenShapeFoldsEchoesAndValidates covers the ingest
+// TestHandleIngestTelemetry_WardenShapeFoldsAndValidates covers the ingest
 // half of the anchor-cutover signal (T-ff5d): the warden's launchd SHAPE verdict
 // is a closed three-state enum, and it is the only way the fleet can tell a
 // converted machine from an unconverted one.
-func TestHandleIngestTelemetry_WardenShapeFoldsEchoesAndValidates(t *testing.T) {
+func TestHandleIngestTelemetry_WardenShapeFoldsAndValidates(t *testing.T) {
 	// A SHAPE-ONLY heartbeat must be a valid report. The "at least one field"
 	// check is hand-enumerated, so a new field that is not listed there turns the
 	// very heartbeat this ticket adds into a 400.
 	for _, want := range []string{"anchor", "legacy", "unknown"} {
-		t.Run("a "+want+" heartbeat lands and echoes", func(t *testing.T) {
+		t.Run("a "+want+" heartbeat lands", func(t *testing.T) {
 			api := &apiServer{telemetry: newMemStore(), hub: NewHub()}
 			rec := doIngestTelemetry(api, "m-1", "m-1", `{"warden_shape": "`+want+`"}`)
 			if rec.Code != 200 {
@@ -200,9 +267,6 @@ func TestHandleIngestTelemetry_WardenShapeFoldsEchoesAndValidates(t *testing.T) 
 			}
 			if got := api.telemetry.Get("m-1")["warden_shape"]; got != want {
 				t.Fatalf("stored warden_shape = %v, want %q", got, want)
-			}
-			if !strings.Contains(rec.Body.String(), `"warden_shape":"`+want+`"`) {
-				t.Fatalf("echo must round-trip the shape: %s", rec.Body.String())
 			}
 		})
 	}
@@ -275,7 +339,7 @@ func TestGetMonitoring_WardenShapeIsReportedNeverInvented(t *testing.T) {
 	}
 }
 
-// TestHandleIngestTelemetry_CutoverEffectFoldsEchoesAndValidates covers the
+// TestHandleIngestTelemetry_CutoverEffectFoldsAndValidates covers the
 // ingest half of the cutover-EFFECT signal (T-17b4) — the verdict that says
 // whether the anchor cutover actually reached the processes carrying agents,
 // which warden_shape above cannot answer.
@@ -285,12 +349,12 @@ func TestGetMonitoring_WardenShapeIsReportedNeverInvented(t *testing.T) {
 // shape and an illegal effect, so a handler that validated the effect against
 // the shape's vocabulary would store a verdict the wire does not define and the
 // UI cannot narrow.
-func TestHandleIngestTelemetry_CutoverEffectFoldsEchoesAndValidates(t *testing.T) {
+func TestHandleIngestTelemetry_CutoverEffectFoldsAndValidates(t *testing.T) {
 	// An EFFECT-ONLY heartbeat must be a valid report. The "at least one field"
 	// check is hand-enumerated, so a new field that is not listed there turns the
 	// very heartbeat this ticket adds into a 400.
 	for _, want := range []string{"effective", "not_effective", "unproven"} {
-		t.Run("a "+want+" heartbeat lands and echoes", func(t *testing.T) {
+		t.Run("a "+want+" heartbeat lands", func(t *testing.T) {
 			api := &apiServer{telemetry: newMemStore(), hub: NewHub()}
 			rec := doIngestTelemetry(api, "m-1", "m-1", `{"cutover_effect": "`+want+`"}`)
 			if rec.Code != 200 {
@@ -298,9 +362,6 @@ func TestHandleIngestTelemetry_CutoverEffectFoldsEchoesAndValidates(t *testing.T
 			}
 			if got := api.telemetry.Get("m-1")["cutover_effect"]; got != want {
 				t.Fatalf("stored cutover_effect = %v, want %q", got, want)
-			}
-			if !strings.Contains(rec.Body.String(), `"cutover_effect":"`+want+`"`) {
-				t.Fatalf("echo must round-trip the verdict: %s", rec.Body.String())
 			}
 		})
 	}
