@@ -1,6 +1,3 @@
-// Skeleton generated from server/ocserverd/api_auth.go by gen_test_skeletons.py.
-// Every case is a t.Skip placeholder: fill the body, keep or rewrite the name.
-
 package main
 
 import (
@@ -12,7 +9,27 @@ import (
 )
 
 func TestMintWardenToken(t *testing.T) {
-	t.Skip("TODO: mintWardenToken mints the permanent machine credential used only by warden installation paths.")
+	api, _, _, _ := newAPITestServer(t)
+	token, err := api.mintWardenToken(Member{ID: "m-box", Kind: machineKind})
+	if err != nil {
+		t.Fatalf("mintWardenToken: %v", err)
+	}
+	claims, err := verifyJWT(token, api.keys.signingSecret(), time.Now().Unix())
+	if err != nil {
+		t.Fatalf("verify minted token: %v", err)
+	}
+	if claims["sub"] != "m-box" || claims["scope"] != "agent" {
+		t.Fatalf("claims = %v, want sub m-box and agent scope", claims)
+	}
+	if _, ok := claims["exp"]; ok {
+		t.Fatalf("warden claims unexpectedly carry exp: %v", claims)
+	}
+	if _, ok := claims["machine_id"]; ok {
+		t.Fatalf("warden claims unexpectedly carry machine_id: %v", claims)
+	}
+	if _, err := api.mintWardenToken(Member{ID: "agent-1", Kind: KindStaff}); err == nil {
+		t.Fatal("a non-warden member must not receive a permanent token")
+	}
 }
 
 func TestHandleLoginApiLoginPost(t *testing.T) {
@@ -369,21 +386,109 @@ func TestHandleBootstrapApiBootstrapPost(t *testing.T) {
 }
 
 func TestNoteTokenKeyObservation(t *testing.T) {
-	t.Skip("TODO: noteTokenKeyObservation records, against the identity that just authenticated, WHICH signing key verified its credential — and, when that key is no longer the one signing, asks that machine to go get a new credential.")
+	api, h, d, owner := newAPITestServer(t)
+	machineID, _ := apiTestMachineCredential(t, h, owner, "Studio Mac")
+
+	api.noteTokenKeyObservation(map[string]any{"sub": machineID}, "k-legacy")
+	m, err := d.GetMember(machineID)
+	if err != nil {
+		t.Fatalf("GetMember: %v", err)
+	}
+	if m == nil || m.TokenKeyID != "k-legacy" {
+		t.Fatalf("machine token key = %+v, want k-legacy", m)
+	}
+	api.tokenKeyObsMu.Lock()
+	_, machineMemoized := api.tokenKeyObs[machineID]
+	_, agentMemoized := api.tokenKeyObs[apiTestPlainAgentID]
+	api.tokenKeyObsMu.Unlock()
+	if !machineMemoized || agentMemoized {
+		t.Fatalf("token-key memo = %v, want only the machine identity", api.tokenKeyObs)
+	}
+
+	api.noteTokenKeyObservation(map[string]any{"sub": apiTestPlainAgentID}, "k-legacy")
+	api.tokenKeyObsMu.Lock()
+	_, agentMemoized = api.tokenKeyObs[apiTestPlainAgentID]
+	api.tokenKeyObsMu.Unlock()
+	if agentMemoized {
+		t.Fatal("a non-warden observation must not be memoized")
+	}
 }
 
 func TestAskMachineToRenewIfStale(t *testing.T) {
-	t.Skip("TODO: askMachineToRenewIfStale is the SUMMONS half (T-80, owner ruling A): when the credential this machine keeps presenting is signed by a key that is no longer the signing one, push the `renew` verb down its warden-command downlink.")
+	api, _, _, _ := newAPITestServer(t)
+	api.keys = newKeyring([]signingKey{
+		{ID: "k-old", Key: []byte("old-secret")},
+		{ID: "k-new", Key: []byte("new-secret")},
+	}, "k-new")
+	api.keyRenewClock = func() time.Time { return time.Unix(1700000000, 0) }
+	api.rememberTokenKey("m-box", tokenKeyObservation{keyID: "k-old"})
+	if _, err := api.hub.Connect("m-box", "m-box"); err != nil {
+		t.Fatalf("Connect: %v", err)
+	}
+
+	api.askMachineToRenewIfStale("m-box", "k-old")
+	if got := api.hub.PendingWardenCommands("m-box"); got != 1 {
+		t.Fatalf("pending renew commands = %d, want 1", got)
+	}
+	queued := api.hub.DrainWardenCommands("m-box")
+	if len(queued) != 1 || queued[0].Subject != "m-box" {
+		t.Fatalf("queued renew command = %+v, want one command for m-box", queued)
+	}
+	digest, ok := decodeWardenCommandFrame(queued[0].Frame)
+	if !ok || digest != (wardenCommandDigest{Verb: reconcileCmdRenew, MemberID: "m-box"}) {
+		t.Fatalf("renew frame digest = %+v, %v", digest, ok)
+	}
+
+	api.rememberTokenKey("m-box", tokenKeyObservation{keyID: "k-old"})
+	api.askMachineToRenewIfStale("m-box", "k-new")
+	if got := api.hub.PendingWardenCommands("m-box"); got != 0 {
+		t.Fatalf("current-key renew commands = %d, want 0", got)
+	}
 }
 
 func TestClaimRenewAsk(t *testing.T) {
-	t.Skip("TODO: claimRenewAsk is the compare-and-stamp that makes the interval hold under concurrency: two requests arriving together must not both decide the interval has elapsed.")
+	now := time.Unix(1700000000, 0)
+	api := &apiServer{keyRenewClock: func() time.Time { return now }}
+	api.rememberTokenKey("m-box", tokenKeyObservation{keyID: "k-old"})
+	if !api.claimRenewAsk("m-box", "k-old") {
+		t.Fatal("the first ask for a key must win")
+	}
+	if api.claimRenewAsk("m-box", "k-old") {
+		t.Fatal("a second ask inside the interval must be refused")
+	}
+	if api.claimRenewAsk("m-box", "k-new") {
+		t.Fatal("an ask for a different key must not use the old memo")
+	}
+	now = now.Add(renewAskInterval)
+	if !api.claimRenewAsk("m-box", "k-old") {
+		t.Fatal("an ask at the interval boundary must be allowed")
+	}
 }
 
 func TestKeyRenewNow(t *testing.T) {
-	t.Skip("TODO: keyRenewNow reads the injectable clock; nil means the real one.")
+	want := time.Unix(1700000000, 123)
+	api := &apiServer{keyRenewClock: func() time.Time { return want }}
+	if got := api.keyRenewNow(); !got.Equal(want) {
+		t.Fatalf("keyRenewNow() = %v, want %v", got, want)
+	}
 }
 
 func TestRememberTokenKey(t *testing.T) {
-	t.Skip("TODO: 需要人工判斷這個函式的可觀察結果是什麼")
+	api := &apiServer{}
+	api.rememberTokenKey("m-box", tokenKeyObservation{keyID: "k-old"})
+	api.tokenKeyObsMu.Lock()
+	got := api.tokenKeyObs["m-box"]
+	api.tokenKeyObsMu.Unlock()
+	if got.keyID != "k-old" || !got.renewAskedAt.IsZero() {
+		t.Fatalf("first memo = %+v, want k-old with no ask stamp", got)
+	}
+
+	askedAt := time.Unix(1700000000, 0)
+	api.rememberTokenKey("m-box", tokenKeyObservation{keyID: "k-new", renewAskedAt: askedAt})
+	api.tokenKeyObsMu.Lock()
+	got = api.tokenKeyObs["m-box"]
+	api.tokenKeyObsMu.Unlock()
+	if got.keyID != "k-new" || !got.renewAskedAt.Equal(askedAt) {
+		t.Fatalf("replacement memo = %+v, want k-new at %v", got, askedAt)
+	}
 }

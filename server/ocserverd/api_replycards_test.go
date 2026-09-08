@@ -287,7 +287,7 @@ func TestWriteReplyCard(t *testing.T) {
 		}
 		apiWantBody(t, apiTestDecodeJSONBody(t, rec), map[string]any{
 			"id": "rc-1", "from": "mira", "kind": "action", "summary": "do it", "body": "details",
-			"options": []any{map[string]any{"text": "yes", "ai_pick": true}},
+			"options":     []any{map[string]any{"text": "yes", "ai_pick": true}},
 			"select_mode": "multi", "status": "waiting", "created_ts": 12,
 			"attachments": []any{}, "answered_ts": nil, "expired_ts": nil,
 			"chat_message_id": "c-1", "answer": nil, "task": nil,
@@ -688,7 +688,7 @@ func TestReplyCardListItemOf(t *testing.T) {
 		ID: "rc-1", FromMember: "mira", Kind: replyCardKindDecision,
 		Summary: "choose a route", Body: "private question body",
 		Options: []ReplyCardOption{{Text: "first"}, {Text: "second"}, {Text: "third"}},
-		Status: replyCardStatusAnswered, CreatedTS: 12, AnsweredTS: answeredAt,
+		Status:  replyCardStatusAnswered, CreatedTS: 12, AnsweredTS: answeredAt,
 		AnswerOptionIdxs: []int{2, 0, 99}, AnswerText: answerText,
 		AnswerAttachments: []any{"att-1", "att-2"}, TaskID: task.ID,
 	})
@@ -733,7 +733,7 @@ func TestReplyCardListItemOf(t *testing.T) {
 
 func TestReplyCardOptionWording(t *testing.T) {
 	card := ReplyCard{
-		Options: []ReplyCardOption{{Text: "first"}, {Text: "second"}, {Text: "third"}},
+		Options:          []ReplyCardOption{{Text: "first"}, {Text: "second"}, {Text: "third"}},
 		AnswerOptionIdxs: []int{2, 0, 99, -1, 0},
 	}
 	got := replyCardOptionWording(card)
@@ -1176,6 +1176,9 @@ func TestReleaseCardHold(t *testing.T) {
 		api, _, d, _ := newAPITestServer(t)
 		task := dalTestTask("T-1")
 		task.Status = "waiting_owner"
+		task.WaitingReason = ""
+		task.ClosedTS = 0
+		task.CloseoutTS = 0
 		step := dalTestStep("ts-1", task.ID)
 		step.Status = "waiting_owner"
 		step.ReplyCardID = "rc-1"
@@ -1289,9 +1292,9 @@ func TestExpireWaitingCards(t *testing.T) {
 			t.Fatalf("ListReplyCards: %v", err)
 		}
 		want := []ReplyCard{
-			{ID: "rc-target", FromMember: "mira", Kind: "decision", Status: "expired", CreatedTS: 10, ExpiredTS: 42},
-			{ID: "rc-other", FromMember: "mira", Kind: "decision", Status: "waiting", CreatedTS: 11},
-			{ID: "rc-answered", FromMember: "mira", Kind: "decision", Status: "answered", CreatedTS: 12},
+			{ID: "rc-target", FromMember: "mira", Kind: "decision", SelectMode: "single", Status: "expired", CreatedTS: 10, ExpiredTS: 42, AnswerAttachments: []any{}, Attachments: []any{}, Options: []ReplyCardOption{}},
+			{ID: "rc-other", FromMember: "mira", Kind: "decision", SelectMode: "single", Status: "waiting", CreatedTS: 11, AnswerAttachments: []any{}, Attachments: []any{}, Options: []ReplyCardOption{}},
+			{ID: "rc-answered", FromMember: "mira", Kind: "decision", SelectMode: "single", Status: "answered", CreatedTS: 12, AnswerAttachments: []any{}, Attachments: []any{}, Options: []ReplyCardOption{}},
 		}
 		if !reflect.DeepEqual(got, want) {
 			t.Fatalf("reply cards after sweep = %#v, want %#v", got, want)
