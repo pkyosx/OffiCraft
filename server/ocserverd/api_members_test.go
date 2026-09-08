@@ -232,10 +232,192 @@ func TestHandleDeleteMemberAvatarApiMembersMemberIdAvatarDelete(t *testing.T) {
 }
 
 func TestHandleListMembersApiMembersGet(t *testing.T) {
-	t.Run("a well-formed GET /api/members answers 200", func(t *testing.T) { t.Skip("TODO") })
-	t.Run("a GET /api/members request without a token answers 401", func(t *testing.T) { t.Skip("TODO") })
-	t.Run("a request to GET /api/members reaches this handler and no other row", func(t *testing.T) { t.Skip("TODO") })
-	t.Run("a GET /api/members request the wire layer rejects (malformed body, wrong content type, over the size cap) answers a 4xx without reaching the domain", func(t *testing.T) { t.Skip("TODO") })
+	t.Run("the listing carries every roster row in wire order with the presence and unread count derived for the caller", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		kip := apiTestAgentToken(t, api, "kip", "")
+		if status, data := apiJSON(t, h, "POST", "/api/chat", kip, `{"to":"owner","body":"hello"}`); status != 200 {
+			t.Fatalf("seed chat: %d %v", status, data)
+		}
+		apiTestListen(t, api, "kip")
+		dashboard := apiTestListen(t, api, "")
+
+		rec := apiRequest(t, h, "GET", "/api/members", owner, "")
+		if rec.Code != 200 {
+			t.Fatalf("want 200, got %d (%s)", rec.Code, rec.Body.String())
+		}
+		var got any
+		if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+			t.Fatalf("non-JSON body: %s", rec.Body.String())
+		}
+		apiWantValue(t, "body", got, []any{
+			map[string]any{
+				"id": "kip", "avatar_url": "", "name": "Kip", "kind": "staff",
+				"role_key": "engineer", "role_name": "", "runtime": "claude",
+				"model": "", "actual_model": "", "actual_runtime": "",
+				"actual_effort": "", "actual_machine": "", "effort": "",
+				"desired_state": "", "desired_machine_id": "", "machine": "",
+				"presence": "online", "refocus_since": 0, "refocus_op": "",
+				"refocus_deadline": 0, "last_op": "", "last_op_ok": nil,
+				"last_op_log": "", "last_op_reason": "", "last_op_at": 0,
+				"forced_stop_at": 0, "unread_count": 1, "roster_status": "active",
+				"owner_id": "owner", "schema_version": 3,
+			},
+			map[string]any{
+				"id": "mira", "avatar_url": "", "name": "Mira", "kind": "staff",
+				"role_key": "assistant", "role_name": "Assistant", "runtime": "claude",
+				"model": "", "actual_model": "", "actual_runtime": "",
+				"actual_effort": "", "actual_machine": "", "effort": "medium",
+				"desired_state": "offline", "desired_machine_id": "m-server-self",
+				"machine": "", "presence": "offline", "refocus_since": 0,
+				"refocus_op": "", "refocus_deadline": 0, "last_op": "",
+				"last_op_ok": nil, "last_op_log": "", "last_op_reason": "",
+				"last_op_at": 0, "forced_stop_at": 0, "unread_count": 0,
+				"roster_status": "active", "owner_id": "owner", "schema_version": 3,
+			},
+			map[string]any{
+				"id": "m-server-self", "avatar_url": "", "name": "伺服器這一台",
+				"kind": "warden", "role_key": "", "role_name": "", "runtime": "claude",
+				"model": "", "actual_model": "", "actual_runtime": "",
+				"actual_effort": "", "actual_machine": "", "effort": "medium",
+				"desired_state": "offline", "desired_machine_id": "",
+				"machine": "m-server-self", "presence": "offline", "refocus_since": 0,
+				"refocus_op": "", "refocus_deadline": 0, "last_op": "",
+				"last_op_ok": nil, "last_op_log": "", "last_op_reason": "",
+				"last_op_at": 0, "forced_stop_at": 0, "unread_count": 0,
+				"roster_status": "active", "owner_id": "owner", "schema_version": 3,
+			},
+		})
+		dashboard.wantFrames()
+	})
+
+	t.Run("fields=light answers the same wire shape with every derived field left empty", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		kip := apiTestAgentToken(t, api, "kip", "")
+		if status, data := apiJSON(t, h, "POST", "/api/chat", kip, `{"to":"owner","body":"hello"}`); status != 200 {
+			t.Fatalf("seed chat: %d %v", status, data)
+		}
+		apiTestListen(t, api, "kip")
+		dashboard := apiTestListen(t, api, "")
+
+		rec := apiRequest(t, h, "GET", "/api/members?fields=light", owner, "")
+		if rec.Code != 200 {
+			t.Fatalf("want 200, got %d (%s)", rec.Code, rec.Body.String())
+		}
+		var got any
+		if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+			t.Fatalf("non-JSON body: %s", rec.Body.String())
+		}
+		apiWantValue(t, "body", got, []any{
+			map[string]any{
+				"id": "kip", "avatar_url": "", "name": "Kip", "kind": "staff",
+				"role_key": "engineer", "role_name": "", "runtime": "claude",
+				"model": "", "actual_model": "", "actual_runtime": "",
+				"actual_effort": "", "actual_machine": "", "effort": "",
+				"desired_state": "", "desired_machine_id": "", "machine": "",
+				"presence": "", "refocus_since": 0, "refocus_op": "",
+				"refocus_deadline": 0, "last_op": "", "last_op_ok": nil,
+				"last_op_log": "", "last_op_reason": "", "last_op_at": 0,
+				"forced_stop_at": 0, "unread_count": 0, "roster_status": "active",
+				"owner_id": "owner", "schema_version": 3,
+			},
+			map[string]any{
+				"id": "mira", "avatar_url": "", "name": "Mira", "kind": "staff",
+				"role_key": "assistant", "role_name": "Assistant", "runtime": "claude",
+				"model": "", "actual_model": "", "actual_runtime": "",
+				"actual_effort": "", "actual_machine": "", "effort": "",
+				"desired_state": "", "desired_machine_id": "", "machine": "",
+				"presence": "", "refocus_since": 0, "refocus_op": "",
+				"refocus_deadline": 0, "last_op": "", "last_op_ok": nil,
+				"last_op_log": "", "last_op_reason": "", "last_op_at": 0,
+				"forced_stop_at": 0, "unread_count": 0, "roster_status": "active",
+				"owner_id": "owner", "schema_version": 3,
+			},
+			map[string]any{
+				"id": "m-server-self", "avatar_url": "", "name": "伺服器這一台",
+				"kind": "warden", "role_key": "", "role_name": "", "runtime": "claude",
+				"model": "", "actual_model": "", "actual_runtime": "",
+				"actual_effort": "", "actual_machine": "", "effort": "",
+				"desired_state": "", "desired_machine_id": "", "machine": "",
+				"presence": "", "refocus_since": 0, "refocus_op": "",
+				"refocus_deadline": 0, "last_op": "", "last_op_ok": nil,
+				"last_op_log": "", "last_op_reason": "", "last_op_at": 0,
+				"forced_stop_at": 0, "unread_count": 0, "roster_status": "active",
+				"owner_id": "owner", "schema_version": 3,
+			},
+		})
+		dashboard.wantFrames()
+	})
+
+	t.Run("a dismissed member drops off the listing, and a roster with nobody left answers an empty array", func(t *testing.T) {
+		_, h, d, owner := newAPITestServer(t)
+		if status, data := apiJSON(t, h, "DELETE", "/api/members/kip", owner, ""); status != 200 {
+			t.Fatalf("dismiss: %d %v", status, data)
+		}
+
+		rec := apiRequest(t, h, "GET", "/api/members", owner, "")
+		if rec.Code != 200 {
+			t.Fatalf("want 200, got %d (%s)", rec.Code, rec.Body.String())
+		}
+		var got any
+		if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+			t.Fatalf("non-JSON body: %s", rec.Body.String())
+		}
+		apiWantValue(t, "body", got, []any{
+			map[string]any{
+				"id": "mira", "avatar_url": "", "name": "Mira", "kind": "staff",
+				"role_key": "assistant", "role_name": "Assistant", "runtime": "claude",
+				"model": "", "actual_model": "", "actual_runtime": "",
+				"actual_effort": "", "actual_machine": "", "effort": "medium",
+				"desired_state": "offline", "desired_machine_id": "m-server-self",
+				"machine": "", "presence": "offline", "refocus_since": 0,
+				"refocus_op": "", "refocus_deadline": 0, "last_op": "",
+				"last_op_ok": nil, "last_op_log": "", "last_op_reason": "",
+				"last_op_at": 0, "forced_stop_at": 0, "unread_count": 0,
+				"roster_status": "active", "owner_id": "owner", "schema_version": 3,
+			},
+			map[string]any{
+				"id": "m-server-self", "avatar_url": "", "name": "伺服器這一台",
+				"kind": "warden", "role_key": "", "role_name": "", "runtime": "claude",
+				"model": "", "actual_model": "", "actual_runtime": "",
+				"actual_effort": "", "actual_machine": "", "effort": "medium",
+				"desired_state": "offline", "desired_machine_id": "",
+				"machine": "m-server-self", "presence": "offline", "refocus_since": 0,
+				"refocus_op": "", "refocus_deadline": 0, "last_op": "",
+				"last_op_ok": nil, "last_op_log": "", "last_op_reason": "",
+				"last_op_at": 0, "forced_stop_at": 0, "unread_count": 0,
+				"roster_status": "active", "owner_id": "owner", "schema_version": 3,
+			},
+		})
+
+		for _, id := range []string{"mira", "m-server-self"} {
+			m, err := d.GetMember(id)
+			if err != nil {
+				t.Fatalf("GetMember(%q): %v", id, err)
+			}
+			m.RosterStatus = RosterStatusRemoved
+			if err := d.PutMember(*m); err != nil {
+				t.Fatalf("PutMember(%q): %v", id, err)
+			}
+		}
+		rec = apiRequest(t, h, "GET", "/api/members", owner, "")
+		if rec.Code != 200 {
+			t.Fatalf("want 200, got %d (%s)", rec.Code, rec.Body.String())
+		}
+		if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+			t.Fatalf("non-JSON body: %s", rec.Body.String())
+		}
+		apiWantValue(t, "body", got, []any{})
+	})
+
+	t.Run("a request without a token answers 401", func(t *testing.T) {
+		_, h, _, _ := newAPITestServer(t)
+
+		status, data := apiJSON(t, h, "GET", "/api/members", "", "")
+		if status != 401 {
+			t.Fatalf("want 401, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "unauthorized", "missing credentials")
+	})
 }
 
 func TestHandleHireMemberApiMembersPost(t *testing.T) {
@@ -322,10 +504,92 @@ func TestHandleHireMemberApiMembersPost(t *testing.T) {
 }
 
 func TestHandleGetMemberApiMembersMemberIdGet(t *testing.T) {
-	t.Run("a well-formed GET /api/members/{member_id} answers 200", func(t *testing.T) { t.Skip("TODO") })
-	t.Run("a GET /api/members/{member_id} request without a token answers 401", func(t *testing.T) { t.Skip("TODO") })
-	t.Run("a request to GET /api/members/{member_id} reaches this handler with member_id bound from the path", func(t *testing.T) { t.Skip("TODO") })
-	t.Run("a GET /api/members/{member_id} request the wire layer rejects (malformed body, wrong content type, over the size cap) answers a 4xx without reaching the domain", func(t *testing.T) { t.Skip("TODO") })
+	t.Run("one staff row answers the full projection with the caller's unread count and the live presence", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		kip := apiTestAgentToken(t, api, "kip", "")
+		if status, data := apiJSON(t, h, "POST", "/api/chat", kip, `{"to":"owner","body":"hello"}`); status != 200 {
+			t.Fatalf("seed chat: %d %v", status, data)
+		}
+		apiTestListen(t, api, "kip")
+		dashboard := apiTestListen(t, api, "")
+
+		status, data := apiJSON(t, h, "GET", "/api/members/kip", owner, "")
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		apiWantBody(t, data, map[string]any{
+			"id": "kip", "avatar_url": "", "name": "Kip", "kind": "staff",
+			"role_key": "engineer", "role_name": "", "runtime": "claude",
+			"model": "", "actual_model": "", "actual_runtime": "",
+			"actual_effort": "", "actual_machine": "", "effort": "",
+			"desired_state": "", "desired_machine_id": "", "machine": "",
+			"presence": "online", "refocus_since": 0, "refocus_op": "",
+			"refocus_deadline": 0, "last_op": "", "last_op_ok": nil,
+			"last_op_log": "", "last_op_reason": "", "last_op_at": 0,
+			"forced_stop_at": 0, "unread_count": 1, "roster_status": "active",
+			"owner_id": "owner", "schema_version": 3,
+		})
+		dashboard.wantFrames()
+	})
+
+	t.Run("an outsource worker id resolves on this row too", func(t *testing.T) {
+		api, h, d, owner := newAPITestServer(t)
+		if err := d.PutOutsourceWorker(OutsourceWorker{
+			ID: "ow-abc123", Codename: "Contractor", Status: WorkerStatusActive,
+		}); err != nil {
+			t.Fatalf("PutOutsourceWorker: %v", err)
+		}
+		dashboard := apiTestListen(t, api, "")
+
+		status, data := apiJSON(t, h, "GET", "/api/members/ow-abc123", owner, "")
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		apiWantBody(t, data, map[string]any{
+			"id": "ow-abc123", "avatar_url": "", "name": "Contractor",
+			"kind": "outsource", "role_key": "", "role_name": "", "runtime": "claude",
+			"model": "", "actual_model": "", "actual_runtime": "",
+			"actual_effort": "", "actual_machine": "", "effort": "",
+			"desired_state": "", "desired_machine_id": "", "machine": "",
+			"presence": "offline", "refocus_since": 0, "refocus_op": "",
+			"refocus_deadline": 0, "last_op": "", "last_op_ok": nil,
+			"last_op_log": "", "last_op_reason": "", "last_op_at": 0,
+			"forced_stop_at": 0, "unread_count": 0, "roster_status": "active",
+			"owner_id": "owner", "schema_version": 3,
+		})
+		dashboard.wantFrames()
+	})
+
+	t.Run("a dismissed member answers 404 naming it, as does an id nothing carries", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		if status, data := apiJSON(t, h, "DELETE", "/api/members/kip", owner, ""); status != 200 {
+			t.Fatalf("dismiss: %d %v", status, data)
+		}
+		dashboard := apiTestListen(t, api, "")
+
+		status, data := apiJSON(t, h, "GET", "/api/members/kip", owner, "")
+		if status != 404 {
+			t.Fatalf("want 404, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "not_found", "member 'kip' not found")
+
+		status, data = apiJSON(t, h, "GET", "/api/members/nope", owner, "")
+		if status != 404 {
+			t.Fatalf("want 404, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "not_found", "member 'nope' not found")
+		dashboard.wantFrames()
+	})
+
+	t.Run("a request without a token answers 401", func(t *testing.T) {
+		_, h, _, _ := newAPITestServer(t)
+
+		status, data := apiJSON(t, h, "GET", "/api/members/kip", "", "")
+		if status != 401 {
+			t.Fatalf("want 401, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "unauthorized", "missing credentials")
+	})
 }
 
 func TestHandleUpdateMemberApiMembersMemberIdPatch(t *testing.T) {
@@ -462,11 +726,210 @@ func TestHandleActivateMemberApiMembersMemberIdActivatePost(t *testing.T) {
 }
 
 func TestHandleRelocateMemberApiMembersMemberIdRelocatePost(t *testing.T) {
-	t.Run("a well-formed POST /api/members/{member_id}/relocate answers 200", func(t *testing.T) { t.Skip("TODO") })
-	t.Run("a POST /api/members/{member_id}/relocate request without a token answers 401", func(t *testing.T) { t.Skip("TODO") })
-	t.Run("an authenticated agent identity answers 403 because this row requires admin_agent", func(t *testing.T) { t.Skip("TODO") })
-	t.Run("a request to POST /api/members/{member_id}/relocate reaches this handler with member_id bound from the path", func(t *testing.T) { t.Skip("TODO") })
-	t.Run("a POST /api/members/{member_id}/relocate request the wire layer rejects (malformed body, wrong content type, over the size cap) answers a 4xx without reaching the domain", func(t *testing.T) { t.Skip("TODO") })
+	t.Run("relocating a stopped member stores the pin and leaves the held-down receipt on the row", func(t *testing.T) {
+		api, h, d, owner := newAPITestServer(t)
+		dashboard := apiTestListen(t, api, "")
+		self := apiTestListen(t, api, "mira")
+		bystander := apiTestListen(t, api, "kip")
+
+		status, data := apiJSON(t, h, "POST", "/api/members/mira/relocate", owner,
+			`{"machine_id":"m-server-self"}`)
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		apiWantBody(t, data, map[string]any{"id": "mira"})
+		frame := map[string]any{
+			"seq":   apiAnyNumber,
+			"topic": "member",
+			"op":    "patch",
+			"data": map[string]any{
+				"entity":  "member",
+				"key":     "owner::mira",
+				"epoch":   apiAnyNumber,
+				"deleted": false,
+				"payload": map[string]any{
+					"id":            "mira",
+					"name":          "Mira",
+					"status":        "active",
+					"desired_state": "offline",
+					"owner_id":      "owner",
+				},
+			},
+			"ts":      apiAnyNumber,
+			"trigger": "owner",
+		}
+		dashboard.wantFrames(frame, frame)
+		self.wantFrames(frame, frame)
+		bystander.wantFrames()
+
+		m, err := d.GetMember("mira")
+		if err != nil {
+			t.Fatalf("GetMember: %v", err)
+		}
+		if m.DesiredMachineID != "m-server-self" {
+			t.Fatalf("the pin must be stored, got %q", m.DesiredMachineID)
+		}
+		if m.DesiredState != "offline" {
+			t.Fatalf("a relocate must not touch desired_state, got %q", m.DesiredState)
+		}
+		if m.LastOpReason != "held_down: the relocate was saved, but nothing was started — this member is stopped; 活化 it when you want it to run" {
+			t.Fatalf("held-down receipt: got %q", m.LastOpReason)
+		}
+	})
+
+	t.Run("relocating a member that is wanted online defers the move behind a wind-down and says so", func(t *testing.T) {
+		api, h, d, owner := newAPITestServer(t)
+		if status, data := apiJSON(t, h, "POST", "/api/members/kip/activate", owner, `{}`); status != 200 {
+			t.Fatalf("activate: %d %v", status, data)
+		}
+		dashboard := apiTestListen(t, api, "")
+		self := apiTestListen(t, api, "kip")
+		bystander := apiTestListen(t, api, "mira")
+
+		status, data := apiJSON(t, h, "POST", "/api/members/kip/relocate", owner,
+			`{"machine_id":"m-server-self"}`)
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		apiWantBody(t, data, map[string]any{
+			"id":                  "kip",
+			"relocation_pending":  true,
+			"relocation_deferred": true,
+		})
+		frame := map[string]any{
+			"seq":   apiAnyNumber,
+			"topic": "member",
+			"op":    "patch",
+			"data": map[string]any{
+				"entity":  "member",
+				"key":     "owner::kip",
+				"epoch":   apiAnyNumber,
+				"deleted": false,
+				"payload": map[string]any{
+					"id":              "kip",
+					"name":            "Kip",
+					"status":          "active",
+					"desired_state":   "online",
+					"owner_id":        "owner",
+					"offboard_notice": apiTestOffboardNotice,
+				},
+			},
+			"ts":      apiAnyNumber,
+			"trigger": "owner",
+		}
+		dashboard.wantFrames(frame)
+		self.wantFrames(frame)
+		bystander.wantFrames()
+
+		m, err := d.GetMember("kip")
+		if err != nil {
+			t.Fatalf("GetMember: %v", err)
+		}
+		if m.DesiredMachineID != "m-server-self" {
+			t.Fatalf("the pin must be stored, got %q", m.DesiredMachineID)
+		}
+		if m.RefocusOp != "relocate" || m.RefocusSince <= 0 {
+			t.Fatalf("a wind-down must be armed, got op=%q since=%v", m.RefocusOp, m.RefocusSince)
+		}
+	})
+
+	t.Run("a body with no machine_id at all answers 422 and moves nobody", func(t *testing.T) {
+		api, h, d, owner := newAPITestServer(t)
+		dashboard := apiTestListen(t, api, "")
+
+		status, data := apiJSON(t, h, "POST", "/api/members/mira/relocate", owner, `{}`)
+		if status != 422 {
+			t.Fatalf("want 422, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "validation_error", "field required: machine_id")
+		dashboard.wantFrames()
+		m, err := d.GetMember("mira")
+		if err != nil {
+			t.Fatalf("GetMember: %v", err)
+		}
+		if m.DesiredMachineID != "m-server-self" {
+			t.Fatalf("the pin must be untouched, got %q", m.DesiredMachineID)
+		}
+	})
+
+	t.Run("an explicitly empty machine_id answers 400 because a relocate no longer unpins", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		dashboard := apiTestListen(t, api, "")
+
+		status, data := apiJSON(t, h, "POST", "/api/members/mira/relocate", owner, `{"machine_id":""}`)
+		if status != 400 {
+			t.Fatalf("want 400, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "validation_error",
+			"machine_id must name a machine: a relocate moves an agent to a specific "+
+				"machine, and no longer clears its placement")
+		dashboard.wantFrames()
+	})
+
+	t.Run("a machine id nothing carries answers 404 naming the machine and moves nobody", func(t *testing.T) {
+		api, h, d, owner := newAPITestServer(t)
+		dashboard := apiTestListen(t, api, "")
+
+		status, data := apiJSON(t, h, "POST", "/api/members/mira/relocate", owner,
+			`{"machine_id":"ghost"}`)
+		if status != 404 {
+			t.Fatalf("want 404, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "not_found", "machine 'ghost' not found")
+		dashboard.wantFrames()
+		m, err := d.GetMember("mira")
+		if err != nil {
+			t.Fatalf("GetMember: %v", err)
+		}
+		if m.DesiredMachineID != "m-server-self" {
+			t.Fatalf("the pin must be untouched, got %q", m.DesiredMachineID)
+		}
+	})
+
+	t.Run("a member id nothing carries answers 404 naming it and fans nothing", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		dashboard := apiTestListen(t, api, "")
+
+		status, data := apiJSON(t, h, "POST", "/api/members/nope/relocate", owner,
+			`{"machine_id":"m-server-self"}`)
+		if status != 404 {
+			t.Fatalf("want 404, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "not_found", "member 'nope' not found")
+		dashboard.wantFrames()
+	})
+
+	t.Run("an authenticated agent identity answers 403 because this row requires admin_agent", func(t *testing.T) {
+		api, h, d, _ := newAPITestServer(t)
+		agent := apiTestAgentToken(t, api, "kip", "")
+		dashboard := apiTestListen(t, api, "")
+
+		status, data := apiJSON(t, h, "POST", "/api/members/mira/relocate", agent,
+			`{"machine_id":"m-server-self"}`)
+		if status != 403 {
+			t.Fatalf("want 403, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "forbidden", "principal not permitted")
+		dashboard.wantFrames()
+		m, err := d.GetMember("mira")
+		if err != nil {
+			t.Fatalf("GetMember: %v", err)
+		}
+		if m.LastOpReason != "" {
+			t.Fatalf("a refused relocate must leave no receipt, got %q", m.LastOpReason)
+		}
+	})
+
+	t.Run("a request without a token answers 401", func(t *testing.T) {
+		_, h, _, _ := newAPITestServer(t)
+
+		status, data := apiJSON(t, h, "POST", "/api/members/mira/relocate", "",
+			`{"machine_id":"m-server-self"}`)
+		if status != 401 {
+			t.Fatalf("want 401, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "unauthorized", "missing credentials")
+	})
 }
 
 func TestMemberHeldDownReceipt(t *testing.T) {
@@ -551,27 +1014,448 @@ func TestHandleDeactivateMemberApiMembersMemberIdDeactivatePost(t *testing.T) {
 }
 
 func TestHandleForceStopMemberApiMembersMemberIdForceStopPost(t *testing.T) {
-	t.Run("a well-formed POST /api/members/{member_id}/force-stop answers 200", func(t *testing.T) { t.Skip("TODO") })
-	t.Run("a POST /api/members/{member_id}/force-stop request without a token answers 401", func(t *testing.T) { t.Skip("TODO") })
-	t.Run("an authenticated agent identity answers 403 because this row requires admin_agent", func(t *testing.T) { t.Skip("TODO") })
-	t.Run("a request to POST /api/members/{member_id}/force-stop reaches this handler with member_id bound from the path", func(t *testing.T) { t.Skip("TODO") })
-	t.Run("a POST /api/members/{member_id}/force-stop request the wire layer rejects (malformed body, wrong content type, over the size cap) answers a 4xx without reaching the domain", func(t *testing.T) { t.Skip("TODO") })
+	t.Run("a force-stop drops the intent, records the cut-off instant and fans the delta without a notice", func(t *testing.T) {
+		api, h, d, owner := newAPITestServer(t)
+		dashboard := apiTestListen(t, api, "")
+		self := apiTestListen(t, api, "kip")
+		bystander := apiTestListen(t, api, "mira")
+
+		status, data := apiJSON(t, h, "POST", "/api/members/kip/force-stop", owner, `{}`)
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		apiWantBody(t, data, map[string]any{"id": "kip"})
+		frame := map[string]any{
+			"seq":   1,
+			"topic": "member",
+			"op":    "patch",
+			"data": map[string]any{
+				"entity":  "member",
+				"key":     "owner::kip",
+				"epoch":   1,
+				"deleted": false,
+				"payload": map[string]any{
+					"id":            "kip",
+					"name":          "Kip",
+					"status":        "active",
+					"desired_state": "offline",
+					"owner_id":      "owner",
+				},
+			},
+			"ts":      apiAnyNumber,
+			"trigger": "owner",
+		}
+		dashboard.wantFrames(frame)
+		self.wantFrames(frame)
+		bystander.wantFrames()
+
+		m, err := d.GetMember("kip")
+		if err != nil {
+			t.Fatalf("GetMember: %v", err)
+		}
+		if m.DesiredState != "offline" {
+			t.Fatalf("want desired_state offline, got %q", m.DesiredState)
+		}
+		if m.ForcedStopAt <= 0 {
+			t.Fatalf("the cut-off instant must be recorded, got %v", m.ForcedStopAt)
+		}
+		if m.StoppingSince <= 0 {
+			t.Fatalf("the stop epoch must be open, got %v", m.StoppingSince)
+		}
+	})
+
+	t.Run("a member id nothing carries answers 404 naming it and fans nothing", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		dashboard := apiTestListen(t, api, "")
+
+		status, data := apiJSON(t, h, "POST", "/api/members/nope/force-stop", owner, `{}`)
+		if status != 404 {
+			t.Fatalf("want 404, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "not_found", "member 'nope' not found")
+		dashboard.wantFrames()
+	})
+
+	t.Run("an outsource id answers 404 because this row is the staff verb", func(t *testing.T) {
+		api, h, d, owner := newAPITestServer(t)
+		if err := d.PutOutsourceWorker(OutsourceWorker{
+			ID: "ow-abc123", Codename: "Contractor", Status: WorkerStatusActive,
+		}); err != nil {
+			t.Fatalf("PutOutsourceWorker: %v", err)
+		}
+		dashboard := apiTestListen(t, api, "")
+
+		status, data := apiJSON(t, h, "POST", "/api/members/ow-abc123/force-stop", owner, `{}`)
+		if status != 404 {
+			t.Fatalf("want 404, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "not_found", "member 'ow-abc123' not found")
+		dashboard.wantFrames()
+	})
+
+	t.Run("an authenticated agent identity answers 403 because this row requires admin_agent", func(t *testing.T) {
+		api, h, d, _ := newAPITestServer(t)
+		agent := apiTestAgentToken(t, api, "kip", "")
+		dashboard := apiTestListen(t, api, "")
+
+		status, data := apiJSON(t, h, "POST", "/api/members/mira/force-stop", agent, `{}`)
+		if status != 403 {
+			t.Fatalf("want 403, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "forbidden", "principal not permitted")
+		dashboard.wantFrames()
+		m, err := d.GetMember("mira")
+		if err != nil {
+			t.Fatalf("GetMember: %v", err)
+		}
+		if m.ForcedStopAt != 0 || m.StoppingSince != 0 {
+			t.Fatalf("a refused force-stop must leave the row alone, got forced=%v stopping=%v",
+				m.ForcedStopAt, m.StoppingSince)
+		}
+	})
+
+	t.Run("a request without a token answers 401", func(t *testing.T) {
+		_, h, _, _ := newAPITestServer(t)
+
+		status, data := apiJSON(t, h, "POST", "/api/members/kip/force-stop", "", `{}`)
+		if status != 401 {
+			t.Fatalf("want 401, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "unauthorized", "missing credentials")
+	})
 }
 
 func TestHandleAcceleratedStopMemberApiMembersMemberIdAcceleratedStopPost(t *testing.T) {
-	t.Run("a well-formed POST /api/members/{member_id}/accelerated-stop answers 200", func(t *testing.T) { t.Skip("TODO") })
-	t.Run("a POST /api/members/{member_id}/accelerated-stop request without a token answers 401", func(t *testing.T) { t.Skip("TODO") })
-	t.Run("an authenticated agent identity answers 403 because this row requires admin_agent", func(t *testing.T) { t.Skip("TODO") })
-	t.Run("a request to POST /api/members/{member_id}/accelerated-stop reaches this handler with member_id bound from the path", func(t *testing.T) { t.Skip("TODO") })
-	t.Run("a POST /api/members/{member_id}/accelerated-stop request the wire layer rejects (malformed body, wrong content type, over the size cap) answers a 4xx without reaching the domain", func(t *testing.T) { t.Skip("TODO") })
+	t.Run("escalating an open wind-down re-stamps the epoch, names the cause and tells the member", func(t *testing.T) {
+		api, h, d, owner := newAPITestServer(t)
+		apiTestListen(t, api, "kip")
+		if status, data := apiJSON(t, h, "POST", "/api/members/kip/deactivate", owner, `{}`); status != 200 {
+			t.Fatalf("deactivate: %d %v", status, data)
+		}
+		dashboard := apiTestListen(t, api, "")
+		self := apiTestListen(t, api, "kip")
+		bystander := apiTestListen(t, api, "mira")
+
+		status, data := apiJSON(t, h, "POST", "/api/members/kip/accelerated-stop", owner, `{}`)
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		apiWantBody(t, data, map[string]any{"id": "kip"})
+		frame := map[string]any{
+			"seq":   2,
+			"topic": "member",
+			"op":    "patch",
+			"data": map[string]any{
+				"entity":  "member",
+				"key":     "owner::kip",
+				"epoch":   2,
+				"deleted": false,
+				"payload": map[string]any{
+					"id":            "kip",
+					"name":          "Kip",
+					"status":        "active",
+					"desired_state": "offline",
+					"owner_id":      "owner",
+					// The final notice quotes the deadline instant this press
+					// just opened, so its text cannot be written down in advance.
+					"offboard_notice": apiAnyString,
+				},
+			},
+			"ts":      apiAnyNumber,
+			"trigger": "owner",
+		}
+		dashboard.wantFrames(frame)
+		self.wantFrames(frame)
+		bystander.wantFrames()
+
+		m, err := d.GetMember("kip")
+		if err != nil {
+			t.Fatalf("GetMember: %v", err)
+		}
+		if m.RefocusOp != "accelerated_stop" {
+			t.Fatalf("want refocus_op accelerated_stop, got %q", m.RefocusOp)
+		}
+		if m.StoppingSince <= 0 {
+			t.Fatalf("the epoch must be re-stamped, got %v", m.StoppingSince)
+		}
+	})
+
+	t.Run("a member with no live session answers 409 and nothing is put on a clock", func(t *testing.T) {
+		api, h, d, owner := newAPITestServer(t)
+		if status, data := apiJSON(t, h, "POST", "/api/members/kip/deactivate", owner, `{}`); status != 200 {
+			t.Fatalf("deactivate: %d %v", status, data)
+		}
+		dashboard := apiTestListen(t, api, "")
+
+		status, data := apiJSON(t, h, "POST", "/api/members/kip/accelerated-stop", owner, `{}`)
+		if status != 409 {
+			t.Fatalf("want 409, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "conflict",
+			"加速停止 requires a live session — there is nothing to accelerate on a "+
+				"member that is not connected")
+		dashboard.wantFrames()
+		m, err := d.GetMember("kip")
+		if err != nil {
+			t.Fatalf("GetMember: %v", err)
+		}
+		if m.RefocusOp != "" {
+			t.Fatalf("a refused escalation must name no cause, got %q", m.RefocusOp)
+		}
+	})
+
+	t.Run("a connected member nobody has asked to stop answers 409 naming the rung below", func(t *testing.T) {
+		api, h, d, owner := newAPITestServer(t)
+		self := apiTestListen(t, api, "kip")
+		dashboard := apiTestListen(t, api, "")
+
+		status, data := apiJSON(t, h, "POST", "/api/members/kip/accelerated-stop", owner, `{}`)
+		if status != 409 {
+			t.Fatalf("want 409, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "conflict",
+			"加速停止 escalates a wind-down that is already open — this member has not "+
+				"been asked to stop. Press 停止 (deactivate) or 重新聚焦 (refocus) first")
+		dashboard.wantFrames()
+		self.wantFrames()
+		m, err := d.GetMember("kip")
+		if err != nil {
+			t.Fatalf("GetMember: %v", err)
+		}
+		if m.RefocusOp != "" || m.StoppingSince != 0 {
+			t.Fatalf("a refused escalation must open no epoch, got op=%q since=%v",
+				m.RefocusOp, m.StoppingSince)
+		}
+	})
+
+	t.Run("a member id nothing carries answers 404 naming it and fans nothing", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		dashboard := apiTestListen(t, api, "")
+
+		status, data := apiJSON(t, h, "POST", "/api/members/nope/accelerated-stop", owner, `{}`)
+		if status != 404 {
+			t.Fatalf("want 404, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "not_found", "member 'nope' not found")
+		dashboard.wantFrames()
+	})
+
+	t.Run("an authenticated agent identity answers 403 because this row requires admin_agent", func(t *testing.T) {
+		api, h, _, _ := newAPITestServer(t)
+		agent := apiTestAgentToken(t, api, "kip", "")
+		dashboard := apiTestListen(t, api, "")
+
+		status, data := apiJSON(t, h, "POST", "/api/members/kip/accelerated-stop", agent, `{}`)
+		if status != 403 {
+			t.Fatalf("want 403, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "forbidden", "principal not permitted")
+		dashboard.wantFrames()
+	})
+
+	t.Run("a request without a token answers 401", func(t *testing.T) {
+		_, h, _, _ := newAPITestServer(t)
+
+		status, data := apiJSON(t, h, "POST", "/api/members/kip/accelerated-stop", "", `{}`)
+		if status != 401 {
+			t.Fatalf("want 401, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "unauthorized", "missing credentials")
+	})
 }
 
 func TestHandleRefocusMemberApiMembersMemberIdRefocusPost(t *testing.T) {
-	t.Run("a well-formed POST /api/members/{member_id}/refocus answers 200", func(t *testing.T) { t.Skip("TODO") })
-	t.Run("a POST /api/members/{member_id}/refocus request without a token answers 401", func(t *testing.T) { t.Skip("TODO") })
-	t.Run("an authenticated agent identity answers 403 because this row requires admin_agent", func(t *testing.T) { t.Skip("TODO") })
-	t.Run("a request to POST /api/members/{member_id}/refocus reaches this handler with member_id bound from the path", func(t *testing.T) { t.Skip("TODO") })
-	t.Run("a POST /api/members/{member_id}/refocus request the wire layer rejects (malformed body, wrong content type, over the size cap) answers a 4xx without reaching the domain", func(t *testing.T) { t.Skip("TODO") })
+	t.Run("a live member that is wanted online gets the refocus epoch and the wind-down notice", func(t *testing.T) {
+		api, h, d, owner := newAPITestServer(t)
+		if status, data := apiJSON(t, h, "POST", "/api/members/kip/activate", owner, `{}`); status != 200 {
+			t.Fatalf("activate: %d %v", status, data)
+		}
+		apiTestListen(t, api, "kip")
+		dashboard := apiTestListen(t, api, "")
+		self := apiTestListen(t, api, "kip")
+		bystander := apiTestListen(t, api, "mira")
+
+		status, data := apiJSON(t, h, "POST", "/api/members/kip/refocus", owner, `{}`)
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		apiWantBody(t, data, map[string]any{"id": "kip"})
+		frame := map[string]any{
+			"seq":   apiAnyNumber,
+			"topic": "member",
+			"op":    "patch",
+			"data": map[string]any{
+				"entity":  "member",
+				"key":     "owner::kip",
+				"epoch":   apiAnyNumber,
+				"deleted": false,
+				"payload": map[string]any{
+					"id":              "kip",
+					"name":            "Kip",
+					"status":          "active",
+					"desired_state":   "online",
+					"owner_id":        "owner",
+					"offboard_notice": apiTestOffboardNotice,
+				},
+			},
+			"ts":      apiAnyNumber,
+			"trigger": "owner",
+		}
+		dashboard.wantFrames(frame)
+		self.wantFrames(frame)
+		bystander.wantFrames()
+
+		m, err := d.GetMember("kip")
+		if err != nil {
+			t.Fatalf("GetMember: %v", err)
+		}
+		if m.RefocusOp != "refocus" || m.RefocusSince <= 0 {
+			t.Fatalf("want a refocus epoch, got op=%q since=%v", m.RefocusOp, m.RefocusSince)
+		}
+		if m.DesiredState != "online" {
+			t.Fatalf("a refocus must leave the member wanted online, got %q", m.DesiredState)
+		}
+	})
+
+	t.Run("a member with no live session answers 409 and no epoch is opened", func(t *testing.T) {
+		api, h, d, owner := newAPITestServer(t)
+		dashboard := apiTestListen(t, api, "")
+
+		status, data := apiJSON(t, h, "POST", "/api/members/kip/refocus", owner, `{}`)
+		if status != 409 {
+			t.Fatalf("want 409, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "conflict",
+			"refocus requires the member to have a live session and to be wanted "+
+				"online (§3.4 #14)")
+		dashboard.wantFrames()
+		m, err := d.GetMember("kip")
+		if err != nil {
+			t.Fatalf("GetMember: %v", err)
+		}
+		if m.RefocusSince != 0 {
+			t.Fatalf("a refused refocus must open no epoch, got %v", m.RefocusSince)
+		}
+	})
+
+	t.Run("a member already being stopped queues a restart instead of turning the stop around", func(t *testing.T) {
+		api, h, d, owner := newAPITestServer(t)
+		if status, data := apiJSON(t, h, "POST", "/api/members/kip/deactivate", owner, `{}`); status != 200 {
+			t.Fatalf("deactivate: %d %v", status, data)
+		}
+		dashboard := apiTestListen(t, api, "")
+		self := apiTestListen(t, api, "kip")
+
+		status, data := apiJSON(t, h, "POST", "/api/members/kip/refocus", owner, `{}`)
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		apiWantBody(t, data, map[string]any{"id": "kip"})
+		frame := map[string]any{
+			"seq":   apiAnyNumber,
+			"topic": "member",
+			"op":    "patch",
+			"data": map[string]any{
+				"entity":  "member",
+				"key":     "owner::kip",
+				"epoch":   apiAnyNumber,
+				"deleted": false,
+				"payload": map[string]any{
+					"id":              "kip",
+					"name":            "Kip",
+					"status":          "active",
+					"desired_state":   "offline",
+					"owner_id":        "owner",
+					"offboard_notice": apiTestOffboardNotice,
+				},
+			},
+			"ts":      apiAnyNumber,
+			"trigger": "owner",
+		}
+		dashboard.wantFrames(frame, frame)
+		self.wantFrames(frame, frame)
+
+		m, err := d.GetMember("kip")
+		if err != nil {
+			t.Fatalf("GetMember: %v", err)
+		}
+		if !m.RestartAfterStop {
+			t.Fatalf("the restart must be queued behind the stop in flight")
+		}
+		if m.RefocusSince != 0 {
+			t.Fatalf("the stop in flight keeps its anchors, got refocus_since=%v", m.RefocusSince)
+		}
+		if m.LastOpReason != "held_down: the refocus was saved and this member is still being stopped — the stop in flight is honoured as-is, and it will be started again once it is down" {
+			t.Fatalf("queued-restart receipt: got %q", m.LastOpReason)
+		}
+	})
+
+	t.Run("a member already further along the wind-down ladder answers 409 rather than stepping back", func(t *testing.T) {
+		api, h, d, owner := newAPITestServer(t)
+		if status, data := apiJSON(t, h, "POST", "/api/members/kip/activate", owner, `{}`); status != 200 {
+			t.Fatalf("activate: %d %v", status, data)
+		}
+		apiTestListen(t, api, "kip")
+		if status, data := apiJSON(t, h, "POST", "/api/members/kip/refocus", owner, `{}`); status != 200 {
+			t.Fatalf("refocus: %d %v", status, data)
+		}
+		if status, data := apiJSON(t, h, "POST", "/api/members/kip/accelerated-stop", owner, `{}`); status != 200 {
+			t.Fatalf("accelerated-stop: %d %v", status, data)
+		}
+		dashboard := apiTestListen(t, api, "")
+
+		status, data := apiJSON(t, h, "POST", "/api/members/kip/refocus", owner, `{}`)
+		if status != 409 {
+			t.Fatalf("want 409, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "conflict",
+			"refocus is 停止 and this member is already further along the "+
+				"wind-down ladder (下線 → 加速 → 強制); a later stage is never "+
+				"replaced by an earlier one")
+		dashboard.wantFrames()
+		m, err := d.GetMember("kip")
+		if err != nil {
+			t.Fatalf("GetMember: %v", err)
+		}
+		if m.RefocusOp != "accelerated_stop" {
+			t.Fatalf("the later rung must stand, got %q", m.RefocusOp)
+		}
+	})
+
+	t.Run("a member id nothing carries answers 404 naming it and fans nothing", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		dashboard := apiTestListen(t, api, "")
+
+		status, data := apiJSON(t, h, "POST", "/api/members/nope/refocus", owner, `{}`)
+		if status != 404 {
+			t.Fatalf("want 404, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "not_found", "member 'nope' not found")
+		dashboard.wantFrames()
+	})
+
+	t.Run("an authenticated agent identity answers 403 because this row requires admin_agent", func(t *testing.T) {
+		api, h, _, _ := newAPITestServer(t)
+		agent := apiTestAgentToken(t, api, "kip", "")
+		dashboard := apiTestListen(t, api, "")
+
+		status, data := apiJSON(t, h, "POST", "/api/members/kip/refocus", agent, `{}`)
+		if status != 403 {
+			t.Fatalf("want 403, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "forbidden", "principal not permitted")
+		dashboard.wantFrames()
+	})
+
+	t.Run("a request without a token answers 401", func(t *testing.T) {
+		_, h, _, _ := newAPITestServer(t)
+
+		status, data := apiJSON(t, h, "POST", "/api/members/kip/refocus", "", `{}`)
+		if status != 401 {
+			t.Fatalf("want 401, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "unauthorized", "missing credentials")
+	})
 }
 
 func TestHandleDismissMemberApiMembersMemberIdDelete(t *testing.T) {
@@ -637,29 +1521,488 @@ func TestStampAgentIatFloor(t *testing.T) {
 }
 
 func TestHandleReportWakingApiSelfWakingPost(t *testing.T) {
-	t.Run("a well-formed POST /api/self/waking answers 200", func(t *testing.T) { t.Skip("TODO") })
-	t.Run("a POST /api/self/waking request without a token answers 401", func(t *testing.T) { t.Skip("TODO") })
-	t.Run("a request to POST /api/self/waking reaches this handler and no other row", func(t *testing.T) { t.Skip("TODO") })
-	t.Run("a POST /api/self/waking request the wire layer rejects (malformed body, wrong content type, over the size cap) answers a 4xx without reaching the domain", func(t *testing.T) { t.Skip("TODO") })
+	t.Run("a boot report stamps the wake, stores the reported model and answers the caller's standing intent", func(t *testing.T) {
+		api, h, d, owner := newAPITestServer(t)
+		if status, data := apiJSON(t, h, "POST", "/api/members/kip/activate", owner, `{}`); status != 200 {
+			t.Fatalf("activate: %d %v", status, data)
+		}
+		agent := apiTestAgentToken(t, api, "kip", "")
+		dashboard := apiTestListen(t, api, "")
+		self := apiTestListen(t, api, "kip")
+		bystander := apiTestListen(t, api, "mira")
+
+		status, data := apiJSON(t, h, "POST", "/api/self/waking", agent, `{"model":"claude-opus-5"}`)
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		apiWantBody(t, data, map[string]any{
+			"id":               "kip",
+			"desired_state":    "online",
+			"refocus_op":       "",
+			"refocus_deadline": 0,
+		})
+		frame := map[string]any{
+			"seq":   apiAnyNumber,
+			"topic": "member",
+			"op":    "patch",
+			"data": map[string]any{
+				"entity":  "member",
+				"key":     "owner::kip",
+				"epoch":   apiAnyNumber,
+				"deleted": false,
+				"payload": map[string]any{
+					"id":            "kip",
+					"name":          "Kip",
+					"status":        "active",
+					"desired_state": "online",
+					"owner_id":      "owner",
+				},
+			},
+			"ts":      apiAnyNumber,
+			"trigger": "kip",
+		}
+		dashboard.wantFrames(frame)
+		self.wantFrames(frame)
+		bystander.wantFrames()
+
+		m, err := d.GetMember("kip")
+		if err != nil {
+			t.Fatalf("GetMember: %v", err)
+		}
+		if m.WakingSince <= 0 {
+			t.Fatalf("the wake must be stamped, got %v", m.WakingSince)
+		}
+		if m.ActualModel != "claude-opus-5" {
+			t.Fatalf("want the reported model stored, got %q", m.ActualModel)
+		}
+		if m.AgentIatFloor <= 0 {
+			t.Fatalf("the credential floor must be raised, got %v", m.AgentIatFloor)
+		}
+	})
+
+	t.Run("a boot report on a member the owner has already stopped keeps the stop trace", func(t *testing.T) {
+		api, h, d, owner := newAPITestServer(t)
+		if status, data := apiJSON(t, h, "POST", "/api/members/kip/deactivate", owner, `{}`); status != 200 {
+			t.Fatalf("deactivate: %d %v", status, data)
+		}
+		agent := apiTestAgentToken(t, api, "kip", "")
+
+		status, data := apiJSON(t, h, "POST", "/api/self/waking", agent, `{"model":"claude-opus-5"}`)
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		apiWantBody(t, data, map[string]any{
+			"id":               "kip",
+			"desired_state":    "offline",
+			"refocus_op":       "",
+			"refocus_deadline": 0,
+		})
+		m, err := d.GetMember("kip")
+		if err != nil {
+			t.Fatalf("GetMember: %v", err)
+		}
+		if m.StoppingSince <= 0 {
+			t.Fatalf("the cancelled-mid-boot trace must survive, got %v", m.StoppingSince)
+		}
+	})
+
+	t.Run("a caller whose roster row is gone answers 404 naming it", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		agent := apiTestAgentToken(t, api, "kip", "")
+		if status, data := apiJSON(t, h, "DELETE", "/api/members/kip", owner, ""); status != 200 {
+			t.Fatalf("dismiss: %d %v", status, data)
+		}
+		dashboard := apiTestListen(t, api, "")
+
+		status, data := apiJSON(t, h, "POST", "/api/self/waking", agent, `{}`)
+		if status != 404 {
+			t.Fatalf("want 404, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "not_found", "member 'kip' not found")
+		dashboard.wantFrames()
+	})
+
+	t.Run("a request without a token answers 401", func(t *testing.T) {
+		_, h, _, _ := newAPITestServer(t)
+
+		status, data := apiJSON(t, h, "POST", "/api/self/waking", "", `{}`)
+		if status != 401 {
+			t.Fatalf("want 401, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "unauthorized", "missing credentials")
+	})
 }
 
 func TestHandleReportStoppingApiSelfStoppingPost(t *testing.T) {
-	t.Run("a well-formed POST /api/self/stopping answers 200", func(t *testing.T) { t.Skip("TODO") })
-	t.Run("a POST /api/self/stopping request without a token answers 401", func(t *testing.T) { t.Skip("TODO") })
-	t.Run("a request to POST /api/self/stopping reaches this handler and no other row", func(t *testing.T) { t.Skip("TODO") })
-	t.Run("a POST /api/self/stopping request the wire layer rejects (malformed body, wrong content type, over the size cap) answers a 4xx without reaching the domain", func(t *testing.T) { t.Skip("TODO") })
+	t.Run("a stopping report opens the caller's wind-down and fans it without touching the wake anchor", func(t *testing.T) {
+		api, h, d, owner := newAPITestServer(t)
+		if status, data := apiJSON(t, h, "POST", "/api/members/kip/activate", owner, `{}`); status != 200 {
+			t.Fatalf("activate: %d %v", status, data)
+		}
+		agent := apiTestAgentToken(t, api, "kip", "")
+		if status, data := apiJSON(t, h, "POST", "/api/self/waking", agent, `{}`); status != 200 {
+			t.Fatalf("waking: %d %v", status, data)
+		}
+		dashboard := apiTestListen(t, api, "")
+		self := apiTestListen(t, api, "kip")
+		bystander := apiTestListen(t, api, "mira")
+
+		status, data := apiJSON(t, h, "POST", "/api/self/stopping", agent, `{}`)
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		apiWantBody(t, data, map[string]any{
+			"id":               "kip",
+			"desired_state":    "online",
+			"refocus_op":       "",
+			"refocus_deadline": 0,
+		})
+		frame := map[string]any{
+			"seq":   apiAnyNumber,
+			"topic": "member",
+			"op":    "patch",
+			"data": map[string]any{
+				"entity":  "member",
+				"key":     "owner::kip",
+				"epoch":   apiAnyNumber,
+				"deleted": false,
+				"payload": map[string]any{
+					"id":            "kip",
+					"name":          "Kip",
+					"status":        "active",
+					"desired_state": "online",
+					"owner_id":      "owner",
+				},
+			},
+			"ts":      apiAnyNumber,
+			"trigger": "kip",
+		}
+		dashboard.wantFrames(frame)
+		self.wantFrames(frame)
+		bystander.wantFrames()
+
+		m, err := d.GetMember("kip")
+		if err != nil {
+			t.Fatalf("GetMember: %v", err)
+		}
+		if m.StoppingSince <= 0 {
+			t.Fatalf("the wind-down must be open, got %v", m.StoppingSince)
+		}
+		if m.WakingSince <= 0 {
+			t.Fatalf("the wake anchor must survive a stopping report, got %v", m.WakingSince)
+		}
+	})
+
+	t.Run("a caller whose roster row is gone answers 404 naming it", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		agent := apiTestAgentToken(t, api, "kip", "")
+		if status, data := apiJSON(t, h, "DELETE", "/api/members/kip", owner, ""); status != 200 {
+			t.Fatalf("dismiss: %d %v", status, data)
+		}
+		dashboard := apiTestListen(t, api, "")
+
+		status, data := apiJSON(t, h, "POST", "/api/self/stopping", agent, `{}`)
+		if status != 404 {
+			t.Fatalf("want 404, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "not_found", "member 'kip' not found")
+		dashboard.wantFrames()
+	})
+
+	t.Run("a request without a token answers 401", func(t *testing.T) {
+		_, h, _, _ := newAPITestServer(t)
+
+		status, data := apiJSON(t, h, "POST", "/api/self/stopping", "", `{}`)
+		if status != 401 {
+			t.Fatalf("want 401, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "unauthorized", "missing credentials")
+	})
 }
 
 func TestHandleReportStoppedApiSelfStoppedPost(t *testing.T) {
-	t.Run("a well-formed POST /api/self/stopped answers 200", func(t *testing.T) { t.Skip("TODO") })
-	t.Run("a POST /api/self/stopped request without a token answers 401", func(t *testing.T) { t.Skip("TODO") })
-	t.Run("a request to POST /api/self/stopped reaches this handler and no other row", func(t *testing.T) { t.Skip("TODO") })
-	t.Run("a POST /api/self/stopped request the wire layer rejects (malformed body, wrong content type, over the size cap) answers a 4xx without reaching the domain", func(t *testing.T) { t.Skip("TODO") })
+	t.Run("the first stopped report anchors the close-out and reports that it was collected", func(t *testing.T) {
+		api, h, d, owner := newAPITestServer(t)
+		if status, data := apiJSON(t, h, "POST", "/api/members/kip/activate", owner, `{}`); status != 200 {
+			t.Fatalf("activate: %d %v", status, data)
+		}
+		agent := apiTestAgentToken(t, api, "kip", "")
+		dashboard := apiTestListen(t, api, "")
+		self := apiTestListen(t, api, "kip")
+		bystander := apiTestListen(t, api, "mira")
+
+		status, data := apiJSON(t, h, "POST", "/api/self/stopped", agent, `{}`)
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		apiWantBody(t, data, map[string]any{
+			"id":               "kip",
+			"desired_state":    "online",
+			"refocus_op":       "",
+			"refocus_deadline": 0,
+			"stop_effect":      "collected",
+		})
+		frame := map[string]any{
+			"seq":   apiAnyNumber,
+			"topic": "member",
+			"op":    "patch",
+			"data": map[string]any{
+				"entity":  "member",
+				"key":     "owner::kip",
+				"epoch":   apiAnyNumber,
+				"deleted": false,
+				"payload": map[string]any{
+					"id":            "kip",
+					"name":          "Kip",
+					"status":        "active",
+					"desired_state": "online",
+					"owner_id":      "owner",
+				},
+			},
+			"ts":      apiAnyNumber,
+			"trigger": "kip",
+		}
+		dashboard.wantFrames(frame)
+		self.wantFrames(frame)
+		bystander.wantFrames()
+
+		m, err := d.GetMember("kip")
+		if err != nil {
+			t.Fatalf("GetMember: %v", err)
+		}
+		if m.StoppedSince <= 0 {
+			t.Fatalf("the close-out must be anchored, got %v", m.StoppedSince)
+		}
+	})
+
+	t.Run("a repeat report changes nothing and says so", func(t *testing.T) {
+		api, h, d, owner := newAPITestServer(t)
+		if status, data := apiJSON(t, h, "POST", "/api/members/kip/activate", owner, `{}`); status != 200 {
+			t.Fatalf("activate: %d %v", status, data)
+		}
+		agent := apiTestAgentToken(t, api, "kip", "")
+		if status, data := apiJSON(t, h, "POST", "/api/self/stopped", agent, `{}`); status != 200 {
+			t.Fatalf("first stopped report: %d %v", status, data)
+		}
+		first, err := d.GetMember("kip")
+		if err != nil {
+			t.Fatalf("GetMember: %v", err)
+		}
+
+		status, data := apiJSON(t, h, "POST", "/api/self/stopped", agent, `{}`)
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		apiWantBody(t, data, map[string]any{
+			"id":               "kip",
+			"desired_state":    "online",
+			"refocus_op":       "",
+			"refocus_deadline": 0,
+			"stop_effect":      "already_reported",
+		})
+		again, err := d.GetMember("kip")
+		if err != nil {
+			t.Fatalf("GetMember: %v", err)
+		}
+		if again.StoppedSince != first.StoppedSince {
+			t.Fatalf("the anchor must not be re-stamped: %v then %v",
+				first.StoppedSince, again.StoppedSince)
+		}
+	})
+
+	t.Run("a caller whose roster row is gone answers 404 naming it", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		agent := apiTestAgentToken(t, api, "kip", "")
+		if status, data := apiJSON(t, h, "DELETE", "/api/members/kip", owner, ""); status != 200 {
+			t.Fatalf("dismiss: %d %v", status, data)
+		}
+		dashboard := apiTestListen(t, api, "")
+
+		status, data := apiJSON(t, h, "POST", "/api/self/stopped", agent, `{}`)
+		if status != 404 {
+			t.Fatalf("want 404, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "not_found", "member 'kip' not found")
+		dashboard.wantFrames()
+	})
+
+	t.Run("a request without a token answers 401", func(t *testing.T) {
+		_, h, _, _ := newAPITestServer(t)
+
+		status, data := apiJSON(t, h, "POST", "/api/self/stopped", "", `{}`)
+		if status != 401 {
+			t.Fatalf("want 401, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "unauthorized", "missing credentials")
+	})
 }
 
 func TestHandleRestartSelfApiSelfRefocusPost(t *testing.T) {
-	t.Run("a well-formed POST /api/self/refocus answers 200", func(t *testing.T) { t.Skip("TODO") })
-	t.Run("a POST /api/self/refocus request without a token answers 401", func(t *testing.T) { t.Skip("TODO") })
-	t.Run("a request to POST /api/self/refocus reaches this handler and no other row", func(t *testing.T) { t.Skip("TODO") })
-	t.Run("a POST /api/self/refocus request the wire layer rejects (malformed body, wrong content type, over the size cap) answers a 4xx without reaching the domain", func(t *testing.T) { t.Skip("TODO") })
+	t.Run("a live caller gets its own refocus epoch and the wind-down notice", func(t *testing.T) {
+		api, h, d, owner := newAPITestServer(t)
+		if status, data := apiJSON(t, h, "POST", "/api/members/kip/activate", owner, `{}`); status != 200 {
+			t.Fatalf("activate: %d %v", status, data)
+		}
+		apiTestListen(t, api, "kip")
+		agent := apiTestAgentToken(t, api, "kip", "")
+		dashboard := apiTestListen(t, api, "")
+		self := apiTestListen(t, api, "kip")
+		bystander := apiTestListen(t, api, "mira")
+
+		status, data := apiJSON(t, h, "POST", "/api/self/refocus", agent, `{"reason":"context is full"}`)
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		apiWantBody(t, data, map[string]any{
+			"id":               "kip",
+			"desired_state":    "online",
+			"refocus_op":       "restart_self",
+			"refocus_deadline": 0,
+		})
+		frame := map[string]any{
+			"seq":   apiAnyNumber,
+			"topic": "member",
+			"op":    "patch",
+			"data": map[string]any{
+				"entity":  "member",
+				"key":     "owner::kip",
+				"epoch":   apiAnyNumber,
+				"deleted": false,
+				"payload": map[string]any{
+					"id":              "kip",
+					"name":            "Kip",
+					"status":          "active",
+					"desired_state":   "online",
+					"owner_id":        "owner",
+					"offboard_notice": apiTestOffboardNotice,
+				},
+			},
+			"ts":      apiAnyNumber,
+			"trigger": "kip",
+		}
+		dashboard.wantFrames(frame)
+		self.wantFrames(frame)
+		bystander.wantFrames()
+
+		m, err := d.GetMember("kip")
+		if err != nil {
+			t.Fatalf("GetMember: %v", err)
+		}
+		if m.RefocusOp != "restart_self" || m.RefocusSince <= 0 {
+			t.Fatalf("want a restart_self epoch, got op=%q since=%v", m.RefocusOp, m.RefocusSince)
+		}
+	})
+
+	t.Run("a caller with no live session answers 409 and opens no epoch", func(t *testing.T) {
+		api, h, d, owner := newAPITestServer(t)
+		if status, data := apiJSON(t, h, "POST", "/api/members/kip/activate", owner, `{}`); status != 200 {
+			t.Fatalf("activate: %d %v", status, data)
+		}
+		agent := apiTestAgentToken(t, api, "kip", "")
+		dashboard := apiTestListen(t, api, "")
+
+		status, data := apiJSON(t, h, "POST", "/api/self/refocus", agent, `{}`)
+		if status != 409 {
+			t.Fatalf("want 409, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "conflict",
+			"restart_self requires a live session to recycle, on a member that is "+
+				"still wanted online")
+		dashboard.wantFrames()
+		m, err := d.GetMember("kip")
+		if err != nil {
+			t.Fatalf("GetMember: %v", err)
+		}
+		if m.RefocusSince != 0 {
+			t.Fatalf("a refused restart must open no epoch, got %v", m.RefocusSince)
+		}
+	})
+
+	t.Run("a session that has only just started is refused with the minimum-liveness floor", func(t *testing.T) {
+		api, h, d, owner := newAPITestServer(t)
+		if status, data := apiJSON(t, h, "POST", "/api/members/kip/activate", owner, `{}`); status != 200 {
+			t.Fatalf("activate: %d %v", status, data)
+		}
+		apiTestListen(t, api, "kip")
+		// The SSE first-connect edge is what anchors the session; the fixture's
+		// hub registration does not run it.
+		api.onFirstConnect("kip")
+		agent := apiTestAgentToken(t, api, "kip", "")
+		dashboard := apiTestListen(t, api, "")
+
+		status, data := apiJSON(t, h, "POST", "/api/self/refocus", agent, `{}`)
+		if status != 429 {
+			t.Fatalf("want 429, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "client_error",
+			"restart_self refused: only 0s since this session started; the "+
+				"minimum-liveness floor is 600s (prevents a respawn storm)")
+		dashboard.wantFrames()
+		m, err := d.GetMember("kip")
+		if err != nil {
+			t.Fatalf("GetMember: %v", err)
+		}
+		if m.RefocusSince != 0 {
+			t.Fatalf("a refused restart must open no epoch, got %v", m.RefocusSince)
+		}
+	})
+
+	t.Run("a caller already further along the wind-down ladder answers 409 rather than stepping back", func(t *testing.T) {
+		api, h, d, owner := newAPITestServer(t)
+		if status, data := apiJSON(t, h, "POST", "/api/members/kip/activate", owner, `{}`); status != 200 {
+			t.Fatalf("activate: %d %v", status, data)
+		}
+		apiTestListen(t, api, "kip")
+		if status, data := apiJSON(t, h, "POST", "/api/members/kip/refocus", owner, `{}`); status != 200 {
+			t.Fatalf("refocus: %d %v", status, data)
+		}
+		if status, data := apiJSON(t, h, "POST", "/api/members/kip/accelerated-stop", owner, `{}`); status != 200 {
+			t.Fatalf("accelerated-stop: %d %v", status, data)
+		}
+		agent := apiTestAgentToken(t, api, "kip", "")
+		dashboard := apiTestListen(t, api, "")
+
+		status, data := apiJSON(t, h, "POST", "/api/self/refocus", agent, `{}`)
+		if status != 409 {
+			t.Fatalf("want 409, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "conflict",
+			"restart_self is 停止 and you are already further along the "+
+				"wind-down ladder (下線 → 加速 → 強制); finish the close-out you "+
+				"were given instead")
+		dashboard.wantFrames()
+		m, err := d.GetMember("kip")
+		if err != nil {
+			t.Fatalf("GetMember: %v", err)
+		}
+		if m.RefocusOp != "accelerated_stop" {
+			t.Fatalf("the later rung must stand, got %q", m.RefocusOp)
+		}
+	})
+
+	t.Run("a caller whose roster row is gone answers 404 naming it", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		agent := apiTestAgentToken(t, api, "kip", "")
+		if status, data := apiJSON(t, h, "DELETE", "/api/members/kip", owner, ""); status != 200 {
+			t.Fatalf("dismiss: %d %v", status, data)
+		}
+		dashboard := apiTestListen(t, api, "")
+
+		status, data := apiJSON(t, h, "POST", "/api/self/refocus", agent, `{}`)
+		if status != 404 {
+			t.Fatalf("want 404, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "not_found", "member 'kip' not found")
+		dashboard.wantFrames()
+	})
+
+	t.Run("a request without a token answers 401", func(t *testing.T) {
+		_, h, _, _ := newAPITestServer(t)
+
+		status, data := apiJSON(t, h, "POST", "/api/self/refocus", "", `{}`)
+		if status != 401 {
+			t.Fatalf("want 401, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "unauthorized", "missing credentials")
+	})
 }
