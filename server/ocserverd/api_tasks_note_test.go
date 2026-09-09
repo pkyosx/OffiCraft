@@ -600,25 +600,3 @@ func TestHandlePatchTaskStepNoteApiTasksTaskIdStepsStepIdNotePatchPost(t *testin
 		dashboard.wantFrames()
 	})
 }
-
-func TestStepNoteWithinLimit(t *testing.T) {
-	t.Skip("pinned end to end: " +
-		"TestHandleUpdateTaskStepNoteApiTasksTaskIdStepsStepIdNotePost/\"a " +
-		"note over the cap answers 400…\" and " +
-		"TestHandlePatchTaskStepNoteApiTasksTaskIdStepsStepIdNotePatchPost/\"a " +
-		"patch that grows the note past the cap…\" assert the message, the " +
-		"count of both numbers and that nothing is written.")
-}
-
-func TestResolveStepForNoteWrite(t *testing.T) {
-	t.Skip("pinned end to end: both write faces assert the whole guard chain — " +
-		"404 unknown task, 403 non-executor, 409 closed task, 404 foreign or " +
-		"unknown step — and each asserts the stored note stands.")
-}
-
-func TestStoreStepNote(t *testing.T) {
-	t.Skip("pinned end to end: the wholesale happy path asserts the stored note " +
-		"and the fanned delta, and \"a batch that leaves the text " +
-		"byte-identical reports no applied edits and fans nothing\" asserts " +
-		"the announce=false path writes without fanning.")
-}

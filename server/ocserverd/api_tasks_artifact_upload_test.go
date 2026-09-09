@@ -1,6 +1,10 @@
 package main
 
 import (
+	"encoding/json"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 )
@@ -161,6 +165,33 @@ func TestHandleUploadTaskArtifactApiTasksTaskIdArtifactsUploadPost(t *testing.T)
 			t.Fatalf("want 400, got %d (%v)", status, data)
 		}
 		apiWantError(t, data, "validation_error", "attachment is empty")
+
+		_, pinned := apiJSON(t, h, "GET", "/api/tasks/T-1/artifacts", owner, "")
+		apiWantValue(t, "artifacts", pinned["artifacts"], []any{})
+		dashboard.wantFrames()
+	})
+
+	t.Run("a body over 100 MB answers 400 and pins nothing", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"Ship it","executor_member_id":"kip"}`)
+		agent := apiTestAgentToken(t, api, "kip", "")
+		dashboard := apiTestListen(t, api, "")
+
+		req := httptest.NewRequest(http.MethodPost,
+			"/api/tasks/T-1/artifacts/upload?name=oversize",
+			&repeatingByteReader{remaining: int64(chatAttachmentMaxBytes) + 1})
+		req.Header.Set("Content-Type", "application/octet-stream")
+		req.Header.Set("Authorization", "Bearer "+agent)
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		if rec.Code != http.StatusBadRequest {
+			t.Fatalf("want 400, got %d (%s)", rec.Code, rec.Body.String())
+		}
+		var data map[string]any
+		if err := json.Unmarshal(rec.Body.Bytes(), &data); err != nil {
+			t.Fatalf("decode response: %v", err)
+		}
+		apiWantError(t, data, "validation_error", "attachment exceeds the 100 MB size limit")
 
 		_, pinned := apiJSON(t, h, "GET", "/api/tasks/T-1/artifacts", owner, "")
 		apiWantValue(t, "artifacts", pinned["artifacts"], []any{})
@@ -580,17 +611,21 @@ func TestHandleUploadReplaceTaskArtifactApiTasksTaskIdArtifactArtifactIdReplaceU
 	})
 }
 
-func TestReadArtifactUploadBody(t *testing.T) {
-	t.Skip("pinned end to end, EXCEPT the 100 MB ceiling: the happy paths assert " +
-		"the filename and mime it resolves onto the stored blob, and both " +
-		"routes assert the empty-body 400. The over-cap refusal is left " +
-		"unpinned deliberately — producing it means pushing a >100 MB body " +
-		"through the in-memory stack.")
+type repeatingByteReader struct {
+	remaining int64
 }
 
-func TestArtifactKindOfBlob(t *testing.T) {
-	t.Skip("pinned end to end: \"an image mime pins the deliverable as an image…\" " +
-		"and \"bytes of the other kind answer 400 naming both kinds…\" assert " +
-		"both verdicts this read reaches, through the artifact rows they " +
-		"produce.")
+func (r *repeatingByteReader) Read(p []byte) (int, error) {
+	if r.remaining == 0 {
+		return 0, io.EOF
+	}
+	n := len(p)
+	if int64(n) > r.remaining {
+		n = int(r.remaining)
+	}
+	for i := range p[:n] {
+		p[i] = 'x'
+	}
+	r.remaining -= int64(n)
+	return n, nil
 }
