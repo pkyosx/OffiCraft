@@ -33,6 +33,26 @@ func TestBindistFS(t *testing.T) {
 	}
 }
 
+func TestReadMCPCatalogFrom(t *testing.T) {
+	root := assetRoot("a disk path that must not be consulted")
+	want := []byte(`{"tools":[]}`)
+	embedded := fstest.MapFS{
+		"mcp-catalog.json": &fstest.MapFile{Data: want},
+	}
+
+	got, err := root.readMCPCatalogFrom(embedded)
+	if err != nil {
+		t.Fatalf("readMCPCatalogFrom: %v", err)
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("readMCPCatalogFrom = %q, want %q", got, want)
+	}
+
+	if _, err := root.readMCPCatalogFrom(fstest.MapFS{}); err == nil {
+		t.Fatal("readMCPCatalogFrom with no catalog = nil error, want a missing-file error")
+	}
+}
+
 func TestDocsdistFS(t *testing.T) {
 	data, err := fs.ReadFile(docsdistFS(), "quickstart.md")
 	if err != nil {

@@ -1,5 +1,4 @@
-// Skeleton generated from server/ocserverd/api_stub.go by gen_test_skeletons.py.
-// Every case is a t.Skip placeholder: fill the body, keep or rewrite the name.
+// API tests for shared liveness, configuration and authentication helpers.
 
 package main
 
@@ -628,6 +627,16 @@ func TestStepNoteCap(t *testing.T) {
 		asPatchSettings(t, h, owner, `{"step_note_cap_chars":20006}`)
 		apiWantValue(t, "step note cap", any(float64(api.stepNoteCap())), any(20006))
 		apiWantValue(t, "document caps", any(asDocCaps(api)), any(asShippedDocCaps()))
+	})
+}
+
+func TestTaskEventCap(t *testing.T) {
+	t.Run("task event documents expose their fifteen-thousand-character cap", func(t *testing.T) {
+		api, _, _, _ := newAPITestServer(t)
+
+		if got := api.taskEventCap(); got != 15000 {
+			t.Fatalf("task event cap = %d, want 15000", got)
+		}
 	})
 }
 

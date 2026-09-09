@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"net/http/httptest"
 	"reflect"
 	"strings"
 	"testing"
@@ -429,7 +430,71 @@ func TestRoleDefHistoryStreams(t *testing.T) {
 }
 
 func TestDocumentHistoryAllowed(t *testing.T) {
-	t.Skip("documentHistoryAllowed is an internal gate whose observable refusals are already pinned through the real list, version, seed, and restore endpoints in this file: TestHandleListDocumentHistoryApiDocumentHistoryKindKeyGet covers unknown, retired, malformed-lessons, empty-list, and missing-credential outcomes; TestHandleGetDocumentVersionApiDocumentHistoryKindKeyIdGet covers the shared read gate; TestHandleGetDocumentSeedApiDocumentHistoryKindKeySeedGet covers the shared seed gate; and TestHandleRestoreDocumentHistoryApiDocumentHistoryKindKeyIdRestorePost covers admin, per-role, machine, retired-kind, missing-credential, not-found, and content outcomes. A direct predicate test would duplicate the gate instead of testing an external contract.")
+	t.Run("a supported read is allowed without writing a response", func(t *testing.T) {
+		api, _, _, _ := newAPITestServer(t)
+		req := httptest.NewRequest("GET", "/api/document-history/global_context/global", nil)
+		rec := httptest.NewRecorder()
+
+		if !api.documentHistoryAllowed(rec, req, "global_context", "global", false) {
+			t.Fatal("documentHistoryAllowed refused a supported read")
+		}
+		if rec.Code != http.StatusOK || rec.Body.Len() != 0 {
+			t.Fatalf("allowed read response = %d %q, want empty 200 response", rec.Code, rec.Body.String())
+		}
+	})
+
+	for name, tc := range map[string]struct {
+		kind    string
+		key     string
+		message string
+	}{
+		"unknown kind": {
+			kind: "bogus", key: "global", message: "unknown document history kind",
+		},
+		"malformed lessons key": {
+			kind: "lessons", key: "engineer::build", message: malformedLessonsKeyMsg,
+		},
+		"retired task manual kind": {
+			kind: docKindTaskManual, key: "tm-history", message: legacyTaskManualKindMsg,
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			api, _, _, _ := newAPITestServer(t)
+			req := httptest.NewRequest("GET", "/api/document-history/"+tc.kind+"/"+tc.key, nil)
+			rec := httptest.NewRecorder()
+
+			if api.documentHistoryAllowed(rec, req, tc.kind, tc.key, false) {
+				t.Fatal("documentHistoryAllowed allowed an invalid document address")
+			}
+			if rec.Code != http.StatusBadRequest {
+				t.Fatalf("status = %d, want 400 (%s)", rec.Code, rec.Body.String())
+			}
+			var body map[string]any
+			if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+				t.Fatalf("non-JSON error: %s", rec.Body.String())
+			}
+			apiWantError(t, body, "validation_error", tc.message)
+		})
+	}
+
+	t.Run("a plain agent cannot restore a governance document", func(t *testing.T) {
+		api, _, d, _ := newAPITestServer(t)
+		agent := apiTestAgentToken(t, api, "kip", "")
+		taskTestUnderCaller(t, api, d, agent, func(r *http.Request) {
+			rec := httptest.NewRecorder()
+			if api.documentHistoryAllowed(rec, r, "global_context", "global", true) {
+				t.Fatal("documentHistoryAllowed allowed a non-admin restore")
+			}
+			if rec.Code != http.StatusForbidden {
+				t.Fatalf("status = %d, want 403 (%s)", rec.Code, rec.Body.String())
+			}
+			var body map[string]any
+			if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+				t.Fatalf("non-JSON error: %s", rec.Body.String())
+			}
+			apiWantError(t, body, "forbidden", "restoring this document requires admin capability")
+		})
+	})
 }
 
 func TestHandleListDocumentHistoryApiDocumentHistoryKindKeyGet(t *testing.T) {

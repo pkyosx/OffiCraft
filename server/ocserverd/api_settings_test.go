@@ -79,6 +79,64 @@ func apiTestShippedSettings() map[string]any {
 	}
 }
 
+func TestAcceleratedGraceInRange(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		value int
+		want  bool
+	}{
+		{name: "below minimum", value: minAcceleratedGraceSecs - 1},
+		{name: "minimum", value: minAcceleratedGraceSecs, want: true},
+		{name: "maximum", value: maxAcceleratedGraceSecs, want: true},
+		{name: "above maximum", value: maxAcceleratedGraceSecs + 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := acceleratedGraceInRange(tc.value); got != tc.want {
+				t.Fatalf("acceleratedGraceInRange(%d) = %v, want %v", tc.value, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestOutsourceParallelInRange(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		value int
+		want  bool
+	}{
+		{name: "below unlimited sentinel", value: minOutsourceParallel - 1},
+		{name: "unlimited sentinel", value: minOutsourceParallel, want: true},
+		{name: "zero pauses assignment", value: 0, want: true},
+		{name: "maximum", value: maxOutsourceParallel, want: true},
+		{name: "above maximum", value: maxOutsourceParallel + 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := outsourceParallelInRange(tc.value); got != tc.want {
+				t.Fatalf("outsourceParallelInRange(%d) = %v, want %v", tc.value, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestWardenCredLifetimeInRange(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		value int
+		want  bool
+	}{
+		{name: "below one day", value: minWardenCredLifetimeSecs - 1},
+		{name: "one day", value: minWardenCredLifetimeSecs, want: true},
+		{name: "four hundred days", value: maxWardenCredLifetimeSecs, want: true},
+		{name: "above four hundred days", value: maxWardenCredLifetimeSecs + 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := wardenCredLifetimeInRange(tc.value); got != tc.want {
+				t.Fatalf("wardenCredLifetimeInRange(%d) = %v, want %v", tc.value, got, tc.want)
+			}
+		})
+	}
+}
+
 func TestHandleAuthStatusApiAuthStatusGet(t *testing.T) {
 	t.Run("a first-run server answers 200 with no password set and no factor required", func(t *testing.T) {
 		_, h, _, _ := newAPITestStack(t)

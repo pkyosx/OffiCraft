@@ -564,7 +564,7 @@ func TestPendingAttachments(t *testing.T) {
 	})
 }
 
-func TestPostChat(t *testing.T) {
+func TestHandlePostChatApiChatPost(t *testing.T) {
 	t.Run("a message with a recipient and a body answers 200 and a receipt naming the recipient", func(t *testing.T) {
 		_, h, _, owner := newAPITestServer(t)
 

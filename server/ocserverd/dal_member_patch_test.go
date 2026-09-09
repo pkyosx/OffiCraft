@@ -149,6 +149,34 @@ func TestMfLastOpOK(t *testing.T) {
 	})
 }
 
+func TestMfAgentIatFloor(t *testing.T) {
+	got := mfAgentIatFloor(1700000000)
+	want := memberField{
+		col: "agent_iat_floor", val: float64(1700000000), insertOnly: true, forwardOnly: true,
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("mfAgentIatFloor = %+v, want %+v", got, want)
+	}
+}
+
+func TestMfTokenKeyID(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		key  string
+	}{
+		{name: "new signing key", key: "ring-new"},
+		{name: "older signing key remains writable", key: "ring-old"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := mfTokenKeyID(tc.key)
+			want := memberField{col: "token_key_id", val: tc.key, insertOnly: true}
+			if !reflect.DeepEqual(got, want) {
+				t.Fatalf("mfTokenKeyID(%q) = %+v, want %+v", tc.key, got, want)
+			}
+		})
+	}
+}
+
 func TestMemberWholeRow(t *testing.T) {
 	m := dalTestMember("ow-1", "Wren")
 	m.Kind = KindOutsource

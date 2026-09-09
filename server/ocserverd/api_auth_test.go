@@ -32,6 +32,39 @@ func TestMintWardenToken(t *testing.T) {
 	}
 }
 
+func TestMintMemberToken(t *testing.T) {
+	api, _, _, _ := newAPITestServer(t)
+	token, err := api.mintMemberToken(Member{ID: "mira", DesiredMachineID: "m-lab"}, 3600)
+	if err != nil {
+		t.Fatalf("mintMemberToken: %v", err)
+	}
+
+	claims, err := verifyJWT(token, api.keys.signingSecret(), time.Now().Unix())
+	if err != nil {
+		t.Fatalf("verify minted member token: %v", err)
+	}
+	if claims["sub"] != "mira" || claims["scope"] != "agent" || claims["machine_id"] != "m-lab" {
+		t.Fatalf("claims = %v, want mira/agent/m-lab", claims)
+	}
+	iat, iatOK := claims["iat"].(float64)
+	exp, expOK := claims["exp"].(float64)
+	if !iatOK || !expOK || exp-iat != 3600 {
+		t.Fatalf("claims = %v, want an expiry exactly 3600 seconds after iat", claims)
+	}
+
+	unplaced, err := api.mintMemberToken(Member{ID: "mira"}, 3600)
+	if err != nil {
+		t.Fatalf("mintMemberToken without placement: %v", err)
+	}
+	unplacedClaims, err := verifyJWT(unplaced, api.keys.signingSecret(), time.Now().Unix())
+	if err != nil {
+		t.Fatalf("verify unplaced member token: %v", err)
+	}
+	if _, ok := unplacedClaims["machine_id"]; ok {
+		t.Fatalf("unplaced member claims unexpectedly carry machine_id: %v", unplacedClaims)
+	}
+}
+
 func TestHandleLoginApiLoginPost(t *testing.T) {
 	t.Run("the owner password answers 200 and a bearer owner token", func(t *testing.T) {
 		_, h, _, _ := newAPITestServer(t)

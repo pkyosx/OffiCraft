@@ -1,10 +1,12 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -150,6 +152,54 @@ func TestCurrentScope(t *testing.T) {
 	t.Run("a request that never passed the auth gate carries no scope at all", func(t *testing.T) {
 		apiWantValue(t, "scope", any(currentScope(apiHelpersUngated())), any(""))
 	})
+}
+
+func TestPrincipalOfRequest(t *testing.T) {
+	api, _, _, _ := newAPITestServer(t)
+	for _, tc := range []struct {
+		name   string
+		claims map[string]any
+		want   principalClass
+	}{
+		{name: "owner claim", claims: map[string]any{"scope": "owner", "sub": "owner"}, want: principalOwner},
+		{name: "assistant member claim", claims: map[string]any{"scope": "agent", "sub": "mira"}, want: principalAdminAgent},
+		{name: "ordinary member claim", claims: map[string]any{"scope": "agent", "sub": "kip"}, want: principalAgent},
+		{name: "warden member claim", claims: map[string]any{"scope": "agent", "sub": "m-server-self"}, want: principalMachine},
+		{name: "unknown member claim is denied by default", claims: map[string]any{"scope": "agent", "sub": "ghost"}, want: principalAgent},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			req := httptest.NewRequest("GET", "/api/probe", nil)
+			req = req.WithContext(context.WithValue(req.Context(), claimsContextKey, tc.claims))
+			if got := api.principalOfRequest(req); got != tc.want {
+				t.Fatalf("principalOfRequest(%v) = %v, want %v", tc.claims, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestUnreadCountsForRequest(t *testing.T) {
+	api, _, d, _ := newAPITestServer(t)
+	dalPutChats(t, d,
+		dalChat("c-000000000901", "mira", "owner", 100),
+		dalChat("c-000000000902", "mira", "owner", 200),
+		dalChat("c-000000000903", "kip", "owner", 300),
+		dalChat("c-000000000904", "owner", "owner", 400),
+	)
+	if _, _, err := d.PutChatRead(ChatRead{ReaderID: "owner", PeerID: "mira", LastReadTS: 100}); err != nil {
+		t.Fatalf("PutChatRead: %v", err)
+	}
+
+	req := httptest.NewRequest("GET", "/api/probe", nil)
+	req = req.WithContext(context.WithValue(req.Context(), claimsContextKey,
+		map[string]any{"scope": "owner", "sub": "owner"}))
+	got, err := api.unreadCountsForRequest(req)
+	if err != nil {
+		t.Fatalf("unreadCountsForRequest: %v", err)
+	}
+	want := map[string]int{"mira": 1, "kip": 1, "owner": 1}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("unreadCountsForRequest = %v, want %v", got, want)
+	}
 }
 
 func TestRequestTrigger(t *testing.T) {
