@@ -246,35 +246,6 @@ func TestResetBootDoc_ReadOnlyKindRefuses(t *testing.T) {
 	}
 }
 
-// ── the write face's variable validation ─────────────────────────────────────
-
-func TestReplaceBootDoc_UndeclaredVariableIsRefusedAndNothingIsWritten(t *testing.T) {
-	s := newEventProcServer(t)
-	spec := s.mustBootDocSpec(docKindTaskCloseout, bootDocSingletonKey)
-	before, err := s.foldBootDocDTO(spec)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, _, split := DocSplitHeadBody(seedOf(t, s, spec)); !split {
-		t.Fatal("task_closeout's seed lost its read-only head")
-	}
-	w := httptest.NewRecorder()
-	s.replaceBootDoc(w, ownerPost("/x"), spec, "任務 {task_nu} 已結束。", false)
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("status = %d, want %d (%s)", w.Code, http.StatusBadRequest, w.Body.String())
-	}
-	after, err := s.foldBootDocDTO(spec)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if after.Text != before.Text || !after.IsDefault {
-		t.Errorf("a refused write moved the document: is_default %v→%v", before.IsDefault, after.IsDefault)
-	}
-}
-
-// The positive control the refusal above needs: the SAME write with the name
-// spelt right is accepted. Without it, a validator that refused everything
-// would pass the test above.
 func TestReplaceBootDoc_DeclaredVariableIsAccepted(t *testing.T) {
 	s := newEventProcServer(t)
 	spec := s.mustBootDocSpec(docKindTaskCloseout, bootDocSingletonKey)
@@ -283,9 +254,7 @@ func TestReplaceBootDoc_DeclaredVariableIsAccepted(t *testing.T) {
 		t.Fatal("task_closeout's seed lost its read-only head")
 	}
 	// Since T-3201 the write face takes the BODY alone, and the declared names
-	// ride in the head, which is where they now all live and which no caller can
-	// send. So the accepted write is variable-free body text, and what gets
-	// STORED is the shipped head joined back on by the server.
+	// ride in the head. The body is stored under the shipped head.
 	const body = "收尾就照這裡寫的做。"
 	want := DocJoinHeadBody(head, body)
 	w := httptest.NewRecorder()
@@ -454,9 +423,8 @@ func TestReplaceBootDoc_EveryShippedKindAcceptsAnEditThroughTheRoute(t *testing.
 	for _, reg := range bootDocRegistry {
 		for _, key := range reg.Keys {
 			t.Run(reg.Kind+"/"+key, func(t *testing.T) {
-				// No variable slots: a split kind refuses ANY {name} in the body
-				// (the head is where the slots live), so a probe carrying one
-				// would fail for a reason that has nothing to do with the door.
+				// The probe is deliberately plain text; split-head variables are
+				// rendered only when a notice is sent, while the body is preserved.
 				const probe = "T-6f44 probe: this document is editable."
 				status, body := f.do(t, http.MethodPost,
 					"/api/boot-docs/"+reg.Kind+"/"+key, f.admin,
@@ -486,8 +454,8 @@ func TestReplaceBootDoc_EveryShippedKindAcceptsAnEditThroughTheRoute(t *testing.
 // itself. So the read-only refusal has to be spelled a SECOND time, on this
 // path (documentHistoryAllowed); a copy of it living only in replaceBootDoc
 // would be a gate this door never passes. That is still true after T-3201,
-// which moved the JOIN and the body rule into functions both faces call but
-// deliberately left this one where it is — it has to answer before the
+// which moved the JOIN into a function both faces call but deliberately left
+// this one where it is — it has to answer before the
 // capability check, which is a property of this door rather than of the
 // shared rules.
 //

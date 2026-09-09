@@ -30,12 +30,14 @@ package main
 // The split answers the owner's own criterion for where to cut, verbatim:
 // 「有變數的部分通常就是說明發生什麼了，我們會需要修改的通常是接下來他應該採取
 // 什麼步驟」. Head = what happened, program-generated, may carry {variables}.
-// Body = what to do next, owner-editable, zero variables.
+// Body = what to do next, owner-editable, and preserved literally even when it
+// contains brace-delimited examples or other text that resembles a variable.
 //
 // 🔴 "通常" IS NOT "ALWAYS", AND THREE DOCUMENTS PROVED IT — EACH ONE COST A
 // RULING. task_closeout named {type_key} and {manual_label} in the MIDDLE of
 // its instructions, and both takeover documents appended 「交接備註：{note}」
-// AFTER theirs, so on all three no prefix cut left a variable-free body. None
+// AFTER theirs, so on all three no prefix cut left an unfilled variable in the
+// shipped body. None
 // of them was split by guessing: the takeover pair lost the {note} slot because
 // the owner ruled the handover note belongs on the task alone
 // (rc-0c36d8739b8f — the reassign already writes HandoverNote and the successor
@@ -103,19 +105,4 @@ func DocRendered(text, join string) string {
 		return text
 	}
 	return head + join + body
-}
-
-// docBodyVarRefusal answers a write whose BODY names a variable.
-//
-// 🔴 THE BODY IS WHERE THE OWNER TYPES, AND THAT IS THE WHOLE ARGUMENT. A name
-// in the head is filled by the code that sends the document; a name in the body
-// is filled by nobody, and reaches an agent with the braces still in it. Zero
-// variables below the line is what makes the editable half impossible to get
-// wrong, so the refusal explains the rule rather than just naming the offender.
-func docBodyVarRefusal(docName string, bad []string) string {
-	return "the " + docName + " uses " + docVarNameList(bad) + " below the line `" +
-		docBodyMarker + "` — the editable half carries no variables at all, because " +
-		"nothing fills them there and they would reach an agent with the braces " +
-		"still in them. Put facts that vary in the read-only head, or write them out. " +
-		"Nothing was written."
 }
