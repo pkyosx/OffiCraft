@@ -461,58 +461,6 @@ var knownDivergences = []knownDivergence{
 			"which; this row exists so that the next person to look does not have to " +
 			"rediscover that 包② left a difference behind.",
 	},
-	{
-		verb: "強制停止", field: "banked_cost",
-		why: "🔴 RE-JUDGED IN T-65 包⑤: THIS IS A PERMANENT DIFFERENCE — TWO BANKING " +
-			"EDGES, THE SAME TERMINAL AMOUNT — AND THE SENTENCE IT REPLACES WAS WRONG " +
-			"IN A LOAD-BEARING WAY. That sentence read 「the ONLY row in this whitelist " +
-			"that costs the owner MONEY rather than correctness」, i.e. that the staff " +
-			"money is lost. It is not: it is banked LATER, on a different edge. " +
-			"Both sides end with the same desired_state, the same anchors and the SAME " +
-			"single `stop` frame — the nine row columns and `dispatched` all agree — and " +
-			"what differs is WHEN the fold runs. 外包 force-stop goes through " +
-			"stopWorkerNow, which banks the dying session's live cost before the kill. " +
-			"正職 force-stop calls dispatchRobustStopNow, which banks nothing itself; the " +
-			"warden kills the session, the agent's SSE stream ends, and api_infra.go's " +
-			"stream defer runs onLastDisconnect → bankLiveCost on the real online→offline " +
-			"edge. Nothing on the staff force-stop path clears the telemetry entry in " +
-			"between — the repo's ONLY s.telemetry.Delete is api_roles.go's staff " +
-			"HARD-DELETE (role removal), measured, not the stop path — so the live figure " +
-			"is still there when that edge arrives. " +
-			"⚠️ THIS CELL THEREFORE MEASURES IMMEDIACY, NOT AMOUNT: the fixture holds the " +
-			"subject's SSE connection open until t.Cleanup, which is after the terminal " +
-			"read, so the staff arm is sampled before its banking edge can exist. " +
-			"TestForceStoppedStaffCostBanksOnTheDisconnectEdge " +
-			"(forcestop_bank_lastdisconnect_t65_test.go) drives the real GET /api/events " +
-			"handler and pins both halves — costUntouched when force-stop returns, " +
-			"costBanked once the stream ends. Without it this paragraph would be prose " +
-			"asserting something no test watches, which is how a permanent-difference " +
-			"row rots into an excuse. " +
-			"⚠️ THE ONE RESIDUAL RISK, stated with its evidence level: s.telemetry is a " +
-			"*memStore (api_stub.go) with no persistence, so a station that re-execs " +
-			"BETWEEN the kill and the disconnect edge loses the staff figure, while 外包 " +
-			"is immune because it banked synchronously. READ: the type and the absence of " +
-			"a persist call. NOT MEASURED: how wide that window is — bounding it needs " +
-			"the warden's code, which is not in this module. " +
-			"⚠️ SCOPE — READ THIS BEFORE 「CONVERGING」 IT: the safe direction is NOT " +
-			"free. Moving 外包 onto dispatchRobustStopNow would delete the ONLY " +
-			"unconditional bank on a stop and leave the money to the disconnect edge — " +
-			"which never arrives for a subject that is ALREADY offline, and that is " +
-			"precisely the population openWorkerHandoverGrace's offline arm serves. " +
-			"That direction turns a visible divergence into a silent, conditional loss. " +
-			"📌 MEASURED, not reasoned (T-65 包③ recon): commenting out worker_spawn.go:1983 " +
-			"leaves `go test -run '(?i)(stop|bank|cost|kill)'` at 133/133 GREEN while a " +
-			"probe shows banked_cost=0 with the live figure stranded in telemetry. " +
-			"Nothing in this repository was watching that line before this column. " +
-			"⚠️ DO NOT REUSE THAT `-run` AS THIS COLUMN'S VERIFICATION SCOPE — it is " +
-			"quoted here as the BLINDNESS being fixed, not as the command that checks " +
-			"the fix. TestVerbPopulationParity* carries none of stop/bank/cost/kill in " +
-			"its NAME, so that pattern never runs this matrix at all: with :1983 " +
-			"commented out it prints `ok` over 133 tests while the very cell below is " +
-			"the one that would have failed (measured 2026-09-06, T-65 包③). Verify " +
-			"this column with a pattern that matches `parity` — 136 tests, and the " +
-			"mutant then fails as 強制停止 want Cost:banked / got Cost:live.",
-	},
 }
 
 func divergenceIndex() map[[2]string]knownDivergence {
@@ -1259,8 +1207,10 @@ func parityCases() []verbCase {
 				// (api_members.go:1487 → reconcile.go:2919-2930) with no state test in front
 				// of it. This handler never calls reconcileMemberNow at all.
 				Dispatched: "stop",
-				Cost:       costUntouched,
-				Noticed:    noticedNothing,
+				// The staff handler banks before dispatching the kill, matching
+				// stopWorkerNow's ordering on the worker side.
+				Cost:    costBanked,
+				Noticed: noticedNothing,
 			},
 			// 外包: `if worker.StoppingSince <= 0.0 || worker.StoppingSince > forcedAt
 			// { worker.StoppingSince = forcedAt }` — the second arm pulls it back.
@@ -1277,8 +1227,7 @@ func parityCases() []verbCase {
 				Dispatched: "stop",
 				// stopWorkerNow banks BEFORE the kill (worker_spawn.go:1983).
 				Cost: costBanked,
-				// silent, and by TWO independent guards rather than one — which is what
-				// makes the staff cell above a defect rather than a coin-flip. The worker
+				// silent, and by TWO independent guards rather than one. The worker
 				// force-stop reaches no member-topic publisher at all (grep, T-65 包⑤: the
 				// five openWorkerHandoverGrace call sites are api_outsource.go:483/:597/:691
 				// and worker_spawn.go:1845/:2573, none of them on this path, AND

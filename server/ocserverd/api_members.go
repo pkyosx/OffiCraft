@@ -1801,6 +1801,9 @@ func (s *apiServer) HandleForceStopMemberApiMembersMemberIdForceStopPost(w http.
 		// about to be killed anyway — the same shape as the dismiss sweep.
 		taskLog("force-stop %s: forced_stop_at not recorded: %v", m.ID, err)
 	}
+	// Bank before the kill, matching the worker force-stop funnel. The later
+	// disconnect edge remains idempotent because bankLiveCost pops the live cost.
+	s.bankLiveCost(m.ID)
 	s.dispatchRobustStopNow(m.ID)
 	writeJSON(w, http.StatusOK, agentLifecycleReceiptDTO{ID: m.ID})
 }
