@@ -9,8 +9,8 @@ package main
 // refocus marker that outlives its window turns the NEXT epoch on that member
 // into an immediate kill, because decideUp's recycle arm reads
 // refocus_since + stopped_since and robust-stops on the spot, zero grace, no
-// close-out. And activate does NOT clear either anchor — so the marker survives
-// 下線 → 活化 and is read by the generation AFTER the one it belonged to.
+// close-out. A live activate preserves that active epoch, while an offline
+// activate clears the replaced generation before starting the next one.
 
 import (
 	"net/http/httptest"
@@ -110,5 +110,40 @@ func TestStopThenActivateDoesNotCollectTheNextGeneration(t *testing.T) {
 	if strings.HasPrefix(dec.Reason, "recycle:") {
 		t.Fatalf("the tick after 停止 → 活化 decided %q — that is the PREVIOUS epoch's "+
 			"collect landing on a session that has nothing to do with it", dec.Reason)
+	}
+}
+
+func TestDeactivateOfflineMemberCollectsAndBanks(t *testing.T) {
+	s := newReconcileTestServer(t)
+	putWarden(t, s, "mach-a")
+	connectOnline(t, s, "mach-a")
+	m := testAgent("m-offline-stop")
+	m.DesiredMachineID = "mach-a"
+	m.RefocusSince = 1000.0
+	m.RefocusOp = refocusOpRefocus
+	putTestMember(t, s, m)
+	s.telemetry.Set(m.ID, map[string]any{"cost": 3.25})
+
+	rec := httptest.NewRecorder()
+	s.HandleDeactivateMemberApiMembersMemberIdDeactivatePost(rec,
+		taskReq(t, "POST", "/api/members/m-offline-stop/deactivate", nil, wireOwnerID, "owner"),
+		"m-offline-stop")
+
+	if rec.Code != 200 {
+		t.Fatalf("offline 下線: %d %s", rec.Code, rec.Body.String())
+	}
+	after, _ := s.dal.GetMember(m.ID)
+	if after.StoppedSince <= 0 {
+		t.Fatalf("offline 下線 must latch stopped_since: %+v", after)
+	}
+	if after.BankedCost != 3.25 {
+		t.Fatalf("offline 下線 banked_cost = %v, want 3.25", after.BankedCost)
+	}
+	if _, ok := s.telemetry.Get(m.ID)["cost"]; ok {
+		t.Fatal("offline 下線 left live cost telemetry behind")
+	}
+	frames := drainFrames(t, s, "mach-a")
+	if len(frames) != 1 || frames[0].RPC != reconcileCmdStop {
+		t.Fatalf("offline 下線 frames = %+v, want one stop", frames)
 	}
 }

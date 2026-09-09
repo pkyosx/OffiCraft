@@ -446,7 +446,7 @@ export function MemberDetailPanel({
       settingsEffort !== member.effort;
     const machineChanged = settingsMachineId !== member.desiredMachineId;
     // A live Change with no edits is a true no-op. Offline and waking both use
-    // this same dialog for Wake/force-revive, so they must still reach
+    // this same dialog for Wake, so they must still reach
     // activate even when the owner accepts the prefilled settings unchanged.
     if (online && !launchChanged && !machineChanged) {
       setSettingsOpen(false);
@@ -482,7 +482,7 @@ export function MemberDetailPanel({
         await api.patchMember(member.id, launchIntentPatch());
       }
       // Only a confirmed online session is gracefully relocated. A `waking`
-      // member's Spawn action is the force-revive path and must reach activate.
+      // member's Spawn action is the wake path and must reach activate.
       if (online && machineChanged) {
         // WHOSE move this verdict belongs to. The panel is given no `key` by
         // either caller, so switching members is a prop change: a relocate

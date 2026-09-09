@@ -3,10 +3,10 @@ package main
 // worker_restart_clears_markers_ted79_test.go — T-ed79 parity #11: 重啟 starts a
 // new session, so it must start from a clean sheet.
 //
-// The staff activate has always cleared the anchors that describe the session it
-// is replacing, and deliberately KEPT forced_stop_at (the record that a PAST
-// session was cut off — the reader who needs it most is the one that comes
-// after). The worker restart cleared NOTHING: it wrote desired_state and
+// The offline staff activate arm clears the anchors that describe the session
+// it is replacing, and deliberately KEPT forced_stop_at (the record that a
+// PAST session was cut off — the reader who needs it most is the one that
+// comes after). The worker restart cleared NOTHING: it wrote desired_state and
 // returned. worker_spawn.go names one of the leftovers by name — "NOTHING clears
 // the second one … so it outlives the whole stop→restart cycle".
 
@@ -69,7 +69,7 @@ func TestRestartWorkerClearsThePreviousSessionsAnchors(t *testing.T) {
 	if after.ForcedStopAt != 1003.0 {
 		t.Errorf("重啟 cleared forced_stop_at (%v, want 1003) — that is the durable "+
 			"record that a past session was CUT OFF, not an anchor of the session "+
-			"being replaced. Staff activate keeps it on purpose and says so in three "+
+			"being replaced. Offline staff activate keeps it on purpose and says so in three "+
 			"places (api_members.go, dal.go, migrations/00057).", after.ForcedStopAt)
 	}
 }

@@ -102,10 +102,9 @@ func TestHandleDeactivateMember_OnlineMemberKeepsTheGracefulGrace(t *testing.T) 
 	}
 }
 
-// TestHandleDeactivateMember_OfflineMemberDispatchesNothing — the other negative
-// control. A member that is simply off has no session and no wake in flight;
-// firing a STOP at a machine for it would be noise.
-func TestHandleDeactivateMember_OfflineMemberDispatchesNothing(t *testing.T) {
+// TestHandleDeactivateMember_OfflineMemberCollectsAndDispatchesStop covers the
+// offline collection arm.
+func TestHandleDeactivateMember_OfflineMemberCollectsAndDispatchesStop(t *testing.T) {
 	s := newReconcileTestServer(t)
 	putWarden(t, s, "mach-a")
 	connectOnline(t, s, "mach-a")
@@ -123,10 +122,10 @@ func TestHandleDeactivateMember_OfflineMemberDispatchesNothing(t *testing.T) {
 		t.Fatalf("deactivate: %d %s", rec.Code, rec.Body.String())
 	}
 
-	for _, f := range drainFrames(t, s, "mach-a") {
-		if f.RPC == reconcileCmdStop && f.Args["member_id"] == "m-already-off" {
-			t.Fatal("deactivating an already-offline member must dispatch nothing")
-		}
+	frames := drainFrames(t, s, "mach-a")
+	if len(frames) != 1 || frames[0].RPC != reconcileCmdStop ||
+		frames[0].Args["member_id"] != "m-already-off" {
+		t.Fatalf("offline deactivate frames = %+v, want one stop for m-already-off", frames)
 	}
 }
 

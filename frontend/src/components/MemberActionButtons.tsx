@@ -159,9 +159,10 @@ const DANGER_ACTIONS = new Set<ActionKey>([
  * winding-down states (`stopping` / `waking`) can WEDGE — a member can get stuck
  * `stopping` (still alive, SSE holding, pinned by a stale stop marker) or
  * mid-`waking` if the old stop command never lands (crashed warden, lost
- * signal) — so both ALSO offer Spawn (=wake) as a FORCE-REVIVE rescue, backed by
- * the same activate endpoint that unconditionally clears the winding-down
- * anchors. Spawn leads in those states: rescue first.
+ * signal) — so both ALSO offer Spawn (=wake) as a rescue, backed by the same
+ * activate endpoint. A live session is kept in place; an offline generation
+ * clears the old wind-down before the stop→start handoff. Spawn leads in those
+ * states: rescue first.
  * (Refocus is deliberately NOT a header action — it lives with the context cell
  * in MemberDetailPanel. Dismiss is not offered either: owner acceptance removed
  * the UI entry and DELETE /api/members stays a pure backend seam.) */

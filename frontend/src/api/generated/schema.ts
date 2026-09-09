@@ -2437,21 +2437,23 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Activate: write desired_state=online intent (does NOT flip online). Answers with a bounded receipt (``id``, ``activation_pending``, ``last_op_reason``), not the roster row — call ``get_member`` when you need the rest.
+         * Activate: write desired_state=online intent (does NOT flip online). A live member clears stopping_since/waking_since and consumes restart_after_stop while preserving its active refocus/stopped epoch; it updates the owner roster only without killing/reconciling or sending a lifecycle notice. An offline generation clears its old wind-down, banks live cost, and uses stop-before-start. Answers with a bounded receipt (``id``, ``activation_pending``, ``last_op_reason``), not the roster row — call ``get_member`` when you need the rest.
          * @description Activate a member (§3.4 #12): write the owner's INTENT ``desired_state="online"``
          *     (and bind the reconciling ``host`` when named). Sets intent ONLY — does NOT
          *     flip ``online`` (the ACTUAL state). The server can't reach the host, so the
          *     warden reads ``desired_state``/``host``, spawns, and reports ``online`` back via the
          *     presence endpoint. A ``member`` delta fans out immediately.
          *
-         *     ALWAYS FORCE-REVIVE (Seth: "always revive from a wrong state"). Wake NO LONGER
-         *     has a winding-down gate — the old ``stopping`` → 409 refusal is GONE. A member
-         *     stuck in ANY wrong winding-down state (the survived-stop / SSE-reconnect case:
-         *     still ``online`` yet pinned to *stopping* by a live ``stopping_since``; or a
-         *     mid-wake ``waking``) is exactly what wake must rescue, so activate now
-         *     UNCONDITIONALLY clears both winding-down anchors — ``stopping_since`` AND
-         *     ``waking_since`` → 0.0 — so the fresh ``desired_state="online"`` intent can never be
-         *     contradicted by a stale marker and the member reconciles cleanly back up.
+         *     LIVE vs OFFLINE: when a live session exists, activate clears ``stopping_since``
+         *     and ``waking_since`` and consumes ``restart_after_stop`` while preserving the
+         *     active ``refocus_since``/``stopped_since`` epoch. It publishes only the owner
+         *     roster delta: it does not kill or reconcile that session and does not send it a
+         *     lifecycle notice. When no live session exists, activate clears the previous
+         *     generation's four wind-down anchors, banks any live telemetry cost, dispatches
+         *     the stop handoff, and lets reconcile handle the replacement START. Neither
+         *     path flips ``online`` directly; the warden reports presence through the presence
+         *     endpoint. The old stopping → 409 wake refusal is gone, without making a live
+         *     activate an unconditional force-revive.
          */
         post: operations["handle_activate_member_api_members__member_id__activate_post"];
         delete?: never;
@@ -2470,7 +2472,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Deactivate: desired_state=offline + stamp stopping_since (retains row). Answers with a bounded receipt (``id``), not the roster row — call ``get_member`` when you need the rest.
+         * Deactivate: desired_state=offline + stamp stopping_since (retains row); with no live session, immediately collect/bank/dispatch the stop. Answers with a bounded receipt (``id``), not the roster row — call ``get_member`` when you need the rest.
          * @description Deactivate a member (handover 層3): write the owner's INTENT
          *     ``desired_state="offline"`` and stamp ``stopping_since`` — a graceful STOP that
          *     RETAINS the roster row (``status`` stays ``active``), in contrast to dismiss
@@ -2478,7 +2480,10 @@ export interface paths {
          *     re-spawned later. Sets intent + shutdown signal ONLY — does NOT flip
          *     ``online`` (the warden tears the live session down and the presence endpoint
          *     reports the winding-down phase back). ``stopping_since`` derives the
-         *     stopping/stopped presence; a ``member`` delta fans out immediately.
+         *     stopping/stopped presence; a ``member`` delta fans out immediately. When no
+         *     live session exists (and this is not a wake cancellation), the handler collects
+         *     immediately: ``stopped_since`` is latched, live telemetry cost is banked, and
+         *     the robust STOP is dispatched.
          *
          *     RBAC (control-others): route-table ``requires="admin_agent"`` — only an
          *     owner-scoped token OR an admin-role (assistant) member may deactivate a
@@ -2529,11 +2534,12 @@ export interface paths {
          *     injectable in tests. Do not implement against them.
          *
          *     The handler writes the STOP intent (``desired_state=offline``
-         *     + stamps ``stopping_since`` if unset, so presence reads coherently) and then
-         *     dispatches the SINGLE robust STOP straight to the member's warden via
-         *     :func:`_dispatch_robust_stop_now` — the warden's ``stop()`` → ``escalateKill``
-         *     ladder performs the SIGKILL (tmux kill-session → force killpg the process group).
-         *     It also bypasses the ~30s reconcile cadence, which is the only wait it does skip.
+         *     + stamps ``stopping_since`` if unset or in the future, so presence reads coherently
+         *     and a stale future anchor cannot survive) and then dispatches the SINGLE robust STOP
+         *     straight to the member's warden via :func:`_dispatch_robust_stop_now` — the
+         *     warden's ``stop()`` → ``escalateKill`` ladder performs the SIGKILL (tmux kill-session
+         *     → force killpg the process group). It also bypasses the ~30s reconcile cadence,
+         *     which is the only wait it does skip.
          *
          *     RBAC (control-others): route-table ``requires="admin_agent"`` — only an
          *     owner-scoped token OR an admin-role (assistant) member may force-stop a
