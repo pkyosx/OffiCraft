@@ -18,7 +18,6 @@ package main
 
 import (
 	"encoding/json"
-	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -403,7 +402,7 @@ func TestEventNoticeText_SendsTheBodyTheOwnerEditedAndNotTheShippedSeed(t *testi
 			s := newEventProcServer(t)
 			spec, head, seedBody := splitSeed(t, s, tc.kind)
 
-			ownerBody := "這一段是 owner 自己改的，出廠文字裡沒有這句。\n"
+			ownerBody := "這一段是 owner 自己改的，出廠文字裡沒有這句；保留 {deadline}。\n"
 			if ownerBody == seedBody {
 				t.Fatal("the fixture body equals the shipped one, so this case cannot " +
 					"tell an overlay-aware send site from one that ignores overlays")
@@ -521,7 +520,7 @@ func TestEventNoticeText_ASplitKindStoredWithNoMarkerIsNotSentAtAll(t *testing.T
 				}
 			} else {
 				if w.Code != http.StatusOK {
-					t.Fatalf("the write face refused a variable-free body: %d (%s)", w.Code, w.Body.String())
+					t.Fatalf("the write face refused the body: %d (%s)", w.Code, w.Body.String())
 				}
 				written, err := s.foldBootDocDTO(spec)
 				if err != nil {
@@ -658,7 +657,7 @@ func TestBootDocRegistry_TheThreeFormerlyUnsplittableKindsAreSplitByRuling(t *te
 			// being split was a variable outside the leading run of facts, and
 			// none survives below the line now.
 			if bad := DocVarsIn(body); len(bad) > 0 {
-				t.Fatalf("the editable body still names %v — nothing fills a variable there", bad)
+				t.Fatalf("the shipped body still names %v — its variables are not rendered", bad)
 			}
 		})
 	}
@@ -989,7 +988,7 @@ func TestBootContextDocs_RenderWithoutTheMarkerAndKeepTheirTitleLine(t *testing.
 	}
 }
 
-// ── the write face: the head is UNSENDABLE, the body has no variables ────────
+// ── the write face: the head is UNSENDABLE, the body is preserved ───────────
 
 // 🔴 THIS USED TO ASSERT A REFUSAL AND NOW ASSERTS THAT THERE IS NOTHING TO
 // REFUSE (T-3201, owner's ruling 「沒有人有任何方式可以回寫」). Three probes stood
@@ -1027,11 +1026,8 @@ func replaceBootDocHeadIsUnsendableCase(t *testing.T, kind string) {
 	s := newEventProcServer(t)
 	spec, head, body := splitSeed(t, s, kind)
 	// ⚠️ THE PROBES DO NOT CARRY THE REAL HEAD, and that is a fact about a
-	// DIFFERENT gate rather than a weaker test. These heads name {variables} —
-	// that is what a head is for — and a variable anywhere in the body is
-	// refused by the body rule, which would answer 400 for a reason that has
-	// nothing to do with the head. So each probe is a head-SHAPED string with
-	// no braces in it: the payload of the old whole-document protocol, in the
+	// DIFFERENT gate rather than a weaker test. They are head-shaped strings
+	// sent as body text: the payload of the old whole-document protocol, in the
 	// only form that gets far enough to prove the point.
 	for _, probe := range []struct{ name, text string }{
 		{"an edited head sent as body", DocJoinHeadBody("我自己的開頭 我加了一句", body)},
@@ -1200,31 +1196,52 @@ func TestReplaceBootDoc_TheWipeGuardJudgesTheBodyAndTheCapJudgesTheStoredDocumen
 	})
 }
 
-func TestReplaceBootDoc_AVariableInTheEditableBodyIsRefused(t *testing.T) {
-	s := newEventProcServer(t)
-	spec, _, body := splitSeed(t, s, docKindAcceleratedStop)
-	before, err := s.foldBootDocDTO(spec)
-	if err != nil {
-		t.Fatal(err)
-	}
-	// {deadline} is a name this document DOES declare — and it is still refused
-	// below the line, because nothing fills a variable there. A test that used
-	// an undeclared name would pass on a server that only checked the spelling.
-	// (It was {where} on 〈停止〉 until T-6f44 deleted both the variable and that
-	// document's read-only half; 〈加速停止〉 is the stop procedure that still has
-	// a head and still declares a name.)
-	w := httptest.NewRecorder()
-	s.replaceBootDoc(w, ownerPost("/x"), spec, body+"\n你的死線是 {deadline}。\n", false)
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("status = %d, want %d (%s)", w.Code, http.StatusBadRequest, w.Body.String())
-	}
-	after, err := s.foldBootDocDTO(spec)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if after.Text != before.Text || !after.IsDefault {
-		t.Errorf("the refused write moved the document: is_default %v→%v", before.IsDefault, after.IsDefault)
-	}
+func TestReplaceBootDoc_EditableBodyPreservesLiteralBraces(t *testing.T) {
+	t.Run("split body", func(t *testing.T) {
+		s := newEventProcServer(t)
+		spec, head, _ := splitSeed(t, s, docKindAcceleratedStop)
+		const body = "你的 JSON 是 {\"deadline\": \"{deadline}\"}。\n"
+		w := httptest.NewRecorder()
+		s.replaceBootDoc(w, ownerPost("/x"), spec, body, false)
+		if w.Code != http.StatusOK {
+			t.Fatalf("status = %d, want 200 (%s)", w.Code, w.Body.String())
+		}
+		after, err := s.foldBootDocDTO(spec)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if after.Text != DocJoinHeadBody(head, body) {
+			t.Errorf("read back %q, want %q", after.Text, DocJoinHeadBody(head, body))
+		}
+		const epoch = 1755870180
+		want := mustRender(t, spec, head, map[string]string{
+			"deadline": time.Unix(epoch, 0).UTC().Format(time.RFC3339),
+		}) + spec.Join + body
+		if got := s.winddownNoticeText(offboardKindFinal, epoch); got != want {
+			t.Errorf("the notice rendered the body instead of preserving it:\n got %q\nwant %q", got, want)
+		}
+	})
+
+	t.Run("unsplit body", func(t *testing.T) {
+		s := newEventProcServer(t)
+		spec := s.mustBootDocSpec(docKindOffboard, offboardDocKey)
+		const body = "{\"id\": \"<attachment id>\", \"template\": \"{deadline}\"}\n"
+		w := httptest.NewRecorder()
+		s.replaceBootDoc(w, ownerPost("/x"), spec, body, false)
+		if w.Code != http.StatusOK {
+			t.Fatalf("status = %d, want 200 (%s)", w.Code, w.Body.String())
+		}
+		after, err := s.foldBootDocDTO(spec)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if after.Text != body {
+			t.Errorf("read back %q, want %q", after.Text, body)
+		}
+		if got := s.winddownNoticeText(offboardKindSoft, 0); got != body {
+			t.Errorf("the unsplit notice changed the body:\n got %q\nwant %q", got, body)
+		}
+	})
 }
 
 // 🔴 THIS USED TO BE ONE-DIRECTIONAL AND T-6f44 MADE IT A BICONDITIONAL, which
@@ -1250,8 +1267,8 @@ func TestReplaceBootDoc_AVariableInTheEditableBodyIsRefused(t *testing.T) {
 //
 // So a document only stops carrying a read-only head when its seed and its
 // registry row change in the SAME commit, in either direction. The other two
-// clauses (a variable-free body, a head that declares what it uses) are
-// unchanged and still only meaningful for a split kind.
+// clauses (the shipped body has no unfilled variables, and the head declares
+// what it uses) are unchanged and still only meaningful for a split kind.
 func TestBootDocRegistry_ASeedCarriesAMarkerExactlyWhenItsKindIsSplit(t *testing.T) {
 	s := newEventProcServer(t)
 	sawUnsplit := false
@@ -1285,7 +1302,7 @@ func TestBootDocRegistry_ASeedCarriesAMarkerExactlyWhenItsKindIsSplit(t *testing
 					return // opted out of the syntax entirely — see doc_vars.go
 				}
 				if bad := DocVarsIn(body); len(bad) > 0 {
-					t.Errorf("the editable body names %v; nothing fills a variable there", bad)
+					t.Errorf("the shipped body names %v; its variables are not rendered", bad)
 				}
 				if bad := DocVarsUndeclared(head, spec.Vars); len(bad) > 0 {
 					t.Errorf("the head uses %v, which the kind does not declare", bad)
@@ -1400,9 +1417,8 @@ func TestBootDoc_TheBodyItReadsBackIsTheBodyItTakes(t *testing.T) {
 // even looked at the content it was restoring.
 //
 // Both halves of the fix are measured here because they are the same claim from
-// two sides: restore now runs the SAME join and the SAME body rule as
-// replaceBootDoc (bootDocStoredText / bootDocBodyRefusal), so what it puts back
-// carries the shipped head, and what it cannot put back it refuses by name.
+// two sides: restore now runs the SAME join as replaceBootDoc, so what it puts
+// back carries the shipped head and preserves the body bytes.
 //
 // The revisions are built the way an old release would have left them: the bad
 // text is written STRAIGHT INTO the row, then a legitimate write through the
@@ -1410,8 +1426,8 @@ func TestBootDoc_TheBodyItReadsBackIsTheBodyItTakes(t *testing.T) {
 // about which shapes can actually be sitting in a version list.
 func TestRestoreDocumentHistory_ABootDocRevisionGoesThroughTheWriteFacesGates(t *testing.T) {
 	// 加速停止: editable, split, and it DECLARES variables — all three are
-	// needed, the last one because a kind that declares none opts out of the
-	// body rule entirely and the second half below would pass vacuously.
+	// needed, the last one because its head has a declared variable while the
+	// body below deliberately keeps a literal brace-delimited name.
 	// (〈停止〉 held this slot until T-6f44 took its read-only half away.)
 	const kind, key = docKindAcceleratedStop, acceleratedStopDocKey
 
@@ -1496,41 +1512,23 @@ func TestRestoreDocumentHistory_ABootDocRevisionGoesThroughTheWriteFacesGates(t 
 		}
 	})
 
-	t.Run("a revision whose body names a variable is refused, and nothing is written", func(t *testing.T) {
+	t.Run("a revision whose body names a variable is restored byte-for-byte", func(t *testing.T) {
 		s := newEventProcServer(t)
 		spec, head, _ := splitSeed(t, s, kind)
-		if spec.Vars == nil {
-			t.Fatal("fixture: this kind opts out of the body rule, so the refusal below cannot fire")
-		}
-		// {where} is a name this document DOES declare — and it is still refused
-		// below the line, because nothing fills a variable there. A revision
-		// carrying an UNdeclared name would pass on a server that only checked
-		// the spelling.
-		bad := DocJoinHeadBody(head, "你現在的狀況是 {where}。\n")
+		const body = "你現在的狀況是 {where}。\n"
+		bad := DocJoinHeadBody(head, body)
 		content := retain(t, s, spec, bad)
 
-		before, err := s.foldBootDocDTO(spec)
+		if err := s.restoreDocumentHistory(ownerPost("/x"), kind, key, content); err != nil {
+			t.Fatalf("restoring a revision with literal braces in its body: %v", err)
+		}
+		after, err := s.foldBootDocDTO(spec)
 		if err != nil {
 			t.Fatal(err)
 		}
-		err = s.restoreDocumentHistory(ownerPost("/x"), kind, key, content)
-		if !errors.Is(err, errDocumentHistoryContent) {
-			t.Fatalf("restoring a revision the write face would refuse: err = %v, want %v",
-				err, errDocumentHistoryContent)
-		}
-		// The refusal has to NAME the offending variable, for the reason the
-		// write face's does: the owner is looking at a version list and cannot
-		// otherwise tell which revision is stuck or why.
-		if !strings.Contains(err.Error(), "{where}") {
-			t.Errorf("the refusal does not name the variable: %v", err)
-		}
-		after, err2 := s.foldBootDocDTO(spec)
-		if err2 != nil {
-			t.Fatal(err2)
-		}
-		if after.Text != before.Text {
-			t.Fatalf("the refused restore moved the document:\n before %q\n after  %q",
-				before.Text, after.Text)
+		if after.Text != bad {
+			t.Fatalf("the restored document changed the body bytes:\n got %q\nwant %q",
+				after.Text, bad)
 		}
 	})
 }
