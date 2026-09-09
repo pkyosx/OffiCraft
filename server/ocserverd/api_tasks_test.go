@@ -1398,6 +1398,23 @@ func TestCreateTypedTaskWithManualOutsourceAssigneeIsNotADispatch(t *testing.T) 
 
 // ── submit_plan keeps done steps ─────────────────────────────────────────────
 
+func TestSubmitPlanDescriptionWarnsAboutDiscardedUnfinishedNotes(t *testing.T) {
+	const warning = "Resubmitting permanently deletes every unfinished step and its working note; deleted notes cannot be recovered."
+	var matches []RouteSpec
+	for _, spec := range defaultRouteSpecs() {
+		if spec.Method == http.MethodPost && spec.Path == "/api/tasks/{task_id}/plan" &&
+			spec.MCPTool == "submit_plan" {
+			matches = append(matches, spec)
+		}
+	}
+	if len(matches) != 1 {
+		t.Fatalf("submit_plan route count = %d, want 1", len(matches))
+	}
+	if !strings.Contains(matches[0].Summary, warning) {
+		t.Fatalf("submit_plan description lost the unfinished-note warning: %q", matches[0].Summary)
+	}
+}
+
 func TestSubmitPlanReplacesOnlyTheNotDoneSteps(t *testing.T) {
 	api := newTasksTestServer(t)
 	task := createAdHocTask(t, api, "m-exec")
