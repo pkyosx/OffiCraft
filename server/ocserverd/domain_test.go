@@ -2049,3 +2049,20 @@ func TestNormalizeFieldKey(t *testing.T) {
 		})
 	}
 }
+
+func TestTaskNo(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		id   string
+	}{
+		{name: "long task id is preserved", id: "T-72dd79b666d0"},
+		{name: "case is preserved", id: "t-72dd79b666d0"},
+		{name: "empty id stays empty", id: ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := TaskNo(tc.id); got != tc.id {
+				t.Fatalf("TaskNo(%q) = %q, want the original id", tc.id, got)
+			}
+		})
+	}
+}

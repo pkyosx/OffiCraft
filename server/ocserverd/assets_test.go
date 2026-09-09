@@ -1,6 +1,3 @@
-// Skeleton generated from server/ocserverd/assets.go by gen_test_skeletons.py.
-// Every case is a t.Skip placeholder: fill the body, keep or rewrite the name.
-
 package main
 
 import (
@@ -60,6 +57,12 @@ func TestSeedRoleName(t *testing.T) {
 				t.Fatalf("seedRoleName(%q) = %q, want %q", tc.roleKey, got, tc.want)
 			}
 		})
+	}
+}
+
+func TestSeedRoleKeys(t *testing.T) {
+	if got := seedRoleKeys(); !reflect.DeepEqual(got, []string{seedRoleAssistant}) {
+		t.Fatalf("seedRoleKeys() = %v, want [%q]", got, seedRoleAssistant)
 	}
 }
 
@@ -134,6 +137,28 @@ func TestSeedInsightMDFrom(t *testing.T) {
 		if text != "" || hasSeed {
 			t.Fatalf("seedInsightMDFrom(%q) = (%q, %v), want empty and false", roleKey, text, hasSeed)
 		}
+	}
+}
+
+func TestSeedInsightMD(t *testing.T) {
+	root := assetRoot("unused by embedded reads")
+	text, hasSeed, err := root.seedInsightMD(seedRoleAssistant)
+	if err != nil {
+		t.Fatalf("seedInsightMD(assistant): %v", err)
+	}
+	if !hasSeed || !strings.Contains(text, "# 接案窗口") {
+		t.Fatalf("seedInsightMD(assistant) = (%q, %v), want the embedded assistant insight", text, hasSeed)
+	}
+	if strings.Contains(text, ownerPlaceholder) {
+		t.Fatalf("seedInsightMD(assistant) left the owner placeholder in the returned seed")
+	}
+
+	text, hasSeed, err = root.seedInsightMD("engineer")
+	if err != nil {
+		t.Fatalf("seedInsightMD(engineer): %v", err)
+	}
+	if text != "" || hasSeed {
+		t.Fatalf("seedInsightMD(engineer) = (%q, %v), want empty and false", text, hasSeed)
 	}
 }
 

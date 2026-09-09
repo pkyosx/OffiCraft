@@ -997,6 +997,42 @@ func TestWriteTaskWriteReceipt(t *testing.T) {
 			"description_sha256":     "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
 		})
 	})
+
+	t.Run("a direct receipt contains empty collections for a task with no plan, dependencies or artifacts", func(t *testing.T) {
+		api, h, d, owner := newAPITestServer(t)
+		apiJSON(t, h, "POST", "/api/tasks", owner,
+			`{"title":"Ship it","executor_member_id":"kip","description":"desc"}`)
+		task, err := d.GetTask("T-1")
+		if err != nil || task == nil {
+			t.Fatalf("GetTask: task=%#v err=%v", task, err)
+		}
+
+		rec := httptest.NewRecorder()
+		api.writeTaskWriteReceipt(rec, *task)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("want 200, got %d (%s)", rec.Code, rec.Body.String())
+		}
+		var body map[string]any
+		if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+			t.Fatalf("non-JSON body: %s", rec.Body.String())
+		}
+		apiWantBody(t, body, map[string]any{
+			"task_id":                "T-1",
+			"title":                  "Ship it",
+			"status":                 "not_started",
+			"executor_id":            "kip",
+			"executor_kind":          "staff",
+			"lock":                   "",
+			"closed_ts":              nil,
+			"duplicate_of":           "",
+			"deps":                   []any{},
+			"progress_done":          0,
+			"progress_total":         0,
+			"artifact_count":         0,
+			"description_size_chars": 4,
+			"description_sha256":     "97864e878fe129a3d4c35681c3ad4b12743f04f7cd705643f2fa1142dfede601",
+		})
+	})
 }
 
 func TestWriteTaskArtifactReceipt(t *testing.T) {
@@ -1037,6 +1073,34 @@ func TestWriteTaskArtifactReceipt(t *testing.T) {
 			"task_id":        "T-1",
 			"artifact_id":    artifactID,
 			"artifact_count": 0,
+		})
+	})
+
+	t.Run("a direct receipt names the touched artifact and the current set size", func(t *testing.T) {
+		api, h, d, owner := newAPITestServer(t)
+		apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"Ship it","executor_member_id":"kip"}`)
+		agent := apiTestAgentToken(t, api, "kip", "")
+		_, pinned := apiJSON(t, h, "POST", "/api/tasks/T-1/artifact", agent,
+			`{"kind":"link","name":"PR #123","url":"https://example.com/pr/123"}`)
+		artifactID, _ := pinned["artifact_id"].(string)
+		task, err := d.GetTask("T-1")
+		if err != nil || task == nil {
+			t.Fatalf("GetTask: task=%#v err=%v", task, err)
+		}
+
+		rec := httptest.NewRecorder()
+		api.writeTaskArtifactReceipt(rec, *task, artifactID)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("want 200, got %d (%s)", rec.Code, rec.Body.String())
+		}
+		var body map[string]any
+		if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+			t.Fatalf("non-JSON body: %s", rec.Body.String())
+		}
+		apiWantBody(t, body, map[string]any{
+			"task_id":        "T-1",
+			"artifact_id":    artifactID,
+			"artifact_count": 1,
 		})
 	})
 }
@@ -6189,6 +6253,29 @@ func TestArtifactOnTask(t *testing.T) {
 			t.Fatalf("want the one retained version, got %v", versions)
 		}
 	})
+
+	t.Run("a write caller receives the addressed task and artifact pair", func(t *testing.T) {
+		api, h, d, owner := newAPITestServer(t)
+		apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"Ship it","executor_member_id":"kip"}`)
+		agent := apiTestAgentToken(t, api, "kip", "")
+		_, pinned := apiJSON(t, h, "POST", "/api/tasks/T-1/artifact", agent,
+			`{"kind":"link","name":"PR #123","url":"https://example.com/pr/123"}`)
+		artifactID, _ := pinned["artifact_id"].(string)
+
+		taskTestUnderCaller(t, api, d, agent, func(r *http.Request) {
+			rec := httptest.NewRecorder()
+			task, artifact, ok := api.artifactOnTask(rec, r, "T-1", artifactID, artifactWrite)
+			if !ok || task == nil || artifact == nil {
+				t.Fatalf("artifactOnTask: ok=%v task=%#v artifact=%#v", ok, task, artifact)
+			}
+			if rec.Code != http.StatusOK {
+				t.Fatalf("want 200, got %d (%s)", rec.Code, rec.Body.String())
+			}
+			if task.ID != "T-1" || artifact.ID != artifactID || artifact.TaskID != "T-1" {
+				t.Fatalf("resolved pair = task %#v, artifact %#v", *task, *artifact)
+			}
+		})
+	})
 }
 
 func TestHandleReplaceTaskArtifactApiTasksTaskIdArtifactArtifactIdReplacePost(t *testing.T) {
@@ -6698,6 +6785,37 @@ func TestWriteTaskArtifactReplaceReceipt(t *testing.T) {
 			"artifact_id":    artifactID,
 			"artifact_count": 1,
 			"version_count":  3,
+		})
+	})
+
+	t.Run("a direct receipt reports the retained history for the addressed artifact", func(t *testing.T) {
+		api, h, d, owner := newAPITestServer(t)
+		apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"Ship it","executor_member_id":"kip"}`)
+		agent := apiTestAgentToken(t, api, "kip", "")
+		_, pinned := apiJSON(t, h, "POST", "/api/tasks/T-1/artifact", agent,
+			`{"kind":"link","name":"PR #123","url":"https://example.com/pr/123"}`)
+		artifactID, _ := pinned["artifact_id"].(string)
+		apiJSON(t, h, "POST", "/api/tasks/T-1/artifact/"+artifactID+"/replace", agent,
+			`{"url":"https://example.com/pr/124"}`)
+		task, err := d.GetTask("T-1")
+		if err != nil || task == nil {
+			t.Fatalf("GetTask: task=%#v err=%v", task, err)
+		}
+
+		rec := httptest.NewRecorder()
+		api.writeTaskArtifactReplaceReceipt(rec, *task, artifactID)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("want 200, got %d (%s)", rec.Code, rec.Body.String())
+		}
+		var body map[string]any
+		if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+			t.Fatalf("non-JSON body: %s", rec.Body.String())
+		}
+		apiWantBody(t, body, map[string]any{
+			"task_id":        "T-1",
+			"artifact_id":    artifactID,
+			"artifact_count": 1,
+			"version_count":  2,
 		})
 	})
 }

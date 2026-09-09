@@ -722,6 +722,22 @@ func TestListChatBefore(t *testing.T) {
 		t.Fatalf("ListChatBefore at the oldest message: %v", err)
 	}
 	dalWantChats(t, "nothing is older than the first message", got, []ChatMessage{})
+
+	t.Run("equal timestamps exclude the cursor and a compound filter keeps both sides", func(t *testing.T) {
+		got, err := d.listChatBefore(chatListFilter{sender: "ann", recipient: "bob"}, 200, "m2", -1)
+		if err != nil {
+			t.Fatalf("listChatBefore with a compound filter: %v", err)
+		}
+		dalWantChats(t, "the equal-ts cursor is exclusive", got, []ChatMessage{m1})
+	})
+
+	t.Run("a line with no messages answers an empty page", func(t *testing.T) {
+		got, err := d.listChatBefore(chatListFilter{participant: "nobody"}, 999, "missing", 10)
+		if err != nil {
+			t.Fatalf("listChatBefore with no matching line: %v", err)
+		}
+		dalWantChats(t, "a missing line", got, []ChatMessage{})
+	})
 }
 
 func TestNewerThan(t *testing.T) {
@@ -834,6 +850,22 @@ func TestListChatLatest(t *testing.T) {
 		t.Fatalf("ListChatLatest(nobody): %v", err)
 	}
 	dalWantChats(t, "a participant with no line reads nothing", got, []ChatMessage{})
+
+	t.Run("a one-sided filter is applied before the newest row is selected", func(t *testing.T) {
+		got, err := d.listChatLatest(chatListFilter{recipient: "bob"}, 1)
+		if err != nil {
+			t.Fatalf("listChatLatest with a recipient filter: %v", err)
+		}
+		dalWantChats(t, "the newest message received by bob", got, []ChatMessage{m4})
+	})
+
+	t.Run("a line with no messages answers an empty page", func(t *testing.T) {
+		got, err := d.listChatLatest(chatListFilter{sender: "nobody"}, 10)
+		if err != nil {
+			t.Fatalf("listChatLatest with no matching line: %v", err)
+		}
+		dalWantChats(t, "a missing line", got, []ChatMessage{})
+	})
 }
 
 func TestListChatUnread(t *testing.T) {
@@ -1030,6 +1062,43 @@ func TestSaveWithDocumentHistory(t *testing.T) {
 	if !reflect.DeepEqual(after, got) {
 		t.Fatalf("a failed write must retain nothing:\n got %+v\nwant %+v", after, got)
 	}
+
+	t.Run("a real snapshot query retains the row it replaces before the write lands", func(t *testing.T) {
+		d := newAPITestDAL(t)
+		if err := d.PutSetting("snapshot", `{"v":1}`); err != nil {
+			t.Fatalf("PutSetting(snapshot): %v", err)
+		}
+		since := nowSecs()
+		if err := d.SaveWithDocumentHistory("role_definition", "engineer", "owner",
+			func(q sqlQuerier) (string, error) {
+				var value string
+				if err := q.QueryRow(`SELECT value FROM setting WHERE key = ?`, "snapshot").Scan(&value); err != nil {
+					return "", err
+				}
+				return value, nil
+			}, func(ex sqlExecer) error {
+				_, err := ex.Exec(`UPDATE setting SET value = ? WHERE key = ?`, `{"v":2}`, "snapshot")
+				return err
+			}); err != nil {
+			t.Fatalf("SaveWithDocumentHistory with a real snapshot: %v", err)
+		}
+
+		history, err := d.ListDocumentHistory("role_definition", "engineer")
+		if err != nil {
+			t.Fatalf("ListDocumentHistory: %v", err)
+		}
+		dalWantHistory(t, "the value read through sqlQuerier", history, []DocumentHistory{
+			{DocumentKind: "role_definition", DocumentKey: "engineer", ContentJSON: `{"v":1}`, ActorID: "owner"},
+		}, since)
+
+		current, err := d.GetSetting("snapshot")
+		if err != nil {
+			t.Fatalf("GetSetting(snapshot): %v", err)
+		}
+		if current == nil || *current != `{"v":2}` {
+			t.Fatalf("the replacement write: want %q, got %v", `{"v":2}`, current)
+		}
+	})
 }
 
 func TestSaveWithDocumentHistories(t *testing.T) {

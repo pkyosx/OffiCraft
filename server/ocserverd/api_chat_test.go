@@ -1,6 +1,3 @@
-// Skeleton generated from server/ocserverd/api_chat.go by gen_test_skeletons.py.
-// Every case is a t.Skip placeholder: fill the body, keep or rewrite the name.
-
 package main
 
 import (
@@ -3408,6 +3405,34 @@ func TestHandleChatUnreadCountApiChatUnreadCountGet(t *testing.T) {
 			t.Fatalf("want 200, got %d (%v)", status, data)
 		}
 		apiWantBody(t, data, map[string]any{"unread": 0})
+	})
+
+	t.Run("a live outsource line counts while a released worker's leftovers do not", func(t *testing.T) {
+		_, h, d, owner := newAPITestServer(t)
+		live := Member{
+			ID: "worker-live", Name: "Live worker", Kind: KindOutsource,
+			Codename: "O-live", RosterStatus: RosterStatusActive,
+		}
+		released := Member{
+			ID: "worker-released", Name: "Released worker", Kind: KindOutsource,
+			Codename: "O-released", RosterStatus: RosterStatusRemoved,
+		}
+		for _, member := range []Member{live, released} {
+			if err := d.PutMember(member); err != nil {
+				t.Fatalf("PutMember(%q): %v", member.ID, err)
+			}
+		}
+		dalPutChats(t, d,
+			dalChat("live-1", live.ID, "owner", 100),
+			dalChat("live-2", live.ID, "owner", 200),
+			dalChat("released-1", released.ID, "owner", 300),
+		)
+
+		status, data := apiJSON(t, h, "GET", "/api/chat/unread-count", owner, "")
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		apiWantBody(t, data, map[string]any{"unread": 2})
 	})
 
 	t.Run("a request without credentials answers 401", func(t *testing.T) {

@@ -1,6 +1,3 @@
-// Skeleton generated from server/ocserverd/browser.go by gen_test_skeletons.py.
-// Every case is a t.Skip placeholder: fill the body, keep or rewrite the name.
-
 package main
 
 import (
@@ -120,4 +117,54 @@ func TestPopFirstRunBrowser(t *testing.T) {
 			t.Fatalf("output = %q, want the full clickable URL", got)
 		}
 	})
+}
+
+func TestFirstRunSetupURL(t *testing.T) {
+	for _, tc := range []struct {
+		name, addr, token, want string
+	}{
+		{name: "loopback listener uses http", addr: "127.0.0.1:7757", token: "claim_-1", want: "http://127.0.0.1:7757/?code=claim_-1"},
+		{name: "localhost listener uses http", addr: "localhost:7757", token: "claim", want: "http://localhost:7757/?code=claim"},
+		{name: "non-loopback listener uses https", addr: "studio.example:7757", token: "claim", want: "https://studio.example:7757/?code=claim"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := firstRunSetupURL(tc.addr, tc.token); got != tc.want {
+				t.Fatalf("firstRunSetupURL(%q, %q) = %q, want %q", tc.addr, tc.token, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestShouldAutoOpenBrowser(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		noOpen    string
+		stdoutTTY bool
+		want      bool
+	}{
+		{name: "interactive output opens", stdoutTTY: true, want: true},
+		{name: "piped output does not open", stdoutTTY: false, want: false},
+		{name: "explicit opt out does not open", noOpen: "1", stdoutTTY: true, want: false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			env := func(name string) string {
+				if name == "OC_NO_OPEN_BROWSER" {
+					return tc.noOpen
+				}
+				return ""
+			}
+			if got := shouldAutoOpenBrowser(env, tc.stdoutTTY); got != tc.want {
+				t.Fatalf("shouldAutoOpenBrowser(tty=%v, no-open=%q) = %v, want %v", tc.stdoutTTY, tc.noOpen, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestRunBrowserCommand(t *testing.T) {
+	if err := runBrowserCommand("true"); err != nil {
+		t.Fatalf("runBrowserCommand(true): %v", err)
+	}
+	if err := runBrowserCommand("false"); err == nil {
+		t.Fatal("runBrowserCommand(false) = nil, want the command failure")
+	}
 }

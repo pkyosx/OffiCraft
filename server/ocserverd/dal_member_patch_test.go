@@ -398,6 +398,69 @@ func TestInsertMemberRowIfAbsent(t *testing.T) {
 	})
 }
 
+func TestSetMemberAgentIatFloor(t *testing.T) {
+	d := newAPITestDAL(t)
+	m := dalPutMember(t, d, dalTestMember("ann", "Ann"))
+
+	if err := d.SetMemberAgentIatFloor("ann", 1800000000); err != nil {
+		t.Fatalf("SetMemberAgentIatFloor(newer): %v", err)
+	}
+	m.AgentIatFloor = 1800000000
+	dalWantMember(t, d, m)
+
+	if err := d.SetMemberAgentIatFloor("ann", 1700000000); err != nil {
+		t.Fatalf("SetMemberAgentIatFloor(older): %v", err)
+	}
+	dalWantMember(t, d, m)
+
+	if err := d.SetMemberAgentIatFloor("ghost", 1900000000); err != nil {
+		t.Fatalf("SetMemberAgentIatFloor(unknown): %v", err)
+	}
+	if got := dalMemberIDs(t, d); !reflect.DeepEqual(got, []string{"ann"}) {
+		t.Fatalf("roster after unknown floor update = %v, want [ann]", got)
+	}
+}
+
+func TestSetMemberForcedStopAt(t *testing.T) {
+	d := newAPITestDAL(t)
+	m := dalPutMember(t, d, dalTestMember("ann", "Ann"))
+
+	if err := d.SetMemberForcedStopAt("ann", 1800000000); err != nil {
+		t.Fatalf("SetMemberForcedStopAt(newer): %v", err)
+	}
+	m.ForcedStopAt = 1800000000
+	dalWantMember(t, d, m)
+
+	if err := d.SetMemberForcedStopAt("ann", 0); err != nil {
+		t.Fatalf("SetMemberForcedStopAt(zero): %v", err)
+	}
+	dalWantMember(t, d, m)
+}
+
+func TestSetMemberTokenKeyID(t *testing.T) {
+	d := newAPITestDAL(t)
+	m := dalPutMember(t, d, dalTestMember("ann", "Ann"))
+
+	if err := d.SetMemberTokenKeyID("ann", "ring-new"); err != nil {
+		t.Fatalf("SetMemberTokenKeyID(new): %v", err)
+	}
+	m.TokenKeyID = "ring-new"
+	dalWantMember(t, d, m)
+
+	if err := d.SetMemberTokenKeyID("ann", "ring-old"); err != nil {
+		t.Fatalf("SetMemberTokenKeyID(observation can move backwards): %v", err)
+	}
+	m.TokenKeyID = "ring-old"
+	dalWantMember(t, d, m)
+
+	if err := d.SetMemberTokenKeyID("ghost", "ring-ghost"); err != nil {
+		t.Fatalf("SetMemberTokenKeyID(unknown): %v", err)
+	}
+	if got := dalMemberIDs(t, d); !reflect.DeepEqual(got, []string{"ann"}) {
+		t.Fatalf("roster after unknown key update = %v, want [ann]", got)
+	}
+}
+
 func boolPtr(v bool) *bool { return &v }
 
 // dalMemberColumnIsNull answers whether one member column holds SQL NULL, which

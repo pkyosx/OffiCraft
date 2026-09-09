@@ -1933,6 +1933,26 @@ func TestMcpCatalogTools(t *testing.T) {
 		result, _ := data["result"].(map[string]any)
 		apiWantValue(t, "tools/list", result["tools"], tools)
 	})
+
+	t.Run("tools/list still serves the frozen catalog when the disk root has no catalog", func(t *testing.T) {
+		api, h, owner := apiTestMCPServer(t)
+		api.root = assetRoot(t.TempDir())
+
+		status, data := apiMCP(t, h, owner, `{"jsonrpc":"2.0","id":2,"method":"tools/list"}`)
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		result, _ := data["result"].(map[string]any)
+		tools, ok := result["tools"].([]any)
+		if !ok || len(tools) != 127 {
+			t.Fatalf("want the embedded catalog's 127 descriptors, got %#v", result["tools"])
+		}
+		first, _ := tools[0].(map[string]any)
+		last, _ := tools[len(tools)-1].(map[string]any)
+		if first["name"] != "get_version" || last["name"] != "replace_task_artifact" {
+			t.Fatalf("the catalog order moved: first %#v, last %#v", first["name"], last["name"])
+		}
+	})
 }
 
 func TestHandleMcpApiMcpPost(t *testing.T) {

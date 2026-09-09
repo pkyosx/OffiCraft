@@ -643,6 +643,60 @@ func TestForcedEpochLive(t *testing.T) {
 	}
 }
 
+func TestARefocusStampWouldReachTheAgent(t *testing.T) {
+	for _, tc := range []struct {
+		name          string
+		desiredState  string
+		wantReachable bool
+	}{
+		{name: "an online intent is reachable by the member", desiredState: DesiredStateOnline, wantReachable: true},
+		{name: "an offline intent cannot receive a refocus stamp", desiredState: DesiredStateOffline, wantReachable: false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := aRefocusStampWouldReachTheAgent(Member{DesiredState: tc.desiredState}); got != tc.wantReachable {
+				t.Fatalf("a refocus stamp reachability: want %v, got %v", tc.wantReachable, got)
+			}
+		})
+	}
+}
+
+func TestAStopWasEverAskedFor(t *testing.T) {
+	for _, tc := range []struct {
+		name          string
+		stoppingSince float64
+		wantAsked     bool
+	}{
+		{name: "a member with no stop anchor was never asked to stop", stoppingSince: 0, wantAsked: false},
+		{name: "a positive stop anchor records that the owner asked", stoppingSince: 1000, wantAsked: true},
+		{name: "a negative sentinel is not a stop request", stoppingSince: -1, wantAsked: false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := aStopWasEverAskedFor(Member{StoppingSince: tc.stoppingSince}); got != tc.wantAsked {
+				t.Fatalf("stop request history: want %v, got %v", tc.wantAsked, got)
+			}
+		})
+	}
+}
+
+func TestGracefulStopEpochOpen(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		member Member
+		want   bool
+	}{
+		{name: "an ordinary open stop can still be worked", member: Member{StoppingSince: 1000}, want: true},
+		{name: "a forced stop is already cut off", member: Member{StoppingSince: 1000, ForcedStopAt: 1000}, want: false},
+		{name: "an older force-stop record does not close the current ordinary epoch", member: Member{StoppingSince: 1000, ForcedStopAt: 999}, want: true},
+		{name: "a row without an open stop epoch is not graceful", member: Member{ForcedStopAt: 1000}, want: false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := gracefulStopEpochOpen(tc.member); got != tc.want {
+				t.Fatalf("graceful stop epoch: want %v, got %v", tc.want, got)
+			}
+		})
+	}
+}
+
 func TestStopEpochAnchor(t *testing.T) {
 	cases := []struct {
 		name   string
@@ -2107,6 +2161,34 @@ func TestHandleForceStopMemberApiMembersMemberIdForceStopPost(t *testing.T) {
 		if m.StoppingSince <= 0 {
 			t.Fatalf("the stop epoch must be open, got %v", m.StoppingSince)
 		}
+		if !forcedEpochLive(*m) {
+			t.Fatalf("the persisted anchors must identify a live forced epoch, got stopping=%v forced=%v",
+				m.StoppingSince, m.ForcedStopAt)
+		}
+	})
+
+	t.Run("a repeated force-stop never moves the durable cut-off record backwards", func(t *testing.T) {
+		_, h, d, owner := newAPITestServer(t)
+
+		if status, data := apiJSON(t, h, "POST", "/api/members/kip/force-stop", owner, `{}`); status != 200 {
+			t.Fatalf("first force-stop: %d %v", status, data)
+		}
+		first, err := d.GetMember("kip")
+		if err != nil || first == nil {
+			t.Fatalf("first GetMember: %v (%v)", first, err)
+		}
+
+		if status, data := apiJSON(t, h, "POST", "/api/members/kip/force-stop", owner, `{}`); status != 200 {
+			t.Fatalf("second force-stop: %d %v", status, data)
+		}
+		second, err := d.GetMember("kip")
+		if err != nil || second == nil {
+			t.Fatalf("second GetMember: %v (%v)", second, err)
+		}
+		if second.ForcedStopAt < first.ForcedStopAt {
+			t.Fatalf("the cut-off record moved backwards: first=%v second=%v",
+				first.ForcedStopAt, second.ForcedStopAt)
+		}
 	})
 
 	t.Run("a member id nothing carries answers 404 naming it and fans nothing", func(t *testing.T) {
@@ -2677,7 +2759,11 @@ func TestHandleReportWakingApiSelfWakingPost(t *testing.T) {
 		if status, data := apiJSON(t, h, "POST", "/api/members/kip/activate", owner, `{}`); status != 200 {
 			t.Fatalf("activate: %d %v", status, data)
 		}
-		agent := apiTestAgentToken(t, api, "kip", "")
+		issued := time.Now().Unix() - 100
+		agent, err := mintJWT("kip", "agent", 3600, api.keys.signingSecret(), issued, "")
+		if err != nil {
+			t.Fatalf("mintJWT: %v", err)
+		}
 		dashboard := apiTestListen(t, api, "")
 		self := apiTestListen(t, api, "kip")
 		bystander := apiTestListen(t, api, "mira")
@@ -2726,8 +2812,8 @@ func TestHandleReportWakingApiSelfWakingPost(t *testing.T) {
 		if m.ActualModel != "claude-opus-5" {
 			t.Fatalf("want the reported model stored, got %q", m.ActualModel)
 		}
-		if m.AgentIatFloor <= 0 {
-			t.Fatalf("the credential floor must be raised, got %v", m.AgentIatFloor)
+		if m.AgentIatFloor != float64(issued) {
+			t.Fatalf("the credential floor must equal the waking token's iat %d, got %v", issued, m.AgentIatFloor)
 		}
 	})
 

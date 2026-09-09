@@ -1725,6 +1725,20 @@ func TestWorkerHasStateToFlush(t *testing.T) {
 	})
 }
 
+func TestHasUncollectedOnlineOwnerOpState(t *testing.T) {
+	t.Run("an offline worker has nothing to flush even when a refocus marker remains", func(t *testing.T) {
+		if got := hasUncollectedOnlineOwnerOpState(10, 0, false); got {
+			t.Fatal("an offline worker must not report online owner-operation state")
+		}
+	})
+
+	t.Run("an online worker whose refocus and stopped markers are both present has been collected", func(t *testing.T) {
+		if got := hasUncollectedOnlineOwnerOpState(10, 20, true); got {
+			t.Fatal("a worker with both close-out markers must have no state left to flush")
+		}
+	})
+}
+
 func TestRespawnWorkerForOwnerOp(t *testing.T) {
 	t.Run("a worker the owner has held down only records the change: nothing is dispatched and the row says why", func(t *testing.T) {
 		api, h, d, owner, w := wsWorkerSpawnFixture(t, WorkerStatusActive)
@@ -1800,6 +1814,30 @@ func TestRespawnWorkerForOwnerOp(t *testing.T) {
 		}
 		apiWantValue(t, "the dispatched verb",
 			any(frames[0]["data"].(map[string]any)["rpc"]), any("start"))
+	})
+}
+
+func TestRelocateWorkerNow(t *testing.T) {
+	t.Run("an unlanded worker is dispatched through the relocate owner-operation seam", func(t *testing.T) {
+		api, _, _, _, worker := wsWorkerSpawnFixture(t, WorkerStatusAssigned)
+		apiTestListen(t, api, ServerSelfHost)
+		worker.DesiredMachineID = ServerSelfHost
+		worker.DesiredState = DesiredStateOnline
+
+		api.outsourceMu.Lock()
+		outcome := api.relocateWorkerNow(worker)
+		api.outsourceMu.Unlock()
+
+		apiWantValue(t, "outcome", any(wsOutcome(outcome)), any(map[string]any{
+			"dispatched": true, "wound_down": false, "held_down": false,
+			"already_running": false, "pending": false,
+		}))
+		frames := wsDrainWardenFrames(t, api, ServerSelfHost)
+		if len(frames) != 1 {
+			t.Fatalf("want one relocate start frame, got %d (%v)", len(frames), frames)
+		}
+		apiWantValue(t, "dispatched verb", any(frames[0]["data"].(map[string]any)["rpc"]), any("start"))
+		apiWantValue(t, "dispatched subject", any(frames[0]["subject"]), any(worker.ID))
 	})
 }
 

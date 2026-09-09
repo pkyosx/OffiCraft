@@ -1166,4 +1166,188 @@ func TestDecodePatchEdits(t *testing.T) {
 	})
 }
 
+func TestDecodeJSONBody(t *testing.T) {
+	t.Run("an all-optional body accepts an empty object and leaves the destination at its zero value", func(t *testing.T) {
+		var dst LessonsPatchDTO
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest("POST", "/api/probe", strings.NewReader(`{}`))
+
+		if ok := decodeJSONBody(rec, req, &dst); !ok {
+			t.Fatal("decodeJSONBody({}) = false, want true")
+		}
+		apiWantValue(t, "status", any(float64(rec.Code)), any(200))
+		apiWantValue(t, "body", any(rec.Body.String()), any(""))
+		apiWantValue(t, "destination", any(apiHelpersWire(t, dst)), any(map[string]any{"edits": nil}))
+	})
+
+	t.Run("an unknown field is rejected at the public decoder face", func(t *testing.T) {
+		var dst LessonsPatchDTO
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest("POST", "/api/probe", strings.NewReader(`{"learnings":"not a patch"}`))
+
+		if ok := decodeJSONBody(rec, req, &dst); ok {
+			t.Fatal("decodeJSONBody with an unknown field = true, want false")
+		}
+		apiWantValue(t, "status", any(float64(rec.Code)), any(422))
+		apiWantError(t, apiHelpersWritten(t, rec), "validation_error",
+			`invalid request body: json: unknown field "learnings"`)
+	})
+}
+
+func TestDecodeJSONBodyRequired(t *testing.T) {
+	t.Run("a named key is decoded and accepted when the caller sends it", func(t *testing.T) {
+		var dst LessonsPatchDTO
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest("POST", "/api/probe",
+			strings.NewReader(`{"edits":[]}`))
+
+		if ok := decodeJSONBodyRequired(rec, req, &dst, "edits"); !ok {
+			t.Fatal("decodeJSONBodyRequired with edits = false, want true")
+		}
+		apiWantValue(t, "status", any(float64(rec.Code)), any(200))
+		apiWantValue(t, "decoded edits", any(dst.Edits), any([]LessonsEditDTO{}))
+	})
+
+	t.Run("an omitted named key is rejected before a caller can use the zero value as a write", func(t *testing.T) {
+		var dst LessonsPatchDTO
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest("POST", "/api/probe",
+			strings.NewReader(`{"allow_shrink":true}`))
+
+		if ok := decodeJSONBodyRequired(rec, req, &dst, "edits"); ok {
+			t.Fatal("decodeJSONBodyRequired without edits = true, want false")
+		}
+		apiWantValue(t, "status", any(float64(rec.Code)), any(422))
+		apiWantError(t, apiHelpersWritten(t, rec), "validation_error", "field required: edits")
+	})
+}
+
+func TestDecodeJSONBodyPresent(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		body  string
+		want  map[string]bool
+		allow *bool
+	}{
+		{name: "omitted optional key", body: `{"edits":[]}`, want: map[string]bool{"edits": true}},
+		{name: "explicit null optional key", body: `{"edits":[],"allow_shrink":null}`, want: map[string]bool{"edits": true, "allow_shrink": true}},
+		{name: "explicit false optional key", body: `{"edits":[],"allow_shrink":false}`, want: map[string]bool{"edits": true, "allow_shrink": true}, allow: apiHelpersBool(false)},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var dst LessonsPatchDTO
+			rec := httptest.NewRecorder()
+			req := httptest.NewRequest("POST", "/api/probe", strings.NewReader(tc.body))
+
+			got, ok := decodeJSONBodyPresent(rec, req, &dst, "edits")
+			if !ok {
+				t.Fatalf("decodeJSONBodyPresent(%s) = false, want true", tc.body)
+			}
+			apiWantValue(t, "status", any(float64(rec.Code)), any(200))
+			apiWantValue(t, "sent keys", any(got), any(tc.want))
+			apiWantValue(t, "allow_shrink pointer", any(dst.AllowShrink), any(tc.allow))
+		})
+	}
+}
+
+func TestIsMemberAvatarAttachmentID(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		id   string
+		want bool
+	}{
+		{name: "avatar id is recognized", id: "ava-123", want: true},
+		{name: "avatar prefix alone is recognized by the id predicate", id: "ava-", want: true},
+		{name: "ordinary attachment id is not an avatar", id: "att-123", want: false},
+		{name: "missing separator is not an avatar id", id: "ava", want: false},
+		{name: "empty id is not an avatar", id: "", want: false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := isMemberAvatarAttachmentID(tc.id); got != tc.want {
+				t.Fatalf("isMemberAvatarAttachmentID(%q) = %v, want %v", tc.id, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestValidEffort(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		effort string
+		want   bool
+	}{
+		{name: "low is accepted", effort: "low", want: true},
+		{name: "medium is accepted", effort: "medium", want: true},
+		{name: "high is accepted", effort: "high", want: true},
+		{name: "xhigh is accepted", effort: "xhigh", want: true},
+		{name: "max is accepted", effort: "max", want: true},
+		{name: "empty effort is refused", effort: "", want: false},
+		{name: "wrong case is refused", effort: "LOW", want: false},
+		{name: "padded effort is refused", effort: "medium ", want: false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := validEffort(tc.effort); got != tc.want {
+				t.Fatalf("validEffort(%q) = %v, want %v", tc.effort, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestValidRuntime(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		runtime string
+		want    bool
+	}{
+		{name: "claude is accepted", runtime: RuntimeClaude, want: true},
+		{name: "codex is accepted", runtime: RuntimeCodex, want: true},
+		{name: "empty runtime is refused", runtime: "", want: false},
+		{name: "padded runtime is refused", runtime: " claude ", want: false},
+		{name: "unknown runtime is refused", runtime: "opus", want: false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := ValidRuntime(tc.runtime); got != tc.want {
+				t.Fatalf("ValidRuntime(%q) = %v, want %v", tc.runtime, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestTrimString(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		input string
+		want  string
+	}{
+		{name: "ascii surrounding whitespace is removed", input: "  note  ", want: "note"},
+		{name: "unicode surrounding whitespace is removed", input: "\u2003note\n", want: "note"},
+		{name: "all whitespace becomes empty", input: "\t \n", want: ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := trimString(tc.input); got != tc.want {
+				t.Fatalf("trimString(%q) = %q, want %q", tc.input, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestTrimmedOrEmpty(t *testing.T) {
+	value := "  note  "
+	blank := " \t\n"
+	for _, tc := range []struct {
+		name  string
+		input *string
+		want  string
+	}{
+		{name: "nil pointer", want: ""},
+		{name: "whitespace pointer", input: &blank, want: ""},
+		{name: "trimmed value", input: &value, want: "note"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := trimmedOrEmpty(tc.input); got != tc.want {
+				t.Fatalf("trimmedOrEmpty(%v) = %q, want %q", tc.input, got, tc.want)
+			}
+		})
+	}
+}
+
 func apiHelpersBool(b bool) *bool { return &b }

@@ -281,10 +281,21 @@ func TestHandleListOutsourceWorkersApiOutsourceWorkersGet(t *testing.T) {
 		apiWantError(t, data, "unauthorized", "missing credentials")
 	})
 
-	t.Run("a GET /api/outsource-workers request the wire layer rejects (malformed body, wrong content type, over the size cap) answers a 4xx without reaching the domain", func(t *testing.T) {
-		t.Skip("structurally unproducible: this GET decodes no request body and the " +
-			"stack carries no content-type or size middleware, so no wire-layer 4xx " +
-			"exists to observe — measured: a `{{{` body on this route still answers 200.")
+	t.Run("a malformed body is ignored and the live worker list remains fully observable", func(t *testing.T) {
+		api, h, d, owner := newAPITestServer(t)
+		apiTestWorkerFixture(t, h, d, owner, "ow-abc123", WorkerStatusAssigned)
+		dashboard := apiTestListen(t, api, "")
+
+		rec := apiRequest(t, h, "GET", "/api/outsource-workers", owner, `{{{`)
+		if rec.Code != 200 {
+			t.Fatalf("want 200, got %d (%s)", rec.Code, rec.Body.String())
+		}
+		var got any
+		if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+			t.Fatalf("non-JSON body: %s", rec.Body.String())
+		}
+		apiWantValue(t, "body", got, []any{apiTestWorkerRow(t, nil)})
+		dashboard.wantFrames()
 	})
 }
 
@@ -359,10 +370,17 @@ func TestHandleGetOutsourceWorkerApiOutsourceWorkersIdGet(t *testing.T) {
 		apiWantError(t, data, "unauthorized", "missing credentials")
 	})
 
-	t.Run("a GET /api/outsource-workers/{id} request the wire layer rejects (malformed body, wrong content type, over the size cap) answers a 4xx without reaching the domain", func(t *testing.T) {
-		t.Skip("structurally unproducible: this GET decodes no request body and the " +
-			"stack carries no content-type or size middleware, so no wire-layer 4xx " +
-			"exists to observe — measured: a `{{{` body on this route still answers 200.")
+	t.Run("a malformed body is ignored and the worker detail remains fully observable", func(t *testing.T) {
+		api, h, d, owner := newAPITestServer(t)
+		apiTestWorkerFixture(t, h, d, owner, "ow-abc123", WorkerStatusAssigned)
+		dashboard := apiTestListen(t, api, "")
+
+		status, data := apiJSON(t, h, "GET", "/api/outsource-workers/ow-abc123", owner, `{{{`)
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		apiWantBody(t, data, apiTestWorkerRow(t, nil))
+		dashboard.wantFrames()
 	})
 }
 
@@ -441,10 +459,17 @@ func TestHandleGetWorkerBootContextApiOutsourceWorkersIdBootContextGet(t *testin
 		apiWantError(t, data, "unauthorized", "missing credentials")
 	})
 
-	t.Run("a GET /api/outsource-workers/{id}/boot-context request the wire layer rejects (malformed body, wrong content type, over the size cap) answers a 4xx without reaching the domain", func(t *testing.T) {
-		t.Skip("structurally unproducible: this GET decodes no request body and the " +
-			"stack carries no content-type or size middleware, so no wire-layer 4xx " +
-			"exists to observe — measured: a `{{{` body on this route still answers 200.")
+	t.Run("a malformed body is ignored and the boot-context preview remains observable", func(t *testing.T) {
+		api, h, d, owner := newAPITestServer(t)
+		apiTestWorkerFixture(t, h, d, owner, "ow-abc123", WorkerStatusAssigned)
+		dashboard := apiTestListen(t, api, "")
+
+		status, data := apiJSON(t, h, "GET", "/api/outsource-workers/ow-abc123/boot-context", owner, `{{{`)
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		apiWantBody(t, data, map[string]any{"context": apiAnyString})
+		dashboard.wantFrames()
 	})
 }
 
@@ -860,10 +885,30 @@ func TestHandleRefocusOutsourceWorkerApiOutsourceWorkersIdRefocusPost(t *testing
 		}))
 	})
 
-	t.Run("a POST /api/outsource-workers/{id}/refocus request the wire layer rejects (malformed body, wrong content type, over the size cap) answers a 4xx without reaching the domain", func(t *testing.T) {
-		t.Skip("structurally unproducible: this route decodes no request body and the " +
-			"stack carries no content-type or size middleware, so no wire-layer 4xx " +
-			"exists to observe — measured: a `{{{` body on this route still answers 200.")
+	t.Run("a malformed body is ignored and refocus still returns its receipt and handover effects", func(t *testing.T) {
+		api, h, d, owner := newAPITestServer(t)
+		apiTestWorkerFixture(t, h, d, owner, "ow-abc123", WorkerStatusActive)
+		contractor := apiTestListen(t, api, "ow-abc123")
+		dashboard := apiTestListen(t, api, "")
+		bystander := apiTestListen(t, api, "kip")
+		push := apiTestWebPushSink(t, api)
+
+		status, data := apiJSON(t, h, "POST", "/api/outsource-workers/ow-abc123/refocus", owner, `{{{`)
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		apiWantBody(t, data, map[string]any{"id": "ow-abc123"})
+		apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, map[string]any{
+			"status": "active", "presence": "online",
+			"refocus_since": apiAnyNumber, "refocus_op": "refocus",
+		}))
+		dashboard.wantFrames(
+			apiTestHandoverDelta(2, "", apiTestOffboardNotice, "owner"),
+			apiTestWorkerDelta(3, "active", "owner"),
+		)
+		contractor.wantFrames(apiTestHandoverDelta(2, "", apiTestOffboardNotice, "owner"))
+		bystander.wantFrames()
+		push()
 	})
 }
 
@@ -1010,10 +1055,35 @@ func TestHandleAcceleratedStopOutsourceWorkerApiOutsourceWorkersIdAcceleratedSto
 		}))
 	})
 
-	t.Run("a POST /api/outsource-workers/{id}/accelerated-stop request the wire layer rejects (malformed body, wrong content type, over the size cap) answers a 4xx without reaching the domain", func(t *testing.T) {
-		t.Skip("structurally unproducible: this route decodes no request body and the " +
-			"stack carries no content-type or size middleware, so no wire-layer 4xx " +
-			"exists to observe — measured: a `{{{` body on this route still answers 200.")
+	t.Run("a malformed body is ignored and accelerated-stop still returns its receipt and escalation effects", func(t *testing.T) {
+		api, h, d, owner := newAPITestServer(t)
+		apiTestWorkerFixture(t, h, d, owner, "ow-abc123", WorkerStatusActive)
+		apiTestListen(t, api, "ow-abc123")
+		if code, data := apiJSON(t, h, "POST", "/api/outsource-workers/ow-abc123/refocus", owner, ""); code != 200 {
+			t.Fatalf("refocus: %d %v", code, data)
+		}
+		contractor := apiTestListen(t, api, "ow-abc123")
+		dashboard := apiTestListen(t, api, "")
+		bystander := apiTestListen(t, api, "kip")
+		push := apiTestWebPushSink(t, api)
+
+		status, data := apiJSON(t, h, "POST", "/api/outsource-workers/ow-abc123/accelerated-stop", owner, `{{{`)
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		apiWantBody(t, data, map[string]any{"id": "ow-abc123"})
+		apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, map[string]any{
+			"status": "active", "presence": "online",
+			"refocus_since": apiAnyNumber, "refocus_op": "accelerated_stop",
+			"refocus_deadline": apiAnyNumber,
+		}))
+		dashboard.wantFrames(
+			apiTestHandoverDelta(4, "", apiAnyString, "owner"),
+			apiTestWorkerDelta(5, "active", "owner"),
+		)
+		contractor.wantFrames(apiTestHandoverDelta(4, "", apiAnyString, "owner"))
+		bystander.wantFrames()
+		push()
 	})
 }
 
@@ -1156,10 +1226,29 @@ func TestHandleStopOutsourceWorkerApiOutsourceWorkersIdStopPost(t *testing.T) {
 		}))
 	})
 
-	t.Run("a POST /api/outsource-workers/{id}/stop request the wire layer rejects (malformed body, wrong content type, over the size cap) answers a 4xx without reaching the domain", func(t *testing.T) {
-		t.Skip("structurally unproducible: this route decodes no request body and the " +
-			"stack carries no content-type or size middleware, so no wire-layer 4xx " +
-			"exists to observe — measured: a `{{{` body on this route still answers 200.")
+	t.Run("a malformed body is ignored and stop still returns its receipt and close-out effects", func(t *testing.T) {
+		api, h, d, owner := newAPITestServer(t)
+		apiTestWorkerFixture(t, h, d, owner, "ow-abc123", WorkerStatusActive)
+		contractor := apiTestListen(t, api, "ow-abc123")
+		dashboard := apiTestListen(t, api, "")
+		bystander := apiTestListen(t, api, "kip")
+		push := apiTestWebPushSink(t, api)
+
+		status, data := apiJSON(t, h, "POST", "/api/outsource-workers/ow-abc123/stop", owner, `{{{`)
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		apiWantBody(t, data, map[string]any{"id": "ow-abc123"})
+		apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, map[string]any{
+			"status": "active", "presence": "stopping", "desired_state": "offline",
+		}))
+		dashboard.wantFrames(
+			apiTestHandoverDelta(2, "offline", apiTestOffboardNotice, "owner"),
+			apiTestWorkerDelta(3, "active", "owner"),
+		)
+		contractor.wantFrames(apiTestHandoverDelta(2, "offline", apiTestOffboardNotice, "owner"))
+		bystander.wantFrames()
+		push()
 	})
 }
 
@@ -1272,10 +1361,26 @@ func TestHandleForceStopOutsourceWorkerApiOutsourceWorkersIdForceStopPost(t *tes
 		}))
 	})
 
-	t.Run("a POST /api/outsource-workers/{id}/force-stop request the wire layer rejects (malformed body, wrong content type, over the size cap) answers a 4xx without reaching the domain", func(t *testing.T) {
-		t.Skip("structurally unproducible: this route decodes no request body and the " +
-			"stack carries no content-type or size middleware, so no wire-layer 4xx " +
-			"exists to observe — measured: a `{{{` body on this route still answers 200.")
+	t.Run("a malformed body is ignored and force-stop still returns its receipt and stop effects", func(t *testing.T) {
+		api, h, d, owner := newAPITestServer(t)
+		apiTestWorkerFixture(t, h, d, owner, "ow-abc123", WorkerStatusActive)
+		contractor := apiTestListen(t, api, "ow-abc123")
+		dashboard := apiTestListen(t, api, "")
+		bystander := apiTestListen(t, api, "kip")
+		push := apiTestWebPushSink(t, api)
+
+		status, data := apiJSON(t, h, "POST", "/api/outsource-workers/ow-abc123/force-stop", owner, `{{{`)
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		apiWantBody(t, data, map[string]any{"id": "ow-abc123"})
+		apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, map[string]any{
+			"status": "active", "presence": "stopping", "desired_state": "offline",
+		}))
+		dashboard.wantFrames(apiTestWorkerDelta(2, "active", "owner"))
+		contractor.wantFrames()
+		bystander.wantFrames()
+		push()
 	})
 }
 
@@ -1422,10 +1527,40 @@ func TestHandleRestartOutsourceWorkerApiOutsourceWorkersIdRestartPost(t *testing
 		}))
 	})
 
-	t.Run("a POST /api/outsource-workers/{id}/restart request the wire layer rejects (malformed body, wrong content type, over the size cap) answers a 4xx without reaching the domain", func(t *testing.T) {
-		t.Skip("structurally unproducible: this route decodes no request body and the " +
-			"stack carries no content-type or size middleware, so no wire-layer 4xx " +
-			"exists to observe — measured: a `{{{` body on this route still answers 200.")
+	t.Run("a malformed body is ignored and restart still returns its receipt and activation effects", func(t *testing.T) {
+		api, h, d, owner := newAPITestServer(t)
+		apiTestWorkerFixture(t, h, d, owner, "ow-abc123", WorkerStatusActive)
+		if code, data := apiJSON(t, h, "POST", "/api/outsource-workers/ow-abc123/force-stop", owner, ""); code != 200 {
+			t.Fatalf("force-stop: %d %v", code, data)
+		}
+		dashboard := apiTestListen(t, api, "")
+		bystander := apiTestListen(t, api, "kip")
+		push := apiTestWebPushSink(t, api)
+
+		status, data := apiJSON(t, h, "POST", "/api/outsource-workers/ow-abc123/restart", owner, `{{{`)
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		apiWantBody(t, data, map[string]any{
+			"id": "ow-abc123", "activation_pending": true,
+			"last_op_reason": "no_machine_selected: no machine is selected for this " +
+				"worker — pick one on the worker (改機器) or on the task type's 手冊 " +
+				"assignee; there is no automatic placement",
+		})
+		apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, map[string]any{
+			"status": "active", "desired_state": "online",
+			"last_op": "start", "last_op_ok": false, "last_op_at": apiAnyNumber,
+			"last_op_reason": "no_machine_selected: no machine is selected for this " +
+				"worker — pick one on the worker (改機器) or on the task type's 手冊 " +
+				"assignee; there is no automatic placement",
+		}))
+		dashboard.wantFrames(
+			apiTestWorkerDelta(3, "active", "server"),
+			apiTestWorkerDelta(4, "active", "server"),
+			apiTestWorkerDelta(5, "active", "owner"),
+		)
+		bystander.wantFrames()
+		push()
 	})
 }
 

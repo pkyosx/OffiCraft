@@ -6,31 +6,117 @@ import (
 )
 
 func TestTaskDescriptionHistorySnapshot(t *testing.T) {
-	t.Skip("pinned end to end: " +
-		"TestHandleUpdateTaskDescriptionApiTasksTaskIdDescriptionPost/\"a " +
-		"corrected description is stored trimmed…\" asserts the revision " +
-		"retained for a non-empty predecessor, and /\"the first correction of " +
-		"a task that never had a description retains no revision\" asserts the " +
-		"empty-predecessor branch retains nothing.")
+	for name, tc := range map[string]struct {
+		description string
+		want        string
+	}{
+		"an empty description retains no revision": {description: "", want: "{}"},
+		"a non-empty description is retained as its own document": {
+			description: "old scope", want: `{"description":"old scope"}`,
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			got, err := taskDescriptionHistorySnapshot(tc.description)
+			if err != nil {
+				t.Fatalf("taskDescriptionHistorySnapshot: %v", err)
+			}
+			if got != tc.want {
+				t.Fatalf("snapshot = %q, want %q", got, tc.want)
+			}
+		})
+	}
 }
 
 func TestTaskDescriptionSnapshotIn(t *testing.T) {
-	t.Skip("pinned end to end: the same two subtests read the retained set back " +
-		"at GET /api/document-history/task_description/T-1 — one revision " +
-		"holding the replaced text, none when there was no text to replace.")
+	t.Run("the transaction reader returns the current task description", func(t *testing.T) {
+		_, h, d, owner := newAPITestServer(t)
+		apiJSON(t, h, "POST", "/api/tasks", owner,
+			`{"title":"Ship it","executor_member_id":"kip","description":"old scope"}`)
+
+		got, err := taskDescriptionSnapshotIn("T-1")(d.rdb)
+		if err != nil {
+			t.Fatalf("taskDescriptionSnapshotIn: %v", err)
+		}
+		if got != `{"description":"old scope"}` {
+			t.Fatalf("snapshot = %q, want %q", got, `{"description":"old scope"}`)
+		}
+	})
+
+	t.Run("the transaction reader represents a missing task as an empty document", func(t *testing.T) {
+		_, _, d, _ := newAPITestServer(t)
+
+		got, err := taskDescriptionSnapshotIn("T-ghost")(d.rdb)
+		if err != nil {
+			t.Fatalf("taskDescriptionSnapshotIn: %v", err)
+		}
+		if got != "{}" {
+			t.Fatalf("snapshot = %q, want {}", got)
+		}
+	})
 }
 
 func TestTaskDescriptionHistoryStream(t *testing.T) {
-	t.Skip("pinned end to end: the retained revision read back in \"a corrected " +
-		"description is stored trimmed…\" carries this stream's kind " +
-		"(task_description), key (T-1) and actor_id (kip).")
+	_, h, d, owner := newAPITestServer(t)
+	apiJSON(t, h, "POST", "/api/tasks", owner,
+		`{"title":"Ship it","executor_member_id":"kip","description":"old scope"}`)
+
+	stream := taskDescriptionHistoryStream("T-1", "agent-kip")
+	if stream.Kind != docKindTaskDescription || stream.Key != "T-1" || stream.ActorID != "agent-kip" {
+		t.Fatalf("stream identity = {%q, %q, %q}", stream.Kind, stream.Key, stream.ActorID)
+	}
+	snapshot, err := stream.Snapshot(d.rdb)
+	if err != nil {
+		t.Fatalf("stream snapshot: %v", err)
+	}
+	if snapshot != `{"description":"old scope"}` {
+		t.Fatalf("stream snapshot = %q, want %q", snapshot, `{"description":"old scope"}`)
+	}
 }
 
 func TestWriteTaskDescription(t *testing.T) {
-	t.Skip("pinned end to end: the happy path asserts the stored text, the " +
-		"retained revision and the fanned delta, and the omit/whitespace " +
-		"subtests assert nothing is written, versioned or fanned when the " +
-		"value does not move.")
+	t.Run("a write stores the new text and retains the replaced description", func(t *testing.T) {
+		api, h, d, owner := newAPITestServer(t)
+		apiJSON(t, h, "POST", "/api/tasks", owner,
+			`{"title":"Ship it","executor_member_id":"kip","description":"old scope"}`)
+		task, err := d.GetTask("T-1")
+		if err != nil || task == nil {
+			t.Fatalf("GetTask: task=%#v err=%v", task, err)
+		}
+
+		ok, err := api.writeTaskDescription(task, "agent-kip", "new scope")
+		if err != nil || !ok {
+			t.Fatalf("writeTaskDescription: ok=%v err=%v", ok, err)
+		}
+		if task.Description != "new scope" || task.UpdatedTS <= 0 {
+			t.Fatalf("updated task = %#v", *task)
+		}
+		stored, err := d.GetTask("T-1")
+		if err != nil || stored == nil || stored.Description != "new scope" {
+			t.Fatalf("stored task = %#v err=%v", stored, err)
+		}
+		history, err := d.ListDocumentHistory(docKindTaskDescription, "T-1")
+		if err != nil {
+			t.Fatalf("ListDocumentHistory: %v", err)
+		}
+		if len(history) != 1 || history[0].ContentJSON != `{"description":"old scope"}` || history[0].ActorID != "agent-kip" {
+			t.Fatalf("history = %#v", history)
+		}
+	})
+
+	t.Run("a missing task reports false and retains no description revision", func(t *testing.T) {
+		api, _, d, _ := newAPITestServer(t)
+		ok, err := api.writeTaskDescription(&Task{ID: "T-ghost"}, "agent-kip", "new scope")
+		if err != nil || ok {
+			t.Fatalf("writeTaskDescription: ok=%v err=%v, want false nil", ok, err)
+		}
+		history, err := d.ListDocumentHistory(docKindTaskDescription, "T-ghost")
+		if err != nil {
+			t.Fatalf("ListDocumentHistory: %v", err)
+		}
+		if len(history) != 0 {
+			t.Fatalf("missing task history = %#v, want empty", history)
+		}
+	})
 }
 
 func TestHandleUpdateTaskDescriptionApiTasksTaskIdDescriptionPost(t *testing.T) {

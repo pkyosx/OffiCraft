@@ -1,6 +1,3 @@
-// Skeleton generated from server/ocserverd/api_settings.go by gen_test_skeletons.py.
-// Every case is a t.Skip placeholder: fill the body, keep or rewrite the name.
-
 package main
 
 import (

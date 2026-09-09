@@ -1,6 +1,3 @@
-// Skeleton generated from server/ocserverd/authz.go by gen_test_skeletons.py.
-// Every case is a t.Skip placeholder: fill the body, keep or rewrite the name.
-
 package main
 
 import (
@@ -28,6 +25,25 @@ func TestClassifyMember(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			if got := classifyMember(tt.member); got != tt.want {
 				t.Fatalf("classifyMember(%#v) = %v, want %v", tt.member, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestIsOutsourceMember(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		member *Member
+		want   bool
+	}{
+		{name: "nil member", member: nil, want: false},
+		{name: "outsource row", member: &Member{Kind: KindOutsource}, want: true},
+		{name: "staff row", member: &Member{Kind: KindStaff}, want: false},
+		{name: "warden row", member: &Member{Kind: KindWarden}, want: false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := isOutsourceMember(tc.member); got != tc.want {
+				t.Fatalf("isOutsourceMember(%#v) = %v, want %v", tc.member, got, tc.want)
 			}
 		})
 	}
@@ -264,4 +280,24 @@ func TestRequirePrincipalClass(t *testing.T) {
 		}()
 		requirePrincipalClass(principalClass{name: "unknown"}, lookup, http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
 	})
+}
+
+func TestPrincipalAtLeast(t *testing.T) {
+	for _, tc := range []struct {
+		name               string
+		principal, minimum principalClass
+		want               bool
+	}{
+		{name: "machine reaches machine floor", principal: principalMachine, minimum: principalMachine, want: true},
+		{name: "agent does not reach admin agent", principal: principalAgent, minimum: principalAdminAgent, want: false},
+		{name: "admin agent reaches agent floor", principal: principalAdminAgent, minimum: principalAgent, want: true},
+		{name: "owner reaches every capability floor", principal: principalOwner, minimum: principalMachine, want: true},
+		{name: "machine does not reach agent", principal: principalMachine, minimum: principalAgent, want: false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := principalAtLeast(tc.principal, tc.minimum); got != tc.want {
+				t.Fatalf("principalAtLeast(%v, %v) = %v, want %v", tc.principal, tc.minimum, got, tc.want)
+			}
+		})
+	}
 }

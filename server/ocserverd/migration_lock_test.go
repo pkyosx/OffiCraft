@@ -106,7 +106,7 @@ func TestMigrationLockGrowsOnlyAtItsTail(t *testing.T) {
 				"check switched off. FIX: the go-checks job's actions/checkout needs "+
 				"`fetch-depth: 0`.", err)
 		}
-		t.Skipf("the append-only half of the migration.lock guard cannot run here: this checkout "+
+		t.Fatalf("the append-only half of the migration.lock guard cannot run here: this checkout "+
 			"cannot resolve origin/main (%v). It is NOT a pass — there was no baseline. It is "+
 			"enforced in CI.", err)
 	}
@@ -132,7 +132,7 @@ func TestMigrationLockGrowsOnlyAtItsTail(t *testing.T) {
 				"BOTH constants in migration_lock.go together.",
 				sha, migrationLockGuardRepoPath, migrationLockRepoPath, err)
 		}
-		t.Skipf("origin/main (%s) carries neither %s nor %s (%v), so there is no baseline "+
+		t.Fatalf("origin/main (%s) carries neither %s nor %s (%v), so there is no baseline "+
 			"to be a prefix of and nothing has landed yet. It is NOT a pass. This branch is what "+
 			"puts both there; from that merge commit on, this same branch fatals instead.",
 			sha, migrationLockRepoPath, migrationLockGuardRepoPath, err)
@@ -176,4 +176,37 @@ func TestMigrationLockGrowsOnlyAtItsTail(t *testing.T) {
 	for _, f := range migrationLockPrefixFindings(mainParsed.lines, here.lines) {
 		t.Error(f)
 	}
+}
+
+func TestCmdMigrationLock(t *testing.T) {
+	t.Run("missing mode returns usage and a nonzero command status", func(t *testing.T) {
+		var out strings.Builder
+		if got := cmdMigrationLock(nil, &out); got != 2 {
+			t.Fatalf("cmdMigrationLock(nil) = %d, want 2", got)
+		}
+		if !strings.Contains(out.String(), "needs exactly one of --write or --check") {
+			t.Fatalf("usage output = %q, want the missing-mode explanation", out.String())
+		}
+	})
+
+	t.Run("an unknown argument is rejected before touching the lock", func(t *testing.T) {
+		var out strings.Builder
+		if got := cmdMigrationLock([]string{"--unknown"}, &out); got != 2 {
+			t.Fatalf("cmdMigrationLock(--unknown) = %d, want 2", got)
+		}
+		want := `[migration-lock] unknown argument "--unknown" — want exactly one of --write or --check`
+		if !strings.Contains(out.String(), want) {
+			t.Fatalf("unknown-argument output = %q, want %q", out.String(), want)
+		}
+	})
+
+	t.Run("check mode validates the committed lock and reports its entry count", func(t *testing.T) {
+		var out strings.Builder
+		if got := cmdMigrationLock([]string{"--check"}, &out); got != 0 {
+			t.Fatalf("cmdMigrationLock(--check) = %d, output %q", got, out.String())
+		}
+		if !strings.Contains(out.String(), "OK — "+migrationLockFile+" matches this tree exactly") {
+			t.Fatalf("check output = %q, want the successful lock verdict", out.String())
+		}
+	})
 }

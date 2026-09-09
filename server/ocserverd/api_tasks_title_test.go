@@ -6,27 +6,95 @@ import (
 )
 
 func TestTaskTitleSnapshotIn(t *testing.T) {
-	t.Skip("pinned end to end: " +
-		"TestHandleUpdateTaskTitleApiTasksTaskIdTitlePost/\"a corrected title " +
-		"is stored…\" asserts the retained revision holds the title this write " +
-		"REPLACED (field_chars {\"title\": 7} for \"Ship it\" while the live " +
-		"title is \"Ship it, narrowed\"), which is the whole observable " +
-		"behaviour of the in-transaction re-read.")
+	t.Run("the transaction reader returns the current task title", func(t *testing.T) {
+		_, h, d, owner := newAPITestServer(t)
+		apiJSON(t, h, "POST", "/api/tasks", owner,
+			`{"title":"Ship it","executor_member_id":"kip"}`)
+
+		got, err := taskTitleSnapshotIn("T-1")(d.rdb)
+		if err != nil {
+			t.Fatalf("taskTitleSnapshotIn: %v", err)
+		}
+		if got != `{"title":"Ship it"}` {
+			t.Fatalf("snapshot = %q, want %q", got, `{"title":"Ship it"}`)
+		}
+	})
+
+	t.Run("the transaction reader represents a missing task as an empty document", func(t *testing.T) {
+		_, _, d, _ := newAPITestServer(t)
+
+		got, err := taskTitleSnapshotIn("T-ghost")(d.rdb)
+		if err != nil {
+			t.Fatalf("taskTitleSnapshotIn: %v", err)
+		}
+		if got != "{}" {
+			t.Fatalf("snapshot = %q, want {}", got)
+		}
+	})
 }
 
 func TestTaskTitleHistoryStream(t *testing.T) {
-	t.Skip("pinned end to end: the same subtest asserts the retained revision's " +
-		"kind/key/actor by reading it back at GET " +
-		"/api/document-history/task_title/T-1 with actor_id \"kip\" — the three " +
-		"fields this stream sets.")
+	_, h, d, owner := newAPITestServer(t)
+	apiJSON(t, h, "POST", "/api/tasks", owner,
+		`{"title":"Ship it","executor_member_id":"kip"}`)
+
+	stream := taskTitleHistoryStream("T-1", "agent-kip")
+	if stream.Kind != docKindTaskTitle || stream.Key != "T-1" || stream.ActorID != "agent-kip" {
+		t.Fatalf("stream identity = {%q, %q, %q}", stream.Kind, stream.Key, stream.ActorID)
+	}
+	snapshot, err := stream.Snapshot(d.rdb)
+	if err != nil {
+		t.Fatalf("stream snapshot: %v", err)
+	}
+	if snapshot != `{"title":"Ship it"}` {
+		t.Fatalf("stream snapshot = %q, want %q", snapshot, `{"title":"Ship it"}`)
+	}
 }
 
 func TestWriteTaskTitle(t *testing.T) {
-	t.Skip("pinned end to end: " +
-		"TestHandleUpdateTaskTitleApiTasksTaskIdTitlePost/\"a corrected title " +
-		"is stored…\" asserts the stored title, the retained revision and the " +
-		"fanned delta all landed, and the no-op and 400 subtests assert " +
-		"nothing is written when the edit is empty or refused.")
+	t.Run("a write stores the new title and retains the replaced title", func(t *testing.T) {
+		api, h, d, owner := newAPITestServer(t)
+		apiJSON(t, h, "POST", "/api/tasks", owner,
+			`{"title":"Ship it","executor_member_id":"kip"}`)
+		task, err := d.GetTask("T-1")
+		if err != nil || task == nil {
+			t.Fatalf("GetTask: task=%#v err=%v", task, err)
+		}
+
+		ok, err := api.writeTaskTitle(task, "agent-kip", "Ship it, narrowed")
+		if err != nil || !ok {
+			t.Fatalf("writeTaskTitle: ok=%v err=%v", ok, err)
+		}
+		if task.Title != "Ship it, narrowed" || task.UpdatedTS <= 0 {
+			t.Fatalf("updated task = %#v", *task)
+		}
+		stored, err := d.GetTask("T-1")
+		if err != nil || stored == nil || stored.Title != "Ship it, narrowed" {
+			t.Fatalf("stored task = %#v err=%v", stored, err)
+		}
+		history, err := d.ListDocumentHistory(docKindTaskTitle, "T-1")
+		if err != nil {
+			t.Fatalf("ListDocumentHistory: %v", err)
+		}
+		if len(history) != 1 || history[0].ContentJSON != `{"title":"Ship it"}` || history[0].ActorID != "agent-kip" {
+			t.Fatalf("history = %#v", history)
+		}
+	})
+
+	t.Run("a missing task reports false and retains no title revision", func(t *testing.T) {
+		api, _, d, _ := newAPITestServer(t)
+		ok, err := api.writeTaskTitle(&Task{ID: "T-ghost"}, "agent-kip", "unclaimed")
+		if err != nil || ok {
+			t.Fatalf("writeTaskTitle: ok=%v err=%v, want false nil", ok, err)
+		}
+		history, err := d.ListDocumentHistory(docKindTaskTitle, "T-ghost")
+		if err != nil {
+			t.Fatalf("ListDocumentHistory: %v", err)
+		}
+		if len(history) != 0 {
+			t.Fatalf("missing task history = %#v, want empty", history)
+		}
+	})
 }
 
 func TestHandleUpdateTaskTitleApiTasksTaskIdTitlePost(t *testing.T) {

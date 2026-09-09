@@ -288,7 +288,7 @@ func TestHandleMintApiMintPost(t *testing.T) {
 
 func TestHandleBootstrapApiBootstrapPost(t *testing.T) {
 	t.Run("a spawn naming a member answers 200 with that member's boot package and a token", func(t *testing.T) {
-		_, h, _, owner := newAPITestServer(t)
+		api, h, _, owner := newAPITestServer(t)
 
 		status, data := apiJSON(t, h, "POST", "/api/bootstrap", owner, `{"member_id":"mira"}`)
 		if status != 200 {
@@ -300,6 +300,17 @@ func TestHandleBootstrapApiBootstrapPost(t *testing.T) {
 			"context": apiAnyString,
 			"token":   apiAnyString,
 		})
+		token, ok := data["token"].(string)
+		if !ok || token == "" {
+			t.Fatalf("bootstrap token: want a non-empty string, got %#v", data["token"])
+		}
+		claims, err := verifyJWT(token, api.keys.signingSecret(), time.Now().Unix())
+		if err != nil {
+			t.Fatalf("verify member token: %v", err)
+		}
+		if claims["sub"] != "mira" || claims["scope"] != "agent" || claims["machine_id"] != ServerSelfHost {
+			t.Fatalf("member token claims = %v, want mira/agent/%s", claims, ServerSelfHost)
+		}
 	})
 
 	t.Run("a preview with no member answers 200 and a null token", func(t *testing.T) {
@@ -387,9 +398,9 @@ func TestHandleBootstrapApiBootstrapPost(t *testing.T) {
 
 func TestNoteTokenKeyObservation(t *testing.T) {
 	api, h, d, owner := newAPITestServer(t)
-	machineID, _ := apiTestMachineCredential(t, h, owner, "Studio Mac")
+	machineID, credential := apiTestMachineCredential(t, h, owner, "Studio Mac")
 
-	api.noteTokenKeyObservation(map[string]any{"sub": machineID}, "k-legacy")
+	stream := apiEventsStream(t, h, credential, "")
 	m, err := d.GetMember(machineID)
 	if err != nil {
 		t.Fatalf("GetMember: %v", err)
@@ -397,6 +408,7 @@ func TestNoteTokenKeyObservation(t *testing.T) {
 	if m == nil || m.TokenKeyID != "k-legacy" {
 		t.Fatalf("machine token key = %+v, want k-legacy", m)
 	}
+	stream.stop()
 	api.tokenKeyObsMu.Lock()
 	_, machineMemoized := api.tokenKeyObs[machineID]
 	_, agentMemoized := api.tokenKeyObs[apiTestPlainAgentID]
@@ -405,7 +417,8 @@ func TestNoteTokenKeyObservation(t *testing.T) {
 		t.Fatalf("token-key memo = %v, want only the machine identity", api.tokenKeyObs)
 	}
 
-	api.noteTokenKeyObservation(map[string]any{"sub": apiTestPlainAgentID}, "k-legacy")
+	agentStream := apiEventsStream(t, h, apiTestAgentToken(t, api, apiTestPlainAgentID, ""), "")
+	agentStream.stop()
 	api.tokenKeyObsMu.Lock()
 	_, agentMemoized = api.tokenKeyObs[apiTestPlainAgentID]
 	api.tokenKeyObsMu.Unlock()

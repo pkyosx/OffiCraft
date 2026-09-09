@@ -1,6 +1,3 @@
-// Skeleton generated from server/ocserverd/doc_split.go by gen_test_skeletons.py.
-// Every case is a t.Skip placeholder: fill the body, keep or rewrite the name.
-
 package main
 
 import "testing"
@@ -48,5 +45,38 @@ func TestDocBodyVarRefusal(t *testing.T) {
 		"Put facts that vary in the read-only head, or write them out. Nothing was written."
 	if got != want {
 		t.Fatalf("docBodyVarRefusal returned %q, want %q", got, want)
+	}
+}
+
+func TestDocSplitHeadBody(t *testing.T) {
+	const marker = "<!-- ↑唯讀區（程式產生，改不動）｜↓本體（可編輯，零變數） -->"
+
+	t.Run("a marked document returns the exact halves and reports that it was split", func(t *testing.T) {
+		head, body, split := DocSplitHeadBody("head\n\n" + marker + "\n\nbody")
+		if head != "head" || body != "body" || !split {
+			t.Fatalf("DocSplitHeadBody(marked) = (%q, %q, %v), want (head, body, true)", head, body, split)
+		}
+	})
+
+	t.Run("a markerless document stays whole and reports no split", func(t *testing.T) {
+		const text = "head\nbody"
+		head, body, split := DocSplitHeadBody(text)
+		if head != text || body != "" || split {
+			t.Fatalf("DocSplitHeadBody(markerless) = (%q, %q, %v), want (%q, empty, false)", head, body, split, text)
+		}
+	})
+}
+
+func TestDocJoinHeadBody(t *testing.T) {
+	const marker = "<!-- ↑唯讀區（程式產生，改不動）｜↓本體（可編輯，零變數） -->"
+
+	joined := DocJoinHeadBody("generated head", "owner body")
+	want := "generated head\n\n" + marker + "\n\nowner body"
+	if joined != want {
+		t.Fatalf("DocJoinHeadBody = %q, want %q", joined, want)
+	}
+	head, body, split := DocSplitHeadBody(joined)
+	if head != "generated head" || body != "owner body" || !split {
+		t.Fatalf("joined document split = (%q, %q, %v), want original halves", head, body, split)
 	}
 }
