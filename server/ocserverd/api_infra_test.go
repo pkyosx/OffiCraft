@@ -190,11 +190,13 @@ func (w *sseUnflushableWriter) Write(p []byte) (int, error) { return w.body.Writ
 
 func TestHandleEventsApiEventsGet(t *testing.T) {
 	t.Run("a connection whose response writer cannot stream answers 500", func(t *testing.T) {
-		api, _, _, _ := newAPITestServer(t)
+		api, h, _, owner := newAPITestServer(t)
 		dashboard := apiTestListen(t, api, "")
 
 		w := &sseUnflushableWriter{header: http.Header{}}
-		api.HandleEventsApiEventsGet(w, httptest.NewRequest("GET", "/api/events", nil))
+		req := httptest.NewRequest("GET", "/api/events", nil)
+		req.Header.Set("Authorization", "Bearer "+owner)
+		h.ServeHTTP(w, req)
 
 		if w.status != 500 {
 			t.Fatalf("want 500, got %d (%s)", w.status, w.body.String())
