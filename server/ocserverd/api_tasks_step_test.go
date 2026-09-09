@@ -168,9 +168,20 @@ func TestHandleGetTaskStepApiTasksTaskIdStepsStepIdGet(t *testing.T) {
 		apiWantError(t, data, "unauthorized", "missing credentials")
 	})
 
-	t.Run("a malformed request body is not a rejection this route can produce", func(t *testing.T) {
-		t.Skip("structurally unproducible: this GET decodes no request body and the " +
-			"stack carries no content-type or size middleware, so no wire-layer 4xx " +
-			"exists to observe — measured: a `{{{` body on this route still answers 200.")
+	t.Run("an ignored request body does not change the selected step", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"Ship it","executor_member_id":"kip"}`)
+		agent := apiTestAgentToken(t, api, "kip", "")
+		apiJSON(t, h, "POST", "/api/tasks/T-1/plan", agent,
+			`{"steps":[{"name":"Draft","dod":"a draft exists"}]}`)
+		stepID := apiTestOnlyStepID(t, h, owner, "T-1")
+
+		status, data := apiJSON(t, h, "GET", "/api/tasks/T-1/steps/"+stepID, owner, "{{{")
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		apiWantValue(t, "body.id", data["id"], stepID)
+		apiWantValue(t, "body.name", data["name"], "Draft")
+		apiWantValue(t, "body.status", data["status"], "pending")
 	})
 }

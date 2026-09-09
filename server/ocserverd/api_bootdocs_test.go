@@ -1442,8 +1442,26 @@ func TestHandleGetSystemInteractionApiSystemInteractionGet(t *testing.T) {
 		})
 	})
 
-	t.Run("the read of the shipped seed nobody has edited", func(t *testing.T) {
-		t.Skip("not written: the shipped 系統互動 seed is 16,617 characters, and this file's rule is that an expectation is a hand-written literal of the whole answer. The bytes are already pinned on this document by TestHandleResetSystemInteractionApiSystemInteractionResetPost, which asserts is_default true, size_chars 16617 and the sha256 of that exact text.")
+	t.Run("the unedited read serves the shipped system-interaction document and its metadata", func(t *testing.T) {
+		_, h, _, owner := newAPITestServer(t)
+
+		status, data := apiJSON(t, h, "GET", "/api/system-interaction", owner, "{{{")
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		apiWantValue(t, "size_chars", data["size_chars"], 16617)
+		apiWantValue(t, "cap_chars", data["cap_chars"], 60000)
+		apiWantValue(t, "kind", data["kind"], "system_interaction")
+		apiWantValue(t, "key", data["key"], "global")
+		apiWantValue(t, "text", data["text"], apiAnyString)
+		apiWantValue(t, "body", data["body"], apiAnyString)
+		apiWantValue(t, "is_default", data["is_default"], true)
+		apiWantValue(t, "has_seed", data["has_seed"], true)
+		apiWantValue(t, "schema_version", data["schema_version"], 3)
+		text, ok := data["text"].(string)
+		if !ok || utf8.RuneCountInString(text) != 16617 {
+			t.Fatalf("the shipped system-interaction text has %d runes, want 16617", utf8.RuneCountInString(text))
+		}
 	})
 
 	t.Run("a request without a token answers 401", func(t *testing.T) {
@@ -1909,8 +1927,26 @@ func TestHandleGetBootSequenceApiBootSequenceRuntimeKeyGet(t *testing.T) {
 			"no boot sequence for runtime 'Codex' — the runtimes with their own boot sequence are 'claude' and 'codex'")
 	})
 
-	t.Run("the read of the shipped seed nobody has edited", func(t *testing.T) {
-		t.Skip("not written: the shipped claude 啟動步驟 seed is 3,124 characters and the codex one is its own document again, and this file's rule is that an expectation is a hand-written literal of the whole answer. Those bytes are already pinned by TestHandleResetBootSequenceApiBootSequenceRuntimeKeyResetPost, which asserts is_default true, size_chars 3124 and the sha256 of that exact text.")
+	t.Run("the unedited read serves the shipped claude sequence and its metadata", func(t *testing.T) {
+		_, h, _, owner := newAPITestServer(t)
+
+		status, data := apiJSON(t, h, "GET", "/api/boot-sequence/claude", owner, "{{{")
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		apiWantValue(t, "size_chars", data["size_chars"], 3124)
+		apiWantValue(t, "cap_chars", data["cap_chars"], 15000)
+		apiWantValue(t, "kind", data["kind"], "boot_sequence")
+		apiWantValue(t, "key", data["key"], "claude")
+		apiWantValue(t, "text", data["text"], apiAnyString)
+		apiWantValue(t, "body", data["body"], apiAnyString)
+		apiWantValue(t, "is_default", data["is_default"], true)
+		apiWantValue(t, "has_seed", data["has_seed"], true)
+		apiWantValue(t, "schema_version", data["schema_version"], 3)
+		text, ok := data["text"].(string)
+		if !ok || utf8.RuneCountInString(text) != 3124 {
+			t.Fatalf("the shipped claude sequence has %d runes, want 3124", utf8.RuneCountInString(text))
+		}
 	})
 
 	t.Run("a request without a token answers 401", func(t *testing.T) {

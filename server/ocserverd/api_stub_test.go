@@ -56,10 +56,14 @@ func TestHandleHealthHealthGet(t *testing.T) {
 		apiWantError(t, data, "method_not_allowed", "method not allowed")
 	})
 
-	t.Run("a GET /health request the wire layer rejects (malformed body, wrong content type, over the size cap) answers a 4xx without reaching the domain", func(t *testing.T) {
-		t.Skip("structurally unproducible: this GET decodes no request body and the " +
-			"stack carries no content-type or size middleware, so no wire-layer 4xx " +
-			"exists to observe — measured: a `{{{` body on this route still answers 200.")
+	t.Run("an ignored request body does not change the public liveness response", func(t *testing.T) {
+		_, h, _, _ := newAPITestServer(t)
+
+		status, data := apiJSON(t, h, "GET", "/health", "", "{{{")
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		apiWantBody(t, data, map[string]any{"status": "ok"})
 	})
 }
 
@@ -95,10 +99,14 @@ func TestHandleHealthApiHealthGet(t *testing.T) {
 		apiWantError(t, data, "method_not_allowed", "method not allowed")
 	})
 
-	t.Run("a GET /api/health request the wire layer rejects (malformed body, wrong content type, over the size cap) answers a 4xx without reaching the domain", func(t *testing.T) {
-		t.Skip("structurally unproducible: this GET decodes no request body and the " +
-			"stack carries no content-type or size middleware, so no wire-layer 4xx " +
-			"exists to observe — measured: a `{{{` body on this route still answers 200.")
+	t.Run("an ignored request body does not change the API liveness response", func(t *testing.T) {
+		_, h, _, _ := newAPITestServer(t)
+
+		status, data := apiJSON(t, h, "GET", "/api/health", "", "{{{")
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		apiWantBody(t, data, map[string]any{"status": "ok"})
 	})
 }
 
@@ -140,10 +148,21 @@ func TestHandleVersionApiVersionGet(t *testing.T) {
 		apiWantError(t, data, "method_not_allowed", "method not allowed")
 	})
 
-	t.Run("a GET /api/version request the wire layer rejects (malformed body, wrong content type, over the size cap) answers a 4xx without reaching the domain", func(t *testing.T) {
-		t.Skip("structurally unproducible: this GET decodes no request body and the " +
-			"stack carries no content-type or size middleware, so no wire-layer 4xx " +
-			"exists to observe — measured: a `{{{` body on this route still answers 200.")
+	t.Run("an ignored request body does not change the public build identity", func(t *testing.T) {
+		_, h, _, _ := newAPITestServer(t)
+
+		status, data := apiJSON(t, h, "GET", "/api/version", "", "{{{")
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		apiWantBody(t, data, map[string]any{
+			"version":          "0.0.0",
+			"git_sha":          apiAnyString,
+			"git_time":         apiAnyString,
+			"catalog_hash":     apiAnyString,
+			"update_available": false,
+			"latest_version":   nil,
+		})
 	})
 }
 
@@ -186,10 +205,18 @@ func TestHandleProbeVersionVersionGet(t *testing.T) {
 		apiWantError(t, data, "method_not_allowed", "method not allowed")
 	})
 
-	t.Run("a GET /version request the wire layer rejects (malformed body, wrong content type, over the size cap) answers a 4xx without reaching the domain", func(t *testing.T) {
-		t.Skip("structurally unproducible: this GET decodes no request body and the " +
-			"stack carries no content-type or size middleware, so no wire-layer 4xx " +
-			"exists to observe — measured: a `{{{` body on this route still answers 200.")
+	t.Run("an ignored request body does not change the public deploy identity", func(t *testing.T) {
+		_, h, _, _ := newAPITestServer(t)
+
+		status, data := apiJSON(t, h, "GET", "/version", "", "{{{")
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		apiWantBody(t, data, map[string]any{
+			"version":      "0.0.0",
+			"sha":          apiAnyString,
+			"catalog_hash": apiAnyString,
+		})
 	})
 }
 

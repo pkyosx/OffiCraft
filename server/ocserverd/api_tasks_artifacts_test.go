@@ -136,9 +136,18 @@ func TestHandleListTaskArtifactsApiTasksTaskIdArtifactsGet(t *testing.T) {
 		apiWantError(t, data, "unauthorized", "missing credentials")
 	})
 
-	t.Run("a malformed request body is not a rejection this route can produce", func(t *testing.T) {
-		t.Skip("structurally unproducible: this GET decodes no request body and the " +
-			"stack carries no content-type or size middleware, so no wire-layer 4xx " +
-			"exists to observe — measured: a `{{{` body on this route still answers 200.")
+	t.Run("an ignored request body does not change the empty artifact set", func(t *testing.T) {
+		_, h, _, owner := newAPITestServer(t)
+		apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"Ship it","executor_member_id":"kip"}`)
+
+		status, data := apiJSON(t, h, "GET", "/api/tasks/T-1/artifacts", owner, "{{{")
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		apiWantBody(t, data, map[string]any{
+			"task_id":                "T-1",
+			"artifacts_detail_level": "full",
+			"artifacts":              []any{},
+		})
 	})
 }

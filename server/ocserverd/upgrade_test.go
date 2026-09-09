@@ -804,7 +804,14 @@ func TestHandleUpgradeApiUpdateUpgradePost(t *testing.T) {
 			"no newer release is known — the running build is the latest published on GitHub (use 檢查更新 to re-check)")
 	})
 
-	t.Run("malformed body and content type are not wire-layer rejections for this bodyless route", func(t *testing.T) {
-		t.Skip("structurally unproducible: this POST declares no request body, and the stack has no content-type or size middleware; measured malformed and oversized bodies reach the domain instead of producing a wire-layer 4xx")
+	t.Run("an ignored request body does not change the latest-release conflict", func(t *testing.T) {
+		_, h, _, owner := newAPITestServer(t)
+
+		status, data := apiJSON(t, h, "POST", "/api/update/upgrade", owner, "{{{")
+		if status != http.StatusConflict {
+			t.Fatalf("want 409, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "conflict",
+			"no newer release is known — the running build is the latest published on GitHub (use 檢查更新 to re-check)")
 	})
 }

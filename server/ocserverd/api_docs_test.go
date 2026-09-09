@@ -197,10 +197,22 @@ func TestHandleListDocsApiDocsGet(t *testing.T) {
 		dashboard.wantFrames()
 	})
 
-	t.Run("a GET /api/docs request the wire layer rejects (malformed body, wrong content type, over the size cap) answers a 4xx without reaching the domain", func(t *testing.T) {
-		t.Skip("structurally unproducible: this GET decodes no request body and the " +
-			"stack carries no content-type or size middleware, so no wire-layer 4xx " +
-			"exists to observe — measured: a `{{{` body on this route still answers 200.")
+	t.Run("an ignored request body does not change the guide index", func(t *testing.T) {
+		_, h, _, owner := newAPITestServer(t)
+
+		rec := apiRequest(t, h, "GET", "/api/docs", owner, "{{{")
+		if rec.Code != 200 {
+			t.Fatalf("want 200, got %d (%s)", rec.Code, rec.Body.String())
+		}
+		var got any
+		if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+			t.Fatalf("non-JSON body: %s", rec.Body.String())
+		}
+		want := make([]any, len(apiGuideIndex()))
+		for i, row := range apiGuideIndex() {
+			want[i] = row
+		}
+		apiWantValue(t, "body", got, want)
 	})
 }
 
@@ -288,10 +300,18 @@ func TestHandleGetDocApiDocsSlugGet(t *testing.T) {
 		dashboard.wantFrames()
 	})
 
-	t.Run("a GET /api/docs/{slug} request the wire layer rejects (malformed body, wrong content type, over the size cap) answers a 4xx without reaching the domain", func(t *testing.T) {
-		t.Skip("structurally unproducible: this GET decodes no request body and the " +
-			"stack carries no content-type or size middleware, so no wire-layer 4xx " +
-			"exists to observe — measured: a `{{{` body on this route still answers 200.")
+	t.Run("an ignored request body does not change the selected document", func(t *testing.T) {
+		_, h, _, owner := newAPITestServer(t)
+
+		status, data := apiJSON(t, h, "GET", "/api/docs/why", owner, "{{{")
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		apiWantBody(t, data, map[string]any{
+			"slug":        "why",
+			"title":       "為什麼是 OffiCraft",
+			"markdown_md": apiAnyString,
+		})
 	})
 }
 
@@ -377,9 +397,18 @@ func TestHandleGetDocAssetApiDocsAssetsNameGet(t *testing.T) {
 		dashboard.wantFrames()
 	})
 
-	t.Run("a GET /api/docs/assets/{name} request the wire layer rejects (malformed body, wrong content type, over the size cap) answers a 4xx without reaching the domain", func(t *testing.T) {
-		t.Skip("structurally unproducible: this GET decodes no request body and the " +
-			"stack carries no content-type or size middleware, so no wire-layer 4xx " +
-			"exists to observe — measured: a `{{{` body on this route still answers 200.")
+	t.Run("an ignored request body does not change the selected asset", func(t *testing.T) {
+		_, h, _, owner := newAPITestServer(t)
+
+		rec := apiRequest(t, h, "GET", "/api/docs/assets/cockpit-task.png", owner, "{{{")
+		if rec.Code != 200 {
+			t.Fatalf("want 200, got %d (%s)", rec.Code, rec.Body.String())
+		}
+		if got := rec.Header().Get("Content-Type"); got != "image/png" {
+			t.Fatalf("content type was %q", got)
+		}
+		if !bytes.HasPrefix(rec.Body.Bytes(), []byte("\x89PNG\r\n\x1a\n")) {
+			t.Fatalf("the answer does not open with the PNG magic bytes")
+		}
 	})
 }

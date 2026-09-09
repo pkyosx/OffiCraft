@@ -107,10 +107,18 @@ func TestHandleListThemesApiThemesGet(t *testing.T) {
 		dashboard.wantFrames()
 	})
 
-	t.Run("a GET /api/themes request the wire layer rejects (malformed body, wrong content type, over the size cap) answers a 4xx without reaching the domain", func(t *testing.T) {
-		t.Skip("structurally unproducible: this GET decodes no request body and the " +
-			"stack carries no content-type or size middleware, so no wire-layer 4xx " +
-			"exists to observe — measured: a `{{{` body on this route still answers 200.")
+	t.Run("an ignored request body does not change the theme list", func(t *testing.T) {
+		_, h, _, owner := newAPITestServer(t)
+
+		rec := apiRequest(t, h, "GET", "/api/themes", owner, "{{{")
+		if rec.Code != 200 {
+			t.Fatalf("want 200, got %d (%s)", rec.Code, rec.Body.String())
+		}
+		var got any
+		if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+			t.Fatalf("non-JSON body: %s", rec.Body.String())
+		}
+		apiWantValue(t, "body", got, []any{})
 	})
 }
 
@@ -208,11 +216,19 @@ func TestHandleGetThemeApiThemesThemeIdGet(t *testing.T) {
 		dashboard.wantFrames()
 	})
 
-	t.Run("a GET /api/themes/{theme_id} request the wire layer rejects (malformed body, wrong content type, over the size cap) answers a 4xx without reaching the domain", func(t *testing.T) {
-		t.Skip("structurally unproducible: this GET decodes no request body and the " +
-			"stack carries no content-type or size middleware, so no wire-layer 4xx " +
-			"exists to observe — measured: a `{{{` body on this route still answers 404 " +
-			"for an unknown id, i.e. it reached the domain.")
+	t.Run("an ignored request body does not change the selected theme", func(t *testing.T) {
+		_, h, _, owner := newAPITestServer(t)
+		apiPutTheme(t, h, owner, "dusk", `{"id":"dusk","name":"Dusk","colors":{"--color-bg":"#101418"}}`)
+
+		status, data := apiJSON(t, h, "GET", "/api/themes/dusk", owner, "{{{")
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		apiWantBody(t, data, map[string]any{
+			"id":     "dusk",
+			"name":   "Dusk",
+			"colors": map[string]any{"--color-bg": "#101418"},
+		})
 	})
 }
 
@@ -517,11 +533,18 @@ func TestHandleDeleteThemeApiThemesThemeIdDelete(t *testing.T) {
 		apiThemeList(t, h, owner, map[string]any{"id": "dusk", "name": "Dusk"})
 	})
 
-	t.Run("a DELETE /api/themes/{theme_id} request the wire layer rejects (malformed body, wrong content type, over the size cap) answers a 4xx without reaching the domain", func(t *testing.T) {
-		t.Skip("structurally unproducible: this DELETE decodes no request body and the " +
-			"stack carries no content-type or size middleware, so no wire-layer 4xx " +
-			"exists to observe — measured: a `{{{` body on this route still answers 404 " +
-			"for an unknown id, i.e. it reached the domain.")
+	t.Run("an ignored request body does not change theme deletion", func(t *testing.T) {
+		_, h, _, owner := newAPITestServer(t)
+		apiPutTheme(t, h, owner, "dusk", `{"id":"dusk","name":"Dusk","colors":{"--color-bg":"#101418"}}`)
+
+		status, data := apiJSON(t, h, "DELETE", "/api/themes/dusk", owner, "{{{")
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		apiWantBody(t, data, map[string]any{
+			"id": "dusk", "deleted": true, "display_theme_reset": false,
+		})
+		apiThemeAbsent(t, h, owner, "dusk")
 	})
 }
 

@@ -120,9 +120,18 @@ func TestHandleGetBackupHealthApiBackupHealthGet(t *testing.T) {
 		dashboard.wantFrames()
 	})
 
-	t.Run("a GET /api/backup-health request the wire layer rejects (malformed body, wrong content type, over the size cap) answers a 4xx without reaching the domain", func(t *testing.T) {
-		t.Skip("structurally unproducible: this GET decodes no request body and the " +
-			"stack carries no content-type or size middleware, so no wire-layer 4xx " +
-			"exists to observe — measured: a `{{{` body on this route still answers 200.")
+	t.Run("an ignored request body does not change the unknown watchdog response", func(t *testing.T) {
+		_, h, _, owner := newAPITestServer(t)
+
+		status, data := apiJSON(t, h, "GET", "/api/backup-health", owner, "{{{")
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		apiWantBody(t, data, map[string]any{
+			"status":           "unknown",
+			"code":             "",
+			"detail":           "backup health is not being watched on this server",
+			"stale_after_secs": 43200,
+		})
 	})
 }
