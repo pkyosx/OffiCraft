@@ -212,11 +212,32 @@ func buildMCPConfig(base, token string) string {
 // buildStatuslineSettings is the port of build_statusline_settings: the Claude
 // Code settings.json wiring the statusLine to the context reporter (json.dumps
 // indent=2 + a trailing newline).
+//
+// It also carries the PreToolUse hook, because this file is the ONE place a
+// member's settings.json is written and a hook declared anywhere else would
+// reach nobody. The hook is named bare — `ocagent guard-bash`, the way statusLine
+// names `ocagent context-report` — because the launch command puts the workdir
+// holding the ocagent symlink at the front of PATH, so neither hardcodes a path
+// that differs per machine. What it refuses, and why the refusal is worded the
+// way it is, lives in cli/ocagent/guardbash.go.
 func buildStatuslineSettings() string {
 	return "{\n" +
 		"  \"statusLine\": {\n" +
 		"    \"type\": \"command\",\n" +
 		"    \"command\": \"ocagent context-report\"\n" +
+		"  },\n" +
+		"  \"hooks\": {\n" +
+		"    \"PreToolUse\": [\n" +
+		"      {\n" +
+		"        \"matcher\": \"Bash\",\n" +
+		"        \"hooks\": [\n" +
+		"          {\n" +
+		"            \"type\": \"command\",\n" +
+		"            \"command\": \"ocagent guard-bash\"\n" +
+		"          }\n" +
+		"        ]\n" +
+		"      }\n" +
+		"    ]\n" +
 		"  }\n" +
 		"}\n"
 }
