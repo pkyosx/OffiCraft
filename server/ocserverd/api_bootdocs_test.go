@@ -15,11 +15,11 @@ import (
 // editable body under it. The three constants are the three halves the read
 // face names.
 const (
-	apiTestTaskCloseoutSeed = "任務 {task_no} 已結束，關閉的人是 {closed_by}。\n\n<!-- ↑唯讀區（程式產生，改不動）｜↓本體（可編輯，零變數） -->\n\n先用 `get_task` 讀這張票（票號就是 id，直接餵給它），看它屬於哪一本任務手冊（欄位 `type_key`）。\n\n若這一趟有值得留下的經驗（踩坑、更好做法），先用 get_task_manual 讀現況，再用 patch_task_learnings（type_key 用上一步讀到的值）只把改動的那一段送回**那本**任務手冊：改既有段落就用它的唯一錨點，第一次寫或要新增就用空錨點追加。不要用 write_task_learnings 做整份取代 —— 讀取後到寫入之間別人新增的內容會被無聲蓋掉；用 `ocagent clean <path>` 移除這個任務的暫存檔/資料夾、收掉臨時 branch/worktree 與跑著的臨時程序；票已經結束的話，最後用 report_task_closeout 回報後續已處理完。⚠️ 你若是**被換手、而這張票還在跑**，這一支會回 409 —— 那一步就跳過，票沒結束就沒有結案可報，這一段的寫回與清理照做。\n"
+	apiTestTaskCloseoutSeed = "任務 {task_no} 已結束，關閉的人是 {closed_by}。\n\n<!-- ↑唯讀區（程式產生，改不動）｜↓本體（可編輯，零變數） -->\n\n停下這個任務，移除你開啟的外部資源，並停止更新 task。\n"
 
 	apiTestTaskCloseoutHead = "任務 {task_no} 已結束，關閉的人是 {closed_by}。"
 
-	apiTestTaskCloseoutBody = "先用 `get_task` 讀這張票（票號就是 id，直接餵給它），看它屬於哪一本任務手冊（欄位 `type_key`）。\n\n若這一趟有值得留下的經驗（踩坑、更好做法），先用 get_task_manual 讀現況，再用 patch_task_learnings（type_key 用上一步讀到的值）只把改動的那一段送回**那本**任務手冊：改既有段落就用它的唯一錨點，第一次寫或要新增就用空錨點追加。不要用 write_task_learnings 做整份取代 —— 讀取後到寫入之間別人新增的內容會被無聲蓋掉；用 `ocagent clean <path>` 移除這個任務的暫存檔/資料夾、收掉臨時 branch/worktree 與跑著的臨時程序；票已經結束的話，最後用 report_task_closeout 回報後續已處理完。⚠️ 你若是**被換手、而這張票還在跑**，這一支會回 409 —— 那一步就跳過，票沒結束就沒有結案可報，這一段的寫回與清理照做。\n"
+	apiTestTaskCloseoutBody = "停下這個任務，移除你開啟的外部資源，並停止更新 task。\n"
 )
 
 const apiTestBootDocMarker = "<!-- ↑唯讀區（程式產生，改不動）｜↓本體（可編輯，零變數） -->"
@@ -1005,9 +1005,9 @@ func TestReplaceBootDoc(t *testing.T) {
 			"kind":       "task_closeout",
 			"key":        "global",
 			"is_default": false,
-			"size_chars": 511,
+			"size_chars": 105,
 			"cap_chars":  15000,
-			"sha256":     "62a219c766233550b8c5c91e1a6f30a5b6d9833019e60cd302e50616a34d0108",
+			"sha256":     "1b27bbd4b2e0d160f4bd2b083bfdad8b2e054097824e51af4c768db021d47465",
 		})
 		_, after := apiJSON(t, h, "GET", "/api/boot-docs/task_closeout/global", owner, "")
 		if after["text"] != read["text"] || after["body"] != read["body"] {
@@ -1041,7 +1041,7 @@ func TestReplaceBootDoc(t *testing.T) {
 		}
 		apiWantError(t, data, "validation_error",
 			"the task close-out procedure you are writing is 15076 chars, over the 15000-char cap, "+
-				"and is not shorter than the 511 chars already stored — nothing was written. What is "+
+				"and is not shorter than the 105 chars already stored — nothing was written. What is "+
 				"already stored is never truncated, but every update must land at or under the cap, or "+
 				"at least come out SHORTER than what is there now. Drop stale or superseded material as "+
 				"part of this write (or in a shrinking write first), then write again.")
@@ -2164,7 +2164,7 @@ func TestHandleGetBootDocApiBootDocsKindKeyGet(t *testing.T) {
 			t.Fatalf("want 200, got %d (%v)", status, data)
 		}
 		apiWantBody(t, data, map[string]any{
-			"size_chars":     511,
+			"size_chars":     105,
 			"cap_chars":      15000,
 			"kind":           "task_closeout",
 			"key":            "global",
@@ -2213,7 +2213,7 @@ func TestHandleGetBootDocApiBootDocsKindKeyGet(t *testing.T) {
 			t.Fatalf("want 200, got %d (%v)", status, data)
 		}
 		apiWantBody(t, data, map[string]any{
-			"size_chars":     511,
+			"size_chars":     105,
 			"cap_chars":      15000,
 			"kind":           "task_closeout",
 			"key":            "global",
@@ -2333,9 +2333,9 @@ func TestHandleResetBootDocApiBootDocsKindKeyResetPost(t *testing.T) {
 			"kind":       "task_closeout",
 			"key":        "global",
 			"is_default": true,
-			"size_chars": 511,
+			"size_chars": 105,
 			"cap_chars":  15000,
-			"sha256":     "62a219c766233550b8c5c91e1a6f30a5b6d9833019e60cd302e50616a34d0108",
+			"sha256":     "1b27bbd4b2e0d160f4bd2b083bfdad8b2e054097824e51af4c768db021d47465",
 		})
 		dashboard.wantFrames(map[string]any{
 			"seq":   2,

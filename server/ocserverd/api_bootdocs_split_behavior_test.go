@@ -733,9 +733,16 @@ func TestTaskTakeoverDocs_HeadPlusBodyIsTodaysChatNoticeWithoutTheHandoverNote(t
 // 〈任務收尾〉 is the one of the three the owner allowed to be REWRITTEN
 // (rc-812aa13fb165: 「允許改寫，但逐句先給我看」), because both {type_key} and
 // {manual_label} sat in the middle of its instructions. The two names moved up
-// into the head and the clauses that quoted them now point at it. Compared
-// whole, because the sentence this document must NOT have lost is the one this
-// very ticket is a sample of — 「不要用 write_task_learnings 做整份取代」.
+// into the head and the clauses that quoted them now point at it.
+//
+// 🔴 T-171 CUT THE BODY DOWN TO ONE SENTENCE, AND THAT IS THE POINT OF THE
+// COMPARE-WHOLE. The long body walked the closing agent through
+// patch_task_learnings — a mechanism the owner has since retired in favour of
+// 傳承 (write_lore_entry) — so the seed was teaching every agent to write into
+// a document nobody reads any more. Owner ruled on rc-65191c77d083 that the
+// factory default becomes the SAME short body the live station already carries.
+// Compared whole because a body this short has no redundancy left: any drift is
+// the whole document.
 //
 // 🔴 THE SEND SITE ARRIVED IN T-7870, AND THIS TEST DELIBERATELY STILL DOES NOT
 // ASSERT IT. What is pinned here is the SEED — the approved wording — which is a
@@ -761,45 +768,7 @@ func TestTaskCloseoutDoc_IsTheApprovedRewriteWithBothNamesMovedIntoTheHead(t *te
 		t.Fatalf("the read-only head is not the approved sentence:\n got %q\nwant %q", gotHead, wantHead)
 	}
 
-	// 🔴 THE FIRST SENTENCE ONCE NAMED list_tasks, AND THAT WAS A BUG FIX, NOT A
-	// STYLE CHOICE — THE HISTORY IS KEPT HERE BECAUSE IT EXPLAINS THE SHAPE.
-	// The rewrite that dropped {type_key} put 「先 get_task 讀這張票」 here, and an
-	// agent COULD NOT do that: the only identifier it was handed was the display
-	// number, which AT THE TIME was the id's first hex quartet, while get_task
-	// keys on the full id — measured against the live station of that era,
-	// 「get_task("T-6f44")」 answered 404. So the document was telling every agent
-	// to start with a call that fails, and list_tasks was the way across: each
-	// row carries task_no AND id.
-	//
-	// ⚠️ THAT PREMISE STOPPED BEING TRUE AT T-5291, AND T-1 IS THE SEED CHANGE
-	// THAT CAUGHT THE DOCUMENT UP. `TaskNo(id)` returns the id unchanged
-	// (domain.go), so 票號 and id are the SAME STRING and feeding 票號 to
-	// get_task cannot 404 any more. The detour therefore cost every closing
-	// agent one list_tasks call and taught it something false on the way. The
-	// previous round of this test found the stale sentence, left it standing
-	// DELIBERATELY and reported it upward rather than editing it quietly —
-	// owner-approved seed prose that changes what every agent does needs its own
-	// ruling. That ruling is rc-63068f315a7c (owner 選「改」), and this is it.
-	//
-	// 🔴 WHY THE REPLACEMENT SAYS 「票號就是 id」 AND NOT 「票號都是 T-<數字>」.
-	// Legacy tasks keep their "t-"+12-hex ids and this system has no delete
-	// path, so BOTH number shapes coexist permanently. A sentence about the
-	// SHAPE would be the next false claim; a sentence about the IDENTITY is true
-	// for both. TestGetTaskAcceptsTheTaskNoTheAgentWasHanded
-	// (api_tasks_id_sequence_t52917b_test.go) is the assertion that keeps it
-	// true — it feeds a task_no of EACH shape to the real get_task handler. If
-	// get_task ever goes back to keying on something other than the number
-	// agents are handed, that test goes red BEFORE this prose can rot again.
-	wantBody := "先用 `get_task` 讀這張票（票號就是 id，直接餵給它），" +
-		"看它屬於哪一本任務手冊（欄位 `type_key`）。\n\n" +
-		"若這一趟有值得留下的經驗（踩坑、更好做法），先用 get_task_manual 讀現況，" +
-		"再用 patch_task_learnings（type_key 用上一步讀到的值）只把改動的那一段送回" +
-		"**那本**任務手冊：改既有段落就用它的唯一錨點，第一次寫或要新增就用空錨點追加。" +
-		"不要用 write_task_learnings 做整份取代 —— 讀取後到寫入之間別人新增的內容會被無聲蓋掉；" +
-		"用 `ocagent clean <path>` 移除這個任務的暫存檔/資料夾、收掉臨時 branch/worktree 與跑著的臨時程序；" +
-		"票已經結束的話，最後用 report_task_closeout 回報後續已處理完。" +
-		"⚠️ 你若是**被換手、而這張票還在跑**，這一支會回 409 —— 那一步就跳過，" +
-		"票沒結束就沒有結案可報，這一段的寫回與清理照做。\n"
+	wantBody := "停下這個任務，移除你開啟的外部資源，並停止更新 task。\n"
 	if body != wantBody {
 		t.Fatalf("the body is not the approved rewrite:\n got %q\nwant %q", body, wantBody)
 	}
@@ -819,12 +788,6 @@ func TestTaskCloseoutDoc_IsTheApprovedRewriteWithBothNamesMovedIntoTheHead(t *te
 		if strings.Contains(body, dangling) {
 			t.Errorf("the body still says %q, but the head no longer carries it", dangling)
 		}
-	}
-	// The body must instead tell the agent where to GET the type_key, since the
-	// notice no longer hands it over.
-	if !strings.Contains(body, "get_task") {
-		t.Error("the body never tells the agent to read the ticket, and the head no " +
-			"longer carries the manual or the type_key — nothing says where they come from")
 	}
 }
 
@@ -1625,38 +1588,5 @@ func TestTheTwoStopProceduresDifferInEXACTLYTheLinesTheyAreMeantTo(t *testing.T)
 			t.Errorf("difference %d (%s): 〈加速停止〉 line %d no longer says %q:\n  %s",
 				n+1, want.why, i+1, want.hardNeedle, hardLines[i])
 		}
-	}
-}
-
-// 🔴 THE BODY TRAVELS WITHOUT ITS HEAD, AND ON THAT TRIP THE TICKET IS NOT
-// NECESSARILY OVER. offboardManualWriteBackFor sends this document's BODY ALONE
-// to an outsource worker being wound down (api_members.go) — deliberately, so
-// the head's claim 「任務 {task_no} 已結束。」 is not made on a path that cannot
-// make it. But the body's LAST step used to be an unconditional
-// report_task_closeout, and that endpoint answers 409 for an open task
-// («close-out is reported after the task ends»). A worker handed over mid-task
-// therefore read an instruction that could not succeed — the same shape as the
-// 「餵票號給 get_task 會 404」 defect this document used to carry a warning about
-// (the warning is gone as of T-1 — feeding 票號 to get_task works now), and the
-// same shape as every finding in T-a36c: a sentence that is true on one path
-// and false on the one it is actually delivered on.
-//
-// This pins the CAVEAT, not the wording around it: whoever rewrites the
-// close-out step must still say what happens when the ticket is open. Nothing
-// else in the tree would notice its removal — the seed would read perfectly.
-func TestTaskCloseoutDoc_TheCloseoutStepSaysWhatHappensWhenTheTicketIsStillOpen(t *testing.T) {
-	s := newEventProcServer(t)
-	_, _, body := splitSeed(t, s, docKindTaskCloseout)
-
-	if !strings.Contains(body, "report_task_closeout") {
-		t.Fatal("the body no longer names report_task_closeout — if that step really " +
-			"moved, delete this test deliberately rather than letting it pass vacuously")
-	}
-	// 409 is the endpoint's own answer for an open task; naming it is what makes
-	// the caveat checkable instead of a mood.
-	if !strings.Contains(body, "409") {
-		t.Error("the body tells the agent to call report_task_closeout but never says " +
-			"the call FAILS (409) while the ticket is still open — this body is " +
-			"delivered on the wind-down path, where the ticket often is still open")
 	}
 }
