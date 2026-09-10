@@ -52,6 +52,7 @@ import {
 import { useHashRoute } from "../lib/hashRoute";
 import { avatarKindForMember } from "../lib/avatarKind";
 import { ReplyCardAvatarButton } from "./ReplyCardAvatarButton";
+import { Avatar } from "./Avatar";
 import { ChevronRightIcon } from "./icons";
 import { FilterPanel } from "./FilterPanel";
 import { IdFilterInput } from "./IdFilterInput";
@@ -780,16 +781,32 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
   }
 
   /** The collapsed line — what a row draws with NO read at all: the caret, the
-   * ask's title, and the stamp its status carries. Copied from ChatReplyCard's
-   * stub (T-48) on purpose; the stamp is this pane's own, and it is free
-   * because the light row carries the timestamps.
+   * asker's face and name, the task the ask hangs off, the ask's title, and the
+   * stamp its status carries. Every one of those already rides `ReplyCardRow`
+   * (`from` + `task`), so the row still costs no read.
    *
-   * ONE LINE, and the same line in both states: caret, the ask's title, and the
-   * stamps as one right-hugging pill. Open, the title steps aside for the card
-   * body (which renders the same sentence) and what is left is a thin rule the
-   * card hangs under — the way back to closed, not a second title. */
+   * TWO TEXT LINES INSIDE ONE ROW, and only while CLOSED: the ask's title at
+   * full strength on top, the attribution (名字 · 角色 · 任務標題) muted beneath
+   * it, the avatar to their left and the stamps as one right-hugging pill.
+   * Six things do not fit legibly on one 13.5px line at cockpit width — the
+   * title is the thing being scanned, so it keeps a line to itself and the
+   * three new facts share the second one rather than eating into it.
+   *
+   * ABSENT FACTS ARE NOT DRAWN, they do not leave a slot. An outsource asker
+   * carries no role (`whoOf` returns ""), a chat ask carries no task, and the
+   * pair of them together would be two empty cells on the same row. The
+   * attribution is a flex run whose separators hang off the element that
+   * FOLLOWS them, so dropping either leaves neither a gap nor a dangling 「·」.
+   * Same rule ReplyCardTaskRef already follows for an empty task title.
+   *
+   * OPEN, the whole block steps aside — the expanded card renders the identity
+   * (renderHead), the task row (renderTaskRef) and the same title sentence, so
+   * repeating any of it here would be the duplicate T-170 exists to remove.
+   * What is left is a thin rule the card hangs under: the way back to closed. */
   function renderCollapsedRow(row: ReplyCardRow, stamps: ReactNode) {
     const open = expandedIds.has(row.id);
+    const who = whoOf(row);
+    const asker = members.find((x) => x.id === row.from);
     return (
       <button
         type="button"
@@ -808,7 +825,52 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
         {open ? (
           <span className="reply-card__collapsed-spacer" />
         ) : (
-          <span className="reply-card__collapsed-summary">{row.summary}</span>
+          <>
+            {/* A GLYPH, NOT ReplyCardAvatarButton: this row IS a button, and a
+                button inside a button is invalid HTML that browsers reflow out
+                of the row. The avatar-as-second-target (T-a706) still lives on
+                the expanded card's header, one click away. */}
+            <span className="reply-card__collapsed-avatar" aria-hidden="true">
+              <Avatar
+                size={26}
+                kind={avatarKindForMember(asker ?? { id: row.from })}
+                src={
+                  (asker?.kind === "outsource" ? undefined : asker?.avatarUrl) ??
+                  workerAvatarUrls.get(row.from)
+                }
+              />
+            </span>
+            <span className="reply-card__collapsed-main">
+              <span className="reply-card__collapsed-summary">
+                {row.summary}
+              </span>
+              <span className="reply-card__collapsed-meta">
+                <span
+                  className="reply-card__collapsed-name"
+                  data-testid="row-name"
+                >
+                  {who.name}
+                </span>
+                {who.role && (
+                  <span
+                    className="reply-card__collapsed-role"
+                    data-testid="row-role"
+                  >
+                    {who.role}
+                  </span>
+                )}
+                {row.task?.title && (
+                  <span
+                    className="reply-card__collapsed-task"
+                    data-testid="row-task"
+                    title={row.task.title}
+                  >
+                    {row.task.title}
+                  </span>
+                )}
+              </span>
+            </span>
+          </>
         )}
         {stamps}
       </button>

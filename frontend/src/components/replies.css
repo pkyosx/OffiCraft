@@ -517,16 +517,90 @@
 .reply-card__collapsed-row--tight {
   gap: 10px;
   padding: 7px 12px;
+  /* The stamp pill does not shrink and does not wrap its own text, so on a
+   * narrow cockpit it was taking ~155px of a ~330px row and leaving the title
+   * as「要現…」. Letting the ROW wrap sends the pill to a second line there
+   * instead, where `margin-left: auto` keeps it right-hugging — the same face,
+   * one line lower. Nothing wraps at desktop width. */
+  flex-wrap: wrap;
 }
-.reply-card__collapsed-row--tight .reply-card__collapsed-summary,
+.reply-card__collapsed-main,
 .reply-card__collapsed-spacer {
-  flex: 1;
+  flex: 1 1 12em;
+  min-width: 0;
+}
+.reply-card__collapsed-main {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  overflow: hidden;
+}
+.reply-card__collapsed-row--tight .reply-card__collapsed-summary {
   font-size: 13.5px;
   font-weight: 600;
   color: var(--color-text-strong);
 }
+.reply-card__collapsed-avatar {
+  flex: none;
+  display: inline-flex;
+}
+/* 名字 · 角色 + the task chip — one muted run under the title. Absent facts are
+ * NOT DRAWN and leave no slot: an outsource asker carries no role, a plain chat
+ * ask no task, and the pair together (外包 × 純聊天) would otherwise be two empty
+ * cells side by side. The 「·」 hangs off the role — the element that FOLLOWS it —
+ * so dropping the role takes its separator with it.
+ *
+ * THE TASK IS A CHIP, NOT A THIRD 「·」 ITEM, because it has to survive wrapping:
+ * at phone width the identity fills the line and the chip drops to its own row,
+ * where a leading separator would be pointing at nothing. */
+.reply-card__collapsed-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  column-gap: 6px;
+  row-gap: 2px;
+  min-width: 0;
+  font-size: 11.5px;
+  font-weight: 400;
+  color: var(--color-text-muted);
+}
+.reply-card__collapsed-name {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.reply-card__collapsed-role {
+  flex: none;
+  white-space: nowrap;
+}
+.reply-card__collapsed-role::before {
+  content: "·";
+  margin-right: 5px;
+  color: var(--color-text-muted);
+}
+/* The task title is the longest of the three and the only one that may be cut.
+ * `flex: 0 1 auto` on BOTH it and the name is what keeps it readable at every
+ * width: it never grows into an empty chip on a wide row, and when the run no
+ * longer fits it wraps to its own line at its natural width instead of being
+ * squeezed out. MEASURED at 390px: with `flex: none` on the name this chip
+ * rendered 0px wide — present in the DOM, invisible on screen. */
+.reply-card__collapsed-task {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 0 7px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--color-overlay) 6%, transparent);
+  color: var(--color-text);
+}
+
 .reply-card__stamp-pill {
   flex: none;
+  margin-left: auto;
   display: inline-flex;
   align-items: center;
   gap: 8px;

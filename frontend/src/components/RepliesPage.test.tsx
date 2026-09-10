@@ -103,6 +103,17 @@ async function openCards() {
   );
 }
 
+/** Shut every open card, so the assertions land on the COLLAPSED row. The
+ * leading 待回覆 card opens itself on arrival (3c), so a page with one card has
+ * no closed row until this runs. */
+function closeCards() {
+  for (const btn of document.querySelectorAll<HTMLElement>(
+    '[data-testid="reply-card-toggle"]'
+  )) {
+    if (btn.getAttribute("aria-expanded") === "true") fireEvent.click(btn);
+  }
+}
+
 beforeEach(() => {
   __resetMock();
   window.location.hash = "";
@@ -170,6 +181,20 @@ describe("RepliesPage", () => {
     );
     const { findAllByTestId } = renderPage();
     const cards = await findAllByTestId("waiting-card");
+    closeCards();
+    // T-170: the CLOSED row resolves the same way, and with neither a role nor
+    // a task an outsource chat ask leaves both cells undrawn — the one case
+    // that would otherwise be two blanks side by side.
+    const rowNames = cards.map(
+      (c) => c.querySelector('[data-testid="row-name"]')?.textContent,
+    );
+    expect(rowNames).toContain("外包 · R-2");
+    expect(rowNames).toContain("ow-9");
+    expect(rowNames).not.toContain("ow-rel");
+    for (const c of cards) {
+      expect(c.querySelector('[data-testid="row-role"]')).toBeNull();
+      expect(c.querySelector('[data-testid="row-task"]')).toBeNull();
+    }
     await openCards();
     const names = cards.map(
       (c) => c.querySelector(".reply-card__name")?.textContent
@@ -570,7 +595,19 @@ describe("RepliesPage", () => {
       }),
     );
     const { findByTestId } = renderPage();
-    await findByTestId("waiting-card");
+    const collapsed = await findByTestId("waiting-card");
+    closeCards();
+    // T-170: WHO and WHICH before a single read — the closed row already names
+    // the asker and the task, off the light list row alone. An outsource asker
+    // carries NO role, and that cell is absent rather than blank.
+    expect(collapsed.querySelector('[data-testid="row-name"]')?.textContent).toBe(
+      "外包 · R-2",
+    );
+    expect(collapsed.querySelector('[data-testid="row-role"]')).toBeNull();
+    expect(collapsed.querySelector('[data-testid="row-task"]')?.textContent).toBe(
+      "[ACE-7580] SOC2 年度風險評估：review Google Drive 上的 ISMS 文件",
+    );
+    expect(collapsed.querySelector(".reply-card__collapsed-avatar")).toBeTruthy();
     await openCards();
     const ref = await findByTestId("reply-task-ref");
     // Verbatim — a shortened or reworded title is a different claim about
@@ -582,6 +619,11 @@ describe("RepliesPage", () => {
     // instead of the other.
     const card = await findByTestId("waiting-card");
     expect(card.textContent).toContain("R-2");
+    // OPEN, the attribution steps aside entirely — the expanded card's own
+    // header and task row carry it, and a second copy is the duplicate T-170
+    // exists to remove.
+    expect(card.querySelector('[data-testid="row-name"]')).toBeNull();
+    expect(card.querySelector('[data-testid="row-task"]')).toBeNull();
   });
 
   // Same field, different path (a staff member's card binds to its own step),
@@ -595,7 +637,17 @@ describe("RepliesPage", () => {
       }),
     );
     const { findByTestId } = renderPage();
-    await findByTestId("waiting-card");
+    const collapsed = await findByTestId("waiting-card");
+    closeCards();
+    // T-170: a staff asker fills all four cells of the closed row.
+    expect(collapsed.querySelector('[data-testid="row-name"]')?.textContent).toBe(
+      "Kyle",
+    );
+    expect(collapsed.querySelector('[data-testid="row-role"]')?.textContent).toBeTruthy();
+    expect(collapsed.querySelector('[data-testid="row-task"]')?.textContent).toBe(
+      "把開機說明改成座艙可編輯",
+    );
+    expect(collapsed.querySelector(".reply-card__collapsed-avatar")).toBeTruthy();
     await openCards();
     const ref = await findByTestId("reply-task-ref");
     expect(ref.textContent).toContain("把開機說明改成座艙可編輯");
@@ -808,7 +860,17 @@ describe("RepliesPage", () => {
   it("shows no task row at all on a pure chat ask", async () => {
     __injectMockReplyCard(mkCard({ task: null }));
     const { findByTestId, queryByTestId } = renderPage();
-    await findByTestId("waiting-card");
+    const collapsed = await findByTestId("waiting-card");
+    closeCards();
+    // T-170: same rule on the closed row — no task means NO task cell, not an
+    // empty one. Who asked is still answered (name + role).
+    expect(collapsed.querySelector('[data-testid="row-task"]')).toBeNull();
+    expect(collapsed.querySelector('[data-testid="row-name"]')?.textContent).toBe(
+      "Mira",
+    );
+    expect(collapsed.querySelector('[data-testid="row-role"]')?.textContent).toBe(
+      "特助",
+    );
     await openCards();
     expect(queryByTestId("reply-task-ref")).toBeNull();
   });
