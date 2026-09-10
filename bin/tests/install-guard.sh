@@ -58,10 +58,23 @@ mkdir -p "$SHIMDIR" "$PKG"
 
 # ── the package under test: install.sh + its four sibling binaries ───────────
 cp "$SCRIPT" "$PKG/install.sh"
-for b in ocserverd ocwarden ocagent officraft; do
+for b in ocwarden ocagent officraft; do
   printf '#!/usr/bin/env bash\nexit 0\n' > "$PKG/$b"
   chmod +x "$PKG/$b"
 done
+# ocserverd is the ONE stub that records itself (T-164). The installer both
+# `migrate`s and, under --foreground, `exec`s it — and what the exec CARRIES is
+# the whole question: an exec with no OC_CONFIG silently lands the daemon on the
+# convention-default database and port instead of the instance the operator
+# named. From outside the process there is nothing else to look at, so the stub
+# writes its argv and the config it inherited into the tripwire. It still
+# exits 0, so the ~40 cases that predate this see no change.
+cat > "$PKG/ocserverd" <<'SH'
+#!/usr/bin/env bash
+printf 'ocserverd %s OC_CONFIG=[%s]\n' "$*" "${OC_CONFIG:-}" >> "${SHIM_TRIPWIRE:-/dev/null}"
+exit 0
+SH
+chmod +x "$PKG/ocserverd"
 
 # ── PATH shims ───────────────────────────────────────────────────────────────
 # uname: pin darwin/arm64 so the platform gate passes on any CI host.
@@ -715,6 +728,107 @@ if compgen -G "$FAKEHOME/.officraft-*" >/dev/null; then bad "no --namespace: a n
 if [[ -f "$FAKEHOME/$PLIST_REL" ]]; then ok "no --namespace: still uses com.officraft.serve.plist"; else bad "no --namespace: default plist missing"; fi
 if [[ -e "$FAKEHOME/.officraft/server/oc.toml" ]]; then bad "no --namespace: an instance config was invented for the MAIN instance"; else ok "no --namespace: no instance config is invented (main reads OC_CONFIG/./oc.toml as before)"; fi
 
+# 10i. --foreground MUST CARRY THE INSTANCE'S CONFIG INTO THE DAEMON (T-164).
+#
+# WHY THIS CASE EXISTS. Everything 10a-10h asserts is about what the INSTALLER
+# writes — the root, the config, the label, the plist, the port it gated. All of
+# it was already correct while the flag was still broken, because the defect was
+# one line later: the --foreground branch ran `exec ocserverd serve` with nothing
+# in front of it. The daemon then resolved its own way ($OC_CONFIG → ./oc.toml,
+# both empty) to the convention defaults and — measured on the official v0.5.356
+# package, 2026-09-10 — created and MIGRATED ~/.officraft/server/data/officraft.db
+# (goose 74 → 101 on one that already existed) and went for port 7755, while the
+# line printed just above said "open http://127.0.0.1:<the port you asked for>/".
+# A whole namespaced install, correct in every artifact on disk, serving the MAIN
+# instance's database. Nothing in this file could see it: the stub ocserverd said
+# `exit 0` and threw its arguments away.
+#
+# So the stub records itself now (see the package block at the top) and these
+# cases read the tripwire. What they pin is not "the installer did the right
+# thing" but "the thing the installer HANDED OFF TO was told where to go".
+reset_fixture fresh
+run_install_ns absent "$MAIN_TARGET" --namespace "$NS" --port "$NS_PORT" --foreground
+check "ns --foreground: succeeds" "0" "$RC"
+NS_CFG_ABS="$FAKEHOME/.officraft-$NS/server/oc.toml"
+# POSITIVE CONTROL FIRST: migrate was already carrying the config before this
+# change. If this line is absent the case never ran the installer at all, and the
+# serve assertion below would be reading an empty tripwire — which looks exactly
+# like a regression it did not observe.
+if tripwire_has "ocserverd migrate OC_CONFIG=[$NS_CFG_ABS]"; then
+  ok "ns --foreground: migrate carried the instance config (the case really ran)"
+else
+  bad "ns --foreground: no migrate in the tripwire — the run never got that far: $(cat "$WORK/.tripwire")"
+fi
+if tripwire_has "ocserverd serve OC_CONFIG=[$NS_CFG_ABS]"; then
+  ok "ns --foreground: the exec carries the instance config"
+else
+  bad "ns --foreground: serve was exec'd WITHOUT the instance config — the daemon would silently use the DEFAULT database and port, not instance '$NS': $(cat "$WORK/.tripwire")"
+fi
+if tripwire_has "ocserverd serve OC_CONFIG=[]"; then
+  bad "ns --foreground: serve was exec'd with an EMPTY OC_CONFIG — that is the defect itself"
+else
+  ok "ns --foreground: no config-less serve was exec'd"
+fi
+# The operator is also TOLD how to restart it. That line used to print a bare
+# `ocserverd serve`, which walks straight back into the same fallback — a trap
+# the installer hands over in writing.
+case "$OUT" in
+  *"OC_CONFIG=$NS_CFG_ABS"*) ok "ns --foreground: the restart hint carries the config too" ;;
+  *) bad "ns --foreground: the restart hint tells the operator to run a bare serve, which re-enters the fallback ('$OUT')" ;;
+esac
+
+# 10j. THE NEGATIVE CONTROL, and it is the half that decides the shape of the
+# fix. A config-less `ocserverd serve` booting on the convention defaults is a
+# DOCUMENTED capability — oc.toml.example: "The file may be entirely ABSENT:
+# every key has a convention default, so a bare `ocserverd serve` boots with zero
+# setup", repeated in server/ocserverd/config.go. So --foreground WITHOUT a
+# namespace and without any config file must keep exec-ing exactly what it always
+# did. "Refuse when nothing resolves" would have deleted that, and 10i alone
+# would still have passed.
+reset_fixture fresh
+run_install absent --foreground
+check "plain --foreground: succeeds" "0" "$RC"
+if tripwire_has "ocserverd serve OC_CONFIG=[]"; then
+  ok "plain --foreground: still exec's a config-less serve (zero-setup boot preserved)"
+else
+  bad "plain --foreground: the config-less serve is gone — zero-setup boot was broken: $(cat "$WORK/.tripwire")"
+fi
+if compgen -G "$FAKEHOME/.officraft-*" >/dev/null; then bad "plain --foreground: a namespaced root appeared"; else ok "plain --foreground: no namespaced root"; fi
+
+# 10k. NO OPERATOR-FACING HINT MAY PRINT A BARE `ocserverd serve` (T-164).
+#
+# This one reads the SOURCE, not a run, and that is deliberate: the three other
+# places that hand the operator a start command are all on FAILURE paths (port
+# already held, launchctl bootstrap failed, bootstrap registered nothing). Each
+# needs its own fixture to reach, and the reader there is already in trouble and
+# has every reason to paste what the tool just told them — on a namespaced
+# install a bare serve walks straight into the fallback this ticket closes, on
+# the MAIN instance's database. A behavioural case per failure path would be the
+# better test; this is the one that exists, and it is honest about being a
+# source-text check: it cannot see a hint built some other way.
+BARE_HINT_RE='echo "\[install\].*\$BIN_DIR/ocserverd serve'
+BARE_HINTS="$(grep -c "$BARE_HINT_RE" "$SCRIPT" || true)"
+check "no operator-facing hint prints a bare 'ocserverd serve' (they must derive from serve_cmd)" "0" "$BARE_HINTS"
+# 🔴 POSITIVE CONTROL — AND THE FIRST VERSION OF IT HAD NO DISCRIMINATING POWER.
+# It counted occurrences of the string "SERVE_CMD", which is not the pattern the
+# assertion above uses. T-166's review seeded exactly the mutant that exposes it:
+# leave one bare hint AND misspell the pattern ('ocserverd' -> 'ocserverdd'), and
+# the whole suite still reported 120 ok / 0 failed with the control green. A
+# control that asks a DIFFERENT question than the assertion cannot fail with it.
+#
+# The control now runs the SAME pattern over a fixture that is KNOWN to contain
+# the thing being banned — two lines copied verbatim from the shape install.sh
+# carried before the fix. A typo in $BARE_HINT_RE now takes this line down
+# together with the assertion, which is the only arrangement that makes a green
+# assertion mean anything.
+CONTROL_SRC="$WORK/.bare-hint-control.sh"
+cat > "$CONTROL_SRC" <<'CONTROL_EOF'
+    echo "[install]   $BIN_DIR/ocserverd serve" >&2
+    echo "[install]        Or run it in the foreground: $BIN_DIR/ocserverd serve" >&2
+CONTROL_EOF
+CONTROL_HITS="$(grep -c "$BARE_HINT_RE" "$CONTROL_SRC" || true)"
+check "positive control: the SAME pattern finds the bare hints in known-bad text" "2" "$CONTROL_HITS"
+
 # ── 10. a reinstall is not a relocation, on EVERY macOS ─────────────────────
 # The plist this suite writes has no EnvironmentVariables at all, so asking it
 # for OC_CONFIG is the ordinary "key is absent" case. macOS 15's plutil answers
@@ -813,6 +927,57 @@ if tripwire_has "lsof -nP -iTCP:7799"; then
 else
   bad "config inheritance: the port gate never probed 7799 — it checked a port the inherited config does not name"
 fi
+
+# 10l. THE INHERITED CONFIG MUST REACH THE OPERATOR HINT TOO (T-164, found by the
+# T-166 review).
+#
+# WHY THIS CASE EXISTS, AND WHY THE SOURCE-TEXT GUARD ABOVE COULD NOT SEE IT.
+# The first version of the fix froze the start command into a variable computed
+# right after $CFG_ABS was resolved — but the block just above REASSIGNS
+# $CFG_ABS when it inherits the running job's config, and every hint site is
+# further down. One execution then wrote the correct OC_CONFIG into the plist
+# and printed a BARE `ocserverd serve` to the operator: the plist right, the
+# advice wrong, which is the exact drift the refactor existed to make
+# impossible. 10k stayed green throughout, because what was stale was the VALUE,
+# not the wording — a source-text check cannot see a stale value, and reading it
+# as coverage of this is how the bug survived review-by-author.
+#
+# SHIM_BOOTSTRAP_REGISTERS=0 is what reaches a hint at all: the hints live on
+# failure paths, and this is the cheapest failure to provoke.
+reset_fixture preinstalled
+printf '[server]\nport = 7799\n' > "$INHERIT_CFG"
+cat > "$FAKEHOME/$PLIST_REL" <<PL
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>com.officraft.serve</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>$FAKEHOME/.officraft/bin/ocserverd</string>
+    <string>serve</string>
+  </array>
+  <key>EnvironmentVariables</key>
+  <dict><key>OC_CONFIG</key><string>$INHERIT_CFG</string></dict>
+  <key>RunAtLoad</key><true/>
+</dict>
+</plist>
+PL
+SHIM_BOOTSTRAP_REGISTERS=0 run_install loaded --force
+# Positive control FIRST: without the inheritance actually happening, the
+# assertion below would be asserting about a run that never took this path.
+case "$OUT" in
+  *"carrying over the existing service's config: $INHERIT_CFG"*)
+    ok "inherited-config hint: the run really took the inheritance path" ;;
+  *)
+    bad "inherited-config hint: the run never inherited anything — this case proves nothing ($OUT)" ;;
+esac
+case "$OUT" in
+  *"OC_CONFIG=$INHERIT_CFG"*)
+    ok "inherited-config hint: the start command handed to the operator carries the INHERITED config" ;;
+  *)
+    bad "inherited-config hint: the operator was handed a start command WITHOUT the inherited config — running it would land the daemon on the convention defaults while the plist points elsewhere ($OUT)" ;;
+esac
 
 # ── 11. the SAME defect on the other plutil reader (T-4358) ─────────────────
 # plist_env got the rc-decides treatment in T-5831; plist_program was left on
