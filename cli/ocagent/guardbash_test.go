@@ -51,7 +51,7 @@ func decisionOf(t *testing.T, stdout string) string {
 	return got.HookSpecificOutput.PermissionDecision
 }
 
-func TestGuardBash_RefusesRemovalOnAVariableBuiltPath(t *testing.T) {
+func TestGuardBash_RefusesRemovalWhoseTargetIsNotALiteralPath(t *testing.T) {
 	// Every one of these stalls a headless member today. The first is the shape
 	// that actually stalled one on 2026-09-10.
 	for name, command := range map[string]string{
@@ -64,6 +64,9 @@ func TestGuardBash_RefusesRemovalOnAVariableBuiltPath(t *testing.T) {
 		"behind sudo":                  `sudo rm -rf $HOME/x`,
 		"rmdir rather than rm":         `rmdir "$D"/emptydir`,
 		"second command in a pipeline": `ls | rm -f "$D"/x`,
+		"command substitution target":  `rm -rf $(cat dirpath.txt)`,
+		"backtick target":              "rm -rf `cat dirpath.txt`",
+		"variable with no separator":   `rm -f $TMPFILE`,
 	} {
 		t.Run(name, func(t *testing.T) {
 			code, stdout := runGuardBash(t, command)

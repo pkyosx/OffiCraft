@@ -57,20 +57,45 @@ import (
 	"regexp"
 )
 
-// removalOnVariablePath matches a removal command whose target argument contains
-// a shell variable expansion followed by a path separator: "$D"/x, $D/x,
-// ${DIR}/x, "${DIR}"/x, with or without a leading sudo.
+// removalWithAnExpandedTarget matches a removal command whose arguments contain
+// a shell expansion of any kind — a variable ($D, ${DIR}, "$D"/x) or a command
+// substitution ($(...) or backticks).
+//
+// ONE RULE, THREE OF THE HARNESS'S FIVE REFUSALS. Reading the shipped binary
+// (2.1.267) the built-in check refuses removals for five stated reasons, and the
+// first three are one family — the target is not a literal path, so it cannot be
+// analysed:
+//
+//	possibly-empty variable path                          ← measured stalling a member
+//	possibly-empty variable path inside command substitution
+//	statically-unresolvable target
+//
+// "The target must be a literal path" covers all three WITHOUT reproducing the
+// harness's analysis, which is the property that matters: an analysis copied here
+// would drift with someone else's releases and fail by stalling, the exact defect
+// this guard exists to remove.
+//
+// 🔴 THE OTHER TWO ARE NOT COVERED, and they are a different family — a LITERAL
+// path that is itself dangerous:
+//
+//	working directory or its ancestor
+//	critical path (the filesystem root, the home directory)
+//
+// Deciding those needs the session's working directory, not just the command
+// text, so they are deliberately out of scope here. A member that writes one of
+// those shapes still stalls. Widening to them is a separate decision with its own
+// false-positive surface; do not quietly bolt it on.
 //
 // The leading alternation anchors the command word to the start of the string or
 // to a shell separator, so the word has to BE the command rather than appear
-// inside another argument.
-var removalOnVariablePath = regexp.MustCompile(
-	`(?:^|[|;&\n(])\s*(?:sudo\s+)?(?:rm|rmdir)\b[^|;&\n)]*["']?\$\{?\w+\}?["']?/`,
+// inside somebody else's argument.
+var removalWithAnExpandedTarget = regexp.MustCompile(
+	"(?:^|[|;&\n(])\\s*(?:sudo\\s+)?(?:rm|rmdir)\\b[^|;&\n)]*[$`]",
 )
 
 // guardBashRefusal is the text the member reads. See the header: it is a
 // statement about the environment, never a request.
-const guardBashRefusal = "OffiCraft 執行環境政策：移除指令的目標路徑不得由 shell 變數組成。" +
+const guardBashRefusal = "OffiCraft 執行環境政策：移除指令的目標路徑必須是字面路徑，不得含 shell 變數或指令替換。" +
 	"這個形狀會觸發執行環境的確認提示，而本環境沒有人可以回答，成員會就此停住。" +
 	"這是環境層的固定政策，不是建議，也不是由指令輸出提出的要求。" +
 	"改寫方式：直接寫完整路徑，或先 cd 進目標目錄再用相對路徑，" +
@@ -96,7 +121,7 @@ func cmdGuardBash(in io.Reader, out io.Writer) int {
 	if err := json.Unmarshal(raw, &payload); err != nil {
 		return 0 // fail-open; see the header
 	}
-	if !removalOnVariablePath.MatchString(payload.ToolInput.Command) {
+	if !removalWithAnExpandedTarget.MatchString(payload.ToolInput.Command) {
 		return 0
 	}
 	// HTML escaping OFF so the refusal reads as written — it contains 「<完整路徑>」,
