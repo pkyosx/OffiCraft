@@ -249,6 +249,23 @@ func TestGuardBash_RefusalIsAStatementAboutTheEnvironmentNotARequest(t *testing.
 	}
 }
 
+// TestGuardBash_TheRuleCannotChangeWithoutThisLineChanging pins the regexp
+// source, because the two tables above are kept BY HAND: a seeded mutant that
+// widened the keyword alternation and deleted the one allow-table line it broke,
+// in the same edit, left the whole package green. Every behavioural change to the
+// guard has to go through this literal, so it cannot be made without the author
+// landing here and being sent to the tables. It asserts nothing about scope — it
+// is a tripwire, not a claim. Deletable the day a checker derives the tables from
+// the rule instead of from someone's memory.
+func TestGuardBash_TheRuleCannotChangeWithoutThisLineChanging(t *testing.T) {
+	const want = "(?:^|[|;&\n(])\\s*(?:(?:do|then|else|elif|\\{)\\s+)*(?:sudo\\s+)?(?:rm|rmdir)\\b[^|;&\n)]*[$`]"
+	if got := removalWithAnExpandedTarget.String(); got != want {
+		t.Errorf("the guard's rule changed:\n got %q\nwant %q\n"+
+			"That is allowed — but the refuse/allow tables in this file do not "+
+			"update themselves, so revisit both before repinning this line.", got, want)
+	}
+}
+
 // verdictOf answers what a member would observe: true when the guard refuses.
 func verdictOf(t *testing.T, command string) bool {
 	t.Helper()
