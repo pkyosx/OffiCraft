@@ -100,7 +100,7 @@
 | D3 | 強制停止 + 二次確認 | `stopping` 時 Stop 升級為 force-stop，`mp-force-stop-confirm` modal | ~~無此端點~~ **已補（T-ed79，owner 2026-08-21「強制殺移到第三顆按鈕」）**：`POST /api/outsource-workers/{id}/force-stop` ＋ `worker-detail-force-stop-confirm` modal | ~~差~~ **已對齊，而且比 D3 原本問的更多** | ✅ **已完成，不再是開放問題**。正職那邊的形狀本身也變了兩次：`stopping` 先是不再「Stop 升級成 force-stop」而是三顆固定位置的階梯，接著 owner 2026-08-21 又把「三顆固定、變灰」推翻成**按了才出現**——沒輪到的那一顆不 render。外包這一列直接 render **同一個 `MemberActionButtons`**，連「這個成員爬到第幾階」都是同一個 `stopLadderStageOf` 讀同一組 wire 欄位（presence／desired_state／refocus_since／refocus_op），所以字、順序、哪一顆存在都是同一份實作，不會再各自漂。外包的 `/stop` 也同時從「當場砍」改成優雅收工（見 `offboard-flow.md`）。護欄：`worker_graceful_stop_ted79_test.go`、`WorkerDetailPanel.test.tsx` 的「停止 → the worker goes 停止中…」與「強制停止 ASKS FIRST…」 |
 | D4 | 「只儲存，不喚醒」 | `mp-settings-save-only`，未喚醒時出現 | 無 | 差 | **不需要**（可自裁定）：外包 dialog 本來就**不啟動任何東西**（只打 `model` 與 `relocate` 兩個端點），所以整份 dialog 就是「只儲存」，多一顆同義鍵反而製造「另一顆會啟動」的錯覺 |
 | D5 | 設定意圖註記 | `mp-settings-intent-note`（＋回報值對照的第二句） | 無 | 差 | 外包 dialog 改用 `t.workerDetail.modelNextSpawnNote`（「工作中立即生效；已指派則下次啟動生效」）——那才是外包端點的真語意；照抄正職的「下次啟動要用哪一個」會是假話 |
-| D6 | 回呼端點 · WEBHOOK 卡 | `extraExpandCards` 整張卡（列表／啟停／建立／刪除／簽章輪替／事件統計） | 無 | 差 | **保留現狀**。webhook 綁的是常駐 member id；外包是任務結束即 release 的短命身分，掛外部長期入口沒有可對應的生命週期 |
+| D6 | 回呼端點 · WEBHOOK 卡 | `extraExpandCards` 整張卡（列表／啟停／建立／刪除／簽章輪替／事件統計） | 無 | 差 | **卡片保留現狀（面板未動）**，但原本的理由已不成立：那句「外包是任務結束即 release 的短命身分，掛外部長期入口沒有可對應的生命週期」被 T-140 推翻——`create`／`update`／`revoke` 三個動詞改吃 `anyMember`（`api_webhooks.go`），而 `00101_webhook_revoke_on_member_exit.sql` 的 trigger 讓成員一退場（正職 soft remove／外包 release／role cascade 硬刪）端點就跟著消失。所以生命週期現在對得上；面板要不要長出這張卡，T-140 沒有處理（該包只動 server 端，前端零改動） |
 | D7 | 改名 | 有 | 無 | 見 A3 | 同 A3 |
 
 ## E. 共用卡片（已一致，列出以示涵蓋完整）

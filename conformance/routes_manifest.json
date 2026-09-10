@@ -1279,5 +1279,33 @@
     "method": "POST",
     "path": "/api/tasks/{task_id}/artifact/{artifact_id}/replace",
     "requires": "agent"
+  },
+  {
+    "auth": "gated",
+    "mcp_tool": "write_lore_entry",
+    "method": "POST",
+    "path": "/api/lore",
+    "requires": "agent"
+  },
+  {
+    "auth": "gated",
+    "mcp_tool": "list_lore_entries",
+    "method": "GET",
+    "path": "/api/lore",
+    "requires": "agent"
+  },
+  {
+    "auth": "gated",
+    "mcp_tool": "set_lore_entry_state",
+    "method": "POST",
+    "path": "/api/lore/{entry_id}/state",
+    "requires": "agent"
+  },
+  {
+    "auth": "gated",
+    "mcp_tool": "bump_lore_entry",
+    "method": "POST",
+    "path": "/api/lore/{entry_id}/bump",
+    "requires": "agent"
   }
 ]

@@ -283,6 +283,23 @@ def _check_renewed_credential(
         f"({ctx.warden.member_id!r})"
     )
     assert data["token"], "renewal answered 200 with no token"
+    # §1.6: the renewal mint is the SAME mint the install paths use, so the
+    # credential it hands back expires on auth.warden_credential_lifetime_secs
+    # like every other one. This was `expires_in=0` (permanent) until T-fc53
+    # 第二段. Compared against the station's own answer rather than a literal:
+    # the setting is owner-adjustable, and what must hold is that the two agree.
+    policy = ctx.client.get(
+        "/api/machines/credential-policy",
+        headers={"Authorization": f"Bearer {data['token']}"},
+    )
+    assert policy.status_code == 200, policy.text
+    lifetime = policy.json()["lifetime_secs"]
+    assert data["expires_in"] == lifetime, (
+        f"renewal answered expires_in={data['expires_in']} while the station's "
+        f"credential policy says {lifetime}. The renewal threshold is derived from "
+        f"the policy number and the credential dies on the expires_in one; a fleet "
+        f"whose two numbers disagree renews after it has already been refused."
+    )
     probe = ctx.client.get(
         "/api/machines",
         headers={"Authorization": f"Bearer {data['token']}"},
@@ -519,6 +536,32 @@ def _matrix_reassigning_task(ctx: Ctx) -> str:
     assert r.status_code == 200, f"scratch reassign failed: {r.status_code} {r.text}"
     assert r.json()["lock"] == "reassigning", r.text
     return task_id
+
+
+def _matrix_lore_entry(ctx: Ctx) -> str:
+    """A fresh 傳承 entry WRITTEN BY AGENT A; returns its ``L-<n>`` id.
+
+    Agent A and not the owner, for two independent reasons. The first is that
+    the owner CANNOT write one: the write face files under the writer's own
+    boot document and the owner has no roster row to name (api_lore.go,
+    ``case m == nil:`` → 400 — the same fact the POST /api/lore row below
+    pins). The second is that it is the author that makes the two governance
+    rows say anything: ``callerMayGovernLore`` lets a caller without admin
+    capability act ONLY on an entry whose pinned ``author_id`` is its own, so
+    an owner- or admin-written fixture would turn agent_self's cell from "the
+    author exception holds" into a second copy of agent_other's 403.
+
+    One entry per cell (the path callables call this per identity), like the
+    scratch cards and tasks above: both verbs MUTATE the row they are aimed
+    at, and neither cell should be able to see what the previous one left.
+    """
+    r = ctx.client.post(
+        "/api/lore",
+        json={"title": "conf matrix lore", "body": "conf matrix lore body"},
+        headers={"Authorization": f"Bearer {ctx.agent_a.token}"},
+    )
+    assert r.status_code == 200, f"scratch lore entry failed: {r.status_code} {r.text}"
+    return r.json()["id"]
 
 
 # T-3201 — a boot document's write face takes the EDITABLE HALF and nothing
@@ -1842,6 +1885,97 @@ MATRIX: dict[str, Route] = {
         path="/api/docs/assets/conf-missing.png",
         overrides={i: 404 for i in _IDENTITY_RANK},
     ),
+    # ── 傳承 lore (T-33) ─────────────────────────────────────────────────────
+    # Four rows, all declared requires="agent". Two of them carry a
+    # handler-level rule the requires-rank framework cannot express, and each
+    # spends exactly ONE hand-written cell on it; the read and the write carry
+    # none, so everything in them derives from the floor.
+    #
+    # 🔴 THE WARDEN IS BELOW THE FLOOR ON ALL FOUR, so none of its cells reach
+    # a handler. That matters here because the warden is the only identity in
+    # this suite whose roster row carries role_key "" — which is exactly the
+    # shape the write face's outsource arm exists for. Its 403 is the gate's,
+    # derived from rank 0 < 1, and says nothing about that arm; see DEGRADED.
+    "GET /api/lore": Route(
+        # A plain agent-floor list. HandleListLoreEntriesApiLoreGet
+        # (api_lore.go) makes NO per-caller distinction at all — it reads the
+        # query filter, validates it, and pages the table — so every at-floor
+        # identity gets the same 200 and this row overrides nothing.
+        #
+        # No query string on purpose, so no cell can 400 for a reason that is
+        # not identity: the filter stays empty (both closed-set checks are
+        # skipped), limit/offset fall back to the in-range defaults 30/0, and
+        # the 上限線 block is skipped because it runs only when BOTH scope_kind
+        # and scope_key are set. The list's own semantics (the filter, the
+        # paging, first_dropped_id coming from selectLoreForScope) belong to
+        # test_rest_happy.py and the server unit tests, not to this file.
+        requires="agent",
+    ),
+    "POST /api/lore": Route(
+        # 🔴 THE OWNER FACE IS A 400, AND IT IS THE ROUTE'S SEMANTICS RATHER
+        # THAN A WEAK PROBE. Naming no typed task, the write files the entry
+        # under the WRITER'S OWN boot document, and api_lore.go resolves that
+        # scope from the caller's OWN roster row (callerRosterRow, off the
+        # verified token sub). The owner's sub is the wireOwnerID literal
+        # "owner", which is not a minted "m-…" member id, so GetMember answers
+        # nil and the handler takes `case m == nil:` — a 400 that refuses
+        # rather than inventing a scope nobody reads. Server-side twin:
+        # TestWriteLoreWithNoRosterRowIs400 (api_lore_t33_test.go).
+        #
+        # Every OTHER at-floor identity has a roster row WITH a role_key
+        # (admin_agent: "assistant"; agent A and agent B: conf-role-a/b), so
+        # all three take `case m.RoleKey != "":`, file under scope role, and
+        # answer 200. There is no per-caller authz above the declared floor on
+        # this door — the 400 is a scope-resolution outcome, not a refusal
+        # about who may write — so `owner` is the only override.
+        #
+        # title and body are both non-empty (the handler's first 400) and far
+        # under the character caps (its second and third), so no at-floor cell
+        # can 400 for a content reason and be mistaken for the scope one.
+        requires="agent",
+        overrides={"owner": 400},
+        body={"title": "conf matrix lore", "body": "conf matrix lore body"},
+    ),
+    "POST /api/lore/{entry_id}/state": Route(
+        # Author-gated ABOVE the declared floor, inside the handler:
+        # callerMayGovernLore (api_lore.go) passes admin capability
+        # unconditionally and otherwise requires currentActor == the entry's
+        # PINNED author_id. The fixture entry is written by agent A, so
+        # agent_self is the author (200) and agent_other is the cross-author
+        # refusal (403, loreGovernanceRefusalOwn) — the one cell the
+        # requires-rank framework cannot express. owner and admin_agent clear
+        # principalAdminAgent and skip the whole block.
+        #
+        # 🔴 THE BODY SAYS `active`, ON AN ALREADY-ACTIVE ENTRY, ON PURPOSE.
+        # This one door carries a SECOND and HIGHER floor — 置頂 and its undo
+        # are admin-only — and api_lore.go applies it in BOTH directions
+        # (`state == LoreStatePinned || current.State == LoreStatePinned`),
+        # BEFORE the author check. A body of `pinned`, or a fixture that was
+        # already pinned, would therefore turn agent_self into a 403 earned by
+        # the pinning rule, and this row would stop saying anything about the
+        # author rule it exists to pin. The admin-only pin floor is pinned in
+        # the server unit tests (api_lore_t33_test.go) — a route whose two
+        # floors cannot both be stated by one row.
+        #
+        # `active` is a valid state (ValidLoreState), so no cell 400s on the
+        # body, and re-writing the state an entry already has is a real write
+        # (SetLoreEntryState always moves updated_ts) rather than a no-op 404.
+        requires="agent",
+        overrides={"agent_other": 403},
+        path=lambda ctx, _i: f"/api/lore/{_matrix_lore_entry(ctx)}/state",
+        body={"state": "active"},
+    ),
+    "POST /api/lore/{entry_id}/bump": Route(
+        # 提到最新 — the SAME predicate as the state door above
+        # (callerMayGovernLore), and with NO pinning clause of its own, so the
+        # row is the state row minus that complication: admin capability
+        # unrestricted, everyone else author-only. Same agent-A fixture, so the
+        # same single hand-written cell — agent B bumping agent A's entry is
+        # the 403. No body: the route takes none.
+        requires="agent",
+        overrides={"agent_other": 403},
+        path=lambda ctx, _i: f"/api/lore/{_matrix_lore_entry(ctx)}/bump",
+    ),
 }
 
 # Manifest rows deliberately NOT in the matrix (must carry a reason — the
@@ -1946,6 +2080,27 @@ DEGRADED: dict[str, str] = {
         "The removal's own semantics (its tokens refused at the live gate, the "
         "signing key itself refused with 409) are pinned in the server unit "
         "tests (keyring_rotation_t62_test.go, api_signing_keys_t62_test.go)."
+    ),
+    "POST /api/lore": (
+        "the owner face is pinned at 400, not 200. That is the route's own "
+        "semantics (the owner has no roster row, so there is no boot document "
+        "of his own to file under), not a weakened probe. "
+        "🔴 THE TWO-ARM CAVEAT THAT USED TO BE HERE IS OBSOLETE: this note "
+        "described a staff arm (role_key → scope_kind `role`) and an outsource "
+        "arm (blank role_key → scope_kind `agent`) that this suite could not "
+        "both reach. The owner collapsed the scopes on 2026-09-07 (card "
+        "rc-a43100fd0486 [0]), so there is ONE arm — every writer files under "
+        "its own member id — and the identities this suite does build exercise "
+        "it. The refusal and the scope are pinned in the server unit tests "
+        "(api_lore_t33_test.go)."
+    ),
+    "POST /api/lore/{entry_id}/state": (
+        "the body moves the entry to `active`, so only the AUTHOR floor is "
+        "exercised. The door's second and higher floor — 置頂/取消置頂 is "
+        "admin-only, in both directions — cannot be probed from the same row "
+        "without swallowing the author cells it is here for (it is checked "
+        "first). It is pinned in the server unit tests "
+        "(api_lore_t33_test.go)."
     ),
     "GET /api/docs/assets/{name}": (
         "probed with a missing asset name (404 across authenticated identities); "

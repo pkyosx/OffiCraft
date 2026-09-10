@@ -60,7 +60,7 @@ function member(over: Partial<Member> & Pick<Member, "id" | "kind" | "desiredMac
     contextPct: null,
     estimatedCost: null,
     bankedCost: null,
-    tmuxSession: "",
+    terminalAttachCommand: "",
     refocusSince: null,
     lastOp: "",
     lastOpOk: null,

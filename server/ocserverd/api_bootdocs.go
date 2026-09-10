@@ -98,10 +98,8 @@ type bootDocReg struct {
 	DocName func(key string) string
 	Cap     func(s *apiServer) int
 	// Vars are the {name} variables this kind may use. On a Split kind they
-	// are the HEAD's variables: the body declares none, always. nil still
-	// means "not validated at all" (doc_vars.go) and is independent of Split —
-	// system_interaction's body carries JSON braces this syntax cannot tell
-	// from a variable, while its head is immutable all the same.
+	// are the HEAD's variables; the editable body is preserved literally. nil
+	// means "not validated at all" (doc_vars.go) and is independent of Split.
 	Vars []string
 	// Split / Join — see bootDocSpec and DocRendered.
 	Split    bool
@@ -160,9 +158,8 @@ var bootDocRegistry = []bootDocReg{{
 	DocName: func(string) string { return "Stop document" },
 	Cap:     func(s *apiServer) int { return s.offboardCap() },
 	// EMPTY, NOT nil. nil means "not validated at all" (doc_vars.go); this kind
-	// declared variables before T-6f44 and must keep being validated — it just
-	// allows none now. Letting it fall back to nil would silently retire the
-	// write-face refusal that stops the owner typing a slot nothing fills.
+	// declares no variables when a rendered head is requested. The unsplit
+	// document itself is sent literally, including any braces in its body.
 	Vars: []string{},
 	// 🔴 THE READ-ONLY HEAD IS GONE, AND SO IS {where} (T-6f44, owner's
 	// decision 4: 「{where} 不中文化，直接砍掉」). What the head said was 「你在
@@ -716,14 +713,18 @@ func (s *apiServer) eventNoticeText(spec bootDocSpec, values map[string]string) 
 	if err != nil || dto == nil {
 		return ""
 	}
-	if _, _, split := DocSplitHeadBody(dto.Text); spec.Split && !split {
+	if !spec.Split {
+		return dto.Text
+	}
+	head, body, split := DocSplitHeadBody(dto.Text)
+	if !split {
 		return ""
 	}
-	text, err := RenderDocVars(dto.Text, spec.Vars, values)
+	head, err = RenderDocVars(head, spec.Vars, values)
 	if err != nil {
 		return ""
 	}
-	return DocRendered(text, spec.Join)
+	return head + spec.Join + body
 }
 
 func (s *apiServer) bootSequenceText(runtime string) (string, error) {
@@ -876,14 +877,6 @@ func (s *apiServer) replaceBootDoc(w http.ResponseWriter, r *http.Request, spec 
 		writeError(w, http.StatusBadRequest, docCapRefusal(spec.Cap, spec.DocName, current.Text, next))
 		return
 	}
-	// Content validation, last of the gates because it is the only one that
-	// judges the CONTENT rather than the size — a caller whose write is both
-	// oversized and malformed learns about the size first, which is the one it
-	// can act on without re-reading the document.
-	if msg := bootDocBodyRefusal(spec, body); msg != "" {
-		writeError(w, http.StatusBadRequest, msg)
-		return
-	}
 	if _, err := s.writeBootDoc(r, spec, current,
 		BootDocument{Kind: spec.Kind, Key: spec.Key, Text: next, Tombstoned: false}, next); err != nil {
 		internalError(w, err)
@@ -972,41 +965,6 @@ func bootDocBodyOf(spec bootDocSpec, text string) string {
 		return text
 	}
 	return body
-}
-
-// bootDocBodyRefusal is the ONE content rule left on the write face: the
-// editable half names no variables. It answers "" when the body is acceptable.
-//
-// 🔴 THE HEAD RULE IS NOT HERE BECAUSE IT NO LONGER EXISTS AS A RULE. It used
-// to be half of this function (the head had to come back byte for byte); the
-// body-only wire made it structural — see replaceBootDoc — so the refusal that
-// went with it was deleted rather than left as a branch nothing can reach.
-//
-// It returns the sentence rather than writing it, because BOTH write faces need
-// it: the REST/MCP replace, which turns it into a 400, and the history restore,
-// which has no response body to write into and wraps it in an error instead.
-// One gate, two callers — the alternative was the restore path judging content
-// by a different rule, which is exactly what it did until T-3201.
-//
-// nil Vars opts the kind out of variable validation entirely (doc_vars.go) —
-// system_interaction quotes JSON in its body — and that opt-out is about the
-// SYNTAX, so it has to cover the body rule too.
-func bootDocBodyRefusal(spec bootDocSpec, body string) string {
-	if !spec.Split {
-		// An unsplit kind is judged as ONE text the way it was before the split
-		// existed: its declared variables are legal anywhere in it.
-		if bad := DocVarsUndeclared(body, spec.Vars); len(bad) > 0 {
-			return docVarWriteRefusal(spec.DocName, bad, spec.Vars)
-		}
-		return ""
-	}
-	if spec.Vars == nil {
-		return ""
-	}
-	if bad := DocVarsIn(body); len(bad) > 0 {
-		return docBodyVarRefusal(spec.DocName, bad)
-	}
-	return ""
 }
 
 // resetBootDoc tombstones the overlay so the folded read falls back to the

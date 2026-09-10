@@ -516,8 +516,9 @@ data: {"topic":"warden-command","data":{"rpc":"start","args":{"member_id":"m-1a2
     signed by a key that is no longer the signing key): `{member_id}` — the warden runs
     its OWN credential renewal NOW (`POST /api/machines/renew-credential` → subject check
     → present the candidate at a read-only endpoint → atomic 0600 write → exec-in-place)
-    instead of waiting for an expiry that will never arrive, because warden credentials
-    are minted without one.
+    instead of waiting for the credential to age into its own renewal window — a wait that
+    answers nothing here, since a credential signed by a retired key is worthless at
+    whatever age it happens to be (and one minted before §1.6 has no expiry at all).
     🔴 **THE FRAME CARRIES NO CREDENTIAL AND MUST NEVER BE GIVEN ONE.** The server says
     GO and nothing else; the machine asks for its own credential over its own
     authenticated connection. A frame able to carry a credential would be a channel that

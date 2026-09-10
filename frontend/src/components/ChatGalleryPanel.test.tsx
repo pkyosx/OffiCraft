@@ -71,7 +71,7 @@ function mkMember(id = "m1", name = "Mira"): Member {
     contextPct: null,
     estimatedCost: null,
     bankedCost: null,
-    tmuxSession: "member-m1",
+    terminalAttachCommand: "tmux -L officraft attach -t member-m1",
     refocusSince: null,
     lastOp: "",
     lastOpOk: null,
@@ -684,11 +684,16 @@ describe("ChatGalleryPanel", () => {
 });
 
 describe("isPreviewableMime (pure)", () => {
-  it("mirrors the server's preview table", () => {
+  it("mirrors the server's preview table by MIME and filename", () => {
     expect(isPreviewableMime("image/webp")).toBe(true);
     expect(isPreviewableMime("text/html")).toBe(true);
     expect(isPreviewableMime("text/markdown")).toBe(true);
     expect(isPreviewableMime("application/pdf")).toBe(true);
+    expect(isPreviewableMime("application/json")).toBe(true);
+    expect(isPreviewableMime("application/json; charset=utf-8")).toBe(true);
+    expect(isPreviewableMime("application/octet-stream", "report.json")).toBe(true);
+    expect(isPreviewableMime("application/octet-stream", "report.zip")).toBe(false);
+    expect(isPreviewableMime("application/zip", "report.json")).toBe(false);
     expect(isPreviewableMime("application/zip")).toBe(false);
     expect(isPreviewableMime("application/octet-stream")).toBe(false);
   });

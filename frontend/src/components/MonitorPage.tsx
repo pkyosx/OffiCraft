@@ -76,6 +76,11 @@ export function MonitorPage() {
   const setDetailId = (id: string | null) =>
     setRoute({ page: "monitor", detailId: id ?? undefined });
 
+  // §3 AI 會話 column sort. `null` = nobody has picked a column yet, which is
+  // the ONLY state that shows the historical 正職在前、外包在後 layout. It is
+  // not reachable again by clicking (owner ruling: two states, 升 ↔ 降).
+  const [sessionSort, setSessionSort] = useState<SessionSort | null>(null);
+
   // ── 新增機器 / 上線 (onboard) ── the "+新增機器" add entry sits BELOW the
   // machine table card (the entry is the only frame — never nested
   // inside the card's border); clicking it grows an INLINE editable row
@@ -548,6 +553,51 @@ export function MonitorPage() {
     const m = members.find((x) => x.id === s.id);
     return m?.kind !== "warden" && m?.kind !== "outsource";
   });
+
+  // ── §3 AI 會話 — the two lanes as ONE list ────────────────────────────────
+  // The member lane and the outsource lane are merged here so a column sort can
+  // interleave them. Merging is NOT interleaving: with no column picked the
+  // array is built member-lane-then-worker-lane, each lane in the order it
+  // already had (the worker lane's own 任務建立時間 新→舊 sort lives in
+  // useOutsourceWorkers and is preserved by construction), so the DEFAULT screen
+  // shows the rows in exactly the previous ORDER. Not the previous markup: the
+  // headers are now buttons and every row carries data-session-row, so a DOM
+  // snapshot of the default screen is NOT unchanged — only the ordering is, and
+  // that is what B3 asked for. Only a click reorders anything, and the sort
+  // below is stable, so equal cells still fall back to this same order.
+  const sessionRows: SessionRowItem[] = [
+    ...aiSessions.map((s): SessionRowItem => {
+      const roster = members.find((m) => m.id === s.id);
+      return {
+        key: s.id,
+        kind: "member",
+        session: s,
+        roster,
+        cells: memberSessionCells(s, roster),
+      };
+    }),
+    ...outsource.workers.map((w): SessionRowItem => {
+      const s = findSessionFor(w.id, sessions);
+      return {
+        key: w.id,
+        kind: "outsource",
+        worker: w,
+        session: s,
+        cells: outsourceSessionCells(w, s, msg.outsourceLabel),
+      };
+    }),
+  ];
+  const orderedSessionRows = sessionSort
+    ? [...sessionRows].sort((a, b) => compareSessionRows(a, b, sessionSort))
+    : sessionRows;
+  // Two-state toggle: a picked column flips 升 ↔ 降 and never returns to the
+  // default order. There is deliberately no third click.
+  const toggleSessionSort = (col: SessionSortCol) =>
+    setSessionSort((prev) =>
+      prev?.col === col
+        ? { col, dir: prev.dir === "asc" ? "desc" : "asc" }
+        : { col, dir: "asc" }
+    );
 
   return (
     <div className="monitor">
@@ -1266,53 +1316,48 @@ export function MonitorPage() {
         <div className="mon-section__title">{t.monitor.sessionsTitle}</div>
         <div className="mon-table-wrap">
           <table className="mon-table mon-table--sessions">
-            <thead>
-              <tr>
-                <th className="mon-table__left">{t.monitor.sessionCol.member}</th>
-                <th className="mon-table__left">{t.monitor.sessionCol.machine}</th>
-                <th className="mon-table__left">{t.monitor.sessionCol.account}</th>
-                <th className="mon-table__left">{t.monitor.sessionCol.model}</th>
-                <th>🧠 {t.monitor.sessionCol.context}</th>
-                <th>💲 {t.monitor.sessionCol.estCost}</th>
-              </tr>
-            </thead>
+            <SessionsTableHead sort={sessionSort} onSort={toggleSessionSort} />
+            {/* Outsource workers (O-xx) share this one table — they are live AI
+             * sessions too, and since T-135 they share the same ORDER too: one
+             * list, sorted as a whole once a column is picked. Both kinds render
+             * through the same td shape and the same six display values
+             * (`cells`), so a sorted column compares like with like. Each cell
+             * falls back to an honest dash when nothing was reported. */}
             <tbody>
-              {aiSessions.map((s) => (
-                <SessionRow
-                  key={s.id}
-                  session={s}
-                  members={members}
-                  dash={dash}
-                  onOpen={() => setDetailId(s.id)}
-                />
-              ))}
-              {/* Outsource workers (O-xx) share this one table — they are live AI
-               * sessions too. Rendered AFTER the member rows through the same td
-               * shape so the two read as one list; the member rows above are
-               * untouched. Each cell falls back to an honest dash when the worker
-               * never reported that column. */}
-              {outsource.workers.map((w) => (
-                <OutsourceSessionRow
-                  key={w.id}
-                  worker={w}
-                  // Telemetry columns come from the worker's OWN session row —
-                  // joined by id, never from the worker DTO's configured
-                  // model/effort (that pair is the launch intent and is always
-                  // populated, which is precisely why a missing report was
-                  // invisible here for so long).
-                  session={findSessionFor(w.id, sessions)}
-                  dash={dash}
-                  // T-cf32: owner ruling — the whole row is clickable, SAME
-                  // affordance as the member SessionRow above (no separate
-                  // avatar hit-target; that option was shown and declined).
-                  // The destination is the office page's EXISTING worker
-                  // detail route (#office/worker/<id> — WorkerDetailPanel,
-                  // already wired with every mutation there), reused via the
-                  // shared setRoute/HashRoute helper — not a hand-built hash
-                  // string, and not a duplicate panel embedded here.
-                  onOpen={() => setRoute({ page: "office", workerId: w.id })}
-                />
-              ))}
+              {orderedSessionRows.map((r) =>
+                r.kind === "member" ? (
+                  <SessionRow
+                    key={r.key}
+                    session={r.session}
+                    roster={r.roster}
+                    cells={r.cells}
+                    dash={dash}
+                    onOpen={() => setDetailId(r.key)}
+                  />
+                ) : (
+                  <OutsourceSessionRow
+                    key={r.key}
+                    worker={r.worker}
+                    // Telemetry columns come from the worker's OWN session row —
+                    // joined by id, never from the worker DTO's configured
+                    // model/effort (that pair is the launch intent and is always
+                    // populated, which is precisely why a missing report was
+                    // invisible here for so long).
+                    session={r.session}
+                    cells={r.cells}
+                    dash={dash}
+                    // T-cf32: owner ruling — the whole row is clickable, SAME
+                    // affordance as the member SessionRow above (no separate
+                    // avatar hit-target; that option was shown and declined).
+                    // The destination is the office page's EXISTING worker
+                    // detail route (#office/worker/<id> — WorkerDetailPanel,
+                    // already wired with every mutation there), reused via the
+                    // shared setRoute/HashRoute helper — not a hand-built hash
+                    // string, and not a duplicate panel embedded here.
+                    onOpen={() => setRoute({ page: "office", workerId: r.key })}
+                  />
+                )
+              )}
             </tbody>
           </table>
         </div>
@@ -1642,25 +1687,249 @@ function CopyBootCommandButton({ machineId }: { machineId: string }) {
   );
 }
 
+// ── §3 AI 會話 — the sortable columns ────────────────────────────────────────
+type SessionSortCol =
+  | "member"
+  | "machine"
+  | "account"
+  | "model"
+  | "context"
+  | "estCost";
+type SessionSort = { col: SessionSortCol; dir: "asc" | "desc" };
+
+/** The six values the AI-session table actually PUTS ON SCREEN for one row.
+ *
+ * Why this type exists: the two lanes reach those six values by different
+ * routes (the 成員 cell genuinely differs — roster name vs the 外包 · 代號
+ * label — and the other five read the same `MonSessionView` through `session`
+ * vs `session?`). Deriving them ONCE here and handing the same object to both
+ * the sort comparator and the row's own JSX is what stops a column from being
+ * ordered by one ruler and rendered by another. A row component must render
+ * these fields, never re-reach for the underlying DTO — that is the whole
+ * protection, and it is structural rather than a convention to remember.
+ *
+ * Empty string / null mean "this cell shows the dash"; the comparator sinks
+ * those to the bottom in BOTH directions.
+ *
+ * `context` and `estCost` carry the NUMBER the cell's text is a rendering of
+ * (`contextText(pct, …)` and `formatCost(total)` are pure functions of it), so
+ * the column orders by magnitude — 100% above 42%, not below it as the printed
+ * strings would sort. */
+type SessionCells = {
+  /** The row's main identity line. */
+  member: string;
+  machine: string;
+  account: string;
+  model: string;
+  /** The percentage `contextText` prints; null ⇒ dash. */
+  context: number | null;
+  /** live + banked; null ⇒ dash (BOTH sources absent). */
+  estCost: number | null;
+};
+
+type SessionRowItem =
+  | {
+      key: string;
+      kind: "member";
+      session: MonSessionView;
+      roster: Member | undefined;
+      cells: SessionCells;
+    }
+  | {
+      key: string;
+      kind: "outsource";
+      worker: OutsourceWorkerView;
+      session: MonSessionView | undefined;
+      cells: SessionCells;
+    };
+
+function totalSessionCost(s: MonSessionView | undefined): number | null {
+  // Cumulative cost = live + banked, aligned with the detail panel est.$
+  // (MemberDetailPanel). On the edge-triggered live→banked pop at ended
+  // sessions the live cost moves into bankedCost, so summing keeps an idle
+  // row's total instead of blinking to "—". Honest: dash only when BOTH are
+  // null (no source at all); live/banked never overlap (no double-count).
+  return s?.cost == null && s?.bankedCost == null
+    ? null
+    : (s?.cost ?? 0) + (s?.bankedCost ?? 0);
+}
+
+function memberSessionCells(
+  session: MonSessionView,
+  roster: Member | undefined
+): SessionCells {
+  return {
+    member: roster?.name ?? session.name,
+    machine: session.machine,
+    account: session.account,
+    model: session.model,
+    context: session.contextPct,
+    estCost: totalSessionCost(session),
+  };
+}
+
+function outsourceSessionCells(
+  worker: OutsourceWorkerView,
+  session: MonSessionView | undefined,
+  outsourceLabel: (codename: string) => string
+): SessionCells {
+  return {
+    member: worker.codename ? outsourceLabel(worker.codename) : "",
+    // 機器 / 帳號 come off the SESSION, exactly like the member row. The worker
+    // DTO's own machine is the spawn DISPATCH TARGET (server projectWorker
+    // prefers it over the observed host), i.e. where the worker was SENT — an
+    // intent, on a surface the owner ruled must show reported state.
+    machine: session?.machine ?? "",
+    account: session?.account ?? "",
+    model: session?.model ?? "",
+    context: session?.contextPct ?? null,
+    estCost: totalSessionCost(session),
+  };
+}
+
+function compareSessionRows(
+  a: SessionRowItem,
+  b: SessionRowItem,
+  sort: SessionSort
+): number {
+  const av = a.cells[sort.col];
+  const bv = b.cells[sort.col];
+  // A cell showing the dash has no place on the scale, so it sinks to the
+  // bottom of BOTH directions rather than flipping to the top under 降冪.
+  const aMissing = av == null || av === "";
+  const bMissing = bv == null || bv === "";
+  if (aMissing || bMissing) return aMissing && bMissing ? 0 : aMissing ? 1 : -1;
+  const base =
+    typeof av === "number" && typeof bv === "number"
+      ? av - bv
+      : String(av).localeCompare(String(bv), undefined, {
+          numeric: true,
+          sensitivity: "base",
+        });
+  return sort.dir === "asc" ? base : -base;
+}
+
+/** One sortable column header. The control is a real `<button>` so Tab reaches
+ * it and Enter/Space fire it without a hand-rolled key handler; `aria-sort`
+ * lives on the `<th>`, where assistive tech looks for it. */
+function SessionSortHeader({
+  col,
+  label,
+  left,
+  sort,
+  onSort,
+}: {
+  col: SessionSortCol;
+  label: string;
+  left?: boolean;
+  sort: SessionSort | null;
+  onSort: (col: SessionSortCol) => void;
+}) {
+  const active = sort?.col === col;
+  return (
+    <th
+      className={left ? "mon-table__left" : undefined}
+      aria-sort={
+        active ? (sort.dir === "asc" ? "ascending" : "descending") : "none"
+      }
+    >
+      <button
+        type="button"
+        className="mon-sort"
+        data-testid={`mon-sort-${col}`}
+        onClick={() => onSort(col)}
+      >
+        <span>{label}</span>
+        <span className="mon-sort__arrow" aria-hidden="true">
+          {active ? (sort.dir === "asc" ? "▲" : "▼") : ""}
+        </span>
+      </button>
+    </th>
+  );
+}
+
+/** The §3 table's header row. Extracted and EXPORTED so the visual guard mounts
+ * the REAL header instead of a hand-copied one: the guard measures the table's
+ * horizontal overflow, and a copy of the thead cannot see a change to the
+ * header's own min-content width (e.g. the sort arrow slot, T-135). */
+export function SessionsTableHead({
+  sort,
+  onSort,
+}: {
+  sort: SessionSort | null;
+  onSort: (col: SessionSortCol) => void;
+}) {
+  const { t } = useI18n();
+  return (
+    <thead>
+      <tr>
+        <SessionSortHeader
+          col="member"
+          label={t.monitor.sessionCol.member}
+          left
+          sort={sort}
+          onSort={onSort}
+        />
+        <SessionSortHeader
+          col="machine"
+          label={t.monitor.sessionCol.machine}
+          left
+          sort={sort}
+          onSort={onSort}
+        />
+        <SessionSortHeader
+          col="account"
+          label={t.monitor.sessionCol.account}
+          left
+          sort={sort}
+          onSort={onSort}
+        />
+        <SessionSortHeader
+          col="model"
+          label={t.monitor.sessionCol.model}
+          left
+          sort={sort}
+          onSort={onSort}
+        />
+        <SessionSortHeader
+          col="context"
+          label={`🧠 ${t.monitor.sessionCol.context}`}
+          sort={sort}
+          onSort={onSort}
+        />
+        <SessionSortHeader
+          col="estCost"
+          label={`💲 ${t.monitor.sessionCol.estCost}`}
+          sort={sort}
+          onSort={onSort}
+        />
+      </tr>
+    </thead>
+  );
+}
+
 /** One session row. The member cell prefers the roster member (real name /
  * status / lastSeen); the click-through only appears when a roster match exists.
  * The effort badge shows the REAL live effort self-reported from the session's
- * telemetry (NOT the roster's owner-intent member.effort) — dash when unreported. */
+ * telemetry (NOT the roster's owner-intent member.effort) — dash when unreported.
+ *
+ * Every printed column comes from `cells` (see SessionCells): the same object
+ * the sort comparator ranked this row by. */
 function SessionRow({
   session,
-  members,
+  roster,
+  cells,
   dash,
   onOpen,
 }: {
   session: MonSessionView;
-  members: Member[];
+  roster: Member | undefined;
+  cells: SessionCells;
   dash: string;
   onOpen: () => void;
 }) {
   const { t } = useI18n();
-  const roster = members.find((m) => m.id === session.id);
 
-  const name = roster?.name ?? session.name;
   const roleKey = roster?.role ?? session.role;
   // REAL live effort from the session's telemetry (self-reported statusLine);
   // "" → no badge (honest dash, never the roster owner-intent fallback).
@@ -1672,18 +1941,13 @@ function SessionRow({
     (t.office.role as Record<string, string>)[roleKey] ??
     (roster?.roleName || roleKey);
 
-  // Cumulative cost = live + banked, aligned with the detail panel est.$
-  // (MemberDetailPanel). On the edge-triggered live→banked pop at ended
-  // sessions the live cost moves into bankedCost, so summing keeps an idle
-  // row's total instead of blinking to "—". Honest: dash only when BOTH are
-  // null (no source at all); live/banked never overlap (no double-count).
-  const totalCost =
-    session.cost == null && session.bankedCost == null
-      ? null
-      : (session.cost ?? 0) + (session.bankedCost ?? 0);
-
   return (
     <tr
+      // Marks a row of the §3 table REGARDLESS of lane, so a guard can count
+      // the merged list. The outsource lane keeps its own `mon-outsource-row`
+      // testid (one `data-testid` per node), hence a separate attribute rather
+      // than a second testid.
+      data-session-row=""
       className={roster ? "mon-row--clickable" : undefined}
       onClick={roster ? onOpen : undefined}
       role={roster ? "button" : undefined}
@@ -1707,7 +1971,7 @@ function SessionRow({
             src={roster?.avatarUrl}
           />
           <div className="mon-member__body">
-            <div className="mon-member__name">{name}</div>
+            <div className="mon-member__name">{cells.member}</div>
             <div className="mon-member__sub">
               {/* Roster match → the SHARED PresenceBadge (single presence
                * truth). No roster match → session-only data has no lifecycle
@@ -1723,18 +1987,18 @@ function SessionRow({
         </div>
       </td>
       <td className="mon-table__left" data-label={t.monitor.sessionCol.machine}>
-        {session.machine || dash}
+        {cells.machine || dash}
       </td>
       {/* account tag joined onto the session wire (toMonSession) — honest dash
        * when the member never reported one */}
       <td
-        className={`mon-table__left${session.account ? "" : " mon-muted"}`}
+        className={`mon-table__left${cells.account ? "" : " mon-muted"}`}
         data-label={t.monitor.sessionCol.account}
       >
-        {session.account || dash}
+        {cells.account || dash}
       </td>
       <td className="mon-table__left" data-label={t.monitor.sessionCol.model}>
-        <span className="mon-model">{session.model || dash}</span>
+        <span className="mon-model">{cells.model || dash}</span>
         <EffortBadge
           effort={effort}
           reporting={isReportingTelemetry(session)}
@@ -1742,10 +2006,10 @@ function SessionRow({
         />
       </td>
       <td data-label={t.monitor.sessionCol.context}>
-        {contextText(session.contextPct, session.runtime, session.compactionCount, dash, t.mp.compactionCount)}
+        {contextText(cells.context, session.runtime, session.compactionCount, dash, t.mp.compactionCount)}
       </td>
       <td data-label={t.monitor.sessionCol.estCost}>
-        {totalCost != null ? formatCost(totalCost) : dash}
+        {cells.estCost != null ? formatCost(cells.estCost) : dash}
       </td>
     </tr>
   );
@@ -1773,6 +2037,7 @@ function SessionRow({
 function OutsourceSessionRow({
   worker,
   session,
+  cells,
   dash,
   onOpen,
 }: {
@@ -1780,24 +2045,19 @@ function OutsourceSessionRow({
   /** The worker's own row in the unified `sessions` array (joined by `ow-` id).
    * `undefined` = it has reported no telemetry at all. */
   session?: MonSessionView;
+  /** The six printed values (see SessionCells) — the same object this row was
+   * sorted by, so the column cannot rank one thing and print another. */
+  cells: SessionCells;
   dash: string;
   onOpen: () => void;
 }) {
-  const { t, msg } = useI18n();
+  const { t } = useI18n();
 
   // Task context for the sub-line: the bound task's title first, then its type
   // name, then the task number (the full id since T-5291, not a four-hex short
-  // form) — honest dash when none resolved.
+  // form) — honest dash when none resolved. Not a sortable column.
   const context =
     worker.taskTitle || worker.taskTypeName || worker.taskNo || dash;
-
-  // Cumulative cost = live + banked (same summing rule as the member SessionRow);
-  // honest dash only when BOTH sources are null. Read off the SESSION, not the
-  // worker DTO — one telemetry source for both kinds of row.
-  const totalCost =
-    session?.cost == null && session?.bankedCost == null
-      ? null
-      : (session?.cost ?? 0) + (session?.bankedCost ?? 0);
 
   return (
     <tr
@@ -1812,14 +2072,13 @@ function OutsourceSessionRow({
         }
       }}
       data-testid="mon-outsource-row"
+      data-session-row=""
     >
       <td className="mon-table__left" data-label={t.monitor.sessionCol.member}>
         <div className="mon-member">
           <Avatar size={34} kind="outsource" src={worker.avatarUrl} />
           <div className="mon-member__body">
-            <div className="mon-member__name">
-              {worker.codename ? msg.outsourceLabel(worker.codename) : dash}
-            </div>
+            <div className="mon-member__name">{cells.member || dash}</div>
             <div className="mon-member__sub">
               <span>{context}</span>
             </div>
@@ -1834,16 +2093,16 @@ function OutsourceSessionRow({
         * worker that has not connected yet shows a dash here rather than the
         * machine it was aimed at. */}
       <td className="mon-table__left" data-label={t.monitor.sessionCol.machine}>
-        {session?.machine || dash}
+        {cells.machine || dash}
       </td>
       <td
-        className={`mon-table__left${session?.account ? "" : " mon-muted"}`}
+        className={`mon-table__left${cells.account ? "" : " mon-muted"}`}
         data-label={t.monitor.sessionCol.account}
       >
-        {session?.account || dash}
+        {cells.account || dash}
       </td>
       <td className="mon-table__left" data-label={t.monitor.sessionCol.model}>
-        <span className="mon-model">{session?.model || dash}</span>
+        <span className="mon-model">{cells.model || dash}</span>
         <EffortBadge
           effort={session?.effort ?? ""}
           reporting={isReportingTelemetry(session)}
@@ -1851,10 +2110,10 @@ function OutsourceSessionRow({
         />
       </td>
       <td data-label={t.monitor.sessionCol.context}>
-        {contextText(session?.contextPct ?? null, session?.runtime ?? "", session?.compactionCount ?? null, dash, t.mp.compactionCount)}
+        {contextText(cells.context, session?.runtime ?? "", session?.compactionCount ?? null, dash, t.mp.compactionCount)}
       </td>
       <td data-label={t.monitor.sessionCol.estCost}>
-        {totalCost != null ? formatCost(totalCost) : dash}
+        {cells.estCost != null ? formatCost(cells.estCost) : dash}
       </td>
     </tr>
   );

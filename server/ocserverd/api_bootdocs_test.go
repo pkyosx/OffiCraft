@@ -1231,71 +1231,45 @@ func TestBootDocBodyOf(t *testing.T) {
 	})
 }
 
-func TestBootDocBodyRefusal(t *testing.T) {
-	t.Run("a split kind refuses any variable below the line, and accepts a body that names none", func(t *testing.T) {
-		api, _, _, _ := newAPITestServer(t)
-		spec := api.mustBootDocSpec("task_closeout", "global")
-
-		refused := bootDocBodyRefusal(spec, "closing {task_no} for {closed_by}")
-
-		want := "the task close-out procedure uses {task_no}, {closed_by} below the line `" +
-			apiTestBootDocMarker + "` — the editable half carries no variables at all, because " +
-			"nothing fills them there and they would reach an agent with the braces still in " +
-			"them. Put facts that vary in the read-only head, or write them out. Nothing was written."
-		if refused != want {
-			t.Fatalf("refusal = %q, want %q", refused, want)
-		}
-		if got := bootDocBodyRefusal(spec, "closing the ticket"); got != "" {
-			t.Fatalf("a clean body was refused: %q", got)
-		}
-	})
-
-	t.Run("a kind with no read-only half is judged as one text against the variables it declares", func(t *testing.T) {
-		api, _, _, _ := newAPITestServer(t)
-		spec := api.mustBootDocSpec("offboard", "global")
-
-		refused := bootDocBodyRefusal(spec, "you are at {where}")
-
-		want := "the Stop document you are writing uses {where}, which is not one of its " +
-			"variables — nothing was written. this document declares no variables at all. " +
-			"A variable nothing fills reaches an agent with the braces still in it."
-		if refused != want {
-			t.Fatalf("refusal = %q, want %q", refused, want)
-		}
-		if got := bootDocBodyRefusal(spec, "stop cleanly"); got != "" {
-			t.Fatalf("a clean body was refused: %q", got)
-		}
-	})
-
-	t.Run("a kind that declares no variables at all opts out of the syntax entirely, split or not", func(t *testing.T) {
-		api, _, _, _ := newAPITestServer(t)
-
-		for name, spec := range map[string]bootDocSpec{
-			"the block that quotes JSON in its body": api.mustBootDocSpec("system_interaction", "global"),
-			"a boot sequence":                        api.mustBootDocSpec("boot_sequence", "claude"),
-			"a split kind that declares none": {
-				Kind: "k", Key: "g", DocName: "made-up document", Split: true, Vars: nil},
-		} {
-			if got := bootDocBodyRefusal(spec, `{"id": "<attachment id>"} and {task_no}`); got != "" {
-				t.Fatalf("%s: refusal = %q, want the empty string", name, got)
+func TestBootDocStoredTextPreservesCallerBraces(t *testing.T) {
+	api, _, _, _ := newAPITestServer(t)
+	for name, c := range map[string]struct {
+		spec bootDocSpec
+		body string
+		want string
+	}{
+		"unsplit body is stored literally": {
+			spec: api.mustBootDocSpec("offboard", "global"),
+			body: "you are at {where}",
+			want: "you are at {where}",
+		},
+		"split body is stored literally under the shipped head": {
+			spec: api.mustBootDocSpec("task_closeout", "global"),
+			body: "closing {task_no} for {closed_by}",
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			want := c.want
+			if want == "" {
+				seed, hasSeed, err := api.root.seedBlockMD(c.spec.SeedFile)
+				if err != nil || !hasSeed {
+					t.Fatalf("seed %q: hasSeed=%v err=%v", c.spec.SeedFile, hasSeed, err)
+				}
+				head, _, split := DocSplitHeadBody(seed)
+				if !split {
+					t.Fatal("task close-out seed lost its marker")
+				}
+				want = DocJoinHeadBody(head, c.body)
 			}
-		}
-	})
-
-	t.Run("a document that declares a variable and uses it in the head half is still refused when it is the BODY that names it", func(t *testing.T) {
-		api, _, _, _ := newAPITestServer(t)
-		spec := api.mustBootDocSpec("accelerated_stop", "global")
-
-		got := bootDocBodyRefusal(spec, "your deadline is {deadline}")
-
-		want := "the accelerated stop sequence uses {deadline} below the line `" +
-			apiTestBootDocMarker + "` — the editable half carries no variables at all, because " +
-			"nothing fills them there and they would reach an agent with the braces still in " +
-			"them. Put facts that vary in the read-only head, or write them out. Nothing was written."
-		if got != want {
-			t.Fatalf("refusal = %q, want %q", got, want)
-		}
-	})
+			got, err := api.bootDocStoredText(c.spec, c.body)
+			if err != nil {
+				t.Fatalf("bootDocStoredText: %v", err)
+			}
+			if got != want {
+				t.Fatalf("stored text = %q, want %q", got, want)
+			}
+		})
+	}
 }
 
 func TestResetBootDoc(t *testing.T) {

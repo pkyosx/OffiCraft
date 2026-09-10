@@ -8,6 +8,7 @@ import {
   OfficeIcon,
   InboxIcon,
   TasksIcon,
+  BookIcon,
   MonitorIcon,
   FileTextIcon,
 } from "./components/icons";
@@ -17,6 +18,7 @@ import { NavIcon } from "./components/NavIcon";
 import { OfficePage } from "./components/OfficePage";
 import { RepliesPage } from "./components/RepliesPage";
 import { TasksPage } from "./components/TasksPage";
+import { LorePage } from "./components/LorePage";
 import { MonitorPage } from "./components/MonitorPage";
 import { GuidePage } from "./components/UserGuidePage";
 import { SettingsPage } from "./components/SettingsPage";
@@ -33,7 +35,7 @@ import { useChatUnread } from "./hooks/useChatUnread";
 import { useTaskCount } from "./hooks/useTaskCount";
 import "./components/chrome.css";
 
-type Tab = "office" | "replies" | "tasks" | "monitor" | "guide";
+type Tab = "office" | "replies" | "tasks" | "lore" | "monitor" | "guide";
 
 // Which peer the office was last left on. Browser-local by nature (it is this
 // browser's last position, not studio state), so it stays out of the server and
@@ -91,7 +93,9 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
           ? "replies"
           : route.page === "tasks"
             ? "tasks"
-            : "office";
+            : route.page === "lore"
+              ? "lore"
+              : "office";
   // The 等我回覆 nav badge: how many reply cards are WAITING (answered never
   // counts). Live via the count endpoint + "reply_card" SSE deltas. A separate
   // signal from the per-member chat unread red dot (different clearing rules —
@@ -384,6 +388,19 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
               </span>
             )}
           </button>
+          {/* 傳承 (T-33) — between 任務 and 監控. No badge: an entry sitting in
+              the log is not something waiting on the owner, and a count here
+              would read like one. */}
+          <button
+            type="button"
+            className={`nav-tab${
+              !settingsOpen && tab === "lore" ? " nav-tab--active" : ""
+            }`}
+            onClick={() => selectTab("lore")}
+          >
+            <NavIcon tabKey="lore" fallback={<BookIcon size={15} />} />
+            <span>{t.nav.lore}</span>
+          </button>
           <button
             type="button"
             className={`nav-tab${
@@ -437,6 +454,8 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
           <RepliesPage replyCardId={route.replyCardId} />
         ) : tab === "tasks" ? (
           <TasksPage />
+        ) : tab === "lore" ? (
+          <LorePage />
         ) : tab === "guide" ? (
           <GuidePage />
         ) : (

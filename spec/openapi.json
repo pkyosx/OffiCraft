@@ -586,7 +586,7 @@
       },
       "BootCommandResultDTO": {
         "additionalProperties": false,
-        "description": "A machine's boot command, re-fetchable anytime\n(``GET /api/machines/{machine_id}/boot-command``).\n\nThe onboard result is shown once; this lets an owner retrieve the copy-paste\ninstaller for an EXISTING machine again later without re-onboarding.\n``machine_id`` is the warden member id; ``boot_command`` is the same\ncurl-download-then-install one-liner onboard builds (it embeds ``machine_id``\nas OC_ID); ``token`` is a FRESHLY re-minted permanent exec-token (``scope=\"agent\"``,\n``sub=machine_id``, no ``exp`` claim) and ``expires_in`` is ``0``.\n\n``claim_code`` is a fresh short-lived (``claim_expires_in`` = 600 s), single-use code\nthe ``boot_command`` embeds (``install.sh?code=``) instead of the exec-token; the served\nscript redeems it via ``POST /api/machines/claim`` for the real token.",
+        "description": "A machine's boot command, re-fetchable anytime\n(``GET /api/machines/{machine_id}/boot-command``).\n\nThe onboard result is shown once; this lets an owner retrieve the copy-paste\ninstaller for an EXISTING machine again later without re-onboarding.\n``machine_id`` is the warden member id; ``boot_command`` is the same\ncurl-download-then-install one-liner onboard builds (it embeds ``machine_id``\nas OC_ID); ``token`` is a FRESHLY re-minted exec-token (``scope=\"agent\"``,\n``sub=machine_id``, ``exp = iat + auth.warden_credential_lifetime_secs``) and\n``expires_in`` is that same lifetime in seconds.\n\n``claim_code`` is a fresh short-lived (``claim_expires_in`` = 600 s), single-use code\nthe ``boot_command`` embeds (``install.sh?code=``) instead of the exec-token; the served\nscript redeems it via ``POST /api/machines/claim`` for the real token.",
         "properties": {
           "boot_command": {
             "title": "Boot Command",
@@ -2321,7 +2321,7 @@
       },
       "MachineClaimResultDTO": {
         "additionalProperties": false,
-        "description": "The claim-code redemption result (``POST /api/machines/claim``).\n\n``token`` is the freshly minted permanent machine exec-token (``scope=\"agent\"``,\n``sub=machine_id`` — the same mint every warden install path performs); it omits\n``exp`` and answers ``expires_in=0``. ``machine_id`` is the warden member the\ntoken is bound to.",
+        "description": "The claim-code redemption result (``POST /api/machines/claim``).\n\n``token`` is the freshly minted machine exec-token (``scope=\"agent\"``,\n``sub=machine_id`` — the same mint every warden install path performs); it carries\n``exp = iat + auth.warden_credential_lifetime_secs`` and answers ``expires_in`` =\nthat same lifetime in seconds. ``machine_id`` is the warden member the\ntoken is bound to.",
         "properties": {
           "expires_in": {
             "title": "Expires In",
@@ -2345,7 +2345,7 @@
         "type": "object"
       },
       "MachineCredentialPolicyDTO": {
-        "description": "The station's machine-credential policy (``GET /api/machines/credential-policy``).\n\n``lifetime_secs`` is the org setting ``auth.warden_credential_lifetime_secs``: how long a machine (warden) credential is meant to live. It is NOT an expiry and nothing enforces it at the auth gate -- warden credentials still carry no ``exp``. It is the input to the warden's own renewal threshold: two thirds of it, measured from the credential's ``iat``, plus a per-machine stagger.",
+        "description": "The station's machine-credential policy (``GET /api/machines/credential-policy``).\n\n``lifetime_secs`` is the org setting ``auth.warden_credential_lifetime_secs``: how long a machine (warden) credential is meant to live. It is BOTH the expiry stamped into the credential (``exp = iat + lifetime_secs``, T-fc53) and the input to the warden's own renewal threshold: two thirds of it, measured from the credential's ``iat``, plus a per-machine stagger. Credentials minted before that change carry no ``exp`` and go on being accepted until the machine renews.",
         "properties": {
           "lifetime_secs": {
             "title": "Lifetime Secs",
@@ -2544,7 +2544,7 @@
       },
       "MachineOnboardResultDTO": {
         "additionalProperties": false,
-        "description": "The onboard result (``POST /api/machines``). ``member_id`` is the warden\nmember freshly created for this machine; ``machine_id`` is the SAME value,\nsurfaced under the machine-model name (the machine id == the warden member's own\nid — the binding key agents store in their ``desired_machine_id`` column). ``token``\nis\nthe freshly minted permanent exec-token (``scope=\"agent\"``, ``sub=member_id``) with\nno ``exp`` claim; ``expires_in`` is ``0``. ``boot_command`` is the copy-paste line\nthe operator runs ON that machine to install the warden (identity rides in the\ntoken's ``sub``, not a templated machine id).\n\n``claim_code`` is a short-lived (``claim_expires_in`` = 600 s), single-use code the\n``boot_command`` embeds (``install.sh?code=``) instead of the exec-token; the served\nscript redeems it via ``POST /api/machines/claim`` for the real token.",
+        "description": "The onboard result (``POST /api/machines``). ``member_id`` is the warden\nmember freshly created for this machine; ``machine_id`` is the SAME value,\nsurfaced under the machine-model name (the machine id == the warden member's own\nid — the binding key agents store in their ``desired_machine_id`` column). ``token``\nis\nthe freshly minted exec-token (``scope=\"agent\"``, ``sub=member_id``) carrying\n``exp = iat + auth.warden_credential_lifetime_secs``; ``expires_in`` is that same\nlifetime in seconds. ``boot_command`` is the copy-paste line\nthe operator runs ON that machine to install the warden (identity rides in the\ntoken's ``sub``, not a templated machine id).\n\n``claim_code`` is a short-lived (``claim_expires_in`` = 600 s), single-use code the\n``boot_command`` embeds (``install.sh?code=``) instead of the exec-token; the served\nscript redeems it via ``POST /api/machines/claim`` for the real token.",
         "properties": {
           "boot_command": {
             "title": "Boot Command",
@@ -2943,6 +2943,12 @@
             "default": 0,
             "title": "Unread Count",
             "type": "integer"
+          },
+          "terminal_attach_command": {
+            "default": "",
+            "description": "The COMPLETE, ready-to-paste shell command that attaches a terminal to this row's tmux session, composed server-side and served verbatim (T-139). Clients display and copy it AS-IS and MUST NOT assemble one of their own out of the parts: the ``tmux -L`` socket is the bare ``officraft`` only on the main instance and ``officraft-<ns>`` on a namespaced one (``[server].namespace``, the same value this station bakes into every warden it installs), so a client-side socket literal attaches to a DIFFERENT tmux server and silently drops the owner into another station's sessions.\n\nALWAYS SERVED, on every row, with no liveness or desired-state gate — the cockpit has always shown this line unconditionally, and making it conditional would delete something the owner can see today. An empty string therefore means exactly ONE thing: a server too old to serve the field. A client reading it empty MUST fall back to showing nothing (or saying this server provides none) and MUST NOT reconstruct the command — the reconstruction is the defect.\n\nIT RESTS ON A NAMED CHEAP ASSUMPTION (owner 2026-09-08): that the tmux server holding this row's session is a warden THIS station installed, so this station's namespace keys it. An agent living on a warden some OTHER station installed gets a socket name that does not exist on that host, and the attach fails to find a server. That is not a regression — see WAS.\n\nWAS: every client re-derived ``tmux -L officraft attach -t member-<id>`` from its own hardcoded socket and session-name literals — correct only for the unnamespaced instance, and one more copy to drift each time. Additive-optional.",
+            "title": "Terminal Attach Command",
+            "type": "string"
           }
         },
         "required": [
@@ -4016,6 +4022,12 @@
             "description": "The CALLER's unread chat-message count for this worker's conversation (the same chat_read watermark inverse the member roster serves) — the office 外包 row's red badge. Optional-with-default: absent reads as 0 for older clients.",
             "title": "Unread Count",
             "type": "integer"
+          },
+          "terminal_attach_command": {
+            "default": "",
+            "description": "The COMPLETE, ready-to-paste shell command that attaches a terminal to this row's tmux session, composed server-side and served verbatim (T-139). Clients display and copy it AS-IS and MUST NOT assemble one of their own out of the parts: the ``tmux -L`` socket is the bare ``officraft`` only on the main instance and ``officraft-<ns>`` on a namespaced one (``[server].namespace``, the same value this station bakes into every warden it installs), so a client-side socket literal attaches to a DIFFERENT tmux server and silently drops the owner into another station's sessions.\n\nALWAYS SERVED, on every row, with no liveness or desired-state gate — the cockpit has always shown this line unconditionally, and making it conditional would delete something the owner can see today. An empty string therefore means exactly ONE thing: a server too old to serve the field. A client reading it empty MUST fall back to showing nothing (or saying this server provides none) and MUST NOT reconstruct the command — the reconstruction is the defect.\n\nIT RESTS ON A NAMED CHEAP ASSUMPTION (owner 2026-09-08): that the tmux server holding this row's session is a warden THIS station installed, so this station's namespace keys it. An agent living on a warden some OTHER station installed gets a socket name that does not exist on that host, and the attach fails to find a server. That is not a regression — see WAS.\n\nWAS: every client re-derived ``tmux -L officraft attach -t member-<id>`` from its own hardcoded socket and session-name literals — correct only for the unnamespaced instance, and one more copy to drift each time. Additive-optional.",
+            "title": "Terminal Attach Command",
+            "type": "string"
           }
         },
         "required": [
@@ -6490,9 +6502,41 @@
           },
           "warden_credential_lifetime_secs": {
             "default": 2592000,
-            "description": "How long a MACHINE (warden) credential is meant to live, in seconds (86400 through 34560000 -- one day through 400 days). It is the number every warden's renewal threshold is derived from: a warden replaces its own credential once that credential is two thirds of this old, measured from the `iat` claim it carries, plus a per-machine stagger of up to one hour. Wardens read it from `GET /api/machines/credential-policy` on their 15-minute poll, so a change reaches the fleet within one interval; a warden that cannot reach that endpoint keeps using the shipped default rather than failing. NOTE: warden credentials still carry NO `exp`, so this value governs RENEWAL ONLY -- nothing expires because of it, and a renewal that does not complete leaves the machine on a credential that keeps working.",
+            "description": "How long a MACHINE (warden) credential is meant to live, in seconds (86400 through 34560000 -- one day through 400 days). It is the number every warden's renewal threshold is derived from: a warden replaces its own credential once that credential is two thirds of this old, measured from the `iat` claim it carries, plus a per-machine stagger of up to one hour. Wardens read it from `GET /api/machines/credential-policy` on their 15-minute poll, so a change reaches the fleet within one interval; a warden that cannot reach that endpoint keeps using the shipped default rather than failing. It is ALSO the credential's expiry: the warden mint stamps `exp = iat + this` (T-fc53). A renewal that does not complete inside the remaining third therefore takes that machine off the fleet until someone re-installs it by hand, and nothing on the station reports that it happened. Lowering this value does not shorten credentials already issued -- an `exp` is fixed at mint time.",
             "title": "Warden Credential Lifetime Secs",
             "type": "integer"
+          },
+          "lore_cap_chars_role": {
+            "default": 10000,
+            "description": "How many characters of 傳承 a STAFF boot document carries for one role (T-33) — spent by every boot of that role. INDEPENDENT of ``lore_cap_chars_manual``; the two are never summed, because they are paid by different readers at different moments. Unlike the ``doc_cap_chars_*`` knobs this one may be LOWERED as well as raised. Those floors equal their own shipped defaults because lowering one strands an existing legal document in shrink-only mode; a 傳承 entry has NO edit path at all, so a smaller cap cannot strand anything already stored — it binds the next write and nothing else. The adjustable range is 100..100000.",
+            "title": "Lore Cap Chars Role",
+            "type": "integer"
+          },
+          "lore_cap_chars_manual": {
+            "default": 10000,
+            "description": "How many characters of 傳承 ``get_task_manual`` appends after a type's ``learnings`` (T-33) — spent by whoever opens that manual, staff and outsource alike, since this fold enters no boot document. INDEPENDENT of ``lore_cap_chars_role``. Unlike the ``doc_cap_chars_*`` knobs this one may be LOWERED as well as raised. Those floors equal their own shipped defaults because lowering one strands an existing legal document in shrink-only mode; a 傳承 entry has NO edit path at all, so a smaller cap cannot strand anything already stored — it binds the next write and nothing else. The adjustable range is 100..100000.",
+            "title": "Lore Cap Chars Manual",
+            "type": "integer"
+          },
+          "lore_cap_chars_title": {
+            "default": 80,
+            "description": "The longest ``title`` ONE 傳承 entry may be written with, in characters (T-33). An over-cap write is refused whole — nothing partial is stored and nothing is truncated. Unlike the ``doc_cap_chars_*`` knobs this one may be LOWERED as well as raised. Those floors equal their own shipped defaults because lowering one strands an existing legal document in shrink-only mode; a 傳承 entry has NO edit path at all, so a smaller cap cannot strand anything already stored — it binds the next write and nothing else. The adjustable range is 10..10000.",
+            "title": "Lore Cap Chars Title",
+            "type": "integer"
+          },
+          "lore_cap_chars_body": {
+            "default": 500,
+            "description": "The longest ``body`` ONE 傳承 entry may be written with, in characters (T-33). An over-cap write is refused whole; half a lesson is not a shorter lesson. Unlike the ``doc_cap_chars_*`` knobs this one may be LOWERED as well as raised. Those floors equal their own shipped defaults because lowering one strands an existing legal document in shrink-only mode; a 傳承 entry has NO edit path at all, so a smaller cap cannot strand anything already stored — it binds the next write and nothing else. The adjustable range is 10..10000.",
+            "title": "Lore Cap Chars Body",
+            "type": "integer"
+          },
+          "suggested_replies_lore_message": {
+            "description": "The one-click 建議回覆 offered under a 傳承 entry's message box (T-33) — the box that writes to the person who WROTE that entry. A THIRD separate list, for the same reason the other two are separate: asking 「這條還適用嗎」 about a lesson someone left behind is not answering a 請示卡 and not steering a task in progress, so one list's sentences are wrong in another's box. [] (the default) means no chips are drawn there, and the message box works exactly as it does without them.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Suggested Replies Lore Message",
+            "type": "array"
           }
         },
         "required": [
@@ -6891,8 +6935,71 @@
                 "type": "null"
               }
             ],
-            "description": "How long a MACHINE (warden) credential is meant to live, in seconds. Must be 86400 through 34560000 (one day through 400 days). A warden renews its own credential once that credential is two thirds of this old, plus a per-machine stagger of up to one hour so that LOWERING this value does not put the whole fleet on the mint endpoint inside one poll. The floor is one day because the last third of the lifetime is the retry window: at the 15-minute poll a one-day lifetime still leaves about 32 attempts. Wardens pick a change up within one poll interval. Warden credentials carry no `exp` today, so this governs renewal only and nothing expires because of it. Read the current value from get_settings rather than assuming a number.",
+            "description": "How long a MACHINE (warden) credential is meant to live, in seconds. Must be 86400 through 34560000 (one day through 400 days). A warden renews its own credential once that credential is two thirds of this old, plus a per-machine stagger of up to one hour so that LOWERING this value does not put the whole fleet on the mint endpoint inside one poll. The floor is one day because the last third of the lifetime is the retry window: at the 15-minute poll a one-day lifetime still leaves about 32 attempts. Wardens pick a change up within one poll interval. It is ALSO the expiry stamped into the credential (`exp = iat + this`, T-fc53), so a machine that misses its whole retry window needs a hand re-install; lowering the value never shortens a credential already issued, because an `exp` is fixed at mint time. Read the current value from get_settings rather than assuming a number.",
             "title": "Warden Credential Lifetime Secs"
+          },
+          "lore_cap_chars_role": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "How many characters of 傳承 a STAFF boot document carries for one role (T-33) — spent by every boot of that role. INDEPENDENT of ``lore_cap_chars_manual``; the two are never summed, because they are paid by different readers at different moments. Unlike the ``doc_cap_chars_*`` knobs this one may be LOWERED as well as raised. Those floors equal their own shipped defaults because lowering one strands an existing legal document in shrink-only mode; a 傳承 entry has NO edit path at all, so a smaller cap cannot strand anything already stored — it binds the next write and nothing else. The adjustable range is 100..100000.",
+            "title": "Lore Cap Chars Role"
+          },
+          "lore_cap_chars_manual": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "How many characters of 傳承 ``get_task_manual`` appends after a type's ``learnings`` (T-33) — spent by whoever opens that manual, staff and outsource alike, since this fold enters no boot document. INDEPENDENT of ``lore_cap_chars_role``. Unlike the ``doc_cap_chars_*`` knobs this one may be LOWERED as well as raised. Those floors equal their own shipped defaults because lowering one strands an existing legal document in shrink-only mode; a 傳承 entry has NO edit path at all, so a smaller cap cannot strand anything already stored — it binds the next write and nothing else. The adjustable range is 100..100000.",
+            "title": "Lore Cap Chars Manual"
+          },
+          "lore_cap_chars_title": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The longest ``title`` ONE 傳承 entry may be written with, in characters (T-33). An over-cap write is refused whole — nothing partial is stored and nothing is truncated. Unlike the ``doc_cap_chars_*`` knobs this one may be LOWERED as well as raised. Those floors equal their own shipped defaults because lowering one strands an existing legal document in shrink-only mode; a 傳承 entry has NO edit path at all, so a smaller cap cannot strand anything already stored — it binds the next write and nothing else. The adjustable range is 10..10000.",
+            "title": "Lore Cap Chars Title"
+          },
+          "lore_cap_chars_body": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The longest ``body`` ONE 傳承 entry may be written with, in characters (T-33). An over-cap write is refused whole; half a lesson is not a shorter lesson. Unlike the ``doc_cap_chars_*`` knobs this one may be LOWERED as well as raised. Those floors equal their own shipped defaults because lowering one strands an existing legal document in shrink-only mode; a 傳承 entry has NO edit path at all, so a smaller cap cannot strand anything already stored — it binds the next write and nothing else. The adjustable range is 10..10000.",
+            "title": "Lore Cap Chars Body"
+          },
+          "suggested_replies_lore_message": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Replace the 傳承 message-box 建議回覆 list wholesale (T-33) — the box that writes to the person who wrote that 傳承 entry. Same bounds as suggested_replies_reply_card — at most 20 entries, each trimmed and at most 120 runes, over either is a 422 that writes nothing, and an explicit empty array is legal — but a SEPARATE list: patching one never touches another. 🔴 null is NOT \"clear\": an omitted field and an explicit null both mean LEAVE THIS LIST UNCHANGED, so an agent that sends null to empty the list gets a 200 and no change at all. To clear it, send [].",
+            "title": "Suggested Replies Lore Message"
           }
         },
         "required": [],
@@ -8204,6 +8311,7 @@
           },
           "learnings": {
             "default": "",
+            "description": "The manual's LEARNINGS DOCUMENT — the stored text a write face writes, and nothing else. 🔴 IT NO LONGER CARRIES THE 傳承 BLOCK. Lore used to be appended onto this field, which left it full of text while ``learnings_chars`` (which counts the STORED document) reported 0, and nothing on the wire said which half of the field that number was about. Owner ruling 2026-09-07 split them: the block is served on ``lore``, beside this field. A reader that wants what a member effectively sees concatenates the two ITSELF — and can then see that it did, which is exactly what the merged field took away.",
             "title": "Learnings",
             "type": "string"
           },
@@ -8249,6 +8357,18 @@
             "default": 0.0,
             "title": "Updated Ts",
             "type": "number"
+          },
+          "lore": {
+            "default": "",
+            "description": "The rendered 傳承 block for this manual's task type: the entries selected for it, newest first, under a ``# 傳承`` heading. EMPTY STRING when the type has no live entries — a real answer, not an omission. 🔴 IT IS NOT PART OF ``learnings`` AND IS NOT STORED ANYWHERE. It is assembled per read from the lore entries, so a caller that reads it and writes it back into the learnings document duplicates it on every cycle; the learnings write faces strip a trailing block for that exact reason. Read it, do not re-send it. 🔴 IF YOU ARE FOLLOWING A WRITTEN PROCEDURE THAT ONLY MENTIONS ``learnings``, THIS FIELD IS THE PART THAT PROCEDURE PREDATES — the type's accumulated experience lives here now.",
+            "title": "Lore",
+            "type": "string"
+          },
+          "lore_chars": {
+            "default": 0,
+            "description": "Size of ``lore`` in CHARACTERS. A SEPARATE number from ``learnings_chars`` on purpose: the two fields are written by different paths and judged against different caps, so ``learnings_chars`` sizes what a writer may edit while this one sizes what the server assembled. Neither substitutes for the other, and it is their SUM that approximates what a member effectively reads.",
+            "title": "Lore Chars",
+            "type": "integer"
           }
         },
         "required": [
@@ -9956,7 +10076,7 @@
       },
       "WorkerBootContextDTO": {
         "additionalProperties": false,
-        "description": "The outsource worker's boot-context PREVIEW (GET /api/outsource-workers/{id}/boot-context, T-ba6b) — the worker twin of the member panel's /api/bootstrap preview. The server re-runs the SAME buildWorkerBootContext fold the spawn path uses. Since T-4595 that fold is the STAFF boot context minus the persona slot (系統互動 + 使用者自訂 + the boot sequence for the worker's own runtime); it carries no outsource-only document, no identity block, no bound task and no type manual, so it does not vary with them. HONEST: this is what the boot context would look like NOW — the seeds may have changed since spawn, and nothing is stored. Never carries a worker token.",
+        "description": "The outsource worker's boot-context PREVIEW (GET /api/outsource-workers/{id}/boot-context, T-ba6b) — the worker twin of the member panel's /api/bootstrap preview. The server re-runs the SAME buildWorkerBootContext fold the spawn path uses. Since T-4595 that fold is the STAFF boot context minus the persona slot (系統互動 + 使用者自訂 + the boot sequence for the worker's own runtime); it carries no outsource-only document, no identity block, no bound task and no type manual, so it does not vary with them. It DOES carry this worker's own 傳承 block (T-33, LoreScopeAgent keyed on the worker's member id) — the one part of this text that differs from worker to worker, and it changes when that worker's entries are written, retired or bumped. HONEST: this is what the boot context would look like NOW — the seeds may have changed since spawn, and nothing is stored. Never carries a worker token.",
         "properties": {
           "context": {
             "title": "Context",
@@ -9967,6 +10087,278 @@
           "context"
         ],
         "title": "WorkerBootContextDTO",
+        "type": "object"
+      },
+      "LoreEntryDTO": {
+        "description": "One 傳承 entry (T-33). Written once and NEVER edited: no route changes ``title`` or ``body``, so what you read here is what was written. The mutable surface is ``state`` (active / pinned / retired), ``retire_reason`` and ``effective_ts``.\n\n``effective_ts`` vs ``created_ts``: ``created_ts`` is when the entry was written and never moves; ``effective_ts`` starts equal to it and is what ``bump_lore_entry`` sets to now. The fold's selection order reads ``effective_ts``, so bumping is how an old entry is brought back to the front — and because ``created_ts`` survives, the bump is reversible and explicable afterwards.\n\n``author_id`` is the writer's member id AS IT WAS at the moment of the write, pinned. It is not re-resolved against the roster: a writer who has since left still wrote this. A client that cannot find the id on the live roster should drop the writer's live affordances, never the entry.",
+        "properties": {
+          "id": {
+            "description": "``L-<n>``, ``n`` ascending globally. This is the handle every write face takes as ``entry_id``.",
+            "title": "Id",
+            "type": "string"
+          },
+          "seq": {
+            "description": "The number behind the id — also the stable tie-break when two entries carry the same ``effective_ts``.",
+            "title": "Seq",
+            "type": "integer"
+          },
+          "scope_kind": {
+            "description": "``agent`` or ``manual``, and the two are not interchangeable. An ``agent`` entry rides ONE member's own boot document — staff and outsource alike; a ``manual`` entry rides ``get_task_manual``.\n\nWhich one a write lands in is decided by ONE question — the EFFECTIVE RELATED TASK: the named task when it carries a type, and NULL otherwise, where \"otherwise\" covers BOTH naming no task and naming a 臨時任務 that carries no type. An effective task gives ``manual``; NULL gives ``agent``, keyed by the writer itself.\n\n🔴 A THIRD VALUE, ``role``, WAS RETIRED ON 2026-09-07 (owner, card rc-a43100fd0486 [0]: 「只有成員跟任務傳承兩種」). Every role-scoped entry was rekeyed onto the one member under that role, and ``role`` is no longer writable and no longer an accepted ``scope_kinds`` filter value — sending it is a 400, not an empty page. READERS MUST STILL TOLERATE IT: the migration deliberately left in place any entry whose member could not be determined (no active member under that role, or more than one), so ``role`` can still come back on an unfiltered page and a client that switches exhaustively on the two live values must have a fallback arm rather than crashing or renaming it into one of them.",
+            "title": "Scope Kind",
+            "type": "string"
+          },
+          "scope_key": {
+            "description": "The writer's own member id when ``scope_kind`` is ``agent``; the task manual's ``type_key`` when it is ``manual``. A surviving legacy ``role`` row (see ``scope_kind``) still carries a role_key here.",
+            "title": "Scope Key",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "body": {
+            "title": "Body",
+            "type": "string"
+          },
+          "author_id": {
+            "title": "Author Id",
+            "type": "string"
+          },
+          "source_task_id": {
+            "description": "The task the write happened inside, or \"\". Provenance only — nothing branches on it.",
+            "title": "Source Task Id",
+            "type": "string"
+          },
+          "state": {
+            "description": "``active`` | ``pinned`` | ``retired`` — exactly one, always. ``pinned`` sorts ahead of every active entry so it survives the fold's cap; ``retired`` is excluded from both folds but is NOT deleted and can be moved back.",
+            "title": "State",
+            "type": "string"
+          },
+          "retire_reason": {
+            "description": "Why it was retired, or \"\". Meaningful only while ``state`` is ``retired``, and cleared when the entry is moved back.",
+            "title": "Retire Reason",
+            "type": "string"
+          },
+          "effective_ts": {
+            "format": "double",
+            "title": "Effective Ts",
+            "type": "number"
+          },
+          "created_ts": {
+            "format": "double",
+            "title": "Created Ts",
+            "type": "number"
+          },
+          "updated_ts": {
+            "format": "double",
+            "title": "Updated Ts",
+            "type": "number"
+          }
+        },
+        "required": [
+          "id",
+          "seq",
+          "scope_kind",
+          "scope_key",
+          "title",
+          "body",
+          "author_id",
+          "source_task_id",
+          "state",
+          "retire_reason",
+          "effective_ts",
+          "created_ts",
+          "updated_ts"
+        ],
+        "title": "LoreEntryDTO",
+        "additionalProperties": false,
+        "type": "object"
+      },
+      "LoreEntryWriteDTO": {
+        "description": "Write ONE 傳承 entry (T-33). The EFFECTIVE RELATED TASK decides the scope, and it decides it alone:\n\n* a named task that carries a ``type_key`` ⇒ a MANUAL entry under that type.\n* anything else ⇒ an AGENT entry under the CALLER'S OWN member id, read from the roster by the verified token subject — never from a client field. \"Anything else\" covers BOTH naming no task and naming a 臨時任務 that carries no type: a task with no type is not a place an entry can hang, so it is the same input as naming none.\n\nStaff and outsource members take the same arm. They used to differ — staff filed under their role_key — until the owner collapsed the scopes to two on 2026-09-07 (card rc-a43100fd0486 [0]).\n\nNEITHER ARM FALLS THROUGH TO THE OTHER. Filing an untyped task's lesson under a manual would charge a task TYPE for a lesson about work it will never do, while the writer who needed it kept nothing — and no error anywhere would say so. The one refusal left is a caller with NO ROSTER ROW at all (the owner): there is no boot document of his own for an entry to ride, so it is a 400.\n\nA write that named a task and landed in the writer's own document says so in ``scope_note`` — it is the one outcome the caller could not predict from its own request.\n\nAn over-cap ``title`` or ``body`` is a 400 that writes NOTHING, and nothing is truncated. The caps are the ``lore_cap_chars_title`` / ``lore_cap_chars_body`` settings, in characters.",
+        "properties": {
+          "title": {
+            "description": "The entry's one-line heading, at most ``lore_cap_chars_title`` characters.",
+            "title": "Title",
+            "type": "string"
+          },
+          "body": {
+            "description": "The entry itself, at most ``lore_cap_chars_body`` characters.",
+            "title": "Body",
+            "type": "string"
+          },
+          "task_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The task whose TYPE this entry belongs to. Send a TASK id here, not a type_key — the server reads the type off the task, which is also what records where the lesson came from.\n\nWhat decides the scope is the EFFECTIVE RELATED TASK: this task when it carries a type, and NULL otherwise. NULL covers BOTH omitting this field and naming a 臨時任務 that carries no type, and it files the entry under the writer's OWN boot document — ``role`` for staff, ``agent`` for an outsource member (owner 2026-09-07, card rc-3c24fdc61ed3).\n\n🔴 A task carrying no type used to be REFUSED here. It is not any more, and the refusal was retired rather than relaxed: the owner ruled that a task with no type is not a place an entry could hang in the first place, so naming one is the same input as naming none, not a request that got redirected. When that happens ``scope_note`` on the write receipt says so in one sentence, because the caller cannot otherwise tell the two 200s apart.",
+            "title": "Task Id"
+          }
+        },
+        "required": [
+          "title",
+          "body"
+        ],
+        "title": "LoreEntryWriteDTO",
+        "additionalProperties": false,
+        "type": "object"
+      },
+      "LoreEntryStateDTO": {
+        "description": "Move one 傳承 entry between its three mutually exclusive states (T-33). ``retire_reason`` is stored only with ``retired`` and is CLEARED by a move to ``active`` or ``pinned`` — a live entry must not keep displaying the explanation for a retirement that was undone.\n\nRetiring is not deleting: the entry stays readable, keeps its id, and can be moved back.",
+        "properties": {
+          "state": {
+            "description": "``active`` | ``pinned`` | ``retired``. Anything else is a 400.",
+            "title": "State",
+            "type": "string"
+          },
+          "retire_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Why it is being retired. Ignored — and any stored value cleared — for the other two states.",
+            "title": "Retire Reason"
+          }
+        },
+        "required": [
+          "state"
+        ],
+        "title": "LoreEntryStateDTO",
+        "additionalProperties": false,
+        "type": "object"
+      },
+      "LoreEntryListDTO": {
+        "description": "One page of 傳承 entries (T-33), in the fixed display order: pinned, then active, then retired, newest ``effective_ts`` first inside each group. THE ORDER IS NOT CONFIGURABLE — the filter is.\n\nThe filter is applied in the QUERY, before the page is cut. A client that pages first and filters afterwards cannot tell \"this page happens to hold none of them\" from \"there are none\", and any count it draws from the visible rows is wrong.",
+        "properties": {
+          "entries": {
+            "items": {
+              "$ref": "#/components/schemas/LoreEntryDTO"
+            },
+            "title": "Entries",
+            "type": "array"
+          },
+          "limit": {
+            "description": "The page size actually applied — not necessarily the one asked for.",
+            "title": "Limit",
+            "type": "integer"
+          },
+          "offset": {
+            "description": "The offset actually applied.",
+            "title": "Offset",
+            "type": "integer"
+          },
+          "cap_chars": {
+            "description": "The fold budget in force for the ONE scope this request's filter converged on — ``lore_cap_chars_role`` or ``lore_cap_chars_manual``. It is 0 when ``scope_kind`` and ``scope_key`` did not BOTH name a single scope, because a budget belongs to a scope and a page spanning several has no single one to report.",
+            "title": "Cap Chars",
+            "type": "integer"
+          },
+          "first_dropped_id": {
+            "description": "The id of the first entry that does NOT fit inside ``cap_chars`` — the entry the 上限線 is drawn above. It is \"\" when the whole scope fits, and \"\" when ``cap_chars`` is 0.\n\n🔴 IT IS COMPUTED BY THE SAME ``selectLoreForScope`` THE TWO FOLDS RUN, over the WHOLE scope and not over this page. A client cannot derive it: paging cuts the list before the budget is spent, and re-adding the title/body lengths in the client would be a SECOND copy of the picking rule that drifts from the real one without anything turning red. Read this field; do not recompute it.",
+            "title": "First Dropped Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "entries",
+          "limit",
+          "offset",
+          "cap_chars",
+          "first_dropped_id"
+        ],
+        "title": "LoreEntryListDTO",
+        "additionalProperties": false,
+        "type": "object"
+      },
+      "LoreEntryWriteReceiptDTO": {
+        "description": "Bounded receipt for ``POST /api/lore`` (write_lore_entry) (T-33). It used to answer with the whole LoreEntryDTO, so the ``title`` and ``body`` the agent had just written came straight back into its context window — a body sized by ``lore_cap_chars_body`` paid for twice on one call. Owner ruling 2026-09-07, verbatim: 「別這樣 浪費 context 我們才修一輪不要回傳自己寫出去的 payload」; the rule it applies is the one T-91's receipts already follow (2026-09-05: 「自己發送出去的內容，除了像是 ID 這類的，或是真的需要從回覆得知的，其他都不應該再回傳回來。」).\n\nEVERY FIELD HERE IS MINTED OR DECIDED BY THE HANDLER, none is an echo. What is dropped: ``title`` and ``body`` (just sent), ``author_id`` (the verified caller, which is the caller), ``source_task_id`` (the ``task_id`` just sent), plus ``state``, ``retire_reason``, ``effective_ts`` and ``updated_ts``, which on a fresh write are constants — a new entry is always ``active`` with no reason, and all three of its timestamps equal ``created_ts``. Call ``list_lore_entries`` (``GET /api/lore``) for the entry itself.\n\n``scope_kind`` and ``scope_key`` STAY, and they are why this receipt is more than an id. WHICH of the two boot documents an entry landed in is decided SERVER-SIDE, off the effective related task and off the caller's own roster row — a caller that named a task cannot predict it, and it is the machine-readable half of what ``scope_note`` says in a sentence.",
+        "properties": {
+          "id": {
+            "description": "``L-<n>``, MINTED HERE, ``n`` ascending globally. The handle ``set_lore_entry_state`` and ``bump_lore_entry`` take as ``entry_id``, and the one thing the caller cannot compute.",
+            "title": "Id",
+            "type": "string"
+          },
+          "seq": {
+            "description": "The number behind the id, assigned here — also the stable tie-break when two entries carry the same ``effective_ts``.",
+            "title": "Seq",
+            "type": "integer"
+          },
+          "scope_kind": {
+            "description": "``agent`` or ``manual`` — WHERE THIS ENTRY WAS FILED, which the server decided and the caller did not ask for. The deciding question is the EFFECTIVE RELATED TASK: the named task when it carries a type, and NULL otherwise, where \"otherwise\" covers BOTH naming no task and naming a 臨時任務 that carries no type. An effective task gives ``manual``; NULL gives ``agent``, keyed by the writer's own member id — staff and outsource alike since the 2026-09-07 collapse (card rc-a43100fd0486 [0]). A write can never produce the retired ``role`` value.",
+            "title": "Scope Kind",
+            "type": "string"
+          },
+          "scope_key": {
+            "description": "The writer's own member id when ``scope_kind`` is ``agent``; the task manual's ``type_key`` when it is ``manual``. Together with ``scope_kind`` it is the filter that reads this entry back out of ``list_lore_entries``.",
+            "title": "Scope Key",
+            "type": "string"
+          },
+          "created_ts": {
+            "format": "double",
+            "description": "The SERVER's stamp for the entry, epoch seconds. The caller does not send it and cannot backdate it. ``effective_ts`` and ``updated_ts`` are not on this receipt because on a fresh write both equal this one — they can only come apart later, and the receipt for that move reports them.",
+            "title": "Created Ts",
+            "type": "number"
+          },
+          "scope_note": {
+            "description": "Empty on every ordinary write. It carries one sentence in exactly one case: the write named a ``task_id`` whose task carries NO type, so the effective related task was NULL and the entry was filed under the writer's own boot document rather than under a manual.\n\nIt exists because the writer has no other way to learn that. Whether the task it named happens to carry a type is not something the writer holds in mind at the moment of the write, and both outcomes answer 200 — so without this sentence the two are indistinguishable from the caller's side. It REPORTS where the entry went; it is not a warning that a request was re-routed, because a task with no type was never a place an entry could hang.\n\nIt is on the RECEIPT and not on ``LoreEntryDTO``, where it used to live as ``filed_note``: only a write can produce it, so on every row ``GET /api/lore`` serves it was an always-empty column riding every entry of every page.",
+            "title": "Scope Note",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "seq",
+          "scope_kind",
+          "scope_key",
+          "created_ts",
+          "scope_note"
+        ],
+        "title": "LoreEntryWriteReceiptDTO",
+        "additionalProperties": false,
+        "type": "object"
+      },
+      "LoreEntryStateReceiptDTO": {
+        "description": "Bounded receipt for the two 傳承 GOVERNANCE writes — ``POST /api/lore/{entry_id}/state`` (set_lore_entry_state) and ``POST /api/lore/{entry_id}/bump`` (bump_lore_entry) (T-33). Both used to answer with the whole LoreEntryDTO, so an entry's ``title`` and ``body`` came home on every 置頂 / 失效 / 提到最新 — a payload the caller had never sent, on a call whose entire content is one state word or nothing at all. Owner ruling 2026-09-07: 「不要回傳自己寫出去的 payload」, read together with the 2026-09-05 rule that only ids and what the write itself decides ride home.\n\nONE SHAPE FOR BOTH DOORS. They move the same row's mutable surface and neither can report anything the other cannot: the state door writes ``state`` (and ``retire_reason``, which it stores only with ``retired`` and clears otherwise), the bump door writes ``effective_ts``, and both stamp ``updated_ts``. Two shapes would be two answers to one question, free to drift. What is dropped is the read-only half — ``seq``, ``scope_kind``, ``scope_key``, ``title``, ``body``, ``author_id``, ``source_task_id``, ``created_ts`` — none of which either verb can change; call ``list_lore_entries`` (``GET /api/lore``) for the entry itself.",
+        "properties": {
+          "id": {
+            "description": "The entry that was moved, echoed from the path. An id, which the owner's rule exempts in as many words (「除了像是 ID 這類的」): it is what lets a caller match this answer to the request it made.",
+            "title": "Id",
+            "type": "string"
+          },
+          "state": {
+            "description": "``active`` | ``pinned`` | ``retired`` — the state the entry is in AFTER this write, read back from the stored row. On the state door it confirms the asked-for move landed. On the bump door the caller sent no state at all, and this is where it learns 提到最新 did NOT change one — a bump reorders, it does not revive a retired entry.",
+            "title": "State",
+            "type": "string"
+          },
+          "effective_ts": {
+            "format": "double",
+            "description": "The entry's ordering key as it now stands, epoch seconds. On the bump door this is the SERVER's new now-stamp, which is the whole point of the call and the one value the caller cannot compute — two entries bumped from two machines still order by one clock. On the state door it is untouched, which is how a caller sees that retiring or reviving did not reorder anything.",
+            "title": "Effective Ts",
+            "type": "number"
+          },
+          "updated_ts": {
+            "format": "double",
+            "description": "The SERVER's stamp for THIS write, epoch seconds. It moves on both doors and on every call, so it — not ``effective_ts`` — is what says the write happened at all.",
+            "title": "Updated Ts",
+            "type": "number"
+          }
+        },
+        "required": [
+          "id",
+          "state",
+          "effective_ts",
+          "updated_ts"
+        ],
+        "title": "LoreEntryStateReceiptDTO",
+        "additionalProperties": false,
         "type": "object"
       }
     }
@@ -10757,7 +11149,7 @@
     },
     "/api/auth/signing-keys/{key_id}/remove": {
       "post": {
-        "description": "- This IS the revocation: no undo, no grace period, and holders are not notified.\n- Every token signed by that key is refused at once, as is every share link made under it.\n- Machine credentials never expire, so check `token_key_current` on GET /api/machines first.\n- The key that currently signs cannot be removed (409); rotate first.\n- An unknown `key_id` is a 404. Owner only.",
+        "description": "Remove a retired signing key — THIS is the revocation, and it has no undo (owner-gated).\n\nThe moment this returns, every token signed by that key is refused, and every attachment share link produced under it stops working: a share `?sig=` is an HMAC under a key derived from the signing key, so it is governed by the ring too (owner ruling, card rc-cf9c27c07442). There is no grace period and holders are not notified — which is why the timing is a person's decision and never a timer's.\n\n⚠️ Warden credentials expire again since T-fc53, but \"wait for the old tokens to expire\" is still not the strategy: a credential lives up to the full `auth.warden_credential_lifetime_secs` (30 days by default) and machines installed before that change carry no `exp` at all. The question to answer before calling this is whether every machine has come back ON THE CURRENT KEY (`token_key_current` on GET /api/machines), not how many days have passed and not merely whether it reconnected: a machine that reconnected while still holding a credential this key signed drops off the moment this returns.\n\nThe key that is currently SIGNING cannot be removed (409) — rotate first, then remove the one that stepped down. An unknown `key_id` is a 404.",
         "operationId": "handle_signing_key_remove_api_auth_signing_keys_key_id_remove_post",
         "parameters": [
           {
@@ -11742,7 +12134,7 @@
     },
     "/api/chat/attachment/{attachment_id}": {
       "get": {
-        "description": "- Raw bytes under the stored mime; a blob outside your scope, or unknown, is a 404.\n- Images have no disposition; text and PDF render inline; anything else downloads.\n- Inline previews are sandboxed, so uploaded script cannot run on this origin.\n- With no bearer credential a share-link `?sig=` reads this one blob; a bad sig is 401.\n- A sig never expires; it dies only with the key that minted it.",
+        "description": "Serve a chat attachment blob (``GET /api/chat/attachment/<id>``). GATED and\nowner-scoped exactly like ``handle_list_chat``: the ``owner`` dep re-verifies\nthe token (deny-by-default) and fixes the single data scope, and the lookup is\nscoped to that owner — a blob outside the owner's scope (or nonexistent) is a\n404, so a caller can not fetch another owner's attachment. Returns the raw\nbytes with the stored ``mime`` as the media type, except a generic\n``application/octet-stream`` blob whose filename ends .json is served as\n``application/json`` so the inline response renders in a browser.\n\nDISPOSITION SPLIT (M2-3 gallery「開新分頁預覽」 vs 「下載」): an IMAGE is\nserved with no disposition at all (unchanged — ``<img src>`` keeps working);\nany other PREVIEWABLE blob (text/*, application/pdf, application/json, and\na generic/unknown blob whose FILENAME ends .json — see ``isPreviewableAttachment``) is\nserved ``inline; filename=\"<name>\"`` so a new tab RENDERS it instead of\nforce-downloading; everything else keeps ``attachment; filename=\"<name>\"``\nand downloads under its original name.\n\nTHE FILENAME IS FALLBACK EVIDENCE, not a declared-type override. A declared\nnon-generic MIME remains authoritative. A blob uploaded\nwithout a declared mime is stored ``application/octet-stream`` — the\nmagic-byte sniff speaks for images only — and that is how most\nagent-uploaded JSON arrives, so the mime alone cannot answer for it. The\nupload path now reads the same name-to-mime table, so a blob stored from\nhere on carries ``application/json``; reading the name here is what makes\nthe ones stored BEFORE that still preview.\n\nSECURITY: an inline ``text/html`` blob would otherwise execute\nattacker-supplied script ON THIS ORIGIN (an agent-uploaded page could read\nthe owner JWT out of localStorage). Every non-image inline preview therefore\ncarries ``Content-Security-Policy: sandbox`` — the document still renders\nvisually, but script execution and same-origin reach are disabled.\n\nSHARE-SIG (third credential, this route ONLY — precedence Authorization\nheader → ``?token=`` → ``?sig=``): when the request carries NO bearer\ncredential at all, a ``?sig=`` query param is accepted instead — an\nHMAC-SHA256 over exactly this ``attachment_id`` under a domain-separated\nkey derived from the server signing secret (minted by\n``GET /api/chat/attachments/{attachment_id}/share-link``). A valid sig\nauthorizes reading THIS ONE blob and nothing else; a bad/foreign sig is\n401; ``?sig=`` on any other route is ignored (401 missing credentials).\nLike ``?token=``, the param is an auth credential OUTSIDE the OpenAPI\nparameter schema.\n\nA sig carries NO EXPIRY and cannot be revoked one link at a time. It is not\nunconditionally permanent, though, and since T-62 it never was: the derivation\nkey follows the SIGNING-KEY RING, so a sig keeps verifying while the key that\nproduced it is still in the ring, and every sig made under a key dies together\nthe moment an owner REMOVES that key (`POST\n/api/auth/signing-keys/{key_id}/remove`). That is the whole revocation story —\ncoarse, deliberate, and a person's decision rather than a timer's.",
         "operationId": "handle_get_chat_attachment_api_chat_attachment__attachment_id__get",
         "parameters": [
           {
@@ -13817,7 +14209,7 @@
         }
       },
       "post": {
-        "description": "- Onboards a machine; every call creates a distinct one, there is no host dedup.\n- The server mints the machine id, which is also the member id agents bind to.\n- `display_name` is required; blank is a 422.\n- Returns a PERMANENT exec-token with no expiry (`expires_in=0`) and the boot command to run on that host.\n- `ttl_days` is accepted but does not change that credential. Admin agent only.",
+        "description": "Onboard a machine: mint a NEW warden-kind member whose own id IS the machine\nid + mint its exec-token (admin-gated on the route table: requires=\"admin_agent\").\n\nTHE MACHINE IDENTITY is the warden member's server-minted id (``m-<uuid12>``). The\nwarden carries NO self-binding (``desired_machine_id`` stays \"\") — routing resolves\nit\nby ``get_member``\\ ing that machine id (== the warden's own id) directly. This\nreplaces the old fragile hand-typed ``host`` string: a typo can no longer break\nagent wake, because agents bind to this stable minted id (see\n``handle_activate_member``). Every onboard creates a DISTINCT machine — there is\nNO host-dedup (each call is a new physical machine).\n\n``display_name`` (required, 422 if blank) is the human label; it is written as a\nMachineAlias overlay keyed by the machine id (== member.id).\n\nThe response carries the member id (== machine_id), an exec-token\n(``scope=\"agent\"``, ``sub=member_id``, ``exp = iat +\nauth.warden_credential_lifetime_secs``; ``expires_in`` is that same lifetime), and the\ncopy-paste ``boot_command`` the operator runs on that machine to install the\nwarden (identity rides in the token's ``sub``). ``ttl_days`` remains accepted for\nrequest compatibility but does not alter the warden credential's lifetime, which\ncomes from ``auth.warden_credential_lifetime_secs`` alone.",
         "operationId": "handle_onboard_machine_api_machines_post",
         "requestBody": {
           "content": {
@@ -13879,7 +14271,7 @@
     },
     "/api/machines/claim": {
       "post": {
-        "description": "- Redeems a one-time claim code for the machine's permanent exec-token and the machine id it is bound to.\n- Public: the code is the credential, minted by the onboard / boot-command response.\n- Redemption consumes the code; a reused, expired or invalid code is all a flat 401 with no hint which.\n- Codes live 600 s in memory only, so a server restart voids them and that reads as expiry.",
+        "description": "Exchange a one-time claim code for the machine's exec-token (``POST /api/machines/claim``).\n\nThe onboard / boot-command responses no longer template the machine's long-lived exec-token into the copy-paste one-liner; they mint a short-lived (600 s), SINGLE-USE claim code instead and the served ``install.sh?code=`` script calls this endpoint to redeem it. On a valid, unexpired, unused code the response carries a freshly minted exec-token (``scope=\"agent\"``, ``sub=machine_id``, ``exp = iat + auth.warden_credential_lifetime_secs`` — the same mint every warden install path performs) plus ``expires_in`` = that same lifetime and the ``machine_id`` the token is bound to. Redemption CONSUMES the code atomically: a second call with the same code — or any invalid/expired code — is a flat 401 with no hint which it was (no guessing oracle).\n\nAuth: PUBLIC — the code IS the credential (possession proves the caller holds a boot command the owner just minted). Codes live in memory only (TTL 600 s); a server restart voids them, which reads as expiry.",
         "operationId": "handle_claim_machine_token_api_machines_claim_post",
         "requestBody": {
           "content": {
@@ -13941,7 +14333,7 @@
     },
     "/api/machines/credential-policy": {
       "get": {
-        "description": "- Answers one number, `lifetime_secs`: how long a machine credential is meant to live.\n- A warden renews once its credential is two thirds that old, plus up to an hour of stagger.\n- Identical for every caller; no machine named, no credential material.\n- 404 just means the station predates this route; wardens then keep their built-in 30-day default.\n- Any caller at the machine class or above.",
+        "description": "Read the station's machine-credential policy (``GET /api/machines/credential-policy``).\n\nIt answers ONE number: ``lifetime_secs``, the org setting ``auth.warden_credential_lifetime_secs`` -- how long a machine (warden) credential is meant to live. A warden polls this every 15 minutes and renews its own credential once that credential is two thirds of ``lifetime_secs`` old, measured from the ``iat`` claim, plus a per-machine stagger of up to one hour.\n\nWHY THE ENDPOINT EXISTS AT ALL, INCLUDING NOW THAT THE CREDENTIAL CARRIES AN ``exp`` AGAIN. The threshold used to be readable off the credential itself (``exp`` minus ``iat``); that stopped working while warden credentials were permanent, and the number moved into the owner's settings, which is what this route publishes. T-fc53 put the ``exp`` back and the endpoint STAYS: every warden installed before that change is holding a credential with no ``exp`` to subtract, and an ``exp`` is fixed at MINT time, so a token records the lifetime it was minted under rather than the live one.\n\nIT NAMES NO TARGET AND CARRIES NO CREDENTIAL MATERIAL. The answer is identical for every caller; the per-machine stagger is computed on the warden, not served, so nothing here varies by who asks and nothing here is secret to one machine.\n\nAuth: any authenticated caller at the ``machine`` principal class or above -- the same floor ``POST /api/machines/renew-credential`` sits on. Being unreachable is NOT an error condition for a warden: a station that has not been upgraded answers 404 and every warden keeps using its shipped default (30 days), which is the value this setting also defaults to.",
         "operationId": "handle_machine_credential_policy_api_machines_credential_policy_get",
         "responses": {
           "200": {
@@ -14084,7 +14476,7 @@
     },
     "/api/machines/{machine_id}/boot-command": {
       "get": {
-        "description": "- Re-fetches a machine's copy-paste installer any time, without re-onboarding (which would mint a new machine).\n- Mints a fresh non-expiring exec token on every call (`expires_in=0`).\n- Owner or admin agent only, and not exposed as an agent tool.\n- 404 if no active warden carries that id.",
+        "description": "Re-fetch a machine's boot command anytime (``GET\n/api/machines/{machine_id}/boot-command``).\n\nThe onboard result is shown once; an owner must be able to get the copy-paste\ninstaller for an existing machine again later (Seth: \"I can get the machine\nboot command anytime\") without re-onboarding (which would mint a NEW machine).\nResolves the ACTIVE warden member whose id IS ``machine_id`` (404 otherwise),\nRE-MINTS a fresh exec-token (``exp = iat +\nauth.warden_credential_lifetime_secs``; ``expires_in`` is that same lifetime),\nand rebuilds the one-liner via the shared ``_build_boot_command``.\n\nGovernance: the SAME ``requires=\"admin_agent\"`` route choke onboard uses. Route\nis GATED + ``mcp_exclude`` — it mints a credential (an exec-token), so it is a\nmint seam, not an agent tool.",
         "operationId": "handle_machine_boot_command_api_machines__machine_id__boot_command_get",
         "parameters": [
           {
@@ -14147,7 +14539,7 @@
     },
     "/api/machines/{machine_id}/bootstrap-here": {
       "post": {
-        "description": "- Installs that machine's warden on the server host itself, instead of you pasting the boot command into a shell.\n- Mints a fresh non-expiring exec token for the machine.\n- Owner or admin agent only; plain agents and wardens are 403.\n- An installer refusal is `ok=false` with the reason in `log`, not an HTTP error.\n- 404 if no active warden carries that id; 503 if the warden binary is missing.",
+        "description": "Bootstrap on server: install a machine's warden ON THE SERVER HOST in one\nclick (``POST /api/machines/{machine_id}/bootstrap-here``).\n\nThe common case is that the officraft server RUNS ON the machine being\nprovisioned, so instead of copy-pasting the boot command into a shell the owner\nclicks once and the server installs the warden locally. It resolves the ACTIVE\nwarden member (404 otherwise), re-mints a fresh exec-token (carrying ``exp = iat +\nauth.warden_credential_lifetime_secs``, like every other warden install path),\nresolves the ocwarden binary the SAME way ``handle_warden_binary`` does\n(503 if absent), and runs ``<ocwarden> install`` as a subprocess.\n\nGovernance: ``requires=\"admin_agent\"`` — the SAME admin choke onboard uses\n(T-6020, owner ruling 2026-07-26: installing the warden on the server host is\noffice operations the admin 助理 runs). Still a privileged local action, so it\nstays closed to every PLAIN agent and to wardens (flat 403 before any resolve).\n\nSECURITY: the subprocess uses an argv list (``[bin, \"install\"]``), NEVER a shell\nstring — zero command-injection surface. The token/base/id ride in ``env`` (a\nCOPY of ``os.environ`` so PATH/HOME are inherited — the warden installs into the\nserver user's ~/.officraft, which is the point). The runner is INJECTABLE via\n``app.state.bootstrap_runner`` so tests never launch a real installer.\n\nNon-zero exit is NOT raised: the one-warden guard in ocwarden refusing (exit 1)\nis a legitimate outcome — ``ok=false`` with the guard message surfaced in ``log``\nso the FE shows the reason. A timeout is a clear error, not a hang.",
         "operationId": "handle_bootstrap_here_api_machines__machine_id__bootstrap_here_post",
         "parameters": [
           {
@@ -14970,7 +15362,7 @@
     },
     "/api/members/{member_id}/activate": {
       "post": {
-        "description": "- Records the intent to bring the member online, binding `host` when one is named.\n- Always force-revives: a member stuck stopping or mid-wake is exactly what this rescues, and both winding-down anchors are cleared unconditionally.\n- Emits a `member` event; a client holding the stream learns of this without polling.",
+        "description": "Activate a member (§3.4 #12): write the owner's INTENT ``desired_state=\"online\"``\n(and bind the reconciling ``host`` when named). Sets intent ONLY — does NOT\nflip ``online`` (the ACTUAL state). The server can't reach the host, so the\nwarden reads ``desired_state``/``host``, spawns, and reports ``online`` back via the\npresence endpoint. A ``member`` delta fans out immediately.\n\nLIVE vs OFFLINE: when a live session exists, activate clears ``stopping_since``\nand ``waking_since`` and consumes ``restart_after_stop`` while preserving the\nactive ``refocus_since``/``stopped_since`` epoch. It publishes only the owner\nroster delta: it does not kill or reconcile that session and does not send it a\nlifecycle notice. When no live session exists, activate clears the previous\ngeneration's four wind-down anchors, banks any live telemetry cost, dispatches\nthe stop handoff, and lets reconcile handle the replacement START. Neither\npath flips ``online`` directly; the warden reports presence through the presence\nendpoint. The old stopping → 409 wake refusal is gone, without making a live\nactivate an unconditional force-revive.",
         "operationId": "handle_activate_member_api_members__member_id__activate_post",
         "parameters": [
           {
@@ -15035,12 +15427,12 @@
             "description": "Server error (unified error envelope)."
           }
         },
-        "summary": "Activate: write desired_state=online intent (does NOT flip online). Answers with a bounded receipt (``id``, ``activation_pending``, ``last_op_reason``), not the roster row — call ``get_member`` when you need the rest.",
+        "summary": "Activate: write desired_state=online intent (does NOT flip online). A live member clears stopping_since/waking_since and consumes restart_after_stop while preserving its active refocus/stopped epoch; it updates the owner roster only without killing/reconciling or sending a lifecycle notice. An offline generation clears its old wind-down, banks live cost, and uses stop-before-start. Answers with a bounded receipt (``id``, ``activation_pending``, ``last_op_reason``), not the roster row — call ``get_member`` when you need the rest.",
         "x-mcp": {
-          "description": "Activate: write desired_state=online intent (does NOT flip online). Answers with a bounded receipt (``id``, ``activation_pending``, ``last_op_reason``), not the roster row — call ``get_member`` when you need the rest.",
+          "description": "Activate: write desired_state=online intent (does NOT flip online). A live member clears stopping_since/waking_since and consumes restart_after_stop while preserving its active refocus/stopped epoch; it updates the owner roster only without killing/reconciling or sending a lifecycle notice. An offline generation clears its old wind-down, banks live cost, and uses stop-before-start. Answers with a bounded receipt (``id``, ``activation_pending``, ``last_op_reason``), not the roster row — call ``get_member`` when you need the rest.",
           "include": true,
           "legacy": {
-            "descriptor": "{\n      \"description\": \"Activate: write desired_state=online intent (does NOT flip online). Answers with a bounded receipt (``id``, ``activation_pending``, ``last_op_reason``), not the roster row \\u2014 call ``get_member`` when you need the rest.\",\n      \"inputSchema\": {\n        \"properties\": {\n          \"machine_id\": {\n            \"anyOf\": [\n              {\n                \"type\": \"string\"\n              },\n              {\n                \"type\": \"null\"\n              }\n            ],\n            \"default\": null,\n            \"title\": \"Machine Id\"\n          },\n          \"member_id\": {\n            \"type\": \"string\"\n          }\n        },\n        \"required\": [\n          \"member_id\"\n        ],\n        \"additionalProperties\": false,\n        \"type\": \"object\"\n      },\n      \"name\": \"activate_member\"\n    }"
+            "descriptor": "{\n      \"description\": \"Activate: write desired_state=online intent (does NOT flip online). A live member clears stopping_since/waking_since and consumes restart_after_stop while preserving its active refocus/stopped epoch; it updates the owner roster only without killing/reconciling or sending a lifecycle notice. An offline generation clears its old wind-down, banks live cost, and uses stop-before-start. Answers with a bounded receipt (``id``, ``activation_pending``, ``last_op_reason``), not the roster row \\u2014 call ``get_member`` when you need the rest.\",\n      \"inputSchema\": {\n        \"properties\": {\n          \"machine_id\": {\n            \"anyOf\": [\n              {\n                \"type\": \"string\"\n              },\n              {\n                \"type\": \"null\"\n              }\n            ],\n            \"default\": null,\n            \"title\": \"Machine Id\"\n          },\n          \"member_id\": {\n            \"type\": \"string\"\n          }\n        },\n        \"required\": [\n          \"member_id\"\n        ],\n        \"additionalProperties\": false,\n        \"type\": \"object\"\n      },\n      \"name\": \"activate_member\"\n    }"
           },
           "name": "activate_member",
           "order": 9
@@ -15290,7 +15682,7 @@
     },
     "/api/members/{member_id}/deactivate": {
       "post": {
-        "description": "- Graceful stop: the member is asked offline but the roster row is kept (`status` stays `active`) and re-spawnable.\n- Unlike dismiss, a soft delete flipping `status` to `removed`.\n- Owner token or admin-role (assistant) member only; an ordinary agent gets 403.\n- Returns only `id`, not the full member.\n- Emits a `member` event; a client holding the stream learns of this without polling.",
+        "description": "Deactivate a member (handover 層3): write the owner's INTENT\n``desired_state=\"offline\"`` and stamp ``stopping_since`` — a graceful STOP that\nRETAINS the roster row (``status`` stays ``active``), in contrast to dismiss\n(a soft delete that flips ``status=\"removed\"``). A deactivated member can be\nre-spawned later. Sets intent + shutdown signal ONLY — does NOT flip\n``online`` (the warden tears the live session down and the presence endpoint\nreports the winding-down phase back). ``stopping_since`` derives the\nstopping/stopped presence; a ``member`` delta fans out immediately. When no\nlive session exists (and this is not a wake cancellation), the handler collects\nimmediately: ``stopped_since`` is latched, live telemetry cost is banked, and\nthe robust STOP is dispatched.\n\nRBAC (control-others): route-table ``requires=\"admin_agent\"`` — only an\nowner-scoped token OR an admin-role (assistant) member may deactivate a\nmember; an ordinary agent → 403.",
         "operationId": "handle_deactivate_member_api_members__member_id__deactivate_post",
         "parameters": [
           {
@@ -15345,12 +15737,12 @@
             "description": "Server error (unified error envelope)."
           }
         },
-        "summary": "Deactivate: desired_state=offline + stamp stopping_since (retains row). Answers with a bounded receipt (``id``), not the roster row — call ``get_member`` when you need the rest.",
+        "summary": "Deactivate: desired_state=offline + stamp stopping_since (retains row); with no live session, immediately collect/bank/dispatch the stop. Answers with a bounded receipt (``id``), not the roster row — call ``get_member`` when you need the rest.",
         "x-mcp": {
-          "description": "Deactivate: desired_state=offline + stamp stopping_since (retains row). Answers with a bounded receipt (``id``), not the roster row — call ``get_member`` when you need the rest.",
+          "description": "Deactivate: desired_state=offline + stamp stopping_since (retains row); with no live session, immediately collect/bank/dispatch the stop. Answers with a bounded receipt (``id``), not the roster row — call ``get_member`` when you need the rest.",
           "include": true,
           "legacy": {
-            "descriptor": "{\n      \"description\": \"Deactivate: desired_state=offline + stamp stopping_since (retains row). Answers with a bounded receipt (``id``), not the roster row \\u2014 call ``get_member`` when you need the rest.\",\n      \"inputSchema\": {\n        \"properties\": {\n          \"member_id\": {\n            \"type\": \"string\"\n          }\n        },\n        \"required\": [\n          \"member_id\"\n        ],\n        \"additionalProperties\": false,\n        \"type\": \"object\"\n      },\n      \"name\": \"deactivate_member\"\n    }"
+            "descriptor": "{\n      \"description\": \"Deactivate: desired_state=offline + stamp stopping_since (retains row); with no live session, immediately collect/bank/dispatch the stop. Answers with a bounded receipt (``id``), not the roster row \\u2014 call ``get_member`` when you need the rest.\",\n      \"inputSchema\": {\n        \"properties\": {\n          \"member_id\": {\n            \"type\": \"string\"\n          }\n        },\n        \"required\": [\n          \"member_id\"\n        ],\n        \"additionalProperties\": false,\n        \"type\": \"object\"\n      },\n      \"name\": \"deactivate_member\"\n    }"
           },
           "name": "deactivate_member",
           "order": 11
@@ -15359,7 +15751,7 @@
     },
     "/api/members/{member_id}/force-stop": {
       "post": {
-        "description": "- Kills the member's live session immediately, skipping the ~30s reconcile wait.\n- The server runs no timer of its own: a member left in stopping ends only by its own report, by accelerated-stop, or by this call.\n- Owner token or admin-role member only; an ordinary agent is 403.\n- Emits a `member` event; a client holding the stream learns of this without polling.",
+        "description": "Force-stop a member: IMMEDIATELY kill the live session.\n\n🔴 This is NOT a shortcut past a countdown the SERVER started — it starts none.\nOn the 下線 arm (``desired_state=offline`` on a still-online member) the reconcile\nmachine runs NO clock of its own: ``decideDown`` returns decisionNone for as long as\nthe member stays online, so a member whose agent never reports stopped is NEVER\ncollected by the server. Owner ruling rc-27d1710174dd\n(「不要兜底：只有你按強制下線才收它」) — the escalation is deliberately his, not\na timer's, because the notice the agent was shown promises no deadline.\n\nSo there are exactly THREE things that end a soft offboard: the agent's own\n``report_stopped`` (that call dispatches the robust STOP itself); the deadline the\nowner opens by pressing 加速停止 (``POST /api/members/{member_id}/accelerated-stop``,\nthe middle rung — it re-stamps ``stopping_since`` and writes\n``refocus_op=accelerated_stop``, and ``decideDown`` then collects at\n``stopping_since`` + ``stop.accelerated_grace_secs``); or THIS endpoint. That clock\nis still the OWNER's, not the server's — nothing arms it unless he presses the\nbutton, which is why it does not reopen rc-27d1710174dd. If none of the three\nhappens the member stays in *stopping* indefinitely, which is the state the cockpit\nsurfaces this button in.\n\n``stop_deadline`` / ``stop_grace`` still exist in the reconcile store and config,\nbut the arm that consumes them is guarded by ``SoftOffboardGrace == 0`` and\n``SoftOffboardGraceSecs`` is a compile-time 600 s — unreachable in production,\ninjectable in tests. Do not implement against them.\n\nThe handler writes the STOP intent (``desired_state=offline``\n+ stamps ``stopping_since`` if unset or in the future, so presence reads coherently\nand a stale future anchor cannot survive) and then dispatches the SINGLE robust STOP\nstraight to the member's warden via :func:`_dispatch_robust_stop_now` — the\nwarden's ``stop()`` → ``escalateKill`` ladder performs the SIGKILL (tmux kill-session\n→ force killpg the process group). It also bypasses the ~30s reconcile cadence,\nwhich is the only wait it does skip.\n\nRBAC (control-others): route-table ``requires=\"admin_agent\"`` — only an\nowner-scoped token OR an admin-role (assistant) member may force-stop a\nmember; an ordinary agent → 403. A ``member`` delta\nfans out on the intent write.",
         "operationId": "handle_force_stop_member_api_members__member_id__force_stop_post",
         "parameters": [
           {
@@ -16895,7 +17287,7 @@
     },
     "/api/outsource-workers/{id}/boot-context": {
       "get": {
-        "description": "- Preview of the worker's boot context, re-assembled with the rules the real spawn uses; mints no token.\n- Today's re-assembly, NOT a verbatim spawn-time record: if settings changed since, it differs from what was sent.\n- Holds system-interaction text, user text and the runtime's boot sequence; no persona, task or manual.\n- Owner or admin agent only.\n- 404 if the worker or its bound task is gone.",
+        "description": "Read the outsource worker's boot-context PREVIEW (T-ba6b): the server re-assembles the boot text with the SAME fold the spawn path uses (buildWorkerBootContext), WITHOUT minting any token. Since T-4595 that fold is the STAFF boot context minus the persona slot — 系統互動 + 使用者自訂 + the boot sequence for the worker's own runtime, with no outsource-only document, no 你的身分 block, no bound task and no type manual — but WITH that worker's own 傳承 block (T-33, LoreScopeAgent keyed on its member id), which is the one part that differs from worker to worker. Owner/admin-agent cockpit read (T-6020; the floor is unchanged, and it is now the only thing keeping this read narrow — the text no longer embeds the task or the manual). 404 for an unknown worker or a worker whose bound task is gone. HONEST caveat the UI must carry: this is today's re-assembly, not a verbatim spawn-time record — nothing is stored (no prompt column, no migration).",
         "operationId": "handle_get_worker_boot_context_api_outsource_workers__id__boot_context_get",
         "parameters": [
           {
@@ -18981,7 +19373,7 @@
           "description": "Edit the org-adjustable settings (owner/admin agent) — only the fields you send change, and the change is live immediately. This tool's input schema is the field list; read the current values with get_settings first.",
           "include": true,
           "legacy": {
-            "descriptor": "{\n  \"description\": \"Edit the org-adjustable settings (owner/admin agent) — only the fields you send change, and the change is live immediately. This tool's input schema is the field list; read the current values with get_settings first.\",\n  \"inputSchema\": {\n    \"properties\": {\n      \"codex_compaction_threshold\": {\n        \"anyOf\": [\n          {\n            \"type\": \"integer\"\n          },\n          {\n            \"type\": \"null\"\n          }\n        ],\n        \"description\": \"Codex context-compaction threshold, 1 through 10.\",\n        \"title\": \"Codex Compaction Threshold\"\n      },\n      \"backup_retain\": {\n        \"anyOf\": [\n          {\n            \"type\": \"integer\"\n          },\n          {\n            \"type\": \"null\"\n          }\n        ],\n        \"description\": \"How many database backup files rotation KEEPS — N; everything past N is DELETED from disk (it used to be moved to a trash/ nobody emptied). Must be between 1 and 20. Two things it does NOT mean: N counts VERSIONS, not DAYS — the calendar depth depends on how many backups those days produced; and N is PER POOL, not per directory — routine (scheduled + manual) and pre-migration backups hold separate quotas, so 5 keeps up to 10 files. Read the current value from get_settings rather than assuming a number.\",\n        \"title\": \"Backup Retain\"\n      },\n      \"chat_budget_chars\": {\n        \"anyOf\": [\n          {\n            \"type\": \"integer\"\n          },\n          {\n            \"type\": \"null\"\n          }\n        ],\n        \"description\": \"The wake snapshot's chat block budget, in CHARACTERS (Unicode code points). It is what bounds resume_summary's chat block AND the estimated_total_chars peek_resume_summary_size reports — one number, one code path, so the two can never disagree. Must be between 1000 and 13000. Unlike the doc_cap_chars_* knobs it may be LOWERED as well as raised (the block is repacked on every read, not stored). Read the current value from get_settings rather than assuming a number.\",\n        \"title\": \"Chat Budget Chars\"\n      },\n      \"step_note_cap_chars\": {\n        \"anyOf\": [\n          {\n            \"type\": \"integer\"\n          },\n          {\n            \"type\": \"null\"\n          }\n        ],\n        \"description\": \"The size cap on one task step's working note, in CHARACTERS (Unicode code points). Must be between 1000 and 100000. Unlike the doc_cap_chars_* knobs it may be LOWERED as well as raised, because it is enforced only when a note is WRITTEN: a note already stored above a lowered cap stays readable in full and only becomes uneditable. It does NOT govern the task-level handover note or a chat message body, which keep their own 4,000-character constant. Read the current value from get_settings rather than assuming a number.\",\n        \"title\": \"Step Note Cap Chars\"\n      },\n      \"doc_cap_chars_boot_sequence\": {\n        \"anyOf\": [\n          {\n            \"type\": \"integer\"\n          },\n          {\n            \"type\": \"null\"\n          }\n        ],\n        \"description\": \"The size cap on a 啟動步驟 block of the boot context, in CHARACTERS (Unicode code points). ONE knob for BOTH runtimes (claude and codex), each document measured on its own text. Must be at least this document's shipped default and at most 100000. Read the current values from get_settings rather than assuming a number.\",\n        \"title\": \"Doc Cap Chars Boot Sequence\"\n      },\n      \"doc_cap_chars_duty\": {\n        \"anyOf\": [\n          {\n            \"type\": \"integer\"\n          },\n          {\n            \"type\": \"null\"\n          }\n        ],\n        \"description\": \"The size cap on a role's DUTY doc (the role definition), in CHARACTERS (Unicode code points). Must be at least this segment's own shipped default — which is deliberately much smaller than the other three segments' — and at most 100000. Read the current values from get_settings rather than assuming a number.\",\n        \"title\": \"Doc Cap Chars Duty\"\n      },\n      \"doc_cap_chars_insight\": {\n        \"anyOf\": [\n          {\n            \"type\": \"integer\"\n          },\n          {\n            \"type\": \"null\"\n          }\n        ],\n        \"description\": \"The size cap on a role's INSIGHT doc, in CHARACTERS (Unicode code points). Must be at least this segment's shipped default and at most 100000. Read the current values from get_settings rather than assuming a number.\",\n        \"title\": \"Doc Cap Chars Insight\"\n      },\n      \"doc_cap_chars_learning\": {\n        \"anyOf\": [\n          {\n            \"type\": \"integer\"\n          },\n          {\n            \"type\": \"null\"\n          }\n        ],\n        \"description\": \"The size cap on a role's LEARNING doc (the lessons doc), in CHARACTERS (Unicode code points). Must be at least this segment's shipped default and at most 100000. Read the current values from get_settings rather than assuming a number.\",\n        \"title\": \"Doc Cap Chars Learning\"\n      },\n      \"doc_cap_chars_manual_learnings\": {\n        \"anyOf\": [\n          {\n            \"type\": \"integer\"\n          },\n          {\n            \"type\": \"null\"\n          }\n        ],\n        \"description\": \"The size cap on a TASK MANUAL's learnings doc, in CHARACTERS (Unicode code points). Must be at least this segment's shipped default and at most 100000. Read the current values from get_settings rather than assuming a number.\",\n        \"title\": \"Doc Cap Chars Manual Learnings\"\n      },\n      \"doc_cap_chars_manual_sop\": {\n        \"anyOf\": [\n          {\n            \"type\": \"integer\"\n          },\n          {\n            \"type\": \"null\"\n          }\n        ],\n        \"description\": \"The size cap on a TASK MANUAL's sop_md doc, in CHARACTERS (Unicode code points). Must be at least this segment's shipped default and at most 100000. Read the current values from get_settings rather than assuming a number.\",\n        \"title\": \"Doc Cap Chars Manual Sop\"\n      },\n      \"doc_cap_chars_offboard\": {\n        \"anyOf\": [\n          {\n            \"type\": \"integer\"\n          },\n          {\n            \"type\": \"null\"\n          }\n        ],\n        \"description\": \"The size cap on the 〈停止〉 block, in CHARACTERS (Unicode code points). Must be at least this document's shipped default and at most 100000. Read the current values from get_settings rather than assuming a number.\",\n        \"title\": \"Doc Cap Chars Offboard\"\n      },\n      \"doc_cap_chars_system_interaction\": {\n        \"anyOf\": [\n          {\n            \"type\": \"integer\"\n          },\n          {\n            \"type\": \"null\"\n          }\n        ],\n        \"description\": \"The size cap on the 系統互動 block of the boot context, in CHARACTERS (Unicode code points). Must be at least this document's shipped default and at most 100000. Read the current values from get_settings rather than assuming a number.\",\n        \"title\": \"Doc Cap Chars System Interaction\"\n      },\n      \"display_language\": {\n        \"anyOf\": [\n          {\n            \"type\": \"string\"\n          },\n          {\n            \"type\": \"null\"\n          }\n        ],\n        \"description\": \"The owner's cockpit language (T-0b41-p2) — trimmed; \\\"\\\" clears it back to unset. Must be one of zh, en (or \\\"\\\"); anything else is a 422.\",\n        \"title\": \"Display Language\"\n      },\n      \"display_theme\": {\n        \"anyOf\": [\n          {\n            \"type\": \"string\"\n          },\n          {\n            \"type\": \"null\"\n          }\n        ],\n        \"description\": \"The owner's cockpit visual theme (T-0b41-p2) — trimmed; \\\"\\\" clears it back to unset. Must be one of office, xian (or \\\"\\\"); anything else is a 422.\",\n        \"title\": \"Display Theme\"\n      },\n      \"display_wide\": {\n        \"anyOf\": [\n          {\n            \"type\": \"boolean\"\n          },\n          {\n            \"type\": \"null\"\n          }\n        ],\n        \"description\": \"Turn the WIDE cockpit layout on/off (T-756f) — true lifts the centred ~1040px content column (the side gutters stay), false restores it. A plain boolean with no unset state: omit the field to leave it unchanged.\",\n        \"title\": \"Display Wide\"\n      },\n      \"handover_pct\": {\n        \"anyOf\": [\n          {\n            \"type\": \"integer\"\n          },\n          {\n            \"type\": \"null\"\n          }\n        ],\n        \"description\": \"The SECOND offboard point: the FINAL notice, and where the automatic handover fires. 40..90, and strictly greater than notice_pct (the pair is validated together against the POST-patch values, so either one may be sent alone).\",\n        \"title\": \"Handover Pct\"\n      },\n      \"notice_pct\": {\n        \"anyOf\": [\n          {\n            \"type\": \"integer\"\n          },\n          {\n            \"type\": \"null\"\n          }\n        ],\n        \"description\": \"The FIRST offboard point (T-a9d6): the SOFT notice, where the agent is asked to work the offboard sequence and then call report_stopped itself. 1..89, and strictly below handover_pct.\",\n        \"title\": \"Notice Pct\"\n      },\n      \"codex_notice_round\": {\n        \"anyOf\": [\n          {\n            \"type\": \"integer\"\n          },\n          {\n            \"type\": \"null\"\n          }\n        ],\n        \"description\": \"The codex SOFT-notice compaction round (T-a9d6). 1..10, and strictly below codex_compaction_threshold.\",\n        \"title\": \"Codex Notice Round\"\n      },\n      \"monitoring_refresh_seconds\": {\n        \"anyOf\": [\n          {\n            \"type\": \"integer\"\n          },\n          {\n            \"type\": \"null\"\n          }\n        ],\n        \"description\": \"Minimum interval between monitoring and machine refreshes, in seconds (1 through 60).\",\n        \"title\": \"Monitoring Refresh Seconds\"\n      },\n      \"accelerated_grace_secs\": {\n        \"anyOf\": [\n          {\n            \"type\": \"integer\"\n          },\n          {\n            \"type\": \"null\"\n          }\n        ],\n        \"description\": \"加速停止 grace, in seconds. Must be 10 through 3600. Applies to every CLOCKED wind-down cause at once (the second context threshold and the owner-pressed 加速停止); it can never put a clock on a soft cause.\",\n        \"title\": \"Accelerated Grace Secs\"\n      },\n      \"warden_credential_lifetime_secs\": {\n        \"anyOf\": [\n          {\n            \"type\": \"integer\"\n          },\n          {\n            \"type\": \"null\"\n          }\n        ],\n        \"description\": \"How long a MACHINE (warden) credential is meant to live, in seconds. Must be 86400 through 34560000 (one day through 400 days). A warden renews its own credential once that credential is two thirds of this old, plus a per-machine stagger of up to one hour so that LOWERING this value does not put the whole fleet on the mint endpoint inside one poll. The floor is one day because the last third of the lifetime is the retry window: at the 15-minute poll a one-day lifetime still leaves about 32 attempts. Wardens pick a change up within one poll interval. Warden credentials carry no `exp` today, so this governs renewal only and nothing expires because of it. Read the current value from get_settings rather than assuming a number.\",\n        \"title\": \"Warden Credential Lifetime Secs\"\n      },\n      \"org_name\": {\n        \"anyOf\": [\n          {\n            \"type\": \"string\"\n          },\n          {\n            \"type\": \"null\"\n          }\n        ],\n        \"description\": \"The studio display name (T-d693) — trimmed, max 80 runes; \\\"\\\" clears it back to the localized default. A value longer than 80 runes is a 422.\",\n        \"title\": \"Org Name\"\n      },\n      \"outsource_max_parallel\": {\n        \"anyOf\": [\n          {\n            \"type\": \"integer\"\n          },\n          {\n            \"type\": \"null\"\n          }\n        ],\n        \"title\": \"Outsource Max Parallel\"\n      },\n      \"owner_name\": {\n        \"anyOf\": [\n          {\n            \"type\": \"string\"\n          },\n          {\n            \"type\": \"null\"\n          }\n        ],\n        \"description\": \"The owner's display nickname (T-0b41) — trimmed, max 80 runes; \\\"\\\" clears it back to the localized default. A value longer than 80 runes is a 422.\",\n        \"title\": \"Owner Name\"\n      },\n      \"push_contact_email\": {\n        \"anyOf\": [\n          {\n            \"type\": \"string\"\n          },\n          {\n            \"type\": \"null\"\n          }\n        ],\n        \"description\": \"The push contact address (T-8a82) — trimmed, max 254 runes; \\\"\\\" clears it back to unset and stops all Web Push delivery. A value must be a single `local@domain` address whose domain is a real public one: a malformed address, or one on a reserved suffix (.local, .localhost, .internal, .test, .invalid, .example), is a 422 — those are exactly the values the push gateways reject with BadJwtToken, which would take push down silently.\",\n        \"title\": \"Push Contact Email\"\n      },\n      \"suggested_replies_reply_card\": {\n        \"anyOf\": [\n          {\n            \"items\": {\n              \"type\": \"string\"\n            },\n            \"type\": \"array\"\n          },\n          {\n            \"type\": \"null\"\n          }\n        ],\n        \"description\": \"Replace the 建議回覆 list offered under a 請示卡 reply box (T-122) wholesale — one sentence per entry, the owner's own writing. At most 20 entries, each trimmed and at most 120 runes (Unicode code points); over either bound is a 422 that writes NOTHING, and the list is never silently truncated. An EXPLICIT EMPTY ARRAY IS LEGAL and means \\\"offer no suggestions there\\\" — unlike the scheduled-message custom_* sets, where [] is a 422. Blank entries are dropped. Read the current list from get_settings before sending: this replaces it, it does not append. 🔴 null is NOT \\\"clear\\\": an omitted field and an explicit null both mean LEAVE THIS LIST UNCHANGED, so an agent that sends null to empty the list gets a 200 and no change at all. To clear it, send [].\",\n        \"title\": \"Suggested Replies Reply Card\"\n      },\n      \"suggested_replies_task_message\": {\n        \"anyOf\": [\n          {\n            \"items\": {\n              \"type\": \"string\"\n            },\n            \"type\": \"array\"\n          },\n          {\n            \"type\": \"null\"\n          }\n        ],\n        \"description\": \"Replace the 建議回覆 list offered under a 任務 message box (T-122) wholesale. Same bounds as suggested_replies_reply_card — at most 20 entries, each trimmed and at most 120 runes, over either is a 422 that writes nothing, and an explicit empty array is legal — but a SEPARATE list by owner ruling: answering a 請示卡 and writing to a task in progress are different conversations, and patching one list never touches the other. Read the current list from get_settings before sending: this replaces it, it does not append. 🔴 null is NOT \\\"clear\\\": an omitted field and an explicit null both mean LEAVE THIS LIST UNCHANGED, so an agent that sends null to empty the list gets a 200 and no change at all. To clear it, send [].\",\n        \"title\": \"Suggested Replies Task Message\"\n      },\n      \"agent_token_ttl\": {\n        \"anyOf\": [\n          {\n            \"type\": \"integer\"\n          },\n          {\n            \"type\": \"null\"\n          }\n        ],\n        \"title\": \"Agent Token Ttl\"\n      },\n      \"owner_token_ttl\": {\n        \"anyOf\": [\n          {\n            \"type\": \"integer\"\n          },\n          {\n            \"type\": \"null\"\n          }\n        ],\n        \"title\": \"Owner Token Ttl\"\n      },\n      \"updater_auto_update\": {\n        \"anyOf\": [\n          {\n            \"type\": \"boolean\"\n          },\n          {\n            \"type\": \"null\"\n          }\n        ],\n        \"title\": \"Updater Auto Update\"\n      },\n      \"updater_receive_beta\": {\n        \"anyOf\": [\n          {\n            \"type\": \"boolean\"\n          },\n          {\n            \"type\": \"null\"\n          }\n        ],\n        \"title\": \"Updater Receive Beta\"\n      }\n    },\n    \"additionalProperties\": false,\n    \"type\": \"object\"\n  },\n  \"name\": \"update_settings\"\n}"
+            "descriptor": "{\n        \"description\": \"Edit the org-adjustable settings (owner/admin agent) — only the fields you send change, and the change is live immediately. This tool's input schema is the field list; read the current values with get_settings first.\",\n        \"inputSchema\": {\n          \"properties\": {\n            \"codex_compaction_threshold\": {\n              \"anyOf\": [\n                {\n                  \"type\": \"integer\"\n                },\n                {\n                  \"type\": \"null\"\n                }\n              ],\n              \"description\": \"Codex context-compaction threshold, 1 through 10.\",\n              \"title\": \"Codex Compaction Threshold\"\n            },\n            \"backup_retain\": {\n              \"anyOf\": [\n                {\n                  \"type\": \"integer\"\n                },\n                {\n                  \"type\": \"null\"\n                }\n              ],\n              \"description\": \"How many database backup files rotation KEEPS — N; everything past N is DELETED from disk (it used to be moved to a trash/ nobody emptied). Must be between 1 and 20. Two things it does NOT mean: N counts VERSIONS, not DAYS — the calendar depth depends on how many backups those days produced; and N is PER POOL, not per directory — routine (scheduled + manual) and pre-migration backups hold separate quotas, so 5 keeps up to 10 files. Read the current value from get_settings rather than assuming a number.\",\n              \"title\": \"Backup Retain\"\n            },\n            \"chat_budget_chars\": {\n              \"anyOf\": [\n                {\n                  \"type\": \"integer\"\n                },\n                {\n                  \"type\": \"null\"\n                }\n              ],\n              \"description\": \"The wake snapshot's chat block budget, in CHARACTERS (Unicode code points). It is what bounds resume_summary's chat block AND the estimated_total_chars peek_resume_summary_size reports — one number, one code path, so the two can never disagree. Must be between 1000 and 13000. Unlike the doc_cap_chars_* knobs it may be LOWERED as well as raised (the block is repacked on every read, not stored). Read the current value from get_settings rather than assuming a number.\",\n              \"title\": \"Chat Budget Chars\"\n            },\n            \"step_note_cap_chars\": {\n              \"anyOf\": [\n                {\n                  \"type\": \"integer\"\n                },\n                {\n                  \"type\": \"null\"\n                }\n              ],\n              \"description\": \"The size cap on one task step's working note, in CHARACTERS (Unicode code points). Must be between 1000 and 100000. Unlike the doc_cap_chars_* knobs it may be LOWERED as well as raised, because it is enforced only when a note is WRITTEN: a note already stored above a lowered cap stays readable in full and only becomes uneditable. It does NOT govern the task-level handover note or a chat message body, which keep their own 4,000-character constant. Read the current value from get_settings rather than assuming a number.\",\n              \"title\": \"Step Note Cap Chars\"\n            },\n            \"doc_cap_chars_boot_sequence\": {\n              \"anyOf\": [\n                {\n                  \"type\": \"integer\"\n                },\n                {\n                  \"type\": \"null\"\n                }\n              ],\n              \"description\": \"The size cap on a 啟動步驟 block of the boot context, in CHARACTERS (Unicode code points). ONE knob for BOTH runtimes (claude and codex), each document measured on its own text. Must be at least this document's shipped default and at most 100000. Read the current values from get_settings rather than assuming a number.\",\n              \"title\": \"Doc Cap Chars Boot Sequence\"\n            },\n            \"doc_cap_chars_duty\": {\n              \"anyOf\": [\n                {\n                  \"type\": \"integer\"\n                },\n                {\n                  \"type\": \"null\"\n                }\n              ],\n              \"description\": \"The size cap on a role's DUTY doc (the role definition), in CHARACTERS (Unicode code points). Must be at least this segment's own shipped default — which is deliberately much smaller than the other three segments' — and at most 100000. Read the current values from get_settings rather than assuming a number.\",\n              \"title\": \"Doc Cap Chars Duty\"\n            },\n            \"doc_cap_chars_insight\": {\n              \"anyOf\": [\n                {\n                  \"type\": \"integer\"\n                },\n                {\n                  \"type\": \"null\"\n                }\n              ],\n              \"description\": \"The size cap on a role's INSIGHT doc, in CHARACTERS (Unicode code points). Must be at least this segment's shipped default and at most 100000. Read the current values from get_settings rather than assuming a number.\",\n              \"title\": \"Doc Cap Chars Insight\"\n            },\n            \"doc_cap_chars_learning\": {\n              \"anyOf\": [\n                {\n                  \"type\": \"integer\"\n                },\n                {\n                  \"type\": \"null\"\n                }\n              ],\n              \"description\": \"The size cap on a role's LEARNING doc (the lessons doc), in CHARACTERS (Unicode code points). Must be at least this segment's shipped default and at most 100000. Read the current values from get_settings rather than assuming a number.\",\n              \"title\": \"Doc Cap Chars Learning\"\n            },\n            \"doc_cap_chars_manual_learnings\": {\n              \"anyOf\": [\n                {\n                  \"type\": \"integer\"\n                },\n                {\n                  \"type\": \"null\"\n                }\n              ],\n              \"description\": \"The size cap on a TASK MANUAL's learnings doc, in CHARACTERS (Unicode code points). Must be at least this segment's shipped default and at most 100000. Read the current values from get_settings rather than assuming a number.\",\n              \"title\": \"Doc Cap Chars Manual Learnings\"\n            },\n            \"doc_cap_chars_manual_sop\": {\n              \"anyOf\": [\n                {\n                  \"type\": \"integer\"\n                },\n                {\n                  \"type\": \"null\"\n                }\n              ],\n              \"description\": \"The size cap on a TASK MANUAL's sop_md doc, in CHARACTERS (Unicode code points). Must be at least this segment's shipped default and at most 100000. Read the current values from get_settings rather than assuming a number.\",\n              \"title\": \"Doc Cap Chars Manual Sop\"\n            },\n            \"doc_cap_chars_offboard\": {\n              \"anyOf\": [\n                {\n                  \"type\": \"integer\"\n                },\n                {\n                  \"type\": \"null\"\n                }\n              ],\n              \"description\": \"The size cap on the 〈停止〉 block, in CHARACTERS (Unicode code points). Must be at least this document's shipped default and at most 100000. Read the current values from get_settings rather than assuming a number.\",\n              \"title\": \"Doc Cap Chars Offboard\"\n            },\n            \"doc_cap_chars_system_interaction\": {\n              \"anyOf\": [\n                {\n                  \"type\": \"integer\"\n                },\n                {\n                  \"type\": \"null\"\n                }\n              ],\n              \"description\": \"The size cap on the 系統互動 block of the boot context, in CHARACTERS (Unicode code points). Must be at least this document's shipped default and at most 100000. Read the current values from get_settings rather than assuming a number.\",\n              \"title\": \"Doc Cap Chars System Interaction\"\n            },\n            \"display_language\": {\n              \"anyOf\": [\n                {\n                  \"type\": \"string\"\n                },\n                {\n                  \"type\": \"null\"\n                }\n              ],\n              \"description\": \"The owner's cockpit language (T-0b41-p2) — trimmed; \\\"\\\" clears it back to unset. Must be one of zh, en (or \\\"\\\"); anything else is a 422.\",\n              \"title\": \"Display Language\"\n            },\n            \"display_theme\": {\n              \"anyOf\": [\n                {\n                  \"type\": \"string\"\n                },\n                {\n                  \"type\": \"null\"\n                }\n              ],\n              \"description\": \"The owner's cockpit visual theme (T-0b41-p2) — trimmed; \\\"\\\" clears it back to unset. Must be one of office, xian (or \\\"\\\"); anything else is a 422.\",\n              \"title\": \"Display Theme\"\n            },\n            \"display_wide\": {\n              \"anyOf\": [\n                {\n                  \"type\": \"boolean\"\n                },\n                {\n                  \"type\": \"null\"\n                }\n              ],\n              \"description\": \"Turn the WIDE cockpit layout on/off (T-756f) — true lifts the centred ~1040px content column (the side gutters stay), false restores it. A plain boolean with no unset state: omit the field to leave it unchanged.\",\n              \"title\": \"Display Wide\"\n            },\n            \"handover_pct\": {\n              \"anyOf\": [\n                {\n                  \"type\": \"integer\"\n                },\n                {\n                  \"type\": \"null\"\n                }\n              ],\n              \"description\": \"The SECOND offboard point: the FINAL notice, and where the automatic handover fires. 40..90, and strictly greater than notice_pct (the pair is validated together against the POST-patch values, so either one may be sent alone).\",\n              \"title\": \"Handover Pct\"\n            },\n            \"notice_pct\": {\n              \"anyOf\": [\n                {\n                  \"type\": \"integer\"\n                },\n                {\n                  \"type\": \"null\"\n                }\n              ],\n              \"description\": \"The FIRST offboard point (T-a9d6): the SOFT notice, where the agent is asked to work the offboard sequence and then call report_stopped itself. 1..89, and strictly below handover_pct.\",\n              \"title\": \"Notice Pct\"\n            },\n            \"codex_notice_round\": {\n              \"anyOf\": [\n                {\n                  \"type\": \"integer\"\n                },\n                {\n                  \"type\": \"null\"\n                }\n              ],\n              \"description\": \"The codex SOFT-notice compaction round (T-a9d6). 1..10, and strictly below codex_compaction_threshold.\",\n              \"title\": \"Codex Notice Round\"\n            },\n            \"monitoring_refresh_seconds\": {\n              \"anyOf\": [\n                {\n                  \"type\": \"integer\"\n                },\n                {\n                  \"type\": \"null\"\n                }\n              ],\n              \"description\": \"Minimum interval between monitoring and machine refreshes, in seconds (1 through 60).\",\n              \"title\": \"Monitoring Refresh Seconds\"\n            },\n            \"accelerated_grace_secs\": {\n              \"anyOf\": [\n                {\n                  \"type\": \"integer\"\n                },\n                {\n                  \"type\": \"null\"\n                }\n              ],\n              \"description\": \"加速停止 grace, in seconds. Must be 10 through 3600. Applies to every CLOCKED wind-down cause at once (the second context threshold and the owner-pressed 加速停止); it can never put a clock on a soft cause.\",\n              \"title\": \"Accelerated Grace Secs\"\n            },\n            \"warden_credential_lifetime_secs\": {\n              \"anyOf\": [\n                {\n                  \"type\": \"integer\"\n                },\n                {\n                  \"type\": \"null\"\n                }\n              ],\n              \"description\": \"How long a MACHINE (warden) credential is meant to live, in seconds. Must be 86400 through 34560000 (one day through 400 days). A warden renews its own credential once that credential is two thirds of this old, plus a per-machine stagger of up to one hour so that LOWERING this value does not put the whole fleet on the mint endpoint inside one poll. The floor is one day because the last third of the lifetime is the retry window: at the 15-minute poll a one-day lifetime still leaves about 32 attempts. Wardens pick a change up within one poll interval. It is ALSO the expiry stamped into the credential (`exp = iat + this`, T-fc53), so a machine that misses its whole retry window needs a hand re-install; lowering the value never shortens a credential already issued, because an `exp` is fixed at mint time. Read the current value from get_settings rather than assuming a number.\",\n              \"title\": \"Warden Credential Lifetime Secs\"\n            },\n            \"org_name\": {\n              \"anyOf\": [\n                {\n                  \"type\": \"string\"\n                },\n                {\n                  \"type\": \"null\"\n                }\n              ],\n              \"description\": \"The studio display name (T-d693) — trimmed, max 80 runes; \\\"\\\" clears it back to the localized default. A value longer than 80 runes is a 422.\",\n              \"title\": \"Org Name\"\n            },\n            \"outsource_max_parallel\": {\n              \"anyOf\": [\n                {\n                  \"type\": \"integer\"\n                },\n                {\n                  \"type\": \"null\"\n                }\n              ],\n              \"title\": \"Outsource Max Parallel\"\n            },\n            \"owner_name\": {\n              \"anyOf\": [\n                {\n                  \"type\": \"string\"\n                },\n                {\n                  \"type\": \"null\"\n                }\n              ],\n              \"description\": \"The owner's display nickname (T-0b41) — trimmed, max 80 runes; \\\"\\\" clears it back to the localized default. A value longer than 80 runes is a 422.\",\n              \"title\": \"Owner Name\"\n            },\n            \"push_contact_email\": {\n              \"anyOf\": [\n                {\n                  \"type\": \"string\"\n                },\n                {\n                  \"type\": \"null\"\n                }\n              ],\n              \"description\": \"The push contact address (T-8a82) — trimmed, max 254 runes; \\\"\\\" clears it back to unset and stops all Web Push delivery. A value must be a single `local@domain` address whose domain is a real public one: a malformed address, or one on a reserved suffix (.local, .localhost, .internal, .test, .invalid, .example), is a 422 — those are exactly the values the push gateways reject with BadJwtToken, which would take push down silently.\",\n              \"title\": \"Push Contact Email\"\n            },\n            \"suggested_replies_reply_card\": {\n              \"anyOf\": [\n                {\n                  \"items\": {\n                    \"type\": \"string\"\n                  },\n                  \"type\": \"array\"\n                },\n                {\n                  \"type\": \"null\"\n                }\n              ],\n              \"description\": \"Replace the 建議回覆 list offered under a 請示卡 reply box (T-122) wholesale — one sentence per entry, the owner's own writing. At most 20 entries, each trimmed and at most 120 runes (Unicode code points); over either bound is a 422 that writes NOTHING, and the list is never silently truncated. An EXPLICIT EMPTY ARRAY IS LEGAL and means \\\"offer no suggestions there\\\" — unlike the scheduled-message custom_* sets, where [] is a 422. Blank entries are dropped. Read the current list from get_settings before sending: this replaces it, it does not append. 🔴 null is NOT \\\"clear\\\": an omitted field and an explicit null both mean LEAVE THIS LIST UNCHANGED, so an agent that sends null to empty the list gets a 200 and no change at all. To clear it, send [].\",\n              \"title\": \"Suggested Replies Reply Card\"\n            },\n            \"suggested_replies_task_message\": {\n              \"anyOf\": [\n                {\n                  \"items\": {\n                    \"type\": \"string\"\n                  },\n                  \"type\": \"array\"\n                },\n                {\n                  \"type\": \"null\"\n                }\n              ],\n              \"description\": \"Replace the 建議回覆 list offered under a 任務 message box (T-122) wholesale. Same bounds as suggested_replies_reply_card — at most 20 entries, each trimmed and at most 120 runes, over either is a 422 that writes nothing, and an explicit empty array is legal — but a SEPARATE list by owner ruling: answering a 請示卡 and writing to a task in progress are different conversations, and patching one list never touches the other. Read the current list from get_settings before sending: this replaces it, it does not append. 🔴 null is NOT \\\"clear\\\": an omitted field and an explicit null both mean LEAVE THIS LIST UNCHANGED, so an agent that sends null to empty the list gets a 200 and no change at all. To clear it, send [].\",\n              \"title\": \"Suggested Replies Task Message\"\n            },\n\"suggested_replies_lore_message\": {\n              \"anyOf\": [\n                {\n                  \"items\": {\n                    \"type\": \"string\"\n                  },\n                  \"type\": \"array\"\n                },\n                {\n                  \"type\": \"null\"\n                }\n              ],\n              \"description\": \"Replace the 建議回覆 list offered under a 傳承 entry's message box (T-33) wholesale — that box writes to the person who WROTE the entry. Same bounds as suggested_replies_reply_card — at most 20 entries, each trimmed and at most 120 runes, over either is a 422 that writes nothing, and an explicit empty array is legal — but a SEPARATE list by owner ruling: asking about a 傳承 entry, answering a 請示卡 and writing to a task in progress are three different conversations, and patching one list never touches another. Read the current list from get_settings before sending: this replaces it, it does not append. 🔴 null is NOT \\\"clear\\\": an omitted field and an explicit null both mean LEAVE THIS LIST UNCHANGED, so an agent that sends null to empty the list gets a 200 and no change at all. To clear it, send [].\",\n              \"title\": \"Suggested Replies Lore Message\"\n            },\n            \"agent_token_ttl\": {\n              \"anyOf\": [\n                {\n                  \"type\": \"integer\"\n                },\n                {\n                  \"type\": \"null\"\n                }\n              ],\n              \"title\": \"Agent Token Ttl\"\n            },\n            \"owner_token_ttl\": {\n              \"anyOf\": [\n                {\n                  \"type\": \"integer\"\n                },\n                {\n                  \"type\": \"null\"\n                }\n              ],\n              \"title\": \"Owner Token Ttl\"\n            },\n            \"updater_auto_update\": {\n              \"anyOf\": [\n                {\n                  \"type\": \"boolean\"\n                },\n                {\n                  \"type\": \"null\"\n                }\n              ],\n              \"title\": \"Updater Auto Update\"\n            },\n            \"updater_receive_beta\": {\n              \"anyOf\": [\n                {\n                  \"type\": \"boolean\"\n                },\n                {\n                  \"type\": \"null\"\n                }\n              ],\n              \"title\": \"Updater Receive Beta\"\n            },\n            \"lore_cap_chars_role\": {\n              \"anyOf\": [\n                {\n                  \"type\": \"integer\"\n                },\n                {\n                  \"type\": \"null\"\n                }\n              ],\n              \"description\": \"How many characters of 傳承 a STAFF boot document carries for one role (T-33) — spent by every boot of that role. INDEPENDENT of lore_cap_chars_manual; the two are never summed, because they are paid by different readers at different moments. Unlike the doc_cap_chars_* knobs this one may be LOWERED as well as raised. Those floors equal their own shipped defaults because lowering one strands an existing legal document in shrink-only mode; a 傳承 entry has NO edit path at all, so a smaller cap cannot strand anything already stored — it binds the next write and nothing else. The adjustable range is 100..100000.\",\n              \"title\": \"Lore Cap Chars Role\"\n            },\n            \"lore_cap_chars_manual\": {\n              \"anyOf\": [\n                {\n                  \"type\": \"integer\"\n                },\n                {\n                  \"type\": \"null\"\n                }\n              ],\n              \"description\": \"How many characters of 傳承 get_task_manual appends after a type's learnings (T-33) — spent by whoever opens that manual, staff and outsource alike, since this fold enters no boot document. INDEPENDENT of lore_cap_chars_role. Unlike the doc_cap_chars_* knobs this one may be LOWERED as well as raised. Those floors equal their own shipped defaults because lowering one strands an existing legal document in shrink-only mode; a 傳承 entry has NO edit path at all, so a smaller cap cannot strand anything already stored — it binds the next write and nothing else. The adjustable range is 100..100000.\",\n              \"title\": \"Lore Cap Chars Manual\"\n            },\n            \"lore_cap_chars_title\": {\n              \"anyOf\": [\n                {\n                  \"type\": \"integer\"\n                },\n                {\n                  \"type\": \"null\"\n                }\n              ],\n              \"description\": \"The longest title ONE 傳承 entry may be written with, in characters (T-33). An over-cap write is refused whole — nothing partial is stored and nothing is truncated. Unlike the doc_cap_chars_* knobs this one may be LOWERED as well as raised. Those floors equal their own shipped defaults because lowering one strands an existing legal document in shrink-only mode; a 傳承 entry has NO edit path at all, so a smaller cap cannot strand anything already stored — it binds the next write and nothing else. The adjustable range is 10..10000.\",\n              \"title\": \"Lore Cap Chars Title\"\n            },\n            \"lore_cap_chars_body\": {\n              \"anyOf\": [\n                {\n                  \"type\": \"integer\"\n                },\n                {\n                  \"type\": \"null\"\n                }\n              ],\n              \"description\": \"The longest body ONE 傳承 entry may be written with, in characters (T-33). An over-cap write is refused whole; half a lesson is not a shorter lesson. Unlike the doc_cap_chars_* knobs this one may be LOWERED as well as raised. Those floors equal their own shipped defaults because lowering one strands an existing legal document in shrink-only mode; a 傳承 entry has NO edit path at all, so a smaller cap cannot strand anything already stored — it binds the next write and nothing else. The adjustable range is 10..10000.\",\n              \"title\": \"Lore Cap Chars Body\"\n            }\n          },\n          \"additionalProperties\": false,\n          \"type\": \"object\"\n        },\n        \"name\": \"update_settings\"\n      }"
           },
           "name": "update_settings",
           "order": 2
@@ -21338,12 +21730,12 @@
             "description": "Server error (unified error envelope)."
           }
         },
-        "summary": "Submit/replace the workflow plan (done and answered-card steps are kept). T-74f8 交棒閘 (second door): a plan is a step-set write and the task status is DERIVED from the step set, so a plan that leaves EVERY step done CLOSES the task — the same irreversible close the final step report performs. If that task's creator is not its executor and no handover is declared or already real, the replan is refused with 422 BEFORE anything is written (the plan stays fully editable). A plan carries no handoff field, so the way out is to hand over first: create the successor task and point its ``blocked_by`` at this task (the gate then stands aside by itself), or keep one unfinished step and declare the handover on the ``update_step_status`` report that closes it. A replan that still leaves work in the plan is never gated. Answers with a bounded receipt (task_id, steps_total, progress_done, progress_total), not the plan you just sent — use get_task to read the stored step rows back.",
+        "summary": "Submit/replace the workflow plan. ⚠️ Resubmitting permanently deletes every unfinished step and its working note; deleted notes cannot be recovered. Done steps, superseded steps, and steps with an answered or expired reply card are kept. Relisting a step under the same name creates a new step with a new id, so copy any note you need before resubmitting. T-74f8 交棒閘 (second door): a plan is a step-set write and the task status is DERIVED from the step set, so a plan that leaves EVERY step done CLOSES the task — the same irreversible close the final step report performs. If that task's creator is not its executor and no handover is declared or already real, the replan is refused with 422 BEFORE anything is written (the plan stays fully editable). A plan carries no handoff field, so the way out is to hand over first: create the successor task and point its ``blocked_by`` at this task (the gate then stands aside by itself), or keep one unfinished step and declare the handover on the ``update_step_status`` report that closes it. A replan that still leaves work in the plan is never gated. Answers with a bounded receipt (task_id, steps_total, progress_done, progress_total), not the plan you just sent — use get_task to read the stored step rows back.",
         "x-mcp": {
-          "description": "Submit/replace the workflow plan (done and answered-card steps are kept). T-74f8 交棒閘 (second door): a plan is a step-set write and the task status is DERIVED from the step set, so a plan that leaves EVERY step done CLOSES the task — the same irreversible close the final step report performs. If that task's creator is not its executor and no handover is declared or already real, the replan is refused with 422 BEFORE anything is written (the plan stays fully editable). A plan carries no handoff field, so the way out is to hand over first: create the successor task and point its ``blocked_by`` at this task (the gate then stands aside by itself), or keep one unfinished step and declare the handover on the ``update_step_status`` report that closes it. A replan that still leaves work in the plan is never gated. Answers with a bounded receipt (task_id, steps_total, progress_done, progress_total), not the plan you just sent — use get_task to read the stored step rows back.",
+          "description": "Submit/replace the workflow plan. ⚠️ Resubmitting permanently deletes every unfinished step and its working note; deleted notes cannot be recovered. Done steps, superseded steps, and steps with an answered or expired reply card are kept. Relisting a step under the same name creates a new step with a new id, so copy any note you need before resubmitting. T-74f8 交棒閘 (second door): a plan is a step-set write and the task status is DERIVED from the step set, so a plan that leaves EVERY step done CLOSES the task — the same irreversible close the final step report performs. If that task's creator is not its executor and no handover is declared or already real, the replan is refused with 422 BEFORE anything is written (the plan stays fully editable). A plan carries no handoff field, so the way out is to hand over first: create the successor task and point its ``blocked_by`` at this task (the gate then stands aside by itself), or keep one unfinished step and declare the handover on the ``update_step_status`` report that closes it. A replan that still leaves work in the plan is never gated. Answers with a bounded receipt (task_id, steps_total, progress_done, progress_total), not the plan you just sent — use get_task to read the stored step rows back.",
           "include": true,
           "legacy": {
-            "descriptor": "{\n      \"description\": \"Submit/replace the workflow plan (done and answered-card steps are kept). T-74f8 交棒閘 (second door): a plan is a step-set write and the task status is DERIVED from the step set, so a plan that leaves EVERY step done CLOSES the task — the same irreversible close the final step report performs. If that task's creator is not its executor and no handover is declared or already real, the replan is refused with 422 BEFORE anything is written (the plan stays fully editable). A plan carries no handoff field, so the way out is to hand over first: create the successor task and point its ``blocked_by`` at this task (the gate then stands aside by itself), or keep one unfinished step and declare the handover on the ``update_step_status`` report that closes it. A replan that still leaves work in the plan is never gated. Answers with a bounded receipt (task_id, steps_total, progress_done, progress_total), not the plan you just sent — use get_task to read the stored step rows back.\",\n      \"inputSchema\": {\n        \"properties\": {\n          \"steps\": {\n            \"items\": {\n              \"properties\": {\n                \"dod\": {\n                  \"title\": \"Dod\",\n                  \"type\": \"string\"\n                },\n                \"is_gate\": {\n                  \"anyOf\": [\n                    {\n                      \"type\": \"boolean\"\n                    },\n                    {\n                      \"type\": \"null\"\n                    }\n                  ],\n                  \"default\": null,\n                  \"title\": \"Is Gate\"\n                },\n                \"name\": {\n                  \"title\": \"Name\",\n                  \"type\": \"string\"\n                },\n                \"parallel_group\": {\n                  \"anyOf\": [\n                    {\n                      \"type\": \"string\"\n                    },\n                    {\n                      \"type\": \"null\"\n                    }\n                  ],\n                  \"default\": null,\n                  \"title\": \"Parallel Group\"\n                }\n              },\n              \"required\": [\n                \"name\",\n                \"dod\"\n              ],\n              \"type\": \"object\",\n              \"additionalProperties\": false\n            },\n            \"title\": \"Steps\",\n            \"type\": \"array\"\n          },\n          \"task_id\": {\n            \"type\": \"string\"\n          }\n        },\n        \"required\": [\n          \"task_id\",\n          \"steps\"\n        ],\n        \"additionalProperties\": false,\n        \"type\": \"object\"\n      },\n      \"name\": \"submit_plan\"\n    }"
+            "descriptor": "{\n      \"description\": \"Submit/replace the workflow plan. ⚠️ Resubmitting permanently deletes every unfinished step and its working note; deleted notes cannot be recovered. Done steps, superseded steps, and steps with an answered or expired reply card are kept. Relisting a step under the same name creates a new step with a new id, so copy any note you need before resubmitting. T-74f8 交棒閘 (second door): a plan is a step-set write and the task status is DERIVED from the step set, so a plan that leaves EVERY step done CLOSES the task — the same irreversible close the final step report performs. If that task's creator is not its executor and no handover is declared or already real, the replan is refused with 422 BEFORE anything is written (the plan stays fully editable). A plan carries no handoff field, so the way out is to hand over first: create the successor task and point its ``blocked_by`` at this task (the gate then stands aside by itself), or keep one unfinished step and declare the handover on the ``update_step_status`` report that closes it. A replan that still leaves work in the plan is never gated. Answers with a bounded receipt (task_id, steps_total, progress_done, progress_total), not the plan you just sent — use get_task to read the stored step rows back.\",\n      \"inputSchema\": {\n        \"properties\": {\n          \"steps\": {\n            \"items\": {\n              \"properties\": {\n                \"dod\": {\n                  \"title\": \"Dod\",\n                  \"type\": \"string\"\n                },\n                \"is_gate\": {\n                  \"anyOf\": [\n                    {\n                      \"type\": \"boolean\"\n                    },\n                    {\n                      \"type\": \"null\"\n                    }\n                  ],\n                  \"default\": null,\n                  \"title\": \"Is Gate\"\n                },\n                \"name\": {\n                  \"title\": \"Name\",\n                  \"type\": \"string\"\n                },\n                \"parallel_group\": {\n                  \"anyOf\": [\n                    {\n                      \"type\": \"string\"\n                    },\n                    {\n                      \"type\": \"null\"\n                    }\n                  ],\n                  \"default\": null,\n                  \"title\": \"Parallel Group\"\n                }\n              },\n              \"required\": [\n                \"name\",\n                \"dod\"\n              ],\n              \"type\": \"object\",\n              \"additionalProperties\": false\n            },\n            \"title\": \"Steps\",\n            \"type\": \"array\"\n          },\n          \"task_id\": {\n            \"type\": \"string\"\n          }\n        },\n        \"required\": [\n          \"task_id\",\n          \"steps\"\n        ],\n        \"additionalProperties\": false,\n        \"type\": \"object\"\n      },\n      \"name\": \"submit_plan\"\n    }"
           },
           "name": "submit_plan",
           "order": 74
@@ -22721,6 +23113,457 @@
         "summary": "Deploy probe: version + git sha (autodeploy sha compare).",
         "x-mcp": {
           "include": false
+        }
+      }
+    },
+    "/api/lore": {
+      "get": {
+        "description": "List 傳承 entries, filtered SERVER-SIDE and paged in the fixed order pinned -> active -> retired, newest first inside each group. The order is not configurable; the filter is.",
+        "operationId": "handle_list_lore_entries_api_lore_get",
+        "parameters": [
+          {
+            "description": "REPEATABLE scope-kind set (``?scope_kinds=agent&scope_kinds=manual``). Accepted values: ``agent``, ``manual``; ANY other element is a 400 that NAMES the offending value — never a silently dropped one, because 「查無資料」 and 「你打錯字」 look identical on the wire. 🔴 ``role`` IS NOW ONE OF THOSE REFUSED VALUES. It was the third scope until 2026-09-07 (owner, card rc-a43100fd0486 [0]) and every client written before then knows it, so it is the one wrong value likely to arrive from a real caller — answering 200-with-no-rows would tell them their 傳承 had been deleted rather than that their vocabulary is old. Refusing it does NOT hide the legacy rows the migration deliberately left at ``role``: those still come back on any page that does not constrain this axis. 🔴 PLURAL WINS. When this and its singular twin are BOTH sent, this one is the filter and the singular is ignored — they are neither ANDed nor unioned. Absent, or present but all-blank, falls back to the singular; both empty means no constraint on this axis. NOTE the 上限線: ``cap_chars`` / ``first_dropped_id`` are answered only when the EFFECTIVE scope_kind set holds exactly ONE value AND the effective scope_key set holds exactly ONE — a budget belongs to a scope, so a page spanning two or more has no single one to report and answers 0 / \"\". additive-optional.",
+            "in": "query",
+            "name": "scope_kinds",
+            "required": false,
+            "schema": {
+              "items": {
+                "type": "string"
+              },
+              "title": "Scope Kinds",
+              "type": "array"
+            }
+          },
+          {
+            "in": "query",
+            "name": "scope_kind",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Scope Kind"
+            }
+          },
+          {
+            "description": "REPEATABLE scope-key set (``?scope_keys=m-1a2b&scope_keys=tm-review``) — the multi-select twin of ``scope_key``. The keys are free-form (a member id or a manual's type_key, depending on the kind beside them), so there is no closed set to check against and no 400: a key nobody carries answers 200 with no rows for that key. 🔴 PLURAL WINS. When this and its singular twin are BOTH sent, this one is the filter and the singular is ignored — they are neither ANDed nor unioned. Absent, or present but all-blank, falls back to the singular; both empty means no constraint on this axis. NOTE the 上限線: ``cap_chars`` / ``first_dropped_id`` are answered only when the EFFECTIVE scope_kind set holds exactly ONE value AND the effective scope_key set holds exactly ONE — a budget belongs to a scope, so a page spanning two or more has no single one to report and answers 0 / \"\". additive-optional.",
+            "in": "query",
+            "name": "scope_keys",
+            "required": false,
+            "schema": {
+              "items": {
+                "type": "string"
+              },
+              "title": "Scope Keys",
+              "type": "array"
+            }
+          },
+          {
+            "in": "query",
+            "name": "scope_key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Scope Key"
+            }
+          },
+          {
+            "description": "REPEATABLE state set (``?states=active&states=pinned``) — the multi-select twin of ``state``, so the 狀態 filter can tick more than one row. Accepted values: ``active``, ``pinned``, ``retired``; ANY other element is a 400 that NAMES the offending value rather than being dropped, for the same reason the singular does it — an ignored typo returns an empty page that reads exactly like a real \"there are none\". 🔴 PLURAL WINS. When this and its singular twin are BOTH sent, this one is the filter and the singular is ignored — they are neither ANDed nor unioned. Absent, or present but all-blank, falls back to the singular; both empty means no constraint on this axis. additive-optional.",
+            "in": "query",
+            "name": "states",
+            "required": false,
+            "schema": {
+              "items": {
+                "type": "string"
+              },
+              "title": "States",
+              "type": "array"
+            }
+          },
+          {
+            "in": "query",
+            "name": "state",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "State"
+            }
+          },
+          {
+            "description": "REPEATABLE author set (``?author_ids=mira&author_ids=nova``) — the multi-select twin of ``author_id``. Member ids are free-form and are matched literally against the author PINNED at write time, so there is no closed set and no 400; an id nobody carries simply contributes no rows. 🔴 PLURAL WINS. When this and its singular twin are BOTH sent, this one is the filter and the singular is ignored — they are neither ANDed nor unioned. Absent, or present but all-blank, falls back to the singular; both empty means no constraint on this axis. additive-optional.",
+            "in": "query",
+            "name": "author_ids",
+            "required": false,
+            "schema": {
+              "items": {
+                "type": "string"
+              },
+              "title": "Author Ids",
+              "type": "array"
+            }
+          },
+          {
+            "in": "query",
+            "name": "author_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Author Id"
+            }
+          },
+          {
+            "description": "REPEATABLE 傳承編號 set (``?entry_ids=L-12&entry_ids=L-30``) — the multi-select twin of ``entry_id``, and the axis behind the 傳承編號 search box the design calls for (LORE_SPEC.md §6). 🔴 IT MATCHES THE WHOLE ID, EXACTLY — never a prefix and never a substring. Owner 2026-09-08 asked for it 「跟 task 一樣」, and 任務頁 resolves a committed id by asking for THAT ONE id (``useTasks.ts:201`` ``api.getTask(anchorId)``) and pairs it to a row by equality (``TasksPage.tsx:458`` ``x.id === appliedId``); nothing there ever compares part of an id. A substring axis would also interact badly with paging: ``L-1`` would drag L-10…L-19 into a batch that limit/offset then cuts, pushing the entry actually asked for off the end. 🔴 IT IS APPLIED IN SQL, WITH THE PAGE — like every other axis here, and for the reason the whole filter exists: this list is scroll-to-load, so an id narrowed client-side would make 「捲到底沒有了」 and 「真的沒有了」 the same picture and would draw the 上限線 in the wrong place. An id is an OPEN identifier space, so there is NO closed set to check and NO 400 — the same call ``scope_keys``/``author_ids`` make. An id no entry carries answers 200 with no rows, which is the true answer, and no ``L-`` + digits shape is enforced: it would refuse only the ids that could never match while still answering an empty page for ``L-99999``, the likelier miss. 🔴 PLURAL WINS. When this and its singular twin are BOTH sent, this one is the filter and the singular is ignored — they are neither ANDed nor unioned. Absent, or present but all-blank, falls back to the singular; both empty means no constraint on this axis, which is IDENTICAL to not sending the parameter at all (an empty set is 「do not narrow」, never 「match nothing」). NOTE the 上限線 is unaffected: ``cap_chars`` / ``first_dropped_id`` still depend only on the effective scope_kind and scope_key sets holding exactly one value each — a budget belongs to a scope, and naming one entry does not name a scope. additive-optional.",
+            "in": "query",
+            "name": "entry_ids",
+            "required": false,
+            "schema": {
+              "items": {
+                "type": "string"
+              },
+              "title": "Entry Ids",
+              "type": "array"
+            }
+          },
+          {
+            "in": "query",
+            "name": "entry_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Entry Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Limit"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Offset"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LoreEntryListDTO"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Validation error (unified error envelope)."
+          },
+          "4XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Client error (unified error envelope)."
+          },
+          "5XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Server error (unified error envelope)."
+          }
+        },
+        "summary": "List 傳承 entries, filtered SERVER-SIDE and paged in the fixed order pinned -> active -> retired, newest first inside each group. The order is not configurable; the filter is.",
+        "x-mcp": {
+          "include": true,
+          "order": 128,
+          "name": "list_lore_entries",
+          "description": "List 傳承 entries, filtered SERVER-SIDE and paged in the fixed order pinned -> active -> retired, newest first inside each group. The order is not configurable; the filter is.",
+          "legacy": {
+            "descriptor": "{\n        \"description\": \"List 傳承 entries, filtered SERVER-SIDE and paged in the fixed order pinned -> active -> retired, newest first inside each group. The order is not configurable; the filter is.\",\n        \"inputSchema\": {\n          \"properties\": {\n            \"scope_kinds\": {\n              \"description\": \"REPEATABLE scope-kind set (``?scope_kinds=agent&scope_kinds=manual``). Accepted values: ``agent``, ``manual``; ANY other element is a 400 that NAMES the offending value — never a silently dropped one, because 「查無資料」 and 「你打錯字」 look identical on the wire. 🔴 ``role`` IS NOW ONE OF THOSE REFUSED VALUES. It was the third scope until 2026-09-07 (owner, card rc-a43100fd0486 [0]) and every client written before then knows it, so it is the one wrong value likely to arrive from a real caller — answering 200-with-no-rows would tell them their 傳承 had been deleted rather than that their vocabulary is old. Refusing it does NOT hide the legacy rows the migration deliberately left at ``role``: those still come back on any page that does not constrain this axis. 🔴 PLURAL WINS. When this and its singular twin are BOTH sent, this one is the filter and the singular is ignored — they are neither ANDed nor unioned. Absent, or present but all-blank, falls back to the singular; both empty means no constraint on this axis. NOTE the 上限線: ``cap_chars`` / ``first_dropped_id`` are answered only when the EFFECTIVE scope_kind set holds exactly ONE value AND the effective scope_key set holds exactly ONE — a budget belongs to a scope, so a page spanning two or more has no single one to report and answers 0 / \\\"\\\". additive-optional.\",\n              \"items\": {\n                \"type\": \"string\"\n              },\n              \"type\": \"array\"\n            },\n            \"scope_kind\": {\n              \"type\": \"string\"\n            },\n            \"scope_keys\": {\n              \"description\": \"REPEATABLE scope-key set (``?scope_keys=m-1a2b&scope_keys=tm-review``) — the multi-select twin of ``scope_key``. The keys are free-form (a member id or a manual's type_key, depending on the kind beside them), so there is no closed set to check against and no 400: a key nobody carries answers 200 with no rows for that key. 🔴 PLURAL WINS. When this and its singular twin are BOTH sent, this one is the filter and the singular is ignored — they are neither ANDed nor unioned. Absent, or present but all-blank, falls back to the singular; both empty means no constraint on this axis. NOTE the 上限線: ``cap_chars`` / ``first_dropped_id`` are answered only when the EFFECTIVE scope_kind set holds exactly ONE value AND the effective scope_key set holds exactly ONE — a budget belongs to a scope, so a page spanning two or more has no single one to report and answers 0 / \\\"\\\". additive-optional.\",\n              \"items\": {\n                \"type\": \"string\"\n              },\n              \"type\": \"array\"\n            },\n            \"scope_key\": {\n              \"type\": \"string\"\n            },\n            \"states\": {\n              \"description\": \"REPEATABLE state set (``?states=active&states=pinned``) — the multi-select twin of ``state``, so the 狀態 filter can tick more than one row. Accepted values: ``active``, ``pinned``, ``retired``; ANY other element is a 400 that NAMES the offending value rather than being dropped, for the same reason the singular does it — an ignored typo returns an empty page that reads exactly like a real \\\"there are none\\\". 🔴 PLURAL WINS. When this and its singular twin are BOTH sent, this one is the filter and the singular is ignored — they are neither ANDed nor unioned. Absent, or present but all-blank, falls back to the singular; both empty means no constraint on this axis. additive-optional.\",\n              \"items\": {\n                \"type\": \"string\"\n              },\n              \"type\": \"array\"\n            },\n            \"state\": {\n              \"type\": \"string\"\n            },\n            \"author_ids\": {\n              \"description\": \"REPEATABLE author set (``?author_ids=mira&author_ids=nova``) — the multi-select twin of ``author_id``. Member ids are free-form and are matched literally against the author PINNED at write time, so there is no closed set and no 400; an id nobody carries simply contributes no rows. 🔴 PLURAL WINS. When this and its singular twin are BOTH sent, this one is the filter and the singular is ignored — they are neither ANDed nor unioned. Absent, or present but all-blank, falls back to the singular; both empty means no constraint on this axis. additive-optional.\",\n              \"items\": {\n                \"type\": \"string\"\n              },\n              \"type\": \"array\"\n            },\n            \"author_id\": {\n              \"type\": \"string\"\n            },\n            \"entry_ids\": {\n              \"description\": \"REPEATABLE 傳承編號 set (``?entry_ids=L-12&entry_ids=L-30``) — the multi-select twin of ``entry_id``, and the axis behind the 傳承編號 search box the design calls for (LORE_SPEC.md §6). 🔴 IT MATCHES THE WHOLE ID, EXACTLY — never a prefix and never a substring. Owner 2026-09-08 asked for it 「跟 task 一樣」, and 任務頁 resolves a committed id by asking for THAT ONE id (``useTasks.ts:201`` ``api.getTask(anchorId)``) and pairs it to a row by equality (``TasksPage.tsx:458`` ``x.id === appliedId``); nothing there ever compares part of an id. A substring axis would also interact badly with paging: ``L-1`` would drag L-10…L-19 into a batch that limit/offset then cuts, pushing the entry actually asked for off the end. 🔴 IT IS APPLIED IN SQL, WITH THE PAGE — like every other axis here, and for the reason the whole filter exists: this list is scroll-to-load, so an id narrowed client-side would make 「捲到底沒有了」 and 「真的沒有了」 the same picture and would draw the 上限線 in the wrong place. An id is an OPEN identifier space, so there is NO closed set to check and NO 400 — the same call ``scope_keys``/``author_ids`` make. An id no entry carries answers 200 with no rows, which is the true answer, and no ``L-`` + digits shape is enforced: it would refuse only the ids that could never match while still answering an empty page for ``L-99999``, the likelier miss. 🔴 PLURAL WINS. When this and its singular twin are BOTH sent, this one is the filter and the singular is ignored — they are neither ANDed nor unioned. Absent, or present but all-blank, falls back to the singular; both empty means no constraint on this axis, which is IDENTICAL to not sending the parameter at all (an empty set is 「do not narrow」, never 「match nothing」). NOTE the 上限線 is unaffected: ``cap_chars`` / ``first_dropped_id`` still depend only on the effective scope_kind and scope_key sets holding exactly one value each — a budget belongs to a scope, and naming one entry does not name a scope. additive-optional.\",\n              \"items\": {\n                \"type\": \"string\"\n              },\n              \"type\": \"array\"\n            },\n            \"entry_id\": {\n              \"type\": \"string\"\n            },\n            \"limit\": {\n              \"type\": \"integer\"\n            },\n            \"offset\": {\n              \"type\": \"integer\"\n            }\n          },\n          \"type\": \"object\"\n        },\n        \"name\": \"list_lore_entries\"\n      }"
+          }
+        }
+      },
+      "post": {
+        "description": "Write ONE 傳承 entry (never editable afterwards). ``task_id`` picks the scope, and there is ALWAYS somewhere for it to land: a task that carries a TYPE files under that type's manual; no task at all, OR a task with no type (臨時任務), files into your OWN boot document -- your role if you are staff, yourself if you are an outsource member (who has no role for a role scope to name). The untyped-task case answers a ``scope_note`` saying where it actually went, because you asked for a manual and did not get one. Only a caller with no roster row at all is a 400 -- there is no boot document to file into. An over-cap title or body is a 400 that writes nothing.",
+        "operationId": "handle_write_lore_entry_api_lore_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LoreEntryWriteDTO"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LoreEntryWriteReceiptDTO"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Validation error (unified error envelope)."
+          },
+          "4XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Client error (unified error envelope)."
+          },
+          "5XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Server error (unified error envelope)."
+          }
+        },
+        "summary": "Write ONE 傳承 entry (never editable afterwards). ``task_id`` picks the scope, and there is ALWAYS somewhere for it to land: a task that carries a TYPE files under that type's manual; no task at all, OR a task with no type (臨時任務), files into your OWN boot document -- your role if you are staff, yourself if you are an outsource member (who has no role for a role scope to name). The untyped-task case answers a ``scope_note`` saying where it actually went, because you asked for a manual and did not get one. Only a caller with no roster row at all is a 400 -- there is no boot document to file into. An over-cap title or body is a 400 that writes nothing.",
+        "x-mcp": {
+          "include": true,
+          "order": 127,
+          "name": "write_lore_entry",
+          "description": "Write ONE 傳承 entry (never editable afterwards). ``task_id`` picks the scope, and there is ALWAYS somewhere for it to land: a task that carries a TYPE files under that type's manual; no task at all, OR a task with no type (臨時任務), files into your OWN boot document -- your role if you are staff, yourself if you are an outsource member (who has no role for a role scope to name). The untyped-task case answers a ``scope_note`` saying where it actually went, because you asked for a manual and did not get one. Only a caller with no roster row at all is a 400 -- there is no boot document to file into. An over-cap title or body is a 400 that writes nothing.",
+          "legacy": {
+            "descriptor": "{\n        \"description\": \"Write ONE 傳承 entry (never editable afterwards). ``task_id`` picks the scope, and there is ALWAYS somewhere for it to land: a task that carries a TYPE files under that type's manual; no task at all, OR a task with no type (臨時任務), files into your OWN boot document -- your role if you are staff, yourself if you are an outsource member (who has no role for a role scope to name). The untyped-task case answers a ``scope_note`` saying where it actually went, because you asked for a manual and did not get one. Only a caller with no roster row at all is a 400 -- there is no boot document to file into. An over-cap title or body is a 400 that writes nothing.\",\n        \"inputSchema\": {\n          \"properties\": {\n            \"title\": {\n              \"type\": \"string\"\n            },\n            \"body\": {\n              \"type\": \"string\"\n            },\n            \"task_id\": {\n              \"type\": \"string\"\n            }\n          },\n          \"required\": [\n            \"title\",\n            \"body\"\n          ],\n          \"type\": \"object\"\n        },\n        \"name\": \"write_lore_entry\"\n      }"
+          }
+        }
+      }
+    },
+    "/api/lore/{entry_id}/state": {
+      "post": {
+        "description": "Move one 傳承 entry to active / pinned / retired. 置頂 and un-置頂 are ADMIN-ONLY (owner ruling): a pinned entry sorts ahead of every other entry in its scope and so survives the cap at the others' expense. 失效 and 生效 are open to the entry's own AUTHOR -- anyone else is a 403 -- and admin capability is unrestricted. Retiring is not deleting: the entry keeps its id and can be moved back; ``retire_reason`` is stored only with retired and cleared by the other two.",
+        "operationId": "handle_set_lore_entry_state_api_lore__entry_id__state_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "entry_id",
+            "required": true,
+            "schema": {
+              "title": "Entry Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LoreEntryStateDTO"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LoreEntryStateReceiptDTO"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Validation error (unified error envelope)."
+          },
+          "4XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Client error (unified error envelope)."
+          },
+          "5XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Server error (unified error envelope)."
+          }
+        },
+        "summary": "Move one 傳承 entry to active / pinned / retired. 置頂 and un-置頂 are ADMIN-ONLY (owner ruling): a pinned entry sorts ahead of every other entry in its scope and so survives the cap at the others' expense. 失效 and 生效 are open to the entry's own AUTHOR -- anyone else is a 403 -- and admin capability is unrestricted. Retiring is not deleting: the entry keeps its id and can be moved back; ``retire_reason`` is stored only with retired and cleared by the other two.",
+        "x-mcp": {
+          "include": true,
+          "order": 129,
+          "name": "set_lore_entry_state",
+          "description": "Move one 傳承 entry to active / pinned / retired. 置頂 and un-置頂 are ADMIN-ONLY (owner ruling): a pinned entry sorts ahead of every other entry in its scope and so survives the cap at the others' expense. 失效 and 生效 are open to the entry's own AUTHOR -- anyone else is a 403 -- and admin capability is unrestricted. Retiring is not deleting: the entry keeps its id and can be moved back; ``retire_reason`` is stored only with retired and cleared by the other two.",
+          "legacy": {
+            "descriptor": "{\n        \"description\": \"Move one 傳承 entry to active / pinned / retired. 置頂 and un-置頂 are ADMIN-ONLY (owner ruling): a pinned entry sorts ahead of every other entry in its scope and so survives the cap at the others' expense. 失效 and 生效 are open to the entry's own AUTHOR -- anyone else is a 403 -- and admin capability is unrestricted. Retiring is not deleting: the entry keeps its id and can be moved back; ``retire_reason`` is stored only with retired and cleared by the other two.\",\n        \"inputSchema\": {\n          \"properties\": {\n            \"entry_id\": {\n              \"type\": \"string\"\n            },\n            \"state\": {\n              \"type\": \"string\"\n            },\n            \"retire_reason\": {\n              \"type\": \"string\"\n            }\n          },\n          \"required\": [\n            \"entry_id\",\n            \"state\"\n          ],\n          \"type\": \"object\"\n        },\n        \"name\": \"set_lore_entry_state\"\n      }"
+          }
+        }
+      }
+    },
+    "/api/lore/{entry_id}/bump": {
+      "post": {
+        "description": "提到最新: set one 傳承 entry's ``effective_ts`` to now so it sorts to the front of its group. Only the entry's own AUTHOR may bump it (admin capability is unrestricted) -- a bump moves an entry ahead of other people's under a shared cap, so it spends somebody else's room. ``created_ts`` is NOT touched, which is what makes this reversible.",
+        "operationId": "handle_bump_lore_entry_api_lore__entry_id__bump_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "entry_id",
+            "required": true,
+            "schema": {
+              "title": "Entry Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LoreEntryStateReceiptDTO"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Validation error (unified error envelope)."
+          },
+          "4XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Client error (unified error envelope)."
+          },
+          "5XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Server error (unified error envelope)."
+          }
+        },
+        "summary": "提到最新: set one 傳承 entry's ``effective_ts`` to now so it sorts to the front of its group. Only the entry's own AUTHOR may bump it (admin capability is unrestricted) -- a bump moves an entry ahead of other people's under a shared cap, so it spends somebody else's room. ``created_ts`` is NOT touched, which is what makes this reversible.",
+        "x-mcp": {
+          "include": true,
+          "order": 130,
+          "name": "bump_lore_entry",
+          "description": "提到最新: set one 傳承 entry's ``effective_ts`` to now so it sorts to the front of its group. Only the entry's own AUTHOR may bump it (admin capability is unrestricted) -- a bump moves an entry ahead of other people's under a shared cap, so it spends somebody else's room. ``created_ts`` is NOT touched, which is what makes this reversible.",
+          "legacy": {
+            "descriptor": "{\n        \"description\": \"提到最新: set one 傳承 entry's ``effective_ts`` to now so it sorts to the front of its group. Only the entry's own AUTHOR may bump it (admin capability is unrestricted) -- a bump moves an entry ahead of other people's under a shared cap, so it spends somebody else's room. ``created_ts`` is NOT touched, which is what makes this reversible.\",\n        \"inputSchema\": {\n          \"properties\": {\n            \"entry_id\": {\n              \"type\": \"string\"\n            }\n          },\n          \"required\": [\n            \"entry_id\"\n          ],\n          \"type\": \"object\"\n        },\n        \"name\": \"bump_lore_entry\"\n      }"
+          }
         }
       }
     }

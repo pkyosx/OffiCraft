@@ -46,7 +46,9 @@ function blankChatPeer(id: string, name: string, kind: Member["kind"]): Member {
     contextPct: null,
     estimatedCost: null,
     bankedCost: null,
-    tmuxSession: "",
+    // A SYNTHESIZED peer, not a station row — no station ever served an attach
+    // command for it, and "" is the honest reading (T-139).
+    terminalAttachCommand: "",
     refocusSince: null,
     lastOp: "",
     lastOpOk: null,

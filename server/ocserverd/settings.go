@@ -128,21 +128,30 @@ const (
 	// (30 天)，同時換發改看『發下來多久』」) is how long a MACHINE credential is
 	// meant to live, in seconds.
 	//
-	// 🔴 IT IS NOT AN EXPIRY, AND THE DISTINCTION IS THE WHOLE FIRST PACKAGE.
-	// mintWardenToken still mints without an exp claim, nothing at the auth gate
-	// reads this, and no credential stops working because of it. What it governs
-	// is RENEWAL: each warden reads it (GET /api/machines/credential-policy) and
-	// replaces its own credential once that credential is two thirds of this old,
-	// measured from the `iat` claim it already carries.
+	// 🔴 IT IS NOW BOTH HALVES, AND THEY LANDED IN THAT ORDER ON PURPOSE.
 	//
-	// WHY THAT ORDER — a setting that only drives renewal, before the expiry it is
-	// named after. The renewal path had never once been observed to run: the old
-	// trigger asked "how much of the lifetime is left", which needs an exp, so it
-	// answered "not due" on every machine in the fleet forever. Putting expiries
-	// back first would have started a clock on every host against a path nobody
-	// had watched work. With no expiry in play the worst this setting can do is
-	// make machines renew too often or not at all, and neither takes a host off
-	// the network.
+	//	第一段 — RENEWAL. Each warden reads this number (GET
+	//	/api/machines/credential-policy) and replaces its own credential once that
+	//	credential is two thirds of this old, measured from the `iat` claim it
+	//	already carries. Landing this alone was safe: with no expiry in play the
+	//	worst a bug could do was make machines renew too often or not at all, and
+	//	neither took a host off the network. That mattered because the renewal path
+	//	had never once been observed to run — the old trigger asked "how much of
+	//	the lifetime is LEFT", which needs an exp, so it answered "not due" on
+	//	every machine in the fleet forever.
+	//
+	//	第二段 — EXPIRY. mintWardenToken now stamps `exp = iat + this` (api_auth.go),
+	//	so the number is a deadline as well as a renewal trigger. From here on
+	//	LOWERING this value shortens only credentials minted AFTER the change: an
+	//	`exp` is fixed at mint time, so nothing already in the field expires sooner
+	//	because the setting moved. RAISING it likewise only lengthens future ones.
+	//
+	// ⚠️ The two halves must stay the SAME number. A renewal threshold derived from
+	// one value and an expiry stamped from another is a fleet that renews after it
+	// has already been refused, and there is no signal anywhere that would say so —
+	// which is exactly why both read wardenCredLifetimeValue() and neither takes a
+	// lifetime argument. The failure conditions of the pair are written out at
+	// wardenCredLifetimeSecsDefault below.
 	//
 	// It is deliberately an owner-typed NUMBER rather than a pick from the
 	// 12h/1d/7d/30d list the two token TTLs use (owner 2026-09-06): the reason for
@@ -196,7 +205,24 @@ const (
 	// block that is repacked from scratch on every read and is therefore free to
 	// move in both directions. See domain.go for the range and why its ceiling is
 	// tied to resumeChatFetch.
-	settingChatBudgetChars = "chat.budget_chars"
+	// settingLoreCapChars* (T-33 傳承) are the four lore knobs: the two FOLD
+	// budgets (how much lore a staff boot document / a task manual read carries)
+	// and the two ENTRY bounds (the longest title and body one write may store).
+	//
+	// 🔴 THEY ARE `lore.` KEYS AND NOT `doc.cap_chars.*` ONES, deliberately.
+	// Every `doc.cap_chars.*` key carries the 只能調高 rule — its floor IS its
+	// default — because lowering one strands an existing legal document in
+	// shrink-only mode. A lore entry has NO edit path, so nothing stored can be
+	// stranded by a lower cap; it binds the next write only. The owner asked for
+	// knobs that turn both ways (and used them the same day, taking the title
+	// from 140 to 80 and the body from 1000 to 500), so filing them under the
+	// prefix whose whole meaning is "up only" would have been a lie an agent
+	// reading get_settings has no way to see through.
+	settingLoreCapCharsRole   = "lore.cap_chars.role"
+	settingLoreCapCharsManual = "lore.cap_chars.manual"
+	settingLoreCapCharsTitle  = "lore.cap_chars.title"
+	settingLoreCapCharsBody   = "lore.cap_chars.body"
+	settingChatBudgetChars    = "chat.budget_chars"
 	// settingStepNoteCapChars (T-119) is the ceiling on ONE task step's working
 	// note — what both note write faces refuse a longer note against, and what
 	// get_task / get_task_step report as note_cap_chars. It was the hard-coded
@@ -295,10 +321,11 @@ const (
 	// (the setting table is key/value — migrations/00002_settings.sql), which is
 	// why there is no migration: a new key needs no DDL.
 	//
-	// TWO KEYS, NOT ONE, and no nested object: answering a 請示卡 and writing to
-	// a task in progress are different conversations, so one list's sentences
-	// are wrong in the other's box (owner ruling). Two rows also keep "change
-	// only one of them" a single PATCH-time write instead of an unlocked
+	// ONE KEY PER BOX, and no nested object: answering a 請示卡, writing to a task
+	// in progress and asking a 傳承 entry's writer about what he wrote are three
+	// different conversations, so one list's sentences are wrong in another's box
+	// (owner ruling; the 傳承 list is the third, T-33). Separate rows also keep
+	// "change only one of them" a single PATCH-time write instead of an unlocked
 	// read-modify-write over one shared blob.
 	//
 	// ABSENT ROW = the empty list, and so is a stored `[]`: "the owner
@@ -307,6 +334,7 @@ const (
 	// over it, never a part of it.
 	settingSuggestedRepliesReplyCard   = "suggested_replies.reply_card"
 	settingSuggestedRepliesTaskMessage = "suggested_replies.task_message"
+	settingSuggestedRepliesLoreMessage = "suggested_replies.lore_message"
 	// [T-16a1 P2 / T-83ef] `display.custom_themes` — the row that used to hold
 	// every saved theme as one JSON array — HAS NO CONSTANT HERE ANY MORE, and
 	// that is deliberate rather than an oversight:
@@ -365,9 +393,43 @@ const (
 
 // The auth.warden_credential_lifetime_secs bounds (T-fc53).
 //
-// THE DEFAULT IS 30 DAYS because that is what the owner ruled the credential
-// lifetime should be, so an install that never writes the key already behaves the
-// way the second package will make it behave literally.
+// THE DEFAULT IS 30 DAYS (owner 2026-09-08, card rc-f2b96594c621, option [0],
+// verbatim 「合，預設取 30 天（跟主線現在一致，正式站行為不變）」). The reason it is
+// this number and not a taste: the production station has no row for this
+// setting, so whatever stands here IS that station's behaviour — moving the
+// default moves production without anyone typing anything. Changing it on a
+// given station is one PATCH away.
+//
+// 🔴 THE TWO CONDITIONS THIS WHOLE MECHANISM SILENTLY FAILS UNDER. Both are
+// timing properties of the world, neither is checked anywhere, and both are
+// invisible until a machine is simply unreachable — nothing on this station
+// reports a warden that failed to renew.
+//
+//	① A SIGNING KEY MUST STAY ON THE RING FOR AT LEAST TWO THIRDS OF THIS
+//	   LIFETIME AFTER IT STOPS SIGNING — 20 days at the default — unless the
+//	   fleet is known to have converged. A warden replaces its credential at
+//	   two thirds of the lifetime (cli/ocwarden/renew.go), so that is how long
+//	   the last credential signed by a stepped-down key can still be in service.
+//	   Removing that key earlier refuses every machine still holding one, at
+//	   once, with no grace and no notice. Key rotation and removal are buttons
+//	   the owner can press at any moment; nothing sequences them against this
+//	   number. What DOES exist is an instrument, and it is the answer rather
+//	   than the calendar: `token_key_current` on GET /api/machines says whether
+//	   each machine has come back on the CURRENT key. Removal is safe when every
+//	   row says yes and unsafe otherwise, however many days have passed.
+//
+//	② A MACHINE OFF THE NETWORK FOR LONGER THAN ITS RETRY WINDOW NOW LOSES ITS
+//	   CREDENTIAL FOR GOOD — the last third of the lifetime, 10 days at the
+//	   default. This is NEW with the expiry: while credentials were permanent a
+//	   host that missed every renewal for a year came back and kept working. Now
+//	   it comes back, is refused, and needs a re-install by hand. The window is
+//	   deliberately a third rather than a fixed number of days so that it moves
+//	   with the setting; lowering the setting shortens it proportionally.
+//
+// ⚠️ NEITHER OF THESE HAS A MECHANICAL GUARD. This comment is a description, not
+// an enforcement, and it MUST NOT be read as one — see the note in spec/lifecycle.md
+// §1.6. The only thing pinned in code is that the numbers above are derived from
+// this constant rather than typed next to it (warden_cred_expiry_tfc53_test.go).
 //
 // 🔴 THE FLOOR IS ONE DAY, AND IT IS NOT AN ARBITRARY ROUND NUMBER — it is derived
 // from the retry window. A warden renews at two thirds of the lifetime, so the
@@ -430,6 +492,10 @@ type authSettings struct {
 	docCapCharsSystemInteraction int    // doc.cap_chars.system_interaction (default systemInteractionCapCharsDefault)
 	docCapCharsBootSequence      int    // doc.cap_chars.boot_sequence (default bootSequenceCapCharsDefault; ONE cap, both runtimes)
 	docCapCharsOffboard          int    // doc.cap_chars.offboard (default offboardCapCharsDefault)
+	loreCapCharsRole             int    // lore.cap_chars.role (default loreRoleCapCharsDefault)
+	loreCapCharsManual           int    // lore.cap_chars.manual (default loreManualCapCharsDefault)
+	loreCapCharsTitle            int    // lore.cap_chars.title (default loreTitleCapCharsDefault)
+	loreCapCharsBody             int    // lore.cap_chars.body (default loreBodyCapCharsDefault)
 	chatBudgetChars              int    // chat.budget_chars (default chatBudgetCharsDefault)
 	stepNoteCapChars             int    // task.step_note_cap_chars (default stepNoteCapCharsDefault)
 	backupRetain                 int    // backup.retain (default backupRetainDefault; N is PER POOL, and counts versions not days)
@@ -441,11 +507,13 @@ type authSettings struct {
 	displayTheme                 string // display.theme ("" = never set → frontend cache/default)
 	displayLanguage              string // display.language ("" = never set → frontend cache/default)
 	displayWide                  bool   // display.wide (default false = the narrow centred column)
-	// suggested_replies.* (T-122) — the two one-click 建議回覆 lists, each stored
-	// as a JSON array of strings. nil/empty = the owner configured none, which
-	// draws no chips and is an ordinary state, not a failure.
+	// suggested_replies.* (T-122; the 傳承 list added by T-33) — the one-click
+	// 建議回覆 lists, one per box, each stored as a JSON array of strings.
+	// nil/empty = the owner configured none, which draws no chips and is an
+	// ordinary state, not a failure.
 	suggestedRepliesReplyCard   []string // suggested_replies.reply_card
 	suggestedRepliesTaskMessage []string // suggested_replies.task_message
+	suggestedRepliesLoreMessage []string // suggested_replies.lore_message
 }
 
 // maxSuggestedReplies / maxSuggestedReplyLen bound each 建議回覆 list (T-122).
@@ -801,7 +869,7 @@ func loadAuthSettings(d *DAL, cfg Config, logf func(string)) (authSettings, erro
 		*dst = n
 		return nil
 	}
-	if err := loadCap(settingDocCapCharsDuty, minDutyCapChars, maxDocCapChars,
+	if err := loadCap(settingDocCapCharsDuty, minDocCapChars, maxDocCapChars,
 		&out.docCapCharsDuty, dutyCapCharsDefault); err != nil {
 		return out, err
 	}
@@ -821,16 +889,38 @@ func loadAuthSettings(d *DAL, cfg Config, logf func(string)) (authSettings, erro
 		&out.docCapCharsManualLearnings, contextDocMaxCharsDefault); err != nil {
 		return out, err
 	}
-	if err := loadCap(settingDocCapCharsSystemInteraction, minSystemInteractionCapChars, maxDocCapChars,
+	if err := loadCap(settingDocCapCharsSystemInteraction, minDocCapChars, maxDocCapChars,
 		&out.docCapCharsSystemInteraction, systemInteractionCapCharsDefault); err != nil {
 		return out, err
 	}
-	if err := loadCap(settingDocCapCharsBootSequence, minBootSequenceCapChars, maxDocCapChars,
+	if err := loadCap(settingDocCapCharsBootSequence, minDocCapChars, maxDocCapChars,
 		&out.docCapCharsBootSequence, bootSequenceCapCharsDefault); err != nil {
 		return out, err
 	}
-	if err := loadCap(settingDocCapCharsOffboard, minOffboardCapChars, maxDocCapChars,
+	if err := loadCap(settingDocCapCharsOffboard, minDocCapChars, maxDocCapChars,
 		&out.docCapCharsOffboard, offboardCapCharsDefault); err != nil {
+		return out, err
+	}
+
+	// lore.cap_chars.* (T-33) — range-checked at load for the same reason as
+	// everything above: a hand-edited row must never install a value the PATCH
+	// face refuses. Their floors are NOT their defaults (see settingLoreCapChars*
+	// above), so loadCap is passed a real minimum here rather than the shipped
+	// number.
+	if err := loadCap(settingLoreCapCharsRole, minLoreFoldCapChars, maxLoreFoldCapChars,
+		&out.loreCapCharsRole, loreRoleCapCharsDefault); err != nil {
+		return out, err
+	}
+	if err := loadCap(settingLoreCapCharsManual, minLoreFoldCapChars, maxLoreFoldCapChars,
+		&out.loreCapCharsManual, loreManualCapCharsDefault); err != nil {
+		return out, err
+	}
+	if err := loadCap(settingLoreCapCharsTitle, minLoreEntryCapChars, maxLoreEntryCapChars,
+		&out.loreCapCharsTitle, loreTitleCapCharsDefault); err != nil {
+		return out, err
+	}
+	if err := loadCap(settingLoreCapCharsBody, minLoreEntryCapChars, maxLoreEntryCapChars,
+		&out.loreCapCharsBody, loreBodyCapCharsDefault); err != nil {
 		return out, err
 	}
 
@@ -885,6 +975,10 @@ func loadAuthSettings(d *DAL, cfg Config, logf func(string)) (authSettings, erro
 	}
 	if err := loadSuggestedReplies(settingSuggestedRepliesTaskMessage,
 		&out.suggestedRepliesTaskMessage); err != nil {
+		return out, err
+	}
+	if err := loadSuggestedReplies(settingSuggestedRepliesLoreMessage,
+		&out.suggestedRepliesLoreMessage); err != nil {
 		return out, err
 	}
 

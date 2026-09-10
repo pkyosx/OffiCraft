@@ -1404,12 +1404,22 @@ func (s *apiServer) HandlePostTaskMessageApiTasksTaskIdMessagePost(w http.Respon
 	}
 	// Prefix the visible body with the task's display number so the executor's
 	// chat message is self-identifying — which task this owner ruling is about
-	// (owner 2026-07-14: 回覆訊息發給負責人時要看得出對應的 task ID). meta.task_id
-	// stays the machine linkage; this is the human-facing label. An
-	// attachment-only message (empty text) carries no prefix.
+	// (owner 2026-07-14: 回覆訊息發給負責人時要看得出對應的 task ID). That ruling
+	// STILL STANDS; what changed is only that the SHAPE is now spelled out:
+	// 「[TaskID=T-33] …」 (owner rc-01a07b1b2a12 [0][1][2], rc-379631993586 「ok.
+	// B.」). The old 「[T-33] …」 said the id without ever saying what kind of id
+	// it was, next to a 傳承 box sending 「[L-3] …」.
+	//
+	// 🔴 THE LITERAL IS WRITTEN HERE AND IS NOT AN i18n KEY. That is the whole
+	// reason the owner picked this form over a translated one: the label must
+	// read the same in every language, because the reader on the other end may
+	// not be running the cockpit's locale — and a prefix that drifts with the
+	// UI language is a prefix nobody can match on. meta.task_id stays the
+	// machine linkage; this is the human-facing label. An attachment-only
+	// message (empty text) carries no prefix.
 	msgBody := text
 	if msgBody != "" {
-		msgBody = "[" + TaskNo(t.ID) + "] " + msgBody
+		msgBody = "[TaskID=" + TaskNo(t.ID) + "] " + msgBody
 	}
 	msg := ChatMessage{
 		ID:        "c-" + newHexID(12),

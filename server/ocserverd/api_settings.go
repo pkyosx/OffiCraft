@@ -522,35 +522,34 @@ func (s *apiServer) HandleUpdateSettingsApiSettingsPatch(w http.ResponseWriter, 
 			"warden_credential_lifetime_secs "+wardenCredLifetimeRangeMsg)
 		return
 	}
-	// Each floor is THAT segment's shipped default, so a knob only ever RAISES
-	// its cap (owner 2026-07-31). Lowering one would strand every document that
-	// is legal today in shrink-only mode — the refusal says so rather than
-	// making the caller infer it from a bare range. Five independent knobs:
-	// three role-journal segments since T-ae38, and the manual's SOP and
-	// learnings since T-30f1. Duty's floor is minDutyCapChars, NOT the other
-	// four's minDocCapChars, or its own shipped default would be unreachable
-	// from this surface. The numbers live in domain.go — do not restate them
-	// here. Every knob must appear in this table: a missing row is not a
-	// missing check, it is an UNCHECKED cap that the load face will later
-	// refuse to boot on.
+	// EIGHT independent knobs, ONE shared floor, and every one of them turns in
+	// BOTH directions (owner 2026-09-07, card rc-5b66ba099e28, option [1]).
+	// Until then each floor was that segment's own shipped default, so a knob
+	// could only ever be raised; the reasoning behind that, and why it no longer
+	// holds, is written out at minDocCapChars in domain.go. The numbers live
+	// there — do not restate them here.
+	//
+	// Every knob must appear in this table: a missing row is not a missing
+	// check, it is an UNCHECKED cap that the load face will later refuse to
+	// boot on.
 	capRange := []struct {
 		field *int
 		name  string
 		min   int
 	}{
-		{body.DocCapCharsDuty, "doc_cap_chars_duty", minDutyCapChars},
+		{body.DocCapCharsDuty, "doc_cap_chars_duty", minDocCapChars},
 		{body.DocCapCharsInsight, "doc_cap_chars_insight", minDocCapChars},
 		{body.DocCapCharsLearning, "doc_cap_chars_learning", minDocCapChars},
 		{body.DocCapCharsManualSop, "doc_cap_chars_manual_sop", minDocCapChars},
 		{body.DocCapCharsManualLearnings, "doc_cap_chars_manual_learnings", minDocCapChars},
-		{body.DocCapCharsSystemInteraction, "doc_cap_chars_system_interaction", minSystemInteractionCapChars},
-		{body.DocCapCharsBootSequence, "doc_cap_chars_boot_sequence", minBootSequenceCapChars},
-		{body.DocCapCharsOffboard, "doc_cap_chars_offboard", minOffboardCapChars},
+		{body.DocCapCharsSystemInteraction, "doc_cap_chars_system_interaction", minDocCapChars},
+		{body.DocCapCharsBootSequence, "doc_cap_chars_boot_sequence", minDocCapChars},
+		{body.DocCapCharsOffboard, "doc_cap_chars_offboard", minDocCapChars},
 	}
 	for _, c := range capRange {
 		if c.field != nil && (*c.field < c.min || *c.field > maxDocCapChars) {
 			writeError(w, http.StatusUnprocessableEntity,
-				fmt.Sprintf("%s must be between %d and %d characters — the floor is the shipped default, so the document cap can only be raised, never lowered",
+				fmt.Sprintf("%s must be between %d and %d characters — a lowered cap binds the next write only; stored content over it is never truncated and still reads back",
 					c.name, c.min, maxDocCapChars))
 			return
 		}
@@ -585,6 +584,35 @@ func (s *apiServer) HandleUpdateSettingsApiSettingsPatch(w http.ResponseWriter, 
 			fmt.Sprintf("step_note_cap_chars must be between %d and %d characters",
 				minStepNoteCapChars, maxStepNoteCapChars))
 		return
+	}
+	// lore.cap_chars.* (T-33) — the four 傳承 knobs, checked on their own and NOT
+	// as rows in the capRange table above, for the same reason chat_budget_chars
+	// and step_note_cap_chars are not: that table's shared message says the floor
+	// is the shipped default and the cap can only be RAISED, and about these four
+	// that sentence would be false. A 傳承 entry has no edit path at all, so a
+	// lowered cap cannot strand one that is already stored — it binds the next
+	// write and nothing else. The owner lowered two of them himself the day they
+	// shipped (title 140→80, body 1000→500).
+	//
+	// Two ranges, not one: the FOLD budgets are document-sized and the ENTRY
+	// bounds are sentence-sized, so a shared range would either let a title grow
+	// to a document or stop a fold from holding more than a paragraph.
+	loreRange := []struct {
+		field    *int
+		name     string
+		min, max int
+	}{
+		{body.LoreCapCharsRole, "lore_cap_chars_role", minLoreFoldCapChars, maxLoreFoldCapChars},
+		{body.LoreCapCharsManual, "lore_cap_chars_manual", minLoreFoldCapChars, maxLoreFoldCapChars},
+		{body.LoreCapCharsTitle, "lore_cap_chars_title", minLoreEntryCapChars, maxLoreEntryCapChars},
+		{body.LoreCapCharsBody, "lore_cap_chars_body", minLoreEntryCapChars, maxLoreEntryCapChars},
+	}
+	for _, c := range loreRange {
+		if c.field != nil && (*c.field < c.min || *c.field > c.max) {
+			writeError(w, http.StatusUnprocessableEntity,
+				fmt.Sprintf("%s must be between %d and %d characters", c.name, c.min, c.max))
+			return
+		}
 	}
 	// backup_retain (T-8) — checked on its own too. It is not a character count,
 	// its unit is FILES, and it is the only knob on this endpoint whose value
@@ -660,7 +688,8 @@ func (s *apiServer) HandleUpdateSettingsApiSettingsPatch(w http.ResponseWriter, 
 			return
 		}
 	}
-	// suggested_replies.* (T-122) — canonicalized (trim, drop blanks) and bounds
+	// suggested_replies.* (T-122; the 傳承 list T-33) — canonicalized (trim, drop
+	// blanks) and bounds
 	// checked HERE, before the lock, like every other field on this endpoint: a
 	// 422 writes nothing. Over either bound is a REFUSAL, never a truncation —
 	// a shortened sentence is a sentence the owner never wrote, and it would be
@@ -671,7 +700,8 @@ func (s *apiServer) HandleUpdateSettingsApiSettingsPatch(w http.ResponseWriter, 
 	// difference is real: there "fires always" and "fires never" are one
 	// keystroke apart, while here the empty list just means a reply box with no
 	// chips above it — which is exactly how the box shipped.
-	var suggestedRepliesReplyCard, suggestedRepliesTaskMessage []string
+	var suggestedRepliesReplyCard, suggestedRepliesTaskMessage,
+		suggestedRepliesLoreMessage []string
 	if body.SuggestedRepliesReplyCard != nil {
 		list, err := canonicalSuggestedReplies(*body.SuggestedRepliesReplyCard)
 		if err != nil {
@@ -689,6 +719,15 @@ func (s *apiServer) HandleUpdateSettingsApiSettingsPatch(w http.ResponseWriter, 
 			return
 		}
 		suggestedRepliesTaskMessage = list
+	}
+	if body.SuggestedRepliesLoreMessage != nil {
+		list, err := canonicalSuggestedReplies(*body.SuggestedRepliesLoreMessage)
+		if err != nil {
+			writeError(w, http.StatusUnprocessableEntity,
+				fmt.Sprintf("suggested_replies_lore_message %v", err))
+			return
+		}
+		suggestedRepliesLoreMessage = list
 	}
 	s.settingsMu.Lock()
 	if body.OwnerTokenTtl != nil {
@@ -790,6 +829,10 @@ func (s *apiServer) HandleUpdateSettingsApiSettingsPatch(w http.ResponseWriter, 
 		{body.ChatBudgetChars, settingChatBudgetChars, &s.chatBudgetChars},
 		{body.StepNoteCapChars, settingStepNoteCapChars, &s.stepNoteCapChars},
 		{body.BackupRetain, settingBackupRetain, &s.backupRetain},
+		{body.LoreCapCharsRole, settingLoreCapCharsRole, &s.loreCapCharsRole},
+		{body.LoreCapCharsManual, settingLoreCapCharsManual, &s.loreCapCharsManual},
+		{body.LoreCapCharsTitle, settingLoreCapCharsTitle, &s.loreCapCharsTitle},
+		{body.LoreCapCharsBody, settingLoreCapCharsBody, &s.loreCapCharsBody},
 	}
 	for _, c := range capWrite {
 		if c.field == nil {
@@ -886,11 +929,12 @@ func (s *apiServer) HandleUpdateSettingsApiSettingsPatch(w http.ResponseWriter, 
 		}
 		s.displayWide = *body.DisplayWide
 	}
-	// suggested_replies.* (T-122) — written wholesale like the caps above rather
-	// than compared first: the value is a list, "did it change" is not a `!=`,
-	// and PutSetting on an unchanged row costs one write of the same bytes. The
-	// two keys are written INDEPENDENTLY, which is the whole reason they are two
-	// rows: patching one list can never read-modify-write the other.
+	// suggested_replies.* (T-122; the 傳承 list T-33) — written wholesale like the
+	// caps above rather than compared first: the value is a list, "did it change"
+	// is not a `!=`, and PutSetting on an unchanged row costs one write of the
+	// same bytes. The keys are written INDEPENDENTLY, which is the whole reason
+	// they are separate rows: patching one list can never read-modify-write
+	// another.
 	if body.SuggestedRepliesReplyCard != nil {
 		if err := s.dal.PutSetting(settingSuggestedRepliesReplyCard,
 			encodeSuggestedReplies(suggestedRepliesReplyCard)); err != nil {
@@ -908,6 +952,15 @@ func (s *apiServer) HandleUpdateSettingsApiSettingsPatch(w http.ResponseWriter, 
 			return
 		}
 		s.suggestedRepliesTaskMessage = suggestedRepliesTaskMessage
+	}
+	if body.SuggestedRepliesLoreMessage != nil {
+		if err := s.dal.PutSetting(settingSuggestedRepliesLoreMessage,
+			encodeSuggestedReplies(suggestedRepliesLoreMessage)); err != nil {
+			s.settingsMu.Unlock()
+			internalError(w, err)
+			return
+		}
+		s.suggestedRepliesLoreMessage = suggestedRepliesLoreMessage
 	}
 	s.settingsMu.Unlock()
 	// onboarding_dismissed (T-0648) is written OUTSIDE settingsMu, and last:
@@ -966,6 +1019,10 @@ func (s *apiServer) settingsView() settingsDTO {
 		DocCapCharsSystemInteraction: s.docCapCharsSystemInteraction,
 		DocCapCharsBootSequence:      s.docCapCharsBootSequence,
 		DocCapCharsOffboard:          s.docCapCharsOffboard,
+		LoreCapCharsRole:             s.loreCapCharsRole,
+		LoreCapCharsManual:           s.loreCapCharsManual,
+		LoreCapCharsTitle:            s.loreCapCharsTitle,
+		LoreCapCharsBody:             s.loreCapCharsBody,
 		ChatBudgetChars:              s.chatBudgetChars,
 		StepNoteCapChars:             s.stepNoteCapChars,
 		BackupRetain:                 s.backupRetain,
@@ -983,6 +1040,7 @@ func (s *apiServer) settingsView() settingsDTO {
 		// response body shares a slice with the live snapshot.
 		SuggestedRepliesReplyCard:   append([]string{}, s.suggestedRepliesReplyCard...),
 		SuggestedRepliesTaskMessage: append([]string{}, s.suggestedRepliesTaskMessage...),
+		SuggestedRepliesLoreMessage: append([]string{}, s.suggestedRepliesLoreMessage...),
 		// Read from the DAL, NOT from the settings snapshot: onboarding runs in
 		// its own goroutine and finishes after this handler returned, so a
 		// boot-time snapshot would serve a permanently stale "running".

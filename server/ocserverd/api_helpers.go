@@ -323,9 +323,16 @@ const (
 	//     handler catches the refusal and falls through to the worker relocate
 	//     core (P7c, rc-2786636f30e5). Widen it and an ow- id takes the member
 	//     reconcile path instead, which is not the same operation.
-	//   - webhook create / update / revoke, and the public POST /in inlet:
-	//     nothing reclaims a webhook token when a worker is released, and /in is
-	//     the only UNAUTHENTICATED surface here.
+	//
+	// 🔴 THE WEBHOOK SEAMS ARE NO LONGER ON THIS LIST (T-140). They passed
+	// staffOnly for one stated reason — "nothing reclaims a webhook token when
+	// a worker is released" — and 00101_webhook_revoke_on_member_exit.sql is
+	// what reclaims it: leaving the roster now deletes the member's endpoint
+	// rows, by trigger, whichever door the member left through. create /
+	// update / revoke ask anyMember; the public POST /in inlet asks
+	// resolveChatRecipient instead, because its whole effect is one chat to
+	// that member. Widening the KIND did not widen the FLOOR — all four verbs
+	// are still principalAdminAgent in routes.go.
 	staffOnly
 )
 
@@ -590,6 +597,11 @@ func (s *apiServer) newMemberDTO(m Member, roleName, observedMachine string, unr
 		RosterStatus:    m.RosterStatus,
 		OwnerID:         wireOwnerID,
 		SchemaVersion:   wireSchemaVersion,
+		// T-139: the WHOLE attach command, not the session name — the cockpit
+		// used to hold a hardcoded `tmux -L officraft` that is wrong on every
+		// namespaced station. Unconditional (no presence gate): see
+		// terminal_attach.go.
+		TerminalAttachCommand: terminalAttachCommand(s.namespace, m.ID),
 	}
 }
 
@@ -614,6 +626,14 @@ func (s *apiServer) newMemberLightDTO(m Member, roleName string) memberDTO {
 		RosterStatus:  m.RosterStatus,
 		OwnerID:       wireOwnerID,
 		SchemaVersion: wireSchemaVersion,
+		// T-139 IS SERVED HERE TOO, unlike every other derived field this
+		// projection leaves honest-empty. It is not runtime state: it is a pure
+		// function of the row's own id and this station's namespace, i.e. the
+		// identity class light already serves. And the empty string is NOT free
+		// here — it is the wire's "this server is too old to send one", which a
+		// light row would be telling the cockpit falsely, on the same mapper the
+		// full list goes through.
+		TerminalAttachCommand: terminalAttachCommand(s.namespace, m.ID),
 	}
 }
 

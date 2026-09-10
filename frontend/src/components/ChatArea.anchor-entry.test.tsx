@@ -221,7 +221,7 @@ function mkMember(id: string, name: string): Member {
     contextPct: null,
     estimatedCost: null,
     bankedCost: null,
-    tmuxSession: "",
+    terminalAttachCommand: "",
     refocusSince: null,
     lastOp: "",
     lastOpOk: null,

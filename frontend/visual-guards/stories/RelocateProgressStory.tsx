@@ -54,7 +54,7 @@ const member: Member = {
   contextPct: 42,
   estimatedCost: 7,
   bankedCost: 0,
-  tmuxSession: "member-mira",
+  terminalAttachCommand: "tmux -L officraft attach -t member-mira",
   refocusSince: null,
   lastOp: "",
   lastOpOk: null,

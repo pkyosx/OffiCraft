@@ -115,8 +115,9 @@ function mkVM(): AgentDetailVM {
     lastOpLog: "",
     lastOpReason: "",
     lastOpAt: null,
-    tmuxSession: "",
+    terminalAttachCommand: "",
     terminalHint: "",
+    terminalUnavailable: "",
   };
 }
 
@@ -168,8 +169,9 @@ function mkPopulatedVM(): AgentDetailVM {
     lastOpLog: "log",
     lastOpReason: "reason",
     lastOpAt: 3,
-    tmuxSession: "member-mira",
+    terminalAttachCommand: "tmux -L officraft attach -t member-mira",
     terminalHint: "hint",
+    terminalUnavailable: "no command",
     prompt: {
       fetch: () => Promise.resolve("boot"),
       cacheKey: "k",
@@ -218,7 +220,7 @@ describe("AgentDetailPanel slot map", () => {
       contextPct: null,
       estimatedCost: null,
       bankedCost: null,
-      tmuxSession: "member-mira",
+      terminalAttachCommand: "tmux -L officraft attach -t member-mira",
       refocusSince: null,
       lastOp: "",
       lastOpOk: null,

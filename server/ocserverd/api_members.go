@@ -44,6 +44,37 @@ func (s *apiServer) putMember(m Member, trigger string) error {
 	return nil
 }
 
+// putMemberOwnerOnly persists a member update without sending a lifecycle
+// notice to the member. The owner still receives the plain roster delta.
+func (s *apiServer) putMemberOwnerOnly(m Member, trigger string) error {
+	if err := ValidateMember(m); err != nil {
+		return err
+	}
+	if err := s.dal.PutMember(m); err != nil {
+		return err
+	}
+	op := "patch"
+	if m.RosterStatus == RosterStatusRemoved {
+		op = "remove"
+	}
+	s.hub.Publish("member", op, "member", wireOwnerID+"::"+m.ID,
+		memberDeltaPayload(m), audienceOwnerOnly(), trigger)
+	return nil
+}
+
+func (s *apiServer) collectMemberStop(m *Member, trigger string) error {
+	collectWindDownRow(windDownAnchorRowOfMember(m), nowSecs())
+	if err := s.persistMemberWindDownAnchors(*m); err != nil {
+		return err
+	}
+	if err := s.putMember(*m, trigger); err != nil {
+		return err
+	}
+	s.bankLiveCost(m.ID)
+	s.dispatchRobustStopNow(m.ID)
+	return nil
+}
+
 // persistMemberOpReceipt stores the five last_op* columns of an ALREADY-STAMPED
 // member row through their sole writer, then fans the member delta (T-55).
 //
@@ -1122,12 +1153,12 @@ func (s *apiServer) HandleUpdateMemberApiMembersMemberIdPatch(w http.ResponseWri
 	// though the launch intent is not. What the failure guarantees is only that
 	// the launch intent did not land — which is what makes the retry work.
 	//
-	// relocate and activate are deliberately NOT reordered this way. Their
-	// wind-down is unconditional (relocate always arms one, activate always
-	// force-revives), so their retry always re-dispatches and the residue
-	// converges on its own. Only the launch-intent faces gate the wind-down on
-	// "the value actually changed", and that gate is what a value landing early
-	// closes.
+	// Relocate remains unconditional, but activate splits on liveness. Its
+	// offline arm clears the old generation and re-dispatches; its live arm
+	// only updates the owner projection, so it does not re-dispatch a session
+	// merely because the same intent was retried. Only the launch-intent faces
+	// gate the wind-down on "the value actually changed", and that gate is what
+	// a value landing early closes.
 	if body.Model != nil {
 		if err := s.dal.SetMemberModel(m.ID, m.Model); err != nil {
 			internalError(w, err)
@@ -1150,7 +1181,8 @@ func (s *apiServer) HandleUpdateMemberApiMembersMemberIdPatch(w http.ResponseWri
 }
 
 // POST /api/members/{member_id}/activate — write desired_state=online intent.
-// ALWAYS FORCE-REVIVE: both winding-down anchors clear unconditionally.
+// A live session stays in place; an offline generation starts from a clean
+// wind-down row and gets the same stop-before-start handoff as a worker restart.
 func (s *apiServer) HandleActivateMemberApiMembersMemberIdActivatePost(w http.ResponseWriter, r *http.Request, memberId string) {
 	var body MemberActivateDTO
 	if !decodeJSONBody(w, r, &body) {
@@ -1161,6 +1193,7 @@ func (s *apiServer) HandleActivateMemberApiMembersMemberIdActivatePost(w http.Re
 		writeResolveError(w, err, "member", memberId)
 		return
 	}
+	sessionAlive := s.hub.IsOnline(m.ID)
 	// The machine bind is held to the SAME rule as every other placement write
 	// face: any non-blank id must name a real machine. activate is the one that
 	// most needs it — it flips desired_state online in the same call, so an
@@ -1191,11 +1224,18 @@ func (s *apiServer) HandleActivateMemberApiMembersMemberIdActivatePost(w http.Re
 			return
 		}
 	}
+	if !sessionAlive {
+		clearWindDownRow(windDownAnchorRowOfMember(m))
+	}
 	if err := s.persistMemberWindDownAnchors(*m); err != nil {
 		internalError(w, err)
 		return
 	}
-	if err := s.putMember(*m, requestTrigger(r)); err != nil {
+	put := s.putMember
+	if sessionAlive {
+		put = s.putMemberOwnerOnly
+	}
+	if err := put(*m, requestTrigger(r)); err != nil {
 		internalError(w, err)
 		return
 	}
@@ -1209,7 +1249,15 @@ func (s *apiServer) HandleActivateMemberApiMembersMemberIdActivatePost(w http.Re
 	// this return value was the whole bug: an activate against an unreachable
 	// warden answered a clean 200 with zero signal, so "waking" and "nothing was
 	// dispatched and nothing will be until the next cadence tick" looked identical.
-	dec := s.reconcileMemberNow(m.ID)
+	dec := reconcileDecision{}
+	if !sessionAlive {
+		// An offline activate replaces the previous generation. Keep the
+		// stop-before-start ordering explicit and fold its live cost before the
+		// replacement START, then let reconcile dispatch START.
+		s.bankLiveCost(m.ID)
+		s.dispatchRobustStopNow(m.ID)
+		dec = s.reconcileMemberNow(m.ID)
+	}
 	// T-91: a bounded receipt, not the roster row. The three fields here are the
 	// entire news of this write — which member, whether a START actually went
 	// out, and which cause when one did not. Everything the MemberDTO carried
@@ -1253,7 +1301,7 @@ func (s *apiServer) HandleActivateMemberApiMembersMemberIdActivatePost(w http.Re
 // member (admin-gated, route Requires=admin_agent — parity with the member
 // lifecycle family). The member twin of the outsource-worker relocate: write the
 // owner-pinned desired_machine_id, then run the SAME event-driven reconcile the
-// activate click uses (reconcileMemberNow). A LIVE member is auto-migrated onto
+// offline activate click uses (reconcileMemberNow). A LIVE member is auto-migrated onto
 // the chosen machine, but SINCE T-b6d9 GRACEFULLY: the pin is written together
 // with a refocus epoch, the agent gets the ordinary 〈停止〉 wake, and
 // the kill+re-spawn happens at the 收口 — which since T-ed79 is its own
@@ -1486,13 +1534,9 @@ func clearMemberHandoverMarker(m *Member) {
 // each side, so folding it in would be a behaviour change rather than a
 // convergence.
 //
-// ⚠️ THIS USED TO SAY 「that one belongs to 包④/包⑤」 AND IT NO LONGER DOES:
-// 包④ and 包⑤ have both landed without touching 強制停止's stopping_since —
-// 包⑤ was scoped to a zero-behaviour-change refactor of the 收口 funnels. The
-// gap is still open and still unowned. It is the 強制停止 pull-back arm the
-// parity whitelist's 強制停止|stopping_since and |noticed rows describe: ONE
-// production edit on the staff handler closes both. Naming a package that has
-// already shipped would have turned this into a claim that the work was done.
+// The force-stop anchor and notice rules are now aligned with the worker path.
+// Its remaining parity difference is banked_cost: staff folds it on the SSE
+// last-disconnect edge, while a worker folds it before the kill.
 //
 // It does NOT make a MIS-WIRED adapter safe — stopVerbRowOfWorker could
 // hand back a pointer to the wrong field and applyStopVerbRow would faithfully
@@ -1612,9 +1656,9 @@ func stopVerbRowOfWorker(w *OutsourceWorker) stopVerbRow {
 // populations the moment it is hoisted into shared code.
 //
 // It writes NOTHING else, and in particular no stopped_since and no
-// forced_stop_at: this verb opens a close-out, it does not end one, and the two
-// populations end that close-out through machinery that is NOT converged here
-// (see the whitelist rows for 停止 in verb_population_parity_t65_test.go).
+// forced_stop_at: this verb opens a close-out, it does not end one. The two
+// populations finish that close-out through their own lifecycle machinery,
+// which the parity rows exercise at the handler boundary.
 func applyStopVerbRow(row stopVerbRow, snapshot Member, now float64) {
 	*row.DesiredState = DesiredStateOffline
 	*row.RefocusSince = 0.0
@@ -1658,9 +1702,11 @@ func (s *apiServer) HandleDeactivateMemberApiMembersMemberIdDeactivatePost(w htt
 	// armed a 120s grace; today that arm runs no clock at all). Either way the
 	// owner's 取消 read as "the button did nothing", which is exactly what it did.
 	//
-	// There is also nothing to wind down: a member that has not connected has
-	// taken no work, so the grace window it cannot enter would buy nothing.
-	cancellingWake := PresenceState(*m, nowSecs(), s.hub.IsOnline(m.ID)) ==
+	// A member with no live session cannot perform a grace hand-off. The ordinary
+	// offline arm therefore closes the row immediately after the stop write;
+	// cancelling a still-waking start remains a separate no-collection path.
+	sessionAlive := s.hub.IsOnline(m.ID)
+	cancellingWake := PresenceState(*m, nowSecs(), sessionAlive) ==
 		MemberPresenceWaking
 	// 🔴 THE ROW WRITES LIVE IN applyStopVerbRow AND ARE SHARED WITH
 	// HandleStopOutsourceWorker… (T-65 包③). The snapshot is taken BEFORE the
@@ -1682,6 +1728,12 @@ func (s *apiServer) HandleDeactivateMemberApiMembersMemberIdDeactivatePost(w htt
 		internalError(w, err)
 		return
 	}
+	if !sessionAlive && !cancellingWake {
+		if err := s.collectMemberStop(m, requestTrigger(r)); err != nil {
+			internalError(w, err)
+			return
+		}
+	}
 	if cancellingWake {
 		// The same immediate robust STOP force-stop uses. NOT widened to the
 		// online case: a live member gets the no-countdown soft window instead,
@@ -1699,7 +1751,7 @@ func (s *apiServer) HandleDeactivateMemberApiMembersMemberIdDeactivatePost(w htt
 }
 
 // POST /api/members/{member_id}/force-stop — STOP intent now (stamps
-// stopping_since only if unset) + the immediate robust-STOP dispatch straight
+// stopping_since if unset or in the future) + the immediate robust-STOP dispatch straight
 // to the member's warden, bypassing the ~30s cadence
 // (handlers.handle_force_stop_member).
 //
@@ -1721,7 +1773,10 @@ func (s *apiServer) HandleForceStopMemberApiMembersMemberIdForceStopPost(w http.
 	// queued earlier in this wind-down is cancelled. This is what keeps
 	// 重新聚焦 → 強制停止 different from 強制停止 → 重新聚焦.
 	clearRestartIntent(m)
-	openWindDownRow(windDownAnchorRowOfMember(m), nowSecs())
+	forcedAt := nowSecs()
+	if m.StoppingSince <= 0.0 || m.StoppingSince > forcedAt {
+		m.StoppingSince = forcedAt
+	}
 	// The record that this session was cut off (T-a9d6). Force-stop sends no
 	// notice — the recipient is about to stop existing, so a sentence meant to
 	// change its behaviour has no one to change — and that silence is exactly
@@ -1730,7 +1785,7 @@ func (s *apiServer) HandleForceStopMemberApiMembersMemberIdForceStopPost(w http.
 	// leaves behind. Stamped on the member itself so the NEXT generation and the
 	// cockpit can both see it; PutMember persists it forward-only with max(), so
 	// a stale snapshot cannot erase the record.
-	m.ForcedStopAt = nowSecs()
+	m.ForcedStopAt = forcedAt
 	if err := s.persistMemberWindDownAnchors(*m); err != nil {
 		internalError(w, err)
 		return
@@ -1746,6 +1801,9 @@ func (s *apiServer) HandleForceStopMemberApiMembersMemberIdForceStopPost(w http.
 		// about to be killed anyway — the same shape as the dismiss sweep.
 		taskLog("force-stop %s: forced_stop_at not recorded: %v", m.ID, err)
 	}
+	// Bank before the kill, matching the worker force-stop funnel. The later
+	// disconnect edge remains idempotent because bankLiveCost pops the live cost.
+	s.bankLiveCost(m.ID)
 	s.dispatchRobustStopNow(m.ID)
 	writeJSON(w, http.StatusOK, agentLifecycleReceiptDTO{ID: m.ID})
 }

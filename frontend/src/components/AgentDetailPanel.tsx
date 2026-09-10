@@ -136,8 +136,13 @@ export interface AgentDetailVM {
   lastOpLog: string;
   lastOpReason: string;
   lastOpAt: number | null;
-  tmuxSession: string;
+  /** The WHOLE attach command from the station, rendered and copied verbatim;
+   * "" = this server is older than T-139 and sent none. The panel deliberately
+   * takes the finished string, not a session name — see types.ts. */
+  terminalAttachCommand: string;
   terminalHint: string;
+  /** What to say instead of the command when the station sent none. */
+  terminalUnavailable: string;
   prompt?: AgentDetailPrompt;
 }
 
@@ -424,10 +429,15 @@ export function AgentDetailPanel({
 
   // ── terminal copy ──────────────────────────────────────────────────────────
   const [copied, setCopied] = useState(false);
+  // 🔴 COPIES THE STATION'S STRING, ASSEMBLES NOTHING. What this used to put on
+  // the clipboard was `tmux -L officraft attach -t <session>` built here, whose
+  // socket half is only correct on the unnamespaced instance (T-139).
+  const attachCommand = vm.terminalAttachCommand;
+  const hasAttachCommand = attachCommand !== "";
   async function copyTmux() {
-    const cmd = `tmux -L officraft attach -t ${vm.tmuxSession}`;
+    if (!hasAttachCommand) return;
     try {
-      await navigator.clipboard.writeText(cmd);
+      await navigator.clipboard.writeText(attachCommand);
       setCopied(true);
       window.setTimeout(() => setCopied(false), 1600);
     } catch {
@@ -742,22 +752,37 @@ export function AgentDetailPanel({
       {/* terminal / tmux */}
       <div className="mp-card mp-terminal">
         <div className="mp-card__title mp-terminal__title">{t.mp.terminal}</div>
-        <div className="mp-terminal__row">
-          <code className="mp-terminal__cmd">
-            <span className="mp-terminal__prompt">$</span> tmux -L officraft
-            attach -t {vm.tmuxSession}
-          </code>
-          <button
-            type="button"
-            className="btn mp-terminal__copy"
-            onClick={copyTmux}
-            data-testid={`${p}-copy`}
-          >
-            {copied ? <CheckIcon size={14} /> : <CopyIcon size={14} />}
-            <span>{copied ? t.mp.copied : t.mp.copyCommand}</span>
-          </button>
-        </div>
-        <div className="mp-terminal__hint">{vm.terminalHint}</div>
+        {/* 🔴 The station's string, verbatim — no socket or session literal
+            lives on this side of the wire any more (T-139).
+            The "" case says so OUT LOUD instead of hiding the block: a missing
+            command here is a SERVER-VERSION fact, and an owner staring at a
+            block that silently vanished would read it as "this agent has no
+            terminal", which is a different (and false) claim. Both the member
+            and the 外包 panel get this behaviour from this one component, so
+            the two cannot answer it differently. */}
+        {hasAttachCommand ? (
+          <>
+            <div className="mp-terminal__row">
+              <code className="mp-terminal__cmd">
+                <span className="mp-terminal__prompt">$</span> {attachCommand}
+              </code>
+              <button
+                type="button"
+                className="btn mp-terminal__copy"
+                onClick={copyTmux}
+                data-testid={`${p}-copy`}
+              >
+                {copied ? <CheckIcon size={14} /> : <CopyIcon size={14} />}
+                <span>{copied ? t.mp.copied : t.mp.copyCommand}</span>
+              </button>
+            </div>
+            <div className="mp-terminal__hint">{vm.terminalHint}</div>
+          </>
+        ) : (
+          <div className="mp-terminal__hint" data-testid={`${p}-no-command`}>
+            {vm.terminalUnavailable}
+          </div>
+        )}
       </div>
 
       {rendered.extraExpandCards}

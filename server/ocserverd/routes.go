@@ -469,7 +469,7 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			Method:  "POST",
 			Path:    "/api/members/{member_id}/activate",
 			Handler: w.HandleActivateMemberApiMembersMemberIdActivatePost,
-			Summary: "Activate: write desired_state=online intent (does NOT flip online). Answers with a bounded receipt (``id``, ``activation_pending``, ``last_op_reason``), not the roster row — call ``get_member`` when you need the rest.",
+			Summary: "Activate: write desired_state=online intent (does NOT flip online). A live member clears stopping_since/waking_since and consumes restart_after_stop while preserving its active refocus/stopped epoch; it updates the owner roster only without killing/reconciling or sending a lifecycle notice. An offline generation clears its old wind-down, banks live cost, and uses stop-before-start. Answers with a bounded receipt (``id``, ``activation_pending``, ``last_op_reason``), not the roster row — call ``get_member`` when you need the rest.",
 			MCPTool: "activate_member",
 		}),
 		Gated(principalAdminAgent, routeDef{
@@ -483,7 +483,7 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			Method:  "POST",
 			Path:    "/api/members/{member_id}/deactivate",
 			Handler: w.HandleDeactivateMemberApiMembersMemberIdDeactivatePost,
-			Summary: "Deactivate: desired_state=offline + stamp stopping_since (retains row). Answers with a bounded receipt (``id``), not the roster row — call ``get_member`` when you need the rest.",
+			Summary: "Deactivate: desired_state=offline + stamp stopping_since (retains row); with no live session, immediately collect/bank/dispatch the stop. Answers with a bounded receipt (``id``), not the roster row — call ``get_member`` when you need the rest.",
 			MCPTool: "deactivate_member",
 		}),
 		Gated(principalAdminAgent, routeDef{
@@ -1446,7 +1446,7 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			Method:  "POST",
 			Path:    "/api/tasks/{task_id}/plan",
 			Handler: w.HandleSubmitTaskPlanApiTasksTaskIdPlanPost,
-			Summary: "Submit/replace the workflow plan (done and answered-card steps are kept). T-74f8 交棒閘 (second door): a plan is a step-set write and the task status is DERIVED from the step set, so a plan that leaves EVERY step done CLOSES the task — the same irreversible close the final step report performs. If that task's creator is not its executor and no handover is declared or already real, the replan is refused with 422 BEFORE anything is written (the plan stays fully editable). A plan carries no handoff field, so the way out is to hand over first: create the successor task and point its ``blocked_by`` at this task (the gate then stands aside by itself), or keep one unfinished step and declare the handover on the ``update_step_status`` report that closes it. A replan that still leaves work in the plan is never gated. Answers with a bounded receipt (task_id, steps_total, progress_done, progress_total), not the plan you just sent — use get_task to read the stored step rows back.",
+			Summary: "Submit/replace the workflow plan. ⚠️ Resubmitting permanently deletes every unfinished step and its working note; deleted notes cannot be recovered. Done steps, superseded steps, and steps with an answered or expired reply card are kept. Relisting a step under the same name creates a new step with a new id, so copy any note you need before resubmitting. T-74f8 交棒閘 (second door): a plan is a step-set write and the task status is DERIVED from the step set, so a plan that leaves EVERY step done CLOSES the task — the same irreversible close the final step report performs. If that task's creator is not its executor and no handover is declared or already real, the replan is refused with 422 BEFORE anything is written (the plan stays fully editable). A plan carries no handoff field, so the way out is to hand over first: create the successor task and point its ``blocked_by`` at this task (the gate then stands aside by itself), or keep one unfinished step and declare the handover on the ``update_step_status`` report that closes it. A replan that still leaves work in the plan is never gated. Answers with a bounded receipt (task_id, steps_total, progress_done, progress_total), not the plan you just sent — use get_task to read the stored step rows back.",
 			MCPTool: "submit_plan",
 		}),
 		// T-646a: the one door onto a task's own TEXT. Supersedes the
@@ -2044,6 +2044,39 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			Handler: w.HandleForceStopOutsourceWorkerApiOutsourceWorkersIdForceStopPost,
 			Summary: "強制停止 an outsource worker: kill the session NOW and hold it down; says nothing to it. Third rung of 停止 -> 加速停止 -> 強制停止. Answers with a bounded receipt (``id``), not the roster row — call ``list_outsource_workers`` when you need the rest.",
 			MCPTool: "force_stop_outsource_worker",
+		}),
+		// ── 傳承 (T-33) ─────────────────────────────────────────────────────
+		// These rows are appended to preserve the shared route/MCP order. The
+		// handlers and the generated OpenAPI surface are supplied by mainline;
+		// keep the PR's Gated() ownership spelling here so the route table remains
+		// the single source of truth for authentication and principal class.
+		Gated(principalAgent, routeDef{
+			Method:  "POST",
+			Path:    "/api/lore",
+			Handler: w.HandleWriteLoreEntryApiLorePost,
+			Summary: "Write ONE 傳承 entry (never editable afterwards). ``task_id`` picks the scope, and there is ALWAYS somewhere for it to land: a task that carries a TYPE files under that type's manual; no task at all, OR a task with no type (臨時任務), files into your OWN boot document -- your role if you are staff, yourself if you are an outsource member (who has no role for a role scope to name). The untyped-task case answers a ``scope_note`` saying where it actually went, because you asked for a manual and did not get one. Only a caller with no roster row at all is a 400 -- there is no boot document to file into. An over-cap title or body is a 400 that writes nothing.",
+			MCPTool: "write_lore_entry",
+		}),
+		Gated(principalAgent, routeDef{
+			Method:  "GET",
+			Path:    "/api/lore",
+			Handler: w.HandleListLoreEntriesApiLoreGet,
+			Summary: "List 傳承 entries, filtered SERVER-SIDE and paged in the fixed order pinned -> active -> retired, newest first inside each group. The order is not configurable; the filter is.",
+			MCPTool: "list_lore_entries",
+		}),
+		Gated(principalAgent, routeDef{
+			Method:  "POST",
+			Path:    "/api/lore/{entry_id}/state",
+			Handler: w.HandleSetLoreEntryStateApiLoreEntryIdStatePost,
+			Summary: "Move one 傳承 entry to active / pinned / retired. 置頂 and un-置頂 are ADMIN-ONLY (owner ruling): a pinned entry sorts ahead of every other entry in its scope and so survives the cap at the others' expense. 失效 and 生效 are open to the entry's own AUTHOR -- anyone else is a 403 -- and admin capability is unrestricted. Retiring is not deleting: the entry keeps its id and can be moved back; ``retire_reason`` is stored only with retired and cleared by the other two.",
+			MCPTool: "set_lore_entry_state",
+		}),
+		Gated(principalAgent, routeDef{
+			Method:  "POST",
+			Path:    "/api/lore/{entry_id}/bump",
+			Handler: w.HandleBumpLoreEntryApiLoreEntryIdBumpPost,
+			Summary: "提到最新: set one 傳承 entry's ``effective_ts`` to now so it sorts to the front of its group. Only the entry's own AUTHOR may bump it (admin capability is unrestricted) -- a bump moves an entry ahead of other people's under a shared cap, so it spends somebody else's room. ``created_ts`` is NOT touched, which is what makes this reversible.",
+			MCPTool: "bump_lore_entry",
 		}),
 	}
 	out := make([]RouteSpec, len(rows))

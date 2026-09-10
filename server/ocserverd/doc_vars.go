@@ -14,7 +14,7 @@ package main
 //
 // The three duties, in the order a name travels:
 //   declare  — each document kind lists the names it may use (bootDocReg.Vars)
-//   validate — DocVarsUndeclared refuses a WRITE that names anything else
+//   validate — DocVarsUndeclared checks the text being rendered
 //   render   — RenderDocVars refuses a SEND whose declared name has no value
 //
 // 🔴 nil MEANS OFF, EMPTY MEANS ZERO. A kind whose Vars is nil predates this
@@ -22,9 +22,7 @@ package main
 // JSON examples like {"id": "<attachment id>"} that this syntax cannot tell
 // from a variable, and breaking a document that ships today to introduce a
 // guard for documents that do not is the wrong trade. A kind whose Vars is an
-// empty non-nil slice is validated and allows NO variable, which is exactly
-// what the owner-editable BODY half will declare once the read-only head is
-// split off from it.
+// empty non-nil slice allows NO variable when its rendered text is checked.
 
 import (
 	"regexp"
@@ -111,25 +109,8 @@ func docVarNameList(names []string) string {
 	return strings.Join(quoted, ", ")
 }
 
-// docVarWriteRefusal is the ONE refusal text behind the write-face validation,
-// the same way docCapRefusal is the one text behind the cap. It names the
-// offending variables AND the ones this document does allow, because being
-// refused is otherwise the only way to learn either — and it says outright that
-// nothing was written, which is the sentence the owner needs before deciding
-// whether to retype the whole document.
-func docVarWriteRefusal(docName string, bad, declared []string) string {
-	allowed := "this document declares no variables at all"
-	if len(declared) > 0 {
-		allowed = "the variables this document declares are " + docVarNameList(declared)
-	}
-	return "the " + docName + " you are writing uses " + docVarNameList(bad) +
-		", which is not one of its variables — nothing was written. " + allowed +
-		". A variable nothing fills reaches an agent with the braces still in it."
-}
-
-// errDocVars builds the render-time error. Separate from docVarWriteRefusal
-// because the two have different readers: that one answers an owner who is
-// editing, this one answers a developer whose call site is wrong.
+// errDocVars builds the render-time error for a caller whose document cannot
+// be rendered safely.
 func errDocVars(lead string, names []string, tail string) error {
 	return &docVarError{msg: "document " + lead + docVarNameList(names) + " " + tail}
 }

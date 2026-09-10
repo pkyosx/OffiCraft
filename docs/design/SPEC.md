@@ -212,7 +212,7 @@ epoch 再當場砍，**沒有重生**，所以存下的新值要等之後某一�
 |---|---|---|
 | `afterIdentityCards` | 無 | **委託任務** 卡（任務編號 · 標題 ＋ 狀態 chip，可點進任務） |
 | `afterInfoCards` | 無 | **委託人** 卡 |
-| `extraExpandCards` | 回呼端點 ＋ 定期訊息 | **只有定期訊息**（外包沒有 webhook） |
+| `extraExpandCards` | 回呼端點 ＋ 定期訊息 | **只有定期訊息**（外包**面板**沒有 webhook 卡；T-140 起 API 三個動詞本身已放行外包） |
 | `overlays` | 強制停止確認 ＋ 更改對話框 | 更改對話框 |
 
 其餘差異：身分卡的名字是「外包 · 代號」；沒有 session 時動作列只有一顆**喚醒**（打開同一個更改對話框）；
@@ -509,8 +509,8 @@ epoch 再當場砍，**沒有重生**，所以存下的新值要等之後某一�
 
 ⚠️ **五個字數上限是五個獨立的格子**（`DOC_CAP_ORDER`），不是一個共用值；
 喚醒聊天字數預算與備份保留份數刻意**不在**那張表裡（單位與上下限都不同，各走各的 commit）。
-兩份建議回覆也不在那張表裡，而且是**兩格而不是一格**（owner 裁定：任務跟請示卡要是不同的參數設定）：
-DB 兩個 key（`suggested_replies.reply_card` / `suggested_replies.task_message`）、wire 兩個平的頂層欄位，
+三份建議回覆也不在那張表裡，而且是**一個訊息框一格、不是共用一格**（owner 裁定：任務跟請示卡要是不同的參數設定；T-33 依同一條裁定加上傳承那一格）：
+DB 三個 key（`suggested_replies.reply_card` / `suggested_replies.task_message` / `suggested_replies.lore_message`）、wire 三個平的頂層欄位，
 所以「只改其中一份」是一次寫入，不是對一個共用 blob 的 read-modify-write。清單為空是合法值。
 每個參數的意義與範圍見 [docs/guide/settings.md](../guide/settings.md)。
 

@@ -95,6 +95,10 @@ import type {
   TaskManualView,
   TaskManualPatch,
   DocSummaryView,
+  LoreEntryPageView,
+  LoreEntryState,
+  LoreEntryWrite,
+  LoreListOptions,
   DocView,
   RolePatch,
   RoleCreateInput,
@@ -163,6 +167,7 @@ import {
   toThemeListItem,
   toThemeWriteReceipt,
   toThemeDeleteResult,
+  toLoreEntryPage,
 } from "./mappers";
 import { suggestedRepliesPatchFields } from "./suggestedReplies";
 import { ownerToken, setToken } from "./auth";
@@ -1503,6 +1508,7 @@ export const httpApi: Api = {
     body: string;
     attachments?: ChatAttachmentInput[];
     replyTo?: string;
+    meta?: Record<string, unknown>;
   }): Promise<void> {
     // POST /api/chat {to, body, attachments?} -> ChatPostReceiptDTO. The write
     // answers with a bounded receipt (T-91) — id, ts, to, attachments — not the
@@ -1533,6 +1539,13 @@ export const httpApi: Api = {
         // comment.) The server checks a non-empty value EXISTS — and only
         // that, since 2026-08-21 — and is the only writer of the stored link.
         reply_to: msg.replyTo ?? "",
+        // Machine-readable keys stored on the message (`ChatPostDTO.meta`).
+        // OMITTED when the caller sends none, so an ordinary post's body is
+        // byte-identical to what it always was. The server copies unknown keys
+        // through wholesale — it deletes `reply_to` (the `reply_to` param above
+        // is the only door to that link) and overwrites `attachments` when the
+        // post carries any; nothing else is touched.
+        ...(msg.meta ? { meta: msg.meta } : {}),
         ...(attachments.length > 0
           ? {
               attachments: attachments.map((a) => ({
@@ -2138,6 +2151,121 @@ export const httpApi: Api = {
     );
   },
 
+  // ── 傳承 (T-33) ──────────────────────────────────────────────────────────
+
+  async listLoreEntries(opts?: LoreListOptions): Promise<LoreEntryPageView> {
+    // GET /api/lore -> LoreEntryListDTO.
+    //
+    // 🔴 EVERY NARROWING IS A QUERY PARAMETER. Nothing here downloads a list and
+    // filters it: the server applies the filter inside the query, before the
+    // page is cut, so a count or a 上限線 taken from the answer is about the
+    // whole filtered scope rather than about the rows that happened to land on
+    // this page. Filtering client-side would make 「捲到底沒有了」 and 「真的沒有
+    // 了」 the same picture.
+    //
+    // An OMITTED field is left out of the query entirely rather than sent
+    // empty: "" is a value the server would have to decide the meaning of, and
+    // "no filter on this axis" is not something a value can say.
+    // Each axis has TWO wire spellings: the repeatable plural the multi-select
+    // filters send (openapi-fetch's default form/explode serialisation — one
+    // `?states=` per ticked value, the shape the spec declares) and the frozen
+    // singular. Both are forwarded verbatim when given; the SERVER, not this
+    // seam, applies the precedence — plural wins, singular ignored. Deciding it
+    // here as well would be a second copy of the rule that could drift, and the
+    // wire would then disagree with the only place the rule is enforced.
+    //
+    // An EMPTY set is omitted entirely rather than sent as an empty parameter:
+    // it means 「所有」, and sending nothing is exactly that.
+    const query: {
+      scope_kind?: string;
+      scope_key?: string;
+      state?: string;
+      author_id?: string;
+      scope_kinds?: string[];
+      scope_keys?: string[];
+      states?: string[];
+      author_ids?: string[];
+      limit?: number;
+      offset?: number;
+    } = {};
+    if (opts?.scopeKind) query.scope_kind = opts.scopeKind;
+    if (opts?.scopeKey) query.scope_key = opts.scopeKey;
+    if (opts?.state) query.state = opts.state;
+    if (opts?.authorId) query.author_id = opts.authorId;
+    if (opts?.scopeKinds && opts.scopeKinds.length > 0) {
+      query.scope_kinds = opts.scopeKinds;
+    }
+    if (opts?.scopeKeys && opts.scopeKeys.length > 0) {
+      query.scope_keys = opts.scopeKeys;
+    }
+    if (opts?.states && opts.states.length > 0) query.states = opts.states;
+    if (opts?.authorIds && opts.authorIds.length > 0) {
+      query.author_ids = opts.authorIds;
+    }
+    if (opts?.limit !== undefined) query.limit = opts.limit;
+    if (opts?.offset !== undefined) query.offset = opts.offset;
+    const wire = unwrap(await client.GET("/api/lore", { params: { query } }));
+    return toLoreEntryPage(wire);
+  },
+
+  async writeLoreEntry(entry: LoreEntryWrite): Promise<void> {
+    // POST /api/lore -> LoreEntryWriteReceiptDTO {id, seq, scope_kind,
+    // scope_key, created_ts, scope_note} — a bounded receipt, not the entry
+    // (T-33). The title and the body are what this caller just sent, and for an
+    // agent the second copy lands in its context window; the receipt carries
+    // only what the server decided. The value is DISCARDED here for the same
+    // reason postChat discards its receipt: the cockpit reconciles by
+    // refetching, and a receipt dressed up as a LoreEntryView would be a
+    // half-entry with the missing halves silently zeroed.
+    //
+    // task_id is omitted rather than sent as "" when there is none: "" and
+    // absent both mean "the writer's own boot document" on this route today,
+    // and sending the one that has to be special-cased is how that equivalence
+    // quietly becomes load-bearing.
+    const body: { title: string; body: string; task_id?: string } = {
+      title: entry.title,
+      body: entry.body,
+    };
+    if (entry.taskId) body.task_id = entry.taskId;
+    unwrap(await client.POST("/api/lore", { body }));
+  },
+
+  async setLoreEntryState(
+    entryId: string,
+    state: LoreEntryState,
+    retireReason?: string,
+  ): Promise<void> {
+    // POST /api/lore/{entry_id}/state -> LoreEntryStateReceiptDTO {id, state,
+    // effective_ts, updated_ts} — the bounded receipt both governance doors
+    // answer (T-33). Discarded; LorePage refetches.
+    //
+    // retire_reason rides only with `retired`. The server clears any stored
+    // value on the other two, and this face does not send one for them either:
+    // a reason travelling with 生效 would be a value the caller believes it set
+    // and the server threw away, which is the shape that later reads as a bug
+    // in the wrong place.
+    const body: { state: string; retire_reason?: string } = { state };
+    if (state === "retired" && retireReason) body.retire_reason = retireReason;
+    unwrap(
+      await client.POST("/api/lore/{entry_id}/state", {
+        params: { path: { entry_id: entryId } },
+        body,
+      }),
+    );
+  },
+
+  async bumpLoreEntry(entryId: string): Promise<void> {
+    // POST /api/lore/{entry_id}/bump -> LoreEntryStateReceiptDTO, discarded.
+    // No body: the new effective_ts is the SERVER's clock, never a time the
+    // client picked, so two entries bumped from two machines still order by one
+    // clock — and the receipt is where a caller that needs it reads that stamp.
+    unwrap(
+      await client.POST("/api/lore/{entry_id}/bump", {
+        params: { path: { entry_id: entryId } },
+      }),
+    );
+  },
+
   async listDocs(): Promise<DocSummaryView[]> {
     // GET /api/docs -> DocSummaryDTO[] (slug + title).
     const wire = unwrap(await client.GET("/api/docs"));
@@ -2454,6 +2582,10 @@ export const httpApi: Api = {
       doc_cap_chars_offboard?: number;
       chat_budget_chars?: number;
       step_note_cap_chars?: number;
+      lore_cap_chars_role?: number;
+      lore_cap_chars_manual?: number;
+      lore_cap_chars_title?: number;
+      lore_cap_chars_body?: number;
       backup_retain?: number;
       updater_receive_beta?: boolean;
       updater_auto_update?: boolean;
@@ -2514,6 +2646,18 @@ export const httpApi: Api = {
     }
     if (patch.stepNoteCapChars !== undefined) {
       body.step_note_cap_chars = patch.stepNoteCapChars;
+    }
+    if (patch.loreCapCharsRole !== undefined) {
+      body.lore_cap_chars_role = patch.loreCapCharsRole;
+    }
+    if (patch.loreCapCharsManual !== undefined) {
+      body.lore_cap_chars_manual = patch.loreCapCharsManual;
+    }
+    if (patch.loreCapCharsTitle !== undefined) {
+      body.lore_cap_chars_title = patch.loreCapCharsTitle;
+    }
+    if (patch.loreCapCharsBody !== undefined) {
+      body.lore_cap_chars_body = patch.loreCapCharsBody;
     }
     if (patch.backupRetain !== undefined) {
       body.backup_retain = patch.backupRetain;

@@ -17,388 +17,451 @@
       "name": "get_settings"
     },
     {
-  "description": "Edit the org-adjustable settings (owner/admin agent) — only the fields you send change, and the change is live immediately. This tool's input schema is the field list; read the current values with get_settings first.",
-  "inputSchema": {
-    "properties": {
-      "codex_compaction_threshold": {
-        "anyOf": [
-          {
-            "type": "integer"
-          },
-          {
-            "type": "null"
-          }
-        ],
-        "description": "Codex context-compaction threshold, 1 through 10.",
-        "title": "Codex Compaction Threshold"
-      },
-      "backup_retain": {
-        "anyOf": [
-          {
-            "type": "integer"
-          },
-          {
-            "type": "null"
-          }
-        ],
-        "description": "How many database backup files rotation KEEPS — N; everything past N is DELETED from disk (it used to be moved to a trash/ nobody emptied). Must be between 1 and 20. Two things it does NOT mean: N counts VERSIONS, not DAYS — the calendar depth depends on how many backups those days produced; and N is PER POOL, not per directory — routine (scheduled + manual) and pre-migration backups hold separate quotas, so 5 keeps up to 10 files. Read the current value from get_settings rather than assuming a number.",
-        "title": "Backup Retain"
-      },
-      "chat_budget_chars": {
-        "anyOf": [
-          {
-            "type": "integer"
-          },
-          {
-            "type": "null"
-          }
-        ],
-        "description": "The wake snapshot's chat block budget, in CHARACTERS (Unicode code points). It is what bounds resume_summary's chat block AND the estimated_total_chars peek_resume_summary_size reports — one number, one code path, so the two can never disagree. Must be between 1000 and 13000. Unlike the doc_cap_chars_* knobs it may be LOWERED as well as raised (the block is repacked on every read, not stored). Read the current value from get_settings rather than assuming a number.",
-        "title": "Chat Budget Chars"
-      },
-      "step_note_cap_chars": {
-        "anyOf": [
-          {
-            "type": "integer"
-          },
-          {
-            "type": "null"
-          }
-        ],
-        "description": "The size cap on one task step's working note, in CHARACTERS (Unicode code points). Must be between 1000 and 100000. Unlike the doc_cap_chars_* knobs it may be LOWERED as well as raised, because it is enforced only when a note is WRITTEN: a note already stored above a lowered cap stays readable in full and only becomes uneditable. It does NOT govern the task-level handover note or a chat message body, which keep their own 4,000-character constant. Read the current value from get_settings rather than assuming a number.",
-        "title": "Step Note Cap Chars"
-      },
-      "doc_cap_chars_boot_sequence": {
-        "anyOf": [
-          {
-            "type": "integer"
-          },
-          {
-            "type": "null"
-          }
-        ],
-        "description": "The size cap on a 啟動步驟 block of the boot context, in CHARACTERS (Unicode code points). ONE knob for BOTH runtimes (claude and codex), each document measured on its own text. Must be at least this document's shipped default and at most 100000. Read the current values from get_settings rather than assuming a number.",
-        "title": "Doc Cap Chars Boot Sequence"
-      },
-      "doc_cap_chars_duty": {
-        "anyOf": [
-          {
-            "type": "integer"
-          },
-          {
-            "type": "null"
-          }
-        ],
-        "description": "The size cap on a role's DUTY doc (the role definition), in CHARACTERS (Unicode code points). Must be at least this segment's own shipped default — which is deliberately much smaller than the other three segments' — and at most 100000. Read the current values from get_settings rather than assuming a number.",
-        "title": "Doc Cap Chars Duty"
-      },
-      "doc_cap_chars_insight": {
-        "anyOf": [
-          {
-            "type": "integer"
-          },
-          {
-            "type": "null"
-          }
-        ],
-        "description": "The size cap on a role's INSIGHT doc, in CHARACTERS (Unicode code points). Must be at least this segment's shipped default and at most 100000. Read the current values from get_settings rather than assuming a number.",
-        "title": "Doc Cap Chars Insight"
-      },
-      "doc_cap_chars_learning": {
-        "anyOf": [
-          {
-            "type": "integer"
-          },
-          {
-            "type": "null"
-          }
-        ],
-        "description": "The size cap on a role's LEARNING doc (the lessons doc), in CHARACTERS (Unicode code points). Must be at least this segment's shipped default and at most 100000. Read the current values from get_settings rather than assuming a number.",
-        "title": "Doc Cap Chars Learning"
-      },
-      "doc_cap_chars_manual_learnings": {
-        "anyOf": [
-          {
-            "type": "integer"
-          },
-          {
-            "type": "null"
-          }
-        ],
-        "description": "The size cap on a TASK MANUAL's learnings doc, in CHARACTERS (Unicode code points). Must be at least this segment's shipped default and at most 100000. Read the current values from get_settings rather than assuming a number.",
-        "title": "Doc Cap Chars Manual Learnings"
-      },
-      "doc_cap_chars_manual_sop": {
-        "anyOf": [
-          {
-            "type": "integer"
-          },
-          {
-            "type": "null"
-          }
-        ],
-        "description": "The size cap on a TASK MANUAL's sop_md doc, in CHARACTERS (Unicode code points). Must be at least this segment's shipped default and at most 100000. Read the current values from get_settings rather than assuming a number.",
-        "title": "Doc Cap Chars Manual Sop"
-      },
-      "doc_cap_chars_offboard": {
-        "anyOf": [
-          {
-            "type": "integer"
-          },
-          {
-            "type": "null"
-          }
-        ],
-        "description": "The size cap on the 〈停止〉 block, in CHARACTERS (Unicode code points). Must be at least this document's shipped default and at most 100000. Read the current values from get_settings rather than assuming a number.",
-        "title": "Doc Cap Chars Offboard"
-      },
-      "doc_cap_chars_system_interaction": {
-        "anyOf": [
-          {
-            "type": "integer"
-          },
-          {
-            "type": "null"
-          }
-        ],
-        "description": "The size cap on the 系統互動 block of the boot context, in CHARACTERS (Unicode code points). Must be at least this document's shipped default and at most 100000. Read the current values from get_settings rather than assuming a number.",
-        "title": "Doc Cap Chars System Interaction"
-      },
-      "display_language": {
-        "anyOf": [
-          {
-            "type": "string"
-          },
-          {
-            "type": "null"
-          }
-        ],
-        "description": "The owner's cockpit language (T-0b41-p2) — trimmed; \"\" clears it back to unset. Must be one of zh, en (or \"\"); anything else is a 422.",
-        "title": "Display Language"
-      },
-      "display_theme": {
-        "anyOf": [
-          {
-            "type": "string"
-          },
-          {
-            "type": "null"
-          }
-        ],
-        "description": "The owner's cockpit visual theme (T-0b41-p2) — trimmed; \"\" clears it back to unset. Must be one of office, xian (or \"\"); anything else is a 422.",
-        "title": "Display Theme"
-      },
-      "display_wide": {
-        "anyOf": [
-          {
-            "type": "boolean"
-          },
-          {
-            "type": "null"
-          }
-        ],
-        "description": "Turn the WIDE cockpit layout on/off (T-756f) — true lifts the centred ~1040px content column (the side gutters stay), false restores it. A plain boolean with no unset state: omit the field to leave it unchanged.",
-        "title": "Display Wide"
-      },
-      "handover_pct": {
-        "anyOf": [
-          {
-            "type": "integer"
-          },
-          {
-            "type": "null"
-          }
-        ],
-        "description": "The SECOND offboard point: the FINAL notice, and where the automatic handover fires. 40..90, and strictly greater than notice_pct (the pair is validated together against the POST-patch values, so either one may be sent alone).",
-        "title": "Handover Pct"
-      },
-      "notice_pct": {
-        "anyOf": [
-          {
-            "type": "integer"
-          },
-          {
-            "type": "null"
-          }
-        ],
-        "description": "The FIRST offboard point (T-a9d6): the SOFT notice, where the agent is asked to work the offboard sequence and then call report_stopped itself. 1..89, and strictly below handover_pct.",
-        "title": "Notice Pct"
-      },
-      "codex_notice_round": {
-        "anyOf": [
-          {
-            "type": "integer"
-          },
-          {
-            "type": "null"
-          }
-        ],
-        "description": "The codex SOFT-notice compaction round (T-a9d6). 1..10, and strictly below codex_compaction_threshold.",
-        "title": "Codex Notice Round"
-      },
-      "monitoring_refresh_seconds": {
-        "anyOf": [
-          {
-            "type": "integer"
-          },
-          {
-            "type": "null"
-          }
-        ],
-        "description": "Minimum interval between monitoring and machine refreshes, in seconds (1 through 60).",
-        "title": "Monitoring Refresh Seconds"
-      },
-      "accelerated_grace_secs": {
-        "anyOf": [
-          {
-            "type": "integer"
-          },
-          {
-            "type": "null"
-          }
-        ],
-        "description": "加速停止 grace, in seconds. Must be 10 through 3600. Applies to every CLOCKED wind-down cause at once (the second context threshold and the owner-pressed 加速停止); it can never put a clock on a soft cause.",
-        "title": "Accelerated Grace Secs"
-      },
-      "warden_credential_lifetime_secs": {
-        "anyOf": [
-          {
-            "type": "integer"
-          },
-          {
-            "type": "null"
-          }
-        ],
-        "description": "How long a MACHINE (warden) credential is meant to live, in seconds. Must be 86400 through 34560000 (one day through 400 days). A warden renews its own credential once that credential is two thirds of this old, plus a per-machine stagger of up to one hour so that LOWERING this value does not put the whole fleet on the mint endpoint inside one poll. The floor is one day because the last third of the lifetime is the retry window: at the 15-minute poll a one-day lifetime still leaves about 32 attempts. Wardens pick a change up within one poll interval. Warden credentials carry no `exp` today, so this governs renewal only and nothing expires because of it. Read the current value from get_settings rather than assuming a number.",
-        "title": "Warden Credential Lifetime Secs"
-      },
-      "org_name": {
-        "anyOf": [
-          {
-            "type": "string"
-          },
-          {
-            "type": "null"
-          }
-        ],
-        "description": "The studio display name (T-d693) — trimmed, max 80 runes; \"\" clears it back to the localized default. A value longer than 80 runes is a 422.",
-        "title": "Org Name"
-      },
-      "outsource_max_parallel": {
-        "anyOf": [
-          {
-            "type": "integer"
-          },
-          {
-            "type": "null"
-          }
-        ],
-        "title": "Outsource Max Parallel"
-      },
-      "owner_name": {
-        "anyOf": [
-          {
-            "type": "string"
-          },
-          {
-            "type": "null"
-          }
-        ],
-        "description": "The owner's display nickname (T-0b41) — trimmed, max 80 runes; \"\" clears it back to the localized default. A value longer than 80 runes is a 422.",
-        "title": "Owner Name"
-      },
-      "push_contact_email": {
-        "anyOf": [
-          {
-            "type": "string"
-          },
-          {
-            "type": "null"
-          }
-        ],
-        "description": "The push contact address (T-8a82) — trimmed, max 254 runes; \"\" clears it back to unset and stops all Web Push delivery. A value must be a single `local@domain` address whose domain is a real public one: a malformed address, or one on a reserved suffix (.local, .localhost, .internal, .test, .invalid, .example), is a 422 — those are exactly the values the push gateways reject with BadJwtToken, which would take push down silently.",
-        "title": "Push Contact Email"
-      },
-      "suggested_replies_reply_card": {
-        "anyOf": [
-          {
-            "items": {
-              "type": "string"
+        "description": "Edit the org-adjustable settings (owner/admin agent) — only the fields you send change, and the change is live immediately. This tool's input schema is the field list; read the current values with get_settings first.",
+        "inputSchema": {
+          "properties": {
+            "codex_compaction_threshold": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Codex context-compaction threshold, 1 through 10.",
+              "title": "Codex Compaction Threshold"
             },
-            "type": "array"
-          },
-          {
-            "type": "null"
-          }
-        ],
-        "description": "Replace the 建議回覆 list offered under a 請示卡 reply box (T-122) wholesale — one sentence per entry, the owner's own writing. At most 20 entries, each trimmed and at most 120 runes (Unicode code points); over either bound is a 422 that writes NOTHING, and the list is never silently truncated. An EXPLICIT EMPTY ARRAY IS LEGAL and means \"offer no suggestions there\" — unlike the scheduled-message custom_* sets, where [] is a 422. Blank entries are dropped. Read the current list from get_settings before sending: this replaces it, it does not append. 🔴 null is NOT \"clear\": an omitted field and an explicit null both mean LEAVE THIS LIST UNCHANGED, so an agent that sends null to empty the list gets a 200 and no change at all. To clear it, send [].",
-        "title": "Suggested Replies Reply Card"
-      },
-      "suggested_replies_task_message": {
-        "anyOf": [
-          {
-            "items": {
-              "type": "string"
+            "backup_retain": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "How many database backup files rotation KEEPS — N; everything past N is DELETED from disk (it used to be moved to a trash/ nobody emptied). Must be between 1 and 20. Two things it does NOT mean: N counts VERSIONS, not DAYS — the calendar depth depends on how many backups those days produced; and N is PER POOL, not per directory — routine (scheduled + manual) and pre-migration backups hold separate quotas, so 5 keeps up to 10 files. Read the current value from get_settings rather than assuming a number.",
+              "title": "Backup Retain"
             },
-            "type": "array"
+            "chat_budget_chars": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The wake snapshot's chat block budget, in CHARACTERS (Unicode code points). It is what bounds resume_summary's chat block AND the estimated_total_chars peek_resume_summary_size reports — one number, one code path, so the two can never disagree. Must be between 1000 and 13000. Unlike the doc_cap_chars_* knobs it may be LOWERED as well as raised (the block is repacked on every read, not stored). Read the current value from get_settings rather than assuming a number.",
+              "title": "Chat Budget Chars"
+            },
+            "step_note_cap_chars": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The size cap on one task step's working note, in CHARACTERS (Unicode code points). Must be between 1000 and 100000. Unlike the doc_cap_chars_* knobs it may be LOWERED as well as raised, because it is enforced only when a note is WRITTEN: a note already stored above a lowered cap stays readable in full and only becomes uneditable. It does NOT govern the task-level handover note or a chat message body, which keep their own 4,000-character constant. Read the current value from get_settings rather than assuming a number.",
+              "title": "Step Note Cap Chars"
+            },
+            "doc_cap_chars_boot_sequence": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The size cap on a 啟動步驟 block of the boot context, in CHARACTERS (Unicode code points). ONE knob for BOTH runtimes (claude and codex), each document measured on its own text. Must be at least this document's shipped default and at most 100000. Read the current values from get_settings rather than assuming a number.",
+              "title": "Doc Cap Chars Boot Sequence"
+            },
+            "doc_cap_chars_duty": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The size cap on a role's DUTY doc (the role definition), in CHARACTERS (Unicode code points). Must be at least this segment's own shipped default — which is deliberately much smaller than the other three segments' — and at most 100000. Read the current values from get_settings rather than assuming a number.",
+              "title": "Doc Cap Chars Duty"
+            },
+            "doc_cap_chars_insight": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The size cap on a role's INSIGHT doc, in CHARACTERS (Unicode code points). Must be at least this segment's shipped default and at most 100000. Read the current values from get_settings rather than assuming a number.",
+              "title": "Doc Cap Chars Insight"
+            },
+            "doc_cap_chars_learning": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The size cap on a role's LEARNING doc (the lessons doc), in CHARACTERS (Unicode code points). Must be at least this segment's shipped default and at most 100000. Read the current values from get_settings rather than assuming a number.",
+              "title": "Doc Cap Chars Learning"
+            },
+            "doc_cap_chars_manual_learnings": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The size cap on a TASK MANUAL's learnings doc, in CHARACTERS (Unicode code points). Must be at least this segment's shipped default and at most 100000. Read the current values from get_settings rather than assuming a number.",
+              "title": "Doc Cap Chars Manual Learnings"
+            },
+            "doc_cap_chars_manual_sop": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The size cap on a TASK MANUAL's sop_md doc, in CHARACTERS (Unicode code points). Must be at least this segment's shipped default and at most 100000. Read the current values from get_settings rather than assuming a number.",
+              "title": "Doc Cap Chars Manual Sop"
+            },
+            "doc_cap_chars_offboard": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The size cap on the 〈停止〉 block, in CHARACTERS (Unicode code points). Must be at least this document's shipped default and at most 100000. Read the current values from get_settings rather than assuming a number.",
+              "title": "Doc Cap Chars Offboard"
+            },
+            "doc_cap_chars_system_interaction": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The size cap on the 系統互動 block of the boot context, in CHARACTERS (Unicode code points). Must be at least this document's shipped default and at most 100000. Read the current values from get_settings rather than assuming a number.",
+              "title": "Doc Cap Chars System Interaction"
+            },
+            "display_language": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The owner's cockpit language (T-0b41-p2) — trimmed; \"\" clears it back to unset. Must be one of zh, en (or \"\"); anything else is a 422.",
+              "title": "Display Language"
+            },
+            "display_theme": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The owner's cockpit visual theme (T-0b41-p2) — trimmed; \"\" clears it back to unset. Must be one of office, xian (or \"\"); anything else is a 422.",
+              "title": "Display Theme"
+            },
+            "display_wide": {
+              "anyOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Turn the WIDE cockpit layout on/off (T-756f) — true lifts the centred ~1040px content column (the side gutters stay), false restores it. A plain boolean with no unset state: omit the field to leave it unchanged.",
+              "title": "Display Wide"
+            },
+            "handover_pct": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The SECOND offboard point: the FINAL notice, and where the automatic handover fires. 40..90, and strictly greater than notice_pct (the pair is validated together against the POST-patch values, so either one may be sent alone).",
+              "title": "Handover Pct"
+            },
+            "notice_pct": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The FIRST offboard point (T-a9d6): the SOFT notice, where the agent is asked to work the offboard sequence and then call report_stopped itself. 1..89, and strictly below handover_pct.",
+              "title": "Notice Pct"
+            },
+            "codex_notice_round": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The codex SOFT-notice compaction round (T-a9d6). 1..10, and strictly below codex_compaction_threshold.",
+              "title": "Codex Notice Round"
+            },
+            "monitoring_refresh_seconds": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Minimum interval between monitoring and machine refreshes, in seconds (1 through 60).",
+              "title": "Monitoring Refresh Seconds"
+            },
+            "accelerated_grace_secs": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "加速停止 grace, in seconds. Must be 10 through 3600. Applies to every CLOCKED wind-down cause at once (the second context threshold and the owner-pressed 加速停止); it can never put a clock on a soft cause.",
+              "title": "Accelerated Grace Secs"
+            },
+            "warden_credential_lifetime_secs": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "How long a MACHINE (warden) credential is meant to live, in seconds. Must be 86400 through 34560000 (one day through 400 days). A warden renews its own credential once that credential is two thirds of this old, plus a per-machine stagger of up to one hour so that LOWERING this value does not put the whole fleet on the mint endpoint inside one poll. The floor is one day because the last third of the lifetime is the retry window: at the 15-minute poll a one-day lifetime still leaves about 32 attempts. Wardens pick a change up within one poll interval. It is ALSO the expiry stamped into the credential (`exp = iat + this`, T-fc53), so a machine that misses its whole retry window needs a hand re-install; lowering the value never shortens a credential already issued, because an `exp` is fixed at mint time. Read the current value from get_settings rather than assuming a number.",
+              "title": "Warden Credential Lifetime Secs"
+            },
+            "org_name": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The studio display name (T-d693) — trimmed, max 80 runes; \"\" clears it back to the localized default. A value longer than 80 runes is a 422.",
+              "title": "Org Name"
+            },
+            "outsource_max_parallel": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Outsource Max Parallel"
+            },
+            "owner_name": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The owner's display nickname (T-0b41) — trimmed, max 80 runes; \"\" clears it back to the localized default. A value longer than 80 runes is a 422.",
+              "title": "Owner Name"
+            },
+            "push_contact_email": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The push contact address (T-8a82) — trimmed, max 254 runes; \"\" clears it back to unset and stops all Web Push delivery. A value must be a single `local@domain` address whose domain is a real public one: a malformed address, or one on a reserved suffix (.local, .localhost, .internal, .test, .invalid, .example), is a 422 — those are exactly the values the push gateways reject with BadJwtToken, which would take push down silently.",
+              "title": "Push Contact Email"
+            },
+            "suggested_replies_reply_card": {
+              "anyOf": [
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Replace the 建議回覆 list offered under a 請示卡 reply box (T-122) wholesale — one sentence per entry, the owner's own writing. At most 20 entries, each trimmed and at most 120 runes (Unicode code points); over either bound is a 422 that writes NOTHING, and the list is never silently truncated. An EXPLICIT EMPTY ARRAY IS LEGAL and means \"offer no suggestions there\" — unlike the scheduled-message custom_* sets, where [] is a 422. Blank entries are dropped. Read the current list from get_settings before sending: this replaces it, it does not append. 🔴 null is NOT \"clear\": an omitted field and an explicit null both mean LEAVE THIS LIST UNCHANGED, so an agent that sends null to empty the list gets a 200 and no change at all. To clear it, send [].",
+              "title": "Suggested Replies Reply Card"
+            },
+            "suggested_replies_task_message": {
+              "anyOf": [
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Replace the 建議回覆 list offered under a 任務 message box (T-122) wholesale. Same bounds as suggested_replies_reply_card — at most 20 entries, each trimmed and at most 120 runes, over either is a 422 that writes nothing, and an explicit empty array is legal — but a SEPARATE list by owner ruling: answering a 請示卡 and writing to a task in progress are different conversations, and patching one list never touches the other. Read the current list from get_settings before sending: this replaces it, it does not append. 🔴 null is NOT \"clear\": an omitted field and an explicit null both mean LEAVE THIS LIST UNCHANGED, so an agent that sends null to empty the list gets a 200 and no change at all. To clear it, send [].",
+              "title": "Suggested Replies Task Message"
+            },
+"suggested_replies_lore_message": {
+              "anyOf": [
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Replace the 建議回覆 list offered under a 傳承 entry's message box (T-33) wholesale — that box writes to the person who WROTE the entry. Same bounds as suggested_replies_reply_card — at most 20 entries, each trimmed and at most 120 runes, over either is a 422 that writes nothing, and an explicit empty array is legal — but a SEPARATE list by owner ruling: asking about a 傳承 entry, answering a 請示卡 and writing to a task in progress are three different conversations, and patching one list never touches another. Read the current list from get_settings before sending: this replaces it, it does not append. 🔴 null is NOT \"clear\": an omitted field and an explicit null both mean LEAVE THIS LIST UNCHANGED, so an agent that sends null to empty the list gets a 200 and no change at all. To clear it, send [].",
+              "title": "Suggested Replies Lore Message"
+            },
+            "agent_token_ttl": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Agent Token Ttl"
+            },
+            "owner_token_ttl": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Owner Token Ttl"
+            },
+            "updater_auto_update": {
+              "anyOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Updater Auto Update"
+            },
+            "updater_receive_beta": {
+              "anyOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Updater Receive Beta"
+            },
+            "lore_cap_chars_role": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "How many characters of 傳承 a STAFF boot document carries for one role (T-33) — spent by every boot of that role. INDEPENDENT of lore_cap_chars_manual; the two are never summed, because they are paid by different readers at different moments. Unlike the doc_cap_chars_* knobs this one may be LOWERED as well as raised. Those floors equal their own shipped defaults because lowering one strands an existing legal document in shrink-only mode; a 傳承 entry has NO edit path at all, so a smaller cap cannot strand anything already stored — it binds the next write and nothing else. The adjustable range is 100..100000.",
+              "title": "Lore Cap Chars Role"
+            },
+            "lore_cap_chars_manual": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "How many characters of 傳承 get_task_manual appends after a type's learnings (T-33) — spent by whoever opens that manual, staff and outsource alike, since this fold enters no boot document. INDEPENDENT of lore_cap_chars_role. Unlike the doc_cap_chars_* knobs this one may be LOWERED as well as raised. Those floors equal their own shipped defaults because lowering one strands an existing legal document in shrink-only mode; a 傳承 entry has NO edit path at all, so a smaller cap cannot strand anything already stored — it binds the next write and nothing else. The adjustable range is 100..100000.",
+              "title": "Lore Cap Chars Manual"
+            },
+            "lore_cap_chars_title": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The longest title ONE 傳承 entry may be written with, in characters (T-33). An over-cap write is refused whole — nothing partial is stored and nothing is truncated. Unlike the doc_cap_chars_* knobs this one may be LOWERED as well as raised. Those floors equal their own shipped defaults because lowering one strands an existing legal document in shrink-only mode; a 傳承 entry has NO edit path at all, so a smaller cap cannot strand anything already stored — it binds the next write and nothing else. The adjustable range is 10..10000.",
+              "title": "Lore Cap Chars Title"
+            },
+            "lore_cap_chars_body": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The longest body ONE 傳承 entry may be written with, in characters (T-33). An over-cap write is refused whole; half a lesson is not a shorter lesson. Unlike the doc_cap_chars_* knobs this one may be LOWERED as well as raised. Those floors equal their own shipped defaults because lowering one strands an existing legal document in shrink-only mode; a 傳承 entry has NO edit path at all, so a smaller cap cannot strand anything already stored — it binds the next write and nothing else. The adjustable range is 10..10000.",
+              "title": "Lore Cap Chars Body"
+            }
           },
-          {
-            "type": "null"
-          }
-        ],
-        "description": "Replace the 建議回覆 list offered under a 任務 message box (T-122) wholesale. Same bounds as suggested_replies_reply_card — at most 20 entries, each trimmed and at most 120 runes, over either is a 422 that writes nothing, and an explicit empty array is legal — but a SEPARATE list by owner ruling: answering a 請示卡 and writing to a task in progress are different conversations, and patching one list never touches the other. Read the current list from get_settings before sending: this replaces it, it does not append. 🔴 null is NOT \"clear\": an omitted field and an explicit null both mean LEAVE THIS LIST UNCHANGED, so an agent that sends null to empty the list gets a 200 and no change at all. To clear it, send [].",
-        "title": "Suggested Replies Task Message"
+          "additionalProperties": false,
+          "type": "object"
+        },
+        "name": "update_settings"
       },
-      "agent_token_ttl": {
-        "anyOf": [
-          {
-            "type": "integer"
-          },
-          {
-            "type": "null"
-          }
-        ],
-        "title": "Agent Token Ttl"
-      },
-      "owner_token_ttl": {
-        "anyOf": [
-          {
-            "type": "integer"
-          },
-          {
-            "type": "null"
-          }
-        ],
-        "title": "Owner Token Ttl"
-      },
-      "updater_auto_update": {
-        "anyOf": [
-          {
-            "type": "boolean"
-          },
-          {
-            "type": "null"
-          }
-        ],
-        "title": "Updater Auto Update"
-      },
-      "updater_receive_beta": {
-        "anyOf": [
-          {
-            "type": "boolean"
-          },
-          {
-            "type": "null"
-          }
-        ],
-        "title": "Updater Receive Beta"
-      }
-    },
-    "additionalProperties": false,
-    "type": "object"
-  },
-  "name": "update_settings"
-},
     {
       "description": "Check GitHub Releases for a newer official OffiCraft version.",
       "inputSchema": {
@@ -596,7 +659,7 @@
       "name": "update_member"
     },
     {
-      "description": "Activate: write desired_state=online intent (does NOT flip online). Answers with a bounded receipt (``id``, ``activation_pending``, ``last_op_reason``), not the roster row \u2014 call ``get_member`` when you need the rest.",
+      "description": "Activate: write desired_state=online intent (does NOT flip online). A live member clears stopping_since/waking_since and consumes restart_after_stop while preserving its active refocus/stopped epoch; it updates the owner roster only without killing/reconciling or sending a lifecycle notice. An offline generation clears its old wind-down, banks live cost, and uses stop-before-start. Answers with a bounded receipt (``id``, ``activation_pending``, ``last_op_reason``), not the roster row \u2014 call ``get_member`` when you need the rest.",
       "inputSchema": {
         "properties": {
           "machine_id": {
@@ -645,7 +708,7 @@
       "name": "relocate_member"
     },
     {
-      "description": "Deactivate: desired_state=offline + stamp stopping_since (retains row). Answers with a bounded receipt (``id``), not the roster row \u2014 call ``get_member`` when you need the rest.",
+      "description": "Deactivate: desired_state=offline + stamp stopping_since (retains row); with no live session, immediately collect/bank/dispatch the stop. Answers with a bounded receipt (``id``), not the roster row \u2014 call ``get_member`` when you need the rest.",
       "inputSchema": {
         "properties": {
           "member_id": {
@@ -2870,7 +2933,7 @@
       "name": "post_task_message"
     },
     {
-      "description": "Submit/replace the workflow plan (done and answered-card steps are kept). T-74f8 交棒閘 (second door): a plan is a step-set write and the task status is DERIVED from the step set, so a plan that leaves EVERY step done CLOSES the task — the same irreversible close the final step report performs. If that task's creator is not its executor and no handover is declared or already real, the replan is refused with 422 BEFORE anything is written (the plan stays fully editable). A plan carries no handoff field, so the way out is to hand over first: create the successor task and point its ``blocked_by`` at this task (the gate then stands aside by itself), or keep one unfinished step and declare the handover on the ``update_step_status`` report that closes it. A replan that still leaves work in the plan is never gated. Answers with a bounded receipt (task_id, steps_total, progress_done, progress_total), not the plan you just sent — use get_task to read the stored step rows back.",
+      "description": "Submit/replace the workflow plan. ⚠️ Resubmitting permanently deletes every unfinished step and its working note; deleted notes cannot be recovered. Done steps, superseded steps, and steps with an answered or expired reply card are kept. Relisting a step under the same name creates a new step with a new id, so copy any note you need before resubmitting. T-74f8 交棒閘 (second door): a plan is a step-set write and the task status is DERIVED from the step set, so a plan that leaves EVERY step done CLOSES the task — the same irreversible close the final step report performs. If that task's creator is not its executor and no handover is declared or already real, the replan is refused with 422 BEFORE anything is written (the plan stays fully editable). A plan carries no handoff field, so the way out is to hand over first: create the successor task and point its ``blocked_by`` at this task (the gate then stands aside by itself), or keep one unfinished step and declare the handover on the ``update_step_status`` report that closes it. A replan that still leaves work in the plan is never gated. Answers with a bounded receipt (task_id, steps_total, progress_done, progress_total), not the plan you just sent — use get_task to read the stored step rows back.",
       "inputSchema": {
         "properties": {
           "steps": {
@@ -4400,6 +4463,130 @@
         "type": "object"
       },
       "name": "replace_task_artifact"
-    }
+    },
+    {
+        "description": "Write ONE 傳承 entry (never editable afterwards). ``task_id`` picks the scope, and there is ALWAYS somewhere for it to land: a task that carries a TYPE files under that type's manual; no task at all, OR a task with no type (臨時任務), files into your OWN boot document -- your role if you are staff, yourself if you are an outsource member (who has no role for a role scope to name). The untyped-task case answers a ``scope_note`` saying where it actually went, because you asked for a manual and did not get one. Only a caller with no roster row at all is a 400 -- there is no boot document to file into. An over-cap title or body is a 400 that writes nothing.",
+        "inputSchema": {
+          "properties": {
+            "title": {
+              "type": "string"
+            },
+            "body": {
+              "type": "string"
+            },
+            "task_id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "title",
+            "body"
+          ],
+          "type": "object"
+        },
+        "name": "write_lore_entry"
+      },
+    {
+        "description": "List 傳承 entries, filtered SERVER-SIDE and paged in the fixed order pinned -> active -> retired, newest first inside each group. The order is not configurable; the filter is.",
+        "inputSchema": {
+          "properties": {
+            "scope_kinds": {
+              "description": "REPEATABLE scope-kind set (``?scope_kinds=agent&scope_kinds=manual``). Accepted values: ``agent``, ``manual``; ANY other element is a 400 that NAMES the offending value — never a silently dropped one, because 「查無資料」 and 「你打錯字」 look identical on the wire. 🔴 ``role`` IS NOW ONE OF THOSE REFUSED VALUES. It was the third scope until 2026-09-07 (owner, card rc-a43100fd0486 [0]) and every client written before then knows it, so it is the one wrong value likely to arrive from a real caller — answering 200-with-no-rows would tell them their 傳承 had been deleted rather than that their vocabulary is old. Refusing it does NOT hide the legacy rows the migration deliberately left at ``role``: those still come back on any page that does not constrain this axis. 🔴 PLURAL WINS. When this and its singular twin are BOTH sent, this one is the filter and the singular is ignored — they are neither ANDed nor unioned. Absent, or present but all-blank, falls back to the singular; both empty means no constraint on this axis. NOTE the 上限線: ``cap_chars`` / ``first_dropped_id`` are answered only when the EFFECTIVE scope_kind set holds exactly ONE value AND the effective scope_key set holds exactly ONE — a budget belongs to a scope, so a page spanning two or more has no single one to report and answers 0 / \"\". additive-optional.",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "scope_kind": {
+              "type": "string"
+            },
+            "scope_keys": {
+              "description": "REPEATABLE scope-key set (``?scope_keys=m-1a2b&scope_keys=tm-review``) — the multi-select twin of ``scope_key``. The keys are free-form (a member id or a manual's type_key, depending on the kind beside them), so there is no closed set to check against and no 400: a key nobody carries answers 200 with no rows for that key. 🔴 PLURAL WINS. When this and its singular twin are BOTH sent, this one is the filter and the singular is ignored — they are neither ANDed nor unioned. Absent, or present but all-blank, falls back to the singular; both empty means no constraint on this axis. NOTE the 上限線: ``cap_chars`` / ``first_dropped_id`` are answered only when the EFFECTIVE scope_kind set holds exactly ONE value AND the effective scope_key set holds exactly ONE — a budget belongs to a scope, so a page spanning two or more has no single one to report and answers 0 / \"\". additive-optional.",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "scope_key": {
+              "type": "string"
+            },
+            "states": {
+              "description": "REPEATABLE state set (``?states=active&states=pinned``) — the multi-select twin of ``state``, so the 狀態 filter can tick more than one row. Accepted values: ``active``, ``pinned``, ``retired``; ANY other element is a 400 that NAMES the offending value rather than being dropped, for the same reason the singular does it — an ignored typo returns an empty page that reads exactly like a real \"there are none\". 🔴 PLURAL WINS. When this and its singular twin are BOTH sent, this one is the filter and the singular is ignored — they are neither ANDed nor unioned. Absent, or present but all-blank, falls back to the singular; both empty means no constraint on this axis. additive-optional.",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "state": {
+              "type": "string"
+            },
+            "author_ids": {
+              "description": "REPEATABLE author set (``?author_ids=mira&author_ids=nova``) — the multi-select twin of ``author_id``. Member ids are free-form and are matched literally against the author PINNED at write time, so there is no closed set and no 400; an id nobody carries simply contributes no rows. 🔴 PLURAL WINS. When this and its singular twin are BOTH sent, this one is the filter and the singular is ignored — they are neither ANDed nor unioned. Absent, or present but all-blank, falls back to the singular; both empty means no constraint on this axis. additive-optional.",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "author_id": {
+              "type": "string"
+            },
+            "entry_ids": {
+              "description": "REPEATABLE 傳承編號 set (``?entry_ids=L-12&entry_ids=L-30``) — the multi-select twin of ``entry_id``, and the axis behind the 傳承編號 search box the design calls for (LORE_SPEC.md §6). 🔴 IT MATCHES THE WHOLE ID, EXACTLY — never a prefix and never a substring. Owner 2026-09-08 asked for it 「跟 task 一樣」, and 任務頁 resolves a committed id by asking for THAT ONE id (``useTasks.ts:201`` ``api.getTask(anchorId)``) and pairs it to a row by equality (``TasksPage.tsx:458`` ``x.id === appliedId``); nothing there ever compares part of an id. A substring axis would also interact badly with paging: ``L-1`` would drag L-10…L-19 into a batch that limit/offset then cuts, pushing the entry actually asked for off the end. 🔴 IT IS APPLIED IN SQL, WITH THE PAGE — like every other axis here, and for the reason the whole filter exists: this list is scroll-to-load, so an id narrowed client-side would make 「捲到底沒有了」 and 「真的沒有了」 the same picture and would draw the 上限線 in the wrong place. An id is an OPEN identifier space, so there is NO closed set to check and NO 400 — the same call ``scope_keys``/``author_ids`` make. An id no entry carries answers 200 with no rows, which is the true answer, and no ``L-`` + digits shape is enforced: it would refuse only the ids that could never match while still answering an empty page for ``L-99999``, the likelier miss. 🔴 PLURAL WINS. When this and its singular twin are BOTH sent, this one is the filter and the singular is ignored — they are neither ANDed nor unioned. Absent, or present but all-blank, falls back to the singular; both empty means no constraint on this axis, which is IDENTICAL to not sending the parameter at all (an empty set is 「do not narrow」, never 「match nothing」). NOTE the 上限線 is unaffected: ``cap_chars`` / ``first_dropped_id`` still depend only on the effective scope_kind and scope_key sets holding exactly one value each — a budget belongs to a scope, and naming one entry does not name a scope. additive-optional.",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "entry_id": {
+              "type": "string"
+            },
+            "limit": {
+              "type": "integer"
+            },
+            "offset": {
+              "type": "integer"
+            }
+          },
+          "type": "object"
+        },
+        "name": "list_lore_entries"
+      },
+    {
+        "description": "Move one 傳承 entry to active / pinned / retired. 置頂 and un-置頂 are ADMIN-ONLY (owner ruling): a pinned entry sorts ahead of every other entry in its scope and so survives the cap at the others' expense. 失效 and 生效 are open to the entry's own AUTHOR -- anyone else is a 403 -- and admin capability is unrestricted. Retiring is not deleting: the entry keeps its id and can be moved back; ``retire_reason`` is stored only with retired and cleared by the other two.",
+        "inputSchema": {
+          "properties": {
+            "entry_id": {
+              "type": "string"
+            },
+            "state": {
+              "type": "string"
+            },
+            "retire_reason": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "entry_id",
+            "state"
+          ],
+          "type": "object"
+        },
+        "name": "set_lore_entry_state"
+      },
+    {
+        "description": "提到最新: set one 傳承 entry's ``effective_ts`` to now so it sorts to the front of its group. Only the entry's own AUTHOR may bump it (admin capability is unrestricted) -- a bump moves an entry ahead of other people's under a shared cap, so it spends somebody else's room. ``created_ts`` is NOT touched, which is what makes this reversible.",
+        "inputSchema": {
+          "properties": {
+            "entry_id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "entry_id"
+          ],
+          "type": "object"
+        },
+        "name": "bump_lore_entry"
+      }
   ]
 }

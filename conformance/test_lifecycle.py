@@ -12,14 +12,18 @@ Third conformance batch. What this file pins, MUST by MUST:
   * §1.3 mint surfaces and TTLs: login (owner scope, owner_token_ttl default
         86400 s), bootstrap/reconcile (agent_token_ttl default 604800 s),
         /api/mint (agent scope, min(ttl_days·86400, 400 d) cap), and every
-        warden install mint (permanent, no machine claim), including one-time
+        warden install mint (agent scope, no machine claim, exp = iat +
+        auth.warden_credential_lifetime_secs — §1.6; they were PERMANENT until
+        T-fc53 第二段), including one-time
         machine claim-code redemption, bootstrap-with-
         member (claim = desired_machine_id); wrong password → flat 401;
   * §2  boot-context assembly reproduced BYTE-FOR-BYTE from the seed files
         (language-neutral assets under seeds/ — data, not code)
         plus API-visible overlay state: block order, "\\n\\n" joins, the single
-        trailing "\\n", the exact block headers, and the two blocks that are
-        skipped entirely when they fold blank (使用者自訂 and 判準/# Insight).
+        trailing "\\n", the exact block headers, and the three blocks that are
+        skipped entirely when they fold blank (使用者自訂, 判準/# Insight, and
+        the T-33 傳承 block, which is absent — heading and all — when the role
+        has no live entries that fit the cap).
         This suite is the VERBATIM authority for that assembly — spec §2.2
         carries the shape and delegates the exact formatting here;
   * §2  bootstrap == the same fold regardless of overlay state (overlay-wins
@@ -104,13 +108,43 @@ def _assert_claims(
     return payload
 
 
-def _assert_permanent_warden_claims(token: str, *, sub: str) -> dict:
+def _warden_lifetime_secs(client, owner_token: str) -> int:
+    """The org setting every warden mint stamps its ``exp`` from (§1.6).
+
+    Read off the wire rather than hard-coded: this suite is black-box, and the
+    value is owner-adjustable, so pinning a literal here would make the suite
+    red on any install that changed a setting it is allowed to change. What IS
+    pinned is that the credential agrees with whatever the station says.
+    """
+    r = client.get("/api/settings", headers=_auth(owner_token))
+    assert r.status_code == 200, r.text
+    lifetime = r.json()["warden_credential_lifetime_secs"]
+    assert isinstance(lifetime, int) and lifetime > 0, lifetime
+    return lifetime
+
+
+def _assert_warden_claims(token: str, *, sub: str, lifetime: int) -> dict:
+    """§1.6: a warden credential expires again, on the lifetime setting's clock.
+
+    This replaced ``_assert_permanent_warden_claims``, which asserted the
+    opposite (``"exp" not in payload``). The rename is deliberate: a helper
+    called "permanent" is one a reader trusts without opening it.
+    """
     header, payload = _decode_jwt(token)
     assert header == {"alg": "HS256", "typ": "JWT"}, header
     assert payload["sub"] == sub, payload
     assert payload["scope"] == "agent", payload
     assert isinstance(payload["iat"], int), payload
-    assert "exp" not in payload, payload
+    assert isinstance(payload["exp"], int), (
+        f"warden credentials carry an exp again since §1.6: {payload}"
+    )
+    assert payload["exp"] - payload["iat"] == lifetime, (
+        f"warden credential lifetime is {payload['exp'] - payload['iat']} s but the "
+        f"station reports auth.warden_credential_lifetime_secs={lifetime}. The mint "
+        f"and the renewal trigger MUST read one number (§1.5, §1.6) — a fleet that "
+        f"renews on a clock its credentials do not keep is a fleet that renews after "
+        f"it has already been refused."
+    )
     assert "machine_id" not in payload, payload
     return payload
 
@@ -135,7 +169,10 @@ def test_mint_ttl_days_and_400_day_cap(client, owner_token, agent_a) -> None:
         )
 
 
-def test_machine_onboard_token_never_expires_no_placement_claim(client, owner_token) -> None:
+def test_machine_onboard_token_expires_on_the_setting_no_placement_claim(
+    client, owner_token
+) -> None:
+    lifetime = _warden_lifetime_secs(client, owner_token)
     r = client.post(
         "/api/machines",
         json={"display_name": f"conf-lc-machine-{uuid.uuid4().hex[:6]}"},
@@ -143,12 +180,16 @@ def test_machine_onboard_token_never_expires_no_placement_claim(client, owner_to
     )
     assert r.status_code == 200, r.text
     data = r.json()
-    assert data["expires_in"] == 0, data["expires_in"]
+    assert data["expires_in"] == lifetime, (
+        f"expires_in={data['expires_in']} but the credential's lifetime is {lifetime}. "
+        f"expires_in=0 was the permanent-credential sentinel and no warden route "
+        f"answers it since §1.6."
+    )
     # Warden tokens carry NO machine_id claim (§1.3) — the warden IS the machine.
-    _assert_permanent_warden_claims(data["token"], sub=data["machine_id"])
+    _assert_warden_claims(data["token"], sub=data["machine_id"], lifetime=lifetime)
     # §1.3 machine claim codes: the boot command carries the ONE-TIME code,
     # never the token, and redeeming it mints the SAME shape onboard minted
-    # (agent scope, warden sub, no expiry, no placement claim).
+    # (agent scope, warden sub, the same expiry, no placement claim).
     assert data["claim_expires_in"] == MACHINE_CLAIM_TTL_SECS, data["claim_expires_in"]
     assert f"/install.sh?code={data['claim_code']}" in data["boot_command"], (
         data["boot_command"]
@@ -160,8 +201,8 @@ def test_machine_onboard_token_never_expires_no_placement_claim(client, owner_to
     assert claimed.status_code == 200, claimed.text
     body = claimed.json()
     assert body["machine_id"] == data["machine_id"], body
-    assert body["expires_in"] == 0, body["expires_in"]
-    _assert_permanent_warden_claims(body["token"], sub=data["machine_id"])
+    assert body["expires_in"] == lifetime, body["expires_in"]
+    _assert_warden_claims(body["token"], sub=data["machine_id"], lifetime=lifetime)
 
 
 def test_bootstrap_token_carries_desired_machine_claim(
@@ -259,7 +300,130 @@ def _rendered(text: str, join: str = "\n\n") -> str:
     return head + join + body if sep else text
 
 
-def _expected_context(client, owner_token, role_key: str, user_text: str) -> str:
+def _expected_lore_block(client, owner_token, member_id: str) -> str:
+    """Rebuild the 傳承 block (T-33) the staff fold appends after 長期筆記.
+
+    🔴 KEYED BY THE MEMBER, NOT BY THE ROLE, AND THE EMPTY-STRING CASE IS THE
+    ONE TO READ CAREFULLY. The owner collapsed the 傳承 scopes to two on
+    2026-09-07 (card rc-a43100fd0486 [0]): a staff member's 傳承 hangs off its
+    own member id, and `scope_kind='role'` is retired. buildBootContext is also
+    the cockpit's ROLE PREVIEW — called with NO member — and on that path there
+    is no id to key by, so the server emits no 傳承 block at all rather than an
+    arbitrary one. `member_id == ""` is exactly that path, and this function
+    returns "" for it.
+
+    ⚠️ SO A CALLER PASSING "" GETS A VACUOUSLY-TRUE COMPARISON FOR THIS BLOCK.
+    That is honest (the server emits nothing either) but it is not a test of the
+    傳承 fold, and no caller should read it as one. The fold is exercised where a
+    real member id is available; see the call sites.
+
+    🔴 THE RENDERING AND THE SELECTION ARE HAND-WRITTEN HERE, on purpose. Only
+    the DATA comes from the wire (`GET /api/lore`) — exactly the way this file
+    treats Insight and Lessons: it takes the text and spells the heading out
+    itself. Asking the server for a ready-made block and pasting it in would
+    make this assertion true against ANY implementation, which is the same as
+    not asserting it.
+
+    Every formatting rule below is read off the server source:
+
+      * block heading `# 傳承`               — `loreBlockHeading`,
+                                               server/ocserverd/lore_select.go:121
+      * per-entry `\\n\\n## <id> <title>`      — renderLoreBlock,
+                                               lore_select.go:141-144 (the id is
+                                               rendered because it is the handle
+                                               a write face takes back)
+      * `（置頂）` suffix on a PINNED entry   — lore_select.go:145-147
+      * body appended after `\\n\\n`, and     — lore_select.go:148-152
+        omitted entirely when it trims blank
+      * an EMPTY selection renders ""        — lore_select.go:135-137, and the
+        and is dropped from the join rather    caller drops "" instead of joining
+        than joined as a blank part            it, assets.go:570-576
+      * selection order: pinned group first, — ListLoreEntriesLive's ORDER BY,
+        then effective_ts DESC, seq DESC       server/ocserverd/dal_lore.go:168-178
+      * retired entries are excluded          — same WHERE clause, dal_lore.go:171
+      * cap walk: accumulate title+body in    — selectLoreForScope,
+        CHARACTERS (code points, never          lore_select.go:66-68 and 107-115
+        bytes) and STOP at the first entry
+        that does not fit — no skipping,
+        no truncation
+      * cap <= 0 means "no room", not         — lore_select.go:96-102
+        "unlimited"
+
+    🔴 ORDER: `GET /api/lore` does NOT list in the fold's order. The list face
+    runs ListLoreEntriesPage (dal_lore.go:201-229), whose ORDER BY is a THREE
+    group CASE — pinned, active, retired — while the fold runs
+    ListLoreEntriesLive (dal_lore.go:168-178), a TWO group order over live rows
+    only. Restricted to the non-retired rows the two happen to agree today, so
+    this function does not lean on that: it drops `retired` itself and re-sorts
+    with the fold's key.
+    """
+    entries: list[dict] = []
+    cap_chars = 0
+    limit, offset = 200, 0
+    while True:
+        r = client.get(
+            "/api/lore",
+            params={
+                "scope_kind": "agent",
+                "scope_key": member_id,
+                "limit": limit,
+                "offset": offset,
+            },
+            headers=_auth(owner_token),
+        )
+        assert r.status_code == 200, r.text
+        page = r.json()
+        # cap_chars is the `lore_cap_chars_role` SETTING in force, answered only
+        # because the filter converged on ONE scope. It is a number, not a
+        # decision: the walk that spends it is written out below.
+        #
+        # ⚠️ THE SETTING KEY STILL SAYS `role` AND THE SCOPE IS `agent`. The knob
+        # was not renamed when the scopes collapsed — renaming a live settings
+        # key is the owner's call — so the name is stale and the meaning is what
+        # this comment says: it is the budget every member-scoped fold spends.
+        cap_chars = page["cap_chars"]
+        entries += page["entries"]
+        if len(page["entries"]) < limit:
+            break
+        offset += limit
+
+    live = [e for e in entries if e["state"] != "retired"]
+    live.sort(key=lambda e: (0 if e["state"] == "pinned" else 1,
+                             -e["effective_ts"], -e["seq"]))
+
+    chosen: list[dict] = []
+    used = 0
+    if cap_chars > 0:
+        for e in live:
+            # CHARACTERS, not bytes: Go counts these with
+            # utf8.RuneCountInString and Python's len() over a str is the same
+            # unit (code points). The heading/blank-line scaffolding is NOT
+            # charged — the cap is a budget over what somebody wrote.
+            cost = len(e["title"]) + len(e["body"])
+            if used + cost > cap_chars:
+                break  # STOP, do not skip ahead to a smaller entry
+            used += cost
+            chosen.append(e)
+
+    # 🔴 NOTHING AT ALL when nothing was selected — not even a separator. The
+    # caller drops "" rather than joining it, so an empty scope must leave the
+    # assembled document byte-identical to the pre-T-33 fold.
+    if not chosen:
+        return ""
+    out = "# 傳承"
+    for e in chosen:
+        out += f"\n\n## {e['id']} {e['title'].strip()}"
+        if e["state"] == "pinned":
+            out += "（置頂）"
+        body = e["body"].strip()
+        if body:
+            out += f"\n\n{body}"
+    return out
+
+
+def _expected_context(
+    client, owner_token, role_key: str, user_text: str, member_id: str = ""
+) -> str:
     role = client.get(f"/api/roles/{role_key}", headers=_auth(owner_token)).json()
     lessons = client.get(
         f"/api/lessons/{role_key}", headers=_auth(owner_token)
@@ -277,7 +441,20 @@ def _expected_context(client, owner_token, role_key: str, user_text: str) -> str
     # one of them; if they disagree about FORMATTING, this file wins by design.
     #
     # Order (must match §2.2): 系統互動 → 使用者自訂 → 角色定義 → 判準 →
-    # 學習筆記 → 啟動步驟.
+    # 學習筆記 → 傳承 → 啟動步驟.
+    #
+    # 傳承 (T-33) sits between 長期筆記 and the recency-authoritative 啟動步驟
+    # tail (server/ocserverd/assets.go) and, like 使用者自訂 and 判準, is dropped
+    # ENTIRELY — no header, no blank line — when it is empty.
+    #
+    # 🔴 IT IS KEYED BY `member_id`, AND A BLANK ONE MEANS THE BLOCK IS ABSENT.
+    # Since the 2026-09-07 scope collapse the staff fold reads the MEMBER's 傳承,
+    # so the preview path (POST /api/bootstrap with no member_id) has nothing to
+    # key by and emits no block. Callers that assemble a preview pass "" and get
+    # the same nothing; callers holding a real member pass its id and get the
+    # real fold. Defaulting this parameter to "" is deliberate — the preview is
+    # what most of this file exercises — but it does mean a caller that HAS a
+    # member and forgets to pass it gets a silently weaker comparison.
     #
     # 使用者自訂 and 判準 are each dropped entirely when they fold blank. The
     # gate is the FOLDED TEXT — deliberately not is_default and not has_seed,
@@ -291,10 +468,10 @@ def _expected_context(client, owner_token, role_key: str, user_text: str) -> str
     )
     if insight["text"].strip():
         parts.append(f"# Insight ({role_key})\n\n{insight['text'].strip()}")
-    parts += [
-        f"# Lessons ({role_key})\n\n{lessons['text'].strip()}",
-        _rendered(_seed("boot_sequence.md")).strip(),
-    ]
+    parts.append(f"# Lessons ({role_key})\n\n{lessons['text'].strip()}")
+    if lore := _expected_lore_block(client, owner_token, member_id):
+        parts.append(lore)
+    parts.append(_rendered(_seed("boot_sequence.md")).strip())
     return "\n\n".join(parts) + "\n"
 
 

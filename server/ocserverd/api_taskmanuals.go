@@ -72,6 +72,36 @@ func (s *apiServer) writeTaskManual(w http.ResponseWriter, m TaskManual) {
 		internalError(w, err)
 		return
 	}
+	// 傳承 (T-33) — the MANUAL exit. The type's lore rides out on `lore`, its
+	// OWN field, beside the learnings document rather than appended to it.
+	//
+	// ⚠️ THE EARLIER SHAPE APPENDED IT TO `learnings`, and the reasoning for
+	// that is recorded here because it was not silly: `learnings` is what a
+	// planner already reads, so a sibling field risked being served to every
+	// client and read by none until each was taught to look. What that argument
+	// missed is that it makes the field unmeasurable — learnings_chars counts
+	// the stored document, so the owner was served a manual whose learnings
+	// field was full and whose learnings_chars was 0. Owner ruling 2026-09-07:
+	// 「get_task_manual 應該 learning 跟 lore 還是分開的欄位」. The reach problem
+	// is real and is now a DOCUMENTATION problem, which is the honest place for
+	// it — not a reason to keep two things in one field.
+	//
+	// 🔴 THIS DOES NOT ENTER ANY BOOT DOCUMENT. Task lore is fetched when
+	// somebody opens the manual, which is where staff and outsource behave
+	// identically — the role/outsource asymmetry lives on the OTHER exit and
+	// stops there.
+	//
+	// 🔴 SPLIT IS WHAT MAKES BOTH NUMBERS HONEST. learnings_chars counts the
+	// stored document the write face writes, lore_chars counts this rendering;
+	// neither rule had to change. A reader that wants what a member actually
+	// sees concatenates the two itself, and can see that it did.
+	sel, err := selectLoreForScope(s.dal, LoreScopeManual, m.TypeKey, s.loreManualCap())
+	if err != nil {
+		internalError(w, err)
+		return
+	}
+	dto.Lore = renderLoreBlock(sel)
+	dto.LoreChars = len([]rune(dto.Lore))
 	writeJSON(w, http.StatusOK, dto)
 }
 
@@ -428,7 +458,10 @@ func (s *apiServer) HandleUpdateTaskManualApiTaskManualsTypeKeyPost(w http.Respo
 		m.SopMD = *body.SopMd
 	}
 	if body.Learnings != nil {
-		m.Learnings = *body.Learnings
+		// 🔴 Stripped on the way in — GET /api/task-manuals/{type_key} SERVES the
+		// 傳承 block appended to this very field, so "read the latest, merge, send
+		// it back" puts it here. See stripTrailingLoreBlock (lore_select.go).
+		m.Learnings = stripTrailingLoreBlock(*body.Learnings)
 	}
 	if body.Fields != nil {
 		fields := make([]ManualField, 0, len(*body.Fields))
@@ -518,9 +551,19 @@ func (s *apiServer) HandleWriteTaskLearningsApiTaskManualsTypeKeyLearningsPost(w
 		writeResolveError(w, err, "task manual", typeKey)
 		return
 	}
+	// 🔴 STRIPPED FIRST — before the wipe guard, the cap check and the receipt,
+	// so every one of them judges the text that is actually STORED. The sibling
+	// face (api_roles.go) has always done it in this order and says so; this one
+	// did not, and the gap was not academic: a write consisting of nothing but a
+	// 傳承 block (what an agent sends after reading get_task_manual's new `lore`
+	// field and writing it back) is non-empty on the way in and empty on the way
+	// out. The wipe guard saw the non-empty version, let it through, and the
+	// manual's accumulated learnings were erased with a 200 whose only trace was
+	// `size_chars: 0`. See stripTrailingLoreBlock (lore_select.go) for the loop.
+	incoming := stripTrailingLoreBlock(body.Text)
 	// Belt to the strict decoder's braces: even a well-formed {"text": ""}
 	// must not silently erase accumulated learnings.
-	if !(body.AllowShrink != nil && *body.AllowShrink) && WholeDocWipeBlocked(m.Learnings, body.Text) {
+	if !(body.AllowShrink != nil && *body.AllowShrink) && WholeDocWipeBlocked(m.Learnings, incoming) {
 		writeError(w, http.StatusBadRequest,
 			"this would replace the existing learnings with an empty doc — pass allow_shrink=true "+
 				"if that is intended; nothing was written")
@@ -528,11 +571,11 @@ func (s *apiServer) HandleWriteTaskLearningsApiTaskManualsTypeKeyLearningsPost(w
 	}
 	// T-3351 hard cap. Unconditional — allow_shrink governs the opposite
 	// direction (shrinking too far) and is not a bypass for this one.
-	if cap := s.manualLearningsCap(); DocCapBlocked(cap, m.Learnings, body.Text) {
-		writeError(w, http.StatusBadRequest, docCapRefusal(cap, "learnings doc", m.Learnings, body.Text))
+	if cap := s.manualLearningsCap(); DocCapBlocked(cap, m.Learnings, incoming) {
+		writeError(w, http.StatusBadRequest, docCapRefusal(cap, "learnings doc", m.Learnings, incoming))
 		return
 	}
-	m.Learnings = body.Text
+	m.Learnings = incoming
 	m.UpdatedTS = nowSecs()
 	if err := s.dal.SaveWithDocumentHistories(
 		taskManualHistoryStreams(typeKey, currentActor(r), false, true),
@@ -614,6 +657,10 @@ func (s *apiServer) HandlePatchTaskLearningsApiTaskManualsTypeKeyLearningsPatchP
 	// find the anchor it missed — it re-anchors against the wrong document and
 	// misses again, with no error and no signal that it was misdirected.
 	next, applied, err := ApplyDocEdits(m.Learnings, edits, "get_task_manual")
+	// The patch's RESULT is stripped, not its edits: get_task_manual serves the
+	// 傳承 block inside `learnings`, so an append edit carrying what the caller
+	// read back lands the block in `next` — and `next` becomes the document.
+	next = stripTrailingLoreBlock(next)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return

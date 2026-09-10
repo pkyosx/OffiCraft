@@ -10,9 +10,11 @@ package main
 // produces — same header ({"alg":"HS256","typ":"JWT"}), same claim ORDER
 // (sub, scope, iat, exp[, machine_id]), same compact JSON (no spaces), same
 // unpadded base64url — so a token minted by either daemon verifies on the
-// other under the shared secret. Warden credentials are the sole exception:
-// their server-only mint path intentionally omits exp, so a deleted machine's
-// roster row — not a timer — is their revocation seam.
+// other under the shared secret. Warden credentials go through the same mint and
+// carry an exp like everything else since T-fc53 第二段; the exp-less shape their
+// server-only path used to produce is still ACCEPTED at verify (see verifyJWT)
+// because machines installed before that change are holding one, and for those a
+// deleted machine's roster row — not a timer — remains the revocation seam.
 
 import (
 	"crypto/hmac"
@@ -79,7 +81,14 @@ func mintJWT(sub, scope string, ttl int64, secret []byte, now int64, machineID s
 
 // mintJWTWithoutExpiry mints a signed JWT with no exp claim. It is deliberately
 // separate from mintJWT so ordinary callers must opt into a permanent token
-// explicitly; its only production caller is mintWardenToken.
+// explicitly.
+//
+// 🔴 IT HAS NO PRODUCTION CALLER LEFT (T-fc53 第二段). mintWardenToken was the
+// one, and warden credentials carry an `exp` again. It is kept because tokens
+// minted before that change are still in the field — verifyJWT must go on
+// accepting a missing exp, and the tests that pin that acceptance need a way to
+// mint one. Adding a production caller here means minting a credential nothing
+// can ever expire or age out; do not, without an owner ruling.
 func mintJWTWithoutExpiry(sub, scope string, secret []byte, now int64, machineID string) (string, error) {
 	if sub == "" {
 		return "", fmt.Errorf("%w: mint requires a non-empty sub (identity id)", errInvalidToken)
@@ -93,9 +102,9 @@ func mintJWTClaims(claims jwtClaims, secret []byte) (string, error) {
 	// (errNoSigningKey), documented as "a state the server must refuse to mint
 	// in rather than silently sign with something else" — and wired to nothing;
 	// five callers open-coded the check and two did not have it at all, one of
-	// them the WARDEN path, whose credentials carry no exp. An empty key is a
-	// perfectly valid HMAC key, so without this the server would have handed out
-	// a permanent credential signed under nothing and said 200. (Found by
+	// them the WARDEN path, whose credentials carried no exp at the time. An
+	// empty key is a perfectly valid HMAC key, so without this the server would
+	// have handed out a permanent credential signed under nothing and said 200. (Found by
 	// independent review; not reachable today because requireAuth refuses
 	// everything while the ring is empty, which is precisely why it could sit
 	// there unnoticed.)
@@ -118,8 +127,11 @@ func mintJWTClaims(claims jwtClaims, secret []byte) (string, error) {
 // Checks, in Python-contract order: structural shape (3 dot-segments), the
 // HS256 header alg (refusing an alg:none downgrade), a CONSTANT-TIME signature
 // compare (hmac.Equal), an exp that is not in the past when present
-// (errExpiredToken), and a non-empty sub. Missing exp is reserved for the
-// server's warden-only mint path.
+// (errExpiredToken), and a non-empty sub. A MISSING exp is still accepted, and
+// that is now a backwards-compatibility rule rather than a live mint shape
+// (T-fc53 第二段): no mint on this server omits exp any more, but every warden
+// installed before that change is holding a credential that does, and it must go
+// on working until that machine renews.
 func verifyJWT(token string, secret []byte, now int64) (map[string]any, error) {
 	parts := strings.Split(token, ".")
 	if len(parts) != 3 {

@@ -162,13 +162,13 @@ describe("MonitorPage AI Sessions — outsource workers", () => {
         id: "mira", name: "Mira", role: "assistant", roleName: "", kind: "staff",
         status: "online", lifecycle: "online", model: "", effort: "medium", runtime: "claude",
         machine: "mbp5", desiredMachineId: "mbp5", account: "", contextPct: null, estimatedCost: null, bankedCost: null,
-        tmuxSession: "", refocusSince: null, lastOp: "", lastOpOk: null, lastOpLog: "", lastOpAt: null, unreadCount: 0,
+        terminalAttachCommand: "", refocusSince: null, lastOp: "", lastOpOk: null, lastOpLog: "", lastOpAt: null, unreadCount: 0,
       } as Member,
       {
         id: "ow-in-list", name: "O-12", role: "", roleName: "", kind: "outsource",
         status: "online", lifecycle: "online", model: "", effort: "medium", runtime: "codex",
         machine: "mbp5", desiredMachineId: "mbp5", account: "", contextPct: null, estimatedCost: null, bankedCost: null,
-        tmuxSession: "", refocusSince: null, lastOp: "", lastOpOk: null, lastOpLog: "", lastOpAt: null, unreadCount: 0,
+        terminalAttachCommand: "", refocusSince: null, lastOp: "", lastOpOk: null, lastOpLog: "", lastOpAt: null, unreadCount: 0,
       } as Member,
     ]);
     getMonitoring.mockResolvedValue({

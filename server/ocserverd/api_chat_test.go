@@ -1966,26 +1966,6 @@ func TestTrimChatPageNewer(t *testing.T) {
 	})
 }
 
-func TestIsPreviewableMime(t *testing.T) {
-	t.Run("the browser renders images, text and pdf in a tab and nothing else", func(t *testing.T) {
-		for mime, want := range map[string]bool{
-			"image/png":                true,
-			"image/svg+xml":            true,
-			"text/plain":               true,
-			"text/html":                true,
-			"application/pdf":          true,
-			"application/octet-stream": false,
-			"application/json":         false,
-			"video/mp4":                false,
-			"":                         false,
-		} {
-			if got := isPreviewableMime(mime); got != want {
-				t.Fatalf("isPreviewableMime(%q) = %v, want %v", mime, got, want)
-			}
-		}
-	})
-}
-
 func TestHandleGetChatAttachmentApiChatAttachmentAttachmentIdGet(t *testing.T) {
 	t.Run("an image blob is served under its stored mime with no download disposition", func(t *testing.T) {
 		api, h, _, owner := newAPITestServer(t)

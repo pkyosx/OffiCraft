@@ -130,6 +130,19 @@ type apiServer struct {
 	docCapCharsSystemInteraction int
 	docCapCharsBootSequence      int
 	docCapCharsOffboard          int
+	// loreCapChars* are the live T-33 傳承 knobs (DB lore.cap_chars.{role,
+	// manual,title,body}). The two FOLD budgets are read at request time by the
+	// two exits through loreRoleCap() / loreManualCap(); the two ENTRY bounds by
+	// the write face through loreTitleCap() / loreBodyCap().
+	//
+	// Four fields and four accessors rather than one loreCap(kind): which cap a
+	// call site is entitled to is a property of the seam, not a runtime argument,
+	// so a parameter would let the boot fold quietly measure itself against the
+	// title cap and still compile.
+	loreCapCharsRole   int
+	loreCapCharsManual int
+	loreCapCharsTitle  int
+	loreCapCharsBody   int
 	// chatBudgetChars is the live budget of the wake snapshot's chat block (DB
 	// chat.budget_chars; T-c9b4). Read through chatBudget() by
 	// resumeSnapshotParts — the ONE place the number enters the packer, which is
@@ -186,13 +199,15 @@ type apiServer struct {
 	// default) = the centred ~1040px content column the cockpit ships with; true
 	// lifts that cap. NOT an agent read path.
 	displayWide bool
-	// suggestedRepliesReplyCard / suggestedRepliesTaskMessage are the owner's
-	// one-click 建議回覆 (DB suggested_replies.*; T-122), live copies of the two
+	// suggestedRepliesReplyCard / suggestedRepliesTaskMessage /
+	// suggestedRepliesLoreMessage are the owner's one-click 建議回覆 (DB
+	// suggested_replies.*; T-122, the 傳承 one added by T-33), live copies of the
 	// lists GET /api/settings serves and PATCH replaces. Each is REPLACED
 	// wholesale on a patch and never mutated in place, so a reader holding the
 	// slice under settingsMu can keep it.
 	suggestedRepliesReplyCard   []string
 	suggestedRepliesTaskMessage []string
+	suggestedRepliesLoreMessage []string
 	// selfBase is this server's OWN loopback base URL ("http://127.0.0.1:PORT"),
 	// stamped by cmdServe once the bind address is known. It exists for the ONE
 	// in-process caller that needs an OC_BASE with no HTTP request to derive it
@@ -201,9 +216,11 @@ type apiServer struct {
 	// (tests / migrate), where onboarding never runs.
 	selfBase string
 	// namespace is the [server].namespace instance key ("" = main instance).
-	// It leaves the server on exactly two surfaces: the install.sh install line
-	// and the bootstrap/teardown-here child env (OC_NAMESPACE) — the single
-	// cross-plane propagation line for same-machine multi-instance.
+	// It leaves the server on exactly three surfaces: the install.sh install
+	// line, the bootstrap/teardown-here child env (OC_NAMESPACE) — the single
+	// cross-plane propagation line for same-machine multi-instance — and, since
+	// T-139, the terminal_attach_command the two agent DTOs serve, which needs
+	// it to name the `tmux -L` socket THIS station's wardens opened.
 	namespace string
 	// ctxhigh is the context-high band config the /api/events stream loop
 	// evaluates each quiet tick (DB ctx.* settings; defaults when unset).
@@ -244,12 +261,17 @@ type apiServer struct {
 	// (auth.warden_credential_lifetime_secs; T-fc53), guarded by settingsMu like
 	// every other owner-adjustable number here.
 	//
-	// 🔴 NOTHING ON THE SERVER ACTS ON IT. It is not consulted by mintWardenToken,
-	// not by the auth gate, and not by reconcile — it is PUBLISHED, to the settings
-	// face and to GET /api/machines/credential-policy, and the party that acts on
-	// it is each warden's own poll loop. That asymmetry is deliberate and is what
-	// keeps the first package harmless: the station changing this number cannot by
-	// itself invalidate anything.
+	// 🔴 SINCE T-fc53 第二段 THE SERVER DOES ACT ON IT, and the old note is quoted
+	// here because it is the thing a reader is most likely to still believe: it
+	// used to say "NOTHING ON THE SERVER ACTS ON IT … the station changing this
+	// number cannot by itself invalidate anything." mintWardenToken now stamps
+	// exp = iat + this value (api_auth.go), so it is a deadline as well as the
+	// number published to the settings face and to
+	// GET /api/machines/credential-policy.
+	//
+	// It STILL cannot invalidate anything already issued — an exp is fixed at mint
+	// time, so lowering this shortens only future credentials. What it changes is
+	// that a credential which never gets renewed now stops working.
 	wardenCredLifetimeSecs int
 	// root anchors the repo-file assets (seeds / prebuilt binaries / frozen
 	// MCP catalog) — see assets.go.
@@ -681,6 +703,49 @@ func (s *apiServer) offboardCap() int {
 // costs one function body, not nine call sites.
 func (s *apiServer) taskEventCap() int {
 	return taskEventCapCharsDefault
+}
+
+// loreRoleCap / loreManualCap are the live FOLD budgets of the two lore exits
+// (T-33). Read at request time like every cap above, so a PATCH takes effect on
+// the next boot document with no restart.
+//
+// ⚠️ loreRoleCap IS THE MEMBER BUDGET. Since the scopes collapsed to two (owner
+// 2026-09-07, rc-a43100fd0486 [0]) there is no role scope for it to be the
+// budget OF; it is what every member-scoped fold spends — the staff exit in
+// assets.go and the outsource exit in worker_spawn.go, which now ask for the
+// same scope. The function and its setting key keep the old name because
+// renaming a live settings key is the owner's call, not this ticket's.
+//
+// 🔴 THE TWO ARE INDEPENDENT AND ARE NEVER ADDED. One member's 傳承 is paid for
+// by every boot of that member; a task type's is paid for by whoever opens that
+// manual. Summing them, or serving one where the other belongs, would make one
+// reader's budget depend on an unrelated reader's writing.
+func (s *apiServer) loreRoleCap() int {
+	s.settingsMu.RLock()
+	defer s.settingsMu.RUnlock()
+	return s.loreCapCharsRole
+}
+
+func (s *apiServer) loreManualCap() int {
+	s.settingsMu.RLock()
+	defer s.settingsMu.RUnlock()
+	return s.loreCapCharsManual
+}
+
+// loreTitleCap / loreBodyCap bound ONE entry at the moment it is written. They
+// are what the write face refuses against, and — unlike the doc caps — they may
+// be lowered: an entry has no edit path, so a smaller cap can never strand one
+// that is already stored.
+func (s *apiServer) loreTitleCap() int {
+	s.settingsMu.RLock()
+	defer s.settingsMu.RUnlock()
+	return s.loreCapCharsTitle
+}
+
+func (s *apiServer) loreBodyCap() int {
+	s.settingsMu.RLock()
+	defer s.settingsMu.RUnlock()
+	return s.loreCapCharsBody
 }
 
 // chatBudget is the live wake-snapshot chat budget (chat.budget_chars;

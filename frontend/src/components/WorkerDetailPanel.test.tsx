@@ -594,15 +594,42 @@ describe("WorkerDetailPanel — worker-specific bits carry over", () => {
     await waitFor(() => expect(window.location.hash).toBe("#tasks/t-1"));
   });
 
-  it("shows the member-<id> tmux attach command (P5b session naming)", async () => {
+  it("shows the attach command the STATION served, verbatim (T-139)", async () => {
+    // 🔴 A NAMESPACED station's command. The panel used to derive
+    // `member-${worker.id}` itself and let the container wrap a hardcoded
+    // `tmux -L officraft` around it — a third copy of a rule that is only right
+    // on the unnamespaced station. Against a main-instance fixture that
+    // re-derivation produces a byte-identical string, so this assertion would
+    // pass with the defect back in place; the socket below is one no client can
+    // reach.
     __injectMockTask(mkTask({ id: "t-1" }));
-    __injectMockOutsourceWorker(mkWorker({ id: "ow-1", taskId: "t-1" }));
+    __injectMockOutsourceWorker({
+      ...mkWorker({ id: "ow-1", taskId: "t-1" }),
+      terminalAttachCommand: "tmux -L officraft-seth attach -t member-ow-1",
+    });
     const { findByTestId } = renderOfficeAt("#office/worker/ow-1");
     const copy = await findByTestId("worker-detail-copy");
     const cmd = copy
       .closest(".mp-terminal__row")
       ?.querySelector(".mp-terminal__cmd");
-    expect(cmd?.textContent).toContain("member-ow-1");
+    expect(cmd?.textContent?.replace(/\s+/g, " ").trim()).toBe(
+      "$ tmux -L officraft-seth attach -t member-ow-1",
+    );
+  });
+
+  it("says the server provides none — and offers no copy — when it served none", async () => {
+    // A pre-T-139 station: the field is absent on the wire → "" here. It NEVER
+    // means "this worker has no session"; the field is served on every row.
+    __injectMockTask(mkTask({ id: "t-2" }));
+    __injectMockOutsourceWorker({
+      ...mkWorker({ id: "ow-2", taskId: "t-2" }),
+      terminalAttachCommand: "",
+    });
+    const { findByTestId, queryByTestId } = renderOfficeAt(
+      "#office/worker/ow-2",
+    );
+    await findByTestId("worker-detail-no-command");
+    expect(queryByTestId("worker-detail-copy")).toBeNull();
   });
 });
 

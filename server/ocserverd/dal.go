@@ -213,8 +213,12 @@ type Member struct {
 	// the skew between the two clocks.
 	//
 	// 🔴 Warden rows carry it like any other row, and the READ side declines to
-	// consult it for them (authz.go agentIatFloorRefusal). A warden credential
-	// has no exp, so a floor above one could never expire out of the way.
+	// consult it for them (authz.go agentIatFloorRefusal). A warden refused by
+	// the floor is refused on /api/machines/renew-credential too, so the one path
+	// off the refused credential is shut at the same instant. (The reason was
+	// stronger before T-fc53 第二段 — a warden credential had no exp at all, so a
+	// floor above one could never expire out of the way; it now un-sticks when
+	// the credential expires, which is still a hand re-install.)
 	//
 	// Written through SetMemberAgentIatFloor only; a whole-row write carries it
 	// on INSERT but never onto an EXISTING row (mfAgentIatFloor declares it
@@ -2370,7 +2374,15 @@ func (d *DAL) PutLessons(l Lessons) error {
 	return putLessonsOn(d.wdb, l)
 }
 
+// 🔴 THE 傳承 BACKSTOP LIVES HERE AS WELL AS AT EVERY HANDLER, and the two are
+// not a duplicated rule — they are one function called at two layers for two
+// different reasons. The HANDLERS strip on the way in so the cap they judge and
+// the size/sha256 receipt they answer describe the text that is actually stored.
+// THIS layer strips so that a write face added later cannot silently reopen the
+// growth loop: a new door that forgets the handler-side call still cannot put
+// the block into the column. See stripTrailingLoreBlock (lore_select.go).
 func putLessonsOn(ex sqlExecer, l Lessons) error {
+	l.Text = stripTrailingLoreBlock(l.Text)
 	_, err := ex.Exec(`
 		INSERT INTO lessons (role_key, text, tombstoned)
 		VALUES (?, ?, ?)

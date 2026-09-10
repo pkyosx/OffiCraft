@@ -3,7 +3,6 @@ package main
 import (
 	"encoding/json"
 	"errors"
-	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
@@ -11,12 +10,6 @@ import (
 )
 
 var errDocumentHistoryCap = errors.New("restoring this version would violate the existing document size limit")
-
-// errDocumentHistoryContent is the restore's answer when the revision's CONTENT
-// is refused by the same rule the write face applies (T-3201). Separate from
-// the cap error because the two say different things to the reader, and both
-// are the caller's fault rather than the server's — they share the 400.
-var errDocumentHistoryContent = errors.New("this version is refused by the document's own content rule")
 
 // Naming both replacements is the whole point of refusing loudly: a caller who
 // still says "task_manual" learns which of the two series it wanted.
@@ -299,9 +292,9 @@ func (s *apiServer) documentHistoryAllowed(w http.ResponseWriter, r *http.Reques
 		// reaches a document SIDEWAYS — not from an editor, but by putting an
 		// old version back — so a gate that lived only in replaceBootDoc would
 		// be a gate this path walked around. That WAS the shape of it until
-		// T-3201: since then the join and the body rule are shared functions
-		// both faces call (bootDocStoredText / bootDocBodyRefusal), and the one
-		// gate restore still does not run is the wipe guard, deliberately —
+		// T-3201: since then the join is a shared function both faces call
+		// (bootDocStoredText), and the one gate restore still does not run is the
+		// wipe guard, deliberately —
 		// see restoreDocumentHistory. This read-only check stays here because
 		// it has to answer before the capability check, which is a property of
 		// THIS door rather than of the shared rules.
@@ -546,7 +539,7 @@ func (s *apiServer) HandleRestoreDocumentHistoryApiDocumentHistoryKindKeyIdResto
 		return
 	}
 	if err := s.restoreDocumentHistory(r, kind, key, content); err != nil {
-		if errors.Is(err, errDocumentHistoryCap) || errors.Is(err, errDocumentHistoryContent) {
+		if errors.Is(err, errDocumentHistoryCap) {
 			writeError(w, http.StatusBadRequest, err.Error())
 			return
 		}
@@ -670,11 +663,20 @@ func (s *apiServer) restoreDocumentHistory(r *http.Request, kind, key string, co
 		if err != nil {
 			return err
 		}
-		if DocCapBlocked(s.learningCap(), current.Text, content["text"]) {
+		// 🔴 A restore is a WRITE like any other, and the retained version may
+		// itself be a snapshot taken while the 傳承 block was already written into
+		// the document — restoring it verbatim would put the block back and
+		// restart the growth. See stripTrailingLoreBlock (lore_select.go).
+		//
+		// Stripped BEFORE the cap is judged, not after: the cap decides whether
+		// this restore is allowed at all, and judging it on text the write will
+		// not store would refuse restores that in fact fit.
+		restored := stripTrailingLoreBlock(content["text"])
+		if DocCapBlocked(s.learningCap(), current.Text, restored) {
 			return errDocumentHistoryCap
 		}
 		return s.dal.SaveWithDocumentHistory(kind, key, actor, lessonsSnapshotIn(roleKey), func(ex sqlExecer) error {
-			return putLessonsOn(ex, Lessons{RoleKey: roleKey, Text: content["text"], Tombstoned: historyTombstoned(content)})
+			return putLessonsOn(ex, Lessons{RoleKey: roleKey, Text: restored, Tombstoned: historyTombstoned(content)})
 		})
 	case docKindTaskDescription:
 		// T-e271. No doc cap: the description has never had a length ceiling on
@@ -770,9 +772,9 @@ func (s *apiServer) restoreDocumentHistory(r *http.Request, kind, key string, co
 		// headless version back on a live row. It did not INVENT that shape
 		// (nothing does any more); it RE-ARMED one out of the version history,
 		// silently, with one owner click. Now the revision's editable half is
-		// taken (bootDocBodyOf) and put through bootDocStoredText and
-		// bootDocBodyRefusal — the same join and the same rule replaceBootDoc
-		// uses — so a restore lands the old body under the SHIPPED head.
+		// taken (bootDocBodyOf) and put through bootDocStoredText — the same join
+		// replaceBootDoc uses — so a restore lands the old body under the SHIPPED
+		// head.
 		//
 		// The wipe guard is deliberately NOT here: it asks about an intent
 		// (「清空」) that a restore does not have, and a restore of an empty
@@ -793,9 +795,6 @@ func (s *apiServer) restoreDocumentHistory(r *http.Request, kind, key string, co
 		if DocCapBlocked(spec.Cap, current.Text, restored) {
 			return errDocumentHistoryCap
 		}
-		if msg := bootDocBodyRefusal(spec, body); msg != "" {
-			return fmt.Errorf("%w: %s", errDocumentHistoryContent, msg)
-		}
 		return s.dal.SaveWithDocumentHistory(kind, key, actor, bootDocSnapshotIn(kind, key), func(ex sqlExecer) error {
 			return putBootDocumentOn(ex, BootDocument{
 				Kind: kind, Key: key,
@@ -815,10 +814,14 @@ func (s *apiServer) restoreDocumentHistory(r *http.Request, kind, key string, co
 	case docKindTaskManualLearnings:
 		return s.restoreTaskManualField(key, taskManualHistoryStreams(key, actor, false, true),
 			func(m *TaskManual) error {
-				if DocCapBlocked(s.manualLearningsCap(), m.Learnings, content["learnings"]) {
+				// Stripped for the same reason as the lessons restore above, and
+				// BEFORE the cap for the same reason: the cap must judge what will
+				// actually be stored.
+				restored := stripTrailingLoreBlock(content["learnings"])
+				if DocCapBlocked(s.manualLearningsCap(), m.Learnings, restored) {
 					return errDocumentHistoryCap
 				}
-				m.Learnings = content["learnings"]
+				m.Learnings = restored
 				return nil
 			})
 	}

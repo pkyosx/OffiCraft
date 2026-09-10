@@ -312,11 +312,13 @@ export interface paths {
         put?: never;
         /**
          * Remove a retired key, revoking everything it signed. Refuses the signing key.
-         * @description - This IS the revocation: no undo, no grace period, and holders are not notified.
-         *     - Every token signed by that key is refused at once, as is every share link made under it.
-         *     - Machine credentials never expire, so check `token_key_current` on GET /api/machines first.
-         *     - The key that currently signs cannot be removed (409); rotate first.
-         *     - An unknown `key_id` is a 404. Owner only.
+         * @description Remove a retired signing key — THIS is the revocation, and it has no undo (owner-gated).
+         *
+         *     The moment this returns, every token signed by that key is refused, and every attachment share link produced under it stops working: a share `?sig=` is an HMAC under a key derived from the signing key, so it is governed by the ring too (owner ruling, card rc-cf9c27c07442). There is no grace period and holders are not notified — which is why the timing is a person's decision and never a timer's.
+         *
+         *     ⚠️ Warden credentials expire again since T-fc53, but "wait for the old tokens to expire" is still not the strategy: a credential lives up to the full `auth.warden_credential_lifetime_secs` (30 days by default) and machines installed before that change carry no `exp` at all. The question to answer before calling this is whether every machine has come back ON THE CURRENT KEY (`token_key_current` on GET /api/machines), not how many days have passed and not merely whether it reconnected: a machine that reconnected while still holding a credential this key signed drops off the moment this returns.
+         *
+         *     The key that is currently SIGNING cannot be removed (409) — rotate first, then remove the one that stepped down. An unknown `key_id` is a 404.
          */
         post: operations["handle_signing_key_remove_api_auth_signing_keys_key_id_remove_post"];
         delete?: never;
@@ -546,11 +548,56 @@ export interface paths {
         };
         /**
          * Serve a chat attachment blob (owner-gated; raw bytes + stored mime).
-         * @description - Raw bytes under the stored mime; a blob outside your scope, or unknown, is a 404.
-         *     - Images have no disposition; text and PDF render inline; anything else downloads.
-         *     - Inline previews are sandboxed, so uploaded script cannot run on this origin.
-         *     - With no bearer credential a share-link `?sig=` reads this one blob; a bad sig is 401.
-         *     - A sig never expires; it dies only with the key that minted it.
+         * @description Serve a chat attachment blob (``GET /api/chat/attachment/<id>``). GATED and
+         *     owner-scoped exactly like ``handle_list_chat``: the ``owner`` dep re-verifies
+         *     the token (deny-by-default) and fixes the single data scope, and the lookup is
+         *     scoped to that owner — a blob outside the owner's scope (or nonexistent) is a
+         *     404, so a caller can not fetch another owner's attachment. Returns the raw
+         *     bytes with the stored ``mime`` as the media type, except a generic
+         *     ``application/octet-stream`` blob whose filename ends .json is served as
+         *     ``application/json`` so the inline response renders in a browser.
+         *
+         *     DISPOSITION SPLIT (M2-3 gallery「開新分頁預覽」 vs 「下載」): an IMAGE is
+         *     served with no disposition at all (unchanged — ``<img src>`` keeps working);
+         *     any other PREVIEWABLE blob (text/*, application/pdf, application/json, and
+         *     a generic/unknown blob whose FILENAME ends .json — see ``isPreviewableAttachment``) is
+         *     served ``inline; filename="<name>"`` so a new tab RENDERS it instead of
+         *     force-downloading; everything else keeps ``attachment; filename="<name>"``
+         *     and downloads under its original name.
+         *
+         *     THE FILENAME IS FALLBACK EVIDENCE, not a declared-type override. A declared
+         *     non-generic MIME remains authoritative. A blob uploaded
+         *     without a declared mime is stored ``application/octet-stream`` — the
+         *     magic-byte sniff speaks for images only — and that is how most
+         *     agent-uploaded JSON arrives, so the mime alone cannot answer for it. The
+         *     upload path now reads the same name-to-mime table, so a blob stored from
+         *     here on carries ``application/json``; reading the name here is what makes
+         *     the ones stored BEFORE that still preview.
+         *
+         *     SECURITY: an inline ``text/html`` blob would otherwise execute
+         *     attacker-supplied script ON THIS ORIGIN (an agent-uploaded page could read
+         *     the owner JWT out of localStorage). Every non-image inline preview therefore
+         *     carries ``Content-Security-Policy: sandbox`` — the document still renders
+         *     visually, but script execution and same-origin reach are disabled.
+         *
+         *     SHARE-SIG (third credential, this route ONLY — precedence Authorization
+         *     header → ``?token=`` → ``?sig=``): when the request carries NO bearer
+         *     credential at all, a ``?sig=`` query param is accepted instead — an
+         *     HMAC-SHA256 over exactly this ``attachment_id`` under a domain-separated
+         *     key derived from the server signing secret (minted by
+         *     ``GET /api/chat/attachments/{attachment_id}/share-link``). A valid sig
+         *     authorizes reading THIS ONE blob and nothing else; a bad/foreign sig is
+         *     401; ``?sig=`` on any other route is ignored (401 missing credentials).
+         *     Like ``?token=``, the param is an auth credential OUTSIDE the OpenAPI
+         *     parameter schema.
+         *
+         *     A sig carries NO EXPIRY and cannot be revoked one link at a time. It is not
+         *     unconditionally permanent, though, and since T-62 it never was: the derivation
+         *     key follows the SIGNING-KEY RING, so a sig keeps verifying while the key that
+         *     produced it is still in the ring, and every sig made under a key dies together
+         *     the moment an owner REMOVES that key (`POST
+         *     /api/auth/signing-keys/{key_id}/remove`). That is the whole revocation story —
+         *     coarse, deliberate, and a person's decision rather than a timer's.
          */
         get: operations["handle_get_chat_attachment_api_chat_attachment__attachment_id__get"];
         put?: never;
@@ -1169,11 +1216,28 @@ export interface paths {
         put?: never;
         /**
          * Onboard a machine: new warden member (id == machine id) + exec-token.
-         * @description - Onboards a machine; every call creates a distinct one, there is no host dedup.
-         *     - The server mints the machine id, which is also the member id agents bind to.
-         *     - `display_name` is required; blank is a 422.
-         *     - Returns a PERMANENT exec-token with no expiry (`expires_in=0`) and the boot command to run on that host.
-         *     - `ttl_days` is accepted but does not change that credential. Admin agent only.
+         * @description Onboard a machine: mint a NEW warden-kind member whose own id IS the machine
+         *     id + mint its exec-token (admin-gated on the route table: requires="admin_agent").
+         *
+         *     THE MACHINE IDENTITY is the warden member's server-minted id (``m-<uuid12>``). The
+         *     warden carries NO self-binding (``desired_machine_id`` stays "") — routing resolves
+         *     it
+         *     by ``get_member``\ ing that machine id (== the warden's own id) directly. This
+         *     replaces the old fragile hand-typed ``host`` string: a typo can no longer break
+         *     agent wake, because agents bind to this stable minted id (see
+         *     ``handle_activate_member``). Every onboard creates a DISTINCT machine — there is
+         *     NO host-dedup (each call is a new physical machine).
+         *
+         *     ``display_name`` (required, 422 if blank) is the human label; it is written as a
+         *     MachineAlias overlay keyed by the machine id (== member.id).
+         *
+         *     The response carries the member id (== machine_id), an exec-token
+         *     (``scope="agent"``, ``sub=member_id``, ``exp = iat +
+         *     auth.warden_credential_lifetime_secs``; ``expires_in`` is that same lifetime), and the
+         *     copy-paste ``boot_command`` the operator runs on that machine to install the
+         *     warden (identity rides in the token's ``sub``). ``ttl_days`` remains accepted for
+         *     request compatibility but does not alter the warden credential's lifetime, which
+         *     comes from ``auth.warden_credential_lifetime_secs`` alone.
          */
         post: operations["handle_onboard_machine_api_machines_post"];
         delete?: never;
@@ -1193,10 +1257,11 @@ export interface paths {
         put?: never;
         /**
          * Exchange a one-time claim code for the machine's exec-token.
-         * @description - Redeems a one-time claim code for the machine's permanent exec-token and the machine id it is bound to.
-         *     - Public: the code is the credential, minted by the onboard / boot-command response.
-         *     - Redemption consumes the code; a reused, expired or invalid code is all a flat 401 with no hint which.
-         *     - Codes live 600 s in memory only, so a server restart voids them and that reads as expiry.
+         * @description Exchange a one-time claim code for the machine's exec-token (``POST /api/machines/claim``).
+         *
+         *     The onboard / boot-command responses no longer template the machine's long-lived exec-token into the copy-paste one-liner; they mint a short-lived (600 s), SINGLE-USE claim code instead and the served ``install.sh?code=`` script calls this endpoint to redeem it. On a valid, unexpired, unused code the response carries a freshly minted exec-token (``scope="agent"``, ``sub=machine_id``, ``exp = iat + auth.warden_credential_lifetime_secs`` — the same mint every warden install path performs) plus ``expires_in`` = that same lifetime and the ``machine_id`` the token is bound to. Redemption CONSUMES the code atomically: a second call with the same code — or any invalid/expired code — is a flat 401 with no hint which it was (no guessing oracle).
+         *
+         *     Auth: PUBLIC — the code IS the credential (possession proves the caller holds a boot command the owner just minted). Codes live in memory only (TTL 600 s); a server restart voids them, which reads as expiry.
          */
         post: operations["handle_claim_machine_token_api_machines_claim_post"];
         delete?: never;
@@ -1214,11 +1279,15 @@ export interface paths {
         };
         /**
          * Read how long a machine credential is meant to live, in seconds. Names no target and returns the same answer to every caller; a warden polls it to know when to renew its own credential.
-         * @description - Answers one number, `lifetime_secs`: how long a machine credential is meant to live.
-         *     - A warden renews once its credential is two thirds that old, plus up to an hour of stagger.
-         *     - Identical for every caller; no machine named, no credential material.
-         *     - 404 just means the station predates this route; wardens then keep their built-in 30-day default.
-         *     - Any caller at the machine class or above.
+         * @description Read the station's machine-credential policy (``GET /api/machines/credential-policy``).
+         *
+         *     It answers ONE number: ``lifetime_secs``, the org setting ``auth.warden_credential_lifetime_secs`` -- how long a machine (warden) credential is meant to live. A warden polls this every 15 minutes and renews its own credential once that credential is two thirds of ``lifetime_secs`` old, measured from the ``iat`` claim, plus a per-machine stagger of up to one hour.
+         *
+         *     WHY THE ENDPOINT EXISTS AT ALL, INCLUDING NOW THAT THE CREDENTIAL CARRIES AN ``exp`` AGAIN. The threshold used to be readable off the credential itself (``exp`` minus ``iat``); that stopped working while warden credentials were permanent, and the number moved into the owner's settings, which is what this route publishes. T-fc53 put the ``exp`` back and the endpoint STAYS: every warden installed before that change is holding a credential with no ``exp`` to subtract, and an ``exp`` is fixed at MINT time, so a token records the lifetime it was minted under rather than the live one.
+         *
+         *     IT NAMES NO TARGET AND CARRIES NO CREDENTIAL MATERIAL. The answer is identical for every caller; the per-machine stagger is computed on the warden, not served, so nothing here varies by who asks and nothing here is secret to one machine.
+         *
+         *     Auth: any authenticated caller at the ``machine`` principal class or above -- the same floor ``POST /api/machines/renew-credential`` sits on. Being unreachable is NOT an error condition for a warden: a station that has not been upgraded answers 404 and every warden keeps using its shipped default (30 days), which is the value this setting also defaults to.
          */
         get: operations["handle_machine_credential_policy_api_machines_credential_policy_get"];
         put?: never;
@@ -1285,10 +1354,20 @@ export interface paths {
         };
         /**
          * Re-fetch a machine's boot command anytime (re-mints its exec-token).
-         * @description - Re-fetches a machine's copy-paste installer any time, without re-onboarding (which would mint a new machine).
-         *     - Mints a fresh non-expiring exec token on every call (`expires_in=0`).
-         *     - Owner or admin agent only, and not exposed as an agent tool.
-         *     - 404 if no active warden carries that id.
+         * @description Re-fetch a machine's boot command anytime (``GET
+         *     /api/machines/{machine_id}/boot-command``).
+         *
+         *     The onboard result is shown once; an owner must be able to get the copy-paste
+         *     installer for an existing machine again later (Seth: "I can get the machine
+         *     boot command anytime") without re-onboarding (which would mint a NEW machine).
+         *     Resolves the ACTIVE warden member whose id IS ``machine_id`` (404 otherwise),
+         *     RE-MINTS a fresh exec-token (``exp = iat +
+         *     auth.warden_credential_lifetime_secs``; ``expires_in`` is that same lifetime),
+         *     and rebuilds the one-liner via the shared ``_build_boot_command``.
+         *
+         *     Governance: the SAME ``requires="admin_agent"`` route choke onboard uses. Route
+         *     is GATED + ``mcp_exclude`` — it mints a credential (an exec-token), so it is a
+         *     mint seam, not an agent tool.
          */
         get: operations["handle_machine_boot_command_api_machines__machine_id__boot_command_get"];
         put?: never;
@@ -1310,11 +1389,31 @@ export interface paths {
         put?: never;
         /**
          * Bootstrap on server: runs `ocwarden install --force` on the SERVER's own host. machine_id is NOT a target — this verb has no way to reach another machine, and naming one is refused (409); the server-local machine is the only value it accepts, and the install overwrites the existing one, which is how you repair this host's warden. To install a different machine, fetch that machine's own boot command with GET /api/machines/{machine_id}/boot-command and run it on that host.
-         * @description - Installs that machine's warden on the server host itself, instead of you pasting the boot command into a shell.
-         *     - Mints a fresh non-expiring exec token for the machine.
-         *     - Owner or admin agent only; plain agents and wardens are 403.
-         *     - An installer refusal is `ok=false` with the reason in `log`, not an HTTP error.
-         *     - 404 if no active warden carries that id; 503 if the warden binary is missing.
+         * @description Bootstrap on server: install a machine's warden ON THE SERVER HOST in one
+         *     click (``POST /api/machines/{machine_id}/bootstrap-here``).
+         *
+         *     The common case is that the officraft server RUNS ON the machine being
+         *     provisioned, so instead of copy-pasting the boot command into a shell the owner
+         *     clicks once and the server installs the warden locally. It resolves the ACTIVE
+         *     warden member (404 otherwise), re-mints a fresh exec-token (carrying ``exp = iat +
+         *     auth.warden_credential_lifetime_secs``, like every other warden install path),
+         *     resolves the ocwarden binary the SAME way ``handle_warden_binary`` does
+         *     (503 if absent), and runs ``<ocwarden> install`` as a subprocess.
+         *
+         *     Governance: ``requires="admin_agent"`` — the SAME admin choke onboard uses
+         *     (T-6020, owner ruling 2026-07-26: installing the warden on the server host is
+         *     office operations the admin 助理 runs). Still a privileged local action, so it
+         *     stays closed to every PLAIN agent and to wardens (flat 403 before any resolve).
+         *
+         *     SECURITY: the subprocess uses an argv list (``[bin, "install"]``), NEVER a shell
+         *     string — zero command-injection surface. The token/base/id ride in ``env`` (a
+         *     COPY of ``os.environ`` so PATH/HOME are inherited — the warden installs into the
+         *     server user's ~/.officraft, which is the point). The runner is INJECTABLE via
+         *     ``app.state.bootstrap_runner`` so tests never launch a real installer.
+         *
+         *     Non-zero exit is NOT raised: the one-warden guard in ocwarden refusing (exit 1)
+         *     is a legitimate outcome — ``ok=false`` with the guard message surfaced in ``log``
+         *     so the FE shows the reason. A timeout is a clear error, not a hang.
          */
         post: operations["handle_bootstrap_here_api_machines__machine_id__bootstrap_here_post"];
         delete?: never;
@@ -1541,10 +1640,23 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Activate: write desired_state=online intent (does NOT flip online). Answers with a bounded receipt (``id``, ``activation_pending``, ``last_op_reason``), not the roster row — call ``get_member`` when you need the rest.
-         * @description - Records the intent to bring the member online, binding `host` when one is named.
-         *     - Always force-revives: a member stuck stopping or mid-wake is exactly what this rescues, and both winding-down anchors are cleared unconditionally.
-         *     - Emits a `member` event; a client holding the stream learns of this without polling.
+         * Activate: write desired_state=online intent (does NOT flip online). A live member clears stopping_since/waking_since and consumes restart_after_stop while preserving its active refocus/stopped epoch; it updates the owner roster only without killing/reconciling or sending a lifecycle notice. An offline generation clears its old wind-down, banks live cost, and uses stop-before-start. Answers with a bounded receipt (``id``, ``activation_pending``, ``last_op_reason``), not the roster row — call ``get_member`` when you need the rest.
+         * @description Activate a member (§3.4 #12): write the owner's INTENT ``desired_state="online"``
+         *     (and bind the reconciling ``host`` when named). Sets intent ONLY — does NOT
+         *     flip ``online`` (the ACTUAL state). The server can't reach the host, so the
+         *     warden reads ``desired_state``/``host``, spawns, and reports ``online`` back via the
+         *     presence endpoint. A ``member`` delta fans out immediately.
+         *
+         *     LIVE vs OFFLINE: when a live session exists, activate clears ``stopping_since``
+         *     and ``waking_since`` and consumes ``restart_after_stop`` while preserving the
+         *     active ``refocus_since``/``stopped_since`` epoch. It publishes only the owner
+         *     roster delta: it does not kill or reconcile that session and does not send it a
+         *     lifecycle notice. When no live session exists, activate clears the previous
+         *     generation's four wind-down anchors, banks any live telemetry cost, dispatches
+         *     the stop handoff, and lets reconcile handle the replacement START. Neither
+         *     path flips ``online`` directly; the warden reports presence through the presence
+         *     endpoint. The old stopping → 409 wake refusal is gone, without making a live
+         *     activate an unconditional force-revive.
          */
         post: operations["handle_activate_member_api_members__member_id__activate_post"];
         delete?: never;
@@ -1617,12 +1729,22 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Deactivate: desired_state=offline + stamp stopping_since (retains row). Answers with a bounded receipt (``id``), not the roster row — call ``get_member`` when you need the rest.
-         * @description - Graceful stop: the member is asked offline but the roster row is kept (`status` stays `active`) and re-spawnable.
-         *     - Unlike dismiss, a soft delete flipping `status` to `removed`.
-         *     - Owner token or admin-role (assistant) member only; an ordinary agent gets 403.
-         *     - Returns only `id`, not the full member.
-         *     - Emits a `member` event; a client holding the stream learns of this without polling.
+         * Deactivate: desired_state=offline + stamp stopping_since (retains row); with no live session, immediately collect/bank/dispatch the stop. Answers with a bounded receipt (``id``), not the roster row — call ``get_member`` when you need the rest.
+         * @description Deactivate a member (handover 層3): write the owner's INTENT
+         *     ``desired_state="offline"`` and stamp ``stopping_since`` — a graceful STOP that
+         *     RETAINS the roster row (``status`` stays ``active``), in contrast to dismiss
+         *     (a soft delete that flips ``status="removed"``). A deactivated member can be
+         *     re-spawned later. Sets intent + shutdown signal ONLY — does NOT flip
+         *     ``online`` (the warden tears the live session down and the presence endpoint
+         *     reports the winding-down phase back). ``stopping_since`` derives the
+         *     stopping/stopped presence; a ``member`` delta fans out immediately. When no
+         *     live session exists (and this is not a wake cancellation), the handler collects
+         *     immediately: ``stopped_since`` is latched, live telemetry cost is banked, and
+         *     the robust STOP is dispatched.
+         *
+         *     RBAC (control-others): route-table ``requires="admin_agent"`` — only an
+         *     owner-scoped token OR an admin-role (assistant) member may deactivate a
+         *     member; an ordinary agent → 403.
          */
         post: operations["handle_deactivate_member_api_members__member_id__deactivate_post"];
         delete?: never;
@@ -1642,10 +1764,44 @@ export interface paths {
         put?: never;
         /**
          * Force-stop: robust STOP now. On the offboard arm the server starts no clock of its own -- collection is the agent's report_stopped, the deadline the owner opens with 加速停止, or this. Answers with a bounded receipt (``id``), not the roster row — call ``get_member`` when you need the rest.
-         * @description - Kills the member's live session immediately, skipping the ~30s reconcile wait.
-         *     - The server runs no timer of its own: a member left in stopping ends only by its own report, by accelerated-stop, or by this call.
-         *     - Owner token or admin-role member only; an ordinary agent is 403.
-         *     - Emits a `member` event; a client holding the stream learns of this without polling.
+         * @description Force-stop a member: IMMEDIATELY kill the live session.
+         *
+         *     🔴 This is NOT a shortcut past a countdown the SERVER started — it starts none.
+         *     On the 下線 arm (``desired_state=offline`` on a still-online member) the reconcile
+         *     machine runs NO clock of its own: ``decideDown`` returns decisionNone for as long as
+         *     the member stays online, so a member whose agent never reports stopped is NEVER
+         *     collected by the server. Owner ruling rc-27d1710174dd
+         *     (「不要兜底：只有你按強制下線才收它」) — the escalation is deliberately his, not
+         *     a timer's, because the notice the agent was shown promises no deadline.
+         *
+         *     So there are exactly THREE things that end a soft offboard: the agent's own
+         *     ``report_stopped`` (that call dispatches the robust STOP itself); the deadline the
+         *     owner opens by pressing 加速停止 (``POST /api/members/{member_id}/accelerated-stop``,
+         *     the middle rung — it re-stamps ``stopping_since`` and writes
+         *     ``refocus_op=accelerated_stop``, and ``decideDown`` then collects at
+         *     ``stopping_since`` + ``stop.accelerated_grace_secs``); or THIS endpoint. That clock
+         *     is still the OWNER's, not the server's — nothing arms it unless he presses the
+         *     button, which is why it does not reopen rc-27d1710174dd. If none of the three
+         *     happens the member stays in *stopping* indefinitely, which is the state the cockpit
+         *     surfaces this button in.
+         *
+         *     ``stop_deadline`` / ``stop_grace`` still exist in the reconcile store and config,
+         *     but the arm that consumes them is guarded by ``SoftOffboardGrace == 0`` and
+         *     ``SoftOffboardGraceSecs`` is a compile-time 600 s — unreachable in production,
+         *     injectable in tests. Do not implement against them.
+         *
+         *     The handler writes the STOP intent (``desired_state=offline``
+         *     + stamps ``stopping_since`` if unset or in the future, so presence reads coherently
+         *     and a stale future anchor cannot survive) and then dispatches the SINGLE robust STOP
+         *     straight to the member's warden via :func:`_dispatch_robust_stop_now` — the
+         *     warden's ``stop()`` → ``escalateKill`` ladder performs the SIGKILL (tmux kill-session
+         *     → force killpg the process group). It also bypasses the ~30s reconcile cadence,
+         *     which is the only wait it does skip.
+         *
+         *     RBAC (control-others): route-table ``requires="admin_agent"`` — only an
+         *     owner-scoped token OR an admin-role (assistant) member may force-stop a
+         *     member; an ordinary agent → 403. A ``member`` delta
+         *     fans out on the intent write.
          */
         post: operations["handle_force_stop_member_api_members__member_id__force_stop_post"];
         delete?: never;
@@ -2054,11 +2210,7 @@ export interface paths {
         };
         /**
          * Read an outsource worker's boot-context preview (owner/admin agent).
-         * @description - Preview of the worker's boot context, re-assembled with the rules the real spawn uses; mints no token.
-         *     - Today's re-assembly, NOT a verbatim spawn-time record: if settings changed since, it differs from what was sent.
-         *     - Holds system-interaction text, user text and the runtime's boot sequence; no persona, task or manual.
-         *     - Owner or admin agent only.
-         *     - 404 if the worker or its bound task is gone.
+         * @description Read the outsource worker's boot-context PREVIEW (T-ba6b): the server re-assembles the boot text with the SAME fold the spawn path uses (buildWorkerBootContext), WITHOUT minting any token. Since T-4595 that fold is the STAFF boot context minus the persona slot — 系統互動 + 使用者自訂 + the boot sequence for the worker's own runtime, with no outsource-only document, no 你的身分 block, no bound task and no type manual — but WITH that worker's own 傳承 block (T-33, LoreScopeAgent keyed on its member id), which is the one part that differs from worker to worker. Owner/admin-agent cockpit read (T-6020; the floor is unchanged, and it is now the only thing keeping this read narrow — the text no longer embeds the task or the manual). 404 for an unknown worker or a worker whose bound task is gone. HONEST caveat the UI must carry: this is today's re-assembly, not a verbatim spawn-time record — nothing is stored (no prompt column, no migration).
          */
         get: operations["handle_get_worker_boot_context_api_outsource_workers__id__boot_context_get"];
         put?: never;
@@ -3244,7 +3396,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Submit/replace the workflow plan (done and answered-card steps are kept). T-74f8 交棒閘 (second door): a plan is a step-set write and the task status is DERIVED from the step set, so a plan that leaves EVERY step done CLOSES the task — the same irreversible close the final step report performs. If that task's creator is not its executor and no handover is declared or already real, the replan is refused with 422 BEFORE anything is written (the plan stays fully editable). A plan carries no handoff field, so the way out is to hand over first: create the successor task and point its ``blocked_by`` at this task (the gate then stands aside by itself), or keep one unfinished step and declare the handover on the ``update_step_status`` report that closes it. A replan that still leaves work in the plan is never gated. Answers with a bounded receipt (task_id, steps_total, progress_done, progress_total), not the plan you just sent — use get_task to read the stored step rows back.
+         * Submit/replace the workflow plan. ⚠️ Resubmitting permanently deletes every unfinished step and its working note; deleted notes cannot be recovered. Done steps, superseded steps, and steps with an answered or expired reply card are kept. Relisting a step under the same name creates a new step with a new id, so copy any note you need before resubmitting. T-74f8 交棒閘 (second door): a plan is a step-set write and the task status is DERIVED from the step set, so a plan that leaves EVERY step done CLOSES the task — the same irreversible close the final step report performs. If that task's creator is not its executor and no handover is declared or already real, the replan is refused with 422 BEFORE anything is written (the plan stays fully editable). A plan carries no handoff field, so the way out is to hand over first: create the successor task and point its ``blocked_by`` at this task (the gate then stands aside by itself), or keep one unfinished step and declare the handover on the ``update_step_status`` report that closes it. A replan that still leaves work in the plan is never gated. Answers with a bounded receipt (task_id, steps_total, progress_done, progress_total), not the plan you just sent — use get_task to read the stored step rows back.
          * @description - Wholesale replace; non-preserved steps are overwritten, new ones open `pending`.
          *     - Preserved: done, superseded, and steps whose bound card is settled; they freeze unless re-listed by name.
          *     - A step holding a still-waiting card is replaced like any other.
@@ -3674,6 +3826,70 @@ export interface paths {
         get: operations["handle_probe_version_version_get"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/lore": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List 傳承 entries, filtered SERVER-SIDE and paged in the fixed order pinned -> active -> retired, newest first inside each group. The order is not configurable; the filter is.
+         * @description List 傳承 entries, filtered SERVER-SIDE and paged in the fixed order pinned -> active -> retired, newest first inside each group. The order is not configurable; the filter is.
+         */
+        get: operations["handle_list_lore_entries_api_lore_get"];
+        put?: never;
+        /**
+         * Write ONE 傳承 entry (never editable afterwards). ``task_id`` picks the scope, and there is ALWAYS somewhere for it to land: a task that carries a TYPE files under that type's manual; no task at all, OR a task with no type (臨時任務), files into your OWN boot document -- your role if you are staff, yourself if you are an outsource member (who has no role for a role scope to name). The untyped-task case answers a ``scope_note`` saying where it actually went, because you asked for a manual and did not get one. Only a caller with no roster row at all is a 400 -- there is no boot document to file into. An over-cap title or body is a 400 that writes nothing.
+         * @description Write ONE 傳承 entry (never editable afterwards). ``task_id`` picks the scope, and there is ALWAYS somewhere for it to land: a task that carries a TYPE files under that type's manual; no task at all, OR a task with no type (臨時任務), files into your OWN boot document -- your role if you are staff, yourself if you are an outsource member (who has no role for a role scope to name). The untyped-task case answers a ``scope_note`` saying where it actually went, because you asked for a manual and did not get one. Only a caller with no roster row at all is a 400 -- there is no boot document to file into. An over-cap title or body is a 400 that writes nothing.
+         */
+        post: operations["handle_write_lore_entry_api_lore_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/lore/{entry_id}/state": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Move one 傳承 entry to active / pinned / retired. 置頂 and un-置頂 are ADMIN-ONLY (owner ruling): a pinned entry sorts ahead of every other entry in its scope and so survives the cap at the others' expense. 失效 and 生效 are open to the entry's own AUTHOR -- anyone else is a 403 -- and admin capability is unrestricted. Retiring is not deleting: the entry keeps its id and can be moved back; ``retire_reason`` is stored only with retired and cleared by the other two.
+         * @description Move one 傳承 entry to active / pinned / retired. 置頂 and un-置頂 are ADMIN-ONLY (owner ruling): a pinned entry sorts ahead of every other entry in its scope and so survives the cap at the others' expense. 失效 and 生效 are open to the entry's own AUTHOR -- anyone else is a 403 -- and admin capability is unrestricted. Retiring is not deleting: the entry keeps its id and can be moved back; ``retire_reason`` is stored only with retired and cleared by the other two.
+         */
+        post: operations["handle_set_lore_entry_state_api_lore__entry_id__state_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/lore/{entry_id}/bump": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * 提到最新: set one 傳承 entry's ``effective_ts`` to now so it sorts to the front of its group. Only the entry's own AUTHOR may bump it (admin capability is unrestricted) -- a bump moves an entry ahead of other people's under a shared cap, so it spends somebody else's room. ``created_ts`` is NOT touched, which is what makes this reversible.
+         * @description 提到最新: set one 傳承 entry's ``effective_ts`` to now so it sorts to the front of its group. Only the entry's own AUTHOR may bump it (admin capability is unrestricted) -- a bump moves an entry ahead of other people's under a shared cap, so it spends somebody else's room. ``created_ts`` is NOT touched, which is what makes this reversible.
+         */
+        post: operations["handle_bump_lore_entry_api_lore__entry_id__bump_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -4122,8 +4338,9 @@ export interface components {
          *     installer for an EXISTING machine again later without re-onboarding.
          *     ``machine_id`` is the warden member id; ``boot_command`` is the same
          *     curl-download-then-install one-liner onboard builds (it embeds ``machine_id``
-         *     as OC_ID); ``token`` is a FRESHLY re-minted permanent exec-token (``scope="agent"``,
-         *     ``sub=machine_id``, no ``exp`` claim) and ``expires_in`` is ``0``.
+         *     as OC_ID); ``token`` is a FRESHLY re-minted exec-token (``scope="agent"``,
+         *     ``sub=machine_id``, ``exp = iat + auth.warden_credential_lifetime_secs``) and
+         *     ``expires_in`` is that same lifetime in seconds.
          *
          *     ``claim_code`` is a fresh short-lived (``claim_expires_in`` = 600 s), single-use code
          *     the ``boot_command`` embeds (``install.sh?code=``) instead of the exec-token; the served
@@ -5525,9 +5742,10 @@ export interface components {
          * MachineClaimResultDTO
          * @description The claim-code redemption result (``POST /api/machines/claim``).
          *
-         *     ``token`` is the freshly minted permanent machine exec-token (``scope="agent"``,
-         *     ``sub=machine_id`` — the same mint every warden install path performs); it omits
-         *     ``exp`` and answers ``expires_in=0``. ``machine_id`` is the warden member the
+         *     ``token`` is the freshly minted machine exec-token (``scope="agent"``,
+         *     ``sub=machine_id`` — the same mint every warden install path performs); it carries
+         *     ``exp = iat + auth.warden_credential_lifetime_secs`` and answers ``expires_in`` =
+         *     that same lifetime in seconds. ``machine_id`` is the warden member the
          *     token is bound to.
          */
         MachineClaimResultDTO: {
@@ -5542,7 +5760,7 @@ export interface components {
          * MachineCredentialPolicyDTO
          * @description The station's machine-credential policy (``GET /api/machines/credential-policy``).
          *
-         *     ``lifetime_secs`` is the org setting ``auth.warden_credential_lifetime_secs``: how long a machine (warden) credential is meant to live. It is NOT an expiry and nothing enforces it at the auth gate -- warden credentials still carry no ``exp``. It is the input to the warden's own renewal threshold: two thirds of it, measured from the credential's ``iat``, plus a per-machine stagger.
+         *     ``lifetime_secs`` is the org setting ``auth.warden_credential_lifetime_secs``: how long a machine (warden) credential is meant to live. It is BOTH the expiry stamped into the credential (``exp = iat + lifetime_secs``, T-fc53) and the input to the warden's own renewal threshold: two thirds of it, measured from the credential's ``iat``, plus a per-machine stagger. Credentials minted before that change carry no ``exp`` and go on being accepted until the machine renews.
          */
         MachineCredentialPolicyDTO: {
             /** Lifetime Secs */
@@ -5683,8 +5901,9 @@ export interface components {
          *     surfaced under the machine-model name (the machine id == the warden member's own
          *     id — the binding key agents store in their ``desired_machine_id`` column). ``token``
          *     is
-         *     the freshly minted permanent exec-token (``scope="agent"``, ``sub=member_id``) with
-         *     no ``exp`` claim; ``expires_in`` is ``0``. ``boot_command`` is the copy-paste line
+         *     the freshly minted exec-token (``scope="agent"``, ``sub=member_id``) carrying
+         *     ``exp = iat + auth.warden_credential_lifetime_secs``; ``expires_in`` is that same
+         *     lifetime in seconds. ``boot_command`` is the copy-paste line
          *     the operator runs ON that machine to install the warden (identity rides in the
          *     token's ``sub``, not a templated machine id).
          *
@@ -6053,6 +6272,18 @@ export interface components {
              * @default 0
              */
             unread_count: number;
+            /**
+             * Terminal Attach Command
+             * @description The COMPLETE, ready-to-paste shell command that attaches a terminal to this row's tmux session, composed server-side and served verbatim (T-139). Clients display and copy it AS-IS and MUST NOT assemble one of their own out of the parts: the ``tmux -L`` socket is the bare ``officraft`` only on the main instance and ``officraft-<ns>`` on a namespaced one (``[server].namespace``, the same value this station bakes into every warden it installs), so a client-side socket literal attaches to a DIFFERENT tmux server and silently drops the owner into another station's sessions.
+             *
+             *     ALWAYS SERVED, on every row, with no liveness or desired-state gate — the cockpit has always shown this line unconditionally, and making it conditional would delete something the owner can see today. An empty string therefore means exactly ONE thing: a server too old to serve the field. A client reading it empty MUST fall back to showing nothing (or saying this server provides none) and MUST NOT reconstruct the command — the reconstruction is the defect.
+             *
+             *     IT RESTS ON A NAMED CHEAP ASSUMPTION (owner 2026-09-08): that the tmux server holding this row's session is a warden THIS station installed, so this station's namespace keys it. An agent living on a warden some OTHER station installed gets a socket name that does not exist on that host, and the attach fails to find a server. That is not a regression — see WAS.
+             *
+             *     WAS: every client re-derived ``tmux -L officraft attach -t member-<id>`` from its own hardcoded socket and session-name literals — correct only for the unnamespaced instance, and one more copy to drift each time. Additive-optional.
+             * @default
+             */
+            terminal_attach_command: string;
         };
         /**
          * MemberHireDTO
@@ -6719,6 +6950,18 @@ export interface components {
              * @default 0
              */
             unread_count: number;
+            /**
+             * Terminal Attach Command
+             * @description The COMPLETE, ready-to-paste shell command that attaches a terminal to this row's tmux session, composed server-side and served verbatim (T-139). Clients display and copy it AS-IS and MUST NOT assemble one of their own out of the parts: the ``tmux -L`` socket is the bare ``officraft`` only on the main instance and ``officraft-<ns>`` on a namespaced one (``[server].namespace``, the same value this station bakes into every warden it installs), so a client-side socket literal attaches to a DIFFERENT tmux server and silently drops the owner into another station's sessions.
+             *
+             *     ALWAYS SERVED, on every row, with no liveness or desired-state gate — the cockpit has always shown this line unconditionally, and making it conditional would delete something the owner can see today. An empty string therefore means exactly ONE thing: a server too old to serve the field. A client reading it empty MUST fall back to showing nothing (or saying this server provides none) and MUST NOT reconstruct the command — the reconstruction is the defect.
+             *
+             *     IT RESTS ON A NAMED CHEAP ASSUMPTION (owner 2026-09-08): that the tmux server holding this row's session is a warden THIS station installed, so this station's namespace keys it. An agent living on a warden some OTHER station installed gets a socket name that does not exist on that host, and the attach fails to find a server. That is not a regression — see WAS.
+             *
+             *     WAS: every client re-derived ``tmux -L officraft attach -t member-<id>`` from its own hardcoded socket and session-name literals — correct only for the unnamespaced instance, and one more copy to drift each time. Additive-optional.
+             * @default
+             */
+            terminal_attach_command: string;
         };
         /**
          * OutsourceWorkerModelDTO
@@ -8309,10 +8552,39 @@ export interface components {
             updater_receive_beta: boolean;
             /**
              * Warden Credential Lifetime Secs
-             * @description How long a MACHINE (warden) credential is meant to live, in seconds (86400 through 34560000 -- one day through 400 days). It is the number every warden's renewal threshold is derived from: a warden replaces its own credential once that credential is two thirds of this old, measured from the `iat` claim it carries, plus a per-machine stagger of up to one hour. Wardens read it from `GET /api/machines/credential-policy` on their 15-minute poll, so a change reaches the fleet within one interval; a warden that cannot reach that endpoint keeps using the shipped default rather than failing. NOTE: warden credentials still carry NO `exp`, so this value governs RENEWAL ONLY -- nothing expires because of it, and a renewal that does not complete leaves the machine on a credential that keeps working.
+             * @description How long a MACHINE (warden) credential is meant to live, in seconds (86400 through 34560000 -- one day through 400 days). It is the number every warden's renewal threshold is derived from: a warden replaces its own credential once that credential is two thirds of this old, measured from the `iat` claim it carries, plus a per-machine stagger of up to one hour. Wardens read it from `GET /api/machines/credential-policy` on their 15-minute poll, so a change reaches the fleet within one interval; a warden that cannot reach that endpoint keeps using the shipped default rather than failing. It is ALSO the credential's expiry: the warden mint stamps `exp = iat + this` (T-fc53). A renewal that does not complete inside the remaining third therefore takes that machine off the fleet until someone re-installs it by hand, and nothing on the station reports that it happened. Lowering this value does not shorten credentials already issued -- an `exp` is fixed at mint time.
              * @default 2592000
              */
             warden_credential_lifetime_secs: number;
+            /**
+             * Lore Cap Chars Role
+             * @description How many characters of 傳承 a STAFF boot document carries for one role (T-33) — spent by every boot of that role. INDEPENDENT of ``lore_cap_chars_manual``; the two are never summed, because they are paid by different readers at different moments. Unlike the ``doc_cap_chars_*`` knobs this one may be LOWERED as well as raised. Those floors equal their own shipped defaults because lowering one strands an existing legal document in shrink-only mode; a 傳承 entry has NO edit path at all, so a smaller cap cannot strand anything already stored — it binds the next write and nothing else. The adjustable range is 100..100000.
+             * @default 10000
+             */
+            lore_cap_chars_role: number;
+            /**
+             * Lore Cap Chars Manual
+             * @description How many characters of 傳承 ``get_task_manual`` appends after a type's ``learnings`` (T-33) — spent by whoever opens that manual, staff and outsource alike, since this fold enters no boot document. INDEPENDENT of ``lore_cap_chars_role``. Unlike the ``doc_cap_chars_*`` knobs this one may be LOWERED as well as raised. Those floors equal their own shipped defaults because lowering one strands an existing legal document in shrink-only mode; a 傳承 entry has NO edit path at all, so a smaller cap cannot strand anything already stored — it binds the next write and nothing else. The adjustable range is 100..100000.
+             * @default 10000
+             */
+            lore_cap_chars_manual: number;
+            /**
+             * Lore Cap Chars Title
+             * @description The longest ``title`` ONE 傳承 entry may be written with, in characters (T-33). An over-cap write is refused whole — nothing partial is stored and nothing is truncated. Unlike the ``doc_cap_chars_*`` knobs this one may be LOWERED as well as raised. Those floors equal their own shipped defaults because lowering one strands an existing legal document in shrink-only mode; a 傳承 entry has NO edit path at all, so a smaller cap cannot strand anything already stored — it binds the next write and nothing else. The adjustable range is 10..10000.
+             * @default 80
+             */
+            lore_cap_chars_title: number;
+            /**
+             * Lore Cap Chars Body
+             * @description The longest ``body`` ONE 傳承 entry may be written with, in characters (T-33). An over-cap write is refused whole; half a lesson is not a shorter lesson. Unlike the ``doc_cap_chars_*`` knobs this one may be LOWERED as well as raised. Those floors equal their own shipped defaults because lowering one strands an existing legal document in shrink-only mode; a 傳承 entry has NO edit path at all, so a smaller cap cannot strand anything already stored — it binds the next write and nothing else. The adjustable range is 10..10000.
+             * @default 500
+             */
+            lore_cap_chars_body: number;
+            /**
+             * Suggested Replies Lore Message
+             * @description The one-click 建議回覆 offered under a 傳承 entry's message box (T-33) — the box that writes to the person who WROTE that entry. A THIRD separate list, for the same reason the other two are separate: asking 「這條還適用嗎」 about a lesson someone left behind is not answering a 請示卡 and not steering a task in progress, so one list's sentences are wrong in another's box. [] (the default) means no chips are drawn there, and the message box works exactly as it does without them.
+             */
+            suggested_replies_lore_message?: string[];
         };
         /**
          * SettingsUpdateDTO
@@ -8483,9 +8755,34 @@ export interface components {
             updater_receive_beta?: boolean | null;
             /**
              * Warden Credential Lifetime Secs
-             * @description How long a MACHINE (warden) credential is meant to live, in seconds. Must be 86400 through 34560000 (one day through 400 days). A warden renews its own credential once that credential is two thirds of this old, plus a per-machine stagger of up to one hour so that LOWERING this value does not put the whole fleet on the mint endpoint inside one poll. The floor is one day because the last third of the lifetime is the retry window: at the 15-minute poll a one-day lifetime still leaves about 32 attempts. Wardens pick a change up within one poll interval. Warden credentials carry no `exp` today, so this governs renewal only and nothing expires because of it. Read the current value from get_settings rather than assuming a number.
+             * @description How long a MACHINE (warden) credential is meant to live, in seconds. Must be 86400 through 34560000 (one day through 400 days). A warden renews its own credential once that credential is two thirds of this old, plus a per-machine stagger of up to one hour so that LOWERING this value does not put the whole fleet on the mint endpoint inside one poll. The floor is one day because the last third of the lifetime is the retry window: at the 15-minute poll a one-day lifetime still leaves about 32 attempts. Wardens pick a change up within one poll interval. It is ALSO the expiry stamped into the credential (`exp = iat + this`, T-fc53), so a machine that misses its whole retry window needs a hand re-install; lowering the value never shortens a credential already issued, because an `exp` is fixed at mint time. Read the current value from get_settings rather than assuming a number.
              */
             warden_credential_lifetime_secs?: number | null;
+            /**
+             * Lore Cap Chars Role
+             * @description How many characters of 傳承 a STAFF boot document carries for one role (T-33) — spent by every boot of that role. INDEPENDENT of ``lore_cap_chars_manual``; the two are never summed, because they are paid by different readers at different moments. Unlike the ``doc_cap_chars_*`` knobs this one may be LOWERED as well as raised. Those floors equal their own shipped defaults because lowering one strands an existing legal document in shrink-only mode; a 傳承 entry has NO edit path at all, so a smaller cap cannot strand anything already stored — it binds the next write and nothing else. The adjustable range is 100..100000.
+             */
+            lore_cap_chars_role?: number | null;
+            /**
+             * Lore Cap Chars Manual
+             * @description How many characters of 傳承 ``get_task_manual`` appends after a type's ``learnings`` (T-33) — spent by whoever opens that manual, staff and outsource alike, since this fold enters no boot document. INDEPENDENT of ``lore_cap_chars_role``. Unlike the ``doc_cap_chars_*`` knobs this one may be LOWERED as well as raised. Those floors equal their own shipped defaults because lowering one strands an existing legal document in shrink-only mode; a 傳承 entry has NO edit path at all, so a smaller cap cannot strand anything already stored — it binds the next write and nothing else. The adjustable range is 100..100000.
+             */
+            lore_cap_chars_manual?: number | null;
+            /**
+             * Lore Cap Chars Title
+             * @description The longest ``title`` ONE 傳承 entry may be written with, in characters (T-33). An over-cap write is refused whole — nothing partial is stored and nothing is truncated. Unlike the ``doc_cap_chars_*`` knobs this one may be LOWERED as well as raised. Those floors equal their own shipped defaults because lowering one strands an existing legal document in shrink-only mode; a 傳承 entry has NO edit path at all, so a smaller cap cannot strand anything already stored — it binds the next write and nothing else. The adjustable range is 10..10000.
+             */
+            lore_cap_chars_title?: number | null;
+            /**
+             * Lore Cap Chars Body
+             * @description The longest ``body`` ONE 傳承 entry may be written with, in characters (T-33). An over-cap write is refused whole; half a lesson is not a shorter lesson. Unlike the ``doc_cap_chars_*`` knobs this one may be LOWERED as well as raised. Those floors equal their own shipped defaults because lowering one strands an existing legal document in shrink-only mode; a 傳承 entry has NO edit path at all, so a smaller cap cannot strand anything already stored — it binds the next write and nothing else. The adjustable range is 10..10000.
+             */
+            lore_cap_chars_body?: number | null;
+            /**
+             * Suggested Replies Lore Message
+             * @description Replace the 傳承 message-box 建議回覆 list wholesale (T-33) — the box that writes to the person who wrote that 傳承 entry. Same bounds as suggested_replies_reply_card — at most 20 entries, each trimmed and at most 120 runes, over either is a 422 that writes nothing, and an explicit empty array is legal — but a SEPARATE list: patching one never touches another. 🔴 null is NOT "clear": an omitted field and an explicit null both mean LEAVE THIS LIST UNCHANGED, so an agent that sends null to empty the list gets a 200 and no change at all. To clear it, send [].
+             */
+            suggested_replies_lore_message?: string[] | null;
         };
         /**
          * SigningKeyDTO
@@ -9319,6 +9616,7 @@ export interface components {
             fields: components["schemas"]["TaskManualFieldDTO"][];
             /**
              * Learnings
+             * @description The manual's LEARNINGS DOCUMENT — the stored text a write face writes, and nothing else. 🔴 IT NO LONGER CARRIES THE 傳承 BLOCK. Lore used to be appended onto this field, which left it full of text while ``learnings_chars`` (which counts the STORED document) reported 0, and nothing on the wire said which half of the field that number was about. Owner ruling 2026-09-07 split them: the block is served on ``lore``, beside this field. A reader that wants what a member effectively sees concatenates the two ITSELF — and can then see that it did, which is exactly what the merged field took away.
              * @default
              */
             learnings: string;
@@ -9363,6 +9661,18 @@ export interface components {
              * @default 0
              */
             updated_ts: number;
+            /**
+             * Lore
+             * @description The rendered 傳承 block for this manual's task type: the entries selected for it, newest first, under a ``# 傳承`` heading. EMPTY STRING when the type has no live entries — a real answer, not an omission. 🔴 IT IS NOT PART OF ``learnings`` AND IS NOT STORED ANYWHERE. It is assembled per read from the lore entries, so a caller that reads it and writes it back into the learnings document duplicates it on every cycle; the learnings write faces strip a trailing block for that exact reason. Read it, do not re-send it. 🔴 IF YOU ARE FOLLOWING A WRITTEN PROCEDURE THAT ONLY MENTIONS ``learnings``, THIS FIELD IS THE PART THAT PROCEDURE PREDATES — the type's accumulated experience lives here now.
+             * @default
+             */
+            lore: string;
+            /**
+             * Lore Chars
+             * @description Size of ``lore`` in CHARACTERS. A SEPARATE number from ``learnings_chars`` on purpose: the two fields are written by different paths and judged against different caps, so ``learnings_chars`` sizes what a writer may edit while this one sizes what the server assembled. Neither substitutes for the other, and it is their SUM that approximates what a member effectively reads.
+             * @default 0
+             */
+            lore_chars: number;
         };
         /**
          * TaskManualDeleteResultDTO
@@ -10446,11 +10756,242 @@ export interface components {
         };
         /**
          * WorkerBootContextDTO
-         * @description The outsource worker's boot-context PREVIEW (GET /api/outsource-workers/{id}/boot-context, T-ba6b) — the worker twin of the member panel's /api/bootstrap preview. The server re-runs the SAME buildWorkerBootContext fold the spawn path uses. Since T-4595 that fold is the STAFF boot context minus the persona slot (系統互動 + 使用者自訂 + the boot sequence for the worker's own runtime); it carries no outsource-only document, no identity block, no bound task and no type manual, so it does not vary with them. HONEST: this is what the boot context would look like NOW — the seeds may have changed since spawn, and nothing is stored. Never carries a worker token.
+         * @description The outsource worker's boot-context PREVIEW (GET /api/outsource-workers/{id}/boot-context, T-ba6b) — the worker twin of the member panel's /api/bootstrap preview. The server re-runs the SAME buildWorkerBootContext fold the spawn path uses. Since T-4595 that fold is the STAFF boot context minus the persona slot (系統互動 + 使用者自訂 + the boot sequence for the worker's own runtime); it carries no outsource-only document, no identity block, no bound task and no type manual, so it does not vary with them. It DOES carry this worker's own 傳承 block (T-33, LoreScopeAgent keyed on the worker's member id) — the one part of this text that differs from worker to worker, and it changes when that worker's entries are written, retired or bumped. HONEST: this is what the boot context would look like NOW — the seeds may have changed since spawn, and nothing is stored. Never carries a worker token.
          */
         WorkerBootContextDTO: {
             /** Context */
             context: string;
+        };
+        /**
+         * LoreEntryDTO
+         * @description One 傳承 entry (T-33). Written once and NEVER edited: no route changes ``title`` or ``body``, so what you read here is what was written. The mutable surface is ``state`` (active / pinned / retired), ``retire_reason`` and ``effective_ts``.
+         *
+         *     ``effective_ts`` vs ``created_ts``: ``created_ts`` is when the entry was written and never moves; ``effective_ts`` starts equal to it and is what ``bump_lore_entry`` sets to now. The fold's selection order reads ``effective_ts``, so bumping is how an old entry is brought back to the front — and because ``created_ts`` survives, the bump is reversible and explicable afterwards.
+         *
+         *     ``author_id`` is the writer's member id AS IT WAS at the moment of the write, pinned. It is not re-resolved against the roster: a writer who has since left still wrote this. A client that cannot find the id on the live roster should drop the writer's live affordances, never the entry.
+         */
+        LoreEntryDTO: {
+            /**
+             * Id
+             * @description ``L-<n>``, ``n`` ascending globally. This is the handle every write face takes as ``entry_id``.
+             */
+            id: string;
+            /**
+             * Seq
+             * @description The number behind the id — also the stable tie-break when two entries carry the same ``effective_ts``.
+             */
+            seq: number;
+            /**
+             * Scope Kind
+             * @description ``agent`` or ``manual``, and the two are not interchangeable. An ``agent`` entry rides ONE member's own boot document — staff and outsource alike; a ``manual`` entry rides ``get_task_manual``.
+             *
+             *     Which one a write lands in is decided by ONE question — the EFFECTIVE RELATED TASK: the named task when it carries a type, and NULL otherwise, where "otherwise" covers BOTH naming no task and naming a 臨時任務 that carries no type. An effective task gives ``manual``; NULL gives ``agent``, keyed by the writer itself.
+             *
+             *     🔴 A THIRD VALUE, ``role``, WAS RETIRED ON 2026-09-07 (owner, card rc-a43100fd0486 [0]: 「只有成員跟任務傳承兩種」). Every role-scoped entry was rekeyed onto the one member under that role, and ``role`` is no longer writable and no longer an accepted ``scope_kinds`` filter value — sending it is a 400, not an empty page. READERS MUST STILL TOLERATE IT: the migration deliberately left in place any entry whose member could not be determined (no active member under that role, or more than one), so ``role`` can still come back on an unfiltered page and a client that switches exhaustively on the two live values must have a fallback arm rather than crashing or renaming it into one of them.
+             */
+            scope_kind: string;
+            /**
+             * Scope Key
+             * @description The writer's own member id when ``scope_kind`` is ``agent``; the task manual's ``type_key`` when it is ``manual``. A surviving legacy ``role`` row (see ``scope_kind``) still carries a role_key here.
+             */
+            scope_key: string;
+            /** Title */
+            title: string;
+            /** Body */
+            body: string;
+            /** Author Id */
+            author_id: string;
+            /**
+             * Source Task Id
+             * @description The task the write happened inside, or "". Provenance only — nothing branches on it.
+             */
+            source_task_id: string;
+            /**
+             * State
+             * @description ``active`` | ``pinned`` | ``retired`` — exactly one, always. ``pinned`` sorts ahead of every active entry so it survives the fold's cap; ``retired`` is excluded from both folds but is NOT deleted and can be moved back.
+             */
+            state: string;
+            /**
+             * Retire Reason
+             * @description Why it was retired, or "". Meaningful only while ``state`` is ``retired``, and cleared when the entry is moved back.
+             */
+            retire_reason: string;
+            /**
+             * Effective Ts
+             * Format: double
+             */
+            effective_ts: number;
+            /**
+             * Created Ts
+             * Format: double
+             */
+            created_ts: number;
+            /**
+             * Updated Ts
+             * Format: double
+             */
+            updated_ts: number;
+        };
+        /**
+         * LoreEntryWriteDTO
+         * @description Write ONE 傳承 entry (T-33). The EFFECTIVE RELATED TASK decides the scope, and it decides it alone:
+         *
+         *     * a named task that carries a ``type_key`` ⇒ a MANUAL entry under that type.
+         *     * anything else ⇒ an AGENT entry under the CALLER'S OWN member id, read from the roster by the verified token subject — never from a client field. "Anything else" covers BOTH naming no task and naming a 臨時任務 that carries no type: a task with no type is not a place an entry can hang, so it is the same input as naming none.
+         *
+         *     Staff and outsource members take the same arm. They used to differ — staff filed under their role_key — until the owner collapsed the scopes to two on 2026-09-07 (card rc-a43100fd0486 [0]).
+         *
+         *     NEITHER ARM FALLS THROUGH TO THE OTHER. Filing an untyped task's lesson under a manual would charge a task TYPE for a lesson about work it will never do, while the writer who needed it kept nothing — and no error anywhere would say so. The one refusal left is a caller with NO ROSTER ROW at all (the owner): there is no boot document of his own for an entry to ride, so it is a 400.
+         *
+         *     A write that named a task and landed in the writer's own document says so in ``scope_note`` — it is the one outcome the caller could not predict from its own request.
+         *
+         *     An over-cap ``title`` or ``body`` is a 400 that writes NOTHING, and nothing is truncated. The caps are the ``lore_cap_chars_title`` / ``lore_cap_chars_body`` settings, in characters.
+         */
+        LoreEntryWriteDTO: {
+            /**
+             * Title
+             * @description The entry's one-line heading, at most ``lore_cap_chars_title`` characters.
+             */
+            title: string;
+            /**
+             * Body
+             * @description The entry itself, at most ``lore_cap_chars_body`` characters.
+             */
+            body: string;
+            /**
+             * Task Id
+             * @description The task whose TYPE this entry belongs to. Send a TASK id here, not a type_key — the server reads the type off the task, which is also what records where the lesson came from.
+             *
+             *     What decides the scope is the EFFECTIVE RELATED TASK: this task when it carries a type, and NULL otherwise. NULL covers BOTH omitting this field and naming a 臨時任務 that carries no type, and it files the entry under the writer's OWN boot document — ``role`` for staff, ``agent`` for an outsource member (owner 2026-09-07, card rc-3c24fdc61ed3).
+             *
+             *     🔴 A task carrying no type used to be REFUSED here. It is not any more, and the refusal was retired rather than relaxed: the owner ruled that a task with no type is not a place an entry could hang in the first place, so naming one is the same input as naming none, not a request that got redirected. When that happens ``scope_note`` on the write receipt says so in one sentence, because the caller cannot otherwise tell the two 200s apart.
+             */
+            task_id?: string | null;
+        };
+        /**
+         * LoreEntryStateDTO
+         * @description Move one 傳承 entry between its three mutually exclusive states (T-33). ``retire_reason`` is stored only with ``retired`` and is CLEARED by a move to ``active`` or ``pinned`` — a live entry must not keep displaying the explanation for a retirement that was undone.
+         *
+         *     Retiring is not deleting: the entry stays readable, keeps its id, and can be moved back.
+         */
+        LoreEntryStateDTO: {
+            /**
+             * State
+             * @description ``active`` | ``pinned`` | ``retired``. Anything else is a 400.
+             */
+            state: string;
+            /**
+             * Retire Reason
+             * @description Why it is being retired. Ignored — and any stored value cleared — for the other two states.
+             */
+            retire_reason?: string | null;
+        };
+        /**
+         * LoreEntryListDTO
+         * @description One page of 傳承 entries (T-33), in the fixed display order: pinned, then active, then retired, newest ``effective_ts`` first inside each group. THE ORDER IS NOT CONFIGURABLE — the filter is.
+         *
+         *     The filter is applied in the QUERY, before the page is cut. A client that pages first and filters afterwards cannot tell "this page happens to hold none of them" from "there are none", and any count it draws from the visible rows is wrong.
+         */
+        LoreEntryListDTO: {
+            /** Entries */
+            entries: components["schemas"]["LoreEntryDTO"][];
+            /**
+             * Limit
+             * @description The page size actually applied — not necessarily the one asked for.
+             */
+            limit: number;
+            /**
+             * Offset
+             * @description The offset actually applied.
+             */
+            offset: number;
+            /**
+             * Cap Chars
+             * @description The fold budget in force for the ONE scope this request's filter converged on — ``lore_cap_chars_role`` or ``lore_cap_chars_manual``. It is 0 when ``scope_kind`` and ``scope_key`` did not BOTH name a single scope, because a budget belongs to a scope and a page spanning several has no single one to report.
+             */
+            cap_chars: number;
+            /**
+             * First Dropped Id
+             * @description The id of the first entry that does NOT fit inside ``cap_chars`` — the entry the 上限線 is drawn above. It is "" when the whole scope fits, and "" when ``cap_chars`` is 0.
+             *
+             *     🔴 IT IS COMPUTED BY THE SAME ``selectLoreForScope`` THE TWO FOLDS RUN, over the WHOLE scope and not over this page. A client cannot derive it: paging cuts the list before the budget is spent, and re-adding the title/body lengths in the client would be a SECOND copy of the picking rule that drifts from the real one without anything turning red. Read this field; do not recompute it.
+             */
+            first_dropped_id: string;
+        };
+        /**
+         * LoreEntryWriteReceiptDTO
+         * @description Bounded receipt for ``POST /api/lore`` (write_lore_entry) (T-33). It used to answer with the whole LoreEntryDTO, so the ``title`` and ``body`` the agent had just written came straight back into its context window — a body sized by ``lore_cap_chars_body`` paid for twice on one call. Owner ruling 2026-09-07, verbatim: 「別這樣 浪費 context 我們才修一輪不要回傳自己寫出去的 payload」; the rule it applies is the one T-91's receipts already follow (2026-09-05: 「自己發送出去的內容，除了像是 ID 這類的，或是真的需要從回覆得知的，其他都不應該再回傳回來。」).
+         *
+         *     EVERY FIELD HERE IS MINTED OR DECIDED BY THE HANDLER, none is an echo. What is dropped: ``title`` and ``body`` (just sent), ``author_id`` (the verified caller, which is the caller), ``source_task_id`` (the ``task_id`` just sent), plus ``state``, ``retire_reason``, ``effective_ts`` and ``updated_ts``, which on a fresh write are constants — a new entry is always ``active`` with no reason, and all three of its timestamps equal ``created_ts``. Call ``list_lore_entries`` (``GET /api/lore``) for the entry itself.
+         *
+         *     ``scope_kind`` and ``scope_key`` STAY, and they are why this receipt is more than an id. WHICH of the two boot documents an entry landed in is decided SERVER-SIDE, off the effective related task and off the caller's own roster row — a caller that named a task cannot predict it, and it is the machine-readable half of what ``scope_note`` says in a sentence.
+         */
+        LoreEntryWriteReceiptDTO: {
+            /**
+             * Id
+             * @description ``L-<n>``, MINTED HERE, ``n`` ascending globally. The handle ``set_lore_entry_state`` and ``bump_lore_entry`` take as ``entry_id``, and the one thing the caller cannot compute.
+             */
+            id: string;
+            /**
+             * Seq
+             * @description The number behind the id, assigned here — also the stable tie-break when two entries carry the same ``effective_ts``.
+             */
+            seq: number;
+            /**
+             * Scope Kind
+             * @description ``agent`` or ``manual`` — WHERE THIS ENTRY WAS FILED, which the server decided and the caller did not ask for. The deciding question is the EFFECTIVE RELATED TASK: the named task when it carries a type, and NULL otherwise, where "otherwise" covers BOTH naming no task and naming a 臨時任務 that carries no type. An effective task gives ``manual``; NULL gives ``agent``, keyed by the writer's own member id — staff and outsource alike since the 2026-09-07 collapse (card rc-a43100fd0486 [0]). A write can never produce the retired ``role`` value.
+             */
+            scope_kind: string;
+            /**
+             * Scope Key
+             * @description The writer's own member id when ``scope_kind`` is ``agent``; the task manual's ``type_key`` when it is ``manual``. Together with ``scope_kind`` it is the filter that reads this entry back out of ``list_lore_entries``.
+             */
+            scope_key: string;
+            /**
+             * Created Ts
+             * Format: double
+             * @description The SERVER's stamp for the entry, epoch seconds. The caller does not send it and cannot backdate it. ``effective_ts`` and ``updated_ts`` are not on this receipt because on a fresh write both equal this one — they can only come apart later, and the receipt for that move reports them.
+             */
+            created_ts: number;
+            /**
+             * Scope Note
+             * @description Empty on every ordinary write. It carries one sentence in exactly one case: the write named a ``task_id`` whose task carries NO type, so the effective related task was NULL and the entry was filed under the writer's own boot document rather than under a manual.
+             *
+             *     It exists because the writer has no other way to learn that. Whether the task it named happens to carry a type is not something the writer holds in mind at the moment of the write, and both outcomes answer 200 — so without this sentence the two are indistinguishable from the caller's side. It REPORTS where the entry went; it is not a warning that a request was re-routed, because a task with no type was never a place an entry could hang.
+             *
+             *     It is on the RECEIPT and not on ``LoreEntryDTO``, where it used to live as ``filed_note``: only a write can produce it, so on every row ``GET /api/lore`` serves it was an always-empty column riding every entry of every page.
+             */
+            scope_note: string;
+        };
+        /**
+         * LoreEntryStateReceiptDTO
+         * @description Bounded receipt for the two 傳承 GOVERNANCE writes — ``POST /api/lore/{entry_id}/state`` (set_lore_entry_state) and ``POST /api/lore/{entry_id}/bump`` (bump_lore_entry) (T-33). Both used to answer with the whole LoreEntryDTO, so an entry's ``title`` and ``body`` came home on every 置頂 / 失效 / 提到最新 — a payload the caller had never sent, on a call whose entire content is one state word or nothing at all. Owner ruling 2026-09-07: 「不要回傳自己寫出去的 payload」, read together with the 2026-09-05 rule that only ids and what the write itself decides ride home.
+         *
+         *     ONE SHAPE FOR BOTH DOORS. They move the same row's mutable surface and neither can report anything the other cannot: the state door writes ``state`` (and ``retire_reason``, which it stores only with ``retired`` and clears otherwise), the bump door writes ``effective_ts``, and both stamp ``updated_ts``. Two shapes would be two answers to one question, free to drift. What is dropped is the read-only half — ``seq``, ``scope_kind``, ``scope_key``, ``title``, ``body``, ``author_id``, ``source_task_id``, ``created_ts`` — none of which either verb can change; call ``list_lore_entries`` (``GET /api/lore``) for the entry itself.
+         */
+        LoreEntryStateReceiptDTO: {
+            /**
+             * Id
+             * @description The entry that was moved, echoed from the path. An id, which the owner's rule exempts in as many words (「除了像是 ID 這類的」): it is what lets a caller match this answer to the request it made.
+             */
+            id: string;
+            /**
+             * State
+             * @description ``active`` | ``pinned`` | ``retired`` — the state the entry is in AFTER this write, read back from the stored row. On the state door it confirms the asked-for move landed. On the bump door the caller sent no state at all, and this is where it learns 提到最新 did NOT change one — a bump reorders, it does not revive a retired entry.
+             */
+            state: string;
+            /**
+             * Effective Ts
+             * Format: double
+             * @description The entry's ordering key as it now stands, epoch seconds. On the bump door this is the SERVER's new now-stamp, which is the whole point of the call and the one value the caller cannot compute — two entries bumped from two machines still order by one clock. On the state door it is untouched, which is how a caller sees that retiring or reviving did not reorder anything.
+             */
+            effective_ts: number;
+            /**
+             * Updated Ts
+             * Format: double
+             * @description The SERVER's stamp for THIS write, epoch seconds. It moves on both doors and on every call, so it — not ``effective_ts`` — is what says the write happened at all.
+             */
+            updated_ts: number;
         };
     };
     responses: never;
@@ -19439,6 +19980,224 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ProbeVersionDTO"];
+                };
+            };
+            /** @description Validation error (unified error envelope). */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+            /** @description Client error (unified error envelope). */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+            /** @description Server error (unified error envelope). */
+            "5XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+        };
+    };
+    handle_list_lore_entries_api_lore_get: {
+        parameters: {
+            query?: {
+                /** @description REPEATABLE scope-kind set (``?scope_kinds=agent&scope_kinds=manual``). Accepted values: ``agent``, ``manual``; ANY other element is a 400 that NAMES the offending value — never a silently dropped one, because 「查無資料」 and 「你打錯字」 look identical on the wire. 🔴 ``role`` IS NOW ONE OF THOSE REFUSED VALUES. It was the third scope until 2026-09-07 (owner, card rc-a43100fd0486 [0]) and every client written before then knows it, so it is the one wrong value likely to arrive from a real caller — answering 200-with-no-rows would tell them their 傳承 had been deleted rather than that their vocabulary is old. Refusing it does NOT hide the legacy rows the migration deliberately left at ``role``: those still come back on any page that does not constrain this axis. 🔴 PLURAL WINS. When this and its singular twin are BOTH sent, this one is the filter and the singular is ignored — they are neither ANDed nor unioned. Absent, or present but all-blank, falls back to the singular; both empty means no constraint on this axis. NOTE the 上限線: ``cap_chars`` / ``first_dropped_id`` are answered only when the EFFECTIVE scope_kind set holds exactly ONE value AND the effective scope_key set holds exactly ONE — a budget belongs to a scope, so a page spanning two or more has no single one to report and answers 0 / "". additive-optional. */
+                scope_kinds?: string[];
+                scope_kind?: string | null;
+                /** @description REPEATABLE scope-key set (``?scope_keys=m-1a2b&scope_keys=tm-review``) — the multi-select twin of ``scope_key``. The keys are free-form (a member id or a manual's type_key, depending on the kind beside them), so there is no closed set to check against and no 400: a key nobody carries answers 200 with no rows for that key. 🔴 PLURAL WINS. When this and its singular twin are BOTH sent, this one is the filter and the singular is ignored — they are neither ANDed nor unioned. Absent, or present but all-blank, falls back to the singular; both empty means no constraint on this axis. NOTE the 上限線: ``cap_chars`` / ``first_dropped_id`` are answered only when the EFFECTIVE scope_kind set holds exactly ONE value AND the effective scope_key set holds exactly ONE — a budget belongs to a scope, so a page spanning two or more has no single one to report and answers 0 / "". additive-optional. */
+                scope_keys?: string[];
+                scope_key?: string | null;
+                /** @description REPEATABLE state set (``?states=active&states=pinned``) — the multi-select twin of ``state``, so the 狀態 filter can tick more than one row. Accepted values: ``active``, ``pinned``, ``retired``; ANY other element is a 400 that NAMES the offending value rather than being dropped, for the same reason the singular does it — an ignored typo returns an empty page that reads exactly like a real "there are none". 🔴 PLURAL WINS. When this and its singular twin are BOTH sent, this one is the filter and the singular is ignored — they are neither ANDed nor unioned. Absent, or present but all-blank, falls back to the singular; both empty means no constraint on this axis. additive-optional. */
+                states?: string[];
+                state?: string | null;
+                /** @description REPEATABLE author set (``?author_ids=mira&author_ids=nova``) — the multi-select twin of ``author_id``. Member ids are free-form and are matched literally against the author PINNED at write time, so there is no closed set and no 400; an id nobody carries simply contributes no rows. 🔴 PLURAL WINS. When this and its singular twin are BOTH sent, this one is the filter and the singular is ignored — they are neither ANDed nor unioned. Absent, or present but all-blank, falls back to the singular; both empty means no constraint on this axis. additive-optional. */
+                author_ids?: string[];
+                author_id?: string | null;
+                /** @description REPEATABLE 傳承編號 set (``?entry_ids=L-12&entry_ids=L-30``) — the multi-select twin of ``entry_id``, and the axis behind the 傳承編號 search box the design calls for (LORE_SPEC.md §6). 🔴 IT MATCHES THE WHOLE ID, EXACTLY — never a prefix and never a substring. Owner 2026-09-08 asked for it 「跟 task 一樣」, and 任務頁 resolves a committed id by asking for THAT ONE id (``useTasks.ts:201`` ``api.getTask(anchorId)``) and pairs it to a row by equality (``TasksPage.tsx:458`` ``x.id === appliedId``); nothing there ever compares part of an id. A substring axis would also interact badly with paging: ``L-1`` would drag L-10…L-19 into a batch that limit/offset then cuts, pushing the entry actually asked for off the end. 🔴 IT IS APPLIED IN SQL, WITH THE PAGE — like every other axis here, and for the reason the whole filter exists: this list is scroll-to-load, so an id narrowed client-side would make 「捲到底沒有了」 and 「真的沒有了」 the same picture and would draw the 上限線 in the wrong place. An id is an OPEN identifier space, so there is NO closed set to check and NO 400 — the same call ``scope_keys``/``author_ids`` make. An id no entry carries answers 200 with no rows, which is the true answer, and no ``L-`` + digits shape is enforced: it would refuse only the ids that could never match while still answering an empty page for ``L-99999``, the likelier miss. 🔴 PLURAL WINS. When this and its singular twin are BOTH sent, this one is the filter and the singular is ignored — they are neither ANDed nor unioned. Absent, or present but all-blank, falls back to the singular; both empty means no constraint on this axis, which is IDENTICAL to not sending the parameter at all (an empty set is 「do not narrow」, never 「match nothing」). NOTE the 上限線 is unaffected: ``cap_chars`` / ``first_dropped_id`` still depend only on the effective scope_kind and scope_key sets holding exactly one value each — a budget belongs to a scope, and naming one entry does not name a scope. additive-optional. */
+                entry_ids?: string[];
+                entry_id?: string | null;
+                limit?: number | null;
+                offset?: number | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LoreEntryListDTO"];
+                };
+            };
+            /** @description Validation error (unified error envelope). */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+            /** @description Client error (unified error envelope). */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+            /** @description Server error (unified error envelope). */
+            "5XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+        };
+    };
+    handle_write_lore_entry_api_lore_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LoreEntryWriteDTO"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LoreEntryWriteReceiptDTO"];
+                };
+            };
+            /** @description Validation error (unified error envelope). */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+            /** @description Client error (unified error envelope). */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+            /** @description Server error (unified error envelope). */
+            "5XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+        };
+    };
+    handle_set_lore_entry_state_api_lore__entry_id__state_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                entry_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LoreEntryStateDTO"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LoreEntryStateReceiptDTO"];
+                };
+            };
+            /** @description Validation error (unified error envelope). */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+            /** @description Client error (unified error envelope). */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+            /** @description Server error (unified error envelope). */
+            "5XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+        };
+    };
+    handle_bump_lore_entry_api_lore__entry_id__bump_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                entry_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LoreEntryStateReceiptDTO"];
                 };
             };
             /** @description Validation error (unified error envelope). */

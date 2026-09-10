@@ -25,6 +25,7 @@
  *   #tasks/<taskId>                               → tasks page, located on <taskId>
  *   #tasks/executor/<memberId>                    → tasks page, filtered to that
  *                                                   member's unfinished tasks
+ *   #lore                                         → 傳承 page (T-33)
  *   #monitor                                      → monitor page
  *   #monitor/member/<detailId>                    → monitor's member detail
  *   #guide                                        → 使用說明 (product guide) list
@@ -47,7 +48,14 @@
 import { useCallback, useMemo, useSyncExternalStore } from "react";
 
 export interface HashRoute {
-  page: "office" | "replies" | "tasks" | "monitor" | "guide" | "settings";
+  page:
+    | "office"
+    | "replies"
+    | "tasks"
+    | "lore"
+    | "monitor"
+    | "guide"
+    | "settings";
   /** replies only — the card to show (e.g. a Web Push tap, or a link an agent
    * pasted into chat).
    *
@@ -198,6 +206,16 @@ export function parseHash(raw: string): HashRoute {
     return rest[0] ? { page: "tasks", taskId: rest[0] } : { page: "tasks" };
   }
 
+  // 傳承 (T-33) — the page carries NO deep-link state. Its narrowing lives in
+  // component state on purpose: the 上限線 is answered by the SERVER for the
+  // filter that was actually sent, so a hash that seeds a filter would have to
+  // seed the scope pair atomically or hand the page a half-applied filter whose
+  // line is drawn for a different question than the one on screen. Any trailing
+  // segment is ignored rather than invented into a filter.
+  if (head === "lore") {
+    return { page: "lore" };
+  }
+
   if (head === "guide") {
     return rest[0] ? { page: "guide", guideSlug: rest[0] } : { page: "guide" };
   }
@@ -263,6 +281,7 @@ export function formatHash(route: HashRoute): string {
       ? `#tasks/${encodeURIComponent(route.taskId)}`
       : "#tasks";
   }
+  if (route.page === "lore") return "#lore";
   if (route.page === "guide") {
     return route.guideSlug
       ? `#guide/${encodeURIComponent(route.guideSlug)}`

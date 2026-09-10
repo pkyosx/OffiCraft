@@ -20,10 +20,11 @@
 // this API, so this is no longer a contrast with the thread's own listing.
 //
 // OPEN BEHAVIOR (preview/download split, mirroring the server's disposition
-// table on the server): a previewable mime
-// (image/*, text/* — plain/markdown/html —, application/pdf) opens in a NEW TAB
-// (the server serves those inline); anything else (zip and other opaque
-// binaries) downloads (the server forces Content-Disposition: attachment).
+// table on the server): a previewable mime (image/*, text/* —
+// plain/markdown/html —, application/pdf, application/json, or a generic /
+// unknown MIME with a .json filename) opens in a NEW TAB (the server serves
+// those inline); anything else (zip and other opaque binaries) downloads (the server forces
+// Content-Disposition: attachment).
 
 import { useEffect, useRef, useState } from "react";
 import { useI18n } from "../i18n";
@@ -42,13 +43,23 @@ import { MarkdownPreviewOverlay } from "./MarkdownPreviewOverlay";
 const OWNER_ID = "owner";
 
 /** FE mirror of the server's preview/download split
- * (the server previewable-mime table): previewable mimes are served
- * inline → open in a new tab; the rest are forced downloads. */
-export function isPreviewableMime(mime: string): boolean {
+ * (`isPreviewableAttachment`, server/ocserverd/api_chat.go): previewable blobs
+ * are served inline → open in a new tab; the rest are forced downloads.
+ *
+ * `filename` is part of the question, not a convenience: a blob uploaded
+ * without a declared type is stored as application/octet-stream, and most of
+ * the JSON in this station arrives that way, so the mime alone cannot answer
+ * for it. The server reads the name for the same reason and by the same rule —
+ * keep the two in step. */
+export function isPreviewableMime(mime: string, filename = ""): boolean {
+  const baseMime = mime.split(";")[0]!.trim().toLowerCase();
   return (
-    mime.startsWith("image/") ||
-    mime.startsWith("text/") ||
-    mime === "application/pdf"
+    baseMime.startsWith("image/") ||
+    baseMime.startsWith("text/") ||
+    baseMime === "application/pdf" ||
+    baseMime === "application/json" ||
+    (baseMime === "" || baseMime === "application/octet-stream") &&
+      /\.json$/i.test(filename)
   );
 }
 

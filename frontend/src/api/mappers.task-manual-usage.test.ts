@@ -36,6 +36,14 @@ const WIRE: WireTaskManual = {
   sop_md_cap_chars: 18000,
   learnings_chars: 16999,
   learnings_cap_chars: 17000,
+  // The lore pair. It is a FIFTH and SIXTH distinct number for the same reason
+  // the other four are distinct: lore rides its own field now (owner ruling
+  // 2026-09-07), and a mapper that read the learnings pair into it would be
+  // indistinguishable from a correct one if the numbers matched. `lore` is
+  // deliberately unlike `learnings` in content too — the two were one field
+  // until this change, and that is exactly the confusion worth failing on.
+  lore: "# 傳承",
+  lore_chars: 5,
 };
 
 describe("toTaskManual / toTaskManualSummary · the size + cap pairs", () => {

@@ -590,8 +590,9 @@ type BackupHealthDTO struct {
 // installer for an EXISTING machine again later without re-onboarding.
 // “machine_id“ is the warden member id; “boot_command“ is the same
 // curl-download-then-install one-liner onboard builds (it embeds “machine_id“
-// as OC_ID); “token“ is a FRESHLY re-minted permanent exec-token (“scope="agent"“,
-// “sub=machine_id“, no “exp“ claim) and “expires_in“ is “0“.
+// as OC_ID); “token“ is a FRESHLY re-minted exec-token (“scope="agent"“,
+// “sub=machine_id“, “exp = iat + auth.warden_credential_lifetime_secs“) and
+// “expires_in“ is that same lifetime in seconds.
 //
 // “claim_code“ is a fresh short-lived (“claim_expires_in“ = 600 s), single-use code
 // the “boot_command“ embeds (“install.sh?code=“) instead of the exec-token; the served
@@ -1401,6 +1402,149 @@ type LoginDTO struct {
 	Password string  `json:"password"`
 }
 
+// LoreEntryDTO One 傳承 entry (T-33). Written once and NEVER edited: no route changes “title“ or “body“, so what you read here is what was written. The mutable surface is “state“ (active / pinned / retired), “retire_reason“ and “effective_ts“.
+//
+// “effective_ts“ vs “created_ts“: “created_ts“ is when the entry was written and never moves; “effective_ts“ starts equal to it and is what “bump_lore_entry“ sets to now. The fold's selection order reads “effective_ts“, so bumping is how an old entry is brought back to the front — and because “created_ts“ survives, the bump is reversible and explicable afterwards.
+//
+// “author_id“ is the writer's member id AS IT WAS at the moment of the write, pinned. It is not re-resolved against the roster: a writer who has since left still wrote this. A client that cannot find the id on the live roster should drop the writer's live affordances, never the entry.
+type LoreEntryDTO struct {
+	AuthorId    string  `json:"author_id"`
+	Body        string  `json:"body"`
+	CreatedTs   float64 `json:"created_ts"`
+	EffectiveTs float64 `json:"effective_ts"`
+
+	// Id ``L-<n>``, ``n`` ascending globally. This is the handle every write face takes as ``entry_id``.
+	Id string `json:"id"`
+
+	// RetireReason Why it was retired, or "". Meaningful only while ``state`` is ``retired``, and cleared when the entry is moved back.
+	RetireReason string `json:"retire_reason"`
+
+	// ScopeKey The writer's own member id when ``scope_kind`` is ``agent``; the task manual's ``type_key`` when it is ``manual``. A surviving legacy ``role`` row (see ``scope_kind``) still carries a role_key here.
+	ScopeKey string `json:"scope_key"`
+
+	// ScopeKind ``agent`` or ``manual``, and the two are not interchangeable. An ``agent`` entry rides ONE member's own boot document — staff and outsource alike; a ``manual`` entry rides ``get_task_manual``.
+	//
+	// Which one a write lands in is decided by ONE question — the EFFECTIVE RELATED TASK: the named task when it carries a type, and NULL otherwise, where "otherwise" covers BOTH naming no task and naming a 臨時任務 that carries no type. An effective task gives ``manual``; NULL gives ``agent``, keyed by the writer itself.
+	//
+	// 🔴 A THIRD VALUE, ``role``, WAS RETIRED ON 2026-09-07 (owner, card rc-a43100fd0486 [0]: 「只有成員跟任務傳承兩種」). Every role-scoped entry was rekeyed onto the one member under that role, and ``role`` is no longer writable and no longer an accepted ``scope_kinds`` filter value — sending it is a 400, not an empty page. READERS MUST STILL TOLERATE IT: the migration deliberately left in place any entry whose member could not be determined (no active member under that role, or more than one), so ``role`` can still come back on an unfiltered page and a client that switches exhaustively on the two live values must have a fallback arm rather than crashing or renaming it into one of them.
+	ScopeKind string `json:"scope_kind"`
+
+	// Seq The number behind the id — also the stable tie-break when two entries carry the same ``effective_ts``.
+	Seq int `json:"seq"`
+
+	// SourceTaskId The task the write happened inside, or "". Provenance only — nothing branches on it.
+	SourceTaskId string `json:"source_task_id"`
+
+	// State ``active`` | ``pinned`` | ``retired`` — exactly one, always. ``pinned`` sorts ahead of every active entry so it survives the fold's cap; ``retired`` is excluded from both folds but is NOT deleted and can be moved back.
+	State     string  `json:"state"`
+	Title     string  `json:"title"`
+	UpdatedTs float64 `json:"updated_ts"`
+}
+
+// LoreEntryListDTO One page of 傳承 entries (T-33), in the fixed display order: pinned, then active, then retired, newest “effective_ts“ first inside each group. THE ORDER IS NOT CONFIGURABLE — the filter is.
+//
+// The filter is applied in the QUERY, before the page is cut. A client that pages first and filters afterwards cannot tell "this page happens to hold none of them" from "there are none", and any count it draws from the visible rows is wrong.
+type LoreEntryListDTO struct {
+	// CapChars The fold budget in force for the ONE scope this request's filter converged on — ``lore_cap_chars_role`` or ``lore_cap_chars_manual``. It is 0 when ``scope_kind`` and ``scope_key`` did not BOTH name a single scope, because a budget belongs to a scope and a page spanning several has no single one to report.
+	CapChars int            `json:"cap_chars"`
+	Entries  []LoreEntryDTO `json:"entries"`
+
+	// FirstDroppedId The id of the first entry that does NOT fit inside ``cap_chars`` — the entry the 上限線 is drawn above. It is "" when the whole scope fits, and "" when ``cap_chars`` is 0.
+	//
+	// 🔴 IT IS COMPUTED BY THE SAME ``selectLoreForScope`` THE TWO FOLDS RUN, over the WHOLE scope and not over this page. A client cannot derive it: paging cuts the list before the budget is spent, and re-adding the title/body lengths in the client would be a SECOND copy of the picking rule that drifts from the real one without anything turning red. Read this field; do not recompute it.
+	FirstDroppedId string `json:"first_dropped_id"`
+
+	// Limit The page size actually applied — not necessarily the one asked for.
+	Limit int `json:"limit"`
+
+	// Offset The offset actually applied.
+	Offset int `json:"offset"`
+}
+
+// LoreEntryStateDTO Move one 傳承 entry between its three mutually exclusive states (T-33). “retire_reason“ is stored only with “retired“ and is CLEARED by a move to “active“ or “pinned“ — a live entry must not keep displaying the explanation for a retirement that was undone.
+//
+// Retiring is not deleting: the entry stays readable, keeps its id, and can be moved back.
+type LoreEntryStateDTO struct {
+	// RetireReason Why it is being retired. Ignored — and any stored value cleared — for the other two states.
+	RetireReason *string `json:"retire_reason,omitempty"`
+
+	// State ``active`` | ``pinned`` | ``retired``. Anything else is a 400.
+	State string `json:"state"`
+}
+
+// LoreEntryStateReceiptDTO Bounded receipt for the two 傳承 GOVERNANCE writes — “POST /api/lore/{entry_id}/state“ (set_lore_entry_state) and “POST /api/lore/{entry_id}/bump“ (bump_lore_entry) (T-33). Both used to answer with the whole LoreEntryDTO, so an entry's “title“ and “body“ came home on every 置頂 / 失效 / 提到最新 — a payload the caller had never sent, on a call whose entire content is one state word or nothing at all. Owner ruling 2026-09-07: 「不要回傳自己寫出去的 payload」, read together with the 2026-09-05 rule that only ids and what the write itself decides ride home.
+//
+// ONE SHAPE FOR BOTH DOORS. They move the same row's mutable surface and neither can report anything the other cannot: the state door writes “state“ (and “retire_reason“, which it stores only with “retired“ and clears otherwise), the bump door writes “effective_ts“, and both stamp “updated_ts“. Two shapes would be two answers to one question, free to drift. What is dropped is the read-only half — “seq“, “scope_kind“, “scope_key“, “title“, “body“, “author_id“, “source_task_id“, “created_ts“ — none of which either verb can change; call “list_lore_entries“ (“GET /api/lore“) for the entry itself.
+type LoreEntryStateReceiptDTO struct {
+	// EffectiveTs The entry's ordering key as it now stands, epoch seconds. On the bump door this is the SERVER's new now-stamp, which is the whole point of the call and the one value the caller cannot compute — two entries bumped from two machines still order by one clock. On the state door it is untouched, which is how a caller sees that retiring or reviving did not reorder anything.
+	EffectiveTs float64 `json:"effective_ts"`
+
+	// Id The entry that was moved, echoed from the path. An id, which the owner's rule exempts in as many words (「除了像是 ID 這類的」): it is what lets a caller match this answer to the request it made.
+	Id string `json:"id"`
+
+	// State ``active`` | ``pinned`` | ``retired`` — the state the entry is in AFTER this write, read back from the stored row. On the state door it confirms the asked-for move landed. On the bump door the caller sent no state at all, and this is where it learns 提到最新 did NOT change one — a bump reorders, it does not revive a retired entry.
+	State string `json:"state"`
+
+	// UpdatedTs The SERVER's stamp for THIS write, epoch seconds. It moves on both doors and on every call, so it — not ``effective_ts`` — is what says the write happened at all.
+	UpdatedTs float64 `json:"updated_ts"`
+}
+
+// LoreEntryWriteDTO Write ONE 傳承 entry (T-33). The EFFECTIVE RELATED TASK decides the scope, and it decides it alone:
+//
+// * a named task that carries a “type_key“ ⇒ a MANUAL entry under that type.
+// * anything else ⇒ an AGENT entry under the CALLER'S OWN member id, read from the roster by the verified token subject — never from a client field. "Anything else" covers BOTH naming no task and naming a 臨時任務 that carries no type: a task with no type is not a place an entry can hang, so it is the same input as naming none.
+//
+// Staff and outsource members take the same arm. They used to differ — staff filed under their role_key — until the owner collapsed the scopes to two on 2026-09-07 (card rc-a43100fd0486 [0]).
+//
+// NEITHER ARM FALLS THROUGH TO THE OTHER. Filing an untyped task's lesson under a manual would charge a task TYPE for a lesson about work it will never do, while the writer who needed it kept nothing — and no error anywhere would say so. The one refusal left is a caller with NO ROSTER ROW at all (the owner): there is no boot document of his own for an entry to ride, so it is a 400.
+//
+// A write that named a task and landed in the writer's own document says so in “scope_note“ — it is the one outcome the caller could not predict from its own request.
+//
+// An over-cap “title“ or “body“ is a 400 that writes NOTHING, and nothing is truncated. The caps are the “lore_cap_chars_title“ / “lore_cap_chars_body“ settings, in characters.
+type LoreEntryWriteDTO struct {
+	// Body The entry itself, at most ``lore_cap_chars_body`` characters.
+	Body string `json:"body"`
+
+	// TaskId The task whose TYPE this entry belongs to. Send a TASK id here, not a type_key — the server reads the type off the task, which is also what records where the lesson came from.
+	//
+	// What decides the scope is the EFFECTIVE RELATED TASK: this task when it carries a type, and NULL otherwise. NULL covers BOTH omitting this field and naming a 臨時任務 that carries no type, and it files the entry under the writer's OWN boot document — ``role`` for staff, ``agent`` for an outsource member (owner 2026-09-07, card rc-3c24fdc61ed3).
+	//
+	// 🔴 A task carrying no type used to be REFUSED here. It is not any more, and the refusal was retired rather than relaxed: the owner ruled that a task with no type is not a place an entry could hang in the first place, so naming one is the same input as naming none, not a request that got redirected. When that happens ``scope_note`` on the write receipt says so in one sentence, because the caller cannot otherwise tell the two 200s apart.
+	TaskId *string `json:"task_id,omitempty"`
+
+	// Title The entry's one-line heading, at most ``lore_cap_chars_title`` characters.
+	Title string `json:"title"`
+}
+
+// LoreEntryWriteReceiptDTO Bounded receipt for “POST /api/lore“ (write_lore_entry) (T-33). It used to answer with the whole LoreEntryDTO, so the “title“ and “body“ the agent had just written came straight back into its context window — a body sized by “lore_cap_chars_body“ paid for twice on one call. Owner ruling 2026-09-07, verbatim: 「別這樣 浪費 context 我們才修一輪不要回傳自己寫出去的 payload」; the rule it applies is the one T-91's receipts already follow (2026-09-05: 「自己發送出去的內容，除了像是 ID 這類的，或是真的需要從回覆得知的，其他都不應該再回傳回來。」).
+//
+// EVERY FIELD HERE IS MINTED OR DECIDED BY THE HANDLER, none is an echo. What is dropped: “title“ and “body“ (just sent), “author_id“ (the verified caller, which is the caller), “source_task_id“ (the “task_id“ just sent), plus “state“, “retire_reason“, “effective_ts“ and “updated_ts“, which on a fresh write are constants — a new entry is always “active“ with no reason, and all three of its timestamps equal “created_ts“. Call “list_lore_entries“ (“GET /api/lore“) for the entry itself.
+//
+// “scope_kind“ and “scope_key“ STAY, and they are why this receipt is more than an id. WHICH of the two boot documents an entry landed in is decided SERVER-SIDE, off the effective related task and off the caller's own roster row — a caller that named a task cannot predict it, and it is the machine-readable half of what “scope_note“ says in a sentence.
+type LoreEntryWriteReceiptDTO struct {
+	// CreatedTs The SERVER's stamp for the entry, epoch seconds. The caller does not send it and cannot backdate it. ``effective_ts`` and ``updated_ts`` are not on this receipt because on a fresh write both equal this one — they can only come apart later, and the receipt for that move reports them.
+	CreatedTs float64 `json:"created_ts"`
+
+	// Id ``L-<n>``, MINTED HERE, ``n`` ascending globally. The handle ``set_lore_entry_state`` and ``bump_lore_entry`` take as ``entry_id``, and the one thing the caller cannot compute.
+	Id string `json:"id"`
+
+	// ScopeKey The writer's own member id when ``scope_kind`` is ``agent``; the task manual's ``type_key`` when it is ``manual``. Together with ``scope_kind`` it is the filter that reads this entry back out of ``list_lore_entries``.
+	ScopeKey string `json:"scope_key"`
+
+	// ScopeKind ``agent`` or ``manual`` — WHERE THIS ENTRY WAS FILED, which the server decided and the caller did not ask for. The deciding question is the EFFECTIVE RELATED TASK: the named task when it carries a type, and NULL otherwise, where "otherwise" covers BOTH naming no task and naming a 臨時任務 that carries no type. An effective task gives ``manual``; NULL gives ``agent``, keyed by the writer's own member id — staff and outsource alike since the 2026-09-07 collapse (card rc-a43100fd0486 [0]). A write can never produce the retired ``role`` value.
+	ScopeKind string `json:"scope_kind"`
+
+	// ScopeNote Empty on every ordinary write. It carries one sentence in exactly one case: the write named a ``task_id`` whose task carries NO type, so the effective related task was NULL and the entry was filed under the writer's own boot document rather than under a manual.
+	//
+	// It exists because the writer has no other way to learn that. Whether the task it named happens to carry a type is not something the writer holds in mind at the moment of the write, and both outcomes answer 200 — so without this sentence the two are indistinguishable from the caller's side. It REPORTS where the entry went; it is not a warning that a request was re-routed, because a task with no type was never a place an entry could hang.
+	//
+	// It is on the RECEIPT and not on ``LoreEntryDTO``, where it used to live as ``filed_note``: only a write can produce it, so on every row ``GET /api/lore`` serves it was an always-empty column riding every entry of every page.
+	ScopeNote string `json:"scope_note"`
+
+	// Seq The number behind the id, assigned here — also the stable tie-break when two entries carry the same ``effective_ts``.
+	Seq int `json:"seq"`
+}
+
 // MachineClaimDTO Redeem a one-time machine claim code (“POST /api/machines/claim“).
 //
 // “code“ is the single-use, short-lived (600 s) code the onboard /
@@ -1412,9 +1556,10 @@ type MachineClaimDTO struct {
 
 // MachineClaimResultDTO The claim-code redemption result (“POST /api/machines/claim“).
 //
-// “token“ is the freshly minted permanent machine exec-token (“scope="agent"“,
-// “sub=machine_id“ — the same mint every warden install path performs); it omits
-// “exp“ and answers “expires_in=0“. “machine_id“ is the warden member the
+// “token“ is the freshly minted machine exec-token (“scope="agent"“,
+// “sub=machine_id“ — the same mint every warden install path performs); it carries
+// “exp = iat + auth.warden_credential_lifetime_secs“ and answers “expires_in“ =
+// that same lifetime in seconds. “machine_id“ is the warden member the
 // token is bound to.
 type MachineClaimResultDTO struct {
 	ExpiresIn int    `json:"expires_in"`
@@ -1424,7 +1569,7 @@ type MachineClaimResultDTO struct {
 
 // MachineCredentialPolicyDTO The station's machine-credential policy (“GET /api/machines/credential-policy“).
 //
-// “lifetime_secs“ is the org setting “auth.warden_credential_lifetime_secs“: how long a machine (warden) credential is meant to live. It is NOT an expiry and nothing enforces it at the auth gate -- warden credentials still carry no “exp“. It is the input to the warden's own renewal threshold: two thirds of it, measured from the credential's “iat“, plus a per-machine stagger.
+// “lifetime_secs“ is the org setting “auth.warden_credential_lifetime_secs“: how long a machine (warden) credential is meant to live. It is BOTH the expiry stamped into the credential (“exp = iat + lifetime_secs“, T-fc53) and the input to the warden's own renewal threshold: two thirds of it, measured from the credential's “iat“, plus a per-machine stagger. Credentials minted before that change carry no “exp“ and go on being accepted until the machine renews.
 type MachineCredentialPolicyDTO struct {
 	LifetimeSecs int `json:"lifetime_secs"`
 }
@@ -1513,8 +1658,9 @@ type MachineOnboardDTO struct {
 // surfaced under the machine-model name (the machine id == the warden member's own
 // id — the binding key agents store in their “desired_machine_id“ column). “token“
 // is
-// the freshly minted permanent exec-token (“scope="agent"“, “sub=member_id“) with
-// no “exp“ claim; “expires_in“ is “0“. “boot_command“ is the copy-paste line
+// the freshly minted exec-token (“scope="agent"“, “sub=member_id“) carrying
+// “exp = iat + auth.warden_credential_lifetime_secs“; “expires_in“ is that same
+// lifetime in seconds. “boot_command“ is the copy-paste line
 // the operator runs ON that machine to install the warden (identity rides in the
 // token's “sub“, not a templated machine id).
 //
@@ -1708,7 +1854,16 @@ type MemberDTO struct {
 	// Runtime The member's selected AI CLI runtime. Existing rows default to ``claude``.
 	Runtime       *AgentRuntime `json:"runtime,omitempty"`
 	SchemaVersion *int          `json:"schema_version,omitempty"`
-	UnreadCount   *int          `json:"unread_count,omitempty"`
+
+	// TerminalAttachCommand The COMPLETE, ready-to-paste shell command that attaches a terminal to this row's tmux session, composed server-side and served verbatim (T-139). Clients display and copy it AS-IS and MUST NOT assemble one of their own out of the parts: the ``tmux -L`` socket is the bare ``officraft`` only on the main instance and ``officraft-<ns>`` on a namespaced one (``[server].namespace``, the same value this station bakes into every warden it installs), so a client-side socket literal attaches to a DIFFERENT tmux server and silently drops the owner into another station's sessions.
+	//
+	// ALWAYS SERVED, on every row, with no liveness or desired-state gate — the cockpit has always shown this line unconditionally, and making it conditional would delete something the owner can see today. An empty string therefore means exactly ONE thing: a server too old to serve the field. A client reading it empty MUST fall back to showing nothing (or saying this server provides none) and MUST NOT reconstruct the command — the reconstruction is the defect.
+	//
+	// IT RESTS ON A NAMED CHEAP ASSUMPTION (owner 2026-09-08): that the tmux server holding this row's session is a warden THIS station installed, so this station's namespace keys it. An agent living on a warden some OTHER station installed gets a socket name that does not exist on that host, and the attach fails to find a server. That is not a regression — see WAS.
+	//
+	// WAS: every client re-derived ``tmux -L officraft attach -t member-<id>`` from its own hardcoded socket and session-name literals — correct only for the unnamespaced instance, and one more copy to drift each time. Additive-optional.
+	TerminalAttachCommand *string `json:"terminal_attach_command,omitempty"`
+	UnreadCount           *int    `json:"unread_count,omitempty"`
 }
 
 // MemberHireDTO Hire (create) a roster member (§3.4 #9; pure seam, no UI). The owner assigns
@@ -2063,6 +2218,15 @@ type OutsourceWorkerDTO struct {
 
 	// TaskTypeName The DISPLAY name of ``task_type_key`` as the task manual currently spells it (T-fa76's label, resolved here so the panel no longer pulls the whole manuals list to translate one key — T-a3e4). "" when the manual is gone or names nothing; the client then falls back to the raw ``task_type_key``. additive-optional.
 	TaskTypeName *string `json:"task_type_name,omitempty"`
+
+	// TerminalAttachCommand The COMPLETE, ready-to-paste shell command that attaches a terminal to this row's tmux session, composed server-side and served verbatim (T-139). Clients display and copy it AS-IS and MUST NOT assemble one of their own out of the parts: the ``tmux -L`` socket is the bare ``officraft`` only on the main instance and ``officraft-<ns>`` on a namespaced one (``[server].namespace``, the same value this station bakes into every warden it installs), so a client-side socket literal attaches to a DIFFERENT tmux server and silently drops the owner into another station's sessions.
+	//
+	// ALWAYS SERVED, on every row, with no liveness or desired-state gate — the cockpit has always shown this line unconditionally, and making it conditional would delete something the owner can see today. An empty string therefore means exactly ONE thing: a server too old to serve the field. A client reading it empty MUST fall back to showing nothing (or saying this server provides none) and MUST NOT reconstruct the command — the reconstruction is the defect.
+	//
+	// IT RESTS ON A NAMED CHEAP ASSUMPTION (owner 2026-09-08): that the tmux server holding this row's session is a warden THIS station installed, so this station's namespace keys it. An agent living on a warden some OTHER station installed gets a socket name that does not exist on that host, and the attach fails to find a server. That is not a regression — see WAS.
+	//
+	// WAS: every client re-derived ``tmux -L officraft attach -t member-<id>`` from its own hardcoded socket and session-name literals — correct only for the unnamespaced instance, and one more copy to drift each time. Additive-optional.
+	TerminalAttachCommand *string `json:"terminal_attach_command,omitempty"`
 
 	// UnreadCount The CALLER's unread chat-message count for this worker's conversation (the same chat_read watermark inverse the member roster serves) — the office 外包 row's red badge. Optional-with-default: absent reads as 0 for older clients.
 	UnreadCount *int `json:"unread_count,omitempty"`
@@ -3023,6 +3187,18 @@ type SettingsDTO struct {
 	// HandoverPct The SECOND of the two offboard points: the FINAL notice, and the point the automatic handover itself fires. Must be 40..90 and strictly greater than notice_pct.
 	HandoverPct int `json:"handover_pct"`
 
+	// LoreCapCharsBody The longest ``body`` ONE 傳承 entry may be written with, in characters (T-33). An over-cap write is refused whole; half a lesson is not a shorter lesson. Unlike the ``doc_cap_chars_*`` knobs this one may be LOWERED as well as raised. Those floors equal their own shipped defaults because lowering one strands an existing legal document in shrink-only mode; a 傳承 entry has NO edit path at all, so a smaller cap cannot strand anything already stored — it binds the next write and nothing else. The adjustable range is 10..10000.
+	LoreCapCharsBody *int `json:"lore_cap_chars_body,omitempty"`
+
+	// LoreCapCharsManual How many characters of 傳承 ``get_task_manual`` appends after a type's ``learnings`` (T-33) — spent by whoever opens that manual, staff and outsource alike, since this fold enters no boot document. INDEPENDENT of ``lore_cap_chars_role``. Unlike the ``doc_cap_chars_*`` knobs this one may be LOWERED as well as raised. Those floors equal their own shipped defaults because lowering one strands an existing legal document in shrink-only mode; a 傳承 entry has NO edit path at all, so a smaller cap cannot strand anything already stored — it binds the next write and nothing else. The adjustable range is 100..100000.
+	LoreCapCharsManual *int `json:"lore_cap_chars_manual,omitempty"`
+
+	// LoreCapCharsRole How many characters of 傳承 a STAFF boot document carries for one role (T-33) — spent by every boot of that role. INDEPENDENT of ``lore_cap_chars_manual``; the two are never summed, because they are paid by different readers at different moments. Unlike the ``doc_cap_chars_*`` knobs this one may be LOWERED as well as raised. Those floors equal their own shipped defaults because lowering one strands an existing legal document in shrink-only mode; a 傳承 entry has NO edit path at all, so a smaller cap cannot strand anything already stored — it binds the next write and nothing else. The adjustable range is 100..100000.
+	LoreCapCharsRole *int `json:"lore_cap_chars_role,omitempty"`
+
+	// LoreCapCharsTitle The longest ``title`` ONE 傳承 entry may be written with, in characters (T-33). An over-cap write is refused whole — nothing partial is stored and nothing is truncated. Unlike the ``doc_cap_chars_*`` knobs this one may be LOWERED as well as raised. Those floors equal their own shipped defaults because lowering one strands an existing legal document in shrink-only mode; a 傳承 entry has NO edit path at all, so a smaller cap cannot strand anything already stored — it binds the next write and nothing else. The adjustable range is 10..10000.
+	LoreCapCharsTitle *int `json:"lore_cap_chars_title,omitempty"`
+
 	// MonitoringRefreshSeconds Minimum interval between monitoring and machine refreshes, in seconds (1 through 60).
 	MonitoringRefreshSeconds *int `json:"monitoring_refresh_seconds,omitempty"`
 
@@ -3048,6 +3224,9 @@ type SettingsDTO struct {
 	// StepNoteCapChars The size cap on ONE task STEP's working note, in CHARACTERS (Unicode code points — Chinese prose counts one per character). One number serves both faces: it is what `get_task` reports per step and what `get_task_step` reports as `note_cap_chars`, AND it is what both note write faces (the wholesale write and the anchor patch) refuse a longer note against, read from this one setting so the reported ceiling and the enforced one can never drift apart. The adjustable range is 1000..100000. Like `chat_budget_chars`, and unlike the `doc_cap_chars_*` knobs, it may be LOWERED as well as raised: the cap is checked only on WRITE, so a note already stored above a newly lowered cap stays readable in full and simply cannot be edited until it is shortened. Two neighbouring fields are deliberately NOT governed by this setting and keep their own 4,000-character server constant: the task-level handover note and a chat message body (owner ruling 2026-09-06).
 	StepNoteCapChars *int `json:"step_note_cap_chars,omitempty"`
 
+	// SuggestedRepliesLoreMessage The one-click 建議回覆 offered under a 傳承 entry's message box (T-33) — the box that writes to the person who WROTE that entry. A THIRD separate list, for the same reason the other two are separate: asking 「這條還適用嗎」 about a lesson someone left behind is not answering a 請示卡 and not steering a task in progress, so one list's sentences are wrong in another's box. [] (the default) means no chips are drawn there, and the message box works exactly as it does without them.
+	SuggestedRepliesLoreMessage *[]string `json:"suggested_replies_lore_message,omitempty"`
+
 	// SuggestedRepliesReplyCard The one-click 建議回覆 offered under a 請示卡 reply box (T-122) — one sentence per entry, dropped into the box by a single tap. The list is the owner's own writing, never generated. [] (the default) means no chips are drawn, and the reply box must keep working exactly as it did without them: the suggestions are a convenience laid over it, never a part of it.
 	SuggestedRepliesReplyCard *[]string `json:"suggested_replies_reply_card,omitempty"`
 
@@ -3056,7 +3235,7 @@ type SettingsDTO struct {
 	UpdaterAutoUpdate           *bool     `json:"updater_auto_update,omitempty"`
 	UpdaterReceiveBeta          *bool     `json:"updater_receive_beta,omitempty"`
 
-	// WardenCredentialLifetimeSecs How long a MACHINE (warden) credential is meant to live, in seconds (86400 through 34560000 -- one day through 400 days). It is the number every warden's renewal threshold is derived from: a warden replaces its own credential once that credential is two thirds of this old, measured from the `iat` claim it carries, plus a per-machine stagger of up to one hour. Wardens read it from `GET /api/machines/credential-policy` on their 15-minute poll, so a change reaches the fleet within one interval; a warden that cannot reach that endpoint keeps using the shipped default rather than failing. NOTE: warden credentials still carry NO `exp`, so this value governs RENEWAL ONLY -- nothing expires because of it, and a renewal that does not complete leaves the machine on a credential that keeps working.
+	// WardenCredentialLifetimeSecs How long a MACHINE (warden) credential is meant to live, in seconds (86400 through 34560000 -- one day through 400 days). It is the number every warden's renewal threshold is derived from: a warden replaces its own credential once that credential is two thirds of this old, measured from the `iat` claim it carries, plus a per-machine stagger of up to one hour. Wardens read it from `GET /api/machines/credential-policy` on their 15-minute poll, so a change reaches the fleet within one interval; a warden that cannot reach that endpoint keeps using the shipped default rather than failing. It is ALSO the credential's expiry: the warden mint stamps `exp = iat + this` (T-fc53). A renewal that does not complete inside the remaining third therefore takes that machine off the fleet until someone re-installs it by hand, and nothing on the station reports that it happened. Lowering this value does not shorten credentials already issued -- an `exp` is fixed at mint time.
 	WardenCredentialLifetimeSecs *int `json:"warden_credential_lifetime_secs,omitempty"`
 }
 
@@ -3136,6 +3315,18 @@ type SettingsUpdateDTO struct {
 	// HandoverPct The SECOND offboard point: the FINAL notice, and where the automatic handover fires. 40..90, and strictly greater than notice_pct (the pair is validated together against the POST-patch values, so either one may be sent alone).
 	HandoverPct *int `json:"handover_pct,omitempty"`
 
+	// LoreCapCharsBody The longest ``body`` ONE 傳承 entry may be written with, in characters (T-33). An over-cap write is refused whole; half a lesson is not a shorter lesson. Unlike the ``doc_cap_chars_*`` knobs this one may be LOWERED as well as raised. Those floors equal their own shipped defaults because lowering one strands an existing legal document in shrink-only mode; a 傳承 entry has NO edit path at all, so a smaller cap cannot strand anything already stored — it binds the next write and nothing else. The adjustable range is 10..10000.
+	LoreCapCharsBody *int `json:"lore_cap_chars_body,omitempty"`
+
+	// LoreCapCharsManual How many characters of 傳承 ``get_task_manual`` appends after a type's ``learnings`` (T-33) — spent by whoever opens that manual, staff and outsource alike, since this fold enters no boot document. INDEPENDENT of ``lore_cap_chars_role``. Unlike the ``doc_cap_chars_*`` knobs this one may be LOWERED as well as raised. Those floors equal their own shipped defaults because lowering one strands an existing legal document in shrink-only mode; a 傳承 entry has NO edit path at all, so a smaller cap cannot strand anything already stored — it binds the next write and nothing else. The adjustable range is 100..100000.
+	LoreCapCharsManual *int `json:"lore_cap_chars_manual,omitempty"`
+
+	// LoreCapCharsRole How many characters of 傳承 a STAFF boot document carries for one role (T-33) — spent by every boot of that role. INDEPENDENT of ``lore_cap_chars_manual``; the two are never summed, because they are paid by different readers at different moments. Unlike the ``doc_cap_chars_*`` knobs this one may be LOWERED as well as raised. Those floors equal their own shipped defaults because lowering one strands an existing legal document in shrink-only mode; a 傳承 entry has NO edit path at all, so a smaller cap cannot strand anything already stored — it binds the next write and nothing else. The adjustable range is 100..100000.
+	LoreCapCharsRole *int `json:"lore_cap_chars_role,omitempty"`
+
+	// LoreCapCharsTitle The longest ``title`` ONE 傳承 entry may be written with, in characters (T-33). An over-cap write is refused whole — nothing partial is stored and nothing is truncated. Unlike the ``doc_cap_chars_*`` knobs this one may be LOWERED as well as raised. Those floors equal their own shipped defaults because lowering one strands an existing legal document in shrink-only mode; a 傳承 entry has NO edit path at all, so a smaller cap cannot strand anything already stored — it binds the next write and nothing else. The adjustable range is 10..10000.
+	LoreCapCharsTitle *int `json:"lore_cap_chars_title,omitempty"`
+
 	// MonitoringRefreshSeconds Minimum interval between monitoring and machine refreshes, in seconds. Must be 1 through 60.
 	MonitoringRefreshSeconds *int `json:"monitoring_refresh_seconds,omitempty"`
 
@@ -3159,6 +3350,9 @@ type SettingsUpdateDTO struct {
 	// StepNoteCapChars The size cap on one task step's working note, in CHARACTERS (Unicode code points). Must be between 1000 and 100000. Unlike the `doc_cap_chars_*` knobs the floor is NOT the shipped default — this cap may be lowered as well as raised, because it is enforced only when a note is WRITTEN: a note already stored above a lowered cap stays readable in full and only becomes uneditable. It does not govern the task-level handover note or a chat message body, which keep their own 4,000-character constant.
 	StepNoteCapChars *int `json:"step_note_cap_chars,omitempty"`
 
+	// SuggestedRepliesLoreMessage Replace the 傳承 message-box 建議回覆 list wholesale (T-33) — the box that writes to the person who wrote that 傳承 entry. Same bounds as suggested_replies_reply_card — at most 20 entries, each trimmed and at most 120 runes, over either is a 422 that writes nothing, and an explicit empty array is legal — but a SEPARATE list: patching one never touches another. 🔴 null is NOT "clear": an omitted field and an explicit null both mean LEAVE THIS LIST UNCHANGED, so an agent that sends null to empty the list gets a 200 and no change at all. To clear it, send [].
+	SuggestedRepliesLoreMessage *[]string `json:"suggested_replies_lore_message,omitempty"`
+
 	// SuggestedRepliesReplyCard Replace the 請示卡 建議回覆 list wholesale (T-122). At most 20 entries, each trimmed and at most 120 runes (Unicode code points); over either bound is a 422 that writes NOTHING — the list is never silently truncated. An EXPLICIT EMPTY ARRAY IS LEGAL and means "offer no suggestions there" (unlike the scheduled-message custom_* sets, where [] is a 422). Blank entries are dropped. 🔴 null is NOT "clear": an omitted field and an explicit null both mean LEAVE THIS LIST UNCHANGED, so an agent that sends null to empty the list gets a 200 and no change at all. To clear it, send [].
 	SuggestedRepliesReplyCard *[]string `json:"suggested_replies_reply_card,omitempty"`
 
@@ -3167,7 +3361,7 @@ type SettingsUpdateDTO struct {
 	UpdaterAutoUpdate           *bool     `json:"updater_auto_update,omitempty"`
 	UpdaterReceiveBeta          *bool     `json:"updater_receive_beta,omitempty"`
 
-	// WardenCredentialLifetimeSecs How long a MACHINE (warden) credential is meant to live, in seconds. Must be 86400 through 34560000 (one day through 400 days). A warden renews its own credential once that credential is two thirds of this old, plus a per-machine stagger of up to one hour so that LOWERING this value does not put the whole fleet on the mint endpoint inside one poll. The floor is one day because the last third of the lifetime is the retry window: at the 15-minute poll a one-day lifetime still leaves about 32 attempts. Wardens pick a change up within one poll interval. Warden credentials carry no `exp` today, so this governs renewal only and nothing expires because of it. Read the current value from get_settings rather than assuming a number.
+	// WardenCredentialLifetimeSecs How long a MACHINE (warden) credential is meant to live, in seconds. Must be 86400 through 34560000 (one day through 400 days). A warden renews its own credential once that credential is two thirds of this old, plus a per-machine stagger of up to one hour so that LOWERING this value does not put the whole fleet on the mint endpoint inside one poll. The floor is one day because the last third of the lifetime is the retry window: at the 15-minute poll a one-day lifetime still leaves about 32 attempts. Wardens pick a change up within one poll interval. It is ALSO the expiry stamped into the credential (`exp = iat + this`, T-fc53), so a machine that misses its whole retry window needs a hand re-install; lowering the value never shortens a credential already issued, because an `exp` is fixed at mint time. Read the current value from get_settings rather than assuming a number.
 	WardenCredentialLifetimeSecs *int `json:"warden_credential_lifetime_secs,omitempty"`
 }
 
@@ -3539,15 +3733,23 @@ type TaskManualDTO struct {
 	CapChars    *int                 `json:"cap_chars,omitempty"`
 	DisplayName string               `json:"display_name"`
 	Fields      []TaskManualFieldDTO `json:"fields"`
-	Learnings   *string              `json:"learnings,omitempty"`
+
+	// Learnings The manual's LEARNINGS DOCUMENT — the stored text a write face writes, and nothing else. 🔴 IT NO LONGER CARRIES THE 傳承 BLOCK. Lore used to be appended onto this field, which left it full of text while ``learnings_chars`` (which counts the STORED document) reported 0, and nothing on the wire said which half of the field that number was about. Owner ruling 2026-09-07 split them: the block is served on ``lore``, beside this field. A reader that wants what a member effectively sees concatenates the two ITSELF — and can then see that it did, which is exactly what the merged field took away.
+	Learnings *string `json:"learnings,omitempty"`
 
 	// LearningsCapChars The cap on `learnings` now in force, in CHARACTERS (the doc.cap_chars.manual_learnings setting). Served on the READ face so an agent can size an edit BEFORE writing it. Independent of sop_md_cap_chars since T-30f1.
 	LearningsCapChars *int `json:"learnings_cap_chars,omitempty"`
 
 	// LearningsChars Size of `learnings` in CHARACTERS. Reported PER CAPPED DOCUMENT rather than as one total, because learnings and sop_md are judged separately — against their own caps since T-30f1. The listing carries the same measurement without the text (TaskManualListItemDTO).
-	LearningsChars *int    `json:"learnings_chars,omitempty"`
-	Purpose        *string `json:"purpose,omitempty"`
-	SopMd          *string `json:"sop_md,omitempty"`
+	LearningsChars *int `json:"learnings_chars,omitempty"`
+
+	// Lore The rendered 傳承 block for this manual's task type: the entries selected for it, newest first, under a ``# 傳承`` heading. EMPTY STRING when the type has no live entries — a real answer, not an omission. 🔴 IT IS NOT PART OF ``learnings`` AND IS NOT STORED ANYWHERE. It is assembled per read from the lore entries, so a caller that reads it and writes it back into the learnings document duplicates it on every cycle; the learnings write faces strip a trailing block for that exact reason. Read it, do not re-send it. 🔴 IF YOU ARE FOLLOWING A WRITTEN PROCEDURE THAT ONLY MENTIONS ``learnings``, THIS FIELD IS THE PART THAT PROCEDURE PREDATES — the type's accumulated experience lives here now.
+	Lore *string `json:"lore,omitempty"`
+
+	// LoreChars Size of ``lore`` in CHARACTERS. A SEPARATE number from ``learnings_chars`` on purpose: the two fields are written by different paths and judged against different caps, so ``learnings_chars`` sizes what a writer may edit while this one sizes what the server assembled. Neither substitutes for the other, and it is their SUM that approximates what a member effectively reads.
+	LoreChars *int    `json:"lore_chars,omitempty"`
+	Purpose   *string `json:"purpose,omitempty"`
+	SopMd     *string `json:"sop_md,omitempty"`
 
 	// SopMdCapChars The cap on `sop_md` now in force, in CHARACTERS (the doc.cap_chars.manual_sop setting). See learnings_cap_chars.
 	SopMdCapChars *int `json:"sop_md_cap_chars,omitempty"`
@@ -4122,7 +4324,7 @@ type WebhookUpdateDTO struct {
 	Status        *string `json:"status,omitempty"`
 }
 
-// WorkerBootContextDTO The outsource worker's boot-context PREVIEW (GET /api/outsource-workers/{id}/boot-context, T-ba6b) — the worker twin of the member panel's /api/bootstrap preview. The server re-runs the SAME buildWorkerBootContext fold the spawn path uses. Since T-4595 that fold is the STAFF boot context minus the persona slot (系統互動 + 使用者自訂 + the boot sequence for the worker's own runtime); it carries no outsource-only document, no identity block, no bound task and no type manual, so it does not vary with them. HONEST: this is what the boot context would look like NOW — the seeds may have changed since spawn, and nothing is stored. Never carries a worker token.
+// WorkerBootContextDTO The outsource worker's boot-context PREVIEW (GET /api/outsource-workers/{id}/boot-context, T-ba6b) — the worker twin of the member panel's /api/bootstrap preview. The server re-runs the SAME buildWorkerBootContext fold the spawn path uses. Since T-4595 that fold is the STAFF boot context minus the persona slot (系統互動 + 使用者自訂 + the boot sequence for the worker's own runtime); it carries no outsource-only document, no identity block, no bound task and no type manual, so it does not vary with them. It DOES carry this worker's own 傳承 block (T-33, LoreScopeAgent keyed on the worker's member id) — the one part of this text that differs from worker to worker, and it changes when that worker's entries are written, retired or bumped. HONEST: this is what the boot context would look like NOW — the seeds may have changed since spawn, and nothing is stored. Never carries a worker token.
 type WorkerBootContextDTO struct {
 	Context string `json:"context"`
 }
@@ -4201,6 +4403,31 @@ type HandleGetDiffShareLinkApiDiffShareLinkGetParams struct {
 	After       string  `form:"after" json:"after"`
 	LabelBefore *string `form:"label_before,omitempty" json:"label_before,omitempty"`
 	LabelAfter  *string `form:"label_after,omitempty" json:"label_after,omitempty"`
+}
+
+// HandleListLoreEntriesApiLoreGetParams defines parameters for HandleListLoreEntriesApiLoreGet.
+type HandleListLoreEntriesApiLoreGetParams struct {
+	// ScopeKinds REPEATABLE scope-kind set (``?scope_kinds=agent&scope_kinds=manual``). Accepted values: ``agent``, ``manual``; ANY other element is a 400 that NAMES the offending value — never a silently dropped one, because 「查無資料」 and 「你打錯字」 look identical on the wire. 🔴 ``role`` IS NOW ONE OF THOSE REFUSED VALUES. It was the third scope until 2026-09-07 (owner, card rc-a43100fd0486 [0]) and every client written before then knows it, so it is the one wrong value likely to arrive from a real caller — answering 200-with-no-rows would tell them their 傳承 had been deleted rather than that their vocabulary is old. Refusing it does NOT hide the legacy rows the migration deliberately left at ``role``: those still come back on any page that does not constrain this axis. 🔴 PLURAL WINS. When this and its singular twin are BOTH sent, this one is the filter and the singular is ignored — they are neither ANDed nor unioned. Absent, or present but all-blank, falls back to the singular; both empty means no constraint on this axis. NOTE the 上限線: ``cap_chars`` / ``first_dropped_id`` are answered only when the EFFECTIVE scope_kind set holds exactly ONE value AND the effective scope_key set holds exactly ONE — a budget belongs to a scope, so a page spanning two or more has no single one to report and answers 0 / "". additive-optional.
+	ScopeKinds *[]string `form:"scope_kinds,omitempty" json:"scope_kinds,omitempty"`
+	ScopeKind  *string   `form:"scope_kind,omitempty" json:"scope_kind,omitempty"`
+
+	// ScopeKeys REPEATABLE scope-key set (``?scope_keys=m-1a2b&scope_keys=tm-review``) — the multi-select twin of ``scope_key``. The keys are free-form (a member id or a manual's type_key, depending on the kind beside them), so there is no closed set to check against and no 400: a key nobody carries answers 200 with no rows for that key. 🔴 PLURAL WINS. When this and its singular twin are BOTH sent, this one is the filter and the singular is ignored — they are neither ANDed nor unioned. Absent, or present but all-blank, falls back to the singular; both empty means no constraint on this axis. NOTE the 上限線: ``cap_chars`` / ``first_dropped_id`` are answered only when the EFFECTIVE scope_kind set holds exactly ONE value AND the effective scope_key set holds exactly ONE — a budget belongs to a scope, so a page spanning two or more has no single one to report and answers 0 / "". additive-optional.
+	ScopeKeys *[]string `form:"scope_keys,omitempty" json:"scope_keys,omitempty"`
+	ScopeKey  *string   `form:"scope_key,omitempty" json:"scope_key,omitempty"`
+
+	// States REPEATABLE state set (``?states=active&states=pinned``) — the multi-select twin of ``state``, so the 狀態 filter can tick more than one row. Accepted values: ``active``, ``pinned``, ``retired``; ANY other element is a 400 that NAMES the offending value rather than being dropped, for the same reason the singular does it — an ignored typo returns an empty page that reads exactly like a real "there are none". 🔴 PLURAL WINS. When this and its singular twin are BOTH sent, this one is the filter and the singular is ignored — they are neither ANDed nor unioned. Absent, or present but all-blank, falls back to the singular; both empty means no constraint on this axis. additive-optional.
+	States *[]string `form:"states,omitempty" json:"states,omitempty"`
+	State  *string   `form:"state,omitempty" json:"state,omitempty"`
+
+	// AuthorIds REPEATABLE author set (``?author_ids=mira&author_ids=nova``) — the multi-select twin of ``author_id``. Member ids are free-form and are matched literally against the author PINNED at write time, so there is no closed set and no 400; an id nobody carries simply contributes no rows. 🔴 PLURAL WINS. When this and its singular twin are BOTH sent, this one is the filter and the singular is ignored — they are neither ANDed nor unioned. Absent, or present but all-blank, falls back to the singular; both empty means no constraint on this axis. additive-optional.
+	AuthorIds *[]string `form:"author_ids,omitempty" json:"author_ids,omitempty"`
+	AuthorId  *string   `form:"author_id,omitempty" json:"author_id,omitempty"`
+
+	// EntryIds REPEATABLE 傳承編號 set (``?entry_ids=L-12&entry_ids=L-30``) — the multi-select twin of ``entry_id``, and the axis behind the 傳承編號 search box the design calls for (LORE_SPEC.md §6). 🔴 IT MATCHES THE WHOLE ID, EXACTLY — never a prefix and never a substring. Owner 2026-09-08 asked for it 「跟 task 一樣」, and 任務頁 resolves a committed id by asking for THAT ONE id (``useTasks.ts:201`` ``api.getTask(anchorId)``) and pairs it to a row by equality (``TasksPage.tsx:458`` ``x.id === appliedId``); nothing there ever compares part of an id. A substring axis would also interact badly with paging: ``L-1`` would drag L-10…L-19 into a batch that limit/offset then cuts, pushing the entry actually asked for off the end. 🔴 IT IS APPLIED IN SQL, WITH THE PAGE — like every other axis here, and for the reason the whole filter exists: this list is scroll-to-load, so an id narrowed client-side would make 「捲到底沒有了」 and 「真的沒有了」 the same picture and would draw the 上限線 in the wrong place. An id is an OPEN identifier space, so there is NO closed set to check and NO 400 — the same call ``scope_keys``/``author_ids`` make. An id no entry carries answers 200 with no rows, which is the true answer, and no ``L-`` + digits shape is enforced: it would refuse only the ids that could never match while still answering an empty page for ``L-99999``, the likelier miss. 🔴 PLURAL WINS. When this and its singular twin are BOTH sent, this one is the filter and the singular is ignored — they are neither ANDed nor unioned. Absent, or present but all-blank, falls back to the singular; both empty means no constraint on this axis, which is IDENTICAL to not sending the parameter at all (an empty set is 「do not narrow」, never 「match nothing」). NOTE the 上限線 is unaffected: ``cap_chars`` / ``first_dropped_id`` still depend only on the effective scope_kind and scope_key sets holding exactly one value each — a budget belongs to a scope, and naming one entry does not name a scope. additive-optional.
+	EntryIds *[]string `form:"entry_ids,omitempty" json:"entry_ids,omitempty"`
+	EntryId  *string   `form:"entry_id,omitempty" json:"entry_id,omitempty"`
+	Limit    *int      `form:"limit,omitempty" json:"limit,omitempty"`
+	Offset   *int      `form:"offset,omitempty" json:"offset,omitempty"`
 }
 
 // HandleListMembersApiMembersGetParams defines parameters for HandleListMembersApiMembersGet.
@@ -4314,6 +4541,12 @@ type HandlePatchLessonsApiLessonsRoleKeyPatchPostJSONRequestBody = LessonsPatchD
 
 // HandleLoginApiLoginPostJSONRequestBody defines body for HandleLoginApiLoginPost for application/json ContentType.
 type HandleLoginApiLoginPostJSONRequestBody = LoginDTO
+
+// HandleWriteLoreEntryApiLorePostJSONRequestBody defines body for HandleWriteLoreEntryApiLorePost for application/json ContentType.
+type HandleWriteLoreEntryApiLorePostJSONRequestBody = LoreEntryWriteDTO
+
+// HandleSetLoreEntryStateApiLoreEntryIdStatePostJSONRequestBody defines body for HandleSetLoreEntryStateApiLoreEntryIdStatePost for application/json ContentType.
+type HandleSetLoreEntryStateApiLoreEntryIdStatePostJSONRequestBody = LoreEntryStateDTO
 
 // HandleOnboardMachineApiMachinesPostJSONRequestBody defines body for HandleOnboardMachineApiMachinesPost for application/json ContentType.
 type HandleOnboardMachineApiMachinesPostJSONRequestBody = MachineOnboardDTO
@@ -4645,6 +4878,18 @@ type ServerInterface interface {
 	// Owner login: exchange the password for an owner-scoped JWT.
 	// (POST /api/login)
 	HandleLoginApiLoginPost(w http.ResponseWriter, r *http.Request)
+	// List 傳承 entries, filtered SERVER-SIDE and paged in the fixed order pinned -> active -> retired, newest first inside each group. The order is not configurable; the filter is.
+	// (GET /api/lore)
+	HandleListLoreEntriesApiLoreGet(w http.ResponseWriter, r *http.Request, params HandleListLoreEntriesApiLoreGetParams)
+	// Write ONE 傳承 entry (never editable afterwards). “task_id“ picks the scope, and there is ALWAYS somewhere for it to land: a task that carries a TYPE files under that type's manual; no task at all, OR a task with no type (臨時任務), files into your OWN boot document -- your role if you are staff, yourself if you are an outsource member (who has no role for a role scope to name). The untyped-task case answers a “scope_note“ saying where it actually went, because you asked for a manual and did not get one. Only a caller with no roster row at all is a 400 -- there is no boot document to file into. An over-cap title or body is a 400 that writes nothing.
+	// (POST /api/lore)
+	HandleWriteLoreEntryApiLorePost(w http.ResponseWriter, r *http.Request)
+	// 提到最新: set one 傳承 entry's “effective_ts“ to now so it sorts to the front of its group. Only the entry's own AUTHOR may bump it (admin capability is unrestricted) -- a bump moves an entry ahead of other people's under a shared cap, so it spends somebody else's room. “created_ts“ is NOT touched, which is what makes this reversible.
+	// (POST /api/lore/{entry_id}/bump)
+	HandleBumpLoreEntryApiLoreEntryIdBumpPost(w http.ResponseWriter, r *http.Request, entryId string)
+	// Move one 傳承 entry to active / pinned / retired. 置頂 and un-置頂 are ADMIN-ONLY (owner ruling): a pinned entry sorts ahead of every other entry in its scope and so survives the cap at the others' expense. 失效 and 生效 are open to the entry's own AUTHOR -- anyone else is a 403 -- and admin capability is unrestricted. Retiring is not deleting: the entry keeps its id and can be moved back; “retire_reason“ is stored only with retired and cleared by the other two.
+	// (POST /api/lore/{entry_id}/state)
+	HandleSetLoreEntryStateApiLoreEntryIdStatePost(w http.ResponseWriter, r *http.Request, entryId string)
 	// List machines (active wardens): machine_id/display_name/online.
 	// (GET /api/machines)
 	HandleListMachinesApiMachinesGet(w http.ResponseWriter, r *http.Request)
@@ -4702,7 +4947,7 @@ type ServerInterface interface {
 	// 加速停止: put an ALREADY-OPEN wind-down on the stop.accelerated_grace_secs clock and tell the member. 409 if nothing is winding down -- press 停止 first. Middle rung of 停止 -> 加速停止 -> 強制停止. Answers with a bounded receipt (“id“), not the roster row — call “get_member“ when you need the rest.
 	// (POST /api/members/{member_id}/accelerated-stop)
 	HandleAcceleratedStopMemberApiMembersMemberIdAcceleratedStopPost(w http.ResponseWriter, r *http.Request, memberId string)
-	// Activate: write desired_state=online intent (does NOT flip online). Answers with a bounded receipt (“id“, “activation_pending“, “last_op_reason“), not the roster row — call “get_member“ when you need the rest.
+	// Activate: write desired_state=online intent (does NOT flip online). A live member clears stopping_since/waking_since and consumes restart_after_stop while preserving its active refocus/stopped epoch; it updates the owner roster only without killing/reconciling or sending a lifecycle notice. An offline generation clears its old wind-down, banks live cost, and uses stop-before-start. Answers with a bounded receipt (“id“, “activation_pending“, “last_op_reason“), not the roster row — call “get_member“ when you need the rest.
 	// (POST /api/members/{member_id}/activate)
 	HandleActivateMemberApiMembersMemberIdActivatePost(w http.ResponseWriter, r *http.Request, memberId string)
 	// Remove a member's personal avatar (owner only).
@@ -4714,7 +4959,7 @@ type ServerInterface interface {
 	// Reset one actor's estimated spend to zero (owner-only, irreversible): clears the durable banked figure AND the live telemetry figure.
 	// (POST /api/members/{member_id}/cost/reset)
 	HandleResetCostApiMembersMemberIdCostResetPost(w http.ResponseWriter, r *http.Request, memberId string)
-	// Deactivate: desired_state=offline + stamp stopping_since (retains row). Answers with a bounded receipt (“id“), not the roster row — call “get_member“ when you need the rest.
+	// Deactivate: desired_state=offline + stamp stopping_since (retains row); with no live session, immediately collect/bank/dispatch the stop. Answers with a bounded receipt (“id“), not the roster row — call “get_member“ when you need the rest.
 	// (POST /api/members/{member_id}/deactivate)
 	HandleDeactivateMemberApiMembersMemberIdDeactivatePost(w http.ResponseWriter, r *http.Request, memberId string)
 	// Force-stop: robust STOP now. On the offboard arm the server starts no clock of its own -- collection is the agent's report_stopped, the deadline the owner opens with 加速停止, or this. Answers with a bounded receipt (“id“), not the roster row — call “get_member“ when you need the rest.
@@ -4973,7 +5218,7 @@ type ServerInterface interface {
 	// Message the task's executor (owner/admin agent; task context auto-attached). Answers with a bounded receipt (“id“, “ts“, “to“, “attachments“), not the message — call “get_chat“ when you need the rest. “to“ is the executor the server delivered to: you did not name it (you named a task), and a later read cannot recompute it, because the executor can change between two calls.
 	// (POST /api/tasks/{task_id}/message)
 	HandlePostTaskMessageApiTasksTaskIdMessagePost(w http.ResponseWriter, r *http.Request, taskId string)
-	// Submit/replace the workflow plan (done and answered-card steps are kept). T-74f8 交棒閘 (second door): a plan is a step-set write and the task status is DERIVED from the step set, so a plan that leaves EVERY step done CLOSES the task — the same irreversible close the final step report performs. If that task's creator is not its executor and no handover is declared or already real, the replan is refused with 422 BEFORE anything is written (the plan stays fully editable). A plan carries no handoff field, so the way out is to hand over first: create the successor task and point its “blocked_by“ at this task (the gate then stands aside by itself), or keep one unfinished step and declare the handover on the “update_step_status“ report that closes it. A replan that still leaves work in the plan is never gated. Answers with a bounded receipt (task_id, steps_total, progress_done, progress_total), not the plan you just sent — use get_task to read the stored step rows back.
+	// Submit/replace the workflow plan. ⚠️ Resubmitting permanently deletes every unfinished step and its working note; deleted notes cannot be recovered. Done steps, superseded steps, and steps with an answered or expired reply card are kept. Relisting a step under the same name creates a new step with a new id, so copy any note you need before resubmitting. T-74f8 交棒閘 (second door): a plan is a step-set write and the task status is DERIVED from the step set, so a plan that leaves EVERY step done CLOSES the task — the same irreversible close the final step report performs. If that task's creator is not its executor and no handover is declared or already real, the replan is refused with 422 BEFORE anything is written (the plan stays fully editable). A plan carries no handoff field, so the way out is to hand over first: create the successor task and point its “blocked_by“ at this task (the gate then stands aside by itself), or keep one unfinished step and declare the handover on the “update_step_status“ report that closes it. A replan that still leaves work in the plan is never gated. Answers with a bounded receipt (task_id, steps_total, progress_done, progress_total), not the plan you just sent — use get_task to read the stored step rows back.
 	// (POST /api/tasks/{task_id}/plan)
 	HandleSubmitTaskPlanApiTasksTaskIdPlanPost(w http.ResponseWriter, r *http.Request, taskId string)
 	// Set a task's priority (owner/admin agent any value on any task; the task's own executor any value on their task — frozen INCLUDED, and whoever may freeze may unfreeze, T-6020). The actor who sets frozen is recorded on the task as frozen_by and the field clears when the task leaves frozen. Anyone else is a flat 403. Answers with a bounded receipt (task_id, priority, frozen_by), not the whole task — use get_task when you need the rest.
@@ -6513,6 +6758,248 @@ func (siw *ServerInterfaceWrapper) HandleLoginApiLoginPost(w http.ResponseWriter
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.HandleLoginApiLoginPost(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// HandleListLoreEntriesApiLoreGet operation middleware
+func (siw *ServerInterfaceWrapper) HandleListLoreEntriesApiLoreGet(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params HandleListLoreEntriesApiLoreGetParams
+
+	// ------------- Optional query parameter "scope_kinds" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "scope_kinds", r.URL.Query(), &params.ScopeKinds, runtime.BindQueryParameterOptions{Type: "array", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "scope_kinds"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "scope_kinds", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "scope_kind" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "scope_kind", r.URL.Query(), &params.ScopeKind, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "scope_kind"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "scope_kind", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "scope_keys" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "scope_keys", r.URL.Query(), &params.ScopeKeys, runtime.BindQueryParameterOptions{Type: "array", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "scope_keys"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "scope_keys", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "scope_key" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "scope_key", r.URL.Query(), &params.ScopeKey, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "scope_key"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "scope_key", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "states" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "states", r.URL.Query(), &params.States, runtime.BindQueryParameterOptions{Type: "array", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "states"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "states", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "state" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "state", r.URL.Query(), &params.State, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "state"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "state", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "author_ids" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "author_ids", r.URL.Query(), &params.AuthorIds, runtime.BindQueryParameterOptions{Type: "array", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "author_ids"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "author_ids", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "author_id" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "author_id", r.URL.Query(), &params.AuthorId, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "author_id"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "author_id", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "entry_ids" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "entry_ids", r.URL.Query(), &params.EntryIds, runtime.BindQueryParameterOptions{Type: "array", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "entry_ids"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "entry_ids", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "entry_id" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "entry_id", r.URL.Query(), &params.EntryId, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "entry_id"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "entry_id", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "limit"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "offset" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "offset", r.URL.Query(), &params.Offset, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "offset"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "offset", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.HandleListLoreEntriesApiLoreGet(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// HandleWriteLoreEntryApiLorePost operation middleware
+func (siw *ServerInterfaceWrapper) HandleWriteLoreEntryApiLorePost(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.HandleWriteLoreEntryApiLorePost(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// HandleBumpLoreEntryApiLoreEntryIdBumpPost operation middleware
+func (siw *ServerInterfaceWrapper) HandleBumpLoreEntryApiLoreEntryIdBumpPost(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "entry_id" -------------
+	var entryId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "entry_id", r.PathValue("entry_id"), &entryId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "entry_id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.HandleBumpLoreEntryApiLoreEntryIdBumpPost(w, r, entryId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// HandleSetLoreEntryStateApiLoreEntryIdStatePost operation middleware
+func (siw *ServerInterfaceWrapper) HandleSetLoreEntryStateApiLoreEntryIdStatePost(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "entry_id" -------------
+	var entryId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "entry_id", r.PathValue("entry_id"), &entryId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "entry_id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.HandleSetLoreEntryStateApiLoreEntryIdStatePost(w, r, entryId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -9866,6 +10353,10 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/lessons/{role_key}", wrapper.HandleReplaceLessonsApiLessonsRoleKeyPost)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/lessons/{role_key}/patch", wrapper.HandlePatchLessonsApiLessonsRoleKeyPatchPost)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/login", wrapper.HandleLoginApiLoginPost)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/lore", wrapper.HandleListLoreEntriesApiLoreGet)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/lore", wrapper.HandleWriteLoreEntryApiLorePost)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/lore/{entry_id}/bump", wrapper.HandleBumpLoreEntryApiLoreEntryIdBumpPost)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/lore/{entry_id}/state", wrapper.HandleSetLoreEntryStateApiLoreEntryIdStatePost)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/machines", wrapper.HandleListMachinesApiMachinesGet)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/machines", wrapper.HandleOnboardMachineApiMachinesPost)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/machines/claim", wrapper.HandleClaimMachineTokenApiMachinesClaimPost)
