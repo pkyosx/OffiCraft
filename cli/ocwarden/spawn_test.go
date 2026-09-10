@@ -171,6 +171,19 @@ func TestBuildStatuslineSettings(t *testing.T) {
   "statusLine": {
     "type": "command",
     "command": "ocagent context-report"
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "ocagent guard-bash"
+          }
+        ]
+      }
+    ]
   }
 }
 `

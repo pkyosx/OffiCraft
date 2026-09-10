@@ -51,23 +51,37 @@ func decisionOf(t *testing.T, stdout string) string {
 	return got.HookSpecificOutput.PermissionDecision
 }
 
+// TestGuardBash_RefusesRemovalWhoseTargetIsNotALiteralPath is one half of this
+// guard's stated scope; TestGuardBash_AllowsEverythingElse is the other. Between
+// them they are the ONLY statement of what the guard covers — guardbash.go's
+// header makes no scope claim, because four review rounds in a row each found a
+// false one there with CI green.
 func TestGuardBash_RefusesRemovalWhoseTargetIsNotALiteralPath(t *testing.T) {
 	// Every one of these stalls a headless member today. "the command that
 	// stalled T-163's reviewer" is the verbatim command that froze a member for
 	// 3h50m on 2026-09-10 while it was reviewing this very guard.
 	for name, command := range map[string]string{
-		"quoted variable with a glob":  `rm -f "$D"/*.json`,
-		"bare variable":                `rm -f $D/a.txt`,
-		"braced variable":              `rm -f ${DIR}/a.txt`,
-		"quoted braced variable":       `rm -rf "${DIR}"/build`,
-		"assigned on the same line":    `D=/tmp/x && rm -rf "$D"/*.json`,
-		"assigned with a semicolon":    `D=/tmp/x; rm -rf $D/`,
-		"behind sudo":                  `sudo rm -rf $HOME/x`,
-		"rmdir rather than rm":         `rmdir "$D"/emptydir`,
-		"second command in a pipeline": `ls | rm -f "$D"/x`,
-		"command substitution target":  `rm -rf $(cat dirpath.txt)`,
-		"backtick target":              "rm -rf `cat dirpath.txt`",
-		"variable with no separator":   `rm -f $TMPFILE`,
+		"start of string":                     `rm -rf $D/x`,
+		"quoted variable with a glob":         `rm -f "$D"/*.json`,
+		"quoted variable as the whole target": `rm -rf "$D"`,
+		"bare variable":                       `rm -f $D/a.txt`,
+		"braced variable":                     `rm -f ${DIR}/a.txt`,
+		"quoted braced variable":              `rm -rf "${DIR}"/build`,
+		"variable with no separator":          `rm -f $TMPFILE`,
+		"rmdir rather than rm":                `rmdir "$D"/emptydir`,
+		"command substitution target":         `rm -rf $(cat dirpath.txt)`,
+		"backtick target":                     "rm -rf `cat dirpath.txt`",
+
+		// The command word has to BE a command: at the start of the string, or
+		// after a separator.
+		"after a pipe":              `ls | rm -f "$D"/x`,
+		"after a semicolon":         `cd /tmp; rm -rf $D`,
+		"after &&":                  `cd /tmp && rm -rf $D`,
+		"after a background &":      `sleep 1 & rm -rf $D`,
+		"after a newline":           "cd /tmp\nrm -rf $D",
+		"after an open paren":       `(rm -rf $D)`,
+		"assigned on the same line": `D=/tmp/x && rm -rf "$D"/*.json`,
+		"assigned with a semicolon": `D=/tmp/x; rm -rf $D/`,
 
 		// A removal is not always the first word after a separator: shell keywords
 		// stand between the two, and a loop or conditional body is where a member
@@ -77,9 +91,21 @@ func TestGuardBash_RefusesRemovalWhoseTargetIsNotALiteralPath(t *testing.T) {
 		"inside a while loop body":                  `while read f; do rm -f $D/$f; done < list`,
 		"inside a then branch":                      `if [ -d "$D" ]; then rm -rf "$D"; fi`,
 		"inside an else branch":                     `if [ -f x ]; then ls; else rm -rf $D/x; fi`,
+		"inside an elif branch":                     `if [ -f x ]; then ls; elif rm -rf $D; then ls; fi`,
 		"inside a brace group":                      `{ rm -rf $D/x; }`,
 		"brace group after a separator":             `cd /tmp; { rm -rf $D; }`,
-		"a keyword in front of sudo":                `for f in a; do sudo rm -rf $D/$f; done`,
+		"a keyword at the start of the string":      `do rm -rf $D`,
+
+		"behind sudo":                      `sudo rm -rf $D`,
+		"behind sudo with a variable home": `sudo rm -rf $HOME/x`,
+		"a keyword in front of sudo":       `for f in a; do sudo rm -rf $D/$f; done`,
+
+		// Refused INCIDENTALLY: they carry a $, which is the only thing the rule
+		// looks at. Their literal twins (rm -rf ~, rm -rf ..) are in the allow
+		// table below, which is what makes this guard's boundary a spelling and
+		// not a hazard class.
+		"a critical path carrying a variable":       `rm -rf $HOME`,
+		"the working directory carrying a variable": `rm -rf "$PWD"`,
 	} {
 		t.Run(name, func(t *testing.T) {
 			code, stdout := runGuardBash(t, command)
@@ -94,18 +120,68 @@ func TestGuardBash_RefusesRemovalWhoseTargetIsNotALiteralPath(t *testing.T) {
 }
 
 func TestGuardBash_AllowsEverythingElse(t *testing.T) {
-	// Allowing is SILENCE. These are the commands a member runs all day; a guard
-	// that refuses any of them stops ordinary work instead of a stall.
+	// Allowing is SILENCE. The first group is ordinary member work: a guard that
+	// refuses any of it stops work instead of a stall. Everything after it is a
+	// removal shape that a member can still stall on — asserted here so the gap is
+	// a fact the suite states rather than a claim in a comment. Any of them moving
+	// to the deny table is a deliberate edit, not a drift.
+	subs := strings.Repeat("$(echo a)", 65)
 	for name, command := range map[string]string{
 		"the quarantine command":        `ocagent clean /Users/x/.officraft/agents/alice/work/tmp`,
 		"relative path":                 `rm -f ./local.txt`,
 		"relative glob":                 `rm -f ./*.json`,
 		"a named directory":             `rm -rf node_modules`,
 		"absolute path":                 `rm -f /tmp/x/a.json`,
-		"cd first, then relative":       `cd "$D" && rm -f ./*.json`,
 		"a variable with no removal":    `ls -la "$D"/`,
 		"not a removal at all":          `git status`,
 		"the word inside another token": `echo "please rm -f $D/x by hand"`,
+
+		// The removal spelled some other way: the rule only knows the words rm
+		// and rmdir, standing alone as the command word.
+		"find -delete":         `find "$D" -delete`,
+		"find -exec rm":        `find "$D" -exec rm -f {} +`,
+		"xargs rm":             `echo "$D" | xargs rm -rf`,
+		"absolute path to rm":  `/bin/rm -rf $D`,
+		"backslash-escaped rm": `\rm -rf $D`,
+		"command rm":           `command rm -rf $D`,
+		"env rm":               `env rm -rf $D`,
+		"exec rm":              `exec rm -rf $D`,
+		"assignment prefix":    `TMPDIR=x rm -rf $D`,
+
+		// A token in front of the command word that is not in the keyword group.
+		// Lengthening that group is not the fix; see guardbash.go.
+		"keyword if":    `if rm -rf $D/x; then echo gone; fi`,
+		"keyword until": `until rm -rf $D/x; do sleep 1; done`,
+		"keyword while": `while rm -rf $D/x; do sleep 1; done`,
+		"negation bang": `! rm -rf $D/x`,
+		"time prefix":   `time rm -rf $D/x`,
+		"nohup prefix":  `nohup rm -rf $D/x`,
+		// The keyword alternation requires whitespace after the keyword, so a
+		// brace written tight against the command word is not a keyword at all.
+		"brace with no space after it": `{rm -rf $D;}`,
+
+		// A target with no expansion in it: there is no $ for the rule to match.
+		// guardBashRefusal must therefore not tell a member to rewrite into this
+		// shape, which is what TestGuardBash_RefusalIsAStatementAboutTheEnvironmentNotARequest pins.
+		"tilde glob":               `rm -rf ~/build/*`,
+		"cd first, then relative":  `cd "$D" && rm -f ./*.json`,
+		"cd literal then rel glob": `cd /tmp/x && rm -rf ./*`,
+		"cd via var then rel glob": `D=/tmp/x; cd "$D" && rm -rf ./*`,
+		"rmdir with a rel glob":    `rmdir -p ./build/*`,
+
+		// Many command substitutions reached through a command word that is not
+		// rm: the rule anchors on the command word and never sees these.
+		"65 substitutions via xargs":   `echo ` + subs + ` | xargs rm -rf`,
+		"65 substitutions via /bin/rm": `/bin/rm -rf ` + subs,
+		"65 substitutions via find":    `find ` + subs + ` -exec rm -f {} +`,
+
+		// A dangerous LITERAL path: no $, nothing for the rule to match. Their
+		// variable-carrying twins are in the deny table above.
+		"filesystem root":    `rm -rf /`,
+		"bare tilde":         `rm -rf ~`,
+		"working directory":  `rm -rf .`,
+		"parent directory":   `rm -rf ..`,
+		"a literal home dir": `rm -rf /Users/alice`,
 	} {
 		t.Run(name, func(t *testing.T) {
 			code, stdout := runGuardBash(t, command)
@@ -163,10 +239,9 @@ func TestGuardBash_RefusalIsAStatementAboutTheEnvironmentNotARequest(t *testing.
 	}
 	// The way forward must not be a shape that stalls too. This text used to
 	// suggest "cd into the directory and use a relative path"; a member that
-	// complies writes `cd "$D" && rm -rf ./*`, which this guard allows (measured,
-	// TestGuardBash_EveryShapeTheHeaderCallsNotCoveredIsAllowed) and which the
-	// bundle says reaches the statically-unresolvable-target refusal. The guard
-	// was handing the member the stall it exists to prevent.
+	// complies writes `cd "$D" && rm -rf ./*`, which this guard allows — see the
+	// allow table in TestGuardBash_AllowsEverythingElse. The guard was handing the
+	// member the stall it exists to prevent.
 	if !strings.Contains(guardBashRefusal, "一樣會停住") {
 		t.Error("the refusal no longer warns that the cd-plus-relative-glob rewrite " +
 			"stalls as well; without that warning this text sends the member into " +
@@ -181,118 +256,11 @@ func verdictOf(t *testing.T, command string) bool {
 	return strings.TrimSpace(stdout) != ""
 }
 
-// The two tests below pin guardbash.go's header. Its COVERED and NOT COVERED
-// lists ARE the stated boundary of this guard, and prose is the one part of this
-// file nothing mechanical was checking: three separate review rounds each found a
-// sentence in it that the code contradicted, and each time CI was green. Every
-// line of both lists is meant to have a case here. Where a case exists, editing
-// the list without the code (or the other way round) is red. The pairing itself
-// is hand-kept: nothing reads those lists, so a list line added without a case
-// here is green and unpinned. See that file's EVIDENCE LEVELS section.
-//
-// Both halves of the assertion are OURS — the header we wrote and the guard we
-// wrote. What the HARNESS does with an allowed command is deliberately NOT
-// asserted anywhere here: that was read out of the 2.1.267 bundle and never
-// measured end to end, so it lives in comments and stays there.
-
-func TestGuardBash_EveryShapeTheHeaderCallsCoveredIsRefused(t *testing.T) {
-	for name, command := range map[string]string{
-		"start of string":                     `rm -rf $D/x`,
-		"after a pipe":                        `ls | rm -f "$D"/x`,
-		"after a semicolon":                   `cd /tmp; rm -rf $D`,
-		"after &&":                            `cd /tmp && rm -rf $D`,
-		"after a background &":                `sleep 1 & rm -rf $D`,
-		"after a newline":                     "cd /tmp\nrm -rf $D",
-		"after an open paren":                 `(rm -rf $D)`,
-		"keyword do":                          `for f in a b; do rm -f $D/$f; done`,
-		"keyword then":                        `if [ -d x ]; then rm -rf $D; fi`,
-		"keyword else":                        `if [ -f x ]; then ls; else rm -rf $D; fi`,
-		"keyword elif":                        `if [ -f x ]; then ls; elif rm -rf $D; then ls; fi`,
-		"keyword brace":                       `{ rm -rf $D; }`,
-		"keyword at start of string":          `do rm -rf $D`,
-		"behind sudo":                         `sudo rm -rf $D`,
-		"sudo behind a keyword":               `for f in a; do sudo rm -rf $D/$f; done`,
-		"rmdir rather than rm":                `rmdir "$D"/empty`,
-		"command substitution":                `rm -rf $(cat p.txt)`,
-		"backtick substitution":               "rm -rf `cat p.txt`",
-		"quoted variable as the whole target": `rm -rf "$D"`,
-		"assignment then removal":             `D=/abs/p && rm -f "$D"/*.json`,
-
-		// Reasons, not spellings. These two are refused INCIDENTALLY — they carry
-		// a $, which is the only thing the rule looks at. Their literal twins
-		// (rm -rf ~, rm -rf ..) are in the NOT COVERED table. An earlier header
-		// listed both of these as NOT COVERED while guardbash_test.go asserted the
-		// first was denied: same file, prose against test, CI green.
-		"critical path carrying a variable":     `rm -rf $HOME`,
-		"working directory carrying a variable": `rm -rf "$PWD"`,
-	} {
-		t.Run(name, func(t *testing.T) {
-			if !verdictOf(t, command) {
-				t.Errorf("HEADER SAYS COVERED BUT GUARD ALLOWS: %q", command)
-			}
-		})
-	}
-}
-
-func TestGuardBash_EveryShapeTheHeaderCallsNotCoveredIsAllowed(t *testing.T) {
-	subs := strings.Repeat("$(echo a)", 65)
-	for name, command := range map[string]string{
-		// 1. the removal spelled some other way.
-		"find -delete":         `find "$D" -delete`,
-		"find -exec rm":        `find "$D" -exec rm -f {} +`,
-		"xargs rm":             `echo "$D" | xargs rm -rf`,
-		"absolute path to rm":  `/bin/rm -rf $D`,
-		"backslash-escaped rm": `\rm -rf $D`,
-		"command rm":           `command rm -rf $D`,
-		"env rm":               `env rm -rf $D`,
-		"exec rm":              `exec rm -rf $D`,
-		"assignment prefix":    `TMPDIR=x rm -rf $D`,
-
-		// 2. a token in front of the command word that is not in the keyword group.
-		// Lengthening that group is not the fix; see guardbash.go's header.
-		"keyword if":          `if rm -rf $D/x; then echo gone; fi`,
-		"keyword until":       `until rm -rf $D/x; do sleep 1; done`,
-		"keyword while":       `while rm -rf $D/x; do sleep 1; done`,
-		"negation bang":       `! rm -rf $D/x`,
-		"time prefix":         `time rm -rf $D/x`,
-		"nohup prefix":        `nohup rm -rf $D/x`,
-		"brace with no space": `{rm -rf $D;}`,
-
-		// 3. a target with no expansion in it at all. Per the bundle these reach
-		// the harness's "statically-unresolvable target" reason, which is why
-		// guardBashRefusal must not tell a member to rewrite into this shape.
-		"tilde glob":               `rm -rf ~/build/*`,
-		"cd literal then rel glob": `cd /tmp/x && rm -rf ./*`,
-		"cd via var then rel glob": `D=/tmp/x; cd "$D" && rm -rf ./*`,
-		"rmdir with a rel glob":    `rmdir -p ./build/*`,
-
-		// 4. >64 command substitutions reached through a command word that is not
-		// rm. Per the bundle the circuit breaker scans the whole command text with
-		// no command-word anchoring, so it reaches these while this rule does not.
-		"65 substitutions via xargs":   `echo ` + subs + ` | xargs rm -rf`,
-		"65 substitutions via /bin/rm": `/bin/rm -rf ` + subs,
-		"65 substitutions via find":    `find ` + subs + ` -exec rm -f {} +`,
-
-		// 5. a dangerous LITERAL path: no $, nothing for the rule to match.
-		"filesystem root":    `rm -rf /`,
-		"bare tilde":         `rm -rf ~`,
-		"working directory":  `rm -rf .`,
-		"parent directory":   `rm -rf ..`,
-		"a literal home dir": `rm -rf /Users/alice`,
-	} {
-		t.Run(name, func(t *testing.T) {
-			if verdictOf(t, command) {
-				t.Errorf("HEADER SAYS NOT COVERED BUT GUARD REFUSES: %q", command)
-			}
-		})
-	}
-}
-
-func TestGuardBash_TheSegmentBoundaryIsWhereTheHeaderSaysItIs(t *testing.T) {
-	// The header says the $ has to be in the removal's OWN argument segment, up to
-	// the next separator. That boundary is the entire control on this guard's
-	// false-refusal surface and a re-audit mutant widened it to `.*` with all 271
-	// tests still green. These two cases are what makes that mutant red.
+func TestGuardBash_ADollarInALaterSegmentDoesNotRefuseALiteralRemoval(t *testing.T) {
+	// The $ has to be in the removal's OWN argument segment, up to the next
+	// separator. That boundary is the entire control on this guard's false-refusal
+	// surface, and a re-audit mutant widened it to `.*` with all 271 tests still
+	// green. These two cases are what makes that mutant red.
 	if verdictOf(t, `rm -rf /tmp/literal; echo $D`) {
 		t.Error("guard reached past the segment boundary: a $ in a LATER segment " +
 			"refused a removal whose own target is a literal path")

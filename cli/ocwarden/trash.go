@@ -8,35 +8,13 @@
 // sitting in front of a headless agent to press Yes, so the agent hangs SILENTLY
 // until it is reaped.
 //
-// SIX VARIANTS, AND THIS HEADER HAS BEEN WRONG ABOUT THEM TWICE - first it named
-// the wrong one, then it counted five. Read out of the shipped binary (2.1.267,
-// 2026-09-10) the check refuses for six stated reasons:
+// Since T-162 `ocagent guard-bash` runs as a PreToolUse hook and refuses some
+// removal shapes before they reach that check, so for those the prompt is never
+// raised. It refuses on SPELLING — see cli/ocagent/guardbash.go and the tables in
+// its test — which is not the same axis as the harness's own reasons, so plenty
+// of shapes still reach the prompt and a member can still hang. That is what this
+// file's quarantine is still for.
 //
-//	critical path
-//	possibly-empty variable path                              <- the one that actually stalled a member
-//	possibly-empty variable path inside command substitution
-//	statically-unresolvable target
-//	working directory or its ancestor                         <- the one this header quoted
-//	- too many command substitutions to analyze (>64)         <- a circuit breaker, same M$ helper, same circuitBreaker:"dangerousRemoval"
-//
-// Since T-162 `ocagent guard-bash` runs as a PreToolUse hook and refuses SOME of
-// these EARLIER, so those commands never reach the harness check and the prompt
-// is never raised. Which ones is a question about SPELLING, not about the reasons
-// above: the guard matches removals whose own argument segment carries a $ or a
-// backtick, and every reason here lands on both sides of that line depending only
-// on how the command happens to be written (rm -rf $HOME is refused, rm -rf ~ is
-// not). The exact boundary is listed, and mechanically pinned, in
-// cli/ocagent/guardbash.go - do not restate it here, restating it is what made
-// this header wrong twice.
-//
-// In particular the circuit breaker CAN still fire on a command that guard
-// allows: per the bundle it tests /\brm(?:dir)?\b/ against the WHOLE command
-// text with no command-word anchoring, so `echo $(...)x65 | xargs rm -rf` reaches
-// it while the guard stays silent (measured). An earlier version of this comment
-// claimed it could not.
-//
-// So a member can still hang, and THAT is what this file's quarantine is still
-// for.
 // The fix is NOT "mv is safer than rm" — an experiment showed
 // relative/absolute x mv/rm all behave identically in that environment, so the verb
 // has ZERO discriminating power. The fix is WHO EXECUTES THE DELETE: agents move
