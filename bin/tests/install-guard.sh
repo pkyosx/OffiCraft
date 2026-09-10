@@ -795,6 +795,28 @@ else
 fi
 if compgen -G "$FAKEHOME/.officraft-*" >/dev/null; then bad "plain --foreground: a namespaced root appeared"; else ok "plain --foreground: no namespaced root"; fi
 
+# 10k. NO OPERATOR-FACING HINT MAY PRINT A BARE `ocserverd serve` (T-164).
+#
+# This one reads the SOURCE, not a run, and that is deliberate: the three other
+# places that hand the operator a start command are all on FAILURE paths (port
+# already held, launchctl bootstrap failed, bootstrap registered nothing). Each
+# needs its own fixture to reach, and the reader there is already in trouble and
+# has every reason to paste what the tool just told them — on a namespaced
+# install a bare serve walks straight into the fallback this ticket closes, on
+# the MAIN instance's database. A behavioural case per failure path would be the
+# better test; this is the one that exists, and it is honest about being a
+# source-text check: it cannot see a hint built some other way.
+BARE_HINTS="$(grep -c 'echo "\[install\].*\$BIN_DIR/ocserverd serve' "$SCRIPT" || true)"
+check "no operator-facing hint prints a bare 'ocserverd serve' (they must derive from \$SERVE_CMD)" "0" "$BARE_HINTS"
+# Positive control for the line above: the pattern must be able to match at all,
+# otherwise a typo in it reports 0 for a file full of bare hints.
+SERVE_CMD_USES="$(grep -c 'SERVE_CMD' "$SCRIPT" || true)"
+if [[ "$SERVE_CMD_USES" -ge 4 ]]; then
+  ok "the hint sites really do go through \$SERVE_CMD ($SERVE_CMD_USES references)"
+else
+  bad "only $SERVE_CMD_USES \$SERVE_CMD references in install.sh — the check above is reading a file that does not use it"
+fi
+
 # ── 10. a reinstall is not a relocation, on EVERY macOS ─────────────────────
 # The plist this suite writes has no EnvironmentVariables at all, so asking it
 # for OC_CONFIG is the ordinary "key is absent" case. macOS 15's plutil answers

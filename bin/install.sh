@@ -1191,6 +1191,29 @@ else
   done
 fi
 
+# ── SERVE_CMD: the one true "how to run this instance by hand" (T-164) ───────
+# Every place below that tells the operator to start the server themselves used
+# to print a bare `$BIN_DIR/ocserverd serve`. On a NAMESPACED install that
+# instruction is a trap: run it and the daemon resolves its own config ($OC_CONFIG
+# -> ./oc.toml, both empty), lands on the CONVENTION DEFAULTS, and migrates
+# ~/.officraft/server/data/officraft.db on port 7755 - the MAIN instance, not the
+# one whose failure the operator is reading about. Measured on the official
+# v0.5.356 package, 2026-09-10; see the --foreground branch's header.
+#
+# The failure paths are where this bites hardest: the reader is already in
+# trouble, is being handed a command by the tool, and has no reason to doubt it.
+# Deriving all of them from the SAME string as the exec keeps the advice and the
+# behaviour from drifting apart - they were independent claims before, and a
+# mutant that broke one left the other green.
+#
+# Empty $CFG_ABS keeps the bare form ON PURPOSE: a config-less serve booting on
+# the convention defaults is documented, deliberate behaviour (oc.toml.example).
+if [[ -n "$CFG_ABS" ]]; then
+  SERVE_CMD="OC_CONFIG=$CFG_ABS $BIN_DIR/ocserverd serve"
+else
+  SERVE_CMD="$BIN_DIR/ocserverd serve"
+fi
+
 # ── same-label ownership gate ────────────────────────────────────────────────
 # (LABEL / PLIST / GUI / TARGET / LOG_DIR / SERVE_LOG were resolved at the top —
 # see the note there for why, and the port gate below for why this must precede
@@ -1325,7 +1348,7 @@ if lsof -nP -iTCP:"$PORT" -sTCP:LISTEN >/dev/null 2>&1; then
     echo "[install] The binaries are installed and the database is migrated, but the server was" >&2
     echo "[install] NOT started. Pick a free port by writing an oc.toml next to where you run serve:" >&2
     echo "[install]   printf '[server]\\nport = <free-port>\\n' > oc.toml" >&2
-    echo "[install]   $BIN_DIR/ocserverd serve" >&2
+    echo "[install]   $SERVE_CMD" >&2
     exit 1
   fi
 fi
@@ -1385,11 +1408,7 @@ if [[ "$FOREGROUND" == 1 ]]; then
   echo "[install]    (first run: the serve log below prints a one-time setup link"
   echo "[install]     with ?code=… — open it to set your owner password.)"
   echo "[install]    Ctrl-C stops the service; restart later with:"
-  if [[ -n "$CFG_ABS" ]]; then
-    echo "[install]      OC_CONFIG=$CFG_ABS $BIN_DIR/ocserverd serve"
-  else
-    echo "[install]      $BIN_DIR/ocserverd serve"
-  fi
+  echo "[install]      $SERVE_CMD"
   echo
   if [[ -n "$CFG_ABS" ]]; then
     exec env OC_CONFIG="$CFG_ABS" "$BIN_DIR/ocserverd" serve
@@ -1615,7 +1634,7 @@ if ! launchctl bootstrap "$GUI" "$PLIST"; then
   echo "[install] FATAL: launchctl bootstrap failed for $PLIST" >&2
   echo "[install]        The binaries are installed and the database is migrated, but the" >&2
   echo "[install]        service is NOT running. Start it in the foreground with:" >&2
-  echo "[install]          $BIN_DIR/ocserverd serve" >&2
+  echo "[install]          $SERVE_CMD" >&2
   exit 1
 fi
 # CONFIRM the bootstrap actually registered the label, in the gap between the two
@@ -1657,7 +1676,7 @@ if [[ "$up" != 1 ]]; then
     echo "[install]        '$LABEL', so the job was never loaded and nothing came up on port $PORT." >&2
     echo "[install]        The plist to look at: $PLIST" >&2
     echo "[install]        Retry the load with:  launchctl bootstrap $GUI $PLIST" >&2
-    echo "[install]        Or run it in the foreground: $BIN_DIR/ocserverd serve" >&2
+    echo "[install]        Or run it in the foreground: $SERVE_CMD" >&2
     echo "[install]        Remove the plist with: rm -f $PLIST" >&2
     exit 1
   fi

@@ -145,6 +145,13 @@ curl -fsSL https://github.com/pkyosx/OffiCraft/releases/latest/download/install.
   看起來裝好了，實際上兩個實例在搶同一個 socket。
 - 具名安裝**刻意忽略** `$OC_CONFIG` 與 `./oc.toml`：你已經指名要哪一個實例，
   站在哪個目錄裡不該有權改道。
+- 跟 `--foreground` 併用時，前景跑起來的 serve 吃的是**同一份**實例設定，跟 launchd
+  裝出來的那條路一致——用的是 `~/.officraft-<ns>/` 底下的資料庫，綁的是你給的 `--port`。
+  安裝器印給你的「之後怎麼重啟」那一行也會帶著 `OC_CONFIG=`，照抄就對。
+  （在此之前這條路是壞的：前景 serve 什麼設定都沒繼承，會靜默回退去用**主實例的資料庫**
+  與 7755，而且會在那顆資料庫上跑 migration——安裝器不會報錯，畫面上還是你給的埠。
+  如果你曾經在有正式資料的機器上跑過 `--namespace … --foreground`，那顆主資料庫的
+  schema 版本可能已經被推上去了。）
 - 已存在的實例改埠是**搬遷、不是重載**，會被擋下且什麼都不動——要嘛沿用原埠重跑，
   要嘛自己去改那個實例的 `oc.toml`。
 - 移除也吃同一把鑰匙：`--uninstall --namespace lab` 只動 `~/.officraft-lab` 與
