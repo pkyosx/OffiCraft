@@ -532,6 +532,10 @@ var identityGateExpectedCount = map[string]int{
 // The fix applied here was to put the predicate back where the scanners can see
 // it (at each call site) and re-register it, not to widen the scanners.
 var identityGateLedger = map[string]string{
+	// The scanner also reports AST token-kind comparisons. This one classifies
+	// syntax while locating migration registrations; it never compares a
+	// Member identity, so it is a documented scanner false positive.
+	"migration_lock.go :: registrarLocations :: lit.Kind != token.STRING": "this compares a Go AST token kind with token.STRING while locating migration registrations; it classifies syntax, not a Member identity, so it is a scanner false positive.",
 
 	// ── the ONE slot the 正職／外包 difference is allowed to live in ──────────
 	"lifecycle_roster.go :: lifecyclePolicyFor :: m.Kind == KindOutsource": "" +

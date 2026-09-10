@@ -422,6 +422,10 @@ func TestSseStopGateRefusal(t *testing.T) {
 	t.Run("a member working its close-out is still admitted, and refused the moment it reports stopped", func(t *testing.T) {
 		api, h, _, owner := newAPITestServer(t)
 		agent := apiTestAgentToken(t, api, "kip", "")
+		// A live session keeps the graceful epoch open. Without this connection,
+		// deactivation collects the member immediately and the gate is correctly
+		// refusing a stopped row rather than exercising the close-out window.
+		apiTestListen(t, api, "kip")
 		if status, data := apiJSON(t, h, "POST", "/api/members/kip/deactivate", owner, ""); status != 200 {
 			t.Fatalf("deactivate: want 200, got %d (%v)", status, data)
 		}

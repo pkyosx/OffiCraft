@@ -1291,6 +1291,7 @@ func TestRestoreTaskManualField(t *testing.T) {
 			"type_key": "tm-history", "display_name": "歷史", "purpose": "新目的",
 			"fields": []any{map[string]any{"name": "客戶", "required": true, "is_key": true}},
 			"sop_md": "SOP 舊版", "learnings": "學習新版", "assignee": map[string]any{},
+			"lore": "", "lore_chars": 0,
 			"learnings_chars": 4, "sop_md_chars": 6,
 			"learnings_cap_chars": 15000, "sop_md_cap_chars": 15000,
 			"cap_chars": 15000, "updated_ts": apiAnyNumber,

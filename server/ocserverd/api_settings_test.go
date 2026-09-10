@@ -62,6 +62,10 @@ func apiTestShippedSettings() map[string]any {
 		"doc_cap_chars_system_interaction": 60000,
 		"doc_cap_chars_boot_sequence":      15000,
 		"doc_cap_chars_offboard":           15000,
+		"lore_cap_chars_role":              10000,
+		"lore_cap_chars_manual":            10000,
+		"lore_cap_chars_title":             80,
+		"lore_cap_chars_body":              500,
 		"chat_budget_chars":                6000,
 		"step_note_cap_chars":              10000,
 		"backup_retain":                    5,
@@ -75,6 +79,7 @@ func apiTestShippedSettings() map[string]any {
 		"display_wide":                     false,
 		"suggested_replies_reply_card":     []any{},
 		"suggested_replies_task_message":   []any{},
+		"suggested_replies_lore_message":   []any{},
 		"onboarding":                       nil,
 	}
 }
@@ -726,15 +731,15 @@ func TestHandleUpdateSettingsApiSettingsPatch(t *testing.T) {
 			"a day that window stops surviving a working day of downtime")
 	})
 
-	t.Run("a document cap below its shipped floor answers 422", func(t *testing.T) {
+	t.Run("a document cap below the shared floor answers 422", func(t *testing.T) {
 		_, h, _, owner := newAPITestServer(t)
 
-		status, data := apiJSON(t, h, "PATCH", "/api/settings", owner, `{"doc_cap_chars_insight":14999}`)
+		status, data := apiJSON(t, h, "PATCH", "/api/settings", owner, `{"doc_cap_chars_insight":99}`)
 		if status != 422 {
 			t.Fatalf("want 422, got %d (%v)", status, data)
 		}
-		apiWantError(t, data, "validation_error", "doc_cap_chars_insight must be between 15000 and 100000 characters — "+
-			"the floor is the shipped default, so the document cap can only be raised, never lowered")
+		apiWantError(t, data, "validation_error", "doc_cap_chars_insight must be between 100 and 100000 characters — "+
+			"a lowered cap binds the next write only; stored content over it is never truncated and still reads back")
 	})
 
 	t.Run("a chat_budget_chars outside its range answers 422", func(t *testing.T) {
@@ -908,6 +913,10 @@ func TestSettingsView(t *testing.T) {
 		DocCapCharsSystemInteraction: 60000,
 		DocCapCharsBootSequence:      15000,
 		DocCapCharsOffboard:          15000,
+		LoreCapCharsRole:             10000,
+		LoreCapCharsManual:           10000,
+		LoreCapCharsTitle:            80,
+		LoreCapCharsBody:             500,
 		ChatBudgetChars:              6000,
 		StepNoteCapChars:             10000,
 		BackupRetain:                 5,
@@ -918,6 +927,7 @@ func TestSettingsView(t *testing.T) {
 		DisplayLanguage:              "",
 		SuggestedRepliesReplyCard:    []string{},
 		SuggestedRepliesTaskMessage:  []string{},
+		SuggestedRepliesLoreMessage:  []string{},
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("settingsView defaults:\n got %+v\nwant %+v", got, want)

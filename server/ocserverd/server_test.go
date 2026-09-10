@@ -55,8 +55,12 @@ func TestGitSHA(t *testing.T) {
 
 	t.Run("an unstamped checkout returns its measured short sha", func(t *testing.T) {
 		buildSHA = ""
-		if got := gitSHA(); got != "e9c98764" {
-			t.Fatalf("gitSHA() = %q, want %q", got, "e9c98764")
+		want, err := gitOutput("rev-parse", "--short", "HEAD")
+		if err != nil {
+			t.Fatalf("gitOutput: %v", err)
+		}
+		if got := gitSHA(); got != want {
+			t.Fatalf("gitSHA() = %q, want the checkout's measured sha %q", got, want)
 		}
 	})
 
@@ -82,8 +86,12 @@ func TestGitTime(t *testing.T) {
 
 	t.Run("an unstamped checkout returns its measured commit time", func(t *testing.T) {
 		buildTime = ""
-		if got := gitTime(); got != "2026-09-08T18:46:25+08:00" {
-			t.Fatalf("gitTime() = %q, want %q", got, "2026-09-08T18:46:25+08:00")
+		want, err := gitOutput("show", "-s", "--format=%cI", "HEAD")
+		if err != nil {
+			t.Fatalf("gitOutput: %v", err)
+		}
+		if got := gitTime(); got != want {
+			t.Fatalf("gitTime() = %q, want the checkout's measured time %q", got, want)
 		}
 	})
 
@@ -102,8 +110,8 @@ func TestGitOutput(t *testing.T) {
 		if err != nil {
 			t.Fatalf("gitOutput: %v", err)
 		}
-		if got != "e9c98764" {
-			t.Fatalf("gitOutput() = %q, want %q", got, "e9c98764")
+		if got == "" || got != strings.TrimSpace(got) {
+			t.Fatalf("gitOutput() = %q, want non-empty trimmed output", got)
 		}
 	})
 
@@ -503,14 +511,14 @@ func TestBuildHandler(t *testing.T) {
 func TestSpecsFor(t *testing.T) {
 	api, _, d, owner := newAPITestServer(t)
 	specs := specsFor(api)
-	if len(specs) != 183 {
-		t.Fatalf("specsFor returned %d routes, want 183", len(specs))
+	if len(specs) != 187 {
+		t.Fatalf("specsFor returned %d routes, want 187", len(specs))
 	}
-	if api.catalogHash != "61f7b113d30a5fe2" {
-		t.Fatalf("catalogHash = %q, want %q", api.catalogHash, "61f7b113d30a5fe2")
+	if api.catalogHash != "f854376232a9ffb1" {
+		t.Fatalf("catalogHash = %q, want %q", api.catalogHash, "f854376232a9ffb1")
 	}
-	if len(api.mcpTools) != 127 {
-		t.Fatalf("MCP tool index has %d entries, want 127", len(api.mcpTools))
+	if len(api.mcpTools) != 131 {
+		t.Fatalf("MCP tool index has %d entries, want 131", len(api.mcpTools))
 	}
 	if got, ok := api.mcpTools["get_version"]; !ok || got.Method != http.MethodGet || got.Path != "/api/version" {
 		t.Fatalf("get_version = %#v, present=%v", got, ok)

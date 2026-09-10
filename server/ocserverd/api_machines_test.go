@@ -1012,7 +1012,7 @@ func TestHandleOnboardMachineApiMachinesPost(t *testing.T) {
 			"member_id":        apiAnyString,
 			"machine_id":       apiAnyString,
 			"token":            apiAnyString,
-			"expires_in":       0,
+			"expires_in":       2592000,
 			"boot_command":     apiAnyString,
 			"claim_code":       apiAnyString,
 			"claim_expires_in": 600,
@@ -1169,7 +1169,7 @@ func TestHandleMachineBootCommandApiMachinesMachineIdBootCommandGet(t *testing.T
 			"machine_id":       machineID,
 			"boot_command":     apiAnyString,
 			"token":            apiAnyString,
-			"expires_in":       0,
+			"expires_in":       2592000,
 			"claim_code":       apiAnyString,
 			"claim_expires_in": 600,
 		})
@@ -1298,7 +1298,7 @@ func TestHandleClaimMachineTokenApiMachinesClaimPost(t *testing.T) {
 		}
 		apiWantBody(t, data, map[string]any{
 			"token":      apiAnyString,
-			"expires_in": 0,
+			"expires_in": 2592000,
 			"machine_id": machineID,
 		})
 		dashboard.wantFrames()
@@ -1373,7 +1373,7 @@ func TestHandleRenewMachineCredentialApiMachinesRenewCredentialPost(t *testing.T
 		}
 		apiWantBody(t, data, map[string]any{
 			"token":      apiAnyString,
-			"expires_in": 0,
+			"expires_in": 2592000,
 			"machine_id": machineID,
 		})
 		renewed, _ := data["token"].(string)

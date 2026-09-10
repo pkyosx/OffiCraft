@@ -1164,6 +1164,7 @@ func TestHandleListMembersApiMembersGet(t *testing.T) {
 				"last_op_log": "", "last_op_reason": "", "last_op_at": 0,
 				"forced_stop_at": 0, "unread_count": 1, "roster_status": "active",
 				"owner_id": "owner", "schema_version": 3,
+				"terminal_attach_command": "tmux -L officraft attach -t member-kip",
 			},
 			map[string]any{
 				"id": "mira", "avatar_url": "", "name": "Mira", "kind": "staff",
@@ -1176,6 +1177,7 @@ func TestHandleListMembersApiMembersGet(t *testing.T) {
 				"last_op_ok": nil, "last_op_log": "", "last_op_reason": "",
 				"last_op_at": 0, "forced_stop_at": 0, "unread_count": 0,
 				"roster_status": "active", "owner_id": "owner", "schema_version": 3,
+				"terminal_attach_command": "tmux -L officraft attach -t member-mira",
 			},
 			map[string]any{
 				"id": "m-server-self", "avatar_url": "", "name": "伺服器這一台",
@@ -1188,6 +1190,7 @@ func TestHandleListMembersApiMembersGet(t *testing.T) {
 				"last_op_ok": nil, "last_op_log": "", "last_op_reason": "",
 				"last_op_at": 0, "forced_stop_at": 0, "unread_count": 0,
 				"roster_status": "active", "owner_id": "owner", "schema_version": 3,
+				"terminal_attach_command": "tmux -L officraft attach -t member-m-server-self",
 			},
 		})
 		dashboard.wantFrames()
@@ -1222,6 +1225,7 @@ func TestHandleListMembersApiMembersGet(t *testing.T) {
 				"last_op_log": "", "last_op_reason": "", "last_op_at": 0,
 				"forced_stop_at": 0, "unread_count": 0, "roster_status": "active",
 				"owner_id": "owner", "schema_version": 3,
+				"terminal_attach_command": "tmux -L officraft attach -t member-kip",
 			},
 			map[string]any{
 				"id": "mira", "avatar_url": "", "name": "Mira", "kind": "staff",
@@ -1234,6 +1238,7 @@ func TestHandleListMembersApiMembersGet(t *testing.T) {
 				"last_op_log": "", "last_op_reason": "", "last_op_at": 0,
 				"forced_stop_at": 0, "unread_count": 0, "roster_status": "active",
 				"owner_id": "owner", "schema_version": 3,
+				"terminal_attach_command": "tmux -L officraft attach -t member-mira",
 			},
 			map[string]any{
 				"id": "m-server-self", "avatar_url": "", "name": "伺服器這一台",
@@ -1246,6 +1251,7 @@ func TestHandleListMembersApiMembersGet(t *testing.T) {
 				"last_op_log": "", "last_op_reason": "", "last_op_at": 0,
 				"forced_stop_at": 0, "unread_count": 0, "roster_status": "active",
 				"owner_id": "owner", "schema_version": 3,
+				"terminal_attach_command": "tmux -L officraft attach -t member-m-server-self",
 			},
 		})
 		dashboard.wantFrames()
@@ -1277,6 +1283,7 @@ func TestHandleListMembersApiMembersGet(t *testing.T) {
 				"last_op_ok": nil, "last_op_log": "", "last_op_reason": "",
 				"last_op_at": 0, "forced_stop_at": 0, "unread_count": 0,
 				"roster_status": "active", "owner_id": "owner", "schema_version": 3,
+				"terminal_attach_command": "tmux -L officraft attach -t member-mira",
 			},
 			map[string]any{
 				"id": "m-server-self", "avatar_url": "", "name": "伺服器這一台",
@@ -1289,6 +1296,7 @@ func TestHandleListMembersApiMembersGet(t *testing.T) {
 				"last_op_ok": nil, "last_op_log": "", "last_op_reason": "",
 				"last_op_at": 0, "forced_stop_at": 0, "unread_count": 0,
 				"roster_status": "active", "owner_id": "owner", "schema_version": 3,
+				"terminal_attach_command": "tmux -L officraft attach -t member-m-server-self",
 			},
 		})
 
@@ -1431,6 +1439,7 @@ func TestHandleGetMemberApiMembersMemberIdGet(t *testing.T) {
 			"last_op_log": "", "last_op_reason": "", "last_op_at": 0,
 			"forced_stop_at": 0, "unread_count": 1, "roster_status": "active",
 			"owner_id": "owner", "schema_version": 3,
+			"terminal_attach_command": "tmux -L officraft attach -t member-kip",
 		})
 		dashboard.wantFrames()
 	})
@@ -1459,6 +1468,7 @@ func TestHandleGetMemberApiMembersMemberIdGet(t *testing.T) {
 			"last_op_log": "", "last_op_reason": "", "last_op_at": 0,
 			"forced_stop_at": 0, "unread_count": 0, "roster_status": "active",
 			"owner_id": "owner", "schema_version": 3,
+			"terminal_attach_command": "tmux -L officraft attach -t member-ow-abc123",
 		})
 		dashboard.wantFrames()
 	})
@@ -1593,14 +1603,17 @@ func TestHandleActivateMemberApiMembersMemberIdActivatePost(t *testing.T) {
 	t.Run("an activation answers the member id and fans a delta saying the member is wanted online", func(t *testing.T) {
 		api, h, _, owner := newAPITestServer(t)
 		dashboard := apiTestListen(t, api, "")
-		self := apiTestListen(t, api, "kip")
 		bystander := apiTestListen(t, api, "mira")
 
 		status, data := apiJSON(t, h, "POST", "/api/members/kip/activate", owner, `{}`)
 		if status != 200 {
 			t.Fatalf("want 200, got %d (%v)", status, data)
 		}
-		apiWantBody(t, data, map[string]any{"id": "kip"})
+		apiWantBody(t, data, map[string]any{
+			"id":                 "kip",
+			"activation_pending": true,
+			"last_op_reason":     apiAnyString,
+		})
 		frame := map[string]any{
 			"seq":   1,
 			"topic": "member",
@@ -1621,8 +1634,10 @@ func TestHandleActivateMemberApiMembersMemberIdActivatePost(t *testing.T) {
 			"ts":      apiAnyNumber,
 			"trigger": "owner",
 		}
-		dashboard.wantFrames(frame)
-		self.wantFrames(frame)
+		memberPayload := apiTestMemberPayload("kip", "Kip", "active", "online")
+		dashboard.wantFrames(frame,
+			apiTestMemberFrame(2, "patch", "kip", memberPayload, "server"),
+			apiTestMemberFrame(3, "patch", "kip", memberPayload, "server"))
 		bystander.wantFrames()
 	})
 

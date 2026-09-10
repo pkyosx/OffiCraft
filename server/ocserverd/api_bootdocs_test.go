@@ -440,8 +440,8 @@ func TestSystemInteractionText(t *testing.T) {
 			t.Fatalf("the boot fold and the read face disagree (%d vs %d runes)",
 				utf8.RuneCountInString(got), utf8.RuneCountInString(data["text"].(string)))
 		}
-		if n := utf8.RuneCountInString(got); n != 16617 {
-			t.Fatalf("the shipped block is %d runes, want 16617", n)
+		if n := utf8.RuneCountInString(got); n != 16778 {
+			t.Fatalf("the shipped block is %d runes, want 16778", n)
 		}
 	})
 
@@ -1050,24 +1050,44 @@ func TestReplaceBootDoc(t *testing.T) {
 		dashboard.wantFrames()
 	})
 
-	t.Run("a body naming a variable is refused and writes nothing, because nothing fills a name below the line", func(t *testing.T) {
+	t.Run("a body naming a declared variable is accepted and stored under the shipped head", func(t *testing.T) {
 		api, h, _, owner := newAPITestServer(t)
+		_, read := apiJSON(t, h, "GET", "/api/boot-docs/task_closeout/global", owner, "")
+		head, ok := read["read_only_head"].(string)
+		if !ok || head == "" {
+			t.Fatalf("the split document must serve its read-only head: %v", read)
+		}
 		dashboard := apiTestListen(t, api, "")
 
 		status, data := apiJSON(t, h, "POST", "/api/boot-docs/task_closeout/global", owner,
 			`{"body":"closing {task_no}"}`)
 
-		if status != 400 {
-			t.Fatalf("want 400, got %d (%v)", status, data)
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
 		}
-		apiWantError(t, data, "validation_error",
-			"the task close-out procedure uses {task_no} below the line `"+apiTestBootDocMarker+
-				"` — the editable half carries no variables at all, because nothing fills them there "+
-				"and they would reach an agent with the braces still in them. Put facts that vary in "+
-				"the read-only head, or write them out. Nothing was written.")
+		apiWantValue(t, "kind", data["kind"], "task_closeout")
+		apiWantValue(t, "key", data["key"], "global")
+		apiWantValue(t, "is_default", data["is_default"], false)
+		apiWantValue(t, "size_chars", data["size_chars"], apiAnyNumber)
+		apiWantValue(t, "cap_chars", data["cap_chars"], 15000)
+		apiWantValue(t, "sha256", data["sha256"], apiAnyString)
 		_, after := apiJSON(t, h, "GET", "/api/boot-docs/task_closeout/global", owner, "")
-		apiWantValue(t, "text", after["text"], apiTestTaskCloseoutSeed)
-		dashboard.wantFrames()
+		apiWantValue(t, "body", after["body"], "closing {task_no}")
+		apiWantValue(t, "text", after["text"], DocJoinHeadBody(head, "closing {task_no}"))
+		dashboard.wantFrames(map[string]any{
+			"seq":   1,
+			"topic": "global_context",
+			"op":    "patch",
+			"data": map[string]any{
+				"entity":  "global_context",
+				"key":     "owner",
+				"epoch":   1,
+				"deleted": false,
+				"payload": nil,
+			},
+			"ts":      apiAnyNumber,
+			"trigger": "owner",
+		})
 	})
 
 	t.Run("a read-only document is refused before anything is read, written or fanned", func(t *testing.T) {
@@ -1423,7 +1443,7 @@ func TestHandleGetSystemInteractionApiSystemInteractionGet(t *testing.T) {
 		if status != 200 {
 			t.Fatalf("want 200, got %d (%v)", status, data)
 		}
-		apiWantValue(t, "size_chars", data["size_chars"], 16617)
+		apiWantValue(t, "size_chars", data["size_chars"], 16778)
 		apiWantValue(t, "cap_chars", data["cap_chars"], 60000)
 		apiWantValue(t, "kind", data["kind"], "system_interaction")
 		apiWantValue(t, "key", data["key"], "global")
@@ -1433,8 +1453,8 @@ func TestHandleGetSystemInteractionApiSystemInteractionGet(t *testing.T) {
 		apiWantValue(t, "has_seed", data["has_seed"], true)
 		apiWantValue(t, "schema_version", data["schema_version"], 3)
 		text, ok := data["text"].(string)
-		if !ok || utf8.RuneCountInString(text) != 16617 {
-			t.Fatalf("the shipped system-interaction text has %d runes, want 16617", utf8.RuneCountInString(text))
+		if !ok || utf8.RuneCountInString(text) != 16778 {
+			t.Fatalf("the shipped system-interaction text has %d runes, want 16778", utf8.RuneCountInString(text))
 		}
 	})
 
@@ -1588,9 +1608,9 @@ func TestHandleResetSystemInteractionApiSystemInteractionResetPost(t *testing.T)
 			"kind":       "system_interaction",
 			"key":        "global",
 			"is_default": true,
-			"size_chars": 16617,
+			"size_chars": 16778,
 			"cap_chars":  60000,
-			"sha256":     "ee4f1371c5600a6f538d9ce03d22b869c62cb19356bb9a6fdc8bb93f1d3fda58",
+			"sha256":     "5600d76b7ff7eb8b17167e6cbc88027e0a406331f79eab2eb9a84f48c5def9c5",
 		})
 		dashboard.wantFrames(map[string]any{
 			"seq":   2,
@@ -1621,9 +1641,9 @@ func TestHandleResetSystemInteractionApiSystemInteractionResetPost(t *testing.T)
 			"kind":       "system_interaction",
 			"key":        "global",
 			"is_default": true,
-			"size_chars": 16617,
+			"size_chars": 16778,
 			"cap_chars":  60000,
-			"sha256":     "ee4f1371c5600a6f538d9ce03d22b869c62cb19356bb9a6fdc8bb93f1d3fda58",
+			"sha256":     "5600d76b7ff7eb8b17167e6cbc88027e0a406331f79eab2eb9a84f48c5def9c5",
 		})
 		dashboard.wantFrames()
 	})

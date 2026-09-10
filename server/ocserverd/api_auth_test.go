@@ -21,8 +21,10 @@ func TestMintWardenToken(t *testing.T) {
 	if claims["sub"] != "m-box" || claims["scope"] != "agent" {
 		t.Fatalf("claims = %v, want sub m-box and agent scope", claims)
 	}
-	if _, ok := claims["exp"]; ok {
-		t.Fatalf("warden claims unexpectedly carry exp: %v", claims)
+	iat, iatOK := claims["iat"].(float64)
+	exp, expOK := claims["exp"].(float64)
+	if !iatOK || !expOK || exp-iat != float64(api.wardenCredLifetimeValue()) {
+		t.Fatalf("warden claims = %v, want exp exactly warden credential lifetime after iat", claims)
 	}
 	if _, ok := claims["machine_id"]; ok {
 		t.Fatalf("warden claims unexpectedly carry machine_id: %v", claims)

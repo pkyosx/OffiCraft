@@ -140,6 +140,8 @@ func TestWriteTaskManual(t *testing.T) {
 			"sop_md":              "# SOP\n步驟一",
 			"learnings":           "第一課",
 			"assignee":            map[string]any{"kind": "staff", "member_id": "kip"},
+			"lore":                "",
+			"lore_chars":          0,
 			"learnings_chars":     3,
 			"sop_md_chars":        9,
 			"learnings_cap_chars": 15000,
@@ -346,6 +348,15 @@ func apiTestCreateTaskManual(t *testing.T, h http.Handler, token, body string) s
 
 func apiTestWantTaskManual(t *testing.T, h http.Handler, token, typeKey string, want map[string]any) {
 	t.Helper()
+	// The read face gained a separate lore field. Keep every existing exact
+	// manual expectation explicit about its empty default without duplicating
+	// the two fields in every scenario table.
+	if _, ok := want["lore"]; !ok {
+		want["lore"] = ""
+	}
+	if _, ok := want["lore_chars"]; !ok {
+		want["lore_chars"] = 0
+	}
 	status, data := apiJSON(t, h, "GET", "/api/task-manuals/"+typeKey, token, "")
 	if status != 200 {
 		t.Fatalf("read back %s: %d %v", typeKey, status, data)
@@ -675,6 +686,8 @@ func TestHandleGetTaskManualApiTaskManualsTypeKeyGet(t *testing.T) {
 			"sop_md":              "# SOP\n步驟一",
 			"learnings":           "第一課",
 			"assignee":            map[string]any{},
+			"lore":                "",
+			"lore_chars":          0,
 			"learnings_chars":     3,
 			"sop_md_chars":        9,
 			"learnings_cap_chars": 15000,
