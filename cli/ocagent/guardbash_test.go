@@ -52,8 +52,9 @@ func decisionOf(t *testing.T, stdout string) string {
 }
 
 func TestGuardBash_RefusesRemovalWhoseTargetIsNotALiteralPath(t *testing.T) {
-	// Every one of these stalls a headless member today. The first is the shape
-	// that actually stalled one on 2026-09-10.
+	// Every one of these stalls a headless member today. "the command that
+	// stalled T-163's reviewer" is the verbatim command that froze a member for
+	// 3h50m on 2026-09-10 while it was reviewing this very guard.
 	for name, command := range map[string]string{
 		"quoted variable with a glob":  `rm -f "$D"/*.json`,
 		"bare variable":                `rm -f $D/a.txt`,
@@ -67,6 +68,18 @@ func TestGuardBash_RefusesRemovalWhoseTargetIsNotALiteralPath(t *testing.T) {
 		"command substitution target":  `rm -rf $(cat dirpath.txt)`,
 		"backtick target":              "rm -rf `cat dirpath.txt`",
 		"variable with no separator":   `rm -f $TMPFILE`,
+
+		// A removal is not always the first word after a separator: shell keywords
+		// stand between the two, and a loop or conditional body is where a member
+		// deletes a batch of files.
+		"the command that stalled T-163's reviewer": `./runone.sh D 'for f in a b; do rm -f "$OCPROBEDIR/$f.ocprobe-nomatch"; done'`,
+		"inside a for loop body":                    `for f in a b; do rm -f $D/$f; done`,
+		"inside a while loop body":                  `while read f; do rm -f $D/$f; done < list`,
+		"inside a then branch":                      `if [ -d "$D" ]; then rm -rf "$D"; fi`,
+		"inside an else branch":                     `if [ -f x ]; then ls; else rm -rf $D/x; fi`,
+		"inside a brace group":                      `{ rm -rf $D/x; }`,
+		"brace group after a separator":             `cd /tmp; { rm -rf $D; }`,
+		"a keyword in front of sudo":                `for f in a; do sudo rm -rf $D/$f; done`,
 	} {
 		t.Run(name, func(t *testing.T) {
 			code, stdout := runGuardBash(t, command)

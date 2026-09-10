@@ -8,23 +8,27 @@
 // sitting in front of a headless agent to press Yes, so the agent hangs SILENTLY
 // until it is reaped.
 //
-// FIVE VARIANTS, AND THIS HEADER USED TO NAME THE WRONG ONE. Read out of the
-// shipped binary (2.1.267, 2026-09-10) the check refuses for five stated
-// reasons:
+// SIX VARIANTS, AND THIS HEADER HAS BEEN WRONG ABOUT THEM TWICE - first it named
+// the wrong one, then it counted five. Read out of the shipped binary (2.1.267,
+// 2026-09-10) the check refuses for six stated reasons:
 //
 //	critical path
 //	possibly-empty variable path                              <- the one that actually stalled a member
 //	possibly-empty variable path inside command substitution
 //	statically-unresolvable target
 //	working directory or its ancestor                         <- the one this header quoted
+//	- too many command substitutions to analyze (>64)         <- a circuit breaker, same M$ helper, same circuitBreaker:"dangerousRemoval"
 //
-// Since T-162 the first three - one family, "the target is not a literal path" -
+// Since T-162 the middle three - one family, "the target is not a literal path" -
 // are refused EARLIER by `ocagent guard-bash` running as a PreToolUse hook, so a
 // member's command never reaches the harness check and the prompt is never
-// raised (see cli/ocagent/guardbash.go). The remaining two need the session's
-// working directory to decide, not just the command text, so they are out of
-// that guard's scope: they are still un-waivable and a member that writes one of
-// those shapes still hangs. THAT is what this file's quarantine is still for.
+// raised (see cli/ocagent/guardbash.go). The circuit breaker cannot fire on a
+// command that guard allows either: 65 command substitutions cannot be written
+// without a `$` or a backtick, which is what the guard's rule matches. The other
+// two need the session's working directory to decide, not just the command text,
+// so they are out of that guard's scope: they are still un-waivable and a member
+// that writes one of those shapes still hangs. THAT is what this file's
+// quarantine is still for.
 // The fix is NOT "mv is safer than rm" — an experiment showed
 // relative/absolute x mv/rm all behave identically in that environment, so the verb
 // has ZERO discriminating power. The fix is WHO EXECUTES THE DELETE: agents move
