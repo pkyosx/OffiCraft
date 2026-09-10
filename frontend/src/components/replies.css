@@ -509,98 +509,112 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-/* ── 等我回覆頁的折疊列：一行 ────────────────────────────────────────────────
- * Tighter than the chat stub because this is a LIST the owner scans, not one
- * card inside a message. The title reads at full strength and claims the free
- * space (nothing claimed it before, which is why the row huddled on the left
- * with the right ~70% empty); the stamps ride at the end as one pill. */
+/* ── 等我回覆頁的折疊列（候選 E-C：兩欄 · 身分自成一區）──────────────────────
+ * Owner 2026-09-10:「不對 你不用硬擠在一行」. Instead of stacking everything down
+ * one column, this cut SPLITS the row: the ask owns the wide left column, the
+ * asker owns a fenced column of its own at the right. The name lands at the
+ * same x on every row of the list, so scanning「誰在等我」is a straight line down
+ * the page rather than a hunt inside six different sentences. */
 .reply-card__collapsed-row--tight {
-  gap: 10px;
-  padding: 7px 12px;
-  /* The stamp pill does not shrink and does not wrap its own text, so on a
-   * narrow cockpit it was taking ~155px of a ~330px row and leaving the title
-   * as「要現…」. Letting the ROW wrap sends the pill to a second line there
-   * instead, where `margin-left: auto` keeps it right-hugging — the same face,
-   * one line lower. Nothing wraps at desktop width. */
+  align-items: stretch;
+  gap: 0;
+  padding: 13px 14px;
+  /* The right column is a fixed-ish block that neither shrinks below its basis
+   * nor breaks its stamps, so on a narrow cockpit it would strangle the left
+   * one. Letting the ROW wrap turns the two columns into two stacked bands
+   * there instead (see the narrow block at the end). */
   flex-wrap: wrap;
+}
+.reply-card__caret {
+  flex: none;
+}
+.reply-card__collapsed-row--tight .reply-card__caret {
+  margin: 3px 10px 0 0;
 }
 .reply-card__collapsed-main,
 .reply-card__collapsed-spacer {
-  flex: 1 1 12em;
+  flex: 1 1 18em;
   min-width: 0;
 }
 .reply-card__collapsed-main {
   display: flex;
   flex-direction: column;
-  gap: 1px;
-  overflow: hidden;
+  gap: 6px;
+  padding-right: 16px;
 }
+/* The ask. WRAPS: a clipped title is the thing the owner then has to open the
+ * card to read, which is the opposite of what this row is for. */
 .reply-card__collapsed-row--tight .reply-card__collapsed-summary {
-  font-size: 13.5px;
+  overflow: visible;
+  white-space: normal;
+  text-overflow: clip;
+  font-size: 15px;
   font-weight: 600;
+  line-height: 1.4;
   color: var(--color-text-strong);
+}
+/* WHICH WORK, at its FULL title (owner: 不要截短). */
+.reply-card__collapsed-task {
+  min-width: 0;
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: var(--color-text-muted);
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+/* The right column — WHO, fenced off by the rule. It keeps the rule whether or
+ * not the asker has a role: the name is always there, so the column is never
+ * an empty fenced box. */
+.reply-card__collapsed-meta {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 7px;
+  /* Wide enough that the stamps never reach the card's edge: they are the
+   * longest thing in this column and they do not break. */
+  width: 208px;
+  min-width: 0;
+  padding-left: 16px;
+  border-left: 1px solid
+    color-mix(in srgb, var(--color-overlay) 12%, transparent);
+}
+/* The avatar sits BESIDE the name rather than above it, so a row with no task
+ * is not held tall and half-empty by a four-deep identity stack. */
+.reply-card__collapsed-idrow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-width: 0;
 }
 .reply-card__collapsed-avatar {
   flex: none;
   display: inline-flex;
 }
-/* 名字 · 角色 + the task chip — one muted run under the title. Absent facts are
- * NOT DRAWN and leave no slot: an outsource asker carries no role, a plain chat
- * ask no task, and the pair together (外包 × 純聊天) would otherwise be two empty
- * cells side by side. The 「·」 hangs off the role — the element that FOLLOWS it —
- * so dropping the role takes its separator with it.
- *
- * THE TASK IS A CHIP, NOT A THIRD 「·」 ITEM, because it has to survive wrapping:
- * at phone width the identity fills the line and the chip drops to its own row,
- * where a leading separator would be pointing at nothing. */
-.reply-card__collapsed-meta {
+.reply-card__collapsed-who {
+  flex: 1 1 auto;
   display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  column-gap: 6px;
-  row-gap: 2px;
+  flex-direction: column;
+  gap: 1px;
   min-width: 0;
-  font-size: 11.5px;
-  font-weight: 400;
-  color: var(--color-text-muted);
 }
 .reply-card__collapsed-name {
-  flex: 0 1 auto;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-.reply-card__collapsed-role {
-  flex: none;
-  white-space: nowrap;
-}
-.reply-card__collapsed-role::before {
-  content: "·";
-  margin-right: 5px;
-  color: var(--color-text-muted);
-}
-/* The task title is the longest of the three and the only one that may be cut.
- * `flex: 0 1 auto` on BOTH it and the name is what keeps it readable at every
- * width: it never grows into an empty chip on a wide row, and when the run no
- * longer fits it wraps to its own line at its natural width instead of being
- * squeezed out. MEASURED at 390px: with `flex: none` on the name this chip
- * rendered 0px wide — present in the DOM, invisible on screen. */
-.reply-card__collapsed-task {
-  flex: 0 1 auto;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  padding: 0 7px;
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--color-overlay) 6%, transparent);
+  font-size: 12.5px;
+  font-weight: 600;
   color: var(--color-text);
 }
-
+.reply-card__collapsed-role {
+  white-space: nowrap;
+  font-size: 11.5px;
+  color: var(--color-text-muted);
+}
 .reply-card__stamp-pill {
   flex: none;
-  margin-left: auto;
   display: inline-flex;
   align-items: center;
   gap: 8px;
@@ -611,12 +625,51 @@
   color: var(--color-text-muted);
   white-space: nowrap;
 }
-/* Open: the row is no longer a title, it is the rule the card hangs under. */
+/* The OPEN row has no columns — it is one thin rule the card hangs under — so
+ * the stamps go back to hugging the right edge there. */
 .reply-card__collapsed-row--open {
+  align-items: center;
+  gap: 8px;
   padding: 5px 12px 6px;
   border-bottom: 1px solid
     color-mix(in srgb, var(--color-overlay) 7%, transparent);
   margin-bottom: 2px;
+}
+.reply-card__collapsed-row--open .reply-card__caret {
+  margin: 0;
+}
+.reply-card__collapsed-row--open .reply-card__stamp-pill {
+  margin-left: auto;
+}
+/* Narrow: two columns side by side stop being two columns. The identity band
+ * lays itself out horizontally under the ask, and the fence moves from its left
+ * edge to its top edge. */
+@media (max-width: 640px) {
+  .reply-card__collapsed-main {
+    padding-right: 0;
+  }
+  .reply-card__collapsed-meta {
+    flex-direction: row;
+    align-items: center;
+    flex-wrap: wrap;
+    column-gap: 10px;
+    row-gap: 6px;
+    width: 100%;
+    /* fall through: the identity row gives up its full width so the stamps can
+       share the line with it */
+    margin-top: 10px;
+    padding: 10px 0 0;
+    border-left: none;
+    border-top: 1px solid
+      color-mix(in srgb, var(--color-overlay) 9%, transparent);
+  }
+  .reply-card__collapsed-idrow {
+    flex: 1 1 auto;
+    width: auto;
+  }
+  .reply-card__collapsed-meta .reply-card__stamp-pill {
+    margin-left: auto;
+  }
 }
 .reply-card__past {
   display: flex;

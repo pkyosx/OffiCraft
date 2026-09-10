@@ -780,99 +780,99 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
     );
   }
 
-  /** The collapsed line — what a row draws with NO read at all: the caret, the
-   * asker's face and name, the task the ask hangs off, the ask's title, and the
-   * stamp its status carries. Every one of those already rides `ReplyCardRow`
-   * (`from` + `task`), so the row still costs no read.
+  /** The collapsed row — what a line draws with NO read at all: the asker's
+   * face and name, their role, the task the ask hangs off, the ask's title, and
+   * the stamp its status carries. All of it rides `ReplyCardRow` (`from` +
+   * `task`), so the row still costs no read.
    *
-   * TWO TEXT LINES INSIDE ONE ROW, and only while CLOSED: the ask's title at
-   * full strength on top, the attribution (名字 · 角色 · 任務標題) muted beneath
-   * it, the avatar to their left and the stamps as one right-hugging pill.
-   * Six things do not fit legibly on one 13.5px line at cockpit width — the
-   * title is the thing being scanned, so it keeps a line to itself and the
-   * three new facts share the second one rather than eating into it.
+   * 候選 E-C 「兩欄 · 身分自成一區」. Owner 2026-09-10:「不對 你不用硬擠在一行」.
+   * Rather than stacking everything down one column, this cut SPLITS the row:
+   * what is being asked owns the wide left column, and WHO is asking owns a
+   * column of its own at the right, fenced off by a rule. Nobody has to pick
+   * the person's name out of a sentence — it is always in the same place, at
+   * the same x, on every row of the list.
    *
-   * ABSENT FACTS ARE NOT DRAWN, they do not leave a slot. An outsource asker
-   * carries no role (`whoOf` returns ""), a chat ask carries no task, and the
-   * pair of them together would be two empty cells on the same row. The
-   * attribution is a flex run whose separators hang off the element that
-   * FOLLOWS them, so dropping either leaves neither a gap nor a dangling 「·」.
-   * Same rule ReplyCardTaskRef already follows for an empty task title.
+   *   left    the ask's title (15px/600) and, under it, the task's FULL title
+   *   right   the avatar, the name, the role, and the stamps — stacked
+   *
+   * ABSENT FACTS ARE STILL NOT DRAWN. An outsource asker carries no role
+   * (`whoOf` returns ""), a chat ask no task, and 外包 × 純聊天 would otherwise
+   * be two empty cells. The right column keeps its rule either way because the
+   * name is always there; the left column simply gets shorter.
    *
    * OPEN, the whole block steps aside — the expanded card renders the identity
    * (renderHead), the task row (renderTaskRef) and the same title sentence, so
-   * repeating any of it here would be the duplicate T-170 exists to remove.
-   * What is left is a thin rule the card hangs under: the way back to closed. */
+   * repeating any of it here would be the duplicate T-170 exists to remove. */
   function renderCollapsedRow(row: ReplyCardRow, stamps: ReactNode) {
     const open = expandedIds.has(row.id);
     const who = whoOf(row);
     const asker = members.find((x) => x.id === row.from);
+    if (open) {
+      return (
+        <button
+          type="button"
+          className="reply-card__collapsed-row reply-card__collapsed-row--tight reply-card__collapsed-row--open"
+          aria-expanded
+          onClick={() => toggleCard(row.id)}
+          data-testid="reply-card-toggle"
+          data-reply-card-id={row.id}
+        >
+          <ChevronRightIcon
+            size={12}
+            className="reply-card__caret reply-card__caret--open"
+          />
+          <span className="reply-card__collapsed-spacer" />
+          {stamps}
+        </button>
+      );
+    }
     return (
       <button
         type="button"
-        className={`reply-card__collapsed-row reply-card__collapsed-row--tight${
-          open ? " reply-card__collapsed-row--open" : ""
-        }`}
-        aria-expanded={open}
+        className="reply-card__collapsed-row reply-card__collapsed-row--tight"
+        aria-expanded={false}
         onClick={() => toggleCard(row.id)}
         data-testid="reply-card-toggle"
         data-reply-card-id={row.id}
       >
-        <ChevronRightIcon
-          size={12}
-          className={`reply-card__caret${open ? " reply-card__caret--open" : ""}`}
-        />
-        {open ? (
-          <span className="reply-card__collapsed-spacer" />
-        ) : (
-          <>
-            {/* A GLYPH, NOT ReplyCardAvatarButton: this row IS a button, and a
-                button inside a button is invalid HTML that browsers reflow out
-                of the row. The avatar-as-second-target (T-a706) still lives on
-                the expanded card's header, one click away. */}
-            <span className="reply-card__collapsed-avatar" aria-hidden="true">
-              <Avatar
-                size={26}
-                kind={avatarKindForMember(asker ?? { id: row.from })}
-                src={
-                  (asker?.kind === "outsource" ? undefined : asker?.avatarUrl) ??
-                  workerAvatarUrls.get(row.from)
-                }
-              />
+        <ChevronRightIcon size={12} className="reply-card__caret" />
+        <span className="reply-card__collapsed-main">
+          <span className="reply-card__collapsed-summary">{row.summary}</span>
+          {row.task?.title && (
+            <span className="reply-card__collapsed-task" data-testid="row-task">
+              {row.task.title}
             </span>
-            <span className="reply-card__collapsed-main">
-              <span className="reply-card__collapsed-summary">
-                {row.summary}
-              </span>
-              <span className="reply-card__collapsed-meta">
-                <span
-                  className="reply-card__collapsed-name"
-                  data-testid="row-name"
-                >
-                  {who.name}
-                </span>
-                {who.role && (
-                  <span
-                    className="reply-card__collapsed-role"
-                    data-testid="row-role"
-                  >
-                    {who.role}
-                  </span>
-                )}
-                {row.task?.title && (
-                  <span
-                    className="reply-card__collapsed-task"
-                    data-testid="row-task"
-                    title={row.task.title}
-                  >
-                    {row.task.title}
-                  </span>
-                )}
-              </span>
+          )}
+        </span>
+        <span className="reply-card__collapsed-meta">
+          <span className="reply-card__collapsed-idrow">
+          {/* A GLYPH, NOT ReplyCardAvatarButton: this row IS a button, and a
+              button inside a button is invalid HTML that browsers reflow out of
+              the row. The avatar-as-second-target (T-a706) still lives on the
+              expanded card's header, one click away. */}
+          <span className="reply-card__collapsed-avatar" aria-hidden="true">
+            <Avatar
+              size={32}
+              kind={avatarKindForMember(asker ?? { id: row.from })}
+              src={
+                (asker?.kind === "outsource" ? undefined : asker?.avatarUrl) ??
+                workerAvatarUrls.get(row.from)
+              }
+            />
+          </span>
+          <span className="reply-card__collapsed-who">
+            <span className="reply-card__collapsed-name" data-testid="row-name">
+              {who.name}
             </span>
-          </>
-        )}
-        {stamps}
+            {who.role && (
+              <span className="reply-card__collapsed-role" data-testid="row-role">
+                {who.role}
+              </span>
+            )}
+          </span>
+          </span>
+          {stamps}
+        </span>
       </button>
     );
   }
