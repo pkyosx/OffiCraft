@@ -58,10 +58,23 @@ mkdir -p "$SHIMDIR" "$PKG"
 
 # ── the package under test: install.sh + its four sibling binaries ───────────
 cp "$SCRIPT" "$PKG/install.sh"
-for b in ocserverd ocwarden ocagent officraft; do
+for b in ocwarden ocagent officraft; do
   printf '#!/usr/bin/env bash\nexit 0\n' > "$PKG/$b"
   chmod +x "$PKG/$b"
 done
+# ocserverd is the ONE stub that records itself (T-164). The installer both
+# `migrate`s and, under --foreground, `exec`s it — and what the exec CARRIES is
+# the whole question: an exec with no OC_CONFIG silently lands the daemon on the
+# convention-default database and port instead of the instance the operator
+# named. From outside the process there is nothing else to look at, so the stub
+# writes its argv and the config it inherited into the tripwire. It still
+# exits 0, so the ~40 cases that predate this see no change.
+cat > "$PKG/ocserverd" <<'SH'
+#!/usr/bin/env bash
+printf 'ocserverd %s OC_CONFIG=[%s]\n' "$*" "${OC_CONFIG:-}" >> "${SHIM_TRIPWIRE:-/dev/null}"
+exit 0
+SH
+chmod +x "$PKG/ocserverd"
 
 # ── PATH shims ───────────────────────────────────────────────────────────────
 # uname: pin darwin/arm64 so the platform gate passes on any CI host.
@@ -714,6 +727,73 @@ if [[ -d "$FAKEHOME/.officraft" ]]; then ok "no --namespace: still installs to ~
 if compgen -G "$FAKEHOME/.officraft-*" >/dev/null; then bad "no --namespace: a namespaced root appeared out of nowhere"; else ok "no --namespace: no namespaced root is created"; fi
 if [[ -f "$FAKEHOME/$PLIST_REL" ]]; then ok "no --namespace: still uses com.officraft.serve.plist"; else bad "no --namespace: default plist missing"; fi
 if [[ -e "$FAKEHOME/.officraft/server/oc.toml" ]]; then bad "no --namespace: an instance config was invented for the MAIN instance"; else ok "no --namespace: no instance config is invented (main reads OC_CONFIG/./oc.toml as before)"; fi
+
+# 10i. --foreground MUST CARRY THE INSTANCE'S CONFIG INTO THE DAEMON (T-164).
+#
+# WHY THIS CASE EXISTS. Everything 10a-10h asserts is about what the INSTALLER
+# writes — the root, the config, the label, the plist, the port it gated. All of
+# it was already correct while the flag was still broken, because the defect was
+# one line later: the --foreground branch ran `exec ocserverd serve` with nothing
+# in front of it. The daemon then resolved its own way ($OC_CONFIG → ./oc.toml,
+# both empty) to the convention defaults and — measured on the official v0.5.356
+# package, 2026-09-10 — created and MIGRATED ~/.officraft/server/data/officraft.db
+# (goose 74 → 101 on one that already existed) and went for port 7755, while the
+# line printed just above said "open http://127.0.0.1:<the port you asked for>/".
+# A whole namespaced install, correct in every artifact on disk, serving the MAIN
+# instance's database. Nothing in this file could see it: the stub ocserverd said
+# `exit 0` and threw its arguments away.
+#
+# So the stub records itself now (see the package block at the top) and these
+# cases read the tripwire. What they pin is not "the installer did the right
+# thing" but "the thing the installer HANDED OFF TO was told where to go".
+reset_fixture fresh
+run_install_ns absent "$MAIN_TARGET" --namespace "$NS" --port "$NS_PORT" --foreground
+check "ns --foreground: succeeds" "0" "$RC"
+NS_CFG_ABS="$FAKEHOME/.officraft-$NS/server/oc.toml"
+# POSITIVE CONTROL FIRST: migrate was already carrying the config before this
+# change. If this line is absent the case never ran the installer at all, and the
+# serve assertion below would be reading an empty tripwire — which looks exactly
+# like a regression it did not observe.
+if tripwire_has "ocserverd migrate OC_CONFIG=[$NS_CFG_ABS]"; then
+  ok "ns --foreground: migrate carried the instance config (the case really ran)"
+else
+  bad "ns --foreground: no migrate in the tripwire — the run never got that far: $(cat "$WORK/.tripwire")"
+fi
+if tripwire_has "ocserverd serve OC_CONFIG=[$NS_CFG_ABS]"; then
+  ok "ns --foreground: the exec carries the instance config"
+else
+  bad "ns --foreground: serve was exec'd WITHOUT the instance config — the daemon would silently use the DEFAULT database and port, not instance '$NS': $(cat "$WORK/.tripwire")"
+fi
+if tripwire_has "ocserverd serve OC_CONFIG=[]"; then
+  bad "ns --foreground: serve was exec'd with an EMPTY OC_CONFIG — that is the defect itself"
+else
+  ok "ns --foreground: no config-less serve was exec'd"
+fi
+# The operator is also TOLD how to restart it. That line used to print a bare
+# `ocserverd serve`, which walks straight back into the same fallback — a trap
+# the installer hands over in writing.
+case "$OUT" in
+  *"OC_CONFIG=$NS_CFG_ABS"*) ok "ns --foreground: the restart hint carries the config too" ;;
+  *) bad "ns --foreground: the restart hint tells the operator to run a bare serve, which re-enters the fallback ('$OUT')" ;;
+esac
+
+# 10j. THE NEGATIVE CONTROL, and it is the half that decides the shape of the
+# fix. A config-less `ocserverd serve` booting on the convention defaults is a
+# DOCUMENTED capability — oc.toml.example: "The file may be entirely ABSENT:
+# every key has a convention default, so a bare `ocserverd serve` boots with zero
+# setup", repeated in server/ocserverd/config.go. So --foreground WITHOUT a
+# namespace and without any config file must keep exec-ing exactly what it always
+# did. "Refuse when nothing resolves" would have deleted that, and 10i alone
+# would still have passed.
+reset_fixture fresh
+run_install absent --foreground
+check "plain --foreground: succeeds" "0" "$RC"
+if tripwire_has "ocserverd serve OC_CONFIG=[]"; then
+  ok "plain --foreground: still exec's a config-less serve (zero-setup boot preserved)"
+else
+  bad "plain --foreground: the config-less serve is gone — zero-setup boot was broken: $(cat "$WORK/.tripwire")"
+fi
+if compgen -G "$FAKEHOME/.officraft-*" >/dev/null; then bad "plain --foreground: a namespaced root appeared"; else ok "plain --foreground: no namespaced root"; fi
 
 # ── 10. a reinstall is not a relocation, on EVERY macOS ─────────────────────
 # The plist this suite writes has no EnvironmentVariables at all, so asking it
