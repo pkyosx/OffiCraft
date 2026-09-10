@@ -98,8 +98,10 @@ const goldenLaunchM1 = `cd /w/m1; export OC_TOKEN="$(/bin/cat /w/m1/.oc-token)" 
 	`exec /usr/local/bin/claude --dangerously-skip-permissions ` +
 	`--disallowedTools AskUserQuestion --mcp-config /w/m1/.mcp.json --effort medium ` +
 	`--append-system-prompt '你是 m1(role=builder)。你的完整身分、操作準則與開機程序都由 launcher 預抓在本地檔 ` +
-	`/w/m1/persona.md;第一步用 Read 工具載入它,並照裡面「開機程序」段逐步執行(做事/治理走 officraft MCP 工具,` +
-	`聽事件走 ocagent listen)。用繁體中文回。' --settings /w/m1/settings.json`
+	`/w/m1/persona.md。第一步:用 Read 工具把它從頭到尾整份讀完 —— 不要帶 offset/limit,不要只讀開頭,` +
+	`也不准用 cat/head/tail/sed 或任何終端機指令讀它:這個檔有數萬字元,終端機輸出只有開頭一小段會進到你的 context,` +
+	`其餘會被靜默丟棄而且不會有任何錯誤訊息,而「開機程序」在整份檔案的最後面。` +
+	`整份讀完後,照裡面「開機程序」段逐步執行。' --settings /w/m1/settings.json`
 
 func TestShellQuote(t *testing.T) {
 	cases := []struct{ in, want string }{
@@ -850,8 +852,10 @@ func TestStart(t *testing.T) {
 			`exec /usr/local/bin/claude --dangerously-skip-permissions --disallowedTools AskUserQuestion ` +
 			`--mcp-config /w/m1/.mcp.json --effort high ` +
 			`--append-system-prompt '你是 m1(role=builder)。你的完整身分、操作準則與開機程序都由 launcher 預抓在本地檔 ` +
-			`/w/m1/persona.md;第一步用 Read 工具載入它,並照裡面「開機程序」段逐步執行(做事/治理走 officraft MCP 工具,` +
-			`聽事件走 ocagent listen)。用繁體中文回。' --model opus --settings /w/m1/settings.json`
+			`/w/m1/persona.md。第一步:用 Read 工具把它從頭到尾整份讀完 —— 不要帶 offset/limit,不要只讀開頭,` +
+			`也不准用 cat/head/tail/sed 或任何終端機指令讀它:這個檔有數萬字元,終端機輸出只有開頭一小段會進到你的 context,` +
+			`其餘會被靜默丟棄而且不會有任何錯誤訊息,而「開機程序」在整份檔案的最後面。` +
+			`整份讀完後,照裡面「開機程序」段逐步執行。' --model opus --settings /w/m1/settings.json`
 		if h.runner.calls[1] != wantLaunch {
 			t.Errorf("launch call =\n%s\nwant\n%s", h.runner.calls[1], wantLaunch)
 		}
