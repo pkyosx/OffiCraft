@@ -56,6 +56,10 @@ var planeASubcommands = []struct{ name, help string }{
 	{"upload", "stream a local file into the attachment store (prints the att id; --mime <type>)"},
 	{"diff", "print a compare-screen URL for two attachment ids / document versions (--external mints a no-login link)"},
 	{"clean", "get rid of a file or folder I made: quarantines it under my workdir (never rm)"},
+	// Not a thing a person invokes: cli/ocwarden/spawn.go points every member's
+	// settings.json PreToolUse hook at it. Listed anyway because an agent that
+	// meets its refusal will come to --help asking what refused it.
+	{"guard-bash", "PreToolUse hook: refuse the removal shapes that stall a headless member"},
 	// Listed because --help is where a person or an agent goes to ask "can this
 	// CLI tell me which build it is?". Kept out of the synopsis, `version` was
 	// answerable but undiscoverable: the only two zero-argument surfaces (--help
@@ -230,6 +234,18 @@ func realMain(argv []string, env func(string) string, in io.Reader, out io.Write
 			return 2
 		}
 		return cmdClean(cfg, fs.Args(), out)
+
+	case "guard-bash":
+		// The PreToolUse hook cli/ocwarden/spawn.go wires into every member's
+		// settings.json. Reads one hook payload on stdin; silence means allow.
+		// It never contacts the station and takes no identity, so neither the
+		// OC_BASE nor the OC_TOKEN guard applies. See guardbash.go.
+		fs := flag.NewFlagSet("ocagent guard-bash", flag.ContinueOnError)
+		fs.SetOutput(out)
+		if err := fs.Parse(rest); err != nil {
+			return 2
+		}
+		return cmdGuardBash(in, out)
 
 	case "version", "--version", "-v":
 		// Print WHICH build this is (build.sha stamp + VCS metadata when the build

@@ -212,11 +212,42 @@ func buildMCPConfig(base, token string) string {
 // buildStatuslineSettings is the port of build_statusline_settings: the Claude
 // Code settings.json wiring the statusLine to the context reporter (json.dumps
 // indent=2 + a trailing newline).
+//
+// It also carries the PreToolUse hook, because this file is the ONE place a
+// member's settings.json is written and a hook declared anywhere else would
+// reach nobody. The hook is `ocagent guard-bash`, named bare the way statusLine
+// names `ocagent context-report`: the launch command puts the workdir (which
+// holds the ocagent symlink) at the front of PATH, so both resolve the same way
+// and neither hardcodes a path that differs per machine.
+//
+// WHAT IT BUYS. Claude Code refuses to run a removal whose target is built from
+// a variable it cannot resolve until a PERSON answers a prompt, and that refusal
+// ignores --dangerously-skip-permissions, which every member is launched with.
+// Nobody is watching a member's tmux window, so the prompt is a stall that looks
+// like a crash from every angle outside it. A PreToolUse denial lands before the
+// harness ever raises that prompt. See cli/ocagent/guardbash.go for the shape it
+// refuses and why the refusal is worded the way it is.
+//
+// ⚠️ cli/ocwarden/testdata/golden_statusline.json is compared to this output byte
+// for byte (spawn_test.go). Change one without the other and that test reddens.
 func buildStatuslineSettings() string {
 	return "{\n" +
 		"  \"statusLine\": {\n" +
 		"    \"type\": \"command\",\n" +
 		"    \"command\": \"ocagent context-report\"\n" +
+		"  },\n" +
+		"  \"hooks\": {\n" +
+		"    \"PreToolUse\": [\n" +
+		"      {\n" +
+		"        \"matcher\": \"Bash\",\n" +
+		"        \"hooks\": [\n" +
+		"          {\n" +
+		"            \"type\": \"command\",\n" +
+		"            \"command\": \"ocagent guard-bash\"\n" +
+		"          }\n" +
+		"        ]\n" +
+		"      }\n" +
+		"    ]\n" +
 		"  }\n" +
 		"}\n"
 }
