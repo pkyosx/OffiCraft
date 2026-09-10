@@ -10,21 +10,29 @@
 //              and its lists are not even fetched until it is opened; not
 //              persisted — every visit starts collapsed.
 //
-// 🔴 A CARD IS COLLAPSED UNTIL IT IS OPENED, AND OPENING ONE IS WHAT READS IT
-// (owner ruling 2026-09-07). The panes are lists of LIGHT ROWS
-// (`ReplyCardRow`: the ask's title, its status and its stamps — no body, no
-// options, no chat anchor), because `?view=full` is gone from the wire; a row
-// draws the collapsed line and NOTHING more can be drawn from it. Opening a row
-// reads that ONE card (`api.getReplyCard`) and only then renders the head
-// (initiator + 跳到原訊息 + 標為過期), the task ref, the question and the SHARED
-// ReplyCardBody. This is the SAME mechanism the inline chat card
-// (ChatReplyCard) has used since T-48 — copied deliberately, not re-invented:
-// two surfaces with two different lazy-load rules is how they drift.
-// A card also CLOSES again on a second click (owner 2026-09-07): before this,
-// the only way out of an opened card was to answer it or mark it expired.
-// The ONE exception to "starts collapsed" is the LEADING 待回覆 card, which the
-// page opens for the owner — on arrival and again whenever the card he was on
-// leaves the pane — until he shuts one himself (see autoOpenOffRef below).
+// 🔴 EVERY CARD STARTS COLLAPSED, AND OPENING ONE IS WHAT READS IT (owner
+// ruling 2026-09-07, restated 2026-09-11:「要做折疊版的，預設全部折疊」). The panes
+// are lists of LIGHT ROWS (`ReplyCardRow`: the ask's title, its status, its
+// stamps and its task ref — no body, no options, no chat anchor), because
+// `?view=full` is gone from the wire.
+//
+// 🔴 THE COLLAPSED ROW IS THE CARD'S OWN HEAD — NOT A SECOND LAYOUT (owner
+// 2026-09-11:「折疊起來那一列的內容不要另外設計」). It draws exactly what the
+// expanded card's top strip drew: avatar, name + role, 跳到原訊息, 標為過期, the
+// ticking 已等你 {t} to the RIGHT of 標為過期, and the task-title row underneath.
+// Every one of those comes off the light row, so a collapsed pane still fetches
+// nothing. Opening a row reads that ONE card (`api.getReplyCard`) and adds the
+// QUESTION to what is already on screen — summary, body, attachments and the
+// SHARED ReplyCardBody — instead of re-drawing a head that never left.
+// ⚠️ NO ABSOLUTE 開卡 STAMP. owner 2026-09-11:「我不想知道絕對時間 相對時間已經
+// 夠了」. Absolute time survives only on a handled row (已回覆／已過期 <time>).
+// ⚠️ AND NOTHING OPENS BY ITSELF. The leading 待回覆 card used to open on arrival
+// (rc-cd351785b83d, rc-fa7e4c9bce42); 預設全部折疊 is the opposite instruction, so
+// that exception and its `autoOpenOffRef` latch are gone. The ONE thing that
+// still opens a card unasked is a DEEP LINK to that card — an explicit request
+// for it, not a default.
+// The whole card is the toggle (`role="button"` + an interaction filter), the
+// same mechanism `TaskCard` uses — see `onCardToggleClick` below.
 //
 // The card interiors live in ReplyCardBody.tsx, SHARED with B3's inline chat
 // card (ChatReplyCard) so the two surfaces can never drift. Answering is the
@@ -264,7 +272,7 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
   // 標為過期 double-confirm (T-1aa4): expiring is terminal with no undo, so a
   // single mis-click must never close a card — the button only OPENS this
   // modal; the modal's confirm fires the action.
-  const [expireTarget, setExpireTarget] = useState<ReplyCard | null>(null);
+  const [expireTarget, setExpireTarget] = useState<ReplyCardRow | null>(null);
   const [expireBusy, setExpireBusy] = useState(false);
 
   // 近期已處理 collapses by default (vibe-clicking style) — the handled pane
@@ -372,8 +380,6 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
     );
   }, [replyCardId]);
 
-  const autoOpenOffRef = useRef(false);
-
   /** Toggle one card open/closed. Closing is a real exit (owner 2026-09-07:
    * answering and 標為過期 used to be the only ways out of an opened card), and
    * it also DROPS the read below, so re-opening reads the card again rather
@@ -381,43 +387,41 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
   function toggleCard(id: string) {
     setExpandedIds((prev) => {
       const next = new Set(prev);
-      if (next.has(id)) {
-        next.delete(id);
-        // Shutting a 待回覆 card is the owner saying「這張先放著」. From here on
-        // the page stops opening cards for him (see autoOpenOffRef).
-        if (waitingSorted.some((row) => row.id === id))
-          autoOpenOffRef.current = true;
-      } else next.add(id);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
       return next;
     });
   }
 
-  // ── 一張接一張 (owner rc-cd351785b83d [0], rc-fa7e4c9bce42 [0]) ────────────
-  // The LEADING 待回覆 card opens by itself: on arrival, and again each time the
-  // one the owner was working on leaves the pane (answered or 標為過期), so a
-  // sitting of asks is worked through without a click between cards.
-  //
-  // 🔴 UNTIL HE SHUTS ONE HIMSELF. `autoOpenOffRef` latches on that gesture and
-  // stays latched for the rest of the visit — collapsing a card IS「先放著」,
-  // and popping the next one open in its place is the page arguing with him.
-  // It is a REF, not derived state: the whole point is that it survives every
-  // later recompute of who is open. It resets only by leaving the page (this
-  // component unmounting), same as `expandedIds` itself — a fresh visit is a
-  // fresh sitting, so the leading card opens again.
-  //
-  // The condition is "no card in the pane is open", not "the first one is
-  // open": that single test covers arrival, the card leaving after an answer,
-  // and the deep-link case (a routed card narrows the pane to itself, so it is
-  // already open and nothing else is chosen for him).
-  useEffect(() => {
-    if (autoOpenOffRef.current) return;
-    const lead = waitingSorted[0];
-    if (!lead) return;
-    if (waitingSorted.some((row) => expandedIds.has(row.id))) return;
-    setExpandedIds((prev) =>
-      prev.has(lead.id) ? prev : new Set(prev).add(lead.id)
+  // Whole-card toggle with an interaction filter, copied from `TaskCard`
+  // (`onCardToggleClick` there): a click that lands on any interactive thing
+  // inside the card — 跳到原訊息 / 標為過期, the option chips, the composer and its
+  // paperclip, an attachment thumbnail (img[role=button] → Lightbox), a markdown
+  // link, a modal — must do its own job and never flip the card. `closest()`
+  // covers them all without sprinkling stopPropagation over every child; the
+  // `hit !== currentTarget` guard is there because the article itself carries
+  // role="button" and would otherwise veto every click on its own body. A click
+  // that ended a text selection is not a toggle intent either.
+  function onCardToggleClick(e: React.MouseEvent<HTMLElement>, id: string) {
+    const target = e.target as HTMLElement;
+    const hit = target.closest(
+      "button, a, textarea, input, select, [role='button'], [role='menu'], [role='dialog']"
     );
-  });
+    if (hit && hit !== e.currentTarget) return;
+    const sel = window.getSelection();
+    if (sel && sel.rangeCount > 0 && !sel.isCollapsed) return;
+    toggleCard(id);
+  }
+
+  /** Keyboard operability (repo convention for clickable surfaces). Only keys on
+   * the card ITSELF toggle — an Enter bubbling out of the composer must not. */
+  function onCardToggleKeyDown(e: React.KeyboardEvent<HTMLElement>, id: string) {
+    if (e.target !== e.currentTarget) return;
+    if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      toggleCard(id);
+    }
+  }
 
   // The row's own version stamp. It is what decides that a card ALREADY READ is
   // stale — an answer from another window (or this page's own write, which
@@ -614,11 +618,28 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
   // Jump to the origin: the ask always comes from a chat message
   // (card.chatMessageId), so open that member's chat room WITH the message id
   // in the route — ChatArea locates + highlights the ask (B3 聊天整合).
-  function jumpToChat(card: ReplyCard) {
+  //
+  // 🔴 THE ANCHOR IS NOT ON A LIGHT ROW. `ReplyCardRow` carries no
+  // `chatMessageId` (the wire's `ReplyCardListItemDTO` does not either), and
+  // since the button now rides the COLLAPSED head it can be pressed before the
+  // card has ever been read. So an unread card is read HERE, on the click, and
+  // only then routed — one request, made because the owner asked to go
+  // somewhere, never on render. Routing without the id would land him in the
+  // right room at the wrong place, which is the silent half-answer this avoids.
+  async function jumpToChat(row: ReplyCardRow) {
+    const known = openCards.get(row.id);
+    let msgId = known?.chatMessageId;
+    if (!msgId) {
+      try {
+        msgId = (await api.getReplyCard(row.id)).chatMessageId;
+      } catch (e) {
+        console.warn("RepliesPage: chat-anchor read failed", e);
+      }
+    }
     setRoute({
       page: "office",
-      chatId: card.from,
-      msgId: card.chatMessageId || undefined,
+      chatId: row.from,
+      msgId: msgId || undefined,
     });
   }
 
@@ -640,14 +661,14 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
   // silent wrong-room landing when opened via this cross-page deep link,
   // since there was never a chat selected to return to. The marker tells
   // OfficePage's 返回 to land back on THIS page instead.
-  function openProfile(card: ReplyCard) {
+  function openProfile(row: ReplyCardRow) {
     const isRosterMember = members.some(
-      (m) => m.id === card.from && m.kind === "staff",
+      (m) => m.id === row.from && m.kind === "staff",
     );
     setRoute(
       isRosterMember
-        ? { page: "office", detailId: card.from, backTo: "replies" }
-        : { page: "office", workerId: card.from, backTo: "replies" },
+        ? { page: "office", detailId: row.from, backTo: "replies" }
+        : { page: "office", workerId: row.from, backTo: "replies" },
     );
   }
 
@@ -662,8 +683,8 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
   // The route carries the task id so the tasks page can locate the card
   // (auto-expanding 已結束 / clearing hiding filters). A pure chat ask renders
   // nothing here.
-  function renderTaskRef(card: ReplyCard) {
-    const task = card.task;
+  function renderTaskRef(row: ReplyCardRow) {
+    const task = row.task;
     if (!task) return null;
     return (
       <ReplyCardTaskRef
@@ -716,7 +737,7 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
     }
   }
 
-  async function doExpire(card: ReplyCard) {
+  async function doExpire(card: ReplyCardRow) {
     setExpireBusy(true);
     try {
       await expire(card.id);
@@ -732,23 +753,26 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
     }
   }
 
+  /** The card's head — and, since owner 2026-09-11, the COLLAPSED ROW itself:
+   * 「折疊起來那一列的內容不要另外設計」. It is drawn from the LIGHT ROW, so it
+   * costs no read: avatar, name + role, 跳到原訊息, 標為過期, then the stamp. */
   function renderHead(
-    card: ReplyCard,
-    waitedNode?: ReactNode,
+    row: ReplyCardRow,
+    stampNode?: ReactNode,
     expirable = false
   ) {
-    const who = whoOf(card);
-    const asker = members.find((x) => x.id === card.from);
+    const who = whoOf(row);
+    const asker = members.find((x) => x.id === row.from);
     return (
       <header className="reply-card__head">
         <ReplyCardAvatarButton
-          onClick={() => openProfile(card)}
+          onClick={() => openProfile(row)}
           src={
             (asker?.kind === "outsource" ? undefined : asker?.avatarUrl) ??
-            workerAvatarUrls.get(card.from)
+            workerAvatarUrls.get(row.from)
           }
           kind={avatarKindForMember(
-            asker ?? { id: card.from }
+            asker ?? { id: row.from }
           )}
         />
         <div className="reply-card__who">
@@ -758,7 +782,7 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
         <button
           type="button"
           className="reply-card__jump"
-          onClick={() => jumpToChat(card)}
+          onClick={() => void jumpToChat(row)}
         >
           {t.replies.jumpToChat}
         </button>
@@ -769,38 +793,13 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
             type="button"
             className="reply-card__jump"
             data-testid="expire-card"
-            onClick={() => setExpireTarget(card)}
+            onClick={() => setExpireTarget(row)}
           >
             {t.replies.expire}
           </button>
         )}
-        {waitedNode}
+        {stampNode}
       </header>
-    );
-  }
-
-  /** The collapsed line — what a row draws with NO read at all: the caret, the
-   * ask's title, and the stamp its status carries. Copied from ChatReplyCard's
-   * stub (T-48) on purpose; the stamp is this pane's own, and it is free
-   * because the light row carries the timestamps. */
-  function renderCollapsedRow(row: ReplyCardRow, stamps: ReactNode) {
-    const open = expandedIds.has(row.id);
-    return (
-      <button
-        type="button"
-        className="reply-card__collapsed-row"
-        aria-expanded={open}
-        onClick={() => toggleCard(row.id)}
-        data-testid="reply-card-toggle"
-        data-reply-card-id={row.id}
-      >
-        <ChevronRightIcon
-          size={12}
-          className={`reply-card__caret${open ? " reply-card__caret--open" : ""}`}
-        />
-        <span className="reply-card__collapsed-summary">{row.summary}</span>
-        {stamps}
-      </button>
     );
   }
 
@@ -819,121 +818,124 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
     );
   }
 
-  function renderWaitingCard(row: ReplyCardRow) {
+  /** One card. The head + task row are ALWAYS drawn (that is the collapsed
+   * line); opening adds the QUESTION under them. The whole article is the
+   * toggle — see `onCardToggleClick`. */
+  function renderCard(
+    row: ReplyCardRow,
+    opts: {
+      testId: string;
+      className: string;
+      stamp: ReactNode;
+      expirable?: boolean;
+      body: (card: ReplyCard) => ReactNode;
+    }
+  ) {
+    const open = expandedIds.has(row.id);
     const card = openCards.get(row.id);
     return (
       <article
         key={row.id}
         id={`reply-card-${row.id}`}
-        tabIndex={-1}
-        className={`reply-card${
-          expandedIds.has(row.id) ? "" : " reply-card--collapsed"
-        }`}
-        data-testid="waiting-card"
+        // 🔴 NOT `reply-card--collapsed`: that modifier zeroes the card's
+        // padding for ChatReplyCard's bare one-line stub, and this page's
+        // collapsed card is a REAL card (head + task row) that keeps its box.
+        className={opts.className}
+        data-testid={opts.testId}
+        data-reply-card-id={row.id}
+        role="button"
+        tabIndex={0}
+        aria-expanded={open}
+        aria-label={open ? t.replies.collapseCard : t.replies.expandCard}
+        onClick={(e) => onCardToggleClick(e, row.id)}
+        onKeyDown={(e) => onCardToggleKeyDown(e, row.id)}
       >
-        {renderCollapsedRow(
-          row,
-          // Two stamps, one column: the ABSOLUTE opened-at (date always
-          // included — Seth 2026-07-13: reply-card times are absolute, no
-          // relative-only display) above the existing ticking waited counter.
-          <span className="reply-card__stamps">
-            <span className="reply-card__opened-at" data-testid="opened-at">
-              {msg.replyOpenedAt(formatAbsolute(row.createdTs, nowTs))}
-            </span>
-            <span className="reply-card__waited" data-testid="waited">
-              {msg.replyWaited(formatDuration(nowTs - row.createdTs))}
-            </span>
-          </span>
-        )}
-        {expandedIds.has(row.id) &&
-          (card ? (
-            <>
-              {renderHead(card, undefined, card.status === "waiting")}
-              {renderTaskRef(card)}
-
-              {/* T-a20b: summary is agent-authored free text, same as body one
-               * line down — it had no business rendering as plain text while
-               * its sibling went through Markdown. */}
-              <Markdown
-                source={card.summary}
-                className="reply-card__summary doc-md"
-              />
-              {card.body && (
-                <Markdown source={card.body} className="reply-card__body doc-md" />
-              )}
-              {/* QUESTION-side attachments (T-5e8a): thumbnails/chips under the
-               * body — click an image to preview in the page's lightbox. */}
-              <ReplyCardQuestionAttachments card={card} />
-
-              {card.status === "waiting" && (
-                <ReplyCardWaitingBody
-                  card={card}
-                  onAnswer={(input) => doAnswer(card.id, input)}
-                />
-              )}
-            </>
-          ) : (
-            renderOpenState(row.id)
-          ))}
+        {renderHead(row, opts.stamp, opts.expirable)}
+        {renderTaskRef(row)}
+        {/* The ask's TITLE, drawn once and in ONE place — always visible, above
+          * the fold of a collapsed card. It is the third line of the head strip
+          * the collapsed row copies (owner 2026-09-11「折疊起來那一列的內容不要另外
+          * 設計」), and it is what keeps a stack of asks from the same person
+          * distinguishable while everything is shut. 🔴 The open body must NOT
+          * print it again — 「卡片標題只出現一次」.
+          * T-a20b: it is agent-authored free text like the body, so it goes
+          * through Markdown; the light row carries it, so this costs no read. */}
+        <Markdown source={row.summary} className="reply-card__summary doc-md" />
+        {open && (card ? opts.body(card) : renderOpenState(row.id))}
       </article>
     );
+  }
+
+  function renderWaitingCard(row: ReplyCardRow) {
+    return renderCard(row, {
+      testId: "waiting-card",
+      className: "reply-card",
+      // ONE stamp, at the head's right edge, AFTER 標為過期 (owner 2026-09-11).
+      // 🔴 No absolute 開卡 stamp beside it — owner saw one on this very head and
+      // answered「我不想知道絕對時間 相對時間已經夠了」.
+      stamp: (
+        <span className="reply-card__waited" data-testid="waited">
+          {msg.replyWaited(formatDuration(nowTs - row.createdTs))}
+        </span>
+      ),
+      expirable: true,
+      body: (card) => (
+        <>
+          {card.body && (
+            <Markdown source={card.body} className="reply-card__body doc-md" />
+          )}
+          {/* QUESTION-side attachments (T-5e8a): thumbnails/chips under the
+           * body — click an image to preview in the page's lightbox. */}
+          <ReplyCardQuestionAttachments card={card} />
+
+          {card.status === "waiting" && (
+            <ReplyCardWaitingBody
+              card={card}
+              onAnswer={(input) => doAnswer(card.id, input)}
+            />
+          )}
+        </>
+      ),
+    });
   }
 
   function renderHandledCard(row: ReplyCardRow) {
     const expired = row.status === "expired";
     const ts = handledTsOf(row);
-    const card = openCards.get(row.id);
-    return (
-      <article
-        key={row.id}
-        id={`reply-card-${row.id}`}
-        tabIndex={-1}
-        className={`reply-card ${
-          expired ? "reply-card--expired" : "reply-card--answered"
-        }${expandedIds.has(row.id) ? "" : " reply-card--collapsed"}`}
-        data-testid={expired ? "expired-card" : "answered-card"}
-      >
-        {renderCollapsedRow(
-          row,
-          // Absolute date+time (7/13 09:05) — the bare hh:mm was ambiguous
-          // the moment a card aged past midnight.
-          ts !== null ? (
-            <span className="reply-card__answered-at">
-              {expired
-                ? msg.replyExpiredAt(formatAbsolute(ts, nowTs))
-                : msg.replyAnsweredAt(formatAbsolute(ts, nowTs))}
-            </span>
-          ) : undefined
-        )}
-        {expandedIds.has(row.id) &&
-          (card ? (
-            <>
-              {renderHead(card)}
-              {renderTaskRef(card)}
+    return renderCard(row, {
+      testId: expired ? "expired-card" : "answered-card",
+      className: `reply-card ${
+        expired ? "reply-card--expired" : "reply-card--answered"
+      }`,
+      // Absolute date+time (7/13 09:05) — the bare hh:mm was ambiguous the
+      // moment a card aged past midnight. This is the ONE absolute stamp left
+      // on the page: 「不想知道絕對時間」 was about the waiting card's 開卡 stamp,
+      // and a handled card has no ticking counter to say it instead.
+      stamp:
+        ts !== null ? (
+          <span className="reply-card__answered-at">
+            {expired
+              ? msg.replyExpiredAt(formatAbsolute(ts, nowTs))
+              : msg.replyAnsweredAt(formatAbsolute(ts, nowTs))}
+          </span>
+        ) : undefined,
+      body: (card) => (
+        <>
+          {/* The question's attachments outlive its settling — same strip on a
+           * handled card (answered/expired). */}
+          <ReplyCardQuestionAttachments card={card} />
 
-              {/* T-a20b — same free-text contract as the waiting card above. */}
-              <Markdown
-                source={card.summary}
-                className="reply-card__summary doc-md"
-              />
-              {/* The question's attachments outlive its settling — same strip on
-               * a handled card (answered/expired). */}
-              <ReplyCardQuestionAttachments card={card} />
-
-              {card.status === "expired" ? (
-                <ReplyCardExpiredBody card={card} />
-              ) : card.status === "answered" ? (
-                <ReplyCardAnsweredBody
-                  card={card}
-                  onReanswer={(input) => doReanswer(card.id, input)}
-                />
-              ) : null}
-            </>
-          ) : (
-            renderOpenState(row.id)
-          ))}
-      </article>
-    );
+          {card.status === "expired" ? (
+            <ReplyCardExpiredBody card={card} />
+          ) : card.status === "answered" ? (
+            <ReplyCardAnsweredBody
+              card={card}
+              onReanswer={(input) => doReanswer(card.id, input)}
+            />
+          ) : null}
+        </>
+      ),
+    });
   }
 
   return (
