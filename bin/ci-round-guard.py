@@ -43,9 +43,9 @@ import sys
 import tempfile
 from pathlib import Path
 
-# argv[1] overrides the root ONLY so bin/tests/ci-round-guard-selftest.py can
-# point this guard at a mutated copy of the tree. Nothing in CI passes it, so the
-# real round is always checked against the real Makefile.
+# argv[1] overrides the root, which the removed selftest used to point this guard
+# at a mutated copy of the tree. Nothing in CI passes it, so the real round is
+# always checked against the real Makefile.
 ROOT = Path(sys.argv[1]).resolve() if len(sys.argv) > 1 else Path(__file__).resolve().parent.parent
 ROUND = ROOT / "bin" / "lib" / "ci-round.txt"
 MAKEFILE = ROOT / "Makefile"

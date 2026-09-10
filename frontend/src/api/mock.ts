@@ -60,6 +60,7 @@ import type {
   ScheduledMessageCreateInput,
   ScheduledMessageUpdate,
   ReplyCard,
+  ReplyCardRow,
   ReplyCardWriteReceipt,
   ReplyCardAnswerInput,
   ReplyCardCounts,
@@ -3720,40 +3721,49 @@ export const mockApi: Api = {
 
   async listReplyCards(
     status: "waiting" | "answered" | "expired"
-  ): Promise<ReplyCard[]> {
+  ): Promise<ReplyCardRow[]> {
     // Mirror the server's list contract: waiting = longest-waiting first
     // (created asc); answered = last-24h window, newest answer first; expired
-    // = last-24h window keyed off expiredTs, newest first. The structuredClone
-    // keeps callers from mutating mock state.
-    if (status === "waiting") {
-      return structuredClone(
-        replyCards
-          .filter((c) => c.status === "waiting")
-          .sort((a, b) => a.createdTs - b.createdTs)
-      );
-    }
+    // = last-24h window keyed off expiredTs, newest first.
+    //
+    // 🔴 PROJECTED TO THE LIGHT ROW, exactly as the wire is. The mock holds
+    // whole cards, so returning them here would hand mock-mode a body and an
+    // options list the real list has not carried since `?view=full` was removed
+    // — and the cockpit would render against fields that are only ever there in
+    // the mock. `rowOf` is the parity seam; keep it.
+    const rowOf = (c: ReplyCard): ReplyCardRow => ({
+      id: c.id,
+      from: c.from,
+      kind: c.kind,
+      summary: c.summary,
+      status: c.status,
+      createdTs: c.createdTs,
+      answeredTs: c.answeredTs,
+      expiredTs: c.expiredTs ?? null,
+      task: c.task ?? null,
+    });
     const cutoff = Date.now() / 1000 - 24 * 3600;
-    if (status === "expired") {
-      return structuredClone(
-        replyCards
-          .filter(
-            (c) =>
-              c.status === "expired" &&
-              (c.expiredTs ?? 0) >= cutoff
-          )
-          .sort((a, b) => (b.expiredTs ?? 0) - (a.expiredTs ?? 0))
-      );
+    if (status === "waiting") {
+      return replyCards
+        .filter((c) => c.status === "waiting")
+        .sort((a, b) => a.createdTs - b.createdTs)
+        .map(rowOf);
     }
-    return structuredClone(
-      replyCards
-        .filter(
-          (c) =>
-            c.status === "answered" &&
-            c.answeredTs !== null &&
-            c.answeredTs >= cutoff
-        )
-        .sort((a, b) => (b.answeredTs ?? 0) - (a.answeredTs ?? 0))
-    );
+    if (status === "expired") {
+      return replyCards
+        .filter((c) => c.status === "expired" && (c.expiredTs ?? 0) >= cutoff)
+        .sort((a, b) => (b.expiredTs ?? 0) - (a.expiredTs ?? 0))
+        .map(rowOf);
+    }
+    return replyCards
+      .filter(
+        (c) =>
+          c.status === "answered" &&
+          c.answeredTs !== null &&
+          c.answeredTs >= cutoff
+      )
+      .sort((a, b) => (b.answeredTs ?? 0) - (a.answeredTs ?? 0))
+      .map(rowOf);
   },
 
   async getReplyCard(id: string): Promise<ReplyCard> {

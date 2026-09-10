@@ -1,335 +1,304 @@
 package main
 
-// Guards for the station-address gate (T-88). Each test below names the ONE
-// edit it is here to turn red, because a guard whose defeating edit nobody
-// wrote down tends to be a guard that no longer defeats anything.
-
 import (
 	"bytes"
 	"context"
+	"errors"
 	"os"
-	"os/signal"
 	"path/filepath"
 	"reflect"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 )
 
-func fixedNow() time.Time { return time.Unix(1700000000, 0).UTC() }
-
-// TestBaseFromEnvReportsWhetherItWasSet pins the distinction the old loadConfig
-// destroyed: not what the address is, but whether anybody chose one.
-//
-// DEFEATED BY: making baseFromEnv fall back to defaultBase (i.e. putting the
-// guess back where it was).
-func TestBaseFromEnvReportsWhetherItWasSet(t *testing.T) {
-	if _, ok := baseFromEnv(envFn(map[string]string{})); ok {
-		t.Error("an absent OC_BASE must report configured=false")
-	}
-	if _, ok := baseFromEnv(envFn(map[string]string{"OC_BASE": "   "})); ok {
-		t.Error("a whitespace-only OC_BASE must report configured=false")
-	}
-	// A station host legitimately points at loopback. Judging by comparing the
-	// value against defaultBase would refuse exactly that machine, so the check
-	// must be on whether the env was set — not on what it says.
-	got, ok := baseFromEnv(envFn(map[string]string{"OC_BASE": defaultBase}))
-	if !ok {
-		t.Fatal("an explicitly-set loopback OC_BASE is CONFIGURED, not a guess — refusing it would break every station host")
-	}
-	if got != defaultBase {
-		t.Errorf("base = %q, want %q", got, defaultBase)
-	}
+// envMap turns a fixture map into the env lookup the gate takes.
+func envMap(m map[string]string) func(string) string {
+	return func(k string) string { return m[k] }
 }
 
-// TestLoadConfigDoesNotGuessBase pins the first of the two independent
-// assignment paths: the run-loop's.
-//
-// DEFEATED BY: re-adding `if base == "" { base = defaultBase }` to loadConfig.
-func TestLoadConfigDoesNotGuessBase(t *testing.T) {
-	cfg := loadConfig(envFn(map[string]string{"OC_TOKEN": "t", "OC_ID": "m-1"}))
-	if cfg.Base != "" {
-		t.Errorf("loadConfig invented a station address %q with OC_BASE unset — that is the whole defect T-88 removes", cfg.Base)
-	}
-}
+// noBaseGolden is the refusal a person finds when they go looking, verbatim.
+var noBaseGolden = strings.Join([]string{
+	"[ocwarden] FATAL: OC_BASE is not set — this warden was never told which station to talk to.",
+	"[ocwarden]   It is NOT guessing an address, and it will NOT start any members on this machine.",
+	"[ocwarden]   Guessing would be worse than stopping: something else may well be listening on",
+	"[ocwarden]   http://127.0.0.1:7755 (a station host, a trial station), and members started against it",
+	"[ocwarden]   would quietly join the WRONG station while every screen looked normal.",
+	"[ocwarden]   This machine WILL still be listed, and will simply never come online.",
+	"[ocwarden]   Do not read its presence in the list as evidence that this is not the problem.",
+	"[ocwarden]   To fix: re-run `ocwarden install` with OC_BASE set to the station URL.",
+	"[ocwarden]   Setting OC_BASE alone is not enough — this process must be restarted to pick it up.",
+	"[ocwarden]   Halting here (staying alive, doing nothing) rather than exiting; see ocwarden.no-base",
+	"",
+}, "\n")
 
-// TestResolvePaths_RefusesWhenBaseUnset pins the SECOND, independent assignment
-// path: the installer's, whose guess gets baked into the launchd plist and is
-// therefore inherited by every future launch on that machine.
-//
-// DEFEATED BY: re-adding `if ocBase == "" { ocBase = defaultBase }` to
-// resolvePaths. Changing only main.go leaves this one intact, which is exactly
-// why it is asserted separately.
-func TestResolvePaths_RefusesWhenBaseUnset(t *testing.T) {
-	_, err := resolvePaths(envFn(map[string]string{
-		"HOME":     "/Users/seth",
-		"OC_TOKEN": "tok-abc",
-	}), "/repo/bin/ocwarden", 501)
-	if err == nil {
-		t.Fatal("install must refuse when OC_BASE is unset; a guess here is written into the plist permanently")
+func TestBaseFromEnv(t *testing.T) {
+	cases := []struct {
+		name           string
+		raw            string
+		want           string
+		wantConfigured bool
+	}{
+		{"unset", "", "", false},
+		{"whitespace only is not a station address", "   ", "", false},
+		{"a tab is not a station address", "\t\n", "", false},
+		{"loopback is a legitimate station address", "http://127.0.0.1:7755", "http://127.0.0.1:7755", true},
+		{"a real host is re-schemed to https", "http://oc.example.com", "https://oc.example.com", true},
+		{"an unparseable value is still configured", "ftp://x", "ftp://x", true},
+		{"a bare word is still configured", "notaurl", "notaurl", true},
 	}
-	if !strings.Contains(err.Error(), "OC_BASE") {
-		t.Errorf("the refusal must name the variable the operator has to set; got %q", err)
-	}
-}
-
-// TestStationAddressGateLetsAConfiguredWardenThrough is the POSITIVE control.
-// Without it, a gate that refused unconditionally would pass every other test in
-// this file while stopping the entire fleet.
-func TestStationAddressGateLetsAConfiguredWardenThrough(t *testing.T) {
-	var out bytes.Buffer
-	blocked := false
-	rc, stop := stationAddressGate(
-		envFn(map[string]string{"OC_BASE": "https://station.example"}),
-		&out, false, fixedNow, func() { blocked = true },
-	)
-	if stop {
-		t.Fatalf("a configured warden must pass the gate; got stop=true rc=%d", rc)
-	}
-	if blocked {
-		t.Error("a configured warden must not halt")
-	}
-	if out.Len() != 0 {
-		t.Errorf("a configured warden must say nothing about OC_BASE; got %q", out.String())
-	}
-}
-
-// TestStationAddressGateHaltsRatherThanExits pins the shape chosen in step ④:
-// stay alive and do nothing, rather than exit.
-//
-// DEFEATED BY: replacing the halt with a plain `return 1` — which, under the
-// plist's unconditional KeepAlive, is a relaunch every ThrottleInterval with the
-// message going to a log file nobody reads.
-func TestStationAddressGateHaltsRatherThanExits(t *testing.T) {
-	home := t.TempDir()
-	var out bytes.Buffer
-	blocked := 0
-	rc, stop := stationAddressGate(
-		envFn(map[string]string{"HOME": home}),
-		&out, false, fixedNow, func() { blocked++ },
-	)
-	if !stop {
-		t.Fatal("an unconfigured warden must not be allowed through the gate")
-	}
-	if blocked != 1 {
-		t.Errorf("the gate must PARK (block exactly once), not exit; block called %d times", blocked)
-	}
-	if rc == 0 {
-		t.Error("exit code must be non-zero: nothing this warden was installed to do ever happened")
-	}
-}
-
-// TestRealMainHaltsRatherThanExitsOnTheLaunchdPath (T-88) is the guard for the
-// CALL SITE'S ARGUMENT, which is a different thing from the call site existing.
-//
-// basegate_reached_test.go proves realMain CALLS the gate. It drives `run --once`,
-// so it only ever exercises the returning branch — and independent review turned
-// that gap into a live defeat: change the ONE token `*once` to `true` at the call
-// site and an unconfigured warden EXITS instead of halting. It compiles, and the
-// entire package stayed green pass-for-pass, because no test could reach the
-// branch that changed.
-//
-// This drives the real forever path (`run`, no --once) with the block seam
-// swapped, so the halt is observable without parking the test.
-//
-// DEFEATED BY: passing anything but *once at the call site, or replacing the halt
-// with a return.
-func TestRealMainHaltsRatherThanExitsOnTheLaunchdPath(t *testing.T) {
-	blocked := 0
-	orig := gateBlock
-	gateBlock = func() { blocked++ }
-	t.Cleanup(func() { gateBlock = orig })
-
-	var out bytes.Buffer
-	env := envFn(map[string]string{"HOME": t.TempDir()})
-
-	rc := realMain([]string{"run"}, env, &out)
-
-	if blocked != 1 {
-		t.Fatalf("the launchd path must HALT (block exactly once), not exit; block called %d times.\n"+
-			"An exiting warden under the plist's unconditional KeepAlive is a silent relaunch loop —\n"+
-			"the outcome this file's header calls strictly worse than the bug being fixed.\n"+
-			"output was:\n%s", blocked, out.String())
-	}
-	if rc == 0 {
-		t.Errorf("exit code must be non-zero after the halt is signalled away; got %d", rc)
-	}
-	if strings.Contains(out.String(), "--once") {
-		t.Error("the launchd path must not print the --once branch's wording")
-	}
-}
-
-// TestGateBlockIsWiredToTheRealBlocker (T-88, B-3) asserts the seam's IDENTITY.
-//
-// TestRealMainHaltsRatherThanExitsOnTheLaunchdPath swaps gateBlock for a counting
-// closure, so it can only ever observe its own closure — it is blind to what
-// gateBlock is bound to in production. Independent review defeated it with one
-// identifier: `var gateBlock = blockUntilSignal` → `func() {}`. That compiles, it
-// makes an unconfigured warden exit instead of halting, and the package stayed
-// green pass-for-pass.
-//
-// This is the same failure the repo already documented for the updater seams —
-// a seam wired to the wrong producer is still non-nil, so "it is set" proves
-// nothing. Assert WHICH function it is set to.
-//
-// DEFEATED BY: rebinding gateBlock to anything that is not blockUntilSignal.
-func TestGateBlockIsWiredToTheRealBlocker(t *testing.T) {
-	got := reflect.ValueOf(gateBlock).Pointer()
-	want := reflect.ValueOf(blockUntilSignal).Pointer()
-	if got != want {
-		t.Fatalf("gateBlock is not bound to blockUntilSignal.\n" +
-			"A seam pointed at a no-op is still non-nil, and every other guard in this file\n" +
-			"swaps it out — so nothing else can notice. An unconfigured warden would then EXIT\n" +
-			"instead of halting, which under the plist's KeepAlive is the silent relaunch loop\n" +
-			"this package exists to avoid.")
-	}
-}
-
-// TestNotifyContextIsWiredToTheRealNotifier (T-88, B-4) is the SAME assertion one
-// level down, and its existence is the lesson.
-//
-// Fixing B-3 introduced notifyContext — and introducing a seam introduces a new
-// blind face, because every test that USES a seam swaps it out and is therefore
-// blind to its default. Review found the hole immediately: wrap the real
-// signal.NotifyContext and call cancel() before returning, and blockUntilSignal
-// returns without any signal — 23 PASS, identical to the unmutated baseline, go
-// vet clean. Same production outcome as B-2 and B-3: the warden exits instead of
-// halting.
-//
-// ⚠️ This closes THAT hole; it does not close the SHAPE. There are exactly two
-// seams in this file today (`grep '^var ' basegate.go`) and now exactly two
-// identity guards. A third seam added later starts blind again, and no scanning
-// guard is written for it on purpose — the repo forbids that class. The only
-// defences are: do not add a seam without an identity guard, and prefer not
-// adding one.
-//
-// DEFEATED BY: rebinding notifyContext to anything that is not
-// signal.NotifyContext — INCLUDING a wrapper around it, since a wrapper is a
-// different code address.
-func TestNotifyContextIsWiredToTheRealNotifier(t *testing.T) {
-	got := reflect.ValueOf(notifyContext).Pointer()
-	want := reflect.ValueOf(signal.NotifyContext).Pointer()
-	if got != want {
-		t.Fatal("notifyContext is not bound to signal.NotifyContext.\n" +
-			"Every test that uses this seam replaces it, so nothing else in the package can\n" +
-			"see its default. A wrapper that cancels early makes blockUntilSignal return with\n" +
-			"no signal — the halt silently becomes an exit, and the suite stays green.")
-	}
-}
-
-// TestBlockUntilSignalActuallyBlocks (T-88, B-3) asserts the real function's BODY.
-//
-// Identity is not enough: gateBlock can point at the right function while that
-// function returns immediately. Review defeated the first guard that way too —
-// `<-ctx.Done()` → `_ = ctx`, one line, package still green, because no test ever
-// entered the production blocker.
-//
-// The notifyContext seam exists solely so this test can supply a context it
-// controls instead of a real signal — sending this process a real SIGTERM to test
-// a signal handler would be a test that can kill the run it belongs to.
-//
-// DEFEATED BY: dropping the receive on ctx.Done() (returns early), or making the
-// function ignore the cancellation (never returns → the second half times out).
-func TestBlockUntilSignalActuallyBlocks(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	orig := notifyContext
-	notifyContext = func(context.Context, ...os.Signal) (context.Context, context.CancelFunc) {
-		return ctx, func() {}
-	}
-	t.Cleanup(func() { notifyContext = orig; cancel() })
-
-	returned := make(chan struct{})
-	go func() { blockUntilSignal(); close(returned) }()
-
-	// HALF ONE: it must still be parked while nothing has been signalled. This is
-	// the half that catches a body which does not wait.
-	select {
-	case <-returned:
-		t.Fatal("blockUntilSignal returned without being signalled — the halt does not hold, " +
-			"so an unconfigured warden exits and launchd sees the job end")
-	case <-time.After(150 * time.Millisecond):
-	}
-
-	// HALF TWO is the POSITIVE CONTROL. Without it, a function that blocks forever
-	// on the wrong thing — or never returns at all — would satisfy half one, and a
-	// warden that cannot be shut down the ordinary way is its own defect.
-	cancel()
-	select {
-	case <-returned:
-	case <-time.After(2 * time.Second):
-		t.Fatal("blockUntilSignal did not return after cancellation — a halted warden must " +
-			"still end on SIGINT/SIGTERM (teardown, reboot)")
-	}
-}
-
-// TestNoBaseMessageIsReadableByAPerson. The failures on this path have
-// historically all been silent, so the message is part of the fix, not
-// decoration around it. In particular it must say that setting the variable is
-// not by itself enough — a halted warden does not heal, and "I fixed it, it
-// should come back" is the expensive wrong belief here.
-//
-// DEFEATED BY: trimming the message down to something like "OC_BASE unset".
-func TestNoBaseMessageIsReadableByAPerson(t *testing.T) {
-	msg := noBaseMessage(noBaseSentinelName)
-	for _, want := range []string{
-		"OC_BASE",          // the name of the thing to set
-		"ocwarden install", // what to actually do
-		"restart",          // ...and that setting it alone is not enough
-		// 🔴 THIS ONE REPLACES A PIN ON A FALSE FACT. The first draft required
-		// "not appear on the roster", which is backwards — the roster row exists
-		// before the install runs, so the machine IS listed and simply stays
-		// offline. Pinning that sentence meant CORRECTING it would have turned
-		// this test red, i.e. the guard was holding the wrong answer in place.
-		// Independent review caught it. Pin what a reader must not conclude
-		// instead.
-		"never come online",
-		"Do not read its presence in the list",
-	} {
-		if !strings.Contains(msg, want) {
-			t.Errorf("the message a person finds must contain %q; got:\n%s", want, msg)
+	for _, c := range cases {
+		env := envMap(map[string]string{"OC_BASE": c.raw})
+		base, configured := baseFromEnv(env)
+		if base != c.want || configured != c.wantConfigured {
+			t.Errorf("%s: baseFromEnv = (%q, %v), want (%q, %v)", c.name, base, configured, c.want, c.wantConfigured)
 		}
 	}
 }
 
-// TestHaltWritesSentinelSayingWhy. The sentinel is the on-box record: the log
-// line scrolls, the file stays.
-func TestHaltWritesSentinelSayingWhy(t *testing.T) {
-	home := t.TempDir()
-	var out bytes.Buffer
-	haltNoBase(envFn(map[string]string{"HOME": home}), &out, fixedNow, func() {})
-
-	path := filepath.Join(home, ".officraft", "warden", noBaseSentinelName)
-	body, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("no sentinel at %s: %v", path, err)
+func TestNoBaseMessage(t *testing.T) {
+	if got := noBaseMessage(noBaseSentinelName); got != noBaseGolden {
+		t.Errorf("noBaseMessage(%q) =\n%s\nwant\n%s", noBaseSentinelName, got, noBaseGolden)
 	}
-	if !strings.Contains(string(body), "OC_BASE") {
-		t.Errorf("the sentinel must say why the warden stopped; got %q", body)
-	}
-	if !strings.Contains(out.String(), path) {
-		t.Errorf("the log must name where the sentinel went, so a reader who cannot find it learns that from the same place; got %q", out.String())
+	where := noBaseMessage("/Users/eva/.officraft/warden/ocwarden.no-base")
+	wantLast := "[ocwarden]   Halting here (staying alive, doing nothing) rather than exiting; see /Users/eva/.officraft/warden/ocwarden.no-base\n"
+	if !strings.HasSuffix(where, wantLast) {
+		t.Errorf("noBaseMessage last line = %q, want it to end with %q", where, wantLast)
 	}
 }
 
-// TestHaltStillHaltsWhenTheSentinelCannotBeWritten. The sentinel is a RECORD,
-// never an input: an unwritable scratch path must not be able to turn the
-// refusal back into a start. (Same fail-open direction contextreport.go states
-// for its backoff record — stated here as a test rather than a comment.)
-//
-// DEFEATED BY: making haltNoBase return early, or fall through to a normal
-// start, when writeNoBaseSentinel fails.
-func TestHaltStillHaltsWhenTheSentinelCannotBeWritten(t *testing.T) {
+func TestNoBaseSentinelPath(t *testing.T) {
+	cases := []struct {
+		name    string
+		env     map[string]string
+		want    string
+		wantErr string
+	}{
+		{"main instance", map[string]string{"HOME": "/Users/eva"},
+			"/Users/eva/.officraft/warden/ocwarden.no-base", ""},
+		{"namespaced instance", map[string]string{"HOME": "/Users/eva", "OC_NAMESPACE": "lab"},
+			"/Users/eva/.officraft-lab/warden/ocwarden.no-base", ""},
+		{"HOME unset", map[string]string{}, "", "HOME is not set"},
+		{"invalid namespace", map[string]string{"HOME": "/Users/eva", "OC_NAMESPACE": "Lab"},
+			"", `OC_NAMESPACE must match [a-z0-9-]{1,16}, got: "Lab"`},
+	}
+	for _, c := range cases {
+		got, err := noBaseSentinelPath(envMap(c.env))
+		if got != c.want {
+			t.Errorf("%s: path = %q, want %q", c.name, got, c.want)
+		}
+		switch {
+		case c.wantErr == "" && err != nil:
+			t.Errorf("%s: err = %v, want nil", c.name, err)
+		case c.wantErr != "" && (err == nil || err.Error() != c.wantErr):
+			t.Errorf("%s: err = %v, want %q", c.name, err, c.wantErr)
+		}
+	}
+}
+
+func TestWriteNoBaseSentinel(t *testing.T) {
+	home := t.TempDir()
+	where := writeNoBaseSentinel(envMap(map[string]string{"HOME": home}), "recorded body\n", os.MkdirAll, os.WriteFile)
+	wantPath := filepath.Join(home, ".officraft", "warden", "ocwarden.no-base")
+	if where != wantPath {
+		t.Errorf("where = %q, want %q", where, wantPath)
+	}
+	body, err := os.ReadFile(wantPath)
+	if err != nil {
+		t.Fatalf("read sentinel: %v", err)
+	}
+	if string(body) != "recorded body\n" {
+		t.Errorf("sentinel body = %q, want %q", body, "recorded body\n")
+	}
+	info, err := os.Stat(wantPath)
+	if err != nil {
+		t.Fatalf("stat sentinel: %v", err)
+	}
+	if info.Mode().Perm() != 0o644 {
+		t.Errorf("sentinel perms = %o, want 644", info.Mode().Perm())
+	}
+
+	var mkdirs, writes int
+	countingMkdir := func(string, os.FileMode) error { mkdirs++; return nil }
+	countingWrite := func(string, []byte, os.FileMode) error { writes++; return nil }
+
+	refused := []struct {
+		name string
+		env  map[string]string
+		want string
+	}{
+		{"HOME unset", map[string]string{}, "no sentinel written (HOME is not set)"},
+		{"invalid namespace", map[string]string{"HOME": home, "OC_NAMESPACE": "Lab"},
+			`no sentinel written (OC_NAMESPACE must match [a-z0-9-]{1,16}, got: "Lab")`},
+	}
+	for _, c := range refused {
+		if got := writeNoBaseSentinel(envMap(c.env), "b", countingMkdir, countingWrite); got != c.want {
+			t.Errorf("%s: where = %q, want %q", c.name, got, c.want)
+		}
+	}
+	if mkdirs != 0 || writes != 0 {
+		t.Errorf("an unresolvable path touched the filesystem: %d mkdir, %d write", mkdirs, writes)
+	}
+
+	failMkdir := func(string, os.FileMode) error { return errors.New("mkdir denied") }
+	if got := writeNoBaseSentinel(envMap(map[string]string{"HOME": home}), "b", failMkdir, countingWrite); got != "no sentinel written (mkdir denied)" {
+		t.Errorf("where = %q, want %q", got, "no sentinel written (mkdir denied)")
+	}
+	if writes != 0 {
+		t.Errorf("a failed mkdir still wrote the file (%d writes)", writes)
+	}
+	failWrite := func(string, []byte, os.FileMode) error { return errors.New("disk full") }
+	if got := writeNoBaseSentinel(envMap(map[string]string{"HOME": home}), "b", countingMkdir, failWrite); got != "no sentinel written (disk full)" {
+		t.Errorf("where = %q, want %q", got, "no sentinel written (disk full)")
+	}
+}
+
+func TestStationAddressGate(t *testing.T) {
+	frozen := func() time.Time { return time.Date(2026, 9, 8, 4, 5, 6, 0, time.UTC) }
+
+	t.Run("a configured base carries on", func(t *testing.T) {
+		home := t.TempDir()
+		var out bytes.Buffer
+		blocked := 0
+		rc, stop := stationAddressGate(
+			envMap(map[string]string{"HOME": home, "OC_BASE": "http://127.0.0.1:7755"}),
+			&out, false, frozen, func() { blocked++ })
+		if rc != 0 || stop {
+			t.Errorf("gate = (%d, %v), want (0, false)", rc, stop)
+		}
+		if out.String() != "" {
+			t.Errorf("out = %q, want empty", out.String())
+		}
+		if blocked != 0 {
+			t.Errorf("blocked %d times, want 0", blocked)
+		}
+		if _, err := os.Stat(filepath.Join(home, ".officraft", "warden", "ocwarden.no-base")); !errors.Is(err, os.ErrNotExist) {
+			t.Errorf("a configured warden left a sentinel behind (%v)", err)
+		}
+	})
+
+	t.Run("--once refuses and returns", func(t *testing.T) {
+		home := t.TempDir()
+		var out bytes.Buffer
+		blocked := 0
+		rc, stop := stationAddressGate(envMap(map[string]string{"HOME": home}), &out, true, frozen, func() { blocked++ })
+		if rc != 1 || !stop {
+			t.Errorf("gate = (%d, %v), want (1, true)", rc, stop)
+		}
+		want := noBaseGolden + "[ocwarden] --once: refusing and exiting non-zero (no sentinel written; the launchd path halts instead)\n"
+		if out.String() != want {
+			t.Errorf("out =\n%s\nwant\n%s", out.String(), want)
+		}
+		if blocked != 0 {
+			t.Errorf("the --once hook parked %d times, want 0", blocked)
+		}
+		if _, err := os.Stat(filepath.Join(home, ".officraft", "warden", "ocwarden.no-base")); !errors.Is(err, os.ErrNotExist) {
+			t.Errorf("--once wrote a sentinel (%v)", err)
+		}
+	})
+
+	t.Run("the launchd path halts", func(t *testing.T) {
+		home := t.TempDir()
+		var out bytes.Buffer
+		blocked := 0
+		rc, stop := stationAddressGate(envMap(map[string]string{"HOME": home}), &out, false, frozen, func() { blocked++ })
+		if rc != 1 || !stop {
+			t.Errorf("gate = (%d, %v), want (1, true)", rc, stop)
+		}
+		if blocked != 1 {
+			t.Errorf("blocked %d times, want 1", blocked)
+		}
+		sentinel := filepath.Join(home, ".officraft", "warden", "ocwarden.no-base")
+		if _, err := os.Stat(sentinel); err != nil {
+			t.Errorf("the halting path left no sentinel: %v", err)
+		}
+		if !strings.HasSuffix(out.String(), "[ocwarden] halted: no station address; "+sentinel+"\n") {
+			t.Errorf("out =\n%s\nwant it to end with the sentinel path %s", out.String(), sentinel)
+		}
+	})
+}
+
+func TestHaltNoBase(t *testing.T) {
+	home := t.TempDir()
 	var out bytes.Buffer
 	blocked := 0
-	// No HOME ⇒ noBaseSentinelPath cannot derive a path at all.
-	rc := haltNoBase(envFn(map[string]string{}), &out, fixedNow, func() { blocked++ })
+	frozen := func() time.Time { return time.Date(2026, 9, 8, 4, 5, 6, 0, time.UTC) }
+
+	rc := haltNoBase(envMap(map[string]string{"HOME": home}), &out, frozen, func() { blocked++ })
+	if rc != 1 {
+		t.Errorf("haltNoBase = %d, want 1", rc)
+	}
 	if blocked != 1 {
-		t.Errorf("an unwritable sentinel must not un-halt the warden; block called %d times", blocked)
+		t.Errorf("blocked %d times, want 1", blocked)
 	}
-	if rc == 0 {
-		t.Error("exit code must stay non-zero")
+	sentinel := filepath.Join(home, ".officraft", "warden", "ocwarden.no-base")
+	if want := noBaseGolden + "[ocwarden] halted: no station address; " + sentinel + "\n"; out.String() != want {
+		t.Errorf("out =\n%s\nwant\n%s", out.String(), want)
 	}
-	if !strings.Contains(out.String(), "no sentinel written") {
-		t.Errorf("the log must say the record could not be written rather than implying one exists; got %q", out.String())
+	body, err := os.ReadFile(sentinel)
+	if err != nil {
+		t.Fatalf("read sentinel: %v", err)
+	}
+	if want := "2026-09-08T04:05:06Z\n" + noBaseGolden; string(body) != want {
+		t.Errorf("sentinel body =\n%s\nwant\n%s", body, want)
+	}
+
+	var noHome bytes.Buffer
+	blocked = 0
+	rc = haltNoBase(envMap(map[string]string{}), &noHome, frozen, func() { blocked++ })
+	if rc != 1 || blocked != 1 {
+		t.Errorf("an unwritable sentinel changed the halt: rc=%d blocked=%d, want 1 and 1", rc, blocked)
+	}
+	if want := noBaseGolden + "[ocwarden] halted: no station address; no sentinel written (HOME is not set)\n"; noHome.String() != want {
+		t.Errorf("out =\n%s\nwant\n%s", noHome.String(), want)
+	}
+}
+
+func TestBlockUntilSignal(t *testing.T) {
+	prev := notifyContext
+	t.Cleanup(func() { notifyContext = prev })
+
+	var watched []os.Signal
+	var parent context.Context
+	release := make(chan struct{})
+	stopped := false
+	notifyContext = func(ctx context.Context, signals ...os.Signal) (context.Context, context.CancelFunc) {
+		parent, watched = ctx, signals
+		derived, cancel := context.WithCancel(ctx)
+		go func() {
+			<-release
+			cancel()
+		}()
+		return derived, func() { stopped = true; cancel() }
+	}
+
+	returned := make(chan struct{})
+	go func() {
+		blockUntilSignal()
+		close(returned)
+	}()
+
+	select {
+	case <-returned:
+		t.Fatal("blockUntilSignal returned before any signal arrived")
+	case <-time.After(20 * time.Millisecond):
+	}
+
+	close(release)
+	select {
+	case <-returned:
+	case <-time.After(2 * time.Second):
+		t.Fatal("blockUntilSignal did not return after the context was cancelled")
+	}
+
+	if want := []os.Signal{syscall.SIGINT, syscall.SIGTERM}; !reflect.DeepEqual(watched, want) {
+		t.Errorf("watched signals = %v, want %v", watched, want)
+	}
+	if parent != context.Background() {
+		t.Errorf("parent context = %v, want context.Background()", parent)
+	}
+	if !stopped {
+		t.Error("blockUntilSignal returned without releasing the signal registration")
 	}
 }

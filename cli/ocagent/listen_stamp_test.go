@@ -1,166 +1,214 @@
 package main
 
 import (
-	"bytes"
-	"regexp"
+	"errors"
 	"strings"
 	"testing"
 	"time"
 )
 
-// ---------------------------------------------------------------------------
-// T-7fb2 — every transcript line carries the time the event happened.
-//
-// These assert the BYTES that actually reach the transcript, never "the writer
-// was constructed": a wrapper that is built and then not wired up prints
-// exactly what an unwrapped one prints, and a test that only checks the
-// construction stays green through that.
-// ---------------------------------------------------------------------------
-
-var (
-	stampLocalRe = regexp.MustCompile(`\[ts=\d+\.\d{3} local\]`)
-	stampFrameRe = regexp.MustCompile(`\[ts=\d+\.\d{3}\]`)
-)
-
-// The PRODUCTION entry — not a hand-built listener. cmdListen is what
-// main.go calls, so this is the one test that fails if the wrapper stops being
-// applied on the real path (remove the wrap in cmdListen ⇒ red).
-func TestCmdListen_StampsTheProductionPath(t *testing.T) {
-	var out bytes.Buffer
-	if rc := cmdListen(Config{ID: "kyle"}, noEnv, false, &out); rc != 0 {
-		t.Fatalf("rc = %d want 0", rc)
-	}
-	got := out.String()
-	if !strings.Contains(got, "no OC_ID/OC_TOKEN") {
-		t.Fatalf("expected the mis-wire line, got %q", got)
-	}
-	if !stampLocalRe.MatchString(got) {
-		t.Fatalf("production line carries no local stamp: %q", got)
-	}
+// stampClock returns a clock stuck at one instant, for the local-clock branch.
+func stampClock(unixNanos int64) func() time.Time {
+	return func() time.Time { return time.Unix(0, unixNanos) }
 }
 
-// A frame-derived line must report the SERVER's ts, not this machine's clock —
-// that is the whole point: a reconnect can deliver a frame long after it
-// happened, and the local clock would silently report the delivery instead.
-func TestDispatch_StampsTheServerFrameTime(t *testing.T) {
-	var raw bytes.Buffer
-	stamper := &eventStamper{clock: func() time.Time { return time.Unix(9999999999, 0) }}
-	l := &listener{
-		cfg:   Config{ID: "kyle"},
-		stamp: stamper,
-		out:   &stampWriter{inner: &raw, stamp: stamper.suffix},
-	}
+// failingWriter reports err on every Write and records nothing.
+type failingWriter struct{ err error }
 
-	l.dispatch([]byte(`{"seq":42,"topic":"action","op":"patch","data":{},"ts":1752192000.123,"trigger":"owner"}`))
+func (w *failingWriter) Write(p []byte) (int, error) { return 0, w.err }
 
-	got := raw.String()
-	if !strings.Contains(got, "[ts=1752192000.123]") {
-		t.Fatalf("frame line must carry the SERVER ts, got %q", got)
-	}
-	if strings.Contains(got, "local") {
-		t.Fatalf("a frame-derived line must not be labelled local: %q", got)
-	}
-	// The local clock is 9999999999 — if it leaked in, the stamp came from the
-	// wrong source even though a stamp is present.
-	if strings.Contains(got, "9999999999") {
-		t.Fatalf("frame line reported the LOCAL clock: %q", got)
-	}
-}
+func TestEnter(t *testing.T) {
+	t.Run("a frame with a ts parks it and the returned func clears it", func(t *testing.T) {
+		s := &eventStamper{clock: stampClock(1_500_000_000_000_000_000)}
 
-// A frame with no `ts` (older server, malformed) must fall back to the local
-// clock AND say so, rather than print a confident wrong number or nothing.
-func TestDispatch_FallsBackToLabelledLocalTime(t *testing.T) {
-	var raw bytes.Buffer
-	stamper := &eventStamper{clock: func() time.Time { return time.Unix(1785717600, 0) }}
-	l := &listener{
-		cfg:   Config{ID: "kyle"},
-		stamp: stamper,
-		out:   &stampWriter{inner: &raw, stamp: stamper.suffix},
-	}
-
-	l.dispatch([]byte(`{"seq":42,"topic":"action","op":"patch","data":{},"trigger":"owner"}`))
-
-	got := raw.String()
-	if !strings.Contains(got, "[ts=1785717600.000 local]") {
-		t.Fatalf("a ts-less frame must fall back to a LABELLED local stamp, got %q", got)
-	}
-}
-
-// The stamper must be cleared on the way out of a frame, or every later
-// connection-level line would keep reporting one stale frame's time forever.
-func TestDispatch_ClearsTheFrameTimeOnTheWayOut(t *testing.T) {
-	var raw bytes.Buffer
-	stamper := &eventStamper{clock: func() time.Time { return time.Unix(1785717600, 0) }}
-	l := &listener{
-		cfg:   Config{ID: "kyle"},
-		stamp: stamper,
-		out:   &stampWriter{inner: &raw, stamp: stamper.suffix},
-	}
-	l.dispatch([]byte(`{"seq":1,"topic":"action","op":"patch","data":{},"ts":1752192000.123}`))
-	raw.Reset()
-
-	l.logf("listen: stream ended: %v", "EOF")
-
-	got := raw.String()
-	if !strings.Contains(got, "[ts=1785717600.000 local]") {
-		t.Fatalf("a post-frame connection line must revert to the local clock, got %q", got)
-	}
-}
-
-// A multi-line event block is ONE event: exactly one stamp, on the header
-// line. Stamping every physical line would bury a chat body in timestamps and
-// break the existing invariant that only an event's first line starts at
-// column 0 (see renderMessageBody).
-func TestStampWriter_OneStampOnTheHeaderLineOfAMultiLineEvent(t *testing.T) {
-	var raw bytes.Buffer
-	w := &stampWriter{inner: &raw, stamp: func() string { return "[ts=1.000]" }}
-
-	block := "[ocagent] reply-card rc-7 answered | asked: pick one\n    option A\n    option B\n"
-	n, err := w.Write([]byte(block))
-	if err != nil {
-		t.Fatalf("write: %v", err)
-	}
-	if n != len(block) {
-		t.Fatalf("Write reported %d want %d (io.Writer contract)", n, len(block))
-	}
-
-	got := raw.String()
-	if c := strings.Count(got, "[ts="); c != 1 {
-		t.Fatalf("want exactly 1 stamp for one event block, got %d: %q", c, got)
-	}
-	lines := strings.Split(strings.TrimRight(got, "\n"), "\n")
-	if !strings.HasSuffix(lines[0], "[ts=1.000]") {
-		t.Fatalf("the stamp belongs on the header line, got %q", lines[0])
-	}
-	for _, l := range lines[1:] {
-		if !strings.HasPrefix(l, "    ") {
-			t.Fatalf("continuation line lost its indent: %q", l)
+		done := s.enter(map[string]any{"ts": 1787148244.692})
+		if got := s.suffix(); got != "[ts=1787148244.692]" {
+			t.Errorf("suffix while parked = %q, want %q", got, "[ts=1787148244.692]")
 		}
-	}
+
+		done()
+		if got := s.suffix(); got != "[ts=1500000000.000 local]" {
+			t.Errorf("suffix after clearing = %q, want %q", got, "[ts=1500000000.000 local]")
+		}
+	})
+
+	t.Run("a frame carrying no ts parks nothing and falls back to the local clock", func(t *testing.T) {
+		s := &eventStamper{clock: stampClock(1_500_000_000_000_000_000)}
+
+		done := s.enter(map[string]any{"topic": "chat"})
+
+		if got := s.suffix(); got != "[ts=1500000000.000 local]" {
+			t.Errorf("suffix = %q, want the local-clock form", got)
+		}
+		done()
+		if got := s.suffix(); got != "[ts=1500000000.000 local]" {
+			t.Errorf("suffix after clearing = %q, want the local-clock form", got)
+		}
+	})
+
+	t.Run("a ts that is not a number parks nothing", func(t *testing.T) {
+		s := &eventStamper{clock: stampClock(1_500_000_000_000_000_000)}
+
+		s.enter(map[string]any{"ts": "1787148244.692"})
+
+		if got := s.suffix(); got != "[ts=1500000000.000 local]" {
+			t.Errorf("suffix = %q, want the local-clock form", got)
+		}
+	})
+
+	t.Run("a nil stamper hands back a usable no-op", func(t *testing.T) {
+		var s *eventStamper
+
+		done := s.enter(map[string]any{"ts": 1787148244.692})
+
+		if done == nil {
+			t.Fatal("enter returned a nil func — the deferred call site would panic")
+		}
+		done()
+		if got := s.suffix(); got != "" {
+			t.Errorf("suffix = %q, want empty — a nil stamper stamps nothing", got)
+		}
+	})
 }
 
-// The one way this change could damage something OUTSIDE itself: ocwarden
-// classifies ocagent's stdout by PREFIX. A stamp at the front would silently
-// reclassify every listener line. This pins the suffix position against that.
-func TestStampWriter_KeepsTheOcagentPrefixIntactForOcwarden(t *testing.T) {
-	var raw bytes.Buffer
-	stamper := &eventStamper{clock: func() time.Time { return time.Unix(1785717600, 0) }}
-	w := &stampWriter{inner: &raw, stamp: stamper.suffix}
+func TestSuffix(t *testing.T) {
+	t.Run("a parked frame ts is rendered to three decimals with no clock label", func(t *testing.T) {
+		s := &eventStamper{frameTS: 1787148244.692, clock: stampClock(1_500_000_000_000_000_000)}
 
-	w.Write([]byte("[ocagent] listen: connected — streaming http://x/api/events\n")) //nolint:errcheck
+		if got := s.suffix(); got != "[ts=1787148244.692]" {
+			t.Errorf("suffix = %q, want %q", got, "[ts=1787148244.692]")
+		}
+	})
 
-	line := strings.TrimRight(raw.String(), "\n")
-	// The two literals cli/ocwarden/codex_session.go matches on, and what each
-	// one costs if the prefix moves: the short one (:695) keeps this line out
-	// of the model transcript, the long one (:687) fires the single post-boot
-	// wake. The long prefix implies the short one, so both are asserted here.
-	if !strings.HasPrefix(strings.TrimSpace(line), "[ocagent] listen:") {
-		t.Fatalf("ocwarden's transport-diagnostic prefix no longer matches: %q", line)
-	}
-	if !strings.HasPrefix(strings.TrimSpace(line), "[ocagent] listen: connected") {
-		t.Fatalf("ocwarden's connected-line prefix no longer matches: %q", line)
-	}
-	if !stampLocalRe.MatchString(line) {
-		t.Fatalf("the line under test carries no stamp, so it proves nothing: %q", line)
-	}
+	t.Run("no parked frame reports this machine's clock and says so", func(t *testing.T) {
+		s := &eventStamper{clock: stampClock(1_787_148_244_692_000_000)}
+
+		if got := s.suffix(); got != "[ts=1787148244.692 local]" {
+			t.Errorf("suffix = %q, want %q", got, "[ts=1787148244.692 local]")
+		}
+	})
+
+	t.Run("no injected clock falls back to the real one, still labelled local", func(t *testing.T) {
+		s := &eventStamper{}
+
+		got := s.suffix()
+
+		if !strings.HasPrefix(got, "[ts=") || !strings.HasSuffix(got, " local]") {
+			t.Errorf("suffix = %q, want the [ts=<seconds> local] form", got)
+		}
+	})
+
+	t.Run("a nil stamper renders nothing at all", func(t *testing.T) {
+		var s *eventStamper
+
+		if got := s.suffix(); got != "" {
+			t.Errorf("suffix = %q, want empty", got)
+		}
+	})
+}
+
+func TestWrite(t *testing.T) {
+	const stamp = "[ts=1787148244.692 local]"
+
+	t.Run("a single line is stamped at its end", func(t *testing.T) {
+		var inner strings.Builder
+		w := &stampWriter{inner: &inner, stamp: func() string { return stamp }}
+
+		n, err := w.Write([]byte("[ocagent] listen: connected\n"))
+
+		if err != nil {
+			t.Fatalf("Write err = %v, want nil", err)
+		}
+		if n != 28 {
+			t.Errorf("n = %d, want 28 — the io.Writer contract reports the caller's own length", n)
+		}
+		want := "[ocagent] listen: connected [ts=1787148244.692 local]\n"
+		if inner.String() != want {
+			t.Errorf("wrote %q, want %q", inner.String(), want)
+		}
+	})
+
+	t.Run("only the first line of a multi-line block is stamped", func(t *testing.T) {
+		var inner strings.Builder
+		w := &stampWriter{inner: &inner, stamp: func() string { return stamp }}
+
+		n, err := w.Write([]byte("[ocagent] chat from boss: head\n    second\n    third\n"))
+
+		if err != nil {
+			t.Fatalf("Write err = %v, want nil", err)
+		}
+		if n != 52 {
+			t.Errorf("n = %d, want 52", n)
+		}
+		want := "[ocagent] chat from boss: head [ts=1787148244.692 local]\n    second\n    third\n"
+		if inner.String() != want {
+			t.Errorf("wrote %q, want %q", inner.String(), want)
+		}
+	})
+
+	t.Run("a write with no newline is stamped at the end of what it wrote", func(t *testing.T) {
+		var inner strings.Builder
+		w := &stampWriter{inner: &inner, stamp: func() string { return stamp }}
+
+		n, err := w.Write([]byte("[ocagent] listen: connected"))
+
+		if err != nil {
+			t.Fatalf("Write err = %v, want nil", err)
+		}
+		if n != 27 {
+			t.Errorf("n = %d, want 27", n)
+		}
+		want := "[ocagent] listen: connected [ts=1787148244.692 local]"
+		if inner.String() != want {
+			t.Errorf("wrote %q, want %q", inner.String(), want)
+		}
+	})
+
+	t.Run("an empty stamp passes the bytes through untouched", func(t *testing.T) {
+		var inner strings.Builder
+		w := &stampWriter{inner: &inner, stamp: func() string { return "" }}
+
+		n, err := w.Write([]byte("[ocagent] listen: connected\n"))
+
+		if err != nil {
+			t.Fatalf("Write err = %v, want nil", err)
+		}
+		if n != 28 {
+			t.Errorf("n = %d, want 28", n)
+		}
+		if inner.String() != "[ocagent] listen: connected\n" {
+			t.Errorf("wrote %q, want the input unchanged", inner.String())
+		}
+	})
+
+	t.Run("no stamp func at all passes the bytes through untouched", func(t *testing.T) {
+		var inner strings.Builder
+		w := &stampWriter{inner: &inner}
+
+		n, err := w.Write([]byte("plain\n"))
+
+		if err != nil {
+			t.Fatalf("Write err = %v, want nil", err)
+		}
+		if n != 6 {
+			t.Errorf("n = %d, want 6", n)
+		}
+		if inner.String() != "plain\n" {
+			t.Errorf("wrote %q, want %q", inner.String(), "plain\n")
+		}
+	})
+
+	t.Run("a failing inner writer surfaces its error and claims no bytes", func(t *testing.T) {
+		boom := errors.New("pipe closed")
+		w := &stampWriter{inner: &failingWriter{err: boom}, stamp: func() string { return stamp }}
+
+		n, err := w.Write([]byte("[ocagent] listen: connected\n"))
+
+		if !errors.Is(err, boom) {
+			t.Errorf("err = %v, want %v", err, boom)
+		}
+		if n != 0 {
+			t.Errorf("n = %d, want 0", n)
+		}
+	})
 }

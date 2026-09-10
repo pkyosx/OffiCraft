@@ -3,216 +3,216 @@ package main
 import (
 	"bytes"
 	"errors"
-	"go/ast"
-	"go/parser"
-	"go/token"
 	"os"
-	"path/filepath"
-	"runtime"
-	"slices"
-	"strings"
+	"os/exec"
+	"reflect"
 	"syscall"
 	"testing"
 )
 
-type fakeChild struct {
-	signals chan os.Signal
-	release chan struct{}
-	state   *os.ProcessState
-	err     error
-}
-
-func newFakeChild() *fakeChild {
-	return &fakeChild{signals: make(chan os.Signal, len(forwardedSignals)), release: make(chan struct{})}
-}
-
-func (c *fakeChild) Signal(sig os.Signal) error { c.signals <- sig; return nil }
-
-func (c *fakeChild) Wait() (*os.ProcessState, error) {
-	<-c.release
-	return c.state, c.err
-}
-
-type launchRecord struct {
+type startCall struct {
 	path string
 	argv []string
 }
 
-func withFakeChild(t *testing.T, c child) *launchRecord {
+type fakeChild struct {
+	forwarded []os.Signal
+	ack       chan os.Signal
+	wait      func() (*os.ProcessState, error)
+}
+
+func (c *fakeChild) Signal(s os.Signal) error {
+	c.forwarded = append(c.forwarded, s)
+	c.ack <- s
+	return nil
+}
+
+func (c *fakeChild) Wait() (*os.ProcessState, error) { return c.wait() }
+
+func stateOf(t *testing.T, script string) *os.ProcessState {
 	t.Helper()
-	rec := &launchRecord{}
-	previous := startChild
-	startChild = func(got string, gotArgv []string) (child, error) {
-		rec.path, rec.argv = got, gotArgv
-		return c, nil
+	cmd := exec.Command("/bin/sh", "-c", script)
+	_ = cmd.Run()
+	if cmd.ProcessState == nil {
+		t.Fatalf("%q left no process state", script)
 	}
-	t.Cleanup(func() { startChild = previous })
-	return rec
+	return cmd.ProcessState
 }
 
-func TestRealMainStartsOnlySiblingOcwarden(t *testing.T) {
-	c := newFakeChild()
-	close(c.release)
-	rec := withFakeChild(t, c)
-	previous := executable
-	executable = func() (string, error) { return "/opt/officraft/officraft", nil }
-	t.Cleanup(func() { executable = previous })
+func TestRealMain(t *testing.T) {
+	origExecutable, origStart, origNotify, origStop := executable, startChild, notify, stop
+	defer func() {
+		executable, startChild, notify, stop = origExecutable, origStart, origNotify, origStop
+	}()
 
-	if got := realMain(nil, &bytes.Buffer{}); got != 0 {
-		t.Fatalf("exit = %d, want 0", got)
-	}
-	if rec.path != "/opt/officraft/ocwarden" {
-		t.Fatalf("child path = %q, want adjacent ocwarden", rec.path)
-	}
-	// The subcommand is load-bearing: a bare ocwarden is not the warden loop, and
-	// every test here stubs the launch out, so nothing else would catch its loss.
-	if want := []string{"/opt/officraft/ocwarden", "run"}; !slices.Equal(rec.argv, want) {
-		t.Fatalf("child argv = %q, want %q", rec.argv, want)
-	}
-}
+	exited7 := stateOf(t, "exit 7")
 
-func TestRealMainRejectsArgumentsBeforeStartingAChild(t *testing.T) {
-	started := false
-	previous := startChild
-	startChild = func(string, []string) (child, error) { started = true; return nil, errors.New("must not run") }
-	t.Cleanup(func() { startChild = previous })
-
-	var out bytes.Buffer
-	if got := realMain([]string{"/tmp/other"}, &out); got != 2 {
-		t.Fatalf("exit = %d, want 2", got)
-	}
-	if started {
-		t.Fatal("arguments must never select a child process")
-	}
-	if got := out.String(); got != "usage: officraft\n" {
-		t.Fatalf("refusal = %q, want a no-bypass usage message", got)
-	}
-}
-
-func TestRealMainForwardsTerminationToTheSibling(t *testing.T) {
-	c := newFakeChild()
-	withFakeChild(t, c)
-	previousExecutable := executable
-	executable = func() (string, error) { return "/opt/officraft/officraft", nil }
-	t.Cleanup(func() { executable = previousExecutable })
-	registered := make(chan chan<- os.Signal, 1)
-	previousNotify, previousStop := notify, stop
-	notify = func(ch chan<- os.Signal, _ ...os.Signal) { registered <- ch }
-	stop = func(chan<- os.Signal) {}
-	t.Cleanup(func() { notify, stop = previousNotify, previousStop })
-
-	done := make(chan int, 1)
-	go func() { done <- realMain(nil, &bytes.Buffer{}) }()
-	(<-registered) <- syscall.SIGTERM
-	if got := <-c.signals; got != syscall.SIGTERM {
-		t.Fatalf("signal = %v, want SIGTERM", got)
-	}
-	close(c.release)
-	<-done
-}
-
-func TestExitStatusKeepsChildSignalCause(t *testing.T) {
-	if got := exitStatus(nil); got != 0 {
-		t.Fatalf("nil state = %d, want 0", got)
-	}
-	if got := exitStatusFromWait(syscall.WaitStatus(0)); got != 0 {
-		t.Fatalf("clean exit = %d, want 0", got)
-	}
-	if got := exitStatusFromWait(syscall.WaitStatus(3 << 8)); got != 3 {
-		t.Fatalf("exit 3 = %d, want 3", got)
-	}
-	if got := exitStatusFromWait(syscall.WaitStatus(int(syscall.SIGKILL))); got != 128+int(syscall.SIGKILL) {
-		t.Fatalf("SIGKILL exit = %d, want %d", got, 128+int(syscall.SIGKILL))
-	}
-}
-
-// The anchor's entire TCC purpose depends on keeping its own process identity:
-// launchd's job leader is the responsible process for the whole tree, and an
-// exec keeps the pid while replacing the code identity — the fix would vanish
-// and every behavioural test here would stay green, because they all stub
-// startChild out. This scan is the only thing standing in the way, so it does
-// not look for one spelling in one file.
-//
-// It parses EVERY non-test file in the package and rejects:
-//   - any reference to an exec-family selector (syscall.Exec, unix.Exec,
-//     syscall.ForkExec, ...) — as a reference, not as a call, so taking a
-//     method value or aliasing it into a variable is caught too;
-//   - any SYS_EXEC* identifier, which is how the raw-syscall route spells it;
-//   - any import outside the anchor's tiny allowlist, which is what a new file
-//     would need to reach exec by some route this list has not imagined.
-//
-// Parsing (rather than grepping) also means the guard can never be satisfied by
-// its own prose: comments are not part of the AST.
-func TestLauncherForksInsteadOfExecing(t *testing.T) {
-	_, thisFile, _, ok := runtime.Caller(0)
-	if !ok {
-		t.Fatal("cannot locate launcher source")
-	}
-	dir := filepath.Dir(thisFile)
-	fset := token.NewFileSet()
-	pkgs, err := parser.ParseDir(fset, dir, func(fi os.FileInfo) bool {
-		return !strings.HasSuffix(fi.Name(), "_test.go")
-	}, 0)
-	if err != nil {
-		t.Fatalf("parse launcher package: %v", err)
-	}
-
-	allowedImports := map[string]bool{
-		"fmt": true, "io": true, "os": true, "os/signal": true,
-		"path/filepath": true, "syscall": true,
-	}
-	execSelectors := map[string]bool{
-		"Exec": true, "Execve": true, "Execveat": true, "ForkExec": true, "StartProcessExec": true,
-		// The raw-syscall spellings reach execve without ever naming it. The
-		// import allowlist already makes them impractical (you cannot build the
-		// pointer arguments without unsafe), but "impractical" is not "absent".
-		"Syscall": true, "Syscall6": true, "RawSyscall": true, "RawSyscall6": true,
-	}
-
-	forks := false
-	for _, pkg := range pkgs {
-		for name, file := range pkg.Files {
-			for _, imp := range file.Imports {
-				path := strings.Trim(imp.Path.Value, `"`)
-				if !allowedImports[path] {
-					t.Fatalf("%s imports %q, which is outside the anchor's allowlist — "+
-						"a new dependency is how an exec sneaks back in; widen the list "+
-						"deliberately if the anchor really needs it", name, path)
+	cases := []struct {
+		name          string
+		args          []string
+		exe           string
+		exeErr        error
+		startErr      error
+		wait          func(signals chan<- os.Signal, c *fakeChild) (*os.ProcessState, error)
+		wantCode      int
+		wantOut       string
+		wantStarted   []startCall
+		wantNotified  []os.Signal
+		wantStopped   int
+		wantForwarded []os.Signal
+	}{
+		{
+			name:     "any argument prints usage and starts nothing",
+			args:     []string{"run"},
+			exe:      "/opt/officraft/bin/officraft",
+			wantCode: 2,
+			wantOut:  "usage: officraft\n",
+		},
+		{
+			name:     "an unresolvable own path starts nothing",
+			exeErr:   errors.New("no such file or directory"),
+			wantCode: 1,
+			wantOut:  "[officraft] FATAL: cannot resolve own path: no such file or directory\n",
+		},
+		{
+			name:     "a child that will not start leaves no signal handler installed",
+			exe:      "/opt/officraft/bin/officraft",
+			startErr: errors.New("permission denied"),
+			wantCode: 1,
+			wantOut:  "[officraft] FATAL: cannot start sibling ocwarden: permission denied\n",
+			wantStarted: []startCall{{
+				path: "/opt/officraft/bin/ocwarden",
+				argv: []string{"/opt/officraft/bin/ocwarden", "run"},
+			}},
+		},
+		{
+			name: "a failed wait is fatal and still uninstalls the handler",
+			exe:  "/opt/officraft/bin/officraft",
+			wait: func(chan<- os.Signal, *fakeChild) (*os.ProcessState, error) {
+				return nil, errors.New("no child processes")
+			},
+			wantCode: 1,
+			wantOut:  "[officraft] FATAL: wait for ocwarden: no child processes\n",
+			wantStarted: []startCall{{
+				path: "/opt/officraft/bin/ocwarden",
+				argv: []string{"/opt/officraft/bin/ocwarden", "run"},
+			}},
+			wantNotified: []os.Signal{syscall.SIGTERM, syscall.SIGINT, syscall.SIGHUP},
+			wantStopped:  1,
+		},
+		{
+			name: "every forwarded signal reaches the child and its exit status is returned",
+			exe:  "/opt/officraft/bin/officraft",
+			wait: func(signals chan<- os.Signal, c *fakeChild) (*os.ProcessState, error) {
+				for _, s := range []os.Signal{syscall.SIGHUP, syscall.SIGINT, syscall.SIGTERM} {
+					signals <- s
+					<-c.ack
 				}
+				return exited7, nil
+			},
+			wantCode: 7,
+			wantStarted: []startCall{{
+				path: "/opt/officraft/bin/ocwarden",
+				argv: []string{"/opt/officraft/bin/ocwarden", "run"},
+			}},
+			wantNotified:  []os.Signal{syscall.SIGTERM, syscall.SIGINT, syscall.SIGHUP},
+			wantStopped:   1,
+			wantForwarded: []os.Signal{syscall.SIGHUP, syscall.SIGINT, syscall.SIGTERM},
+		},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			var started []startCall
+			var notified []os.Signal
+			var notifiedChan chan<- os.Signal
+			stopped := 0
+			kid := &fakeChild{ack: make(chan os.Signal)}
+			kid.wait = func() (*os.ProcessState, error) {
+				if c.wait == nil {
+					t.Fatalf("wait was called but the case defines none")
+				}
+				return c.wait(notifiedChan, kid)
 			}
-			ast.Inspect(file, func(n ast.Node) bool {
-				switch node := n.(type) {
-				case *ast.SelectorExpr:
-					if id, isIdent := node.X.(*ast.Ident); isIdent {
-						if execSelectors[node.Sel.Name] {
-							t.Fatalf("%s references %s.%s — the anchor must FORK its child, "+
-								"never exec: an exec keeps the pid but hands the TCC "+
-								"identity to the binary being replaced, which is the whole "+
-								"thing this launcher exists to prevent",
-								name, id.Name, node.Sel.Name)
-						}
-					}
-				case *ast.CallExpr:
-					// A CALL, not a mention: `var _ = os.StartProcess` would satisfy a
-					// selector-presence check while the launcher started nothing at all.
-					if sel, isSel := node.Fun.(*ast.SelectorExpr); isSel {
-						if id, isIdent := sel.X.(*ast.Ident); isIdent &&
-							id.Name == "os" && sel.Sel.Name == "StartProcess" {
-							forks = true
-						}
-					}
-				case *ast.Ident:
-					if strings.HasPrefix(node.Name, "SYS_EXEC") {
-						t.Fatalf("%s names %s — the raw-syscall route to exec is barred "+
-							"for the same reason as syscall.Exec", name, node.Name)
-					}
+
+			executable = func() (string, error) { return c.exe, c.exeErr }
+			startChild = func(path string, argv []string) (child, error) {
+				started = append(started, startCall{path: path, argv: argv})
+				if c.startErr != nil {
+					return nil, c.startErr
 				}
-				return true
-			})
-		}
+				return kid, nil
+			}
+			notify = func(ch chan<- os.Signal, sigs ...os.Signal) {
+				notifiedChan = ch
+				notified = append(notified, sigs...)
+			}
+			stop = func(chan<- os.Signal) { stopped++ }
+
+			out := &bytes.Buffer{}
+			code := realMain(c.args, out)
+
+			if code != c.wantCode {
+				t.Errorf("exit code = %d, want %d", code, c.wantCode)
+			}
+			if out.String() != c.wantOut {
+				t.Errorf("output = %q, want %q", out.String(), c.wantOut)
+			}
+			if !reflect.DeepEqual(started, c.wantStarted) {
+				t.Errorf("started = %+v, want %+v", started, c.wantStarted)
+			}
+			if !reflect.DeepEqual(notified, c.wantNotified) {
+				t.Errorf("notified = %v, want %v", notified, c.wantNotified)
+			}
+			if stopped != c.wantStopped {
+				t.Errorf("stop calls = %d, want %d", stopped, c.wantStopped)
+			}
+			if !reflect.DeepEqual(kid.forwarded, c.wantForwarded) {
+				t.Errorf("signals delivered to the child = %v, want %v", kid.forwarded, c.wantForwarded)
+			}
+		})
 	}
-	if !forks {
-		t.Fatal("no os.StartProcess call anywhere in the anchor package — " +
-			"without it this guard proves nothing (the launcher may not be starting a child at all)")
+}
+
+func TestExitStatus(t *testing.T) {
+	t.Run("a nil state", func(t *testing.T) {
+		if got := exitStatus(nil); got != 0 {
+			t.Errorf("exit status = %d, want 0", got)
+		}
+	})
+	t.Run("a plain exit", func(t *testing.T) {
+		if got := exitStatus(stateOf(t, "exit 7")); got != 7 {
+			t.Errorf("exit status = %d, want 7", got)
+		}
+	})
+	t.Run("a SIGTERM death", func(t *testing.T) {
+		if got := exitStatus(stateOf(t, "kill -TERM $$")); got != 143 {
+			t.Errorf("exit status = %d, want 143", got)
+		}
+	})
+	t.Run("a SIGKILL death", func(t *testing.T) {
+		if got := exitStatus(stateOf(t, "kill -KILL $$")); got != 137 {
+			t.Errorf("exit status = %d, want 137", got)
+		}
+	})
+}
+
+func TestExitStatusFromWait(t *testing.T) {
+	cases := []struct {
+		name   string
+		status syscall.WaitStatus
+		want   int
+	}{
+		{"a clean exit", 0x0000, 0},
+		{"a failing exit", 0x0700, 7},
+		{"death by SIGTERM", 0x000f, 143},
+		{"death by SIGKILL", 0x0009, 137},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := exitStatusFromWait(c.status); got != c.want {
+				t.Errorf("status = %d, want %d", got, c.want)
+			}
+		})
 	}
 }

@@ -398,21 +398,16 @@ func buildAPIHandler(api *apiServer, lookup func(id string) (*Member, error)) (h
 	return buildHandler(specsFor(api), api.keys, lookup, api.authPasswordChangedAt)
 }
 
-// buildHandler assembles the mux from the route table: boot assertions FIRST
-// (fail closed — a bad table is an error, never a served app), then each row
-// registered with its auth + RBAC chokes. Mirrors create_app + register_routes.
-// lookup is the roster read the principal resolver classifies agent-scoped
-// callers through (nil = token-only classification, the plumbing-test face).
+// buildHandler assembles the mux from the route table: each row registered with
+// its auth + RBAC chokes. Mirrors create_app + register_routes. lookup is the
+// roster read the principal resolver classifies agent-scoped callers through
+// (nil = token-only classification, the plumbing-test face).
+//
+// The two boot assertions that used to run here are GONE, and nothing replaced
+// them at run time: a row now reaches this function only through Public() or
+// Gated() (routes.go), so "no auth label", "no requires class" and "a label
+// that contradicts its class" are compile errors rather than startup failures.
 func buildHandler(specs []RouteSpec, keys *keyring, lookup func(id string) (*Member, error), ownerIatFloor func() int64) (http.Handler, error) {
-	if err := assertAllRoutesLabelled(specs); err != nil {
-		return nil, err
-	}
-	// RBAC twin of the auth-label assertion: every row must also declare the
-	// MINIMUM principal class it admits and agree with its auth label.
-	if err := assertAllRoutesDeclareRequires(specs); err != nil {
-		return nil, err
-	}
-
 	mux := http.NewServeMux()
 	for _, spec := range specs {
 		var h http.Handler = spec.Handler

@@ -2,531 +2,1299 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
+	"strings"
 	"testing"
 )
 
-func TestDocumentHistoryRestoreKeepsCurrentDocumentAndRestoresSnapshot(t *testing.T) {
-	api := newTasksTestServer(t)
-	for _, text := range []string{"one", "two", "three", "four"} {
-		rec := httptest.NewRecorder()
-		api.HandleReplaceGlobalContextApiGlobalContextPost(rec, taskReq(t, http.MethodPost,
-			"/api/global-context", map[string]any{"text": text}, "owner", "owner"))
-		if rec.Code != http.StatusOK {
-			t.Fatalf("write %q: status=%d body=%s", text, rec.Code, rec.Body.String())
-		}
-	}
-
-	rec := httptest.NewRecorder()
-	api.HandleListDocumentHistoryApiDocumentHistoryKindKeyGet(rec, taskReq(t, http.MethodGet,
-		"/api/document-history/global_context/global", nil, "owner", "owner"), "global_context", "global")
-	if rec.Code != http.StatusOK {
-		t.Fatalf("list history: status=%d body=%s", rec.Code, rec.Body.String())
-	}
-	var rows []DocumentHistoryDTO
-	if err := json.Unmarshal(rec.Body.Bytes(), &rows); err != nil {
-		t.Fatal(err)
-	}
-	history := hydrateHistory(t, api, "global_context", "global", "owner", "owner", rows)
-	if len(history) != 3 || history[0].Content["text"] != "three" || history[2].Content["text"] != "one" {
-		t.Fatalf("retained history = %+v, want three versions from three through one", history)
-	}
-
-	rec = httptest.NewRecorder()
-	api.HandleRestoreDocumentHistoryApiDocumentHistoryKindKeyIdRestorePost(rec, taskReq(t, http.MethodPost,
-		"/api/document-history/global_context/global/restore", nil, "owner", "owner"), "global_context", "global", history[1].Id)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("restore: status=%d body=%s", rec.Code, rec.Body.String())
-	}
-	current, err := api.foldUserContextDTO()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if current.Text != "two" {
-		t.Fatalf("restored text = %q, want two", current.Text)
-	}
-	stored, err := api.dal.ListDocumentHistory("global_context", "global")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(stored) != 3 {
-		t.Fatalf("history after restore = %d versions, want 3", len(stored))
-	}
-	var restoredCurrent map[string]string
-	if err := json.Unmarshal([]byte(stored[0].ContentJSON), &restoredCurrent); err != nil {
-		t.Fatal(err)
-	}
-	if restoredCurrent["text"] != "four" {
-		t.Fatalf("restore did not retain the replaced current document: %+v", restoredCurrent)
-	}
-}
-
-func TestDocumentHistoryRestorePreservesOverlayTombstones(t *testing.T) {
-	api := newTasksTestServer(t)
-	ownerReq := func(method, path string, body any) *http.Request {
-		return taskReq(t, method, path, body, "owner", "owner")
-	}
-	list := func(kind, key string) []historyRow {
-		t.Helper()
-		rec := httptest.NewRecorder()
-		api.HandleListDocumentHistoryApiDocumentHistoryKindKeyGet(rec,
-			ownerReq(http.MethodGet, "/api/document-history/"+kind+"/"+key, nil), kind, key)
-		if rec.Code != http.StatusOK {
-			t.Fatalf("list %s/%s: status=%d body=%s", kind, key, rec.Code, rec.Body.String())
-		}
-		var rows []DocumentHistoryDTO
-		if err := json.Unmarshal(rec.Body.Bytes(), &rows); err != nil {
-			t.Fatal(err)
-		}
-		return hydrateHistory(t, api, kind, key, "owner", "owner", rows)
-	}
-	restore := func(kind, key string, id int64) {
-		t.Helper()
-		rec := httptest.NewRecorder()
-		api.HandleRestoreDocumentHistoryApiDocumentHistoryKindKeyIdRestorePost(rec,
-			ownerReq(http.MethodPost, "/api/document-history/"+kind+"/"+key+"/restore", nil), kind, key, id)
-		if rec.Code != http.StatusOK {
-			t.Fatalf("restore %s/%s: status=%d body=%s", kind, key, rec.Code, rec.Body.String())
-		}
-	}
-
-	// A subsequent write records the reset's persisted tombstone, then restore
-	// must preserve it rather than materializing a non-default overlay.
-	for _, text := range []string{"custom", "later"} {
-		rec := httptest.NewRecorder()
-		api.HandleReplaceGlobalContextApiGlobalContextPost(rec,
-			ownerReq(http.MethodPost, "/api/global-context", map[string]any{"text": text}))
-		if rec.Code != http.StatusOK {
-			t.Fatalf("global write %q: %d %s", text, rec.Code, rec.Body.String())
-		}
-		if text == "custom" {
-			rec = httptest.NewRecorder()
-			api.HandleResetGlobalContextApiGlobalContextResetPost(rec, ownerReq(http.MethodPost, "/api/global-context/reset", nil))
-			if rec.Code != http.StatusOK {
-				t.Fatalf("global reset: %d %s", rec.Code, rec.Body.String())
-			}
-		}
-	}
-	globalHistory := list("global_context", "global")
-	if globalHistory[0].Content["tombstoned"] != "true" {
-		t.Fatalf("global reset snapshot = %+v, want tombstoned=true", globalHistory[0].Content)
-	}
-	restore("global_context", "global", globalHistory[0].Id)
-	global, err := api.dal.GetUserContext()
-	if err != nil || global == nil || !global.Tombstoned {
-		t.Fatalf("restored global overlay = %+v, %v; want tombstone", global, err)
-	}
-
-	// A custom role can also carry a tombstone in historical data (for example,
-	// a later version of the product may make its deletion restorable). Restore
-	// must not turn that state into a live overlay.
-	role := "r-history"
-	if err := api.dal.PutRoleDef(RoleDef{RoleKey: role, Name: "later", DefinitionMD: "later"}); err != nil {
-		t.Fatal(err)
-	}
-	tombstonedRole, err := roleDefHistorySnapshot(&RoleDef{RoleKey: role, Tombstoned: true})
-	if err != nil {
-		t.Fatal(err)
-	}
-	seedTombstoned := func(sqlQuerier) (string, error) { return tombstonedRole, nil }
-	if err := api.dal.SaveWithDocumentHistory("role_definition", role, "owner", seedTombstoned, func(ex sqlExecer) error {
-		return putRoleDefOn(ex, RoleDef{RoleKey: role, Name: "later", DefinitionMD: "later"})
-	}); err != nil {
-		t.Fatal(err)
-	}
-	roleHistory := list("role_definition", role)
-	if roleHistory[0].Content["tombstoned"] != "true" {
-		t.Fatalf("role reset snapshot = %+v, want tombstoned=true", roleHistory[0].Content)
-	}
-	restore("role_definition", role, roleHistory[0].Id)
-	roleOverlay, err := api.dal.GetRoleDef(role)
-	if err != nil || roleOverlay == nil || !roleOverlay.Tombstoned {
-		t.Fatalf("restored role overlay = %+v, %v; want tombstone", roleOverlay, err)
-	}
-
-	if err := api.dal.PutLessons(Lessons{RoleKey: role, Tombstoned: true}); err != nil {
-		t.Fatal(err)
-	}
-	lessonsSnapshot, err := lessonsHistorySnapshot(&Lessons{RoleKey: role, Tombstoned: true})
-	if err != nil {
-		t.Fatal(err)
-	}
-	var lessonsContent map[string]string
-	if err := json.Unmarshal([]byte(lessonsSnapshot), &lessonsContent); err != nil || !historyTombstoned(lessonsContent) {
-		t.Fatalf("lessons tombstone snapshot = %s, %v; want preserved tombstone", lessonsSnapshot, err)
-	}
-}
-
-// agentList reads a document's history as a plain agent: the routes sit on the
-// machine floor, so "the document was deleted" has to mean the versions are
-// gone, not merely that the cockpit stopped linking to them.
-func agentList(t *testing.T, api *apiServer, kind, key string) []historyRow {
-	t.Helper()
-	rec := httptest.NewRecorder()
-	api.HandleListDocumentHistoryApiDocumentHistoryKindKeyGet(rec, taskReq(t, http.MethodGet,
-		"/api/document-history/"+kind+"/"+key, nil, "m-agent", "agent"), kind, key)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("list %s/%s: status=%d body=%s", kind, key, rec.Code, rec.Body.String())
-	}
-	var rows []DocumentHistoryDTO
-	if err := json.Unmarshal(rec.Body.Bytes(), &rows); err != nil {
-		t.Fatal(err)
-	}
-	return hydrateHistory(t, api, kind, key, "m-agent", "agent", rows)
-}
-
-func replaceLessonsThrough(t *testing.T, api *apiServer, roleKey, text string) {
-	t.Helper()
-	rec := httptest.NewRecorder()
-	api.HandleReplaceLessonsApiLessonsRoleKeyPost(rec, taskReq(t, http.MethodPost,
-		"/api/lessons/"+roleKey, map[string]any{"text": text}, "owner", "owner"),
-		roleKey)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("replace lessons %s: status=%d body=%s", roleKey, rec.Code, rec.Body.String())
-	}
-}
-
-func updateRoleThrough(t *testing.T, api *apiServer, role, definition string) {
-	t.Helper()
-	rec := httptest.NewRecorder()
-	api.HandleUpdateRoleApiRolesRolePost(rec, taskReq(t, http.MethodPost,
-		"/api/roles/"+role, map[string]any{"definition_md": definition}, "owner", "owner"), role)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("update role %s: status=%d body=%s", role, rec.Code, rec.Body.String())
-	}
-}
-
-// Deleting a role must take its retained versions with it — its own definition
-// history and its lessons history. Left behind,
-// those versions stay readable by any authenticated caller, which is exactly
-// the "permanently removed" promise the guide makes.
-func TestDeletingARoleRemovesItsRetainedDocumentHistory(t *testing.T) {
-	api := newTasksTestServer(t)
-	const role, neighbour = "r-cascade", "r-cascadex"
-	for _, key := range []string{role, neighbour} {
-		if err := api.dal.PutRoleDef(RoleDef{RoleKey: key, Name: key, DefinitionMD: "v0"}); err != nil {
-			t.Fatal(err)
-		}
-		updateRoleThrough(t, api, key, "v1")
-		updateRoleThrough(t, api, key, "v2")
-		replaceLessonsThrough(t, api, key, "lesson one")
-		replaceLessonsThrough(t, api, key, "lesson two")
-	}
-	if len(agentList(t, api, "role_definition", role)) == 0 ||
-		len(agentList(t, api, "lessons", role)) == 0 {
-		t.Fatal("the fixture retained nothing — the deletion assertions below would prove nothing")
-	}
-
-	rec := httptest.NewRecorder()
-	api.HandleDeleteRoleApiRolesRoleDelete(rec, taskReq(t, http.MethodDelete,
-		"/api/roles/"+role, nil, "owner", "owner"), role)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("delete role: status=%d body=%s", rec.Code, rec.Body.String())
-	}
-	result := decodeBody[map[string]any](t, rec)
-	if got := result["deleted_lessons"]; got != float64(1) {
-		t.Errorf("deleted_lessons = %v, want 1 — a role owns exactly ONE lessons doc since T-2", got)
-	}
-
-	if history := agentList(t, api, "role_definition", role); len(history) != 0 {
-		t.Errorf("the deleted role still has %d readable definition versions: %+v", len(history), history)
-	}
-	if history := agentList(t, api, "lessons", role); len(history) != 0 {
-		t.Errorf("the deleted role still has %d readable lessons versions: %+v",
-			len(history), history)
-	}
-	// Only that role's documents: the cascade matches the key EXACTLY, so a role
-	// whose key merely starts with the same characters keeps its own — the
-	// neighbour here is "r-cascadex" against "r-cascade" precisely to catch a
-	// prefix match sneaking back in.
-	if len(agentList(t, api, "role_definition", neighbour)) == 0 ||
-		len(agentList(t, api, "lessons", neighbour)) == 0 {
-		t.Error("deleting a role also erased the history of a role with a similar key")
-	}
-}
-
-// The task-manual twin. Its history is keyed by type_key alone, so a surviving
-// revision is a complete copy of a manual the owner deleted.
-func TestDeletingATaskManualRemovesItsRetainedDocumentHistory(t *testing.T) {
-	f := newHistoryFixture(t)
-	create := func(name string) string {
-		t.Helper()
-		rec := httptest.NewRecorder()
-		f.api.HandleCreateTaskManualApiTaskManualsPost(rec,
-			f.req(http.MethodPost, "/api/task-manuals", map[string]any{"display_name": name}))
-		if rec.Code != http.StatusOK {
-			t.Fatalf("create manual: status=%d body=%s", rec.Code, rec.Body.String())
-		}
-		return decodeBody[taskManualDTO](t, rec).TypeKey
-	}
-	update := func(typeKey, learnings string) {
-		t.Helper()
-		rec := httptest.NewRecorder()
-		f.api.HandleUpdateTaskManualApiTaskManualsTypeKeyPost(rec,
-			f.req(http.MethodPost, "/api/task-manuals/"+typeKey, map[string]any{"learnings": learnings}), typeKey)
-		if rec.Code != http.StatusOK {
-			t.Fatalf("update manual: status=%d body=%s", rec.Code, rec.Body.String())
-		}
-	}
-	kinds := []string{docKindTaskManualSop, docKindTaskManualLearnings}
-	doomed, neighbour := create("Doomed"), create("Neighbour")
-	for _, typeKey := range []string{doomed, neighbour} {
-		update(typeKey, "learnings v1")
-		update(typeKey, "learnings v2")
-		f.api.HandleUpdateTaskManualApiTaskManualsTypeKeyPost(httptest.NewRecorder(),
-			f.req(http.MethodPost, "/api/task-manuals/"+typeKey, map[string]any{"sop_md": "sop v1"}), typeKey)
-		update(typeKey, "learnings v3")
-		f.api.HandleUpdateTaskManualApiTaskManualsTypeKeyPost(httptest.NewRecorder(),
-			f.req(http.MethodPost, "/api/task-manuals/"+typeKey, map[string]any{"sop_md": "sop v2"}), typeKey)
-	}
-	for _, kind := range kinds {
-		if len(agentList(t, f.api, kind, doomed)) == 0 {
-			t.Fatalf("the fixture retained no %s version — the deletion assertion below would prove nothing", kind)
-		}
-	}
-
-	rec := httptest.NewRecorder()
-	f.api.HandleDeleteTaskManualApiTaskManualsTypeKeyDelete(rec,
-		f.req(http.MethodDelete, "/api/task-manuals/"+doomed, nil), doomed)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("delete manual: status=%d body=%s", rec.Code, rec.Body.String())
-	}
-	result := decodeBody[map[string]any](t, rec)
-	if result["deleted"] != true || result["type_key"] != doomed {
-		t.Errorf("delete result = %+v, want the manual reported deleted — the cascade changed the answer", result)
-	}
-
-	for _, kind := range kinds {
-		if history := agentList(t, f.api, kind, doomed); len(history) != 0 {
-			t.Errorf("the deleted manual still has %d readable %s versions: %+v", len(history), kind, history)
-		}
-		if len(agentList(t, f.api, kind, neighbour)) == 0 {
-			t.Errorf("deleting one manual also erased another manual's %s history", kind)
-		}
-	}
-}
-
-// Every seam that overwrites a versioned document must retain what it replaced.
-// A face wired back to the historyless Put* still answers 200 with the same
-// body — the only difference is that the replaced version is unrecoverable, so
-// nothing but this assertion distinguishes the two. The subtest names the face
-// so one broken seam points at itself rather than at "document history".
-func TestEveryDocumentWriteFaceRetainsTheVersionItReplaced(t *testing.T) {
-	ownerReq := func(t *testing.T, method, path string, body any) *http.Request {
-		return taskReq(t, method, path, body, "owner", "owner")
-	}
-	call := func(t *testing.T, name string, do func(*httptest.ResponseRecorder)) {
-		t.Helper()
-		rec := httptest.NewRecorder()
-		do(rec)
-		if rec.Code != http.StatusOK {
-			t.Fatalf("%s: status=%d body=%s", name, rec.Code, rec.Body.String())
-		}
-	}
-	writeGlobal := func(t *testing.T, api *apiServer, text string) {
-		t.Helper()
-		call(t, "replace_global_context", func(rec *httptest.ResponseRecorder) {
-			api.HandleReplaceGlobalContextApiGlobalContextPost(rec,
-				ownerReq(t, http.MethodPost, "/api/global-context", map[string]any{"text": text}))
-		})
-	}
-	writeLessons := func(t *testing.T, api *apiServer, role, text string) {
-		t.Helper()
-		replaceLessonsThrough(t, api, role, text)
-	}
-	writeInsight := func(t *testing.T, api *apiServer, roleKey, text string) {
-		t.Helper()
-		call(t, "replace_insight", func(rec *httptest.ResponseRecorder) {
-			api.HandleReplaceInsightApiInsightRoleKeyPost(rec,
-				ownerReq(t, http.MethodPost, "/api/insight/"+roleKey,
-					map[string]any{"text": text}), roleKey)
-		})
-	}
-	newManual := func(t *testing.T, api *apiServer) string {
-		t.Helper()
-		rec := httptest.NewRecorder()
-		api.HandleCreateTaskManualApiTaskManualsPost(rec,
-			ownerReq(t, http.MethodPost, "/api/task-manuals", map[string]any{"display_name": "Faces"}))
-		if rec.Code != http.StatusOK {
-			t.Fatalf("create manual: status=%d body=%s", rec.Code, rec.Body.String())
-		}
-		return decodeBody[taskManualDTO](t, rec).TypeKey
-	}
-	updateManual := func(t *testing.T, api *apiServer, typeKey string, body map[string]any) {
-		t.Helper()
-		call(t, "update_task_manual", func(rec *httptest.ResponseRecorder) {
-			api.HandleUpdateTaskManualApiTaskManualsTypeKeyPost(rec,
-				ownerReq(t, http.MethodPost, "/api/task-manuals/"+typeKey, body), typeKey)
-		})
-	}
-	writeLearnings := func(t *testing.T, api *apiServer, typeKey, text string) {
-		t.Helper()
-		call(t, "write_task_learnings", func(rec *httptest.ResponseRecorder) {
-			api.HandleWriteTaskLearningsApiTaskManualsTypeKeyLearningsPost(rec,
-				ownerReq(t, http.MethodPost, "/api/task-manuals/"+typeKey+"/learnings",
-					map[string]any{"text": text}), typeKey)
-		})
-	}
-
-	const role, taskType = seedRoleAssistant, "tm-faces"
-
-	// Each face seeds its document to a known state, performs the write under
-	// test, and names the address plus the field/value the retained revision
-	// must carry.
-	for _, face := range []struct {
-		name string
-		run  func(*testing.T, *apiServer) (kind, key, field, want string)
+func TestHistoryKeyParts(t *testing.T) {
+	for name, tc := range map[string]struct {
+		kind    string
+		key     string
+		primary string
+		valid   bool
 	}{
-		{
-			name: "replace_global_context",
-			run: func(t *testing.T, api *apiServer) (string, string, string, string) {
-				writeGlobal(t, api, "one")
-				writeGlobal(t, api, "two")
-				return "global_context", "global", "text", "one"
-			},
-		},
-		{
-			name: "reset_global_context",
-			run: func(t *testing.T, api *apiServer) (string, string, string, string) {
-				writeGlobal(t, api, "one")
-				writeGlobal(t, api, "two")
-				call(t, "reset_global_context", func(rec *httptest.ResponseRecorder) {
-					api.HandleResetGlobalContextApiGlobalContextResetPost(rec,
-						ownerReq(t, http.MethodPost, "/api/global-context/reset", nil))
-				})
-				return "global_context", "global", "text", "two"
-			},
-		},
-		{
-			name: "update_role",
-			run: func(t *testing.T, api *apiServer) (string, string, string, string) {
-				updateRoleThrough(t, api, role, "first")
-				updateRoleThrough(t, api, role, "second")
-				return "role_definition", role, "definition_md", "first"
-			},
-		},
-		{
-			name: "reset_role",
-			run: func(t *testing.T, api *apiServer) (string, string, string, string) {
-				updateRoleThrough(t, api, role, "first")
-				updateRoleThrough(t, api, role, "second")
-				call(t, "reset_role", func(rec *httptest.ResponseRecorder) {
-					api.HandleResetRoleApiRolesRoleResetPost(rec,
-						ownerReq(t, http.MethodPost, "/api/roles/"+role+"/reset", nil), role)
-				})
-				return "role_definition", role, "definition_md", "second"
-			},
-		},
-		// T-6501 added the three insight faces. They were MISSING from this
-		// table, not deliberately left out: replace_insight and patch_insight
-		// have retained versions since T-3809 and nothing here confronted them,
-		// so a seam wired back to the historyless putInsightOn would have
-		// answered the same 200 with the same body and gone unnoticed.
-		{
-			name: "replace_insight",
-			run: func(t *testing.T, api *apiServer) (string, string, string, string) {
-				writeInsight(t, api, role, "insight one")
-				writeInsight(t, api, role, "insight two")
-				return "insight", role, "text", "insight one"
-			},
-		},
-		{
-			name: "patch_insight",
-			run: func(t *testing.T, api *apiServer) (string, string, string, string) {
-				writeInsight(t, api, role, "insight one")
-				writeInsight(t, api, role, "insight two")
-				call(t, "patch_insight", func(rec *httptest.ResponseRecorder) {
-					api.HandlePatchInsightApiInsightRoleKeyPatchPost(rec,
-						ownerReq(t, http.MethodPost, "/api/insight/"+role+"/patch",
-							map[string]any{"edits": []map[string]any{{"old": "insight two", "new": "insight three"}}}),
-						role)
-				})
-				return "insight", role, "text", "insight two"
-			},
-		},
-		{
-			// The counterpart of the reset_role face above. `want` is the
-			// PRE-RESET overlay — deliberately NOT the seed the reset restores,
-			// which is what a retain-the-wrong-thing bug would leave here.
-			name: "reset_insight",
-			run: func(t *testing.T, api *apiServer) (string, string, string, string) {
-				writeInsight(t, api, role, "insight one")
-				writeInsight(t, api, role, "insight two")
-				call(t, "reset_insight", func(rec *httptest.ResponseRecorder) {
-					api.HandleResetInsightApiInsightRoleKeyResetPost(rec,
-						ownerReq(t, http.MethodPost, "/api/insight/"+role+"/reset", nil), role)
-				})
-				return "insight", role, "text", "insight two"
-			},
-		},
-		{
-			name: "replace_lessons",
-			run: func(t *testing.T, api *apiServer) (string, string, string, string) {
-				writeLessons(t, api, role, "lesson one")
-				writeLessons(t, api, role, "lesson two")
-				return "lessons", role, "text", "lesson one"
-			},
-		},
-		{
-			name: "patch_lessons",
-			run: func(t *testing.T, api *apiServer) (string, string, string, string) {
-				writeLessons(t, api, role, "lesson one")
-				writeLessons(t, api, role, "lesson two")
-				call(t, "patch_lessons", func(rec *httptest.ResponseRecorder) {
-					api.HandlePatchLessonsApiLessonsRoleKeyPatchPost(rec,
-						ownerReq(t, http.MethodPost, "/api/lessons/"+role+"/patch",
-							map[string]any{"edits": []map[string]any{{"old": "lesson two", "new": "lesson three"}}}),
-						role)
-				})
-				return "lessons", role, "text", "lesson two"
-			},
-		},
-		{
-			name: "update_task_manual",
-			run: func(t *testing.T, api *apiServer) (string, string, string, string) {
-				typeKey := newManual(t, api)
-				updateManual(t, api, typeKey, map[string]any{"sop_md": "sop v1"})
-				updateManual(t, api, typeKey, map[string]any{"sop_md": "sop v2"})
-				return docKindTaskManualSop, typeKey, "sop_md", "sop v1"
-			},
-		},
-		{
-			name: "write_task_learnings",
-			run: func(t *testing.T, api *apiServer) (string, string, string, string) {
-				typeKey := newManual(t, api)
-				writeLearnings(t, api, typeKey, "learnings one")
-				writeLearnings(t, api, typeKey, "learnings two")
-				return docKindTaskManualLearnings, typeKey, "learnings", "learnings one"
-			},
-		},
-		{
-			name: "patch_task_learnings",
-			run: func(t *testing.T, api *apiServer) (string, string, string, string) {
-				typeKey := newManual(t, api)
-				writeLearnings(t, api, typeKey, "learnings one")
-				call(t, "patch_task_learnings", func(rec *httptest.ResponseRecorder) {
-					api.HandlePatchTaskLearningsApiTaskManualsTypeKeyLearningsPatchPost(rec,
-						ownerReq(t, http.MethodPost, "/api/task-manuals/"+typeKey+"/learnings/patch",
-							map[string]any{"edits": []map[string]any{{"old": "learnings one", "new": "learnings two"}}}),
-						typeKey)
-				})
-				return docKindTaskManualLearnings, typeKey, "learnings", "learnings one"
-			},
+		"a lessons key without the retired separator names the role": {kind: "lessons", key: "engineer", primary: "engineer", valid: true},
+		"a lessons key with the retired separator names nothing":     {kind: "lessons", key: "engineer::build", primary: "engineer::build", valid: false},
+		"the separator is ordinary in another kind":                  {kind: "role_definition", key: "engineer::build", primary: "engineer::build", valid: true},
+		"an empty key names nothing":                                 {kind: "global_context", key: "", primary: "", valid: false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			primary, valid := historyKeyParts(tc.kind, tc.key)
+			if primary != tc.primary || valid != tc.valid {
+				t.Fatalf("historyKeyParts(%q, %q) = (%q, %v), want (%q, %v)",
+					tc.kind, tc.key, primary, valid, tc.primary, tc.valid)
+			}
+		})
+	}
+}
+
+func TestDocumentHistoryContent(t *testing.T) {
+	t.Run("a retained JSON object becomes its complete string map", func(t *testing.T) {
+		got, err := documentHistoryContent(DocumentHistory{
+			ContentJSON: `{"text":"正文","tombstoned":"true","definition_md":"# Duty"}`,
+		})
+		if err != nil {
+			t.Fatalf("documentHistoryContent: %v", err)
+		}
+		want := map[string]string{"definition_md": "# Duty", "text": "正文", "tombstoned": "true"}
+		if !reflect.DeepEqual(got, want) {
+			t.Fatalf("content = %#v, want %#v", got, want)
+		}
+	})
+
+	t.Run("malformed retained content returns its decoding error and no map", func(t *testing.T) {
+		got, err := documentHistoryContent(DocumentHistory{ContentJSON: `{"text":`})
+		if got != nil {
+			t.Fatalf("content = %#v, want nil", got)
+		}
+		if err == nil || err.Error() != "unexpected end of JSON input" {
+			t.Fatalf("err = %v, want unexpected end of JSON input", err)
+		}
+	})
+}
+
+func TestDocumentHistoryDTO(t *testing.T) {
+	t.Run("a catalogue row preserves identity and measures every document field except tombstoned", func(t *testing.T) {
+		got, err := documentHistoryDTO(DocumentHistory{
+			ID:          17,
+			CreatedTS:   1234.5,
+			ActorID:     "agent-kip",
+			ContentJSON: `{"text":"甲乙","definition_md":"é😊","tombstoned":"true"}`,
+		})
+		if err != nil {
+			t.Fatalf("documentHistoryDTO: %v", err)
+		}
+		want := DocumentHistoryDTO{
+			Id: 17, CreatedTs: 1234.5, ActorId: "agent-kip", Tombstoned: true,
+			FieldChars: map[string]int{"definition_md": 2, "text": 2},
+		}
+		if !reflect.DeepEqual(got, want) {
+			t.Fatalf("dto = %#v, want %#v", got, want)
+		}
+	})
+
+	t.Run("malformed retained content returns its decoding error and a zero catalogue row", func(t *testing.T) {
+		got, err := documentHistoryDTO(DocumentHistory{ContentJSON: `{"text":`})
+		if !reflect.DeepEqual(got, DocumentHistoryDTO{}) {
+			t.Fatalf("dto = %#v, want zero value", got)
+		}
+		if err == nil || err.Error() != "unexpected end of JSON input" {
+			t.Fatalf("err = %v, want unexpected end of JSON input", err)
+		}
+	})
+}
+
+func TestDocumentHistoryRestoreDTO(t *testing.T) {
+	t.Run("a restore receipt preserves identity and the complete retained content", func(t *testing.T) {
+		got, err := documentHistoryRestoreDTO(DocumentHistory{
+			ID:          23,
+			CreatedTS:   2345.5,
+			ActorID:     "owner",
+			ContentJSON: `{"text":"復原","tombstoned":"false"}`,
+		})
+		if err != nil {
+			t.Fatalf("documentHistoryRestoreDTO: %v", err)
+		}
+		want := DocumentHistoryRestoreDTO{
+			Id: 23, CreatedTs: 2345.5, ActorId: "owner",
+			Content: map[string]string{"text": "復原", "tombstoned": "false"},
+		}
+		if !reflect.DeepEqual(got, want) {
+			t.Fatalf("dto = %#v, want %#v", got, want)
+		}
+	})
+
+	t.Run("malformed retained content returns its decoding error and a zero restore receipt", func(t *testing.T) {
+		got, err := documentHistoryRestoreDTO(DocumentHistory{ContentJSON: `{"text":`})
+		if !reflect.DeepEqual(got, DocumentHistoryRestoreDTO{}) {
+			t.Fatalf("dto = %#v, want zero value", got)
+		}
+		if err == nil || err.Error() != "unexpected end of JSON input" {
+			t.Fatalf("err = %v, want unexpected end of JSON input", err)
+		}
+	})
+}
+
+func TestHistoryTombstoned(t *testing.T) {
+	for name, tc := range map[string]struct {
+		content map[string]string
+		want    bool
+	}{
+		"the true marker is true":    {content: map[string]string{"tombstoned": "true"}, want: true},
+		"the false marker is false":  {content: map[string]string{"tombstoned": "false"}, want: false},
+		"a missing marker is false":  {content: map[string]string{}, want: false},
+		"an invalid marker is false": {content: map[string]string{"tombstoned": "maybe"}, want: false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			got := historyTombstoned(tc.content)
+			if got != tc.want {
+				t.Fatalf("historyTombstoned(%#v) = %v, want %v", tc.content, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestUserContextHistorySnapshot(t *testing.T) {
+	for name, tc := range map[string]struct {
+		current *UserContext
+		want    string
+	}{
+		"no row":           {current: nil, want: `{}`},
+		"a live empty row": {current: &UserContext{Text: "", Tombstoned: false}, want: `{"text":"","tombstoned":"false"}`},
+		"a tombstoned row": {current: &UserContext{Text: "全域規則", Tombstoned: true}, want: `{"text":"全域規則","tombstoned":"true"}`},
+	} {
+		t.Run(name, func(t *testing.T) {
+			got, err := userContextHistorySnapshot(tc.current)
+			if err != nil {
+				t.Fatalf("userContextHistorySnapshot: %v", err)
+			}
+			if got != tc.want {
+				t.Fatalf("snapshot = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestRoleDefHistorySnapshot(t *testing.T) {
+	for name, tc := range map[string]struct {
+		current *RoleDef
+		want    string
+	}{
+		"no row": {current: nil, want: `{}`},
+		"a definition keeps text and tombstone but not the current display name": {
+			current: &RoleDef{RoleKey: "r-design", Name: "目前名稱", DefinitionMD: "# 職責", Tombstoned: true},
+			want:    `{"definition_md":"# 職責","tombstoned":"true"}`,
 		},
 	} {
-		t.Run(face.name, func(t *testing.T) {
-			api := newTasksTestServer(t)
-			kind, key, field, want := face.run(t, api)
-			history := agentList(t, api, kind, key)
-			if len(history) == 0 {
-				t.Fatalf("%s retained nothing — the version it replaced (%s = %q) is unrecoverable",
-					face.name, field, want)
+		t.Run(name, func(t *testing.T) {
+			got, err := roleDefHistorySnapshot(tc.current)
+			if err != nil {
+				t.Fatalf("roleDefHistorySnapshot: %v", err)
 			}
-			if got := history[0].Content[field]; got != want {
-				t.Fatalf("%s retained %s = %q, want %q — the newest revision is not the version this write replaced",
-					face.name, field, got, want)
+			if got != tc.want {
+				t.Fatalf("snapshot = %q, want %q", got, tc.want)
 			}
 		})
 	}
+}
+
+func TestLessonsHistorySnapshot(t *testing.T) {
+	for name, tc := range map[string]struct {
+		current *Lessons
+		want    string
+	}{
+		"no row":           {current: nil, want: `{}`},
+		"a live empty row": {current: &Lessons{RoleKey: "engineer", Text: "", Tombstoned: false}, want: `{"text":"","tombstoned":"false"}`},
+		"a tombstoned row": {current: &Lessons{RoleKey: "engineer", Text: "經驗", Tombstoned: true}, want: `{"text":"經驗","tombstoned":"true"}`},
+	} {
+		t.Run(name, func(t *testing.T) {
+			got, err := lessonsHistorySnapshot(tc.current)
+			if err != nil {
+				t.Fatalf("lessonsHistorySnapshot: %v", err)
+			}
+			if got != tc.want {
+				t.Fatalf("snapshot = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestUserContextSnapshotIn(t *testing.T) {
+	t.Run("the transaction reader returns the live text and tombstone", func(t *testing.T) {
+		_, h, d, owner := newAPITestServer(t)
+		apiJSON(t, h, "POST", "/api/global-context", owner, `{"text":"交易前"}`)
+		got, err := userContextSnapshotIn(d.rdb)
+		if err != nil {
+			t.Fatalf("userContextSnapshotIn: %v", err)
+		}
+		if got != `{"text":"交易前","tombstoned":"false"}` {
+			t.Fatalf("snapshot = %q, want %q", got, `{"text":"交易前","tombstoned":"false"}`)
+		}
+	})
+
+	t.Run("the transaction reader represents a never-written block as the empty object", func(t *testing.T) {
+		_, _, d, _ := newAPITestServer(t)
+		got, err := userContextSnapshotIn(d.rdb)
+		if err != nil {
+			t.Fatalf("userContextSnapshotIn: %v", err)
+		}
+		if got != `{}` {
+			t.Fatalf("snapshot = %q, want %q", got, `{}`)
+		}
+	})
+}
+
+func TestRoleDefSnapshotIn(t *testing.T) {
+	t.Run("the transaction reader returns the addressed role definition", func(t *testing.T) {
+		_, _, d, _ := newAPITestServer(t)
+		if err := d.PutRoleDef(RoleDef{
+			RoleKey: "r-design", Name: "Design", DefinitionMD: "# Duty", Tombstoned: true,
+		}); err != nil {
+			t.Fatalf("PutRoleDef: %v", err)
+		}
+		got, err := roleDefSnapshotIn("r-design")(d.rdb)
+		if err != nil {
+			t.Fatalf("roleDefSnapshotIn: %v", err)
+		}
+		if got != `{"definition_md":"# Duty","tombstoned":"true"}` {
+			t.Fatalf("snapshot = %q, want %q", got, `{"definition_md":"# Duty","tombstoned":"true"}`)
+		}
+	})
+
+	t.Run("the transaction reader represents an absent role definition as the empty object", func(t *testing.T) {
+		_, _, d, _ := newAPITestServer(t)
+		got, err := roleDefSnapshotIn("r-missing")(d.rdb)
+		if err != nil {
+			t.Fatalf("roleDefSnapshotIn: %v", err)
+		}
+		if got != `{}` {
+			t.Fatalf("snapshot = %q, want %q", got, `{}`)
+		}
+	})
+}
+
+func TestLessonsSnapshotIn(t *testing.T) {
+	t.Run("the transaction reader returns the addressed lessons document", func(t *testing.T) {
+		_, _, d, _ := newAPITestServer(t)
+		if err := d.PutLessons(Lessons{
+			RoleKey: "engineer", Text: "實測經驗", Tombstoned: true,
+		}); err != nil {
+			t.Fatalf("PutLessons: %v", err)
+		}
+		got, err := lessonsSnapshotIn("engineer")(d.rdb)
+		if err != nil {
+			t.Fatalf("lessonsSnapshotIn: %v", err)
+		}
+		if got != `{"text":"實測經驗","tombstoned":"true"}` {
+			t.Fatalf("snapshot = %q, want %q", got, `{"text":"實測經驗","tombstoned":"true"}`)
+		}
+	})
+
+	t.Run("the transaction reader represents an absent lessons document as the empty object", func(t *testing.T) {
+		_, _, d, _ := newAPITestServer(t)
+		got, err := lessonsSnapshotIn("r-missing")(d.rdb)
+		if err != nil {
+			t.Fatalf("lessonsSnapshotIn: %v", err)
+		}
+		if got != `{}` {
+			t.Fatalf("snapshot = %q, want %q", got, `{}`)
+		}
+	})
+}
+
+func TestManualSnapshotIn(t *testing.T) {
+	t.Run("the transaction reader gives the current manual to the requested projection", func(t *testing.T) {
+		_, _, d, _ := newAPITestServer(t)
+		if err := d.PutTaskManual(TaskManual{
+			TypeKey: "tm-history", DisplayName: "歷史", Purpose: "目的",
+			Fields: "[]", SopMD: "SOP 目前版", Learnings: "學習目前版",
+			Assignee: "{}", UpdatedTS: 7,
+		}); err != nil {
+			t.Fatalf("PutTaskManual: %v", err)
+		}
+		got, err := manualSnapshotIn("tm-history", func(m TaskManual) (string, error) {
+			return m.SopMD + " / " + m.Learnings, nil
+		})(d.rdb)
+		if err != nil {
+			t.Fatalf("manualSnapshotIn: %v", err)
+		}
+		if got != "SOP 目前版 / 學習目前版" {
+			t.Fatalf("snapshot = %q, want %q", got, "SOP 目前版 / 學習目前版")
+		}
+	})
+
+	t.Run("an absent manual becomes the empty object without calling the projection", func(t *testing.T) {
+		_, _, d, _ := newAPITestServer(t)
+		called := false
+		got, err := manualSnapshotIn("tm-missing", func(TaskManual) (string, error) {
+			called = true
+			return "unexpected", nil
+		})(d.rdb)
+		if err != nil {
+			t.Fatalf("manualSnapshotIn: %v", err)
+		}
+		if got != `{}` {
+			t.Fatalf("snapshot = %q, want %q", got, `{}`)
+		}
+		if called {
+			t.Fatal("the projection was called for an absent manual")
+		}
+	})
+
+	t.Run("a projection error is returned to the transaction caller", func(t *testing.T) {
+		_, _, d, _ := newAPITestServer(t)
+		if err := d.PutTaskManual(TaskManual{TypeKey: "tm-history", Fields: "[]", Assignee: "{}"}); err != nil {
+			t.Fatalf("PutTaskManual: %v", err)
+		}
+		wantErr := errors.New("projection failed")
+		got, err := manualSnapshotIn("tm-history", func(TaskManual) (string, error) {
+			return "", wantErr
+		})(d.rdb)
+		if got != "" {
+			t.Fatalf("snapshot = %q, want empty string", got)
+		}
+		if !errors.Is(err, wantErr) {
+			t.Fatalf("err = %v, want %v", err, wantErr)
+		}
+	})
+}
+
+func TestTaskManualHistoryStreams(t *testing.T) {
+	for name, tc := range map[string]struct {
+		sopChanged       bool
+		learningsChanged bool
+		wantKinds        []string
+	}{
+		"neither versioned document changed": {sopChanged: false, learningsChanged: false, wantKinds: nil},
+		"only the SOP changed":               {sopChanged: true, learningsChanged: false, wantKinds: []string{docKindTaskManualSop}},
+		"only the learnings changed":         {sopChanged: false, learningsChanged: true, wantKinds: []string{docKindTaskManualLearnings}},
+		"both versioned documents changed":   {sopChanged: true, learningsChanged: true, wantKinds: []string{docKindTaskManualSop, docKindTaskManualLearnings}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			got := taskManualHistoryStreams("tm-history", "owner", tc.sopChanged, tc.learningsChanged)
+			if len(got) != len(tc.wantKinds) || (got == nil) != (tc.wantKinds == nil) {
+				t.Fatalf("stream count/nil = %d/%v, want %d/%v", len(got), got == nil, len(tc.wantKinds), tc.wantKinds == nil)
+			}
+			for i, stream := range got {
+				if stream.Kind != tc.wantKinds[i] || stream.Key != "tm-history" || stream.ActorID != "owner" {
+					t.Fatalf("stream[%d] = {%q, %q, %q}, want {%q, %q, %q}",
+						i, stream.Kind, stream.Key, stream.ActorID, tc.wantKinds[i], "tm-history", "owner")
+				}
+			}
+		})
+	}
+
+	t.Run("the selected streams read their own current fields", func(t *testing.T) {
+		_, _, d, _ := newAPITestServer(t)
+		if err := d.PutTaskManual(TaskManual{
+			TypeKey: "tm-history", Fields: "[]", SopMD: "SOP 目前版", Learnings: "學習目前版", Assignee: "{}",
+		}); err != nil {
+			t.Fatalf("PutTaskManual: %v", err)
+		}
+		gotStreams := taskManualHistoryStreams("tm-history", "owner", true, true)
+		wantSnapshots := []string{`{"sop_md":"SOP 目前版"}`, `{"learnings":"學習目前版"}`}
+		if len(gotStreams) != 2 {
+			t.Fatalf("stream count = %d, want 2", len(gotStreams))
+		}
+		for i, stream := range gotStreams {
+			wantKind := []string{docKindTaskManualSop, docKindTaskManualLearnings}[i]
+			if stream.Kind != wantKind || stream.Key != "tm-history" || stream.ActorID != "owner" {
+				t.Fatalf("stream[%d] identity = {%q, %q, %q}, want {%q, %q, %q}",
+					i, stream.Kind, stream.Key, stream.ActorID, wantKind, "tm-history", "owner")
+			}
+			got, err := stream.Snapshot(d.rdb)
+			if err != nil {
+				t.Fatalf("stream[%d] snapshot: %v", i, err)
+			}
+			if got != wantSnapshots[i] {
+				t.Fatalf("stream[%d] snapshot = %q, want %q", i, got, wantSnapshots[i])
+			}
+		}
+	})
+}
+
+func TestRoleDefHistoryStreams(t *testing.T) {
+	t.Run("a rename with unchanged definition retains no stream", func(t *testing.T) {
+		got := roleDefHistoryStreams("r-design", "owner", false)
+		if got != nil {
+			t.Fatalf("streams = %#v, want nil", got)
+		}
+	})
+
+	t.Run("a definition change retains one addressed role stream", func(t *testing.T) {
+		_, _, d, _ := newAPITestServer(t)
+		if err := d.PutRoleDef(RoleDef{RoleKey: "r-design", Name: "Design", DefinitionMD: "# Duty"}); err != nil {
+			t.Fatalf("PutRoleDef: %v", err)
+		}
+		got := roleDefHistoryStreams("r-design", "agent-kip", true)
+		if len(got) != 1 {
+			t.Fatalf("stream count = %d, want 1", len(got))
+		}
+		stream := got[0]
+		if stream.Kind != "role_definition" || stream.Key != "r-design" || stream.ActorID != "agent-kip" {
+			t.Fatalf("stream identity = {%q, %q, %q}, want {%q, %q, %q}",
+				stream.Kind, stream.Key, stream.ActorID, "role_definition", "r-design", "agent-kip")
+		}
+		snapshot, err := stream.Snapshot(d.rdb)
+		if err != nil {
+			t.Fatalf("stream snapshot: %v", err)
+		}
+		if snapshot != `{"definition_md":"# Duty","tombstoned":"false"}` {
+			t.Fatalf("stream snapshot = %q, want %q", snapshot, `{"definition_md":"# Duty","tombstoned":"false"}`)
+		}
+	})
+}
+
+func TestDocumentHistoryAllowed(t *testing.T) {
+	t.Run("a supported read is allowed without writing a response", func(t *testing.T) {
+		api, _, _, _ := newAPITestServer(t)
+		req := httptest.NewRequest("GET", "/api/document-history/global_context/global", nil)
+		rec := httptest.NewRecorder()
+
+		if !api.documentHistoryAllowed(rec, req, "global_context", "global", false) {
+			t.Fatal("documentHistoryAllowed refused a supported read")
+		}
+		if rec.Code != http.StatusOK || rec.Body.Len() != 0 {
+			t.Fatalf("allowed read response = %d %q, want empty 200 response", rec.Code, rec.Body.String())
+		}
+	})
+
+	for name, tc := range map[string]struct {
+		kind    string
+		key     string
+		message string
+	}{
+		"unknown kind": {
+			kind: "bogus", key: "global", message: "unknown document history kind",
+		},
+		"malformed lessons key": {
+			kind: "lessons", key: "engineer::build", message: malformedLessonsKeyMsg,
+		},
+		"retired task manual kind": {
+			kind: docKindTaskManual, key: "tm-history", message: legacyTaskManualKindMsg,
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			api, _, _, _ := newAPITestServer(t)
+			req := httptest.NewRequest("GET", "/api/document-history/"+tc.kind+"/"+tc.key, nil)
+			rec := httptest.NewRecorder()
+
+			if api.documentHistoryAllowed(rec, req, tc.kind, tc.key, false) {
+				t.Fatal("documentHistoryAllowed allowed an invalid document address")
+			}
+			if rec.Code != http.StatusBadRequest {
+				t.Fatalf("status = %d, want 400 (%s)", rec.Code, rec.Body.String())
+			}
+			var body map[string]any
+			if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+				t.Fatalf("non-JSON error: %s", rec.Body.String())
+			}
+			apiWantError(t, body, "validation_error", tc.message)
+		})
+	}
+
+	t.Run("a plain agent cannot restore a governance document", func(t *testing.T) {
+		api, _, d, _ := newAPITestServer(t)
+		agent := apiTestAgentToken(t, api, "kip", "")
+		taskTestUnderCaller(t, api, d, agent, func(r *http.Request) {
+			rec := httptest.NewRecorder()
+			if api.documentHistoryAllowed(rec, r, "global_context", "global", true) {
+				t.Fatal("documentHistoryAllowed allowed a non-admin restore")
+			}
+			if rec.Code != http.StatusForbidden {
+				t.Fatalf("status = %d, want 403 (%s)", rec.Code, rec.Body.String())
+			}
+			var body map[string]any
+			if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+				t.Fatalf("non-JSON error: %s", rec.Body.String())
+			}
+			apiWantError(t, body, "forbidden", "restoring this document requires admin capability")
+		})
+	})
+}
+
+func TestHandleListDocumentHistoryApiDocumentHistoryKindKeyGet(t *testing.T) {
+	t.Run("a document written twice answers one catalogue row sized by field, newest first", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		apiJSON(t, h, "POST", "/api/global-context", owner, `{"text":"v1"}`)
+		apiJSON(t, h, "POST", "/api/global-context", owner, `{"text":"v2 is longer"}`)
+		dashboard := apiTestListen(t, api, "")
+
+		rec := apiRequest(t, h, "GET", "/api/document-history/global_context/global", owner, "")
+		if rec.Code != 200 {
+			t.Fatalf("want 200, got %d (%s)", rec.Code, rec.Body.String())
+		}
+		var got any
+		if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+			t.Fatalf("non-JSON body: %s", rec.Body.String())
+		}
+		apiWantValue(t, "body", got, []any{map[string]any{
+			"id":          1,
+			"created_ts":  apiAnyNumber,
+			"actor_id":    "owner",
+			"tombstoned":  false,
+			"field_chars": map[string]any{"text": 2},
+		}})
+		dashboard.wantFrames()
+	})
+
+	t.Run("a document nobody has written twice answers an empty catalogue", func(t *testing.T) {
+		_, h, _, owner := newAPITestServer(t)
+
+		rec := apiRequest(t, h, "GET", "/api/document-history/global_context/global", owner, "")
+		if rec.Code != 200 {
+			t.Fatalf("want 200, got %d (%s)", rec.Code, rec.Body.String())
+		}
+		var got any
+		if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+			t.Fatalf("non-JSON body: %s", rec.Body.String())
+		}
+		apiWantValue(t, "body", got, []any{})
+	})
+
+	t.Run("a kind this server does not serve answers 400", func(t *testing.T) {
+		_, h, _, owner := newAPITestServer(t)
+
+		status, data := apiJSON(t, h, "GET", "/api/document-history/bogus/global", owner, "")
+		if status != 400 {
+			t.Fatalf("want 400, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "validation_error", "unknown document history kind")
+	})
+
+	t.Run("the retired task_manual kind answers 400 naming both series that replaced it", func(t *testing.T) {
+		_, h, _, owner := newAPITestServer(t)
+
+		status, data := apiJSON(t, h, "GET", "/api/document-history/task_manual/build", owner, "")
+		if status != 400 {
+			t.Fatalf("want 400, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "validation_error",
+			`document history kind "task_manual" was retired: use "task_manual_sop" or "task_manual_learnings"`)
+	})
+
+	t.Run("a lessons key carrying the retired separator answers 400 naming the removed axis", func(t *testing.T) {
+		_, h, _, owner := newAPITestServer(t)
+
+		status, data := apiJSON(t, h, "GET", "/api/document-history/lessons/engineer::build", owner, "")
+		if status != 400 {
+			t.Fatalf("want 400, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "validation_error",
+			`invalid lessons document history key: T-2 removed the task_type axis, so a lessons key is the bare role_key and one carrying "::" names nothing`)
+	})
+
+	t.Run("a request without a token answers 401", func(t *testing.T) {
+		_, h, _, _ := newAPITestServer(t)
+
+		status, data := apiJSON(t, h, "GET", "/api/document-history/global_context/global", "", "")
+		if status != 401 {
+			t.Fatalf("want 401, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "unauthorized", "missing credentials")
+	})
+}
+
+func TestHandleGetDocumentVersionApiDocumentHistoryKindKeyIdGet(t *testing.T) {
+	t.Run("a named revision answers the content map it was stored with beside the address asked for", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		apiJSON(t, h, "POST", "/api/global-context", owner, `{"text":"v1"}`)
+		apiJSON(t, h, "POST", "/api/global-context", owner, `{"text":"v2"}`)
+		dashboard := apiTestListen(t, api, "")
+
+		status, data := apiJSON(t, h, "GET", "/api/document-history/global_context/global/1", owner, "")
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		apiWantBody(t, data, map[string]any{
+			"kind":    "global_context",
+			"key":     "global",
+			"id":      1,
+			"content": map[string]any{"text": "v1", "tombstoned": "false"},
+		})
+		dashboard.wantFrames()
+	})
+
+	t.Run("a role definition revision answers under the field name that kind stores", func(t *testing.T) {
+		_, h, d, owner := newAPITestServer(t)
+		if err := d.PutRoleDef(RoleDef{RoleKey: "r-design", Name: "Design", DefinitionMD: "# Duty"}); err != nil {
+			t.Fatalf("PutRoleDef: %v", err)
+		}
+		apiJSON(t, h, "POST", "/api/roles/r-design", owner, `{"definition_md":"# Duty rewritten"}`)
+
+		status, data := apiJSON(t, h, "GET", "/api/document-history/role_definition/r-design/1", owner, "")
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		apiWantBody(t, data, map[string]any{
+			"kind":    "role_definition",
+			"key":     "r-design",
+			"id":      1,
+			"content": map[string]any{"definition_md": "# Duty", "tombstoned": "false"},
+		})
+	})
+
+	t.Run("an id that is not a retained revision of this document answers 404", func(t *testing.T) {
+		_, h, _, owner := newAPITestServer(t)
+		apiJSON(t, h, "POST", "/api/global-context", owner, `{"text":"v1"}`)
+		apiJSON(t, h, "POST", "/api/global-context", owner, `{"text":"v2"}`)
+
+		status, data := apiJSON(t, h, "GET", "/api/document-history/global_context/global/99", owner, "")
+		if status != 404 {
+			t.Fatalf("want 404, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "not_found", "document history version not found")
+	})
+
+	t.Run("a kind this server does not serve answers 400", func(t *testing.T) {
+		_, h, _, owner := newAPITestServer(t)
+
+		status, data := apiJSON(t, h, "GET", "/api/document-history/bogus/global/1", owner, "")
+		if status != 400 {
+			t.Fatalf("want 400, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "validation_error", "unknown document history kind")
+	})
+
+	t.Run("a request without a token answers 401", func(t *testing.T) {
+		_, h, _, _ := newAPITestServer(t)
+
+		status, data := apiJSON(t, h, "GET", "/api/document-history/global_context/global/1", "", "")
+		if status != 401 {
+			t.Fatalf("want 401, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "unauthorized", "missing credentials")
+	})
+}
+
+func TestDocumentSeedContent(t *testing.T) {
+	t.Run("the user-custom document has an empty tombstone seed", func(t *testing.T) {
+		api, _, _, _ := newAPITestServer(t)
+		got, hasSeed, err := api.documentSeedContent("global_context", "global")
+		if err != nil {
+			t.Fatalf("documentSeedContent: %v", err)
+		}
+		want := map[string]string{"text": "", "tombstoned": "true"}
+		if !reflect.DeepEqual(got, want) || !hasSeed {
+			t.Fatalf("documentSeedContent = %#v, %v; want %#v, true", got, hasSeed, want)
+		}
+	})
+
+	t.Run("the shipped assistant role returns its definition field and tombstone", func(t *testing.T) {
+		api, _, _, _ := newAPITestServer(t)
+		got, hasSeed, err := api.documentSeedContent("role_definition", "assistant")
+		if err != nil {
+			t.Fatalf("documentSeedContent: %v", err)
+		}
+		want := map[string]string{"definition_md": apiTestAssistantSeedDefinitionMD, "tombstoned": "true"}
+		if !reflect.DeepEqual(got, want) || !hasSeed {
+			t.Fatalf("documentSeedContent = %#v, %v; want %#v, true", got, hasSeed, want)
+		}
+	})
+
+	t.Run("a custom role has no shipped seed", func(t *testing.T) {
+		api, _, _, _ := newAPITestServer(t)
+		got, hasSeed, err := api.documentSeedContent("role_definition", "r-design")
+		if err != nil {
+			t.Fatalf("documentSeedContent: %v", err)
+		}
+		if got != nil || hasSeed {
+			t.Fatalf("documentSeedContent = %#v, %v; want nil, false", got, hasSeed)
+		}
+	})
+
+	t.Run("a boot document returns its text field and tombstone", func(t *testing.T) {
+		api, _, _, _ := newAPITestServer(t)
+		got, hasSeed, err := api.documentSeedContent("offboard", "global")
+		if err != nil {
+			t.Fatalf("documentSeedContent: %v", err)
+		}
+		want := map[string]string{"text": apiTestOffboardNotice, "tombstoned": "true"}
+		if !reflect.DeepEqual(got, want) || !hasSeed {
+			t.Fatalf("documentSeedContent = %#v, %v; want %#v, true", got, hasSeed, want)
+		}
+	})
+
+	t.Run("lessons has no shipped seed", func(t *testing.T) {
+		api, _, _, _ := newAPITestServer(t)
+		got, hasSeed, err := api.documentSeedContent("lessons", "engineer")
+		if err != nil {
+			t.Fatalf("documentSeedContent: %v", err)
+		}
+		if got != nil || hasSeed {
+			t.Fatalf("documentSeedContent = %#v, %v; want nil, false", got, hasSeed)
+		}
+	})
+
+	t.Run("a seeded insight returns its text field and tombstone", func(t *testing.T) {
+		api, _, _, _ := newAPITestServer(t)
+		got, hasSeed, err := api.documentSeedContent("insight", "assistant")
+		if err != nil {
+			t.Fatalf("documentSeedContent: %v", err)
+		}
+		wantText := "# 接案窗口\n\n接到請求時，先釐清處理方式、任務安排與任務類型。需要 Owner 裁定時，開卡向 Owner 確認以下事項，並在同一張卡一次帶齊：\n\n1. **處理方式與執行者**\n\n   **由特助維持統一窗口**\n   若選擇由特助維持統一窗口，特助作為單一對口，負責接收與整理需求、將需求交給執行者、追蹤處理進度並回傳結果。特助向執行者說明，本案的對接窗口是特助，不是 Owner（負責人）；執行者將進度與問題回報特助，需要 Owner 裁定時由特助整理後開卡確認，執行者不直接向 Owner 溝通；請求方持續向特助對接。\n\n   **直接轉交給執行者**\n   若選擇直接轉交，窗口向指定的執行者明確交代需求範圍與下一步後退出處理鏈；後續由執行者與請求方直接對接並處理。\n\n2. **建立任務與任務類型**\n   若要建立任務，卡上至少提供：\n   - **問題與預期結果：** 要解決的問題、影響程度與發生可能性，以及問題解決後預期的情境。\n   - **預計解法與範圍：** 預計如何解決、這次要處理的工作範圍，以及可能遺留的問題或新產生的風險。\n   - **任務類型：** 符合的候選任務類型及其適用範圍，供請求方選擇；若沒有合適類型，標明差距並交由 Owner 確認，不自行套用相近類型。\n   - **任務優先權：** 根據問題的影響程度、發生可能性與其他時程因素，提出建議的處理優先權。\n   - **執行安排：** 預期執行者、執行機器、runtime／model、effort。\n\n待 Owner 裁定的項目直接標明，交由 Owner 確認。\n\n# 操作導覽窗口\n\n## 取得並回答使用說明\n\n- 先按問題找來源：功能、規則與設定查控制台說明文件；MCP 操作看當前工具的說明與 schema；CLI 指令先看 `ocagent <子命令> --help`；任務流程查任務手冊。\n- 讀完後再回答，必要時對照目前系統的實際資料；說清楚適用條件、操作路徑與目前有效性。\n- 找不到說明，或說明與實況不一致時，明確說出不確定與差異，不自行補出規則、欄位或權限。\n\n## 代為執行受限操作\n\n- 先確認操作目標、對象、範圍、理由與完成條件。\n- 特助的權限比一般成員大；Owner 交辦的 OffiCraft 操作也包含在代為執行範圍內。請求明確、責任清楚且在權限內時，代為執行並回報實際結果。\n- 需要 Owner 決定、核可或授權時，整理必要資訊後開一張卡交 Owner 裁定，不代替 Owner 做決定；內容不清楚或超出權限範圍時，先補齊資訊或確認。\n"
+		want := map[string]string{"text": wantText, "tombstoned": "true"}
+		if !reflect.DeepEqual(got, want) || !hasSeed {
+			t.Fatalf("documentSeedContent = %#v, %v; want %#v, true", got, hasSeed, want)
+		}
+	})
+
+	t.Run("an unknown kind has no seed and no error", func(t *testing.T) {
+		api, _, _, _ := newAPITestServer(t)
+		got, hasSeed, err := api.documentSeedContent("bogus", "global")
+		if got != nil || hasSeed || err != nil {
+			t.Fatalf("documentSeedContent = %#v, %v, %v; want nil, false, nil", got, hasSeed, err)
+		}
+	})
+}
+
+func TestHandleGetDocumentSeedApiDocumentHistoryKindKeySeedGet(t *testing.T) {
+	t.Run("the user-custom block answers the empty document its reset would put back", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		apiJSON(t, h, "POST", "/api/global-context", owner, `{"text":"v1"}`)
+		dashboard := apiTestListen(t, api, "")
+
+		status, data := apiJSON(t, h, "GET", "/api/document-history/global_context/global/seed", owner, "")
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		apiWantBody(t, data, map[string]any{
+			"kind":    "global_context",
+			"key":     "global",
+			"content": map[string]any{"text": "", "tombstoned": "true"},
+		})
+		dashboard.wantFrames()
+	})
+
+	t.Run("a seed role answers the shipped definition under that kind's field name", func(t *testing.T) {
+		_, h, _, owner := newAPITestServer(t)
+
+		status, data := apiJSON(t, h, "GET", "/api/document-history/role_definition/assistant/seed", owner, "")
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		apiWantBody(t, data, map[string]any{
+			"kind": "role_definition",
+			"key":  "assistant",
+			"content": map[string]any{
+				"definition_md": apiTestAssistantSeedDefinitionMD,
+				"tombstoned":    "true",
+			},
+		})
+	})
+
+	t.Run("a custom role has no shipped default and answers 404 naming the document", func(t *testing.T) {
+		_, h, d, owner := newAPITestServer(t)
+		if err := d.PutRoleDef(RoleDef{RoleKey: "r-design", Name: "Design", DefinitionMD: "# Duty"}); err != nil {
+			t.Fatalf("PutRoleDef: %v", err)
+		}
+
+		status, data := apiJSON(t, h, "GET", "/api/document-history/role_definition/r-design/seed", owner, "")
+		if status != 404 {
+			t.Fatalf("want 404, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "not_found",
+			"document 'role_definition/r-design' has no shipped default to compare against")
+	})
+
+	t.Run("a lessons doc has no shipped default and answers 404 naming the document", func(t *testing.T) {
+		_, h, _, owner := newAPITestServer(t)
+
+		status, data := apiJSON(t, h, "GET", "/api/document-history/lessons/engineer/seed", owner, "")
+		if status != 404 {
+			t.Fatalf("want 404, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "not_found",
+			"document 'lessons/engineer' has no shipped default to compare against")
+	})
+
+	t.Run("a kind this server does not serve answers 400", func(t *testing.T) {
+		_, h, _, owner := newAPITestServer(t)
+
+		status, data := apiJSON(t, h, "GET", "/api/document-history/bogus/global/seed", owner, "")
+		if status != 400 {
+			t.Fatalf("want 400, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "validation_error", "unknown document history kind")
+	})
+
+	t.Run("a request without a token answers 401", func(t *testing.T) {
+		_, h, _, _ := newAPITestServer(t)
+
+		status, data := apiJSON(t, h, "GET", "/api/document-history/global_context/global/seed", "", "")
+		if status != 401 {
+			t.Fatalf("want 401, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "unauthorized", "missing credentials")
+	})
+}
+
+func TestHandleRestoreDocumentHistoryApiDocumentHistoryKindKeyIdRestorePost(t *testing.T) {
+	t.Run("restoring a user-custom block revision answers the revision and fans the owner-only global_context delta", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		apiJSON(t, h, "POST", "/api/global-context", owner, `{"text":"v1"}`)
+		apiJSON(t, h, "POST", "/api/global-context", owner, `{"text":"v2"}`)
+		dashboard := apiTestListen(t, api, "")
+		bystander := apiTestListen(t, api, "kip")
+
+		status, data := apiJSON(t, h, "POST", "/api/document-history/global_context/global/1/restore", owner, "")
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		apiWantBody(t, data, map[string]any{
+			"id":         1,
+			"created_ts": apiAnyNumber,
+			"actor_id":   "owner",
+			"content":    map[string]any{"text": "v1", "tombstoned": "false"},
+		})
+		dashboard.wantFrames(map[string]any{
+			"seq":   3,
+			"topic": "global_context",
+			"op":    "patch",
+			"data": map[string]any{
+				"entity":  "global_context",
+				"key":     "owner",
+				"epoch":   3,
+				"deleted": false,
+				"payload": nil,
+			},
+			"ts":      apiAnyNumber,
+			"trigger": "owner",
+		})
+		bystander.wantFrames()
+
+		read, block := apiJSON(t, h, "GET", "/api/global-context", owner, "")
+		if read != 200 {
+			t.Fatalf("want 200, got %d (%v)", read, block)
+		}
+		apiWantBody(t, block, map[string]any{
+			"text":           "v1",
+			"owner_id":       "owner",
+			"schema_version": 3,
+			"is_default":     false,
+			"org_name":       "",
+		})
+	})
+
+	t.Run("restoring a role definition revision fans the owner-only role_def delta", func(t *testing.T) {
+		api, h, d, owner := newAPITestServer(t)
+		if err := d.PutRoleDef(RoleDef{RoleKey: "r-design", Name: "Design", DefinitionMD: "# Duty"}); err != nil {
+			t.Fatalf("PutRoleDef: %v", err)
+		}
+		apiJSON(t, h, "POST", "/api/roles/r-design", owner, `{"definition_md":"# Duty rewritten"}`)
+		dashboard := apiTestListen(t, api, "")
+		bystander := apiTestListen(t, api, "kip")
+
+		status, data := apiJSON(t, h, "POST", "/api/document-history/role_definition/r-design/1/restore", owner, "")
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		apiWantBody(t, data, map[string]any{
+			"id":         1,
+			"created_ts": apiAnyNumber,
+			"actor_id":   "owner",
+			"content":    map[string]any{"definition_md": "# Duty", "tombstoned": "false"},
+		})
+		dashboard.wantFrames(map[string]any{
+			"seq":   2,
+			"topic": "role_def",
+			"op":    "patch",
+			"data": map[string]any{
+				"entity":  "role_def",
+				"key":     "owner::r-design",
+				"epoch":   2,
+				"deleted": false,
+				"payload": nil,
+			},
+			"ts":      apiAnyNumber,
+			"trigger": "owner",
+		})
+		bystander.wantFrames()
+	})
+
+	t.Run("restoring a lessons revision fans the owner-only lessons delta", func(t *testing.T) {
+		api, h, d, owner := newAPITestServer(t)
+		if err := d.PutRoleDef(RoleDef{RoleKey: "r-design", Name: "Design", DefinitionMD: "# Duty"}); err != nil {
+			t.Fatalf("PutRoleDef: %v", err)
+		}
+		apiJSON(t, h, "POST", "/api/lessons/r-design", owner, `{"text":"v1"}`)
+		apiJSON(t, h, "POST", "/api/lessons/r-design", owner, `{"text":"v2"}`)
+		dashboard := apiTestListen(t, api, "")
+		bystander := apiTestListen(t, api, "kip")
+
+		status, data := apiJSON(t, h, "POST", "/api/document-history/lessons/r-design/1/restore", owner, "")
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		apiWantBody(t, data, map[string]any{
+			"id":         1,
+			"created_ts": apiAnyNumber,
+			"actor_id":   "owner",
+			"content":    map[string]any{"text": "v1", "tombstoned": "false"},
+		})
+		dashboard.wantFrames(map[string]any{
+			"seq":   3,
+			"topic": "lessons",
+			"op":    "patch",
+			"data": map[string]any{
+				"entity":  "lessons",
+				"key":     "owner::r-design",
+				"epoch":   3,
+				"deleted": false,
+				"payload": nil,
+			},
+			"ts":      apiAnyNumber,
+			"trigger": "owner",
+		})
+		bystander.wantFrames()
+	})
+
+	t.Run("restoring an insight revision fans the owner-only insight delta", func(t *testing.T) {
+		api, h, d, owner := newAPITestServer(t)
+		if err := d.PutRoleDef(RoleDef{RoleKey: "r-design", Name: "Design", DefinitionMD: "# Duty"}); err != nil {
+			t.Fatalf("PutRoleDef: %v", err)
+		}
+		apiJSON(t, h, "POST", "/api/insight/r-design", owner, `{"text":"v1"}`)
+		apiJSON(t, h, "POST", "/api/insight/r-design", owner, `{"text":"v2"}`)
+		dashboard := apiTestListen(t, api, "")
+		bystander := apiTestListen(t, api, "kip")
+
+		status, data := apiJSON(t, h, "POST", "/api/document-history/insight/r-design/1/restore", owner, "")
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		apiWantBody(t, data, map[string]any{
+			"id":         1,
+			"created_ts": apiAnyNumber,
+			"actor_id":   "owner",
+			"content":    map[string]any{"text": "v1", "tombstoned": "false"},
+		})
+		dashboard.wantFrames(map[string]any{
+			"seq":   3,
+			"topic": "insight",
+			"op":    "patch",
+			"data": map[string]any{
+				"entity":  "insight",
+				"key":     "owner::r-design",
+				"epoch":   3,
+				"deleted": false,
+				"payload": nil,
+			},
+			"ts":      apiAnyNumber,
+			"trigger": "owner",
+		})
+		bystander.wantFrames()
+	})
+
+	t.Run("restoring a role definition revision that is over the duty cap answers 400 and fans nothing", func(t *testing.T) {
+		api, h, d, owner := newAPITestServer(t)
+		if err := d.PutRoleDef(RoleDef{
+			RoleKey: "r-design", Name: "Design",
+			DefinitionMD: strings.Repeat("x", 1500),
+		}); err != nil {
+			t.Fatalf("PutRoleDef: %v", err)
+		}
+		apiJSON(t, h, "POST", "/api/roles/r-design", owner, `{"definition_md":"y"}`)
+		dashboard := apiTestListen(t, api, "")
+
+		status, data := apiJSON(t, h, "POST", "/api/document-history/role_definition/r-design/1/restore", owner, "")
+		if status != 400 {
+			t.Fatalf("want 400, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "validation_error",
+			"restoring this version would violate the existing document size limit")
+		dashboard.wantFrames()
+	})
+
+	t.Run("an id that is not a retained revision of this document answers 404 and fans nothing", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		apiJSON(t, h, "POST", "/api/global-context", owner, `{"text":"v1"}`)
+		apiJSON(t, h, "POST", "/api/global-context", owner, `{"text":"v2"}`)
+		dashboard := apiTestListen(t, api, "")
+
+		status, data := apiJSON(t, h, "POST", "/api/document-history/global_context/global/99/restore", owner, "")
+		if status != 404 {
+			t.Fatalf("want 404, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "not_found", "document history version not found")
+		dashboard.wantFrames()
+	})
+
+	t.Run("a plain agent restoring the user-custom block answers 403 and fans nothing", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		apiJSON(t, h, "POST", "/api/global-context", owner, `{"text":"v1"}`)
+		apiJSON(t, h, "POST", "/api/global-context", owner, `{"text":"v2"}`)
+		agent := apiTestAgentToken(t, api, "kip", "")
+		dashboard := apiTestListen(t, api, "")
+
+		status, data := apiJSON(t, h, "POST", "/api/document-history/global_context/global/1/restore", agent, "")
+		if status != 403 {
+			t.Fatalf("want 403, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "forbidden", "restoring this document requires admin capability")
+		dashboard.wantFrames()
+	})
+
+	t.Run("an agent restoring another role's lessons answers 403 and fans nothing", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		apiJSON(t, h, "POST", "/api/lessons/assistant", owner, `{"text":"v1"}`)
+		apiJSON(t, h, "POST", "/api/lessons/assistant", owner, `{"text":"v2"}`)
+		agent := apiTestAgentToken(t, api, "kip", "")
+		dashboard := apiTestListen(t, api, "")
+
+		status, data := apiJSON(t, h, "POST", "/api/document-history/lessons/assistant/1/restore", agent, "")
+		if status != 403 {
+			t.Fatalf("want 403, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "forbidden", "an agent may only write its own role's lessons")
+		dashboard.wantFrames()
+	})
+
+	t.Run("an agent restoring another role's insight answers 403 and fans nothing", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		apiJSON(t, h, "POST", "/api/insight/assistant", owner, `{"text":"v1"}`)
+		apiJSON(t, h, "POST", "/api/insight/assistant", owner, `{"text":"v2"}`)
+		agent := apiTestAgentToken(t, api, "kip", "")
+		dashboard := apiTestListen(t, api, "")
+
+		status, data := apiJSON(t, h, "POST", "/api/document-history/insight/assistant/1/restore", agent, "")
+		if status != 403 {
+			t.Fatalf("want 403, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "forbidden", "an agent may only write its own role's insight")
+		dashboard.wantFrames()
+	})
+
+	t.Run("the retired task_manual kind answers 400 and fans nothing", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		dashboard := apiTestListen(t, api, "")
+
+		status, data := apiJSON(t, h, "POST", "/api/document-history/task_manual/build/1/restore", owner, "")
+		if status != 400 {
+			t.Fatalf("want 400, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "validation_error",
+			`document history kind "task_manual" was retired: use "task_manual_sop" or "task_manual_learnings"`)
+		dashboard.wantFrames()
+	})
+
+	t.Run("an authenticated machine identity answers 403 because this row requires agent", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		apiJSON(t, h, "POST", "/api/global-context", owner, `{"text":"v1"}`)
+		apiJSON(t, h, "POST", "/api/global-context", owner, `{"text":"v2"}`)
+		machine := apiTestAgentToken(t, api, "m-server-self", "")
+		dashboard := apiTestListen(t, api, "")
+
+		status, data := apiJSON(t, h, "POST", "/api/document-history/global_context/global/1/restore", machine, "")
+		if status != 403 {
+			t.Fatalf("want 403, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "forbidden", "principal not permitted")
+		dashboard.wantFrames()
+	})
+
+	t.Run("a request without a token answers 401 and fans nothing", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		apiJSON(t, h, "POST", "/api/global-context", owner, `{"text":"v1"}`)
+		apiJSON(t, h, "POST", "/api/global-context", owner, `{"text":"v2"}`)
+		dashboard := apiTestListen(t, api, "")
+
+		status, data := apiJSON(t, h, "POST", "/api/document-history/global_context/global/1/restore", "", "")
+		if status != 401 {
+			t.Fatalf("want 401, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "unauthorized", "missing credentials")
+		dashboard.wantFrames()
+	})
+}
+
+func TestPublishDocumentHistoryRestore(t *testing.T) {
+	for name, tc := range map[string]struct {
+		kind             string
+		key              string
+		task             bool
+		seq              int
+		topic            string
+		entity           string
+		wireKey          string
+		payload          any
+		executorReceives bool
+	}{
+		"global context":        {kind: "global_context", key: "global", seq: 1, topic: "global_context", entity: "global_context", wireKey: "owner", payload: nil},
+		"role definition":       {kind: "role_definition", key: "r-design", seq: 1, topic: "role_def", entity: "role_def", wireKey: "owner::r-design", payload: nil},
+		"lessons":               {kind: "lessons", key: "engineer", seq: 1, topic: "lessons", entity: "lessons", wireKey: "owner::engineer", payload: nil},
+		"insight":               {kind: "insight", key: "assistant", seq: 1, topic: "insight", entity: "insight", wireKey: "owner::assistant", payload: nil},
+		"boot document":         {kind: "offboard", key: "global", seq: 1, topic: "global_context", entity: "global_context", wireKey: "owner", payload: nil},
+		"task manual SOP":       {kind: docKindTaskManualSop, key: "tm-history", seq: 1, topic: "task_manual", entity: "task_manual", wireKey: "owner::tm-history", payload: nil},
+		"task manual learnings": {kind: docKindTaskManualLearnings, key: "tm-history", seq: 1, topic: "task_manual", entity: "task_manual", wireKey: "owner::tm-history", payload: nil},
+		"task description":      {kind: docKindTaskDescription, key: "T-1", task: true, seq: 2, topic: "task", entity: "task", wireKey: "owner::T-1", payload: map[string]any{"id": "T-1", "priority": "mid", "status": "not_started"}, executorReceives: true},
+		"task title":            {kind: docKindTaskTitle, key: "T-1", task: true, seq: 2, topic: "task", entity: "task", wireKey: "owner::T-1", payload: map[string]any{"id": "T-1", "priority": "mid", "status": "not_started"}, executorReceives: true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			api, h, d, owner := newAPITestServer(t)
+			if tc.task {
+				status, data := apiJSON(t, h, "POST", "/api/tasks", owner,
+					`{"title":"Ship it","executor_member_id":"kip","description":"desc"}`)
+				if status != 200 {
+					t.Fatalf("create task: %d %v", status, data)
+				}
+			}
+			var req *http.Request
+			taskTestUnderCaller(t, api, d, owner, func(r *http.Request) { req = r })
+			dashboard := apiTestListen(t, api, "")
+			executor := apiTestListen(t, api, "kip")
+
+			api.publishDocumentHistoryRestore(req, tc.kind, tc.key)
+			want := map[string]any{
+				"seq": tc.seq, "topic": tc.topic, "op": "patch",
+				"data": map[string]any{
+					"entity": tc.entity, "key": tc.wireKey, "epoch": tc.seq,
+					"deleted": false, "payload": tc.payload,
+				},
+				"ts": apiAnyNumber, "trigger": "owner",
+			}
+			dashboard.wantFrames(want)
+			if tc.executorReceives {
+				executor.wantFrames(want)
+			} else {
+				executor.wantFrames()
+			}
+		})
+	}
+}
+
+func TestTaskDescriptionRestoreAuthz(t *testing.T) {
+	t.Run("the task executor may restore its task description and receives the task delta", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		apiJSON(t, h, "POST", "/api/tasks", owner,
+			`{"title":"Ship it","executor_member_id":"kip","description":"old scope"}`)
+		agent := apiTestAgentToken(t, api, "kip", "")
+		apiJSON(t, h, "POST", "/api/tasks/T-1/description", agent, `{"description":"new scope"}`)
+		dashboard := apiTestListen(t, api, "")
+		executor := apiTestListen(t, api, "kip")
+
+		status, data := apiJSON(t, h, "POST", "/api/document-history/task_description/T-1/1/restore", agent, "")
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		apiWantBody(t, data, map[string]any{
+			"id": 1, "created_ts": apiAnyNumber, "actor_id": "kip",
+			"content": map[string]any{"description": "old scope"},
+		})
+		taskFrame := map[string]any{
+			"seq": 3, "topic": "task", "op": "patch",
+			"data": map[string]any{
+				"entity": "task", "key": "owner::T-1", "epoch": 3,
+				"deleted": false,
+				"payload": map[string]any{"id": "T-1", "priority": "mid", "status": "not_started"},
+			},
+			"ts": apiAnyNumber, "trigger": "kip",
+		}
+		dashboard.wantFrames(taskFrame)
+		executor.wantFrames(taskFrame)
+		_, task := apiJSON(t, h, "GET", "/api/tasks/T-1", owner, "")
+		apiWantValue(t, "task.description", task["description"], "old scope")
+		rec := apiRequest(t, h, "GET", "/api/document-history/task_description/T-1", owner, "")
+		var history []any
+		if err := json.Unmarshal(rec.Body.Bytes(), &history); err != nil {
+			t.Fatalf("non-JSON history: %s", rec.Body.String())
+		}
+		apiWantValue(t, "history", any(history), []any{
+			map[string]any{
+				"id": 2, "created_ts": apiAnyNumber, "actor_id": "kip",
+				"tombstoned": false, "field_chars": map[string]any{"description": 9},
+			},
+			map[string]any{
+				"id": 1, "created_ts": apiAnyNumber, "actor_id": "kip",
+				"tombstoned": false, "field_chars": map[string]any{"description": 9},
+			},
+		})
+	})
+
+	t.Run("a plain agent who is not the task executor cannot restore its description", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		apiJSON(t, h, "POST", "/api/tasks", owner,
+			`{"title":"Ship it","executor_member_id":"mira","description":"old scope"}`)
+		apiJSON(t, h, "POST", "/api/tasks/T-1/description", owner, `{"description":"new scope"}`)
+		agent := apiTestAgentToken(t, api, "kip", "")
+		dashboard := apiTestListen(t, api, "")
+
+		status, data := apiJSON(t, h, "POST", "/api/document-history/task_description/T-1/1/restore", agent, "")
+		if status != 403 {
+			t.Fatalf("want 403, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "forbidden", executorGuardRefusal)
+		dashboard.wantFrames()
+		_, task := apiJSON(t, h, "GET", "/api/tasks/T-1", owner, "")
+		apiWantValue(t, "task.description", task["description"], "new scope")
+		rec := apiRequest(t, h, "GET", "/api/document-history/task_description/T-1", owner, "")
+		var history []any
+		if err := json.Unmarshal(rec.Body.Bytes(), &history); err != nil {
+			t.Fatalf("non-JSON history: %s", rec.Body.String())
+		}
+		apiWantValue(t, "history", any(history), []any{map[string]any{
+			"id": 1, "created_ts": apiAnyNumber, "actor_id": "owner",
+			"tombstoned": false, "field_chars": map[string]any{"description": 9},
+		}})
+	})
+}
+
+func TestRestoreDocumentHistory(t *testing.T) {
+	t.Run("restoring an offboard revision stores the old body under the shipped head and fans a boot delta", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		apiJSON(t, h, "POST", "/api/offboard", owner, `{"body":"old notice"}`)
+		apiJSON(t, h, "POST", "/api/offboard", owner, `{"body":"new notice"}`)
+		dashboard := apiTestListen(t, api, "")
+		bystander := apiTestListen(t, api, "kip")
+
+		status, data := apiJSON(t, h, "POST", "/api/document-history/offboard/global/1/restore", owner, "")
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		apiWantBody(t, data, map[string]any{
+			"id": 1, "created_ts": apiAnyNumber, "actor_id": "owner",
+			"content": map[string]any{"text": "old notice", "tombstoned": "false"},
+		})
+		dashboard.wantFrames(map[string]any{
+			"seq": 3, "topic": "global_context", "op": "patch",
+			"data": map[string]any{
+				"entity": "global_context", "key": "owner", "epoch": 3,
+				"deleted": false, "payload": nil,
+			},
+			"ts": apiAnyNumber, "trigger": "owner",
+		})
+		bystander.wantFrames()
+		status, data = apiJSON(t, h, "GET", "/api/offboard", owner, "")
+		if status != 200 {
+			t.Fatalf("read offboard: %d %v", status, data)
+		}
+		apiWantBody(t, data, map[string]any{
+			"kind": "offboard", "key": "global", "owner_id": "owner",
+			"text": "old notice", "body": "old notice", "size_chars": 10,
+			"cap_chars": 15000, "has_seed": true, "is_default": false,
+			"read_only": false, "read_only_head": "", "schema_version": 3,
+		})
+	})
+}
+
+func TestRestoreTaskManualField(t *testing.T) {
+	t.Run("restoring the SOP revision changes only the SOP and fans the manual delta", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		agent := apiTestAgentToken(t, api, "kip", "")
+		apiTestCreateTaskManual(t, h, agent, `{"type_key":"tm-history","display_name":"歷史"}`)
+		apiJSON(t, h, "POST", "/api/task-manuals/tm-history", agent,
+			`{"purpose":"原目的","fields":[{"name":"客戶","required":true,"is_key":true}],"sop_md":"SOP 舊版","learnings":"學習舊版"}`)
+		apiJSON(t, h, "POST", "/api/task-manuals/tm-history", agent,
+			`{"purpose":"新目的","sop_md":"SOP 新版","learnings":"學習新版"}`)
+		dashboard := apiTestListen(t, api, "")
+		agentListener := apiTestListen(t, api, "kip")
+
+		status, data := apiJSON(t, h, "POST", "/api/document-history/task_manual_sop/tm-history/1/restore", agent, "")
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		apiWantBody(t, data, map[string]any{
+			"id": 1, "created_ts": apiAnyNumber, "actor_id": "kip",
+			"content": map[string]any{"sop_md": "SOP 舊版"},
+		})
+		dashboard.wantFrames(apiTestTaskManualFrame(4, "tm-history", "kip"))
+		agentListener.wantFrames()
+		status, data = apiJSON(t, h, "GET", "/api/task-manuals/tm-history", owner, "")
+		if status != 200 {
+			t.Fatalf("read task manual: %d %v", status, data)
+		}
+		apiWantBody(t, data, map[string]any{
+			"type_key": "tm-history", "display_name": "歷史", "purpose": "新目的",
+			"fields": []any{map[string]any{"name": "客戶", "required": true, "is_key": true}},
+			"sop_md": "SOP 舊版", "learnings": "學習新版", "assignee": map[string]any{},
+			"lore": "", "lore_chars": 0,
+			"learnings_chars": 4, "sop_md_chars": 6,
+			"learnings_cap_chars": 15000, "sop_md_cap_chars": 15000,
+			"cap_chars": 15000, "updated_ts": apiAnyNumber,
+		})
+	})
 }

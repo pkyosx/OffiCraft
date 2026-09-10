@@ -1,1263 +1,883 @@
 package main
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
-	"runtime"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
 )
 
-// errCutoverBlocked is what the package-default cutover seam returns inside the
-// test binary. Mirrors errHostSeamBlocked: a test that forgets to install its own
-// fake gets a loud refusal, never a real launchctl call or a real plist write.
-var errCutoverBlocked = errors.New("cutover seam is blocked in the test binary")
-
-func blockedCutoverOps() cutoverOps {
-	block := func(what string) error {
-		return fmt.Errorf("%w: refusing %s", errCutoverBlocked, what)
-	}
-	return cutoverOps{
-		ppidExe:       func(int) (string, error) { return "", block("ps") },
-		run:           func(n string, _ ...string) (string, error) { return "", block("exec " + n) },
-		runExit:       func(n string, _ ...string) (int, error) { return -1, block("exec " + n) },
-		runInstaller:  func(n string, _ ...string) (string, error) { return "", block("exec " + n) },
-		readFile:      func(p string) ([]byte, error) { return nil, block("read " + p) },
-		writeFile:     func(p string, _ []byte, _ os.FileMode) error { return block("write " + p) },
-		chmod:         func(p string, _ os.FileMode) error { return block("chmod " + p) },
-		link:          func(o, n string) error { return block("link " + o + " -> " + n) },
-		remove:        func(p string) error { return block("remove " + p) },
-		createExcl:    func(p string) (bool, error) { return false, block("create " + p) },
-		modTime:       func(p string) (time.Time, error) { return time.Time{}, block("stat " + p) },
-		spawnDetached: func(b string, _, _ []string, _ string) error { return block("spawn " + b) },
-		sleep:         func(time.Duration) {},
-	}
+// runAnswer is one queued answer for a repeated command, consumed in order.
+type runAnswer struct {
+	out string
+	err error
 }
 
-// fakeCutover is a recording, fully in-memory cutover seam. Files live in a map,
-// launchctl calls are recorded as argv strings and answered from a scripted table,
-// so a test can drive every branch without a filesystem or a launchd domain.
-type fakeCutover struct {
-	files map[string]string
-	// runErr answers a call keyed by its full argv joined with spaces. A missing
-	// key means success with the (possibly empty) output in runOut.
-	runErr map[string]error
-	runOut map[string]string
-	calls  []string
-	// exitCodes answers runExit, keyed by argv. A missing key means exit 0.
-	exitCodes map[string]int
-	exitErrs  map[string]error
-	// pids answers `launchctl print` — consumed one entry per call so a test can
-	// script "no pid, then pid 42, then pid 42...". Exhausted → last value repeats.
-	pids     []string
-	pidIdx   int
-	locked   map[string]bool
+// spawnCall is one detached process the cutover path asked for.
+type spawnCall struct {
+	bin     string
+	args    []string
+	env     []string
+	logPath string
+}
+
+// cutoverRec is a recording stand-in for every cutover effect. Zero value: no
+// files, no processes, every probe failing the way an absent one would.
+type cutoverRec struct {
+	ppidExe    map[int]string
+	ppidExeErr map[int]error
+
+	runOut   map[string]string
+	runErr   map[string]error
+	runQueue map[string][]runAnswer
+	runs     []string
+
+	runExitCode map[string]int
+	runExitErr  map[string]error
+	runExits    []string
+
+	installerOut    string
+	installerErr    error
+	installerCalls  []string
+	installerWrites map[string]string
+
+	files     map[string]string
+	readErr   map[string]error
+	writeErr  map[string]error
+	writes    []string
+	chmods    []string
+	chmodErr  map[string]error
+	links     [][2]string
+	linkErr   error
+	removes   []string
+	removeErr map[string]error
+
+	created      map[string]bool
+	createExclOn map[string]bool
+	createErr    map[string]error
+
 	modTimes map[string]time.Time
-	// birthTimes answers the inode-creation seam separately from modTimes: the
-	// two are different facts about a file (mtime moves on write and is settable,
-	// birthtime is fixed at creation), and a fake that answered both from one map
-	// would let a test pass while production read the wrong one.
-	birthTimes map[string]time.Time
-	spawned    []string
+	births   map[string]time.Time
+
+	spawns    []spawnCall
+	spawnErr  error
+	sleeps    []time.Duration
+	sleepStop int
 }
 
-func newFakeCutover() *fakeCutover {
-	return &fakeCutover{
-		files:      map[string]string{},
-		runErr:     map[string]error{},
-		runOut:     map[string]string{},
-		locked:     map[string]bool{},
-		modTimes:   map[string]time.Time{},
-		birthTimes: map[string]time.Time{},
-		exitCodes:  map[string]int{},
-		exitErrs:   map[string]error{},
+func newCutoverRec() *cutoverRec {
+	return &cutoverRec{
+		ppidExe: map[int]string{}, ppidExeErr: map[int]error{},
+		runOut: map[string]string{}, runErr: map[string]error{}, runQueue: map[string][]runAnswer{},
+		runExitCode: map[string]int{}, runExitErr: map[string]error{},
+		files: map[string]string{}, readErr: map[string]error{}, writeErr: map[string]error{},
+		chmodErr:  map[string]error{},
+		removeErr: map[string]error{}, created: map[string]bool{},
+		createExclOn: map[string]bool{}, createErr: map[string]error{},
+		modTimes: map[string]time.Time{}, births: map[string]time.Time{},
+		installerWrites: map[string]string{},
 	}
 }
 
-func (f *fakeCutover) ops() cutoverOps {
-	// run and runInstaller differ ONLY in their real-world timeout budget, so the
-	// fake answers both from one recorder — a test scripting "install fails" must
-	// not have to know which of the two the production code happened to pick.
-	run := func(name string, args ...string) (string, error) {
-		key := name
-		for _, a := range args {
-			key += " " + a
-		}
-		f.calls = append(f.calls, key)
-		if name == "launchctl" && len(args) > 0 && args[0] == "print" {
-			if err, ok := f.runErr[key]; ok {
+func argvKey(name string, args ...string) string {
+	return strings.Join(append([]string{name}, args...), " ")
+}
+
+func (r *cutoverRec) ops() cutoverOps {
+	return cutoverOps{
+		ppidExe: func(pid int) (string, error) {
+			if err, ok := r.ppidExeErr[pid]; ok {
 				return "", err
 			}
-			pid := f.nextPID()
-			if pid == "" {
-				return "", errors.New("no such process")
+			return r.ppidExe[pid], nil
+		},
+		run: func(name string, args ...string) (string, error) {
+			key := argvKey(name, args...)
+			r.runs = append(r.runs, key)
+			if queued := r.runQueue[key]; len(queued) > 0 {
+				r.runQueue[key] = queued[1:]
+				return queued[0].out, queued[0].err
 			}
-			return "\tpid = " + pid + "\n", nil
-		}
-		return f.runOut[key], f.runErr[key]
-	}
-	return cutoverOps{
-		ppidExe:      func(int) (string, error) { return f.files["__ppid_exe__"], nil },
-		run:          run,
-		runInstaller: run,
+			if err, ok := r.runErr[key]; ok {
+				return "", err
+			}
+			if out, ok := r.runOut[key]; ok {
+				return out, nil
+			}
+			return "", os.ErrNotExist
+		},
 		runExit: func(name string, args ...string) (int, error) {
-			key := name
-			for _, a := range args {
-				key += " " + a
-			}
-			f.calls = append(f.calls, key)
-			if err, ok := f.exitErrs[key]; ok {
+			key := argvKey(name, args...)
+			r.runExits = append(r.runExits, key)
+			if err, ok := r.runExitErr[key]; ok {
 				return -1, err
 			}
-			return f.exitCodes[key], nil
-		},
-		readFile: func(p string) ([]byte, error) {
-			v, ok := f.files[p]
-			if !ok {
-				return nil, os.ErrNotExist
+			if code, ok := r.runExitCode[key]; ok {
+				return code, nil
 			}
-			return []byte(v), nil
+			return -1, os.ErrNotExist
 		},
-		writeFile: func(p string, d []byte, _ os.FileMode) error {
-			if err, ok := f.runErr["write:"+p]; ok {
+		runInstaller: func(name string, args ...string) (string, error) {
+			r.installerCalls = append(r.installerCalls, argvKey(name, args...))
+			for path, data := range r.installerWrites {
+				r.files[path] = data
+			}
+			return r.installerOut, r.installerErr
+		},
+		readFile: func(path string) ([]byte, error) {
+			if err, ok := r.readErr[path]; ok {
+				return nil, err
+			}
+			if data, ok := r.files[path]; ok {
+				return []byte(data), nil
+			}
+			return nil, os.ErrNotExist
+		},
+		writeFile: func(path string, data []byte, perm os.FileMode) error {
+			if err, ok := r.writeErr[path]; ok {
 				return err
 			}
-			// Recorded, because for the anchor the rule is about the INODE, not the
-			// bytes: rewriting identical bytes still mints a new file and therefore a
-			// new TCC identity. "the content is unchanged" cannot see that; "no write
-			// happened" can.
-			f.calls = append(f.calls, "write "+p)
-			f.files[p] = string(d)
-			// A written file exists, and modTime is what the anchor gate reads to
-			// decide that. Without this the fake would report a file as absent
-			// immediately after writing it, and "never replace an existing anchor"
-			// could not be exercised at all.
-			f.modTimes[p] = time.Now()
+			r.writes = append(r.writes, fmt.Sprintf("%s %04o %d", path, perm, len(data)))
+			r.files[path] = string(data)
 			return nil
 		},
-		chmod: func(p string, _ os.FileMode) error {
-			if err, ok := f.runErr["chmod:"+p]; ok {
+		chmod: func(path string, perm os.FileMode) error {
+			if err, ok := r.chmodErr[path]; ok {
 				return err
 			}
-			f.calls = append(f.calls, "chmod "+p)
+			r.chmods = append(r.chmods, fmt.Sprintf("%s %04o", path, perm))
 			return nil
 		},
-		// Create-if-absent, like os.Link: an existing target is EEXIST, never a
-		// clobber. This fake would be worthless if it overwrote — the whole reason
-		// production uses link over rename is that the syscall itself refuses.
 		link: func(oldpath, newpath string) error {
-			if err, ok := f.runErr["link:"+newpath]; ok {
+			if r.linkErr != nil {
+				return r.linkErr
+			}
+			r.links = append(r.links, [2]string{oldpath, newpath})
+			r.files[newpath] = r.files[oldpath]
+			r.modTimes[newpath] = time.Unix(0, 0)
+			return nil
+		},
+		remove: func(path string) error {
+			if err, ok := r.removeErr[path]; ok {
 				return err
 			}
-			if _, exists := f.files[newpath]; exists {
-				return os.ErrExist
-			}
-			body, ok := f.files[oldpath]
-			if !ok {
-				return os.ErrNotExist
-			}
-			f.calls = append(f.calls, "link "+oldpath+" -> "+newpath)
-			f.files[newpath] = body
-			f.modTimes[newpath] = time.Now()
+			r.removes = append(r.removes, path)
+			delete(r.files, path)
+			delete(r.modTimes, path)
+			delete(r.created, path)
 			return nil
 		},
-		remove: func(p string) error {
-			delete(f.files, p)
-			delete(f.locked, p)
-			delete(f.modTimes, p)
-			return nil
-		},
-		createExcl: func(p string) (bool, error) {
-			if f.locked[p] {
+		createExcl: func(path string) (bool, error) {
+			if err, ok := r.createErr[path]; ok {
+				return false, err
+			}
+			if r.created[path] {
 				return false, nil
 			}
-			f.locked[p] = true
+			r.created[path] = true
+			r.createExclOn[path] = true
 			return true, nil
 		},
-		modTime: func(p string) (time.Time, error) {
-			t, ok := f.modTimes[p]
-			if !ok {
-				return time.Time{}, os.ErrNotExist
+		modTime: func(path string) (time.Time, error) {
+			if mt, ok := r.modTimes[path]; ok {
+				return mt, nil
 			}
-			return t, nil
+			return time.Time{}, os.ErrNotExist
 		},
-		birthTime: func(p string) (time.Time, error) {
-			t, ok := f.birthTimes[p]
-			if !ok {
-				return time.Time{}, os.ErrNotExist
+		birthTime: func(path string) (time.Time, error) {
+			if b, ok := r.births[path]; ok {
+				return b, nil
 			}
-			return t, nil
+			return time.Time{}, errNoBirthTime
 		},
-		spawnDetached: func(bin string, args []string, _ []string, _ string) error {
-			if err, ok := f.runErr["spawn"]; ok {
-				return err
+		spawnDetached: func(bin string, args, env []string, logPath string) error {
+			if r.spawnErr != nil {
+				return r.spawnErr
 			}
-			f.spawned = append(f.spawned, bin+" "+args[0])
+			r.spawns = append(r.spawns, spawnCall{bin: bin, args: args, env: env, logPath: logPath})
 			return nil
 		},
-		sleep: func(time.Duration) {},
+		sleep: func(d time.Duration) { r.sleeps = append(r.sleeps, d) },
 	}
 }
 
-func (f *fakeCutover) nextPID() string {
-	if len(f.pids) == 0 {
-		return "100"
-	}
-	if f.pidIdx >= len(f.pids) {
-		return f.pids[len(f.pids)-1]
-	}
-	v := f.pids[f.pidIdx]
-	f.pidIdx++
-	return v
+// bindCutoverOps points the package's ops constructor at rec for this test only.
+func bindCutoverOps(t *testing.T, rec *cutoverRec) {
+	t.Helper()
+	previous := newCutoverOps
+	newCutoverOps = func() cutoverOps { return rec.ops() }
+	t.Cleanup(func() { newCutoverOps = previous })
 }
 
-func testPaths() wardenPaths {
+// cutoverPaths is a wardenPaths whose every path lives under root.
+func cutoverPaths(root string) wardenPaths {
 	return wardenPaths{
-		root:       "/home/u/.officraft",
-		home:       "/home/u",
-		plistPath:  "/home/u/Library/LaunchAgents/com.officraft.ocwarden.plist",
-		logDir:     "/home/u/.officraft/warden/log",
-		binPath:    "/home/u/.officraft/warden/ocwarden",
-		anchorPath: "/home/u/.officraft/warden/officraft",
-		// In a home install this is the SAME path as anchorPath (the anchor is the
-		// running ocwarden's sibling), which is exactly why the embedded copy — not
-		// this one — is what actually lands on the machines this migration targets.
-		anchorSrc: "/home/u/.officraft/warden/officraft",
-		guiDomain: "gui/501",
-		ocBase:    "http://example.test",
-		ocToken:   "tok",
+		root:       root,
+		home:       root,
+		label:      "com.officraft.ocwarden",
+		ocBase:     "https://station.example",
+		ocToken:    jwtWardenOne,
+		logDir:     filepath.Join(root, "warden", "log"),
+		binPath:    filepath.Join(root, "warden", "ocwarden"),
+		anchorSrc:  filepath.Join(root, "src", "officraft"),
+		anchorPath: filepath.Join(root, "warden", "officraft"),
+		plistPath:  filepath.Join(root, "Library", "LaunchAgents", "com.officraft.ocwarden.plist"),
+		guiDomain:  "gui/501",
 	}
 }
 
-const legacyPlist = "<plist>LEGACY [ocwarden run]</plist>"
+func TestRealCutoverOps(t *testing.T) {
+	if os.Getenv("OCWARDEN_REFUSAL_CHILD") == "1" {
+		ops := realCutoverOps()
+		fmt.Printf("realCutoverOps handed back a seam (run==nil: %v)\n", ops.run == nil)
+		return
+	}
+	code, out := runRefusalChild(t, "TestRealCutoverOps")
+	if code != 1 {
+		t.Errorf("exit code = %d, want 1", code)
+	}
+	if !strings.Contains(out, refusalText("realCutoverOps")) {
+		t.Errorf("child output =\n%s\nwant it to contain\n%s", out, refusalText("realCutoverOps"))
+	}
+	if strings.Contains(out, "realCutoverOps handed back a seam") {
+		t.Error("a test binary was handed the real launchctl/filesystem wiring")
+	}
+}
+
+func TestSpawnDetachedProcess(t *testing.T) {
+	if os.Getenv("OCWARDEN_REFUSAL_CHILD") == "1" {
+		err := spawnDetachedProcess("/bin/echo", []string{"hello"}, nil, "")
+		fmt.Printf("spawnDetachedProcess started something (err: %v)\n", err)
+		return
+	}
+	code, out := runRefusalChild(t, "TestSpawnDetachedProcess")
+	if code != 1 {
+		t.Errorf("exit code = %d, want 1", code)
+	}
+	if !strings.Contains(out, refusalText("spawnDetachedProcess(/bin/echo)")) {
+		t.Errorf("child output =\n%s\nwant it to contain\n%s", out, refusalText("spawnDetachedProcess(/bin/echo)"))
+	}
+	if strings.Contains(out, "spawnDetachedProcess started something") {
+		t.Error("a test binary was allowed to detach a real process")
+	}
+}
+
+func TestRealRunExit(t *testing.T) {
+	if os.Getenv("OCWARDEN_REFUSAL_CHILD") == "1" {
+		code, err := realRunExit("/usr/bin/true")
+		fmt.Printf("realRunExit ran something (code %d, err %v)\n", code, err)
+		return
+	}
+	code, out := runRefusalChild(t, "TestRealRunExit")
+	if code != 1 {
+		t.Errorf("exit code = %d, want 1", code)
+	}
+	if !strings.Contains(out, refusalText("realRunExit(/usr/bin/true)")) {
+		t.Errorf("child output =\n%s\nwant it to contain\n%s", out, refusalText("realRunExit(/usr/bin/true)"))
+	}
+	if strings.Contains(out, "realRunExit ran something") {
+		t.Error("a test binary was allowed to run a real command")
+	}
+}
+
+func TestRunInstallerCombined(t *testing.T) {
+	if os.Getenv("OCWARDEN_REFUSAL_CHILD") == "1" {
+		out, err := runInstallerCombined("/usr/bin/true", "install", "--force")
+		fmt.Printf("runInstallerCombined ran an installer (out %q, err %v)\n", out, err)
+		return
+	}
+	code, out := runRefusalChild(t, "TestRunInstallerCombined")
+	if code != 1 {
+		t.Errorf("exit code = %d, want 1", code)
+	}
+	if !strings.Contains(out, refusalText("runInstallerCombined(/usr/bin/true)")) {
+		t.Errorf("child output =\n%s\nwant it to contain\n%s", out, refusalText("runInstallerCombined(/usr/bin/true)"))
+	}
+	if strings.Contains(out, "runInstallerCombined ran an installer") {
+		t.Error("a test binary was allowed to run a real install")
+	}
+}
+
+func TestPsExePath(t *testing.T) {
+	runner := fakeRunner{out: map[string]string{
+		"ps -p 4242 -o comm=": "/Users/eva/.officraft/warden/officraft\n",
+		"ps -p 1 -o comm=":    "  /sbin/launchd  ",
+	}}
+	exe := psExePath(runner)
+
+	for _, c := range []struct {
+		pid  int
+		want string
+	}{
+		{4242, "/Users/eva/.officraft/warden/officraft"},
+		{1, "/sbin/launchd"},
+	} {
+		got, err := exe(c.pid)
+		if err != nil || got != c.want {
+			t.Errorf("psExePath(%d) = (%q, %v), want (%q, nil)", c.pid, got, err, c.want)
+		}
+	}
+
+	got, err := exe(999999)
+	if got != "" || err == nil {
+		t.Errorf("psExePath for a pid ps cannot read = (%q, %v), want (\"\", an error)", got, err)
+	}
+}
 
 func TestDetectShape(t *testing.T) {
-	p := testPaths()
-	for _, tc := range []struct {
-		name string
-		exe  string
-		ppid int
-		want wardenShape
+	const anchor = "/Users/eva/.officraft/warden/officraft"
+	cases := []struct {
+		name   string
+		ppid   int
+		exe    string
+		exeErr error
+		want   wardenShape
 	}{
-		{"launchd runs the anchor", p.anchorPath, 90, shapeAnchor},
-		{"launchd runs ocwarden directly", "/sbin/launchd", 1, shapeLegacy},
-		{"started from a shell", "/bin/zsh", 4242, shapeUnknown},
-		{"parent already gone", "", 4242, shapeUnknown},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			f := newFakeCutover()
-			f.files["__ppid_exe__"] = tc.exe
-			if got := detectShape(f.ops(), tc.ppid, p.anchorPath); got != tc.want {
-				t.Fatalf("detectShape = %q, want %q", got, tc.want)
-			}
-		})
+		{"the parent IS the anchor", 4242, anchor, nil, shapeAnchor},
+		{"pid 1 is the anchor itself on a converted machine", 1, anchor, nil, shapeAnchor},
+		{"launchd is the direct parent", 1, "/sbin/launchd", nil, shapeLegacy},
+		{"a launchd by any path is still launchd", 77, "/usr/libexec/launchd", nil, shapeLegacy},
+		{"pid 1 whatever it reports as", 1, "/some/other/binary", nil, shapeLegacy},
+		{"a shell parent is no verdict at all", 900, "/bin/zsh", nil, shapeUnknown},
+		{"a test binary parent is no verdict", 900, "/tmp/go-build/ocwarden.test", nil, shapeUnknown},
+		{"an unreadable parent is no verdict", 900, "", errors.New("ps: no such process"), shapeUnknown},
+		{"an empty parent path is no verdict", 900, "", nil, shapeUnknown},
+		{"an unreadable pid 1 is not silently legacy", 1, "", errors.New("ps failed"), shapeUnknown},
+		{"a same-named anchor elsewhere on disk is not this anchor", 4242, "/tmp/officraft", nil, shapeUnknown},
 	}
-}
-
-// Distinct bodies so an assertion can tell WHICH anchor is on the machine — "a
-// file exists at anchorPath" cannot distinguish "we wrote ours over the
-// operator's" from "we left theirs alone", and that is the whole never-replace
-// rule.
-const (
-	buildAnchorBytes    = "<anchor bytes: the copy embedded in this ocwarden>"
-	operatorAnchorBytes = "<anchor bytes: the one already on this machine>"
-)
-
-// withEmbeddedAnchor rebinds the anchor compiled into ocwarden for one test.
-//
-// 🔴 EVERY test that depends on the embedded copy MUST bind it, in BOTH
-// directions — present AND absent. Whether the real embeddedAnchor() is empty is
-// a property of the WORKING DIRECTORY, not of the source: cli/ocwarden/anchordist
-// is gitignored and `bin/ci.sh` deliberately stages the embed assets BEFORE it
-// runs `go test`, so under CI the embedded anchor is NON-empty. An earlier
-// revision of this file assumed "the test binary's anchordist holds only
-// .gitkeep" and left the no-anchor case unbound; that test passes on a fresh
-// checkout, goes red under CI, and then goes red on any dev machine that has
-// ever run ci.sh — with `git status` showing nothing to explain why.
-func withEmbeddedAnchor(t *testing.T, body string) {
-	t.Helper()
-	t.Cleanup(swapEmbeddedAnchor([]byte(body)))
-}
-
-// withoutEmbeddedAnchor is the other half, and it is never optional: see above
-// for why "just don't stage one" is not a way to get an empty embed.
-func withoutEmbeddedAnchor(t *testing.T) {
-	t.Helper()
-	t.Cleanup(swapEmbeddedAnchor(nil))
-}
-
-// anchorAlreadyOnDisk models a machine that already carries an anchor. modTime is
-// the existence oracle ensureAnchorPresent reads, so both halves are required.
-func anchorAlreadyOnDisk(f *fakeCutover, p wardenPaths, body string) {
-	f.files[p.anchorPath] = body
-	f.modTimes[p.anchorPath] = time.Now()
-}
-
-// ⚠️ THE ANCHOR AND PREFLIGHT GATES MUST BOTH PASS IN EVERY GATE TEST BELOW, AND
-// THAT IS NOT BOILERPLATE.
-//
-// maybeStartAnchorCutover refuses in a fixed order: shape, then sentinel, then
-// anchor-present, then preflight, then lock. newFakeCutover leaves exitCodes
-// empty, so runExit answers 0 — and anchorPreflight demands exactly 2. It also
-// leaves the machine with no anchor on disk. Without BOTH lines below, an earlier
-// gate refuses first and `len(f.spawned) == 0` holds for a reason that has
-// nothing to do with the gate the test is named after.
-//
-// That is not hypothetical: these three tests shipped without the preflight line,
-// and independent review deleted the shape guard, the sentinel guard and the lock
-// guard OUTRIGHT, one at a time, with the whole suite staying green each time.
-// The anchor gate added by the preflight-ordering fix is a second way to make the
-// same tests vacuous, so it is satisfied in the same helper rather than left for
-// each test to remember.
-func passingPreflight(t *testing.T, f *fakeCutover, p wardenPaths) {
-	t.Helper()
-	withEmbeddedAnchor(t, buildAnchorBytes)
-	f.exitCodes[p.anchorPath+" --preflight"] = 2
-	// The staged copy is probed under its own name before it is promoted, so a
-	// machine with no anchor answers this argv, not the one above.
-	f.exitCodes[p.anchorPath+anchorProbeSuffix+" --preflight"] = 2
-}
-
-// A machine whose shape cannot be established must be left alone. Guessing
-// "probably legacy" would convert machines nobody has evidence about.
-func TestUnknownShapeStartsNoConversion(t *testing.T) {
-	p := testPaths()
-	f := newFakeCutover()
-	f.files["__ppid_exe__"] = "/bin/zsh"
-	passingPreflight(t, f, p)
-	restore := swapCutoverOps(t, f)
-	defer restore()
-
-	maybeStartAnchorCutover(p, 4242, func(string, ...any) {})
-	if len(f.spawned) != 0 {
-		t.Fatalf("converter was started for an unknown shape: %v", f.spawned)
-	}
-}
-
-// A machine ALREADY ON THE ANCHOR SHAPE must not convert. This case had no test
-// at all, and it is the one every healthy machine in the fleet is in after the
-// migration: converting again would boot out a working job, re-run install, and
-// put a machine that had nothing wrong with it through the one window where it
-// can end up with no warden.
-func TestAnchorShapeStartsNoConversion(t *testing.T) {
-	p := testPaths()
-	f := newFakeCutover()
-	f.files["__ppid_exe__"] = p.anchorPath
-	passingPreflight(t, f, p)
-	restore := swapCutoverOps(t, f)
-	defer restore()
-
-	maybeStartAnchorCutover(p, 90, func(string, ...any) {})
-	if len(f.spawned) != 0 {
-		t.Fatalf("an already-converted machine started a second conversion: %v", f.spawned)
-	}
-	// Nothing may be touched at all — not even the lock. A converted machine that
-	// leaves a lockfile behind blocks the retry of a machine that genuinely needs
-	// one only if they share a disk, but it also means this path did work it had
-	// no business doing.
-	if len(f.locked) != 0 {
-		t.Fatalf("an already-converted machine took the conversion lock: %v", f.locked)
-	}
-}
-
-// The sentinel is the only thing standing between a machine that rejected the
-// conversion and an every-start boot-loop through the same failure.
-func TestRolledBackMachineIsNotRetried(t *testing.T) {
-	p := testPaths()
-	f := newFakeCutover()
-	f.files["__ppid_exe__"] = "/sbin/launchd"
-	f.files[p.root+"/warden/"+cutoverFailedName] = "previous attempt rolled back"
-	passingPreflight(t, f, p)
-	restore := swapCutoverOps(t, f)
-	defer restore()
-
-	maybeStartAnchorCutover(p, 1, func(string, ...any) {})
-	if len(f.spawned) != 0 {
-		t.Fatalf("converter started despite the failure sentinel: %v", f.spawned)
-	}
-}
-
-// Two wardens must not convert at once. The second one finds the lock held.
-func TestHeldLockStartsNoSecondConversion(t *testing.T) {
-	p := testPaths()
-	f := newFakeCutover()
-	f.files["__ppid_exe__"] = "/sbin/launchd"
-	f.locked[p.root+"/warden/"+cutoverLockName] = true
-	f.modTimes[p.root+"/warden/"+cutoverLockName] = time.Now()
-	passingPreflight(t, f, p)
-	restore := swapCutoverOps(t, f)
-	defer restore()
-
-	maybeStartAnchorCutover(p, 1, func(string, ...any) {})
-	if len(f.spawned) != 0 {
-		t.Fatalf("a second converter was started while the lock was held: %v", f.spawned)
-	}
-}
-
-func TestSuccessfulInstallLeavesTheBackupAndNoSentinel(t *testing.T) {
-	p := testPaths()
-	f := newFakeCutover()
-	f.files[p.plistPath] = legacyPlist
-
-	if rc := runCutover(f.ops(), p, p.binPath, func(string, ...any) {}); rc != 0 {
-		t.Fatalf("runCutover = %d, want 0", rc)
-	}
-	if got := f.files[p.plistPath+plistPrevSuffix]; got != legacyPlist {
-		t.Fatalf("backup = %q, want the pre-conversion plist", got)
-	}
-	if _, ok := f.files[p.root+"/warden/"+cutoverFailedName]; ok {
-		t.Fatal("a successful conversion must not write the failure sentinel")
-	}
-}
-
-// The four post-writePlist failure paths. The original design rolled back only on
-// verify; lint/bootstrap/kickstart are exactly the cases it could not see, and a
-// lint failure is the worst of them (nothing looks wrong until the next reboot).
-func TestEveryPostWritePlistFailureRollsBackToTheOldShape(t *testing.T) {
-	p := testPaths()
-	installArgv := p.binPath + " install --force"
-	for _, tc := range []struct {
-		name  string
-		cause string
-	}{
-		{"plutil lint rejects the rendered plist", "plutil -lint failed"},
-		{"launchctl bootstrap fails", "Bootstrap failed: 5"},
-		{"launchctl kickstart fails", "kickstart failed"},
-		{"verify sees a crash loop", "CRASH-LOOPING"},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			f := newFakeCutover()
-			f.files[p.plistPath] = legacyPlist
-			f.runErr[installArgv] = errors.New(tc.cause)
-			// The installer got far enough to overwrite the plist — that is the
-			// state every one of these failures leaves behind.
-			f.files[p.plistPath] = "<plist>ANCHOR</plist>"
-			f.files[p.plistPath+plistPrevSuffix] = ""
-			f.files[p.plistPath] = legacyPlist
-
-			ops := f.ops()
-			// Simulate install having overwritten the plist before it failed.
-			// The hook has to sit on the runner the install call ACTUALLY uses;
-			// hooking the other one leaves the plist untouched and every
-			// assertion below then holds without the rollback ever running.
-			// `overwritten` is what makes that mistake fail instead of pass —
-			// a comment cannot, and this test was silently vacuous for exactly
-			// one commit before the flag existed.
-			overwritten := false
-			origRun := ops.runInstaller
-			ops.runInstaller = func(name string, args ...string) (string, error) {
-				key := name
-				for _, a := range args {
-					key += " " + a
-				}
-				if key == installArgv {
-					f.files[p.plistPath] = "<plist>ANCHOR</plist>"
-					overwritten = true
-				}
-				return origRun(name, args...)
-			}
-
-			if rc := runCutover(ops, p, p.binPath, func(string, ...any) {}); rc != 0 {
-				t.Fatalf("runCutover = %d, want 0 (a successful rollback is the contracted outcome)", rc)
-			}
-			if !overwritten {
-				t.Fatal("the overwrite hook never fired — this test is not exercising a rollback at all (it is hooked to the wrong runner)")
-			}
-			// The assertion is the CONTENT, not the existence of a .prev file: a
-			// backup that is never put back is not a rollback.
-			if got := f.files[p.plistPath]; got != legacyPlist {
-				t.Fatalf("plist after rollback = %q, want the pre-conversion shape %q", got, legacyPlist)
-			}
-			assertCalled(t, f.calls, "launchctl bootstrap "+p.guiDomain+" "+p.plistPath)
-			if _, ok := f.files[p.root+"/warden/"+cutoverFailedName]; !ok {
-				t.Fatal("a rolled-back machine must carry the sentinel, or it converts again on the next start")
-			}
-		})
-	}
-}
-
-// A rollback that cannot bring the old shape back is the ONE state a human has to
-// be told about, so it is the only non-zero exit.
-func TestFailedRollbackReportsNonZero(t *testing.T) {
-	p := testPaths()
-	f := newFakeCutover()
-	f.files[p.plistPath] = legacyPlist
-	f.runErr[p.binPath+" install --force"] = errors.New("bootstrap failed")
-	f.runErr["launchctl bootstrap "+p.guiDomain+" "+p.plistPath] = errors.New("Bootstrap failed: 5")
-
-	ops := f.ops()
-	overwritten := false
-	origRun := ops.runInstaller
-	ops.runInstaller = func(name string, args ...string) (string, error) {
-		f.files[p.plistPath] = "<plist>ANCHOR</plist>"
-		overwritten = true
-		return origRun(name, args...)
-	}
-
-	defer func() {
-		if !overwritten {
-			t.Error("the overwrite hook never fired — nothing was rolled back, so this test proves nothing")
+	for _, c := range cases {
+		rec := newCutoverRec()
+		if c.exeErr != nil {
+			rec.ppidExeErr[c.ppid] = c.exeErr
+		} else {
+			rec.ppidExe[c.ppid] = c.exe
 		}
-	}()
-	if rc := runCutover(ops, p, p.binPath, func(string, ...any) {}); rc == 0 {
-		t.Fatal("a rollback that did not restore a live warden must exit non-zero")
-	}
-	if _, ok := f.files[p.root+"/warden/"+cutoverFailedName]; !ok {
-		t.Fatal("a failed rollback must still block further attempts")
+		if got := detectShape(rec.ops(), c.ppid, anchor); got != c.want {
+			t.Errorf("%s: detectShape = %q, want %q", c.name, got, c.want)
+		}
 	}
 }
 
-// Without a readable current plist there is nothing to roll back TO, so the
-// conversion must refuse rather than proceed blind.
-func TestMissingCurrentPlistAbortsBeforeAnyInstall(t *testing.T) {
-	p := testPaths()
-	f := newFakeCutover()
+func TestNewShapeReporter(t *testing.T) {
+	const anchor = "/Users/eva/.officraft/warden/officraft"
+	rec := newCutoverRec()
+	rec.ppidExe[4242] = "/sbin/launchd"
+	bindCutoverOps(t, rec)
 
-	if rc := runCutover(f.ops(), p, p.binPath, func(string, ...any) {}); rc == 0 {
-		t.Fatal("want a refusal when the current plist cannot be read")
+	report := newShapeReporter(anchor, 4242)
+	if got := report(); got != "legacy" {
+		t.Errorf("first sample = %q, want %q", got, "legacy")
 	}
-	assertNotCalled(t, f.calls, p.binPath+" install --force")
+
+	rec.ppidExe[4242] = anchor
+	if got := report(); got != "anchor" {
+		t.Errorf("sample after the conversion = %q, want %q — the shape is re-read every cycle", got, "anchor")
+	}
+
+	blind := newShapeReporter("", 4242)
+	if got := blind(); got != "unknown" {
+		t.Errorf("a reporter with no anchor path = %q, want %q", got, "unknown")
+	}
+	if runs := len(rec.runs); runs != 0 {
+		t.Errorf("the reporter ran %d commands of its own, want 0", runs)
+	}
+}
+
+func TestEnsureAnchorPresent(t *testing.T) {
+	root := "/Users/eva/.officraft"
+	p := cutoverPaths(root)
+	probe := p.anchorPath + ".probe"
+
+	t.Run("an anchor already on disk is left exactly as it is", func(t *testing.T) {
+		rec := newCutoverRec()
+		rec.modTimes[p.anchorPath] = time.Unix(1700000000, 0)
+		rec.files[p.anchorPath] = "the identity"
+		var log []string
+
+		if err := ensureAnchorPresent(rec.ops(), p, func(f string, a ...any) { log = append(log, fmt.Sprintf(f, a...)) }); err != nil {
+			t.Fatalf("ensureAnchorPresent = %v, want nil", err)
+		}
+		if len(rec.writes) != 0 || len(rec.links) != 0 || len(rec.removes) != 0 || len(rec.runExits) != 0 {
+			t.Errorf("an existing anchor was touched: writes=%v links=%v removes=%v preflights=%v",
+				rec.writes, rec.links, rec.removes, rec.runExits)
+		}
+		if rec.files[p.anchorPath] != "the identity" {
+			t.Errorf("anchor bytes = %q, want them untouched", rec.files[p.anchorPath])
+		}
+		if len(log) != 0 {
+			t.Errorf("log = %#v, want silence", log)
+		}
+	})
+
+	t.Run("a machine with no anchor gets one staged, probed and promoted", func(t *testing.T) {
+		rec := newCutoverRec()
+		rec.files[p.anchorSrc] = "anchor-bytes"
+		rec.runExitCode[argvKey(probe, "--preflight")] = 2
+		var log []string
+
+		if err := ensureAnchorPresent(rec.ops(), p, func(f string, a ...any) { log = append(log, fmt.Sprintf(f, a...)) }); err != nil {
+			t.Fatalf("ensureAnchorPresent = %v, want nil", err)
+		}
+		if want := []string{probe + " 0755 12"}; !reflect.DeepEqual(rec.writes, want) {
+			t.Errorf("writes = %v, want %v", rec.writes, want)
+		}
+		if want := []string{probe + " 0755"}; !reflect.DeepEqual(rec.chmods, want) {
+			t.Errorf("chmods = %v, want %v", rec.chmods, want)
+		}
+		if want := []string{argvKey(probe, "--preflight")}; !reflect.DeepEqual(rec.runExits, want) {
+			t.Errorf("preflights = %v, want %v — the probe is what gets proven", rec.runExits, want)
+		}
+		if want := [][2]string{{probe, p.anchorPath}}; !reflect.DeepEqual(rec.links, want) {
+			t.Errorf("links = %v, want %v", rec.links, want)
+		}
+		if want := []string{probe}; !reflect.DeepEqual(rec.removes, want) {
+			t.Errorf("removes = %v, want %v — only the probe is cleaned up", rec.removes, want)
+		}
+		if rec.files[p.anchorPath] != "anchor-bytes" {
+			t.Errorf("promoted anchor = %q, want %q", rec.files[p.anchorPath], "anchor-bytes")
+		}
+		wantLog := []string{fmt.Sprintf(
+			"[ocwarden] anchor cutover: no anchor on this machine; staged, probed and promoted %s (12 bytes)", p.anchorPath)}
+		if !reflect.DeepEqual(log, wantLog) {
+			t.Errorf("log = %#v, want %#v", log, wantLog)
+		}
+	})
+
+	t.Run("an unreadable source falls back to the embedded anchor", func(t *testing.T) {
+		rec := newCutoverRec()
+		rec.runExitCode[argvKey(probe, "--preflight")] = 2
+		previous := embeddedAnchor
+		embeddedAnchor = func() []byte { return []byte("embedded-anchor") }
+		t.Cleanup(func() { embeddedAnchor = previous })
+
+		if err := ensureAnchorPresent(rec.ops(), p, func(string, ...any) {}); err != nil {
+			t.Fatalf("ensureAnchorPresent = %v, want nil", err)
+		}
+		if rec.files[p.anchorPath] != "embedded-anchor" {
+			t.Errorf("promoted anchor = %q, want the embedded bytes", rec.files[p.anchorPath])
+		}
+	})
+
+	t.Run("an empty source file is not a usable anchor either", func(t *testing.T) {
+		rec := newCutoverRec()
+		rec.files[p.anchorSrc] = ""
+		rec.runExitCode[argvKey(probe, "--preflight")] = 2
+		previous := embeddedAnchor
+		embeddedAnchor = func() []byte { return []byte("embedded-anchor") }
+		t.Cleanup(func() { embeddedAnchor = previous })
+
+		if err := ensureAnchorPresent(rec.ops(), p, func(string, ...any) {}); err != nil {
+			t.Fatalf("ensureAnchorPresent = %v, want nil", err)
+		}
+		if rec.files[p.anchorPath] != "embedded-anchor" {
+			t.Errorf("promoted anchor = %q, want the embedded bytes", rec.files[p.anchorPath])
+		}
+	})
+
+	t.Run("a build with no anchor anywhere refuses without touching the disk", func(t *testing.T) {
+		rec := newCutoverRec()
+		previous := embeddedAnchor
+		embeddedAnchor = func() []byte { return nil }
+		t.Cleanup(func() { embeddedAnchor = previous })
+
+		err := ensureAnchorPresent(rec.ops(), p, func(string, ...any) {})
+
+		want := fmt.Sprintf("no anchor at %s, no usable source at %s, and this ocwarden carries no embedded anchor",
+			p.anchorPath, p.anchorSrc)
+		if err == nil || err.Error() != want {
+			t.Errorf("err = %v, want %q", err, want)
+		}
+		if len(rec.writes) != 0 || len(rec.links) != 0 {
+			t.Errorf("writes=%v links=%v, want nothing staged", rec.writes, rec.links)
+		}
+	})
+
+	t.Run("every staging failure leaves no anchor and cleans the probe up", func(t *testing.T) {
+		cases := []struct {
+			name string
+			mut  func(*cutoverRec)
+			want string
+		}{
+			{"the probe cannot be written",
+				func(r *cutoverRec) { r.writeErr[probe] = errors.New("read-only file system") },
+				fmt.Sprintf("stage anchor at %s: read-only file system", probe)},
+			{"the probe cannot be made executable",
+				func(r *cutoverRec) { r.chmodErr[probe] = errors.New("operation not permitted") },
+				fmt.Sprintf("make the staged anchor %s executable: operation not permitted", probe)},
+			{"the probe does not pass the preflight",
+				func(r *cutoverRec) { r.runExitCode[argvKey(probe, "--preflight")] = 0 },
+				fmt.Sprintf("the anchor this ocwarden would deploy does not satisfy the preflight: "+
+					"anchor preflight: %s exited 0, want 2 (a build whose anchor does not reject arguments is not the anchor this expects)", probe)},
+			{"the probe cannot be executed at all",
+				func(r *cutoverRec) { r.runExitErr[argvKey(probe, "--preflight")] = errors.New("permission denied") },
+				fmt.Sprintf("the anchor this ocwarden would deploy does not satisfy the preflight: "+
+					"anchor preflight: cannot execute %s: permission denied", probe)},
+			{"the probe cannot be promoted",
+				func(r *cutoverRec) {
+					r.runExitCode[argvKey(probe, "--preflight")] = 2
+					r.linkErr = errors.New("cross-device link")
+				},
+				fmt.Sprintf("promote the staged anchor to %s: cross-device link", p.anchorPath)},
+		}
+		for _, c := range cases {
+			rec := newCutoverRec()
+			rec.files[p.anchorSrc] = "anchor-bytes"
+			c.mut(rec)
+
+			err := ensureAnchorPresent(rec.ops(), p, func(string, ...any) {})
+
+			if err == nil || err.Error() != c.want {
+				t.Errorf("%s: err = %v, want %q", c.name, err, c.want)
+			}
+			if _, promoted := rec.files[p.anchorPath]; promoted {
+				t.Errorf("%s: a failed staging still left an anchor behind", c.name)
+			}
+			if want := []string{probe}; !reflect.DeepEqual(rec.removes, want) {
+				t.Errorf("%s: removes = %v, want %v", c.name, rec.removes, want)
+			}
+		}
+	})
+
+	t.Run("an anchor that appeared mid-staging is kept, not replaced", func(t *testing.T) {
+		rec := newCutoverRec()
+		rec.files[p.anchorSrc] = "anchor-bytes"
+		rec.runExitCode[argvKey(probe, "--preflight")] = 2
+		rec.linkErr = os.ErrExist
+		var log []string
+
+		if err := ensureAnchorPresent(rec.ops(), p, func(f string, a ...any) { log = append(log, fmt.Sprintf(f, a...)) }); err != nil {
+			t.Fatalf("ensureAnchorPresent = %v, want nil", err)
+		}
+		if len(rec.links) != 0 {
+			t.Errorf("links = %v, want none to have taken", rec.links)
+		}
+		wantLog := []string{fmt.Sprintf(
+			"[ocwarden] anchor cutover: %s appeared while this run was staging one; keeping the existing anchor", p.anchorPath)}
+		if !reflect.DeepEqual(log, wantLog) {
+			t.Errorf("log = %#v, want %#v", log, wantLog)
+		}
+		if want := []string{probe}; !reflect.DeepEqual(rec.removes, want) {
+			t.Errorf("removes = %v, want %v", rec.removes, want)
+		}
+	})
 }
 
 func TestAnchorPreflight(t *testing.T) {
-	p := testPaths()
-	for _, tc := range []struct {
-		name    string
-		code    int
-		runErr  error
-		wantErr bool
-	}{
-		{name: "anchor rejects the probe argument with exit 2", code: 2},
-		{name: "anchor is missing or not executable", runErr: errors.New("no such file"), wantErr: true},
-		{name: "anchor exits 0 for an argument it must reject", code: 0, wantErr: true},
-		{name: "anchor dies on some other code", code: 126, wantErr: true},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			f := newFakeCutover()
-			key := p.anchorPath + " --preflight"
-			f.exitCodes[key] = tc.code
-			if tc.runErr != nil {
-				f.exitErrs[key] = tc.runErr
-			}
-			err := anchorPreflight(f.ops(), p.anchorPath)
-			if (err != nil) != tc.wantErr {
-				t.Fatalf("anchorPreflight err = %v, wantErr = %v", err, tc.wantErr)
-			}
-		})
-	}
-}
+	const anchor = "/Users/eva/.officraft/warden/officraft"
+	t.Run("exit 2 is the anchor answering, and nothing else happens", func(t *testing.T) {
+		rec := newCutoverRec()
+		rec.runExitCode[argvKey(anchor, "--preflight")] = 2
 
-// A failed preflight means the anchor cannot be launchd's job leader, so nothing
-// may be converted — and nothing may be spawned either.
-//
-// The machine is given a REAL anchor here (a quarantined one, which is what an
-// unexecutable-but-present anchor models). Without it the run refuses at the
-// anchor gate instead and this test would pass without the preflight existing at
-// all — hence the assertCalled below, which is the only thing proving the refusal
-// came from the gate this test is named after.
-func TestPreflightFailureStartsNoConversion(t *testing.T) {
-	p := testPaths()
-	f := newFakeCutover()
-	f.files["__ppid_exe__"] = "/sbin/launchd"
-	anchorAlreadyOnDisk(f, p, operatorAnchorBytes)
-	f.exitErrs[p.anchorPath+" --preflight"] = errors.New("cannot execute")
-	restore := swapCutoverOps(t, f)
-	defer restore()
+		if err := anchorPreflight(rec.ops(), anchor); err != nil {
+			t.Fatalf("anchorPreflight = %v, want nil", err)
+		}
+		if want := []string{argvKey(anchor, "--preflight")}; !reflect.DeepEqual(rec.runExits, want) {
+			t.Errorf("ran %v, want %v", rec.runExits, want)
+		}
+		if len(rec.runs) != 0 || len(rec.writes) != 0 || len(rec.spawns) != 0 {
+			t.Errorf("the preflight had side effects: runs=%v writes=%v spawns=%v", rec.runs, rec.writes, rec.spawns)
+		}
+	})
 
-	maybeStartAnchorCutover(p, 1, func(string, ...any) {})
-	assertCalled(t, f.calls, p.anchorPath+" --preflight")
-	if len(f.spawned) != 0 {
-		t.Fatalf("converter started despite a failed preflight: %v", f.spawned)
-	}
-}
-
-// 🔴 THE POPULATION TEST. This is the machine the whole migration exists for: a
-// legacy plist and NO anchor file, because it was installed before the anchor
-// shape shipped and self-update never deploys one.
-//
-// It is asserted as an OUTCOME (the converter actually started), not as "the gate
-// returned true": the shipped bug was precisely a gate that reported a truthful
-// refusal forever, so a test that stops at the gate's own verdict would have
-// passed against the broken build too.
-func TestMachineWithNoAnchorFileStillConverts(t *testing.T) {
-	p := testPaths()
-	f := newFakeCutover()
-	f.files["__ppid_exe__"] = "/sbin/launchd"
-	withEmbeddedAnchor(t, buildAnchorBytes)
-	f.exitCodes[p.anchorPath+" --preflight"] = 2
-	f.exitCodes[p.anchorPath+anchorProbeSuffix+" --preflight"] = 2
-	restore := swapCutoverOps(t, f)
-	defer restore()
-
-	// Precondition, stated rather than assumed: nothing is on this machine yet.
-	if _, ok := f.files[p.anchorPath]; ok {
-		t.Fatal("fixture error: this test must start from a machine with NO anchor")
-	}
-
-	maybeStartAnchorCutover(p, 1, func(string, ...any) {})
-
-	want := p.binPath + " " + cutoverSubcmd
-	if len(f.spawned) != 1 || f.spawned[0] != want {
-		t.Fatalf("spawned = %v, want exactly [%q] — an anchorless machine must still convert", f.spawned, want)
-	}
-	if got := f.files[p.anchorPath]; got != buildAnchorBytes {
-		t.Fatalf("anchor on disk = %q, want the embedded copy %q", got, buildAnchorBytes)
-	}
-	assertNoStagedAnchorLeftBehind(t, f, p)
-}
-
-// The staged copy is scaffolding: it must not survive the function on ANY path,
-// success included. A leftover .probe is a second, unmanaged copy of the TCC
-// anchor sitting next to the real one.
-func TestStagedAnchorNeverSurvivesTheRun(t *testing.T) {
-	p := testPaths()
-	probeArgv := p.anchorPath + anchorProbeSuffix + " --preflight"
-	for _, tc := range []struct {
-		name   string
-		break_ func(f *fakeCutover)
-	}{
-		{"the conversion succeeds", func(f *fakeCutover) {}},
-		{"staging the bytes fails", func(f *fakeCutover) {
-			f.runErr["write:"+p.anchorPath+anchorProbeSuffix] = errors.New("no space left on device")
-		}},
-		{"chmod on the staged copy fails", func(f *fakeCutover) {
-			f.runErr["chmod:"+p.anchorPath+anchorProbeSuffix] = errors.New("operation not permitted")
-		}},
-		{"the staged copy fails its own probe", func(f *fakeCutover) {
-			f.exitErrs[probeArgv] = errors.New("killed by Gatekeeper")
-		}},
-		{"promotion fails", func(f *fakeCutover) {
-			f.runErr["link:"+p.anchorPath] = errors.New("cross-device link")
-		}},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			f := newFakeCutover()
-			f.files["__ppid_exe__"] = "/sbin/launchd"
-			withEmbeddedAnchor(t, buildAnchorBytes)
-			f.exitCodes[p.anchorPath+" --preflight"] = 2
-			f.exitCodes[probeArgv] = 2
-			tc.break_(f)
-			restore := swapCutoverOps(t, f)
-			defer restore()
-
-			maybeStartAnchorCutover(p, 1, func(string, ...any) {})
-			assertNoStagedAnchorLeftBehind(t, f, p)
-		})
-	}
-}
-
-// 🔴 THE BRICKING REGRESSIONS. Every one of these failures used to be able to
-// leave a file AT p.anchorPath that is not a working anchor — a truncated write,
-// or bytes whose chmod never landed. The next boot would then find that file,
-// short-circuit, fail the preflight against it, and skip; and because
-// copyAnchorIfAbsent preserves whatever it finds rather than replacing it, the
-// broken copy becomes this machine's identity PERMANENTLY. Indistinguishable
-// from a machine that converted cleanly, and with no alert.
-//
-// stage->probe->promote makes it structural: the damage lands on the staging
-// path, and p.anchorPath is only ever created by a link from bytes that already
-// answered the preflight correctly.
-func TestNoFailureCanLeaveABrokenAnchorToBeAdopted(t *testing.T) {
-	p := testPaths()
-	probeArgv := p.anchorPath + anchorProbeSuffix + " --preflight"
-	for _, tc := range []struct {
-		name   string
-		break_ func(f *fakeCutover)
-	}{
-		{"the write is truncated by ENOSPC", func(f *fakeCutover) {
-			f.runErr["write:"+p.anchorPath+anchorProbeSuffix] = errors.New("no space left on device")
-		}},
-		{"chmod never lands, so the bytes are not executable", func(f *fakeCutover) {
-			f.runErr["chmod:"+p.anchorPath+anchorProbeSuffix] = errors.New("operation not permitted")
-		}},
-		{"the bytes are quarantined and cannot exec", func(f *fakeCutover) {
-			f.exitErrs[probeArgv] = errors.New("killed by Gatekeeper")
-		}},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			f := newFakeCutover()
-			f.files["__ppid_exe__"] = "/sbin/launchd"
-			withEmbeddedAnchor(t, buildAnchorBytes)
-			f.exitCodes[p.anchorPath+" --preflight"] = 2
-			f.exitCodes[probeArgv] = 2
-			tc.break_(f)
-			restore := swapCutoverOps(t, f)
-			defer restore()
-
-			maybeStartAnchorCutover(p, 1, func(string, ...any) {})
-
-			if body, ok := f.files[p.anchorPath]; ok {
-				t.Fatalf("a failed run left %q at the anchor path; the next boot adopts it as this machine's identity forever", body)
-			}
-			assertNotCalled(t, f.calls, "write "+p.anchorPath)
-			if len(f.spawned) != 0 {
-				t.Fatalf("converter started despite an anchor that never became usable: %v", f.spawned)
-			}
-		})
-	}
-}
-
-// The other side of the gate: with no anchor on disk, no usable source and no
-// embedded copy, there is nothing to prove anything about — so the conversion
-// must still refuse. Making the anchorless machine convertible must not turn into
-// "convert on faith".
-func TestNoObtainableAnchorStartsNoConversion(t *testing.T) {
-	p := testPaths()
-	f := newFakeCutover()
-	f.files["__ppid_exe__"] = "/sbin/launchd"
-	// Bound explicitly, NOT left to whatever anchordist/ happens to hold — under
-	// ci.sh the embed is staged and non-empty. See withEmbeddedAnchor.
-	withoutEmbeddedAnchor(t)
-	f.exitCodes[p.anchorPath+" --preflight"] = 2
-	f.exitCodes[p.anchorPath+anchorProbeSuffix+" --preflight"] = 2
-	restore := swapCutoverOps(t, f)
-	defer restore()
-
-	maybeStartAnchorCutover(p, 1, func(string, ...any) {})
-	if len(f.spawned) != 0 {
-		t.Fatalf("converter started with no anchor obtainable anywhere: %v", f.spawned)
-	}
-	if _, ok := f.files[p.anchorPath]; ok {
-		t.Fatal("an empty anchor source must never be written to disk")
-	}
-	assertNoStagedAnchorLeftBehind(t, f, p)
-}
-
-// TCC identifies the anchor by its BYTES, and copyAnchorIfAbsent preserves
-// whatever it finds rather than replacing it. Rewriting an existing anchor would
-// change the inode and therefore the machine's identity — the exact thing the
-// anchor shape exists to keep stable.
-func TestExistingAnchorIsNeverReplaced(t *testing.T) {
-	p := testPaths()
-	f := newFakeCutover()
-	f.files["__ppid_exe__"] = "/sbin/launchd"
-	anchorAlreadyOnDisk(f, p, operatorAnchorBytes)
-	withEmbeddedAnchor(t, buildAnchorBytes)
-	f.exitCodes[p.anchorPath+" --preflight"] = 2
-	// Deliberately answered too, so that removing the fast-path exists-check does
-	// NOT make this test red by accident: with the probe able to pass, the only
-	// thing still protecting the existing anchor is the create-if-absent promotion.
-	// That is the property under test, and it must hold structurally.
-	f.exitCodes[p.anchorPath+anchorProbeSuffix+" --preflight"] = 2
-	restore := swapCutoverOps(t, f)
-	defer restore()
-
-	maybeStartAnchorCutover(p, 1, func(string, ...any) {})
-	if got := f.files[p.anchorPath]; got != operatorAnchorBytes {
-		t.Fatalf("anchor on disk = %q, want the pre-existing %q — the machine's TCC identity was rewritten", got, operatorAnchorBytes)
-	}
-	// 🔴 The load-bearing assertion is NO WRITE, not "same content". In a home
-	// install anchorSrc IS anchorPath, so a version that dropped the exists-check
-	// would read the machine's own anchor and write those exact bytes back — byte
-	// comparison stays green while the inode, and therefore the TCC identity,
-	// changes underneath it.
-	assertNotCalled(t, f.calls, "write "+p.anchorPath)
-	assertNotCalled(t, f.calls, "link "+p.anchorPath+anchorProbeSuffix+" -> "+p.anchorPath)
-	if len(f.spawned) != 1 {
-		t.Fatalf("spawned = %v, want the conversion to proceed on an already-anchored machine", f.spawned)
-	}
-}
-
-// never-replace must not depend on the stat that opened the function. A stat can
-// fail for reasons other than absence (EACCES, EIO, a dangling symlink), and an
-// anchor can also appear between the stat and the promotion. Either way the
-// promotion is create-if-absent, so the existing anchor wins and the run carries
-// on with it.
-func TestPromotionRefusesToOverwriteAnAnchorTheStatDidNotSee(t *testing.T) {
-	p := testPaths()
-	f := newFakeCutover()
-	f.files["__ppid_exe__"] = "/sbin/launchd"
-	withEmbeddedAnchor(t, buildAnchorBytes)
-	// On disk, but invisible to modTime — exactly what an EACCES stat looks like
-	// to the fast path.
-	f.files[p.anchorPath] = operatorAnchorBytes
-	f.exitCodes[p.anchorPath+" --preflight"] = 2
-	f.exitCodes[p.anchorPath+anchorProbeSuffix+" --preflight"] = 2
-	restore := swapCutoverOps(t, f)
-	defer restore()
-
-	maybeStartAnchorCutover(p, 1, func(string, ...any) {})
-	if got := f.files[p.anchorPath]; got != operatorAnchorBytes {
-		t.Fatalf("anchor on disk = %q, want the untouched %q — the promotion clobbered an anchor the stat could not see", got, operatorAnchorBytes)
-	}
-	// 🔴 Again the INODE, not the bytes — and here it is the only assertion with
-	// any power at all. anchorSrc IS anchorPath, so a promotion that overwrote
-	// would read the machine's own anchor and write those exact bytes back: the
-	// content check above passes while the identity changes. Verified: with the
-	// promotion replaced by an overwriting write, only this line goes red.
-	assertNotCalled(t, f.calls, "write "+p.anchorPath)
-	if len(f.spawned) != 1 {
-		t.Fatalf("spawned = %v, want the conversion to proceed using the anchor that was already there", f.spawned)
-	}
-	assertNoStagedAnchorLeftBehind(t, f, p)
-}
-
-// A pre-existing anchor that fails the preflight is left exactly as found:
-// deleting it would destroy the very identity the anchor shape protects, and hand
-// the next install a clean slate to mint a NEW one on.
-func TestPreexistingAnchorSurvivesAFailedPreflight(t *testing.T) {
-	p := testPaths()
-	f := newFakeCutover()
-	f.files["__ppid_exe__"] = "/sbin/launchd"
-	anchorAlreadyOnDisk(f, p, operatorAnchorBytes)
-	f.exitErrs[p.anchorPath+" --preflight"] = errors.New("killed by Gatekeeper")
-	restore := swapCutoverOps(t, f)
-	defer restore()
-
-	maybeStartAnchorCutover(p, 1, func(string, ...any) {})
-	if got := f.files[p.anchorPath]; got != operatorAnchorBytes {
-		t.Fatalf("anchor on disk = %q, want the untouched pre-existing %q", got, operatorAnchorBytes)
-	}
-	if len(f.spawned) != 0 {
-		t.Fatalf("converter started despite a failed preflight: %v", f.spawned)
-	}
-}
-
-func assertNoStagedAnchorLeftBehind(t *testing.T, f *fakeCutover, p wardenPaths) {
-	t.Helper()
-	if body, ok := f.files[p.anchorPath+anchorProbeSuffix]; ok {
-		t.Fatalf("the staged anchor copy was left at %s (%q); it is an unmanaged second copy of the TCC anchor", p.anchorPath+anchorProbeSuffix, body)
-	}
-}
-
-// A machine that already rejected the conversion must be touched by NOTHING —
-// including the anchor gate. The sentinel check has to stay in front of the
-// materialisation, or every start of a rolled-back machine writes a file.
-func TestRolledBackMachineIsNotEvenGivenAnAnchor(t *testing.T) {
-	p := testPaths()
-	f := newFakeCutover()
-	f.files["__ppid_exe__"] = "/sbin/launchd"
-	f.files[p.root+"/warden/"+cutoverFailedName] = "previous attempt rolled back"
-	withEmbeddedAnchor(t, buildAnchorBytes)
-	f.exitCodes[p.anchorPath+" --preflight"] = 2
-	restore := swapCutoverOps(t, f)
-	defer restore()
-
-	maybeStartAnchorCutover(p, 1, func(string, ...any) {})
-	if _, ok := f.files[p.anchorPath]; ok {
-		t.Fatal("a machine carrying the failure sentinel had an anchor written to it")
-	}
-	if len(f.spawned) != 0 {
-		t.Fatalf("converter started despite the failure sentinel: %v", f.spawned)
-	}
-}
-
-func TestLegacyShapeStartsTheDetachedConverter(t *testing.T) {
-	p := testPaths()
-	f := newFakeCutover()
-	f.files["__ppid_exe__"] = "/sbin/launchd"
-	passingPreflight(t, f, p)
-	restore := swapCutoverOps(t, f)
-	defer restore()
-
-	maybeStartAnchorCutover(p, 1, func(string, ...any) {})
-	want := p.binPath + " " + cutoverSubcmd
-	if len(f.spawned) != 1 || f.spawned[0] != want {
-		t.Fatalf("spawned = %v, want exactly [%q]", f.spawned, want)
-	}
-}
-
-func swapCutoverOps(t *testing.T, f *fakeCutover) func() {
-	t.Helper()
-	prev := newCutoverOps
-	ops := f.ops()
-	newCutoverOps = func() cutoverOps { return ops }
-	return func() { newCutoverOps = prev }
-}
-
-func assertCalled(t *testing.T, calls []string, want string) {
-	t.Helper()
-	for _, c := range calls {
-		if c == want {
-			return
+	for _, code := range []int{0, 1, 3, 127} {
+		rec := newCutoverRec()
+		rec.runExitCode[argvKey(anchor, "--preflight")] = code
+		want := fmt.Sprintf("anchor preflight: %s exited %d, want 2 "+
+			"(a build whose anchor does not reject arguments is not the anchor this expects)", anchor, code)
+		if err := anchorPreflight(rec.ops(), anchor); err == nil || err.Error() != want {
+			t.Errorf("exit %d: err = %v, want %q", code, err, want)
 		}
 	}
-	t.Fatalf("expected call %q; got %v", want, calls)
+
+	rec := newCutoverRec()
+	rec.runExitErr[argvKey(anchor, "--preflight")] = errors.New("operation not permitted")
+	want := fmt.Sprintf("anchor preflight: cannot execute %s: operation not permitted", anchor)
+	if err := anchorPreflight(rec.ops(), anchor); err == nil || err.Error() != want {
+		t.Errorf("err = %v, want %q", err, want)
+	}
 }
 
-func assertNotCalled(t *testing.T, calls []string, unwanted string) {
-	t.Helper()
-	for _, c := range calls {
-		if c == unwanted {
-			t.Fatalf("call %q must not have happened; got %v", unwanted, calls)
+func TestAcquireCutoverLock(t *testing.T) {
+	const lock = "/Users/eva/.officraft/warden/cutover.lock"
+
+	t.Run("a free lock is taken", func(t *testing.T) {
+		rec := newCutoverRec()
+		if !acquireCutoverLock(rec.ops(), lock) {
+			t.Fatal("acquireCutoverLock = false, want true")
 		}
-	}
-}
-
-// The installer must NOT run on the short probe budget. This is not a tuning
-// preference: runInstall's health verify alone is up to 36s (30x1s to see a pid,
-// then 6x1s of stability), so a 30s budget kills a HEALTHY conversion, the kill
-// reads as an install failure, and the machine both rolls back and writes the
-// never-retried cutover.failed sentinel. A machine that was merely slow would
-// then be indistinguishable from one that rejected the conversion — permanently.
-func TestInstallDoesNotRunOnTheProbeBudget(t *testing.T) {
-	p := testPaths()
-	f := newFakeCutover()
-	f.files[p.plistPath] = legacyPlist
-
-	ops := f.ops()
-	ops.run = func(name string, args ...string) (string, error) {
-		if len(args) > 0 && args[0] == "install" {
-			t.Fatalf("install went through the probe-budget runner (%v); it must use runInstaller", args)
+		if !rec.created[lock] {
+			t.Error("the lock file was not created")
 		}
-		return "", nil
-	}
-	installed := 0
-	ops.runInstaller = func(name string, args ...string) (string, error) {
-		installed++
-		return "", nil
-	}
-
-	if rc := runCutover(ops, p, p.binPath, func(string, ...any) {}); rc != 0 {
-		t.Fatalf("runCutover = %d, want 0", rc)
-	}
-	if installed != 1 {
-		t.Fatalf("runInstaller called %d times, want 1", installed)
-	}
-}
-
-// The budget itself has to clear the worst case it exists to cover. 36s is
-// runInstall's verify alone; the conversion also downloads ocagent first.
-func TestInstallBudgetClearsTheInstallerWorstCase(t *testing.T) {
-	const verifyWorstCase = 36 * time.Second
-	if cutoverInstallBudget <= verifyWorstCase {
-		t.Fatalf("cutoverInstallBudget = %v, must exceed the %v verify alone (plus an ocagent download)", cutoverInstallBudget, verifyWorstCase)
-	}
-}
-
-// DIRECTION ①: the installer died before it modified anything (the field case is
-// an offline machine failing the ocagent download). Nothing can boot-loop, so the
-// permanent sentinel must NOT be written — otherwise a network blip permanently
-// excludes that machine from the migration.
-func TestFailureBeforeAnythingIsModifiedLeavesNoSentinel(t *testing.T) {
-	p := testPaths()
-	f := newFakeCutover()
-	f.files[p.plistPath] = legacyPlist
-	// The installer fails at the download step: the plist is never overwritten.
-	f.runErr[p.binPath+" install --force"] = errors.New("download ocagent: dial tcp: no route to host")
-
-	if rc := runCutover(f.ops(), p, p.binPath, func(string, ...any) {}); rc != 0 {
-		t.Fatalf("runCutover = %d, want 0 (an untouched machine is not a failure)", rc)
-	}
-	if _, ok := f.files[p.root+"/warden/"+cutoverFailedName]; ok {
-		t.Fatal("a machine that was never modified must not be marked as having rejected the conversion")
-	}
-	// Rolling back an untouched machine would boot out a healthy warden for no
-	// reason — the one window where a machine can end up with no warden at all.
-	assertNotCalled(t, f.calls, "launchctl bootout "+p.guiDomain+"/"+p.labelOrDefault())
-}
-
-// DIRECTION ②: the installer got far enough to replace the plist. Here the
-// sentinel IS required — without it the machine detects "legacy" on its next
-// start and converts again, forever.
-func TestFailureAfterThePlistWasReplacedLeavesTheSentinel(t *testing.T) {
-	p := testPaths()
-	installArgv := p.binPath + " install --force"
-	f := newFakeCutover()
-	f.files[p.plistPath] = legacyPlist
-	f.runErr[installArgv] = errors.New("Bootstrap failed: 5")
-
-	ops := f.ops()
-	origRun := ops.runInstaller
-	ops.runInstaller = func(name string, args ...string) (string, error) {
-		f.files[p.plistPath] = "<plist>ANCHOR</plist>"
-		return origRun(name, args...)
-	}
-
-	if rc := runCutover(ops, p, p.binPath, func(string, ...any) {}); rc != 0 {
-		t.Fatalf("runCutover = %d, want 0", rc)
-	}
-	if _, ok := f.files[p.root+"/warden/"+cutoverFailedName]; !ok {
-		t.Fatal("a machine whose plist was replaced must carry the sentinel, or it converts again on every start")
-	}
-}
-
-// The consequence the user actually feels, asserted end-to-end rather than as an
-// internal file: after a transient failure the machine is STILL CONVERTIBLE. A
-// test that stops at "no sentinel was written" would still pass if some other
-// gate had quietly excluded the machine.
-func TestTransientFailureLeavesTheMachineStillConvertible(t *testing.T) {
-	p := testPaths()
-	f := newFakeCutover()
-	f.files[p.plistPath] = legacyPlist
-	f.runErr[p.binPath+" install --force"] = errors.New("download ocagent: dial tcp: no route to host")
-
-	if rc := runCutover(f.ops(), p, p.binPath, func(string, ...any) {}); rc != 0 {
-		t.Fatalf("runCutover = %d, want 0", rc)
-	}
-
-	// Next warden start, same machine, network is back.
-	f.files["__ppid_exe__"] = "/sbin/launchd"
-	passingPreflight(t, f, p)
-	delete(f.files, p.root+"/warden/"+cutoverLockName)
-	f.locked = map[string]bool{}
-	restore := swapCutoverOps(t, f)
-	defer restore()
-
-	maybeStartAnchorCutover(p, 1, func(string, ...any) {})
-	if len(f.spawned) == 0 {
-		t.Fatal("a machine that merely failed to reach the network must still be convertible on the next start")
-	}
-}
-
-// ───────────────────────────────────────────────────────────────────────────
-// THE CROSS-MODULE CONTRACT: anchorPreflight's "exit 2" is the ANCHOR's answer
-// ───────────────────────────────────────────────────────────────────────────
-//
-// anchorPreflight refuses to convert unless `officraft --preflight` exits
-// EXACTLY 2. That number is produced in a different Go module (cli/officraft),
-// with no import between them and no compiler to notice if the two sides part
-// company. The failure it hides is invisible and fleet-wide: add a flag to the
-// anchor, `--preflight` stops meaning "reject the argument", every machine's
-// preflight fails, every machine silently skips the migration FOREVER, and
-// nothing anywhere goes red — the refusal is fail-closed, so there is no
-// symptom other than a migration that never happens.
-//
-// WHY THIS TEST BUILDS AND RUNS THE REAL ANCHOR instead of asserting `2`
-// ---------------------------------------------------------------------
-// Because two assertions against the same number are not a contract. A fixture
-// table (the namespace-axes.tsv pattern) would be one source, but each side
-// still asserts against a COPY of the value, and the anchor could grow a flag
-// that changes what `--preflight` MEANS while the exit code stays 2. So this
-// compares the two ACTUAL values: the real anchor, built from source at test
-// time, is fed to the real anchorPreflight. There is no literal on either side
-// of the comparison — the anchor binary IS the source of truth, and drift is
-// whatever makes the real preflight stop succeeding.
-//
-// It runs a process, and that is a deliberate, bounded exception to this
-// package's "tests never exec" posture: the binary is freshly built into
-// t.TempDir(), the argv is the anchor's ZERO-SIDE-EFFECT usage path (it prints
-// usage and forks nothing — that property is exactly what is being verified),
-// and nothing here touches launchd, HOME, the plist or the real seam. It does
-// NOT call realRunExit; it supplies its own runner, which is the same rule every
-// other test in this package follows.
-
-// goTool locates the toolchain that is already running this test.
-func goTool(t *testing.T) string {
-	t.Helper()
-	if path, err := exec.LookPath("go"); err == nil {
-		return path
-	}
-	path := filepath.Join(runtime.GOROOT(), "bin", "go")
-	if _, err := os.Stat(path); err != nil {
-		t.Fatalf("cannot locate the go toolchain to build the anchor: %v", err)
-	}
-	return path
-}
-
-// buildRealAnchor compiles cli/officraft — the actual TCC identity anchor the
-// production plist names — and returns the path to the binary.
-func buildRealAnchor(t *testing.T) string {
-	t.Helper()
-	src := filepath.Join("..", "officraft")
-	if _, err := os.Stat(filepath.Join(src, "main.go")); err != nil {
-		t.Fatalf("the anchor's source is not where this contract expects it (%s): %v.\n"+
-			"anchorPreflight's whole go/no-go decision is the exit code of THAT program; "+
-			"if it moved, this contract needs re-pointing, not skipping", src, err)
-	}
-	out := filepath.Join(t.TempDir(), "officraft")
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
-	defer cancel()
-	cmd := exec.CommandContext(ctx, goTool(t), "build", "-o", out, ".")
-	cmd.Dir = src
-	if combined, err := cmd.CombinedOutput(); err != nil {
-		t.Fatalf("build the real anchor: %v\n%s", err, combined)
-	}
-	return out
-}
-
-// realExitCodeRunner is a runExit that actually runs the command, so
-// anchorPreflight is exercised against a real process instead of a script.
-func realExitCodeRunner(t *testing.T) func(string, ...string) (int, error) {
-	t.Helper()
-	return func(name string, args ...string) (int, error) {
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		defer cancel()
-		err := exec.CommandContext(ctx, name, args...).Run()
-		if err == nil {
-			return 0, nil
+		if len(rec.removes) != 0 {
+			t.Errorf("removes = %v, want none", rec.removes)
 		}
-		var exit *exec.ExitError
-		if errors.As(err, &exit) {
-			return exit.ExitCode(), nil
+	})
+
+	t.Run("a lock held by a live conversion is refused", func(t *testing.T) {
+		rec := newCutoverRec()
+		rec.created[lock] = true
+		rec.modTimes[lock] = time.Now().Add(-time.Minute)
+
+		if acquireCutoverLock(rec.ops(), lock) {
+			t.Error("acquireCutoverLock = true, want false while another conversion holds it")
 		}
-		return -1, err
-	}
+		if len(rec.removes) != 0 {
+			t.Errorf("a live lock was removed: %v", rec.removes)
+		}
+	})
+
+	t.Run("a corpse older than the stale age is aged out and retaken", func(t *testing.T) {
+		rec := newCutoverRec()
+		rec.created[lock] = true
+		rec.modTimes[lock] = time.Now().Add(-staleLockAge - time.Second)
+
+		if !acquireCutoverLock(rec.ops(), lock) {
+			t.Fatal("acquireCutoverLock = false, want true for a stale lock")
+		}
+		if want := []string{lock}; !reflect.DeepEqual(rec.removes, want) {
+			t.Errorf("removes = %v, want %v", rec.removes, want)
+		}
+		if !rec.created[lock] {
+			t.Error("the lock was not retaken after the corpse was cleared")
+		}
+	})
+
+	t.Run("a lock whose age cannot be read is treated as live", func(t *testing.T) {
+		rec := newCutoverRec()
+		rec.created[lock] = true
+
+		if acquireCutoverLock(rec.ops(), lock) {
+			t.Error("acquireCutoverLock = true, want false when the lock's age is unreadable")
+		}
+		if len(rec.removes) != 0 {
+			t.Errorf("removes = %v, want none", rec.removes)
+		}
+	})
+
+	t.Run("a stale lock that cannot be removed is still a refusal", func(t *testing.T) {
+		rec := newCutoverRec()
+		rec.created[lock] = true
+		rec.modTimes[lock] = time.Now().Add(-staleLockAge - time.Second)
+		rec.removeErr[lock] = errors.New("permission denied")
+
+		if acquireCutoverLock(rec.ops(), lock) {
+			t.Error("acquireCutoverLock = true, want false when the corpse could not be cleared")
+		}
+	})
+
+	t.Run("a create that fails outright is a refusal", func(t *testing.T) {
+		rec := newCutoverRec()
+		rec.createErr[lock] = errors.New("read-only file system")
+
+		if acquireCutoverLock(rec.ops(), lock) {
+			t.Error("acquireCutoverLock = true, want false when the lock cannot be created")
+		}
+	})
 }
 
-func TestAnchorPreflightAgreesWithTheRealAnchorBinary(t *testing.T) {
-	anchor := buildRealAnchor(t)
-	ops := newFakeCutover().ops()
-	ops.runExit = realExitCodeRunner(t)
+func TestMaybeStartAnchorCutover(t *testing.T) {
+	root := "/Users/eva/.officraft"
+	p := cutoverPaths(root)
+	const ppid = 4242
+	lockPath := filepath.Join(root, "warden", "cutover.lock")
+	failedPath := filepath.Join(root, "warden", "cutover.failed")
+	logPath := filepath.Join(p.logDir, "cutover.log")
 
-	if err := anchorPreflight(ops, anchor); err != nil {
-		t.Fatalf("the REAL anchor no longer satisfies the preflight this fleet gates its "+
-			"migration on: %v\n"+
-			"Nothing else can catch this. anchorPreflight is fail-closed, so a machine whose "+
-			"anchor answers differently does not error — it silently declines to convert, "+
-			"forever, with no symptom. Either cli/officraft changed how it answers an "+
-			"argument, or cutover.go changed what it demands; the two must be brought back "+
-			"together deliberately.", err)
-	}
-
-	// NEGATIVE CONTROL. Without it the assertion above would also pass if
-	// anchorPreflight accepted anything at all, and the real runner would be
-	// unproven too. A stand-in that exits 0 — the shape of an anchor that
-	// ACCEPTED the argument instead of rejecting it — must be refused.
-	accepting := filepath.Join(t.TempDir(), "accepting-anchor")
-	if err := os.WriteFile(accepting, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
-		t.Fatalf("stage the negative control: %v", err)
-	}
-	if err := anchorPreflight(ops, accepting); err == nil {
-		t.Fatal("a binary that ACCEPTS the probe argument must fail the preflight — " +
-			"otherwise the check above proves only that anchorPreflight returns nil")
+	// legacyRec is a machine launchd is running the OLD way, with an anchor
+	// already on disk that passes its preflight.
+	legacyRec := func() *cutoverRec {
+		rec := newCutoverRec()
+		rec.ppidExe[ppid] = "/sbin/launchd"
+		rec.modTimes[p.anchorPath] = time.Unix(1700000000, 0)
+		rec.runExitCode[argvKey(p.anchorPath, "--preflight")] = 2
+		return rec
 	}
 
-	// 🔴 THE PREMISE OF stage->probe->promote: the anchor must answer the same way
-	// under ANY filename. ensureAnchorPresent proves the bytes by probing them at
-	// <anchor>.probe and only then promotes them, so an anchor that inspected its
-	// own argv[0] would pass the probe and could still refuse under its real name —
-	// the migration would deploy an anchor it never actually validated.
-	//
-	// cli/officraft's realMain branches on len(args) alone, but that is exactly the
-	// kind of thing that gets "helpfully" changed later, and nothing else in the
-	// tree would notice. Asserted against the real binary, under the real suffix.
-	renamed := filepath.Join(filepath.Dir(anchor), "officraft"+anchorProbeSuffix)
-	body, err := os.ReadFile(anchor)
-	if err != nil {
-		t.Fatalf("read the real anchor: %v", err)
-	}
-	if err := os.WriteFile(renamed, body, 0o755); err != nil {
-		t.Fatalf("stage the real anchor under the probe name: %v", err)
-	}
-	if err := anchorPreflight(ops, renamed); err != nil {
-		t.Fatalf("the real anchor answers differently when it is called %q: %v\n"+
-			"ensureAnchorPresent probes the staged copy under exactly this name before "+
-			"promoting it, so an argv[0]-sensitive anchor would be validated under one "+
-			"name and deployed under another.", filepath.Base(renamed), err)
-	}
-}
+	t.Run("a legacy machine starts a detached converter under the lock", func(t *testing.T) {
+		rec := legacyRec()
+		bindCutoverOps(t, rec)
+		var log []string
 
-// TestRollbackReBootstrapExitZeroButUnregisteredBlamesBootstrap pins the same field
-// failure install.go's guard exists for (T-0648), on the path where the misnaming
-// costs the most: `launchctl bootstrap` exits 0 and registers NOTHING, the first
-// verb to notice is kickstart, and its exit 113 ("Could not find service … in
-// domain") gets written into the cutover.failed SENTINEL — the one diagnosis a
-// human still has after the process is gone. The rollback must name the step that
-// really failed (the re-bootstrap), and the sentinel must carry that same sentence.
-func TestRollbackReBootstrapExitZeroButUnregisteredBlamesBootstrap(t *testing.T) {
-	p := testPaths()
-	target := p.guiDomain + "/" + p.labelOrDefault()
-	f := newFakeCutover()
-	f.files[p.plistPath] = legacyPlist
-	// The install fails, so the rollback runs at all.
-	f.runErr[p.binPath+" install --force"] = errors.New("verify: no live pid")
-	// launchd never knows the label — not before the bootout, not on any probe of
-	// the bounded post-bootstrap wait — and kickstart then fails exactly the way it
-	// did in the field. Note the scripted text carries no "kickstart": the only
-	// source of that word would be the format string this guard replaces.
-	notFound := fmt.Errorf("exit status 113: Could not find service %q in domain for user gui: 501", p.labelOrDefault())
-	f.runErr["launchctl print "+target] = notFound
-	f.runErr["launchctl kickstart -k "+target] = notFound
+		maybeStartAnchorCutover(p, ppid, func(f string, a ...any) { log = append(log, fmt.Sprintf(f, a...)) })
 
-	ops := f.ops()
-	origRun := ops.runInstaller
-	overwritten := false
-	ops.runInstaller = func(name string, args ...string) (string, error) {
-		f.files[p.plistPath] = "<plist>ANCHOR</plist>"
-		overwritten = true
-		return origRun(name, args...)
-	}
-
-	rc := runCutover(ops, p, p.binPath, func(string, ...any) {})
-	if !overwritten {
-		t.Fatal("the overwrite hook never fired — no rollback ran, so this test proves nothing")
-	}
-	if rc == 0 {
-		t.Fatalf("runCutover = %d, want non-zero: the old shape was never loaded again", rc)
-	}
-	sentinel, ok := f.files[p.root+"/warden/"+cutoverFailedName]
-	if !ok {
-		t.Fatal("a failed rollback must still write the sentinel")
-	}
-	// The sentinel is the artifact under test: whatever it says IS the diagnosis.
-	if !strings.Contains(sentinel, "bootstrap") {
-		t.Errorf("sentinel = %q, want it to name the re-bootstrap step that actually failed", sentinel)
-	}
-	if strings.Contains(sentinel, "kickstart") {
-		t.Errorf("sentinel = %q, must not send the operator to debug kickstart", sentinel)
-	}
-	if !strings.Contains(sentinel, "registered nothing") || !strings.Contains(sentinel, p.plistPath) {
-		t.Errorf("sentinel = %q, want the registration diagnosis and the plist path %s to look at", sentinel, p.plistPath)
-	}
-	// kickstart is still ATTEMPTED — that is what keeps this diagnosis free: had
-	// launchd merely been slow, kickstart would have succeeded and the rollback
-	// would be byte-identical to before.
-	assertCalled(t, f.calls, "launchctl kickstart -k "+target)
-}
-
-// TestRollbackLateRegistrationStillRestores is the counter-example to the new probe
-// becoming a NEW way to lose a warden: launchd's registration can simply LAG a
-// bootstrap that exited 0. A machine whose label shows up on a later probe must roll
-// back exactly as before — rc 0, and no "registered nothing" claim, which would be a
-// lie written into a permanent sentinel.
-func TestRollbackLateRegistrationStillRestores(t *testing.T) {
-	p := testPaths()
-	target := p.guiDomain + "/" + p.labelOrDefault()
-	f := newFakeCutover()
-	f.files[p.plistPath] = legacyPlist
-	f.runErr[p.binPath+" install --force"] = errors.New("verify: no live pid")
-
-	ops := f.ops()
-	// print answers "not registered" until the 4th probe after the bootstrap, then
-	// reports a stable pid for the rest of the run (bootout's wait, then verify).
-	const registerAfterProbes = 4
-	bootstrapped, prints := false, 0
-	origRun := ops.run
-	ops.run = func(name string, args ...string) (string, error) {
-		if name == "launchctl" && len(args) > 0 {
-			switch args[0] {
-			case "bootstrap":
-				bootstrapped = true
-			case "print":
-				if !bootstrapped {
-					f.calls = append(f.calls, "launchctl print "+args[1])
-					return "", errors.New("Could not find service in domain for user gui: 501")
-				}
-				prints++
-				if prints < registerAfterProbes {
-					f.calls = append(f.calls, "launchctl print "+args[1])
-					return "", errors.New("Could not find service in domain for user gui: 501")
-				}
+		if len(rec.spawns) != 1 {
+			t.Fatalf("spawns = %#v, want exactly one converter", rec.spawns)
+		}
+		got := rec.spawns[0]
+		if got.bin != p.binPath || !reflect.DeepEqual(got.args, []string{"cutover-anchor"}) || got.logPath != logPath {
+			t.Errorf("spawn = (%q, %v, %q), want (%q, [cutover-anchor], %q)",
+				got.bin, got.args, got.logPath, p.binPath, logPath)
+		}
+		for _, want := range []string{
+			"OC_BASE=https://station.example",
+			"OC_TOKEN=" + jwtWardenOne,
+			"OC_CUTOVER_LOCK=" + lockPath,
+		} {
+			if !slicesContain(got.env, want) {
+				t.Errorf("the converter's env is missing %q", want)
 			}
 		}
-		return origRun(name, args...)
-	}
-	origInstaller := ops.runInstaller
-	overwritten := false
-	ops.runInstaller = func(name string, args ...string) (string, error) {
-		f.files[p.plistPath] = "<plist>ANCHOR</plist>"
-		overwritten = true
-		return origInstaller(name, args...)
-	}
+		for _, unwanted := range got.env {
+			if strings.HasPrefix(unwanted, "OC_NAMESPACE=") {
+				t.Errorf("the main instance passed %q, want no namespace at all", unwanted)
+			}
+		}
+		if !rec.created[lockPath] {
+			t.Error("the converter was started without the lock being taken")
+		}
+		if len(rec.removes) != 0 {
+			t.Errorf("removes = %v, want the lock left for the converter to release", rec.removes)
+		}
+		wantLog := []string{fmt.Sprintf(
+			"[ocwarden] anchor cutover: legacy shape detected; detached converter started (log: %s)", logPath)}
+		if !reflect.DeepEqual(log, wantLog) {
+			t.Errorf("log = %#v, want %#v", log, wantLog)
+		}
+	})
 
-	if rc := runCutover(ops, p, p.binPath, func(string, ...any) {}); rc != 0 {
-		t.Fatalf("runCutover = %d, want 0: a registration that merely lagged must still roll back", rc)
+	t.Run("a namespaced instance carries its namespace to the converter", func(t *testing.T) {
+		rec := legacyRec()
+		bindCutoverOps(t, rec)
+		namespaced := p
+		namespaced.namespace = "beta"
+
+		maybeStartAnchorCutover(namespaced, ppid, func(string, ...any) {})
+
+		if len(rec.spawns) != 1 {
+			t.Fatalf("spawns = %#v, want one", rec.spawns)
+		}
+		if !slicesContain(rec.spawns[0].env, "OC_NAMESPACE=beta") {
+			t.Error("the converter was started without OC_NAMESPACE=beta")
+		}
+	})
+
+	t.Run("a machine that is not on the legacy shape is left alone", func(t *testing.T) {
+		for _, c := range []struct {
+			name string
+			exe  string
+		}{
+			{"already converted", p.anchorPath},
+			{"an unclassifiable parent", "/bin/zsh"},
+		} {
+			rec := legacyRec()
+			rec.ppidExe[ppid] = c.exe
+			bindCutoverOps(t, rec)
+			var log []string
+
+			maybeStartAnchorCutover(p, ppid, func(f string, a ...any) { log = append(log, fmt.Sprintf(f, a...)) })
+
+			if len(rec.spawns) != 0 || len(rec.created) != 0 || len(log) != 0 {
+				t.Errorf("%s: spawns=%v locks=%v log=%#v, want nothing at all", c.name, rec.spawns, rec.created, log)
+			}
+		}
+	})
+
+	t.Run("a machine that already rolled back once never tries again", func(t *testing.T) {
+		rec := legacyRec()
+		rec.files[failedPath] = "2026-07-31T00:00:00Z\ninstall failed\n"
+		bindCutoverOps(t, rec)
+		var log []string
+
+		maybeStartAnchorCutover(p, ppid, func(f string, a ...any) { log = append(log, fmt.Sprintf(f, a...)) })
+
+		if len(rec.spawns) != 0 || len(rec.created) != 0 {
+			t.Errorf("spawns=%v locks=%v, want nothing", rec.spawns, rec.created)
+		}
+		wantLog := []string{fmt.Sprintf(
+			"[ocwarden] anchor cutover: skipped — a previous attempt rolled back (%s)", failedPath)}
+		if !reflect.DeepEqual(log, wantLog) {
+			t.Errorf("log = %#v, want %#v", log, wantLog)
+		}
+	})
+
+	t.Run("no deployable anchor means no conversion", func(t *testing.T) {
+		rec := legacyRec()
+		delete(rec.modTimes, p.anchorPath)
+		previous := embeddedAnchor
+		embeddedAnchor = func() []byte { return nil }
+		t.Cleanup(func() { embeddedAnchor = previous })
+		bindCutoverOps(t, rec)
+		var log []string
+
+		maybeStartAnchorCutover(p, ppid, func(f string, a ...any) { log = append(log, fmt.Sprintf(f, a...)) })
+
+		if len(rec.spawns) != 0 || len(rec.created) != 0 {
+			t.Errorf("spawns=%v locks=%v, want nothing", rec.spawns, rec.created)
+		}
+		wantLog := []string{fmt.Sprintf(
+			"[ocwarden] anchor cutover: skipped — no anchor at %s, no usable source at %s, and this ocwarden carries no embedded anchor",
+			p.anchorPath, p.anchorSrc)}
+		if !reflect.DeepEqual(log, wantLog) {
+			t.Errorf("log = %#v, want %#v", log, wantLog)
+		}
+	})
+
+	t.Run("an anchor that fails its preflight stops the conversion before the lock", func(t *testing.T) {
+		rec := legacyRec()
+		rec.runExitCode[argvKey(p.anchorPath, "--preflight")] = 0
+		bindCutoverOps(t, rec)
+		var log []string
+
+		maybeStartAnchorCutover(p, ppid, func(f string, a ...any) { log = append(log, fmt.Sprintf(f, a...)) })
+
+		if len(rec.spawns) != 0 || len(rec.created) != 0 {
+			t.Errorf("spawns=%v locks=%v, want nothing", rec.spawns, rec.created)
+		}
+		wantLog := []string{fmt.Sprintf("[ocwarden] anchor cutover: skipped — anchor preflight: %s exited 0, "+
+			"want 2 (a build whose anchor does not reject arguments is not the anchor this expects)", p.anchorPath)}
+		if !reflect.DeepEqual(log, wantLog) {
+			t.Errorf("log = %#v, want %#v", log, wantLog)
+		}
+	})
+
+	t.Run("a conversion already in flight is not joined", func(t *testing.T) {
+		rec := legacyRec()
+		rec.created[lockPath] = true
+		rec.modTimes[lockPath] = time.Now().Add(-time.Minute)
+		bindCutoverOps(t, rec)
+		var log []string
+
+		maybeStartAnchorCutover(p, ppid, func(f string, a ...any) { log = append(log, fmt.Sprintf(f, a...)) })
+
+		if len(rec.spawns) != 0 {
+			t.Errorf("spawns = %v, want none", rec.spawns)
+		}
+		wantLog := []string{fmt.Sprintf("[ocwarden] anchor cutover: skipped — another conversion holds %s", lockPath)}
+		if !reflect.DeepEqual(log, wantLog) {
+			t.Errorf("log = %#v, want %#v", log, wantLog)
+		}
+	})
+
+	t.Run("a converter that could not be started releases the lock it took", func(t *testing.T) {
+		rec := legacyRec()
+		rec.spawnErr = errors.New("no such file or directory")
+		bindCutoverOps(t, rec)
+		var log []string
+
+		maybeStartAnchorCutover(p, ppid, func(f string, a ...any) { log = append(log, fmt.Sprintf(f, a...)) })
+
+		if len(rec.spawns) != 0 {
+			t.Errorf("spawns = %v, want none", rec.spawns)
+		}
+		if want := []string{lockPath}; !reflect.DeepEqual(rec.removes, want) {
+			t.Errorf("removes = %v, want %v — a lock nobody holds must not block the next start", rec.removes, want)
+		}
+		wantLog := []string{"[ocwarden] anchor cutover: could not start converter: no such file or directory"}
+		if !reflect.DeepEqual(log, wantLog) {
+			t.Errorf("log = %#v, want %#v", log, wantLog)
+		}
+	})
+}
+
+func slicesContain(haystack []string, needle string) bool {
+	for _, s := range haystack {
+		if s == needle {
+			return true
+		}
 	}
-	if !overwritten {
-		t.Fatal("the overwrite hook never fired — no rollback ran, so this test proves nothing")
-	}
-	if got := f.files[p.plistPath]; got != legacyPlist {
-		t.Fatalf("plist after rollback = %q, want the pre-conversion shape", got)
-	}
-	sentinel := f.files[p.root+"/warden/"+cutoverFailedName]
-	if strings.Contains(sentinel, "registered nothing") {
-		t.Errorf("sentinel = %q, must not claim the re-bootstrap registered nothing when it registered late", sentinel)
-	}
-	assertCalled(t, f.calls, "launchctl kickstart -k "+target)
+	return false
 }

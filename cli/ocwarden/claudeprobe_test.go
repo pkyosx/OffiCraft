@@ -2,260 +2,449 @@ package main
 
 import (
 	"errors"
+	"io/fs"
 	"os"
-	"strings"
+	"path/filepath"
+	"reflect"
 	"testing"
 	"time"
 )
 
-// (fakeFileInfo — the shared minimal fs.FileInfo — lives in fingerprint_test.go.)
-
-// probeRunner wraps a fakeRunner-style canned map and counts each argv's
-// invocations, so cache tests can assert "the subprocess did NOT rerun".
-type probeRunner struct {
-	out   map[string]string
-	errs  map[string]error
-	calls map[string]int
+// probeFileInfo is the stat seam's answer: only size, mtime and dir-ness are
+// ever read by the prober.
+type probeFileInfo struct {
+	size  int64
+	mtime time.Time
+	dir   bool
 }
 
-func newProbeRunner() *probeRunner {
-	return &probeRunner{out: map[string]string{}, errs: map[string]error{}, calls: map[string]int{}}
+func (f probeFileInfo) Name() string       { return "claude" }
+func (f probeFileInfo) Size() int64        { return f.size }
+func (f probeFileInfo) Mode() fs.FileMode  { return 0o755 }
+func (f probeFileInfo) ModTime() time.Time { return f.mtime }
+func (f probeFileInfo) IsDir() bool        { return f.dir }
+func (f probeFileInfo) Sys() any           { return nil }
+
+// probeSeams records everything the prober asked its seams for.
+type probeSeams struct {
+	statPaths []string
+	readPaths []string
+	runCalls  [][]string
 }
 
-func (r *probeRunner) Run(name string, args ...string) (string, error) {
-	key := strings.Join(append([]string{name}, args...), " ")
-	r.calls[key]++
-	if err, ok := r.errs[key]; ok {
-		return "", err
+func TestNewClaudeProber(t *testing.T) {
+	home := t.TempDir()
+	bin := filepath.Join(home, "claude")
+	if err := os.WriteFile(bin, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatalf("stage claude binary: %v", err)
 	}
-	if s, ok := r.out[key]; ok {
-		return s, nil
+	if err := os.MkdirAll(filepath.Join(home, ".claude"), 0o755); err != nil {
+		t.Fatalf("stage cred dir: %v", err)
 	}
-	return "", os.ErrNotExist
+	credPath := filepath.Join(home, ".claude", ".credentials.json")
+	if err := os.WriteFile(credPath, []byte(`{"claudeAiOauth":{"subscriptionType":"max"}}`), 0o600); err != nil {
+		t.Fatalf("stage credentials: %v", err)
+	}
+	env := credEnvFunc(map[string]string{"HOME": home, "OC_CLAUDE_BIN": bin})
+	runner := fakeRunner{out: map[string]string{bin + " --version": "2.1.211 (Claude Code)\n"}}
+
+	prober := newClaudeProber(env, runner, "linux")
+
+	want := map[string]any{"version": "2.1.211", "cred_file": true, "sub_readable": true}
+	if got := prober.collect(); !reflect.DeepEqual(got, want) {
+		t.Errorf("collect() = %v, want %v", got, want)
+	}
+
+	if err := os.Remove(credPath); err != nil {
+		t.Fatalf("remove credentials: %v", err)
+	}
+	prober.cached = nil
+	wantAfter := map[string]any{"version": "2.1.211", "cred_file": false, "sub_readable": false}
+	if got := prober.collect(); !reflect.DeepEqual(got, wantAfter) {
+		t.Errorf("collect() after logout = %v, want %v", got, wantAfter)
+	}
 }
 
-// newTestProber builds a fully-faked prober: claude resolved at /fake/claude
-// (100 bytes, fixed mtime), HOME=/home, cred file present with a readable
-// subscriptionType, keychain item present, darwin, controllable clock.
-func newTestProber(runner *probeRunner) (*claudeProber, *time.Time, map[string]fakeFileInfo, map[string][]byte) {
-	now := time.Unix(1_000_000, 0)
-	stats := map[string]fakeFileInfo{
-		"/fake/claude":                    {size: 100, mtime: time.Unix(500, 0)},
-		"/home/.claude/.credentials.json": {size: 10, mtime: time.Unix(600, 0)},
+func TestClaudeProberCollect(t *testing.T) {
+	const credJSON = `{"claudeAiOauth":{"subscriptionType":"max"}}`
+	fixed := time.Date(2026, 9, 7, 12, 0, 0, 0, time.UTC)
+
+	newProber := func(seams *probeSeams, home, goos string, files map[string]string, keychain error) *claudeProber {
+		return &claudeProber{
+			env:        credEnvFunc(map[string]string{"HOME": home}),
+			resolveBin: func() string { return "/usr/local/bin/claude" },
+			stat: func(path string) (os.FileInfo, error) {
+				seams.statPaths = append(seams.statPaths, path)
+				body, ok := files[path]
+				if !ok {
+					return nil, os.ErrNotExist
+				}
+				return probeFileInfo{size: int64(len(body)), mtime: fixed}, nil
+			},
+			readFile: func(path string) ([]byte, error) {
+				seams.readPaths = append(seams.readPaths, path)
+				body, ok := files[path]
+				if !ok {
+					return nil, os.ErrNotExist
+				}
+				return []byte(body), nil
+			},
+			runner: runnerFunc(func(name string, args ...string) (string, error) {
+				seams.runCalls = append(seams.runCalls, append([]string{name}, args...))
+				if name == "security" {
+					return "", keychain
+				}
+				return "2.1.211 (Claude Code)", nil
+			}),
+			goos: goos,
+			now:  func() time.Time { return fixed },
+		}
 	}
-	files := map[string][]byte{
-		"/home/.claude/.credentials.json": []byte(`{"claudeAiOauth":{"subscriptionType":"max","accessToken":"SECRET"}}`),
-	}
-	runner.out["/fake/claude --version"] = "2.1.211 (Claude Code)\n"
-	runner.out["security find-generic-password -s Claude Code-credentials"] = ""
-	p := &claudeProber{
-		env: func(k string) string {
-			if k == "HOME" {
-				return "/home"
-			}
-			return ""
+
+	cases := []struct {
+		name      string
+		home      string
+		goos      string
+		files     map[string]string
+		keychain  error
+		want      map[string]any
+		wantStats []string
+		wantReads []string
+		wantRuns  [][]string
+	}{
+		{
+			name: "darwin, logged in through the credentials file",
+			home: "/Users/seth",
+			goos: "darwin",
+			files: map[string]string{
+				"/usr/local/bin/claude":                 "binary",
+				"/Users/seth/.claude/.credentials.json": credJSON,
+			},
+			want: map[string]any{
+				"version": "2.1.211", "cred_file": true, "sub_readable": true, "keychain": true,
+			},
+			wantStats: []string{"/usr/local/bin/claude", "/Users/seth/.claude/.credentials.json"},
+			wantReads: []string{"/Users/seth/.claude/.credentials.json"},
+			wantRuns: [][]string{
+				{"/usr/local/bin/claude", "--version"},
+				{"security", "find-generic-password", "-s", "Claude Code-credentials"},
+			},
 		},
-		resolveBin: func() string { return "/fake/claude" },
-		stat: func(path string) (os.FileInfo, error) {
-			if fi, ok := stats[path]; ok {
-				return fi, nil
-			}
-			return nil, os.ErrNotExist
+		{
+			name:     "darwin, credentials live in the keychain instead of the file",
+			home:     "/Users/seth",
+			goos:     "darwin",
+			files:    map[string]string{"/usr/local/bin/claude": "binary"},
+			keychain: nil,
+			want: map[string]any{
+				"version": "2.1.211", "cred_file": false, "sub_readable": false, "keychain": true,
+			},
+			wantStats: []string{"/usr/local/bin/claude", "/Users/seth/.claude/.credentials.json"},
+			wantRuns: [][]string{
+				{"/usr/local/bin/claude", "--version"},
+				{"security", "find-generic-password", "-s", "Claude Code-credentials"},
+			},
 		},
-		readFile: func(path string) ([]byte, error) {
-			if b, ok := files[path]; ok {
-				return b, nil
-			}
-			return nil, os.ErrNotExist
+		{
+			name:     "darwin with no keychain item",
+			home:     "/Users/seth",
+			goos:     "darwin",
+			files:    map[string]string{"/usr/local/bin/claude": "binary"},
+			keychain: errors.New("exit status 44"),
+			want: map[string]any{
+				"version": "2.1.211", "cred_file": false, "sub_readable": false, "keychain": false,
+			},
+			wantStats: []string{"/usr/local/bin/claude", "/Users/seth/.claude/.credentials.json"},
+			wantRuns: [][]string{
+				{"/usr/local/bin/claude", "--version"},
+				{"security", "find-generic-password", "-s", "Claude Code-credentials"},
+			},
 		},
-		runner: runner,
-		goos:   "darwin",
-		now:    func() time.Time { return now },
+		{
+			name: "linux never reports a keychain key at all",
+			home: "/home/seth",
+			goos: "linux",
+			files: map[string]string{
+				"/usr/local/bin/claude":                "binary",
+				"/home/seth/.claude/.credentials.json": credJSON,
+			},
+			want:      map[string]any{"version": "2.1.211", "cred_file": true, "sub_readable": true},
+			wantStats: []string{"/usr/local/bin/claude", "/home/seth/.claude/.credentials.json"},
+			wantReads: []string{"/home/seth/.claude/.credentials.json"},
+			wantRuns:  [][]string{{"/usr/local/bin/claude", "--version"}},
+		},
+		{
+			name: "an unreadable subscriptionType leaves the file key true",
+			home: "/home/seth",
+			goos: "linux",
+			files: map[string]string{
+				"/usr/local/bin/claude":                "binary",
+				"/home/seth/.claude/.credentials.json": `{"claudeAiOauth":{}}`,
+			},
+			want:      map[string]any{"version": "2.1.211", "cred_file": true, "sub_readable": false},
+			wantStats: []string{"/usr/local/bin/claude", "/home/seth/.claude/.credentials.json"},
+			wantReads: []string{"/home/seth/.claude/.credentials.json"},
+			wantRuns:  [][]string{{"/usr/local/bin/claude", "--version"}},
+		},
+		{
+			name:      "no HOME reports the version alone",
+			home:      "",
+			goos:      "linux",
+			files:     map[string]string{"/usr/local/bin/claude": "binary"},
+			want:      map[string]any{"version": "2.1.211"},
+			wantStats: []string{"/usr/local/bin/claude"},
+			wantRuns:  [][]string{{"/usr/local/bin/claude", "--version"}},
+		},
+		{
+			name:      "an unstattable binary omits the version rather than guessing",
+			home:      "/home/seth",
+			goos:      "linux",
+			files:     map[string]string{},
+			want:      map[string]any{"cred_file": false, "sub_readable": false},
+			wantStats: []string{"/usr/local/bin/claude", "/home/seth/.claude/.credentials.json"},
+		},
 	}
-	return p, &now, stats, files
-}
 
-func TestClaudeProbe_FullShape(t *testing.T) {
-	runner := newProbeRunner()
-	p, _, _, _ := newTestProber(runner)
-	got := p.collect()
-	want := map[string]any{"version": "2.1.211", "cred_file": true, "sub_readable": true, "keychain": true}
-	for k, v := range want {
-		if got[k] != v {
-			t.Errorf("collect()[%q] = %v, want %v", k, got[k], v)
-		}
-	}
-	if len(got) != len(want) {
-		t.Errorf("collect() = %v, want exactly %v", got, want)
-	}
-}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			seams := &probeSeams{}
+			prober := newProber(seams, tc.home, tc.goos, tc.files, tc.keychain)
 
-func TestClaudeProbe_TTLCacheServesWithoutReprobe(t *testing.T) {
-	runner := newProbeRunner()
-	p, now, _, _ := newTestProber(runner)
-	p.collect()
-	// Inside the TTL window: the cached group is served, ZERO subprocess.
-	*now = now.Add(claudeProbeTTL - time.Second)
-	p.collect()
-	if n := runner.calls["/fake/claude --version"]; n != 1 {
-		t.Fatalf("--version ran %d times inside the TTL, want 1", n)
-	}
-	if n := runner.calls["security find-generic-password -s Claude Code-credentials"]; n != 1 {
-		t.Fatalf("security ran %d times inside the TTL, want 1", n)
-	}
-	// Past the TTL: the group re-probes — security reruns, but the version
-	// exec is still skipped because the binary's stat identity is unchanged.
-	*now = now.Add(2 * time.Second)
-	got := p.collect()
-	if got["version"] != "2.1.211" {
-		t.Fatalf("version after TTL refresh = %v, want 2.1.211", got["version"])
-	}
-	if n := runner.calls["security find-generic-password -s Claude Code-credentials"]; n != 2 {
-		t.Fatalf("security ran %d times after the TTL, want 2", n)
-	}
-	if n := runner.calls["/fake/claude --version"]; n != 1 {
-		t.Fatalf("--version ran %d times with an unchanged stat identity, want 1", n)
-	}
-}
+			got := prober.collect()
 
-func TestClaudeProbe_VersionCacheInvalidatesOnStatChange(t *testing.T) {
-	runner := newProbeRunner()
-	p, now, stats, _ := newTestProber(runner)
-	p.collect()
-	// An upgrade swaps the symlink target → new stat identity + new output.
-	stats["/fake/claude"] = fakeFileInfo{size: 222, mtime: time.Unix(900, 0)}
-	runner.out["/fake/claude --version"] = "2.2.0 (Claude Code)\n"
-	*now = now.Add(claudeProbeTTL + time.Second)
-	got := p.collect()
-	if got["version"] != "2.2.0" {
-		t.Fatalf("version after swap = %v, want 2.2.0", got["version"])
+			if !reflect.DeepEqual(got, tc.want) {
+				t.Errorf("collect() = %v, want %v", got, tc.want)
+			}
+			if !reflect.DeepEqual(seams.statPaths, tc.wantStats) {
+				t.Errorf("stat probed %v, want %v", seams.statPaths, tc.wantStats)
+			}
+			if !reflect.DeepEqual(seams.readPaths, tc.wantReads) {
+				t.Errorf("readFile opened %v, want %v", seams.readPaths, tc.wantReads)
+			}
+			if !reflect.DeepEqual(seams.runCalls, tc.wantRuns) {
+				t.Errorf("runner ran %v, want %v", seams.runCalls, tc.wantRuns)
+			}
+		})
 	}
-	if n := runner.calls["/fake/claude --version"]; n != 2 {
-		t.Fatalf("--version ran %d times across an identity change, want 2", n)
-	}
-}
 
-func TestClaudeProbe_VersionFailSoft(t *testing.T) {
-	t.Run("unresolved binary omits version", func(t *testing.T) {
-		runner := newProbeRunner()
-		p, _, _, _ := newTestProber(runner)
-		p.resolveBin = func() string { return "" }
-		if got := p.collect(); got["version"] != nil {
-			t.Fatalf("version = %v, want absent", got["version"])
+	t.Run("the whole group is served from cache inside the TTL", func(t *testing.T) {
+		seams := &probeSeams{}
+		files := map[string]string{
+			"/usr/local/bin/claude":                "binary",
+			"/home/seth/.claude/.credentials.json": credJSON,
 		}
-	})
-	t.Run("exec failure omits version but keeps the cred probes", func(t *testing.T) {
-		runner := newProbeRunner()
-		p, _, _, _ := newTestProber(runner)
-		runner.errs["/fake/claude --version"] = errors.New("boom")
-		got := p.collect()
-		if _, present := got["version"]; present {
-			t.Fatalf("version = %v, want absent on exec failure", got["version"])
-		}
-		if got["cred_file"] != true || got["keychain"] != true {
-			t.Fatalf("cred probes must survive a version failure, got %v", got)
-		}
-	})
-	t.Run("stat failure omits version", func(t *testing.T) {
-		runner := newProbeRunner()
-		p, _, stats, _ := newTestProber(runner)
-		delete(stats, "/fake/claude")
-		if got := p.collect(); got["version"] != nil {
-			t.Fatalf("version = %v, want absent on stat failure", got["version"])
-		}
-	})
-}
+		prober := newProber(seams, "/home/seth", "linux", files, nil)
+		clock := fixed
+		prober.now = func() time.Time { return clock }
 
-func TestClaudeProbe_CredThreeStates(t *testing.T) {
-	t.Run("file absent", func(t *testing.T) {
-		runner := newProbeRunner()
-		p, _, stats, _ := newTestProber(runner)
-		delete(stats, "/home/.claude/.credentials.json")
-		got := p.collect()
-		if got["cred_file"] != false || got["sub_readable"] != false {
-			t.Fatalf("absent file: %v, want cred_file=false sub_readable=false", got)
+		first := prober.collect()
+		delete(files, "/home/seth/.claude/.credentials.json")
+		clock = fixed.Add(claudeProbeTTL - time.Nanosecond)
+		second := prober.collect()
+
+		want := map[string]any{"version": "2.1.211", "cred_file": true, "sub_readable": true}
+		if !reflect.DeepEqual(first, want) || !reflect.DeepEqual(second, want) {
+			t.Errorf("collect() = %v then %v, want %v both times", first, second, want)
 		}
-	})
-	t.Run("file present, subscriptionType missing", func(t *testing.T) {
-		runner := newProbeRunner()
-		p, _, _, files := newTestProber(runner)
-		files["/home/.claude/.credentials.json"] = []byte(`{"claudeAiOauth":{"accessToken":"SECRET"}}`)
-		got := p.collect()
-		if got["cred_file"] != true || got["sub_readable"] != false {
-			t.Fatalf("field-less file: %v, want cred_file=true sub_readable=false", got)
+		wantStats := []string{"/usr/local/bin/claude", "/home/seth/.claude/.credentials.json"}
+		if !reflect.DeepEqual(seams.statPaths, wantStats) {
+			t.Errorf("the cached call re-probed: stat saw %v, want %v", seams.statPaths, wantStats)
 		}
-	})
-	t.Run("file present, subscriptionType readable", func(t *testing.T) {
-		runner := newProbeRunner()
-		p, _, _, _ := newTestProber(runner)
-		got := p.collect()
-		if got["cred_file"] != true || got["sub_readable"] != true {
-			t.Fatalf("readable file: %v, want cred_file=true sub_readable=true", got)
-		}
-	})
-	t.Run("no HOME omits both cred keys", func(t *testing.T) {
-		runner := newProbeRunner()
-		p, _, _, _ := newTestProber(runner)
-		p.env = func(string) string { return "" }
-		got := p.collect()
-		if _, present := got["cred_file"]; present {
-			t.Fatalf("cred_file must be absent with no HOME, got %v", got)
-		}
-		if _, present := got["sub_readable"]; present {
-			t.Fatalf("sub_readable must be absent with no HOME, got %v", got)
+
+		clock = fixed.Add(claudeProbeTTL)
+		third := prober.collect()
+		wantThird := map[string]any{"version": "2.1.211", "cred_file": false, "sub_readable": false}
+		if !reflect.DeepEqual(third, wantThird) {
+			t.Errorf("collect() after the TTL = %v, want %v", third, wantThird)
 		}
 	})
 }
 
-func TestClaudeProbe_Keychain(t *testing.T) {
-	t.Run("security exit 0 reads present", func(t *testing.T) {
-		runner := newProbeRunner()
-		p, _, _, _ := newTestProber(runner)
-		if got := p.collect(); got["keychain"] != true {
-			t.Fatalf("keychain = %v, want true", got["keychain"])
+func TestClaudeProberVersion(t *testing.T) {
+	const bin = "/usr/local/bin/claude"
+	fixed := time.Date(2026, 9, 7, 12, 0, 0, 0, time.UTC)
+
+	cases := []struct {
+		name     string
+		resolved string
+		info     os.FileInfo
+		statErr  error
+		out      string
+		runErr   error
+		want     string
+		wantRuns [][]string
+	}{
+		{
+			name: "an unresolved binary is not stat'ed or executed",
+		},
+		{
+			name:     "the first --version token wins",
+			resolved: bin,
+			info:     probeFileInfo{size: 10, mtime: fixed},
+			out:      "2.1.211 (Claude Code)\n",
+			want:     "2.1.211",
+			wantRuns: [][]string{{bin, "--version"}},
+		},
+		{
+			name:     "a stat fault omits the version",
+			resolved: bin,
+			statErr:  os.ErrNotExist,
+		},
+		{
+			name:     "a resolved directory omits the version",
+			resolved: bin,
+			info:     probeFileInfo{size: 10, mtime: fixed, dir: true},
+		},
+		{
+			name:     "an exec fault omits the version",
+			resolved: bin,
+			info:     probeFileInfo{size: 10, mtime: fixed},
+			out:      "2.1.211",
+			runErr:   errors.New("exec format error"),
+			wantRuns: [][]string{{bin, "--version"}},
+		},
+		{
+			name:     "empty output omits the version",
+			resolved: bin,
+			info:     probeFileInfo{size: 10, mtime: fixed},
+			out:      "   \n",
+			wantRuns: [][]string{{bin, "--version"}},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			seams := &probeSeams{}
+			prober := &claudeProber{
+				resolveBin: func() string { return tc.resolved },
+				stat: func(path string) (os.FileInfo, error) {
+					seams.statPaths = append(seams.statPaths, path)
+					return tc.info, tc.statErr
+				},
+				runner: runnerFunc(func(name string, args ...string) (string, error) {
+					seams.runCalls = append(seams.runCalls, append([]string{name}, args...))
+					return tc.out, tc.runErr
+				}),
+			}
+
+			if got := prober.version(); got != tc.want {
+				t.Errorf("version() = %q, want %q", got, tc.want)
+			}
+			if !reflect.DeepEqual(seams.runCalls, tc.wantRuns) {
+				t.Errorf("runner ran %v, want %v", seams.runCalls, tc.wantRuns)
+			}
+		})
+	}
+
+	t.Run("the exec is skipped while the binary's stat identity is unchanged", func(t *testing.T) {
+		seams := &probeSeams{}
+		info := probeFileInfo{size: 10, mtime: fixed}
+		version := "2.1.211 (Claude Code)"
+		prober := &claudeProber{
+			resolveBin: func() string { return bin },
+			stat:       func(string) (os.FileInfo, error) { return info, nil },
+			runner: runnerFunc(func(name string, args ...string) (string, error) {
+				seams.runCalls = append(seams.runCalls, append([]string{name}, args...))
+				return version, nil
+			}),
+		}
+
+		first, second := prober.version(), prober.version()
+		if first != "2.1.211" || second != "2.1.211" {
+			t.Errorf("version() = %q then %q, want 2.1.211 both times", first, second)
+		}
+		if want := [][]string{{bin, "--version"}}; !reflect.DeepEqual(seams.runCalls, want) {
+			t.Errorf("runner ran %v, want %v", seams.runCalls, want)
+		}
+
+		info = probeFileInfo{size: 11, mtime: fixed}
+		version = "2.2.0 (Claude Code)"
+		if got := prober.version(); got != "2.2.0" {
+			t.Errorf("version() after an upgrade = %q, want 2.2.0", got)
+		}
+		wantRuns := [][]string{{bin, "--version"}, {bin, "--version"}}
+		if !reflect.DeepEqual(seams.runCalls, wantRuns) {
+			t.Errorf("runner ran %v, want %v", seams.runCalls, wantRuns)
+		}
+
+		info = probeFileInfo{size: 11, mtime: fixed.Add(time.Minute)}
+		version = "2.3.0 (Claude Code)"
+		if got := prober.version(); got != "2.3.0" {
+			t.Errorf("version() after an mtime change = %q, want 2.3.0", got)
 		}
 	})
-	t.Run("security non-zero exit reads absent", func(t *testing.T) {
-		runner := newProbeRunner()
-		p, _, _, _ := newTestProber(runner)
-		runner.errs["security find-generic-password -s Claude Code-credentials"] =
-			errors.New("exit status 44: could not be found")
-		if got := p.collect(); got["keychain"] != false {
-			t.Fatalf("keychain = %v, want false", got["keychain"])
+
+	t.Run("a failed probe is retried rather than cached", func(t *testing.T) {
+		seams := &probeSeams{}
+		out := ""
+		prober := &claudeProber{
+			resolveBin: func() string { return bin },
+			stat:       func(string) (os.FileInfo, error) { return probeFileInfo{size: 10, mtime: fixed}, nil },
+			runner: runnerFunc(func(name string, args ...string) (string, error) {
+				seams.runCalls = append(seams.runCalls, append([]string{name}, args...))
+				return out, nil
+			}),
 		}
-	})
-	t.Run("non-darwin skips the keychain probe entirely", func(t *testing.T) {
-		runner := newProbeRunner()
-		p, _, _, _ := newTestProber(runner)
-		p.goos = "linux"
-		got := p.collect()
-		if _, present := got["keychain"]; present {
-			t.Fatalf("keychain must be absent on non-darwin, got %v", got)
+
+		if got := prober.version(); got != "" {
+			t.Errorf("version() = %q, want empty", got)
 		}
-		if n := runner.calls["security find-generic-password -s Claude Code-credentials"]; n != 0 {
-			t.Fatalf("security ran %d times on non-darwin, want 0", n)
+		out = "2.1.211 (Claude Code)"
+		if got := prober.version(); got != "2.1.211" {
+			t.Errorf("version() on retry = %q, want 2.1.211", got)
+		}
+		wantRuns := [][]string{{bin, "--version"}, {bin, "--version"}}
+		if !reflect.DeepEqual(seams.runCalls, wantRuns) {
+			t.Errorf("runner ran %v, want %v", seams.runCalls, wantRuns)
 		}
 	})
 }
 
-// TestClaudeCredSubscriptionType pins the LITERAL-COPY contract with ocagent's
-// claudeSubscriptionType (cli/ocagent/contextreport.go): same miss conditions,
-// same trim, and the secret fields never influence the result.
 func TestClaudeCredSubscriptionType(t *testing.T) {
-	read := func(body string, err error) func(string) ([]byte, error) {
-		return func(string) ([]byte, error) { return []byte(body), err }
+	cases := []struct {
+		name string
+		body string
+		err  error
+		want string
+	}{
+		{name: "no file", err: os.ErrNotExist},
+		{name: "not json", body: "not json at all"},
+		{name: "json array", body: `[]`},
+		{name: "no claudeAiOauth object", body: `{"other":{"subscriptionType":"max"}}`},
+		{name: "blank subscriptionType", body: `{"claudeAiOauth":{"subscriptionType":"   "}}`},
+		{
+			name: "max plan",
+			body: `{"claudeAiOauth":{"accessToken":"sk-secret","subscriptionType":" max "}}`,
+			want: "max",
+		},
+		{
+			name: "pro plan",
+			body: `{"claudeAiOauth":{"subscriptionType":"pro"}}`,
+			want: "pro",
+		},
 	}
-	if got := claudeCredSubscriptionType(read("", os.ErrNotExist), "p"); got != "" {
-		t.Errorf("missing file: %q, want empty", got)
-	}
-	if got := claudeCredSubscriptionType(read("not json", nil), "p"); got != "" {
-		t.Errorf("bad json: %q, want empty", got)
-	}
-	if got := claudeCredSubscriptionType(read(`{"claudeAiOauth":{}}`, nil), "p"); got != "" {
-		t.Errorf("blank field: %q, want empty", got)
-	}
-	if got := claudeCredSubscriptionType(
-		read(`{"claudeAiOauth":{"subscriptionType":" max "}}`, nil), "p"); got != "max" {
-		t.Errorf("readable field: %q, want max (trimmed)", got)
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var asked []string
+			read := func(path string) ([]byte, error) {
+				asked = append(asked, path)
+				return []byte(tc.body), tc.err
+			}
+
+			got := claudeCredSubscriptionType(read, "/home/seth/.claude/.credentials.json")
+
+			if got != tc.want {
+				t.Errorf("claudeCredSubscriptionType = %q, want %q", got, tc.want)
+			}
+			if want := []string{"/home/seth/.claude/.credentials.json"}; !reflect.DeepEqual(asked, want) {
+				t.Errorf("readFile opened %v, want %v", asked, want)
+			}
+		})
 	}
 }
+
+// runnerFunc adapts a function to CmdRunner.
+type runnerFunc func(name string, args ...string) (string, error)
+
+func (f runnerFunc) Run(name string, args ...string) (string, error) { return f(name, args...) }

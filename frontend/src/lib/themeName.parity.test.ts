@@ -12,8 +12,14 @@
 //
 // So the agreement is measured, not argued: the same 61 names (themeName.cases.
 // json, the corpus round 4's reviewers built) go through BOTH validators in one
-// run — this file for TS, `go test -run TestThemeNameVerdictsEmit` for Go — and
-// ANY difference in verdict OR in reason fails.
+// run — this file for TS, `ocserverd theme-name-verdicts` for Go — and ANY
+// difference in verdict OR in reason fails.
+//
+// The Go half is a SUBCOMMAND, not a test. It asserts nothing (it reads a case
+// file and writes a verdict file), and until T-125 it was a `go test` wearing a
+// build tag purely to keep a non-test out of `go test ./...`. This file is the
+// only thing that asserts, and it is the right side for it: it is the harness
+// that can call both toolchains.
 //
 // The only normalisation is the error message's path prefix: the two harnesses
 // call in at different places ("theme: " vs "custom_themes[0]: "). Everything
@@ -46,25 +52,30 @@ function tsVerdict(name: string): string {
   return err === null ? "ACCEPT" : `REJECT: ${err.replace(/^theme: /, "")}`;
 }
 
-/** The Go side's verdicts for the same file, one subprocess. */
+/**
+ * The Go side's verdicts for the same file, one subprocess.
+ *
+ * `go run .` rather than a `go build` into a temp path: it is ONE invocation, it
+ * needs no binary to place, name or clean up, and its compile is the same cached
+ * compile a `go build` would do — so the second run in a cell costs the same
+ * either way. A separate build step would also introduce a gap between "built"
+ * and "ran" that this call does not currently have, and the artefact would have
+ * to be kept out of the tree (the repo does not commit binaries).
+ *
+ * The paths are passed as ARGUMENTS, not env vars. The env-var form was a
+ * consequence of the Go half being a `go test` — an unregistered `go test` flag
+ * makes the whole package's binary refuse to start, which reads like the package
+ * is broken — and a subcommand has no such constraint.
+ */
 function goVerdicts(): Record<string, string> {
   const dir = mkdtempSync(join(tmpdir(), "name-parity-"));
   const out = join(dir, "verdicts.json");
   try {
-    execFileSync(
-      "go",
-      ["test", "./", "-run", "^TestThemeNameVerdictsEmit$", "-count=1"],
-      {
-        cwd: SERVER,
-        encoding: "utf8",
-        env: {
-          ...process.env,
-          OC_THEME_NAME_CASES: CASES,
-          OC_THEME_NAME_VERDICTS: out,
-        },
-        stdio: ["ignore", "pipe", "pipe"],
-      }
-    );
+    execFileSync("go", ["run", ".", "theme-name-verdicts", CASES, out], {
+      cwd: SERVER,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"],
+    });
     return JSON.parse(readFileSync(out, "utf8"));
   } finally {
     rmSync(dir, { recursive: true, force: true });

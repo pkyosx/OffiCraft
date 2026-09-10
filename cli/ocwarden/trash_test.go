@@ -1,387 +1,329 @@
-// T-684c tests for the trash reaper. TWO DIRECTIONS, both mandatory:
-//
-//	A. the POSITIVE direction — things inside <workdir>/trash DO get removed.
-//	B. the NEGATIVE direction — everything else DOES NOT get touched: siblings of
-//	   trash inside the workdir, other agents' workdirs, the agents root itself,
-//	   and anything outside the agents root reachable through a planted symlink.
-//
-// Direction B is the one that matters. A guard that never fires proves nothing, so
-// every refusal case ALSO asserts the would-be victim still exists on disk afterwards
-// (the negative control), not merely that purgeTrash returned false.
 package main
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
+	"sort"
 	"strings"
-	"syscall"
 	"testing"
 )
 
-// trashFixture builds <root>/<agent>/{trash/{junk.txt,sub/deep.txt},keep.txt,tmp/x.txt}
-// and a SIBLING agent dir with its own trash, then returns (root, workdir).
-func trashFixture(t *testing.T) (root, workdir string) {
+// treeOf lists every path under root, relative to it, so a refusal can be shown
+// to have changed nothing at all.
+func treeOf(t *testing.T, root string) []string {
 	t.Helper()
-	// EvalSymlinks: t.TempDir() is under /var on macOS, itself a symlink to
-	// /private/var. Resolving up front keeps the fixture's own paths honest so a
-	// failing assertion means a real bug, not a platform quirk.
-	base, err := filepath.EvalSymlinks(t.TempDir())
-	if err != nil {
-		t.Fatalf("EvalSymlinks(TempDir): %v", err)
-	}
-	root = filepath.Join(base, "agents")
-	workdir = filepath.Join(root, "m-1a2b")
-	mk := func(p, body string) {
-		t.Helper()
-		if err := os.MkdirAll(filepath.Dir(p), 0o700); err != nil {
-			t.Fatalf("mkdir %s: %v", p, err)
+	var paths []string
+	err := filepath.Walk(root, func(p string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
 		}
-		if err := os.WriteFile(p, []byte(body), 0o600); err != nil {
-			t.Fatalf("write %s: %v", p, err)
+		rel, relErr := filepath.Rel(root, p)
+		if relErr != nil {
+			return relErr
 		}
-	}
-	mk(filepath.Join(workdir, "trash", "junk.txt"), "junk")
-	mk(filepath.Join(workdir, "trash", "sub", "deep.txt"), "deep")
-	mk(filepath.Join(workdir, "keep.txt"), "keep")
-	mk(filepath.Join(workdir, "tmp", "x.txt"), "x")
-	mk(filepath.Join(workdir, ".oc-token"), "tok")
-	mk(filepath.Join(root, "m-other", "trash", "theirs.txt"), "theirs")
-	mk(filepath.Join(root, "m-other", "keep.txt"), "keep")
-	return root, workdir
-}
-
-func mustExist(t *testing.T, path, why string) {
-	t.Helper()
-	if _, err := os.Lstat(path); err != nil {
-		t.Fatalf("%s: %s should still exist, got %v", why, path, err)
-	}
-}
-
-func mustNotExist(t *testing.T, path, why string) {
-	t.Helper()
-	if _, err := os.Lstat(path); !os.IsNotExist(err) {
-		t.Fatalf("%s: %s should be gone, got err=%v", why, path, err)
-	}
-}
-
-// capturingLogf records the refusal lines so a test can assert the OBSERVABLE
-// SIGNAL exists — a silent skip is a defect, not a pass.
-func trashLogf(sink *[]string) func(string, ...any) {
-	return func(format string, a ...any) {
-		_ = a
-		*sink = append(*sink, format)
-	}
-}
-
-// ── direction A: the trash IS removed ────────────────────────────────────────
-
-func TestPurgeTrash_RemovesTrashTree(t *testing.T) {
-	root, workdir := trashFixture(t)
-	if !purgeTrash(root, workdir, nil) {
-		t.Fatal("purgeTrash returned false on a well-formed trash dir")
-	}
-	mustNotExist(t, filepath.Join(workdir, "trash"), "direction A")
-	mustNotExist(t, filepath.Join(workdir, "trash", "sub", "deep.txt"), "direction A")
-}
-
-func TestPurgeTrash_AbsentTrashIsQuietNoop(t *testing.T) {
-	root, workdir := trashFixture(t)
-	if err := os.RemoveAll(filepath.Join(workdir, "trash")); err != nil {
-		t.Fatal(err)
-	}
-	var logs []string
-	if purgeTrash(root, workdir, trashLogf(&logs)) {
-		t.Fatal("purgeTrash claimed a purge with no trash dir present")
-	}
-	// Absent trash is the NORMAL state, not an anomaly: no refusal noise.
-	for _, l := range logs {
-		if strings.Contains(l, "REFUSED") {
-			t.Fatalf("absent trash logged a refusal: %q", l)
+		if rel != "." {
+			paths = append(paths, rel)
 		}
-	}
-	mustExist(t, filepath.Join(workdir, "keep.txt"), "direction B")
-}
-
-// ── direction B: NOTHING outside <workdir>/trash is touched ──────────────────
-
-func TestPurgeTrash_LeavesEverythingOutsideTrashAlone(t *testing.T) {
-	root, workdir := trashFixture(t)
-	if !purgeTrash(root, workdir, nil) {
-		t.Fatal("purgeTrash returned false on a well-formed trash dir")
-	}
-	// (a) siblings of trash INSIDE the same workdir — the exact files the old
-	// `rm -rf <workdir>/tmp/...` habit targeted.
-	mustExist(t, filepath.Join(workdir, "keep.txt"), "direction B")
-	mustExist(t, filepath.Join(workdir, "tmp", "x.txt"), "direction B")
-	mustExist(t, filepath.Join(workdir, ".oc-token"), "direction B")
-	mustExist(t, workdir, "direction B")
-	// (b) ANOTHER agent's workdir, trash included — one agent's teardown must
-	// never reap a neighbour.
-	mustExist(t, filepath.Join(root, "m-other", "trash", "theirs.txt"), "direction B")
-	mustExist(t, filepath.Join(root, "m-other", "keep.txt"), "direction B")
-	// (c) the agents root itself.
-	mustExist(t, root, "direction B")
-}
-
-func TestPurgeTrash_RefusesMalformedShapes(t *testing.T) {
-	// Each case names a shape someone could steer the reaper at. `victim` is the
-	// path that MUST survive — the negative control that proves the guard is what
-	// saved it, not luck.
-	cases := []struct {
-		name string
-		// mutate returns (root, workdir, victim) from the fixture.
-		mutate func(t *testing.T, root, workdir string) (string, string, string)
-	}{
-		{
-			// agent id "../.." — Join(root, id) escapes the agents root entirely.
-			name: "workdir escapes root via ..",
-			mutate: func(t *testing.T, root, workdir string) (string, string, string) {
-				return root, filepath.Join(root, "..", ".."), filepath.Dir(root)
-			},
-		},
-		{
-			// The unclean form of the same attack, before Clean() collapses it.
-			name: "unclean workdir with embedded ..",
-			mutate: func(t *testing.T, root, workdir string) (string, string, string) {
-				return root, root + "/m-1a2b/../m-other", filepath.Join(root, "m-other", "trash", "theirs.txt")
-			},
-		},
-		{
-			// An empty workdir string: Join("") would yield the bare relative
-			// "trash", i.e. whatever the daemon's CWD happens to be.
-			name: "empty workdir",
-			mutate: func(t *testing.T, root, workdir string) (string, string, string) {
-				return root, "", filepath.Join(root, "m-1a2b", "trash", "junk.txt")
-			},
-		},
-		{
-			name: "empty root",
-			mutate: func(t *testing.T, root, workdir string) (string, string, string) {
-				return "", workdir, filepath.Join(workdir, "trash", "junk.txt")
-			},
-		},
-		{
-			name: "relative workdir",
-			mutate: func(t *testing.T, root, workdir string) (string, string, string) {
-				return root, "agents/m-1a2b", filepath.Join(workdir, "trash", "junk.txt")
-			},
-		},
-		{
-			// workdir == root would make <root>/trash the target — a grandchild of
-			// the tree, not an agent's own dir.
-			name: "workdir is the agents root itself",
-			mutate: func(t *testing.T, root, workdir string) (string, string, string) {
-				if err := os.MkdirAll(filepath.Join(root, "trash"), 0o700); err != nil {
-					t.Fatal(err)
-				}
-				if err := os.WriteFile(filepath.Join(root, "trash", "rootlevel.txt"), []byte("x"), 0o600); err != nil {
-					t.Fatal(err)
-				}
-				return root, root, filepath.Join(root, "trash", "rootlevel.txt")
-			},
-		},
-		{
-			// A workdir NESTED deeper than one level under the root — not a shape
-			// the spawn ever produces, so it is not ours to delete.
-			name: "workdir is a grandchild of root",
-			mutate: func(t *testing.T, root, workdir string) (string, string, string) {
-				deep := filepath.Join(workdir, "nested")
-				if err := os.MkdirAll(filepath.Join(deep, "trash"), 0o700); err != nil {
-					t.Fatal(err)
-				}
-				if err := os.WriteFile(filepath.Join(deep, "trash", "n.txt"), []byte("x"), 0o600); err != nil {
-					t.Fatal(err)
-				}
-				return root, deep, filepath.Join(deep, "trash", "n.txt")
-			},
-		},
-		{
-			// A sibling root with a shared PREFIX — the case a HasPrefix
-			// containment check would wave through.
-			name: "prefix-sibling root",
-			mutate: func(t *testing.T, root, workdir string) (string, string, string) {
-				evil := root + "EVIL"
-				wd := filepath.Join(evil, "m-1a2b")
-				if err := os.MkdirAll(filepath.Join(wd, "trash"), 0o700); err != nil {
-					t.Fatal(err)
-				}
-				if err := os.WriteFile(filepath.Join(wd, "trash", "e.txt"), []byte("x"), 0o600); err != nil {
-					t.Fatal(err)
-				}
-				return root, wd, filepath.Join(wd, "trash", "e.txt")
-			},
-		},
-		{
-			// R1 (found in review, NOT by the first cut of these tests): the
-			// WORKDIR ITSELF is a symlink pointing out of the agents root. It
-			// satisfies every STRING-level guard — absolute, clean, and
-			// Dir(workdir)==root textually — so before G7 was fixed this deleted
-			// <symlink target>/trash outside the tree and reported success. Same
-			// pathology as the agentsEVIL prefix-sibling case, via the filesystem
-			// instead of via the string.
-			name: "workdir is a symlink out of the agents root",
-			mutate: func(t *testing.T, root, workdir string) (string, string, string) {
-				outside := filepath.Join(filepath.Dir(root), "precious-home")
-				if err := os.MkdirAll(filepath.Join(outside, "trash", "ownerdata"), 0o700); err != nil {
-					t.Fatal(err)
-				}
-				if err := os.WriteFile(filepath.Join(outside, "trash", "ownerdata", "irreplaceable.txt"), []byte("owner data"), 0o600); err != nil {
-					t.Fatal(err)
-				}
-				link := filepath.Join(root, "m-linked")
-				if err := os.Symlink(outside, link); err != nil {
-					t.Fatal(err)
-				}
-				return root, link, filepath.Join(outside, "trash", "ownerdata", "irreplaceable.txt")
-			},
-		},
-		{
-			// R2: the same trick aimed INSIDE the tree — one agent's workdir
-			// symlinked at a NEIGHBOUR's dir. Textually impeccable; would have
-			// reaped somebody else's trash.
-			name: "workdir is a symlink to a neighbour agent",
-			mutate: func(t *testing.T, root, workdir string) (string, string, string) {
-				link := filepath.Join(root, "m-linked")
-				if err := os.Symlink(filepath.Join(root, "m-other"), link); err != nil {
-					t.Fatal(err)
-				}
-				return root, link, filepath.Join(root, "m-other", "trash", "theirs.txt")
-			},
-		},
-		{
-			// THE headline case: `trash` is a symlink pointing OUT of the workdir.
-			name: "trash is a symlink out of the workdir",
-			mutate: func(t *testing.T, root, workdir string) (string, string, string) {
-				outside := filepath.Join(filepath.Dir(root), "precious")
-				if err := os.MkdirAll(outside, 0o700); err != nil {
-					t.Fatal(err)
-				}
-				if err := os.WriteFile(filepath.Join(outside, "data.txt"), []byte("owner data"), 0o600); err != nil {
-					t.Fatal(err)
-				}
-				trash := filepath.Join(workdir, "trash")
-				if err := os.RemoveAll(trash); err != nil {
-					t.Fatal(err)
-				}
-				if err := os.Symlink(outside, trash); err != nil {
-					t.Fatal(err)
-				}
-				return root, workdir, filepath.Join(outside, "data.txt")
-			},
-		},
-		{
-			// trash exists but is a plain FILE — not the dir shape we own.
-			name: "trash is a regular file",
-			mutate: func(t *testing.T, root, workdir string) (string, string, string) {
-				trash := filepath.Join(workdir, "trash")
-				if err := os.RemoveAll(trash); err != nil {
-					t.Fatal(err)
-				}
-				if err := os.WriteFile(trash, []byte("not a dir"), 0o600); err != nil {
-					t.Fatal(err)
-				}
-				return root, workdir, trash
-			},
-		},
-	}
-
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
-			root, workdir := trashFixture(t)
-			r, wd, victim := c.mutate(t, root, workdir)
-			var logs []string
-			if purgeTrash(r, wd, trashLogf(&logs)) {
-				t.Fatalf("purgeTrash claimed a purge for malformed shape root=%q workdir=%q", r, wd)
-			}
-			// (1) the would-be victim survived — the negative control.
-			mustExist(t, victim, "direction B "+c.name)
-			// (2) fail-closed means LOUD, not silent: a refusal must be observable
-			// in the warden err.log.
-			refused := false
-			for _, l := range logs {
-				if strings.Contains(l, "REFUSED") {
-					refused = true
-				}
-			}
-			if !refused {
-				t.Fatalf("refusal was SILENT (no REFUSED line) for %s; logs=%v", c.name, logs)
-			}
-			// (3) the honest workdir's own contents are untouched either way.
-			mustExist(t, filepath.Join(workdir, "keep.txt"), "direction B "+c.name)
-		})
-	}
-}
-
-// A symlinked ANCESTOR (macOS /var -> /private/var is the real-world instance) is
-// legitimate and must NOT be refused — otherwise the reaper never runs in
-// production and the whole feature is theatre.
-func TestPurgeTrash_SymlinkedAncestorStillPurges(t *testing.T) {
-	root, workdir := trashFixture(t)
-	linkRoot := filepath.Join(filepath.Dir(root), "agents-link")
-	if err := os.Symlink(root, linkRoot); err != nil {
-		t.Fatal(err)
-	}
-	linkedWorkdir := filepath.Join(linkRoot, "m-1a2b")
-	if !purgeTrash(linkRoot, linkedWorkdir, nil) {
-		t.Fatal("purgeTrash refused a legitimate symlinked-ancestor path")
-	}
-	mustNotExist(t, filepath.Join(workdir, "trash"), "symlinked ancestor")
-	mustExist(t, filepath.Join(workdir, "keep.txt"), "symlinked ancestor")
-}
-
-// ── the two HOOKS: the reaper must actually be reachable from both timings ────
-//
-// purgeTrash being correct is worthless if nothing calls it. These pin the two
-// call sites T-684c promises: spawn (a fresh generation starts on a clean dir) and
-// teardown (the stop ladder's exit).
-
-func TestStart_InvokesPurgeTrashHook(t *testing.T) {
-	hasKey := "tmux -L officraft has-session -t member-alice"
-	pidKey := "tmux -L officraft display-message -p -t member-alice #{pane_pid}"
-	run := &recRunner{
-		out: map[string]string{pidKey: "4242\n"},
-		err: map[string]error{hasKey: errAbsent()},
-	}
-	deps := newStartDeps(t, run, map[string]string{})
-	calls := 0
-	deps.PurgeTrash = func() { calls++ }
-
-	out := deps.start(StartParams{
-		MemberID:       "alice",
-		PersonaContext: "P",
-		MemberToken:    fxToken,
-		Role:           "assistant",
-		Model:          fxModel,
-		SessionName:    "member-alice",
+		return nil
 	})
-	if !out.OK {
-		t.Fatalf("spawn failed: %s", out.Reason)
+	if err != nil {
+		t.Fatalf("walk %s: %v", root, err)
 	}
-	if calls != 1 {
-		t.Fatalf("spawn-time trash purge ran %d times, want exactly 1", calls)
-	}
+	sort.Strings(paths)
+	return paths
 }
 
-func TestStop_InvokesPurgeTrashHook(t *testing.T) {
-	sw := quietSweep()
-	calls := 0
-	sw.purgeTrash = func() { calls++ }
-	rec := &killRecorder{probeErr: syscall.ESRCH}
-	stop(absentAfterKill(), tmuxSocket, "member-x", rec.fn, leaderPgid, sw)
-	if calls != 1 {
-		t.Fatalf("teardown-time trash purge ran %d times, want exactly 1", calls)
+// stageAgentTree builds <root>/agents/<id>/trash/{a,sub/b} and returns the
+// agents root and the workdir.
+func stageAgentTree(t *testing.T, base, id string) (string, string) {
+	t.Helper()
+	agents := filepath.Join(base, "agents")
+	workdir := filepath.Join(agents, id)
+	if err := os.MkdirAll(filepath.Join(workdir, "trash", "sub"), 0o755); err != nil {
+		t.Fatalf("stage tree: %v", err)
 	}
+	for _, f := range []string{
+		filepath.Join(workdir, "trash", "a"),
+		filepath.Join(workdir, "trash", "sub", "b"),
+		filepath.Join(workdir, "keep-me"),
+	} {
+		if err := os.WriteFile(f, []byte("x"), 0o644); err != nil {
+			t.Fatalf("stage %s: %v", f, err)
+		}
+	}
+	return agents, workdir
 }
 
-// The outer gate refuses foreign sessions BEFORE anything destructive — the trash
-// reaper must sit behind that gate too, not in front of it.
-func TestStop_ForeignSessionNeverPurgesTrash(t *testing.T) {
-	sw := quietSweep()
-	calls := 0
-	sw.purgeTrash = func() { calls++ }
-	rec := &killRecorder{probeErr: syscall.ESRCH}
-	stop(absentAfterKill(), tmuxSocket, "some-unrelated-session", rec.fn, leaderPgid, sw)
-	if calls != 0 {
-		t.Fatalf("trash purge ran %d times for a foreign session, want 0", calls)
-	}
+func TestPurgeTrash(t *testing.T) {
+	t.Run("a well-formed workdir loses its trash dir and nothing else", func(t *testing.T) {
+		base := t.TempDir()
+		agents, workdir := stageAgentTree(t, base, "member-alice")
+		var log []string
+		logf := func(format string, a ...any) { log = append(log, fmt.Sprintf(format, a...)) }
+
+		if !purgeTrash(agents, workdir, logf) {
+			t.Fatal("purgeTrash = false, want true for a staged trash dir")
+		}
+		want := []string{"agents", "agents/member-alice", "agents/member-alice/keep-me"}
+		if got := treeOf(t, base); !reflect.DeepEqual(got, want) {
+			t.Errorf("tree after the purge = %v, want %v", got, want)
+		}
+		wantLog := []string{fmt.Sprintf("[ocwarden trash] purged %q", filepath.Join(workdir, "trash"))}
+		if !reflect.DeepEqual(log, wantLog) {
+			t.Errorf("log = %#v, want %#v", log, wantLog)
+		}
+	})
+
+	t.Run("no trash dir is the ordinary state: false, silent, nothing removed", func(t *testing.T) {
+		base := t.TempDir()
+		agents := filepath.Join(base, "agents")
+		workdir := filepath.Join(agents, "member-alice")
+		if err := os.MkdirAll(workdir, 0o755); err != nil {
+			t.Fatalf("stage: %v", err)
+		}
+		var log []string
+		logf := func(format string, a ...any) { log = append(log, fmt.Sprintf(format, a...)) }
+
+		if purgeTrash(agents, workdir, logf) {
+			t.Error("purgeTrash = true, want false when there is nothing to remove")
+		}
+		if got, want := treeOf(t, base), []string{"agents", "agents/member-alice"}; !reflect.DeepEqual(got, want) {
+			t.Errorf("tree = %v, want %v", got, want)
+		}
+		if len(log) != 0 {
+			t.Errorf("log = %#v, want nothing said about a workdir that has no trash", log)
+		}
+	})
+
+	t.Run("a nil log sink still purges", func(t *testing.T) {
+		base := t.TempDir()
+		agents, workdir := stageAgentTree(t, base, "member-alice")
+		if !purgeTrash(agents, workdir, nil) {
+			t.Fatal("purgeTrash = false, want true")
+		}
+		want := []string{"agents", "agents/member-alice", "agents/member-alice/keep-me"}
+		if got := treeOf(t, base); !reflect.DeepEqual(got, want) {
+			t.Errorf("tree after the purge = %v, want %v", got, want)
+		}
+	})
+
+	t.Run("every malformed shape is refused with a reason and touches nothing", func(t *testing.T) {
+		base := t.TempDir()
+		agents, workdir := stageAgentTree(t, base, "member-alice")
+		before := treeOf(t, base)
+
+		cases := []struct {
+			name    string
+			root    string
+			workdir string
+			want    string
+		}{
+			{"an empty root", "", workdir,
+				fmt.Sprintf("[ocwarden trash] REFUSED: empty root (%q) or workdir (%q)", "", workdir)},
+			{"an empty workdir", agents, "",
+				fmt.Sprintf("[ocwarden trash] REFUSED: empty root (%q) or workdir (%q)", agents, "")},
+			{"a relative workdir", agents, "agents/member-alice",
+				fmt.Sprintf("[ocwarden trash] REFUSED: non-absolute root (%q) or workdir (%q)", agents, "agents/member-alice")},
+			{"a relative root", "agents", workdir,
+				fmt.Sprintf("[ocwarden trash] REFUSED: non-absolute root (%q) or workdir (%q)", "agents", workdir)},
+			{"a workdir carrying ..", agents, agents + "/../agents/member-alice",
+				fmt.Sprintf("[ocwarden trash] REFUSED: unclean root (%q) or workdir (%q)", agents, agents+"/../agents/member-alice")},
+			{"a root with a trailing slash", agents + "/", workdir,
+				fmt.Sprintf("[ocwarden trash] REFUSED: unclean root (%q) or workdir (%q)", agents+"/", workdir)},
+			{"a grandchild of the agents root", agents, filepath.Join(workdir, "nested"),
+				fmt.Sprintf("[ocwarden trash] REFUSED: workdir %q is not a direct child of agents root %q",
+					filepath.Join(workdir, "nested"), agents)},
+			{"the agents root itself", agents, agents,
+				fmt.Sprintf("[ocwarden trash] REFUSED: workdir %q is not a direct child of agents root %q", agents, agents)},
+			{"a sibling tree that merely shares the root's prefix", agents, agents + "EVIL/member-alice",
+				fmt.Sprintf("[ocwarden trash] REFUSED: workdir %q is not a direct child of agents root %q",
+					agents+"EVIL/member-alice", agents)},
+		}
+		for _, c := range cases {
+			var log []string
+			logf := func(format string, a ...any) { log = append(log, fmt.Sprintf(format, a...)) }
+			if purgeTrash(c.root, c.workdir, logf) {
+				t.Errorf("%s: purgeTrash = true, want false", c.name)
+			}
+			if !reflect.DeepEqual(log, []string{c.want}) {
+				t.Errorf("%s: log = %#v, want %#v", c.name, log, []string{c.want})
+			}
+		}
+		if got := treeOf(t, base); !reflect.DeepEqual(got, before) {
+			t.Errorf("a refusal changed the tree: %v, want the untouched %v", got, before)
+		}
+	})
+
+	t.Run("a trash symlink is refused rather than followed", func(t *testing.T) {
+		base := t.TempDir()
+		agents := filepath.Join(base, "agents")
+		workdir := filepath.Join(agents, "member-alice")
+		elsewhere := filepath.Join(base, "precious")
+		if err := os.MkdirAll(workdir, 0o755); err != nil {
+			t.Fatalf("stage: %v", err)
+		}
+		if err := os.MkdirAll(elsewhere, 0o755); err != nil {
+			t.Fatalf("stage: %v", err)
+		}
+		if err := os.WriteFile(filepath.Join(elsewhere, "data"), []byte("x"), 0o644); err != nil {
+			t.Fatalf("stage: %v", err)
+		}
+		trash := filepath.Join(workdir, "trash")
+		if err := os.Symlink(elsewhere, trash); err != nil {
+			t.Fatalf("symlink: %v", err)
+		}
+		before := treeOf(t, base)
+
+		var log []string
+		logf := func(format string, a ...any) { log = append(log, fmt.Sprintf(format, a...)) }
+		if purgeTrash(agents, workdir, logf) {
+			t.Error("purgeTrash = true, want false for a trash symlink")
+		}
+		want := []string{fmt.Sprintf("[ocwarden trash] REFUSED: %q is a symlink — refusing to follow it", trash)}
+		if !reflect.DeepEqual(log, want) {
+			t.Errorf("log = %#v, want %#v", log, want)
+		}
+		if got := treeOf(t, base); !reflect.DeepEqual(got, before) {
+			t.Errorf("tree = %v, want the untouched %v", got, before)
+		}
+	})
+
+	t.Run("a plain file named trash is not ours", func(t *testing.T) {
+		base := t.TempDir()
+		agents := filepath.Join(base, "agents")
+		workdir := filepath.Join(agents, "member-alice")
+		if err := os.MkdirAll(workdir, 0o755); err != nil {
+			t.Fatalf("stage: %v", err)
+		}
+		trash := filepath.Join(workdir, "trash")
+		if err := os.WriteFile(trash, []byte("not a directory"), 0o644); err != nil {
+			t.Fatalf("stage: %v", err)
+		}
+		before := treeOf(t, base)
+
+		var log []string
+		logf := func(format string, a ...any) { log = append(log, fmt.Sprintf(format, a...)) }
+		if purgeTrash(agents, workdir, logf) {
+			t.Error("purgeTrash = true, want false for a plain file named trash")
+		}
+		want := []string{fmt.Sprintf("[ocwarden trash] REFUSED: %q is not a directory (mode %v)", trash, os.FileMode(0o644))}
+		if !reflect.DeepEqual(log, want) {
+			t.Errorf("log = %#v, want %#v", log, want)
+		}
+		if got := treeOf(t, base); !reflect.DeepEqual(got, before) {
+			t.Errorf("tree = %v, want the untouched %v", got, before)
+		}
+	})
+
+	t.Run("a workdir symlinked at a neighbour agent does not reap the neighbour", func(t *testing.T) {
+		base := t.TempDir()
+		agents, victim := stageAgentTree(t, base, "member-victim")
+		impostor := filepath.Join(agents, "member-impostor")
+		if err := os.Symlink(victim, impostor); err != nil {
+			t.Fatalf("symlink: %v", err)
+		}
+		before := treeOf(t, base)
+
+		var log []string
+		logf := func(format string, a ...any) { log = append(log, fmt.Sprintf(format, a...)) }
+		if purgeTrash(agents, impostor, logf) {
+			t.Error("purgeTrash = true, want false for a workdir symlinked at a neighbour")
+		}
+		realAgents, err := filepath.EvalSymlinks(agents)
+		if err != nil {
+			t.Fatalf("resolve agents root: %v", err)
+		}
+		want := []string{fmt.Sprintf(
+			"[ocwarden trash] REFUSED: workdir %q resolves to %q — not the %q child of agents root %q (resolved %q)",
+			impostor, filepath.Join(realAgents, "member-victim"), "member-impostor", agents, realAgents)}
+		if !reflect.DeepEqual(log, want) {
+			t.Errorf("log = %#v, want %#v", log, want)
+		}
+		if got := treeOf(t, base); !reflect.DeepEqual(got, before) {
+			t.Errorf("the neighbour's trash was touched: %v, want %v", got, before)
+		}
+	})
+
+	t.Run("a workdir symlinked out of the agents root is refused", func(t *testing.T) {
+		base := t.TempDir()
+		agents := filepath.Join(base, "agents")
+		if err := os.MkdirAll(agents, 0o755); err != nil {
+			t.Fatalf("stage: %v", err)
+		}
+		outside := filepath.Join(base, "elsewhere", "member-alice")
+		if err := os.MkdirAll(filepath.Join(outside, "trash"), 0o755); err != nil {
+			t.Fatalf("stage: %v", err)
+		}
+		if err := os.WriteFile(filepath.Join(outside, "trash", "a"), []byte("x"), 0o644); err != nil {
+			t.Fatalf("stage: %v", err)
+		}
+		workdir := filepath.Join(agents, "member-alice")
+		if err := os.Symlink(outside, workdir); err != nil {
+			t.Fatalf("symlink: %v", err)
+		}
+		before := treeOf(t, base)
+
+		var log []string
+		logf := func(format string, a ...any) { log = append(log, fmt.Sprintf(format, a...)) }
+		if purgeTrash(agents, workdir, logf) {
+			t.Error("purgeTrash = true, want false for a workdir that resolves out of the agents root")
+		}
+		if len(log) != 1 || !strings.HasPrefix(log[0], "[ocwarden trash] REFUSED: workdir "+fmt.Sprintf("%q", workdir)+" resolves to ") {
+			t.Errorf("log = %#v, want one refusal naming the resolved workdir", log)
+		}
+		if got := treeOf(t, base); !reflect.DeepEqual(got, before) {
+			t.Errorf("tree = %v, want the untouched %v", got, before)
+		}
+	})
+
+	t.Run("an agents root reached through a symlink still purges", func(t *testing.T) {
+		base := t.TempDir()
+		realBase := filepath.Join(base, "real")
+		if err := os.MkdirAll(realBase, 0o755); err != nil {
+			t.Fatalf("stage: %v", err)
+		}
+		stageAgentTree(t, realBase, "member-alice")
+		linkedBase := filepath.Join(base, "linked")
+		if err := os.Symlink(realBase, linkedBase); err != nil {
+			t.Fatalf("symlink: %v", err)
+		}
+		agents := filepath.Join(linkedBase, "agents")
+		workdir := filepath.Join(agents, "member-alice")
+
+		if !purgeTrash(agents, workdir, nil) {
+			t.Fatal("purgeTrash = false, want true — an ancestor symlink cancels on both sides")
+		}
+		want := []string{"agents", "agents/member-alice", "agents/member-alice/keep-me"}
+		if got := treeOf(t, realBase); !reflect.DeepEqual(got, want) {
+			t.Errorf("tree = %v, want %v", got, want)
+		}
+	})
+
+	t.Run("an absent workdir is silent and leaves the real agent alone", func(t *testing.T) {
+		base := t.TempDir()
+		_, workdir := stageAgentTree(t, base, "member-alice")
+		before := treeOf(t, base)
+		gone := filepath.Join(base, "no-such-root")
+		var log []string
+		logf := func(format string, a ...any) { log = append(log, fmt.Sprintf(format, a...)) }
+
+		if purgeTrash(gone, filepath.Join(gone, "member-alice"), logf) {
+			t.Error("purgeTrash = true, want false when the workdir does not exist")
+		}
+		if len(log) != 0 {
+			t.Errorf("log = %#v, want silence: an absent workdir has no trash dir either", log)
+		}
+		if got := treeOf(t, base); !reflect.DeepEqual(got, before) {
+			t.Errorf("tree = %v, want the untouched %v", got, before)
+		}
+		if _, err := os.Stat(filepath.Join(workdir, "trash")); err != nil {
+			t.Errorf("the staged trash of the real agent was disturbed: %v", err)
+		}
+	})
+}
+
+func TestStderrLogf(t *testing.T) {
+	t.Skip("a single fmt.Fprintf to os.Stderr with a newline appended — asserting it would restate the one line it is")
 }

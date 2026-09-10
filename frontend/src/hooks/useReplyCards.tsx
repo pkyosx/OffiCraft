@@ -47,7 +47,7 @@
 //   already read (`adoptWrite` below), which costs zero requests. T-91 changed
 //   that fold from a REPLACE to a MERGE, and did NOT rename the function: it is
 //   still called `adoptWrite`, but it no longer adopts the answer wholesale —
-//   see `mergeReplyCardWrite`. The rename is deliberately out of this package's
+//   see `mergeReplyCardRowWrite`. The rename is deliberately out of this package's
 //   scope, so read the name as history, not as a description of what it does.
 //   The earlier version of this note said the delta was "the
 //   single reconcile trigger" for the action path too — that made the pane's
@@ -72,35 +72,26 @@
 //   snapshot is stale from a write it did not make, so there is no delta of its
 //   own on the way.
 //
-// T-a3e4 step 8, second half — THE N+1 IS GONE (this note used to say the
-// follow-up was "still NOT in this change"; the very commit that carried step 8
-// to main, PR #76, is the one that did it — owner approved `?view=full` on
-// 2026-08-02, card rc-73a3f49b180e). `api.listReplyCards` no longer walks a
-// light index and hydrates per id: it issues ONE request per pane,
-// `GET /api/reply-cards?status=<s>&view=full`, and the server answers with
-// whole cards — each full row byte-identical to that card's own
-// `GET /api/reply-cards/{card_id}`, pinned by the server test
-// `TestListReplyCardsViewFullRowsEqualTheSingleCardResponse`. The DEFAULT is
-// still the light index (`view` absent or `light` is byte-for-byte the old
-// wire), and `view` is deliberately absent from the agent-facing
-// `list_reply_cards` MCP tool.
-// ⚠️ The per-card GET counts in the paragraph above are therefore HISTORICAL —
-// they describe the pane BEFORE this landed. Do not benchmark against them.
+// THE PANES HOLD LIGHT ROWS, NOT CARDS (owner ruling 2026-09-07). `?view=full`
+// — the projection that once let this provider pull whole panes of full cards in
+// one request — is gone from the wire, and with it the choice between "one
+// request per pane" and "one request per card". `api.listReplyCards` answers
+// with `ReplyCardRow[]`: the ask's title, who opened it, its status and stamps,
+// its task ref. That is everything a COLLAPSED row draws.
 //
-// 🔴 It is O(1) per pane, NOT "one request for the whole screen". This provider
-// still makes its own fixed count/status reads, and an EXPANDED 近期已處理 pane
-// is three list requests (waiting + answered + expired), not one. Say "a fixed
-// number of requests instead of one per card".
-// 🔴 The win is ROUND TRIPS, not bandwidth. Re-measured AFTER the change against
-// a real ocserverd (isolated port, fresh DB, population re-counted from the
-// server at measurement time: 25 waiting / 15 answered / 10 expired), varying
-// only this adapter: one cockpit load of the waiting pane went 26 reply-card
-// requests / 27,537 B → 1 request / 21,294 B; one delta with the handled pane
-// expanded went 54 / 58,509 B → 3 / 44,195 B. That is 51 fewer round trips for
-// roughly a quarter fewer bytes. Never sell this as saving bandwidth — on a
-// slow link the latency is the whole cost, and a full pane is very nearly the
-// same size either way.
+// A card's interior is read ONE CARD AT A TIME, by the row the owner actually
+// opens (RepliesPage's expand → `api.getReplyCard`), which is the posture the
+// inline chat card has always had. So an unopened card costs nothing at all,
+// where the old full pane paid for every card whether or not anybody looked at
+// it — and the N+1 the projection existed to kill cannot come back, because
+// nothing here walks the pane hydrating rows.
 //
+// 🔴 IT IS A FIXED NUMBER OF REQUESTS PER PANE, NOT "one request for the whole
+// screen". This provider still makes its own count/status reads, and an EXPANDED
+// 近期已處理 pane is three list requests (waiting + answered + expired), not one.
+// On top of that sits one `getReplyCard` per card the OWNER opens — a number the
+// owner controls, not the pane size.
+
 // A single pane snapshot is also no longer an internally skewed slice: it is
 // one response, not an index plus N later reads. The three panes are still
 // three separate requests, so the skew between PANES is unchanged.
@@ -115,16 +106,16 @@ import {
   type ReactNode,
 } from "react";
 import type {
-  ReplyCard,
+  ReplyCardRow,
   ReplyCardWriteReceipt,
   ReplyCardAnswerInput,
 } from "../api/adapter";
 import { api } from "../api";
-import { mergeReplyCardWrite } from "../lib/replyCardReceipt";
+import { mergeReplyCardRowWrite } from "../lib/replyCardReceipt";
 
 /** A handled card's pane stamp: answeredTs on an answered card, expiredTs on
  * an expired one (each null on the other kind). */
-function handledTs(c: ReplyCard): number {
+function handledTs(c: ReplyCardRow): number {
   return c.status === "expired" ? (c.expiredTs ?? 0) : (c.answeredTs ?? 0);
 }
 
@@ -132,11 +123,11 @@ interface UseReplyCards {
   /** Cards still waiting for the owner — server-ordered LONGEST-WAITING FIRST.
    * This IS the single authoritative waiting source: the nav badge counts its
    * length, the page renders it, the title reads its length. */
-  waiting: ReplyCard[];
+  waiting: ReplyCardRow[];
   /** Cards answered OR expired within the last 24h — merged, newest handled
    * first. EMPTY until `loadHandled()` is called (the pane is collapsed by
    * default). */
-  handled: ReplyCard[];
+  handled: ReplyCardRow[];
   /** Recently-handled (24h) count from the cheap count endpoint (answered +
    * expired) — drives the collapsed 近期已處理 · N header (and its zero-hide)
    * WITHOUT the lists. */
@@ -185,8 +176,8 @@ export function ReplyCardsProvider({ children }: { children: ReactNode }) {
 }
 
 function useReplyCardsState(): UseReplyCards {
-  const [waiting, setWaiting] = useState<ReplyCard[]>([]);
-  const [handled, setHandled] = useState<ReplyCard[]>([]);
+  const [waiting, setWaiting] = useState<ReplyCardRow[]>([]);
+  const [handled, setHandled] = useState<ReplyCardRow[]>([]);
   const [handledCount, setHandledCount] = useState(0);
   const [handledLoaded, setHandledLoaded] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -204,7 +195,7 @@ function useReplyCardsState(): UseReplyCards {
   // WITHOUT taking `waiting` as a dependency (the action callbacks it feeds are
   // handed to the cards as props; a new identity on every snapshot is churn we
   // do not need). Written wherever `setWaiting` is.
-  const waitingRef = useRef<ReplyCard[]>([]);
+  const waitingRef = useRef<ReplyCardRow[]>([]);
   // ③ Cards THIS cockpit closed with its own write, held until a server snapshot
   // agrees. See `adoptWrite` — without this, a refetch that was already in flight
   // when the owner clicked resolves with a PRE-WRITE snapshot and undoes the
@@ -215,12 +206,12 @@ function useReplyCardsState(): UseReplyCards {
   //    least as new as ours (a 重新決定 re-stamps, so mere presence is not
   //    confirmation: a pre-write snapshot lists that card with its OLD stamp).
   const heldFromWaitingRef = useRef<Set<string>>(new Set());
-  const adoptedHandledRef = useRef<Map<string, ReplyCard>>(new Map());
+  const adoptedHandledRef = useRef<Map<string, ReplyCardRow>>(new Map());
   // Live mirror of `handled`, for the same reason `waitingRef` mirrors
   // `waiting`: adoptWrite has to read the row it is folding a write onto (a
   // 重新決定 revises a card this pane READ, not one it adopted) without taking
   // `handled` as a dependency. Written wherever `setHandled` is.
-  const handledRef = useRef<ReplyCard[]>([]);
+  const handledRef = useRef<ReplyCardRow[]>([]);
 
   // The always-live cheap fetch: the waiting list + the counts. Runs on mount
   // and on every reply_card delta.
@@ -421,7 +412,7 @@ function useReplyCardsState(): UseReplyCards {
     // replacement would blank those — silently, since nothing here would throw.
     // This read "is about to" while the frontend half of T-91 went in first on
     // purpose; the server half is in the same package, so it has already
-    // happened. `mergeReplyCardWrite` folds only the transition
+    // happened. `mergeReplyCardRowWrite` folds only the transition
     // in and keeps the rest of the card THIS pane already read. Still zero extra
     // requests, so the reason adoption exists at all — the pane converges from
     // the write instead of waiting for a `reply_card` frame that may never
@@ -459,7 +450,7 @@ function useReplyCardsState(): UseReplyCards {
         handledRef.current.find((c) => c.id === receipt.id) ??
         adoptedHandledRef.current.get(receipt.id);
       if (before) {
-        const card = mergeReplyCardWrite(before, receipt);
+        const card = mergeReplyCardRowWrite(before, receipt);
         adoptedHandledRef.current.set(receipt.id, card);
         const next = [
           ...handledRef.current.filter((c) => c.id !== receipt.id),

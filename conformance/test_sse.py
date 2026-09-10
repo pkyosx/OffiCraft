@@ -20,8 +20,9 @@ Coverage, MUST by MUST:
   * §2.2 partial payload convenience shapes (chat {id,from,to}; signals null);
   * §3  the CLOSED topic vocabulary — EVERY topic of the closed set is
         explicitly triggered and observed, and the trigger table is confronted
-        with the product's own wire contract (spec/sse.md §3.1) at run time, so
-        a topic added there without a trigger here reddens instead of silently
+        with the GENERATED wire asset (spec/sse-topics.json, rendered from
+        hub.go's `sseTopics` by bin/gen-sse-topics) at run time, so a topic
+        added to the server without a trigger here reddens instead of silently
         losing its write-face coverage; op vocabulary patch/remove/signal;
   * §4  per-recipient routing (T-30d7): an AGENT connection receives a delta
         iff addressed (chat→from/to, member→self); an unrelated agent's stream
@@ -54,7 +55,6 @@ from __future__ import annotations
 
 import json
 import pathlib
-import re
 import time
 import uuid
 from typing import Any
@@ -71,101 +71,75 @@ def _auth(token: str) -> dict[str, str]:
 
 HERE = pathlib.Path(__file__).resolve().parent
 
-# The §3.1 topic table row: ``| `<topic>` | <trigger> | <op> |``.
+# The GENERATED closed-topic asset: spec/sse-topics.json, rendered from
+# server/ocserverd/hub.go's ``sseTopics`` — the map the publish seam consults
+# before it fans anything — by bin/gen-sse-topics, and held to it by the
+# drift-sse-topics gate.
 #
-# ⚠️ DUPLICATED PARSER (knowingly, this round): server/ocserverd's
-# TestSSETopicsMatchSpec parses the SAME table to bind hub.go's `sseTopics` to
-# it — the other edge of this guard (that test is what makes spec/sse.md a
-# TRUSTWORTHY authority here; without it a topic added to hub.go alone would
-# leave both guards green). Two parsers of one markdown table is a smell; the
-# proper fix is a MACHINE-READABLE spec asset (a spec/sse-topics.json next to
-# spec/openapi.json, consumed by both sides and by the frontend's
-# SSE_RESYNC_TOPICS), which adds a frozen wire asset ⇒ owner's call under the
-# wire freeze, not a tidy-up to do in passing.
-_SPEC_TOPIC_ROW = re.compile(r"^\|\s*`([a-z_]+)`\s*\|", re.M)
-
-# The §3.1 section delimiters. Located with str.find + an EXPLICIT not-found
-# check, never with str.split: ``"x".split("nope", 1)`` returns ``["x"]``, so
-# ``spec.split("### 3.1", 1)[-1].split("### 3.2", 1)[0]`` silently degrades to a
-# DIFFERENT SLICE the moment either heading is renamed or moved — and the
-# degraded slice still parses out a set that looks perfectly healthy, so the
-# confrontation below guards nothing and nothing goes red.
-#
-# 🔴 WHY it stays "healthy" — the real mechanism, because the explanation that
-# used to sit here was wrong and wrong explanations get quoted. It said,
-# verbatim: the parse "degrades to THE WHOLE DOCUMENT" and "this document
-# happens to contain exactly the same 12 topic rows elsewhere (§4.1's audience
-# table)". **Both halves are false** (re-measured independently, pure-function,
-# no server):
-#   * losing "### 3.1" yields start-of-file → §3.2 — a ~9.9k-char SLICE, not the
-#     34207-char document; losing "### 3.2" yields §3.1 → EOF. Neither is
-#     "the whole document".
-#   * §4.1 is irrelevant: it begins at char 11089, i.e. PAST the end of that
-#     ~9.9k-char slice, so the degraded parse never reads it. It also lists only
-#     7 topics, which cannot produce the full set. Deleting §4.1 outright leaves
-#     the degraded answer BYTE-IDENTICAL.
-# The actual mechanism is more general, and worse: **the end delimiter sits
-# AFTER the target table, so when the start delimiter goes missing the degraded
-# slice STILL FULLY CONTAINS the very table it was supposed to bound.** The
-# answer is right because the table is still inside the slice — not because a
-# second copy of it exists somewhere else. Generalise it: ANY split-style parser
-# that bounds its target with a heading located AFTER that target will silently
-# return the correct answer when its START delimiter disappears.
-# (This matters operationally: anyone who believed the §4.1 story would try to
-# reduce the risk by cleaning up §4.1. Measured — that changes nothing.)
-#
-# Fail-loud is the whole point: a parser for a machine-read contract must never
-# have a "quietly parsed something else" branch.
-_SPEC_TOPIC_SECTION_START = "### 3.1"
-_SPEC_TOPIC_SECTION_END = "### 3.2"
+# ⚠️ THIS USED TO PARSE spec/sse.md §3.1's MARKDOWN TABLE, and so did a Go test
+# and the frontend's SSE_RESYNC_TOPICS guard: three parsers over three copies of
+# one list, each pinned to another by a test, so a topic added to hub.go alone
+# left the whole lot green. The list has ONE source now (the Go map) and one
+# machine-readable product. §3.1's table stays HAND-WRITTEN documentation and is
+# NOT read here: a sentence in a spec cannot make the server fan a frame, and
+# reading it back was how a stale table got to look like an authority.
+_TOPIC_ASSET = "spec/sse-topics.json"
 
 
-class SpecTopicParseError(AssertionError):
-    """spec/sse.md §3.1 could not be located/parsed — never a silent fallback."""
+class TopicAssetError(AssertionError):
+    """spec/sse-topics.json could not be read or understood — never a silent
+    fallback to a healthy-looking set."""
 
 
-def _parse_closed_topics(spec: str, source: str = "<spec/sse.md>") -> set[str]:
-    """Extract the §3.1 topic set from the spec text, or RAISE.
+def _parse_closed_topics(blob: str, source: str = f"<{_TOPIC_ASSET}>") -> set[str]:
+    """Extract the closed topic set from the generated asset, or RAISE.
 
-    Split out from ``_closed_topic_set`` so the fail-loud behaviour itself is
-    testable on constructed inputs (``test_spec_topic_parser_fails_loud``)
-    without a server: a guard whose degradation mode is untested is a guard
-    that has only ever been eyeballed.
+    Split out from ``_closed_topic_set`` so the fail-loud behaviour is itself
+    testable on constructed inputs (``test_topic_asset_reader_fails_loud``)
+    without a server: a guard whose degradation mode is untested is a guard that
+    has only ever been eyeballed.
+
+    Every refusal below exists because its SILENT form produces a set that looks
+    fine — an empty one most of all, which makes the confrontation in
+    ``test_every_closed_topic_emits`` pass with nothing missing and nothing
+    extra.
     """
-    start = spec.find(_SPEC_TOPIC_SECTION_START)
-    if start == -1:
-        raise SpecTopicParseError(
-            f"{source}: heading {_SPEC_TOPIC_SECTION_START!r} not found — the "
-            "closed topic set is READ from that section at run time, so a "
-            "renamed/moved heading must fail here, not fall back to slicing "
-            "from the start of the file (that slice still CONTAINS the §3.1 "
-            "table, so it yields the right-looking set for the wrong reason "
-            "and makes every topic guard vacuous)."
+    try:
+        doc = json.loads(blob)
+    except json.JSONDecodeError as exc:
+        raise TopicAssetError(
+            f"{source}: not valid JSON ({exc}). It is a GENERATED artifact — "
+            "regenerate it with bin/gen-sse-topics rather than repairing it by hand."
+        ) from exc
+    if not isinstance(doc, dict):
+        raise TopicAssetError(
+            f"{source}: top level is {type(doc).__name__}, not an object — the "
+            "asset's shape changed; this reader must not guess at the new one."
         )
-    end = spec.find(_SPEC_TOPIC_SECTION_END, start + len(_SPEC_TOPIC_SECTION_START))
-    if end == -1:
-        raise SpecTopicParseError(
-            f"{source}: heading {_SPEC_TOPIC_SECTION_END!r} not found after "
-            f"{_SPEC_TOPIC_SECTION_START!r} — the section has no end delimiter, "
-            "so the topic table can no longer be bounded. Fix the spec headings "
-            "or this parser; do not let it swallow the rest of the document."
+    topics = doc.get("topics")
+    if not isinstance(topics, list):
+        raise TopicAssetError(
+            f"{source}: no list-valued `topics` key. The closed set is READ from "
+            "this file at run time, so a shape change must fail here instead of "
+            "yielding an empty set that makes every topic guard vacuous."
         )
-    topics = set(_SPEC_TOPIC_ROW.findall(spec[start:end]))
+    if not all(isinstance(t, str) and t for t in topics):
+        raise TopicAssetError(
+            f"{source}: `topics` must be a list of non-empty strings; got {topics!r}."
+        )
     if not topics:
-        raise SpecTopicParseError(
-            f"{source}: §3.1 was located but ZERO topic rows parsed out of it — "
-            "the table shape changed (or moved). An empty closed set would make "
-            "the confrontation in test_every_closed_topic_emits pass trivially "
+        raise TopicAssetError(
+            f"{source}: `topics` is EMPTY — an empty closed set would make the "
+            "confrontation in test_every_closed_topic_emits pass trivially "
             "(nothing missing, nothing extra), so it is an error, not a result."
         )
-    return topics
+    return set(topics)
 
 
 def _closed_topic_set() -> set[str]:
-    """The closed topic vocabulary, READ FROM THE PRODUCT'S OWN WIRE CONTRACT at
-    run time — ``spec/sse.md`` §3.1, the very table ``hub.go``'s ``sseTopics``
-    cites as its source and that a topic addition MUST go through (spec-first,
-    root CLAUDE.md §13).
+    """The closed topic vocabulary, READ FROM THE GENERATED WIRE ASSET at run
+    time — ``spec/sse-topics.json``, which bin/gen-sse-topics renders from
+    ``hub.go``'s ``sseTopics`` and the drift-sse-topics gate keeps honest.
 
     Deliberately NOT a list restated in this file: a hand-copied set would make
     the confrontation below vacuous (it would only ever confront one hand-copy
@@ -174,16 +148,16 @@ def _closed_topic_set() -> set[str]:
     surface against the frozen ``spec/openapi.json`` + ``routes_manifest.json``
     rather than against a list typed here.
 
-    ⚠️ SCOPE of this guard (and of ocserverd's TestSSETopicsMatchSpec, the other
-    edge): it covers the ENTITY-DELTA topics only — the ones that ride
-    ``hub.Publish``. The three DIRECTED bands (``context-high`` §6,
-    ``token-expiry`` §6.1, ``warden-command`` §7) go out through ``PushDirected``,
-    bypass ``Publish`` entirely, and are a separate envelope family by design
-    (§3.1's own note: "a separate envelope family, not entity-delta topics").
-    Their ABSENCE from this set is deliberate, not an oversight — do NOT "fix"
-    it by adding them here or to ``sseTopics``; they are pinned by their own
-    tests (``test_context_high_*``, ``test_warden_command_band_start_frame``,
-    and ocserverd's token-expiry wire test).
+    ⚠️ SCOPE of this guard: it covers the ENTITY-DELTA topics only — the ones
+    that ride ``hub.Publish``. The three DIRECTED bands (``context-high`` §6,
+    ``token-expiry`` §6.1, ``warden-command`` §7) go out through
+    ``PushDirected``, bypass ``Publish`` entirely, and are a separate envelope
+    family by design (spec/sse.md §3.1's own note: "a separate envelope family,
+    not entity-delta topics"). Their ABSENCE from this set is deliberate, not an
+    oversight — do NOT "fix" it by adding them here or to ``sseTopics``; they are
+    pinned by their own tests (``test_context_high_*``,
+    ``test_warden_command_band_start_frame``, and ocserverd's token-expiry wire
+    test).
 
     🔴 ``task-close`` §8 used to be the fourth. T-91 retired it as a wire band —
     the close-out nudge is a DURABLE CHAT ROW now, because an at-most-once push
@@ -191,55 +165,44 @@ def _closed_topic_set() -> set[str]:
     different reason from the other three: not "directed rather than entity",
     but "no longer sent on the wire at all".
     """
-    path = HERE.parent / "spec" / "sse.md"
-    return _parse_closed_topics(path.read_text(encoding="utf-8"), source=str(path))
+    path = HERE.parent / _TOPIC_ASSET
+    try:
+        blob = path.read_text(encoding="utf-8")
+    except OSError as exc:
+        raise TopicAssetError(
+            f"{path}: unreadable ({exc}). This suite reads the closed topic set "
+            "from that GENERATED asset; its absence is a FAILURE, never a skip. "
+            "Create it with bin/gen-sse-topics."
+        ) from exc
+    return _parse_closed_topics(blob, source=str(path))
 
 
-def test_spec_topic_parser_fails_loud() -> None:
-    """The §3.1 reader must ERROR — never return a healthy-looking set — when
-    the section it reads is not where it expects it.
+def test_topic_asset_reader_fails_loud() -> None:
+    """The asset reader must ERROR — never return a healthy-looking set — when
+    the file it reads is not the shape it expects.
 
-    This is the anti-vacuity guard for the guard: the previous ``str.split``
-    form produced the RIGHT ANSWER FOR THE WRONG REASON on a missing heading.
-
-    🔴 The reason stated here before was wrong, and is quoted so it is not
-    re-used: it claimed the split "returned the whole document on a missing
-    heading, and because §4.1's audience table lists the same 12 topics, the
-    degraded parse produced the right answer". Re-measured: the degraded slice
-    is ~9.9k chars (the file is 34207), §4.1 starts at char 11089 and is never
-    reached, §4.1 lists only 7 topics, and deleting §4.1 leaves the degraded
-    answer identical. See the note on the delimiters above for the real
-    mechanism — the end delimiter sits AFTER the table, so a slice that loses
-    its start delimiter still contains the whole table.
-
-    Every case below is asserted to be a genuine mutation (the mutated text no
-    longer contains the delimiter it is supposed to have lost — a `### 3.1` →
-    `### 3.1bis` rename would still CONTAIN `### 3.1` and make these cases pass
-    without testing anything).
+    This is the anti-vacuity guard for the guard. Its ancestor guarded a
+    markdown parser whose ``str.split`` form produced the RIGHT ANSWER FOR THE
+    WRONG REASON on a missing heading; the parser is gone, the discipline is not.
     """
-    real = (HERE.parent / "spec" / "sse.md").read_text(encoding="utf-8")
+    real = (HERE.parent / _TOPIC_ASSET).read_text(encoding="utf-8")
     # Deliberately a floor, not the exact count: the closed set grows (it was 12
-    # when this was written, 13 today), and a hard-coded size here would be one
-    # more stale number to chase — the EQUALITY that pins the set lives in
+    # when its ancestor was written, 13 today), and a hard-coded size here would
+    # be one more stale number to chase — the EQUALITY that pins the set lives in
     # test_every_closed_topic_emits, this is only a positive control.
-    assert len(_parse_closed_topics(real)) >= 12, "positive control: the real spec parses"
+    assert len(_parse_closed_topics(real)) >= 12, "positive control: the real asset parses"
 
-    no_start = real.replace(_SPEC_TOPIC_SECTION_START, "### 3.9 (heading moved)")
-    assert _SPEC_TOPIC_SECTION_START not in no_start, "mutation must really remove it"
-    with pytest.raises(SpecTopicParseError):
-        _parse_closed_topics(no_start)
-
-    no_end = real.replace(_SPEC_TOPIC_SECTION_END, "### 3.8 (heading moved)")
-    assert _SPEC_TOPIC_SECTION_END not in no_end, "mutation must really remove it"
-    with pytest.raises(SpecTopicParseError):
-        _parse_closed_topics(no_end)
-
-    empty_section = (
-        f"{_SPEC_TOPIC_SECTION_START} Topics\n\nthe table moved elsewhere\n\n"
-        f"{_SPEC_TOPIC_SECTION_END} Ops\n\n| `member` | x |\n"
-    )
-    with pytest.raises(SpecTopicParseError):
-        _parse_closed_topics(empty_section)
+    for broken in (
+        "{not json",
+        "[]",
+        '{"generated_by": "bin/gen-sse-topics"}',
+        '{"topics": {}}',
+        '{"topics": []}',
+        '{"topics": ["member", 7]}',
+        '{"topics": ["member", ""]}',
+    ):
+        with pytest.raises(TopicAssetError):
+            _parse_closed_topics(broken)
 
 
 def _fresh_agent(client, owner_token, tag: str) -> AgentIdentity:
@@ -382,8 +345,9 @@ def test_every_closed_topic_emits(client, owner_token, agent_a, fresh_member, ow
     reply_card joined in M2, the task batch added three more) and pin its op +
     payload semantics.
 
-    The trigger table below is CONFRONTED with the closed set read from
-    ``spec/sse.md`` §3.1 at run time (``_closed_topic_set``): covering fewer
+    The trigger table below is CONFRONTED with the closed set read from the
+    GENERATED ``spec/sse-topics.json`` at run time (``_closed_topic_set``,
+    rendered from hub.go's ``sseTopics``): covering fewer
     topics than the wire contract declares means the missing topics' publish
     seam could be deleted wholesale with this suite still green, which is
     exactly what happened while this table was a hand-written list of 9.
@@ -468,8 +432,8 @@ def test_every_closed_topic_emits(client, owner_token, agent_a, fresh_member, ow
     covered = {topic for topic, _ in triggers}
     missing, extra = sorted(closed - covered), sorted(covered - closed)
     assert not missing and not extra, (
-        "the trigger table MUST equal the closed topic set declared by the "
-        "product's wire contract (spec/sse.md §3.1).\n"
+        "the trigger table MUST equal the closed topic set the server itself "
+        "declares (spec/sse-topics.json, generated from hub.go's sseTopics).\n"
         f"  never triggered here (their publish seam could be deleted and this "
         f"suite would stay green): {missing}\n"
         f"  triggered here but NOT in the closed set (a phantom topic, or the "

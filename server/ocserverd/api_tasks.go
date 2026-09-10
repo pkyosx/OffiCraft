@@ -597,7 +597,7 @@ func (s *apiServer) callerMayWriteHandover(r *http.Request, t Task) bool {
 // sub). The matrix needs more than the principal ladder — a 正職 and an 外包
 // both rank principalAgent, so Member.Kind is the discriminator (isOutsource).
 type taskCaller struct {
-	principal string
+	principal principalClass
 	actorID   string
 	member    *Member
 }

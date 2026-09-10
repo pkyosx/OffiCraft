@@ -163,6 +163,21 @@ function renderPage() {
   );
 }
 
+/** Open every reply card the PAGE is showing. Its panes render collapsed rows
+ * and read a card only when it is opened (owner 2026-09-07), so the chips and
+ * 標為過期 these tests click appear only after this. (The inline ChatReplyCard /
+ * TaskReplyCard cases below open themselves — they always worked this way.) */
+async function openCards() {
+  for (const btn of document.querySelectorAll<HTMLElement>(
+    '[data-testid="reply-card-toggle"]'
+  )) {
+    if (btn.getAttribute("aria-expanded") === "false") fireEvent.click(btn);
+  }
+  await waitFor(() =>
+    expect(document.querySelectorAll('[data-testid="card-loading"]')).toHaveLength(0)
+  );
+}
+
 beforeEach(() => {
   __resetMock();
   window.location.hash = "";
@@ -182,6 +197,7 @@ describe("reply-card writes reconcile without any event stream", () => {
 
     const { findAllByTestId, queryAllByTestId } = renderPage();
     expect(await findAllByTestId("waiting-card")).toHaveLength(3);
+    await openCards();
 
     fireEvent.click(
       waitingCardById("rc-1").querySelectorAll(".reply-option")[0]
@@ -204,6 +220,7 @@ describe("reply-card writes reconcile without any event stream", () => {
 
     const { findAllByTestId, findByTestId, queryAllByTestId } = renderPage();
     expect(await findAllByTestId("waiting-card")).toHaveLength(2);
+    await openCards();
 
     fireEvent.click(
       waitingCardById("rc-1").querySelector('[data-testid="expire-card"]')!
@@ -231,6 +248,7 @@ describe("reply-card writes reconcile without any event stream", () => {
     const stream = captureEventStream();
     const { findAllByTestId, queryAllByTestId } = renderPage();
     expect(await findAllByTestId("waiting-card")).toHaveLength(2);
+    await openCards();
 
     // A peer's delta kicks a refetch — and that read never comes back before the
     // owner acts (slow response, then the stream drops).
@@ -270,6 +288,7 @@ describe("reply-card writes reconcile without any event stream", () => {
     const stream = captureEventStream();
     const { findAllByTestId, queryAllByTestId } = renderPage();
     expect(await findAllByTestId("waiting-card")).toHaveLength(2);
+    await openCards();
 
     const read = hangNextRead("waiting");
     stream.deliver("reply_card");
@@ -435,6 +454,7 @@ describe("reply-card writes reconcile without any event stream", () => {
     await waitFor(() => expect(read.inFlight()).toBe(true));
 
     const cards = await findAllByTestId("waiting-card");
+    await openCards();
     fireEvent.click(cards[0].querySelectorAll(".reply-option")[0]);
     await waitFor(() =>
       expect(queryAllByTestId("answered-card")).toHaveLength(2)
@@ -503,6 +523,7 @@ describe("reply-card writes reconcile without any event stream", () => {
     fireEvent.click(await findByTestId("answered-toggle"));
     const cards = await findAllByTestId("answered-card");
     expect(cards).toHaveLength(1);
+    await openCards();
     const answerOf = (el: HTMLElement) =>
       el.querySelector(".reply-card__answer-option")?.textContent ?? "";
     expect(answerOf(cards[0])).toBe("OPT-ZERO");

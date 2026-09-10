@@ -177,11 +177,24 @@ describe("請示 ID 篩選（常駐欄位版，T-118）", () => {
     // equivalent guard; without this one 請示卡 would be the weaker of the two
     // and the next person would "tidy" onCommit back onto onChange.
     const getSpy = vi.spyOn(api, "getReplyCard");
-    __injectMockReplyCard(mkCard({ id: "rc-aaa", summary: "第一張" }));
-    __injectMockReplyCard(mkCard({ id: "rc-bbb", summary: "第二張" }));
+    // Explicit timestamps: 待回覆 opens its NEWEST card, and two undated
+    // mkCard() calls read the clock separately — a millisecond boundary between
+    // them would hand the lead to rc-bbb and this spec asserts on rc-aaa.
+    const now = Date.now() / 1000;
+    __injectMockReplyCard(
+      mkCard({ id: "rc-aaa", summary: "第一張", createdTs: now - 25 * 60 })
+    );
+    __injectMockReplyCard(
+      mkCard({ id: "rc-bbb", summary: "第二張", createdTs: now - 26 * 60 })
+    );
 
-    const { findAllByTestId, queryByText } = renderPage();
+    const { findAllByTestId, queryAllByText } = renderPage();
     expect(await findAllByTestId("waiting-card")).toHaveLength(2);
+    // The leading card opens itself and is READ, like any opened card. That
+    // read is not what this spec measures — the six keystrokes below are — so
+    // the counter starts after the page has settled.
+    await waitFor(() => expect(getSpy).toHaveBeenCalledWith("rc-aaa"));
+    getSpy.mockClear();
 
     for (const value of ["r", "rc", "rc-", "rc-b", "rc-bb", "rc-bbb"]) {
       typeId(value);
@@ -198,8 +211,11 @@ describe("請示 ID 篩選（常駐欄位版，T-118）", () => {
       "six keystrokes must cost zero requests"
     ).not.toHaveBeenCalled();
     expect(await findAllByTestId("waiting-card")).toHaveLength(2);
-    expect(queryByText("第一張"), "typing alone must not narrow the list").toBeTruthy();
-    expect(queryByText("第二張")).toBeTruthy();
+    expect(
+      queryAllByText("第一張").length,
+      "typing alone must not narrow the list"
+    ).toBeGreaterThan(0);
+    expect(queryAllByText("第二張").length).toBeGreaterThan(0);
   });
 
   it("Enter applies the typed id, and asks the server for it exactly once", async () => {
@@ -209,11 +225,20 @@ describe("請示 ID 篩選（常駐欄位版，T-118）", () => {
     // matters is UNCHANGED and lives in the spec above — typing costs nothing;
     // this one holds the other half, that a COMMITTED id costs exactly one read.
     const getSpy = vi.spyOn(api, "getReplyCard");
-    __injectMockReplyCard(mkCard({ id: "rc-aaa", summary: "第一張" }));
-    __injectMockReplyCard(mkCard({ id: "rc-bbb", summary: "第二張" }));
+    // Explicit timestamps for the same reason as the spec above: rc-aaa has to
+    // be the newest 待回覆 card, not whichever mkCard() call caught a later ms.
+    const now = Date.now() / 1000;
+    __injectMockReplyCard(
+      mkCard({ id: "rc-aaa", summary: "第一張", createdTs: now - 25 * 60 })
+    );
+    __injectMockReplyCard(
+      mkCard({ id: "rc-bbb", summary: "第二張", createdTs: now - 26 * 60 })
+    );
 
     const { findAllByTestId } = renderPage();
     expect(await findAllByTestId("waiting-card")).toHaveLength(2);
+    await waitFor(() => expect(getSpy).toHaveBeenCalledWith("rc-aaa"));
+    getSpy.mockClear();
 
     applyId("rc-bbb");
 
@@ -223,8 +248,12 @@ describe("請示 ID 篩選（常駐欄位版，T-118）", () => {
     expect((await findAllByTestId("waiting-card"))[0].textContent).toContain(
       "第二張"
     );
-    expect(getSpy).toHaveBeenCalledTimes(1);
-    expect(getSpy).toHaveBeenCalledWith("rc-bbb");
+    // ONE commit = the lookup for that id, plus the ordinary open-read the pane
+    // gives the card it is now showing. Six keystrokes' worth of ids would
+    // stand right here — that is what this list is watching for.
+    await waitFor(() =>
+      expect(getSpy.mock.calls.map(([id]) => id)).toEqual(["rc-bbb", "rc-bbb"])
+    );
   });
 
   it("clicking away from the field applies it too (「點外面」)", async () => {
@@ -613,21 +642,31 @@ describe("請示卡 開卡人 篩選 (T-118)", () => {
     __injectMockReplyCard(mkCard({ id: "rc-a1", from: "mira", summary: "銀月的" }));
     __injectMockReplyCard(mkCard({ id: "rc-b1", from: "kyle", summary: "Kyle 的" }));
 
-    const { findByText, queryByText } = renderPage();
-    await findByText("銀月的");
-    expect(queryByText("Kyle 的")).toBeTruthy();
+    // *All* queries throughout: the leading 待回覆 card opens itself, so its
+    // summary stands twice (the row's line and the opened question).
+    const { findAllByText, queryAllByText } = renderPage();
+    await findAllByText("銀月的");
+    expect(queryAllByText("Kyle 的").length).toBeGreaterThan(0);
 
     tickOpener("mira");
-    await waitFor(() => expect(queryByText("Kyle 的")).toBeNull());
-    expect(queryByText("銀月的")).toBeTruthy();
+    await waitFor(() => expect(queryAllByText("Kyle 的")).toHaveLength(0));
+    expect(queryAllByText("銀月的").length).toBeGreaterThan(0);
   });
 
   it("🔴 a ticked opener stays in the dropdown at zero, so it can be unticked again", async () => {
     // The dead end this guards: count the ALREADY-narrowed rows and the ticked
     // person is the only one with a non-zero count, so every other name
     // disappears and the axis cannot be undone. 任務頁 has the same 邊界.
-    __injectMockReplyCard(mkCard({ id: "rc-a1", from: "mira", summary: "銀月的" }));
-    __injectMockReplyCard(mkCard({ id: "rc-b1", from: "kyle", summary: "Kyle 的" }));
+    // Explicit timestamps: the newest 待回覆 card opens itself and so renders its
+    // summary twice, which the single-element queries below cannot survive. Two
+    // undated mkCard() calls decide that by a millisecond boundary.
+    const now = Date.now() / 1000;
+    __injectMockReplyCard(
+      mkCard({ id: "rc-a1", from: "mira", summary: "銀月的", createdTs: now - 25 * 60 })
+    );
+    __injectMockReplyCard(
+      mkCard({ id: "rc-b1", from: "kyle", summary: "Kyle 的", createdTs: now - 26 * 60 })
+    );
 
     const { findByText, queryByText } = renderPage();
     await findByText("銀月的");
@@ -651,8 +690,15 @@ describe("請示卡 開卡人 篩選 (T-118)", () => {
   });
 
   it("清除篩選 appears for an opener tick alone, and lifts it", async () => {
-    __injectMockReplyCard(mkCard({ id: "rc-a1", from: "mira", summary: "銀月的" }));
-    __injectMockReplyCard(mkCard({ id: "rc-b1", from: "kyle", summary: "Kyle 的" }));
+    // Explicit timestamps for the same reason as the spec above: mira's card is
+    // the one that opens itself, so Kyle's summary stands exactly once.
+    const now = Date.now() / 1000;
+    __injectMockReplyCard(
+      mkCard({ id: "rc-a1", from: "mira", summary: "銀月的", createdTs: now - 25 * 60 })
+    );
+    __injectMockReplyCard(
+      mkCard({ id: "rc-b1", from: "kyle", summary: "Kyle 的", createdTs: now - 26 * 60 })
+    );
 
     const { findByText, queryByText, queryByTestId, getByTestId } = renderPage();
     await findByText("銀月的");

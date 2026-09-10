@@ -53,8 +53,9 @@ const TOPIC_OF: Record<DocumentKind, string> = {
   task_title: "task",
   // T-791e: both boot-context blocks ride the EXISTING `global_context` topic
   // rather than a topic named after themselves. The SSE vocabulary is a CLOSED
-  // set declared in spec/sse.md §3.1 (SSE_RESYNC_TOPICS, pinned against that
-  // file by api/sseResyncTopics.test.ts), and the server drops anything outside
+  // set declared by hub.go's sseTopics (SSE_RESYNC_TOPICS, pinned against its
+  // generated spec/sse-topics.json by api/sseResyncTopics.test.ts), and the
+  // server drops anything outside
   // it at the publish seam — a `boot_sequence` topic would fan NOTHING and the
   // failure would be perfectly silent: the write lands, and every other open
   // surface simply never hears. These blocks are parts of the assembled boot

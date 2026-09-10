@@ -77,6 +77,7 @@ import type {
   ScheduledMessageCreateInput,
   ScheduledMessageUpdate,
   ReplyCard,
+  ReplyCardRow,
   ReplyCardWriteReceipt,
   ReplyCardAnswerInput,
   ReplyCardCounts,
@@ -122,6 +123,7 @@ import {
   toChatMarkReadReceipt,
   toGalleryAttachment,
   toReplyCard,
+  toReplyCardRow,
   toReplyCardWriteReceipt,
   toMonitoring,
   toVersion,
@@ -167,10 +169,6 @@ import {
   toThemeDeleteResult,
   toLoreEntryPage,
 } from "./mappers";
-// The one wire type this seam names directly: GET /api/reply-cards serves a
-// UNION (light rows | full cards) and `?view=full` is what picks the second
-// arm, so listReplyCards has to narrow to it. See that function.
-import type { WireReplyCard } from "./wire";
 import { suggestedRepliesPatchFields } from "./suggestedReplies";
 import { ownerToken, setToken } from "./auth";
 import { ApiError, parseRetryAfter } from "./errors";
@@ -408,8 +406,9 @@ let sseGapPending = false;
 // (T-05db node 4). There were THREE hand-copies: this one, plus transcriptions
 // in hooks/sseFanout.test.tsx and api/http.sse-pool.test.ts — both now import
 // THIS array. Its own correctness is no longer taken on trust either:
-// api/sseResyncTopics.test.ts asserts it EQUALS the spec/sse.md §3.1 table,
-// parsed from the repo file at run time rather than transcribed.
+// api/sseResyncTopics.test.ts asserts it EQUALS the GENERATED spec/sse-topics.json
+// (rendered from hub.go's sseTopics by bin/gen-sse-topics), read from the repo
+// file at run time rather than transcribed.
 //
 // Why this matters more than it looks: a topic MISSING here fails silently —
 // after a reconnect that topic never refetches, so the data is right, the
@@ -1590,43 +1589,23 @@ export const httpApi: Api = {
 
   async listReplyCards(
     status: "waiting" | "answered" | "expired",
-  ): Promise<ReplyCard[]> {
-    // GET /api/reply-cards?status=&view=full -> ReplyCardDTO[] (T-a3e4).
-    //
-    // T-3f31 took the body / full options text OUT of the list wire, because
-    // the AGENT-facing list_reply_cards tool shares this route and must stay
-    // small (owner ruling: 卡只需要 title+決策). But the cockpit panes render
-    // the FULL card (option chips, body, attachment refs), so this adapter used
-    // to follow the light list with one GET /api/reply-cards/{id} PER ROW —
-    // opening one waiting pane cost one ROUND TRIP PER WAITING CARD. `view=full`
-    // serves the same pane, in the same order, as whole cards in ONE request.
-    //
-    // 🔴 The win is the ROUND TRIPS, not the bytes. Measured on a real
-    // ocserverd waiting pane: 26 requests / 49,970 B → 1 request / 44,183 B —
-    // 25 fewer round trips, but only 11.6% fewer bytes. Do not sell this as
-    // saving bandwidth: on a slow link the latency is the whole cost, and a
-    // full pane is very nearly the same size either way.
+  ): Promise<ReplyCardRow[]> {
+    // GET /api/reply-cards?status= -> ReplyCardListItemDTO[] — LIGHT rows, the
+    // route's only shape (the `?view=full` projection was removed, owner
+    // 2026-09-07). The pane draws these collapsed and reads the ONE card the
+    // owner opens through `getReplyCard`, so a whole pane is one request and an
+    // unopened card is none.
     //
     // The server order is preserved (waiting = longest-waiting first, answered =
     // last-24h newest answer first). RepliesPage re-sorts the waiting pane
     // newest-first for DISPLAY only (T-b07f) — the adapter still hands over
     // server order.
-    //
-    // ⚠️ `view` lives ONLY here, in the http seam: it is not an adapter concept
-    // (mock has always returned whole cards, so parity is unchanged) and it is
-    // deliberately absent from the list_reply_cards MCP tool, so agents cannot
-    // ask for it. Do not lift it into the adapter signature.
     const rows = unwrap(
       await client.GET("/api/reply-cards", {
-        params: { query: { status, view: "full" } },
+        params: { query: { status } },
       }),
     );
-    // The response schema is a union (light rows | full cards) because ONE route
-    // serves both projections; `view=full` is what selects the second arm, so
-    // narrow to it here. Asserted on the wire, not just typed: the server test
-    // TestListReplyCardsViewFullRowsEqualTheSingleCardResponse pins each row as
-    // byte-identical to that card's own GET /api/reply-cards/{card_id}.
-    return (rows as WireReplyCard[]).map(toReplyCard);
+    return rows.map(toReplyCardRow);
   },
 
   async getReplyCard(id: string): Promise<ReplyCard> {

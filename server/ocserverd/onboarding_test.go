@@ -1,850 +1,391 @@
+// Skeleton generated from server/ocserverd/onboarding.go by gen_test_skeletons.py.
+// Every case is a t.Skip placeholder: fill the body, keep or rewrite the name.
+
 package main
 
 import (
 	"encoding/json"
 	"errors"
-	"net/http"
+	"io"
 	"os"
-	"reflect"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 )
 
-// T-ba62 — the automatic first-run onboarding, driven end-to-end through its
-// seams (no exec, no launchd, no sleeping).
-//
-// The two directions the ticket demands are pinned here:
-//   - prerequisites present → the machine is installed AND the assistant is
-//     actually set to come online with a START dispatched;
-//   - any prerequisite missing → LOUD failure carrying the real reason, the
-//     assistant is NOT woken, and no residue is left behind.
+func TestWardenAlreadyInstalledHere(t *testing.T) {
+	cases := []struct {
+		name       string
+		namespace  string
+		home       string
+		label      bool
+		file       bool
+		want       bool
+		wantPath   string
+		wantLabels int
+	}{
+		{name: "a loaded launchd label blocks installation", home: "/tmp/home", label: true, want: true, wantLabels: 1},
+		{name: "an existing token file blocks installation", home: "/tmp/home", file: true, want: true, wantPath: "/tmp/home/.officraft/warden/exec-warden.tok", wantLabels: 1},
+		{name: "an absent token file permits installation", home: "/tmp/home", want: false, wantPath: "/tmp/home/.officraft/warden/exec-warden.tok", wantLabels: 1},
+		{name: "a namespaced token file uses the namespace root", namespace: "blue", home: "/tmp/home", file: true, want: true, wantPath: "/tmp/home/.officraft-blue/warden/exec-warden.tok", wantLabels: 1},
+		{name: "an unknown home refuses installation", label: false, want: true, wantLabels: 1},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			api := &apiServer{namespace: tc.namespace}
+			labelCalls := 0
+			statCalls := 0
+			got := api.wardenAlreadyInstalledHere(
+				func(string) string { return tc.home },
+				func(path string) (os.FileInfo, error) {
+					statCalls++
+					if path != tc.wantPath {
+						t.Errorf("stat path = %q, want %q", path, tc.wantPath)
+					}
+					if tc.file {
+						return nil, nil
+					}
+					return nil, os.ErrNotExist
+				},
+				func(label string) bool {
+					labelCalls++
+					want := wardenLaunchdLabel(tc.namespace)
+					if label != want {
+						t.Errorf("label = %q, want %q", label, want)
+					}
+					return tc.label
+				},
+			)
+			if got != tc.want {
+				t.Fatalf("wardenAlreadyInstalledHere() = %v, want %v", got, tc.want)
+			}
+			if labelCalls != tc.wantLabels {
+				t.Fatalf("label calls = %d, want %d", labelCalls, tc.wantLabels)
+			}
+			wantStats := 1
+			if tc.label || tc.home == "" {
+				wantStats = 0
+			}
+			if statCalls != wantStats {
+				t.Fatalf("stat calls = %d, want %d", statCalls, wantStats)
+			}
+		})
+	}
+}
 
-// fakeOnboarding builds a runner whose install outcome and warden reachability
-// are pinned per case. now/sleep are fake so the bounded wait is instant.
-func fakeOnboarding(s *apiServer, res bootstrapResultDTO, err error, online bool) onboardingRunner {
-	clock := 1000.0
-	return onboardingRunner{
-		installWarden: func(Member) (bootstrapResultDTO, error) { return res, err },
-		// The default fixture is a host with NO warden yet — the fresh-install
-		// shape. The interlock is exercised explicitly below.
-		wardenInstalled: func() bool { return false },
-		wardenOnline: func(id string) bool {
-			// Reachability is asked about THIS host's warden by contract; a
-			// runner that polled some other id would read as never-online.
-			return online && id == ServerSelfHost
+func TestOfficraftRootPath(t *testing.T) {
+	if got := officraftRootPath("/Users/eva", ""); got != "/Users/eva/.officraft" {
+		t.Fatalf("default root = %q", got)
+	}
+	if got := officraftRootPath("/Users/eva", "blue"); got != "/Users/eva/.officraft-blue" {
+		t.Fatalf("namespaced root = %q", got)
+	}
+}
+
+func TestWardenLaunchdLabel(t *testing.T) {
+	if got := wardenLaunchdLabel(""); got != "com.officraft.ocwarden" {
+		t.Fatalf("default label = %q", got)
+	}
+	if got := wardenLaunchdLabel("blue"); got != "com.officraft.ocwarden.blue" {
+		t.Fatalf("namespaced label = %q", got)
+	}
+}
+
+func TestLaunchdLabelLoaded(t *testing.T) {
+	if launchdLabelLoaded("com.officraft.test.definitely-not-installed") {
+		t.Fatal("an absent launchd label was reported as loaded")
+	}
+}
+
+func TestKickFirstRunOnboarding(t *testing.T) {
+	api, _, d, _ := newAPITestServer(t)
+	api.kickFirstRunOnboarding()
+	stored, err := d.GetSetting(settingOnboardingReport)
+	if err != nil {
+		t.Fatalf("GetSetting: %v", err)
+	}
+	if stored != nil {
+		t.Fatalf("disabled onboarding wrote a report: %q", *stored)
+	}
+}
+
+func TestKickFirstRunOnboardingWith(t *testing.T) {
+	api, _, _, _ := newAPITestServer(t)
+	t.Setenv("OC_NO_ONBOARDING", "")
+	var installCalls atomic.Int32
+	run := onboardingRunner{
+		installWarden: func(Member) (bootstrapResultDTO, error) {
+			installCalls.Add(1)
+			return bootstrapResultDTO{}, errors.New("installer unavailable")
 		},
-		sleep:      func(d time.Duration) { clock += d.Seconds() },
-		now:        func() float64 { return clock },
-		waitBudget: 2 * time.Second,
+		wardenInstalled: func() bool { return false },
+	}
+	api.kickFirstRunOnboardingWith(run)
+	report := onboardingTestWaitForTerminalReport(t, api)
+	if report.State != onboardingStateFailed || len(report.Steps) != 1 {
+		t.Fatalf("report = %#v", report)
+	}
+	step := report.Steps[0]
+	if step.Name != onboardingStepInstallWarden || step.Code != onboardingCodeInstallerUnrunnable || step.Reason != "could not run the warden installer on this host: installer unavailable" {
+		t.Fatalf("step = %#v", step)
+	}
+	if got := installCalls.Load(); got != 1 {
+		t.Fatalf("install calls = %d, want 1", got)
+	}
+	api.kickFirstRunOnboardingWith(run)
+	time.Sleep(10 * time.Millisecond)
+	if got := installCalls.Load(); got != 1 {
+		t.Fatalf("second kick installed again: %d calls", got)
 	}
 }
 
-func stepByName(r onboardingReportDTO, name string) (onboardingStepDTO, bool) {
-	for _, st := range r.Steps {
-		if st.Name == name {
-			return st, true
+func TestNewOnboardingRunner(t *testing.T) {
+	api := &apiServer{hub: NewHub(), namespace: "blue"}
+	run := api.newOnboardingRunner()
+	if run.installWarden == nil || run.wardenOnline == nil || run.wardenInstalled == nil || run.sleep == nil || run.now == nil {
+		t.Fatal("newOnboardingRunner left a production seam nil")
+	}
+	if run.waitBudget != wardenOnlineWait {
+		t.Fatalf("wait budget = %v, want %v", run.waitBudget, wardenOnlineWait)
+	}
+}
+
+func TestRunFirstRunOnboarding(t *testing.T) {
+	t.Run("an unrunnable installer fails closed before waking the assistant", func(t *testing.T) {
+		api, _, _, _ := newAPITestServer(t)
+		api.noReconcile = true
+		run := onboardingRunner{
+			wardenInstalled: func() bool { return false },
+			installWarden: func(Member) (bootstrapResultDTO, error) {
+				return bootstrapResultDTO{}, errors.New("no installer")
+			},
 		}
-	}
-	return onboardingStepDTO{}, false
-}
-
-// ── direction 1: prerequisites present ──────────────────────────────────────
-
-func TestOnboarding_HappyPathInstallsAndWakes(t *testing.T) {
-	s := newReconcileTestServer(t)
-	// The seeded server-self warden holds its SSE downstream (what "installed
-	// AND reachable" actually means).
-	connectOnline(t, s, ServerSelfHost)
-
-	report := s.runFirstRunOnboarding(
-		fakeOnboarding(s, bootstrapResultDTO{MachineID: ServerSelfHost, OK: true, Log: "installed"}, nil, true),
-		onboardingReportDTO{State: onboardingStateRunning})
-
-	if report.State != onboardingStateOK {
-		t.Fatalf("a fully-satisfied onboarding must report ok, got %q (%+v)", report.State, report.Steps)
-	}
-	if st, ok := stepByName(report, onboardingStepInstallWarden); !ok || !st.OK {
-		t.Fatalf("the warden install step must be ok: %+v", report.Steps)
-	}
-	if st, ok := stepByName(report, onboardingStepWakeAssistant); !ok || !st.OK {
-		t.Fatalf("the assistant wake step must be ok: %+v", report.Steps)
-	}
-	// The DURABLE effect, not just the report: the seeded assistant is now
-	// desired-online...
-	mira, err := s.dal.GetMember(seedMiraID)
-	if err != nil || mira == nil {
-		t.Fatalf("seeded assistant missing: %v", err)
-	}
-	if mira.DesiredState != DesiredStateOnline {
-		t.Fatalf("the assistant must be set to come online, got %q", mira.DesiredState)
-	}
-	// ...and a START really reached the warden (an intent nobody dispatched
-	// would satisfy the assertion above while doing nothing).
-	frames := drainFrames(t, s, ServerSelfHost)
-	if len(frames) == 0 {
-		t.Fatalf("expected a START frame on the server-self warden FIFO; got none")
-	}
-	// The report is readable back through the same accessor the settings read uses.
-	stored := s.onboardingReport()
-	if stored == nil || stored.State != onboardingStateOK {
-		t.Fatalf("the report must be persisted: %+v", stored)
-	}
-	if stored.FinishedAt <= 0 {
-		t.Fatalf("a finished report must carry finished_at, got %v", stored.FinishedAt)
-	}
-}
-
-// ── direction 2: a prerequisite missing ─────────────────────────────────────
-
-// The headline case: `ocwarden install` refuses because claude is unresolvable
-// (its T-ba62 fail-closed behaviour). The onboarding must NOT go on to wake the
-// assistant — a wake with no warden to run it is precisely the grey-member-with-
-// no-explanation this ticket exists to remove.
-func TestOnboarding_InstallFailureIsLoudAndDoesNotWake(t *testing.T) {
-	s := newReconcileTestServer(t)
-	connectOnline(t, s, ServerSelfHost) // even a reachable warden must not rescue it
-
-	failLog := "[ocwarden install] FATAL: claude_bin_unresolved: no claude CLI on this host"
-	report := s.runFirstRunOnboarding(
-		fakeOnboarding(s, bootstrapResultDTO{MachineID: ServerSelfHost, OK: false, ExitCode: 1, Log: failLog}, nil, true),
-		onboardingReportDTO{State: onboardingStateRunning})
-
-	if report.State != onboardingStateFailed {
-		t.Fatalf("a failed install must report failed, got %q", report.State)
-	}
-	st, ok := stepByName(report, onboardingStepInstallWarden)
-	if !ok || st.OK {
-		t.Fatalf("the install step must be recorded as failed: %+v", report.Steps)
-	}
-	// ASSERT THE REASON, not merely the verdict: "wrongly failed" and "correctly
-	// refused" share a state string.
-	if !strings.Contains(st.Reason, "exit 1") {
-		t.Errorf("the reason must name the installer's exit code, got %q", st.Reason)
-	}
-	// T-0648: and the machine-readable half of that same cause, which is what
-	// the cockpit renders in the reader's language instead of this English.
-	if st.Code != onboardingCodeInstallFailed {
-		t.Errorf("code = %q, want %q — without it the banner has nothing to translate and falls back to this English sentence", st.Code, onboardingCodeInstallFailed)
-	}
-	if !strings.Contains(st.Detail, "claude_bin_unresolved") {
-		t.Errorf("the failing installer log must be KEPT (it carries the actual cause), got %q", st.Detail)
-	}
-	// NO HALF-STUDIO: the wake step was never attempted...
-	if _, attempted := stepByName(report, onboardingStepWakeAssistant); attempted {
-		t.Errorf("the assistant must not be woken when the machine cannot run agents: %+v", report.Steps)
-	}
-	// ...the assistant is untouched (still exactly as the out-of-box seed left her)...
-	mira, _ := s.dal.GetMember(seedMiraID)
-	if mira == nil || mira.DesiredState != DesiredStateOffline {
-		t.Fatalf("the assistant must be left as seeded (offline), got %+v", mira)
-	}
-	// ...and nothing was dispatched to any warden.
-	if frames := drainFrames(t, s, ServerSelfHost); len(frames) != 0 {
-		t.Fatalf("a failed onboarding must dispatch nothing, got %+v", frames)
-	}
-}
-
-// The installer could not even be run (no embedded ocwarden / no binary cache).
-func TestOnboarding_InstallerUnavailableIsLoud(t *testing.T) {
-	s := newReconcileTestServer(t)
-	report := s.runFirstRunOnboarding(
-		fakeOnboarding(s, bootstrapResultDTO{}, errors.New("no embedded ocwarden copy"), false),
-		onboardingReportDTO{State: onboardingStateRunning})
-
-	if report.State != onboardingStateFailed {
-		t.Fatalf("want failed, got %q", report.State)
-	}
-	st, _ := stepByName(report, onboardingStepInstallWarden)
-	if !strings.Contains(st.Reason, "no embedded ocwarden copy") {
-		t.Errorf("the underlying cause must survive into the reason, got %q", st.Reason)
-	}
-	mira, _ := s.dal.GetMember(seedMiraID)
-	if mira.DesiredState != DesiredStateOffline {
-		t.Fatalf("the assistant must be left as seeded, got %q", mira.DesiredState)
-	}
-}
-
-// The install SUCCEEDED but the warden never connected back inside the window.
-// The wake intent is still persisted (the cadence retries it — dropping it would
-// leave the studio permanently asleep), but the report must say plainly that
-// nothing was dispatched. A clean "ok" here would be the same silent
-// false-success in a new place.
-func TestOnboarding_WardenNeverConnectsReportsUnlanded(t *testing.T) {
-	s := newReconcileTestServer(t)
-	// deliberately NOT connected
-
-	report := s.runFirstRunOnboarding(
-		fakeOnboarding(s, bootstrapResultDTO{MachineID: ServerSelfHost, OK: true}, nil, false),
-		onboardingReportDTO{State: onboardingStateRunning})
-
-	if report.State != onboardingStateFailed {
-		t.Fatalf("an undispatched wake must not report ok, got %q", report.State)
-	}
-	st, ok := stepByName(report, onboardingStepWakeAssistant)
-	if !ok || st.OK {
-		t.Fatalf("the wake step must be recorded as not-ok: %+v", report.Steps)
-	}
-	for _, want := range []string{"has not connected", "retrying", "ocwarden.out.log"} {
-		if !strings.Contains(st.Reason, want) {
-			t.Errorf("the reason must contain %q so the owner knows what to check, got %q", want, st.Reason)
+		got := api.runFirstRunOnboarding(run, onboardingReportDTO{StartedAt: 10})
+		if got.State != onboardingStateFailed || len(got.Steps) != 1 {
+			t.Fatalf("report = %#v", got)
 		}
+		if got.Steps[0].Code != onboardingCodeInstallerUnrunnable || got.Steps[0].Reason != "could not run the warden installer on this host: no installer" {
+			t.Fatalf("step = %#v", got.Steps[0])
+		}
+		if stored := api.onboardingReport(); stored == nil || stored.State != onboardingStateFailed {
+			t.Fatalf("stored report = %#v", stored)
+		}
+	})
+
+	t.Run("an installed and reachable warden lets the seeded assistant wake", func(t *testing.T) {
+		api, _, d, _ := newAPITestServer(t)
+		api.noReconcile = true
+		run := onboardingRunner{
+			wardenInstalled: func() bool { return true },
+			wardenOnline:    func(string) bool { return true },
+			sleep:           func(time.Duration) {},
+			now:             func() float64 { return 100 },
+			waitBudget:      time.Second,
+		}
+		got := api.runFirstRunOnboarding(run, onboardingReportDTO{StartedAt: 10})
+		if got.State != onboardingStateOK || len(got.Steps) != 2 {
+			t.Fatalf("report = %#v", got)
+		}
+		if !got.Steps[0].OK || got.Steps[0].Reason != "this machine already has a warden installed — left untouched" {
+			t.Fatalf("install step = %#v", got.Steps[0])
+		}
+		if !got.Steps[1].OK || got.Steps[1].Reason != "the assistant is waking on this machine" {
+			t.Fatalf("wake step = %#v", got.Steps[1])
+		}
+		m := apiTestMemberRow(t, d, seedMiraID)
+		if m.DesiredState != DesiredStateOnline {
+			t.Fatalf("Mira desired state = %q, want %q", m.DesiredState, DesiredStateOnline)
+		}
+	})
+}
+
+func TestWakeAssistantStep(t *testing.T) {
+	t.Run("an unreachable warden records an undispatched wake after the bounded wait", func(t *testing.T) {
+		api, _, _, _ := newAPITestServer(t)
+		api.noReconcile = true
+		nowCalls := 0
+		run := onboardingRunner{
+			wardenOnline: func(string) bool { return false },
+			sleep:        func(time.Duration) {},
+			now: func() float64 {
+				nowCalls++
+				if nowCalls == 1 {
+					return 100
+				}
+				return 102
+			},
+			waitBudget: time.Second,
+		}
+		got := api.wakeAssistantStep(run, onboardingReportDTO{StartedAt: 10}, nil)
+		if got.State != onboardingStateFailed || len(got.Steps) != 1 {
+			t.Fatalf("report = %#v", got)
+		}
+		step := got.Steps[0]
+		if step.Name != onboardingStepWakeAssistant || step.Code != onboardingCodeWakeUndispatched || !strings.Contains(step.Reason, "no start command has been dispatched yet") {
+			t.Fatalf("step = %#v", step)
+		}
+	})
+
+	t.Run("a reachable warden records the wake as successful", func(t *testing.T) {
+		api, _, _, _ := newAPITestServer(t)
+		api.noReconcile = true
+		run := onboardingRunner{
+			wardenOnline: func(string) bool { return true },
+			sleep:        func(time.Duration) {},
+			now:          func() float64 { return 100 },
+			waitBudget:   time.Second,
+		}
+		got := api.wakeAssistantStep(run, onboardingReportDTO{StartedAt: 10}, nil)
+		if got.State != onboardingStateOK || len(got.Steps) != 1 || !got.Steps[0].OK {
+			t.Fatalf("report = %#v", got)
+		}
+		if got.Steps[0].Reason != "the assistant is waking on this machine" {
+			t.Fatalf("step = %#v", got.Steps[0])
+		}
+	})
+}
+
+func TestFinishOnboarding(t *testing.T) {
+	cases := []struct {
+		name  string
+		steps []onboardingStepDTO
+		state string
+	}{
+		{name: "all steps succeeded", steps: []onboardingStepDTO{{Name: "install", OK: true}}, state: onboardingStateOK},
+		{name: "one step failed", steps: []onboardingStepDTO{{Name: "install", Code: "failed"}}, state: onboardingStateFailed},
+		{name: "no steps failed", state: onboardingStateFailed},
 	}
-	// The intent IS persisted — this is a "not yet", not a rollback.
-	mira, _ := s.dal.GetMember(seedMiraID)
-	if mira.DesiredState != DesiredStateOnline {
-		t.Fatalf("the wake intent must persist for the cadence to retry, got %q", mira.DesiredState)
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			api, _, _, _ := newAPITestServer(t)
+			got := api.finishOnboarding(onboardingReportDTO{StartedAt: 10}, tc.steps)
+			if got.State != tc.state || got.FinishedAt <= 0 {
+				t.Fatalf("report = %#v", got)
+			}
+			stored := api.onboardingReport()
+			if stored == nil || stored.State != tc.state || len(stored.Steps) != len(tc.steps) {
+				t.Fatalf("stored report = %#v", stored)
+			}
+		})
 	}
 }
 
-// ── the kick: idempotence + the never-ran contract ──────────────────────────
-
-func TestOnboardingReport_AbsentUntilItRuns(t *testing.T) {
-	s := newReconcileTestServer(t)
-	if r := s.onboardingReport(); r != nil {
-		t.Fatalf("a database where onboarding never ran must report nothing, got %+v", r)
-	}
-	if s.settingsView().Onboarding != nil {
-		t.Fatalf("the settings read must carry a null onboarding until it runs")
-	}
-}
-
-func TestKickFirstRunOnboarding_IsIdempotent(t *testing.T) {
-	s := newReconcileTestServer(t)
-	// Pre-claim the slot with a finished report: a second kick must be a no-op,
-	// so a re-POST of set-password can never race two installs on one launchd
-	// label.
-	done := onboardingReportDTO{State: onboardingStateOK, StartedAt: 1, FinishedAt: 2}
-	if err := s.putOnboardingReport(done); err != nil {
-		t.Fatalf("seed report: %v", err)
-	}
-	s.kickFirstRunOnboarding()
-	got := s.onboardingReport()
-	if got == nil || got.State != onboardingStateOK || got.StartedAt != 1 {
-		t.Fatalf("an existing report must be left untouched, got %+v", got)
-	}
-}
-
-// The report reaches the owner through GET /api/settings — that is the surface
-// the cockpit reads to explain a missing assistant.
-func TestSettingsView_CarriesOnboardingReport(t *testing.T) {
-	s := newReconcileTestServer(t)
-	report := onboardingReportDTO{
-		State: onboardingStateFailed,
-		Steps: []onboardingStepDTO{{
-			Name:   onboardingStepInstallWarden,
-			Reason: "installing this machine's warden failed (exit 1)",
-			Detail: "claude_bin_unresolved",
-		}},
-	}
-	if err := s.putOnboardingReport(report); err != nil {
+func TestRecoverStaleOnboarding(t *testing.T) {
+	api, _, _, _ := newAPITestServer(t)
+	if err := api.putOnboardingReport(onboardingReportDTO{State: onboardingStateRunning, StartedAt: 10, DismissedAt: 20}); err != nil {
 		t.Fatalf("put report: %v", err)
 	}
-	view := s.settingsView()
-	if view.Onboarding == nil {
-		t.Fatalf("the settings read must carry the onboarding report")
+
+	api.recoverStaleOnboarding()
+	got := api.onboardingReport()
+	if got == nil || got.State != onboardingStateFailed || got.FinishedAt <= 0 || got.DismissedAt != 0 || len(got.Steps) != 1 {
+		t.Fatalf("recovered report = %#v", got)
 	}
-	if view.Onboarding.State != onboardingStateFailed {
-		t.Fatalf("state = %q", view.Onboarding.State)
-	}
-	if len(view.Onboarding.Steps) != 1 ||
-		!strings.Contains(view.Onboarding.Steps[0].Reason, "failed") {
-		t.Fatalf("the failure reason must reach the owner: %+v", view.Onboarding.Steps)
+	step := got.Steps[0]
+	if step.Name != onboardingStepInstallWarden || step.Code != onboardingCodeInterrupted || !strings.Contains(step.Reason, "automatic first-run setup was interrupted") {
+		t.Fatalf("recovery step = %#v", step)
 	}
 }
 
-// ── the safety interlock ────────────────────────────────────────────────────
-
-// 🔴 The most dangerous thing in this ticket: onboarding runs `ocwarden install
-// --force`, and a launchd label is a uid-scoped singleton that does NOT follow
-// $HOME or a throwaway database. So ANY ocserverd that reaches set-password on
-// a fresh DB — a conformance run, an e2e run, a scratch database on the
-// operator's own laptop — would re-point the REAL warden at itself and take a
-// live fleet offline. An automatic action must never install over an existing
-// one.
-func TestOnboarding_NeverInstallsOverAnExistingWarden(t *testing.T) {
-	s := newReconcileTestServer(t)
-	connectOnline(t, s, ServerSelfHost)
-
-	installed := false
-	run := fakeOnboarding(s, bootstrapResultDTO{OK: true}, nil, true)
-	run.wardenInstalled = func() bool { return true }
-	run.installWarden = func(Member) (bootstrapResultDTO, error) {
-		installed = true
-		return bootstrapResultDTO{OK: true}, nil
+func TestSetOnboardingDismissed(t *testing.T) {
+	api, _, _, _ := newAPITestServer(t)
+	if err := api.putOnboardingReport(onboardingReportDTO{State: onboardingStateFailed}); err != nil {
+		t.Fatalf("put report: %v", err)
 	}
-
-	report := s.runFirstRunOnboarding(run, onboardingReportDTO{State: onboardingStateRunning})
-
-	if installed {
-		t.Fatalf("automatic onboarding must NOT install over an existing warden")
+	if err := api.setOnboardingDismissed(true); err != nil {
+		t.Fatalf("dismiss: %v", err)
 	}
-	st, ok := stepByName(report, onboardingStepInstallWarden)
-	if !ok || !st.OK {
-		t.Fatalf("an already-installed host is a fine starting point: %+v", report.Steps)
+	got := api.onboardingReport()
+	if got == nil || got.DismissedAt <= 0 {
+		t.Fatalf("dismissed report = %#v", got)
 	}
-	if !strings.Contains(st.Reason, "already has a warden") {
-		t.Errorf("the reason must say the existing install was left alone, got %q", st.Reason)
+	if err := api.setOnboardingDismissed(false); err != nil {
+		t.Fatalf("clear dismissal: %v", err)
 	}
-	// and the run still goes on to do the useful half (waking the assistant).
-	if wake, ok := stepByName(report, onboardingStepWakeAssistant); !ok || !wake.OK {
-		t.Fatalf("the wake must still run on an already-installed host: %+v", report.Steps)
+	got = api.onboardingReport()
+	if got == nil || got.DismissedAt != 0 {
+		t.Fatalf("cleared report = %#v", got)
+	}
+	if err := api.putOnboardingReport(onboardingReportDTO{State: onboardingStateOK}); err != nil {
+		t.Fatalf("put success report: %v", err)
+	}
+	if err := api.setOnboardingDismissed(true); !errors.Is(err, errNoOnboardingBanner) {
+		t.Fatalf("dismiss non-failed report: %v", err)
 	}
 }
 
-// The kill switch, asserted through the real claim/skip decision.
-//
-// 🔴 Both legs inject the runner (kickFirstRunOnboardingWith). The earlier
-// version called kickFirstRunOnboarding for its positive control, which binds
-// newOnboardingRunner — i.e. a `go test` on any machine would have consulted
-// the REAL $HOME and could have exec'd `ocwarden install --force` against the
-// developer's own launchd domain. The only thing that stopped it was the test
-// fixture happening to leave binCacheDir empty; one line elsewhere
-// (s.binCacheDir = t.TempDir(), which api_machines_test.go already does) would
-// have turned a unit test into a fleet-hijacking install. A test must not be
-// one edit away from mutating the host it runs on.
-func TestKickFirstRunOnboarding_HonoursKillSwitch(t *testing.T) {
-	s := newReconcileTestServer(t)
-	installed := false
-	run := fakeOnboarding(s, bootstrapResultDTO{OK: true}, nil, true)
-	run.installWarden = func(Member) (bootstrapResultDTO, error) {
-		installed = true
-		return bootstrapResultDTO{OK: true}, nil
+func TestPutOnboardingReport(t *testing.T) {
+	api, _, _, _ := newAPITestServer(t)
+	want := onboardingReportDTO{
+		State: onboardingStateFailed, StartedAt: 10, FinishedAt: 20, DismissedAt: 30,
+		Steps: []onboardingStepDTO{{Name: onboardingStepInstallWarden, Code: onboardingCodeInstallFailed, Reason: "failed", Detail: "log"}},
 	}
-
-	t.Setenv("OC_NO_ONBOARDING", "1")
-	s.kickFirstRunOnboardingWith(run)
-	if r := s.onboardingReport(); r != nil {
-		t.Fatalf("OC_NO_ONBOARDING=1 must not even claim the slot, got %+v", r)
+	if err := api.putOnboardingReport(want); err != nil {
+		t.Fatalf("put report: %v", err)
 	}
-	if installed {
-		t.Fatalf("the kill switch must prevent the install outright")
-	}
-	// Positive control: without the switch the slot IS claimed, so the leg above
-	// cannot be passing merely because nothing ever runs.
-	t.Setenv("OC_NO_ONBOARDING", "")
-	s.kickFirstRunOnboardingWith(run)
-	if r := s.onboardingReport(); r == nil {
-		t.Fatalf("without the kill switch, onboarding must claim its slot")
-	}
-}
-
-// ── R4: a dispatched START is determined POSITIVELY ─────────────────────────
-
-// The failure mode the first cut missed entirely: the warden is online, so
-// `!online` is false, and buildStartFrame's downgrade does NOT set
-// DispatchUnlanded — so the old `dec.DispatchUnlanded || !online` test was
-// false on both terms and reported "the assistant is waking" while zero frames
-// left the server. Here the assistant has no assemblable payload (her role
-// definition names a role that does not exist), which is exactly that shape.
-func TestOnboarding_OnlineWardenButUnbuildableFrameIsNotReportedAsWaking(t *testing.T) {
-	s := newReconcileTestServer(t)
-	connectOnline(t, s, ServerSelfHost)
-
-	// Break the START payload without touching the warden's reachability.
-	mira, err := s.dal.GetMember(seedMiraID)
-	if err != nil || mira == nil {
-		t.Fatalf("seeded assistant missing: %v", err)
-	}
-	mira.RoleKey = "no-such-role-exists"
-	putTestMember(t, s, *mira)
-
-	report := s.runFirstRunOnboarding(
-		fakeOnboarding(s, bootstrapResultDTO{MachineID: ServerSelfHost, OK: true}, nil, true),
-		onboardingReportDTO{State: onboardingStateRunning})
-
-	// Sanity: nothing was actually dispatched (otherwise this test would be
-	// asserting against a case that never arose).
-	if frames := drainFrames(t, s, ServerSelfHost); len(frames) != 0 {
-		t.Fatalf("fixture is wrong — a START did land: %+v", frames)
-	}
-	st, ok := stepByName(report, onboardingStepWakeAssistant)
-	if !ok || st.OK {
-		t.Fatalf("an undispatched wake must NOT be reported as ok: %+v", report.Steps)
-	}
-	if report.State != onboardingStateFailed {
-		t.Fatalf("state = %q, want failed", report.State)
-	}
-	if !strings.Contains(st.Reason, "no start command has been dispatched") {
-		t.Errorf("the reason must say nothing was dispatched, got %q", st.Reason)
-	}
-}
-
-// ── R2: a `running` report left by a dead process must not wedge the studio ──
-
-func TestRecoverStaleOnboarding_ClosesOutAnInterruptedRun(t *testing.T) {
-	s := newReconcileTestServer(t)
-	if err := s.putOnboardingReport(onboardingReportDTO{
-		State: onboardingStateRunning, StartedAt: 1,
-	}); err != nil {
-		t.Fatalf("seed report: %v", err)
-	}
-	s.recoverStaleOnboarding()
-
-	got := s.onboardingReport()
-	if got == nil || got.State != onboardingStateFailed {
-		t.Fatalf("an interrupted run must be closed out as failed, got %+v", got)
-	}
-	if got.FinishedAt <= 0 {
-		t.Errorf("a closed-out report must carry finished_at")
-	}
-	// The REASON is the whole point: without it the owner sees a dead studio and
-	// no explanation, which is the exact bug this ticket exists to remove.
-	st, ok := stepByName(*got, onboardingStepInstallWarden)
-	if !ok || st.OK {
-		t.Fatalf("the interrupted step must be recorded as not-ok: %+v", got.Steps)
-	}
-	for _, want := range []string{"interrupted", "安裝"} {
-		if !strings.Contains(st.Reason, want) {
-			t.Errorf("the reason must contain %q (what happened / what to do), got %q", want, st.Reason)
-		}
-	}
-	// And it is now a TERMINAL state, so the cockpit banner can actually draw it.
-	if got.State == onboardingStateRunning {
-		t.Errorf("a non-terminal state stays invisible to the banner")
-	}
-}
-
-// Positive control: a FINISHED report must be left exactly as it is — a
-// recovery that rewrote every report would pass the test above for the wrong
-// reason and would destroy a real success record on every restart.
-func TestRecoverStaleOnboarding_LeavesTerminalReportsAlone(t *testing.T) {
-	s := newReconcileTestServer(t)
-	done := onboardingReportDTO{State: onboardingStateOK, StartedAt: 1, FinishedAt: 2}
-	if err := s.putOnboardingReport(done); err != nil {
-		t.Fatalf("seed report: %v", err)
-	}
-	s.recoverStaleOnboarding()
-	got := s.onboardingReport()
-	if got == nil || got.State != onboardingStateOK || got.FinishedAt != 2 || len(got.Steps) != 0 {
-		t.Fatalf("a terminal report must be untouched, got %+v", got)
-	}
-}
-
-// ── R5: the interlock PREDICATE itself (not just the seam in front of it) ────
-
-// The launchd label is the axis the damage happens on: its GUI domain is keyed
-// on uid and does NOT follow $HOME. So a registered label must veto the install
-// even when the file check would happily say "nothing here" — which is exactly
-// what `HOME=/tmp/x ocserverd serve` produces.
-func TestWardenAlreadyInstalledHere_LabelRegisteredVetoesEvenWithAForeignHOME(t *testing.T) {
-	s := newReconcileTestServer(t)
-	asked := ""
-	got := s.wardenAlreadyInstalledHere(
-		envOfMap(map[string]string{"HOME": "/tmp/definitely-not-the-real-home"}),
-		func(string) (os.FileInfo, error) { return nil, os.ErrNotExist }, // file axis: absent
-		func(label string) bool { asked = label; return true },           // label axis: registered
-	)
-	if !got {
-		t.Fatalf("a registered launchd label must veto the install regardless of HOME")
-	}
-	if asked != "com.officraft.ocwarden" {
-		t.Errorf("must ask about the main-instance label, asked %q", asked)
-	}
-}
-
-// The file axis still answers when launchd does not (unloaded job / exec fault).
-func TestWardenAlreadyInstalledHere_TokfileAxis(t *testing.T) {
-	s := newReconcileTestServer(t)
-	var statted string
-	got := s.wardenAlreadyInstalledHere(
-		envOfMap(map[string]string{"HOME": "/Users/someone"}),
-		func(p string) (os.FileInfo, error) { statted = p; return nil, nil },
-		func(string) bool { return false },
-	)
-	if !got {
-		t.Fatalf("an existing tokfile must veto the install")
-	}
-	if statted != "/Users/someone/.officraft/warden/exec-warden.tok" {
-		t.Errorf("stat'd %q — not the path ocwarden writes", statted)
-	}
-	// Positive control: both axes clear ⇒ the install is allowed. Without this,
-	// a predicate hardwired to true would pass every assertion above.
-	if s.wardenAlreadyInstalledHere(
-		envOfMap(map[string]string{"HOME": "/Users/someone"}),
-		func(string) (os.FileInfo, error) { return nil, os.ErrNotExist },
-		func(string) bool { return false },
-	) {
-		t.Errorf("a host with neither a label nor a tokfile must be installable")
-	}
-}
-
-// A namespaced instance keys BOTH axes off its namespace — it must neither be
-// blocked by the main instance's warden nor able to stomp it.
-func TestWardenAlreadyInstalledHere_NamespaceKeysBothAxes(t *testing.T) {
-	s := newReconcileTestServer(t)
-	s.namespace = "e2e7"
-	var statted, asked string
-	s.wardenAlreadyInstalledHere(
-		envOfMap(map[string]string{"HOME": "/Users/someone"}),
-		func(p string) (os.FileInfo, error) { statted = p; return nil, os.ErrNotExist },
-		func(l string) bool { asked = l; return false },
-	)
-	if statted != "/Users/someone/.officraft-e2e7/warden/exec-warden.tok" {
-		t.Errorf("namespaced tokfile path = %q", statted)
-	}
-	if asked != "com.officraft.ocwarden.e2e7" {
-		t.Errorf("namespaced label = %q", asked)
-	}
-}
-
-// HOME unset ⇒ we cannot tell where a warden would live ⇒ REFUSE. Fail-closed
-// in the only direction that is safe: guessing "nothing installed" here is what
-// lets an install proceed blind.
-func TestWardenAlreadyInstalledHere_NoHomeFailsClosed(t *testing.T) {
-	s := newReconcileTestServer(t)
-	if !s.wardenAlreadyInstalledHere(
-		envOfMap(map[string]string{}),
-		func(string) (os.FileInfo, error) { return nil, os.ErrNotExist },
-		func(string) bool { return false },
-	) {
-		t.Fatalf("an unknowable HOME must refuse the install, not permit it")
-	}
-}
-
-// 🔴 The cross-binary contract. wardenTokfilePath / wardenLaunchdLabel are
-// hand-copied from cli/ocwarden/namespace.go (separate go modules — no shared
-// constant is possible). If that derivation moves, this guard would stat a path
-// nobody writes and answer "no warden here" for a host that has one. These
-// literals ARE the contract; changing them requires changing ocwarden too.
-func TestWardenPaths_MirrorTheOcwardenDerivation(t *testing.T) {
-	cases := []struct{ home, ns, tokfile, label string }{
-		{"/Users/x", "", "/Users/x/.officraft/warden/exec-warden.tok", "com.officraft.ocwarden"},
-		{"/Users/x", "e2e1", "/Users/x/.officraft-e2e1/warden/exec-warden.tok", "com.officraft.ocwarden.e2e1"},
-	}
-	for _, c := range cases {
-		if got := wardenTokfilePath(c.home, c.ns); got != c.tokfile {
-			t.Errorf("wardenTokfilePath(%q,%q) = %q, want %q (cli/ocwarden namespace.go tokfileFor)", c.home, c.ns, got, c.tokfile)
-		}
-		if got := wardenLaunchdLabel(c.ns); got != c.label {
-			t.Errorf("wardenLaunchdLabel(%q) = %q, want %q (cli/ocwarden namespace.go wardenLabelFor)", c.ns, got, c.label)
-		}
-	}
-}
-
-func envOfMap(m map[string]string) func(string) string {
-	return func(k string) string { return m[k] }
-}
-
-// ── T-0648: the banner's 「不再顯示」 is a DURABLE, SERVER-SIDE dismissal ──────
-//
-// Owner ruling rc-45eb8652b17f: 「永久關閉，不需另外開任務」. The dismissal used to
-// live in the browser's sessionStorage, so a second tab brought the banner
-// straight back ("為什麼我重新點進網址又出現了？"). It is now a field on the ONE
-// onboarding report row, which is what makes it survive tabs, reloads and
-// devices — and what makes the three properties below testable at all.
-
-// The write path: a dismissal is stamped into the report row itself, so any
-// later reader — a new tab, another device, a fresh cockpit load — sees it.
-func TestUpdateSettings_OnboardingDismissedStampsTheReport(t *testing.T) {
-	api, srv, d, _ := newSettingsTestServer(t, "dismiss-pass")
-	status, data := doJSON(t, "POST", srv.URL+"/api/login", "", `{"password":"dismiss-pass"}`)
-	if status != 200 {
-		t.Fatalf("login: %d", status)
-	}
-	owner := data["token"].(string)
-
-	failed := onboardingReportDTO{
-		State:     onboardingStateFailed,
-		StartedAt: 1,
-		Steps: []onboardingStepDTO{{
-			Name:   onboardingStepInstallWarden,
-			Reason: "installing this machine's warden failed (exit 1)",
-		}},
-	}
-	if err := api.putOnboardingReport(failed); err != nil {
-		t.Fatalf("seed report: %v", err)
-	}
-	if got := api.onboardingReport().DismissedAt; got != 0 {
-		t.Fatalf("a report nobody dismissed must read dismissed_at=0, got %v", got)
-	}
-
-	status, data = doJSON(t, "PATCH", srv.URL+"/api/settings", owner, `{"onboarding_dismissed":true}`)
-	if status != 200 {
-		t.Fatalf("PATCH onboarding_dismissed: want 200, got %d (%v)", status, data)
-	}
-	echoed, ok := data["onboarding"].(map[string]any)
-	if !ok {
-		t.Fatalf("the PATCH echo must carry the onboarding report, got %v", data["onboarding"])
-	}
-	if at, _ := echoed["dismissed_at"].(float64); at <= 0 {
-		t.Fatalf("the echoed report must carry the dismissal stamp, got %v", echoed["dismissed_at"])
-	}
-
-	// Durable in the ONE report row — not in a second row, and not in a client.
-	raw, err := d.GetSetting(settingOnboardingReport)
-	if err != nil || raw == nil {
-		t.Fatalf("read back the report row: %v %v", raw, err)
-	}
-	var stored onboardingReportDTO
-	if err := json.Unmarshal([]byte(*raw), &stored); err != nil {
-		t.Fatalf("stored report is unreadable: %v", err)
-	}
-	if stored.DismissedAt <= 0 {
-		t.Fatalf("the dismissal must be durable in %s, got %+v", settingOnboardingReport, stored)
-	}
-	// Everything else about the report is untouched: a dismissal hides the
-	// banner, it does not rewrite what the run actually found.
-	stored.DismissedAt = 0
-	if !reflect.DeepEqual(stored, failed) {
-		t.Fatalf("a dismissal must change nothing but the stamp:\n got %+v\nwant %+v", stored, failed)
-	}
-
-	// And the ordinary settings read serves it to every later client.
-	if view := api.settingsView().Onboarding; view == nil || view.DismissedAt <= 0 {
-		t.Fatalf("GET /api/settings must carry the dismissal, got %+v", view)
-	}
-
-	// false is the un-dismissal — the banner speaks again.
-	if status, _ = doJSON(t, "PATCH", srv.URL+"/api/settings", owner, `{"onboarding_dismissed":false}`); status != 200 {
-		t.Fatalf("PATCH onboarding_dismissed=false: want 200, got %d", status)
-	}
-	if got := api.onboardingReport().DismissedAt; got != 0 {
-		t.Fatalf("un-dismissing must clear the stamp, got %v", got)
-	}
-
-	// 🔴 And the run that is STILL GOING cannot be stamped — but NOT because the
-	// stamp would outlive the run. It could not: both paths to a terminal state
-	// rewrite the row with dismissed_at back at 0 (finishOnboarding persists the
-	// DTO kickFirstRunOnboardingWith captured BY VALUE when it claimed the slot,
-	// whose DismissedAt is the zero value; recoverStaleOnboarding zeroes it
-	// outright). What the refusal removes is the WRITE. This request's read-modify-write of the
-	// WHOLE row is unlocked and is the only writer that can race the run, so
-	// interleaved with the run reaching its verdict it would write back its
-	// pre-verdict copy and ERASE the failure — see
-	// TestSetOnboardingDismissed_LeavesAnInFlightRunAlone, which pins that from
-	// the function side. This route floors at principalAdminAgent, so an admin
-	// assistant can send it during the ~30s (wardenOnlineWait) the first run is
-	// still `running`. The refusal must be LOUD: a quiet 200 would report a
-	// dismissal that never landed as done.
-	running := onboardingReportDTO{State: onboardingStateRunning, StartedAt: 9}
-	if err := api.putOnboardingReport(running); err != nil {
-		t.Fatalf("seed running report: %v", err)
-	}
-	if status, _ = doJSON(t, "PATCH", srv.URL+"/api/settings", owner, `{"onboarding_dismissed":true}`); status != http.StatusConflict {
-		t.Fatalf("dismissing a report that is still running: want 409, got %d", status)
-	}
-	if stored := api.onboardingReport(); !reflect.DeepEqual(*stored, running) {
-		t.Fatalf("a refused dismissal must leave the row alone:\n got %+v\nwant %+v", stored, running)
-	}
-}
-
-// 🔴 THE ZERO-COST INSURANCE the owner's ruling rests on. He knowingly accepted
-// that today nothing writes a SECOND onboarding report, so a permanent
-// dismissal means this banner never speaks again on this install. What keeps
-// that from being permanent-forever is that the report is ONE row written
-// WHOLESALE: whenever a new report is written, the dismissal goes with the old
-// blob and the banner is live again. Nobody has to remember to clear it.
-//
-// If a future 「重新偵測」 lands, THIS is the property that makes it correct for
-// free — and this test is what stops someone from "helpfully" carrying the old
-// stamp forward into the new report.
-func TestPutOnboardingReport_ANewReportClearsAnEarlierDismissal(t *testing.T) {
-	s := newReconcileTestServer(t)
-	dismissed := onboardingReportDTO{
-		State:       onboardingStateFailed,
-		StartedAt:   1,
-		FinishedAt:  2,
-		DismissedAt: 1750000000,
-		Steps: []onboardingStepDTO{{
-			Name:   onboardingStepInstallWarden,
-			Reason: "installing this machine's warden failed (exit 1)",
-		}},
-	}
-	if err := s.putOnboardingReport(dismissed); err != nil {
-		t.Fatalf("seed dismissed report: %v", err)
-	}
-
-	// A fresh run finishes and persists its verdict — exactly the shape a future
-	// re-detect would take.
-	fresh := s.finishOnboarding(
-		onboardingReportDTO{State: onboardingStateRunning, StartedAt: 3},
-		[]onboardingStepDTO{{Name: onboardingStepInstallWarden, Reason: "still broken"}},
-	)
-	if fresh.DismissedAt != 0 {
-		t.Fatalf("the returned fresh report must not inherit the stamp, got %v", fresh.DismissedAt)
-	}
-	got := s.onboardingReport()
+	got := api.onboardingReport()
 	if got == nil {
-		t.Fatalf("the fresh report must be stored")
+		t.Fatal("put report was not readable")
 	}
-	if got.DismissedAt != 0 {
-		t.Fatalf("a NEW report must clear the earlier dismissal, got dismissed_at=%v", got.DismissedAt)
-	}
-	if got.State != onboardingStateFailed || got.StartedAt != 3 {
-		t.Fatalf("the stored report must be the FRESH one: %+v", got)
-	}
+	apiTestWantEqual(t, "report", *got, want)
 }
 
-// 🔴 A RECOVERED REPORT IS NEVER BORN DISMISSED. recoverStaleOnboarding is the
-// ONE path that builds a report by EDITING the old blob instead of writing a
-// fresh one, so it is the one path that can carry a dismissal forward. If a
-// stamp could land while the run was still `running`, the FAILED report this
-// recovery writes would arrive already closed and the banner would never speak
-// once on that install — a warning silenced before it was ever shown.
-func TestRecoverStaleOnboarding_NeverWritesABornDismissedReport(t *testing.T) {
-	s := newReconcileTestServer(t)
-	if err := s.putOnboardingReport(onboardingReportDTO{
-		State: onboardingStateRunning, StartedAt: 1,
-	}); err != nil {
-		t.Fatalf("seed report: %v", err)
+func TestOnboardingReport(t *testing.T) {
+	api, _, d, _ := newAPITestServer(t)
+	if got := api.onboardingReport(); got != nil {
+		t.Fatalf("absent report = %#v, want nil", got)
 	}
-	if err := s.setOnboardingDismissed(true); !errors.Is(err, errNoOnboardingBanner) {
-		t.Fatalf("dismissing a running report must be refused, got %v", err)
+	if err := d.PutSetting(settingOnboardingReport, "not json"); err != nil {
+		t.Fatalf("put malformed report: %v", err)
 	}
-	s.recoverStaleOnboarding()
-
-	got := s.onboardingReport()
-	if got == nil || got.State != onboardingStateFailed {
-		t.Fatalf("the interrupted run must still be closed out as failed, got %+v", got)
+	if got := api.onboardingReport(); got != nil {
+		t.Fatalf("malformed report = %#v, want nil", got)
 	}
-	if got.DismissedAt != 0 {
-		t.Fatalf("the recovered report must speak: dismissed_at must be 0, got %v", got.DismissedAt)
-	}
-
-	// 🔴 AND THE RECOVERY CLEARS THE STAMP ITSELF, not merely because the only
-	// caller upstream refuses to lay one. The check above drives the row through
-	// setOnboardingDismissed, so it can only ever observe an UNSTAMPED blob — it
-	// proves the guard, not this function. A stamped `running` blob is reachable
-	// without that guard: it is what every install that stored one before the
-	// guard existed already has on disk, and a hand-edited or restored row is the
-	// same shape. Seed one directly, so the two worlds — stamped and unstamped —
-	// are actually distinguishable here, and require the recovered FAILED report
-	// to speak in both.
-	s2 := newReconcileTestServer(t)
-	if err := s2.putOnboardingReport(onboardingReportDTO{
-		State: onboardingStateRunning, StartedAt: 1, DismissedAt: 1750000000,
-	}); err != nil {
-		t.Fatalf("seed stamped running report: %v", err)
-	}
-	if seeded := s2.onboardingReport(); seeded == nil || seeded.DismissedAt == 0 {
-		t.Fatalf("the fixture must actually carry a stamp, got %+v", seeded)
-	}
-	s2.recoverStaleOnboarding()
-
-	got = s2.onboardingReport()
-	if got == nil || got.State != onboardingStateFailed {
-		t.Fatalf("the interrupted run must still be closed out as failed, got %+v", got)
-	}
-	if got.DismissedAt != 0 {
-		t.Fatalf("a recovered report must not inherit an earlier dismissal: dismissed_at must be 0, got %v", got.DismissedAt)
-	}
-}
-
-// 🔴 A VERDICT THAT HAS NOT LANDED YET CANNOT BE OVERWRITTEN. This is the only
-// writer of the report row that comes in off an HTTP request — kick, finish and
-// recoverStale are three different goroutines that never run in parallel (boot,
-// the set-password request, and the goroutine that request spawns: one
-// happens-before chain) — and it reads and writes the report WHOLESALE with no
-// lock. Interleaved with finishOnboarding, a copy taken before the verdict lands
-// and written back after it would erase the failure and strand the report in
-// `running`: non-terminal, so no banner, and kickFirstRunOnboarding never
-// re-runs because a report exists. Refusing to write a non-failed report
-// at all is what removes that interleaving, so this test guards the write, not
-// the race: while the run is in flight this call must touch nothing.
-func TestSetOnboardingDismissed_LeavesAnInFlightRunAlone(t *testing.T) {
-	s := newReconcileTestServer(t)
-	running := onboardingReportDTO{State: onboardingStateRunning, StartedAt: 1}
-	if err := s.putOnboardingReport(running); err != nil {
-		t.Fatalf("seed report: %v", err)
-	}
-	err := s.setOnboardingDismissed(true)
-	if !errors.Is(err, errNoOnboardingBanner) {
-		t.Fatalf("dismissing an in-flight run must be refused, got %v", err)
-	}
-	if mid := s.onboardingReport(); !reflect.DeepEqual(*mid, running) {
-		t.Fatalf("a refused dismissal must not rewrite the row:\n got %+v\nwant %+v", mid, running)
-	}
-
-	// The run then reaches its verdict, and the verdict is what is stored.
-	s.finishOnboarding(running, []onboardingStepDTO{{
-		Name:   onboardingStepInstallWarden,
-		Code:   onboardingCodeInstallFailed,
-		Reason: "installing this machine's warden failed (exit 1)",
-	}})
-	got := s.onboardingReport()
-	if got == nil || got.State != onboardingStateFailed || len(got.Steps) != 1 {
-		t.Fatalf("the failure verdict must survive: %+v", got)
-	}
-	if got.DismissedAt != 0 {
-		t.Fatalf("the verdict must arrive undismissed, got %v", got.DismissedAt)
-	}
-}
-
-// 🔴 ABSENT FIELD = NEVER DISMISSED. There is no migration and no backfill:
-// every report row written before T-0648 carries no dismissed_at at all. The
-// honest reading of that absence is "nobody has dismissed this" — the banner
-// still speaks. Reading it the other way round would silently swallow the
-// warning on every install that predates this change.
-func TestOnboardingReport_LegacyBlobWithNoDismissedAtIsNotDismissed(t *testing.T) {
-	s := newReconcileTestServer(t)
-	legacy := `{"state":"failed","started_at":1,"finished_at":2,` +
-		`"steps":[{"name":"install_warden","ok":false,"reason":"installing this machine's warden failed (exit 1)","detail":""}]}`
-	if err := s.dal.PutSetting(settingOnboardingReport, legacy); err != nil {
-		t.Fatalf("seed legacy blob: %v", err)
-	}
-	got := s.onboardingReport()
-	if got == nil {
-		t.Fatalf("a legacy report must still be readable")
-	}
-	if got.DismissedAt != 0 {
-		t.Fatalf("a blob with no dismissed_at must read as never dismissed, got %v", got.DismissedAt)
-	}
-	if view := s.settingsView().Onboarding; view == nil || view.DismissedAt != 0 {
-		t.Fatalf("the settings read must pass that absence through unchanged, got %+v", view)
-	}
-}
-
-// TestOnboardingStep_EveryFailureCarriesACode is a SOURCE scan, and it is a
-// source scan on purpose (T-0648): the failure branches of onboarding.go are
-// spread across three functions and a panic recover, several of them reachable
-// only from states no unit test constructs, so "run them all and look" is not
-// a coverage this suite actually has. What the cockpit depends on is a rule
-// about the SHAPE of every step literal, and the rule can be checked directly.
-//
-// The rule: a step literal that is not an explicit success (`OK: true`) MUST
-// set Code. A failure with no code renders the server's English `reason` — the
-// exact untranslated sentence this change exists to remove — and it does so
-// silently, on a path nobody looks at until an install is already broken.
-func TestOnboardingStep_EveryFailureCarriesACode(t *testing.T) {
-	src, err := os.ReadFile("onboarding.go")
+	want := onboardingReportDTO{State: onboardingStateRunning, StartedAt: 10}
+	raw, err := json.Marshal(want)
 	if err != nil {
-		t.Fatalf("read onboarding.go: %v", err)
+		t.Fatalf("marshal report: %v", err)
 	}
-	body := string(src)
-	const lit = "onboardingStepDTO{"
-	n := 0
-	for idx := 0; ; {
-		k := strings.Index(body[idx:], lit)
-		if k < 0 {
-			break
-		}
-		start := idx + k + len(lit)
-		// `[]onboardingStepDTO{{...}}` — step into the element literal.
-		if start < len(body) && body[start] == '{' {
-			start++
-		}
-		end := strings.Index(body[start:], "}")
-		if end < 0 {
-			t.Fatalf("unterminated %s literal at offset %d", lit, start)
-		}
-		step := body[start : start+end]
-		idx = start + end
-		if strings.TrimSpace(step) == "" {
-			continue // the empty `[]onboardingStepDTO{}` accumulator
-		}
-		if strings.Contains(step, "OK: true") {
-			continue // an explicit success has nothing to explain
-		}
-		n++
-		if !strings.Contains(step, "Code:") {
-			t.Errorf("a failing onboardingStepDTO literal sets no Code:\n%s", step)
-		}
+	if err := d.PutSetting(settingOnboardingReport, string(raw)); err != nil {
+		t.Fatalf("put valid report: %v", err)
 	}
-	// A scan that matched nothing would pass while guarding nothing. The count
-	// is not pinned to an exact number — branches may legitimately be added —
-	// but it must plausibly be all of them.
-	if n < 8 {
-		t.Fatalf("scanned only %d failing step literals; the scan has stopped seeing onboarding.go's failure branches", n)
+	got := api.onboardingReport()
+	if got == nil {
+		t.Fatal("valid report = nil")
 	}
+	apiTestWantEqual(t, "valid report", *got, want)
+}
+
+func TestOnboardingLog(t *testing.T) {
+	reader, writer, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("pipe: %v", err)
+	}
+	old := os.Stderr
+	os.Stderr = writer
+	onboardingLog("setup %s", "failed")
+	_ = writer.Close()
+	os.Stderr = old
+	data, err := io.ReadAll(reader)
+	_ = reader.Close()
+	if err != nil {
+		t.Fatalf("read log: %v", err)
+	}
+	if string(data) != "[reconcile] [onboarding] setup failed\n" {
+		t.Fatalf("log = %q", data)
+	}
+}
+
+func onboardingTestWaitForTerminalReport(t *testing.T, api *apiServer) onboardingReportDTO {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if report := api.onboardingReport(); report != nil && report.State != onboardingStateRunning {
+			return *report
+		}
+		time.Sleep(time.Millisecond)
+	}
+	t.Fatal("onboarding report did not reach a terminal state")
+	return onboardingReportDTO{}
 }

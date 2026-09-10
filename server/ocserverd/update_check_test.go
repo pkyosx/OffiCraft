@@ -1,676 +1,507 @@
+// Skeleton generated from server/ocserverd/update_check.go by gen_test_skeletons.py.
+// Every case is a t.Skip placeholder: fill the body, keep or rewrite the name.
+
 package main
 
-// update_check_test.go — the GitHub-Releases update check (update_check.go):
-// the cached /api/version face, the prerelease channel toggle, graceful
-// degradation when GitHub is unreachable, and the explicit
-// GET /api/release/check button (fresh verdict incl. the honest "unknown").
-
 import (
-	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
-	"os"
+	"reflect"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 )
 
-// TestMain points EVERY test server's default GitHub base at an unroutable
-// loopback address: a unit test must never reach the real api.github.com
-// (hermeticity + the anonymous rate limit). Tests that want a GitHub set the
-// per-server releaseAPIBase seam to an httptest fake.
-//
-// It also swaps the ocwarden exec seam for a REFUSING fake (T-42a0). Same
-// principle, higher stakes: `execOcwarden` boots a launchd job out of the
-// machine this test binary is running on. A test must never be one forgotten
-// `withRecordedOcwarden` away from that — and above all, a test that exists to
-// prove a GUARD works must not be relying on that same guard to keep itself
-// safe, because verifying the guard means deleting it. With this default, the
-// production system operation is simply not wired into the test binary: every
-// test either binds its own fake or fails loudly on a bin path of "".
-func TestMain(m *testing.M) {
-	releaseAPIDefault = "http://127.0.0.1:1"
-	runOcwarden = refuseToExecOcwarden
-	os.Exit(m.Run())
-}
+const updateCheckReleaseBody = `[{"tag_name":"v1.2.3","html_url":"https://github.com/pkyosx/OffiCraft/releases/tag/v1.2.3"}]`
 
-// refuseToExecOcwarden is the test binary's default ocwarden runner: it runs
-// nothing and reports a failure loud enough to read in a diff. Returning a
-// non-zero exit (rather than panicking) keeps the refusal on the code path the
-// handlers already have for "the local teardown did not complete", so a test
-// that forgot to bind a fake fails on its own assertion instead of taking the
-// whole package down with it.
-func refuseToExecOcwarden(binPath string, args []string, env []string) (int, string, bool) {
-	return 126, "refuseToExecOcwarden: the test binary never execs the real " +
-		"ocwarden (bind a fake with withRecordedOcwarden); refused " +
-		binPath + " " + strings.Join(args, " "), false
-}
-
-// fakeRelease is one release row the fake GitHub serves (newest first).
-type fakeRelease struct {
-	tag        string
-	prerelease bool
-	draft      bool
-	assets     map[string][]byte // name → bytes (download face)
-}
-
-// fakeGitHub is an httptest GitHub API speaking the two faces this server
-// uses: the releases list and the asset downloads. status != 0 forces every
-// list response to that code (unreachable/ratelimited GitHub); mu-guarded so
-// tests can flip releases/status mid-flight.
-type fakeGitHub struct {
-	srv      *httptest.Server
-	mu       sync.Mutex
-	releases []fakeRelease
-	status   int
-	hits     int
-}
-
-func newFakeGitHub(t *testing.T, releases ...fakeRelease) *fakeGitHub {
+func newUpdateCheckTestServer(t *testing.T, status int, body string) (*httptest.Server, *atomic.Int32) {
 	t.Helper()
-	g := &fakeGitHub{releases: releases}
-	g.srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		g.mu.Lock()
-		defer g.mu.Unlock()
-		switch {
-		case r.URL.Path == "/repos/pkyosx/OffiCraft/releases":
-			g.hits++
-			if g.status != 0 {
-				w.WriteHeader(g.status)
-				return
-			}
-			var list []map[string]any
-			for _, rel := range g.releases {
-				var assets []map[string]any
-				for name := range rel.assets {
-					assets = append(assets, map[string]any{
-						"name":                 name,
-						"browser_download_url": g.srv.URL + "/dl/" + rel.tag + "/" + name,
-						"size":                 len(rel.assets[name]),
-					})
-				}
-				list = append(list, map[string]any{
-					"tag_name":   rel.tag,
-					"html_url":   g.srv.URL + "/rel/" + rel.tag,
-					"draft":      rel.draft,
-					"prerelease": rel.prerelease,
-					"assets":     assets,
-				})
-			}
-			w.Header().Set("Content-Type", "application/json")
-			_ = json.NewEncoder(w).Encode(list)
-		case len(r.URL.Path) > 4 && r.URL.Path[:4] == "/dl/":
-			for _, rel := range g.releases {
-				for name, body := range rel.assets {
-					if r.URL.Path == "/dl/"+rel.tag+"/"+name {
-						w.Header().Set("Content-Type", "application/octet-stream")
-						_, _ = w.Write(body)
-						return
-					}
-				}
-			}
-			http.NotFound(w, r)
-		default:
-			http.NotFound(w, r)
+	var calls atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
+		if got := r.URL.RequestURI(); got != "/repos/pkyosx/OffiCraft/releases?per_page=20" {
+			t.Errorf("release request URI = %q, want %q", got, "/repos/pkyosx/OffiCraft/releases?per_page=20")
 		}
+		if got := r.Header.Get("Accept"); got != "application/vnd.github+json" {
+			t.Errorf("release request Accept = %q, want application/vnd.github+json", got)
+		}
+		w.WriteHeader(status)
+		_, _ = io.WriteString(w, body)
 	}))
-	t.Cleanup(g.srv.Close)
-	return g
+	t.Cleanup(srv.Close)
+	return srv, &calls
 }
 
-func (g *fakeGitHub) setStatus(code int) {
-	g.mu.Lock()
-	g.status = code
-	g.mu.Unlock()
-}
-
-func (g *fakeGitHub) setReleases(releases ...fakeRelease) {
-	g.mu.Lock()
-	g.releases = releases
-	g.mu.Unlock()
-}
-
-// waitUpdateSettled polls until no background fetch is in flight and the cache
-// carries a stamp (one refresh completed).
-func waitUpdateSettled(t *testing.T, s *apiServer) {
-	t.Helper()
-	deadline := time.Now().Add(5 * time.Second)
-	for time.Now().Before(deadline) {
-		s.updateMu.Lock()
-		done := !s.updateCheck.fetching && !s.updateCheck.checkedAt.IsZero()
-		s.updateMu.Unlock()
-		if done {
-			return
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
-	t.Fatal("update check never settled")
-}
-
-// expireUpdateCache force-expires the cache stamp WITHOUT kicking a fetch, so
-// the next updateStatus/syncUpdateCheck call is the one that reaches out.
-func expireUpdateCache(s *apiServer) {
+func updateCheckSnapshot(s *apiServer) updateCheckState {
 	s.updateMu.Lock()
-	s.updateCheck.checkedAt = time.Time{}
-	s.updateMu.Unlock()
+	defer s.updateMu.Unlock()
+	return s.updateCheck
 }
 
-// setAppVersion overrides the package version label for one test.
-func setAppVersion(t *testing.T, v string) {
+func waitForUpdateCheckDone(t *testing.T, s *apiServer) updateCheckState {
 	t.Helper()
-	orig := appVersion
-	appVersion = v
-	t.Cleanup(func() { appVersion = orig })
-}
-
-func ownerLogin(t *testing.T, srvURL, password string) string {
-	t.Helper()
-	status, data := doJSON(t, "POST", srvURL+"/api/login", "",
-		`{"password":"`+password+`"}`)
-	if status != 200 {
-		t.Fatalf("login: %d %v", status, data)
-	}
-	return data["token"].(string)
-}
-
-func TestUpdateStatusReportsNewerRelease(t *testing.T) {
-	gh := newFakeGitHub(t, fakeRelease{tag: "v0.2.0"})
-	s := &apiServer{releaseAPIBase: gh.srv.URL}
-
-	// First read serves the (empty) cache and kicks the background fetch —
-	// it must answer immediately and honestly (nothing known yet).
-	if available, latest := s.updateStatus(); available || latest != nil {
-		t.Fatalf("pre-settle read must be (false, nil): %v %v", available, latest)
-	}
-	waitUpdateSettled(t, s)
-	available, latest := s.updateStatus()
-	if !available || latest == nil || *latest != "v0.2.0" {
-		t.Fatalf("settled read must report v0.2.0: %v %v", available, latest)
-	}
-}
-
-func TestUpdateStatusUnreachableGitHubDegradesGracefully(t *testing.T) {
-	gh := newFakeGitHub(t, fakeRelease{tag: "v0.2.0"})
-	gh.setStatus(http.StatusInternalServerError)
-	s := &apiServer{releaseAPIBase: gh.srv.URL}
-
-	// Nothing ever fetched + GitHub broken: the honest static face.
-	s.updateStatus()
-	waitUpdateSettled(t, s)
-	if available, latest := s.updateStatus(); available || latest != nil {
-		t.Fatalf("a failed first fetch must stay (false, nil): %v %v", available, latest)
-	}
-
-	// A SUCCEEDED fetch whose GitHub later dies: the last-known answer stands
-	// (stale-but-honest beats fabricated-empty).
-	gh.setStatus(0)
-	s.kickUpdateCheck()
-	waitUpdateSettled(t, s)
-	if available, latest := s.updateStatus(); !available || latest == nil || *latest != "v0.2.0" {
-		t.Fatalf("recovered fetch must report v0.2.0: %v %v", available, latest)
-	}
-	gh.setStatus(http.StatusBadGateway)
-	s.kickUpdateCheck()
-	waitUpdateSettled(t, s)
-	if available, latest := s.updateStatus(); !available || latest == nil || *latest != "v0.2.0" {
-		t.Fatalf("last-known must survive a later failure: %v %v", available, latest)
-	}
-}
-
-func TestUpdateStatusFailureIsNotRepolledBeforeTTL(t *testing.T) {
-	gh := newFakeGitHub(t)
-	gh.setStatus(http.StatusForbidden) // the rate-limit shape
-	s := &apiServer{releaseAPIBase: gh.srv.URL}
-	s.updateStatus()
-	waitUpdateSettled(t, s)
-	gh.mu.Lock()
-	hits := gh.hits
-	gh.mu.Unlock()
-	// Repeated probe reads inside the TTL must not reach out again.
-	for i := 0; i < 5; i++ {
-		s.updateStatus()
-	}
-	time.Sleep(50 * time.Millisecond)
-	gh.mu.Lock()
-	defer gh.mu.Unlock()
-	if gh.hits != hits {
-		t.Fatalf("a failed check must wait out the TTL, not hammer GitHub: %d → %d", hits, gh.hits)
-	}
-}
-
-func TestUpdateStatusSameTagIsUpToDate(t *testing.T) {
-	setAppVersion(t, "v0.2.0")
-	gh := newFakeGitHub(t, fakeRelease{tag: "v0.2.0"})
-	s := &apiServer{releaseAPIBase: gh.srv.URL}
-	s.updateStatus()
-	waitUpdateSettled(t, s)
-	if available, latest := s.updateStatus(); available || latest != nil {
-		t.Fatalf("running the latest tag must read up-to-date: %v %v", available, latest)
-	}
-}
-
-func TestUpdateStatusChannelGovernsPrereleases(t *testing.T) {
-	gh := newFakeGitHub(t,
-		fakeRelease{tag: "v0.3.0-rc1", prerelease: true},
-		fakeRelease{tag: "v0.3.0-draft", draft: true},
-		fakeRelease{tag: "v0.2.0"},
-	)
-	s := &apiServer{releaseAPIBase: gh.srv.URL}
-
-	// Default channel: official releases only — the prerelease (and the
-	// draft) are skipped.
-	s.updateStatus()
-	waitUpdateSettled(t, s)
-	if _, latest := s.updateStatus(); latest == nil || *latest != "v0.2.0" {
-		t.Fatalf("official channel must pick v0.2.0: %v", latest)
-	}
-
-	// Flip receive-beta: the channel change resets the cache (no stale
-	// cross-channel answer) and the next fetch admits the prerelease.
-	s.settingsMu.Lock()
-	s.updaterReceiveBeta = true
-	s.settingsMu.Unlock()
-	if available, latest := s.updateStatus(); available || latest != nil {
-		t.Fatalf("a channel flip must read unknown until its own fetch lands: %v %v", available, latest)
-	}
-	waitUpdateSettled(t, s)
-	if _, latest := s.updateStatus(); latest == nil || *latest != "v0.3.0-rc1" {
-		t.Fatalf("beta channel must pick the prerelease: %v", latest)
-	}
-}
-
-// ── the wire faces: /api/version + GET /api/release/check ───────────────────
-
-func TestVersionEndpointReflectsReleaseState(t *testing.T) {
-	api, srv, _, _ := newSettingsTestServer(t, "settings-pass")
-	gh := newFakeGitHub(t, fakeRelease{tag: "v9.9.9"})
-	api.releaseAPIBase = gh.srv.URL
-
-	// First probe kicks the check; settle, then the public probe reports the
-	// real newer release.
-	doJSON(t, "GET", srv.URL+"/api/version", "", "")
-	waitUpdateSettled(t, api)
-	status, data := doJSON(t, "GET", srv.URL+"/api/version", "", "")
-	if status != 200 || data["update_available"] != true || data["latest_version"] != "v9.9.9" {
-		t.Fatalf("version face: %d %v", status, data)
-	}
-}
-
-func TestReleaseCheckButtonVerdicts(t *testing.T) {
-	api, srv, _, _ := newSettingsTestServer(t, "settings-pass")
-	token := ownerLogin(t, srv.URL, "settings-pass")
-	gh := newFakeGitHub(t, fakeRelease{tag: "v0.5.0"})
-	api.releaseAPIBase = gh.srv.URL
-
-	// Owner-gated: anonymous is refused.
-	if status, _ := doJSON(t, "GET", srv.URL+"/api/release/check", "", ""); status != 401 {
-		t.Fatalf("anonymous check must 401: %d", status)
-	}
-
-	// Newer release: update_available + tag + the human release link.
-	status, data := doJSON(t, "GET", srv.URL+"/api/release/check", token, "")
-	if status != 200 || data["status"] != "update_available" ||
-		data["latest_tag"] != "v0.5.0" || data["release_url"] != gh.srv.URL+"/rel/v0.5.0" {
-		t.Fatalf("update_available verdict: %d %v", status, data)
-	}
-	if data["current_version"] != appVersion {
-		t.Fatalf("current_version must mirror /api/version: %v", data)
-	}
-
-	// Running build IS the latest tag → up_to_date.
-	setAppVersion(t, "v0.5.0")
-	status, data = doJSON(t, "GET", srv.URL+"/api/release/check", token, "")
-	if status != 200 || data["status"] != "up_to_date" || data["latest_tag"] != "v0.5.0" {
-		t.Fatalf("up_to_date verdict: %d %v", status, data)
-	}
-
-	// GitHub down: the button reaches out fresh (cache expired) and answers
-	// the honest degraded "unknown" — still a 200, never a 5xx.
-	gh.setStatus(http.StatusBadGateway)
-	expireUpdateCache(api)
-	status, data = doJSON(t, "GET", srv.URL+"/api/release/check", token, "")
-	if status != 200 || data["status"] != "unknown" || data["latest_tag"] != nil {
-		t.Fatalf("unknown verdict: %d %v", status, data)
-	}
-}
-
-func TestReleaseCheckNothingPublishedReadsUpToDate(t *testing.T) {
-	api, srv, _, _ := newSettingsTestServer(t, "settings-pass")
-	token := ownerLogin(t, srv.URL, "settings-pass")
-	gh := newFakeGitHub(t) // empty release list
-	api.releaseAPIBase = gh.srv.URL
-
-	status, data := doJSON(t, "GET", srv.URL+"/api/release/check", token, "")
-	if status != 200 || data["status"] != "up_to_date" ||
-		data["latest_tag"] != nil || data["release_url"] != nil {
-		t.Fatalf("no-release verdict: %d %v", status, data)
-	}
-}
-
-func TestReleaseCheckButtonReusesFreshCache(t *testing.T) {
-	api, srv, _, _ := newSettingsTestServer(t, "settings-pass")
-	token := ownerLogin(t, srv.URL, "settings-pass")
-	gh := newFakeGitHub(t, fakeRelease{tag: "v0.6.0"})
-	api.releaseAPIBase = gh.srv.URL
-
-	for i := 0; i < 3; i++ {
-		if status, _ := doJSON(t, "GET", srv.URL+"/api/release/check", token, ""); status != 200 {
-			t.Fatalf("check %d: %d", i, status)
+	deadline := time.NewTimer(2 * time.Second)
+	defer deadline.Stop()
+	ticker := time.NewTicker(time.Millisecond)
+	defer ticker.Stop()
+	for {
+		st := updateCheckSnapshot(s)
+		if !st.fetching && !st.checkedAt.IsZero() {
+			return st
+		}
+		select {
+		case <-ticker.C:
+		case <-deadline.C:
+			t.Fatal("update check did not finish")
+			return updateCheckState{}
 		}
 	}
-	gh.mu.Lock()
-	defer gh.mu.Unlock()
-	if gh.hits != 1 {
-		t.Fatalf("button mashing must reuse the fresh cache: %d GitHub hits", gh.hits)
+}
+
+func TestReceiveBetaEnabled(t *testing.T) {
+	api, h, _, owner := newAPITestServer(t)
+	if got := api.receiveBetaEnabled(); got {
+		t.Fatal("receiveBetaEnabled() = true on a freshly claimed server, want false")
+	}
+	status, data := apiJSON(t, h, http.MethodPatch, "/api/settings", owner,
+		`{"updater_receive_beta":true}`)
+	if status != http.StatusOK {
+		t.Fatalf("PATCH /api/settings status = %d, want 200 (%v)", status, data)
+	}
+	if got := api.receiveBetaEnabled(); !got {
+		t.Fatal("receiveBetaEnabled() = false after the live setting changed, want true")
+	}
+	status, data = apiJSON(t, h, http.MethodGet, "/api/settings", owner, "")
+	if status != http.StatusOK {
+		t.Fatalf("GET /api/settings status = %d, want 200 (%v)", status, data)
+	}
+	if got, ok := data["updater_receive_beta"].(bool); !ok || !got {
+		t.Fatalf("settings updater_receive_beta = %#v, want true", data["updater_receive_beta"])
 	}
 }
 
-// ── list ordering: the newest release is the SEMVER max, not row 0 (T-05ab) ──
-//
-// GitHub orders /releases by CREATION time, not by version. These three tests
-// are the guardrail behind that: each isolates ONE property and asserts it as
-// its first (and effectively only) claim, so a failure names the property.
-
-// TestFetchPicksSemverMaxNotFirstRow is Joey's reported symptom, reduced: the
-// list is out of version order and the real newest release sits SECOND. Taking
-// list[0] answers v0.4.1 — which, to a v0.4.2 server, reads "you are already
-// up to date" while a v0.9.9 sits published. Underreporting, not a downgrade,
-// but the user never learns the release exists.
-func TestFetchPicksSemverMaxNotFirstRow(t *testing.T) {
-	gh := newFakeGitHub(t,
-		fakeRelease{tag: "v0.4.1"},
-		fakeRelease{tag: "v0.9.9"},
-	)
-	rel, none, err := fetchLatestOffiCraftRelease(gh.srv.URL, false)
-	if err != nil || none {
-		t.Fatalf("fetch: err=%v none=%v", err, none)
+func TestReleaseAPIBaseURL(t *testing.T) {
+	if got := (&apiServer{releaseAPIBase: "http://example.test"}).releaseAPIBaseURL(); got != "http://example.test" {
+		t.Fatalf("releaseAPIBaseURL() with an override = %q, want %q", got, "http://example.test")
 	}
-	if rel.TagName != "v0.9.9" {
-		t.Fatalf("out-of-order list must yield the semver max v0.9.9, got %q", rel.TagName)
+	if got := (&apiServer{}).releaseAPIBaseURL(); got != releaseAPIDefaultBase {
+		t.Fatalf("releaseAPIBaseURL() without an override = %q, want %q", got, releaseAPIDefaultBase)
 	}
 }
 
-// TestFetchOrdersV0_10_0AboveV0_9_9 is the case string comparison gets WRONG:
-// lexicographically "v0.9.9" > "v0.10.0" (the character '9' outranks '1'), but
-// under semver 0.10.0 is the newer minor. A sort-by-string implementation
-// passes the test above and fails this one — which is exactly why both exist.
-func TestFetchOrdersV0_10_0AboveV0_9_9(t *testing.T) {
-	gh := newFakeGitHub(t,
-		fakeRelease{tag: "v0.9.9"},
-		fakeRelease{tag: "v0.10.0"},
-	)
-	rel, none, err := fetchLatestOffiCraftRelease(gh.srv.URL, false)
-	if err != nil || none {
-		t.Fatalf("fetch: err=%v none=%v", err, none)
-	}
-	if rel.TagName != "v0.10.0" {
-		t.Fatalf("v0.10.0 must outrank v0.9.9 under SEMVER (string compare says otherwise), got %q", rel.TagName)
-	}
+func TestUpdateStatus(t *testing.T) {
+	t.Run("a fresh cached newer release answers immediately without another network request", func(t *testing.T) {
+		srv, calls := newUpdateCheckTestServer(t, http.StatusOK, updateCheckReleaseBody)
+		api := &apiServer{releaseAPIBase: srv.URL}
+		checked := time.Now()
+		api.updateCheck = updateCheckState{
+			checkedAt: checked,
+			lastOKAt:  checked,
+			ok:        true,
+			rel:       githubRelease{TagName: "v1.2.3", HTMLURL: "https://example.test/v1.2.3"},
+		}
+
+		available, latest := api.updateStatus()
+		if !available || latest == nil || *latest != "v1.2.3" {
+			t.Fatalf("updateStatus() = (%v, %v), want (true, %q)", available, latest, "v1.2.3")
+		}
+		if got := calls.Load(); got != 0 {
+			t.Fatalf("fresh updateStatus made %d network requests, want 0", got)
+		}
+	})
+
+	t.Run("a missing cache answers the honest empty result while one background refresh is in flight", func(t *testing.T) {
+		var releaseOnce sync.Once
+		release := make(chan struct{})
+		started := make(chan struct{}, 1)
+		var calls atomic.Int32
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			calls.Add(1)
+			started <- struct{}{}
+			<-release
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = io.WriteString(w, updateCheckReleaseBody)
+		}))
+		t.Cleanup(func() {
+			releaseOnce.Do(func() { close(release) })
+			srv.Close()
+		})
+		api := &apiServer{releaseAPIBase: srv.URL}
+
+		available, latest := api.updateStatus()
+		if available || latest != nil {
+			t.Fatalf("initial updateStatus() = (%v, %v), want (false, nil)", available, latest)
+		}
+		select {
+		case <-started:
+		case <-time.After(time.Second):
+			t.Fatal("background refresh did not reach the test release server")
+		}
+
+		available, latest = api.updateStatus()
+		if available || latest != nil {
+			t.Fatalf("in-flight updateStatus() = (%v, %v), want (false, nil)", available, latest)
+		}
+		if got := calls.Load(); got != 1 {
+			t.Fatalf("two stale reads started %d network requests, want 1", got)
+		}
+
+		releaseOnce.Do(func() { close(release) })
+		st := waitForUpdateCheckDone(t, api)
+		if !st.ok || st.rel.TagName != "v1.2.3" || st.fetching {
+			t.Fatalf("completed cache = %+v, want a finished v1.2.3 success", st)
+		}
+		available, latest = api.updateStatus()
+		if !available || latest == nil || *latest != "v1.2.3" {
+			t.Fatalf("updateStatus() after refresh = (%v, %v), want (true, v1.2.3)", available, latest)
+		}
+	})
 }
 
-// TestFetchMaxRespectsDraftAndPrereleaseFilters pins the non-regression the
-// max-picker could plausibly have broken: the filters gate ADMISSION, and the
-// semver max is taken only among admitted rows. Both inadmissible rows here
-// are deliberately the highest tags in the list, so a filter that stopped
-// applying would be the winner and this test would name it.
-func TestFetchMaxRespectsDraftAndPrereleaseFilters(t *testing.T) {
-	gh := newFakeGitHub(t,
-		fakeRelease{tag: "v0.2.0"},
-		fakeRelease{tag: "v9.9.9", draft: true},
-		fakeRelease{tag: "v5.0.0", prerelease: true},
-		fakeRelease{tag: "v0.3.0"},
-	)
+func TestKickUpdateCheck(t *testing.T) {
+	var releaseOnce sync.Once
+	release := make(chan struct{})
+	started := make(chan struct{}, 1)
+	var calls atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
+		started <- struct{}{}
+		<-release
+		_, _ = io.WriteString(w, updateCheckReleaseBody)
+	}))
+	t.Cleanup(func() {
+		releaseOnce.Do(func() { close(release) })
+		srv.Close()
+	})
+	api := &apiServer{releaseAPIBase: srv.URL}
+	api.updateCheck = updateCheckState{
+		checkedAt: time.Now(),
+		ok:        true,
+		rel:       githubRelease{TagName: "v1.0.0"},
+	}
 
-	// Official channel: draft AND prerelease excluded → the max of {0.2.0, 0.3.0}.
-	rel, none, err := fetchLatestOffiCraftRelease(gh.srv.URL, false)
-	if err != nil || none {
-		t.Fatalf("fetch(official): err=%v none=%v", err, none)
-	}
-	if rel.TagName != "v0.3.0" {
-		t.Fatalf("official channel must exclude the draft v9.9.9 and prerelease v5.0.0, got %q", rel.TagName)
-	}
-
-	// Beta channel: the prerelease is admitted and IS the max — but the draft
-	// stays excluded in every channel (draft is not a channel, it is unpublished).
-	rel, none, err = fetchLatestOffiCraftRelease(gh.srv.URL, true)
-	if err != nil || none {
-		t.Fatalf("fetch(beta): err=%v none=%v", err, none)
-	}
-	if rel.TagName != "v5.0.0" {
-		t.Fatalf("beta channel must admit v5.0.0 yet still exclude the draft v9.9.9, got %q", rel.TagName)
-	}
-}
-
-// ── non-semver tags: semverOutranks' two !ok branches (T-05ab review) ────────
-//
-// A repo can carry a label that is not semver at all ("nightly", "latest",
-// a date stamp). These two tests pin semverOutranks' asymmetry, and they are
-// NOT a neighbouring nicety: a flipped !ok branch produces THIS TICKET'S OWN
-// failure mode — a junk tag pins the selection to itself and the real newest
-// release goes unreported, same function, same path, same symptom.
-
-// TestFetchUnorderableIncumbentIsDisplaced covers the !okI branch: a non-semver
-// tag sitting FIRST must not pin the selection to itself. Pre-fix (take row 0)
-// this answered "nightly"; a semverOutranks that returned false on an
-// unorderable incumbent would answer "nightly" too — the bug rebuilt one layer
-// down. The real v0.1.0 must win.
-func TestFetchUnorderableIncumbentIsDisplaced(t *testing.T) {
-	gh := newFakeGitHub(t,
-		fakeRelease{tag: "nightly"},
-		fakeRelease{tag: "v0.1.0"},
-	)
-	rel, none, err := fetchLatestOffiCraftRelease(gh.srv.URL, false)
-	if err != nil || none {
-		t.Fatalf("fetch: err=%v none=%v", err, none)
-	}
-	if rel.TagName != "v0.1.0" {
-		t.Fatalf("a non-semver incumbent must be displaced by a real release, got %q", rel.TagName)
-	}
-}
-
-// TestFetchUnorderableCandidateNeverWins covers the !okC branch, the safety
-// direction: an unorderable tag must never be CHOSEN. Order is reversed from
-// the test above so "nightly" is the challenger. It must lose — an unorderable
-// tag cannot be ordered against the running version, so letting it win would
-// only ever produce a warning and a silent no-update while hiding v0.1.0.
-func TestFetchUnorderableCandidateNeverWins(t *testing.T) {
-	gh := newFakeGitHub(t,
-		fakeRelease{tag: "v0.1.0"},
-		fakeRelease{tag: "nightly"},
-	)
-	rel, none, err := fetchLatestOffiCraftRelease(gh.srv.URL, false)
-	if err != nil || none {
-		t.Fatalf("fetch: err=%v none=%v", err, none)
-	}
-	if rel.TagName != "v0.1.0" {
-		t.Fatalf("an unorderable tag must never be chosen over a real release, got %q", rel.TagName)
-	}
-}
-
-// TestFetchAllUnorderableFallsBackToFirstRow pins the documented degenerate
-// case: when NOTHING in the list orders, there is no semver max to take, so
-// selection falls back to the first admissible row — exactly the pre-fix
-// behaviour. This change must not invent a new answer for lists it cannot
-// rank; downstream releaseIsNewer rejects the tag anyway (with its warning).
-func TestFetchAllUnorderableFallsBackToFirstRow(t *testing.T) {
-	gh := newFakeGitHub(t,
-		fakeRelease{tag: "nightly"},
-		fakeRelease{tag: "latest"},
-	)
-	rel, none, err := fetchLatestOffiCraftRelease(gh.srv.URL, false)
-	if err != nil || none {
-		t.Fatalf("fetch: err=%v none=%v", err, none)
-	}
-	if rel.TagName != "nightly" {
-		t.Fatalf("an all-unorderable list must keep the pre-fix first-row answer, got %q", rel.TagName)
-	}
-}
-
-// ── update_checked_ok_at: the freshness of /api/version's update_available ──
-//
-// `update_available: false` has at least four causes (never checked, the check
-// failed, no release matches the channel, genuinely up to date) and the wire
-// could not tell them apart. update_checked_ok_at answers the one question
-// that separates "we looked and there is nothing" from "we do not know": WHEN
-// did a check last SUCCEED. The three tests below pin the three states.
-
-// TestVersionCheckedOKAtStampsSuccessfulCheck — a check that SUCCEEDED puts a
-// parseable stamp on the wire.
-func TestVersionCheckedOKAtStampsSuccessfulCheck(t *testing.T) {
-	api, srv, _, _ := newSettingsTestServer(t, "settings-pass")
-	gh := newFakeGitHub(t, fakeRelease{tag: "v9.9.9"})
-	api.releaseAPIBase = gh.srv.URL
-
-	doJSON(t, "GET", srv.URL+"/api/version", "", "") // kicks the check
-	waitUpdateSettled(t, api)
-	status, data := doJSON(t, "GET", srv.URL+"/api/version", "", "")
-	if status != 200 {
-		t.Fatalf("version face: %d %v", status, data)
-	}
-	raw, ok := data["update_checked_ok_at"].(string)
-	if !ok {
-		t.Fatalf("a succeeded check must stamp update_checked_ok_at: %v", data)
-	}
-	if _, err := time.Parse(time.RFC3339, raw); err != nil {
-		t.Fatalf("update_checked_ok_at must be RFC3339, got %q: %v", raw, err)
-	}
-}
-
-// TestVersionCheckedOKAtSurvivesAFailedCheck is THE assertion of this field: a
-// FAILED check must not pass itself off as a successful one. The stamp is
-// rewound an hour after the real success so "left alone" and "restamped now"
-// cannot collide inside one RFC3339 second; the attempt stamp (checkedAt) is
-// asserted to have MOVED, so the failing check provably ran.
-func TestVersionCheckedOKAtSurvivesAFailedCheck(t *testing.T) {
-	api, srv, _, _ := newSettingsTestServer(t, "settings-pass")
-	gh := newFakeGitHub(t, fakeRelease{tag: "v9.9.9"})
-	api.releaseAPIBase = gh.srv.URL
-
-	doJSON(t, "GET", srv.URL+"/api/version", "", "")
-	waitUpdateSettled(t, api)
-
-	// Rewind the successful stamp so a failure restamping it is visible even
-	// at RFC3339's one-second resolution.
-	rewound := time.Now().Add(-time.Hour).UTC().Truncate(time.Second)
-	api.updateMu.Lock()
-	if api.updateCheck.lastOKAt.IsZero() {
-		api.updateMu.Unlock()
-		t.Fatal("precondition: the successful check left no stamp to defend")
-	}
-	api.updateCheck.lastOKAt = rewound
-	beforeAttempt := api.updateCheck.checkedAt
-	api.updateMu.Unlock()
-	want := rewound.Format(time.RFC3339)
-
-	// GitHub breaks; force one fresh (failing) check.
-	gh.setStatus(http.StatusInternalServerError)
 	api.kickUpdateCheck()
-	waitUpdateSettled(t, api)
-
-	api.updateMu.Lock()
-	afterAttempt := api.updateCheck.checkedAt
-	api.updateMu.Unlock()
-	if !afterAttempt.After(beforeAttempt) {
-		t.Fatalf("precondition: the failing check never ran (checkedAt %v → %v)", beforeAttempt, afterAttempt)
+	st := updateCheckSnapshot(api)
+	if !st.checkedAt.IsZero() || !st.fetching {
+		t.Fatalf("kickUpdateCheck cache = %+v, want expired and fetching", st)
+	}
+	select {
+	case <-started:
+	case <-time.After(time.Second):
+		t.Fatal("kickUpdateCheck did not start the refresh")
 	}
 
-	_, data := doJSON(t, "GET", srv.URL+"/api/version", "", "")
-	if got := data["update_checked_ok_at"]; got != want {
-		t.Fatalf("a FAILED check must not restamp update_checked_ok_at: want %q, got %v", want, got)
+	api.kickUpdateCheck()
+	if got := calls.Load(); got != 1 {
+		t.Fatalf("a second kick during the in-flight refresh made %d requests, want 1", got)
+	}
+	releaseOnce.Do(func() { close(release) })
+	st = waitForUpdateCheckDone(t, api)
+	if !st.ok || st.rel.TagName != "v1.2.3" || st.fetching {
+		t.Fatalf("kicked refresh cache = %+v, want a finished v1.2.3 success", st)
 	}
 }
 
-// TestVersionCheckedOKAtAbsentWhenNeverSucceeded — a station whose every check
-// has failed must NOT look like one that checked and found nothing: no stamp.
-func TestVersionCheckedOKAtAbsentWhenNeverSucceeded(t *testing.T) {
-	api, srv, _, _ := newSettingsTestServer(t, "settings-pass")
-	gh := newFakeGitHub(t, fakeRelease{tag: "v9.9.9"})
-	gh.setStatus(http.StatusInternalServerError)
-	api.releaseAPIBase = gh.srv.URL
+func TestRefreshUpdateCheck(t *testing.T) {
+	t.Run("a successful fetch writes the complete release result and both freshness stamps", func(t *testing.T) {
+		srv, _ := newUpdateCheckTestServer(t, http.StatusOK, updateCheckReleaseBody)
+		api := &apiServer{releaseAPIBase: srv.URL}
+		api.updateCheck.fetching = true
 
-	doJSON(t, "GET", srv.URL+"/api/version", "", "")
-	waitUpdateSettled(t, api)
-	status, data := doJSON(t, "GET", srv.URL+"/api/version", "", "")
-	if status != 200 || data["update_available"] != false {
-		t.Fatalf("a never-succeeded check must still answer the honest false: %d %v", status, data)
+		api.refreshUpdateCheck(false)
+		st := updateCheckSnapshot(api)
+		if st.includePre || !st.ok || st.none || st.fetching {
+			t.Fatalf("successful refresh cache = %+v, want false/ok/not-none/not-fetching", st)
+		}
+		if st.checkedAt.IsZero() || st.lastOKAt.IsZero() || !st.checkedAt.Equal(st.lastOKAt) {
+			t.Fatalf("successful refresh stamps = checked:%v lastOK:%v, want equal non-zero times", st.checkedAt, st.lastOKAt)
+		}
+		want := githubRelease{TagName: "v1.2.3", HTMLURL: "https://github.com/pkyosx/OffiCraft/releases/tag/v1.2.3"}
+		if !reflect.DeepEqual(st.rel, want) {
+			t.Fatalf("successful refresh release = %+v, want %+v", st.rel, want)
+		}
+	})
+
+	t.Run("a failed fetch stamps the attempt but preserves the last successful answer", func(t *testing.T) {
+		srv, _ := newUpdateCheckTestServer(t, http.StatusInternalServerError, "upstream down")
+		oldChecked := time.Unix(100, 0)
+		oldOK := time.Unix(200, 0)
+		oldRelease := githubRelease{TagName: "v1.0.0", HTMLURL: "https://example.test/old"}
+		api := &apiServer{releaseAPIBase: srv.URL}
+		api.updateCheck = updateCheckState{
+			checkedAt: oldChecked,
+			lastOKAt:  oldOK,
+			ok:        true,
+			rel:       oldRelease,
+			fetching:  true,
+		}
+
+		api.refreshUpdateCheck(false)
+		st := updateCheckSnapshot(api)
+		if st.fetching || !st.ok || st.none || !st.checkedAt.After(oldChecked) {
+			t.Fatalf("failed refresh cache = %+v, want finished attempt with old answer retained", st)
+		}
+		if !st.lastOKAt.Equal(oldOK) {
+			t.Fatalf("failed refresh lastOKAt = %v, want %v", st.lastOKAt, oldOK)
+		}
+		if !reflect.DeepEqual(st.rel, oldRelease) {
+			t.Fatalf("failed refresh release = %+v, want preserved %+v", st.rel, oldRelease)
+		}
+	})
+
+	t.Run("a result fetched for an old channel is discarded when the cache channel has moved", func(t *testing.T) {
+		srv, _ := newUpdateCheckTestServer(t, http.StatusOK, updateCheckReleaseBody)
+		before := updateCheckState{
+			includePre: true,
+			checkedAt:  time.Unix(300, 0),
+			rel:        githubRelease{TagName: "v9.0.0"},
+			fetching:   true,
+		}
+		api := &apiServer{releaseAPIBase: srv.URL, updateCheck: before}
+
+		api.refreshUpdateCheck(false)
+		if got := updateCheckSnapshot(api); !reflect.DeepEqual(got, before) {
+			t.Fatalf("old-channel refresh changed cache:\n got %+v\nwant %+v", got, before)
+		}
+	})
+}
+
+func TestUpdateCheckedOKAt(t *testing.T) {
+	api := &apiServer{}
+	if got := api.updateCheckedOKAt(); got != nil {
+		t.Fatalf("updateCheckedOKAt() before a successful check = %q, want nil", *got)
 	}
-	if got, present := data["update_checked_ok_at"]; present && got != nil {
-		t.Fatalf("no check has ever succeeded — update_checked_ok_at must be absent/null, got %v", got)
+	api.updateCheck.lastOKAt = time.Date(2026, time.September, 8, 12, 34, 56, 0, time.FixedZone("Taipei", 8*60*60))
+	got := api.updateCheckedOKAt()
+	if got == nil || *got != "2026-09-08T04:34:56Z" {
+		t.Fatalf("updateCheckedOKAt() = %v, want %q", got, "2026-09-08T04:34:56Z")
 	}
 }
 
-// TestReleaseCheckButtonCheckedOKAtSemantics pins update_checked_ok_at on the
-// OTHER writer: syncUpdateCheck — the cockpit's 檢查更新 button, which is also
-// the path the MCP tool check_release takes. The background refresher's two
-// lastOKAt semantics are pinned above; this one had none, so the button could
-// silently stop stamping a success, or (much worse) stamp a FAILURE as a
-// success — the exact failure mode that makes the field worse than absent,
-// and reachable in practice every time an agent calls check_release while
-// GitHub is unreachable.
-//
-// Both halves rewind the stamp by an hour or more first: RFC3339 resolves to
-// one second, so a same-second restamp would be invisible.
-func TestReleaseCheckButtonCheckedOKAtSemantics(t *testing.T) {
-	api, srv, _, _ := newSettingsTestServer(t, "settings-pass")
-	token := ownerLogin(t, srv.URL, "settings-pass")
-	gh := newFakeGitHub(t, fakeRelease{tag: "v9.9.9"})
-	api.releaseAPIBase = gh.srv.URL
+func TestFetchLatestOffiCraftRelease(t *testing.T) {
+	t.Run("the greatest admissible semver wins regardless of GitHub creation order", func(t *testing.T) {
+		body := `[
+{"tag_name":"v0.9.9","html_url":"https://example.test/old"},
+{"tag_name":"v2.0.0","html_url":"https://example.test/draft","draft":true},
+{"tag_name":"v1.5.0","html_url":"https://example.test/best","assets":[{"name":"ocserverd","browser_download_url":"https://example.test/ocserverd","size":42}]},
+{"tag_name":"v1.4.0-rc.1","html_url":"https://example.test/rc","prerelease":true}
+]`
+		srv, _ := newUpdateCheckTestServer(t, http.StatusOK, body)
+		got, none, err := fetchLatestOffiCraftRelease(srv.URL, false)
+		if err != nil {
+			t.Fatalf("fetchLatestOffiCraftRelease: %v", err)
+		}
+		if none {
+			t.Fatal("fetchLatestOffiCraftRelease none = true, want false")
+		}
+		want := githubRelease{
+			TagName: "v1.5.0", HTMLURL: "https://example.test/best",
+			Assets: []githubReleaseAsset{{Name: "ocserverd", BrowserDownloadURL: "https://example.test/ocserverd", Size: 42}},
+		}
+		if !reflect.DeepEqual(got, want) {
+			t.Fatalf("release = %+v, want %+v", got, want)
+		}
+	})
 
-	// ── half 1: a SUCCEEDED button check must ADVANCE the stamp ──
-	//
-	// `stale` alone is too weak an oracle on its own: "advanced past a floor the
-	// test itself planted two hours ago" is satisfied by any stamp in that
-	// two-hour span, so an implementation that stamps a FIXED older instant
-	// (say now-90m) survives it — and this field's whole claim is FRESHNESS, so
-	// a stamp that is stably wrong-by-90-minutes is a lie of the same family as
-	// half 2's, just in the conservative direction. `floor` closes that: the
-	// stamp must also be no older than this test's own start.
-	floor := time.Now().UTC().Truncate(time.Second)
-	stale := time.Now().Add(-2 * time.Hour).UTC().Truncate(time.Second)
-	api.updateMu.Lock()
-	api.updateCheck.lastOKAt = stale
-	api.updateMu.Unlock()
+	t.Run("the prerelease channel admits a newer prerelease while the stable channel excludes it", func(t *testing.T) {
+		body := `[{"tag_name":"v1.9.0","html_url":"https://example.test/stable"},{"tag_name":"v2.0.0-rc.1","html_url":"https://example.test/rc","prerelease":true}]`
+		srv, calls := newUpdateCheckTestServer(t, http.StatusOK, body)
+		stable, none, err := fetchLatestOffiCraftRelease(srv.URL, false)
+		if err != nil || none || stable.TagName != "v1.9.0" {
+			t.Fatalf("stable fetch = (%+v, %v, %v), want v1.9.0 success", stable, none, err)
+		}
+		beta, none, err := fetchLatestOffiCraftRelease(srv.URL, true)
+		if err != nil || none || beta.TagName != "v2.0.0-rc.1" {
+			t.Fatalf("beta fetch = (%+v, %v, %v), want v2.0.0-rc.1 success", beta, none, err)
+		}
+		if got := calls.Load(); got != 2 {
+			t.Fatalf("stable and beta fetches made %d requests, want 2", got)
+		}
+	})
 
-	status, data := doJSON(t, "GET", srv.URL+"/api/release/check", token, "")
-	if status != 200 || data["status"] != "update_available" {
-		t.Fatalf("precondition: the button check must have SUCCEEDED: %d %v", status, data)
-	}
-	_, ver := doJSON(t, "GET", srv.URL+"/api/version", "", "")
-	raw, ok := ver["update_checked_ok_at"].(string)
-	if !ok {
-		t.Fatalf("a succeeded button check must stamp update_checked_ok_at: %v", ver)
-	}
-	advanced, err := time.Parse(time.RFC3339, raw)
-	if err != nil {
-		t.Fatalf("update_checked_ok_at must be RFC3339, got %q: %v", raw, err)
-	}
-	if !advanced.After(stale) {
-		t.Fatalf("a SUCCEEDED button check must advance update_checked_ok_at past %v, got %v",
-			stale.Format(time.RFC3339), raw)
-	}
-	if advanced.Before(floor) {
-		t.Fatalf("a SUCCEEDED button check must stamp NOW, not merely something newer "+
-			"than the planted floor: want >= %v, got %v",
-			floor.Format(time.RFC3339), raw)
-	}
+	t.Run("a list with no admissible release is the successful empty result", func(t *testing.T) {
+		body := `[{"tag_name":"v2.0.0","draft":true},{"tag_name":"v2.1.0-rc.1","prerelease":true},{"tag_name":""}]`
+		srv, _ := newUpdateCheckTestServer(t, http.StatusOK, body)
+		got, none, err := fetchLatestOffiCraftRelease(srv.URL, false)
+		if err != nil || !none || !reflect.DeepEqual(got, githubRelease{}) {
+			t.Fatalf("empty fetch = (%+v, %v, %v), want (zero, true, nil)", got, none, err)
+		}
+	})
 
-	// ── half 2: a FAILED button check must LEAVE THE STAMP ALONE ──
-	rewound := time.Now().Add(-time.Hour).UTC().Truncate(time.Second)
-	api.updateMu.Lock()
-	api.updateCheck.lastOKAt = rewound
-	api.updateMu.Unlock()
-	want := rewound.Format(time.RFC3339)
+	t.Run("GitHub 404 is the same successful empty result", func(t *testing.T) {
+		srv, _ := newUpdateCheckTestServer(t, http.StatusNotFound, `{"message":"Not Found"}`)
+		got, none, err := fetchLatestOffiCraftRelease(srv.URL, false)
+		if err != nil || !none || !reflect.DeepEqual(got, githubRelease{}) {
+			t.Fatalf("404 fetch = (%+v, %v, %v), want (zero, true, nil)", got, none, err)
+		}
+	})
 
-	gh.setStatus(http.StatusInternalServerError)
-	expireUpdateCache(api) // defeat the button's short reuse window
-	status, data = doJSON(t, "GET", srv.URL+"/api/release/check", token, "")
-	if status != 200 || data["status"] != "unknown" {
-		t.Fatalf("precondition: GitHub is down, the button must answer the honest unknown: %d %v", status, data)
-	}
+	t.Run("a non-200 other than 404 is an error", func(t *testing.T) {
+		srv, _ := newUpdateCheckTestServer(t, http.StatusBadGateway, "upstream failed")
+		got, none, err := fetchLatestOffiCraftRelease(srv.URL, false)
+		if !reflect.DeepEqual(got, githubRelease{}) || none || err == nil || err.Error() != "github answered 502" {
+			t.Fatalf("502 fetch = (%+v, %v, %v), want (zero, false, github answered 502)", got, none, err)
+		}
+	})
 
-	_, ver = doJSON(t, "GET", srv.URL+"/api/version", "", "")
-	if got := ver["update_checked_ok_at"]; got != want {
-		t.Fatalf("a FAILED button check must not restamp update_checked_ok_at: want %q, got %v", want, got)
-	}
+	t.Run("invalid JSON is an error", func(t *testing.T) {
+		srv, _ := newUpdateCheckTestServer(t, http.StatusOK, "not json")
+		got, none, err := fetchLatestOffiCraftRelease(srv.URL, false)
+		if !reflect.DeepEqual(got, githubRelease{}) || none || err == nil {
+			t.Fatalf("invalid JSON fetch = (%+v, %v, %v), want zero/false/error", got, none, err)
+		}
+	})
+}
+
+func TestHandleCheckReleaseApiReleaseCheckGet(t *testing.T) {
+	t.Run("a well-formed GET /api/release/check answers the complete update body", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		srv, _ := newUpdateCheckTestServer(t, http.StatusOK, updateCheckReleaseBody)
+		api.releaseAPIBase = srv.URL
+
+		status, data := apiJSON(t, h, http.MethodGet, "/api/release/check", owner, "")
+		if status != http.StatusOK {
+			t.Fatalf("GET /api/release/check status = %d, want 200 (%v)", status, data)
+		}
+		apiWantBody(t, data, map[string]any{
+			"status":          "update_available",
+			"current_version": "0.0.0",
+			"latest_tag":      "v1.2.3",
+			"release_url":     "https://github.com/pkyosx/OffiCraft/releases/tag/v1.2.3",
+		})
+	})
+
+	t.Run("a GET /api/release/check request without a token answers 401", func(t *testing.T) {
+		_, h, _, _ := newAPITestServer(t)
+		status, data := apiJSON(t, h, http.MethodGet, "/api/release/check", "", "")
+		if status != http.StatusUnauthorized {
+			t.Fatalf("GET /api/release/check without credentials = %d, want 401 (%v)", status, data)
+		}
+		apiWantError(t, data, "unauthorized", "missing credentials")
+	})
+
+	t.Run("an authenticated agent identity answers 403 because this row requires admin_agent", func(t *testing.T) {
+		api, h, _, _ := newAPITestServer(t)
+		agent := apiTestAgentToken(t, api, "kip", "")
+		status, data := apiJSON(t, h, http.MethodGet, "/api/release/check", agent, "")
+		if status != http.StatusForbidden {
+			t.Fatalf("GET /api/release/check as agent = %d, want 403 (%v)", status, data)
+		}
+		apiWantError(t, data, "forbidden", "principal not permitted")
+	})
+
+	t.Run("the exact path reaches the release-check handler and answers its distinct body", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		srv, calls := newUpdateCheckTestServer(t, http.StatusNotFound, `{"message":"Not Found"}`)
+		api.releaseAPIBase = srv.URL
+
+		status, data := apiJSON(t, h, http.MethodGet, "/api/release/check", owner, "")
+		if status != http.StatusOK {
+			t.Fatalf("exact release-check route status = %d, want 200 (%v)", status, data)
+		}
+		apiWantBody(t, data, map[string]any{
+			"status":          "up_to_date",
+			"current_version": "0.0.0",
+			"latest_tag":      nil,
+			"release_url":     nil,
+		})
+		if got := calls.Load(); got != 1 {
+			t.Fatalf("exact release-check route made %d release requests, want 1", got)
+		}
+	})
+
+	t.Run("a malformed body, wrong content type, and oversized body do not change this bodyless GET response", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		srv, _ := newUpdateCheckTestServer(t, http.StatusNotFound, `{"message":"Not Found"}`)
+		api.releaseAPIBase = srv.URL
+		req := httptest.NewRequest(http.MethodGet, "/api/release/check", strings.NewReader(strings.Repeat("x", (1<<20)+1)))
+		req.Header.Set("Content-Type", "text/plain")
+		req.Header.Set("Authorization", "Bearer "+owner)
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("GET /api/release/check with ignored body = %d, want 200", rec.Code)
+		}
+		if got := rec.Body.String(); got != `{"status":"up_to_date","current_version":"0.0.0","latest_tag":null,"release_url":null}` {
+			t.Fatalf("body = %q, want the complete up-to-date response", got)
+		}
+	})
+}
+
+func TestSyncUpdateCheck(t *testing.T) {
+	t.Run("a button-fresh cache is returned without contacting GitHub", func(t *testing.T) {
+		srv, calls := newUpdateCheckTestServer(t, http.StatusOK, updateCheckReleaseBody)
+		api := &apiServer{releaseAPIBase: srv.URL}
+		want := updateCheckState{
+			checkedAt: time.Now(),
+			lastOKAt:  time.Unix(200, 0),
+			ok:        true,
+			rel:       githubRelease{TagName: "v1.0.0", HTMLURL: "https://example.test/v1.0.0"},
+		}
+		api.updateCheck = want
+
+		got := api.syncUpdateCheck()
+		if !reflect.DeepEqual(got, want) {
+			t.Fatalf("fresh sync result = %+v, want %+v", got, want)
+		}
+		if calls.Load() != 0 {
+			t.Fatalf("button-fresh sync made %d release requests, want 0", calls.Load())
+		}
+	})
+
+	t.Run("a stale cache is synchronously replaced by the release result", func(t *testing.T) {
+		srv, calls := newUpdateCheckTestServer(t, http.StatusOK, updateCheckReleaseBody)
+		api := &apiServer{releaseAPIBase: srv.URL}
+		api.updateCheck = updateCheckState{checkedAt: time.Now().Add(-releaseCheckButtonTTL - time.Second)}
+
+		got := api.syncUpdateCheck()
+		if !got.ok || got.none || got.fetching || got.rel.TagName != "v1.2.3" || got.rel.HTMLURL != "https://github.com/pkyosx/OffiCraft/releases/tag/v1.2.3" {
+			t.Fatalf("stale sync result = %+v, want a finished v1.2.3 success", got)
+		}
+		if got.checkedAt.IsZero() || !got.lastOKAt.Equal(got.checkedAt) {
+			t.Fatalf("stale sync stamps = checked:%v lastOK:%v, want equal non-zero times", got.checkedAt, got.lastOKAt)
+		}
+		if calls.Load() != 1 {
+			t.Fatalf("stale sync made %d release requests, want 1", calls.Load())
+		}
+	})
+
+	t.Run("a failed synchronous fetch reports unknown while preserving the shared last-known release", func(t *testing.T) {
+		srv, _ := newUpdateCheckTestServer(t, http.StatusBadGateway, "upstream failed")
+		old := updateCheckState{
+			checkedAt: time.Unix(100, 0),
+			lastOKAt:  time.Unix(200, 0),
+			ok:        true,
+			rel:       githubRelease{TagName: "v1.0.0", HTMLURL: "https://example.test/v1.0.0"},
+		}
+		api := &apiServer{releaseAPIBase: srv.URL, updateCheck: old}
+
+		got := api.syncUpdateCheck()
+		if !reflect.DeepEqual(got, updateCheckState{}) {
+			t.Fatalf("failed sync result = %+v, want an unknown result", got)
+		}
+		shared := updateCheckSnapshot(api)
+		if shared.fetching || !shared.ok || !shared.checkedAt.After(old.checkedAt) || !shared.lastOKAt.Equal(old.lastOKAt) || !reflect.DeepEqual(shared.rel, old.rel) {
+			t.Fatalf("failed sync shared cache = %+v, want old answer with a new attempt stamp", shared)
+		}
+	})
+
+	t.Run("a channel mismatch does not reuse a fresh cache from the other channel", func(t *testing.T) {
+		srv, _ := newUpdateCheckTestServer(t, http.StatusOK, updateCheckReleaseBody)
+		api := &apiServer{releaseAPIBase: srv.URL}
+		api.updateCheck = updateCheckState{
+			includePre: true,
+			checkedAt:  time.Now(),
+			ok:         true,
+			rel:        githubRelease{TagName: "v9.0.0"},
+		}
+
+		got := api.syncUpdateCheck()
+		if !got.ok || got.includePre || got.rel.TagName != "v1.2.3" {
+			t.Fatalf("channel-flip sync result = %+v, want stable-channel v1.2.3", got)
+		}
+	})
 }

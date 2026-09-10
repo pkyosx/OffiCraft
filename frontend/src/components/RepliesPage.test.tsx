@@ -10,6 +10,11 @@
 //   3b. 近期已回覆 is COLLAPSED by default — only the toggle row (title · N +
 //      hint) renders; clicking expands the answered cards, clicking again
 //      collapses. Not persisted (component state only).
+//   3c. 待回覆's LEADING card opens itself — on arrival, and again whenever the
+//      card the owner just dealt with leaves the pane — so a stack of asks is
+//      worked through without a click between cards. It stops for the rest of
+//      the visit once he shuts one himself (「先放著」); that half is NOT
+//      pinned here — see the rule file, it is code-only.
 //   4. 查看當初選項 expands the original options; 重新決定 re-arms them + shows
 //      the composer; picking another option updates the answer in place
 //      (stays answered); 取消 keeps the original answer.
@@ -84,6 +89,20 @@ function renderPage() {
   );
 }
 
+/** Open every card the page is currently showing. The panes render COLLAPSED
+ * rows (owner 2026-09-07) and a card's interior is READ when it is opened, so a
+ * test that asserts on the interior has to open it first. */
+async function openCards() {
+  for (const btn of document.querySelectorAll<HTMLElement>(
+    '[data-testid="reply-card-toggle"]'
+  )) {
+    if (btn.getAttribute("aria-expanded") === "false") fireEvent.click(btn);
+  }
+  await waitFor(() =>
+    expect(document.querySelectorAll('[data-testid="card-loading"]')).toHaveLength(0)
+  );
+}
+
 beforeEach(() => {
   __resetMock();
   window.location.hash = "";
@@ -114,6 +133,7 @@ describe("RepliesPage", () => {
 
     const { findAllByTestId } = renderPage();
     const cards = await findAllByTestId("waiting-card");
+    await openCards();
     expect(cards).toHaveLength(3);
     // Newest ask first (開卡時間 新→舊), whatever order the cards arrived in.
     expect(cards[0].textContent).toContain("新的請示");
@@ -122,7 +142,9 @@ describe("RepliesPage", () => {
     // No card wears a highlight — owner ruled the longest-waiting accent out
     // (T-9ea9): every card carries the identical base class.
     for (const card of cards) {
-      expect(card.className).toBe("reply-card");
+      // Identical to the first card's, whatever it is — the point is that no
+      // ONE card is singled out (T-9ea9 ruled the longest-waiting accent out).
+      expect(card.className).toBe(cards[0].className);
       expect(
         card.querySelector('[data-testid="waited"]')?.className
       ).toBe("reply-card__waited");
@@ -148,6 +170,7 @@ describe("RepliesPage", () => {
     );
     const { findAllByTestId } = renderPage();
     const cards = await findAllByTestId("waiting-card");
+    await openCards();
     const names = cards.map(
       (c) => c.querySelector(".reply-card__name")?.textContent
     );
@@ -160,6 +183,7 @@ describe("RepliesPage", () => {
     __injectMockReplyCard(mkCard({}));
     const { findAllByTestId } = renderPage();
     const [card] = await findAllByTestId("waiting-card");
+    await openCards();
     // Each chip WHOLE: its 1/2 ordinal, its wording and exactly the tags it
     // earned. mkCard marks the SECOND option ai_pick, so the tag rides that one
     // and the first chip is bare — a reader that tagged by position fails
@@ -179,6 +203,7 @@ describe("RepliesPage", () => {
     __injectMockReplyCard(mkCard({}));
     const { findAllByTestId, findByTestId, queryAllByTestId } = renderPage();
     const [card] = await findAllByTestId("waiting-card");
+    await openCards();
 
     fireEvent.click(card.querySelectorAll(".reply-option")[1]);
 
@@ -187,6 +212,7 @@ describe("RepliesPage", () => {
     // card itself was the one above.)
     fireEvent.click(await findByTestId("answered-toggle"));
     const answeredCard = await findByTestId("answered-card");
+    await openCards();
     // The ask is GONE from 待回覆 and standing in 近期已回覆 — the owner's own
     // test of "did my tap take?".
     await waitFor(() => expect(queryAllByTestId("waiting-card")).toHaveLength(0));
@@ -213,6 +239,7 @@ describe("RepliesPage", () => {
     const listSpy = vi.spyOn(api, "listReplyCards");
     const { findAllByTestId, findByTestId } = renderPage();
     const [card] = await findAllByTestId("waiting-card");
+    await openCards();
     const before = listSpy.mock.calls.length;
 
     fireEvent.click(card.querySelectorAll(".reply-option")[0]);
@@ -248,6 +275,7 @@ describe("RepliesPage", () => {
     const { findByTestId, getByText } = renderPage();
     fireEvent.click(await findByTestId("answered-toggle"));
     const card = await findByTestId("answered-card");
+    await openCards();
     fireEvent.click(getByText("查看當初選項"));
     fireEvent.click(getByText("重新決定"));
     fireEvent.click(card.querySelectorAll(".reply-option")[1]);
@@ -266,6 +294,7 @@ describe("RepliesPage", () => {
     );
     const { findAllByTestId, findByTestId } = renderPage();
     const [card] = await findAllByTestId("waiting-card");
+    await openCards();
 
     fireEvent.click(card.querySelectorAll(".reply-option")[0]);
 
@@ -278,6 +307,7 @@ describe("RepliesPage", () => {
     const { findAllByTestId, findByTestId, getByPlaceholderText } =
       renderPage();
     await findAllByTestId("waiting-card");
+    await openCards();
 
     const input = getByPlaceholderText("輸入回覆…");
     fireEvent.change(input, { target: { value: "收件人是誰？" } });
@@ -285,6 +315,7 @@ describe("RepliesPage", () => {
 
     fireEvent.click(await findByTestId("answered-toggle"));
     const answeredCard = await findByTestId("answered-card");
+    await openCards();
     const final = answeredCard.querySelector('[data-testid="final-answer"]');
     // A free-text answer circles nothing, so it is not the AI pick either.
     expect(final?.textContent).toBe("你選的收件人是誰？");
@@ -316,35 +347,6 @@ describe("RepliesPage", () => {
     expect(queryAllByTestId("answered-card")).toHaveLength(0);
   });
 
-  it("does NOT fetch the handled lists while collapsed; expanding pulls them (owner answered 區收合不 fetch)", async () => {
-    __injectMockReplyCard(mkCard({ id: "rc-wait" }));
-    __injectMockReplyCard(
-      mkCard({
-        id: "rc-ans",
-        status: "answered",
-        answeredTs: Date.now() / 1000 - 60,
-        answer: { optionIdxs: [0], text: "", attachments: [] },
-      })
-    );
-    const listSpy = vi.spyOn(api, "listReplyCards");
-    const { findByTestId } = renderPage();
-
-    // Mount fetched the WAITING list + the counts (so the header knows · 1),
-    // but NEVER the answered LIST while the pane is collapsed.
-    const toggle = await findByTestId("answered-toggle");
-    expect(toggle.textContent).toContain("近期已處理 · 1");
-    const listed = () => listSpy.mock.calls.map((c) => c[0]);
-    expect(listed()).toContain("waiting");
-    expect(listed()).not.toContain("answered");
-    expect(listed()).not.toContain("expired");
-
-    // Expanding is what pulls the handled lists (answered + expired).
-    fireEvent.click(toggle);
-    await findByTestId("answered-card");
-    expect(listed()).toContain("answered");
-    expect(listed()).toContain("expired");
-  });
-
   it("查看當初選項 expands the original options with the standing pick marked", async () => {
     __injectMockReplyCard(
       mkCard({
@@ -356,6 +358,7 @@ describe("RepliesPage", () => {
     const { findByTestId, getByText } = renderPage();
     fireEvent.click(await findByTestId("answered-toggle"));
     const card = await findByTestId("answered-card");
+    await openCards();
 
     fireEvent.click(getByText("查看當初選項"));
     const options = card.querySelectorAll(".reply-option");
@@ -383,6 +386,7 @@ describe("RepliesPage", () => {
     const { findByTestId, getByText, getByPlaceholderText } = renderPage();
     fireEvent.click(await findByTestId("answered-toggle"));
     let card = await findByTestId("answered-card");
+    await openCards();
 
     fireEvent.click(getByText("查看當初選項"));
     fireEvent.click(getByText("重新決定"));
@@ -413,6 +417,7 @@ describe("RepliesPage", () => {
     const { findByTestId, getByText, queryByPlaceholderText } = renderPage();
     fireEvent.click(await findByTestId("answered-toggle"));
     const card = await findByTestId("answered-card");
+    await openCards();
 
     fireEvent.click(getByText("查看當初選項"));
     fireEvent.click(getByText("重新決定"));
@@ -433,6 +438,7 @@ describe("RepliesPage", () => {
     __injectMockReplyCard(mkCard({}));
     const { findAllByTestId, getByText } = renderPage();
     await findAllByTestId("waiting-card");
+    await openCards();
 
     fireEvent.click(getByText("跳到原訊息"));
     expect(window.location.hash).toBe("#office/chat/mira/msg/msg-1");
@@ -446,6 +452,7 @@ describe("RepliesPage", () => {
     __injectMockReplyCard(mkCard({}));
     const { findAllByTestId } = renderPage();
     const [card] = await findAllByTestId("waiting-card");
+    await openCards();
 
     fireEvent.click(card.querySelector(".reply-card__avatar")!);
     // T-a706 owner-acceptance finding: without the /from/replies tag,
@@ -460,6 +467,7 @@ describe("RepliesPage", () => {
     __injectMockReplyCard(mkCard({ id: "rc-ow", from: "ow-rel" }));
     const { findAllByTestId } = renderPage();
     const [card] = await findAllByTestId("waiting-card");
+    await openCards();
 
     expect(card.querySelector(".reply-card__avatar img")?.getAttribute("src")).toBe(
       "/api/chat/attachment/ava-worker",
@@ -472,6 +480,7 @@ describe("RepliesPage", () => {
     __injectMockReplyCard(mkCard({}));
     const { findAllByTestId } = renderPage();
     const [card] = await findAllByTestId("waiting-card");
+    await openCards();
 
     const avatarBtn = card.querySelector(".reply-card__avatar")!;
     expect(avatarBtn.tagName).toBe("BUTTON");
@@ -483,6 +492,7 @@ describe("RepliesPage", () => {
     const { findByTestId, findAllByTestId, queryAllByTestId, queryByTestId } =
       renderPage();
     const [card] = await findAllByTestId("waiting-card");
+    await openCards();
 
     // T-1aa4: 標為過期 wears the SAME outlined class as 跳到原訊息 — one
     // shared button style for the two header actions.
@@ -511,6 +521,7 @@ describe("RepliesPage", () => {
     );
     fireEvent.click(await findByTestId("answered-toggle"));
     const expired = await findByTestId("expired-card");
+    await openCards();
     expect(expired.textContent).toContain("已過期");
     expect(await findByTestId("expired-note")).toBeTruthy();
     expect(expired.querySelector(".reply-option:not([disabled])")).toBeNull();
@@ -531,10 +542,12 @@ describe("RepliesPage", () => {
     __injectMockReplyCard(mkCard({}));
     const { findAllByTestId, findByTestId } = renderPage();
     const [card] = await findAllByTestId("waiting-card");
+    await openCards();
 
     fireEvent.click(card.querySelectorAll(".reply-option")[0]);
     fireEvent.click(await findByTestId("answered-toggle"));
     await findByTestId("answered-card");
+    await openCards();
 
     // The card closed, but Mira's unread count still stands — only entering
     // the conversation (listChat) clears it.
@@ -557,6 +570,8 @@ describe("RepliesPage", () => {
       }),
     );
     const { findByTestId } = renderPage();
+    await findByTestId("waiting-card");
+    await openCards();
     const ref = await findByTestId("reply-task-ref");
     // Verbatim — a shortened or reworded title is a different claim about
     // which task this is.
@@ -580,6 +595,8 @@ describe("RepliesPage", () => {
       }),
     );
     const { findByTestId } = renderPage();
+    await findByTestId("waiting-card");
+    await openCards();
     const ref = await findByTestId("reply-task-ref");
     expect(ref.textContent).toContain("把開機說明改成座艙可編輯");
   });
@@ -603,6 +620,8 @@ describe("RepliesPage", () => {
     );
     const { findByTestId } = renderPage();
     fireEvent.click(await findByTestId("answered-toggle"));
+    await findByTestId("answered-card");
+    await openCards();
 
     for (const testId of ["waiting-card", "answered-card"]) {
       const card = await findByTestId(testId);
@@ -626,11 +645,161 @@ describe("RepliesPage", () => {
       mkCard({ task: { id: "t-3", typeKey: "review-pr", title: "" } }),
     );
     const { findByTestId } = renderPage();
+    await findByTestId("waiting-card");
+    await openCards();
     const ref = await findByTestId("reply-task-ref");
     expect(ref.querySelector(".reply-card__task-title")).toBeNull();
     expect(ref.querySelector(".reply-card__task-type")).toBeNull();
     expect(ref.textContent).not.toContain("review-pr");
     expect(ref.textContent).toContain("查看任務詳情");
+  });
+
+  it("opening a card reads it and shows the question; clicking again closes it", async () => {
+    // TWO cards, and the one under test is the SECOND: the leading card opens
+    // itself, so a click on it would be a close, not an open.
+    const now = Date.now() / 1000;
+    __injectMockReplyCard(mkCard({ id: "rc-lead", createdTs: now - 60 }));
+    __injectMockReplyCard(
+      mkCard({ id: "rc-2nd", body: "寄出後無法撤回", createdTs: now - 3600 })
+    );
+    const { findAllByTestId } = renderPage();
+    const card = (await findAllByTestId("waiting-card"))[1];
+    const toggle = card.querySelector<HTMLElement>(
+      '[data-testid="reply-card-toggle"]'
+    )!;
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+
+    fireEvent.click(toggle);
+    await waitFor(() =>
+      expect(card.querySelector(".reply-card__body")?.textContent).toContain(
+        "寄出後無法撤回"
+      )
+    );
+    expect(card.querySelectorAll(".reply-option")).toHaveLength(2);
+    expect(toggle.getAttribute("aria-expanded")).toBe("true");
+
+    // 🔴 The half that did not exist before: answering and 標為過期 used to be
+    // the only ways out of an opened card.
+    fireEvent.click(toggle);
+    await waitFor(() =>
+      expect(card.querySelector(".reply-card__body")).toBeNull()
+    );
+    expect(card.querySelectorAll(".reply-option")).toHaveLength(0);
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    // Still the same row, still naming its ask — closing is not removing.
+    expect(card.textContent).toContain("要幫你寄出這封信嗎？");
+  });
+
+  // ── 一張接一張 (owner rc-cd351785b83d [0], rc-fa7e4c9bce42 [0]) ────────────
+  // The owner sits down to a stack of asks and works through it without a click
+  // between cards: the leading one is already open when he arrives, and the next
+  // one opens itself the moment the one he dealt with leaves the pane.
+
+  const expandedOf = (card: Element) =>
+    card
+      .querySelector('[data-testid="reply-card-toggle"]')!
+      .getAttribute("aria-expanded");
+
+  it("opens the leading 待回覆 card on arrival — its question on screen, the rest still rows", async () => {
+    const now = Date.now() / 1000;
+    __injectMockReplyCard(
+      mkCard({ id: "rc-lead", summary: "第一個請示", body: "先看這一張", createdTs: now - 60 })
+    );
+    __injectMockReplyCard(
+      mkCard({ id: "rc-next", summary: "第二個請示", body: "再看這一張", createdTs: now - 3600 })
+    );
+
+    const { findAllByTestId } = renderPage();
+    const cards = await findAllByTestId("waiting-card");
+    await waitFor(() =>
+      expect(expandedOf(cards[0]), "the leading card must be open").toBe("true")
+    );
+    await waitFor(() =>
+      expect(cards[0].textContent, "its question must be on screen").toContain(
+        "先看這一張"
+      )
+    );
+    expect(cards[0].querySelectorAll(".reply-option")).toHaveLength(2);
+    // Only the leading one — the rest are the collapsed lines they always were,
+    // each still naming its ask.
+    expect(expandedOf(cards[1])).toBe("false");
+    expect(cards[1].textContent).toContain("第二個請示");
+  });
+
+  it("answering the leading card opens the next one, with its question on screen", async () => {
+    const now = Date.now() / 1000;
+    __injectMockReplyCard(
+      mkCard({ id: "rc-lead", summary: "第一個請示", body: "先看這一張", createdTs: now - 60 })
+    );
+    __injectMockReplyCard(
+      mkCard({ id: "rc-next", summary: "第二個請示", body: "再看這一張", createdTs: now - 3600 })
+    );
+
+    const { findAllByTestId } = renderPage();
+    const cards = await findAllByTestId("waiting-card");
+    await waitFor(() =>
+      expect(expandedOf(cards[0]), "the leading card must be open").toBe("true")
+    );
+    await waitFor(() =>
+      expect(cards[0].querySelectorAll(".reply-option")).toHaveLength(2)
+    );
+
+    fireEvent.click(cards[0].querySelectorAll(".reply-option")[0]);
+
+    await waitFor(async () =>
+      expect(await findAllByTestId("waiting-card")).toHaveLength(1)
+    );
+    const [remaining] = await findAllByTestId("waiting-card");
+    await waitFor(() =>
+      expect(
+        expandedOf(remaining),
+        "the next card must open by itself"
+      ).toBe("true")
+    );
+    await waitFor(() =>
+      expect(remaining.textContent, "its question must be on screen").toContain(
+        "再看這一張"
+      )
+    );
+    expect(remaining.querySelectorAll(".reply-option")).toHaveLength(2);
+  });
+
+  it("標為過期 on the leading card opens the next one too", async () => {
+    const now = Date.now() / 1000;
+    __injectMockReplyCard(
+      mkCard({ id: "rc-lead", summary: "第一個請示", body: "先看這一張", createdTs: now - 60 })
+    );
+    __injectMockReplyCard(
+      mkCard({ id: "rc-next", summary: "第二個請示", body: "再看這一張", createdTs: now - 3600 })
+    );
+
+    const { findAllByTestId, findByTestId } = renderPage();
+    const cards = await findAllByTestId("waiting-card");
+    await waitFor(() =>
+      expect(expandedOf(cards[0]), "the leading card must be open").toBe("true")
+    );
+    await waitFor(() =>
+      expect(cards[0].querySelector('[data-testid="expire-card"]')).toBeTruthy()
+    );
+
+    fireEvent.click(cards[0].querySelector('[data-testid="expire-card"]')!);
+    fireEvent.click(await findByTestId("expire-confirm-btn"));
+
+    await waitFor(async () =>
+      expect(await findAllByTestId("waiting-card")).toHaveLength(1)
+    );
+    const [remaining] = await findAllByTestId("waiting-card");
+    await waitFor(() =>
+      expect(
+        expandedOf(remaining),
+        "the next card must open by itself"
+      ).toBe("true")
+    );
+    await waitFor(() =>
+      expect(remaining.textContent, "its question must be on screen").toContain(
+        "再看這一張"
+      )
+    );
   });
 
   // The negative half: no task means the row says nothing about a task —
@@ -640,6 +809,7 @@ describe("RepliesPage", () => {
     __injectMockReplyCard(mkCard({ task: null }));
     const { findByTestId, queryByTestId } = renderPage();
     await findByTestId("waiting-card");
+    await openCards();
     expect(queryByTestId("reply-task-ref")).toBeNull();
   });
 });

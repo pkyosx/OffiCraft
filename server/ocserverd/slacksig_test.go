@@ -1,83 +1,64 @@
+// Skeleton generated from server/ocserverd/slacksig.go by gen_test_skeletons.py.
+// Every case is a t.Skip placeholder: fill the body, keep or rewrite the name.
+
 package main
 
-import (
-	"crypto/hmac"
-	"crypto/sha256"
-	"encoding/hex"
-	"testing"
-)
-
-// slackSign is the test-side oracle: it constructs exactly what Slack sends
-// (v0={hex of HMAC over "v0:{ts}:{body}"}) so the round-trip pins the server's
-// recomputation against an independent implementation.
-func slackSign(secret, ts, body string) string {
-	mac := hmac.New(sha256.New, []byte(secret))
-	mac.Write([]byte("v0:" + ts + ":" + body))
-	return "v0=" + hex.EncodeToString(mac.Sum(nil))
-}
+import "testing"
 
 func TestVerifySlackSignature(t *testing.T) {
-	secret := "slack-signing-secret"
-	body := `{"type":"event_callback","event":{"type":"message"}}`
-	now := int64(1_700_000_000)
-	ts := "1700000000"
-	sig := slackSign(secret, ts, body)
-
-	if !verifySlackSignature(secret, sig, ts, []byte(body), now) {
-		t.Fatal("a freshly minted Slack signature must verify")
-	}
-	// Tampered body → different MAC → reject.
-	if verifySlackSignature(secret, sig, ts, []byte(body+"x"), now) {
-		t.Fatal("a body tamper must not verify")
-	}
-	// Tampered signature → reject.
-	if verifySlackSignature(secret, sig[:len(sig)-1]+"0", ts, []byte(body), now) {
-		t.Fatal("a tampered signature must not verify")
-	}
-	// Wrong secret → reject.
-	if verifySlackSignature("other-secret", sig, ts, []byte(body), now) {
-		t.Fatal("a signature must not verify under another secret")
-	}
-	// Expired timestamp (> 5 min skew) → reject even with a valid MAC for that ts.
-	oldTs := "1699990000" // 10000s < now → beyond the 300s window
-	oldSig := slackSign(secret, oldTs, body)
-	if verifySlackSignature(secret, oldSig, oldTs, []byte(body), now) {
-		t.Fatal("an expired timestamp must not verify")
-	}
-	// Future timestamp beyond the window → reject.
-	futTs := "1700000400" // now+400 > 300
-	futSig := slackSign(secret, futTs, body)
-	if verifySlackSignature(secret, futSig, futTs, []byte(body), now) {
-		t.Fatal("a far-future timestamp must not verify")
-	}
-	// Empty inputs → reject (never a valid guess).
-	if verifySlackSignature("", sig, ts, []byte(body), now) {
-		t.Fatal("empty secret must not verify")
-	}
-	if verifySlackSignature(secret, "", ts, []byte(body), now) {
-		t.Fatal("empty signature must not verify")
-	}
-	if verifySlackSignature(secret, sig, "", []byte(body), now) {
-		t.Fatal("empty timestamp must not verify")
-	}
-	// Unparseable timestamp → reject.
-	if verifySlackSignature(secret, sig, "not-a-number", []byte(body), now) {
-		t.Fatal("a non-numeric timestamp must not verify")
+	const (
+		secret = "slack-signing-secret"
+		body   = `{"type":"event_callback","event":{"type":"message"}}`
+		valid  = "v0=6e49a3cfd72cf460bc10c9c3284f2ab9090f590d4a55e559e868bd21756459a4"
+	)
+	now := int64(1700000000)
+	for _, tc := range []struct {
+		name      string
+		secret    string
+		signature string
+		timestamp string
+		body      []byte
+		now       int64
+		want      bool
+	}{
+		{name: "the exact body and current timestamp verify", secret: secret, signature: valid, timestamp: "1700000000", body: []byte(body), now: now, want: true},
+		{name: "the replay window includes exactly five minutes", secret: secret, signature: "v0=ad57873921e6b7a5f7d860692010c4eb27e2daf886d6d9defd8ca842a767cd73", timestamp: "1700000300", body: []byte(body), now: now, want: true},
+		{name: "a timestamp beyond the replay window is refused", secret: secret, signature: "v0=23f75b7fad004b61962399e0feb6f092539c5404df2469642c2f8ce137f010a2", timestamp: "1700000400", body: []byte(body), now: now, want: false},
+		{name: "an old timestamp is refused even with its matching MAC", secret: secret, signature: "v0=93451556571a8a104e8f4ad90697512c2e009417c33c4bd46f39f596e4529794", timestamp: "1699990000", body: []byte(body), now: now, want: false},
+		{name: "changing one body byte invalidates the signature", secret: secret, signature: valid, timestamp: "1700000000", body: []byte(body + "x"), now: now, want: false},
+		{name: "changing one signature byte is refused", secret: secret, signature: valid[:len(valid)-1] + "0", timestamp: "1700000000", body: []byte(body), now: now, want: false},
+		{name: "the same signature does not verify under another secret", secret: "other-secret", signature: valid, timestamp: "1700000000", body: []byte(body), now: now, want: false},
+		{name: "an empty secret is refused", secret: "", signature: valid, timestamp: "1700000000", body: []byte(body), now: now, want: false},
+		{name: "an empty signature is refused", secret: secret, signature: "", timestamp: "1700000000", body: []byte(body), now: now, want: false},
+		{name: "an empty timestamp is refused", secret: secret, signature: valid, timestamp: "", body: []byte(body), now: now, want: false},
+		{name: "a non-numeric timestamp is refused", secret: secret, signature: valid, timestamp: "not-a-number", body: []byte(body), now: now, want: false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := verifySlackSignature(tc.secret, tc.signature, tc.timestamp, tc.body, tc.now); got != tc.want {
+				t.Fatalf("verifySlackSignature(%q, %q, %q, %q, %d) = %v, want %v", tc.secret, tc.signature, tc.timestamp, tc.body, tc.now, got, tc.want)
+			}
+		})
 	}
 }
 
 func TestSlackURLVerificationChallenge(t *testing.T) {
-	challenge, ok := slackURLVerificationChallenge(
-		[]byte(`{"type":"url_verification","challenge":"abc123"}`))
-	if !ok || challenge != "abc123" {
-		t.Fatalf("url_verification must yield its challenge, got (%q,%v)", challenge, ok)
-	}
-	// A normal event body is NOT a handshake.
-	if _, ok := slackURLVerificationChallenge([]byte(`{"type":"event_callback"}`)); ok {
-		t.Fatal("a non-url_verification body must not be treated as a handshake")
-	}
-	// Non-JSON body → not a handshake.
-	if _, ok := slackURLVerificationChallenge([]byte("PR #42 merged")); ok {
-		t.Fatal("a non-JSON body must not be treated as a handshake")
+	for _, tc := range []struct {
+		name      string
+		body      string
+		want      string
+		wantFound bool
+	}{
+		{name: "a url verification body returns its challenge", body: `{"type":"url_verification","challenge":"abc123"}`, want: "abc123", wantFound: true},
+		{name: "an empty challenge is still the parsed handshake shape", body: `{"type":"url_verification","challenge":""}`, want: "", wantFound: true},
+		{name: "a normal event body is not a handshake", body: `{"type":"event_callback"}`, want: "", wantFound: false},
+		{name: "malformed JSON is not a handshake", body: "not-json", want: "", wantFound: false},
+		{name: "a non-string challenge is not accepted as a handshake", body: `{"type":"url_verification","challenge":42}`, want: "", wantFound: false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got, found := slackURLVerificationChallenge([]byte(tc.body))
+			if got != tc.want || found != tc.wantFound {
+				t.Fatalf("slackURLVerificationChallenge(%q) = (%q, %v), want (%q, %v)", tc.body, got, found, tc.want, tc.wantFound)
+			}
+		})
 	}
 }

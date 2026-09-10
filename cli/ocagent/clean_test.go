@@ -1,659 +1,668 @@
 package main
 
-// clean's guards, negative-first.
-//
-// This command runs on the close-out path, under time pressure, and it is the
-// thing agents are told to use INSTEAD of `rm -rf`. So the assertions that
-// matter are not the happy path — they are:
-//   • a path outside my workdir is REFUSED and the target is byte-identical after
-//   • one bad argument among good ones moves NOTHING (no half-done state)
-//   • nothing is ever deleted, only moved
-// A green happy-path test would be satisfied by `os.RemoveAll`, which is exactly
-// the implementation this command exists to replace.
-
 import (
 	"bytes"
-	"go/ast"
-	"go/parser"
-	"go/token"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 )
 
-// cleanFixture builds an isolated agents-home with ONE agent workdir and
-// returns (cfg, root). Everything the tests create lives under t.TempDir(), so
-// a guard that fails open would still not reach anything real.
-func cleanFixture(t *testing.T) (Config, string) {
+// resolvedTempDir is a temp directory with every symlink already resolved, so a
+// test can compose expected paths by hand on a host whose /tmp or /var is a link.
+func resolvedTempDir(t *testing.T) string {
 	t.Helper()
-	home := t.TempDir()
-	cfg := Config{Home: home, ID: "m-test01"}
-	root := filepath.Join(home, "m-test01")
-	if err := os.MkdirAll(root, 0o755); err != nil {
-		t.Fatalf("fixture: %v", err)
+	dir, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
 	}
-	return cfg, root
+	return dir
 }
 
-func writeFile(t *testing.T, path, body string) {
+// agentWorkdir creates <home>/member-alice and returns the config that names it
+// plus the workdir path itself.
+func agentWorkdir(t *testing.T) (Config, string) {
 	t.Helper()
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		t.Fatalf("fixture: %v", err)
-	}
-	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
-		t.Fatalf("fixture: %v", err)
-	}
+	home := resolvedTempDir(t)
+	root := filepath.Join(home, "member-alice")
+	mkdirAll(t, root)
+	return Config{Home: home, ID: "Member-Alice"}, root
 }
 
-func mustReadFile(t *testing.T, path string) string {
+func mkdirAll(t *testing.T, path string) {
 	t.Helper()
-	b, err := os.ReadFile(path)
+	if err := os.MkdirAll(path, 0o755); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func writeFileAt(t *testing.T, path, content string) {
+	t.Helper()
+	mkdirAll(t, filepath.Dir(path))
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func symlinkAt(t *testing.T, target, link string) {
+	t.Helper()
+	mkdirAll(t, filepath.Dir(link))
+	if err := os.Symlink(target, link); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func exists(t *testing.T, path string) bool {
+	t.Helper()
+	_, err := os.Lstat(path)
+	return err == nil
+}
+
+func readFileAt(t *testing.T, path string) string {
+	t.Helper()
+	raw, err := os.ReadFile(path)
 	if err != nil {
-		t.Fatalf("read %s: %v", path, err)
+		t.Fatal(err)
 	}
-	return string(b)
+	return string(raw)
 }
 
-func run(cfg Config, args ...string) (int, string) {
-	var out bytes.Buffer
-	rc := cmdClean(cfg, args, &out)
-	return rc, out.String()
-}
+func TestCleanRoot(t *testing.T) {
+	t.Run("the workdir is the agent home joined with its lowercased id", func(t *testing.T) {
+		home := resolvedTempDir(t)
+		got, err := cleanRoot(Config{Home: home, ID: "Member-ALICE"})
+		if err != nil || got != filepath.Join(home, "member-alice") {
+			t.Fatalf("cleanRoot = (%q, %v), want (%q, nil)",
+				got, err, filepath.Join(home, "member-alice"))
+		}
+	})
 
-// ── the happy paths, only enough to prove the move actually happens ──────────
+	t.Run("a workdir that does not exist yet is still named", func(t *testing.T) {
+		got, err := cleanRoot(Config{Home: "/no/such/home", ID: "member-alice"})
+		if err != nil || got != "/no/such/home/member-alice" {
+			t.Fatalf("cleanRoot = (%q, %v), want (\"/no/such/home/member-alice\", nil)", got, err)
+		}
+	})
 
-func TestCleanQuarantinesAFileRatherThanDeletingIt(t *testing.T) {
-	cfg, root := cleanFixture(t)
-	target := filepath.Join(root, "tmp", "scratch.log")
-	writeFile(t, target, "keep me readable")
+	t.Run("a symlinked home is resolved once so nothing later looks like an escape", func(t *testing.T) {
+		base := resolvedTempDir(t)
+		real := filepath.Join(base, "real")
+		mkdirAll(t, filepath.Join(real, "member-alice"))
+		symlinkAt(t, real, filepath.Join(base, "link"))
 
-	rc, out := run(cfg, target)
-	if rc != 0 {
-		t.Fatalf("rc = %d, out = %q", rc, out)
-	}
-	if _, err := os.Lstat(target); !os.IsNotExist(err) {
-		t.Fatalf("the target should have moved away, err = %v", err)
-	}
-	// 🔴 THE assertion: it is still readable. A deletion would pass "the target
-	// is gone" too — this is what tells the two apart.
-	parked := filepath.Join(root, "trash", "tmp", "scratch.log")
-	if got := mustReadFile(t, parked); got != "keep me readable" {
-		t.Fatalf("quarantined bytes changed: %q", got)
-	}
-	if !strings.Contains(out, parked) {
-		t.Fatalf("output must say where it went; got %q", out)
-	}
-}
+		got, err := cleanRoot(Config{Home: filepath.Join(base, "link"), ID: "member-alice"})
+		if err != nil || got != filepath.Join(real, "member-alice") {
+			t.Fatalf("cleanRoot = (%q, %v), want (%q, nil)",
+				got, err, filepath.Join(real, "member-alice"))
+		}
+	})
 
-func TestCleanQuarantinesAFolderWithItsContents(t *testing.T) {
-	cfg, root := cleanFixture(t)
-	dir := filepath.Join(root, "work", "wt-123")
-	writeFile(t, filepath.Join(dir, "a", "b.txt"), "nested")
-
-	if rc, out := run(cfg, dir); rc != 0 {
-		t.Fatalf("rc = %d, out = %q", rc, out)
-	}
-	if got := mustReadFile(t, filepath.Join(root, "trash", "work", "wt-123", "a", "b.txt")); got != "nested" {
-		t.Fatalf("nested bytes changed: %q", got)
-	}
-}
-
-// ── the guards: every one of these must refuse AND leave the target alone ────
-
-func TestCleanRefusesEverythingOutsideMyWorkdir(t *testing.T) {
-	cfg, root := cleanFixture(t)
-	outsideDir := t.TempDir()
-
-	// A neighbour agent's workdir under the SAME agents home — the most likely
-	// real mistake, and the one a naive prefix check gets wrong.
-	neighbour := filepath.Join(cfg.Home, "m-other9", "notes.md")
-	writeFile(t, neighbour, "not mine")
-
-	// A file reachable only by climbing out with ..
-	sibling := filepath.Join(cfg.Home, "sibling.txt")
-	writeFile(t, sibling, "not mine either")
-
-	// A symlink INSIDE my root pointing at a file outside it: the path looks
-	// local, the bytes are not.
-	victim := filepath.Join(outsideDir, "victim.txt")
-	writeFile(t, victim, "outside")
-	link := filepath.Join(root, "looks-local")
-	if err := os.Symlink(victim, link); err != nil {
-		t.Skipf("symlinks unavailable: %v", err)
-	}
-
-	cases := []struct {
-		name, arg, untouched string
-	}{
-		{"neighbour agent workdir", neighbour, neighbour},
-		{"dot-dot escape", filepath.Join(root, "..", "sibling.txt"), sibling},
-		{"symlink pointing out", link, victim},
-		{"filesystem root", string(filepath.Separator), ""},
-		{"my workdir itself", root, ""},
-		{"the quarantine dir itself", filepath.Join(root, "trash"), ""},
-		{"inside the quarantine dir", filepath.Join(root, "trash", "anything"), ""},
-	}
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
-			rc, out := run(cfg, c.arg)
-			if rc == 0 {
-				t.Fatalf("must refuse %s; rc = 0, out = %q", c.arg, out)
+	t.Run("no id refuses rather than falling back to a shared tree", func(t *testing.T) {
+		for _, id := range []string{"", "   "} {
+			got, err := cleanRoot(Config{Home: "/home", ID: id})
+			if got != "" || err == nil ||
+				err.Error() != "no agent id (OC_ID / OC_TOKEN): cannot tell which workdir is mine" {
+				t.Fatalf("cleanRoot(ID=%q) = (%q, %v), want the no-id refusal", id, got, err)
 			}
-			if !strings.Contains(out, "NOTHING was moved") {
-				t.Fatalf("the refusal must say nothing moved; got %q", out)
+		}
+	})
+
+	t.Run("no home refuses", func(t *testing.T) {
+		for _, home := range []string{"", "  "} {
+			got, err := cleanRoot(Config{Home: home, ID: "member-alice"})
+			if got != "" || err == nil ||
+				err.Error() != "no agent home (OC_AGENT_HOME): cannot tell which workdir is mine" {
+				t.Fatalf("cleanRoot(Home=%q) = (%q, %v), want the no-home refusal", home, got, err)
 			}
-			if c.untouched != "" {
-				if _, err := os.Lstat(c.untouched); err != nil {
-					t.Fatalf("a refused run must not touch the target: %v", err)
-				}
-			}
-		})
-	}
-	// The root itself and the agents home are still whole.
-	if _, err := os.Lstat(root); err != nil {
-		t.Fatalf("root vanished: %v", err)
-	}
-}
-
-// 🔴 The all-or-nothing assertion. One bad argument in a list of good ones must
-// cost ZERO moves — a command that replaces `rm -rf` may not leave the caller
-// guessing which half ran.
-func TestCleanMovesNothingWhenAnyArgumentIsRefused(t *testing.T) {
-	cfg, root := cleanFixture(t)
-	good1 := filepath.Join(root, "tmp", "one.txt")
-	good2 := filepath.Join(root, "tmp", "two.txt")
-	writeFile(t, good1, "one")
-	writeFile(t, good2, "two")
-	bad := filepath.Join(cfg.Home, "elsewhere.txt")
-	writeFile(t, bad, "elsewhere")
-
-	rc, out := run(cfg, good1, bad, good2)
-	if rc == 0 {
-		t.Fatalf("must refuse the batch; out = %q", out)
-	}
-	for _, p := range []string{good1, good2, bad} {
-		if _, err := os.Lstat(p); err != nil {
-			t.Fatalf("%s must be untouched: %v", p, err)
 		}
-	}
-	if _, err := os.Lstat(filepath.Join(root, "trash")); !os.IsNotExist(err) {
-		t.Fatalf("no quarantine directory should have been created, err = %v", err)
-	}
-}
-
-// ── idempotence: the property that lets an agent re-run this without thinking ─
-
-func TestCleanIsIdempotentAndNeverOverwritesAnEarlierParkedCopy(t *testing.T) {
-	cfg, root := cleanFixture(t)
-	target := filepath.Join(root, "tmp", "note.txt")
-
-	// (a) a path that is already gone is SUCCESS, not an error.
-	rc, out := run(cfg, target)
-	if rc != 0 {
-		t.Fatalf("missing path must be rc 0; rc = %d, out = %q", rc, out)
-	}
-	if !strings.Contains(out, "already gone") {
-		t.Fatalf("output should say it was already gone; got %q", out)
-	}
-
-	// (b) two rounds with the same name park BOTH copies — the first one is not
-	// overwritten, because the parked copy is the evidence the agent may still
-	// need.
-	writeFile(t, target, "first")
-	if rc, out := run(cfg, target); rc != 0 {
-		t.Fatalf("rc = %d, out = %q", rc, out)
-	}
-	writeFile(t, target, "second")
-	if rc, out := run(cfg, target); rc != 0 {
-		t.Fatalf("rc = %d, out = %q", rc, out)
-	}
-	if got := mustReadFile(t, filepath.Join(root, "trash", "tmp", "note.txt")); got != "first" {
-		t.Fatalf("the FIRST parked copy must survive; got %q", got)
-	}
-	if got := mustReadFile(t, filepath.Join(root, "trash", "tmp", "note.txt-2")); got != "second" {
-		t.Fatalf("the second copy must be parked beside it; got %q", got)
-	}
-}
-
-// The escape that arrives through the EXIT rather than the entrance: the path
-// argument is impeccable, but the quarantine directory itself is a symlink, so
-// the "move" lands outside the tree. ocwarden refuses to purge a symlinked
-// trash for the same reason (cli/CLAUDE.md §5) — the writer has to agree.
-func TestCleanRefusesWhenTheQuarantineDirIsASymlink(t *testing.T) {
-	cfg, root := cleanFixture(t)
-	elsewhere := t.TempDir()
-	if err := os.Symlink(elsewhere, filepath.Join(root, "trash")); err != nil {
-		t.Skipf("symlinks unavailable: %v", err)
-	}
-	target := filepath.Join(root, "tmp", "x.txt")
-	writeFile(t, target, "mine")
-
-	rc, out := run(cfg, target)
-	if rc == 0 {
-		t.Fatalf("must not move into a symlinked quarantine; out = %q", out)
-	}
-	if _, err := os.Lstat(target); err != nil {
-		t.Fatalf("the target must be untouched: %v", err)
-	}
-	if entries, err := os.ReadDir(elsewhere); err != nil || len(entries) != 0 {
-		t.Fatalf("nothing may land outside the tree; entries = %v err = %v", entries, err)
-	}
-}
-
-// The SAME escape one level deeper — and the one the first version missed.
-// `<root>/trash` is a real directory, but `<root>/trash/tmp` is a symlink out;
-// MkdirAll and Rename both follow it, so the file leaves the tree while the
-// command prints an in-tree path and exits 0. Reachable in two ordinary steps:
-// clean a directory that contains an outward symlink (parked under trash/
-// intact), then clean a real path whose rel traverses that parked name.
-//
-// 🔴 The target is TWO levels under the symlinked name on purpose, and that is
-// the whole point of this fixture. With `<root>/tmp/x.txt` the destination
-// parent is `<root>/trash/tmp` — the symlink itself, which already exists — so
-// MkdirAll sees a directory and creates nothing, and "the outside stayed empty"
-// held even with the guard moved AFTER MkdirAll. The test could not tell the
-// two orders apart. With `<root>/tmp/sub/x.txt` the parent is
-// `<root>/trash/tmp/sub`, which does NOT exist, so a guard that runs late lets
-// MkdirAll punch a real directory through the link and into the outside tree —
-// and the emptiness assertion below finally reddens.
-func TestCleanRefusesWhenSomethingUnderTheQuarantineDirIsASymlink(t *testing.T) {
-	cfg, root := cleanFixture(t)
-	elsewhere := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(root, "trash"), 0o755); err != nil {
-		t.Fatalf("fixture: %v", err)
-	}
-	if err := os.Symlink(elsewhere, filepath.Join(root, "trash", "tmp")); err != nil {
-		t.Skipf("symlinks unavailable: %v", err)
-	}
-	target := filepath.Join(root, "tmp", "sub", "x.txt")
-	writeFile(t, target, "mine")
-
-	rc, out := run(cfg, target)
-	if rc == 0 {
-		t.Fatalf("must not move through a nested symlink; out = %q", out)
-	}
-	if _, err := os.Lstat(target); err != nil {
-		t.Fatalf("the target must be untouched: %v", err)
-	}
-	entries, err := os.ReadDir(elsewhere)
-	if err != nil || len(entries) != 0 {
-		t.Fatalf("nothing may land outside the tree; entries = %v err = %v", entries, err)
-	}
-}
-
-// ── identity: without an id there is no "my workdir" to be inside of ─────────
-
-func TestCleanRefusesWithoutAnAgentIdentity(t *testing.T) {
-	home := t.TempDir()
-	stray := filepath.Join(home, "anon", "x.txt")
-	writeFile(t, stray, "x")
-
-	for _, cfg := range []Config{
-		{Home: home, ID: ""},
-		{Home: "", ID: "m-test01"},
-	} {
-		rc, out := run(cfg, stray)
-		if rc == 0 {
-			t.Fatalf("must refuse without a resolvable workdir; out = %q", out)
-		}
-		if _, err := os.Lstat(stray); err != nil {
-			t.Fatalf("nothing may move: %v", err)
-		}
-	}
-}
-
-func TestCleanNeedsAtLeastOnePath(t *testing.T) {
-	cfg, _ := cleanFixture(t)
-	rc, out := run(cfg)
-	if rc == 0 {
-		t.Fatalf("no arguments must not be a success; out = %q", out)
-	}
-	if !strings.Contains(out, "usage:") {
-		t.Fatalf("it should print usage; got %q", out)
-	}
-}
-
-// ── the dispatch seam: an agent that reads --help must be able to FIND it ────
-
-func TestCleanIsDispatchedAndAdvertised(t *testing.T) {
-	var out bytes.Buffer
-	if rc := realMain([]string{"--help"}, func(string) string { return "" }, nil, &out); rc != 0 {
-		t.Fatalf("help rc = %d", rc)
-	}
-	if !strings.Contains(out.String(), "clean") {
-		t.Fatalf("`clean` must appear in --help, or nobody finds it: %q", out.String())
-	}
-
-	// And it reaches cmdClean rather than falling through to "unknown
-	// subcommand" — proven by the argument-count refusal, which only clean says.
-	out.Reset()
-	rc := realMain([]string{"clean"}, func(string) string { return "" }, nil, &out)
-	if rc != 2 || !strings.Contains(out.String(), "ocagent clean <path>") {
-		t.Fatalf("clean must be dispatched; rc = %d out = %q", rc, out.String())
-	}
-	// Kept as-is, deliberately. This line reads like it pins the phrase 「unknown
-	// subcommand」 that seeds/system_interaction.md 附錄 A promises, and it does not:
-	// rename the phrase in main.go's default arm and this Contains goes vacuously
-	// true. That is not fixable by rewriting it — EVERY "output must not look like
-	// X" check goes vacuous when X moves, so spelling X as a literal here would buy
-	// nothing and would only pull goldenUsage across files.
-	//
-	// The phrase is pinned POSITIVELY instead, in
-	// TestUnknownSubcommandPrintsExactlyTheUnknownBlock (config_test.go), which is
-	// where a rename now reddens. What this line still earns its place for is the
-	// thing directly above it: `clean` really reached cmdClean. The rc/usage check
-	// above is the load-bearing half of that; this is the cheap corroboration.
-	if strings.Contains(out.String(), "unknown subcommand") {
-		t.Fatalf("clean fell through to the default branch: %q", out.String())
-	}
-}
-
-// ── the leaf itself is a symlink: all three shapes, defined ─────────────────
-//
-// 🔴 The regression this pins: `clean <a symlink>` used to resolve the leaf and
-// move WHAT IT POINTED AT. Naming `inlink` deleted `d.txt` — a file the caller
-// never named — left `inlink` in place (now dangling), and exited 0. For the
-// command that replaces `rm -rf` on the close-out path, "reported success while
-// moving the wrong file" is the worst failure available.
-//
-// The contract, one line per shape:
-//   • points OUT of the tree  → refuse, touch nothing
-//   • points INSIDE the tree  → move the LINK, leave the pointee alone
-//   • dangling                → move the LINK (harmless: no bytes are behind it)
-
-func TestCleanMovesTheLinkItselfWhenTheTargetPointsInsideTheTree(t *testing.T) {
-	cfg, root := cleanFixture(t)
-	pointee := filepath.Join(root, "d.txt")
-	writeFile(t, pointee, "do not touch me")
-	link := filepath.Join(root, "inlink")
-	if err := os.Symlink(pointee, link); err != nil {
-		t.Skipf("symlinks unavailable: %v", err)
-	}
-
-	rc, out := run(cfg, link)
-	if rc != 0 {
-		t.Fatalf("an in-tree symlink is cleanable; rc = %d out = %q", rc, out)
-	}
-	// 🔴 THE assertion: the file the caller did NOT name is still there.
-	if got := mustReadFile(t, pointee); got != "do not touch me" {
-		t.Fatalf("the pointee must be untouched; got %q", got)
-	}
-	// The thing the caller DID name is gone from where it was...
-	if _, err := os.Lstat(link); !os.IsNotExist(err) {
-		t.Fatalf("the link the caller named must have moved away; err = %v", err)
-	}
-	// ...and parked under its OWN name, still a symlink.
-	parked := filepath.Join(root, "trash", "inlink")
-	fi, err := os.Lstat(parked)
-	if err != nil {
-		t.Fatalf("the link must be parked as %s: %v", parked, err)
-	}
-	if fi.Mode()&os.ModeSymlink == 0 {
-		t.Fatalf("what was parked must still be the symlink, not its target: mode = %v", fi.Mode())
-	}
-	if !strings.Contains(out, parked) {
-		t.Fatalf("the output must name where the LINK went, not the pointee; got %q", out)
-	}
-	// Nothing was parked under the pointee's name — that would mean the pointee moved.
-	if _, err := os.Lstat(filepath.Join(root, "trash", "d.txt")); !os.IsNotExist(err) {
-		t.Fatalf("the pointee must never be quarantined; err = %v", err)
-	}
-}
-
-func TestCleanMovesADanglingSymlink(t *testing.T) {
-	cfg, root := cleanFixture(t)
-	link := filepath.Join(root, "dangling")
-	if err := os.Symlink(filepath.Join(root, "gone-already.txt"), link); err != nil {
-		t.Skipf("symlinks unavailable: %v", err)
-	}
-
-	rc, out := run(cfg, link)
-	if rc != 0 {
-		t.Fatalf("a dangling link is cleanable; rc = %d out = %q", rc, out)
-	}
-	if _, err := os.Lstat(link); !os.IsNotExist(err) {
-		t.Fatalf("the dangling link must have moved; err = %v", err)
-	}
-	if _, err := os.Lstat(filepath.Join(root, "trash", "dangling")); err != nil {
-		t.Fatalf("the dangling link must be parked: %v", err)
-	}
-}
-
-// The third exit shape: a component of the quarantine path is a DANGLING
-// symlink pointing outside. The resolved-ancestor pre-check cannot see where it
-// aims (EvalSymlinks has nothing to resolve), so this pins that the refusal
-// still happens — MkdirAll will not create a directory through a dangling link,
-// and phase 2 turns that into a non-zero exit rather than a silent escape.
-//
-// This is also the shape the deleted post-MkdirAll re-check was supposed to
-// catch. It refuses without it, which is half of why that check was dead.
-func TestCleanRefusesWhenTheQuarantinePathRunsThroughADanglingSymlink(t *testing.T) {
-	cfg, root := cleanFixture(t)
-	elsewhere := t.TempDir()
-	neverCreated := filepath.Join(elsewhere, "not-there-yet")
-	if err := os.MkdirAll(filepath.Join(root, "trash"), 0o755); err != nil {
-		t.Fatalf("fixture: %v", err)
-	}
-	if err := os.Symlink(neverCreated, filepath.Join(root, "trash", "tmp")); err != nil {
-		t.Skipf("symlinks unavailable: %v", err)
-	}
-	target := filepath.Join(root, "tmp", "sub", "x.txt")
-	writeFile(t, target, "mine")
-
-	rc, out := run(cfg, target)
-	if rc == 0 {
-		t.Fatalf("must not move through a dangling quarantine link; out = %q", out)
-	}
-	if _, err := os.Lstat(target); err != nil {
-		t.Fatalf("the target must be untouched: %v", err)
-	}
-	if _, err := os.Lstat(neverCreated); !os.IsNotExist(err) {
-		t.Fatalf("nothing may be created outside the tree; err = %v", err)
-	}
-	if entries, err := os.ReadDir(elsewhere); err != nil || len(entries) != 0 {
-		t.Fatalf("nothing may land outside the tree; entries = %v err = %v", entries, err)
-	}
-}
-
-// ── B-1: the sentence in clean.go's header, made falsifiable ─────────────────
-//
-// clean.go's header says "Nothing in here may grow an os.RemoveAll of a
-// caller-named path". That sentence used to be prose with nothing behind it —
-// the exact failure mode this whole command was written to end (a procedure
-// written in prose is a second source of truth that nothing keeps in step). So
-// it is asserted here, BY NAME, against the file's own syntax tree.
-//
-// The AST is read rather than the text on purpose: the header comment itself
-// contains the string "os.RemoveAll", so a grep would either match its own
-// documentation or need a comment-stripper that is itself untested. go/parser
-// discards comments, so what is left is only what the compiler will run.
-//
-// Scope: os.Remove and os.RemoveAll both DELETE, and this command's whole
-// contract is that a wrong path costs a move and never the file — so both are
-// refused, not just the one the sentence happens to name.
-func TestCleanNeverDeletesAnything(t *testing.T) {
-	fset := token.NewFileSet()
-	file, err := parser.ParseFile(fset, "clean.go", nil, 0)
-	if err != nil {
-		t.Fatalf("parse clean.go: %v", err)
-	}
-	ast.Inspect(file, func(n ast.Node) bool {
-		call, ok := n.(*ast.CallExpr)
-		if !ok {
-			return true
-		}
-		sel, ok := call.Fun.(*ast.SelectorExpr)
-		if !ok {
-			return true
-		}
-		pkg, ok := sel.X.(*ast.Ident)
-		if !ok || pkg.Name != "os" {
-			return true
-		}
-		if sel.Sel.Name == "Remove" || sel.Sel.Name == "RemoveAll" {
-			t.Errorf("clean.go:%d calls os.%s — this command quarantines, it never deletes; "+
-				"a wrong path must cost a move, not the file",
-				fset.Position(call.Pos()).Line, sel.Sel.Name)
-		}
-		return true
 	})
 }
 
-// ── N-1: the exit guard proved "in the tree", not "in the quarantine" ────────
-//
-// The escape it missed is INSIDE the tree, which is why "under root" waved it
-// through: `<root>/trash/tmp -> <root>/live`. Cleaning `<root>/tmp/sub/x.txt`
-// exited 0 and printed `<root>/trash/tmp/sub/x.txt` while the file actually
-// landed in `<root>/live/sub/x.txt` — `trash/` held nothing.
-//
-// 🔴 Reporting success while naming a path the file is not at is the exact
-// class this command calls its worst failure. The file being "still in the
-// tree" does not soften it: the agent is told where its parked copy is, and it
-// is not there. The destination of a quarantine move has to be inside the
-// QUARANTINE, and "under root" is a strictly weaker claim.
-func TestCleanRefusesWhenTheQuarantinePathLeavesTrashWithoutLeavingTheTree(t *testing.T) {
-	cfg, root := cleanFixture(t)
-	inTreeButNotTrash := filepath.Join(root, "live")
-	if err := os.MkdirAll(inTreeButNotTrash, 0o755); err != nil {
-		t.Fatalf("fixture: %v", err)
-	}
-	if err := os.MkdirAll(filepath.Join(root, "trash"), 0o755); err != nil {
-		t.Fatalf("fixture: %v", err)
-	}
-	if err := os.Symlink(inTreeButNotTrash, filepath.Join(root, "trash", "tmp")); err != nil {
-		t.Skipf("symlinks unavailable: %v", err)
-	}
-	// Two levels under the symlinked name, for the same reason the sibling
-	// test spells out: at one level MkdirAll creates nothing and the fixture
-	// cannot tell a late guard from an early one.
-	target := filepath.Join(root, "tmp", "sub", "x.txt")
-	writeFile(t, target, "mine")
+func TestCanonicalise(t *testing.T) {
+	base := resolvedTempDir(t)
+	real := filepath.Join(base, "real")
+	mkdirAll(t, real)
+	writeFileAt(t, filepath.Join(real, "kept.txt"), "x")
+	symlinkAt(t, real, filepath.Join(base, "link"))
+	symlinkAt(t, "/nowhere/nothing", filepath.Join(real, "dangling"))
 
-	rc, out := run(cfg, target)
-	if rc == 0 {
-		t.Fatalf("a destination outside trash/ must be refused; out = %q", out)
+	cases := []struct {
+		name string
+		in   string
+		want string
+	}{
+		{"an existing path comes back resolved", filepath.Join(base, "link", "kept.txt"),
+			filepath.Join(real, "kept.txt")},
+		{"a real directory is unchanged", real, real},
+		{"a missing leaf is re-attached to its resolved parent",
+			filepath.Join(base, "link", "gone.txt"), filepath.Join(real, "gone.txt")},
+		{"several missing components are re-attached in order",
+			filepath.Join(base, "link", "a", "b", "c.txt"), filepath.Join(real, "a", "b", "c.txt")},
+		{"a dangling symlink resolves to itself, not to what it points at",
+			filepath.Join(real, "dangling"), filepath.Join(real, "dangling")},
+		{"a path below a dangling symlink keeps the link in it",
+			filepath.Join(real, "dangling", "x"), filepath.Join(real, "dangling", "x")},
+		{"a path with no existing ancestor comes back cleaned but unresolved",
+			"/no-such-root-xyz/a/b", "/no-such-root-xyz/a/b"},
+		{"dot and dot-dot are cleaned away first",
+			filepath.Join(base, "link", ".", "a", "..", "b"), filepath.Join(real, "b")},
 	}
-	if got := mustReadFile(t, target); got != "mine" {
-		t.Fatalf("the target must be untouched; got %q", got)
-	}
-	// 🔴 THE assertion: nothing was written into the in-tree-but-not-quarantine
-	// directory the link aimed at.
-	entries, err := os.ReadDir(inTreeButNotTrash)
-	if err != nil || len(entries) != 0 {
-		t.Fatalf("nothing may land outside %s/; entries = %v err = %v", quarantineDirName, entries, err)
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := canonicalise(tc.in); got != tc.want {
+				t.Fatalf("canonicalise(%q) = %q, want %q", tc.in, got, tc.want)
+			}
+		})
 	}
 }
 
-// ── N-2: the "trash is not cleanable" guard fell to a single capital letter ──
-//
-// insideRoot compared the first path segment against "trash" as a
-// case-SENSITIVE string, and macOS APFS is case-INSENSITIVE by default — the
-// filesystem this repo is developed on. So `clean <root>/TRASH/tmp/parked.txt`
-// named the very same directory the guard exists to protect, missed the
-// comparison, and re-quarantined an already-quarantined file into
-// `trash/TRASH/...` — "moving trash into trash nests forever", which is the
-// comment's own words for what it was preventing.
-//
-// The assertion is filesystem-independent: on a case-sensitive host `TRASH/`
-// is a different directory and refusing it costs one false refusal (the agent
-// renames it and retries); on a case-insensitive host it is the quarantine
-// itself and allowing it costs a spurious move of parked evidence. A command
-// that moves things takes the refusal.
-func TestCleanRefusesTheQuarantineDirWhateverItsCase(t *testing.T) {
-	cfg, root := cleanFixture(t)
-	parked := filepath.Join(root, "TRASH", "tmp", "parked.txt")
-	writeFile(t, parked, "already quarantined")
-
-	rc, out := run(cfg, parked)
-	if rc == 0 {
-		t.Fatalf("a path through the quarantine dir must be refused whatever its case; out = %q", out)
+func TestIsUnder(t *testing.T) {
+	cases := []struct {
+		name       string
+		root, path string
+		want       bool
+	}{
+		{"a child is under", "/a", "/a/b", true},
+		{"a grandchild is under", "/a", "/a/b/c", true},
+		{"the root itself is not under", "/a", "/a", false},
+		{"a sibling is not under", "/a", "/b", false},
+		{"a prefix-sharing sibling is not under", "/a", "/ab", false},
+		{"the parent is not under", "/a/b", "/a", false},
+		{"a relative path against an absolute root is not under", "/a", "b", false},
 	}
-	if !strings.Contains(out, "already in") {
-		t.Fatalf("the refusal must say it is already quarantined; got %q", out)
-	}
-	if got := mustReadFile(t, parked); got != "already quarantined" {
-		t.Fatalf("parked evidence must be untouched; got %q", got)
-	}
-	// Nothing nested a second time.
-	if _, err := os.Lstat(filepath.Join(root, "trash", "TRASH")); !os.IsNotExist(err) {
-		t.Fatalf("quarantine must not nest inside itself; err = %v", err)
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := isUnder(tc.root, tc.path); got != tc.want {
+				t.Fatalf("isUnder(%q, %q) = %v, want %v", tc.root, tc.path, got, tc.want)
+			}
+		})
 	}
 }
 
-// ── N-3: the collision loop called every error "it already exists" ───────────
-//
-// The loop broke only on ENOENT and treated EVERY other Lstat error as "that
-// slot is taken", so an ENOTDIR (a plain file sitting where `trash/tmp` should
-// be a directory), an ELOOP, or an EACCES span 1000 candidate names and then
-// answered `too many quarantined copies of tmp/x.txt` — when there are none.
-// Nothing unsafe happens, but the message sends a human hunting for 1000
-// copies that do not exist, and the real cause (a file in the way) is never
-// named. A command whose whole job is "tell the agent where its file went" may
-// not answer with a fabricated reason.
-func TestCleanReportsTheRealReasonWhenTheQuarantineSlotCannotBeInspected(t *testing.T) {
-	cfg, root := cleanFixture(t)
-	// A PLAIN FILE where the quarantine subdirectory would have to be.
-	writeFile(t, filepath.Join(root, "trash", "tmp"), "not a directory")
-	target := filepath.Join(root, "tmp", "x.txt")
-	writeFile(t, target, "mine")
-
-	rc, out := run(cfg, target)
-	if rc == 0 {
-		t.Fatalf("must not report success; out = %q", out)
+func TestInsideRoot(t *testing.T) {
+	const root = "/home/member-alice"
+	cases := []struct {
+		name string
+		path string
+		arg  string
+		want string
+	}{
+		{"a file in the workdir is accepted", root + "/tmp/x.txt", "tmp/x.txt", ""},
+		{"a deep file in the workdir is accepted", root + "/a/b/c/x.txt", "a/b/c/x.txt", ""},
+		{"a name that merely starts with trash is accepted", root + "/trashcan/x", "trashcan/x", ""},
+		{"the workdir itself is refused by name", root, ".",
+			"that is my workdir itself, not something in it: ."},
+		{"the parent is refused as outside", "/home", "..", "outside my workdir: .."},
+		{"a sibling tree is refused as outside", "/home/member-bob/x", "../member-bob/x",
+			"outside my workdir: ../member-bob/x"},
+		{"a relative path cannot be compared and is refused as outside", "tmp/x", "tmp/x",
+			"outside my workdir: tmp/x"},
+		{"the quarantine directory itself is refused", root + "/trash", "trash",
+			"that is already in trash/: trash"},
+		{"something already parked in quarantine is refused", root + "/trash/tmp/x.txt",
+			"trash/tmp/x.txt", "that is already in trash/: trash/tmp/x.txt"},
+		{"quarantine spelled in a different case is still quarantine", root + "/TRASH/tmp/x.txt",
+			"TRASH/tmp/x.txt", "that is already in trash/: TRASH/tmp/x.txt"},
 	}
-	if strings.Contains(out, "too many quarantined copies") {
-		t.Fatalf("must not invent 1000 copies that do not exist; got %q", out)
-	}
-	if got := mustReadFile(t, target); got != "mine" {
-		t.Fatalf("the target must be untouched; got %q", got)
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := insideRoot(root, tc.path, tc.arg)
+			got := ""
+			if err != nil {
+				got = err.Error()
+			}
+			if got != tc.want {
+				t.Fatalf("insideRoot(%q, %q) = %q, want %q", root, tc.path, got, tc.want)
+			}
+		})
 	}
 }
 
-// ── N-4: the fourth leaf shape, which the contract listed only three of ──────
-//
-// A leaf symlink that is BOTH dangling AND aimed outside the tree
-// (`<root>/dangleout -> <elsewhere>/never.txt`). It sits between two documented
-// rules — "points OUT of the tree → refused" and "dangling → the link moves" —
-// and it takes the second one. That is correct and it is now stated: nothing
-// exists at the far end to reach, so the only byte involved is the link itself,
-// which is in the tree and is precisely what the caller named. Refusing it
-// would strand exactly the debris this command exists to clear (a stale
-// node_modules/.bin entry is this shape).
-//
-// It is asserted here because it was reachable and undocumented, which is the
-// same defect as an undocumented refusal: the next reader cannot tell whether
-// the behaviour was decided or fell out.
-func TestCleanMovesADanglingLinkThatAimsOutsideTheTree(t *testing.T) {
-	cfg, root := cleanFixture(t)
-	elsewhere := t.TempDir()
-	neverCreated := filepath.Join(elsewhere, "never.txt")
-	link := filepath.Join(root, "dangleout")
-	if err := os.Symlink(neverCreated, link); err != nil {
-		t.Skipf("symlinks unavailable: %v", err)
-	}
+func TestResolveInsideRoot(t *testing.T) {
+	t.Run("an ordinary in-tree file resolves to itself", func(t *testing.T) {
+		_, root := agentWorkdir(t)
+		writeFileAt(t, filepath.Join(root, "tmp", "x.txt"), "x")
+		got, err := resolveInsideRoot(root, filepath.Join(root, "tmp", "x.txt"))
+		if err != nil || got != filepath.Join(root, "tmp", "x.txt") {
+			t.Fatalf("resolveInsideRoot = (%q, %v), want the same path", got, err)
+		}
+	})
 
-	rc, out := run(cfg, link)
-	if rc != 0 {
-		t.Fatalf("a dangling link is cleanable wherever it aims; rc = %d out = %q", rc, out)
-	}
-	if _, err := os.Lstat(link); !os.IsNotExist(err) {
-		t.Fatalf("the link the caller named must have moved; err = %v", err)
-	}
-	parked := filepath.Join(root, "trash", "dangleout")
-	fi, err := os.Lstat(parked)
-	if err != nil {
-		t.Fatalf("the link must be parked as %s: %v", parked, err)
-	}
-	if fi.Mode()&os.ModeSymlink == 0 {
-		t.Fatalf("what was parked must still be the symlink: mode = %v", fi.Mode())
-	}
-	// 🔴 Nothing was created at the far end — "the link moves" must not have
-	// meant "the pointee was materialised".
-	if _, err := os.Lstat(neverCreated); !os.IsNotExist(err) {
-		t.Fatalf("nothing may be created outside the tree; err = %v", err)
-	}
-	if entries, err := os.ReadDir(elsewhere); err != nil || len(entries) != 0 {
-		t.Fatalf("nothing may land outside the tree; entries = %v err = %v", entries, err)
-	}
+	t.Run("a target that does not exist is fine, so a re-run is idempotent", func(t *testing.T) {
+		_, root := agentWorkdir(t)
+		got, err := resolveInsideRoot(root, filepath.Join(root, "tmp", "gone.txt"))
+		if err != nil || got != filepath.Join(root, "tmp", "gone.txt") {
+			t.Fatalf("resolveInsideRoot = (%q, %v), want the same path", got, err)
+		}
+	})
+
+	t.Run("a relative argument is resolved against the working directory", func(t *testing.T) {
+		_, root := agentWorkdir(t)
+		writeFileAt(t, filepath.Join(root, "tmp", "x.txt"), "x")
+		t.Chdir(root)
+		got, err := resolveInsideRoot(root, "tmp/x.txt")
+		if err != nil || got != filepath.Join(root, "tmp", "x.txt") {
+			t.Fatalf("resolveInsideRoot = (%q, %v), want %q", got, err, filepath.Join(root, "tmp", "x.txt"))
+		}
+	})
+
+	t.Run("a symlink leaf pointing inside the tree stays the link, not its pointee", func(t *testing.T) {
+		_, root := agentWorkdir(t)
+		writeFileAt(t, filepath.Join(root, "d.txt"), "x")
+		symlinkAt(t, filepath.Join(root, "d.txt"), filepath.Join(root, "inlink"))
+		got, err := resolveInsideRoot(root, filepath.Join(root, "inlink"))
+		if err != nil || got != filepath.Join(root, "inlink") {
+			t.Fatalf("resolveInsideRoot = (%q, %v), want the link path itself", got, err)
+		}
+	})
+
+	t.Run("a symlink leaf pointing out of the tree is refused", func(t *testing.T) {
+		_, root := agentWorkdir(t)
+		outside := filepath.Join(resolvedTempDir(t), "elsewhere.txt")
+		writeFileAt(t, outside, "x")
+		symlinkAt(t, outside, filepath.Join(root, "outlink"))
+		arg := filepath.Join(root, "outlink")
+		got, err := resolveInsideRoot(root, arg)
+		if got != "" || err == nil || err.Error() != "outside my workdir: "+arg {
+			t.Fatalf("resolveInsideRoot = (%q, %v), want the outside refusal", got, err)
+		}
+	})
+
+	t.Run("a dangling symlink leaf is the debris this command exists to clear", func(t *testing.T) {
+		_, root := agentWorkdir(t)
+		symlinkAt(t, filepath.Join(root, "never-existed"), filepath.Join(root, "dangling"))
+		got, err := resolveInsideRoot(root, filepath.Join(root, "dangling"))
+		if err != nil || got != filepath.Join(root, "dangling") {
+			t.Fatalf("resolveInsideRoot = (%q, %v), want the link path itself", got, err)
+		}
+	})
+
+	t.Run("a symlink dangling at a path outside the tree is still just a link in the tree", func(t *testing.T) {
+		_, root := agentWorkdir(t)
+		symlinkAt(t, "/no-such-root-xyz/gone.txt", filepath.Join(root, "dangling-out"))
+		got, err := resolveInsideRoot(root, filepath.Join(root, "dangling-out"))
+		if err != nil || got != filepath.Join(root, "dangling-out") {
+			t.Fatalf("resolveInsideRoot = (%q, %v), want the link path itself", got, err)
+		}
+	})
+
+	t.Run("an intermediate symlinked directory pointing out of the tree is refused", func(t *testing.T) {
+		_, root := agentWorkdir(t)
+		outside := filepath.Join(resolvedTempDir(t), "elsewhere")
+		writeFileAt(t, filepath.Join(outside, "x.txt"), "x")
+		symlinkAt(t, outside, filepath.Join(root, "bridge"))
+		arg := filepath.Join(root, "bridge", "x.txt")
+		got, err := resolveInsideRoot(root, arg)
+		if got != "" || err == nil || err.Error() != "outside my workdir: "+arg {
+			t.Fatalf("resolveInsideRoot = (%q, %v), want the outside refusal", got, err)
+		}
+	})
+
+	t.Run("the workdir itself is refused", func(t *testing.T) {
+		_, root := agentWorkdir(t)
+		got, err := resolveInsideRoot(root, root)
+		if got != "" || err == nil ||
+			err.Error() != "that is my workdir itself, not something in it: "+root {
+			t.Fatalf("resolveInsideRoot = (%q, %v), want the workdir refusal", got, err)
+		}
+	})
+
+	t.Run("something already in quarantine is refused", func(t *testing.T) {
+		_, root := agentWorkdir(t)
+		writeFileAt(t, filepath.Join(root, "trash", "tmp", "x.txt"), "x")
+		arg := filepath.Join(root, "trash", "tmp", "x.txt")
+		got, err := resolveInsideRoot(root, arg)
+		if got != "" || err == nil || err.Error() != "that is already in trash/: "+arg {
+			t.Fatalf("resolveInsideRoot = (%q, %v), want the already-quarantined refusal", got, err)
+		}
+	})
+
+	t.Run("a path outside the workdir is refused", func(t *testing.T) {
+		_, root := agentWorkdir(t)
+		arg := filepath.Join(resolvedTempDir(t), "elsewhere.txt")
+		writeFileAt(t, arg, "x")
+		got, err := resolveInsideRoot(root, arg)
+		if got != "" || err == nil || err.Error() != "outside my workdir: "+arg {
+			t.Fatalf("resolveInsideRoot = (%q, %v), want the outside refusal", got, err)
+		}
+	})
+
+	t.Run("an empty argument is refused", func(t *testing.T) {
+		_, root := agentWorkdir(t)
+		for _, arg := range []string{"", "   "} {
+			got, err := resolveInsideRoot(root, arg)
+			if got != "" || err == nil || err.Error() != "empty path" {
+				t.Fatalf("resolveInsideRoot(%q) = (%q, %v), want the empty-path refusal", arg, got, err)
+			}
+		}
+	})
+}
+
+func TestQuarantineDest(t *testing.T) {
+	t.Run("the path relative to the workdir is preserved under trash", func(t *testing.T) {
+		_, root := agentWorkdir(t)
+		target := filepath.Join(root, "tmp", "notes", "x.txt")
+		writeFileAt(t, target, "x")
+		got, err := quarantineDest(root, target)
+		want := filepath.Join(root, "trash", "tmp", "notes", "x.txt")
+		if err != nil || got != want {
+			t.Fatalf("quarantineDest = (%q, %v), want (%q, nil)", got, err, want)
+		}
+		if !exists(t, filepath.Dir(want)) {
+			t.Fatalf("%s was not created", filepath.Dir(want))
+		}
+		if exists(t, want) {
+			t.Fatalf("%s exists — quarantineDest must pick a slot, not create the file", want)
+		}
+	})
+
+	t.Run("a top-level target lands directly under trash", func(t *testing.T) {
+		_, root := agentWorkdir(t)
+		target := filepath.Join(root, "x.txt")
+		writeFileAt(t, target, "x")
+		got, err := quarantineDest(root, target)
+		want := filepath.Join(root, "trash", "x.txt")
+		if err != nil || got != want {
+			t.Fatalf("quarantineDest = (%q, %v), want (%q, nil)", got, err, want)
+		}
+	})
+
+	t.Run("an occupied slot is never overwritten: it becomes -2, then -3", func(t *testing.T) {
+		_, root := agentWorkdir(t)
+		target := filepath.Join(root, "tmp", "x.txt")
+		writeFileAt(t, target, "x")
+		writeFileAt(t, filepath.Join(root, "trash", "tmp", "x.txt"), "first")
+		got, err := quarantineDest(root, target)
+		want := filepath.Join(root, "trash", "tmp", "x.txt-2")
+		if err != nil || got != want {
+			t.Fatalf("quarantineDest = (%q, %v), want (%q, nil)", got, err, want)
+		}
+		writeFileAt(t, want, "second")
+		got, err = quarantineDest(root, target)
+		want = filepath.Join(root, "trash", "tmp", "x.txt-3")
+		if err != nil || got != want {
+			t.Fatalf("quarantineDest = (%q, %v), want (%q, nil)", got, err, want)
+		}
+		if readFileAt(t, filepath.Join(root, "trash", "tmp", "x.txt")) != "first" {
+			t.Fatal("the previously parked file was disturbed")
+		}
+	})
+
+	t.Run("an occupied slot that is a symlink still counts as taken", func(t *testing.T) {
+		_, root := agentWorkdir(t)
+		target := filepath.Join(root, "x.txt")
+		writeFileAt(t, target, "x")
+		symlinkAt(t, "/nowhere/nothing", filepath.Join(root, "trash", "x.txt"))
+		got, err := quarantineDest(root, target)
+		want := filepath.Join(root, "trash", "x.txt-2")
+		if err != nil || got != want {
+			t.Fatalf("quarantineDest = (%q, %v), want (%q, nil)", got, err, want)
+		}
+	})
+
+	t.Run("a slot that cannot be inspected is named rather than blamed on 1000 copies", func(t *testing.T) {
+		_, root := agentWorkdir(t)
+		target := filepath.Join(root, "tmp", "x.txt")
+		writeFileAt(t, target, "x")
+		writeFileAt(t, filepath.Join(root, "trash", "tmp"), "i am a file, not a directory")
+		got, err := quarantineDest(root, target)
+		if got != "" || err == nil ||
+			!strings.HasPrefix(err.Error(), "cannot inspect the trash/ slot tmp/x.txt: ") {
+			t.Fatalf("quarantineDest = (%q, %v), want the cannot-inspect refusal", got, err)
+		}
+	})
+
+	t.Run("a quarantine subdirectory that links out of trash is refused before anything is created", func(t *testing.T) {
+		_, root := agentWorkdir(t)
+		target := filepath.Join(root, "tmp", "sub", "x.txt")
+		writeFileAt(t, target, "x")
+		mkdirAll(t, filepath.Join(root, "live"))
+		symlinkAt(t, filepath.Join(root, "live"), filepath.Join(root, "trash", "tmp"))
+
+		got, err := quarantineDest(root, target)
+		if got != "" || err == nil || err.Error() != "the trash/ path does not stay in trash/" {
+			t.Fatalf("quarantineDest = (%q, %v), want the does-not-stay refusal", got, err)
+		}
+		if exists(t, filepath.Join(root, "live", "sub")) {
+			t.Fatal("a directory was created on the far side of the link")
+		}
+	})
+
+	t.Run("a symlinked quarantine directory is refused even when it points inside the tree", func(t *testing.T) {
+		_, root := agentWorkdir(t)
+		target := filepath.Join(root, "x.txt")
+		writeFileAt(t, target, "x")
+		mkdirAll(t, filepath.Join(root, "elsewhere"))
+		symlinkAt(t, filepath.Join(root, "elsewhere"), filepath.Join(root, "trash"))
+
+		got, err := quarantineDest(root, target)
+		if got != "" || err == nil || err.Error() != "the trash/ path does not stay in trash/" {
+			t.Fatalf("quarantineDest = (%q, %v), want the does-not-stay refusal", got, err)
+		}
+	})
+
+	t.Run("a target outside the workdir has no relative slot", func(t *testing.T) {
+		_, root := agentWorkdir(t)
+		got, err := quarantineDest(root, "relative/x.txt")
+		if got != "" || err == nil {
+			t.Fatalf("quarantineDest = (%q, %v), want an error", got, err)
+		}
+	})
+}
+
+func TestCmdClean(t *testing.T) {
+	t.Run("no arguments is a usage refusal", func(t *testing.T) {
+		cfg, _ := agentWorkdir(t)
+		var out bytes.Buffer
+		rc := cmdClean(cfg, nil, &out)
+		want := "[ocagent] clean: at least one <path> argument is required\n" +
+			"usage: ocagent clean <path>...\n"
+		if rc != 2 || out.String() != want {
+			t.Fatalf("got (%d, %q), want (2, %q)", rc, out.String(), want)
+		}
+	})
+
+	t.Run("an identity-less agent refuses before touching anything", func(t *testing.T) {
+		var out bytes.Buffer
+		rc := cmdClean(Config{Home: "/home"}, []string{"/home/x"}, &out)
+		want := "[ocagent] clean: no agent id (OC_ID / OC_TOKEN): cannot tell which workdir is mine\n"
+		if rc != 2 || out.String() != want {
+			t.Fatalf("got (%d, %q), want (2, %q)", rc, out.String(), want)
+		}
+	})
+
+	t.Run("a file is moved into quarantine, not deleted", func(t *testing.T) {
+		cfg, root := agentWorkdir(t)
+		target := filepath.Join(root, "tmp", "x.txt")
+		writeFileAt(t, target, "the contents")
+		var out bytes.Buffer
+		rc := cmdClean(cfg, []string{target}, &out)
+
+		dest := filepath.Join(root, "trash", "tmp", "x.txt")
+		want := "[ocagent] clean: " + target + " → " + dest + "\n"
+		if rc != 0 || out.String() != want {
+			t.Fatalf("got (%d, %q), want (0, %q)", rc, out.String(), want)
+		}
+		if exists(t, target) {
+			t.Fatalf("%s is still there", target)
+		}
+		if readFileAt(t, dest) != "the contents" {
+			t.Fatalf("%s does not hold the original bytes", dest)
+		}
+	})
+
+	t.Run("a folder is moved whole, contents intact", func(t *testing.T) {
+		cfg, root := agentWorkdir(t)
+		target := filepath.Join(root, "build")
+		writeFileAt(t, filepath.Join(target, "deep", "a.txt"), "a")
+		writeFileAt(t, filepath.Join(target, "b.txt"), "b")
+		var out bytes.Buffer
+		rc := cmdClean(cfg, []string{target}, &out)
+
+		dest := filepath.Join(root, "trash", "build")
+		if rc != 0 || out.String() != "[ocagent] clean: "+target+" → "+dest+"\n" {
+			t.Fatalf("got (%d, %q), want the move line", rc, out.String())
+		}
+		if exists(t, target) {
+			t.Fatalf("%s is still there", target)
+		}
+		if readFileAt(t, filepath.Join(dest, "deep", "a.txt")) != "a" ||
+			readFileAt(t, filepath.Join(dest, "b.txt")) != "b" {
+			t.Fatal("the folder's contents did not survive the move")
+		}
+	})
+
+	t.Run("several paths are all moved and each is reported", func(t *testing.T) {
+		cfg, root := agentWorkdir(t)
+		one := filepath.Join(root, "a.txt")
+		two := filepath.Join(root, "tmp", "b.txt")
+		writeFileAt(t, one, "1")
+		writeFileAt(t, two, "2")
+		var out bytes.Buffer
+		rc := cmdClean(cfg, []string{one, two}, &out)
+
+		want := "[ocagent] clean: " + one + " → " + filepath.Join(root, "trash", "a.txt") + "\n" +
+			"[ocagent] clean: " + two + " → " + filepath.Join(root, "trash", "tmp", "b.txt") + "\n"
+		if rc != 0 || out.String() != want {
+			t.Fatalf("got (%d, %q), want (0, %q)", rc, out.String(), want)
+		}
+		if exists(t, one) || exists(t, two) {
+			t.Fatal("a source path survived the move")
+		}
+	})
+
+	t.Run("one bad path among good ones moves NOTHING", func(t *testing.T) {
+		cfg, root := agentWorkdir(t)
+		good := filepath.Join(root, "a.txt")
+		writeFileAt(t, good, "1")
+		outside := filepath.Join(resolvedTempDir(t), "elsewhere.txt")
+		writeFileAt(t, outside, "keep me")
+
+		var out bytes.Buffer
+		rc := cmdClean(cfg, []string{good, outside}, &out)
+		want := "[ocagent] clean: refused, NOTHING was moved (my workdir is " + root + ")\n" +
+			"  " + outside + " — outside my workdir: " + outside + "\n"
+		if rc != 2 || out.String() != want {
+			t.Fatalf("got (%d, %q), want (2, %q)", rc, out.String(), want)
+		}
+		if readFileAt(t, good) != "1" || readFileAt(t, outside) != "keep me" {
+			t.Fatal("a file moved despite the refusal")
+		}
+		if exists(t, filepath.Join(root, "trash")) {
+			t.Fatal("quarantine was created despite the refusal")
+		}
+	})
+
+	t.Run("every refusal is listed, not just the first", func(t *testing.T) {
+		cfg, root := agentWorkdir(t)
+		outside := filepath.Join(resolvedTempDir(t), "elsewhere.txt")
+		writeFileAt(t, outside, "keep me")
+		parked := filepath.Join(root, "trash", "old.txt")
+		writeFileAt(t, parked, "parked")
+
+		var out bytes.Buffer
+		rc := cmdClean(cfg, []string{outside, root, parked, "  "}, &out)
+		want := "[ocagent] clean: refused, NOTHING was moved (my workdir is " + root + ")\n" +
+			"  " + outside + " — outside my workdir: " + outside + "\n" +
+			"  " + root + " — that is my workdir itself, not something in it: " + root + "\n" +
+			"  " + parked + " — that is already in trash/: " + parked + "\n" +
+			"     — empty path\n"
+		if rc != 2 || out.String() != want {
+			t.Fatalf("got (%d, %q), want (2, %q)", rc, out.String(), want)
+		}
+		if readFileAt(t, parked) != "parked" {
+			t.Fatal("a parked file was disturbed")
+		}
+	})
+
+	t.Run("a path that is already gone is the state the caller asked for", func(t *testing.T) {
+		cfg, root := agentWorkdir(t)
+		target := filepath.Join(root, "tmp", "gone.txt")
+		var out bytes.Buffer
+		rc := cmdClean(cfg, []string{target}, &out)
+		want := "[ocagent] clean: " + target + " — already gone\n"
+		if rc != 0 || out.String() != want {
+			t.Fatalf("got (%d, %q), want (0, %q)", rc, out.String(), want)
+		}
+		if exists(t, filepath.Join(root, "trash")) {
+			t.Fatal("quarantine was created for a path that was not there")
+		}
+	})
+
+	t.Run("cleaning the same relative path twice parks the second copy beside the first", func(t *testing.T) {
+		cfg, root := agentWorkdir(t)
+		target := filepath.Join(root, "tmp", "x.txt")
+		writeFileAt(t, target, "first")
+		var out bytes.Buffer
+		if rc := cmdClean(cfg, []string{target}, &out); rc != 0 {
+			t.Fatalf("first run returned %d", rc)
+		}
+		writeFileAt(t, target, "second")
+		out.Reset()
+		rc := cmdClean(cfg, []string{target}, &out)
+		dest := filepath.Join(root, "trash", "tmp", "x.txt-2")
+		if rc != 0 || out.String() != "[ocagent] clean: "+target+" → "+dest+"\n" {
+			t.Fatalf("got (%d, %q), want the -2 slot", rc, out.String())
+		}
+		if readFileAt(t, filepath.Join(root, "trash", "tmp", "x.txt")) != "first" ||
+			readFileAt(t, dest) != "second" {
+			t.Fatal("the two parked copies did not both survive")
+		}
+	})
+
+	t.Run("a symlink is moved as the object it is, leaving its pointee alone", func(t *testing.T) {
+		cfg, root := agentWorkdir(t)
+		pointee := filepath.Join(root, "d.txt")
+		writeFileAt(t, pointee, "the real bytes")
+		link := filepath.Join(root, "inlink")
+		symlinkAt(t, pointee, link)
+
+		var out bytes.Buffer
+		dest := filepath.Join(root, "trash", "inlink")
+		rc := cmdClean(cfg, []string{link}, &out)
+		if rc != 0 || out.String() != "[ocagent] clean: "+link+" → "+dest+"\n" {
+			t.Fatalf("got (%d, %q), want the link's own move line", rc, out.String())
+		}
+		if exists(t, link) {
+			t.Fatal("the link is still in place")
+		}
+		if readFileAt(t, pointee) != "the real bytes" {
+			t.Fatal("the pointee was moved instead of the link")
+		}
+		if target, err := os.Readlink(dest); err != nil || target != pointee {
+			t.Fatalf("readlink(%s) = (%q, %v), want the original target", dest, target, err)
+		}
+	})
+
+	t.Run("a dangling symlink is cleared rather than stranded", func(t *testing.T) {
+		cfg, root := agentWorkdir(t)
+		link := filepath.Join(root, "dangling")
+		symlinkAt(t, "/no-such-root-xyz/gone", link)
+		var out bytes.Buffer
+		dest := filepath.Join(root, "trash", "dangling")
+		rc := cmdClean(cfg, []string{link}, &out)
+		if rc != 0 || out.String() != "[ocagent] clean: "+link+" → "+dest+"\n" {
+			t.Fatalf("got (%d, %q), want the link's own move line", rc, out.String())
+		}
+		if exists(t, link) || !exists(t, dest) {
+			t.Fatal("the dangling link was not parked")
+		}
+	})
+
+	t.Run("a quarantine slot that cannot be opened is exit 1 and the file stays put", func(t *testing.T) {
+		cfg, root := agentWorkdir(t)
+		target := filepath.Join(root, "tmp", "x.txt")
+		writeFileAt(t, target, "keep me")
+		writeFileAt(t, filepath.Join(root, "trash", "tmp"), "i am a file, not a directory")
+
+		var out bytes.Buffer
+		rc := cmdClean(cfg, []string{target}, &out)
+		if rc != 1 || !strings.HasPrefix(out.String(),
+			"[ocagent] clean: "+target+" — cannot inspect the trash/ slot tmp/x.txt: ") {
+			t.Fatalf("got (%d, %q), want (1, the cannot-inspect line)", rc, out.String())
+		}
+		if readFileAt(t, target) != "keep me" {
+			t.Fatal("the file did not stay put")
+		}
+	})
 }

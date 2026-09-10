@@ -376,6 +376,41 @@ export interface ReplyCard {
   task?: TaskRefView | null;
 }
 
+/**
+ * ONE ROW of a reply-card PANE (`GET /api/reply-cards`, wire
+ * `ReplyCardListItemDTO`) — the list's ONLY shape since the `?view=full`
+ * projection was removed (owner 2026-09-07).
+ *
+ * 🔴 IT IS NOT A `ReplyCard` AND MUST NEVER BE WIDENED INTO ONE. The body, the
+ * full option text, the untruncated answer, the question attachments and the
+ * chat anchor are simply not on this wire, so a row cannot render a card: the
+ * pane draws these rows COLLAPSED and reads `getReplyCard` for the ONE card the
+ * owner opens. Keeping the two types apart is what makes that impossible to get
+ * wrong silently — a fabricated `body: ""` on a row would render as a card with
+ * its question missing and nothing thrown.
+ *
+ * The answered row's decision digest is deliberately NOT mapped: nothing renders
+ * it (the expanded card is the full read), and an unrendered field would only
+ * invite somebody to render it and get a preview where the answer belongs.
+ */
+export interface ReplyCardRow {
+  id: string;
+  /** The initiating member id — the 開卡人 axis and the identity row. */
+  from: string;
+  /** "decision" | "action". */
+  kind: string;
+  /** The ask's title: what the collapsed row shows. */
+  summary: string;
+  status: "waiting" | "answered" | "expired";
+  createdTs: number;
+  answeredTs: number | null;
+  /** Epoch seconds of the expire action; null unless expired. OPTIONAL for the
+   * same reason `ReplyCard.expiredTs` is — hand-built fixtures. */
+  expiredTs?: number | null;
+  /** The task this ask was armed from; null/absent ⇒ a pure chat ask. */
+  task?: TaskRefView | null;
+}
+
 /** What the three reply-card WRITES answer (wire `ReplyCardReceiptDTO`, T-91):
  * ONLY the transition the write performed. The question, its options, its
  * attachments and its task ref are NOT decided by answer/re-answer/expire, so
@@ -2190,10 +2225,15 @@ export interface Api {
    * were marked expired within the last 24 hours, newest first (older
    * answered/expired cards drop off these lists but live forever in chat
    * history).
+   *
+   * LIGHT ROWS, ALWAYS — `ReplyCardRow`, never `ReplyCard` (the `?view=full`
+   * projection is gone, owner 2026-09-07). A caller that needs a card's
+   * interior reads that ONE card with `getReplyCard`, which is what the panes
+   * do when the owner opens a row.
    */
   listReplyCards(
     status: "waiting" | "answered" | "expired",
-  ): Promise<ReplyCard[]>;
+  ): Promise<ReplyCardRow[]>;
   /**
    * Read ONE reply card in full (`GET /api/reply-cards/{card_id}`). B3's
    * inline chat card fetches the card this way — a chat message only carries

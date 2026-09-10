@@ -3,690 +3,919 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
+	"io"
+	"net/http"
 	"os"
 	"path/filepath"
+	"reflect"
+	"sort"
+	"strings"
+	"sync"
 	"testing"
 	"time"
 )
 
-// stubOps wraps the real filesystem ops (so rename/atomic-swap behaviour is
-// exercised for real against a t.TempDir()) but makes the exec probe programmable:
-// tests decide whether a "downloaded" binary passes the verify-before-swap gate.
-type stubOps struct {
-	osUpdaterOps
-	probeErr error
-	probed   *[]string
-}
-
-func (s stubOps) probe(bin string) error {
-	if s.probed != nil {
-		*s.probed = append(*s.probed, bin)
-	}
-	return s.probeErr
-}
-
-// getResult is one canned GET response keyed by path.
-type getResult struct {
+// httpAnswer is one canned reply of the getter seam: a transport fault, or a
+// status plus body.
+type httpAnswer struct {
 	status int
-	body   []byte
+	body   string
 	err    error
 }
 
-// recordingGetter serves canned responses and records which paths were fetched (so
-// a test can assert the download GATE actually suppressed a binary download).
-func recordingGetter(m map[string]getResult, calls *[]string) getter {
-	return func(path string) (int, []byte, error) {
-		if calls != nil {
-			*calls = append(*calls, path)
-		}
-		r, ok := m[path]
-		if !ok {
-			return 404, nil, nil
-		}
-		return r.status, r.body, r.err
-	}
+// servedPaths is the getter double — it answers from a per-path script and
+// records every path fetched, so a test asserts what was NOT downloaded too.
+type servedPaths struct {
+	answers map[string]httpAnswer
+	gets    []string
 }
 
-func versionBody(sha string) []byte {
-	return []byte(`{"version":"0.0.0","git_sha":"` + sha + `","update_available":false,"latest_version":null}`)
-}
-
-func newTestUpdater(ops updaterOps, get getter, selfPath, agentPath string) *updater {
-	return &updater{
-		get:          get,
-		ops:          ops,
-		selfPath:     selfPath,
-		agentPath:    agentPath,
-		interval:     time.Millisecond,
-		backoffStart: time.Millisecond,
-		backoffCap:   time.Millisecond,
-		sleep:        sleepUntil,
-		exit:         func(int) {},
-		logf:         func(string, ...any) {},
-	}
-}
-
-func writeLive(t *testing.T, path string, content string) {
-	t.Helper()
-	if err := os.WriteFile(path, []byte(content), 0o755); err != nil {
-		t.Fatalf("seed live binary: %v", err)
-	}
-}
-
-func readFileStr(t *testing.T, path string) string {
-	t.Helper()
-	b, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("read %s: %v", path, err)
-	}
-	return string(b)
-}
-
-// ── selfUpdateAgentPath — the SELF-UPDATE ocagent path resolver ──────────────
-
-// UNCONDITIONAL HOME SIBLING: a home-installed warden whose ocagent sibling does NOT
-// yet exist must still resolve to <dir(exe)>/ocagent — NOT the in-tree source dir —
-// so the first tick can download+populate it there (the remote-install root cause).
-func TestSelfUpdateAgentPath_HomeSiblingEvenWhenMissing(t *testing.T) {
-	exe := func() (string, error) { return "/home/u/.officraft/warden/ocwarden", nil }
-	got := selfUpdateAgentPath(exe)
-	want := "/home/u/.officraft/warden/ocagent"
-	if got != want {
-		t.Fatalf("selfUpdateAgentPath = %q, want %q (must be the home sibling, never the source dir)", got, want)
-	}
-}
-
-// UNRESOLVABLE EXE: if the OS cannot name our own binary, the path is "" so checkOnce
-// skips ocagent reconcile rather than writing to a bogus location.
-func TestSelfUpdateAgentPath_EmptyWhenExeUnresolvable(t *testing.T) {
-	exe := func() (string, error) { return "", errors.New("cannot resolve executable") }
-	if got := selfUpdateAgentPath(exe); got != "" {
-		t.Fatalf("selfUpdateAgentPath = %q, want empty on unresolvable executable", got)
-	}
-}
-
-// ① VERIFY-BEFORE-SWAP: a download that fails the health probe must NOT swap; the
-// live binary is retained byte-for-byte and no .prev backup is left behind.
-func TestReconcileBinary_VerifyFailsNoSwap(t *testing.T) {
-	dir := t.TempDir()
-	live := filepath.Join(dir, "ocwarden")
-	writeLive(t, live, "OLD-GOOD-BINARY")
-
-	var probed []string
-	ops := stubOps{probeErr: errors.New("exec format error"), probed: &probed}
-	get := recordingGetter(map[string]getResult{
-		wardenBinaryPath: {status: 200, body: []byte("NEW-CORRUPT-BINARY")},
-	}, nil)
-	u := newTestUpdater(ops, get, live, "")
-
-	swapped, err := u.reconcileBinary(wardenBinaryPath, live, "ocwarden")
-	if err == nil {
-		t.Fatal("expected an error when the probe fails")
-	}
-	if swapped {
-		t.Fatal("must NOT report a swap when verify fails")
-	}
-	if got := readFileStr(t, live); got != "OLD-GOOD-BINARY" {
-		t.Fatalf("live binary must be untouched; got %q", got)
-	}
-	if _, statErr := os.Stat(live + ".prev"); !os.IsNotExist(statErr) {
-		t.Fatal("no .prev backup should exist when the swap never happened")
-	}
-	// temp must have been cleaned up.
-	entries, _ := os.ReadDir(dir)
-	if len(entries) != 1 {
-		t.Fatalf("expected only the live binary in dir, got %d entries", len(entries))
-	}
-	if len(probed) != 1 {
-		t.Fatalf("probe should have run exactly once, ran %d times", len(probed))
-	}
-}
-
-// ②③ SUCCESS PATH + RETREAT: a verified, different download swaps atomically and
-// leaves the previous binary at <path>.prev so a rollback is possible.
-func TestReconcileBinary_SuccessSwapAndBackup(t *testing.T) {
-	dir := t.TempDir()
-	live := filepath.Join(dir, "ocwarden")
-	writeLive(t, live, "OLD-BINARY")
-
-	ops := stubOps{probeErr: nil}
-	get := recordingGetter(map[string]getResult{
-		wardenBinaryPath: {status: 200, body: []byte("NEW-BINARY")},
-	}, nil)
-	u := newTestUpdater(ops, get, live, "")
-
-	swapped, err := u.reconcileBinary(wardenBinaryPath, live, "ocwarden")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if !swapped {
-		t.Fatal("expected a swap for a verified, differing binary")
-	}
-	if got := readFileStr(t, live); got != "NEW-BINARY" {
-		t.Fatalf("live binary should now be the new bytes; got %q", got)
-	}
-	if got := readFileStr(t, live+".prev"); got != "OLD-BINARY" {
-		t.Fatalf("retreat path .prev should hold the old bytes; got %q", got)
-	}
-	// no dangling temp file (dir should hold exactly: ocwarden + ocwarden.prev).
-	entries, _ := os.ReadDir(dir)
-	if len(entries) != 2 {
-		t.Fatalf("expected live + .prev only, got %d entries", len(entries))
-	}
-}
-
-// POPULATE PATH: when the live binary does NOT exist yet but its dir does (a fresh
-// remote/manual install whose ocagent sibling was never copied), a verified download
-// must be written into place — with no .prev backup, since there was no prior binary.
-func TestReconcileBinary_PopulatesWhenLiveMissing(t *testing.T) {
-	dir := t.TempDir()
-	live := filepath.Join(dir, "ocagent") // deliberately NOT created
-
-	ops := stubOps{probeErr: nil}
-	get := recordingGetter(map[string]getResult{
-		agentBinaryPath: {status: 200, body: []byte("FRESH-AGENT")},
-	}, nil)
-	u := newTestUpdater(ops, get, "", live)
-
-	swapped, err := u.reconcileBinary(agentBinaryPath, live, "ocagent")
-	if err != nil {
-		t.Fatalf("unexpected error populating a missing live binary: %v", err)
-	}
-	if !swapped {
-		t.Fatal("expected a swap that populates the absent live binary")
-	}
-	if got := readFileStr(t, live); got != "FRESH-AGENT" {
-		t.Fatalf("live binary should now hold the downloaded bytes; got %q", got)
-	}
-	if _, statErr := os.Stat(live + ".prev"); !os.IsNotExist(statErr) {
-		t.Fatal("no .prev backup should exist when there was no prior binary")
-	}
-	entries, _ := os.ReadDir(dir)
-	if len(entries) != 1 {
-		t.Fatalf("expected only the populated binary in dir, got %d entries", len(entries))
-	}
-}
-
-// IDEMPOTENT: identical content ⇒ no swap and the probe is never even run (content
-// hash is the oracle; this is what makes the loop drift/restart-proof).
-func TestReconcileBinary_IdenticalNoSwap(t *testing.T) {
-	dir := t.TempDir()
-	live := filepath.Join(dir, "ocwarden")
-	writeLive(t, live, "SAME-BINARY")
-
-	var probed []string
-	ops := stubOps{probed: &probed}
-	get := recordingGetter(map[string]getResult{
-		wardenBinaryPath: {status: 200, body: []byte("SAME-BINARY")},
-	}, nil)
-	u := newTestUpdater(ops, get, live, "")
-
-	swapped, err := u.reconcileBinary(wardenBinaryPath, live, "ocwarden")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if swapped {
-		t.Fatal("identical content must not swap")
-	}
-	if len(probed) != 0 {
-		t.Fatal("probe must NOT run on the identical-content fast path")
-	}
-	if _, statErr := os.Stat(live + ".prev"); !os.IsNotExist(statErr) {
-		t.Fatal("no .prev backup for a no-op reconcile")
-	}
-}
-
-// ④ VERSION COMPARE — SAME: when the server git_sha matches our last reconcile, the
-// cheap gate must short-circuit BEFORE any binary is downloaded.
-func TestCheckOnce_SameSHANoDownload(t *testing.T) {
-	var calls []string
-	get := recordingGetter(map[string]getResult{
-		versionPath: {status: 200, body: versionBody("abc123")},
-	}, &calls)
-	u := newTestUpdater(stubOps{}, get, "", "")
-	u.lastSHA = "abc123"
-
-	swapped, err := u.checkOnce()
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if swapped {
-		t.Fatal("no swap expected when the server has not moved")
-	}
-	for _, c := range calls {
-		if c == wardenBinaryPath || c == agentBinaryPath {
-			t.Fatalf("binary download %q must be gated out when sha is unchanged", c)
-		}
-	}
-}
-
-// ④ VERSION COMPARE — NEWER: a moved server sha triggers reconcile; a differing
-// ocwarden download swaps and flips the self-exit bool, and lastSHA advances.
-func TestCheckOnce_NewerTriggersWardenSwap(t *testing.T) {
-	dir := t.TempDir()
-	warden := filepath.Join(dir, "ocwarden")
-	agent := filepath.Join(dir, "ocagent")
-	writeLive(t, warden, "OLD-WARDEN")
-	writeLive(t, agent, "SAME-AGENT") // agent unchanged → no agent swap
-
-	get := recordingGetter(map[string]getResult{
-		versionPath:      {status: 200, body: versionBody("newsha")},
-		wardenBinaryPath: {status: 200, body: []byte("NEW-WARDEN")},
-		agentBinaryPath:  {status: 200, body: []byte("SAME-AGENT")},
-	}, nil)
-	u := newTestUpdater(stubOps{}, get, warden, agent)
-	u.lastSHA = "oldsha"
-
-	swapped, err := u.checkOnce()
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if !swapped {
-		t.Fatal("ocwarden differs ⇒ checkOnce must report a warden swap (self-exit trigger)")
-	}
-	if got := readFileStr(t, warden); got != "NEW-WARDEN" {
-		t.Fatalf("ocwarden should be updated; got %q", got)
-	}
-	if got := readFileStr(t, agent); got != "SAME-AGENT" {
-		t.Fatalf("ocagent was identical and must be untouched; got %q", got)
-	}
-	if u.lastSHA != "newsha" {
-		t.Fatalf("lastSHA should advance to the reconciled server sha; got %q", u.lastSHA)
-	}
-}
-
-// ocwarden vs ocagent DIFFERENCE: an ocagent-only change updates ocagent but must
-// NOT flip the self-exit bool (only ocwarden replacement warrants a relaunch).
-func TestCheckOnce_AgentOnlyNoSelfExit(t *testing.T) {
-	dir := t.TempDir()
-	warden := filepath.Join(dir, "ocwarden")
-	agent := filepath.Join(dir, "ocagent")
-	writeLive(t, warden, "SAME-WARDEN")
-	writeLive(t, agent, "OLD-AGENT")
-
-	get := recordingGetter(map[string]getResult{
-		versionPath:      {status: 200, body: versionBody("newsha")},
-		wardenBinaryPath: {status: 200, body: []byte("SAME-WARDEN")},
-		agentBinaryPath:  {status: 200, body: []byte("NEW-AGENT")},
-	}, nil)
-	u := newTestUpdater(stubOps{}, get, warden, agent)
-
-	swapped, err := u.checkOnce()
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if swapped {
-		t.Fatal("an ocagent-only swap must NOT trigger the ocwarden self-exit")
-	}
-	if got := readFileStr(t, agent); got != "NEW-AGENT" {
-		t.Fatalf("ocagent should be updated; got %q", got)
-	}
-	if got := readFileStr(t, warden); got != "SAME-WARDEN" {
-		t.Fatalf("ocwarden was identical and must be untouched; got %q", got)
-	}
-}
-
-// MID-CYCLE FAILURE: if the ocagent download fails, checkOnce returns an error and
-// must NOT advance lastSHA (so the next cycle retries rather than silently skips).
-func TestCheckOnce_MidCycleFailureKeepsSHA(t *testing.T) {
-	dir := t.TempDir()
-	agent := filepath.Join(dir, "ocagent")
-	writeLive(t, agent, "OLD-AGENT")
-
-	get := recordingGetter(map[string]getResult{
-		versionPath:     {status: 200, body: versionBody("newsha")},
-		agentBinaryPath: {status: 500, body: nil},
-	}, nil)
-	u := newTestUpdater(stubOps{}, get, "", agent)
-	u.lastSHA = "oldsha"
-
-	if _, err := u.checkOnce(); err == nil {
-		t.Fatal("expected an error when the ocagent download fails")
-	}
-	if u.lastSHA != "oldsha" {
-		t.Fatalf("lastSHA must NOT advance on a mid-cycle failure; got %q", u.lastSHA)
-	}
-}
-
-// EXEC-IN-PLACE: after a cycle that replaced ocwarden, run() must invoke the
-// execSelf seam exactly once, with the new bytes already on disk. (A real
-// syscall.Exec never returns on success; the fake returns, so run() then walks
-// the failure fallback — that path is asserted by the fallback test below.)
-func TestRun_ExecsSelfAfterWardenSwap(t *testing.T) {
-	dir := t.TempDir()
-	warden := filepath.Join(dir, "ocwarden")
-	writeLive(t, warden, "OLD-WARDEN")
-
-	get := recordingGetter(map[string]getResult{
-		versionPath:      {status: 200, body: versionBody("newsha")},
-		wardenBinaryPath: {status: 200, body: []byte("NEW-WARDEN")},
-	}, nil)
-	u := newTestUpdater(stubOps{}, get, warden, "")
-
-	execCalls := 0
-	u.execSelf = func() error { execCalls++; return nil }
-	// proceed immediately, every tick.
-	u.sleep = func(context.Context, time.Duration) bool { return true }
-
-	u.run(context.Background())
-
-	if execCalls != 1 {
-		t.Fatalf("execSelf seam should fire exactly once after a warden swap, fired %d times", execCalls)
-	}
-	if got := readFileStr(t, warden); got != "NEW-WARDEN" {
-		t.Fatalf("the swap must be on disk before the exec; got %q", got)
-	}
-}
-
-// EXEC FALLBACK: a failing execSelf (syscall.Exec only returns on failure) must fall
-// back to exit(0) — the pre-fix behaviour — never leave the loop running on the old
-// binary or crash.
-func TestRun_ExecFailureFallsBackToExit(t *testing.T) {
-	dir := t.TempDir()
-	warden := filepath.Join(dir, "ocwarden")
-	writeLive(t, warden, "OLD-WARDEN")
-
-	get := recordingGetter(map[string]getResult{
-		versionPath:      {status: 200, body: versionBody("newsha")},
-		wardenBinaryPath: {status: 200, body: []byte("NEW-WARDEN")},
-	}, nil)
-	u := newTestUpdater(stubOps{}, get, warden, "")
-
-	u.execSelf = func() error { return errors.New("execve: permission denied") }
-	exitCode := -1
-	exitCalls := 0
-	u.exit = func(c int) { exitCode = c; exitCalls++ }
-	u.sleep = func(context.Context, time.Duration) bool { return true }
-
-	u.run(context.Background())
-
-	if exitCalls != 1 {
-		t.Fatalf("exit fallback should fire exactly once when exec fails, fired %d times", exitCalls)
-	}
-	if exitCode != 0 {
-		t.Fatalf("expected fallback exit(0), got exit(%d)", exitCode)
-	}
-}
-
-// ── self-update OBSERVABILITY announce (best-effort telemetry POST) ──────────
-
-// recordingPoster captures each POST (path + payload) and returns a canned status.
-type recordingPoster struct {
-	status int
-	calls  *[]struct {
-		path    string
-		payload map[string]any
-	}
-}
-
-func (r recordingPoster) post(path string, payload map[string]any) (int, map[string]any) {
-	if r.calls != nil {
-		*r.calls = append(*r.calls, struct {
-			path    string
-			payload map[string]any
-		}{path, payload})
-	}
-	return r.status, nil
-}
-
-// HASH CAPTURE: a successful swap records the old->new content-hash prefixes and the
-// binary name on the updater, so run() can announce them.
-func TestReconcileBinary_CapturesSelfUpdateEvent(t *testing.T) {
-	dir := t.TempDir()
-	live := filepath.Join(dir, "ocwarden")
-	writeLive(t, live, "OLD-BINARY")
-
-	ops := stubOps{probeErr: nil}
-	get := recordingGetter(map[string]getResult{
-		wardenBinaryPath: {status: 200, body: []byte("NEW-BINARY")},
-	}, nil)
-	u := newTestUpdater(ops, get, live, "")
-	u.now = func() time.Time { return time.Date(2026, 7, 8, 12, 0, 0, 0, time.UTC) }
-
-	if _, err := u.reconcileBinary(wardenBinaryPath, live, "ocwarden"); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if u.lastSwap == nil {
-		t.Fatal("a successful swap must capture a selfUpdateEvent")
-	}
-	if u.lastSwap.Binary != "ocwarden" {
-		t.Fatalf("binary = %q, want ocwarden", u.lastSwap.Binary)
-	}
-	if u.lastSwap.OldHash != hashPrefix([]byte("OLD-BINARY")) {
-		t.Fatalf("old_hash = %q, want prefix of OLD-BINARY", u.lastSwap.OldHash)
-	}
-	if u.lastSwap.NewHash != hashPrefix([]byte("NEW-BINARY")) {
-		t.Fatalf("new_hash = %q, want prefix of NEW-BINARY", u.lastSwap.NewHash)
-	}
-	if u.lastSwap.At != "2026-07-08T12:00:00Z" {
-		t.Fatalf("at = %q, want the injected UTC RFC3339 stamp", u.lastSwap.At)
-	}
-	if len(u.lastSwap.OldHash) != selfUpdateHashPrefixLen {
-		t.Fatalf("hash prefix len = %d, want %d", len(u.lastSwap.OldHash), selfUpdateHashPrefixLen)
-	}
-}
-
-// ANNOUNCE PAYLOAD: after a warden swap, run() POSTs exactly one telemetry report to
-// the telemetry endpoint carrying the self_update event, then exits.
-func TestRun_AnnouncesSelfUpdateBeforeExit(t *testing.T) {
-	dir := t.TempDir()
-	warden := filepath.Join(dir, "ocwarden")
-	writeLive(t, warden, "OLD-WARDEN")
-
-	get := recordingGetter(map[string]getResult{
-		versionPath:      {status: 200, body: versionBody("newsha")},
-		wardenBinaryPath: {status: 200, body: []byte("NEW-WARDEN")},
-	}, nil)
-	u := newTestUpdater(stubOps{}, get, warden, "")
-	u.now = func() time.Time { return time.Date(2026, 7, 8, 12, 0, 0, 0, time.UTC) }
-	u.agentID = "mira-1"
-
-	var calls []struct {
-		path    string
-		payload map[string]any
-	}
-	u.post = recordingPoster{status: 200, calls: &calls}.post
-
-	exitCalls := 0
-	u.exit = func(int) { exitCalls++ }
-	u.sleep = func(context.Context, time.Duration) bool { return true }
-
-	u.run(context.Background())
-
-	if exitCalls != 1 {
-		t.Fatalf("exit should fire once after a warden swap, fired %d", exitCalls)
-	}
-	if len(calls) != 1 {
-		t.Fatalf("expected exactly one announce POST, got %d", len(calls))
-	}
-	if calls[0].path != selfUpdateReportPath {
-		t.Fatalf("announce path = %q, want %q", calls[0].path, selfUpdateReportPath)
-	}
-	// Identity rides the token, not the body: an undeclared agent_id would 422 the
-	// whole announcement (see buildTelemetryPayload).
-	if _, present := calls[0].payload["agent_id"]; present {
-		t.Fatalf("announce must not send agent_id; payload = %#v", calls[0].payload)
-	}
-	su, ok := calls[0].payload["self_update"].(map[string]any)
+func (s *servedPaths) get(path string) (int, []byte, error) {
+	s.gets = append(s.gets, path)
+	answer, ok := s.answers[path]
 	if !ok {
-		t.Fatalf("announce payload missing self_update object: %#v", calls[0].payload)
+		return 0, nil, fmt.Errorf("nothing is served at %s", path)
 	}
-	if su["binary"] != "ocwarden" {
-		t.Fatalf("self_update.binary = %v, want ocwarden", su["binary"])
+	if answer.err != nil {
+		return 0, nil, answer.err
 	}
-	if su["old_hash"] != hashPrefix([]byte("OLD-WARDEN")) {
-		t.Fatalf("self_update.old_hash = %v", su["old_hash"])
-	}
-	if su["new_hash"] != hashPrefix([]byte("NEW-WARDEN")) {
-		t.Fatalf("self_update.new_hash = %v", su["new_hash"])
-	}
-	if su["at"] != "2026-07-08T12:00:00Z" {
-		t.Fatalf("self_update.at = %v", su["at"])
-	}
+	return answer.status, []byte(answer.body), nil
 }
 
-// BEST-EFFORT: a failing announce (non-2xx status here; a transport error status 0 is
-// the same code path) must NEVER block the swap's self-exit — the swap already applied.
-func TestRun_AnnounceFailureDoesNotBlockExit(t *testing.T) {
-	dir := t.TempDir()
-	warden := filepath.Join(dir, "ocwarden")
-	writeLive(t, warden, "OLD-WARDEN")
-
-	get := recordingGetter(map[string]getResult{
-		versionPath:      {status: 200, body: versionBody("newsha")},
-		wardenBinaryPath: {status: 200, body: []byte("NEW-WARDEN")},
-	}, nil)
-	u := newTestUpdater(stubOps{}, get, warden, "")
-	u.agentID = "mira-1"
-	u.post = func(string, map[string]any) (int, map[string]any) { return 500, nil }
-
-	exitCode := -1
-	exitCalls := 0
-	u.exit = func(c int) { exitCode = c; exitCalls++ }
-	u.sleep = func(context.Context, time.Duration) bool { return true }
-
-	u.run(context.Background())
-
-	if exitCalls != 1 || exitCode != 0 {
-		t.Fatalf("swap must still exit(0) despite a failed announce; calls=%d code=%d", exitCalls, exitCode)
-	}
-	if got := readFileStr(t, warden); got != "NEW-WARDEN" {
-		t.Fatalf("swap must have applied regardless of announce outcome; got %q", got)
-	}
+// swapOps is osUpdaterOps over a real temp directory with one injectable fault,
+// so a refused swap can be judged against the directory it left behind.
+type swapOps struct {
+	inner   updaterOps
+	failOn  string // "" | "write-temp" | "chmod" | "backup" | "rename" | "probe"
+	probeOK bool
 }
 
-// NO-OP GUARD: no captured swap ⇒ no announce POST (an ordinary no-swap cycle stays
-// silent; only a real swap is announced).
-func TestAnnounceSelfUpdate_NoopWhenNothingSwapped(t *testing.T) {
-	u := newTestUpdater(stubOps{}, recordingGetter(nil, nil), "", "")
-	u.agentID = "mira-1"
-	posted := 0
-	u.post = func(string, map[string]any) (int, map[string]any) { posted++; return 200, nil }
-
-	u.announceSelfUpdate() // lastSwap is nil
-
-	if posted != 0 {
-		t.Fatalf("announce must not POST when nothing swapped; posted %d", posted)
+func (o swapOps) readFile(p string) ([]byte, error) { return o.inner.readFile(p) }
+func (o swapOps) writeFile(p string, d []byte, m os.FileMode) error {
+	if o.failOn == "backup" && strings.HasSuffix(p, ".prev") {
+		return errors.New("no space left on device")
 	}
+	if o.failOn == "write-temp" && !strings.HasSuffix(p, ".prev") {
+		return errors.New("read-only file system")
+	}
+	return o.inner.writeFile(p, d, m)
+}
+func (o swapOps) chmod(p string, m os.FileMode) error {
+	if o.failOn == "chmod" {
+		return errors.New("operation not permitted")
+	}
+	return o.inner.chmod(p, m)
+}
+func (o swapOps) rename(a, b string) error {
+	if o.failOn == "rename" {
+		return errors.New("cross-device link")
+	}
+	return o.inner.rename(a, b)
+}
+func (o swapOps) remove(p string) error { return o.inner.remove(p) }
+func (o swapOps) probe(bin string) error {
+	if o.failOn == "probe" {
+		return errors.New("exec " + bin + " --help: exit status 134")
+	}
+	return nil
 }
 
-// CLEAN SHUTDOWN: a cancelled ctx ends run() without calling exit.
-func TestRun_CleanShutdownOnCancel(t *testing.T) {
-	get := recordingGetter(map[string]getResult{}, nil)
-	u := newTestUpdater(stubOps{}, get, "", "")
-	exitCalls := 0
-	u.exit = func(int) { exitCalls++ }
-
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel() // already cancelled → sleepUntil returns false immediately
-	u.run(ctx)
-
-	if exitCalls != 0 {
-		t.Fatalf("exit must not fire on a clean cancel; fired %d", exitCalls)
+// dirState is the sorted "name=content" listing of dir — the whole observable
+// filesystem outcome of a swap, or of a swap that was refused.
+func dirState(t *testing.T, dir string) []string {
+	t.Helper()
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatalf("read %s: %v", dir, err)
 	}
-}
-
-// ── 方案A event-driven kick seam (T-c93d) ───────────────────────────────────
-// The self-update loop's poll wait can be cut short by a kick (SSE reconnect
-// today, T-5f01's `update` rpc tomorrow). The 15m timer remains the backstop.
-
-// COALESCE: many kicks between cycles must collapse to a SINGLE pending wake and
-// never block the caller (a reconnect storm must not stack N immediate cycles).
-func TestKick_CoalescesAndNeverBlocks(t *testing.T) {
-	u := &updater{kick: make(chan struct{}, 1)}
-	for i := 0; i < 100; i++ {
-		u.Kick() // must never block, regardless of how many pile up
-	}
-	if got := len(u.kick); got != 1 {
-		t.Fatalf("kick must coalesce to one pending wake (de-bounce, no stack); len=%d", got)
-	}
-}
-
-// NIL-SAFE: an updater with no kick channel (unwired / --once) must ignore Kick.
-func TestKick_NilChannelIsNoOp(t *testing.T) {
-	u := &updater{} // kick == nil
-	u.Kick()        // must not panic
-}
-
-// TIMER BACKSTOP: with no kick, waitNext proceeds when the (seam) timer elapses.
-func TestWaitNext_TimerElapsesProceeds(t *testing.T) {
-	u := &updater{sleep: func(context.Context, time.Duration) bool { return true }}
-	if !u.waitNext(context.Background(), time.Millisecond) {
-		t.Fatal("timer elapse should proceed (true)")
-	}
-}
-
-// CTX CANCEL: a cancelled ctx must stop the loop (false), never proceed.
-func TestWaitNext_CtxCancelledStops(t *testing.T) {
-	u := &updater{sleep: sleepUntil}
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-	if u.waitNext(ctx, time.Hour) {
-		t.Fatal("cancelled ctx must stop the loop (false)")
-	}
-}
-
-// KICK CUTS A LONG WAIT: a kick makes waitNext return true well before the (here
-// 1h) timer — proving the fast path is the kick, not the backstop timer.
-func TestWaitNext_KickCutsLongWait(t *testing.T) {
-	u := &updater{sleep: sleepUntil, kick: make(chan struct{}, 1)}
-	u.Kick()
-	done := make(chan bool, 1)
-	go func() { done <- u.waitNext(context.Background(), time.Hour) }()
-	select {
-	case got := <-done:
-		if !got {
-			t.Fatal("kick should make waitNext proceed (true)")
+	var state []string
+	for _, entry := range entries {
+		data, err := os.ReadFile(filepath.Join(dir, entry.Name()))
+		if err != nil {
+			t.Fatalf("read %s: %v", entry.Name(), err)
 		}
-	case <-time.After(2 * time.Second):
-		t.Fatal("kick did not cut the 1h backstop wait within 2s")
+		state = append(state, entry.Name()+"="+string(data))
+	}
+	sort.Strings(state)
+	return state
+}
+
+func TestHashPrefix(t *testing.T) {
+	cases := []struct {
+		data string
+		want string
+	}{
+		{"warden-bytes-v1", "9c8d3cb7cabb"},
+		{"warden-bytes-v2", "cf6022985580"},
+		{"agent-bytes-v1", "7ce94980e3f1"},
+		{"hello", "2cf24dba5fb0"},
+		{"", "e3b0c44298fc"},
+	}
+	for _, c := range cases {
+		if got := hashPrefix([]byte(c.data)); got != c.want {
+			t.Errorf("hashPrefix(%q) = %q, want %q", c.data, got, c.want)
+		}
 	}
 }
 
-// END-TO-END: with the timer backstop parked far away (1h), a Kick must drive
-// run() to an immediate reconcile — the /api/version gate GET fires within
-// seconds and, since the server moved + serves a new binary, the swap→exec path
-// runs. Proves reconnect-kick → immediate checkOnce end to end.
-func TestRun_KickTriggersImmediateCheck(t *testing.T) {
-	dir := t.TempDir()
-	warden := filepath.Join(dir, "ocwarden")
-	writeLive(t, warden, "OLD-WARDEN")
-
-	versioned := make(chan struct{}, 1)
-	get := func(path string) (int, []byte, error) {
-		switch path {
-		case versionPath:
-			select {
-			case versioned <- struct{}{}:
-			default:
+func TestHttpGetter(t *testing.T) {
+	var seen []*http.Request
+	reply := func(status int, body io.ReadCloser, err error) *http.Client {
+		return &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+			seen = append(seen, r)
+			if err != nil {
+				return nil, err
 			}
-			return 200, versionBody("newsha"), nil
-		case wardenBinaryPath:
-			return 200, []byte("NEW-WARDEN"), nil
+			return &http.Response{StatusCode: status, Body: body, Header: http.Header{}}, nil
+		})}
+	}
+	body := func(s string) io.ReadCloser { return io.NopCloser(strings.NewReader(s)) }
+
+	status, data, err := httpGetter(reply(200, body(`{"git_sha":"80eec5fe"}`), nil),
+		"https://station.example", jwtWardenOne)(versionPath)
+	if status != 200 || string(data) != `{"git_sha":"80eec5fe"}` || err != nil {
+		t.Errorf("GET = (%d, %q, %v), want (200, %q, nil)", status, data, err, `{"git_sha":"80eec5fe"}`)
+	}
+	req := seen[len(seen)-1]
+	if req.Method != http.MethodGet || req.URL.String() != "https://station.example/api/version" {
+		t.Errorf("sent %s %s, want GET https://station.example/api/version", req.Method, req.URL)
+	}
+	if got := req.Header.Get("User-Agent"); got != "ocwarden/0.1" {
+		t.Errorf("User-Agent = %q, want %q", got, "ocwarden/0.1")
+	}
+	if got := req.Header.Get("Authorization"); got != "Bearer "+jwtWardenOne {
+		t.Errorf("Authorization = %q, want the warden's bearer line", got)
+	}
+
+	seen = nil
+	if _, _, err := httpGetter(reply(200, body("x"), nil), "https://station.example", "")(versionPath); err != nil {
+		t.Fatalf("unauthenticated GET: %v", err)
+	}
+	if got := seen[0].Header.Get("Authorization"); got != "" {
+		t.Errorf("a warden with no credential must send no Authorization header, sent %q", got)
+	}
+
+	status, data, err = httpGetter(reply(503, body("upstream is down"), nil),
+		"https://station.example", jwtWardenOne)(wardenBinaryPath)
+	if status != 503 || string(data) != "upstream is down" || err != nil {
+		t.Errorf("a live-but-bad reply = (%d, %q, %v), want (503, %q, nil)", status, data, err, "upstream is down")
+	}
+
+	refused := errors.New("dial tcp: connection refused")
+	status, data, err = httpGetter(reply(0, nil, refused), "https://station.example", jwtWardenOne)(versionPath)
+	if status != 0 || data != nil || err == nil || !strings.Contains(err.Error(), "connection refused") {
+		t.Errorf("a transport fault = (%d, %q, %v), want (0, nil, connection refused)", status, data, err)
+	}
+
+	status, data, err = httpGetter(reply(200, io.NopCloser(brokenReader{}), nil),
+		"https://station.example", jwtWardenOne)(versionPath)
+	if status != 200 || data != nil || err == nil || err.Error() != "stream truncated" {
+		t.Errorf("a truncated body = (%d, %q, %v), want (200, nil, stream truncated)", status, data, err)
+	}
+
+	status, data, err = httpGetter(reply(200, body("x"), nil), "http://station.example\n", "")(versionPath)
+	if status != 0 || data != nil || err == nil {
+		t.Errorf("an unbuildable request = (%d, %q, %v), want (0, nil, an error)", status, data, err)
+	}
+}
+
+// brokenReader is a body that fails mid-stream.
+type brokenReader struct{}
+
+func (brokenReader) Read([]byte) (int, error) { return 0, errors.New("stream truncated") }
+
+func TestProbe(t *testing.T) {
+	argv := "/opt/warden/.ocwarden.selfupdate.1 --help"
+
+	runner := &wardenRunner{script: map[string]wardenRun{argv: {out: "usage: ocwarden ...\n"}}}
+	ops := osUpdaterOps{runner: runner}
+	if err := ops.probe("/opt/warden/.ocwarden.selfupdate.1"); err != nil {
+		t.Errorf("a binary that runs must verify: %v", err)
+	}
+	if !reflect.DeepEqual(runner.calls, []string{argv}) {
+		t.Errorf("ran %v, want %v", runner.calls, []string{argv})
+	}
+
+	faults := []struct {
+		name string
+		res  wardenRun
+		want string
+	}{
+		{"a wrong-arch download cannot exec", wardenRun{err: errors.New("exec format error")},
+			"exec /opt/warden/.ocwarden.selfupdate.1 --help: exec format error"},
+		{"a silent binary is not a verified one", wardenRun{out: "  \n\t"},
+			"health probe: /opt/warden/.ocwarden.selfupdate.1 --help produced no output"},
+	}
+	for _, c := range faults {
+		ops := osUpdaterOps{runner: &wardenRunner{script: map[string]wardenRun{argv: c.res}}}
+		err := ops.probe("/opt/warden/.ocwarden.selfupdate.1")
+		if err == nil || err.Error() != c.want {
+			t.Errorf("%s: err = %v, want %q", c.name, err, c.want)
 		}
-		return 404, nil, nil
 	}
-	u := newTestUpdater(stubOps{}, get, warden, "")
-	u.interval = time.Hour          // backstop timer parked far away
-	u.kick = make(chan struct{}, 1) // enable the event-driven seam
-	u.execSelf = func() error { return nil }
-	exited := make(chan struct{})
-	u.exit = func(int) { close(exited) } // run() reaches this after the kicked swap
+}
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	go u.run(ctx)
-
-	u.Kick() // the fast path: must cut the 1h wait
-
-	select {
-	case <-versioned:
-	case <-time.After(2 * time.Second):
-		t.Fatal("kick did not trigger an immediate /api/version check within 2s (backstop is 1h)")
+func TestExecInPlace(t *testing.T) {
+	cases := []struct {
+		name     string
+		execSelf func() error
+		wantLog  []string
+	}{
+		{
+			name:     "an unwired exec seam falls straight through to the exit",
+			execSelf: nil,
+			wantLog:  []string{"[ocwarden] self-update: ocwarden replaced — exec'ing the new binary in place (same PID)"},
+		},
+		{
+			name:     "a refused exec is logged and then exits",
+			execSelf: func() error { return errors.New("text file busy") },
+			wantLog: []string{
+				"[ocwarden] self-update: ocwarden replaced — exec'ing the new binary in place (same PID)",
+				"[ocwarden] in-place exec failed (text file busy) — falling back to exit(0)",
+			},
+		},
+		{
+			name:     "an exec that returns at all has failed",
+			execSelf: func() error { return nil },
+			wantLog: []string{
+				"[ocwarden] self-update: ocwarden replaced — exec'ing the new binary in place (same PID)",
+				"[ocwarden] in-place exec failed (<nil>) — falling back to exit(0)",
+			},
+		},
 	}
+	for _, c := range cases {
+		var log []string
+		var exits []int
+		u := &updater{
+			execSelf: c.execSelf,
+			exit:     func(code int) { exits = append(exits, code) },
+			logf:     func(format string, a ...any) { log = append(log, fmt.Sprintf(format, a...)) },
+		}
+		u.execInPlace("self-update: ocwarden replaced")
+		if !reflect.DeepEqual(log, c.wantLog) {
+			t.Errorf("%s: log =\n  %#v\nwant\n  %#v", c.name, log, c.wantLog)
+		}
+		if !reflect.DeepEqual(exits, []int{0}) {
+			t.Errorf("%s: exited %v, want [0]", c.name, exits)
+		}
+	}
+}
+
+// pacer is the wait seam under test control: a send on elapsed is "the poll
+// interval ran out", and every requested delay is recorded.
+type pacer struct {
+	mu      sync.Mutex
+	waits   []time.Duration
+	elapsed chan struct{}
+}
+
+func (p *pacer) sleep(ctx context.Context, d time.Duration) bool {
+	p.mu.Lock()
+	p.waits = append(p.waits, d)
+	p.mu.Unlock()
 	select {
-	case <-exited:
-	case <-time.After(2 * time.Second):
-		t.Fatal("run did not reach the exit seam after the kicked warden swap")
+	case <-ctx.Done():
+		return false
+	case <-p.elapsed:
+		return true
+	}
+}
+
+func (p *pacer) seen() []time.Duration {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return append([]time.Duration(nil), p.waits...)
+}
+
+// pacedUpdater builds an updater whose wait is driven by the returned pacer.
+func pacedUpdater() (*updater, *pacer) {
+	p := &pacer{elapsed: make(chan struct{})}
+	return &updater{kick: make(chan struct{}, 1), sleep: p.sleep}, p
+}
+
+func TestWaitNext(t *testing.T) {
+	u, p := pacedUpdater()
+
+	go func() { p.elapsed <- struct{}{} }()
+	if !u.waitNext(context.Background(), 15*time.Minute) {
+		t.Error("an elapsed poll interval must run a cycle")
+	}
+	if got := p.seen(); !reflect.DeepEqual(got, []time.Duration{15 * time.Minute}) {
+		t.Errorf("waited %v, want [15m0s]", got)
+	}
+
+	cancelled, cancel := context.WithCancel(context.Background())
+	cancel()
+	if u.waitNext(cancelled, time.Minute) {
+		t.Error("a cancelled context must stop the loop")
+	}
+
+	u.kick <- struct{}{}
+	if !u.waitNext(context.Background(), time.Hour) {
+		t.Error("a kick must cut the wait short")
+	}
+
+	stopped := &updater{sleep: func(context.Context, time.Duration) bool { return false }}
+	if stopped.waitNext(context.Background(), time.Minute) {
+		t.Error("a wait that reports it was cancelled mid-sleep must stop the loop")
+	}
+}
+
+func TestKick(t *testing.T) {
+	unwired := &updater{}
+	unwired.Kick()
+
+	u, p := pacedUpdater()
+	u.Kick()
+	u.Kick()
+
+	if !u.waitNext(context.Background(), time.Hour) {
+		t.Fatal("the first wait after a kick must run a cycle")
+	}
+
+	woke := make(chan bool, 1)
+	go func() { woke <- u.waitNext(context.Background(), time.Hour) }()
+	select {
+	case <-woke:
+		t.Fatal("two kicks stacked two wakes; they must coalesce into one")
+	case <-time.After(50 * time.Millisecond):
+	}
+	p.elapsed <- struct{}{}
+	if !<-woke {
+		t.Error("the coalesced wait must still end on its timer")
+	}
+}
+
+func TestRenewNow(t *testing.T) {
+	u, _ := pacedUpdater()
+	u.renew = func() (int, map[string]any, error) {
+		t.Error("RenewNow must not ask the station for anything itself")
+		return 0, nil, nil
+	}
+	u.writeTok = func(string, string) error {
+		t.Error("RenewNow must not write a credential itself")
+		return nil
+	}
+
+	u.RenewNow()
+
+	if !u.renewDemanded.Load() {
+		t.Error("RenewNow must record the station's demand")
+	}
+	if !u.waitNext(context.Background(), time.Hour) {
+		t.Error("RenewNow must wake the poll loop")
+	}
+}
+
+func TestCheckOnce(t *testing.T) {
+	served := func(sha, warden, agent string) map[string]httpAnswer {
+		return map[string]httpAnswer{
+			versionPath:      {status: 200, body: `{"git_sha":"` + sha + `"}`},
+			wardenBinaryPath: {status: 200, body: warden},
+			agentBinaryPath:  {status: 200, body: agent},
+		}
+	}
+	newUpdater := func(paths *servedPaths, root string) *updater {
+		return &updater{
+			get:       paths.get,
+			ops:       swapOps{inner: osUpdaterOps{}},
+			selfPath:  filepath.Join(root, "ocwarden"),
+			agentPath: filepath.Join(root, "ocagent"),
+			logf:      func(string, ...any) {},
+			now:       func() time.Time { return time.Date(2026, 9, 8, 10, 30, 0, 0, time.UTC) },
+		}
+	}
+	stageLive := func(t *testing.T) string {
+		root := t.TempDir()
+		stageBinary(t, filepath.Join(root, "ocwarden"), "warden-bytes-v1")
+		stageBinary(t, filepath.Join(root, "ocagent"), "agent-bytes-v1")
+		return root
+	}
+
+	t.Run("an unmoved server sha downloads nothing", func(t *testing.T) {
+		root := stageLive(t)
+		paths := &servedPaths{answers: served("80eec5fe", "served-warden-v9", "served-agent-v9")}
+		u := newUpdater(paths, root)
+		u.lastSHA = "80eec5fe"
+		swapped, err := u.checkOnce()
+		if swapped || err != nil {
+			t.Errorf("checkOnce = (%v, %v), want (false, nil)", swapped, err)
+		}
+		if !reflect.DeepEqual(paths.gets, []string{versionPath}) {
+			t.Errorf("fetched %v, want only %v", paths.gets, versionPath)
+		}
+		if got, want := dirState(t, root), []string{"ocagent=agent-bytes-v1", "ocwarden=warden-bytes-v1"}; !reflect.DeepEqual(got, want) {
+			t.Errorf("the gate must leave the binaries alone: %v, want %v", got, want)
+		}
+	})
+
+	t.Run("a moved sha reconciles ocagent before ocwarden and records the sha", func(t *testing.T) {
+		root := stageLive(t)
+		paths := &servedPaths{answers: served("aa11bb22", "served-warden-v9", "served-agent-v9")}
+		u := newUpdater(paths, root)
+		swapped, err := u.checkOnce()
+		if !swapped || err != nil {
+			t.Errorf("checkOnce = (%v, %v), want (true, nil)", swapped, err)
+		}
+		want := []string{versionPath, agentBinaryPath, wardenBinaryPath}
+		if !reflect.DeepEqual(paths.gets, want) {
+			t.Errorf("fetched %v, want %v", paths.gets, want)
+		}
+		state := dirState(t, root)
+		wantState := []string{
+			"ocagent.prev=agent-bytes-v1", "ocagent=served-agent-v9",
+			"ocwarden.prev=warden-bytes-v1", "ocwarden=served-warden-v9",
+		}
+		if !reflect.DeepEqual(state, wantState) {
+			t.Errorf("directory =\n  %v\nwant\n  %v", state, wantState)
+		}
+		if u.lastSHA != "aa11bb22" {
+			t.Errorf("lastSHA = %q, want %q", u.lastSHA, "aa11bb22")
+		}
+		paths.gets = nil
+		if swapped, err := u.checkOnce(); swapped || err != nil || !reflect.DeepEqual(paths.gets, []string{versionPath}) {
+			t.Errorf("the next cycle = (%v, %v) after fetching %v, want (false, nil) after only the gate",
+				swapped, err, paths.gets)
+		}
+	})
+
+	t.Run("an ocagent-only swap never reports the warden as replaced", func(t *testing.T) {
+		root := stageLive(t)
+		paths := &servedPaths{answers: served("aa11bb22", "warden-bytes-v1", "served-agent-v9")}
+		u := newUpdater(paths, root)
+		swapped, err := u.checkOnce()
+		if swapped || err != nil {
+			t.Errorf("checkOnce = (%v, %v), want (false, nil)", swapped, err)
+		}
+		want := []string{"ocagent.prev=agent-bytes-v1", "ocagent=served-agent-v9", "ocwarden=warden-bytes-v1"}
+		if got := dirState(t, root); !reflect.DeepEqual(got, want) {
+			t.Errorf("directory = %v, want %v", got, want)
+		}
+	})
+
+	t.Run("a failed ocagent reconcile never reaches the ocwarden download", func(t *testing.T) {
+		root := stageLive(t)
+		answers := served("aa11bb22", "served-warden-v9", "")
+		answers[agentBinaryPath] = httpAnswer{status: 500, body: "boom"}
+		paths := &servedPaths{answers: answers}
+		u := newUpdater(paths, root)
+		swapped, err := u.checkOnce()
+		if swapped || err == nil || err.Error() != "download ocagent: status 500" {
+			t.Errorf("checkOnce = (%v, %v), want (false, download ocagent: status 500)", swapped, err)
+		}
+		if want := []string{versionPath, agentBinaryPath}; !reflect.DeepEqual(paths.gets, want) {
+			t.Errorf("fetched %v, want %v", paths.gets, want)
+		}
+		if u.lastSHA != "" {
+			t.Errorf("a failed cycle must not record the sha, got %q", u.lastSHA)
+		}
+		want := []string{"ocagent=agent-bytes-v1", "ocwarden=warden-bytes-v1"}
+		if got := dirState(t, root); !reflect.DeepEqual(got, want) {
+			t.Errorf("directory = %v, want %v", got, want)
+		}
+	})
+
+	t.Run("a failed ocwarden reconcile leaves the sha unrecorded", func(t *testing.T) {
+		root := stageLive(t)
+		answers := served("aa11bb22", "", "agent-bytes-v1")
+		answers[wardenBinaryPath] = httpAnswer{status: 200, body: ""}
+		paths := &servedPaths{answers: answers}
+		u := newUpdater(paths, root)
+		swapped, err := u.checkOnce()
+		if swapped || err == nil || err.Error() != "download ocwarden: empty body" {
+			t.Errorf("checkOnce = (%v, %v), want (false, download ocwarden: empty body)", swapped, err)
+		}
+		if u.lastSHA != "" {
+			t.Errorf("a failed cycle must not record the sha, got %q", u.lastSHA)
+		}
+	})
+
+	t.Run("an unreachable version gate stops the cycle before any download", func(t *testing.T) {
+		root := stageLive(t)
+		answers := served("aa11bb22", "served-warden-v9", "served-agent-v9")
+		answers[versionPath] = httpAnswer{err: errors.New("dial tcp: connection refused")}
+		paths := &servedPaths{answers: answers}
+		u := newUpdater(paths, root)
+		swapped, err := u.checkOnce()
+		want := "GET /api/version: dial tcp: connection refused"
+		if swapped || err == nil || err.Error() != want {
+			t.Errorf("checkOnce = (%v, %v), want (false, %s)", swapped, err, want)
+		}
+		if !reflect.DeepEqual(paths.gets, []string{versionPath}) {
+			t.Errorf("fetched %v, want only the gate", paths.gets)
+		}
+	})
+
+	t.Run("an unresolved path is skipped rather than downloaded to", func(t *testing.T) {
+		root := stageLive(t)
+		paths := &servedPaths{answers: served("aa11bb22", "served-warden-v9", "served-agent-v9")}
+		u := newUpdater(paths, root)
+		u.agentPath = ""
+		u.selfPath = ""
+		swapped, err := u.checkOnce()
+		if swapped || err != nil {
+			t.Errorf("checkOnce = (%v, %v), want (false, nil)", swapped, err)
+		}
+		if !reflect.DeepEqual(paths.gets, []string{versionPath}) {
+			t.Errorf("fetched %v, want only the gate", paths.gets)
+		}
+	})
+
+	t.Run("a station that names no sha is never gated on", func(t *testing.T) {
+		root := stageLive(t)
+		paths := &servedPaths{answers: served("", "warden-bytes-v1", "agent-bytes-v1")}
+		u := newUpdater(paths, root)
+		for round := 1; round <= 2; round++ {
+			if swapped, err := u.checkOnce(); swapped || err != nil {
+				t.Errorf("round %d: checkOnce = (%v, %v), want (false, nil)", round, swapped, err)
+			}
+		}
+		want := []string{versionPath, agentBinaryPath, wardenBinaryPath,
+			versionPath, agentBinaryPath, wardenBinaryPath}
+		if !reflect.DeepEqual(paths.gets, want) {
+			t.Errorf("fetched %v, want %v", paths.gets, want)
+		}
+	})
+}
+
+func TestServerSHA(t *testing.T) {
+	cases := []struct {
+		name    string
+		answer  httpAnswer
+		want    string
+		wantErr string
+	}{
+		{"the station names its commit", httpAnswer{status: 200, body: `{"git_sha":"80eec5fe","env":"prod"}`}, "80eec5fe", ""},
+		{"a version body with no git_sha", httpAnswer{status: 200, body: `{"env":"prod"}`}, "", ""},
+		{"an unauthenticated warden", httpAnswer{status: 401, body: `{"error":"nope"}`}, "", "GET /api/version: status 401"},
+		{"a proxy answering html", httpAnswer{status: 200, body: "<html>502</html>"}, "", "decode /api/version: invalid character '<' looking for beginning of value"},
+		{"an unreachable station", httpAnswer{err: errors.New("dial tcp: i/o timeout")}, "", "GET /api/version: dial tcp: i/o timeout"},
+	}
+	for _, c := range cases {
+		paths := &servedPaths{answers: map[string]httpAnswer{versionPath: c.answer}}
+		got, err := (&updater{get: paths.get}).serverSHA()
+		if got != c.want {
+			t.Errorf("%s: serverSHA = %q, want %q", c.name, got, c.want)
+		}
+		switch {
+		case c.wantErr == "" && err != nil:
+			t.Errorf("%s: err = %v, want nil", c.name, err)
+		case c.wantErr != "" && (err == nil || err.Error() != c.wantErr):
+			t.Errorf("%s: err = %v, want %q", c.name, err, c.wantErr)
+		}
+	}
+}
+
+func TestReconcileBinary(t *testing.T) {
+	const stamp = "2026-09-08T10:30:00Z"
+	newUpdater := func(root string, answer httpAnswer, failOn string) (*updater, *servedPaths, *[]string) {
+		paths := &servedPaths{answers: map[string]httpAnswer{wardenBinaryPath: answer}}
+		var log []string
+		u := &updater{
+			get:  paths.get,
+			ops:  swapOps{inner: osUpdaterOps{}, failOn: failOn},
+			logf: func(format string, a ...any) { log = append(log, fmt.Sprintf(format, a...)) },
+			now:  func() time.Time { return time.Date(2026, 9, 8, 10, 30, 0, 0, time.UTC) },
+		}
+		_ = root
+		return u, paths, &log
+	}
+
+	t.Run("bytes that already match are left alone", func(t *testing.T) {
+		root := t.TempDir()
+		live := stageBinary(t, filepath.Join(root, "ocwarden"), "warden-bytes-v1")
+		u, _, log := newUpdater(root, httpAnswer{status: 200, body: "warden-bytes-v1"}, "")
+		swapped, err := u.reconcileBinary(wardenBinaryPath, live, "ocwarden")
+		if swapped || err != nil {
+			t.Errorf("reconcileBinary = (%v, %v), want (false, nil)", swapped, err)
+		}
+		if got := dirState(t, root); !reflect.DeepEqual(got, []string{"ocwarden=warden-bytes-v1"}) {
+			t.Errorf("directory = %v, want [ocwarden=warden-bytes-v1]", got)
+		}
+		if u.lastSwap != nil || len(*log) != 0 {
+			t.Errorf("a no-op swap announced %v and logged %v", u.lastSwap, *log)
+		}
+	})
+
+	t.Run("different bytes are verified, backed up, then swapped in", func(t *testing.T) {
+		root := t.TempDir()
+		live := stageBinary(t, filepath.Join(root, "ocwarden"), "warden-bytes-v1")
+		u, _, log := newUpdater(root, httpAnswer{status: 200, body: "served-warden-v9"}, "")
+		swapped, err := u.reconcileBinary(wardenBinaryPath, live, "ocwarden")
+		if !swapped || err != nil {
+			t.Errorf("reconcileBinary = (%v, %v), want (true, nil)", swapped, err)
+		}
+		want := []string{"ocwarden.prev=warden-bytes-v1", "ocwarden=served-warden-v9"}
+		if got := dirState(t, root); !reflect.DeepEqual(got, want) {
+			t.Errorf("directory = %v, want %v", got, want)
+		}
+		wantEvent := &selfUpdateEvent{Binary: "ocwarden", OldHash: "9c8d3cb7cabb", NewHash: "49fdd223b5a8", At: stamp}
+		if !reflect.DeepEqual(u.lastSwap, wantEvent) {
+			t.Errorf("lastSwap = %+v, want %+v", u.lastSwap, wantEvent)
+		}
+		wantLog := []string{fmt.Sprintf(
+			"[ocwarden] self-update: replaced ocwarden at %s (backup: %s.prev)", live, live)}
+		if !reflect.DeepEqual(*log, wantLog) {
+			t.Errorf("log = %#v, want %#v", *log, wantLog)
+		}
+	})
+
+	t.Run("a binary that is not on disk yet is written with no backup", func(t *testing.T) {
+		root := t.TempDir()
+		live := filepath.Join(root, "ocagent")
+		u, _, _ := newUpdater(root, httpAnswer{status: 200, body: "served-agent-v9"}, "")
+		u.get = (&servedPaths{answers: map[string]httpAnswer{
+			agentBinaryPath: {status: 200, body: "served-agent-v9"}}}).get
+		swapped, err := u.reconcileBinary(agentBinaryPath, live, "ocagent")
+		if !swapped || err != nil {
+			t.Errorf("reconcileBinary = (%v, %v), want (true, nil)", swapped, err)
+		}
+		if got := dirState(t, root); !reflect.DeepEqual(got, []string{"ocagent=served-agent-v9"}) {
+			t.Errorf("directory = %v, want [ocagent=served-agent-v9]", got)
+		}
+		wantEvent := &selfUpdateEvent{Binary: "ocagent", OldHash: "", NewHash: "ee72e4ab28cf", At: stamp}
+		if !reflect.DeepEqual(u.lastSwap, wantEvent) {
+			t.Errorf("lastSwap = %+v, want %+v", u.lastSwap, wantEvent)
+		}
+	})
+
+	refusals := []struct {
+		name    string
+		answer  httpAnswer
+		failOn  string
+		wantErr string
+	}{
+		{"a corrupt download fails its health probe", httpAnswer{status: 200, body: "served-warden-v9"}, "probe",
+			"verify ocwarden failed — keeping current binary: exec "},
+		{"the station refuses the download", httpAnswer{status: 403, body: "denied"}, "",
+			"download ocwarden: status 403"},
+		{"the station serves nothing", httpAnswer{status: 200, body: ""}, "",
+			"download ocwarden: empty body"},
+		{"the station is unreachable", httpAnswer{err: errors.New("dial tcp: i/o timeout")}, "",
+			"download ocwarden: dial tcp: i/o timeout"},
+		{"the temp file cannot be written", httpAnswer{status: 200, body: "served-warden-v9"}, "write-temp",
+			"write temp ocwarden: read-only file system"},
+		{"the temp file cannot be made executable", httpAnswer{status: 200, body: "served-warden-v9"}, "chmod",
+			"chmod temp ocwarden: operation not permitted"},
+		{"the retreat copy cannot be written", httpAnswer{status: 200, body: "served-warden-v9"}, "backup",
+			"backup current ocwarden -> "},
+		{"the atomic swap fails", httpAnswer{status: 200, body: "served-warden-v9"}, "rename",
+			"atomic swap ocwarden -> "},
+	}
+	for _, c := range refusals {
+		t.Run(c.name, func(t *testing.T) {
+			root := t.TempDir()
+			live := stageBinary(t, filepath.Join(root, "ocwarden"), "warden-bytes-v1")
+			before := dirState(t, root)
+			u, _, log := newUpdater(root, c.answer, c.failOn)
+			swapped, err := u.reconcileBinary(wardenBinaryPath, live, "ocwarden")
+			if swapped {
+				t.Error("a refused reconcile must never report a swap")
+			}
+			if err == nil || !strings.HasPrefix(err.Error(), c.wantErr) {
+				t.Errorf("err = %v, want one starting %q", err, c.wantErr)
+			}
+			after := dirState(t, root)
+			if c.failOn == "rename" {
+				before = append([]string{"ocwarden.prev=warden-bytes-v1"}, before...)
+			}
+			if !reflect.DeepEqual(after, before) {
+				t.Errorf("the refused swap left the directory as\n  %v\nwant\n  %v", after, before)
+			}
+			if u.lastSwap != nil || len(*log) != 0 {
+				t.Errorf("a refused swap announced %v and logged %v", u.lastSwap, *log)
+			}
+		})
+	}
+}
+
+func TestClock(t *testing.T) {
+	pinned := time.Date(2026, 9, 8, 10, 30, 0, 0, time.UTC)
+	if got := (&updater{now: func() time.Time { return pinned }}).clock(); !got.Equal(pinned) {
+		t.Errorf("clock = %v, want %v", got, pinned)
+	}
+
+	before := time.Now()
+	got := (&updater{}).clock()
+	after := time.Now()
+	if got.Before(before) || got.After(after) {
+		t.Errorf("an unwired clock must read the wall clock: %v is not within [%v, %v]", got, before, after)
+	}
+}
+
+func TestAnnounceSelfUpdate(t *testing.T) {
+	event := &selfUpdateEvent{Binary: "ocwarden", OldHash: "9c8d3cb7cabb", NewHash: "cf6022985580", At: "2026-09-08T10:30:00Z"}
+
+	cases := []struct {
+		name      string
+		swap      *selfUpdateEvent
+		agentID   string
+		status    int
+		wired     bool
+		wantPosts []string
+		wantLog   []string
+	}{
+		{
+			name: "no swap, no announcement", swap: nil, agentID: "warden-1", status: 200, wired: true,
+		},
+		{
+			name: "an unidentified warden announces nothing", swap: event, agentID: "  ", status: 200, wired: true,
+		},
+		{
+			name: "an unwired poster announces nothing", swap: event, agentID: "warden-1", wired: false,
+		},
+		{
+			name: "a delivered announcement names both hashes", swap: event, agentID: "warden-1", status: 200, wired: true,
+			wantPosts: []string{selfUpdateReportPath},
+			wantLog:   []string{"[ocwarden] self-update: announced ocwarden swap 9c8d3cb7cabb->cf6022985580"},
+		},
+		{
+			name: "a refused announcement is swallowed", swap: event, agentID: "warden-1", status: 422, wired: true,
+			wantPosts: []string{selfUpdateReportPath},
+			wantLog:   []string{"[ocwarden] self-update: announce POST returned status 422 (ignored; swap already applied)"},
+		},
+		{
+			name: "an unreachable station is swallowed", swap: event, agentID: "warden-1", status: 0, wired: true,
+			wantPosts: []string{selfUpdateReportPath},
+			wantLog:   []string{"[ocwarden] self-update: announce POST returned status 0 (ignored; swap already applied)"},
+		},
+	}
+	for _, c := range cases {
+		var posts []string
+		var log []string
+		u := &updater{
+			lastSwap: c.swap,
+			agentID:  c.agentID,
+			logf:     func(format string, a ...any) { log = append(log, fmt.Sprintf(format, a...)) },
+		}
+		if c.wired {
+			u.post = func(path string, payload map[string]any) (int, map[string]any) {
+				posts = append(posts, path)
+				return c.status, nil
+			}
+		}
+		u.announceSelfUpdate()
+		if !reflect.DeepEqual(posts, c.wantPosts) {
+			t.Errorf("%s: posted to %v, want %v", c.name, posts, c.wantPosts)
+		}
+		if !reflect.DeepEqual(log, c.wantLog) {
+			t.Errorf("%s: log = %#v, want %#v", c.name, log, c.wantLog)
+		}
+	}
+}
+
+func TestNextSelfUpdateBackoff(t *testing.T) {
+	cases := []struct {
+		cur, ceiling, want time.Duration
+	}{
+		{time.Minute, 30 * time.Minute, 2 * time.Minute},
+		{8 * time.Minute, 30 * time.Minute, 16 * time.Minute},
+		{16 * time.Minute, 30 * time.Minute, 30 * time.Minute},
+		{30 * time.Minute, 30 * time.Minute, 30 * time.Minute},
+		{time.Second, 30 * time.Minute, 2 * time.Minute},
+		{0, 30 * time.Minute, 2 * time.Minute},
+		{-5 * time.Second, 30 * time.Minute, 2 * time.Minute},
+		{time.Minute, 90 * time.Second, 90 * time.Second},
+	}
+	for _, c := range cases {
+		if got := nextSelfUpdateBackoff(c.cur, c.ceiling); got != c.want {
+			t.Errorf("nextSelfUpdateBackoff(%s, %s) = %s, want %s", c.cur, c.ceiling, got, c.want)
+		}
+	}
+}
+
+func TestResolveSelfExe(t *testing.T) {
+	root := t.TempDir()
+	real := stageBinary(t, filepath.Join(root, "warden", "ocwarden"), "warden-bytes-v1")
+	link := filepath.Join(root, "bin", "ocwarden")
+	if err := os.MkdirAll(filepath.Dir(link), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.Symlink(real, link); err != nil {
+		t.Fatalf("symlink: %v", err)
+	}
+
+	viaLink := resolveSelfExe(func() (string, error) { return link, nil })
+	if strings.Contains(viaLink, filepath.Join(root, "bin")) {
+		t.Errorf("resolveSelfExe kept the symlink path: %q", viaLink)
+	}
+	if filepath.Base(filepath.Dir(viaLink)) != "warden" || filepath.Base(viaLink) != "ocwarden" {
+		t.Errorf("resolveSelfExe = %q, want the real .../warden/ocwarden", viaLink)
+	}
+	if !sameFile(t, viaLink, real) {
+		t.Errorf("resolveSelfExe = %q, which is not the file at %q", viaLink, real)
+	}
+
+	if got := resolveSelfExe(func() (string, error) { return "/no/such/dir/ocwarden", nil }); got != "/no/such/dir/ocwarden" {
+		t.Errorf("an unresolvable symlink must fall back to the raw path, got %q", got)
+	}
+	if got := resolveSelfExe(func() (string, error) { return "", errors.New("no /proc/self/exe") }); got != "" {
+		t.Errorf("an unnameable executable = %q, want \"\"", got)
+	}
+}
+
+func sameFile(t *testing.T, a, b string) bool {
+	t.Helper()
+	fa, err := os.Stat(a)
+	if err != nil {
+		t.Fatalf("stat %s: %v", a, err)
+	}
+	fb, err := os.Stat(b)
+	if err != nil {
+		t.Fatalf("stat %s: %v", b, err)
+	}
+	return os.SameFile(fa, fb)
+}
+
+func TestSelfUpdateAgentPath(t *testing.T) {
+	got := selfUpdateAgentPath(func() (string, error) { return "/opt/officraft/warden/ocwarden", nil })
+	if got != "/opt/officraft/warden/ocagent" {
+		t.Errorf("selfUpdateAgentPath = %q, want %q", got, "/opt/officraft/warden/ocagent")
+	}
+
+	root := t.TempDir()
+	real := stageBinary(t, filepath.Join(root, "warden", "ocwarden"), "warden-bytes-v1")
+	link := filepath.Join(root, "ocwarden")
+	if err := os.Symlink(real, link); err != nil {
+		t.Fatalf("symlink: %v", err)
+	}
+	got = selfUpdateAgentPath(func() (string, error) { return link, nil })
+	if filepath.Base(got) != "ocagent" || filepath.Base(filepath.Dir(got)) != "warden" {
+		t.Errorf("selfUpdateAgentPath = %q, want the sibling beside the RESOLVED warden", got)
+	}
+
+	if got := selfUpdateAgentPath(func() (string, error) { return "", errors.New("no /proc/self/exe") }); got != "" {
+		t.Errorf("an unnameable executable = %q, want \"\"", got)
+	}
+}
+
+func TestBuildSelfUpdater(t *testing.T) {
+	home := t.TempDir()
+	exePath := stageBinary(t, filepath.Join(home, ".officraft", "warden", "ocwarden"), "warden-bytes-v1")
+	cfg := Config{Base: "https://station.example", Token: jwtWardenOne, ID: "warden-1"}
+
+	var execCalls [][]string
+	execImage := func(path string, argv, envv []string) error {
+		execCalls = append(execCalls, append([]string{path}, argv...))
+		return errors.New("exec did not take")
+	}
+	var log []string
+	logf := func(format string, a ...any) { log = append(log, fmt.Sprintf(format, a...)) }
+
+	u := buildSelfUpdater(cfg, rawEnv{lookup: envMap(map[string]string{"HOME": home, "OC_TOKEN": jwtWardenOne})},
+		logf, func() (string, error) { return exePath, nil }, execImage)
+
+	if !sameFile(t, u.selfPath, exePath) {
+		t.Errorf("selfPath = %q, want the running executable %q", u.selfPath, exePath)
+	}
+	if want := filepath.Join(filepath.Dir(u.selfPath), "ocagent"); u.agentPath != want {
+		t.Errorf("agentPath = %q, want %q", u.agentPath, want)
+	}
+	if u.interval != 15*time.Minute || u.backoffStart != time.Minute || u.backoffCap != 30*time.Minute {
+		t.Errorf("pacing = (%s, %s, %s), want (15m0s, 1m0s, 30m0s)", u.interval, u.backoffStart, u.backoffCap)
+	}
+	if cap(u.kick) != 1 {
+		t.Errorf("the kick channel holds %d wakes, want 1 (coalescing)", cap(u.kick))
+	}
+	if u.agentID != "warden-1" {
+		t.Errorf("agentID = %q, want %q", u.agentID, "warden-1")
+	}
+	for name, wired := range map[string]bool{
+		"get": u.get != nil, "ops": u.ops != nil, "sleep": u.sleep != nil, "exit": u.exit != nil,
+		"post": u.post != nil, "now": u.now != nil, "execSelf": u.execSelf != nil,
+		"renew": u.renew != nil, "verify": u.verify != nil, "writeTok": u.writeTok != nil,
+	} {
+		if !wired {
+			t.Errorf("buildSelfUpdater left %s unwired", name)
+		}
+	}
+	if _, ok := u.ops.(osUpdaterOps); !ok {
+		t.Errorf("ops = %T, want osUpdaterOps", u.ops)
+	}
+	if want := filepath.Join(home, ".officraft", "warden", "exec-warden.tok"); u.tokfilePath != want {
+		t.Errorf("tokfilePath = %q, want %q", u.tokfilePath, want)
+	}
+	if u.token != jwtWardenOne || u.envToken != jwtWardenOne {
+		t.Error("the credential this process runs on, and the one its starter exported, must both be carried")
+	}
+
+	if err := u.execSelf(); err == nil || err.Error() != "exec did not take" {
+		t.Errorf("execSelf = %v, want the injected exec's error", err)
+	}
+	want := append([]string{u.selfPath}, os.Args...)
+	if len(execCalls) != 1 || !reflect.DeepEqual(execCalls[0], want) {
+		t.Errorf("execSelf ran %v, want one exec of %v", execCalls, want)
+	}
+
+	u.logf("hello %s", "there")
+	if !reflect.DeepEqual(log, []string{"hello there"}) {
+		t.Errorf("log = %#v, want [hello there]", log)
+	}
+
+	bare := buildSelfUpdater(cfg, rawEnv{lookup: envMap(map[string]string{"HOME": home})},
+		logf, func() (string, error) { return exePath, nil }, execImage)
+	if bare.envToken != "" {
+		t.Errorf("envToken = %q, want \"\" when nobody exported one", bare.envToken)
 	}
 }

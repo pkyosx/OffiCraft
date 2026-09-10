@@ -1,2156 +1,3147 @@
-package main
+// Skeleton generated from server/ocserverd/worker_spawn.go by gen_test_skeletons.py.
+// Every case is a t.Skip placeholder: fill the body, keep or rewrite the name.
 
-// worker_spawn_test.go — the Phase 6 wake/reclaim lifecycle: boot-context
-// assembly, warden targeting, fail-closed dispatch, pacing, and the reclaim
-// hook + backstop. Everything runs against the real DAL/hub with zero network.
+package main
 
 import (
 	"encoding/json"
-	"io"
 	"net/http"
-	"net/http/httptest"
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 )
 
-// newWorkerTestServer builds an apiServer with the out-of-box roster seeded
-// (Mira + the server-self warden). The seeds are read embed-only (from the
-// staged seedsdist baked into the test binary), so no on-disk seeds/ is staged
-// — a disk copy would be ignored anyway (T-e731).
-func newWorkerTestServer(t *testing.T) *apiServer {
+// wsWorkerSpawnFixture is the shared start state of this file: a claimed
+// server, the seeded roster, one live task and one outsource worker bound to it
+// — the state the scheduler hands the wake path.
+func wsWorkerSpawnFixture(t *testing.T, status string) (*apiServer, http.Handler, *DAL, string, OutsourceWorker) {
 	t.Helper()
-	db, err := openSQLite(filepath.Join(t.TempDir(), "worker-test.db"))
-	if err != nil {
-		t.Fatalf("open: %v", err)
+	api, h, d, owner := newAPITestServer(t)
+	apiTestWorkerFixture(t, h, d, owner, "ow-abc123", status)
+	w, err := d.GetOutsourceWorker("ow-abc123")
+	if err != nil || w == nil {
+		t.Fatalf("GetOutsourceWorker: %v (%v)", w, err)
 	}
-	t.Cleanup(func() { db.Close() })
-	if err := runMigrations(db); err != nil {
-		t.Fatalf("goose up: %v", err)
-	}
-	dal := NewDAL(db)
-	if err := seedOutOfBox(dal); err != nil {
-		t.Fatalf("seed: %v", err)
-	}
-	return newAPIServer(dal, NewHub(), singleKeyring([]byte("worker-test-secret")), 3600,
-		assetRoot(t.TempDir()))
+	return api, h, d, owner, *w
 }
 
-// putWorkerFixture seeds a worker row so that the ROW ENDS UP LOOKING LIKE `w`.
-// The second write is the wind-down anchors, for putTestMember's reason (T-55) —
-// a worker row IS a member row (PutOutsourceWorker is PutMember of the
-// projection), so it drops exactly the same four columns on an existing row.
-func putWorkerFixture(t *testing.T, s *apiServer, w OutsourceWorker) OutsourceWorker {
+// wsDrainWardenFrames empties machineID's warden command FIFO — the same queue
+// that machine's SSE loop collects from — and decodes each frame's envelope,
+// with the queue entry's own subject folded in under "subject" so a caller
+// compares the WHOLE dispatch record and not only its payload.
+func wsDrainWardenFrames(t *testing.T, api *apiServer, machineID string) []map[string]any {
 	t.Helper()
-	if err := s.dal.PutOutsourceWorker(w); err != nil {
-		t.Fatalf("put worker: %v", err)
-	}
-	if err := s.dal.SetMemberWindDownAnchors(w.ID, w.StoppingSince, w.StoppedSince,
-		w.RefocusSince, w.RefocusOp); err != nil {
-		t.Fatalf("seed wind-down anchors for %s: %v", w.ID, err)
-	}
-	return w
-}
-
-func putTaskFixture(t *testing.T, s *apiServer, task Task) Task {
-	t.Helper()
-	if task.Inputs == nil {
-		task.Inputs = map[string]any{}
-	}
-	if err := s.dal.PutTask(task); err != nil {
-		t.Fatalf("put task: %v", err)
-	}
-	return task
-}
-
-// connectWarden puts wardenID online on the hub (a live SSE downstream).
-func connectWarden(t *testing.T, s *apiServer, wardenID string) {
-	t.Helper()
-	l, err := s.hub.Connect(wardenID, "")
-	if err != nil {
-		t.Fatalf("hub connect %s: %v", wardenID, err)
-	}
-	t.Cleanup(func() { s.hub.Disconnect(l) })
-}
-
-func TestWorkerSpawnRetryWindowMatchesReconcileStartTimeout(t *testing.T) {
-	if workerSpawnRetrySecs != defaultReconcileConfig().StartTimeout {
-		t.Fatalf("worker spawn retry window = %v, want reconcile start timeout %v",
-			workerSpawnRetrySecs, defaultReconcileConfig().StartTimeout)
-	}
-}
-
-// decodeWardenFrame unwraps one FIFO frame ("data: {...}\n\n") into rpc + args.
-func decodeWardenFrame(t *testing.T, frame []byte) (string, map[string]any) {
-	t.Helper()
-	raw := strings.TrimSuffix(strings.TrimPrefix(string(frame), "data: "), "\n\n")
-	var env struct {
-		Topic string `json:"topic"`
-		Data  struct {
-			RPC  string         `json:"rpc"`
-			Args map[string]any `json:"args"`
-		} `json:"data"`
-	}
-	if err := json.Unmarshal([]byte(raw), &env); err != nil {
-		t.Fatalf("frame decode: %v (%s)", err, raw)
-	}
-	if env.Topic != wardenCommandTopic {
-		t.Fatalf("frame topic = %q, want %q", env.Topic, wardenCommandTopic)
-	}
-	return env.Data.RPC, env.Data.Args
-}
-
-// ── boot context ─────────────────────────────────────────────────────────────
-
-func TestBuildWorkerBootContext_FullAssembly(t *testing.T) {
-	s := newWorkerTestServer(t)
-	w := OutsourceWorker{ID: "ow-abc", Codename: "O-7", Model: "opus", Effort: "high"}
-	task := Task{
-		ID: "t-1234567890ab", TypeKey: "review-pr", Title: "Review PR 42",
-		DedupeKey: "https://pr/42", Description: "把 42 號 PR 看完",
-		Priority:     TaskPriorityHigh,
-		Inputs:       map[string]any{"pr_url": "https://pr/42", "repo": "x/y"},
-		HandoverNote: "先跑既有測試", HandoverNoteTS: 1, HandoverNoteBy: "m-kyle",
-	}
-	manual := &TaskManual{
-		TypeKey: "review-pr", DisplayName: "審查 PR",
-		Purpose:   "review 一個 PR",
-		Fields:    `[{"name":"pr_url","required":true,"is_key":true}]`,
-		SopMD:     "先看 diff 再留結論",
-		Learnings: "大 PR 先分檔看",
-	}
-	got, err := s.buildWorkerBootContext(w, task, manual)
-	if err != nil {
-		t.Fatalf("fold: %v", err)
-	}
-	if strings.Contains(got, ownerPlaceholder) {
-		t.Errorf("the shared seed must have its %s placeholder substituted", ownerPlaceholder)
-	}
-	// Positive control FIRST: the two shared slots this assembly is now made of
-	// must really be here. Without it every absence assertion below is satisfied
-	// by an empty string.
-	for _, want := range []string{
-		"# Global Context", // slot 1 — the 系統互動 seed's own H1
-		// 釘的是 seed 的 H1 逐字位元組（見 worker_sharedcore_test.go 的
-		// bootSequenceH1）。rc-e12733548e4b 之後是新名。
-		"# 啟動步驟（Boot Sequence", // slot 4 — the shared boot sequence
-		"# Claude Code 執行環境",   // that runtime's 執行環境 section, leading slot 4
-	} {
-		if !strings.Contains(got, want) {
-			t.Errorf("boot context missing the shared block %q", want)
+	out := []map[string]any{}
+	for _, cmd := range api.hub.DrainWardenCommands(machineID) {
+		body, ok := strings.CutPrefix(strings.TrimSuffix(string(cmd.Frame), "\n\n"), "data: ")
+		if !ok {
+			t.Fatalf("warden frame is not SSE wire text: %q", cmd.Frame)
 		}
-	}
-
-	// T-4595 — WHAT THIS ASSEMBLY NO LONGER CONTAINS. Three groups, each with
-	// its own reason; every literal is a field of the fixture above (or the
-	// heading the old assembly emitted for it), so this stays a real assertion
-	// rather than a spelling check.
-	//
-	//  1. 你的身分 — identity arrives the way it always has for staff, through
-	//     the launcher's --append-system-prompt.
-	//  2. the BOUND TASK — the boot sequence has the worker pick it up with
-	//     the boot sequence's 領工 step, which serves the LIVE row; this copy was a spawn-time
-	//     snapshot, stale by construction. Staff boot contexts never carried one.
-	//  3. the TYPE MANUAL — staff pull a manual with get_task_manual at the
-	//     moment they plan a task's steps; outsource now does the same.
-	for _, gone := range []string{
-		"# 你的身分", w.ID, w.Codename, // 1
-		TaskNo(task.ID), "Review PR 42", "https://pr/42", // 2
-		"把 42 號 PR 看完", "pr_url", "x/y",
-		"m-kyle", "先跑既有測試",
-		"# 任務手冊", "review 一個 PR", "先看 diff 再留結論", // 3
-		"大 PR 先分檔看", "必填、識別鍵",
-	} {
-		if strings.Contains(got, gone) {
-			t.Errorf("worker boot context still carries %q — a worker reads the staff "+
-				"assembly minus slot 3, and nothing is written for it (T-4595)", gone)
+		var frame map[string]any
+		if err := json.Unmarshal([]byte(body), &frame); err != nil {
+			t.Fatalf("warden frame data is not JSON (%q): %v", body, err)
 		}
+		frame["subject"] = cmd.Subject
+		out = append(out, frame)
+	}
+	return out
+}
+
+// wsWantFrames asserts a drained FIFO held EXACTLY these frames, in order, each
+// compared field by field the way apiWantBody compares a response body. Passing
+// none asserts nothing was enqueued at all.
+func wsWantFrames(t *testing.T, got []map[string]any, want ...map[string]any) {
+	t.Helper()
+	gotAny := make([]any, len(got))
+	for i := range got {
+		gotAny[i] = got[i]
+	}
+	wantAny := make([]any, len(want))
+	for i := range want {
+		wantAny[i] = want[i]
+	}
+	apiWantValue(t, "warden commands", any(gotAny), any(wantAny))
+}
+
+// wsWantWardenFrames is wsWantFrames straight off the queue, for a test that
+// does not need the decoded frames for anything else.
+func wsWantWardenFrames(t *testing.T, api *apiServer, machineID string, want ...map[string]any) {
+	t.Helper()
+	wsWantFrames(t, wsDrainWardenFrames(t, api, machineID), want...)
+}
+
+// wsStopFrame is the member `stop` frame every worker kill path enqueues.
+func wsStopFrame(workerID string) map[string]any {
+	return map[string]any{
+		"subject": workerID,
+		"topic":   "warden-command",
+		"data": map[string]any{
+			"rpc":  "stop",
+			"args": map[string]any{"member_id": workerID},
+		},
 	}
 }
 
-// TestBuildWorkerBootContext_RuntimeGuidanceIsTheSeedsOwnAndItIsLast — T-4595,
-// the replacement for the two _RuntimeTailHasFinalPrecedence tests.
-//
-// The listener-ownership instruction is what those two guarded, and it still
-// has to be right for both runtimes and last in the document — a worker that
-// reads Claude's "hold `ocagent listen` under Monitor" while running under a
-// codex sidecar is the T-4595-era regression this repo already paid for once.
-// What changed is WHERE it comes from: it used to be a hand-written outsource
-// tail appended after the seed, and it now arrives inside the runtime's own
-// boot-sequence seed — the same bytes staff read.
-//
-// The seed's shape changed again when the owner rewrote both files (2026-08-15):
-// 執行環境 is now a top-level section that LEADS the boot-sequence block instead
-// of a subsection inside it. So "the boot sequence is the tail" is asserted on
-// the 啟動步驟 heading, and 執行環境 is required to be the only heading between
-// the rest of the document and it.
-func TestBuildWorkerBootContext_RuntimeGuidanceIsTheSeedsOwnAndItIsLast(t *testing.T) {
-	for _, tc := range []struct {
-		name           string
-		runtime        string
-		wantEnvH1      string
-		otherRuntimeH1 string
-	}{
-		{"codex", RuntimeCodex, "# Codex App Server 執行環境",
-			"# Claude Code 執行環境"},
-		{"claude", RuntimeClaude, "# Claude Code 執行環境",
-			"# Codex App Server 執行環境"},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			s := newWorkerTestServer(t)
-			got, err := s.buildWorkerBootContext(
-				OutsourceWorker{ID: "ow-" + tc.name, Codename: "C-1", Runtime: tc.runtime},
-				Task{ID: "t-aabbccddeeff", Title: "x", Priority: TaskPriorityMid}, nil)
-			if err != nil {
-				t.Fatalf("fold: %v", err)
-			}
-			if strings.Contains(got, tc.otherRuntimeH1) {
-				t.Errorf("%s worker received the OTHER runtime's 執行環境 section", tc.name)
-			}
-			// Recency-authoritative: the boot-sequence block is the TAIL, so
-			// nothing follows it, and the runtime's 執行環境 section is the only
-			// heading between the rest of the document and it. Before T-4595 the
-			// three shared blocks were grouped at the TOP for workers and the
-			// persona came after them — the one asymmetry with nothing behind it.
-			env := strings.LastIndex(got, tc.wantEnvH1)
-			if env < 0 {
-				t.Fatalf("%s worker is missing %q", tc.name, tc.wantEnvH1)
-			}
-			rest := got[env+len(tc.wantEnvH1):]
-			next := strings.Index(rest, "\n# ")
-			if next < 0 || !strings.HasPrefix(rest[next+1:], bootSequenceH1) {
-				t.Fatalf("%s: 執行環境 is not immediately followed by the 啟動步驟 heading — "+
-					"the runtime note must lead the tail block, not sit loose in the "+
-					"document", tc.name)
-			}
-			if strings.Contains(rest[next+1:], "\n# ") {
-				t.Errorf("%s: something follows the 啟動步驟 block; it must be last", tc.name)
-			}
+// wsStartFrame is the member `start` frame the wake path enqueues. persona is
+// the boot context the frame must carry verbatim; the session token is minted
+// per dispatch and is asserted by using it, not by writing it down.
+func wsStartFrame(workerID, persona, runtime, model, effort string) map[string]any {
+	return map[string]any{
+		"subject": workerID,
+		"topic":   "warden-command",
+		"data": map[string]any{
+			"rpc": "start",
+			"args": map[string]any{
+				"member_id":       workerID,
+				"persona_context": persona,
+				"member_token":    apiAnyString,
+				"role":            "outsource-worker",
+				"runtime":         runtime,
+				"model":           model,
+				"effort":          effort,
+				"session_name":    "",
+			},
+		},
+	}
+}
+
+func TestBuildWorkerBootContext(t *testing.T) {
+	t.Run("the assembled context is exactly what the cockpit's boot-context preview serves for the same worker", func(t *testing.T) {
+		api, h, d, owner, w := wsWorkerSpawnFixture(t, WorkerStatusAssigned)
+		task, err := d.GetTask("T-1")
+		if err != nil || task == nil {
+			t.Fatalf("GetTask: %v (%v)", task, err)
+		}
+
+		got, err := api.buildWorkerBootContext(w, *task, nil)
+		if err != nil {
+			t.Fatalf("buildWorkerBootContext: %v", err)
+		}
+		status, data := apiJSON(t, h, "GET", "/api/outsource-workers/ow-abc123/boot-context", owner, "")
+		if status != 200 {
+			t.Fatalf("boot-context preview: %d (%v)", status, data)
+		}
+		apiWantBody(t, data, map[string]any{"context": got})
+	})
+
+	t.Run("neither the bound task nor the type manual reaches the text, so two workers on different tasks boot on the same words", func(t *testing.T) {
+		api, _, d, _, w := wsWorkerSpawnFixture(t, WorkerStatusAssigned)
+		task, err := d.GetTask("T-1")
+		if err != nil || task == nil {
+			t.Fatalf("GetTask: %v (%v)", task, err)
+		}
+
+		base, err := api.buildWorkerBootContext(w, *task, nil)
+		if err != nil {
+			t.Fatalf("buildWorkerBootContext: %v", err)
+		}
+		other := *task
+		other.ID = "T-9"
+		other.Title = "Unload the reefer"
+		other.TypeKey = "customs"
+		withManual, err := api.buildWorkerBootContext(w, other, &TaskManual{
+			TypeKey: "customs", DisplayName: "Customs", Purpose: "clear it",
+			SopMD: "# SOP\nstep one", Learnings: "watch the tariff codes",
 		})
-	}
-}
-
-// TestWorkerBootContextIsTheStaffFoldMinusThePersona LIVED HERE and was RETIRED
-// on 2026-09-07 (owner, card rc-3c24fdc61ed3). It pinned 「外包的開機檔 ＝ 正職的
-// 開機檔扣掉第 3 格」, which stopped being true the moment slot 3 on the worker
-// path started carrying that member's own 傳承.
-//
-// 🔴 IT WAS NOT LOOSENED INTO A WEAKER VERSION OF ITSELF, and it was not simply
-// deleted: it was the only thing keeping the two assembly paths in step. It is
-// replaced by TWO NARROWER assertions in worker_boot_lore_t33_test.go — slots 1,
-// 2 and 4 still compared byte for byte, plus a new one saying neither path's
-// slot 3 can carry the other's lore scope. Read that file's header before
-// touching either of them.
-
-// T-ba04: a worker minted onto a task that is in `reassigning` gets a TAKEOVER
-// section in its boot context — who its predecessor is (id) + the "hand over
-// first, THEN flip the status yourself" protocol. A non-reassigning task must
-// NOT carry that section (a fresh assignment has no predecessor). RED/GREEN pin
-// for the boot-context handover fold.
-// TestWorkerBootContextIsInvariantToTheTaskAndItsManual — T-4595 replaces two
-// tests that pinned blocks the assembly no longer emits
-// (_ReassigningTakeoverSection and _MissingManualIsHonest).
-//
-// Neither the bound task nor its type manual is pasted into a worker's boot
-// context any more: the boot sequence has the worker pick the task up with
-// its own read (which serves the LIVE row, lock and handover note included), and
-// a manual is pulled with get_task_manual at the moment the task is planned —
-// exactly what staff do, in exactly the same places. So the STRONGEST statement
-// available is INVARIANCE: the assembled document does not vary with either
-// input at all.
-//
-// That is deliberately stronger than a list of absent substrings. A future
-// reinstatement of any per-task or per-manual text — the takeover protocol, the
-// honest "手冊目前不存在" placeholder, a description, a single field name —
-// makes two of these three documents differ and turns this red, without anyone
-// having to predict the wording.
-func TestWorkerBootContextIsInvariantToTheTaskAndItsManual(t *testing.T) {
-	s := newWorkerTestServer(t)
-	if err := s.dal.PutMember(Member{
-		ID: "m-pred", Name: "Ken", Kind: KindStaff, RosterStatus: RosterStatusActive,
-	}); err != nil {
-		t.Fatalf("put predecessor: %v", err)
-	}
-	w := OutsourceWorker{ID: "ow-new", Codename: "O-2", Model: "opus", Effort: "high"}
-
-	plain := Task{ID: "t-aabbccddeeff", TypeKey: "x", Title: "接手任務",
-		Priority: TaskPriorityMid}
-
-	// A reassignment takeover, with a predecessor and a handover note — the
-	// richest task shape the old assembly rendered.
-	takeover := plain
-	takeover.Lock = TaskLockReassigning
-	takeover.ReassignedFrom = "m-pred"
-	takeover.ReassignedFromKind = TaskExecutorStaff
-	takeover.Description = "把 42 號 PR 看完"
-	takeover.HandoverNote = "先跑既有測試"
-	takeover.HandoverNoteTS = 1
-	takeover.HandoverNoteBy = "m-kyle"
-
-	manual := &TaskManual{
-		TypeKey: "x", DisplayName: "審查 PR",
-		Purpose:   "review 一個 PR",
-		Fields:    `[{"name":"pr_url","required":true,"is_key":true}]`,
-		SopMD:     "先看 diff 再留結論",
-		Learnings: "大 PR 先分檔看",
-	}
-
-	base, err := s.buildWorkerBootContext(w, plain, nil)
-	if err != nil {
-		t.Fatalf("fold plain: %v", err)
-	}
-	// Positive control: the fold really did produce a document. Comparing two
-	// empty strings would satisfy every assertion below.
-	if len(base) < 10000 {
-		t.Fatalf("worker boot context is only %d bytes — the shared core is missing "+
-			"and the equalities below would be vacuous", len(base))
-	}
-
-	withTakeover, err := s.buildWorkerBootContext(w, takeover, nil)
-	if err != nil {
-		t.Fatalf("fold takeover: %v", err)
-	}
-	if withTakeover != base {
-		t.Error("worker boot context varies with the bound task — the worker reads " +
-			"the live task; a spawn-time copy can only be stale (T-4595)")
-	}
-
-	withManual, err := s.buildWorkerBootContext(w, takeover, manual)
-	if err != nil {
-		t.Fatalf("fold with manual: %v", err)
-	}
-	if withManual != base {
-		t.Error("worker boot context varies with the type manual — a manual is pulled " +
-			"with get_task_manual when the task is planned, as staff do (T-4595)")
-	}
-}
-
-// ── warden targeting ─────────────────────────────────────────────────────────
-
-// putWardenFixture registers one more active warden (= machine) on the roster.
-func putWardenFixture(t *testing.T, s *apiServer, id string) {
-	t.Helper()
-	if err := s.dal.PutMember(Member{
-		ID: id, Name: id + " box", Kind: KindWarden, Effort: "medium",
-		DesiredState: DesiredStateOffline, RosterStatus: RosterStatusActive,
-	}); err != nil {
-		t.Fatalf("put warden %s: %v", id, err)
-	}
-}
-
-// connectAgentOn projects an agent session onto a machine (a live SSE whose
-// token carries machineID as its claim) — the agentLoadOn input.
-func connectAgentOn(t *testing.T, s *apiServer, agentID, machineID string) {
-	t.Helper()
-	l, err := s.hub.Connect(agentID, machineID)
-	if err != nil {
-		t.Fatalf("hub connect %s@%s: %v", agentID, machineID, err)
-	}
-	t.Cleanup(func() { s.hub.Disconnect(l) })
-}
-
-// pickWarden calls the placement picker with a throwaway worker + wall clock —
-// the existing placement tests below predate the T-9ccf cooldown/health params
-// and only exercise the online/idlest/preference logic.
-func pickWarden(s *apiServer, pref string) string {
-	return s.pickWorkerWarden(OutsourceWorker{ID: "ow-pick"}, pref, nowSecs())
-}
-
-// TestPickWorkerWarden_UnnamedMachineNeverPlaces: placement is an explicit owner
-// decision — an empty preference (and the legacy "auto" spelling, which names no
-// machine either) resolves to NOTHING, no matter how many healthy idle wardens
-// are online. This is the whole point of the change: a worker nobody placed is
-// not quietly placed somewhere.
-func TestPickWorkerWarden_UnnamedMachineNeverPlaces(t *testing.T) {
-	s := newWorkerTestServer(t)
-	putWardenFixture(t, s, "m-other")
-	connectWarden(t, s, ServerSelfHost)
-	connectWarden(t, s, "m-other")
-
-	for _, pref := range []string{"", "auto"} {
-		if got := pickWarden(s, pref); got != "" {
-			t.Fatalf("preference %q with healthy wardens online: got %q, want \"\" (no placement)",
-				pref, got)
+		if err != nil {
+			t.Fatalf("buildWorkerBootContext: %v", err)
 		}
-	}
-	// SENTINEL: the same fixture places fine once a machine is actually named,
-	// so the emptiness above is the preference, not a broken fixture.
-	if got := pickWarden(s, "m-other"); got != "m-other" {
-		t.Fatalf("named machine: got %q, want m-other", got)
-	}
-}
+		apiWantValue(t, "context with another task and a manual", any(withManual), any(base))
 
-func TestPickWorkerWarden_FiltersBySelectedRuntime(t *testing.T) {
-	s := newWorkerTestServer(t)
-	putWardenFixture(t, s, "m-codex")
-	connectWarden(t, s, ServerSelfHost)
-	connectWarden(t, s, "m-codex")
-	s.telemetry.Set(ServerSelfHost, map[string]any{"runtimes": map[string]any{
-		RuntimeClaude: map[string]any{"installed": true, "logged_in": true},
-	}})
-	s.telemetry.Set("m-codex", map[string]any{"runtimes": map[string]any{
-		RuntimeCodex: map[string]any{"installed": true, "logged_in": true},
-	}})
-	w := OutsourceWorker{ID: "ow-codex", Runtime: RuntimeCodex}
-	if got := s.pickWorkerWarden(w, "m-codex", nowSecs()); got != "m-codex" {
-		t.Fatalf("Codex worker on the Codex-capable machine: got %q, want m-codex", got)
-	}
-	// A machine that cannot run the worker's runtime is REFUSED outright — no
-	// substitution onto the runtime-capable host that is sitting right there.
-	if got := s.pickWorkerWarden(w, ServerSelfHost, nowSecs()); got != "" {
-		t.Fatalf("Codex worker pinned to a claude-only machine: got %q, want \"\"", got)
-	}
-}
-
-func TestPickWorkerWarden_SpecifiedMachineOnline_Honoured(t *testing.T) {
-	s := newWorkerTestServer(t)
-	putWardenFixture(t, s, "m-other")
-	connectWarden(t, s, ServerSelfHost)
-	connectWarden(t, s, "m-other")
-	// m-other is BUSIER than server-self — an explicit machine id is honoured
-	// regardless: load is no longer an input to placement.
-	connectAgentOn(t, s, "mira", "m-other")
-	if got := pickWarden(s, "m-other"); got != "m-other" {
-		t.Fatalf("specified online machine: got %q, want m-other", got)
-	}
-}
-
-// TestPickWorkerWarden_SpecifiedMachineOffline_FailsClosed: the old contract
-// substituted another host when the named machine was offline, which booted the
-// worker somewhere the owner never chose. It now dispatches NOTHING.
-func TestPickWorkerWarden_SpecifiedMachineOffline_FailsClosed(t *testing.T) {
-	s := newWorkerTestServer(t)
-	putWardenFixture(t, s, "m-other")
-	putWardenFixture(t, s, "m-third")
-	connectWarden(t, s, ServerSelfHost)
-	connectWarden(t, s, "m-third")
-	// m-other is on the roster but OFFLINE, while two healthy wardens are online
-	// and idle — exactly the situation the fallback used to exploit.
-	if got := pickWarden(s, "m-other"); got != "" {
-		t.Fatalf("offline specified machine: got %q, want \"\" (no substitution)", got)
-	}
-	// SENTINEL: bring it online and the same pin places immediately.
-	connectWarden(t, s, "m-other")
-	if got := pickWarden(s, "m-other"); got != "m-other" {
-		t.Fatalf("machine back online: got %q, want m-other", got)
-	}
-	// An id naming no machine at all is likewise nothing.
-	if got := pickWarden(s, "m-nonexistent"); got != "" {
-		t.Fatalf("unknown machine id: got %q, want \"\"", got)
-	}
-}
-
-// TestPickWorkerWarden_CooledMachineSkipped (T-9ccf DoD② 換機): a machine benched
-// for a worker (a boot failure within the cooldown window) is refused while the
-// bench holds — but the worker now WAITS for its own machine instead of rotating
-// onto one the owner did not choose.
-func TestPickWorkerWarden_CooledMachineSkipped(t *testing.T) {
-	s := newWorkerTestServer(t)
-	putWardenFixture(t, s, "m-other")
-	connectWarden(t, s, ServerSelfHost)
-	connectWarden(t, s, "m-other")
-	now := 1_000_000.0
-	w := OutsourceWorker{ID: "ow-cool"}
-
-	s.outsourceMu.Lock()
-	s.benchWorkerMachine(w.ID, "m-other", now)
-	got := s.pickWorkerWarden(w, "m-other", now)
-	s.outsourceMu.Unlock()
-	if got != "" {
-		t.Fatalf("benched machine must not place (and must not rotate), got %q", got)
-	}
-
-	// After the cooldown window elapses the pinned machine is eligible again.
-	s.outsourceMu.Lock()
-	got = s.pickWorkerWarden(w, "m-other", now+workerSpawnCooldownSecs+1)
-	s.outsourceMu.Unlock()
-	if got != "m-other" {
-		t.Fatalf("expired cooldown must re-admit the pinned machine, got %q", got)
-	}
-}
-
-// TestFoldWorkerCommandResult_RefusedStartBenchesTarget (T-9ccf DoD② 換機): a
-// REFUSED start receipt (the converged member verb — P5b) benches the worker's
-// last spawn target so the next pick rotates off it. A legacy worker_start
-// receipt from an old warden benches too; a SUCCESSFUL receipt benches nothing.
-func TestFoldWorkerCommandResult_RefusedStartBenchesTarget(t *testing.T) {
-	s := newWorkerTestServer(t)
-	now := nowSecs()
-	putWorkerFixture(t, s, OutsourceWorker{
-		ID: "ow-rf", Codename: "O-1", TaskID: "t-rf", Status: WorkerStatusAssigned,
-		CreatedTS: now,
-	})
-	s.workerSpawnTarget["ow-rf"] = "m-bad" // in-memory spawn observation (P7d)
-	s.foldWorkerCommandResult("ow-rf", map[string]any{
-		"rpc": reconcileCmdStart, "ok": false, "reason": "session_already_exists",
-	}, triggerServer)
-
-	s.outsourceMu.Lock()
-	cooling := s.workerMachineCoolingOn("ow-rf", "m-bad", nowSecs())
-	s.outsourceMu.Unlock()
-	if !cooling {
-		t.Fatal("a refused start must bench its last spawn target")
-	}
-
-	// A refused LEGACY worker_start receipt (old warden, transition window)
-	// still benches.
-	putWorkerFixture(t, s, OutsourceWorker{
-		ID: "ow-lg", Codename: "O-3", TaskID: "t-lg", Status: WorkerStatusAssigned,
-		CreatedTS: now,
-	})
-	s.workerSpawnTarget["ow-lg"] = "m-old"
-	s.foldWorkerCommandResult("ow-lg", map[string]any{
-		"rpc": legacyWardenCmdWorkerStart, "ok": false, "reason": "session_already_exists",
-	}, triggerServer)
-	s.outsourceMu.Lock()
-	cooling = s.workerMachineCoolingOn("ow-lg", "m-old", nowSecs())
-	s.outsourceMu.Unlock()
-	if !cooling {
-		t.Fatal("a refused legacy worker_start must bench its last spawn target")
-	}
-
-	// A successful start receipt benches nothing.
-	putWorkerFixture(t, s, OutsourceWorker{
-		ID: "ow-ok", Codename: "O-2", TaskID: "t-ok", Status: WorkerStatusAssigned,
-		CreatedTS: now,
-	})
-	s.workerSpawnTarget["ow-ok"] = "m-good"
-	s.foldWorkerCommandResult("ow-ok", map[string]any{
-		"rpc": reconcileCmdStart, "ok": true,
-	}, triggerServer)
-	s.outsourceMu.Lock()
-	cooling = s.workerMachineCoolingOn("ow-ok", "m-good", nowSecs())
-	s.outsourceMu.Unlock()
-	if cooling {
-		t.Fatal("a successful start must NOT bench its target")
-	}
-}
-
-// ── wake dispatch ────────────────────────────────────────────────────────────
-
-func TestNotifyWorkerSpawn_NoOnlineWarden_FailClosed(t *testing.T) {
-	s := newWorkerTestServer(t)
-	task := putTaskFixture(t, s, Task{
-		ID: "t-000000000001", TypeKey: "review-pr", Title: "x",
-		Status: TaskStatusNotStarted, Priority: TaskPriorityMid,
-		ExecutorKind: TaskExecutorOutsource, ExecutorID: "ow-1",
-	})
-	w := putWorkerFixture(t, s, OutsourceWorker{
-		ID: "ow-1", Codename: "O-1", Model: "opus", Effort: "high",
-		TaskID: task.ID, Status: WorkerStatusAssigned,
-	})
-	s.outsourceMu.Lock()
-	s.notifyWorkerSpawn(w, nowSecs())
-	_, stamped := s.workerSpawnAt[w.ID]
-	s.outsourceMu.Unlock()
-	if stamped {
-		t.Error("fail-closed dispatch must NOT stamp pacing (next tick must retry)")
-	}
-	if got := s.hub.DrainWardenCommands(ServerSelfHost); len(got) != 0 {
-		t.Errorf("nothing may be enqueued with no online warden, got %d frames", len(got))
-	}
-}
-
-func TestNotifyWorkerSpawn_DispatchesMemberStart_AndPaces(t *testing.T) {
-	s := newWorkerTestServer(t)
-	connectWarden(t, s, ServerSelfHost)
-	task := putTaskFixture(t, s, Task{
-		ID: "t-000000000002", TypeKey: "review-pr", Title: "Review PR 42",
-		Status: TaskStatusNotStarted, Priority: TaskPriorityMid,
-		ExecutorKind: TaskExecutorOutsource, ExecutorID: "ow-2",
-	})
-	if err := s.dal.PutTaskManual(TaskManual{TypeKey: "review-pr", Purpose: "p",
-		Fields: "[]", Assignee: `{"kind":"outsource","model":"opus"}`}); err != nil {
-		t.Fatalf("put manual: %v", err)
-	}
-	w := putWorkerFixture(t, s, OutsourceWorker{
-		ID: "ow-2", Codename: "O-2", Model: "opus", Effort: "high",
-		TaskID: task.ID, Status: WorkerStatusAssigned,
-		DesiredMachineID: ServerSelfHost, // explicit placement (owner ruling 2026-07-25)
-	})
-
-	s.outsourceMu.Lock()
-	s.notifyWorkerSpawn(w, nowSecs())
-	s.notifyWorkerSpawn(w, nowSecs()) // paced: within the retry window → NOT re-enqueued
-	s.outsourceMu.Unlock()
-
-	frames := s.hub.DrainWardenCommands(ServerSelfHost)
-	if len(frames) != 1 {
-		t.Fatalf("want exactly 1 start (pacing), got %d", len(frames))
-	}
-	rpc, args := decodeWardenFrame(t, frames[0].Frame)
-	if rpc != reconcileCmdStart {
-		t.Fatalf("rpc = %q, want start (P5b: the member verb)", rpc)
-	}
-	if args["member_id"] != "ow-2" || args["model"] != "opus" || args["effort"] != "high" {
-		t.Errorf("args = %v", args)
-	}
-	if args["role"] != workerBootRoleLabel {
-		t.Errorf("role = %v, want %q", args["role"], workerBootRoleLabel)
-	}
-	if args["session_name"] != "" {
-		t.Errorf("session_name = %v, want \"\" (warden derives member-<ow-id>)", args["session_name"])
-	}
-	token, _ := args["member_token"].(string)
-	if token == "" {
-		t.Fatal("member_token missing from the start frame")
-	}
-	// The minted token's sub must be the worker id (server-mint, agent floor).
-	if sub := jwtSubOf(t, token); sub != "ow-2" {
-		t.Errorf("token sub = %q, want ow-2", sub)
-	}
-	// A案 P1: the token now burns the ACTUAL dispatch host as machine_id — here
-	// server-self was the "auto" pick, so the resolved warden id (never a literal
-	// "auto"/"") rides the claim, mirroring the member token.
-	if mid := jwtMachineOf(t, token); mid != ServerSelfHost {
-		t.Errorf("token machine_id = %q, want %s (the resolved auto pick)", mid, ServerSelfHost)
-	}
-	persona, _ := args["persona_context"].(string)
-	// T-4595: this used to require the codename and the bound task title in the
-	// frame. Neither is in a worker's boot context any more — it is the staff
-	// fold minus the persona slot. What this frame assertion is actually FOR is
-	// that the fold really rode the wire (an empty or truncated persona_context
-	// boots a worker with no instructions at all), so it now checks the shared
-	// blocks, plus the absences so the removal cannot quietly come back through
-	// the spawn path.
-	// 釘的是 seed 的 H1 逐字位元組；rc-e12733548e4b 之後是新名，與 seed 同一顆
-	// commit 換掉。
-	for _, want := range []string{"# Global Context", "# 啟動步驟（Boot Sequence"} {
-		if !strings.Contains(persona, want) {
-			t.Errorf("persona_context is missing the shared block %q", want)
+		stranger := w
+		stranger.ID = "ow-def456"
+		stranger.Codename = "Stevedore"
+		stranger.Model = "opus"
+		stranger.Effort = "high"
+		forStranger, err := api.buildWorkerBootContext(stranger, *task, nil)
+		if err != nil {
+			t.Fatalf("buildWorkerBootContext: %v", err)
 		}
-	}
-	for _, gone := range []string{"O-2", "Review PR 42", "# 你的身分"} {
-		if strings.Contains(persona, gone) {
-			t.Errorf("persona_context still carries %q (T-4595)", gone)
+		apiWantValue(t, "context for another worker", any(forStranger), any(base))
+	})
+
+	t.Run("the worker's own runtime picks slot 4, so a codex worker is handed different words than a claude one", func(t *testing.T) {
+		api, _, d, _, w := wsWorkerSpawnFixture(t, WorkerStatusAssigned)
+		task, err := d.GetTask("T-1")
+		if err != nil || task == nil {
+			t.Fatalf("GetTask: %v (%v)", task, err)
 		}
-	}
-	// The token must never leak into the persona text (file/env only).
-	if strings.Contains(persona, token) {
-		t.Error("worker token leaked into the persona context")
-	}
-	if s.workerSpawnTarget["ow-2"] != ServerSelfHost {
-		t.Errorf("spawn target = %q, want %s", s.workerSpawnTarget["ow-2"], ServerSelfHost)
-	}
-}
 
-// TestNotifyWorkerSpawn_StampsSpawnObservation: each dispatch must stamp the
-// in-memory spawn observation (workerSpawnAttempts++/workerSpawnAt/
-// workerSpawnTarget) the cockpit projection folds from. In-memory by design
-// since the P7d fold (the former durable spawn columns were retired with the
-// outsource_worker table) — a restart forgetting them is the accepted trade.
-func TestNotifyWorkerSpawn_StampsSpawnObservation(t *testing.T) {
-	s := newWorkerTestServer(t)
-	connectWarden(t, s, ServerSelfHost)
-	task := putTaskFixture(t, s, Task{
-		ID: "t-000000000009", TypeKey: "review-pr", Title: "Review",
-		Status: TaskStatusNotStarted, Priority: TaskPriorityMid,
-		ExecutorKind: TaskExecutorOutsource, ExecutorID: "ow-9",
-	})
-	if err := s.dal.PutTaskManual(TaskManual{TypeKey: "review-pr", Purpose: "p",
-		Fields: "[]", Assignee: `{"kind":"outsource","model":"opus"}`}); err != nil {
-		t.Fatalf("put manual: %v", err)
-	}
-	w := putWorkerFixture(t, s, OutsourceWorker{
-		ID: "ow-9", Codename: "O-9", Model: "opus", Effort: "high",
-		TaskID: task.ID, Status: WorkerStatusAssigned,
-		DesiredMachineID: ServerSelfHost, // explicit placement (owner ruling 2026-07-25)
-	})
-
-	s.outsourceMu.Lock()
-	s.notifyWorkerSpawn(w, nowSecs())
-	s.outsourceMu.Unlock()
-
-	if got := s.workerSpawnAttempts["ow-9"]; got != 1 {
-		t.Fatalf("workerSpawnAttempts = %d, want 1", got)
-	}
-	if got, _ := s.workerSpawnObs("ow-9"); got != ServerSelfHost {
-		t.Fatalf("workerSpawnTarget = %q, want %s", got, ServerSelfHost)
-	}
-	if s.workerSpawnAt["ow-9"] == 0 {
-		t.Fatalf("workerSpawnAt must be stamped, got 0")
-	}
-	// A案 P6: a successful dispatch stamps the shared-FSM in-flight state so
-	// reconcileWorkerLiveness never doubles (and never zombie-misreads) a start
-	// it did not decide itself.
-	st := s.workerReconcileStates["ow-9"]
-	if st.LastCommand != reconcileCmdStart || st.Phase != reconcilePhaseStarting {
-		t.Fatalf("FSM state after dispatch = %+v, want start/starting", st)
-	}
-}
-
-func TestNotifyWorkerSpawn_HonoursManualMachinePreference(t *testing.T) {
-	s := newWorkerTestServer(t)
-	putWardenFixture(t, s, "m-other")
-	connectWarden(t, s, ServerSelfHost)
-	connectWarden(t, s, "m-other")
-	task := putTaskFixture(t, s, Task{
-		ID: "t-00000000000e", TypeKey: "review-pr", Title: "x",
-		Status: TaskStatusNotStarted, Priority: TaskPriorityMid,
-		ExecutorKind: TaskExecutorOutsource, ExecutorID: "ow-e",
-	})
-	// The manual pins the spawn to m-other — the frame must land on ITS FIFO
-	// even though the tie-break order would otherwise pick server-self.
-	if err := s.dal.PutTaskManual(TaskManual{TypeKey: "review-pr", Purpose: "p",
-		Fields:   "[]",
-		Assignee: `{"kind":"outsource","model":"opus","machine":"m-other"}`}); err != nil {
-		t.Fatalf("put manual: %v", err)
-	}
-	w := putWorkerFixture(t, s, OutsourceWorker{
-		ID: "ow-e", Codename: "O-14", Model: "opus", Effort: "high",
-		TaskID: task.ID, Status: WorkerStatusAssigned,
-	})
-
-	s.outsourceMu.Lock()
-	s.notifyWorkerSpawn(w, nowSecs())
-	s.outsourceMu.Unlock()
-
-	if got := len(s.hub.DrainWardenCommands(ServerSelfHost)); got != 0 {
-		t.Errorf("server-self must receive nothing, got %d frames", got)
-	}
-	frames := s.hub.DrainWardenCommands("m-other")
-	if len(frames) != 1 {
-		t.Fatalf("want 1 start on the preferred machine, got %d", len(frames))
-	}
-	rpc, args := decodeWardenFrame(t, frames[0].Frame)
-	if rpc != reconcileCmdStart || args["member_id"] != "ow-e" {
-		t.Errorf("frame = %s %v", rpc, args)
-	}
-	if s.workerSpawnTarget["ow-e"] != "m-other" {
-		t.Errorf("spawn target = %q, want m-other", s.workerSpawnTarget["ow-e"])
-	}
-	// A案 P1: the machine_id claim must equal the pinned host it actually landed
-	// on, not the literal preference string.
-	token, _ := args["member_token"].(string)
-	if mid := jwtMachineOf(t, token); mid != "m-other" {
-		t.Errorf("token machine_id = %q, want m-other (the pinned dispatch host)", mid)
-	}
-}
-
-// readWorker re-reads a worker row from the DAL — the blocked-placement stamp
-// lands on the ROW, so every assertion below reads it back rather than trusting
-// the in-memory copy the caller passed in.
-func readWorker(t *testing.T, s *apiServer, id string) OutsourceWorker {
-	t.Helper()
-	w, err := s.dal.GetOutsourceWorker(id)
-	if err != nil || w == nil {
-		t.Fatalf("re-read worker %s: %+v %v", id, w, err)
-	}
-	return *w
-}
-
-// blockedSpawnFixture seeds one assigned worker on a live outsource task, ready
-// for a spawn attempt that is expected to be refused at placement time.
-func blockedSpawnFixture(t *testing.T, s *apiServer, taskID, workerID, machine string) OutsourceWorker {
-	t.Helper()
-	task := putTaskFixture(t, s, Task{
-		ID: taskID, Title: "placement stall", Status: TaskStatusNotStarted,
-		Priority: TaskPriorityMid, ExecutorKind: TaskExecutorOutsource,
-		ExecutorID: workerID,
-	})
-	return putWorkerFixture(t, s, OutsourceWorker{
-		ID: workerID, Codename: "O-" + workerID, Model: "opus", Effort: "high",
-		TaskID: task.ID, Status: WorkerStatusAssigned, DesiredMachineID: machine,
-	})
-}
-
-// TestNotifyWorkerSpawn_StampsNoMachineSelectedReason: a spawn nobody placed
-// dispatches NOTHING and says so on the worker row (last_op_reason
-// no_machine_selected) — and because the 30s cadence retries the same blocked
-// spawn forever, an identical retry must NOT re-stamp the row.
-func TestNotifyWorkerSpawn_StampsNoMachineSelectedReason(t *testing.T) {
-	s := newWorkerTestServer(t)
-	putWardenFixture(t, s, "m-other")
-	connectWarden(t, s, ServerSelfHost)
-	connectWarden(t, s, "m-other")
-	w := blockedSpawnFixture(t, s, "t-0000000000b1", "ow-nm", "")
-
-	now := 1_000_000.0
-	s.outsourceMu.Lock()
-	dispatched := s.notifyWorkerSpawn(w, now)
-	s.outsourceMu.Unlock()
-	if dispatched {
-		t.Fatal("a worker no one placed must not be dispatched")
-	}
-	// Two healthy idle wardens are online: neither may be substituted.
-	for _, host := range []string{ServerSelfHost, "m-other"} {
-		if got := s.hub.DrainWardenCommands(host); len(got) != 0 {
-			t.Fatalf("%s must receive nothing, got %d frames", host, len(got))
+		claude, err := api.buildWorkerBootContext(w, *task, nil)
+		if err != nil {
+			t.Fatalf("buildWorkerBootContext: %v", err)
 		}
-	}
-	blocked := readWorker(t, s, "ow-nm")
-	if !strings.HasPrefix(blocked.LastOpReason, placementReasonNoMachine+":") {
-		t.Fatalf("last_op_reason = %q, want a %s reason", blocked.LastOpReason,
-			placementReasonNoMachine)
-	}
-	if blocked.LastOp != reconcileCmdStart || blocked.LastOpOK == nil || *blocked.LastOpOK {
-		t.Fatalf("a blocked spawn must stamp a FAILED start op: %+v", blocked)
-	}
-	if blocked.LastOpAt != now {
-		t.Fatalf("last_op_at = %v, want %v", blocked.LastOpAt, now)
-	}
-
-	// The anti-churn guarantee: same cause, same row, no second write.
-	s.outsourceMu.Lock()
-	s.notifyWorkerSpawn(blocked, now+workerSpawnRetrySecs+1)
-	s.outsourceMu.Unlock()
-	if again := readWorker(t, s, "ow-nm"); again.LastOpAt != blocked.LastOpAt {
-		t.Fatalf("an identical blocked retry must NOT re-stamp: last_op_at %v → %v",
-			blocked.LastOpAt, again.LastOpAt)
-	}
-
-	// SENTINEL: name an online machine and the very same worker dispatches, so
-	// the refusals above are the missing placement, not a broken fixture.
-	if err := s.dal.SetMemberDesiredMachineID("ow-nm", "m-other"); err != nil {
-		t.Fatalf("pin worker: %v", err)
-	}
-	s.outsourceMu.Lock()
-	ok := s.notifyWorkerSpawn(readWorker(t, s, "ow-nm"), now+2*workerSpawnRetrySecs)
-	s.outsourceMu.Unlock()
-	if !ok || len(s.hub.DrainWardenCommands("m-other")) != 1 {
-		t.Fatal("a named online machine must take the worker")
-	}
-}
-
-// TestNotifyWorkerSpawn_StampsMachineUnavailableReason: a worker pinned to an
-// OFFLINE machine stalls with machine_unavailable — it is never re-placed onto
-// the healthy warden sitting right there.
-func TestNotifyWorkerSpawn_StampsMachineUnavailableReason(t *testing.T) {
-	s := newWorkerTestServer(t)
-	putWardenFixture(t, s, "m-pinned")
-	connectWarden(t, s, ServerSelfHost) // online, idle, and NOT the pin
-	w := blockedSpawnFixture(t, s, "t-0000000000b2", "ow-off", "m-pinned")
-
-	now := 2_000_000.0
-	s.outsourceMu.Lock()
-	dispatched := s.notifyWorkerSpawn(w, now)
-	s.outsourceMu.Unlock()
-	if dispatched {
-		t.Fatal("an offline pin must not be dispatched anywhere")
-	}
-	if got := s.hub.DrainWardenCommands(ServerSelfHost); len(got) != 0 {
-		t.Fatalf("no other machine may be substituted for the offline pin, got %d frames",
-			len(got))
-	}
-	blocked := readWorker(t, s, "ow-off")
-	if !strings.HasPrefix(blocked.LastOpReason, placementReasonUnavailable+":") {
-		t.Fatalf("last_op_reason = %q, want a %s reason", blocked.LastOpReason,
-			placementReasonUnavailable)
-	}
-	if !strings.Contains(blocked.LastOpReason, "m-pinned") {
-		t.Fatalf("the reason must name the machine the owner chose: %q", blocked.LastOpReason)
-	}
-	if blocked.LastOpOK == nil || *blocked.LastOpOK {
-		t.Fatalf("a blocked spawn must stamp last_op_ok=false: %+v", blocked)
-	}
-
-	// SENTINEL: the pin comes online and the identical worker boots THERE.
-	connectWarden(t, s, "m-pinned")
-	s.outsourceMu.Lock()
-	ok := s.notifyWorkerSpawn(blocked, now+workerSpawnRetrySecs+1)
-	s.outsourceMu.Unlock()
-	if !ok {
-		t.Fatal("the pinned machine coming online must dispatch the worker")
-	}
-	if got := len(s.hub.DrainWardenCommands("m-pinned")); got != 1 {
-		t.Fatalf("want 1 start on the pinned machine, got %d", got)
-	}
-}
-
-// TestNotifyWorkerSpawn_TaskRowMachineSurvivesRestart: the placement source
-// chain reads the DURABLE 發包 target on the task row. workerMachinePref is
-// in-memory by design, so a restart forgets it — and an ad-hoc 發包 worker has no
-// type manual to fall back to. The task row is what keeps it from stalling
-// permanently, so this test deliberately leaves the in-memory map EMPTY.
-func TestNotifyWorkerSpawn_TaskRowMachineSurvivesRestart(t *testing.T) {
-	s := newWorkerTestServer(t)
-	putWardenFixture(t, s, "m-dispatch")
-	connectWarden(t, s, ServerSelfHost)
-	connectWarden(t, s, "m-dispatch")
-
-	// No TypeKey → no type manual, exactly like an ad-hoc 發包.
-	task := putTaskFixture(t, s, Task{
-		ID: "t-0000000000c1", Title: "ad-hoc 發包", Status: TaskStatusNotStarted,
-		Priority: TaskPriorityMid, ExecutorKind: TaskExecutorOutsource,
-		ExecutorID: "ow-restart", OutsourceMachine: "m-dispatch",
+		codexWorker := w
+		codexWorker.Runtime = "codex"
+		codex, err := api.buildWorkerBootContext(codexWorker, *task, nil)
+		if err != nil {
+			t.Fatalf("buildWorkerBootContext: %v", err)
+		}
+		if codex == claude {
+			t.Fatalf("the codex fold must not be the claude fold; both are %d chars", len(claude))
+		}
+		blankRuntime := w
+		blankRuntime.Runtime = ""
+		normalized, err := api.buildWorkerBootContext(blankRuntime, *task, nil)
+		if err != nil {
+			t.Fatalf("buildWorkerBootContext: %v", err)
+		}
+		apiWantValue(t, "context for an unnamed runtime", any(normalized), any(claude))
 	})
-	w := putWorkerFixture(t, s, OutsourceWorker{
-		ID: "ow-restart", Codename: "O-restart", Model: "opus", Effort: "high",
-		TaskID: task.ID, Status: WorkerStatusAssigned,
+
+	t.Run("the owner's additive block lands in slot 2, between the shared seed and the runtime's boot sequence", func(t *testing.T) {
+		api, h, d, owner, w := wsWorkerSpawnFixture(t, WorkerStatusAssigned)
+		task, err := d.GetTask("T-1")
+		if err != nil || task == nil {
+			t.Fatalf("GetTask: %v (%v)", task, err)
+		}
+		before, err := api.buildWorkerBootContext(w, *task, nil)
+		if err != nil {
+			t.Fatalf("buildWorkerBootContext: %v", err)
+		}
+
+		status, data := apiJSON(t, h, "POST", "/api/global-context", owner,
+			`{"text":"Studio rule: never touch the bonded rack"}`)
+		if status != 200 {
+			t.Fatalf("replace global context: %d (%v)", status, data)
+		}
+		after, err := api.buildWorkerBootContext(w, *task, nil)
+		if err != nil {
+			t.Fatalf("buildWorkerBootContext: %v", err)
+		}
+		head, tail, found := strings.Cut(after,
+			"# 使用者自訂（Owner Additions）\n\nStudio rule: never touch the bonded rack\n\n")
+		if !found {
+			t.Fatalf("the owner's block is not in the assembled context (%d chars)", len(after))
+		}
+		apiWantValue(t, "the text either side of the owner block", any(head+tail), any(before))
 	})
-	if _, ok := s.workerMachinePref[w.ID]; ok {
-		t.Fatal("fixture must leave workerMachinePref empty — that is what a restart forgets")
-	}
-
-	s.outsourceMu.Lock()
-	dispatched := s.notifyWorkerSpawn(w, nowSecs())
-	s.outsourceMu.Unlock()
-	if !dispatched {
-		t.Fatal("the task row's durable 發包 target must place the worker after a restart")
-	}
-	frames := s.hub.DrainWardenCommands("m-dispatch")
-	if len(frames) != 1 {
-		t.Fatalf("want 1 start on the task row's machine, got %d", len(frames))
-	}
-	if rpc, args := decodeWardenFrame(t, frames[0].Frame); rpc != reconcileCmdStart ||
-		args["member_id"] != "ow-restart" {
-		t.Fatalf("frame = %s %v", rpc, args)
-	}
-	if got := len(s.hub.DrainWardenCommands(ServerSelfHost)); got != 0 {
-		t.Fatalf("no other machine may be substituted, got %d frames", got)
-	}
 }
 
-// TestNotifyWorkerSpawn_BlockedReasonNamesTheCause: the refusal text is the
-// ACTUAL cause, not a three-way disjunction the owner has to guess between —
-// each way a named machine can refuse a worker writes its own distinguishable
-// machine_unavailable reason onto the worker row.
-func TestNotifyWorkerSpawn_BlockedReasonNamesTheCause(t *testing.T) {
-	s := newWorkerTestServer(t)
-	connectWarden(t, s, ServerSelfHost) // online, idle, and never the pin
-	putWardenFixture(t, s, "m-offline") // on the roster, never connects
-	putWardenFixture(t, s, "m-benched")
-	connectWarden(t, s, "m-benched")
-	putWardenFixture(t, s, "m-claudeonly")
-	connectWarden(t, s, "m-claudeonly")
-	s.telemetry.Set("m-claudeonly", map[string]any{"runtimes": map[string]any{
-		RuntimeClaude: map[string]any{"installed": true, "logged_in": true},
-	}})
-	// An ACTIVE roster member that is not a machine at all.
-	putTestMember(t, s, testAgent("m-person"))
+func TestPickWorkerWarden(t *testing.T) {
+	t.Run("an online machine that can run the worker's runtime is the machine the session boots on", func(t *testing.T) {
+		api, _, _, _, w := wsWorkerSpawnFixture(t, WorkerStatusAssigned)
+		apiTestListen(t, api, ServerSelfHost)
 
-	now := 4_000_000.0
-	cases := []struct {
-		name, workerID, taskID, machine, runtime, phrase string
-		bench                                            bool
-	}{
-		{name: "offline", workerID: "ow-c1", taskID: "t-0000000000d1",
-			machine: "m-offline", phrase: "is offline"},
-		{name: "benched after a failed boot", workerID: "ow-c2", taskID: "t-0000000000d2",
-			machine: "m-benched", bench: true, phrase: "benched after a failed boot"},
-		{name: "wrong runtime", workerID: "ow-c3", taskID: "t-0000000000d3",
-			machine: "m-claudeonly", runtime: RuntimeCodex,
-			phrase: "does not provide the '" + RuntimeCodex + "' runtime"},
-		{name: "not an active machine", workerID: "ow-c4", taskID: "t-0000000000d4",
-			machine: "m-person", phrase: "is not an active machine"},
-		{name: "does not exist", workerID: "ow-c5", taskID: "t-0000000000d5",
-			machine: "m-ghost", phrase: "does not exist"},
-	}
-	seen := map[string]string{}
-	for _, c := range cases {
-		w := blockedSpawnFixture(t, s, c.taskID, c.workerID, c.machine)
-		if c.runtime != "" {
-			w.Runtime = c.runtime
-			// The row already exists (blockedSpawnFixture built it), so the
-			// column moves through its sole writer since T-55. Placement reads
-			// the VALUE it is handed, so the in-memory field is what this case
-			// actually exercises — but leaving the row disagreeing with it would
-			// make this a false green the day placement re-reads the row.
-			if err := s.dal.SetMemberRuntime(c.workerID, c.runtime); err != nil {
-				t.Fatalf("%s: set runtime: %v", c.name, err)
-			}
-		}
-		s.outsourceMu.Lock()
-		if c.bench {
-			s.benchWorkerMachine(w.ID, c.machine, now)
-		}
-		dispatched := s.notifyWorkerSpawn(w, now)
-		s.outsourceMu.Unlock()
-		if dispatched {
-			t.Fatalf("%s: a refused placement must not dispatch", c.name)
-		}
-		blocked := readWorker(t, s, c.workerID)
-		if !strings.HasPrefix(blocked.LastOpReason, placementReasonUnavailable+":") {
-			t.Fatalf("%s: last_op_reason = %q, want a %s reason", c.name,
-				blocked.LastOpReason, placementReasonUnavailable)
-		}
-		if !strings.Contains(blocked.LastOpReason, c.phrase) {
-			t.Fatalf("%s: last_op_reason must name the cause %q, got %q", c.name,
-				c.phrase, blocked.LastOpReason)
-		}
-		if prior, dup := seen[blocked.LastOpReason]; dup {
-			t.Fatalf("%s and %s share one reason %q — the causes are not distinguishable",
-				c.name, prior, blocked.LastOpReason)
-		}
-		seen[blocked.LastOpReason] = c.name
-	}
-	if got := len(s.hub.DrainWardenCommands(ServerSelfHost)); got != 0 {
-		t.Fatalf("no refusal may be substituted onto the idle warden, got %d frames", got)
-	}
-
-	// SENTINEL: an online machine that can take the worker still dispatches, so
-	// the refusals above are the causes, not a broken fixture.
-	ok := blockedSpawnFixture(t, s, "t-0000000000d6", "ow-c6", ServerSelfHost)
-	s.outsourceMu.Lock()
-	dispatched := s.notifyWorkerSpawn(ok, now)
-	s.outsourceMu.Unlock()
-	if !dispatched || len(s.hub.DrainWardenCommands(ServerSelfHost)) != 1 {
-		t.Fatal("a healthy named machine must take the worker")
-	}
-}
-
-// TestStampWorkerPlacementBlocked_ReReadsTheRowBeforeWriting: the stamp is a
-// whole-row write on a snapshot the tick loaded earlier, and the HTTP faces write
-// worker rows without holding outsourceMu — so a change that landed meanwhile
-// must survive the stamp, and a worker released meanwhile must not be written at
-// all.
-func TestStampWorkerPlacementBlocked_ReReadsTheRowBeforeWriting(t *testing.T) {
-	s := newWorkerTestServer(t)
-	putWardenFixture(t, s, "m-gone")
-	stale := blockedSpawnFixture(t, s, "t-0000000000e2", "ow-stale", "m-gone")
-
-	// A relocate lands after the tick took its snapshot — through the pin's sole
-	// writer, which is what relocateWorkerByID uses since T-55 (a whole-row
-	// worker write no longer carries desired_machine_id).
-	if err := s.dal.SetMemberDesiredMachineID("ow-stale", "m-moved"); err != nil {
-		t.Fatalf("relocate: %v", err)
-	}
-
-	now := 4_000_000.0
-	s.outsourceMu.Lock()
-	s.notifyWorkerSpawn(stale, now)
-	s.outsourceMu.Unlock()
-
-	got := readWorker(t, s, "ow-stale")
-	// SENTINEL: the block really is stamped — the fixture reaches the write.
-	if !strings.HasPrefix(got.LastOpReason, placementReasonUnavailable+":") ||
-		got.LastOpAt != now {
-		t.Fatalf("an offline pin must stamp a block at %v: %+v", now, got)
-	}
-	if got.DesiredMachineID != "m-moved" {
-		t.Fatalf("the stamp must not clobber a pin that landed after the snapshot, got %q",
-			got.DesiredMachineID)
-	}
-
-	// A worker RELEASED after the snapshot is left alone: there is nothing left
-	// to explain, and writing the snapshot back would resurrect it as assigned.
-	released := readWorker(t, s, "ow-stale")
-	released.Status = WorkerStatusReleased
-	putWorkerFixture(t, s, released)
-	// Clear the receipt through its SOLE writer (T-55) — the whole-row fixture
-	// write above can no longer move these columns, so zeroing them on the
-	// snapshot would leave the FIRST stamp's receipt in place and the assertion
-	// below would pass or fail on that instead of on the second stamp.
-	if err := s.dal.SetMemberOpReceipt("ow-stale", "", nil, "", "", 0); err != nil {
-		t.Fatalf("clear receipt: %v", err)
-	}
-
-	s.outsourceMu.Lock()
-	s.notifyWorkerSpawn(stale, now+workerSpawnRetrySecs+1)
-	s.outsourceMu.Unlock()
-
-	after := readWorker(t, s, "ow-stale")
-	if after.Status != WorkerStatusReleased || after.LastOpReason != "" || after.LastOpAt != 0 {
-		t.Fatalf("a released worker must not be written back by the stamp: %+v", after)
-	}
-}
-
-// TestNotifyWorkerSpawn_BlockRestampedAfterDispatch: the anti-churn guard
-// suppresses REPETITION, never news. A block, a real dispatch, then the same
-// block again must carry a FRESH last_op_at — without the clear on the dispatch
-// path the second block matches the first and is silently swallowed, leaving the
-// cockpit showing "stalled an hour ago" for a stall happening right now.
-func TestNotifyWorkerSpawn_BlockRestampedAfterDispatch(t *testing.T) {
-	s := newWorkerTestServer(t)
-	putWardenFixture(t, s, "m-flip")
-	w := blockedSpawnFixture(t, s, "t-0000000000e1", "ow-flip", "m-flip")
-
-	first := 3_000_000.0
-	s.outsourceMu.Lock()
-	s.notifyWorkerSpawn(w, first)
-	s.outsourceMu.Unlock()
-	blocked := readWorker(t, s, "ow-flip")
-	if !strings.HasPrefix(blocked.LastOpReason, placementReasonUnavailable+":") ||
-		blocked.LastOpAt != first {
-		t.Fatalf("an offline pin must stamp a block at %v: %+v", first, blocked)
-	}
-
-	// The machine comes online and the start actually lands.
-	conn, err := s.hub.Connect("m-flip", "")
-	if err != nil {
-		t.Fatalf("hub connect m-flip: %v", err)
-	}
-	s.outsourceMu.Lock()
-	dispatched := s.notifyWorkerSpawn(readWorker(t, s, "ow-flip"), first+workerSpawnRetrySecs+1)
-	s.outsourceMu.Unlock()
-	if !dispatched || len(s.hub.DrainWardenCommands("m-flip")) != 1 {
-		t.Fatal("the pin coming online must dispatch the worker")
-	}
-
-	// It goes offline again: the SAME cause, but after a dispatch this is news.
-	s.hub.Disconnect(conn)
-	third := first + 10*workerSpawnRetrySecs
-	s.outsourceMu.Lock()
-	s.notifyWorkerSpawn(readWorker(t, s, "ow-flip"), third)
-	s.outsourceMu.Unlock()
-	again := readWorker(t, s, "ow-flip")
-	if again.LastOpReason != blocked.LastOpReason {
-		t.Fatalf("the second block must carry the same cause: %q vs %q",
-			again.LastOpReason, blocked.LastOpReason)
-	}
-	if again.LastOpAt != third {
-		t.Fatalf("a block AFTER a dispatch must re-stamp: last_op_at = %v, want %v "+
-			"(keeping the first block's %v means the dispatch never cleared it)",
-			again.LastOpAt, third, blocked.LastOpAt)
-	}
-}
-
-// A案 P5a: worker_stop rides the same fail-closed reachability gate as member
-// dispatch — an offline target warden gets nothing in its FIFO.
-func TestEnqueueWorkerStop_OfflineTarget_FailClosed(t *testing.T) {
-	s := newWorkerTestServer(t)
-	s.outsourceMu.Lock()
-	accepted := s.enqueueWorkerStop(ServerSelfHost, "ow-1")
-	s.outsourceMu.Unlock()
-	if accepted {
-		t.Error("worker_stop toward an offline warden must report not enqueued")
-	}
-	if got := s.hub.DrainWardenCommands(ServerSelfHost); len(got) != 0 {
-		t.Errorf("nothing may land in a dead warden's FIFO, got %d frames", len(got))
-	}
-
-	connectWarden(t, s, ServerSelfHost)
-	s.outsourceMu.Lock()
-	accepted = s.enqueueWorkerStop(ServerSelfHost, "ow-1")
-	s.outsourceMu.Unlock()
-	if !accepted {
-		t.Fatal("worker_stop toward an online warden must enqueue")
-	}
-	frames := s.hub.DrainWardenCommands(ServerSelfHost)
-	if len(frames) != 1 {
-		t.Fatalf("want 1 worker_stop frame, got %d", len(frames))
-	}
-	if rpc, args := decodeWardenFrame(t, frames[0].Frame); rpc != reconcileCmdStop ||
-		args["member_id"] != "ow-1" {
-		t.Errorf("rpc = %q args = %v", rpc, args)
-	}
-}
-
-// A案 P5a rework: an owner stop whose kill the gate refused (target warden
-// unreachable) is PARKED and re-fired by the tick once the target reconnects —
-// never silently lost (殘活 session 零容忍).
-func TestStopWorkerNow_OfflineTarget_ParksKillAndTickRefires(t *testing.T) {
-	s := newWorkerTestServer(t)
-	w := putWorkerFixture(t, s, OutsourceWorker{
-		ID: "ow-s", Codename: "O-1", Model: "opus", Effort: "high",
-		TaskID: "t-s", Status: WorkerStatusAssigned,
-		DesiredState: DesiredStateOffline, // owner-explicit stop intent
+		apiWantValue(t, "picked warden", any(api.pickWorkerWarden(w, ServerSelfHost, 1000)), any(ServerSelfHost))
 	})
-	s.outsourceMu.Lock()
-	s.workerSpawnTarget[w.ID] = ServerSelfHost // last session host, now offline
-	s.stopWorkerNow(w)
-	s.outsourceMu.Unlock()
-	if got := s.hub.DrainWardenCommands(ServerSelfHost); len(got) != 0 {
-		t.Fatalf("offline target must get nothing yet, got %d frames", len(got))
-	}
 
-	s.runOutsourceTick(nowSecs()) // target still offline — parked kill held
-	if got := s.hub.DrainWardenCommands(ServerSelfHost); len(got) != 0 {
-		t.Fatalf("tick with the target still offline must enqueue nothing, got %d", len(got))
-	}
+	t.Run("a machine that cannot take the worker names nothing at all, because there is no automatic placement to fall back on", func(t *testing.T) {
+		api, _, _, _, w := wsWorkerSpawnFixture(t, WorkerStatusAssigned)
 
-	connectWarden(t, s, ServerSelfHost)
-	s.runOutsourceTick(nowSecs())
-	frames := s.hub.DrainWardenCommands(ServerSelfHost)
-	if len(frames) != 1 {
-		t.Fatalf("want the parked worker_stop re-fired on reconnect, got %d frames", len(frames))
-	}
-	if rpc, args := decodeWardenFrame(t, frames[0].Frame); rpc != reconcileCmdStop ||
-		args["member_id"] != "ow-s" {
-		t.Errorf("rpc = %q args = %v", rpc, args)
-	}
-	s.outsourceMu.Lock()
-	pending := s.workerStopPending[w.ID]
-	s.outsourceMu.Unlock()
-	if pending != "" {
-		t.Errorf("parking must clear once the kill went out, still %q", pending)
-	}
-	// Once drained, later ticks owe nothing (one kill, no stop-spam).
-	s.runOutsourceTick(nowSecs())
-	if got := s.hub.DrainWardenCommands(ServerSelfHost); len(got) != 0 {
-		t.Errorf("no further stops owed after the parked kill drained, got %d", len(got))
-	}
+		apiWantValue(t, "picked warden with the machine offline", any(api.pickWorkerWarden(w, ServerSelfHost, 1000)), any(""))
+		apiWantValue(t, "picked warden with no machine named", any(api.pickWorkerWarden(w, "", 1000)), any(""))
+	})
 }
 
-// captureStderr runs fn with os.Stderr swapped onto a pipe and returns what it
-// wrote — the outsourceLog sentinel assertions read it.
-func captureStderr(t *testing.T, fn func()) string {
-	t.Helper()
-	r, w, err := os.Pipe()
-	if err != nil {
-		t.Fatalf("pipe: %v", err)
+func TestResolveWorkerPlacement(t *testing.T) {
+	// wantPlacement asserts BOTH halves of the verdict: the machine and the
+	// sentence the cockpit prints when there is none.
+	wantPlacement := func(t *testing.T, gotID, gotWhy, wantID, wantWhy string) {
+		t.Helper()
+		apiWantValue(t, "placement", any(gotID), any(wantID))
+		apiWantValue(t, "placement reason", any(gotWhy), any(wantWhy))
 	}
-	orig := os.Stderr
-	os.Stderr = w
-	defer func() { os.Stderr = orig }()
-	fn()
-	w.Close()
-	out, err := io.ReadAll(r)
-	if err != nil {
-		t.Fatalf("read pipe: %v", err)
-	}
-	return string(out)
+
+	t.Run("an online active warden that provides the runtime resolves, and the reason is empty exactly then", func(t *testing.T) {
+		api, _, _, _, w := wsWorkerSpawnFixture(t, WorkerStatusAssigned)
+		apiTestListen(t, api, ServerSelfHost)
+
+		id, why := api.resolveWorkerPlacement(w, ServerSelfHost, 1000)
+		wantPlacement(t, id, why, ServerSelfHost, "")
+	})
+
+	t.Run("no machine named at all is refused as an unmade choice rather than as an unavailable machine", func(t *testing.T) {
+		api, _, _, _, w := wsWorkerSpawnFixture(t, WorkerStatusAssigned)
+
+		id, why := api.resolveWorkerPlacement(w, "", 1000)
+		wantPlacement(t, id, why, "", "no_machine_selected: no machine is selected for this worker — "+
+			"pick one on the worker (改機器) or on the task type's 手冊 assignee; "+
+			"there is no automatic placement")
+	})
+
+	t.Run("a machine id the roster does not carry is refused naming that id", func(t *testing.T) {
+		api, _, _, _, w := wsWorkerSpawnFixture(t, WorkerStatusAssigned)
+
+		id, why := api.resolveWorkerPlacement(w, "m-nope", 1000)
+		wantPlacement(t, id, why, "", "machine_unavailable: machine 'm-nope' does not exist; "+
+			"no other machine is substituted")
+	})
+
+	t.Run("a roster id that is a staff member rather than a machine is refused as not an active machine", func(t *testing.T) {
+		api, _, _, _, w := wsWorkerSpawnFixture(t, WorkerStatusAssigned)
+
+		id, why := api.resolveWorkerPlacement(w, apiTestPlainAgentID, 1000)
+		wantPlacement(t, id, why, "", "machine_unavailable: machine 'kip' is not an active machine; "+
+			"no other machine is substituted")
+	})
+
+	t.Run("a machine that exists but holds no SSE connection is refused as offline", func(t *testing.T) {
+		api, _, _, _, w := wsWorkerSpawnFixture(t, WorkerStatusAssigned)
+
+		id, why := api.resolveWorkerPlacement(w, ServerSelfHost, 1000)
+		wantPlacement(t, id, why, "", "machine_unavailable: machine 'm-server-self' is offline; "+
+			"no other machine is substituted")
+	})
+
+	t.Run("a machine benched after a failed boot of THIS worker is refused, and the bench names that as the cause", func(t *testing.T) {
+		api, _, _, _, w := wsWorkerSpawnFixture(t, WorkerStatusAssigned)
+		apiTestListen(t, api, ServerSelfHost)
+		api.benchWorkerMachine(w.ID, ServerSelfHost, 1000)
+
+		id, why := api.resolveWorkerPlacement(w, ServerSelfHost, 1000)
+		wantPlacement(t, id, why, "", "machine_unavailable: machine 'm-server-self' was just benched "+
+			"after a failed boot of this worker; no other machine is substituted")
+
+		lapsed, why := api.resolveWorkerPlacement(w, ServerSelfHost, 1360)
+		wantPlacement(t, lapsed, why, ServerSelfHost, "")
+	})
+
+	t.Run("a warden with no reported capabilities is a claude warden only, so a codex worker is refused naming the runtime", func(t *testing.T) {
+		api, _, _, _, w := wsWorkerSpawnFixture(t, WorkerStatusAssigned)
+		apiTestListen(t, api, ServerSelfHost)
+		codexWorker := w
+		codexWorker.Runtime = "codex"
+
+		id, why := api.resolveWorkerPlacement(codexWorker, ServerSelfHost, 1000)
+		wantPlacement(t, id, why, "", "machine_unavailable: machine 'm-server-self' does not provide "+
+			"the 'codex' runtime; no other machine is substituted")
+	})
 }
 
-// TestRespawnWorkerNow_SpawnMemoryEmpty_KillsViaSseMachineClaim: server-restart
-// amnesia (workerSpawnTarget empty) must NOT skip the kill when the worker's
-// live SSE machine claim still names the host — the stop dispatches there (the
-// member relocation-STOP ground truth). Mutant: dropping the hub.MachineOf
-// fallback in resolveWorkerKillTarget → no stop frame ever leaves and the old
-// session survives the respawn (the O-28 double-active).
-func TestRespawnWorkerNow_SpawnMemoryEmpty_KillsViaSseMachineClaim(t *testing.T) {
-	api := newTasksTestServer(t)
-	api.noOutsource = true
-	workerID := newActiveWorker(t, api, false)
-	// The worker's live SSE carries the machine claim of the host it runs on.
-	if _, err := api.hub.Connect(workerID, ServerSelfHost); err != nil {
-		t.Fatalf("connect worker SSE: %v", err)
+func TestResolveStickyWorkerPlacement(t *testing.T) {
+	wantPlacement := func(t *testing.T, gotID, gotWhy, wantID, wantWhy string) {
+		t.Helper()
+		apiWantValue(t, "placement", any(gotID), any(wantID))
+		apiWantValue(t, "placement reason", any(gotWhy), any(wantWhy))
 	}
-	api.hub.DrainWardenCommands(ServerSelfHost)
-	api.outsourceMu.Lock()
-	delete(api.workerSpawnTarget, workerID) // server re-exec forgot the dispatch
-	w, _ := api.dal.GetOutsourceWorker(workerID)
-	done := api.respawnWorkerNow(*w, "auto-handover")
-	api.outsourceMu.Unlock()
-	if !done {
-		t.Fatal("a resolvable SSE machine claim must let the respawn proceed")
-	}
-	frames := api.hub.DrainWardenCommands(ServerSelfHost)
-	if len(frames) != 2 {
-		t.Fatalf("want stop+start on the claimed machine, got %d frames", len(frames))
-	}
-	if rpc, args := decodeWardenFrame(t, frames[0].Frame); rpc != reconcileCmdStop ||
-		args["member_id"] != workerID {
-		t.Fatalf("first frame = %s %v, want stop %s", rpc, args, workerID)
-	}
-	if rpc, _ := decodeWardenFrame(t, frames[1].Frame); rpc != reconcileCmdStart {
-		t.Fatalf("second frame = %s, want the respawn start", rpc)
-	}
+	const missing = "machine_unavailable: machine 'm-gone' does not exist; no other machine is substituted"
+
+	t.Run("an owner pin is hard: an unusable pin stalls the spawn and the configured machine is never tried", func(t *testing.T) {
+		api, _, _, _, w := wsWorkerSpawnFixture(t, WorkerStatusAssigned)
+		apiTestListen(t, api, ServerSelfHost)
+		pinned := w
+		pinned.DesiredMachineID = "m-gone"
+		pinned.LastMachineID = ServerSelfHost
+
+		id, why := api.resolveStickyWorkerPlacement(pinned, ServerSelfHost, 1000)
+		wantPlacement(t, id, why, "", missing)
+	})
+
+	t.Run("an owner pin outranks the last landing, so a relocate moves a worker that is happily running", func(t *testing.T) {
+		api, _, _, _, w := wsWorkerSpawnFixture(t, WorkerStatusAssigned)
+		apiTestListen(t, api, ServerSelfHost)
+		pinned := w
+		pinned.DesiredMachineID = ServerSelfHost
+		pinned.LastMachineID = "m-gone"
+
+		id, why := api.resolveStickyWorkerPlacement(pinned, "m-gone", 1000)
+		wantPlacement(t, id, why, ServerSelfHost, "")
+	})
+
+	t.Run("with no pin the last landing wins over the configured machine, so a rebirth stays where it ran", func(t *testing.T) {
+		api, _, _, _, w := wsWorkerSpawnFixture(t, WorkerStatusAssigned)
+		apiTestListen(t, api, ServerSelfHost)
+		landed := w
+		landed.LastMachineID = ServerSelfHost
+
+		id, why := api.resolveStickyWorkerPlacement(landed, "m-gone", 1000)
+		wantPlacement(t, id, why, ServerSelfHost, "")
+	})
+
+	t.Run("the last landing is soft: an unusable one falls through to the configured machine instead of stranding the worker", func(t *testing.T) {
+		api, _, _, _, w := wsWorkerSpawnFixture(t, WorkerStatusAssigned)
+		apiTestListen(t, api, ServerSelfHost)
+		landed := w
+		landed.LastMachineID = "m-gone"
+
+		id, why := api.resolveStickyWorkerPlacement(landed, ServerSelfHost, 1000)
+		wantPlacement(t, id, why, ServerSelfHost, "")
+	})
+
+	t.Run("an unusable last landing with nowhere else to fall reports THAT machine, not an empty configuration", func(t *testing.T) {
+		api, _, _, _, w := wsWorkerSpawnFixture(t, WorkerStatusAssigned)
+		apiTestListen(t, api, ServerSelfHost)
+		landed := w
+		landed.LastMachineID = "m-gone"
+
+		id, why := api.resolveStickyWorkerPlacement(landed, "", 1000)
+		wantPlacement(t, id, why, "", missing)
+
+		id, why = api.resolveStickyWorkerPlacement(landed, "m-gone", 1000)
+		wantPlacement(t, id, why, "", missing)
+	})
+
+	t.Run("a worker that has never landed anywhere is placed by the configuration alone, so the 手冊 governs the birthplace", func(t *testing.T) {
+		api, _, _, _, w := wsWorkerSpawnFixture(t, WorkerStatusAssigned)
+		apiTestListen(t, api, ServerSelfHost)
+
+		id, why := api.resolveStickyWorkerPlacement(w, ServerSelfHost, 1000)
+		wantPlacement(t, id, why, ServerSelfHost, "")
+
+		id, why = api.resolveStickyWorkerPlacement(w, "", 1000)
+		wantPlacement(t, id, why, "", "no_machine_selected: no machine is selected for this worker — "+
+			"pick one on the worker (改機器) or on the task type's 手冊 assignee; "+
+			"there is no automatic placement")
+	})
 }
 
-// TestRespawnWorkerNow_NoKillTarget_DefersWholeCycle: spawn memory empty AND no
-// live SSE claim ⇒ the respawn must defer wholesale — no stop, no respawn, a
-// greppable sentinel — and report false so the caller rolls its stamp back.
-// Mutant: restoring the old `if old != "" { kill }` skip-and-respawn shape →
-// a start frame appears with no preceding stop (red on the frame count).
-func TestRespawnWorkerNow_NoKillTarget_DefersWholeCycle(t *testing.T) {
-	api := newTasksTestServer(t)
-	api.noOutsource = true
-	workerID := newActiveWorker(t, api, false) // no worker SSE at all
-	api.hub.DrainWardenCommands(ServerSelfHost)
-	var done bool
-	logged := captureStderr(t, func() {
+func TestStampWorkerOpReceipt(t *testing.T) {
+	t.Run("stamping writes the whole five-column receipt onto the caller's own struct as a FAILED start", func(t *testing.T) {
+		w := OutsourceWorker{ID: "ow-abc123", Codename: "Contractor", Status: WorkerStatusAssigned}
+
+		stampWorkerOpReceipt(&w, "no_machine_selected: nothing was picked", 1234.5)
+
+		if w.LastOpOK == nil {
+			t.Fatalf("last_op_ok must be a written false, not an absent verdict: %#v", w)
+		}
+		apiWantValue(t, "receipt", any(map[string]any{
+			"last_op": w.LastOp, "last_op_ok": *w.LastOpOK, "last_op_log": w.LastOpLog,
+			"last_op_reason": w.LastOpReason, "last_op_at": w.LastOpAt,
+			"id": w.ID, "codename": w.Codename, "status": w.Status,
+		}), any(map[string]any{
+			"last_op": "start", "last_op_ok": false, "last_op_log": "",
+			"last_op_reason": "no_machine_selected: nothing was picked", "last_op_at": 1234.5,
+			"id": "ow-abc123", "codename": "Contractor", "status": "assigned",
+		}))
+	})
+
+	t.Run("a second stamp replaces the whole receipt, so a stale log line from the previous one cannot survive", func(t *testing.T) {
+		w := OutsourceWorker{ID: "ow-abc123"}
+		stampWorkerOpReceipt(&w, "machine_unavailable: offline", 100)
+		w.LastOpLog = "warden said: boom"
+
+		stampWorkerOpReceipt(&w, "wake_timeout: never came up", 200)
+
+		apiWantValue(t, "receipt", any(map[string]any{
+			"last_op": w.LastOp, "last_op_ok": *w.LastOpOK, "last_op_log": w.LastOpLog,
+			"last_op_reason": w.LastOpReason, "last_op_at": w.LastOpAt,
+		}), any(map[string]any{
+			"last_op": "start", "last_op_ok": false, "last_op_log": "",
+			"last_op_reason": "wake_timeout: never came up", "last_op_at": 200.0,
+		}))
+	})
+}
+
+func TestWakeTimeoutOverWardenReceipt(t *testing.T) {
+	const wardenRefusal = "session_already_exists: a live session is holding the slot"
+	const composed = wardenRefusal + " — the start window then lapsed, but that is NOT a " +
+		"runtime failure: the previous session is still running and the warden refused " +
+		"to stomp it, so nothing new was ever started. Do not go looking for a broken " +
+		"runtime on that machine; deal with the live session — 重啟 this worker to " +
+		"displace it, or stop it first."
+
+	t.Run("a wake_timeout landing on a start row that carries the warden's refusal is composed onto it, keeping the warden's line in front", func(t *testing.T) {
+		row := OutsourceWorker{LastOp: "start", LastOpReason: wardenRefusal}
+
+		apiWantValue(t, "reason", any(wakeTimeoutOverWardenReceipt(row, "wake_timeout: the runtime never reported")), any(composed))
+	})
+
+	t.Run("a second tick composing the same pair answers the row's own string, so the anti-churn compare writes nothing", func(t *testing.T) {
+		row := OutsourceWorker{LastOp: "start", LastOpReason: composed}
+
+		apiWantValue(t, "reason", any(wakeTimeoutOverWardenReceipt(row, "wake_timeout: the runtime never reported")), any(composed))
+	})
+
+	t.Run("a reason that is not a wake_timeout passes through untouched even over the warden's refusal", func(t *testing.T) {
+		row := OutsourceWorker{LastOp: "start", LastOpReason: wardenRefusal}
+
+		apiWantValue(t, "reason", any(wakeTimeoutOverWardenReceipt(row, "backoff: waiting out the ladder")),
+			any("backoff: waiting out the ladder"))
+	})
+
+	t.Run("the bare code without its colon is not a wake_timeout stamp, so it passes through", func(t *testing.T) {
+		row := OutsourceWorker{LastOp: "start", LastOpReason: wardenRefusal}
+
+		apiWantValue(t, "reason", any(wakeTimeoutOverWardenReceipt(row, "wake_timeout")), any("wake_timeout"))
+	})
+
+	t.Run("with no warden receipt to protect the wake_timeout is stamped exactly as before", func(t *testing.T) {
+		apiWantValue(t, "reason over an empty row",
+			any(wakeTimeoutOverWardenReceipt(OutsourceWorker{}, "wake_timeout: the runtime never reported")),
+			any("wake_timeout: the runtime never reported"))
+		apiWantValue(t, "reason over another server stamp",
+			any(wakeTimeoutOverWardenReceipt(
+				OutsourceWorker{LastOp: "start", LastOpReason: "backoff: waiting"},
+				"wake_timeout: the runtime never reported")),
+			any("wake_timeout: the runtime never reported"))
+	})
+
+	t.Run("the legacy worker_start verb is compared raw and therefore never composes, which is the documented blind spot", func(t *testing.T) {
+		row := OutsourceWorker{LastOp: "worker_start", LastOpReason: wardenRefusal}
+
+		apiWantValue(t, "reason", any(wakeTimeoutOverWardenReceipt(row, "wake_timeout: the runtime never reported")),
+			any("wake_timeout: the runtime never reported"))
+	})
+
+	t.Run("a clobber code without its colon does not trip the gate", func(t *testing.T) {
+		row := OutsourceWorker{LastOp: "start", LastOpReason: "session_already_exists"}
+
+		apiWantValue(t, "reason", any(wakeTimeoutOverWardenReceipt(row, "wake_timeout: the runtime never reported")),
+			any("wake_timeout: the runtime never reported"))
+	})
+}
+
+func TestStampWorkerPlacementBlocked(t *testing.T) {
+	t.Run("a refused spawn writes the whole failed-start receipt onto the row and fans one worker delta", func(t *testing.T) {
+		api, h, _, owner, w := wsWorkerSpawnFixture(t, WorkerStatusAssigned)
+		dashboard := apiTestListen(t, api, "")
+
+		api.stampWorkerPlacementBlocked(&w, "no_machine_selected: nobody picked a machine", 500)
+
+		apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, map[string]any{
+			"last_op": "start", "last_op_ok": false, "last_op_at": 500,
+			"last_op_reason": "no_machine_selected: nobody picked a machine",
+		}))
+		dashboard.wantFrames(apiTestWorkerDelta(2, "assigned", "server"))
+		apiWantValue(t, "the caller's own snapshot", any(w.LastOp), any(""))
+	})
+
+	t.Run("the same cause re-stamped on the next tick changes nothing and fans nothing, so one stalled worker is not a permanent event stream", func(t *testing.T) {
+		api, h, _, owner, w := wsWorkerSpawnFixture(t, WorkerStatusAssigned)
+		api.stampWorkerPlacementBlocked(&w, "no_machine_selected: nobody picked a machine", 500)
+		dashboard := apiTestListen(t, api, "")
+
+		api.stampWorkerPlacementBlocked(&w, "no_machine_selected: nobody picked a machine", 900)
+
+		apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, map[string]any{
+			"last_op": "start", "last_op_ok": false, "last_op_at": 500,
+			"last_op_reason": "no_machine_selected: nobody picked a machine",
+		}))
+		dashboard.wantFrames()
+	})
+
+	t.Run("a CHANGED cause is news: the whole receipt is replaced, timestamp included, and a delta goes out", func(t *testing.T) {
+		api, h, _, owner, w := wsWorkerSpawnFixture(t, WorkerStatusAssigned)
+		api.stampWorkerPlacementBlocked(&w, "no_machine_selected: nobody picked a machine", 500)
+		dashboard := apiTestListen(t, api, "")
+
+		api.stampWorkerPlacementBlocked(&w, "machine_unavailable: machine 'm-server-self' is offline", 900)
+
+		apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, map[string]any{
+			"last_op": "start", "last_op_ok": false, "last_op_at": 900,
+			"last_op_reason": "machine_unavailable: machine 'm-server-self' is offline",
+		}))
+		dashboard.wantFrames(apiTestWorkerDelta(3, "assigned", "server"))
+	})
+
+	t.Run("a worker released since the snapshot was loaded is left alone, so a stale copy cannot resurrect it", func(t *testing.T) {
+		api, h, _, owner, w := wsWorkerSpawnFixture(t, WorkerStatusActive)
+		released := w
+		released.Status = WorkerStatusReleased
+		if err := api.dal.PutOutsourceWorker(released); err != nil {
+			t.Fatalf("PutOutsourceWorker: %v", err)
+		}
+		dashboard := apiTestListen(t, api, "")
+
+		api.stampWorkerPlacementBlocked(&w, "no_machine_selected: nobody picked a machine", 500)
+
+		apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, map[string]any{
+			"status": "released", "presence": "",
+		}))
+		dashboard.wantFrames()
+	})
+
+	t.Run("a worker whose row has vanished is left alone, because there is nothing left to explain", func(t *testing.T) {
+		api, _, _, _, _ := wsWorkerSpawnFixture(t, WorkerStatusAssigned)
+		dashboard := apiTestListen(t, api, "")
+		ghost := OutsourceWorker{ID: "ow-ghost", Codename: "Nobody", Status: WorkerStatusAssigned}
+
+		api.stampWorkerPlacementBlocked(&ghost, "no_machine_selected: nobody picked a machine", 500)
+
+		row, err := api.dal.GetOutsourceWorker("ow-ghost")
+		if err != nil || row != nil {
+			t.Fatalf("the stamp must not create a row: %v (%v)", row, err)
+		}
+		dashboard.wantFrames()
+	})
+
+	t.Run("a wake_timeout over the warden's clobber refusal is composed onto it rather than replacing it", func(t *testing.T) {
+		api, h, _, owner, w := wsWorkerSpawnFixture(t, WorkerStatusAssigned)
+		if err := api.dal.SetMemberOpReceipt("ow-abc123", "start", nil, "",
+			"session_already_exists: a live session is holding the slot", 400); err != nil {
+			t.Fatalf("SetMemberOpReceipt: %v", err)
+		}
+		dashboard := apiTestListen(t, api, "")
+
+		api.stampWorkerPlacementBlocked(&w, "wake_timeout: the runtime never reported", 500)
+		composed := "session_already_exists: a live session is holding the slot — the start " +
+			"window then lapsed, but that is NOT a runtime failure: the previous session is " +
+			"still running and the warden refused to stomp it, so nothing new was ever " +
+			"started. Do not go looking for a broken runtime on that machine; deal with the " +
+			"live session — 重啟 this worker to displace it, or stop it first."
+		apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, map[string]any{
+			"last_op": "start", "last_op_ok": false, "last_op_at": 500,
+			"last_op_reason": composed,
+		}))
+		dashboard.wantFrames(apiTestWorkerDelta(2, "assigned", "server"))
+
+		api.stampWorkerPlacementBlocked(&w, "wake_timeout: the runtime never reported", 900)
+		apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, map[string]any{
+			"last_op": "start", "last_op_ok": false, "last_op_at": 500,
+			"last_op_reason": composed,
+		}))
+		dashboard.wantFrames()
+	})
+}
+
+func TestClearWorkerPlacementBlock(t *testing.T) {
+	t.Run("a placement stamp is dropped down to a wordless start, keeping the timestamp that separates a stall an hour ago from one right now", func(t *testing.T) {
+		api, h, _, owner, w := wsWorkerSpawnFixture(t, WorkerStatusAssigned)
+		api.stampWorkerPlacementBlocked(&w, "machine_unavailable: machine 'm-server-self' is offline", 500)
+		dashboard := apiTestListen(t, api, "")
+
+		api.clearWorkerPlacementBlock("ow-abc123")
+
+		apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, map[string]any{
+			"last_op": "start", "last_op_ok": nil, "last_op_at": 500, "last_op_reason": "",
+		}))
+		dashboard.wantFrames()
+	})
+
+	t.Run("a warden's own receipt is never touched, because a dispatch is an attempt and not an outcome", func(t *testing.T) {
+		api, h, _, owner, _ := wsWorkerSpawnFixture(t, WorkerStatusAssigned)
+		if err := api.dal.SetMemberOpReceipt("ow-abc123", "start", nil, "warden log line",
+			"session_already_exists: a live session is holding the slot", 777); err != nil {
+			t.Fatalf("SetMemberOpReceipt: %v", err)
+		}
+		dashboard := apiTestListen(t, api, "")
+
+		api.clearWorkerPlacementBlock("ow-abc123")
+
+		apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, map[string]any{
+			"last_op": "start", "last_op_ok": nil, "last_op_at": 777,
+			"last_op_log":    "warden log line",
+			"last_op_reason": "session_already_exists: a live session is holding the slot",
+		}))
+		dashboard.wantFrames()
+	})
+
+	t.Run("a wake_timeout survives the clear, so the retry cannot erase why the previous start died", func(t *testing.T) {
+		api, h, _, owner, w := wsWorkerSpawnFixture(t, WorkerStatusAssigned)
+		api.stampWorkerPlacementBlocked(&w, "wake_timeout: the runtime never reported", 888)
+
+		api.clearWorkerPlacementBlock("ow-abc123")
+
+		apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, map[string]any{
+			"last_op": "start", "last_op_ok": false, "last_op_at": 888,
+			"last_op_reason": "wake_timeout: the runtime never reported",
+		}))
+	})
+
+	t.Run("a row with nothing to clear, and an id nothing carries, are both left exactly as they were", func(t *testing.T) {
+		api, h, _, owner, _ := wsWorkerSpawnFixture(t, WorkerStatusAssigned)
+		dashboard := apiTestListen(t, api, "")
+
+		api.clearWorkerPlacementBlock("ow-abc123")
+		api.clearWorkerPlacementBlock("ow-nope")
+
+		apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, nil))
+		dashboard.wantFrames()
+	})
+}
+
+func TestClearWorkerConvergedFailureReceipt(t *testing.T) {
+	t.Run("a converged worker's red 最近操作 line is removed whole — all five columns — and the removal is fanned", func(t *testing.T) {
+		api, h, _, owner, _ := wsWorkerSpawnFixture(t, WorkerStatusActive)
+		if err := api.dal.SetMemberOpReceipt("ow-abc123", "start", nil, "warden log line",
+			"wake_timeout: the runtime never reported", 888); err != nil {
+			t.Fatalf("SetMemberOpReceipt: %v", err)
+		}
+		snapshot, err := api.dal.GetOutsourceWorker("ow-abc123")
+		if err != nil || snapshot == nil {
+			t.Fatalf("GetOutsourceWorker: %v (%v)", snapshot, err)
+		}
+		dashboard := apiTestListen(t, api, "")
+
+		api.clearWorkerConvergedFailureReceipt("ow-abc123", *snapshot)
+
+		apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, map[string]any{
+			"status": "active", "presence": "offline",
+		}))
+		dashboard.wantFrames(apiTestWorkerDelta(2, "active", "server"))
+	})
+
+	t.Run("a wordless red block — a verb and a time with no verdict — is a failure the panel paints, so it is cleared too", func(t *testing.T) {
+		api, h, _, owner, _ := wsWorkerSpawnFixture(t, WorkerStatusActive)
+		if err := api.dal.SetMemberOpReceipt("ow-abc123", "start", nil, "", "", 1001); err != nil {
+			t.Fatalf("SetMemberOpReceipt: %v", err)
+		}
+		snapshot, err := api.dal.GetOutsourceWorker("ow-abc123")
+		if err != nil || snapshot == nil {
+			t.Fatalf("GetOutsourceWorker: %v (%v)", snapshot, err)
+		}
+
+		api.clearWorkerConvergedFailureReceipt("ow-abc123", *snapshot)
+
+		apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, map[string]any{
+			"status": "active", "presence": "offline",
+		}))
+	})
+
+	t.Run("a SUCCESS receipt is never touched, and a second clear over an already blank row writes and fans nothing", func(t *testing.T) {
+		api, h, _, owner, _ := wsWorkerSpawnFixture(t, WorkerStatusActive)
+		succeeded := true
+		if err := api.dal.SetMemberOpReceipt("ow-abc123", "start", &succeeded, "", "", 999); err != nil {
+			t.Fatalf("SetMemberOpReceipt: %v", err)
+		}
+		snapshot, err := api.dal.GetOutsourceWorker("ow-abc123")
+		if err != nil || snapshot == nil {
+			t.Fatalf("GetOutsourceWorker: %v (%v)", snapshot, err)
+		}
+		dashboard := apiTestListen(t, api, "")
+
+		api.clearWorkerConvergedFailureReceipt("ow-abc123", *snapshot)
+		api.clearWorkerConvergedFailureReceipt("ow-abc123", OutsourceWorker{ID: "ow-abc123"})
+
+		apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, map[string]any{
+			"status": "active", "presence": "offline",
+			"last_op": "start", "last_op_ok": true, "last_op_at": 999,
+		}))
+		dashboard.wantFrames()
+	})
+
+	t.Run("a snapshot that carries no failure short-circuits before the query, so a receipt written since is left standing", func(t *testing.T) {
+		api, h, _, owner, _ := wsWorkerSpawnFixture(t, WorkerStatusActive)
+		if err := api.dal.SetMemberOpReceipt("ow-abc123", "start", nil, "",
+			"wake_timeout: the runtime never reported", 888); err != nil {
+			t.Fatalf("SetMemberOpReceipt: %v", err)
+		}
+		dashboard := apiTestListen(t, api, "")
+
+		api.clearWorkerConvergedFailureReceipt("ow-abc123", OutsourceWorker{ID: "ow-abc123"})
+
+		apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, map[string]any{
+			"status": "active", "presence": "offline",
+			"last_op": "start", "last_op_ok": nil, "last_op_at": 888,
+			"last_op_reason": "wake_timeout: the runtime never reported",
+		}))
+		dashboard.wantFrames()
+	})
+}
+
+func TestWorkerMachineCoolingOn(t *testing.T) {
+	t.Run("a machine benched for this worker is cooling until the deadline, and is available again AT it", func(t *testing.T) {
+		api, _, _, _, _ := wsWorkerSpawnFixture(t, WorkerStatusAssigned)
+		api.benchWorkerMachine("ow-abc123", ServerSelfHost, 1000)
+
+		apiWantValue(t, "cooling at the bench", any(api.workerMachineCoolingOn("ow-abc123", ServerSelfHost, 1000)), any(true))
+		apiWantValue(t, "cooling one second short", any(api.workerMachineCoolingOn("ow-abc123", ServerSelfHost, 1359)), any(true))
+		apiWantValue(t, "cooling at the deadline", any(api.workerMachineCoolingOn("ow-abc123", ServerSelfHost, 1360)), any(false))
+		apiWantValue(t, "cooling past the deadline", any(api.workerMachineCoolingOn("ow-abc123", ServerSelfHost, 1361)), any(false))
+	})
+
+	t.Run("the bench is per (worker, machine) pair: another worker on that host, and this worker elsewhere, are both unbenched", func(t *testing.T) {
+		api, _, _, _, _ := wsWorkerSpawnFixture(t, WorkerStatusAssigned)
+		api.benchWorkerMachine("ow-abc123", ServerSelfHost, 1000)
+
+		apiWantValue(t, "another worker on the benched host",
+			any(api.workerMachineCoolingOn("ow-def456", ServerSelfHost, 1000)), any(false))
+		apiWantValue(t, "this worker on another host",
+			any(api.workerMachineCoolingOn("ow-abc123", "m-elsewhere", 1000)), any(false))
+	})
+
+	t.Run("a machine that was never benched is not cooling", func(t *testing.T) {
+		api, _, _, _, _ := wsWorkerSpawnFixture(t, WorkerStatusAssigned)
+
+		apiWantValue(t, "cooling", any(api.workerMachineCoolingOn("ow-abc123", ServerSelfHost, 1000)), any(false))
+	})
+}
+
+func TestBenchWorkerMachine(t *testing.T) {
+	t.Run("a bench records one deadline per (worker, machine) pair and a later bench pushes it out", func(t *testing.T) {
+		api, _, _, _, _ := wsWorkerSpawnFixture(t, WorkerStatusAssigned)
+
+		api.benchWorkerMachine("ow-abc123", ServerSelfHost, 1000)
+		apiWantValue(t, "bench book", any(wsBenchBook(api)),
+			any(map[string]any{"ow-abc123|m-server-self": 1360.0}))
+
+		api.benchWorkerMachine("ow-abc123", ServerSelfHost, 2000)
+		api.benchWorkerMachine("ow-def456", ServerSelfHost, 1000)
+		apiWantValue(t, "bench book", any(wsBenchBook(api)), any(map[string]any{
+			"ow-abc123|m-server-self": 2360.0,
+			"ow-def456|m-server-self": 1360.0,
+		}))
+	})
+
+	t.Run("an unnamed machine benches nothing, so an unplaced worker cannot bench the empty host", func(t *testing.T) {
+		api, _, _, _, _ := wsWorkerSpawnFixture(t, WorkerStatusAssigned)
+
+		api.benchWorkerMachine("ow-abc123", "", 1000)
+
+		apiWantValue(t, "bench book", any(wsBenchBook(api)), any(map[string]any{}))
+	})
+}
+
+// wsBenchBook is the whole bench ledger as a comparable value.
+func wsBenchBook(api *apiServer) map[string]any {
+	out := map[string]any{}
+	for key, until := range api.workerMachineCooldown {
+		out[key] = until
+	}
+	return out
+}
+
+func TestFirstNonEmpty(t *testing.T) {
+	t.Run("the first argument that carries text is the answer, and the empty ones before it are skipped", func(t *testing.T) {
+		apiWantValue(t, "one value", any(firstNonEmpty("m-a")), any("m-a"))
+		apiWantValue(t, "the first of two", any(firstNonEmpty("m-a", "m-b")), any("m-a"))
+		apiWantValue(t, "past two blanks", any(firstNonEmpty("", "", "m-c")), any("m-c"))
+	})
+
+	t.Run("no argument carrying text answers the empty string, including with no arguments at all", func(t *testing.T) {
+		apiWantValue(t, "no arguments", any(firstNonEmpty()), any(""))
+		apiWantValue(t, "all blank", any(firstNonEmpty("", "")), any(""))
+	})
+}
+
+func TestNotifyWorkerSpawn(t *testing.T) {
+	// wsPinned is the worker with an owner pin on the seeded server-self warden
+	// — the placement every dispatching case below starts from.
+	wsPinned := func(w OutsourceWorker) OutsourceWorker {
+		w.DesiredMachineID = ServerSelfHost
+		return w
+	}
+
+	t.Run("a placed worker with a live task is dispatched as ONE member start frame addressed to that worker on that machine", func(t *testing.T) {
+		api, h, _, owner, w := wsWorkerSpawnFixture(t, WorkerStatusAssigned)
+		apiTestListen(t, api, ServerSelfHost)
+		status, boot := apiJSON(t, h, "GET", "/api/outsource-workers/ow-abc123/boot-context", owner, "")
+		if status != 200 {
+			t.Fatalf("boot-context preview: %d (%v)", status, boot)
+		}
+		dashboard := apiTestListen(t, api, "")
+
 		api.outsourceMu.Lock()
-		delete(api.workerSpawnTarget, workerID)
-		w, _ := api.dal.GetOutsourceWorker(workerID)
-		done = api.respawnWorkerNow(*w, "auto-handover")
+		dispatched := api.notifyWorkerSpawn(wsPinned(w), 1000)
 		api.outsourceMu.Unlock()
+
+		apiWantValue(t, "dispatched", any(dispatched), any(true))
+		wsWantWardenFrames(t, api, ServerSelfHost,
+			wsStartFrame("ow-abc123", boot["context"].(string), "claude", "sonnet", "medium"))
+		apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, map[string]any{
+			"machine": "m-server-self",
+		}))
+		dashboard.wantFrames(apiTestWorkerDelta(2, "assigned", "server"))
 	})
-	if done {
-		t.Fatal("no kill target must report the respawn as deferred")
-	}
-	if got := len(api.hub.DrainWardenCommands(ServerSelfHost)); got != 0 {
-		t.Fatalf("a deferred handover must dispatch nothing, got %d frames", got)
-	}
-	if !strings.Contains(logged, "auto-handover deferred "+workerID) ||
-		!strings.Contains(logged, "no kill target (spawn memory empty, sse offline)") {
-		t.Fatalf("sentinel log missing, got: %q", logged)
-	}
-	// …and the deferral is DIAGNOSABLE on the row, not log-only: a refused start
-	// owes the cockpit a receipt, because the owner-explicit callers of this
-	// primitive (relocate / restart / model change) discard the bool above and used
-	// to leave the worker showing 尚未分配機器 with a blank last_op forever.
-	w, err := api.dal.GetOutsourceWorker(workerID)
-	if err != nil || w == nil {
-		t.Fatalf("re-read worker: %v", err)
-	}
-	if w.LastOp != reconcileCmdStart ||
-		!strings.HasPrefix(w.LastOpReason, spawnReasonRespawnDeferred+":") {
-		t.Fatalf("a deferred respawn must leave a receipt, got last_op=%q reason=%q",
-			w.LastOp, w.LastOpReason)
+
+	t.Run("the dispatch records the attempt, arms the receipt watch and puts the shared FSM into a start that is in flight", func(t *testing.T) {
+		api, _, _, _, w := wsWorkerSpawnFixture(t, WorkerStatusAssigned)
+		apiTestListen(t, api, ServerSelfHost)
+
+		api.outsourceMu.Lock()
+		api.notifyWorkerSpawn(wsPinned(w), 1000)
+		api.outsourceMu.Unlock()
+
+		apiWantValue(t, "spawn observation", any(map[string]any{
+			"target": api.workerSpawnTarget["ow-abc123"],
+			"at":     api.workerSpawnAt["ow-abc123"],
+			"tries":  float64(api.workerSpawnAttempts["ow-abc123"]),
+		}), any(map[string]any{"target": "m-server-self", "at": 1000.0, "tries": 1.0}))
+		state := api.workerReconcileStates["ow-abc123"]
+		apiWantValue(t, "fsm state", any(map[string]any{
+			"phase": state.Phase, "last_command": state.LastCommand, "at": state.LastCommandAt,
+			"attempts": float64(state.Attempts), "circuit_open": state.CircuitOpen,
+		}), any(map[string]any{
+			"phase": "starting", "last_command": "start", "at": 1000.0,
+			"attempts": 0.0, "circuit_open": false,
+		}))
+		api.receiptMu.Lock()
+		owed := api.receiptPending["ow-abc123"]
+		api.receiptMu.Unlock()
+		apiWantValue(t, "owed receipt", any(map[string]any{
+			"rpc": owed.RPC, "warden": owed.Warden, "deadline": owed.Deadline,
+		}), any(map[string]any{"rpc": "start", "warden": "m-server-self", "deadline": 1090.0}))
+	})
+
+	t.Run("the token in the frame is this worker's own session credential, and it is the only place the token rides", func(t *testing.T) {
+		api, h, _, _, w := wsWorkerSpawnFixture(t, WorkerStatusAssigned)
+		apiTestListen(t, api, ServerSelfHost)
+
+		api.outsourceMu.Lock()
+		api.notifyWorkerSpawn(wsPinned(w), 1000)
+		api.outsourceMu.Unlock()
+
+		frames := wsDrainWardenFrames(t, api, ServerSelfHost)
+		if len(frames) != 1 {
+			t.Fatalf("want one frame, got %d (%v)", len(frames), frames)
+		}
+		args := frames[0]["data"].(map[string]any)["args"].(map[string]any)
+		token, _ := args["member_token"].(string)
+		status, data := apiJSON(t, h, "POST", "/api/self/waking", token, `{}`)
+		if status != 200 {
+			t.Fatalf("waking as the worker: %d (%v)", status, data)
+		}
+		apiWantBody(t, data, map[string]any{
+			"id": "ow-abc123", "desired_state": "", "refocus_op": "", "refocus_deadline": 0,
+		})
+	})
+
+	t.Run("a landed start drops the previous session's boot anchor and the kills owed to the machine it lands on", func(t *testing.T) {
+		api, _, _, _, w := wsWorkerSpawnFixture(t, WorkerStatusAssigned)
+		apiTestListen(t, api, ServerSelfHost)
+		api.gauge.Set("ow-abc123", map[string]any{"boot_ts": 111.0, "compaction_count": 2.0})
+
+		api.outsourceMu.Lock()
+		api.workerStopPending["ow-abc123"] = ServerSelfHost
+		api.workerStopLanded["ow-abc123"] = workerStopDispatch{Target: ServerSelfHost, At: 5}
+		api.notifyWorkerSpawn(wsPinned(w), 1000)
+		api.outsourceMu.Unlock()
+
+		apiWantValue(t, "gauge", any(api.gauge.Get("ow-abc123")), any(map[string]any{}))
+		apiWantValue(t, "parked kills", any(float64(len(api.workerStopPending))), any(0))
+		apiWantValue(t, "armed kills", any(float64(len(api.workerStopLanded))), any(0))
+	})
+
+	t.Run("a start toward a DIFFERENT machine leaves the kills the old box still owes standing", func(t *testing.T) {
+		api, _, _, _, w := wsWorkerSpawnFixture(t, WorkerStatusAssigned)
+		apiTestListen(t, api, ServerSelfHost)
+
+		api.outsourceMu.Lock()
+		api.workerStopPending["ow-abc123"] = "m-elsewhere"
+		api.workerStopLanded["ow-abc123"] = workerStopDispatch{Target: "m-elsewhere", At: 5}
+		api.notifyWorkerSpawn(wsPinned(w), 1000)
+		parked := api.workerStopPending["ow-abc123"]
+		armed := api.workerStopLanded["ow-abc123"]
+		api.outsourceMu.Unlock()
+
+		apiWantValue(t, "parked kill", any(parked), any("m-elsewhere"))
+		apiWantValue(t, "armed kill", any(map[string]any{"target": armed.Target, "at": armed.At}),
+			any(map[string]any{"target": "m-elsewhere", "at": 5.0}))
+	})
+
+	t.Run("a dispatch clears the placement-block stamp that has now been overtaken", func(t *testing.T) {
+		api, h, _, owner, w := wsWorkerSpawnFixture(t, WorkerStatusAssigned)
+		blocked := w
+		api.stampWorkerPlacementBlocked(&blocked, "machine_unavailable: machine 'm-server-self' is offline", 500)
+		apiTestListen(t, api, ServerSelfHost)
+
+		api.outsourceMu.Lock()
+		api.notifyWorkerSpawn(wsPinned(w), 1000)
+		api.outsourceMu.Unlock()
+
+		apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, map[string]any{
+			"machine": "m-server-self",
+			"last_op": "start", "last_op_ok": nil, "last_op_at": 500, "last_op_reason": "",
+		}))
+	})
+
+	t.Run("a re-push inside the pacing window is refused, and one full window later it goes out again", func(t *testing.T) {
+		api, h, _, owner, w := wsWorkerSpawnFixture(t, WorkerStatusAssigned)
+		apiTestListen(t, api, ServerSelfHost)
+		api.outsourceMu.Lock()
+		api.notifyWorkerSpawn(wsPinned(w), 1000)
+		api.outsourceMu.Unlock()
+		wsDrainWardenFrames(t, api, ServerSelfHost)
+		dashboard := apiTestListen(t, api, "")
+
+		api.outsourceMu.Lock()
+		early := api.notifyWorkerSpawn(wsPinned(w), 1119)
+		api.outsourceMu.Unlock()
+
+		apiWantValue(t, "dispatched one second short of the window", any(early), any(false))
+		wsWantWardenFrames(t, api, ServerSelfHost)
+		dashboard.wantFrames()
+		apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, map[string]any{
+			"machine": "m-server-self",
+		}))
+
+		api.outsourceMu.Lock()
+		onTime := api.notifyWorkerSpawn(wsPinned(w), 1120)
+		api.outsourceMu.Unlock()
+
+		apiWantValue(t, "dispatched at the window", any(onTime), any(true))
+		apiWantValue(t, "attempts", any(float64(api.workerSpawnAttempts["ow-abc123"])), any(2))
+	})
+
+	t.Run("a worker whose bound task has closed is never booted into a void, and the stall says so on its row", func(t *testing.T) {
+		api, h, d, owner, w := wsWorkerSpawnFixture(t, WorkerStatusAssigned)
+		apiTestListen(t, api, ServerSelfHost)
+		task, err := d.GetTask("T-1")
+		if err != nil || task == nil {
+			t.Fatalf("GetTask: %v (%v)", task, err)
+		}
+		task.Status = TaskStatusDone
+		if err := d.PutTask(*task); err != nil {
+			t.Fatalf("PutTask: %v", err)
+		}
+
+		api.outsourceMu.Lock()
+		dispatched := api.notifyWorkerSpawn(wsPinned(w), 1000)
+		api.outsourceMu.Unlock()
+
+		apiWantValue(t, "dispatched", any(dispatched), any(false))
+		wsWantWardenFrames(t, api, ServerSelfHost)
+		apiWantValue(t, "spawn observation", any(float64(len(api.workerSpawnAt))), any(0))
+		apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, map[string]any{
+			"task_status": "done",
+			"last_op":     "start", "last_op_ok": false, "last_op_at": 1000,
+			"last_op_reason": "no_live_task: bound task T-1 is missing or already closed — " +
+				"nothing left to boot this worker for",
+		}))
+	})
+
+	t.Run("a worker bound to a task id nothing carries stalls with that id named", func(t *testing.T) {
+		api, _, _, _, w := wsWorkerSpawnFixture(t, WorkerStatusAssigned)
+		apiTestListen(t, api, ServerSelfHost)
+		orphan := wsPinned(w)
+		orphan.TaskID = "T-404"
+
+		api.outsourceMu.Lock()
+		dispatched := api.notifyWorkerSpawn(orphan, 1000)
+		api.outsourceMu.Unlock()
+
+		apiWantValue(t, "dispatched", any(dispatched), any(false))
+		wsWantWardenFrames(t, api, ServerSelfHost)
+		row, err := api.dal.GetOutsourceWorker("ow-abc123")
+		if err != nil || row == nil {
+			t.Fatalf("GetOutsourceWorker: %v (%v)", row, err)
+		}
+		apiWantValue(t, "receipt reason", any(row.LastOpReason),
+			any("no_live_task: bound task T-404 is missing or already closed — "+
+				"nothing left to boot this worker for"))
+	})
+
+	t.Run("a worker nobody placed is not dispatched anywhere and the row names the unmade choice", func(t *testing.T) {
+		api, h, _, owner, w := wsWorkerSpawnFixture(t, WorkerStatusAssigned)
+		apiTestListen(t, api, ServerSelfHost)
+
+		api.outsourceMu.Lock()
+		dispatched := api.notifyWorkerSpawn(w, 1000)
+		api.outsourceMu.Unlock()
+
+		apiWantValue(t, "dispatched", any(dispatched), any(false))
+		wsWantWardenFrames(t, api, ServerSelfHost)
+		apiWantValue(t, "spawn observation", any(float64(len(api.workerSpawnAt))), any(0))
+		apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, map[string]any{
+			"last_op": "start", "last_op_ok": false, "last_op_at": 1000,
+			"last_op_reason": "no_machine_selected: no machine is selected for this worker — " +
+				"pick one on the worker (改機器) or on the task type's 手冊 assignee; " +
+				"there is no automatic placement",
+		}))
+	})
+
+	t.Run("a pinned machine that is offline stalls the spawn naming that machine, and nothing is enqueued anywhere", func(t *testing.T) {
+		api, h, _, owner, w := wsWorkerSpawnFixture(t, WorkerStatusAssigned)
+
+		api.outsourceMu.Lock()
+		dispatched := api.notifyWorkerSpawn(wsPinned(w), 1000)
+		api.outsourceMu.Unlock()
+
+		apiWantValue(t, "dispatched", any(dispatched), any(false))
+		wsWantWardenFrames(t, api, ServerSelfHost)
+		apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, map[string]any{
+			"last_op": "start", "last_op_ok": false, "last_op_at": 1000,
+			"last_op_reason": "machine_unavailable: machine 'm-server-self' is offline; " +
+				"no other machine is substituted",
+		}))
+	})
+
+	t.Run("a server with no signing secret mints nothing and dispatches nothing, and the row says which half failed", func(t *testing.T) {
+		api, h, _, owner, w := wsWorkerSpawnFixture(t, WorkerStatusAssigned)
+		apiTestListen(t, api, ServerSelfHost)
+		api.keys = singleKeyring(nil)
+
+		api.outsourceMu.Lock()
+		dispatched := api.notifyWorkerSpawn(wsPinned(w), 1000)
+		api.outsourceMu.Unlock()
+
+		apiWantValue(t, "dispatched", any(dispatched), any(false))
+		wsWantWardenFrames(t, api, ServerSelfHost)
+		apiWantValue(t, "spawn observation", any(float64(len(api.workerSpawnAt))), any(0))
+		apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, map[string]any{
+			"last_op": "start", "last_op_ok": false, "last_op_at": 1000,
+			"last_op_reason": "no_signing_secret: the server has no JWT signing secret, " +
+				"so no worker token can be minted",
+		}))
+	})
+
+	t.Run("the frame carries the worker's OWN runtime, model and effort, so a codex worker boots as codex", func(t *testing.T) {
+		api, h, d, owner, _ := wsWorkerSpawnFixture(t, WorkerStatusAssigned)
+		if code, data := apiJSON(t, h, "POST", "/api/outsource-workers/ow-abc123/model", owner,
+			`{"model":"gpt-5-codex","runtime":"codex","effort":"high"}`); code != 200 {
+			t.Fatalf("set runtime: %d %v", code, data)
+		}
+		stored, err := d.GetOutsourceWorker("ow-abc123")
+		if err != nil || stored == nil {
+			t.Fatalf("GetOutsourceWorker: %v (%v)", stored, err)
+		}
+		codex := wsPinned(*stored)
+		warden := apiTestAgentToken(t, api, ServerSelfHost, ServerSelfHost)
+		if code, data := apiJSON(t, h, "POST", "/api/monitoring/telemetry", warden,
+			`{"runtimes":{"codex":{"installed":true,"logged_in":true,"version":"0.4.0"}}}`); code != 200 {
+			t.Fatalf("report runtimes: %d %v", code, data)
+		}
+		apiTestListen(t, api, ServerSelfHost)
+		status, boot := apiJSON(t, h, "GET", "/api/outsource-workers/ow-abc123/boot-context", owner, "")
+		if status != 200 {
+			t.Fatalf("boot-context preview: %d (%v)", status, boot)
+		}
+
+		api.outsourceMu.Lock()
+		dispatched := api.notifyWorkerSpawn(codex, 1000)
+		api.outsourceMu.Unlock()
+
+		apiWantValue(t, "dispatched", any(dispatched), any(true))
+		wsWantWardenFrames(t, api, ServerSelfHost,
+			wsStartFrame("ow-abc123", boot["context"].(string), "codex", "gpt-5-codex", "high"))
+	})
+
+	t.Run("a warden that drops offline between the placement decision and the enqueue", func(t *testing.T) {
+		t.Skip("structurally unproducible: resolveStickyWorkerPlacement and enqueueToWarden " +
+			"read hub.IsOnline inside one call under s.outsourceMu, with no seam between " +
+			"them a test can disconnect through — measured: hub.Disconnect before the call " +
+			"produces the 'is offline' placement refusal instead, and after it the frame is " +
+			"already on the FIFO, so warden_unreachable has no reachable state to observe.")
+	})
+
+	t.Run("a boot context, token mint or frame build that faults", func(t *testing.T) {
+		t.Skip("structurally unproducible: boot_context_failed needs workerSharedHead or " +
+			"workerBootSequence to error, and both read go:embed seeds through no injectable " +
+			"seam; token_mint_failed is reachable only with an empty signing secret, which " +
+			"the no_signing_secret arm above already claims first; frame_build_failed needs " +
+			"json.Marshal of a struct of strings to fail — measured: every runtime string, " +
+			"the empty one included, assembles a frame.")
+	})
+}
+
+func TestWorkerSpawnObs(t *testing.T) {
+	t.Run("a worker this run has never dispatched reads as no target and no time", func(t *testing.T) {
+		api, _, _, _, _ := wsWorkerSpawnFixture(t, WorkerStatusAssigned)
+
+		target, at := api.workerSpawnObs("ow-abc123")
+		apiWantValue(t, "spawn observation", any(map[string]any{"target": target, "at": at}),
+			any(map[string]any{"target": "", "at": 0.0}))
+	})
+
+	t.Run("after a dispatch it reads that dispatch's machine and moment, taking the scheduler lock itself", func(t *testing.T) {
+		api, _, _, _, w := wsWorkerSpawnFixture(t, WorkerStatusAssigned)
+		apiTestListen(t, api, ServerSelfHost)
+		pinned := w
+		pinned.DesiredMachineID = ServerSelfHost
+		api.outsourceMu.Lock()
+		api.notifyWorkerSpawn(pinned, 1000)
+		api.outsourceMu.Unlock()
+
+		target, at := api.workerSpawnObs("ow-abc123")
+		apiWantValue(t, "spawn observation", any(map[string]any{"target": target, "at": at}),
+			any(map[string]any{"target": "m-server-self", "at": 1000.0}))
+
+		other, otherAt := api.workerSpawnObs("ow-def456")
+		apiWantValue(t, "another worker's observation",
+			any(map[string]any{"target": other, "at": otherAt}),
+			any(map[string]any{"target": "", "at": 0.0}))
+	})
+}
+
+// wsObservation is one memberObservation flattened for a whole-value compare.
+func wsObservation(obs memberObservation) map[string]any {
+	return map[string]any{
+		"member_id": obs.MemberID, "desired": obs.Desired, "online": obs.Online,
+		"refocus_since": obs.RefocusSince, "refocus_op": obs.RefocusOp,
+		"stopping_since": obs.StoppingSince, "agent_stopped": obs.AgentStopped,
+		"last_op_kind": obs.LastOpKind, "last_op_reason": obs.LastOpReason,
+		"target_machine": obs.TargetMachine, "running_machine": obs.RunningMachine,
+		"handover_armable": obs.HandoverArmable,
 	}
 }
 
-// ── the shared-FSM spawn/rescue path (A案 P6 — retired recoverStuckWorker) ──
+func TestWorkerObservation(t *testing.T) {
+	t.Run("a fresh worker row is projected as the whole FSM input, with every field the row does not carry left zero", func(t *testing.T) {
+		_, _, _, _, w := wsWorkerSpawnFixture(t, WorkerStatusAssigned)
 
-// fsmWorkerFixture seeds a worker + a live bound task + a manual so the FSM's
-// START decisions can actually dispatch (notifyWorkerSpawn refuses a worker
-// with no live task).
-func fsmWorkerFixture(t *testing.T, s *apiServer, id string, status string, createdTS float64) OutsourceWorker {
+		apiWantValue(t, "observation", any(wsObservation(workerObservation(w, false))), any(map[string]any{
+			"member_id": "ow-abc123", "desired": "", "online": false,
+			"refocus_since": 0.0, "refocus_op": "", "stopping_since": 0.0,
+			"agent_stopped": false, "last_op_kind": "", "last_op_reason": "",
+			"target_machine": "", "running_machine": "", "handover_armable": false,
+		}))
+	})
+
+	t.Run("the four recycle fields come off the row and the last_op verb is folded, while the machine pair and stopping anchor stay masked", func(t *testing.T) {
+		_, _, _, _, w := wsWorkerSpawnFixture(t, WorkerStatusAssigned)
+		w.DesiredState = DesiredStateOnline
+		w.RefocusSince = 10
+		w.RefocusOp = "relocate"
+		w.StoppingSince = 30
+		w.StoppedSince = 20
+		w.LastOp = "worker_start"
+		w.LastOpReason = "session_already_exists: a live session is holding the slot"
+		w.DesiredMachineID = "m-pinned"
+		w.LastMachineID = "m-landed"
+
+		apiWantValue(t, "observation", any(wsObservation(workerObservation(w, true))), any(map[string]any{
+			"member_id": "ow-abc123", "desired": "online", "online": true,
+			"refocus_since": 10.0, "refocus_op": "relocate",
+			"stopping_since": 0.0, "agent_stopped": true,
+			"last_op_kind":   "start",
+			"last_op_reason": "session_already_exists: a live session is holding the slot",
+			"target_machine": "", "running_machine": "", "handover_armable": false,
+		}))
+	})
+
+	t.Run("a worker held down is projected as desired offline, so the FSM is never told something false about the owner's intent", func(t *testing.T) {
+		_, _, _, _, w := wsWorkerSpawnFixture(t, WorkerStatusActive)
+		w.DesiredState = DesiredStateOffline
+
+		obs := workerObservation(w, true)
+		apiWantValue(t, "desired", any(obs.Desired), any("offline"))
+		apiWantValue(t, "agent_stopped with no report", any(obs.AgentStopped), any(false))
+	})
+}
+
+func TestCanonicalWorkerLastOp(t *testing.T) {
+	t.Run("the retired worker_start verb reads as start, so clobber detection survives an old warden build", func(t *testing.T) {
+		apiWantValue(t, "folded verb", any(canonicalWorkerLastOp("worker_start")), any("start"))
+	})
+
+	t.Run("every other verb, the empty one included, is handed back unchanged", func(t *testing.T) {
+		apiWantValue(t, "start", any(canonicalWorkerLastOp("start")), any("start"))
+		apiWantValue(t, "stop", any(canonicalWorkerLastOp("stop")), any("stop"))
+		apiWantValue(t, "update", any(canonicalWorkerLastOp("update")), any("update"))
+		apiWantValue(t, "no verb", any(canonicalWorkerLastOp("")), any(""))
+		apiWantValue(t, "the retired stop verb", any(canonicalWorkerLastOp("worker_stop")), any("worker_stop"))
+	})
+}
+
+func TestUndeliveredWorkerStart(t *testing.T) {
+	// wsLoseFrame pushes one frame onto a warden's FIFO and then loses it the
+	// way a stream dying mid-drain does: drained, and never written.
+	wsLoseFrame := func(t *testing.T, api *apiServer, verb, workerID string) {
+		t.Helper()
+		frame, ok := buildTargetFrame(verb, workerID)
+		if !ok {
+			t.Fatalf("buildTargetFrame(%q, %q) refused", verb, workerID)
+		}
+		api.hub.EnqueueWardenCommandFor(ServerSelfHost, workerID, frame)
+		drained := api.hub.DrainWardenCommands(ServerSelfHost)
+		if requeued, dropped := api.hub.ReturnUndeliveredCommands(ServerSelfHost, drained); requeued != 0 || dropped != 1 {
+			t.Fatalf("want the frame dropped, got requeued=%d dropped=%d", requeued, dropped)
+		}
+	}
+
+	t.Run("a start frame drained off the FIFO and then lost is reported for a spawn anchored before the loss", func(t *testing.T) {
+		api, _, _, _, _ := wsWorkerSpawnFixture(t, WorkerStatusAssigned)
+		apiTestListen(t, api, ServerSelfHost)
+		wsLoseFrame(t, api, reconcileCmdStart, "ow-abc123")
+
+		apiWantValue(t, "undelivered", any(undeliveredWorkerStart(api.hub, "ow-abc123", 1)), any(true))
+	})
+
+	t.Run("a loss older than THIS spawn attempt is never borrowed to explain it", func(t *testing.T) {
+		api, _, _, _, _ := wsWorkerSpawnFixture(t, WorkerStatusAssigned)
+		apiTestListen(t, api, ServerSelfHost)
+		wsLoseFrame(t, api, reconcileCmdStart, "ow-abc123")
+
+		apiWantValue(t, "undelivered", any(undeliveredWorkerStart(api.hub, "ow-abc123", nowSecs()+1000)), any(false))
+	})
+
+	t.Run("a lost STOP is not a lost start, so the wake receipt cannot be written off somebody else's frame", func(t *testing.T) {
+		api, _, _, _, _ := wsWorkerSpawnFixture(t, WorkerStatusAssigned)
+		apiTestListen(t, api, ServerSelfHost)
+		wsLoseFrame(t, api, reconcileCmdStop, "ow-abc123")
+
+		apiWantValue(t, "undelivered", any(undeliveredWorkerStart(api.hub, "ow-abc123", 1)), any(false))
+	})
+
+	t.Run("with no loss note at all, a zero anchor, or no worker named, the answer is no", func(t *testing.T) {
+		api, _, _, _, _ := wsWorkerSpawnFixture(t, WorkerStatusAssigned)
+		apiTestListen(t, api, ServerSelfHost)
+
+		apiWantValue(t, "no note", any(undeliveredWorkerStart(api.hub, "ow-abc123", 1)), any(false))
+		wsLoseFrame(t, api, reconcileCmdStart, "ow-abc123")
+		apiWantValue(t, "zero anchor", any(undeliveredWorkerStart(api.hub, "ow-abc123", 0)), any(false))
+		apiWantValue(t, "no worker named", any(undeliveredWorkerStart(api.hub, "", 1)), any(false))
+		apiWantValue(t, "another worker", any(undeliveredWorkerStart(api.hub, "ow-def456", 1)), any(false))
+	})
+}
+
+func TestWorkerSessionConfirmedGone(t *testing.T) {
+	t.Run("the first offline sample only arms the anchor; the session is a fact one full window later", func(t *testing.T) {
+		api, _, _, _, _ := wsWorkerSpawnFixture(t, WorkerStatusActive)
+
+		apiWantValue(t, "first sample", any(api.workerSessionConfirmedGone("ow-abc123", 1000)), any(false))
+		apiWantValue(t, "one second short of the window", any(api.workerSessionConfirmedGone("ow-abc123", 1119)), any(false))
+		apiWantValue(t, "at the window", any(api.workerSessionConfirmedGone("ow-abc123", 1120)), any(true))
+		apiWantValue(t, "past the window", any(api.workerSessionConfirmedGone("ow-abc123", 5000)), any(true))
+	})
+
+	t.Run("a reconnect inside the window drops the anchor, and a later disconnect starts a fresh window rather than resuming it", func(t *testing.T) {
+		api, _, _, _, _ := wsWorkerSpawnFixture(t, WorkerStatusActive)
+		api.workerSessionConfirmedGone("ow-abc123", 1000)
+		listener := apiTestListen(t, api, "ow-abc123")
+
+		apiWantValue(t, "while online", any(api.workerSessionConfirmedGone("ow-abc123", 1119)), any(false))
+		apiWantValue(t, "the anchor after a reconnect", any(float64(len(api.workerOfflineSince))), any(0))
+
+		api.hub.Disconnect(listener.l)
+		apiWantValue(t, "the first sample of the new window", any(api.workerSessionConfirmedGone("ow-abc123", 1200)), any(false))
+		apiWantValue(t, "one second short of the new window", any(api.workerSessionConfirmedGone("ow-abc123", 1319)), any(false))
+		apiWantValue(t, "at the new window", any(api.workerSessionConfirmedGone("ow-abc123", 1320)), any(true))
+	})
+}
+
+func TestResolveWorkerKillTarget(t *testing.T) {
+	t.Run("this run's remembered dispatch target is the machine a kill is addressed to", func(t *testing.T) {
+		api, _, _, _, _ := wsWorkerSpawnFixture(t, WorkerStatusActive)
+		api.outsourceMu.Lock()
+		api.workerSpawnTarget["ow-abc123"] = "m-spawn"
+		api.outsourceMu.Unlock()
+
+		apiWantValue(t, "kill target", any(api.resolveWorkerKillTarget("ow-abc123")), any("m-spawn"))
+	})
+
+	t.Run("with the spawn ledger empty the live SSE machine claim is used, and it loses to the ledger when both know", func(t *testing.T) {
+		api, _, _, _, _ := wsWorkerSpawnFixture(t, WorkerStatusActive)
+		listener, err := api.hub.Connect("ow-abc123", "m-claim")
+		if err != nil {
+			t.Fatalf("hub.Connect: %v", err)
+		}
+		t.Cleanup(func() { api.hub.Disconnect(listener) })
+
+		apiWantValue(t, "kill target from the claim", any(api.resolveWorkerKillTarget("ow-abc123")), any("m-claim"))
+
+		api.outsourceMu.Lock()
+		api.workerSpawnTarget["ow-abc123"] = "m-spawn"
+		api.outsourceMu.Unlock()
+		apiWantValue(t, "kill target once the ledger knows", any(api.resolveWorkerKillTarget("ow-abc123")), any("m-spawn"))
+	})
+
+	t.Run("neither source knowing answers the empty string rather than guessing a machine", func(t *testing.T) {
+		api, _, _, _, _ := wsWorkerSpawnFixture(t, WorkerStatusActive)
+
+		apiWantValue(t, "kill target", any(api.resolveWorkerKillTarget("ow-abc123")), any(""))
+	})
+}
+
+func TestObservedWorkerHost(t *testing.T) {
+	t.Run("a live SSE machine claim is the observed host, and it outranks the worker's own telemetry", func(t *testing.T) {
+		api, _, _, _, _ := wsWorkerSpawnFixture(t, WorkerStatusActive)
+		listener, err := api.hub.Connect("ow-abc123", "m-claim")
+		if err != nil {
+			t.Fatalf("hub.Connect: %v", err)
+		}
+		t.Cleanup(func() { api.hub.Disconnect(listener) })
+
+		apiWantValue(t, "observed host with no telemetry",
+			any(api.observedWorkerHost("ow-abc123", nil)), any("m-claim"))
+		apiWantValue(t, "observed host with telemetry disagreeing",
+			any(api.observedWorkerHost("ow-abc123", map[string]any{"machine": "m-tele"})), any("m-claim"))
+	})
+
+	t.Run("with no live claim the worker's self-reported machine is used, and an absent one answers empty", func(t *testing.T) {
+		api, _, _, _, _ := wsWorkerSpawnFixture(t, WorkerStatusActive)
+
+		apiWantValue(t, "observed host from telemetry",
+			any(api.observedWorkerHost("ow-abc123", map[string]any{"machine": "m-tele"})), any("m-tele"))
+		apiWantValue(t, "observed host with no telemetry entry",
+			any(api.observedWorkerHost("ow-abc123", nil)), any(""))
+		apiWantValue(t, "observed host with a blank telemetry machine",
+			any(api.observedWorkerHost("ow-abc123", map[string]any{"machine": ""})), any(""))
+		apiWantValue(t, "observed host with a non-string telemetry machine",
+			any(api.observedWorkerHost("ow-abc123", map[string]any{"machine": 7})), any(""))
+	})
+
+	t.Run("the spawn ledger is NOT consulted, so the read path never claims a host the dispatch only aimed at", func(t *testing.T) {
+		api, _, _, _, _ := wsWorkerSpawnFixture(t, WorkerStatusActive)
+		api.outsourceMu.Lock()
+		api.workerSpawnTarget["ow-abc123"] = "m-spawn"
+		api.outsourceMu.Unlock()
+
+		apiWantValue(t, "observed host", any(api.observedWorkerHost("ow-abc123", nil)), any(""))
+	})
+}
+
+func TestResolveLiveWorker(t *testing.T) {
+	t.Run("a live worker row is answered whole", func(t *testing.T) {
+		api, _, _, _, _ := wsWorkerSpawnFixture(t, WorkerStatusAssigned)
+
+		w, err := api.resolveLiveWorker("ow-abc123")
+		if err != nil {
+			t.Fatalf("resolveLiveWorker: %v", err)
+		}
+		apiWantValue(t, "worker", any(map[string]any{
+			"id": w.ID, "codename": w.Codename, "task_id": w.TaskID,
+			"status": w.Status, "runtime": w.Runtime, "model": w.Model, "effort": w.Effort,
+		}), any(map[string]any{
+			"id": "ow-abc123", "codename": "Contractor", "task_id": "T-1",
+			"status": "assigned", "runtime": "claude", "model": "sonnet", "effort": "medium",
+		}))
+	})
+
+	t.Run("an id nothing carries and a RELEASED worker are the same answer: not found, and no row", func(t *testing.T) {
+		api, _, d, _, w := wsWorkerSpawnFixture(t, WorkerStatusAssigned)
+
+		row, err := api.resolveLiveWorker("ow-nope")
+		if row != nil || err != errNotFound {
+			t.Fatalf("want (nil, not found), got (%v, %v)", row, err)
+		}
+
+		released := w
+		released.Status = WorkerStatusReleased
+		if err := d.PutOutsourceWorker(released); err != nil {
+			t.Fatalf("PutOutsourceWorker: %v", err)
+		}
+		row, err = api.resolveLiveWorker("ow-abc123")
+		if row != nil || err != errNotFound {
+			t.Fatalf("want (nil, not found), got (%v, %v)", row, err)
+		}
+	})
+}
+
+func TestEnqueueWorkerStop(t *testing.T) {
+	t.Run("one member stop frame addressed to the worker lands on the target's FIFO and arms the receipt it now owes", func(t *testing.T) {
+		api, _, _, _, _ := wsWorkerSpawnFixture(t, WorkerStatusActive)
+		apiTestListen(t, api, ServerSelfHost)
+
+		api.outsourceMu.Lock()
+		enqueued := api.enqueueWorkerStop(ServerSelfHost, "ow-abc123")
+		api.outsourceMu.Unlock()
+
+		apiWantValue(t, "enqueued", any(enqueued), any(true))
+		wsWantWardenFrames(t, api, ServerSelfHost, wsStopFrame("ow-abc123"))
+		api.receiptMu.Lock()
+		owed := api.receiptPending["ow-abc123"]
+		api.receiptMu.Unlock()
+		apiWantValue(t, "owed receipt", any(map[string]any{"rpc": owed.RPC, "warden": owed.Warden}),
+			any(map[string]any{"rpc": "stop", "warden": "m-server-self"}))
+	})
+
+	t.Run("an offline target is refused fail-closed: nothing is enqueued and nothing is owed", func(t *testing.T) {
+		api, _, _, _, _ := wsWorkerSpawnFixture(t, WorkerStatusActive)
+
+		api.outsourceMu.Lock()
+		enqueued := api.enqueueWorkerStop(ServerSelfHost, "ow-abc123")
+		api.outsourceMu.Unlock()
+
+		apiWantValue(t, "enqueued", any(enqueued), any(false))
+		wsWantWardenFrames(t, api, ServerSelfHost)
+		api.receiptMu.Lock()
+		owed := len(api.receiptPending)
+		api.receiptMu.Unlock()
+		apiWantValue(t, "owed receipts", any(float64(owed)), any(0))
+	})
+
+	t.Run("a kill that goes out to the machine it was parked for drops the parking, and one parked elsewhere is left standing", func(t *testing.T) {
+		api, _, _, _, _ := wsWorkerSpawnFixture(t, WorkerStatusActive)
+		apiTestListen(t, api, ServerSelfHost)
+
+		api.outsourceMu.Lock()
+		api.workerStopPending["ow-abc123"] = "m-elsewhere"
+		api.enqueueWorkerStop(ServerSelfHost, "ow-abc123")
+		parkedElsewhere := api.workerStopPending["ow-abc123"]
+		api.workerStopPending["ow-abc123"] = ServerSelfHost
+		api.enqueueWorkerStop(ServerSelfHost, "ow-abc123")
+		parkedHere := api.workerStopPending["ow-abc123"]
+		api.outsourceMu.Unlock()
+
+		apiWantValue(t, "a parking for another machine", any(parkedElsewhere), any("m-elsewhere"))
+		apiWantValue(t, "the parking for this machine", any(parkedHere), any(""))
+		wsWantWardenFrames(t, api, ServerSelfHost, wsStopFrame("ow-abc123"), wsStopFrame("ow-abc123"))
+	})
+}
+
+func TestStopWorkerSessionOrPark(t *testing.T) {
+	t.Run("an accepted kill is armed against the target, so a session that outlives it can be re-pushed", func(t *testing.T) {
+		api, _, _, _, _ := wsWorkerSpawnFixture(t, WorkerStatusActive)
+		apiTestListen(t, api, ServerSelfHost)
+
+		api.outsourceMu.Lock()
+		api.stopWorkerSessionOrPark(ServerSelfHost, "ow-abc123", 1000)
+		armed := api.workerStopLanded["ow-abc123"]
+		parked := len(api.workerStopPending)
+		api.outsourceMu.Unlock()
+
+		wsWantWardenFrames(t, api, ServerSelfHost, wsStopFrame("ow-abc123"))
+		apiWantValue(t, "armed kill", any(map[string]any{"target": armed.Target, "at": armed.At}),
+			any(map[string]any{"target": "m-server-self", "at": 1000.0}))
+		apiWantValue(t, "parked kills", any(float64(parked)), any(0))
+	})
+
+	t.Run("a refused kill is parked instead, and the refusal supersedes an armed kill so the debt is owed from scratch", func(t *testing.T) {
+		api, _, _, _, _ := wsWorkerSpawnFixture(t, WorkerStatusActive)
+
+		api.outsourceMu.Lock()
+		api.workerStopLanded["ow-abc123"] = workerStopDispatch{Target: "m-old", At: 5}
+		api.stopWorkerSessionOrPark(ServerSelfHost, "ow-abc123", 1000)
+		armed := len(api.workerStopLanded)
+		parked := api.workerStopPending["ow-abc123"]
+		api.outsourceMu.Unlock()
+
+		wsWantWardenFrames(t, api, ServerSelfHost)
+		apiWantValue(t, "armed kills", any(float64(armed)), any(0))
+		apiWantValue(t, "parked kill", any(parked), any("m-server-self"))
+	})
+}
+
+func TestNoteWorkerStopNoSuchSession(t *testing.T) {
+	t.Run("the machine the kill was aimed at reporting no_such_session disarms the retry", func(t *testing.T) {
+		api, _, _, _, _ := wsWorkerSpawnFixture(t, WorkerStatusActive)
+		api.workerStopLanded["ow-abc123"] = workerStopDispatch{Target: ServerSelfHost, At: 1000}
+
+		api.noteWorkerStopNoSuchSession("ow-abc123", ServerSelfHost)
+
+		apiWantValue(t, "armed kills", any(float64(len(api.workerStopLanded))), any(0))
+	})
+
+	t.Run("a machine that never hosted the session cannot disarm it, because an identity sweep asks every warden", func(t *testing.T) {
+		api, _, _, _, _ := wsWorkerSpawnFixture(t, WorkerStatusActive)
+		api.workerStopLanded["ow-abc123"] = workerStopDispatch{Target: ServerSelfHost, At: 1000}
+
+		api.noteWorkerStopNoSuchSession("ow-abc123", "m-bystander")
+
+		armed := api.workerStopLanded["ow-abc123"]
+		apiWantValue(t, "armed kill", any(map[string]any{"target": armed.Target, "at": armed.At}),
+			any(map[string]any{"target": "m-server-self", "at": 1000.0}))
+	})
+
+	t.Run("an unidentified reporter, an unnamed worker and a worker with nothing armed all change nothing", func(t *testing.T) {
+		api, _, _, _, _ := wsWorkerSpawnFixture(t, WorkerStatusActive)
+		api.workerStopLanded["ow-abc123"] = workerStopDispatch{Target: ServerSelfHost, At: 1000}
+
+		api.noteWorkerStopNoSuchSession("ow-abc123", "")
+		api.noteWorkerStopNoSuchSession("", ServerSelfHost)
+		api.noteWorkerStopNoSuchSession("ow-def456", ServerSelfHost)
+
+		armed := api.workerStopLanded["ow-abc123"]
+		apiWantValue(t, "armed kill", any(map[string]any{
+			"target": armed.Target, "at": armed.At, "count": float64(len(api.workerStopLanded)),
+		}), any(map[string]any{"target": "m-server-self", "at": 1000.0, "count": 1.0}))
+	})
+}
+
+func TestRetryPendingWorkerStop(t *testing.T) {
+	t.Run("a parked kill re-fires once the target is reachable, and the re-fire is armed against it", func(t *testing.T) {
+		api, _, _, _, _ := wsWorkerSpawnFixture(t, WorkerStatusActive)
+		apiTestListen(t, api, ServerSelfHost)
+
+		api.outsourceMu.Lock()
+		api.workerStopPending["ow-abc123"] = ServerSelfHost
+		api.retryPendingWorkerStop("ow-abc123", 2000)
+		parked := len(api.workerStopPending)
+		armed := api.workerStopLanded["ow-abc123"]
+		api.outsourceMu.Unlock()
+
+		wsWantWardenFrames(t, api, ServerSelfHost, wsStopFrame("ow-abc123"))
+		apiWantValue(t, "parked kills", any(float64(parked)), any(0))
+		apiWantValue(t, "armed kill", any(map[string]any{"target": armed.Target, "at": armed.At}),
+			any(map[string]any{"target": "m-server-self", "at": 2000.0}))
+	})
+
+	t.Run("a parked kill whose target is still unreachable stays parked and nothing is armed", func(t *testing.T) {
+		api, _, _, _, _ := wsWorkerSpawnFixture(t, WorkerStatusActive)
+
+		api.outsourceMu.Lock()
+		api.workerStopPending["ow-abc123"] = ServerSelfHost
+		api.retryPendingWorkerStop("ow-abc123", 2000)
+		parked := api.workerStopPending["ow-abc123"]
+		armed := len(api.workerStopLanded)
+		api.outsourceMu.Unlock()
+
+		wsWantWardenFrames(t, api, ServerSelfHost)
+		apiWantValue(t, "parked kill", any(parked), any("m-server-self"))
+		apiWantValue(t, "armed kills", any(float64(armed)), any(0))
+	})
+
+	t.Run("with nothing parked it falls through to the other half of the promise: the kill that left and did not take", func(t *testing.T) {
+		api, _, _, _, _ := wsWorkerSpawnFixture(t, WorkerStatusActive)
+		listener, err := api.hub.Connect("ow-abc123", ServerSelfHost)
+		if err != nil {
+			t.Fatalf("hub.Connect: %v", err)
+		}
+		t.Cleanup(func() { api.hub.Disconnect(listener) })
+		apiTestListen(t, api, ServerSelfHost)
+
+		api.outsourceMu.Lock()
+		api.workerStopLanded["ow-abc123"] = workerStopDispatch{Target: ServerSelfHost, At: 1000}
+		api.retryPendingWorkerStop("ow-abc123", 1090)
+		armedAt := api.workerStopLanded["ow-abc123"].At
+		api.outsourceMu.Unlock()
+
+		wsWantWardenFrames(t, api, ServerSelfHost, wsStopFrame("ow-abc123"))
+		apiWantValue(t, "the re-dispatch anchor", any(armedAt), any(1090.0))
+	})
+}
+
+func TestRetryUnlandedWorkerStop(t *testing.T) {
+	// wsWorkerOn puts the worker's live session on machineID.
+	wsWorkerOn := func(t *testing.T, api *apiServer, machineID string) {
+		t.Helper()
+		listener, err := api.hub.Connect("ow-abc123", machineID)
+		if err != nil {
+			t.Fatalf("hub.Connect: %v", err)
+		}
+		t.Cleanup(func() { api.hub.Disconnect(listener) })
+	}
+
+	t.Run("a session still live on the machine the kill was aimed at, past stop_retry, is killed again", func(t *testing.T) {
+		api, _, _, _, _ := wsWorkerSpawnFixture(t, WorkerStatusActive)
+		wsWorkerOn(t, api, ServerSelfHost)
+		apiTestListen(t, api, ServerSelfHost)
+
+		api.outsourceMu.Lock()
+		api.workerStopLanded["ow-abc123"] = workerStopDispatch{Target: ServerSelfHost, At: 1000}
+		api.retryUnlandedWorkerStop("ow-abc123", 1090)
+		armed := api.workerStopLanded["ow-abc123"]
+		api.outsourceMu.Unlock()
+
+		wsWantWardenFrames(t, api, ServerSelfHost, wsStopFrame("ow-abc123"))
+		apiWantValue(t, "armed kill", any(map[string]any{"target": armed.Target, "at": armed.At}),
+			any(map[string]any{"target": "m-server-self", "at": 1090.0}))
+	})
+
+	t.Run("a session still live but INSIDE stop_retry is waited out, not re-pushed", func(t *testing.T) {
+		api, _, _, _, _ := wsWorkerSpawnFixture(t, WorkerStatusActive)
+		wsWorkerOn(t, api, ServerSelfHost)
+		apiTestListen(t, api, ServerSelfHost)
+
+		api.outsourceMu.Lock()
+		api.workerStopLanded["ow-abc123"] = workerStopDispatch{Target: ServerSelfHost, At: 1000}
+		api.retryUnlandedWorkerStop("ow-abc123", 1089)
+		armed := api.workerStopLanded["ow-abc123"]
+		api.outsourceMu.Unlock()
+
+		wsWantWardenFrames(t, api, ServerSelfHost)
+		apiWantValue(t, "armed kill", any(map[string]any{"target": armed.Target, "at": armed.At}),
+			any(map[string]any{"target": "m-server-self", "at": 1000.0}))
+	})
+
+	t.Run("a worker that is offline is proof the kill took, so the arm is disarmed and nothing is sent", func(t *testing.T) {
+		api, _, _, _, _ := wsWorkerSpawnFixture(t, WorkerStatusActive)
+		apiTestListen(t, api, ServerSelfHost)
+
+		api.outsourceMu.Lock()
+		api.workerStopLanded["ow-abc123"] = workerStopDispatch{Target: ServerSelfHost, At: 1000}
+		api.retryUnlandedWorkerStop("ow-abc123", 5000)
+		armed := len(api.workerStopLanded)
+		api.outsourceMu.Unlock()
+
+		wsWantWardenFrames(t, api, ServerSelfHost)
+		apiWantValue(t, "armed kills", any(float64(armed)), any(0))
+	})
+
+	t.Run("a worker online on ANOTHER machine means the addressed session is gone, so the retry is disarmed rather than aimed at the old box forever", func(t *testing.T) {
+		api, _, _, _, _ := wsWorkerSpawnFixture(t, WorkerStatusActive)
+		wsWorkerOn(t, api, "m-elsewhere")
+		apiTestListen(t, api, ServerSelfHost)
+
+		api.outsourceMu.Lock()
+		api.workerStopLanded["ow-abc123"] = workerStopDispatch{Target: ServerSelfHost, At: 1000}
+		api.retryUnlandedWorkerStop("ow-abc123", 5000)
+		armed := len(api.workerStopLanded)
+		api.outsourceMu.Unlock()
+
+		wsWantWardenFrames(t, api, ServerSelfHost)
+		apiWantValue(t, "armed kills", any(float64(armed)), any(0))
+	})
+
+	t.Run("a worker with no kill armed is left alone entirely", func(t *testing.T) {
+		api, _, _, _, _ := wsWorkerSpawnFixture(t, WorkerStatusActive)
+		wsWorkerOn(t, api, ServerSelfHost)
+		apiTestListen(t, api, ServerSelfHost)
+
+		api.outsourceMu.Lock()
+		api.retryUnlandedWorkerStop("ow-abc123", 5000)
+		armed := len(api.workerStopLanded)
+		parked := len(api.workerStopPending)
+		api.outsourceMu.Unlock()
+
+		wsWantWardenFrames(t, api, ServerSelfHost)
+		apiWantValue(t, "armed kills", any(float64(armed)), any(0))
+		apiWantValue(t, "parked kills", any(float64(parked)), any(0))
+	})
+
+	t.Run("a re-push toward an unreachable target parks the kill instead of losing it", func(t *testing.T) {
+		api, _, _, _, _ := wsWorkerSpawnFixture(t, WorkerStatusActive)
+		wsWorkerOn(t, api, ServerSelfHost)
+
+		api.outsourceMu.Lock()
+		api.workerStopLanded["ow-abc123"] = workerStopDispatch{Target: ServerSelfHost, At: 1000}
+		api.retryUnlandedWorkerStop("ow-abc123", 1090)
+		armed := len(api.workerStopLanded)
+		parked := api.workerStopPending["ow-abc123"]
+		api.outsourceMu.Unlock()
+
+		wsWantWardenFrames(t, api, ServerSelfHost)
+		apiWantValue(t, "armed kills", any(float64(armed)), any(0))
+		apiWantValue(t, "parked kill", any(parked), any("m-server-self"))
+	})
+}
+
+// wsOnline gives the worker a live session claiming machineID, the way its own
+// SSE connection does.
+func wsOnline(t *testing.T, api *apiServer, workerID, machineID string) {
 	t.Helper()
-	putTaskFixture(t, s, Task{
-		ID: "t-" + id, TypeKey: "review-pr", Title: "x",
-		Status: TaskStatusNotStarted, Priority: TaskPriorityMid,
-		ExecutorKind: TaskExecutorOutsource, ExecutorID: id,
-	})
-	if err := s.dal.PutTaskManual(TaskManual{TypeKey: "review-pr", Purpose: "p",
-		Fields: "[]", Assignee: `{"kind":"outsource","model":"opus"}`}); err != nil {
-		t.Fatalf("put manual: %v", err)
-	}
-	return putWorkerFixture(t, s, OutsourceWorker{
-		ID: id, Codename: "O-1", Model: "opus", Effort: "high",
-		TaskID: "t-" + id, Status: status, CreatedTS: createdTS,
-		DesiredMachineID: ServerSelfHost, // explicit placement (owner ruling 2026-07-25)
-		// T-72dd: see the note in TestTick_AssignedWorker_RedispatchesSpawn. This
-		// fixture used to leave desired_state UNSET and relied on
-		// reconcileWorkerLiveness hard-wiring the FSM's Desired to online. Now
-		// that the FSM reads the row, a "" here would route every one of these
-		// cases to decideDown and test the wrong branch entirely. The sole
-		// production creation path writes online explicitly, so this is what a
-		// real worker row carries.
-		DesiredState: DesiredStateOnline,
-	})
-}
-
-// TestReconcileWorkerLiveness_ClobberedStartZombieTakeover: a START that
-// bounced off the warden clobber-guard (receipt reason session_already_exists —
-// the O-19 ghost wedge) makes the FSM dispatch a robust member `stop` to the
-// last spawn target (reaping the ghost), bench that host (換機), clear the
-// pacing, and NOT mark the worker reclaimed. A second tick inside stop_retry
-// must not stop-spam.
-func TestReconcileWorkerLiveness_ClobberedStartZombieTakeover(t *testing.T) {
-	s := newWorkerTestServer(t)
-	connectWarden(t, s, ServerSelfHost)
-	now := 1_000_000.0
-	w := fsmWorkerFixture(t, s, "ow-g", WorkerStatusAssigned, now-500)
-	w.LastOp = reconcileCmdStart
-	w.LastOpReason = "session_already_exists: live session refused clobber"
-	putWorkerFixture(t, s, w)
-	// The receipt reaches the code under test in the VALUE passed below, not off
-	// the row — but the row carried it before T-55 and still should, or the
-	// fixture reads as writing something it does not write. Planted through the
-	// sole writer so the two agree.
-	if err := s.dal.SetMemberOpReceipt("ow-g", w.LastOp, w.LastOpOK, w.LastOpLog,
-		w.LastOpReason, w.LastOpAt); err != nil {
-		t.Fatalf("seed the clobber receipt: %v", err)
-	}
-
-	s.outsourceMu.Lock()
-	s.workerSpawnAt["ow-g"] = now - 5 // recently paced (must not block the reap path)
-	s.workerSpawnTarget["ow-g"] = ServerSelfHost
-	s.workerReconcileStates["ow-g"] = reconcileState{
-		Phase: reconcilePhaseStarting, LastCommand: reconcileCmdStart, LastCommandAt: now - 10,
-		// T-9adc: the takeover STOP now requires a SUSTAINED offline record —
-		// this fixture is a long-confirmed ghost, past the second-confirm grace.
-		OfflineSince: now - s.reconcileCfg.ZombieConfirmGrace - 1,
-	}
-	s.reconcileWorkerLiveness(w, now)
-	_, stillPaced := s.workerSpawnAt["ow-g"]
-	cooling := s.workerMachineCoolingOn("ow-g", ServerSelfHost, now)
-	s.outsourceMu.Unlock()
-
-	frames := s.hub.DrainWardenCommands(ServerSelfHost)
-	if len(frames) != 1 {
-		t.Fatalf("zombie takeover must enqueue exactly 1 stop, got %d", len(frames))
-	}
-	rpc, args := decodeWardenFrame(t, frames[0].Frame)
-	if rpc != reconcileCmdStop || args["member_id"] != "ow-g" {
-		t.Fatalf("takeover frame = %s %v, want stop ow-g", rpc, args)
-	}
-	if stillPaced {
-		t.Fatal("the takeover must CLEAR the pacing stamp so the respawn is not throttled")
-	}
-	if !cooling {
-		t.Fatal("the ghost's host must be benched for this worker (換機)")
-	}
-	if s.workerReclaimed["ow-g"] {
-		t.Fatal("a rescue must NOT set workerReclaimed (that flag is for released-worker reclaim only)")
-	}
-
-	// The next tick moves to the RESPAWN leg (never a second stop toward the
-	// same ghost), and with the only online warden benched the respawn honestly
-	// waits — nothing is dispatched at the wedged host.
-	s.outsourceMu.Lock()
-	s.reconcileWorkerLiveness(w, now+1)
-	s.outsourceMu.Unlock()
-	if got := len(s.hub.DrainWardenCommands(ServerSelfHost)); got != 0 {
-		t.Fatalf("the benched host must receive nothing after the takeover, got %d", got)
-	}
-}
-
-// TestReconcileWorkerLiveness_InFlightStartAwaitsPresence (positive control):
-// a start dispatched within start_timeout is a boot in flight — the FSM must
-// leave it strictly alone (no re-start, no stop). Killing a healthy slow-booter
-// would be the exact failure the old one-shot guard avoided; the FSM must too.
-func TestReconcileWorkerLiveness_InFlightStartAwaitsPresence(t *testing.T) {
-	s := newWorkerTestServer(t)
-	connectWarden(t, s, ServerSelfHost)
-	now := 1_000_000.0
-	w := fsmWorkerFixture(t, s, "ow-f", WorkerStatusAssigned, now-10)
-	s.outsourceMu.Lock()
-	s.workerSpawnAt["ow-f"] = now - 5
-	s.workerSpawnTarget["ow-f"] = ServerSelfHost
-	s.workerReconcileStates["ow-f"] = reconcileState{
-		Phase: reconcilePhaseStarting, LastCommand: reconcileCmdStart, LastCommandAt: now - 5,
-	}
-	s.reconcileWorkerLiveness(w, now)
-	_, stillPaced := s.workerSpawnAt["ow-f"]
-	s.outsourceMu.Unlock()
-	if got := s.hub.DrainWardenCommands(ServerSelfHost); len(got) != 0 {
-		t.Fatalf("an in-flight boot must be left alone, got %d frames", len(got))
-	}
-	if !stillPaced {
-		t.Fatal("an in-flight boot's pacing must be left intact")
-	}
-}
-
-// TestReconcileWorkerLiveness_SilentTimeoutBacksOffThenRespawns: a start that
-// times out silently (lost frame / dead boot, no receipt) folds into the FSM's
-// backoff — no immediate re-dispatch — and once the backoff window lapses the
-// next tick re-spawns fresh.
-func TestReconcileWorkerLiveness_SilentTimeoutBacksOffThenRespawns(t *testing.T) {
-	s := newWorkerTestServer(t)
-	connectWarden(t, s, ServerSelfHost)
-	now := 1_000_000.0
-	w := fsmWorkerFixture(t, s, "ow-b", WorkerStatusAssigned, now-500)
-	s.outsourceMu.Lock()
-	s.workerReconcileStates["ow-b"] = reconcileState{
-		Phase: reconcilePhaseStarting, LastCommand: reconcileCmdStart,
-		LastCommandAt: now - (s.reconcileCfg.StartTimeout + 1),
-	}
-	s.reconcileWorkerLiveness(w, now) // timeout folds → backoff armed, nothing sent
-	st := s.workerReconcileStates["ow-b"]
-	s.outsourceMu.Unlock()
-	if got := len(s.hub.DrainWardenCommands(ServerSelfHost)); got != 0 {
-		t.Fatalf("a just-timed-out start must back off, not instantly re-dispatch (got %d)", got)
-	}
-	if st.Phase != reconcilePhaseBackoff || st.Attempts != 1 {
-		t.Fatalf("state after silent timeout = %+v, want backoff/attempts=1", st)
-	}
-
-	// Past the backoff window the FSM re-spawns.
-	s.outsourceMu.Lock()
-	s.reconcileWorkerLiveness(w, st.BackoffUntil+1)
-	s.outsourceMu.Unlock()
-	frames := s.hub.DrainWardenCommands(ServerSelfHost)
-	if len(frames) != 1 {
-		t.Fatalf("want 1 start after the backoff lapsed, got %d", len(frames))
-	}
-	if rpc, args := decodeWardenFrame(t, frames[0].Frame); rpc != reconcileCmdStart ||
-		args["member_id"] != "ow-b" {
-		t.Errorf("frame = %s %v", rpc, args)
-	}
-}
-
-// TestReconcileWorkerLiveness_LegacyWorkerStartReceiptStillDetectsZombie: a
-// clobber receipt folded by an OLD warden build still carries the retired
-// worker_start verb — the transition fold (canonicalWorkerLastOp) must keep the
-// zombie takeover working across the version skew.
-func TestReconcileWorkerLiveness_LegacyWorkerStartReceiptStillDetectsZombie(t *testing.T) {
-	s := newWorkerTestServer(t)
-	connectWarden(t, s, ServerSelfHost)
-	now := 1_000_000.0
-	w := fsmWorkerFixture(t, s, "ow-l", WorkerStatusAssigned, now-500)
-	w.LastOp = legacyWardenCmdWorkerStart
-	w.LastOpReason = "session_already_exists: live session refused clobber"
-	putWorkerFixture(t, s, w)
-	// The receipt reaches the code under test in the VALUE passed below, not off
-	// the row — but the row carried it before T-55 and still should, or the
-	// fixture reads as writing something it does not write. Planted through the
-	// sole writer so the two agree.
-	if err := s.dal.SetMemberOpReceipt("ow-l", w.LastOp, w.LastOpOK, w.LastOpLog,
-		w.LastOpReason, w.LastOpAt); err != nil {
-		t.Fatalf("seed the clobber receipt: %v", err)
-	}
-	s.outsourceMu.Lock()
-	s.workerSpawnTarget["ow-l"] = ServerSelfHost
-	s.workerReconcileStates["ow-l"] = reconcileState{
-		Phase: reconcilePhaseStarting, LastCommand: reconcileCmdStart, LastCommandAt: now - 10,
-		// T-9adc: past the zombie second-confirm grace (sustained offline).
-		OfflineSince: now - s.reconcileCfg.ZombieConfirmGrace - 1,
-	}
-	s.reconcileWorkerLiveness(w, now)
-	s.outsourceMu.Unlock()
-	frames := s.hub.DrainWardenCommands(ServerSelfHost)
-	if len(frames) != 1 {
-		t.Fatalf("legacy-receipt zombie takeover must enqueue 1 stop, got %d", len(frames))
-	}
-	if rpc, args := decodeWardenFrame(t, frames[0].Frame); rpc != reconcileCmdStop ||
-		args["member_id"] != "ow-l" {
-		t.Errorf("frame = %s %v", rpc, args)
-	}
-}
-
-func TestNotifyWorkerSpawn_TerminalTask_NoDispatch(t *testing.T) {
-	s := newWorkerTestServer(t)
-	connectWarden(t, s, ServerSelfHost)
-	task := putTaskFixture(t, s, Task{
-		ID: "t-000000000003", TypeKey: "review-pr", Title: "x",
-		Status: TaskStatusTerminated, Priority: TaskPriorityMid,
-		ExecutorKind: TaskExecutorOutsource, ExecutorID: "ow-3", ClosedTS: 1,
-	})
-	w := putWorkerFixture(t, s, OutsourceWorker{
-		ID: "ow-3", Codename: "O-3", Model: "opus", Effort: "high",
-		TaskID: task.ID, Status: WorkerStatusAssigned,
-	})
-	s.outsourceMu.Lock()
-	s.notifyWorkerSpawn(w, nowSecs())
-	s.outsourceMu.Unlock()
-	if got := s.hub.DrainWardenCommands(ServerSelfHost); len(got) != 0 {
-		t.Errorf("a terminal task must never boot a worker, got %d frames", len(got))
-	}
-	// This arm repeats on every tick forever, so it must be diagnosable rather
-	// than log-only — otherwise a permanently unbootable worker and a booting one
-	// render identically on the cockpit.
-	got, err := s.dal.GetOutsourceWorker("ow-3")
-	if err != nil || got == nil {
-		t.Fatalf("re-read worker: %v", err)
-	}
-	if !strings.HasPrefix(got.LastOpReason, spawnReasonNoLiveTask+":") {
-		t.Errorf("want a %s receipt, got last_op=%q reason=%q",
-			spawnReasonNoLiveTask, got.LastOp, got.LastOpReason)
-	}
-}
-
-// TestReconcileWorkerLiveness_WakeTimeoutLeavesDurableReceipt (T-e0e3 — the ACTUAL
-// X-46 root cause): a START that is DISPATCHED and never produces a session was
-// the one failure a worker row had NO durable record of. The member producer has
-// stamped this same FSM signal since T-ba62 (stampWakeObservability arm (b));
-// reconcileWorkerLiveness never read decision.StartTimedOut, and because worker
-// spawn observability is in-memory by contract, a re-exec then erased the machine
-// cell too — leaving a worker that had been dispatched to repeatedly showing
-// 尚未分配機器 with every last_op field blank.
-//
-// Also pins the 31751ae lesson: the retry that FOLLOWS a wake timeout must not
-// erase the explanation for the one before it.
-func TestReconcileWorkerLiveness_WakeTimeoutLeavesDurableReceipt(t *testing.T) {
-	s := newWorkerTestServer(t)
-	connectWarden(t, s, ServerSelfHost)
-	w := fsmWorkerFixture(t, s, "ow-wt", WorkerStatusAssigned, 0)
-
-	base := nowSecs()
-	s.outsourceMu.Lock()
-	// Tick 1 dispatches the START; the worker never connects.
-	s.reconcileWorkerLiveness(w, base)
-	s.outsourceMu.Unlock()
-	if len(s.hub.DrainWardenCommands(ServerSelfHost)) != 1 {
-		t.Fatal("precondition: the first tick must dispatch a START")
-	}
-	if got, _ := s.dal.GetOutsourceWorker("ow-wt"); got.LastOpReason != "" {
-		t.Fatalf("a start in flight is not yet a failure: %q", got.LastOpReason)
-	}
-
-	// Tick 2, past the start window: the FSM calls it a silent timeout.
-	s.outsourceMu.Lock()
-	s.reconcileWorkerLiveness(w, base+WakingTTLSecs+1)
-	s.outsourceMu.Unlock()
-
-	got, err := s.dal.GetOutsourceWorker("ow-wt")
-	if err != nil || got == nil {
-		t.Fatalf("re-read worker: %v", err)
-	}
-	if got.LastOp != reconcileCmdStart || got.LastOpOK == nil || *got.LastOpOK ||
-		got.LastOpAt == 0 {
-		t.Fatalf("a lapsed start must be a durable FAILED receipt, got last_op=%q ok=%v at=%v",
-			got.LastOp, got.LastOpOK, got.LastOpAt)
-	}
-	if !strings.HasPrefix(got.LastOpReason, spawnReasonWakeTimeout+":") {
-		t.Fatalf("want a %s receipt, got %q", spawnReasonWakeTimeout, got.LastOpReason)
-	}
-	// The receipt names the machine it was dispatched to and the runtime to check —
-	// a bare "it failed" is not diagnosable.
-	if !strings.Contains(got.LastOpReason, ServerSelfHost) {
-		t.Errorf("the receipt must name the dispatch target: %q", got.LastOpReason)
-	}
-
-	// 31751ae: the NEXT re-dispatch must not blank the reason that explains the
-	// previous failure — wake_timeout is not a placement block.
-	s.outsourceMu.Lock()
-	s.reconcileWorkerLiveness(*got, base+WakingTTLSecs*10)
-	s.outsourceMu.Unlock()
-	after, _ := s.dal.GetOutsourceWorker("ow-wt")
-	if !strings.HasPrefix(after.LastOpReason, spawnReasonWakeTimeout+":") {
-		t.Fatalf("a retry must not erase the wake_timeout receipt, got %q", after.LastOpReason)
-	}
-}
-
-// TestReconcileWorkerLiveness_NeverCollectedIsNotAFailedBoot (T-e0e3 round 3):
-// "the frame was never picked up" and "it was picked up and the boot failed" have
-// different culprits on different machines, so one receipt for both sends the
-// owner to the wrong place. Enqueueing proves nothing about a reader —
-// EnqueueWardenCommand is IsOnline + a map append, and notifyWorkerSpawn returns
-// true on exactly that — so neither its bool nor a frame count can tell these
-// apart. The hub's own FIFO depth can.
-//
-// The two subtests are a matched pair, the shape of the eva-m5 investigation that
-// found this: the SAME worker, the SAME dispatch, differing ONLY in whether
-// anything ever drained the queue.
-func TestReconcileWorkerLiveness_NeverCollectedIsNotAFailedBoot(t *testing.T) {
-	// NOBODY COLLECTS: the warden holds a stream (so placement resolves and the
-	// enqueue succeeds) but never drains its FIFO — the X-46 shape.
-	t.Run("uncollected frame is not blamed on the runtime", func(t *testing.T) {
-		s := newWorkerTestServer(t)
-		connectWarden(t, s, ServerSelfHost)
-		w := fsmWorkerFixture(t, s, "ow-nc", WorkerStatusAssigned, 0)
-
-		base := nowSecs()
-		s.outsourceMu.Lock()
-		s.reconcileWorkerLiveness(w, base) // dispatch — into the FIFO
-		s.outsourceMu.Unlock()
-		// Deliberately do NOT drain: no warden ever reads it.
-		if got := s.hub.PendingWardenCommands(ServerSelfHost); got != 1 {
-			t.Fatalf("precondition: the frame must be sitting in the FIFO, got %d", got)
-		}
-
-		s.outsourceMu.Lock()
-		s.reconcileWorkerLiveness(w, base+WakingTTLSecs+1)
-		s.outsourceMu.Unlock()
-
-		got, err := s.dal.GetOutsourceWorker("ow-nc")
-		if err != nil || got == nil {
-			t.Fatalf("re-read worker: %v", err)
-		}
-		if !strings.HasPrefix(got.LastOpReason, spawnReasonNeverCollected+":") {
-			t.Fatalf("an uncollected frame must say so, got %q", got.LastOpReason)
-		}
-		// The whole point: it must NOT send the owner to inspect the runtime on a
-		// machine that was never even asked to start anything.
-		if strings.Contains(got.LastOpReason, "runtime actually runs") {
-			t.Errorf("must not blame the far machine's runtime: %q", got.LastOpReason)
-		}
-	})
-
-	// SOMETHING COLLECTED IT: same dispatch, the queue is drained (a warden read
-	// it), and the worker still never appears ⇒ a genuine boot failure.
-	t.Run("collected frame that never boots is a wake timeout", func(t *testing.T) {
-		s := newWorkerTestServer(t)
-		connectWarden(t, s, ServerSelfHost)
-		w := fsmWorkerFixture(t, s, "ow-wc", WorkerStatusAssigned, 0)
-
-		base := nowSecs()
-		s.outsourceMu.Lock()
-		s.reconcileWorkerLiveness(w, base)
-		s.outsourceMu.Unlock()
-		if len(s.hub.DrainWardenCommands(ServerSelfHost)) != 1 { // a warden collects it
-			t.Fatal("precondition: one frame must be collected")
-		}
-		if got := s.hub.PendingWardenCommands(ServerSelfHost); got != 0 {
-			t.Fatalf("precondition: the FIFO must be empty after the drain, got %d", got)
-		}
-
-		s.outsourceMu.Lock()
-		s.reconcileWorkerLiveness(w, base+WakingTTLSecs+1)
-		s.outsourceMu.Unlock()
-
-		got, err := s.dal.GetOutsourceWorker("ow-wc")
-		if err != nil || got == nil {
-			t.Fatalf("re-read worker: %v", err)
-		}
-		if !strings.HasPrefix(got.LastOpReason, spawnReasonWakeTimeout+":") {
-			t.Fatalf("a collected-but-dead boot must be a wake timeout, got %q", got.LastOpReason)
-		}
-		if strings.HasPrefix(got.LastOpReason, spawnReasonNeverCollected+":") {
-			t.Errorf("a collected frame must not claim it was never picked up")
-		}
-	})
-}
-
-// TestReconcileWorkerLiveness_DroppedStartIsNotBlamedOnTheRuntime (T-66a2 ×
-// T-e0e3): the THIRD outcome, and the one the two arms above cannot see between
-// them. A START that was drained off the FIFO and then lost — the warden's stream
-// died mid-delivery — leaves the backlog EMPTY, exactly like a frame that was
-// collected and booted badly. The at-most-once contract drops it (only `update`
-// is ever requeued), so the only surviving evidence is the hub's loss note.
-//
-// Without an arm reading that note the receipt falls through to `default` and
-// tells the owner, confidently, to go check the runtime on a machine that was
-// never asked to start anything — the "points at a healthy machine" failure that
-// c441f1a calls this change's only value. Before the rebase onto T-66a2 the blunt
-// requeue put the frame back and the never_collected arm caught this case; the
-// switch to at-most-once silently took that away.
-//
-// The discriminator is the RECEIPT, not the note: asserting the hub recorded a
-// note would only re-test T-66a2's own plumbing and would stay green with the arm
-// deleted.
-func TestReconcileWorkerLiveness_DroppedStartIsNotBlamedOnTheRuntime(t *testing.T) {
-	s := newWorkerTestServer(t)
-	connectWarden(t, s, ServerSelfHost)
-	w := fsmWorkerFixture(t, s, "ow-drop", WorkerStatusAssigned, 0)
-
-	base := nowSecs()
-	s.outsourceMu.Lock()
-	s.reconcileWorkerLiveness(w, base) // dispatch — into the FIFO
-	s.outsourceMu.Unlock()
-
-	// The warden's stream dies mid-drain: the frame is popped and never written,
-	// which is precisely what the events handler hands back.
-	captureStderr(t, func() {
-		pending := s.hub.DrainWardenCommands(ServerSelfHost)
-		if len(pending) != 1 {
-			t.Fatalf("precondition: one frame must be on the FIFO, got %d", len(pending))
-		}
-		s.hub.ReturnUndeliveredCommands(ServerSelfHost, pending)
-	})
-	// The fixture's whole point: the backlog now looks IDENTICAL to a healthy
-	// delivery, so nothing but the loss note can tell them apart.
-	if got := s.hub.PendingWardenCommandsFor(ServerSelfHost, "ow-drop"); got != 0 {
-		t.Fatalf("precondition: a dropped START must leave NO backlog, got %d", got)
-	}
-
-	s.outsourceMu.Lock()
-	s.reconcileWorkerLiveness(w, base+WakingTTLSecs+1)
-	s.outsourceMu.Unlock()
-
-	got, err := s.dal.GetOutsourceWorker("ow-drop")
-	if err != nil || got == nil {
-		t.Fatalf("re-read worker: %v", err)
-	}
-	if strings.Contains(got.LastOpReason, "runtime actually runs") {
-		t.Fatalf("a START that never reached the machine must NOT send the owner to "+
-			"inspect the runtime there: %q", got.LastOpReason)
-	}
-	if !strings.HasPrefix(got.LastOpReason, spawnReasonNeverCollected+":") {
-		t.Fatalf("a dropped START must read as never collected, got %q", got.LastOpReason)
-	}
-	// It must name the connection as the suspect, and the right machine.
-	for _, want := range []string{"never reached machine", ServerSelfHost, "connection is the suspect"} {
-		if !strings.Contains(got.LastOpReason, want) {
-			t.Errorf("the receipt must contain %q so the owner knows where to look; got %q",
-				want, got.LastOpReason)
-		}
-	}
-}
-
-// TestReconcileWorkerLiveness_OtherMembersBacklogIsNotOurs (T-e0e3 review C.1):
-// one machine's command FIFO is shared by EVERY member and worker placed there,
-// so its depth answers "does that machine owe anybody a frame" — never "is THIS
-// worker's start frame still waiting". Reading the first as the second produced a
-// confident, wrong accusation: a warden that had just demonstrably drained our
-// frame got reported as not running, and the message explicitly steered the owner
-// AWAY from the runtime, which is where the fault actually was.
-//
-// The fixture is exactly that ambiguity and nothing else: our frame IS collected,
-// and a different member's frame is left queued on the SAME machine.
-func TestReconcileWorkerLiveness_OtherMembersBacklogIsNotOurs(t *testing.T) {
-	s := newWorkerTestServer(t)
-	connectWarden(t, s, ServerSelfHost)
-	w := fsmWorkerFixture(t, s, "ow-shared", WorkerStatusAssigned, 0)
-
-	base := nowSecs()
-	s.outsourceMu.Lock()
-	s.reconcileWorkerLiveness(w, base)
-	s.outsourceMu.Unlock()
-	if len(s.hub.DrainWardenCommands(ServerSelfHost)) != 1 {
-		t.Fatal("precondition: our start frame must be collected")
-	}
-	// A COMPLETELY DIFFERENT member's frame arrives on the same machine and is
-	// still waiting. That says nothing whatsoever about our worker.
-	s.hub.EnqueueWardenCommandFor(ServerSelfHost, "m-somebody-else",
-		[]byte("data: {\"topic\":\"warden-command\"}\n\n"))
-	if got := s.hub.PendingWardenCommands(ServerSelfHost); got != 1 {
-		t.Fatalf("precondition: the machine's queue must be non-empty, got %d", got)
-	}
-	if got := s.hub.PendingWardenCommandsFor(ServerSelfHost, "ow-shared"); got != 0 {
-		t.Fatalf("precondition: none of that backlog is OURS, got %d", got)
-	}
-
-	s.outsourceMu.Lock()
-	s.reconcileWorkerLiveness(w, base+WakingTTLSecs+1)
-	s.outsourceMu.Unlock()
-
-	got, err := s.dal.GetOutsourceWorker("ow-shared")
-	if err != nil || got == nil {
-		t.Fatalf("re-read worker: %v", err)
-	}
-	if strings.HasPrefix(got.LastOpReason, spawnReasonNeverCollected+":") {
-		t.Fatalf("somebody else's queued frame must not be read as ours — this "+
-			"receipt accuses a warden that collected our frame: %q", got.LastOpReason)
-	}
-	if !strings.HasPrefix(got.LastOpReason, spawnReasonWakeTimeout+":") {
-		t.Fatalf("our frame WAS collected and no session appeared — that is a wake "+
-			"timeout, got %q", got.LastOpReason)
-	}
-}
-
-// TestReconcileWorkerLiveness_UnknownTargetNamesNoMachine (T-e0e3 review C.2):
-// both timeout arms name a machine and then assert something about it. With no
-// recorded target that becomes "collected by machine ”" — a confident claim made
-// from zero evidence, sending the owner to a log on a host with no name. The
-// guard says only what is known.
-//
-// Honest scope: the state is forced here (the spawn ledger is cleared directly).
-// No production path is known that empties workerSpawnTarget while
-// workerReconcileStates still holds a dispatched START — a re-exec clears both.
-// The guard is kept because the COST of the wrong message is a wild goose chase
-// and the cost of the guard is one branch, not because reachability is proven.
-func TestReconcileWorkerLiveness_UnknownTargetNamesNoMachine(t *testing.T) {
-	s := newWorkerTestServer(t)
-	connectWarden(t, s, ServerSelfHost)
-	w := fsmWorkerFixture(t, s, "ow-notarget", WorkerStatusAssigned, 0)
-
-	base := nowSecs()
-	s.outsourceMu.Lock()
-	s.reconcileWorkerLiveness(w, base)
-	delete(s.workerSpawnTarget, w.ID) // forced: no record of where it went
-	s.outsourceMu.Unlock()
-	s.hub.DrainWardenCommands(ServerSelfHost)
-
-	s.outsourceMu.Lock()
-	s.reconcileWorkerLiveness(w, base+WakingTTLSecs+1)
-	s.outsourceMu.Unlock()
-
-	got, err := s.dal.GetOutsourceWorker("ow-notarget")
-	if err != nil || got == nil {
-		t.Fatalf("re-read worker: %v", err)
-	}
-	if got.LastOpReason == "" {
-		t.Fatal("a timed-out start must still leave a receipt")
-	}
-	if strings.Contains(got.LastOpReason, "machine ''") ||
-		strings.Contains(got.LastOpReason, "machine ‘’") {
-		t.Fatalf("a receipt must not name — or make claims about — a machine it "+
-			"cannot identify: %q", got.LastOpReason)
-	}
-	if strings.Contains(got.LastOpReason, "collected by") {
-		t.Fatalf("with no known target nothing is known about collection: %q",
-			got.LastOpReason)
-	}
-	if strings.HasPrefix(got.LastOpReason, spawnReasonNeverCollected+":") {
-		t.Fatalf("PendingWardenCommandsFor('' , id) is 0 by construction — it must "+
-			"not be read as evidence of collection either way: %q", got.LastOpReason)
-	}
-}
-
-// TestNotifyWorkerSpawn_NoSigningSecret_LeavesReceipt: the fail-closed mint gate
-// is one of the arms that used to abandon the spawn LOG-ONLY. Placement resolves
-// fine here, so without a receipt the worker sits on a perfectly good machine pin
-// with nothing at all explaining why it never booted.
-func TestNotifyWorkerSpawn_NoSigningSecret_LeavesReceipt(t *testing.T) {
-	s := newWorkerTestServer(t)
-	s.keys = singleKeyring(nil)
-	connectWarden(t, s, ServerSelfHost)
-	seedMachine(t, s, ServerSelfHost)
-	task := putTaskFixture(t, s, Task{
-		ID: "t-000000000009", TypeKey: "review-pr", Title: "x",
-		Status: TaskStatusNotStarted, Priority: TaskPriorityMid,
-		ExecutorKind: TaskExecutorOutsource, ExecutorID: "ow-9",
-	})
-	w := putWorkerFixture(t, s, OutsourceWorker{
-		ID: "ow-9", Codename: "O-9", Model: "opus", Effort: "high",
-		TaskID: task.ID, Status: WorkerStatusAssigned, DesiredMachineID: ServerSelfHost,
-	})
-	s.outsourceMu.Lock()
-	dispatched := s.notifyWorkerSpawn(w, nowSecs())
-	s.outsourceMu.Unlock()
-	if dispatched || len(s.hub.DrainWardenCommands(ServerSelfHost)) != 0 {
-		t.Fatal("a server with no signing secret must never dispatch a worker start")
-	}
-	got, err := s.dal.GetOutsourceWorker("ow-9")
-	if err != nil || got == nil {
-		t.Fatalf("re-read worker: %v", err)
-	}
-	if !strings.HasPrefix(got.LastOpReason, spawnReasonNoSecret+":") {
-		t.Errorf("want a %s receipt, got last_op=%q reason=%q",
-			spawnReasonNoSecret, got.LastOp, got.LastOpReason)
-	}
-}
-
-// jwtSubOf verifies the minted token against the test secret and returns sub.
-func jwtSubOf(t *testing.T, token string) string {
-	t.Helper()
-	claims, err := verifyJWT(token, []byte("worker-test-secret"), nowSecsInt())
+	listener, err := api.hub.Connect(workerID, machineID)
 	if err != nil {
-		t.Fatalf("verify minted token: %v", err)
+		t.Fatalf("hub.Connect(%q): %v", workerID, err)
 	}
-	sub, _ := claims["sub"].(string)
-	return sub
+	t.Cleanup(func() { api.hub.Disconnect(listener) })
 }
 
-// jwtMachineOf verifies the minted token and returns its machine_id claim (""
-// when the claim is absent) — the A案 P1 assertion that a worker token now
-// carries its dispatch host, mirroring the member token.
-func jwtMachineOf(t *testing.T, token string) string {
-	t.Helper()
-	claims, err := verifyJWT(token, []byte("worker-test-secret"), nowSecsInt())
-	if err != nil {
-		t.Fatalf("verify minted token: %v", err)
+// wsOutcome is one ownerOpOutcome flattened for a whole-value compare, with the
+// derived Pending() answer beside the four arms.
+func wsOutcome(o ownerOpOutcome) map[string]any {
+	return map[string]any{
+		"dispatched": o.Dispatched, "wound_down": o.WoundDown,
+		"held_down": o.HeldDown, "already_running": o.AlreadyRunning,
+		"pending": o.Pending(),
 	}
-	machineID, _ := claims["machine_id"].(string)
-	return machineID
 }
 
-func nowSecsInt() int64 { return int64(nowSecs()) }
+func TestWorkerHasStateToFlush(t *testing.T) {
+	t.Run("a worker with no live session has nothing to flush, so the owner's verb takes effect immediately", func(t *testing.T) {
+		api, _, _, _, w := wsWorkerSpawnFixture(t, WorkerStatusActive)
 
-// ── reclaim ──────────────────────────────────────────────────────────────────
-
-func TestReclaimWorkerSession_RecordedTarget(t *testing.T) {
-	s := newWorkerTestServer(t)
-	connectWarden(t, s, ServerSelfHost)
-	w := putWorkerFixture(t, s, OutsourceWorker{
-		ID: "ow-4", Codename: "O-4", Model: "opus", Effort: "high",
-		TaskID: "t-x", Status: WorkerStatusReleased, ReleasedTS: 1,
+		apiWantValue(t, "has state to flush", any(api.workerHasStateToFlush(w)), any(false))
 	})
-	s.outsourceMu.Lock()
-	s.workerSpawnTarget["ow-4"] = ServerSelfHost
-	s.reclaimWorkerSession(w)
-	reclaimed := s.workerReclaimed["ow-4"]
-	s.outsourceMu.Unlock()
-	if !reclaimed {
-		t.Error("reclaim must mark the worker once a frame went out")
-	}
-	frames := s.hub.DrainWardenCommands(ServerSelfHost)
-	if len(frames) != 1 {
-		t.Fatalf("want 1 worker_stop, got %d", len(frames))
-	}
-	rpc, args := decodeWardenFrame(t, frames[0].Frame)
-	if rpc != reconcileCmdStop || args["member_id"] != "ow-4" {
-		t.Errorf("frame = %s %v, want worker_stop ow-4", rpc, args)
-	}
+
+	t.Run("an online worker has state to flush, including one whose epoch is open but not yet collected", func(t *testing.T) {
+		api, _, _, _, w := wsWorkerSpawnFixture(t, WorkerStatusActive)
+		wsOnline(t, api, "ow-abc123", ServerSelfHost)
+
+		apiWantValue(t, "fresh session", any(api.workerHasStateToFlush(w)), any(true))
+		open := w
+		open.RefocusSince = 10
+		apiWantValue(t, "epoch open, nothing reported", any(api.workerHasStateToFlush(open)), any(true))
+	})
+
+	t.Run("THIS epoch's wind-down already collected has nothing left to flush, even while the old session lingers online", func(t *testing.T) {
+		api, _, _, _, w := wsWorkerSpawnFixture(t, WorkerStatusActive)
+		wsOnline(t, api, "ow-abc123", ServerSelfHost)
+		collected := w
+		collected.RefocusSince = 10
+		collected.StoppedSince = 20
+
+		apiWantValue(t, "has state to flush", any(api.workerHasStateToFlush(collected)), any(false))
+	})
+
+	t.Run("a stopped_since latched outside any epoch does NOT count as collected, so the next owner verb is not swallowed for life", func(t *testing.T) {
+		api, _, _, _, w := wsWorkerSpawnFixture(t, WorkerStatusActive)
+		wsOnline(t, api, "ow-abc123", ServerSelfHost)
+		stale := w
+		stale.StoppedSince = 20
+
+		apiWantValue(t, "has state to flush", any(api.workerHasStateToFlush(stale)), any(true))
+	})
 }
 
-func TestReclaimWorkerSession_NoTargetBroadcastsToOnlineWardens(t *testing.T) {
-	s := newWorkerTestServer(t)
-	if err := s.dal.PutMember(Member{
-		ID: "m-other", Name: "other box", Kind: KindWarden, Effort: "medium",
-		DesiredState: DesiredStateOffline, RosterStatus: RosterStatusActive,
-	}); err != nil {
-		t.Fatalf("put member: %v", err)
-	}
-	connectWarden(t, s, ServerSelfHost)
-	connectWarden(t, s, "m-other")
-	w := putWorkerFixture(t, s, OutsourceWorker{
-		ID: "ow-5", Codename: "O-5", Model: "opus", Effort: "high",
-		TaskID: "t-x", Status: WorkerStatusReleased, ReleasedTS: 1,
-	})
-	s.outsourceMu.Lock()
-	s.reclaimWorkerSession(w) // no recorded target (restart amnesia)
-	s.outsourceMu.Unlock()
-	for _, warden := range []string{ServerSelfHost, "m-other"} {
-		if got := len(s.hub.DrainWardenCommands(warden)); got != 1 {
-			t.Errorf("warden %s: want 1 broadcast worker_stop, got %d", warden, got)
+func TestHasUncollectedOnlineOwnerOpState(t *testing.T) {
+	t.Run("an offline worker has nothing to flush even when a refocus marker remains", func(t *testing.T) {
+		if got := hasUncollectedOnlineOwnerOpState(10, 0, false); got {
+			t.Fatal("an offline worker must not report online owner-operation state")
 		}
-	}
-}
-
-func TestReclaimWorkerSession_NoOnlineWarden_RetriesLater(t *testing.T) {
-	s := newWorkerTestServer(t)
-	w := putWorkerFixture(t, s, OutsourceWorker{
-		ID: "ow-6", Codename: "O-6", Model: "opus", Effort: "high",
-		TaskID: "t-x", Status: WorkerStatusReleased, ReleasedTS: 1,
-	})
-	s.outsourceMu.Lock()
-	s.reclaimWorkerSession(w)
-	reclaimed := s.workerReclaimed["ow-6"]
-	s.outsourceMu.Unlock()
-	if reclaimed {
-		t.Error("an undeliverable reclaim must NOT be marked done (backstop retries)")
-	}
-}
-
-func TestDismissOutsourceWorkersForTask_ReleasesAndReclaims(t *testing.T) {
-	s := newWorkerTestServer(t)
-	connectWarden(t, s, ServerSelfHost)
-	task := putTaskFixture(t, s, Task{
-		ID: "t-000000000007", TypeKey: "review-pr", Title: "x",
-		Status: TaskStatusDone, Priority: TaskPriorityMid,
-		ExecutorKind: TaskExecutorOutsource, ExecutorID: "ow-7", ClosedTS: 1,
-	})
-	putWorkerFixture(t, s, OutsourceWorker{
-		ID: "ow-7", Codename: "O-7", Model: "opus", Effort: "high",
-		TaskID: task.ID, Status: WorkerStatusActive,
 	})
 
-	s.dismissOutsourceWorkersForTask(task.ID, 42.0, triggerServer)
-
-	after, err := s.dal.GetOutsourceWorker("ow-7")
-	if err != nil || after == nil {
-		t.Fatalf("read back worker: %v", err)
-	}
-	if after.Status != WorkerStatusReleased || after.ReleasedTS != 42.0 {
-		t.Errorf("worker after dismiss = %+v, want released@42", after)
-	}
-	frames := s.hub.DrainWardenCommands(ServerSelfHost)
-	if len(frames) != 1 {
-		t.Fatalf("want 1 worker_stop, got %d", len(frames))
-	}
-	if rpc, args := decodeWardenFrame(t, frames[0].Frame); rpc != reconcileCmdStop ||
-		args["member_id"] != "ow-7" {
-		t.Errorf("frame = %s %v", rpc, args)
-	}
-
-	// Idempotent: a second dismissal (double报) enqueues nothing further.
-	s.dismissOutsourceWorkersForTask(task.ID, 43.0, triggerServer)
-	if got := len(s.hub.DrainWardenCommands(ServerSelfHost)); got != 0 {
-		t.Errorf("second dismissal must be a no-op, got %d frames", got)
-	}
+	t.Run("an online worker whose refocus and stopped markers are both present has been collected", func(t *testing.T) {
+		if got := hasUncollectedOnlineOwnerOpState(10, 20, true); got {
+			t.Fatal("a worker with both close-out markers must have no state left to flush")
+		}
+	})
 }
 
-// ── close-out report → immediate dismissal (the wired §6.3 step-2 hook) ─────
+func TestRespawnWorkerForOwnerOp(t *testing.T) {
+	t.Run("a worker the owner has held down only records the change: nothing is dispatched and the row says why", func(t *testing.T) {
+		api, h, d, owner, w := wsWorkerSpawnFixture(t, WorkerStatusActive)
+		held := w
+		held.DesiredState = DesiredStateOffline
+		if err := d.PutOutsourceWorker(held); err != nil {
+			t.Fatalf("PutOutsourceWorker: %v", err)
+		}
+		wsOnline(t, api, "ow-abc123", ServerSelfHost)
+		apiTestListen(t, api, ServerSelfHost)
 
-// postCloseout drives the real close-out handler as caller sub (agent scope).
-func postCloseout(t *testing.T, s *apiServer, taskID, sub string) *httptest.ResponseRecorder {
+		api.outsourceMu.Lock()
+		outcome := api.respawnWorkerForOwnerOp(held, ownerOpRelocate)
+		api.outsourceMu.Unlock()
+
+		apiWantValue(t, "outcome", any(wsOutcome(outcome)), any(map[string]any{
+			"dispatched": false, "wound_down": false, "held_down": true,
+			"already_running": false, "pending": true,
+		}))
+		wsWantWardenFrames(t, api, ServerSelfHost)
+		apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, map[string]any{
+			"status": "active", "presence": "online", "desired_state": "offline",
+			"machine": "m-server-self",
+			"last_op": "start", "last_op_ok": false, "last_op_at": apiAnyNumber,
+			"last_op_reason": "held_down: the relocate was saved, but nothing was started — " +
+				"this worker is stopped; 重啟 it when you want it to run",
+		}))
+	})
+
+	t.Run("a live worker with state to flush is wound down instead of killed, and nothing goes out yet", func(t *testing.T) {
+		api, h, d, owner, w := wsWorkerSpawnFixture(t, WorkerStatusActive)
+		running := w
+		running.DesiredState = DesiredStateOnline
+		if err := d.PutOutsourceWorker(running); err != nil {
+			t.Fatalf("PutOutsourceWorker: %v", err)
+		}
+		wsOnline(t, api, "ow-abc123", ServerSelfHost)
+		apiTestListen(t, api, ServerSelfHost)
+
+		api.outsourceMu.Lock()
+		outcome := api.respawnWorkerForOwnerOp(running, ownerOpRelocate)
+		api.outsourceMu.Unlock()
+
+		apiWantValue(t, "outcome", any(wsOutcome(outcome)), any(map[string]any{
+			"dispatched": false, "wound_down": true, "held_down": false,
+			"already_running": false, "pending": true,
+		}))
+		wsWantWardenFrames(t, api, ServerSelfHost)
+		apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, map[string]any{
+			"status": "active", "presence": "online", "desired_state": "online",
+			"machine":       "m-server-self",
+			"refocus_since": apiAnyNumber, "refocus_op": "relocate",
+		}))
+	})
+
+	t.Run("a worker with nothing to flush is respawned on the spot, and the start goes out now", func(t *testing.T) {
+		api, _, _, _, w := wsWorkerSpawnFixture(t, WorkerStatusAssigned)
+		apiTestListen(t, api, ServerSelfHost)
+		pinned := w
+		pinned.DesiredMachineID = ServerSelfHost
+		pinned.DesiredState = DesiredStateOnline
+		api.outsourceMu.Lock()
+		outcome := api.respawnWorkerForOwnerOp(pinned, ownerOpRestart)
+		api.outsourceMu.Unlock()
+
+		apiWantValue(t, "outcome", any(wsOutcome(outcome)), any(map[string]any{
+			"dispatched": true, "wound_down": false, "held_down": false,
+			"already_running": false, "pending": false,
+		}))
+		frames := wsDrainWardenFrames(t, api, ServerSelfHost)
+		if len(frames) != 1 {
+			t.Fatalf("want one start frame, got %d (%v)", len(frames), frames)
+		}
+		apiWantValue(t, "the dispatched verb",
+			any(frames[0]["data"].(map[string]any)["rpc"]), any("start"))
+	})
+}
+
+func TestRelocateWorkerNow(t *testing.T) {
+	t.Run("an unlanded worker is dispatched through the relocate owner-operation seam", func(t *testing.T) {
+		api, _, _, _, worker := wsWorkerSpawnFixture(t, WorkerStatusAssigned)
+		apiTestListen(t, api, ServerSelfHost)
+		worker.DesiredMachineID = ServerSelfHost
+		worker.DesiredState = DesiredStateOnline
+
+		api.outsourceMu.Lock()
+		outcome := api.relocateWorkerNow(worker)
+		api.outsourceMu.Unlock()
+
+		apiWantValue(t, "outcome", any(wsOutcome(outcome)), any(map[string]any{
+			"dispatched": true, "wound_down": false, "held_down": false,
+			"already_running": false, "pending": false,
+		}))
+		frames := wsDrainWardenFrames(t, api, ServerSelfHost)
+		if len(frames) != 1 {
+			t.Fatalf("want one relocate start frame, got %d (%v)", len(frames), frames)
+		}
+		apiWantValue(t, "dispatched verb", any(frames[0]["data"].(map[string]any)["rpc"]), any("start"))
+		apiWantValue(t, "dispatched subject", any(frames[0]["subject"]), any(worker.ID))
+	})
+}
+
+func TestOpenOwnerOpHandover(t *testing.T) {
+	t.Run("opening a window stamps a fresh epoch, clears the stale wind-down latches and fans the 預告 at the worker's own session", func(t *testing.T) {
+		api, h, d, owner, w := wsWorkerSpawnFixture(t, WorkerStatusActive)
+		stale := w
+		stale.DesiredState = DesiredStateOnline
+		stale.StoppedSince = 77
+		stale.StoppingSince = 66
+		if err := d.PutOutsourceWorker(stale); err != nil {
+			t.Fatalf("PutOutsourceWorker: %v", err)
+		}
+		wsOnline(t, api, "ow-abc123", ServerSelfHost)
+		contractor := apiTestListen(t, api, "ow-abc123")
+		dashboard := apiTestListen(t, api, "")
+		apiTestListen(t, api, ServerSelfHost)
+
+		api.outsourceMu.Lock()
+		opened := api.openOwnerOpHandover(stale, ownerOpModel)
+		api.outsourceMu.Unlock()
+
+		apiWantValue(t, "opened", any(opened), any(true))
+		wsWantWardenFrames(t, api, ServerSelfHost)
+		apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, map[string]any{
+			"status": "active", "presence": "online", "desired_state": "online",
+			"refocus_since": apiAnyNumber, "refocus_op": "runtime/model",
+		}))
+		dashboard.wantFrames(
+			apiTestWorkerDelta(2, "active", "server"),
+			apiTestHandoverDelta(3, "online", apiTestOffboardNotice, "server"),
+		)
+		contractor.wantFrames(apiTestHandoverDelta(3, "online", apiTestOffboardNotice, "server"))
+	})
+
+	t.Run("a worker already further along the ladder keeps its own deadline: nothing is stamped and nothing is fanned", func(t *testing.T) {
+		api, h, d, owner, w := wsWorkerSpawnFixture(t, WorkerStatusActive)
+		accelerated := w
+		accelerated.DesiredState = DesiredStateOnline
+		accelerated.RefocusSince = 500
+		accelerated.RefocusOp = "accelerated_stop"
+		if err := d.PutOutsourceWorker(accelerated); err != nil {
+			t.Fatalf("PutOutsourceWorker: %v", err)
+		}
+		wsOnline(t, api, "ow-abc123", ServerSelfHost)
+		dashboard := apiTestListen(t, api, "")
+		apiTestListen(t, api, ServerSelfHost)
+
+		api.outsourceMu.Lock()
+		opened := api.openOwnerOpHandover(accelerated, ownerOpRelocate)
+		api.outsourceMu.Unlock()
+
+		apiWantValue(t, "opened", any(opened), any(false))
+		wsWantWardenFrames(t, api, ServerSelfHost)
+		apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, map[string]any{
+			"status": "active", "presence": "online", "desired_state": "online",
+			"machine": "m-server-self",
+		}))
+		dashboard.wantFrames()
+	})
+
+	t.Run("an OFFLINE worker skips the window entirely and is collected on the spot, because no session can hear the 預告", func(t *testing.T) {
+		api, _, d, _, w := wsWorkerSpawnFixture(t, WorkerStatusActive)
+		gone := w
+		gone.DesiredState = DesiredStateOnline
+		if err := d.PutOutsourceWorker(gone); err != nil {
+			t.Fatalf("PutOutsourceWorker: %v", err)
+		}
+		apiTestListen(t, api, ServerSelfHost)
+		gone.DesiredMachineID = ServerSelfHost
+		api.outsourceMu.Lock()
+		api.workerSpawnTarget["ow-abc123"] = ServerSelfHost
+		opened := api.openOwnerOpHandover(gone, ownerOpRelocate)
+		api.outsourceMu.Unlock()
+
+		apiWantValue(t, "opened", any(opened), any(true))
+		frames := wsDrainWardenFrames(t, api, ServerSelfHost)
+		verbs := []any{}
+		for _, f := range frames {
+			verbs = append(verbs, f["data"].(map[string]any)["rpc"])
+		}
+		apiWantValue(t, "the verbs the collect dispatched", any(verbs), any([]any{"stop", "start"}))
+	})
+}
+
+func TestRespawnWorkerForOwnerOpNow(t *testing.T) {
+	t.Run("an ACTIVE worker with no kill target still gets its start attempted, so an owner verb never ends in silence", func(t *testing.T) {
+		api, h, _, owner, w := wsWorkerSpawnFixture(t, WorkerStatusActive)
+		apiTestListen(t, api, ServerSelfHost)
+		pinned := w
+		pinned.DesiredMachineID = ServerSelfHost
+
+		api.outsourceMu.Lock()
+		dispatched := api.respawnWorkerForOwnerOpNow(pinned, ownerOpRestart)
+		api.outsourceMu.Unlock()
+
+		apiWantValue(t, "dispatched", any(dispatched), any(true))
+		frames := wsDrainWardenFrames(t, api, ServerSelfHost)
+		verbs := []any{}
+		for _, f := range frames {
+			verbs = append(verbs, f["data"].(map[string]any)["rpc"])
+		}
+		apiWantValue(t, "the verbs dispatched", any(verbs), any([]any{"start"}))
+		apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, map[string]any{
+			"status": "active", "machine": "m-server-self",
+			"last_op": "start", "last_op_ok": nil, "last_op_at": apiAnyNumber,
+		}))
+	})
+
+	t.Run("an ACTIVE worker with no kill target AND nowhere to boot ends with the deferral receipt standing", func(t *testing.T) {
+		api, h, _, owner, w := wsWorkerSpawnFixture(t, WorkerStatusActive)
+
+		api.outsourceMu.Lock()
+		dispatched := api.respawnWorkerForOwnerOpNow(w, ownerOpRestart)
+		api.outsourceMu.Unlock()
+
+		apiWantValue(t, "dispatched", any(dispatched), any(false))
+		apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, map[string]any{
+			"status":  "active",
+			"last_op": "start", "last_op_ok": false, "last_op_at": apiAnyNumber,
+			"last_op_reason": "no_machine_selected: no machine is selected for this worker — " +
+				"pick one on the worker (改機器) or on the task type's 手冊 assignee; " +
+				"there is no automatic placement",
+		}))
+	})
+}
+
+func TestRespawnWorkerNow(t *testing.T) {
+	t.Run("a live worker's old session is killed and a fresh start dispatched, in that order, onto the pinned machine", func(t *testing.T) {
+		api, h, _, owner, w := wsWorkerSpawnFixture(t, WorkerStatusActive)
+		apiTestListen(t, api, ServerSelfHost)
+		api.gauge.Set("ow-abc123", map[string]any{"boot_ts": 5.0})
+		pinned := w
+		pinned.DesiredMachineID = ServerSelfHost
+
+		api.outsourceMu.Lock()
+		api.workerSpawnTarget["ow-abc123"] = ServerSelfHost
+		api.workerSpawnAt["ow-abc123"] = nowSecs()
+		respawned := api.respawnWorkerNow(pinned, "relocate")
+		api.outsourceMu.Unlock()
+
+		apiWantValue(t, "respawned", any(respawned), any(true))
+		frames := wsDrainWardenFrames(t, api, ServerSelfHost)
+		verbs := []any{}
+		for _, f := range frames {
+			verbs = append(verbs, f["data"].(map[string]any)["rpc"])
+		}
+		apiWantValue(t, "the verbs dispatched", any(verbs), any([]any{"stop", "start"}))
+		apiWantValue(t, "the dead session's boot anchor", any(api.gauge.Get("ow-abc123")), any(map[string]any{}))
+		apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, map[string]any{
+			"status": "active", "machine": "m-server-self",
+		}))
+	})
+
+	t.Run("an ACTIVE worker with no kill target defers the WHOLE cycle — no kill, no respawn — and leaves the deferral receipt", func(t *testing.T) {
+		api, h, _, owner, w := wsWorkerSpawnFixture(t, WorkerStatusActive)
+		apiTestListen(t, api, ServerSelfHost)
+		pinned := w
+		pinned.DesiredMachineID = ServerSelfHost
+		dashboard := apiTestListen(t, api, "")
+
+		api.outsourceMu.Lock()
+		respawned := api.respawnWorkerNow(pinned, "relocate")
+		api.outsourceMu.Unlock()
+
+		apiWantValue(t, "respawned", any(respawned), any(false))
+		wsWantWardenFrames(t, api, ServerSelfHost)
+		apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, map[string]any{
+			"status":  "active",
+			"last_op": "start", "last_op_ok": false, "last_op_at": apiAnyNumber,
+			"last_op_reason": "respawn_deferred: the relocate could not clear this worker's " +
+				"previous session — it is marked active but neither the server's spawn memory " +
+				"nor a live connection knows which machine it is on; retrying",
+		}))
+		dashboard.wantFrames(apiTestWorkerDelta(2, "active", "server"))
+	})
+
+	t.Run("a worker that never claimed a session has nothing to kill, so an empty target only skips the stop", func(t *testing.T) {
+		api, _, _, _, w := wsWorkerSpawnFixture(t, WorkerStatusAssigned)
+		apiTestListen(t, api, ServerSelfHost)
+		pinned := w
+		pinned.DesiredMachineID = ServerSelfHost
+
+		api.outsourceMu.Lock()
+		respawned := api.respawnWorkerNow(pinned, "relocate")
+		api.outsourceMu.Unlock()
+
+		apiWantValue(t, "respawned", any(respawned), any(true))
+		frames := wsDrainWardenFrames(t, api, ServerSelfHost)
+		verbs := []any{}
+		for _, f := range frames {
+			verbs = append(verbs, f["data"].(map[string]any)["rpc"])
+		}
+		apiWantValue(t, "the verbs dispatched", any(verbs), any([]any{"start"}))
+	})
+
+	t.Run("an unreachable kill target parks the kill rather than losing it, and the respawn is still attempted", func(t *testing.T) {
+		api, _, _, _, w := wsWorkerSpawnFixture(t, WorkerStatusActive)
+		pinned := w
+		pinned.DesiredMachineID = ServerSelfHost
+
+		api.outsourceMu.Lock()
+		api.workerSpawnTarget["ow-abc123"] = "m-elsewhere"
+		respawned := api.respawnWorkerNow(pinned, "relocate")
+		parked := api.workerStopPending["ow-abc123"]
+		api.outsourceMu.Unlock()
+
+		apiWantValue(t, "respawned", any(respawned), any(true))
+		apiWantValue(t, "parked kill", any(parked), any("m-elsewhere"))
+		wsWantWardenFrames(t, api, ServerSelfHost)
+	})
+}
+
+func TestStopWorkerNow(t *testing.T) {
+	t.Run("the current session is killed with NO re-dispatch, and the pacing is cleared so a later restart is never throttled", func(t *testing.T) {
+		api, h, _, owner, w := wsWorkerSpawnFixture(t, WorkerStatusActive)
+		apiTestListen(t, api, ServerSelfHost)
+		api.gauge.Set("ow-abc123", map[string]any{"boot_ts": 5.0})
+
+		api.outsourceMu.Lock()
+		api.workerSpawnTarget["ow-abc123"] = ServerSelfHost
+		api.workerSpawnAt["ow-abc123"] = 4242
+		api.stopWorkerNow(w)
+		spawnPace := len(api.workerSpawnAt)
+		armed := api.workerStopLanded["ow-abc123"]
+		api.outsourceMu.Unlock()
+
+		wsWantWardenFrames(t, api, ServerSelfHost, wsStopFrame("ow-abc123"))
+		apiWantValue(t, "the dead session's boot anchor", any(api.gauge.Get("ow-abc123")), any(map[string]any{}))
+		apiWantValue(t, "the spawn pacing", any(float64(spawnPace)), any(0))
+		apiWantValue(t, "armed kill target", any(armed.Target), any("m-server-self"))
+		apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, map[string]any{
+			"status": "active", "machine": "m-server-self",
+		}))
+	})
+
+	t.Run("with no kill target the stop is only loud: nothing is sent, nothing is parked and no receipt is written", func(t *testing.T) {
+		api, h, _, owner, w := wsWorkerSpawnFixture(t, WorkerStatusActive)
+		apiTestListen(t, api, ServerSelfHost)
+		dashboard := apiTestListen(t, api, "")
+
+		api.outsourceMu.Lock()
+		api.stopWorkerNow(w)
+		parked := len(api.workerStopPending)
+		armed := len(api.workerStopLanded)
+		api.outsourceMu.Unlock()
+
+		wsWantWardenFrames(t, api, ServerSelfHost)
+		apiWantValue(t, "parked kills", any(float64(parked)), any(0))
+		apiWantValue(t, "armed kills", any(float64(armed)), any(0))
+		apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, map[string]any{
+			"status": "active",
+		}))
+		dashboard.wantFrames()
+	})
+}
+
+// wsWindDown is the fixture with the four wind-down anchors and the desired
+// state persisted the way the product's own writers leave them.
+func wsWindDown(t *testing.T, status, desired, refocusOp string,
+	refocusSince, stoppingSince, stoppedSince float64, online bool,
+) (*apiServer, http.Handler, *DAL, string, OutsourceWorker) {
 	t.Helper()
-	rec := httptest.NewRecorder()
-	req := taskReq(t, http.MethodPost, "/api/tasks/"+taskID+"/closeout", nil,
-		sub, "agent")
-	s.HandleReportTaskCloseoutApiTasksTaskIdCloseoutPost(rec, req, taskID)
-	return rec
+	api, h, d, owner, w := wsWorkerSpawnFixture(t, status)
+	w.DesiredState = desired
+	w.DesiredMachineID = ServerSelfHost
+	w.RefocusOp = refocusOp
+	w.RefocusSince = refocusSince
+	w.StoppingSince = stoppingSince
+	w.StoppedSince = stoppedSince
+	if err := api.persistWorkerWindDownAnchors(w); err != nil {
+		t.Fatalf("persistWorkerWindDownAnchors: %v", err)
+	}
+	if err := d.PutOutsourceWorker(w); err != nil {
+		t.Fatalf("PutOutsourceWorker: %v", err)
+	}
+	if online {
+		wsOnline(t, api, "ow-abc123", ServerSelfHost)
+	}
+	return api, h, d, owner, w
 }
 
-func TestCloseoutReport_DismissesWorkerImmediately(t *testing.T) {
-	s := newWorkerTestServer(t)
-	connectWarden(t, s, ServerSelfHost)
-	task := putTaskFixture(t, s, Task{
-		ID: "t-00000000000b", TypeKey: "review-pr", Title: "x",
-		Status: TaskStatusDone, Priority: TaskPriorityMid,
-		ExecutorKind: TaskExecutorOutsource, ExecutorID: "ow-b", ClosedTS: 1,
-	})
-	// The worker is still ACTIVE here (closeTask normally releases it, but the
-	// hook must be robust to a lingering row) — the close-out must both
-	// release it AND reclaim its session at once, NOT after the grace.
-	putWorkerFixture(t, s, OutsourceWorker{
-		ID: "ow-b", Codename: "O-11", Model: "opus", Effort: "high",
-		TaskID: task.ID, Status: WorkerStatusActive,
+// wsVerbs is the ordered list of RPC verbs a warden's FIFO held.
+func wsVerbs(t *testing.T, api *apiServer, machineID string) []any {
+	t.Helper()
+	out := []any{}
+	for _, frame := range wsDrainWardenFrames(t, api, machineID) {
+		out = append(out, frame["data"].(map[string]any)["rpc"])
+	}
+	return out
+}
+
+func TestClearWorkerRefocus(t *testing.T) {
+	t.Run("the loop-break zeroes the epoch AND both wind-down latches, so a stale one cannot bleed into the next handover", func(t *testing.T) {
+		api, h, _, owner, _ := wsWindDown(t, WorkerStatusActive, DesiredStateOnline, "relocate", 100, 110, 120, false)
+		dashboard := apiTestListen(t, api, "")
+
+		api.clearWorkerRefocus("ow-abc123", "respawn landed")
+
+		apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, map[string]any{
+			"status": "active", "desired_state": "online",
+		}))
+		dashboard.wantFrames(apiTestWorkerDelta(2, "active", "server"))
 	})
 
-	if rec := postCloseout(t, s, task.ID, "ow-b"); rec.Code != http.StatusOK {
-		t.Fatalf("closeout report: %d %s", rec.Code, rec.Body.String())
-	}
+	t.Run("a row with nothing to clear, and an id nothing carries, write nothing and fan nothing", func(t *testing.T) {
+		api, h, _, owner, _ := wsWindDown(t, WorkerStatusActive, DesiredStateOnline, "", 0, 0, 0, false)
+		dashboard := apiTestListen(t, api, "")
 
-	after, err := s.dal.GetOutsourceWorker("ow-b")
-	if err != nil || after == nil {
-		t.Fatalf("read back worker: %v", err)
-	}
-	if after.Status != WorkerStatusReleased {
-		t.Errorf("worker after close-out = %q, want released", after.Status)
-	}
-	frames := s.hub.DrainWardenCommands(ServerSelfHost)
-	if len(frames) != 1 {
-		t.Fatalf("want 1 immediate worker_stop, got %d", len(frames))
-	}
-	if rpc, args := decodeWardenFrame(t, frames[0].Frame); rpc != reconcileCmdStop ||
-		args["member_id"] != "ow-b" {
-		t.Errorf("frame = %s %v, want worker_stop ow-b", rpc, args)
+		api.clearWorkerRefocus("ow-abc123", "respawn landed")
+		api.clearWorkerRefocus("ow-nope", "ghost")
+
+		apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, map[string]any{
+			"status": "active", "desired_state": "online",
+		}))
+		dashboard.wantFrames()
+	})
+
+	t.Run("a stopped latch with no epoch is still cleared, because all three anchors go together", func(t *testing.T) {
+		api, h, _, owner, _ := wsWindDown(t, WorkerStatusActive, DesiredStateOnline, "", 0, 0, 120, false)
+
+		api.clearWorkerRefocus("ow-abc123", "respawn landed")
+
+		apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, map[string]any{
+			"status": "active", "desired_state": "online",
+		}))
+	})
+}
+
+func TestCollectWorkerHandover(t *testing.T) {
+	t.Run("the 收口 latches the dump-done marker and then kills and respawns through the worker's single kill funnel", func(t *testing.T) {
+		api, h, _, owner, w := wsWindDown(t, WorkerStatusActive, DesiredStateOnline, "relocate", 100, 0, 0, true)
+		apiTestListen(t, api, ServerSelfHost)
+
+		api.outsourceMu.Lock()
+		api.workerSpawnTarget["ow-abc123"] = ServerSelfHost
+		collected := api.collectWorkerHandover(w, "fsm-recycle", triggerServer)
+		api.outsourceMu.Unlock()
+
+		apiWantValue(t, "collected", any(collected), any(true))
+		apiWantValue(t, "the verbs dispatched", any(wsVerbs(t, api, ServerSelfHost)), any([]any{"stop", "start"}))
+		apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, map[string]any{
+			"status": "active", "presence": "online", "desired_state": "online",
+			"machine":       "m-server-self",
+			"refocus_since": 100, "refocus_op": "relocate",
+		}))
+	})
+
+	t.Run("a deferred collect on a session that is GONE rolls the WHOLE epoch back, so the ordinary FSM rescue can take over", func(t *testing.T) {
+		api, h, _, owner, w := wsWindDown(t, WorkerStatusActive, DesiredStateOnline, "relocate", 100, 0, 0, false)
+		apiTestListen(t, api, ServerSelfHost)
+
+		api.outsourceMu.Lock()
+		collected := api.collectWorkerHandover(w, "fsm-recycle", triggerServer)
+		api.outsourceMu.Unlock()
+
+		apiWantValue(t, "collected", any(collected), any(false))
+		apiWantValue(t, "the verbs dispatched", any(wsVerbs(t, api, ServerSelfHost)), any([]any{}))
+		apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, map[string]any{
+			"status": "active", "desired_state": "online",
+			"last_op": "start", "last_op_ok": false, "last_op_at": apiAnyNumber,
+			"last_op_reason": "respawn_deferred: the fsm-recycle could not clear this worker's " +
+				"previous session — it is marked active but neither the server's spawn memory " +
+				"nor a live connection knows which machine it is on; retrying",
+		}))
+	})
+
+	t.Run("a deferred collect on a session that is still ONLINE rolls only the latch back, so the grace arm retries", func(t *testing.T) {
+		api, h, _, owner, w := wsWindDown(t, WorkerStatusActive, DesiredStateOnline, "relocate", 100, 0, 0, false)
+		wsOnline(t, api, "ow-abc123", "")
+		apiTestListen(t, api, ServerSelfHost)
+
+		api.outsourceMu.Lock()
+		collected := api.collectWorkerHandover(w, "fsm-recycle", triggerServer)
+		api.outsourceMu.Unlock()
+
+		apiWantValue(t, "collected", any(collected), any(false))
+		apiWantValue(t, "the verbs dispatched", any(wsVerbs(t, api, ServerSelfHost)), any([]any{}))
+		apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, map[string]any{
+			"status": "active", "presence": "online", "desired_state": "online",
+			"refocus_since": 100, "refocus_op": "relocate",
+			"last_op": "start", "last_op_ok": false, "last_op_at": apiAnyNumber,
+			"last_op_reason": "respawn_deferred: the fsm-recycle could not clear this worker's " +
+				"previous session — it is marked active but neither the server's spawn memory " +
+				"nor a live connection knows which machine it is on; retrying",
+		}))
+	})
+}
+
+func TestCollectWorkerStop(t *testing.T) {
+	t.Run("the 停止 收口 latches the same marker and kills, and NEVER re-spawns the worker it just stopped", func(t *testing.T) {
+		api, h, _, owner, w := wsWindDown(t, WorkerStatusActive, DesiredStateOffline, "", 0, 200, 0, true)
+		apiTestListen(t, api, ServerSelfHost)
+
+		api.outsourceMu.Lock()
+		api.workerSpawnTarget["ow-abc123"] = ServerSelfHost
+		api.collectWorkerStop(w, "stop-session-gone", triggerServer)
+		api.outsourceMu.Unlock()
+
+		apiWantValue(t, "the verbs dispatched", any(wsVerbs(t, api, ServerSelfHost)), any([]any{"stop"}))
+		apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, map[string]any{
+			"status": "active", "presence": "stopping", "desired_state": "offline",
+			"machine": "m-server-self",
+		}))
+	})
+
+	t.Run("a 停止 收口 with no kill target still latches the marker, and sends nothing", func(t *testing.T) {
+		api, h, _, owner, w := wsWindDown(t, WorkerStatusActive, DesiredStateOffline, "", 0, 200, 0, false)
+		apiTestListen(t, api, ServerSelfHost)
+
+		api.outsourceMu.Lock()
+		api.collectWorkerStop(w, "stop-session-gone", triggerServer)
+		api.outsourceMu.Unlock()
+
+		apiWantValue(t, "the verbs dispatched", any(wsVerbs(t, api, ServerSelfHost)), any([]any{}))
+		apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, map[string]any{
+			"status": "active", "presence": "stopped", "desired_state": "offline",
+		}))
+	})
+}
+
+func TestOpenWorkerHandoverGrace(t *testing.T) {
+	t.Run("a live session is fanned the member-topic 預告 at its own connection and NOTHING is killed", func(t *testing.T) {
+		api, _, _, _, w := wsWindDown(t, WorkerStatusActive, DesiredStateOnline, "relocate", 100, 0, 0, true)
+		contractor := apiTestListen(t, api, "ow-abc123")
+		dashboard := apiTestListen(t, api, "")
+		bystander := apiTestListen(t, api, apiTestPlainAgentID)
+		apiTestListen(t, api, ServerSelfHost)
+
+		api.outsourceMu.Lock()
+		api.workerSpawnTarget["ow-abc123"] = ServerSelfHost
+		api.openWorkerHandoverGrace(w, triggerServer)
+		api.outsourceMu.Unlock()
+
+		apiWantValue(t, "the verbs dispatched", any(wsVerbs(t, api, ServerSelfHost)), any([]any{}))
+		contractor.wantFrames(apiTestHandoverDelta(2, "online", apiTestOffboardNotice, "server"))
+		dashboard.wantFrames(apiTestHandoverDelta(2, "online", apiTestOffboardNotice, "server"))
+		bystander.wantFrames()
+	})
+
+	t.Run("an OFFLINE worker skips the window and is collected as a handover: killed and respawned", func(t *testing.T) {
+		api, _, _, _, w := wsWindDown(t, WorkerStatusActive, DesiredStateOnline, "relocate", 100, 0, 0, false)
+		apiTestListen(t, api, ServerSelfHost)
+
+		api.outsourceMu.Lock()
+		api.workerSpawnTarget["ow-abc123"] = ServerSelfHost
+		api.openWorkerHandoverGrace(w, triggerServer)
+		api.outsourceMu.Unlock()
+
+		apiWantValue(t, "the verbs dispatched", any(wsVerbs(t, api, ServerSelfHost)), any([]any{"stop", "start"}))
+	})
+
+	t.Run("an OFFLINE worker the owner has held down is collected as a STOP instead, so 停止 never re-spawns", func(t *testing.T) {
+		api, h, _, owner, w := wsWindDown(t, WorkerStatusActive, DesiredStateOffline, "", 0, 200, 0, false)
+		apiTestListen(t, api, ServerSelfHost)
+
+		api.outsourceMu.Lock()
+		api.workerSpawnTarget["ow-abc123"] = ServerSelfHost
+		api.openWorkerHandoverGrace(w, triggerServer)
+		api.outsourceMu.Unlock()
+
+		apiWantValue(t, "the verbs dispatched", any(wsVerbs(t, api, ServerSelfHost)), any([]any{"stop"}))
+		apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, map[string]any{
+			"status": "active", "presence": "stopped", "desired_state": "offline",
+			"machine": "m-server-self",
+		}))
+	})
+}
+
+func TestAutoHandoverWorker(t *testing.T) {
+	t.Run("a held-down worker is collected once its session is CONFIRMED gone, not on the first offline sample", func(t *testing.T) {
+		api, h, _, owner, w := wsWindDown(t, WorkerStatusActive, DesiredStateOffline, "", 0, 200, 0, false)
+		apiTestListen(t, api, ServerSelfHost)
+
+		api.outsourceMu.Lock()
+		api.workerSpawnTarget["ow-abc123"] = ServerSelfHost
+		api.autoHandoverWorker(w, 1000)
+		firstSample := wsVerbs(t, api, ServerSelfHost)
+		api.autoHandoverWorker(w, 1119)
+		insideWindow := wsVerbs(t, api, ServerSelfHost)
+		api.autoHandoverWorker(w, 1120)
+		api.outsourceMu.Unlock()
+
+		apiWantValue(t, "the first sample", any(firstSample), any([]any{}))
+		apiWantValue(t, "one second short of the window", any(insideWindow), any([]any{}))
+		apiWantValue(t, "at the window", any(wsVerbs(t, api, ServerSelfHost)), any([]any{"stop"}))
+		apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, map[string]any{
+			"status": "active", "presence": "stopped", "desired_state": "offline",
+			"machine": "m-server-self",
+		}))
+	})
+
+	t.Run("an owner-pressed 加速停止 is collected on ITS clock, counted from the press", func(t *testing.T) {
+		api, _, _, _, w := wsWindDown(t, WorkerStatusActive, DesiredStateOffline, "accelerated_stop", 0, 200, 0, true)
+		apiTestListen(t, api, ServerSelfHost)
+
+		api.outsourceMu.Lock()
+		api.workerSpawnTarget["ow-abc123"] = ServerSelfHost
+		api.autoHandoverWorker(w, 319)
+		early := wsVerbs(t, api, ServerSelfHost)
+		api.autoHandoverWorker(w, 320)
+		api.outsourceMu.Unlock()
+
+		apiWantValue(t, "one second short of the deadline", any(early), any([]any{}))
+		apiWantValue(t, "at the deadline", any(wsVerbs(t, api, ServerSelfHost)), any([]any{"stop"}))
+	})
+
+	t.Run("a plain 停止 runs no clock at all, so a live worker is waited on indefinitely", func(t *testing.T) {
+		api, _, _, _, w := wsWindDown(t, WorkerStatusActive, DesiredStateOffline, "", 0, 200, 0, true)
+		apiTestListen(t, api, ServerSelfHost)
+
+		api.outsourceMu.Lock()
+		api.workerSpawnTarget["ow-abc123"] = ServerSelfHost
+		api.autoHandoverWorker(w, 999999)
+		api.outsourceMu.Unlock()
+
+		apiWantValue(t, "the verbs dispatched", any(wsVerbs(t, api, ServerSelfHost)), any([]any{}))
+	})
+
+	t.Run("a held-down worker that has already reported stopped is waiting for nothing, so the arm stays silent", func(t *testing.T) {
+		api, _, _, _, w := wsWindDown(t, WorkerStatusActive, DesiredStateOffline, "", 0, 200, 250, false)
+		apiTestListen(t, api, ServerSelfHost)
+
+		api.outsourceMu.Lock()
+		api.workerSpawnTarget["ow-abc123"] = ServerSelfHost
+		api.autoHandoverWorker(w, 1000)
+		api.autoHandoverWorker(w, 5000)
+		api.outsourceMu.Unlock()
+
+		apiWantValue(t, "the verbs dispatched", any(wsVerbs(t, api, ServerSelfHost)), any([]any{}))
+	})
+
+	t.Run("a session that booted AFTER the epoch was stamped breaks the loop: the whole epoch is cleared and nothing is dispatched", func(t *testing.T) {
+		api, h, _, owner, w := wsWindDown(t, WorkerStatusActive, DesiredStateOnline, "relocate", 100, 110, 120, true)
+		api.gauge.Set("ow-abc123", map[string]any{"boot_ts": 200.0})
+		apiTestListen(t, api, ServerSelfHost)
+
+		api.outsourceMu.Lock()
+		api.workerSpawnTarget["ow-abc123"] = ServerSelfHost
+		api.autoHandoverWorker(w, 1000)
+		api.outsourceMu.Unlock()
+
+		apiWantValue(t, "the verbs dispatched", any(wsVerbs(t, api, ServerSelfHost)), any([]any{}))
+		apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, map[string]any{
+			"status": "active", "presence": "online", "desired_state": "online",
+			"machine": "m-server-self",
+		}))
+	})
+
+	t.Run("an epoch whose session booted BEFORE the stamp is mid-flight: the epoch stands and nothing is collected here", func(t *testing.T) {
+		api, h, _, owner, w := wsWindDown(t, WorkerStatusActive, DesiredStateOnline, "relocate", 300, 0, 0, true)
+		api.gauge.Set("ow-abc123", map[string]any{"boot_ts": 200.0})
+		apiTestListen(t, api, ServerSelfHost)
+
+		api.outsourceMu.Lock()
+		api.workerSpawnTarget["ow-abc123"] = ServerSelfHost
+		api.autoHandoverWorker(w, 1000)
+		api.outsourceMu.Unlock()
+
+		apiWantValue(t, "the verbs dispatched", any(wsVerbs(t, api, ServerSelfHost)), any([]any{}))
+		apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, map[string]any{
+			"status": "active", "presence": "online", "desired_state": "online",
+			"machine":       "m-server-self",
+			"refocus_since": 300, "refocus_op": "relocate",
+		}))
+	})
+
+	t.Run("a desired-online worker with no epoch open is left entirely alone, because the threshold arm is gone", func(t *testing.T) {
+		api, h, _, owner, w := wsWindDown(t, WorkerStatusActive, DesiredStateOnline, "", 0, 0, 0, true)
+		apiTestListen(t, api, ServerSelfHost)
+		dashboard := apiTestListen(t, api, "")
+
+		api.outsourceMu.Lock()
+		api.workerSpawnTarget["ow-abc123"] = ServerSelfHost
+		api.autoHandoverWorker(w, 1000)
+		api.outsourceMu.Unlock()
+
+		apiWantValue(t, "the verbs dispatched", any(wsVerbs(t, api, ServerSelfHost)), any([]any{}))
+		apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, map[string]any{
+			"status": "active", "presence": "online", "desired_state": "online",
+			"machine": "m-server-self",
+		}))
+		dashboard.wantFrames()
+	})
+}
+
+// wsWakingDelta is the member delta a worker's first boot report fans — the
+// wake shape, which carries no offboard notice.
+func wsWakingDelta(seq int) map[string]any {
+	return map[string]any{
+		"seq": seq, "topic": "member", "op": "patch",
+		"data": map[string]any{
+			"entity": "member", "key": "owner::ow-abc123",
+			"epoch": seq, "deleted": false,
+			"payload": map[string]any{
+				"id": "ow-abc123", "name": "Contractor", "status": "active",
+				"owner_id": "owner", "desired_state": "online",
+			},
+		},
+		"ts": apiAnyNumber, "trigger": "server",
 	}
 }
 
-func TestCloseoutReport_RepeatIsNoOp_NoSecondDispatch(t *testing.T) {
-	s := newWorkerTestServer(t)
-	connectWarden(t, s, ServerSelfHost)
-	task := putTaskFixture(t, s, Task{
-		ID: "t-00000000000c", TypeKey: "review-pr", Title: "x",
-		Status: TaskStatusDone, Priority: TaskPriorityMid,
-		ExecutorKind: TaskExecutorOutsource, ExecutorID: "ow-c", ClosedTS: 1,
-	})
-	putWorkerFixture(t, s, OutsourceWorker{
-		ID: "ow-c", Codename: "O-12", Model: "opus", Effort: "high",
-		TaskID: task.ID, Status: WorkerStatusReleased, ReleasedTS: 1,
-	})
-
-	if rec := postCloseout(t, s, task.ID, "ow-c"); rec.Code != http.StatusOK {
-		t.Fatalf("first closeout: %d %s", rec.Code, rec.Body.String())
-	}
-	if got := len(s.hub.DrainWardenCommands(ServerSelfHost)); got != 1 {
-		t.Fatalf("first closeout: want 1 worker_stop, got %d", got)
-	}
-	if rec := postCloseout(t, s, task.ID, "ow-c"); rec.Code != http.StatusOK {
-		t.Fatalf("repeat closeout: %d %s", rec.Code, rec.Body.String())
-	}
-	if got := len(s.hub.DrainWardenCommands(ServerSelfHost)); got != 0 {
-		t.Errorf("repeat closeout must dispatch nothing, got %d frames", got)
+// wsAnchors is a returned member's wind-down anchors, flattened for a
+// whole-value compare.
+func wsAnchors(m *Member) map[string]any {
+	return map[string]any{
+		"id": m.ID, "desired_state": m.DesiredState, "refocus_op": m.RefocusOp,
+		"refocus_since_set": m.RefocusSince > 0, "stopping_since_set": m.StoppingSince > 0,
+		"stopped_since_set": m.StoppedSince > 0, "actual_model": m.ActualModel,
 	}
 }
 
-func TestCloseoutReport_MemberTask_NoDismissal(t *testing.T) {
-	s := newWorkerTestServer(t)
-	connectWarden(t, s, ServerSelfHost)
-	task := putTaskFixture(t, s, Task{
-		ID: "t-00000000000d", Title: "ad-hoc thing",
-		Status: TaskStatusDone, Priority: TaskPriorityMid,
-		ExecutorKind: TaskExecutorStaff, ExecutorID: "mira", ClosedTS: 1,
-	})
-	// An UNRELATED live worker on another task must be untouched by this
-	// member close-out (the dismissal is task-scoped).
-	putWorkerFixture(t, s, OutsourceWorker{
-		ID: "ow-d", Codename: "O-13", Model: "opus", Effort: "high",
-		TaskID: "t-something-else", Status: WorkerStatusActive,
+func TestWorkerReportWaking(t *testing.T) {
+	t.Run("the first boot verb claims the worker: assigned flips active, the recycle markers are cleared and the model is stored", func(t *testing.T) {
+		api, h, _, owner, _ := wsWindDown(t, WorkerStatusAssigned, DesiredStateOnline, "relocate", 100, 110, 120, true)
+		dashboard := apiTestListen(t, api, "")
+		model := "claude-opus-5"
+
+		m, err := api.workerReportWaking("ow-abc123", &model, triggerServer)
+		if err != nil {
+			t.Fatalf("workerReportWaking: %v", err)
+		}
+
+		apiWantValue(t, "answer", any(wsAnchors(m)), any(map[string]any{
+			"id": "ow-abc123", "desired_state": "online", "refocus_op": "",
+			"refocus_since_set": false, "stopping_since_set": false,
+			"stopped_since_set": false, "actual_model": "claude-opus-5",
+		}))
+		apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, map[string]any{
+			"status": "active", "presence": "online", "desired_state": "online",
+			"machine": "m-server-self", "actual_model": "claude-opus-5",
+		}))
+		dashboard.wantFrames(
+			wsWakingDelta(2),
+			apiTestWorkerDelta(3, "active", "server"),
+		)
 	})
 
-	if rec := postCloseout(t, s, task.ID, "mira"); rec.Code != http.StatusOK {
-		t.Fatalf("member closeout: %d %s", rec.Code, rec.Body.String())
-	}
-	if got := len(s.hub.DrainWardenCommands(ServerSelfHost)); got != 0 {
-		t.Errorf("member-task closeout must dispatch no worker_stop, got %d", got)
-	}
-	after, err := s.dal.GetOutsourceWorker("ow-d")
-	if err != nil || after == nil || after.Status != WorkerStatusActive {
-		t.Errorf("unrelated worker must stay active, got %+v (err %v)", after, err)
+	t.Run("a repeat report on an already-active worker fans no worker delta and leaves the stored model alone", func(t *testing.T) {
+		api, h, _, owner, _ := wsWindDown(t, WorkerStatusAssigned, DesiredStateOnline, "", 0, 0, 0, true)
+		model := "claude-opus-5"
+		if _, err := api.workerReportWaking("ow-abc123", &model, triggerServer); err != nil {
+			t.Fatalf("workerReportWaking: %v", err)
+		}
+		dashboard := apiTestListen(t, api, "")
+
+		m, err := api.workerReportWaking("ow-abc123", nil, triggerServer)
+		if err != nil {
+			t.Fatalf("workerReportWaking: %v", err)
+		}
+
+		apiWantValue(t, "the model the answer carries", any(m.ActualModel), any("claude-opus-5"))
+		apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, map[string]any{
+			"status": "active", "presence": "online", "desired_state": "online",
+			"machine": "m-server-self", "actual_model": "claude-opus-5",
+		}))
+		dashboard.wantFrames(wsWakingDelta(4))
+	})
+
+	t.Run("a caller with no live worker row is refused not-found and nothing is written", func(t *testing.T) {
+		api, h, _, owner, _ := wsWindDown(t, WorkerStatusAssigned, DesiredStateOnline, "", 0, 0, 0, false)
+		dashboard := apiTestListen(t, api, "")
+
+		m, err := api.workerReportWaking("ow-nope", nil, triggerServer)
+		if m != nil || err != errNotFound {
+			t.Fatalf("want (nil, not found), got (%v, %v)", m, err)
+		}
+		apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, map[string]any{
+			"status": "assigned", "desired_state": "online",
+		}))
+		dashboard.wantFrames()
+	})
+}
+
+func TestWorkerReportStopping(t *testing.T) {
+	t.Run("a stopping report anchors the wind-down and the cockpit may flip, but nothing is killed", func(t *testing.T) {
+		api, h, _, owner, _ := wsWindDown(t, WorkerStatusActive, DesiredStateOnline, "", 0, 0, 0, true)
+		apiTestListen(t, api, ServerSelfHost)
+
+		m, err := api.workerReportStopping("ow-abc123", triggerServer)
+		if err != nil {
+			t.Fatalf("workerReportStopping: %v", err)
+		}
+
+		apiWantValue(t, "answer", any(wsAnchors(m)), any(map[string]any{
+			"id": "ow-abc123", "desired_state": "online", "refocus_op": "",
+			"refocus_since_set": false, "stopping_since_set": true,
+			"stopped_since_set": false, "actual_model": "",
+		}))
+		apiWantValue(t, "the verbs dispatched", any(wsVerbs(t, api, ServerSelfHost)), any([]any{}))
+		apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, map[string]any{
+			"status": "active", "presence": "stopping", "desired_state": "online",
+			"machine": "m-server-self",
+		}))
+	})
+
+	t.Run("a second report leaves the first anchor exactly where it was", func(t *testing.T) {
+		api, _, d, _, _ := wsWindDown(t, WorkerStatusActive, DesiredStateOnline, "", 0, 0, 0, true)
+		if _, err := api.workerReportStopping("ow-abc123", triggerServer); err != nil {
+			t.Fatalf("workerReportStopping: %v", err)
+		}
+		first, err := d.GetOutsourceWorker("ow-abc123")
+		if err != nil || first == nil {
+			t.Fatalf("GetOutsourceWorker: %v (%v)", first, err)
+		}
+
+		if _, err := api.workerReportStopping("ow-abc123", triggerServer); err != nil {
+			t.Fatalf("workerReportStopping: %v", err)
+		}
+
+		second, err := d.GetOutsourceWorker("ow-abc123")
+		if err != nil || second == nil {
+			t.Fatalf("GetOutsourceWorker: %v (%v)", second, err)
+		}
+		apiWantValue(t, "stopping anchor", any(second.StoppingSince), any(first.StoppingSince))
+	})
+
+	t.Run("a caller with no live worker row is refused not-found", func(t *testing.T) {
+		api, _, _, _, _ := wsWindDown(t, WorkerStatusActive, DesiredStateOnline, "", 0, 0, 0, false)
+
+		m, err := api.workerReportStopping("ow-nope", triggerServer)
+		if m != nil || err != errNotFound {
+			t.Fatalf("want (nil, not found), got (%v, %v)", m, err)
+		}
+	})
+}
+
+func TestWorkerReportStopped(t *testing.T) {
+	t.Run("a report inside a handover only LATCHES: the next tick collects, and no kill goes out here", func(t *testing.T) {
+		api, h, _, owner, _ := wsWindDown(t, WorkerStatusActive, DesiredStateOnline, "relocate", 100, 0, 0, true)
+		apiTestListen(t, api, ServerSelfHost)
+		api.outsourceMu.Lock()
+		api.workerSpawnTarget["ow-abc123"] = ServerSelfHost
+		api.outsourceMu.Unlock()
+
+		m, effect, err := api.workerReportStopped("ow-abc123", triggerServer)
+		if err != nil {
+			t.Fatalf("workerReportStopped: %v", err)
+		}
+
+		apiWantValue(t, "effect", any(effect), any("latched_for_collect"))
+		apiWantValue(t, "answer", any(wsAnchors(m)), any(map[string]any{
+			"id": "ow-abc123", "desired_state": "online", "refocus_op": "relocate",
+			"refocus_since_set": true, "stopping_since_set": false,
+			"stopped_since_set": true, "actual_model": "",
+		}))
+		apiWantValue(t, "the verbs dispatched", any(wsVerbs(t, api, ServerSelfHost)), any([]any{}))
+		apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, map[string]any{
+			"status": "active", "presence": "online", "desired_state": "online",
+			"machine":       "m-server-self",
+			"refocus_since": 100, "refocus_op": "relocate",
+		}))
+	})
+
+	t.Run("a repeat report does nothing whatsoever and says so", func(t *testing.T) {
+		api, _, _, _, _ := wsWindDown(t, WorkerStatusActive, DesiredStateOnline, "relocate", 100, 0, 0, true)
+		apiTestListen(t, api, ServerSelfHost)
+		if _, _, err := api.workerReportStopped("ow-abc123", triggerServer); err != nil {
+			t.Fatalf("workerReportStopped: %v", err)
+		}
+
+		_, effect, err := api.workerReportStopped("ow-abc123", triggerServer)
+		if err != nil {
+			t.Fatalf("workerReportStopped: %v", err)
+		}
+
+		apiWantValue(t, "effect", any(effect), any("already_reported"))
+		apiWantValue(t, "the verbs dispatched", any(wsVerbs(t, api, ServerSelfHost)), any([]any{}))
+	})
+
+	t.Run("a report inside a 停止 epoch is COLLECTED on the spot: the session is killed and never re-spawned", func(t *testing.T) {
+		api, h, _, owner, _ := wsWindDown(t, WorkerStatusActive, DesiredStateOffline, "", 0, 200, 0, true)
+		apiTestListen(t, api, ServerSelfHost)
+		api.outsourceMu.Lock()
+		api.workerSpawnTarget["ow-abc123"] = ServerSelfHost
+		api.outsourceMu.Unlock()
+
+		_, effect, err := api.workerReportStopped("ow-abc123", triggerServer)
+		if err != nil {
+			t.Fatalf("workerReportStopped: %v", err)
+		}
+
+		apiWantValue(t, "effect", any(effect), any("collected"))
+		apiWantValue(t, "the verbs dispatched", any(wsVerbs(t, api, ServerSelfHost)), any([]any{"stop"}))
+		apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, map[string]any{
+			"status": "active", "presence": "stopping", "desired_state": "offline",
+			"machine": "m-server-self",
+		}))
+	})
+
+	t.Run("a report outside any epoch is only recorded: nothing is owed and nothing is dispatched", func(t *testing.T) {
+		api, h, _, owner, _ := wsWindDown(t, WorkerStatusActive, DesiredStateOnline, "", 0, 0, 0, true)
+		apiTestListen(t, api, ServerSelfHost)
+
+		_, effect, err := api.workerReportStopped("ow-abc123", triggerServer)
+		if err != nil {
+			t.Fatalf("workerReportStopped: %v", err)
+		}
+
+		apiWantValue(t, "effect", any(effect), any("recorded_only"))
+		apiWantValue(t, "the verbs dispatched", any(wsVerbs(t, api, ServerSelfHost)), any([]any{}))
+		apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, map[string]any{
+			"status": "active", "presence": "online", "desired_state": "online",
+			"machine": "m-server-self",
+		}))
+	})
+
+	t.Run("a caller with no live worker row is refused not-found and carries no effect", func(t *testing.T) {
+		api, _, _, _, _ := wsWindDown(t, WorkerStatusActive, DesiredStateOnline, "", 0, 0, 0, false)
+
+		m, effect, err := api.workerReportStopped("ow-nope", triggerServer)
+		if m != nil || effect != "" || err != errNotFound {
+			t.Fatalf("want (nil, \"\", not found), got (%v, %q, %v)", m, effect, err)
+		}
+	})
+}
+
+func TestWorkerRestartSelf(t *testing.T) {
+	t.Run("the agent's own restart stamps a restart_self epoch and opens the graceful window, killing nothing", func(t *testing.T) {
+		api, h, _, owner, _ := wsWindDown(t, WorkerStatusActive, DesiredStateOnline, "", 0, 0, 0, true)
+		apiTestListen(t, api, ServerSelfHost)
+		contractor := apiTestListen(t, api, "ow-abc123")
+		api.outsourceMu.Lock()
+		api.workerSpawnTarget["ow-abc123"] = ServerSelfHost
+		api.outsourceMu.Unlock()
+
+		m, err := api.workerRestartSelf("ow-abc123", 4242, triggerServer)
+		if err != nil {
+			t.Fatalf("workerRestartSelf: %v", err)
+		}
+
+		apiWantValue(t, "answer", any(wsAnchors(m)), any(map[string]any{
+			"id": "ow-abc123", "desired_state": "online", "refocus_op": "restart_self",
+			"refocus_since_set": true, "stopping_since_set": false,
+			"stopped_since_set": false, "actual_model": "",
+		}))
+		apiWantValue(t, "the verbs dispatched", any(wsVerbs(t, api, ServerSelfHost)), any([]any{}))
+		apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, map[string]any{
+			"status": "active", "presence": "online", "desired_state": "online",
+			"machine":       "m-server-self",
+			"refocus_since": 4242, "refocus_op": "restart_self",
+		}))
+		contractor.wantFrames(
+			apiTestHandoverDelta(3, "online", apiTestOffboardNotice, "server"),
+		)
+	})
+
+	t.Run("an agent already further along the ladder is refused, so it cannot talk back the deadline it was given", func(t *testing.T) {
+		api, h, _, owner, _ := wsWindDown(t, WorkerStatusActive, DesiredStateOnline, "accelerated_stop", 500, 0, 0, true)
+		apiTestListen(t, api, ServerSelfHost)
+		dashboard := apiTestListen(t, api, "")
+
+		m, err := api.workerRestartSelf("ow-abc123", 4242, triggerServer)
+		if m != nil || err != errWindDownLadderBackwards {
+			t.Fatalf("want (nil, ladder backwards), got (%v, %v)", m, err)
+		}
+		apiWantValue(t, "the verbs dispatched", any(wsVerbs(t, api, ServerSelfHost)), any([]any{}))
+		apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, map[string]any{
+			"status": "active", "presence": "online", "desired_state": "online",
+			"machine":       "m-server-self",
+			"refocus_since": 500, "refocus_op": "accelerated_stop",
+			"refocus_deadline": apiAnyNumber,
+		}))
+		dashboard.wantFrames()
+	})
+
+	t.Run("an OFFLINE agent's restart skips the window and its epoch is collected immediately", func(t *testing.T) {
+		api, _, _, _, _ := wsWindDown(t, WorkerStatusActive, DesiredStateOnline, "", 0, 0, 0, false)
+		apiTestListen(t, api, ServerSelfHost)
+		api.outsourceMu.Lock()
+		api.workerSpawnTarget["ow-abc123"] = ServerSelfHost
+		api.outsourceMu.Unlock()
+
+		if _, err := api.workerRestartSelf("ow-abc123", 4242, triggerServer); err != nil {
+			t.Fatalf("workerRestartSelf: %v", err)
+		}
+
+		apiWantValue(t, "the verbs dispatched", any(wsVerbs(t, api, ServerSelfHost)), any([]any{"stop"}))
+	})
+
+	t.Run("a caller with no live worker row is refused not-found", func(t *testing.T) {
+		api, _, _, _, _ := wsWindDown(t, WorkerStatusActive, DesiredStateOnline, "", 0, 0, 0, false)
+
+		m, err := api.workerRestartSelf("ow-nope", 4242, triggerServer)
+		if m != nil || err != errNotFound {
+			t.Fatalf("want (nil, not found), got (%v, %v)", m, err)
+		}
+	})
+}
+
+func TestReclaimWorkerSession(t *testing.T) {
+	t.Run("the machine the spawn targeted is fired at, the worker is marked reclaimed and its FSM bookkeeping retired", func(t *testing.T) {
+		api, _, _, _, w := wsWorkerSpawnFixture(t, WorkerStatusActive)
+		apiTestListen(t, api, ServerSelfHost)
+
+		api.outsourceMu.Lock()
+		api.workerSpawnTarget["ow-abc123"] = ServerSelfHost
+		api.workerReconcileStates["ow-abc123"] = reconcileState{Phase: reconcilePhaseStarting}
+		api.reclaimWorkerSession(w)
+		reclaimed := api.workerReclaimed["ow-abc123"]
+		states := len(api.workerReconcileStates)
+		api.outsourceMu.Unlock()
+
+		wsWantWardenFrames(t, api, ServerSelfHost, wsStopFrame("ow-abc123"))
+		apiWantValue(t, "reclaimed", any(reclaimed), any(true))
+		apiWantValue(t, "FSM states left", any(float64(states)), any(0))
+	})
+
+	t.Run("with no remembered target the kill is broadcast to EVERY online warden, and a warden without that session no-ops", func(t *testing.T) {
+		api, _, _, _, w := wsWorkerSpawnFixture(t, WorkerStatusActive)
+		apiTestListen(t, api, ServerSelfHost)
+
+		api.outsourceMu.Lock()
+		api.reclaimWorkerSession(w)
+		reclaimed := api.workerReclaimed["ow-abc123"]
+		api.outsourceMu.Unlock()
+
+		wsWantWardenFrames(t, api, ServerSelfHost, wsStopFrame("ow-abc123"))
+		apiWantValue(t, "reclaimed", any(reclaimed), any(true))
+	})
+
+	t.Run("with no online warden at all nothing is enqueued and the worker is NOT marked reclaimed, so the backstop retries", func(t *testing.T) {
+		api, _, _, _, w := wsWorkerSpawnFixture(t, WorkerStatusActive)
+
+		api.outsourceMu.Lock()
+		api.workerSpawnTarget["ow-abc123"] = ServerSelfHost
+		api.reclaimWorkerSession(w)
+		reclaimed := len(api.workerReclaimed)
+		api.outsourceMu.Unlock()
+
+		wsWantWardenFrames(t, api, ServerSelfHost)
+		apiWantValue(t, "reclaimed", any(float64(reclaimed)), any(0))
+	})
+}
+
+func TestDismissOutsourceWorkersForTask(t *testing.T) {
+	t.Run("every worker bound to the task is released and its session reclaimed on the spot", func(t *testing.T) {
+		api, h, _, owner, _ := wsWorkerSpawnFixture(t, WorkerStatusActive)
+		apiTestListen(t, api, ServerSelfHost)
+		api.outsourceMu.Lock()
+		api.workerSpawnTarget["ow-abc123"] = ServerSelfHost
+		api.outsourceMu.Unlock()
+		dashboard := apiTestListen(t, api, "")
+
+		api.dismissOutsourceWorkersForTask("T-1", 7777, triggerServer)
+
+		wsWantWardenFrames(t, api, ServerSelfHost, wsStopFrame("ow-abc123"))
+		apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, map[string]any{
+			"status": "released", "presence": "", "machine": "m-server-self",
+		}))
+		dashboard.wantFrames(apiTestWorkerDelta(2, "released", "server"))
+	})
+
+	t.Run("a second dismissal is a no-op: the row is already released and the session already reclaimed", func(t *testing.T) {
+		api, h, _, owner, _ := wsWorkerSpawnFixture(t, WorkerStatusActive)
+		apiTestListen(t, api, ServerSelfHost)
+		api.dismissOutsourceWorkersForTask("T-1", 7777, triggerServer)
+		wsDrainWardenFrames(t, api, ServerSelfHost)
+		dashboard := apiTestListen(t, api, "")
+
+		api.dismissOutsourceWorkersForTask("T-1", 8888, triggerServer)
+
+		wsWantWardenFrames(t, api, ServerSelfHost)
+		apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, map[string]any{
+			"status": "released", "presence": "",
+		}))
+		dashboard.wantFrames()
+	})
+
+	t.Run("a task with no workers bound to it fires nothing and touches no other worker", func(t *testing.T) {
+		api, h, _, owner, _ := wsWorkerSpawnFixture(t, WorkerStatusActive)
+		apiTestListen(t, api, ServerSelfHost)
+		dashboard := apiTestListen(t, api, "")
+
+		api.dismissOutsourceWorkersForTask("T-404", 7777, triggerServer)
+
+		wsWantWardenFrames(t, api, ServerSelfHost)
+		apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, map[string]any{
+			"status": "active",
+		}))
+		dashboard.wantFrames()
+	})
+}
+
+func TestDismissOutsourceWorkerByID(t *testing.T) {
+	t.Run("the named worker alone is released and reclaimed, and the other worker on the same task is left running", func(t *testing.T) {
+		api, h, d, owner, _ := wsWorkerSpawnFixture(t, WorkerStatusActive)
+		if err := d.PutOutsourceWorker(OutsourceWorker{
+			ID: "ow-def456", Codename: "Stevedore", TaskID: "T-1",
+			Status: WorkerStatusActive, Runtime: "claude", Model: "sonnet", Effort: "medium",
+		}); err != nil {
+			t.Fatalf("PutOutsourceWorker: %v", err)
+		}
+		apiTestListen(t, api, ServerSelfHost)
+		api.outsourceMu.Lock()
+		api.workerSpawnTarget["ow-abc123"] = ServerSelfHost
+		api.outsourceMu.Unlock()
+
+		api.dismissOutsourceWorkerByID("ow-abc123", 7777, triggerServer)
+
+		wsWantWardenFrames(t, api, ServerSelfHost, wsStopFrame("ow-abc123"))
+		apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, map[string]any{
+			"status": "released", "presence": "", "machine": "m-server-self",
+		}))
+		apiTestWantWorker(t, h, owner, "ow-def456", apiTestWorkerRow(t, map[string]any{
+			"id": "ow-def456", "codename": "Stevedore", "status": "active",
+		}))
+	})
+
+	t.Run("an id nothing carries releases nothing and fires nothing", func(t *testing.T) {
+		api, h, _, owner, _ := wsWorkerSpawnFixture(t, WorkerStatusActive)
+		apiTestListen(t, api, ServerSelfHost)
+		dashboard := apiTestListen(t, api, "")
+
+		api.dismissOutsourceWorkerByID("ow-nope", 7777, triggerServer)
+
+		wsWantWardenFrames(t, api, ServerSelfHost)
+		apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, map[string]any{
+			"status": "active",
+		}))
+		dashboard.wantFrames()
+	})
+}
+
+// wsFSMState is one reconcileState flattened for a whole-value compare.
+func wsFSMState(st reconcileState) map[string]any {
+	return map[string]any{
+		"phase": st.Phase, "last_command": st.LastCommand, "last_command_at": st.LastCommandAt,
+		"attempts": float64(st.Attempts), "offline_since": st.OfflineSince,
+		"circuit_open": st.CircuitOpen,
 	}
 }
 
-// ── the scheduler tick's lifecycle passes ────────────────────────────────────
-
-func TestTick_ReclaimBackstop_GraceRespected(t *testing.T) {
-	s := newWorkerTestServer(t)
-	connectWarden(t, s, ServerSelfHost)
-	now := nowSecs()
-	putTaskFixture(t, s, Task{
-		ID: "t-000000000008", TypeKey: "review-pr", Title: "x",
-		Status: TaskStatusDone, Priority: TaskPriorityMid,
-		ExecutorKind: TaskExecutorOutsource, ExecutorID: "ow-8", ClosedTS: now,
-	})
-	// Released WITHIN the grace → left alone; released BEYOND it → reclaimed.
-	putWorkerFixture(t, s, OutsourceWorker{
-		ID: "ow-8", Codename: "O-8", Model: "opus", Effort: "high",
-		TaskID: "t-000000000008", Status: WorkerStatusReleased, ReleasedTS: now - 5,
-	})
-	putWorkerFixture(t, s, OutsourceWorker{
-		ID: "ow-9", Codename: "O-9", Model: "opus", Effort: "high",
-		TaskID: "t-000000000008", Status: WorkerStatusReleased,
-		ReleasedTS: now - workerReclaimGraceSecs - 5,
-	})
-
-	s.runOutsourceTick(now)
-
-	frames := s.hub.DrainWardenCommands(ServerSelfHost)
-	if len(frames) != 1 {
-		t.Fatalf("want exactly 1 backstop worker_stop, got %d", len(frames))
+// wsWithReceipt stamps a warden receipt on the fixture worker and answers the
+// re-read row with the placement pin the spawn path needs.
+func wsWithReceipt(t *testing.T, api *apiServer, d *DAL, verb, reason string) OutsourceWorker {
+	t.Helper()
+	if err := d.SetMemberOpReceipt("ow-abc123", verb, nil, "", reason, 400); err != nil {
+		t.Fatalf("SetMemberOpReceipt: %v", err)
 	}
-	if _, args := decodeWardenFrame(t, frames[0].Frame); args["member_id"] != "ow-9" {
-		t.Errorf("backstop reclaimed %v, want ow-9", args["member_id"])
+	fresh, err := d.GetOutsourceWorker("ow-abc123")
+	if err != nil || fresh == nil {
+		t.Fatalf("GetOutsourceWorker: %v (%v)", fresh, err)
 	}
+	fresh.DesiredMachineID = ServerSelfHost
+	return *fresh
 }
 
-func TestTick_AssignedWorker_RedispatchesSpawn(t *testing.T) {
-	s := newWorkerTestServer(t)
-	connectWarden(t, s, ServerSelfHost)
-	task := putTaskFixture(t, s, Task{
-		ID: "t-00000000000a", TypeKey: "review-pr", Title: "x",
-		Status: TaskStatusNotStarted, Priority: TaskPriorityMid,
-		ExecutorKind: TaskExecutorOutsource, ExecutorID: "ow-a",
-	})
-	putWorkerFixture(t, s, OutsourceWorker{
-		ID: "ow-a", Codename: "O-10", Model: "opus", Effort: "high",
-		TaskID: task.ID, Status: WorkerStatusAssigned,
-		DesiredMachineID: ServerSelfHost, // explicit placement (owner ruling 2026-07-25)
-		// T-72dd: this fixture used to leave desired_state UNSET, and passed only
-		// because reconcileWorkerLiveness hard-wired the FSM's Desired to online
-		// and never read the row. Now that it reads the row, "" would route to
-		// decideDown and this worker would never be spawned at all.
-		//
-		// "" is a FIXTURE state, not a production one: the sole creation path
-		// (outsource_sched.go's assignment pass) writes DesiredStateOnline
-		// explicitly, so setting it here is what a real assigned worker looks
-		// like — not a workaround for the change.
-		//
-		// 🔴 It is worth knowing that "" SURVIVES a write: the member column's
-		// DEFAULT 'online' does not rescue an explicit empty value (measured,
-		// T-72dd). Nothing validates desired_state either (ValidateMember does
-		// not check it), so a row that acquires "" some other way would silently
-		// stop being spawned rather than fail loudly. No guard is added here —
-		// that is an owner ruling, not an implementation detail.
-		DesiredState: DesiredStateOnline,
+func TestReconcileWorkerLiveness(t *testing.T) {
+	t.Run("a worker that should be running and is not gets a START, and the FSM records it as in flight", func(t *testing.T) {
+		api, h, _, owner, w := wsWindDown(t, WorkerStatusAssigned, DesiredStateOnline, "", 0, 0, 0, false)
+		apiTestListen(t, api, ServerSelfHost)
+
+		api.outsourceMu.Lock()
+		api.reconcileWorkerLiveness(w, 1000)
+		state := api.workerReconcileStates["ow-abc123"]
+		api.outsourceMu.Unlock()
+
+		apiWantValue(t, "the verbs dispatched", any(wsVerbs(t, api, ServerSelfHost)), any([]any{"start"}))
+		apiWantValue(t, "fsm state", any(wsFSMState(state)), any(map[string]any{
+			"phase": "starting", "last_command": "start", "last_command_at": 1000.0,
+			"attempts": 0.0, "offline_since": 1000.0, "circuit_open": false,
+		}))
+		apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, map[string]any{
+			"status": "assigned", "desired_state": "online", "machine": "m-server-self",
+		}))
 	})
 
-	s.runOutsourceTick(nowSecs())
+	t.Run("an online worker converges and its stale failure receipt is taken off the cockpit", func(t *testing.T) {
+		api, h, d, owner, _ := wsWindDown(t, WorkerStatusActive, DesiredStateOnline, "", 0, 0, 0, true)
+		w := wsWithReceipt(t, api, d, "start", "wake_timeout: the runtime never reported")
+		apiTestListen(t, api, ServerSelfHost)
 
-	frames := s.hub.DrainWardenCommands(ServerSelfHost)
-	if len(frames) != 1 {
-		t.Fatalf("want 1 worker_start from the tick pass, got %d", len(frames))
-	}
-	if rpc, args := decodeWardenFrame(t, frames[0].Frame); rpc != reconcileCmdStart ||
-		args["member_id"] != "ow-a" {
-		t.Errorf("frame = %s %v", rpc, args)
-	}
+		api.outsourceMu.Lock()
+		api.reconcileWorkerLiveness(w, 1000)
+		state := api.workerReconcileStates["ow-abc123"]
+		api.outsourceMu.Unlock()
+
+		apiWantValue(t, "the verbs dispatched", any(wsVerbs(t, api, ServerSelfHost)), any([]any{}))
+		apiWantValue(t, "fsm state", any(wsFSMState(state)), any(map[string]any{
+			"phase": "online", "last_command": "none", "last_command_at": 0.0,
+			"attempts": 0.0, "offline_since": 0.0, "circuit_open": false,
+		}))
+		apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, map[string]any{
+			"status": "active", "presence": "online", "desired_state": "online",
+			"machine": "m-server-self",
+		}))
+	})
+
+	t.Run("an online worker whose agent has filed its dump-done is COLLECTED: killed and respawned, and the stop anchor is restored", func(t *testing.T) {
+		api, _, _, _, w := wsWindDown(t, WorkerStatusActive, DesiredStateOnline, "relocate", 100, 0, 120, true)
+		apiTestListen(t, api, ServerSelfHost)
+
+		api.outsourceMu.Lock()
+		api.workerSpawnTarget["ow-abc123"] = ServerSelfHost
+		api.reconcileWorkerLiveness(w, 1000)
+		state := api.workerReconcileStates["ow-abc123"]
+		api.outsourceMu.Unlock()
+
+		apiWantValue(t, "the verbs dispatched", any(wsVerbs(t, api, ServerSelfHost)), any([]any{"stop", "start"}))
+		apiWantValue(t, "the restored stop anchor", any(map[string]any{
+			"last_command": state.LastCommand, "last_command_at": state.LastCommandAt,
+		}), any(map[string]any{"last_command": "stop", "last_command_at": 1000.0}))
+	})
+
+	t.Run("a START that timed out with no remembered destination says only what is known, and names no machine", func(t *testing.T) {
+		api, h, _, owner, w := wsWindDown(t, WorkerStatusActive, DesiredStateOnline, "", 0, 0, 0, false)
+		apiTestListen(t, api, ServerSelfHost)
+
+		api.outsourceMu.Lock()
+		api.workerReconcileStates["ow-abc123"] = reconcileState{
+			Phase: reconcilePhaseStarting, LastCommand: reconcileCmdStart, LastCommandAt: 500,
+		}
+		api.reconcileWorkerLiveness(w, 1000)
+		api.outsourceMu.Unlock()
+
+		apiWantValue(t, "the verbs dispatched", any(wsVerbs(t, api, ServerSelfHost)), any([]any{}))
+		apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, map[string]any{
+			"status": "active", "desired_state": "online",
+			"last_op": "start", "last_op_ok": false, "last_op_at": 1000,
+			"last_op_reason": "wake_timeout: the start window elapsed with no session, and " +
+				"this server no longer has a record of which machine the start was sent to " +
+				"(the spawn ledger is in-memory and a server restart clears it) — retry 改機器 " +
+				"to place it again",
+		}))
+	})
+
+	t.Run("a START that was collected and produced no session points at the runtime on that machine", func(t *testing.T) {
+		api, h, _, owner, w := wsWindDown(t, WorkerStatusActive, DesiredStateOnline, "", 0, 0, 0, false)
+		apiTestListen(t, api, ServerSelfHost)
+
+		api.outsourceMu.Lock()
+		api.workerSpawnTarget["ow-abc123"] = ServerSelfHost
+		api.workerReconcileStates["ow-abc123"] = reconcileState{
+			Phase: reconcilePhaseStarting, LastCommand: reconcileCmdStart, LastCommandAt: 500,
+		}
+		api.reconcileWorkerLiveness(w, 1000)
+		api.outsourceMu.Unlock()
+
+		apiWantValue(t, "the verbs dispatched", any(wsVerbs(t, api, ServerSelfHost)), any([]any{}))
+		apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, map[string]any{
+			"status": "active", "desired_state": "online", "machine": "m-server-self",
+			"last_op": "start", "last_op_ok": false, "last_op_at": 1000,
+			"last_op_reason": "wake_timeout: the start was collected by machine " +
+				"'m-server-self' but this worker never came online within the start window — " +
+				"check that the 'claude' runtime actually runs and is logged in on that " +
+				"machine (warden log: ocwarden.out.log)",
+		}))
+	})
+
+	t.Run("a START still sitting on that machine's queue says nobody picked it up, so the runtime is not the suspect", func(t *testing.T) {
+		api, h, _, owner, w := wsWindDown(t, WorkerStatusActive, DesiredStateOnline, "", 0, 0, 0, false)
+		apiTestListen(t, api, ServerSelfHost)
+		frame, ok := buildTargetFrame(reconcileCmdStart, "ow-abc123")
+		if !ok {
+			t.Fatalf("buildTargetFrame refused")
+		}
+
+		api.outsourceMu.Lock()
+		api.hub.EnqueueWardenCommandFor(ServerSelfHost, "ow-abc123", frame)
+		api.workerSpawnTarget["ow-abc123"] = ServerSelfHost
+		api.workerReconcileStates["ow-abc123"] = reconcileState{
+			Phase: reconcilePhaseStarting, LastCommand: reconcileCmdStart, LastCommandAt: 500,
+		}
+		api.reconcileWorkerLiveness(w, 1000)
+		api.outsourceMu.Unlock()
+
+		apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, map[string]any{
+			"status": "active", "desired_state": "online", "machine": "m-server-self",
+			"last_op": "start", "last_op_ok": false, "last_op_at": 1000,
+			"last_op_reason": "never_collected: the start frame for this worker is still " +
+				"queued for machine 'm-server-self' — that machine's warden has not picked it " +
+				"up, so nothing has tried to boot yet; check that ocwarden is running and " +
+				"holding its connection there",
+		}))
+	})
+
+	t.Run("a START drained off the queue and then LOST names the machine's connection, not the runtime on it", func(t *testing.T) {
+		api, h, _, owner, w := wsWindDown(t, WorkerStatusActive, DesiredStateOnline, "", 0, 0, 0, false)
+		apiTestListen(t, api, ServerSelfHost)
+		frame, ok := buildTargetFrame(reconcileCmdStart, "ow-abc123")
+		if !ok {
+			t.Fatalf("buildTargetFrame refused")
+		}
+		api.hub.EnqueueWardenCommandFor(ServerSelfHost, "ow-abc123", frame)
+		api.hub.ReturnUndeliveredCommands(ServerSelfHost, api.hub.DrainWardenCommands(ServerSelfHost))
+
+		api.outsourceMu.Lock()
+		api.workerSpawnAt["ow-abc123"] = 1
+		api.workerSpawnTarget["ow-abc123"] = ServerSelfHost
+		api.workerReconcileStates["ow-abc123"] = reconcileState{
+			Phase: reconcilePhaseStarting, LastCommand: reconcileCmdStart, LastCommandAt: 500,
+		}
+		api.reconcileWorkerLiveness(w, 1000)
+		api.outsourceMu.Unlock()
+
+		apiWantValue(t, "the verbs dispatched", any(wsVerbs(t, api, ServerSelfHost)), any([]any{}))
+		apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, map[string]any{
+			"status": "active", "desired_state": "online", "machine": "m-server-self",
+			"last_op": "start", "last_op_ok": false, "last_op_at": 1000,
+			"last_op_reason": "never_collected: the start frame for this worker never reached " +
+				"machine 'm-server-self' — that machine's SSE stream failed mid-delivery and " +
+				"the frame was dropped server-side, so nothing there was ever asked to boot; " +
+				"the machine's connection is the suspect, not the runtime on it",
+		}))
+	})
+
+	t.Run("a START that bounced off the warden's clobber guard, past the confirm window, reaps the ghost and benches that machine", func(t *testing.T) {
+		api, h, d, owner, _ := wsWindDown(t, WorkerStatusActive, DesiredStateOnline, "", 0, 0, 0, false)
+		w := wsWithReceipt(t, api, d, "start", "session_already_exists: a live session is holding the slot")
+		apiTestListen(t, api, ServerSelfHost)
+
+		api.outsourceMu.Lock()
+		api.workerSpawnTarget["ow-abc123"] = ServerSelfHost
+		api.workerReconcileStates["ow-abc123"] = reconcileState{
+			Phase: reconcilePhaseStarting, LastCommand: reconcileCmdStart,
+			LastCommandAt: 500, OfflineSince: 100,
+		}
+		api.reconcileWorkerLiveness(w, 1000)
+		state := api.workerReconcileStates["ow-abc123"]
+		bench := wsBenchBook(api)
+		pace := len(api.workerSpawnAt)
+		api.outsourceMu.Unlock()
+
+		apiWantValue(t, "the verbs dispatched", any(wsVerbs(t, api, ServerSelfHost)), any([]any{"stop"}))
+		apiWantValue(t, "bench book", any(bench), any(map[string]any{"ow-abc123|m-server-self": 1360.0}))
+		apiWantValue(t, "the spawn pacing", any(float64(pace)), any(0))
+		apiWantValue(t, "fsm state", any(map[string]any{
+			"phase": state.Phase, "last_command": state.LastCommand, "last_command_at": state.LastCommandAt,
+		}), any(map[string]any{"phase": "stopping", "last_command": "stop", "last_command_at": 1000.0}))
+		apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, map[string]any{
+			"status": "active", "desired_state": "online", "machine": "m-server-self",
+			"last_op": "start", "last_op_ok": nil, "last_op_at": 400,
+			"last_op_reason": "session_already_exists: a live session is holding the slot",
+		}))
+	})
+
+	t.Run("the same bounce INSIDE the reconnect-confirm window kills nothing and benches nothing", func(t *testing.T) {
+		api, _, d, _, _ := wsWindDown(t, WorkerStatusActive, DesiredStateOnline, "", 0, 0, 0, false)
+		w := wsWithReceipt(t, api, d, "start", "session_already_exists: a live session is holding the slot")
+		apiTestListen(t, api, ServerSelfHost)
+
+		api.outsourceMu.Lock()
+		api.workerSpawnTarget["ow-abc123"] = ServerSelfHost
+		api.workerReconcileStates["ow-abc123"] = reconcileState{
+			Phase: reconcilePhaseStarting, LastCommand: reconcileCmdStart,
+			LastCommandAt: 500, OfflineSince: 950,
+		}
+		api.reconcileWorkerLiveness(w, 1000)
+		state := api.workerReconcileStates["ow-abc123"]
+		bench := wsBenchBook(api)
+		api.outsourceMu.Unlock()
+
+		apiWantValue(t, "the verbs dispatched", any(wsVerbs(t, api, ServerSelfHost)), any([]any{}))
+		apiWantValue(t, "bench book", any(bench), any(map[string]any{}))
+		apiWantValue(t, "fsm state", any(map[string]any{
+			"phase": state.Phase, "last_command": state.LastCommand, "last_command_at": state.LastCommandAt,
+		}), any(map[string]any{"phase": "starting", "last_command": "start", "last_command_at": 500.0}))
+	})
+
+	t.Run("a takeover with no known target keeps the PRIOR state so the next tick retries, and benches nothing", func(t *testing.T) {
+		api, _, d, _, _ := wsWindDown(t, WorkerStatusActive, DesiredStateOnline, "", 0, 0, 0, false)
+		w := wsWithReceipt(t, api, d, "start", "session_already_exists: a live session is holding the slot")
+		apiTestListen(t, api, ServerSelfHost)
+
+		api.outsourceMu.Lock()
+		api.workerReconcileStates["ow-abc123"] = reconcileState{
+			Phase: reconcilePhaseStarting, LastCommand: reconcileCmdStart,
+			LastCommandAt: 500, OfflineSince: 100,
+		}
+		api.reconcileWorkerLiveness(w, 1000)
+		state := api.workerReconcileStates["ow-abc123"]
+		bench := wsBenchBook(api)
+		api.outsourceMu.Unlock()
+
+		apiWantValue(t, "the verbs dispatched", any(wsVerbs(t, api, ServerSelfHost)), any([]any{}))
+		apiWantValue(t, "bench book", any(bench), any(map[string]any{}))
+		apiWantValue(t, "fsm state", any(map[string]any{
+			"phase": state.Phase, "last_command": state.LastCommand, "last_command_at": state.LastCommandAt,
+			"offline_since": state.OfflineSince,
+		}), any(map[string]any{
+			"phase": "starting", "last_command": "start", "last_command_at": 500.0,
+			"offline_since": 100.0,
+		}))
+	})
+
+	t.Run("a START the placement refuses leaves the PRIOR FSM state standing, so the next tick decides afresh", func(t *testing.T) {
+		api, h, _, owner, w := wsWorkerSpawnFixture(t, WorkerStatusAssigned)
+		unplaced := w
+		unplaced.DesiredState = DesiredStateOnline
+
+		api.outsourceMu.Lock()
+		api.workerReconcileStates["ow-abc123"] = reconcileState{Phase: reconcilePhaseOffline}
+		api.reconcileWorkerLiveness(unplaced, 1000)
+		state := api.workerReconcileStates["ow-abc123"]
+		api.outsourceMu.Unlock()
+
+		apiWantValue(t, "fsm phase", any(state.Phase), any("offline"))
+		apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, map[string]any{
+			"last_op": "start", "last_op_ok": false, "last_op_at": 1000,
+			"last_op_reason": "no_machine_selected: no machine is selected for this worker — " +
+				"pick one on the worker (改機器) or on the task type's 手冊 assignee; " +
+				"there is no automatic placement",
+		}))
+	})
 }

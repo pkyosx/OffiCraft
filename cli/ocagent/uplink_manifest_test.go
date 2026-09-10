@@ -7,14 +7,11 @@ import (
 	"testing"
 )
 
-// manifestUplinkPaths is the runtime half of "the committed list equals the set of
-// bodies that were actually confronted": per route, how many JSON uplinks the
-// committed manifest hangs on one wire test. See the twin in cli/ocwarden for why the
-// static guard cannot answer this, and why this is a per-route multiset rather than a
-// count (a count is satisfiable by driving an already-covered producer twice).
-//
-// Here the other side is genuinely independent: the routes a real test server observed
-// while the real producer ran.
+// manifestUplinkPaths is the runtime half of the uplink join: per route, how many
+// JSON uplinks cli/uplinks.json hangs on one wire test. bin/uplink-guard.py cannot
+// answer this — everything it validates it validates in the same pass — so the
+// committed side is read back here and compared against what a producer actually
+// put on the wire.
 func manifestUplinkPaths(t *testing.T, wireTest string) map[string]int {
 	t.Helper()
 	raw, err := os.ReadFile(filepath.Join("..", "uplinks.json"))
@@ -38,10 +35,11 @@ func manifestUplinkPaths(t *testing.T, wireTest string) map[string]int {
 			want[one.Path]++
 		}
 	}
+	// Zero committed rows makes every comparison below this vacuous rather than
+	// passing, so it is a failure and not a floor.
 	if len(want) == 0 {
-		t.Fatalf("cli/uplinks.json commits no JSON uplink to %s, so the join it is "+
-			"supposed to close has no committed side — a renamed wire_test path, or a "+
-			"test that stopped being anyone's evidence", wireTest)
+		t.Fatalf("cli/uplinks.json commits no JSON uplink to %s, so the join it closes "+
+			"has no committed side", wireTest)
 	}
 	return want
 }

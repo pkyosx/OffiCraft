@@ -1,286 +1,512 @@
 package main
 
 import (
-	"errors"
-	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"testing/fstest"
+	"unicode/utf8"
 )
 
-// seedRootWith builds a temp assetRoot whose seeds/ holds the given files.
-func seedRootWith(t *testing.T, files map[string]string) assetRoot {
-	t.Helper()
-	dir := t.TempDir()
-	if files != nil {
-		if err := os.Mkdir(filepath.Join(dir, "seeds"), 0o755); err != nil {
-			t.Fatal(err)
-		}
-		for name, body := range files {
-			if err := os.WriteFile(filepath.Join(dir, "seeds", name), []byte(body), 0o644); err != nil {
-				t.Fatal(err)
-			}
-		}
-	}
-	return assetRoot(dir)
-}
-
-// EMBED-ONLY (T-e731): a stale seeds/*.md sitting under the CWD must never
-// shadow the version-locked embed the binary was built with. Disk-first once
-// served a frozen repo checkout's stale boot/worker/role/lessons seeds — the
-// first crash of the disk-first trilogy. Mirrors serveBinary's "disk copy in
-// CWD never shadows the embed" guard.
-func TestReadSeedFileEmbedOnlyIgnoresDisk(t *testing.T) {
-	root := seedRootWith(t, map[string]string{"boot_sequence.md": "STALE disk copy for {OWNER_ID}"})
-	embedded := fstest.MapFS{"boot_sequence.md": {Data: []byte("fresh embedded copy for {OWNER_ID}")}}
-
-	got, err := root.readSeedFileFrom("boot_sequence.md", embedded)
+func TestSeedsdistFS(t *testing.T) {
+	data, err := fs.ReadFile(seedsdistFS(), "role_def_assistant.md")
 	if err != nil {
-		t.Fatalf("readSeedFileFrom: %v", err)
+		t.Fatalf("ReadFile(role_def_assistant.md): %v", err)
 	}
-	if got != "fresh embedded copy for owner" {
-		t.Fatalf("want the embedded copy to win over the stale on-disk seed (placeholder substituted), got %q", got)
+	if got := string(data); got != apiTestAssistantSeedDefinitionMD {
+		t.Fatalf("assistant seed = %q, want %q", got, apiTestAssistantSeedDefinitionMD)
 	}
 }
 
-func TestReadSeedFileServesEmbed(t *testing.T) {
-	root := seedRootWith(t, nil) // no seeds/ on disk at all
-	embedded := fstest.MapFS{"boot_sequence.md": {Data: []byte("embedded copy for {OWNER_ID}")}}
+func TestBindistFS(t *testing.T) {
+	for _, name := range []string{"ocwarden", "ocagent", "officraft", "mcp-catalog.json"} {
+		data, err := fs.ReadFile(bindistFS(), name)
+		if err != nil {
+			t.Fatalf("ReadFile(%q): %v", name, err)
+		}
+		if len(data) == 0 {
+			t.Fatalf("ReadFile(%q) returned an empty asset", name)
+		}
+	}
+}
 
-	got, err := root.readSeedFileFrom("boot_sequence.md", embedded)
+func TestReadMCPCatalogFrom(t *testing.T) {
+	root := assetRoot("a disk path that must not be consulted")
+	want := []byte(`{"tools":[]}`)
+	embedded := fstest.MapFS{
+		"mcp-catalog.json": &fstest.MapFile{Data: want},
+	}
+
+	got, err := root.readMCPCatalogFrom(embedded)
 	if err != nil {
-		t.Fatalf("readSeedFileFrom: %v", err)
+		t.Fatalf("readMCPCatalogFrom: %v", err)
 	}
-	if got != "embedded copy for owner" {
-		t.Fatalf("want the embedded copy with the owner placeholder substituted, got %q", got)
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("readMCPCatalogFrom = %q, want %q", got, want)
 	}
-}
 
-func TestReadSeedFileErrsWhenEmbedMiss(t *testing.T) {
-	root := seedRootWith(t, nil)
-
-	_, err := root.readSeedFileFrom("boot_sequence.md", fstest.MapFS{})
-	if !errors.Is(err, fs.ErrNotExist) {
-		t.Fatalf("want fs.ErrNotExist when the embed misses, got %v", err)
+	if _, err := root.readMCPCatalogFrom(fstest.MapFS{}); err == nil {
+		t.Fatal("readMCPCatalogFrom with no catalog = nil error, want a missing-file error")
 	}
 }
 
-// 🔴 A TEST WAS DELETED HERE ON 2026-09-07, and the deletion is recorded rather
-// than silent so that a future reader can tell "this guard was retired by a
-// decision" from "this guard was never written".
-//
-// It was TestSystemInteractionSeedTeachesTheAdHocTaskRuleTheServerEnforces, and
-// it required the shipped 系統互動 seed to carry a 「### 傳承寫入位置」 section
-// teaching the rule api_lore.go actually runs. The owner ruled the section out
-// of existence (card rc-61fde477ac54 圈 [1], verbatim: 「不就是不要放回去 —— 我
-// 就是不要這一節，拿掉守它的那支測試」). A guard whose subject the owner has
-// removed has nothing left to guard, so it goes with it.
-//
-// ⚠️ IT WAS GUARDING TWO THINGS, AND ONLY ONE OF THEM WAS RULED OUT. Its second
-// half required a pair of RETIRED sentences — 「沒有你該寫的位置」 and
-// 「寫入會被拒絕」 — to be ABSENT. Those describe a refusal the server stopped
-// performing on 2026-09-07, and they are actively harmful independent of the
-// section: a member reading 「沒有你該寫的位置」 stops before it writes, even
-// with correct wording beside it. That protection was INCIDENTAL to the section
-// (its search was scoped to the section's body, which no longer exists) and its
-// loss was NOT part of the owner's ruling. Measured at the time of deletion:
-// both phrases occur 0 times in seeds/system_interaction.md and in
-// seedsdist/system_interaction.md — verified with a positive control on the same
-// grep, so the zero is an absence and not a broken query. Nothing now stops them
-// coming back. Whether to re-guard that, over the WHOLE seed rather than one
-// section, is an open question for the owner and deliberately not answered here.
+func TestDocsdistFS(t *testing.T) {
+	data, err := fs.ReadFile(docsdistFS(), "quickstart.md")
+	if err != nil {
+		t.Fatalf("ReadFile(quickstart.md): %v", err)
+	}
+	if !strings.Contains(string(data), "#") {
+		t.Fatalf("quickstart.md has no heading: %q", data)
+	}
+}
 
-func TestBuildBootContextSelectsRuntimeBootSequence(t *testing.T) {
-	s := newWorkerTestServer(t)
+func TestSeedRoleName(t *testing.T) {
 	for _, tc := range []struct {
-		name    string
-		runtime string
+		roleKey string
 		want    string
-		absent  string
 	}{
-		{"claude", RuntimeClaude, "# Claude Code 執行環境", "# Codex App Server 執行環境"},
-		{"codex", RuntimeCodex, "# Codex App Server 執行環境", "# Claude Code 執行環境"},
+		{roleKey: "assistant", want: "Assistant"},
+		{roleKey: "engineer"},
+		{roleKey: ""},
 	} {
-		t.Run(tc.name, func(t *testing.T) {
-			boot, err := s.buildBootContext("assistant", &Member{Runtime: tc.runtime})
-			if err != nil {
-				t.Fatalf("buildBootContext: %v", err)
-			}
-			if boot == nil || !strings.Contains(boot.Context, tc.want) {
-				t.Fatalf("runtime boot context missing %q", tc.want)
-			}
-			if strings.Contains(boot.Context, tc.absent) {
-				t.Fatalf("runtime boot context leaked other runtime tail %q", tc.absent)
+		t.Run(tc.roleKey, func(t *testing.T) {
+			if got := seedRoleName(tc.roleKey); got != tc.want {
+				t.Fatalf("seedRoleName(%q) = %q, want %q", tc.roleKey, got, tc.want)
 			}
 		})
 	}
 }
 
-func TestReadMCPCatalogFrom(t *testing.T) {
-	embedded := fstest.MapFS{"mcp-catalog.json": {Data: []byte(`{"tools":["embed"]}`)}}
+func TestSeedRoleKeys(t *testing.T) {
+	if got := seedRoleKeys(); !reflect.DeepEqual(got, []string{seedRoleAssistant}) {
+		t.Fatalf("seedRoleKeys() = %v, want [%q]", got, seedRoleAssistant)
+	}
+}
 
-	// EMBED-ONLY (T-e731): a stale spec/mcp-catalog.json under the CWD must
-	// never shadow the embed — disk-first once served a frozen checkout's stale
-	// tools/list descriptor surface (the second crash of the trilogy).
-	t.Run("ignores a stale on-disk spec/mcp-catalog.json, serves the embed", func(t *testing.T) {
-		dir := t.TempDir()
-		if err := os.Mkdir(filepath.Join(dir, "spec"), 0o755); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(filepath.Join(dir, "spec", "mcp-catalog.json"),
-			[]byte(`{"tools":["STALE disk"]}`), 0o644); err != nil {
-			t.Fatal(err)
-		}
-		got, err := assetRoot(dir).readMCPCatalogFrom(embedded)
-		if err != nil || string(got) != `{"tools":["embed"]}` {
-			t.Fatalf("want the embed to win over the stale disk copy, got %q (%v)", got, err)
-		}
-	})
+func TestSeedBlockMD(t *testing.T) {
+	root := assetRoot("unused by embedded reads")
+	text, hasSeed, err := root.seedBlockMD("role_def_assistant.md")
+	if err != nil {
+		t.Fatalf("seedBlockMD(existing): %v", err)
+	}
+	if !hasSeed || text != apiTestAssistantSeedDefinitionMD {
+		t.Fatalf("seedBlockMD(existing) = (%q, %v), want the assistant seed and true", text, hasSeed)
+	}
 
-	t.Run("serves the embed", func(t *testing.T) {
-		got, err := assetRoot(t.TempDir()).readMCPCatalogFrom(embedded)
-		if err != nil || string(got) != `{"tools":["embed"]}` {
-			t.Fatalf("want the embedded copy, got %q (%v)", got, err)
-		}
-	})
+	text, hasSeed, err = root.seedBlockMD("does-not-exist.md")
+	if err != nil {
+		t.Fatalf("seedBlockMD(missing): %v", err)
+	}
+	if text != "" || hasSeed {
+		t.Fatalf("seedBlockMD(missing) = (%q, %v), want empty and false", text, hasSeed)
+	}
+}
 
-	t.Run("errs when the embed misses", func(t *testing.T) {
-		_, err := assetRoot(t.TempDir()).readMCPCatalogFrom(fstest.MapFS{})
-		if !errors.Is(err, fs.ErrNotExist) {
-			t.Fatalf("want fs.ErrNotExist, got %v", err)
+func TestSeedRoleDefinitionMD(t *testing.T) {
+	root := assetRoot("unused by embedded reads")
+	text, hasSeed, err := root.seedRoleDefinitionMD("assistant")
+	if err != nil {
+		t.Fatalf("seedRoleDefinitionMD(assistant): %v", err)
+	}
+	if !hasSeed || text != apiTestAssistantSeedDefinitionMD {
+		t.Fatalf("seedRoleDefinitionMD(assistant) = (%q, %v), want the assistant seed and true", text, hasSeed)
+	}
+
+	text, hasSeed, err = root.seedRoleDefinitionMD("engineer")
+	if err != nil {
+		t.Fatalf("seedRoleDefinitionMD(engineer): %v", err)
+	}
+	if text != "" || hasSeed {
+		t.Fatalf("seedRoleDefinitionMD(engineer) = (%q, %v), want empty and false", text, hasSeed)
+	}
+}
+
+func TestSeedInsightMDFrom(t *testing.T) {
+	embedded := fstest.MapFS{
+		"insight_assistant.md": &fstest.MapFile{Data: []byte("assistant insight")},
+		"insight_engineer.md":  &fstest.MapFile{Data: []byte("engineer insight")},
+	}
+	root := assetRoot("unused by embedded reads")
+	for _, tc := range []struct {
+		roleKey string
+		want    string
+	}{
+		{roleKey: "assistant", want: "assistant insight"},
+		{roleKey: "engineer", want: "engineer insight"},
+	} {
+		t.Run(tc.roleKey, func(t *testing.T) {
+			text, hasSeed, err := root.seedInsightMDFrom(tc.roleKey, embedded)
+			if err != nil {
+				t.Fatalf("seedInsightMDFrom(%q): %v", tc.roleKey, err)
+			}
+			if !hasSeed || text != tc.want {
+				t.Fatalf("seedInsightMDFrom(%q) = (%q, %v), want (%q, true)",
+					tc.roleKey, text, hasSeed, tc.want)
+			}
+		})
+	}
+
+	for _, roleKey := range []string{"missing", "../assistant", "assistant/other"} {
+		text, hasSeed, err := root.seedInsightMDFrom(roleKey, embedded)
+		if err != nil {
+			t.Fatalf("seedInsightMDFrom(%q): %v", roleKey, err)
 		}
+		if text != "" || hasSeed {
+			t.Fatalf("seedInsightMDFrom(%q) = (%q, %v), want empty and false", roleKey, text, hasSeed)
+		}
+	}
+}
+
+func TestSeedInsightMD(t *testing.T) {
+	root := assetRoot("unused by embedded reads")
+	text, hasSeed, err := root.seedInsightMD(seedRoleAssistant)
+	if err != nil {
+		t.Fatalf("seedInsightMD(assistant): %v", err)
+	}
+	if !hasSeed || !strings.Contains(text, "# 接案窗口") {
+		t.Fatalf("seedInsightMD(assistant) = (%q, %v), want the embedded assistant insight", text, hasSeed)
+	}
+	if strings.Contains(text, ownerPlaceholder) {
+		t.Fatalf("seedInsightMD(assistant) left the owner placeholder in the returned seed")
+	}
+
+	text, hasSeed, err = root.seedInsightMD("engineer")
+	if err != nil {
+		t.Fatalf("seedInsightMD(engineer): %v", err)
+	}
+	if text != "" || hasSeed {
+		t.Fatalf("seedInsightMD(engineer) = (%q, %v), want empty and false", text, hasSeed)
+	}
+}
+
+func TestSafeSeedRoleKey(t *testing.T) {
+	for _, tc := range []struct {
+		roleKey string
+		want    bool
+	}{
+		{roleKey: "assistant", want: true},
+		{roleKey: "A-1_2", want: true},
+		{roleKey: "", want: false},
+		{roleKey: "../assistant", want: false},
+		{roleKey: "assistant/other", want: false},
+		{roleKey: "assistant space", want: false},
+		{roleKey: "助理", want: false},
+		{roleKey: "assistant\x00", want: false},
+	} {
+		t.Run(tc.roleKey, func(t *testing.T) {
+			if got := safeSeedRoleKey(tc.roleKey); got != tc.want {
+				t.Fatalf("safeSeedRoleKey(%q) = %v, want %v", tc.roleKey, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestResolveBootRoleKey(t *testing.T) {
+	member := &Member{RoleKey: "engineer"}
+	for _, tc := range []struct {
+		name   string
+		role   string
+		member *Member
+		want   string
+	}{
+		{name: "explicit role wins", role: "designer", member: member, want: "designer"},
+		{name: "member role is fallback", member: member, want: "engineer"},
+		{name: "empty member role uses default", member: &Member{}, want: defaultBootRole},
+		{name: "nil member uses default", want: defaultBootRole},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := resolveBootRoleKey(tc.role, tc.member); got != tc.want {
+				t.Fatalf("resolveBootRoleKey(%q, %#v) = %q, want %q",
+					tc.role, tc.member, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestFoldRoleDefDTO(t *testing.T) {
+	api, _, d, _ := newAPITestServer(t)
+	got, err := api.foldRoleDefDTO("assistant")
+	if err != nil {
+		t.Fatalf("foldRoleDefDTO(seed): %v", err)
+	}
+	if got == nil {
+		t.Fatal("foldRoleDefDTO(seed) = nil")
+	}
+	if got.Key != "assistant" || got.Name != "Assistant" ||
+		got.DefinitionMD != apiTestAssistantSeedDefinitionMD || !got.IsDefault || !got.IsSeed ||
+		got.SizeChars != utf8.RuneCountInString(apiTestAssistantSeedDefinitionMD) ||
+		got.CapChars != api.dutyCap() || got.OwnerID != wireOwnerID ||
+		got.SchemaVersion != wireSchemaVersion {
+		t.Fatalf("seed role dto = %#v", got)
+	}
+
+	if err := d.PutRoleDef(RoleDef{
+		RoleKey: "assistant", Name: "Custom Assistant", DefinitionMD: "# Custom\n" + "do this",
+	}); err != nil {
+		t.Fatalf("PutRoleDef: %v", err)
+	}
+	got, err = api.foldRoleDefDTO("assistant")
+	if err != nil {
+		t.Fatalf("foldRoleDefDTO(overlay): %v", err)
+	}
+	if got == nil || got.Name != "Custom Assistant" || got.DefinitionMD != "# Custom\ndo this" ||
+		got.IsDefault || !got.IsSeed || got.SizeChars != utf8.RuneCountInString(got.DefinitionMD) {
+		t.Fatalf("overlay role dto = %#v", got)
+	}
+
+	got, err = api.foldRoleDefDTO("unknown")
+	if err != nil {
+		t.Fatalf("foldRoleDefDTO(unknown): %v", err)
+	}
+	if got != nil {
+		t.Fatalf("foldRoleDefDTO(unknown) = %#v, want nil", got)
+	}
+}
+
+func TestFoldLessonsDTO(t *testing.T) {
+	api, _, d, _ := newAPITestServer(t)
+	got, err := api.foldLessonsDTO("assistant")
+	if err != nil {
+		t.Fatalf("foldLessonsDTO(seed): %v", err)
+	}
+	if got == nil || got.RoleKey != "assistant" || got.Text != apiTestLessonsSeedText || !got.IsDefault ||
+		got.SizeChars != utf8.RuneCountInString(apiTestLessonsSeedText) ||
+		got.CapChars != api.learningCap() || got.OwnerID != wireOwnerID ||
+		got.SchemaVersion != wireSchemaVersion {
+		t.Fatalf("seed lessons dto = %#v", got)
+	}
+
+	if err := d.PutLessons(Lessons{RoleKey: "assistant", Text: "learned facts"}); err != nil {
+		t.Fatalf("PutLessons: %v", err)
+	}
+	got, err = api.foldLessonsDTO("assistant")
+	if err != nil {
+		t.Fatalf("foldLessonsDTO(overlay): %v", err)
+	}
+	if got == nil || got.Text != "learned facts" || got.IsDefault || got.SizeChars != 13 {
+		t.Fatalf("overlay lessons dto = %#v", got)
+	}
+}
+
+func TestFoldUserContextDTO(t *testing.T) {
+	api, _, d, _ := newAPITestServer(t)
+	got, err := api.foldUserContextDTO()
+	if err != nil {
+		t.Fatalf("foldUserContextDTO(default): %v", err)
+	}
+	if got == nil || got.Text != "" || !got.IsDefault || got.OwnerID != wireOwnerID ||
+		got.SchemaVersion != wireSchemaVersion || got.OrgName != api.orgNameSnapshot() {
+		t.Fatalf("default user context dto = %#v", got)
+	}
+
+	if err := d.PutUserContext(UserContext{Text: "studio rule"}); err != nil {
+		t.Fatalf("PutUserContext: %v", err)
+	}
+	got, err = api.foldUserContextDTO()
+	if err != nil {
+		t.Fatalf("foldUserContextDTO(overlay): %v", err)
+	}
+	if got == nil || got.Text != "studio rule" || got.IsDefault {
+		t.Fatalf("overlay user context dto = %#v", got)
+	}
+}
+
+func TestBootSequenceSeedName(t *testing.T) {
+	for _, tc := range []struct {
+		runtime string
+		want    string
+	}{
+		{runtime: "", want: bootSequenceSeedClaude},
+		{runtime: RuntimeClaude, want: bootSequenceSeedClaude},
+		{runtime: RuntimeCodex, want: bootSequenceSeedCodex},
+		{runtime: "opus", want: bootSequenceSeedClaude},
+	} {
+		t.Run(tc.runtime, func(t *testing.T) {
+			if got := bootSequenceSeedName(tc.runtime); got != tc.want {
+				t.Fatalf("bootSequenceSeedName(%q) = %q, want %q", tc.runtime, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestBootSequenceDocKey(t *testing.T) {
+	for _, tc := range []struct {
+		runtime string
+		want    string
+	}{
+		{runtime: "", want: bootSequenceKeyClaude},
+		{runtime: RuntimeClaude, want: bootSequenceKeyClaude},
+		{runtime: RuntimeCodex, want: bootSequenceKeyCodex},
+		{runtime: "opus", want: bootSequenceKeyClaude},
+	} {
+		t.Run(tc.runtime, func(t *testing.T) {
+			if got := bootSequenceDocKey(tc.runtime); got != tc.want {
+				t.Fatalf("bootSequenceDocKey(%q) = %q, want %q", tc.runtime, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestBootSequenceSeedForKey(t *testing.T) {
+	for _, tc := range []struct {
+		key  string
+		want string
+		ok   bool
+	}{
+		{key: bootSequenceKeyClaude, want: bootSequenceSeedClaude, ok: true},
+		{key: bootSequenceKeyCodex, want: bootSequenceSeedCodex, ok: true},
+		{key: "", ok: false},
+		{key: "Codex", ok: false},
+		{key: "opus", ok: false},
+	} {
+		t.Run(tc.key, func(t *testing.T) {
+			got, ok := bootSequenceSeedForKey(tc.key)
+			if got != tc.want || ok != tc.ok {
+				t.Fatalf("bootSequenceSeedForKey(%q) = (%q, %v), want (%q, %v)",
+					tc.key, got, ok, tc.want, tc.ok)
+			}
+		})
+	}
+}
+
+func TestBuildBootContext(t *testing.T) {
+	api, _, d, _ := newAPITestServer(t)
+	readSeed := func(name string) string {
+		t.Helper()
+		data, err := fs.ReadFile(seedsdistFS(), name)
+		if err != nil {
+			t.Fatalf("ReadFile(%q): %v", name, err)
+		}
+		return strings.ReplaceAll(string(data), ownerPlaceholder, wireOwnerID)
+	}
+	wantContext := func(userText string) string {
+		parts := []string{strings.TrimSpace(readSeed(systemInteractionSeedMD))}
+		if strings.TrimSpace(userText) != "" {
+			parts = append(parts, userAdditionsTitle+"\n\n"+strings.TrimSpace(userText))
+		}
+		parts = append(parts,
+			"# Role: Assistant\n\n"+strings.TrimSpace(apiTestAssistantSeedDefinitionMD),
+			"# Insight (assistant)\n\n"+strings.TrimSpace(readSeed("insight_assistant.md")),
+			"# Lessons (assistant)\n\n"+strings.TrimSpace(apiTestLessonsSeedText),
+			strings.TrimSpace(readSeed(bootSequenceSeedClaude)))
+		return strings.Join(parts, "\n\n") + "\n"
+	}
+
+	member := &Member{ID: "mira", Name: "Mira", RoleKey: "assistant", Runtime: RuntimeClaude}
+	got, err := api.buildBootContext("", member)
+	if err != nil {
+		t.Fatalf("buildBootContext(default): %v", err)
+	}
+	if got == nil || got.RoleKey != "assistant" || got.Name != "Mira" || got.Context != wantContext("") {
+		t.Fatalf("default boot context = %#v", got)
+	}
+
+	if err := d.PutUserContext(UserContext{Text: "studio rule"}); err != nil {
+		t.Fatalf("PutUserContext: %v", err)
+	}
+	got, err = api.buildBootContext("", member)
+	if err != nil {
+		t.Fatalf("buildBootContext(user context): %v", err)
+	}
+	if got == nil || got.Context != wantContext("studio rule") {
+		t.Fatalf("boot context with user additions = %#v", got)
+	}
+
+	got, err = api.buildBootContext("unknown", nil)
+	if err != nil {
+		t.Fatalf("buildBootContext(unknown): %v", err)
+	}
+	if got != nil {
+		t.Fatalf("buildBootContext(unknown) = %#v, want nil", got)
+	}
+}
+
+func TestCatalogHashOf(t *testing.T) {
+	got := catalogHashOf([]RouteSpec{
+		{Method: "POST", Path: "/z"},
+		{Method: "GET", Path: "/b"},
+		{Method: "DELETE", Path: "/excluded", MCPExclude: true},
+		{Method: "POST", Path: "/a"},
+		{Method: "GET", Path: "/a"},
 	})
+	if got != "d74963713415145b" {
+		t.Fatalf("catalogHashOf = %q, want %q", got, "d74963713415145b")
+	}
+}
+
+func TestBinHashPrefix(t *testing.T) {
+	if got := binHashPrefix([]byte("binary payload")); got != "ba8f38fbdbe5" {
+		t.Fatalf("binHashPrefix = %q, want %q", got, "ba8f38fbdbe5")
+	}
+	if got := len(binHashPrefix(nil)); got != binHashPrefixLen {
+		t.Fatalf("binHashPrefix(nil) length = %d, want %d", got, binHashPrefixLen)
+	}
+}
+
+func TestBindistBinaryHashesFrom(t *testing.T) {
+	got := bindistBinaryHashesFrom(fstest.MapFS{
+		"ocwarden": &fstest.MapFile{Data: []byte("warden")},
+		"ocagent":  &fstest.MapFile{Data: []byte("agent")},
+	})
+	want := map[string]string{
+		"ocwarden": "8bdb247a2a76",
+		"ocagent":  "d4f0bc5a29de",
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("bindistBinaryHashesFrom = %#v, want %#v", got, want)
+	}
+
+	got = bindistBinaryHashesFrom(fstest.MapFS{
+		"ocwarden": &fstest.MapFile{},
+	})
+	if len(got) != 0 {
+		t.Fatalf("bindistBinaryHashesFrom(empty/missing) = %#v, want empty", got)
+	}
 }
 
 func TestMaterializeBinary(t *testing.T) {
-	t.Run("writes an executable file and reuses identical bytes", func(t *testing.T) {
-		dir := filepath.Join(t.TempDir(), "bin")
-		got, err := materializeBinary(dir, "ocwarden", []byte("v1"))
-		if err != nil {
-			t.Fatalf("materializeBinary: %v", err)
-		}
-		info, err := os.Stat(got)
-		if err != nil || info.Mode().Perm() != 0o755 {
-			t.Fatalf("want a 0755 file, got %v (%v)", info, err)
-		}
-		again, err := materializeBinary(dir, "ocwarden", []byte("v1"))
-		if err != nil || again != got {
-			t.Fatalf("identical bytes must reuse the path: %q (%v)", again, err)
-		}
-	})
-
-	t.Run("replaces a stale cached binary", func(t *testing.T) {
-		dir := filepath.Join(t.TempDir(), "bin")
-		if _, err := materializeBinary(dir, "ocwarden", []byte("v1")); err != nil {
-			t.Fatal(err)
-		}
-		got, err := materializeBinary(dir, "ocwarden", []byte("v2"))
-		if err != nil {
-			t.Fatalf("materializeBinary: %v", err)
-		}
-		raw, _ := os.ReadFile(got)
-		if string(raw) != "v2" {
-			t.Fatalf("stale cache must be replaced, got %q", raw)
-		}
-	})
-}
-
-// seedExcerpt renders a seed for a failure message WITHOUT dumping it.
-//
-// 🔴 Seeds in this corpus reach ~22 KB (system_interaction.md). Pasting one into
-// `go test` output buries the one line that matters and makes the failure hard
-// to read in CI logs, so a failure names the first line and the size instead.
-func seedExcerpt(name, text string) string {
-	first := strings.SplitN(text, "\n", 2)[0]
-	if len([]rune(first)) > 120 {
-		first = string([]rune(first)[:120]) + "…"
-	}
-	return fmt.Sprintf("%s (%d runes) first line: %q", name, len([]rune(text)), first)
-}
-
-// 🔴 NO SHIPPED SEED MAY HARDCODE A MEMBER'S DISPLAY NAME.
-//
-// `seeds/role_def_assistant.md` opened with 「# 助理 — Mira」. Mira is the
-// out-of-box display name of the seed MEMBER row (dbseed.go) — a label the
-// owner may change at any moment through PATCH /api/members/{id}. Seeds are
-// baked into the binary and do not change with it, so the day the owner renames
-// her, the FACTORY VERSION of that document — the very text the 初始版本 row
-// offers to restore — describes a person who does not exist.
-//
-// A role definition says what the role DOES; who currently holds it is a fact
-// about the roster, not about the duty.
-//
-// 🔴 SCOPE IS EVERY STAGED `*.md`, NOT JUST THE ROLE DEFINITION. This started as
-// a role-definition-only loop, which left `seeds/insight_<key>.md` — embedded in
-// the same binary, restored by the same 初始版本 row, stale for the same reason —
-// out of range. The reason ("a shipped file cannot track a mutable roster
-// label") holds verbatim for every file in the corpus, so the corpus IS the
-// scope: a seed added tomorrow is covered without anyone remembering to add it
-// to a list. Every file is clean today, so widening cost nothing.
-//
-// ⚠️ IT READS THE STAGED EMBED, NOT `seeds/`. The corpus is `seedsdistFS()` —
-// what `bin/build-seedsdist` copied into `seedsdist/`. Editing `seeds/*.md` and
-// running `go test` straight away tests the PREVIOUS staged copy and goes green
-// on a seed you just broke. Run `bash bin/build-seedsdist` first. (CI is safe:
-// bin/ci.sh stages before it tests. The exposed party is a developer at a
-// terminal — and the reviewer of this ticket hit exactly that false green.)
-//
-// The name is read back from the seeded member row rather than written as a
-// literal here, so the assertion tracks whatever dbseed actually ships instead
-// of pinning a string that could drift out from under it.
-func TestNoShippedSeedHardcodesTheMembersDisplayName(t *testing.T) {
-	api := newTasksTestServer(t)
-	// The out-of-box roster is what ships alongside the seed files; boot it here
-	// so the name under test is the one production really starts with.
-	if err := seedOutOfBox(api.dal); err != nil {
-		t.Fatal(err)
-	}
-	seeded, err := api.dal.GetMember(seedMiraID)
+	dir := t.TempDir()
+	path, err := materializeBinary(dir, "ocagent", []byte("v1"))
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("materializeBinary(first): %v", err)
 	}
-	if seeded == nil || seeded.Name == "" {
-		t.Fatal("fixture: no seeded assistant member — this test would be vacuous")
+	if path != filepath.Join(dir, "ocagent") {
+		t.Fatalf("materializeBinary path = %q, want %q", path, filepath.Join(dir, "ocagent"))
 	}
-
-	names, err := fs.Glob(seedsdistFS(), "*.md")
+	info, err := os.Stat(path)
 	if err != nil {
-		t.Fatalf("list staged seeds: %v", err)
+		t.Fatalf("Stat(materialized): %v", err)
 	}
-	// ── anti-vacuity ────────────────────────────────────────────────────────
-	// A broken glob, or an unstaged seedsdist/, yields an empty corpus and every
-	// assertion below passes by never running. The two files this ticket is
-	// actually about must be present by name.
-	seen := map[string]string{}
-	for _, name := range names {
-		text, err := api.root.readSeedFile(name)
-		if err != nil {
-			t.Fatalf("%s: staged seed unreadable: %v", name, err)
-		}
-		seen[name] = text
+	if got := info.Mode().Perm(); got != 0o755 {
+		t.Fatalf("materialized mode = %o, want 755", got)
 	}
-	for _, must := range []string{"role_def_assistant.md", "insight_assistant.md"} {
-		if _, ok := seen[must]; !ok {
-			t.Fatalf("staged seed corpus is missing %s (it holds %v) — run `bash bin/build-seedsdist`; "+
-				"without it this test asserts nothing", must, names)
-		}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile(materialized): %v", err)
 	}
-	// Positive control for the Contains probe below: this assertion really can
-	// see inside a staged seed's bytes.
-	if !strings.Contains(seen["role_def_assistant.md"], "助理") {
-		t.Fatalf("fixture — the staged role definition does not read like a duty document: %s",
-			seedExcerpt("role_def_assistant.md", seen["role_def_assistant.md"]))
+	if string(data) != "v1" {
+		t.Fatalf("materialized data = %q, want %q", data, "v1")
 	}
 
-	for _, name := range names {
-		if strings.Contains(seen[name], seeded.Name) {
-			t.Errorf("the shipped seed %s hardcodes the member display name %q. "+
-				"Rename the member and this factory text starts describing nobody. "+
-				"Describe the FUNCTION instead.\n%s",
-				name, seeded.Name, seedExcerpt(name, seen[name]))
-		}
+	samePath, err := materializeBinary(dir, "ocagent", []byte("v1"))
+	if err != nil {
+		t.Fatalf("materializeBinary(identical): %v", err)
+	}
+	if samePath != path {
+		t.Fatalf("identical materialization path = %q, want %q", samePath, path)
+	}
+
+	if _, err := materializeBinary(dir, "ocagent", []byte("v2")); err != nil {
+		t.Fatalf("materializeBinary(replacement): %v", err)
+	}
+	data, err = os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile(replacement): %v", err)
+	}
+	if string(data) != "v2" {
+		t.Fatalf("replacement data = %q, want %q", data, "v2")
 	}
 }

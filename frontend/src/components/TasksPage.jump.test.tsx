@@ -108,6 +108,18 @@ beforeEach(() => {
   window.location.hash = "";
 });
 
+// 待回覆的卡預設是收合的（owner 2026-09-07），卡片內容要點開才在畫面上。
+async function openCards() {
+  for (const btn of document.querySelectorAll<HTMLElement>(
+    '[data-testid="reply-card-toggle"]'
+  )) {
+    if (btn.getAttribute("aria-expanded") === "false") fireEvent.click(btn);
+  }
+  await waitFor(() =>
+    expect(document.querySelectorAll('[data-testid="card-loading"]')).toHaveLength(0)
+  );
+}
+
 describe("請示卡的任務資訊 (RepliesPage)", () => {
   it("task-derived ask: TITLE + 查看任務詳情, never the typeKey nor the task number", async () => {
     __injectMockReplyCard(
@@ -126,6 +138,8 @@ describe("請示卡的任務資訊 (RepliesPage)", () => {
         <ReplyCardsProvider><RepliesPage /></ReplyCardsProvider>
       </I18nProvider>
     );
+    await findByTestId("waiting-card");
+    await openCards();
     const ref = await findByTestId("reply-task-ref");
     // The type chip is gone (T-ee17 acceptance): the row names the work by its
     // title, never by the internal type key.
@@ -155,6 +169,7 @@ describe("請示卡的任務資訊 (RepliesPage)", () => {
       </I18nProvider>
     );
     await findAllByTestId("waiting-card");
+    await openCards();
     const refs = await findAllByTestId("reply-task-ref");
     expect(refs).toHaveLength(1); // only the task-derived one
     // A blank typeKey used to fall back to 自由代辦 inside the chip; with the
@@ -181,6 +196,7 @@ describe("請示卡的任務資訊 (ChatReplyCard)", () => {
     // The inline card mounts collapsed (owner 2026-09-04); the shared task row
     // is part of the open card.
     fireEvent.click(await findByTestId("chat-reply-card-expand"));
+    await openCards();
     const ref = await findByTestId("reply-task-ref");
     // Both surfaces render the one shared row, so the chip's removal has to
     // hold here too — asserted on this surface rather than assumed from it.
@@ -209,6 +225,7 @@ describe("請示卡的任務資訊 (ChatReplyCard)", () => {
       </I18nProvider>
     );
     fireEvent.click(await findByTestId("chat-reply-card-expand"));
+    await openCards();
     const ref = await findByTestId("reply-task-ref");
     const card = await findByTestId("chat-reply-card");
     const summary = card.querySelector(".reply-card__summary")!;

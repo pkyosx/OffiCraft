@@ -1,691 +1,703 @@
 package main
 
 import (
-	"fmt"
-	"strings"
+	"errors"
+	"os"
+	"path/filepath"
+	"reflect"
 	"syscall"
 	"testing"
 	"time"
 )
 
-// noSleep is the injected sweep pacer for tests — the poll loops must never
-// wall-clock-wait in unit tests.
-func noSleep(time.Duration) {}
-
-// quietSweep is the zero-extra-legs sweep seam: no workdir listener discovery,
-// fake pacing. Tests that don't exercise the ⓪/⑤ legs pass this.
-func quietSweep() sweepSeams { return sweepSeams{sleep: noSleep} }
-
-// tmuxFakeRunner is a richer shell seam than the telemetry fakeRunner: it maps
-// an argv key -> (stdout, error) so a test can drive tmux's THREE-WAY outcomes
-// (present / positively-absent / broken) with zero subprocess.
-type tmuxFakeRunner struct {
-	out map[string]string
-	err map[string]error
+// killCall is one (pid, signal) the kill seam was asked to send.
+type killCall struct {
+	pid int
+	sig syscall.Signal
 }
 
-func (f tmuxFakeRunner) Run(name string, args ...string) (string, error) {
-	key := strings.Join(append([]string{name}, args...), " ")
-	if e, ok := f.err[key]; ok {
-		return "", e
-	}
-	if s, ok := f.out[key]; ok {
-		return s, nil
-	}
-	return "", fmt.Errorf("unclassifiable tmux failure") // broken/unknown
+// killSpy records every signal the code under test sends and answers from an
+// injected oracle, so the IRREVERSIBLE path is asserted without a real kill.
+type killSpy struct {
+	answer func(pid int, sig syscall.Signal) error
+	calls  []killCall
 }
 
-// killRecorder records every (pid, sig) the injected kill seam is asked to send, so a
-// test can assert EXACTLY which signals were dispatched — and, critically for the
-// irreversible-kill guardrails, assert that NO SIGKILL was sent when the pid was empty
-// / non-numeric / 0 / stale / not-ours. The seam NEVER touches a real process.
-type killRecorder struct {
-	calls []struct {
-		pid int
-		sig syscall.Signal
-	}
-	// probeErr is returned for signal-0 existence probes (nil = exists-and-ours,
-	// ESRCH = gone, EPERM = exists but not ours). killErr is returned for SIGKILL.
-	probeErr error
-	killErr  error
-}
-
-func (k *killRecorder) fn(pid int, sig syscall.Signal) error {
-	k.calls = append(k.calls, struct {
-		pid int
-		sig syscall.Signal
-	}{pid, sig})
-	if sig == syscall.Signal(0) {
-		return k.probeErr
-	}
-	return k.killErr
-}
-
-// sigkills returns the pids that received an actual SIGKILL (the irreversible leg).
-// A NEGATIVE pid is a killpg (whole process group); a positive one a single pid.
-func (k *killRecorder) sigkills() []int {
-	var out []int
-	for _, c := range k.calls {
-		if c.sig == syscall.SIGKILL {
-			out = append(out, c.pid)
-		}
-	}
-	return out
-}
-
-// getpgid fakes: leaderPgid models the tmux-pane invariant (pane_pid IS its pgroup
-// leader → pgid==pid); nonLeaderPgid models the unexpected non-leader case (→ single-
-// pid fallback, never a stray group kill); brokenPgid models a getpgid failure.
-func leaderPgid(pid int) (int, error)    { return pid, nil }
-func nonLeaderPgid(pid int) (int, error) { return pid + 1, nil }
-func brokenPgid(int) (int, error)        { return 0, syscall.ESRCH }
-
-// sameInts reports whether a contains exactly the multiset want (order-agnostic).
-func sameInts(a []int, want ...int) bool {
-	if len(a) != len(want) {
-		return false
-	}
-	m := map[int]int{}
-	for _, x := range a {
-		m[x]++
-	}
-	for _, x := range want {
-		m[x]--
-		if m[x] < 0 {
-			return false
-		}
-	}
-	return true
-}
-
-const (
-	hasKeyX     = "tmux -L officraft has-session -t member-x"
-	panePidKeyX = "tmux -L officraft display-message -p -t member-x #{pane_pid}"
-	psKey       = "ps -eo pid=,ppid="
-)
-
-// absentAfterKill / presentAfterKill / brokenAfterKill build the fake runner for the
-// re-assert probe outcome. kill-session itself is best-effort (its return is ignored),
-// so only the has-session key drives the verdict.
-func absentAfterKill() tmuxFakeRunner {
-	return tmuxFakeRunner{err: map[string]error{hasKeyX: fmt.Errorf("can't find session: member-x")}}
-}
-func presentAfterKill() tmuxFakeRunner {
-	return tmuxFakeRunner{out: map[string]string{hasKeyX: ""}}
-}
-func brokenAfterKill() tmuxFakeRunner {
-	return tmuxFakeRunner{err: map[string]error{hasKeyX: fmt.Errorf("unclassifiable boom")}}
-}
-
-// ── killSession: gated re-assert (mirrors tmux_kill_session) ──────────────────
-
-func TestKillSession_GatedReassert(t *testing.T) {
-	cases := []struct {
-		name string
-		run  tmuxFakeRunner
-		want bool
-	}{
-		{"positively_gone_true", absentAfterKill(), true},
-		{"still_present_false", presentAfterKill(), false},
-		{"broken_reprobe_conservative_false", brokenAfterKill(), false},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			if got := killSession(tc.run, tmuxSocket, "member-x"); got != tc.want {
-				t.Fatalf("killSession = %v, want %v", got, tc.want)
-			}
-		})
-	}
-}
-
-// ── stop: the SINGLE robust stop with escalation ladder (Seth-ruled) ──────────
-
-func TestStop_FailSafeInvariants(t *testing.T) {
-	// The bool verdict is gated on the FINAL ¬has_session. present/broken drive the
-	// escalation path too, but with no pane pid set the escalation is a no-op — the
-	// verdict is still fail-safe false (keep reporting online).
-	cases := []struct {
-		name string
-		run  tmuxFakeRunner
-		want bool
-	}{
-		{"killed_confirmed_gone", absentAfterKill(), true},
-		{"not_killed_still_online", presentAfterKill(), false},
-		{"broken_probe_conservative_false", brokenAfterKill(), false},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			rec := &killRecorder{}
-			if got, _ := stop(tc.run, tmuxSocket, "member-x", rec.fn, leaderPgid, quietSweep()); got != tc.want {
-				t.Fatalf("stop = %v, want %v", got, tc.want)
-			}
-		})
-	}
-}
-
-func TestStop_LightweightSuccess_NoEscalation(t *testing.T) {
-	// The common graceful path: kill-session takes on the first (lightweight) leg →
-	// stop returns true WITHOUT ever touching the irreversible kill seam.
-	rec := &killRecorder{}
-	if got, _ := stop(absentAfterKill(), tmuxSocket, "member-x", rec.fn, leaderPgid, quietSweep()); got != true {
-		t.Fatalf("stop = %v, want true", got)
-	}
-	if len(rec.calls) != 0 {
-		t.Fatalf("lightweight success with an empty snapshot MUST NOT touch the kill seam, got %+v", rec.calls)
-	}
-}
-
-func TestStop_EscalatesWhenLightweightFails(t *testing.T) {
-	// Session stays present after the lightweight kill-session → stop escalates:
-	// captures the fresh pane pid and killpg's the whole group; re-assert still sees
-	// the session → fail-safe false (server re-issues next tick). The unconditional
-	// sweep then TERM→KILLs the snapshotted pane pid too (the fake probe keeps it
-	// "alive" forever), so a single-pid SIGKILL joins the killpg.
-	run := tmuxFakeRunner{out: map[string]string{panePidKeyX: "4242\n", hasKeyX: ""}}
-	rec := &killRecorder{}
-	if got, _ := stop(run, tmuxSocket, "member-x", rec.fn, leaderPgid, quietSweep()); got != false {
-		t.Fatalf("stop = %v, want false (session never went away)", got)
-	}
-	if kills := rec.sigkills(); !sameInts(kills, -4242, 4242) {
-		t.Fatalf("expected killpg(-4242) on escalation + sweep SIGKILL(4242), got sigkills %v", kills)
-	}
-}
-
-func TestStop_RefusesNonMemberSessions(t *testing.T) {
-	// The member-guard short-circuits BEFORE any tmux kill or SIGKILL on a non-member.
-	for _, sess := range []string{"", "member-", "telemetry", "warden-1", "random"} {
-		var killHit bool
-		run := recordingKillRunner(&killHit)
-		rec := &killRecorder{}
-		if got, _ := stop(run, tmuxSocket, sess, rec.fn, leaderPgid, quietSweep()); got != false {
-			t.Errorf("stop(%q) = %v, want false (refused)", sess, got)
-		}
-		if killHit {
-			t.Errorf("stop(%q) issued a tmux kill-session on a NON-member session", sess)
-		}
-		if len(rec.sigkills()) != 0 {
-			t.Errorf("stop(%q) sent SIGKILL on a NON-member session", sess)
-		}
-	}
-}
-
-// lifecycleKill is a STATEFUL kill seam for the sweep tests: a pid probes alive
-// (signal-0 nil) until it receives its dieOn signal, then probes ESRCH — modelling
-// "dies on SIGTERM" (graceful listener) vs "dies only on SIGKILL" vs immortal
-// (dieOn absent). eperm pids probe EPERM (exist, not ours).
-type lifecycleKill struct {
-	dead  map[int]bool
-	eperm map[int]bool
-	dieOn map[int]syscall.Signal
-	terms []int
-	kills []int
-}
-
-func (l *lifecycleKill) fn(pid int, sig syscall.Signal) error {
-	if l.dead == nil {
-		l.dead = map[int]bool{}
-	}
-	if sig == syscall.Signal(0) {
-		if l.dead[pid] {
-			return syscall.ESRCH
-		}
-		if l.eperm[pid] {
-			return syscall.EPERM
-		}
+func (k *killSpy) kill(pid int, sig syscall.Signal) error {
+	k.calls = append(k.calls, killCall{pid, sig})
+	if k.answer == nil {
 		return nil
 	}
-	if sig == syscall.SIGTERM {
-		l.terms = append(l.terms, pid)
-	}
-	if sig == syscall.SIGKILL {
-		l.kills = append(l.kills, pid)
-	}
-	if want, ok := l.dieOn[pid]; ok && sig == want {
-		l.dead[pid] = true
-	}
-	return nil
+	return k.answer(pid, sig)
 }
 
-func TestStop_SweepsDetachedListenerAfterLightweightKill(t *testing.T) {
-	// THE zombie-ocagent regression case: kill-session TAKES on ① (session gone),
-	// but a snapshotted descendant (the detached `ocagent listen` in claude's own
-	// pgroup) survived the SIGHUP. The unconditional sweep must SIGTERM it by EXACT
-	// pid and, once it dies in the grace window, report a clean stopped=true with
-	// NO SIGKILL needed.
-	run := tmuxFakeRunner{
-		out: map[string]string{panePidKeyX: "4242\n", psKey: "4242 1\n5100 4242\n"},
-		err: map[string]error{hasKeyX: fmt.Errorf("can't find session: member-x")},
+// aliveKill answers "alive and ours" for the listed pids and ESRCH for the rest.
+func aliveKill(alive ...int) func(int, syscall.Signal) error {
+	set := map[int]bool{}
+	for _, p := range alive {
+		set[p] = true
 	}
-	lk := &lifecycleKill{
-		dead:  map[int]bool{4242: true}, // the pane died with the session
-		dieOn: map[int]syscall.Signal{5100: syscall.SIGTERM},
-	}
-	if got, _ := stop(run, tmuxSocket, "member-x", lk.fn, leaderPgid, quietSweep()); got != true {
-		t.Fatalf("stop = %v, want true (listener swept clean)", got)
-	}
-	if !sameInts(lk.terms, 5100) {
-		t.Fatalf("expected exactly SIGTERM(5100), got %v", lk.terms)
-	}
-	if len(lk.kills) != 0 {
-		t.Fatalf("listener died in grace — no SIGKILL expected, got %v", lk.kills)
-	}
-}
-
-func TestStop_SweepsWorkdirListenerWhenSessionAlreadyGone(t *testing.T) {
-	// The suicide-zombie case: the tmux session is ALREADY gone (no pane pid to
-	// walk), but a reparented `ocagent listen` still holds the SSE. The workdir
-	// (cwd-match) snapshot leg finds it; a TERM-ignoring listener is escalated to
-	// SIGKILL and stop still ends true once signal-0 proves it gone.
-	run := tmuxFakeRunner{err: map[string]error{hasKeyX: fmt.Errorf("can't find session: member-x")}}
-	var askedWorkdir string
-	sw := sweepSeams{
-		listenPIDs: func(wd string) []int { askedWorkdir = wd; return []int{9100} },
-		workdir:    "/agents/x",
-		sleep:      noSleep,
-	}
-	lk := &lifecycleKill{dieOn: map[int]syscall.Signal{9100: syscall.SIGKILL}}
-	if got, _ := stop(run, tmuxSocket, "member-x", lk.fn, leaderPgid, sw); got != true {
-		t.Fatalf("stop = %v, want true (zombie listener reaped)", got)
-	}
-	if askedWorkdir != "/agents/x" {
-		t.Fatalf("listenPIDs asked for workdir %q, want /agents/x", askedWorkdir)
-	}
-	if !sameInts(lk.terms, 9100) || !sameInts(lk.kills, 9100) {
-		t.Fatalf("expected SIGTERM then SIGKILL on 9100, got terms=%v kills=%v", lk.terms, lk.kills)
-	}
-}
-
-func TestStop_HonestPartialWhenSurvivorOutlivesSweep(t *testing.T) {
-	// A snapshot pid that survives SIGTERM AND SIGKILL through both poll windows
-	// (e.g. an unkillable D-state process) must yield stopped=false — the honest
-	// partial — even though ¬has_session confirmed, so the server re-issues stop
-	// instead of trusting a fake ok over a live zombie.
-	run := tmuxFakeRunner{err: map[string]error{hasKeyX: fmt.Errorf("can't find session: member-x")}}
-	sw := sweepSeams{
-		listenPIDs: func(string) []int { return []int{9100} },
-		workdir:    "/agents/x",
-		sleep:      noSleep,
-	}
-	lk := &lifecycleKill{} // 9100 immortal: probes alive forever
-	if got, _ := stop(run, tmuxSocket, "member-x", lk.fn, leaderPgid, sw); got != false {
-		t.Fatalf("stop = %v, want false (survivor outlived the sweep)", got)
-	}
-	if !sameInts(lk.terms, 9100) || !sameInts(lk.kills, 9100) {
-		t.Fatalf("expected the full TERM→KILL escalation on 9100, got terms=%v kills=%v", lk.terms, lk.kills)
-	}
-}
-
-// ── sweepPIDs / snapshotMemberPIDs: the ⓪/⑤ ladder legs ──────────────────────
-
-func TestSweepPIDs_EPERMNotOursNeverSignalled(t *testing.T) {
-	// EPERM = the pid number was reused by ANOTHER uid's process → not our member:
-	// never a kill target and never a sweep failure.
-	lk := &lifecycleKill{eperm: map[int]bool{7777: true}}
-	if got := sweepPIDs([]int{7777}, lk.fn, noSleep); got != true {
-		t.Fatalf("sweepPIDs = %v, want true (EPERM pid is not ours, not a survivor)", got)
-	}
-	if len(lk.terms) != 0 || len(lk.kills) != 0 {
-		t.Fatalf("EPERM pid must never be signalled, got terms=%v kills=%v", lk.terms, lk.kills)
-	}
-}
-
-func TestSweepPIDs_AlreadyDeadIsCleanWithoutWaiting(t *testing.T) {
-	// The common path: everything died with the session → zero signals, zero sleeps.
-	slept := 0
-	lk := &lifecycleKill{dead: map[int]bool{4242: true, 5100: true}}
-	if got := sweepPIDs([]int{4242, 5100}, lk.fn, func(time.Duration) { slept++ }); got != true {
-		t.Fatalf("sweepPIDs = %v, want true", got)
-	}
-	if len(lk.terms) != 0 || len(lk.kills) != 0 || slept != 0 {
-		t.Fatalf("dead pids must cost no signals and no waiting, got terms=%v kills=%v sleeps=%d", lk.terms, lk.kills, slept)
-	}
-}
-
-func TestSnapshotMemberPIDs_TreePlusWorkdirDeduped(t *testing.T) {
-	// Snapshot = pane pid + descendants + workdir listeners, deduped, never pid ≤ 1.
-	run := tmuxFakeRunner{out: map[string]string{
-		panePidKeyX: "4242\n",
-		psKey:       "4242 1\n5000 4242\n",
-	}}
-	sw := sweepSeams{
-		listenPIDs: func(string) []int { return []int{5000, 9100, 0, 1, -3} },
-		workdir:    "/agents/x",
-	}
-	if got := snapshotMemberPIDs(run, tmuxSocket, "member-x", sw); !sameInts(got, 4242, 5000, 9100) {
-		t.Fatalf("snapshot = %v, want {4242,5000,9100}", got)
-	}
-}
-
-func TestSnapshotMemberPIDs_NoPaneNoWorkdirIsEmpty(t *testing.T) {
-	// No live pane and no workdir resolution → an empty kill list (never a guess).
-	if got := snapshotMemberPIDs(tmuxFakeRunner{}, tmuxSocket, "member-x", sweepSeams{}); len(got) != 0 {
-		t.Fatalf("snapshot = %v, want empty", got)
-	}
-}
-
-// ── ocagentPIDsByCwd / memberWorkdirForSession: workdir-anchored discovery ────
-
-const lsofKey = "lsof -a -c ocagent -d cwd -F pn"
-
-func TestOcagentPIDsByCwd_ExactCwdMatchOnly(t *testing.T) {
-	run := tmuxFakeRunner{out: map[string]string{
-		lsofKey: "p9100\nfcwd\nn/home/agents/x\np9200\nfcwd\nn/home/agents/y\np9300\nfcwd\nn/home/agents/x/sub\n",
-	}}
-	if got := ocagentPIDsByCwd(run, "/home/agents/x"); !sameInts(got, 9100) {
-		t.Fatalf("ocagentPIDsByCwd = %v, want {9100} (exact match only, never prefix)", got)
-	}
-}
-
-func TestOcagentPIDsByCwd_BrokenLsofYieldsNil(t *testing.T) {
-	// lsof missing / zero matches (it exits non-zero) → nil, a benign no-discovery.
-	if got := ocagentPIDsByCwd(tmuxFakeRunner{}, "/home/agents/x"); got != nil {
-		t.Fatalf("broken lsof must yield nil, got %v", got)
-	}
-}
-
-func TestMemberWorkdirForSession(t *testing.T) {
-	cases := []struct {
-		home, session, want string
-	}{
-		{"/home/agents", "member-X", "/home/agents/x"}, // id lowercased like agentWorkdir
-		{"/home/agents", "member-kyle", "/home/agents/kyle"},
-		{"", "member-kyle", ""},         // unknown home → no guessing
-		{"/home/agents", "member-", ""}, // bare prefix refused
-		{"/home/agents", "telemetry", ""},
-	}
-	for _, tc := range cases {
-		if got := memberWorkdirForSession(tc.home, tc.session); got != tc.want {
-			t.Errorf("memberWorkdirForSession(%q,%q) = %q, want %q", tc.home, tc.session, got, tc.want)
+	return func(pid int, _ syscall.Signal) error {
+		if set[pid] {
+			return nil
 		}
-	}
-}
-
-// ── escalateKill: the irreversible pgroup hard-kill + orphan reap ─────────────
-
-func TestEscalateKill_KillpgWholeGroup(t *testing.T) {
-	// pane_pid IS the pgroup leader → killpg the whole group (negative pid), reaping
-	// claude + all its non-detached children in one shot.
-	run := tmuxFakeRunner{out: map[string]string{panePidKeyX: "4242\n"}}
-	rec := &killRecorder{}
-	escalateKill(run, tmuxSocket, "member-x", rec.fn, leaderPgid)
-	if kills := rec.sigkills(); !sameInts(kills, -4242) {
-		t.Fatalf("expected killpg(-4242), got %v", kills)
-	}
-}
-
-func TestEscalateKill_NonLeaderFallbackSinglePid(t *testing.T) {
-	// getpgid says the captured pid is NOT the group leader → fall back to a single-pid
-	// SIGKILL. NEVER a negative-pid kill at a group we don't lead (would hit strangers).
-	run := tmuxFakeRunner{out: map[string]string{panePidKeyX: "4242\n"}}
-	rec := &killRecorder{}
-	escalateKill(run, tmuxSocket, "member-x", rec.fn, nonLeaderPgid)
-	if kills := rec.sigkills(); !sameInts(kills, 4242) {
-		t.Fatalf("expected single-pid SIGKILL 4242 (no group kill), got %v", kills)
-	}
-}
-
-func TestEscalateKill_BrokenGetpgidFallbackSinglePid(t *testing.T) {
-	// getpgid errors → cannot prove leadership → single-pid fallback, never a group.
-	run := tmuxFakeRunner{out: map[string]string{panePidKeyX: "4242\n"}}
-	rec := &killRecorder{}
-	escalateKill(run, tmuxSocket, "member-x", rec.fn, brokenPgid)
-	if kills := rec.sigkills(); !sameInts(kills, 4242) {
-		t.Fatalf("expected single-pid SIGKILL 4242 on broken getpgid, got %v", kills)
-	}
-}
-
-func TestEscalateKill_TreeWalkReapsDetachedOrphans(t *testing.T) {
-	// killpg can't reach a descendant that setsid'd to a new pgroup → the tree-walk
-	// reaps them. 5000←4242, 6000←5000 are descendants; 7000←1 is unrelated.
-	run := tmuxFakeRunner{out: map[string]string{
-		panePidKeyX: "4242\n",
-		psKey:       "4242 1\n5000 4242\n6000 5000\n7000 1\n",
-	}}
-	rec := &killRecorder{}
-	escalateKill(run, tmuxSocket, "member-x", rec.fn, leaderPgid)
-	// killpg(-4242) + the two detached descendants 5000, 6000; NOT the unrelated 7000.
-	if kills := rec.sigkills(); !sameInts(kills, -4242, 5000, 6000) {
-		t.Fatalf("expected killpg(-4242)+reap 5000,6000, got %v", kills)
-	}
-}
-
-func TestEscalateKill_NeverKillsBadPID(t *testing.T) {
-	// empty / non-numeric (scrubbed to "") / 0 pane pid → the escalation must issue NO
-	// kill of any kind (not even the signal-0 probe).
-	for _, pp := range []string{"", "not-a-pid", "0"} {
-		run := tmuxFakeRunner{out: map[string]string{panePidKeyX: pp}}
-		rec := &killRecorder{}
-		escalateKill(run, tmuxSocket, "member-x", rec.fn, leaderPgid)
-		if len(rec.calls) != 0 {
-			t.Errorf("pane pid %q: escalation touched the kill seam: %+v", pp, rec.calls)
-		}
-	}
-}
-
-func TestEscalateKill_StalePID_NoKill(t *testing.T) {
-	// signal-0 → ESRCH (gone / number reused) → MUST NOT SIGKILL a possibly-unrelated
-	// process; and the verify-before-kill probe MUST have run.
-	run := tmuxFakeRunner{out: map[string]string{panePidKeyX: "9999\n"}}
-	rec := &killRecorder{probeErr: syscall.ESRCH}
-	escalateKill(run, tmuxSocket, "member-x", rec.fn, leaderPgid)
-	if kills := rec.sigkills(); len(kills) != 0 {
-		t.Fatalf("SIGKILL fired on a stale/ESRCH pid: %v", kills)
-	}
-	if len(rec.calls) != 1 || rec.calls[0].sig != syscall.Signal(0) {
-		t.Fatalf("expected exactly one signal-0 existence probe, got %+v", rec.calls)
-	}
-}
-
-func TestEscalateKill_EPERM_NotOurs_NoKill(t *testing.T) {
-	// signal-0 → EPERM: exists but owned by another uid ⇒ pid-number reuse, NOT our
-	// member ⇒ do NOT SIGKILL.
-	run := tmuxFakeRunner{out: map[string]string{panePidKeyX: "7777\n"}}
-	rec := &killRecorder{probeErr: syscall.EPERM}
-	escalateKill(run, tmuxSocket, "member-x", rec.fn, leaderPgid)
-	if kills := rec.sigkills(); len(kills) != 0 {
-		t.Fatalf("SIGKILL fired on an EPERM (not-ours) pid: %v", kills)
-	}
-}
-
-// perPidKill is a kill seam whose signal-0 probe answer varies BY pid (unlike
-// killRecorder's single global probeErr), so a test can model the MIXED scenario
-// "pane pid live but a specific descendant is stale" — the case that exercises the
-// per-descendant verify-before-kill gate (escalateKill ⑤). killRecorder can't express
-// it (its probe is global, and once the pane probe returns non-nil escalate early-
-// returns before the descendant loop even runs).
-type perPidKill struct {
-	probe map[int]error // signal-0 answer per pid (absent key = nil = live-and-ours)
-	kills []int         // pids that received an actual SIGKILL
-}
-
-func (p *perPidKill) fn(pid int, sig syscall.Signal) error {
-	if sig == syscall.Signal(0) {
-		return p.probe[pid]
-	}
-	p.kills = append(p.kills, pid)
-	return nil
-}
-
-func TestEscalateKill_StaleDescendant_NotReaped(t *testing.T) {
-	// pane pid 4242 is a live leader → killpg(-4242). Of its descendants, 5000 is
-	// stale (signal-0 ESRCH) and 6000 is live. The per-descendant gate MUST skip the
-	// stale 5000 (never SIGKILL a reused number) and reap only the live 6000. This
-	// guards the per-descendant verify-before-kill gate against a regression.
-	run := tmuxFakeRunner{out: map[string]string{
-		panePidKeyX: "4242\n",
-		psKey:       "4242 1\n5000 4242\n6000 4242\n",
-	}}
-	pk := &perPidKill{probe: map[int]error{5000: syscall.ESRCH}}
-	escalateKill(run, tmuxSocket, "member-x", pk.fn, leaderPgid)
-	if !sameInts(pk.kills, -4242, 6000) {
-		t.Fatalf("expected killpg(-4242)+reap live 6000, SKIP stale 5000; got %v", pk.kills)
-	}
-}
-
-// ── descendantPIDs: process-tree walk ─────────────────────────────────────────
-
-func TestDescendantPIDs(t *testing.T) {
-	run := tmuxFakeRunner{out: map[string]string{
-		psKey: "100 1\n200 100\n300 200\n400 100\n500 1\n",
-	}}
-	// descendants of 100: 200,300,400 (500 unrelated); root 100 itself excluded.
-	if got := descendantPIDs(run, 100); !sameInts(got, 200, 300, 400) {
-		t.Fatalf("descendantPIDs(100) = %v, want {200,300,400}", got)
-	}
-	// broken ps → nil (best-effort, no walk).
-	if got := descendantPIDs(tmuxFakeRunner{}, 100); got != nil {
-		t.Fatalf("broken ps must yield nil, got %v", got)
-	}
-}
-
-func TestDescendantPIDs_CycleGuard(t *testing.T) {
-	// A self-referential / cyclic ppid table must not loop forever.
-	run := tmuxFakeRunner{out: map[string]string{psKey: "100 100\n200 100\n100 200\n"}}
-	got := descendantPIDs(run, 100) // must terminate
-	// 200 is a child of 100; the 100→200→100 cycle must not re-emit root.
-	if !sameInts(got, 200) {
-		t.Fatalf("cycle walk = %v, want {200}", got)
-	}
-}
-
-// ── guard-unit tests ──────────────────────────────────────────────────────────
-
-func TestIsMemberSession(t *testing.T) {
-	cases := map[string]bool{
-		"member-alice": true,
-		"member-x":     true,
-		"member-":      false, // bare prefix, no id
-		"":             false,
-		"telemetry":    false,
-		"warden-1":     false,
-		"xmember-a":    false,
-	}
-	for sess, want := range cases {
-		if got := isMemberSession(sess); got != want {
-			t.Errorf("isMemberSession(%q) = %v, want %v", sess, got, want)
-		}
+		return syscall.ESRCH
 	}
 }
 
 func TestParseKillablePID(t *testing.T) {
 	cases := []struct {
-		in string
-		n  int
-		ok bool
+		in     string
+		wantN  int
+		wantOK bool
 	}{
-		{"4242", 4242, true},
+		{"48213", 48213, true},
 		{"1", 1, true},
 		{"", 0, false},
-		{"0", 0, false},   // whole-process-group — refused
-		{"-1", 0, false},  // negative = process GROUP — refused
-		{"abc", 0, false}, // non-numeric
-		{"12x", 0, false}, // partial-numeric
+		{"0", 0, false},
+		{"-1", 0, false},
+		{"-48213", 0, false},
+		{"48213\n", 0, false},
+		{" 48213", 0, false},
+		{"48a13", 0, false},
+		{"1e5", 0, false},
 	}
-	for _, tc := range cases {
-		n, ok := parseKillablePID(tc.in)
-		if n != tc.n || ok != tc.ok {
-			t.Errorf("parseKillablePID(%q) = (%d,%v), want (%d,%v)", tc.in, n, ok, tc.n, tc.ok)
+	for _, c := range cases {
+		n, ok := parseKillablePID(c.in)
+		if n != c.wantN || ok != c.wantOK {
+			t.Errorf("parseKillablePID(%q) = (%d, %v), want (%d, %v)", c.in, n, ok, c.wantN, c.wantOK)
 		}
 	}
 }
 
-// recordingKillRunner returns a runner that flips *hit true iff a tmux kill-session
-// argv is ever executed — used to prove the member-guard short-circuits before tmux.
-func recordingKillRunner(hit *bool) CmdRunner {
-	return killHitRunner{hit: hit}
-}
-
-type killHitRunner struct{ hit *bool }
-
-func (r killHitRunner) Run(name string, args ...string) (string, error) {
-	if len(args) >= 3 && args[2] == "kill-session" {
-		*r.hit = true
+func TestKillSession(t *testing.T) {
+	const (
+		killCmd  = "tmux -L officraft kill-session -t member-m1"
+		probeCmd = "tmux -L officraft has-session -t member-m1"
+	)
+	cases := []struct {
+		name   string
+		script map[string]wardenRun
+		want   bool
+	}{
+		{"session positively gone after the kill", map[string]wardenRun{
+			probeCmd: {err: errors.New("can't find session: member-m1")},
+		}, true},
+		{"kill-session's own failure is ignored when the re-probe says gone", map[string]wardenRun{
+			killCmd:  {err: errors.New("can't find session: member-m1")},
+			probeCmd: {err: errors.New("can't find session: member-m1")},
+		}, true},
+		{"session still present", map[string]wardenRun{probeCmd: {}}, false},
+		{"broken re-probe is never an assumed-dead", map[string]wardenRun{
+			probeCmd: {err: errors.New("exec: \"tmux\": executable file not found in $PATH")},
+		}, false},
 	}
-	return "", fmt.Errorf("unclassifiable")
-}
-
-// ── T-9adc: the noop verdict — "there was nothing here to kill" ──────────────
-
-// statefulTmuxRunner flips has-session from PRESENT to ABSENT once kill-session
-// runs — the minimal stateful fake for "a real session actually died here".
-type statefulTmuxRunner struct{ killed *bool }
-
-func (f statefulTmuxRunner) Run(name string, args ...string) (string, error) {
-	key := strings.Join(append([]string{name}, args...), " ")
-	switch {
-	case strings.Contains(key, "kill-session"):
-		*f.killed = true
-		return "", nil
-	case key == hasKeyX:
-		if *f.killed {
-			return "", fmt.Errorf("can't find session: member-x")
+	for _, c := range cases {
+		r := &wardenRunner{script: c.script}
+		got := killSession(r, "officraft", "member-m1")
+		if got != c.want {
+			t.Errorf("%s: killSession = %v, want %v", c.name, got, c.want)
 		}
-		return "", nil // present
-	case key == panePidKeyX:
-		return "", fmt.Errorf("no pane") // keep the snapshot empty (⑤ trivially clean)
-	}
-	return "", fmt.Errorf("unclassifiable tmux failure")
-}
-
-// TestStop_NoopWhenNothingWasEverThere: session positively absent BEFORE any
-// kill + empty snapshot → (stopped=true, noop=true). This is the identity-sweep
-// / mis-routed stop shape whose receipt must carry no_such_session so the
-// server never folds it as a real kill (T-9adc).
-func TestStop_NoopWhenNothingWasEverThere(t *testing.T) {
-	rec := &killRecorder{}
-	stopped, noop := stop(absentAfterKill(), tmuxSocket, "member-x", rec.fn, leaderPgid, quietSweep())
-	if !stopped {
-		t.Fatalf("idempotent stop over an absent session must stay ok, got stopped=%v", stopped)
-	}
-	if !noop {
-		t.Fatal("no session + no member process must report noop=true")
+		if want := []string{killCmd, probeCmd}; !reflect.DeepEqual(r.calls, want) {
+			t.Errorf("%s: calls = %v, want %v", c.name, r.calls, want)
+		}
 	}
 }
 
-// TestStop_RealKillIsNotNoop: a session that was PRESENT before the kill (and
-// died on the lightweight leg) is a genuine kill — noop must be false.
-func TestStop_RealKillIsNotNoop(t *testing.T) {
-	killed := false
-	rec := &killRecorder{}
-	stopped, noop := stop(statefulTmuxRunner{killed: &killed}, tmuxSocket, "member-x",
-		rec.fn, leaderPgid, quietSweep())
-	if !stopped {
-		t.Fatalf("the kill took — want stopped=true, got %v", stopped)
+func TestDescendantPIDs(t *testing.T) {
+	const psCmd = "ps -eo pid=,ppid="
+	tree := "  100     1\n  200   100\n  300   200\n  400     1\n  500   300\n  600   400\n"
+
+	r := &wardenRunner{script: map[string]wardenRun{psCmd: {out: tree}}}
+	got := descendantPIDs(r, 100)
+	if want := []int{200, 300, 500}; !reflect.DeepEqual(got, want) {
+		t.Errorf("descendants of 100 = %v, want %v", got, want)
 	}
-	if noop {
-		t.Fatal("a REAL kill must never report noop=true (the receipt would lie the other way)")
+	if !reflect.DeepEqual(r.calls, []string{psCmd}) {
+		t.Errorf("calls = %v, want %v", r.calls, []string{psCmd})
+	}
+
+	if got := descendantPIDs(&wardenRunner{script: map[string]wardenRun{psCmd: {out: tree}}}, 600); got != nil {
+		t.Errorf("a leaf has no descendants, got %v", got)
+	}
+	if got := descendantPIDs(&wardenRunner{script: map[string]wardenRun{psCmd: {out: tree}}}, 999); got != nil {
+		t.Errorf("an unknown root has no descendants, got %v", got)
+	}
+
+	selfParent := &wardenRunner{script: map[string]wardenRun{psCmd: {out: "100 100\n200 100\n"}}}
+	if got := descendantPIDs(selfParent, 100); !reflect.DeepEqual(got, []int{200}) {
+		t.Errorf("root must never be emitted as its own descendant, got %v", got)
+	}
+
+	cycle := &wardenRunner{script: map[string]wardenRun{psCmd: {out: "200 100\n100 200\n"}}}
+	if got := descendantPIDs(cycle, 100); !reflect.DeepEqual(got, []int{200}) {
+		t.Errorf("a parent cycle must terminate with [200], got %v", got)
+	}
+
+	junk := &wardenRunner{script: map[string]wardenRun{psCmd: {
+		out: "PID PPID\n\n  x  100\n  200 100\n  -3 100\n  300 -1\n  400 100 extra\n",
+	}}}
+	if got := descendantPIDs(junk, 100); !reflect.DeepEqual(got, []int{200}) {
+		t.Errorf("malformed ps lines must be skipped, got %v", got)
+	}
+
+	broken := &wardenRunner{fallback: wardenRun{err: errors.New("exec: \"ps\": executable file not found")}}
+	if got := descendantPIDs(broken, 100); got != nil {
+		t.Errorf("a broken ps reads nil, got %v", got)
 	}
 }
 
-// TestStop_SessionGoneButListenerAliveIsNotNoop: the suicide-zombie shape — no
-// tmux session but a workdir-anchored ocagent still alive. Something real was
-// reaped, so noop must be false even though the session was absent.
-func TestStop_SessionGoneButListenerAliveIsNotNoop(t *testing.T) {
-	run := tmuxFakeRunner{err: map[string]error{hasKeyX: fmt.Errorf("can't find session: member-x")}}
-	sw := sweepSeams{
-		listenPIDs: func(string) []int { return []int{9100} },
-		workdir:    "/agents/x",
-		sleep:      noSleep,
+func TestEscalateKill(t *testing.T) {
+	const (
+		paneCmd = "tmux -L officraft display-message -p -t member-m1 #{pane_pid}"
+		psCmd   = "ps -eo pid=,ppid="
+	)
+	live := map[string]wardenRun{paneCmd: {out: "500"}, psCmd: {out: "600 500\n700 600\n800 1\n"}}
+
+	t.Run("pgroup leader is killed as a group, then every descendant", func(t *testing.T) {
+		r := &wardenRunner{script: live}
+		k := &killSpy{}
+		escalateKill(r, "officraft", "member-m1", k.kill, func(pid int) (int, error) { return pid, nil })
+		want := []killCall{
+			{500, syscall.Signal(0)},
+			{500, syscall.Signal(0)},
+			{-500, syscall.SIGKILL},
+			{600, syscall.Signal(0)}, {600, syscall.SIGKILL},
+			{700, syscall.Signal(0)}, {700, syscall.SIGKILL},
+		}
+		if !reflect.DeepEqual(k.calls, want) {
+			t.Errorf("kills = %v, want %v", k.calls, want)
+		}
+		if wantCalls := []string{paneCmd, psCmd}; !reflect.DeepEqual(r.calls, wantCalls) {
+			t.Errorf("calls = %v, want %v", r.calls, wantCalls)
+		}
+	})
+
+	t.Run("a non-leader pane pid is killed alone, never as a group", func(t *testing.T) {
+		k := &killSpy{}
+		escalateKill(&wardenRunner{script: live}, "officraft", "member-m1", k.kill,
+			func(int) (int, error) { return 400, nil })
+		want := []killCall{
+			{500, syscall.Signal(0)},
+			{500, syscall.SIGKILL},
+			{600, syscall.Signal(0)}, {600, syscall.SIGKILL},
+			{700, syscall.Signal(0)}, {700, syscall.SIGKILL},
+		}
+		if !reflect.DeepEqual(k.calls, want) {
+			t.Errorf("kills = %v, want %v", k.calls, want)
+		}
+	})
+
+	t.Run("an unreadable pgid kills the single verified pid", func(t *testing.T) {
+		k := &killSpy{}
+		escalateKill(&wardenRunner{script: live}, "officraft", "member-m1", k.kill,
+			func(int) (int, error) { return 0, syscall.ESRCH })
+		want := []killCall{
+			{500, syscall.Signal(0)},
+			{500, syscall.SIGKILL},
+			{600, syscall.Signal(0)}, {600, syscall.SIGKILL},
+			{700, syscall.Signal(0)}, {700, syscall.SIGKILL},
+		}
+		if !reflect.DeepEqual(k.calls, want) {
+			t.Errorf("kills = %v, want %v", k.calls, want)
+		}
+	})
+
+	t.Run("a descendant that vanished between snapshot and kill is skipped", func(t *testing.T) {
+		k := &killSpy{answer: aliveKill(500, 700)}
+		escalateKill(&wardenRunner{script: live}, "officraft", "member-m1", k.kill,
+			func(pid int) (int, error) { return pid, nil })
+		want := []killCall{
+			{500, syscall.Signal(0)},
+			{500, syscall.Signal(0)},
+			{-500, syscall.SIGKILL},
+			{600, syscall.Signal(0)},
+			{700, syscall.Signal(0)}, {700, syscall.SIGKILL},
+		}
+		if !reflect.DeepEqual(k.calls, want) {
+			t.Errorf("kills = %v, want %v", k.calls, want)
+		}
+	})
+
+	t.Run("a pid that is not ours or already gone is never killed", func(t *testing.T) {
+		r := &wardenRunner{script: live}
+		k := &killSpy{answer: func(int, syscall.Signal) error { return syscall.EPERM }}
+		escalateKill(r, "officraft", "member-m1", k.kill, func(pid int) (int, error) { return pid, nil })
+		if want := []killCall{{500, syscall.Signal(0)}}; !reflect.DeepEqual(k.calls, want) {
+			t.Errorf("kills = %v, want %v", k.calls, want)
+		}
+		if !reflect.DeepEqual(r.calls, []string{paneCmd}) {
+			t.Errorf("the process tree must not even be walked, calls = %v", r.calls)
+		}
+	})
+
+	t.Run("no live pane pid escalates nothing", func(t *testing.T) {
+		r := &wardenRunner{script: map[string]wardenRun{paneCmd: {out: ""}}}
+		k := &killSpy{}
+		escalateKill(r, "officraft", "member-m1", k.kill, func(pid int) (int, error) { return pid, nil })
+		if len(k.calls) != 0 {
+			t.Errorf("kills = %v, want none", k.calls)
+		}
+		if !reflect.DeepEqual(r.calls, []string{paneCmd}) {
+			t.Errorf("calls = %v, want %v", r.calls, []string{paneCmd})
+		}
+	})
+}
+
+func TestSnapshotMemberPIDs(t *testing.T) {
+	const (
+		paneCmd = "tmux -L officraft display-message -p -t member-m1 #{pane_pid}"
+		psCmd   = "ps -eo pid=,ppid="
+	)
+	self := os.Getpid()
+
+	r := &wardenRunner{script: map[string]wardenRun{paneCmd: {out: "500"}, psCmd: {out: "600 500\n700 600\n"}}}
+	got := snapshotMemberPIDs(r, "officraft", "member-m1", sweepSeams{
+		workdir:    "/Users/eva/.officraft/agents/m1",
+		listenPIDs: func(string) []int { return []int{900, 600, 1, self} },
+	})
+	if want := []int{500, 600, 700, 900}; !reflect.DeepEqual(got, want) {
+		t.Errorf("snapshot = %v, want %v (deduped, no init, never the warden itself)", got, want)
 	}
-	lk := &lifecycleKill{dieOn: map[int]syscall.Signal{9100: syscall.SIGTERM}}
-	stopped, noop := stop(run, tmuxSocket, "member-x", lk.fn, leaderPgid, sw)
-	if !stopped {
-		t.Fatalf("listener reaped clean — want stopped=true, got %v", stopped)
+
+	workdirs := []string{}
+	got = snapshotMemberPIDs(
+		&wardenRunner{script: map[string]wardenRun{paneCmd: {out: ""}}},
+		"officraft", "member-m1", sweepSeams{
+			workdir:    "/Users/eva/.officraft/agents/m1",
+			listenPIDs: func(w string) []int { workdirs = append(workdirs, w); return []int{900} },
+		})
+	if want := []int{900}; !reflect.DeepEqual(got, want) {
+		t.Errorf("with no pane pid the snapshot is the listener leg only, got %v want %v", got, want)
 	}
-	if noop {
-		t.Fatal("a swept listener is a real kill — noop must be false")
+	if want := []string{"/Users/eva/.officraft/agents/m1"}; !reflect.DeepEqual(workdirs, want) {
+		t.Errorf("listenPIDs asked for %v, want %v", workdirs, want)
+	}
+
+	paneOnly := &wardenRunner{script: map[string]wardenRun{paneCmd: {out: "500"}, psCmd: {out: "600 500\n"}}}
+	got = snapshotMemberPIDs(paneOnly, "officraft", "member-m1", sweepSeams{
+		workdir:    "",
+		listenPIDs: func(string) []int { t.Error("an empty workdir must disable the listener leg"); return nil },
+	})
+	if want := []int{500, 600}; !reflect.DeepEqual(got, want) {
+		t.Errorf("snapshot = %v, want %v", got, want)
+	}
+
+	got = snapshotMemberPIDs(paneOnly, "officraft", "member-m1", sweepSeams{workdir: "/w"})
+	if want := []int{500, 600}; !reflect.DeepEqual(got, want) {
+		t.Errorf("a nil listener seam still snapshots the pane tree, got %v want %v", got, want)
+	}
+
+	empty := &wardenRunner{script: map[string]wardenRun{paneCmd: {out: ""}}}
+	if got := snapshotMemberPIDs(empty, "officraft", "member-m1", sweepSeams{}); got != nil {
+		t.Errorf("nothing to snapshot must be nil, got %v", got)
 	}
 }
 
-// TestStop_BrokenProbeIsNotNoop: a broken has-session probe can never claim
-// no-op (conservative: only a POSITIVE absence reads noop).
-func TestStop_BrokenProbeIsNotNoop(t *testing.T) {
-	rec := &killRecorder{}
-	stopped, noop := stop(brokenAfterKill(), tmuxSocket, "member-x", rec.fn, leaderPgid, quietSweep())
-	if stopped {
-		t.Fatalf("broken probe must stay honest-false, got stopped=%v", stopped)
+func TestLivePIDs(t *testing.T) {
+	k := &killSpy{answer: func(pid int, _ syscall.Signal) error {
+		switch pid {
+		case 500:
+			return nil
+		case 600:
+			return syscall.ESRCH
+		default:
+			return syscall.EPERM
+		}
+	}}
+	got := livePIDs([]int{500, 600, 700}, k.kill)
+	if want := []int{500}; !reflect.DeepEqual(got, want) {
+		t.Errorf("livePIDs = %v, want %v (gone and not-ours are both dropped)", got, want)
 	}
-	if noop {
-		t.Fatal("a broken probe must never read as a no-op")
+	want := []killCall{{500, syscall.Signal(0)}, {600, syscall.Signal(0)}, {700, syscall.Signal(0)}}
+	if !reflect.DeepEqual(k.calls, want) {
+		t.Errorf("probes = %v, want %v (signal 0 only — nothing is killed)", k.calls, want)
 	}
+	if got := livePIDs(nil, k.kill); got != nil {
+		t.Errorf("livePIDs(nil) = %v, want nil", got)
+	}
+}
+
+func TestSweepPIDs(t *testing.T) {
+	t.Run("an empty snapshot is clean without waiting", func(t *testing.T) {
+		k := &killSpy{}
+		var slept []time.Duration
+		if !sweepPIDs(nil, k.kill, func(d time.Duration) { slept = append(slept, d) }) {
+			t.Error("sweepPIDs(nil) = false, want true")
+		}
+		if len(k.calls) != 0 || len(slept) != 0 {
+			t.Errorf("kills = %v, sleeps = %v, want none of either", k.calls, slept)
+		}
+	})
+
+	t.Run("everything already dead is clean without a signal", func(t *testing.T) {
+		k := &killSpy{answer: aliveKill()}
+		var slept []time.Duration
+		if !sweepPIDs([]int{500, 600}, k.kill, func(d time.Duration) { slept = append(slept, d) }) {
+			t.Error("sweepPIDs = false, want true")
+		}
+		want := []killCall{{500, syscall.Signal(0)}, {600, syscall.Signal(0)}}
+		if !reflect.DeepEqual(k.calls, want) {
+			t.Errorf("kills = %v, want %v", k.calls, want)
+		}
+		if len(slept) != 0 {
+			t.Errorf("sleeps = %v, want none", slept)
+		}
+	})
+
+	t.Run("a pid that dies on SIGTERM is clean after one grace poll", func(t *testing.T) {
+		dead := false
+		k := &killSpy{answer: func(pid int, sig syscall.Signal) error {
+			if sig == syscall.SIGTERM {
+				dead = true
+				return nil
+			}
+			if dead {
+				return syscall.ESRCH
+			}
+			return nil
+		}}
+		var slept []time.Duration
+		if !sweepPIDs([]int{500}, k.kill, func(d time.Duration) { slept = append(slept, d) }) {
+			t.Error("sweepPIDs = false, want true")
+		}
+		want := []killCall{{500, syscall.Signal(0)}, {500, syscall.SIGTERM}, {500, syscall.Signal(0)}}
+		if !reflect.DeepEqual(k.calls, want) {
+			t.Errorf("kills = %v, want %v", k.calls, want)
+		}
+		if want := []time.Duration{200 * time.Millisecond}; !reflect.DeepEqual(slept, want) {
+			t.Errorf("sleeps = %v, want %v", slept, want)
+		}
+	})
+
+	t.Run("a SIGTERM-deaf pid is SIGKILLed after the 3s grace window", func(t *testing.T) {
+		killed := false
+		k := &killSpy{answer: func(pid int, sig syscall.Signal) error {
+			if sig == syscall.SIGKILL {
+				killed = true
+			}
+			if killed && sig == syscall.Signal(0) {
+				return syscall.ESRCH
+			}
+			return nil
+		}}
+		var slept []time.Duration
+		if !sweepPIDs([]int{500}, k.kill, func(d time.Duration) { slept = append(slept, d) }) {
+			t.Error("sweepPIDs = false, want true")
+		}
+		var want []killCall
+		want = append(want, killCall{500, syscall.Signal(0)}, killCall{500, syscall.SIGTERM})
+		for i := 0; i < 15; i++ {
+			want = append(want, killCall{500, syscall.Signal(0)})
+		}
+		want = append(want, killCall{500, syscall.SIGKILL}, killCall{500, syscall.Signal(0)})
+		if !reflect.DeepEqual(k.calls, want) {
+			t.Errorf("kills = %v, want %v", k.calls, want)
+		}
+		if len(slept) != 16 {
+			t.Errorf("slept %d times, want 16 (15 grace polls + 1 post-SIGKILL poll)", len(slept))
+		}
+		for i, d := range slept {
+			if d != 200*time.Millisecond {
+				t.Fatalf("sleep %d = %v, want 200ms", i, d)
+			}
+		}
+	})
+
+	t.Run("an unkillable survivor is an honest partial", func(t *testing.T) {
+		k := &killSpy{answer: aliveKill(500, 600)}
+		var slept []time.Duration
+		if sweepPIDs([]int{500, 600}, k.kill, func(d time.Duration) { slept = append(slept, d) }) {
+			t.Error("sweepPIDs = true, want false")
+		}
+		terms, kills, probes := 0, 0, 0
+		for _, c := range k.calls {
+			switch c.sig {
+			case syscall.SIGTERM:
+				terms++
+			case syscall.SIGKILL:
+				kills++
+			default:
+				probes++
+			}
+		}
+		if terms != 2 || kills != 2 || probes != 2+2*25 {
+			t.Errorf("terms=%d kills=%d probes=%d, want 2/2/52", terms, kills, probes)
+		}
+		if len(slept) != 25 {
+			t.Errorf("slept %d times, want 25 (15 grace + 10 confirmation polls)", len(slept))
+		}
+	})
+
+	t.Run("only the survivors are re-signalled", func(t *testing.T) {
+		k := &killSpy{answer: aliveKill(500, 600)}
+		alive := map[int]bool{500: true, 600: true}
+		k.answer = func(pid int, sig syscall.Signal) error {
+			if sig == syscall.SIGTERM && pid == 600 {
+				alive[600] = false
+			}
+			if !alive[pid] {
+				return syscall.ESRCH
+			}
+			return nil
+		}
+		sweepPIDs([]int{500, 600}, k.kill, func(time.Duration) {})
+		var hard []killCall
+		for _, c := range k.calls {
+			if c.sig == syscall.SIGKILL {
+				hard = append(hard, c)
+			}
+		}
+		if want := []killCall{{500, syscall.SIGKILL}}; !reflect.DeepEqual(hard, want) {
+			t.Errorf("SIGKILLs = %v, want %v (the pid the grace poll proved dead is never re-signalled)", hard, want)
+		}
+	})
+}
+
+func TestOcagentPIDsByCwd(t *testing.T) {
+	const lsofCmd = "lsof -a -c ocagent -d cwd -F pn"
+	out := "p101\nfcwd\nn/Users/eva/.officraft/agents/m1\np102\nn/Users/eva/.officraft/agents/m2\np103\nn/Users/eva/.officraft/agents/m1\n"
+
+	r := &wardenRunner{script: map[string]wardenRun{lsofCmd: {out: out}}}
+	got := ocagentPIDsByCwd(r, "/Users/eva/.officraft/agents/m1")
+	if want := []int{101, 103}; !reflect.DeepEqual(got, want) {
+		t.Errorf("pids = %v, want %v", got, want)
+	}
+	if !reflect.DeepEqual(r.calls, []string{lsofCmd}) {
+		t.Errorf("calls = %v, want %v", r.calls, []string{lsofCmd})
+	}
+
+	if got := ocagentPIDsByCwd(&wardenRunner{script: map[string]wardenRun{lsofCmd: {out: out}}},
+		"/Users/eva/.officraft/agents/m1/"); !reflect.DeepEqual(got, []int{101, 103}) {
+		t.Errorf("a trailing slash must still match, got %v", got)
+	}
+
+	if got := ocagentPIDsByCwd(&wardenRunner{script: map[string]wardenRun{lsofCmd: {out: out}}},
+		"/Users/eva/.officraft/agents/m9"); got != nil {
+		t.Errorf("another member's workdir matches nothing, got %v", got)
+	}
+
+	if got := ocagentPIDsByCwd(&wardenRunner{fallback: wardenRun{err: errors.New("exit status 1")}},
+		"/Users/eva/.officraft/agents/m1"); got != nil {
+		t.Errorf("a failed lsof reads nil, got %v", got)
+	}
+
+	orphan := &wardenRunner{script: map[string]wardenRun{lsofCmd: {
+		out: "pX\nn/Users/eva/.officraft/agents/m1\np0\nn/Users/eva/.officraft/agents/m1\n",
+	}}}
+	if got := ocagentPIDsByCwd(orphan, "/Users/eva/.officraft/agents/m1"); got != nil {
+		t.Errorf("a cwd line with no valid pid before it is dropped, got %v", got)
+	}
+
+	real := t.TempDir()
+	link := filepath.Join(t.TempDir(), "link")
+	if err := os.Symlink(real, link); err != nil {
+		t.Fatalf("symlink: %v", err)
+	}
+	resolved, err := filepath.EvalSymlinks(real)
+	if err != nil {
+		t.Fatalf("evalsymlinks: %v", err)
+	}
+	sym := &wardenRunner{script: map[string]wardenRun{lsofCmd: {out: "p104\nn" + resolved + "\n"}}}
+	if got := ocagentPIDsByCwd(sym, link); !reflect.DeepEqual(got, []int{104}) {
+		t.Errorf("the kernel-resolved cwd must match the symlinked workdir, got %v", got)
+	}
+}
+
+func TestMemberWorkdirForSession(t *testing.T) {
+	cases := []struct {
+		home    string
+		session string
+		want    string
+	}{
+		{"/Users/eva/.officraft/agents", "member-m1", "/Users/eva/.officraft/agents/m1"},
+		{"/Users/eva/.officraft/agents", "member-OW-78173E", "/Users/eva/.officraft/agents/ow-78173e"},
+		{"/Users/eva/.officraft/agents", "worker-ow-78173e", ""},
+		{"/Users/eva/.officraft/agents", "member-", ""},
+		{"/Users/eva/.officraft/agents", "", ""},
+		{"", "member-m1", ""},
+	}
+	for _, c := range cases {
+		if got := memberWorkdirForSession(c.home, c.session); got != c.want {
+			t.Errorf("memberWorkdirForSession(%q, %q) = %q, want %q", c.home, c.session, got, c.want)
+		}
+	}
+}
+
+func TestStop(t *testing.T) {
+	const (
+		paneCmd = "tmux -L officraft display-message -p -t member-m1 #{pane_pid}"
+		psCmd   = "ps -eo pid=,ppid="
+	)
+	probeOf := func(session string) string { return "tmux -L officraft has-session -t " + session }
+	killOf := func(session string) string { return "tmux -L officraft kill-session -t " + session }
+	gone := wardenRun{err: errors.New("can't find session: member-m1")}
+
+	t.Run("a session outside the two warden namespaces is refused untouched", func(t *testing.T) {
+		for _, session := range []string{"com.officraft.ocwarden", "member-", "worker-", "", "scratch"} {
+			r := &wardenRunner{}
+			k := &killSpy{}
+			purged := 0
+			stopped, noop := stop(r, "officraft", session, k.kill,
+				func(pid int) (int, error) { return pid, nil },
+				sweepSeams{purgeTrash: func() { purged++ }, sleep: func(time.Duration) {}})
+			if stopped || noop {
+				t.Errorf("%q: got (stopped=%v, noop=%v), want (false, false)", session, stopped, noop)
+			}
+			if len(r.calls) != 0 || len(k.calls) != 0 || purged != 0 {
+				t.Errorf("%q: refused stop still did something: calls=%v kills=%v purges=%d",
+					session, r.calls, k.calls, purged)
+			}
+		}
+	})
+
+	t.Run("an absent session with no member process is an idempotent no-op", func(t *testing.T) {
+		r := &wardenRunner{script: map[string]wardenRun{
+			probeOf("member-m1"): gone,
+			paneCmd:              gone,
+		}}
+		k := &killSpy{}
+		purged := 0
+		stopped, noop := stop(r, "officraft", "member-m1", k.kill,
+			func(pid int) (int, error) { return pid, nil },
+			sweepSeams{purgeTrash: func() { purged++ }, sleep: func(time.Duration) {}})
+		if !stopped || !noop {
+			t.Errorf("got (stopped=%v, noop=%v), want (true, true)", stopped, noop)
+		}
+		want := []string{probeOf("member-m1"), paneCmd, killOf("member-m1"), probeOf("member-m1")}
+		if !reflect.DeepEqual(r.calls, want) {
+			t.Errorf("calls = %v, want %v", r.calls, want)
+		}
+		if len(k.calls) != 0 {
+			t.Errorf("kills = %v, want none", k.calls)
+		}
+		if purged != 1 {
+			t.Errorf("purgeTrash ran %d times, want 1", purged)
+		}
+	})
+
+	t.Run("a live session killed by SIGHUP is stopped but not a no-op", func(t *testing.T) {
+		probe := 0
+		r := &wardenRunner{script: map[string]wardenRun{paneCmd: {out: "500"}, psCmd: {out: "600 500\n"}}}
+		seq := &sequencedRunner{inner: r, key: probeOf("member-m1"),
+			answers: []wardenRun{{}, gone}, seen: &probe}
+
+		k := &killSpy{answer: aliveKill()}
+		purged := 0
+		stopped, noop := stop(seq, "officraft", "member-m1", k.kill,
+			func(pid int) (int, error) { return pid, nil },
+			sweepSeams{purgeTrash: func() { purged++ }, sleep: func(time.Duration) {}})
+		if !stopped || noop {
+			t.Errorf("got (stopped=%v, noop=%v), want (true, false)", stopped, noop)
+		}
+		want := []string{probeOf("member-m1"), paneCmd, psCmd, killOf("member-m1"), probeOf("member-m1")}
+		if !reflect.DeepEqual(r.calls, want) {
+			t.Errorf("calls = %v, want %v", r.calls, want)
+		}
+		wantKills := []killCall{{500, syscall.Signal(0)}, {600, syscall.Signal(0)}}
+		if !reflect.DeepEqual(k.calls, wantKills) {
+			t.Errorf("kills = %v, want %v (sweep probes only — everything died with the session)", k.calls, wantKills)
+		}
+		if purged != 1 {
+			t.Errorf("purgeTrash ran %d times, want 1", purged)
+		}
+	})
+
+	t.Run("a SIGHUP-deaf session escalates to the pgroup kill and re-asserts", func(t *testing.T) {
+		probe := 0
+		inner := &wardenRunner{script: map[string]wardenRun{paneCmd: {out: "500"}, psCmd: {out: "600 500\n"}}}
+		seq := &sequencedRunner{inner: inner, key: probeOf("member-m1"),
+			answers: []wardenRun{{}, {}, gone}, seen: &probe}
+		k := &killSpy{answer: aliveKill(500, 600)}
+		var slept []time.Duration
+		stopped, noop := stop(seq, "officraft", "member-m1", k.kill,
+			func(pid int) (int, error) { return pid, nil },
+			sweepSeams{sleep: func(d time.Duration) { slept = append(slept, d) }})
+		if stopped || noop {
+			t.Errorf("got (stopped=%v, noop=%v), want (false, false) — the sweep survivors are still alive",
+				stopped, noop)
+		}
+		want := []string{
+			probeOf("member-m1"), paneCmd, psCmd,
+			killOf("member-m1"), probeOf("member-m1"),
+			paneCmd, psCmd,
+			killOf("member-m1"), probeOf("member-m1"),
+		}
+		if !reflect.DeepEqual(inner.calls, want) {
+			t.Errorf("calls = %v, want %v", inner.calls, want)
+		}
+		escalation := []killCall{
+			{500, syscall.Signal(0)}, {500, syscall.Signal(0)}, {-500, syscall.SIGKILL},
+			{600, syscall.Signal(0)}, {600, syscall.SIGKILL},
+		}
+		if !reflect.DeepEqual(k.calls[:len(escalation)], escalation) {
+			t.Errorf("escalation kills = %v, want %v", k.calls[:len(escalation)], escalation)
+		}
+		if len(slept) != 25 {
+			t.Errorf("slept %d times, want 25", len(slept))
+		}
+	})
+
+	t.Run("a legacy worker session is admitted by the guard", func(t *testing.T) {
+		r := &wardenRunner{script: map[string]wardenRun{
+			"tmux -L officraft has-session -t worker-ow-1":                    {err: errors.New("can't find session: worker-ow-1")},
+			"tmux -L officraft display-message -p -t worker-ow-1 #{pane_pid}": {err: errors.New("can't find session")},
+		}}
+		stopped, noop := stop(r, "officraft", "worker-ow-1", (&killSpy{}).kill,
+			func(pid int) (int, error) { return pid, nil }, sweepSeams{sleep: func(time.Duration) {}})
+		if !stopped || !noop {
+			t.Errorf("got (stopped=%v, noop=%v), want (true, true)", stopped, noop)
+		}
+	})
+
+	t.Run("a broken probe is never a no-op", func(t *testing.T) {
+		broken := wardenRun{err: errors.New("exec: \"tmux\": executable file not found in $PATH")}
+		r := &wardenRunner{fallback: broken}
+		stopped, noop := stop(r, "officraft", "member-m1", (&killSpy{}).kill,
+			func(pid int) (int, error) { return pid, nil }, sweepSeams{sleep: func(time.Duration) {}})
+		if stopped || noop {
+			t.Errorf("got (stopped=%v, noop=%v), want (false, false)", stopped, noop)
+		}
+	})
+
+	t.Run("a lingering workdir listener keeps the stop from claiming a no-op", func(t *testing.T) {
+		r := &wardenRunner{script: map[string]wardenRun{probeOf("member-m1"): gone, paneCmd: gone}}
+		k := &killSpy{answer: aliveKill()}
+		stopped, noop := stop(r, "officraft", "member-m1", k.kill,
+			func(pid int) (int, error) { return pid, nil },
+			sweepSeams{
+				workdir:    "/Users/eva/.officraft/agents/m1",
+				listenPIDs: func(string) []int { return []int{900} },
+				sleep:      func(time.Duration) {},
+			})
+		if !stopped || noop {
+			t.Errorf("got (stopped=%v, noop=%v), want (true, false)", stopped, noop)
+		}
+		if want := []killCall{{900, syscall.Signal(0)}}; !reflect.DeepEqual(k.calls, want) {
+			t.Errorf("kills = %v, want %v", k.calls, want)
+		}
+	})
+}
+
+// sequencedRunner answers one argv key from a fixed sequence (so a session can
+// be present on the first probe and gone on the next) and delegates everything
+// else — including the call recording — to inner.
+type sequencedRunner struct {
+	inner   *wardenRunner
+	key     string
+	answers []wardenRun
+	seen    *int
+}
+
+func (s *sequencedRunner) Run(name string, args ...string) (string, error) {
+	out, err := s.inner.Run(name, args...)
+	if s.inner.calls[len(s.inner.calls)-1] != s.key {
+		return out, err
+	}
+	i := *s.seen
+	*s.seen++
+	if i >= len(s.answers) {
+		i = len(s.answers) - 1
+	}
+	return s.answers[i].out, s.answers[i].err
 }

@@ -37,41 +37,11 @@ fi
 # out and this suite must notice. Today that means (1) the target still defines
 # the regenerate-and-diff, and (2) a cloud cell still asks for it by name — a
 # target nobody calls is exactly as absent as a deleted one.
-MAKEFILE="$ROOT/Makefile"
-if ! grep -qE '^drift-mcp-catalog:' "$MAKEFILE" \
-  || ! grep -qF 'bin/gen-mcp-catalog "$$fresh"' "$MAKEFILE" \
-  || ! grep -qF 'diff -u spec/mcp-catalog.json "$$fresh"' "$MAKEFILE" \
-  || ! grep -qF 'FAIL — gen-mcp-catalog drift' "$MAKEFILE"; then
-  echo "[mcp-catalog-test] FAIL — Makefile is missing the drift-mcp-catalog byte-diff gate"
-  exit 1
-fi
-if ! grep -qE '^[[:space:]]+drift-mcp-catalog[[:space:]]*(\\)?$' "$MAKEFILE"; then
-  echo "[mcp-catalog-test] FAIL — drift-mcp-catalog is not on the .PHONY continuation list"
-  exit 1
-fi
-
-# Does a cloud cell run drift-mcp-catalog?
-#
-# ⚠️ THIS USED TO GREP ci.yml FOR THE TARGET'S NAME, and that stopped being the
-# right question in T-127: the gate cells no longer name any target — each asks
-# for its own lane and bin/lib/ci-round.txt is the only place a target is written
-# down. Grepping the workflow now answers "no cell runs it" for every target in
-# the repo, which is a red that says nothing.
-#
-# The question is unchanged, so only the place to ask it moved: the round list
-# says which lane owns drift-mcp-catalog, and lint-ci-round is what holds that
-# lane to being a real gate job. A missing line here still means no cloud cell
-# runs it.
-ROUND="$ROOT/bin/lib/ci-round.txt"
-if [[ ! -f "$ROUND" ]]; then
-  echo "[mcp-catalog-test] FAIL — the round list is missing: $ROUND"
-  exit 1
-fi
-CATALOG_LANE="$(awk '{sub(/#.*/,"")} NF==2 && $2=="drift-mcp-catalog" {print $1; exit}' "$ROUND")"
-if [[ -z "$CATALOG_LANE" ]]; then
-  echo "[mcp-catalog-test] FAIL — drift-mcp-catalog has no line in bin/lib/ci-round.txt, so no cloud lane runs it"
-  exit 1
-fi
+# 這裡原本有三段「確認 Makefile 還定義著那道閘、確認雲端還有一格會叫它」的檢查。
+# 全部移除（owner 裁定 c-771223472903、c-2c14a29eef1f）：其中一段守的是名字排在
+# 第幾行；其餘守的是「別人不要刪掉這道閘」，而同一個人也可以順手改掉這個守衛，
+# 真的要刪也一定會經過 PR。這支檔案留下來的是真正的正向對照：產生器重產一次、
+# 跟 commit 的逐位元比對，以及一個 mutant。
 
 MUTANT_SPEC="$WORK/openapi-mutant.json"
 cp "$SPEC" "$MUTANT_SPEC"

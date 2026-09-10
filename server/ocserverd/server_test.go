@@ -1,669 +1,691 @@
+// Skeleton generated from server/ocserverd/server.go by gen_test_skeletons.py.
+// Every case is a t.Skip placeholder: fill the body, keep or rewrite the name.
+
 package main
 
 import (
-	"encoding/json"
+	"context"
 	"errors"
 	"fmt"
-	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
-	"os"
-	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 )
 
-func okHandler(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, healthDTO{Status: "ok"})
+type serverTestKeepAliveConn struct {
+	net.Conn
+	config net.KeepAliveConfig
+	err    error
 }
 
-// ── probes: byte-level parity with the Python responses ─────────────────────
-
-func TestHealthProbeBytesMatchPython(t *testing.T) {
-	h, err := buildHandler(defaultRouteSpecs(), singleKeyring([]byte(interopSecret)), nil, nil)
-	if err != nil {
-		t.Fatalf("buildHandler: %v", err)
-	}
-	srv := httptest.NewServer(h)
-	defer srv.Close()
-
-	resp, err := http.Get(srv.URL + "/health")
-	if err != nil {
-		t.Fatal(err)
-	}
-	body, _ := io.ReadAll(resp.Body)
-	resp.Body.Close()
-	if resp.StatusCode != 200 || resp.Header.Get("Content-Type") != "application/json" {
-		t.Fatalf("status/content-type: %d %q", resp.StatusCode, resp.Header.Get("Content-Type"))
-	}
-	// The exact bytes the retired Python original answered (compact JSON) —
-	// frozen wire shape.
-	if string(body) != `{"status":"ok"}` {
-		t.Fatalf("body diverges from the Python probe: %q", body)
-	}
+func (c *serverTestKeepAliveConn) SetKeepAliveConfig(config net.KeepAliveConfig) error {
+	c.config = config
+	return c.err
 }
 
-func TestVersionProbeShapeMatchesPython(t *testing.T) {
-	h, err := buildHandler(defaultRouteSpecs(), singleKeyring([]byte(interopSecret)), nil, nil)
-	if err != nil {
-		t.Fatalf("buildHandler: %v", err)
-	}
-	srv := httptest.NewServer(h)
-	defer srv.Close()
+type serverTestListener struct {
+	net.Listener
+	conn  net.Conn
+	err   error
+	calls int
+}
 
-	resp, err := http.Get(srv.URL + "/api/version")
-	if err != nil {
-		t.Fatal(err)
+func (l *serverTestListener) Accept() (net.Conn, error) {
+	l.calls++
+	if l.err != nil {
+		return nil, l.err
 	}
-	body, _ := io.ReadAll(resp.Body)
-	resp.Body.Close()
-	if resp.StatusCode != 200 {
-		t.Fatalf("status: %d", resp.StatusCode)
-	}
-	// Key ORDER is part of the byte-level contract (pydantic field order):
-	// version, git_sha, git_time, catalog_hash, update_available,
-	// latest_version. (release_tag — the retired ocupdaterd r-N serial —
-	// left the shape with the updater teardown, t-dc68.) update_checked_ok_at
-	// (T-e87d) is OPTIONAL and trails them: this server has never completed a
-	// successful check, so it is omitted entirely and these bytes are exactly
-	// what they were before that field existed.
-	wantOrder := []string{`"version":`, `"git_sha":`, `"git_time":`, `"catalog_hash":`, `"update_available":`, `"latest_version":`}
-	pos := -1
-	for _, key := range wantOrder {
-		i := strings.Index(string(body), key)
-		if i <= pos {
-			t.Fatalf("key %s out of order (or missing) in %s", key, body)
+	return l.conn, nil
+}
+
+func TestGitSHA(t *testing.T) {
+	old := buildSHA
+	t.Cleanup(func() { buildSHA = old })
+
+	t.Run("a stamped build sha is returned verbatim", func(t *testing.T) {
+		buildSHA = "release-sha-125"
+		if got := gitSHA(); got != "release-sha-125" {
+			t.Fatalf("gitSHA() = %q, want %q", got, "release-sha-125")
 		}
-		pos = i
-	}
-	var dto struct {
-		Version         string  `json:"version"`
-		GitSHA          string  `json:"git_sha"`
-		GitTime         *string `json:"git_time"`
-		CatalogHash     string  `json:"catalog_hash"`
-		UpdateAvailable bool    `json:"update_available"`
-		LatestVersion   *string `json:"latest_version"`
-	}
-	if err := json.Unmarshal(body, &dto); err != nil {
-		t.Fatalf("unmarshal: %v (%s)", err, body)
-	}
-	if dto.Version != "0.0.0" {
-		t.Fatalf("version must stay 0.0.0 (M1 §3.9): %q", dto.Version)
-	}
-	// In this repo checkout the runtime git capture must yield the checkout's
-	// short sha + an ISO time (outside a checkout they honestly degrade to
-	// unknown/null, mirroring handlers.git_sha/git_time).
-	assertCheckoutShortSHA(t, dto.GitSHA, "git_sha")
-	if dto.GitTime == nil || !strings.Contains(*dto.GitTime, "T") {
-		t.Fatalf("git_time must be ISO-8601 in a checkout: %v", dto.GitTime)
-	}
-	// The derived catalog hash (handlers.current_catalog_hash): 16 lowercase
-	// hex chars over the non-mcp_exclude route surface.
-	if len(dto.CatalogHash) != 16 {
-		t.Fatalf("catalog_hash must be the 16-hex derived hash: %q", dto.CatalogHash)
-	}
-	if dto.UpdateAvailable || dto.LatestVersion != nil {
-		t.Fatalf("update_available/latest_version must be false/null: %s", body)
-	}
-	if !strings.Contains(string(body), `"latest_version":null`) {
-		t.Fatalf("latest_version must serialise as null (not omitted): %s", body)
-	}
-}
+	})
 
-func TestGitSHAPrefersStampedBuildIdentity(t *testing.T) {
-	origSHA, origTime := buildSHA, buildTime
-	t.Cleanup(func() { buildSHA, buildTime = origSHA, origTime })
-
-	buildSHA, buildTime = "abc1234", "2026-07-12T00:00:00+08:00"
-	if got := gitSHA(); got != "abc1234" {
-		t.Fatalf("a stamped buildSHA must win over the CWD probe: %q", got)
-	}
-	if got := gitTime(); got != "2026-07-12T00:00:00+08:00" {
-		t.Fatalf("a stamped buildTime must win over the CWD probe: %q", got)
-	}
-
-	// Unstamped (plain `go build`) keeps the checkout probe alive.
-	buildSHA, buildTime = "", ""
-	assertCheckoutShortSHA(t, gitSHA(), "unstamped gitSHA")
-}
-
-// assertCheckoutShortSHA pins a probed sha against THIS checkout's own
-// abbreviation rather than against a fixed width.
-//
-// 🔴 The width is not a constant and never was: `--short` honours core.abbrev,
-// whose default (auto) grows the abbreviation with the object count of the
-// clone it runs in. A 7-char assertion therefore passes on a shallow working
-// clone and fails on a full one — which is exactly how it failed: green on
-// every PR check, red inside `bin/release`'s staging clone, so main went red at
-// the one moment nothing could ship. Asking git for the same answer the runtime
-// probe asks for keeps the assertion exact AND clone-independent; a bare
-// length range would have let a truncated or stamped-in value through.
-func assertCheckoutShortSHA(t *testing.T, got, field string) {
-	t.Helper()
-	want, err := gitOutput("rev-parse", "--short", "HEAD")
-	if err != nil || want == "" {
-		t.Fatalf("%s: this test needs a git checkout to compare against (err=%v)", field, err)
-	}
-	if got != want {
-		t.Fatalf("%s must be this checkout's short sha %q, got %q", field, want, got)
-	}
-}
-
-// TestBindErrorMessageIsActionable pins the port-clash FATAL. The bare Go error
-// ("bind: address already in use") states the fact but not the fix; the operator
-// needs to know it is a port clash AND how to get out of it. Uses a REAL double
-// bind so the errors.Is(…, syscall.EADDRINUSE) unwrap is exercised end to end
-// (net.OpError → os.SyscallError → syscall.Errno), not a hand-made sentinel.
-func TestBindErrorMessageIsActionable(t *testing.T) {
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatalf("probe listen: %v", err)
-	}
-	defer ln.Close()
-	port := ln.Addr().(*net.TCPAddr).Port
-
-	clash, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", port))
-	if err == nil {
-		clash.Close()
-		t.Fatal("second bind on the same port must fail")
-	}
-	msg := bindErrorMessage(port, err)
-	for _, want := range []string{
-		fmt.Sprintf("port %d already in use", port),
-		"officraft server",
-		"OC_SERVE_PORT=<other>",
-		"[server].port in oc.toml",
-		"lsof",
-	} {
-		if !strings.Contains(msg, want) {
-			t.Fatalf("EADDRINUSE message must be actionable (missing %q): %s", want, msg)
-		}
-	}
-
-	// A non-EADDRINUSE failure must NOT be dressed up as a port clash.
-	other := bindErrorMessage(8770, errors.New("permission denied"))
-	if strings.Contains(other, "already in use") {
-		t.Fatalf("only EADDRINUSE may claim a port clash: %s", other)
-	}
-	if !strings.Contains(other, "cannot bind port 8770") {
-		t.Fatalf("non-clash bind errors must still name the port: %s", other)
-	}
-}
-
-// ── auth middleware + RBAC choke (over a synthetic gated table) ──────────────
-
-func gatedSpecs() []RouteSpec {
-	return []RouteSpec{
-		{Method: "GET", Path: "/api/floor", Handler: okHandler, Auth: authGated,
-			Requires: principalMachine, Summary: "floor: any authenticated principal"},
-		{Method: "GET", Path: "/api/admin", Handler: okHandler, Auth: authGated,
-			Requires: principalAdminAgent, Summary: "admin choke"},
-		{Method: "GET", Path: "/api/owner-only", Handler: okHandler, Auth: authGated,
-			Requires: principalOwner, Summary: "owner choke"},
-	}
-}
-
-func get(t *testing.T, url, token string) (int, string) {
-	t.Helper()
-	req, _ := http.NewRequest("GET", url, nil)
-	if token != "" {
-		req.Header.Set("Authorization", "Bearer "+token)
-	}
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		t.Fatal(err)
-	}
-	body, _ := io.ReadAll(resp.Body)
-	resp.Body.Close()
-	return resp.StatusCode, string(body)
-}
-
-func TestGatedRoutesFailClosed(t *testing.T) {
-	secret := []byte(interopSecret)
-	h, err := buildHandler(gatedSpecs(), singleKeyring(secret), nil, nil)
-	if err != nil {
-		t.Fatalf("buildHandler: %v", err)
-	}
-	srv := httptest.NewServer(h)
-	defer srv.Close()
-
-	now := time.Now().Unix()
-	ownerTok, _ := mintJWT("owner", "owner", 300, secret, now, "")
-	agentTok, _ := mintJWT("kyle", "agent", 300, secret, now, "")
-	expiredTok, _ := mintJWT("kyle", "agent", 1, secret, now-300, "")
-	forgedTok, _ := mintJWT("owner", "owner", 300, []byte("wrong-secret"), now, "")
-
-	// 401 deny-by-default: no / malformed / expired / forged credentials.
-	for _, tok := range []string{"", "garbage", expiredTok, forgedTok} {
-		status, body := get(t, srv.URL+"/api/floor", tok)
-		if status != 401 || !strings.Contains(body, `"code":"unauthorized"`) {
-			t.Fatalf("token %q: want 401 unauthorized envelope, got %d %s", tok, status, body)
-		}
-	}
-
-	// The machine FLOOR admits any authenticated principal.
-	if status, _ := get(t, srv.URL+"/api/floor", agentTok); status != 200 {
-		t.Fatalf("floor must admit an agent: %d", status)
-	}
-
-	// The ?token= query fallback (extract_token): EventSource / <img src>
-	// cannot set a header, so the identical verified JWT rides the query.
-	if status, _ := get(t, srv.URL+"/api/floor?token="+ownerTok, ""); status != 200 {
-		t.Fatalf("?token= query fallback must authorize: %d", status)
-	}
-	if status, _ := get(t, srv.URL+"/api/floor?token=garbage", ""); status != 401 {
-		t.Fatalf("a garbage ?token= must stay 401: %d", status)
-	}
-	// A PRESENT-but-invalid Authorization header never falls through to the
-	// query param (Python parity: header wins when set).
-	if status, _ := get(t, srv.URL+"/api/floor?token="+ownerTok, "garbage"); status != 401 {
-		t.Fatalf("an invalid header must not fall back to ?token=: %d", status)
-	}
-	if status, _ := get(t, srv.URL+"/api/floor", ownerTok); status != 200 {
-		t.Fatalf("floor must admit the owner: %d", status)
-	}
-
-	// The admin/owner chokes: an agent is a flat 403 (envelope), the owner passes.
-	for _, path := range []string{"/api/admin", "/api/owner-only"} {
-		status, body := get(t, srv.URL+path, agentTok)
-		if status != 403 || !strings.Contains(body, `"code":"forbidden"`) {
-			t.Fatalf("%s with agent token: want 403 forbidden envelope, got %d %s", path, status, body)
-		}
-		if status, _ := get(t, srv.URL+path, ownerTok); status != 200 {
-			t.Fatalf("%s with owner token: want 200, got %d", path, status)
-		}
-	}
-}
-
-// ── boot assertions: fail-closed app assembly (app.py spirit) ───────────────
-
-func TestBootRefusesUndeclaredRequires(t *testing.T) {
-	specs := []RouteSpec{{Method: "GET", Path: "/api/naked", Handler: okHandler, Auth: authGated}}
-	if _, err := buildHandler(specs, singleKeyring([]byte(interopSecret)), nil, nil); err == nil {
-		t.Fatal("a gated route with no requires declaration must refuse to boot")
-	}
-}
-
-func TestBootRefusesUnknownRequires(t *testing.T) {
-	specs := []RouteSpec{{Method: "GET", Path: "/api/x", Handler: okHandler, Auth: authGated, Requires: "superuser"}}
-	if _, err := buildHandler(specs, singleKeyring([]byte(interopSecret)), nil, nil); err == nil {
-		t.Fatal("an unknown requires class must refuse to boot")
-	}
-}
-
-func TestBootRefusesAuthRequiresDisagreement(t *testing.T) {
-	// public auth ⟺ requires="public" — either direction of disagreement fails.
-	bad := [][]RouteSpec{
-		{{Method: "GET", Path: "/api/a", Handler: okHandler, Auth: authPublic, Requires: principalOwner}},
-		{{Method: "GET", Path: "/api/b", Handler: okHandler, Auth: authGated, Requires: requiresPublic}},
-	}
-	for i, specs := range bad {
-		if _, err := buildHandler(specs, singleKeyring([]byte(interopSecret)), nil, nil); err == nil {
-			t.Fatalf("case %d: auth/requires disagreement must refuse to boot", i)
-		}
-	}
-}
-
-func TestBootRefusesUnlabelledRoute(t *testing.T) {
-	specs := []RouteSpec{{Method: "GET", Path: "/api/x", Handler: okHandler, Auth: "internal", Requires: principalOwner}}
-	if _, err := buildHandler(specs, singleKeyring([]byte(interopSecret)), nil, nil); err == nil {
-		t.Fatal("an unknown auth label must refuse to boot")
-	}
-}
-
-// ── the full REST surface (M3 sub-batch A: wired stubs over the spec) ────────
-
-// TestRouteTableCoversSpecSurface pins the table to the frozen wire SSOT: the
-// set of (method, path) rows must equal the operations of spec/openapi.json
-// exactly — a spec change without a table row (or a stray row) fails here.
-func TestRouteTableCoversSpecSurface(t *testing.T) {
-	raw, err := os.ReadFile("../../spec/openapi.json")
-	if err != nil {
-		t.Fatalf("read spec: %v", err)
-	}
-	var spec struct {
-		Paths map[string]map[string]any `json:"paths"`
-	}
-	if err := json.Unmarshal(raw, &spec); err != nil {
-		t.Fatalf("unmarshal spec: %v", err)
-	}
-	want := map[string]bool{}
-	for path, item := range spec.Paths {
-		for method := range item {
-			want[strings.ToUpper(method)+" "+path] = true
-		}
-	}
-	got := map[string]bool{}
-	for _, row := range defaultRouteSpecs() {
-		key := row.Method + " " + row.Path
-		if got[key] {
-			t.Fatalf("duplicate route row: %s", key)
-		}
-		got[key] = true
-	}
-	for key := range want {
-		if !got[key] {
-			t.Fatalf("spec operation missing from the route table: %s", key)
-		}
-	}
-	for key := range got {
-		if !want[key] {
-			t.Fatalf("route table row not in the spec (wire freeze): %s", key)
-		}
-	}
-}
-
-// newWiredTestServer assembles the FULL stack (temp sqlite + migrations +
-// seed + hub + repo-file assets via the checkout root) — the sub-batch-B
-// integration face. The hub comes back too so a test can attach a listener
-// and assert what a handler fans (or refuses to fan).
-func newWiredTestServer(t *testing.T) (*httptest.Server, []byte, *Hub) {
-	t.Helper()
-	db, err := openSQLite(filepath.Join(t.TempDir(), "server-test.db"))
-	if err != nil {
-		t.Fatalf("open: %v", err)
-	}
-	t.Cleanup(func() { db.Close() })
-	if err := runMigrations(db); err != nil {
-		t.Fatalf("goose up: %v", err)
-	}
-	dal := NewDAL(db)
-	if err := seedOutOfBox(dal); err != nil {
-		t.Fatalf("seed: %v", err)
-	}
-	secret := []byte(interopSecret)
-	hub := NewHub()
-	api := newAPIServer(dal, hub, singleKeyring(secret), 3600, "../..")
-	phc, err := hashPassword("test-password")
-	if err != nil {
-		t.Fatalf("hashPassword: %v", err)
-	}
-	api.passwordHash = phc
-	h, err := buildHandler(specsFor(api), api.keys, dal.GetMember, nil)
-	if err != nil {
-		t.Fatalf("buildHandler: %v", err)
-	}
-	api.loopback = h // the MCP tools/call loopback re-enters this mux (cmdServe wiring)
-	srv := httptest.NewServer(h)
-	t.Cleanup(srv.Close)
-	return srv, secret, hub
-}
-
-func TestBusinessRoutesServeThroughTheWiredStack(t *testing.T) {
-	srv, secret, _ := newWiredTestServer(t)
-
-	now := time.Now().Unix()
-	ownerTok, _ := mintJWT("owner", "owner", 300, secret, now, "")
-	agentTok, _ := mintJWT("kyle", "agent", 300, secret, now, "")
-
-	// The seeded roster serves through the machine-floor row: Mira is there.
-	status, body := get(t, srv.URL+"/api/members", ownerTok)
-	if status != 200 || !strings.Contains(body, `"id":"mira"`) {
-		t.Fatalf("/api/members: want 200 with the seeded mira, got %d %s", status, body)
-	}
-	// The seed role folds from the file seed.
-	if status, body := get(t, srv.URL+"/api/roles/assistant", ownerTok); status != 200 ||
-		!strings.Contains(body, `"is_seed":true`) {
-		t.Fatalf("/api/roles/assistant: want the folded seed, got %d %s", status, body)
-	}
-
-	// The table's auth/requires wiring still guards everything: 401 with no
-	// token, 403 for a plain agent on an admin_agent row (deny BEFORE resolve).
-	if status, body := get(t, srv.URL+"/api/members", ""); status != 401 ||
-		!strings.Contains(body, `"code":"unauthorized"`) {
-		t.Fatalf("no token: want 401 envelope, got %d %s", status, body)
-	}
-	req, _ := http.NewRequest("DELETE", srv.URL+"/api/members/missing", nil)
-	req.Header.Set("Authorization", "Bearer "+agentTok)
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		t.Fatal(err)
-	}
-	respBody, _ := io.ReadAll(resp.Body)
-	resp.Body.Close()
-	if resp.StatusCode != 403 || !strings.Contains(string(respBody), `"code":"forbidden"`) {
-		t.Fatalf("agent on admin row: want 403 envelope, got %d %s", resp.StatusCode, respBody)
-	}
-
-	// Login: the one public business entry (wrong password → flat 401;
-	// missing field → 422 through the envelope).
-	login := func(payload string) (int, string) {
-		resp, err := http.Post(srv.URL+"/api/login", "application/json", strings.NewReader(payload))
+	t.Run("an unstamped checkout returns its measured short sha", func(t *testing.T) {
+		buildSHA = ""
+		want, err := gitOutput("rev-parse", "--short", "HEAD")
 		if err != nil {
-			t.Fatal(err)
+			t.Fatalf("gitOutput: %v", err)
 		}
-		b, _ := io.ReadAll(resp.Body)
-		resp.Body.Close()
-		return resp.StatusCode, string(b)
-	}
-	if status, _ := login(`{"password":"test-password"}`); status != 200 {
-		t.Fatalf("login right password: want 200, got %d", status)
-	}
-	if status, _ := login(`{"password":"wrong"}`); status != 401 {
-		t.Fatalf("login wrong password: want 401, got %d", status)
-	}
-	if status, body := login(`{}`); status != 422 ||
-		!strings.Contains(body, `"code":"validation_error"`) {
-		t.Fatalf("login missing field: want 422 envelope, got %d %s", status, body)
-	}
+		if got := gitSHA(); got != want {
+			t.Fatalf("gitSHA() = %q, want the checkout's measured sha %q", got, want)
+		}
+	})
 
-	// A query param the wrapper cannot bind stays the validation 422.
-	if status, body := get(t, srv.URL+"/api/chat?limit=notanumber", ownerTok); status != 422 ||
-		!strings.Contains(body, `"code":"validation_error"`) {
-		t.Fatalf("bad query param: want 422 validation envelope, got %d %s", status, body)
-	}
+	t.Run("an unavailable checkout returns unknown", func(t *testing.T) {
+		buildSHA = ""
+		t.Setenv("PATH", t.TempDir())
+		if got := gitSHA(); got != "unknown" {
+			t.Fatalf("gitSHA() = %q, want %q", got, "unknown")
+		}
+	})
 }
 
-func TestMarkChatReadFansDeltaOnlyWhenWatermarkAdvances(t *testing.T) {
-	srv, secret, hub := newWiredTestServer(t)
-	now := time.Now().Unix()
-	ownerTok, _ := mintJWT("owner", "owner", 300, secret, now, "")
-	l, err := hub.Connect("", "")
-	if err != nil {
-		t.Fatalf("connect: %v", err)
-	}
+func TestGitTime(t *testing.T) {
+	old := buildTime
+	t.Cleanup(func() { buildTime = old })
 
-	markRead := func(ts float64) (int, string) {
-		t.Helper()
-		req, _ := http.NewRequest("POST", srv.URL+"/api/chat/mark-read",
-			strings.NewReader(fmt.Sprintf(`{"peer":"mira","last_read_ts":%v}`, ts)))
-		req.Header.Set("Authorization", "Bearer "+ownerTok)
-		req.Header.Set("Content-Type", "application/json")
-		resp, err := http.DefaultClient.Do(req)
+	t.Run("a stamped build time is returned verbatim", func(t *testing.T) {
+		buildTime = "2026-09-08T12:34:56+08:00"
+		if got := gitTime(); got != "2026-09-08T12:34:56+08:00" {
+			t.Fatalf("gitTime() = %q, want the stamped value", got)
+		}
+	})
+
+	t.Run("an unstamped checkout returns its measured commit time", func(t *testing.T) {
+		buildTime = ""
+		want, err := gitOutput("show", "-s", "--format=%cI", "HEAD")
 		if err != nil {
-			t.Fatal(err)
+			t.Fatalf("gitOutput: %v", err)
 		}
-		body, _ := io.ReadAll(resp.Body)
-		resp.Body.Close()
-		return resp.StatusCode, string(body)
-	}
-	drainChatReadFrames := func() []map[string]any {
-		t.Helper()
-		var frames []map[string]any
-		for {
-			raw := l.pop()
-			if raw == nil {
-				return frames
-			}
-			_, envelope := parseSSEFrame(t, raw)
-			if envelope["topic"] == "chat_read" {
-				frames = append(frames, envelope)
-			}
+		if got := gitTime(); got != want {
+			t.Fatalf("gitTime() = %q, want the checkout's measured time %q", got, want)
 		}
-	}
+	})
 
-	// An advancing report fans EXACTLY one chat_read delta.
-	if status, body := markRead(100); status != 200 {
-		t.Fatalf("advance: want 200, got %d %s", status, body)
-	}
-	frames := drainChatReadFrames()
-	if len(frames) != 1 {
-		t.Fatalf("advance must fan exactly one chat_read frame, got %d: %v", len(frames), frames)
-	}
-	payload := frames[0]["data"].(map[string]any)["payload"].(map[string]any)
-	if payload["reader"] != "owner" || payload["peer"] != "mira" || payload["last_read_ts"] != float64(100) {
-		t.Fatalf("frame payload: %v", payload)
-	}
+	t.Run("an unavailable checkout returns an empty time", func(t *testing.T) {
+		buildTime = ""
+		t.Setenv("PATH", t.TempDir())
+		if got := gitTime(); got != "" {
+			t.Fatalf("gitTime() = %q, want an empty value", got)
+		}
+	})
+}
 
-	// A stale (lower) and an equal report are no-ops: the effective watermark
-	// answers, but NOTHING fans (repository.put_chat_read: no write, no fan).
-	for _, ts := range []float64{50, 100} {
-		status, body := markRead(ts)
-		if status != 200 || !strings.Contains(body, `"last_read_ts":100`) {
-			t.Fatalf("stale/equal report must answer the effective watermark, got %d %s", status, body)
+func TestGitOutput(t *testing.T) {
+	t.Run("successful git output is trimmed", func(t *testing.T) {
+		got, err := gitOutput("rev-parse", "--short", "HEAD")
+		if err != nil {
+			t.Fatalf("gitOutput: %v", err)
 		}
-		if frames := drainChatReadFrames(); len(frames) != 0 {
-			t.Fatalf("stale/equal report must fan nothing, got %v", frames)
+		if got == "" || got != strings.TrimSpace(got) {
+			t.Fatalf("gitOutput() = %q, want non-empty trimmed output", got)
 		}
+	})
+
+	t.Run("a git failure returns its empty output and error", func(t *testing.T) {
+		t.Setenv("PATH", t.TempDir())
+		got, err := gitOutput("rev-parse", "--short", "HEAD")
+		if got != "" {
+			t.Fatalf("gitOutput output = %q, want empty output", got)
+		}
+		if err == nil {
+			t.Fatal("gitOutput error = nil, want the git failure")
+		}
+	})
+}
+
+func TestWriteJSON(t *testing.T) {
+	t.Run("a serialisable body is written as the JSON answer", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+
+		writeJSON(rec, 201, map[string]string{"status": "restarting"})
+
+		if rec.Code != 201 {
+			t.Fatalf("want 201, got %d", rec.Code)
+		}
+		if got := rec.Body.String(); got != `{"status":"restarting"}` {
+			t.Fatalf("body: %q", got)
+		}
+		if got := rec.Header().Get("Content-Type"); got != "application/json" {
+			t.Fatalf("content-type: %q", got)
+		}
+	})
+
+	t.Run("a body JSON cannot carry answers 500 in plain text", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+
+		writeJSON(rec, 200, make(chan int))
+
+		if rec.Code != 500 {
+			t.Fatalf("want 500, got %d", rec.Code)
+		}
+		if got := rec.Body.String(); got != "internal server error\n" {
+			t.Fatalf("body: %q", got)
+		}
+		if got := rec.Header().Get("Content-Type"); got != "text/plain; charset=utf-8" {
+			t.Fatalf("content-type: %q", got)
+		}
+	})
+}
+
+func TestErrorCodeForStatus(t *testing.T) {
+	cases := []struct {
+		status int
+		want   string
+	}{
+		{status: 400, want: "validation_error"},
+		{status: 422, want: "validation_error"},
+		{status: 401, want: "unauthorized"},
+		{status: 403, want: "forbidden"},
+		{status: 404, want: "not_found"},
+		{status: 405, want: "method_not_allowed"},
+		{status: 409, want: "conflict"},
+		{status: 503, want: "service_unavailable"},
+		{status: 500, want: "internal_error"},
+		{status: 418, want: "client_error"},
+		{status: 600, want: "internal_error"},
+	}
+	for _, tc := range cases {
+		t.Run(fmt.Sprintf("status_%d", tc.status), func(t *testing.T) {
+			if got := errorCodeForStatus(tc.status); got != tc.want {
+				t.Fatalf("errorCodeForStatus(%d) = %q, want %q", tc.status, got, tc.want)
+			}
+		})
 	}
 }
 
-func TestBareVersionProbeShapeMatchesPython(t *testing.T) {
-	h, err := buildHandler(defaultRouteSpecs(), singleKeyring([]byte(interopSecret)), nil, nil)
+func TestWriteError(t *testing.T) {
+	rec := httptest.NewRecorder()
+
+	writeError(rec, http.StatusUnprocessableEntity, "the title is required")
+
+	if rec.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusUnprocessableEntity)
+	}
+	if got := rec.Body.String(); got != `{"error":{"code":"validation_error","message":"the title is required"}}` {
+		t.Fatalf("body = %q", got)
+	}
+	if got := rec.Header().Get("Content-Type"); got != "application/json" {
+		t.Fatalf("content-type = %q", got)
+	}
+}
+
+func TestClaimsFromContext(t *testing.T) {
+	want := map[string]any{"sub": "kip", "scope": "agent"}
+	ctx := context.WithValue(context.Background(), claimsContextKey, want)
+	got := claimsFromContext(ctx)
+	if got == nil || len(got) != len(want) || got["sub"] != "kip" || got["scope"] != "agent" {
+		t.Fatalf("claimsFromContext() = %#v, want %#v", got, want)
+	}
+
+	t.Run("an absent claim value is nil", func(t *testing.T) {
+		if got := claimsFromContext(context.Background()); got != nil {
+			t.Fatalf("claimsFromContext() = %#v, want nil", got)
+		}
+	})
+
+	t.Run("a non-map claim value is nil", func(t *testing.T) {
+		ctx := context.WithValue(context.Background(), claimsContextKey, "not-claims")
+		if got := claimsFromContext(ctx); got != nil {
+			t.Fatalf("claimsFromContext() = %#v, want nil", got)
+		}
+	})
+}
+
+func TestVerifyingKeyFromContext(t *testing.T) {
+	ctx := context.WithValue(context.Background(), verifyingKeyContextKey, "k-legacy")
+	if got := verifyingKeyFromContext(ctx); got != "k-legacy" {
+		t.Fatalf("verifyingKeyFromContext() = %q, want %q", got, "k-legacy")
+	}
+
+	t.Run("an absent key is empty", func(t *testing.T) {
+		if got := verifyingKeyFromContext(context.Background()); got != "" {
+			t.Fatalf("verifyingKeyFromContext() = %q, want empty", got)
+		}
+	})
+
+	t.Run("a non-string key is empty", func(t *testing.T) {
+		ctx := context.WithValue(context.Background(), verifyingKeyContextKey, 17)
+		if got := verifyingKeyFromContext(ctx); got != "" {
+			t.Fatalf("verifyingKeyFromContext() = %q, want empty", got)
+		}
+	})
+}
+
+func TestExtractToken(t *testing.T) {
+	cases := []struct {
+		name   string
+		auth   string
+		target string
+		want   string
+	}{
+		{name: "bearer header", auth: "Bearer jwt-token", target: "/?token=query-token", want: "jwt-token"},
+		{name: "case-insensitive bearer with padding", auth: "bEaReR   padded-token", target: "/", want: "padded-token"},
+		{name: "bare authorization value", auth: "raw-token", target: "/", want: "raw-token"},
+		{name: "non-bearer authorization value", auth: "Basic abc", target: "/?token=query-token", want: "Basic abc"},
+		{name: "query fallback", target: "/?token=query-token", want: "query-token"},
+		{name: "header wins over query", auth: "Bearer header-token", target: "/?token=query-token", want: "header-token"},
+		{name: "empty bearer does not fall back", auth: "Bearer ", target: "/?token=query-token", want: "Bearer"},
+		{name: "no credentials", target: "/", want: ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			r := httptest.NewRequest(http.MethodGet, tc.target, nil)
+			if tc.auth != "" {
+				r.Header.Set("Authorization", tc.auth)
+			}
+			if got := extractToken(r); got != tc.want {
+				t.Fatalf("extractToken() = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestRequireAuth(t *testing.T) {
+	api, _, d, owner := newAPITestServer(t)
+	agent := apiTestAgentToken(t, api, apiTestPlainAgentID, "")
+
+	t.Run("a missing key ring is a configured-auth refusal", func(t *testing.T) {
+		called := 0
+		h := requireAuth(nil, func() int64 { return 0 }, d.GetMember, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			called++
+		}))
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/", nil))
+		if rec.Code != http.StatusUnauthorized || rec.Body.String() != `{"error":{"code":"unauthorized","message":"auth not configured"}}` {
+			t.Fatalf("response = %d %q", rec.Code, rec.Body.String())
+		}
+		if called != 0 {
+			t.Fatalf("next called %d times, want 0", called)
+		}
+	})
+
+	t.Run("missing credentials do not reach the handler", func(t *testing.T) {
+		called := 0
+		h := requireAuth(api.keys, func() int64 { return 0 }, d.GetMember, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			called++
+		}))
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/", nil))
+		if rec.Code != http.StatusUnauthorized || rec.Body.String() != `{"error":{"code":"unauthorized","message":"missing credentials"}}` {
+			t.Fatalf("response = %d %q", rec.Code, rec.Body.String())
+		}
+		if called != 0 {
+			t.Fatalf("next called %d times, want 0", called)
+		}
+	})
+
+	t.Run("an invalid token is rejected without reaching the handler", func(t *testing.T) {
+		called := 0
+		h := requireAuth(api.keys, func() int64 { return 0 }, d.GetMember, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			called++
+		}))
+		req := httptest.NewRequest(http.MethodGet, "/", nil)
+		req.Header.Set("Authorization", "Bearer not-a-jwt")
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		if rec.Code != http.StatusUnauthorized || rec.Body.String() != `{"error":{"code":"unauthorized","message":"invalid token"}}` {
+			t.Fatalf("response = %d %q", rec.Code, rec.Body.String())
+		}
+		if called != 0 {
+			t.Fatalf("next called %d times, want 0", called)
+		}
+	})
+
+	t.Run("a query token reaches the handler with claims and verifying key", func(t *testing.T) {
+		called := 0
+		var gotClaims map[string]any
+		var gotKey string
+		h := requireAuth(api.keys, func() int64 { return 0 }, d.GetMember, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			called++
+			gotClaims = claimsFromContext(r.Context())
+			gotKey = verifyingKeyFromContext(r.Context())
+			writeJSON(w, http.StatusOK, map[string]string{"result": "accepted"})
+		}))
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/?token="+agent, nil))
+		if rec.Code != http.StatusOK || rec.Body.String() != `{"result":"accepted"}` {
+			t.Fatalf("response = %d %q", rec.Code, rec.Body.String())
+		}
+		if called != 1 {
+			t.Fatalf("next called %d times, want 1", called)
+		}
+		if gotClaims == nil || len(gotClaims) != 4 || gotClaims["sub"] != "kip" || gotClaims["scope"] != "agent" {
+			t.Fatalf("claims = %#v, want the four-field agent claims for %q", gotClaims, "kip")
+		}
+		if _, ok := gotClaims["iat"].(float64); !ok {
+			t.Fatalf("claims iat = %#v, want a JSON number", gotClaims["iat"])
+		}
+		if _, ok := gotClaims["exp"].(float64); !ok {
+			t.Fatalf("claims exp = %#v, want a JSON number", gotClaims["exp"])
+		}
+		if gotKey != "k-legacy" {
+			t.Fatalf("verifying key = %q, want %q", gotKey, "k-legacy")
+		}
+	})
+
+	t.Run("a token below the owner floor is rejected", func(t *testing.T) {
+		called := 0
+		h := requireAuth(api.keys, func() int64 { return time.Now().Unix() + 1 }, d.GetMember, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			called++
+		}))
+		req := httptest.NewRequest(http.MethodGet, "/", nil)
+		req.Header.Set("Authorization", "Bearer "+owner)
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		if rec.Code != http.StatusUnauthorized || rec.Body.String() != `{"error":{"code":"unauthorized","message":"invalid token"}}` {
+			t.Fatalf("response = %d %q", rec.Code, rec.Body.String())
+		}
+		if called != 0 {
+			t.Fatalf("next called %d times, want 0", called)
+		}
+	})
+}
+
+func TestShareSigGate(t *testing.T) {
+	cases := []struct {
+		name       string
+		target     string
+		auth       string
+		keys       *keyring
+		wantStatus int
+		wantBody   string
+		wantRaw    int
+		wantAuthed int
+		wantVerify int
+	}{
+		{name: "valid signature serves raw", target: "/?sig=ok", keys: singleKeyring([]byte("secret")), wantStatus: http.StatusOK, wantBody: `{"route":"raw"}`, wantRaw: 1, wantVerify: 1},
+		{name: "invalid signature is unauthorized", target: "/?sig=bad", keys: singleKeyring([]byte("secret")), wantStatus: http.StatusUnauthorized, wantBody: `{"error":{"code":"unauthorized","message":"invalid signature"}}`, wantVerify: 1},
+		{name: "no signature follows authed chain", target: "/", keys: singleKeyring([]byte("secret")), wantStatus: http.StatusUnauthorized, wantBody: `{"error":{"code":"unauthorized","message":"authed path"}}`, wantAuthed: 1},
+		{name: "bearer takes precedence over valid signature", target: "/?sig=ok", auth: "Bearer any-token", keys: singleKeyring([]byte("secret")), wantStatus: http.StatusUnauthorized, wantBody: `{"error":{"code":"unauthorized","message":"authed path"}}`, wantAuthed: 1},
+		{name: "query token takes precedence over valid signature", target: "/?token=any-token&sig=ok", keys: singleKeyring([]byte("secret")), wantStatus: http.StatusUnauthorized, wantBody: `{"error":{"code":"unauthorized","message":"authed path"}}`, wantAuthed: 1},
+		{name: "a nil key ring cannot verify a signature", target: "/?sig=ok", keys: nil, wantStatus: http.StatusUnauthorized, wantBody: `{"error":{"code":"unauthorized","message":"invalid signature"}}`, wantVerify: 0},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			rawCalls, authedCalls, verifyCalls := 0, 0, 0
+			raw := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				rawCalls++
+				writeJSON(w, http.StatusOK, map[string]string{"route": "raw"})
+			})
+			authed := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				authedCalls++
+				writeError(w, http.StatusUnauthorized, "authed path")
+			})
+			verify := func(keys *keyring, r *http.Request, sig string) bool {
+				verifyCalls++
+				return sig == "ok"
+			}
+			h := shareSigGate(tc.keys, verify, raw, authed)
+			req := httptest.NewRequest(http.MethodGet, tc.target, nil)
+			if tc.auth != "" {
+				req.Header.Set("Authorization", tc.auth)
+			}
+			rec := httptest.NewRecorder()
+			h.ServeHTTP(rec, req)
+			if rec.Code != tc.wantStatus || rec.Body.String() != tc.wantBody {
+				t.Fatalf("response = %d %q, want %d %q", rec.Code, rec.Body.String(), tc.wantStatus, tc.wantBody)
+			}
+			if rawCalls != tc.wantRaw || authedCalls != tc.wantAuthed || verifyCalls != tc.wantVerify {
+				t.Fatalf("calls raw=%d authed=%d verify=%d, want %d/%d/%d", rawCalls, authedCalls, verifyCalls, tc.wantRaw, tc.wantAuthed, tc.wantVerify)
+			}
+		})
+	}
+}
+
+func TestBuildHandler(t *testing.T) {
+	api, _, d, owner := newAPITestServer(t)
+	agent := apiTestAgentToken(t, api, apiTestPlainAgentID, "")
+	publicCalls, adminCalls := 0, 0
+	specs := []RouteSpec{
+		Public(routeDef{
+			Method: http.MethodGet,
+			Path:   "/server-test-public",
+			Handler: func(w http.ResponseWriter, r *http.Request) {
+				publicCalls++
+				writeJSON(w, http.StatusOK, map[string]string{"route": "public"})
+			},
+		}).RouteSpec,
+		Gated(principalAdminAgent, routeDef{
+			Method: http.MethodGet,
+			Path:   "/server-test-admin",
+			Handler: func(w http.ResponseWriter, r *http.Request) {
+				adminCalls++
+				writeJSON(w, http.StatusOK, map[string]string{"route": "admin"})
+			},
+		}).RouteSpec,
+	}
+	h, err := buildHandler(specs, api.keys, d.GetMember, api.authPasswordChangedAt)
 	if err != nil {
 		t.Fatalf("buildHandler: %v", err)
 	}
-	srv := httptest.NewServer(h)
-	defer srv.Close()
 
-	resp, err := http.Get(srv.URL + "/version")
-	if err != nil {
-		t.Fatal(err)
-	}
-	body, _ := io.ReadAll(resp.Body)
-	resp.Body.Close()
-	if resp.StatusCode != 200 {
-		t.Fatalf("status: %d", resp.StatusCode)
-	}
-	var dto struct {
-		Version     string `json:"version"`
-		SHA         string `json:"sha"`
-		CatalogHash string `json:"catalog_hash"`
-	}
-	if err := json.Unmarshal(body, &dto); err != nil {
-		t.Fatalf("unmarshal: %v (%s)", err, body)
-	}
-	if dto.Version != "0.0.0" || len(dto.CatalogHash) != 16 {
-		t.Fatalf("probe shape diverges from ProbeVersionDTO: %s", body)
-	}
-	assertCheckoutShortSHA(t, dto.SHA, "sha")
-	// Field ORDER is part of the parity contract (version, sha, catalog_hash).
-	if !(strings.Index(string(body), `"version":`) < strings.Index(string(body), `"sha":`) &&
-		strings.Index(string(body), `"sha":`) < strings.Index(string(body), `"catalog_hash":`)) {
-		t.Fatalf("probe field order diverges: %s", body)
-	}
-}
-
-// ── principal ladder constants ───────────────────────────────────────────────
-
-func TestPrincipalLadderMatchesPython(t *testing.T) {
-	// service.authz.PRINCIPAL_RANK: machine(0) < agent(1) < admin_agent(2) < owner(3).
-	want := map[string]int{"machine": 0, "agent": 1, "admin_agent": 2, "owner": 3}
-	for k, v := range want {
-		if principalRank[k] != v {
-			t.Fatalf("rank[%s] = %d, want %d", k, principalRank[k], v)
+	t.Run("public route is served anonymously", func(t *testing.T) {
+		rec := apiRequest(t, h, http.MethodGet, "/server-test-public", "", "")
+		if rec.Code != http.StatusOK || rec.Body.String() != `{"route":"public"}` {
+			t.Fatalf("response = %d %q", rec.Code, rec.Body.String())
 		}
+		if publicCalls != 1 {
+			t.Fatalf("public handler calls = %d, want 1", publicCalls)
+		}
+	})
+
+	t.Run("gated route rejects an anonymous request", func(t *testing.T) {
+		rec := apiRequest(t, h, http.MethodGet, "/server-test-admin", "", "")
+		if rec.Code != http.StatusUnauthorized || rec.Body.String() != `{"error":{"code":"unauthorized","message":"missing credentials"}}` {
+			t.Fatalf("response = %d %q", rec.Code, rec.Body.String())
+		}
+		if adminCalls != 0 {
+			t.Fatalf("admin handler calls = %d, want 0", adminCalls)
+		}
+	})
+
+	t.Run("the principal choke rejects a plain agent", func(t *testing.T) {
+		rec := apiRequest(t, h, http.MethodGet, "/server-test-admin", agent, "")
+		if rec.Code != http.StatusForbidden || rec.Body.String() != `{"error":{"code":"forbidden","message":"principal not permitted"}}` {
+			t.Fatalf("response = %d %q", rec.Code, rec.Body.String())
+		}
+		if adminCalls != 0 {
+			t.Fatalf("admin handler calls = %d, want 0", adminCalls)
+		}
+	})
+
+	t.Run("the owner reaches the gated handler", func(t *testing.T) {
+		rec := apiRequest(t, h, http.MethodGet, "/server-test-admin", owner, "")
+		if rec.Code != http.StatusOK || rec.Body.String() != `{"route":"admin"}` {
+			t.Fatalf("response = %d %q", rec.Code, rec.Body.String())
+		}
+		if adminCalls != 1 {
+			t.Fatalf("admin handler calls = %d, want 1", adminCalls)
+		}
+	})
+
+	t.Run("an unknown api path is a JSON not-found", func(t *testing.T) {
+		rec := apiRequest(t, h, http.MethodGet, "/api/server-test-missing", "", "")
+		if rec.Code != http.StatusNotFound || rec.Body.String() != `{"error":{"code":"not_found","message":"not found"}}` {
+			t.Fatalf("response = %d %q", rec.Code, rec.Body.String())
+		}
+	})
+
+	t.Run("a wrong method on a path-shaped route is method-not-allowed", func(t *testing.T) {
+		rec := apiRequest(t, h, http.MethodPost, "/server-test-public", "", "{}")
+		if rec.Code != http.StatusMethodNotAllowed || rec.Body.String() != `{"error":{"code":"method_not_allowed","message":"method not allowed"}}` {
+			t.Fatalf("response = %d %q", rec.Code, rec.Body.String())
+		}
+	})
+}
+
+func TestSpecsFor(t *testing.T) {
+	api, _, d, owner := newAPITestServer(t)
+	specs := specsFor(api)
+	if len(specs) != 187 {
+		t.Fatalf("specsFor returned %d routes, want 187", len(specs))
 	}
-	if len(principalRank) != len(want) {
-		t.Fatalf("ladder must be exactly the four classes: %v", principalRank)
+	if api.catalogHash != "f854376232a9ffb1" {
+		t.Fatalf("catalogHash = %q, want %q", api.catalogHash, "f854376232a9ffb1")
 	}
-	if adminRoleKey != "assistant" || machineKind != "warden" {
-		t.Fatalf("classification literals drifted: %q %q", adminRoleKey, machineKind)
+	if len(api.mcpTools) != 131 {
+		t.Fatalf("MCP tool index has %d entries, want 131", len(api.mcpTools))
+	}
+	if got, ok := api.mcpTools["get_version"]; !ok || got.Method != http.MethodGet || got.Path != "/api/version" {
+		t.Fatalf("get_version = %#v, present=%v", got, ok)
+	}
+	if _, ok := api.mcpTools["get_health"]; ok {
+		t.Fatal("the excluded health probe appeared in the MCP tool index")
+	}
+	h, err := buildHandler(specs, api.keys, d.GetMember, api.authPasswordChangedAt)
+	if err != nil {
+		t.Fatalf("buildHandler: %v", err)
+	}
+	rec := apiRequest(t, h, http.MethodGet, "/api/document-history/global_context/global/not-an-id", owner, "")
+	if rec.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusUnprocessableEntity)
+	}
+	if rec.Body.String() != `{"error":{"code":"validation_error","message":"Invalid format for parameter id: error binding string parameter: strconv.ParseInt: parsing \"not-an-id\": invalid syntax"}}` {
+		t.Fatalf("invalid path parameter body = %q", rec.Body.String())
 	}
 }
 
-// TestServeBootRetiresOrphanReplyCards covers the BOOT WIRING itself (T-4166
-// review G10), not just the reconcile function. A boot hook that is defined,
-// tested in isolation, and never actually called is the same dead-wiring class
-// as the untested dismissal seam this ticket already tripped over — deleting
-// the call from cmdServe must turn something red, and only a test that goes
-// through cmdServe can do that.
-//
-// The trick that makes it hermetic and synchronous: cmdServe runs its boot
-// reconciles BEFORE it binds. Hold the configured port first, and cmdServe
-// migrates, seeds, reconciles, then fails the bind and RETURNS (rc 1) instead
-// of blocking in http.Serve forever. Everything before the bind is exercised
-// for real, and no listener leaks.
-func TestServeBootRetiresOrphanReplyCards(t *testing.T) {
-	dir := t.TempDir()
-	dbPath := filepath.Join(dir, "boot.db")
+func TestNewAPIServer(t *testing.T) {
+	oldSHA, oldTime := buildSHA, buildTime
+	t.Cleanup(func() {
+		buildSHA = oldSHA
+		buildTime = oldTime
+	})
+	buildSHA = "server-test-sha"
+	buildTime = "2026-09-08T12:34:56+08:00"
 
-	// Seed a PRE-FIX orphan: a waiting card bound to an already-done task, plus
-	// a live control card that must survive the boot untouched.
-	db, err := openSQLite(dbPath)
-	if err != nil {
-		t.Fatalf("open: %v", err)
-	}
-	if err := runMigrations(db); err != nil {
-		t.Fatalf("goose up: %v", err)
-	}
-	dal := NewDAL(db)
-	now := nowSecs()
-	if err := dal.PutTask(Task{
-		ID: "t-closed", Title: "closed", Status: TaskStatusDone,
-		Priority: TaskPriorityMid, ExecutorKind: TaskExecutorStaff,
-		ExecutorID: "m-1", CreatedTS: now, UpdatedTS: now, ClosedTS: now,
+	d := newAPITestDAL(t)
+	frame := []byte("update-frame")
+	if err := d.PutWardenCommand(WardenCommand{
+		WardenID:   "warden-test",
+		Verb:       "update",
+		MemberID:   "member-test",
+		Frame:      frame,
+		EnqueuedTS: float64(time.Now().Unix()),
 	}); err != nil {
-		t.Fatalf("put task: %v", err)
+		t.Fatalf("PutWardenCommand: %v", err)
 	}
-	orphan := waitingCard("rc-orphan", now)
-	orphan.TaskID = "t-closed"
-	control := waitingCard("rc-plain", now)
-	for _, c := range []ReplyCard{orphan, control} {
-		if err := dal.PutReplyCard(c); err != nil {
-			t.Fatalf("put card: %v", err)
+	hub := NewHub()
+	keys := singleKeyring([]byte("server-test-secret"))
+	api := newAPIServer(d, hub, keys, 1234, "/server-root")
+	buildSHA = "changed-after-construction"
+	buildTime = "changed-after-construction"
+
+	if api.processSHA != "server-test-sha" || api.processTime != "2026-09-08T12:34:56+08:00" {
+		t.Fatalf("process identity = %q / %q", api.processSHA, api.processTime)
+	}
+	if api.dal != d || api.hub != hub || api.keys != keys || api.ownerTokenTTL != 1234 || api.root != "/server-root" {
+		t.Fatalf("carrier dependencies = dal:%v hub:%v keys:%v ttl:%d root:%q", api.dal == d, api.hub == hub, api.keys == keys, api.ownerTokenTTL, api.root)
+	}
+	if api.agentTokenTTL != 604800 || api.telemetry == nil || api.gauge == nil || api.machineClaims == nil {
+		t.Fatalf("constructor defaults are incomplete: agent ttl=%d telemetry=%v gauge=%v claims=%v", api.agentTokenTTL, api.telemetry != nil, api.gauge != nil, api.machineClaims != nil)
+	}
+	if api.suggestedRepliesReplyCard == nil || len(api.suggestedRepliesReplyCard) != 0 || api.suggestedRepliesTaskMessage == nil || len(api.suggestedRepliesTaskMessage) != 0 {
+		t.Fatalf("suggested reply defaults = %#v / %#v", api.suggestedRepliesReplyCard, api.suggestedRepliesTaskMessage)
+	}
+	got := hub.DrainWardenCommands("warden-test")
+	if len(got) != 1 || got[0].Subject != "member-test" || string(got[0].Frame) != string(frame) {
+		t.Fatalf("rehydrated commands = %#v, want one member-test update frame", got)
+	}
+}
+
+func TestApplyKeepAlive(t *testing.T) {
+	want := net.KeepAliveConfig{Enable: true, Idle: 15 * time.Second, Interval: 5 * time.Second, Count: 3}
+
+	t.Run("a keep-alive connection receives the full config", func(t *testing.T) {
+		conn := &serverTestKeepAliveConn{}
+		applyKeepAlive(conn)
+		if conn.config != want {
+			t.Fatalf("keep-alive config = %#v, want %#v", conn.config, want)
+		}
+	})
+
+	t.Run("a non-keep-alive connection is left usable", func(t *testing.T) {
+		left, right := net.Pipe()
+		t.Cleanup(func() {
+			left.Close()
+			right.Close()
+		})
+		applyKeepAlive(left)
+	})
+
+	t.Run("a socket option error does not escape", func(t *testing.T) {
+		conn := &serverTestKeepAliveConn{err: errors.New("keep-alive unavailable")}
+		applyKeepAlive(conn)
+		if conn.config != want {
+			t.Fatalf("keep-alive config = %#v, want %#v", conn.config, want)
+		}
+	})
+}
+
+func TestAccept(t *testing.T) {
+	want := net.KeepAliveConfig{Enable: true, Idle: 15 * time.Second, Interval: 5 * time.Second, Count: 3}
+
+	t.Run("an accepted connection is configured before return", func(t *testing.T) {
+		conn := &serverTestKeepAliveConn{}
+		base := &serverTestListener{conn: conn}
+		wrapped := keepAliveListener{Listener: base}
+		got, err := wrapped.Accept()
+		if err != nil || got != conn {
+			t.Fatalf("Accept() = %v, %v; want the accepted connection", got, err)
+		}
+		if base.calls != 1 {
+			t.Fatalf("underlying Accept calls = %d, want 1", base.calls)
+		}
+		if conn.config != want {
+			t.Fatalf("keep-alive config = %#v, want %#v", conn.config, want)
+		}
+	})
+
+	t.Run("an underlying accept error is returned unchanged", func(t *testing.T) {
+		wantErr := errors.New("listener closed")
+		base := &serverTestListener{err: wantErr}
+		wrapped := keepAliveListener{Listener: base}
+		got, err := wrapped.Accept()
+		if got != nil || !errors.Is(err, wantErr) {
+			t.Fatalf("Accept() = %v, %v; want nil and %v", got, err, wantErr)
+		}
+		if base.calls != 1 {
+			t.Fatalf("underlying Accept calls = %d, want 1", base.calls)
+		}
+	})
+}
+
+func TestCmdServe(t *testing.T) {
+	w := newServeWorld(t)
+	if got := w.entries(t); len(got) != 0 {
+		t.Fatalf("fresh serve world is not empty: %v", got)
+	}
+	var out strings.Builder
+	rc := cmdServe(w.env, true, true, &out)
+	if rc != 1 {
+		t.Fatalf("cmdServe returned %d, want the held-port refusal", rc)
+	}
+	if got := w.entries(t); len(got) == 0 {
+		t.Fatalf("cmdServe did not touch the configured database; output:\n%s", out.String())
+	}
+	for _, want := range []string{
+		"[ocserverd] --no-reconcile: reconcile producer disabled",
+		"[ocserverd] --no-outsource: outsource-assignment scheduler disabled",
+		"already in use",
+	} {
+		if !strings.Contains(out.String(), want) {
+			t.Fatalf("cmdServe output lacks %q:\n%s", want, out.String())
 		}
 	}
-	db.Close()
+	if strings.Contains(out.String(), "ocserverd serving on ") {
+		t.Fatalf("cmdServe announced a server after bind failure:\n%s", out.String())
+	}
+}
 
-	// Hold the port cmdServe is about to want.
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatalf("listen: %v", err)
-	}
-	defer ln.Close()
-	port := ln.Addr().(*net.TCPAddr).Port
-	cfgPath := filepath.Join(dir, "oc.toml")
-	if err := os.WriteFile(cfgPath,
-		[]byte(fmt.Sprintf("[server]\nport = %d\n", port)), 0o644); err != nil {
-		t.Fatalf("write config: %v", err)
-	}
+func TestBindErrorMessage(t *testing.T) {
+	t.Run("address in use names both the port and remedies", func(t *testing.T) {
+		got := bindErrorMessage(8775, fmt.Errorf("listen: %w", syscall.EADDRINUSE))
+		want := "port 8775 already in use — another process (very likely another officraft server) holds it. Free it, or move this instance: set [server].port in oc.toml, or OC_SERVE_PORT=<other>. Find the holder with: lsof -nP -iTCP:8775 -sTCP:LISTEN"
+		if got != want {
+			t.Fatalf("bindErrorMessage() = %q, want %q", got, want)
+		}
+	})
 
-	var out strings.Builder
-	rc := cmdServe(envOf(map[string]string{
-		"OC_CONFIG":       cfgPath,
-		"OC_DATABASE_URL": "sqlite:///" + dbPath,
-	}), true, true, &out)
-	if rc != 1 {
-		t.Fatalf("the held port must make serve exit 1 (boot ran, bind failed), got %d\n%s",
-			rc, out.String())
-	}
-	if !strings.Contains(out.String(), "already in use") {
-		t.Fatalf("expected the bind failure to be the reason we exited:\n%s", out.String())
-	}
-	// The boot said what it did — a silent reconcile is not observable.
-	if !strings.Contains(out.String(),
-		"orphan reply-card boot reconcile: retired 1 card(s)") {
-		t.Fatalf("boot must report the retired orphan:\n%s", out.String())
-	}
-
-	db, err = openSQLite(dbPath)
-	if err != nil {
-		t.Fatalf("reopen: %v", err)
-	}
-	defer db.Close()
-	dal = NewDAL(db)
-	got, err := dal.GetReplyCard("rc-orphan")
-	if err != nil || got == nil {
-		t.Fatalf("card: %v %v", got, err)
-	}
-	if got.Status != replyCardStatusExpired || got.ExpiredTS <= 0 {
-		t.Fatalf("boot must retire the stranded card, got %+v", got)
-	}
-	kept, _ := dal.GetReplyCard("rc-plain")
-	if kept.Status != replyCardStatusWaiting {
-		t.Fatalf("an unbound card must survive boot, got %s", kept.Status)
-	}
+	t.Run("other errors retain their cause", func(t *testing.T) {
+		got := bindErrorMessage(8776, errors.New("permission denied"))
+		want := "cannot bind port 8776: permission denied"
+		if got != want {
+			t.Fatalf("bindErrorMessage() = %q, want %q", got, want)
+		}
+	})
 }

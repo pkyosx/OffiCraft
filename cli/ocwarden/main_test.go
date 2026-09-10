@@ -1,838 +1,888 @@
 package main
 
 import (
+	"bytes"
 	"context"
-	"encoding/base64"
-	"encoding/json"
+
+	"errors"
 	"io"
 	"net/http"
-	"net/http/httptest"
 	"os"
+	"reflect"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"testing"
 	"time"
 )
 
-// fakeRunner is the mock shell seam: it maps an argv key -> canned stdout, so a
-// test drives the darwin probe path on any OS with zero subprocess.
-type fakeRunner struct{ out map[string]string }
+// jwtWardenOne is a three-part token whose payload decodes to {"sub":"warden-1"}.
+const jwtWardenOne = "header.eyJzdWIiOiJ3YXJkZW4tMSJ9.signature"
 
-func (f fakeRunner) Run(name string, args ...string) (string, error) {
-	key := strings.Join(append([]string{name}, args...), " ")
-	if s, ok := f.out[key]; ok {
-		return s, nil
-	}
-	return "", os.ErrNotExist
-}
+const jwtNoSub = "header.eyJub3N1YiI6MX0.sig"
 
-// realVMStat is verbatim `vm_stat` from a 64 GiB Apple-silicon box (page size
-// 16384), captured in the same second that the retired top-based reading called
-// that box 98.9% full. Its counters are what the ram_pct expectations in this
-// file are computed from:
-//
-//	App Memory = (1770105 - 37518) pages = 28.39 GB
-//	Wired      =            283654 pages =  4.65 GB
-//	Compressed =            652133 pages = 10.68 GB
-//	Memory Used                          = 43.72 GB / 68.72 GB = 63.6%
-//
-// Trimmed to the counters a reader needs plus a few neighbours, because the
-// parser has to pick its three out of a list it does not control.
-const realVMStat = `Mach Virtual Memory Statistics: (page size of 16384 bytes)
-Pages free:                                   230372.
-Pages active:                                1482390.
-Pages inactive:                              1467600.
-Pages speculative:                             17506.
-Pages throttled:                                   0.
-Pages wired down:                             283654.
-Pages purgeable:                               37518.
-"Translation faults":                     4174779662.
-File-backed pages:                           1197391.
-Anonymous pages:                             1770105.
-Pages stored in compressor:                  1415705.
-Pages occupied by compressor:                 652133.
-Swapins:                                           0.
-Swapouts:                                          0.
-`
+// roundTripFunc is the http seam: it answers a request without a listening server.
+type roundTripFunc func(*http.Request) (*http.Response, error)
 
-// realMemTotal is `sysctl -n hw.memsize` from that same box: 64 GiB exactly.
-const realMemTotal = "68719476736\n"
+func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
 
-// sample probe fixtures (trimmed real macOS output).
-//
-// The `top` fixture deliberately keeps its PhysMem line even though nothing
-// parses it any more: by the retired formula that line reads 75% (12G / (12G +
-// 4G)), while the vm_stat/hw.memsize fixtures read 63.6%. The two answers differ,
-// so a reading that ever drifts back to `top` shows up as a wrong number here
-// rather than as a silently plausible one.
-var fakeProbes = map[string]string{
-	"pmset -g batt":             "Now drawing from 'AC Power'\n -InternalBattery-0 (id=1)\t87%; charged; 0:00 remaining present: true",
-	"top -l1 -n0":               "CPU usage: 12.50% user, 7.50% sys, 80.00% idle\nPhysMem: 12G used (2G wired), 4G unused.",
-	"scutil --get ComputerName": "Seth's MacBook Pro\n",
-	"vm_stat":                   realVMStat,
-	"sysctl -n hw.memsize":      realMemTotal,
-}
-
-// TestFullChain_MockShellToHTTPServer exercises the whole run_once chain:
-// mock runner feeds fake pmset/top/scutil -> collect -> build payload -> POST to
-// an httptest.Server -> assert the received request body + headers.
-func TestFullChain_MockShellToHTTPServer(t *testing.T) {
-	var gotAuth, gotUA, gotCT string
-	var gotBody map[string]any
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		gotAuth = r.Header.Get("Authorization")
-		gotUA = r.Header.Get("User-Agent")
-		gotCT = r.Header.Get("Content-Type")
-		raw, _ := io.ReadAll(r.Body)
-		_ = json.Unmarshal(raw, &gotBody)
-		if r.URL.Path != telemetryPath {
-			t.Errorf("path = %q, want %q", r.URL.Path, telemetryPath)
-		}
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte(`{"ok":true}`))
-	}))
-	defer srv.Close()
-
-	runner := fakeRunner{out: fakeProbes}
-	cfg := Config{Base: srv.URL, Token: "tok-123", ID: "agent-xyz"}
-	collect := func() map[string]any { return collectHardware(runner, "darwin") }
-	machine := func() string { return readMachineName(runner) }
-	post := httpPoster(srv.Client(), cfg.Base, cfg.Token)
-
-	binaries := func() map[string]string {
-		return map[string]string{"ocwarden": "aaaabbbbcccc", "ocagent": "ddddeeeeffff"}
-	}
-	claude := func() map[string]any {
-		return map[string]any{"version": "2.1.211", "cred_file": true, "sub_readable": true, "keychain": false}
-	}
-	res := runOnce(cfg, collect, machine, post, binaries, claude, nil, nil)
-
-	if !res.Posted || res.Status != 200 {
-		t.Fatalf("runOnce = %+v, want posted 200", res)
-	}
-	if gotAuth != "Bearer tok-123" {
-		t.Errorf("Authorization = %q, want Bearer tok-123", gotAuth)
-	}
-	if gotUA != userAgent {
-		t.Errorf("User-Agent = %q, want %q", gotUA, userAgent)
-	}
-	if gotCT != "application/json" {
-		t.Errorf("Content-Type = %q, want application/json", gotCT)
-	}
-	// The reporting identity is the verified JWT sub, never a body key. The frozen
-	// ingest schema does not declare agent_id and the server refuses unknown fields,
-	// so sending it 422s the ENTIRE heartbeat — hardware, binaries, claude probe and
-	// runtime capabilities together.
-	if _, present := gotBody["agent_id"]; present {
-		t.Errorf("agent_id must not be on the wire; body = %v", gotBody)
-	}
-	if gotBody["machine"] != "Seth's MacBook Pro" {
-		t.Errorf("machine = %v, want Seth's MacBook Pro", gotBody["machine"])
-	}
-	hw, ok := gotBody["hardware"].(map[string]any)
-	if !ok {
-		t.Fatalf("hardware missing/wrong type: %v", gotBody["hardware"])
-	}
-	if hw["battery_pct"] != float64(87) { // JSON numbers decode to float64
-		t.Errorf("battery_pct = %v, want 87", hw["battery_pct"])
-	}
-	if hw["ac_power"] != true {
-		t.Errorf("ac_power = %v, want true", hw["ac_power"])
-	}
-	if hw["cpu_pct"] != 20.0 { // 100 - 80 idle
-		t.Errorf("cpu_pct = %v, want 20", hw["cpu_pct"])
-	}
-	// 43.72 GB used of 68.72 GB installed — Activity Monitor's "Memory Used" over
-	// hw.memsize, NOT the 75% the fixture's PhysMem line would have produced.
-	if hw["ram_pct"] != 63.6 {
-		t.Errorf("ram_pct = %v, want 63.6", hw["ram_pct"])
-	}
-	bins, ok := gotBody["binaries"].(map[string]any)
-	if !ok {
-		t.Fatalf("binaries missing/wrong type: %v", gotBody["binaries"])
-	}
-	if bins["ocwarden"] != "aaaabbbbcccc" || bins["ocagent"] != "ddddeeeeffff" {
-		t.Errorf("binaries = %v, want the injected fingerprints", bins)
-	}
-	cl, ok := gotBody["claude"].(map[string]any)
-	if !ok {
-		t.Fatalf("claude missing/wrong type: %v", gotBody["claude"])
-	}
-	if cl["version"] != "2.1.211" || cl["cred_file"] != true ||
-		cl["sub_readable"] != true || cl["keychain"] != false {
-		t.Errorf("claude = %v, want the injected probe", cl)
-	}
-}
-
-// TestBuildTelemetryPayload_ClaudeField: the claude probe rides the payload
-// only when non-empty (T-97ee) — an empty probe omits the field entirely, so
-// an old-style heartbeat is byte-identical to before the probe existed.
-func TestBuildTelemetryPayload_ClaudeField(t *testing.T) {
-	probe := map[string]any{"version": "2.1.211", "cred_file": true, "sub_readable": false, "keychain": true}
-	payload, err := buildTelemetryPayload("agent-1", "m", map[string]any{"cpu_pct": 1.0}, nil, probe, "", "")
-	if err != nil {
-		t.Fatalf("build: %v", err)
-	}
-	got, ok := payload["claude"].(map[string]any)
-	if !ok || got["version"] != "2.1.211" || got["sub_readable"] != false {
-		t.Fatalf("claude = %v, want the probe map", payload["claude"])
-	}
-
-	payload, err = buildTelemetryPayload("agent-1", "m", map[string]any{"cpu_pct": 1.0}, nil, map[string]any{}, "", "")
-	if err != nil {
-		t.Fatalf("build: %v", err)
-	}
-	if _, present := payload["claude"]; present {
-		t.Fatalf("empty probe must omit the claude field, got %v", payload["claude"])
-	}
-	payload, err = buildTelemetryPayload("agent-1", "m", map[string]any{"cpu_pct": 1.0}, nil, nil, "", "")
-	if err != nil {
-		t.Fatalf("build: %v", err)
-	}
-	if _, present := payload["claude"]; present {
-		t.Fatalf("nil probe must omit the claude field, got %v", payload["claude"])
-	}
-}
-
-// TestRunOnce_ClaudeOnlyCyclePosts: a probe-only cycle is a valid POST (the
-// claude field is first-class, same as a fingerprints-only cycle).
-func TestRunOnce_ClaudeOnlyCyclePosts(t *testing.T) {
-	var gotBody map[string]any
-	post := func(path string, payload map[string]any) (int, map[string]any) {
-		gotBody = payload
-		return 200, nil
-	}
-	res := runOnce(Config{Base: "x", Token: "t", ID: "i"},
-		func() map[string]any { return map[string]any{} },
-		func() string { return "m" },
-		post, nil,
-		func() map[string]any { return map[string]any{"cred_file": false, "sub_readable": false} }, nil, nil)
-	if !res.Posted {
-		t.Fatalf("claude-only cycle must post, got %+v", res)
-	}
-	cl, _ := gotBody["claude"].(map[string]any)
-	if cl["cred_file"] != false {
-		t.Fatalf("claude fold = %v, want the probe", gotBody["claude"])
-	}
-}
-
-// TestRunOnce_HeartbeatCarriesTheWardenShape drives the REAL collector
-// (newShapeReporter -> detectShape) over the faked cutover seam and reads the
-// verdict off the payload the poster would put on the wire — the whole point of
-// T-ff5d being that the fleet, not just one machine's startup log, can tell a
-// converted machine from an unconverted one.
-//
-// The expected values are LITERALS, not the shape consts: the consts are the
-// producer's own vocabulary, and a test that compares the producer to itself
-// would stay green if someone renamed the wire value the server validates
-// against. Same for the "warden_shape" key.
-func TestRunOnce_HeartbeatCarriesTheWardenShape(t *testing.T) {
-	p := testPaths()
-	for _, tc := range []struct {
-		name      string
-		parentExe string
-		want      string
+func TestLoadConfig(t *testing.T) {
+	cases := []struct {
+		name string
+		env  map[string]string
+		want Config
 	}{
-		{"launchd runs the anchor", p.anchorPath, "anchor"},
-		{"launchd runs ocwarden directly", "/sbin/launchd", "legacy"},
-		{"parent is neither", "/bin/zsh", "unknown"},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			f := newFakeCutover()
-			f.files["__ppid_exe__"] = tc.parentExe
-			defer swapCutoverOps(t, f)()
-
-			var gotBody map[string]any
-			res := runOnce(Config{Base: "x", Token: "t", ID: "i"},
-				func() map[string]any { return map[string]any{"cpu_pct": 1.0} },
-				func() string { return "m" },
-				func(_ string, payload map[string]any) (int, map[string]any) {
-					gotBody = payload
-					return 200, nil
-				}, nil, nil, newShapeReporter(p.anchorPath, 4242), nil)
-			if !res.Posted {
-				t.Fatalf("runOnce = %+v, want posted", res)
-			}
-			if got := gotBody["warden_shape"]; got != tc.want {
-				t.Fatalf("warden_shape = %v, want %q; body = %v", got, tc.want, gotBody)
-			}
-		})
+		{"a loopback base keeps its scheme and loses its trailing slash", map[string]string{
+			"OC_BASE": "http://127.0.0.1:7755/", "OC_TOKEN": jwtWardenOne,
+		}, Config{Base: "http://127.0.0.1:7755", Token: jwtWardenOne, ID: "warden-1"}},
+		{"an explicit OC_ID wins over the token subject", map[string]string{
+			"OC_BASE": "http://127.0.0.1:7755", "OC_TOKEN": jwtWardenOne, "OC_ID": "machine-7",
+		}, Config{Base: "http://127.0.0.1:7755", Token: jwtWardenOne, ID: "machine-7"}},
+		{"a remote base is re-schemed and stripped to its authority", map[string]string{
+			"OC_BASE": "http://oc.example.com/api/?x=1", "OC_TOKEN": jwtWardenOne,
+		}, Config{Base: "https://oc.example.com", Token: jwtWardenOne, ID: "warden-1"}},
+		{"an unset OC_BASE is left empty, never guessed", map[string]string{}, Config{}},
+		{"a token with no sub leaves the id empty", map[string]string{
+			"OC_TOKEN": jwtNoSub,
+		}, Config{Token: jwtNoSub}},
 	}
-
-	// A warden that reports no shape at all must OMIT the key. Absent and
-	// "unknown" are different claims on this wire ("this build cannot report a
-	// shape" vs "this build ran and could not tell"), and the server is
-	// forbidden from inferring one from the other — so the producer must never
-	// collapse them either.
-	var gotBody map[string]any
-	runOnce(Config{Base: "x", Token: "t", ID: "i"},
-		func() map[string]any { return map[string]any{"cpu_pct": 1.0} },
-		func() string { return "m" },
-		func(_ string, payload map[string]any) (int, map[string]any) {
-			gotBody = payload
-			return 200, nil
-		}, nil, nil, nil, nil)
-	if _, present := gotBody["warden_shape"]; present {
-		t.Fatalf("no shape collector must omit the key, got %v", gotBody["warden_shape"])
+	for _, c := range cases {
+		got := loadConfig(func(k string) string { return c.env[k] })
+		if got != c.want {
+			t.Errorf("%s: config = %+v, want %+v", c.name, got, c.want)
+		}
 	}
 }
 
-// TestNewShapeReporter_UnresolvedAnchorReportsUnknownNeverLegacy is the
-// dangerous-default guard. detectShape decides `legacy` from "the parent is
-// launchd AND it is not the anchor", so an empty anchorPath — the paths could
-// not be resolved — would make every launchd-parented warden, INCLUDING a
-// correctly converted one, report `legacy` and invite a second migration.
-func TestNewShapeReporter_UnresolvedAnchorReportsUnknownNeverLegacy(t *testing.T) {
-	f := newFakeCutover()
-	f.files["__ppid_exe__"] = "/sbin/launchd"
-	defer swapCutoverOps(t, f)()
+func TestReadTokfile(t *testing.T) {
+	reads := []string{}
+	readFile := func(path string) ([]byte, error) {
+		reads = append(reads, path)
+		switch path {
+		case "/Users/eva/.officraft/warden/exec-warden.tok":
+			return []byte("  jwt-from-file\n"), nil
+		case "/custom/warden.tok":
+			return []byte("jwt-custom"), nil
+		}
+		return nil, os.ErrNotExist
+	}
 
-	if got := newShapeReporter("", 1)(); got != "unknown" {
-		t.Fatalf("shape with no anchor path = %q, want %q", got, "unknown")
+	got := readTokfile(func(k string) string { return map[string]string{"HOME": "/Users/eva"}[k] }, readFile)
+	if got != "jwt-from-file" {
+		t.Errorf("token = %q, want %q (whitespace trimmed)", got, "jwt-from-file")
+	}
+	if want := []string{"/Users/eva/.officraft/warden/exec-warden.tok"}; !reflect.DeepEqual(reads, want) {
+		t.Errorf("reads = %v, want %v", reads, want)
+	}
+
+	env := map[string]string{"HOME": "/Users/eva", "OC_WARDEN_TOKFILE": "/custom/warden.tok"}
+	if got := readTokfile(func(k string) string { return env[k] }, readFile); got != "jwt-custom" {
+		t.Errorf("token = %q, want %q", got, "jwt-custom")
+	}
+
+	if got := readTokfile(func(k string) string { return map[string]string{"HOME": "/nobody"}[k] }, readFile); got != "" {
+		t.Errorf("a missing token file = %q, want \"\"", got)
+	}
+	if got := readTokfile(func(string) string { return "" }, readFile); got != "" {
+		t.Errorf("no derivable path = %q, want \"\"", got)
+	}
+}
+
+func TestTokfilePath(t *testing.T) {
+	cases := []struct {
+		name string
+		env  map[string]string
+		want string
+	}{
+		{"the launcher default", map[string]string{"HOME": "/Users/eva"},
+			"/Users/eva/.officraft/warden/exec-warden.tok"},
+		{"OC_WARDEN_TOKFILE wins", map[string]string{
+			"HOME": "/Users/eva", "OC_WARDEN_TOKFILE": "/custom/warden.tok", "OC_NAMESPACE": "lab",
+		}, "/custom/warden.tok"},
+		{"a namespaced instance has its own file", map[string]string{
+			"HOME": "/Users/eva", "OC_NAMESPACE": "lab",
+		}, "/Users/eva/.officraft-lab/warden/exec-warden.tok"},
+		{"no HOME derives nothing", map[string]string{}, ""},
+		{"a malformed namespace derives nothing", map[string]string{
+			"HOME": "/Users/eva", "OC_NAMESPACE": "LAB",
+		}, ""},
+	}
+	for _, c := range cases {
+		if got := tokfilePath(func(k string) string { return c.env[k] }); got != c.want {
+			t.Errorf("%s: tokfilePath = %q, want %q", c.name, got, c.want)
+		}
+	}
+}
+
+func TestTokfileEnv(t *testing.T) {
+	base := map[string]string{"HOME": "/Users/eva", "OC_BASE": "http://127.0.0.1:7755", "OC_CLAUDE_BIN": "/bin/claude"}
+	readFile := func(path string) ([]byte, error) {
+		if path == "/Users/eva/.officraft/warden/exec-warden.tok" {
+			return []byte("jwt-from-file\n"), nil
+		}
+		return nil, os.ErrNotExist
+	}
+
+	folded := tokfileEnv(func(k string) string { return base[k] }, readFile)
+	if got := folded("OC_TOKEN"); got != "jwt-from-file" {
+		t.Errorf("OC_TOKEN = %q, want the token file's contents", got)
+	}
+	for _, k := range []string{"HOME", "OC_BASE", "OC_CLAUDE_BIN", "OC_ABSENT"} {
+		if got, want := folded(k), base[k]; got != want {
+			t.Errorf("%s = %q, want %q (passed straight through)", k, got, want)
+		}
+	}
+
+	explicit := map[string]string{"HOME": "/Users/eva", "OC_TOKEN": "jwt-explicit"}
+	folded = tokfileEnv(func(k string) string { return explicit[k] }, readFile)
+	if got := folded("OC_TOKEN"); got != "jwt-explicit" {
+		t.Errorf("OC_TOKEN = %q, want the explicitly-set token", got)
+	}
+
+	empty := tokfileEnv(func(string) string { return "" }, readFile)
+	if got := empty("OC_TOKEN"); got != "" {
+		t.Errorf("OC_TOKEN = %q, want \"\" when no file can be derived", got)
+	}
+}
+
+func TestJwtSub(t *testing.T) {
+	cases := []struct{ token, want string }{
+		{jwtWardenOne, "warden-1"},
+		{jwtNoSub, ""},
+		{"", ""},
+		{"onlyone", ""},
+		{"a.b", ""},
+		{"a.b.c.d", ""},
+		{"header.!!notbase64!!.sig", ""},
+		{"header.aGVsbG8.sig", ""},
+	}
+	for _, c := range cases {
+		if got := jwtSub(c.token); got != c.want {
+			t.Errorf("jwtSub(%q) = %q, want %q", c.token, got, c.want)
+		}
 	}
 }
 
 func TestParseBattery(t *testing.T) {
-	pct, ok, ac, acOK := parseBattery("Now drawing from 'AC Power' 87%;")
-	if !ok || pct != 87 || !acOK || !ac {
-		t.Fatalf("got pct=%d ok=%v ac=%v acOK=%v", pct, ok, ac, acOK)
+	cases := []struct {
+		name  string
+		text  string
+		pct   int
+		pctOK bool
+		ac    bool
+		acOK  bool
+	}{
+		{"charged on AC", "Now drawing from 'AC Power'\n -InternalBattery-0 (id=1)\t87%; charged; 0:00 remaining present: true",
+			87, true, true, true},
+		{"discharging", "Now drawing from 'Battery Power'\n -InternalBattery-0 (id=1)\t42%; discharging; 3:11 remaining present: true",
+			42, true, false, true},
+		{"AC attached wording", "AC attached; 100%", 100, true, true, true},
+		{"desktop with no battery", "Now drawing from 'AC Power'", 0, false, true, true},
+		{"unreadable output", "", 0, false, false, false},
+		{"an out-of-range percentage is dropped", "Now drawing from 'AC Power'\n 999%", 0, false, true, true},
 	}
-	_, ok, _, acOK = parseBattery("desktop, no battery here")
-	if ok || acOK {
-		t.Fatalf("expected no pct/ac for desktop, got ok=%v acOK=%v", ok, acOK)
-	}
-	_, _, ac, acOK = parseBattery("Now drawing from 'Battery Power' 55%")
-	if !acOK || ac {
-		t.Fatalf("expected ac=false, got ac=%v acOK=%v", ac, acOK)
+	for _, c := range cases {
+		pct, pctOK, ac, acOK := parseBattery(c.text)
+		if pct != c.pct || pctOK != c.pctOK || ac != c.ac || acOK != c.acOK {
+			t.Errorf("%s: got (%d,%v,%v,%v), want (%d,%v,%v,%v)",
+				c.name, pct, pctOK, ac, acOK, c.pct, c.pctOK, c.ac, c.acOK)
+		}
 	}
 }
 
 func TestParseCPUPct(t *testing.T) {
-	if v, ok := parseCPUPct("CPU usage: 5.00% user, 5.00% sys, 90.00% idle"); !ok || v != 10.0 {
-		t.Errorf("cpu = %v ok=%v, want 10", v, ok)
+	cases := []struct {
+		name string
+		text string
+		want float64
+		ok   bool
+	}{
+		{"a real top line", "CPU usage: 12.50% user, 7.50% sys, 80.00% idle\nPhysMem: 12G used", 20, true},
+		{"fully idle", "CPU usage: 0.00% user, 0.00% sys, 100.00% idle", 0, true},
+		{"fully busy", "CPU usage: 60.00% user, 40.00% sys, 0.00% idle", 100, true},
+		{"rounded to one decimal", "CPU usage: 1.00% user, 0.00% sys, 87.34% idle", 12.7, true},
+		{"an over-100 idle is clamped", "CPU usage: 0% user, 0% sys, 140.00% idle", 0, true},
+		{"no idle figure", "PhysMem: 12G used (2G wired), 4G unused.", 0, false},
+		{"empty", "", 0, false},
 	}
-	if _, ok := parseCPUPct("garbage"); ok {
-		t.Errorf("cpu should fail on garbage")
-	}
-}
-
-// TestParseRAMPct_MatchesActivityMonitorOnRealOutput is the arithmetic this
-// change exists for, pinned against real captured output rather than a
-// hand-rounded expectation.
-func TestParseRAMPct_MatchesActivityMonitorOnRealOutput(t *testing.T) {
-	got, ok := parseRAMPct(realVMStat, realMemTotal)
-	if !ok {
-		t.Fatalf("real macOS output must parse")
-	}
-	if got != 63.6 {
-		t.Errorf("ram_pct = %v, want 63.6 — (App Memory 28.39 + Wired 4.65 + "+
-			"Compressed 10.68) GB over hw.memsize 68.72 GB", got)
-	}
-}
-
-// TestParseRAMPct_ExcludesReclaimableCache is the REGRESSION this change is
-// about. The box in realVMStat parks 1197391 file-backed pages — 19.62 GB — in
-// reclaimable cache, and the retired reading counted every one of them as
-// consumption (which is how a green machine got reported at 98.9% and used to
-// raise a resource alarm).
-//
-// Stated as a threshold-crossing rather than as a constant, so it says something
-// the exact-value test next door does not: on THIS sample, folding the cache back
-// in pushes the reading into alarm territory (>= 90%) while the honest reading
-// stays far below it. The second assertion is the test's own precondition — if a
-// future fixture had a small cache the first assertion would pass for free, and a
-// test that cannot fail is indistinguishable from one that is satisfied.
-func TestParseRAMPct_ExcludesReclaimableCache(t *testing.T) {
-	got, ok := parseRAMPct(realVMStat, realMemTotal)
-	if !ok {
-		t.Fatalf("real macOS output must parse")
-	}
-	pageSize, counts, ok := parseVMStat(realVMStat)
-	if !ok {
-		t.Fatalf("real macOS output must parse")
-	}
-	total, _ := parseMemTotalBytes(realMemTotal)
-	cacheShare := counts["File-backed pages"] * pageSize / total * 100
-
-	const alarm = 90.0
-	if got >= alarm {
-		t.Errorf("ram_pct = %v on a sample carrying %.1f points of reclaimable "+
-			"file cache: cache is still being counted as consumption", got, cacheShare)
-	}
-	if got+cacheShare < alarm {
-		t.Fatalf("precondition: this fixture's cache is only worth %.1f points, so "+
-			"even counting it as used would read %.1f%% and stay under the %v%% this "+
-			"test claims to discriminate against — the assertion above would pass "+
-			"for free. Use a cache-heavy sample.", cacheShare, got+cacheShare, alarm)
-	}
-}
-
-// TestParseRAMPct_NeverDeflatesWhenPurgeableExceedsAnonymous is the negative
-// control for the App Memory floor. Without it, `anonymous - purgeable` going
-// negative would SUBTRACT from wired+compressed and report a machine as emptier
-// than it is — and deleting the floor is invisible to every other test here,
-// because no real sample can drive it.
-func TestParseRAMPct_NeverDeflatesWhenPurgeableExceedsAnonymous(t *testing.T) {
-	// Anonymous well below purgeable; wired + compressor are untouched, so the
-	// honest floor answer is exactly their share of the box.
-	inverted := strings.ReplaceAll(realVMStat,
-		"Anonymous pages:                             1770105.",
-		"Anonymous pages:                                  10.")
-	if inverted == realVMStat {
-		t.Fatalf("precondition: the anonymous line was not actually replaced")
-	}
-	got, ok := parseRAMPct(inverted, realMemTotal)
-	if !ok {
-		t.Fatalf("an invertible sample must still parse")
-	}
-	pageSize, counts, _ := parseVMStat(inverted)
-	total, _ := parseMemTotalBytes(realMemTotal)
-	floor := (counts["Pages wired down"] + counts["Pages occupied by compressor"]) *
-		pageSize / total * 100
-	if got < round1(floor) {
-		t.Errorf("ram_pct = %v, want >= %.1f (wired + compressed alone): a negative "+
-			"App Memory must not be allowed to cancel out memory that IS pinned",
-			got, floor)
-	}
-}
-
-// TestParseRAMPct_PurgeableIsAnOptionalCorrection: the three constituents are
-// required (without one the number is a different quantity), but purgeable only
-// trims volatile allocations and is worth well under a point — a vm_stat that
-// stopped reporting it must degrade, not go blank.
-func TestParseRAMPct_PurgeableIsAnOptionalCorrection(t *testing.T) {
-	withPurgeable, ok := parseRAMPct(realVMStat, realMemTotal)
-	if !ok {
-		t.Fatalf("precondition: the real sample must parse")
-	}
-	stripped := strings.ReplaceAll(realVMStat, "Pages purgeable:                               37518.\n", "")
-	if strings.Contains(stripped, "purgeable") {
-		t.Fatalf("precondition: the purgeable line was not actually removed")
-	}
-	without, ok := parseRAMPct(stripped, realMemTotal)
-	if !ok {
-		t.Fatalf("a missing purgeable line must still produce a reading, not a blank")
-	}
-	if without <= withPurgeable || without-withPurgeable > 1.0 {
-		t.Errorf("without purgeable = %v, with = %v: dropping the correction should "+
-			"overstate by a fraction of a point, nothing more", without, withPurgeable)
-	}
-}
-
-// TestParseRAMPct_OmitsRatherThanGuesses. Every input this reading cannot do
-// without, one at a time. Reporting a plausible-but-wrong percent is the failure
-// this whole change is undoing, so each case must come back ok=false and let
-// collectHardware omit the key.
-func TestParseRAMPct_OmitsRatherThanGuesses(t *testing.T) {
-	for name, tc := range map[string]struct{ vmStat, memTotal string }{
-		"no page size in the header": {
-			strings.ReplaceAll(realVMStat, "(page size of 16384 bytes)", "(page size unknown)"),
-			realMemTotal},
-		"zero page size": {
-			strings.ReplaceAll(realVMStat, "page size of 16384 bytes", "page size of 0 bytes"),
-			realMemTotal},
-		"no anonymous pages": {
-			strings.ReplaceAll(realVMStat, "Anonymous pages", "Anonymouse pages"),
-			realMemTotal},
-		"no wired pages": {
-			strings.ReplaceAll(realVMStat, "Pages wired down", "Pages wired up"),
-			realMemTotal},
-		"no compressor pages": {
-			strings.ReplaceAll(realVMStat, "Pages occupied by compressor", "Pages held by compressor"),
-			realMemTotal},
-		"vm_stat did not run":    {"", realMemTotal},
-		"hw.memsize did not run": {realVMStat, ""},
-		"hw.memsize is not a number": {realVMStat,
-			"hw.memsize: 68719476736\n"},
-		"hw.memsize is zero": {realVMStat, "0\n"},
-		// The float spellings ParseFloat would have accepted. NaN is the dangerous
-		// one: it passes any `<= 0` check, survives the clamp, and then fails
-		// json.Marshal on the WHOLE heartbeat — reported as status 0, which looks
-		// exactly like the server being down.
-		"hw.memsize is NaN":        {realVMStat, "NaN\n"},
-		"hw.memsize is +Inf":       {realVMStat, "+Inf\n"},
-		"hw.memsize is a hexfloat": {realVMStat, "0x1p40\n"},
-		"hw.memsize is scientific": {realVMStat, "6.87e10\n"},
-		"hw.memsize is negative":   {realVMStat, "-68719476736\n"},
-	} {
-		t.Run(name, func(t *testing.T) {
-			if v, ok := parseRAMPct(tc.vmStat, tc.memTotal); ok {
-				t.Errorf("got %v ok=true; a reading this incomplete must be omitted, "+
-					"because a wrong gauge is what this change is removing", v)
-			}
-		})
-	}
-}
-
-// TestParseRAMPct_ClampsToARealPercent: teleNum on the server drops negatives and
-// the cockpit renders whatever it is handed, so an impossible ratio (a machine
-// reporting more consumed than installed, e.g. mid-resize or a truncated probe)
-// must not leave here as 140%.
-func TestParseRAMPct_ClampsToARealPercent(t *testing.T) {
-	if v, ok := parseRAMPct(realVMStat, "4294967296\n"); !ok || v != 100.0 {
-		t.Errorf("ram_pct = %v ok=%v, want a clamped 100", v, ok)
-	}
-}
-
-// TestParseVMStat_ReadsThePageSizeItIsGiven. 4096 on Intel, 16384 on Apple
-// silicon: assuming either makes every count on the other architecture wrong by
-// 4x, which is a big enough error to look like a real memory problem.
-func TestParseVMStat_ReadsThePageSizeItIsGiven(t *testing.T) {
-	intel := strings.ReplaceAll(realVMStat, "page size of 16384 bytes", "page size of 4096 bytes")
-	pageSize, counts, ok := parseVMStat(intel)
-	if !ok || pageSize != 4096 {
-		t.Fatalf("pageSize = %v ok=%v, want 4096", pageSize, ok)
-	}
-	if counts["Pages wired down"] != 283654 {
-		t.Errorf("wired = %v, want 283654", counts["Pages wired down"])
-	}
-	// A quoted label ("Translation faults") must not derail the line scanner.
-	if counts["Translation faults"] != 4174779662 {
-		t.Errorf("quoted label parsed as %v", counts["Translation faults"])
-	}
-	// A QUARTER, not merely "smaller": a mutant that halves the reading, or one
-	// that fails outright and returns (0, false), would satisfy `quarter < full`.
-	quarter, quarterOK := parseRAMPct(intel, realMemTotal)
-	full, fullOK := parseRAMPct(realVMStat, realMemTotal)
-	if !quarterOK || !fullOK {
-		t.Fatalf("both page sizes must produce a reading; got %v/%v %v/%v",
-			quarter, quarterOK, full, fullOK)
-	}
-	if ratio := full / quarter; ratio < 3.9 || ratio > 4.1 {
-		t.Errorf("16384/4096 reading ratio = %.3f (%v vs %v), want ~4: the page size "+
-			"must scale every count, not merely change the answer", ratio, full, quarter)
-	}
-}
-
-// TestParseVMStat_ALabelNeverAdoptsTheNextLinesNumber is the negative control for
-// the `[ \t]` separators in vmCounterRe. Go's `\s` matches a newline, so the
-// obvious `\s+` spelling lets a label whose own line carries no number reach
-// across and adopt the following line's digits — a counter that silently becomes
-// someone else's value, which is worse than one that is simply absent.
-func TestParseVMStat_ALabelNeverAdoptsTheNextLinesNumber(t *testing.T) {
-	split := strings.ReplaceAll(realVMStat,
-		"Pages wired down:                             283654.",
-		"Pages wired down:\n283654.")
-	if split == realVMStat {
-		t.Fatalf("precondition: the wired line was not actually split")
-	}
-	_, counts, ok := parseVMStat(split)
-	if !ok {
-		t.Fatalf("the header is intact, so the sample must still parse")
-	}
-	if v, present := counts["Pages wired down"]; present {
-		t.Errorf("Pages wired down = %v: its own line carries no number, so it must "+
-			"be ABSENT (letting parseRAMPct omit the reading) rather than silently "+
-			"adopting the next line's digits", v)
-	}
-	// And the whole reading must omit itself rather than compute without wired.
-	if v, ok := parseRAMPct(split, realMemTotal); ok {
-		t.Errorf("ram_pct = %v: a missing constituent must omit, not approximate", v)
-	}
-}
-
-func TestCollectHardware_NonDarwinEmpty(t *testing.T) {
-	hw := collectHardware(fakeRunner{out: fakeProbes}, "linux")
-	if len(hw) != 0 {
-		t.Fatalf("non-darwin should be empty, got %v", hw)
-	}
-}
-
-func TestCollectHardware_OmitOnProbeFailure(t *testing.T) {
-	// runner with no fixtures -> every probe errors -> every field omitted.
-	hw := collectHardware(fakeRunner{out: map[string]string{}}, "darwin")
-	if len(hw) != 0 {
-		t.Fatalf("all probes failed, expected empty, got %v", hw)
-	}
-}
-
-// TestCollectHardware_RAMNeedsBothMemoryProbes: ram_pct is now assembled from two
-// independent commands, so each has to be able to fail ALONE without either
-// blanking its siblings or — the case that matters — resurrecting a reading from
-// whichever half did answer. `top` is still in the fixture set throughout, so a
-// fallback to its PhysMem line would show up as a present ram_pct.
-func TestCollectHardware_RAMNeedsBothMemoryProbes(t *testing.T) {
-	for name, missing := range map[string]string{
-		"vm_stat is unavailable":    "vm_stat",
-		"hw.memsize is unavailable": "sysctl -n hw.memsize",
-	} {
-		t.Run(name, func(t *testing.T) {
-			probes := map[string]string{}
-			for key, value := range fakeProbes {
-				if key != missing {
-					probes[key] = value
-				}
-			}
-			hw := collectHardware(fakeRunner{out: probes}, "darwin")
-			if _, present := hw["ram_pct"]; present {
-				t.Errorf("ram_pct = %v with %s missing; half an answer must be omitted, "+
-					"not filled in from top", hw["ram_pct"], missing)
-			}
-			// The siblings are independent probes and must be untouched.
-			if hw["cpu_pct"] != 20.0 || hw["battery_pct"] != 87 || hw["ac_power"] != true {
-				t.Errorf("a failed memory probe disturbed its siblings: %v", hw)
-			}
-		})
-	}
-}
-
-func TestRunOnce_SkipsWhenNoToken(t *testing.T) {
-	res := runOnce(Config{Base: "x", Token: "", ID: ""},
-		func() map[string]any { return map[string]any{"cpu_pct": 1.0} },
-		func() string { return "m" },
-		func(string, map[string]any) (int, map[string]any) {
-			t.Fatal("post must not be called without token")
-			return 0, nil
-		}, nil, nil, nil, nil)
-	if res.Posted || res.Status != 0 {
-		t.Fatalf("expected skip, got %+v", res)
-	}
-}
-
-func TestRunOnce_SkipsEmptyHardware(t *testing.T) {
-	res := runOnce(Config{Base: "x", Token: "t", ID: "i"},
-		func() map[string]any { return map[string]any{} },
-		func() string { return "m" },
-		func(string, map[string]any) (int, map[string]any) {
-			t.Fatal("post must not be called with empty hardware")
-			return 0, nil
-		}, nil, nil, nil, nil)
-	if res.Reason != "no hardware probed (skip POST)" {
-		t.Fatalf("expected empty-hw skip, got %+v", res)
-	}
-}
-
-func TestRunLoop_Once(t *testing.T) {
-	posts := 0
-	slept := 0
-	rc := run(context.Background(), Config{Base: "x", Token: "t", ID: "i"},
-		func() map[string]any { return map[string]any{"cpu_pct": 5.0} },
-		func() string { return "m" },
-		func(string, map[string]any) (int, map[string]any) { posts++; return 200, nil },
-		nil, nil, nil, nil,
-		func(context.Context, time.Duration) bool { slept++; return true },
-		1, io.Discard)
-	if rc != 0 || posts != 1 || slept != 1 {
-		t.Fatalf("once loop: rc=%d posts=%d slept=%d, want 0/1/1", rc, posts, slept)
-	}
-}
-
-// ---------------------------------------------------------------------------
-// cancellation seam / graceful shutdown
-// ---------------------------------------------------------------------------
-
-// waitBounded fails the test if cond does not become true within a short bound,
-// so a shutdown regression (a loop that ignores ctx and hangs) fails fast instead
-// of dragging out to the 10min `go test` timeout.
-func waitBounded(t *testing.T, cond func() bool, what string) {
-	t.Helper()
-	deadline := time.Now().Add(2 * time.Second)
-	for time.Now().Before(deadline) {
-		if cond() {
-			return
+	for _, c := range cases {
+		got, ok := parseCPUPct(c.text)
+		if got != c.want || ok != c.ok {
+			t.Errorf("%s: got (%v, %v), want (%v, %v)", c.name, got, ok, c.want, c.ok)
 		}
-		time.Sleep(time.Millisecond)
 	}
-	t.Fatalf("timed out waiting for: %s", what)
 }
 
-// TestSleepUntil_ElapsesFully: with an uncancelled ctx the full duration elapses
-// and it reports true (the normal-interval path the --once byte behaviour rides on).
-func TestSleepUntil_ElapsesFully(t *testing.T) {
+func TestParseVMStat(t *testing.T) {
+	size, counts, ok := parseVMStat(realVMStat)
+	if !ok || size != 16384 {
+		t.Fatalf("got (page size %v, ok %v), want (16384, true)", size, ok)
+	}
+	want := map[string]float64{
+		"Pages free": 230372, "Pages active": 1482390, "Pages inactive": 1467600,
+		"Pages speculative": 17506, "Pages throttled": 0, "Pages wired down": 283654,
+		"Pages purgeable": 37518, "Translation faults": 4174779662,
+		"File-backed pages": 1197391, "Anonymous pages": 1770105,
+		"Pages stored in compressor": 1415705, "Pages occupied by compressor": 652133,
+		"Swapins": 0, "Swapouts": 0,
+	}
+	if !reflect.DeepEqual(counts, want) {
+		t.Errorf("counts = %v, want %v", counts, want)
+	}
+
+	if _, _, ok := parseVMStat("Pages free: 230372.\n"); ok {
+		t.Error("a dump with no page size must be unusable")
+	}
+	if _, _, ok := parseVMStat("Mach Virtual Memory Statistics: (page size of 0 bytes)\n"); ok {
+		t.Error("a zero page size must be unusable")
+	}
+
+	_, counts, ok = parseVMStat("Mach Virtual Memory Statistics: (page size of 4096 bytes)\n" +
+		"Pages free:\n230372.\nPages wired down: 283654.\n")
+	if !ok {
+		t.Fatal("ok = false, want true")
+	}
+	if got := map[string]float64{"Pages wired down": 283654}; !reflect.DeepEqual(counts, got) {
+		t.Errorf("counts = %v, want %v (a label never adopts the next line's number)", counts, got)
+	}
+}
+
+func TestParseMemTotalBytes(t *testing.T) {
+	cases := []struct {
+		text string
+		want float64
+		ok   bool
+	}{
+		{realMemTotal, 68719476736, true},
+		{"17179869184", 17179869184, true},
+		{"0", 0, false},
+		{"", 0, false},
+		{"-1", 0, false},
+		{"NaN", 0, false},
+		{"+Inf", 0, false},
+		{"0x10", 0, false},
+		{"6.8e10", 0, false},
+	}
+	for _, c := range cases {
+		got, ok := parseMemTotalBytes(c.text)
+		if got != c.want || ok != c.ok {
+			t.Errorf("parseMemTotalBytes(%q) = (%v, %v), want (%v, %v)", c.text, got, ok, c.want, c.ok)
+		}
+	}
+}
+
+func TestParseRAMPct(t *testing.T) {
+	got, ok := parseRAMPct(realVMStat, realMemTotal)
+	if !ok || got != 63.6 {
+		t.Errorf("got (%v, %v), want (63.6, true)", got, ok)
+	}
+
+	noPurgeable := strings.ReplaceAll(realVMStat, "Pages purgeable:                               37518.\n", "")
+	got, ok = parseRAMPct(noPurgeable, realMemTotal)
+	if !ok || got != 64.5 {
+		t.Errorf("without the purgeable correction got (%v, %v), want (64.5, true)", got, ok)
+	}
+
+	for _, missing := range []string{"Anonymous pages", "Pages wired down", "Pages occupied by compressor"} {
+		var kept []string
+		for _, line := range strings.Split(realVMStat, "\n") {
+			if !strings.HasPrefix(line, missing+":") {
+				kept = append(kept, line)
+			}
+		}
+		if _, ok := parseRAMPct(strings.Join(kept, "\n"), realMemTotal); ok {
+			t.Errorf("a dump without %q must omit itself", missing)
+		}
+	}
+
+	if _, ok := parseRAMPct(realVMStat, "0"); ok {
+		t.Error("an unusable denominator must omit the reading")
+	}
+	if _, ok := parseRAMPct("nothing here", realMemTotal); ok {
+		t.Error("an unusable vm_stat must omit the reading")
+	}
+
+	tiny := "Mach Virtual Memory Statistics: (page size of 16384 bytes)\n" +
+		"Pages wired down: 1000000.\nAnonymous pages: 1000000.\n" +
+		"Pages occupied by compressor: 1000000.\nPages purgeable: 0.\n"
+	if got, ok := parseRAMPct(tiny, "1073741824"); !ok || got != 100 {
+		t.Errorf("an impossible ratio got (%v, %v), want (100, true)", got, ok)
+	}
+}
+
+func TestCollectHardware(t *testing.T) {
+	got := collectHardware(fakeRunner{out: fakeProbes}, "darwin")
+	want := map[string]any{"battery_pct": 87, "ac_power": true, "cpu_pct": 20.0, "ram_pct": 63.6}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("hardware = %v, want %v", got, want)
+	}
+
+	if got := collectHardware(fakeRunner{out: fakeProbes}, "linux"); !reflect.DeepEqual(got, map[string]any{}) {
+		t.Errorf("a non-darwin host = %v, want an empty map", got)
+	}
+
+	if got := collectHardware(fakeRunner{}, "darwin"); !reflect.DeepEqual(got, map[string]any{}) {
+		t.Errorf("a host where every probe fails = %v, want an empty map", got)
+	}
+
+	partial := map[string]string{
+		"pmset -g batt": "Now drawing from 'Battery Power'\n -InternalBattery-0 (id=1)\t42%; discharging",
+		"vm_stat":       realVMStat,
+	}
+	got = collectHardware(fakeRunner{out: partial}, "darwin")
+	if want := (map[string]any{"battery_pct": 42, "ac_power": false}); !reflect.DeepEqual(got, want) {
+		t.Errorf("hardware = %v, want %v (ram needs BOTH memory probes)", got, want)
+	}
+}
+
+func TestReadMachineName(t *testing.T) {
+	if got := readMachineName(fakeRunner{out: fakeProbes}); got != "Seth's MacBook Pro" {
+		t.Errorf("machine = %q, want %q", got, "Seth's MacBook Pro")
+	}
+
+	hostname, err := os.Hostname()
+	if err != nil {
+		t.Skipf("no hostname on this host: %v", err)
+	}
+	if got := readMachineName(fakeRunner{}); got != hostname {
+		t.Errorf("a failed scutil = %q, want the OS hostname %q", got, hostname)
+	}
+	blank := fakeRunner{out: map[string]string{"scutil --get ComputerName": "  \n"}}
+	if got := readMachineName(blank); got != hostname {
+		t.Errorf("a blank ComputerName = %q, want the OS hostname %q", got, hostname)
+	}
+}
+
+func TestBuildTelemetryPayload(t *testing.T) {
+	got, err := buildTelemetryPayload("warden-1", "Seth's MacBook Pro",
+		map[string]any{"cpu_pct": 20.0},
+		map[string]string{"ocwarden": "sha-w"},
+		map[string]any{"present": true},
+		"anchor", "in_effect",
+		map[string]any{"claude": true})
+	if err != nil {
+		t.Fatalf("err = %v, want nil", err)
+	}
+	want := map[string]any{
+		"machine":        "Seth's MacBook Pro",
+		"hardware":       map[string]any{"cpu_pct": 20.0},
+		"binaries":       map[string]string{"ocwarden": "sha-w"},
+		"claude":         map[string]any{"present": true},
+		"warden_shape":   "anchor",
+		"cutover_effect": "in_effect",
+		"runtimes":       map[string]any{"claude": true},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("payload = %v, want %v", got, want)
+	}
+
+	got, err = buildTelemetryPayload("warden-1", "", nil, nil, nil, "", "", nil)
+	if err != nil {
+		t.Fatalf("err = %v, want nil", err)
+	}
+	if !reflect.DeepEqual(got, map[string]any{}) {
+		t.Errorf("payload = %v, want an empty body (the id is never a body key)", got)
+	}
+
+	for _, id := range []string{"", "   "} {
+		got, err := buildTelemetryPayload(id, "Seth's MacBook Pro", map[string]any{"cpu_pct": 20.0},
+			nil, nil, "", "")
+		if got != nil {
+			t.Errorf("payload = %v, want nil", got)
+		}
+		wantErr := "agent id is required (an unidentified warden has nothing to report)"
+		if err == nil || err.Error() != wantErr {
+			t.Errorf("err = %v, want %q", err, wantErr)
+		}
+	}
+}
+
+func TestHttpPoster(t *testing.T) {
+	var got *http.Request
+	var body []byte
+	client := &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		got = r
+		body, _ = io.ReadAll(r.Body)
+		return &http.Response{
+			StatusCode: 200,
+			Body:       io.NopCloser(strings.NewReader(`{"ok":true,"stored":1}`)),
+			Header:     http.Header{},
+		}, nil
+	})}
+
+	post := httpPoster(client, "http://127.0.0.1:7755", "jwt-warden")
+	status, reply := post("/api/monitoring/telemetry", map[string]any{"machine": "Seth's MacBook Pro"})
+	if status != 200 {
+		t.Errorf("status = %d, want 200", status)
+	}
+	if want := (map[string]any{"ok": true, "stored": 1.0}); !reflect.DeepEqual(reply, want) {
+		t.Errorf("reply = %v, want %v", reply, want)
+	}
+	if got.Method != http.MethodPost || got.URL.String() != "http://127.0.0.1:7755/api/monitoring/telemetry" {
+		t.Errorf("request = %s %s, want POST http://127.0.0.1:7755/api/monitoring/telemetry", got.Method, got.URL)
+	}
+	wantHeaders := map[string]string{
+		"User-Agent":    "ocwarden/0.1",
+		"Accept":        "application/json",
+		"Content-Type":  "application/json",
+		"Authorization": "Bearer jwt-warden",
+	}
+	for k, want := range wantHeaders {
+		if v := got.Header.Get(k); v != want {
+			t.Errorf("header %s = %q, want %q", k, v, want)
+		}
+	}
+	if string(body) != `{"machine":"Seth's MacBook Pro"}` {
+		t.Errorf("body = %s, want the marshalled payload", body)
+	}
+
+	tokenless := httpPoster(client, "http://127.0.0.1:7755", "")
+	tokenless("/api/monitoring/telemetry", map[string]any{})
+	if v := got.Header.Get("Authorization"); v != "" {
+		t.Errorf("Authorization = %q, want no header at all", v)
+	}
+
+	failing := &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+		return nil, errors.New("connection refused")
+	})}
+	if status, reply := httpPoster(failing, "http://127.0.0.1:7755", "t")("/x", map[string]any{}); status != 0 || reply != nil {
+		t.Errorf("a transport fault = (%d, %v), want (0, nil)", status, reply)
+	}
+
+	if status, reply := post("/x", map[string]any{"ch": make(chan int)}); status != 0 || reply != nil {
+		t.Errorf("an unmarshallable payload = (%d, %v), want (0, nil)", status, reply)
+	}
+
+	if status, reply := httpPoster(client, "://bad", "t")("/x", map[string]any{}); status != 0 || reply != nil {
+		t.Errorf("an unbuildable request = (%d, %v), want (0, nil)", status, reply)
+	}
+
+	nonJSON := &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+		return &http.Response{StatusCode: 502, Body: io.NopCloser(strings.NewReader("<html>bad gateway")), Header: http.Header{}}, nil
+	})}
+	if status, reply := httpPoster(nonJSON, "http://127.0.0.1:7755", "t")("/x", map[string]any{}); status != 502 || reply != nil {
+		t.Errorf("a non-JSON body = (%d, %v), want (502, nil)", status, reply)
+	}
+}
+
+func TestErrorMessageOf(t *testing.T) {
+	cases := []struct {
+		name string
+		body map[string]any
+		want string
+	}{
+		{"the server envelope", map[string]any{"error": map[string]any{
+			"code": "unprocessable", "message": "  agent_id: unknown field  ",
+		}}, "agent_id: unknown field"},
+		{"no envelope", map[string]any{"ok": true}, ""},
+		{"a non-object envelope", map[string]any{"error": "boom"}, ""},
+		{"a non-string message", map[string]any{"error": map[string]any{"message": 42}}, ""},
+		{"a nil body", nil, ""},
+	}
+	for _, c := range cases {
+		if got := errorMessageOf(c.body); got != c.want {
+			t.Errorf("%s: errorMessageOf = %q, want %q", c.name, got, c.want)
+		}
+	}
+}
+
+func TestNextBackoff(t *testing.T) {
+	cases := []struct{ cur, want time.Duration }{
+		{0, 2 * time.Second},
+		{-time.Second, 2 * time.Second},
+		{time.Second, 2 * time.Second},
+		{2 * time.Second, 4 * time.Second},
+		{16 * time.Second, 32 * time.Second},
+		{32 * time.Second, 60 * time.Second},
+		{60 * time.Second, 60 * time.Second},
+		{5 * time.Minute, 60 * time.Second},
+	}
+	for _, c := range cases {
+		if got := nextBackoff(c.cur); got != c.want {
+			t.Errorf("nextBackoff(%v) = %v, want %v", c.cur, got, c.want)
+		}
+	}
+}
+
+func TestRunOnce(t *testing.T) {
+	cfg := Config{Base: "http://127.0.0.1:7755", Token: "jwt-warden", ID: "warden-1"}
+	hardware := func() map[string]any { return map[string]any{"cpu_pct": 20.0} }
+	machine := func() string { return "Seth's MacBook Pro" }
+
+	t.Run("a full cycle posts the assembled body", func(t *testing.T) {
+		var paths []string
+		var payloads []map[string]any
+		post := func(path string, payload map[string]any) (int, map[string]any) {
+			paths = append(paths, path)
+			payloads = append(payloads, payload)
+			return 200, map[string]any{"ok": true}
+		}
+		got := runOnce(cfg, hardware, machine, post,
+			func() map[string]string { return map[string]string{"ocwarden": "sha-w"} },
+			func() map[string]any { return map[string]any{"present": true} },
+			func() string { return "anchor" },
+			func() string { return "in_effect" },
+			func() map[string]any { return map[string]any{"claude": true} })
+		if want := (ReportResult{Posted: true, Status: 200, Reason: "posted"}); got != want {
+			t.Errorf("result = %+v, want %+v", got, want)
+		}
+		if want := []string{"/api/monitoring/telemetry"}; !reflect.DeepEqual(paths, want) {
+			t.Errorf("paths = %v, want %v", paths, want)
+		}
+		want := []map[string]any{{
+			"machine":        "Seth's MacBook Pro",
+			"hardware":       map[string]any{"cpu_pct": 20.0},
+			"binaries":       map[string]string{"ocwarden": "sha-w"},
+			"claude":         map[string]any{"present": true},
+			"warden_shape":   "anchor",
+			"cutover_effect": "in_effect",
+			"runtimes":       map[string]any{"claude": true},
+		}}
+		if !reflect.DeepEqual(payloads, want) {
+			t.Errorf("payload = %v, want %v", payloads, want)
+		}
+	})
+
+	t.Run("a mis-wired warden posts nothing", func(t *testing.T) {
+		post := func(string, map[string]any) (int, map[string]any) {
+			t.Error("a mis-wired warden must not POST")
+			return 200, nil
+		}
+		for _, c := range []struct {
+			name string
+			cfg  Config
+		}{
+			{"no token", Config{ID: "warden-1"}},
+			{"no id", Config{Token: "jwt-warden"}},
+		} {
+			got := runOnce(c.cfg, hardware, machine, post, nil, nil, nil, nil)
+			if want := (ReportResult{Reason: "no OC_TOKEN/OC_ID"}); got != want {
+				t.Errorf("%s: result = %+v, want %+v", c.name, got, want)
+			}
+		}
+	})
+
+	t.Run("a cycle that probed nothing skips the POST", func(t *testing.T) {
+		post := func(string, map[string]any) (int, map[string]any) {
+			t.Error("an empty body must never be POSTed")
+			return 200, nil
+		}
+		got := runOnce(cfg, func() map[string]any { return nil }, machine, post,
+			func() map[string]string { return nil }, func() map[string]any { return nil },
+			func() string { return "" }, func() string { return "" })
+		if want := (ReportResult{Reason: "no hardware probed (skip POST)"}); got != want {
+			t.Errorf("result = %+v, want %+v", got, want)
+		}
+	})
+
+	t.Run("a fingerprints-only cycle still posts", func(t *testing.T) {
+		var payloads []map[string]any
+		post := func(_ string, payload map[string]any) (int, map[string]any) {
+			payloads = append(payloads, payload)
+			return 200, nil
+		}
+		got := runOnce(cfg, func() map[string]any { return nil }, func() string { return "" }, post,
+			func() map[string]string { return map[string]string{"ocagent": "sha-a"} }, nil, nil, nil)
+		if want := (ReportResult{Posted: true, Status: 200, Reason: "posted"}); got != want {
+			t.Errorf("result = %+v, want %+v", got, want)
+		}
+		want := []map[string]any{{"binaries": map[string]string{"ocagent": "sha-a"}}}
+		if !reflect.DeepEqual(payloads, want) {
+			t.Errorf("payload = %v, want %v", payloads, want)
+		}
+	})
+
+	t.Run("a refusal carries the server's own explanation", func(t *testing.T) {
+		post := func(string, map[string]any) (int, map[string]any) {
+			return 422, map[string]any{"error": map[string]any{
+				"code": "unprocessable", "message": "agent_id: unknown field",
+			}}
+		}
+		got := runOnce(cfg, hardware, machine, post, nil, nil, nil, nil)
+		want := ReportResult{Status: 422, Reason: "post status 422: agent_id: unknown field"}
+		if got != want {
+			t.Errorf("result = %+v, want %+v", got, want)
+		}
+	})
+
+	t.Run("a transport fault reports the falsy status", func(t *testing.T) {
+		post := func(string, map[string]any) (int, map[string]any) { return 0, nil }
+		got := runOnce(cfg, hardware, machine, post, nil, nil, nil, nil)
+		if want := (ReportResult{Status: 0, Reason: "post status 0"}); got != want {
+			t.Errorf("result = %+v, want %+v", got, want)
+		}
+	})
+}
+
+func TestRun(t *testing.T) {
+	cfg := Config{Base: "http://127.0.0.1:7755", Token: "jwt-warden", ID: "warden-1"}
+	hardware := func() map[string]any { return map[string]any{"cpu_pct": 20.0} }
+	machine := func() string { return "Seth's MacBook Pro" }
+
+	t.Run("a mis-wired warden logs one line and exits clean", func(t *testing.T) {
+		var out bytes.Buffer
+		rc := run(context.Background(), Config{}, hardware, machine,
+			func(string, map[string]any) (int, map[string]any) {
+				t.Error("a mis-wired warden must not POST")
+				return 200, nil
+			}, nil, nil, nil, nil,
+			func(context.Context, time.Duration) bool { t.Error("must not sleep"); return true },
+			1, &out)
+		if rc != 0 {
+			t.Errorf("rc = %d, want 0", rc)
+		}
+		want := "[ocwarden] run: no OC_TOKEN/OC_ID — nothing to report; exiting.\n"
+		if out.String() != want {
+			t.Errorf("out = %q, want %q", out.String(), want)
+		}
+	})
+
+	t.Run("a single successful cycle waits the throttle and says nothing", func(t *testing.T) {
+		var out bytes.Buffer
+		var waits []time.Duration
+		posts := 0
+		rc := run(context.Background(), cfg, hardware, machine,
+			func(string, map[string]any) (int, map[string]any) { posts++; return 200, nil },
+			nil, nil, nil, nil,
+			func(_ context.Context, d time.Duration) bool { waits = append(waits, d); return true },
+			1, &out)
+		if rc != 0 || posts != 1 {
+			t.Errorf("rc = %d, posts = %d, want 0 and 1", rc, posts)
+		}
+		if want := []time.Duration{30 * time.Second}; !reflect.DeepEqual(waits, want) {
+			t.Errorf("waits = %v, want %v", waits, want)
+		}
+		if out.String() != "" {
+			t.Errorf("out = %q, want silence", out.String())
+		}
+	})
+
+	t.Run("a refused heartbeat is logged and backs off, doubling each time", func(t *testing.T) {
+		var out bytes.Buffer
+		var waits []time.Duration
+		rc := run(context.Background(), cfg, hardware, machine,
+			func(string, map[string]any) (int, map[string]any) {
+				return 422, map[string]any{"error": map[string]any{"message": "agent_id: unknown field"}}
+			}, nil, nil, nil, nil,
+			func(_ context.Context, d time.Duration) bool { waits = append(waits, d); return true },
+			3, &out)
+		if rc != 0 {
+			t.Errorf("rc = %d, want 0", rc)
+		}
+		if want := []time.Duration{time.Second, 2 * time.Second, 4 * time.Second}; !reflect.DeepEqual(waits, want) {
+			t.Errorf("waits = %v, want %v", waits, want)
+		}
+		line := "[ocwarden] telemetry: post status 422: agent_id: unknown field (report NOT stored)\n"
+		if want := strings.Repeat(line, 3); out.String() != want {
+			t.Errorf("out = %q, want %q", out.String(), want)
+		}
+	})
+
+	t.Run("a server that is simply down stays quiet on the throttle", func(t *testing.T) {
+		var out bytes.Buffer
+		var waits []time.Duration
+		run(context.Background(), cfg, hardware, machine,
+			func(string, map[string]any) (int, map[string]any) { return 0, nil },
+			nil, nil, nil, nil,
+			func(_ context.Context, d time.Duration) bool { waits = append(waits, d); return true },
+			2, &out)
+		if want := []time.Duration{30 * time.Second, 30 * time.Second}; !reflect.DeepEqual(waits, want) {
+			t.Errorf("waits = %v, want %v", waits, want)
+		}
+		if out.String() != "" {
+			t.Errorf("out = %q, want silence (a down server is expected)", out.String())
+		}
+	})
+
+	t.Run("a cancelled context ends the loop without a cycle", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+		var out bytes.Buffer
+		rc := run(ctx, cfg, hardware, machine,
+			func(string, map[string]any) (int, map[string]any) {
+				t.Error("a cancelled run must not POST")
+				return 200, nil
+			}, nil, nil, nil, nil,
+			func(context.Context, time.Duration) bool { t.Error("must not sleep"); return true },
+			0, &out)
+		if rc != 0 || out.String() != "" {
+			t.Errorf("rc = %d, out = %q, want 0 and silence", rc, out.String())
+		}
+	})
+
+	t.Run("a cancellation during the wait ends the forever loop", func(t *testing.T) {
+		var out bytes.Buffer
+		posts := 0
+		rc := run(context.Background(), cfg, hardware, machine,
+			func(string, map[string]any) (int, map[string]any) { posts++; return 200, nil },
+			nil, nil, nil, nil,
+			func(context.Context, time.Duration) bool { return false },
+			0, &out)
+		if rc != 0 || posts != 1 {
+			t.Errorf("rc = %d, posts = %d, want 0 and 1", rc, posts)
+		}
+	})
+}
+
+func TestSleepUntil(t *testing.T) {
 	start := time.Now()
-	if ok := sleepUntil(context.Background(), 20*time.Millisecond); !ok {
-		t.Fatalf("sleepUntil should report full elapse (true)")
+	if !sleepUntil(context.Background(), 30*time.Millisecond) {
+		t.Error("a full sleep must report true")
 	}
-	if elapsed := time.Since(start); elapsed < 15*time.Millisecond {
-		t.Fatalf("sleepUntil returned too early (%s); should have waited the interval", elapsed)
+	if elapsed := time.Since(start); elapsed < 30*time.Millisecond {
+		t.Errorf("returned after %v, want at least 30ms", elapsed)
 	}
-}
 
-// TestSleepUntil_EarlyWakeOnCancel: a ctx cancelled MID-sleep wakes the sleeper
-// immediately (well before the interval) and reports false — this is what stops a
-// shutdown from waiting out a full 30s telemetry interval.
-func TestSleepUntil_EarlyWakeOnCancel(t *testing.T) {
+	if !sleepUntil(context.Background(), 0) {
+		t.Error("a non-positive duration on a live ctx must report true")
+	}
+	if !sleepUntil(context.Background(), -time.Second) {
+		t.Error("a negative duration on a live ctx must report true")
+	}
+
+	cancelled, cancel := context.WithCancel(context.Background())
+	cancel()
+	if sleepUntil(cancelled, time.Hour) {
+		t.Error("a cancelled ctx must report false")
+	}
+	if sleepUntil(cancelled, 0) {
+		t.Error("a cancelled ctx must report false even with no duration")
+	}
+
 	ctx, cancel := context.WithCancel(context.Background())
 	go func() { time.Sleep(10 * time.Millisecond); cancel() }()
-	start := time.Now()
-	if ok := sleepUntil(ctx, 30*time.Second); ok {
-		t.Fatalf("sleepUntil should report cancellation (false), not full elapse")
+	start = time.Now()
+	if sleepUntil(ctx, time.Hour) {
+		t.Error("a cancellation mid-sleep must report false")
 	}
+	if elapsed := time.Since(start); elapsed > 5*time.Second {
+		t.Errorf("returned after %v, want promptly after the cancel", elapsed)
+	}
+}
+
+func TestWaitGraceful(t *testing.T) {
+	var empty sync.WaitGroup
+	start := time.Now()
+	waitGraceful(&empty, time.Hour)
 	if elapsed := time.Since(start); elapsed > time.Second {
-		t.Fatalf("sleepUntil did not wake early on cancel; waited %s of a 30s interval", elapsed)
+		t.Errorf("an empty group took %v, want an immediate return", elapsed)
 	}
-}
 
-// TestSleepUntil_AlreadyCancelled: a ctx already cancelled on entry is an immediate
-// no-op false — the loop's "cancelled between cycles" fast path.
-func TestSleepUntil_AlreadyCancelled(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-	if ok := sleepUntil(ctx, 30*time.Second); ok {
-		t.Fatalf("sleepUntil on a cancelled ctx must return false immediately")
+	var drains sync.WaitGroup
+	drains.Add(1)
+	go func() { time.Sleep(10 * time.Millisecond); drains.Done() }()
+	start = time.Now()
+	waitGraceful(&drains, time.Hour)
+	if elapsed := time.Since(start); elapsed < 10*time.Millisecond || elapsed > 5*time.Second {
+		t.Errorf("a draining group took %v, want ~10ms", elapsed)
 	}
-}
 
-// TestRun_CtxCancelStopsForeverLoop: the forever (iterations<=0) telemetry loop
-// exits cleanly and promptly when its root ctx is cancelled — the graceful-shutdown
-// contract for the foreground producer loop. The injected sleep seam is ctx-aware
-// (mirrors sleepUntil) so cancelling ctx wakes it.
-func TestRun_CtxCancelStopsForeverLoop(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	var posts int32
-	done := make(chan int, 1)
-	go func() {
-		rc := run(ctx, Config{Base: "x", Token: "t", ID: "i"},
-			func() map[string]any { return map[string]any{"cpu_pct": 5.0} },
-			func() string { return "m" },
-			func(string, map[string]any) (int, map[string]any) { atomic.AddInt32(&posts, 1); return 200, nil },
-			nil, nil, nil, nil,
-			func(c context.Context, d time.Duration) bool { return sleepUntil(c, d) },
-			0, io.Discard)
-		done <- rc
-	}()
-	// Let it turn the loop at least once, then cancel and assert a bounded exit.
-	waitBounded(t, func() bool { return atomic.LoadInt32(&posts) >= 1 }, "forever loop to POST at least once")
-	cancel()
-	select {
-	case rc := <-done:
-		if rc != 0 {
-			t.Fatalf("run rc = %d, want 0", rc)
-		}
-	case <-time.After(2 * time.Second):
-		t.Fatal("forever telemetry loop did not exit within 2s of ctx cancel (leak/hang)")
-	}
-}
-
-// TestWaitGraceful_ReturnsWhenLoopsExit models realMain's shutdown join: two
-// ctx-aware loops registered on a WaitGroup exit when the root ctx is cancelled, and
-// waitGraceful returns (drained, not timed out) — proving no goroutine is leaked.
-func TestWaitGraceful_ReturnsWhenLoopsExit(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	var wg sync.WaitGroup
-	for i := 0; i < 3; i++ {
-		wg.Add(1)
-		go func() { defer wg.Done(); <-ctx.Done() }() // ctx-aware fake loop
-	}
-	cancel()
-	start := time.Now()
-	waitGraceful(&wg, 2*time.Second) // grace is the CEILING, not the expected wait
-	if elapsed := time.Since(start); elapsed > time.Second {
-		t.Fatalf("waitGraceful should return as soon as loops drain, took %s", elapsed)
-	}
-}
-
-// TestWaitGraceful_BoundedWhenWedged proves the grace bound: a goroutine that NEVER
-// finishes cannot hang process exit — waitGraceful returns after ~grace regardless.
-func TestWaitGraceful_BoundedWhenWedged(t *testing.T) {
-	var wg sync.WaitGroup
-	wg.Add(1) // never Done — a wedged loop
-	start := time.Now()
-	waitGraceful(&wg, 50*time.Millisecond)
+	var wedged sync.WaitGroup
+	wedged.Add(1)
+	start = time.Now()
+	waitGraceful(&wedged, 30*time.Millisecond)
 	elapsed := time.Since(start)
-	if elapsed < 40*time.Millisecond {
-		t.Fatalf("waitGraceful returned before the grace bound (%s)", elapsed)
+	if elapsed < 30*time.Millisecond || elapsed > 5*time.Second {
+		t.Errorf("a wedged group took %v, want the 30ms grace bound", elapsed)
 	}
-	if elapsed > time.Second {
-		t.Fatalf("waitGraceful did not honour its grace bound; took %s", elapsed)
+	wedged.Done()
+}
+
+func TestWireUpdaterSeams(t *testing.T) {
+	transport := &sseTransport{}
+	up := &updater{kick: make(chan struct{}, 1)}
+	wireUpdaterSeams(transport, up)
+
+	transport.onConnect()
+	if len(up.kick) != 1 {
+		t.Error("a reconnect must wake the self-update reconcile")
+	}
+	if up.renewDemanded.Load() {
+		t.Error("a reconnect must not raise the credential-renewal demand")
+	}
+	<-up.kick
+
+	transport.deps.Update()
+	if len(up.kick) != 1 {
+		t.Error("the update verb must wake the self-update reconcile")
+	}
+	if up.renewDemanded.Load() {
+		t.Error("the update verb must not raise the credential-renewal demand")
+	}
+	<-up.kick
+
+	transport.deps.Renew()
+	if !up.renewDemanded.Load() {
+		t.Error("the renew verb must raise the credential-renewal demand on the updater it was given")
+	}
+	if len(up.kick) != 1 {
+		t.Error("the renew verb must also wake the poll loop")
 	}
 }
 
-func TestLoadConfig_JWTSubFallback(t *testing.T) {
-	// build a token with sub=jwt-sub-id; header.payload.sig
-	payload := base64.RawURLEncoding.EncodeToString([]byte(`{"sub":"jwt-sub-id"}`))
-	token := "h." + payload + ".s"
-	env := map[string]string{"OC_TOKEN": token, "OC_BASE": "http://x/"}
-	cfg := loadConfig(func(k string) string { return env[k] })
-	if cfg.ID != "jwt-sub-id" {
-		t.Errorf("id = %q, want jwt-sub-id (from jwt sub)", cfg.ID)
-	}
-	// ⚠️ The SCHEME here moved http→https (T-78): "x" is not loopback, and the
-	// stored scheme is no longer believed. What this test pins did NOT move —
-	// the id still falls back to the JWT sub, and the trailing slash is still
-	// stripped.
-	if cfg.Base != "https://x" {
-		t.Errorf("base = %q, want https://x (host decides the scheme; trailing slash stripped)", cfg.Base)
-	}
-}
-
-// TestTokfileEnv_ExplicitTokenWins: a set OC_TOKEN is passed straight through and
-// the token file is NOT consulted (explicit env always wins — the folded launcher
-// only supplied a FALLBACK).
-func TestTokfileEnv_ExplicitTokenWins(t *testing.T) {
-	env := func(k string) string {
-		if k == "OC_TOKEN" {
-			return "explicit-token"
+func TestRealMain(t *testing.T) {
+	t.Run("no verb prints the usage banner", func(t *testing.T) {
+		want := "usage: ocwarden {run [--once] | install | teardown [--canonical]}\n" +
+			"  run       officraft per-machine hardware telemetry + command producer.\n" +
+			"  install   install + start the launchd warden job on this machine.\n" +
+			"  teardown  stop + remove a namespaced warden; canonical requires --canonical.\n"
+		for _, argv := range [][]string{{}, {"serve"}, {"--help"}} {
+			var out bytes.Buffer
+			rc := realMain(argv, func(string) string { return "" }, &out)
+			if rc != 0 || out.String() != want {
+				t.Errorf("%v: rc = %d, out = %q", argv, rc, out.String())
+			}
 		}
-		if k == "OC_WARDEN_TOKFILE" {
-			return "/should/not/be/read"
-		}
-		return ""
-	}
-	readFile := func(string) ([]byte, error) {
-		t.Fatal("token file must not be read when OC_TOKEN is set")
-		return nil, nil
-	}
-	if got := tokfileEnv(env, readFile)("OC_TOKEN"); got != "explicit-token" {
-		t.Errorf("OC_TOKEN = %q, want explicit-token", got)
-	}
-}
+	})
 
-// TestTokfileEnv_FallbackToTokfile: with OC_TOKEN unset, the wrapper reads
-// OC_WARDEN_TOKFILE and trims whitespace (mirrors the launcher's `$(cat …)`), and
-// loadConfig then derives OC_ID from the token's jwt sub — proving the whole fold
-// (launcher tokfile read → OC_ID derivation) works end-to-end through the binary.
-func TestTokfileEnv_FallbackToTokfile(t *testing.T) {
-	payload := base64.RawURLEncoding.EncodeToString([]byte(`{"sub":"tok-sub"}`))
-	token := "h." + payload + ".s"
-	tokPath := t.TempDir() + "/exec-warden.tok"
-	if err := os.WriteFile(tokPath, []byte(token+"\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	base := map[string]string{"OC_WARDEN_TOKFILE": tokPath, "OC_BASE": "http://x"}
-	env := func(k string) string { return base[k] }
-	cfg := loadConfig(tokfileEnv(env, os.ReadFile))
-	if cfg.Token != token {
-		t.Errorf("token = %q, want %q (trailing newline trimmed)", cfg.Token, token)
-	}
-	if cfg.ID != "tok-sub" {
-		t.Errorf("id = %q, want tok-sub (derived from tokfile jwt sub)", cfg.ID)
-	}
-}
-
-// TestTokfileEnv_DefaultPathFromHome: OC_WARDEN_TOKFILE unset falls back to
-// $HOME/.officraft/warden/exec-warden.tok — the exact default the retired bin/warden-go
-// launcher used (`${OC_WARDEN_TOKFILE:-$HOME/.officraft/warden/exec-warden.tok}`).
-func TestTokfileEnv_DefaultPathFromHome(t *testing.T) {
-	home := t.TempDir()
-	if err := os.MkdirAll(home+"/.officraft/warden", 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(home+"/.officraft/warden/exec-warden.tok", []byte("home-token"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	env := func(k string) string {
-		if k == "HOME" {
-			return home
+	t.Run("an unknown teardown flag is refused with its own usage line", func(t *testing.T) {
+		var out bytes.Buffer
+		rc := realMain([]string{"teardown", "--yolo"}, func(string) string { return "" }, &out)
+		if rc != 2 || out.String() != "usage: ocwarden teardown [--canonical]\n" {
+			t.Errorf("rc = %d, out = %q, want 2 and the teardown usage", rc, out.String())
 		}
-		return ""
-	}
-	if got := tokfileEnv(env, os.ReadFile)("OC_TOKEN"); got != "home-token" {
-		t.Errorf("OC_TOKEN = %q, want home-token (from $HOME default tokfile)", got)
-	}
-}
+	})
 
-// TestTokfileEnv_MissingTokfileFailsSafe: an unreadable/absent token file leaves
-// OC_TOKEN empty (fail-safe — the run loops then log + exit 0, never crash).
-func TestTokfileEnv_MissingTokfileFailsSafe(t *testing.T) {
-	env := func(k string) string {
-		if k == "OC_WARDEN_TOKFILE" {
-			return t.TempDir() + "/does-not-exist.tok"
+	t.Run("an unknown run flag is a parse refusal", func(t *testing.T) {
+		var out bytes.Buffer
+		rc := realMain([]string{"run", "--yolo"}, func(string) string { return "" }, &out)
+		if rc != 2 {
+			t.Errorf("rc = %d, want 2", rc)
 		}
-		return ""
-	}
-	if got := tokfileEnv(env, os.ReadFile)("OC_TOKEN"); got != "" {
-		t.Errorf("OC_TOKEN = %q, want empty (missing tokfile must fail-safe)", got)
-	}
+		if !strings.Contains(out.String(), "flag provided but not defined: -yolo") {
+			t.Errorf("out = %q, want the flag refusal", out.String())
+		}
+	})
+
+	t.Run("a malformed namespace is refused before anything is derived", func(t *testing.T) {
+		var out bytes.Buffer
+		env := map[string]string{"OC_NAMESPACE": "LAB", "OC_BASE": "http://127.0.0.1:7755"}
+		rc := realMain([]string{"run", "--once"}, func(k string) string { return env[k] }, &out)
+		want := "[ocwarden] FATAL: OC_NAMESPACE must match [a-z0-9-]{1,16}, got: \"LAB\"\n"
+		if rc != 1 || out.String() != want {
+			t.Errorf("rc = %d, out = %q, want 1 and %q", rc, out.String(), want)
+		}
+	})
+
+	t.Run("an unset station address stops the run", func(t *testing.T) {
+		var out bytes.Buffer
+		rc := realMain([]string{"run", "--once"}, func(string) string { return "" }, &out)
+		if rc != 1 {
+			t.Errorf("rc = %d, want 1", rc)
+		}
+		first := "[ocwarden] FATAL: OC_BASE is not set — this warden was never told which station to talk to.\n"
+		last := "[ocwarden] --once: refusing and exiting non-zero (no sentinel written; the launchd path halts instead)\n"
+		if !strings.HasPrefix(out.String(), first) || !strings.HasSuffix(out.String(), last) {
+			t.Errorf("out = %q, want the station-address refusal", out.String())
+		}
+	})
+
+	t.Run("a station address with no credential exits clean without reporting", func(t *testing.T) {
+		var out bytes.Buffer
+		env := map[string]string{"OC_BASE": "http://127.0.0.1:7755", "HOME": t.TempDir()}
+		rc := realMain([]string{"run", "--once"}, func(k string) string { return env[k] }, &out)
+		want := "[ocwarden] run: no OC_TOKEN/OC_ID — nothing to report; exiting.\n"
+		if rc != 0 || out.String() != want {
+			t.Errorf("rc = %d, out = %q, want 0 and %q", rc, out.String(), want)
+		}
+	})
 }

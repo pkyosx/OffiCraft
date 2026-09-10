@@ -2,471 +2,397 @@ package main
 
 import (
 	"encoding/json"
-	"net/http"
-	"net/http/httptest"
-	"strings"
 	"testing"
-	"unicode/utf8"
 )
 
-// ── T-e271 任務描述可編輯 guards ─────────────────────────────────────────────
-//
-// Every case below reads the value back out through a real read path, never
-// merely asserting a status code: the ticket exists because a documented
-// capability ("agents can edit the task description separately", said in
-// update_step_note's own tool description) turned out to name nothing at all,
-// and a test that only checked for a 200 would have been just as happy against
-// that nothing.
-
-func writeTaskDescription(t *testing.T, api *apiServer, taskID, caller, scope string, body map[string]any) *httptest.ResponseRecorder {
-	t.Helper()
-	rec := httptest.NewRecorder()
-	api.HandleUpdateTaskDescriptionApiTasksTaskIdDescriptionPost(rec,
-		taskReq(t, "POST", "/api/tasks/"+taskID+"/description", body, caller, scope),
-		taskID)
-	return rec
-}
-
-// assertErrorEnvelope pins WHY a request was refused, not merely that it was.
-//
-// The DoD for this ticket asks for the reason explicitly, and the reason is the
-// part that rots: a 403 is emitted by the authz gate, but a 403 could equally
-// arrive from a future guard added above it, and a status-only assertion would
-// keep passing while the test silently stopped covering the rule it names. The
-// code comes from the unified envelope (server.go writeError) and the message
-// is matched as a substring so wording may change around the claim.
-func assertErrorEnvelope(t *testing.T, rec *httptest.ResponseRecorder, code, contains string) {
-	t.Helper()
-	var body struct {
-		Error struct {
-			Code    string `json:"code"`
-			Message string `json:"message"`
-		} `json:"error"`
-	}
-	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
-		t.Fatalf("refusal is not the unified error envelope (%d %s): %v",
-			rec.Code, rec.Body.String(), err)
-	}
-	if body.Error.Code != code {
-		t.Fatalf("error code = %q, want %q (body %s)", body.Error.Code, code,
-			rec.Body.String())
-	}
-	if !strings.Contains(body.Error.Message, contains) {
-		t.Fatalf("error message = %q, want it to contain %q",
-			body.Error.Message, contains)
+func TestTaskDescriptionHistorySnapshot(t *testing.T) {
+	for name, tc := range map[string]struct {
+		description string
+		want        string
+	}{
+		"an empty description retains no revision": {description: "", want: "{}"},
+		"a non-empty description is retained as its own document": {
+			description: "old scope", want: `{"description":"old scope"}`,
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			got, err := taskDescriptionHistorySnapshot(tc.description)
+			if err != nil {
+				t.Fatalf("taskDescriptionHistorySnapshot: %v", err)
+			}
+			if got != tc.want {
+				t.Fatalf("snapshot = %q, want %q", got, tc.want)
+			}
+		})
 	}
 }
 
-// readTask re-reads the whole task through get_task — used to ASSERT a fixture
-// really is what a test claims it is.
-func readTask(t *testing.T, api *apiServer, taskID string) taskDTO {
-	t.Helper()
-	rec := httptest.NewRecorder()
-	api.HandleGetTaskApiTasksTaskIdGet(rec,
-		taskReq(t, "GET", "/api/tasks/"+taskID, nil, "owner", "owner"), taskID)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("get task: %d %s", rec.Code, rec.Body.String())
-	}
-	return decodeBody[taskDTO](t, rec)
-}
+func TestTaskDescriptionSnapshotIn(t *testing.T) {
+	t.Run("the transaction reader returns the current task description", func(t *testing.T) {
+		_, h, d, owner := newAPITestServer(t)
+		apiJSON(t, h, "POST", "/api/tasks", owner,
+			`{"title":"Ship it","executor_member_id":"kip","description":"old scope"}`)
 
-// readTaskDescription re-reads the description through get_task — the path the
-// cockpit and every agent actually use, not the DAL.
-func readTaskDescription(t *testing.T, api *apiServer, taskID string) string {
-	t.Helper()
-	rec := httptest.NewRecorder()
-	api.HandleGetTaskApiTasksTaskIdGet(rec,
-		taskReq(t, "GET", "/api/tasks/"+taskID, nil, "m-exec", "agent"), taskID)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("get task: %d %s", rec.Code, rec.Body.String())
-	}
-	return decodeBody[taskDTO](t, rec).Description
-}
-
-func listTaskDescriptionHistory(t *testing.T, api *apiServer, taskID, caller, scope string) *httptest.ResponseRecorder {
-	t.Helper()
-	rec := httptest.NewRecorder()
-	api.HandleListDocumentHistoryApiDocumentHistoryKindKeyGet(rec,
-		taskReq(t, "GET", "/api/document-history/task_description/"+taskID, nil, caller, scope),
-		docKindTaskDescription, taskID)
-	return rec
-}
-
-// terminateTask closes a task through the owner's terminate route, so the
-// terminal-state cases below face a genuinely closed task rather than a
-// hand-poked status column.
-func terminateTask(t *testing.T, api *apiServer, taskID string) {
-	t.Helper()
-	rec := httptest.NewRecorder()
-	api.HandleTerminateTaskApiTasksTaskIdTerminatePost(rec,
-		taskReq(t, "POST", "/api/tasks/"+taskID+"/terminate", nil, "owner", "owner"),
-		taskID)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("terminate: %d %s", rec.Code, rec.Body.String())
-	}
-}
-
-// TestTaskDescriptionRoundTripsThroughTheTaskView is the core assertion: the
-// corrected wording is what the next reader sees. Dropping the description
-// assignment from the handler, or the column from SetTaskDescriptionOn, reddens
-// this — both are ways for the write to answer 200 and change nothing.
-func TestTaskDescriptionRoundTripsThroughTheTaskView(t *testing.T) {
-	api := newTasksTestServer(t)
-	task := createAdHocTask(t, api, "m-exec")
-	const corrected = "更正:這張票要的是「描述可編輯」,不是步驟備註"
-
-	rec := writeTaskDescription(t, api, task.ID, "m-exec", "agent",
-		map[string]any{"description": corrected})
-	if rec.Code != http.StatusOK {
-		t.Fatalf("write description: %d %s", rec.Code, rec.Body.String())
-	}
-	// T-91: the write receipt reports the description as a SIZE and a HASH, not
-	// as the text — the caller sent that text one line ago. The hash is the
-	// stronger form of the same claim this line always made ("what landed is
-	// what I sent"), and it is on this face specifically because this write
-	// TRIMS while create_task does not, so a caller cannot assume the two agree.
-	receipt := decodeBody[taskWriteReceiptDTO](t, rec)
-	if receipt.DescriptionSha256 != receiptSha256(corrected) {
-		t.Fatalf("response description sha256 = %q, want the hash of %q",
-			receipt.DescriptionSha256, corrected)
-	}
-	if receipt.DescriptionSizeChars != utf8.RuneCountInString(corrected) {
-		t.Fatalf("response description_size_chars = %d, want %d RUNES",
-			receipt.DescriptionSizeChars, utf8.RuneCountInString(corrected))
-	}
-	if got := readTaskDescription(t, api, task.ID); got != corrected {
-		t.Fatalf("description read back = %q, want %q", got, corrected)
-	}
-}
-
-// Ruling 1: the EXECUTOR may edit; the CREATOR earns no standing from having
-// created the task. Owner explicitly excluded the creator, so the negative case
-// has to be a REAL creator — not merely some member who is not the executor.
-//
-// ⚠️ This test previously did NOT do that. It created the task under an OWNER
-// token and then had an unrelated member try to edit, which makes the caller a
-// bystander whose 403 says nothing about creators at all: it would have passed
-// just as happily against a handler that admitted creators. The name promised
-// more than the fixture delivered. The fixture below builds the real thing and
-// then ASSERTS it, so it cannot quietly decay back into a bystander test.
-//
-// How a creator stops being the executor, using only real routes: m-creator
-// creates an ad-hoc task for ITSELF (a plain 正職 may not name another member),
-// then reassigns it away. CreatorID stays m-creator; ExecutorID becomes m-exec.
-func TestTaskDescriptionCreatorIsNotTheEditor(t *testing.T) {
-	api := newTasksTestServer(t)
-	api.noOutsource = true
-	putActiveMember(t, api, "m-creator", "Creator", KindStaff)
-	putActiveMember(t, api, "m-exec", "Executor", KindStaff)
-
-	task := createAdHocTask(t, api, "m-creator")
-	// The OWNER performs the handover: a plain 正職 may not reassign to another
-	// member (that is its own 403, unrelated to this ticket). Who moved the task
-	// is immaterial here — what matters is the resulting row, asserted below.
-	if rec := reassign(t, api, task.ID, memberTarget("m-exec"),
-		"owner", "owner"); rec.Code != http.StatusOK {
-		t.Fatalf("reassign: %d %s", rec.Code, rec.Body.String())
-	}
-
-	// The fixture IS the premise — assert it rather than assume it. Without
-	// this the test silently reverts to "some other member" the moment the
-	// create or reassign semantics move.
-	after := readTask(t, api, task.ID)
-	if after.CreatorID != "m-creator" {
-		t.Fatalf("fixture broken: creator = %q, want m-creator", after.CreatorID)
-	}
-	if after.ExecutorID != "m-exec" {
-		t.Fatalf("fixture broken: executor = %q, want m-exec", after.ExecutorID)
-	}
-
-	// THE case owner ruled on: the creator, who is no longer the executor, is
-	// refused — and refused for the RIGHT REASON, not merely "some 4xx".
-	rec := writeTaskDescription(t, api, task.ID, "m-creator", "agent",
-		map[string]any{"description": "creator rewrite"})
-	if rec.Code != http.StatusForbidden {
-		t.Fatalf("creator status = %d, want 403: %s", rec.Code, rec.Body.String())
-	}
-	assertErrorEnvelope(t, rec, "forbidden", executorGuardRefusal)
-	if got := readTaskDescription(t, api, task.ID); got != "" {
-		t.Fatalf("refused write still landed: %q", got)
-	}
-
-	// A member who is NEITHER creator nor executor is refused the same way —
-	// so the 403 above is not an artefact of some creator-specific branch.
-	putActiveMember(t, api, "m-stranger", "Stranger", KindStaff)
-	rec = writeTaskDescription(t, api, task.ID, "m-stranger", "agent",
-		map[string]any{"description": "stranger rewrite"})
-	if rec.Code != http.StatusForbidden {
-		t.Fatalf("stranger status = %d, want 403", rec.Code)
-	}
-	assertErrorEnvelope(t, rec, "forbidden", executorGuardRefusal)
-
-	// Positive controls: the route is not simply broken for everyone.
-	if got := writeTaskDescription(t, api, task.ID, "m-exec", "agent",
-		map[string]any{"description": "executor rewrite"}).Code; got != http.StatusOK {
-		t.Fatalf("executor status = %d, want 200", got)
-	}
-	putMemberRow(t, api, "m-mira", KindStaff, adminRoleKey)
-	if got := writeTaskDescription(t, api, task.ID, "m-mira", "agent",
-		map[string]any{"description": "admin rewrite"}).Code; got != http.StatusOK {
-		t.Fatalf("admin status = %d, want 200", got)
-	}
-	if got := writeTaskDescription(t, api, task.ID, "owner", "owner",
-		map[string]any{"description": "owner rewrite"}).Code; got != http.StatusOK {
-		t.Fatalf("owner status = %d, want 200", got)
-	}
-	if got := readTaskDescription(t, api, task.ID); got != "owner rewrite" {
-		t.Fatalf("description read back = %q, want owner rewrite", got)
-	}
-}
-
-// Ruling 2: a CLOSED task's description is still editable, and by the same
-// people. The artifact-set control in the same case is what makes this a
-// statement about a REASONED difference rather than an oversight — the two
-// writes face the same terminal task and only one of them is frozen.
-func TestTaskDescriptionEditableOnAClosedTaskWhileArtifactsAreFrozen(t *testing.T) {
-	api := newTasksTestServer(t)
-	task := createAdHocTask(t, api, "m-exec")
-	terminateTask(t, api, task.ID)
-
-	const corrected = "結案後才發現票面寫錯,照樣改得動"
-	if got := writeTaskDescription(t, api, task.ID, "m-exec", "agent",
-		map[string]any{"description": corrected}).Code; got != http.StatusOK {
-		t.Fatalf("closed-task description status = %d, want 200", got)
-	}
-	if got := readTaskDescription(t, api, task.ID); got != corrected {
-		t.Fatalf("closed-task description read back = %q, want %q", got, corrected)
-	}
-
-	// The control: the SAME caller on the SAME closed task cannot touch the
-	// deliverable set. If someone ever "harmonises" the two by adding a
-	// terminal gate here, the description case above goes red; if someone
-	// removes the artifact freeze instead, this half goes red.
-	rec := httptest.NewRecorder()
-	api.HandleAddTaskArtifactApiTasksTaskIdArtifactPost(rec,
-		taskReq(t, "POST", "/api/tasks/"+task.ID+"/artifact",
-			map[string]any{"kind": "link", "name": "pr", "url": "https://example.invalid/pr/1"},
-			"m-exec", "agent"),
-		task.ID)
-	if rec.Code != http.StatusConflict {
-		t.Fatalf("closed-task artifact status = %d, want 409 (the frozen set)", rec.Code)
-	}
-}
-
-// Ruling 3: the trail rides the ALREADY-shipped document-history mechanism, so
-// the generic list route serves it. The retained revision must be the text the
-// write replaced — not the new text, which is the mistake a snapshot taken
-// after the write would make.
-func TestTaskDescriptionEditRetainsThePreviousTextInSharedHistory(t *testing.T) {
-	api := newTasksTestServer(t)
-	task := createAdHocTask(t, api, "m-exec")
-
-	for _, text := range []string{"first wording", "second wording", "third wording"} {
-		if got := writeTaskDescription(t, api, task.ID, "m-exec", "agent",
-			map[string]any{"description": text}).Code; got != http.StatusOK {
-			t.Fatalf("write %q: status %d", text, got)
+		got, err := taskDescriptionSnapshotIn("T-1")(d.rdb)
+		if err != nil {
+			t.Fatalf("taskDescriptionSnapshotIn: %v", err)
 		}
-	}
-
-	rec := listTaskDescriptionHistory(t, api, task.ID, "m-exec", "agent")
-	if rec.Code != http.StatusOK {
-		t.Fatalf("list history: %d %s", rec.Code, rec.Body.String())
-	}
-	history := historyRowsFrom(t, api, docKindTaskDescription, task.ID, "m-exec", "agent", rec)
-	// Two revisions, not three: the FIRST write replaced an empty description,
-	// and an empty document is nothing to retain (the same rule every other
-	// kind gets from its row being absent).
-	if len(history) != 2 {
-		t.Fatalf("history length = %d, want 2: %+v", len(history), history)
-	}
-	// Newest first (ORDER BY id DESC), and each entry holds the text it
-	// replaced.
-	if got := history[0].Content["description"]; got != "second wording" {
-		t.Fatalf("newest revision = %q, want %q", got, "second wording")
-	}
-	if got := history[1].Content["description"]; got != "first wording" {
-		t.Fatalf("oldest revision = %q, want %q", got, "first wording")
-	}
-	if history[0].ActorId != "m-exec" {
-		t.Fatalf("revision actor = %q, want m-exec", history[0].ActorId)
-	}
-}
-
-// The partial-update shape (after update_task_manual): an ABSENT field changes
-// nothing and versions nothing, while an explicit "" clears. Collapsing the two
-// — a `default: ""` on the DTO, say — would let a body that never mentioned the
-// description erase it.
-func TestTaskDescriptionAbsentFieldIsANoOpButEmptyStringClears(t *testing.T) {
-	api := newTasksTestServer(t)
-	task := createAdHocTask(t, api, "m-exec")
-	if got := writeTaskDescription(t, api, task.ID, "m-exec", "agent",
-		map[string]any{"description": "the standing text"}).Code; got != http.StatusOK {
-		t.Fatalf("seed write status = %d", got)
-	}
-
-	// Absent: unchanged, and no new revision.
-	if got := writeTaskDescription(t, api, task.ID, "m-exec", "agent",
-		map[string]any{}).Code; got != http.StatusOK {
-		t.Fatalf("absent-field status = %d, want 200", got)
-	}
-	if got := readTaskDescription(t, api, task.ID); got != "the standing text" {
-		t.Fatalf("absent field changed the text: %q", got)
-	}
-	// Re-writing the SAME text is a no-op too — it must not spend one of the
-	// three retained slots recording that nothing changed.
-	if got := writeTaskDescription(t, api, task.ID, "m-exec", "agent",
-		map[string]any{"description": "the standing text"}).Code; got != http.StatusOK {
-		t.Fatalf("same-text status = %d, want 200", got)
-	}
-	rec := listTaskDescriptionHistory(t, api, task.ID, "m-exec", "agent")
-	if n := len(historyRowsFrom(t, api, docKindTaskDescription, task.ID, "m-exec", "agent", rec)); n != 0 {
-		t.Fatalf("no-op writes retained %d revisions, want 0", n)
-	}
-
-	// Explicit "": cleared, and THAT is a real change, so it versions.
-	if got := writeTaskDescription(t, api, task.ID, "m-exec", "agent",
-		map[string]any{"description": ""}).Code; got != http.StatusOK {
-		t.Fatalf("clear status = %d, want 200", got)
-	}
-	if got := readTaskDescription(t, api, task.ID); got != "" {
-		t.Fatalf("explicit empty string did not clear: %q", got)
-	}
-	rec = listTaskDescriptionHistory(t, api, task.ID, "m-exec", "agent")
-	history := historyRowsFrom(t, api, docKindTaskDescription, task.ID, "m-exec", "agent", rec)
-	if len(history) != 1 || history[0].Content["description"] != "the standing text" {
-		t.Fatalf("clear did not retain what it erased: %+v", history)
-	}
-}
-
-// TestTaskDescriptionIsTrimmedOnThisDoorToo pins the one behaviour T-646a
-// CHANGED on an already-shipped route: the description is trimmed, before it is
-// stored AND before the unchanged-value comparison (owner card
-// rc-0fb94a25a8a8, 2026-08-16, option ①). Until T-646a this route stored what
-// it was given.
-//
-// 🔴 It lives HERE, on the route's own file, and that placement is the whole
-// point of the test. The independent review of T-646a demonstrated the hole by
-// measurement: with every trim assertion living on the new update_task door,
-// this handler could be reverted to its pre-T-646a inline body — untrimmed
-// store, untrimmed compare — and the ENTIRE Go suite stayed green while the
-// mutant harness still reported 6/6. The owner's ruling was silently revertible
-// on the door the cockpit actually calls. This test is what turns red.
-//
-// Three claims, and the third is the one no read-back can see:
-//
-//	① the STORED value is trimmed;
-//	② a whitespace-only description therefore trims to "" and CLEARS, which is
-//	   the same answer an explicit "" gets;
-//	③ the unchanged-value COMPARISON is made on the trimmed value, so a resend
-//	   differing only by surrounding whitespace spends none of the three
-//	   retained revisions. A handler that trimmed on the way in but compared the
-//	   RAW value would store identical text and pass ① and ② unnoticed.
-func TestTaskDescriptionIsTrimmedOnThisDoorToo(t *testing.T) {
-	api := newTasksTestServer(t)
-	task := createAdHocTask(t, api, "m-exec")
-
-	if got := writeTaskDescription(t, api, task.ID, "m-exec", "agent",
-		map[string]any{"description": "  有前後空白的敘述\t\n"}).Code; got != http.StatusOK {
-		t.Fatalf("seed write status = %d", got)
-	}
-	if got := readTaskDescription(t, api, task.ID); got != "有前後空白的敘述" {
-		t.Fatalf("① stored description was not trimmed: %q", got)
-	}
-
-	before := len(historyRowsFrom(t, api, docKindTaskDescription, task.ID, "m-exec", "agent",
-		listTaskDescriptionHistory(t, api, task.ID, "m-exec", "agent")))
-
-	// ③ same text, different surrounding whitespace ⇒ no change, no revision.
-	if got := writeTaskDescription(t, api, task.ID, "m-exec", "agent",
-		map[string]any{"description": "\n  有前後空白的敘述  "}).Code; got != http.StatusOK {
-		t.Fatalf("whitespace-only resend status = %d, want 200", got)
-	}
-	if got := readTaskDescription(t, api, task.ID); got != "有前後空白的敘述" {
-		t.Fatalf("whitespace-only resend changed the text: %q", got)
-	}
-	after := len(historyRowsFrom(t, api, docKindTaskDescription, task.ID, "m-exec", "agent",
-		listTaskDescriptionHistory(t, api, task.ID, "m-exec", "agent")))
-	if after != before {
-		t.Fatalf("③ a whitespace-only resend burned a revision: %d → %d", before, after)
-	}
-
-	// ② whitespace-only trims to "" and therefore CLEARS — named here so the
-	// consequence is a decision on the record, not a surprise found in
-	// production.
-	if got := writeTaskDescription(t, api, task.ID, "m-exec", "agent",
-		map[string]any{"description": "   \t "}).Code; got != http.StatusOK {
-		t.Fatalf("whitespace-only clear status = %d, want 200", got)
-	}
-	if got := readTaskDescription(t, api, task.ID); got != "" {
-		t.Fatalf("② a whitespace-only description must CLEAR, got %q", got)
-	}
-}
-
-// An unknown key is refused rather than dropped — the update_task_manual
-// posture, and the reason the whole strict-decoder guard exists: a caller who
-// reaches for `text` must be told, not silently ignored while believing the
-// correction landed.
-func TestTaskDescriptionUnknownKeyIsRefused(t *testing.T) {
-	api := newTasksTestServer(t)
-	task := createAdHocTask(t, api, "m-exec")
-	if got := writeTaskDescription(t, api, task.ID, "m-exec", "agent",
-		map[string]any{"text": "wrong field name"}).Code; got != http.StatusUnprocessableEntity {
-		t.Fatalf("unknown key status = %d, want 422", got)
-	}
-	if got := readTaskDescription(t, api, task.ID); got != "" {
-		t.Fatalf("refused body still wrote: %q", got)
-	}
-}
-
-// Restoring an earlier wording goes through the SAME per-task gate as writing
-// one. Without this, the generic restore route would be a side door that let
-// any agent put text back onto a task it may not edit.
-func TestTaskDescriptionRestoreIsGatedLikeTheEdit(t *testing.T) {
-	api := newTasksTestServer(t)
-	putMemberRow(t, api, "m-exec", KindStaff, "")
-	putMemberRow(t, api, "m-other", KindStaff, "")
-	task := createAdHocTask(t, api, "m-exec")
-	for _, text := range []string{"original wording", "replacement wording"} {
-		if got := writeTaskDescription(t, api, task.ID, "m-exec", "agent",
-			map[string]any{"description": text}).Code; got != http.StatusOK {
-			t.Fatalf("write %q: status %d", text, got)
+		if got != `{"description":"old scope"}` {
+			t.Fatalf("snapshot = %q, want %q", got, `{"description":"old scope"}`)
 		}
-	}
-	rec := listTaskDescriptionHistory(t, api, task.ID, "m-exec", "agent")
-	history := historyRowsFrom(t, api, docKindTaskDescription, task.ID, "m-exec", "agent", rec)
-	if len(history) != 1 {
-		t.Fatalf("history length = %d, want 1: %+v", len(history), history)
-	}
-	id := history[0].Id
+	})
 
-	restore := func(caller, scope string) int {
-		r := httptest.NewRecorder()
-		api.HandleRestoreDocumentHistoryApiDocumentHistoryKindKeyIdRestorePost(r,
-			taskReq(t, "POST", "/api/document-history/task_description/"+task.ID+"/x/restore",
-				nil, caller, scope),
-			docKindTaskDescription, task.ID, id)
-		return r.Code
+	t.Run("the transaction reader represents a missing task as an empty document", func(t *testing.T) {
+		_, _, d, _ := newAPITestServer(t)
+
+		got, err := taskDescriptionSnapshotIn("T-ghost")(d.rdb)
+		if err != nil {
+			t.Fatalf("taskDescriptionSnapshotIn: %v", err)
+		}
+		if got != "{}" {
+			t.Fatalf("snapshot = %q, want {}", got)
+		}
+	})
+}
+
+func TestTaskDescriptionHistoryStream(t *testing.T) {
+	_, h, d, owner := newAPITestServer(t)
+	apiJSON(t, h, "POST", "/api/tasks", owner,
+		`{"title":"Ship it","executor_member_id":"kip","description":"old scope"}`)
+
+	stream := taskDescriptionHistoryStream("T-1", "agent-kip")
+	if stream.Kind != docKindTaskDescription || stream.Key != "T-1" || stream.ActorID != "agent-kip" {
+		t.Fatalf("stream identity = {%q, %q, %q}", stream.Kind, stream.Key, stream.ActorID)
 	}
-	if got := restore("m-other", "agent"); got != http.StatusForbidden {
-		t.Fatalf("stranger restore status = %d, want 403", got)
+	snapshot, err := stream.Snapshot(d.rdb)
+	if err != nil {
+		t.Fatalf("stream snapshot: %v", err)
 	}
-	if got := readTaskDescription(t, api, task.ID); got != "replacement wording" {
-		t.Fatalf("refused restore still landed: %q", got)
-	}
-	if got := restore("m-exec", "agent"); got != http.StatusOK {
-		t.Fatalf("executor restore status = %d, want 200", got)
-	}
-	if got := readTaskDescription(t, api, task.ID); got != "original wording" {
-		t.Fatalf("restore read back = %q, want original wording", got)
+	if snapshot != `{"description":"old scope"}` {
+		t.Fatalf("stream snapshot = %q, want %q", snapshot, `{"description":"old scope"}`)
 	}
 }
 
-// An unknown task is a 404 on both faces — the route must not mint history for
-// a task that does not exist, nor report a write that never happened.
-func TestTaskDescriptionUnknownTaskIs404(t *testing.T) {
-	api := newTasksTestServer(t)
-	if got := writeTaskDescription(t, api, "t-nope", "m-exec", "agent",
-		map[string]any{"description": "into the void"}).Code; got != http.StatusNotFound {
-		t.Fatalf("unknown task status = %d, want 404", got)
-	}
+func TestWriteTaskDescription(t *testing.T) {
+	t.Run("a write stores the new text and retains the replaced description", func(t *testing.T) {
+		api, h, d, owner := newAPITestServer(t)
+		apiJSON(t, h, "POST", "/api/tasks", owner,
+			`{"title":"Ship it","executor_member_id":"kip","description":"old scope"}`)
+		task, err := d.GetTask("T-1")
+		if err != nil || task == nil {
+			t.Fatalf("GetTask: task=%#v err=%v", task, err)
+		}
+
+		ok, err := api.writeTaskDescription(task, "agent-kip", "new scope")
+		if err != nil || !ok {
+			t.Fatalf("writeTaskDescription: ok=%v err=%v", ok, err)
+		}
+		if task.Description != "new scope" || task.UpdatedTS <= 0 {
+			t.Fatalf("updated task = %#v", *task)
+		}
+		stored, err := d.GetTask("T-1")
+		if err != nil || stored == nil || stored.Description != "new scope" {
+			t.Fatalf("stored task = %#v err=%v", stored, err)
+		}
+		history, err := d.ListDocumentHistory(docKindTaskDescription, "T-1")
+		if err != nil {
+			t.Fatalf("ListDocumentHistory: %v", err)
+		}
+		if len(history) != 1 || history[0].ContentJSON != `{"description":"old scope"}` || history[0].ActorID != "agent-kip" {
+			t.Fatalf("history = %#v", history)
+		}
+	})
+
+	t.Run("a missing task reports false and retains no description revision", func(t *testing.T) {
+		api, _, d, _ := newAPITestServer(t)
+		ok, err := api.writeTaskDescription(&Task{ID: "T-ghost"}, "agent-kip", "new scope")
+		if err != nil || ok {
+			t.Fatalf("writeTaskDescription: ok=%v err=%v, want false nil", ok, err)
+		}
+		history, err := d.ListDocumentHistory(docKindTaskDescription, "T-ghost")
+		if err != nil {
+			t.Fatalf("ListDocumentHistory: %v", err)
+		}
+		if len(history) != 0 {
+			t.Fatalf("missing task history = %#v, want empty", history)
+		}
+	})
+}
+
+func TestHandleUpdateTaskDescriptionApiTasksTaskIdDescriptionPost(t *testing.T) {
+	t.Run("a corrected description is stored trimmed, answered as size and digest, and fanned to the task's watchers", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		apiJSON(t, h, "POST", "/api/tasks", owner,
+			`{"title":"Ship it","executor_member_id":"kip","description":"old scope"}`)
+		agent := apiTestAgentToken(t, api, "kip", "")
+		dashboard := apiTestListen(t, api, "")
+		executor := apiTestListen(t, api, "kip")
+		bystander := apiTestListen(t, api, "mira")
+
+		status, data := apiJSON(t, h, "POST", "/api/tasks/T-1/description", agent,
+			`{"description":"  new scope  "}`)
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		apiWantBody(t, data, map[string]any{
+			"task_id":                "T-1",
+			"title":                  "Ship it",
+			"status":                 "not_started",
+			"executor_id":            "kip",
+			"executor_kind":          "staff",
+			"lock":                   "",
+			"closed_ts":              nil,
+			"duplicate_of":           "",
+			"deps":                   []any{},
+			"progress_done":          0,
+			"progress_total":         0,
+			"artifact_count":         0,
+			"description_size_chars": 9,
+			"description_sha256":     "b8f2759f57c3d5b65ba8415b767234f9e486ea9ad45d90fd83dedebd2f1ed701",
+		})
+
+		_, task := apiJSON(t, h, "GET", "/api/tasks/T-1", owner, "")
+		apiWantValue(t, "task.description", task["description"], "new scope")
+		apiWantValue(t, "task.title", task["title"], "Ship it")
+
+		rec := apiRequest(t, h, "GET", "/api/document-history/task_description/T-1", owner, "")
+		var retained []any
+		if err := json.Unmarshal(rec.Body.Bytes(), &retained); err != nil {
+			t.Fatalf("non-JSON body: %s", rec.Body.String())
+		}
+		apiWantValue(t, "document-history", any(retained), []any{map[string]any{
+			"id":          apiAnyNumber,
+			"actor_id":    "kip",
+			"created_ts":  apiAnyNumber,
+			"field_chars": map[string]any{"description": 9},
+			"tombstoned":  false,
+		}})
+
+		taskFrame := map[string]any{
+			"seq":   2,
+			"topic": "task",
+			"op":    "patch",
+			"data": map[string]any{
+				"entity":  "task",
+				"key":     "owner::T-1",
+				"epoch":   2,
+				"deleted": false,
+				"payload": map[string]any{"id": "T-1", "priority": "mid", "status": "not_started"},
+			},
+			"ts":      apiAnyNumber,
+			"trigger": "kip",
+		}
+		dashboard.wantFrames(taskFrame)
+		executor.wantFrames(taskFrame)
+		bystander.wantFrames()
+	})
+
+	t.Run("the first correction of a task that never had a description retains no revision", func(t *testing.T) {
+		_, h, _, owner := newAPITestServer(t)
+		apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"Ship it","executor_member_id":"kip"}`)
+
+		status, data := apiJSON(t, h, "POST", "/api/tasks/T-1/description", owner,
+			`{"description":"the scope, at last"}`)
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		apiWantValue(t, "body.description_size_chars", data["description_size_chars"], 18)
+
+		rec := apiRequest(t, h, "GET", "/api/document-history/task_description/T-1", owner, "")
+		var retained []any
+		if err := json.Unmarshal(rec.Body.Bytes(), &retained); err != nil {
+			t.Fatalf("non-JSON body: %s", rec.Body.String())
+		}
+		apiWantValue(t, "document-history", any(retained), []any{})
+
+		_, task := apiJSON(t, h, "GET", "/api/tasks/T-1", owner, "")
+		apiWantValue(t, "task.description", task["description"], "the scope, at last")
+	})
+
+	t.Run("an explicit blank description clears the stored text", func(t *testing.T) {
+		_, h, _, owner := newAPITestServer(t)
+		apiJSON(t, h, "POST", "/api/tasks", owner,
+			`{"title":"Ship it","executor_member_id":"kip","description":"old scope"}`)
+
+		status, data := apiJSON(t, h, "POST", "/api/tasks/T-1/description", owner, `{"description":""}`)
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		apiWantValue(t, "body.description_size_chars", data["description_size_chars"], 0)
+		apiWantValue(t, "body.description_sha256", data["description_sha256"],
+			"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855")
+
+		_, task := apiJSON(t, h, "GET", "/api/tasks/T-1", owner, "")
+		apiWantValue(t, "task.description", task["description"], "")
+	})
+
+	t.Run("a description of nothing but whitespace clears the field too", func(t *testing.T) {
+		_, h, _, owner := newAPITestServer(t)
+		apiJSON(t, h, "POST", "/api/tasks", owner,
+			`{"title":"Ship it","executor_member_id":"kip","description":"old scope"}`)
+
+		status, data := apiJSON(t, h, "POST", "/api/tasks/T-1/description", owner, `{"description":"   \n  "}`)
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		apiWantValue(t, "body.description_size_chars", data["description_size_chars"], 0)
+
+		_, task := apiJSON(t, h, "GET", "/api/tasks/T-1", owner, "")
+		apiWantValue(t, "task.description", task["description"], "")
+	})
+
+	t.Run("omitting the description changes nothing, versions nothing and fans nothing", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		apiJSON(t, h, "POST", "/api/tasks", owner,
+			`{"title":"Ship it","executor_member_id":"kip","description":"old scope"}`)
+		agent := apiTestAgentToken(t, api, "kip", "")
+		dashboard := apiTestListen(t, api, "")
+
+		status, data := apiJSON(t, h, "POST", "/api/tasks/T-1/description", agent, `{}`)
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		apiWantValue(t, "body.description_size_chars", data["description_size_chars"], 9)
+
+		_, task := apiJSON(t, h, "GET", "/api/tasks/T-1", owner, "")
+		apiWantValue(t, "task.description", task["description"], "old scope")
+
+		rec := apiRequest(t, h, "GET", "/api/document-history/task_description/T-1", owner, "")
+		var retained []any
+		if err := json.Unmarshal(rec.Body.Bytes(), &retained); err != nil {
+			t.Fatalf("non-JSON body: %s", rec.Body.String())
+		}
+		apiWantValue(t, "document-history", any(retained), []any{})
+		dashboard.wantFrames()
+	})
+
+	t.Run("the stored text sent back with stray whitespace is no change, so nothing fans", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		apiJSON(t, h, "POST", "/api/tasks", owner,
+			`{"title":"Ship it","executor_member_id":"kip","description":"old scope"}`)
+		agent := apiTestAgentToken(t, api, "kip", "")
+		dashboard := apiTestListen(t, api, "")
+
+		status, data := apiJSON(t, h, "POST", "/api/tasks/T-1/description", agent,
+			`{"description":"  old scope  "}`)
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		apiWantValue(t, "body.description_size_chars", data["description_size_chars"], 9)
+		dashboard.wantFrames()
+	})
+
+	t.Run("a closed task's description is still correctable", func(t *testing.T) {
+		_, h, _, owner := newAPITestServer(t)
+		apiJSON(t, h, "POST", "/api/tasks", owner,
+			`{"title":"Ship it","executor_member_id":"kip","description":"old scope"}`)
+		apiJSON(t, h, "POST", "/api/tasks/T-1/terminate", owner, "")
+
+		status, data := apiJSON(t, h, "POST", "/api/tasks/T-1/description", owner,
+			`{"description":"what it actually was"}`)
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		apiWantValue(t, "body.status", data["status"], "terminated")
+		apiWantValue(t, "body.description_size_chars", data["description_size_chars"], 20)
+
+		_, task := apiJSON(t, h, "GET", "/api/tasks/T-1", owner, "")
+		apiWantValue(t, "task.description", task["description"], "what it actually was")
+	})
+
+	t.Run("an agent that is not the task's executor answers 403 and the text stands", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		apiJSON(t, h, "POST", "/api/tasks", owner,
+			`{"title":"Ship it","executor_member_id":"mira","description":"old scope"}`)
+		other := apiTestAgentToken(t, api, "kip", "")
+		dashboard := apiTestListen(t, api, "")
+
+		status, data := apiJSON(t, h, "POST", "/api/tasks/T-1/description", other,
+			`{"description":"mine now"}`)
+		if status != 403 {
+			t.Fatalf("want 403, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "forbidden", "caller is not the task's executor")
+
+		_, task := apiJSON(t, h, "GET", "/api/tasks/T-1", owner, "")
+		apiWantValue(t, "task.description", task["description"], "old scope")
+		dashboard.wantFrames()
+	})
+
+	t.Run("an authenticated machine identity answers 403 because this row requires agent", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		apiJSON(t, h, "POST", "/api/tasks", owner,
+			`{"title":"Ship it","executor_member_id":"kip","description":"old scope"}`)
+		machine := apiTestAgentToken(t, api, "m-server-self", "")
+		dashboard := apiTestListen(t, api, "")
+
+		status, data := apiJSON(t, h, "POST", "/api/tasks/T-1/description", machine,
+			`{"description":"mine now"}`)
+		if status != 403 {
+			t.Fatalf("want 403, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "forbidden", "principal not permitted")
+
+		_, task := apiJSON(t, h, "GET", "/api/tasks/T-1", owner, "")
+		apiWantValue(t, "task.description", task["description"], "old scope")
+		dashboard.wantFrames()
+	})
+
+	t.Run("an id no task carries answers 404 naming it", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		dashboard := apiTestListen(t, api, "")
+
+		status, data := apiJSON(t, h, "POST", "/api/tasks/T-999/description", owner,
+			`{"description":"anything"}`)
+		if status != 404 {
+			t.Fatalf("want 404, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "not_found", "task 'T-999' not found")
+		dashboard.wantFrames()
+	})
+
+	t.Run("a request without a token answers 401 and the text stands", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		apiJSON(t, h, "POST", "/api/tasks", owner,
+			`{"title":"Ship it","executor_member_id":"kip","description":"old scope"}`)
+		dashboard := apiTestListen(t, api, "")
+
+		status, data := apiJSON(t, h, "POST", "/api/tasks/T-1/description", "",
+			`{"description":"mine now"}`)
+		if status != 401 {
+			t.Fatalf("want 401, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "unauthorized", "missing credentials")
+
+		_, task := apiJSON(t, h, "GET", "/api/tasks/T-1", owner, "")
+		apiWantValue(t, "task.description", task["description"], "old scope")
+		dashboard.wantFrames()
+	})
+
+	t.Run("a body the strict decoder refuses answers 422 and the text stands", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		apiJSON(t, h, "POST", "/api/tasks", owner,
+			`{"title":"Ship it","executor_member_id":"kip","description":"old scope"}`)
+		agent := apiTestAgentToken(t, api, "kip", "")
+		dashboard := apiTestListen(t, api, "")
+
+		status, data := apiJSON(t, h, "POST", "/api/tasks/T-1/description", agent,
+			`{"desc":"typo"}`)
+		if status != 422 {
+			t.Fatalf("want 422, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "validation_error",
+			`invalid request body: json: unknown field "desc"`)
+
+		status, data = apiJSON(t, h, "POST", "/api/tasks/T-1/description", agent, "{{{")
+		if status != 422 {
+			t.Fatalf("want 422, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "validation_error",
+			"invalid request body: invalid character '{' looking for beginning of object key string")
+
+		_, task := apiJSON(t, h, "GET", "/api/tasks/T-1", owner, "")
+		apiWantValue(t, "task.description", task["description"], "old scope")
+		dashboard.wantFrames()
+	})
 }

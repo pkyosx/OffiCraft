@@ -220,8 +220,9 @@ function emit(delta: SseDelta) {
  * This used to be a SECOND hand-copy of the list next to http.ts's own, and it
  * had no discriminating power over that copy: deleting a topic from it left all
  * 218 files / 1823 tests green, so it never caught a drift. It now replays the
- * PRODUCTION array itself (T-05db node 4), and that array is pinned to
- * spec/sse.md §3.1 by api/sseResyncTopics.test.ts. Never re-transcribe it here. */
+ * PRODUCTION array itself (T-05db node 4), and that array is pinned to the
+ * generated spec/sse-topics.json by api/sseResyncTopics.test.ts. Never
+ * re-transcribe it here. */
 function emitResync() {
   act(() => {
     for (const topic of SSE_RESYNC_TOPICS) {

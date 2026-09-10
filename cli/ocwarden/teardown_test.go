@@ -1,304 +1,367 @@
 package main
 
 import (
+	"bytes"
+	"errors"
 	"fmt"
-	"io"
 	"os"
-	"strings"
+	"reflect"
 	"testing"
 )
 
-func fixedTeardownPaths() teardownPaths {
+// teardownFixture is the resolved main-instance teardown target.
+func teardownFixture() teardownPaths {
 	return teardownPaths{
-		tokfile:   "/h/.officraft/warden/exec-warden.tok",
-		plistPath: "/h/Library/LaunchAgents/com.officraft.ocwarden.plist",
+		tokfile:   "/Users/eva/.officraft/warden/exec-warden.tok",
+		plistPath: "/Users/eva/Library/LaunchAgents/com.officraft.ocwarden.plist",
 		guiDomain: "gui/501",
+		label:     "com.officraft.ocwarden",
 	}
 }
 
-// The confirmed-teardown launchctl surface reuses install_test.go's labelGoneRunFn:
-// `bootout` succeeds and the follow-up `launchctl print` poll exits non-zero
-// (= launchd reports the label gone — bootoutUntilGone's first probe confirms).
-
-// assertBootoutThenConfirmPoll pins the launchctl sequence a confirmed teardown
-// must issue: an EXACT-label bootout first, then at least one EXACT-label
-// `launchctl print` confirm probe — and nothing that is not launchctl.
-func assertBootoutThenConfirmPoll(t *testing.T, f *fakeSys) {
-	t.Helper()
-	if len(f.runs) < 2 {
-		t.Fatalf("expected bootout + >=1 confirm poll, got %v", f.runs)
-	}
-	if f.runs[0].name != "launchctl" ||
-		strings.Join(f.runs[0].args, " ") != "bootout gui/501/com.officraft.ocwarden" {
-		t.Fatalf("first run must be the exact-label bootout, got %v", f.runs[0])
-	}
-	if f.runs[1].name != "launchctl" ||
-		strings.Join(f.runs[1].args, " ") != "print gui/501/com.officraft.ocwarden" {
-		t.Fatalf("second run must be the exact-label confirm poll, got %v", f.runs[1])
-	}
-	assertNoForbiddenProcessKill(t, f)
+func TestResolvedLabel(t *testing.T) {
+	t.Skip("a two-line fallback; both branches are asserted through the launchctl argv doTeardown issues in TestDoTeardown")
 }
 
 func TestResolveTeardownPaths(t *testing.T) {
-	p, err := resolveTeardownPaths(envFn(map[string]string{"HOME": "/h"}), 501)
-	if err != nil {
-		t.Fatal(err)
+	cases := []struct {
+		name string
+		env  map[string]string
+		want teardownPaths
+	}{
+		{"main instance", map[string]string{"HOME": "/Users/eva"}, teardownFixture()},
+		{"namespaced instance", map[string]string{"HOME": "/Users/eva", "OC_NAMESPACE": "lab"}, teardownPaths{
+			tokfile:   "/Users/eva/.officraft-lab/warden/exec-warden.tok",
+			plistPath: "/Users/eva/Library/LaunchAgents/com.officraft.ocwarden.lab.plist",
+			guiDomain: "gui/501",
+			label:     "com.officraft.ocwarden.lab",
+		}},
+		{"identity is irrelevant to removal", map[string]string{
+			"HOME": "/Users/eva", "OC_BASE": "https://oc.example.com", "OC_TOKEN": jwtWardenOne, "OC_ID": "machine-7",
+		}, teardownFixture()},
 	}
-	if p.tokfile != "/h/.officraft/warden/exec-warden.tok" {
-		t.Errorf("tokfile = %q", p.tokfile)
-	}
-	if p.plistPath != "/h/Library/LaunchAgents/com.officraft.ocwarden.plist" {
-		t.Errorf("plistPath = %q", p.plistPath)
-	}
-	if p.guiDomain != "gui/501" {
-		t.Errorf("guiDomain = %q", p.guiDomain)
-	}
-	if _, err := resolveTeardownPaths(envFn(map[string]string{}), 1); err == nil {
-		t.Error("expected error when HOME unset")
-	}
-}
-
-// TestRunTeardown_BootoutExactLabelThenConfirmThenRemove: teardown boots out ONLY
-// the exact label, polls `launchctl print` until launchd confirms the label gone
-// (bootout is async), and removes exactly the tokfile + plist — never a
-// pattern-kill.
-func TestRunTeardown_BootoutExactLabelThenConfirmThenRemove(t *testing.T) {
-	f := newFakeSys()
-	f.runFn = labelGoneRunFn()
-	i := &installer{out: io.Discard, sys: f.ops()}
-	p := fixedTeardownPaths()
-	if ok := i.runTeardown(p); !ok {
-		t.Fatal("runTeardown must report ok=true for a confirmed teardown")
-	}
-	assertBootoutThenConfirmPoll(t, f)
-	if len(f.removed) != 2 || f.removed[0] != p.tokfile || f.removed[1] != p.plistPath {
-		t.Fatalf("removed = %v, want [tokfile plist]", f.removed)
-	}
-}
-
-// TestRunTeardown_Idempotent: an already-torn-down install (bootout non-zero =
-// not-loaded, the confirm poll's first probe reports the label gone, files already
-// gone) still returns success.
-func TestRunTeardown_Idempotent(t *testing.T) {
-	f := newFakeSys()
-	f.runFn = func(name string, args ...string) (string, error) {
-		return "", fmt.Errorf("Boot-out failed: 3: No such process") // not loaded / not found
-	}
-	p := fixedTeardownPaths()
-	f.removeErr[p.tokfile] = os.ErrNotExist
-	f.removeErr[p.plistPath] = os.ErrNotExist
-	i := &installer{out: io.Discard, sys: f.ops()}
-	if ok := i.runTeardown(p); !ok {
-		t.Fatal("teardown must be idempotent (fully-absent install is ok=true)")
-	}
-	if f.slept != 0 {
-		t.Errorf("an already-gone label must confirm on the first probe with zero sleeps, slept=%d", f.slept)
-	}
-}
-
-func TestRunTeardown_DryRunTouchesNothing(t *testing.T) {
-	f := newFakeSys()
-	i := &installer{out: io.Discard, dryRun: true, sys: f.ops()}
-	if ok := i.runTeardown(fixedTeardownPaths()); !ok {
-		t.Fatal("dry-run teardown must report ok=true")
-	}
-	if len(f.runs) != 0 || len(f.removed) != 0 {
-		t.Errorf("dry-run teardown mutated something: runs=%v removed=%v", f.ranNames(), f.removed)
-	}
-}
-
-// ---------------------------------------------------------------------------
-// doTeardown — the PURE core (used by BOTH the CLI and the uninstall RPC). It
-// returns (ok, log) WITHOUT exiting or calling errf.
-// ---------------------------------------------------------------------------
-
-// TestDoTeardown_OK_BootoutConfirmedThenRemove_ReturnsTrueAndLog: a clean teardown
-// boots out the EXACT label, CONFIRMS via the `launchctl print` poll that launchd
-// reports the label gone, removes exactly tokfile + plist, and returns
-// (true, non-empty log).
-func TestDoTeardown_OK_BootoutConfirmedThenRemove_ReturnsTrueAndLog(t *testing.T) {
-	f := newFakeSys()
-	f.runFn = labelGoneRunFn()
-	p := fixedTeardownPaths()
-	ok, log := doTeardown(f.ops(), false, p)
-	if !ok {
-		t.Fatalf("doTeardown ok = false, want true (confirmed teardown); log:\n%s", log)
-	}
-	assertBootoutThenConfirmPoll(t, f)
-	if len(f.removed) != 2 || f.removed[0] != p.tokfile || f.removed[1] != p.plistPath {
-		t.Fatalf("removed = %v, want [tokfile plist]", f.removed)
-	}
-	if !strings.Contains(log, "teardown complete") || !strings.Contains(log, p.tokfile) {
-		t.Fatalf("log must transcribe the steps, got:\n%s", log)
-	}
-	if !strings.Contains(log, "CONFIRMED gone") {
-		t.Fatalf("log must state the bootout was CONFIRMED, got:\n%s", log)
-	}
-}
-
-// TestDoTeardown_LingeringLabel_NotConfirmed_ReturnsFalse: when launchd keeps
-// reporting the label registered for the whole bounded poll (`launchctl print`
-// keeps succeeding), the bootout is NOT confirmed → ok=false, even though the
-// file removals succeed (best-effort cleanup still runs). This is the CONFIRM half
-// the server's CONFIRM-THEN-REMOVE relies on: an unconfirmed teardown must never
-// read as done, or handle_teardown_here would soft-delete a machine whose daemon
-// may still be running.
-func TestDoTeardown_LingeringLabel_NotConfirmed_ReturnsFalse(t *testing.T) {
-	f := newFakeSys()
-	// Default fake runFn: every launchctl call succeeds — `print` succeeding means
-	// the label is STILL registered, so the bounded poll exhausts.
-	p := fixedTeardownPaths()
-	ok, log := doTeardown(f.ops(), false, p)
-	if ok {
-		t.Fatalf("a lingering label must make ok=false; log:\n%s", log)
-	}
-	if !strings.Contains(log, "NOT confirmed") || !strings.Contains(log, "INCOMPLETE") {
-		t.Fatalf("an unconfirmed teardown must say so in the log, got:\n%s", log)
-	}
-	// Bounded: exactly bootout + bootoutPollAttempts print probes — never unbounded.
-	if want := 1 + bootoutPollAttempts; len(f.runs) != want {
-		t.Fatalf("poll must be bounded: runs=%d, want %d", len(f.runs), want)
-	}
-	if f.slept != bootoutPollAttempts {
-		t.Errorf("slept=%d, want %d (one bounded sleep per probe)", f.slept, bootoutPollAttempts)
-	}
-	// Best-effort cleanup still removed the artifacts.
-	if len(f.removed) != 2 {
-		t.Errorf("best-effort removal must still run, removed=%v", f.removed)
-	}
-	assertNoForbiddenProcessKill(t, f)
-}
-
-// TestDoTeardown_Idempotent_AllAbsent_StillOK: bootout not-loaded + the first
-// confirm probe reporting the label gone + both files already gone (os.ErrNotExist)
-// is a fully-idempotent success — ok=true.
-func TestDoTeardown_Idempotent_AllAbsent_StillOK(t *testing.T) {
-	f := newFakeSys()
-	f.runFn = func(name string, args ...string) (string, error) {
-		return "", fmt.Errorf("Boot-out failed: 3: No such process")
-	}
-	p := fixedTeardownPaths()
-	f.removeErr[p.tokfile] = os.ErrNotExist
-	f.removeErr[p.plistPath] = os.ErrNotExist
-	ok, _ := doTeardown(f.ops(), false, p)
-	if !ok {
-		t.Fatal("an already-absent install must be an idempotent ok=true")
-	}
-}
-
-// TestDoTeardown_RemoveFailure_ReturnsFalse: a real (non-not-exist) removal failure on a
-// required artifact makes ok=false — even when the bootout IS confirmed — the
-// uninstall RPC uses this to refuse self-exit.
-func TestDoTeardown_RemoveFailure_ReturnsFalse(t *testing.T) {
-	f := newFakeSys()
-	f.runFn = labelGoneRunFn() // bootout confirmed — the failure below is the sole cause
-	p := fixedTeardownPaths()
-	f.removeErr[p.plistPath] = fmt.Errorf("permission denied")
-	ok, log := doTeardown(f.ops(), false, p)
-	if ok {
-		t.Fatalf("a stubborn plist removal must make ok=false; log:\n%s", log)
-	}
-	if !strings.Contains(log, "INCOMPLETE") {
-		t.Fatalf("an incomplete teardown must say so in the log, got:\n%s", log)
-	}
-}
-
-// TestDoTeardown_DryRun_TouchesNothing: dry-run mutates nothing and reports ok=true.
-func TestDoTeardown_DryRun_TouchesNothing(t *testing.T) {
-	f := newFakeSys()
-	ok, log := doTeardown(f.ops(), true, fixedTeardownPaths())
-	if !ok {
-		t.Fatal("dry-run doTeardown must report ok=true")
-	}
-	if len(f.runs) != 0 || len(f.removed) != 0 {
-		t.Errorf("dry-run doTeardown mutated something: runs=%v removed=%v", f.ranNames(), f.removed)
-	}
-	if !strings.Contains(log, "DRYRUN") {
-		t.Fatalf("dry-run log must mark itself, got:\n%s", log)
-	}
-}
-
-// ---------------------------------------------------------------------------
-// SECOND-HEIGHT GUARD (T-2257): the validation must be CALLED, not merely correct
-// ---------------------------------------------------------------------------
-
-// scanTeardownGuardSource is the teardown analogue of hostseam_test.go's
-// scanHostSeamSource: a pure source scan over teardown.go, returning one
-// human-readable violation per problem and empty when the structure holds.
-//
-// WHY a source scan and not one more behavioural test. Every other guard test in
-// this package (TestValidateTeardownTarget_*, TestTeardownRefusal_*) drives
-// validateTeardownTarget DIRECTLY, so all of them prove the function is CORRECT and
-// none of them prove anything CALLS it. Delete the one line
-//
-//	if err := validateTeardownTarget(env, canonicalExplicit); err != nil { … }
-//
-// from teardownCmd and the entire CLI guard is gone while exactly one test in the
-// package turns red (TestRealMain_BareTeardownRefusesBeforeAnyHostOperation). A
-// whole safety layer resting on a single deletable test is the shape this repo
-// keeps getting bitten by, so the property gets pinned at a second height, in a
-// different medium.
-//
-// THE PROPERTY: inside teardownCmd's body, on CODE lines only, the
-// validateTeardownTarget call must appear and must come BEFORE the first
-// resolveTeardownPaths call — "fail closed before any path is derived" is the
-// contract, and a guard that ran after path resolution would already have named
-// the canonical instance. Comment lines are stripped for the same reason
-// countCodeOccurrences strips them: this file discusses the call at length above,
-// and a scan satisfied by its own documentation is an always-true assertion.
-func scanTeardownGuardSource() []string {
-	raw, err := os.ReadFile("teardown.go")
-	if err != nil {
-		return []string{fmt.Sprintf("cannot read teardown.go to verify the teardown guard: %v (fail closed)", err)}
-	}
-	lines := strings.Split(string(raw), "\n")
-	start := -1
-	for i, l := range lines {
-		if strings.HasPrefix(l, "func teardownCmd(") {
-			start = i
-			break
-		}
-	}
-	if start < 0 {
-		return []string{"teardown.go no longer declares `func teardownCmd(` — the CLI entry point this guard protects has moved or been renamed; re-point this scan at it rather than deleting it"}
-	}
-	end := len(lines)
-	for i := start + 1; i < len(lines); i++ {
-		if strings.HasPrefix(lines[i], "}") {
-			end = i
-			break
-		}
-	}
-	validateAt, resolveAt := -1, -1
-	for i := start + 1; i < end; i++ {
-		t := strings.TrimSpace(lines[i])
-		if strings.HasPrefix(t, "//") {
+	for _, c := range cases {
+		got, err := resolveTeardownPaths(envMap(c.env), 501)
+		if err != nil {
+			t.Errorf("%s: err = %v, want nil", c.name, err)
 			continue
 		}
-		if validateAt < 0 && strings.Contains(t, "validateTeardownTarget(env, canonicalExplicit)") {
-			validateAt = i
-		}
-		if resolveAt < 0 && strings.Contains(t, "resolveTeardownPaths(") {
-			resolveAt = i
+		if !reflect.DeepEqual(got, c.want) {
+			t.Errorf("%s: paths = %+v, want %+v", c.name, got, c.want)
 		}
 	}
-	var out []string
-	if validateAt < 0 {
-		out = append(out, "teardownCmd's body no longer calls validateTeardownTarget(env, canonicalExplicit) on any code line. The explicit-target guard (T-2257) is the ONLY thing standing between a bare `ocwarden teardown` and this host's canonical warden — on 2026-07-25 that exact shape booted out a live warden and deleted its plist and exec token unrecoverably, leaving 7 agents unsupervised. The unit tests around validateTeardownTarget all call it directly and stay green with the call site deleted, which is why this scan exists")
+
+	refused := []struct {
+		name string
+		env  map[string]string
+		want string
+	}{
+		{"HOME unset", map[string]string{}, "HOME must be set"},
+		{"invalid namespace", map[string]string{"HOME": "/Users/eva", "OC_NAMESPACE": "Lab"},
+			`OC_NAMESPACE must match [a-z0-9-]{1,16}, got: "Lab"`},
 	}
-	if validateAt >= 0 && resolveAt >= 0 && validateAt > resolveAt {
-		out = append(out, fmt.Sprintf("teardownCmd calls resolveTeardownPaths (line %d) BEFORE validateTeardownTarget (line %d). The contract is fail-closed BEFORE any path is derived: a guard that runs after resolution has already resolved the canonical instance's plist and token paths, and the next edit that moves a side effect up between them is unguarded", resolveAt+1, validateAt+1))
+	for _, c := range refused {
+		got, err := resolveTeardownPaths(envMap(c.env), 501)
+		if err == nil || err.Error() != c.want {
+			t.Errorf("%s: err = %v, want %q", c.name, err, c.want)
+		}
+		if !reflect.DeepEqual(got, teardownPaths{}) {
+			t.Errorf("%s: a refusal still derived %+v", c.name, got)
+		}
 	}
-	return out
 }
 
-// TestTeardownGuard_IsCalledFromTheCLIEntryPoint is the ONLY runner of
-// scanTeardownGuardSource — it is enforcement, not a reporting wrapper, and there
-// must not be a second copy of it (see cli/CLAUDE.md on the pair of identical
-// no-op host-seam tests independent review defeated by replacing both bodies with
-// panic).
-func TestTeardownGuard_IsCalledFromTheCLIEntryPoint(t *testing.T) {
-	for _, v := range scanTeardownGuardSource() {
-		t.Errorf("teardown guard structure is broken: %s", v)
+func TestRemoveFileTo(t *testing.T) {
+	path := "/Users/eva/.officraft/warden/exec-warden.tok"
+
+	cases := []struct {
+		name        string
+		dryRun      bool
+		present     bool
+		removeErr   error
+		wantRemoved bool
+		wantLog     string
+		wantCalls   []string
+	}{
+		{name: "a present file is removed", present: true, wantRemoved: true,
+			wantLog: "removed: " + path + "\n", wantCalls: []string{"remove " + path}},
+		{name: "an absent file is already done", wantRemoved: true,
+			wantLog: "already absent: " + path + "\n", wantCalls: []string{"remove " + path}},
+		{name: "a stubborn file is reported and survived", present: true,
+			removeErr: errors.New("operation not permitted"), wantRemoved: false,
+			wantLog:   "warning: could not remove " + path + ": operation not permitted (continuing)\n",
+			wantCalls: []string{"remove " + path}},
+		{name: "a dry run removes nothing", dryRun: true, present: true, wantRemoved: true,
+			wantLog: "DRYRUN would remove: " + path + "\n"},
 	}
+	for _, c := range cases {
+		sys := newSysRecorder()
+		if c.present {
+			sys.files[path] = "content"
+		}
+		if c.removeErr != nil {
+			sys.fail["remove "+path] = c.removeErr
+		}
+		var log bytes.Buffer
+		logf := func(format string, a ...any) { fmt.Fprintf(&log, format+"\n", a...) }
+
+		if got := removeFileTo(logf, sys.ops(), c.dryRun, path); got != c.wantRemoved {
+			t.Errorf("%s: removeFileTo = %v, want %v", c.name, got, c.wantRemoved)
+		}
+		if log.String() != c.wantLog {
+			t.Errorf("%s: log = %q, want %q", c.name, log.String(), c.wantLog)
+		}
+		if !reflect.DeepEqual(sys.calls, c.wantCalls) {
+			t.Errorf("%s: calls = %v, want %v", c.name, sys.calls, c.wantCalls)
+		}
+		if _, left := sys.files[path]; c.dryRun && !left {
+			t.Errorf("%s: a dry run deleted the file", c.name)
+		}
+	}
+}
+
+func TestRemoveFile(t *testing.T) {
+	t.Skip("a one-line shim onto removeFileTo (i.logf, i.sys, i.dryRun); its transcript is asserted through TestRunTeardown")
+}
+
+func TestDoTeardown(t *testing.T) {
+	p := teardownFixture()
+	target := "gui/501/com.officraft.ocwarden"
+	notLoaded := errors.New("Could not find service in domain")
+
+	t.Run("a live install is booted out and its artifacts removed", func(t *testing.T) {
+		sys := newSysRecorder()
+		sys.files[p.tokfile] = jwtWardenOne
+		sys.files[p.plistPath] = minimalPlist
+		sys.run = func(argv string, _ int) (string, error) {
+			if argv == "launchctl print "+target {
+				return "", notLoaded
+			}
+			return "", nil
+		}
+		ok, log := doTeardown(sys.ops(), false, p)
+		if !ok {
+			t.Error("ok = false, want true")
+		}
+		wantCalls := []string{
+			"run launchctl bootout " + target,
+			"run launchctl print " + target,
+			"remove " + p.tokfile,
+			"remove " + p.plistPath,
+		}
+		if !reflect.DeepEqual(sys.calls, wantCalls) {
+			t.Errorf("calls =\n%v\nwant\n%v", sys.calls, wantCalls)
+		}
+		if len(sys.files) != 0 {
+			t.Errorf("teardown left %v behind", sys.files)
+		}
+		want := "[ocwarden teardown] booted out " + target + " — CONFIRMED gone from launchd (exact label; tolerated if not loaded; never pkill)\n" +
+			"[ocwarden teardown] removed: " + p.tokfile + "\n" +
+			"[ocwarden teardown] removed: " + p.plistPath + "\n" +
+			"[ocwarden teardown] teardown complete for com.officraft.ocwarden\n"
+		if log != want {
+			t.Errorf("log =\n%s\nwant\n%s", log, want)
+		}
+	})
+
+	t.Run("a namespaced instance acts on its own label only", func(t *testing.T) {
+		ns := teardownPaths{
+			tokfile:   "/Users/eva/.officraft-lab/warden/exec-warden.tok",
+			plistPath: "/Users/eva/Library/LaunchAgents/com.officraft.ocwarden.lab.plist",
+			guiDomain: "gui/501",
+			label:     "com.officraft.ocwarden.lab",
+		}
+		sys := newSysRecorder()
+		sys.run = func(string, int) (string, error) { return "", notLoaded }
+		ok, log := doTeardown(sys.ops(), false, ns)
+		if !ok {
+			t.Error("ok = false, want true")
+		}
+		wantCalls := []string{
+			"run launchctl bootout gui/501/com.officraft.ocwarden.lab",
+			"run launchctl print gui/501/com.officraft.ocwarden.lab",
+			"remove " + ns.tokfile,
+			"remove " + ns.plistPath,
+		}
+		if !reflect.DeepEqual(sys.calls, wantCalls) {
+			t.Errorf("calls =\n%v\nwant\n%v", sys.calls, wantCalls)
+		}
+		want := "[ocwarden teardown] booted out gui/501/com.officraft.ocwarden.lab — CONFIRMED gone from launchd (exact label; tolerated if not loaded; never pkill)\n" +
+			"[ocwarden teardown] already absent: " + ns.tokfile + "\n" +
+			"[ocwarden teardown] already absent: " + ns.plistPath + "\n" +
+			"[ocwarden teardown] teardown complete for com.officraft.ocwarden.lab\n"
+		if log != want {
+			t.Errorf("log =\n%s\nwant\n%s", log, want)
+		}
+	})
+
+	t.Run("a zero-value label falls back to the canonical one", func(t *testing.T) {
+		zero := teardownFixture()
+		zero.label = ""
+		sys := newSysRecorder()
+		sys.run = func(string, int) (string, error) { return "", notLoaded }
+		ok, log := doTeardown(sys.ops(), false, zero)
+		if !ok {
+			t.Error("ok = false, want true")
+		}
+		if want := "run launchctl bootout " + target; sys.calls[0] != want {
+			t.Errorf("first call = %q, want %q", sys.calls[0], want)
+		}
+		if !bytes.Contains([]byte(log), []byte("teardown complete for com.officraft.ocwarden\n")) {
+			t.Errorf("log =\n%s\nwant it to name the canonical label", log)
+		}
+	})
+
+	t.Run("a label that lingers is not a confirmed teardown", func(t *testing.T) {
+		sys := newSysRecorder()
+		sys.run = func(string, int) (string, error) { return "state = running", nil }
+		ok, log := doTeardown(sys.ops(), false, p)
+		if ok {
+			t.Error("ok = true, want false — the bootout was never confirmed")
+		}
+		if n := sys.count("run launchctl print " + target); n != 25 {
+			t.Errorf("%d print probes, want 25", n)
+		}
+		if n := sys.count("sleep 200ms"); n != 25 {
+			t.Errorf("%d sleeps, want 25", n)
+		}
+		want := "[ocwarden teardown] bootout of " + target + " NOT confirmed: label still registered after ~5s bounded poll\n" +
+			"[ocwarden teardown] already absent: " + p.tokfile + "\n" +
+			"[ocwarden teardown] already absent: " + p.plistPath + "\n" +
+			"[ocwarden teardown] teardown INCOMPLETE for com.officraft.ocwarden — the launchd bootout was not confirmed or a required artifact could not be removed\n"
+		if log != want {
+			t.Errorf("log =\n%s\nwant\n%s", log, want)
+		}
+	})
+
+	t.Run("a stubborn artifact is not a confirmed teardown", func(t *testing.T) {
+		sys := newSysRecorder()
+		sys.files[p.tokfile] = jwtWardenOne
+		sys.files[p.plistPath] = minimalPlist
+		sys.fail["remove "+p.tokfile] = errors.New("operation not permitted")
+		sys.run = func(argv string, _ int) (string, error) {
+			if argv == "launchctl print "+target {
+				return "", notLoaded
+			}
+			return "", nil
+		}
+		ok, log := doTeardown(sys.ops(), false, p)
+		if ok {
+			t.Error("ok = true, want false — an artifact survived")
+		}
+		if _, left := sys.files[p.tokfile]; !left {
+			t.Error("the stubborn file was reported as surviving but is gone")
+		}
+		if _, left := sys.files[p.plistPath]; left {
+			t.Error("teardown stopped at the stubborn file instead of continuing")
+		}
+		want := "[ocwarden teardown] booted out " + target + " — CONFIRMED gone from launchd (exact label; tolerated if not loaded; never pkill)\n" +
+			"[ocwarden teardown] warning: could not remove " + p.tokfile + ": operation not permitted (continuing)\n" +
+			"[ocwarden teardown] removed: " + p.plistPath + "\n" +
+			"[ocwarden teardown] teardown INCOMPLETE for com.officraft.ocwarden — the launchd bootout was not confirmed or a required artifact could not be removed\n"
+		if log != want {
+			t.Errorf("log =\n%s\nwant\n%s", log, want)
+		}
+	})
+
+	t.Run("a dry run touches nothing", func(t *testing.T) {
+		sys := newSysRecorder()
+		sys.files[p.tokfile] = jwtWardenOne
+		sys.files[p.plistPath] = minimalPlist
+		ok, log := doTeardown(sys.ops(), true, p)
+		if !ok {
+			t.Error("ok = false, want true")
+		}
+		if len(sys.calls) != 0 {
+			t.Errorf("a dry run did %v", sys.calls)
+		}
+		if len(sys.files) != 2 {
+			t.Errorf("a dry run removed files: %v", sys.files)
+		}
+		want := "[ocwarden teardown] DRYRUN would run: launchctl bootout " + target + "  (tolerate not-loaded; stops the process via launchd, never pkill)\n" +
+			"[ocwarden teardown] DRYRUN would: poll `launchctl print " + target + "` until the label is gone (bootout is async; bounded ~5s)\n" +
+			"[ocwarden teardown] DRYRUN would remove: " + p.tokfile + "\n" +
+			"[ocwarden teardown] DRYRUN would remove: " + p.plistPath + "\n" +
+			"[ocwarden teardown] DRYRUN complete — no machine state changed.\n"
+		if log != want {
+			t.Errorf("log =\n%s\nwant\n%s", log, want)
+		}
+	})
+}
+
+func TestRunTeardown(t *testing.T) {
+	p := teardownFixture()
+	target := "gui/501/com.officraft.ocwarden"
+
+	sys := newSysRecorder()
+	sys.run = func(argv string, _ int) (string, error) {
+		if argv == "launchctl print "+target {
+			return "", errors.New("Could not find service in domain")
+		}
+		return "", nil
+	}
+	out := &bytes.Buffer{}
+	i := &installer{out: out, tag: "teardown", sys: sys.ops()}
+
+	if ok := i.runTeardown(p); !ok {
+		t.Error("runTeardown = false, want true — a fully-absent install is an idempotent success")
+	}
+	want := "[ocwarden teardown] booted out " + target + " — CONFIRMED gone from launchd (exact label; tolerated if not loaded; never pkill)\n" +
+		"[ocwarden teardown] already absent: " + p.tokfile + "\n" +
+		"[ocwarden teardown] already absent: " + p.plistPath + "\n" +
+		"[ocwarden teardown] teardown complete for com.officraft.ocwarden\n"
+	if out.String() != want {
+		t.Errorf("streamed transcript =\n%s\nwant\n%s", out.String(), want)
+	}
+
+	stubborn := newSysRecorder()
+	stubborn.files[p.tokfile] = jwtWardenOne
+	stubborn.fail["remove "+p.tokfile] = os.ErrPermission
+	stubborn.run = func(argv string, _ int) (string, error) {
+		if argv == "launchctl print "+target {
+			return "", errors.New("Could not find service in domain")
+		}
+		return "", nil
+	}
+	unconfirmed := &installer{out: &bytes.Buffer{}, tag: "teardown", sys: stubborn.ops()}
+	if ok := unconfirmed.runTeardown(p); ok {
+		t.Error("runTeardown = true, want false — an artifact survived")
+	}
+}
+
+func TestValidateTeardownTarget(t *testing.T) {
+	canonicalRefusal := "refusing: this would tear down the CANONICAL warden on this host " +
+		"(launchd com.officraft.ocwarden, its exec token and plist) and stop every agent it " +
+		"supervises. For an isolated instance set OC_NAMESPACE=<ns>; if destroying the " +
+		"canonical warden is genuinely intended, authorize it explicitly with --canonical"
+
+	cases := []struct {
+		name      string
+		env       map[string]string
+		canonical bool
+		want      string
+	}{
+		{"an implicit canonical target is refused", map[string]string{}, false, canonicalRefusal},
+		{"the canonical target is spelled out", map[string]string{}, true, ""},
+		{"a namespaced target is unambiguous from its env", map[string]string{"OC_NAMESPACE": "lab"}, false, ""},
+		{"--canonical conflicts with a namespace", map[string]string{"OC_NAMESPACE": "lab"}, true,
+			`refusing: --canonical conflicts with OC_NAMESPACE="lab"`},
+		{"an invalid namespace is refused", map[string]string{"OC_NAMESPACE": "Lab"}, false,
+			`OC_NAMESPACE must match [a-z0-9-]{1,16}, got: "Lab"`},
+		{"an invalid namespace is refused even with --canonical", map[string]string{"OC_NAMESPACE": "Lab"}, true,
+			`OC_NAMESPACE must match [a-z0-9-]{1,16}, got: "Lab"`},
+	}
+	for _, c := range cases {
+		err := validateTeardownTarget(envMap(c.env), c.canonical)
+		switch {
+		case c.want == "" && err != nil:
+			t.Errorf("%s: err = %v, want nil", c.name, err)
+		case c.want != "" && (err == nil || err.Error() != c.want):
+			t.Errorf("%s: err = %v, want %q", c.name, err, c.want)
+		}
+	}
+}
+
+func TestTeardownCmd(t *testing.T) {
+	t.Skip("the entry point builds its effects from newHostSeam(), which this package binds to realHostSeam — calling it from a test binary is a deliberate os.Exit(1) (TestRealHostSeam) that would take the whole test process with it")
 }

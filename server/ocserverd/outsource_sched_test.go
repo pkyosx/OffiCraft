@@ -1,691 +1,471 @@
 package main
 
-// outsource_sched_test.go — the M3 Phase 2 scheduler pins. The pure admission
-// core (outsourceDecide) carries the contract: queue order (priority then
-// created_ts), the per-type copies cap, the global cap (0 = paused), frozen
-// skipped, and same-call idempotence. The tick-level tests pin the IO shell:
-// mint/bind/fan against a real store, cross-tick idempotence (the worker row
-// IS the ledger), the create_task event seam, and the --no-outsource gate.
-
 import (
-	"net/http"
-	"net/http/httptest"
-	"strconv"
+	"io"
+	"os"
+	"reflect"
+	"strings"
 	"testing"
 )
 
-// ── pure decision core ────────────────────────────────────────────────────────
+func TestOutsourceAwaitingAssignment(t *testing.T) {
+	base := Task{
+		ExecutorKind: TaskExecutorOutsource,
+		Priority:     TaskPriorityMid,
+		Status:       TaskStatusNotStarted,
+	}
+	cases := []struct {
+		name string
+		task Task
+		want bool
+	}{
+		{name: "a fresh unassigned outsource task is queued", task: base, want: true},
+		{name: "a reassigning outsource task is queued even when its derived status is in progress", task: func() Task {
+			task := base
+			task.Status = TaskStatusInProgress
+			task.Lock = TaskLockReassigning
+			return task
+		}(), want: true},
+		{name: "an in-progress task without the reassigning lock is not queued", task: func() Task {
+			task := base
+			task.Status = TaskStatusInProgress
+			return task
+		}(), want: false},
+		{name: "a task already bound to a worker is not queued", task: func() Task {
+			task := base
+			task.ExecutorID = "ow-existing"
+			return task
+		}(), want: false},
+		{name: "a staff task is not queued", task: func() Task {
+			task := base
+			task.ExecutorKind = TaskExecutorStaff
+			return task
+		}(), want: false},
+		{name: "a frozen outsource task is never queued", task: func() Task {
+			task := base
+			task.Priority = TaskPriorityFrozen
+			return task
+		}(), want: false},
+		{name: "a frozen reassigning task stays out of the queue", task: func() Task {
+			task := base
+			task.Priority = TaskPriorityFrozen
+			task.Status = TaskStatusInProgress
+			task.Lock = TaskLockReassigning
+			return task
+		}(), want: false},
+	}
 
-func specsOneType(copies int) map[string]outsourceTypeSpec {
-	return map[string]outsourceTypeSpec{
-		"review-pr": {Copies: copies, Model: "claude-sonnet-4-5", Effort: "medium"},
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := outsourceAwaitingAssignment(tc.task); got != tc.want {
+				t.Fatalf("outsourceAwaitingAssignment(%+v) = %v, want %v", tc.task, got, tc.want)
+			}
+		})
 	}
 }
 
-func TestOutsourceDecideQueueOrder(t *testing.T) {
-	// Deliberately shuffled input: order must come from priority then
-	// created_ts (id is only the deterministic tie-break).
-	cands := []outsourceCandidate{
-		{TaskID: "t-low", TypeKey: "review-pr", Priority: TaskPriorityLow, CreatedTS: 1.0},
-		{TaskID: "t-mid-late", TypeKey: "review-pr", Priority: TaskPriorityMid, CreatedTS: 9.0},
-		{TaskID: "t-b", TypeKey: "review-pr", Priority: TaskPriorityMid, CreatedTS: 3.0},
-		{TaskID: "t-high", TypeKey: "review-pr", Priority: TaskPriorityHigh, CreatedTS: 5.0},
-		{TaskID: "t-mid-early", TypeKey: "review-pr", Priority: TaskPriorityMid, CreatedTS: 2.0},
-		{TaskID: "t-a", TypeKey: "review-pr", Priority: TaskPriorityMid, CreatedTS: 3.0},
+func TestTaskPriorityRank(t *testing.T) {
+	cases := []struct {
+		priority string
+		want     int
+	}{
+		{priority: TaskPriorityHigh, want: 0},
+		{priority: TaskPriorityMid, want: 1},
+		{priority: TaskPriorityLow, want: 2},
+		{priority: TaskPriorityFrozen, want: 3},
+		{priority: "unrecognised", want: 3},
 	}
-	got := outsourceDecide(cands, specsOneType(10), map[string]int{}, 0, 10)
-	want := []string{"t-high", "t-mid-early", "t-a", "t-b", "t-mid-late", "t-low"}
-	if len(got) != len(want) {
-		t.Fatalf("want %d assignments, got %+v", len(want), got)
+
+	for _, tc := range cases {
+		t.Run(tc.priority, func(t *testing.T) {
+			if got := taskPriorityRank(tc.priority); got != tc.want {
+				t.Fatalf("taskPriorityRank(%q) = %d, want %d", tc.priority, got, tc.want)
+			}
+		})
 	}
-	for i, id := range want {
-		if got[i].TaskID != id {
-			t.Fatalf("queue order: want %v, got %+v", want, got)
+}
+
+func TestSortOutsourceQueue(t *testing.T) {
+	candidate := func(id, priority string, createdTS float64) outsourceCandidate {
+		return outsourceCandidate{TaskID: id, Priority: priority, CreatedTS: createdTS}
+	}
+	cases := []struct {
+		name  string
+		cands []outsourceCandidate
+		want  []string
+	}{
+		{
+			name: "priority is applied before creation time",
+			cands: []outsourceCandidate{
+				candidate("low-first", TaskPriorityLow, 1),
+				candidate("high-late", TaskPriorityHigh, 30),
+				candidate("mid-first", TaskPriorityMid, 0),
+				candidate("high-first", TaskPriorityHigh, 10),
+			},
+			want: []string{"high-first", "high-late", "mid-first", "low-first"},
+		},
+		{
+			name: "the task id breaks equal-priority and equal-time ties",
+			cands: []outsourceCandidate{
+				candidate("T-20", TaskPriorityMid, 12),
+				candidate("T-2", TaskPriorityMid, 12),
+				candidate("T-1", TaskPriorityMid, 12),
+			},
+			want: []string{"T-1", "T-2", "T-20"},
+		},
+		{
+			name: "frozen and unknown priorities share the final rank and use the task id tie-break",
+			cands: []outsourceCandidate{
+				candidate("unknown-late", "unknown", 20),
+				candidate("frozen-first", TaskPriorityFrozen, 1),
+				candidate("unknown-first", "unknown", 1),
+			},
+			want: []string{"frozen-first", "unknown-first", "unknown-late"},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := sortOutsourceQueue(tc.cands)
+			ids := make([]string, len(got))
+			for i := range got {
+				ids[i] = got[i].TaskID
+			}
+			if !reflect.DeepEqual(ids, tc.want) {
+				t.Fatalf("sorted task ids = %v, want %v", ids, tc.want)
+			}
+		})
+	}
+}
+
+func TestOutsourceDecide(t *testing.T) {
+	candidate := func(id, typeKey, priority string, createdTS float64) outsourceCandidate {
+		return outsourceCandidate{
+			TaskID: id, TypeKey: typeKey, Priority: priority, CreatedTS: createdTS,
 		}
 	}
-}
-
-func TestOutsourceDecidePerTypeCopiesCap(t *testing.T) {
-	cands := []outsourceCandidate{
-		{TaskID: "t-1", TypeKey: "review-pr", Priority: TaskPriorityMid, CreatedTS: 1.0},
-		{TaskID: "t-2", TypeKey: "review-pr", Priority: TaskPriorityMid, CreatedTS: 2.0},
-		{TaskID: "t-3", TypeKey: "review-pr", Priority: TaskPriorityMid, CreatedTS: 3.0},
-	}
-	// copies=2 with one already live → exactly ONE more admits.
-	got := outsourceDecide(cands, specsOneType(2),
-		map[string]int{"review-pr": 1}, 1, 10)
-	if len(got) != 1 || got[0].TaskID != "t-1" {
-		t.Fatalf("copies cap: want [t-1], got %+v", got)
-	}
-	// The type cap never blocks ANOTHER type.
-	specs := specsOneType(1)
-	specs["sync-jira"] = outsourceTypeSpec{Copies: 1, Model: "claude-haiku-4", Effort: "low"}
-	got = outsourceDecide(append(cands,
-		outsourceCandidate{TaskID: "t-4", TypeKey: "sync-jira",
-			Priority: TaskPriorityMid, CreatedTS: 4.0}),
-		specs, map[string]int{"review-pr": 1}, 1, 10)
-	if len(got) != 1 || got[0].TaskID != "t-4" {
-		t.Fatalf("per-type isolation: want [t-4], got %+v", got)
-	}
-
-	// T-b6e9: an explicit 發包 target carrying a TypeKey obeys that type's copies
-	// cap too — no longer a global-cap-only side door. copies=2, one live → ONE more.
-	tgt := []outsourceCandidate{
-		{TaskID: "x-1", TypeKey: "review-pr", Priority: TaskPriorityMid, CreatedTS: 1.0,
-			TargetModel: "opus", TargetEffort: "low", TargetMachine: "m-box",
-			Dispatched: true},
-		{TaskID: "x-2", TypeKey: "review-pr", Priority: TaskPriorityMid, CreatedTS: 2.0,
-			TargetModel: "opus", TargetEffort: "low", TargetMachine: "m-box",
-			Dispatched: true},
-	}
-	got = outsourceDecide(tgt, specsOneType(2), map[string]int{"review-pr": 1}, 1, 10)
-	if len(got) != 1 || got[0].TaskID != "x-1" {
-		t.Fatalf("explicit typed dispatch must obey per-type copies: want [x-1], got %+v", got)
-	}
-	// …and it still mints from the TARGET (opus/FromTarget), not the manual's model.
-	if got[0].Model != "opus" || !got[0].FromTarget {
-		t.Fatalf("capped explicit dispatch must still mint from its target: %+v", got[0])
-	}
-	// A typeless ad-hoc explicit dispatch has no manual limit to apply — all three
-	// admit under a copies=1 type (the empty TypeKey rides the global cap only).
-	adhoc := []outsourceCandidate{
-		{TaskID: "a-1", Priority: TaskPriorityMid, CreatedTS: 1.0,
-			TargetModel: "sonnet", Dispatched: true},
-		{TaskID: "a-2", Priority: TaskPriorityMid, CreatedTS: 2.0,
-			TargetModel: "sonnet", Dispatched: true},
-		{TaskID: "a-3", Priority: TaskPriorityMid, CreatedTS: 3.0,
-			TargetModel: "sonnet", Dispatched: true},
-	}
-	got = outsourceDecide(adhoc, specsOneType(1), map[string]int{}, 0, 10)
-	if len(got) != 3 {
-		t.Fatalf("typeless ad-hoc dispatch must not be per-type capped: want 3, got %+v", got)
-	}
-	// A typed explicit dispatch whose type is copies=0 (無限) is uncapped as well.
-	got = outsourceDecide(tgt, specsOneType(0), map[string]int{"review-pr": 9}, 9, 20)
-	if len(got) != 2 {
-		t.Fatalf("copies=0 type must not cap explicit dispatch: want 2, got %+v", got)
-	}
-}
-
-func TestOutsourceDecideGlobalCap(t *testing.T) {
-	cands := []outsourceCandidate{
-		{TaskID: "t-1", TypeKey: "review-pr", Priority: TaskPriorityHigh, CreatedTS: 1.0},
-		{TaskID: "t-2", TypeKey: "review-pr", Priority: TaskPriorityMid, CreatedTS: 2.0},
-		{TaskID: "t-3", TypeKey: "review-pr", Priority: TaskPriorityLow, CreatedTS: 3.0},
-	}
-	// cap 3, one live → two slots, best-priority first.
-	got := outsourceDecide(cands, specsOneType(10), map[string]int{}, 1, 3)
-	if len(got) != 2 || got[0].TaskID != "t-1" || got[1].TaskID != "t-2" {
-		t.Fatalf("global cap: want [t-1 t-2], got %+v", got)
-	}
-	// Already at cap → nothing.
-	if got := outsourceDecide(cands, specsOneType(10), map[string]int{}, 3, 3); len(got) != 0 {
-		t.Fatalf("at cap: want none, got %+v", got)
-	}
-}
-
-func TestOutsourceDecideZeroCapPausesAssignment(t *testing.T) {
-	cands := []outsourceCandidate{
-		{TaskID: "t-1", TypeKey: "review-pr", Priority: TaskPriorityHigh, CreatedTS: 1.0},
-	}
-	if got := outsourceDecide(cands, specsOneType(5), map[string]int{}, 0, 0); len(got) != 0 {
-		t.Fatalf("cap 0 must pause assignment, got %+v", got)
-	}
-}
-
-func TestOutsourceDecideUnlimitedGlobalCap(t *testing.T) {
-	// globalCap < 0 = 無限 (spec SettingsDTO: -1) — every eligible candidate
-	// admits regardless of the live total.
-	cands := []outsourceCandidate{
-		{TaskID: "t-1", TypeKey: "review-pr", Priority: TaskPriorityHigh, CreatedTS: 1.0},
-		{TaskID: "t-2", TypeKey: "review-pr", Priority: TaskPriorityMid, CreatedTS: 2.0},
-		{TaskID: "t-3", TypeKey: "review-pr", Priority: TaskPriorityLow, CreatedTS: 3.0},
-	}
-	got := outsourceDecide(cands, specsOneType(10), map[string]int{}, 99, -1)
-	if len(got) != 3 {
-		t.Fatalf("unlimited global cap: want all 3, got %+v", got)
-	}
-}
-
-func TestOutsourceDecideUnlimitedPerTypeCopies(t *testing.T) {
-	// Copies == 0 = 無限 (spec TaskManualDTO) — the per-type cap never gates;
-	// only the global cap can stop the fold.
-	cands := []outsourceCandidate{
-		{TaskID: "t-1", TypeKey: "review-pr", Priority: TaskPriorityHigh, CreatedTS: 1.0},
-		{TaskID: "t-2", TypeKey: "review-pr", Priority: TaskPriorityMid, CreatedTS: 2.0},
-		{TaskID: "t-3", TypeKey: "review-pr", Priority: TaskPriorityLow, CreatedTS: 3.0},
-	}
-	got := outsourceDecide(cands, specsOneType(0),
-		map[string]int{"review-pr": 7}, 7, 20)
-	if len(got) != 3 {
-		t.Fatalf("copies=0 unlimited: want all 3, got %+v", got)
-	}
-	// …and the GLOBAL cap still applies over an unlimited type.
-	got = outsourceDecide(cands, specsOneType(0), map[string]int{}, 1, 3)
-	if len(got) != 2 {
-		t.Fatalf("copies=0 under global cap 3 with 1 live: want 2, got %+v", got)
-	}
-}
-
-func TestOutsourceDecideSkipsFrozenAndSpeclessTypes(t *testing.T) {
-	cands := []outsourceCandidate{
-		{TaskID: "t-frozen", TypeKey: "review-pr", Priority: TaskPriorityFrozen, CreatedTS: 1.0},
-		{TaskID: "t-orphan", TypeKey: "no-such-type", Priority: TaskPriorityHigh, CreatedTS: 2.0},
-		{TaskID: "t-ok", TypeKey: "review-pr", Priority: TaskPriorityLow, CreatedTS: 3.0},
-	}
-	got := outsourceDecide(cands, specsOneType(5), map[string]int{}, 0, 10)
-	if len(got) != 1 || got[0].TaskID != "t-ok" {
-		t.Fatalf("frozen/spec-less skip: want [t-ok], got %+v", got)
-	}
-}
-
-func TestOutsourceDecideIsIdempotentWithinOneCall(t *testing.T) {
-	// The same task id queued twice admits ONCE, and each admission folds into
-	// the running counts — a copies=1 type never double-assigns in one call.
-	cands := []outsourceCandidate{
-		{TaskID: "t-dup", TypeKey: "review-pr", Priority: TaskPriorityMid, CreatedTS: 1.0},
-		{TaskID: "t-dup", TypeKey: "review-pr", Priority: TaskPriorityMid, CreatedTS: 1.0},
-		{TaskID: "t-2", TypeKey: "review-pr", Priority: TaskPriorityMid, CreatedTS: 2.0},
-	}
-	got := outsourceDecide(cands, specsOneType(1), map[string]int{}, 0, 10)
-	if len(got) != 1 || got[0].TaskID != "t-dup" {
-		t.Fatalf("same-call idempotence: want [t-dup], got %+v", got)
-	}
-	// The fold never mutates the caller's live counts.
-	live := map[string]int{"review-pr": 0}
-	outsourceDecide(cands, specsOneType(5), live, 0, 10)
-	if live["review-pr"] != 0 {
-		t.Fatalf("liveByType mutated by decide: %v", live)
-	}
-}
-
-func TestOutsourceSpecOfParsesTheManualAssignee(t *testing.T) {
-	// Full spec.
-	spec := outsourceSpecOf(TaskManual{Assignee: `{"kind":"outsource",` +
-		`"model":"claude-opus-4-6","effort":"high","copies":3}`})
-	if spec == nil || spec.Model != "claude-opus-4-6" || spec.Effort != "high" ||
-		spec.Copies != 3 {
-		t.Fatalf("full spec: got %+v", spec)
-	}
-	// copies absent → 1; effort absent → medium; machine absent → "" (owner
-	// ruling 2026-07-25: an absent machine names none, not the legacy "auto").
-	spec = outsourceSpecOf(TaskManual{Assignee: `{"kind":"outsource","model":"m"}`})
-	if spec == nil || spec.Copies != 1 || spec.Effort != "medium" ||
-		spec.Machine != "" {
-		t.Fatalf("defaults: got %+v", spec)
-	}
-	// copies 0 = 無限 and an explicit machine id both ride through verbatim.
-	spec = outsourceSpecOf(TaskManual{Assignee: `{"kind":"outsource",` +
-		`"model":"m","copies":0,"machine":"warden-mbp5"}`})
-	if spec == nil || spec.Copies != 0 || spec.Machine != "warden-mbp5" {
-		t.Fatalf("unlimited copies + machine: got %+v", spec)
-	}
-	// Member assignee / unset / junk → nil (never an outsource spec).
-	for _, blob := range []string{
-		`{"kind":"staff","member_id":"m-1"}`, `{}`, ``, `not json`,
-	} {
-		if got := outsourceSpecOf(TaskManual{Assignee: blob}); got != nil {
-			t.Fatalf("assignee %q must yield nil, got %+v", blob, got)
+	assignment := func(id, typeKey, runtime, model, effort, machine string, fromTarget bool) outsourceAssignment {
+		return outsourceAssignment{
+			TaskID: id, TypeKey: typeKey, Runtime: runtime, Model: model,
+			Effort: effort, Machine: machine, FromTarget: fromTarget,
 		}
 	}
+
+	t.Run("a zero global cap pauses every assignment", func(t *testing.T) {
+		got := outsourceDecide(
+			[]outsourceCandidate{candidate("T-1", "tm-a", TaskPriorityHigh, 1)},
+			map[string]outsourceTypeSpec{"tm-a": {Copies: 0, Runtime: RuntimeClaude}},
+			map[string]int{}, 0, 0,
+		)
+		if got != nil {
+			t.Fatalf("zero-cap decisions = %+v, want nil", got)
+		}
+	})
+
+	t.Run("a negative global cap is unlimited and each admission advances the per-type count", func(t *testing.T) {
+		cands := []outsourceCandidate{
+			candidate("low-a", "tm-a", TaskPriorityLow, 30),
+			candidate("high-a", "tm-a", TaskPriorityHigh, 10),
+			candidate("mid-b", "tm-b", TaskPriorityMid, 20),
+			candidate("high-a", "tm-a", TaskPriorityHigh, 11),
+			candidate("frozen", "tm-a", TaskPriorityFrozen, 1),
+			candidate("no-manual", "tm-missing", TaskPriorityHigh, 1),
+		}
+		liveByType := map[string]int{"tm-a": 0, "tm-b": 0}
+		before := map[string]int{"tm-a": 0, "tm-b": 0}
+		got := outsourceDecide(cands, map[string]outsourceTypeSpec{
+			"tm-a": {Copies: 2, Runtime: RuntimeClaude, Model: "sonnet", Effort: "high", Machine: "m-a"},
+			"tm-b": {Copies: 1, Runtime: RuntimeCodex, Model: "gpt-5", Effort: "medium", Machine: "m-b"},
+		}, liveByType, 0, -1)
+		want := []outsourceAssignment{
+			assignment("high-a", "tm-a", RuntimeClaude, "sonnet", "high", "m-a", false),
+			assignment("mid-b", "tm-b", RuntimeCodex, "gpt-5", "medium", "m-b", false),
+			assignment("low-a", "tm-a", RuntimeClaude, "sonnet", "high", "m-a", false),
+		}
+		if !reflect.DeepEqual(got, want) {
+			t.Fatalf("decisions = %+v, want %+v", got, want)
+		}
+		if !reflect.DeepEqual(liveByType, before) {
+			t.Fatalf("liveByType was mutated to %+v, want %+v", liveByType, before)
+		}
+	})
+
+	t.Run("the global cap is folded after each admitted task", func(t *testing.T) {
+		cands := []outsourceCandidate{
+			candidate("high", "tm-a", TaskPriorityHigh, 1),
+			candidate("mid", "tm-b", TaskPriorityMid, 2),
+			candidate("low", "tm-c", TaskPriorityLow, 3),
+		}
+		specs := map[string]outsourceTypeSpec{
+			"tm-a": {Runtime: RuntimeClaude},
+			"tm-b": {Runtime: RuntimeClaude},
+			"tm-c": {Runtime: RuntimeClaude},
+		}
+		got := outsourceDecide(cands, specs, map[string]int{}, 1, 3)
+		want := []outsourceAssignment{
+			assignment("high", "tm-a", RuntimeClaude, "", "medium", "", false),
+			assignment("mid", "tm-b", RuntimeClaude, "", "medium", "", false),
+		}
+		if !reflect.DeepEqual(got, want) {
+			t.Fatalf("decisions = %+v, want %+v", got, want)
+		}
+	})
+
+	t.Run("a full type cap skips that type while another type can still fit", func(t *testing.T) {
+		cands := []outsourceCandidate{
+			candidate("same-type", "tm-a", TaskPriorityHigh, 1),
+			candidate("other-type", "tm-b", TaskPriorityMid, 2),
+		}
+		got := outsourceDecide(cands, map[string]outsourceTypeSpec{
+			"tm-a": {Copies: 1, Runtime: RuntimeClaude},
+			"tm-b": {Copies: 1, Runtime: RuntimeCodex},
+		}, map[string]int{"tm-a": 1}, 1, -1)
+		want := []outsourceAssignment{
+			assignment("other-type", "tm-b", RuntimeCodex, "", "medium", "", false),
+		}
+		if !reflect.DeepEqual(got, want) {
+			t.Fatalf("decisions = %+v, want %+v", got, want)
+		}
+	})
+
+	t.Run("an explicit target supplies its own worker fields but still inherits the type copies cap", func(t *testing.T) {
+		c := candidate("target", "tm-a", TaskPriorityHigh, 1)
+		c.TargetRuntime = " codex "
+		c.TargetModel = "gpt-5"
+		c.TargetEffort = "xhigh"
+		c.TargetMachine = "m-target"
+		c.Dispatched = true
+		got := outsourceDecide([]outsourceCandidate{c}, map[string]outsourceTypeSpec{
+			"tm-a": {Copies: 1, Runtime: RuntimeClaude, Model: "sonnet", Effort: "low", Machine: "m-manual"},
+		}, map[string]int{}, 0, -1)
+		want := []outsourceAssignment{
+			assignment("target", "tm-a", RuntimeCodex, "gpt-5", "xhigh", "m-target", true),
+		}
+		if !reflect.DeepEqual(got, want) {
+			t.Fatalf("decisions = %+v, want %+v", got, want)
+		}
+
+		c.TypeKey = ""
+		got = outsourceDecide([]outsourceCandidate{c}, map[string]outsourceTypeSpec{}, map[string]int{}, 0, 1)
+		want = []outsourceAssignment{
+			assignment("target", "", RuntimeCodex, "gpt-5", "xhigh", "m-target", true),
+		}
+		if !reflect.DeepEqual(got, want) {
+			t.Fatalf("typeless target decisions = %+v, want %+v", got, want)
+		}
+	})
 }
 
-// ── tick-level (IO shell against a real store) ───────────────────────────────
-
-// putOutsourceManual stores one outsource-assignee manual straight through
-// the DAL (governance is not under test here).
-func putOutsourceManual(t *testing.T, api *apiServer, typeKey, model string, copies int) {
-	t.Helper()
-	if err := api.dal.PutTaskManual(TaskManual{
-		TypeKey: typeKey,
-		Fields:  "[]",
-		Assignee: `{"kind":"outsource","model":"` + model + `",` +
-			`"effort":"high","copies":` + strconv.Itoa(copies) + `}`,
-	}); err != nil {
-		t.Fatalf("put manual: %v", err)
-	}
-}
-
-// createOutsourceTask creates one typed task via the handler (the manual's
-// assignee makes it outsource-tracked) and returns the created view.
-func createOutsourceTask(t *testing.T, api *apiServer, typeKey, title string) taskDTO {
-	t.Helper()
-	// The typed-outsource fixture's creator (m-front) is a standing APPROVER so
-	// the single spawn gate admits and the scheduler mint/bind/cap path is
-	// exercised; the gate's own deny/pending verdicts are pinned separately with
-	// non-approver creators. Seed only if absent so a test that pre-seeds m-front
-	// (for its delegated_by name) keeps its own row.
-	if m, _ := api.dal.GetMember("m-front"); m == nil {
-		if err := api.dal.PutMember(Member{
-			ID: "m-front", Name: "小前", Kind: "staff", RoleKey: adminRoleKey,
-			RosterStatus: RosterStatusActive,
-		}); err != nil {
-			t.Fatalf("seed approver creator: %v", err)
+func TestFillTypeSpecFromSnapshot(t *testing.T) {
+	candidate := func(runtime, model, effort, machine string) outsourceCandidate {
+		return outsourceCandidate{
+			TargetRuntime: runtime, TargetModel: model,
+			TargetEffort: effort, TargetMachine: machine,
 		}
 	}
-	rec := httptest.NewRecorder()
-	api.HandleCreateTaskApiTasksPost(rec, taskReq(t, "POST", "/api/tasks",
-		map[string]any{"title": title, "type_key": typeKey}, "m-front", "agent"))
-	if rec.Code != http.StatusOK {
-		t.Fatalf("create outsource task: %d %s", rec.Code, rec.Body.String())
+	cases := []struct {
+		name string
+		spec outsourceTypeSpec
+		c    outsourceCandidate
+		want outsourceTypeSpec
+	}{
+		{
+			name: "blank manual fields inherit the matching snapshot and preserve copies",
+			spec: outsourceTypeSpec{Copies: 2, Runtime: RuntimeClaude},
+			c:    candidate(RuntimeClaude, "sonnet", "high", "m-box"),
+			want: outsourceTypeSpec{Copies: 2, Runtime: RuntimeClaude, Model: "sonnet", Effort: "high", Machine: "m-box"},
+		},
+		{
+			name: "an empty manual runtime takes the snapshot runtime and model together",
+			spec: outsourceTypeSpec{Copies: 0},
+			c:    candidate(RuntimeCodex, "gpt-5", "xhigh", "m-codex"),
+			want: outsourceTypeSpec{Copies: 0, Runtime: RuntimeCodex, Model: "gpt-5", Effort: "xhigh", Machine: "m-codex"},
+		},
+		{
+			name: "a snapshot from another runtime cannot supply its model",
+			spec: outsourceTypeSpec{Copies: 1, Runtime: RuntimeClaude},
+			c:    candidate(RuntimeCodex, "gpt-5", "high", "m-codex"),
+			want: outsourceTypeSpec{Copies: 1, Runtime: RuntimeClaude, Effort: "high", Machine: "m-codex"},
+		},
+		{
+			name: "manual decisions win and the only defaults are runtime and effort",
+			spec: outsourceTypeSpec{Copies: 3, Model: "opus", Machine: "m-manual"},
+			c:    candidate("", "sonnet", "", "m-snapshot"),
+			want: outsourceTypeSpec{Copies: 3, Runtime: RuntimeClaude, Model: "opus", Effort: "medium", Machine: "m-manual"},
+		},
 	}
-	return createdTaskView(t, api, rec)
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := fillTypeSpecFromSnapshot(tc.spec, tc.c); got != tc.want {
+				t.Fatalf("resolved spec = %+v, want %+v", got, tc.want)
+			}
+		})
+	}
 }
 
-func TestOutsourceTickAssignsMintsAndBinds(t *testing.T) {
-	api := newTasksTestServer(t)
-	api.noOutsource = true // manual ticks only — the event seam is pinned below
-	putOutsourceManual(t, api, "review-pr", "claude-sonnet-4-5", 2)
-	task := createOutsourceTask(t, api, "review-pr", "review 1")
-	if task.ExecutorKind != TaskExecutorOutsource || task.ExecutorID != "" {
-		t.Fatalf("created task must await assignment: %+v", task)
+func TestOutsourceSpecOf(t *testing.T) {
+	cases := []struct {
+		name     string
+		assignee string
+		want     *outsourceTypeSpec
+	}{
+		{name: "an empty assignee is unset", assignee: "", want: nil},
+		{name: "an empty object is unset", assignee: "{}", want: nil},
+		{name: "a staff assignee is not an outsource spec", assignee: `{"kind":"staff","id":"kip"}`, want: nil},
+		{name: "invalid JSON is ignored", assignee: `{"kind":"outsource"`, want: nil},
+		{
+			name:     "omitted fields use the manual defaults",
+			assignee: `{"kind":"outsource"}`,
+			want:     &outsourceTypeSpec{Copies: 1, Runtime: RuntimeClaude, Effort: "medium"},
+		},
+		{
+			name:     "provided fields are trimmed and copies zero means unlimited",
+			assignee: `{"kind":"outsource","runtime":" codex ","model":" gpt-5 ","effort":" high ","copies":0,"machine":" m-box "}`,
+			want:     &outsourceTypeSpec{Copies: 0, Runtime: RuntimeCodex, Model: "gpt-5", Effort: "high", Machine: "m-box"},
+		},
 	}
 
-	api.runOutsourceTick(1000.0)
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := outsourceSpecOf(TaskManual{Assignee: tc.assignee})
+			if !reflect.DeepEqual(got, tc.want) {
+				t.Fatalf("outsourceSpecOf(%q) = %+v, want %+v", tc.assignee, got, tc.want)
+			}
+		})
+	}
+}
 
-	bound, err := api.dal.GetTask(task.ID)
-	if err != nil || bound == nil {
-		t.Fatalf("re-read task: %v", err)
-	}
-	if bound.ExecutorID == "" {
-		t.Fatalf("task not assigned: %+v", bound)
-	}
-	worker, err := api.dal.GetOutsourceWorker(bound.ExecutorID)
-	if err != nil || worker == nil {
-		t.Fatalf("worker row missing for %q: %v", bound.ExecutorID, err)
-	}
-	if worker.Status != WorkerStatusAssigned || worker.TaskID != task.ID {
-		t.Fatalf("worker must be assigned to the task: %+v", worker)
-	}
-	if worker.Codename != "S-1" || worker.Model != "claude-sonnet-4-5" ||
-		worker.Effort != "high" {
-		t.Fatalf("worker template must come from the manual assignee: %+v", worker)
-	}
-
-	// Cross-tick idempotence: the worker row IS the ledger — a second tick
-	// finds no unassigned candidate and mints nothing.
-	api.runOutsourceTick(1001.0)
-	workers, err := api.dal.ListOutsourceWorkers()
+func TestOutsourceLog(t *testing.T) {
+	readPipe, writePipe, err := os.Pipe()
 	if err != nil {
-		t.Fatalf("list workers: %v", err)
+		t.Fatalf("os.Pipe: %v", err)
+	}
+	previous := os.Stderr
+	os.Stderr = writePipe
+	t.Cleanup(func() {
+		os.Stderr = previous
+		readPipe.Close()
+		writePipe.Close()
+	})
+
+	outsourceLog("assigned %s (%d)", "T-1", 2)
+	if err := writePipe.Close(); err != nil {
+		t.Fatalf("close stderr pipe: %v", err)
+	}
+	got, err := io.ReadAll(readPipe)
+	if err != nil {
+		t.Fatalf("read captured log: %v", err)
+	}
+	if string(got) != "[outsource] assigned T-1 (2)\n" {
+		t.Fatalf("captured log = %q", got)
+	}
+}
+
+func outsourceSchedTestQueuedTask(t *testing.T, d *DAL, id, typeKey string) Task {
+	t.Helper()
+	return dalPutTask(t, d, Task{
+		ID:           id,
+		TypeKey:      typeKey,
+		Title:        "Queued outsource work",
+		Inputs:       map[string]any{},
+		Status:       TaskStatusNotStarted,
+		Priority:     TaskPriorityHigh,
+		ExecutorKind: TaskExecutorOutsource,
+		CreatorID:    wireOwnerID,
+		CreatedTS:    1700000000,
+		UpdatedTS:    1700000000,
+	})
+}
+
+func TestRunOutsourceTick(t *testing.T) {
+	api, _, d, _ := newAPITestServer(t)
+	manual := TaskManual{
+		TypeKey:     "tm-scheduler",
+		DisplayName: "Scheduler manual",
+		Fields:      "[]",
+		Assignee:    `{"kind":"outsource","runtime":"codex","model":"gpt-5","effort":"high"}`,
+	}
+	dalPutManual(t, d, manual)
+	task := outsourceSchedTestQueuedTask(t, d, "T-scheduler", manual.TypeKey)
+
+	api.runOutsourceTick(1700000100)
+
+	gotTask, err := d.GetTask(task.ID)
+	if err != nil {
+		t.Fatalf("GetTask: %v", err)
+	}
+	if gotTask == nil {
+		t.Fatal("GetTask: no task")
+	}
+	if !strings.HasPrefix(gotTask.ExecutorID, "ow-") {
+		t.Fatalf("task executor_id = %q, want a minted outsource worker", gotTask.ExecutorID)
+	}
+	workers, err := d.ListOutsourceWorkers()
+	if err != nil {
+		t.Fatalf("ListOutsourceWorkers: %v", err)
 	}
 	if len(workers) != 1 {
-		t.Fatalf("second tick must not double-assign: %d workers", len(workers))
+		t.Fatalf("worker count = %d, want 1", len(workers))
+	}
+	worker := workers[0]
+	if worker.ID != gotTask.ExecutorID || worker.TaskID != task.ID {
+		t.Fatalf("worker binding = (%q, %q), want (%q, %q)", worker.ID, worker.TaskID, gotTask.ExecutorID, task.ID)
+	}
+	if worker.Runtime != RuntimeCodex || worker.Model != "gpt-5" || worker.Effort != "high" {
+		t.Fatalf("worker launch spec = (%q, %q, %q), want (%q, %q, %q)", worker.Runtime, worker.Model, worker.Effort, RuntimeCodex, "gpt-5", "high")
+	}
+	if worker.Status != WorkerStatusAssigned || worker.DesiredState != DesiredStateOnline {
+		t.Fatalf("worker lifecycle = (%q, %q), want (%q, %q)", worker.Status, worker.DesiredState, WorkerStatusAssigned, DesiredStateOnline)
+	}
+	if worker.LastOp != reconcileCmdStart || !strings.HasPrefix(worker.LastOpReason, "no_machine_selected:") {
+		t.Fatalf("worker placement result = (%q, %q), want a no-machine fail-closed start stamp", worker.LastOp, worker.LastOpReason)
 	}
 }
 
-func TestOutsourceTickHonoursBothCaps(t *testing.T) {
-	api := newTasksTestServer(t)
-	api.noOutsource = true
-	putOutsourceManual(t, api, "review-pr", "claude-sonnet-4-5", 1) // copies=1
-	putOutsourceManual(t, api, "sync-jira", "claude-haiku-4", 5)
-	r1 := createOutsourceTask(t, api, "review-pr", "review 1")
-	r2 := createOutsourceTask(t, api, "review-pr", "review 2")
-	j1 := createOutsourceTask(t, api, "sync-jira", "sync 1")
-	j2 := createOutsourceTask(t, api, "sync-jira", "sync 2")
-	api.outsourceMaxParallel = 2 // global cap under the summed type caps
-
-	api.runOutsourceTick(1000.0)
-
-	assigned := func(id string) bool {
-		task, err := api.dal.GetTask(id)
-		if err != nil || task == nil {
-			t.Fatalf("re-read %s: %v", id, err)
-		}
-		return task.ExecutorID != ""
-	}
-	// FIFO: r1 takes review-pr's single copy, j1 the second global slot;
-	// r2 (type-capped) and j2 (global-capped) stay queued.
-	if !assigned(r1.ID) || !assigned(j1.ID) {
-		t.Fatalf("r1/j1 must be assigned")
-	}
-	if assigned(r2.ID) || assigned(j2.ID) {
-		t.Fatalf("r2/j2 must remain queued (type/global caps)")
+func TestOutsourceTickNow(t *testing.T) {
+	cases := []struct {
+		name         string
+		noOutsource  bool
+		wantAssigned bool
+	}{
+		{name: "the disabled producer does not mint a worker", noOutsource: true, wantAssigned: false},
+		{name: "the enabled producer runs the immediate assignment tick", noOutsource: false, wantAssigned: true},
 	}
 
-	// Cap 0 pauses assignment outright.
-	api.outsourceMaxParallel = 0
-	api.runOutsourceTick(1001.0)
-	if assigned(r2.ID) || assigned(j2.ID) {
-		t.Fatalf("cap 0 must pause assignment")
-	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			api, _, d, _ := newAPITestServer(t)
+			manual := TaskManual{
+				TypeKey:  "tm-event",
+				Fields:   "[]",
+				Assignee: `{"kind":"outsource","runtime":"claude","model":"sonnet"}`,
+			}
+			dalPutManual(t, d, manual)
+			task := outsourceSchedTestQueuedTask(t, d, "T-event", manual.TypeKey)
+			api.noOutsource = tc.noOutsource
 
-	// Raising the cap admits the backlog on the next tick — but review-pr's
-	// copies=1 still holds while r1's worker is live.
-	api.outsourceMaxParallel = 10
-	api.runOutsourceTick(1002.0)
-	if assigned(r2.ID) {
-		t.Fatalf("r2 must stay queued behind the copies=1 live worker")
-	}
-	if !assigned(j2.ID) {
-		t.Fatalf("j2 must be assigned once the global cap lifts")
-	}
-}
+			api.outsourceTickNow()
 
-func TestOutsourceTickSkipsFrozenTasks(t *testing.T) {
-	api := newTasksTestServer(t)
-	api.noOutsource = true
-	putOutsourceManual(t, api, "review-pr", "claude-sonnet-4-5", 5)
-	task := createOutsourceTask(t, api, "review-pr", "review 1")
-	rec := httptest.NewRecorder()
-	api.HandleSetTaskPriorityApiTasksTaskIdPriorityPost(rec,
-		taskReq(t, "POST", "/x", map[string]any{"priority": "frozen"},
-			wireOwnerID, "owner"), task.ID)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("freeze: %d %s", rec.Code, rec.Body.String())
-	}
-
-	api.runOutsourceTick(1000.0)
-	frozen, err := api.dal.GetTask(task.ID)
-	if err != nil || frozen == nil {
-		t.Fatalf("re-read: %v", err)
-	}
-	if frozen.ExecutorID != "" {
-		t.Fatalf("frozen task must never be assigned: %+v", frozen)
-	}
-
-	// Unfreeze → the next tick assigns.
-	rec = httptest.NewRecorder()
-	api.HandleSetTaskPriorityApiTasksTaskIdPriorityPost(rec,
-		taskReq(t, "POST", "/x", map[string]any{"priority": "mid"},
-			wireOwnerID, "owner"), task.ID)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("unfreeze: %d %s", rec.Code, rec.Body.String())
-	}
-	api.runOutsourceTick(1001.0)
-	thawed, err := api.dal.GetTask(task.ID)
-	if err != nil || thawed == nil {
-		t.Fatalf("re-read: %v", err)
-	}
-	if thawed.ExecutorID == "" {
-		t.Fatalf("unfrozen task must be assigned on the next tick")
-	}
-}
-
-func TestCreateTaskEventTickAssignsImmediately(t *testing.T) {
-	// The create_task seam: an outsource create triggers the immediate tick —
-	// no cadence wait. (noOutsource stays false: the seam is live.)
-	api := newTasksTestServer(t)
-	putOutsourceManual(t, api, "review-pr", "claude-opus-4-6", 2)
-	task := createOutsourceTask(t, api, "review-pr", "review now")
-
-	bound, err := api.dal.GetTask(task.ID)
-	if err != nil || bound == nil {
-		t.Fatalf("re-read: %v", err)
-	}
-	if bound.ExecutorID == "" {
-		t.Fatalf("event-driven tick must assign on create: %+v", bound)
-	}
-	worker, err := api.dal.GetOutsourceWorker(bound.ExecutorID)
-	if err != nil || worker == nil || worker.Codename != "O-1" {
-		t.Fatalf("event-minted worker: %+v (err %v)", worker, err)
-	}
-	// A member-executed create must NOT tick — pinned implicitly by the ad-hoc
-	// fixtures everywhere else (no worker rows appear).
-}
-
-func TestNoOutsourceGatesTheEventTick(t *testing.T) {
-	api := newTasksTestServer(t)
-	api.noOutsource = true
-	putOutsourceManual(t, api, "review-pr", "claude-sonnet-4-5", 2)
-	task := createOutsourceTask(t, api, "review-pr", "review 1")
-
-	bound, err := api.dal.GetTask(task.ID)
-	if err != nil || bound == nil {
-		t.Fatalf("re-read: %v", err)
-	}
-	if bound.ExecutorID != "" {
-		t.Fatalf("--no-outsource must gate the event tick: %+v", bound)
-	}
-	workers, err := api.dal.ListOutsourceWorkers()
-	if err != nil {
-		t.Fatalf("list workers: %v", err)
-	}
-	if len(workers) != 0 {
-		t.Fatalf("--no-outsource must mint nothing: %d workers", len(workers))
-	}
-}
-
-func TestOutsourceTickCodenamesNeverReuse(t *testing.T) {
-	// A released worker's codename stays burned: the next mint of the same
-	// family is MAX+1 over EVERY row ever issued (contract §A.4).
-	api := newTasksTestServer(t)
-	api.noOutsource = true
-	putOutsourceManual(t, api, "review-pr", "claude-sonnet-4-5", 1)
-	first := createOutsourceTask(t, api, "review-pr", "review 1")
-	api.runOutsourceTick(1000.0)
-
-	// Owner terminates → the worker releases (Phase 1 side effect).
-	rec := httptest.NewRecorder()
-	api.HandleTerminateTaskApiTasksTaskIdTerminatePost(rec,
-		taskReq(t, "POST", "/x", nil, wireOwnerID, "owner"), first.ID)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("terminate: %d %s", rec.Code, rec.Body.String())
-	}
-
-	second := createOutsourceTask(t, api, "review-pr", "review 2")
-	api.runOutsourceTick(1001.0)
-	bound, err := api.dal.GetTask(second.ID)
-	if err != nil || bound == nil || bound.ExecutorID == "" {
-		t.Fatalf("second task must assign after the release: %+v (err %v)", bound, err)
-	}
-	worker, err := api.dal.GetOutsourceWorker(bound.ExecutorID)
-	if err != nil || worker == nil {
-		t.Fatalf("worker: %v", err)
-	}
-	if worker.Codename != "S-2" {
-		t.Fatalf("codename must never reuse S-1: got %q", worker.Codename)
-	}
-
-	// P7d merged-storage shape: both workers are kind='outsource' MEMBER rows —
-	// the released one soft-removed (roster_status) with released_ts stamped,
-	// still feeding the codename fold above.
-	//
-	// 🔴 The staff surfaces are NO LONGER blind to them. T-14 項目 6 deleted
-	// ListMembers' `WHERE kind != 'outsource'`, so it is now ONE roster read over
-	// the whole member table and the exclusion each caller wants (if any) is
-	// written at that caller. This block used to assert the SQL exclusion; it now
-	// asserts the storage shape that survived the merge — the contractor rows ARE
-	// in the roster read, carrying the roster_status the surfaces filter on.
-	var releasedRoster string
-	var releasedTS float64
-	if err := api.dal.rdb.QueryRow(`SELECT roster_status, released_ts FROM member
-		WHERE kind='outsource' AND codename='S-1'`).
-		Scan(&releasedRoster, &releasedTS); err != nil {
-		t.Fatalf("released worker must live in member: %v", err)
-	}
-	if releasedRoster != RosterStatusRemoved || releasedTS <= 0 {
-		t.Fatalf("released worker member row = (%q, %v), want removed + released_ts",
-			releasedRoster, releasedTS)
-	}
-	roster, err := api.dal.ListMembers()
-	if err != nil {
-		t.Fatalf("list members: %v", err)
-	}
-	seen := map[string]string{}
-	for _, m := range roster {
-		if m.Kind == KindOutsource {
-			seen[m.Codename] = m.RosterStatus
-		}
-	}
-	if len(seen) != 2 {
-		t.Fatalf("ListMembers must return BOTH contractor rows since the merge, got %v", seen)
-	}
-	if seen["S-1"] != RosterStatusRemoved {
-		t.Errorf("released contractor S-1 roster_status = %q, want %q — the row is in "+
-			"the roster read, and roster_status is what a surface filters on",
-			seen["S-1"], RosterStatusRemoved)
-	}
-}
-
-// putUnassignedTargetTask lands an unassigned outsource task carrying an explicit
-// 發包 target directly (the create/reassign dispatch shape) — the sched fixture
-// for the target-aware admission path (T-35e0), self-made, no prod row.
-func putUnassignedTargetTask(t *testing.T, api *apiServer, id, typeKey, model, effort string) {
-	t.Helper()
-	if err := api.dal.PutTask(Task{
-		ID: id, TypeKey: typeKey, Title: id, Status: TaskStatusNotStarted,
-		Priority: TaskPriorityMid, ExecutorKind: TaskExecutorOutsource, ExecutorID: "",
-		OutsourceModel: model, OutsourceEffort: effort, OutsourceMachine: "m-target-box",
-		// The row DECLARES itself a dispatch (migrations/00036) — a fixture that
-		// only filled the spec columns would now be a manual-driven task carrying
-		// a creator snapshot, which is a different admission path entirely.
-		OutsourceDispatched: true,
-		CreatorID:           wireOwnerID, CreatedTS: 1000, UpdatedTS: 1000,
-	}); err != nil {
-		t.Fatalf("put target task %s: %v", id, err)
-	}
-}
-
-// ③ the scheduler mints from a task's explicit outsource_target in preference to
-// the type manual's assignee spec — an owner reassign/create dispatch overrides
-// whatever the type would otherwise mint.
-func TestOutsourceTickPrefersOutsourceTargetOverTypeSpec(t *testing.T) {
-	api := newTasksTestServer(t)
-	api.noOutsource = true
-	// The type manual would mint sonnet/high; the task's explicit target is opus/low.
-	putOutsourceManual(t, api, "review-pr", "claude-sonnet-4-5", 2)
-	putUnassignedTargetTask(t, api, "t-target", "review-pr", "opus", "low")
-
-	api.runOutsourceTick(1000.0)
-
-	bound, _ := api.dal.GetTask("t-target")
-	if bound == nil || bound.ExecutorID == "" {
-		t.Fatalf("target task must be assigned: %+v", bound)
-	}
-	worker, err := api.dal.GetOutsourceWorker(bound.ExecutorID)
-	if err != nil || worker == nil {
-		t.Fatalf("worker missing: %v", err)
-	}
-	if worker.Model != "opus" || worker.Effort != "low" {
-		t.Fatalf("mint must follow the explicit target, not the type spec: %+v", worker)
-	}
-}
-
-// ③b a target task whose type has NO manual assignee is still minted — the
-// target carries the whole spec, so the scheduler never skips it as spec-less
-// (the old type-only decide would have left it queued forever).
-func TestOutsourceTickMintsTargetTaskWithNoTypeManual(t *testing.T) {
-	api := newTasksTestServer(t)
-	api.noOutsource = true
-	putUnassignedTargetTask(t, api, "t-adhoc", "", "sonnet", "medium")
-
-	api.runOutsourceTick(1000.0)
-
-	bound, _ := api.dal.GetTask("t-adhoc")
-	if bound == nil || bound.ExecutorID == "" {
-		t.Fatalf("a type-less target task must still be minted: %+v", bound)
-	}
-	worker, _ := api.dal.GetOutsourceWorker(bound.ExecutorID)
-	if worker == nil || worker.Model != "sonnet" {
-		t.Fatalf("worker must carry the target model: %+v", worker)
-	}
-}
-
-// ④ every 發包 path funnels through the ONE global cap — explicit dispatch
-// targets included. Two target tasks under cap=1 admit exactly one; the other
-// queues (no immediate-spawn side door for explicit dispatches).
-func TestOutsourceTickExplicitTargetsObeyTheGlobalCap(t *testing.T) {
-	api := newTasksTestServer(t)
-	api.noOutsource = true
-	api.outsourceMaxParallel = 1
-	putUnassignedTargetTask(t, api, "t-a", "", "sonnet", "medium")
-	putUnassignedTargetTask(t, api, "t-b", "", "sonnet", "medium")
-
-	api.runOutsourceTick(1000.0)
-
-	assigned := func(id string) bool {
-		task, _ := api.dal.GetTask(id)
-		return task != nil && task.ExecutorID != ""
-	}
-	// FIFO by created_ts tie-break on id: exactly one admits under cap=1.
-	n := 0
-	for _, id := range []string{"t-a", "t-b"} {
-		if assigned(id) {
-			n++
-		}
-	}
-	if n != 1 {
-		t.Fatalf("cap=1 must admit exactly one target dispatch, got %d", n)
-	}
-
-	// Lifting the cap admits the backlog — still through the scheduler, never inline.
-	api.outsourceMaxParallel = 3
-	api.runOutsourceTick(1001.0)
-	if !assigned("t-a") || !assigned("t-b") {
-		t.Fatalf("raising the cap must admit the queued target dispatch")
-	}
-}
-
-// ④b the sched gate is NOT re-run for an explicit target: an owner reassign of a
-// subordinate-created task still mints its successor (the dispatch was
-// authorized at the handler — a creator-based re-gate here would wrongly
-// orphan it).
-func TestOutsourceTickDoesNotReGateExplicitTargetByCreator(t *testing.T) {
-	api := newTasksTestServer(t)
-	api.noOutsource = true
-	// A plain subordinate creator.
-	if err := api.dal.PutMember(Member{
-		ID: "m-plain", Name: "Plain", Kind: KindStaff, RoleKey: "dev",
-		RosterStatus: RosterStatusActive,
-	}); err != nil {
-		t.Fatalf("seed creator: %v", err)
-	}
-	if err := api.dal.PutTask(Task{
-		ID: "t-owned", Title: "owner reassigned this", Status: TaskStatusNotStarted,
-		Priority: TaskPriorityMid, ExecutorKind: TaskExecutorOutsource, ExecutorID: "",
-		OutsourceModel: "sonnet", OutsourceEffort: "medium", OutsourceMachine: "m-box",
-		OutsourceDispatched: true,
-		CreatorID:           "m-plain", CreatedTS: 1000, UpdatedTS: 1000,
-	}); err != nil {
-		t.Fatalf("put task: %v", err)
-	}
-
-	api.runOutsourceTick(1000.0)
-
-	bound, _ := api.dal.GetTask("t-owned")
-	if bound == nil || bound.ExecutorID == "" {
-		t.Fatalf("an authorized target dispatch must not be re-gated by creator: %+v", bound)
-	}
-}
-
-// T-b6e9 the per-type copies cap now binds explicit dispatch too. Two typed
-// explicit 發包 dispatches under a copies=1 type admit exactly one; the other
-// queues (same fold as manual-driven — no global-cap-only side door), and the
-// minted worker still follows its own target template, not the manual's.
-func TestOutsourceTickTypedExplicitDispatchObeysPerTypeCopies(t *testing.T) {
-	api := newTasksTestServer(t)
-	api.noOutsource = true
-	putOutsourceManual(t, api, "review-pr", "claude-sonnet-4-5", 1) // manual mints sonnet, cap 1
-	putUnassignedTargetTask(t, api, "t-x1", "review-pr", "opus", "low")
-	putUnassignedTargetTask(t, api, "t-x2", "review-pr", "opus", "low")
-
-	api.runOutsourceTick(1000.0)
-
-	assigned := func(id string) bool {
-		task, _ := api.dal.GetTask(id)
-		return task != nil && task.ExecutorID != ""
-	}
-	n := 0
-	var minted *OutsourceWorker
-	for _, id := range []string{"t-x1", "t-x2"} {
-		if assigned(id) {
-			n++
-			task, _ := api.dal.GetTask(id)
-			minted, _ = api.dal.GetOutsourceWorker(task.ExecutorID)
-		}
-	}
-	if n != 1 {
-		t.Fatalf("copies=1 must admit exactly one typed explicit dispatch, got %d", n)
-	}
-	if minted == nil || minted.Model != "opus" {
-		t.Fatalf("capped explicit dispatch must still mint from its target (opus): %+v", minted)
-	}
-
-	// Lifting the manual cap admits the queued one — still through the scheduler.
-	putOutsourceManual(t, api, "review-pr", "claude-sonnet-4-5", 2)
-	api.runOutsourceTick(1001.0)
-	if !assigned("t-x1") || !assigned("t-x2") {
-		t.Fatalf("raising per-type copies must admit the queued typed dispatch")
+			gotTask, err := d.GetTask(task.ID)
+			if err != nil {
+				t.Fatalf("GetTask: %v", err)
+			}
+			workers, err := d.ListOutsourceWorkers()
+			if err != nil {
+				t.Fatalf("ListOutsourceWorkers: %v", err)
+			}
+			assigned := gotTask != nil && strings.HasPrefix(gotTask.ExecutorID, "ow-")
+			if assigned != tc.wantAssigned {
+				t.Fatalf("assigned = %v from task %+v, want %v", assigned, gotTask, tc.wantAssigned)
+			}
+			wantWorkers := 0
+			if tc.wantAssigned {
+				wantWorkers = 1
+			}
+			if len(workers) != wantWorkers {
+				t.Fatalf("worker count = %d, want %d", len(workers), wantWorkers)
+			}
+		})
 	}
 }

@@ -2,2993 +2,1665 @@ package main
 
 import (
 	"bytes"
-	"context"
-	"encoding/json"
-	"fmt"
+	"errors"
 	"io"
 	"net/http"
-	"net/http/httptest"
-	"net/url"
 	"os"
 	"path/filepath"
 	"reflect"
-	"slices"
 	"strconv"
 	"strings"
-	"sync"
-	"sync/atomic"
 	"testing"
 	"time"
-	"unicode/utf8"
 )
 
-// ---------------------------------------------------------------------------
-// scanSSE — the pure wire parser (copy-twin of ocwarden, + id/comment hooks).
-// ---------------------------------------------------------------------------
+// routedHTTP answers each request from a canned table keyed by "<path>?<query>",
+// falling back to 404, and records every URL it was asked for in order.
+type routedHTTP struct {
+	routes map[string]string
+	status map[string]int
+	asked  []string
+}
 
-func collectData(t *testing.T, raw string) []string {
+func newRoutedHTTP(routes map[string]string) *routedHTTP {
+	return &routedHTTP{routes: routes, status: map[string]int{}}
+}
+
+func (r *routedHTTP) Do(req *http.Request) (*http.Response, error) {
+	key := req.URL.Path
+	if req.URL.RawQuery != "" {
+		key += "?" + req.URL.RawQuery
+	}
+	r.asked = append(r.asked, key)
+	body, ok := r.routes[key]
+	code := 404
+	if ok {
+		code = 200
+	}
+	if s, set := r.status[key]; set {
+		code = s
+	}
+	return &http.Response{
+		StatusCode: code,
+		Body:       io.NopCloser(strings.NewReader(body)),
+		Header:     http.Header{},
+	}, nil
+}
+
+// collectSSE runs one scan and returns everything the sink was told, in order.
+type sseTrace struct {
+	activity int
+	data     []string
+	ids      []string
+	comments int
+}
+
+func collectSSE(t *testing.T, stream string, stopOnComment bool) (sseTrace, error) {
 	t.Helper()
-	var got []string
-	if err := scanSSE(strings.NewReader(raw), sseSink{
-		onData: func(p []byte) { got = append(got, string(p)) },
-	}); err != nil {
-		t.Fatalf("scanSSE err: %v", err)
-	}
-	return got
-}
-
-func TestScanSSE_SingleDataFrame(t *testing.T) {
-	got := collectData(t, "data: {\"topic\":\"chat\"}\n\n")
-	if want := []string{`{"topic":"chat"}`}; !reflect.DeepEqual(got, want) {
-		t.Fatalf("got %v want %v", got, want)
-	}
-}
-
-func TestScanSSE_MultiLineDataJoined(t *testing.T) {
-	got := collectData(t, "data: a\ndata: b\n\n")
-	if want := []string{"a\nb"}; !reflect.DeepEqual(got, want) {
-		t.Fatalf("got %v want %v", got, want)
-	}
-}
-
-func TestScanSSE_CommentsIdEventIgnoredForData(t *testing.T) {
-	raw := ": connected\n\n" +
-		"id: 7\nevent: delta\ndata: {\"topic\":\"member\"}\n\n" +
-		": heartbeat\n\n" +
-		"retry: 3000\ndata: {\"topic\":\"task\"}\n\n"
-	got := collectData(t, raw)
-	if want := []string{`{"topic":"member"}`, `{"topic":"task"}`}; !reflect.DeepEqual(got, want) {
-		t.Fatalf("got %v want %v", got, want)
-	}
-}
-
-func TestScanSSE_CRLFTolerated(t *testing.T) {
-	if got := collectData(t, "data: hi\r\n\r\n"); !reflect.DeepEqual(got, []string{"hi"}) {
-		t.Fatalf("got %v", got)
-	}
-}
-
-func TestScanSSE_LeadingSpaceStrippedOnce(t *testing.T) {
-	if got := collectData(t, "data:  x\n\n"); !reflect.DeepEqual(got, []string{" x"}) {
-		t.Fatalf("got %q want %q", got, []string{" x"})
-	}
-}
-
-func TestScanSSE_IncompleteFinalDiscarded(t *testing.T) {
-	if got := collectData(t, "data: no-terminator\n"); len(got) != 0 {
-		t.Fatalf("expected no payloads for unterminated event, got %v", got)
-	}
-}
-
-func TestScanSSE_IDHookFiresTrimmed(t *testing.T) {
-	var ids []string
-	_ = scanSSE(strings.NewReader("id: 42\ndata: {}\n\n"), sseSink{
-		onID: func(s string) { ids = append(ids, s) },
+	var got sseTrace
+	err := scanSSE(strings.NewReader(stream), sseSink{
+		onActivity: func() { got.activity++ },
+		onData:     func(b []byte) { got.data = append(got.data, string(b)) },
+		onID:       func(s string) { got.ids = append(got.ids, s) },
+		onComment:  func() bool { got.comments++; return stopOnComment },
 	})
-	if !reflect.DeepEqual(ids, []string{"42"}) {
-		t.Fatalf("id hook got %v want [42]", ids)
-	}
+	return got, err
 }
 
-func TestScanSSE_CommentSelfExitStopsScan(t *testing.T) {
-	// onComment returns true on the FIRST comment ⇒ scanSSE returns errSelfExit and
-	// stops (the later data frame is never dispatched).
-	var data []string
-	err := scanSSE(strings.NewReader(": heartbeat\n\ndata: {\"topic\":\"task\"}\n\n"), sseSink{
-		onData:    func(p []byte) { data = append(data, string(p)) },
-		onComment: func() bool { return true },
+func TestScanSSE(t *testing.T) {
+	t.Run("a blank line dispatches the accumulated data", func(t *testing.T) {
+		got, err := collectSSE(t, "id: 7\ndata: {\"a\":1}\n\n", false)
+		if err != nil {
+			t.Errorf("scanSSE err = %v, want nil at EOF", err)
+		}
+		want := sseTrace{activity: 3, data: []string{`{"a":1}`}, ids: []string{"7"}}
+		if !reflect.DeepEqual(got, want) {
+			t.Errorf("sink saw %+v, want %+v", got, want)
+		}
 	})
-	if err != errSelfExit {
-		t.Fatalf("err = %v, want errSelfExit", err)
+
+	t.Run("multiple data lines join with a newline", func(t *testing.T) {
+		got, err := collectSSE(t, "data: one\ndata: two\n\n", false)
+		if err != nil {
+			t.Errorf("scanSSE err = %v, want nil", err)
+		}
+		want := sseTrace{activity: 3, data: []string{"one\ntwo"}}
+		if !reflect.DeepEqual(got, want) {
+			t.Errorf("sink saw %+v, want %+v", got, want)
+		}
+	})
+
+	t.Run("exactly one leading space after the colon is stripped", func(t *testing.T) {
+		got, _ := collectSSE(t, "data:  padded\ndata:tight\n\n", false)
+		want := []string{" padded\ntight"}
+		if !reflect.DeepEqual(got.data, want) {
+			t.Errorf("data = %q, want %q", got.data, want)
+		}
+	})
+
+	t.Run("CRLF framing is tolerated", func(t *testing.T) {
+		got, _ := collectSSE(t, "id: 9\r\ndata: hi\r\n\r\n", false)
+		want := sseTrace{activity: 3, data: []string{"hi"}, ids: []string{"9"}}
+		if !reflect.DeepEqual(got, want) {
+			t.Errorf("sink saw %+v, want %+v", got, want)
+		}
+	})
+
+	t.Run("event, retry and valueless fields are ignored", func(t *testing.T) {
+		got, _ := collectSSE(t, "event: delta\nretry: 3000\nnofieldvalue\ndata: body\n\n", false)
+		want := sseTrace{activity: 5, data: []string{"body"}}
+		if !reflect.DeepEqual(got, want) {
+			t.Errorf("sink saw %+v, want %+v", got, want)
+		}
+	})
+
+	t.Run("an incomplete final event is discarded", func(t *testing.T) {
+		got, err := collectSSE(t, "data: first\n\ndata: unterminated\n", false)
+		if err != nil {
+			t.Errorf("scanSSE err = %v, want nil", err)
+		}
+		want := []string{"first"}
+		if !reflect.DeepEqual(got.data, want) {
+			t.Errorf("data = %q, want %q — the spec discards an event with no blank boundary",
+				got.data, want)
+		}
+	})
+
+	t.Run("a keepalive comment reaches onComment and does not dispatch", func(t *testing.T) {
+		got, err := collectSSE(t, ": keepalive\ndata: body\n\n", false)
+		if err != nil {
+			t.Errorf("scanSSE err = %v, want nil", err)
+		}
+		want := sseTrace{activity: 3, data: []string{"body"}, comments: 1}
+		if !reflect.DeepEqual(got, want) {
+			t.Errorf("sink saw %+v, want %+v", got, want)
+		}
+	})
+
+	t.Run("a comment whose probe says stop ends the scan with errSelfExit", func(t *testing.T) {
+		got, err := collectSSE(t, ": keepalive\ndata: never seen\n\n", true)
+		if !errors.Is(err, errSelfExit) {
+			t.Errorf("scanSSE err = %v, want errSelfExit", err)
+		}
+		want := sseTrace{activity: 1, comments: 1}
+		if !reflect.DeepEqual(got, want) {
+			t.Errorf("sink saw %+v, want %+v — nothing after the stop is read", got, want)
+		}
+	})
+
+	t.Run("a nil sink drives nothing and does not panic", func(t *testing.T) {
+		if err := scanSSE(strings.NewReader(": c\nid: 1\ndata: x\n\n"), sseSink{}); err != nil {
+			t.Errorf("scanSSE err = %v, want nil", err)
+		}
+	})
+}
+
+func TestNextBackoff(t *testing.T) {
+	const start = 1 * time.Second
+	const capd = 15 * time.Second
+	cases := []struct {
+		name    string
+		current time.Duration
+		jf      float64
+		want    time.Duration
+	}{
+		{"the first delay is floored at start and doubled", 0, 1.0, 2 * time.Second},
+		{"a delay below start is floored at start", 200 * time.Millisecond, 1.0, 2 * time.Second},
+		{"the delay doubles", 2 * time.Second, 1.0, 4 * time.Second},
+		{"full jitter halves the doubled delay", 2 * time.Second, 0.5, 2 * time.Second},
+		{"the cap bounds the doubling", 12 * time.Second, 1.0, 15 * time.Second},
+		{"jitter applies after the cap", 12 * time.Second, 0.5, 7500 * time.Millisecond},
 	}
-	if len(data) != 0 {
-		t.Fatalf("scan must stop before the data frame, got %v", data)
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := nextBackoff(tc.current, start, capd, tc.jf); got != tc.want {
+				t.Errorf("nextBackoff(%v, %v, %v, %v) = %v, want %v",
+					tc.current, start, capd, tc.jf, got, tc.want)
+			}
+		})
 	}
 }
 
-// ---------------------------------------------------------------------------
-// nextBackoff — exponential, capped, jittered (Python next_backoff).
-// ---------------------------------------------------------------------------
-
-func TestNextBackoff_DoublesFlooredCappedJittered(t *testing.T) {
-	start, capd := 1*time.Second, 15*time.Second
-	// jitter=1.0 ⇒ no reduction: 1s→2s, 8s→15s(cap), below-floor→start*2.
-	cases := []struct{ cur, want time.Duration }{
-		{1 * time.Second, 2 * time.Second},
-		{8 * time.Second, 15 * time.Second}, // 16 clamps to cap
-		{0, 2 * time.Second},                // floored at start then doubled
-		{15 * time.Second, 15 * time.Second},
+func TestCursorPath(t *testing.T) {
+	cases := []struct {
+		name string
+		cfg  Config
+		want string
+	}{
+		{"an id is lowercased", Config{Home: "/h", ID: "M-Kyle"}, "/h/m-kyle/sse-cursor"},
+		{"no id falls back to anon", Config{Home: "/h"}, "/h/anon/sse-cursor"},
 	}
-	for _, c := range cases {
-		if got := nextBackoff(c.cur, start, capd, 1.0); got != c.want {
-			t.Fatalf("nextBackoff(%s, jf=1) = %s, want %s", c.cur, got, c.want)
-		}
-	}
-	// jitter=0.5 halves the (doubled, capped) value: 1s→doubled 2s→*0.5=1s.
-	if got := nextBackoff(1*time.Second, start, capd, 0.5); got != 1*time.Second {
-		t.Fatalf("jf=0.5: got %s want 1s", got)
-	}
-	// defaultJitter always lands in [0.5, 1.0).
-	for i := 0; i < 200; i++ {
-		if jf := defaultJitter(); jf < 0.5 || jf >= 1.0 {
-			t.Fatalf("defaultJitter out of [0.5,1.0): %v", jf)
-		}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := cursorPath(tc.cfg); got != tc.want {
+				t.Errorf("cursorPath = %q, want %q", got, tc.want)
+			}
+		})
 	}
 }
 
-// ---------------------------------------------------------------------------
-// cursor persistence.
-// ---------------------------------------------------------------------------
+func TestWriteCursor(t *testing.T) {
+	t.Run("the cursor lands under a directory it creates and reads back", func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), "kyle", "sse-cursor")
+		writeCursor(path, "seq-42")
 
-func TestCursorPathAndRoundtrip(t *testing.T) {
+		if got := readFileString(t, path); got != "seq-42" {
+			t.Errorf("file = %q, want %q", got, "seq-42")
+		}
+		if got := readCursor(path); got != "seq-42" {
+			t.Errorf("readCursor = %q, want %q", got, "seq-42")
+		}
+	})
+
+	t.Run("an unwritable parent is swallowed", func(t *testing.T) {
+		blocked := filepath.Join(t.TempDir(), "file")
+		if err := os.WriteFile(blocked, []byte("x"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		writeCursor(filepath.Join(blocked, "sse-cursor"), "seq-1")
+		if got := readFileString(t, blocked); got != "x" {
+			t.Errorf("the blocking file = %q, want %q", got, "x")
+		}
+	})
+}
+
+func TestReadCursor(t *testing.T) {
+	t.Run("surrounding whitespace is trimmed off", func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), "sse-cursor")
+		if err := os.WriteFile(path, []byte("  seq-42\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if got := readCursor(path); got != "seq-42" {
+			t.Errorf("readCursor = %q, want %q", got, "seq-42")
+		}
+	})
+
+	t.Run("a missing cursor is a full replay, not an error", func(t *testing.T) {
+		if got := readCursor(filepath.Join(t.TempDir(), "nope")); got != "" {
+			t.Errorf("readCursor = %q, want empty", got)
+		}
+	})
+}
+
+func TestIsExecutableFileListen(t *testing.T) {
 	dir := t.TempDir()
-	cfg := Config{Home: dir, ID: "Kyle"}
-	p := cursorPath(cfg)
-	if want := filepath.Join(dir, "kyle", "sse-cursor"); p != want {
-		t.Fatalf("cursorPath = %q want %q (id lowercased)", p, want)
+	exe := filepath.Join(dir, "tmux")
+	if err := os.WriteFile(exe, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
 	}
-	if readCursor(p) != "" {
-		t.Fatalf("missing cursor must read empty")
+	plain := filepath.Join(dir, "notes.txt")
+	if err := os.WriteFile(plain, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
 	}
-	writeCursor(p, "99")
-	if got := readCursor(p); got != "99" {
-		t.Fatalf("roundtrip got %q want 99", got)
+	cases := []struct {
+		name string
+		path string
+		want bool
+	}{
+		{"an executable file", exe, true},
+		{"a non-executable file", plain, false},
+		{"a directory", dir, false},
+		{"a missing path", filepath.Join(dir, "nope"), false},
 	}
-	// anon fallback when no id.
-	if got := cursorPath(Config{Home: dir}); got != filepath.Join(dir, "anon", "sse-cursor") {
-		t.Fatalf("anon cursor path = %q", got)
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := isExecutableFileListen(tc.path); got != tc.want {
+				t.Errorf("isExecutableFileListen(%q) = %v, want %v", tc.path, got, tc.want)
+			}
+		})
 	}
 }
 
-// ---------------------------------------------------------------------------
-// wake gates + handler + strOrEmpty.
-// ---------------------------------------------------------------------------
+func TestMakeSessionProbe(t *testing.T) {
+	t.Run("a headless run has no session to mirror and disables probing", func(t *testing.T) {
+		if probe := makeSessionProbe(testEnv(nil)); probe != nil {
+			t.Error("makeSessionProbe returned a probe with no OC_SESSION, want nil — a run " +
+				"with no session must never be able to self-exit on a probe verdict")
+		}
+	})
+
+	t.Run("a blank OC_SESSION also disables probing", func(t *testing.T) {
+		if probe := makeSessionProbe(testEnv(map[string]string{"OC_SESSION": "   "})); probe != nil {
+			t.Error("makeSessionProbe returned a probe for a blank session, want nil")
+		}
+	})
+
+	t.Run("a named session that tmux says does not exist reads GONE", func(t *testing.T) {
+		if resolveTmuxBin() == "" {
+			t.Skip("no tmux on this host — the GONE verdict needs tmux to answer")
+		}
+		probe := makeSessionProbe(testEnv(map[string]string{
+			"OC_SESSION":     "oc-test-session-that-does-not-exist",
+			"OC_TMUX_SOCKET": "officraft-test-no-such-socket",
+		}))
+		if probe == nil {
+			t.Fatal("makeSessionProbe = nil with OC_SESSION set, want a probe")
+		}
+		if got := probe(); got != probeGone {
+			t.Errorf("probe() = %v, want probeGone (%v)", got, probeGone)
+		}
+	})
+}
 
 func TestShouldDispatch(t *testing.T) {
-	for _, tc := range []struct {
+	cases := []struct {
+		name  string
 		frame map[string]any
 		want  bool
 	}{
-		{map[string]any{"topic": "action"}, true},
-		{map[string]any{"topic": "task"}, true},
-		{map[string]any{"topic": "chat"}, false},
-		{map[string]any{"topic": "member"}, false},
-		{nil, false},
-		{map[string]any{}, false},
-	} {
-		if got := shouldDispatch(tc.frame); got != tc.want {
-			t.Fatalf("shouldDispatch(%v) = %v want %v", tc.frame, got, tc.want)
-		}
+		{"an action delta wakes", map[string]any{"topic": "action"}, true},
+		{"a task delta wakes", map[string]any{"topic": "task"}, true},
+		{"a chat delta does not (chat is a refetch, not a wake)", map[string]any{"topic": "chat"}, false},
+		{"a member delta does not", map[string]any{"topic": "member"}, false},
+		{"a non-string topic does not", map[string]any{"topic": 7.0}, false},
+		{"no topic does not", map[string]any{}, false},
+		{"a nil frame does not", nil, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := shouldDispatch(tc.frame); got != tc.want {
+				t.Errorf("shouldDispatch(%v) = %v, want %v", tc.frame, got, tc.want)
+			}
+		})
 	}
 }
 
 func TestShouldWindDown(t *testing.T) {
-	mine := map[string]any{"topic": "member", "data": map[string]any{"key": "owner::kyle"}}
-	if !shouldWindDown(mine, "kyle") {
-		t.Fatal("a member delta scoped to my id must gate true")
+	member := func(key any) map[string]any {
+		return map[string]any{"topic": "member", "data": map[string]any{"key": key}}
 	}
-	if !shouldWindDown(mine, "KYLE") {
-		t.Fatal("id match must be case-insensitive")
-	}
-	other := map[string]any{"topic": "member", "data": map[string]any{"key": "owner::someone"}}
-	if shouldWindDown(other, "kyle") {
-		t.Fatal("a member delta naming someone else must gate false")
-	}
-	if shouldWindDown(map[string]any{"topic": "task"}, "kyle") {
-		t.Fatal("non-member topic must gate false")
-	}
-	if shouldWindDown(mine, "") {
-		t.Fatal("no identity must gate false")
-	}
-	// no :: prefix — whole key is the id.
-	if !shouldWindDown(map[string]any{"topic": "member", "data": map[string]any{"key": "kyle"}}, "kyle") {
-		t.Fatal("a bare key equal to my id must gate true")
-	}
-}
-
-func TestHandleEventOutput(t *testing.T) {
-	var out bytes.Buffer
-	handleEvent(map[string]any{"seq": float64(5), "topic": "task"}, "owner", &out)
-	if got := out.String(); got != "[ocagent] wake seq=5 topic=task · by owner\n" {
-		t.Fatalf("handleEvent out = %q", got)
-	}
-	// nil seq renders Python-style None.
-	out.Reset()
-	handleEvent(map[string]any{"topic": "action"}, "", &out)
-	if got := out.String(); got != "[ocagent] wake seq=None topic=action\n" {
-		t.Fatalf("handleEvent nil-seq out = %q", got)
-	}
-}
-
-func TestHandleDirectedBandPrintsTheServerMessage(t *testing.T) {
-	// context-high: the server-composed reason IS the printed message.
-	var out bytes.Buffer
-	handleDirectedBand(map[string]any{
-		"topic": "context-high",
-		"data": map[string]any{
-			"topic": "context-high", "to": "m-1", "level": "warn",
-			"pct":    float64(45),
-			"reason": "context 55% — 65% is the handover ceiling; close out now",
-		},
-	}, &out)
-	if got := out.String(); got != "[ocagent] signal context-high: context 55% — 65% is the handover ceiling; close out now\n" {
-		t.Fatalf("context-high out = %q", got)
-	}
-
-	// token-expiry: the listener must surface the restart instruction instead
-	// of treating this directed frame as an ignorable wake.
-	out.Reset()
-	handleDirectedBand(map[string]any{
-		"topic": "token-expiry",
-		"data": map[string]any{
-			"topic": "token-expiry", "to": "m-1", "expires_in": float64(1800),
-			"reason": "agent token expires in 1800s; checkpoint this turn, then call restart_self to receive a fresh token",
-		},
-	}, &out)
-	if got := out.String(); got != "[ocagent] signal token-expiry: agent token expires in 1800s; checkpoint this turn, then call restart_self to receive a fresh token\n" {
-		t.Fatalf("token-expiry out = %q", got)
-	}
-
-	// task-close: same shape, task fields riding along.
-	out.Reset()
-	handleDirectedBand(map[string]any{
-		"topic": "task-close",
-		"data": map[string]any{
-			"topic": "task-close", "to": "m-1", "task_id": "t-7d40aabbccdd",
-			"task_no": "T-7d40", "type": "review-pr", "status": "done",
-			"reason": "任務 T-7d40 已結束（done）。請用 patch_task_learnings 以錨點局部修改學習經驗。",
-		},
-	}, &out)
-	if got := out.String(); got != "[ocagent] signal task-close: 任務 T-7d40 已結束（done）。請用 patch_task_learnings 以錨點局部修改學習經驗。\n" {
-		t.Fatalf("task-close out = %q", got)
-	}
-
-	// Junk-safe: no reason (and even no data) degrades to a composed line —
-	// never a panic, never silence.
-	out.Reset()
-	handleDirectedBand(map[string]any{
-		"topic": "task-close",
-		"data": map[string]any{
-			"task_no": "T-7d40", "type": "review-pr", "status": "terminated",
-		},
-	}, &out)
-	want := "[ocagent] signal task-close: task T-7d40 (type=review-pr) closed (terminated) — " +
-		"fold this run's learnings into the current manual as an anchor-addressed patch (patch_task_learnings)\n"
-	if got := out.String(); got != want {
-		t.Fatalf("reason-less task-close fallback = %q, want %q", got, want)
-	}
-	out.Reset()
-	handleDirectedBand(map[string]any{"topic": "context-high"}, &out)
-	if got := out.String(); !strings.HasPrefix(got, "[ocagent] signal context-high:") {
-		t.Fatalf("data-less context-high fallback = %q", got)
-	}
-}
-
-func TestDispatchRoutesDirectedBandsAndIgnoresUnknownTopics(t *testing.T) {
-	var out bytes.Buffer
-	l := &listener{out: &out}
-	frame := func(topic string, data map[string]any) []byte {
-		raw, err := json.Marshal(map[string]any{"topic": topic, "data": data})
-		if err != nil {
-			t.Fatal(err)
-		}
-		return raw
-	}
-	// All directed band topics print their message through dispatch().
-	l.dispatch(frame("context-high", map[string]any{"reason": "context 55% — 65% is the handover ceiling; close out now"}))
-	l.dispatch(frame("token-expiry", map[string]any{"reason": "agent token expires soon; call restart_self"}))
-	l.dispatch(frame("task-close", map[string]any{"reason": "任務 T-7d40 已結束（done）"}))
-	got := out.String()
-	if !strings.Contains(got, "[ocagent] signal context-high: context 55% — 65% is the handover ceiling; close out now") ||
-		!strings.Contains(got, "[ocagent] signal token-expiry: agent token expires soon; call restart_self") ||
-		!strings.Contains(got, "[ocagent] signal task-close: 任務 T-7d40 已結束（done）") {
-		t.Fatalf("dispatch must surface all directed bands, got %q", got)
-	}
-	// An unknown topic stays silent (the pre-existing contract).
-	out.Reset()
-	l.dispatch(frame("mystery-topic", map[string]any{"reason": "boo"}))
-	l.dispatch([]byte("not json at all"))
-	if got := out.String(); got != "" {
-		t.Fatalf("unknown topics must stay silent, got %q", got)
-	}
-}
-
-func TestStrOrEmpty(t *testing.T) {
-	for _, tc := range []struct {
-		in   any
-		want string
+	cases := []struct {
+		name  string
+		frame map[string]any
+		myID  string
+		want  bool
 	}{
-		{nil, ""}, {"", ""}, {"x", "x"}, {float64(0), ""}, {float64(3), "3"},
-		{false, ""}, {true, "True"},
-	} {
-		if got := strOrEmpty(tc.in); got != tc.want {
-			t.Fatalf("strOrEmpty(%v) = %q want %q", tc.in, got, tc.want)
-		}
+		{"a scoped key naming me", member("kyle::m-1"), "m-1", true},
+		{"an unscoped key naming me", member("m-1"), "m-1", true},
+		{"case and padding do not change the answer", member("  KYLE::M-1  "), "m-1", true},
+		{"a key naming someone else", member("kyle::m-2"), "m-1", false},
+		{"my id as the owner half of someone else's key", member("m-1::m-2"), "m-1", false},
+		{"a non-member topic", map[string]any{"topic": "task", "data": map[string]any{"key": "m-1"}}, "m-1", false},
+		{"a blank key", member("  "), "m-1", false},
+		{"no data object", map[string]any{"topic": "member"}, "m-1", false},
+		{"a blank id of my own", member("m-1"), "  ", false},
+		{"a nil frame", nil, "m-1", false},
 	}
-}
-
-// ---------------------------------------------------------------------------
-// fetch_chat / drain_chat over httptest — R7 refetch downlink.
-// ---------------------------------------------------------------------------
-
-func chatServer(t *testing.T, list string) (*httptest.Server, *url.Values) {
-	t.Helper()
-	var gotQuery url.Values
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == markReadPath {
-			w.WriteHeader(200)
-			_, _ = w.Write([]byte(`{}`))
-			return
-		}
-		if strings.HasPrefix(r.URL.Path, "/api/chat") {
-			gotQuery = r.URL.Query()
-			w.WriteHeader(200)
-			_, _ = w.Write([]byte(chatBody(list)))
-			return
-		}
-		w.WriteHeader(404)
-	}))
-	t.Cleanup(srv.Close)
-	return srv, &gotQuery
-}
-
-func TestDrainChat_UnreadForMeOnly(t *testing.T) {
-	// ts is 130s in the past ⇒ the printed age is "2m" (minute-truncated, and far
-	// enough from the 120s/180s edges that test wall-time cannot flip it).
-	list := fmt.Sprintf(`[
-	  {"id":"m1","from":"boss","to":"kyle","body":"hello","ts":%d},
-	  {"id":"m2","from":"kyle","to":"boss","body":"mine-to-someone","ts":%d},
-	  {"id":"m3","from":"peer","to":"other","body":"not-for-me","ts":%d}
-	]`, time.Now().Unix()-130, time.Now().Unix(), time.Now().Unix())
-	srv, gotQuery := chatServer(t, list)
-	cfg := Config{Base: srv.URL, Token: "t", ID: "kyle"}
-	var out bytes.Buffer
-
-	n := drainChat(srv.Client(), cfg, &out, nil, nil)
-	if n != 1 {
-		t.Fatalf("unread-for-me count = %d want 1", n)
-	}
-	if got := gotQuery.Get("recipient"); got != "kyle" {
-		t.Fatalf("recipient= param = %q want kyle", got)
-	}
-	if got := out.String(); got != "[ocagent] chat from boss (#m1, 2m ago): hello\n" {
-		t.Fatalf("drain out = %q", got)
-	}
-	// ⚠️ WHAT USED TO BE HERE: an assertion that m1 landed in the local seen
-	// ledger, and a second drain that printed nothing because of it. Both are
-	// gone with the ledger (T-48, rc-224dee5770dd) — this canned server answers
-	// the same list every time and knows nothing about receipts, so a second
-	// drain against it now prints m1 again, correctly. "Printed once, then never
-	// again" is now a property of the SERVER's unread set, and it is pinned
-	// against a server that actually implements it in
-	// TestDrainChat_PrintedLineIsReceiptedAndDoesNotComeBack
-	// (listen_markread_test.go). Nothing about it is asserted here any more.
-}
-
-func TestDrainChat_MissingTsPrintsIdTagOnly(t *testing.T) {
-	srv, _ := chatServer(t, `[{"id":"m1","from":"boss","to":"kyle","body":"hi"}]`)
-	cfg := Config{Base: srv.URL, Token: "t", ID: "kyle"}
-	var out bytes.Buffer
-	drainChat(srv.Client(), cfg, &out, nil, nil)
-	if got := out.String(); got != "[ocagent] chat from boss (#m1): hi\n" {
-		t.Fatalf("no-ts drain out = %q", got)
-	}
-}
-
-// A message with NEITHER an id nor a ts has nothing to put in the tag, so the
-// parenthesised tag is dropped entirely rather than printed empty as "()".
-func TestDrainChat_NoIdNoTsDropsTheTagEntirely(t *testing.T) {
-	srv, _ := chatServer(t, `[{"from":"boss","to":"kyle","body":"hi"}]`)
-	cfg := Config{Base: srv.URL, Token: "t", ID: "kyle"}
-	var out bytes.Buffer
-	drainChat(srv.Client(), cfg, &out, nil, nil)
-	if got := out.String(); got != "[ocagent] chat from boss: hi\n" {
-		t.Fatalf("id-less drain out = %q", got)
-	}
-}
-
-// T-a828 ①: an attachment-bearing notification carries BOTH halves — the real
-// message id (the handle for get_chat) AND the attachment badge. The id half is
-// asserted against the fixture's actual id value: a "does it mention id" check
-// would have passed against the old literal "id" tag, which named nothing.
-func TestDrainChat_ImageAttachmentAppendsBadge(t *testing.T) {
-	const wireID = "CM-7QW3ZK" // distinctive: cannot be matched by accident
-	srv, _ := chatServer(t, `[{"id":"`+wireID+`","from":"boss","to":"kyle","body":"看這張",
-		"attachments":[{"id":"a1","mime":"image/png","is_image":true,"filename":"x.png"}]}]`)
-	cfg := Config{Base: srv.URL, Token: "t", ID: "kyle"}
-	var out bytes.Buffer
-	drainChat(srv.Client(), cfg, &out, nil, nil)
-	got := out.String()
-	if !strings.Contains(got, "#"+wireID) {
-		t.Errorf("notification must name the message id %q so the agent can get_chat it: %q",
-			wireID, got)
-	}
-	if !strings.Contains(got, "📎1圖") {
-		t.Errorf("attachment badge must survive alongside the id: %q", got)
-	}
-	if want := "[ocagent] chat from boss (#" + wireID + "): 看這張 📎1圖\n"; got != want {
-		t.Fatalf("image attachment drain out = %q want %q", got, want)
-	}
-}
-
-func TestDrainChat_EmptyBodyWithAttachmentsPrintsBadgeOnly(t *testing.T) {
-	srv, _ := chatServer(t, `[{"id":"m1","from":"boss","to":"kyle","body":"",
-		"attachments":[{"id":"a1","is_image":true},{"id":"a2","is_image":true}]}]`)
-	cfg := Config{Base: srv.URL, Token: "t", ID: "kyle"}
-	var out bytes.Buffer
-	drainChat(srv.Client(), cfg, &out, nil, nil)
-	if got := out.String(); got != "[ocagent] chat from boss (#m1): 📎2圖\n" {
-		t.Fatalf("empty-body attachment drain out = %q", got)
-	}
-}
-
-func TestDrainChat_MixedAttachmentsCountsImagesAndFiles(t *testing.T) {
-	srv, _ := chatServer(t, `[{"id":"m1","from":"boss","to":"kyle","body":"附件",
-		"attachments":[{"id":"a1","is_image":true},
-		{"id":"a2","is_image":false,"mime":"application/pdf"},
-		{"id":"a3","is_image":false,"mime":"text/plain"}]}]`)
-	cfg := Config{Base: srv.URL, Token: "t", ID: "kyle"}
-	var out bytes.Buffer
-	drainChat(srv.Client(), cfg, &out, nil, nil)
-	if got := out.String(); got != "[ocagent] chat from boss (#m1): 附件 📎1圖 2檔\n" {
-		t.Fatalf("mixed attachment drain out = %q", got)
-	}
-}
-
-// T-a828 ②: a zero-attachment notification carries the real message id and NO
-// badge — the two halves stay tellable apart. ⚠️ This test used to pin the
-// zero-attachment line byte-for-byte as it stood BEFORE the id landed (that was
-// the badge work's guard against widening every line). T-a828 changes that line
-// on purpose, so the expectation moved with it; what must NOT be lost is the
-// discrimination it buys: with-attachment vs without still differ.
-func TestDrainChat_NoAttachmentsPrintsIdWithoutBadge(t *testing.T) {
-	const wireID = "CM-4KD9XP" // distinctive: cannot be matched by accident
-	srv, _ := chatServer(t, `[{"id":"`+wireID+`","from":"boss","to":"kyle","body":"hi","attachments":[]}]`)
-	cfg := Config{Base: srv.URL, Token: "t", ID: "kyle"}
-	var out bytes.Buffer
-	drainChat(srv.Client(), cfg, &out, nil, nil)
-	got := out.String()
-	if !strings.Contains(got, "#"+wireID) {
-		t.Errorf("an attachment-less notification must still name the message id %q: %q",
-			wireID, got)
-	}
-	if strings.Contains(got, "📎") {
-		t.Errorf("zero attachments must print NO badge: %q", got)
-	}
-	if want := "[ocagent] chat from boss (#" + wireID + "): hi\n"; got != want {
-		t.Fatalf("zero-attachment drain out = %q want %q", got, want)
-	}
-}
-
-// T-4e95 ①: a message carrying `reply_to` prints the reply EXISTENCE marker,
-// and the marker names the TARGET id — not this message's own id. The agent can
-// already get_chat the target itself; what it cannot do is guess that a target
-// exists at all, so without this slot it never goes looking. Asserted against
-// the fixture's real target value: a "does it contain ↩" check would pass
-// against a marker pointing at the wrong message.
-func TestDrainChat_ReplyToPrintsMarkerNamingTheTarget(t *testing.T) {
-	const selfID = "CM-REPLY-7T2"   // distinctive: cannot be matched by accident
-	const targetID = "CM-TARGET-9Q" // distinctive, and NOT a substring of selfID
-	srv, _ := chatServer(t, `[{"id":"`+selfID+`","from":"boss","to":"kyle",
-		"body":"這個再確認一下","reply_to":"`+targetID+`","ts":`+
-		fmt.Sprint(time.Now().Unix()-130)+`}]`)
-	cfg := Config{Base: srv.URL, Token: "t", ID: "kyle"}
-	var out bytes.Buffer
-	drainChat(srv.Client(), cfg, &out, nil, nil)
-	got := out.String()
-	if !strings.Contains(got, "↩#"+targetID) {
-		t.Errorf("the notification must mark that this message replies to %q, "+
-			"otherwise the woken agent has no signal to follow: %q", targetID, got)
-	}
-	if strings.Contains(got, "↩#"+selfID) {
-		t.Errorf("the marker must point at the TARGET, not at this message: %q", got)
-	}
-	if !strings.Contains(got, "#"+selfID) {
-		t.Errorf("the message's own id tag must survive alongside the marker: %q", got)
-	}
-	want := "[ocagent] chat from boss (#" + selfID + ", ↩#" + targetID + ", 2m ago): 這個再確認一下\n"
-	if got != want {
-		t.Fatalf("reply_to drain out = %q want %q", got, want)
-	}
-}
-
-// T-4e95 ②: the OTHER half of the guard — a message WITHOUT `reply_to` must not
-// grow the slot. Every agent pays for this line on every message, so a marker
-// that shows up (even empty, even as a stray separator) on the ordinary case is
-// a regression, not a cosmetic one. Byte-for-byte, and separately: no ↩ at all.
-func TestDrainChat_NoReplyToOmitsTheMarkerEntirely(t *testing.T) {
-	for _, tc := range []struct{ name, wire string }{
-		{"absent", `{"id":"m1","from":"boss","to":"kyle","body":"hi"}`},
-		{"empty", `{"id":"m1","from":"boss","to":"kyle","body":"hi","reply_to":""}`},
-		{"blank", `{"id":"m1","from":"boss","to":"kyle","body":"hi","reply_to":"   "}`},
-		{"null", `{"id":"m1","from":"boss","to":"kyle","body":"hi","reply_to":null}`},
-	} {
+	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			srv, _ := chatServer(t, "["+tc.wire+"]")
-			cfg := Config{Base: srv.URL, Token: "t", ID: "kyle"}
-			var out bytes.Buffer
-			drainChat(srv.Client(), cfg, &out, nil, nil)
-			got := out.String()
-			if strings.Contains(got, "↩") {
-				t.Errorf("no reply target ⇒ NO marker, got %q", got)
-			}
-			if want := "[ocagent] chat from boss (#m1): hi\n"; got != want {
-				t.Fatalf("no-reply_to drain out = %q want %q", got, want)
+			if got := shouldWindDown(tc.frame, tc.myID); got != tc.want {
+				t.Errorf("shouldWindDown(%v, %q) = %v, want %v", tc.frame, tc.myID, got, tc.want)
 			}
 		})
 	}
 }
 
-// ---------------------------------------------------------------------------
-// drain_chat echo suppression (T-2c6d) — the MESSAGE-level half of the rule the
-// dispatch gate applies frame-level.
-// ---------------------------------------------------------------------------
-
-// A message this agent sent to ITSELF (the handover baton of persona §8b) must
-// never print.
-//
-// ⚠️ It must also not stay unread for ever — but that half is no longer visible
-// from here: it used to be an assertion on the local seen ledger, and it now
-// lives entirely in the mark-read receipt, pinned against a server that tracks
-// its own unread set by
-// TestDrainChat_SelfSentMessage_IsStillMarkedReadSoItDoesNotComeBack
-// (listen_markread_test.go). This test guards the PRINT half only.
-func TestDrainChat_SelfSentToSelfIsSuppressed(t *testing.T) {
-	srv, _ := chatServer(t, `[{"id":"m-self","from":"kyle","to":"kyle","body":"baton for the next me"}]`)
-	cfg := Config{Base: srv.URL, Token: "t", ID: "kyle"}
-	var out bytes.Buffer
-
-	if n := drainChat(srv.Client(), cfg, &out, nil, nil); n != 0 {
-		t.Fatalf("self-sent message counted as unread: n=%d want 0", n)
-	}
-	if out.Len() != 0 {
-		t.Fatalf("self-sent message must NOT print, got %q", out.String())
-	}
-}
-
-// The bug's actual shape (T-2c6d): self-sent messages accumulate unread while
-// the frame-level gate silently drops their deltas, then a delta from ANYONE
-// ELSE runs drainChat and flushes the whole backlog — the other party's message
-// arrives buried behind them. After the fix the drain prints exactly the one
-// message that is genuinely for this agent.
-func TestDrainChat_SelfEchoBacklogNeverCrowdsOutRealMessages(t *testing.T) {
-	srv, _ := chatServer(t, `[
-	  {"id":"m-old1","from":"kyle","to":"kyle","body":"收攤紀錄 …"},
-	  {"id":"m-old2","from":"kyle","to":"kyle","body":"baton delta …"},
-	  {"id":"m-new","from":"hook:slack-hook","to":"kyle","body":"加到 todo"}
-	]`)
-	cfg := Config{Base: srv.URL, Token: "t", ID: "kyle"}
-	var out bytes.Buffer
-
-	if n := drainChat(srv.Client(), cfg, &out, nil, nil); n != 1 {
-		t.Fatalf("unread-for-me count = %d want 1 (only the hook message)", n)
-	}
-	if got, want := out.String(), "[ocagent] chat from hook:slack-hook (#m-new): 加到 todo\n"; got != want {
-		t.Fatalf("drain must print ONLY the real message:\n got %q\nwant %q", got, want)
-	}
-}
-
-// The suppression reuses isSelfEcho, so it is case-insensitive on the id —
-// matching how the to-filter already lowercases both sides.
-func TestDrainChat_SelfEchoIsCaseInsensitive(t *testing.T) {
-	srv, _ := chatServer(t, `[{"id":"m1","from":"KYLE","to":"kyle","body":"mine"}]`)
-	cfg := Config{Base: srv.URL, Token: "t", ID: "kyle"}
-	var out bytes.Buffer
-	if n := drainChat(srv.Client(), cfg, &out, nil, nil); n != 0 || out.Len() != 0 {
-		t.Fatalf("case-different self id must still suppress: n=%d out=%q", n, out.String())
-	}
-}
-
-// A padded sender is matched like the `to` filter one line above it — both
-// sides of the message are trimmed before comparison.
-func TestDrainChat_SelfEchoIgnoresSurroundingWhitespace(t *testing.T) {
-	srv, _ := chatServer(t, `[{"id":"m1","from":"  kyle  ","to":"kyle","body":"mine"}]`)
-	cfg := Config{Base: srv.URL, Token: "t", ID: "kyle"}
-	var out bytes.Buffer
-	if n := drainChat(srv.Client(), cfg, &out, nil, nil); n != 0 || out.Len() != 0 {
-		t.Fatalf("padded self id must still suppress: n=%d out=%q", n, out.String())
-	}
-}
-
-// FAIL-OPEN (spec/sse.md §2.3): a blank sender is NEVER an echo. Unknown
-// attribution must cost a printed line, never a lost message.
-func TestDrainChat_BlankFromIsNeverAnEcho(t *testing.T) {
-	srv, _ := chatServer(t, `[{"id":"m1","from":"","to":"kyle","body":"who sent this"}]`)
-	cfg := Config{Base: srv.URL, Token: "t", ID: "kyle"}
-	var out bytes.Buffer
-	if n := drainChat(srv.Client(), cfg, &out, nil, nil); n != 1 {
-		t.Fatalf("blank sender must fail OPEN (print), n=%d", n)
-	}
-	if got := out.String(); got != "[ocagent] chat from  (#m1): who sent this\n" {
-		t.Fatalf("blank-sender line = %q", got)
-	}
-}
-
-func TestFmtAgo(t *testing.T) {
-	for _, tc := range []struct {
-		secs float64
-		want string
+func TestFrameTrigger(t *testing.T) {
+	cases := []struct {
+		name  string
+		frame map[string]any
+		want  string
 	}{
-		{-5, "0s"}, {0, "0s"}, {10, "10s"}, {59, "59s"}, {60, "1m"}, {130, "2m"},
-		{3599, "59m"}, {3600, "1h"}, {7300, "2h"}, {86399, "23h"}, {86400, "1d"},
-		{3 * 86400, "3d"},
-	} {
-		if got := fmtAgo(tc.secs); got != tc.want {
-			t.Fatalf("fmtAgo(%v) = %q want %q", tc.secs, got, tc.want)
-		}
+		{"a named actor", map[string]any{"trigger": " owner "}, "owner"},
+		{"an older producer sends no trigger", map[string]any{"topic": "chat"}, ""},
+		{"a null trigger", map[string]any{"trigger": nil}, ""},
+		{"a nil frame", nil, ""},
 	}
-}
-
-// ---------------------------------------------------------------------------
-// reply-card downlink — refetch + wake for MY answered card.
-// ---------------------------------------------------------------------------
-
-func replyCardServer(t *testing.T, status int, cardJSON string) (*httptest.Server, *int32) {
-	t.Helper()
-	var hits int32
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if strings.HasPrefix(r.URL.Path, "/api/reply-cards/") {
-			atomic.AddInt32(&hits, 1)
-			w.WriteHeader(status)
-			_, _ = w.Write([]byte(cardJSON))
-			return
-		}
-		w.WriteHeader(404)
-	}))
-	t.Cleanup(srv.Close)
-	return srv, &hits
-}
-
-func replyCardFrame(id, from string) map[string]any {
-	return map[string]any{"topic": "reply_card", "data": map[string]any{
-		"key":     "owner::" + id,
-		"payload": map[string]any{"id": id, "from": from, "status": "answered"},
-	}}
-}
-
-// testReplySeen builds a PRIMED empty seen store in a temp dir — the live
-// handler's normal posture (a baseline exists, nothing surfaced yet).
-func testReplySeen(t *testing.T) *replyCardSeen {
-	t.Helper()
-	return &replyCardSeen{path: filepath.Join(t.TempDir(), "replycards-seen"),
-		m: map[string]float64{}, primed: true}
-}
-
-func TestHandleReplyCard_AnsweredPrintsOptionTextAndAttachments(t *testing.T) {
-	srv, _ := replyCardServer(t, 200, `{"id":"rc-1","from":"kyle","status":"answered",
-		"summary":"先做 A 還是 B?","options":[{"text":"做 A"},{"text":"做 B"}],
-		"answer":{"option_idxs":[1],"text":"順便補測試","attachments":[{"id":"a1"}]}}`)
-	cfg := Config{Base: srv.URL, Token: "t", ID: "kyle"}
-	var out bytes.Buffer
-	handleReplyCard(srv.Client(), cfg, replyCardFrame("rc-1", "kyle"), testReplySeen(t), "owner", &out)
-	want := "[ocagent] reply-card rc-1 answered: picked [1] \"做 B\" — \"順便補測試\" — " +
-		"+1 attachment(s) | asked: 先做 A 還是 B? · by owner\n"
-	if got := out.String(); got != want {
-		t.Fatalf("answered out = %q want %q", got, want)
-	}
-}
-
-// A MULTI-SELECT answer must print EVERY circled option, on BOTH paths — this
-// is the live/full-card one. The renderer is the only place the owner's
-// decision becomes words for the session that asked, so an option it drops is a
-// choice the agent never learns about, and nothing else on the line would say
-// so.
-func TestHandleReplyCard_MultiSelectAnswerPrintsEveryCircledOption(t *testing.T) {
-	srv, _ := replyCardServer(t, 200, `{"id":"rc-multi","from":"kyle","status":"answered",
-		"summary":"要帶哪幾項?","select_mode":"multi",
-		"options":[{"text":"甲","ai_pick":true},{"text":"乙"},{"text":"丙"}],
-		"answer":{"option_idxs":[0,2],"text":"","attachments":[]}}`)
-	cfg := Config{Base: srv.URL, Token: "t", ID: "kyle"}
-	var out bytes.Buffer
-	handleReplyCard(srv.Client(), cfg, replyCardFrame("rc-multi", "kyle"), testReplySeen(t), "owner", &out)
-	want := "[ocagent] reply-card rc-multi answered: picked [0] \"甲\" — picked [2] \"丙\" " +
-		"| asked: 要帶哪幾項? · by owner\n"
-	if got := out.String(); got != want {
-		t.Fatalf("multi-select out = %q want %q", got, want)
-	}
-}
-
-// The BOOT/RECONNECT drain path of the same fact: a light row carries no card
-// options at all, so the wording has to come from the digest's own list — one
-// entry per circled index.
-func TestDrainReplyCards_MultiSelectDigestPrintsEveryCircledOption(t *testing.T) {
-	status := 200
-	list := `[{"id":"rc-multi","from":"kyle","kind":"decision","status":"answered",
-		"answered_ts":100,"summary":"要帶哪幾項?","task":null,
-		"answer":{"option_idxs":[0,2],"options":["甲","丙"],"text":"","attachments":0}}]`
-	srv := drainListServer(t, &status, &list)
-	cfg := Config{Base: srv.URL, Token: "t", ID: "kyle"}
-	var out bytes.Buffer
-	if n := drainReplyCards(srv.Client(), cfg, testReplySeen(t), &out); n != 1 {
-		t.Fatalf("drain printed %d, want 1: %q", n, out.String())
-	}
-	want := "[ocagent] reply-card rc-multi answered: picked [0] \"甲\" — picked [2] \"丙\" " +
-		"| asked: 要帶哪幾項?\n"
-	if got := out.String(); got != want {
-		t.Fatalf("multi-select drain out = %q want %q", got, want)
-	}
-}
-
-func TestHandleReplyCard_TextOnlyAnswerPrintsText(t *testing.T) {
-	srv, _ := replyCardServer(t, 200, `{"id":"rc-2","from":"kyle","status":"answered",
-		"summary":"要不要上?","options":[{"text":"上"}],"answer":{"option_idxs":null,"text":"先等 CI","attachments":[]}}`)
-	cfg := Config{Base: srv.URL, Token: "t", ID: "kyle"}
-	var out bytes.Buffer
-	handleReplyCard(srv.Client(), cfg, replyCardFrame("rc-2", "kyle"), testReplySeen(t), "owner", &out)
-	if got := out.String(); got != "[ocagent] reply-card rc-2 answered: \"先等 CI\" | asked: 要不要上? · by owner\n" {
-		t.Fatalf("text-only out = %q", got)
-	}
-}
-
-// A pathological reply-card answer text (past the 64 KiB valve) is truncated
-// with a pointer to get_reply_card, never dumped whole. Positive control:
-// TestHandleReplyCard_TextOnlyAnswerPrintsText above prints a short answer
-// verbatim with NO truncation marker.
-func TestHandleReplyCard_PathologicalAnswerTrippedBySafetyValve(t *testing.T) {
-	huge := strings.Repeat("嘮叨", 20000) // ≈ 120 KiB — over the 64 KiB valve
-	srv, _ := replyCardServer(t, 200, `{"id":"rc-big","from":"kyle","status":"answered",
-		"summary":"要不要上?","options":[{"text":"上"}],"answer":{"option_idxs":null,"text":"`+huge+`","attachments":[]}}`)
-	cfg := Config{Base: srv.URL, Token: "t", ID: "kyle"}
-	var out bytes.Buffer
-	handleReplyCard(srv.Client(), cfg, replyCardFrame("rc-big", "kyle"), testReplySeen(t), "owner", &out)
-	line := out.String()
-	if !strings.Contains(line, "safety valve") || !strings.Contains(line, "get_reply_card") {
-		t.Fatalf("valve trip must point at get_reply_card: %q", line[:min(len(line), 200)])
-	}
-	if strings.Contains(line, huge) {
-		t.Fatal("a valve-tripped answer must not print the full text")
-	}
-	if !utf8.ValidString(line) {
-		t.Fatal("rune-boundary cut must not split a multi-byte char")
-	}
-}
-
-// A multi-line reply-card summary within the cap prints in full, indented so
-// the answered line stays one readable event block.
-func TestHandleReplyCard_MultiLineSummaryPrintedInFull(t *testing.T) {
-	srv, _ := replyCardServer(t, 200, `{"id":"rc-ml","from":"kyle","status":"answered",
-		"summary":"選項一\n選項二","options":[{"text":"上"}],"answer":{"option_idxs":null,"text":"先等 CI","attachments":[]}}`)
-	cfg := Config{Base: srv.URL, Token: "t", ID: "kyle"}
-	var out bytes.Buffer
-	handleReplyCard(srv.Client(), cfg, replyCardFrame("rc-ml", "kyle"), testReplySeen(t), "owner", &out)
-	want := "[ocagent] reply-card rc-ml answered: \"先等 CI\" | asked: 選項一\n    選項二 · by owner\n"
-	if got := out.String(); got != want {
-		t.Fatalf("multi-line summary:\n got %q\nwant %q", got, want)
-	}
-	if strings.Contains(out.String(), "truncated") {
-		t.Fatal("under-cap summary must not be truncated")
-	}
-}
-
-func TestHandleReplyCard_OtherMembersCardIgnoredWithoutRefetch(t *testing.T) {
-	srv, hits := replyCardServer(t, 200, `{}`)
-	cfg := Config{Base: srv.URL, Token: "t", ID: "kyle"}
-	var out bytes.Buffer
-	handleReplyCard(srv.Client(), cfg, replyCardFrame("rc-3", "someone"), testReplySeen(t), "owner", &out)
-	if *hits != 0 || out.Len() != 0 {
-		t.Fatalf("someone else's delta must not refetch nor print: hits=%d out=%q", *hits, out.String())
-	}
-}
-
-func TestHandleReplyCard_AuthorityFromOverridesPayloadFrom(t *testing.T) {
-	// A lying/junk payload claims the card is mine; the refetched authority says
-	// it is not — silence (the payload never decides).
-	srv, hits := replyCardServer(t, 200, `{"id":"rc-4","from":"someone","status":"answered",
-		"summary":"s","options":[{"text":"o"}],"answer":{"option_idxs":[0],"text":"","attachments":[]}}`)
-	cfg := Config{Base: srv.URL, Token: "t", ID: "kyle"}
-	var out bytes.Buffer
-	handleReplyCard(srv.Client(), cfg, replyCardFrame("rc-4", "kyle"), testReplySeen(t), "owner", &out)
-	if *hits != 1 || out.Len() != 0 {
-		t.Fatalf("authority-from mismatch must refetch once and print nothing: hits=%d out=%q",
-			*hits, out.String())
-	}
-}
-
-func TestHandleReplyCard_WaitingCardStaysSilent(t *testing.T) {
-	// My own create rides the same fan (status waiting) — no wake yet.
-	srv, _ := replyCardServer(t, 200, `{"id":"rc-5","from":"kyle","status":"waiting",
-		"summary":"s","options":[{"text":"o"}],"answer":null}`)
-	cfg := Config{Base: srv.URL, Token: "t", ID: "kyle"}
-	var out bytes.Buffer
-	handleReplyCard(srv.Client(), cfg, replyCardFrame("rc-5", "kyle"), testReplySeen(t), "owner", &out)
-	if out.Len() != 0 {
-		t.Fatalf("a waiting card must print nothing, got %q", out.String())
-	}
-}
-
-func TestHandleReplyCard_RefetchFailurePrintsHonestLine(t *testing.T) {
-	srv, _ := replyCardServer(t, 404, `{"error":{"code":"not_found"}}`)
-	cfg := Config{Base: srv.URL, Token: "t", ID: "kyle"}
-	var out bytes.Buffer
-	handleReplyCard(srv.Client(), cfg, replyCardFrame("rc-6", "kyle"), testReplySeen(t), "owner", &out)
-	want := "[ocagent] reply-card rc-6 changed but refetch failed (HTTP 404) — " +
-		"read it manually (get_reply_card).\n"
-	if got := out.String(); got != want {
-		t.Fatalf("refetch-failure out = %q want %q", got, want)
-	}
-}
-
-func TestHandleReplyCard_JunkFramesIgnored(t *testing.T) {
-	srv, hits := replyCardServer(t, 200, `{}`)
-	cfg := Config{Base: srv.URL, Token: "t", ID: "kyle"}
-	var out bytes.Buffer
-	for _, frame := range []map[string]any{
-		nil,
-		{"topic": "reply_card"},
-		{"topic": "reply_card", "data": map[string]any{}},
-		{"topic": "reply_card", "data": map[string]any{"payload": map[string]any{"from": "kyle"}}},
-	} {
-		handleReplyCard(srv.Client(), cfg, frame, testReplySeen(t), "owner", &out)
-	}
-	if *hits != 0 || out.Len() != 0 {
-		t.Fatalf("junk frames must neither refetch nor print: hits=%d out=%q", *hits, out.String())
-	}
-}
-
-func TestHandleReplyCard_ReanswerPrintsRevisedAnswer(t *testing.T) {
-	// 重新決定 (PUT re-answer) fans the SAME delta shape and bumps answered_ts —
-	// the handler prints the refetched answer each time (the seen dedup keys on
-	// the ts, so a NEW answer is never swallowed), so the revision reaches the
-	// session too.
-	answers := []string{
-		`{"id":"rc-7","from":"kyle","status":"answered","summary":"s","options":[{"text":"A"},{"text":"B"}],
-			"answered_ts":100,"answer":{"option_idxs":[0],"text":"","attachments":[]}}`,
-		`{"id":"rc-7","from":"kyle","status":"answered","summary":"s","options":[{"text":"A"},{"text":"B"}],
-			"answered_ts":200,"answer":{"option_idxs":[1],"text":"改走 B","attachments":[]}}`,
-	}
-	var call int32
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		n := atomic.AddInt32(&call, 1)
-		w.WriteHeader(200)
-		_, _ = w.Write([]byte(answers[n-1]))
-	}))
-	defer srv.Close()
-	cfg := Config{Base: srv.URL, Token: "t", ID: "kyle"}
-	var out bytes.Buffer
-	seen := testReplySeen(t)
-	handleReplyCard(srv.Client(), cfg, replyCardFrame("rc-7", "kyle"), seen, "owner", &out)
-	handleReplyCard(srv.Client(), cfg, replyCardFrame("rc-7", "kyle"), seen, "owner", &out)
-	want := "[ocagent] reply-card rc-7 answered: picked [0] \"A\" | asked: s · by owner\n" +
-		"[ocagent] reply-card rc-7 answered: picked [1] \"B\" — \"改走 B\" | asked: s · by owner\n"
-	if got := out.String(); got != want {
-		t.Fatalf("re-answer out = %q want %q", got, want)
-	}
-}
-
-func TestHandleReplyCard_DuplicateDeltaSameAnswerPrintsOnce(t *testing.T) {
-	srv, _ := replyCardServer(t, 200, `{"id":"rc-8","from":"kyle","status":"answered",
-		"summary":"s","options":[{"text":"A"}],"answered_ts":100,
-		"answer":{"option_idxs":[0],"text":"","attachments":[]}}`)
-	cfg := Config{Base: srv.URL, Token: "t", ID: "kyle"}
-	seen := testReplySeen(t)
-	var out bytes.Buffer
-	handleReplyCard(srv.Client(), cfg, replyCardFrame("rc-8", "kyle"), seen, "owner", &out)
-	handleReplyCard(srv.Client(), cfg, replyCardFrame("rc-8", "kyle"), seen, "owner", &out)
-	if got := strings.Count(out.String(), "rc-8 answered"); got != 1 {
-		t.Fatalf("the same answer must print exactly once, printed %d:\n%s", got, out.String())
-	}
-}
-
-func TestHandleReplyCard_ExpiredPrintsGuidanceLine(t *testing.T) {
-	// T-1aa4: an owner-expired card wakes the initiator with a self-carrying
-	// guidance line (reopen fresh vs move on) — not the answered line.
-	srv, _ := replyCardServer(t, 200, `{"id":"rc-x1","from":"kyle","status":"expired",
-		"summary":"還要等這個嗎?","options":[{"text":"等"}],"expired_ts":100,"answer":null}`)
-	cfg := Config{Base: srv.URL, Token: "t", ID: "kyle"}
-	var out bytes.Buffer
-	handleReplyCard(srv.Client(), cfg, replyCardFrame("rc-x1", "kyle"), testReplySeen(t), "owner", &out)
-	want := "[ocagent] reply-card rc-x1 EXPIRED (no answer) | asked: 還要等這個嗎? — " +
-		"settled without an answer: if the question still matters, open a FRESH " +
-		"card with current context; if not, proceed / close out. Any held " +
-		"step/task was already restored to in_progress · by owner\n"
-	if got := out.String(); got != want {
-		t.Fatalf("expired out = %q want %q", got, want)
-	}
-}
-
-func TestHandleReplyCard_DuplicateDeltaSameExpiryPrintsOnce(t *testing.T) {
-	srv, _ := replyCardServer(t, 200, `{"id":"rc-x2","from":"kyle","status":"expired",
-		"summary":"s","options":[{"text":"A"}],"expired_ts":150,"answer":null}`)
-	cfg := Config{Base: srv.URL, Token: "t", ID: "kyle"}
-	seen := testReplySeen(t)
-	var out bytes.Buffer
-	handleReplyCard(srv.Client(), cfg, replyCardFrame("rc-x2", "kyle"), seen, "owner", &out)
-	handleReplyCard(srv.Client(), cfg, replyCardFrame("rc-x2", "kyle"), seen, "owner", &out)
-	if got := strings.Count(out.String(), "rc-x2 EXPIRED"); got != 1 {
-		t.Fatalf("the same expiry must print exactly once, printed %d:\n%s", got, out.String())
-	}
-}
-
-// ---------------------------------------------------------------------------
-// reply-card boot/reconnect drain — the offline-answer catch-up.
-// ---------------------------------------------------------------------------
-
-// drainListServer serves GET /api/reply-cards?status=answered from *list and
-// ?status=expired from an empty pane (mutable between drains; drain callers
-// run single-goroutine in these tests). Expired-pane cases use
-// drainPanesServer below.
-func drainListServer(t *testing.T, status *int, list *string) *httptest.Server {
-	empty := `[]`
-	return drainPanesServer(t, status, list, &empty)
-}
-
-// drainPanesServer serves both drain panes: ?status=answered from *answered,
-// ?status=expired from *expired.
-func drainPanesServer(t *testing.T, status *int, answered, expired *string) *httptest.Server {
-	t.Helper()
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/api/reply-cards" {
-			switch r.URL.Query().Get("status") {
-			case "answered":
-				w.WriteHeader(*status)
-				_, _ = w.Write([]byte(*answered))
-				return
-			case "expired":
-				w.WriteHeader(*status)
-				_, _ = w.Write([]byte(*expired))
-				return
-			}
-		}
-		w.WriteHeader(404)
-	}))
-	t.Cleanup(srv.Close)
-	return srv
-}
-
-// answeredCardJSON is one answered LIGHT list row — the exact shape the server
-// serves on GET /api/reply-cards since T-3f31 (卡只需要 title+決策): NO body /
-// options full text; the decision digest carries the circled options' ORIGINAL
-// wording as answer.options and the attachments as a COUNT (a JSON number).
-func answeredCardJSON(id string, ts float64, summary string) string {
-	return fmt.Sprintf(`{"id":%q,"from":"kyle","kind":"decision","status":"answered",
-		"answered_ts":%v,"summary":%q,"task":null,
-		"answer":{"option_idxs":[0],"options":["ok"],"text":"","attachments":0}}`,
-		id, ts, summary)
-}
-
-func TestDrainReplyCards_LightRowDigestPrintsWordingAndAttachmentCount(t *testing.T) {
-	// The drain consumes the LIGHT pane rows directly (no per-id refetch):
-	// the printed line must take the circled options' wording from the digest's
-	// answer.options (the card's own options never ride a light row) and the
-	// attachment count from the digest's NUMBER — the two spots the pre-T-3f31
-	// renderer would have silently dropped.
-	status := 200
-	list := `[{"id":"rc-light","from":"kyle","kind":"decision","status":"answered",
-		"answered_ts":100,"summary":"走哪個方案?","task":null,
-		"answer":{"option_idxs":[1],"options":["方案 B"],"text":"補個理由","attachments":2}}]`
-	srv := drainListServer(t, &status, &list)
-	cfg := Config{Base: srv.URL, Token: "t", ID: "kyle"}
-	seen := testReplySeen(t)
-	var out bytes.Buffer
-	if n := drainReplyCards(srv.Client(), cfg, seen, &out); n != 1 {
-		t.Fatalf("drain printed %d, want 1: %q", n, out.String())
-	}
-	want := "[ocagent] reply-card rc-light answered: picked [1] \"方案 B\" — " +
-		"\"補個理由\" — +2 attachment(s) | asked: 走哪個方案?\n"
-	if got := out.String(); got != want {
-		t.Fatalf("light-row drain out = %q want %q", got, want)
-	}
-}
-
-func TestDrainReplyCards_FirstRunPrimesSilently_ThenNextProcessPrintsNewAnswer(t *testing.T) {
-	status := 200
-	list := `[` + answeredCardJSON("rc-a", 100, "old?") + `]`
-	srv := drainListServer(t, &status, &list)
-	cfg := Config{Base: srv.URL, Token: "t", ID: "kyle"}
-	path := filepath.Join(t.TempDir(), "replycards-seen")
-	var out bytes.Buffer
-
-	// First run ever (no state file): prime the baseline, print NOTHING.
-	if n := drainReplyCards(srv.Client(), cfg, loadReplyCardSeen(path), &out); n != 0 || out.Len() != 0 {
-		t.Fatalf("first-run drain must baseline silently: n=%d out=%q", n, out.String())
-	}
-	// A new answer lands while the agent is DEAD; a fresh process (reload from
-	// the same file) drains it — and only it — on its next connect.
-	list = `[` + answeredCardJSON("rc-b", 200, "new?") + `,` + answeredCardJSON("rc-a", 100, "old?") + `]`
-	if n := drainReplyCards(srv.Client(), cfg, loadReplyCardSeen(path), &out); n != 1 {
-		t.Fatalf("the connect drain must print exactly the offline-answered card, n=%d out=%q", n, out.String())
-	}
-	if got := out.String(); got != "[ocagent] reply-card rc-b answered: picked [0] \"ok\" | asked: new?\n" {
-		t.Fatalf("drain line = %q", got)
-	}
-}
-
-func TestDrainReplyCards_PrintsOnlyMyNewAnswersOldestFirst(t *testing.T) {
-	status := 200
-	// Pane order is newest-first; rc-other belongs to someone else; rc-seen was
-	// already surfaced at this exact answered_ts.
-	list := `[` + answeredCardJSON("rc-new2", 300, "later?") + `,
-		{"id":"rc-other","from":"someone","status":"answered","answered_ts":250,
-		 "summary":"not mine","options":[{"text":"x"}],"answer":{"option_idxs":[0],"text":"","attachments":[]}},` +
-		answeredCardJSON("rc-seen", 150, "seen?") + `,` + answeredCardJSON("rc-new1", 100, "earlier?") + `]`
-	srv := drainListServer(t, &status, &list)
-	cfg := Config{Base: srv.URL, Token: "t", ID: "kyle"}
-	seen := testReplySeen(t)
-	seen.m["rc-seen"] = 150
-	var out bytes.Buffer
-	if n := drainReplyCards(srv.Client(), cfg, seen, &out); n != 2 {
-		t.Fatalf("n=%d want 2, out=%q", n, out.String())
-	}
-	want := "[ocagent] reply-card rc-new1 answered: picked [0] \"ok\" | asked: earlier?\n" +
-		"[ocagent] reply-card rc-new2 answered: picked [0] \"ok\" | asked: later?\n"
-	if got := out.String(); got != want {
-		t.Fatalf("drain out = %q want %q (mine only, oldest first)", got, want)
-	}
-}
-
-func TestDrainReplyCards_SkipsWhatTheLiveDeltaAlreadyPrinted(t *testing.T) {
-	// The live handler surfaced the answer (and recorded it) while connected —
-	// the next reconnect drain must stay quiet about it.
-	cardSrv, _ := replyCardServer(t, 200, `{"id":"rc-live","from":"kyle","status":"answered",
-		"summary":"live?","options":[{"text":"ok"}],"answered_ts":100,
-		"answer":{"option_idxs":[0],"text":"","attachments":[]}}`)
-	cfg := Config{Base: cardSrv.URL, Token: "t", ID: "kyle"}
-	seen := testReplySeen(t)
-	var out bytes.Buffer
-	handleReplyCard(cardSrv.Client(), cfg, replyCardFrame("rc-live", "kyle"), seen, "owner", &out)
-	if !strings.Contains(out.String(), "rc-live answered") {
-		t.Fatalf("live delta must print first: %q", out.String())
-	}
-
-	status := 200
-	list := `[` + answeredCardJSON("rc-live", 100, "live?") + `]`
-	srv := drainListServer(t, &status, &list)
-	cfg.Base = srv.URL
-	out.Reset()
-	if n := drainReplyCards(srv.Client(), cfg, seen, &out); n != 0 || out.Len() != 0 {
-		t.Fatalf("drain must not re-print the live-surfaced answer: n=%d out=%q", n, out.String())
-	}
-}
-
-func TestDrainReplyCards_RevisionReprints(t *testing.T) {
-	status := 200
-	list := `[` + answeredCardJSON("rc-rev", 200, "again?") + `]`
-	srv := drainListServer(t, &status, &list)
-	cfg := Config{Base: srv.URL, Token: "t", ID: "kyle"}
-	seen := testReplySeen(t)
-	seen.m["rc-rev"] = 100 // surfaced at the OLD answer's ts; 重新決定 bumped it
-	var out bytes.Buffer
-	if n := drainReplyCards(srv.Client(), cfg, seen, &out); n != 1 {
-		t.Fatalf("a revised answer must re-print: n=%d out=%q", n, out.String())
-	}
-}
-
-func TestDrainReplyCards_PrunesEntriesAgedOutOfThePane(t *testing.T) {
-	status := 200
-	list := `[` + answeredCardJSON("rc-kept", 200, "kept?") + `]`
-	srv := drainListServer(t, &status, &list)
-	cfg := Config{Base: srv.URL, Token: "t", ID: "kyle"}
-	seen := testReplySeen(t)
-	seen.m["rc-kept"] = 200
-	seen.m["rc-aged"] = 50 // no longer listed — past the 24h window, can never drain again
-	var out bytes.Buffer
-	drainReplyCards(srv.Client(), cfg, seen, &out)
-	raw, err := os.ReadFile(seen.path)
-	if err != nil {
-		t.Fatalf("state file must persist: %v", err)
-	}
-	var m map[string]float64
-	if err := json.Unmarshal(raw, &m); err != nil {
-		t.Fatalf("state file must be JSON: %v", err)
-	}
-	if want := map[string]float64{"rc-kept": 200}; !reflect.DeepEqual(m, want) {
-		t.Fatalf("persisted state = %v want %v (aged-out entry pruned)", m, want)
-	}
-}
-
-func TestDrainReplyCards_FaultPrintsNothingAndKeepsState(t *testing.T) {
-	status := 500
-	list := `boom`
-	srv := drainListServer(t, &status, &list)
-	cfg := Config{Base: srv.URL, Token: "t", ID: "kyle"}
-	path := filepath.Join(t.TempDir(), "replycards-seen")
-	seen := loadReplyCardSeen(path)
-	var out bytes.Buffer
-	if n := drainReplyCards(srv.Client(), cfg, seen, &out); n != 0 || out.Len() != 0 {
-		t.Fatalf("a drain fault must stay silent: n=%d out=%q", n, out.String())
-	}
-	if seen.primed {
-		t.Fatal("a fault must not prime the baseline")
-	}
-	if _, err := os.Stat(path); !os.IsNotExist(err) {
-		t.Fatalf("a fault must not write the state file: %v", err)
-	}
-	// The fault did NOT burn the first-run posture: the next good drain still
-	// primes silently rather than flooding history.
-	status, list = 200, `[`+answeredCardJSON("rc-a", 100, "old?")+`]`
-	if n := drainReplyCards(srv.Client(), cfg, seen, &out); n != 0 || out.Len() != 0 {
-		t.Fatalf("post-fault first drain must baseline silently: n=%d out=%q", n, out.String())
-	}
-}
-
-// expiredCardJSON is one expired LIGHT list row (T-1aa4): no answer digest —
-// expiry is not an answer; the row carries expired_ts instead.
-func expiredCardJSON(id string, ts float64, summary string) string {
-	return fmt.Sprintf(`{"id":%q,"from":"kyle","kind":"decision","status":"expired",
-		"answered_ts":null,"expired_ts":%v,"summary":%q,"task":null,"answer":null}`,
-		id, ts, summary)
-}
-
-func TestDrainReplyCards_ExpiredPaneCatchesUpOnceThenStaysQuiet(t *testing.T) {
-	// A card expired while the agent was offline drains as the SAME guidance
-	// line the live handler prints, once — the shared seen state (keyed off
-	// expired_ts) keeps every later drain quiet, and the answered pane still
-	// drains alongside.
-	status := 200
-	answered := `[` + answeredCardJSON("rc-ans", 200, "answered?") + `]`
-	expired := `[` + expiredCardJSON("rc-exp", 300, "stale?") + `]`
-	srv := drainPanesServer(t, &status, &answered, &expired)
-	cfg := Config{Base: srv.URL, Token: "t", ID: "kyle"}
-	seen := testReplySeen(t)
-	var out bytes.Buffer
-	if n := drainReplyCards(srv.Client(), cfg, seen, &out); n != 2 {
-		t.Fatalf("drain printed %d, want 2: %q", n, out.String())
-	}
-	if !strings.Contains(out.String(), "rc-ans answered") ||
-		!strings.Contains(out.String(), "rc-exp EXPIRED (no answer) | asked: stale?") {
-		t.Fatalf("drain must surface both panes: %q", out.String())
-	}
-	out.Reset()
-	if n := drainReplyCards(srv.Client(), cfg, seen, &out); n != 0 || out.Len() != 0 {
-		t.Fatalf("second drain must stay quiet: n=%d out=%q", n, out.String())
-	}
-}
-
-func TestDrainReplyCards_ExpiredPaneFaultLeavesStateUntouched(t *testing.T) {
-	// The expired pane failing must not half-rebuild the seen state off the
-	// answered pane alone (that would re-print answered history next drain).
-	answeredStatus := 200
-	answered := `[` + answeredCardJSON("rc-kept", 200, "kept?") + `]`
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/api/reply-cards" && r.URL.Query().Get("status") == "answered" {
-			w.WriteHeader(answeredStatus)
-			_, _ = w.Write([]byte(answered))
-			return
-		}
-		w.WriteHeader(500)
-	}))
-	t.Cleanup(srv.Close)
-	cfg := Config{Base: srv.URL, Token: "t", ID: "kyle"}
-	seen := testReplySeen(t)
-	seen.m["rc-kept"] = 200
-	var out bytes.Buffer
-	if n := drainReplyCards(srv.Client(), cfg, seen, &out); n != 0 || out.Len() != 0 {
-		t.Fatalf("faulted drain must print nothing: n=%d out=%q", n, out.String())
-	}
-	if !seen.has("rc-kept", 200) {
-		t.Fatalf("faulted drain must leave the seen state untouched: %v", seen.m)
-	}
-}
-
-func TestLoadReplyCardSeen_MissingOrCorruptStartsUnprimed(t *testing.T) {
-	dir := t.TempDir()
-	if s := loadReplyCardSeen(filepath.Join(dir, "nope")); s.primed || len(s.m) != 0 {
-		t.Fatalf("missing file must load unprimed-empty: %+v", s)
-	}
-	corrupt := filepath.Join(dir, "corrupt")
-	if err := os.WriteFile(corrupt, []byte("not json"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if s := loadReplyCardSeen(corrupt); s.primed || len(s.m) != 0 {
-		t.Fatalf("corrupt file must load unprimed-empty: %+v", s)
-	}
-	// record → reload roundtrip primes with the recorded value.
-	good := filepath.Join(dir, "good")
-	(&replyCardSeen{path: good, m: map[string]float64{}}).record("rc-1", 42)
-	if s := loadReplyCardSeen(good); !s.primed || !s.has("rc-1", 42) {
-		t.Fatalf("roundtrip must prime with the recorded answer: %+v", s)
-	}
-}
-
-func TestFetchChat_NonListOrErrorYieldsNil(t *testing.T) {
-	for _, tc := range []struct {
-		name   string
-		status int
-		body   string
-	}{
-		{"non-200", 500, ""},
-		{"a bare array — the shape before the T-48 envelope", 200, `[{"id":"m1"}]`},
-		{"an envelope with no messages key", 200, `{"next_cursor":"c1"}`},
-		{"messages is not an array", 200, `{"messages":{"id":"m1"}}`},
-	} {
+	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			srv := newMarkReadServer(t, "[]")
-			srv.serveChat(func(url.Values, int) (int, string) { return tc.status, tc.body })
-			got := fetchChat(srv.Client(), markCfg(srv.URL, t.TempDir()), "kyle")
-			if got.rows != nil {
-				t.Fatalf("a fault must answer nil rows — 'zero messages' is a "+
-					"DIFFERENT answer and would drain a quiet inbox instead; got %v", got.rows)
+			if got := frameTrigger(tc.frame); got != tc.want {
+				t.Errorf("frameTrigger(%v) = %q, want %q", tc.frame, got, tc.want)
 			}
 		})
 	}
 }
-
-// The query is the contract: this listener asks for ITS OWN UNREAD, and asks for
-// nothing it does not need. `with=` in particular is gone — recipient=<self>
-// already pins this member as a participant, and the server's unread index leads
-// with recipient.
-func TestFetchChat_AsksForItsOwnUnreadAndNothingElse(t *testing.T) {
-	srv := newMarkReadServer(t, "[]")
-	srv.serveChat(func(url.Values, int) (int, string) { return 200, chatPage("") })
-
-	fetchChat(srv.Client(), markCfg(srv.URL, t.TempDir()), "M-Kyle")
-
-	qs := srv.chatQueries()
-	if len(qs) != 1 {
-		t.Fatalf("a one-page walk made %d requests, want 1", len(qs))
-	}
-	q := qs[0]
-	if got := q.Get("recipient"); got != "M-Kyle" {
-		t.Errorf("recipient = %q, want the caller's own id", got)
-	}
-	if got := q.Get("unread"); got != "true" {
-		t.Errorf("unread = %q — without it this is the whole conversation, not the "+
-			"backlog", got)
-	}
-	if got, want := q.Get("limit"), strconv.Itoa(chatUnreadPageLimit); got != want {
-		t.Errorf("limit = %q, want %q", got, want)
-	}
-	if _, sent := q["with"]; sent {
-		t.Errorf("with= is still on the wire (%v) — recipient= already says the "+
-			"caller is a participant, so this only narrows the server off its index", q)
-	}
-	if _, sent := q["cursor"]; sent {
-		t.Errorf("the FIRST page must carry no cursor; got %v", q)
-	}
-}
-
-// The whole point of the rewrite: one drain sees the WHOLE backlog, however many
-// pages it takes, in order.
-func TestFetchChat_PagesUntilTheServerStopsIssuingACursor(t *testing.T) {
-	pages := []string{
-		chatPage("c1", tsMsg("m1", "boss", "kyle", 1), tsMsg("m2", "boss", "kyle", 2)),
-		chatPage("c2", tsMsg("m3", "boss", "kyle", 3), tsMsg("m4", "boss", "kyle", 4)),
-		chatPage("", tsMsg("m5", "boss", "kyle", 5)),
-	}
-	wantCursor := []string{"", "c1", "c2"}
-	srv := newMarkReadServer(t, "[]")
-	srv.serveChat(func(q url.Values, nth int) (int, string) {
-		if nth > len(pages) {
-			t.Errorf("asked for page %d — the walk should have ended at %d", nth, len(pages))
-			return 200, chatPage("")
-		}
-		if got := q.Get("cursor"); got != wantCursor[nth-1] {
-			t.Errorf("page %d asked with cursor=%q, want %q — a page that does not "+
-				"carry the previous next_cursor re-reads the same rows forever",
-				nth, got, wantCursor[nth-1])
-		}
-		return 200, pages[nth-1]
-	})
-
-	var got chatFetch
-	mustReturn(t, "fetchChat over a three-page walk", func() {
-		got = fetchChat(srv.Client(), markCfg(srv.URL, t.TempDir()), "kyle")
-	})
-
-	if got.stop != "" {
-		t.Errorf("a walk the SERVER ended must not warn about anything: %q", got.stop)
-	}
-	var ids []string
-	for _, m := range got.rows {
-		ids = append(ids, strOrEmpty(m["id"]))
-	}
-	if want := []string{"m1", "m2", "m3", "m4", "m5"}; !slices.Equal(ids, want) {
-		t.Fatalf("walked ids = %v, want %v (oldest first, every page)", ids, want)
-	}
-	if n := len(srv.chatQueries()); n != len(pages) {
-		t.Errorf("the walk made %d requests, want %d", n, len(pages))
-	}
-}
-
-// A page that faults mid-walk keeps what is already in hand. Unread is served
-// oldest-first, so a partial walk holds a contiguous run from the oldest — the
-// next drain resumes exactly where this one stopped — and the shortfall is said
-// out loud rather than passing for a finished backfill.
-func TestFetchChat_FaultOnALaterPage_KeepsTheEarlierPagesAndSaysSo(t *testing.T) {
-	srv := newMarkReadServer(t, "[]")
-	srv.serveChat(func(q url.Values, nth int) (int, string) {
-		if nth == 1 {
-			return 200, chatPage("c1", tsMsg("m1", "boss", "kyle", 1), tsMsg("m2", "boss", "kyle", 2))
-		}
-		return 503, ""
-	})
-
-	var got chatFetch
-	mustReturn(t, "fetchChat over a walk that faults on page 2", func() {
-		got = fetchChat(srv.Client(), markCfg(srv.URL, t.TempDir()), "kyle")
-	})
-
-	if len(got.rows) != 2 {
-		t.Fatalf("a mid-walk fault kept %d rows, want the 2 page 1 already answered",
-			len(got.rows))
-	}
-	if !strings.Contains(got.stop, "第 2 頁") || !strings.Contains(got.stop, "get_chat") {
-		t.Errorf("a walk that ended short must name where it stopped and what to do "+
-			"about it; got %q", got.stop)
-	}
-}
-
-// ---------------------------------------------------------------------------
-// WindDownHook — desired_state=offline graceful self-stop (intent-only, seams injected).
-// ---------------------------------------------------------------------------
-
-// 下線 wakes the session with the server's notice and leaves the closing-out to
-// it. What this pins is the REPLACED behaviour as much as the new one: the hook
-// used to declare stopping → stopped and suicide on the session's behalf, with
-// 「durable state already server-side — nothing extra to flush」 — false of any
-// session still holding a hand-off, and it took the session down before it
-// could write one.
-func TestWindDown_OfflineWakesTheSessionAndDoesNotStopIt(t *testing.T) {
-	var out bytes.Buffer
-	h := &windDownHook{
-		cfg:          Config{ID: "kyle"},
-		out:          &out,
-		fetchDesired: func() (string, bool) { return "offline", true },
-	}
-	frame := func(notice string) map[string]any {
-		return map[string]any{"topic": "member", "data": map[string]any{
-			"key":     "owner::kyle",
-			"payload": map[string]any{"offboard_notice": notice},
-		}}
-	}
-	// A FROZEN COPY of the soft arm's opener as of rc-e9b655cd8e1a — not a
-	// claim about what the server sends today (the close-out verb has since
-	// changed); the final call keeps
-	// "offboard now". This fixture is a hand copy of what the server sends, so
-	// it goes stale silently — what it is actually testing is the de-dupe, and
-	// that only needs the two strings to DIFFER.
-	soft := "context 31% (your limits: 60% / 75%) — start your close-out: work " +
-		"the sequence below, then call restart_self yourself."
-	if !h.maybeWindDown(frame(soft)) {
-		t.Fatal("a confirmed offline must wake the session")
-	}
-	if !strings.Contains(out.String(), soft) {
-		t.Fatalf("the server's notice must reach the transcript:\n%s", out.String())
-	}
-	if strings.Contains(out.String(), "nothing extra to flush") {
-		t.Fatalf("the hook must not claim the session has nothing to flush:\n%s", out.String())
-	}
-	// The SAME sentence again is silence — but the FINAL call is a different
-	// sentence and has to get through, because it is the one that says the
-	// countdown has started.
-	if h.maybeWindDown(frame(soft)) {
-		t.Fatal("a repeat of the same notice must be a no-op")
-	}
-	// The clause the server actually appends (T-d6a7: an absolute deadline, not a
-	// countdown — a countdown would differ on every replay and this de-dupe would
-	// never match again). The client parses none of it; what matters here is only
-	// that a DIFFERENT sentence gets through.
-	const deadlineClause = " Your deadline is 2026-08-19T06:32:07Z."
-	final := soft + deadlineClause
-	if !h.maybeWindDown(frame(final)) {
-		t.Fatal("the final call must reach a session already woken by the soft notice")
-	}
-	if !strings.Contains(out.String(), deadlineClause) {
-		t.Fatalf("the final call must reach the transcript:\n%s", out.String())
-	}
-}
-
-// A frame that carries no notice must still leave the agent knowing it is being
-// collected — the fallback names the tool that fetches the sequence.
-func TestWindDown_NoticeMissingFallsBackToTheFetchInstruction(t *testing.T) {
-	var out bytes.Buffer
-	h := &windDownHook{
-		cfg:          Config{ID: "kyle"},
-		out:          &out,
-		fetchDesired: func() (string, bool) { return "offline", true },
-	}
-	frame := map[string]any{"topic": "member", "data": map[string]any{"key": "owner::kyle"}}
-	if !h.maybeWindDown(frame) {
-		t.Fatal("a confirmed offline must wake the session even with no notice")
-	}
-	if !strings.Contains(out.String(), "get_offboard") {
-		t.Fatalf("the fallback must name the tool that gets the sequence:\n%s", out.String())
-	}
-}
-
-func TestWindDown_SkipsWhenNotOfflineOrNotMine(t *testing.T) {
-	var out bytes.Buffer
-	newH := func(desired_state string) *windDownHook {
-		return &windDownHook{
-			cfg:          Config{ID: "kyle"},
-			out:          &out,
-			fetchDesired: func() (string, bool) { return desired_state, true },
-		}
-	}
-	mine := map[string]any{"topic": "member", "data": map[string]any{"key": "owner::kyle"}}
-	if newH("online").maybeWindDown(mine) {
-		t.Fatal("desired_state=online must NOT wind down")
-	}
-	notmine := map[string]any{"topic": "member", "data": map[string]any{"key": "owner::other"}}
-	if newH("offline").maybeWindDown(notmine) {
-		t.Fatal("a delta naming someone else must NOT wind down")
-	}
-	if out.Len() != 0 {
-		t.Fatalf("nothing may be said when it does not wind down:\n%s", out.String())
-	}
-}
-
-// ---------------------------------------------------------------------------
-// RecycleHook — desired_state=online ∧ refocus_since>0 (wake-only, epoch one-shot).
-// ---------------------------------------------------------------------------
-
-// offboardServer answers the two authoritative reads the recycle wake makes — the
-// member row and the 〈停止〉 document — off pointers the test mutates between
-// deltas, so a wake is driven by what the SERVER holds at that moment. Bearer +
-// status are asserted here so the delivery path (auth, route, JSON shape), not a
-// stubbed seam, is what the wake rides.
-func offboardServer(t *testing.T, member map[string]any) *httptest.Server {
-	t.Helper()
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Header.Get("Authorization") != "Bearer tok" {
-			t.Errorf("%s must ride the agent's own Bearer token, got %q",
-				r.URL.Path, r.Header.Get("Authorization"))
-		}
-		switch r.URL.Path {
-		case "/api/members/kyle":
-			w.WriteHeader(200)
-			_ = json.NewEncoder(w).Encode(member)
-		case "/api/offboard":
-			t.Errorf("the agent must NOT fetch the offboard document any more — " +
-				"the server pushes it in the delta (owner 2026-08-16: 改回真的推播)")
-			w.WriteHeader(404)
-		default:
-			w.WriteHeader(404)
-		}
-	}))
-	t.Cleanup(srv.Close)
-	return srv
-}
-
-// recycleFrame builds the member delta the server actually pushes when it is
-// collecting this session: the delta envelope plus the notice the SERVER
-// composed. `notice` empty = a frame that carried none (an older server, or a
-// payload that lost it), which is what must still leave the agent informed.
-func recycleFrame(notice string) map[string]any {
-	payload := map[string]any{"id": "kyle", "desired_state": "online"}
-	if notice != "" {
-		payload["offboard_notice"] = notice
-	}
-	return map[string]any{"topic": "member",
-		"data": map[string]any{"key": "owner::kyle", "payload": payload}}
-}
-
-func TestRecycle_WakesSessionWithThePushedOffboardNotice_EpochOneShot(t *testing.T) {
-	var out bytes.Buffer
-	member := map[string]any{"desired_state": "online", "refocus_since": float64(100)}
-	// Deliberately NOT anything this binary knows: only text the SERVER put in
-	// the frame can produce these lines, so seeing them proves the pushed notice
-	// reached the session. A wake printing something hard-coded fails here.
-	notice := "收尾第一步：把在途的 X 寫回步驟備註\n\n收尾第二步：報 stopped"
-	srv := offboardServer(t, member)
-	cfg := Config{ID: "kyle", Token: "tok", Base: srv.URL}
-	h := newRecycleHook(defaultHTTPClient(), cfg, &out)
-
-	frame := recycleFrame(notice)
-	if !h.maybeRecycle(frame) {
-		t.Fatal("online + refocus must wake the session")
-	}
-	for _, line := range []string{
-		"收尾第一步：把在途的 X 寫回步驟備註",
-		"收尾第二步：報 stopped",
-	} {
-		if !strings.Contains(out.String(), "[ocagent] recycle: "+line+"\n") {
-			t.Fatalf("the wake must print the SERVER's pushed line %q:\n%s", line, out.String())
-		}
-	}
-	if strings.Contains(out.String(), "get_offboard") {
-		t.Fatalf("a notice that WAS delivered must not print the fallback:\n%s", out.String())
-	}
-
-	// SAME epoch again (e.g. the member deltas fanned by the session's own
-	// stopping/stopped reports) ⇒ no re-print.
-	out.Reset()
-	if h.maybeRecycle(frame) || out.Len() != 0 {
-		t.Fatalf("same refocus epoch must not re-wake; out=%q", out.String())
-	}
-	// The session reporting stopped does NOT make ocagent act — the kill is the
-	// server's (event-driven robust STOP on the stopped report).
-	member["stopped_since"] = float64(150)
-	if h.maybeRecycle(frame) || out.Len() != 0 {
-		t.Fatalf("a stopped report must not re-trigger anything client-side; out=%q", out.String())
-	}
-
-	// A NEW epoch re-arms the wake AND prints what THAT frame carried: an owner
-	// who edits 〈停止〉 changes what the next collected session is told, with no
-	// release — the edit rides the next push.
-	member["refocus_since"] = float64(200)
-	if !h.maybeRecycle(recycleFrame("新版停止：先把 baton 發給自己")) {
-		t.Fatal("a new refocus epoch must re-wake")
-	}
-	if !strings.Contains(out.String(), "[ocagent] recycle: 新版停止：先把 baton 發給自己\n") {
-		t.Fatalf("the re-armed wake must carry the EDITED text:\n%s", out.String())
-	}
-	if strings.Contains(out.String(), "收尾第一步") {
-		t.Fatalf("the re-armed wake must not replay the superseded text:\n%s", out.String())
-	}
-}
-
-// The delivery path the agent actually runs is a member frame arriving on the SSE
-// downlink — not a direct hook call. This drives dispatch end to end (frame →
-// member refetch → transcript) so the wiring, not just the hook, is what carries
-// the server's text into the session.
-func TestDispatch_MemberDeltaCarriesThePushedOffboardNoticeIntoTheTranscript(t *testing.T) {
-	var out bytes.Buffer
-	member := map[string]any{"desired_state": "online", "refocus_since": float64(7)}
-	notice := "只有 server 塞進 frame 的字才會長這樣"
-	srv := offboardServer(t, member)
-	cfg := Config{ID: "kyle", Token: "tok", Base: srv.URL}
-	l := &listener{cfg: cfg, out: &out, recycle: newRecycleHook(defaultHTTPClient(), cfg, &out)}
-	l.winddown = &windDownHook{cfg: cfg, out: &out,
-		fetchDesired: func() (string, bool) { return "online", true },
-	}
-	raw, _ := json.Marshal(recycleFrame(notice))
-	l.dispatch(raw)
-	if !strings.Contains(out.String(), "[ocagent] recycle: "+notice+"\n") {
-		t.Fatalf("a member delta must land the SERVER's pushed notice in the transcript:\n%s", out.String())
-	}
-}
-
-func TestRecycle_MissingPushedNoticeStillTellsTheSessionItIsBeingCollected(t *testing.T) {
-	for name, notice := range map[string]string{
-		"no notice key": "",
-		"blank notice":  "\n  \n",
-	} {
-		t.Run(name, func(t *testing.T) {
-			var out bytes.Buffer
-			member := map[string]any{"desired_state": "online", "refocus_since": float64(100)}
-			srv := offboardServer(t, member)
-			h := newRecycleHook(defaultHTTPClient(), Config{ID: "kyle", Token: "tok", Base: srv.URL}, &out)
-			frame := recycleFrame(notice)
-			if !h.maybeRecycle(frame) {
-				t.Fatal("a missing notice must NOT swallow the recycle — the agent still has to know")
-			}
-			// 🔴 BADGED BY THE HOOK THAT PRINTED IT (T-6f44). The prefix used to
-			// be welded into the constant, so the wind-down hook — which stamps
-			// every line of a REAL notice with 「offboard: 」 — announced its
-			// fallback as 「recycle: 」, the FIRST wind-down stage, to agents that
-			// were in the last one. The constant carries no prefix now; this is
-			// the recycle hook, so it stamps its own.
-			if !strings.Contains(out.String(), "[ocagent] recycle: "+offboardFallback+"\n") {
-				t.Fatalf("the fallback notice must be printed, not silence:\n%q", out.String())
-			}
-			if strings.Contains(offboardFallback, "recycle:") ||
-				strings.Contains(offboardFallback, "offboard:") {
-				t.Errorf("the shared fallback carries a hook's prefix in its own "+
-					"text (%q) — both hooks print it, so whichever one did not "+
-					"choose that word announces itself as the other",
-					offboardFallback)
-			}
-			// Still one wake per epoch — the empty frame spent this epoch.
-			out.Reset()
-			if h.maybeRecycle(frame) || out.Len() != 0 {
-				t.Fatalf("a fallback wake must not re-print on the same epoch; out=%q", out.String())
-			}
-		})
-	}
-}
-
-func TestRecycle_SkipsOfflineOrNoRefocus(t *testing.T) {
-	frame := map[string]any{"topic": "member", "data": map[string]any{"key": "owner::kyle"}}
-	outs := map[string]*bytes.Buffer{}
-	mk := func(name string, m map[string]any) *recycleHook {
-		outs[name] = &bytes.Buffer{}
-		return &recycleHook{
-			cfg:         Config{ID: "kyle"},
-			out:         outs[name],
-			fetchMember: func() (map[string]any, bool) { return m, true },
-		}
-	}
-	if mk("off", map[string]any{"desired_state": "offline", "refocus_since": float64(100)}).maybeRecycle(frame) {
-		t.Fatal("desired_state=offline is wind-down's job, not recycle")
-	}
-	if mk("norf", map[string]any{"desired_state": "online", "refocus_since": float64(0)}).maybeRecycle(frame) {
-		t.Fatal("no refocus marker must not recycle")
-	}
-	for name, out := range outs {
-		if out.Len() != 0 {
-			t.Fatalf("%s: no wake output expected, got %q", name, out.String())
-		}
-	}
-}
-
-// ---------------------------------------------------------------------------
-// listener end-to-end over an httptest mock SSE server.
-// ---------------------------------------------------------------------------
-
-// eventsServer streams `frames` on the FIRST /api/events connection then holds it open
-// until the client cancels; later connections just block. It answers /api/chat with
-// EMPTY on the first call (so the silent boot baseline advances the cursor over no
-// history) and `chatList` on every call thereafter (so a chat-delta refetch surfaces
-// the NEW message). It captures the Last-Event-ID header of connection #1.
-func eventsServer(frames []string, chatList string, gotLastEventID *string, conns *int32) *httptest.Server {
-	var first sync.Once
-	var chatCalls int32
-	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if strings.HasPrefix(r.URL.Path, "/api/chat") {
-			w.WriteHeader(200)
-			if atomic.AddInt32(&chatCalls, 1) == 1 {
-				// silent baseline sees no history
-				_, _ = w.Write([]byte(chatBody("[]")))
-			} else {
-				_, _ = w.Write([]byte(chatBody(chatList)))
-			}
-			return
-		}
-		if strings.HasPrefix(r.URL.Path, "/api/reply-cards/") {
-			w.WriteHeader(200)
-			_, _ = w.Write([]byte(`{"id":"rc-9","from":"kyle","status":"answered",
-				"summary":"ship it?","options":[{"text":"ship"},{"text":"hold"}],
-				"answer":{"option_idxs":[0],"text":"","attachments":[]}}`))
-			return
-		}
-		if !strings.HasPrefix(r.URL.Path, eventsPath) {
-			w.WriteHeader(404)
-			return
-		}
-		atomic.AddInt32(conns, 1)
-		first.Do(func() {
-			if gotLastEventID != nil {
-				*gotLastEventID = r.Header.Get("Last-Event-ID")
-			}
-		})
-		w.Header().Set("Content-Type", "text/event-stream")
-		fl, ok := w.(http.Flusher)
-		if !ok {
-			return
-		}
-		fl.Flush()
-		for _, f := range frames {
-			_, _ = w.Write([]byte(f))
-			fl.Flush()
-		}
-		<-r.Context().Done()
-	}))
-}
-
-// syncBuf is a mutex-guarded writer so a listener goroutine can write while the test
-// goroutine polls its contents (a plain bytes.Buffer is not concurrency-safe).
-type syncBuf struct {
-	mu sync.Mutex
-	b  bytes.Buffer
-}
-
-func (s *syncBuf) Write(p []byte) (int, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.b.Write(p)
-}
-
-func (s *syncBuf) String() string {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.b.String()
-}
-
-func newTestListener(srv *httptest.Server, cfg Config, out io.Writer) *listener {
-	return &listener{
-		cfg:              cfg,
-		api:              srv.Client(),
-		streamClient:     srv.Client(),
-		sleep:            func(time.Duration) {},
-		backoffStart:     time.Millisecond,
-		backoffCap:       time.Millisecond,
-		jitter:           func() float64 { return 1.0 },
-		out:              out,
-		clock:            time.Now,
-		probeUnknownSpan: probeUnknownGrace,
-		refusalGraceSpan: sseRefusalGrace,
-		cursorPath:       filepath.Join(cfgTempDir, "cursor"),
-		drainWarn:        &drainWarner{},
-		replySeen:        loadReplyCardSeen(filepath.Join(cfgTempDir, "replycards-seen")),
-	}
-}
-
-var cfgTempDir string
-
-func TestListener_EndToEnd_DispatchAndCursor(t *testing.T) {
-	cfgTempDir = t.TempDir()
-	chatList := `[{"id":"c1","from":"boss","to":"kyle","body":"ping"}]`
-	frames := []string{
-		": connected\n\n",
-		"id: 7\n\n", // persist cursor
-		"data: {\"topic\":\"task\",\"seq\":3}\n\n", // WORK wake
-		"data: {\"topic\":\"chat\"}\n\n",           // chat NUDGE → refetch → print unread
-		// reply_card NUDGE → refetch the card → wake with the answer
-		"data: {\"topic\":\"reply_card\",\"data\":{\"key\":\"owner::rc-9\"," +
-			"\"payload\":{\"id\":\"rc-9\",\"from\":\"kyle\",\"status\":\"answered\"}}}\n\n",
-		"data: {\"topic\":\"other\"}\n\n", // ignored
-	}
-	var lastEventID string
-	var conns int32
-	srv := eventsServer(frames, chatList, &lastEventID, &conns)
-	defer srv.Close()
-
-	cfg := Config{Base: srv.URL, Token: "tok", ID: "kyle"}
-	out := &syncBuf{}
-	l := newTestListener(srv, cfg, out)
-	// seed a cursor so the Last-Event-ID replay header is asserted.
-	writeCursor(l.cursorPath, "5")
-	l.winddown = newWindDownHook(srv.Client(), cfg, out)
-	l.recycle = newRecycleHook(srv.Client(), cfg, out)
-
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	done := make(chan int, 1)
-	go func() { done <- l.run(ctx) }()
-
-	waitForCond(t, func() bool {
-		return strings.Contains(out.String(), "wake seq=3 topic=task") &&
-			strings.Contains(out.String(), "chat from boss (#c1): ping") &&
-			strings.Contains(out.String(),
-				"reply-card rc-9 answered: picked [0] \"ship\" | asked: ship it?")
-	}, "work wake + chat refetch + reply-card wake dispatched over the wire")
-
-	cancel()
-	<-done
-
-	if lastEventID != "5" {
-		t.Fatalf("Last-Event-ID replay header = %q want 5", lastEventID)
-	}
-	// the id:7 frame advanced the persisted cursor.
-	if got := readCursor(l.cursorPath); got != "7" {
-		t.Fatalf("cursor after id:7 = %q want 7", got)
-	}
-}
-
-func TestListener_ReconnectsAfterDrop(t *testing.T) {
-	cfgTempDir = t.TempDir()
-	var conns int32
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if strings.HasPrefix(r.URL.Path, "/api/chat") || strings.HasPrefix(r.URL.Path, "/api/reply-cards") {
-			w.WriteHeader(200)
-			_, _ = w.Write([]byte(emptyChatOrList(r.URL.Path)))
-			return
-		}
-		atomic.AddInt32(&conns, 1)
-		w.Header().Set("Content-Type", "text/event-stream")
-		_, _ = w.Write([]byte("data: {\"topic\":\"task\"}\n\n"))
-		// handler returns → body EOF → client reconnects.
-	}))
-	defer srv.Close()
-
-	cfg := Config{Base: srv.URL, Token: "t", ID: "kyle"}
-	var out bytes.Buffer
-	l := newTestListener(srv, cfg, &out)
-	l.winddown = newWindDownHook(srv.Client(), cfg, &out)
-	l.recycle = newRecycleHook(srv.Client(), cfg, &out)
-
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	// stop the loop once a reconnect is proven.
-	l.sleep = func(time.Duration) {
-		if atomic.LoadInt32(&conns) >= 2 {
-			cancel()
-		}
-	}
-	done := make(chan int, 1)
-	go func() { done <- l.run(ctx) }()
-	<-done
-	if atomic.LoadInt32(&conns) < 2 {
-		t.Fatalf("expected ≥2 connections (reconnect), got %d", conns)
-	}
-}
-
-func TestListener_WatchdogReconnectsSilentStream(t *testing.T) {
-	cfgTempDir = t.TempDir()
-	var conns int32
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if strings.HasPrefix(r.URL.Path, "/api/chat") || strings.HasPrefix(r.URL.Path, "/api/reply-cards") {
-			w.WriteHeader(200)
-			_, _ = w.Write([]byte(emptyChatOrList(r.URL.Path)))
-			return
-		}
-		atomic.AddInt32(&conns, 1)
-		w.Header().Set("Content-Type", "text/event-stream")
-		if fl, ok := w.(http.Flusher); ok {
-			fl.Flush()
-		}
-		<-r.Context().Done() // never emit a frame — silently dead / half-open
-	}))
-	defer srv.Close()
-
-	cfg := Config{Base: srv.URL, Token: "t", ID: "kyle"}
-	var out bytes.Buffer
-	l := newTestListener(srv, cfg, &out)
-	l.idleReadTimeout = 40 * time.Millisecond
-	l.winddown = newWindDownHook(srv.Client(), cfg, &out)
-	l.recycle = newRecycleHook(srv.Client(), cfg, &out)
-
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	l.sleep = func(time.Duration) {
-		if atomic.LoadInt32(&conns) >= 2 {
-			cancel()
-		}
-	}
-	done := make(chan int, 1)
-	go func() { done <- l.run(ctx) }()
-	waitForCond(t, func() bool { return atomic.LoadInt32(&conns) >= 2 },
-		"watchdog to force-drop the silent stream and reconnect")
-	cancel()
-	<-done
-}
-
-func TestListener_ReconnectDrainPrintsOfflineAnswerOnce(t *testing.T) {
-	cfgTempDir = t.TempDir()
-	// Drain 1 (connection 1) sees an empty pane — first run: primes silently —
-	// and the stream drops. The owner answers rc-off during the offline gap (no
-	// replay on /api/events — the delta is gone for good), so drain 2 must
-	// surface it, and drain 3+ must NOT re-print it.
-	var drains, conns int32
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch {
-		case strings.HasPrefix(r.URL.Path, "/api/chat"):
-			w.WriteHeader(200)
-			_, _ = w.Write([]byte(chatBody("[]")))
-		case r.URL.Path == "/api/reply-cards":
-			w.WriteHeader(200)
-			if r.URL.Query().Get("status") != "answered" {
-				_, _ = w.Write([]byte(`[]`)) // the expired pane stays empty here
-				return
-			}
-			if atomic.AddInt32(&drains, 1) == 1 {
-				_, _ = w.Write([]byte(`[]`)) // nothing answered yet at boot
-			} else {
-				_, _ = w.Write([]byte(`[` + answeredCardJSON("rc-off", 100, "offline?") + `]`))
-			}
-		case strings.HasPrefix(r.URL.Path, eventsPath):
-			n := atomic.AddInt32(&conns, 1)
-			w.Header().Set("Content-Type", "text/event-stream")
-			if fl, ok := w.(http.Flusher); ok {
-				fl.Flush()
-			}
-			if n <= 2 {
-				return // stream drops → reconnect
-			}
-			<-r.Context().Done()
-		default:
-			w.WriteHeader(404)
-		}
-	}))
-	defer srv.Close()
-
-	cfg := Config{Base: srv.URL, Token: "t", ID: "kyle"}
-	out := &syncBuf{}
-	l := newTestListener(srv, cfg, out)
-	l.winddown = newWindDownHook(srv.Client(), cfg, out)
-	l.recycle = newRecycleHook(srv.Client(), cfg, out)
-
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	done := make(chan int, 1)
-	go func() { done <- l.run(ctx) }()
-
-	waitForCond(t, func() bool {
-		return atomic.LoadInt32(&conns) >= 3 &&
-			strings.Contains(out.String(), "rc-off answered")
-	}, "the reconnect drain to surface the offline-answered card")
-	cancel()
-	<-done
-
-	want := "[ocagent] reply-card rc-off answered: picked [0] \"ok\" | asked: offline?\n"
-	if got := strings.Count(out.String(), want); got != 1 {
-		t.Fatalf("the offline answer must print exactly once across reconnects, printed %d:\n%s",
-			got, out.String())
-	}
-}
-
-// ---------------------------------------------------------------------------
-// self-exit — the tmux-session lifecycle tie (probe debounce + heartbeat trip).
-// ---------------------------------------------------------------------------
-
-func TestFoldProbe_DebounceAndFaultSafe(t *testing.T) {
-	l := &listener{out: &bytes.Buffer{}, clock: time.Now,
-		probeUnknownSpan: probeUnknownGrace}
-	// nil probe ⇒ never self-exit.
-	if l.foldProbe() {
-		t.Fatal("nil probe must never self-exit")
-	}
-	// alive resets; two consecutive GONE misses trip.
-	verdict := probeAlive
-	l.probe = func() probeVerdict { return verdict }
-	if l.foldProbe() { // alive → miss 0
-		t.Fatal("alive must not trip")
-	}
-	verdict = probeGone
-	if l.foldProbe() { // miss 1
-		t.Fatal("one miss must not trip (debounce)")
-	}
-	if !l.foldProbe() { // miss 2 → trip
-		t.Fatal("two consecutive misses must self-exit")
-	}
-	// a panicking probe folds as UNKNOWN: never an instant verdict, and it
-	// RESETS the GONE debounce (unverifiable ≠ evidence of a gone session).
-	l.miss = 1
-	l.probe = func() probeVerdict { panic("boom") }
-	if l.foldProbe() {
-		t.Fatal("a panicking probe must not self-exit instantly")
-	}
-	if l.miss != 0 {
-		t.Fatalf("an UNKNOWN probe must reset the GONE debounce to 0, got %d", l.miss)
-	}
-	if l.unknowns != 1 {
-		t.Fatalf("a panicking probe must fold as one UNKNOWN, got %d", l.unknowns)
-	}
-}
-
-func TestFoldProbe_UnknownFailsClosedAfterBothBounds(t *testing.T) {
-	// Fake clock: the fail-closed trip needs probeUnknownMin consecutive
-	// unknowns AND probeUnknownSpan of wall clock — neither alone suffices.
-	now := time.Unix(1_000_000, 0)
-	l := &listener{out: &bytes.Buffer{},
-		clock:            func() time.Time { return now },
-		probeUnknownSpan: probeUnknownGrace,
-		probe:            func() probeVerdict { return probeUnknown },
-	}
-	// Count bound crossed, time bound not: many unknowns inside the grace.
-	for i := 0; i < probeUnknownMin*3; i++ {
-		if l.foldProbe() {
-			t.Fatalf("unknown #%d tripped inside the wall-clock grace", i+1)
-		}
-	}
-	// Time bound crossed too → trip.
-	now = now.Add(probeUnknownGrace)
-	if !l.foldProbe() {
-		t.Fatal("unknown past BOTH bounds must fail-closed self-exit")
-	}
-	// An ALIVE verdict resets the run completely.
-	l2 := &listener{out: &bytes.Buffer{},
-		clock:            func() time.Time { return now },
-		probeUnknownSpan: probeUnknownGrace,
-	}
-	l2.probe = func() probeVerdict { return probeUnknown }
-	for i := 0; i < probeUnknownMin-1; i++ {
-		_ = l2.foldProbe()
-	}
-	l2.probe = func() probeVerdict { return probeAlive }
-	_ = l2.foldProbe()
-	if l2.unknowns != 0 || !l2.firstUnknownAt.IsZero() {
-		t.Fatal("an alive probe must reset the unknown run")
-	}
-	// Time bound alone (few probes, long elapsed) must not trip either: the
-	// first unknown of a fresh run re-anchors the clock.
-	l2.probe = func() probeVerdict { return probeUnknown }
-	now = now.Add(24 * time.Hour)
-	if l2.foldProbe() {
-		t.Fatal("a single unknown after a long quiet period must not trip")
-	}
-}
-
-func TestFoldRefusal_BothBoundsAndReset(t *testing.T) {
-	now := time.Unix(2_000_000, 0)
-	l := &listener{out: &bytes.Buffer{},
-		clock:            func() time.Time { return now },
-		refusalGraceSpan: sseRefusalGrace,
-	}
-	// Count bound alone (grace not elapsed) never trips.
-	for i := 0; i < sseRefusalMin*2; i++ {
-		if l.foldRefusal() {
-			t.Fatalf("refusal #%d tripped inside the grace window", i+1)
-		}
-	}
-	// Grace elapsed + consecutive count → trip.
-	now = now.Add(sseRefusalGrace)
-	if !l.foldRefusal() {
-		t.Fatal("refusals past BOTH bounds must trip fail-closed")
-	}
-	// resetRefusals (any non-409 outcome) breaks the run: the next refusal
-	// re-anchors the clock and the count restarts.
-	l.resetRefusals()
-	if l.foldRefusal() {
-		t.Fatal("a fresh refusal after a reset must not trip (count restarted)")
-	}
-	if l.refusals != 1 || l.firstRefusalAt != now {
-		t.Fatalf("reset must restart the run: refusals=%d firstAt=%v", l.refusals, l.firstRefusalAt)
-	}
-}
-
-func TestListener_SelfExitsOnHeartbeatWhenSessionGone(t *testing.T) {
-	cfgTempDir = t.TempDir()
-	// A stream that sends heartbeats forever; the probe reports the session GONE, so the
-	// heartbeat-line probe (#2) trips self-exit and run() returns 0 without reconnecting.
-	var conns int32
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if strings.HasPrefix(r.URL.Path, "/api/chat") || strings.HasPrefix(r.URL.Path, "/api/reply-cards") {
-			w.WriteHeader(200)
-			_, _ = w.Write([]byte(emptyChatOrList(r.URL.Path)))
-			return
-		}
-		atomic.AddInt32(&conns, 1)
-		w.Header().Set("Content-Type", "text/event-stream")
-		fl := w.(http.Flusher)
-		fl.Flush()
-		tk := time.NewTicker(5 * time.Millisecond)
-		defer tk.Stop()
-		for {
-			select {
-			case <-r.Context().Done():
-				return
-			case <-tk.C:
-				if _, err := w.Write([]byte(": heartbeat\n\n")); err != nil {
-					return
-				}
-				fl.Flush()
-			}
-		}
-	}))
-	defer srv.Close()
-
-	cfg := Config{Base: srv.URL, Token: "t", ID: "kyle"}
-	var out bytes.Buffer
-	l := newTestListener(srv, cfg, &out)
-	l.winddown = newWindDownHook(srv.Client(), cfg, &out)
-	l.recycle = newRecycleHook(srv.Client(), cfg, &out)
-	l.probe = func() probeVerdict { return probeGone } // session always gone
-
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	done := make(chan int, 1)
-	go func() { done <- l.run(ctx) }()
-
-	select {
-	case rc := <-done:
-		if rc != 0 {
-			t.Fatalf("self-exit rc = %d want 0", rc)
-		}
-	case <-time.After(3 * time.Second):
-		t.Fatal("listener did not self-exit within 3s on a gone session")
-	}
-	if !strings.Contains(out.String(), "self-exiting") {
-		t.Fatalf("expected a self-exit log line:\n%s", out.String())
-	}
-	if got := atomic.LoadInt32(&conns); got != 1 {
-		t.Fatalf("self-exit must NOT reconnect; saw %d connection(s)", got)
-	}
-}
-
-func TestListener_SelfExitAtReconnectTop(t *testing.T) {
-	// probe #1 (reconnect top): with the session already gone for the debounce limit,
-	// run() self-exits BEFORE ever dialing /api/events.
-	cfgTempDir = t.TempDir()
-	var eventsHits int32
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if strings.HasPrefix(r.URL.Path, eventsPath) {
-			atomic.AddInt32(&eventsHits, 1)
-		}
-		w.WriteHeader(200)
-		_, _ = w.Write([]byte("[]"))
-	}))
-	defer srv.Close()
-
-	cfg := Config{Base: srv.URL, Token: "t", ID: "kyle"}
-	var out bytes.Buffer
-	l := newTestListener(srv, cfg, &out)
-	l.winddown = newWindDownHook(srv.Client(), cfg, &out)
-	l.recycle = newRecycleHook(srv.Client(), cfg, &out)
-	l.probe = func() probeVerdict { return probeGone }
-	l.miss = sessionMissLimit - 1 // one more miss trips at probe #1
-
-	rc := l.run(context.Background())
-	if rc != 0 {
-		t.Fatalf("rc = %d want 0", rc)
-	}
-	if got := atomic.LoadInt32(&eventsHits); got != 0 {
-		t.Fatalf("self-exit at reconnect-top must NOT dial /api/events; saw %d", got)
-	}
-}
-
-// ---------------------------------------------------------------------------
-// fail-closed server refusal — the zombie stop gate's client half.
-// ---------------------------------------------------------------------------
-
-func TestListener_SelfTerminatesAfterPersistentSSERefusal(t *testing.T) {
-	cfgTempDir = t.TempDir()
-	// The server ALWAYS refuses /api/events with the stop-gate 409 (the zombie
-	// scenario: a stop is in effect for this member). The listener must stop
-	// hammering: after sseRefusalMin consecutive refusals spanning the grace
-	// (test: grace 0 so the count bound alone gates), it self-terminates via
-	// the suicide seam and run() returns instead of reconnecting forever.
-	var conns int32
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if strings.HasPrefix(r.URL.Path, "/api/chat") {
-			w.WriteHeader(200)
-			_, _ = w.Write([]byte("[]"))
-			return
-		}
-		atomic.AddInt32(&conns, 1)
-		w.WriteHeader(409)
-		_, _ = w.Write([]byte(`{"error":{"code":"conflict","message":"member 'kyle' has a stop in effect"}}`))
-	}))
-	defer srv.Close()
-
-	cfg := Config{Base: srv.URL, Token: "t", ID: "kyle"}
-	out := &syncBuf{}
-	l := newTestListener(srv, cfg, out)
-	l.winddown = newWindDownHook(srv.Client(), cfg, out)
-	l.recycle = newRecycleHook(srv.Client(), cfg, out)
-	l.refusalGraceSpan = 0 // count bound only — no wall-clock wait in tests
-	var terminated int32
-	l.selfTerminate = func() { atomic.AddInt32(&terminated, 1) }
-
-	done := make(chan int, 1)
-	go func() { done <- l.run(context.Background()) }()
-
-	select {
-	case rc := <-done:
-		if rc != 0 {
-			t.Fatalf("rc = %d want 0", rc)
-		}
-	case <-time.After(3 * time.Second):
-		t.Fatal("listener did not fail-closed within 3s of persistent 409s")
-	}
-	if got := atomic.LoadInt32(&conns); got != sseRefusalMin {
-		t.Fatalf("want exactly %d refused dials before the fail-closed exit, saw %d",
-			sseRefusalMin, got)
-	}
-	if atomic.LoadInt32(&terminated) != 1 {
-		t.Fatal("the suicide seam must fire exactly once on the fail-closed exit")
-	}
-	if !strings.Contains(out.String(), "fail-closed") {
-		t.Fatalf("expected the honest fail-closed log line:\n%s", out.String())
-	}
-	// The server's refusal reason must surface in the log (honest, not masked).
-	if !strings.Contains(out.String(), "stop in effect") {
-		t.Fatalf("expected the server's refusal body in the log:\n%s", out.String())
-	}
-}
-
-func TestListener_NonRefusalOutcomesNeverTripFailClosed(t *testing.T) {
-	cfgTempDir = t.TempDir()
-	// A briefly-unavailable server (5xx) must NEVER accumulate toward the
-	// fail-closed kill, and a refusal run BROKEN by such an outcome restarts:
-	// 409,…,409,500 repeating never reaches sseRefusalMin consecutively.
-	var dials int32
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if strings.HasPrefix(r.URL.Path, "/api/chat") {
-			w.WriteHeader(200)
-			_, _ = w.Write([]byte("[]"))
-			return
-		}
-		n := atomic.AddInt32(&dials, 1)
-		if n%int32(sseRefusalMin) == 0 {
-			w.WriteHeader(500) // breaks every refusal run one short of the bound
-			return
-		}
-		w.WriteHeader(409)
-		_, _ = w.Write([]byte(`{"error":{"code":"conflict","message":"nope"}}`))
-	}))
-	defer srv.Close()
-
-	cfg := Config{Base: srv.URL, Token: "t", ID: "kyle"}
-	out := &syncBuf{}
-	l := newTestListener(srv, cfg, out)
-	l.winddown = newWindDownHook(srv.Client(), cfg, out)
-	l.recycle = newRecycleHook(srv.Client(), cfg, out)
-	l.refusalGraceSpan = 0 // even with NO grace, the broken run must never trip
-	var terminated int32
-	l.selfTerminate = func() { atomic.AddInt32(&terminated, 1) }
-
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	done := make(chan int, 1)
-	go func() { done <- l.run(ctx) }()
-
-	waitForCond(t, func() bool { return atomic.LoadInt32(&dials) >= int32(sseRefusalMin*3) },
-		"several broken refusal runs to elapse")
-	select {
-	case <-done:
-		t.Fatalf("listener exited — a broken refusal run must never fail-closed:\n%s", out.String())
-	default:
-	}
-	cancel()
-	<-done
-	if atomic.LoadInt32(&terminated) != 0 {
-		t.Fatal("selfTerminate must never fire when refusals are not consecutive")
-	}
-}
-
-// ---------------------------------------------------------------------------
-// cmdListen — production entry: mis-wire guard.
-// ---------------------------------------------------------------------------
-
-func TestCmdListen_NoTokenExitsQuietly(t *testing.T) {
-	var out bytes.Buffer
-	if rc := cmdListen(Config{ID: "kyle"}, func(string) string { return "" }, false, &out); rc != 0 {
-		t.Fatalf("rc = %d want 0", rc)
-	}
-	if !strings.Contains(out.String(), "no OC_ID/OC_TOKEN") {
-		t.Fatalf("expected the mis-wire line, got %q", out.String())
-	}
-}
-
-// ---------------------------------------------------------------------------
-// helpers.
-// ---------------------------------------------------------------------------
-
-// noEnv is a headless env accessor (every key ""): the default selfTerminate wiring
-// reads OC_SESSION through it, so a listener test's hooks resolve to a no-op suicide.
-func noEnv(string) string { return "" }
-
-func waitForCond(t *testing.T, cond func() bool, what string) {
-	t.Helper()
-	deadline := time.Now().Add(3 * time.Second)
-	for time.Now().Before(deadline) {
-		if cond() {
-			return
-		}
-		time.Sleep(2 * time.Millisecond)
-	}
-	t.Fatalf("timed out waiting for: %s", what)
-}
-
-// ---------------------------------------------------------------------------
-// T-f39c: echo suppression (trigger==self drops client-side) + readable task
-// event lines (task_no + title + what moved + by whom) + preview truncation.
-// ---------------------------------------------------------------------------
 
 func TestIsSelfEcho(t *testing.T) {
-	for _, tc := range []struct {
-		trigger, my string
-		want        bool
+	cases := []struct {
+		name    string
+		trigger string
+		myID    string
+		want    bool
 	}{
-		{"kyle", "kyle", true},
-		{"KYLE", "kyle", true}, // ids compare case-insensitively (config casing drift)
-		{"owner", "kyle", false},
-		{"server", "kyle", false},
-		{"m-other", "kyle", false},
-		{"", "kyle", false}, // blank trigger = unknown attribution — NEVER an echo
-		{"kyle", "", false}, // no own id (mis-wire) — never suppress
-	} {
-		if got := isSelfEcho(tc.trigger, tc.my); got != tc.want {
-			t.Fatalf("isSelfEcho(%q, %q) = %v want %v", tc.trigger, tc.my, got, tc.want)
-		}
+		{"my own action pushed back at me", "m-1", "m-1", true},
+		{"case does not change the answer", "M-1", " m-1 ", true},
+		{"someone else's action", "owner", "m-1", false},
+		{"unknown attribution is never an echo", "", "m-1", false},
+		{"a blank id of my own is never an echo", "owner", "  ", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := isSelfEcho(tc.trigger, tc.myID); got != tc.want {
+				t.Errorf("isSelfEcho(%q, %q) = %v, want %v", tc.trigger, tc.myID, got, tc.want)
+			}
+		})
 	}
 }
 
 func TestPreviewLine(t *testing.T) {
-	if got := previewLine("a\nb\t c", 10); got != "a b c" {
-		t.Fatalf("whitespace collapse = %q", got)
+	cases := []struct {
+		name string
+		in   string
+		max  int
+		want string
+	}{
+		{"whitespace collapses to single spaces", "  fix   the\n\tlistener  ", 48, "fix the listener"},
+		{"a title at the cap is not truncated", "abcde", 5, "abcde"},
+		{"one rune past the cap truncates with an ellipsis", "abcdef", 5, "abcde…"},
+		{"truncation counts runes, not bytes", "壹貳參肆伍陸", 3, "壹貳參…"},
+		{"an empty title stays empty", "   ", 5, ""},
 	}
-	long := strings.Repeat("字", 200)
-	got := previewLine(long, 160)
-	if got != strings.Repeat("字", 160)+"…" {
-		t.Fatalf("rune truncation = %q", got)
-	}
-	if got := previewLine("short", 160); got != "short" {
-		t.Fatalf("short passthrough = %q", got)
-	}
-}
-
-// dispatchFrame marshals one delta frame for listener.dispatch.
-func dispatchFrame(t *testing.T, topic, trigger string, payload map[string]any) []byte {
-	t.Helper()
-	frame := map[string]any{"topic": topic, "seq": 9}
-	if trigger != "" {
-		frame["trigger"] = trigger
-	}
-	if payload != nil {
-		frame["data"] = map[string]any{"payload": payload}
-	}
-	raw, err := json.Marshal(frame)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return raw
-}
-
-func TestDispatch_SelfTriggeredEchoSuppressed(t *testing.T) {
-	// The owner-mandated acceptance cases, client side:
-	//   1. my own trigger  → NOTHING printed, NO refetch (echo dropped);
-	//   2. owner trigger   → processed as before;
-	//   3. server trigger  → processed as before.
-	// The self-echo cases ride the TASK topic, because chat is now exempt
-	// (c-75113935a255) — see TestDispatch_SelfTriggeredChatDelta below. Task is
-	// the case that must stay suppressed: without it a member is told about every
-	// task it moves itself.
-	var hits int32
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		atomic.AddInt32(&hits, 1)
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`[]`))
-	}))
-	defer srv.Close()
-	var out bytes.Buffer
-	l := newTestListener(srv, Config{Base: srv.URL, Token: "tok", ID: "kyle"}, &out)
-
-	// 1. self echo: a task delta I triggered must not even refetch.
-	l.dispatch(dispatchFrame(t, taskTopic, "kyle", map[string]any{"id": "t-1"}))
-	if atomic.LoadInt32(&hits) != 0 || out.String() != "" {
-		t.Fatalf("self-triggered delta must be dropped without refetch/print: hits=%d out=%q",
-			hits, out.String())
-	}
-	// case-insensitive: config casing drift must not defeat the gate.
-	l.dispatch(dispatchFrame(t, taskTopic, "KYLE", map[string]any{"id": "t-1"}))
-	if atomic.LoadInt32(&hits) != 0 {
-		t.Fatal("case-drifted self trigger must still suppress")
-	}
-	// …and the same for a reply card I answered myself.
-	l.dispatch(dispatchFrame(t, replyCardTopic, "kyle",
-		map[string]any{"id": "rc-1", "from": "kyle", "status": "answered"}))
-	if atomic.LoadInt32(&hits) != 0 {
-		t.Fatalf("a reply-card delta I triggered must not refetch: hits=%d", hits)
-	}
-
-	// 2. owner-triggered → refetch happens (chat drain runs).
-	l.dispatch(dispatchFrame(t, chatTopic, "owner", nil))
-	if atomic.LoadInt32(&hits) == 0 {
-		t.Fatal("an owner-triggered delta must be processed")
-	}
-
-	// 3. server-triggered → refetch happens too.
-	before := atomic.LoadInt32(&hits)
-	l.dispatch(dispatchFrame(t, chatTopic, "server", nil))
-	if atomic.LoadInt32(&hits) == before {
-		t.Fatal("a server-triggered delta must be processed")
-	}
-
-	// 4. blank trigger (older producer) → fail-open, processed.
-	before = atomic.LoadInt32(&hits)
-	l.dispatch(dispatchFrame(t, chatTopic, "", nil))
-	if atomic.LoadInt32(&hits) == before {
-		t.Fatal("a trigger-less delta must be processed (fail-open)")
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := previewLine(tc.in, tc.max); got != tc.want {
+				t.Errorf("previewLine(%q, %d) = %q, want %q", tc.in, tc.max, got, tc.want)
+			}
+		})
 	}
 }
 
-// 🔴 c-75113935a255: the CHAT topic is exempt from echo suppression. A note this
-// member writes to itself is drained on the spot — fetched and RECEIPTED like
-// anyone else's mail — and still printed nowhere, because drainChat drops
-// `sender == self`. The gate used to drop the frame outright, which left the note
-// unread until whatever reconnect happened next.
-func TestDispatch_SelfTriggeredChatDelta_DrainsAndReceiptsWithoutPrinting(t *testing.T) {
-	now := float64(time.Now().Unix())
-	srv := newUnreadChatServer(t, []unreadRow{{"self-1", "kyle", "kyle", now - 300}})
-	cfg := markCfg(srv.URL, t.TempDir())
-	var out bytes.Buffer
-	l := newTestListener(srv.Server, cfg, &out)
+func TestRenderMessageBody(t *testing.T) {
+	t.Run("a one-line body prints verbatim", func(t *testing.T) {
+		if got := renderMessageBody("這個再確認一下", chatBodyAuthority); got != "這個再確認一下" {
+			t.Errorf("renderMessageBody = %q, want %q", got, "這個再確認一下")
+		}
+	})
 
-	l.dispatch(dispatchFrame(t, chatTopic, "kyle", nil))
+	t.Run("continuation lines are indented so none can look like a new event", func(t *testing.T) {
+		want := "first\n    second\n    third"
+		if got := renderMessageBody("first\nsecond\nthird", chatBodyAuthority); got != want {
+			t.Errorf("renderMessageBody = %q, want %q", got, want)
+		}
+	})
 
-	if len(srv.unreadIDs("kyle")) != 0 {
-		t.Fatalf("the self-triggered delta never drained: %v still unread, so this "+
-			"note stays unread until the next reconnect", srv.unreadIDs("kyle"))
-	}
-	if out.String() != "" {
-		t.Fatalf("the member was read its own note back: %q", out.String())
-	}
+	t.Run("a dangling trailing newline leaves no empty indented tail", func(t *testing.T) {
+		if got := renderMessageBody("body\n\n", chatBodyAuthority); got != "body" {
+			t.Errorf("renderMessageBody = %q, want %q", got, "body")
+		}
+	})
+
+	t.Run("a body at the safety valve is untouched", func(t *testing.T) {
+		body := strings.Repeat("a", messageBodyValve)
+		if got := renderMessageBody(body, chatBodyAuthority); got != body {
+			t.Errorf("renderMessageBody truncated a body of exactly %d bytes", messageBodyValve)
+		}
+	})
+
+	t.Run("a pathological body is cut with a pointer to the authority", func(t *testing.T) {
+		body := strings.Repeat("a", messageBodyValve+100)
+		want := strings.Repeat("a", messageBodyValve) +
+			"… [+100 bytes past the 64 KiB safety valve — read the full message with get_chat]"
+		if got := renderMessageBody(body, chatBodyAuthority); got != want {
+			t.Errorf("renderMessageBody = %q…%q, want the valve notice %q",
+				got[:20], got[len(got)-90:], want[len(want)-90:])
+		}
+	})
+
+	t.Run("the cut never splits a multi-byte rune", func(t *testing.T) {
+		body := strings.Repeat("a", messageBodyValve-1) + strings.Repeat("界", 40)
+		want := strings.Repeat("a", messageBodyValve-1) +
+			"… [+120 bytes past the 64 KiB safety valve — read the full message with get_reply_card]"
+		if got := renderMessageBody(body, replyCardBodyAuthority); got != want {
+			t.Errorf("renderMessageBody tail = %q, want %q", got[len(got)-90:], want[len(want)-90:])
+		}
+	})
 }
 
-func TestDispatch_MemberTopicExemptFromEchoSuppression(t *testing.T) {
-	// spec §2.3 exemption: a SELF-triggered member delta must STILL nudge the
-	// hooks — restart_self (T-4c71) stamps refocus_since via the agent's OWN
-	// request, and the recycle wake rides exactly that self-triggered member
-	// delta. Suppressing it would break graceful self-recycle.
-	var out bytes.Buffer
-	fetches := 0
-	l := &listener{cfg: Config{ID: "kyle"}, out: &out}
-	l.winddown = &windDownHook{cfg: l.cfg, out: &out,
-		fetchDesired: func() (string, bool) { fetches++; return "online", true },
-	}
-	l.recycle = &recycleHook{cfg: l.cfg, out: &out,
-		fetchMember: func() (map[string]any, bool) {
-			fetches++
-			return map[string]any{"desired_state": "online", "refocus_since": 42.0}, true
+func TestHandleEvent(t *testing.T) {
+	cases := []struct {
+		name    string
+		frame   map[string]any
+		trigger string
+		want    string
+	}{
+		{
+			name:    "an attributed wake carries who moved it",
+			frame:   map[string]any{"seq": 42.0, "topic": "task"},
+			trigger: "owner",
+			want:    "[ocagent] wake seq=42 topic=task · by owner\n",
+		},
+		{
+			name:  "an unattributed wake carries no suffix rather than lying",
+			frame: map[string]any{"seq": 42.0, "topic": "action"},
+			want:  "[ocagent] wake seq=42 topic=action\n",
+		},
+		{
+			name:  "a junk frame still wakes",
+			frame: map[string]any{},
+			want:  "[ocagent] wake seq=None topic=None\n",
 		},
 	}
-	raw, _ := json.Marshal(map[string]any{"topic": "member", "trigger": "kyle",
-		"data": map[string]any{"key": "owner::kyle",
-			"payload": map[string]any{"offboard_notice": "照停止收尾"}}})
-	l.dispatch(raw)
-	if fetches == 0 {
-		t.Fatal("a self-triggered member delta must still nudge the hooks (restart_self)")
-	}
-	if !strings.Contains(out.String(), "recycle:") {
-		t.Fatalf("the self-requested recycle wake must land, got %q", out.String())
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var out bytes.Buffer
+			handleEvent(tc.frame, tc.trigger, &out)
+			if out.String() != tc.want {
+				t.Errorf("printed %q, want %q", out.String(), tc.want)
+			}
+		})
 	}
 }
 
-// taskEventServer serves GET /api/tasks/{id} with the given DTO JSON.
-func taskEventServer(t *testing.T, status int, taskJSON string) (*httptest.Server, *int32) {
-	t.Helper()
-	var hits int32
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if strings.HasPrefix(r.URL.Path, "/api/tasks/") {
-			atomic.AddInt32(&hits, 1)
-			w.WriteHeader(status)
-			_, _ = w.Write([]byte(taskJSON))
-			return
+func TestHandleDirectedBand(t *testing.T) {
+	cases := []struct {
+		name  string
+		frame map[string]any
+		want  string
+	}{
+		{
+			name: "the server-composed reason IS the message",
+			frame: map[string]any{"topic": "context-high", "data": map[string]any{
+				"reason": " 你的 context 已經到 85%,先收尾 "}},
+			want: "[ocagent] signal context-high: 你的 context 已經到 85%,先收尾\n",
+		},
+		{
+			name: "a context-high frame with no reason composes a terse fallback",
+			frame: map[string]any{"topic": "context-high", "data": map[string]any{
+				"level": "high", "pct": 85.0}},
+			want: "[ocagent] signal context-high: context usage high (level=high pct=85) — " +
+				"close out your in-flight state before the handover\n",
+		},
+		{
+			name: "a token-expiry frame with no reason composes a terse fallback",
+			frame: map[string]any{"topic": "token-expiry", "data": map[string]any{
+				"expires_in": 600.0}},
+			want: "[ocagent] signal token-expiry: agent token expires in 600s — " +
+				"checkpoint this turn, then call restart_self\n",
+		},
+		{
+			name: "a task-close frame with no reason composes a terse fallback",
+			frame: map[string]any{"topic": "task-close", "data": map[string]any{
+				"task_no": "T-be18", "type": "build", "status": "done"}},
+			want: "[ocagent] signal task-close: task T-be18 (type=build) closed (done) — " +
+				"fold this run's learnings into the current manual as an anchor-addressed " +
+				"patch (patch_task_learnings)\n",
+		},
+		{
+			name:  "a frame with no data object still prints rather than being dropped",
+			frame: map[string]any{"topic": "token-expiry"},
+			want: "[ocagent] signal token-expiry: agent token expires in s — " +
+				"checkpoint this turn, then call restart_self\n",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var out bytes.Buffer
+			handleDirectedBand(tc.frame, &out)
+			if out.String() != tc.want {
+				t.Errorf("printed %q, want %q", out.String(), tc.want)
+			}
+		})
+	}
+}
+
+func TestHandleTaskEvent(t *testing.T) {
+	frame := func(id string) map[string]any {
+		return map[string]any{"topic": "task", "seq": 5.0,
+			"data": map[string]any{"payload": map[string]any{"id": id}}}
+	}
+	cfg := Config{Base: "http://x", Token: "t", ID: "m-1"}
+
+	t.Run("the first sight this session states the position, not a diff", func(t *testing.T) {
+		client := newRoutedHTTP(map[string]string{
+			"/api/tasks/T1": `{"task_no":"T-be18","title":"fix the listener",` +
+				`"status":"in_progress","progress_done":2,"progress_total":5}`,
+		})
+		var out bytes.Buffer
+		snaps := map[string]taskSnap{}
+
+		handleTaskEvent(client, cfg, frame("T1"), snaps, "owner", &out)
+
+		want := "[ocagent] task T-be18「fix the listener」status=in_progress (2/5) · by owner\n"
+		if out.String() != want {
+			t.Errorf("printed %q, want %q", out.String(), want)
 		}
-		w.WriteHeader(404)
-	}))
-	t.Cleanup(srv.Close)
-	return srv, &hits
-}
-
-func taskFrame(id string) map[string]any {
-	return map[string]any{"topic": "task", "data": map[string]any{
-		"key":     "owner::" + id,
-		"payload": map[string]any{"id": id, "status": "in_progress", "priority": "normal"},
-	}}
-}
-
-func TestHandleTaskEvent_ReadableLineAndDiff(t *testing.T) {
-	cfg := Config{ID: "kyle", Token: "tok"}
-	snaps := map[string]taskSnap{}
-	var out bytes.Buffer
-
-	// First sight: state the current position (no diff base yet).
-	srv, _ := taskEventServer(t, 200, `{"id":"t-be18aabbccdd","task_no":"T-be18",
-		"title":"修 listener 事件行","status":"in_progress","progress_done":1,"progress_total":5}`)
-	cfg.Base = srv.URL
-	handleTaskEvent(srv.Client(), cfg, taskFrame("t-be18aabbccdd"), snaps, "owner", &out)
-	if got := out.String(); got != "[ocagent] task T-be18「修 listener 事件行」status=in_progress (1/5) · by owner\n" {
-		t.Fatalf("first-sight line = %q", got)
-	}
-
-	// Step progress: same status, done count moved → "step done".
-	out.Reset()
-	srv2, _ := taskEventServer(t, 200, `{"id":"t-be18aabbccdd","task_no":"T-be18",
-		"title":"修 listener 事件行","status":"in_progress","progress_done":2,"progress_total":5}`)
-	cfg.Base = srv2.URL
-	handleTaskEvent(srv2.Client(), cfg, taskFrame("t-be18aabbccdd"), snaps, "owner", &out)
-	if got := out.String(); got != "[ocagent] task T-be18「修 listener 事件行」step done (2/5) · by owner\n" {
-		t.Fatalf("step-done line = %q", got)
-	}
-
-	// Status flip: prints the transition.
-	out.Reset()
-	srv3, _ := taskEventServer(t, 200, `{"id":"t-be18aabbccdd","task_no":"T-be18",
-		"title":"修 listener 事件行","status":"done","progress_done":5,"progress_total":5}`)
-	cfg.Base = srv3.URL
-	handleTaskEvent(srv3.Client(), cfg, taskFrame("t-be18aabbccdd"), snaps, "server", &out)
-	if got := out.String(); got != "[ocagent] task T-be18「修 listener 事件行」status in_progress → done (5/5) · by server\n" {
-		t.Fatalf("status-flip line = %q", got)
-	}
-
-	// Nothing visible moved (plan/deps/notes) → terse "updated".
-	out.Reset()
-	handleTaskEvent(srv3.Client(), cfg, taskFrame("t-be18aabbccdd"), snaps, "owner", &out)
-	if got := out.String(); got != "[ocagent] task T-be18「修 listener 事件行」updated (5/5) · by owner\n" {
-		t.Fatalf("updated line = %q", got)
-	}
-}
-
-func TestHandleTaskEvent_LongTitleTruncated(t *testing.T) {
-	long := strings.Repeat("很長的標題", 30) // 150 runes
-	srv, _ := taskEventServer(t, 200, `{"id":"t-1","task_no":"T-0001","title":"`+long+`",
-		"status":"in_progress","progress_done":0,"progress_total":0}`)
-	cfg := Config{Base: srv.URL, ID: "kyle", Token: "tok"}
-	var out bytes.Buffer
-	handleTaskEvent(srv.Client(), cfg, taskFrame("t-1"), map[string]taskSnap{}, "owner", &out)
-	line := out.String()
-	if !strings.Contains(line, "…") || len([]rune(line)) > 110 {
-		t.Fatalf("long title must truncate to one short line, got %d runes: %q",
-			len([]rune(line)), line)
-	}
-	// A stepless task shows no (done/total) counter.
-	if strings.Contains(line, "(0/0)") {
-		t.Fatalf("stepless task must not print a 0/0 counter: %q", line)
-	}
-}
-
-func TestHandleTaskEvent_RefetchFailurePrintsHonestLine(t *testing.T) {
-	srv, _ := taskEventServer(t, 500, `boom`)
-	cfg := Config{Base: srv.URL, ID: "kyle", Token: "tok"}
-	var out bytes.Buffer
-	handleTaskEvent(srv.Client(), cfg, taskFrame("t-9"), map[string]taskSnap{}, "owner", &out)
-	if got := out.String(); got != "[ocagent] task t-9 changed but refetch failed (HTTP 500) — read it manually (get_task) · by owner\n" {
-		t.Fatalf("honest fault line = %q", got)
-	}
-}
-
-func TestHandleTaskEvent_JunkFrameFallsBackToGenericWake(t *testing.T) {
-	srv, hits := taskEventServer(t, 200, `{}`)
-	cfg := Config{Base: srv.URL, ID: "kyle", Token: "tok"}
-	var out bytes.Buffer
-	frame := map[string]any{"topic": "task", "seq": float64(3)} // no payload id
-	handleTaskEvent(srv.Client(), cfg, frame, map[string]taskSnap{}, "owner", &out)
-	if *hits != 0 {
-		t.Fatal("an id-less frame must not fire a refetch")
-	}
-	if got := out.String(); got != "[ocagent] wake seq=3 topic=task · by owner\n" {
-		t.Fatalf("fallback wake line = %q", got)
-	}
-}
-
-// A must-read chat body prints IN FULL — the whole point of T-4272 (ocagent
-// already refetched it, so a preview would only cost a second get_chat). This
-// body is ~1.2 KiB of CJK, far below the 64 KiB safety valve.
-func TestDrainChat_UndersizeBodyPrintedInFull(t *testing.T) {
-	full := strings.Repeat("囉嗦", 200) // 400 runes ≈ 1.2 KiB — well under the valve
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_, _ = w.Write([]byte(chatBody(`[{"id":"c-full","from":"boss","to":"kyle","body":"` + full + `"}]`)))
-	}))
-	defer srv.Close()
-	cfg := Config{Base: srv.URL, ID: "kyle", Token: "tok"}
-	var out bytes.Buffer
-	if n := drainChat(srv.Client(), cfg, &out, nil, nil); n != 1 {
-		t.Fatalf("drain = %d", n)
-	}
-	line := out.String()
-	if want := "[ocagent] chat from boss (#c-full): " + full + "\n"; line != want {
-		t.Fatalf("under-cap body must print verbatim:\n got %q\nwant %q", line, want)
-	}
-	// Positive control for the truncation assertions below: an under-cap body
-	// carries NO truncation marker.
-	if strings.Contains(line, "truncated") || strings.Contains(line, "…") {
-		t.Fatalf("under-cap body must not be truncated: %q", line)
-	}
-}
-
-// A multi-line chat body within the cap prints every line — continuation lines
-// indented so the block reads as ONE event, never several [ocagent] lines.
-func TestDrainChat_MultiLineBodyPrintedIndentedAsOneBlock(t *testing.T) {
-	// A body whose own text starts a line with the event prefix must NOT be able
-	// to pose as a separate event — the indent defends the block boundary.
-	body := `交接 SOP:\n1. 先接手 listen\n[ocagent] 這行看起來像事件但其實是內文`
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_, _ = w.Write([]byte(chatBody(`[{"id":"c-ml","from":"boss","to":"kyle","body":"` + body + `"}]`)))
-	}))
-	defer srv.Close()
-	cfg := Config{Base: srv.URL, ID: "kyle", Token: "tok"}
-	var out bytes.Buffer
-	drainChat(srv.Client(), cfg, &out, nil, nil)
-	want := "[ocagent] chat from boss (#c-ml): 交接 SOP:\n" +
-		"    1. 先接手 listen\n" +
-		"    [ocagent] 這行看起來像事件但其實是內文\n"
-	if got := out.String(); got != want {
-		t.Fatalf("multi-line body block:\n got %q\nwant %q", got, want)
-	}
-	// No continuation line begins at column 0 with the event prefix (block
-	// integrity: exactly ONE line is a real [ocagent] event).
-	events := 0
-	for _, ln := range strings.Split(strings.TrimSuffix(out.String(), "\n"), "\n") {
-		if strings.HasPrefix(ln, "[ocagent] ") {
-			events++
+		wantSnap := taskSnap{status: "in_progress", done: 2, total: 5}
+		if snaps["T1"] != wantSnap {
+			t.Errorf("snapshot = %+v, want %+v", snaps["T1"], wantSnap)
 		}
+	})
+
+	t.Run("a status flip reads as an arrow between the two", func(t *testing.T) {
+		client := newRoutedHTTP(map[string]string{
+			"/api/tasks/T1": `{"task_no":"T-be18","title":"fix the listener",` +
+				`"status":"done","progress_done":5,"progress_total":5}`,
+		})
+		var out bytes.Buffer
+		snaps := map[string]taskSnap{"T1": {status: "in_progress", done: 2, total: 5}}
+
+		handleTaskEvent(client, cfg, frame("T1"), snaps, "", &out)
+
+		want := "[ocagent] task T-be18「fix the listener」status in_progress → done (5/5)\n"
+		if out.String() != want {
+			t.Errorf("printed %q, want %q", out.String(), want)
+		}
+	})
+
+	t.Run("step progress alone reads as step done", func(t *testing.T) {
+		client := newRoutedHTTP(map[string]string{
+			"/api/tasks/T1": `{"task_no":"T-be18","title":"fix the listener",` +
+				`"status":"in_progress","progress_done":3,"progress_total":5}`,
+		})
+		var out bytes.Buffer
+		snaps := map[string]taskSnap{"T1": {status: "in_progress", done: 2, total: 5}}
+
+		handleTaskEvent(client, cfg, frame("T1"), snaps, "owner", &out)
+
+		want := "[ocagent] task T-be18「fix the listener」step done (3/5) · by owner\n"
+		if out.String() != want {
+			t.Errorf("printed %q, want %q", out.String(), want)
+		}
+	})
+
+	t.Run("anything else that moved reads as updated", func(t *testing.T) {
+		client := newRoutedHTTP(map[string]string{
+			"/api/tasks/T1": `{"task_no":"T-be18","title":"","status":"in_progress"}`,
+		})
+		var out bytes.Buffer
+		snaps := map[string]taskSnap{"T1": {status: "in_progress"}}
+
+		handleTaskEvent(client, cfg, frame("T1"), snaps, "", &out)
+
+		want := "[ocagent] task T-be18 updated\n"
+		if out.String() != want {
+			t.Errorf("printed %q, want %q — with no title there is a space before what moved",
+				out.String(), want)
+		}
+	})
+
+	t.Run("a refetch fault says the task DID change rather than going silent", func(t *testing.T) {
+		client := newRoutedHTTP(nil)
+		var out bytes.Buffer
+
+		handleTaskEvent(client, cfg, frame("T9"), map[string]taskSnap{}, "owner", &out)
+
+		want := "[ocagent] task T9 changed but refetch failed (HTTP 404) — " +
+			"read it manually (get_task) · by owner\n"
+		if out.String() != want {
+			t.Errorf("printed %q, want %q", out.String(), want)
+		}
+	})
+
+	t.Run("a frame with no id degrades to the generic wake and asks nothing", func(t *testing.T) {
+		client := newRoutedHTTP(nil)
+		var out bytes.Buffer
+
+		handleTaskEvent(client, cfg, map[string]any{"topic": "task", "seq": 5.0},
+			map[string]taskSnap{}, "owner", &out)
+
+		want := "[ocagent] wake seq=5 topic=task · by owner\n"
+		if out.String() != want {
+			t.Errorf("printed %q, want %q", out.String(), want)
+		}
+		if client.asked != nil {
+			t.Errorf("asked %v, want nothing — a junk hint routes no refetch", client.asked)
+		}
+	})
+}
+
+func TestIntField(t *testing.T) {
+	cases := []struct {
+		name string
+		in   any
+		want int
+	}{
+		{"a JSON number", 5.0, 5},
+		{"a fraction truncates toward zero", 5.9, 5},
+		{"a string", "5", 0},
+		{"nil", nil, 0},
 	}
-	if events != 1 {
-		t.Fatalf("multi-line body split into %d apparent events, want 1", events)
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := intField(tc.in); got != tc.want {
+				t.Errorf("intField(%v) = %d, want %d", tc.in, got, tc.want)
+			}
+		})
 	}
 }
 
-// A long-but-realistic must-read chat body (the 5,000-char case the owner named
-// as must-print) prints IN FULL — it sits under the safety valve, and
-// truncating a message the agent will read anyway is pure loss (T-4272 判準).
-func TestDrainChat_LongMustReadBodyPrintedInFull(t *testing.T) {
-	long := strings.Repeat("交", 5000) // 5000 runes ≈ 15 KiB — under the 64 KiB valve
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_, _ = w.Write([]byte(chatBody(`[{"id":"c-5k","from":"boss","to":"kyle","body":"` + long + `"}]`)))
-	}))
-	defer srv.Close()
-	cfg := Config{Base: srv.URL, ID: "kyle", Token: "tok"}
-	var out bytes.Buffer
-	drainChat(srv.Client(), cfg, &out, nil, nil)
-	if want := "[ocagent] chat from boss (#c-5k): " + long + "\n"; out.String() != want {
-		t.Fatalf("5k-char must-read body must print verbatim (len got %d want %d)",
-			len(out.String()), len(want))
+func TestFetchChat(t *testing.T) {
+	cfg := Config{Base: "http://x", Token: "t", ID: "kyle"}
+	const page1 = "/api/chat?recipient=kyle&unread=true&limit=50"
+
+	t.Run("a single page ends the walk when the server issues no cursor", func(t *testing.T) {
+		client := newRoutedHTTP(map[string]string{
+			page1: `{"messages":[{"id":"a1"},{"id":"a2"}]}`,
+		})
+
+		got := fetchChat(client, cfg, "kyle")
+
+		wantRows := []map[string]any{{"id": "a1"}, {"id": "a2"}}
+		if !reflect.DeepEqual(got.rows, wantRows) {
+			t.Errorf("rows = %v, want %v", got.rows, wantRows)
+		}
+		if got.stop != "" {
+			t.Errorf("stop = %q, want empty — the server said this is the end", got.stop)
+		}
+		if !reflect.DeepEqual(client.asked, []string{page1}) {
+			t.Errorf("asked %v, want just the first page", client.asked)
+		}
+	})
+
+	t.Run("the walk follows next_cursor oldest first across pages", func(t *testing.T) {
+		client := newRoutedHTTP(map[string]string{
+			page1:                `{"messages":[{"id":"a1"}],"next_cursor":"c2"}`,
+			page1 + "&cursor=c2": `{"messages":[{"id":"a2"}],"next_cursor":"c3"}`,
+			page1 + "&cursor=c3": `{"messages":[{"id":"a3"}]}`,
+		})
+
+		got := fetchChat(client, cfg, "kyle")
+
+		wantRows := []map[string]any{{"id": "a1"}, {"id": "a2"}, {"id": "a3"}}
+		if !reflect.DeepEqual(got.rows, wantRows) {
+			t.Errorf("rows = %v, want %v", got.rows, wantRows)
+		}
+		if got.stop != "" {
+			t.Errorf("stop = %q, want empty", got.stop)
+		}
+		wantAsked := []string{page1, page1 + "&cursor=c2", page1 + "&cursor=c3"}
+		if !reflect.DeepEqual(client.asked, wantAsked) {
+			t.Errorf("asked %v, want %v", client.asked, wantAsked)
+		}
+	})
+
+	t.Run("a first-page fault answers nil rows so it is not read as an empty inbox", func(t *testing.T) {
+		client := newRoutedHTTP(nil)
+		client.status[page1] = 500
+
+		got := fetchChat(client, cfg, "kyle")
+
+		if got.rows != nil {
+			t.Errorf("rows = %v, want nil — \"zero messages\" and \"I could not look\" must "+
+				"not be the same answer", got.rows)
+		}
+		want := "[ocagent] chat: 補印一頁都沒撈到（HTTP 500）—— 這不是「沒有新訊息」，" +
+			"是這次沒問到。未讀原封不動，下一次補印會再試；等不及就用 get_chat 自己撈。\n"
+		if got.stop != want {
+			t.Errorf("stop = %q, want %q", got.stop, want)
+		}
+	})
+
+	t.Run("a later-page fault keeps what is already in hand and says so", func(t *testing.T) {
+		client := newRoutedHTTP(map[string]string{
+			page1: `{"messages":[{"id":"a1"}],"next_cursor":"c2"}`,
+		})
+		client.status[page1+"&cursor=c2"] = 503
+
+		got := fetchChat(client, cfg, "kyle")
+
+		wantRows := []map[string]any{{"id": "a1"}}
+		if !reflect.DeepEqual(got.rows, wantRows) {
+			t.Errorf("rows = %v, want %v", got.rows, wantRows)
+		}
+		want := "[ocagent] chat: 補印在第 2 頁斷掉了（已經撈到 1 則）—— 未讀沒撈完，" +
+			"剩下的下一次補印會再試；等不及就用 get_chat 自己回頭撈。\n"
+		if got.stop != want {
+			t.Errorf("stop = %q, want %q", got.stop, want)
+		}
+	})
+
+	t.Run("a cursor that does not advance stops the walk", func(t *testing.T) {
+		client := newRoutedHTTP(map[string]string{
+			page1:                `{"messages":[{"id":"a1"}],"next_cursor":"c2"}`,
+			page1 + "&cursor=c2": `{"messages":[{"id":"a2"}],"next_cursor":"c2"}`,
+		})
+
+		got := fetchChat(client, cfg, "kyle")
+
+		if len(got.rows) != 2 {
+			t.Errorf("rows = %v, want the two pages it did read", got.rows)
+		}
+		want := "[ocagent] chat: 補印停在第 2 頁（已經撈到 2 則）—— server 的 next_cursor 沒有前進，" +
+			"同一個游標又發了一次。未讀沒撈完，請用 get_chat 自己回頭撈。\n"
+		if got.stop != want {
+			t.Errorf("stop = %q, want %q", got.stop, want)
+		}
+	})
+
+	t.Run("a server that never stops is bounded at ten pages", func(t *testing.T) {
+		routes := map[string]string{page1: `{"messages":[{"id":"a"}],"next_cursor":"c1"}`}
+		for i := 1; i <= 12; i++ {
+			routes[page1+"&cursor=c"+strconv.Itoa(i)] =
+				`{"messages":[{"id":"a"}],"next_cursor":"c` + strconv.Itoa(i+1) + `"}`
+		}
+		client := newRoutedHTTP(routes)
+
+		got := fetchChat(client, cfg, "kyle")
+
+		if len(got.rows) != 10 {
+			t.Errorf("rows = %d, want 10 — the walk refuses more than ten pages", len(got.rows))
+		}
+		want := "[ocagent] chat: 補印撈到第 10 頁就停了（已經撈到 10 則），server 還在給 next_cursor —— " +
+			"這是分頁上限，不是你的信箱真有這麼多。未讀沒撈完，請用 get_chat 自己回頭撈。\n"
+		if got.stop != want {
+			t.Errorf("stop = %q, want %q", got.stop, want)
+		}
+		if len(client.asked) != 10 {
+			t.Errorf("asked %d pages, want 10 — the walk bounds a runaway server's request cost",
+				len(client.asked))
+		}
+	})
+}
+
+func TestFmtAgo(t *testing.T) {
+	cases := []struct {
+		secs float64
+		want string
+	}{
+		{-5, "0s"},
+		{0, "0s"},
+		{10.9, "10s"},
+		{59, "59s"},
+		{60, "1m"},
+		{3599, "59m"},
+		{3600, "1h"},
+		{86399, "23h"},
+		{86400, "1d"},
+		{259200, "3d"},
 	}
-	if strings.Contains(out.String(), "safety valve") {
-		t.Fatal("a 15 KiB message must NOT hit the 64 KiB valve")
+	for _, tc := range cases {
+		t.Run(tc.want, func(t *testing.T) {
+			if got := fmtAgo(tc.secs); got != tc.want {
+				t.Errorf("fmtAgo(%v) = %q, want %q", tc.secs, got, tc.want)
+			}
+		})
 	}
 }
 
-// Only a PATHOLOGICAL body (past the 64 KiB safety valve) is cut, on a rune
-// boundary, with a pointer to the full-text authority (get_chat).
-func TestDrainChat_PathologicalBodyTrippedBySafetyValve(t *testing.T) {
-	huge := strings.Repeat("囉嗦", 20000) // 40000 runes ≈ 120 KiB — over the 64 KiB valve
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_, _ = w.Write([]byte(chatBody(`[{"id":"c-huge","from":"boss","to":"kyle","body":"` + huge + `"}]`)))
-	}))
-	defer srv.Close()
-	cfg := Config{Base: srv.URL, ID: "kyle", Token: "tok"}
-	var out bytes.Buffer
-	drainChat(srv.Client(), cfg, &out, nil, nil)
-	line := out.String()
-	if !strings.Contains(line, "safety valve") || !strings.Contains(line, "get_chat") {
-		t.Fatalf("valve trip must point at get_chat: %q", line[:min(len(line), 200)])
+func TestAttachmentSummary(t *testing.T) {
+	atts := func(kinds ...bool) map[string]any {
+		refs := make([]any, 0, len(kinds))
+		for _, isImage := range kinds {
+			refs = append(refs, map[string]any{"is_image": isImage})
+		}
+		return map[string]any{"attachments": refs}
 	}
-	if strings.Contains(line, huge) {
-		t.Fatal("a valve-tripped body must not print the full text")
+	cases := []struct {
+		name string
+		m    map[string]any
+		want string
+	}{
+		{"two images", atts(true, true), "📎2圖"},
+		{"one file", atts(false), "📎1檔"},
+		{"a mix reads images then files", atts(true, false, false), "📎1圖 2檔"},
+		{"an empty attachments array carries no badge", map[string]any{"attachments": []any{}}, ""},
+		{"no attachments field carries no badge", map[string]any{"body": "hi"}, ""},
+		{"a non-array attachments field carries no badge", map[string]any{"attachments": "att-1"}, ""},
+		{"non-map entries are skipped", map[string]any{"attachments": []any{"att-1", map[string]any{"is_image": true}}}, "📎1圖"},
 	}
-	if !strings.HasPrefix(line, "[ocagent] chat from boss (#c-huge): 囉嗦") {
-		t.Fatal("a valve-tripped body must still print the head")
-	}
-	if len(line) > messageBodyValve+256 { // head (≤valve) + prefix + hint
-		t.Fatalf("valve-tripped line too long: %d bytes", len(line))
-	}
-	if !utf8.ValidString(line) {
-		t.Fatal("rune-boundary cut must not split a multi-byte char")
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := attachmentSummary(tc.m); got != tc.want {
+				t.Errorf("attachmentSummary = %q, want %q", got, tc.want)
+			}
+		})
 	}
 }
 
-// ── T-5b83: the connection line names the build the station handed it ───────
+func TestNewAckGate(t *testing.T) {
+	cases := []struct {
+		name    string
+		env     map[string]string
+		answers io.Reader
+		wantNil bool
+	}{
+		{"the parent asked for acks", map[string]string{listenAckEnv: "1"}, strings.NewReader(""), false},
+		{"the claude path asks for nothing", nil, strings.NewReader(""), true},
+		{"a value other than 1 is not an ask", map[string]string{listenAckEnv: "true"}, strings.NewReader(""), true},
+		{"no stdin to answer on", map[string]string{listenAckEnv: "1"}, nil, true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := newAckGate(testEnv(tc.env), tc.answers)
+			if (got == nil) != tc.wantNil {
+				t.Errorf("newAckGate = %v, want nil == %v", got, tc.wantNil)
+			}
+		})
+	}
 
-// wireStationSHAHeader is the header name spelled OUT on the wire, on purpose:
-// a fixture built from the stationSHAHeader constant would follow a client-side
-// typo and stay green. bin/tests/station-sha-header-guard.sh pins this against
-// the station's own spelling in the other module.
-const wireStationSHAHeader = "X-Officraft-Station-Sha"
+	t.Run("a nil env is the claude path", func(t *testing.T) {
+		if got := newAckGate(nil, strings.NewReader("")); got != nil {
+			t.Errorf("newAckGate = %v, want nil", got)
+		}
+	})
+}
 
-// stationHandler serves the two faces of ONE station: the SSE downlink, which
-// stamps its build sha onto the response headers, and /api/version, which
-// reports the same build as git_sha. sendHeader=false is a station that sent
-// nothing (an old build, or a proxy that stripped it); sendHeader=true with an
-// empty sha is the pathological "sent, but empty" — Header.Get cannot tell the
-// two apart, which is exactly why both are exercised.
-func stationHandler(sha string, sendHeader bool) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		if strings.HasPrefix(r.URL.Path, "/api/version") {
-			_, _ = w.Write([]byte(`{"git_sha":"` + sha + `"}`))
-			return
+func TestConfirm(t *testing.T) {
+	newGate := func(t *testing.T, answers string) *ackGate {
+		t.Helper()
+		g := newAckGate(testEnv(map[string]string{listenAckEnv: "1"}), strings.NewReader(answers))
+		if g == nil {
+			t.Fatal("newAckGate = nil with OC_LISTEN_ACK=1")
 		}
-		if !strings.HasPrefix(r.URL.Path, eventsPath) {
-			_, _ = w.Write([]byte("[]"))
-			return
+		return g
+	}
+
+	t.Run("the claude path has no gate object and always says delivered", func(t *testing.T) {
+		var out bytes.Buffer
+		var g *ackGate
+		if !g.confirm(&out) {
+			t.Error("confirm = false on the claude path, want true")
 		}
-		if sendHeader {
-			w.Header().Set(wireStationSHAHeader, sha)
+		if out.String() != "" {
+			t.Errorf("printed %q, want nothing — there is no marker on the claude path", out.String())
 		}
-		w.WriteHeader(http.StatusOK)
-		if fl, ok := w.(http.Flusher); ok {
-			fl.Flush()
+	})
+
+	t.Run("an ack on the open token confirms delivery", func(t *testing.T) {
+		var out bytes.Buffer
+		if !newGate(t, "ack 1\n").confirm(&out) {
+			t.Error("confirm = false after `ack 1`, want true")
 		}
-		_, _ = w.Write([]byte(": connected\n\n"))
+		if out.String() != "[ocagent] listen: batch 1\n" {
+			t.Errorf("printed %q, want %q", out.String(), "[ocagent] listen: batch 1\n")
+		}
+	})
+
+	t.Run("a nack on the open token refuses delivery", func(t *testing.T) {
+		var out bytes.Buffer
+		if newGate(t, "nack 1\n").confirm(&out) {
+			t.Error("confirm = true after `nack 1`, want false")
+		}
+		if out.String() != "[ocagent] listen: batch 1\n" {
+			t.Errorf("printed %q, want %q", out.String(), "[ocagent] listen: batch 1\n")
+		}
+	})
+
+	t.Run("an answer to a closed batch is passed over", func(t *testing.T) {
+		var out bytes.Buffer
+		if !newGate(t, "ack 7\nnack 99\nack 1\n").confirm(&out) {
+			t.Error("confirm = false, want true — only the answer on the open token counts")
+		}
+	})
+
+	t.Run("the token advances with each batch", func(t *testing.T) {
+		var out bytes.Buffer
+		g := newGate(t, "ack 1\nack 2\n")
+		if !g.confirm(&out) || !g.confirm(&out) {
+			t.Error("confirm = false, want two confirmed batches")
+		}
+		want := "[ocagent] listen: batch 1\n[ocagent] listen: batch 2\n"
+		if out.String() != want {
+			t.Errorf("printed %q, want %q", out.String(), want)
+		}
+	})
+
+	t.Run("a closed stdin means nobody can say it was delivered", func(t *testing.T) {
+		var out bytes.Buffer
+		if newGate(t, "").confirm(&out) {
+			t.Error("confirm = true with a closed stdin, want false")
+		}
+	})
+
+	t.Run("a batch nobody answers times out loudly and counts as undelivered", func(t *testing.T) {
+		pr, pw := io.Pipe()
+		t.Cleanup(func() { _ = pw.Close() })
+		g := newAckGate(testEnv(map[string]string{listenAckEnv: "1"}), pr)
+		g.wait = 20 * time.Millisecond
+		var out bytes.Buffer
+
+		if g.confirm(&out) {
+			t.Error("confirm = true after the deadline, want false")
+		}
+		want := "[ocagent] listen: batch 1\n" +
+			"[ocagent] 等不到「已送達」的回覆（batch 1，等了 20ms）—— " +
+			"這一批訊息**沒有**被算成你看過了，下一次補印會再送一次。" +
+			"如果這行一直出現，收訊這條路的另一端有問題。\n"
+		if out.String() != want {
+			t.Errorf("printed %q, want %q", out.String(), want)
+		}
+	})
+}
+
+func TestNoteChatFetchFault(t *testing.T) {
+	const line = "[ocagent] chat: 補印一頁都沒撈到（HTTP 500）\n"
+
+	t.Run("the fault is announced once per episode", func(t *testing.T) {
+		var out bytes.Buffer
+		warn := &drainWarner{}
+		noteChatFetchFault(warn, &out, line)
+		noteChatFetchFault(warn, &out, line)
+
+		if out.String() != line {
+			t.Errorf("printed %q, want the line exactly once (%q)", out.String(), line)
+		}
+		if !warn.chatFaultOpen {
+			t.Error("chatFaultOpen = false, want the episode left open")
+		}
+	})
+
+	t.Run("a nil warner fails loud rather than swallowing the only signal", func(t *testing.T) {
+		var out bytes.Buffer
+		noteChatFetchFault(nil, &out, line)
+		noteChatFetchFault(nil, &out, line)
+
+		if out.String() != line+line {
+			t.Errorf("printed %q, want the line both times", out.String())
+		}
+	})
+
+	t.Run("an empty line opens no episode", func(t *testing.T) {
+		var out bytes.Buffer
+		warn := &drainWarner{}
+		noteChatFetchFault(warn, &out, "")
+
+		if out.String() != "" {
+			t.Errorf("printed %q, want nothing", out.String())
+		}
+		if warn.chatFaultOpen {
+			t.Error("chatFaultOpen = true with nothing said, want false")
+		}
+	})
+}
+
+func TestClearChatFetchFault(t *testing.T) {
+	t.Run("closing an open episode says so", func(t *testing.T) {
+		var out bytes.Buffer
+		warn := &drainWarner{chatFaultOpen: true}
+		clearChatFetchFault(warn, &out)
+
+		want := "[ocagent] chat: 補印又問得到了 —— 上面那次「一頁都沒撈到」到此為止。" +
+			"接下來印出來的就是這次真的撈到的東西；沒有東西就是真的沒有新訊息。\n"
+		if out.String() != want {
+			t.Errorf("printed %q, want %q", out.String(), want)
+		}
+		if warn.chatFaultOpen {
+			t.Error("chatFaultOpen = true after the recovery line, want false")
+		}
+	})
+
+	t.Run("no open episode says nothing", func(t *testing.T) {
+		var out bytes.Buffer
+		clearChatFetchFault(&drainWarner{}, &out)
+		if out.String() != "" {
+			t.Errorf("printed %q, want nothing", out.String())
+		}
+	})
+
+	t.Run("a nil warner suppressed nothing so it announces nothing", func(t *testing.T) {
+		var out bytes.Buffer
+		clearChatFetchFault(nil, &out)
+		if out.String() != "" {
+			t.Errorf("printed %q, want nothing", out.String())
+		}
+	})
+}
+
+func TestWarnMarkReadFailed(t *testing.T) {
+	const want = "[ocagent] mark-read 沒送成功（peer=alice，HTTP 503）— 訊息已經印出來了，" +
+		"但是回條沒送成功，server 那邊就還算未讀：這一批下一次補印會再印一次，" +
+		"而且會一直重印到回條送成功為止，在那之前對方的已讀勾也不會亮。" +
+		"這個行程只會講這一次 —— 之後再看到同一批訊息重複出現，原因就是這一行。\n"
+
+	t.Run("the loss is said once per process, whatever peer flaps next", func(t *testing.T) {
+		var out bytes.Buffer
+		warn := &drainWarner{}
+		warnMarkReadFailed(warn, &out, "alice", 503)
+		warnMarkReadFailed(warn, &out, "bob", 500)
+
+		if out.String() != want {
+			t.Errorf("printed %q, want %q", out.String(), want)
+		}
+	})
+
+	t.Run("a nil warner fails loud", func(t *testing.T) {
+		var out bytes.Buffer
+		warnMarkReadFailed(nil, &out, "alice", 503)
+		warnMarkReadFailed(nil, &out, "alice", 503)
+
+		if out.String() != want+want {
+			t.Errorf("printed %q, want the line both times", out.String())
+		}
+	})
+}
+
+func TestPrintChatLine(t *testing.T) {
+	cases := []struct {
+		name string
+		m    map[string]any
+		want string
+	}{
+		{
+			name: "every tag slot filled",
+			m: map[string]any{"from": "boss", "id": "c-reply", "reply_to": "c-target",
+				"ts": 1000.0, "body": "這個再確認一下"},
+			want: "[ocagent] chat from boss (#c-reply, ↩#c-target, 2m ago): 這個再確認一下\n",
+		},
+		{
+			name: "a blank reply_to drops just that slot",
+			m:    map[string]any{"from": "boss", "id": "c-1", "reply_to": "  ", "ts": 1000.0, "body": "hi"},
+			want: "[ocagent] chat from boss (#c-1, 2m ago): hi\n",
+		},
+		{
+			name: "no id, no reply_to and no ts prints without the parenthesised tag",
+			m:    map[string]any{"from": "boss", "body": "hi"},
+			want: "[ocagent] chat from boss: hi\n",
+		},
+		{
+			name: "an attachment badge trails the body",
+			m: map[string]any{"from": "boss", "id": "c-1", "body": "看一下",
+				"attachments": []any{map[string]any{"is_image": true}, map[string]any{}}},
+			want: "[ocagent] chat from boss (#c-1): 看一下 📎1圖 1檔\n",
+		},
+		{
+			name: "an attachment-only message is the badge itself",
+			m: map[string]any{"from": "boss", "id": "c-1", "body": "",
+				"attachments": []any{map[string]any{"is_image": true}}},
+			want: "[ocagent] chat from boss (#c-1): 📎1圖\n",
+		},
+		{
+			name: "a multi-line body stays one event block",
+			m:    map[string]any{"from": "boss", "id": "c-1", "body": "one\ntwo"},
+			want: "[ocagent] chat from boss (#c-1): one\n    two\n",
+		},
+		{
+			name: "a non-positive ts carries no age",
+			m:    map[string]any{"from": "boss", "id": "c-1", "ts": 0.0, "body": "hi"},
+			want: "[ocagent] chat from boss (#c-1): hi\n",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var out bytes.Buffer
+			printChatLine(&out, tc.m, 1120)
+			if out.String() != tc.want {
+				t.Errorf("printed %q, want %q", out.String(), tc.want)
+			}
+		})
 	}
 }
 
-// stationGitSHA asks the station what build it is running, so the expectation
-// is paired against the station's own answer instead of a literal copied into
-// the assertion.
-func stationGitSHA(t *testing.T, srv *httptest.Server) string {
-	t.Helper()
-	resp, err := srv.Client().Get(srv.URL + "/api/version")
-	if err != nil {
-		t.Fatalf("GET /api/version: %v", err)
+func TestHandleReplyCard(t *testing.T) {
+	cfg := Config{Base: "http://x", Token: "t", ID: "m-1", Home: "/unused"}
+	frame := func(id, from string) map[string]any {
+		return map[string]any{"topic": "reply_card",
+			"data": map[string]any{"payload": map[string]any{"id": id, "from": from}}}
 	}
-	defer resp.Body.Close()
-	var v struct {
-		GitSHA string `json:"git_sha"`
+	newSeen := func(t *testing.T) *replyCardSeen {
+		t.Helper()
+		return loadReplyCardSeen(filepath.Join(t.TempDir(), "replycards-seen"))
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&v); err != nil {
-		t.Fatalf("decode /api/version: %v", err)
-	}
-	return v.GitSHA
+
+	t.Run("an answered card of mine prints the answer and is recorded", func(t *testing.T) {
+		client := newRoutedHTTP(map[string]string{
+			"/api/reply-cards/rc-1": `{"id":"rc-1","from":"m-1","status":"answered",` +
+				`"answered_ts":1700,"summary":"要不要改 schema?",` +
+				`"options":[{"text":"改"},{"text":"不改"}],"answer":{"option_idxs":[0]}}`,
+		})
+		var out bytes.Buffer
+		seen := newSeen(t)
+
+		handleReplyCard(client, cfg, frame("rc-1", "m-1"), seen, "owner", &out)
+
+		want := "[ocagent] reply-card rc-1 answered: picked [0] \"改\" | asked: 要不要改 schema? · by owner\n"
+		if out.String() != want {
+			t.Errorf("printed %q, want %q", out.String(), want)
+		}
+		if !seen.has("rc-1", 1700) {
+			t.Error("the answer was printed but not recorded — the next drain would repeat it")
+		}
+	})
+
+	t.Run("the same answer never prints twice", func(t *testing.T) {
+		client := newRoutedHTTP(map[string]string{
+			"/api/reply-cards/rc-1": `{"id":"rc-1","from":"m-1","status":"answered",` +
+				`"answered_ts":1700,"summary":"要不要改 schema?","answer":{"text":"改"}}`,
+		})
+		var out bytes.Buffer
+		seen := newSeen(t)
+
+		handleReplyCard(client, cfg, frame("rc-1", "m-1"), seen, "owner", &out)
+		first := out.String()
+		handleReplyCard(client, cfg, frame("rc-1", "m-1"), seen, "owner", &out)
+
+		if out.String() != first {
+			t.Errorf("printed %q, want the answer exactly once (%q)", out.String(), first)
+		}
+	})
+
+	t.Run("an expired card prints the self-carrying guidance", func(t *testing.T) {
+		client := newRoutedHTTP(map[string]string{
+			"/api/reply-cards/rc-2": `{"id":"rc-2","from":"m-1","status":"expired",` +
+				`"expired_ts":1800,"summary":"要不要改 schema?"}`,
+		})
+		var out bytes.Buffer
+
+		handleReplyCard(client, cfg, frame("rc-2", "m-1"), newSeen(t), "owner", &out)
+
+		want := "[ocagent] reply-card rc-2 EXPIRED (no answer) | asked: 要不要改 schema? — " +
+			"settled without an answer: if the question still matters, open a FRESH card " +
+			"with current context; if not, proceed / close out. Any held step/task was " +
+			"already restored to in_progress · by owner\n"
+		if out.String() != want {
+			t.Errorf("printed %q, want %q", out.String(), want)
+		}
+	})
+
+	t.Run("another member's card costs no refetch and no line", func(t *testing.T) {
+		client := newRoutedHTTP(nil)
+		var out bytes.Buffer
+
+		handleReplyCard(client, cfg, frame("rc-3", "m-2"), newSeen(t), "owner", &out)
+
+		if out.String() != "" {
+			t.Errorf("printed %q, want nothing", out.String())
+		}
+		if client.asked != nil {
+			t.Errorf("asked %v, want nothing — the payload's `from` pre-filters the fan-out",
+				client.asked)
+		}
+	})
+
+	t.Run("the authority overrules a payload that claims the card is mine", func(t *testing.T) {
+		client := newRoutedHTTP(map[string]string{
+			"/api/reply-cards/rc-4": `{"id":"rc-4","from":"m-2","status":"answered",` +
+				`"answered_ts":1700,"answer":{"text":"改"}}`,
+		})
+		var out bytes.Buffer
+
+		handleReplyCard(client, cfg, frame("rc-4", "m-1"), newSeen(t), "owner", &out)
+
+		if out.String() != "" {
+			t.Errorf("printed %q, want nothing — a stale payload costs one wasted GET, "+
+				"never a wrong line", out.String())
+		}
+	})
+
+	t.Run("a card still open is my own create echo", func(t *testing.T) {
+		client := newRoutedHTTP(map[string]string{
+			"/api/reply-cards/rc-5": `{"id":"rc-5","from":"m-1","status":"open"}`,
+		})
+		var out bytes.Buffer
+
+		handleReplyCard(client, cfg, frame("rc-5", "m-1"), newSeen(t), "", &out)
+
+		if out.String() != "" {
+			t.Errorf("printed %q, want nothing to wake on yet", out.String())
+		}
+	})
+
+	t.Run("a refetch fault says the card DID change", func(t *testing.T) {
+		client := newRoutedHTTP(nil)
+		var out bytes.Buffer
+
+		handleReplyCard(client, cfg, frame("rc-6", "m-1"), newSeen(t), "owner", &out)
+
+		want := "[ocagent] reply-card rc-6 changed but refetch failed (HTTP 404) — " +
+			"read it manually (get_reply_card).\n"
+		if out.String() != want {
+			t.Errorf("printed %q, want %q", out.String(), want)
+		}
+	})
+
+	t.Run("a frame with no id routes nothing", func(t *testing.T) {
+		client := newRoutedHTTP(nil)
+		var out bytes.Buffer
+
+		handleReplyCard(client, cfg, map[string]any{"topic": "reply_card"}, newSeen(t), "", &out)
+		handleReplyCard(client, cfg, frame("  ", "m-1"), newSeen(t), "", &out)
+
+		if out.String() != "" || client.asked != nil {
+			t.Errorf("printed %q and asked %v, want neither", out.String(), client.asked)
+		}
+	})
 }
 
-// rawStationSHAHeader reports the header EXACTLY as it arrives on the wire —
-// nil when the station sent none, [""] when it sent an empty one. Header.Get
-// collapses both to "", so this is the only way a test can prove the two
-// fixtures below actually differ.
-func rawStationSHAHeader(t *testing.T, srv *httptest.Server) []string {
-	t.Helper()
-	resp, err := srv.Client().Get(srv.URL + eventsPath)
-	if err != nil {
-		t.Fatalf("GET %s: %v", eventsPath, err)
-	}
-	defer resp.Body.Close()
-	_, _ = io.Copy(io.Discard, resp.Body)
-	return resp.Header[http.CanonicalHeaderKey(wireStationSHAHeader)]
+func TestPrintReplyCardAnswered(t *testing.T) {
+	card := map[string]any{"summary": "要不要改 schema?", "answer": map[string]any{"text": "改"}}
+
+	t.Run("the live path carries who answered", func(t *testing.T) {
+		var out bytes.Buffer
+		printReplyCardAnswered(&out, "rc-1", card, "owner")
+		want := "[ocagent] reply-card rc-1 answered: \"改\" | asked: 要不要改 schema? · by owner\n"
+		if out.String() != want {
+			t.Errorf("printed %q, want %q", out.String(), want)
+		}
+	})
+
+	t.Run("the drain path has no frame and adds no suffix", func(t *testing.T) {
+		var out bytes.Buffer
+		printReplyCardAnswered(&out, "rc-1", card, "")
+		want := "[ocagent] reply-card rc-1 answered: \"改\" | asked: 要不要改 schema?\n"
+		if out.String() != want {
+			t.Errorf("printed %q, want %q", out.String(), want)
+		}
+	})
 }
 
-// connectedLine returns the single connection line out of a transcript.
-func connectedLine(t *testing.T, transcript string) string {
-	t.Helper()
-	var found []string
-	for _, line := range strings.Split(transcript, "\n") {
-		if strings.Contains(line, "listen: connected") {
-			found = append(found, line)
+func TestPrintReplyCardExpired(t *testing.T) {
+	t.Run("the body never names a presser", func(t *testing.T) {
+		var out bytes.Buffer
+		printReplyCardExpired(&out, "rc-2", map[string]any{"summary": "要不要改 schema?"}, "m-1")
+		want := "[ocagent] reply-card rc-2 EXPIRED (no answer) | asked: 要不要改 schema? — " +
+			"settled without an answer: if the question still matters, open a FRESH card " +
+			"with current context; if not, proceed / close out. Any held step/task was " +
+			"already restored to in_progress · by m-1\n"
+		if out.String() != want {
+			t.Errorf("printed %q, want %q", out.String(), want)
 		}
-	}
-	if len(found) != 1 {
-		t.Fatalf("want exactly one connection line, got %d:\n%s", len(found), transcript)
-	}
-	return found[0]
+	})
+
+	t.Run("the drain path adds no attribution suffix", func(t *testing.T) {
+		var out bytes.Buffer
+		printReplyCardExpired(&out, "rc-2", map[string]any{"summary": "q"}, "")
+		want := "[ocagent] reply-card rc-2 EXPIRED (no answer) | asked: q — " +
+			"settled without an answer: if the question still matters, open a FRESH card " +
+			"with current context; if not, proceed / close out. Any held step/task was " +
+			"already restored to in_progress\n"
+		if out.String() != want {
+			t.Errorf("printed %q, want %q", out.String(), want)
+		}
+	})
 }
 
-func TestConnectOnce_ConnectionLineNamesTheShaTheStationSelfReports(t *testing.T) {
-	cfgTempDir = t.TempDir()
-	srv := httptest.NewServer(stationHandler("9f3c1ab77e40", true))
-	defer srv.Close()
-
-	reported := stationGitSHA(t, srv)
-	if reported == "" {
-		t.Fatal("fixture broken: the station must self-report a build")
+func TestRenderReplyCardAnswer(t *testing.T) {
+	cases := []struct {
+		name string
+		card map[string]any
+		want string
+	}{
+		{
+			name: "a full card resolves each index to its own wording",
+			card: map[string]any{
+				"options": []any{map[string]any{"text": "改"}, map[string]any{"text": "不改"}},
+				"answer":  map[string]any{"option_idxs": []any{1.0, 0.0}},
+			},
+			want: `picked [1] "不改" — picked [0] "改"`,
+		},
+		{
+			name: "the light row's own wording list wins",
+			card: map[string]any{"answer": map[string]any{
+				"option_idxs": []any{2.0}, "options": []any{"照原案走"}}},
+			want: `picked [2] "照原案走"`,
+		},
+		{
+			name: "an index with no wording anywhere still names the choice",
+			card: map[string]any{"answer": map[string]any{"option_idxs": []any{5.0}}},
+			want: "picked [5]",
+		},
+		{
+			name: "options, text and attachments join in that order",
+			card: map[string]any{
+				"options": []any{map[string]any{"text": "改"}},
+				"answer": map[string]any{"option_idxs": []any{0.0}, "text": " 但先跑一輪 ",
+					"attachments": []any{map[string]any{}, map[string]any{}}},
+			},
+			want: `picked [0] "改" — "但先跑一輪" — +2 attachment(s)`,
+		},
+		{
+			name: "the light row's attachment COUNT is read the same way",
+			card: map[string]any{"answer": map[string]any{"text": "改", "attachments": 3.0}},
+			want: `"改" — +3 attachment(s)`,
+		},
+		{
+			name: "no answer on the payload is not a failure",
+			card: map[string]any{"summary": "q"},
+			want: "(no answer carried on this payload)",
+		},
+		{
+			name: "an answer this build cannot read is named as a read failure",
+			card: map[string]any{"answer": map[string]any{"option_idx": 0.0}},
+			want: unreadableAnswerNotice,
+		},
+		{
+			name: "a non-numeric index is skipped rather than fabricated",
+			card: map[string]any{"answer": map[string]any{"option_idxs": []any{"0"}, "text": "改"}},
+			want: `"改"`,
+		},
 	}
-
-	out := &syncBuf{}
-	l := newTestListener(srv, Config{Base: srv.URL, Token: "tok", ID: "kyle"}, out)
-	if _, _, _, err := l.connectOnce(context.Background()); err != nil {
-		t.Fatalf("connectOnce: %v", err)
-	}
-
-	line := connectedLine(t, out.String())
-	if want := " [station " + reported + "]"; !strings.HasSuffix(line, want) {
-		t.Fatalf("connection line must END with %q (the station's own git_sha), got:\n%s",
-			want, line)
-	}
-	// 🔴 THE PREFIX MUST NOT MOVE, and this assertion is the only thing that
-	// says so. cli/ocwarden/codex_session.go decides this line is NOT
-	// actionable by matching exactly these bytes at the start; anything that
-	// pushes them rightward — naming the station in front of "listen:", for
-	// instance — turns every reconnect into a codex turn for every agent, and
-	// a station changeover reconnects the whole fleet at once.
-	//
-	// That failure is invisible by construction: nothing errors, nothing
-	// crashes, no test that existed before this one goes red. The only symptom
-	// is a row of agents waking for no reason. Verified on the tree as it
-	// stood: with the sha moved to the front of the line, the entire
-	// pre-existing ocagent suite and the entire ocwarden suite stayed green —
-	// listen_stamp_test.go and codex_session_test.go both assert against
-	// hand-written string constants, never against the line connectOnce
-	// actually prints, so a moved prefix is exactly what they cannot see.
-	if !strings.HasPrefix(strings.TrimSpace(line), "[ocagent] listen: connected") {
-		t.Fatalf("the not-actionable prefix must not move (cli/ocwarden/codex_session.go "+
-			"matches it to keep this line from opening a codex turn); got:\n%s", line)
-	}
-}
-
-func TestConnectOnce_NoStationSHALeavesTheLineUnadornedAndNeverReusesTheLastOne(t *testing.T) {
-	cfgTempDir = t.TempDir()
-	const sha = "9f3c1ab77e40"
-	var mode atomic.Int32 // 0 stamped · 1 header absent · 2 present but empty · 3 station says "unknown"
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch mode.Load() {
-		case 0:
-			stationHandler(sha, true)(w, r)
-		case 1:
-			stationHandler("", false)(w, r)
-		case 3:
-			stationHandler("unknown", true)(w, r)
-		default:
-			stationHandler("", true)(w, r)
-		}
-	}))
-	defer srv.Close()
-
-	// The fixtures have to differ ON THE WIRE, or the two cases below are the
-	// same case twice.
-	mode.Store(1)
-	if got := rawStationSHAHeader(t, srv); got != nil {
-		t.Fatalf("fixture broken: this station must send NO %s, wire carried %q",
-			wireStationSHAHeader, got)
-	}
-	mode.Store(2)
-	if got := rawStationSHAHeader(t, srv); len(got) != 1 || got[0] != "" {
-		t.Fatalf("fixture broken: this station must send an EMPTY %s, wire carried %q",
-			wireStationSHAHeader, got)
-	}
-
-	l := newTestListener(srv, Config{Base: srv.URL, Token: "tok", ID: "kyle"}, nil)
-	connect := func() string {
-		out := &syncBuf{}
-		l.out = out
-		if _, _, _, err := l.connectOnce(context.Background()); err != nil {
-			t.Fatalf("connectOnce: %v", err)
-		}
-		return connectedLine(t, out.String())
-	}
-
-	// A stamped connection first, so a later line could reuse it if the code
-	// ever kept the value anywhere but the response it came from.
-	mode.Store(0)
-	stamped := connect()
-	if !strings.HasSuffix(stamped, " [station "+sha+"]") {
-		t.Fatalf("fixture broken: the stamped connection must name the build, got:\n%s", stamped)
-	}
-
-	mode.Store(1)
-	absent := connect()
-	mode.Store(2)
-	empty := connect()
-
-	for name, line := range map[string]string{"absent": absent, "empty": empty} {
-		if strings.Contains(line, "[station") {
-			t.Fatalf("%s header: nothing may be fabricated — the whole segment is "+
-				"dropped, not printed empty; got:\n%s", name, line)
-		}
-		if strings.Contains(line, sha) {
-			t.Fatalf("%s header: the previous connection's sha must not survive into "+
-				"this one; got:\n%s", name, line)
-		}
-	}
-	if absent != empty {
-		t.Fatalf("a station that sent nothing and one that sent an empty sha must "+
-			"produce the same line:\n%s\n%s", absent, empty)
-	}
-
-	// A station whose build carries no sha reports the literal "unknown"
-	// (server.go gitSHA). That is the station's own answer, not a missing
-	// header, so it is passed through: the client never decides what a sha
-	// means, and "[station unknown]" says truthfully that this station could
-	// not name its build. Folding it into the absent case would hide a
-	// station running an unstamped binary.
-	mode.Store(3)
-	unknown := connect()
-	if !strings.HasSuffix(unknown, " [station unknown]") {
-		t.Fatalf("a station that reports \"unknown\" must be quoted verbatim, not "+
-			"silently dropped; got:\n%s", unknown)
-	}
-}
-
-// 🔴 THE ARM THAT WAS ACTUALLY MIS-BADGED, AND IT HAD NO TEST (T-6f44).
-//
-// Both wind-down hooks share one fallback string, and the words 「recycle: 」
-// used to be welded INTO it. The recycle hook's own test above therefore passed
-// forever — it was asserting the prefix that hook wanted anyway. Nothing looked
-// at the OTHER caller, which stamps 「offboard: 」 on every line of a real notice
-// and then announced its fallback under the first hook's name.
-//
-// What that cost, in the owner's terms (2026-08-24): 「下線 → 加速 → 強制。後者
-// 一旦發出我們就不該發出前者」. 重新聚焦 is the FIRST stage. A force-stopped
-// agent — the LAST stage, the one where the server deliberately sends nothing —
-// is the case that reaches the fallback most reliably, and what it read was a
-// line badged as stage one.
-func TestWindDown_FallbackIsBadgedByTheHookThatPrintedIt(t *testing.T) {
-	var out bytes.Buffer
-	h := &windDownHook{out: &out}
-	h.wake("")
-
-	got := out.String()
-	if !strings.Contains(got, "[ocagent] offboard: "+offboardFallback+"\n") {
-		t.Fatalf("the wind-down fallback must be badged 「offboard: 」 by the hook "+
-			"that printed it:\n%q", got)
-	}
-	// The failure this replaces, named so a regression cannot pass as a typo:
-	// the same line arriving under the FIRST stage's name.
-	if strings.Contains(got, "recycle:") {
-		t.Errorf("the wind-down hook announced its fallback as 「recycle: 」 — that "+
-			"is the first wind-down stage's badge on a message the agent gets "+
-			"while being collected:\n%q", got)
-	}
-}
-
-// ---------------------------------------------------------------------------
-// fail-closed on the agent credential floor — the 401 half (T-14 項目 4B).
-//
-// The floor (server authz.go agentIatFloorRefusal) refuses the OUTGOING
-// generation's token the moment its successor reports waking. That refusal
-// arrives as 401, and a bare 401 is not authoritative here — so without the
-// server's X-OC-Auth-Refusal marker this listener reconnects every ≤15s for the
-// rest of the machine's uptime, holding a tmux + model session that the cockpit
-// cannot show (the member's presence belongs to the successor). The pair below
-// pins BOTH directions, because getting either one wrong is a real failure:
-// hammering forever, or killing a healthy agent over a server hiccup.
-// ---------------------------------------------------------------------------
-
-// TestListener_SelfTerminatesWhenSupersededByANewerGeneration is the
-// live half.
-//
-// Mutant: delete the 401 arm from authoritativeRefusal (listen_run.go) → the
-// superseded generation never accumulates a refusal run, never fail-closes, and
-// this test hangs to its 3s bound and is red.
-func TestListener_SelfTerminatesWhenSupersededByANewerGeneration(t *testing.T) {
-	cfgTempDir = t.TempDir()
-	var conns int32
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if strings.HasPrefix(r.URL.Path, "/api/chat") {
-			w.WriteHeader(200)
-			_, _ = w.Write([]byte("[]"))
-			return
-		}
-		atomic.AddInt32(&conns, 1)
-		w.Header().Set(authRefusalHeader, refusalAgentSuperseded)
-		w.WriteHeader(401)
-		_, _ = w.Write([]byte(`{"error":{"code":"unauthorized","message":"invalid token"}}`))
-	}))
-	defer srv.Close()
-
-	cfg := Config{Base: srv.URL, Token: "t", ID: "kyle"}
-	out := &syncBuf{}
-	l := newTestListener(srv, cfg, out)
-	l.winddown = newWindDownHook(srv.Client(), cfg, out)
-	l.recycle = newRecycleHook(srv.Client(), cfg, out)
-	l.refusalGraceSpan = 0 // count bound only — no wall-clock wait in tests
-	var terminated int32
-	l.selfTerminate = func() { atomic.AddInt32(&terminated, 1) }
-
-	done := make(chan int, 1)
-	go func() { done <- l.run(context.Background()) }()
-
-	select {
-	case rc := <-done:
-		if rc != 0 {
-			t.Fatalf("rc = %d want 0", rc)
-		}
-	case <-time.After(3 * time.Second):
-		t.Fatalf("the superseded generation never stopped: a listener whose member "+
-			"has already reported a NEWER generation is refused 401 forever (the "+
-			"credential floor only ever rises), so it must fail-closed and kill its "+
-			"own session instead of reconnecting for the rest of the machine's "+
-			"uptime. It was still dialling after 3s (%d dials):\n%s",
-			atomic.LoadInt32(&conns), out.String())
-	}
-	if atomic.LoadInt32(&terminated) != 1 {
-		t.Fatalf("the suicide seam must fire exactly once when this generation has "+
-			"been superseded, fired %d times:\n%s", atomic.LoadInt32(&terminated), out.String())
-	}
-	if got := atomic.LoadInt32(&conns); got != sseRefusalMin {
-		t.Fatalf("want exactly %d refused dials before the fail-closed exit, saw %d",
-			sseRefusalMin, got)
-	}
-	if !strings.Contains(out.String(), "superseded") {
-		t.Fatalf("the log must say WHY this session is going away — 「superseded」, "+
-			"not a bare 401 — or the next person reads it as an auth outage:\n%s", out.String())
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := renderReplyCardAnswer(tc.card); got != tc.want {
+				t.Errorf("renderReplyCardAnswer = %q, want %q", got, tc.want)
+			}
+		})
 	}
 }
 
-// TestListener_APlain401NeverTripsFailClosed is the half that keeps the fix from
-// being worse than the bug. A 401 with NO server marker is every ordinary auth
-// failure: a station whose secret is not loaded yet, a token that expired, a
-// restart in flight. Those are exactly the cases the reconnect loop exists for —
-// treating them as authoritative would kill a healthy agent's tmux session (and
-// everything running under it) over a server hiccup.
-//
-// Mutant: make authoritativeRefusal return non-"" for any 401 → this test is red.
-func TestListener_APlain401NeverTripsFailClosed(t *testing.T) {
-	cfgTempDir = t.TempDir()
-	var dials int32
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if strings.HasPrefix(r.URL.Path, "/api/chat") {
-			w.WriteHeader(200)
-			_, _ = w.Write([]byte("[]"))
-			return
-		}
-		atomic.AddInt32(&dials, 1)
-		w.WriteHeader(401) // no X-OC-Auth-Refusal — an ordinary auth failure
-		_, _ = w.Write([]byte(`{"error":{"code":"unauthorized","message":"invalid token"}}`))
-	}))
-	defer srv.Close()
-
-	cfg := Config{Base: srv.URL, Token: "t", ID: "kyle"}
-	out := &syncBuf{}
-	l := newTestListener(srv, cfg, out)
-	l.winddown = newWindDownHook(srv.Client(), cfg, out)
-	l.recycle = newRecycleHook(srv.Client(), cfg, out)
-	l.refusalGraceSpan = 0 // even with NO grace it must never trip
-	var terminated int32
-	l.selfTerminate = func() { atomic.AddInt32(&terminated, 1) }
-
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	done := make(chan int, 1)
-	go func() { done <- l.run(ctx) }()
-
-	waitForCond(t, func() bool { return atomic.LoadInt32(&dials) >= int32(sseRefusalMin*3) },
-		"well past the fail-closed bound in unmarked 401s")
-	select {
-	case <-done:
-		t.Fatalf("the listener killed itself over UNMARKED 401s. A bare 401 is a "+
-			"station restarting, a secret not loaded, or a token that expired — "+
-			"self-terminating there trades a noisy self-healing path for one that "+
-			"kills healthy agents:\n%s", out.String())
-	default:
+func TestReplyCardSeenPath(t *testing.T) {
+	cases := []struct {
+		name string
+		cfg  Config
+		want string
+	}{
+		{"an id is lowercased", Config{Home: "/h", ID: "M-Kyle"}, "/h/m-kyle/replycards-seen"},
+		{"no id falls back to anon", Config{Home: "/h"}, "/h/anon/replycards-seen"},
 	}
-	cancel()
-	<-done
-	if atomic.LoadInt32(&terminated) != 0 {
-		t.Fatalf("selfTerminate must never fire on a 401 the server did not mark "+
-			"as a standing refusal, fired %d times:\n%s",
-			atomic.LoadInt32(&terminated), out.String())
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := replyCardSeenPath(tc.cfg); got != tc.want {
+				t.Errorf("replyCardSeenPath = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestLoadReplyCardSeen(t *testing.T) {
+	load := func(t *testing.T, body string) *replyCardSeen {
+		t.Helper()
+		path := filepath.Join(t.TempDir(), "replycards-seen")
+		if body != "" {
+			if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+				t.Fatal(err)
+			}
+		}
+		return loadReplyCardSeen(path)
+	}
+
+	t.Run("a persisted baseline comes back primed", func(t *testing.T) {
+		s := load(t, `{"rc-1":1700}`)
+		if !s.primed {
+			t.Error("primed = false, want true — a loaded baseline is a baseline")
+		}
+		if !s.has("rc-1", 1700) {
+			t.Error("has(rc-1, 1700) = false, want true")
+		}
+		if s.has("rc-1", 1800) {
+			t.Error("has(rc-1, 1800) = true, want false — a revision bumps the ts and re-prints")
+		}
+	})
+
+	t.Run("a missing file is an unprimed store", func(t *testing.T) {
+		s := load(t, "")
+		if s.primed {
+			t.Error("primed = true on a brand-new agent home, want false — the first drain " +
+				"baselines silently rather than flooding a fresh session")
+		}
+		if len(s.m) != 0 {
+			t.Errorf("m = %v, want empty", s.m)
+		}
+	})
+
+	t.Run("a corrupt file re-primes the same silent way", func(t *testing.T) {
+		if s := load(t, "{{{ not json"); s.primed || len(s.m) != 0 {
+			t.Errorf("primed = %v, m = %v, want an unprimed empty store", s.primed, s.m)
+		}
+	})
+
+	t.Run("a JSON null is not a baseline", func(t *testing.T) {
+		if s := load(t, "null"); s.primed || len(s.m) != 0 {
+			t.Errorf("primed = %v, m = %v, want an unprimed empty store", s.primed, s.m)
+		}
+	})
+}
+
+func TestHas(t *testing.T) {
+	s := &replyCardSeen{m: map[string]float64{"rc-1": 1700}}
+	cases := []struct {
+		name string
+		id   string
+		ts   float64
+		want bool
+	}{
+		{"the exact answer already surfaced", "rc-1", 1700, true},
+		{"a revision bumped the ts", "rc-1", 1800, false},
+		{"a card never surfaced", "rc-9", 1700, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := s.has(tc.id, tc.ts); got != tc.want {
+				t.Errorf("has(%q, %v) = %v, want %v", tc.id, tc.ts, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestRecord(t *testing.T) {
+	t.Run("one answer lands on disk immediately and survives a reload", func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), "kyle", "replycards-seen")
+		s := loadReplyCardSeen(path)
+
+		s.record("rc-1", 1700)
+
+		if got := readFileString(t, path); got != `{"rc-1":1700}` {
+			t.Errorf("file = %q, want %q", got, `{"rc-1":1700}`)
+		}
+		if !s.primed {
+			t.Error("primed = false after a successful persist, want true")
+		}
+		reloaded := loadReplyCardSeen(path)
+		if !reloaded.has("rc-1", 1700) {
+			t.Error("the reloaded store does not carry the answer — a kill right after the " +
+				"print would re-surface it")
+		}
+	})
+
+	t.Run("a persist that cannot land leaves the store unprimed", func(t *testing.T) {
+		blocked := filepath.Join(t.TempDir(), "file")
+		if err := os.WriteFile(blocked, []byte("x"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		s := loadReplyCardSeen(filepath.Join(blocked, "replycards-seen"))
+
+		s.record("rc-1", 1700)
+
+		if s.primed {
+			t.Error("primed = true after a failed write, want false")
+		}
+		if !s.has("rc-1", 1700) {
+			t.Error("the in-memory dedup lost the answer it just recorded")
+		}
+	})
+}
+
+func TestDrainReplyCards(t *testing.T) {
+	cfg := Config{Base: "http://x", Token: "t", ID: "m-1"}
+	const answeredPane = "/api/reply-cards?status=answered"
+	const expiredPane = "/api/reply-cards?status=expired"
+
+	t.Run("the first run ever primes the baseline and prints nothing", func(t *testing.T) {
+		client := newRoutedHTTP(map[string]string{
+			answeredPane: `[{"id":"rc-1","from":"m-1","answered_ts":1700,"summary":"q1",` +
+				`"answer":{"text":"改"}}]`,
+			expiredPane: `[]`,
+		})
+		path := filepath.Join(t.TempDir(), "replycards-seen")
+		seen := loadReplyCardSeen(path)
+		var out bytes.Buffer
+
+		if n := drainReplyCards(client, cfg, seen, &out); n != 0 {
+			t.Errorf("printed %d lines, want 0 on a brand-new agent home", n)
+		}
+		if out.String() != "" {
+			t.Errorf("printed %q, want nothing", out.String())
+		}
+		if got := readFileString(t, path); got != `{"rc-1":1700}` {
+			t.Errorf("baseline = %q, want %q", got, `{"rc-1":1700}`)
+		}
+	})
+
+	t.Run("a primed store prints my not-yet-surfaced outcomes oldest first", func(t *testing.T) {
+		client := newRoutedHTTP(map[string]string{
+			answeredPane: `[{"id":"rc-2","from":"m-1","answered_ts":1800,"summary":"q2",` +
+				`"answer":{"text":"新的"}},` +
+				`{"id":"rc-1","from":"m-1","answered_ts":1700,"summary":"q1",` +
+				`"answer":{"text":"舊的"}}]`,
+			expiredPane: `[{"id":"rc-3","from":"m-1","expired_ts":1900,"summary":"q3"}]`,
+		})
+		path := filepath.Join(t.TempDir(), "replycards-seen")
+		if err := os.WriteFile(path, []byte(`{"rc-0":1}`), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		seen := loadReplyCardSeen(path)
+		var out bytes.Buffer
+
+		if n := drainReplyCards(client, cfg, seen, &out); n != 3 {
+			t.Errorf("printed %d lines, want 3", n)
+		}
+		want := "[ocagent] reply-card rc-1 answered: \"舊的\" | asked: q1\n" +
+			"[ocagent] reply-card rc-2 answered: \"新的\" | asked: q2\n" +
+			"[ocagent] reply-card rc-3 EXPIRED (no answer) | asked: q3 — " +
+			"settled without an answer: if the question still matters, open a FRESH card " +
+			"with current context; if not, proceed / close out. Any held step/task was " +
+			"already restored to in_progress\n"
+		if out.String() != want {
+			t.Errorf("printed\n%q\nwant\n%q", out.String(), want)
+		}
+		wantState := `{"rc-1":1700,"rc-2":1800,"rc-3":1900}`
+		if got := readFileString(t, path); got != wantState {
+			t.Errorf("state = %q, want %q — an entry absent from both panes has aged out "+
+				"and is dropped so the file stays bounded", got, wantState)
+		}
+	})
+
+	t.Run("an already-surfaced outcome stays quiet", func(t *testing.T) {
+		client := newRoutedHTTP(map[string]string{
+			answeredPane: `[{"id":"rc-1","from":"m-1","answered_ts":1700,"summary":"q1",` +
+				`"answer":{"text":"改"}}]`,
+			expiredPane: `[]`,
+		})
+		path := filepath.Join(t.TempDir(), "replycards-seen")
+		if err := os.WriteFile(path, []byte(`{"rc-1":1700}`), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		var out bytes.Buffer
+
+		if n := drainReplyCards(client, cfg, loadReplyCardSeen(path), &out); n != 0 {
+			t.Errorf("printed %d lines, want 0", n)
+		}
+		if out.String() != "" {
+			t.Errorf("printed %q, want nothing", out.String())
+		}
+	})
+
+	t.Run("another member's card in the owner-wide pane is not mine to print", func(t *testing.T) {
+		client := newRoutedHTTP(map[string]string{
+			answeredPane: `[{"id":"rc-9","from":"m-2","answered_ts":1700,"summary":"q",` +
+				`"answer":{"text":"改"}}]`,
+			expiredPane: `[]`,
+		})
+		path := filepath.Join(t.TempDir(), "replycards-seen")
+		if err := os.WriteFile(path, []byte(`{"rc-0":1}`), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		var out bytes.Buffer
+
+		if n := drainReplyCards(client, cfg, loadReplyCardSeen(path), &out); n != 0 {
+			t.Errorf("printed %d lines, want 0", n)
+		}
+		if got := readFileString(t, path); got != `{}` {
+			t.Errorf("state = %q, want %q", got, `{}`)
+		}
+	})
+
+	t.Run("a fault on either pane leaves the state untouched", func(t *testing.T) {
+		client := newRoutedHTTP(map[string]string{
+			answeredPane: `[{"id":"rc-1","from":"m-1","answered_ts":1700,"summary":"q1",` +
+				`"answer":{"text":"改"}}]`,
+		})
+		client.status[expiredPane] = 500
+		path := filepath.Join(t.TempDir(), "replycards-seen")
+		if err := os.WriteFile(path, []byte(`{"rc-0":1}`), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		var out bytes.Buffer
+
+		if n := drainReplyCards(client, cfg, loadReplyCardSeen(path), &out); n != 0 {
+			t.Errorf("printed %d lines, want 0", n)
+		}
+		if out.String() != "" {
+			t.Errorf("printed %q, want nothing", out.String())
+		}
+		if got := readFileString(t, path); got != `{"rc-0":1}` {
+			t.Errorf("state = %q, want it untouched (%q) — a partial rebuild would drop the "+
+				"other pane's entries", got, `{"rc-0":1}`)
+		}
+	})
+
+	t.Run("a pane body that is not a list is a fault too", func(t *testing.T) {
+		client := newRoutedHTTP(map[string]string{
+			answeredPane: `{"cards":[]}`,
+			expiredPane:  `[]`,
+		})
+		var out bytes.Buffer
+
+		if n := drainReplyCards(client, cfg,
+			loadReplyCardSeen(filepath.Join(t.TempDir(), "replycards-seen")), &out); n != 0 {
+			t.Errorf("printed %d lines, want 0", n)
+		}
+	})
+}
+
+func TestStrOrEmpty(t *testing.T) {
+	cases := []struct {
+		name string
+		in   any
+		want string
+	}{
+		{"a string is itself", "hi", "hi"},
+		{"an empty string", "", ""},
+		{"nil", nil, ""},
+		{"false is Python-falsy", false, ""},
+		{"true", true, "True"},
+		{"zero is Python-falsy", 0.0, ""},
+		{"a whole number", 42.0, "42"},
+		{"a fraction", 1.5, "1.5"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := strOrEmpty(tc.in); got != tc.want {
+				t.Errorf("strOrEmpty(%v) = %q, want %q", tc.in, got, tc.want)
+			}
+		})
 	}
 }

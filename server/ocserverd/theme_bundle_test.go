@@ -1,232 +1,253 @@
+// Skeleton generated from server/ocserverd/theme_bundle.go by gen_test_skeletons.py.
+// Every case is a t.Skip placeholder: fill the body, keep or rewrite the name.
+
 package main
 
 import (
-	"encoding/json"
-	"os"
+	"fmt"
 	"strings"
 	"testing"
 )
 
-// themeBundleNamed returns a minimal, otherwise-valid bundle carrying `name`, so
-// each case below isolates the NAME rule under test.
-func themeBundleNamed(name string) []ThemeBundleDTO {
-	return []ThemeBundleDTO{{
-		Id:     "midnight",
+func themeBundleForTest(id, name, color string) ThemeBundleDTO {
+	return ThemeBundleDTO{
+		Id:     id,
 		Name:   name,
-		Colors: map[string]string{"--color-bg": "#101018"},
-	}}
+		Colors: map[string]string{"--color-bg": color},
+	}
+}
+
+func TestHasInvisibleNameRune(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		text string
+		want bool
+	}{
+		{name: "ordinary Unicode text is visible", text: "精靈村", want: false},
+		{name: "a Cc control is rejected", text: "Mid\x00night", want: true},
+		{name: "a Cf format character is rejected", text: "Mid\u200bnight", want: true},
+		{name: "a Co private-use character is rejected", text: "Mid\ue000night", want: true},
+		{name: "a line separator is rejected", text: "Mid\u2028night", want: true},
+		{name: "a paragraph separator is rejected", text: "Mid\u2029night", want: true},
+		{name: "a variation selector remains allowed", text: "Heart ❤️", want: false},
+		{name: "a space separator is normalized elsewhere rather than rejected", text: "深海\u3000之夜", want: false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := hasInvisibleNameRune(tc.text); got != tc.want {
+				t.Fatalf("hasInvisibleNameRune(%q) = %v, want %v", tc.text, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestNormalizeThemeSpaces(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		text string
+		want string
+	}{
+		{name: "ideographic and no-break spaces become ASCII spaces", text: "深海\u3000之夜\u00a0", want: "深海 之夜 "},
+		{name: "the other space separators are also folded", text: "\u1680A\u2000B\u2001C\u202fD", want: " A B C D"},
+		{name: "letters and control characters outside Zs remain unchanged", text: "A\nB\tC", want: "A\nB\tC"},
+		{name: "an ordinary ASCII space remains an ASCII space", text: "left right", want: "left right"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := normalizeThemeSpaces(tc.text); got != tc.want {
+				t.Fatalf("normalizeThemeSpaces(%q) = %q, want %q", tc.text, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestValidColorValue(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		value string
+		want  bool
+	}{
+		{name: "three-digit hex is accepted", value: "#fff", want: true},
+		{name: "four-digit hex is accepted", value: "#1234", want: true},
+		{name: "six-digit hex is accepted", value: "#12aBcD", want: true},
+		{name: "eight-digit hex is accepted", value: "#12aBcD80", want: true},
+		{name: "rgb with commas is accepted", value: "rgb(1, 20, 255)", want: true},
+		{name: "modern rgba with percent and slash is accepted", value: "rgba(10% 20% 30% / 50%)", want: true},
+		{name: "hsl with degree units is accepted", value: "hsl(120deg, 50%, 50%)", want: true},
+		{name: "hsla with turn units is accepted", value: "hsla(1turn 50% 50% / 25%)", want: true},
+		{name: "transparent is accepted", value: "transparent", want: true},
+		{name: "an empty value is refused", value: "", want: false},
+		{name: "a named color other than transparent is refused", value: "red", want: false},
+		{name: "a short hex value is refused", value: "#12", want: false},
+		{name: "a seven-digit hex value is refused", value: "#1234567", want: false},
+		{name: "a variable expression is refused", value: "var(--color-bg)", want: false},
+		{name: "a URL expression is refused", value: "url(https://evil.example/x)", want: false},
+		{name: "a CSS declaration is refused", value: "#fff; color: red", want: false},
+		{name: "a value beyond the length cap is refused", value: strings.Repeat("a", 65), want: false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := validColorValue(tc.value); got != tc.want {
+				t.Fatalf("validColorValue(%q) = %v, want %v", tc.value, got, tc.want)
+			}
+		})
+	}
 }
 
 func TestValidateThemeBundles(t *testing.T) {
-	t.Run("rejects a name carrying control, formatting, private-use, surrogate or line/paragraph separator characters", func(t *testing.T) {
-		// Written as escapes on purpose: these characters are INVISIBLE, and a
-		// reviewer must be able to see which one each case is testing.
-		for _, name := range []string{
-			"Mid\u0000night", // NUL
-			"Mid\u000Anight", // newline
-			"Mid\u007Fnight", // DEL
-			"Mid\u009Fnight", // C1 control
-			"\u202EMidnight", // RIGHT-TO-LEFT OVERRIDE
-			"Mid\u202Dnight", // LEFT-TO-RIGHT OVERRIDE
-			"Mid\u202Anight", // LEFT-TO-RIGHT EMBEDDING
-			"Mid\u2066night", // LEFT-TO-RIGHT ISOLATE
-			"Mid\u2069night", // POP DIRECTIONAL ISOLATE
-			"Mid\u200Enight", // LEFT-TO-RIGHT MARK
-			"Mid\u200Fnight", // RIGHT-TO-LEFT MARK
-			// ZERO-WIDTH class (T-081b review round 3, BLOCKER-1). U+FEFF is the
-			// load-bearing one: it is the ONE codepoint JS's trim() strips and
-			// strings.TrimSpace does not, so while it was left to the trim THIS
-			// side — the authority — accepted 「\uFEFF辦公室」 and only the client
-			// rejected it. The twin table lives in frontend/src/lib/themeBundle.test.ts.
-			"\uFEFF辦公室",    // BOM prefix — renders as 「辦公室」
-			"辦公室\uFEFF",    // BOM suffix
-			"\uFEFFOffice", // BOM prefix, en spelling
-			"Office\uFEFF", // BOM suffix, en spelling
-			"辦\u200B公室",    // ZERO WIDTH SPACE
-			"Off\u200Bice",
-			"Off\u200Cice", // ZERO WIDTH NON-JOINER
-			"Off\u200Dice", // ZERO WIDTH JOINER
-			"Office\u2060", // WORD JOINER
-			"Off\u061Cice", // ARABIC LETTER MARK (a bidi char the first list missed)
-			// ── round 4, SHOULD-C: the members of the SAME categories the round-3
-			// codepoint list never thought of. Listing codepoints is what missed
-			// them; the rule is now the CATEGORY (Cc/Cf/Co/Cs/Zl/Zp).
-			"Off\u00ADice",     // SOFT HYPHEN (Cf) — renders as 「Office」
-			"Off\u180Eice",     // MONGOLIAN VOWEL SEPARATOR (Cf)
-			"Office\U000E0041", // TAG LATIN CAPITAL A (Cf) — the classic invisible payload
-			"Office\uE000",     // PRIVATE USE (Co) — renders as whatever the font decides
-			"Mid\u2028night",   // LINE SEPARATOR (Zl)
-			"Mid\u2029night",   // PARAGRAPH SEPARATOR (Zp)
-		} {
-			err := validateThemeBundles(themeBundleNamed(name))
-			if err == nil || !strings.Contains(err.Error(), "control, formatting, private-use, surrogate or line/paragraph separator") {
-				t.Fatalf("name %q must be rejected, got %v", name, err)
-			}
-		}
-		// Zs is NOT in that set — every space separator is NORMALISED to U+0020
-		// first (T-081b review round 4 recheck, SHOULD-3), so these are ordinary
-		// names that simply lose their padding. Round 8 removed the reserved-name
-		// rule that used to catch them on the way out, so they are ACCEPTED, and
-		// the trim is what the assertion is really about: the stored name must be
-		// the normalised one, not the padded bytes.
-		for _, name := range []string{
-			"\u00A0Office\u00A0", // NO-BREAK SPACE (Zs) — renders as 「Office」
-			"\u3000辦公室\u3000",    // IDEOGRAPHIC SPACE (Zs) — renders as 「辦公室」
-			"\u1680Office",       // OGHAM SPACE MARK (Zs) — blank in most fonts
-		} {
-			if err := validateThemeBundles(themeBundleNamed(name)); err != nil {
-				t.Fatalf("name %q must be accepted, got %v", name, err)
-			}
-			if got := trimThemeName(name); strings.ContainsAny(got, "\u00A0\u3000\u1680") {
-				t.Fatalf("name %q kept a non-ASCII space after trimming: %q", name, got)
-			}
-		}
-		// …and a name that is nothing BUT spaces has no name left after the
-		// normalise + trim, in every Zs spelling.
-		for _, name := range []string{"\u3000", "\u00A0", " \u3000 ", "\u1680\u2000"} {
-			err := validateThemeBundles(themeBundleNamed(name))
-			if err == nil || !strings.Contains(err.Error(), "name must be 1..") {
-				t.Fatalf("name %q must be rejected as empty, got %v", name, err)
-			}
-		}
-	})
+	if err := validateThemeBundles([]ThemeBundleDTO{
+		themeBundleForTest("midnight", "Midnight", "#101018"),
+	}); err != nil {
+		t.Fatalf("a valid theme bundle must be accepted: %v", err)
+	}
 
-	t.Run("accepts a name that matches the built-in theme's display name", func(t *testing.T) {
-		// Until round 8 these were rejected: a pack calling itself 辦公室 put a
-		// second 辦公室 row in the picker. The owner dropped the rule — 「這是大家
-		// 自己用的,自己要怎麼搞我們不用特別管」 — so a duplicate display name is now
-		// the user's own business. What still holds is the BUILT-IN's name: it
-		// comes from the non-overridable themeIdentity subtree, so the shipped
-		// row keeps saying 辦公室 no matter what a pack calls itself.
-		// The id stays reserved (reservedThemeIDs); only the NAME is free.
-		for _, name := range []string{"辦公室", "Office", "office", "  OFFICE  ", " 辦公室 "} {
-			if err := validateThemeBundles(themeBundleNamed(name)); err != nil {
-				t.Fatalf("name %q must be accepted, got %v", name, err)
-			}
-		}
-		if err := validateThemeBundles([]ThemeBundleDTO{{
-			Id: "office", Name: "Whatever", Colors: map[string]string{"--color-bg": "#101018"},
-		}}); err == nil || !strings.Contains(err.Error(), "reserved for a built-in theme") {
-			t.Fatalf("the built-in ID must stay reserved, got %v", err)
-		}
-	})
-
-	t.Run("accepts every legitimate name shape, including the new-theme default", func(t *testing.T) {
-		// The rule must not become a general-purpose name filter: CJK, emoji,
-		// spaces and punctuation are all ordinary theme names. 新主題 / New theme
-		// live in the SAME themeIdentity subtree as the built-in's name but are
-		// the default name a NEW custom theme is created with — banning them
-		// would reject the app's own create-theme flow.
-		for _, name := range []string{
-			"精靈村",
-			"深海の夜",
-			"밤하늘",
-			"🌙 Midnight 🌙",
-			"Mid night — v2 (beta)!",
-			"新主題",
-			"New theme",
-			"Officescape",
-			"辦公室的夜",
-			"OFF\u0130CE", // LATIN CAPITAL LETTER I WITH DOT ABOVE — folded by neither side
-			// Not a general-purpose filter: the categories rejected above are the
-			// invisible ones only. Scripts, emoji (variation selectors included —
-			// U+FE0F is Mn and stays legal on purpose), ordinary spaces and
-			// punctuation all pass (T-081b review round 4, SHOULD-C).
-			"Heart \u2764\uFE0F", // VARIATION SELECTOR-16 — how an emoji name is spelled
-			"سمة داكنة",          // Arabic, ordinary letters + ASCII space
-			"ערכת נושא כהה",      // Hebrew, ordinary letters + ASCII space
-			"Tiếng Việt",         // combining marks (Mn) in an ordinary Latin name
-			// Zs is NORMALISED, not rejected (round 4 recheck, SHOULD-3): a
-			// full-width space is what a Chinese IME emits for the space bar and
-			// a NO-BREAK SPACE is what a paste out of a document carries. Both
-			// are ordinary names, and rejecting them told the user nothing they
-			// could act on.
-			"深海\u3000之夜",             // IDEOGRAPHIC SPACE inside a legitimate name
-			"深\u3000海\u3000之\u3000夜", // …several of them
-			"Deep\u00A0Ocean",        // NO-BREAK SPACE inside an ordinary name
-			"\u3000深海之夜\u3000",       // padded — but not with a built-in's name
-		} {
-			if err := validateThemeBundles(themeBundleNamed(name)); err != nil {
-				t.Fatalf("name %q must be accepted, got %v", name, err)
-			}
-		}
-	})
-}
-
-// TestTrimThemeName pins the surviving normaliser character by character — the
-// twin table lives in frontend/src/lib/themeBundle.test.ts. It decides the
-// LENGTH verdict on both ends, and nothing observable through
-// validateThemeBundles can tell strings.TrimSpace from the explicit ASCII set
-// (they differ only on U+0085 / U+FEFF, which hasInvisibleNameRune rejects
-// first), so the two sides' agreement has to be pinned on the normaliser itself.
-func TestTrimThemeName(t *testing.T) {
-	for _, c := range []struct{ in, want string }{
-		{"Office", "Office"},
-		{"  OFFICE  ", "OFFICE"},
-		{"\tOFFICE\r\n", "OFFICE"},
-		{"辦公室", "辦公室"},
-		// Case is NOT folded — round 8 removed the name comparison that needed a
-		// fold, and the two sides' case mappings disagree (U+0130, U+212A).
-		{"OFF\u0130CE", "OFF\u0130CE"},
-		{"ＯＦＦＩＣＥ", "ＯＦＦＩＣＥ"},
-		{"\u212ANIGHT", "\u212ANIGHT"},
-		// Every Zs is folded onto U+0020 BEFORE the ASCII trim, so a
-		// full-width-padded name trims exactly like an ASCII-padded one
-		// (round 4 recheck, SHOULD-3).
-		{"\u3000辦公室", "辦公室"},
-		{"辦公室\u3000", "辦公室"},
-		{"\u00A0Office", "Office"},
-		{"深海\u3000之夜", "深海 之夜"},
-		{"\u1680Deep\u2000Ocean\u3000", "Deep Ocean"},
+	for _, tc := range []struct {
+		name    string
+		bundles []ThemeBundleDTO
+		want    string
+	}{
+		{
+			name: "duplicate IDs are refused at the second position",
+			bundles: []ThemeBundleDTO{
+				themeBundleForTest("midnight", "First", "#101018"),
+				themeBundleForTest("midnight", "Second", "#202028"),
+			},
+			want: `custom_themes[1]: duplicate id "midnight"`,
+		},
+		{
+			name: "an invalid ID is refused before the bundle name",
+			bundles: []ThemeBundleDTO{
+				themeBundleForTest("x", "Valid name", "#101018"),
+			},
+			want: `custom_themes[0]: id must match ^[a-z0-9][a-z0-9-]{1,63}$ (got "x")`,
+		},
+		{
+			name: "the built-in ID is reserved",
+			bundles: []ThemeBundleDTO{
+				themeBundleForTest("office", "Custom copy", "#101018"),
+			},
+			want: `custom_themes[0]: id "office" is reserved for a built-in theme`,
+		},
+		{
+			name: "an unknown color token is refused",
+			bundles: []ThemeBundleDTO{{
+				Id: "midnight", Name: "Midnight", Colors: map[string]string{"--not-a-color": "#101018"},
+			}},
+			want: `custom_themes[0]: "--not-a-color" is not a theme colour token (see theme.css)`,
+		},
+		{
+			name: "a CSS expression is refused as a color value",
+			bundles: []ThemeBundleDTO{{
+				Id: "midnight", Name: "Midnight", Colors: map[string]string{"--color-bg": "var(--color-card)"},
+			}},
+			want: `custom_themes[0]: "--color-bg" has an invalid colour value "var(--color-card)" — only concrete hex / rgb() / rgba() / hsl() / hsla() / transparent are accepted`,
+		},
 	} {
-		if got := trimThemeName(c.in); got != c.want {
-			t.Fatalf("trimThemeName(%q) = %q, want %q", c.in, got, c.want)
-		}
+		t.Run(tc.name, func(t *testing.T) {
+			if err := validateThemeBundles(tc.bundles); err == nil || err.Error() != tc.want {
+				t.Fatalf("validateThemeBundles error = %v, want %q", err, tc.want)
+			}
+		})
+	}
+
+	withinCap := make([]ThemeBundleDTO, 100)
+	for i := range withinCap {
+		withinCap[i] = themeBundleForTest(fmt.Sprintf("theme-%03d", i), fmt.Sprintf("Theme %03d", i), "#101018")
+	}
+	if err := validateThemeBundles(withinCap); err != nil {
+		t.Fatalf("100 valid themes must be accepted: %v", err)
+	}
+	tooMany := append(withinCap, themeBundleForTest("theme-100", "Theme 100", "#101018"))
+	if err := validateThemeBundles(tooMany); err == nil || err.Error() != "custom_themes must hold at most 100 themes" {
+		t.Fatalf("101 themes error = %v, want the 100-theme cap", err)
 	}
 }
 
-// TestThemeNameVerdictsEmit is the Go HALF of the cross-language name-parity
-// safety net (T-081b review round 4, SHOULD-C). It is not an assertion: driven
-// by the two env vars below it reads a shared case file and writes THIS side's
-// verdict for every name, so frontend/src/lib/themeName.parity.test.ts can feed
-// the SAME 61 names to both validators and fail on any divergence.
-//
-// A cross-check is needed because the two ends now read Unicode CATEGORIES out
-// of two different runtimes' tables (Go's `unicode` package vs the JS engine's
-// property escapes). That is the point — neither side hand-keeps a codepoint
-// list — but it also means the two could drift apart on a Unicode version bump,
-// silently, in exactly the direction that matters: a character one side calls
-// Cf and the other does not. Without the env vars the test no-ops, so an
-// ordinary `go test ./...` is unaffected.
-func TestThemeNameVerdictsEmit(t *testing.T) {
-	in, out := os.Getenv("OC_THEME_NAME_CASES"), os.Getenv("OC_THEME_NAME_VERDICTS")
-	if in == "" || out == "" {
-		t.Skip("OC_THEME_NAME_CASES / OC_THEME_NAME_VERDICTS unset — driven by themeName.parity.test.ts")
-	}
-	raw, err := os.ReadFile(in)
-	if err != nil {
-		t.Fatalf("read cases: %v", err)
-	}
-	var cases []struct {
-		K string `json:"k"`
-		N string `json:"n"`
-	}
-	if err := json.Unmarshal(raw, &cases); err != nil {
-		t.Fatalf("parse cases: %v", err)
-	}
-	verdicts := make(map[string]string, len(cases))
-	for _, c := range cases {
-		if err := validateThemeBundles(themeBundleNamed(c.N)); err != nil {
-			verdicts[c.K] = "REJECT: " + strings.TrimPrefix(err.Error(), "custom_themes[0]: ")
-		} else {
-			verdicts[c.K] = "ACCEPT"
+func TestValidateThemeBundle(t *testing.T) {
+	t.Run("a valid bundle is accepted and records its ID in the set", func(t *testing.T) {
+		seen := map[string]bool{}
+		if err := validateThemeBundle(themeBundleForTest("midnight", "Midnight", "#101018"), "theme", seen); err != nil {
+			t.Fatalf("validateThemeBundle returned an error: %v", err)
 		}
-	}
-	blob, err := json.Marshal(verdicts)
-	if err != nil {
-		t.Fatalf("marshal verdicts: %v", err)
-	}
-	if err := os.WriteFile(out, blob, 0o600); err != nil {
-		t.Fatalf("write verdicts: %v", err)
+		if !seen["midnight"] {
+			t.Fatalf("validateThemeBundle did not record the accepted ID: %#v", seen)
+		}
+	})
+
+	for _, tc := range []struct {
+		name string
+		b    ThemeBundleDTO
+		seen map[string]bool
+		want string
+	}{
+		{
+			name: "a duplicate is reported before a later invalid name",
+			b:    themeBundleForTest("midnight", "", "#101018"),
+			seen: map[string]bool{"midnight": true},
+			want: `theme: duplicate id "midnight"`,
+		},
+		{
+			name: "a duplicate is not checked when no set is supplied",
+			b:    themeBundleForTest("midnight", "Another name", "#101018"),
+			seen: nil,
+		},
+		{
+			name: "an ID shorter than two characters is refused",
+			b:    themeBundleForTest("x", "Midnight", "#101018"),
+			want: `theme: id must match ^[a-z0-9][a-z0-9-]{1,63}$ (got "x")`,
+		},
+		{
+			name: "the built-in ID is refused",
+			b:    themeBundleForTest("office", "Office copy", "#101018"),
+			want: `theme: id "office" is reserved for a built-in theme`,
+		},
+		{
+			name: "a name that trims to empty is refused",
+			b:    themeBundleForTest("midnight", " \u3000 ", "#101018"),
+			want: `theme: name must be 1..80 characters after trimming`,
+		},
+		{
+			name: "a name over eighty runes is refused",
+			b:    themeBundleForTest("midnight", strings.Repeat("n", 81), "#101018"),
+			want: `theme: name must be 1..80 characters after trimming`,
+		},
+		{
+			name: "an invisible format character is refused",
+			b:    themeBundleForTest("midnight", "Mid\u200bnight", "#101018"),
+			want: `theme: name must not contain control, formatting, private-use, surrogate or line/paragraph separator characters`,
+		},
+		{
+			name: "an empty colors map is refused",
+			b:    ThemeBundleDTO{Id: "midnight", Name: "Midnight", Colors: map[string]string{}},
+			want: `theme: colors must hold 1..200 entries (got 0)`,
+		},
+		{
+			name: "a colors map over two hundred entries is refused before token checks",
+			b: func() ThemeBundleDTO {
+				colors := make(map[string]string, 201)
+				for i := 0; i < 201; i++ {
+					colors[fmt.Sprintf("--color-%03d", i)] = "#101018"
+				}
+				return ThemeBundleDTO{Id: "midnight", Name: "Midnight", Colors: colors}
+			}(),
+			want: `theme: colors must hold 1..200 entries (got 201)`,
+		},
+		{
+			name: "an unknown color token is refused",
+			b:    ThemeBundleDTO{Id: "midnight", Name: "Midnight", Colors: map[string]string{"--not-a-color": "#101018"}},
+			want: `theme: "--not-a-color" is not a theme colour token (see theme.css)`,
+		},
+		{
+			name: "a non-concrete color is refused",
+			b:    ThemeBundleDTO{Id: "midnight", Name: "Midnight", Colors: map[string]string{"--color-bg": "var(--x)"}},
+			want: `theme: "--color-bg" has an invalid colour value "var(--x)" — only concrete hex / rgb() / rgba() / hsl() / hsla() / transparent are accepted`,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if err := validateThemeBundle(tc.b, "theme", tc.seen); err == nil {
+				if tc.want != "" {
+					t.Fatalf("validateThemeBundle returned nil, want %q", tc.want)
+				}
+			} else if err.Error() != tc.want {
+				t.Fatalf("validateThemeBundle error = %q, want %q", err, tc.want)
+			}
+		})
 	}
 }

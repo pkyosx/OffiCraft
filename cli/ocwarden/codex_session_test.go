@@ -2,149 +2,25 @@ package main
 
 import (
 	"bytes"
-	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"net/http"
-	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"reflect"
+	"regexp"
 	"strings"
 	"sync"
 	"testing"
+	"time"
 )
 
-type bufferWriteCloser struct{ bytes.Buffer }
-
-func (b *bufferWriteCloser) Close() error { return nil }
-
-func TestBuildCodexLaunchCommandKeepsTokenOutOfArgv(t *testing.T) {
-	got := buildCodexLaunchCommand(
-		"/opt/officraft/ocwarden",
-		"/opt/homebrew/bin/codex",
-		"/tmp/member-m-1",
-		"/tmp/member-m-1/persona.md",
-		"/tmp/member-m-1/.oc-token",
-		"m-1",
-		"http://127.0.0.1:7755",
-		"member-m-1",
-		"officraft-e2e",
-		"",
-		"high",
-		nil,
-		"",
-		nil,
-	)
-	for _, want := range []string{
-		`OC_TOKEN="$(/bin/cat /tmp/member-m-1/.oc-token)"`,
-		"exec /opt/officraft/ocwarden codex-session",
-		"--codex-bin /opt/homebrew/bin/codex",
-		"--effort high",
-		"OC_ID=m-1",
-		"OC_TMUX_SOCKET=officraft-e2e",
-	} {
-		if !strings.Contains(got, want) {
-			t.Fatalf("launch command missing %q:\n%s", want, got)
-		}
-	}
-	if strings.Contains(got, "Bearer ") {
-		t.Fatalf("launch argv must not carry credential material: %s", got)
-	}
-}
-
-func TestNormalizeCodexEffort(t *testing.T) {
-	// The `recognised` half is the load-bearing one and the reason this map is
-	// pairs rather than strings: the launch VALUE for an unknown level is
-	// "medium", which is byte-identical to a member genuinely configured at
-	// medium. Only the flag separates them, so a test that pinned the string
-	// alone was blind to the exact defect this func was found to have (T-dbd4:
-	// a new level selectable in the cockpit, stored, read back, and launched at
-	// medium with nothing going red).
-	//
-	// This map is an ALLOWLIST, not a ladder: a level missing from the accepted
-	// arm is not nudged down a notch, it lands in the same catch-all as a typo.
-	// It is also NOT exhaustive over the vocabulary — bin/effort-vocab-guard.py
-	// is what pins this func against server/ocserverd/api_helpers.go:validEffort,
-	// and adding a level here without adding it there (or vice versa) reddens
-	// `make lint-effort-vocab`, not this test.
-	for input, want := range map[string]struct {
-		level      string
-		recognised bool
-	}{
-		"":       {"medium", true},
-		"low":    {"low", true},
-		"medium": {"medium", true},
-		"high":   {"high", true},
-		"xhigh":  {"xhigh", true},
-		"max":    {"max", true},
-		// Unknown: still launched at medium (a warden older than its server must
-		// boot the member rather than refuse it), but never SILENTLY.
-		"extreme": {"medium", false},
-	} {
-		level, recognised := normalizeCodexEffort(input)
-		if level != want.level || recognised != want.recognised {
-			t.Errorf("%q: got (%q, %v) want (%q, %v)",
-				input, level, recognised, want.level, want.recognised)
-		}
-	}
-}
-
-func TestBuildCodexLaunchCommandAnnouncesAnUnknownEffort(t *testing.T) {
-	// An unknown level reaching the launcher is invisible from the cockpit: the
-	// member still shows the effort the owner picked while the session runs at
-	// medium. The diagnostic line is the ONLY place that difference exists, so
-	// its absence is the bug, not a missing nicety.
-	build := func(effort string) (string, []string) {
-		var lines []string
-		cmd := buildCodexLaunchCommand(
-			"/opt/officraft/ocwarden", "/opt/homebrew/bin/codex", "/tmp/member-m-1",
-			"/tmp/member-m-1/persona.md", "/tmp/member-m-1/.oc-token", "m-1",
-			"http://127.0.0.1:7755", "member-m-1", "officraft-e2e", "", effort, nil, "",
-			func(format string, a ...any) { lines = append(lines, fmt.Sprintf(format, a...)) },
-		)
-		return cmd, lines
-	}
-
-	cmd, lines := build("extreme")
-	if !strings.Contains(cmd, "--effort medium") {
-		t.Fatalf("an unknown effort must still launch, at medium:\n%s", cmd)
-	}
-	if len(lines) != 1 {
-		t.Fatalf("an unknown effort must be announced exactly once, got %d line(s): %v",
-			len(lines), lines)
-	}
-	for _, want := range []string{"extreme", "medium"} {
-		if !strings.Contains(lines[0], want) {
-			t.Errorf("the announcement must name %q so the reader can tell WHICH "+
-				"level was dropped and what ran instead; got: %s", want, lines[0])
-		}
-	}
-
-	// Negative control: a configured level must stay silent, or the line is noise
-	// everyone learns to scroll past.
-	//
-	// The loop variable is named for the vocabulary on purpose: effort-vocab-guard
-	// discovers copies by shape on a line that also says "effort", so a list named
-	// `quiet` is a copy of the vocabulary that the guard cannot see. The blank
-	// default is asserted separately rather than as the list's first element —
-	// the guard's array-literal shape cannot start on an empty string, so a list
-	// beginning with "" is invisible to it whatever the name.
-	for _, quietEffort := range []string{"low", "medium", "high", "xhigh", "max"} {
-		if _, lines := build(quietEffort); len(lines) != 0 {
-			t.Errorf("effort %q is a level this warden knows; it must launch "+
-				"silently, got: %v", quietEffort, lines)
-		}
-	}
-	if _, lines := build(""); len(lines) != 0 {
-		t.Errorf("the historic blank default must launch silently, got: %v", lines)
-	}
-}
-
-// lockedBuffer is a bytes.Buffer that survives being written from more than one
-// goroutine — see the comment at its only use site.
+// lockedBuffer is a bytes.Buffer safe for the two writers runCodexSession gives
+// it in a test: the sidecar itself, and the goroutine os/exec starts to copy the
+// child's stderr into any writer that is not an *os.File.
 type lockedBuffer struct {
 	mu  sync.Mutex
 	buf bytes.Buffer
@@ -162,922 +38,1804 @@ func (b *lockedBuffer) String() string {
 	return b.buf.String()
 }
 
-func TestRunCodexSessionAnnouncesAnUnknownEffort(t *testing.T) {
-	// The SECOND normalisation, and the one buildCodexLaunchCommand's test cannot
-	// reach: `ocwarden codex-session --effort <x>` is a subcommand, so its effort
-	// can arrive from an operator's hand or an older launch line, not only from
-	// the launcher above. Both halves coerce; both must say so.
-	//
-	// The stub app-server exits immediately, so the session gets EOF on the first
-	// response it waits for and returns without burning the app-server timeout.
-	// Everything asserted here is already on `out` by then: the effort line is
-	// emitted before `initialize` is even sent.
-	run := func(effort string) string {
-		dir := t.TempDir()
-		stub := filepath.Join(dir, "codex-stub")
-		if err := os.WriteFile(stub, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
-			t.Fatalf("write stub app-server: %v", err)
-		}
-		persona := filepath.Join(dir, "persona.md")
-		if err := os.WriteFile(persona, []byte("persona\n"), 0o644); err != nil {
-			t.Fatalf("write persona: %v", err)
-		}
-		// codexAccountKey() reads ~/.codex/auth.json, which holds live credentials
-		// on a developer machine. Point HOME at the temp dir before it runs.
-		t.Setenv("HOME", dir)
-		// NOT a bare bytes.Buffer. runCodexSession hands the same writer to
-		// cmd.Stderr, and os/exec copies a non-*os.File stderr on its own
-		// goroutine — so an unsynchronised buffer races with the session's own
-		// writes and silently LOSES lines. It loses exactly the lines this test
-		// exists to see, which reads as a missing announcement rather than as a
-		// broken harness.
-		out := &lockedBuffer{}
-		runCodexSession([]string{
-			"--codex-bin", stub, "--workdir", dir, "--persona", persona,
-			"--agent-id", "m-1", "--effort", effort,
-		}, func(string) string { return "" }, out)
-		return out.String()
-	}
+// codexPipe is the App Server's stdin as a test sees it: everything the sidecar
+// wrote, verbatim.
+type codexPipe struct{ *bytes.Buffer }
 
-	got := run("bogus")
-	if !strings.Contains(got, "is not a level this warden knows") {
-		t.Fatalf("an unknown --effort was coerced SILENTLY: the pane is the only "+
-			"place this difference exists, and nothing named it.\n%s", got)
-	}
-	for _, want := range []string{"bogus", "medium"} {
-		if !strings.Contains(got, want) {
-			t.Errorf("the announcement must name %q so the reader can tell WHICH "+
-				"level was dropped and what actually ran; got:\n%s", want, got)
-		}
-	}
+func (codexPipe) Close() error { return nil }
 
-	// Negative control: a level this warden knows must run silently, or the line
-	// is noise everyone learns to scroll past. Named for the vocabulary so the
-	// guard can see this copy — see the note on the launcher's negative control.
-	for _, quietEffort := range []string{"low", "medium", "high", "xhigh", "max"} {
-		if out := run(quietEffort); strings.Contains(out, "is not a level this warden knows") {
-			t.Errorf("effort %q is a level this warden knows; it must run "+
-				"silently, got:\n%s", quietEffort, out)
-		}
-	}
-	// The blank default reaches this subcommand too, and it is a level the warden
-	// knows; the launcher's negative control asserts the same for its own half.
-	if out := run(""); strings.Contains(out, "is not a level this warden knows") {
-		t.Errorf("the historic blank default is a level this warden knows; it must "+
-			"run silently, got:\n%s", out)
-	}
+// codexTestSession is a sidecar wired to in-memory pipes: `in` collects the
+// JSON-RPC bytes it sends the App Server, `pane` the tmux-visible activity log,
+// and `acks` the listener verdicts.
+type codexTestSession struct {
+	*codexSession
+	in   *bytes.Buffer
+	pane *bytes.Buffer
+	acks *bytes.Buffer
 }
 
-func TestCodexPersonaInstructionPreservesBlankModelDefault(t *testing.T) {
-	blank := codexPersonaInstruction("/private/persona.md", "")
-	for _, want := range []string{
-		"Read /private/persona.md completely",
-		"machine's Codex default applies",
-		"If your role's boot sequence calls report_waking",
-		"omit its optional model argument",
-		"never guess",
-	} {
-		if !strings.Contains(blank, want) {
-			t.Fatalf("blank-model instruction missing %q: %s", want, blank)
-		}
-	}
-	explicit := codexPersonaInstruction("/private/persona.md", "gpt-5.6-terra")
-	if !strings.Contains(explicit, "explicit OffiCraft launch model is gpt-5.6-terra") ||
-		!strings.Contains(explicit, "pass that exact value") ||
-		!strings.Contains(explicit, "Follow your role-specific boot sequence") {
-		t.Fatalf("explicit-model instruction must pin report_waking: %s", explicit)
-	}
-}
-
-func TestRequestUserInputRefusesToOpenCardsAndTellsCodexToOpenItsOwn(t *testing.T) {
-	// The warden holds no task_id or step_id, so it can no longer open a card at
-	// all: create_reply_card requires an explicit linked_task (T-18). It must put
-	// NOTHING on the wire and answer Codex with the instruction instead.
-	var posted []string
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		posted = append(posted, r.URL.Path)
-		w.WriteHeader(http.StatusOK)
-	}))
-	defer server.Close()
-
-	out := &bufferWriteCloser{}
-	session := &codexSession{in: out, base: server.URL, token: "member-token"}
-	session.handleServerRequest(appServerMessage{
-		"id": "server-request-7", "method": "item/tool/requestUserInput",
-		"params": map[string]any{"questions": []any{
-			map[string]any{
-				"id": "q1", "header": "Choose", "question": "Which path?",
-				"options": []any{map[string]any{"label": "A"}, map[string]any{"label": "B"}},
-			},
-			map[string]any{
-				"id": "q2", "header": "Credential", "question": "Paste the token",
-				"isSecret": true,
-			},
-		}},
-	})
-	if len(posted) != 0 {
-		t.Fatalf("the warden must open no card of its own; it posted to %v", posted)
-	}
-
-	response, err := io.ReadAll(out)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var decoded map[string]any
-	if err := json.Unmarshal(bytes.TrimSpace(response), &decoded); err != nil {
-		t.Fatalf("decode App Server response: %v (%s)", err, response)
-	}
-	if decoded["id"] != "server-request-7" {
-		t.Fatalf("server request id was not echoed exactly: %#v", decoded)
-	}
-	result, _ := decoded["result"].(map[string]any)
-	answers, _ := result["answers"].(map[string]any)
-	if len(answers) != 2 {
-		t.Fatalf("every question must be answered: %#v", answers)
-	}
-	text := func(qid string) string {
-		one, _ := answers[qid].(map[string]any)
-		list, _ := one["answers"].([]any)
-		if len(list) != 1 {
-			t.Fatalf("%s: want exactly one answer line, got %#v", qid, one)
-		}
-		line, _ := list[0].(string)
-		return line
-	}
-	for _, qid := range []string{"q1", "q2"} {
-		for _, want := range []string{
-			"does not open reply cards on your behalf",
-			"create_reply_card",
-			"linked_task is required",
-		} {
-			if !strings.Contains(text(qid), want) {
-				t.Fatalf("%s must be told to open its own card (missing %q): %s", qid, want, text(qid))
-			}
-		}
-	}
-	// 🔴 THE LOAD-BEARING HALF. The warden used to run the isSecret check itself
-	// and write "do not paste the secret into the card" into the card body. That
-	// path is gone, so the warning has to travel in THIS text — without it Codex
-	// opens its own card for a credential with nothing telling it not to type the
-	// secret into the body, and the loss would be completely silent.
-	if !strings.Contains(text("q2"), "不要把秘密貼進卡片") {
-		t.Fatalf("a secret request must still carry the no-secret warning: %s", text("q2"))
-	}
-	if strings.Contains(text("q1"), "不要把秘密貼進卡片") {
-		t.Fatalf("the warning must ride only the secret question: %s", text("q1"))
-	}
-}
-
-func TestReportTokenUsageUsesLatestTurnForContextGauge(t *testing.T) {
-	var contextBody map[string]any
-	var telemetryBody map[string]any
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		var body map[string]any
-		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-			t.Errorf("decode %s: %v", r.URL.Path, err)
-		}
-		switch r.URL.Path {
-		case "/api/agent/context":
-			contextBody = body
-		case "/api/monitoring/telemetry":
-			telemetryBody = body
-		default:
-			t.Errorf("unexpected path %s", r.URL.Path)
-		}
-		w.WriteHeader(http.StatusOK)
-	}))
-	defer server.Close()
-
-	session := &codexSession{base: server.URL, token: "member-token", effort: "low"}
-	session.reportTokenUsage(map[string]any{
-		"tokenUsage": map[string]any{
-			"modelContextWindow": float64(1000),
-			"last":               map[string]any{"totalTokens": float64(250)},
-			"total": map[string]any{
-				"inputTokens": float64(1100), "cachedInputTokens": float64(700),
-				"outputTokens": float64(50), "reasoningOutputTokens": float64(20),
-				"totalTokens": float64(1150),
-			},
+func newCodexTestSession() *codexTestSession {
+	in, pane, acks := &bytes.Buffer{}, &bytes.Buffer{}, &bytes.Buffer{}
+	return &codexTestSession{
+		codexSession: &codexSession{
+			in: codexPipe{in}, out: pane, ackTo: acks,
+			threadID: "th_1", effort: "medium",
 		},
-	})
-	if got := contextBody["context_pct"]; got != float64(25) {
-		t.Fatalf("context_pct = %#v, want latest-turn 25 (not cumulative 115)", got)
-	}
-	if got := contextBody["compaction_count"]; got != float64(0) {
-		t.Fatalf("compaction_count = %#v, want 0 before any compaction", got)
-	}
-	tokens, _ := telemetryBody["tokens"].(map[string]any)
-	if got := tokens["totalTokens"]; got != float64(1150) {
-		t.Fatalf("telemetry totalTokens = %#v, want cumulative thread total", got)
+		in: in, pane: pane, acks: acks,
 	}
 }
 
-func TestCodexPostsRecordRejectedResponsesWithoutChangingControlFlow(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusUnprocessableEntity)
-	}))
-	defer server.Close()
+// sent decodes every JSON-RPC message the sidecar wrote to the App Server.
+func (s *codexTestSession) sent(t *testing.T) []map[string]any {
+	t.Helper()
+	var out []map[string]any
+	for _, line := range strings.Split(strings.TrimSpace(s.in.String()), "\n") {
+		if line == "" {
+			continue
+		}
+		var msg map[string]any
+		if err := json.Unmarshal([]byte(line), &msg); err != nil {
+			t.Fatalf("the sidecar wrote a line that is not JSON: %q (%v)", line, err)
+		}
+		out = append(out, msg)
+	}
+	return out
+}
 
-	var activity bytes.Buffer
-	session := &codexSession{base: server.URL, token: "member-token", out: &activity}
-	session.post("/api/monitoring/telemetry", map[string]any{"runtime": "codex"})
-	for _, want := range []string{
-		"Codex POST /api/monitoring/telemetry rejected with HTTP 422",
-	} {
-		if !strings.Contains(activity.String(), want) {
-			t.Fatalf("missing rejection activity %q in %q", want, activity.String())
+// paneLines strips the wall-clock stamp every activity line carries so the text
+// itself can be compared literally.
+func (s *codexTestSession) paneLines(t *testing.T) []string {
+	t.Helper()
+	stamp := regexp.MustCompile(`^\d{2}:\d{2}:\d{2} \[codex\] `)
+	var out []string
+	for _, line := range strings.Split(strings.TrimSuffix(s.pane.String(), "\n"), "\n") {
+		if line == "" {
+			continue
+		}
+		if !stamp.MatchString(line) {
+			t.Fatalf("activity line %q is not stamped `HH:MM:SS [codex] `", line)
+		}
+		out = append(out, stamp.ReplaceAllString(line, ""))
+	}
+	return out
+}
+
+func TestBuildCodexLaunchCommand(t *testing.T) {
+	build := func(effort string) (string, []string) {
+		var logged []string
+		cmd := buildCodexLaunchCommand(
+			"/usr/local/bin/ocwarden", "/opt/homebrew/bin/codex", "/Users/seth/work/ow-1",
+			"/Users/seth/work/ow-1/PERSONA.md", "/Users/seth/work/ow-1/.token",
+			"ow-1", "https://officraft.example", "oc-ow-1", "/tmp/oc.sock",
+			"gpt-5-codex", effort,
+			[][2]string{{"OC_ROLE", "builder"}, {"OC_NOTE", "it's fine"}},
+			"/Users/seth/work/ow-1/.env",
+			func(format string, a ...any) { logged = append(logged, fmt.Sprintf(format, a...)) },
+		)
+		return cmd, logged
+	}
+
+	const goldenPrefix = "cd /Users/seth/work/ow-1; " +
+		"[ -f /Users/seth/work/ow-1/.env ] && . /Users/seth/work/ow-1/.env; " +
+		`export OC_TOKEN="$(/bin/cat /Users/seth/work/ow-1/.token)" ` +
+		"OC_BASE=https://officraft.example OC_ID=ow-1 OC_SESSION=oc-ow-1 " +
+		"OC_TMUX_SOCKET=/tmp/oc.sock OC_ROLE=builder OC_NOTE='it'\"'\"'s fine'; " +
+		`export PATH=/Users/seth/work/ow-1:"$PATH"; ` +
+		"exec /usr/local/bin/ocwarden codex-session " +
+		"--codex-bin /opt/homebrew/bin/codex " +
+		"--workdir /Users/seth/work/ow-1 " +
+		"--persona /Users/seth/work/ow-1/PERSONA.md " +
+		"--agent-id ow-1 --model gpt-5-codex --effort "
+
+	const unknownEffortLog = `codex launch: effort "extreme" is not a level this warden knows; ` +
+		`launching at "medium". The cockpit will keep showing "extreme", so this line is the ` +
+		`only place the difference is visible — upgrade the warden if the server has grown a level.`
+
+	t.Run("an effort this warden does not know still launches, at medium, and is announced once", func(t *testing.T) {
+		got, logged := build("extreme")
+
+		if want := goldenPrefix + "medium"; got != want {
+			t.Errorf("buildCodexLaunchCommand =\n%q\nwant\n%q", got, want)
+		}
+		if want := []string{unknownEffortLog}; !reflect.DeepEqual(logged, want) {
+			t.Errorf("diagnostics =\n%q\nwant\n%q", logged, want)
+		}
+	})
+
+	t.Run("every effort this warden knows reaches the sidecar verbatim and silently", func(t *testing.T) {
+		for _, tc := range []struct{ in, want string }{
+			{"low", "low"},
+			{"medium", "medium"},
+			{"high", "high"},
+			{"xhigh", "xhigh"},
+			{"max", "max"},
+			{"  high  ", "high"},
+			{"", "medium"},
+		} {
+			got, logged := build(tc.in)
+
+			if want := goldenPrefix + tc.want; got != want {
+				t.Errorf("effort %q: buildCodexLaunchCommand =\n%q\nwant\n%q", tc.in, got, want)
+			}
+			if len(logged) != 0 {
+				t.Errorf("effort %q is a level this warden knows, but it announced %q", tc.in, logged)
+			}
+		}
+	})
+
+	t.Run("a launch without a diagnostic channel survives an effort this warden does not know", func(t *testing.T) {
+		got := buildCodexLaunchCommand(
+			"/usr/local/bin/ocwarden", "/opt/homebrew/bin/codex", "/w", "/w/P.md", "/w/.token",
+			"ow-2", "https://x.test", "oc-ow-2", "/tmp/s.sock", "", "extreme", nil, "", nil,
+		)
+
+		want := "cd /w; " +
+			`export OC_TOKEN="$(/bin/cat /w/.token)" OC_BASE=https://x.test OC_ID=ow-2 ` +
+			"OC_SESSION=oc-ow-2 OC_TMUX_SOCKET=/tmp/s.sock; " +
+			`export PATH=/w:"$PATH"; ` +
+			"exec /usr/local/bin/ocwarden codex-session --codex-bin /opt/homebrew/bin/codex " +
+			"--workdir /w --persona /w/P.md --agent-id ow-2 --model '' --effort medium"
+		if got != want {
+			t.Errorf("buildCodexLaunchCommand =\n%q\nwant\n%q", got, want)
+		}
+	})
+}
+
+func TestNormalizeCodexEffort(t *testing.T) {
+	cases := []struct {
+		in    string
+		want  string
+		known bool
+	}{
+		{"low", "low", true},
+		{"medium", "medium", true},
+		{"high", "high", true},
+		{"xhigh", "xhigh", true},
+		{"max", "max", true},
+		{"  high  ", "high", true},
+		{"", "medium", true},
+		{"   ", "medium", true},
+		{"HIGH", "medium", false},
+		{"extreme", "medium", false},
+		{"minimal", "medium", false},
+	}
+	for _, tc := range cases {
+		got, known := normalizeCodexEffort(tc.in)
+		if got != tc.want || known != tc.known {
+			t.Errorf("normalizeCodexEffort(%q) = (%q, %v), want (%q, %v)",
+				tc.in, got, known, tc.want, tc.known)
 		}
 	}
 }
 
-// TestReportTokenUsageSendsSessionModel pins the codex half of the reported-model
-// telemetry. This sidecar is the only thing on the codex path that knows which
-// model the session is running, so without it the cockpit's 模型 column has no
-// reported value for ANY codex session — and since that column no longer falls
-// back to the configured launch model, "no reporter" now means "blank forever".
-//
-// The blank case is the load-bearing one: an empty s.model means the OffiCraft
-// launch model was unset and the machine's own Codex default is in force, i.e.
-// the name is genuinely unknown. It must be OMITTED, because sending "" would
-// record that unknown as a reported blank — the exact "measured" vs "never
-// measured" collapse the field exists to end.
-//
-// ⚠️ COVERAGE NOTE, same caveat as the ocagent twin: only the first case could
-// have failed before this change — the sidecar sent no `model` key at all, so
-// both `want: nil` cases were vacuously true. They guard omit-vs-blank within
-// the new design (which the server's stamp guard relies on), not the fact that
-// the field is sent.
-func TestReportTokenUsageSendsSessionModel(t *testing.T) {
-	for _, tc := range []struct {
-		name  string
-		model string
-		want  any
-	}{
-		{name: "configured model is reported", model: "gpt-5-codex", want: "gpt-5-codex"},
-		{name: "blank is omitted, never a reported blank", model: "", want: nil},
-		{name: "whitespace is not a model name", model: "   ", want: nil},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			var telemetryBody map[string]any
-			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				var body map[string]any
-				if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-					t.Errorf("decode %s: %v", r.URL.Path, err)
-				}
-				if r.URL.Path == "/api/monitoring/telemetry" {
-					telemetryBody = body
-				}
-				w.WriteHeader(http.StatusOK)
-			}))
-			defer server.Close()
+func TestCodexPersonaInstruction(t *testing.T) {
+	const head = "Read /w/PERSONA.md completely before acting. It is your OffiCraft identity and " +
+		"operating context. Never use request_user_input for normal questions; create an OffiCraft " +
+		"reply card instead. "
 
-			session := &codexSession{base: server.URL, token: "member-token",
-				effort: "low", model: tc.model}
-			session.reportTokenUsage(map[string]any{
-				"tokenUsage": map[string]any{
-					"modelContextWindow": float64(1000),
-					"last":               map[string]any{"totalTokens": float64(250)},
-					"total":              map[string]any{"totalTokens": float64(1150)},
-				},
-			})
-			if telemetryBody == nil {
-				t.Fatalf("no telemetry POST")
-			}
-			if got := telemetryBody["model"]; got != tc.want {
-				t.Errorf("telemetry model = %#v, want %#v; body=%#v",
-					got, tc.want, telemetryBody)
+	if got, want := codexPersonaInstruction("/w/PERSONA.md", "gpt-5-codex"), head+
+		"The explicit OffiCraft launch model is gpt-5-codex. If your role's boot sequence calls "+
+		"report_waking, pass that exact value as its model argument. Follow your role-specific "+
+		"boot sequence when it says not to call report_waking."; got != want {
+		t.Errorf("codexPersonaInstruction with an explicit model =\n%q\nwant\n%q", got, want)
+	}
+
+	blank := head + "The OffiCraft launch model setting is blank, so the machine's Codex default " +
+		"applies. If your role's boot sequence calls report_waking, omit its optional model " +
+		"argument; never guess or persist a model name."
+	if got := codexPersonaInstruction("/w/PERSONA.md", ""); got != blank {
+		t.Errorf("codexPersonaInstruction with a blank model =\n%q\nwant\n%q", got, blank)
+	}
+	if got := codexPersonaInstruction("/w/PERSONA.md", "   "); got != blank {
+		t.Errorf("codexPersonaInstruction with a whitespace model =\n%q\nwant\n%q", got, blank)
+	}
+}
+
+// codexIDToken assembles a JWT-shaped id_token around a payload; the signature
+// is never verified so any third segment does.
+func codexIDToken(payload string) string {
+	return "eyJhbGciOiJSUzI1NiJ9." +
+		base64.RawURLEncoding.EncodeToString([]byte(payload)) + ".sig"
+}
+
+// The digest of "officraft-codex-account-v2:user_abc123".
+const codexKeyForUserABC = "codex:0b7f6a11d109c50695fe9b42805f49d0bbeede516fc7864f03554d271ebac76b"
+
+func TestCodexUserIDFromIDToken(t *testing.T) {
+	cases := []struct{ name, token, want string }{
+		{name: "empty", token: ""},
+		{name: "not three segments", token: "a.b"},
+		{name: "four segments", token: "a.b.c.d"},
+		{name: "payload is not base64url", token: "a.!!!.c"},
+		{name: "payload is not json", token: "a." + base64.RawURLEncoding.EncodeToString([]byte("nope")) + ".c"},
+		{name: "payload is not an object", token: codexIDToken(`["user_abc123"]`)},
+		{name: "the auth claim is missing", token: codexIDToken(`{"sub":"google-oauth2|1","email":"seth@x.test"}`)},
+		{name: "the auth claim carries no user id", token: codexIDToken(
+			`{"https://api.openai.com/auth":{"chatgpt_account_id":"acct_1"}}`)},
+		{name: "a blank user id is no user id", token: codexIDToken(
+			`{"https://api.openai.com/auth":{"chatgpt_user_id":"   "}}`)},
+		{
+			name: "the per-person claim",
+			token: codexIDToken(`{"https://api.openai.com/auth":{"chatgpt_user_id":" user_abc123 ",` +
+				`"chatgpt_account_id":"acct_shared","user_id":"user_abc123"},"sub":"google-oauth2|1"}`),
+			want: "user_abc123",
+		},
+		{
+			name:  "padded base64 is still decoded",
+			token: "h." + base64.URLEncoding.EncodeToString([]byte(`{"https://api.openai.com/auth":{"chatgpt_user_id":"user_abc123"}}`)) + ".s",
+			want:  "user_abc123",
+		},
+		{
+			name:  "surrounding whitespace on the token itself",
+			token: "  " + codexIDToken(`{"https://api.openai.com/auth":{"chatgpt_user_id":"user_abc123"}}`) + "\n",
+			want:  "user_abc123",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := codexUserIDFromIDToken(tc.token); got != tc.want {
+				t.Errorf("codexUserIDFromIDToken = %q, want %q", got, tc.want)
 			}
 		})
 	}
 }
 
-func TestRecordCompactionCountsOnlyContextCompactionItems(t *testing.T) {
-	session := &codexSession{}
-	session.recordCompaction(map[string]any{"item": map[string]any{"type": "agentMessage"}})
-	session.recordCompaction(map[string]any{"item": map[string]any{"type": "contextCompaction", "id": "compact-1"}})
-	session.recordCompaction(map[string]any{"item": map[string]any{"type": "contextCompaction", "id": "compact-1"}})
-	session.recordCompaction(map[string]any{"item": map[string]any{"type": "contextCompaction"}})
-	if session.compactions != 1 {
-		t.Fatalf("compactions = %d, want 1 unique item", session.compactions)
-	}
-}
-
-func TestActionableCodexListenerLineFiltersTransportDiagnostics(t *testing.T) {
-	// The `connected` line is the owner's second endpoint notice since the
-	// disconnect-notice policy (2026-08-30) and is now forwarded; the retry
-	// chatter around it still is not. The full policy table lives in
-	// codex_notice_test.go — this one keeps the ORIGINAL question it was written
-	// for: ordinary events pass, transport chatter does not.
-	for line, want := range map[string]bool{
-		"[ocagent] listen: connected — streaming http://127.0.0.1": true,
-		"[ocagent] listen: stream ended: EOF":                      false,
-		"[ocagent] chat from owner (#CM-9F2A11, 1s ago): hello":    true,
-		"[ocagent] task T-1 updated · by owner":                    true,
-	} {
-		if got := actionableCodexListenerLine(line); got != want {
-			t.Errorf("%q: got %v want %v", line, got, want)
-		}
-	}
-}
-
-// A codex agent only ever runs when a listener line becomes a turn, and the
-// "connected" line is deliberately filtered out of that path. So the moment SSE
-// comes up — the moment its boot document says to carry on with the task
-// inventory — nothing calls it, and a session that never continues looks exactly
-// like a session with nothing to do. This pins the wake that closes that gap,
-// and pins that it happens once: a reconnect is a network blip, and re-sending
-// "go do your inventory" would interrupt whatever the agent is doing by then.
-func TestCodexListenerActionsWakesTheSessionOnceWhenSSEComesUp(t *testing.T) {
-	const connected = "[ocagent] listen: connected — streaming http://127.0.0.1"
-
-	wake, forward := codexListenerActions(connected, false)
-	if !wake {
-		t.Error("SSE came up and nothing woke the session; its boot stops at the " +
-			"step before the task inventory and nothing reports it")
-	}
-	if forward {
-		t.Error("the transport diagnostic itself was forwarded as a turn")
-	}
-
-	if wake, _ := codexListenerActions(connected, true); wake {
-		t.Error("a reconnect woke the session again; the boot it exists to finish " +
-			"is long over by then and the extra turn interrupts real work")
-	}
-
-	// Negative control: an ordinary event is forwarded and wakes nothing, so the
-	// assertions above are about the connect line rather than about any line.
-	wake, forward = codexListenerActions("[ocagent] chat from owner (#c-1, 1s ago): hi", false)
-	if wake || !forward {
-		t.Errorf("ordinary event: wake=%v forward=%v, want false/true", wake, forward)
-	}
-}
-
-// The BEHAVIOUR, not the decision table. Independent review (T-99a6) deleted
-// the wake call from the listener loop, and then the once-only flag write, and
-// the whole ocwarden suite stayed green both times: the truth table above says
-// what should happen and nothing said it happened. This drives the real branch
-// and records the turns that were actually opened.
-func TestListenerLoopOpensTheWakeTurnExactlyOnce(t *testing.T) {
-	const connected = "[ocagent] listen: connected — streaming http://127.0.0.1"
-	const event = "[ocagent] chat from owner (#c-1, 1s ago): hi"
-
-	var turns []string
-	connects := 0
-	st := &codexListenerState{}
-	feed := func(line string) {
-		st.handleListenerLine(line, func() { connects++ }, func(text string) {
-			turns = append(turns, text)
-		}, nil)
-	}
-
-	feed(connected)
-	if len(turns) != 1 || turns[0] != codexPostBootWake {
-		t.Fatalf("SSE came up and the session was not woken; turns=%q", turns)
-	}
-
-	feed(connected) // a reconnect
-	// The BOOT wake is still once-only. Since the disconnect-notice policy
-	// (2026-08-30) the reconnect does reach the agent — as the listener's own
-	// one-line notice, which is what the owner asked for — but it must never be
-	// the boot instruction again.
-	for _, turn := range turns[1:] {
-		if turn == codexPostBootWake {
-			t.Errorf("a reconnect opened another BOOT wake; turns=%q — the boot it "+
-				"exists to finish is long over by then", turns)
-		}
-	}
-	if len(turns) != 2 || turns[1] != connected {
-		t.Errorf("a reconnect must reach the agent as the notice line itself; turns=%q", turns)
-	}
-	if connects != 2 {
-		t.Errorf("telemetry must still fire on every connect, got %d", connects)
-	}
-
-	feed(event)
-	if len(turns) != 3 || turns[2] != event {
-		t.Errorf("an ordinary event must still be forwarded as its own turn; turns=%q", turns)
-	}
-}
-
-// The other order: an event that arrives BEFORE the stream is announced must not
-// consume the one wake. Without this, "exactly once" could be satisfied by a
-// flag that any line sets.
-func TestListenerLoopStillWakesAfterAnEarlierEvent(t *testing.T) {
-	var turns []string
-	st := &codexListenerState{}
-	feed := func(line string) {
-		st.handleListenerLine(line, func() {}, func(text string) { turns = append(turns, text) }, nil)
-	}
-
-	feed("[ocagent] task T-1 updated · by owner")
-	feed("[ocagent] listen: connected — streaming http://127.0.0.1")
-
-	if len(turns) != 2 || turns[1] != codexPostBootWake {
-		t.Fatalf("the wake was lost to an earlier event; turns=%q", turns)
-	}
-}
-
-type runtimeProbeRunner struct{}
-
-func (runtimeProbeRunner) Run(name string, args ...string) (string, error) {
-	joined := strings.Join(args, " ")
-	switch {
-	case strings.HasSuffix(name, "codex") && joined == "--version":
-		return "codex-cli 0.145.0", nil
-	case strings.HasSuffix(name, "codex") && joined == "login status":
-		return "Logged in", nil
-	default:
-		return "", errors.New("unexpected")
-	}
-}
-
-func TestRuntimeCapabilitiesShape(t *testing.T) {
-	codexPath := filepath.Join(t.TempDir(), "codex")
-	if err := os.WriteFile(codexPath, []byte("#!/bin/sh\n"), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	env := func(key string) string {
-		switch key {
-		case "OC_CODEX_BIN":
-			return codexPath
-		case "HOME":
-			return "/tmp"
-		default:
-			return ""
-		}
-	}
-	got := collectRuntimeCapabilities(env, runtimeProbeRunner{}, map[string]any{}, nil)
-	codex := got["codex"].(map[string]any)
-	if installed, _ := codex["installed"].(bool); !installed {
-		t.Fatalf("executable Codex override must report installed: %#v", codex)
-	}
-	if loggedIn, _ := codex["logged_in"].(bool); !loggedIn {
-		t.Fatalf("successful login probe must report logged in: %#v", codex)
-	}
-	if codex["version"] != "0.145.0" {
-		t.Fatalf("unexpected Codex version capability: %#v", codex)
-	}
-}
-
-// ---------------------------------------------------------------------------
-// codexAccountKey: the monitoring key must identify the PERSON, not the
-// ChatGPT workspace. Every fixture below is obviously synthetic; these tests
-// must never touch the real ~/.codex/auth.json, which holds live credentials.
-// ---------------------------------------------------------------------------
-
-// fakeIDToken builds an unsigned, obviously-fake JWT. The signature segment is
-// a literal placeholder: nothing in the production path verifies it.
-func fakeIDToken(t *testing.T, claims map[string]any) string {
-	t.Helper()
-	header, err := json.Marshal(map[string]any{"alg": "RS256", "typ": "JWT"})
-	if err != nil {
-		t.Fatalf("marshal header: %v", err)
-	}
-	payload, err := json.Marshal(claims)
-	if err != nil {
-		t.Fatalf("marshal payload: %v", err)
-	}
-	enc := base64.RawURLEncoding
-	return enc.EncodeToString(header) + "." + enc.EncodeToString(payload) + ".not-a-real-signature"
-}
-
-// codexClaims is the shape of a real Codex id_token payload, with fake values.
-func codexClaims(chatgptUserID, workspaceID, email string) map[string]any {
-	return map[string]any{
-		"sub":   "google-oauth2|000000000000000000000",
-		"email": email,
-		"name":  "Fake Person",
-		"sid":   "session-fake",
-		"jti":   "jti-fake",
-		"https://api.openai.com/auth": map[string]any{
-			"chatgpt_user_id":    chatgptUserID,
-			"user_id":            chatgptUserID,
-			"chatgpt_account_id": workspaceID,
-			"chatgpt_plan_type":  "pro",
-			"organizations":      []any{map[string]any{"id": workspaceID, "is_default": true}},
-			"groups":             []any{},
-		},
-	}
-}
-
-// writeCodexHome lays out a fake machine's ~/.codex/auth.json and returns the
-// home directory to feed codexAccountKeyForHome.
-func writeCodexHome(t *testing.T, auth map[string]any) string {
+// stageCodexAuth writes home/.codex/auth.json and returns home.
+func stageCodexAuth(t *testing.T, body string) string {
 	t.Helper()
 	home := t.TempDir()
-	dir := filepath.Join(home, ".codex")
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		t.Fatalf("mkdir .codex: %v", err)
+	if err := os.MkdirAll(filepath.Join(home, ".codex"), 0o700); err != nil {
+		t.Fatalf("stage .codex: %v", err)
 	}
-	raw, err := json.Marshal(auth)
-	if err != nil {
-		t.Fatalf("marshal auth.json: %v", err)
-	}
-	if err := os.WriteFile(filepath.Join(dir, "auth.json"), raw, 0o600); err != nil {
-		t.Fatalf("write auth.json: %v", err)
+	if err := os.WriteFile(filepath.Join(home, ".codex", "auth.json"), []byte(body), 0o600); err != nil {
+		t.Fatalf("stage auth.json: %v", err)
 	}
 	return home
 }
 
-func codexAuthFile(idToken, workspaceID string) map[string]any {
-	return map[string]any{
-		"auth_mode": "chatgpt",
-		"tokens": map[string]any{
-			"id_token":      idToken,
-			"access_token":  "fake-access-token",
-			"refresh_token": "fake-refresh-token",
-			"account_id":    workspaceID,
-		},
-		"last_refresh": "2026-07-27T00:00:00Z",
-	}
-}
+func TestCodexAccountKeyForHome(t *testing.T) {
+	valid := `{"tokens":{"id_token":"` +
+		codexIDToken(`{"https://api.openai.com/auth":{"chatgpt_user_id":"user_abc123"}}`) +
+		`","account_id":"acct_shared"}}`
 
-// SENTINEL 1. This is the defect: two people sharing one ChatGPT workspace used
-// to hash to the same key, so their spend was summed into one row and their
-// separate 5h/7d quotas overwrote each other. Reverting codexAccountKeyForHome
-// to hash tokens.account_id turns this test red.
-func TestCodexAccountKeyDistinguishesTwoPeopleInOneWorkspace(t *testing.T) {
-	const workspace = "11111111-2222-3333-4444-555555555555"
-	sethHome := writeCodexHome(t, codexAuthFile(
-		fakeIDToken(t, codexClaims("user_FAKE00000000000000000001", workspace, "fake.seth@example.invalid")),
-		workspace,
-	))
-	evaHome := writeCodexHome(t, codexAuthFile(
-		fakeIDToken(t, codexClaims("user_FAKE00000000000000000002", workspace, "fake.eva@example.invalid")),
-		workspace,
-	))
-	seth := codexAccountKeyForHome(sethHome)
-	eva := codexAccountKeyForHome(evaHome)
-	if seth == "" || eva == "" {
-		t.Fatalf("both machines must produce a key: seth=%q eva=%q", seth, eva)
-	}
-	if seth == eva {
-		t.Fatalf("two ChatGPT users in one workspace must not share a monitoring key: %q", seth)
-	}
-}
-
-// SENTINEL 2. The property v1 did get right must survive: one person, two
-// machines, one key. The two fixtures differ in everything that is per-machine
-// or per-refresh (access/refresh tokens, session and token ids, issue times,
-// last_refresh) so the assertion is not merely comparing identical inputs.
-//
-// Read this before deleting it: this test has ZERO discriminating power against
-// the workspace-vs-person defect — it stays green under the v1 mutant, because
-// v1 got cross-machine convergence right. Keep it anyway. What it guards is the
-// opposite regression class: someone later re-pointing the hash at a field that
-// churns (sid, jti, iat, at_hash, access_token, last_refresh — all of which this
-// fixture varies), which would silently fork one human into a new monitoring
-// account on every token refresh. SENTINEL 1 is the bug sentinel; this is the
-// don't-break-it-back-the-other-way sentinel.
-func TestCodexAccountKeyIsStableForOnePersonAcrossMachines(t *testing.T) {
-	const workspace = "11111111-2222-3333-4444-555555555555"
-	const person = "user_FAKE00000000000000000001"
-
-	machineA := codexClaims(person, workspace, "fake.seth@example.invalid")
-	machineA["sid"] = "session-machine-a"
-	machineA["jti"] = "jti-machine-a"
-	machineA["iat"] = 1000
-
-	machineB := codexClaims(person, workspace, "fake.seth@example.invalid")
-	machineB["sid"] = "session-machine-b"
-	machineB["jti"] = "jti-machine-b"
-	machineB["iat"] = 2000
-
-	authA := codexAuthFile(fakeIDToken(t, machineA), workspace)
-	authB := codexAuthFile(fakeIDToken(t, machineB), workspace)
-	authB["tokens"].(map[string]any)["access_token"] = "another-fake-access-token"
-	authB["tokens"].(map[string]any)["refresh_token"] = "another-fake-refresh-token"
-	authB["last_refresh"] = "2026-07-28T09:30:00Z"
-
-	keyA := codexAccountKeyForHome(writeCodexHome(t, authA))
-	keyB := codexAccountKeyForHome(writeCodexHome(t, authB))
-	if keyA == "" {
-		t.Fatalf("machine A produced no key")
-	}
-	if keyA != keyB {
-		t.Fatalf("one person on two machines must share one key: %q vs %q", keyA, keyB)
-	}
-}
-
-// The person's key must not move when workspace-scoped attributes change,
-// otherwise a workspace switch silently forks one human's usage history.
-func TestCodexAccountKeyIgnoresWorkspaceScopedFields(t *testing.T) {
-	const person = "user_FAKE00000000000000000001"
-	before := codexAccountKeyForHome(writeCodexHome(t, codexAuthFile(
-		fakeIDToken(t, codexClaims(person, "11111111-2222-3333-4444-555555555555", "fake.seth@example.invalid")),
-		"11111111-2222-3333-4444-555555555555",
-	)))
-	moved := codexClaims(person, "99999999-8888-7777-6666-555555555555", "fake.seth@example.invalid")
-	moved["https://api.openai.com/auth"].(map[string]any)["chatgpt_plan_type"] = "business"
-	after := codexAccountKeyForHome(writeCodexHome(t, codexAuthFile(
-		fakeIDToken(t, moved), "99999999-8888-7777-6666-555555555555",
-	)))
-	if before == "" {
-		t.Fatalf("baseline produced no key")
-	}
-	if before != after {
-		t.Fatalf("workspace change must not fork the person's key: %q vs %q", before, after)
-	}
-}
-
-// The key is an opaque, versioned sha256 of exactly one claim. The expected
-// digest is a literal rather than a recomputation of the production constant,
-// so bumping the version prefix or changing which claim is hashed goes red
-// here instead of passing by agreeing with itself.
-func TestCodexAccountKeyIsAVersionedOpaqueDigest(t *testing.T) {
-	const person = "user_FAKE00000000000000000001"
-	const email = "fake.seth@example.invalid"
-	got := codexAccountKeyForHome(writeCodexHome(t, codexAuthFile(
-		fakeIDToken(t, codexClaims(person, "11111111-2222-3333-4444-555555555555", email)),
-		"11111111-2222-3333-4444-555555555555",
-	)))
-	want := "codex:6e0629091bd61838068baf0b6a6790720345902dee7bf2ab19bd062acf099ed0"
-	if got != want {
-		t.Fatalf("account key digest changed: got %q want %q", got, want)
-	}
-	for _, leak := range []string{person, email, "11111111", "fake-access-token", "fake-refresh-token"} {
-		if strings.Contains(got, leak) {
-			t.Fatalf("key must not carry %q in cleartext: %q", leak, got)
+	t.Run("the same person hashes to the same key on any machine", func(t *testing.T) {
+		one := codexAccountKeyForHome(stageCodexAuth(t, valid))
+		two := codexAccountKeyForHome(stageCodexAuth(t, valid))
+		if one != codexKeyForUserABC || two != codexKeyForUserABC {
+			t.Errorf("codexAccountKeyForHome = %q and %q, want %q on both", one, two, codexKeyForUserABC)
 		}
+	})
+
+	t.Run("a different person hashes to a different key", func(t *testing.T) {
+		other := `{"tokens":{"id_token":"` +
+			codexIDToken(`{"https://api.openai.com/auth":{"chatgpt_user_id":"user_zzz999"}}`) + `"}}`
+		got := codexAccountKeyForHome(stageCodexAuth(t, other))
+		want := "codex:d58f2de4c03c791a9ba9b513e84fd283afc887189fd752fdbbbc6c727cea0d33"
+		if got != want {
+			t.Errorf("codexAccountKeyForHome = %q, want %q", got, want)
+		}
+	})
+
+	t.Run("every unreadable shape reports no account", func(t *testing.T) {
+		cases := []struct{ name, body string }{
+			{name: "auth.json is not json", body: "not json"},
+			{name: "no tokens object", body: `{"other":1}`},
+			{name: "no id_token", body: `{"tokens":{"account_id":"acct_shared"}}`},
+			{name: "id_token is not a jwt", body: `{"tokens":{"id_token":"garbage"}}`},
+			{name: "the workspace id is never a fallback", body: `{"tokens":{"id_token":"` +
+				codexIDToken(`{"https://api.openai.com/auth":{"chatgpt_account_id":"acct_shared"}}`) + `"}}`},
+		}
+		for _, tc := range cases {
+			if got := codexAccountKeyForHome(stageCodexAuth(t, tc.body)); got != "" {
+				t.Errorf("%s: codexAccountKeyForHome = %q, want empty", tc.name, got)
+			}
+		}
+	})
+
+	t.Run("a home with no auth.json reports no account", func(t *testing.T) {
+		if got := codexAccountKeyForHome(t.TempDir()); got != "" {
+			t.Errorf("codexAccountKeyForHome = %q, want empty", got)
+		}
+	})
+}
+
+func TestCodexAccountKey(t *testing.T) {
+	valid := `{"tokens":{"id_token":"` +
+		codexIDToken(`{"https://api.openai.com/auth":{"chatgpt_user_id":"user_abc123"}}`) + `"}}`
+	t.Setenv("HOME", stageCodexAuth(t, valid))
+	if got := codexAccountKey(); got != codexKeyForUserABC {
+		t.Errorf("codexAccountKey = %q, want %q", got, codexKeyForUserABC)
+	}
+
+	t.Setenv("HOME", t.TempDir())
+	if got := codexAccountKey(); got != "" {
+		t.Errorf("codexAccountKey on a machine with no Codex login = %q, want empty", got)
 	}
 }
 
-// Degradation: anything that leaves us without the personal claim yields the
-// empty string ("this machine has no identifiable Codex account"), never a
-// fallback to the workspace id. Each case is paired with a control that proves
-// the assertion is not vacuous.
-func TestCodexAccountKeyDegradesToEmptyRatherThanTheWorkspaceID(t *testing.T) {
-	const workspace = "11111111-2222-3333-4444-555555555555"
-	workspaceKeySum := sha256.Sum256([]byte("officraft-codex-account-v1:" + workspace))
-	v1Key := "codex:" + fmt.Sprintf("%x", workspaceKeySum[:])
+func TestCodexSessionActivity(t *testing.T) {
+	s := newCodexTestSession()
 
-	noClaim := codexClaims("user_FAKE00000000000000000001", workspace, "fake.seth@example.invalid")
-	delete(noClaim["https://api.openai.com/auth"].(map[string]any), "chatgpt_user_id")
-	delete(noClaim["https://api.openai.com/auth"].(map[string]any), "user_id")
+	s.activity("thread ready · booting agent")
+	s.activity("context %.0f%% · compact %d", 41.4, 2)
 
-	blankClaim := codexClaims("   ", workspace, "fake.seth@example.invalid")
+	want := []string{"thread ready · booting agent", "context 41% · compact 2"}
+	if got := s.paneLines(t); !reflect.DeepEqual(got, want) {
+		t.Errorf("the pane shows %q, want %q", got, want)
+	}
 
-	noCustomClaim := map[string]any{"sub": "google-oauth2|0", "email": "fake@example.invalid"}
+	quiet := &codexSession{}
+	quiet.activity("nowhere to write this")
+}
 
+func TestCodexSessionSend(t *testing.T) {
+	s := newCodexTestSession()
+
+	first := s.send("initialize", map[string]any{"capabilities": map[string]any{"experimentalApi": true}})
+	second := s.send("account/rateLimits/read", nil)
+
+	if first != 1 || second != 2 {
+		t.Errorf("send returned ids %d then %d, want 1 then 2", first, second)
+	}
+	want := []map[string]any{
+		{"id": float64(1), "method": "initialize",
+			"params": map[string]any{"capabilities": map[string]any{"experimentalApi": true}}},
+		{"id": float64(2), "method": "account/rateLimits/read", "params": nil},
+	}
+	if got := s.sent(t); !reflect.DeepEqual(got, want) {
+		t.Errorf("the sidecar sent %v, want %v", got, want)
+	}
+}
+
+func TestCodexSessionNotify(t *testing.T) {
+	s := newCodexTestSession()
+
+	s.notify("initialized", map[string]any{})
+	id := s.send("initialize", nil)
+
+	if id != 1 {
+		t.Errorf("a notification consumed request id %d; send returned %d, want 1", id-1, id)
+	}
+	want := []map[string]any{
+		{"method": "initialized", "params": map[string]any{}},
+		{"id": float64(1), "method": "initialize", "params": nil},
+	}
+	if got := s.sent(t); !reflect.DeepEqual(got, want) {
+		t.Errorf("the sidecar sent %v, want %v", got, want)
+	}
+}
+
+func TestMessageID(t *testing.T) {
 	cases := []struct {
 		name string
-		auth map[string]any
+		msg  appServerMessage
+		want int
 	}{
-		{"claim absent", codexAuthFile(fakeIDToken(t, noClaim), workspace)},
-		{"claim blank", codexAuthFile(fakeIDToken(t, blankClaim), workspace)},
-		{"custom claim namespace absent", codexAuthFile(fakeIDToken(t, noCustomClaim), workspace)},
-		{"id_token absent", codexAuthFile("", workspace)},
-		{"id_token not a JWT", codexAuthFile("this-is-not-a-jwt", workspace)},
-		{"id_token wrong segment count", codexAuthFile("aaa.bbb", workspace)},
-		{"id_token payload not base64url", codexAuthFile("aaa.!!!not-base64!!!.ccc", workspace)},
-		{"id_token payload not JSON", codexAuthFile(
-			"aaa."+base64.RawURLEncoding.EncodeToString([]byte("plain text, not json"))+".ccc", workspace)},
-		{"id_token payload is a JSON array", codexAuthFile(
-			"aaa."+base64.RawURLEncoding.EncodeToString([]byte(`["nope"]`))+".ccc", workspace)},
-		// JSON null unmarshals into a struct without error and leaves it zeroed;
-		// only the explicit empty-claim check keeps this from producing a key
-		// over an empty string.
-		{"id_token payload is JSON null", codexAuthFile(
-			"aaa."+base64.RawURLEncoding.EncodeToString([]byte(`null`))+".ccc", workspace)},
-		// Wrong JSON types for the claim and for its namespace: both must fail
-		// closed rather than coerce.
-		{"chatgpt_user_id is a number", codexAuthFile(
-			"aaa."+base64.RawURLEncoding.EncodeToString(
-				[]byte(`{"https://api.openai.com/auth":{"chatgpt_user_id":12345}}`))+".ccc", workspace)},
-		{"custom claim namespace is a string", codexAuthFile(
-			"aaa."+base64.RawURLEncoding.EncodeToString(
-				[]byte(`{"https://api.openai.com/auth":"user_FAKE00000000000000000001"}`))+".ccc", workspace)},
+		{name: "a decoded json number", msg: appServerMessage{"id": float64(7)}, want: 7},
+		{name: "a native int", msg: appServerMessage{"id": 7}, want: 7},
+		{name: "no id at all", msg: appServerMessage{"method": "turn/started"}},
+		{name: "a string id is not a number we track", msg: appServerMessage{"id": "req-7"}},
+		{name: "a null id", msg: appServerMessage{"id": nil}},
+		{name: "a fractional id truncates", msg: appServerMessage{"id": 7.9}, want: 7},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got := codexAccountKeyForHome(writeCodexHome(t, tc.auth))
-			if got == v1Key {
-				t.Fatalf("degraded path fell back to the workspace id: %q", got)
-			}
-			if got != "" {
-				t.Fatalf("degraded path must report no account, got %q", got)
+			if got := messageID(tc.msg); got != tc.want {
+				t.Errorf("messageID(%v) = %d, want %d", tc.msg, got, tc.want)
 			}
 		})
 	}
+}
 
-	// Control: the same fixture shape WITH the claim present is not empty, so
-	// the assertions above are discriminating rather than always-true.
-	ok := codexAccountKeyForHome(writeCodexHome(t, codexAuthFile(
-		fakeIDToken(t, codexClaims("user_FAKE00000000000000000001", workspace, "fake.seth@example.invalid")),
-		workspace,
-	)))
-	if ok == "" {
-		t.Fatalf("control fixture must produce a key, otherwise the empty-string assertions prove nothing")
+func TestNestedString(t *testing.T) {
+	msg := map[string]any{
+		"result": map[string]any{
+			"thread": map[string]any{"id": "th_42", "count": float64(1)},
+			"empty":  map[string]any{},
+		},
 	}
-	if ok == v1Key {
-		t.Fatalf("control fixture must not equal the v1 workspace key")
+	cases := []struct {
+		name string
+		keys []string
+		want string
+	}{
+		{name: "the whole path", keys: []string{"result", "thread", "id"}, want: "th_42"},
+		{name: "no keys at all", keys: nil},
+		{name: "an absent leaf", keys: []string{"result", "thread", "missing"}},
+		{name: "an absent branch", keys: []string{"result", "nothing", "id"}},
+		{name: "the leaf is not a string", keys: []string{"result", "thread", "count"}},
+		{name: "the path stops at an object", keys: []string{"result", "empty"}},
+		{name: "descending through a string", keys: []string{"result", "thread", "id", "more"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := nestedString(msg, tc.keys...); got != tc.want {
+				t.Errorf("nestedString(%v) = %q, want %q", tc.keys, got, tc.want)
+			}
+		})
 	}
 }
 
-// The auth.json container itself can be missing or unusable. Same rule: empty,
-// and never a read of some other home directory.
-func TestCodexAccountKeyHandlesMissingOrUnreadableAuthFile(t *testing.T) {
-	if got := codexAccountKeyForHome(t.TempDir()); got != "" {
-		t.Fatalf("absent ~/.codex/auth.json must yield no key, got %q", got)
-	}
+func TestCodexSessionWaitResponse(t *testing.T) {
+	t.Run("the answer to our own id, past everything else", func(t *testing.T) {
+		messages := make(chan appServerMessage, 4)
+		messages <- appServerMessage{"method": "turn/started", "params": map[string]any{}}
+		messages <- appServerMessage{"id": float64(1), "result": map[string]any{"other": true}}
+		messages <- appServerMessage{"id": float64(2), "result": map[string]any{"thread": map[string]any{"id": "th_42"}}}
+		s := &codexSession{messages: messages}
 
-	home := t.TempDir()
-	dir := filepath.Join(home, ".codex")
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		t.Fatalf("mkdir: %v", err)
-	}
-	if err := os.WriteFile(filepath.Join(dir, "auth.json"), []byte("{not json"), 0o600); err != nil {
-		t.Fatalf("write: %v", err)
-	}
-	if got := codexAccountKeyForHome(home); got != "" {
-		t.Fatalf("unparsable auth.json must yield no key, got %q", got)
-	}
+		got, err := s.waitResponse(2)
 
-	// A directory where auth.json should be: read fails, not panics.
-	home2 := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(home2, ".codex", "auth.json"), 0o700); err != nil {
-		t.Fatalf("mkdir: %v", err)
-	}
-	if got := codexAccountKeyForHome(home2); got != "" {
-		t.Fatalf("unreadable auth.json must yield no key, got %q", got)
-	}
-}
-
-// ---------------------------------------------------------------------------
-// DELIVERY CONFIRMATION (T-48). Sending JSON is not delivering a message.
-//
-// The id `send` returns used to be dropped and the loop skipped every response,
-// so a REFUSED turn/steer — the ordinary case, because expectedTurnId goes stale
-// the moment turn/completed is in flight and this loop has not read it yet —
-// did nothing at all: no retry, no line in the pane, and a listener that had
-// already marked the message read. The message was gone and every party thought
-// it had landed.
-// ---------------------------------------------------------------------------
-
-// ackSession builds a session whose App Server bytes and ack replies are both
-// readable, with a batch already open on it.
-func ackSession() (*codexSession, *bufferWriteCloser, *bytes.Buffer, *bytes.Buffer) {
-	wire := &bufferWriteCloser{}
-	pane := &bytes.Buffer{}
-	acks := &bytes.Buffer{}
-	return &codexSession{
-		in: wire, threadID: "th-1", effort: "medium", out: pane, ackTo: acks,
-	}, wire, pane, acks
-}
-
-func TestSteerRefusalIsRetriedAsAFreshTurnAndOnlyThenAcked(t *testing.T) {
-	session, wire, pane, acks := ackSession()
-	session.active = true
-	session.turnID = "turn-stale"
-
-	const line = "[ocagent] chat from owner (#c-1, 1s ago): 這句不能不見"
-	session.openListenerTurn(line)
-	steerID := session.nextID
-	session.closeBatch("7")
-
-	if acks.Len() != 0 {
-		t.Fatalf("the batch was answered before the App Server said anything: %q", acks.String())
-	}
-
-	// The App Server refuses the steer: the turn it was aimed at is over.
-	session.resolveResponse(steerID, appServerMessage{
-		"id": float64(steerID), "error": map[string]any{"message": "expectedTurnId is stale"},
+		if err != nil {
+			t.Fatalf("waitResponse returned %v, want no error", err)
+		}
+		want := appServerMessage{"id": float64(2), "result": map[string]any{"thread": map[string]any{"id": "th_42"}}}
+		if !reflect.DeepEqual(got, want) {
+			t.Errorf("waitResponse returned %v, want %v", got, want)
+		}
+		if len(messages) != 0 {
+			t.Errorf("%d message(s) left unread, want the stream drained up to the answer", len(messages))
+		}
 	})
 
-	if acks.Len() != 0 {
-		t.Fatalf("a refused steer got a final verdict (%q) instead of a second chance "+
-			"as a fresh turn — an ack here marks a message read that never reached "+
-			"the model, and a nack costs a re-print the retry would have avoided",
-			acks.String())
-	}
-	if !strings.Contains(wire.String(), `"turn/start"`) {
-		t.Fatalf("a refused steer must be re-sent as a fresh turn; wire:\n%s", wire.String())
-	}
-	var resent bool
-	for _, raw := range strings.Split(strings.TrimSpace(wire.String()), "\n") {
-		var msg map[string]any
-		if json.Unmarshal([]byte(raw), &msg) != nil {
-			continue
-		}
-		if method, _ := msg["method"].(string); method != "turn/start" {
-			continue
-		}
-		params, _ := msg["params"].(map[string]any)
-		input, _ := params["input"].([]any)
-		item, _ := input[0].(map[string]any)
-		if text, _ := item["text"].(string); text == line {
-			resent = true
-		}
-	}
-	if !resent {
-		t.Fatalf("the retry carried something other than the refused text; wire:\n%s", wire.String())
-	}
+	t.Run("an error response is an error", func(t *testing.T) {
+		messages := make(chan appServerMessage, 1)
+		messages <- appServerMessage{"id": float64(3), "error": map[string]any{
+			"code": float64(-32600), "message": "thread not found"}}
+		s := &codexSession{messages: messages}
 
-	// The retry lands.
-	session.resolveResponse(session.nextID, appServerMessage{"id": float64(session.nextID)})
-	if got := strings.TrimSpace(acks.String()); got != "ack 7" {
-		t.Fatalf("acks = %q, want %q once the retry landed", got, "ack 7")
-	}
-	if !strings.Contains(pane.String(), "turn/steer 被拒") {
-		t.Errorf("the refusal never reached the pane; the operator sees a healthy "+
-			"session: %q", pane.String())
-	}
-}
+		got, err := s.waitResponse(3)
 
-func TestFailedTurnStartNacksTheBatchAndSaysTheContentNeverLanded(t *testing.T) {
-	session, _, pane, acks := ackSession()
-
-	session.openListenerTurn("[ocagent] chat from owner (#c-2, 1s ago): 這句掉了")
-	startID := session.nextID
-	session.closeBatch("3")
-	session.resolveResponse(startID, appServerMessage{
-		"id": float64(startID), "error": map[string]any{"message": "thread is gone"},
+		if got != nil {
+			t.Errorf("waitResponse returned %v, want nil alongside the error", got)
+		}
+		if err == nil || err.Error() != "app-server request failed: thread not found" {
+			t.Errorf("waitResponse returned error %v, want app-server request failed: thread not found", err)
+		}
 	})
 
-	if got := strings.TrimSpace(acks.String()); got != "nack 3" {
-		t.Fatalf("acks = %q, want %q — an unanswered or wrongly acked batch is a "+
-			"message marked read that nobody was ever shown", got, "nack 3")
+	t.Run("a closed stream is an error", func(t *testing.T) {
+		messages := make(chan appServerMessage)
+		close(messages)
+		s := &codexSession{messages: messages}
+
+		got, err := s.waitResponse(1)
+
+		if got != nil {
+			t.Errorf("waitResponse returned %v, want nil alongside the error", got)
+		}
+		if err == nil || err.Error() != "app-server exited before responding" {
+			t.Errorf("waitResponse returned error %v, want app-server exited before responding", err)
+		}
+	})
+}
+
+func TestCodexAppReader(t *testing.T) {
+	stream := strings.Join([]string{
+		`{"id":1,"result":{"ok":true}}`,
+		`not json at all`,
+		`123`,
+		`{"method":"turn/started","params":{"turn":{"id":"t_1"}}}`,
+		``,
+		`{"method":"turn/completed"}`,
+	}, "\n") + "\n"
+
+	messages := codexAppReader(strings.NewReader(stream))
+
+	var got []appServerMessage
+	for msg := range messages {
+		got = append(got, msg)
 	}
-	if !strings.Contains(pane.String(), "沒有進到 agent 的對話") {
-		t.Errorf("a failed delivery must say plainly that the content never reached "+
-			"the conversation; pane = %q", pane.String())
+	want := []appServerMessage{
+		{"id": float64(1), "result": map[string]any{"ok": true}},
+		{"method": "turn/started", "params": map[string]any{"turn": map[string]any{"id": "t_1"}}},
+		{"method": "turn/completed"},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("codexAppReader produced %v, want %v", got, want)
 	}
 }
 
-// The listener BLOCKS on the verdict, so a turn/start whose response only comes
-// back when the turn ENDS would leave the member deaf for the whole turn. The
-// App Server announcing the turn is enough evidence that the text is in.
-func TestTurnStartedConfirmsTheDeliveryWithoutWaitingForTheResponse(t *testing.T) {
-	session, _, _, acks := ackSession()
-
-	session.openListenerTurn("[ocagent] chat from owner (#c-3, 1s ago): hi")
-	session.closeBatch("4")
-	session.confirmStartedTurn()
-
-	if got := strings.TrimSpace(acks.String()); got != "ack 4" {
-		t.Fatalf("acks = %q, want %q — waiting for the response alone would keep the "+
-			"listener blocked for the entire turn", got, "ack 4")
+func TestCodexDeliveryLabel(t *testing.T) {
+	long := strings.Repeat("あ", 100)
+	cases := []struct{ name, in, want string }{
+		{name: "a short line is passed through", in: "  hello  ", want: "hello"},
+		{name: "only the first line", in: "first line\nsecond line\nthird", want: "first line"},
+		{name: "empty stays empty", in: "   \n  ", want: ""},
+		{name: "exactly 80 runes is not truncated", in: strings.Repeat("b", 80), want: strings.Repeat("b", 80)},
+		{name: "81 runes is truncated with an ellipsis", in: strings.Repeat("b", 81), want: strings.Repeat("b", 80) + "…"},
+		{name: "truncation counts runes, not bytes", in: long, want: strings.Repeat("あ", 80) + "…"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := codexDeliveryLabel(tc.in); got != tc.want {
+				t.Errorf("codexDeliveryLabel(%q) = %q, want %q", tc.in, got, tc.want)
+			}
+		})
 	}
 }
 
-// The marker is protocol between two processes. It must never become a turn, and
-// it must never consume the once-only boot wake.
-func TestBatchMarkerIsProtocolAndNeverReachesTheModel(t *testing.T) {
-	const marker = "[ocagent] listen: batch 12 [ts=1756900000.000 local]"
-
-	if wake, forward := codexListenerActions(marker, false); wake || forward {
-		t.Errorf("the batch marker decided wake=%v forward=%v, want false/false — it "+
-			"is a line the two processes say to each other", wake, forward)
+func TestCodexBatchToken(t *testing.T) {
+	cases := []struct {
+		name  string
+		line  string
+		token string
+		ok    bool
+	}{
+		{name: "the marker", line: "[ocagent] listen: batch b-17", token: "b-17", ok: true},
+		{name: "the listener's trailing stamp is not part of the token",
+			line: "[ocagent] listen: batch b-17 [ts=2026-09-07T12:00:00 local]", token: "b-17", ok: true},
+		{name: "leading whitespace", line: "   [ocagent] listen: batch b-17\t", token: "b-17", ok: true},
+		{name: "a marker with no token", line: "[ocagent] listen: batch "},
+		{name: "a marker with only whitespace after it", line: "[ocagent] listen: batch    "},
+		{name: "another transport line", line: "[ocagent] listen: connected"},
+		{name: "an ordinary chat line", line: "batch b-17"},
+		{name: "empty", line: ""},
 	}
-
-	var turns []string
-	var batches []string
-	st := &codexListenerState{}
-	st.handleListenerLine(marker,
-		func() { t.Error("a batch marker announced a connection") },
-		func(text string) { turns = append(turns, text) },
-		func(token string) { batches = append(batches, token) })
-
-	if len(turns) != 0 {
-		t.Errorf("the marker was forwarded to the model: %q", turns)
-	}
-	if len(batches) != 1 || batches[0] != "12" {
-		t.Fatalf("the marker must close batch 12 (the trailing stamp is not part of "+
-			"the token); batches=%q", batches)
-	}
-
-	// The wake is still owed to the connect line that follows.
-	st.handleListenerLine(connectedLineFixture, func() {},
-		func(text string) { turns = append(turns, text) }, nil)
-	if len(turns) != 1 || turns[0] != codexPostBootWake {
-		t.Fatalf("a marker consumed the once-only boot wake; turns=%q", turns)
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			token, ok := codexBatchToken(tc.line)
+			if token != tc.token || ok != tc.ok {
+				t.Errorf("codexBatchToken(%q) = %q, %v, want %q, %v", tc.line, token, ok, tc.token, tc.ok)
+			}
+		})
 	}
 }
 
-// A batch that forwarded nothing still has a listener blocked on it.
-func TestEmptyBatchIsAnsweredRatherThanLeftHanging(t *testing.T) {
-	session, _, _, acks := ackSession()
-	session.closeBatch("9")
-	if got := strings.TrimSpace(acks.String()); got != "ack 9" {
-		t.Fatalf("acks = %q, want %q — the listener waits for this line", got, "ack 9")
+func TestActionableCodexListenerLine(t *testing.T) {
+	cases := []struct {
+		name string
+		line string
+		want bool
+	}{
+		{name: "an OffiCraft chat event", line: "[chat] owner: 早安", want: true},
+		{name: "an empty line", line: "", want: true},
+		{name: "the first failure of an outage",
+			line: "[ocagent] listen: disconnected — stream ended: EOF", want: true},
+		{name: "back up again", line: "[ocagent] listen: connected (station oc-1)", want: true},
+		{name: "the retry loop really stopped",
+			line: "[ocagent] listen: giving up after 40 attempts", want: true},
+		{name: "a notice with leading whitespace", line: "   [ocagent] listen: connected", want: true},
+		{name: "mid-outage retry chatter", line: "[ocagent] listen: retry 3 in 8s"},
+		{name: "the batch marker is protocol, not transcript", line: "[ocagent] listen: batch b-17"},
+		{name: "any other transport diagnostic", line: "[ocagent] listen: stream ended: EOF"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := actionableCodexListenerLine(tc.line); got != tc.want {
+				t.Errorf("actionableCodexListenerLine(%q) = %v, want %v", tc.line, got, tc.want)
+			}
+		})
 	}
 }
 
-// The child cannot work out for itself that its stdout is being carried by this
-// sidecar; a listener started without the flag looks perfectly healthy and loses
-// mail silently.
-func TestCodexListenerChildIsToldToWaitForAcks(t *testing.T) {
-	env := codexListenerEnv([]string{"PATH=/usr/bin", "OC_ID=m-1"})
-	var found bool
-	for _, kv := range env {
-		if kv == listenAckEnv+"=1" {
-			found = true
+func TestCodexListenerActions(t *testing.T) {
+	cases := []struct {
+		name          string
+		line          string
+		alreadySent   bool
+		wake, forward bool
+	}{
+		{name: "the boot connect wakes and is not forwarded",
+			line: "[ocagent] listen: connected", wake: true},
+		{name: "a later connect is forwarded and wakes nothing",
+			line: "[ocagent] listen: connected", alreadySent: true, forward: true},
+		{name: "a disconnect is forwarded", line: "[ocagent] listen: disconnected — EOF", forward: true},
+		{name: "giving up is forwarded", line: "[ocagent] listen: giving up", forward: true},
+		{name: "retry chatter does neither", line: "[ocagent] listen: retry 3 in 8s"},
+		{name: "an OffiCraft event is forwarded", line: "[chat] owner: 早安", forward: true},
+		{name: "an OffiCraft event never wakes, even before the boot connect",
+			line: "[task] ow-1 assigned", forward: true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			wake, forward := codexListenerActions(tc.line, tc.alreadySent)
+			if wake != tc.wake || forward != tc.forward {
+				t.Errorf("codexListenerActions(%q, %v) = wake %v, forward %v, want wake %v, forward %v",
+					tc.line, tc.alreadySent, wake, forward, tc.wake, tc.forward)
+			}
+		})
+	}
+}
+
+func TestRateLimitSnapshot(t *testing.T) {
+	nested := map[string]any{"primary": map[string]any{"usedPercent": float64(1)}}
+	cases := []struct {
+		name   string
+		result map[string]any
+		want   map[string]any
+	}{
+		{name: "the notification's nested form",
+			result: map[string]any{"rateLimits": nested, "other": true}, want: nested},
+		{name: "the flat form some versions answer with", result: nested, want: nested},
+		{name: "a null rateLimits falls back to the result itself",
+			result: map[string]any{"rateLimits": nil}, want: map[string]any{"rateLimits": nil}},
+		{name: "an empty result", result: map[string]any{}, want: map[string]any{}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := rateLimitSnapshot(tc.result); !reflect.DeepEqual(got, tc.want) {
+				t.Errorf("rateLimitSnapshot(%v) = %v, want %v", tc.result, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestCodexOpenYourOwnCardMessage(t *testing.T) {
+	const refusal = "OffiCraft does not open reply cards on your behalf. Open it yourself with the " +
+		"create_reply_card tool, then end this turn and wait for its SSE answer event. " +
+		"linked_task is required: send {\"task_id\": ..., \"step_id\": ...} for the step this " +
+		"question is about, or null if it is not about a task."
+
+	cases := []struct {
+		name     string
+		question map[string]any
+		want     string
+	}{
+		{name: "an ordinary question", question: map[string]any{"id": "q1"}, want: refusal},
+		{name: "isSecret false", question: map[string]any{"isSecret": false}, want: refusal},
+		{name: "isSecret is not a bool", question: map[string]any{"isSecret": "yes"}, want: refusal},
+		{
+			name:     "a credential ask carries the do-not-paste warning",
+			question: map[string]any{"id": "q1", "isSecret": true},
+			want:     refusal + " 這是秘密資料請求；請只完成所需動作，不要把秘密貼進卡片。",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := codexOpenYourOwnCardMessage(tc.question); got != tc.want {
+				t.Errorf("codexOpenYourOwnCardMessage(%v) =\n%q\nwant\n%q", tc.question, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestCodexSessionStartTurn(t *testing.T) {
+	s := newCodexTestSession()
+	s.effort = "high"
+	batch := &codexBatch{token: "b-1"}
+
+	s.startTurn("開始。", batch)
+
+	want := []map[string]any{{
+		"id": float64(1), "method": "turn/start",
+		"params": map[string]any{
+			"threadId": "th_1", "effort": "high",
+			"input": []any{map[string]any{"type": "text", "text": "開始。"}},
+		},
+	}}
+	if got := s.sent(t); !reflect.DeepEqual(got, want) {
+		t.Errorf("startTurn sent %v, want %v", got, want)
+	}
+	if got, want := s.paneLines(t), []string{"turn started"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("the pane shows %q, want %q", got, want)
+	}
+	if d := s.pending[1]; d == nil || d.method != "turn/start" || d.text != "開始。" || d.batch != batch {
+		t.Errorf("startTurn registered %+v as request 1, want a turn/start carrying the text and batch", d)
+	}
+	if batch.outstanding != 1 {
+		t.Errorf("the batch counts %d outstanding deliveries, want 1", batch.outstanding)
+	}
+	if s.acks.Len() != 0 {
+		t.Errorf("startTurn wrote %q to the listener, want nothing yet", s.acks.String())
+	}
+}
+
+func TestCodexSessionSteerOrStart(t *testing.T) {
+	t.Run("a live turn is steered", func(t *testing.T) {
+		s := newCodexTestSession()
+		s.active, s.turnID = true, "t_9"
+		batch := &codexBatch{}
+
+		s.steerOrStart("  [chat] owner: 早安  ", batch)
+
+		want := []map[string]any{{
+			"id": float64(1), "method": "turn/steer",
+			"params": map[string]any{
+				"threadId": "th_1", "expectedTurnId": "t_9",
+				"input": []any{map[string]any{"type": "text", "text": "[chat] owner: 早安"}},
+			},
+		}}
+		if got := s.sent(t); !reflect.DeepEqual(got, want) {
+			t.Errorf("steerOrStart sent %v, want %v", got, want)
+		}
+		if got, want := s.paneLines(t), []string{"turn steered by OffiCraft event"}; !reflect.DeepEqual(got, want) {
+			t.Errorf("the pane shows %q, want %q", got, want)
+		}
+		if d := s.pending[1]; d == nil || d.method != "turn/steer" || d.text != "[chat] owner: 早安" {
+			t.Errorf("steerOrStart registered %+v, want a turn/steer carrying the trimmed text", d)
+		}
+		if batch.outstanding != 1 {
+			t.Errorf("the batch counts %d outstanding deliveries, want 1", batch.outstanding)
+		}
+	})
+
+	t.Run("an idle session opens a fresh turn instead", func(t *testing.T) {
+		s := newCodexTestSession()
+		s.active, s.turnID = false, "t_9"
+
+		s.steerOrStart("[chat] owner: 早安", nil)
+
+		got := s.sent(t)
+		if len(got) != 1 || got[0]["method"] != "turn/start" {
+			t.Fatalf("steerOrStart sent %v, want a single turn/start", got)
+		}
+		if got, want := s.paneLines(t), []string{"turn started"}; !reflect.DeepEqual(got, want) {
+			t.Errorf("the pane shows %q, want %q", got, want)
+		}
+	})
+
+	t.Run("an active turn with no id opens a fresh turn", func(t *testing.T) {
+		s := newCodexTestSession()
+		s.active, s.turnID = true, ""
+
+		s.steerOrStart("[chat] owner: 早安", nil)
+
+		got := s.sent(t)
+		if len(got) != 1 || got[0]["method"] != "turn/start" {
+			t.Fatalf("steerOrStart sent %v, want a single turn/start", got)
+		}
+	})
+
+	t.Run("blank text is not a delivery", func(t *testing.T) {
+		s := newCodexTestSession()
+		s.active, s.turnID = true, "t_9"
+		batch := &codexBatch{}
+
+		s.steerOrStart("   \n\t ", batch)
+
+		if s.in.Len() != 0 || s.pane.Len() != 0 {
+			t.Errorf("blank text sent %q and logged %q, want neither", s.in.String(), s.pane.String())
+		}
+		if len(s.pending) != 0 || batch.outstanding != 0 {
+			t.Errorf("blank text registered %d pending deliveries (batch %d), want 0",
+				len(s.pending), batch.outstanding)
+		}
+	})
+}
+
+func TestCodexSessionTrack(t *testing.T) {
+	s := newCodexTestSession()
+	batch := &codexBatch{}
+	steer := &codexDelivery{method: "turn/steer", text: "hi", batch: batch}
+
+	s.track(0, &codexDelivery{method: "turn/start", text: "dropped", batch: batch})
+	s.track(4, steer)
+
+	want := map[int]*codexDelivery{4: steer}
+	if !reflect.DeepEqual(s.pending, want) {
+		t.Errorf("pending = %v, want only request 4", s.pending)
+	}
+	if batch.outstanding != 1 {
+		t.Errorf("the batch counts %d outstanding deliveries, want 1 (the unsent request must not count)",
+			batch.outstanding)
+	}
+}
+
+func TestCodexSessionResolveResponse(t *testing.T) {
+	t.Run("a delivered turn acks its closed batch", func(t *testing.T) {
+		s := newCodexTestSession()
+		batch := s.currentBatch()
+		s.startTurn("[chat] owner: 早安", batch)
+		s.closeBatch("b-1")
+		s.pane.Reset()
+
+		s.resolveResponse(1, appServerMessage{"id": float64(1), "result": map[string]any{}})
+
+		if got, want := s.paneLines(t), []string{"已送進對話：[chat] owner: 早安"}; !reflect.DeepEqual(got, want) {
+			t.Errorf("the pane shows %q, want %q", got, want)
+		}
+		if got, want := s.acks.String(), "ack b-1\n"; got != want {
+			t.Errorf("the listener was told %q, want %q", got, want)
+		}
+		if len(s.pending) != 0 {
+			t.Errorf("%d delivery/deliveries still pending, want 0", len(s.pending))
+		}
+	})
+
+	t.Run("a refused turn/steer is re-sent as a fresh turn", func(t *testing.T) {
+		s := newCodexTestSession()
+		s.active, s.turnID = true, "t_9"
+		batch := s.currentBatch()
+		s.steerOrStart("[chat] owner: 早安", batch)
+		s.closeBatch("b-1")
+		s.in.Reset()
+		s.pane.Reset()
+
+		s.resolveResponse(1, appServerMessage{"id": float64(1),
+			"error": map[string]any{"message": "expectedTurnId is stale"}})
+
+		want := []map[string]any{{
+			"id": float64(2), "method": "turn/start",
+			"params": map[string]any{
+				"threadId": "th_1", "effort": "medium",
+				"input": []any{map[string]any{"type": "text", "text": "[chat] owner: 早安"}},
+			},
+		}}
+		if got := s.sent(t); !reflect.DeepEqual(got, want) {
+			t.Errorf("the retry sent %v, want %v", got, want)
+		}
+		wantPane := []string{
+			"turn/steer 被拒（expectedTurnId is stale）— 改開新的一輪重送同一段內容",
+			"turn started",
+		}
+		if got := s.paneLines(t); !reflect.DeepEqual(got, wantPane) {
+			t.Errorf("the pane shows %q, want %q", got, wantPane)
+		}
+		if s.acks.Len() != 0 {
+			t.Errorf("the listener was told %q while the retry is still in flight, want nothing",
+				s.acks.String())
+		}
+		if batch.outstanding != 1 || batch.failed {
+			t.Errorf("the batch is %+v, want one outstanding delivery and no failure yet", *batch)
+		}
+
+		s.resolveResponse(2, appServerMessage{"id": float64(2), "result": map[string]any{}})
+		if got, want := s.acks.String(), "ack b-1\n"; got != want {
+			t.Errorf("the listener was told %q, want %q", got, want)
+		}
+	})
+
+	t.Run("a refused turn/start nacks the whole batch", func(t *testing.T) {
+		s := newCodexTestSession()
+		batch := s.currentBatch()
+		s.startTurn(strings.Repeat("あ", 100), batch)
+		s.closeBatch("b-1")
+		s.in.Reset()
+		s.pane.Reset()
+
+		s.resolveResponse(1, appServerMessage{"id": float64(1),
+			"error": map[string]any{"message": "thread is busy"}})
+
+		if s.in.Len() != 0 {
+			t.Errorf("a refused turn/start re-sent %q, want no retry", s.in.String())
+		}
+		wantPane := []string{
+			"⚠️ 送不進去（thread is busy）：" + strings.Repeat("あ", 80) + "… — 這段內容沒有進到 agent 的對話，" +
+				"agent 不會知道有人說過這句話",
+			"批次 b-1 沒能送進對話 — 已告訴 listener 不要標已讀，下一輪會重印",
+		}
+		if got := s.paneLines(t); !reflect.DeepEqual(got, wantPane) {
+			t.Errorf("the pane shows %q, want %q", got, wantPane)
+		}
+		if got, want := s.acks.String(), "nack b-1\n"; got != want {
+			t.Errorf("the listener was told %q, want %q", got, want)
+		}
+	})
+
+	t.Run("one failure nacks a group that also delivered", func(t *testing.T) {
+		s := newCodexTestSession()
+		batch := s.currentBatch()
+		s.startTurn("first", batch)
+		s.startTurn("second", batch)
+		s.closeBatch("b-2")
+
+		s.resolveResponse(1, appServerMessage{"id": float64(1), "result": map[string]any{}})
+		if s.acks.Len() != 0 {
+			t.Errorf("the listener was told %q with a delivery still open, want nothing", s.acks.String())
+		}
+		s.resolveResponse(2, appServerMessage{"id": float64(2),
+			"error": map[string]any{"message": "thread is busy"}})
+
+		if got, want := s.acks.String(), "nack b-2\n"; got != want {
+			t.Errorf("the listener was told %q, want %q", got, want)
+		}
+	})
+
+	t.Run("a response to an id nobody tracks is skipped", func(t *testing.T) {
+		s := newCodexTestSession()
+		batch := s.currentBatch()
+		s.startTurn("[chat] owner: 早安", batch)
+		s.closeBatch("b-1")
+		s.pane.Reset()
+
+		s.resolveResponse(99, appServerMessage{"id": float64(99), "result": map[string]any{}})
+		s.resolveResponse(99, appServerMessage{"id": float64(99),
+			"error": map[string]any{"message": "boom"}})
+
+		if s.pane.Len() != 0 || s.acks.Len() != 0 {
+			t.Errorf("an untracked response logged %q and told the listener %q, want neither",
+				s.pane.String(), s.acks.String())
+		}
+		if len(s.pending) != 1 || batch.outstanding != 1 {
+			t.Errorf("pending=%d batch.outstanding=%d, want 1 and 1", len(s.pending), batch.outstanding)
+		}
+	})
+}
+
+func TestCodexSessionConfirmStartedTurn(t *testing.T) {
+	t.Run("the oldest unanswered turn/start is the one that started", func(t *testing.T) {
+		s := newCodexTestSession()
+		batch := s.currentBatch()
+		s.active, s.turnID = true, "t_9"
+		s.steerOrStart("steered", batch)
+		s.active = false
+		s.startTurn("older", batch)
+		s.startTurn("newer", batch)
+		s.closeBatch("b-1")
+		s.pane.Reset()
+
+		s.confirmStartedTurn()
+
+		if got, want := s.paneLines(t), []string{"已送進對話：older"}; !reflect.DeepEqual(got, want) {
+			t.Errorf("the pane shows %q, want %q", got, want)
+		}
+		if _, still := s.pending[2]; still {
+			t.Error("the confirmed turn/start is still pending")
+		}
+		if len(s.pending) != 2 || s.pending[1].method != "turn/steer" || s.pending[3].text != "newer" {
+			t.Errorf("pending = %v, want the turn/steer and the newer turn/start left", s.pending)
+		}
+		if batch.outstanding != 2 {
+			t.Errorf("the batch counts %d outstanding deliveries, want 2", batch.outstanding)
+		}
+		if s.acks.Len() != 0 {
+			t.Errorf("the listener was told %q with deliveries still open, want nothing", s.acks.String())
+		}
+	})
+
+	t.Run("nothing pending is a no-op", func(t *testing.T) {
+		s := newCodexTestSession()
+
+		s.confirmStartedTurn()
+
+		if s.pane.Len() != 0 || s.acks.Len() != 0 {
+			t.Errorf("confirmStartedTurn logged %q and told the listener %q, want neither",
+				s.pane.String(), s.acks.String())
+		}
+	})
+
+	t.Run("a turn/started never confirms a turn/steer", func(t *testing.T) {
+		s := newCodexTestSession()
+		s.active, s.turnID = true, "t_9"
+		s.steerOrStart("steered", nil)
+		s.pane.Reset()
+
+		s.confirmStartedTurn()
+
+		if s.pane.Len() != 0 {
+			t.Errorf("confirmStartedTurn logged %q, want nothing", s.pane.String())
+		}
+		if len(s.pending) != 1 {
+			t.Errorf("pending = %v, want the turn/steer left alone", s.pending)
+		}
+	})
+}
+
+func TestCodexSessionCloseBatch(t *testing.T) {
+	t.Run("a marker that closed an empty window is acked at once", func(t *testing.T) {
+		s := newCodexTestSession()
+
+		s.closeBatch("b-1")
+
+		if got, want := s.acks.String(), "ack b-1\n"; got != want {
+			t.Errorf("the listener was told %q, want %q", got, want)
+		}
+		if s.batch != nil {
+			t.Errorf("the closed batch is still current: %+v", *s.batch)
+		}
+	})
+
+	t.Run("a marker with a delivery still in flight waits", func(t *testing.T) {
+		s := newCodexTestSession()
+		s.startTurn("[chat] owner: 早安", s.currentBatch())
+
+		s.closeBatch("b-1")
+
+		if s.acks.Len() != 0 {
+			t.Errorf("the listener was told %q before the delivery landed, want nothing", s.acks.String())
+		}
+		if s.batch != nil {
+			t.Errorf("the closed batch is still current: %+v", *s.batch)
+		}
+
+		s.resolveResponse(1, appServerMessage{"id": float64(1), "result": map[string]any{}})
+		if got, want := s.acks.String(), "ack b-1\n"; got != want {
+			t.Errorf("the listener was told %q, want %q", got, want)
+		}
+	})
+
+	t.Run("the next window is a new group", func(t *testing.T) {
+		s := newCodexTestSession()
+		first := s.currentBatch()
+		s.closeBatch("b-1")
+		second := s.currentBatch()
+
+		if first == second {
+			t.Error("the second window joined the already-closed batch")
+		}
+		s.startTurn("later", second)
+		s.closeBatch("b-2")
+		s.resolveResponse(1, appServerMessage{"id": float64(1), "result": map[string]any{}})
+		if got, want := s.acks.String(), "ack b-1\nack b-2\n"; got != want {
+			t.Errorf("the listener was told %q, want %q", got, want)
+		}
+	})
+}
+
+func TestCodexSessionSettleBatch(t *testing.T) {
+	t.Run("only a closed, quiet, unanswered group produces a verdict", func(t *testing.T) {
+		cases := []struct {
+			name  string
+			group *codexBatch
+			want  string
+		}{
+			{name: "no group at all"},
+			{name: "still open", group: &codexBatch{token: "b-1"}},
+			{name: "still waiting on a delivery",
+				group: &codexBatch{token: "b-1", closed: true, outstanding: 1}},
+			{name: "already answered",
+				group: &codexBatch{token: "b-1", closed: true, answered: true}},
+			{name: "closed and quiet", group: &codexBatch{token: "b-1", closed: true}, want: "ack b-1\n"},
+			{name: "closed, quiet and failed",
+				group: &codexBatch{token: "b-1", closed: true, failed: true}, want: "nack b-1\n"},
+		}
+		for _, tc := range cases {
+			t.Run(tc.name, func(t *testing.T) {
+				s := newCodexTestSession()
+
+				s.settleBatch(tc.group)
+
+				if got := s.acks.String(); got != tc.want {
+					t.Errorf("the listener was told %q, want %q", got, tc.want)
+				}
+			})
+		}
+	})
+
+	t.Run("the verdict is written once", func(t *testing.T) {
+		s := newCodexTestSession()
+		group := &codexBatch{token: "b-1", closed: true}
+
+		s.settleBatch(group)
+		s.settleBatch(group)
+
+		if got, want := s.acks.String(), "ack b-1\n"; got != want {
+			t.Errorf("the listener was told %q, want %q", got, want)
+		}
+	})
+
+	t.Run("with no listener the verdict is dropped, and the group stays answered", func(t *testing.T) {
+		s := newCodexTestSession()
+		s.ackTo = nil
+		group := &codexBatch{token: "b-1", closed: true, failed: true}
+
+		s.settleBatch(group)
+
+		if !group.answered {
+			t.Error("the group is not marked answered, so a later settle would write a second verdict")
+		}
+		wantPane := []string{"批次 b-1 沒能送進對話 — 已告訴 listener 不要標已讀，下一輪會重印"}
+		if got := s.paneLines(t); !reflect.DeepEqual(got, wantPane) {
+			t.Errorf("the pane shows %q, want %q", got, wantPane)
+		}
+	})
+}
+
+func TestCodexSessionOpenListenerTurn(t *testing.T) {
+	t.Run("the post-boot wake announces itself as the wake", func(t *testing.T) {
+		s := newCodexTestSession()
+
+		s.openListenerTurn(codexPostBootWake)
+
+		want := []map[string]any{{
+			"id": float64(1), "method": "turn/start",
+			"params": map[string]any{
+				"threadId": "th_1", "effort": "medium",
+				"input": []any{map[string]any{"type": "text", "text": codexPostBootWake}},
+			},
+		}}
+		if got := s.sent(t); !reflect.DeepEqual(got, want) {
+			t.Errorf("openListenerTurn sent %v, want %v", got, want)
+		}
+		wantPane := []string{"waking the session now that SSE is up", "turn started"}
+		if got := s.paneLines(t); !reflect.DeepEqual(got, wantPane) {
+			t.Errorf("the pane shows %q, want %q", got, wantPane)
+		}
+	})
+
+	t.Run("everything else is announced as an OffiCraft event", func(t *testing.T) {
+		s := newCodexTestSession()
+
+		s.openListenerTurn("[chat] owner: 早安")
+
+		wantPane := []string{"OffiCraft event: [chat] owner: 早安", "turn started"}
+		if got := s.paneLines(t); !reflect.DeepEqual(got, wantPane) {
+			t.Errorf("the pane shows %q, want %q", got, wantPane)
+		}
+	})
+
+	t.Run("every line since the last marker joins one group", func(t *testing.T) {
+		s := newCodexTestSession()
+
+		s.openListenerTurn("[chat] owner: 早安")
+		s.openListenerTurn("[task] ow-1 assigned")
+		group := s.batch
+		s.closeBatch("b-3")
+
+		if group == nil || group.outstanding != 2 {
+			t.Fatalf("the group is %+v, want both deliveries counted into one batch", group)
+		}
+		if s.acks.Len() != 0 {
+			t.Errorf("the listener was told %q before both landed, want nothing", s.acks.String())
+		}
+		s.resolveResponse(1, appServerMessage{"id": float64(1), "result": map[string]any{}})
+		s.resolveResponse(2, appServerMessage{"id": float64(2), "result": map[string]any{}})
+		if got, want := s.acks.String(), "ack b-3\n"; got != want {
+			t.Errorf("the listener was told %q, want %q", got, want)
+		}
+	})
+}
+
+func TestCodexListenerStateHandleListenerLine(t *testing.T) {
+	type effects struct {
+		connects int
+		turns    []string
+		batches  []string
+	}
+	run := func(state *codexListenerState, lines ...string) effects {
+		var got effects
+		for _, line := range lines {
+			state.handleListenerLine(line,
+				func() { got.connects++ },
+				func(text string) { got.turns = append(got.turns, text) },
+				func(token string) { got.batches = append(got.batches, token) })
+		}
+		return got
+	}
+
+	t.Run("the boot connect wakes once and reports the connection", func(t *testing.T) {
+		state := &codexListenerState{}
+
+		got := run(state, "[ocagent] listen: connected (station oc-1)")
+
+		want := effects{connects: 1, turns: []string{codexPostBootWake}}
+		if !reflect.DeepEqual(got, want) {
+			t.Errorf("the line produced %+v, want %+v", got, want)
+		}
+		if !state.wakeSent {
+			t.Error("the wake flag was not written, so the next reconnect would wake again")
+		}
+	})
+
+	t.Run("a reconnect reports the connection and is forwarded as a notice", func(t *testing.T) {
+		state := &codexListenerState{wakeSent: true}
+
+		got := run(state, "[ocagent] listen: connected (station oc-2)")
+
+		want := effects{connects: 1, turns: []string{"[ocagent] listen: connected (station oc-2)"}}
+		if !reflect.DeepEqual(got, want) {
+			t.Errorf("the line produced %+v, want %+v", got, want)
+		}
+	})
+
+	t.Run("a whole session in order", func(t *testing.T) {
+		state := &codexListenerState{}
+
+		got := run(state,
+			"[ocagent] listen: connected",
+			"[ocagent] listen: batch b-1 [ts=2026-09-07T12:00:00 local]",
+			"[chat] owner: 早安",
+			"[ocagent] listen: retry 3 in 8s",
+			"[ocagent] listen: disconnected — stream ended: EOF",
+			"[ocagent] listen: connected",
+			"[ocagent] listen: giving up after 40 attempts",
+			"[ocagent] listen: batch b-2",
+		)
+
+		want := effects{
+			connects: 2,
+			turns: []string{
+				codexPostBootWake,
+				"[chat] owner: 早安",
+				"[ocagent] listen: disconnected — stream ended: EOF",
+				"[ocagent] listen: connected",
+				"[ocagent] listen: giving up after 40 attempts",
+			},
+			batches: []string{"b-1", "b-2"},
+		}
+		if !reflect.DeepEqual(got, want) {
+			t.Errorf("the session produced %+v, want %+v", got, want)
+		}
+	})
+
+	t.Run("the batch marker never reaches the model", func(t *testing.T) {
+		state := &codexListenerState{}
+
+		got := run(state, "[ocagent] listen: batch b-1")
+
+		want := effects{batches: []string{"b-1"}}
+		if !reflect.DeepEqual(got, want) {
+			t.Errorf("the marker produced %+v, want %+v", got, want)
+		}
+	})
+
+	t.Run("a marker with no onBatch handler is still swallowed", func(t *testing.T) {
+		state := &codexListenerState{}
+		var turns []string
+
+		state.handleListenerLine("[ocagent] listen: batch b-1",
+			func() { t.Error("the marker reported a connection") },
+			func(text string) { turns = append(turns, text) }, nil)
+
+		if turns != nil {
+			t.Errorf("the marker opened turn(s) %q, want none", turns)
+		}
+	})
+}
+
+// codexPost is one HTTP request the sidecar really made.
+type codexPost struct {
+	method string
+	url    string
+	auth   string
+	ctype  string
+	body   map[string]any
+}
+
+// codexFakeTransport answers every request with a canned status and records it.
+// It replaces http.DefaultTransport for the duration of one test, which is the
+// only seam post() leaves: its client is built inline with no Transport.
+type codexFakeTransport struct {
+	status int
+	err    error
+	posts  []codexPost
+}
+
+func (f *codexFakeTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	post := codexPost{
+		method: req.Method, url: req.URL.String(),
+		auth: req.Header.Get("Authorization"), ctype: req.Header.Get("Content-Type"),
+	}
+	if req.Body != nil {
+		raw, _ := io.ReadAll(req.Body)
+		if err := json.Unmarshal(raw, &post.body); err != nil {
+			return nil, err
 		}
 	}
-	if !found {
-		t.Fatalf("the listener child was not put into ack mode: %q", env)
+	f.posts = append(f.posts, post)
+	if f.err != nil {
+		return nil, f.err
 	}
-	if len(env) != 3 || env[0] != "PATH=/usr/bin" || env[1] != "OC_ID=m-1" {
-		t.Fatalf("the inherited environment must survive intact: %q", env)
+	return &http.Response{
+		StatusCode: f.status, Status: http.StatusText(f.status),
+		Body: io.NopCloser(strings.NewReader(`{"ok":true}`)), Header: http.Header{}, Request: req,
+	}, nil
+}
+
+// interceptCodexPosts routes the sidecar's HTTP through a fake for one test.
+func interceptCodexPosts(t *testing.T, status int, err error) *codexFakeTransport {
+	t.Helper()
+	fake := &codexFakeTransport{status: status, err: err}
+	saved := http.DefaultTransport
+	http.DefaultTransport = fake
+	t.Cleanup(func() { http.DefaultTransport = saved })
+	return fake
+}
+
+func TestCodexSessionPost(t *testing.T) {
+	t.Run("the request the server sees", func(t *testing.T) {
+		fake := interceptCodexPosts(t, http.StatusOK, nil)
+		s := newCodexTestSession()
+		s.base, s.token = "https://officraft.example/", "wire-token"
+
+		s.post("/api/agent/context", map[string]any{"context_pct": 41.0, "compaction_count": 2})
+
+		want := []codexPost{{
+			method: http.MethodPost, url: "https://officraft.example/api/agent/context",
+			auth: "Bearer wire-token", ctype: "application/json",
+			body: map[string]any{"context_pct": float64(41), "compaction_count": float64(2)},
+		}}
+		if !reflect.DeepEqual(fake.posts, want) {
+			t.Errorf("the sidecar sent %+v, want %+v", fake.posts, want)
+		}
+		if s.pane.Len() != 0 {
+			t.Errorf("an accepted post logged %q, want nothing", s.pane.String())
+		}
+	})
+
+	t.Run("a refused post is reported in the pane", func(t *testing.T) {
+		interceptCodexPosts(t, http.StatusUnprocessableEntity, nil)
+		s := newCodexTestSession()
+		s.base, s.token = "https://officraft.example", "wire-token"
+
+		s.post("/api/monitoring/telemetry", map[string]any{"runtime": "codex"})
+
+		want := []string{"Codex POST /api/monitoring/telemetry rejected with HTTP 422"}
+		if got := s.paneLines(t); !reflect.DeepEqual(got, want) {
+			t.Errorf("the pane shows %q, want %q", got, want)
+		}
+	})
+
+	t.Run("an unreachable server is silent", func(t *testing.T) {
+		interceptCodexPosts(t, 0, errors.New("dial tcp: connection refused"))
+		s := newCodexTestSession()
+		s.base, s.token = "https://officraft.example", "wire-token"
+
+		s.post("/api/monitoring/telemetry", map[string]any{"runtime": "codex"})
+
+		if s.pane.Len() != 0 {
+			t.Errorf("a failed post logged %q, want nothing", s.pane.String())
+		}
+	})
+
+	t.Run("an unparsable base never reaches the transport", func(t *testing.T) {
+		fake := interceptCodexPosts(t, http.StatusOK, nil)
+		s := newCodexTestSession()
+		s.base, s.token = "https://offi craft.example", "wire-token"
+
+		s.post("/api/monitoring/telemetry", map[string]any{"runtime": "codex"})
+
+		if len(fake.posts) != 0 {
+			t.Errorf("the sidecar sent %+v, want nothing", fake.posts)
+		}
+	})
+}
+
+func TestCodexSessionReportRejectedCodexPost(t *testing.T) {
+	cases := []struct {
+		status int
+		want   []string
+	}{
+		{status: http.StatusOK},
+		{status: http.StatusNoContent},
+		{status: http.StatusPermanentRedirect},
+		{status: http.StatusBadRequest,
+			want: []string{"Codex POST /api/monitoring/telemetry rejected with HTTP 400"}},
+		{status: http.StatusUnauthorized,
+			want: []string{"Codex POST /api/monitoring/telemetry rejected with HTTP 401"}},
+		{status: http.StatusServiceUnavailable,
+			want: []string{"Codex POST /api/monitoring/telemetry rejected with HTTP 503"}},
 	}
+	for _, tc := range cases {
+		s := newCodexTestSession()
+
+		s.reportRejectedCodexPost("/api/monitoring/telemetry", tc.status)
+
+		if got := s.paneLines(t); !reflect.DeepEqual(got, tc.want) {
+			t.Errorf("HTTP %d put %q in the pane, want %q", tc.status, got, tc.want)
+		}
+	}
+}
+
+func TestCodexSessionAllowUsageReport(t *testing.T) {
+	s := newCodexTestSession()
+
+	if !s.allowUsageReport() {
+		t.Error("the first report was throttled")
+	}
+	if s.allowUsageReport() {
+		t.Error("a second report inside the throttle window was allowed")
+	}
+
+	s.forceUsageReport = true
+	if !s.allowUsageReport() {
+		t.Error("a forced report inside the throttle window was refused")
+	}
+	if s.forceUsageReport {
+		t.Error("the force flag survived the report it forced")
+	}
+	if s.allowUsageReport() {
+		t.Error("the report after a forced one was not throttled again")
+	}
+
+	s.lastUsageReport = time.Now().Add(-codexTelemetryThrottle)
+	if !s.allowUsageReport() {
+		t.Error("a report a full throttle window later was refused")
+	}
+}
+
+func TestCodexSessionRequestRateLimits(t *testing.T) {
+	s := newCodexTestSession()
+
+	s.requestRateLimits()
+	s.requestRateLimits()
+
+	want := []map[string]any{
+		{"id": float64(1), "method": "account/rateLimits/read", "params": nil},
+	}
+	if got := s.sent(t); !reflect.DeepEqual(got, want) {
+		t.Errorf("the sidecar sent %v, want a single read while one is in flight", got)
+	}
+	if s.rateLimitReadID != 1 {
+		t.Errorf("rateLimitReadID = %d, want 1 so the answer can be recognised", s.rateLimitReadID)
+	}
+
+	s.rateLimitReadID = 0
+	s.requestRateLimits()
+	if got := s.sent(t); len(got) != 2 || got[1]["id"] != float64(2) {
+		t.Errorf("after the answer arrived the sidecar sent %v, want a second read with id 2", got)
+	}
+}
+
+func TestCodexSessionReportTokenUsage(t *testing.T) {
+	usage := func(window float64) map[string]any {
+		return map[string]any{"tokenUsage": map[string]any{
+			"modelContextWindow": window,
+			"last":               map[string]any{"totalTokens": float64(41)},
+			"total": map[string]any{
+				"inputTokens": float64(1), "outputTokens": float64(2), "totalTokens": float64(10),
+				"serverSideOnly": float64(9),
+			},
+		}}
+	}
+
+	t.Run("a blank launch model is omitted rather than reported as measured", func(t *testing.T) {
+		fake := interceptCodexPosts(t, http.StatusOK, nil)
+		s := newCodexTestSession()
+		s.base, s.token, s.account, s.effort, s.model = "https://x.test", "tok", "codex:abc", "high", "  "
+		s.compactions = 2
+
+		s.reportTokenUsage(usage(100))
+
+		want := []codexPost{
+			{
+				method: http.MethodPost, url: "https://x.test/api/agent/context",
+				auth: "Bearer tok", ctype: "application/json",
+				body: map[string]any{"context_pct": float64(41), "compaction_count": float64(2)},
+			},
+			{
+				method: http.MethodPost, url: "https://x.test/api/monitoring/telemetry",
+				auth: "Bearer tok", ctype: "application/json",
+				body: map[string]any{
+					"runtime": "codex", "account": "codex:abc", "account_label": "ChatGPT",
+					"effort": "high",
+					"tokens": map[string]any{
+						"inputTokens": float64(1), "outputTokens": float64(2), "totalTokens": float64(10),
+					},
+				},
+			},
+		}
+		if !reflect.DeepEqual(fake.posts, want) {
+			t.Errorf("the sidecar sent %+v, want %+v", fake.posts, want)
+		}
+		if got, want := s.paneLines(t), []string{"context 41% · compact 2"}; !reflect.DeepEqual(got, want) {
+			t.Errorf("the pane shows %q, want %q", got, want)
+		}
+	})
+
+	t.Run("no context window means no context gauge", func(t *testing.T) {
+		fake := interceptCodexPosts(t, http.StatusOK, nil)
+		s := newCodexTestSession()
+		s.base, s.token, s.account, s.effort = "https://x.test", "tok", "codex:abc", "medium"
+
+		s.reportTokenUsage(usage(0))
+
+		if len(fake.posts) != 1 || fake.posts[0].url != "https://x.test/api/monitoring/telemetry" {
+			t.Fatalf("the sidecar sent %+v, want the telemetry body alone", fake.posts)
+		}
+		if s.pane.Len() != 0 {
+			t.Errorf("the pane shows %q, want nothing without a window to measure against", s.pane.String())
+		}
+	})
+
+	t.Run("a throttled report reaches nothing", func(t *testing.T) {
+		fake := interceptCodexPosts(t, http.StatusOK, nil)
+		s := newCodexTestSession()
+		s.base, s.token = "https://x.test", "tok"
+
+		s.reportTokenUsage(usage(100))
+		before := len(fake.posts)
+		s.reportTokenUsage(usage(100))
+
+		if len(fake.posts) != before {
+			t.Errorf("the throttled report sent %+v", fake.posts[before:])
+		}
+	})
+
+	t.Run("an empty payload still reports the runtime and its empty token map", func(t *testing.T) {
+		fake := interceptCodexPosts(t, http.StatusOK, nil)
+		s := newCodexTestSession()
+		s.base, s.token, s.account, s.effort = "https://x.test", "tok", "codex:abc", "medium"
+
+		s.reportTokenUsage(map[string]any{})
+
+		want := []codexPost{{
+			method: http.MethodPost, url: "https://x.test/api/monitoring/telemetry",
+			auth: "Bearer tok", ctype: "application/json",
+			body: map[string]any{
+				"runtime": "codex", "account": "codex:abc", "account_label": "ChatGPT",
+				"effort": "medium", "tokens": map[string]any{},
+			},
+		}}
+		if !reflect.DeepEqual(fake.posts, want) {
+			t.Errorf("the sidecar sent %+v, want %+v", fake.posts, want)
+		}
+	})
+}
+
+func TestCodexSessionReportRateLimits(t *testing.T) {
+	cases := []struct {
+		name     string
+		snapshot map[string]any
+		want     map[string]any
+	}{
+		{
+			name: "a five-hour window at the boundary",
+			snapshot: map[string]any{"primary": map[string]any{
+				"windowDurationMins": float64(360), "usedPercent": float64(12), "resetsAt": "2026-09-07T17:00:00Z"}},
+			want: map[string]any{"five_hour": map[string]any{
+				"used_percentage": float64(12), "resets_at": "2026-09-07T17:00:00Z"}},
+		},
+		{
+			name: "one minute past the boundary is the weekly window",
+			snapshot: map[string]any{"primary": map[string]any{
+				"windowDurationMins": float64(361), "usedPercent": float64(12), "resetsAt": nil}},
+			want: map[string]any{"seven_day": map[string]any{
+				"used_percentage": float64(12), "resets_at": nil}},
+		},
+		{
+			name: "weekly only leaves five_hour absent rather than fabricated",
+			snapshot: map[string]any{
+				"primary":   map[string]any{"windowDurationMins": float64(0), "usedPercent": float64(3)},
+				"secondary": map[string]any{"windowDurationMins": float64(10080), "usedPercent": float64(40)},
+			},
+			want: map[string]any{"seven_day": map[string]any{
+				"used_percentage": float64(40), "resets_at": nil}},
+		},
+		{
+			name: "the later window wins when both map to the same name",
+			snapshot: map[string]any{
+				"primary":   map[string]any{"windowDurationMins": float64(300), "usedPercent": float64(1)},
+				"secondary": map[string]any{"windowDurationMins": float64(60), "usedPercent": float64(2)},
+			},
+			want: map[string]any{"five_hour": map[string]any{
+				"used_percentage": float64(2), "resets_at": nil}},
+		},
+		{name: "an empty snapshot reports nothing", snapshot: map[string]any{}},
+		{
+			name:     "a snapshot whose windows are absent reports nothing",
+			snapshot: map[string]any{"primary": nil, "secondary": nil},
+		},
+		{
+			name: "a window with no duration reports nothing",
+			snapshot: map[string]any{"primary": map[string]any{
+				"usedPercent": float64(90), "resetsAt": "2026-09-07T17:00:00Z"}},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			fake := interceptCodexPosts(t, http.StatusOK, nil)
+			s := newCodexTestSession()
+			s.base, s.token, s.account = "https://x.test", "tok", "codex:abc"
+
+			s.reportRateLimits(tc.snapshot)
+
+			if tc.want == nil {
+				if len(fake.posts) != 0 {
+					t.Errorf("the sidecar sent %+v, want nothing", fake.posts)
+				}
+				return
+			}
+			want := []codexPost{{
+				method: http.MethodPost, url: "https://x.test/api/monitoring/telemetry",
+				auth: "Bearer tok", ctype: "application/json",
+				body: map[string]any{
+					"runtime": "codex", "account": "codex:abc", "account_label": "ChatGPT",
+					"rate_limits": tc.want,
+				},
+			}}
+			if !reflect.DeepEqual(fake.posts, want) {
+				t.Errorf("the sidecar sent %+v, want %+v", fake.posts, want)
+			}
+		})
+	}
+}
+
+func TestCodexSessionRecordCompaction(t *testing.T) {
+	compaction := func(id string) map[string]any {
+		return map[string]any{"item": map[string]any{"type": "contextCompaction", "id": id}}
+	}
+
+	t.Run("ignored signals", func(t *testing.T) {
+		cases := []struct {
+			name   string
+			params map[string]any
+		}{
+			{name: "no item", params: map[string]any{}},
+			{name: "a null item", params: map[string]any{"item": nil}},
+			{name: "another kind of item", params: map[string]any{
+				"item": map[string]any{"type": "assistantMessage", "id": "i_1"}}},
+			{name: "an anonymous echo", params: compaction("")},
+			{name: "an item with no id at all", params: map[string]any{
+				"item": map[string]any{"type": "contextCompaction"}}},
+		}
+		for _, tc := range cases {
+			t.Run(tc.name, func(t *testing.T) {
+				s := newCodexTestSession()
+
+				s.recordCompaction(tc.params)
+
+				if s.compactions != 0 || s.forceUsageReport || s.pane.Len() != 0 {
+					t.Errorf("count=%d force=%v pane=%q, want 0, false and nothing",
+						s.compactions, s.forceUsageReport, s.pane.String())
+				}
+			})
+		}
+	})
+
+	t.Run("each item is counted once, however often it is replayed", func(t *testing.T) {
+		s := newCodexTestSession()
+
+		s.recordCompaction(compaction("i_1"))
+		if !s.forceUsageReport {
+			t.Error("a compaction did not force the next usage report")
+		}
+		s.recordCompaction(compaction("i_1"))
+		s.recordCompaction(compaction("i_2"))
+		s.recordCompaction(compaction("i_1"))
+
+		if s.compactions != 2 {
+			t.Errorf("compactions = %d, want 2", s.compactions)
+		}
+		want := []string{"context compacted · count 1", "context compacted · count 2"}
+		if got := s.paneLines(t); !reflect.DeepEqual(got, want) {
+			t.Errorf("the pane shows %q, want %q", got, want)
+		}
+	})
+}
+
+func TestCodexSessionHandleServerRequest(t *testing.T) {
+	cases := []struct {
+		name string
+		msg  appServerMessage
+		want map[string]any
+	}{
+		{
+			name: "a user-input request is refused with the open-it-yourself instruction",
+			msg: appServerMessage{"id": "req-7", "method": "item/tool/requestUserInput",
+				"params": map[string]any{"questions": []any{
+					map[string]any{"id": "q1"},
+					map[string]any{"id": "q2", "isSecret": true},
+				}}},
+			want: map[string]any{"id": "req-7", "result": map[string]any{"answers": map[string]any{
+				"q1": map[string]any{"answers": []any{codexOpenYourOwnCardMessage(map[string]any{})}},
+				"q2": map[string]any{"answers": []any{
+					codexOpenYourOwnCardMessage(map[string]any{"isSecret": true})}},
+			}}},
+		},
+		{
+			name: "a request with no questions answers with an empty answer set",
+			msg: appServerMessage{"id": float64(4), "method": "item/tool/requestUserInput",
+				"params": map[string]any{}},
+			want: map[string]any{"id": float64(4),
+				"result": map[string]any{"answers": map[string]any{}}},
+		},
+		{
+			name: "an elicitation is declined",
+			msg:  appServerMessage{"id": float64(5), "method": "mcpServer/elicitation/request"},
+			want: map[string]any{"id": float64(5), "result": map[string]any{"action": "decline"}},
+		},
+		{
+			name: "anything else is answered as unsupported",
+			msg:  appServerMessage{"id": float64(6), "method": "session/somethingNew"},
+			want: map[string]any{"id": float64(6), "error": map[string]any{
+				"code":    float64(-32601),
+				"message": "OffiCraft sidecar does not support this server request"}},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			s := newCodexTestSession()
+
+			s.handleServerRequest(tc.msg)
+
+			if got, want := s.sent(t), []map[string]any{tc.want}; !reflect.DeepEqual(got, want) {
+				t.Errorf("the sidecar answered %v, want %v", got, want)
+			}
+			want := []string{"native user-input request → OffiCraft reply card"}
+			if got := s.paneLines(t); !reflect.DeepEqual(got, want) {
+				t.Errorf("the pane shows %q, want %q", got, want)
+			}
+		})
+	}
+}
+
+func TestRunCodexSession(t *testing.T) {
+	env := credEnvFunc(map[string]string{"OC_BASE": "https://x.test", "OC_TOKEN": "tok"})
+
+	t.Run("incomplete launch parameters are refused before anything starts", func(t *testing.T) {
+		cases := []struct {
+			name string
+			argv []string
+		}{
+			{name: "nothing at all", argv: nil},
+			{name: "no codex binary", argv: []string{"--workdir", "/w", "--persona", "/w/P.md"}},
+			{name: "no workdir", argv: []string{"--codex-bin", "/bin/true", "--persona", "/w/P.md"}},
+			{name: "no persona", argv: []string{"--codex-bin", "/bin/true", "--workdir", "/w"}},
+			{name: "an unknown flag", argv: []string{"--nope"}},
+		}
+		for _, tc := range cases {
+			t.Run(tc.name, func(t *testing.T) {
+				out := &bytes.Buffer{}
+
+				code := runCodexSession(tc.argv, env, out)
+
+				if code != 2 {
+					t.Errorf("runCodexSession returned %d, want 2", code)
+				}
+				if !strings.HasSuffix(out.String(), "codex-session: missing required launch parameters\n") {
+					t.Errorf("runCodexSession printed %q, want it to end with the missing-parameters line",
+						out.String())
+				}
+			})
+		}
+	})
+
+	t.Run("an unlaunchable codex binary is reported", func(t *testing.T) {
+		work := t.TempDir()
+		out := &lockedBuffer{}
+
+		code := runCodexSession([]string{
+			"--codex-bin", filepath.Join(work, "no-such-codex"),
+			"--workdir", work, "--persona", filepath.Join(work, "P.md"),
+		}, env, out)
+
+		if code != 1 {
+			t.Errorf("runCodexSession returned %d, want 1", code)
+		}
+		if !strings.HasPrefix(out.String(), "codex-session: start app-server: ") {
+			t.Errorf("runCodexSession printed %q, want a start app-server failure", out.String())
+		}
+	})
+
+	t.Run("an app server that never answers initialize ends the session", func(t *testing.T) {
+		t.Setenv("HOME", t.TempDir())
+		work := t.TempDir()
+		codexBin := filepath.Join(work, "codex")
+		script := "#!/bin/sh\nprintf '%s\\n' \"$1\" >&2\nexit 0\n"
+		if err := os.WriteFile(codexBin, []byte(script), 0o755); err != nil {
+			t.Fatalf("stage codex stub: %v", err)
+		}
+		out := &lockedBuffer{}
+
+		code := runCodexSession([]string{
+			"--codex-bin", codexBin, "--workdir", work,
+			"--persona", filepath.Join(work, "P.md"), "--model", "gpt-5-codex",
+		}, env, out)
+
+		if code != 1 {
+			t.Errorf("runCodexSession returned %d, want 1", code)
+		}
+		if !strings.Contains(out.String(),
+			"codex-session: initialize: app-server exited before responding\n") {
+			t.Errorf("runCodexSession printed %q, want the initialize failure", out.String())
+		}
+		if !strings.Contains(out.String(), "app-server\n") {
+			t.Errorf("the stub was run as %q, want it invoked with the app-server subcommand", out.String())
+		}
+	})
+
+	t.Run("an --effort this warden does not know runs at medium and is announced in the pane", func(t *testing.T) {
+		run := func(effort string) string {
+			work := t.TempDir()
+			t.Setenv("HOME", work)
+			codexBin := filepath.Join(work, "codex")
+			if err := os.WriteFile(codexBin, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+				t.Fatalf("stage codex stub: %v", err)
+			}
+			out := &lockedBuffer{}
+			runCodexSession([]string{
+				"--codex-bin", codexBin, "--workdir", work,
+				"--persona", filepath.Join(work, "P.md"), "--effort", effort,
+			}, env, out)
+			return out.String()
+		}
+
+		got := run("bogus")
+		const wantLine = "[codex] --effort \"bogus\" is not a level this warden knows; running at \"medium\"\n"
+		if !strings.Contains(got, wantLine) {
+			t.Errorf("runCodexSession printed %q, want it to carry %q", got, wantLine)
+		}
+		if i, j := strings.Index(got, wantLine), strings.Index(got, "[codex] App Server started"); i < 0 || j < 0 || i > j {
+			t.Errorf("runCodexSession printed %q, want the effort announcement before the session even starts", got)
+		}
+		for _, effort := range []string{"low", "medium", "high", "xhigh", "max", ""} {
+			if out := run(effort); strings.Contains(out, "is not a level this warden knows") {
+				t.Errorf("effort %q is a level this warden knows, but the pane said %q", effort, out)
+			}
+		}
+	})
 }

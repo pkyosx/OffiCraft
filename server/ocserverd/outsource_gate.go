@@ -27,15 +27,15 @@ const (
 
 // outsourceGateRequest is one dispatch intent presented to the choke.
 type outsourceGateRequest struct {
-	PrincipalClass string   // the initiator's principal class (authz.go ladder)
-	Initiator      *Member  // the initiator's member row (nil for owner scope)
-	TaskID         string   // the task being dispatched
-	Runtime        string   // target worker runtime
-	Model          string   // target worker model
-	Effort         string   // target reasoning effort
-	Machine        string   // target machine placement preference
-	IssuedBy       string   // the actor that dispatched (發起者) — verified token sub
-	EstCost        *float64 // OPTIONAL pre-spawn cost estimate (Pass 2); nil today
+	PrincipalClass principalClass // the initiator's principal class (authz.go ladder)
+	Initiator      *Member        // the initiator's member row (nil for owner scope)
+	TaskID         string         // the task being dispatched
+	Runtime        string         // target worker runtime
+	Model          string         // target worker model
+	Effort         string         // target reasoning effort
+	Machine        string         // target machine placement preference
+	IssuedBy       string         // the actor that dispatched (發起者) — verified token sub
+	EstCost        *float64       // OPTIONAL pre-spawn cost estimate (Pass 2); nil today
 }
 
 // outsourceGateResult carries the verdict + why.
@@ -87,7 +87,7 @@ func (s *apiServer) meterOutsourceDispatch(req outsourceGateRequest) {
 // (the scheduler tick's typed-outsource auto-spawn): the owner literal → owner
 // scope with a nil member; else the caller's member row → classifyMember. A
 // missing row is a plain agent with a nil member (deny-by-default at the gate).
-func (s *apiServer) resolveDispatchInitiator(actorID string) (string, *Member, error) {
+func (s *apiServer) resolveDispatchInitiator(actorID string) (principalClass, *Member, error) {
 	if actorID == "" || actorID == wireOwnerID {
 		return principalOwner, nil, nil
 	}

@@ -134,7 +134,7 @@ func receiptReporterMachine(r *http.Request) string {
 
 // principalOfRequest resolves the caller's principal class (the in-handler
 // twin of the route choke — handlers.principal_at_least call sites).
-func (s *apiServer) principalOfRequest(r *http.Request) string {
+func (s *apiServer) principalOfRequest(r *http.Request) principalClass {
 	return resolvePrincipal(claimsFromContext(r.Context()), s.dal.GetMember)
 }
 

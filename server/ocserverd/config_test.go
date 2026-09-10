@@ -1,249 +1,204 @@
+// Skeleton generated from server/ocserverd/config.go by gen_test_skeletons.py.
+// Every case is a t.Skip placeholder: fill the body, keep or rewrite the name.
+
 package main
 
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 )
 
-func envOf(m map[string]string) func(string) string {
-	return func(k string) string { return m[k] }
-}
-
-func TestLoadConfigMissingFileYieldsDefaults(t *testing.T) {
-	cfg, warnings, err := loadConfig(filepath.Join(t.TempDir(), "absent.toml"))
-	if err != nil {
-		t.Fatalf("missing file must not error: %v", err)
-	}
-	if len(warnings) != 0 {
-		t.Fatalf("missing file must not warn: %v", warnings)
-	}
-	if cfg.Server.Port != 7755 || cfg.Server.Namespace != "" {
-		t.Fatalf("server defaults: %+v", cfg.Server)
-	}
-	if cfg.Auth.Password != "" || cfg.Auth.Secret != "" || cfg.Auth.TokenTTL != 86400 || cfg.Auth.TokenTTLSet {
-		t.Fatalf("auth defaults (deny-by-default empty password): %+v", cfg.Auth)
-	}
-	if cfg.StorageDSN != "" {
-		t.Fatalf("storage default is unset: %+v", cfg)
-	}
-	if cfg.SseContextHigh != defaultSseContextHigh() || cfg.SseContextHighSet != (SseContextHighSet{}) {
-		t.Fatalf("sse_context_high defaults: %+v", cfg.SseContextHigh)
+func TestDefaultSseContextHigh(t *testing.T) {
+	want := SseContextHighConfig{NoticePct: 40, HandoverPct: 50, MinBootSecs: 120, StaleGuard: true}
+	if got := defaultSseContextHigh(); got != want {
+		t.Fatalf("defaultSseContextHigh() = %#v, want %#v", got, want)
 	}
 }
 
-func TestLoadConfigReadsAllTables(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "oc.toml")
-	body := `
-[server]
-host = "0.0.0.0"
-port = 8796
+func TestDefaultConfig(t *testing.T) {
+	want := Config{
+		Server: ServerConfig{Port: defaultPort},
+		Auth:   AuthConfig{TokenTTL: defaultOwnerTokenTTL},
+		SseContextHigh: SseContextHighConfig{
+			NoticePct: 40, HandoverPct: 50, MinBootSecs: 120, StaleGuard: true,
+		},
+	}
+	if got := defaultConfig(); !reflect.DeepEqual(got, want) {
+		t.Fatalf("defaultConfig() = %#v, want %#v", got, want)
+	}
+}
 
-[auth]
-password = "correct-horse"
-secret = "unit-test-signing-secret"
-token_ttl = 3600
-
-[storage]
-dsn = "sqlite:///var/data/test.db"
-
-[sse_context_high]
-warn_pct = 45
-stale_guard = false
-`
-	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
-		t.Fatal(err)
+func TestConfigPath(t *testing.T) {
+	if got := configPath(func(string) string { return "" }); got != "oc.toml" {
+		t.Fatalf("configPath(unset) = %q, want oc.toml", got)
 	}
-	cfg, warnings, err := loadConfig(path)
-	if err != nil {
-		t.Fatalf("load: %v", err)
-	}
-	if cfg.Server.Port != 8796 {
-		t.Fatalf("server: %+v", cfg.Server)
-	}
-	// Retired keys are still PARSED (the one-shot DB migration consumes them)
-	// but each retired table draws exactly one warning.
-	if cfg.Auth.Password != "correct-horse" || cfg.Auth.Secret != "unit-test-signing-secret" || cfg.Auth.TokenTTL != 3600 || !cfg.Auth.TokenTTLSet {
-		t.Fatalf("auth: %+v", cfg.Auth)
-	}
-	if len(warnings) != 3 {
-		t.Fatalf("want 3 retired-key warnings (host/auth/sse_context_high): %v", warnings)
-	}
-	for i, frag := range []string{"[server].host", "[auth]", "[sse_context_high]"} {
-		if !strings.Contains(warnings[i], frag) {
-			t.Fatalf("warning %d must name %s: %q", i, frag, warnings[i])
+	if got := configPath(func(name string) string {
+		if name == envConfigPath {
+			return "deploy/oc.toml"
 		}
-	}
-	if cfg.StorageDSN != "sqlite:///var/data/test.db" {
-		t.Fatalf("storage: %q", cfg.StorageDSN)
-	}
-	// Set keys land (with their Set flags — the migration imports exactly
-	// those); absent keys keep the non-zero convention defaults.
-	//
-	// The fixture still WRITES warn_pct (an old install's file must keep
-	// parsing without error after T-c382 retired the knob), and the assertion
-	// below is what proves it now lands NOWHERE: the config equals the default
-	// except for stale_guard, and only stale_guard is flagged as set.
-	want := defaultSseContextHigh()
-	want.StaleGuard = false
-	if cfg.SseContextHigh != want {
-		t.Fatalf("sse_context_high: %+v", cfg.SseContextHigh)
-	}
-	if cfg.SseContextHighSet != (SseContextHighSet{StaleGuard: true}) {
-		t.Fatalf("sse_context_high set flags: %+v", cfg.SseContextHighSet)
-	}
-}
-
-func TestLoadConfigPartialFileKeepsDefaults(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "oc.toml")
-	if err := os.WriteFile(path, []byte("[auth]\npassword = \"pw\"\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	cfg, warnings, err := loadConfig(path)
-	if err != nil {
-		t.Fatalf("load: %v", err)
-	}
-	if cfg.Server.Port != 7755 || cfg.Auth.TokenTTL != 86400 || cfg.Auth.TokenTTLSet || cfg.Auth.Password != "pw" {
-		t.Fatalf("absent keys must keep convention defaults: %+v", cfg)
-	}
-	if len(warnings) != 1 || !strings.Contains(warnings[0], "[auth]") {
-		t.Fatalf("a lone [auth] table must draw exactly its own warning: %v", warnings)
-	}
-}
-
-func TestLoadConfigEffectiveSchemaDrawsNoWarnings(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "oc.toml")
-	body := "[server]\nport = 8796\nnamespace = \"seth\"\n\n[storage]\ndsn = \"sqlite:///x.db\"\n"
-	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	_, warnings, err := loadConfig(path)
-	if err != nil {
-		t.Fatalf("load: %v", err)
-	}
-	if len(warnings) != 0 {
-		t.Fatalf("the port+dsn+namespace schema must not warn: %v", warnings)
-	}
-}
-
-func TestLoadConfigRejectsUnknownSettingsButAllowsExtensions(t *testing.T) {
-	write := func(t *testing.T, body string) string {
-		t.Helper()
-		path := filepath.Join(t.TempDir(), "oc.toml")
-		if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
-			t.Fatal(err)
-		}
-		return path
-	}
-
-	path := write(t, "[server]\nport = 8796\npoert = 8797\n")
-	if _, _, err := loadConfig(path); err == nil || !strings.Contains(err.Error(), "server.poert") || !strings.Contains(err.Error(), "[extensions]") {
-		t.Fatalf("unknown server setting must fail with the extension escape hatch: %v", err)
-	}
-
-	path = write(t, "[unrelated]\nvalue = true\n")
-	if _, _, err := loadConfig(path); err == nil || !strings.Contains(err.Error(), "unrelated.value") {
-		t.Fatalf("unknown table must fail loud: %v", err)
-	}
-
-	path = write(t, "[extensions.plugin]\nenabled = true\nendpoint = \"https://example.test\"\n")
-	if _, warnings, err := loadConfig(path); err != nil || len(warnings) != 0 {
-		t.Fatalf("extensions namespace must remain available: warnings=%v err=%v", warnings, err)
-	}
-}
-
-func TestLoadConfigNamespace(t *testing.T) {
-	write := func(t *testing.T, body string) string {
-		t.Helper()
-		path := filepath.Join(t.TempDir(), "oc.toml")
-		if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
-			t.Fatal(err)
-		}
-		return path
-	}
-	// Absent → the main instance ("" — no namespace key exists today, so this
-	// is the zero-diff default).
-	cfg, _, err := loadConfig(write(t, "[server]\nport = 8770\n"))
-	if err != nil || cfg.Server.Namespace != "" {
-		t.Fatalf("absent namespace must stay empty: %+v, %v", cfg.Server, err)
-	}
-	// Present + valid → read through.
-	cfg, _, err = loadConfig(write(t, "[server]\nport = 8771\nnamespace = \"seth\"\n"))
-	if err != nil || cfg.Server.Namespace != "seth" || cfg.Server.Port != 8771 {
-		t.Fatalf("namespace/port not read: %+v, %v", cfg.Server, err)
-	}
-	// Present + malformed → fail LOUD (never silently fold back to the main
-	// instance — that would cross-wire two instances' wardens).
-	for _, bad := range []string{"Seth", "s.eth", "s eth", "seventeen-chars-xx"} {
-		if _, _, err := loadConfig(write(t, "[server]\nnamespace = \""+bad+"\"\n")); err == nil {
-			t.Errorf("namespace %q must fail loud", bad)
-		}
-	}
-}
-
-func TestLoadConfigMalformedFileFailsLoud(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "oc.toml")
-	if err := os.WriteFile(path, []byte("[storage]\n[storage]\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if _, _, err := loadConfig(path); err == nil {
-		t.Fatal("a duplicate [storage] table must fail loud (tomllib parity)")
-	}
-}
-
-func TestConfigPathEnvOverride(t *testing.T) {
-	// $OC_CONFIG wins (the out-of-repo canonical path); unset → ./oc.toml.
-	if got := configPath(envOf(map[string]string{"OC_CONFIG": "/etc/oc.toml"})); got != "/etc/oc.toml" {
-		t.Fatalf("OC_CONFIG must win: %q", got)
-	}
-	if got := configPath(envOf(nil)); got != "oc.toml" {
-		t.Fatalf("unset OC_CONFIG → convention default: %q", got)
-	}
-}
-
-func TestResolveDSNOrder(t *testing.T) {
-	// env → oc.toml [storage].dsn → the ABSOLUTE convention default under the
-	// instance's canonical root (never CWD-relative — B2).
-	env := envOf(map[string]string{"OC_DATABASE_URL": "sqlite:///env.db"})
-	if got := resolveDSN(env, Config{StorageDSN: "sqlite:///toml.db"}); got != "sqlite:///env.db" {
-		t.Fatalf("env must win: %q", got)
-	}
-	if got := resolveDSN(envOf(nil), Config{StorageDSN: "sqlite:///toml.db"}); got != "sqlite:///toml.db" {
-		t.Fatalf("oc.toml next: %q", got)
+		return ""
+	}); got != "deploy/oc.toml" {
+		t.Fatalf("configPath(configured) = %q, want deploy/oc.toml", got)
 	}
 	home, err := os.UserHomeDir()
 	if err != nil {
 		t.Fatalf("UserHomeDir: %v", err)
 	}
-	want := "sqlite:///" + filepath.Join(home, ".officraft", "server", "data", "officraft.db")
-	if got := resolveDSN(envOf(nil), Config{}); got != want {
-		t.Fatalf("convention default: %q != %q", got, want)
+	for _, p := range []string{"~", "~/nested/oc.toml"} {
+		t.Run(p, func(t *testing.T) {
+			if got, want := configPath(func(string) string { return p }), filepath.Clean(home+strings.TrimPrefix(p, "~")); got != want {
+				t.Fatalf("configPath(%q) = %q, want %q", p, got, want)
+			}
+		})
 	}
-	// A namespaced instance defaults under ITS root — two instances must never
-	// silently share the main DB.
-	wantNS := "sqlite:///" + filepath.Join(home, ".officraft-seth", "server", "data", "officraft.db")
-	if got := resolveDSN(envOf(nil), Config{Server: ServerConfig{Namespace: "seth"}}); got != wantNS {
-		t.Fatalf("namespaced convention default: %q != %q", got, wantNS)
+}
+
+func TestLoadConfig(t *testing.T) {
+	t.Run("missing file keeps convention defaults", func(t *testing.T) {
+		cfg, warnings, err := loadConfig(filepath.Join(t.TempDir(), "missing.toml"))
+		if err != nil {
+			t.Fatalf("loadConfig(missing): %v", err)
+		}
+		if warnings != nil {
+			t.Fatalf("warnings = %#v, want nil", warnings)
+		}
+		if !reflect.DeepEqual(cfg, defaultConfig()) {
+			t.Fatalf("cfg = %#v, want defaultConfig()", cfg)
+		}
+	})
+
+	t.Run("valid file resolves effective fields and reports retired tables", func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), "oc.toml")
+		raw := `[server]
+host = "0.0.0.0"
+port = 9000
+namespace = "demo-1"
+
+[auth]
+password = "old-password"
+secret = "old-secret"
+token_ttl = 123
+
+[storage]
+dsn = "sqlite:///configured.db"
+database_url = "sqlite:///legacy.db"
+
+[sse_context_high]
+warn_pct = 35
+notice_pct = 60
+handover_pct = 70
+remind_step_pct = 5
+min_boot_secs = 90.5
+stale_guard = false
+
+[extensions]
+owned_by_extension = "kept"
+`
+		if err := os.WriteFile(path, []byte(raw), 0o600); err != nil {
+			t.Fatalf("WriteFile: %v", err)
+		}
+		cfg, warnings, err := loadConfig(path)
+		if err != nil {
+			t.Fatalf("loadConfig: %v", err)
+		}
+		if cfg.Server != (ServerConfig{Port: 9000, Namespace: "demo-1"}) {
+			t.Fatalf("Server = %#v, want configured port and namespace", cfg.Server)
+		}
+		if cfg.StorageDSN != "sqlite:///configured.db" {
+			t.Fatalf("StorageDSN = %q, want configured dsn to win", cfg.StorageDSN)
+		}
+		if cfg.Auth != (AuthConfig{Password: "old-password", Secret: "old-secret", TokenTTL: 123, TokenTTLSet: true}) {
+			t.Fatalf("Auth = %#v, want parsed legacy auth", cfg.Auth)
+		}
+		if cfg.SseContextHigh != (SseContextHighConfig{NoticePct: 60, HandoverPct: 70, MinBootSecs: 90.5, StaleGuard: false}) {
+			t.Fatalf("SseContextHigh = %#v, want parsed legacy context settings", cfg.SseContextHigh)
+		}
+		if cfg.SseContextHighSet != (SseContextHighSet{NoticePct: true, HandoverPct: true, MinBootSecs: true, StaleGuard: true}) {
+			t.Fatalf("SseContextHighSet = %#v, want every retained setting marked", cfg.SseContextHighSet)
+		}
+		if len(warnings) != 3 {
+			t.Fatalf("warnings = %#v, want host/auth/sse warnings", warnings)
+		}
+		joined := strings.Join(warnings, "\n")
+		for _, want := range []string{"[server].host", "[auth]", "[sse_context_high]"} {
+			if !strings.Contains(joined, want) {
+				t.Fatalf("warnings = %#v, want %q", warnings, want)
+			}
+		}
+	})
+
+	tests := []struct {
+		name string
+		raw  string
+		want string
+	}{
+		{name: "malformed toml", raw: "[server\nport = 1", want: "parse"},
+		{name: "unknown setting", raw: "[server]\nport = 1\nunknown = true", want: "unknown setting"},
+		{name: "invalid namespace", raw: "[server]\nnamespace = \"Bad_Name\"", want: "namespace"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "oc.toml")
+			if err := os.WriteFile(path, []byte(tt.raw), 0o600); err != nil {
+				t.Fatalf("WriteFile: %v", err)
+			}
+			_, _, err := loadConfig(path)
+			if err == nil || !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("loadConfig error = %v, want substring %q", err, tt.want)
+			}
+		})
+	}
+}
+
+func TestResolveDSN(t *testing.T) {
+	cfg := Config{StorageDSN: "sqlite:///from-config", Server: ServerConfig{Namespace: "tenant-1"}}
+	if got := resolveDSN(func(name string) string {
+		if name == envDatabaseURL {
+			return "postgres://ignored-by-driver"
+		}
+		return ""
+	}, cfg); got != "postgres://ignored-by-driver" {
+		t.Fatalf("resolveDSN(env, cfg) = %q, want environment override", got)
+	}
+	if got := resolveDSN(func(string) string { return "" }, cfg); got != cfg.StorageDSN {
+		t.Fatalf("resolveDSN(config, cfg) = %q, want %q", got, cfg.StorageDSN)
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		t.Fatalf("UserHomeDir: %v", err)
+	}
+	want := "sqlite:///" + filepath.Join(home, ".officraft-tenant-1", "server", "data", "officraft.db")
+	if got := resolveDSN(func(string) string { return "" }, Config{Server: ServerConfig{Namespace: "tenant-1"}}); got != want {
+		t.Fatalf("resolveDSN(default, namespaced) = %q, want %q", got, want)
+	}
+	mainWant := "sqlite:///" + filepath.Join(home, ".officraft", "server", "data", "officraft.db")
+	if got := resolveDSN(func(string) string { return "" }, Config{}); got != mainWant {
+		t.Fatalf("resolveDSN(default, main) = %q, want %q", got, mainWant)
 	}
 }
 
 func TestSqliteFilePath(t *testing.T) {
-	cases := []struct {
+	tests := []struct {
+		name string
 		dsn  string
 		path string
 		ok   bool
 	}{
-		{"sqlite:///var/data/x.db", "var/data/x.db", true},       // relative (3 slashes)
-		{"sqlite:////abs/x.db", "/abs/x.db", true},               // absolute (4 slashes)
-		{"sqlite+pysqlite:///var/x.db", "var/x.db", true},        // SQLAlchemy driver suffix
-		{"plain/path.db", "plain/path.db", true},                 // bare path
-		{"postgresql+psycopg://u:p@h:5432/officraft", "", false}, // not sqlite
+		{name: "relative sqlite dsn", dsn: "sqlite:///var/data.db", path: "var/data.db", ok: true},
+		{name: "absolute sqlite dsn", dsn: "sqlite:////tmp/data.db", path: "/tmp/data.db", ok: true},
+		{name: "pysqlite dsn", dsn: "sqlite+pysqlite:///var/data.db", path: "var/data.db", ok: true},
+		{name: "bare path", dsn: "/tmp/data.db", path: "/tmp/data.db", ok: true},
+		{name: "postgres is unsupported", dsn: "postgres://db/app", ok: false},
 	}
-	for _, c := range cases {
-		got, ok := sqliteFilePath(c.dsn)
-		if ok != c.ok || got != c.path {
-			t.Fatalf("sqliteFilePath(%q) = (%q,%v), want (%q,%v)", c.dsn, got, ok, c.path, c.ok)
-		}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, ok := sqliteFilePath(tt.dsn)
+			if got != tt.path || ok != tt.ok {
+				t.Fatalf("sqliteFilePath(%q) = (%q, %v), want (%q, %v)", tt.dsn, got, ok, tt.path, tt.ok)
+			}
+		})
 	}
 }

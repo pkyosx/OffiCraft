@@ -1,460 +1,602 @@
 package main
 
 import (
-	"net/http"
-	"net/http/httptest"
 	"strings"
 	"testing"
-	"unicode/utf8"
 )
 
-// ── T-cc3e 步驟備註欄 guards ─────────────────────────────────────────────────
-//
-// These assert the VALUE that came back out, never merely that a field is
-// declared: the ticket exists because a documented note field turned out not to
-// exist, and a test that only reads the schema would have passed just as
-// happily against that nothing. Every case below writes a distinctive string
-// and reads it back through the real read path — which since T-66 is
-// get_task_step, the single-step read; get_task reports each step's note SIZE
-// and no longer its text.
+func TestHandleUpdateTaskStepNoteApiTasksTaskIdStepsStepIdNotePost(t *testing.T) {
+	t.Run("the note replaces what the step held, is echoed as size and digest, and fans the task delta", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"Ship it","executor_member_id":"kip"}`)
+		agent := apiTestAgentToken(t, api, "kip", "")
+		apiJSON(t, h, "POST", "/api/tasks/T-1/plan", agent,
+			`{"steps":[{"name":"Draft","dod":"a draft exists"}]}`)
+		stepID := apiTestOnlyStepID(t, h, owner, "T-1")
+		apiJSON(t, h, "POST", "/api/tasks/T-1/steps/"+stepID+"/note", agent, `{"note":"first pass"}`)
+		dashboard := apiTestListen(t, api, "")
+		executor := apiTestListen(t, api, "kip")
+		bystander := apiTestListen(t, api, "mira")
 
-// writeStepNote posts one note write as the given caller and returns the
-// recorder, so each case asserts its own status code.
-func writeStepNote(t *testing.T, api *apiServer, taskID, stepID, caller, note string) *httptest.ResponseRecorder {
-	t.Helper()
-	rec := httptest.NewRecorder()
-	api.HandleUpdateTaskStepNoteApiTasksTaskIdStepsStepIdNotePost(rec,
-		taskReq(t, "POST", "/api/tasks/"+taskID+"/steps/"+stepID+"/note",
-			map[string]any{"note": note}, caller, "agent"),
-		taskID, stepID)
-	return rec
-}
-
-// readStepNote re-reads one step through the REAL READ PATH — which since T-66
-// is get_task_step, not get_task. Every case in this file (and in the three
-// other files that share this helper) exists to prove that what a handover
-// WRITES is what the next session READS, so the helper has to keep going
-// through the door a successor session actually opens. get_task no longer
-// carries the note text at all, so a helper still looping over its step rows
-// would read "" for every case and prove nothing.
-//
-// It is deliberately STRICTER than its predecessor rather than looser: the
-// single-step read is asked to identify itself (detail_level "full"), to be the
-// step that was asked for, and to agree with its own reported size. A response
-// that came back with the summary projection, with a different step, or with a
-// size that disagrees with the text now fails HERE instead of passing quietly
-// into whichever case is calling.
-func readStepNote(t *testing.T, api *apiServer, taskID, stepID string) string {
-	t.Helper()
-	rec := httptest.NewRecorder()
-	api.HandleGetTaskStepApiTasksTaskIdStepsStepIdGet(rec,
-		taskReq(t, "GET", "/api/tasks/"+taskID+"/steps/"+stepID, nil, "m-exec", "agent"),
-		taskID, stepID)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("get task step: %d %s", rec.Code, rec.Body.String())
-	}
-	got := decodeBody[taskStepDetailDTO](t, rec)
-	if got.DetailLevel != "full" {
-		t.Fatalf("single-step read must declare detail_level=full, got %q", got.DetailLevel)
-	}
-	if got.ID != stepID || got.TaskID != taskID {
-		t.Fatalf("single-step read answered step %q of task %q, asked for %q of %q",
-			got.ID, got.TaskID, stepID, taskID)
-	}
-	if got.NoteSizeChars != utf8.RuneCountInString(got.Note) {
-		t.Fatalf("note_size_chars %d disagrees with the %d runes it served",
-			got.NoteSizeChars, utf8.RuneCountInString(got.Note))
-	}
-	return got.Note
-}
-
-// TestStepNoteRoundTripsThroughTheTaskView is the核心 assertion: what a
-// handover writes is what the next session reads. Dropping `note` from the
-// persisted column list, from the DTO projection, or from the handler's assign
-// reddens this — each of those is a way for the write to look successful and
-// still leave the reader with nothing, which is precisely the failure this
-// ticket was opened about.
-func TestStepNoteRoundTripsThroughTheTaskView(t *testing.T) {
-	api := newTasksTestServer(t)
-	task := createAdHocTask(t, api, "m-exec")
-	view := submitPlan(t, api, task.ID, "m-exec", []map[string]any{
-		{"name": "one", "dod": "d1"},
-		{"name": "two", "dod": "d2"},
-	})
-	stepID := view.Steps[0].ID
-	const note = "跑完 conformance，紅在 auth matrix 第 3 case；下一步接前端 i18n"
-
-	rec := writeStepNote(t, api, task.ID, stepID, "m-exec", note)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("write note: %d %s", rec.Code, rec.Body.String())
-	}
-	// The receipt must let the caller confirm what was STORED without a second
-	// round trip. T-91 changed HOW: the note itself no longer rides home (the
-	// caller sent it one line ago — owner 2026-09-05: 「自己發送出去的內容 … 不應
-	// 該再回傳回來」), and a sha256 over the stored text answers the same
-	// question at 64 characters. size_chars rides beside it so the writer also
-	// learns how much room is left.
-	receipt := decodeBody[taskStepNoteReceiptDTO](t, rec)
-	if receipt.Sha256 != receiptSha256(note) {
-		t.Fatalf("receipt sha256 = %q, want the hash of the stored note", receipt.Sha256)
-	}
-	if receipt.SizeChars != utf8.RuneCountInString(note) {
-		t.Fatalf("receipt size_chars = %d, want %d (RUNES, not bytes)",
-			receipt.SizeChars, utf8.RuneCountInString(note))
-	}
-	if got := readStepNote(t, api, task.ID, stepID); got != note {
-		t.Fatalf("note read back = %q, want %q", got, note)
-	}
-	// A note belongs to ONE step: the sibling must not have picked it up.
-	if got := readStepNote(t, api, task.ID, view.Steps[1].ID); got != "" {
-		t.Fatalf("sibling step note = %q, want empty", got)
-	}
-}
-
-// TestStepNoteWritableInEveryStepStatus pins the ticket's whole reason to
-// exist. The two note-shaped fields that already existed are each locked to one
-// moment — waiting_reason to waiting_external, the handoff fields to the
-// closing report — so a handover landing at any other moment had nowhere to
-// write. If someone later "tidies up" by gating this route on a step status,
-// this reddens.
-func TestStepNoteWritableInEveryStepStatus(t *testing.T) {
-	api := newTasksTestServer(t)
-	task := createAdHocTask(t, api, "m-exec")
-	view := submitPlan(t, api, task.ID, "m-exec", []map[string]any{
-		{"name": "pending lane", "dod": "d1"},
-		{"name": "working lane", "dod": "d2"},
-		{"name": "parked lane", "dod": "d3"},
-		{"name": "finished lane", "dod": "d4"},
-	})
-	pending, working := view.Steps[0], view.Steps[1]
-	parked, finished := view.Steps[2], view.Steps[3]
-
-	// working → in_progress; parked → waiting_external; finished → done.
-	if rec := reportStepStatus(t, api, task.ID, working.ID, "m-exec", "in_progress", ""); rec.Code != http.StatusOK {
-		t.Fatalf("start working lane: %d %s", rec.Code, rec.Body.String())
-	}
-	for _, s := range []string{"in_progress", "waiting_external"} {
-		reason := ""
-		if s == "waiting_external" {
-			reason = "waiting on a third party"
+		status, data := apiJSON(t, h, "POST", "/api/tasks/T-1/steps/"+stepID+"/note", agent,
+			`{"note":"  halfway through  "}`)
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
 		}
-		if rec := reportStepStatus(t, api, task.ID, parked.ID, "m-exec", s, reason); rec.Code != http.StatusOK {
-			t.Fatalf("park lane %s: %d %s", s, rec.Code, rec.Body.String())
-		}
-	}
-	for _, s := range []string{"in_progress", "done"} {
-		if rec := reportStepStatus(t, api, task.ID, finished.ID, "m-exec", s, ""); rec.Code != http.StatusOK {
-			t.Fatalf("finish lane %s: %d %s", s, rec.Code, rec.Body.String())
-		}
-	}
-
-	for _, tc := range []struct{ name, stepID, note string }{
-		{"pending", pending.ID, "not started; picks up after the merge lane"},
-		{"in_progress", working.ID, "half way — schema regenerated, handler next"},
-		{"waiting_external", parked.ID, "note and waiting_reason are different fields"},
-		{"done", finished.ID, "finished; recording what it actually produced"},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			if rec := writeStepNote(t, api, task.ID, tc.stepID, "m-exec", tc.note); rec.Code != http.StatusOK {
-				t.Fatalf("write in %s: %d %s", tc.name, rec.Code, rec.Body.String())
-			}
-			if got := readStepNote(t, api, task.ID, tc.stepID); got != tc.note {
-				t.Fatalf("%s note = %q, want %q", tc.name, got, tc.note)
-			}
+		apiWantBody(t, data, map[string]any{
+			"task_id":     "T-1",
+			"step_id":     stepID,
+			"step_status": "pending",
+			"size_chars":  15,
+			"cap_chars":   10000,
+			"sha256":      "e7ea19f08e8f2b6076240af5bb9642397941d4d96a565df7fbb53f5011113e75",
 		})
-	}
-	// waiting_reason is a SEPARATE field: writing a note must not have clobbered
-	// the parked lane's reason, and the note must not be the reason.
-	rec := httptest.NewRecorder()
-	api.HandleGetTaskApiTasksTaskIdGet(rec,
-		taskReq(t, "GET", "/api/tasks/"+task.ID, nil, "m-exec", "agent"), task.ID)
-	for _, st := range decodeBody[taskDTO](t, rec).Steps {
-		if st.ID == parked.ID && st.WaitingReason != "waiting on a third party" {
-			t.Fatalf("waiting_reason = %q, want it untouched by the note write",
-				st.WaitingReason)
+
+		_, step := apiJSON(t, h, "GET", "/api/tasks/T-1/steps/"+stepID, owner, "")
+		apiWantValue(t, "step.note", step["note"], "halfway through")
+		apiWantValue(t, "step.note_size_chars", step["note_size_chars"], 15)
+
+		taskFrame := map[string]any{
+			"seq":   4,
+			"topic": "task",
+			"op":    "patch",
+			"data": map[string]any{
+				"entity":  "task",
+				"key":     "owner::T-1",
+				"epoch":   4,
+				"deleted": false,
+				"payload": map[string]any{"id": "T-1", "priority": "mid", "status": "not_started"},
+			},
+			"ts":      apiAnyNumber,
+			"trigger": "kip",
 		}
-	}
-}
-
-// TestStepNoteIsWholesaleAndClearable — it is a current-state note, not an
-// append-only log: the second write replaces the first, and "" empties it.
-func TestStepNoteIsWholesaleAndClearable(t *testing.T) {
-	api := newTasksTestServer(t)
-	task := createAdHocTask(t, api, "m-exec")
-	view := submitPlan(t, api, task.ID, "m-exec", []map[string]any{
-		{"name": "one", "dod": "d1"},
+		dashboard.wantFrames(taskFrame)
+		executor.wantFrames(taskFrame)
+		bystander.wantFrames()
 	})
-	stepID := view.Steps[0].ID
-	for _, want := range []string{"first pass", "second pass replaces it", ""} {
-		if rec := writeStepNote(t, api, task.ID, stepID, "m-exec", want); rec.Code != http.StatusOK {
-			t.Fatalf("write %q: %d %s", want, rec.Code, rec.Body.String())
+
+	t.Run("an empty note clears the step's note", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"Ship it","executor_member_id":"kip"}`)
+		agent := apiTestAgentToken(t, api, "kip", "")
+		apiJSON(t, h, "POST", "/api/tasks/T-1/plan", agent,
+			`{"steps":[{"name":"Draft","dod":"a draft exists"}]}`)
+		stepID := apiTestOnlyStepID(t, h, owner, "T-1")
+		apiJSON(t, h, "POST", "/api/tasks/T-1/steps/"+stepID+"/note", agent, `{"note":"first pass"}`)
+
+		status, data := apiJSON(t, h, "POST", "/api/tasks/T-1/steps/"+stepID+"/note", agent, `{"note":""}`)
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
 		}
-		if got := readStepNote(t, api, task.ID, stepID); got != want {
-			t.Fatalf("note = %q, want %q", got, want)
+		apiWantValue(t, "body.size_chars", data["size_chars"], 0)
+		apiWantValue(t, "body.sha256", data["sha256"],
+			"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855")
+
+		_, step := apiJSON(t, h, "GET", "/api/tasks/T-1/steps/"+stepID, owner, "")
+		apiWantValue(t, "step.note", step["note"], "")
+	})
+
+	t.Run("a note lands on a step in any status the plan has put it in", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"Ship it","executor_member_id":"kip"}`)
+		agent := apiTestAgentToken(t, api, "kip", "")
+		apiJSON(t, h, "POST", "/api/tasks/T-1/plan", agent,
+			`{"steps":[{"name":"Draft","dod":"a draft exists"},{"name":"Review","dod":"reviewed"}]}`)
+		_, task := apiJSON(t, h, "GET", "/api/tasks/T-1", owner, "")
+		steps, _ := task["steps"].([]any)
+		first, _ := steps[0].(map[string]any)["id"].(string)
+		second, _ := steps[1].(map[string]any)["id"].(string)
+		apiJSON(t, h, "POST", "/api/tasks/T-1/steps/"+first+"/status", agent, `{"status":"in_progress"}`)
+		apiJSON(t, h, "POST", "/api/tasks/T-1/steps/"+first+"/status", agent, `{"status":"done"}`)
+		apiJSON(t, h, "POST", "/api/tasks/T-1/steps/"+second+"/status", agent, `{"status":"in_progress"}`)
+		apiJSON(t, h, "POST", "/api/tasks/T-1/steps/"+second+"/status", agent,
+			`{"status":"waiting_external","waiting_reason":"the vendor has not replied"}`)
+
+		status, data := apiJSON(t, h, "POST", "/api/tasks/T-1/steps/"+first+"/note", agent,
+			`{"note":"what the draft settled"}`)
+		if status != 200 {
+			t.Fatalf("want 200 on a done step, got %d (%v)", status, data)
 		}
-	}
-}
+		apiWantValue(t, "body.step_status", data["step_status"], "done")
 
-// TestStepNoteSurvivesAReplan — a replan keeps done steps as history, and the
-// note is the most valuable thing on a finished step (what it actually
-// produced). Losing it on submit_plan would silently destroy exactly the
-// handover record this field exists to carry.
-func TestStepNoteSurvivesAReplan(t *testing.T) {
-	api := newTasksTestServer(t)
-	task := createAdHocTask(t, api, "m-exec")
-	view := submitPlan(t, api, task.ID, "m-exec", []map[string]any{
-		{"name": "one", "dod": "d1"},
-		{"name": "two", "dod": "d2"},
-	})
-	doneStep := view.Steps[0].ID
-	for _, s := range []string{"in_progress", "done"} {
-		if rec := reportStepStatus(t, api, task.ID, doneStep, "m-exec", s, ""); rec.Code != http.StatusOK {
-			t.Fatalf("drive done %s: %d %s", s, rec.Code, rec.Body.String())
+		status, data = apiJSON(t, h, "POST", "/api/tasks/T-1/steps/"+second+"/note", agent,
+			`{"note":"waiting on the vendor"}`)
+		if status != 200 {
+			t.Fatalf("want 200 on a waiting step, got %d (%v)", status, data)
 		}
-	}
-	const note = "produced the spec diff; regenerated all three files"
-	if rec := writeStepNote(t, api, task.ID, doneStep, "m-exec", note); rec.Code != http.StatusOK {
-		t.Fatalf("write note: %d %s", rec.Code, rec.Body.String())
-	}
-	submitPlan(t, api, task.ID, "m-exec", []map[string]any{
-		{"name": "rethought", "dod": "d3"},
+		apiWantValue(t, "body.step_status", data["step_status"], "waiting_external")
+
+		_, step := apiJSON(t, h, "GET", "/api/tasks/T-1/steps/"+first, owner, "")
+		apiWantValue(t, "step.note", step["note"], "what the draft settled")
+		_, step = apiJSON(t, h, "GET", "/api/tasks/T-1/steps/"+second, owner, "")
+		apiWantValue(t, "step.note", step["note"], "waiting on the vendor")
 	})
-	if got := readStepNote(t, api, task.ID, doneStep); got != note {
-		t.Fatalf("note after replan = %q, want it kept as %q", got, note)
-	}
-}
 
-// TestStepNoteWriteMovesTaskUpdatedTS — the delivery guard.
-//
-// Storing the note is not the deliverable; the owner SEEING it is. A task card
-// he already has open re-reads its step-bearing detail only when updated_ts
-// changes: the SSE task delta carries id/status/priority and the list it
-// refreshes carries no steps at all. An earlier draft of this handler skipped
-// the bump on purpose and shipped a note that was invisible to exactly the
-// person watching a live handover — the one case the ticket exists for. Drop
-// the TouchTaskUpdatedTS call and this reddens.
-func TestStepNoteWriteMovesTaskUpdatedTS(t *testing.T) {
-	api := newTasksTestServer(t)
-	task := createAdHocTask(t, api, "m-exec")
-	view := submitPlan(t, api, task.ID, "m-exec", []map[string]any{{"name": "one", "dod": "d1"}})
-	stepID := view.Steps[0].ID
+	t.Run("a note over the cap answers 400 naming both numbers and the stored note stands", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"Ship it","executor_member_id":"kip"}`)
+		agent := apiTestAgentToken(t, api, "kip", "")
+		apiJSON(t, h, "POST", "/api/tasks/T-1/plan", agent,
+			`{"steps":[{"name":"Draft","dod":"a draft exists"}]}`)
+		stepID := apiTestOnlyStepID(t, h, owner, "T-1")
+		apiJSON(t, h, "POST", "/api/tasks/T-1/steps/"+stepID+"/note", agent, `{"note":"first pass"}`)
+		dashboard := apiTestListen(t, api, "")
 
-	before, err := api.dal.GetTask(task.ID)
-	if err != nil || before == nil {
-		t.Fatalf("load task: %v %v", before, err)
-	}
-	if rec := writeStepNote(t, api, task.ID, stepID, "m-exec", "第 4 步跑到 conformance"); rec.Code != http.StatusOK {
-		t.Fatalf("write note: %d %s", rec.Code, rec.Body.String())
-	}
-	after, err := api.dal.GetTask(task.ID)
-	if err != nil || after == nil {
-		t.Fatalf("reload task: %v %v", after, err)
-	}
-	if !(after.UpdatedTS > before.UpdatedTS) {
-		t.Fatalf("updated_ts did not move (%v → %v) — an already-open task card "+
-			"will never re-hydrate, so the note is invisible to the owner",
-			before.UpdatedTS, after.UpdatedTS)
-	}
-	// The bump must not have smeared anything else across the task row.
-	if after.Status != before.Status || after.Priority != before.Priority ||
-		after.ExecutorID != before.ExecutorID {
-		t.Fatalf("note write changed more than updated_ts: %+v → %+v", *before, *after)
-	}
-}
+		oversized := `{"note":"` + strings.Repeat("x", 10001) + `"}`
+		status, data := apiJSON(t, h, "POST", "/api/tasks/T-1/steps/"+stepID+"/note", agent, oversized)
+		if status != 400 {
+			t.Fatalf("want 400, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "validation_error", "step note is 10001 chars, over the 10000-char limit")
 
-// TestSetTaskStepNoteWritesOnlyTheNoteColumn — a DAL-level guard.
-//
-// 🔴 Read what this does and does NOT cover before trusting it.
-//
-// COVERS: the DAL write itself touches one column. Widen SetTaskStepNote to
-// write any other column and this reddens.
-//
-// DOES NOT COVER: the handler reverting to the load-mutate-save shape every
-// other step writer uses (GetTaskStep → mutate → PutTaskStep). That mutation
-// was run and SURVIVED this test — the danger only appears when a CONCURRENT
-// writer lands between some OTHER handler's read and its write, and there is no
-// seam here to interleave at.
-//
-// ⚠️ That gap is no longer untested. api_tasks_note_race_test.go constructs it
-// (T-e271 node 6): a deterministic interleave replaying update_step_status's
-// own read-mutate-write order, and two goroutines driving the two real
-// endpoints for 60 rounds. Both were measured RED before the fix. The fix is an
-// ownership boundary — `note` is out of PutTaskStep's ON CONFLICT list, pinned
-// by TestTaskStepNoteRaceGuardHasTeeth — so this DAL-level guard now sits
-// alongside real behavioural coverage rather than standing in for it.
-func TestSetTaskStepNoteWritesOnlyTheNoteColumn(t *testing.T) {
-	api := newTasksTestServer(t)
-	task := createAdHocTask(t, api, "m-exec")
-	view := submitPlan(t, api, task.ID, "m-exec", []map[string]any{{"name": "one", "dod": "d1"}})
-	stepID := view.Steps[0].ID
-	if rec := reportStepStatus(t, api, task.ID, stepID, "m-exec", "in_progress", ""); rec.Code != http.StatusOK {
-		t.Fatalf("start step: %d %s", rec.Code, rec.Body.String())
-	}
-	before, err := api.dal.GetTaskStep(stepID)
-	if err != nil || before == nil {
-		t.Fatalf("load step: %v %v", before, err)
-	}
-
-	ok, err := api.dal.SetTaskStepNote(stepID, "written straight through the DAL")
-	if err != nil || !ok {
-		t.Fatalf("SetTaskStepNote: ok=%v err=%v", ok, err)
-	}
-	after, err := api.dal.GetTaskStep(stepID)
-	if err != nil || after == nil {
-		t.Fatalf("reload step: %v %v", after, err)
-	}
-	if after.Note != "written straight through the DAL" {
-		t.Fatalf("note = %q, want it written", after.Note)
-	}
-	// Everything else must be byte-identical: compare the whole struct with the
-	// note field normalised away, so a newly added column is covered too.
-	a, b := *before, *after
-	a.Note, b.Note = "", ""
-	if a != b {
-		t.Fatalf("SetTaskStepNote changed more than the note column:\n before=%+v\n after =%+v", a, b)
-	}
-	// A step that is gone reports false rather than resurrecting itself.
-	if ok, err := api.dal.SetTaskStepNote("ts-does-not-exist", "x"); err != nil || ok {
-		t.Fatalf("write to a missing step: ok=%v err=%v, want ok=false", ok, err)
-	}
-}
-
-// TestStepNoteRefusedOnAClosedTask — the tool description promises writability
-// in every STEP status, and this is the line that promise stops at: once every
-// step is done the task auto-closes, and a closed task's record stops moving
-// (the same rule the artifact set follows). Pinned so the copy and the code
-// cannot drift apart again.
-func TestStepNoteRefusedOnAClosedTask(t *testing.T) {
-	api := newTasksTestServer(t)
-	task := createAdHocTask(t, api, "m-exec")
-	driveTaskDone(t, api, task.ID, "m-exec")
-	view := submitPlanFetch(t, api, task.ID)
-
-	rec := writeStepNote(t, api, task.ID, view[0].ID, "m-exec", "too late")
-	if rec.Code != http.StatusConflict {
-		t.Fatalf("write on a closed task: %d %s, want 409", rec.Code, rec.Body.String())
-	}
-	if !strings.Contains(rec.Body.String(), "already closed") {
-		t.Fatalf("409 body = %s, want it to name the closed task", rec.Body.String())
-	}
-}
-
-// submitPlanFetch reads a task's steps straight from the DAL (the plan view is
-// not available after the task closed).
-func submitPlanFetch(t *testing.T, api *apiServer, taskID string) []TaskStep {
-	t.Helper()
-	steps, err := api.dal.ListTaskSteps(taskID)
-	if err != nil || len(steps) == 0 {
-		t.Fatalf("list steps: %v %v", steps, err)
-	}
-	return steps
-}
-
-// TestStepNoteAcceptsAdminCapability — the guard is executor-OR-admin, and only
-// the executor half was covered. An admin助理 fixing a note on someone else's
-// task must not be refused. Both faces onto the field are asserted here: the
-// patch face calls callerMayDriveTask through the SAME helper, and the route
-// table says so ("the handler shares it verbatim"), so the admin half has to be
-// pinned on both or the claim rests on one face only.
-func TestStepNoteAcceptsAdminCapability(t *testing.T) {
-	api := newTasksTestServer(t)
-	task := createAdHocTask(t, api, "m-exec")
-	view := submitPlan(t, api, task.ID, "m-exec", []map[string]any{{"name": "one", "dod": "d1"}})
-	stepID := view.Steps[0].ID
-
-	rec := httptest.NewRecorder()
-	api.HandleUpdateTaskStepNoteApiTasksTaskIdStepsStepIdNotePost(rec,
-		taskReq(t, "POST", "/api/tasks/"+task.ID+"/steps/"+stepID+"/note",
-			map[string]any{"note": "written by the owner"}, wireOwnerID, "owner"),
-		task.ID, stepID)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("owner write: %d %s, want 200", rec.Code, rec.Body.String())
-	}
-	if got := readStepNote(t, api, task.ID, stepID); got != "written by the owner" {
-		t.Fatalf("note = %q, want the admin write to have landed", got)
-	}
-
-	// Same caller, the anchor-patch face: an admin amending one segment of a note
-	// on someone else's task must land too, and land splice-precise.
-	status, data := patchStepNoteAs(t, api, task.ID, stepID, wireOwnerID, "owner",
-		map[string]any{"edits": []any{
-			map[string]any{"old": "the owner", "new": "the admin, by anchor"},
-		}})
-	if status != http.StatusOK {
-		t.Fatalf("admin patch: %d %v, want 200", status, data)
-	}
-	if got := readStepNote(t, api, task.ID, stepID); got != "written by the admin, by anchor" {
-		t.Fatalf("note = %q, want the admin patch to have landed", got)
-	}
-}
-
-// TestStepNoteRefusesTheWrongCaller — the same executor-or-admin gate as every
-// other task-driving write. Dropping callerMayDriveTask from the handler
-// reddens this; the assertion names the REASON, not just the failure, so a
-// 403 arriving for some unrelated cause cannot pass for the guard working.
-func TestStepNoteRefusesTheWrongCaller(t *testing.T) {
-	api := newTasksTestServer(t)
-	task := createAdHocTask(t, api, "m-exec")
-	view := submitPlan(t, api, task.ID, "m-exec", []map[string]any{
-		{"name": "one", "dod": "d1"},
+		_, step := apiJSON(t, h, "GET", "/api/tasks/T-1/steps/"+stepID, owner, "")
+		apiWantValue(t, "step.note", step["note"], "first pass")
+		dashboard.wantFrames()
 	})
-	stepID := view.Steps[0].ID
 
-	rec := writeStepNote(t, api, task.ID, stepID, "m-someone-else", "not my task")
-	if rec.Code != http.StatusForbidden {
-		t.Fatalf("stranger write: %d %s, want 403", rec.Code, rec.Body.String())
-	}
-	if !strings.Contains(rec.Body.String(), "not the task's executor") {
-		t.Fatalf("403 body = %s, want it to name the executor guard", rec.Body.String())
-	}
-	// And the refusal must be real, not cosmetic: nothing landed.
-	if got := readStepNote(t, api, task.ID, stepID); got != "" {
-		t.Fatalf("note after refused write = %q, want empty", got)
-	}
+	t.Run("a step that belongs to another task answers 404 and writes nothing", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"First","executor_member_id":"kip"}`)
+		apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"Second","executor_member_id":"kip"}`)
+		agent := apiTestAgentToken(t, api, "kip", "")
+		apiJSON(t, h, "POST", "/api/tasks/T-1/plan", agent,
+			`{"steps":[{"name":"Draft","dod":"a draft exists"}]}`)
+		foreign := apiTestOnlyStepID(t, h, owner, "T-1")
+		dashboard := apiTestListen(t, api, "")
+
+		status, data := apiJSON(t, h, "POST", "/api/tasks/T-2/steps/"+foreign+"/note", agent,
+			`{"note":"wrong ticket"}`)
+		if status != 404 {
+			t.Fatalf("want 404, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "not_found", "step '"+foreign+"' not found")
+
+		_, step := apiJSON(t, h, "GET", "/api/tasks/T-1/steps/"+foreign, owner, "")
+		apiWantValue(t, "step.note", step["note"], "")
+		dashboard.wantFrames()
+	})
+
+	t.Run("a closed task answers 409 and the note stands, because the timeline stopped moving", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"Ship it","executor_member_id":"kip"}`)
+		agent := apiTestAgentToken(t, api, "kip", "")
+		apiJSON(t, h, "POST", "/api/tasks/T-1/plan", agent,
+			`{"steps":[{"name":"Draft","dod":"a draft exists"}]}`)
+		stepID := apiTestOnlyStepID(t, h, owner, "T-1")
+		apiJSON(t, h, "POST", "/api/tasks/T-1/steps/"+stepID+"/note", agent, `{"note":"first pass"}`)
+		apiJSON(t, h, "POST", "/api/tasks/T-1/terminate", owner, "")
+		dashboard := apiTestListen(t, api, "")
+
+		status, data := apiJSON(t, h, "POST", "/api/tasks/T-1/steps/"+stepID+"/note", agent,
+			`{"note":"one more thought"}`)
+		if status != 409 {
+			t.Fatalf("want 409, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "conflict", "task 'T-1' is already closed (terminated)")
+
+		_, step := apiJSON(t, h, "GET", "/api/tasks/T-1/steps/"+stepID, owner, "")
+		apiWantValue(t, "step.note", step["note"], "first pass")
+		dashboard.wantFrames()
+	})
+
+	t.Run("an agent that is not the task's executor answers 403 and the note stands", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"Ship it","executor_member_id":"mira"}`)
+		mira := apiTestAgentToken(t, api, "mira", "")
+		apiJSON(t, h, "POST", "/api/tasks/T-1/plan", mira,
+			`{"steps":[{"name":"Draft","dod":"a draft exists"}]}`)
+		stepID := apiTestOnlyStepID(t, h, owner, "T-1")
+		apiJSON(t, h, "POST", "/api/tasks/T-1/steps/"+stepID+"/note", mira, `{"note":"first pass"}`)
+		other := apiTestAgentToken(t, api, "kip", "")
+		dashboard := apiTestListen(t, api, "")
+
+		status, data := apiJSON(t, h, "POST", "/api/tasks/T-1/steps/"+stepID+"/note", other,
+			`{"note":"mine now"}`)
+		if status != 403 {
+			t.Fatalf("want 403, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "forbidden", "caller is not the task's executor")
+
+		_, step := apiJSON(t, h, "GET", "/api/tasks/T-1/steps/"+stepID, owner, "")
+		apiWantValue(t, "step.note", step["note"], "first pass")
+		dashboard.wantFrames()
+	})
+
+	t.Run("an authenticated machine identity answers 403 because this row requires agent", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"Ship it","executor_member_id":"kip"}`)
+		agent := apiTestAgentToken(t, api, "kip", "")
+		apiJSON(t, h, "POST", "/api/tasks/T-1/plan", agent,
+			`{"steps":[{"name":"Draft","dod":"a draft exists"}]}`)
+		stepID := apiTestOnlyStepID(t, h, owner, "T-1")
+		machine := apiTestAgentToken(t, api, "m-server-self", "")
+		dashboard := apiTestListen(t, api, "")
+
+		status, data := apiJSON(t, h, "POST", "/api/tasks/T-1/steps/"+stepID+"/note", machine,
+			`{"note":"mine now"}`)
+		if status != 403 {
+			t.Fatalf("want 403, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "forbidden", "principal not permitted")
+
+		_, step := apiJSON(t, h, "GET", "/api/tasks/T-1/steps/"+stepID, owner, "")
+		apiWantValue(t, "step.note", step["note"], "")
+		dashboard.wantFrames()
+	})
+
+	t.Run("an id no task carries answers 404 naming the task", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		dashboard := apiTestListen(t, api, "")
+
+		status, data := apiJSON(t, h, "POST", "/api/tasks/T-999/steps/ts-nosuchstep/note", owner,
+			`{"note":"anything"}`)
+		if status != 404 {
+			t.Fatalf("want 404, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "not_found", "task 'T-999' not found")
+		dashboard.wantFrames()
+	})
+
+	t.Run("a request without a token answers 401 and the note stands", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"Ship it","executor_member_id":"kip"}`)
+		agent := apiTestAgentToken(t, api, "kip", "")
+		apiJSON(t, h, "POST", "/api/tasks/T-1/plan", agent,
+			`{"steps":[{"name":"Draft","dod":"a draft exists"}]}`)
+		stepID := apiTestOnlyStepID(t, h, owner, "T-1")
+		apiJSON(t, h, "POST", "/api/tasks/T-1/steps/"+stepID+"/note", agent, `{"note":"first pass"}`)
+		dashboard := apiTestListen(t, api, "")
+
+		status, data := apiJSON(t, h, "POST", "/api/tasks/T-1/steps/"+stepID+"/note", "",
+			`{"note":"mine now"}`)
+		if status != 401 {
+			t.Fatalf("want 401, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "unauthorized", "missing credentials")
+
+		_, step := apiJSON(t, h, "GET", "/api/tasks/T-1/steps/"+stepID, owner, "")
+		apiWantValue(t, "step.note", step["note"], "first pass")
+		dashboard.wantFrames()
+	})
+
+	t.Run("a body that never names note answers 422 and the note stands", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"Ship it","executor_member_id":"kip"}`)
+		agent := apiTestAgentToken(t, api, "kip", "")
+		apiJSON(t, h, "POST", "/api/tasks/T-1/plan", agent,
+			`{"steps":[{"name":"Draft","dod":"a draft exists"}]}`)
+		stepID := apiTestOnlyStepID(t, h, owner, "T-1")
+		apiJSON(t, h, "POST", "/api/tasks/T-1/steps/"+stepID+"/note", agent, `{"note":"first pass"}`)
+		dashboard := apiTestListen(t, api, "")
+
+		status, data := apiJSON(t, h, "POST", "/api/tasks/T-1/steps/"+stepID+"/note", agent, `{}`)
+		if status != 422 {
+			t.Fatalf("want 422, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "validation_error", "field required: note")
+
+		status, data = apiJSON(t, h, "POST", "/api/tasks/T-1/steps/"+stepID+"/note", agent, "{{{")
+		if status != 422 {
+			t.Fatalf("want 422, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "validation_error",
+			"invalid request body: invalid character '{' looking for beginning of object key string")
+
+		_, step := apiJSON(t, h, "GET", "/api/tasks/T-1/steps/"+stepID, owner, "")
+		apiWantValue(t, "step.note", step["note"], "first pass")
+		dashboard.wantFrames()
+	})
 }
 
-// TestStepNoteRefusesAnUnknownStep — a step id belonging to another task is a
-// 404, not a silent write onto whatever row matched.
-func TestStepNoteRefusesAnUnknownStep(t *testing.T) {
-	api := newTasksTestServer(t)
-	mine := createAdHocTask(t, api, "m-exec")
-	submitPlan(t, api, mine.ID, "m-exec", []map[string]any{{"name": "one", "dod": "d1"}})
-	other := createAdHocTask(t, api, "m-exec")
-	otherView := submitPlan(t, api, other.ID, "m-exec", []map[string]any{{"name": "x", "dod": "d"}})
+func TestHandlePatchTaskStepNoteApiTasksTaskIdStepsStepIdNotePatchPost(t *testing.T) {
+	t.Run("an anchored splice rewrites just that span, counts the edit and fans the task delta", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"Ship it","executor_member_id":"kip"}`)
+		agent := apiTestAgentToken(t, api, "kip", "")
+		apiJSON(t, h, "POST", "/api/tasks/T-1/plan", agent,
+			`{"steps":[{"name":"Draft","dod":"a draft exists"}]}`)
+		stepID := apiTestOnlyStepID(t, h, owner, "T-1")
+		apiJSON(t, h, "POST", "/api/tasks/T-1/steps/"+stepID+"/note", agent,
+			`{"note":"halfway through the draft"}`)
+		dashboard := apiTestListen(t, api, "")
+		executor := apiTestListen(t, api, "kip")
+		bystander := apiTestListen(t, api, "mira")
 
-	rec := writeStepNote(t, api, mine.ID, otherView.Steps[0].ID, "m-exec", "wrong task")
-	if rec.Code != http.StatusNotFound {
-		t.Fatalf("cross-task write: %d %s, want 404", rec.Code, rec.Body.String())
-	}
-	if got := readStepNote(t, api, other.ID, otherView.Steps[0].ID); got != "" {
-		t.Fatalf("other task's step note = %q, want empty", got)
-	}
-}
+		status, data := apiJSON(t, h, "POST", "/api/tasks/T-1/steps/"+stepID+"/note/patch", agent,
+			`{"edits":[{"old":"halfway","new":"most of the way"}]}`)
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		apiWantBody(t, data, map[string]any{
+			"task_id":       "T-1",
+			"step_id":       stepID,
+			"step_status":   "pending",
+			"applied_edits": 1,
+			"size_chars":    33,
+			"cap_chars":     10000,
+			"sha256":        "f99d5c6977708a5b259c14f9cfc579a7e4e9077d12397c909526d8eeecc115c1",
+		})
 
-// TestStepNoteRefusesOverTheCharLimit — the ceiling counted in RUNES: a
-// 3,000-character Chinese note is well inside the limit and must be accepted,
-// which a byte-based count would reject. Since T-119 the ceiling is the
-// task.step_note_cap_chars setting rather than the handover note's constant,
-// so this case reads the shipped default; the setting's own behaviour (the
-// reported number tracking the enforced one, and lowering it) lives in
-// api_tasks_step_note_cap_setting_t119_test.go.
-func TestStepNoteRefusesOverTheCharLimit(t *testing.T) {
-	api := newTasksTestServer(t)
-	task := createAdHocTask(t, api, "m-exec")
-	view := submitPlan(t, api, task.ID, "m-exec", []map[string]any{{"name": "one", "dod": "d1"}})
-	stepID := view.Steps[0].ID
+		_, step := apiJSON(t, h, "GET", "/api/tasks/T-1/steps/"+stepID, owner, "")
+		apiWantValue(t, "step.note", step["note"], "most of the way through the draft")
 
-	legal := strings.Repeat("備", 3000) // 9,000 bytes, 3,000 runes
-	if rec := writeStepNote(t, api, task.ID, stepID, "m-exec", legal); rec.Code != http.StatusOK {
-		t.Fatalf("3,000-rune CJK note: %d %s, want 200", rec.Code, rec.Body.String())
-	}
-	over := strings.Repeat("備", stepNoteCapCharsDefault+1)
-	rec := writeStepNote(t, api, task.ID, stepID, "m-exec", over)
-	if rec.Code != http.StatusBadRequest {
-		t.Fatalf("over-cap note: %d %s, want 400", rec.Code, rec.Body.String())
-	}
-	// The refusal must leave the previous note intact, not half-apply.
-	if got := readStepNote(t, api, task.ID, stepID); got != legal {
-		t.Fatalf("note after refused over-cap write changed; want the legal one kept")
-	}
+		taskFrame := map[string]any{
+			"seq":   4,
+			"topic": "task",
+			"op":    "patch",
+			"data": map[string]any{
+				"entity":  "task",
+				"key":     "owner::T-1",
+				"epoch":   4,
+				"deleted": false,
+				"payload": map[string]any{"id": "T-1", "priority": "mid", "status": "not_started"},
+			},
+			"ts":      apiAnyNumber,
+			"trigger": "kip",
+		}
+		dashboard.wantFrames(taskFrame)
+		executor.wantFrames(taskFrame)
+		bystander.wantFrames()
+	})
+
+	t.Run("an anchor the note does not carry answers 400 and the note stands", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"Ship it","executor_member_id":"kip"}`)
+		agent := apiTestAgentToken(t, api, "kip", "")
+		apiJSON(t, h, "POST", "/api/tasks/T-1/plan", agent,
+			`{"steps":[{"name":"Draft","dod":"a draft exists"}]}`)
+		stepID := apiTestOnlyStepID(t, h, owner, "T-1")
+		apiJSON(t, h, "POST", "/api/tasks/T-1/steps/"+stepID+"/note", agent, `{"note":"halfway through"}`)
+		dashboard := apiTestListen(t, api, "")
+
+		status, data := apiJSON(t, h, "POST", "/api/tasks/T-1/steps/"+stepID+"/note/patch", agent,
+			`{"edits":[{"old":"nowhere in the note","new":"x"}]}`)
+		if status != 400 {
+			t.Fatalf("want 400, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "validation_error",
+			"edits[0]: old not found in the current doc — re-read (get_task_step) and re-anchor; nothing was written")
+
+		_, step := apiJSON(t, h, "GET", "/api/tasks/T-1/steps/"+stepID, owner, "")
+		apiWantValue(t, "step.note", step["note"], "halfway through")
+		dashboard.wantFrames()
+	})
+
+	t.Run("a batch that leaves the text byte-identical reports no applied edits and fans nothing", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"Ship it","executor_member_id":"kip"}`)
+		agent := apiTestAgentToken(t, api, "kip", "")
+		apiJSON(t, h, "POST", "/api/tasks/T-1/plan", agent,
+			`{"steps":[{"name":"Draft","dod":"a draft exists"}]}`)
+		stepID := apiTestOnlyStepID(t, h, owner, "T-1")
+		apiJSON(t, h, "POST", "/api/tasks/T-1/steps/"+stepID+"/note", agent, `{"note":"halfway through"}`)
+		dashboard := apiTestListen(t, api, "")
+
+		status, data := apiJSON(t, h, "POST", "/api/tasks/T-1/steps/"+stepID+"/note/patch", agent,
+			`{"edits":[{"old":"halfway","new":"halfway"}]}`)
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		apiWantValue(t, "body.applied_edits", data["applied_edits"], 0)
+		apiWantValue(t, "body.size_chars", data["size_chars"], 15)
+
+		_, step := apiJSON(t, h, "GET", "/api/tasks/T-1/steps/"+stepID, owner, "")
+		apiWantValue(t, "step.note", step["note"], "halfway through")
+		dashboard.wantFrames()
+	})
+
+	t.Run("a patch that would empty the note is refused until allow_shrink says so", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"Ship it","executor_member_id":"kip"}`)
+		agent := apiTestAgentToken(t, api, "kip", "")
+		apiJSON(t, h, "POST", "/api/tasks/T-1/plan", agent,
+			`{"steps":[{"name":"Draft","dod":"a draft exists"}]}`)
+		stepID := apiTestOnlyStepID(t, h, owner, "T-1")
+		apiJSON(t, h, "POST", "/api/tasks/T-1/steps/"+stepID+"/note", agent, `{"note":"halfway through"}`)
+
+		status, data := apiJSON(t, h, "POST", "/api/tasks/T-1/steps/"+stepID+"/note/patch", agent,
+			`{"edits":[{"old":"halfway through","new":""}]}`)
+		if status != 400 {
+			t.Fatalf("want 400, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "validation_error",
+			"patch would empty (or shrink to under a tenth of) the step note — pass allow_shrink=true if this is intended, or use update_step_note; nothing was written")
+
+		_, step := apiJSON(t, h, "GET", "/api/tasks/T-1/steps/"+stepID, owner, "")
+		apiWantValue(t, "step.note", step["note"], "halfway through")
+
+		status, data = apiJSON(t, h, "POST", "/api/tasks/T-1/steps/"+stepID+"/note/patch", agent,
+			`{"edits":[{"old":"halfway through","new":""}],"allow_shrink":true}`)
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		apiWantValue(t, "body.applied_edits", data["applied_edits"], 1)
+		apiWantValue(t, "body.size_chars", data["size_chars"], 0)
+
+		_, step = apiJSON(t, h, "GET", "/api/tasks/T-1/steps/"+stepID, owner, "")
+		apiWantValue(t, "step.note", step["note"], "")
+	})
+
+	t.Run("a patch that grows the note past the cap answers 400 and the note stands", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"Ship it","executor_member_id":"kip"}`)
+		agent := apiTestAgentToken(t, api, "kip", "")
+		apiJSON(t, h, "POST", "/api/tasks/T-1/plan", agent,
+			`{"steps":[{"name":"Draft","dod":"a draft exists"}]}`)
+		stepID := apiTestOnlyStepID(t, h, owner, "T-1")
+		apiJSON(t, h, "POST", "/api/tasks/T-1/steps/"+stepID+"/note", agent, `{"note":"halfway through"}`)
+		dashboard := apiTestListen(t, api, "")
+
+		status, data := apiJSON(t, h, "POST", "/api/tasks/T-1/steps/"+stepID+"/note/patch", agent,
+			`{"edits":[{"old":"halfway","new":"`+strings.Repeat("x", 10000)+`"}]}`)
+		if status != 400 {
+			t.Fatalf("want 400, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "validation_error", "step note is 10008 chars, over the 10000-char limit")
+
+		_, step := apiJSON(t, h, "GET", "/api/tasks/T-1/steps/"+stepID, owner, "")
+		apiWantValue(t, "step.note", step["note"], "halfway through")
+		dashboard.wantFrames()
+	})
+
+	t.Run("a closed task answers 409 and the note stands", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"Ship it","executor_member_id":"kip"}`)
+		agent := apiTestAgentToken(t, api, "kip", "")
+		apiJSON(t, h, "POST", "/api/tasks/T-1/plan", agent,
+			`{"steps":[{"name":"Draft","dod":"a draft exists"}]}`)
+		stepID := apiTestOnlyStepID(t, h, owner, "T-1")
+		apiJSON(t, h, "POST", "/api/tasks/T-1/steps/"+stepID+"/note", agent, `{"note":"halfway through"}`)
+		apiJSON(t, h, "POST", "/api/tasks/T-1/terminate", owner, "")
+		dashboard := apiTestListen(t, api, "")
+
+		status, data := apiJSON(t, h, "POST", "/api/tasks/T-1/steps/"+stepID+"/note/patch", agent,
+			`{"edits":[{"old":"halfway","new":"most of the way"}]}`)
+		if status != 409 {
+			t.Fatalf("want 409, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "conflict", "task 'T-1' is already closed (terminated)")
+
+		_, step := apiJSON(t, h, "GET", "/api/tasks/T-1/steps/"+stepID, owner, "")
+		apiWantValue(t, "step.note", step["note"], "halfway through")
+		dashboard.wantFrames()
+	})
+
+	t.Run("an agent that is not the task's executor answers 403 before its edits are read", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"Ship it","executor_member_id":"mira"}`)
+		mira := apiTestAgentToken(t, api, "mira", "")
+		apiJSON(t, h, "POST", "/api/tasks/T-1/plan", mira,
+			`{"steps":[{"name":"Draft","dod":"a draft exists"}]}`)
+		stepID := apiTestOnlyStepID(t, h, owner, "T-1")
+		apiJSON(t, h, "POST", "/api/tasks/T-1/steps/"+stepID+"/note", mira, `{"note":"halfway through"}`)
+		other := apiTestAgentToken(t, api, "kip", "")
+		dashboard := apiTestListen(t, api, "")
+
+		status, data := apiJSON(t, h, "POST", "/api/tasks/T-1/steps/"+stepID+"/note/patch", other,
+			`{"edits":[{"old":"halfway","new":"most of the way"}]}`)
+		if status != 403 {
+			t.Fatalf("want 403, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "forbidden", "caller is not the task's executor")
+
+		_, step := apiJSON(t, h, "GET", "/api/tasks/T-1/steps/"+stepID, owner, "")
+		apiWantValue(t, "step.note", step["note"], "halfway through")
+		dashboard.wantFrames()
+	})
+
+	t.Run("an authenticated machine identity answers 403 because this row requires agent", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"Ship it","executor_member_id":"kip"}`)
+		agent := apiTestAgentToken(t, api, "kip", "")
+		apiJSON(t, h, "POST", "/api/tasks/T-1/plan", agent,
+			`{"steps":[{"name":"Draft","dod":"a draft exists"}]}`)
+		stepID := apiTestOnlyStepID(t, h, owner, "T-1")
+		apiJSON(t, h, "POST", "/api/tasks/T-1/steps/"+stepID+"/note", agent, `{"note":"halfway through"}`)
+		machine := apiTestAgentToken(t, api, "m-server-self", "")
+		dashboard := apiTestListen(t, api, "")
+
+		status, data := apiJSON(t, h, "POST", "/api/tasks/T-1/steps/"+stepID+"/note/patch", machine,
+			`{"edits":[{"old":"halfway","new":"most of the way"}]}`)
+		if status != 403 {
+			t.Fatalf("want 403, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "forbidden", "principal not permitted")
+
+		_, step := apiJSON(t, h, "GET", "/api/tasks/T-1/steps/"+stepID, owner, "")
+		apiWantValue(t, "step.note", step["note"], "halfway through")
+		dashboard.wantFrames()
+	})
+
+	t.Run("a step id the task does not carry answers 404 and writes nothing", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"Ship it","executor_member_id":"kip"}`)
+		agent := apiTestAgentToken(t, api, "kip", "")
+		apiJSON(t, h, "POST", "/api/tasks/T-1/plan", agent,
+			`{"steps":[{"name":"Draft","dod":"a draft exists"}]}`)
+		stepID := apiTestOnlyStepID(t, h, owner, "T-1")
+		apiJSON(t, h, "POST", "/api/tasks/T-1/steps/"+stepID+"/note", agent, `{"note":"halfway through"}`)
+		dashboard := apiTestListen(t, api, "")
+
+		status, data := apiJSON(t, h, "POST", "/api/tasks/T-1/steps/ts-nosuchstep/note/patch", agent,
+			`{"edits":[{"old":"halfway","new":"most of the way"}]}`)
+		if status != 404 {
+			t.Fatalf("want 404, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "not_found", "step 'ts-nosuchstep' not found")
+
+		_, step := apiJSON(t, h, "GET", "/api/tasks/T-1/steps/"+stepID, owner, "")
+		apiWantValue(t, "step.note", step["note"], "halfway through")
+		dashboard.wantFrames()
+	})
+
+	t.Run("an id no task carries answers 404 naming the task", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		dashboard := apiTestListen(t, api, "")
+
+		status, data := apiJSON(t, h, "POST", "/api/tasks/T-999/steps/ts-nosuchstep/note/patch", owner,
+			`{"edits":[{"old":"a","new":"b"}]}`)
+		if status != 404 {
+			t.Fatalf("want 404, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "not_found", "task 'T-999' not found")
+		dashboard.wantFrames()
+	})
+
+	t.Run("a request without a token answers 401 and the note stands", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"Ship it","executor_member_id":"kip"}`)
+		agent := apiTestAgentToken(t, api, "kip", "")
+		apiJSON(t, h, "POST", "/api/tasks/T-1/plan", agent,
+			`{"steps":[{"name":"Draft","dod":"a draft exists"}]}`)
+		stepID := apiTestOnlyStepID(t, h, owner, "T-1")
+		apiJSON(t, h, "POST", "/api/tasks/T-1/steps/"+stepID+"/note", agent, `{"note":"halfway through"}`)
+		dashboard := apiTestListen(t, api, "")
+
+		status, data := apiJSON(t, h, "POST", "/api/tasks/T-1/steps/"+stepID+"/note/patch", "",
+			`{"edits":[{"old":"halfway","new":"most of the way"}]}`)
+		if status != 401 {
+			t.Fatalf("want 401, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "unauthorized", "missing credentials")
+
+		_, step := apiJSON(t, h, "GET", "/api/tasks/T-1/steps/"+stepID, owner, "")
+		apiWantValue(t, "step.note", step["note"], "halfway through")
+		dashboard.wantFrames()
+	})
+
+	t.Run("a body with no edits to apply answers 422 and the note stands", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"Ship it","executor_member_id":"kip"}`)
+		agent := apiTestAgentToken(t, api, "kip", "")
+		apiJSON(t, h, "POST", "/api/tasks/T-1/plan", agent,
+			`{"steps":[{"name":"Draft","dod":"a draft exists"}]}`)
+		stepID := apiTestOnlyStepID(t, h, owner, "T-1")
+		apiJSON(t, h, "POST", "/api/tasks/T-1/steps/"+stepID+"/note", agent, `{"note":"halfway through"}`)
+		dashboard := apiTestListen(t, api, "")
+
+		status, data := apiJSON(t, h, "POST", "/api/tasks/T-1/steps/"+stepID+"/note/patch", agent, `{}`)
+		if status != 422 {
+			t.Fatalf("want 422, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "validation_error", "field required: edits")
+
+		status, data = apiJSON(t, h, "POST", "/api/tasks/T-1/steps/"+stepID+"/note/patch", agent,
+			`{"edits":[]}`)
+		if status != 422 {
+			t.Fatalf("want 422, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "validation_error", "edits requires at least one {old, new} entry")
+
+		status, data = apiJSON(t, h, "POST", "/api/tasks/T-1/steps/"+stepID+"/note/patch", agent, "{{{")
+		if status != 422 {
+			t.Fatalf("want 422, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "validation_error",
+			"invalid request body: invalid character '{' looking for beginning of object key string")
+
+		_, step := apiJSON(t, h, "GET", "/api/tasks/T-1/steps/"+stepID, owner, "")
+		apiWantValue(t, "step.note", step["note"], "halfway through")
+		dashboard.wantFrames()
+	})
 }

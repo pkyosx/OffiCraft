@@ -2,792 +2,663 @@ package main
 
 import (
 	"errors"
+	"reflect"
 	"strings"
 	"testing"
+	"time"
 )
 
-// ---------------------------------------------------------------------------
-// parseCommandFrame — happy paths
-// ---------------------------------------------------------------------------
+// dispatchSpy records every side effect the dispatcher is allowed to have, and
+// answers each seam from the fields the test sets.
+type dispatchSpy struct {
+	spawns    []StartParams
+	spawnOut  SpawnOutcome
+	stops     []string
+	stopOK    bool
+	stopNoop  bool
+	teardowns int
+	teardown  func() (bool, string)
+	exits     []int
+	updates   int
+	renews    int
+	reports   []CommandResult
+	reportErr error
+}
 
-func TestParseCommandFrame_StartEnvelope(t *testing.T) {
-	payload := []byte(`{"topic":"warden-command","data":{"rpc":"start","args":{
-		"member_id":"m-1","persona_context":"you are x","member_token":"tok",
-		"role":"agent","task_type":"onboard","model":"opus","effort":"high","session_name":"member-m-1"}}}`)
-	cmd, err := parseCommandFrame(payload)
-	if err != nil {
-		t.Fatalf("unexpected err: %v", err)
-	}
-	if cmd == nil {
-		t.Fatal("cmd is nil, want a start command")
-	}
-	if cmd.RPC != rpcStart {
-		t.Errorf("rpc = %q, want start", cmd.RPC)
-	}
-	if got, _ := argString(cmd.Args, "member_id"); got != "m-1" {
-		t.Errorf("args[member_id] = %q, want m-1", got)
+func (s *dispatchSpy) deps() CommandDeps {
+	return CommandDeps{
+		Spawn: func(p StartParams) SpawnOutcome {
+			s.spawns = append(s.spawns, p)
+			return s.spawnOut
+		},
+		Stop: func(session string) (bool, bool) {
+			s.stops = append(s.stops, session)
+			return s.stopOK, s.stopNoop
+		},
+		Teardown: func() (bool, string) {
+			s.teardowns++
+			if s.teardown != nil {
+				return s.teardown()
+			}
+			return true, "launchd bootout ok; tokfile removed; plist removed"
+		},
+		Exit:   func(code int) { s.exits = append(s.exits, code) },
+		Update: func() { s.updates++ },
+		Renew:  func() { s.renews++ },
+		Report: func(cr CommandResult) error {
+			s.reports = append(s.reports, cr)
+			return s.reportErr
+		},
 	}
 }
 
-func TestParseCommandFrame_StopEnvelope(t *testing.T) {
-	payload := []byte(`{"topic":"warden-command","data":{"rpc":"stop","args":{
-		"member_id":"m-2","session_name":"member-m-2"}}}`)
-	cmd, err := parseCommandFrame(payload)
-	if err != nil {
-		t.Fatalf("unexpected err: %v", err)
+// receipt is the one reported CommandResult with the wall-clock stamp blanked,
+// so a receipt can be compared as a whole literal.
+func (s *dispatchSpy) receipt(t *testing.T) CommandResult {
+	t.Helper()
+	if len(s.reports) != 1 {
+		t.Fatalf("reports = %+v, want exactly one", s.reports)
 	}
-	if cmd == nil || cmd.RPC != rpcStop {
-		t.Fatalf("cmd = %+v, want stop command", cmd)
+	cr := s.reports[0]
+	if _, err := time.Parse(time.RFC3339, cr.At); err != nil {
+		t.Errorf("receipt At = %q, want an RFC3339 stamp: %v", cr.At, err)
 	}
+	cr.At = ""
+	return cr
 }
 
-// A non-warden-command topic is a benign SKIP: (nil, nil), NOT an error.
-func TestParseCommandFrame_SkipOtherTopics(t *testing.T) {
-	for _, topic := range []string{"context-high", "chat", "keepalive", "heartbeat", ""} {
-		payload := []byte(`{"topic":"` + topic + `","data":{"anything":true}}`)
-		cmd, err := parseCommandFrame(payload)
+func TestParseCommandFrame(t *testing.T) {
+	t.Run("a warden-command frame becomes a dispatchable command", func(t *testing.T) {
+		cmd, err := parseCommandFrame([]byte(
+			`{"topic":"warden-command","data":{"rpc":"start","args":{"member_id":"m1","effort":"high","n":7}}}`))
 		if err != nil {
-			t.Errorf("topic %q: unexpected err %v", topic, err)
+			t.Fatalf("err = %v, want nil", err)
 		}
-		if cmd != nil {
-			t.Errorf("topic %q: cmd = %+v, want nil (skip)", topic, cmd)
+		want := &Command{RPC: "start", Args: map[string]any{"member_id": "m1", "effort": "high", "n": float64(7)}}
+		if !reflect.DeepEqual(cmd, want) {
+			t.Errorf("cmd = %+v, want %+v", cmd, want)
 		}
+	})
+
+	t.Run("every accepted verb parses", func(t *testing.T) {
+		for _, rpc := range []string{"start", "stop", "uninstall", "update", "renew", "worker_stop"} {
+			cmd, err := parseCommandFrame([]byte(`{"topic":"warden-command","data":{"rpc":"` + rpc + `","args":{}}}`))
+			if err != nil {
+				t.Errorf("%s: err = %v, want nil", rpc, err)
+				continue
+			}
+			if want := (&Command{RPC: rpc, Args: map[string]any{}}); !reflect.DeepEqual(cmd, want) {
+				t.Errorf("%s: cmd = %+v, want %+v", rpc, cmd, want)
+			}
+		}
+	})
+
+	t.Run("another topic is a silent skip", func(t *testing.T) {
+		for _, payload := range []string{
+			`{"topic":"context-high","data":{"rpc":"start","args":{}}}`,
+			`{"topic":"chat","data":{"body":"hi"}}`,
+			`{"data":{"rpc":"start","args":{}}}`,
+			`{}`,
+		} {
+			cmd, err := parseCommandFrame([]byte(payload))
+			if cmd != nil || err != nil {
+				t.Errorf("%s: got (%v, %v), want (nil, nil)", payload, cmd, err)
+			}
+		}
+	})
+
+	t.Run("a malformed or unactionable frame is an error and never a command", func(t *testing.T) {
+		cases := []struct {
+			payload string
+			wantErr string
+		}{
+			{``, "command: empty frame payload"},
+			{`{"topic":"warden-command","data":{"rpc":"start","args":{}}`, "command: malformed envelope: unexpected end of JSON input"},
+			{`[1,2,3]`, "command: malformed envelope: json: cannot unmarshal array into Go value of type struct { Topic string \"json:\\\"topic\\\"\"; Data json.RawMessage \"json:\\\"data\\\"\" }"},
+			{`{"topic":"warden-command"}`, "command: warden-command frame missing data"},
+			{`{"topic":"warden-command","data":"start"}`, "command: malformed data body: json: cannot unmarshal string into Go value of type struct { RPC string \"json:\\\"rpc\\\"\"; Args map[string]interface {} \"json:\\\"args\\\"\" }"},
+			{`{"topic":"warden-command","data":{"args":{}}}`, `command: unknown or missing rpc ""`},
+			{`{"topic":"warden-command","data":{"rpc":"worker_start","args":{}}}`, `command: unknown or missing rpc "worker_start"`},
+			{`{"topic":"warden-command","data":{"rpc":"START","args":{}}}`, `command: unknown or missing rpc "START"`},
+			{`{"topic":"warden-command","data":{"rpc":"stop"}}`, `command: rpc "stop" missing args object`},
+			{`{"topic":"warden-command","data":{"rpc":"stop","args":null}}`, `command: rpc "stop" missing args object`},
+		}
+		for _, c := range cases {
+			cmd, err := parseCommandFrame([]byte(c.payload))
+			if cmd != nil {
+				t.Errorf("%s: cmd = %+v, want nil", c.payload, cmd)
+			}
+			if err == nil || err.Error() != c.wantErr {
+				t.Errorf("%s: err = %v, want %q", c.payload, err, c.wantErr)
+			}
+		}
+	})
+}
+
+func TestTruncLog(t *testing.T) {
+	if got := truncLog("session=member-m1: stopped"); got != "session=member-m1: stopped" {
+		t.Errorf("a short log is returned verbatim, got %q", got)
+	}
+	at := strings.Repeat("x", 4096)
+	if got := truncLog(at); got != at {
+		t.Errorf("a log exactly at the cap is returned verbatim, len = %d", len(got))
+	}
+	over := strings.Repeat("x", 4096) + "TAIL"
+	got := truncLog(over)
+	if len(got) != 4096 || got != at {
+		t.Errorf("an oversized log = %d bytes, want the first 4096", len(got))
 	}
 }
 
-// ---------------------------------------------------------------------------
-// parseCommandFrame — ADVERSARIAL: every malformed shape returns err, NEVER panics.
-// ---------------------------------------------------------------------------
+func TestReport(t *testing.T) {
+	t.Run("an unwired reporter is a silent skip", func(t *testing.T) {
+		if err := (CommandDeps{}).report(CommandResult{MemberID: "m1"}); err != nil {
+			t.Errorf("err = %v, want nil", err)
+		}
+	})
 
-func TestParseCommandFrame_MalformedNeverPanics(t *testing.T) {
+	t.Run("the emitted receipt is capped and stamped", func(t *testing.T) {
+		var got CommandResult
+		deps := CommandDeps{Report: func(cr CommandResult) error { got = cr; return nil }}
+		before := time.Now().UTC().Add(-time.Second)
+		if err := deps.report(CommandResult{
+			MemberID: "m1", RPC: "stop", OK: true, Reason: "stopped",
+			Log: strings.Repeat("y", 5000),
+		}); err != nil {
+			t.Fatalf("err = %v, want nil", err)
+		}
+		if len(got.Log) != 4096 {
+			t.Errorf("Log = %d bytes, want 4096", len(got.Log))
+		}
+		stamp, err := time.Parse(time.RFC3339, got.At)
+		if err != nil {
+			t.Fatalf("At = %q, want an RFC3339 stamp: %v", got.At, err)
+		}
+		if stamp.Before(before) || stamp.After(time.Now().UTC().Add(time.Second)) {
+			t.Errorf("At = %q, want a stamp from now", got.At)
+		}
+		got.Log, got.At = "", ""
+		if want := (CommandResult{MemberID: "m1", RPC: "stop", OK: true, Reason: "stopped"}); got != want {
+			t.Errorf("receipt = %+v, want %+v", got, want)
+		}
+	})
+
+	t.Run("a caller-set timestamp is kept", func(t *testing.T) {
+		var got CommandResult
+		deps := CommandDeps{Report: func(cr CommandResult) error { got = cr; return nil }}
+		_ = deps.report(CommandResult{MemberID: "m1", At: "2026-01-02T03:04:05Z"})
+		if got.At != "2026-01-02T03:04:05Z" {
+			t.Errorf("At = %q, want the caller's stamp", got.At)
+		}
+	})
+
+	t.Run("the delivery verdict is returned", func(t *testing.T) {
+		want := errors.New("post status 503")
+		deps := CommandDeps{Report: func(CommandResult) error { return want }}
+		if err := deps.report(CommandResult{MemberID: "m1"}); !errors.Is(err, want) {
+			t.Errorf("err = %v, want %v", err, want)
+		}
+	})
+}
+
+func TestDispatchCommand(t *testing.T) {
+	startArgs := map[string]any{
+		"member_id": "m1", "persona_context": "you are m1", "member_token": "jwt-m1",
+		"role": "builder", "runtime": "claude", "model": "opus", "effort": "high",
+		"session_name": "member-m1",
+	}
+
+	t.Run("a skipped frame does nothing", func(t *testing.T) {
+		s := &dispatchSpy{}
+		if err := dispatchCommand(nil, s.deps()); err != nil {
+			t.Errorf("err = %v, want nil", err)
+		}
+		if len(s.spawns)+len(s.stops)+len(s.reports)+s.updates+s.renews != 0 {
+			t.Errorf("a nil command touched something: %+v", s)
+		}
+	})
+
+	t.Run("start spawns the downpushed params and reports the receipt", func(t *testing.T) {
+		s := &dispatchSpy{spawnOut: SpawnOutcome{OK: true, SessionID: "member-m1", PID: "500"}}
+		if err := dispatchCommand(&Command{RPC: "start", Args: startArgs}, s.deps()); err != nil {
+			t.Fatalf("err = %v, want nil", err)
+		}
+		want := []StartParams{{
+			MemberID: "m1", PersonaContext: "you are m1", MemberToken: "jwt-m1",
+			Role: "builder", Runtime: "claude", Model: "opus", Effort: "high",
+			SessionName: "member-m1",
+		}}
+		if !reflect.DeepEqual(s.spawns, want) {
+			t.Errorf("spawns = %+v, want %+v", s.spawns, want)
+		}
+		if got, want := s.receipt(t), (CommandResult{MemberID: "m1", RPC: "start", OK: true}); got != want {
+			t.Errorf("receipt = %+v, want %+v", got, want)
+		}
+	})
+
+	t.Run("a refused spawn is an error carrying the reason, and still reported", func(t *testing.T) {
+		s := &dispatchSpy{spawnOut: SpawnOutcome{Reason: "ocagent_not_found: no ocagent binary at /x"}}
+		err := dispatchCommand(&Command{RPC: "start", Args: startArgs}, s.deps())
+		wantErr := `command: start for "m1" did not spawn: ocagent_not_found: no ocagent binary at /x`
+		if err == nil || err.Error() != wantErr {
+			t.Errorf("err = %v, want %q", err, wantErr)
+		}
+		want := CommandResult{
+			MemberID: "m1", RPC: "start", OK: false,
+			Reason: "ocagent_not_found: no ocagent binary at /x",
+			Log:    "ocagent_not_found: no ocagent binary at /x",
+		}
+		if got := s.receipt(t); got != want {
+			t.Errorf("receipt = %+v, want %+v", got, want)
+		}
+	})
+
+	t.Run("a reason-less refusal still names the refusal", func(t *testing.T) {
+		s := &dispatchSpy{spawnOut: SpawnOutcome{}}
+		err := dispatchCommand(&Command{RPC: "start", Args: startArgs}, s.deps())
+		wantErr := `command: start for "m1" did not spawn: spawn refused (warden reported no reason)`
+		if err == nil || err.Error() != wantErr {
+			t.Errorf("err = %v, want %q", err, wantErr)
+		}
+	})
+
+	t.Run("a spawn that ran but whose receipt did not land is reported as undelivered", func(t *testing.T) {
+		s := &dispatchSpy{spawnOut: SpawnOutcome{OK: true}, reportErr: errors.New("post status 503")}
+		err := dispatchCommand(&Command{RPC: "start", Args: startArgs}, s.deps())
+		if !errors.Is(err, errReceiptUndelivered) {
+			t.Fatalf("err = %v, want an errReceiptUndelivered", err)
+		}
+		wantErr := `command: start for "m1" ran but command_result receipt undelivered: post status 503`
+		if err.Error() != wantErr {
+			t.Errorf("err = %q, want %q", err, wantErr)
+		}
+	})
+
+	t.Run("a half-formed start is refused before anything runs", func(t *testing.T) {
+		s := &dispatchSpy{}
+		err := dispatchCommand(&Command{RPC: "start", Args: map[string]any{"member_id": "m1"}}, s.deps())
+		wantErr := `command: start missing/blank required field "persona_context"`
+		if err == nil || err.Error() != wantErr {
+			t.Errorf("err = %v, want %q", err, wantErr)
+		}
+		if len(s.spawns) != 0 || len(s.reports) != 0 {
+			t.Errorf("spawns = %v, reports = %v, want neither", s.spawns, s.reports)
+		}
+	})
+
+	t.Run("an unwired spawn seam neither spawns nor reports", func(t *testing.T) {
+		s := &dispatchSpy{}
+		deps := s.deps()
+		deps.Spawn = nil
+		if err := dispatchCommand(&Command{RPC: "start", Args: startArgs}, deps); err != nil {
+			t.Errorf("err = %v, want nil", err)
+		}
+		if len(s.reports) != 0 {
+			t.Errorf("reports = %+v, want none", s.reports)
+		}
+	})
+
+	t.Run("stop kills the addressed session and reports the ladder verdict", func(t *testing.T) {
+		s := &dispatchSpy{stopOK: true}
+		err := dispatchCommand(&Command{RPC: "stop", Args: map[string]any{
+			"member_id": "m1", "session_name": "member-m1",
+		}}, s.deps())
+		if err != nil {
+			t.Fatalf("err = %v, want nil", err)
+		}
+		if want := []string{"member-m1"}; !reflect.DeepEqual(s.stops, want) {
+			t.Errorf("stops = %v, want %v", s.stops, want)
+		}
+		want := CommandResult{
+			MemberID: "m1", RPC: "stop", OK: true, Reason: "stopped",
+			Log: "session=member-m1: stopped",
+		}
+		if got := s.receipt(t); got != want {
+			t.Errorf("receipt = %+v, want %+v", got, want)
+		}
+	})
+
+	t.Run("an idempotent no-op stop carries the no_such_session reason", func(t *testing.T) {
+		s := &dispatchSpy{stopOK: true, stopNoop: true}
+		_ = dispatchCommand(&Command{RPC: "stop", Args: map[string]any{"member_id": "m1"}}, s.deps())
+		want := CommandResult{
+			MemberID: "m1", RPC: "stop", OK: true,
+			Reason: "no_such_session: stop was a no-op (no session, no member process on this warden)",
+			Log:    "session=member-m1: no_such_session: stop was a no-op (no session, no member process on this warden)",
+		}
+		if got := s.receipt(t); got != want {
+			t.Errorf("receipt = %+v, want %+v", got, want)
+		}
+	})
+
+	t.Run("an incomplete stop reports the partial verdict without failing the dispatch", func(t *testing.T) {
+		s := &dispatchSpy{}
+		if err := dispatchCommand(&Command{RPC: "stop", Args: map[string]any{"member_id": "m1"}}, s.deps()); err != nil {
+			t.Errorf("err = %v, want nil", err)
+		}
+		want := CommandResult{
+			MemberID: "m1", RPC: "stop", OK: false,
+			Reason: "stop incomplete (session still present / broken probe / member process survived the sweep)",
+			Log:    "session=member-m1: stop incomplete (session still present / broken probe / member process survived the sweep)",
+		}
+		if got := s.receipt(t); got != want {
+			t.Errorf("receipt = %+v, want %+v", got, want)
+		}
+	})
+
+	t.Run("stopping an outsource member also reaps its retired worker session", func(t *testing.T) {
+		s := &dispatchSpy{stopOK: true}
+		_ = dispatchCommand(&Command{RPC: "stop", Args: map[string]any{"member_id": "ow-78173e"}}, s.deps())
+		if want := []string{"member-ow-78173e", "worker-ow-78173e"}; !reflect.DeepEqual(s.stops, want) {
+			t.Errorf("stops = %v, want %v", s.stops, want)
+		}
+		if got := s.receipt(t); got.Log != "session=member-ow-78173e: stopped" {
+			t.Errorf("the receipt must stay the primary session's, got %+v", got)
+		}
+	})
+
+	t.Run("a stop with no target is refused before the kill", func(t *testing.T) {
+		s := &dispatchSpy{}
+		err := dispatchCommand(&Command{RPC: "stop", Args: map[string]any{"role": "builder"}}, s.deps())
+		wantErr := "command: stop missing target (need session_name/session_id/member_id)"
+		if err == nil || err.Error() != wantErr {
+			t.Errorf("err = %v, want %q", err, wantErr)
+		}
+		if len(s.stops) != 0 {
+			t.Errorf("stops = %v, want none", s.stops)
+		}
+	})
+
+	t.Run("a stop whose receipt did not land is reported as undelivered", func(t *testing.T) {
+		s := &dispatchSpy{stopOK: true, reportErr: errors.New("post status 503")}
+		err := dispatchCommand(&Command{RPC: "stop", Args: map[string]any{"member_id": "m1"}}, s.deps())
+		wantErr := `command: stop for session "member-m1" ran (stopped) but command_result receipt undelivered: post status 503`
+		if err == nil || err.Error() != wantErr {
+			t.Errorf("err = %v, want %q", err, wantErr)
+		}
+	})
+
+	t.Run("the legacy worker_stop alias kills the retired session and keys on worker_id", func(t *testing.T) {
+		s := &dispatchSpy{stopOK: true}
+		if err := dispatchCommand(&Command{RPC: "worker_stop",
+			Args: map[string]any{"worker_id": "ow-78173e"}}, s.deps()); err != nil {
+			t.Fatalf("err = %v, want nil", err)
+		}
+		if want := []string{"worker-ow-78173e"}; !reflect.DeepEqual(s.stops, want) {
+			t.Errorf("stops = %v, want %v", s.stops, want)
+		}
+		want := CommandResult{
+			WorkerID: "ow-78173e", RPC: "worker_stop", OK: true, Reason: "stopped",
+			Log: "session=worker-ow-78173e: stopped",
+		}
+		if got := s.receipt(t); got != want {
+			t.Errorf("receipt = %+v, want %+v", got, want)
+		}
+	})
+
+	t.Run("an incomplete worker_stop is an error", func(t *testing.T) {
+		s := &dispatchSpy{}
+		err := dispatchCommand(&Command{RPC: "worker_stop",
+			Args: map[string]any{"worker_id": "ow-78173e"}}, s.deps())
+		wantErr := `command: worker_stop incomplete for "worker-ow-78173e" (session still present / sweep survivor)`
+		if err == nil || err.Error() != wantErr {
+			t.Errorf("err = %v, want %q", err, wantErr)
+		}
+		if got := s.receipt(t); got.OK || got.Reason != "stop incomplete (session still present / sweep survivor)" {
+			t.Errorf("receipt = %+v, want the partial verdict", got)
+		}
+	})
+
+	t.Run("worker_stop refuses an unwired stop seam", func(t *testing.T) {
+		s := &dispatchSpy{}
+		deps := s.deps()
+		deps.Stop = nil
+		err := dispatchCommand(&Command{RPC: "worker_stop", Args: map[string]any{"worker_id": "ow-1"}}, deps)
+		wantErr := `command: worker_stop for "worker-ow-1" refused: stop seam not wired`
+		if err == nil || err.Error() != wantErr {
+			t.Errorf("err = %v, want %q", err, wantErr)
+		}
+	})
+
+	t.Run("update kicks the self-updater and carries no receipt", func(t *testing.T) {
+		s := &dispatchSpy{}
+		if err := dispatchCommand(&Command{RPC: "update", Args: map[string]any{}}, s.deps()); err != nil {
+			t.Fatalf("err = %v, want nil", err)
+		}
+		if s.updates != 1 || s.renews != 0 || len(s.reports) != 0 {
+			t.Errorf("updates=%d renews=%d reports=%d, want 1/0/0", s.updates, s.renews, len(s.reports))
+		}
+	})
+
+	t.Run("renew raises the credential demand and carries no receipt", func(t *testing.T) {
+		s := &dispatchSpy{}
+		if err := dispatchCommand(&Command{RPC: "renew", Args: map[string]any{}}, s.deps()); err != nil {
+			t.Fatalf("err = %v, want nil", err)
+		}
+		if s.renews != 1 || s.updates != 0 || len(s.reports) != 0 {
+			t.Errorf("renews=%d updates=%d reports=%d, want 1/0/0", s.renews, s.updates, len(s.reports))
+		}
+	})
+
+	t.Run("an unwired update or renew seam is refused loudly", func(t *testing.T) {
+		s := &dispatchSpy{}
+		deps := s.deps()
+		deps.Update, deps.Renew = nil, nil
+		err := dispatchCommand(&Command{RPC: "update", Args: map[string]any{}}, deps)
+		if want := "command: update refused: self-update kick seam not wired"; err == nil || err.Error() != want {
+			t.Errorf("err = %v, want %q", err, want)
+		}
+		err = dispatchCommand(&Command{RPC: "renew", Args: map[string]any{}}, deps)
+		if want := "command: renew refused: credential-renewal seam not wired"; err == nil || err.Error() != want {
+			t.Errorf("err = %v, want %q", err, want)
+		}
+	})
+
+	t.Run("uninstall kills the agent, tears itself down, reports, then exits", func(t *testing.T) {
+		s := &dispatchSpy{stopOK: true}
+		if err := dispatchCommand(&Command{RPC: "uninstall",
+			Args: map[string]any{"member_id": "m1"}}, s.deps()); err != nil {
+			t.Fatalf("err = %v, want nil", err)
+		}
+		if want := []string{"member-m1"}; !reflect.DeepEqual(s.stops, want) {
+			t.Errorf("stops = %v, want %v", s.stops, want)
+		}
+		if s.teardowns != 1 {
+			t.Errorf("teardowns = %d, want 1", s.teardowns)
+		}
+		want := CommandResult{
+			MemberID: "m1", RPC: "uninstall", OK: true, Reason: "uninstalled",
+			Log: "launchd bootout ok; tokfile removed; plist removed",
+		}
+		if got := s.receipt(t); got != want {
+			t.Errorf("receipt = %+v, want %+v", got, want)
+		}
+		if !reflect.DeepEqual(s.exits, []int{0}) {
+			t.Errorf("exits = %v, want [0]", s.exits)
+		}
+	})
+
+	t.Run("an undelivered uninstall receipt keeps the warden alive", func(t *testing.T) {
+		s := &dispatchSpy{stopOK: true, reportErr: errors.New("post status 503")}
+		err := dispatchCommand(&Command{RPC: "uninstall", Args: map[string]any{"member_id": "m1"}}, s.deps())
+		wantErr := "command: uninstall receipt undelivered, NOT self-exiting: post status 503"
+		if err == nil || err.Error() != wantErr {
+			t.Errorf("err = %v, want %q", err, wantErr)
+		}
+		if len(s.exits) != 0 {
+			t.Errorf("exits = %v, want none", s.exits)
+		}
+	})
+
+	t.Run("an incomplete teardown reports, then stays alive for the retry", func(t *testing.T) {
+		s := &dispatchSpy{stopOK: true, teardown: func() (bool, string) {
+			return false, "could not remove /Users/eva/Library/LaunchAgents/com.officraft.ocwarden.plist"
+		}}
+		err := dispatchCommand(&Command{RPC: "uninstall", Args: map[string]any{"member_id": "m1"}}, s.deps())
+		wantErr := `command: uninstall teardown incomplete for "m1" (receipt delivered); staying alive for retry`
+		if err == nil || err.Error() != wantErr {
+			t.Errorf("err = %v, want %q", err, wantErr)
+		}
+		want := CommandResult{
+			MemberID: "m1", RPC: "uninstall", OK: false,
+			Reason: "teardown incomplete (a required artifact could not be removed)",
+			Log:    "could not remove /Users/eva/Library/LaunchAgents/com.officraft.ocwarden.plist",
+		}
+		if got := s.receipt(t); got != want {
+			t.Errorf("receipt = %+v, want %+v", got, want)
+		}
+		if len(s.exits) != 0 {
+			t.Errorf("exits = %v, want none", s.exits)
+		}
+	})
+
+	t.Run("an uninstall with no teardown seam still reports and exits", func(t *testing.T) {
+		s := &dispatchSpy{stopOK: true}
+		deps := s.deps()
+		deps.Teardown = nil
+		if err := dispatchCommand(&Command{RPC: "uninstall", Args: map[string]any{"member_id": "m1"}}, deps); err != nil {
+			t.Fatalf("err = %v, want nil", err)
+		}
+		want := CommandResult{
+			MemberID: "m1", RPC: "uninstall", OK: true, Reason: "uninstalled",
+			Log: "uninstall: teardown seam not wired",
+		}
+		if got := s.receipt(t); got != want {
+			t.Errorf("receipt = %+v, want %+v", got, want)
+		}
+		if !reflect.DeepEqual(s.exits, []int{0}) {
+			t.Errorf("exits = %v, want [0]", s.exits)
+		}
+	})
+
+	t.Run("an uninstall with no killable target still tears down", func(t *testing.T) {
+		s := &dispatchSpy{stopOK: true}
+		if err := dispatchCommand(&Command{RPC: "uninstall", Args: map[string]any{}}, s.deps()); err != nil {
+			t.Fatalf("err = %v, want nil", err)
+		}
+		if len(s.stops) != 0 {
+			t.Errorf("stops = %v, want none", s.stops)
+		}
+		if s.teardowns != 1 || !reflect.DeepEqual(s.exits, []int{0}) {
+			t.Errorf("teardowns = %d, exits = %v, want 1 and [0]", s.teardowns, s.exits)
+		}
+	})
+
+	t.Run("a hand-built unknown rpc is refused", func(t *testing.T) {
+		s := &dispatchSpy{}
+		err := dispatchCommand(&Command{RPC: "worker_start", Args: map[string]any{}}, s.deps())
+		if want := `command: unhandled rpc "worker_start"`; err == nil || err.Error() != want {
+			t.Errorf("err = %v, want %q", err, want)
+		}
+	})
+}
+
+func TestArgString(t *testing.T) {
+	args := map[string]any{"member_id": "m1", "count": float64(7), "on": true, "null": nil}
 	cases := []struct {
-		name    string
-		payload []byte
+		key     string
+		wantVal string
+		wantOK  bool
 	}{
-		{"empty", []byte(``)},
-		{"nil", nil},
-		{"truncated_json", []byte(`{"topic":"warden-command","data":{"rpc":"sta`)},
-		{"not_json_at_all", []byte(`not json <<>>`)},
-		{"payload_is_array", []byte(`[1,2,3]`)},
-		{"payload_is_string", []byte(`"just a string"`)},
-		{"warden_missing_data", []byte(`{"topic":"warden-command"}`)},
-		{"warden_data_null", []byte(`{"topic":"warden-command","data":null}`)},
-		{"warden_data_is_string", []byte(`{"topic":"warden-command","data":"nope"}`)},
-		{"warden_data_is_number", []byte(`{"topic":"warden-command","data":42}`)},
-		{"missing_rpc", []byte(`{"topic":"warden-command","data":{"args":{}}}`)},
-		{"rpc_wrong_type", []byte(`{"topic":"warden-command","data":{"rpc":123,"args":{}}}`)},
-		{"unknown_rpc", []byte(`{"topic":"warden-command","data":{"rpc":"restart","args":{}}}`)},
-		{"missing_args", []byte(`{"topic":"warden-command","data":{"rpc":"start"}}`)},
-		{"args_null", []byte(`{"topic":"warden-command","data":{"rpc":"start","args":null}}`)},
-		{"args_wrong_type", []byte(`{"topic":"warden-command","data":{"rpc":"start","args":"x"}}`)},
-		{"args_is_array", []byte(`{"topic":"warden-command","data":{"rpc":"stop","args":[1]}}`)},
+		{"member_id", "m1", true},
+		{"count", "", false},
+		{"on", "", false},
+		{"null", "", false},
+		{"absent", "", false},
 	}
 	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
-			defer func() {
-				if r := recover(); r != nil {
-					t.Fatalf("PANIC on malformed frame %q: %v", c.name, r)
+		v, ok := argString(args, c.key)
+		if v != c.wantVal || ok != c.wantOK {
+			t.Errorf("argString(%q) = (%q, %v), want (%q, %v)", c.key, v, ok, c.wantVal, c.wantOK)
+		}
+	}
+	if v, ok := argString(nil, "member_id"); v != "" || ok {
+		t.Errorf("argString(nil) = (%q, %v), want (\"\", false)", v, ok)
+	}
+}
+
+func TestStartParamsFromArgs(t *testing.T) {
+	t.Run("every field is carried through", func(t *testing.T) {
+		got, err := startParamsFromArgs(map[string]any{
+			"member_id": "m1", "persona_context": "you are m1", "member_token": "jwt-m1",
+			"role": "builder", "task_type": "build", "runtime": "codex",
+			"model": "gpt-5", "effort": "max", "session_name": "member-custom",
+		})
+		if err != nil {
+			t.Fatalf("err = %v, want nil", err)
+		}
+		want := StartParams{
+			MemberID: "m1", PersonaContext: "you are m1", MemberToken: "jwt-m1",
+			Role: "builder", TaskType: "build", Runtime: "codex",
+			Model: "gpt-5", Effort: "max", SessionName: "member-custom",
+		}
+		if got != want {
+			t.Errorf("params = %+v, want %+v", got, want)
+		}
+	})
+
+	t.Run("the optional fields are left to the executor's defaults", func(t *testing.T) {
+		got, err := startParamsFromArgs(map[string]any{
+			"member_id": "m1", "persona_context": "you are m1", "member_token": "jwt-m1",
+			"role": 42, "model": nil,
+		})
+		if err != nil {
+			t.Fatalf("err = %v, want nil", err)
+		}
+		want := StartParams{MemberID: "m1", PersonaContext: "you are m1", MemberToken: "jwt-m1"}
+		if got != want {
+			t.Errorf("params = %+v, want %+v", got, want)
+		}
+	})
+
+	t.Run("a missing or blank required field is refused", func(t *testing.T) {
+		full := map[string]any{"member_id": "m1", "persona_context": "you are m1", "member_token": "jwt-m1"}
+		for _, key := range []string{"member_id", "persona_context", "member_token"} {
+			for _, bad := range []any{nil, "", "  ", 42} {
+				args := map[string]any{}
+				for k, v := range full {
+					args[k] = v
 				}
-			}()
-			cmd, err := parseCommandFrame(c.payload)
-			if err == nil {
-				t.Fatalf("want err for malformed %q, got cmd=%+v", c.name, cmd)
+				args[key] = bad
+				got, err := startParamsFromArgs(args)
+				wantErr := `command: start missing/blank required field "` + key + `"`
+				if err == nil || err.Error() != wantErr {
+					t.Errorf("%s=%v: err = %v, want %q", key, bad, err, wantErr)
+				}
+				if got != (StartParams{}) {
+					t.Errorf("%s=%v: params = %+v, want the zero value", key, bad, got)
+				}
 			}
-			if cmd != nil {
-				t.Fatalf("want nil cmd for malformed %q, got %+v", c.name, cmd)
-			}
-		})
-	}
+		}
+	})
 }
 
-// ---------------------------------------------------------------------------
-// dispatchCommand — start
-// ---------------------------------------------------------------------------
-
-// fullStartArgs is a complete, valid full-field start args map.
-func fullStartArgs() map[string]any {
-	return map[string]any{
-		"member_id":       "m-1",
-		"persona_context": "you are x",
-		"member_token":    "tok-abc",
-		"role":            "agent",
-		"task_type":       "onboard",
-		"model":           "opus",
-		"effort":          "high",
-		"session_name":    "member-m-1",
-	}
-}
-
-func TestDispatch_Start_CallsSpawnWithAll7Fields(t *testing.T) {
-	var gotParams StartParams
-	var spawnCalls int
-	deps := CommandDeps{
-		Spawn: func(p StartParams) SpawnOutcome {
-			gotParams = p
-			spawnCalls++
-			return SpawnOutcome{OK: true, SessionID: "member-m-1", PID: "111"}
-		},
-		Stop: func(string) (bool, bool) { t.Fatal("stop must not be called on start"); return false, false },
-	}
-	err := dispatchCommand(&Command{RPC: rpcStart, Args: fullStartArgs()}, deps)
-	if err != nil {
-		t.Fatalf("unexpected err: %v", err)
-	}
-	if spawnCalls != 1 {
-		t.Fatalf("spawn calls = %d, want 1", spawnCalls)
-	}
-	want := StartParams{
-		MemberID: "m-1", PersonaContext: "you are x", MemberToken: "tok-abc",
-		Role: "agent", TaskType: "onboard", Model: "opus", Effort: "high",
-		SessionName: "member-m-1",
-	}
-	if gotParams != want {
-		t.Fatalf("StartParams = %+v, want %+v", gotParams, want)
-	}
-}
-
-func TestDispatch_Start_MissingRequiredField_NoSpawn(t *testing.T) {
-	// The 3 executor-hard-required fields: missing any → refuse the spawn entirely.
-	for _, missing := range []string{"member_id", "persona_context", "member_token"} {
-		t.Run("missing_"+missing, func(t *testing.T) {
-			args := fullStartArgs()
-			delete(args, missing)
-			var spawnCalls int
-			deps := CommandDeps{
-				Spawn: func(StartParams) SpawnOutcome { spawnCalls++; return SpawnOutcome{} },
-			}
-			err := dispatchCommand(&Command{RPC: rpcStart, Args: args}, deps)
-			if err == nil {
-				t.Fatalf("want err when required %q missing", missing)
-			}
-			if spawnCalls != 0 {
-				t.Fatalf("spawn called %d times, want 0 (no half-formed spawn)", spawnCalls)
-			}
-		})
-	}
-}
-
-func TestDispatch_Start_MissingOptionalField_StillSpawns(t *testing.T) {
-	// The 4 optional fields: missing one must NOT refuse — the executor defaults it and
-	// the dispatcher must not be stricter than the executor. It is passed through EMPTY.
-	for _, opt := range []string{"role", "task_type", "model", "effort", "session_name"} {
-		t.Run("missing_"+opt, func(t *testing.T) {
-			args := fullStartArgs()
-			delete(args, opt)
-			var gotParams StartParams
-			var spawnCalls int
-			deps := CommandDeps{
-				Spawn: func(p StartParams) SpawnOutcome { gotParams = p; spawnCalls++; return SpawnOutcome{OK: true} },
-			}
-			if err := dispatchCommand(&Command{RPC: rpcStart, Args: args}, deps); err != nil {
-				t.Fatalf("optional %q missing must NOT refuse: %v", opt, err)
-			}
-			if spawnCalls != 1 {
-				t.Fatalf("want spawn=1, got spawn=%d", spawnCalls)
-			}
-			if gotParams.MemberID != "m-1" || gotParams.PersonaContext != "you are x" || gotParams.MemberToken != "tok-abc" {
-				t.Fatalf("required fields not populated: %+v", gotParams)
-			}
-		})
-	}
-}
-
-func TestDispatch_Start_RequiredBlankOrWrongTyped_NoSpawn(t *testing.T) {
-	// A present-but-blank or present-but-wrong-typed REQUIRED field refuses.
-	for _, mut := range []struct {
-		name string
-		key  string
-		val  any
-	}{
-		{"blank_token", "member_token", ""},
-		{"whitespace_token", "member_token", " "},
-		{"numeric_member_id", "member_id", 42},
-		{"null_persona", "persona_context", nil},
-	} {
-		t.Run(mut.name, func(t *testing.T) {
-			args := fullStartArgs()
-			args[mut.key] = mut.val
-			var spawnCalls int
-			deps := CommandDeps{Spawn: func(StartParams) SpawnOutcome { spawnCalls++; return SpawnOutcome{} }}
-			if err := dispatchCommand(&Command{RPC: rpcStart, Args: args}, deps); err == nil {
-				t.Fatalf("want err for %s", mut.name)
-			}
-			if spawnCalls != 0 {
-				t.Fatalf("spawn called %d, want 0 for %s", spawnCalls, mut.name)
-			}
-		})
-	}
-}
-
-func TestDispatch_Start_OptionalWrongTyped_LenientSpawns(t *testing.T) {
-	// A present-but-wrong-typed OPTIONAL field is lenient: read as empty, member still
-	// spawns with the executor's default (dispatcher not stricter than the executor).
-	for _, mut := range []struct {
-		name string
-		key  string
-		val  any
-	}{
-		{"bool_role", "role", true},
-		{"null_model", "model", nil},
-		{"bool_effort", "effort", true},
-		{"numeric_task_type", "task_type", 7},
-	} {
-		t.Run(mut.name, func(t *testing.T) {
-			args := fullStartArgs()
-			args[mut.key] = mut.val
-			var spawnCalls int
-			deps := CommandDeps{Spawn: func(StartParams) SpawnOutcome { spawnCalls++; return SpawnOutcome{OK: true} }}
-			if err := dispatchCommand(&Command{RPC: rpcStart, Args: args}, deps); err != nil {
-				t.Fatalf("optional wrong-type %s must NOT refuse: %v", mut.name, err)
-			}
-			if spawnCalls != 1 {
-				t.Fatalf("spawn called %d, want 1 for %s", spawnCalls, mut.name)
-			}
-		})
-	}
-}
-
-// ---------------------------------------------------------------------------
-// dispatchCommand — stop
-// ---------------------------------------------------------------------------
-
-func TestDispatch_Stop_CallsStopWithSession(t *testing.T) {
-	var gotSession string
-	var stopCalls int
-	deps := CommandDeps{
-		Spawn: func(StartParams) SpawnOutcome { t.Fatal("spawn must not be called on stop"); return SpawnOutcome{} },
-		Stop: func(session string) (bool, bool) {
-			gotSession = session
-			stopCalls++
-			return true, false
-		},
-	}
-	args := map[string]any{"member_id": "m-9", "session_name": "member-m-9"}
-	if err := dispatchCommand(&Command{RPC: rpcStop, Args: args}, deps); err != nil {
-		t.Fatalf("unexpected err: %v", err)
-	}
-	if stopCalls != 1 {
-		t.Fatalf("stop=%d, want 1", stopCalls)
-	}
-	if gotSession != "member-m-9" {
-		t.Fatalf("session = %q, want member-m-9", gotSession)
-	}
-}
-
-func TestDispatch_Stop_Addressing(t *testing.T) {
+func TestStopSessionFromArgs(t *testing.T) {
 	cases := []struct {
 		name string
 		args map[string]any
 		want string
 	}{
-		{"explicit_session_name", map[string]any{"member_id": "m-1", "session_name": "member-m-1"}, "member-m-1"},
-		{"session_id_fallback", map[string]any{"member_id": "m-2", "session_id": "member-m-2"}, "member-m-2"},
-		{"derive_from_member_id", map[string]any{"member_id": "M-3"}, "member-m-3"}, // lowercased
-		{"session_name_wins_over_id", map[string]any{"member_id": "m-4", "session_name": "member-m-4", "session_id": "other"}, "member-m-4"},
+		{"session_name wins", map[string]any{
+			"session_name": "member-explicit", "session_id": "member-sid", "member_id": "m1",
+		}, "member-explicit"},
+		{"session_id is next", map[string]any{"session_id": "member-sid", "member_id": "m1"}, "member-sid"},
+		{"member_id derives the session", map[string]any{"member_id": "M1"}, "member-m1"},
+		{"an empty session_name falls through", map[string]any{"session_name": "", "member_id": "m1"}, "member-m1"},
+		{"a non-string session_name falls through", map[string]any{"session_name": 42, "member_id": "m1"}, "member-m1"},
 	}
 	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
-			var got string
-			deps := CommandDeps{Stop: func(s string) (bool, bool) { got = s; return true, false }}
-			if err := dispatchCommand(&Command{RPC: rpcStop, Args: c.args}, deps); err != nil {
-				t.Fatalf("unexpected err: %v", err)
-			}
-			if got != c.want {
-				t.Fatalf("session = %q, want %q", got, c.want)
-			}
-		})
-	}
-}
-
-func TestDispatch_Stop_NoTarget_NoStop(t *testing.T) {
-	var stopCalls int
-	deps := CommandDeps{
-		Stop: func(string) (bool, bool) { stopCalls++; return false, false },
-	}
-	// args present but carry no addressing field at all.
-	err := dispatchCommand(&Command{RPC: rpcStop, Args: map[string]any{"unrelated": "x"}}, deps)
-	if err == nil {
-		t.Fatal("want err when stop has no target")
-	}
-	if stopCalls != 0 {
-		t.Fatalf("stop=%d, want 0", stopCalls)
-	}
-}
-
-// ---------------------------------------------------------------------------
-// dispatchCommand — misc guards
-// ---------------------------------------------------------------------------
-
-func TestDispatch_NilCommand_NoOp(t *testing.T) {
-	// A skipped frame (parse returned nil,nil) dispatched as nil must be a no-op.
-	var called int
-	deps := CommandDeps{
-		Spawn: func(StartParams) SpawnOutcome { called++; return SpawnOutcome{} },
-		Stop:  func(string) (bool, bool) { called++; return false, false },
-	}
-	if err := dispatchCommand(nil, deps); err != nil {
-		t.Fatalf("nil command: unexpected err %v", err)
-	}
-	if called != 0 {
-		t.Fatalf("nil command triggered %d seam calls, want 0", called)
-	}
-}
-
-// The T-5f01 `update` verb: parse accepts it, dispatch calls ONLY the Update
-// seam (no spawn/stop/report), and an unwired seam is a loud refusal — the
-// exact degraded face an old-warden-shaped build presents, never a crash.
-func TestParseThenDispatch_UpdateKicksSelfUpdateSeam(t *testing.T) {
-	payload := []byte(`{"topic":"warden-command","data":{"rpc":"update","args":{"member_id":"m-w1"}}}`)
-	cmd, err := parseCommandFrame(payload)
-	if err != nil {
-		t.Fatalf("parse err: %v", err)
-	}
-	if cmd == nil || cmd.RPC != rpcUpdate {
-		t.Fatalf("cmd = %+v, want update command", cmd)
-	}
-	kicked := 0
-	deps := CommandDeps{
-		Spawn:  func(StartParams) SpawnOutcome { t.Fatal("must not spawn"); return SpawnOutcome{} },
-		Stop:   func(string) (bool, bool) { t.Fatal("must not stop"); return false, false },
-		Update: func() { kicked++ },
-		Report: func(CommandResult) error { t.Fatal("update must not report a receipt"); return nil },
-	}
-	if err := dispatchCommand(cmd, deps); err != nil {
-		t.Fatalf("dispatch err: %v", err)
-	}
-	if kicked != 1 {
-		t.Fatalf("kicked = %d, want 1", kicked)
-	}
-}
-
-func TestDispatch_UpdateUnwiredSeamRefusedWithoutPanic(t *testing.T) {
-	defer func() {
-		if r := recover(); r != nil {
-			t.Fatalf("panic on update with nil seam: %v", r)
-		}
-	}()
-	err := dispatchCommand(&Command{RPC: rpcUpdate, Args: map[string]any{}}, CommandDeps{})
-	if err == nil {
-		t.Fatal("want a loud refusal when the Update seam is unwired")
-	}
-}
-
-func TestDispatch_UnknownRPC_Refused(t *testing.T) {
-	// A hand-built Command with an unknown rpc (bypassing parse) is refused.
-	deps := CommandDeps{
-		Spawn: func(StartParams) SpawnOutcome { t.Fatal("must not spawn"); return SpawnOutcome{} },
-		Stop:  func(string) (bool, bool) { t.Fatal("must not stop"); return false, false },
-	}
-	if err := dispatchCommand(&Command{RPC: "bogus", Args: map[string]any{}}, deps); err == nil {
-		t.Fatal("want err for unknown rpc")
-	}
-}
-
-// End-to-end: a raw frame → parse → dispatch, with nil seams, must not panic.
-func TestParseThenDispatch_NilSeamsNoPanic(t *testing.T) {
-	defer func() {
-		if r := recover(); r != nil {
-			t.Fatalf("panic on parse+dispatch with nil seams: %v", r)
-		}
-	}()
-	payload := []byte(`{"topic":"warden-command","data":{"rpc":"stop","args":{"member_id":"m-1"}}}`)
-	cmd, err := parseCommandFrame(payload)
-	if err != nil {
-		t.Fatalf("parse err: %v", err)
-	}
-	// nil seams — dispatch must nil-check them, not deref.
-	if err := dispatchCommand(cmd, CommandDeps{}); err != nil {
-		t.Fatalf("dispatch err: %v", err)
-	}
-}
-
-func TestParseThenDispatch_SkippedTopicIsNoOp(t *testing.T) {
-	cmd, err := parseCommandFrame([]byte(`{"topic":"chat","data":{"body":"hi"}}`))
-	if err != nil || cmd != nil {
-		t.Fatalf("want (nil,nil) skip, got cmd=%+v err=%v", cmd, err)
-	}
-	var called int
-	deps := CommandDeps{
-		Spawn: func(StartParams) SpawnOutcome { called++; return SpawnOutcome{} },
-		Stop:  func(string) (bool, bool) { called++; return false, false },
-	}
-	if err := dispatchCommand(cmd, deps); err != nil {
-		t.Fatalf("dispatch of skipped frame: %v", err)
-	}
-	if called != 0 {
-		t.Fatalf("skipped frame triggered %d calls, want 0", called)
-	}
-}
-
-// Sanity: derived stop session for a bad member id still routes through stop's own
-// isMemberSession guard (documented backstop) — here we just assert the derivation
-// contract holds and does not blow up on odd input.
-func TestDispatch_Stop_DerivedSessionShape(t *testing.T) {
-	var got []string
-	deps := CommandDeps{Stop: func(s string) (bool, bool) { got = append(got, s); return true, false }}
-	_ = dispatchCommand(&Command{RPC: rpcStop, Args: map[string]any{"member_id": "AbC"}}, deps)
-	if len(got) == 0 || !strings.HasPrefix(got[0], memberSessionPrefix) {
-		t.Fatalf("primary derived session %v lacks member- prefix", got)
-	}
-	// Any further leg is the P5b legacy sweep — exact derived worker-<id> only.
-	for _, s := range got[1:] {
-		if !strings.HasPrefix(s, workerSessionPrefix) {
-			t.Fatalf("legacy sweep leg %q outside the worker- namespace", s)
+		got, err := stopSessionFromArgs(c.args)
+		if err != nil || got != c.want {
+			t.Errorf("%s: got (%q, %v), want (%q, nil)", c.name, got, err, c.want)
 		}
 	}
-}
 
-// TestDispatch_Start_SpawnRefused_ReturnsError locks the fail-loud contract: a
-// well-formed START whose Spawn returns OK=false must surface as a dispatch ERROR
-// (carrying the Reason) — NOT a silent success. This is the guard against the
-// Phase-4 boot-death, where a not-OK spawn (claude unresolved) was dropped and
-// logged as "dispatched OK".
-func TestDispatch_Start_SpawnRefused_ReturnsError(t *testing.T) {
-	deps := CommandDeps{
-		Spawn: func(StartParams) SpawnOutcome {
-			return SpawnOutcome{OK: false, Reason: "claude binary unresolved"}
-		},
-	}
-	err := dispatchCommand(&Command{RPC: rpcStart, Args: fullStartArgs()}, deps)
-	if err == nil {
-		t.Fatal("a not-OK spawn must return a dispatch error, got nil (silent success)")
-	}
-	if !strings.Contains(err.Error(), "claude binary unresolved") {
-		t.Fatalf("dispatch error must carry the Reason, got %v", err)
-	}
-	if !strings.Contains(err.Error(), "m-1") {
-		t.Fatalf("dispatch error must name the member, got %v", err)
-	}
-}
-
-// TestDispatch_Start_SpawnRefused_NoReason_StillErrors: a bare OK=false (no Reason)
-// still surfaces as an error with a generic cause — never silently swallowed.
-func TestDispatch_Start_SpawnRefused_NoReason_StillErrors(t *testing.T) {
-	deps := CommandDeps{Spawn: func(StartParams) SpawnOutcome { return SpawnOutcome{OK: false} }}
-	err := dispatchCommand(&Command{RPC: rpcStart, Args: fullStartArgs()}, deps)
-	if err == nil {
-		t.Fatal("a bare not-OK spawn must still return an error")
-	}
-}
-
-// ---------------------------------------------------------------------------
-// command_result reporting (fleet remote-ops stage 1)
-// ---------------------------------------------------------------------------
-
-// TestDispatch_Start_ReportsCommandResult: a successful start reports a receipt with
-// the member_id / rpc=start / ok=true / reason & log carried from the SpawnOutcome.
-func TestDispatch_Start_ReportsCommandResult(t *testing.T) {
-	var got CommandResult
-	var reports int
-	deps := CommandDeps{
-		Spawn: func(StartParams) SpawnOutcome { return SpawnOutcome{OK: true} },
-		Report: func(cr CommandResult) error {
-			got = cr
-			reports++
-			return nil
-		},
-	}
-	if err := dispatchCommand(&Command{RPC: rpcStart, Args: fullStartArgs()}, deps); err != nil {
-		t.Fatalf("unexpected err: %v", err)
-	}
-	if reports != 1 {
-		t.Fatalf("reports = %d, want 1", reports)
-	}
-	if got.MemberID != "m-1" || got.RPC != rpcStart || !got.OK {
-		t.Fatalf("report = %+v, want member m-1 rpc start ok true", got)
-	}
-	if got.At == "" {
-		t.Fatalf("report.At must be stamped (RFC3339), got empty")
-	}
-}
-
-// TestDispatch_Start_SpawnRefused_ReportsFailure: a refused spawn STILL reports a
-// receipt (ok=false + the Reason as reason/log) even though dispatch returns an error.
-func TestDispatch_Start_SpawnRefused_ReportsFailure(t *testing.T) {
-	var got CommandResult
-	var reports int
-	deps := CommandDeps{
-		Spawn: func(StartParams) SpawnOutcome {
-			return SpawnOutcome{OK: false, Reason: "claude binary unresolved"}
-		},
-		Report: func(cr CommandResult) error { got = cr; reports++; return nil },
-	}
-	err := dispatchCommand(&Command{RPC: rpcStart, Args: fullStartArgs()}, deps)
-	if err == nil {
-		t.Fatal("a refused spawn must still return a dispatch error")
-	}
-	if reports != 1 {
-		t.Fatalf("a refused spawn must still report exactly once, got %d", reports)
-	}
-	if got.OK {
-		t.Fatalf("refused spawn report must be ok=false, got %+v", got)
-	}
-	if got.Reason != "claude binary unresolved" || got.Log != "claude binary unresolved" {
-		t.Fatalf("refused report must carry the Reason as reason+log, got %+v", got)
-	}
-}
-
-// TestDispatch_Stop_ReportsCommandResult: a stop reports member_id / rpc=stop / ok =
-// the robust-stop verdict, with the target session in the log.
-func TestDispatch_Stop_ReportsCommandResult(t *testing.T) {
-	for _, c := range []struct {
-		name   string
-		stopOK bool
-		wantOK bool
-	}{
-		{"stopped", true, true},
-		{"did_not_take", false, false},
-	} {
-		t.Run(c.name, func(t *testing.T) {
-			var got CommandResult
-			var reports int
-			deps := CommandDeps{
-				Stop:   func(string) (bool, bool) { return c.stopOK, false },
-				Report: func(cr CommandResult) error { got = cr; reports++; return nil },
-			}
-			args := map[string]any{"member_id": "m-9", "session_name": "member-m-9"}
-			if err := dispatchCommand(&Command{RPC: rpcStop, Args: args}, deps); err != nil {
-				t.Fatalf("unexpected err: %v", err)
-			}
-			if reports != 1 {
-				t.Fatalf("reports = %d, want 1", reports)
-			}
-			if got.MemberID != "m-9" || got.RPC != rpcStop || got.OK != c.wantOK {
-				t.Fatalf("report = %+v, want member m-9 rpc stop ok %v", got, c.wantOK)
-			}
-			if !strings.Contains(got.Log, "member-m-9") {
-				t.Fatalf("stop report log must name the session, got %q", got.Log)
-			}
-		})
-	}
-}
-
-// TestDispatch_NilReport_Toothless: a nil Report seam is a silent no-op — dispatch's
-// return is UNCHANGED (start ok, start refused error, stop) whether or not a reporter
-// is wired. Reporting can never gate the critical kill/spawn path.
-func TestDispatch_NilReport_Toothless(t *testing.T) {
-	okDeps := CommandDeps{Spawn: func(StartParams) SpawnOutcome { return SpawnOutcome{OK: true} }}
-	if err := dispatchCommand(&Command{RPC: rpcStart, Args: fullStartArgs()}, okDeps); err != nil {
-		t.Fatalf("nil Report must not change a successful start: %v", err)
-	}
-	refuseDeps := CommandDeps{Spawn: func(StartParams) SpawnOutcome { return SpawnOutcome{OK: false} }}
-	if err := dispatchCommand(&Command{RPC: rpcStart, Args: fullStartArgs()}, refuseDeps); err == nil {
-		t.Fatal("nil Report must not mask a refused start's error")
-	}
-	stopDeps := CommandDeps{Stop: func(string) (bool, bool) { return true, false }}
-	args := map[string]any{"member_id": "m-1", "session_name": "member-m-1"}
-	if err := dispatchCommand(&Command{RPC: rpcStop, Args: args}, stopDeps); err != nil {
-		t.Fatalf("nil Report must not change a stop: %v", err)
-	}
-}
-
-// TestCommandDeps_report_TruncatesLog: the report seam clamps an over-cap log to the
-// 4 KB ceiling and stamps a default At when empty.
-func TestCommandDeps_report_TruncatesLog(t *testing.T) {
-	var got CommandResult
-	deps := CommandDeps{Report: func(cr CommandResult) error { got = cr; return nil }}
-	big := strings.Repeat("x", commandResultLogMax+500)
-	deps.report(CommandResult{MemberID: "m", RPC: rpcStop, Log: big})
-	if len(got.Log) != commandResultLogMax {
-		t.Fatalf("log len = %d, want clamped to %d", len(got.Log), commandResultLogMax)
-	}
-	if got.At == "" {
-		t.Fatal("report must stamp a default At when empty")
-	}
-}
-
-// ---------------------------------------------------------------------------
-// dispatchCommand — uninstall (the warden dismantling itself)
-// ---------------------------------------------------------------------------
-
-// uninstallArgs is a valid uninstall args map: member_id addresses the receipt, the
-// session names the agent to kill first.
-func uninstallArgs() map[string]any {
-	return map[string]any{"member_id": "m-5", "session_name": "member-m-5"}
-}
-
-// TestDispatch_Uninstall_HappyPath_StopTeardownReportThenExitZero: a clean uninstall
-// (1) stops the addressed agent session, (2) tears down its own install, (3) reports a
-// DELIVERED receipt, then (4) self-exits 0. The ORDER matters — stop before teardown,
-// report before exit.
-func TestDispatch_Uninstall_HappyPath_StopTeardownReportThenExitZero(t *testing.T) {
-	var order []string
-	var stoppedSession string
-	var gotReport CommandResult
-	var exitCode = -1
-	deps := CommandDeps{
-		Stop: func(s string) (bool, bool) { order = append(order, "stop"); stoppedSession = s; return true, false },
-		Teardown: func() (bool, string) {
-			order = append(order, "teardown")
-			return true, "[ocwarden teardown] teardown complete for com.officraft.ocwarden\n"
-		},
-		Report: func(cr CommandResult) error { order = append(order, "report"); gotReport = cr; return nil },
-		Exit:   func(code int) { order = append(order, "exit"); exitCode = code },
-	}
-	err := dispatchCommand(&Command{RPC: rpcUninstall, Args: uninstallArgs()}, deps)
-	if err != nil {
-		t.Fatalf("clean uninstall must not return an error, got %v", err)
-	}
-	if strings.Join(order, ",") != "stop,teardown,report,exit" {
-		t.Fatalf("uninstall order = %v, want stop,teardown,report,exit", order)
-	}
-	if stoppedSession != "member-m-5" {
-		t.Fatalf("stop targeted %q, want member-m-5", stoppedSession)
-	}
-	if exitCode != 0 {
-		t.Fatalf("clean uninstall must os.Exit(0), got %d", exitCode)
-	}
-	if gotReport.MemberID != "m-5" || gotReport.RPC != rpcUninstall || !gotReport.OK {
-		t.Fatalf("report = %+v, want member m-5 rpc uninstall ok true", gotReport)
-	}
-	if !strings.Contains(gotReport.Log, "teardown complete") {
-		t.Fatalf("uninstall report log must carry the teardown transcript, got %q", gotReport.Log)
-	}
-}
-
-// TestDispatch_Uninstall_ReportUndelivered_DoesNotExit: if the SYNCHRONOUS receipt
-// fails to land, the warden must NOT self-exit (so the server's reconcile can re-issue).
-func TestDispatch_Uninstall_ReportUndelivered_DoesNotExit(t *testing.T) {
-	var exited bool
-	deps := CommandDeps{
-		Stop:     func(string) (bool, bool) { return true, false },
-		Teardown: func() (bool, string) { return true, "torn down" },
-		Report:   func(CommandResult) error { return errors.New("POST status 500") },
-		Exit:     func(int) { exited = true },
-	}
-	err := dispatchCommand(&Command{RPC: rpcUninstall, Args: uninstallArgs()}, deps)
-	if err == nil {
-		t.Fatal("an undelivered uninstall receipt must surface as a dispatch error")
-	}
-	if exited {
-		t.Fatal("the warden must NOT self-exit when its receipt did not land")
-	}
-}
-
-// TestDispatch_Uninstall_TeardownIncomplete_ReportsButStaysAlive: a teardown that could
-// not fully remove its artifacts (ok=false) STILL reports (so the server sees the fault),
-// but does NOT self-exit — the warden stays up for a retry.
-func TestDispatch_Uninstall_TeardownIncomplete_ReportsButStaysAlive(t *testing.T) {
-	var gotReport CommandResult
-	var reported, exited bool
-	deps := CommandDeps{
-		Stop:     func(string) (bool, bool) { return true, false },
-		Teardown: func() (bool, string) { return false, "could not remove plist" },
-		Report:   func(cr CommandResult) error { reported = true; gotReport = cr; return nil },
-		Exit:     func(int) { exited = true },
-	}
-	err := dispatchCommand(&Command{RPC: rpcUninstall, Args: uninstallArgs()}, deps)
-	if err == nil {
-		t.Fatal("an incomplete teardown must surface as a dispatch error (stay-alive signal)")
-	}
-	if !reported {
-		t.Fatal("an incomplete teardown must STILL report the fault to the server")
-	}
-	if gotReport.OK {
-		t.Fatalf("an incomplete teardown must report ok=false, got %+v", gotReport)
-	}
-	if exited {
-		t.Fatal("an incomplete teardown must NOT self-exit — stay alive for retry")
-	}
-}
-
-// TestDispatch_Uninstall_MissingSessionTarget_StillTearsDown: uninstall of a host whose
-// agent is already gone (no session target) tolerates the missing stop and still tears
-// down the warden itself, reports, and exits 0.
-func TestDispatch_Uninstall_MissingSessionTarget_StillTearsDown(t *testing.T) {
-	var stopCalls int
-	var toreDown bool
-	var exitCode = -1
-	deps := CommandDeps{
-		Stop:     func(string) (bool, bool) { stopCalls++; return true, false },
-		Teardown: func() (bool, string) { toreDown = true; return true, "ok" },
-		Report:   func(CommandResult) error { return nil },
-		Exit:     func(code int) { exitCode = code },
-	}
-	// No session_name/session_id/member_id → stopSessionFromArgs refuses → stop skipped.
-	err := dispatchCommand(&Command{RPC: rpcUninstall, Args: map[string]any{}}, deps)
-	if err != nil {
-		t.Fatalf("a targetless uninstall must still tear down cleanly, got %v", err)
-	}
-	if stopCalls != 0 {
-		t.Fatalf("no session target → stop must be skipped, got %d calls", stopCalls)
-	}
-	if !toreDown {
-		t.Fatal("teardown is the load-bearing step and must run even with no stop target")
-	}
-	if exitCode != 0 {
-		t.Fatalf("a clean targetless uninstall must exit 0, got %d", exitCode)
-	}
-}
-
-// TestParseCommandFrame_UninstallEnvelope: the uninstall verb is accepted by the parser.
-func TestParseCommandFrame_UninstallEnvelope(t *testing.T) {
-	payload := []byte(`{"topic":"warden-command","data":{"rpc":"uninstall","args":{
-		"member_id":"m-5","session_id":"member-m-5"}}}`)
-	cmd, err := parseCommandFrame(payload)
-	if err != nil {
-		t.Fatalf("unexpected err: %v", err)
-	}
-	if cmd == nil || cmd.RPC != rpcUninstall {
-		t.Fatalf("cmd = %+v, want uninstall command", cmd)
-	}
-}
-
-// ── T-9adc: the no-op stop receipt carries no_such_session ───────────────────
-
-// TestDispatch_Stop_NoopReceiptCarriesNoSuchSession: a stop whose ladder was an
-// idempotent no-op must report OK=true with the no_such_session reason — the
-// server's fold keys on that prefix to SKIP the last_op overwrite, so an
-// identity-sweep / mis-routed stop never forges "successfully stopped" onto a
-// member whose live session (on another warden) was never touched.
-func TestDispatch_Stop_NoopReceiptCarriesNoSuchSession(t *testing.T) {
-	var got CommandResult
-	deps := CommandDeps{
-		Stop:   func(string) (bool, bool) { return true, true },
-		Report: func(cr CommandResult) error { got = cr; return nil },
-	}
-	cmd := &Command{RPC: rpcStop, Args: map[string]any{"member_id": "m-9"}}
-	if err := dispatchCommand(cmd, deps); err != nil {
-		t.Fatalf("unexpected err: %v", err)
-	}
-	if !got.OK {
-		t.Fatalf("a no-op stop stays idempotent-ok, got %+v", got)
-	}
-	if !strings.HasPrefix(got.Reason, "no_such_session") {
-		t.Fatalf("no-op receipt must carry the no_such_session reason, got %q", got.Reason)
-	}
-}
-
-// TestDispatch_Stop_RealKillReceiptStaysStopped (guard): a genuine kill's
-// receipt keeps the plain "stopped" reason — the fold keeps folding it.
-func TestDispatch_Stop_RealKillReceiptStaysStopped(t *testing.T) {
-	var got CommandResult
-	deps := CommandDeps{
-		Stop:   func(string) (bool, bool) { return true, false },
-		Report: func(cr CommandResult) error { got = cr; return nil },
-	}
-	cmd := &Command{RPC: rpcStop, Args: map[string]any{"member_id": "m-9"}}
-	if err := dispatchCommand(cmd, deps); err != nil {
-		t.Fatalf("unexpected err: %v", err)
-	}
-	if !got.OK || got.Reason != "stopped" {
-		t.Fatalf("real kill receipt must stay ok/stopped, got %+v", got)
-	}
-}
-
-// TestDispatch_WorkerStop_NoopReceiptCarriesNoSuchSession: the legacy
-// worker_stop alias reports the same honest no-op reason.
-func TestDispatch_WorkerStop_NoopReceiptCarriesNoSuchSession(t *testing.T) {
-	var got CommandResult
-	deps := CommandDeps{
-		Stop:   func(string) (bool, bool) { return true, true },
-		Report: func(cr CommandResult) error { got = cr; return nil },
-	}
-	cmd := &Command{RPC: rpcWorkerStop, Args: map[string]any{"worker_id": "ow-9"}}
-	if err := dispatchCommand(cmd, deps); err != nil {
-		t.Fatalf("unexpected err: %v", err)
-	}
-	if !got.OK || !strings.HasPrefix(got.Reason, "no_such_session") {
-		t.Fatalf("worker_stop no-op receipt must carry no_such_session, got %+v", got)
+	for _, args := range []map[string]any{{}, {"member_id": ""}, {"member_id": 42}, {"role": "builder"}} {
+		got, err := stopSessionFromArgs(args)
+		wantErr := "command: stop missing target (need session_name/session_id/member_id)"
+		if got != "" || err == nil || err.Error() != wantErr {
+			t.Errorf("%v: got (%q, %v), want (\"\", %q)", args, got, err, wantErr)
+		}
 	}
 }

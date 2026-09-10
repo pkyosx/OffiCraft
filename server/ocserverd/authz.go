@@ -27,19 +27,31 @@ import (
 	"net/http"
 )
 
-// The four principal classes (closed vocabulary) + the requires label a PUBLIC
-// route declares (no principal at all).
-const (
-	principalOwner      = "owner"
-	principalAdminAgent = "admin_agent"
-	principalAgent      = "agent"
-	principalMachine    = "machine"
-	requiresPublic      = "public"
+// principalClass is the caller's place on the capability ladder. It is a STRUCT
+// rather than a string SO THAT THE ROUTE TABLE CANNOT NAME A CLASS THAT DOES NOT
+// EXIST: Gated(principalClass, routeDef) takes one of the four values below, and
+// `Gated("superuser", …)` is a compile error instead of a row nothing satisfies.
+// That is what replaced the deleted assertAllRoutesDeclareRequires — the check
+// moved from boot to the compiler, so this type is the whole of it.
+type principalClass struct{ name string }
+
+// String is the wire/name face (log lines, error text). The name is the same
+// vocabulary service.authz used.
+func (c principalClass) String() string { return c.name }
+
+// The four principal classes (closed vocabulary) + the label a PUBLIC route
+// declares (no principal at all).
+var (
+	principalOwner      = principalClass{"owner"}
+	principalAdminAgent = principalClass{"admin_agent"}
+	principalAgent      = principalClass{"agent"}
+	principalMachine    = principalClass{"machine"}
+	requiresPublic      = principalClass{"public"}
 )
 
 // principalRank is the linear capability ladder (machine < agent < admin_agent
 // < owner) — the byte-for-byte twin of service.authz.PRINCIPAL_RANK.
-var principalRank = map[string]int{
+var principalRank = map[principalClass]int{
 	principalMachine:    0,
 	principalAgent:      1,
 	principalAdminAgent: 2,
@@ -69,7 +81,7 @@ func isOutsourceMember(m *Member) bool {
 // durable fields: kind=="warden" wins first (a warden is a machine regardless
 // of role_key), then role_key=="assistant" → admin_agent, else agent — a nil
 // row (unknown sub) is a plain agent, never a capability.
-func classifyMember(m *Member) string {
+func classifyMember(m *Member) principalClass {
 	if m == nil {
 		return principalAgent
 	}
@@ -87,7 +99,7 @@ func classifyMember(m *Member) string {
 // alone; any other scope resolves the caller's member row via lookup and
 // classifies it. lookup errors resolve to a plain agent (deny-by-default: a
 // capability is never granted on a failed read).
-func resolvePrincipal(claims map[string]any, lookup func(id string) (*Member, error)) string {
+func resolvePrincipal(claims map[string]any, lookup func(id string) (*Member, error)) principalClass {
 	if scope, _ := claims["scope"].(string); scope == "owner" {
 		return principalOwner
 	}
@@ -320,7 +332,9 @@ const (
 // start inside the SAME second are indistinguishable to this comparison (owner
 // 2026-08-28: 「先不管搶同一秒的問題好了」).
 func agentIatFloorRefusal(claims map[string]any, lookup func(id string) (*Member, error)) bool {
-	if scope, _ := claims["scope"].(string); scope != principalAgent {
+	// The JWT scope vocabulary, not the ladder — same literal form as the
+	// owner check in resolvePrincipal above.
+	if scope, _ := claims["scope"].(string); scope != "agent" {
 		return false
 	}
 	if lookup == nil {
@@ -354,7 +368,7 @@ func machineRevokedMsg(machineID string) string {
 }
 
 // principalAtLeast reports whether principal ranks at or above minimum.
-func principalAtLeast(principal, minimum string) bool {
+func principalAtLeast(principal, minimum principalClass) bool {
 	return principalRank[principal] >= principalRank[minimum]
 }
 
@@ -364,9 +378,9 @@ func principalAtLeast(principal, minimum string) bool {
 // lookup) must rank at or above minimum, or the request is a flat 403. A
 // missing/invalid token never reaches here (the auth middleware already
 // answered 401).
-func requirePrincipalClass(minimum string, lookup func(id string) (*Member, error), next http.Handler) http.Handler {
+func requirePrincipalClass(minimum principalClass, lookup func(id string) (*Member, error), next http.Handler) http.Handler {
 	if _, ok := principalRank[minimum]; !ok {
-		panic(fmt.Sprintf("unknown principal class %q", minimum)) // programmer error, caught by the boot assertion first
+		panic(fmt.Sprintf("unknown principal class %q", minimum)) // unreachable: the type admits only the four values
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		claims := claimsFromContext(r.Context())
@@ -376,42 +390,4 @@ func requirePrincipalClass(minimum string, lookup func(id string) (*Member, erro
 		}
 		next.ServeHTTP(w, r)
 	})
-}
-
-// assertAllRoutesDeclareRequires is the fail-closed boot assertion
-// (service.authz.assert_all_routes_declare_requires, app.py spirit): EVERY
-// route row must declare a KNOWN requires class, consistent with its auth
-// label (auth=="public" ⟺ requires=="public"). The server refuses to start
-// otherwise — an undeclared/contradictory row is a misconfiguration, never a
-// served route.
-func assertAllRoutesDeclareRequires(specs []RouteSpec) error {
-	for _, spec := range specs {
-		where := spec.Method + " " + spec.Path
-		_, known := principalRank[spec.Requires]
-		if !known && spec.Requires != requiresPublic {
-			return fmt.Errorf(
-				"route %s declares unknown requires=%q (expected one of the principal ladder or %q)",
-				where, spec.Requires, requiresPublic)
-		}
-		if (spec.Auth == authPublic) != (spec.Requires == requiresPublic) {
-			return fmt.Errorf(
-				"route %s: auth=%q and requires=%q disagree (public ⟺ requires='public')",
-				where, spec.Auth, spec.Requires)
-		}
-	}
-	return nil
-}
-
-// assertAllRoutesLabelled is the deny-by-default auth-label boot assertion
-// (plumbing.auth.assert_all_routes_labelled): every route must carry a KNOWN
-// auth label; anything else refuses to start.
-func assertAllRoutesLabelled(specs []RouteSpec) error {
-	for _, spec := range specs {
-		if spec.Auth != authPublic && spec.Auth != authGated {
-			return fmt.Errorf(
-				"route %s %s carries invalid auth label %q; must be %q or %q (deny-by-default, fail closed)",
-				spec.Method, spec.Path, spec.Auth, authPublic, authGated)
-		}
-	}
-	return nil
 }

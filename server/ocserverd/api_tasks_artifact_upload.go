@@ -178,6 +178,11 @@ func (s *apiServer) HandleUploadReplaceTaskArtifactApiTasksTaskIdArtifactArtifac
 func (s *apiServer) readArtifactUploadBody(
 	w http.ResponseWriter, r *http.Request, filename, mime *string,
 ) (*ChatAttachment, bool) {
+	if r.ContentLength > chatAttachmentMaxBytes {
+		writeError(w, http.StatusBadRequest,
+			"attachment exceeds the 100 MB size limit")
+		return nil, false
+	}
 	// Bound the read at cap+1: one extra byte proves over-cap without ever
 	// buffering an unbounded body.
 	raw, err := io.ReadAll(io.LimitReader(r.Body, chatAttachmentMaxBytes+1))

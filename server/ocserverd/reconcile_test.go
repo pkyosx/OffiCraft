@@ -1,1568 +1,3241 @@
 package main
 
+// reconcile_test.go — the behaviour of server/ocserverd/reconcile.go: the exact
+// command, reason and next state the pure decider answers with in each of its
+// arms, what the dispatch half puts on a warden's FIFO (and what it refuses to),
+// the durable receipts and wind-down anchors the stamps leave on a member row,
+// and the stderr line each observability path writes.
+
 import (
 	"encoding/json"
-	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
+	"time"
 )
 
-// ── fixtures ─────────────────────────────────────────────────────────────────
+// reconcileTestNow is the tick clock every test reads back as a literal. It is
+// a plausible wall-clock epoch because the token-expiry derivation subtracts a
+// week-long TTL from it and must stay positive.
+const reconcileTestNow = 1700000000.0
 
-// newReconcileTestServer wires a full apiServer (temp sqlite + migrations +
-// seed + hub + checkout-root assets) — the producer integration face.
-func newReconcileTestServer(t *testing.T) *apiServer {
+// reconcileTestServer is one full server over a fresh DB, with one extra warden
+// ("m-box") on the roster reporting a ready Claude — the machine most of these
+// tests place a member on. The warden holds no SSE connection yet: reachability
+// is the thing half of these tests are about, so it is opted into per case with
+// reconcileTestOnline.
+func reconcileTestServer(t *testing.T) (*apiServer, *DAL) {
 	t.Helper()
-	db, err := openSQLite(filepath.Join(t.TempDir(), "reconcile-test.db"))
+	api, _, d, _ := newAPITestServer(t)
+	reconcileTestPut(t, d, Member{ID: "m-box", Name: "Box", Kind: KindWarden})
+	api.telemetry.Set("m-box", map[string]any{"runtimes": map[string]any{
+		"claude": map[string]any{"installed": true, "logged_in": true},
+	}})
+	return api, d
+}
+
+// reconcileTestPut writes one roster row, defaulting the status to active.
+func reconcileTestPut(t *testing.T, d *DAL, m Member) {
+	t.Helper()
+	if m.RosterStatus == "" {
+		m.RosterStatus = RosterStatusActive
+	}
+	if err := d.PutMember(m); err != nil {
+		t.Fatalf("PutMember(%s): %v", m.ID, err)
+	}
+}
+
+// reconcileTestOnline gives a member a live SSE connection carrying machineID
+// as its claim, for the life of the test.
+func reconcileTestOnline(t *testing.T, api *apiServer, memberID, machineID string) *hubListener {
+	t.Helper()
+	l, err := api.hub.Connect(memberID, machineID)
 	if err != nil {
-		t.Fatalf("open: %v", err)
+		t.Fatalf("hub.Connect(%q): %v", memberID, err)
 	}
-	t.Cleanup(func() { db.Close() })
-	if err := runMigrations(db); err != nil {
-		t.Fatalf("goose up: %v", err)
-	}
-	dal := NewDAL(db)
-	if err := seedOutOfBox(dal); err != nil {
-		t.Fatalf("seed: %v", err)
-	}
-	return newAPIServer(dal, NewHub(), singleKeyring([]byte("reconcile-test-secret")), 3600, "../..")
-}
-
-func testAgent(id string) Member {
-	return Member{
-		ID: id, Name: id, Kind: KindStaff, Effort: "medium",
-		DesiredState:     DesiredStateOnline,
-		DesiredMachineID: ServerSelfHost,
-		RosterStatus:     RosterStatusActive,
-	}
-}
-
-// putTestMember seeds a member row so that the ROW ENDS UP LOOKING LIKE `m` —
-// which is what every caller has always meant by it.
-//
-// 🔴 THE SECOND WRITE IS NOT REDUNDANT (T-55). The four wind-down anchors left
-// PutMember's DO UPDATE SET, so on a row that ALREADY EXISTS the upsert above
-// silently drops stopping_since / stopped_since / refocus_since / refocus_op.
-// (An earlier version of this sentence said the upsert "carries 31 columns".
-// That was the INSERT list minus four; the DO UPDATE SET list is shorter still,
-// because every other migrated column is missing from it too. The count is not
-// restated here — singleColumnOwnedFields is the enforced answer.) Fixtures that re-seed a row to open or close a
-// wind-down — and there are dozens — would then be asserting against anchors
-// they never actually planted, and the tests would go GREEN while testing
-// nothing. Planting them through their sole writer is what keeps the helper's
-// contract true. Production callers must NOT do this: there the dropped columns
-// are the whole point, because their snapshot is stale.
-func putTestMember(t *testing.T, s *apiServer, m Member) {
-	t.Helper()
-	if err := s.dal.PutMember(m); err != nil {
-		t.Fatalf("put member %s: %v", m.ID, err)
-	}
-	if err := s.dal.SetMemberWindDownAnchors(m.ID, m.StoppingSince, m.StoppedSince,
-		m.RefocusSince, m.RefocusOp); err != nil {
-		t.Fatalf("seed wind-down anchors for %s: %v", m.ID, err)
-	}
-}
-
-// seedMemberAnchors / seedWorkerAnchors plant the four wind-down anchors on a row
-// that ALREADY EXISTS, through their sole writer (T-55).
-//
-// A fixture that reads a row, sets stopping_since / stopped_since /
-// refocus_since / refocus_op on the snapshot and writes it back whole no longer
-// moves those four columns — they left PutMember's DO UPDATE SET. The write
-// still succeeds, so the fixture reads exactly as it always did while planting
-// nothing, and the test that depends on it goes green having exercised the
-// wrong state. Call one of these next to the whole-row fixture write.
-func seedMemberAnchors(t *testing.T, s *apiServer, m Member) {
-	t.Helper()
-	if err := s.dal.SetMemberWindDownAnchors(m.ID, m.StoppingSince, m.StoppedSince,
-		m.RefocusSince, m.RefocusOp); err != nil {
-		t.Fatalf("seed wind-down anchors for %s: %v", m.ID, err)
-	}
-}
-
-func seedWorkerAnchors(t *testing.T, s *apiServer, w OutsourceWorker) {
-	t.Helper()
-	if err := s.dal.SetMemberWindDownAnchors(w.ID, w.StoppingSince, w.StoppedSince,
-		w.RefocusSince, w.RefocusOp); err != nil {
-		t.Fatalf("seed wind-down anchors for %s: %v", w.ID, err)
-	}
-}
-
-// connectOnline projects memberID online for the test's lifetime.
-func connectOnline(t *testing.T, s *apiServer, memberID string) *hubListener {
-	t.Helper()
-	l, err := s.hub.Connect(memberID, "")
-	if err != nil {
-		t.Fatalf("connect %s: %v", memberID, err)
-	}
-	t.Cleanup(func() { s.hub.Disconnect(l) })
+	t.Cleanup(func() { api.hub.Disconnect(l) })
 	return l
 }
 
-type drainedFrame struct {
-	Topic string
-	RPC   string
-	Args  map[string]any
-}
-
-func drainFrames(t *testing.T, s *apiServer, wardenID string) []drainedFrame {
+// reconcileTestRow reads one roster row back.
+func reconcileTestRow(t *testing.T, d *DAL, id string) Member {
 	t.Helper()
-	var out []drainedFrame
-	for _, cmd := range s.hub.DrainWardenCommands(wardenID) {
-		raw := cmd.Frame
-		text := strings.TrimSpace(strings.TrimPrefix(string(raw), "data: "))
-		var envelope struct {
-			Topic string `json:"topic"`
-			Data  struct {
-				RPC  string         `json:"rpc"`
-				Args map[string]any `json:"args"`
-			} `json:"data"`
-		}
-		if err := json.Unmarshal([]byte(text), &envelope); err != nil {
-			t.Fatalf("frame decode: %v (%q)", err, text)
-		}
-		out = append(out, drainedFrame{
-			Topic: envelope.Topic, RPC: envelope.Data.RPC, Args: envelope.Data.Args,
-		})
-	}
-	return out
-}
-
-func obsOf(id, desired string, online bool) memberObservation {
-	return memberObservation{MemberID: id, Desired: desired, Online: online}
-}
-
-// obsRelocate is an online desired-online observation carrying the two machine
-// facts that drive the relocation recycle.
-func obsRelocate(id, running, target string) memberObservation {
-	o := obsOf(id, DesiredStateOnline, true)
-	o.RunningMachine = running
-	o.TargetMachine = target
-	return o
-}
-
-// connectOnlineMachine projects memberID online carrying a machine claim (the
-// SSE machine_id) for the test's lifetime — the relocation running-machine fact.
-func connectOnlineMachine(t *testing.T, s *apiServer, memberID, machineID string) *hubListener {
-	t.Helper()
-	l, err := s.hub.Connect(memberID, machineID)
+	m, err := d.GetMember(id)
 	if err != nil {
-		t.Fatalf("connect %s@%s: %v", memberID, machineID, err)
+		t.Fatalf("GetMember(%s): %v", id, err)
 	}
-	t.Cleanup(func() { s.hub.Disconnect(l) })
-	return l
+	if m == nil {
+		t.Fatalf("GetMember(%s): no such row", id)
+	}
+	return *m
 }
 
-// putWarden seeds an ACTIVE, desired-online warden member (its member id IS its
-// machine id) so wardenTargetOf/reachability resolve it.
-func putWarden(t *testing.T, s *apiServer, id string) {
+// reconcileTestWantRow asserts the WHOLE stored row equals want — every column,
+// so a field a stamp touches without being named here is a failure.
+func reconcileTestWantRow(t *testing.T, d *DAL, id string, want Member) {
 	t.Helper()
-	putTestMember(t, s, Member{
-		ID: id, Name: id, Kind: KindWarden, Effort: "medium",
-		DesiredState: DesiredStateOnline, RosterStatus: RosterStatusActive,
+	got := reconcileTestRow(t, d, id)
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("row %s:\n got %+v\nwant %+v", id, got, want)
+	}
+}
+
+// reconcileTestFalse is the addressable false the receipt columns hold.
+func reconcileTestFalse() *bool {
+	no := false
+	return &no
+}
+
+func reconcileTestWantDecision(t *testing.T, got, want reconcileDecision) {
+	t.Helper()
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("decision:\n got %+v\nwant %+v", got, want)
+	}
+}
+
+func TestDefaultReconcileConfig(t *testing.T) {
+	t.Run("the frozen timer table is the shipped one, with the zombie window at twice the start timeout", func(t *testing.T) {
+		want := reconcileConfig{
+			StartTimeout: 120, StopGrace: 120, StopRetry: 90, RecycleGrace: 120,
+			SoftOffboardGrace: 600, BackoffBase: 5, BackoffCap: 300,
+			CircuitThreshold: 5, CircuitCooldown: 120, ZombieConfirmGrace: 240,
+		}
+		if got := defaultReconcileConfig(); got != want {
+			t.Fatalf("defaultReconcileConfig()\n got %+v\nwant %+v", got, want)
+		}
+	})
+
+	t.Run("an owner-set accelerated grace overrides only the recycle grace on the live config", func(t *testing.T) {
+		api, _ := reconcileTestServer(t)
+		if got := api.reconcileConfigLive(); got != defaultReconcileConfig() {
+			t.Fatalf("live config out of the box = %+v, want the defaults", got)
+		}
+		api.acceleratedGraceSecs = 45
+		want := defaultReconcileConfig()
+		want.RecycleGrace = 45
+		if got := api.reconcileConfigLive(); got != want {
+			t.Fatalf("live config\n got %+v\nwant %+v", got, want)
+		}
 	})
 }
 
-// ── parseDesired ─────────────────────────────────────────────────────────────
-
 func TestParseDesired(t *testing.T) {
-	cases := map[string]string{
-		"online":    DesiredStateOnline,
-		"uninstall": DesiredStateUninstall,
-		"offline":   DesiredStateOffline,
-		"":          DesiredStateOffline,
-		"junk":      DesiredStateOffline, // fail-safe: an unknown intent never spawns
-	}
-	for raw, want := range cases {
-		if got := parseDesired(raw); got != want {
-			t.Errorf("parseDesired(%q) = %q, want %q", raw, got, want)
+	t.Run("the two non-default intents pass through byte for byte", func(t *testing.T) {
+		for _, raw := range []string{DesiredStateOnline, DesiredStateUninstall} {
+			if got := parseDesired(raw); got != raw {
+				t.Fatalf("parseDesired(%q) = %q, want it unchanged", raw, got)
+			}
 		}
-	}
+	})
+
+	t.Run("the blank value, the literal offline and anything unrecognised all fold to offline so an unknown intent never spawns", func(t *testing.T) {
+		for _, raw := range []string{"", DesiredStateOffline, "ONLINE", "Online", "junk", "uninstalled"} {
+			if got := parseDesired(raw); got != DesiredStateOffline {
+				t.Fatalf("parseDesired(%q) = %q, want %q", raw, got, DesiredStateOffline)
+			}
+		}
+	})
 }
 
-// TestDefaultReconcileConfigUsesWakingTTLSecs pins the owner-approved value and
-// the derived config fields independently.
-func TestDefaultReconcileConfigUsesWakingTTLSecs(t *testing.T) {
-	if WakingTTLSecs != 120.0 {
-		t.Fatalf("WakingTTLSecs = %v, want 120.0 (owner ruling 2026-08-27)", WakingTTLSecs)
-	}
+func TestDecisionNone(t *testing.T) {
+	t.Run("the no-op decision carries the member id, the reason and the caller's state untouched, and nothing else", func(t *testing.T) {
+		st := reconcileState{
+			Phase: reconcilePhaseStopping, Attempts: 3, BackoffUntil: 12,
+			LastCommand: reconcileCmdStop, LastCommandAt: 7,
+		}
+		got := decisionNone(memberObservation{MemberID: "kip", Desired: DesiredStateOnline}, st, "why not")
+		reconcileTestWantDecision(t, got, reconcileDecision{
+			Command: reconcileCmdNone, MemberID: "kip", Reason: "why not", State: st,
+		})
+	})
+
+	t.Run("the zero observation yields a blank member id rather than inventing one", func(t *testing.T) {
+		got := decisionNone(memberObservation{}, reconcileState{}, "")
+		reconcileTestWantDecision(t, got, reconcileDecision{Command: reconcileCmdNone})
+	})
+}
+
+func TestRobustStopRetryStep(t *testing.T) {
+	t.Run("an unarmed marker and a session that is no longer alive both answer done, so the marker is disarmed", func(t *testing.T) {
+		for _, c := range []struct {
+			name         string
+			dispatchedAt float64
+			alive        bool
+		}{
+			{"never dispatched", 0, true},
+			{"a negative stamp", -1, true},
+			{"dispatched but the session is gone", 1000, false},
+			{"neither", 0, false},
+		} {
+			if got := robustStopRetryStep(c.dispatchedAt, c.alive, 90, 2000); got != robustStopDone {
+				t.Fatalf("%s: step = %v, want robustStopDone", c.name, got)
+			}
+		}
+	})
+
+	t.Run("a live session inside the retry window waits, and one at or past the window is re-sent", func(t *testing.T) {
+		for _, c := range []struct {
+			now  float64
+			want robustStopStep
+		}{
+			{1000, robustStopWait},
+			{1089, robustStopWait},
+			{1090, robustStopResend},
+			{1091, robustStopResend},
+		} {
+			if got := robustStopRetryStep(1000, true, 90, c.now); got != c.want {
+				t.Fatalf("now=%v: step = %v, want %v", c.now, got, c.want)
+			}
+		}
+	})
+}
+
+func TestRecycleGraceFor(t *testing.T) {
+	t.Run("the two 加速停止 causes are the only clocked ones and both get the configured recycle grace", func(t *testing.T) {
+		cfg := defaultReconcileConfig()
+		for _, op := range []string{refocusOpContextHigh, refocusOpAcceleratedStop} {
+			grace, clocked := recycleGraceFor(op, cfg)
+			if !clocked || grace != 120 {
+				t.Fatalf("recycleGraceFor(%q) = %v %v, want 120 true", op, grace, clocked)
+			}
+		}
+		tuned := cfg
+		tuned.RecycleGrace = 45
+		if grace, clocked := recycleGraceFor(refocusOpContextHigh, tuned); !clocked || grace != 45 {
+			t.Fatalf("a tuned grace = %v %v, want 45 true", grace, clocked)
+		}
+	})
+
+	t.Run("every other cause — including the first context threshold and token expiry — runs on no clock at all", func(t *testing.T) {
+		cfg := defaultReconcileConfig()
+		for _, op := range []string{
+			"", "refocus", refocusOpContextNotice, refocusOpTokenExpiry, memberOpRelocate, "made-up",
+		} {
+			grace, clocked := recycleGraceFor(op, cfg)
+			if clocked || grace != 0 {
+				t.Fatalf("recycleGraceFor(%q) = %v %v, want 0 false", op, grace, clocked)
+			}
+		}
+	})
+}
+
+func TestRegisterStartFailure(t *testing.T) {
+	t.Run("one failure bumps the attempt count, arms an exponential backoff and forgets the dispatched command", func(t *testing.T) {
+		cfg := defaultReconcileConfig()
+		for _, c := range []struct {
+			attempts int
+			want     float64
+		}{{0, 1005}, {1, 1010}, {2, 1020}, {3, 1040}, {4, 1080}} {
+			got := registerStartFailure(reconcileState{Attempts: c.attempts}, cfg, 1000, false)
+			want := reconcileState{
+				Attempts: c.attempts + 1, BackoffUntil: c.want,
+				LastCommand: reconcileCmdNone,
+			}
+			if got != want {
+				t.Fatalf("attempts=%d:\n got %+v\nwant %+v", c.attempts, got, want)
+			}
+		}
+	})
+
+	t.Run("repeated silent timeouts saturate the backoff at the cap instead of overflowing", func(t *testing.T) {
+		cfg := defaultReconcileConfig()
+		for _, attempts := range []int{9, 99, 9999} {
+			got := registerStartFailure(reconcileState{Attempts: attempts}, cfg, 1000, false)
+			if got.BackoffUntil != 1300 {
+				t.Fatalf("attempts=%d: BackoffUntil = %v, want the 300s cap", attempts, got.BackoffUntil)
+			}
+			if got.CircuitOpen {
+				t.Fatalf("attempts=%d: a silent timeout must never trip the breaker", attempts)
+			}
+		}
+	})
+
+	t.Run("a circuit-eligible failure trips the sticky breaker only once the threshold is reached, and arms its cooldown", func(t *testing.T) {
+		cfg := defaultReconcileConfig()
+		below := registerStartFailure(reconcileState{Attempts: 3}, cfg, 1000, true)
+		if below != (reconcileState{Attempts: 4, BackoffUntil: 1040, LastCommand: reconcileCmdNone}) {
+			t.Fatalf("the fourth failure = %+v, want the breaker still closed", below)
+		}
+		at := registerStartFailure(reconcileState{Attempts: 4}, cfg, 1000, true)
+		want := reconcileState{
+			Attempts: 5, BackoffUntil: 1080, CircuitOpen: true,
+			CircuitCooldownUntil: 1120, LastCommand: reconcileCmdNone,
+		}
+		if at != want {
+			t.Fatalf("the fifth failure:\n got %+v\nwant %+v", at, want)
+		}
+	})
+
+	t.Run("the fold overwrites a previous cooldown rather than leaving a stale one standing", func(t *testing.T) {
+		cfg := defaultReconcileConfig()
+		got := registerStartFailure(
+			reconcileState{Attempts: 0, CircuitCooldownUntil: 999, LastCommandAt: 500}, cfg, 1000, false)
+		if got.CircuitCooldownUntil != 0 || got.LastCommandAt != 0 {
+			t.Fatalf("stale fields survived: %+v", got)
+		}
+	})
+}
+
+func TestReconcileLog(t *testing.T) {
+	t.Run("every line is prefixed, formatted with the caller's arguments and terminated with one newline", func(t *testing.T) {
+		got := hubTestStderr(t, func() { reconcileLog("%s: desired=%s command=%s", "kip", "online", "start") })
+		want := "[reconcile] kip: desired=online command=start\n"
+		if got != want {
+			t.Fatalf("stderr:\n got %q\nwant %q", got, want)
+		}
+	})
+
+	t.Run("a format with no arguments is written verbatim, and two calls are two lines", func(t *testing.T) {
+		got := hubTestStderr(t, func() {
+			reconcileLog("tick: 0 candidate(s)")
+			reconcileLog("tick FAULT: %v", "boom")
+		})
+		want := "[reconcile] tick: 0 candidate(s)\n[reconcile] tick FAULT: boom\n"
+		if got != want {
+			t.Fatalf("stderr:\n got %q\nwant %q", got, want)
+		}
+	})
+}
+
+func TestIsStopgapRetryReason(t *testing.T) {
+	t.Run("the two retry-loop codes are the class, and only when they carry the code separator", func(t *testing.T) {
+		for _, reason := range []string{"backoff: waiting", "circuit_open: too many failed starts"} {
+			if !isStopgapRetryReason(reason) {
+				t.Fatalf("%q must be a stopgap retry reason", reason)
+			}
+		}
+		for _, reason := range []string{"backoff", "circuit_open", "backoffish: x"} {
+			if isStopgapRetryReason(reason) {
+				t.Fatalf("%q must not match — the code separator is part of the code", reason)
+			}
+		}
+	})
+
+	t.Run("a diagnosis of what is actually wrong is never in the class, blank included", func(t *testing.T) {
+		for _, reason := range []string{
+			"", "zombie_suspect: a session is still alive", wakeTimeoutReasonCode + ": never came up",
+			placementReasonNoMachine + ": no machine", spawnReasonWardenLost + ": gone",
+		} {
+			if isStopgapRetryReason(reason) {
+				t.Fatalf("%q must not be a stopgap retry reason", reason)
+			}
+		}
+	})
+}
+
+func TestIsPlacementBlockedReason(t *testing.T) {
+	t.Run("every code in the closed we-did-not-dispatch set matches when it carries the separator", func(t *testing.T) {
+		for _, code := range spawnBlockedReasonCodes {
+			if !isPlacementBlockedReason(code + ": something") {
+				t.Fatalf("%q is in spawnBlockedReasonCodes but did not match", code)
+			}
+			if isPlacementBlockedReason(code) {
+				t.Fatalf("%q with no separator must not match", code)
+			}
+		}
+		if len(spawnBlockedReasonCodes) != 13 {
+			t.Fatalf("the closed set has %d codes: %v", len(spawnBlockedReasonCodes), spawnBlockedReasonCodes)
+		}
+	})
+
+	t.Run("the codes a landed START must NOT invalidate — a wake lapse, an uncollected frame, a standing 停止 — stay outside it", func(t *testing.T) {
+		for _, reason := range []string{
+			"", wakeTimeoutReasonCode + ": never came up",
+			spawnReasonNeverCollected + ": the warden never picked it up",
+			spawnReasonHeldDown + ": the owner stopped it",
+		} {
+			if isPlacementBlockedReason(reason) {
+				t.Fatalf("%q must not be treated as placement-blocked", reason)
+			}
+		}
+	})
+}
+
+func TestReceiptRendersAsFailure(t *testing.T) {
+	t.Run("a populated op with a non-true verdict is the red line, nil verdict included", func(t *testing.T) {
+		if !receiptRendersAsFailure(reconcileCmdStart, 5, nil) {
+			t.Fatalf("a nil verdict beside a populated op is the wordless red block")
+		}
+		if !receiptRendersAsFailure(reconcileCmdStart, 5, reconcileTestFalse()) {
+			t.Fatalf("an explicit false must render as a failure")
+		}
+	})
+
+	t.Run("a success receipt, and any row the panel hides entirely, are not failures", func(t *testing.T) {
+		yes := true
+		if receiptRendersAsFailure(reconcileCmdStart, 5, &yes) {
+			t.Fatalf("a success receipt must not be deleted by the converged clears")
+		}
+		for _, c := range []struct {
+			op string
+			at float64
+		}{{"", 0}, {"", 5}, {reconcileCmdStart, 0}, {reconcileCmdStart, -1}} {
+			if receiptRendersAsFailure(c.op, c.at, nil) {
+				t.Fatalf("op=%q at=%v: the panel hides the block, so nothing renders", c.op, c.at)
+			}
+		}
+	})
+}
+
+func TestBootStormTripped(t *testing.T) {
+	t.Run("a boot younger than the guard trips it and one at or past the line does not", func(t *testing.T) {
+		for _, c := range []struct {
+			secs float64
+			want bool
+		}{{0, true}, {59, true}, {60, false}, {61, false}, {10000, false}} {
+			secs := c.secs
+			if got := bootStormTripped(&secs, 60); got != c.want {
+				t.Fatalf("bootStormTripped(%v, 60) = %v, want %v", c.secs, got, c.want)
+			}
+		}
+	})
+
+	t.Run("missing or negative data never trips it, and a non-positive minimum disables the guard outright", func(t *testing.T) {
+		if bootStormTripped(nil, 60) {
+			t.Fatalf("no boot_ts must fail open")
+		}
+		negative := -1.0
+		if bootStormTripped(&negative, 60) {
+			t.Fatalf("a negative age must fail open")
+		}
+		fresh := 1.0
+		for _, min := range []float64{0, -5} {
+			if bootStormTripped(&fresh, min) {
+				t.Fatalf("minBootSecs=%v must disable the guard", min)
+			}
+		}
+	})
+}
+
+func TestQuietSince(t *testing.T) {
+	t.Run("the later of the close-out anchor and the gauge's report ts wins", func(t *testing.T) {
+		m := Member{StoppingSince: 100}
+		if got := quietSince(m, map[string]any{"ts": 50.0}); got != 100 {
+			t.Fatalf("an older report = %v, want the anchor 100", got)
+		}
+		if got := quietSince(m, map[string]any{"ts": 500.0}); got != 500 {
+			t.Fatalf("a newer report = %v, want 500", got)
+		}
+		if got := quietSince(Member{}, map[string]any{"ts": 500.0}); got != 500 {
+			t.Fatalf("with no anchor = %v, want the report 500", got)
+		}
+	})
+
+	t.Run("an absent or unusable gauge is no opinion, so the anchor's own age decides", func(t *testing.T) {
+		m := Member{StoppingSince: 100}
+		for _, gauge := range []map[string]any{nil, {}, {"ts": "not a number"}, {"ts": nil}} {
+			if got := quietSince(m, gauge); got != 100 {
+				t.Fatalf("gauge %v: quietSince = %v, want the anchor 100", gauge, got)
+			}
+		}
+		if got := quietSince(Member{}, nil); got != 0 {
+			t.Fatalf("no anchor and no gauge = %v, want 0", got)
+		}
+	})
+}
+
+func TestTokenExpiryOf(t *testing.T) {
+	t.Run("a staff or outsource session expires one TTL after the connect anchor", func(t *testing.T) {
+		for _, kind := range []string{KindStaff, KindOutsource} {
+			got := tokenExpiryOf(Member{Kind: kind, SessionBootTS: 1000}, 3600)
+			if got != 4600 {
+				t.Fatalf("kind %s: tokenExpiryOf = %v, want 4600", kind, got)
+			}
+		}
+	})
+
+	t.Run("a warden, an un-anchored session and a non-positive TTL are all not derivable and answer zero", func(t *testing.T) {
+		for _, c := range []struct {
+			name string
+			m    Member
+			ttl  int64
+		}{
+			{"warden — its token carries no exp at all", Member{Kind: KindWarden, SessionBootTS: 1000}, 3600},
+			{"no session anchor", Member{Kind: KindStaff}, 3600},
+			{"a negative anchor", Member{Kind: KindStaff, SessionBootTS: -5}, 3600},
+			{"a zero TTL", Member{Kind: KindStaff, SessionBootTS: 1000}, 0},
+			{"a negative TTL", Member{Kind: KindStaff, SessionBootTS: 1000}, -5},
+		} {
+			if got := tokenExpiryOf(c.m, c.ttl); got != 0 {
+				t.Fatalf("%s: tokenExpiryOf = %v, want 0", c.name, got)
+			}
+		}
+	})
+}
+
+func TestGaugeNumForDiag(t *testing.T) {
+	t.Run("a numeric key renders at full precision, integral values without a decimal point", func(t *testing.T) {
+		for _, c := range []struct {
+			value any
+			want  string
+		}{
+			{42.0, "42"}, {42, "42"}, {42.5, "42.5"}, {1700000000.0, "1700000000"}, {-3.25, "-3.25"},
+		} {
+			got := gaugeNumForDiag(map[string]any{"context_pct": c.value}, "context_pct")
+			if got != c.want {
+				t.Fatalf("gaugeNumForDiag(%#v) = %q, want %q", c.value, got, c.want)
+			}
+		}
+	})
+
+	t.Run("a nil gauge, an absent key and a non-numeric value all render the dash", func(t *testing.T) {
+		if got := gaugeNumForDiag(nil, "context_pct"); got != "-" {
+			t.Fatalf("nil gauge = %q, want %q", got, "-")
+		}
+		for _, record := range []map[string]any{
+			{}, {"context_pct": "55"}, {"context_pct": nil}, {"other": 1.0},
+		} {
+			if got := gaugeNumForDiag(record, "context_pct"); got != "-" {
+				t.Fatalf("record %v = %q, want %q", record, got, "-")
+			}
+		}
+	})
+}
+
+func TestSecsSinceBootForDiag(t *testing.T) {
+	t.Run("a usable boot_ts renders the guard's own seconds-since-boot to one decimal, negative included", func(t *testing.T) {
+		for _, c := range []struct {
+			bootTS float64
+			want   string
+		}{{1000, "500.0"}, {1499.5, "0.5"}, {2000, "-500.0"}, {0, "1500.0"}} {
+			got := secsSinceBootForDiag(map[string]any{"boot_ts": c.bootTS}, 1500)
+			if got != c.want {
+				t.Fatalf("boot_ts=%v: got %q, want %q", c.bootTS, got, c.want)
+			}
+		}
+	})
+
+	t.Run("the guard's fail-open case — no boot_ts to read — renders the dash", func(t *testing.T) {
+		for _, record := range []map[string]any{nil, {}, {"boot_ts": "x"}, {"boot_ts": nil}} {
+			if got := secsSinceBootForDiag(record, 1500); got != "-" {
+				t.Fatalf("record %v = %q, want %q", record, got, "-")
+			}
+		}
+	})
+}
+
+func TestCanPromoteToAcceleratedStop(t *testing.T) {
+	t.Run("only a notice epoch crossing the second threshold is promoted", func(t *testing.T) {
+		m := Member{RefocusOp: refocusOpContextNotice}
+		if !canPromoteToAcceleratedStop(m, refocusOpContextHigh) {
+			t.Fatalf("context_notice → context_high must promote")
+		}
+	})
+
+	t.Run("an owner-opened or agent-opened epoch, a repeat of the same threshold, and a session that already reported stopped are all refused", func(t *testing.T) {
+		for _, c := range []struct {
+			name string
+			m    Member
+			op   string
+		}{
+			{"no epoch at all", Member{}, refocusOpContextHigh},
+			{"an owner 改機器 epoch", Member{RefocusOp: memberOpRelocate}, refocusOpContextHigh},
+			{"a plain 重新聚焦 epoch", Member{RefocusOp: "refocus"}, refocusOpContextHigh},
+			{"the first threshold again", Member{RefocusOp: refocusOpContextNotice}, refocusOpContextNotice},
+			{"already reported stopped", Member{RefocusOp: refocusOpContextNotice, StoppedSince: 5}, refocusOpContextHigh},
+		} {
+			if canPromoteToAcceleratedStop(c.m, c.op) {
+				t.Fatalf("%s must not promote", c.name)
+			}
+		}
+	})
+}
+
+func TestStampOpReceipt(t *testing.T) {
+	t.Run("the five columns are written together: the op, a non-nil false verdict, a blanked log, the reason and the clock", func(t *testing.T) {
+		yes := true
+		op, log, reason := "previous", "the previous op's log", "the previous reason"
+		verdict := &yes
+		at := 5.0
+		stampOpReceipt(&op, &verdict, &log, &reason, &at, reconcileCmdUninstall, "the machine refused", 1234.5)
+		if op != reconcileCmdUninstall {
+			t.Fatalf("op = %q, want %q", op, reconcileCmdUninstall)
+		}
+		if verdict == nil || *verdict {
+			t.Fatalf("verdict = %v, want a non-nil false", verdict)
+		}
+		if log != "" {
+			t.Fatalf("log = %q, want it cleared with the op it belonged to", log)
+		}
+		if reason != "the machine refused" || at != 1234.5 {
+			t.Fatalf("reason=%q at=%v", reason, at)
+		}
+	})
+
+	t.Run("the verdict pointer is fresh rather than the caller's, so two stamps never share one bool", func(t *testing.T) {
+		var opA, logA, reasonA string
+		var verdictA *bool
+		var atA float64
+		stampOpReceipt(&opA, &verdictA, &logA, &reasonA, &atA, reconcileCmdStart, "a", 1)
+		var opB, logB, reasonB string
+		var verdictB *bool
+		var atB float64
+		stampOpReceipt(&opB, &verdictB, &logB, &reasonB, &atB, reconcileCmdStart, "b", 2)
+		if verdictA == verdictB {
+			t.Fatalf("the two stamps share one bool")
+		}
+		*verdictB = true
+		if *verdictA {
+			t.Fatalf("mutating one verdict changed the other")
+		}
+	})
+}
+
+func TestStampMemberOpReceipt(t *testing.T) {
+	t.Run("a staff receipt is always stamped against the start verb, whatever the member was doing", func(t *testing.T) {
+		yes := true
+		m := Member{
+			ID: "kip", LastOp: reconcileCmdStop, LastOpOK: &yes,
+			LastOpLog: "an earlier warden log", LastOpReason: "an earlier reason", LastOpAt: 5,
+		}
+		stampMemberOpReceipt(&m, "no machine is selected", reconcileTestNow)
+		want := Member{
+			ID: "kip", LastOp: reconcileCmdStart, LastOpOK: reconcileTestFalse(),
+			LastOpLog: "", LastOpReason: "no machine is selected", LastOpAt: reconcileTestNow,
+		}
+		if !reflect.DeepEqual(m, want) {
+			t.Fatalf("member:\n got %+v\nwant %+v", m, want)
+		}
+	})
+
+	t.Run("it mutates in memory only — nothing else on the member is touched", func(t *testing.T) {
+		m := Member{ID: "kip", Name: "Kip", Kind: KindStaff, DesiredState: DesiredStateOnline, RefocusSince: 9}
+		before := m
+		stampMemberOpReceipt(&m, "why", 1)
+		before.LastOp = reconcileCmdStart
+		before.LastOpOK = reconcileTestFalse()
+		before.LastOpReason = "why"
+		before.LastOpAt = 1
+		if !reflect.DeepEqual(m, before) {
+			t.Fatalf("member:\n got %+v\nwant %+v", m, before)
+		}
+	})
+}
+
+func TestRuntimeCapabilityReady(t *testing.T) {
+	t.Run("installed with no login verdict, or with a positive one, is ready", func(t *testing.T) {
+		yes := true
+		if !runtimeCapabilityReady(RuntimeCapabilityDTO{Installed: &yes}) {
+			t.Fatalf("installed with no login probe must read ready")
+		}
+		if !runtimeCapabilityReady(RuntimeCapabilityDTO{Installed: &yes, LoggedIn: &yes}) {
+			t.Fatalf("installed and logged in must read ready")
+		}
+	})
+
+	t.Run("an unreported entry, a measured not-installed, and a known logged-out are all not ready", func(t *testing.T) {
+		yes, no := true, false
+		for _, c := range []struct {
+			name string
+			dto  RuntimeCapabilityDTO
+		}{
+			{"nothing reported", RuntimeCapabilityDTO{}},
+			{"measured not installed", RuntimeCapabilityDTO{Installed: &no}},
+			{"not installed but logged in", RuntimeCapabilityDTO{Installed: &no, LoggedIn: &yes}},
+			{"installed but known logged out", RuntimeCapabilityDTO{Installed: &yes, LoggedIn: &no}},
+		} {
+			if runtimeCapabilityReady(c.dto) {
+				t.Fatalf("%s must not read ready", c.name)
+			}
+		}
+	})
+}
+
+func TestShouldAutoRefocus(t *testing.T) {
+	t.Run("a claude session at or over the handover percentage is actionable, and one below it is not", func(t *testing.T) {
+		cfg := defaultSseContextHigh()
+		for _, c := range []struct {
+			pct  float64
+			want bool
+		}{{49, false}, {50, true}, {55, true}, {100, true}} {
+			record := map[string]any{"context_pct": c.pct, "context_pct_ts": 100.0, "boot_ts": 50.0}
+			if got := shouldAutoRefocus(RuntimeClaude, record, cfg, 3); got != c.want {
+				t.Fatalf("pct=%v: shouldAutoRefocus = %v, want %v", c.pct, got, c.want)
+			}
+			if got := shouldAutoRefocus("", record, cfg, 3); got != c.want {
+				t.Fatalf("pct=%v: an unset runtime must read as claude, got %v", c.pct, got)
+			}
+		}
+	})
+
+	t.Run("a stale gauge — no report ts, or one no newer than the connection's boot — is never actionable", func(t *testing.T) {
+		cfg := defaultSseContextHigh()
+		for _, record := range []map[string]any{
+			nil,
+			{"context_pct": 95.0},
+			{"context_pct": 95.0, "context_pct_ts": 50.0, "boot_ts": 50.0},
+			{"context_pct": 95.0, "context_pct_ts": 40.0, "boot_ts": 50.0},
+			{"context_pct_ts": 100.0, "boot_ts": 50.0},
+		} {
+			if shouldAutoRefocus(RuntimeClaude, record, cfg, 3) {
+				t.Fatalf("record %v must not be actionable", record)
+			}
+		}
+	})
+
+	t.Run("codex reads its compaction count against its own threshold, and a non-int count is not a reading at all", func(t *testing.T) {
+		cfg := defaultSseContextHigh()
+		if !shouldAutoRefocus(RuntimeCodex, map[string]any{"compaction_count": 3}, cfg, 3) {
+			t.Fatalf("a count at the threshold must be actionable")
+		}
+		if shouldAutoRefocus(RuntimeCodex, map[string]any{"compaction_count": 2}, cfg, 3) {
+			t.Fatalf("a count below the threshold must not be actionable")
+		}
+		if shouldAutoRefocus(RuntimeCodex, map[string]any{"compaction_count": 3.0}, cfg, 3) {
+			t.Fatalf("a float count is not the int this read accepts")
+		}
+		if shouldAutoRefocus(RuntimeCodex, nil, cfg, 3) {
+			t.Fatalf("no gauge must not be actionable")
+		}
+		if !shouldAutoRefocus(RuntimeCodex, map[string]any{"compaction_count": defaultCodexCompactionThreshold}, cfg, 0) {
+			t.Fatalf("a non-positive threshold must fall back to the default %d", defaultCodexCompactionThreshold)
+		}
+		high := map[string]any{"context_pct": 95.0, "context_pct_ts": 100.0, "boot_ts": 50.0}
+		if shouldAutoRefocus(RuntimeCodex, high, cfg, 3) {
+			t.Fatalf("codex must not read the fill gauge at all")
+		}
+	})
+}
+
+func TestShouldNoticeRefocus(t *testing.T) {
+	t.Run("a claude session at or over the notice percentage is due, below it is not, and the handover band is due too", func(t *testing.T) {
+		cfg := defaultSseContextHigh()
+		for _, c := range []struct {
+			pct  float64
+			want bool
+		}{{39, false}, {40, true}, {45, true}, {55, true}} {
+			record := map[string]any{"context_pct": c.pct, "context_pct_ts": 100.0, "boot_ts": 50.0}
+			if got := shouldNoticeRefocus(RuntimeClaude, record, cfg, 2, 3); got != c.want {
+				t.Fatalf("pct=%v: shouldNoticeRefocus = %v, want %v", c.pct, got, c.want)
+			}
+		}
+	})
+
+	t.Run("a stale gauge and a disabled notice threshold are both not due", func(t *testing.T) {
+		cfg := defaultSseContextHigh()
+		for _, record := range []map[string]any{
+			nil, {"context_pct": 95.0}, {"context_pct": 95.0, "context_pct_ts": 40.0, "boot_ts": 50.0},
+		} {
+			if shouldNoticeRefocus(RuntimeClaude, record, cfg, 2, 3) {
+				t.Fatalf("record %v must not be due", record)
+			}
+		}
+		off := cfg
+		off.NoticePct = 0
+		live := map[string]any{"context_pct": 95.0, "context_pct_ts": 100.0, "boot_ts": 50.0}
+		if shouldNoticeRefocus(RuntimeClaude, live, off, 2, 3) {
+			t.Fatalf("a zero notice threshold disables the first band")
+		}
+		if !shouldNoticeRefocus(RuntimeClaude, live, cfg, 2, 3) {
+			t.Fatalf("the contrast case must be due")
+		}
+	})
+
+	t.Run("codex asks its own compaction-round predicate rather than the fill gauge", func(t *testing.T) {
+		cfg := defaultSseContextHigh()
+		high := map[string]any{"context_pct": 95.0, "context_pct_ts": 100.0, "boot_ts": 50.0}
+		if shouldNoticeRefocus(RuntimeCodex, high, cfg, 2, 3) {
+			t.Fatalf("a codex session must not be noticed off the fill gauge")
+		}
+		if shouldNoticeRefocus(RuntimeCodex, map[string]any{"compaction_count": 3}, cfg, 2, 3) {
+			t.Fatalf("a bare compaction count with no round progress is not the notice signal")
+		}
+	})
+}
+
+// reconcileTestUpObs is a desired-online observation for "kip".
+func reconcileTestUpObs() memberObservation {
+	return memberObservation{MemberID: "kip", Desired: DesiredStateOnline}
+}
+
+func TestDecideUp(t *testing.T) {
 	cfg := defaultReconcileConfig()
-	if cfg.StartTimeout != WakingTTLSecs {
-		t.Fatalf("StartTimeout = %v, want WakingTTLSecs (%v)", cfg.StartTimeout, WakingTTLSecs)
-	}
-	if cfg.ZombieConfirmGrace != 2*WakingTTLSecs {
-		t.Fatalf("ZombieConfirmGrace = %v, want 2*WakingTTLSecs (%v)", cfg.ZombieConfirmGrace, 2*WakingTTLSecs)
-	}
+	const now = reconcileTestNow
+
+	t.Run("an offline member with nothing in flight is started, and the first offline observation arms the zombie-confirm anchor", func(t *testing.T) {
+		reconcileTestWantDecision(t, decideUp(reconcileTestUpObs(), newReconcileState(), cfg, now),
+			reconcileDecision{
+				Command: reconcileCmdStart, MemberID: "kip",
+				Reason: "spawn: desired_state online, no live session",
+				State: reconcileState{
+					Phase: reconcilePhaseStarting, LastCommand: reconcileCmdStart,
+					LastCommandAt: now, OfflineSince: now,
+				},
+			})
+	})
+
+	t.Run("an online member with no marker is converged: the failure bookkeeping is reset and the tick reports the recovery", func(t *testing.T) {
+		obs := reconcileTestUpObs()
+		obs.Online = true
+		st := reconcileState{
+			Phase: reconcilePhaseBackoff, Attempts: 4, BackoffUntil: now + 50,
+			CircuitOpen: true, CircuitCooldownUntil: now + 999,
+			LastCommand: reconcileCmdStop, LastCommandAt: now - 5,
+			StopDeadline: now + 5, OfflineSince: now - 500,
+		}
+		reconcileTestWantDecision(t, decideUp(obs, st, cfg, now), reconcileDecision{
+			Command: reconcileCmdNone, MemberID: "kip", Reason: "online: converged",
+			State:           reconcileState{Phase: reconcilePhaseOnline, LastCommand: reconcileCmdNone},
+			ConvergedOnline: true,
+		})
+	})
+
+	t.Run("an online member carrying an unclocked refocus marker waits for the agent's own dump, dispatching nothing", func(t *testing.T) {
+		obs := reconcileTestUpObs()
+		obs.Online = true
+		obs.RefocusSince = now - 10
+		obs.RefocusOp = "refocus"
+		reconcileTestWantDecision(t, decideUp(obs, newReconcileState(), cfg, now), reconcileDecision{
+			Command: reconcileCmdNone, MemberID: "kip",
+			Reason: "recycle: awaiting agent dump (stopping)",
+			State:  reconcileState{Phase: reconcilePhaseStopping, LastCommand: reconcileCmdNone},
+		})
+	})
+
+	t.Run("the agent's dump-done report collects the epoch with a recycle STOP addressed to the machine it is actually running on", func(t *testing.T) {
+		obs := reconcileTestUpObs()
+		obs.Online = true
+		obs.RefocusSince = now - 10
+		obs.RefocusOp = "refocus"
+		obs.AgentStopped = true
+		obs.RunningMachine = "m-old"
+		reconcileTestWantDecision(t, decideUp(obs, newReconcileState(), cfg, now), reconcileDecision{
+			Command: reconcileCmdStop, MemberID: "kip", StopKind: stopKindRecycle,
+			Reason: "recycle: refocus marker + agent dump done — robust stop",
+			State: reconcileState{
+				Phase: reconcilePhaseStopping, LastCommand: reconcileCmdStop, LastCommandAt: now,
+			},
+			DispatchWarden: "m-old",
+		})
+	})
+
+	t.Run("a clocked 加速停止 epoch whose grace has elapsed is force-stopped even with no dump report", func(t *testing.T) {
+		obs := reconcileTestUpObs()
+		obs.Online = true
+		obs.RefocusSince = now - 121
+		obs.RefocusOp = refocusOpContextHigh
+		reconcileTestWantDecision(t, decideUp(obs, newReconcileState(), cfg, now), reconcileDecision{
+			Command: reconcileCmdStop, MemberID: "kip", StopKind: stopKindRecycle,
+			Reason: "recycle: refocus grace elapsed (dump stuck) — force stop",
+			State: reconcileState{
+				Phase: reconcilePhaseStopping, LastCommand: reconcileCmdStop, LastCommandAt: now,
+			},
+		})
+		inside := obs
+		inside.RefocusSince = now - 119
+		reconcileTestWantDecision(t, decideUp(inside, newReconcileState(), cfg, now), reconcileDecision{
+			Command: reconcileCmdNone, MemberID: "kip",
+			Reason: "recycle: awaiting agent dump (stopping)",
+			State:  reconcileState{Phase: reconcilePhaseStopping, LastCommand: reconcileCmdNone},
+		})
+	})
+
+	t.Run("a recycle STOP already dispatched is not repeated inside stop_retry and is re-dispatched once past it", func(t *testing.T) {
+		obs := reconcileTestUpObs()
+		obs.Online = true
+		obs.RefocusSince = now - 10
+		obs.AgentStopped = true
+		within := reconcileState{Phase: reconcilePhaseStopping, LastCommand: reconcileCmdStop, LastCommandAt: now - 89}
+		reconcileTestWantDecision(t, decideUp(obs, within, cfg, now), reconcileDecision{
+			Command: reconcileCmdNone, MemberID: "kip",
+			Reason: "recycle: robust stop dispatched — awaiting warden kill (within stop_retry)",
+			State:  within,
+		})
+		past := reconcileState{Phase: reconcilePhaseStopping, LastCommand: reconcileCmdStop, LastCommandAt: now - 90}
+		reconcileTestWantDecision(t, decideUp(obs, past, cfg, now), reconcileDecision{
+			Command: reconcileCmdStop, MemberID: "kip", StopKind: stopKindRecycle,
+			Reason: "recycle: re-dispatch robust stop (still online past stop_retry — prior STOP unlanded)",
+			State: reconcileState{
+				Phase: reconcilePhaseStopping, LastCommand: reconcileCmdStop, LastCommandAt: now,
+			},
+		})
+	})
+
+	t.Run("a live member re-pinned to another machine opens a wind-down when one can be armed, dispatching nothing this tick", func(t *testing.T) {
+		obs := reconcileTestUpObs()
+		obs.Online = true
+		obs.TargetMachine = "m-new"
+		obs.RunningMachine = "m-old"
+		obs.HandoverArmable = true
+		reconcileTestWantDecision(t, decideUp(obs, newReconcileState(), cfg, now), reconcileDecision{
+			Command: reconcileCmdNone, MemberID: "kip",
+			Reason: "relocate: desired_machine changed (running m-old != target m-new) — " +
+				"opening a wind-down; the refocus arm collects it on the agent's hand-off",
+			State:         reconcileState{Phase: reconcilePhaseStopping, LastCommand: reconcileCmdNone},
+			ArmHandoverOp: memberOpRelocate,
+		})
+	})
+
+	t.Run("a relocation with no hand-off to wait for kills the old session on the spot, addressed to the machine it runs on", func(t *testing.T) {
+		obs := reconcileTestUpObs()
+		obs.Online = true
+		obs.TargetMachine = "m-new"
+		obs.RunningMachine = "m-old"
+		reconcileTestWantDecision(t, decideUp(obs, newReconcileState(), cfg, now), reconcileDecision{
+			Command: reconcileCmdStop, MemberID: "kip", StopKind: stopKindRelocate,
+			Reason: "relocate: desired_machine changed (running m-old != target m-new) — " +
+				"robust stop old session to recycle onto new machine",
+			State: reconcileState{
+				Phase: reconcilePhaseStopping, LastCommand: reconcileCmdStop, LastCommandAt: now,
+			},
+			DispatchWarden: "m-old",
+		})
+		past := reconcileState{Phase: reconcilePhaseStopping, LastCommand: reconcileCmdStop, LastCommandAt: now - 90}
+		reconcileTestWantDecision(t, decideUp(obs, past, cfg, now), reconcileDecision{
+			Command: reconcileCmdStop, MemberID: "kip", StopKind: stopKindRelocate,
+			Reason: "relocate: re-dispatch robust stop (still on old machine past stop_retry — " +
+				"prior STOP unlanded)",
+			State: reconcileState{
+				Phase: reconcilePhaseStopping, LastCommand: reconcileCmdStop, LastCommandAt: now,
+			},
+			DispatchWarden: "m-old",
+		})
+		within := reconcileState{Phase: reconcilePhaseStopping, LastCommand: reconcileCmdStop, LastCommandAt: now - 89}
+		reconcileTestWantDecision(t, decideUp(obs, within, cfg, now), reconcileDecision{
+			Command: reconcileCmdNone, MemberID: "kip",
+			Reason: "relocate: robust stop dispatched — awaiting warden kill (within stop_retry)",
+			State:  within,
+		})
+	})
+
+	t.Run("a claim-less session and a member already on its target are both converged rather than relocated", func(t *testing.T) {
+		converged := reconcileDecision{
+			Command: reconcileCmdNone, MemberID: "kip", Reason: "online: converged",
+			State:           reconcileState{Phase: reconcilePhaseOnline, LastCommand: reconcileCmdNone},
+			ConvergedOnline: true,
+		}
+		claimless := reconcileTestUpObs()
+		claimless.Online = true
+		claimless.TargetMachine = "m-new"
+		reconcileTestWantDecision(t, decideUp(claimless, newReconcileState(), cfg, now), converged)
+		same := reconcileTestUpObs()
+		same.Online = true
+		same.TargetMachine = "m-one"
+		same.RunningMachine = "m-one"
+		reconcileTestWantDecision(t, decideUp(same, newReconcileState(), cfg, now), converged)
+		unpinned := reconcileTestUpObs()
+		unpinned.Online = true
+		unpinned.RunningMachine = "m-old"
+		reconcileTestWantDecision(t, decideUp(unpinned, newReconcileState(), cfg, now), converged)
+	})
+
+	t.Run("a dispatched START inside its start window waits for presence and dispatches nothing", func(t *testing.T) {
+		st := reconcileState{Phase: reconcilePhaseStarting, LastCommand: reconcileCmdStart, LastCommandAt: now - 120}
+		reconcileTestWantDecision(t, decideUp(reconcileTestUpObs(), st, cfg, now), reconcileDecision{
+			Command: reconcileCmdNone, MemberID: "kip", Reason: "starting: awaiting presence",
+			State: reconcileState{
+				Phase: reconcilePhaseStarting, LastCommand: reconcileCmdStart,
+				LastCommandAt: now - 120, OfflineSince: now,
+			},
+		})
+	})
+
+	t.Run("a START that lapsed its window folds into backoff, flags the lapse for the receipt, and never trips the breaker", func(t *testing.T) {
+		st := reconcileState{Phase: reconcilePhaseStarting, LastCommand: reconcileCmdStart, LastCommandAt: now - 121}
+		reconcileTestWantDecision(t, decideUp(reconcileTestUpObs(), st, cfg, now), reconcileDecision{
+			Command: reconcileCmdNone, MemberID: "kip", Reason: "backoff: awaiting retry window",
+			State: reconcileState{
+				Phase: reconcilePhaseBackoff, Attempts: 1, BackoffUntil: now + 5,
+				LastCommand: reconcileCmdNone, OfflineSince: now,
+			},
+			StartTimedOut: true,
+			ReasonCode: spawnReasonBackoff + ": the last start did not come up, so the next " +
+				"attempt is waiting out a back-off window — nothing is wrong with the button " +
+				"you pressed, the retry has not come round yet",
+		})
+	})
+
+	t.Run("a START that bounced off the clobber guard withholds the takeover while the reconnect-confirm window is open", func(t *testing.T) {
+		obs := reconcileTestUpObs()
+		obs.LastOpKind = reconcileCmdStart
+		obs.LastOpReason = spawnClobberReasonPrefix + ": pid 4242 already running"
+		st := reconcileState{
+			Phase: reconcilePhaseStarting, LastCommand: reconcileCmdStart,
+			LastCommandAt: now - 10, OfflineSince: now - 239,
+		}
+		reconcileTestWantDecision(t, decideUp(obs, st, cfg, now), reconcileDecision{
+			Command: reconcileCmdNone, MemberID: "kip",
+			Reason: "zombie suspect: START clobbered a live presence-deaf session — " +
+				"withholding takeover stop inside the reconnect-confirm grace",
+			State: st,
+			ReasonCode: spawnReasonZombieSuspect + ": a session for this member is still alive " +
+				"on its machine but is not answering, so the start bounced off it. The server " +
+				"waits to be sure it is not simply reconnecting before it takes the slot back",
+		})
+	})
+
+	t.Run("once the reconnect-confirm window lapses the squatting session is reaped with a takeover STOP", func(t *testing.T) {
+		obs := reconcileTestUpObs()
+		obs.LastOpKind = reconcileCmdStart
+		obs.LastOpReason = spawnClobberReasonPrefix + ": pid 4242 already running"
+		st := reconcileState{
+			Phase: reconcilePhaseStarting, LastCommand: reconcileCmdStart,
+			LastCommandAt: now - 10, OfflineSince: now - 240,
+		}
+		reconcileTestWantDecision(t, decideUp(obs, st, cfg, now), reconcileDecision{
+			Command: reconcileCmdStop, MemberID: "kip", StopKind: stopKindZombieTakeover,
+			Reason: "zombie takeover: START clobbered a live presence-deaf session — " +
+				"robust stop to reap it before respawn",
+			State: reconcileState{
+				Phase: reconcilePhaseStopping, LastCommand: reconcileCmdStop,
+				LastCommandAt: now, OfflineSince: now - 240,
+			},
+		})
+	})
+
+	t.Run("an online observation clears the continuous-offline anchor, so a reconnect can never be taken over off a stale clock", func(t *testing.T) {
+		obs := reconcileTestUpObs()
+		obs.Online = true
+		st := reconcileState{Phase: reconcilePhaseStarting, LastCommand: reconcileCmdStart, OfflineSince: now - 9999}
+		got := decideUp(obs, st, cfg, now)
+		if got.State.OfflineSince != 0 {
+			t.Fatalf("OfflineSince = %v, want it cleared by the live observation", got.State.OfflineSince)
+		}
+		if !got.ConvergedOnline {
+			t.Fatalf("the live observation must stand the takeover down: %+v", got)
+		}
+	})
+
+	t.Run("an open breaker refuses to respawn and a live backoff window waits, each naming its own owner-facing code", func(t *testing.T) {
+		open := reconcileState{Phase: reconcilePhaseOffline, LastCommand: reconcileCmdNone, CircuitOpen: true, CircuitCooldownUntil: now + 10}
+		reconcileTestWantDecision(t, decideUp(reconcileTestUpObs(), open, cfg, now), reconcileDecision{
+			Command: reconcileCmdNone, MemberID: "kip", Reason: "circuit open: respawn disabled",
+			State: reconcileState{
+				Phase: reconcilePhaseCircuitOpen, LastCommand: reconcileCmdNone,
+				CircuitOpen: true, CircuitCooldownUntil: now + 10, OfflineSince: now,
+			},
+			ReasonCode: spawnReasonCircuitOpen + ": too many failed starts in a row, so the " +
+				"server has stopped retrying this member for now — it will try again by " +
+				"itself; fix what is failing on its machine, or 停止 and 活化 to start over",
+		})
+		backoff := reconcileState{Phase: reconcilePhaseOffline, LastCommand: reconcileCmdNone, BackoffUntil: now + 5}
+		reconcileTestWantDecision(t, decideUp(reconcileTestUpObs(), backoff, cfg, now), reconcileDecision{
+			Command: reconcileCmdNone, MemberID: "kip", Reason: "backoff: awaiting retry window",
+			State: reconcileState{
+				Phase: reconcilePhaseBackoff, LastCommand: reconcileCmdNone,
+				BackoffUntil: now + 5, OfflineSince: now,
+			},
+			ReasonCode: spawnReasonBackoff + ": the last start did not come up, so the next " +
+				"attempt is waiting out a back-off window — nothing is wrong with the button " +
+				"you pressed, the retry has not come round yet",
+		})
+	})
 }
 
-// ── reconcileDecide ──────────────────────────────────────────────────────────
+func TestDecideDown(t *testing.T) {
+	cfg := defaultReconcileConfig()
+	const now = reconcileTestNow
+	obs := memberObservation{MemberID: "kip", Desired: DesiredStateOffline}
+
+	t.Run("an offline member is converged: the stop bookkeeping resets while the breaker fields are left alone", func(t *testing.T) {
+		st := reconcileState{
+			Phase: reconcilePhaseStopping, Attempts: 3, BackoffUntil: now + 5,
+			CircuitOpen: true, CircuitCooldownUntil: now + 99,
+			LastCommand: reconcileCmdStop, LastCommandAt: now - 5, StopDeadline: now + 5,
+		}
+		reconcileTestWantDecision(t, decideDown(obs, st, cfg, now), reconcileDecision{
+			Command: reconcileCmdNone, MemberID: "kip", Reason: "offline: converged",
+			State: reconcileState{
+				Phase: reconcilePhaseOffline, LastCommand: reconcileCmdNone,
+				CircuitOpen: true, CircuitCooldownUntil: now + 99,
+			},
+		})
+	})
+
+	t.Run("a plain 停止 runs no clock at all: the member is left to work its offboard sequence indefinitely", func(t *testing.T) {
+		online := obs
+		online.Online = true
+		want := reconcileDecision{
+			Command: reconcileCmdNone, MemberID: "kip",
+			Reason: "stopping: agent is working its offboard sequence — collection is the " +
+				"agent's stopped report, or the owner's force-stop",
+			State: reconcileState{Phase: reconcilePhaseStopping, LastCommand: reconcileCmdNone},
+		}
+		reconcileTestWantDecision(t, decideDown(online, newReconcileState(), cfg, now), want)
+		aged := newReconcileState()
+		reconcileTestWantDecision(t, decideDown(online, aged, cfg, now+100000), want)
+	})
+
+	t.Run("an owner-pressed 加速停止 waits out the grace it opened, then falls through to the single robust stop", func(t *testing.T) {
+		inside := obs
+		inside.Online = true
+		inside.RefocusOp = refocusOpAcceleratedStop
+		inside.StoppingSince = now - 119
+		reconcileTestWantDecision(t, decideDown(inside, newReconcileState(), cfg, now), reconcileDecision{
+			Command: reconcileCmdNone, MemberID: "kip",
+			Reason: "stopping: 加速停止 — within the grace the owner opened; collection is " +
+				"the agent's stopped report, or this deadline",
+			State: reconcileState{Phase: reconcilePhaseStopping, LastCommand: reconcileCmdNone},
+		})
+		lapsed := inside
+		lapsed.StoppingSince = now - 120
+		reconcileTestWantDecision(t, decideDown(lapsed, newReconcileState(), cfg, now), reconcileDecision{
+			Command: reconcileCmdStop, MemberID: "kip", StopKind: stopKindWinddown,
+			Reason: "robust stop: 加速停止 grace elapsed, still online",
+			State: reconcileState{
+				Phase: reconcilePhaseStopping, LastCommand: reconcileCmdStop, LastCommandAt: now,
+			},
+		})
+	})
+
+	t.Run("a 加速停止 cause with no stopping anchor is not on the clock — it falls back to the plain 停止 wait", func(t *testing.T) {
+		noAnchor := obs
+		noAnchor.Online = true
+		noAnchor.RefocusOp = refocusOpAcceleratedStop
+		reconcileTestWantDecision(t, decideDown(noAnchor, newReconcileState(), cfg, now), reconcileDecision{
+			Command: reconcileCmdNone, MemberID: "kip",
+			Reason: "stopping: agent is working its offboard sequence — collection is the " +
+				"agent's stopped report, or the owner's force-stop",
+			State: reconcileState{Phase: reconcilePhaseStopping, LastCommand: reconcileCmdNone},
+		})
+	})
+
+	t.Run("a lapsed 加速停止 STOP is deduped inside stop_retry and re-dispatched with the retry wording past it", func(t *testing.T) {
+		lapsed := obs
+		lapsed.Online = true
+		lapsed.RefocusOp = refocusOpAcceleratedStop
+		lapsed.StoppingSince = now - 200
+		within := reconcileState{Phase: reconcilePhaseStopping, LastCommand: reconcileCmdStop, LastCommandAt: now - 89}
+		reconcileTestWantDecision(t, decideDown(lapsed, within, cfg, now), reconcileDecision{
+			Command: reconcileCmdNone, MemberID: "kip",
+			Reason: "stopping: robust stop dispatched — awaiting warden kill (within stop_retry)",
+			State:  within,
+		})
+		past := reconcileState{Phase: reconcilePhaseStopping, LastCommand: reconcileCmdStop, LastCommandAt: now - 90}
+		reconcileTestWantDecision(t, decideDown(lapsed, past, cfg, now), reconcileDecision{
+			Command: reconcileCmdStop, MemberID: "kip", StopKind: stopKindWinddown,
+			Reason: "robust stop: re-dispatch (still online past stop_retry — prior STOP unlanded)",
+			State: reconcileState{
+				Phase: reconcilePhaseStopping, LastCommand: reconcileCmdStop, LastCommandAt: now,
+			},
+		})
+	})
+
+	t.Run("with the soft grace compiled out the legacy timed wind-down arms its deadline from the observation, waits it out, then stops", func(t *testing.T) {
+		timed := cfg
+		timed.SoftOffboardGrace = 0
+		online := obs
+		online.Online = true
+		reconcileTestWantDecision(t, decideDown(online, newReconcileState(), timed, now), reconcileDecision{
+			Command: reconcileCmdNone, MemberID: "kip",
+			Reason: "stopping: grace window opened — awaiting agent selfstop",
+			State: reconcileState{
+				Phase: reconcilePhaseStopping, LastCommand: reconcileCmdNone, StopDeadline: now + 120,
+			},
+		})
+		armed := reconcileState{Phase: reconcilePhaseStopping, LastCommand: reconcileCmdNone, StopDeadline: now + 1}
+		reconcileTestWantDecision(t, decideDown(online, armed, timed, now), reconcileDecision{
+			Command: reconcileCmdNone, MemberID: "kip",
+			Reason: "stopping: within grace window — awaiting agent selfstop",
+			State:  armed,
+		})
+		lapsed := reconcileState{Phase: reconcilePhaseStopping, LastCommand: reconcileCmdNone, StopDeadline: now}
+		reconcileTestWantDecision(t, decideDown(online, lapsed, timed, now), reconcileDecision{
+			Command: reconcileCmdStop, MemberID: "kip", StopKind: stopKindWinddown,
+			Reason: "robust stop: grace elapsed, still online",
+			State: reconcileState{
+				Phase: reconcilePhaseStopping, LastCommand: reconcileCmdStop,
+				LastCommandAt: now, StopDeadline: now,
+			},
+		})
+	})
+}
+
+func TestDecideUninstall(t *testing.T) {
+	cfg := defaultReconcileConfig()
+	const now = reconcileTestNow
+	obs := memberObservation{MemberID: "m-box", Desired: DesiredStateUninstall}
+
+	t.Run("an offline warden has converged — the box holds no live warden, which is the goal state", func(t *testing.T) {
+		st := reconcileState{
+			Phase: reconcilePhaseStopping, Attempts: 2, BackoffUntil: now + 5,
+			LastCommand: reconcileCmdUninstall, LastCommandAt: now - 5, StopDeadline: now + 5,
+		}
+		reconcileTestWantDecision(t, decideUninstall(obs, st, cfg, now), reconcileDecision{
+			Command: reconcileCmdNone, MemberID: "m-box",
+			Reason: "uninstall: converged (warden offline)",
+			State:  reconcileState{Phase: reconcilePhaseOffline, LastCommand: reconcileCmdNone},
+		})
+	})
+
+	t.Run("an online warden is sent the uninstall immediately — no grace window, this is an explicit owner action", func(t *testing.T) {
+		online := obs
+		online.Online = true
+		reconcileTestWantDecision(t, decideUninstall(online, newReconcileState(), cfg, now), reconcileDecision{
+			Command: reconcileCmdUninstall, MemberID: "m-box",
+			Reason: "uninstall: desired_state uninstall, warden online — dispatch uninstall",
+			State: reconcileState{
+				Phase: reconcilePhaseStopping, LastCommand: reconcileCmdUninstall, LastCommandAt: now,
+			},
+		})
+	})
+
+	t.Run("a dispatched uninstall is deduped inside stop_retry and re-dispatched once past it", func(t *testing.T) {
+		online := obs
+		online.Online = true
+		within := reconcileState{Phase: reconcilePhaseStopping, LastCommand: reconcileCmdUninstall, LastCommandAt: now - 89}
+		reconcileTestWantDecision(t, decideUninstall(online, within, cfg, now), reconcileDecision{
+			Command: reconcileCmdNone, MemberID: "m-box",
+			Reason: "uninstall: dispatched — awaiting warden removal (within stop_retry)",
+			State:  within,
+		})
+		past := reconcileState{Phase: reconcilePhaseStopping, LastCommand: reconcileCmdUninstall, LastCommandAt: now - 90}
+		reconcileTestWantDecision(t, decideUninstall(online, past, cfg, now), reconcileDecision{
+			Command: reconcileCmdUninstall, MemberID: "m-box",
+			Reason: "uninstall: re-dispatch (still online past stop_retry — prior UNINSTALL unlanded)",
+			State: reconcileState{
+				Phase: reconcilePhaseStopping, LastCommand: reconcileCmdUninstall, LastCommandAt: now,
+			},
+		})
+	})
+}
 
 func TestReconcileDecide(t *testing.T) {
 	cfg := defaultReconcileConfig()
+	const now = reconcileTestNow
 
-	t.Run("desired online and offline dispatches START", func(t *testing.T) {
-		d := reconcileDecide(obsOf("m", DesiredStateOnline, false), newReconcileState(), cfg, 1000)
-		if d.Command != reconcileCmdStart || d.State.Phase != reconcilePhaseStarting ||
-			d.State.LastCommand != reconcileCmdStart || d.State.LastCommandAt != 1000 {
-			t.Fatalf("decision: %+v", d)
+	t.Run("the parsed intent picks the arm, and anything that is not online or uninstall lands on the offline arm", func(t *testing.T) {
+		online := memberObservation{MemberID: "kip", Desired: DesiredStateOnline, Online: true}
+		reconcileTestWantDecision(t, reconcileDecide(online, newReconcileState(), cfg, now),
+			decideUp(online, newReconcileState(), cfg, now))
+		uninstall := memberObservation{MemberID: "m-box", Desired: DesiredStateUninstall, Online: true}
+		reconcileTestWantDecision(t, reconcileDecide(uninstall, newReconcileState(), cfg, now),
+			decideUninstall(uninstall, newReconcileState(), cfg, now))
+		for _, desired := range []string{DesiredStateOffline, "", "gibberish"} {
+			obs := memberObservation{MemberID: "kip", Desired: desired}
+			reconcileTestWantDecision(t, reconcileDecide(obs, newReconcileState(), cfg, now),
+				reconcileDecision{
+					Command: reconcileCmdNone, MemberID: "kip", Reason: "offline: converged",
+					State: reconcileState{Phase: reconcilePhaseOffline, LastCommand: reconcileCmdNone},
+				})
 		}
 	})
 
-	t.Run("converged online resets failure bookkeeping", func(t *testing.T) {
+	t.Run("a lapsed breaker cooldown half-opens before the arms run: a fresh retry budget and an immediate START", func(t *testing.T) {
 		st := reconcileState{
-			Phase: reconcilePhaseBackoff, Attempts: 3, BackoffUntil: 2000,
-			CircuitOpen: true, CircuitCooldownUntil: 3000,
-			LastCommand: reconcileCmdStart, LastCommandAt: 900, StopDeadline: 42,
+			Phase: reconcilePhaseCircuitOpen, Attempts: 7, BackoffUntil: now + 9999,
+			CircuitOpen: true, CircuitCooldownUntil: now, LastCommand: reconcileCmdNone,
 		}
-		d := reconcileDecide(obsOf("m", DesiredStateOnline, true), st, cfg, 1000)
-		want := reconcileState{Phase: reconcilePhaseOnline, LastCommand: reconcileCmdNone}
-		if d.Command != reconcileCmdNone || d.State != want {
-			t.Fatalf("decision: %+v", d)
-		}
+		reconcileTestWantDecision(t, reconcileDecide(reconcileTestUpObs(), st, cfg, now), reconcileDecision{
+			Command: reconcileCmdStart, MemberID: "kip",
+			Reason: "spawn: desired_state online, no live session",
+			State: reconcileState{
+				Phase: reconcilePhaseStarting, LastCommand: reconcileCmdStart,
+				LastCommandAt: now, CircuitCooldownUntil: now, OfflineSince: now,
+			},
+		})
 	})
 
-	t.Run("START in flight within start_timeout waits", func(t *testing.T) {
-		st := newReconcileState()
-		st.LastCommand = reconcileCmdStart
-		st.LastCommandAt = 1000
-		d := reconcileDecide(obsOf("m", DesiredStateOnline, false), st, cfg, 1000+cfg.StartTimeout)
-		if d.Command != reconcileCmdNone || d.State.Phase != reconcilePhaseStarting {
-			t.Fatalf("decision: %+v", d)
-		}
-	})
+	t.Run("an armed out-of-band robust STOP is judged before the intent switch: wait, re-send, or disarm on the first offline observation", func(t *testing.T) {
+		online := reconcileTestUpObs()
+		online.Online = true
+		online.RunningMachine = "m-old"
 
-	t.Run("START silent-timeout arms backoff but never trips the breaker", func(t *testing.T) {
-		st := newReconcileState()
-		now := 1000.0
-		for i := 0; i < cfg.CircuitThreshold+2; i++ {
-			st.LastCommand = reconcileCmdStart
-			st.LastCommandAt = now
-			now += cfg.StartTimeout + 1
-			d := reconcileDecide(obsOf("m", DesiredStateOnline, false), st, cfg, now)
-			if d.Command != reconcileCmdNone || d.State.Phase != reconcilePhaseBackoff {
-				t.Fatalf("attempt %d: %+v", i, d)
-			}
-			if d.State.CircuitOpen {
-				t.Fatalf("a delivery-miss timeout must not trip the sticky breaker: %+v", d.State)
-			}
-			st = d.State
-			now = st.BackoffUntil + 1
-		}
-		if st.Attempts != cfg.CircuitThreshold+2 {
-			t.Fatalf("attempts: %d", st.Attempts)
-		}
-	})
+		waiting := reconcileState{Phase: reconcilePhaseOffline, LastCommand: reconcileCmdNone, RobustStopPendingAt: now - 89}
+		reconcileTestWantDecision(t, reconcileDecide(online, waiting, cfg, now), reconcileDecision{
+			Command: reconcileCmdNone, MemberID: "kip",
+			Reason: "robust stop dispatched out-of-band — awaiting warden kill (within stop_retry)",
+			State: reconcileState{
+				Phase: reconcilePhaseStopping, LastCommand: reconcileCmdNone, RobustStopPendingAt: now - 89,
+			},
+		})
 
-	t.Run("backoff window suppresses START until it lapses", func(t *testing.T) {
-		st := newReconcileState()
-		st.BackoffUntil = 2000
-		d := reconcileDecide(obsOf("m", DesiredStateOnline, false), st, cfg, 1500)
-		if d.Command != reconcileCmdNone || d.State.Phase != reconcilePhaseBackoff {
-			t.Fatalf("within backoff: %+v", d)
-		}
-		d = reconcileDecide(obsOf("m", DesiredStateOnline, false), st, cfg, 2000)
-		if d.Command != reconcileCmdStart {
-			t.Fatalf("after backoff: %+v", d)
-		}
-	})
+		stale := reconcileState{Phase: reconcilePhaseOffline, LastCommand: reconcileCmdNone, RobustStopPendingAt: now - 90}
+		reconcileTestWantDecision(t, reconcileDecide(online, stale, cfg, now), reconcileDecision{
+			Command: reconcileCmdStop, MemberID: "kip", StopKind: stopKindRobustResend,
+			Reason: "robust stop: re-dispatch (out-of-band STOP unlanded — still online past stop_retry)",
+			State: reconcileState{
+				Phase: reconcilePhaseStopping, LastCommand: reconcileCmdStop,
+				LastCommandAt: now, RobustStopPendingAt: now,
+			},
+			DispatchWarden: "m-old",
+		})
 
-	t.Run("circuit open suppresses START and half-opens after cooldown", func(t *testing.T) {
-		st := newReconcileState()
-		st.CircuitOpen = true
-		st.CircuitCooldownUntil = 5000
-		st.Attempts = cfg.CircuitThreshold
-		d := reconcileDecide(obsOf("m", DesiredStateOnline, false), st, cfg, 4000)
-		if d.Command != reconcileCmdNone || d.State.Phase != reconcilePhaseCircuitOpen {
-			t.Fatalf("open breaker: %+v", d)
-		}
-		d = reconcileDecide(obsOf("m", DesiredStateOnline, false), st, cfg, 5000)
-		if d.Command != reconcileCmdStart || d.State.CircuitOpen || d.State.Attempts != 0 {
-			t.Fatalf("half-open must grant a fresh retry: %+v", d)
-		}
-	})
-
-	// 下線 runs NO clock (owner 2026-08-16, card rc-27d1710174dd 「不要兜底：只有
-	// 你按強制下線才收它」). The button shows the agent the offboard sequence and
-	// asks it to stop itself; the escalation is the owner's force-stop, not a
-	// timer's. Collection still happens the instant the agent reports stopped.
-	t.Run("desired offline and online waits indefinitely, arming no clock", func(t *testing.T) {
-		d := reconcileDecide(obsOf("m", DesiredStateOffline, true), newReconcileState(), cfg, 1000)
-		if d.Command != reconcileCmdNone || d.State.Phase != reconcilePhaseStopping ||
-			d.State.StopDeadline != 0 {
-			t.Fatalf("decision: %+v", d)
-		}
-		// A day later — far past every window this server has ever had — still
-		// nothing. The owner is the one who decides time is up.
-		d2 := reconcileDecide(obsOf("m", DesiredStateOffline, true), d.State, cfg, 1000+86400)
-		if d2.Command != reconcileCmdNone {
-			t.Fatalf("a day of silence must still dispatch nothing: %+v", d2)
-		}
-	})
-
-	// …and the timed wind-down is still REACHABLE, as the one value that
-	// restores the old behaviour wholesale (a compile-time constant today, not
-	// something the owner can set).
-	t.Run("soft window of zero restores the timed wind-down", func(t *testing.T) {
-		timed := cfg
-		timed.SoftOffboardGrace = 0
-		d := reconcileDecide(obsOf("m", DesiredStateOffline, true), newReconcileState(), timed, 1000)
-		if d.Command != reconcileCmdNone || d.State.StopDeadline != 1000+timed.StopGrace {
-			t.Fatalf("decision: %+v", d)
-		}
-		d2 := reconcileDecide(obsOf("m", DesiredStateOffline, true), d.State, timed, 1000+timed.StopGrace)
-		if d2.Command != reconcileCmdStop {
-			t.Fatalf("grace elapsed must dispatch the robust stop: %+v", d2)
-		}
-	})
-
-	t.Run("grace elapsed dispatches the single robust STOP with stop_retry dedupe", func(t *testing.T) {
-		cfg := cfg
-		cfg.SoftOffboardGrace = 0 // the timed wind-down — see the sub-test above
-		st := newReconcileState()
-		st.StopDeadline = 1000
-		d := reconcileDecide(obsOf("m", DesiredStateOffline, true), st, cfg, 1000)
-		if d.Command != reconcileCmdStop || d.State.LastCommand != reconcileCmdStop {
-			t.Fatalf("first stop: %+v", d)
-		}
-		d2 := reconcileDecide(obsOf("m", DesiredStateOffline, true), d.State, cfg, 1000+cfg.StopRetry-1)
-		if d2.Command != reconcileCmdNone {
-			t.Fatalf("within stop_retry must dedupe: %+v", d2)
-		}
-		d3 := reconcileDecide(obsOf("m", DesiredStateOffline, true), d.State, cfg, 1000+cfg.StopRetry)
-		if d3.Command != reconcileCmdStop || d3.State.LastCommandAt != 1000+cfg.StopRetry {
-			t.Fatalf("past stop_retry must re-dispatch: %+v", d3)
-		}
-	})
-
-	t.Run("desired offline converged resets stop bookkeeping but keeps the breaker", func(t *testing.T) {
-		st := reconcileState{
-			Phase: reconcilePhaseStopping, Attempts: 2, BackoffUntil: 99,
-			CircuitOpen: true, CircuitCooldownUntil: 9e9,
-			LastCommand: reconcileCmdStop, LastCommandAt: 900, StopDeadline: 950,
-		}
-		d := reconcileDecide(obsOf("m", DesiredStateOffline, false), st, cfg, 1000)
-		if d.Command != reconcileCmdNone || d.State.Phase != reconcilePhaseOffline ||
-			d.State.StopDeadline != 0 || d.State.LastCommand != reconcileCmdNone ||
-			d.State.Attempts != 0 {
-			t.Fatalf("decision: %+v", d)
-		}
-		if !d.State.CircuitOpen {
-			t.Fatal("offline-converged must not clear the sticky breaker (machine.py parity)")
-		}
-	})
-
-	t.Run("recycle waits for the dump then robust-stops", func(t *testing.T) {
-		obs := obsOf("m", DesiredStateOnline, true)
-		obs.RefocusSince = 1000
-		d := reconcileDecide(obs, newReconcileState(), cfg, 1010)
-		if d.Command != reconcileCmdNone || d.State.Phase != reconcilePhaseStopping {
-			t.Fatalf("awaiting dump: %+v", d)
-		}
-		obs.AgentStopped = true
-		d = reconcileDecide(obs, d.State, cfg, 1020)
-		if d.Command != reconcileCmdStop {
-			t.Fatalf("dump done must robust-stop: %+v", d)
-		}
-		// De-dupe inside stop_retry, re-dispatch past it.
-		d2 := reconcileDecide(obs, d.State, cfg, 1020+cfg.StopRetry-1)
-		if d2.Command != reconcileCmdNone {
-			t.Fatalf("within stop_retry: %+v", d2)
-		}
-		d3 := reconcileDecide(obs, d.State, cfg, 1020+cfg.StopRetry)
-		if d3.Command != reconcileCmdStop {
-			t.Fatalf("past stop_retry: %+v", d3)
-		}
-	})
-
-	// The stuck-dump force-stop belongs to the ONE cause that runs a clock —
-	// 加速停止, the second context threshold (T-ed79). The op is named here
-	// because it is what the grace is read from; an unnamed op is a 停止 and is
-	// collected by the agent's own stopped report, asserted above.
-	t.Run("recycle grace elapsed force-stops a stuck dump", func(t *testing.T) {
-		obs := obsOf("m", DesiredStateOnline, true)
-		obs.RefocusSince = 1000
-		obs.RefocusOp = refocusOpContextHigh
-		d := reconcileDecide(obs, newReconcileState(), cfg, 1000+cfg.RecycleGrace)
-		if d.Command != reconcileCmdStop {
-			t.Fatalf("grace elapsed must force-stop: %+v", d)
-		}
-	})
-
-	// ── relocation: owner re-pinned a LIVE member's desired_machine (kyle-62b2) ──
-
-	// T-14 #4: the mismatch is now answered in TWO ways, and which one depends on
-	// obs.HandoverArmable — "would a wind-down epoch actually be stamped on this
-	// row?". The armable case is the normal one and it WAITS; the non-armable case
-	// is the fallback and it is what the arm used to do unconditionally.
-	t.Run("online with a machine mismatch opens a wind-down instead of killing", func(t *testing.T) {
-		obs := obsRelocate("m", "mach-old", "mach-new")
-		obs.HandoverArmable = true
-		d := reconcileDecide(obs, newReconcileState(), cfg, 1000)
-		if d.Command != reconcileCmdNone {
-			t.Fatalf("a member that CAN hand over must not be killed on sight: %+v", d)
-		}
-		if d.ArmHandoverOp != memberOpRelocate {
-			t.Fatalf("the decision must ask for a relocate wind-down, got ArmHandoverOp=%q", d.ArmHandoverOp)
-		}
-		// st.LastCommand is deliberately NOT advanced: the collection belongs to
-		// the refocus arm, whose first-dispatch bookkeeping must start clean.
-		if d.State.LastCommand == reconcileCmdStop {
-			t.Fatalf("the wind-down arm must not claim a STOP it did not dispatch: %+v", d.State)
-		}
-	})
-
-	// The name is load-bearing: this is the BACKSTOP-OF-THE-BACKSTOP, not the
-	// ordinary relocation. It used to be the ONLY behaviour of this arm and the
-	// subtest was named "…robust-stops toward the RUNNING machine" with no
-	// qualifier, which stopped being true for the ordinary case in T-14 #4. The
-	// assertions below are byte-for-byte the ones that stood then — they are still
-	// right, about a NARROWER input: a member for which no wind-down can be opened
-	// (a warden row, or one already on the 強制停止 rung) has no hand-off to wait
-	// for, and waiting for one that cannot happen is not gentler than killing, it
-	// is just never converging.
-	t.Run("online with a machine mismatch and NOTHING to hand over robust-stops toward the RUNNING machine", func(t *testing.T) {
-		d := reconcileDecide(obsRelocate("m", "mach-old", "mach-new"), newReconcileState(), cfg, 1000)
-		if d.Command != reconcileCmdStop || d.State.Phase != reconcilePhaseStopping ||
-			d.State.LastCommand != reconcileCmdStop || d.State.LastCommandAt != 1000 {
-			t.Fatalf("mismatch must robust-stop: %+v", d)
-		}
-		// The STOP must route to the OLD (running) machine's warden — that is where
-		// the session to kill lives; routing to the new machine would no-op forever.
-		if d.DispatchWarden != "mach-old" {
-			t.Fatalf("relocation STOP must target the running machine, got %q", d.DispatchWarden)
-		}
-		// stop_retry dedupe, exactly like refocus recycle / decideDown.
-		d2 := reconcileDecide(obsRelocate("m", "mach-old", "mach-new"), d.State, cfg, 1000+cfg.StopRetry-1)
-		if d2.Command != reconcileCmdNone {
-			t.Fatalf("within stop_retry must dedupe: %+v", d2)
-		}
-		d3 := reconcileDecide(obsRelocate("m", "mach-old", "mach-new"), d.State, cfg, 1000+cfg.StopRetry)
-		if d3.Command != reconcileCmdStop || d3.DispatchWarden != "mach-old" {
-			t.Fatalf("past stop_retry must re-dispatch to running machine: %+v", d3)
-		}
-	})
-
-	t.Run("online with the running machine already the target just converges", func(t *testing.T) {
-		d := reconcileDecide(obsRelocate("m", "mach-x", "mach-x"), newReconcileState(), cfg, 1000)
-		if d.Command != reconcileCmdNone || d.State.Phase != reconcilePhaseOnline ||
-			d.DispatchWarden != "" {
-			t.Fatalf("running==target must converge, never relocate: %+v", d)
-		}
-	})
-
-	t.Run("online with an UNKNOWN running machine never relocates (boot not yet stamped)", func(t *testing.T) {
-		// RunningMachine "" is a claim-less / still-booting member — relocating it
-		// would flap a booting member into a STOP→START loop. The critical guard.
-		d := reconcileDecide(obsRelocate("m", "", "mach-new"), newReconcileState(), cfg, 1000)
-		if d.Command != reconcileCmdNone || d.State.Phase != reconcilePhaseOnline {
-			t.Fatalf("empty running machine must NEVER relocate: %+v", d)
-		}
-	})
-
-	t.Run("online with an empty target machine never relocates", func(t *testing.T) {
-		d := reconcileDecide(obsRelocate("m", "mach-old", ""), newReconcileState(), cfg, 1000)
-		if d.Command != reconcileCmdNone || d.State.Phase != reconcilePhaseOnline {
-			t.Fatalf("empty target machine must never relocate: %+v", d)
-		}
-	})
-
-	t.Run("refocus recycle takes precedence over a machine mismatch", func(t *testing.T) {
-		// A refocus already owns the member — the relocation recycle must not stack
-		// on top of it. What pins the precedence is the REASON: only the recycle arm
-		// says "recycle:".
-		//
-		// ⚠️ It used to also assert DispatchWarden == "" ("routes normally"). T-b6d9
-		// made the recycle arm address the RUNNING machine, because a 改機器 is now
-		// collected BY this arm while the session is still on the origin and the pin
-		// already names the destination — routing by the pin there would ask the
-		// destination's warden to kill a session it does not hold, and the old one
-		// would live forever. For a member sitting on its own pin the two are the
-		// same machine, so nothing observable changed for 重新聚焦.
-		obs := obsRelocate("m", "mach-old", "mach-new")
-		obs.RefocusSince = 1000
-		obs.AgentStopped = true
-		d := reconcileDecide(obs, newReconcileState(), cfg, 1010)
-		if d.Command != reconcileCmdStop || !strings.HasPrefix(d.Reason, "recycle:") {
-			t.Fatalf("refocus must own the recycle, not the relocation path: %+v", d)
-		}
-		if d.DispatchWarden != "mach-old" {
-			t.Fatalf("a recycle STOP must be addressed to the RUNNING machine: %+v", d)
-		}
-	})
-
-	t.Run("offline with a machine mismatch just STARTs (relocation is an online-only recycle)", func(t *testing.T) {
-		obs := obsRelocate("m", "mach-old", "mach-new")
-		obs.Online = false
-		d := reconcileDecide(obs, newReconcileState(), cfg, 1000)
-		if d.Command != reconcileCmdStart || d.DispatchWarden != "" {
-			t.Fatalf("an offline member just STARTs onto its target: %+v", d)
-		}
-	})
-
-	t.Run("uninstall dispatches immediately when the warden is online", func(t *testing.T) {
-		d := reconcileDecide(obsOf("w", DesiredStateUninstall, true), newReconcileState(), cfg, 1000)
-		if d.Command != reconcileCmdUninstall || d.State.LastCommand != reconcileCmdUninstall {
-			t.Fatalf("decision: %+v", d)
-		}
-		d2 := reconcileDecide(obsOf("w", DesiredStateUninstall, true), d.State, cfg, 1000+cfg.StopRetry-1)
-		if d2.Command != reconcileCmdNone {
-			t.Fatalf("within stop_retry must dedupe: %+v", d2)
-		}
-		d3 := reconcileDecide(obsOf("w", DesiredStateUninstall, true), d.State, cfg, 1000+cfg.StopRetry)
-		if d3.Command != reconcileCmdUninstall {
-			t.Fatalf("past stop_retry must re-dispatch: %+v", d3)
-		}
-	})
-
-	t.Run("uninstall converged when the warden is offline", func(t *testing.T) {
-		st := newReconcileState()
-		st.LastCommand = reconcileCmdUninstall
-		st.LastCommandAt = 900
-		d := reconcileDecide(obsOf("w", DesiredStateUninstall, false), st, cfg, 1000)
-		if d.Command != reconcileCmdNone || d.State.Phase != reconcilePhaseOffline ||
-			d.State.LastCommand != reconcileCmdNone {
-			t.Fatalf("decision: %+v", d)
-		}
-	})
-
-	t.Run("START that clobbered a live deaf session robust-stops the zombie", func(t *testing.T) {
-		st := newReconcileState()
-		st.LastCommand = reconcileCmdStart
-		st.LastCommandAt = 1000
-		// T-9adc: the takeover additionally requires a SUSTAINED offline record
-		// (second confirmation) — this member has been offline past the grace.
-		st.OfflineSince = 1000 - cfg.ZombieConfirmGrace
-		obs := obsOf("m", DesiredStateOnline, false)
-		obs.LastOpKind = reconcileCmdStart
-		obs.LastOpReason = "session_already_exists: tmux session \"member-m\" is already live (clobber-guard refused to stomp it)"
-		// A clobber receipt is positive proof the slot is squatted, so the zombie
-		// is reaped even INSIDE the start window where a plain in-flight START
-		// would still be waiting for presence.
-		d := reconcileDecide(obs, st, cfg, 1000+cfg.StartTimeout-1)
-		if d.Command != reconcileCmdStop || d.State.Phase != reconcilePhaseStopping ||
-			d.State.LastCommand != reconcileCmdStop {
-			t.Fatalf("clobbered START must robust-stop the zombie: %+v", d)
-		}
-	})
-
-	t.Run("zombie takeover WITHHELD inside the reconnect-confirm grace (T-9adc)", func(t *testing.T) {
-		// 斷線 → 寬限內:the clobber receipt alone must NOT fire the STOP — a
-		// session mid-reconnect (the 2026-07-20 SSE-blip incident) is
-		// indistinguishable from a zombie at this instant.
-		st := newReconcileState()
-		st.LastCommand = reconcileCmdStart
-		st.LastCommandAt = 1000
-		obs := obsOf("m", DesiredStateOnline, false)
-		obs.LastOpKind = reconcileCmdStart
-		obs.LastOpReason = "session_already_exists: tmux session \"member-m\" is already live (clobber-guard refused to stomp it)"
-		// First offline observation: OfflineSince arms NOW → 0 elapsed < grace.
-		d := reconcileDecide(obs, st, cfg, 1010)
-		if d.Command != reconcileCmdNone {
-			t.Fatalf("takeover STOP must be withheld inside the grace: %+v", d)
-		}
-		if d.State.OfflineSince != 1010 {
-			t.Fatalf("first offline tick must arm OfflineSince: %+v", d.State)
-		}
-		if d.State.LastCommand != reconcileCmdStart {
-			t.Fatalf("holding must keep the START context so the arm re-evaluates: %+v", d.State)
-		}
-		// One second before the grace lapses: still withheld (boundary).
-		d2 := reconcileDecide(obs, d.State, cfg, 1010+cfg.ZombieConfirmGrace-1)
-		if d2.Command != reconcileCmdNone {
-			t.Fatalf("still inside the grace — must keep withholding: %+v", d2)
-		}
-		// Grace lapsed with no reconnect: the STOP fires (bounded — a true
-		// zombie is still reaped; the window can never degrade into never-kill).
-		d3 := reconcileDecide(obs, d2.State, cfg, 1010+cfg.ZombieConfirmGrace)
-		if d3.Command != reconcileCmdStop || d3.State.LastCommand != reconcileCmdStop {
-			t.Fatalf("grace lapsed — takeover STOP must fire: %+v", d3)
-		}
-	})
-
-	t.Run("reconnect inside the grace cancels the takeover (T-9adc)", func(t *testing.T) {
-		// 斷線 → 寬限內重連 → 不殺:an online observation is the liveness proof —
-		// it clears OfflineSince and converges; no STOP is ever dispatched.
-		st := newReconcileState()
-		st.LastCommand = reconcileCmdStart
-		st.LastCommandAt = 1000
-		obs := obsOf("m", DesiredStateOnline, false)
-		obs.LastOpKind = reconcileCmdStart
-		obs.LastOpReason = "session_already_exists: tmux session \"member-m\" is already live (clobber-guard refused to stomp it)"
-		hold := reconcileDecide(obs, st, cfg, 1010)
-		if hold.Command != reconcileCmdNone {
-			t.Fatalf("expected the withheld takeover: %+v", hold)
-		}
-		// The session reconnects on its own (the incident's actual outcome).
-		back := obsOf("m", DesiredStateOnline, true)
-		d := reconcileDecide(back, hold.State, cfg, 1040)
-		if d.Command != reconcileCmdNone || d.State.Phase != reconcilePhaseOnline {
-			t.Fatalf("reconnected member must converge, never be stopped: %+v", d)
-		}
-		if d.State.OfflineSince != 0 {
-			t.Fatalf("online observation must clear the offline anchor: %+v", d.State)
-		}
-		// Even if it drops offline again later, the window re-arms from ZERO —
-		// no stale clock can fast-track a kill after a proven reconnect.
-		st2 := d.State
-		st2.LastCommand = reconcileCmdStart
-		st2.LastCommandAt = 2000
-		again := reconcileDecide(obs, st2, cfg, 2010)
-		if again.Command != reconcileCmdNone || again.State.OfflineSince != 2010 {
-			t.Fatalf("post-reconnect offline must re-arm the grace from zero: %+v", again)
-		}
-	})
-
-	t.Run("reaped zombie respawns clean on the next tick", func(t *testing.T) {
-		st := newReconcileState()
-		st.LastCommand = reconcileCmdStart
-		st.LastCommandAt = 1000
-		st.OfflineSince = 1000 - cfg.ZombieConfirmGrace // T-9adc: sustained offline
-		obs := obsOf("m", DesiredStateOnline, false)
-		obs.LastOpKind = reconcileCmdStart
-		obs.LastOpReason = "session_already_exists: tmux session \"member-m\" is already live (clobber-guard refused to stomp it)"
-		stop := reconcileDecide(obs, st, cfg, 1010)
-		if stop.Command != reconcileCmdStop {
-			t.Fatalf("expected robust stop: %+v", stop)
-		}
-		// Warden reaped the session (kill ladder → stopped). Next tick: still not
-		// online, but st.LastCommand is now stop, so the zombie arm no longer
-		// fires and the plain spawn arm lands a clean START.
-		next := reconcileDecide(obsOf("m", DesiredStateOnline, false), stop.State, cfg, 1020)
-		if next.Command != reconcileCmdStart || next.State.LastCommand != reconcileCmdStart {
-			t.Fatalf("reaped slot must respawn clean: %+v", next)
-		}
-	})
-
-	t.Run("in-flight START with a non-clobber receipt keeps waiting", func(t *testing.T) {
-		st := newReconcileState()
-		st.LastCommand = reconcileCmdStart
-		st.LastCommandAt = 1000
-		obs := obsOf("m", DesiredStateOnline, false)
-		obs.LastOpKind = reconcileCmdStart
-		obs.LastOpReason = "claude_bin_unresolved: set OC_CLAUDE_BIN"
-		d := reconcileDecide(obs, st, cfg, 1000+cfg.StartTimeout-1)
-		if d.Command != reconcileCmdNone || d.State.Phase != reconcilePhaseStarting {
-			t.Fatalf("a non-clobber start failure must not takeover: %+v", d)
-		}
+		offline := reconcileTestUpObs()
+		reconcileTestWantDecision(t, reconcileDecide(offline, waiting, cfg, now), reconcileDecision{
+			Command: reconcileCmdStart, MemberID: "kip",
+			Reason: "spawn: desired_state online, no live session",
+			State: reconcileState{
+				Phase: reconcilePhaseStarting, LastCommand: reconcileCmdStart,
+				LastCommandAt: now, OfflineSince: now,
+			},
+		})
 	})
 }
-
-// ── registerStartFailure ─────────────────────────────────────────────────────
-
-func TestRegisterStartFailure(t *testing.T) {
-	cfg := defaultReconcileConfig()
-
-	t.Run("arms exponential backoff up to the cap", func(t *testing.T) {
-		st := newReconcileState()
-		st = registerStartFailure(st, cfg, 1000, false)
-		if st.Attempts != 1 || st.BackoffUntil != 1000+cfg.BackoffBase {
-			t.Fatalf("first failure: %+v", st)
-		}
-		st = registerStartFailure(st, cfg, 1000, false)
-		if st.BackoffUntil != 1000+cfg.BackoffBase*2 {
-			t.Fatalf("second failure: %+v", st)
-		}
-		st.Attempts = 200 // huge attempt count must saturate at the cap, not overflow
-		st = registerStartFailure(st, cfg, 1000, false)
-		if st.BackoffUntil != 1000+cfg.BackoffCap {
-			t.Fatalf("cap saturation: %+v", st)
-		}
-	})
-
-	t.Run("trips the sticky breaker only when circuit-eligible", func(t *testing.T) {
-		st := newReconcileState()
-		st.Attempts = cfg.CircuitThreshold - 1
-		ineligible := registerStartFailure(st, cfg, 1000, false)
-		if ineligible.CircuitOpen {
-			t.Fatal("ineligible failure must not trip the breaker")
-		}
-		eligible := registerStartFailure(st, cfg, 1000, true)
-		if !eligible.CircuitOpen || eligible.CircuitCooldownUntil != 1000+cfg.CircuitCooldown {
-			t.Fatalf("eligible failure at threshold must trip: %+v", eligible)
-		}
-	})
-}
-
-// ── bootStormTripped ─────────────────────────────────────────────────────────
-
-func TestBootStormTripped(t *testing.T) {
-	secs := func(v float64) *float64 { return &v }
-	if bootStormTripped(secs(30), 120) != true {
-		t.Fatal("a fresh over-line boot must trip the guard")
-	}
-	if bootStormTripped(secs(300), 120) || bootStormTripped(nil, 120) ||
-		bootStormTripped(secs(-1), 120) || bootStormTripped(secs(30), 0) {
-		t.Fatal("mature boot / missing / negative data / disabled guard must never trip")
-	}
-}
-
-// ── wardenTargetOf ───────────────────────────────────────────────────────────
 
 func TestWardenTargetOf(t *testing.T) {
-	s := newReconcileTestServer(t)
-	putTestMember(t, s, testAgent("m-a"))
+	t.Run("a warden addresses itself and a pinned agent routes to the active warden on its machine", func(t *testing.T) {
+		api, d := reconcileTestServer(t)
+		reconcileTestPut(t, d, Member{ID: "pinned", Name: "Pinned", Kind: KindStaff, RoleKey: "engineer", DesiredMachineID: "m-box"})
+		if got := api.wardenTargetOf("m-box"); got != "m-box" {
+			t.Fatalf("wardenTargetOf(m-box) = %q, want itself", got)
+		}
+		if got := api.wardenTargetOf("pinned"); got != "m-box" {
+			t.Fatalf("wardenTargetOf(pinned) = %q, want m-box", got)
+		}
+	})
 
-	if got := s.wardenTargetOf(ServerSelfHost); got != ServerSelfHost {
-		t.Fatalf("a warden addresses itself: %q", got)
-	}
-	if got := s.wardenTargetOf("m-a"); got != ServerSelfHost {
-		t.Fatalf("an agent routes to its desired machine's warden: %q", got)
-	}
-	// A pin naming no active warden resolves to NOTHING, not to the raw string.
-	// Handing the unresolved pin on as if it were a host is how the literal
-	// "auto" became a destination: every dispatch addressed a machine that could
-	// not exist, forever, and the stall was indistinguishable from an offline one.
-	orphan := testAgent("m-orphan")
-	orphan.DesiredMachineID = "m-no-such-warden"
-	putTestMember(t, s, orphan)
-	if got := s.wardenTargetOf("m-orphan"); got != "" {
-		t.Fatalf("a pin naming no active warden must resolve to no target: %q", got)
-	}
-	unplaced := testAgent("m-unplaced")
-	unplaced.DesiredMachineID = ""
-	putTestMember(t, s, unplaced)
-	if got := s.wardenTargetOf("m-unplaced"); got != "" {
-		t.Fatalf("an unplaced member must resolve to no target: %q", got)
-	}
-	if got := s.wardenTargetOf("m-missing"); got != "" {
-		t.Fatalf("a missing member resolves to no target: %q", got)
-	}
+	t.Run("no pin, an unknown member, a pin to a removed warden and a pin that is not a warden at all each answer the blank destination", func(t *testing.T) {
+		api, d := reconcileTestServer(t)
+		reconcileTestPut(t, d, Member{ID: "m-gone", Name: "Gone", Kind: KindWarden, RosterStatus: RosterStatusRemoved})
+		reconcileTestPut(t, d, Member{ID: "unpinned", Name: "U", Kind: KindStaff, RoleKey: "engineer"})
+		reconcileTestPut(t, d, Member{ID: "removed-pin", Name: "R", Kind: KindStaff, RoleKey: "engineer", DesiredMachineID: "m-gone"})
+		reconcileTestPut(t, d, Member{ID: "literal-pin", Name: "L", Kind: KindStaff, RoleKey: "engineer", DesiredMachineID: "auto"})
+		reconcileTestPut(t, d, Member{ID: "staff-pin", Name: "S", Kind: KindStaff, RoleKey: "engineer", DesiredMachineID: "unpinned"})
+		for _, id := range []string{"unpinned", "removed-pin", "literal-pin", "staff-pin", "nobody", ""} {
+			if got := api.wardenTargetOf(id); got != "" {
+				t.Fatalf("wardenTargetOf(%q) = %q, want the blank destination", id, got)
+			}
+		}
+	})
+
+	t.Run("asked about a warden row directly the roster status is not consulted, unlike the same row reached through a pin", func(t *testing.T) {
+		api, d := reconcileTestServer(t)
+		reconcileTestPut(t, d, Member{ID: "m-gone", Name: "Gone", Kind: KindWarden, RosterStatus: RosterStatusRemoved})
+		reconcileTestPut(t, d, Member{ID: "via-pin", Name: "V", Kind: KindStaff, RoleKey: "engineer", DesiredMachineID: "m-gone"})
+		if got := api.wardenTargetOf("m-gone"); got != "m-gone" {
+			t.Fatalf("wardenTargetOf(m-gone) = %q, want itself", got)
+		}
+		if got := api.wardenTargetOf("via-pin"); got != "" {
+			t.Fatalf("wardenTargetOf(via-pin) = %q, want the blank destination", got)
+		}
+	})
 }
 
-// ── runReconcileTick ─────────────────────────────────────────────────────────
-
-func TestRunReconcileTick(t *testing.T) {
-	t.Run("dispatches one START and stays idempotent across ticks", func(t *testing.T) {
-		s := newReconcileTestServer(t)
-		putTestMember(t, s, testAgent("m-a"))
-		connectOnline(t, s, ServerSelfHost)
-
-		s.runReconcileTick(1000)
-		frames := drainFrames(t, s, ServerSelfHost)
-		if len(frames) != 1 || frames[0].RPC != "start" || frames[0].Topic != "warden-command" {
-			t.Fatalf("frames: %+v", frames)
-		}
-		args := frames[0].Args
-		if args["member_id"] != "m-a" || args["member_token"] == "" ||
-			args["persona_context"] == "" || args["role"] != "assistant" {
-			t.Fatalf("start args: %+v", args)
-		}
-		// Idempotence: the START is in flight — repeated scans re-dispatch nothing.
-		s.runReconcileTick(1001)
-		s.runReconcileTick(1002)
-		if frames := drainFrames(t, s, ServerSelfHost); len(frames) != 0 {
-			t.Fatalf("in-flight START must not re-dispatch: %+v", frames)
+func TestMemberKillTargetWarden(t *testing.T) {
+	t.Run("a kill is addressed to the machine the session actually claims, not the machine it is pinned to", func(t *testing.T) {
+		api, d := reconcileTestServer(t)
+		reconcileTestPut(t, d, Member{ID: "pinned", Name: "Pinned", Kind: KindStaff, RoleKey: "engineer", DesiredMachineID: "m-box"})
+		reconcileTestOnline(t, api, "pinned", "m-old")
+		if got := api.memberKillTargetWarden("pinned"); got != "m-old" {
+			t.Fatalf("memberKillTargetWarden(pinned) = %q, want the running machine m-old", got)
 		}
 	})
 
-	t.Run("fails closed when the warden is unreachable and retries when it connects", func(t *testing.T) {
-		s := newReconcileTestServer(t)
-		putTestMember(t, s, testAgent("m-a"))
-
-		s.runReconcileTick(1000)
-		if frames := drainFrames(t, s, ServerSelfHost); len(frames) != 0 {
-			t.Fatalf("no live warden downstream must dispatch nothing: %+v", frames)
+	t.Run("with no live claim it falls back to the pin, and with neither there is nowhere to address the kill", func(t *testing.T) {
+		api, d := reconcileTestServer(t)
+		reconcileTestPut(t, d, Member{ID: "pinned", Name: "Pinned", Kind: KindStaff, RoleKey: "engineer", DesiredMachineID: "m-box"})
+		reconcileTestPut(t, d, Member{ID: "unpinned", Name: "U", Kind: KindStaff, RoleKey: "engineer"})
+		if got := api.memberKillTargetWarden("pinned"); got != "m-box" {
+			t.Fatalf("memberKillTargetWarden(pinned) = %q, want the pin m-box", got)
 		}
-		connectOnline(t, s, ServerSelfHost)
-		s.runReconcileTick(1030)
-		if frames := drainFrames(t, s, ServerSelfHost); len(frames) != 1 || frames[0].RPC != "start" {
-			t.Fatalf("warden online must dispatch the retried START: %+v", frames)
+		if got := api.memberKillTargetWarden("unpinned"); got != "" {
+			t.Fatalf("memberKillTargetWarden(unpinned) = %q, want the blank destination", got)
 		}
 	})
 
-	t.Run("fails closed on an unknown role (no persona to boot with)", func(t *testing.T) {
-		s := newReconcileTestServer(t)
-		ghost := testAgent("m-ghost")
-		ghost.RoleKey = "no-such-role"
-		putTestMember(t, s, ghost)
-		connectOnline(t, s, ServerSelfHost)
-
-		s.runReconcileTick(1000)
-		if frames := drainFrames(t, s, ServerSelfHost); len(frames) != 0 {
-			t.Fatalf("unknown role must never START: %+v", frames)
+	t.Run("a claim-less connection does not shadow the pin — the blank claim is not an address", func(t *testing.T) {
+		api, d := reconcileTestServer(t)
+		reconcileTestPut(t, d, Member{ID: "pinned", Name: "Pinned", Kind: KindStaff, RoleKey: "engineer", DesiredMachineID: "m-box"})
+		reconcileTestOnline(t, api, "pinned", "")
+		if got := api.memberKillTargetWarden("pinned"); got != "m-box" {
+			t.Fatalf("memberKillTargetWarden(pinned) = %q, want the pin m-box", got)
 		}
 	})
+}
 
-	t.Run("excludes wardens except a desired-uninstall one", func(t *testing.T) {
-		s := newReconcileTestServer(t)
-		connectOnline(t, s, ServerSelfHost)
-		warden, err := s.dal.GetMember(ServerSelfHost)
-		if err != nil || warden == nil {
-			t.Fatalf("seed warden: %v", err)
-		}
-		warden.DesiredState = DesiredStateOnline
-		putTestMember(t, s, *warden)
-
-		s.runReconcileTick(1000)
-		if frames := drainFrames(t, s, ServerSelfHost); len(frames) != 0 {
-			t.Fatalf("a desired-online warden is never a spawn candidate: %+v", frames)
-		}
-		warden.DesiredState = DesiredStateUninstall
-		putTestMember(t, s, *warden)
-		s.runReconcileTick(1030)
-		frames := drainFrames(t, s, ServerSelfHost)
-		if len(frames) != 1 || frames[0].RPC != "uninstall" ||
-			frames[0].Args["member_id"] != ServerSelfHost {
-			t.Fatalf("desired-uninstall warden must get the uninstall RPC: %+v", frames)
-		}
-		// While the warden is still ONLINE the intent is live, never consumed.
-		m, _ := s.dal.GetMember(ServerSelfHost)
-		if m.DesiredState != DesiredStateUninstall {
-			t.Fatalf("online warden must keep the uninstall intent: %+v", m)
-		}
-	})
-
-	t.Run("consumes a residual uninstall intent once the warden is offline", func(t *testing.T) {
-		s := newReconcileTestServer(t)
-		box := Member{
-			ID: "m-box", Name: "box", Kind: KindWarden, Effort: "medium",
-			DesiredState: DesiredStateUninstall, RosterStatus: RosterStatusActive,
-		}
-		putTestMember(t, s, box)
-
-		s.runReconcileTick(1000)
-		m, err := s.dal.GetMember("m-box")
-		if err != nil || m == nil || m.DesiredState != DesiredStateOffline {
-			t.Fatalf("offline warden's uninstall intent must be consumed: %+v (%v)", m, err)
-		}
-		if m.RosterStatus != RosterStatusActive {
-			t.Fatalf("record must be kept (re-installable): %+v", m)
-		}
-		// The consumed intent is one-shot: a later reconnect (re-install) must
-		// NOT be answered with another UNINSTALL.
-		connectOnline(t, s, "m-box")
-		s.runReconcileTick(1030)
-		if frames := drainFrames(t, s, "m-box"); len(frames) != 0 {
-			t.Fatalf("re-connected warden must not receive a stale uninstall: %+v", frames)
-		}
-	})
-
-	t.Run("dispatches the robust STOP only after the grace elapses", func(t *testing.T) {
-		s := newReconcileTestServer(t)
-		stopper := testAgent("m-stop")
-		stopper.DesiredState = DesiredStateOffline
-		putTestMember(t, s, stopper)
-		connectOnline(t, s, ServerSelfHost)
-		connectOnline(t, s, "m-stop") // still online while desired offline
-
-		// The default (owner's ruling) runs no clock at all: a day of ticks
-		// dispatches nothing, because the escalation is his force-stop.
-		s.runReconcileTick(1000)
-		s.runReconcileTick(1000 + 86400)
-		if frames := drainFrames(t, s, ServerSelfHost); len(frames) != 0 {
-			t.Fatalf("下線 must dispatch nothing on a timer: %+v", frames)
-		}
-		// With the soft window off — the value that restores the timed
-		// wind-down — the same tick collects it.
-		s.reconcileCfg.SoftOffboardGrace = 0
-		s.runReconcileTick(2000)
-		s.runReconcileTick(2000 + s.reconcileCfg.StopGrace)
-		frames := drainFrames(t, s, ServerSelfHost)
-		if len(frames) != 1 || frames[0].RPC != "stop" || frames[0].Args["member_id"] != "m-stop" {
-			t.Fatalf("grace elapsed must dispatch the robust stop: %+v", frames)
-		}
-	})
-
-	t.Run("auto-stamps refocus_since from a handover-band gauge", func(t *testing.T) {
-		s := newReconcileTestServer(t)
-		putTestMember(t, s, testAgent("m-hot"))
-		connectOnline(t, s, ServerSelfHost)
-		connectOnline(t, s, "m-hot")
-		now := 10000.0
-		s.gauge.Set("m-hot", map[string]any{
-			"context_pct":    float64(s.ctxhigh.HandoverPct),
-			"context_pct_ts": now - 10,
-			"boot_ts":        now - 500, // mature boot → no boot-storm suppression
+func TestEnqueueToWarden(t *testing.T) {
+	t.Run("a reachable warden takes the frame tagged with the member it acts on", func(t *testing.T) {
+		api, _ := reconcileTestServer(t)
+		reconcileTestOnline(t, api, "m-box", "")
+		frame := []byte("data: {}\n\n")
+		out := hubTestStderr(t, func() {
+			if !api.enqueueToWarden("kip", "m-box", frame) {
+				t.Fatalf("a reachable warden must accept the frame")
+			}
 		})
-
-		s.runReconcileTick(now)
-		m, err := s.dal.GetMember("m-hot")
-		if err != nil || m == nil || m.RefocusSince != now {
-			t.Fatalf("handover band must auto-stamp refocus_since: %+v (%v)", m, err)
+		if out != "" {
+			t.Fatalf("an accepted dispatch logs nothing, got %q", out)
 		}
-		// Second tick: already recycling — the marker must not re-stamp.
-		s.runReconcileTick(now + 30)
-		m, _ = s.dal.GetMember("m-hot")
-		if m.RefocusSince != now {
-			t.Fatalf("an already-marked member must not re-stamp: %+v", m)
+		if got := api.hub.DrainWardenCommands("m-box"); !reflect.DeepEqual(got, []wardenCmd{{Subject: "kip", Frame: frame}}) {
+			t.Fatalf("queued = %+v", got)
 		}
 	})
 
-	t.Run("Codex auto-stamps only after three actual compactions", func(t *testing.T) {
-		s := newReconcileTestServer(t)
-		m := testAgent("m-codex-compact")
-		m.Runtime = RuntimeCodex
-		putTestMember(t, s, m)
-		connectOnline(t, s, ServerSelfHost)
-		connectOnline(t, s, m.ID)
-		now := 10000.0
-		// 99% with two compactions is the notice ROUND, not the ceiling: a codex
-		// session hands over on compaction count, so the percentage must not put
-		// it on the accelerated stop. T-ed79: the notice round DOES open the
-		// plain 停止 (it is the first threshold on the codex axis).
-		s.gauge.Set(m.ID, map[string]any{"context_pct": 99.0, "context_pct_ts": now - 10, "boot_ts": now - 500, "compaction_count": 2})
-		s.runReconcileTick(now)
-		got, _ := s.dal.GetMember(m.ID)
-		if got.RefocusOp != refocusOpContextNotice {
-			t.Fatalf("Codex must ignore percent-only handover (want the notice "+
-				"round's 停止, %q), got %+v", refocusOpContextNotice, got)
+	t.Run("a warden with no live stream, and the blank destination, are both refused fail-closed and queue nothing", func(t *testing.T) {
+		api, _ := reconcileTestServer(t)
+		out := hubTestStderr(t, func() {
+			if api.enqueueToWarden("kip", "m-box", []byte("F")) {
+				t.Fatalf("an offline warden must be refused")
+			}
+			if api.enqueueToWarden("kip", "", []byte("F")) {
+				t.Fatalf("the blank destination must be refused")
+			}
+		})
+		want := "[reconcile] kip: target warden \"m-box\" NOT reachable (no live SSE downstream) — " +
+			"fail-closed, not dispatching, will retry when the warden connects\n" +
+			"[reconcile] kip: target warden \"\" NOT reachable (no live SSE downstream) — " +
+			"fail-closed, not dispatching, will retry when the warden connects\n"
+		if out != want {
+			t.Fatalf("stderr:\n got %q\nwant %q", out, want)
 		}
-		s.gauge.Set(m.ID, map[string]any{"context_pct": 20.0, "context_pct_ts": now - 5, "boot_ts": now - 500, "compaction_count": 3})
-		s.runReconcileTick(now + 1)
-		got, _ = s.dal.GetMember(m.ID)
-		if got.RefocusSince != now+1 || got.RefocusOp != refocusOpContextHigh {
-			t.Fatalf("the third Codex compaction must promote to %q and RE-STAMP "+
-				"refocus_since (a deadline measured from the notice round is "+
-				"already in the past), got %+v", refocusOpContextHigh, got)
+		if got := api.hub.PendingWardenCommands("m-box"); got != 0 {
+			t.Fatalf("a refused dispatch queued %d frame(s)", got)
+		}
+		if got := api.hub.DrainWardenCommands(""); got != nil {
+			t.Fatalf("the blank warden queue holds %+v", got)
 		}
 	})
 
-	t.Run("relocation stops the OLD machine's warden, then STARTs onto the NEW one", func(t *testing.T) {
-		s := newReconcileTestServer(t)
-		putWarden(t, s, "mach-old")
-		putWarden(t, s, "mach-new")
-		// A live member running on mach-old, freshly re-pinned to mach-new.
-		mover := testAgent("m-move")
-		mover.DesiredMachineID = "mach-new"
-		putTestMember(t, s, mover)
-		connectOnline(t, s, "mach-old")                               // old warden reachable (holds the session)
-		connectOnline(t, s, "mach-new")                               // new warden reachable (START target)
-		moverConn := connectOnlineMachine(t, s, "m-move", "mach-old") // running on the OLD machine
-
-		// T-14 #4: the first tick opens a wind-down and dispatches NOTHING. It is
-		// asserted rather than skipped past, because "no frame yet" is the whole
-		// behaviour change and a tick that quietly dispatched here would be the
-		// regression. What this subtest exists for — the ROUTING of the STOP and
-		// of the respawn START — is unchanged and asserted below, one hand-off
-		// later.
-		s.runReconcileTick(1000)
-		if f := drainFrames(t, s, "mach-old"); len(f) != 0 {
-			t.Fatalf("the first tick must open a wind-down, not kill: %+v", f)
+	t.Run("enqueueWardenFrame resolves the destination from the member's pin before applying the same gate", func(t *testing.T) {
+		api, d := reconcileTestServer(t)
+		reconcileTestPut(t, d, Member{ID: "pinned", Name: "Pinned", Kind: KindStaff, RoleKey: "engineer", DesiredMachineID: "m-box"})
+		hubTestStderr(t, func() {
+			if api.enqueueWardenFrame("pinned", []byte("F")) {
+				t.Fatalf("the pinned warden is offline, so this must be refused")
+			}
+		})
+		reconcileTestOnline(t, api, "m-box", "")
+		frame := []byte("data: {}\n\n")
+		if !api.enqueueWardenFrame("pinned", frame) {
+			t.Fatalf("once the pinned warden is online the frame must be accepted")
 		}
-		if f := drainFrames(t, s, "mach-new"); len(f) != 0 {
-			t.Fatalf("the first tick must dispatch nothing at all: %+v", f)
-		}
-		armed, _ := s.dal.GetMember("m-move")
-		if armed.RefocusSince <= 0 || armed.RefocusOp != memberOpRelocate {
-			t.Fatalf("the first tick must stamp a relocate wind-down: %+v", armed)
-		}
-		// The agent files its stopped report (POST /api/self/stopped) — the 收口.
-		armed.StoppedSince = 1001
-		putTestMember(t, s, *armed)
-
-		s.runReconcileTick(1002)
-		// The STOP must land on the OLD machine's warden FIFO — never the new one.
-		oldFrames := drainFrames(t, s, "mach-old")
-		if len(oldFrames) != 1 || oldFrames[0].RPC != "stop" || oldFrames[0].Args["member_id"] != "m-move" {
-			t.Fatalf("relocation STOP must land on the running (old) machine's warden: %+v", oldFrames)
-		}
-		if newFrames := drainFrames(t, s, "mach-new"); len(newFrames) != 0 {
-			t.Fatalf("the target (new) machine's warden must NOT get the STOP: %+v", newFrames)
-		}
-		// The kill lands: the member drops offline. The next tick STARTs it onto
-		// the NEW machine (a fresh boot token minted with desired_machine=mach-new,
-		// routed to the new machine's warden).
-		s.hub.Disconnect(moverConn)
-		s.runReconcileTick(1002 + s.reconcileCfg.StopRetry)
-		newFrames := drainFrames(t, s, "mach-new")
-		if len(newFrames) != 1 || newFrames[0].RPC != "start" || newFrames[0].Args["member_id"] != "m-move" {
-			t.Fatalf("after the kill the START must route to the new machine: %+v", newFrames)
-		}
-		if oldFrames := drainFrames(t, s, "mach-old"); len(oldFrames) != 0 {
-			t.Fatalf("the old machine's warden must NOT get the respawn START: %+v", oldFrames)
-		}
-	})
-
-	t.Run("a claim-less (still-booting) online member is never relocated", func(t *testing.T) {
-		s := newReconcileTestServer(t)
-		putWarden(t, s, "mach-new")
-		booting := testAgent("m-boot")
-		booting.DesiredMachineID = "mach-new"
-		putTestMember(t, s, booting)
-		connectOnline(t, s, "mach-new")
-		connectOnline(t, s, "m-boot") // online but carries NO machine claim (claim-less boot)
-
-		s.runReconcileTick(1000)
-		if frames := drainFrames(t, s, "mach-new"); len(frames) != 0 {
-			t.Fatalf("a claim-less online member must never be recycled: %+v", frames)
+		if got := api.hub.DrainWardenCommands("m-box"); !reflect.DeepEqual(got, []wardenCmd{{Subject: "pinned", Frame: frame}}) {
+			t.Fatalf("queued = %+v", got)
 		}
 	})
 }
 
-// ── stampMemberPlacementBlocked ──────────────────────────────────────────────
+func TestBuildTargetFrame(t *testing.T) {
+	t.Run("the frame is the member_id-only command envelope on the warden-command topic", func(t *testing.T) {
+		got, ok := buildTargetFrame(reconcileCmdStop, "kip")
+		if !ok {
+			t.Fatalf("buildTargetFrame must succeed")
+		}
+		want := "data: {\"topic\":\"warden-command\",\"data\":{\"rpc\":\"stop\",\"args\":{\"member_id\":\"kip\"}}}\n\n"
+		if string(got) != want {
+			t.Fatalf("frame:\n got %q\nwant %q", got, want)
+		}
+		digest, decoded := decodeWardenCommandFrame(got)
+		if !decoded || digest != (wardenCommandDigest{Verb: reconcileCmdStop, MemberID: "kip"}) {
+			t.Fatalf("the frame must read back as its own digest, got %+v (%v)", digest, decoded)
+		}
+	})
 
-// A member decided START with no resolvable machine dispatches NOTHING, and the
-// stall is named on the row the cockpit reads instead of retrying in silence
-// every 30s. Written only when the cause CHANGES (the cadence re-decides the
-// same START forever).
+	t.Run("the verb is carried through verbatim and a blank member id is built rather than refused", func(t *testing.T) {
+		for _, verb := range []string{reconcileCmdUninstall, reconcileCmdRenew, reconcileCmdUpdate} {
+			got, ok := buildTargetFrame(verb, "m-box")
+			if !ok {
+				t.Fatalf("buildTargetFrame(%q) must succeed", verb)
+			}
+			want := "data: {\"topic\":\"warden-command\",\"data\":{\"rpc\":\"" + verb +
+				"\",\"args\":{\"member_id\":\"m-box\"}}}\n\n"
+			if string(got) != want {
+				t.Fatalf("frame for %q:\n got %q\nwant %q", verb, got, want)
+			}
+		}
+		got, ok := buildTargetFrame(reconcileCmdStop, "")
+		if !ok {
+			t.Fatalf("a blank member id is still a buildable frame")
+		}
+		want := "data: {\"topic\":\"warden-command\",\"data\":{\"rpc\":\"stop\",\"args\":{\"member_id\":\"\"}}}\n\n"
+		if string(got) != want {
+			t.Fatalf("frame:\n got %q\nwant %q", got, want)
+		}
+	})
+}
+
+func TestBuildStartFrame(t *testing.T) {
+	t.Run("an active member with a known role gets a START frame carrying its persona, a minted token and its launch values", func(t *testing.T) {
+		api, d := reconcileTestServer(t)
+		reconcileTestPut(t, d, Member{
+			ID: "nova", Name: "Nova", Kind: KindStaff, RoleKey: "assistant",
+			Runtime: RuntimeCodex, Model: "gpt-5", Effort: "high",
+		})
+		frame, ok := api.buildStartFrame(reconcileTestRow(t, d, "nova"))
+		if !ok {
+			t.Fatalf("buildStartFrame(nova) must succeed")
+		}
+		digest, decoded := decodeWardenCommandFrame(frame)
+		if !decoded || digest != (wardenCommandDigest{Verb: reconcileCmdStart, MemberID: "nova"}) {
+			t.Fatalf("digest = %+v (%v)", digest, decoded)
+		}
+		text := string(frame)
+		for _, want := range []string{
+			"data: {\"topic\":\"warden-command\",\"data\":{\"rpc\":\"start\",\"args\":{\"member_id\":\"nova\",",
+			"\"role\":\"assistant\"",
+			"\"runtime\":\"codex\"",
+			"\"model\":\"gpt-5\"",
+			"\"effort\":\"high\"",
+			"\"session_name\":\"\"",
+			"\n\n",
+		} {
+			if !strings.Contains(text, want) {
+				t.Fatalf("the frame does not carry %q:\n%.400s", want, text)
+			}
+		}
+		var payload struct {
+			Data struct {
+				Args wardenStartArgs `json:"args"`
+			} `json:"data"`
+		}
+		if err := json.Unmarshal([]byte(strings.TrimSuffix(strings.TrimPrefix(text, "data: "), "\n\n")), &payload); err != nil {
+			t.Fatalf("the frame is not JSON: %v", err)
+		}
+		if payload.Data.Args.PersonaContext == "" {
+			t.Fatalf("the START must carry the folded persona")
+		}
+		claims, _, err := verifyJWTAnyKey(api.keys, payload.Data.Args.MemberToken, time.Now().Unix())
+		if err != nil {
+			t.Fatalf("the riding credential must verify against the server's own ring: %v", err)
+		}
+		if claims["sub"] != "nova" {
+			t.Fatalf("the minted token names %v, want nova", claims["sub"])
+		}
+	})
+
+	t.Run("a removed member, a role with no definition and an installation with no signing secret are each refused fail-closed and silently", func(t *testing.T) {
+		api, d := reconcileTestServer(t)
+		removed := reconcileTestRow(t, d, "mira")
+		removed.ID = "left"
+		removed.RosterStatus = RosterStatusRemoved
+		reconcileTestPut(t, d, removed)
+		out := hubTestStderr(t, func() {
+			if frame, ok := api.buildStartFrame(reconcileTestRow(t, d, "left")); ok || frame != nil {
+				t.Fatalf("a removed member must not be booted, got %v %v", frame, ok)
+			}
+			if frame, ok := api.buildStartFrame(reconcileTestRow(t, d, "kip")); ok || frame != nil {
+				t.Fatalf("a role with no definition must fail closed, got %v %v", frame, ok)
+			}
+		})
+		if out != "" {
+			t.Fatalf("both refusals are silent, stderr = %q", out)
+		}
+		bare, _, bareDAL, _ := newAPITestStackWithoutSigningSecret(t)
+		if frame, ok := bare.buildStartFrame(reconcileTestRow(t, bareDAL, "mira")); ok || frame != nil {
+			t.Fatalf("with no signing secret nothing may be minted, got %v %v", frame, ok)
+		}
+	})
+}
+
+func TestMachineLacksClaudeButHasCodex(t *testing.T) {
+	t.Run("only a machine that measured claude absent and reports codex ready answers yes", func(t *testing.T) {
+		api, _ := reconcileTestServer(t)
+		api.telemetry.Set("m-cx", map[string]any{"runtimes": map[string]any{
+			"claude": map[string]any{"installed": false},
+			"codex":  map[string]any{"installed": true, "logged_in": true},
+		}})
+		if !api.machineLacksClaudeButHasCodex("m-cx") {
+			t.Fatalf("a codex-only box must answer yes")
+		}
+	})
+
+	t.Run("a blank id, a machine that has never reported, a claude that IS installed, and a codex that is not ready all answer no", func(t *testing.T) {
+		api, _ := reconcileTestServer(t)
+		if api.machineLacksClaudeButHasCodex("") {
+			t.Fatalf("the blank machine id must answer no")
+		}
+		if api.machineLacksClaudeButHasCodex("m-never") {
+			t.Fatalf("a machine with no capability report must answer no")
+		}
+		if api.machineLacksClaudeButHasCodex("m-box") {
+			t.Fatalf("a machine reporting claude ready must answer no")
+		}
+		api.telemetry.Set("m-nocodex", map[string]any{"runtimes": map[string]any{
+			"claude": map[string]any{"installed": false},
+			"codex":  map[string]any{"installed": false},
+		}})
+		if api.machineLacksClaudeButHasCodex("m-nocodex") {
+			t.Fatalf("with no live codex option there is nothing to point the owner at")
+		}
+		api.telemetry.Set("m-noclaude-key", map[string]any{"runtimes": map[string]any{
+			"codex": map[string]any{"installed": true, "logged_in": true},
+		}})
+		if api.machineLacksClaudeButHasCodex("m-noclaude-key") {
+			t.Fatalf("a missing claude entry is not a measurement and must answer no")
+		}
+	})
+}
+
+func TestWakeTimeoutReason(t *testing.T) {
+	t.Run("on a codex-only machine a claude member's lapse names the machine and the two ways out of it", func(t *testing.T) {
+		api, _ := reconcileTestServer(t)
+		api.telemetry.Set("m-cx", map[string]any{"runtimes": map[string]any{
+			"claude": map[string]any{"installed": false},
+			"codex":  map[string]any{"installed": true, "logged_in": true},
+		}})
+		got := api.wakeTimeoutReason(Member{ID: "kip", DesiredMachineID: "m-cx"})
+		want := wakeTimeoutReasonCode + ": the START was dispatched but the agent never came " +
+			"online within the start window — machine 'm-cx' reports no Claude Code installed, " +
+			"so this member cannot boot there. Fix any one: set this member's 執行環境 to Codex " +
+			"(that machine has it ready); or install Claude Code on that machine " +
+			"(warden log: ocwarden.out.log)"
+		if got != want {
+			t.Fatalf("reason:\n got %q\nwant %q", got, want)
+		}
+	})
+
+	t.Run("otherwise the sentence names the member's own runtime, with an unset runtime reading as claude", func(t *testing.T) {
+		api, _ := reconcileTestServer(t)
+		api.telemetry.Set("m-cx", map[string]any{"runtimes": map[string]any{
+			"claude": map[string]any{"installed": false},
+			"codex":  map[string]any{"installed": true, "logged_in": true},
+		}})
+		generic := func(runtime string) string {
+			return wakeTimeoutReasonCode + ": the START was dispatched but the agent never came " +
+				"online within the start window — check that " + runtime + " runs and is logged " +
+				"in on the target machine (warden log: ocwarden.out.log)"
+		}
+		for _, c := range []struct {
+			name string
+			m    Member
+			want string
+		}{
+			{"a codex member on the same codex-only machine", Member{ID: "kip", DesiredMachineID: "m-cx", Runtime: RuntimeCodex}, generic(RuntimeCodex)},
+			{"an unset runtime on a machine that has claude", Member{ID: "kip", DesiredMachineID: "m-box"}, generic(RuntimeClaude)},
+			{"a member with no machine at all", Member{ID: "kip"}, generic(RuntimeClaude)},
+		} {
+			if got := c.want; api.wakeTimeoutReason(c.m) != got {
+				t.Fatalf("%s:\n got %q\nwant %q", c.name, api.wakeTimeoutReason(c.m), got)
+			}
+		}
+	})
+}
+
+func TestResolveEmptyRuntimeForPlacement(t *testing.T) {
+	t.Run("an unset runtime resolves to the ready runtime the target machine reports, and is persisted on the row", func(t *testing.T) {
+		api, d := reconcileTestServer(t)
+		reconcileTestPut(t, d, Member{ID: "fresh", Name: "F", Kind: KindStaff, RoleKey: "assistant"})
+		before := reconcileTestRow(t, d, "fresh")
+		m := before
+		out := hubTestStderr(t, func() { api.resolveEmptyRuntimeForPlacement(&m, "m-box") })
+		if out != "" {
+			t.Fatalf("a clean resolution logs nothing, got %q", out)
+		}
+		if m.Runtime != RuntimeClaude {
+			t.Fatalf("in-memory runtime = %q, want claude", m.Runtime)
+		}
+		want := before
+		want.Runtime = RuntimeClaude
+		reconcileTestWantRow(t, d, "fresh", want)
+
+		api.telemetry.Set("m-cx", map[string]any{"runtimes": map[string]any{
+			"claude": map[string]any{"installed": false},
+			"codex":  map[string]any{"installed": true, "logged_in": true},
+		}})
+		reconcileTestPut(t, d, Member{ID: "fresh2", Name: "F2", Kind: KindStaff, RoleKey: "assistant"})
+		second := reconcileTestRow(t, d, "fresh2")
+		codex := second
+		api.resolveEmptyRuntimeForPlacement(&codex, "m-cx")
+		if codex.Runtime != RuntimeCodex {
+			t.Fatalf("in-memory runtime = %q, want codex", codex.Runtime)
+		}
+		wantSecond := second
+		wantSecond.Runtime = RuntimeCodex
+		reconcileTestWantRow(t, d, "fresh2", wantSecond)
+	})
+
+	t.Run("a warden, an already-chosen runtime, a machine that has not reported, and a machine with nothing ready are all left untouched", func(t *testing.T) {
+		api, d := reconcileTestServer(t)
+		api.telemetry.Set("m-none", map[string]any{"runtimes": map[string]any{
+			"claude": map[string]any{"installed": false},
+			"codex":  map[string]any{"installed": false},
+		}})
+		reconcileTestPut(t, d, Member{ID: "chosen", Name: "C", Kind: KindStaff, RoleKey: "assistant", Runtime: RuntimeCodex})
+		reconcileTestPut(t, d, Member{ID: "silent", Name: "S", Kind: KindStaff, RoleKey: "assistant"})
+		reconcileTestPut(t, d, Member{ID: "barren", Name: "B", Kind: KindStaff, RoleKey: "assistant"})
+		for _, c := range []struct {
+			name   string
+			id     string
+			warden string
+			want   string
+		}{
+			{"a warden row", "m-box", "m-box", ""},
+			{"a runtime the owner already chose", "chosen", "m-box", RuntimeCodex},
+			{"a machine that has never heartbeat", "silent", "m-never", ""},
+			{"a machine where nothing is ready", "barren", "m-none", ""},
+		} {
+			before := reconcileTestRow(t, d, c.id)
+			m := before
+			out := hubTestStderr(t, func() { api.resolveEmptyRuntimeForPlacement(&m, c.warden) })
+			if out != "" {
+				t.Fatalf("%s: stderr = %q, want nothing", c.name, out)
+			}
+			if m.Runtime != c.want {
+				t.Fatalf("%s: in-memory runtime = %q, want %q", c.name, m.Runtime, c.want)
+			}
+			reconcileTestWantRow(t, d, c.id, before)
+		}
+	})
+
+	t.Run("the legacy claude installed-but-logged-out shape declines to choose and says so, rather than pinning the member to codex", func(t *testing.T) {
+		api, d := reconcileTestServer(t)
+		api.telemetry.Set("m-legacy", map[string]any{"runtimes": map[string]any{
+			"claude": map[string]any{"installed": true, "logged_in": false},
+			"codex":  map[string]any{"installed": true, "logged_in": true},
+		}})
+		reconcileTestPut(t, d, Member{ID: "undecided", Name: "U", Kind: KindStaff, RoleKey: "assistant"})
+		before := reconcileTestRow(t, d, "undecided")
+		m := before
+		out := hubTestStderr(t, func() { api.resolveEmptyRuntimeForPlacement(&m, "m-legacy") })
+		want := "[reconcile] undecided: machine \"m-legacy\" reports claude installed with " +
+			"logged_in:false — a shape only a warden older than v0.5.211-beta.1 emits, where it " +
+			"means \"no credential evidence found\", NOT \"signed out\". Declining to auto-resolve " +
+			"this member to codex, because persisting that choice is irreversible and this machine " +
+			"may well run claude (env-carried key, Bedrock/Vertex managed auth, or " +
+			"OC_CLAUDE_CRED_CHECK=0). Leaving 執行環境 unset: the start still goes out as claude, " +
+			"and if it really is signed out the spawn will say so and name the Codex exit. To " +
+			"choose deliberately instead: upgrade that machine's warden, or set this member's " +
+			"執行環境 by hand.\n"
+		if out != want {
+			t.Fatalf("stderr:\n got %q\nwant %q", out, want)
+		}
+		if m.Runtime != "" {
+			t.Fatalf("in-memory runtime = %q, want it left unset", m.Runtime)
+		}
+		reconcileTestWantRow(t, d, "undecided", before)
+	})
+
+	t.Run("a concurrent owner edit landing mid-tick wins: the tick's copy adopts the stored choice and writes nothing", func(t *testing.T) {
+		api, d := reconcileTestServer(t)
+		reconcileTestPut(t, d, Member{ID: "raced", Name: "R", Kind: KindStaff, RoleKey: "assistant"})
+		m := reconcileTestRow(t, d, "raced")
+		if err := d.SetMemberRuntime("raced", RuntimeCodex); err != nil {
+			t.Fatalf("SetMemberRuntime: %v", err)
+		}
+		want := reconcileTestRow(t, d, "raced")
+		api.resolveEmptyRuntimeForPlacement(&m, "m-box")
+		if m.Runtime != RuntimeCodex {
+			t.Fatalf("in-memory runtime = %q, want the owner's codex", m.Runtime)
+		}
+		reconcileTestWantRow(t, d, "raced", want)
+	})
+}
+
 func TestStampMemberPlacementBlocked(t *testing.T) {
-	s := newReconcileTestServer(t)
-	putWarden(t, s, "mach-real")
-	connectOnline(t, s, "mach-real")
-	connectOnline(t, s, ServerSelfHost)
-
-	unplaced := testAgent("m-unplaced")
-	unplaced.DesiredMachineID = ""
-	putTestMember(t, s, unplaced)
-
-	now := 5000.0
-	s.runReconcileTick(now)
-	got, err := s.dal.GetMember("m-unplaced")
-	if err != nil || got == nil {
-		t.Fatalf("re-read member: %v", err)
-	}
-	if !strings.HasPrefix(got.LastOpReason, placementReasonNoMachine+":") {
-		t.Fatalf("an unplaced member must be stamped %s: %+v", placementReasonNoMachine, got)
-	}
-	if got.LastOp != reconcileCmdStart || got.LastOpOK == nil || *got.LastOpOK {
-		t.Fatalf("the stamp must be a FAILED start op: %+v", got)
-	}
-	if got.LastOpAt != now {
-		t.Fatalf("last_op_at = %v, want %v", got.LastOpAt, now)
-	}
-	for _, host := range []string{ServerSelfHost, "mach-real"} {
-		if frames := drainFrames(t, s, host); len(frames) != 0 {
-			t.Fatalf("%s must receive nothing for an unplaced member: %+v", host, frames)
+	t.Run("an unplaced member is told there is no automatic placement, and a member pinned to a dead machine is told to choose another", func(t *testing.T) {
+		api, d := reconcileTestServer(t)
+		reconcileTestPut(t, d, Member{ID: "unplaced", Name: "U", Kind: KindStaff, RoleKey: "assistant", DesiredState: DesiredStateOnline})
+		reconcileTestPut(t, d, Member{ID: "misplaced", Name: "M", Kind: KindStaff, RoleKey: "assistant", DesiredState: DesiredStateOnline, DesiredMachineID: "m-gone"})
+		for _, c := range []struct {
+			id   string
+			want string
+		}{
+			{"unplaced", placementReasonNoMachine + ": no machine is selected for this member — " +
+				"choose one (改機器) before waking it; there is no automatic placement"},
+			{"misplaced", placementReasonUnavailable + ": machine 'm-gone' is not an active machine — " +
+				"choose another one (改機器); no other machine is substituted"},
+		} {
+			before := reconcileTestRow(t, d, c.id)
+			m := before
+			api.stampMemberPlacementBlocked(&m, reconcileTestNow)
+			want := before
+			want.LastOp = reconcileCmdStart
+			want.LastOpOK = reconcileTestFalse()
+			want.LastOpReason = c.want
+			want.LastOpAt = reconcileTestNow
+			reconcileTestWantRow(t, d, c.id, want)
 		}
-	}
+	})
 
-	// Anti-churn: the same cause on the next tick writes nothing.
-	s.runReconcileTick(now + 30)
-	if again, _ := s.dal.GetMember("m-unplaced"); again == nil || again.LastOpAt != now {
-		t.Fatalf("an unchanged cause must NOT re-stamp: %+v", again)
-	}
+	t.Run("re-stamping the same cause does not move the clock, while a changed cause always writes", func(t *testing.T) {
+		api, d := reconcileTestServer(t)
+		reconcileTestPut(t, d, Member{ID: "stalled", Name: "S", Kind: KindStaff, RoleKey: "assistant", DesiredState: DesiredStateOnline})
+		m := reconcileTestRow(t, d, "stalled")
+		api.stampMemberPlacementBlocked(&m, reconcileTestNow)
+		stamped := reconcileTestRow(t, d, "stalled")
+		api.stampMemberPlacementBlocked(&m, reconcileTestNow+500)
+		reconcileTestWantRow(t, d, "stalled", stamped)
 
-	// A pin naming no active machine is the OTHER variant, and it names the pin.
-	ghosted := testAgent("m-ghosted")
-	ghosted.DesiredMachineID = "mach-ghost"
-	putTestMember(t, s, ghosted)
-	s.runReconcileTick(now + 60)
-	gh, _ := s.dal.GetMember("m-ghosted")
-	if gh == nil || !strings.HasPrefix(gh.LastOpReason, placementReasonUnavailable+":") {
-		t.Fatalf("a pin naming no active machine must be stamped %s: %+v",
-			placementReasonUnavailable, gh)
-	}
-	if !strings.Contains(gh.LastOpReason, "mach-ghost") {
-		t.Fatalf("the reason must name the machine the owner chose: %q", gh.LastOpReason)
-	}
+		reconcileTestPut(t, d, Member{ID: "moved", Name: "M", Kind: KindStaff, RoleKey: "assistant", DesiredState: DesiredStateOnline, DesiredMachineID: "m-gone"})
+		moved := reconcileTestRow(t, d, "moved")
+		api.stampMemberPlacementBlocked(&moved, reconcileTestNow)
+		first := reconcileTestRow(t, d, "moved")
+		if first.LastOpAt != reconcileTestNow {
+			t.Fatalf("the first stamp did not land: %+v", first)
+		}
+	})
 
-	// SENTINEL: a member pinned to a real ONLINE warden still STARTs normally, so
-	// the refusals above are the missing placement, not a broken fixture.
-	placed := testAgent("m-placed")
-	placed.DesiredMachineID = "mach-real"
-	putTestMember(t, s, placed)
-	s.runReconcileTick(now + 90)
-	frames := drainFrames(t, s, "mach-real")
-	if len(frames) != 1 || frames[0].RPC != reconcileCmdStart ||
-		frames[0].Args["member_id"] != "m-placed" {
-		t.Fatalf("a member pinned to a real online warden must START: %+v", frames)
-	}
-	if p, _ := s.dal.GetMember("m-placed"); p == nil || p.LastOpReason != "" {
-		t.Fatalf("a dispatched member must not be stamped blocked: %+v", p)
-	}
+	t.Run("the reason names the pin on the row being written, not the one the tick snapshotted", func(t *testing.T) {
+		api, d := reconcileTestServer(t)
+		reconcileTestPut(t, d, Member{ID: "relocated", Name: "R", Kind: KindStaff, RoleKey: "assistant", DesiredState: DesiredStateOnline})
+		snapshot := reconcileTestRow(t, d, "relocated")
+		if err := d.SetMemberDesiredMachineID("relocated", "m-later"); err != nil {
+			t.Fatalf("SetMemberDesiredMachineID: %v", err)
+		}
+		api.stampMemberPlacementBlocked(&snapshot, reconcileTestNow)
+		got := reconcileTestRow(t, d, "relocated")
+		want := placementReasonUnavailable + ": machine 'm-later' is not an active machine — " +
+			"choose another one (改機器); no other machine is substituted"
+		if got.LastOpReason != want {
+			t.Fatalf("reason:\n got %q\nwant %q", got.LastOpReason, want)
+		}
+		if got.DesiredMachineID != "m-later" {
+			t.Fatalf("the mid-tick placement was reverted: %q", got.DesiredMachineID)
+		}
+	})
+
+	t.Run("a removed member and a member that no longer exists are both left alone", func(t *testing.T) {
+		api, d := reconcileTestServer(t)
+		reconcileTestPut(t, d, Member{ID: "left", Name: "L", Kind: KindStaff, RoleKey: "assistant", RosterStatus: RosterStatusRemoved})
+		before := reconcileTestRow(t, d, "left")
+		m := before
+		api.stampMemberPlacementBlocked(&m, reconcileTestNow)
+		reconcileTestWantRow(t, d, "left", before)
+		ghost := Member{ID: "never-existed"}
+		api.stampMemberPlacementBlocked(&ghost, reconcileTestNow)
+		if row, _ := d.GetMember("never-existed"); row != nil {
+			t.Fatalf("a missing member must not be created: %+v", row)
+		}
+	})
 }
 
-// The stamp is a whole-row write on the snapshot the tick loaded, and the HTTP
-// faces (relocate / deactivate) write member rows without holding reconcileMu —
-// so it re-reads first: a relocate that landed mid-tick keeps its NEW pin, and a
-// member removed mid-tick is not written back at all.
-func TestStampMemberPlacementBlockedReReadsTheRow(t *testing.T) {
-	s := newReconcileTestServer(t)
-	stale := testAgent("m-moved")
-	stale.DesiredMachineID = "mach-ghost-a"
-	putTestMember(t, s, stale)
+func TestStampMemberOpBlocked(t *testing.T) {
+	t.Run("a stall code is written onto the row as a failed start receipt, and a blank code writes nothing", func(t *testing.T) {
+		api, d := reconcileTestServer(t)
+		reconcileTestPut(t, d, Member{ID: "stalled", Name: "S", Kind: KindStaff, RoleKey: "assistant", DesiredState: DesiredStateOnline})
+		before := reconcileTestRow(t, d, "stalled")
+		api.stampMemberOpBlocked("stalled", "", reconcileTestNow)
+		reconcileTestWantRow(t, d, "stalled", before)
 
-	// A relocate lands after the tick took its snapshot. It moves the pin the
-	// way the relocate face does since T-55 — through the column's sole writer,
-	// not a whole-row write, which since that change would persist nothing.
-	if err := s.dal.SetMemberDesiredMachineID("m-moved", "mach-ghost-b"); err != nil {
-		t.Fatalf("relocate: %v", err)
-	}
+		api.stampMemberOpBlocked("stalled", spawnReasonCircuitOpen+": too many failed starts", reconcileTestNow)
+		want := before
+		want.LastOp = reconcileCmdStart
+		want.LastOpOK = reconcileTestFalse()
+		want.LastOpReason = spawnReasonCircuitOpen + ": too many failed starts"
+		want.LastOpAt = reconcileTestNow
+		reconcileTestWantRow(t, d, "stalled", want)
+	})
 
-	now := 7000.0
-	s.reconcileMu.Lock()
-	s.reconcileTickMemberLocked(stale, now)
-	s.reconcileMu.Unlock()
+	t.Run("the same cause re-decided every tick does not churn the row, while a different cause replaces it", func(t *testing.T) {
+		api, d := reconcileTestServer(t)
+		reconcileTestPut(t, d, Member{ID: "stalled", Name: "S", Kind: KindStaff, RoleKey: "assistant", DesiredState: DesiredStateOnline})
+		api.stampMemberOpBlocked("stalled", spawnReasonBackoff+": waiting", reconcileTestNow)
+		stamped := reconcileTestRow(t, d, "stalled")
+		api.stampMemberOpBlocked("stalled", spawnReasonBackoff+": waiting", reconcileTestNow+500)
+		reconcileTestWantRow(t, d, "stalled", stamped)
 
-	got, _ := s.dal.GetMember("m-moved")
-	// SENTINEL: the block really is stamped — the fixture reaches the write.
-	if got == nil || !strings.HasPrefix(got.LastOpReason, placementReasonUnavailable+":") ||
-		got.LastOpAt != now {
-		t.Fatalf("an unresolvable pin must stamp a block at %v: %+v", now, got)
-	}
-	if got.DesiredMachineID != "mach-ghost-b" {
-		t.Fatalf("the stamp must not write the stale pin back over a relocate, got %q",
-			got.DesiredMachineID)
-	}
+		api.stampMemberOpBlocked("stalled", spawnReasonZombieSuspect+": a session is still alive", reconcileTestNow+500)
+		want := stamped
+		want.LastOpReason = spawnReasonZombieSuspect + ": a session is still alive"
+		want.LastOpAt = reconcileTestNow + 500
+		reconcileTestWantRow(t, d, "stalled", want)
+	})
 
-	// A member REMOVED after the snapshot is left alone: writing the snapshot
-	// back would resurrect it into the active roster.
-	removed := *got
-	removed.RosterStatus = RosterStatusRemoved
-	putTestMember(t, s, removed)
-	// The receipt has to be cleared through its SOLE writer (T-55): zeroing the
-	// three fields on the snapshot above no longer does anything, because a
-	// whole-row write cannot move these columns any more. Left uncleared, the
-	// first stamp's receipt would still be on the row and the assertion below
-	// would be reading it instead of the second stamp's absence.
-	if err := s.dal.SetMemberOpReceipt("m-moved", "", nil, "", "", 0); err != nil {
-		t.Fatalf("clear receipt: %v", err)
-	}
+	t.Run("the retry loop describing its own wait yields to a standing wake-lapse diagnosis, while a fresh finding replaces it", func(t *testing.T) {
+		api, d := reconcileTestServer(t)
+		reconcileTestPut(t, d, Member{ID: "lapsed", Name: "L", Kind: KindStaff, RoleKey: "assistant", DesiredState: DesiredStateOnline})
+		api.stampMemberOpBlocked("lapsed", wakeTimeoutReasonCode+": the agent never came up", reconcileTestNow)
+		diagnosed := reconcileTestRow(t, d, "lapsed")
+		for _, retry := range []string{spawnReasonBackoff + ": waiting", spawnReasonCircuitOpen + ": disabled"} {
+			api.stampMemberOpBlocked("lapsed", retry, reconcileTestNow+10)
+			reconcileTestWantRow(t, d, "lapsed", diagnosed)
+		}
+		api.stampMemberOpBlocked("lapsed", spawnReasonZombieSuspect+": a session is still alive", reconcileTestNow+20)
+		want := diagnosed
+		want.LastOpReason = spawnReasonZombieSuspect + ": a session is still alive"
+		want.LastOpAt = reconcileTestNow + 20
+		reconcileTestWantRow(t, d, "lapsed", want)
+	})
 
-	s.reconcileMu.Lock()
-	s.reconcileTickMemberLocked(stale, now+30)
-	s.reconcileMu.Unlock()
-
-	after, _ := s.dal.GetMember("m-moved")
-	if after == nil || after.RosterStatus != RosterStatusRemoved ||
-		after.LastOpReason != "" || after.LastOpAt != 0 {
-		t.Fatalf("a removed member must not be written back by the stamp: %+v", after)
-	}
+	t.Run("a removed member and an id with no row are both left alone", func(t *testing.T) {
+		api, d := reconcileTestServer(t)
+		reconcileTestPut(t, d, Member{ID: "left", Name: "L", Kind: KindStaff, RoleKey: "assistant", RosterStatus: RosterStatusRemoved})
+		before := reconcileTestRow(t, d, "left")
+		api.stampMemberOpBlocked("left", spawnReasonBackoff+": waiting", reconcileTestNow)
+		reconcileTestWantRow(t, d, "left", before)
+		api.stampMemberOpBlocked("never-existed", spawnReasonBackoff+": waiting", reconcileTestNow)
+		if row, _ := d.GetMember("never-existed"); row != nil {
+			t.Fatalf("a missing member must not be created: %+v", row)
+		}
+	})
 }
 
-// ── stampContextHighRecycle ──────────────────────────────────────────────────
+func TestClearMemberConvergedFailureReceipt(t *testing.T) {
+	t.Run("a row the cockpit would paint red has all five receipt columns cleared", func(t *testing.T) {
+		api, d := reconcileTestServer(t)
+		reconcileTestPut(t, d, Member{ID: "recovered", Name: "R", Kind: KindStaff, RoleKey: "assistant", DesiredState: DesiredStateOnline})
+		api.stampMemberOpBlocked("recovered", spawnReasonBackoff+": waiting", reconcileTestNow)
+		failed := reconcileTestRow(t, d, "recovered")
+		api.clearMemberConvergedFailureReceipt("recovered", failed)
+		want := failed
+		want.LastOp = ""
+		want.LastOpOK = nil
+		want.LastOpLog = ""
+		want.LastOpReason = ""
+		want.LastOpAt = 0
+		reconcileTestWantRow(t, d, "recovered", want)
+	})
+
+	t.Run("a clean row, a success receipt and an already-cleared row are all left untouched, so converged ticks never churn", func(t *testing.T) {
+		api, d := reconcileTestServer(t)
+		reconcileTestPut(t, d, Member{ID: "healthy", Name: "H", Kind: KindStaff, RoleKey: "assistant", DesiredState: DesiredStateOnline})
+		clean := reconcileTestRow(t, d, "healthy")
+		api.clearMemberConvergedFailureReceipt("healthy", clean)
+		reconcileTestWantRow(t, d, "healthy", clean)
+
+		yes := true
+		succeeded := clean
+		succeeded.LastOp = reconcileCmdStart
+		succeeded.LastOpOK = &yes
+		succeeded.LastOpAt = reconcileTestNow
+		if err := d.SetMemberOpReceipt("healthy", succeeded.LastOp, succeeded.LastOpOK,
+			succeeded.LastOpLog, succeeded.LastOpReason, succeeded.LastOpAt); err != nil {
+			t.Fatalf("SetMemberOpReceipt: %v", err)
+		}
+		stored := reconcileTestRow(t, d, "healthy")
+		api.clearMemberConvergedFailureReceipt("healthy", stored)
+		reconcileTestWantRow(t, d, "healthy", stored)
+	})
+
+	t.Run("a receipt written after the tick's snapshot survives: the clear is judged on the re-read row", func(t *testing.T) {
+		api, d := reconcileTestServer(t)
+		reconcileTestPut(t, d, Member{ID: "raced", Name: "R", Kind: KindStaff, RoleKey: "assistant", DesiredState: DesiredStateOnline})
+		api.stampMemberOpBlocked("raced", spawnReasonBackoff+": waiting", reconcileTestNow)
+		snapshot := reconcileTestRow(t, d, "raced")
+		api.clearMemberConvergedFailureReceipt("raced", snapshot)
+		cleared := reconcileTestRow(t, d, "raced")
+		api.clearMemberConvergedFailureReceipt("raced", snapshot)
+		reconcileTestWantRow(t, d, "raced", cleared)
+	})
+
+	t.Run("a removed member is left alone even while its snapshot renders as a failure", func(t *testing.T) {
+		api, d := reconcileTestServer(t)
+		reconcileTestPut(t, d, Member{
+			ID: "left", Name: "L", Kind: KindStaff, RoleKey: "assistant",
+			RosterStatus: RosterStatusRemoved, LastOp: reconcileCmdStart, LastOpAt: reconcileTestNow,
+		})
+		before := reconcileTestRow(t, d, "left")
+		if !receiptRendersAsFailure(before.LastOp, before.LastOpAt, before.LastOpOK) {
+			t.Fatalf("the fixture must start as a rendered failure: %+v", before)
+		}
+		api.clearMemberConvergedFailureReceipt("left", before)
+		reconcileTestWantRow(t, d, "left", before)
+	})
+}
+
+func TestStampWakeObservability(t *testing.T) {
+	t.Run("a landed START stamps the waking anchor so a failed wake stops rendering as a member nobody woke", func(t *testing.T) {
+		api, d := reconcileTestServer(t)
+		reconcileTestPut(t, d, Member{ID: "woken", Name: "W", Kind: KindStaff, RoleKey: "assistant", DesiredState: DesiredStateOnline, DesiredMachineID: "m-box"})
+		before := reconcileTestRow(t, d, "woken")
+		m := before
+		api.stampWakeObservability(&m, reconcileDecision{Command: reconcileCmdStart}, reconcileTestNow)
+		if m.WakingSince != reconcileTestNow {
+			t.Fatalf("in-memory WakingSince = %v", m.WakingSince)
+		}
+		want := before
+		want.WakingSince = reconcileTestNow
+		reconcileTestWantRow(t, d, "woken", want)
+	})
+
+	t.Run("a landed START retires a placement-blocked explanation but leaves the failed-start verdict standing", func(t *testing.T) {
+		api, d := reconcileTestServer(t)
+		reconcileTestPut(t, d, Member{ID: "blocked", Name: "B", Kind: KindStaff, RoleKey: "assistant", DesiredState: DesiredStateOnline})
+		m := reconcileTestRow(t, d, "blocked")
+		api.stampMemberPlacementBlocked(&m, reconcileTestNow)
+		stamped := reconcileTestRow(t, d, "blocked")
+		fresh := stamped
+		api.stampWakeObservability(&fresh, reconcileDecision{Command: reconcileCmdStart}, reconcileTestNow+10)
+		want := stamped
+		want.WakingSince = reconcileTestNow + 10
+		want.LastOpReason = ""
+		want.LastOpLog = ""
+		reconcileTestWantRow(t, d, "blocked", want)
+	})
+
+	t.Run("a START that lapsed its window writes the wake-timeout receipt and clears the now-false waking anchor", func(t *testing.T) {
+		api, d := reconcileTestServer(t)
+		reconcileTestPut(t, d, Member{
+			ID: "lapsed", Name: "L", Kind: KindStaff, RoleKey: "assistant",
+			DesiredState: DesiredStateOnline, DesiredMachineID: "m-box", WakingSince: reconcileTestNow,
+		})
+		before := reconcileTestRow(t, d, "lapsed")
+		m := before
+		api.stampWakeObservability(&m, reconcileDecision{StartTimedOut: true}, reconcileTestNow+300)
+		want := before
+		want.WakingSince = 0
+		want.LastOp = reconcileCmdStart
+		want.LastOpOK = reconcileTestFalse()
+		want.LastOpAt = reconcileTestNow + 300
+		want.LastOpReason = wakeTimeoutReasonCode + ": the START was dispatched but the agent " +
+			"never came online within the start window — check that claude runs and is logged " +
+			"in on the target machine (warden log: ocwarden.out.log)"
+		reconcileTestWantRow(t, d, "lapsed", want)
+	})
+
+	t.Run("a lapse whose frame was dropped mid-delivery names the connection instead of sending the owner to the machine", func(t *testing.T) {
+		api, d := reconcileTestServer(t)
+		reconcileTestPut(t, d, Member{
+			ID: "lost", Name: "L", Kind: KindStaff, RoleKey: "assistant",
+			DesiredState: DesiredStateOnline, DesiredMachineID: "m-box", WakingSince: reconcileTestNow,
+		})
+		frame, _ := buildTargetFrame(reconcileCmdStart, "lost")
+		hubTestStderr(t, func() {
+			api.hub.ReturnUndeliveredCommands("m-box", []wardenCmd{{Subject: "lost", Frame: frame}})
+		})
+		before := reconcileTestRow(t, d, "lost")
+		m := before
+		api.stampWakeObservability(&m, reconcileDecision{StartTimedOut: true}, reconcileTestNow+300)
+		want := before
+		want.WakingSince = 0
+		want.LastOp = reconcileCmdStart
+		want.LastOpOK = reconcileTestFalse()
+		want.LastOpAt = reconcileTestNow + 300
+		want.LastOpReason = wakeTimeoutReasonCode + ": the START never reached machine \"m-box\" — " +
+			"its SSE stream failed mid-delivery and the frame was dropped server-side, so nothing " +
+			"on that machine was ever asked to start; do not go looking at claude there, the " +
+			"machine's connection is the suspect"
+		reconcileTestWantRow(t, d, "lost", want)
+	})
+
+	t.Run("a converged tick clears the failure receipt and writes nothing else, while a tick with nothing to say writes nothing at all", func(t *testing.T) {
+		api, d := reconcileTestServer(t)
+		reconcileTestPut(t, d, Member{ID: "back", Name: "B", Kind: KindStaff, RoleKey: "assistant", DesiredState: DesiredStateOnline})
+		api.stampMemberOpBlocked("back", spawnReasonBackoff+": waiting", reconcileTestNow)
+		failed := reconcileTestRow(t, d, "back")
+		m := failed
+		api.stampWakeObservability(&m, reconcileDecision{Command: reconcileCmdNone, ConvergedOnline: true}, reconcileTestNow+10)
+		want := failed
+		want.LastOp = ""
+		want.LastOpOK = nil
+		want.LastOpLog = ""
+		want.LastOpReason = ""
+		want.LastOpAt = 0
+		reconcileTestWantRow(t, d, "back", want)
+
+		quiet := reconcileTestRow(t, d, "back")
+		api.stampWakeObservability(&quiet, reconcileDecision{Command: reconcileCmdNone}, reconcileTestNow+20)
+		reconcileTestWantRow(t, d, "back", want)
+	})
+
+	t.Run("a removed member is never written, whichever half of the stamp the decision asks for", func(t *testing.T) {
+		api, d := reconcileTestServer(t)
+		reconcileTestPut(t, d, Member{ID: "left", Name: "L", Kind: KindStaff, RoleKey: "assistant", RosterStatus: RosterStatusRemoved})
+		before := reconcileTestRow(t, d, "left")
+		for _, decision := range []reconcileDecision{
+			{Command: reconcileCmdStart},
+			{StartTimedOut: true},
+		} {
+			m := before
+			api.stampWakeObservability(&m, decision, reconcileTestNow)
+			reconcileTestWantRow(t, d, "left", before)
+		}
+	})
+}
+
+func TestReconcileOne(t *testing.T) {
+	t.Run("a decided START is built, enqueued on the target warden's FIFO and leaves the advanced state standing", func(t *testing.T) {
+		api, d := reconcileTestServer(t)
+		reconcileTestOnline(t, api, "m-box", "")
+		reconcileTestPut(t, d, Member{ID: "runner", Name: "Runner", Kind: KindStaff, RoleKey: "assistant", DesiredState: DesiredStateOnline, DesiredMachineID: "m-box"})
+		out := hubTestStderr(t, func() {
+			got := api.reconcileOne(reconcileTestRow(t, d, "runner"), newReconcileState(), reconcileTestNow)
+			reconcileTestWantDecision(t, got, reconcileDecision{
+				Command: reconcileCmdStart, MemberID: "runner",
+				Reason: "spawn: desired_state online, no live session",
+				State: reconcileState{
+					Phase: reconcilePhaseStarting, LastCommand: reconcileCmdStart,
+					LastCommandAt: reconcileTestNow, OfflineSince: reconcileTestNow,
+				},
+			})
+		})
+		if out != "" {
+			t.Fatalf("a clean dispatch logs nothing, got %q", out)
+		}
+		queued := api.hub.DrainWardenCommands("m-box")
+		if len(queued) != 1 || queued[0].Subject != "runner" {
+			t.Fatalf("queued = %+v, want one frame tagged runner", queued)
+		}
+		if digest, ok := decodeWardenCommandFrame(queued[0].Frame); !ok ||
+			digest != (wardenCommandDigest{Verb: reconcileCmdStart, MemberID: "runner"}) {
+			t.Fatalf("queued frame digest = %+v (%v)", digest, ok)
+		}
+	})
+
+	t.Run("a member with no machine is downgraded to a no-op that reports unlanded, keeps the prior state and stamps the row", func(t *testing.T) {
+		api, d := reconcileTestServer(t)
+		reconcileTestPut(t, d, Member{ID: "nowhere", Name: "Nowhere", Kind: KindStaff, RoleKey: "assistant", DesiredState: DesiredStateOnline})
+		before := reconcileTestRow(t, d, "nowhere")
+		got := api.reconcileOne(before, newReconcileState(), reconcileTestNow)
+		reconcileTestWantDecision(t, got, reconcileDecision{
+			Command: reconcileCmdNone, MemberID: "nowhere", Reason: "no machine selected",
+			State:            newReconcileState(),
+			DispatchUnlanded: true,
+		})
+		want := before
+		want.LastOp = reconcileCmdStart
+		want.LastOpOK = reconcileTestFalse()
+		want.LastOpAt = reconcileTestNow
+		want.LastOpReason = placementReasonNoMachine + ": no machine is selected for this member — " +
+			"choose one (改機器) before waking it; there is no automatic placement"
+		reconcileTestWantRow(t, d, "nowhere", want)
+	})
+
+	t.Run("a target machine that does not report the member's runtime refuses the dispatch and says which runtime it wanted", func(t *testing.T) {
+		api, d := reconcileTestServer(t)
+		reconcileTestPut(t, d, Member{ID: "m-cx", Name: "CX", Kind: KindWarden})
+		api.telemetry.Set("m-cx", map[string]any{"runtimes": map[string]any{
+			"codex": map[string]any{"installed": true, "logged_in": true},
+		}})
+		reconcileTestOnline(t, api, "m-cx", "")
+		reconcileTestPut(t, d, Member{
+			ID: "wrongbox", Name: "Wrongbox", Kind: KindStaff, RoleKey: "assistant",
+			DesiredState: DesiredStateOnline, DesiredMachineID: "m-cx", Runtime: RuntimeClaude,
+		})
+		out := hubTestStderr(t, func() {
+			got := api.reconcileOne(reconcileTestRow(t, d, "wrongbox"), newReconcileState(), reconcileTestNow)
+			reconcileTestWantDecision(t, got, reconcileDecision{
+				Command: reconcileCmdNone, MemberID: "wrongbox",
+				Reason: "selected runtime unavailable on target machine",
+				State:  newReconcileState(), DispatchUnlanded: true,
+			})
+		})
+		want := "[reconcile] wrongbox: target warden \"m-cx\" does not report runtime \"claude\" ready — fail-closed\n"
+		if out != want {
+			t.Fatalf("stderr:\n got %q\nwant %q", out, want)
+		}
+		if got := api.hub.PendingWardenCommands("m-cx"); got != 0 {
+			t.Fatalf("a refused dispatch queued %d frame(s)", got)
+		}
+	})
+
+	t.Run("a START whose payload cannot be assembled is refused loudly and its state is rolled back to offline", func(t *testing.T) {
+		api, d := reconcileTestServer(t)
+		reconcileTestOnline(t, api, "m-box", "")
+		reconcileTestPut(t, d, Member{
+			ID: "roleless", Name: "Roleless", Kind: KindStaff, RoleKey: "engineer",
+			DesiredState: DesiredStateOnline, DesiredMachineID: "m-box", Runtime: RuntimeClaude,
+		})
+		out := hubTestStderr(t, func() {
+			got := api.reconcileOne(reconcileTestRow(t, d, "roleless"), newReconcileState(), reconcileTestNow)
+			reconcileTestWantDecision(t, got, reconcileDecision{
+				Command: reconcileCmdNone, MemberID: "roleless",
+				Reason: "no start payload (persona/token) — fail-closed",
+				State:  newReconcileState(),
+			})
+		})
+		want := "[reconcile] roleless: no START payload (persona/token) — fail-closed, not dispatching\n"
+		if out != want {
+			t.Fatalf("stderr:\n got %q\nwant %q", out, want)
+		}
+		if got := api.hub.PendingWardenCommands("m-box"); got != 0 {
+			t.Fatalf("a refused dispatch queued %d frame(s)", got)
+		}
+	})
+
+	t.Run("a decided UNINSTALL for an online warden is enqueued on that warden's own FIFO", func(t *testing.T) {
+		api, d := reconcileTestServer(t)
+		reconcileTestPut(t, d, Member{ID: "m-doomed", Name: "Doomed", Kind: KindWarden, DesiredState: DesiredStateUninstall})
+		reconcileTestOnline(t, api, "m-doomed", "")
+		got := api.reconcileOne(reconcileTestRow(t, d, "m-doomed"), newReconcileState(), reconcileTestNow)
+		reconcileTestWantDecision(t, got, reconcileDecision{
+			Command: reconcileCmdUninstall, MemberID: "m-doomed",
+			Reason: "uninstall: desired_state uninstall, warden online — dispatch uninstall",
+			State: reconcileState{
+				Phase: reconcilePhaseStopping, LastCommand: reconcileCmdUninstall,
+				LastCommandAt: reconcileTestNow,
+			},
+		})
+		frame, _ := buildTargetFrame(reconcileCmdUninstall, "m-doomed")
+		queued := api.hub.DrainWardenCommands("m-doomed")
+		if !reflect.DeepEqual(queued, []wardenCmd{{Subject: "m-doomed", Frame: frame}}) {
+			t.Fatalf("queued = %+v", queued)
+		}
+	})
+
+	t.Run("a STOP the warden cannot take is downgraded to a no-op that keeps the prior state so the next tick re-dispatches", func(t *testing.T) {
+		api, d := reconcileTestServer(t)
+		reconcileTestPut(t, d, Member{ID: "m-away", Name: "Away", Kind: KindWarden})
+		reconcileTestPut(t, d, Member{
+			ID: "leaving", Name: "Leaving", Kind: KindStaff, RoleKey: "assistant",
+			DesiredState: DesiredStateOffline, DesiredMachineID: "m-away",
+		})
+		reconcileTestOnline(t, api, "leaving", "m-away")
+		prior := reconcileState{Phase: reconcilePhaseStopping, LastCommand: reconcileCmdNone, StopDeadline: reconcileTestNow - 1}
+		timed := api.reconcileCfg
+		timed.SoftOffboardGrace = 0
+		api.reconcileCfg = timed
+		out := hubTestStderr(t, func() {
+			got := api.reconcileOne(reconcileTestRow(t, d, "leaving"), prior, reconcileTestNow)
+			reconcileTestWantDecision(t, got, reconcileDecision{
+				Command: reconcileCmdNone, MemberID: "leaving",
+				Reason: "robust stop: grace elapsed, still online",
+				State:  prior, DispatchUnlanded: true,
+				// The downgrade clears the command; the STOP flavour rides out unchanged.
+				StopKind: stopKindWinddown,
+			})
+		})
+		want := "[reconcile] leaving: target warden \"m-away\" NOT reachable (no live SSE downstream) — " +
+			"fail-closed, not dispatching, will retry when the warden connects\n"
+		if out != want {
+			t.Fatalf("stderr:\n got %q\nwant %q", out, want)
+		}
+		if got := api.hub.PendingWardenCommands("m-away"); got != 0 {
+			t.Fatalf("a refused dispatch queued %d frame(s)", got)
+		}
+	})
+}
+
+func TestReconcileTickMemberLocked(t *testing.T) {
+	t.Run("one member's tick logs its decision, stores the next state and stamps the wake anchor a landed START earns", func(t *testing.T) {
+		api, d := reconcileTestServer(t)
+		reconcileTestOnline(t, api, "m-box", "")
+		reconcileTestPut(t, d, Member{ID: "runner", Name: "Runner", Kind: KindStaff, RoleKey: "assistant", DesiredState: DesiredStateOnline, DesiredMachineID: "m-box"})
+		before := reconcileTestRow(t, d, "runner")
+		out := hubTestStderr(t, func() {
+			api.reconcileMu.Lock()
+			defer api.reconcileMu.Unlock()
+			got := api.reconcileTickMemberLocked(before, reconcileTestNow)
+			if got.Command != reconcileCmdStart {
+				t.Fatalf("command = %q, want start", got.Command)
+			}
+		})
+		want := "[reconcile] runner: desired=online command=start — spawn: desired_state online, no live session\n"
+		if out != want {
+			t.Fatalf("stderr:\n got %q\nwant %q", out, want)
+		}
+		wantState := reconcileState{
+			Phase: reconcilePhaseStarting, LastCommand: reconcileCmdStart,
+			LastCommandAt: reconcileTestNow, OfflineSince: reconcileTestNow,
+		}
+		if api.reconcileStates["runner"] != wantState {
+			t.Fatalf("stored state:\n got %+v\nwant %+v", api.reconcileStates["runner"], wantState)
+		}
+		wantRow := before
+		wantRow.WakingSince = reconcileTestNow
+		wantRow.Runtime = RuntimeClaude
+		reconcileTestWantRow(t, d, "runner", wantRow)
+		if got := api.hub.PendingWardenCommandsFor("m-box", "runner"); got != 1 {
+			t.Fatalf("the warden's per-subject backlog = %d, want the one START", got)
+		}
+	})
+
+	t.Run("a stall the decider names is stamped onto the row the cockpit reads", func(t *testing.T) {
+		api, d := reconcileTestServer(t)
+		reconcileTestPut(t, d, Member{ID: "stalled", Name: "Stalled", Kind: KindStaff, RoleKey: "assistant", DesiredState: DesiredStateOnline})
+		api.reconcileStates["stalled"] = reconcileState{
+			Phase: reconcilePhaseBackoff, LastCommand: reconcileCmdNone, BackoffUntil: reconcileTestNow + 5,
+		}
+		before := reconcileTestRow(t, d, "stalled")
+		out := hubTestStderr(t, func() {
+			api.reconcileMu.Lock()
+			defer api.reconcileMu.Unlock()
+			api.reconcileTickMemberLocked(before, reconcileTestNow)
+		})
+		want := "[reconcile] stalled: desired=online command=none — backoff: awaiting retry window\n"
+		if out != want {
+			t.Fatalf("stderr:\n got %q\nwant %q", out, want)
+		}
+		wantRow := before
+		wantRow.LastOp = reconcileCmdStart
+		wantRow.LastOpOK = reconcileTestFalse()
+		wantRow.LastOpAt = reconcileTestNow
+		wantRow.LastOpReason = spawnReasonBackoff + ": the last start did not come up, so the next " +
+			"attempt is waiting out a back-off window — nothing is wrong with the button you " +
+			"pressed, the retry has not come round yet"
+		reconcileTestWantRow(t, d, "stalled", wantRow)
+	})
+
+	t.Run("a wake lapse keeps the execution diagnosis: the same tick's back-off code is not allowed to overwrite it", func(t *testing.T) {
+		api, d := reconcileTestServer(t)
+		reconcileTestPut(t, d, Member{
+			ID: "lapsed", Name: "Lapsed", Kind: KindStaff, RoleKey: "assistant",
+			DesiredState: DesiredStateOnline, DesiredMachineID: "m-box", WakingSince: reconcileTestNow - 200,
+		})
+		api.reconcileStates["lapsed"] = reconcileState{
+			Phase: reconcilePhaseStarting, LastCommand: reconcileCmdStart, LastCommandAt: reconcileTestNow - 121,
+		}
+		before := reconcileTestRow(t, d, "lapsed")
+		hubTestStderr(t, func() {
+			api.reconcileMu.Lock()
+			defer api.reconcileMu.Unlock()
+			got := api.reconcileTickMemberLocked(before, reconcileTestNow)
+			if !got.StartTimedOut {
+				t.Fatalf("the tick must observe the lapse: %+v", got)
+			}
+		})
+		wantRow := before
+		wantRow.WakingSince = 0
+		wantRow.LastOp = reconcileCmdStart
+		wantRow.LastOpOK = reconcileTestFalse()
+		wantRow.LastOpAt = reconcileTestNow
+		wantRow.LastOpReason = wakeTimeoutReasonCode + ": the START was dispatched but the agent " +
+			"never came online within the start window — check that claude runs and is logged " +
+			"in on the target machine (warden log: ocwarden.out.log)"
+		reconcileTestWantRow(t, d, "lapsed", wantRow)
+	})
+}
+
+func TestArmDecidedHandover(t *testing.T) {
+	t.Run("a relocation decision opens the wind-down epoch on the member's row and says so", func(t *testing.T) {
+		api, d := reconcileTestServer(t)
+		reconcileTestPut(t, d, Member{ID: "moving", Name: "Moving", Kind: KindStaff, RoleKey: "assistant", DesiredState: DesiredStateOnline, DesiredMachineID: "m-box"})
+		reconcileTestOnline(t, api, "moving", "m-old")
+		before := reconcileTestRow(t, d, "moving")
+		out := hubTestStderr(t, func() {
+			api.armDecidedHandover("moving", reconcileDecision{ArmHandoverOp: memberOpRelocate})
+		})
+		want := "[reconcile] recycle: relocate moving — wind-down opened " +
+			"(collect on stopped-report or force-stop; no clock)\n"
+		if out != want {
+			t.Fatalf("stderr:\n got %q\nwant %q", out, want)
+		}
+		got := reconcileTestRow(t, d, "moving")
+		if got.RefocusOp != memberOpRelocate || got.RefocusSince <= 0 {
+			t.Fatalf("the epoch was not opened: refocus_op=%q refocus_since=%v", got.RefocusOp, got.RefocusSince)
+		}
+		expected := before
+		expected.RefocusOp = memberOpRelocate
+		expected.RefocusSince = got.RefocusSince
+		reconcileTestWantRow(t, d, "moving", expected)
+	})
+
+	t.Run("a decision that asks for no epoch writes nothing at all", func(t *testing.T) {
+		api, d := reconcileTestServer(t)
+		reconcileTestPut(t, d, Member{ID: "quiet", Name: "Quiet", Kind: KindStaff, RoleKey: "assistant", DesiredState: DesiredStateOnline})
+		reconcileTestOnline(t, api, "quiet", "m-box")
+		before := reconcileTestRow(t, d, "quiet")
+		out := hubTestStderr(t, func() {
+			api.armDecidedHandover("quiet", reconcileDecision{Command: reconcileCmdStart})
+		})
+		if out != "" {
+			t.Fatalf("stderr = %q, want nothing", out)
+		}
+		reconcileTestWantRow(t, d, "quiet", before)
+	})
+
+	t.Run("a refusing gate — an offline member, a warden row, a removed row, a missing row — leaves the roster untouched", func(t *testing.T) {
+		api, d := reconcileTestServer(t)
+		reconcileTestPut(t, d, Member{ID: "asleep", Name: "Asleep", Kind: KindStaff, RoleKey: "assistant", DesiredState: DesiredStateOnline})
+		reconcileTestPut(t, d, Member{ID: "left", Name: "Left", Kind: KindStaff, RoleKey: "assistant", DesiredState: DesiredStateOnline, RosterStatus: RosterStatusRemoved})
+		for _, id := range []string{"asleep", "m-box", "left"} {
+			before := reconcileTestRow(t, d, id)
+			out := hubTestStderr(t, func() {
+				api.armDecidedHandover(id, reconcileDecision{ArmHandoverOp: memberOpRelocate})
+			})
+			if out != "" {
+				t.Fatalf("%s: stderr = %q, want nothing", id, out)
+			}
+			reconcileTestWantRow(t, d, id, before)
+		}
+		api.armDecidedHandover("never-existed", reconcileDecision{ArmHandoverOp: memberOpRelocate})
+		if row, _ := d.GetMember("never-existed"); row != nil {
+			t.Fatalf("a missing member must not be created: %+v", row)
+		}
+	})
+}
+
+func TestNoteContextGateSkip(t *testing.T) {
+	t.Run("the line names the gate and every gauge input the guards read, and the live-connection fact", func(t *testing.T) {
+		api, _ := reconcileTestServer(t)
+		reconcileTestOnline(t, api, "kip", "m-box")
+		record := map[string]any{"context_pct": 55.0, "context_pct_ts": 19900.0, "boot_ts": 19000.0}
+		out := hubTestStderr(t, func() { api.noteContextGateSkip("kip", "offline", record, 20000) })
+		want := "[reconcile] recycle: gate skip kip gate=offline pct=55 pct_ts=19900 " +
+			"boot_ts=19000 boot_secs=1000.0 online=true\n"
+		if out != want {
+			t.Fatalf("stderr:\n got %q\nwant %q", out, want)
+		}
+	})
+
+	t.Run("a missing gauge renders every input as a dash rather than a number nobody measured", func(t *testing.T) {
+		api, _ := reconcileTestServer(t)
+		out := hubTestStderr(t, func() { api.noteContextGateSkip("kip", "no-actionable-pct", nil, 20000) })
+		want := "[reconcile] recycle: gate skip kip gate=no-actionable-pct pct=- pct_ts=- " +
+			"boot_ts=- boot_secs=- online=false\n"
+		if out != want {
+			t.Fatalf("stderr:\n got %q\nwant %q", out, want)
+		}
+	})
+
+	t.Run("the same actor on the same gate is silenced for five minutes, while a change of gate speaks immediately", func(t *testing.T) {
+		api, _ := reconcileTestServer(t)
+		record := map[string]any{"context_pct": 55.0, "context_pct_ts": 19900.0, "boot_ts": 19000.0}
+		line := func(gate string, secs string) string {
+			return "[reconcile] recycle: gate skip kip gate=" + gate + " pct=55 pct_ts=19900 " +
+				"boot_ts=19000 boot_secs=" + secs + " online=false\n"
+		}
+		if got := hubTestStderr(t, func() { api.noteContextGateSkip("kip", "offline", record, 20000) }); got != line("offline", "1000.0") {
+			t.Fatalf("the first line:\n got %q\nwant %q", got, line("offline", "1000.0"))
+		}
+		if got := hubTestStderr(t, func() { api.noteContextGateSkip("kip", "offline", record, 20299) }); got != "" {
+			t.Fatalf("inside the window the same gate must be silent, got %q", got)
+		}
+		if got := hubTestStderr(t, func() { api.noteContextGateSkip("kip", "boot-storm", record, 20010) }); got != line("boot-storm", "1010.0") {
+			t.Fatalf("a change of gate must speak:\n got %q\nwant %q", got, line("boot-storm", "1010.0"))
+		}
+		if got := hubTestStderr(t, func() { api.noteContextGateSkip("kip", "boot-storm", record, 20310) }); got != line("boot-storm", "1310.0") {
+			t.Fatalf("past the window the same gate speaks again:\n got %q\nwant %q", got, line("boot-storm", "1310.0"))
+		}
+	})
+
+	t.Run("the throttle is per actor: a second member on the same gate is not silenced by the first", func(t *testing.T) {
+		api, _ := reconcileTestServer(t)
+		hubTestStderr(t, func() { api.noteContextGateSkip("kip", "offline", nil, 20000) })
+		out := hubTestStderr(t, func() { api.noteContextGateSkip("mira", "offline", nil, 20001) })
+		want := "[reconcile] recycle: gate skip mira gate=offline pct=- pct_ts=- boot_ts=- " +
+			"boot_secs=- online=false\n"
+		if out != want {
+			t.Fatalf("stderr:\n got %q\nwant %q", out, want)
+		}
+	})
+}
 
 func TestStampContextHighRecycle(t *testing.T) {
-	newHot := func(t *testing.T) (*apiServer, []Member) {
-		s := newReconcileTestServer(t)
-		putTestMember(t, s, testAgent("m-hot"))
-		m, _ := s.dal.GetMember("m-hot")
-		return s, []Member{*m}
-	}
-	freshGauge := func(now float64, pct float64) map[string]any {
-		return map[string]any{
-			"context_pct": pct, "context_pct_ts": now - 10, "boot_ts": now - 500,
+	t.Run("a live session over the handover line has an accelerated wind-down stamped on it, in the slice and on the row", func(t *testing.T) {
+		api, d := reconcileTestServer(t)
+		reconcileTestPut(t, d, Member{ID: "hot", Name: "Hot", Kind: KindStaff, RoleKey: "assistant", DesiredState: DesiredStateOnline, DesiredMachineID: "m-box"})
+		reconcileTestOnline(t, api, "hot", "m-box")
+		api.gauge.Set("hot", map[string]any{"context_pct": 55.0, "context_pct_ts": 19900.0, "boot_ts": 19000.0})
+		before := reconcileTestRow(t, d, "hot")
+		members := []Member{before}
+		out := hubTestStderr(t, func() { api.stampContextHighRecycle(members, 20000) })
+		if out != "[reconcile] recycle: auto-stamp refocus_since for hot (claude, context_high)\n" {
+			t.Fatalf("stderr = %q", out)
 		}
-	}
-	now := 10000.0
-
-	// 🔴 POSITIVE CONTROL, and it has to come first (T-c382). Every other
-	// subtest here asserts that something must NOT recycle, which means a
-	// mutant that disables auto-refocus outright — shouldAutoRefocus returning
-	// a flat false — left this whole test GREEN. "The handover works" and "the
-	// handover is dead" were indistinguishable, and nothing would have said so.
-	// Measured, not assumed: that mutant was planted and this file passed.
-	t.Run("an online member over the handover line IS recycled", func(t *testing.T) {
-		s, members := newHot(t)
-		connectOnline(t, s, "m-hot")
-		s.gauge.Set("m-hot", freshGauge(now, float64(s.ctxhigh.HandoverPct)))
-		s.stampContextHighRecycle(members, now)
-		if members[0].RefocusSince != now {
-			t.Fatalf("crossing the handover line must stamp refocus_since, got %v",
-				members[0].RefocusSince)
+		if members[0].RefocusSince != 20000 || members[0].RefocusOp != refocusOpContextHigh {
+			t.Fatalf("the slice member must carry the marker for this same tick: %+v", members[0])
 		}
+		want := before
+		want.RefocusSince = 20000
+		want.RefocusOp = refocusOpContextHigh
+		reconcileTestWantRow(t, d, "hot", want)
 	})
 
-	t.Run("codex is recycled on compaction count, not percent", func(t *testing.T) {
-		// The other half of the positive control: codex has its own axis, and a
-		// change that quietly folded it onto the percentage rule would still
-		// look green against the claude case above.
-		s := newReconcileTestServer(t)
-		m := testAgent("m-codex")
-		m.Runtime = RuntimeCodex
-		putTestMember(t, s, m)
-		fresh, _ := s.dal.GetMember("m-codex")
-		members := []Member{*fresh}
-		connectOnline(t, s, "m-codex")
-		s.gauge.Set("m-codex", map[string]any{
-			"context_pct": 1.0, "context_pct_ts": now - 10, "boot_ts": now - 500,
-			"compaction_count": defaultCodexCompactionThreshold,
+	t.Run("a live session over only the first line gets a plain 停止 instead", func(t *testing.T) {
+		api, d := reconcileTestServer(t)
+		reconcileTestPut(t, d, Member{ID: "warm", Name: "Warm", Kind: KindStaff, RoleKey: "assistant", DesiredState: DesiredStateOnline, DesiredMachineID: "m-box"})
+		reconcileTestOnline(t, api, "warm", "m-box")
+		api.gauge.Set("warm", map[string]any{"context_pct": 45.0, "context_pct_ts": 19900.0, "boot_ts": 19000.0})
+		before := reconcileTestRow(t, d, "warm")
+		out := hubTestStderr(t, func() { api.stampContextHighRecycle([]Member{before}, 20000) })
+		if out != "[reconcile] recycle: auto-stamp refocus_since for warm (claude, context_notice)\n" {
+			t.Fatalf("stderr = %q", out)
+		}
+		want := before
+		want.RefocusSince = 20000
+		want.RefocusOp = refocusOpContextNotice
+		reconcileTestWantRow(t, d, "warm", want)
+	})
+
+	t.Run("a notice epoch crossing the second line is promoted in place with a fresh deadline, keeping the close-out anchors", func(t *testing.T) {
+		api, d := reconcileTestServer(t)
+		reconcileTestPut(t, d, Member{
+			ID: "promoted", Name: "Promoted", Kind: KindStaff, RoleKey: "assistant",
+			DesiredState: DesiredStateOnline, DesiredMachineID: "m-box",
+			RefocusSince: 19500, RefocusOp: refocusOpContextNotice, StoppingSince: 19600,
 		})
-		s.stampContextHighRecycle(members, now)
-		if members[0].RefocusSince != now {
-			t.Fatalf("a codex member at its compaction threshold must recycle even "+
-				"at 1%% context, got %v", members[0].RefocusSince)
+		reconcileTestOnline(t, api, "promoted", "m-box")
+		api.gauge.Set("promoted", map[string]any{"context_pct": 55.0, "context_pct_ts": 19900.0, "boot_ts": 19000.0})
+		before := reconcileTestRow(t, d, "promoted")
+		out := hubTestStderr(t, func() { api.stampContextHighRecycle([]Member{before}, 20000) })
+		if out != "[reconcile] recycle: promoted promoted to context_high (claude)\n" {
+			t.Fatalf("stderr = %q", out)
+		}
+		want := before
+		want.RefocusSince = 20000
+		want.RefocusOp = refocusOpContextHigh
+		reconcileTestWantRow(t, d, "promoted", want)
+	})
+
+	t.Run("each gate names itself on stderr and writes nothing: a stale gauge, a fresh boot over the line, and an offline member", func(t *testing.T) {
+		api, d := reconcileTestServer(t)
+		reconcileTestPut(t, d, Member{ID: "stale", Name: "Stale", Kind: KindStaff, RoleKey: "assistant", DesiredState: DesiredStateOnline})
+		reconcileTestPut(t, d, Member{ID: "booting", Name: "Booting", Kind: KindStaff, RoleKey: "assistant", DesiredState: DesiredStateOnline})
+		reconcileTestPut(t, d, Member{ID: "gone", Name: "Gone", Kind: KindStaff, RoleKey: "assistant", DesiredState: DesiredStateOnline})
+		api.gauge.Set("booting", map[string]any{"context_pct": 55.0, "context_pct_ts": 19990.0, "boot_ts": 19950.0})
+		api.gauge.Set("gone", map[string]any{"context_pct": 55.0, "context_pct_ts": 19900.0, "boot_ts": 19000.0})
+		for _, c := range []struct {
+			id   string
+			want string
+		}{
+			{"stale", "[reconcile] recycle: gate skip stale gate=no-actionable-pct pct=- pct_ts=- boot_ts=- boot_secs=- online=false\n"},
+			{"booting", "[reconcile] recycle: gate skip booting gate=boot-storm pct=55 pct_ts=19990 boot_ts=19950 boot_secs=50.0 online=false\n"},
+			{"gone", "[reconcile] recycle: gate skip gone gate=offline pct=55 pct_ts=19900 boot_ts=19000 boot_secs=1000.0 online=false\n"},
+		} {
+			before := reconcileTestRow(t, d, c.id)
+			out := hubTestStderr(t, func() { api.stampContextHighRecycle([]Member{before}, 20000) })
+			if out != c.want {
+				t.Fatalf("%s stderr:\n got %q\nwant %q", c.id, out, c.want)
+			}
+			reconcileTestWantRow(t, d, c.id, before)
 		}
 	})
 
-	t.Run("skips a stale pct", func(t *testing.T) {
-		s, members := newHot(t)
-		connectOnline(t, s, "m-hot")
-		s.gauge.Set("m-hot", map[string]any{
-			"context_pct":    99.0,
-			"context_pct_ts": now - 600, // reported before this boot
-			"boot_ts":        now - 500,
+	t.Run("a session that already reported it is finished, and one the server no longer wants online, are skipped silently", func(t *testing.T) {
+		api, d := reconcileTestServer(t)
+		reconcileTestPut(t, d, Member{
+			ID: "finished", Name: "Finished", Kind: KindStaff, RoleKey: "assistant",
+			DesiredState: DesiredStateOnline, DesiredMachineID: "m-box", StoppedSince: 19500,
 		})
-		s.stampContextHighRecycle(members, now)
-		if members[0].RefocusSince != 0 {
-			t.Fatal("a stale pct must never auto-recycle")
-		}
-	})
-
-	t.Run("skips a boot-storm fresh boot", func(t *testing.T) {
-		s, members := newHot(t)
-		connectOnline(t, s, "m-hot")
-		s.gauge.Set("m-hot", map[string]any{
-			"context_pct": 99.0, "context_pct_ts": now - 1, "boot_ts": now - 10,
+		reconcileTestPut(t, d, Member{
+			ID: "leaving", Name: "Leaving", Kind: KindStaff, RoleKey: "assistant",
+			DesiredState: DesiredStateOffline, DesiredMachineID: "m-box",
 		})
-		s.stampContextHighRecycle(members, now)
-		if members[0].RefocusSince != 0 {
-			t.Fatal("a fresh over-line boot must be suppressed (loop-guard)")
+		reconcileTestOnline(t, api, "finished", "m-box")
+		reconcileTestOnline(t, api, "leaving", "m-box")
+		gauge := map[string]any{"context_pct": 55.0, "context_pct_ts": 19900.0, "boot_ts": 19000.0}
+		api.gauge.Set("finished", gauge)
+		api.gauge.Set("leaving", gauge)
+		for _, id := range []string{"finished", "leaving"} {
+			before := reconcileTestRow(t, d, id)
+			out := hubTestStderr(t, func() { api.stampContextHighRecycle([]Member{before}, 20000) })
+			if out != "" {
+				t.Fatalf("%s stderr = %q, want nothing", id, out)
+			}
+			reconcileTestWantRow(t, d, id, before)
 		}
 	})
 
-	t.Run("below the handover line opens a 停止, not the accelerated stop", func(t *testing.T) {
-		s, members := newHot(t)
-		connectOnline(t, s, "m-hot")
-		// One point below the handover line, and above the notice line. T-ed79:
-		// this region DOES open a wind-down now — the plain one, which nothing
-		// collects on a clock. What it must never do is open the accelerated
-		// stop, which is what crossing the handover threshold is for.
-		s.gauge.Set("m-hot", freshGauge(now, float64(s.ctxhigh.HandoverPct-1)))
-		s.stampContextHighRecycle(members, now)
-		if members[0].RefocusOp != refocusOpContextNotice {
-			t.Fatalf("one point below the handover line: refocus_op = %q, want %q",
-				members[0].RefocusOp, refocusOpContextNotice)
+	t.Run("an epoch that is not a promotable notice is its own cooldown and is left where it is", func(t *testing.T) {
+		api, d := reconcileTestServer(t)
+		reconcileTestPut(t, d, Member{
+			ID: "winding", Name: "Winding", Kind: KindStaff, RoleKey: "assistant",
+			DesiredState: DesiredStateOnline, DesiredMachineID: "m-box",
+			RefocusSince: 19500, RefocusOp: memberOpRelocate,
+		})
+		reconcileTestOnline(t, api, "winding", "m-box")
+		api.gauge.Set("winding", map[string]any{"context_pct": 55.0, "context_pct_ts": 19900.0, "boot_ts": 19000.0})
+		before := reconcileTestRow(t, d, "winding")
+		out := hubTestStderr(t, func() { api.stampContextHighRecycle([]Member{before}, 20000) })
+		if out != "" {
+			t.Fatalf("stderr = %q, want nothing", out)
 		}
-	})
-
-	t.Run("skips a below-notice gauge and an offline member", func(t *testing.T) {
-		s, members := newHot(t)
-		connectOnline(t, s, "m-hot")
-		s.gauge.Set("m-hot", freshGauge(now, float64(s.ctxhigh.NoticePct-1)))
-		s.stampContextHighRecycle(members, now)
-		if members[0].RefocusSince != 0 {
-			t.Fatalf("below the FIRST threshold nothing may be opened, got op=%q",
-				members[0].RefocusOp)
-		}
-
-		s2, members2 := newHot(t) // no SSE connection → offline
-		s2.gauge.Set("m-hot", freshGauge(now, float64(s2.ctxhigh.HandoverPct)))
-		s2.stampContextHighRecycle(members2, now)
-		if members2[0].RefocusSince != 0 {
-			t.Fatal("an offline member is never stamped")
-		}
+		reconcileTestWantRow(t, d, "winding", before)
 	})
 }
 
-// ── clearRecycleMarkersOnRespawn ─────────────────────────────────────────────
+func TestStampTokenExpiryWinddown(t *testing.T) {
+	t.Run("a live session inside the last hour of its token gets a plain 停止 naming the derived expiry", func(t *testing.T) {
+		api, d := reconcileTestServer(t)
+		ttl := float64(api.agentTokenTTLValue())
+		reconcileTestPut(t, d, Member{
+			ID: "expiring", Name: "Expiring", Kind: KindStaff, RoleKey: "assistant",
+			DesiredState: DesiredStateOnline, DesiredMachineID: "m-box",
+			SessionBootTS: reconcileTestNow - ttl + 1800,
+		})
+		reconcileTestOnline(t, api, "expiring", "m-box")
+		before := reconcileTestRow(t, d, "expiring")
+		out := hubTestStderr(t, func() { api.stampTokenExpiryWinddown([]Member{before}, reconcileTestNow) })
+		want := "[reconcile] recycle: token-expiry 停止 for expiring (token estimated to expire " +
+			"at 1700001800, lead 3600s)\n"
+		if out != want {
+			t.Fatalf("stderr:\n got %q\nwant %q", out, want)
+		}
+		wantRow := before
+		wantRow.RefocusSince = reconcileTestNow
+		wantRow.RefocusOp = refocusOpTokenExpiry
+		reconcileTestWantRow(t, d, "expiring", wantRow)
+	})
+
+	t.Run("a session outside the lead, one already past the derived expiry, and one with no derivable expiry are all left alone", func(t *testing.T) {
+		api, d := reconcileTestServer(t)
+		ttl := float64(api.agentTokenTTLValue())
+		for _, c := range []struct {
+			id   string
+			boot float64
+			kind string
+		}{
+			{"early", reconcileTestNow, KindStaff},
+			{"expired", reconcileTestNow - ttl - 10, KindStaff},
+			{"unanchored", 0, KindStaff},
+		} {
+			reconcileTestPut(t, d, Member{
+				ID: c.id, Name: c.id, Kind: c.kind, RoleKey: "assistant",
+				DesiredState: DesiredStateOnline, DesiredMachineID: "m-box", SessionBootTS: c.boot,
+			})
+			reconcileTestOnline(t, api, c.id, "m-box")
+			before := reconcileTestRow(t, d, c.id)
+			out := hubTestStderr(t, func() { api.stampTokenExpiryWinddown([]Member{before}, reconcileTestNow) })
+			if out != "" {
+				t.Fatalf("%s: stderr = %q, want nothing", c.id, out)
+			}
+			reconcileTestWantRow(t, d, c.id, before)
+		}
+	})
+
+	t.Run("an epoch already open, a session that reported finished, an offline member and a desired-offline member are each skipped", func(t *testing.T) {
+		api, d := reconcileTestServer(t)
+		ttl := float64(api.agentTokenTTLValue())
+		boot := reconcileTestNow - ttl + 1800
+		for _, c := range []struct {
+			id      string
+			seed    Member
+			connect bool
+		}{
+			{"winding", Member{RefocusSince: reconcileTestNow - 100, RefocusOp: "refocus"}, true},
+			{"finished", Member{StoppedSince: reconcileTestNow - 100}, true},
+			{"offline", Member{}, false},
+			{"leaving", Member{DesiredState: DesiredStateOffline}, true},
+		} {
+			seed := c.seed
+			seed.ID = c.id
+			seed.Name = c.id
+			seed.Kind = KindStaff
+			seed.RoleKey = "assistant"
+			seed.DesiredMachineID = "m-box"
+			seed.SessionBootTS = boot
+			if seed.DesiredState == "" {
+				seed.DesiredState = DesiredStateOnline
+			}
+			reconcileTestPut(t, d, seed)
+			if c.connect {
+				reconcileTestOnline(t, api, c.id, "m-box")
+			}
+			api.gauge.Set(c.id, map[string]any{"boot_ts": reconcileTestNow - 200})
+			before := reconcileTestRow(t, d, c.id)
+			out := hubTestStderr(t, func() { api.stampTokenExpiryWinddown([]Member{before}, reconcileTestNow) })
+			if out != "" {
+				t.Fatalf("%s: stderr = %q, want nothing", c.id, out)
+			}
+			reconcileTestWantRow(t, d, c.id, before)
+		}
+	})
+}
 
 func TestClearRecycleMarkersOnRespawn(t *testing.T) {
-	s := newReconcileTestServer(t)
-	m := testAgent("m-r")
-	m.RefocusSince = 900
-	m.StoppedSince = 910
-	m.StoppingSince = 905
-	putTestMember(t, s, m)
-	members := []Member{m}
-
-	t.Run("clears all three markers on the respawn-pending state", func(t *testing.T) {
-		s.clearRecycleMarkersOnRespawn(members) // desired online ∧ ¬online ∧ marked
-		got := members[0]
-		if got.RefocusSince != 0 || got.StoppedSince != 0 || got.StoppingSince != 0 {
-			t.Fatalf("markers must clear: %+v", got)
+	t.Run("a member wanted online but observed offline has every wind-down anchor cleared and the break logged", func(t *testing.T) {
+		api, d := reconcileTestServer(t)
+		reconcileTestPut(t, d, Member{
+			ID: "respawning", Name: "Respawning", Kind: KindStaff, RoleKey: "assistant",
+			DesiredState: DesiredStateOnline, RefocusSince: 19000, RefocusOp: "refocus",
+			StoppingSince: 19100, StoppedSince: 19200,
+		})
+		before := reconcileTestRow(t, d, "respawning")
+		out := hubTestStderr(t, func() { api.clearRecycleMarkersOnRespawn([]Member{before}) })
+		want := "[reconcile] recycle: loop-break — cleared recycle markers on respawn for respawning\n"
+		if out != want {
+			t.Fatalf("stderr:\n got %q\nwant %q", out, want)
 		}
-		persisted, _ := s.dal.GetMember("m-r")
-		if persisted.RefocusSince != 0 || persisted.StoppingSince != 0 {
-			t.Fatalf("clear must persist: %+v", persisted)
+		wantRow := before
+		wantRow.RefocusSince = 0
+		wantRow.RefocusOp = ""
+		wantRow.StoppingSince = 0
+		wantRow.StoppedSince = 0
+		reconcileTestWantRow(t, d, "respawning", wantRow)
+	})
+
+	t.Run("a still-online member is a recycle in flight, a desired-offline member is not this pass's business, and a clean member has nothing to clear", func(t *testing.T) {
+		api, d := reconcileTestServer(t)
+		reconcileTestPut(t, d, Member{
+			ID: "dumping", Name: "Dumping", Kind: KindStaff, RoleKey: "assistant",
+			DesiredState: DesiredStateOnline, RefocusSince: 19000,
+		})
+		reconcileTestOnline(t, api, "dumping", "m-box")
+		reconcileTestPut(t, d, Member{
+			ID: "leaving", Name: "Leaving", Kind: KindStaff, RoleKey: "assistant",
+			DesiredState: DesiredStateOffline, RefocusSince: 19000, StoppedSince: 19100,
+		})
+		reconcileTestPut(t, d, Member{ID: "clean", Name: "Clean", Kind: KindStaff, RoleKey: "assistant", DesiredState: DesiredStateOnline})
+		for _, id := range []string{"dumping", "leaving", "clean"} {
+			before := reconcileTestRow(t, d, id)
+			out := hubTestStderr(t, func() { api.clearRecycleMarkersOnRespawn([]Member{before}) })
+			if out != "" {
+				t.Fatalf("%s: stderr = %q, want nothing", id, out)
+			}
+			reconcileTestWantRow(t, d, id, before)
 		}
 	})
 
-	t.Run("skips a still-online recycle-pending member", func(t *testing.T) {
-		m2 := testAgent("m-r2")
-		m2.RefocusSince = 900
-		putTestMember(t, s, m2)
-		connectOnline(t, s, "m-r2")
-		members2 := []Member{m2}
-		s.clearRecycleMarkersOnRespawn(members2)
-		if members2[0].RefocusSince != 900 {
-			t.Fatal("a recycle-pending (still online) member must keep its marker")
+	t.Run("a stopped latch with no epoch at all is cleared too, so it cannot sit on a desired-online member forever", func(t *testing.T) {
+		api, d := reconcileTestServer(t)
+		reconcileTestPut(t, d, Member{
+			ID: "latched", Name: "Latched", Kind: KindStaff, RoleKey: "assistant",
+			DesiredState: DesiredStateOnline, StoppedSince: 19200,
+		})
+		before := reconcileTestRow(t, d, "latched")
+		out := hubTestStderr(t, func() { api.clearRecycleMarkersOnRespawn([]Member{before}) })
+		if out != "[reconcile] recycle: loop-break — cleared recycle markers on respawn for latched\n" {
+			t.Fatalf("stderr = %q", out)
 		}
-	})
-
-	t.Run("skips a desired-offline member", func(t *testing.T) {
-		m3 := testAgent("m-r3")
-		m3.DesiredState = DesiredStateOffline
-		m3.RefocusSince = 900
-		putTestMember(t, s, m3)
-		members3 := []Member{m3}
-		s.clearRecycleMarkersOnRespawn(members3)
-		if members3[0].RefocusSince != 900 {
-			t.Fatal("desired-offline teardown is unrelated — no clear")
-		}
-	})
-}
-
-// ── clearStaleStoppingOnOnline ───────────────────────────────────────────────
-
-func TestClearStaleStoppingOnOnline(t *testing.T) {
-	s := newReconcileTestServer(t)
-
-	t.Run("clears the anchor on a desired-online observed-online member", func(t *testing.T) {
-		m := testAgent("m-s")
-		m.StoppingSince = 900
-		putTestMember(t, s, m)
-		connectOnline(t, s, "m-s")
-		members := []Member{m}
-		// An anchor older than the whole soft window cannot be a live
-		// close-out; a fresh one can, and the sub-test below pins that.
-		s.clearStaleStoppingOnOnline(members, 900+SoftOffboardGraceSecs)
-		if members[0].StoppingSince != 0 {
-			t.Fatal("a survived-stop anchor must clear")
-		}
-		persisted, _ := s.dal.GetMember("m-s")
-		if persisted.StoppingSince != 0 {
-			t.Fatalf("clear must persist: %+v", persisted)
-		}
-	})
-
-	t.Run("leaves an offline or desired-offline member untouched", func(t *testing.T) {
-		offline := testAgent("m-s2")
-		offline.StoppingSince = 900
-		putTestMember(t, s, offline)
-		down := testAgent("m-s3")
-		down.DesiredState = DesiredStateOffline
-		down.StoppingSince = 900
-		putTestMember(t, s, down)
-		connectOnline(t, s, "m-s3")
-		members := []Member{offline, down}
-		s.clearStaleStoppingOnOnline(members, 900+SoftOffboardGraceSecs)
-		if members[0].StoppingSince != 900 || members[1].StoppingSince != 900 {
-			t.Fatalf("no false clears: %+v", members)
-		}
-	})
-
-	// T-2123: the owner watched a member report 「開始收尾」 and go straight back
-	// to green. This sweep was the eraser — a session WORKING its offboard
-	// sequence is online, wanted online, and carries the anchor, which is the
-	// same shape as a session that survived a stop. The fresh anchor stays.
-	t.Run("leaves a close-out that has only just started alone", func(t *testing.T) {
-		m := testAgent("m-s4")
-		m.StoppingSince = 900
-		putTestMember(t, s, m)
-		connectOnline(t, s, "m-s4")
-		members := []Member{m}
-		s.clearStaleStoppingOnOnline(members, 900+SoftOffboardGraceSecs-1)
-		if members[0].StoppingSince != 900 {
-			t.Fatalf("an in-flight close-out must keep its anchor: %+v", members[0])
-		}
-		persisted, _ := s.dal.GetMember("m-s4")
-		if persisted.StoppingSince != 900 {
-			t.Fatalf("nothing may be persisted either: %+v", persisted)
-		}
-	})
-
-	// T-7723: the owner reported a member 「開始收尾」 at 07:50 and asked TWICE at
-	// 08:12 why it had never reported stopping. It had — 22 minutes earlier, and
-	// this sweep had erased the anchor at minute 10 while the member was still
-	// landing packages and collecting sub-agents. The anchor's AGE cannot tell a
-	// close-out that is taking a while apart from one that was abandoned; what
-	// separates them is whether the member is still SAYING anything, and the
-	// gauge's report ts is the one signal the server has that originates in the
-	// member's own live session.
-	t.Run("keeps the anchor while the member is still reporting, past the whole window", func(t *testing.T) {
-		m := testAgent("m-s5")
-		m.StoppingSince = 900
-		putTestMember(t, s, m)
-		connectOnline(t, s, "m-s5")
-		now := 900 + SoftOffboardGraceSecs*3 // deep past the window
-		// …and it filed a context report one second ago.
-		s.gauge.Set("m-s5", map[string]any{"ts": now - 1})
-		members := []Member{m}
-		s.clearStaleStoppingOnOnline(members, now)
-		if members[0].StoppingSince != 900 {
-			t.Fatalf("a close-out that is still reporting must stay visible: %+v", members[0])
-		}
-		persisted, _ := s.dal.GetMember("m-s5")
-		if persisted.StoppingSince != 900 {
-			t.Fatalf("nothing may be persisted either: %+v", persisted)
-		}
-	})
-
-	// The reverse control, and the reason the sweep is not simply deleted: a
-	// member that reported stopping and then went QUIET is exactly the residue
-	// this sweep was written for. Its behaviour must not change at all.
-	t.Run("still clears when the member has gone quiet for the whole window", func(t *testing.T) {
-		m := testAgent("m-s6")
-		m.StoppingSince = 900
-		putTestMember(t, s, m)
-		connectOnline(t, s, "m-s6")
-		now := 900 + SoftOffboardGraceSecs*3
-		// Its last word came in long before the window closed.
-		s.gauge.Set("m-s6", map[string]any{"ts": now - SoftOffboardGraceSecs - 1})
-		members := []Member{m}
-		s.clearStaleStoppingOnOnline(members, now)
-		if members[0].StoppingSince != 0 {
-			t.Fatalf("a silent survived-stop anchor must still clear: %+v", members[0])
-		}
-		persisted, _ := s.dal.GetMember("m-s6")
-		if persisted.StoppingSince != 0 {
-			t.Fatalf("clear must persist: %+v", persisted)
-		}
-	})
-
-	// 🔴 The OTHER half of the max(), and it is the half that fires most often:
-	// the gauge's ts OUTLIVES the session that wrote it. anchorSessionBoot only
-	// refreshes boot_ts and clearSessionBootTS only deletes boot_ts — nothing
-	// ever clears ts — so a member that reports stopping right after a quiet
-	// stretch has an anchor NEWER than its last context report. Taking the
-	// gauge's ts on its own would then sweep a close-out that started seconds
-	// ago, which is worse than the behaviour this ticket exists to fix.
-	t.Run("a fresh anchor wins over a stale gauge report", func(t *testing.T) {
-		m := testAgent("m-s8")
-		now := 10_000.0
-		m.StoppingSince = now // reported stopping just now
-		putTestMember(t, s, m)
-		connectOnline(t, s, "m-s8")
-		// …but its last context report is older than the whole window.
-		s.gauge.Set("m-s8", map[string]any{"ts": now - SoftOffboardGraceSecs*2})
-		members := []Member{m}
-		s.clearStaleStoppingOnOnline(members, now)
-		if members[0].StoppingSince != now {
-			t.Fatalf("a just-reported close-out must not be swept by an old gauge ts: %+v", members[0])
-		}
-		persisted, _ := s.dal.GetMember("m-s8")
-		if persisted.StoppingSince != now {
-			t.Fatalf("nothing may be persisted either: %+v", persisted)
-		}
-	})
-
-	// 🔴 The gauge is in-memory and volatile by contract (hub.go): a station
-	// re-exec blanks it for everyone. A missing record must therefore mean "no
-	// opinion" and fall back to the anchor's age — the pre-T-7723 rule — so the
-	// volatile store can never make the outcome WORSE than it was before. Same
-	// fail-open shape as gaugeSecsSinceBoot's loop guard.
-	t.Run("falls back to the anchor age when there is no gauge record at all", func(t *testing.T) {
-		m := testAgent("m-s7")
-		m.StoppingSince = 900
-		putTestMember(t, s, m)
-		connectOnline(t, s, "m-s7")
-		members := []Member{m}
-		s.clearStaleStoppingOnOnline(members, 900+SoftOffboardGraceSecs)
-		if members[0].StoppingSince != 0 {
-			t.Fatalf("no gauge ⇒ the old rule decides, and it says clear: %+v", members[0])
-		}
+		wantRow := before
+		wantRow.StoppedSince = 0
+		reconcileTestWantRow(t, d, "latched", wantRow)
 	})
 }
 
-// ── reconcileMemberNow ───────────────────────────────────────────────────────
-
-func TestReconcileMemberNow(t *testing.T) {
-	t.Run("dispatches the START immediately and the cadence stays a no-op", func(t *testing.T) {
-		s := newReconcileTestServer(t)
-		putTestMember(t, s, testAgent("m-a"))
-		connectOnline(t, s, ServerSelfHost)
-
-		s.reconcileMemberNow("m-a")
-		if frames := drainFrames(t, s, ServerSelfHost); len(frames) != 1 || frames[0].RPC != "start" {
-			t.Fatalf("instant tick must dispatch: %+v", frames)
+func TestConsumeUninstallIntentOnOffline(t *testing.T) {
+	t.Run("an offline warden still carrying the intent has converged: the intent is spent and the record kept", func(t *testing.T) {
+		api, d := reconcileTestServer(t)
+		reconcileTestPut(t, d, Member{ID: "m-doomed", Name: "Doomed", Kind: KindWarden, DesiredState: DesiredStateUninstall})
+		before := reconcileTestRow(t, d, "m-doomed")
+		out := hubTestStderr(t, func() { api.consumeUninstallIntentOnOffline([]Member{before}) })
+		want := "[reconcile] uninstall: consumed one-shot intent for offline warden m-doomed " +
+			"(desired_state → offline; record kept)\n"
+		if out != want {
+			t.Fatalf("stderr:\n got %q\nwant %q", out, want)
 		}
-		// The shared store makes the following cadence tick idempotent.
-		s.runReconcileTick(nowSecs())
-		if frames := drainFrames(t, s, ServerSelfHost); len(frames) != 0 {
-			t.Fatalf("cadence after instant tick must not double-dispatch: %+v", frames)
-		}
+		wantRow := before
+		wantRow.DesiredState = DesiredStateOffline
+		reconcileTestWantRow(t, d, "m-doomed", wantRow)
 	})
 
-	t.Run("ignores a non-uninstall warden and a removed member", func(t *testing.T) {
-		s := newReconcileTestServer(t)
-		connectOnline(t, s, ServerSelfHost)
-		warden, _ := s.dal.GetMember(ServerSelfHost)
-		warden.DesiredState = DesiredStateOnline
-		putTestMember(t, s, *warden)
-		s.reconcileMemberNow(ServerSelfHost)
-
-		gone := testAgent("m-gone")
-		gone.RosterStatus = RosterStatusRemoved
-		putTestMember(t, s, gone)
-		s.reconcileMemberNow("m-gone")
-
-		if frames := drainFrames(t, s, ServerSelfHost); len(frames) != 0 {
-			t.Fatalf("no dispatch expected: %+v", frames)
-		}
-	})
-
-	t.Run("no-reconcile disables the event-driven dispatch", func(t *testing.T) {
-		s := newReconcileTestServer(t)
-		s.noReconcile = true
-		putTestMember(t, s, testAgent("m-a"))
-		connectOnline(t, s, ServerSelfHost)
-		s.reconcileMemberNow("m-a")
-		if frames := drainFrames(t, s, ServerSelfHost); len(frames) != 0 {
-			t.Fatalf("--no-reconcile must dispatch nothing: %+v", frames)
+	t.Run("a warden still online belongs to the dispatch arm, and a non-warden row is never this pass's business", func(t *testing.T) {
+		api, d := reconcileTestServer(t)
+		reconcileTestPut(t, d, Member{ID: "m-live", Name: "Live", Kind: KindWarden, DesiredState: DesiredStateUninstall})
+		reconcileTestOnline(t, api, "m-live", "")
+		reconcileTestPut(t, d, Member{ID: "staffer", Name: "Staffer", Kind: KindStaff, RoleKey: "assistant", DesiredState: DesiredStateUninstall})
+		reconcileTestPut(t, d, Member{ID: "m-idle", Name: "Idle", Kind: KindWarden, DesiredState: DesiredStateOffline})
+		for _, id := range []string{"m-live", "staffer", "m-idle"} {
+			before := reconcileTestRow(t, d, id)
+			out := hubTestStderr(t, func() { api.consumeUninstallIntentOnOffline([]Member{before}) })
+			if out != "" {
+				t.Fatalf("%s: stderr = %q, want nothing", id, out)
+			}
+			reconcileTestWantRow(t, d, id, before)
 		}
 	})
 }
-
-// ── dispatchRobustStopNow ────────────────────────────────────────────────────
-
-func TestDispatchRobustStopNow(t *testing.T) {
-	t.Run("enqueues one stop frame to the reachable warden", func(t *testing.T) {
-		s := newReconcileTestServer(t)
-		putTestMember(t, s, testAgent("m-a"))
-		connectOnline(t, s, ServerSelfHost)
-		s.dispatchRobustStopNow("m-a")
-		frames := drainFrames(t, s, ServerSelfHost)
-		if len(frames) != 1 || frames[0].RPC != "stop" || frames[0].Args["member_id"] != "m-a" {
-			t.Fatalf("frames: %+v", frames)
-		}
-	})
-
-	t.Run("fails closed when the warden is unreachable or reconcile is off", func(t *testing.T) {
-		s := newReconcileTestServer(t)
-		putTestMember(t, s, testAgent("m-a"))
-		s.dispatchRobustStopNow("m-a") // warden offline
-		s.noReconcile = true
-		connectOnline(t, s, ServerSelfHost)
-		s.dispatchRobustStopNow("m-a") // kill-switch on
-		if frames := drainFrames(t, s, ServerSelfHost); len(frames) != 0 {
-			t.Fatalf("no dispatch expected: %+v", frames)
-		}
-	})
-}
-
-// ── consumeUninstallOnDisconnect ─────────────────────────────────────────────
 
 func TestConsumeUninstallOnDisconnect(t *testing.T) {
-	newBox := func(t *testing.T, desired string) *apiServer {
-		s := newReconcileTestServer(t)
-		putTestMember(t, s, Member{
-			ID: "m-box", Name: "box", Kind: KindWarden, Effort: "medium",
-			DesiredState: desired, RosterStatus: RosterStatusActive,
+	t.Run("the disconnect edge consumes the intent immediately rather than waiting a cadence window", func(t *testing.T) {
+		api, d := reconcileTestServer(t)
+		reconcileTestPut(t, d, Member{ID: "m-doomed", Name: "Doomed", Kind: KindWarden, DesiredState: DesiredStateUninstall})
+		before := reconcileTestRow(t, d, "m-doomed")
+		out := hubTestStderr(t, func() { api.consumeUninstallOnDisconnect("m-doomed") })
+		want := "[reconcile] uninstall: consumed one-shot intent on warden m-doomed disconnect " +
+			"(desired_state → offline; record kept)\n"
+		if out != want {
+			t.Fatalf("stderr:\n got %q\nwant %q", out, want)
+		}
+		wantRow := before
+		wantRow.DesiredState = DesiredStateOffline
+		reconcileTestWantRow(t, d, "m-doomed", wantRow)
+	})
+
+	t.Run("a warden that still holds a stream, a non-warden, a warden with no intent and an id with no row all change nothing", func(t *testing.T) {
+		api, d := reconcileTestServer(t)
+		reconcileTestPut(t, d, Member{ID: "m-live", Name: "Live", Kind: KindWarden, DesiredState: DesiredStateUninstall})
+		reconcileTestOnline(t, api, "m-live", "")
+		reconcileTestPut(t, d, Member{ID: "staffer", Name: "Staffer", Kind: KindStaff, RoleKey: "assistant", DesiredState: DesiredStateUninstall})
+		reconcileTestPut(t, d, Member{ID: "m-idle", Name: "Idle", Kind: KindWarden, DesiredState: DesiredStateOffline})
+		for _, id := range []string{"m-live", "staffer", "m-idle"} {
+			before := reconcileTestRow(t, d, id)
+			out := hubTestStderr(t, func() { api.consumeUninstallOnDisconnect(id) })
+			if out != "" {
+				t.Fatalf("%s: stderr = %q, want nothing", id, out)
+			}
+			reconcileTestWantRow(t, d, id, before)
+		}
+		api.consumeUninstallOnDisconnect("never-existed")
+		if row, _ := d.GetMember("never-existed"); row != nil {
+			t.Fatalf("a missing member must not be created: %+v", row)
+		}
+	})
+
+	t.Run("with the producer disabled the intent is left standing — this is one of the writes --no-reconcile owns", func(t *testing.T) {
+		api, d := reconcileTestServer(t)
+		api.noReconcile = true
+		reconcileTestPut(t, d, Member{ID: "m-doomed", Name: "Doomed", Kind: KindWarden, DesiredState: DesiredStateUninstall})
+		before := reconcileTestRow(t, d, "m-doomed")
+		out := hubTestStderr(t, func() { api.consumeUninstallOnDisconnect("m-doomed") })
+		if out != "" {
+			t.Fatalf("stderr = %q, want nothing", out)
+		}
+		reconcileTestWantRow(t, d, "m-doomed", before)
+		api.noReconcile = false
+		hubTestStderr(t, func() { api.consumeUninstallOnDisconnect("m-doomed") })
+		wantRow := before
+		wantRow.DesiredState = DesiredStateOffline
+		reconcileTestWantRow(t, d, "m-doomed", wantRow)
+	})
+}
+
+func TestClearStaleStoppingOnOnline(t *testing.T) {
+	t.Run("a desired-online member observed online and quiet for the whole window has its stopping anchor cleared", func(t *testing.T) {
+		api, d := reconcileTestServer(t)
+		reconcileTestPut(t, d, Member{
+			ID: "survived", Name: "Survived", Kind: KindStaff, RoleKey: "assistant",
+			DesiredState: DesiredStateOnline, StoppingSince: reconcileTestNow - 600,
 		})
-		return s
-	}
+		reconcileTestOnline(t, api, "survived", "m-box")
+		before := reconcileTestRow(t, d, "survived")
+		out := hubTestStderr(t, func() { api.clearStaleStoppingOnOnline([]Member{before}, reconcileTestNow) })
+		want := "[reconcile] revive: auto-cleared stale stopping_since on observed-online survived " +
+			"(survived stop / SSE reconnect)\n"
+		if out != want {
+			t.Fatalf("stderr:\n got %q\nwant %q", out, want)
+		}
+		wantRow := before
+		wantRow.StoppingSince = 0
+		reconcileTestWantRow(t, d, "survived", wantRow)
+	})
 
-	t.Run("consumes the intent for an offline desired-uninstall warden", func(t *testing.T) {
-		s := newBox(t, DesiredStateUninstall)
-		s.consumeUninstallOnDisconnect("m-box")
-		m, _ := s.dal.GetMember("m-box")
-		if m.DesiredState != DesiredStateOffline || m.RosterStatus != RosterStatusActive {
-			t.Fatalf("intent must fold to offline, record kept: %+v", m)
+	t.Run("a member still filing context reports is still saying something, so its close-out is left visible", func(t *testing.T) {
+		api, d := reconcileTestServer(t)
+		reconcileTestPut(t, d, Member{
+			ID: "working", Name: "Working", Kind: KindStaff, RoleKey: "assistant",
+			DesiredState: DesiredStateOnline, StoppingSince: reconcileTestNow - 6000,
+		})
+		reconcileTestOnline(t, api, "working", "m-box")
+		api.gauge.Set("working", map[string]any{"ts": reconcileTestNow - 10})
+		before := reconcileTestRow(t, d, "working")
+		out := hubTestStderr(t, func() { api.clearStaleStoppingOnOnline([]Member{before}, reconcileTestNow) })
+		if out != "" {
+			t.Fatalf("stderr = %q, want nothing", out)
+		}
+		reconcileTestWantRow(t, d, "working", before)
+	})
+
+	t.Run("a desired-offline wind-down, a member with no anchor and an offline member are all left alone", func(t *testing.T) {
+		api, d := reconcileTestServer(t)
+		reconcileTestPut(t, d, Member{
+			ID: "leaving", Name: "Leaving", Kind: KindStaff, RoleKey: "assistant",
+			DesiredState: DesiredStateOffline, StoppingSince: reconcileTestNow - 6000,
+		})
+		reconcileTestOnline(t, api, "leaving", "m-box")
+		reconcileTestPut(t, d, Member{ID: "clean", Name: "Clean", Kind: KindStaff, RoleKey: "assistant", DesiredState: DesiredStateOnline})
+		reconcileTestOnline(t, api, "clean", "m-box")
+		reconcileTestPut(t, d, Member{
+			ID: "stopped", Name: "Stopped", Kind: KindStaff, RoleKey: "assistant",
+			DesiredState: DesiredStateOnline, StoppingSince: reconcileTestNow - 6000,
+		})
+		for _, id := range []string{"leaving", "clean", "stopped"} {
+			before := reconcileTestRow(t, d, id)
+			out := hubTestStderr(t, func() { api.clearStaleStoppingOnOnline([]Member{before}, reconcileTestNow) })
+			if out != "" {
+				t.Fatalf("%s: stderr = %q, want nothing", id, out)
+			}
+			reconcileTestWantRow(t, d, id, before)
+		}
+	})
+}
+
+func TestRunReconcileTick(t *testing.T) {
+	t.Run("one tick runs the roster passes, names its candidate count and decides each candidate in name order", func(t *testing.T) {
+		api, d := reconcileTestServer(t)
+		reconcileTestOnline(t, api, "m-box", "")
+		reconcileTestPut(t, d, Member{ID: "runner", Name: "Runner", Kind: KindStaff, RoleKey: "assistant", DesiredState: DesiredStateOnline, DesiredMachineID: "m-box"})
+		before := reconcileTestRow(t, d, "runner")
+		out := hubTestStderr(t, func() { api.runReconcileTick(reconcileTestNow) })
+		want := "[reconcile] recycle: gate skip kip gate=no-actionable-pct pct=- pct_ts=- boot_ts=- boot_secs=- online=false\n" +
+			"[reconcile] recycle: gate skip mira gate=no-actionable-pct pct=- pct_ts=- boot_ts=- boot_secs=- online=false\n" +
+			"[reconcile] recycle: gate skip runner gate=no-actionable-pct pct=- pct_ts=- boot_ts=- boot_secs=- online=false\n" +
+			"[reconcile] tick: 3 candidate(s)\n" +
+			"[reconcile] kip: desired=offline command=none — offline: converged\n" +
+			"[reconcile] mira: desired=offline command=none — offline: converged\n" +
+			"[reconcile] runner: desired=online command=start — spawn: desired_state online, no live session\n"
+		if out != want {
+			t.Fatalf("stderr:\n got %q\nwant %q", out, want)
+		}
+		if got := api.hub.PendingWardenCommandsFor("m-box", "runner"); got != 1 {
+			t.Fatalf("the START backlog for runner = %d, want 1", got)
+		}
+		wantRow := before
+		wantRow.WakingSince = reconcileTestNow
+		wantRow.Runtime = RuntimeClaude
+		reconcileTestWantRow(t, d, "runner", wantRow)
+		for _, id := range []string{"kip", "mira"} {
+			if st := api.reconcileStates[id]; st.Phase != reconcilePhaseOffline {
+				t.Fatalf("%s state = %+v, want the converged offline state", id, st)
+			}
 		}
 	})
 
-	t.Run("leaves a still-online warden's intent alone", func(t *testing.T) {
-		s := newBox(t, DesiredStateUninstall)
-		connectOnline(t, s, "m-box")
-		s.consumeUninstallOnDisconnect("m-box")
-		m, _ := s.dal.GetMember("m-box")
-		if m.DesiredState != DesiredStateUninstall {
-			t.Fatalf("online warden's intent must stay live: %+v", m)
+	t.Run("a plain warden is not a candidate while one carrying the uninstall intent is, and the intent is consumed while it is offline", func(t *testing.T) {
+		api, d := reconcileTestServer(t)
+		reconcileTestPut(t, d, Member{ID: "m-doomed", Name: "Doomed", Kind: KindWarden, DesiredState: DesiredStateUninstall})
+		out := hubTestStderr(t, func() { api.runReconcileTick(reconcileTestNow) })
+		if !strings.Contains(out, "[reconcile] tick: 3 candidate(s)\n") {
+			t.Fatalf("candidate count line missing from:\n%s", out)
+		}
+		if !strings.Contains(out, "[reconcile] uninstall: consumed one-shot intent for offline warden m-doomed") {
+			t.Fatalf("the intent was not consumed:\n%s", out)
+		}
+		if !strings.Contains(out, "[reconcile] m-doomed: desired=offline command=none — offline: converged\n") {
+			t.Fatalf("the uninstall warden must still be decided this tick:\n%s", out)
+		}
+		if strings.Contains(out, "m-box:") || strings.Contains(out, "m-server-self:") {
+			t.Fatalf("a plain warden must not be a candidate:\n%s", out)
+		}
+		if got := reconcileTestRow(t, d, "m-doomed").DesiredState; got != DesiredStateOffline {
+			t.Fatalf("desired_state = %q, want the consumed intent", got)
 		}
 	})
 
-	t.Run("ignores non-uninstall intents and non-warden members", func(t *testing.T) {
-		s := newBox(t, DesiredStateOffline)
-		agent := testAgent("m-a")
-		agent.DesiredState = DesiredStateUninstall // junk on an agent — untouched
-		putTestMember(t, s, agent)
-		s.consumeUninstallOnDisconnect("m-box")
-		s.consumeUninstallOnDisconnect("m-a")
-		box, _ := s.dal.GetMember("m-box")
-		a, _ := s.dal.GetMember("m-a")
-		if box.DesiredState != DesiredStateOffline || a.DesiredState != DesiredStateUninstall {
-			t.Fatalf("nothing should change: box=%+v agent=%+v", box, a)
+	t.Run("a removed member is filtered out before the decide pass and is neither logged nor written", func(t *testing.T) {
+		api, d := reconcileTestServer(t)
+		reconcileTestPut(t, d, Member{
+			ID: "left", Name: "Left", Kind: KindStaff, RoleKey: "assistant",
+			DesiredState: DesiredStateOnline, RosterStatus: RosterStatusRemoved,
+		})
+		before := reconcileTestRow(t, d, "left")
+		out := hubTestStderr(t, func() { api.runReconcileTick(reconcileTestNow) })
+		if strings.Contains(out, "left") {
+			t.Fatalf("a removed member reached the tick:\n%s", out)
+		}
+		if !strings.Contains(out, "[reconcile] tick: 2 candidate(s)\n") {
+			t.Fatalf("candidate count line:\n%s", out)
+		}
+		reconcileTestWantRow(t, d, "left", before)
+	})
+
+	t.Run("a fault inside the tick is caught and named rather than raised into the cadence loop", func(t *testing.T) {
+		api, _ := reconcileTestServer(t)
+		api.reconcileStates = nil
+		out := hubTestStderr(t, func() { api.runReconcileTick(reconcileTestNow) })
+		if !strings.Contains(out, "[reconcile] tick FAULT: ") {
+			t.Fatalf("the fault was not caught and logged:\n%s", out)
+		}
+	})
+}
+
+func TestReconcileMemberNow(t *testing.T) {
+	t.Run("the event-driven tick decides one member immediately and shares the cadence's state store", func(t *testing.T) {
+		api, d := reconcileTestServer(t)
+		reconcileTestOnline(t, api, "m-box", "")
+		reconcileTestPut(t, d, Member{ID: "runner", Name: "Runner", Kind: KindStaff, RoleKey: "assistant", DesiredState: DesiredStateOnline, DesiredMachineID: "m-box"})
+		var got reconcileDecision
+		out := hubTestStderr(t, func() { got = api.reconcileMemberNow("runner") })
+		if got.Command != reconcileCmdStart || got.Reason != "spawn: desired_state online, no live session" {
+			t.Fatalf("decision = %+v", got)
+		}
+		if !strings.Contains(out, "[reconcile] instant tick: member runner\n") {
+			t.Fatalf("stderr:\n%s", out)
+		}
+		if !strings.Contains(out, "[reconcile] runner: desired=online command=start — spawn: desired_state online, no live session\n") {
+			t.Fatalf("stderr:\n%s", out)
+		}
+		if st := api.reconcileStates["runner"]; st.LastCommand != reconcileCmdStart {
+			t.Fatalf("the shared store did not record the dispatch: %+v", st)
+		}
+		if n := api.hub.PendingWardenCommandsFor("m-box", "runner"); n != 1 {
+			t.Fatalf("the START backlog = %d, want 1", n)
 		}
 	})
 
-	t.Run("gated off wholesale by --no-reconcile", func(t *testing.T) {
-		s := newBox(t, DesiredStateUninstall)
-		s.noReconcile = true
-		s.consumeUninstallOnDisconnect("m-box")
-		m, _ := s.dal.GetMember("m-box")
-		if m.DesiredState != DesiredStateUninstall {
-			t.Fatalf("kill-switch must suppress the intent write: %+v", m)
+	t.Run("an unlanded move is reported back to the caller instead of passing as a silent success", func(t *testing.T) {
+		api, d := reconcileTestServer(t)
+		reconcileTestPut(t, d, Member{ID: "nowhere", Name: "Nowhere", Kind: KindStaff, RoleKey: "assistant", DesiredState: DesiredStateOnline})
+		var got reconcileDecision
+		hubTestStderr(t, func() { got = api.reconcileMemberNow("nowhere") })
+		if got.Command != reconcileCmdNone || !got.DispatchUnlanded || got.Reason != "no machine selected" {
+			t.Fatalf("decision = %+v", got)
+		}
+	})
+
+	t.Run("a missing member, a removed one and a warden the member FSM does not drive each yield the zero decision", func(t *testing.T) {
+		api, d := reconcileTestServer(t)
+		reconcileTestPut(t, d, Member{
+			ID: "left", Name: "Left", Kind: KindStaff, RoleKey: "assistant",
+			DesiredState: DesiredStateOnline, RosterStatus: RosterStatusRemoved,
+		})
+		for _, id := range []string{"never-existed", "left", "m-box"} {
+			before, _ := d.GetMember(id)
+			var got reconcileDecision
+			out := hubTestStderr(t, func() { got = api.reconcileMemberNow(id) })
+			if !reflect.DeepEqual(got, reconcileDecision{}) {
+				t.Fatalf("%s: decision = %+v, want the zero decision", id, got)
+			}
+			if out != "" {
+				t.Fatalf("%s: stderr = %q, want nothing", id, out)
+			}
+			if before != nil {
+				reconcileTestWantRow(t, d, id, *before)
+			}
+			if _, seen := api.reconcileStates[id]; seen {
+				t.Fatalf("%s must not get a store entry", id)
+			}
+		}
+	})
+
+	t.Run("with the producer disabled nothing is decided, dispatched or stored", func(t *testing.T) {
+		api, d := reconcileTestServer(t)
+		api.noReconcile = true
+		reconcileTestOnline(t, api, "m-box", "")
+		reconcileTestPut(t, d, Member{ID: "runner", Name: "Runner", Kind: KindStaff, RoleKey: "assistant", DesiredState: DesiredStateOnline, DesiredMachineID: "m-box"})
+		before := reconcileTestRow(t, d, "runner")
+		var got reconcileDecision
+		out := hubTestStderr(t, func() { got = api.reconcileMemberNow("runner") })
+		if !reflect.DeepEqual(got, reconcileDecision{}) || out != "" {
+			t.Fatalf("decision = %+v stderr = %q", got, out)
+		}
+		reconcileTestWantRow(t, d, "runner", before)
+		if n := api.hub.PendingWardenCommands("m-box"); n != 0 {
+			t.Fatalf("the warden queue holds %d frame(s)", n)
+		}
+	})
+}
+
+func TestNoteRobustStopDispatched(t *testing.T) {
+	t.Run("the marker is armed on a member with no store entry yet, leaving the rest of a fresh state untouched", func(t *testing.T) {
+		api, _ := reconcileTestServer(t)
+		api.noteRobustStopDispatched("kip", reconcileTestNow)
+		want := newReconcileState()
+		want.RobustStopPendingAt = reconcileTestNow
+		if got := api.reconcileStates["kip"]; got != want {
+			t.Fatalf("state:\n got %+v\nwant %+v", got, want)
+		}
+	})
+
+	t.Run("an existing entry keeps everything else and only the marker moves to the newest dispatch", func(t *testing.T) {
+		api, _ := reconcileTestServer(t)
+		existing := reconcileState{
+			Phase: reconcilePhaseOnline, Attempts: 2, BackoffUntil: 5, CircuitOpen: true,
+			CircuitCooldownUntil: 9, LastCommand: reconcileCmdStart, LastCommandAt: 3,
+			StopDeadline: 4, RobustStopPendingAt: 1, OfflineSince: 2,
+		}
+		api.reconcileStates["kip"] = existing
+		api.noteRobustStopDispatched("kip", reconcileTestNow)
+		want := existing
+		want.RobustStopPendingAt = reconcileTestNow
+		if got := api.reconcileStates["kip"]; got != want {
+			t.Fatalf("state:\n got %+v\nwant %+v", got, want)
+		}
+	})
+}
+
+func TestDispatchRobustStopNow(t *testing.T) {
+	t.Run("the STOP goes to the warden of the machine the session is on, the retry is armed and the boot anchor is dropped", func(t *testing.T) {
+		api, d := reconcileTestServer(t)
+		reconcileTestPut(t, d, Member{ID: "m-old", Name: "Old", Kind: KindWarden})
+		reconcileTestOnline(t, api, "m-old", "")
+		reconcileTestPut(t, d, Member{
+			ID: "collect", Name: "Collect", Kind: KindStaff, RoleKey: "assistant",
+			DesiredState: DesiredStateOnline, DesiredMachineID: "m-box", SessionBootTS: reconcileTestNow - 50,
+		})
+		reconcileTestOnline(t, api, "collect", "m-old")
+		before := reconcileTestRow(t, d, "collect")
+		out := hubTestStderr(t, func() { api.dispatchRobustStopNow("collect") })
+		if out != "" {
+			t.Fatalf("a landed dispatch logs nothing, got %q", out)
+		}
+		frame, _ := buildTargetFrame(reconcileCmdStop, "collect")
+		if got := api.hub.DrainWardenCommands("m-old"); !reflect.DeepEqual(got, []wardenCmd{{Subject: "collect", Frame: frame}}) {
+			t.Fatalf("the old machine's queue = %+v", got)
+		}
+		if n := api.hub.PendingWardenCommands("m-box"); n != 0 {
+			t.Fatalf("the pinned machine must not be addressed, it holds %d frame(s)", n)
+		}
+		if got := api.reconcileStates["collect"].RobustStopPendingAt; got <= 0 {
+			t.Fatalf("the at-least-once retry was not armed: %v", got)
+		}
+		wantRow := before
+		wantRow.SessionBootTS = 0
+		reconcileTestWantRow(t, d, "collect", wantRow)
+	})
+
+	t.Run("an unreachable warden still arms the retry — that is the case the backstop exists for", func(t *testing.T) {
+		api, d := reconcileTestServer(t)
+		reconcileTestPut(t, d, Member{
+			ID: "stranded", Name: "Stranded", Kind: KindStaff, RoleKey: "assistant",
+			DesiredState: DesiredStateOnline, DesiredMachineID: "m-box",
+		})
+		out := hubTestStderr(t, func() { api.dispatchRobustStopNow("stranded") })
+		want := "[reconcile] stranded: target warden \"m-box\" NOT reachable (no live SSE downstream) — " +
+			"fail-closed, not dispatching, will retry when the warden connects\n"
+		if out != want {
+			t.Fatalf("stderr:\n got %q\nwant %q", out, want)
+		}
+		if n := api.hub.PendingWardenCommands("m-box"); n != 0 {
+			t.Fatalf("nothing may be queued, got %d frame(s)", n)
+		}
+		if got := api.reconcileStates["stranded"].RobustStopPendingAt; got <= 0 {
+			t.Fatalf("the retry must be armed anyway: %v", got)
+		}
+	})
+
+	t.Run("with the producer disabled nothing is dispatched and no retry is armed", func(t *testing.T) {
+		api, d := reconcileTestServer(t)
+		api.noReconcile = true
+		reconcileTestOnline(t, api, "m-box", "")
+		reconcileTestPut(t, d, Member{
+			ID: "kept", Name: "Kept", Kind: KindStaff, RoleKey: "assistant",
+			DesiredState: DesiredStateOnline, DesiredMachineID: "m-box", SessionBootTS: reconcileTestNow,
+		})
+		before := reconcileTestRow(t, d, "kept")
+		out := hubTestStderr(t, func() { api.dispatchRobustStopNow("kept") })
+		if out != "" {
+			t.Fatalf("stderr = %q, want nothing", out)
+		}
+		if n := api.hub.PendingWardenCommands("m-box"); n != 0 {
+			t.Fatalf("the warden queue holds %d frame(s)", n)
+		}
+		if _, seen := api.reconcileStates["kept"]; seen {
+			t.Fatalf("no retry may be armed")
+		}
+		reconcileTestWantRow(t, d, "kept", before)
+	})
+}
+
+func TestConnectionIsTheGenuineArticle(t *testing.T) {
+	t.Run("a claim equal to the member's pinned machine is the 正身, and any other claim is a wanderer", func(t *testing.T) {
+		api, _ := reconcileTestServer(t)
+		m := Member{ID: "kip", Kind: KindStaff, DesiredMachineID: "m-box"}
+		if !api.connectionIsTheGenuineArticle(m, "m-box") {
+			t.Fatalf("the pinned machine's claim must be the 正身")
+		}
+		if api.connectionIsTheGenuineArticle(m, "m-other") {
+			t.Fatalf("another machine's claim must not be the 正身")
+		}
+	})
+
+	t.Run("an unverifiable pairing — a blank claim, or a member with no expected machine — is fail-safe false", func(t *testing.T) {
+		api, _ := reconcileTestServer(t)
+		if api.connectionIsTheGenuineArticle(Member{ID: "kip", Kind: KindStaff, DesiredMachineID: "m-box"}, "") {
+			t.Fatalf("a blank claim must never verify")
+		}
+		if api.connectionIsTheGenuineArticle(Member{ID: "kip", Kind: KindStaff}, "m-box") {
+			t.Fatalf("a member with no pin must never verify")
+		}
+		if api.connectionIsTheGenuineArticle(Member{ID: "ow-1", Kind: KindOutsource}, "m-box") {
+			t.Fatalf("a worker the server never dispatched must never verify")
+		}
+		if !api.connectionIsTheGenuineArticle(Member{ID: "ow-1", Kind: KindOutsource, DesiredMachineID: "m-box"}, "m-box") {
+			t.Fatalf("a worker with a concrete pin verifies on that pin")
+		}
+	})
+}
+
+func TestDispatchIdentitySweepNow(t *testing.T) {
+	t.Run("every OTHER reachable warden is told to stop the residual session, and the confirmed machine is never swept", func(t *testing.T) {
+		api, d := reconcileTestServer(t)
+		reconcileTestPut(t, d, Member{ID: "m-other", Name: "Other", Kind: KindWarden})
+		reconcileTestOnline(t, api, "m-box", "")
+		reconcileTestOnline(t, api, "m-other", "")
+		reconcileTestPut(t, d, Member{ID: "twin", Name: "Twin", Kind: KindStaff, RoleKey: "assistant", DesiredState: DesiredStateOnline, DesiredMachineID: "m-box"})
+		out := hubTestStderr(t, func() {
+			api.reconcileMu.Lock()
+			defer api.reconcileMu.Unlock()
+			api.dispatchIdentitySweepNow("twin", "m-box", reconcileTestNow)
+		})
+		want := "[reconcile] identity-sweep: twin confirmed on desired machine m-box — " +
+			"robust stop residual session on m-other\n"
+		if out != want {
+			t.Fatalf("stderr:\n got %q\nwant %q", out, want)
+		}
+		frame, _ := buildTargetFrame(reconcileCmdStop, "twin")
+		if got := api.hub.DrainWardenCommands("m-other"); !reflect.DeepEqual(got, []wardenCmd{{Subject: "twin", Frame: frame}}) {
+			t.Fatalf("the other machine's queue = %+v", got)
+		}
+		if n := api.hub.PendingWardenCommands("m-box"); n != 0 {
+			t.Fatalf("the confirmed machine holds %d frame(s), want none", n)
+		}
+		if api.identitySweepAt["twin"] != reconcileTestNow {
+			t.Fatalf("the dedupe stamp = %v", api.identitySweepAt["twin"])
+		}
+	})
+
+	t.Run("a sweep inside the dedupe window is not re-broadcast, and one past it is", func(t *testing.T) {
+		api, d := reconcileTestServer(t)
+		reconcileTestPut(t, d, Member{ID: "m-other", Name: "Other", Kind: KindWarden})
+		reconcileTestOnline(t, api, "m-other", "")
+		reconcileTestPut(t, d, Member{ID: "twin", Name: "Twin", Kind: KindStaff, RoleKey: "assistant", DesiredState: DesiredStateOnline, DesiredMachineID: "m-box"})
+		sweep := func(now float64) string {
+			return hubTestStderr(t, func() {
+				api.reconcileMu.Lock()
+				defer api.reconcileMu.Unlock()
+				api.dispatchIdentitySweepNow("twin", "m-box", now)
+			})
+		}
+		if sweep(reconcileTestNow) == "" {
+			t.Fatalf("the first sweep must broadcast")
+		}
+		api.hub.DrainWardenCommands("m-other")
+		if got := sweep(reconcileTestNow + 89); got != "" {
+			t.Fatalf("inside the dedupe window: stderr = %q, want nothing", got)
+		}
+		if n := api.hub.PendingWardenCommands("m-other"); n != 0 {
+			t.Fatalf("a deduped sweep queued %d frame(s)", n)
+		}
+		if got := sweep(reconcileTestNow + 90); got == "" {
+			t.Fatalf("past the dedupe window the sweep must broadcast again")
+		}
+		if n := api.hub.PendingWardenCommands("m-other"); n != 1 {
+			t.Fatalf("the re-broadcast queued %d frame(s), want 1", n)
+		}
+	})
+
+	t.Run("an offline warden, a removed warden, a non-warden row, a blank member and a disabled producer all sweep nothing", func(t *testing.T) {
+		api, d := reconcileTestServer(t)
+		reconcileTestPut(t, d, Member{ID: "m-asleep", Name: "Asleep", Kind: KindWarden})
+		reconcileTestPut(t, d, Member{ID: "m-left", Name: "LeftBox", Kind: KindWarden, RosterStatus: RosterStatusRemoved})
+		reconcileTestOnline(t, api, "m-left", "")
+		reconcileTestOnline(t, api, "kip", "")
+		reconcileTestPut(t, d, Member{ID: "twin", Name: "Twin", Kind: KindStaff, RoleKey: "assistant", DesiredState: DesiredStateOnline, DesiredMachineID: "m-box"})
+		out := hubTestStderr(t, func() {
+			api.reconcileMu.Lock()
+			defer api.reconcileMu.Unlock()
+			api.dispatchIdentitySweepNow("twin", "m-box", reconcileTestNow)
+			api.dispatchIdentitySweepNow("", "m-box", reconcileTestNow)
+		})
+		if out != "" {
+			t.Fatalf("stderr = %q, want nothing", out)
+		}
+		for _, id := range []string{"m-asleep", "m-left", "kip", "m-box"} {
+			if n := api.hub.PendingWardenCommands(id); n != 0 {
+				t.Fatalf("%s holds %d frame(s), want none", id, n)
+			}
+		}
+		if _, stamped := api.identitySweepAt["twin"]; stamped {
+			t.Fatalf("a sweep that reached nobody must not stamp the dedupe window")
+		}
+		api.noReconcile = true
+		reconcileTestOnline(t, api, "m-asleep", "")
+		hubTestStderr(t, func() {
+			api.reconcileMu.Lock()
+			defer api.reconcileMu.Unlock()
+			api.dispatchIdentitySweepNow("twin", "m-box", reconcileTestNow)
+		})
+		if n := api.hub.PendingWardenCommands("m-asleep"); n != 0 {
+			t.Fatalf("--no-reconcile must dispatch nothing, got %d frame(s)", n)
+		}
+	})
+}
+
+func TestIdentitySweepOnConnect(t *testing.T) {
+	t.Run("the 正身 connecting on its expected machine sweeps every other reachable warden", func(t *testing.T) {
+		api, d := reconcileTestServer(t)
+		reconcileTestPut(t, d, Member{ID: "m-other", Name: "Other", Kind: KindWarden})
+		reconcileTestOnline(t, api, "m-other", "")
+		reconcileTestPut(t, d, Member{ID: "twin", Name: "Twin", Kind: KindStaff, RoleKey: "assistant", DesiredState: DesiredStateOnline, DesiredMachineID: "m-box"})
+		out := hubTestStderr(t, func() { api.identitySweepOnConnect("twin", "m-box") })
+		want := "[reconcile] identity-sweep: twin confirmed on desired machine m-box — " +
+			"robust stop residual session on m-other\n"
+		if out != want {
+			t.Fatalf("stderr:\n got %q\nwant %q", out, want)
+		}
+		if n := api.hub.PendingWardenCommandsFor("m-other", "twin"); n != 1 {
+			t.Fatalf("the residual machine's backlog for twin = %d, want 1", n)
+		}
+	})
+
+	t.Run("a wanderer whose claim is not its expected machine initiates nothing — it is the target of the real sweep", func(t *testing.T) {
+		api, d := reconcileTestServer(t)
+		reconcileTestPut(t, d, Member{ID: "m-other", Name: "Other", Kind: KindWarden})
+		reconcileTestOnline(t, api, "m-other", "")
+		reconcileTestOnline(t, api, "m-box", "")
+		reconcileTestPut(t, d, Member{ID: "twin", Name: "Twin", Kind: KindStaff, RoleKey: "assistant", DesiredState: DesiredStateOnline, DesiredMachineID: "m-box"})
+		out := hubTestStderr(t, func() { api.identitySweepOnConnect("twin", "m-other") })
+		if out != "" {
+			t.Fatalf("stderr = %q, want nothing", out)
+		}
+		for _, id := range []string{"m-box", "m-other"} {
+			if n := api.hub.PendingWardenCommands(id); n != 0 {
+				t.Fatalf("%s holds %d frame(s), want none", id, n)
+			}
+		}
+	})
+
+	t.Run("a blank member or claim, a warden sub, a member the owner does not want online, and a disabled producer all sweep nothing", func(t *testing.T) {
+		api, d := reconcileTestServer(t)
+		reconcileTestPut(t, d, Member{ID: "m-other", Name: "Other", Kind: KindWarden})
+		reconcileTestOnline(t, api, "m-other", "")
+		reconcileTestPut(t, d, Member{ID: "resting", Name: "Resting", Kind: KindStaff, RoleKey: "assistant", DesiredState: DesiredStateOffline, DesiredMachineID: "m-box"})
+		reconcileTestPut(t, d, Member{ID: "twin", Name: "Twin", Kind: KindStaff, RoleKey: "assistant", DesiredState: DesiredStateOnline, DesiredMachineID: "m-box"})
+		out := hubTestStderr(t, func() {
+			api.identitySweepOnConnect("", "m-box")
+			api.identitySweepOnConnect("twin", "")
+			api.identitySweepOnConnect("m-box", "m-box")
+			api.identitySweepOnConnect("resting", "m-box")
+			api.identitySweepOnConnect("never-existed", "m-box")
+		})
+		if out != "" {
+			t.Fatalf("stderr = %q, want nothing", out)
+		}
+		if n := api.hub.PendingWardenCommands("m-other"); n != 0 {
+			t.Fatalf("m-other holds %d frame(s), want none", n)
+		}
+		api.noReconcile = true
+		hubTestStderr(t, func() { api.identitySweepOnConnect("twin", "m-box") })
+		if n := api.hub.PendingWardenCommands("m-other"); n != 0 {
+			t.Fatalf("--no-reconcile must sweep nothing, got %d frame(s)", n)
+		}
+		api.noReconcile = false
+		hubTestStderr(t, func() { api.identitySweepOnConnect("twin", "m-box") })
+		if n := api.hub.PendingWardenCommandsFor("m-other", "twin"); n != 1 {
+			t.Fatalf("the contrast case must sweep, backlog = %d", n)
 		}
 	})
 }

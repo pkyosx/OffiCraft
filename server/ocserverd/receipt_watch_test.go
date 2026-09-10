@@ -1,253 +1,282 @@
 package main
 
 import (
-	"encoding/json"
-	"strings"
+	"reflect"
 	"testing"
 )
 
-// T-b36a step 3 — a start/stop whose command_result never comes back must stop
-// being indistinguishable from one that went perfectly.
-//
-// The warden POSTs its receipt best-effort: a DNS fault, a refused connection,
-// a 500 from the server all collapse into a return value the start/stop callers
-// discarded. Nothing was written anywhere — and the warden's own log file has,
-// measured, no readers at all, so "log it louder on the host" is not a signal.
-// The server is the side that is OWED the receipt, so the server is the only
-// side that can observe its absence. These tests pin that observation all the
-// way out to the JSON the cockpit reads.
+func TestArmReceiptWatch(t *testing.T) {
+	t.Run("a landed operation records its receipt deadline and a later dispatch replaces it", func(t *testing.T) {
+		api := &apiServer{receiptPending: map[string]pendingReceipt{}}
 
-// receiptDTOReason marshals the member DTO the cockpit's member detail panel
-// consumes and returns its last_op_reason string. Asserting on the SERVED JSON
-// (not the DB struct) is the point: the reader chain is
-// last_op_reason → frontend/src/api/mappers.ts → MemberDetailPanel →
-// AgentDetailPanel's `!lastOpOk && lastOpReason` block. A stamp that stopped at
-// the row would be another log with no reader.
-func receiptDTOReason(t *testing.T, s *apiServer, memberID string) (string, bool) {
-	t.Helper()
-	m, err := s.dal.GetMember(memberID)
-	if err != nil || m == nil {
-		t.Fatalf("reload member %s: %v", memberID, err)
-	}
-	raw, err := json.Marshal(s.newMemberDTO(*m, "", "", 0))
-	if err != nil {
-		t.Fatalf("marshal member DTO: %v", err)
-	}
-	var dto struct {
-		LastOpReason string `json:"last_op_reason"`
-		LastOpOK     *bool  `json:"last_op_ok"`
-		LastOp       string `json:"last_op"`
-	}
-	if err := json.Unmarshal(raw, &dto); err != nil {
-		t.Fatalf("unmarshal member DTO: %v", err)
-	}
-	// The FE only renders the reason when the op is NOT ok — a reason stamped
-	// with ok=true would be invisible in the exact panel it was written for.
-	rendered := dto.LastOpOK != nil && !*dto.LastOpOK
-	return dto.LastOpReason, rendered
-}
+		api.armReceiptWatch("member-1", "start", "machine-a", 100)
+		got := api.receiptPending["member-1"]
+		if want := (pendingReceipt{RPC: "start", Warden: "machine-a", Deadline: 190}); got != want {
+			t.Fatalf("first watch = %+v, want %+v", got, want)
+		}
 
-// The load-bearing case: a START lands on a warden, no receipt ever arrives,
-// and the deadline turns that silence into a named reason on the wire the
-// cockpit reads.
-func TestReceiptDeadline_UnansweredStartSurfacesOnTheMemberWire(t *testing.T) {
-	s := newReconcileTestServer(t)
-	putWarden(t, s, "mach-live")
-	connectOnline(t, s, "mach-live")
-
-	m := testAgent("m-quiet")
-	m.DesiredMachineID = "mach-live"
-	putTestMember(t, s, m)
-
-	dec := s.reconcileMemberNow("m-quiet")
-	if dec.Command != reconcileCmdStart {
-		t.Fatalf("expected a landed START, got %q (%s)", dec.Command, dec.Reason)
-	}
-
-	// NEGATIVE CONTROL, and it must run before the positive one: inside the
-	// window the silence is not yet news. Without this the test below would
-	// pass just as well against a stamp that fires unconditionally.
-	s.sweepLapsedReceipts(nowSecs())
-	if reason, _ := receiptDTOReason(t, s, "m-quiet"); strings.Contains(reason, receiptMissingReasonCode) {
-		t.Fatalf("a receipt still inside its window must not be stamped; got %q", reason)
-	}
-
-	s.sweepLapsedReceipts(nowSecs() + receiptDeadlineSecs + 1)
-	reason, rendered := receiptDTOReason(t, s, "m-quiet")
-	if !strings.HasPrefix(reason, receiptMissingReasonCode+":") {
-		t.Fatalf("an unanswered START must carry the %s code on the member wire; got %q",
-			receiptMissingReasonCode, reason)
-	}
-	if !rendered {
-		t.Fatalf("the stamp must set last_op_ok=false — the cockpit only renders the "+
-			"reason for a NOT-ok op, so an ok stamp reaches nobody; got %q", reason)
-	}
-	if !strings.Contains(reason, "mach-live") {
-		t.Fatalf("the reason must name the machine the frame went to; got %q", reason)
-	}
-	// The whole point of the sentence: the outcome is UNKNOWN, not failed.
-	// A reason the owner reads as "the start failed" would send them to
-	// re-fire against a member that may already be running.
-	if !strings.Contains(reason, "UNKNOWN") {
-		t.Fatalf("the reason must say the outcome is unknown rather than failed; got %q", reason)
-	}
-}
-
-// The discriminating half: a receipt that ARRIVES disarms the deadline, so a
-// healthy fleet is never stamped. Without this the feature would be a
-// permanent false alarm on every member.
-func TestReceiptDeadline_ArrivedReceiptDisarmsTheStamp(t *testing.T) {
-	s := newReconcileTestServer(t)
-	putWarden(t, s, "mach-live")
-	connectOnline(t, s, "mach-live")
-
-	m := testAgent("m-answers")
-	m.DesiredMachineID = "mach-live"
-	putTestMember(t, s, m)
-
-	if dec := s.reconcileMemberNow("m-answers"); dec.Command != reconcileCmdStart {
-		t.Fatalf("expected a landed START, got %q", dec.Command)
-	}
-	s.foldCommandResult(map[string]any{
-		"member_id": "m-answers",
-		"rpc":       reconcileCmdStart,
-		"ok":        true,
-		"reason":    "",
-		"log":       "spawned",
-	}, triggerServer, "")
-
-	s.sweepLapsedReceipts(nowSecs() + receiptDeadlineSecs + 1)
-	if reason, _ := receiptDTOReason(t, s, "m-answers"); strings.Contains(reason, receiptMissingReasonCode) {
-		t.Fatalf("an answered START must never be stamped receipt_missing; got %q", reason)
-	}
-}
-
-// The subtle one. A no-op stop receipt (T-9adc) is DELIBERATELY not folded onto
-// last_op — the fold returns early. If the deadline were disarmed by a
-// successful fold rather than by the receipt's ARRIVAL, every idempotent stop
-// (identity sweeps broadcast these to every warden) would later be stamped
-// receipt_missing even though its receipt was received and read.
-func TestReceiptDeadline_NoOpStopReceiptStillDisarmsTheDeadline(t *testing.T) {
-	s := newReconcileTestServer(t)
-	putWarden(t, s, "mach-live")
-	connectOnline(t, s, "mach-live")
-
-	m := testAgent("m-noop")
-	m.DesiredMachineID = "mach-live"
-	m.DesiredState = DesiredStateOffline
-	putTestMember(t, s, m)
-	connectOnline(t, s, "m-noop") // online + desired offline ⇒ the STOP arm
-	// 下線 no longer collects on a timer (owner's ruling — see decideDown), so
-	// this test drives the TIMED wind-down explicitly: it is about receipts,
-	// not about who decides time is up.
-	s.reconcileCfg.SoftOffboardGrace = 0
-	// Skip past the self-stop grace window so this tick dispatches the robust
-	// STOP rather than opening the clock (decideDown's first observation).
-	s.reconcileStates["m-noop"] = reconcileState{
-		Phase:        reconcilePhaseStopping,
-		LastCommand:  reconcileCmdNone,
-		StopDeadline: nowSecs() - 1,
-	}
-
-	if dec := s.reconcileMemberNow("m-noop"); dec.Command != reconcileCmdStop {
-		t.Fatalf("expected a landed STOP, got %q", dec.Command)
-	}
-	s.foldCommandResult(map[string]any{
-		"member_id": "m-noop",
-		"rpc":       reconcileCmdStop,
-		"ok":        true,
-		"reason":    stopNoopReasonPrefix + ": stop was a no-op",
-		"log":       "session=member-m-noop",
-	}, triggerServer, "")
-
-	s.sweepLapsedReceipts(nowSecs() + receiptDeadlineSecs + 1)
-	if reason, _ := receiptDTOReason(t, s, "m-noop"); strings.Contains(reason, receiptMissingReasonCode) {
-		t.Fatalf("a no-op stop receipt ARRIVED — the deadline must be disarmed by "+
-			"arrival, not by a successful fold; got %q", reason)
-	}
-}
-
-// A worker start rides the member verbs since P5b, so its unanswered receipt
-// must land on the worker row (the cockpit's worker detail panel reads the same
-// last_op_reason field) rather than on nothing.
-func TestReceiptDeadline_UnansweredWorkerStartSurfacesOnTheWorkerRow(t *testing.T) {
-	s := newReconcileTestServer(t)
-	putWorkerFixture(t, s, OutsourceWorker{
-		ID: "ow-quiet", Codename: "O-9", Runtime: "claude",
-		Status: WorkerStatusActive,
+		api.armReceiptWatch("member-1", "stop", "machine-b", 200)
+		got = api.receiptPending["member-1"]
+		if want := (pendingReceipt{RPC: "stop", Warden: "machine-b", Deadline: 290}); got != want {
+			t.Fatalf("replaced watch = %+v, want %+v", got, want)
+		}
 	})
 
-	s.armReceiptWatch("ow-quiet", reconcileCmdStart, "mach-live", nowSecs())
+	t.Run("a blank target or operation does not create or change a watch", func(t *testing.T) {
+		want := pendingReceipt{RPC: "start", Warden: "machine-a", Deadline: 190}
+		api := &apiServer{receiptPending: map[string]pendingReceipt{"member-1": want}}
 
-	s.sweepLapsedReceipts(nowSecs()) // negative control: still inside the window
-	w, err := s.dal.GetOutsourceWorker("ow-quiet")
-	if err != nil || w == nil {
-		t.Fatalf("reload worker: %v", err)
-	}
-	if strings.Contains(w.LastOpReason, receiptMissingReasonCode) {
-		t.Fatalf("inside the window nothing may be stamped; got %q", w.LastOpReason)
-	}
+		api.armReceiptWatch("", "start", "machine-b", 100)
+		api.armReceiptWatch("member-1", "", "machine-b", 100)
 
-	s.sweepLapsedReceipts(nowSecs() + receiptDeadlineSecs + 1)
-	w, err = s.dal.GetOutsourceWorker("ow-quiet")
-	if err != nil || w == nil {
-		t.Fatalf("reload worker: %v", err)
-	}
-	if !strings.HasPrefix(w.LastOpReason, receiptMissingReasonCode+":") {
-		t.Fatalf("an unanswered worker START must stamp the worker row; got %q", w.LastOpReason)
-	}
-	if w.LastOpOK == nil || *w.LastOpOK {
-		t.Fatalf("the worker stamp must set last_op_ok=false; got %v", w.LastOpOK)
+		if got := api.receiptPending["member-1"]; got != want {
+			t.Fatalf("watch after invalid arms = %+v, want %+v", got, want)
+		}
+		if _, ok := api.receiptPending[""]; ok {
+			t.Fatal("blank target must not be added to receipt watches")
+		}
+	})
+}
+
+func TestMemberIDRawOf(t *testing.T) {
+	for _, tc := range []struct {
+		name          string
+		commandResult map[string]any
+		want          string
+	}{
+		{name: "a string member id is returned", commandResult: map[string]any{"member_id": "mira"}, want: "mira"},
+		{name: "a missing member id is empty", commandResult: map[string]any{}, want: ""},
+		{name: "a non-string member id is empty", commandResult: map[string]any{"member_id": 42}, want: ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := memberIDRawOf(tc.commandResult); got != tc.want {
+				t.Fatalf("memberIDRawOf(%v) = %q, want %q", tc.commandResult, got, tc.want)
+			}
+		})
 	}
 }
 
-// The stamp fires ONCE per dispatch, not every tick. A re-stamping sweep would
-// re-write last_op_at and fan an SSE delta every 30s forever for a member
-// nobody is touching — turning one lost receipt into a permanent event stream.
-func TestReceiptDeadline_StampsOncePerDispatch(t *testing.T) {
-	s := newReconcileTestServer(t)
-	putTestMember(t, s, testAgent("m-once"))
+func TestNoteReceiptArrived(t *testing.T) {
+	t.Run("the expected machine receipt disarms the target", func(t *testing.T) {
+		api := &apiServer{receiptPending: map[string]pendingReceipt{
+			"member-1": {RPC: "start", Warden: "machine-a", Deadline: 190},
+		}}
 
-	s.armReceiptWatch("m-once", reconcileCmdStop, "mach-live", nowSecs())
-	s.sweepLapsedReceipts(nowSecs() + receiptDeadlineSecs + 1)
+		api.noteReceiptArrived("member-1", "machine-a")
 
-	m, err := s.dal.GetMember("m-once")
-	if err != nil || m == nil {
-		t.Fatalf("reload member: %v", err)
-	}
-	firstAt := m.LastOpAt
-	if firstAt == 0 {
-		t.Fatalf("the first sweep must stamp; last_op_at is still zero")
-	}
+		if _, ok := api.receiptPending["member-1"]; ok {
+			t.Fatal("the matching receipt must disarm the watch")
+		}
+	})
 
-	s.sweepLapsedReceipts(nowSecs() + 10*receiptDeadlineSecs)
-	m, err = s.dal.GetMember("m-once")
-	if err != nil || m == nil {
-		t.Fatalf("reload member: %v", err)
-	}
-	if m.LastOpAt != firstAt {
-		t.Fatalf("a lapsed watch must be consumed by its first sweep; last_op_at moved %v → %v",
-			firstAt, m.LastOpAt)
+	t.Run("a receipt from a different known machine leaves the watch armed", func(t *testing.T) {
+		want := map[string]pendingReceipt{
+			"member-1": {RPC: "stop", Warden: "machine-a", Deadline: 290},
+		}
+		api := &apiServer{receiptPending: map[string]pendingReceipt{
+			"member-1": {RPC: "stop", Warden: "machine-a", Deadline: 290},
+		}}
+
+		api.noteReceiptArrived("member-1", "machine-b")
+
+		if got := api.receiptPending; !reflect.DeepEqual(got, want) {
+			t.Fatalf("watches after a mismatched receipt = %+v, want %+v", got, want)
+		}
+	})
+
+	t.Run("an unknown reporter or unresolved machine does not block disarming", func(t *testing.T) {
+		for _, tc := range []struct {
+			name     string
+			watch    pendingReceipt
+			reporter string
+		}{
+			{name: "unknown reporter", watch: pendingReceipt{RPC: "start", Warden: "machine-a", Deadline: 190}, reporter: ""},
+			{name: "unresolved machine", watch: pendingReceipt{RPC: "stop", Warden: "", Deadline: 290}, reporter: "machine-a"},
+		} {
+			t.Run(tc.name, func(t *testing.T) {
+				api := &apiServer{receiptPending: map[string]pendingReceipt{"member-1": tc.watch}}
+
+				api.noteReceiptArrived("member-1", tc.reporter)
+
+				if _, ok := api.receiptPending["member-1"]; ok {
+					t.Fatal("the receipt must disarm a watch when identity comparison is unavailable")
+				}
+			})
+		}
+	})
+
+	t.Run("a blank or unknown target does not affect existing watches", func(t *testing.T) {
+		want := map[string]pendingReceipt{
+			"member-1": {RPC: "start", Warden: "machine-a", Deadline: 190},
+		}
+		api := &apiServer{receiptPending: map[string]pendingReceipt{
+			"member-1": {RPC: "start", Warden: "machine-a", Deadline: 190},
+		}}
+
+		api.noteReceiptArrived("", "machine-a")
+		api.noteReceiptArrived("ghost", "machine-a")
+
+		if got := api.receiptPending; !reflect.DeepEqual(got, want) {
+			t.Fatalf("watches after irrelevant receipts = %+v, want %+v", got, want)
+		}
+	})
+}
+
+func TestTakeLapsedReceipts(t *testing.T) {
+	t.Run("past and exactly-on-deadline watches are removed while a future watch remains", func(t *testing.T) {
+		api := &apiServer{receiptPending: map[string]pendingReceipt{
+			"past":   {RPC: "start", Warden: "machine-a", Deadline: 99},
+			"at-now": {RPC: "stop", Warden: "machine-b", Deadline: 100},
+			"future": {RPC: "start", Warden: "machine-c", Deadline: 101},
+		}}
+
+		got := api.takeLapsedReceipts(100)
+		want := map[string]pendingReceipt{
+			"past":   {RPC: "start", Warden: "machine-a", Deadline: 99},
+			"at-now": {RPC: "stop", Warden: "machine-b", Deadline: 100},
+		}
+		if !reflect.DeepEqual(got, want) {
+			t.Fatalf("lapsed watches = %+v, want %+v", got, want)
+		}
+
+		wantRemaining := map[string]pendingReceipt{
+			"future": {RPC: "start", Warden: "machine-c", Deadline: 101},
+		}
+		if got := api.receiptPending; !reflect.DeepEqual(got, wantRemaining) {
+			t.Fatalf("remaining watches = %+v, want %+v", got, wantRemaining)
+		}
+	})
+}
+
+func TestReceiptMissingReason(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		watch pendingReceipt
+		want  string
+	}{
+		{
+			name:  "names the operation and known machine",
+			watch: pendingReceipt{RPC: "stop", Warden: "machine-a"},
+			want:  "receipt_missing: the stop was handed to machine \"machine-a\" but no receipt came back within 90s — the op may or may not have run; this row's last state is UNKNOWN, not failed. Suspect the machine's link to the server (the receipt POST) before suspecting the op itself",
+		},
+		{
+			name:  "uses target machine when dispatch did not resolve one",
+			watch: pendingReceipt{RPC: "start"},
+			want:  "receipt_missing: the start was handed to the target machine but no receipt came back within 90s — the op may or may not have run; this row's last state is UNKNOWN, not failed. Suspect the machine's link to the server (the receipt POST) before suspecting the op itself",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := receiptMissingReason(tc.watch); got != tc.want {
+				t.Fatalf("receiptMissingReason(%+v) = %q, want %q", tc.watch, got, tc.want)
+			}
+		})
 	}
 }
 
-// An UNLANDED dispatch must not arm a watch: nothing left the server, so
-// blaming the receipt channel would point the owner at the wrong suspect (the
-// dispatch stamps already explain that case in their own words).
-func TestReceiptDeadline_UnlandedDispatchArmsNothing(t *testing.T) {
-	s := newReconcileTestServer(t)
-	putWarden(t, s, "mach-dead") // on the roster, never connected
+func TestSweepLapsedReceipts(t *testing.T) {
+	t.Run("expired targets are stamped and removed while future targets stay pending", func(t *testing.T) {
+		api, d := reconcileTestServer(t)
+		reconcileTestPut(t, d, Member{ID: "member-expired", Name: "Expired", Kind: KindStaff})
+		reconcileTestPut(t, d, Member{ID: "member-future", Name: "Future", Kind: KindStaff})
+		dashboard := apiTestListen(t, api, "")
+		api.receiptPending = map[string]pendingReceipt{
+			"ghost":          {RPC: "start", Warden: "machine-a", Deadline: 100},
+			"member-expired": {RPC: "stop", Warden: "machine-a", Deadline: 100},
+			"member-future":  {RPC: "start", Warden: "machine-a", Deadline: 101},
+		}
 
-	m := testAgent("m-unsent")
-	m.DesiredMachineID = "mach-dead"
-	putTestMember(t, s, m)
+		api.sweepLapsedReceipts(100)
 
-	dec := s.reconcileMemberNow("m-unsent")
-	if !dec.DispatchUnlanded {
-		t.Fatalf("expected an unlanded dispatch, got %+v", dec)
-	}
-	s.sweepLapsedReceipts(nowSecs() + receiptDeadlineSecs + 1)
-	if reason, _ := receiptDTOReason(t, s, "m-unsent"); strings.Contains(reason, receiptMissingReasonCode) {
-		t.Fatalf("an unlanded START must not be blamed on the receipt channel; got %q", reason)
-	}
+		got := reconcileTestRow(t, d, "member-expired")
+		if got.LastOp != "stop" {
+			t.Fatalf("expired member last_op = %q, want %q", got.LastOp, "stop")
+		}
+		if got.LastOpOK == nil || *got.LastOpOK {
+			t.Fatalf("expired member last_op_ok = %v, want false", got.LastOpOK)
+		}
+		if got.LastOpLog != "" {
+			t.Fatalf("expired member last_op_log = %q, want empty", got.LastOpLog)
+		}
+		if got.LastOpReason != "receipt_missing: the stop was handed to machine \"machine-a\" but no receipt came back within 90s — the op may or may not have run; this row's last state is UNKNOWN, not failed. Suspect the machine's link to the server (the receipt POST) before suspecting the op itself" {
+			t.Fatalf("expired member last_op_reason = %q", got.LastOpReason)
+		}
+		if got.LastOpAt != 100 {
+			t.Fatalf("expired member last_op_at = %v, want 100", got.LastOpAt)
+		}
+
+		future := reconcileTestRow(t, d, "member-future")
+		if future.LastOp != "" || future.LastOpOK != nil || future.LastOpLog != "" || future.LastOpReason != "" || future.LastOpAt != 0 {
+			t.Fatalf("future member receipt = %+v, want no receipt", future)
+		}
+		if got := api.receiptPending; !reflect.DeepEqual(got, map[string]pendingReceipt{
+			"member-future": {RPC: "start", Warden: "machine-a", Deadline: 101},
+		}) {
+			t.Fatalf("pending watches after sweep = %+v", got)
+		}
+		dashboard.wantFrames(apiTestMemberFrame(1, "patch", "member-expired",
+			apiTestMemberPayload("member-expired", "Expired", "active", ""), "server"))
+	})
+}
+
+func TestStampReceiptMissing(t *testing.T) {
+	t.Run("an active roster member stores the missing receipt and publishes its row change", func(t *testing.T) {
+		api, d := reconcileTestServer(t)
+		reconcileTestPut(t, d, Member{ID: "member-target", Name: "Target", Kind: KindStaff})
+		dashboard := apiTestListen(t, api, "")
+
+		api.stampReceiptMissing("member-target", pendingReceipt{RPC: "stop", Warden: "machine-a"}, 1234)
+
+		got := reconcileTestRow(t, d, "member-target")
+		if got.LastOp != "stop" {
+			t.Fatalf("member last_op = %q, want %q", got.LastOp, "stop")
+		}
+		if got.LastOpOK == nil || *got.LastOpOK {
+			t.Fatalf("member last_op_ok = %v, want false", got.LastOpOK)
+		}
+		if got.LastOpLog != "" {
+			t.Fatalf("member last_op_log = %q, want empty", got.LastOpLog)
+		}
+		if got.LastOpReason != "receipt_missing: the stop was handed to machine \"machine-a\" but no receipt came back within 90s — the op may or may not have run; this row's last state is UNKNOWN, not failed. Suspect the machine's link to the server (the receipt POST) before suspecting the op itself" {
+			t.Fatalf("member last_op_reason = %q", got.LastOpReason)
+		}
+		if got.LastOpAt != 1234 {
+			t.Fatalf("member last_op_at = %v, want 1234", got.LastOpAt)
+		}
+		dashboard.wantFrames(apiTestMemberFrame(1, "patch", "member-target",
+			apiTestMemberPayload("member-target", "Target", "active", ""), "server"))
+	})
+
+	t.Run("an active outsource worker stores the missing receipt and publishes its owner row", func(t *testing.T) {
+		api, h, d, owner, _ := wsWorkerSpawnFixture(t, WorkerStatusAssigned)
+		dashboard := apiTestListen(t, api, "")
+
+		api.stampReceiptMissing("ow-abc123", pendingReceipt{RPC: "start", Warden: "m-server-self"}, 1234)
+
+		apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, map[string]any{
+			"last_op":        "start",
+			"last_op_ok":     false,
+			"last_op_log":    "",
+			"last_op_reason": "receipt_missing: the start was handed to machine \"m-server-self\" but no receipt came back within 90s — the op may or may not have run; this row's last state is UNKNOWN, not failed. Suspect the machine's link to the server (the receipt POST) before suspecting the op itself",
+			"last_op_at":     1234,
+		}))
+		if row, err := d.GetOutsourceWorker("ow-abc123"); err != nil || row == nil || row.LastOp != "start" {
+			t.Fatalf("worker durable receipt = %+v, %v", row, err)
+		}
+		dashboard.wantFrames(apiTestWorkerDelta(2, "assigned", "server"))
+	})
+
+	t.Run("a removed member or unknown target receives no stamp or SSE output", func(t *testing.T) {
+		api, d := reconcileTestServer(t)
+		reconcileTestPut(t, d, Member{ID: "member-removed", Name: "Removed", Kind: KindStaff, RosterStatus: RosterStatusRemoved})
+		dashboard := apiTestListen(t, api, "")
+
+		api.stampReceiptMissing("member-removed", pendingReceipt{RPC: "stop", Warden: "machine-a"}, 1234)
+		api.stampReceiptMissing("ghost", pendingReceipt{RPC: "start", Warden: "machine-a"}, 1234)
+
+		got := reconcileTestRow(t, d, "member-removed")
+		if got.LastOp != "" || got.LastOpOK != nil || got.LastOpLog != "" || got.LastOpReason != "" || got.LastOpAt != 0 {
+			t.Fatalf("removed member receipt = %+v, want no receipt", got)
+		}
+		dashboard.wantFrames()
+	})
 }

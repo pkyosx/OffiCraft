@@ -1,100 +1,170 @@
 package main
 
-// browser_test.go — the first-run browser pop (browser.go): per-GOOS opener
-// argv, silent degradation to a printed URL on any open failure, and the
-// auto-open gating (TTY + OC_NO_OPEN_BROWSER valve).
-
 import (
 	"errors"
+	"os"
 	"strings"
 	"testing"
 )
 
-func recordingRun(calls *[][]string, err error) func(string, ...string) error {
-	return func(name string, arg ...string) error {
-		*calls = append(*calls, append([]string{name}, arg...))
-		return err
-	}
-}
-
-func TestBrowserOpenerArgvPerGOOS(t *testing.T) {
-	const url = "http://127.0.0.1:8765/?code=tok"
+func TestOpen(t *testing.T) {
 	cases := []struct {
-		goos string
-		want []string
+		name     string
+		goos     string
+		wantName string
+		wantArg  string
+		wantErr  string
 	}{
-		{"darwin", []string{"open", url}},
-		{"linux", []string{"xdg-open", url}},
+		{name: "macOS uses open", goos: "darwin", wantName: "open", wantArg: "http://127.0.0.1:7757/?code=claim"},
+		{name: "Linux uses xdg-open", goos: "linux", wantName: "xdg-open", wantArg: "http://127.0.0.1:7757/?code=claim"},
+		{name: "an unsupported platform returns an explicit error", goos: "plan9", wantErr: `no browser opener for GOOS "plan9"`},
 	}
-	for _, c := range cases {
-		var calls [][]string
-		b := browserOpener{goos: c.goos, run: recordingRun(&calls, nil)}
-		if err := b.open(url); err != nil {
-			t.Fatalf("%s: unexpected error: %v", c.goos, err)
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			called := false
+			gotName := ""
+			gotArg := ""
+			b := browserOpener{
+				goos: tc.goos,
+				run: func(name string, arg ...string) error {
+					called = true
+					gotName = name
+					if len(arg) == 1 {
+						gotArg = arg[0]
+					}
+					return nil
+				},
+			}
+			err := b.open(tc.wantArg)
+			if tc.wantErr != "" {
+				if called {
+					t.Fatal("unsupported GOOS must not invoke the command seam")
+				}
+				if err == nil || err.Error() != tc.wantErr {
+					t.Fatalf("open error = %v, want %q", err, tc.wantErr)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("open: %v", err)
+			}
+			if !called || gotName != tc.wantName || gotArg != tc.wantArg {
+				t.Fatalf("command = called:%v name:%q arg:%q, want %q %q", called, gotName, gotArg, tc.wantName, tc.wantArg)
+			}
+		})
+	}
+
+	t.Run("a command failure is returned to the caller", func(t *testing.T) {
+		want := errors.New("opener failed")
+		b := browserOpener{goos: "linux", run: func(string, ...string) error { return want }}
+		if got := b.open("http://127.0.0.1:7757/?code=claim"); !errors.Is(got, want) {
+			t.Fatalf("open error = %v, want %v", got, want)
 		}
-		if len(calls) != 1 || strings.Join(calls[0], " ") != strings.Join(c.want, " ") {
-			t.Fatalf("%s: argv = %v, want %v", c.goos, calls, c.want)
+	})
+}
+
+func TestStdoutIsTerminal(t *testing.T) {
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("os.Pipe: %v", err)
+	}
+	saved := os.Stdout
+	os.Stdout = w
+	t.Cleanup(func() {
+		os.Stdout = saved
+		_ = w.Close()
+		_ = r.Close()
+	})
+
+	if got := stdoutIsTerminal(); got {
+		t.Fatal("stdoutIsTerminal() = true for a pipe, want false")
+	}
+}
+
+func TestPopFirstRunBrowser(t *testing.T) {
+	const setupURL = "http://127.0.0.1:7757/?code=claim"
+
+	t.Run("a successful open prints only the confirmation", func(t *testing.T) {
+		called := false
+		b := browserOpener{
+			goos: "linux",
+			run: func(name string, arg ...string) error {
+				called = true
+				if name != "xdg-open" || len(arg) != 1 || arg[0] != setupURL {
+					t.Fatalf("browser command = %q %q, want xdg-open %q", name, arg, setupURL)
+				}
+				return nil
+			},
 		}
-	}
+		var out strings.Builder
+		popFirstRunBrowser(b, setupURL, &out)
+		if !called {
+			t.Fatal("successful browser open did not invoke the command seam")
+		}
+		if got := out.String(); got != "[ocserverd] opened the setup page in your browser — choose a password there to claim the server\n" {
+			t.Fatalf("output = %q, want the no-token confirmation", got)
+		}
+	})
+
+	t.Run("a failed open prints the full clickable URL", func(t *testing.T) {
+		var out strings.Builder
+		b := browserOpener{
+			goos: "linux",
+			run:  func(string, ...string) error { return errors.New("no display") },
+		}
+		popFirstRunBrowser(b, setupURL, &out)
+		if got := out.String(); got != "[ocserverd]   "+setupURL+"\n" {
+			t.Fatalf("output = %q, want the full clickable URL", got)
+		}
+	})
 }
 
-func TestBrowserOpenerUnsupportedGOOSErrorsWithoutRunning(t *testing.T) {
-	var calls [][]string
-	b := browserOpener{goos: "windows", run: recordingRun(&calls, nil)}
-	if err := b.open("http://x/"); err == nil {
-		t.Fatal("want error for unsupported GOOS")
-	}
-	if len(calls) != 0 {
-		t.Fatalf("run must not be called on unsupported GOOS, got %v", calls)
-	}
-}
-
-func TestPopFirstRunBrowserFailureFallsBackToURL(t *testing.T) {
-	const url = "http://127.0.0.1:8765/?code=tok"
-	var out strings.Builder
-	b := browserOpener{goos: "linux", run: recordingRun(new([][]string), errors.New("no display"))}
-	popFirstRunBrowser(b, url, &out)
-	if !strings.Contains(out.String(), url) {
-		t.Fatalf("failed open must print the full setup URL, got %q", out.String())
-	}
-}
-
-func TestPopFirstRunBrowserSuccessPrintsNoToken(t *testing.T) {
-	const url = "http://127.0.0.1:8765/?code=tok"
-	var out strings.Builder
-	b := browserOpener{goos: "darwin", run: recordingRun(new([][]string), nil)}
-	popFirstRunBrowser(b, url, &out)
-	if strings.Contains(out.String(), "tok") {
-		t.Fatalf("successful open must not print the claim code, got %q", out.String())
-	}
-	if !strings.Contains(out.String(), "opened the setup page") {
-		t.Fatalf("successful open must confirm on the log, got %q", out.String())
+func TestFirstRunSetupURL(t *testing.T) {
+	for _, tc := range []struct {
+		name, addr, token, want string
+	}{
+		{name: "loopback listener uses http", addr: "127.0.0.1:7757", token: "claim_-1", want: "http://127.0.0.1:7757/?code=claim_-1"},
+		{name: "localhost listener uses http", addr: "localhost:7757", token: "claim", want: "http://localhost:7757/?code=claim"},
+		{name: "non-loopback listener uses https", addr: "studio.example:7757", token: "claim", want: "https://studio.example:7757/?code=claim"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := firstRunSetupURL(tc.addr, tc.token); got != tc.want {
+				t.Fatalf("firstRunSetupURL(%q, %q) = %q, want %q", tc.addr, tc.token, got, tc.want)
+			}
+		})
 	}
 }
 
 func TestShouldAutoOpenBrowser(t *testing.T) {
-	envWith := func(v string) func(string) string {
-		return func(k string) string {
-			if k == "OC_NO_OPEN_BROWSER" {
-				return v
+	for _, tc := range []struct {
+		name      string
+		noOpen    string
+		stdoutTTY bool
+		want      bool
+	}{
+		{name: "interactive output opens", stdoutTTY: true, want: true},
+		{name: "piped output does not open", stdoutTTY: false, want: false},
+		{name: "explicit opt out does not open", noOpen: "1", stdoutTTY: true, want: false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			env := func(name string) string {
+				if name == "OC_NO_OPEN_BROWSER" {
+					return tc.noOpen
+				}
+				return ""
 			}
-			return ""
-		}
-	}
-	if !shouldAutoOpenBrowser(envWith(""), true) {
-		t.Fatal("TTY + no opt-out must auto-open")
-	}
-	if shouldAutoOpenBrowser(envWith("1"), true) {
-		t.Fatal("OC_NO_OPEN_BROWSER set must suppress the pop")
-	}
-	if shouldAutoOpenBrowser(envWith(""), false) {
-		t.Fatal("non-TTY stdout must suppress the pop")
+			if got := shouldAutoOpenBrowser(env, tc.stdoutTTY); got != tc.want {
+				t.Fatalf("shouldAutoOpenBrowser(tty=%v, no-open=%q) = %v, want %v", tc.stdoutTTY, tc.noOpen, got, tc.want)
+			}
+		})
 	}
 }
 
-func TestFirstRunSetupURL(t *testing.T) {
-	got := firstRunSetupURL("127.0.0.1:8765", "abc_DEF-123")
-	if got != "http://127.0.0.1:8765/?code=abc_DEF-123" {
-		t.Fatalf("setup URL = %q", got)
+func TestRunBrowserCommand(t *testing.T) {
+	if err := runBrowserCommand("true"); err != nil {
+		t.Fatalf("runBrowserCommand(true): %v", err)
+	}
+	if err := runBrowserCommand("false"); err == nil {
+		t.Fatal("runBrowserCommand(false) = nil, want the command failure")
 	}
 }

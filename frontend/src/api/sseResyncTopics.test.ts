@@ -1,4 +1,4 @@
-// The frontend's closed SSE topic set, bound to the contract that declares it.
+// The frontend's closed SSE topic set, bound to the artifact that declares it.
 //
 // WHY this exists (T-05db node 4): `SSE_RESYNC_TOPICS` in api/http.ts is the
 // list http.ts replays after a reconnect — one synthetic delta per topic, which
@@ -13,23 +13,29 @@
 // lived in hooks/sseFanout.test.tsx and, measured, had zero discriminating
 // power: deleting a topic from it left the whole suite green).
 //
-// So: ONE copy (http.ts's, now exported and replayed by sseFanout.test.tsx too)
-// and this guard pins it to spec/sse.md §3.1 — the same table the two Go/Python
-// guards on the backend already bind (server/ocserverd/sse_topics_spec_test.go
-// binds spec↔hub.go, conformance/test_sse.py binds spec↔conformance).
+// ⚠️ WHAT IT IS BOUND TO CHANGED. This guard used to PARSE spec/sse.md §3.1's
+// markdown table, and so did a Go test and the Python conformance suite: three
+// parsers over three hand-kept copies of one list. The list has ONE source now
+// — `sseTopics` in server/ocserverd/hub.go, the map the publish seam consults
+// before it fans anything — rendered by bin/gen-sse-topics into the committed
+// spec/sse-topics.json and held to the code by the drift-sse-topics gate. That
+// generated artifact is what this file reads. §3.1's table stays HAND-WRITTEN
+// documentation and is deliberately NOT read here: a sentence in a spec cannot
+// make the server fan a frame, and reading it back was how a stale table got to
+// look like an authority.
 //
-// The table is parsed HERE AT RUN TIME, from the repo checkout. Reading a
-// repo file from vitest is established practice in this tree (lib/themePaint,
+// The artifact is read HERE AT RUN TIME, from the repo checkout. Reading a repo
+// file from vitest is established practice in this tree (lib/themePaint,
 // lib/paintArtifact, components/styleOwnership all readFileSync the sources
 // they guard) — vitest runs in Node, `node:fs` is real.
 //
-// EQUALITY, not subset, and every offender is NAMED: a topic in the spec that
-// the frontend never resyncs is the silent-staleness bug above; a topic in the
-// frontend that the spec does not declare is a phantom the server can never
-// send (hub.go drops it at the publish seam), i.e. a resync fan-out that costs
-// every hook a refetch for nothing.
+// EQUALITY, not subset, and every offender is NAMED: a topic the server can
+// send that the frontend never resyncs is the silent-staleness bug above; a
+// topic in the frontend the server does not have is a phantom it can never send
+// (hub.go drops it at the publish seam), i.e. a resync fan-out that costs every
+// hook a refetch for nothing.
 //
-// 🔴 Do NOT "fix" a failure here by transcribing the spec table into this file.
+// 🔴 Do NOT "fix" a failure here by transcribing the topic list into this file.
 // The whole point is that this file contains no topic names at all.
 
 import { describe, it, expect } from "vitest";
@@ -39,91 +45,94 @@ import { resolve } from "node:path";
 // __dirname (= frontend/src/api) rather than import.meta.url: under the jsdom
 // environment import.meta.url is not a file: URL, so fileURLToPath throws.
 // Same resolution style as lib/themePaint.test.ts, which reads a server asset.
-const SPEC_PATH = resolve(__dirname, "../../..", "spec/sse.md");
+const TOPICS_PATH = resolve(__dirname, "../../..", "spec/sse-topics.json");
 
-/** One row of the §3.1 table: `| \`<topic>\` | <trigger> | <op> |`. The header
- * row (`| topic | trigger | op |`) carries no backticks, so it is not a row. */
-const TOPIC_ROW = /^\|\s*`([a-z_]+)`\s*\|/gm;
-
-/** Parse the closed topic set out of spec/sse.md's text.
+/** Extract the closed topic set from the generated artifact's text.
  *
  * FAIL-CLOSED by construction: every way this can stop finding topics THROWS
- * rather than returning a short or empty list. A parser that silently returns
- * [] would turn this guard green forever the day someone renames the heading —
- * the exact failure mode the guard is supposed to make impossible. The three
- * throws below are each exercised by a test at the bottom of this file. */
-export function parseSpecTopics(raw: string): string[] {
-  const startIdx = raw.indexOf("### 3.1");
-  if (startIdx < 0) {
+ * rather than returning a short or empty list. A parser that silently returned
+ * [] would turn this guard green forever the day the artifact's shape changes —
+ * the exact failure mode the guard is supposed to make impossible. Each throw
+ * below is exercised by a test at the bottom of this file. */
+export function parseTopicAsset(raw: string): string[] {
+  let doc: unknown;
+  try {
+    doc = JSON.parse(raw);
+  } catch (e) {
     throw new Error(
-      "spec/sse.md: heading '### 3.1' not found — the closed-topic table was " +
-        "renamed or moved. This guard finds the table by heading; refusing to " +
-        "report an empty topic set as agreement.",
+      `spec/sse-topics.json: not valid JSON (${String(e)}). It is a GENERATED ` +
+        "artifact — regenerate it with bin/gen-sse-topics rather than repairing it by hand.",
     );
   }
-  const afterStart = raw.slice(startIdx);
-  const endIdx = afterStart.indexOf("### 3.2");
-  if (endIdx < 0) {
+  if (typeof doc !== "object" || doc === null || Array.isArray(doc)) {
     throw new Error(
-      "spec/sse.md: heading '### 3.2' not found after §3.1 — cannot bound the " +
-        "§3.1 topic table, and an unbounded slice would swallow the §4.1 " +
-        "audience table too. Refusing to guess.",
+      "spec/sse-topics.json: top level is not an object — the artifact's shape " +
+        "changed and this reader must not guess at the new one.",
     );
   }
-  const section = afterStart.slice(0, endIdx);
-  const topics = [...section.matchAll(TOPIC_ROW)].map((m) => m[1]);
+  const topics = (doc as { topics?: unknown }).topics;
+  if (!Array.isArray(topics) || !topics.every((t) => typeof t === "string" && t.length > 0)) {
+    throw new Error(
+      "spec/sse-topics.json: `topics` must be a non-empty-string array. The " +
+        "closed set is READ from this file at run time, so a shape change must " +
+        "fail here instead of yielding an empty set that makes this guard vacuous.",
+    );
+  }
   if (topics.length === 0) {
     throw new Error(
-      "spec/sse.md §3.1: parsed ZERO topics — the table's shape changed. Fix " +
-        "the parser; an empty set would make this guard assert nothing.",
+      "spec/sse-topics.json: `topics` is EMPTY — an empty closed set would make " +
+        "the comparison below agree with anything. Regenerate with bin/gen-sse-topics.",
     );
   }
-  return topics;
+  return topics as string[];
 }
 
-/** Read + parse the real spec. Fails loudly (never empty) if the file is gone
- * or unreadable — a missing spec must not read as "no topics, all agreed". */
-export function readSpecTopics(path: string = SPEC_PATH): string[] {
+/** Read + parse the real artifact. Fails loudly (never empty) if the file is
+ * gone or unreadable — a missing artifact must not read as "no topics, all
+ * agreed". */
+export function readTopicAsset(path: string = TOPICS_PATH): string[] {
   let raw: string;
   try {
     raw = readFileSync(path, "utf8");
   } catch (e) {
     throw new Error(
-      `spec/sse.md unreadable at ${path}: ${String(e)} — this guard reads the ` +
-        "wire contract at run time and cannot pass without it.",
+      `spec/sse-topics.json unreadable at ${path}: ${String(e)} — this guard ` +
+        "reads the generated topic asset at run time and cannot pass without it. " +
+        "Create it with bin/gen-sse-topics.",
     );
   }
-  return parseSpecTopics(raw);
+  return parseTopicAsset(raw);
 }
 
-describe("SSE_RESYNC_TOPICS vs spec/sse.md §3.1", () => {
-  it("equals the closed topic set the wire contract declares", async () => {
-    const spec = new Set(readSpecTopics());
+describe("SSE_RESYNC_TOPICS vs spec/sse-topics.json", () => {
+  it("equals the closed topic set the server declares", async () => {
+    const declared = new Set(readTopicAsset());
     // Imported lazily so a parse/read failure above reports as ITSELF rather
     // than as a confusing module-load error from the adapter.
     const { SSE_RESYNC_TOPICS } = await import("./http");
     const code = new Set<string>(SSE_RESYNC_TOPICS);
 
-    const missing = [...spec].filter((t) => !code.has(t)).sort();
-    const extra = [...code].filter((t) => !spec.has(t)).sort();
+    const missing = [...declared].filter((t) => !code.has(t)).sort();
+    const extra = [...code].filter((t) => !declared.has(t)).sort();
 
     expect(
       { missing, extra },
       "api/http.ts SSE_RESYNC_TOPICS MUST equal the closed topic set in " +
-        "spec/sse.md §3.1.\n" +
-        "  `missing` = declared by the spec but NEVER resynced by the client: " +
+        "spec/sse-topics.json (generated from hub.go's sseTopics).\n" +
+        "  `missing` = the server can fan it but the client NEVER resyncs it: " +
         "after a reconnect that topic silently stops refetching — right data, " +
         "stale screen, zero errors. Add it to SSE_RESYNC_TOPICS.\n" +
-        "  `extra` = resynced by the client but NOT in the contract: a phantom " +
-        "topic the server can never emit (hub.go drops it at the publish " +
-        "seam). Add it to spec §3.1 first — spec-first — or drop it here.\n" +
-        "  🔴 Do NOT silence this by copying the table into the test.",
+        "  `extra` = resynced by the client but NOT in the server's set: a " +
+        "phantom topic the server can never emit (hub.go drops it at the " +
+        "publish seam). Add it to hub.go's sseTopics first and re-run " +
+        "bin/gen-sse-topics, or drop it here.\n" +
+        "  🔴 Do NOT silence this by copying the topic list into the test.",
     ).toEqual({ missing: [], extra: [] });
   });
 
-  // The array's own SHAPE — the one thing no comparison against the spec can
-  // check. The confrontation above compares SETS, and a Set de-duplicates by
-  // definition; the two deep-equality guards (api/http.sse-pool.test.ts,
+  // The array's own SHAPE — the one thing no comparison against the artifact
+  // can check. The confrontation above compares SETS, and a Set de-duplicates
+  // by definition; the two deep-equality guards (api/http.sse-pool.test.ts,
   // hooks/sseFanout.test.tsx) now build their expectation FROM this array, so a
   // duplicate lands on both sides of the equality and cancels. Measured by
   // review round 2: duplicating "chat" in SSE_RESYNC_TOPICS left all 218 files
@@ -141,57 +150,36 @@ describe("SSE_RESYNC_TOPICS vs spec/sse.md §3.1", () => {
       "SSE_RESYNC_TOPICS must list each topic exactly once: resyncAll fans one " +
         "synthetic delta per ELEMENT, so a repeated element makes every hook " +
         "subscribed to it refetch again on every reconnect. Nothing else in the " +
-        "suite can see this — the spec comparison above is set-based, and the " +
+        "suite can see this — the comparison above is set-based, and the " +
         "fan-out guards compare the fan against this same array.",
     ).toEqual([]);
     expect(new Set(SSE_RESYNC_TOPICS).size).toBe(SSE_RESYNC_TOPICS.length);
   });
 
-  // ——— fail-closed: every way the parser can stop seeing the table must be
-  // LOUD. Constructed inputs, so these hold regardless of what the real
-  // spec file currently looks like.
-  // NOTE the renumbering (3.x → 9.x) rather than a suffix: "### 3.1bis" still
-  // CONTAINS "### 3.1", so a suffix does not actually remove the heading and
-  // these two tests passed vacuously when first written (measured).
-  //
-  // ⚠️ And the note alone is not enough — it was already written here, and the
-  // self-check was STILL missing (review round 2, MAJOR-3): the Python edge of
-  // this same round asserts `<delimiter> not in <mutated>` and this edge did
-  // not. A comment cannot fail; the assertion below can. Note also that JS
-  // `String.replace(string, …)` replaces only the FIRST occurrence (Python's
-  // str.replace replaces all), so replace-ALL semantics are used deliberately:
-  // with plain `replace`, a second `### 3.1` anywhere in the spec would leave
-  // the heading present and turn these into FALSE REDS (the parser would not
-  // throw). ⚠️ Spelled `split(…).join(…)` and NOT `String.replaceAll`: this
-  // project's tsconfig targets `lib: ES2020`, where `replaceAll` does not exist
-  // on `string` — vitest passes (Node has it at run time) but `npm run
-  // typecheck` fails with TS2550, which is how it reached CI. Do not "tidy"
-  // this back to replaceAll, and do not bump the lib target for one test. A
-  // global RegExp would work too but needs the delimiter escaped (`.` is a
-  // metacharacter) — split/join needs no escaping at all.
-  it("throws when the §3.1 heading is gone (not: passes with zero topics)", () => {
-    const moved = readFileSync(SPEC_PATH, "utf8").split("### 3.1").join("### 9.1");
-    expect(moved, "the mutation must really remove the delimiter, else this test is vacuous").not.toContain(
-      "### 3.1",
-    );
-    expect(() => parseSpecTopics(moved)).toThrow(/'### 3\.1' not found/);
+  // ——— fail-closed: every way the reader can stop seeing the topic list must
+  // be LOUD. Constructed inputs, so these hold regardless of what the real
+  // artifact currently contains.
+  it("throws when the artifact is not JSON (not: passes with zero topics)", () => {
+    expect(() => parseTopicAsset("{not json")).toThrow(/not valid JSON/);
   });
 
-  it("throws when the section's end boundary is gone", () => {
-    const unbounded = readFileSync(SPEC_PATH, "utf8").split("### 3.2").join("### 9.2");
-    expect(unbounded, "the mutation must really remove the delimiter, else this test is vacuous").not.toContain(
-      "### 3.2",
-    );
-    expect(() => parseSpecTopics(unbounded)).toThrow(/'### 3\.2' not found/);
+  it("throws when the top level is not an object", () => {
+    expect(() => parseTopicAsset("[]")).toThrow(/top level is not an object/);
   });
 
-  it("throws when §3.1 exists but yields zero topic rows", () => {
-    expect(() => parseSpecTopics("### 3.1\n\n| topic | trigger | op |\n|---|---|---|\n\n### 3.2\n")).toThrow(
-      /parsed ZERO topics/,
-    );
+  it("throws when `topics` is missing, mistyped, or empty", () => {
+    for (const broken of [
+      '{"generated_by":"bin/gen-sse-topics"}',
+      '{"topics":{}}',
+      '{"topics":["member",7]}',
+      '{"topics":["member",""]}',
+      '{"topics":[]}',
+    ]) {
+      expect(() => parseTopicAsset(broken), `must refuse ${broken}`).toThrow(/`topics`/);
+    }
   });
 
-  it("throws when the spec file cannot be read", () => {
-    expect(() => readSpecTopics(`${SPEC_PATH}.does-not-exist`)).toThrow(/unreadable/);
+  it("throws when the artifact cannot be read", () => {
+    expect(() => readTopicAsset(`${TOPICS_PATH}.does-not-exist`)).toThrow(/unreadable/);
   });
 });

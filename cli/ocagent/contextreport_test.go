@@ -2,1066 +2,1112 @@ package main
 
 import (
 	"bytes"
-	"encoding/json"
 	"io"
 	"net/http"
-	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strconv"
 	"strings"
 	"testing"
 	"time"
 )
 
-// capturedPost is one POST the fake server saw.
-type capturedPost struct {
-	path string
-	auth string
-	body string
+// fakeHTTP answers every request with one canned verdict and records what was
+// asked of it as "<METHOD> <path> <body>".
+type fakeHTTP struct {
+	status int
+	body   string
+	err    error
+	seen   []string
 }
 
-// contextServer captures EVERY POST (path/auth/body) and replies 200 {}.
-func contextServer(t *testing.T) (*httptest.Server, *[]capturedPost) {
+func (f *fakeHTTP) Do(r *http.Request) (*http.Response, error) {
+	raw := ""
+	if r.Body != nil {
+		b, _ := io.ReadAll(r.Body)
+		raw = string(b)
+	}
+	f.seen = append(f.seen, r.Method+" "+r.URL.Path+" "+raw)
+	if f.err != nil {
+		return nil, f.err
+	}
+	return &http.Response{
+		StatusCode: f.status,
+		Body:       io.NopCloser(strings.NewReader(f.body)),
+		Header:     http.Header{},
+	}, nil
+}
+
+func readFileString(t *testing.T, path string) string {
 	t.Helper()
-	var posts []capturedPost
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		raw, _ := io.ReadAll(r.Body)
-		posts = append(posts, capturedPost{
-			path: r.URL.Path,
-			auth: r.Header.Get("Authorization"),
-			body: string(raw),
-		})
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(200)
-		_, _ = w.Write([]byte(`{}`))
-	}))
-	t.Cleanup(srv.Close)
-	return srv, &posts
-}
-
-// isolatedHome returns an env func that pins OC_AGENT_HOME (via Config.Home, set
-// directly) — here we just build a Config with a temp Home so the throttle stamp
-// lands in a scratch dir, and HOME points nowhere real so readClaudeAccount misses.
-func testEnv(extra map[string]string) func(string) string {
-	return func(k string) string {
-		if v, ok := extra[k]; ok {
-			return v
-		}
-		return ""
-	}
-}
-
-func findPost(posts []capturedPost, path string) *capturedPost {
-	for i := range posts {
-		if posts[i].path == path {
-			return &posts[i]
-		}
-	}
-	return nil
-}
-
-// TestContextReportPostsContextPct: a real used_percentage ⇒ POST /api/agent/context
-// {context_pct} authed with the agent token, and the status line prints
-// the rounded pct.
-func TestContextReportPostsContextPct(t *testing.T) {
-	srv, posts := contextServer(t)
-	cfg := Config{BaseConfigured: true, Base: srv.URL, Token: "tok-k", ID: "kyle", Home: t.TempDir()}
-	payload := `{"context_window":{"used_percentage":42.4}}`
-
-	var out, errOut bytes.Buffer
-	rc := cmdContextReport(srv.Client(), cfg, testEnv(nil), 1000.0, strings.NewReader(payload), &out, &errOut)
-	if rc != 0 {
-		t.Fatalf("rc = %d, want 0", rc)
-	}
-	p := findPost(*posts, "/api/agent/context")
-	if p == nil {
-		t.Fatalf("no POST to /api/agent/context; posts=%v", *posts)
-	}
-	if p.auth != "Bearer tok-k" {
-		t.Errorf("auth = %q, want Bearer tok-k", p.auth)
-	}
-	var decoded map[string]any
-	if err := json.Unmarshal([]byte(p.body), &decoded); err != nil {
-		t.Fatalf("body not JSON: %q", p.body)
-	}
-	// Identity is the verified JWT sub, NEVER a body key: the frozen ingest schema
-	// refuses unknown fields, so a self-reported agent_id 422s the whole report.
-	if _, present := decoded["agent_id"]; present {
-		t.Errorf("agent_id must not be on the wire; body = %q", p.body)
-	}
-	if decoded["context_pct"] != 42.4 {
-		t.Errorf("context_pct = %v, want 42.4", decoded["context_pct"])
-	}
-	// int(round(42.4)) = 42 — the context segment renders the rounded pct.
-	if got := stripANSI(out.String()); !strings.Contains(got, "42%") {
-		t.Errorf("status line = %q, want to contain 42%%", got)
-	}
-}
-
-// stripANSI removes CSI colour sequences (\x1b[…m) so a test can assert the
-// visible status-line layout without coupling to the ANSI colour bytes.
-func stripANSI(s string) string {
-	var b strings.Builder
-	for i := 0; i < len(s); {
-		if s[i] == 0x1b && i+1 < len(s) && s[i+1] == '[' {
-			j := i + 2
-			for j < len(s) && s[j] != 'm' {
-				j++
-			}
-			if j < len(s) {
-				i = j + 1
-				continue
-			}
-		}
-		b.WriteByte(s[i])
-		i++
-	}
-	return b.String()
-}
-
-// TestContextReportBankersRounding: int(round(42.5)) is 42 under Python's banker's
-// rounding (round-half-to-even), NOT 43.
-func TestContextReportBankersRounding(t *testing.T) {
-	cfg := Config{BaseConfigured: true, Base: "http://127.0.0.1:1", Token: "", ID: "", Home: t.TempDir()}
-	var out, errOut bytes.Buffer
-	// No token ⇒ no POST, but the status line still renders from the payload pct.
-	cmdContextReport(defaultHTTPClient(), cfg, testEnv(nil), 1000.0,
-		strings.NewReader(`{"context_window":{"used_percentage":42.5}}`), &out, &errOut)
-	if got := stripANSI(out.String()); !strings.Contains(got, "42%") || strings.Contains(got, "43%") {
-		t.Errorf("42.5 ⇒ %q, want 42%% (banker's rounding)", got)
-	}
-	out.Reset()
-	cmdContextReport(defaultHTTPClient(), cfg, testEnv(nil), 1000.0,
-		strings.NewReader(`{"context_window":{"used_percentage":43.5}}`), &out, &errOut)
-	if got := stripANSI(out.String()); !strings.Contains(got, "44%") {
-		t.Errorf("43.5 ⇒ %q, want 44%% (banker's rounding)", got)
-	}
-}
-
-// TestContextReportNullPctSkipsContextPost: used_percentage null ⇒ no /api/agent/context
-// POST + status line shows "?". (Telemetry is pct-independent — none here.)
-func TestContextReportNullPctSkipsContextPost(t *testing.T) {
-	srv, posts := contextServer(t)
-	cfg := Config{BaseConfigured: true, Base: srv.URL, Token: "t", ID: "kyle", Home: t.TempDir()}
-	var out, errOut bytes.Buffer
-	rc := cmdContextReport(srv.Client(), cfg, testEnv(nil), 1000.0,
-		strings.NewReader(`{"context_window":{"used_percentage":null}}`), &out, &errOut)
-	if rc != 0 {
-		t.Fatalf("rc = %d", rc)
-	}
-	if findPost(*posts, "/api/agent/context") != nil {
-		t.Errorf("null pct must NOT POST context; posts=%v", *posts)
-	}
-	// null pct ⇒ the context segment is DROPPED (no fabricated 0, no "?" shell).
-	// With no other source in this payload the line is empty.
-	if got := stripANSI(out.String()); strings.Contains(got, "%") {
-		t.Errorf("null pct must not render a context %%; got %q", got)
-	}
-}
-
-// TestContextReportClampsPct: values outside 0–100 clamp.
-func TestContextReportClampsPct(t *testing.T) {
-	if v, ok := statuslinePct(`{"context_window":{"used_percentage":150}}`); !ok || v != 100 {
-		t.Errorf("150 ⇒ (%v,%v), want (100,true)", v, ok)
-	}
-	if v, ok := statuslinePct(`{"context_window":{"used_percentage":-5}}`); !ok || v != 0 {
-		t.Errorf("-5 ⇒ (%v,%v), want (0,true)", v, ok)
-	}
-	// A bool is excluded (isinstance(pct, bool)).
-	if _, ok := statuslinePct(`{"context_window":{"used_percentage":true}}`); ok {
-		t.Errorf("bool used_percentage must be skipped")
-	}
-	// Junk / missing.
-	if _, ok := statuslinePct(`not json`); ok {
-		t.Errorf("junk payload must be skipped")
-	}
-}
-
-// TestContextReportTelemetry: rate_limits/cost/tokens ⇒ POST /api/monitoring/telemetry
-// with runtime, the passed-through windows, cost (incl 0.0), and the machine tag.
-// Also pins the two identity rules the wire depends on: no self-reported agent_id,
-// and an unreadable account is OMITTED rather than sent as a literal "unknown".
-func TestContextReportTelemetry(t *testing.T) {
-	srv, posts := contextServer(t)
-	home := t.TempDir()
-	cfg := Config{BaseConfigured: true, Base: srv.URL, Token: "t", ID: "kyle", Home: home}
-	// A transcript for tokens: one assistant row dated today (UTC).
-	today := time.Now().UTC().Format("2006-01-02")
-	transcript := filepath.Join(home, "t.jsonl")
-	line := `{"type":"assistant","timestamp":"` + today + `T10:00:00Z","message":{"usage":{"input_tokens":100,"cache_creation_input_tokens":10,"output_tokens":20,"cache_read_input_tokens":5}}}`
-	if err := os.WriteFile(transcript, []byte(line+"\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	payload := `{
-		"context_window":{"used_percentage":null},
-		"rate_limits":{
-			"five_hour":{"used_percentage":30,"resets_at":1720000000},
-			"seven_day":{"used_percentage":60,"resets_at":1720500000}
-		},
-		"cost":{"total_cost_usd":0.0},
-		"transcript_path":"` + transcript + `"
-	}`
-	var out, errOut bytes.Buffer
-	// HOME → an empty temp dir so readClaudeAccount misses (no ~/.claude*.json) —
-	// never the developer's real account id.
-	rc := cmdContextReport(srv.Client(), cfg,
-		testEnv(map[string]string{"OC_HOST": "lab-1", "HOME": t.TempDir()}),
-		1000.0, strings.NewReader(payload), &out, &errOut)
-	if rc != 0 {
-		t.Fatalf("rc = %d", rc)
-	}
-	// pct null ⇒ no context POST, but telemetry POST fires.
-	if findPost(*posts, "/api/agent/context") != nil {
-		t.Errorf("null pct must not POST context")
-	}
-	p := findPost(*posts, "/api/monitoring/telemetry")
-	if p == nil {
-		t.Fatalf("no telemetry POST; posts=%v", *posts)
-	}
-	var d map[string]any
-	if err := json.Unmarshal([]byte(p.body), &d); err != nil {
-		t.Fatalf("telemetry body not JSON: %q", p.body)
-	}
-	if _, present := d["agent_id"]; present {
-		t.Errorf("agent_id must not be on the wire; body = %q", p.body)
-	}
-	if d["runtime"] != "claude" {
-		t.Errorf("runtime = %v, want claude", d["runtime"])
-	}
-	// An unreadable account is ABSENT. A literal "unknown" would mint a phantom
-	// account row in the owner's monitoring fold that reads as a real account.
-	if _, present := d["account"]; present {
-		t.Errorf("unreadable account must be omitted, got %v", d["account"])
-	}
-	if d["machine"] != "lab-1" {
-		t.Errorf("machine = %v, want lab-1 (OC_HOST)", d["machine"])
-	}
-	// cost 0.0 is KEPT (real zero, not omitted).
-	if cost, ok := d["cost"].(float64); !ok || cost != 0.0 {
-		t.Errorf("cost = %v, want 0.0 kept", d["cost"])
-	}
-	rl, ok := d["rate_limits"].(map[string]any)
-	if !ok {
-		t.Fatalf("rate_limits missing/not object: %v", d["rate_limits"])
-	}
-	fh, _ := rl["five_hour"].(map[string]any)
-	if fh["used_percentage"] != float64(30) || fh["resets_at"] != float64(1720000000) {
-		t.Errorf("five_hour = %v", fh)
-	}
-	tok, ok := d["tokens"].(map[string]any)
-	if !ok {
-		t.Fatalf("tokens missing: %v", d["tokens"])
-	}
-	if tok["burned"] != float64(110) || tok["output"] != float64(20) || tok["cache_read"] != float64(5) {
-		t.Errorf("tokens = %v, want burned=110 output=20 cache_read=5", tok)
-	}
-}
-
-// TestContextReportUnmeasuredUsageStillReportsIdentity: a payload with NO usage
-// source (no rate_limits, no cost, no transcript) must STILL report identity.
-// Usage and identity used to share one gate, so a session whose usage was not yet
-// measurable reported nothing at all — and the cockpit kept showing whatever
-// account a previous runtime had left behind, which is worse than showing nothing.
-func TestContextReportUnmeasuredUsageStillReportsIdentity(t *testing.T) {
-	srv, posts := contextServer(t)
-	cfg := Config{BaseConfigured: true, Base: srv.URL, Token: "t", ID: "kyle", Home: t.TempDir()}
-	home := writeClaudeJSON(t,
-		`{"userID":"acct-9","oauthAccount":{"emailAddress":"e@x.io","organizationUuid":"org-9"}}`)
-	var out, errOut bytes.Buffer
-	cmdContextReport(srv.Client(), cfg, testEnv(map[string]string{"HOME": home}), 1000.0,
-		strings.NewReader(`{"context_window":{"used_percentage":10}}`), &out, &errOut)
-
-	p := findPost(*posts, "/api/monitoring/telemetry")
-	if p == nil {
-		t.Fatalf("unmeasured usage must still report identity; posts=%v", *posts)
-	}
-	var d map[string]any
-	if err := json.Unmarshal([]byte(p.body), &d); err != nil {
-		t.Fatalf("telemetry body not JSON: %q", p.body)
-	}
-	if d["account"] != "acct-9/org-9" || d["runtime"] != "claude" {
-		t.Errorf("identity = account %v runtime %v, want acct-9/org-9 + claude",
-			d["account"], d["runtime"])
-	}
-	// The unmeasured fields stay ABSENT — never fabricated as zero.
-	for _, key := range []string{"rate_limits", "cost", "tokens"} {
-		if _, present := d[key]; present {
-			t.Errorf("%s has no source ⇒ must be omitted, got %v", key, d[key])
-		}
-	}
-	// and the context POST still fired (pct present)
-	if findPost(*posts, "/api/agent/context") == nil {
-		t.Errorf("pct present ⇒ context POST expected")
-	}
-}
-
-// TestContextReportThrottle: a fresh stamp within the window suppresses BOTH POSTs,
-// but the status line still prints.
-func TestContextReportThrottle(t *testing.T) {
-	srv, posts := contextServer(t)
-	home := t.TempDir()
-	cfg := Config{BaseConfigured: true, Base: srv.URL, Token: "t", ID: "kyle", Home: home}
-	// Pre-seed the stamp at now-5 (< 30s window ⇒ throttled).
-	stamp := reportStampPath(cfg)
-	if err := os.MkdirAll(filepath.Dir(stamp), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(stamp, []byte("995.0"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	var out, errOut bytes.Buffer
-	cmdContextReport(srv.Client(), cfg, testEnv(nil), 1000.0,
-		strings.NewReader(`{"context_window":{"used_percentage":50}}`), &out, &errOut)
-	if len(*posts) != 0 {
-		t.Errorf("throttled ⇒ no POSTs, got %v", *posts)
-	}
-	if got := stripANSI(out.String()); !strings.Contains(got, "50%") {
-		t.Errorf("status line = %q, want to contain 50%%", got)
-	}
-}
-
-// TestReportStatePathsAreLiteralAndPerAgent pins the two cadence-state files to
-// their EXACT locations, spelled out here rather than computed by calling the
-// helpers under test.
-//
-// That is the whole point of the test. Every other assertion about these files
-// asks reportStampPath / reportBackoffPath where the file is and then checks
-// there, so the test and the code read the path from one source and agree with
-// each other no matter what that source says — a helper that dropped a path
-// component entirely would keep the whole suite green.
-//
-// 🔴 The dropped component that matters is the PER-AGENT one. cfg.Home in
-// production is the SHARED agents root, so `<home>/context_report.backoff`
-// (no id) would be one file for every agent on the box: one agent's outage would
-// back off — and so silence — every other agent on that machine. Same blast
-// radius for the stamp, whose absence is also the "this reporter is delivering"
-// evidence. If you are changing these paths, change the literals here too, on
-// purpose.
-func TestReportStatePathsAreLiteralAndPerAgent(t *testing.T) {
-	cfg := Config{Home: filepath.Join("/scratch", "agents"), ID: "Kyle"}
-	// Spelled out component by component: <home>/<lowercased id>/<file>.
-	wantDir := filepath.Join("/scratch", "agents", "kyle")
-	if got := reportStampPath(cfg); got != filepath.Join(wantDir, "context_report.stamp") {
-		t.Errorf("reportStampPath = %q, want %q", got, filepath.Join(wantDir, "context_report.stamp"))
-	}
-	if got := reportBackoffPath(cfg); got != filepath.Join(wantDir, "context_report.backoff") {
-		t.Errorf("reportBackoffPath = %q, want %q", got, filepath.Join(wantDir, "context_report.backoff"))
-	}
-	// An id-less agent gets its own "anon" segment — still NOT the bare home.
-	anon := Config{Home: filepath.Join("/scratch", "agents")}
-	wantAnon := filepath.Join("/scratch", "agents", "anon")
-	if got := reportStampPath(anon); got != filepath.Join(wantAnon, "context_report.stamp") {
-		t.Errorf("anon reportStampPath = %q, want %q", got, filepath.Join(wantAnon, "context_report.stamp"))
-	}
-	if got := reportBackoffPath(anon); got != filepath.Join(wantAnon, "context_report.backoff") {
-		t.Errorf("anon reportBackoffPath = %q, want %q", got, filepath.Join(wantAnon, "context_report.backoff"))
-	}
-	// Two agents under ONE home must never share either file.
-	a := Config{Home: filepath.Join("/scratch", "agents"), ID: "kyle"}
-	b := Config{Home: filepath.Join("/scratch", "agents"), ID: "robin"}
-	if reportBackoffPath(a) == reportBackoffPath(b) {
-		t.Errorf("two agents share a backoff record at %q — one agent's outage would silence the other",
-			reportBackoffPath(a))
-	}
-	if reportStampPath(a) == reportStampPath(b) {
-		t.Errorf("two agents share a throttle stamp at %q", reportStampPath(a))
-	}
-}
-
-// TestContextReportStampAdvances: after a non-throttled report the stamp is written
-// with `now`, so the next tick would be throttled.
-func TestContextReportStampAdvances(t *testing.T) {
-	srv, _ := contextServer(t)
-	home := t.TempDir()
-	cfg := Config{BaseConfigured: true, Base: srv.URL, Token: "t", ID: "kyle", Home: home}
-	var out, errOut bytes.Buffer
-	cmdContextReport(srv.Client(), cfg, testEnv(nil), 2000.0,
-		strings.NewReader(`{"context_window":{"used_percentage":50}}`), &out, &errOut)
-	raw, err := os.ReadFile(reportStampPath(cfg))
+	raw, err := os.ReadFile(path)
 	if err != nil {
-		t.Fatalf("stamp not written: %v", err)
+		t.Fatalf("read %s: %v", path, err)
 	}
-	got, err := strconv.ParseFloat(strings.TrimSpace(string(raw)), 64)
-	if err != nil || got != 2000.0 {
-		t.Errorf("stamp = %q, want 2000", raw)
-	}
+	return string(raw)
 }
 
-// TestContextReportNoTokenNoPost: no OC_TOKEN/OC_ID ⇒ no POST, no stamp, but the
-// status line still renders (dual-use).
-func TestContextReportNoTokenNoPost(t *testing.T) {
-	srv, posts := contextServer(t)
-	cfg := Config{BaseConfigured: true, Base: srv.URL, Token: "", ID: "", Home: t.TempDir()}
-	var out, errOut bytes.Buffer
-	rc := cmdContextReport(srv.Client(), cfg, testEnv(nil), 1000.0,
-		strings.NewReader(`{"context_window":{"used_percentage":77}}`), &out, &errOut)
-	if rc != 0 {
-		t.Fatalf("rc = %d", rc)
-	}
-	if len(*posts) != 0 {
-		t.Errorf("no token ⇒ no POST, got %v", *posts)
-	}
-	if got := stripANSI(out.String()); !strings.Contains(got, "77%") {
-		t.Errorf("status line = %q, want to contain 77%%", got)
-	}
-}
+func TestCmdContextReport(t *testing.T) {
+	const payload = `{"context_window":{"used_percentage":40},"cost":{"total_cost_usd":2}}`
+	const wantLine = "\x1b[90m████░░░░░░\x1b[0m \x1b[32m40%\x1b[0m\x1b[90m | \x1b[0m\x1b[33m$2.00\x1b[0m\n"
 
-// TestContextReportBestEffortOnFault: an unreachable base still exits 0 + prints.
-func TestContextReportBestEffortOnFault(t *testing.T) {
-	cfg := Config{BaseConfigured: true, Base: "http://127.0.0.1:1", Token: "t", ID: "kyle", Home: t.TempDir()}
-	var out, errOut bytes.Buffer
-	rc := cmdContextReport(defaultHTTPClient(), cfg, testEnv(nil), 1000.0,
-		strings.NewReader(`{"context_window":{"used_percentage":30}}`), &out, &errOut)
-	if rc != 0 {
-		t.Fatalf("rc = %d, want 0 (best-effort)", rc)
-	}
-	if got := stripANSI(out.String()); !strings.Contains(got, "30%") {
-		t.Errorf("status line = %q, want to contain 30%%", got)
-	}
-}
+	t.Run("an accepted burst stamps the throttle window and clears the backoff", func(t *testing.T) {
+		home := t.TempDir()
+		cfg := Config{BaseConfigured: true, Base: "http://x", Token: "t", ID: "Kyle", Home: home}
+		stale := filepath.Join(home, "kyle", "context_report.backoff")
+		writeReportBackoff(stale, reportBackoffState{failures: 3, lastAttempt: 1})
+		client := &fakeHTTP{status: 200, body: "{}"}
+		var out, errOut bytes.Buffer
 
-// writeClaudeJSON drops a ~/.claude/.claude.json under a fresh HOME and returns
-// that HOME (the primary candidate readClaudeAccount reads first).
-func writeClaudeJSON(t *testing.T, body string) string {
-	t.Helper()
-	home := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(home, ".claude"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(home, ".claude", ".claude.json"),
-		[]byte(body), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	return home
-}
+		rc := cmdContextReport(client, cfg, testEnv(map[string]string{"HOME": t.TempDir()}),
+			1000.0, strings.NewReader(payload), &out, &errOut)
 
-// writeClaudeCredentials drops a ~/.claude/.credentials.json under an existing
-// HOME. Fixtures carry fake token fields; the account key must never read this
-// file at all (T-f694).
-func writeClaudeCredentials(t *testing.T, home, body string) {
-	t.Helper()
-	if err := os.WriteFile(filepath.Join(home, ".claude", ".credentials.json"),
-		[]byte(body), 0o600); err != nil {
-		t.Fatal(err)
-	}
-}
-
-// TestReadClaudeAccount: the account key is "<accountUuid>/<organizationUuid>" (bare
-// accountUuid when no org, "" when no account identity) — and it NEVER depends on the
-// credentials file / subscriptionType (T-f694: the same account must key the
-// same on every machine regardless of credential storage form).
-func TestReadClaudeAccount(t *testing.T) {
-	// The canonical key: accountUuid + org from .claude.json.
-	teamHome := writeClaudeJSON(t,
-		`{"userID":"device-1","oauthAccount":{"accountUuid":"acct-123","organizationUuid":"org-team"}}`)
-	if got := readClaudeAccount(testEnv(map[string]string{"HOME": teamHome})); got != "acct-123/org-team" {
-		t.Errorf("team key = %q, want acct-123/org-team", got)
-	}
-
-	secondDeviceHome := writeClaudeJSON(t,
-		`{"userID":"device-2","oauthAccount":{"accountUuid":"acct-123","organizationUuid":"org-team"}}`)
-	if got := readClaudeAccount(testEnv(map[string]string{"HOME": secondDeviceHome})); got != "acct-123/org-team" {
-		t.Errorf("same account on another device = %q, want acct-123/org-team", got)
-	}
-
-	// REGRESSION (T-f694): the same accountUuid + org must produce the SAME key whatever
-	// the credentials file says (any subscriptionType, blank, bad json) or
-	// whether it exists at all — the plan never joins the key, so a file-creds
-	// machine and a Keychain-only machine can no longer split into two rows.
-	for _, credBody := range []string{
-		`{"claudeAiOauth":{"accessToken":"fake-at","refreshToken":"fake-rt","subscriptionType":"team"}}`,
-		`{"claudeAiOauth":{"accessToken":"fake-at","subscriptionType":"max"}}`,
-		`{"claudeAiOauth":{"accessToken":"fake-at","subscriptionType":"pro"}}`,
-		`{"claudeAiOauth":{"accessToken":"fake-at","subscriptionType":""}}`,
-		`{not json`,
-	} {
-		home := writeClaudeJSON(t,
-			`{"userID":"device-1","oauthAccount":{"accountUuid":"acct-123","organizationUuid":"org-team"}}`)
-		writeClaudeCredentials(t, home, credBody)
-		if got := readClaudeAccount(testEnv(map[string]string{"HOME": home})); got != "acct-123/org-team" {
-			t.Errorf("credentials %s ⇒ %q, want acct-123/org-team (creds file must not affect the key)", credBody, got)
+		if rc != 0 {
+			t.Errorf("rc = %d, want 0", rc)
 		}
-	}
-
-	// A personal login with no org degrades HONESTLY to the bare accountUuid — no
-	// dangling "acct-123/" suffix.
-	personalHome := writeClaudeJSON(t, `{"userID":"device-1","oauthAccount":{"accountUuid":"acct-123"}}`)
-	if got := readClaudeAccount(testEnv(map[string]string{"HOME": personalHome})); got != "acct-123" {
-		t.Errorf("personal key = %q, want acct-123 (bare, no trailing slash)", got)
-	}
-
-	// The same account in different orgs must not collide.
-	otherOrgHome := writeClaudeJSON(t,
-		`{"userID":"device-2","oauthAccount":{"accountUuid":"acct-123","organizationUuid":"org-personal"}}`)
-	teamKey := readClaudeAccount(testEnv(map[string]string{"HOME": teamHome}))
-	otherKey := readClaudeAccount(testEnv(map[string]string{"HOME": otherOrgHome}))
-	if teamKey == otherKey {
-		t.Errorf("same account, different org collided: both %q", teamKey)
-	}
-
-	// And the same account with-org vs without-org must NOT collide either.
-	if teamKey == readClaudeAccount(testEnv(map[string]string{"HOME": personalHome})) {
-		t.Errorf("same account, org vs no-org collided: %q", teamKey)
-	}
-
-	// A blank / non-string / null org is treated as absent ⇒ bare accountUuid (never
-	// "acct-123/" or "acct-123/None").
-	for _, body := range []string{
-		`{"userID":"device-1","oauthAccount":{"accountUuid":"acct-123","organizationUuid":""}}`,
-		`{"userID":"device-1","oauthAccount":{"accountUuid":"acct-123","organizationUuid":null}}`,
-		`{"userID":"device-1","oauthAccount":{"accountUuid":"acct-123","organizationUuid":42}}`,
-		`{"userID":"device-1","oauthAccount":{"accountUuid":"acct-123"}}`,
-	} {
-		home := writeClaudeJSON(t, body)
-		if got := readClaudeAccount(testEnv(map[string]string{"HOME": home})); got != "acct-123" {
-			t.Errorf("body %s ⇒ %q, want bare acct-123", body, got)
+		if out.String() != wantLine {
+			t.Errorf("stdout = %q, want %q", out.String(), wantLine)
 		}
-	}
-
-	// Split two-file layout: userID lives in ~/.claude/.claude.json while the
-	// oauthAccount lives in ~/.claude.json — the account and org must still join
-	// the key.
-	splitHome := writeClaudeJSON(t, `{"userID":"device-1"}`)
-	if err := os.WriteFile(filepath.Join(splitHome, ".claude.json"),
-		[]byte(`{"oauthAccount":{"accountUuid":"acct-123","organizationUuid":"org-team"}}`), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if got := readClaudeAccount(testEnv(map[string]string{"HOME": splitHome})); got != "acct-123/org-team" {
-		t.Errorf("split-file key = %q, want acct-123/org-team", got)
-	}
-
-	legacyHome := writeClaudeJSON(t,
-		`{"userID":"legacy-device","oauthAccount":{"organizationUuid":"org-team"}}`)
-	if got := readClaudeAccount(testEnv(map[string]string{"HOME": legacyHome})); got != "legacy-device/org-team" {
-		t.Errorf("legacy key = %q, want legacy-device/org-team", got)
-	}
-
-	// Missing everywhere ⇒ "".
-	if got := readClaudeAccount(testEnv(map[string]string{"HOME": t.TempDir()})); got != "" {
-		t.Errorf("no file ⇒ %q, want empty", got)
-	}
-}
-
-// TestReadClaudeAccountLabel (T-260e): the human-readable owner-facing label —
-// "<emailAddress>(<organizationName>)" from oauthAccount — with the same
-// two-file layout + missing-field degradation discipline as readClaudeAccount
-// (the T-713a lesson: real installs split fields across ~/.claude/.claude.json
-// and ~/.claude.json, and every field resolves INDEPENDENTLY).
-func TestReadClaudeAccountLabel(t *testing.T) {
-	// Full oauthAccount ⇒ "email(Org)".
-	fullHome := writeClaudeJSON(t,
-		`{"userID":"acct-123","oauthAccount":{"emailAddress":"eva.cheng@gofreight.com","displayName":"Eva Cheng","organizationName":"GoFreight"}}`)
-	if got := readClaudeAccountLabel(testEnv(map[string]string{"HOME": fullHome})); got != "eva.cheng@gofreight.com(GoFreight)" {
-		t.Errorf("full label = %q, want eva.cheng@gofreight.com(GoFreight)", got)
-	}
-
-	// Missing organizationName ⇒ bare email (never a dangling "email()").
-	noOrgHome := writeClaudeJSON(t,
-		`{"oauthAccount":{"emailAddress":"eva.cheng@gofreight.com"}}`)
-	if got := readClaudeAccountLabel(testEnv(map[string]string{"HOME": noOrgHome})); got != "eva.cheng@gofreight.com" {
-		t.Errorf("no-org label = %q, want bare email", got)
-	}
-
-	// Missing emailAddress ⇒ displayName carries the label.
-	noEmailHome := writeClaudeJSON(t,
-		`{"oauthAccount":{"displayName":"Eva Cheng","organizationName":"GoFreight"}}`)
-	if got := readClaudeAccountLabel(testEnv(map[string]string{"HOME": noEmailHome})); got != "Eva Cheng(GoFreight)" {
-		t.Errorf("displayName fallback = %q, want Eva Cheng(GoFreight)", got)
-	}
-
-	// Blank / null / non-string fields are treated as absent (never "null" or
-	// a stringified number in the label).
-	for _, body := range []string{
-		`{"oauthAccount":{"emailAddress":"","displayName":null,"organizationName":42}}`,
-		`{"oauthAccount":{}}`,
-		`{"userID":"acct-123"}`,
-		`{}`,
-	} {
-		home := writeClaudeJSON(t, body)
-		if got := readClaudeAccountLabel(testEnv(map[string]string{"HOME": home})); got != "" {
-			t.Errorf("body %s ⇒ %q, want empty label", body, got)
+		if errOut.String() != "" {
+			t.Errorf("stderr = %q, want empty", errOut.String())
 		}
-	}
-
-	// Split two-file layout: the email lives in ~/.claude/.claude.json while the
-	// organizationName lives in ~/.claude.json — both must still join the label.
-	splitHome := writeClaudeJSON(t,
-		`{"oauthAccount":{"emailAddress":"eva.cheng@gofreight.com"}}`)
-	if err := os.WriteFile(filepath.Join(splitHome, ".claude.json"),
-		[]byte(`{"oauthAccount":{"organizationName":"GoFreight"}}`), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if got := readClaudeAccountLabel(testEnv(map[string]string{"HOME": splitHome})); got != "eva.cheng@gofreight.com(GoFreight)" {
-		t.Errorf("split-file label = %q, want eva.cheng@gofreight.com(GoFreight)", got)
-	}
-
-	// No file at all ⇒ "".
-	if got := readClaudeAccountLabel(testEnv(map[string]string{"HOME": t.TempDir()})); got != "" {
-		t.Errorf("no file ⇒ %q, want empty", got)
-	}
-}
-
-// TestContextReportTelemetryAccountLabel (T-260e): an oauthAccount with an email
-// rides the telemetry POST as account_label; a HOME without one OMITS the key
-// entirely (the server must see absent, not "").
-func TestContextReportTelemetryAccountLabel(t *testing.T) {
-	srv, posts := contextServer(t)
-	cfg := Config{BaseConfigured: true, Base: srv.URL, Token: "t", ID: "kyle", Home: t.TempDir()}
-	home := writeClaudeJSON(t,
-		`{"userID":"acct-123","oauthAccount":{"emailAddress":"eva.cheng@gofreight.com","organizationName":"GoFreight","organizationUuid":"org-team"}}`)
-	payload := `{"rate_limits":{"five_hour":{"used_percentage":30,"resets_at":1720000000}}}`
-	var out, errOut bytes.Buffer
-	rc := cmdContextReport(srv.Client(), cfg,
-		testEnv(map[string]string{"HOME": home}), 1000.0, strings.NewReader(payload), &out, &errOut)
-	if rc != 0 {
-		t.Fatalf("rc = %d", rc)
-	}
-	p := findPost(*posts, "/api/monitoring/telemetry")
-	if p == nil {
-		t.Fatalf("no telemetry POST; posts=%v", *posts)
-	}
-	var d map[string]any
-	if err := json.Unmarshal([]byte(p.body), &d); err != nil {
-		t.Fatalf("telemetry body not JSON: %q", p.body)
-	}
-	if d["account_label"] != "eva.cheng@gofreight.com(GoFreight)" {
-		t.Errorf("account_label = %v, want eva.cheng@gofreight.com(GoFreight)", d["account_label"])
-	}
-	// The account KEY dimension is unchanged by the label (hash/org key intact).
-	if d["account"] != "acct-123/org-team" {
-		t.Errorf("account = %v, want acct-123/org-team (key untouched by label)", d["account"])
-	}
-
-	// Missing oauthAccount ⇒ the key is OMITTED from the wire body.
-	*posts = nil
-	cfg2 := Config{BaseConfigured: true, Base: srv.URL, Token: "t", ID: "kyle", Home: t.TempDir()}
-	rc = cmdContextReport(srv.Client(), cfg2,
-		testEnv(map[string]string{"HOME": t.TempDir()}), 1000.0, strings.NewReader(payload), &out, &errOut)
-	if rc != 0 {
-		t.Fatalf("rc = %d", rc)
-	}
-	p = findPost(*posts, "/api/monitoring/telemetry")
-	if p == nil {
-		t.Fatalf("no telemetry POST; posts=%v", *posts)
-	}
-	if strings.Contains(p.body, "account_label") {
-		t.Errorf("no oauthAccount ⇒ account_label must be omitted; body=%q", p.body)
-	}
-}
-
-// TestContextReportViaRealMain: the dispatch path (no flags) drives the whole chain.
-func TestContextReportViaRealMain(t *testing.T) {
-	srv, posts := contextServer(t)
-	env := testEnv(map[string]string{
-		"OC_BASE":       srv.URL,
-		"OC_TOKEN":      "t",
-		"OC_ID":         "kyle",
-		"OC_AGENT_HOME": t.TempDir(),
+		if got := readFileString(t, filepath.Join(home, "kyle", "context_report.stamp")); got != "1000" {
+			t.Errorf("throttle stamp = %q, want %q", got, "1000")
+		}
+		if _, err := os.Stat(stale); !os.IsNotExist(err) {
+			t.Errorf("the backoff record survived a delivered burst (err=%v), so the next "+
+				"tick would still be spaced out by an outage that is over", err)
+		}
 	})
-	var out bytes.Buffer
-	rc := realMain([]string{"context-report"}, env,
-		strings.NewReader(`{"context_window":{"used_percentage":88}}`), &out)
-	if rc != 0 {
-		t.Fatalf("rc = %d, want 0", rc)
-	}
-	if findPost(*posts, "/api/agent/context") == nil {
-		t.Errorf("expected context POST via realMain; posts=%v", *posts)
-	}
-	if got := stripANSI(out.String()); !strings.Contains(got, "88%") {
-		t.Errorf("status line = %q, want to contain 88%%", got)
-	}
-}
 
-// ── statusline rendering (T-51a8) ───────────────────────────────────────────
+	t.Run("a refused burst records the failure and leaves the stamp untouched", func(t *testing.T) {
+		home := t.TempDir()
+		cfg := Config{BaseConfigured: true, Base: "http://x", Token: "t", ID: "kyle", Home: home}
+		client := &fakeHTTP{status: 422, body: `{"detail":"context_pct is not declared"}`}
+		var out, errOut bytes.Buffer
 
-// TestRenderStatuslineFull: every field present ⇒ the full owner layout
-//
-//	◆ <model> (1M context) ⚡med | <bar> N% | $X.XX | XmYYs | 5h:N%(rst:XhYm) 7d:N%(N%elapsed)
-//
-// The now/resets_at are chosen so the 5h countdown is exactly 3h7m and the 7d
-// window is 85% elapsed.
-func TestRenderStatuslineFull(t *testing.T) {
-	const now = 1_000_000.0
-	fiveReset := now + 3*3600 + 7*60 // 3h7m out
-	sevenReset := now + 90720        // ⇒ 85% of the 7-day window elapsed
-	payload := `{
-		"model":{"display_name":"Opus 4.8","id":"claude-opus-4-8[1m]"},
-		"effort":{"level":"medium"},
-		"context_window":{"used_percentage":5},
-		"cost":{"total_cost_usd":0.46,"total_duration_ms":14000},
-		"rate_limits":{
-			"five_hour":{"used_percentage":26,"resets_at":` + strconv.FormatFloat(fiveReset, 'f', -1, 64) + `},
-			"seven_day":{"used_percentage":16,"resets_at":` + strconv.FormatFloat(sevenReset, 'f', -1, 64) + `}
+		rc := cmdContextReport(client, cfg, testEnv(map[string]string{"HOME": t.TempDir()}),
+			1000.0, strings.NewReader(payload), &out, &errOut)
+
+		if rc != 0 {
+			t.Errorf("rc = %d, want 0 — a refused report must never break the status line", rc)
 		}
-	}`
-	got := renderStatusline(payload, now)
-
-	// Colours must be present (Claude Code statusLine honours ANSI).
-	if !strings.Contains(got, "\x1b[") {
-		t.Errorf("expected ANSI colour codes; got %q", got)
-	}
-	want := "◆ Opus 4.8 (1M context) ⚡med | █░░░░░░░░░ 5% | $0.46 | 0m14s | 5h:26%(rst:3h7m) 7d:16%(85%elapsed)"
-	if plain := stripANSI(got); plain != want {
-		t.Errorf("full statusline:\n got  %q\n want %q", plain, want)
-	}
-}
-
-// TestRenderStatuslinePartialNull: partial/null fields drop ONLY their own
-// segment — no panic, no empty shell. Here display_name is absent (no ◆ model),
-// context pct is null (no bar), duration is absent (no time), and five_hour's
-// resets_at is null (the WHOLE 5h window is skipped — task rule: any null ⇒ skip).
-// What survives: ⚡med, cost, and the fully-present 7d window.
-func TestRenderStatuslinePartialNull(t *testing.T) {
-	const now = 1_000_000.0
-	sevenReset := now + 302400 // ⇒ 50% elapsed
-	payload := `{
-		"model":{"id":"claude-sonnet-4"},
-		"effort":{"level":"medium"},
-		"context_window":{"used_percentage":null},
-		"cost":{"total_cost_usd":1.5},
-		"rate_limits":{
-			"five_hour":{"used_percentage":30,"resets_at":null},
-			"seven_day":{"used_percentage":40,"resets_at":` + strconv.FormatFloat(sevenReset, 'f', -1, 64) + `}
+		if out.String() != wantLine {
+			t.Errorf("stdout = %q, want %q", out.String(), wantLine)
 		}
-	}`
-	want := "⚡med | $1.50 | 7d:40%(50%elapsed)"
-	if plain := stripANSI(renderStatusline(payload, now)); plain != want {
-		t.Errorf("partial-null statusline:\n got  %q\n want %q", plain, want)
-	}
-}
-
-// TestRenderStatuslineAllMissing: an empty object and junk both yield an empty
-// line (never a panic, never a stray "◆"/separators).
-func TestRenderStatuslineAllMissing(t *testing.T) {
-	for _, payload := range []string{`{}`, `not json`, ``, `null`} {
-		if got := renderStatusline(payload, 1000.0); got != "" {
-			t.Errorf("payload %q ⇒ %q, want empty line", payload, got)
+		wantErr := "[ocagent] context-report: POST /api/agent/context FAILED status=422: " +
+			`{"detail":"context_pct is not declared"}` + "\n" +
+			"[ocagent] context-report: POST /api/monitoring/telemetry FAILED status=422: " +
+			`{"detail":"context_pct is not declared"}` + "\n"
+		if errOut.String() != wantErr {
+			t.Errorf("stderr =\n%q\nwant\n%q", errOut.String(), wantErr)
 		}
-	}
+		if _, err := os.Stat(filepath.Join(home, "kyle", "context_report.stamp")); !os.IsNotExist(err) {
+			t.Errorf("a refused burst wrote a throttle stamp (err=%v) — the stamp is the only "+
+				"evidence of DELIVERY and would then argue the reporter is healthy", err)
+		}
+		got := readFileString(t, filepath.Join(home, "kyle", "context_report.backoff"))
+		if got != "1 1000" {
+			t.Errorf("backoff record = %q, want %q", got, "1 1000")
+		}
+	})
+
+	t.Run("a burst inside the throttle window sends nothing", func(t *testing.T) {
+		home := t.TempDir()
+		cfg := Config{BaseConfigured: true, Base: "http://x", Token: "t", ID: "kyle", Home: home}
+		writeStamp(filepath.Join(home, "kyle", "context_report.stamp"), 990.0)
+		client := &fakeHTTP{status: 200, body: "{}"}
+		var out, errOut bytes.Buffer
+
+		rc := cmdContextReport(client, cfg, testEnv(map[string]string{"HOME": t.TempDir()}),
+			1000.0, strings.NewReader(payload), &out, &errOut)
+
+		if rc != 0 {
+			t.Errorf("rc = %d, want 0", rc)
+		}
+		if out.String() != wantLine {
+			t.Errorf("stdout = %q, want %q", out.String(), wantLine)
+		}
+		if client.seen != nil {
+			t.Errorf("sent %v, want nothing within the 30s window", client.seen)
+		}
+	})
+
+	t.Run("a burst inside the failure backoff sends nothing", func(t *testing.T) {
+		home := t.TempDir()
+		cfg := Config{BaseConfigured: true, Base: "http://x", Token: "t", ID: "kyle", Home: home}
+		writeReportBackoff(filepath.Join(home, "kyle", "context_report.backoff"),
+			reportBackoffState{failures: 4, lastAttempt: 900})
+		client := &fakeHTTP{status: 200, body: "{}"}
+		var out, errOut bytes.Buffer
+
+		rc := cmdContextReport(client, cfg, testEnv(map[string]string{"HOME": t.TempDir()}),
+			1000.0, strings.NewReader(payload), &out, &errOut)
+
+		if rc != 0 {
+			t.Errorf("rc = %d, want 0", rc)
+		}
+		if out.String() != wantLine {
+			t.Errorf("stdout = %q, want %q", out.String(), wantLine)
+		}
+		if client.seen != nil {
+			t.Errorf("sent %v, want nothing — 4 consecutive failures space attempts 240s apart "+
+				"and only 100s have passed", client.seen)
+		}
+	})
+
+	t.Run("an unconfigured agent reports nothing and still prints the status line", func(t *testing.T) {
+		home := t.TempDir()
+		cfg := Config{Base: "http://x", Home: home}
+		client := &fakeHTTP{status: 200, body: "{}"}
+		var out, errOut bytes.Buffer
+
+		rc := cmdContextReport(client, cfg, testEnv(nil), 1000.0,
+			strings.NewReader(payload), &out, &errOut)
+
+		if rc != 0 {
+			t.Errorf("rc = %d, want 0", rc)
+		}
+		if out.String() != wantLine {
+			t.Errorf("stdout = %q, want %q", out.String(), wantLine)
+		}
+		wantErr := "[ocagent] context-report: no OC_BASE configured — nothing here knows " +
+			"which station to talk to, and the built-in default is this machine's loopback address.\n"
+		if errOut.String() != wantErr {
+			t.Errorf("stderr = %q, want %q", errOut.String(), wantErr)
+		}
+		if client.seen != nil {
+			t.Errorf("sent %v, want nothing without OC_TOKEN/OC_ID", client.seen)
+		}
+	})
+
+	t.Run("a null pct skips its own POST and never blocks the telemetry one", func(t *testing.T) {
+		home := t.TempDir()
+		cfg := Config{BaseConfigured: true, Base: "http://x", Token: "t", ID: "kyle", Home: home}
+		client := &fakeHTTP{status: 200, body: "{}"}
+		var out, errOut bytes.Buffer
+
+		rc := cmdContextReport(client, cfg,
+			testEnv(map[string]string{"HOME": t.TempDir(), "OC_HOST": "lab-1"}),
+			1000.0, strings.NewReader(`{"context_window":{"used_percentage":null}}`), &out, &errOut)
+
+		if rc != 0 {
+			t.Errorf("rc = %d, want 0", rc)
+		}
+		if out.String() != "\n" {
+			t.Errorf("stdout = %q, want %q — nothing in this payload renders a segment",
+				out.String(), "\n")
+		}
+		want := []string{`POST /api/monitoring/telemetry {"runtime":"claude","machine":"lab-1"}`}
+		if !reflect.DeepEqual(client.seen, want) {
+			t.Errorf("sent %q, want %q", client.seen, want)
+		}
+	})
 }
 
-// TestModelEffort1M: the "(1M context)" hint is appended iff model.id carries the
-// [1m] tier tag AND display_name doesn't already say so.
-func TestModelEffort1M(t *testing.T) {
+func TestReportPost(t *testing.T) {
+	cfg := Config{Base: "http://x", Token: "t"}
+
+	t.Run("an accepted report says so and leaves no trace", func(t *testing.T) {
+		client := &fakeHTTP{status: 201, body: "{}"}
+		var errOut bytes.Buffer
+
+		if !reportPost(client, cfg, "/api/agent/context", contextBody{ContextPct: 12.5}, &errOut) {
+			t.Error("reportPost = false on 201, want true")
+		}
+		if errOut.String() != "" {
+			t.Errorf("stderr = %q, want empty", errOut.String())
+		}
+		want := []string{`POST /api/agent/context {"context_pct":12.5}`}
+		if !reflect.DeepEqual(client.seen, want) {
+			t.Errorf("sent %q, want %q", client.seen, want)
+		}
+	})
+
+	t.Run("a refusal is reported as not delivered and named on stderr", func(t *testing.T) {
+		client := &fakeHTTP{status: 422, body: "  unknown field \"context_pct\"  "}
+		var errOut bytes.Buffer
+
+		if reportPost(client, cfg, "/api/agent/context", contextBody{}, &errOut) {
+			t.Error("reportPost = true on 422, want false")
+		}
+		want := "[ocagent] context-report: POST /api/agent/context FAILED status=422: " +
+			"unknown field \"context_pct\"\n"
+		if errOut.String() != want {
+			t.Errorf("stderr = %q, want %q", errOut.String(), want)
+		}
+	})
+
+	t.Run("a transport fault counts as not delivered", func(t *testing.T) {
+		client := &fakeHTTP{err: io.ErrUnexpectedEOF}
+		var errOut bytes.Buffer
+
+		if reportPost(client, cfg, "/api/monitoring/telemetry", telemetryBody{Runtime: "claude"}, &errOut) {
+			t.Error("reportPost = true on a transport fault, want false — nothing was stored")
+		}
+		want := "[ocagent] context-report: POST /api/monitoring/telemetry FAILED status=0: " +
+			"unexpected EOF\n"
+		if errOut.String() != want {
+			t.Errorf("stderr = %q, want %q", errOut.String(), want)
+		}
+	})
+}
+
+func TestTruncateForLog(t *testing.T) {
 	cases := []struct {
-		name, displayName, id, want string
-	}{
-		{"1m tag appends", "Opus 4.8", "claude-opus-4-8[1m]", "◆ Opus 4.8 (1M context)"},
-		{"no tag no append", "Opus 4.8", "claude-opus-4-8", "◆ Opus 4.8"},
-		{"already says 1M", "Opus 4.8 1M", "claude-opus-4-8[1m]", "◆ Opus 4.8 1M"},
-	}
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
-			obj := map[string]any{"model": map[string]any{"display_name": c.displayName, "id": c.id}}
-			if got := stripANSI(modelEffortSegment(obj)); got != c.want {
-				t.Errorf("got %q, want %q", got, c.want)
-			}
-		})
-	}
-}
-
-// TestEffortLabel: medium abbreviates to "med"; other values pass through; a
-// payload with no effort block (the model has no effort parameter) yields "".
-func TestEffortLabel(t *testing.T) {
-	cases := map[string]string{"medium": "med", "high": "high", "low": "low", "xhigh": "xhigh"}
-	for in, want := range cases {
-		obj := map[string]any{"effort": map[string]any{"level": in}}
-		if got := effortLabel(obj); got != want {
-			t.Errorf("effort.level=%q ⇒ %q, want %q", in, got, want)
-		}
-	}
-	for _, obj := range []map[string]any{nil, {}, {"effort": map[string]any{}}, {"effort": "high"}} {
-		if got := effortLabel(obj); got != "" {
-			t.Errorf("no readable effort.level ⇒ %q, want \"\"", got)
-		}
-	}
-}
-
-// TestDurationSegment: sub-hour renders XmYYs, at/over an hour renders XhYYm.
-func TestDurationSegment(t *testing.T) {
-	cases := []struct {
-		ms   float64
+		name string
+		in   string
 		want string
 	}{
-		{14000, "0m14s"},
-		{125000, "2m05s"},
-		{3_665_000, "1h01m"},
-		{0, "0m00s"},
+		{"a short body passes through verbatim", "boom", "boom"},
+		{"exactly 400 bytes is not truncated", strings.Repeat("a", 400), strings.Repeat("a", 400)},
+		{"401 bytes is cut to 400 plus an ellipsis", strings.Repeat("a", 401), strings.Repeat("a", 400) + "…"},
+		{"an empty body stays empty", "", ""},
 	}
-	for _, c := range cases {
-		obj := map[string]any{"cost": map[string]any{"total_duration_ms": c.ms}}
-		if got := durationSegment(obj); got != c.want {
-			t.Errorf("%vms ⇒ %q, want %q", c.ms, got, c.want)
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := truncateForLog(tc.in); got != tc.want {
+				t.Errorf("truncateForLog(%d bytes) = %q, want %q", len(tc.in), got, tc.want)
+			}
+		})
+	}
+}
+
+func TestRenderStatusline(t *testing.T) {
+	cases := []struct {
+		name    string
+		payload string
+		want    string
+	}{
+		{
+			name: "every source measured",
+			payload: `{"model":{"id":"claude-opus-5[1m]","display_name":"Opus 5"},` +
+				`"effort":{"level":"medium"},"context_window":{"used_percentage":41.5},` +
+				`"cost":{"total_cost_usd":1.25,"total_duration_ms":3725000},` +
+				`"rate_limits":{"five_hour":{"used_percentage":30,"resets_at":1720003600},` +
+				`"seven_day":{"used_percentage":60,"resets_at":1720300000}}}`,
+			want: "\x1b[34m◆ Opus 5 (1M context)\x1b[0m \x1b[33m⚡med\x1b[0m" +
+				"\x1b[90m | \x1b[0m\x1b[90m████░░░░░░\x1b[0m \x1b[32m42%\x1b[0m" +
+				"\x1b[90m | \x1b[0m\x1b[33m$1.25\x1b[0m" +
+				"\x1b[90m | \x1b[0m\x1b[90m1h02m\x1b[0m" +
+				"\x1b[90m | \x1b[0m\x1b[90m5h:30%(rst:1h0m) 7d:60%(50%elapsed)\x1b[0m",
+		},
+		{
+			name:    "one measured source renders alone, with no separators",
+			payload: `{"context_window":{"used_percentage":0}}`,
+			want:    "\x1b[90m░░░░░░░░░░\x1b[0m \x1b[32m0%\x1b[0m",
+		},
+		{name: "an empty payload renders an empty line", payload: "", want: ""},
+		{name: "a junk payload renders an empty line", payload: "not json", want: ""},
+		{name: "a JSON array renders an empty line", payload: "[1,2]", want: ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := renderStatusline(tc.payload, 1720000000); got != tc.want {
+				t.Errorf("renderStatusline = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestModelEffortSegment(t *testing.T) {
+	cases := []struct {
+		name string
+		obj  map[string]any
+		want string
+	}{
+		{
+			name: "model and effort together",
+			obj: map[string]any{
+				"model":  map[string]any{"id": "claude-opus-5", "display_name": " Opus 5 "},
+				"effort": map[string]any{"level": "high"},
+			},
+			want: "\x1b[34m◆ Opus 5\x1b[0m \x1b[33m⚡high\x1b[0m",
+		},
+		{
+			name: "a 1M-tier id appends the context hint",
+			obj:  map[string]any{"model": map[string]any{"id": "claude-opus-5[1m]", "display_name": "Opus 5"}},
+			want: "\x1b[34m◆ Opus 5 (1M context)\x1b[0m",
+		},
+		{
+			name: "a display name that already says 1M is left alone",
+			obj:  map[string]any{"model": map[string]any{"id": "claude-opus-5[1m]", "display_name": "Opus 5 1M"}},
+			want: "\x1b[34m◆ Opus 5 1M\x1b[0m",
+		},
+		{
+			name: "a bare effort renders without a model",
+			obj:  map[string]any{"effort": map[string]any{"level": "low"}},
+			want: "\x1b[33m⚡low\x1b[0m",
+		},
+		{
+			name: "medium abbreviates to med",
+			obj:  map[string]any{"effort": map[string]any{"level": "medium"}},
+			want: "\x1b[33m⚡med\x1b[0m",
+		},
+		{name: "nothing measured renders nothing", obj: map[string]any{}, want: ""},
+		{
+			name: "a blank display name drops the model half",
+			obj:  map[string]any{"model": map[string]any{"id": "x[1m]", "display_name": "   "}},
+			want: "",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := modelEffortSegment(tc.obj); got != tc.want {
+				t.Errorf("modelEffortSegment = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestEffortValue(t *testing.T) {
+	cases := []struct {
+		name    string
+		payload string
+		want    string
+	}{
+		{"the live level is read verbatim and trimmed", `{"effort":{"level":"  high  "}}`, "high"},
+		{"medium is NOT abbreviated on the wire value", `{"effort":{"level":"medium"}}`, "medium"},
+		{"a model with no effort block reports nothing", `{"model":{"id":"x"}}`, ""},
+		{"a non-string level reports nothing", `{"effort":{"level":3}}`, ""},
+		{"a junk payload reports nothing", "not json", ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := effortValue(tc.payload); got != tc.want {
+				t.Errorf("effortValue(%q) = %q, want %q", tc.payload, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestModelValue(t *testing.T) {
+	cases := []struct {
+		name    string
+		payload string
+		want    string
+	}{
+		{"the id is read verbatim and trimmed", `{"model":{"id":" claude-opus-5[1m] "}}`, "claude-opus-5[1m]"},
+		{"the display name is never substituted", `{"model":{"display_name":"Opus 5"}}`, ""},
+		{"a missing model block reports nothing", `{"effort":{"level":"high"}}`, ""},
+		{"a junk payload reports nothing", "[]", ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := modelValue(tc.payload); got != tc.want {
+				t.Errorf("modelValue(%q) = %q, want %q", tc.payload, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestEffortLabel(t *testing.T) {
+	cases := []struct {
+		name string
+		obj  map[string]any
+		want string
+	}{
+		{"medium abbreviates", map[string]any{"effort": map[string]any{"level": "medium"}}, "med"},
+		{"high passes through", map[string]any{"effort": map[string]any{"level": "high"}}, "high"},
+		{"absent stays blank", map[string]any{}, ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := effortLabel(tc.obj); got != tc.want {
+				t.Errorf("effortLabel = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestContextBarSegment(t *testing.T) {
+	cases := []struct {
+		name    string
+		payload string
+		want    string
+	}{
+		{"41.5% fills four cells and rounds to 42", `{"context_window":{"used_percentage":41.5}}`,
+			"\x1b[90m████░░░░░░\x1b[0m \x1b[32m42%\x1b[0m"},
+		{"0% draws an empty bar rather than nothing", `{"context_window":{"used_percentage":0}}`,
+			"\x1b[90m░░░░░░░░░░\x1b[0m \x1b[32m0%\x1b[0m"},
+		{"an over-range value clamps to a full bar", `{"context_window":{"used_percentage":150}}`,
+			"\x1b[90m██████████\x1b[0m \x1b[32m100%\x1b[0m"},
+		{"a null pct renders no segment", `{"context_window":{"used_percentage":null}}`, ""},
+		{"a missing context_window renders no segment", `{}`, ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := contextBarSegment(tc.payload); got != tc.want {
+				t.Errorf("contextBarSegment(%q) = %q, want %q", tc.payload, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestCostSegment(t *testing.T) {
+	cases := []struct {
+		name string
+		obj  map[string]any
+		want string
+	}{
+		{"a real total renders two decimals", map[string]any{"cost": map[string]any{"total_cost_usd": 1.256}}, "$1.26"},
+		{"a real zero is kept", map[string]any{"cost": map[string]any{"total_cost_usd": 0.0}}, "$0.00"},
+		{"a string total is dropped", map[string]any{"cost": map[string]any{"total_cost_usd": "free"}}, ""},
+		{"a bool total is dropped", map[string]any{"cost": map[string]any{"total_cost_usd": true}}, ""},
+		{"a missing cost block is dropped", map[string]any{}, ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := costSegment(tc.obj); got != tc.want {
+				t.Errorf("costSegment = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestDurationSegment(t *testing.T) {
+	cases := []struct {
+		name string
+		obj  map[string]any
+		want string
+	}{
+		{"under an hour reads XmYYs", map[string]any{"cost": map[string]any{"total_duration_ms": 65000.0}}, "1m05s"},
+		{"an hour and over reads XhYYm", map[string]any{"cost": map[string]any{"total_duration_ms": 3725000.0}}, "1h02m"},
+		{"a negative duration clamps to zero", map[string]any{"cost": map[string]any{"total_duration_ms": -5000.0}}, "0m00s"},
+		{"a non-numeric duration renders nothing", map[string]any{"cost": map[string]any{"total_duration_ms": "5s"}}, ""},
+		{"a missing cost block renders nothing", map[string]any{}, ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := durationSegment(tc.obj); got != tc.want {
+				t.Errorf("durationSegment = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestRateLimitSegment(t *testing.T) {
+	both := map[string]any{"rate_limits": map[string]any{
+		"five_hour": map[string]any{"used_percentage": 30.0, "resets_at": 1720003600.0},
+		"seven_day": map[string]any{"used_percentage": 60.0, "resets_at": 1720300000.0},
+	}}
+	cases := []struct {
+		name string
+		obj  map[string]any
+		want string
+	}{
+		{"both windows join into one segment", both, "5h:30%(rst:1h0m) 7d:60%(50%elapsed)"},
+		{
+			name: "a window missing resets_at is skipped whole",
+			obj: map[string]any{"rate_limits": map[string]any{
+				"five_hour": map[string]any{"used_percentage": 30.0},
+				"seven_day": map[string]any{"used_percentage": 60.0, "resets_at": 1720300000.0},
+			}},
+			want: "7d:60%(50%elapsed)",
+		},
+		{
+			name: "a 5h window already past its reset drops the countdown",
+			obj: map[string]any{"rate_limits": map[string]any{
+				"five_hour": map[string]any{"used_percentage": 90.0, "resets_at": 1719999000.0},
+			}},
+			want: "5h:90%",
+		},
+		{name: "no rate_limits renders nothing", obj: map[string]any{}, want: ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := rateLimitSegment(tc.obj, 1720000000); got != tc.want {
+				t.Errorf("rateLimitSegment = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestRlWindowFields(t *testing.T) {
+	cases := []struct {
+		name       string
+		w          map[string]any
+		wantUsed   float64
+		wantResets float64
+		wantOK     bool
+	}{
+		{"both numbers", map[string]any{"used_percentage": 30.0, "resets_at": 1720003600.0}, 30, 1720003600, true},
+		{"a null resets_at", map[string]any{"used_percentage": 30.0, "resets_at": nil}, 0, 0, false},
+		{"a string used_percentage", map[string]any{"used_percentage": "30", "resets_at": 1.0}, 0, 0, false},
+		{"an empty window", map[string]any{}, 0, 0, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			used, resets, ok := rlWindowFields(tc.w)
+			if used != tc.wantUsed || resets != tc.wantResets || ok != tc.wantOK {
+				t.Errorf("rlWindowFields = (%v, %v, %v), want (%v, %v, %v)",
+					used, resets, ok, tc.wantUsed, tc.wantResets, tc.wantOK)
+			}
+		})
+	}
+}
+
+func TestCompactDuration(t *testing.T) {
+	cases := []struct {
+		seconds float64
+		want    string
+	}{
+		{0, "0m"},
+		{59, "0m"},
+		{60, "1m"},
+		{3599, "59m"},
+		{3600, "1h0m"},
+		{11220, "3h7m"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.want, func(t *testing.T) {
+			if got := compactDuration(tc.seconds); got != tc.want {
+				t.Errorf("compactDuration(%v) = %q, want %q", tc.seconds, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestStatuslinePct(t *testing.T) {
+	cases := []struct {
+		name     string
+		payload  string
+		wantPct  float64
+		wantHave bool
+	}{
+		{"a measured pct", `{"context_window":{"used_percentage":41.5}}`, 41.5, true},
+		{"a negative pct clamps to 0", `{"context_window":{"used_percentage":-4}}`, 0, true},
+		{"an over-range pct clamps to 100", `{"context_window":{"used_percentage":140}}`, 100, true},
+		{"a null pct is not measured", `{"context_window":{"used_percentage":null}}`, 0, false},
+		{"a bool pct is not measured", `{"context_window":{"used_percentage":true}}`, 0, false},
+		{"a missing context_window is not measured", `{}`, 0, false},
+		{"an unparseable payload is not measured", "not json", 0, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			pct, have := statuslinePct(tc.payload)
+			if pct != tc.wantPct || have != tc.wantHave {
+				t.Errorf("statuslinePct(%q) = (%v, %v), want (%v, %v)",
+					tc.payload, pct, have, tc.wantPct, tc.wantHave)
+			}
+		})
+	}
+}
+
+func TestReportStampPath(t *testing.T) {
+	cases := []struct {
+		name string
+		cfg  Config
+		want string
+	}{
+		{"an id is lowercased", Config{Home: "/h", ID: "M-Kyle"}, "/h/m-kyle/context_report.stamp"},
+		{"no id falls back to anon", Config{Home: "/h"}, "/h/anon/context_report.stamp"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := reportStampPath(tc.cfg); got != tc.want {
+				t.Errorf("reportStampPath = %q, want %q", got, tc.want)
+			}
+			wantBackoff := strings.TrimSuffix(tc.want, "stamp") + "backoff"
+			if got := reportBackoffPath(tc.cfg); got != wantBackoff {
+				t.Errorf("reportBackoffPath = %q, want %q — the failure record is a sibling "+
+					"of the stamp, never folded into it", got, wantBackoff)
+			}
+		})
+	}
+}
+
+func TestReportThrottled(t *testing.T) {
+	write := func(t *testing.T, body string) string {
+		t.Helper()
+		path := filepath.Join(t.TempDir(), "context_report.stamp")
+		if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		return path
+	}
+	t.Run("a stamp inside the window throttles", func(t *testing.T) {
+		if !reportThrottled(write(t, "980"), 1000, 30) {
+			t.Error("reportThrottled = false, want true — 20s < the 30s window")
+		}
+	})
+	t.Run("a stamp exactly one window old does not throttle", func(t *testing.T) {
+		if reportThrottled(write(t, "970"), 1000, 30) {
+			t.Error("reportThrottled = true, want false — the window has closed")
+		}
+	})
+	t.Run("a missing stamp does not throttle", func(t *testing.T) {
+		if reportThrottled(filepath.Join(t.TempDir(), "nope"), 1000, 30) {
+			t.Error("reportThrottled = true, want false — nothing was ever delivered")
+		}
+	})
+	t.Run("an empty stamp reads as epoch and does not throttle", func(t *testing.T) {
+		if reportThrottled(write(t, "  \n"), 1000, 30) {
+			t.Error("reportThrottled = true, want false")
+		}
+	})
+	t.Run("an unparseable stamp does not throttle", func(t *testing.T) {
+		if reportThrottled(write(t, "yesterday"), 1000, 30) {
+			t.Error("reportThrottled = true, want false — a junk scratch file must never " +
+				"be able to silence a working reporter")
+		}
+	})
+}
+
+func TestReportBackoffSecs(t *testing.T) {
+	cases := []struct {
+		failures int
+		want     float64
+	}{
+		{-1, 0},
+		{0, 0},
+		{1, 30},
+		{2, 60},
+		{3, 120},
+		{4, 240},
+		{5, 300},
+		{6, 300},
+		{40, 300},
+	}
+	for _, tc := range cases {
+		if got := reportBackoffSecs(tc.failures); got != tc.want {
+			t.Errorf("reportBackoffSecs(%d) = %v, want %v", tc.failures, got, tc.want)
 		}
 	}
 }
 
-// refusingServer replies 422 to every POST and records the paths it saw. The
-// refusal body mimics the real schema refusal (DisallowUnknownFields).
-func refusingServer(t *testing.T) (*httptest.Server, *[]string) {
+func TestReportBackedOff(t *testing.T) {
+	cases := []struct {
+		name string
+		st   reportBackoffState
+		now  float64
+		want bool
+	}{
+		{"a healthy record never suppresses", reportBackoffState{}, 1000, false},
+		{"one failure suppresses for 30s", reportBackoffState{failures: 1, lastAttempt: 980}, 1000, true},
+		{"one failure lets the 31st second through", reportBackoffState{failures: 1, lastAttempt: 969}, 1000, false},
+		{"four failures suppress for 240s", reportBackoffState{failures: 4, lastAttempt: 900}, 1000, true},
+		{"the cap lets an attempt through after 300s", reportBackoffState{failures: 40, lastAttempt: 600}, 1000, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := reportBackedOff(tc.st, tc.now); got != tc.want {
+				t.Errorf("reportBackedOff(%+v, %v) = %v, want %v", tc.st, tc.now, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestReadReportBackoff(t *testing.T) {
+	write := func(t *testing.T, body string) string {
+		t.Helper()
+		path := filepath.Join(t.TempDir(), "context_report.backoff")
+		if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		return path
+	}
+	cases := []struct {
+		name string
+		body string
+		want reportBackoffState
+	}{
+		{"a well-formed record", "3 1000.5", reportBackoffState{failures: 3, lastAttempt: 1000.5}},
+		{"a truncated record reads healthy", "3", reportBackoffState{}},
+		{"a non-numeric count reads healthy", "many 1000", reportBackoffState{}},
+		{"a zero count reads healthy", "0 1000", reportBackoffState{}},
+		{"an empty file reads healthy", "", reportBackoffState{}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := readReportBackoff(write(t, tc.body)); got != tc.want {
+				t.Errorf("readReportBackoff(%q) = %+v, want %+v", tc.body, got, tc.want)
+			}
+		})
+	}
+	t.Run("a missing file reads healthy", func(t *testing.T) {
+		got := readReportBackoff(filepath.Join(t.TempDir(), "nope"))
+		if got != (reportBackoffState{}) {
+			t.Errorf("readReportBackoff = %+v, want the healthy zero value", got)
+		}
+	})
+}
+
+func TestWriteReportBackoff(t *testing.T) {
+	t.Run("the record lands and reads back as it was written", func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), "deep", "context_report.backoff")
+		writeReportBackoff(path, reportBackoffState{failures: 2, lastAttempt: 1000.25})
+
+		if got := readFileString(t, path); got != "2 1000.25" {
+			t.Errorf("file = %q, want %q", got, "2 1000.25")
+		}
+		want := reportBackoffState{failures: 2, lastAttempt: 1000.25}
+		if got := readReportBackoff(path); got != want {
+			t.Errorf("readReportBackoff = %+v, want %+v", got, want)
+		}
+	})
+
+	t.Run("an unwritable parent is swallowed", func(t *testing.T) {
+		blocked := filepath.Join(t.TempDir(), "file")
+		if err := os.WriteFile(blocked, []byte("x"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		writeReportBackoff(filepath.Join(blocked, "context_report.backoff"),
+			reportBackoffState{failures: 1, lastAttempt: 1})
+		if got := readFileString(t, blocked); got != "x" {
+			t.Errorf("the blocking file = %q, want %q — nothing was written and nothing panicked",
+				got, "x")
+		}
+	})
+}
+
+func TestClearReportBackoff(t *testing.T) {
+	t.Run("a delivered burst drops the record", func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), "context_report.backoff")
+		writeReportBackoff(path, reportBackoffState{failures: 5, lastAttempt: 1000})
+
+		clearReportBackoff(path)
+
+		if _, err := os.Stat(path); !os.IsNotExist(err) {
+			t.Errorf("stat after clear = %v, want the file to be gone", err)
+		}
+		if got := readReportBackoff(path); got != (reportBackoffState{}) {
+			t.Errorf("readReportBackoff = %+v, want the healthy zero value", got)
+		}
+	})
+
+	t.Run("an absent record is the normal case", func(t *testing.T) {
+		clearReportBackoff(filepath.Join(t.TempDir(), "nope"))
+	})
+}
+
+func TestWriteStamp(t *testing.T) {
+	t.Run("the stamp lands under a directory it creates", func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), "kyle", "context_report.stamp")
+		writeStamp(path, 1720000000.5)
+
+		if got := readFileString(t, path); got != "1720000000.5" {
+			t.Errorf("stamp = %q, want %q", got, "1720000000.5")
+		}
+		if reportThrottled(path, 1720000010, 30) != true {
+			t.Error("the stamp it just wrote does not throttle the next tick")
+		}
+	})
+
+	t.Run("an unwritable parent is swallowed", func(t *testing.T) {
+		blocked := filepath.Join(t.TempDir(), "file")
+		if err := os.WriteFile(blocked, []byte("x"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		writeStamp(filepath.Join(blocked, "context_report.stamp"), 1000)
+		if got := readFileString(t, blocked); got != "x" {
+			t.Errorf("the blocking file = %q, want %q", got, "x")
+		}
+	})
+}
+
+func TestLocalHost(t *testing.T) {
+	cases := []struct {
+		name string
+		env  map[string]string
+		want string
+	}{
+		{"a remote warden names itself", map[string]string{"OC_HOST": "m-lab-1"}, "m-lab-1"},
+		{"an unset OC_HOST is the server-self box", nil, "m-server-self"},
+		{"an empty OC_HOST is the server-self box", map[string]string{"OC_HOST": ""}, "m-server-self"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := localHost(testEnv(tc.env)); got != tc.want {
+				t.Errorf("localHost = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+// writeHomeClaudeJSON writes the ~/.claude.json candidate (the sibling of the
+// ~/.claude/.claude.json one writeClaudeJSON writes) into an existing home.
+func writeHomeClaudeJSON(t *testing.T, home, body string) {
 	t.Helper()
-	var seen []string
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		seen = append(seen, r.URL.Path)
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(422)
-		_, _ = w.Write([]byte(`{"error":{"code":"validation_error","message":"nope"}}`))
-	}))
-	t.Cleanup(srv.Close)
-	return srv, &seen
+	if err := os.WriteFile(filepath.Join(home, ".claude.json"), []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
 }
 
-// driveTicks simulates the statusLine tick loop over VIRTUAL time: it calls
-// cmdContextReport once every `step` virtual seconds from 0 to `until`, and
-// returns the virtual times at which a burst actually went out on the wire.
-//
-// No real sleeping anywhere — `now` is already an injected parameter (the same
-// time seam every throttle test in this file uses), so a 30-minute simulation
-// runs in milliseconds. `count` reports how many requests the fake server has
-// seen so far; a tick counts as "a burst went out" iff that number moved.
-func driveTicks(t *testing.T, client httpClient, cfg Config, count func() int, until, step float64) []float64 {
-	t.Helper()
-	var attempts []float64
-	last := count()
-	// step is exactly representable in binary (0.5), so `now` accumulates exactly.
-	for now := 0.0; now <= until; now += step {
-		var out, errOut bytes.Buffer
-		cmdContextReport(client, cfg, testEnv(nil), now,
-			strings.NewReader(`{"context_window":{"used_percentage":50}}`), &out, &errOut)
-		if n := count(); n != last {
-			attempts = append(attempts, now)
-			last = n
+func TestReadClaudeAccount(t *testing.T) {
+	t.Run("the account uuid joins the org uuid", func(t *testing.T) {
+		home := writeClaudeJSON(t, `{"oauthAccount":{"accountUuid":" au-1 ",`+
+			`"organizationUuid":"org-1"}}`)
+		if got := readClaudeAccount(testEnv(map[string]string{"HOME": home})); got != "au-1/org-1" {
+			t.Errorf("readClaudeAccount = %q, want %q", got, "au-1/org-1")
 		}
-	}
-	return attempts
-}
+	})
 
-// gapsOf turns attempt timestamps into the intervals between them.
-func gapsOf(attempts []float64) []float64 {
-	var gaps []float64
-	for i := 1; i < len(attempts); i++ {
-		gaps = append(gaps, attempts[i]-attempts[i-1])
-	}
-	return gaps
-}
-
-func sameFloats(a, b []float64) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for i := range a {
-		if a[i] != b[i] {
-			return false
+	t.Run("no org yields a bare account uuid, never a dangling slash", func(t *testing.T) {
+		home := writeClaudeJSON(t, `{"oauthAccount":{"accountUuid":"au-1"}}`)
+		if got := readClaudeAccount(testEnv(map[string]string{"HOME": home})); got != "au-1" {
+			t.Errorf("readClaudeAccount = %q, want %q", got, "au-1")
 		}
-	}
-	return true
-}
+	})
 
-// TestRefusedReportBacksOffToAnIntentionalCap pins BOTH halves of the failure
-// path, because each half was a real bug in turn:
-//
-//  1. the throttle stamp is evidence of DELIVERY, not of attempt — a refused
-//     burst must NOT advance it. (Before that fix a reporter whose every POST was
-//     422'd looked, from the outside, exactly like a healthy one.)
-//  2. leaving the stamp alone must not degrade into "re-POST on every tick". A
-//     statusLine ticks several times a SECOND, so binding the stamp to delivery
-//     switched the throttle fully OFF for a server that kept refusing: measured
-//     against a real always-500 endpoint, the shipped binary sent an unbounded
-//     ~0.4s-spaced burst stream for as long as the outage lasted.
-//
-// The retry spacing is therefore expected to GROW and to STOP growing. Both the
-// growth and the ceiling are DELIBERATE, and this test is where that intent is
-// recorded: 30s (never denser than a healthy reporter) → 60 → 120 → 240 → then
-// pinned at the 300s cap forever. If you are here because this test went red
-// after you changed reportBackoffCapSecs or reportBackoffSecs, the cap is not an
-// accident you may drop — read their doc comments first.
-func TestRefusedReportBacksOffToAnIntentionalCap(t *testing.T) {
-	srv, seen := refusingServer(t)
-	cfg := Config{BaseConfigured: true, Base: srv.URL, Token: "t", ID: "kyle", Home: t.TempDir()}
-	stamp := reportStampPath(cfg)
-	payload := `{"context_window":{"used_percentage":50}}`
-
-	var out, errOut bytes.Buffer
-	cmdContextReport(srv.Client(), cfg, testEnv(nil), 2000.0, strings.NewReader(payload), &out, &errOut)
-	if len(*seen) != 2 {
-		t.Fatalf("tick 1: expected both POSTs attempted, saw %v", *seen)
-	}
-	if raw, err := os.ReadFile(stamp); err == nil {
-		t.Errorf("a refused burst must NOT stamp the throttle window; stamp = %q", raw)
-	}
-	// Tick 2, five seconds later. It must be SILENT: the refusal opens a backoff,
-	// and this is the tick that used to re-POST (and did so several times a second).
-	cmdContextReport(srv.Client(), cfg, testEnv(nil), 2005.0, strings.NewReader(payload), &out, &errOut)
-	if len(*seen) != 2 {
-		t.Errorf("a tick 5s after a refusal must be held by the backoff, saw %v", *seen)
-	}
-	// ...yet the stamp is STILL absent. Backing off must never be implemented by
-	// stamping the throttle window: that would re-tell the lie in (1).
-	if raw, err := os.ReadFile(stamp); err == nil {
-		t.Errorf("backing off must not stamp the window; stamp = %q", raw)
-	}
-	if strings.Count(errOut.String(), "FAILED") != 2 {
-		t.Errorf("every refused POST must keep leaving a trace; stderr = %q", errOut.String())
-	}
-
-	// Now the curve, over 30 virtual minutes of ticking against a server that never
-	// recovers. Attempts at 0, 30, 90, 210, 450, 750, 1050, 1350, 1650.
-	srv2, seen2 := refusingServer(t)
-	cfg2 := Config{BaseConfigured: true, Base: srv2.URL, Token: "t", ID: "kyle", Home: t.TempDir()}
-	attempts := driveTicks(t, srv2.Client(), cfg2, func() int { return len(*seen2) }, 1800.0, 0.5)
-	want := []float64{30, 60, 120, 240, 300, 300, 300, 300}
-	if got := gapsOf(attempts); !sameFloats(got, want) {
-		t.Errorf("retry spacing = %v, want %v (attempts at %v)", got, want, attempts)
-	}
-	// And the stamp is still untouched after 30 minutes of pure refusal.
-	if raw, err := os.ReadFile(reportStampPath(cfg2)); err == nil {
-		t.Errorf("30min of refusals must leave no stamp; stamp = %q", raw)
-	}
-}
-
-// TestAcceptedBurstResetsTheFailureBackoff: the backoff must not outlive the
-// outage that caused it. After several refusals have stretched the spacing, ONE
-// accepted burst returns the reporter to the plain 30s cadence immediately —
-// rather than making a recovered agent keep reporting at the outage's rate.
-func TestAcceptedBurstResetsTheFailureBackoff(t *testing.T) {
-	refuse := true
-	var seen []string
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		seen = append(seen, r.URL.Path)
-		w.Header().Set("Content-Type", "application/json")
-		if refuse {
-			w.WriteHeader(422)
-			_, _ = w.Write([]byte(`{"error":{"code":"validation_error","message":"nope"}}`))
-			return
+	t.Run("legacy config without an accountUuid falls back to userID", func(t *testing.T) {
+		home := writeClaudeJSON(t, `{"userID":"legacy-1"}`)
+		if got := readClaudeAccount(testEnv(map[string]string{"HOME": home})); got != "legacy-1" {
+			t.Errorf("readClaudeAccount = %q, want %q", got, "legacy-1")
 		}
-		w.WriteHeader(200)
-		_, _ = w.Write([]byte(`{}`))
-	}))
-	t.Cleanup(srv.Close)
+	})
 
-	cfg := Config{BaseConfigured: true, Base: srv.URL, Token: "t", ID: "kyle", Home: t.TempDir()}
-	payload := `{"context_window":{"used_percentage":50}}`
-	tick := func(now float64) int {
-		var out, errOut bytes.Buffer
-		cmdContextReport(srv.Client(), cfg, testEnv(nil), now, strings.NewReader(payload), &out, &errOut)
-		return len(seen)
-	}
-
-	// Four consecutive refusals (0, 30, 90, 210) stretch the spacing to 240s.
-	tick(0)
-	tick(30)
-	tick(90)
-	if n := tick(210); n != 8 {
-		t.Fatalf("expected 4 refused bursts (8 POSTs), saw %d: %v", n, seen)
-	}
-	if got := reportBackoffSecs(readReportBackoff(reportBackoffPath(cfg)).failures); got != 240 {
-		t.Fatalf("after 4 refusals the next wait should be 240s, got %v", got)
-	}
-
-	// The server recovers; the next permitted attempt (210+240=450) is accepted, and
-	// the failure record is gone.
-	refuse = false
-	if n := tick(450); n != 10 {
-		t.Fatalf("the attempt at +240s must go out, saw %d POSTs: %v", n, seen)
-	}
-	if _, err := os.Stat(reportBackoffPath(cfg)); err == nil {
-		t.Errorf("a delivered burst must clear the failure record at %s", reportBackoffPath(cfg))
-	}
-
-	// The discriminating part. The outage returns, and ONE fresh refusal must cost
-	// one fresh 30s step — NOT a resumption of the old curve. Without the reset the
-	// count would carry on at 5, demanding the 300s cap, and this recovered agent
-	// would be reporting ten times slower than it should for no live reason.
-	refuse = true
-	if n := tick(480); n != 12 {
-		t.Fatalf("the post-recovery tick must go out, saw %d POSTs: %v", n, seen)
-	}
-	if got := reportBackoffSecs(readReportBackoff(reportBackoffPath(cfg)).failures); got != 30 {
-		t.Errorf("a fresh refusal after recovery must be failure #1 (30s), got %v", got)
-	}
-	if n := tick(510); n != 14 {
-		t.Errorf("the retry 30s after a FIRST refusal must go out; saw %d POSTs: %v", n, seen)
-	}
-}
-
-// TestHealthyCadenceIsUnchangedByTheFailureBackoff is the SENTINEL: the failure
-// backoff must be invisible on the success path. A reporter the server keeps
-// accepting reports at exactly one burst per 30s window — not slower (a backoff
-// leaking into the healthy path), not denser — for the whole run.
-func TestHealthyCadenceIsUnchangedByTheFailureBackoff(t *testing.T) {
-	srv, posts := contextServer(t)
-	cfg := Config{BaseConfigured: true, Base: srv.URL, Token: "t", ID: "kyle", Home: t.TempDir()}
-
-	attempts := driveTicks(t, srv.Client(), cfg, func() int { return len(*posts) }, 600.0, 0.5)
-	want := []float64{0, 30, 60, 90, 120, 150, 180, 210, 240, 270, 300, 330, 360, 390, 420, 450, 480, 510, 540, 570, 600}
-	if !sameFloats(attempts, want) {
-		t.Errorf("healthy bursts at %v, want %v", attempts, want)
-	}
-	// ...and a healthy reporter never even creates the failure record.
-	if _, err := os.Stat(reportBackoffPath(cfg)); err == nil {
-		t.Errorf("the success path must not write a backoff record at %s", reportBackoffPath(cfg))
-	}
-}
-
-// TestAcceptedReportStillThrottlesNextTick is the SENTINEL for the fix above:
-// binding the stamp to delivery must not degrade into "POST on every tick". A
-// 2xx burst stamps the window exactly as before, so a tick 5s later is silent.
-func TestAcceptedReportStillThrottlesNextTick(t *testing.T) {
-	srv, posts := contextServer(t)
-	cfg := Config{BaseConfigured: true, Base: srv.URL, Token: "t", ID: "kyle", Home: t.TempDir()}
-	payload := `{"context_window":{"used_percentage":50}}`
-
-	var out, errOut bytes.Buffer
-	cmdContextReport(srv.Client(), cfg, testEnv(nil), 2000.0, strings.NewReader(payload), &out, &errOut)
-	if len(*posts) != 2 {
-		t.Fatalf("tick 1: expected both POSTs, got %v", *posts)
-	}
-	cmdContextReport(srv.Client(), cfg, testEnv(nil), 2005.0, strings.NewReader(payload), &out, &errOut)
-	if len(*posts) != 2 {
-		t.Errorf("an ACCEPTED burst must still throttle the next tick, got %v", *posts)
-	}
-}
-
-// TestRefusedTelemetryAloneLeavesWindowOpen: the two POSTs ride ONE window, so a
-// burst counts as delivered only when EVERY attempted POST was accepted. Here the
-// context POST is accepted and only the telemetry POST is refused — the exact
-// shape of the outage this ticket came from (a schema refusal on the telemetry
-// body alone) — and the window must stay open for the retry.
-func TestRefusedTelemetryAloneLeavesWindowOpen(t *testing.T) {
-	var seen []string
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		seen = append(seen, r.URL.Path)
-		w.Header().Set("Content-Type", "application/json")
-		if r.URL.Path == "/api/monitoring/telemetry" {
-			w.WriteHeader(422)
-			_, _ = w.Write([]byte(`{"error":{"code":"validation_error","message":"nope"}}`))
-			return
+	t.Run("each dimension resolves independently across the two candidates", func(t *testing.T) {
+		home := writeClaudeJSON(t, `{"oauthAccount":{"accountUuid":"au-1"}}`)
+		writeHomeClaudeJSON(t, home, `{"oauthAccount":{"organizationUuid":"org-2"}}`)
+		if got := readClaudeAccount(testEnv(map[string]string{"HOME": home})); got != "au-1/org-2" {
+			t.Errorf("readClaudeAccount = %q, want %q — real installs split the two fields "+
+				"across the two files", got, "au-1/org-2")
 		}
-		w.WriteHeader(200)
-		_, _ = w.Write([]byte(`{}`))
-	}))
-	t.Cleanup(srv.Close)
+	})
 
-	cfg := Config{BaseConfigured: true, Base: srv.URL, Token: "t", ID: "kyle", Home: t.TempDir()}
-	payload := `{"context_window":{"used_percentage":50}}`
-	var out, errOut bytes.Buffer
-	cmdContextReport(srv.Client(), cfg, testEnv(nil), 2000.0, strings.NewReader(payload), &out, &errOut)
-	if _, err := os.ReadFile(reportStampPath(cfg)); err == nil {
-		t.Errorf("a partially refused burst must not stamp the window")
+	t.Run("no identity anywhere reports nothing", func(t *testing.T) {
+		if got := readClaudeAccount(testEnv(map[string]string{"HOME": t.TempDir()})); got != "" {
+			t.Errorf("readClaudeAccount = %q, want empty", got)
+		}
+	})
+
+	t.Run("an unparseable candidate is skipped, not fatal", func(t *testing.T) {
+		home := writeClaudeJSON(t, `{{{ not json`)
+		writeHomeClaudeJSON(t, home, `{"oauthAccount":{"accountUuid":"au-9","organizationUuid":"org-9"}}`)
+		if got := readClaudeAccount(testEnv(map[string]string{"HOME": home})); got != "au-9/org-9" {
+			t.Errorf("readClaudeAccount = %q, want %q", got, "au-9/org-9")
+		}
+	})
+}
+
+func TestReadClaudeAccountLabel(t *testing.T) {
+	t.Run("the email carries the label and the org is parenthesised", func(t *testing.T) {
+		home := writeClaudeJSON(t, `{"oauthAccount":{"emailAddress":"kyle@x.io",`+
+			`"displayName":"Kyle","organizationName":"OffiCraft"}}`)
+		want := "kyle@x.io(OffiCraft)"
+		if got := readClaudeAccountLabel(testEnv(map[string]string{"HOME": home})); got != want {
+			t.Errorf("readClaudeAccountLabel = %q, want %q", got, want)
+		}
+	})
+
+	t.Run("no email falls back to the display name", func(t *testing.T) {
+		home := writeClaudeJSON(t, `{"oauthAccount":{"displayName":"Kyle","organizationName":"OffiCraft"}}`)
+		want := "Kyle(OffiCraft)"
+		if got := readClaudeAccountLabel(testEnv(map[string]string{"HOME": home})); got != want {
+			t.Errorf("readClaudeAccountLabel = %q, want %q", got, want)
+		}
+	})
+
+	t.Run("no org drops the parenthesised suffix", func(t *testing.T) {
+		home := writeClaudeJSON(t, `{"oauthAccount":{"emailAddress":"kyle@x.io"}}`)
+		if got := readClaudeAccountLabel(testEnv(map[string]string{"HOME": home})); got != "kyle@x.io" {
+			t.Errorf("readClaudeAccountLabel = %q, want %q", got, "kyle@x.io")
+		}
+	})
+
+	t.Run("a non-string field never reaches an owner-facing label", func(t *testing.T) {
+		home := writeClaudeJSON(t, `{"oauthAccount":{"emailAddress":null,"organizationName":7,`+
+			`"displayName":"Kyle"}}`)
+		if got := readClaudeAccountLabel(testEnv(map[string]string{"HOME": home})); got != "Kyle" {
+			t.Errorf("readClaudeAccountLabel = %q, want %q", got, "Kyle")
+		}
+	})
+
+	t.Run("each field resolves independently across the two candidates", func(t *testing.T) {
+		home := writeClaudeJSON(t, `{"oauthAccount":{"emailAddress":"kyle@x.io"}}`)
+		writeHomeClaudeJSON(t, home, `{"oauthAccount":{"organizationName":"OffiCraft"}}`)
+		want := "kyle@x.io(OffiCraft)"
+		if got := readClaudeAccountLabel(testEnv(map[string]string{"HOME": home})); got != want {
+			t.Errorf("readClaudeAccountLabel = %q, want %q", got, want)
+		}
+	})
+
+	t.Run("nothing readable reports nothing", func(t *testing.T) {
+		home := writeClaudeJSON(t, `{"userID":"legacy-1"}`)
+		if got := readClaudeAccountLabel(testEnv(map[string]string{"HOME": home})); got != "" {
+			t.Errorf("readClaudeAccountLabel = %q, want empty — the caller then OMITS the "+
+				"field rather than sending a fabricated blank", got)
+		}
+	})
+}
+
+func TestClaudeOrgUUID(t *testing.T) {
+	cases := []struct {
+		name string
+		d    map[string]any
+		want string
+	}{
+		{"a trimmed org uuid", map[string]any{"oauthAccount": map[string]any{"organizationUuid": " org-1 "}}, "org-1"},
+		{"a blank org uuid", map[string]any{"oauthAccount": map[string]any{"organizationUuid": "  "}}, ""},
+		{"a null org uuid", map[string]any{"oauthAccount": map[string]any{"organizationUuid": nil}}, ""},
+		{"a non-string org uuid", map[string]any{"oauthAccount": map[string]any{"organizationUuid": 7.0}}, ""},
+		{"no oauthAccount object", map[string]any{"userID": "u"}, ""},
 	}
-	// The retry is BACKED OFF, not cancelled: silent at +5s, out at +30s (the first
-	// backoff step, which is exactly the healthy window — a refusing reporter is
-	// never denser than a healthy one).
-	cmdContextReport(srv.Client(), cfg, testEnv(nil), 2005.0, strings.NewReader(payload), &out, &errOut)
-	if len(seen) != 2 {
-		t.Errorf("the +5s tick must be held by the backoff; saw %v", seen)
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := claudeOrgUUID(tc.d); got != tc.want {
+				t.Errorf("claudeOrgUUID = %q, want %q", got, tc.want)
+			}
+		})
 	}
-	cmdContextReport(srv.Client(), cfg, testEnv(nil), 2030.0, strings.NewReader(payload), &out, &errOut)
-	if len(seen) != 4 {
-		t.Errorf("a partial refusal must still retry once the backoff elapses; saw %v", seen)
+}
+
+func TestClaudeAccountUUID(t *testing.T) {
+	cases := []struct {
+		name string
+		d    map[string]any
+		want string
+	}{
+		{"a trimmed account uuid", map[string]any{"oauthAccount": map[string]any{"accountUuid": " au-1 "}}, "au-1"},
+		{"a non-string account uuid", map[string]any{"oauthAccount": map[string]any{"accountUuid": 7.0}}, ""},
+		{"no oauthAccount object", map[string]any{"userID": "u"}, ""},
 	}
-	if _, err := os.ReadFile(reportStampPath(cfg)); err == nil {
-		t.Errorf("still partially refused ⇒ still no stamp")
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := claudeAccountUUID(tc.d); got != tc.want {
+				t.Errorf("claudeAccountUUID = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestBuildTelemetry(t *testing.T) {
+	t.Run("every measured piece comes back", func(t *testing.T) {
+		transcript := todayTranscript(t)
+		rl, cost, tokens := buildTelemetry(
+			`{"rate_limits":{"five_hour":{"used_percentage":30,"resets_at":1720000000},` +
+				`"seven_day":{"used_percentage":60,"resets_at":1720500000}},` +
+				`"cost":{"total_cost_usd":1.25},"transcript_path":"` + transcript + `"}`)
+
+		wantRL := &rateLimits{
+			FiveHour: &rlWindow{UsedPercentage: 30.0, ResetsAt: 1720000000.0},
+			SevenDay: &rlWindow{UsedPercentage: 60.0, ResetsAt: 1720500000.0},
+		}
+		if !reflect.DeepEqual(rl, wantRL) {
+			t.Errorf("rate_limits = %+v, want %+v", rl, wantRL)
+		}
+		if cost == nil || *cost != 1.25 {
+			t.Errorf("cost = %v, want 1.25", cost)
+		}
+		wantTokens := &tokensBody{Burned: 12, Output: 3, CacheRead: 11}
+		if !reflect.DeepEqual(tokens, wantTokens) {
+			t.Errorf("tokens = %+v, want %+v", tokens, wantTokens)
+		}
+	})
+
+	t.Run("a real zero cost is kept while an unmeasured source is omitted", func(t *testing.T) {
+		rl, cost, tokens := buildTelemetry(`{"cost":{"total_cost_usd":0}}`)
+		if rl != nil {
+			t.Errorf("rate_limits = %+v, want nil", rl)
+		}
+		if cost == nil || *cost != 0 {
+			t.Errorf("cost = %v, want a kept 0", cost)
+		}
+		if tokens != nil {
+			t.Errorf("tokens = %+v, want nil", tokens)
+		}
+	})
+
+	t.Run("one present window is enough to report rate_limits", func(t *testing.T) {
+		rl, _, _ := buildTelemetry(`{"rate_limits":{"seven_day":{"used_percentage":null,"resets_at":null}}}`)
+		wantRL := &rateLimits{SevenDay: &rlWindow{UsedPercentage: nil, ResetsAt: nil}}
+		if !reflect.DeepEqual(rl, wantRL) {
+			t.Errorf("rate_limits = %+v, want %+v — a null is passed through as "+
+				"\"not measured\", never dropped into a fabricated 0", rl, wantRL)
+		}
+	})
+
+	t.Run("a transcript path that does not exist omits tokens", func(t *testing.T) {
+		_, _, tokens := buildTelemetry(`{"transcript_path":"` +
+			filepath.Join(t.TempDir(), "nope.jsonl") + `"}`)
+		if tokens != nil {
+			t.Errorf("tokens = %+v, want nil", tokens)
+		}
+	})
+
+	t.Run("a junk payload measures nothing", func(t *testing.T) {
+		rl, cost, tokens := buildTelemetry("not json")
+		if rl != nil || cost != nil || tokens != nil {
+			t.Errorf("buildTelemetry = (%v, %v, %v), want all nil", rl, cost, tokens)
+		}
+	})
+}
+
+func TestParseTranscriptTokens(t *testing.T) {
+	today := time.Now().UTC().Format("2006-01-02")
+	row := func(ts string, in, out, create, read int) string {
+		return `{"type":"assistant","timestamp":"` + ts + `","message":{"usage":{` +
+			`"input_tokens":` + strconv.Itoa(in) + `,"output_tokens":` + strconv.Itoa(out) +
+			`,"cache_creation_input_tokens":` + strconv.Itoa(create) +
+			`,"cache_read_input_tokens":` + strconv.Itoa(read) + `}}}`
+	}
+	write := func(t *testing.T, lines ...string) string {
+		t.Helper()
+		path := filepath.Join(t.TempDir(), "transcript.jsonl")
+		if err := os.WriteFile(path, []byte(strings.Join(lines, "\n")+"\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		return path
+	}
+
+	t.Run("today's assistant rows are summed and burned folds in cache creation", func(t *testing.T) {
+		path := write(t,
+			row(today+"T10:00:00Z", 7, 3, 5, 11),
+			row(today+"T11:00:00Z", 1, 2, 3, 4))
+		want := &tokensBody{Burned: 16, Output: 5, CacheRead: 15}
+		if got := parseTranscriptTokens(path); !reflect.DeepEqual(got, want) {
+			t.Errorf("parseTranscriptTokens = %+v, want %+v", got, want)
+		}
+	})
+
+	t.Run("rows from another day, other roles and junk lines are all skipped", func(t *testing.T) {
+		path := write(t,
+			row("2020-01-01T10:00:00Z", 100, 100, 100, 100),
+			`{"type":"user","timestamp":"`+today+`T10:00:00Z","message":{"usage":{"input_tokens":50}}}`,
+			`not json at all`,
+			`{"type":"assistant","timestamp":"`+today+`T10:00:00Z","message":{"usage":{}}}`,
+			row(today+"T12:00:00Z", 2, 1, 0, 0))
+		want := &tokensBody{Burned: 2, Output: 1, CacheRead: 0}
+		if got := parseTranscriptTokens(path); !reflect.DeepEqual(got, want) {
+			t.Errorf("parseTranscriptTokens = %+v, want %+v", got, want)
+		}
+	})
+
+	t.Run("no row from today measures nothing", func(t *testing.T) {
+		path := write(t, row("2020-01-01T10:00:00Z", 9, 9, 9, 9))
+		if got := parseTranscriptTokens(path); got != nil {
+			t.Errorf("parseTranscriptTokens = %+v, want nil — an unmeasured session must "+
+				"not report a fabricated 0", got)
+		}
+	})
+
+	t.Run("an unreadable transcript measures nothing", func(t *testing.T) {
+		if got := parseTranscriptTokens(filepath.Join(t.TempDir(), "nope.jsonl")); got != nil {
+			t.Errorf("parseTranscriptTokens = %+v, want nil", got)
+		}
+	})
+}
+
+func TestIntOrZero(t *testing.T) {
+	cases := []struct {
+		name string
+		in   any
+		want int
+	}{
+		{"a whole number", 7.0, 7},
+		{"a fraction truncates toward zero", 7.9, 7},
+		{"a negative fraction truncates toward zero", -7.9, -7},
+		{"nil", nil, 0},
+		{"a string", "7", 0},
+		{"a bool", true, 0},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := intOrZero(tc.in); got != tc.want {
+				t.Errorf("intOrZero(%v) = %d, want %d", tc.in, got, tc.want)
+			}
+		})
 	}
 }

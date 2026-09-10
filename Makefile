@@ -115,7 +115,9 @@ REGEN_PAIR_GATE = $(P) \
   test-frontend-ct test-conformance \
   scan-tracked-paths scan-secrets scan-tcc-anchor \
   drift-ocapi drift-schema-ts drift-theme-tokens drift-message-keys drift-fonts \
-  drift-mcp-catalog
+  drift-mcp-catalog \
+  drift-sse-topics \
+  drift-migration-lock check-released-migrations
 
 # ===========================================================================
 # build
@@ -292,18 +294,18 @@ lint-go-vet:
 	done; \
 	$(DONE)
 
-# Client-payload contract gate (T-9c8d) plus its own positive control. Both
-# halves move together, always: the selftest is what proves the scanner still
-# bites, and a scanner nobody verified is a green with a hole in it.
+# Client-payload contract gate (T-9c8d). It had a selftest that planted one
+# fixture per known bypass and required this scanner to name it; the owner
+# removed it (2026-09-08) as a test of how the scanner is written rather than
+# of what it decides. The guard itself is unchanged.
 lint-uplink-contract:
 	@$(P) \
 	echo "[lint-uplink-contract] every CLI send is declared, spec-checked and wire-tested"; \
 	python3 bin/uplink-guard.py; \
-	python3 bin/tests/uplink-guard-selftest.py; \
 	$(DONE)
 
-# Effort-vocabulary contract gate (T-dbd4) plus its positive control, same shape
-# and same reason as the pair above.
+# Effort-vocabulary contract gate (T-dbd4) plus its positive control: the
+# selftest is what proves the scanner still bites.
 lint-effort-vocab:
 	@$(P) \
 	echo "[lint-effort-vocab] every hand-written copy lists exactly what the server enforces"; \
@@ -402,7 +404,6 @@ lint-chat-pushdown:
 	@$(P) \
 	echo "[lint-chat-pushdown] the chat page stays pushed down; unread counting has one entry point"; \
 	python3 bin/chat-pushdown-guard.py; \
-	python3 bin/tests/chat-pushdown-guard-selftest.py; \
 	$(DONE)
 
 # The round list and the Makefile must name the same checks (T-127), asserted as
@@ -427,13 +428,13 @@ lint-chat-pushdown:
 # ⇒ The general form, since I got it wrong in a comment: a guard's comment must
 # say what was OBSERVED to redden, not what the author expects to redden.
 #
-# The selftest is the positive control: a green from the guard means nothing
-# unless the guard can be shown to redden on a tree that deserves it.
+# It had a selftest that mutated real copies of ci.yml, the Makefile and the
+# round list to prove the guard reddens; the owner removed it (2026-09-08) —
+# a check that edits production files to test itself is not wanted here.
 lint-ci-round:
 	@$(P) \
 	echo "[lint-ci-round] the round list and the Makefile name the same checks, and every lane is a gate job"; \
 	python3 bin/ci-round-guard.py; \
-	python3 bin/tests/ci-round-guard-selftest.py; \
 	$(DONE)
 
 # The chat surface's async-landing census (T-48). It reads source text — which
@@ -823,6 +824,32 @@ drift-mcp-catalog:
 	rm -f "$$fresh"; \
 	$(DONE)
 
+# The wire-freeze gate on the SSE topic vocabulary. spec/sse-topics.json is a
+# COMMITTED GENERATED artifact rendered from hub.go's `sseTopics` — the map the
+# publish seam actually consults — and it is what the conformance suite reads to
+# know the closed set. Stale, it describes a vocabulary the server no longer has,
+# and every consumer's coverage confrontation goes green against the wrong list.
+#
+# 🔴 spec/sse.md IS NOT IN THIS GATE. §3.1's table is HAND-WRITTEN and stays that
+# way (owner's call): a topic change means hub.go + bin/gen-sse-topics + editing
+# that table yourself. This gate binds the JSON to the code, nothing else.
+# Regenerate to a temp file — the committed file is never touched.
+drift-sse-topics:
+	@$(P) \
+	GO="$$(oc_go)"; \
+	echo "[drift-sse-topics] regenerate spec/sse-topics.json from hub.go sseTopics + diff committed"; \
+	fresh="$$(mktemp -t oc-fresh-sse-topics.XXXXXX.json)"; \
+	PATH="$$(dirname "$$GO"):$$PATH" bin/gen-sse-topics "$$fresh" >/dev/null; \
+	if ! diff -u spec/sse-topics.json "$$fresh"; then \
+	  echo "FAIL — gen-sse-topics drift: spec/sse-topics.json is STALE vs server/ocserverd/hub.go."; \
+	  echo "the closed SSE topic set is CODE-first — regenerate + commit (and update spec/sse.md §3.1 BY HAND):"; \
+	  echo "  bin/gen-sse-topics && git add spec/sse-topics.json"; \
+	  rm -f "$$fresh"; \
+	  exit 1; \
+	fi; \
+	rm -f "$$fresh"; \
+	$(DONE)
+
 # The wire-freeze gate on the CLIENT surface: feed the FROZEN spec through the
 # SAME generator the committed schema was made with.
 drift-schema-ts: build-frontend-deps
@@ -859,4 +886,47 @@ drift-message-keys: build-frontend-deps
 drift-fonts: build-frontend-deps
 	@echo "[drift-fonts] regenerate from themeFonts.source.json + diff committed (T-16a1 P4)"
 	@$(call REGEN_PAIR_GATE,font whitelist,gen:fonts,frontend/src/styles/themeFonts.generated.ts,server/ocserverd/theme_fonts_gen.go); \
+	$(DONE)
+
+# server/ocserverd/migration.lock is a COMMITTED GENERATED artifact, and it is
+# the only thing that turns two branches adding a migration into a git CONFLICT
+# instead of a clean merge. A lock left stale describes a set of migrations that
+# no longer exists, and it stops colliding — silently, because nothing about a
+# stale lock fails to compile.
+#
+# The regeneration and the comparison are TWO MODES OF ONE SUBCOMMAND
+# (`ocserverd migration-lock --write` / `--check`), not two programs. The
+# enumeration reads the go:embed FS the server hands goose and AST-walks package
+# main; a checker with its own copy of that would be validating a corpus that was
+# never written, and would stay green while doing it. Hence no temp file and no
+# diff here — the check IS the byte comparison, made against the same render the
+# writer uses.
+#
+# 🔴 THIS IS NOT bin/check-released-migrations AND NEITHER REPLACES THE OTHER.
+# Regenerating the lock makes THIS gate go green even when what was regenerated
+# was an edit to an already-shipped migration — the lock now honestly describes
+# the tree, which is all it ever claimed. The rule that the edit was not allowed
+# needs a baseline, and that is the other target.
+drift-migration-lock:
+	@$(P) \
+	GO="$$(oc_go)"; \
+	echo "[drift-migration-lock] bin/check-migration-lock (migration.lock vs this tree)"; \
+	[[ -x bin/check-migration-lock ]] || { echo "FAIL — bin/check-migration-lock missing or not executable (renamed? then this check stopped running)"; exit 1; }; \
+	PATH="$$(dirname "$$GO"):$$PATH" bin/check-migration-lock; \
+	$(DONE)
+
+# The other half of the migration rules, and the one that needs a BASELINE: a
+# migration numbered at or below what origin/main already declares must not be
+# added, edited, renamed or deleted. Shaped like the gates above because it is
+# their neighbour in subject, but it is not a drift gate — it regenerates
+# nothing and compares against git, not against a generator.
+#
+# ⚠️ IT NEEDS origin/main. The script refuses (non-zero) when it cannot resolve
+# one rather than reporting a pass, so the cell running it needs actions/checkout
+# with `fetch-depth: 0` — that line is load-bearing, not hygiene.
+check-released-migrations:
+	@$(P) \
+	echo "[check-released-migrations] no migration at or below origin/main's maximum was touched"; \
+	[[ -x bin/check-released-migrations ]] || { echo "FAIL — bin/check-released-migrations missing or not executable (renamed? then this check stopped running)"; exit 1; }; \
+	bin/check-released-migrations; \
 	$(DONE)

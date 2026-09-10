@@ -6,7 +6,6 @@
 package main
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -4446,18 +4445,6 @@ type HandlePutMemberAvatarApiMembersMemberIdAvatarPutParams struct {
 type HandleListReplyCardsApiReplyCardsGetParams struct {
 	Status *string `form:"status,omitempty" json:"status,omitempty"`
 	Limit  *int    `form:"limit,omitempty" json:"limit,omitempty"`
-	View   *string `form:"view,omitempty" json:"view,omitempty"`
-}
-
-// HandleListReplyCardsApiReplyCardsGet200JSONResponseBody0 defines parameters for HandleListReplyCardsApiReplyCardsGet.
-type HandleListReplyCardsApiReplyCardsGet200JSONResponseBody0 = []ReplyCardListItemDTO
-
-// HandleListReplyCardsApiReplyCardsGet200JSONResponseBody1 defines parameters for HandleListReplyCardsApiReplyCardsGet.
-type HandleListReplyCardsApiReplyCardsGet200JSONResponseBody1 = []ReplyCardDTO
-
-// HandleListReplyCardsApiReplyCardsGet200JSONResponseBody defines parameters for HandleListReplyCardsApiReplyCardsGet.
-type HandleListReplyCardsApiReplyCardsGet200JSONResponseBody struct {
-	union json.RawMessage
 }
 
 // HandleListTasksApiTasksGetParams defines parameters for HandleListTasksApiTasksGet.
@@ -4707,68 +4694,6 @@ type HandleFetchThemeApiThemeFetchPostJSONRequestBody = ThemeFetchDTO
 
 // HandlePutThemeApiThemesThemeIdPutJSONRequestBody defines body for HandlePutThemeApiThemesThemeIdPut for application/json ContentType.
 type HandlePutThemeApiThemesThemeIdPutJSONRequestBody = ThemeBundleDTO
-
-// AsHandleListReplyCardsApiReplyCardsGet200JSONResponseBody0 returns the union data inside the HandleListReplyCardsApiReplyCardsGet200JSONResponseBody as a HandleListReplyCardsApiReplyCardsGet200JSONResponseBody0
-func (t HandleListReplyCardsApiReplyCardsGet200JSONResponseBody) AsHandleListReplyCardsApiReplyCardsGet200JSONResponseBody0() (HandleListReplyCardsApiReplyCardsGet200JSONResponseBody0, error) {
-	var body HandleListReplyCardsApiReplyCardsGet200JSONResponseBody0
-	err := json.Unmarshal(t.union, &body)
-	return body, err
-}
-
-// FromHandleListReplyCardsApiReplyCardsGet200JSONResponseBody0 overwrites any union data inside the HandleListReplyCardsApiReplyCardsGet200JSONResponseBody as the provided HandleListReplyCardsApiReplyCardsGet200JSONResponseBody0
-func (t *HandleListReplyCardsApiReplyCardsGet200JSONResponseBody) FromHandleListReplyCardsApiReplyCardsGet200JSONResponseBody0(v HandleListReplyCardsApiReplyCardsGet200JSONResponseBody0) error {
-	b, err := json.Marshal(v)
-	t.union = b
-	return err
-}
-
-// MergeHandleListReplyCardsApiReplyCardsGet200JSONResponseBody0 performs a merge with any union data inside the HandleListReplyCardsApiReplyCardsGet200JSONResponseBody, using the provided HandleListReplyCardsApiReplyCardsGet200JSONResponseBody0
-func (t *HandleListReplyCardsApiReplyCardsGet200JSONResponseBody) MergeHandleListReplyCardsApiReplyCardsGet200JSONResponseBody0(v HandleListReplyCardsApiReplyCardsGet200JSONResponseBody0) error {
-	b, err := json.Marshal(v)
-	if err != nil {
-		return err
-	}
-
-	merged, err := runtime.JSONMerge(t.union, b)
-	t.union = merged
-	return err
-}
-
-// AsHandleListReplyCardsApiReplyCardsGet200JSONResponseBody1 returns the union data inside the HandleListReplyCardsApiReplyCardsGet200JSONResponseBody as a HandleListReplyCardsApiReplyCardsGet200JSONResponseBody1
-func (t HandleListReplyCardsApiReplyCardsGet200JSONResponseBody) AsHandleListReplyCardsApiReplyCardsGet200JSONResponseBody1() (HandleListReplyCardsApiReplyCardsGet200JSONResponseBody1, error) {
-	var body HandleListReplyCardsApiReplyCardsGet200JSONResponseBody1
-	err := json.Unmarshal(t.union, &body)
-	return body, err
-}
-
-// FromHandleListReplyCardsApiReplyCardsGet200JSONResponseBody1 overwrites any union data inside the HandleListReplyCardsApiReplyCardsGet200JSONResponseBody as the provided HandleListReplyCardsApiReplyCardsGet200JSONResponseBody1
-func (t *HandleListReplyCardsApiReplyCardsGet200JSONResponseBody) FromHandleListReplyCardsApiReplyCardsGet200JSONResponseBody1(v HandleListReplyCardsApiReplyCardsGet200JSONResponseBody1) error {
-	b, err := json.Marshal(v)
-	t.union = b
-	return err
-}
-
-// MergeHandleListReplyCardsApiReplyCardsGet200JSONResponseBody1 performs a merge with any union data inside the HandleListReplyCardsApiReplyCardsGet200JSONResponseBody, using the provided HandleListReplyCardsApiReplyCardsGet200JSONResponseBody1
-func (t *HandleListReplyCardsApiReplyCardsGet200JSONResponseBody) MergeHandleListReplyCardsApiReplyCardsGet200JSONResponseBody1(v HandleListReplyCardsApiReplyCardsGet200JSONResponseBody1) error {
-	b, err := json.Marshal(v)
-	if err != nil {
-		return err
-	}
-
-	merged, err := runtime.JSONMerge(t.union, b)
-	t.union = merged
-	return err
-}
-
-func (t HandleListReplyCardsApiReplyCardsGet200JSONResponseBody) MarshalJSON() ([]byte, error) {
-	b, err := t.union.MarshalJSON()
-	return b, err
-}
-
-func (t *HandleListReplyCardsApiReplyCardsGet200JSONResponseBody) UnmarshalJSON(b []byte) error {
-	err := t.union.UnmarshalJSON(b)
-	return err
-}
 
 // ServerInterface represents all server handlers.
 type ServerInterface interface {
@@ -8462,19 +8387,6 @@ func (siw *ServerInterfaceWrapper) HandleListReplyCardsApiReplyCardsGet(w http.R
 			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "limit"})
 		} else {
 			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
-		}
-		return
-	}
-
-	// ------------- Optional query parameter "view" -------------
-
-	err = runtime.BindQueryParameterWithOptions("form", true, false, "view", r.URL.Query(), &params.View, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
-	if err != nil {
-		var requiredError *runtime.RequiredParameterError
-		if errors.As(err, &requiredError) {
-			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "view"})
-		} else {
-			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "view", Err: err})
 		}
 		return
 	}

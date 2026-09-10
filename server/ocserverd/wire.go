@@ -2336,7 +2336,7 @@ type taskWriteReceiptDTO struct {
 // (api_insight.go, api_roles.go, api_taskmanuals.go, api_tasks_note.go) now
 // call it too and cannot drift from the new ones.
 //
-// Named receiptSha256 rather than sha256Hex because migration_lock_t75_test.go
+// Named receiptSha256 rather than sha256Hex because migration_lock.go
 // already owns that name in this package for a []byte helper.
 func receiptSha256(text string) string {
 	sum := sha256.Sum256([]byte(text))

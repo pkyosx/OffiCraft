@@ -1,206 +1,229 @@
+// Skeleton generated from server/ocserverd/pacing.go by gen_test_skeletons.py.
+// Every case is a t.Skip placeholder: fill the body, keep or rewrite the name.
+
 package main
 
-// pacing_test.go — case-for-case port of
-// the retired Python tests/domain/test_token_pacing.py. Discipline under test: a value
-// that cannot be measured is nil (未量到), NEVER a fabricated 0; elapsed% is a
-// now-vs-resets_at back-computation; and used% running more than the margin
-// ahead of elapsed% reads as hot.
+import (
+	"math"
+	"testing"
+	"time"
+)
 
-import "testing"
-
-// shapeFresh / shapeFreshAll shape a window whose snapshot was taken RIGHT NOW.
-// Every assertion in this file predates T-3b90 and is about the arithmetic
-// (honest nulls, back-computed elapsed%, the margin), not about age — so they
-// each pin the fresh case, which is the one where the pace verdict is still
-// meaningful. Age itself is covered by TestShapeWindowStaleSnapshot* below.
-func shapeFresh(raw any, windowSec, now float64) *PaceWindow {
-	return ShapeWindow(raw, windowSec, now, &now, telemetryFreshSecs)
-}
-
-func shapeFreshAll(rateLimits any, now float64) map[string]*PaceWindow {
-	return ShapeWindows(rateLimits, now,
-		map[string]float64{"five_hour": now, "seven_day": now}, telemetryFreshSecs)
-}
-
-func TestShapeWindowsMissingRateLimitsIsNilNotZero(t *testing.T) {
-	got := shapeFreshAll(nil, 1_000_000.0)
-	if got["five_hour"] != nil || got["seven_day"] != nil {
-		t.Fatalf("missing rate_limits must shape both windows nil, got %+v", got)
+func TestAsFloat(t *testing.T) {
+	tests := []struct {
+		name string
+		in   any
+		want float64
+		ok   bool
+	}{
+		{name: "float64", in: float64(1.25), want: 1.25, ok: true},
+		{name: "float32", in: float32(2.5), want: 2.5, ok: true},
+		{name: "int", in: 3, want: 3, ok: true},
+		{name: "int64", in: int64(4), want: 4, ok: true},
+		{name: "bool", in: true},
+		{name: "string", in: "5"},
+		{name: "nil", in: nil},
 	}
-	if shapeFreshAll("nope", 1_000_000.0)["five_hour"] != nil {
-		t.Fatal("non-object rate_limits must shape nil")
-	}
-	// A window whose raw value is not an object → nil.
-	got = shapeFreshAll(map[string]any{"five_hour": 5.0}, 1_000_000.0)
-	if got["five_hour"] != nil {
-		t.Fatalf("non-object window must shape nil, got %+v", got["five_hour"])
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, ok := asFloat(tt.in)
+			if ok != tt.ok || (ok && got != tt.want) {
+				t.Fatalf("asFloat(%#v) = (%v, %v), want (%v, %v)", tt.in, got, ok, tt.want, tt.ok)
+			}
+		})
 	}
 }
 
-func TestShapeWindowUsedPctUnmeasuredStaysNil(t *testing.T) {
-	now := 1_000_000.0
-	win := WindowSeconds["five_hour"]
-	// used_percentage absent / sentinel -1 / non-number → used_pct nil, but
-	// the window object still returns (partial is allowed).
-	w := shapeFresh(map[string]any{"resets_at": now + 9000}, win, now)
-	if w == nil || w.UsedPct != nil {
-		t.Fatalf("absent used_percentage must stay nil, got %+v", w)
+func TestParseResetsAt(t *testing.T) {
+	expectedNaive := float64(time.Date(2024, time.January, 2, 3, 4, 5, 0, time.Local).UnixNano()) / 1e9
+	tests := []struct {
+		name string
+		in   any
+		want *float64
+	}{
+		{name: "positive epoch", in: float64(1700000000), want: floatPtr(1700000000)},
+		{name: "zero", in: 0, want: nil},
+		{name: "negative", in: -1.0, want: nil},
+		{name: "rfc3339", in: "2024-01-02T03:04:05Z", want: floatPtr(1704164645)},
+		{name: "naive local timestamp", in: "2024-01-02T03:04:05", want: &expectedNaive},
+		{name: "blank", in: "  ", want: nil},
+		{name: "garbage", in: "not-a-time", want: nil},
+		{name: "unsupported type", in: true, want: nil},
 	}
-	if w := shapeFresh(map[string]any{"used_percentage": -1.0}, win, now); w.UsedPct != nil {
-		t.Fatalf("sentinel -1 must stay nil, got %v", *w.UsedPct)
-	}
-	if w := shapeFresh(map[string]any{"used_percentage": "x"}, win, now); w.UsedPct != nil {
-		t.Fatalf("non-number must stay nil, got %v", *w.UsedPct)
-	}
-	if w := shapeFresh(map[string]any{"used_percentage": true}, win, now); w.UsedPct != nil {
-		t.Fatalf("a bool is not a measurement, got %v", *w.UsedPct)
-	}
-}
-
-func TestShapeWindowElapsedPctBackcomputedFromResetsAt(t *testing.T) {
-	now := 1_000_000.0
-	win := WindowSeconds["five_hour"]
-	// Half the window remains → resets_at = now + win/2 → elapsed = 50%.
-	w := shapeFresh(map[string]any{"used_percentage": 10.0, "resets_at": now + win/2}, win, now)
-	if w == nil || w.ElapsedPct == nil || *w.ElapsedPct != 50.0 {
-		t.Fatalf("elapsed must back-compute to 50%%, got %+v", w)
-	}
-	// resets_at missing / unparseable → elapsed nil (never 0).
-	if w := shapeFresh(map[string]any{"used_percentage": 10.0}, win, now); w.ElapsedPct != nil {
-		t.Fatalf("missing resets_at must leave elapsed nil, got %v", *w.ElapsedPct)
-	}
-	garbage := map[string]any{"used_percentage": 10.0, "resets_at": "garbage"}
-	if w := shapeFresh(garbage, win, now); w.ElapsedPct != nil {
-		t.Fatalf("garbage resets_at must leave elapsed nil, got %v", *w.ElapsedPct)
-	}
-	// resets_at is echoed AS GIVEN (even when unparseable).
-	if w := shapeFresh(garbage, win, now); w.ResetsAt != "garbage" {
-		t.Fatalf("resets_at must echo as given, got %v", w.ResetsAt)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := parseResetsAt(tt.in)
+			if !sameFloatPtr(got, tt.want) {
+				t.Fatalf("parseResetsAt(%#v) = %v, want %v", tt.in, got, tt.want)
+			}
+		})
 	}
 }
 
-func TestShapeWindowPaceHotWhenUsedRunsAhead(t *testing.T) {
-	now := 1_000_000.0
-	win := WindowSeconds["five_hour"]
-	resetsAt := now + win/2 // elapsed = 50%
-	// used far ahead of elapsed (> margin) → hot.
-	hot := shapeFresh(map[string]any{"used_percentage": 80.0, "resets_at": resetsAt}, win, now)
-	if hot == nil || hot.Pace == nil || *hot.Pace != PaceHot {
-		t.Fatalf("80%% used at 50%% elapsed must be hot, got %+v", hot)
+func TestUsedPctOrNone(t *testing.T) {
+	tests := []struct {
+		name string
+		in   any
+		want *float64
+	}{
+		{name: "rounds a measured percentage", in: 43.456, want: floatPtr(43.46)},
+		{name: "accepts an integer", in: 7, want: floatPtr(7)},
+		{name: "negative sentinel", in: -1.0, want: nil},
+		{name: "any negative value", in: -0.01, want: nil},
+		{name: "non-number", in: "43", want: nil},
+		{name: "missing", in: nil, want: nil},
 	}
-	// used at/behind pace → ok.
-	ok := shapeFresh(map[string]any{"used_percentage": 50.0, "resets_at": resetsAt}, win, now)
-	if ok == nil || ok.Pace == nil || *ok.Pace != PaceOK {
-		t.Fatalf("on-pace usage must be ok, got %+v", ok)
-	}
-	// Exactly on the margin boundary is NOT hot (strict >).
-	edge := shapeFresh(
-		map[string]any{"used_percentage": 50.0 + PaceMarginPct, "resets_at": resetsAt}, win, now)
-	if edge == nil || edge.Pace == nil || *edge.Pace != PaceOK {
-		t.Fatalf("margin boundary must be ok, got %+v", edge)
-	}
-}
-
-func TestShapeWindowPaceNilWhenEitherInputMissing(t *testing.T) {
-	now := 1_000_000.0
-	win := WindowSeconds["five_hour"]
-	// used present but elapsed unmeasurable → pace can't be judged → nil.
-	w := shapeFresh(map[string]any{"used_percentage": 90.0}, win, now)
-	if w == nil || w.Pace != nil {
-		t.Fatalf("unjudgeable pace must stay nil, got %+v", w)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := usedPctOrNone(tt.in); !sameFloatPtr(got, tt.want) {
+				t.Fatalf("usedPctOrNone(%#v) = %v, want %v", tt.in, got, tt.want)
+			}
+		})
 	}
 }
 
-// ─── T-3b90: a snapshot has an age, and a stale one cannot be judged ─────────
-
-func TestShapeWindowCarriesTheSnapshotsAge(t *testing.T) {
-	now := 1_000_000.0
-	win := WindowSeconds["seven_day"]
-	took := now - 3600 // measured an hour ago
-	w := ShapeWindow(
-		map[string]any{"used_percentage": 43.0, "resets_at": now + win/2},
-		win, now, &took, telemetryFreshSecs)
-	if w == nil || w.MeasuredAt == nil {
-		t.Fatalf("a stamped snapshot must carry its age, got %+v", w)
+func TestElapsedPct(t *testing.T) {
+	tests := []struct {
+		name     string
+		resetsAt any
+		window   float64
+		now      float64
+		want     *float64
+	}{
+		{name: "window start", resetsAt: 2000.0, window: 1000, now: 1000, want: floatPtr(0)},
+		{name: "half elapsed", resetsAt: 2000.0, window: 1000, now: 1500, want: floatPtr(50)},
+		{name: "window end", resetsAt: 2000.0, window: 1000, now: 2000, want: floatPtr(100)},
+		{name: "before window clamps to zero", resetsAt: 2000.0, window: 1000, now: 500, want: floatPtr(0)},
+		{name: "after window clamps to one hundred", resetsAt: 2000.0, window: 1000, now: 2500, want: floatPtr(100)},
+		{name: "invalid reset", resetsAt: "later", window: 1000, now: 1500, want: nil},
+		{name: "non-positive window", resetsAt: 2000.0, window: 0, now: 1500, want: nil},
 	}
-	if *w.MeasuredAt != took {
-		t.Fatalf("measured_at must be the stamp as given, want %v got %v", took, *w.MeasuredAt)
-	}
-	// Unknown age stays honest-null — NEVER back-filled with `now`, which would
-	// dress an unstamped snapshot up as a live reading.
-	if u := ShapeWindow(
-		map[string]any{"used_percentage": 43.0, "resets_at": now + win/2},
-		win, now, nil, telemetryFreshSecs); u.MeasuredAt != nil {
-		t.Fatalf("unknown age must stay nil, got %v", *u.MeasuredAt)
-	}
-}
-
-func TestShapeWindowStaleSnapshotIsNotJudgedButIsStillServed(t *testing.T) {
-	now := 1_000_000.0
-	win := WindowSeconds["seven_day"]
-	// The reported shape of T-3b90: used% far ahead of elapsed% — which WOULD
-	// read hot — but nobody has refreshed the number in days.
-	raw := map[string]any{"used_percentage": 43.0, "resets_at": now + win*0.85}
-	old := now - 3*24*3600
-	stale := ShapeWindow(raw, win, now, &old, telemetryFreshSecs)
-	if stale == nil {
-		t.Fatal("a stale window must still be served")
-	}
-	if stale.Pace != nil {
-		t.Fatalf("a stale snapshot cannot support a present-tense verdict, got %q", *stale.Pace)
-	}
-	// The number itself survives — withholding it would cost the owner the one
-	// thing the card is for (how much of this week's quota is gone).
-	if stale.UsedPct == nil || *stale.UsedPct != 43.0 {
-		t.Fatalf("used%% must survive staleness, got %+v", stale.UsedPct)
-	}
-	if stale.ElapsedPct == nil {
-		t.Fatal("elapsed% must survive staleness")
-	}
-	// Positive control: the SAME numbers, freshly measured, still read hot —
-	// so the nil above is about age, not about the arithmetic.
-	fresh := ShapeWindow(raw, win, now, &now, telemetryFreshSecs)
-	if fresh.Pace == nil || *fresh.Pace != PaceHot {
-		t.Fatalf("the same numbers, freshly measured, must still be hot, got %+v", fresh.Pace)
-	}
-	// Unknown age is treated as stale, not as fresh (fail-closed).
-	if u := ShapeWindow(raw, win, now, nil, telemetryFreshSecs); u.Pace != nil {
-		t.Fatalf("unknown age must not support a verdict, got %q", *u.Pace)
-	}
-	// Boundary: exactly at the window is still judgeable (strict >).
-	edge := now - telemetryFreshSecs
-	if e := ShapeWindow(raw, win, now, &edge, telemetryFreshSecs); e.Pace == nil {
-		t.Fatal("a snapshot exactly at the freshness edge must still be judgeable")
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := elapsedPct(tt.resetsAt, tt.window, tt.now); !sameFloatPtr(got, tt.want) {
+				t.Fatalf("elapsedPct(%#v, %v, %v) = %v, want %v", tt.resetsAt, tt.window, tt.now, got, tt.want)
+			}
+		})
 	}
 }
 
-func TestShapeWindowsStampEachWindowSeparately(t *testing.T) {
-	now := 1_000_000.0
-	// The 5h window was refreshed just now; the 7d window is days old. One
-	// account-wide stamp would let the fresh one vouch for the frozen one.
-	old := now - 3*24*3600
+func TestPaceVerdict(t *testing.T) {
+	used := func(v float64) *float64 { return &v }
+	tests := []struct {
+		name       string
+		used       *float64
+		elapsed    *float64
+		measuredAt *float64
+		now        float64
+		freshSecs  float64
+		want       *string
+	}{
+		{name: "ahead by more than margin", used: used(60), elapsed: used(50), measuredAt: used(900), now: 1000, freshSecs: 200, want: stringPtr(PaceHot)},
+		{name: "exactly at margin is okay", used: used(55), elapsed: used(50), measuredAt: used(900), now: 1000, freshSecs: 200, want: stringPtr(PaceOK)},
+		{name: "behind pace is okay", used: used(40), elapsed: used(50), measuredAt: used(900), now: 1000, freshSecs: 200, want: stringPtr(PaceOK)},
+		{name: "missing used percentage", used: nil, elapsed: used(50), measuredAt: used(900), now: 1000, freshSecs: 200, want: nil},
+		{name: "missing elapsed percentage", used: used(60), elapsed: nil, measuredAt: used(900), now: 1000, freshSecs: 200, want: nil},
+		{name: "unknown age cannot be judged", used: used(60), elapsed: used(50), measuredAt: nil, now: 1000, freshSecs: 200, want: nil},
+		{name: "stale snapshot cannot be judged", used: used(60), elapsed: used(50), measuredAt: used(700), now: 1000, freshSecs: 200, want: nil},
+		{name: "freshness boundary remains valid", used: used(60), elapsed: used(50), measuredAt: used(800), now: 1000, freshSecs: 200, want: stringPtr(PaceHot)},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := paceVerdict(tt.used, tt.elapsed, tt.measuredAt, tt.now, tt.freshSecs)
+			if !sameStringPtr(got, tt.want) {
+				t.Fatalf("paceVerdict(%v, %v, %v, %v, %v) = %v, want %v", tt.used, tt.elapsed, tt.measuredAt, tt.now, tt.freshSecs, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestShapeWindow(t *testing.T) {
+	now := 1500.0
+	measuredAt := 1400.0
+	window := ShapeWindow(map[string]any{
+		"used_percentage": 60.123,
+		"resets_at":       2000.0,
+	}, 1000, now, &measuredAt, 200)
+	if window == nil {
+		t.Fatal("ShapeWindow returned nil for an object")
+	}
+	if !sameFloatPtr(window.UsedPct, floatPtr(60.12)) {
+		t.Fatalf("UsedPct = %v, want 60.12", window.UsedPct)
+	}
+	if !sameFloatPtr(window.ElapsedPct, floatPtr(50)) {
+		t.Fatalf("ElapsedPct = %v, want 50", window.ElapsedPct)
+	}
+	if !sameStringPtr(window.Pace, stringPtr(PaceHot)) {
+		t.Fatalf("Pace = %v, want hot", window.Pace)
+	}
+	if window.ResetsAt != 2000.0 {
+		t.Fatalf("ResetsAt = %#v, want 2000", window.ResetsAt)
+	}
+	if !sameFloatPtr(window.MeasuredAt, &measuredAt) {
+		t.Fatalf("MeasuredAt = %v, want %v", window.MeasuredAt, &measuredAt)
+	}
+
+	if got := ShapeWindow([]any{}, 1000, now, &measuredAt, 200); got != nil {
+		t.Fatalf("ShapeWindow(non-object) = %#v, want nil", got)
+	}
+	partial := ShapeWindow(map[string]any{"used_percentage": -1.0, "resets_at": "unknown"}, 1000, now, nil, 200)
+	if partial == nil || partial.UsedPct != nil || partial.ElapsedPct != nil || partial.Pace != nil {
+		t.Fatalf("ShapeWindow(partial) = %#v, want an object with nil measurements", partial)
+	}
+}
+
+func TestShapeWindows(t *testing.T) {
+	now := 10_000_000.0
+	fiveHour := WindowSeconds["five_hour"]
+	sevenDay := WindowSeconds["seven_day"]
+	fiveMeasuredAt := now - 1
+	sevenMeasuredAt := now - 100
 	got := ShapeWindows(map[string]any{
-		"five_hour": map[string]any{"used_percentage": 10.0, "resets_at": now + 1800},
-		"seven_day": map[string]any{"used_percentage": 43.0, "resets_at": now + 100000},
-	}, now, map[string]float64{"five_hour": now, "seven_day": old}, telemetryFreshSecs)
+		"five_hour": map[string]any{
+			"used_percentage": 70.0,
+			"resets_at":       now + fiveHour/2,
+		},
+		"seven_day": map[string]any{
+			"used_percentage": 40.0,
+			"resets_at":       now + sevenDay/2,
+		},
+	}, now, map[string]float64{
+		"five_hour": fiveMeasuredAt,
+		"seven_day": sevenMeasuredAt,
+	}, 50)
+	five := got["five_hour"]
+	if five == nil || !sameFloatPtr(five.UsedPct, floatPtr(70)) || !sameFloatPtr(five.ElapsedPct, floatPtr(50)) || !sameStringPtr(five.Pace, stringPtr(PaceHot)) {
+		t.Fatalf("five_hour = %#v, want measured hot window", five)
+	}
+	seven := got["seven_day"]
+	if seven == nil || !sameFloatPtr(seven.UsedPct, floatPtr(40)) || !sameFloatPtr(seven.ElapsedPct, floatPtr(50)) || seven.Pace != nil {
+		t.Fatalf("seven_day = %#v, want measured but stale window with nil pace", seven)
+	}
 
-	if got["five_hour"].MeasuredAt == nil || *got["five_hour"].MeasuredAt != now {
-		t.Fatalf("5h stamp must be its own, got %+v", got["five_hour"].MeasuredAt)
+	missing := ShapeWindows(nil, now, nil, 50)
+	if len(missing) != 2 || missing["five_hour"] != nil || missing["seven_day"] != nil {
+		t.Fatalf("ShapeWindows(missing) = %#v, want both named windows nil", missing)
 	}
-	if got["seven_day"].MeasuredAt == nil || *got["seven_day"].MeasuredAt != old {
-		t.Fatalf("7d stamp must be its own, got %+v", got["seven_day"].MeasuredAt)
+}
+
+func floatPtr(v float64) *float64 {
+	return &v
+}
+
+func stringPtr(v string) *string {
+	return &v
+}
+
+func sameFloatPtr(a, b *float64) bool {
+	if a == nil || b == nil {
+		return a == b
 	}
-	if got["five_hour"].Pace == nil {
-		t.Fatal("the fresh window must still be judged")
+	return math.Abs(*a-*b) < 1e-9
+}
+
+func sameStringPtr(a, b *string) bool {
+	if a == nil || b == nil {
+		return a == b
 	}
-	if got["seven_day"].Pace != nil {
-		t.Fatalf("the stale window must not be judged, got %q", *got["seven_day"].Pace)
-	}
-	// A zero/absent stamp is unknown age, not the epoch-as-a-measurement.
-	none := ShapeWindows(map[string]any{
-		"five_hour": map[string]any{"used_percentage": 10.0, "resets_at": now + 1800},
-	}, now, map[string]float64{"five_hour": 0}, telemetryFreshSecs)
-	if none["five_hour"].MeasuredAt != nil {
-		t.Fatalf("a zero stamp must read as unknown, got %v", *none["five_hour"].MeasuredAt)
-	}
+	return *a == *b
 }

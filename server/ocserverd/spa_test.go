@@ -1,111 +1,153 @@
+// Skeleton generated from server/ocserverd/spa.go by gen_test_skeletons.py.
+// Every case is a t.Skip placeholder: fill the body, keep or rewrite the name.
+
 package main
 
 import (
-	"io"
+	"io/fs"
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"testing"
 	"testing/fstest"
 )
 
-func fetch(t *testing.T, h http.Handler, method, path string) (int, string, string) {
-	t.Helper()
-	req := httptest.NewRequest(method, path, nil)
-	rec := httptest.NewRecorder()
-	h.ServeHTTP(rec, req)
-	body, _ := io.ReadAll(rec.Result().Body)
-	return rec.Code, string(body), rec.Header().Get("Content-Type")
-}
-
-func spaFS() fstest.MapFS {
-	return fstest.MapFS{
-		"index.html":    {Data: []byte("<html>SPA SHELL</html>")},
-		"assets/app.js": {Data: []byte("console.log('app')")},
+func TestWebdistFS(t *testing.T) {
+	dist := webdistFS()
+	data, err := fs.ReadFile(dist, ".gitkeep")
+	if err != nil {
+		t.Fatalf("webdistFS().ReadFile(.gitkeep): %v", err)
 	}
-}
-
-func TestFallbackServesStagedSPA(t *testing.T) {
-	h := newFallbackHandler(defaultRouteSpecs(), spaFS())
-
-	// "/" and any client-side route answer the shell (the SPA catch-all).
-	// "/diff" is not decoration in that list: it is the product's ONE
-	// path-level route (T-59), and a comparison link pasted to someone who is
-	// not signed in is a plain browser GET for it. Serve anything but the shell
-	// there and the whole external flavour is a 404 for exactly the reader it
-	// was minted for.
-	for _, path := range []string{"/", "/settings", "/members/kyle", "/diff"} {
-		status, body, _ := fetch(t, h, "GET", path)
-		if status != 200 || !strings.Contains(body, "SPA SHELL") {
-			t.Fatalf("%s: want the SPA shell, got %d %q", path, status, body)
-		}
-	}
-
-	// A real static asset serves as itself, never the shell.
-	status, body, _ := fetch(t, h, "GET", "/assets/app.js")
-	if status != 200 || !strings.Contains(body, "console.log") {
-		t.Fatalf("asset: got %d %q", status, body)
-	}
-
-	// An asset-like miss stays an honest 404 (never rewritten to the shell).
-	status, body, _ = fetch(t, h, "GET", "/assets/gone.png")
-	if status != 404 || !strings.Contains(body, `"code":"not_found"`) {
-		t.Fatalf("asset miss: want 404 envelope, got %d %q", status, body)
-	}
-
-	// An unknown API path is an API error, never HTML.
-	status, body, _ = fetch(t, h, "GET", "/api/typo")
-	if status != 404 || !strings.Contains(body, `"code":"not_found"`) {
-		t.Fatalf("/api/typo: want 404 envelope, got %d %q", status, body)
-	}
-
-	// A wrong-method hit on a declared route template is a 405 envelope
-	// (a right-method request would have matched the row's mux pattern).
-	for _, probe := range [][2]string{
-		{"DELETE", "/health"},
-		{"PUT", "/api/members/kyle"},
-		{"GET", "/api/self/waking"},
-	} {
-		status, body, _ = fetch(t, h, probe[0], probe[1])
-		if status != 405 || !strings.Contains(body, `"code":"method_not_allowed"`) {
-			t.Fatalf("%s %s: want 405 envelope, got %d %q", probe[0], probe[1], status, body)
-		}
-	}
-}
-
-func TestFallbackWithoutStagedBuildServesHint(t *testing.T) {
-	h := newFallbackHandler(defaultRouteSpecs(), fstest.MapFS{})
-
-	// "/" answers the friendly build hint (static.py _MISSING_DIST_HTML twin).
-	status, body, ctype := fetch(t, h, "GET", "/")
-	if status != 200 || !strings.Contains(body, "npm run build") ||
-		!strings.HasPrefix(ctype, "text/html") {
-		t.Fatalf("hint: got %d %q %q", status, ctype, body)
-	}
-
-	// Everything else stays an honest 404 — no shell exists to serve.
-	status, body, _ = fetch(t, h, "GET", "/settings")
-	if status != 404 || !strings.Contains(body, `"code":"not_found"`) {
-		t.Fatalf("/settings without build: want 404 envelope, got %d %q", status, body)
+	if string(data) != "" {
+		t.Fatalf("webdistFS().ReadFile(.gitkeep) = %q, want an empty placeholder file", data)
 	}
 }
 
 func TestPathMatchesTemplate(t *testing.T) {
 	cases := []struct {
-		template, path string
-		want           bool
+		name     string
+		template string
+		path     string
+		want     bool
 	}{
-		{"/api/members", "/api/members", true},
-		{"/api/members/{member_id}", "/api/members/kyle", true},
-		{"/api/members/{member_id}", "/api/members/", false},
-		{"/api/members/{member_id}", "/api/members/kyle/activate", false},
-		{"/api/document-history/{kind}/{key}", "/api/document-history/lessons/writer", true},
-		{"/api/machines/{machine_id}/boot-command", "/api/machines/mac1/boot-command", true},
-		{"/api/machines/{machine_id}/boot-command", "/api/machines/mac1/uninstall", false},
+		{name: "literal path matches itself", template: "/api/health", path: "/api/health", want: true},
+		{name: "one parameter matches one non-empty segment", template: "/api/members/{member_id}", path: "/api/members/kip", want: true},
+		{name: "an empty parameter segment does not match", template: "/api/members/{member_id}", path: "/api/members/", want: false},
+		{name: "a parameter does not absorb an extra segment", template: "/api/members/{member_id}", path: "/api/members/kip/webhooks", want: false},
+		{name: "a literal segment must be equal", template: "/api/members/{member_id}", path: "/api/agents/kip", want: false},
+		{name: "a trailing slash changes the segment count", template: "/api/health", path: "/api/health/", want: false},
 	}
-	for _, c := range cases {
-		if got := pathMatchesTemplate(c.template, c.path); got != c.want {
-			t.Fatalf("pathMatchesTemplate(%q, %q) = %v, want %v", c.template, c.path, got, c.want)
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := pathMatchesTemplate(tc.template, tc.path); got != tc.want {
+				t.Fatalf("pathMatchesTemplate(%q, %q) = %v, want %v", tc.template, tc.path, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestNewFallbackHandler(t *testing.T) {
+	specs := []RouteSpec{{Method: http.MethodGet, Path: "/api/members/{member_id}"}}
+	dist := fstest.MapFS{
+		"index.html":    &fstest.MapFile{Data: []byte("INDEX")},
+		"assets/app.js": &fstest.MapFile{Data: []byte("APP")},
+	}
+	h := newFallbackHandler(specs, dist)
+
+	request := func(method, path string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(method, path, nil)
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		return rec
+	}
+
+	t.Run("a route-template hit with the wrong method answers the unified 405 envelope", func(t *testing.T) {
+		rec := request(http.MethodPost, "/api/members/kip")
+		if rec.Code != http.StatusMethodNotAllowed {
+			t.Fatalf("want 405, got %d", rec.Code)
 		}
-	}
+		if got := rec.Body.String(); got != `{"error":{"code":"method_not_allowed","message":"method not allowed"}}` {
+			t.Fatalf("body = %q, want the complete method-not-allowed envelope", got)
+		}
+		if got := rec.Header().Get("Content-Type"); got != "application/json" {
+			t.Fatalf("content type = %q, want application/json", got)
+		}
+	})
+
+	t.Run("an unknown API path stays an API 404 instead of receiving the SPA shell", func(t *testing.T) {
+		rec := request(http.MethodGet, "/api/not-a-route")
+		if rec.Code != http.StatusNotFound {
+			t.Fatalf("want 404, got %d", rec.Code)
+		}
+		if got := rec.Body.String(); got != `{"error":{"code":"not_found","message":"not found"}}` {
+			t.Fatalf("body = %q, want the complete not-found envelope", got)
+		}
+		if got := rec.Header().Get("Content-Type"); got != "application/json" {
+			t.Fatalf("content type = %q, want application/json", got)
+		}
+	})
+
+	t.Run("an existing static asset is served as its own bytes", func(t *testing.T) {
+		rec := request(http.MethodGet, "/assets/app.js")
+		if rec.Code != http.StatusOK {
+			t.Fatalf("want 200, got %d", rec.Code)
+		}
+		if got := rec.Body.String(); got != "APP" {
+			t.Fatalf("body = %q, want %q", got, "APP")
+		}
+		if got := rec.Header().Get("Content-Type"); got != "text/javascript; charset=utf-8" {
+			t.Fatalf("content type = %q, want text/javascript; charset=utf-8", got)
+		}
+	})
+
+	t.Run("a missing asset-like path answers 404 instead of being rewritten to index", func(t *testing.T) {
+		rec := request(http.MethodGet, "/assets/missing.js")
+		if rec.Code != http.StatusNotFound {
+			t.Fatalf("want 404, got %d", rec.Code)
+		}
+		if got := rec.Body.String(); got != `{"error":{"code":"not_found","message":"not found"}}` {
+			t.Fatalf("body = %q, want the complete not-found envelope", got)
+		}
+	})
+
+	t.Run("a client-side route receives the SPA index", func(t *testing.T) {
+		rec := request(http.MethodGet, "/settings/profile")
+		if rec.Code != http.StatusOK {
+			t.Fatalf("want 200, got %d", rec.Code)
+		}
+		if got := rec.Body.String(); got != "INDEX" {
+			t.Fatalf("body = %q, want %q", got, "INDEX")
+		}
+		if got := rec.Header().Get("Content-Type"); got != "text/html; charset=utf-8" {
+			t.Fatalf("content type = %q, want text/html; charset=utf-8", got)
+		}
+	})
+
+	t.Run("without an index the root answers the complete build hint", func(t *testing.T) {
+		hint := newFallbackHandler(nil, fstest.MapFS{})
+		req := httptest.NewRequest(http.MethodGet, "/", nil)
+		rec := httptest.NewRecorder()
+		hint.ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("want 200, got %d", rec.Code)
+		}
+		if got := rec.Body.String(); got != missingDistHTML {
+			t.Fatalf("body = %q, want missingDistHTML", got)
+		}
+		if got := rec.Header().Get("Content-Type"); got != "text/html; charset=utf-8" {
+			t.Fatalf("content type = %q, want text/html; charset=utf-8", got)
+		}
+	})
+
+	t.Run("without an index a non-root client-side route stays a 404", func(t *testing.T) {
+		hint := newFallbackHandler(nil, fstest.MapFS{})
+		req := httptest.NewRequest(http.MethodGet, "/settings/profile", nil)
+		rec := httptest.NewRecorder()
+		hint.ServeHTTP(rec, req)
+		if rec.Code != http.StatusNotFound {
+			t.Fatalf("want 404, got %d", rec.Code)
+		}
+		if got := rec.Body.String(); got != `{"error":{"code":"not_found","message":"not found"}}` {
+			t.Fatalf("body = %q, want the complete not-found envelope", got)
+		}
+	})
 }

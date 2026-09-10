@@ -1,45 +1,35 @@
+// Skeleton generated from server/ocserverd/githubsig.go by gen_test_skeletons.py.
+// Every case is a t.Skip placeholder: fill the body, keep or rewrite the name.
+
 package main
 
-import (
-	"crypto/hmac"
-	"crypto/sha256"
-	"encoding/hex"
-	"testing"
-)
-
-// githubSign mirrors GitHub's X-Hub-Signature-256 construction (sha256={hex of
-// HMAC over the raw body}) as an independent test oracle.
-func githubSign(secret, body string) string {
-	mac := hmac.New(sha256.New, []byte(secret))
-	mac.Write([]byte(body))
-	return "sha256=" + hex.EncodeToString(mac.Sum(nil))
-}
+import "testing"
 
 func TestVerifyGithubSignature(t *testing.T) {
-	secret := "github-webhook-secret"
-	body := `{"action":"opened","number":42}`
-	sig := githubSign(secret, body)
-
-	if !verifyGithubSignature(secret, sig, []byte(body)) {
-		t.Fatal("a freshly minted GitHub signature must verify")
-	}
-	// Tampered body → reject.
-	if verifyGithubSignature(secret, sig, []byte(body+"x")) {
-		t.Fatal("a body tamper must not verify")
-	}
-	// Tampered signature → reject.
-	if verifyGithubSignature(secret, sig[:len(sig)-1]+"0", []byte(body)) {
-		t.Fatal("a tampered signature must not verify")
-	}
-	// Wrong secret → reject.
-	if verifyGithubSignature("other-secret", sig, []byte(body)) {
-		t.Fatal("a signature must not verify under another secret")
-	}
-	// Empty inputs → reject.
-	if verifyGithubSignature("", sig, []byte(body)) {
-		t.Fatal("empty secret must not verify")
-	}
-	if verifyGithubSignature(secret, "", []byte(body)) {
-		t.Fatal("empty signature must not verify")
+	const (
+		secret = "github-webhook-secret"
+		body   = `{"action":"opened","number":42}`
+		sig    = "sha256=17e1a2914aed3f36630a70904e584c37ffaef0d874aea4e3cce44c9ae43bfa21"
+	)
+	for _, tc := range []struct {
+		name   string
+		secret string
+		sig    string
+		body   []byte
+		want   bool
+	}{
+		{name: "the exact signed body verifies", secret: secret, sig: sig, body: []byte(body), want: true},
+		{name: "changing one body byte invalidates the signature", secret: secret, sig: sig, body: []byte(`{"action":"opened","number":43}`), want: false},
+		{name: "changing one signature byte is refused", secret: secret, sig: sig[:len(sig)-1] + "0", body: []byte(body), want: false},
+		{name: "the same signature does not verify under another secret", secret: "other-secret", sig: sig, body: []byte(body), want: false},
+		{name: "an empty secret is refused", secret: "", sig: sig, body: []byte(body), want: false},
+		{name: "an empty signature is refused", secret: secret, sig: "", body: []byte(body), want: false},
+		{name: "a signature without the sha256 prefix is refused", secret: secret, sig: sig[len("sha256="):], body: []byte(body), want: false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := verifyGithubSignature(tc.secret, tc.sig, tc.body); got != tc.want {
+				t.Fatalf("verifyGithubSignature(%q, %q, %q) = %v, want %v", tc.secret, tc.sig, tc.body, got, tc.want)
+			}
+		})
 	}
 }

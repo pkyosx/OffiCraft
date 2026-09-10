@@ -2,965 +2,892 @@ package main
 
 import (
 	"context"
-	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
-	"net"
 	"net/http"
-	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
-	"sync"
-	"sync/atomic"
 	"testing"
 	"time"
 )
 
-// ---------------------------------------------------------------------------
-// SSE line framing (scanSSE) — the pure wire parser, no network.
-// ---------------------------------------------------------------------------
-
-func collectPayloads(t *testing.T, raw string) []string {
-	t.Helper()
-	var got []string
-	if err := scanSSE(strings.NewReader(raw), func(p []byte) {
-		got = append(got, string(p))
-	}); err != nil {
-		t.Fatalf("scanSSE returned error: %v", err)
-	}
-	return got
+// sseStream is a response body a test feeds line by line. A closed lines channel
+// is a clean end of stream; a cancelled ctx is the socket going away under a
+// blocked read, which is what the idle watchdog does.
+type sseStream struct {
+	ctxOf   func() context.Context
+	lines   chan string
+	pending string
+	closed  bool
 }
 
-func TestScanSSE_SingleDataFrame(t *testing.T) {
-	got := collectPayloads(t, "data: {\"topic\":\"warden-command\"}\n\n")
-	want := []string{`{"topic":"warden-command"}`}
-	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("got %v, want %v", got, want)
-	}
-}
-
-func TestScanSSE_MultiLineDataJoinedWithNewline(t *testing.T) {
-	// Two data: lines within ONE event → joined by \n (SSE spec).
-	got := collectPayloads(t, "data: line-one\ndata: line-two\n\n")
-	want := []string{"line-one\nline-two"}
-	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("got %v, want %v", got, want)
-	}
-}
-
-func TestScanSSE_IgnoresCommentsAndIdEventFields(t *testing.T) {
-	// `: connected` / `: heartbeat` comments, and id:/event:/retry: fields are all
-	// ignored; only data payloads survive, split at the blank-line boundaries.
-	raw := ": connected\n\n" +
-		"id: 7\n" +
-		"event: delta\n" +
-		"data: {\"topic\":\"member\"}\n\n" +
-		": heartbeat\n\n" +
-		"retry: 3000\n" +
-		"data: {\"topic\":\"warden-command\"}\n\n"
-	got := collectPayloads(t, raw)
-	want := []string{`{"topic":"member"}`, `{"topic":"warden-command"}`}
-	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("got %v, want %v", got, want)
-	}
-}
-
-func TestScanSSE_CRLFTolerated(t *testing.T) {
-	got := collectPayloads(t, "data: hello\r\n\r\n")
-	want := []string{"hello"}
-	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("got %v, want %v", got, want)
-	}
-}
-
-func TestScanSSE_LeadingSpaceStrippedExactlyOnce(t *testing.T) {
-	// "data:  x" → one leading space stripped, so payload is " x" (not "x").
-	got := collectPayloads(t, "data:  x\n\n")
-	want := []string{" x"}
-	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("got %q, want %q", got, want)
-	}
-}
-
-func TestScanSSE_IncompleteFinalEventDiscarded(t *testing.T) {
-	// No trailing blank line → the SSE spec discards the incomplete final event.
-	got := collectPayloads(t, "data: no-terminator\n")
-	if len(got) != 0 {
-		t.Fatalf("expected no payloads for unterminated event, got %v", got)
-	}
-}
-
-// ---------------------------------------------------------------------------
-// dispatch bridge (handlePayload) — parse → skip | log | dispatch, no crash.
-// ---------------------------------------------------------------------------
-
-// recordingDeps is a fake CommandDeps that records every call for assertions.
-type recordingDeps struct {
-	mu     sync.Mutex
-	spawns []StartParams
-	stops  []string
-}
-
-func (d *recordingDeps) deps() CommandDeps {
-	return CommandDeps{
-		Spawn: func(p StartParams) SpawnOutcome {
-			d.mu.Lock()
-			d.spawns = append(d.spawns, p)
-			d.mu.Unlock()
-			return SpawnOutcome{OK: true}
-		},
-		Stop: func(session string) (bool, bool) {
-			d.mu.Lock()
-			d.stops = append(d.stops, session)
-			d.mu.Unlock()
-			return true, false
-		},
-	}
-}
-
-func (d *recordingDeps) snapshot() ([]StartParams, []string) {
-	d.mu.Lock()
-	defer d.mu.Unlock()
-	s := append([]StartParams(nil), d.spawns...)
-	st := append([]string(nil), d.stops...)
-	return s, st
-}
-
-func newTestTransport(deps CommandDeps) (*sseTransport, *[]string) {
-	var logs []string
-	var mu sync.Mutex
-	logf := func(format string, args ...any) {
-		mu.Lock()
-		logs = append(logs, fmt.Sprintf(format, args...))
-		mu.Unlock()
-	}
-	return &sseTransport{deps: deps, logf: logf}, &logs
-}
-
-func TestHandlePayload_StartDispatches(t *testing.T) {
-	rec := &recordingDeps{}
-	tr, _ := newTestTransport(rec.deps())
-	payload := `{"topic":"warden-command","data":{"rpc":"start","args":{` +
-		`"member_id":"m-1","persona_context":"you are","member_token":"tok-1",` +
-		`"role":"assistant","model":"opus","session_name":"member-m-1"}}}`
-	tr.handlePayload([]byte(payload))
-
-	spawns, stops := rec.snapshot()
-	if len(spawns) != 1 {
-		t.Fatalf("expected 1 spawn, got %d", len(spawns))
-	}
-	want := StartParams{
-		MemberID: "m-1", PersonaContext: "you are", MemberToken: "tok-1",
-		Role: "assistant", Model: "opus", SessionName: "member-m-1",
-	}
-	if spawns[0] != want {
-		t.Fatalf("spawn params mismatch:\n got %+v\nwant %+v", spawns[0], want)
-	}
-	if len(stops) != 0 {
-		t.Fatalf("expected 0 stops, got %d", len(stops))
-	}
-}
-
-func TestHandlePayload_StopDispatches(t *testing.T) {
-	rec := &recordingDeps{}
-	tr, _ := newTestTransport(rec.deps())
-	tr.handlePayload([]byte(`{"topic":"warden-command","data":{"rpc":"stop","args":{"session_name":"member-m-9"}}}`))
-
-	spawns, stops := rec.snapshot()
-	if len(spawns) != 0 {
-		t.Fatalf("expected 0 spawns, got %d", len(spawns))
-	}
-	if len(stops) != 1 || stops[0] != "member-m-9" {
-		t.Fatalf("expected stop of member-m-9, got %v", stops)
-	}
-}
-
-func TestHandlePayload_NonWardenTopicSkipped(t *testing.T) {
-	rec := &recordingDeps{}
-	tr, logs := newTestTransport(rec.deps())
-	tr.handlePayload([]byte(`{"topic":"member","data":{"entity":"member"}}`))
-
-	spawns, stops := rec.snapshot()
-	if len(spawns) != 0 || len(stops) != 0 {
-		t.Fatalf("non-warden topic must not dispatch: spawns=%v stops=%v", spawns, stops)
-	}
-	if len(*logs) != 0 {
-		t.Fatalf("a skipped (valid) non-command topic must not log: %v", *logs)
-	}
-}
-
-// The old-warden face of a NEW server verb: a frame whose rpc this build does
-// not know (exactly how a pre-update warden sees T-5f01's `update`) is logged
-// + skipped — no dispatch, no crash, the reader loop keeps living. This is
-// the safety contract that makes shipping new verbs fleet-wide non-breaking.
-func TestHandlePayload_UnknownFutureVerbSkippedSafely(t *testing.T) {
-	rec := &recordingDeps{}
-	tr, logs := newTestTransport(rec.deps())
-	tr.handlePayload([]byte(`{"topic":"warden-command","data":{"rpc":"verb-from-the-future","args":{"member_id":"m-1"}}}`))
-
-	spawns, stops := rec.snapshot()
-	if len(spawns) != 0 || len(stops) != 0 {
-		t.Fatalf("unknown verb must not dispatch: spawns=%v stops=%v", spawns, stops)
-	}
-	if len(*logs) != 1 || !strings.Contains((*logs)[0], "skip malformed frame") ||
-		!strings.Contains((*logs)[0], "unknown or missing rpc") {
-		t.Fatalf("expected one unknown-rpc skip log line, got %v", *logs)
-	}
-}
-
-func TestHandlePayload_MalformedLoggedNotCrashed(t *testing.T) {
-	rec := &recordingDeps{}
-	tr, logs := newTestTransport(rec.deps())
-	// truncated JSON — parseCommandFrame returns (nil, err).
-	tr.handlePayload([]byte(`{"topic":"warden-command","data":{"rpc":"star`))
-
-	spawns, stops := rec.snapshot()
-	if len(spawns) != 0 || len(stops) != 0 {
-		t.Fatalf("malformed frame must not dispatch")
-	}
-	if len(*logs) != 1 || !strings.Contains((*logs)[0], "malformed") {
-		t.Fatalf("expected one malformed log line, got %v", *logs)
-	}
-}
-
-func TestHandlePayload_PanicInDepsRecovered(t *testing.T) {
-	// A side-effecting dep that panics must NOT crash the reader: the defensive
-	// recover in handlePayload catches it and logs.
-	deps := CommandDeps{
-		Spawn: func(StartParams) SpawnOutcome { panic("boom") },
-	}
-	tr, logs := newTestTransport(deps)
-	tr.handlePayload([]byte(`{"topic":"warden-command","data":{"rpc":"start","args":{` +
-		`"member_id":"m-1","persona_context":"p","member_token":"t"}}}`))
-	// Two lines now: the pre-dispatch RECEIPT beacon (observability), then the
-	// defensive recovered-panic line. The panic path must NOT emit a "dispatched OK"
-	// line (dispatch panicked, never returned success).
-	if len(*logs) != 2 {
-		t.Fatalf("expected receipt + recovered-panic log lines, got %v", *logs)
-	}
-	if !strings.Contains((*logs)[0], "received start frame") {
-		t.Fatalf("expected the receipt beacon first, got %v", *logs)
-	}
-	if !strings.Contains((*logs)[1], "recovered from panic") {
-		t.Fatalf("expected a recovered-panic log line, got %v", *logs)
-	}
-	for _, l := range *logs {
-		if strings.Contains(l, "dispatched start OK") {
-			t.Fatalf("a panicking dispatch must not log success, got %v", *logs)
-		}
-	}
-}
-
-// ---------------------------------------------------------------------------
-// end-to-end over an httptest mock SSE server — dispatch across the wire.
-// ---------------------------------------------------------------------------
-
-// mockSSEServer streams the given frames on the FIRST connection, then blocks
-// holding the connection open until the request context is cancelled (so the
-// client never reconnects/churns during the assertion window). Later connections
-// (if any) just block. gotAuth captures the Authorization header of connection #1.
-func mockSSEServer(frames []string, gotAuth *string, connectionsSeen *int32) *httptest.Server {
-	var first sync.Once
-	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		atomic.AddInt32(connectionsSeen, 1)
-		first.Do(func() {
-			if gotAuth != nil {
-				*gotAuth = r.Header.Get("Authorization")
+func (s *sseStream) Read(p []byte) (int, error) {
+	for s.pending == "" {
+		select {
+		case line, ok := <-s.lines:
+			if !ok {
+				return 0, io.EOF
 			}
-		})
-		w.Header().Set("Content-Type", "text/event-stream")
-		fl, ok := w.(http.Flusher)
-		if !ok {
-			return
-		}
-		fl.Flush()
-		for _, f := range frames {
-			_, _ = w.Write([]byte(f))
-			fl.Flush()
-		}
-		<-r.Context().Done() // hold the stream open until the client cancels
-	}))
-}
-
-func TestTransport_EndToEnd_DispatchOverWire(t *testing.T) {
-	rec := &recordingDeps{}
-	frames := []string{
-		": connected\n\n",
-		"data: {\"topic\":\"warden-command\",\"data\":{\"rpc\":\"start\",\"args\":{\"member_id\":\"m-1\",\"persona_context\":\"p\",\"member_token\":\"t\"}}}\n\n",
-		": heartbeat\n\n",
-		"data: {\"topic\":\"member\",\"data\":{}}\n\n", // non-command → skipped
-		"data: {\"topic\":\"warden-command\",\"data\":{\"rpc\":\"stop\",\"args\":{\"session_name\":\"member-m-1\"}}}\n\n",
-	}
-	var auth string
-	var conns int32
-	srv := mockSSEServer(frames, &auth, &conns)
-	defer srv.Close()
-
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	tr, _ := newTestTransport(rec.deps())
-	tr.base = srv.URL
-	tr.token = "warden-tok"
-	tr.client = srv.Client()
-	tr.sleep = func(time.Duration) {}
-	tr.backoffStart = time.Millisecond
-	tr.backoffCap = time.Millisecond
-
-	done := make(chan struct{})
-	go func() { tr.run(ctx); close(done) }()
-
-	waitFor(t, func() bool {
-		s, st := rec.snapshot()
-		return len(s) == 1 && len(st) == 1
-	}, "1 spawn + 1 stop dispatched over the wire")
-
-	cancel()
-	<-done
-
-	if auth != "Bearer warden-tok" {
-		t.Fatalf("expected Bearer auth on the SSE GET, got %q", auth)
-	}
-	spawns, stops := rec.snapshot()
-	if spawns[0].MemberID != "m-1" {
-		t.Fatalf("wrong spawn member: %+v", spawns[0])
-	}
-	if stops[0] != "member-m-1" {
-		t.Fatalf("wrong stop session: %q", stops[0])
-	}
-}
-
-// ---------------------------------------------------------------------------
-// reconnect + backoff — no real sleep; drive termination via a fake clock.
-// ---------------------------------------------------------------------------
-
-// dropServer closes the connection after emitting one frame every time (no hold),
-// so the client is forced to reconnect. It counts connections.
-func dropServer(frame string, conns *int32) *httptest.Server {
-	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		atomic.AddInt32(conns, 1)
-		w.Header().Set("Content-Type", "text/event-stream")
-		_, _ = w.Write([]byte(frame))
-		// handler returns → body EOF → client sees the stream end → reconnects.
-	}))
-}
-
-func TestTransport_ReconnectsAfterDrop(t *testing.T) {
-	var conns int32
-	frame := "data: {\"topic\":\"warden-command\",\"data\":{\"rpc\":\"stop\",\"args\":{\"session_name\":\"member-x\"}}}\n\n"
-	srv := dropServer(frame, &conns)
-	defer srv.Close()
-
-	rec := &recordingDeps{}
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	// Fake sleep: records each backoff and cancels ctx once we have proven the
-	// client reconnected (≥2 connections) — so the loop exits WITHOUT any real wait.
-	var backoffs []time.Duration
-	var bmu sync.Mutex
-	tr, _ := newTestTransport(rec.deps())
-	tr.base = srv.URL
-	tr.token = "t"
-	tr.client = srv.Client()
-	tr.backoffStart = 5 * time.Millisecond
-	tr.backoffCap = 40 * time.Millisecond
-	tr.sleep = func(d time.Duration) {
-		bmu.Lock()
-		backoffs = append(backoffs, d)
-		bmu.Unlock()
-		if atomic.LoadInt32(&conns) >= 2 {
-			cancel()
+			s.pending = line
+		case <-s.ctxOf().Done():
+			return 0, errors.New("read tcp: i/o timeout")
 		}
 	}
-
-	done := make(chan struct{})
-	go func() { tr.run(ctx); close(done) }()
-	<-done
-
-	if atomic.LoadInt32(&conns) < 2 {
-		t.Fatalf("expected at least 2 connections (reconnect), got %d", conns)
-	}
-	bmu.Lock()
-	defer bmu.Unlock()
-	if len(backoffs) == 0 {
-		t.Fatalf("expected at least one backoff sleep between reconnects")
-	}
-	// A healthy (opened=200) connection dropping resets backoff to start each time.
-	if backoffs[0] != tr.backoffStart {
-		t.Fatalf("expected first backoff to reset to start %s, got %s", tr.backoffStart, backoffs[0])
-	}
+	n := copy(p, s.pending)
+	s.pending = s.pending[n:]
+	return n, nil
 }
 
-func TestNextSSEBackoff_ExponentialCapped(t *testing.T) {
-	cases := []struct{ in, want time.Duration }{
-		{0, sseBackoffCap},                 // degenerate seed → jump to cap
-		{sseBackoffStart, 2 * time.Second}, // 1s → 2s
-		{30 * time.Second, sseBackoffCap},  // 30s → 60s (cap)
-		{sseBackoffCap, sseBackoffCap},     // 60s → clamped at 60s
+func (s *sseStream) Close() error { s.closed = true; return nil }
+
+// sseHarness is one scripted downlink: the requests it saw, the body it served,
+// the frames the transport dispatched, and everything it logged.
+type sseHarness struct {
+	requests  []*http.Request
+	reqCtx    context.Context
+	stream    *sseStream
+	log       []string
+	stops     []string
+	updates   int
+	connects  int
+	transport *sseTransport
+}
+
+func newSSEHarness(t *testing.T, status int, dialErr error) *sseHarness {
+	t.Helper()
+	h := &sseHarness{}
+	h.stream = &sseStream{lines: make(chan string, 16), ctxOf: func() context.Context { return h.reqCtx }}
+	client := &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		h.requests = append(h.requests, r)
+		h.reqCtx = r.Context()
+		if dialErr != nil {
+			return nil, dialErr
+		}
+		return &http.Response{StatusCode: status, Body: h.stream, Header: http.Header{}}, nil
+	})}
+	h.transport = &sseTransport{
+		base:   "https://station.example",
+		token:  jwtWardenOne,
+		client: client,
+		logf:   func(format string, a ...any) { h.log = append(h.log, fmt.Sprintf(format, a...)) },
+		deps: CommandDeps{
+			Stop:   func(session string) (bool, bool) { h.stops = append(h.stops, session); return true, false },
+			Update: func() { h.updates++ },
+		},
+		onConnect: func() { h.connects++ },
+	}
+	return h
+}
+
+func TestScanSSEWithActivity(t *testing.T) {
+	cases := []struct {
+		name         string
+		stream       string
+		wantPayloads []string
+		wantActivity int
+	}{
+		{
+			name:         "one complete event",
+			stream:       "event: message\ndata: {\"topic\":\"warden-command\"}\n\n",
+			wantPayloads: []string{`{"topic":"warden-command"}`},
+			wantActivity: 3,
+		},
+		{
+			name:         "multi-line data joins with newlines",
+			stream:       "data: first\ndata: second\n\n",
+			wantPayloads: []string{"first\nsecond"},
+			wantActivity: 3,
+		},
+		{
+			name:         "keepalive comments carry no payload but are activity",
+			stream:       ": connected\n: heartbeat\n: heartbeat\n",
+			wantPayloads: nil,
+			wantActivity: 3,
+		},
+		{
+			name:         "CRLF framing and ignored fields",
+			stream:       "id: 42\r\nretry: 3000\r\ndata: hi\r\n\r\n",
+			wantPayloads: []string{"hi"},
+			wantActivity: 4,
+		},
+		{
+			name:         "exactly one leading space is stripped",
+			stream:       "data:  padded \n\ndata:tight\n\n",
+			wantPayloads: []string{" padded ", "tight"},
+			wantActivity: 4,
+		},
+		{
+			name:         "an unterminated final event is discarded",
+			stream:       "data: delivered\n\ndata: truncated\n",
+			wantPayloads: []string{"delivered"},
+			wantActivity: 3,
+		},
+		{
+			name:         "a field with no colon is ignored",
+			stream:       "notafield\ndata: hi\n\n",
+			wantPayloads: []string{"hi"},
+			wantActivity: 3,
+		},
+		{
+			name:         "a blank line with nothing accumulated dispatches nothing",
+			stream:       "\n\ndata: hi\n\n",
+			wantPayloads: []string{"hi"},
+			wantActivity: 4,
+		},
 	}
 	for _, c := range cases {
-		if got := nextSSEBackoff(c.in, sseBackoffCap); got != c.want {
-			t.Fatalf("nextSSEBackoff(%s) = %s, want %s", c.in, got, c.want)
+		var payloads []string
+		activity := 0
+		err := scanSSEWithActivity(strings.NewReader(c.stream),
+			func(p []byte) { payloads = append(payloads, string(p)) },
+			func() { activity++ })
+		if err != nil {
+			t.Errorf("%s: err = %v, want nil", c.name, err)
 		}
+		if !reflect.DeepEqual(payloads, c.wantPayloads) {
+			t.Errorf("%s: payloads = %#v, want %#v", c.name, payloads, c.wantPayloads)
+		}
+		if activity != c.wantActivity {
+			t.Errorf("%s: watchdog reset %d times, want %d", c.name, activity, c.wantActivity)
+		}
+	}
+
+	var payloads []string
+	oversize := "data: delivered\n\ndata: " + strings.Repeat("x", maxSSELine) + "\n\n"
+	err := scanSSEWithActivity(strings.NewReader(oversize), func(p []byte) { payloads = append(payloads, string(p)) }, nil)
+	if err == nil {
+		t.Error("an unbounded line must end the stream so the reader reconnects")
+	}
+	if !reflect.DeepEqual(payloads, []string{"delivered"}) {
+		t.Errorf("payloads before the refusal = %#v, want [delivered]", payloads)
+	}
+
+	payloads = nil
+	if err := scanSSE(strings.NewReader("data: hi\n\n"), func(p []byte) { payloads = append(payloads, string(p)) }); err != nil {
+		t.Errorf("scanSSE err = %v, want nil", err)
+	}
+	if !reflect.DeepEqual(payloads, []string{"hi"}) {
+		t.Errorf("scanSSE payloads = %#v, want [hi]", payloads)
 	}
 }
 
-func TestTransport_Non200DoesNotResetBackoff(t *testing.T) {
-	// A server that always 503s: connectOnce returns opened=false, so backoff must
-	// GROW (never reset to start) across retries.
-	var hits int32
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		atomic.AddInt32(&hits, 1)
-		w.WriteHeader(http.StatusServiceUnavailable)
-	}))
-	defer srv.Close()
-
-	rec := &recordingDeps{}
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	var backoffs []time.Duration
-	var mu sync.Mutex
-	tr, _ := newTestTransport(rec.deps())
-	tr.base = srv.URL
-	tr.client = srv.Client()
-	tr.backoffStart = 1 * time.Millisecond
-	tr.backoffCap = 100 * time.Millisecond
-	tr.sleep = func(d time.Duration) {
-		mu.Lock()
-		backoffs = append(backoffs, d)
-		n := len(backoffs)
-		mu.Unlock()
-		if n >= 3 {
-			cancel()
+func TestConnectOnce(t *testing.T) {
+	t.Run("an open stream is read to its end", func(t *testing.T) {
+		h := newSSEHarness(t, http.StatusOK, nil)
+		go func() {
+			h.stream.lines <- ": heartbeat\n"
+			h.stream.lines <- `data: {"topic":"chat","data":{}}` + "\n\n"
+			h.stream.lines <- `data: {"topic":"warden-command","data":{"rpc":"stop","args":{"member_id":"m-5"}}}` + "\n\n"
+			close(h.stream.lines)
+		}()
+		opened, err := h.transport.connectOnce(context.Background())
+		if !opened || err != nil {
+			t.Errorf("connectOnce = (%v, %v), want (true, nil)", opened, err)
 		}
-	}
-	done := make(chan struct{})
-	go func() { tr.run(ctx); close(done) }()
-	<-done
+		if !reflect.DeepEqual(h.stops, []string{"member-m-5"}) {
+			t.Errorf("stopped %v, want [member-m-5]", h.stops)
+		}
+		wantLog := []string{
+			"[ocwarden] command reader: connected — streaming https://station.example/api/events",
+			"[ocwarden] command reader: received stop frame (member_id=m-5)",
+			"[ocwarden] command reader: dispatched stop OK (member_id=m-5)",
+		}
+		if !reflect.DeepEqual(h.log, wantLog) {
+			t.Errorf("log =\n  %#v\nwant\n  %#v", h.log, wantLog)
+		}
+		if h.connects != 1 {
+			t.Errorf("the self-update kick fired %d times, want 1 per open stream", h.connects)
+		}
+		if !h.stream.closed {
+			t.Error("the response body was not closed")
+		}
 
-	mu.Lock()
-	defer mu.Unlock()
-	if len(backoffs) < 3 {
-		t.Fatalf("expected ≥3 retries, got %d", len(backoffs))
-	}
-	// Strictly increasing (exponential) since it never opened → never reset.
-	if !(backoffs[0] < backoffs[1] && backoffs[1] < backoffs[2]) {
-		t.Fatalf("expected growing backoff on repeated non-200, got %v", backoffs)
-	}
+		req := h.requests[0]
+		if req.Method != http.MethodGet || req.URL.String() != "https://station.example/api/events" {
+			t.Errorf("dialled %s %s, want GET https://station.example/api/events", req.Method, req.URL)
+		}
+		wantHeaders := map[string]string{
+			"User-Agent":    "ocwarden/0.1",
+			"Accept":        "text/event-stream",
+			"Cache-Control": "no-cache",
+			"Authorization": "Bearer " + jwtWardenOne,
+		}
+		for name, want := range wantHeaders {
+			if got := req.Header.Get(name); got != want {
+				t.Errorf("%s = %q, want %q", name, got, want)
+			}
+		}
+		if req.URL.RawQuery != "" {
+			t.Errorf("the warden addresses itself by its credential alone, but sent ?%s", req.URL.RawQuery)
+		}
+	})
+
+	t.Run("a rejected connection opens nothing", func(t *testing.T) {
+		h := newSSEHarness(t, http.StatusUnauthorized, nil)
+		close(h.stream.lines)
+		opened, err := h.transport.connectOnce(context.Background())
+		if opened || err == nil || err.Error() != "unexpected status 401" {
+			t.Errorf("connectOnce = (%v, %v), want (false, unexpected status 401)", opened, err)
+		}
+		if h.connects != 0 || len(h.log) != 0 {
+			t.Errorf("a refused connection kicked %d times and logged %#v, want 0 and none", h.connects, h.log)
+		}
+		if !h.stream.closed {
+			t.Error("the refused response body was not closed")
+		}
+	})
+
+	t.Run("an undialable station opens nothing", func(t *testing.T) {
+		h := newSSEHarness(t, 0, errors.New("dial tcp: connection refused"))
+		opened, err := h.transport.connectOnce(context.Background())
+		if opened || err == nil || !strings.Contains(err.Error(), "connection refused") {
+			t.Errorf("connectOnce = (%v, %v), want (false, connection refused)", opened, err)
+		}
+		if h.connects != 0 || len(h.log) != 0 {
+			t.Errorf("a failed dial kicked %d times and logged %#v, want 0 and none", h.connects, h.log)
+		}
+	})
+
+	t.Run("a credential-less warden sends no Authorization header", func(t *testing.T) {
+		h := newSSEHarness(t, http.StatusOK, nil)
+		h.transport.token = ""
+		close(h.stream.lines)
+		if _, err := h.transport.connectOnce(context.Background()); err != nil {
+			t.Fatalf("connectOnce: %v", err)
+		}
+		if got := h.requests[0].Header.Get("Authorization"); got != "" {
+			t.Errorf("Authorization = %q, want none", got)
+		}
+	})
+
+	t.Run("a silent stream is dropped by the idle watchdog", func(t *testing.T) {
+		h := newSSEHarness(t, http.StatusOK, nil)
+		h.transport.idleReadTimeout = 60 * time.Millisecond
+		start := time.Now()
+		opened, err := h.transport.connectOnce(context.Background())
+		if !opened || err == nil {
+			t.Errorf("connectOnce = (%v, %v), want (true, a read timeout)", opened, err)
+		}
+		if elapsed := time.Since(start); elapsed < 60*time.Millisecond {
+			t.Errorf("the watchdog fired after %s, want at least its 60ms threshold", elapsed)
+		}
+	})
+
+	t.Run("heartbeats keep the watchdog from firing", func(t *testing.T) {
+		h := newSSEHarness(t, http.StatusOK, nil)
+		h.transport.idleReadTimeout = 100 * time.Millisecond
+		go func() {
+			for i := 0; i < 5; i++ {
+				time.Sleep(30 * time.Millisecond)
+				h.stream.lines <- ": heartbeat\n"
+			}
+			close(h.stream.lines)
+		}()
+		opened, err := h.transport.connectOnce(context.Background())
+		if !opened || err != nil {
+			t.Errorf("connectOnce = (%v, %v), want (true, nil) — a heartbeat-only stream is alive", opened, err)
+		}
+	})
 }
 
-// ---------------------------------------------------------------------------
-// --once — a single-cycle run never starts the command reader (iters==0 only).
-// ---------------------------------------------------------------------------
+func TestHandlePayload(t *testing.T) {
+	stopFrame := `{"topic":"warden-command","data":{"rpc":"stop","args":{"member_id":"m-5"}}}`
 
-// TestRealMain_OnceDoesNotConnect proves a --once cycle starts NO command reader —
-// a mock SSE endpoint sees ZERO connections. We point OC_BASE at a server that would
-// record any /api/events GET, and run a single --once cycle (which also disables the
-// loop goroutines). The command reader only starts on the long-running iters==0 path.
-func TestRealMain_OnceDoesNotConnect(t *testing.T) {
-	var eventsHits int32
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if strings.HasPrefix(r.URL.Path, eventsPath) {
-			atomic.AddInt32(&eventsHits, 1)
-		}
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte(`{}`))
-	}))
-	defer srv.Close()
-
-	// A valid-looking token/id so the reader's OTHER preconditions are satisfied —
-	// isolating --once (iters==1) as the sole reason no connection is made.
-	env := func(k string) string {
-		switch k {
-		case "OC_BASE":
-			return srv.URL
-		case "OC_TOKEN":
-			return "tok"
-		case "OC_ID":
-			return "warden-1"
-		default:
-			return ""
-		}
-	}
-	var out strings.Builder
-	_ = realMain([]string{"run", "--once"}, env, &out)
-
-	if got := atomic.LoadInt32(&eventsHits); got != 0 {
-		t.Fatalf("--once must not open /api/events; saw %d connection(s)", got)
-	}
-	if strings.Contains(out.String(), "command reader: enabled") {
-		t.Fatalf("--once must not log the reader as enabled:\n%s", out.String())
-	}
-}
-
-// ---------------------------------------------------------------------------
-// idle-read watchdog — silently-dead / half-open TCP liveness robustness.
-// ---------------------------------------------------------------------------
-
-// silentSSEServer accepts the SSE GET, flushes headers so the client sees an OPEN
-// 200 stream, then sends NOTHING and holds the connection open until the client
-// aborts it (r.Context().Done()). This is the "silently-dead / half-open" case: the
-// socket looks alive but no frame — not even a heartbeat — ever arrives, so a
-// deadline-less reader would block forever. It counts connections.
-func silentSSEServer(conns *int32) *httptest.Server {
-	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		atomic.AddInt32(conns, 1)
-		w.Header().Set("Content-Type", "text/event-stream")
-		if fl, ok := w.(http.Flusher); ok {
-			fl.Flush()
-		}
-		<-r.Context().Done() // never emit a frame; wait for the client to give up
-	}))
-}
-
-// TestTransport_WatchdogReconnectsOnSilentStream proves the watchdog: an open but
-// silent stream (no frames at all) trips idleReadTimeout, which force-drops the
-// connection into the EXISTING reconnect path — so the client re-dials (≥2 conns)
-// instead of hanging deaf forever.
-func TestTransport_WatchdogReconnectsOnSilentStream(t *testing.T) {
-	var conns int32
-	srv := silentSSEServer(&conns)
-	defer srv.Close()
-
-	rec := &recordingDeps{}
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	tr, _ := newTestTransport(rec.deps())
-	tr.base = srv.URL
-	tr.client = srv.Client()
-	tr.idleReadTimeout = 50 * time.Millisecond // fire fast; no real 45s wait
-	tr.backoffStart = time.Millisecond
-	tr.backoffCap = time.Millisecond
-	// Stop the loop once we have PROVEN a reconnect (≥2 connections), so the test
-	// exits without any real backoff wait.
-	tr.sleep = func(time.Duration) {
-		if atomic.LoadInt32(&conns) >= 2 {
-			cancel()
-		}
-	}
-
-	done := make(chan struct{})
-	go func() { tr.run(ctx); close(done) }()
-
-	// Bounded guard: on a watchdog regression the reader hangs deaf (conns stays 1)
-	// — fail fast at 2s instead of dragging to the 10min `go test` timeout.
-	waitFor(t, func() bool { return atomic.LoadInt32(&conns) >= 2 },
-		"watchdog to force-drop the silent stream and reconnect (≥2 conns)")
-
-	cancel() // reconnect proven; stop the loop and let run() exit cleanly
-	<-done
-
-	if got := atomic.LoadInt32(&conns); got < 2 {
-		t.Fatalf("watchdog should have force-dropped the silent stream and reconnected; got %d connection(s)", got)
-	}
-}
-
-// heartbeatSSEServer streams a `: heartbeat` comment frame every interval until the
-// client disconnects — a HEALTHY keepalive-only link (officraft's real behaviour
-// between commands). It counts connections.
-func heartbeatSSEServer(conns *int32, interval time.Duration) *httptest.Server {
-	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		atomic.AddInt32(conns, 1)
-		w.Header().Set("Content-Type", "text/event-stream")
-		fl, ok := w.(http.Flusher)
-		if !ok {
-			return
-		}
-		fl.Flush()
-		tk := time.NewTicker(interval)
-		defer tk.Stop()
-		for {
-			select {
-			case <-r.Context().Done():
-				return
-			case <-tk.C:
-				if _, err := w.Write([]byte(": heartbeat\n\n")); err != nil {
-					return
+	cases := []struct {
+		name      string
+		payload   string
+		deps      func(h *sseHarness) CommandDeps
+		wantStops []string
+		wantLog   []string
+	}{
+		{
+			name:    "a frame on another topic is silently skipped",
+			payload: `{"topic":"context-high","data":{"member_id":"m-5"}}`,
+		},
+		{
+			name:    "a keepalive-shaped payload is silently skipped",
+			payload: `{"topic":"heartbeat","data":null}`,
+		},
+		{
+			name:    "a truncated frame is logged and skipped",
+			payload: `{"topic":"warden-comm`,
+			wantLog: []string{"[ocwarden] command reader: skip malformed frame: command: malformed envelope: " +
+				"unexpected end of JSON input"},
+		},
+		{
+			name:    "an unknown verb is logged and skipped",
+			payload: `{"topic":"warden-command","data":{"rpc":"rm -rf","args":{}}}`,
+			wantLog: []string{"[ocwarden] command reader: skip malformed frame: " +
+				"command: unknown or missing rpc \"rm -rf\""},
+		},
+		{
+			name:      "an executed stop is receipted then reported OK",
+			payload:   stopFrame,
+			wantStops: []string{"member-m-5"},
+			wantLog: []string{
+				"[ocwarden] command reader: received stop frame (member_id=m-5)",
+				"[ocwarden] command reader: dispatched stop OK (member_id=m-5)",
+			},
+		},
+		{
+			name:    "an unwired verb is refused without touching the host",
+			payload: `{"topic":"warden-command","data":{"rpc":"update","args":{}}}`,
+			deps:    func(h *sseHarness) CommandDeps { return CommandDeps{} },
+			wantLog: []string{
+				"[ocwarden] command reader: received update frame (target=?)",
+				"[ocwarden] command reader: dispatch refused: command: update refused: self-update kick seam not wired",
+			},
+		},
+		{
+			name:    "an executed stop whose receipt was lost never reads as an all-clear",
+			payload: stopFrame,
+			deps: func(h *sseHarness) CommandDeps {
+				return CommandDeps{
+					Stop:   func(s string) (bool, bool) { h.stops = append(h.stops, s); return true, false },
+					Report: func(CommandResult) error { return errors.New("status 502") },
 				}
-				fl.Flush()
-			}
+			},
+			wantStops: []string{"member-m-5"},
+			wantLog: []string{
+				"[ocwarden] command reader: received stop frame (member_id=m-5)",
+				"[ocwarden] command reader: stop EXECUTED but its receipt did not reach the server " +
+					"(member_id=m-5): command: stop for session \"member-m-5\" ran (stopped) but " +
+					"command_result receipt undelivered: status 502 — the server does not know this outcome",
+			},
+		},
+		{
+			name:    "a panicking side effect cannot take the reader down",
+			payload: stopFrame,
+			deps: func(h *sseHarness) CommandDeps {
+				return CommandDeps{Stop: func(string) (bool, bool) { panic("tmux socket vanished") }}
+			},
+			wantLog: []string{
+				"[ocwarden] command reader: received stop frame (member_id=m-5)",
+				"[ocwarden] command reader: recovered from panic handling frame: tmux socket vanished",
+			},
+		},
+	}
+
+	for _, c := range cases {
+		h := newSSEHarness(t, http.StatusOK, nil)
+		if c.deps != nil {
+			h.transport.deps = c.deps(h)
 		}
-	}))
+		h.transport.handlePayload([]byte(c.payload))
+		if !reflect.DeepEqual(h.stops, c.wantStops) {
+			t.Errorf("%s: stopped %v, want %v", c.name, h.stops, c.wantStops)
+		}
+		if !reflect.DeepEqual(h.log, c.wantLog) {
+			t.Errorf("%s: log =\n  %#v\nwant\n  %#v", c.name, h.log, c.wantLog)
+		}
+	}
 }
 
-// TestTransport_WatchdogNotTrippedByHeartbeats is the anti-false-positive guard: a
-// steady heartbeat stream (interval << idleReadTimeout) must keep the SINGLE
-// connection alive and NEVER trigger a reconnect. A heartbeat comment resets the
-// watchdog just like a data frame, so a live-but-idle-of-commands link is not killed.
-func TestTransport_WatchdogNotTrippedByHeartbeats(t *testing.T) {
-	var conns int32
-	srv := heartbeatSSEServer(&conns, 10*time.Millisecond)
-	defer srv.Close()
+func TestCommandTargetLabel(t *testing.T) {
+	cases := []struct {
+		name string
+		args map[string]any
+		want string
+	}{
+		{"a member verb", map[string]any{"member_id": "m-5"}, "member_id=m-5"},
+		{"a worker verb", map[string]any{"worker_id": "ow-9"}, "worker_id=ow-9"},
+		{"member_id wins when both are present", map[string]any{"member_id": "m-5", "worker_id": "ow-9"}, "member_id=m-5"},
+		{"a blank member_id falls through to the worker", map[string]any{"member_id": "", "worker_id": "ow-9"}, "worker_id=ow-9"},
+		{"a non-string member_id falls through", map[string]any{"member_id": 42, "worker_id": "ow-9"}, "worker_id=ow-9"},
+		{"an unaddressed verb", map[string]any{}, "target=?"},
+		{"a blank worker_id", map[string]any{"worker_id": "   "}, "worker_id=   "},
+	}
+	for _, c := range cases {
+		if got := commandTargetLabel(&Command{RPC: rpcStop, Args: c.args}); got != c.want {
+			t.Errorf("%s: commandTargetLabel = %q, want %q", c.name, got, c.want)
+		}
+	}
+}
 
-	rec := &recordingDeps{}
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+func TestNextSSEBackoff(t *testing.T) {
+	cases := []struct {
+		cur, capd, want time.Duration
+	}{
+		{time.Second, time.Minute, 2 * time.Second},
+		{16 * time.Second, time.Minute, 32 * time.Second},
+		{32 * time.Second, time.Minute, time.Minute},
+		{time.Minute, time.Minute, time.Minute},
+		{0, time.Minute, time.Minute},
+		{-time.Second, time.Minute, time.Minute},
+	}
+	for _, c := range cases {
+		if got := nextSSEBackoff(c.cur, c.capd); got != c.want {
+			t.Errorf("nextSSEBackoff(%s, %s) = %s, want %s", c.cur, c.capd, got, c.want)
+		}
+	}
+}
 
-	var backoffSleeps int32
-	tr, _ := newTestTransport(rec.deps())
-	tr.base = srv.URL
-	tr.client = srv.Client()
-	tr.idleReadTimeout = 100 * time.Millisecond // 10× the heartbeat interval
-	tr.backoffStart = time.Millisecond
-	tr.backoffCap = time.Millisecond
-	tr.sleep = func(time.Duration) { atomic.AddInt32(&backoffSleeps, 1) }
+func TestSleepCtx(t *testing.T) {
+	var slept []time.Duration
+	sleep := func(d time.Duration) { slept = append(slept, d) }
 
-	done := make(chan struct{})
-	go func() { tr.run(ctx); close(done) }()
+	if !sleepCtx(context.Background(), sleep, 5*time.Second) {
+		t.Error("a live context must keep the reconnect loop going")
+	}
+	if !reflect.DeepEqual(slept, []time.Duration{5 * time.Second}) {
+		t.Errorf("slept %v, want [5s]", slept)
+	}
 
-	// Let it run well past several idle windows while heartbeats flow, then stop.
-	time.Sleep(400 * time.Millisecond)
+	slept = nil
+	cancelled, cancel := context.WithCancel(context.Background())
 	cancel()
-	<-done
-
-	if got := atomic.LoadInt32(&conns); got != 1 {
-		t.Fatalf("heartbeats should keep exactly one connection alive; got %d connection(s)", got)
+	if sleepCtx(cancelled, sleep, 5*time.Second) {
+		t.Error("an already-cancelled context must stop the loop")
 	}
-	if got := atomic.LoadInt32(&backoffSleeps); got != 0 {
-		t.Fatalf("no reconnect (backoff) expected while heartbeats flow; got %d", got)
+	if slept != nil {
+		t.Errorf("a cancelled context must not wait out the backoff, slept %v", slept)
+	}
+
+	slept = nil
+	midway, cancelMidway := context.WithCancel(context.Background())
+	stopping := func(d time.Duration) { slept = append(slept, d); cancelMidway() }
+	if sleepCtx(midway, stopping, 5*time.Second) {
+		t.Error("a context cancelled during the backoff must stop the loop")
+	}
+	if !reflect.DeepEqual(slept, []time.Duration{5 * time.Second}) {
+		t.Errorf("slept %v, want [5s]", slept)
+	}
+	cancelMidway()
+}
+
+func TestResolveClaudeBin(t *testing.T) {
+	root := t.TempDir()
+	onPath := stageBinary(t, filepath.Join(root, "path", "claude"), "#!/bin/sh\n")
+	stamped := stageBinary(t, filepath.Join(root, "stamped", "claude"), "#!/bin/sh\n")
+	local := stageBinary(t, filepath.Join(root, "home", ".local", "bin", "claude"), "#!/bin/sh\n")
+	notExec := filepath.Join(root, "plain", "claude")
+	if err := os.MkdirAll(filepath.Dir(notExec), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(notExec, []byte("text"), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	empty := filepath.Join(root, "nothing-here")
+
+	cases := []struct {
+		name string
+		path string
+		env  map[string]string
+		want string
+	}{
+		{"the plist stamp wins", filepath.Dir(onPath),
+			map[string]string{"OC_CLAUDE_BIN": stamped, "HOME": filepath.Join(root, "home")}, stamped},
+		{"a non-executable stamp falls through to PATH", filepath.Dir(onPath),
+			map[string]string{"OC_CLAUDE_BIN": notExec, "HOME": filepath.Join(root, "home")}, onPath},
+		{"a stamped directory falls through to PATH", filepath.Dir(onPath),
+			map[string]string{"OC_CLAUDE_BIN": root, "HOME": filepath.Join(root, "home")}, onPath},
+		{"an enriched PATH is honoured", filepath.Dir(onPath),
+			map[string]string{"HOME": filepath.Join(root, "home")}, onPath},
+		{"a launchd PATH falls back to the home install", empty,
+			map[string]string{"HOME": filepath.Join(root, "home")}, local},
+		{"nothing anywhere resolves to nothing", empty,
+			map[string]string{"HOME": filepath.Join(root, "bare")}, ""},
+	}
+	for _, c := range cases {
+		t.Setenv("PATH", c.path)
+		if got := resolveClaudeBin(envMap(c.env)); got != c.want {
+			t.Errorf("%s: resolveClaudeBin = %q, want %q", c.name, got, c.want)
+		}
 	}
 }
 
-// rawSilentTCPListener is a REAL TCP server (not an httptest/pipe mock) that, on
-// each accepted connection, writes a valid HTTP/1.1 200 + text/event-stream header
-// block and one `: connected` comment, then goes SILENT forever — it never writes
-// again and never closes the socket. This is the genuine "silent-but-open stream"
-// shape: a live TCP fd with a blocked-forever downstream Read. It counts accepted
-// connections and returns the base URL to point a transport at. Unlike a
-// pipe/httptest mock, this exercises a real net.Conn, so ONLY a read-deadline armed
-// on that net.Conn (SetReadDeadline) — not a context-cancel→Close — reliably unblocks
-// the reader. The returned closer stops the accept loop and frees the listener.
-func rawSilentTCPListener(t *testing.T, conns *int32) (baseURL string, closeFn func()) {
-	t.Helper()
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatalf("net.Listen: %v", err)
+func TestResolveCodexBin(t *testing.T) {
+	root := t.TempDir()
+	onPath := stageBinary(t, filepath.Join(root, "path", "codex"), "#!/bin/sh\n")
+	stamped := stageBinary(t, filepath.Join(root, "stamped", "codex"), "#!/bin/sh\n")
+	npmGlobal := stageBinary(t, filepath.Join(root, "home", ".npm-global", "bin", "codex"), "#!/bin/sh\n")
+	local := stageBinary(t, filepath.Join(root, "home2", ".local", "bin", "codex"), "#!/bin/sh\n")
+	empty := filepath.Join(root, "nothing-here")
+
+	cases := []struct {
+		name string
+		path string
+		env  map[string]string
+		want string
+	}{
+		{"the env override wins", filepath.Dir(onPath),
+			map[string]string{"OC_CODEX_BIN": stamped, "HOME": filepath.Join(root, "home")}, stamped},
+		{"an enriched PATH is honoured", filepath.Dir(onPath),
+			map[string]string{"HOME": filepath.Join(root, "home")}, onPath},
+		{"a launchd PATH falls back to the home install", empty,
+			map[string]string{"HOME": filepath.Join(root, "home2")}, local},
+		{"the npm-global install is found too", empty,
+			map[string]string{"HOME": filepath.Join(root, "home")}, npmGlobal},
+		{"nothing anywhere resolves to nothing", empty,
+			map[string]string{"HOME": filepath.Join(root, "bare")}, ""},
 	}
-	var (
-		mu     sync.Mutex
-		held   []net.Conn // keep accepted conns referenced so they are not GC/closed
-		closed bool
-	)
-	go func() {
-		for {
-			c, err := ln.Accept()
-			if err != nil {
-				return // listener closed → stop accepting
-			}
-			atomic.AddInt32(conns, 1)
-			mu.Lock()
-			if closed {
-				mu.Unlock()
-				_ = c.Close()
-				return
-			}
-			held = append(held, c)
-			mu.Unlock()
-			// Write the 200 + SSE header block and one comment, then go SILENT: never
-			// write again, never close. The socket stays OPEN with nothing to read.
-			_, _ = c.Write([]byte("HTTP/1.1 200 OK\r\n" +
-				"Content-Type: text/event-stream\r\n" +
-				"Cache-Control: no-cache\r\n" +
-				"Connection: keep-alive\r\n" +
-				"\r\n" +
-				": connected\n\n"))
-			// intentionally no further writes, no Close
+	for _, c := range cases {
+		t.Setenv("PATH", c.path)
+		if got := resolveCodexBin(envMap(c.env)); got != c.want {
+			t.Errorf("%s: resolveCodexBin = %q, want %q", c.name, got, c.want)
 		}
-	}()
-	closeFn = func() {
-		mu.Lock()
-		closed = true
-		hs := held
-		held = nil
-		mu.Unlock()
-		_ = ln.Close()
-		for _, c := range hs {
-			_ = c.Close()
-		}
-	}
-	return "http://" + ln.Addr().String(), closeFn
-}
-
-// TestTransport_ReadDeadlineReconnectsOnRealHalfOpenTCP is the REGRESSION GUARD the
-// pipe/httptest-based TestTransport_WatchdogReconnectsOnSilentStream cannot provide:
-// it drives the transport against a REAL net.Conn (rawSilentTCPListener) that goes
-// silent-but-open forever. The idle-read watchdog must give up on the silent stream
-// and RECONNECT (the listener accepts a SECOND connection) within a few ×
-// idleReadTimeout. This proves the read deadline fires against a real socket, which
-// the context-cancel→Close path does not reliably do on a genuine half-open TCP.
-func TestTransport_ReadDeadlineReconnectsOnRealHalfOpenTCP(t *testing.T) {
-	var conns int32
-	baseURL, closeFn := rawSilentTCPListener(t, &conns)
-	defer closeFn()
-
-	rec := &recordingDeps{}
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	tr, _ := newTestTransport(rec.deps())
-	tr.base = baseURL
-	tr.client = newSSEClient() // a REAL http.Client over a REAL TCP conn (no mock/pipe)
-	tr.idleReadTimeout = 150 * time.Millisecond
-	tr.backoffStart = time.Millisecond
-	tr.backoffCap = time.Millisecond
-	// Instant fake sleep; cancel the loop once a reconnect (≥2 conns) is proven so the
-	// test never waits real backoff.
-	tr.sleep = func(time.Duration) {
-		if atomic.LoadInt32(&conns) >= 2 {
-			cancel()
-		}
-	}
-
-	done := make(chan struct{})
-	go func() { tr.run(ctx); close(done) }()
-
-	// Bounded overall guard: a few × idleReadTimeout is ample for the deadline to fire
-	// and the client to re-dial. On a regression (deadline never fires against the real
-	// half-open conn) conns stays 1 and this fails fast rather than hanging.
-	waitFor(t, func() bool { return atomic.LoadInt32(&conns) >= 2 },
-		"read-deadline to give up on the real half-open TCP and reconnect (≥2 conns)")
-
-	cancel()
-	<-done
-
-	if got := atomic.LoadInt32(&conns); got < 2 {
-		t.Fatalf("read deadline should have dropped the silent real-TCP stream and reconnected; got %d connection(s)", got)
-	}
-}
-
-// waitFor polls cond up to ~2s, failing the test if it never holds.
-func waitFor(t *testing.T, cond func() bool, what string) {
-	t.Helper()
-	deadline := time.Now().Add(2 * time.Second)
-	for time.Now().Before(deadline) {
-		if cond() {
-			return
-		}
-		time.Sleep(2 * time.Millisecond)
-	}
-	t.Fatalf("timed out waiting for: %s", what)
-}
-
-// ---------------------------------------------------------------------------
-// resolveClaudeBin — robust claude resolution under a minimal launchd PATH
-// ---------------------------------------------------------------------------
-
-func TestResolveClaudeBin_OverrideHonored(t *testing.T) {
-	// OC_CLAUDE_BIN pointing at a real executable wins over PATH/heuristics.
-	env := func(k string) string {
-		if k == "OC_CLAUDE_BIN" {
-			return "/bin/sh"
-		}
-		return ""
-	}
-	if got := resolveClaudeBin(env); got != "/bin/sh" {
-		t.Fatalf("OC_CLAUDE_BIN override must win, got %q", got)
-	}
-}
-
-func TestResolveClaudeBin_OverrideIgnoredWhenNotExecutable(t *testing.T) {
-	// A non-existent override must NOT be returned — it falls through to LookPath /
-	// heuristics (which, in this test env with no claude, yields "").
-	env := func(k string) string {
-		switch k {
-		case "OC_CLAUDE_BIN":
-			return "/nonexistent/definitely/not/claude"
-		case "HOME":
-			return "/nonexistent-home"
-		default:
-			return ""
-		}
-	}
-	// Only assert the bogus override is not echoed back; LookPath may or may not find
-	// a system claude, so we don't assert the final value beyond "not the bogus path".
-	if got := resolveClaudeBin(env); got == "/nonexistent/definitely/not/claude" {
-		t.Fatalf("a non-executable override must not be returned, got %q", got)
 	}
 }
 
 func TestIsExecutableFile(t *testing.T) {
-	if !isExecutableFile("/bin/sh") {
-		t.Fatal("/bin/sh must be seen as an executable file")
+	root := t.TempDir()
+	exec := stageBinary(t, filepath.Join(root, "claude"), "#!/bin/sh\n")
+	plain := filepath.Join(root, "notes.txt")
+	if err := os.WriteFile(plain, []byte("text"), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
 	}
-	if isExecutableFile("/nonexistent/path/xyz") {
-		t.Fatal("a missing path must not be executable")
+	groupOnly := filepath.Join(root, "group-exec")
+	if err := os.WriteFile(groupOnly, []byte("x"), 0o010); err != nil {
+		t.Fatalf("write: %v", err)
 	}
-	if isExecutableFile("/tmp") {
-		t.Fatal("a directory must not be reported as an executable file")
+	link := filepath.Join(root, "claude-link")
+	if err := os.Symlink(exec, link); err != nil {
+		t.Fatalf("symlink: %v", err)
+	}
+
+	cases := []struct {
+		name string
+		path string
+		want bool
+	}{
+		{"an executable file", exec, true},
+		{"a symlink to one", link, true},
+		{"a readable but non-executable file", plain, false},
+		{"any executable bit is enough", groupOnly, true},
+		{"a directory", root, false},
+		{"a path that is not there", filepath.Join(root, "absent"), false},
+		{"the empty path", "", false},
+	}
+	for _, c := range cases {
+		if got := isExecutableFile(c.path); got != c.want {
+			t.Errorf("%s: isExecutableFile(%q) = %v, want %v", c.name, c.path, got, c.want)
+		}
 	}
 }
 
-// ---------------------------------------------------------------------------
-// newCommandReporter — the best-effort command_result POST (fleet stage 1)
-// ---------------------------------------------------------------------------
+func TestResolveRepoRoot(t *testing.T) {
+	if got := resolveRepoRoot(func() (string, error) {
+		return "/Users/eva/open-company/cli/ocwarden/ocwarden", nil
+	}); got != "/Users/eva/open-company" {
+		t.Errorf("resolveRepoRoot = %q, want %q", got, "/Users/eva/open-company")
+	}
+	if got := resolveRepoRoot(func() (string, error) {
+		return "/Users/eva/.officraft/warden/ocwarden", nil
+	}); got != "/Users/eva" {
+		t.Errorf("a home-installed warden walks the same three hops: %q, want %q", got, "/Users/eva")
+	}
+	if got := resolveRepoRoot(func() (string, error) { return "", errors.New("no /proc/self/exe") }); got != "" {
+		t.Errorf("resolveRepoRoot = %q, want \"\"", got)
+	}
+}
 
-// TestCommandReporter_PostsPayload: a wired reporter POSTs {agent_id, command_result:
-// {member_id, rpc, ok, reason, log, at}} to the telemetry ingest path, Bearer-authed.
-func TestCommandReporter_PostsPayload(t *testing.T) {
-	var gotBody map[string]any
-	var gotPath, gotAuth string
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		gotPath = r.URL.Path
-		gotAuth = r.Header.Get("Authorization")
-		raw, _ := io.ReadAll(r.Body)
-		_ = json.Unmarshal(raw, &gotBody)
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte(`{"ok":true}`))
-	}))
-	defer srv.Close()
+func TestPathStatable(t *testing.T) {
+	root := t.TempDir()
+	file := stageBinary(t, filepath.Join(root, "ocagent"), "agent-bytes-v1")
+	dangling := filepath.Join(root, "dangling")
+	if err := os.Symlink(filepath.Join(root, "absent"), dangling); err != nil {
+		t.Fatalf("symlink: %v", err)
+	}
 
-	report := newCommandReporter(Config{Base: srv.URL, Token: "tok-1", ID: "agent-9"})
-	report(CommandResult{
-		MemberID: "m-7", RPC: "stop", OK: true,
-		Reason: "stopped", Log: "session=member-m-7: stopped", At: "2026-07-08T00:00:00Z",
+	cases := []struct {
+		name string
+		path string
+		want bool
+	}{
+		{"a downloaded binary", file, true},
+		{"a directory also stats", root, true},
+		{"a path that is not there", filepath.Join(root, "absent"), false},
+		{"a dangling symlink", dangling, false},
+		{"the empty path", "", false},
+	}
+	for _, c := range cases {
+		if got := pathStatable(c.path); got != c.want {
+			t.Errorf("%s: pathStatable(%q) = %v, want %v", c.name, c.path, got, c.want)
+		}
+	}
+}
+
+func TestResolveOcAgentBin(t *testing.T) {
+	exe := func(p string) func() (string, error) { return func() (string, error) { return p, nil } }
+	present := func(paths ...string) func(string) bool {
+		set := map[string]bool{}
+		for _, p := range paths {
+			set[p] = true
+		}
+		return func(p string) bool { return set[p] }
+	}
+
+	got, ok := resolveOcAgentBin(exe("/Users/eva/.officraft/warden/ocwarden"),
+		present("/Users/eva/.officraft/warden/ocagent"), "/Users/eva/open-company")
+	if got != "/Users/eva/.officraft/warden/ocagent" || !ok {
+		t.Errorf("resolveOcAgentBin = (%q, %v), want the sibling and true", got, ok)
+	}
+
+	got, ok = resolveOcAgentBin(exe("/Users/eva/open-company/cli/ocwarden/ocwarden"),
+		present("/Users/eva/open-company/cli/ocagent/ocagent"), "/Users/eva/open-company")
+	if got != "/Users/eva/open-company/cli/ocagent/ocagent" || !ok {
+		t.Errorf("resolveOcAgentBin = (%q, %v), want the in-tree fallback and true", got, ok)
+	}
+
+	got, ok = resolveOcAgentBin(exe("/Users/eva/.officraft/warden/ocwarden"),
+		present(), "/Users/eva")
+	if got != "/Users/eva/cli/ocagent/ocagent" || ok {
+		t.Errorf("resolveOcAgentBin = (%q, %v), want the guessed path and FALSE", got, ok)
+	}
+
+	got, ok = resolveOcAgentBin(func() (string, error) { return "", errors.New("no /proc/self/exe") },
+		present("/repo/cli/ocagent/ocagent"), "/repo")
+	if got != "/repo/cli/ocagent/ocagent" || !ok {
+		t.Errorf("resolveOcAgentBin = (%q, %v), want the fallback and true", got, ok)
+	}
+}
+
+func TestNewOcAgentResolver(t *testing.T) {
+	root := t.TempDir()
+	exe := stageBinary(t, filepath.Join(root, "cli", "ocwarden", "ocwarden"), "warden-bytes-v1")
+	resolve := newOcAgentResolver(func() (string, error) { return exe, nil }, pathStatable)
+
+	want := filepath.Join(root, "cli", "ocagent", "ocagent")
+	if got, ok := resolve(); got != want || ok {
+		t.Errorf("resolve() = (%q, %v), want (%q, false) before the sibling is downloaded", got, ok, want)
+	}
+
+	stageBinary(t, want, "agent-bytes-v1")
+	if got, ok := resolve(); got != want || !ok {
+		t.Errorf("resolve() = (%q, %v), want (%q, true) once it lands — the answer must not be baked in", got, ok, want)
+	}
+
+	sibling := filepath.Join(root, "cli", "ocwarden", "ocagent")
+	stageBinary(t, sibling, "agent-bytes-v1")
+	if got, ok := resolve(); got != sibling || !ok {
+		t.Errorf("resolve() = (%q, %v), want the sibling %q", got, ok, sibling)
+	}
+}
+
+func TestBuildClaudeCredProbe(t *testing.T) {
+	home := t.TempDir()
+
+	if probe := buildClaudeCredProbe(envMap(map[string]string{"OC_CLAUDE_CRED_CHECK": "0"}), &wardenRunner{}); probe != nil {
+		t.Error("OC_CLAUDE_CRED_CHECK=0 must leave the gate off (a nil probe), not a fabricated verdict")
+	}
+
+	keychainArgv := "security find-generic-password -s Claude Code-credentials"
+	signedOut := &wardenRunner{fallback: wardenRun{err: errors.New("SecKeychainSearchCopyNext: not found")}}
+	probe := buildClaudeCredProbe(envMap(map[string]string{"HOME": home}), signedOut)
+	if probe == nil {
+		t.Fatal("the gate must be wired when nobody disabled it")
+	}
+	got := probe()
+	want := claudeCredStatus{Present: false,
+		Summary: "cred_file=unset keychain=unset ANTHROPIC_API_KEY=unset ANTHROPIC_AUTH_TOKEN=unset " +
+			"CLAUDE_CODE_USE_BEDROCK=unset CLAUDE_CODE_USE_VERTEX=unset"}
+	if got != want {
+		t.Errorf("probe() = %+v, want %+v", got, want)
+	}
+	if !reflect.DeepEqual(signedOut.calls, []string{keychainArgv}) {
+		t.Errorf("ran %v, want the metadata-only keychain lookup %q", signedOut.calls, keychainArgv)
+	}
+
+	stageBinary(t, filepath.Join(home, ".claude", ".credentials.json"), "{}")
+	if got := probe(); !got.Present || !strings.HasPrefix(got.Summary, "cred_file=SET ") {
+		t.Errorf("probe() = %+v, want a present verdict led by cred_file=SET", got)
+	}
+}
+
+func TestBuildSpawnDeps(t *testing.T) {
+	root := t.TempDir()
+	home := filepath.Join(root, "home")
+	claudeBin := stageBinary(t, filepath.Join(root, "bin", "claude"), "#!/bin/sh\n")
+	codexBin := stageBinary(t, filepath.Join(root, "bin", "codex"), "#!/bin/sh\n")
+	t.Setenv("PATH", filepath.Join(root, "nothing-here"))
+	t.Setenv("HOME", home)
+
+	env := envMap(map[string]string{
+		"HOME": home, "OC_CLAUDE_BIN": claudeBin, "OC_CODEX_BIN": codexBin,
+		"OC_AGENT_HOME": filepath.Join(home, "agents"), "OC_AGENT_ENV_FILE": filepath.Join(home, "env"),
+		"OC_AGENT_ENV_INHERIT": "0", "OC_CLAUDE_CRED_CHECK": "0",
 	})
+	runner := &wardenRunner{}
+	deps := buildSpawnDeps(Config{Base: "https://station.example"}, env, runner, "officraft-lab", "lab")
 
-	if gotPath != commandResultPath {
-		t.Fatalf("path = %q, want %q", gotPath, commandResultPath)
+	if deps.Base != "https://station.example" || deps.Socket != "officraft-lab" || deps.Namespace != "lab" {
+		t.Errorf("addressing = (%q, %q, %q), want the station, socket and namespace it was handed",
+			deps.Base, deps.Socket, deps.Namespace)
 	}
-	if gotAuth != "Bearer tok-1" {
-		t.Fatalf("auth = %q, want Bearer tok-1", gotAuth)
+	if deps.Home != filepath.Join(home, "agents") || deps.EnvFile != filepath.Join(home, "env") {
+		t.Errorf("paths = (%q, %q), want the owner's agents root and env file", deps.Home, deps.EnvFile)
 	}
-	// Identity rides the token, not the body. command_result.member_id below is a
-	// legitimate TARGET and stays.
-	if _, present := gotBody["agent_id"]; present {
-		t.Fatalf("receipt must not send agent_id; body = %v", gotBody)
+	if deps.ClaudeBin != claudeBin || deps.CodexBin != codexBin {
+		t.Errorf("bins = (%q, %q), want (%q, %q)", deps.ClaudeBin, deps.CodexBin, claudeBin, codexBin)
 	}
-	cr, ok := gotBody["command_result"].(map[string]any)
-	if !ok {
-		t.Fatalf("command_result missing/not an object: %v", gotBody["command_result"])
+	if deps.Runner != CmdRunner(runner) {
+		t.Error("the shell seam was not the one passed in")
 	}
-	if cr["member_id"] != "m-7" || cr["rpc"] != "stop" || cr["ok"] != true {
-		t.Fatalf("command_result fields wrong: %+v", cr)
+	if deps.CaptureEnv != nil {
+		t.Error("OC_AGENT_ENV_INHERIT=0 must leave the interactive-env capture off")
 	}
-	if cr["at"] != "2026-07-08T00:00:00Z" || cr["log"] != "session=member-m-7: stopped" {
-		t.Fatalf("command_result at/log wrong: %+v", cr)
+	if deps.ClaudeCreds != nil {
+		t.Error("OC_CLAUDE_CRED_CHECK=0 must leave the login gate off")
+	}
+	if deps.Pretrust != nil {
+		t.Error("Pretrust is bound per spawn, so the literal must leave it nil")
+	}
+	if deps.ResolveOcAgentBin == nil {
+		t.Fatal("ResolveOcAgentBin unwired — every spawn would publish a dangling ocagent symlink (T-81)")
+	}
+	if got, _ := deps.ResolveOcAgentBin(); !strings.HasSuffix(got, "ocagent") {
+		t.Errorf("ResolveOcAgentBin() = %q, want a path ending in ocagent", got)
+	}
+	if deps.RepoRoot != resolveRepoRoot(os.Executable) {
+		t.Errorf("RepoRoot = %q, want the three-hop walk from the running executable", deps.RepoRoot)
+	}
+	for name, wired := range map[string]bool{
+		"Logf": deps.Logf != nil, "WriteFile": deps.WriteFile != nil, "MkdirAll": deps.MkdirAll != nil,
+		"Symlink": deps.Symlink != nil, "Remove": deps.Remove != nil, "Sleep": deps.Sleep != nil,
+	} {
+		if !wired {
+			t.Errorf("buildSpawnDeps left %s unwired", name)
+		}
+	}
+
+	inherit := buildSpawnDeps(Config{}, envMap(map[string]string{"HOME": home}), runner, "officraft", "")
+	if inherit.CaptureEnv == nil {
+		t.Error("the interactive-env capture must be on unless the owner turned it off")
+	}
+	if inherit.ClaudeCreds == nil {
+		t.Error("the claude-login gate must be on unless the owner turned it off")
 	}
 }
 
-// TestCommandReporter_PostsWorkerReceipt (T-9ccf): a worker receipt carries a
-// worker_id and NO member_id — the reporter must POST it (not skip it as an
-// unaddressed receipt) with worker_id in the command_result body, so the server
-// can fold the last-op onto the durable worker row.
-func TestCommandReporter_PostsWorkerReceipt(t *testing.T) {
-	var gotBody map[string]any
-	var hits int32
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		atomic.AddInt32(&hits, 1)
-		raw, _ := io.ReadAll(r.Body)
-		_ = json.Unmarshal(raw, &gotBody)
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte(`{"ok":true}`))
-	}))
-	defer srv.Close()
+func TestBuildCommandDeps(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("PATH", filepath.Join(root, "nothing-here"))
+	t.Setenv("HOME", root)
+	env := envMap(map[string]string{"HOME": root, "OC_AGENT_ENV_INHERIT": "0", "OC_CLAUDE_CRED_CHECK": "0"})
 
-	report := newCommandReporter(Config{Base: srv.URL, Token: "tok-1", ID: "agent-9"})
-	if err := report(CommandResult{
-		WorkerID: "ow-1", RPC: "worker_start", OK: false,
-		Reason: "session_already_exists: ...", Log: "session_already_exists: ...",
-		At: "2026-07-08T00:00:00Z",
-	}); err != nil {
-		t.Fatalf("a worker receipt must be delivered (2xx), got %v", err)
+	deps := buildCommandDeps(Config{Base: "https://station.example", Token: jwtWardenOne, ID: "warden-1"},
+		env, &wardenRunner{})
+
+	for name, wired := range map[string]bool{
+		"Spawn": deps.Spawn != nil, "Stop": deps.Stop != nil, "Teardown": deps.Teardown != nil,
+		"Exit": deps.Exit != nil, "Report": deps.Report != nil,
+	} {
+		if !wired {
+			t.Errorf("buildCommandDeps left %s unwired", name)
+		}
 	}
-	if n := atomic.LoadInt32(&hits); n != 1 {
-		t.Fatalf("a worker receipt must POST exactly once, got %d", n)
+	if deps.Update != nil || deps.Renew != nil {
+		t.Error("the update/renew kicks belong to the updater, so this constructor must leave them nil")
 	}
-	cr, ok := gotBody["command_result"].(map[string]any)
-	if !ok {
-		t.Fatalf("command_result missing/not an object: %v", gotBody["command_result"])
-	}
-	if cr["worker_id"] != "ow-1" || cr["rpc"] != "worker_start" || cr["ok"] != false {
-		t.Fatalf("worker command_result fields wrong: %+v", cr)
+
+	homeless := buildCommandDeps(Config{}, envMap(map[string]string{}), &wardenRunner{})
+	ok, log := homeless.Teardown()
+	if ok || log != "[ocwarden teardown] cannot resolve paths: HOME must be set\n" {
+		t.Errorf("Teardown = (%v, %q), want a reported path failure that leaves the warden alive", ok, log)
 	}
 }
 
-// TestCommandReporter_SyncErrorSemantics: the SYNCHRONOUS reporter now RETURNS its
-// delivery verdict (the uninstall self-exit gates on it) — a non-2xx and a dead server
-// are ERRORS (undelivered), while an unaddressed receipt (no token/id, blank member_id/
-// rpc) is a benign nil skip with no POST, and a 2xx is a delivered nil. Never panics/hangs.
-func TestCommandReporter_SyncErrorSemantics(t *testing.T) {
-	// ① non-2xx status → error (the server did NOT record the receipt).
-	srv500 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusInternalServerError)
-	}))
-	defer srv500.Close()
-	if err := newCommandReporter(Config{Base: srv500.URL, Token: "t", ID: "i"})(
-		CommandResult{MemberID: "m", RPC: "stop", At: "2026-07-08T00:00:00Z"}); err == nil {
-		t.Fatal("non-2xx must return an error (undelivered receipt)")
+func TestNewCommandReporter(t *testing.T) {
+	var posted []*http.Request
+	restore := http.DefaultTransport
+	status := 0
+	var dialErr error
+	http.DefaultTransport = roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		posted = append(posted, r)
+		if dialErr != nil {
+			return nil, dialErr
+		}
+		return &http.Response{StatusCode: status, Body: io.NopCloser(strings.NewReader(`{"ok":true}`)),
+			Header: http.Header{}}, nil
+	})
+	t.Cleanup(func() { http.DefaultTransport = restore })
+
+	cfg := Config{Base: "https://station.example", Token: jwtWardenOne, ID: "warden-1"}
+	receipt := CommandResult{MemberID: "m-5", RPC: rpcStop, OK: true, Reason: "stopped",
+		Log: "session=member-m-5: stopped", At: "2026-09-08T10:30:00Z"}
+
+	skipped := []struct {
+		name    string
+		cfg     Config
+		receipt CommandResult
+	}{
+		{"a warden with no credential cannot report", Config{Base: cfg.Base, ID: "warden-1"}, receipt},
+		{"a warden with no identity cannot report", Config{Base: cfg.Base, Token: jwtWardenOne}, receipt},
+		{"an unaddressed receipt is noise", cfg, CommandResult{RPC: rpcStop, OK: true}},
+		{"a blank member and worker id is unaddressed", cfg, CommandResult{MemberID: " ", WorkerID: " ", RPC: rpcStop}},
+		{"a verb-less receipt is noise", cfg, CommandResult{MemberID: "m-5", RPC: "  "}},
+	}
+	for _, c := range skipped {
+		posted = nil
+		status = 200
+		if err := newCommandReporter(c.cfg)(c.receipt); err != nil {
+			t.Errorf("%s: err = %v, want nil", c.name, err)
+		}
+		if len(posted) != 0 {
+			t.Errorf("%s: sent %d receipts, want none", c.name, len(posted))
+		}
 	}
 
-	// ② dead server (connection refused) → transport error → error.
-	if err := newCommandReporter(Config{Base: "http://127.0.0.1:1", Token: "t", ID: "i"})(
-		CommandResult{MemberID: "m", RPC: "stop", At: "2026-07-08T00:00:00Z"}); err == nil {
-		t.Fatal("a dead server must return an error (undelivered receipt)")
+	posted, status = nil, 200
+	if err := newCommandReporter(cfg)(receipt); err != nil {
+		t.Errorf("a 2xx is a delivered receipt, got err = %v", err)
+	}
+	if len(posted) != 1 || posted[0].URL.String() != "https://station.example"+commandResultPath {
+		t.Fatalf("posted %d receipts to %v, want one to %s", len(posted), posted, commandResultPath)
+	}
+	if got := posted[0].Header.Get("Authorization"); got != "Bearer "+jwtWardenOne {
+		t.Errorf("Authorization = %q, want the warden's bearer line", got)
 	}
 
-	// ③ no token/id → skip (no POST attempted) → nil, not an error.
-	var hits int32
-	srvCount := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		atomic.AddInt32(&hits, 1)
-		w.WriteHeader(http.StatusOK)
-	}))
-	defer srvCount.Close()
-	if err := newCommandReporter(Config{Base: srvCount.URL, Token: "", ID: ""})(
-		CommandResult{MemberID: "m", RPC: "stop"}); err != nil {
-		t.Fatalf("no token/id must be a benign nil skip, got %v", err)
-	}
-	// ④ blank member_id/rpc → skip (unaddressed receipt is noise) → nil.
-	if err := newCommandReporter(Config{Base: srvCount.URL, Token: "t", ID: "i"})(
-		CommandResult{MemberID: "  ", RPC: "stop"}); err != nil {
-		t.Fatalf("blank member_id must be a benign nil skip, got %v", err)
-	}
-	if err := newCommandReporter(Config{Base: srvCount.URL, Token: "t", ID: "i"})(
-		CommandResult{MemberID: "m", RPC: ""}); err != nil {
-		t.Fatalf("blank rpc must be a benign nil skip, got %v", err)
-	}
-	if n := atomic.LoadInt32(&hits); n != 0 {
-		t.Fatalf("skip cases must POST nothing, got %d hits", n)
+	posted, status = nil, 422
+	err := newCommandReporter(cfg)(receipt)
+	if err == nil || err.Error() != "command_result POST returned status 422" {
+		t.Errorf("err = %v, want %q", err, "command_result POST returned status 422")
 	}
 
-	// ⑤ a 2xx → nil (delivered) — the uninstall self-exit precondition.
-	srvOK := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-	}))
-	defer srvOK.Close()
-	if err := newCommandReporter(Config{Base: srvOK.URL, Token: "t", ID: "i"})(
-		CommandResult{MemberID: "m", RPC: "uninstall"}); err != nil {
-		t.Fatalf("a 2xx must be a delivered nil, got %v", err)
+	posted, status = nil, 0
+	dialErr = errors.New("dial tcp: connection refused")
+	err = newCommandReporter(cfg)(CommandResult{WorkerID: "ow-9", RPC: rpcWorkerStop, OK: true})
+	if err == nil || err.Error() != "command_result POST returned status 0" {
+		t.Errorf("err = %v, want %q", err, "command_result POST returned status 0")
 	}
+	if len(posted) != 1 {
+		t.Errorf("a worker-addressed receipt was not attempted: %d posts", len(posted))
+	}
+	dialErr = nil
 }
 
-// 方案A (T-c93d): the transport must fire onConnect on a successful (re)connect —
-// main.go wires this to the self-updater's Kick so a reconnect forces an immediate
-// self-update check. mockSSEServer holds the stream open, so exactly one connect
-// happens in the window and the hook fires once.
-func TestTransport_OnConnectFiresOnConnect(t *testing.T) {
-	rec := &recordingDeps{}
-	var conns int32
-	srv := mockSSEServer([]string{": connected\n\n"}, nil, &conns)
-	defer srv.Close()
+func TestNewCommandTransport(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("PATH", filepath.Join(root, "nothing-here"))
+	t.Setenv("HOME", root)
+	env := envMap(map[string]string{"HOME": root, "OC_AGENT_ENV_INHERIT": "0", "OC_CLAUDE_CRED_CHECK": "0"})
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	tr, _ := newTestTransport(rec.deps())
-	tr.base = srv.URL
-	tr.client = srv.Client()
-	tr.sleep = func(time.Duration) {}
-	tr.backoffStart = time.Millisecond
-	tr.backoffCap = time.Millisecond
+	var log []string
+	logf := func(format string, a ...any) { log = append(log, fmt.Sprintf(format, a...)) }
+	tr := newCommandTransport(Config{Base: "https://station.example", Token: jwtWardenOne, ID: "warden-1"},
+		env, &wardenRunner{}, logf)
 
-	kicked := make(chan struct{}, 8)
-	tr.onConnect = func() { kicked <- struct{}{} }
-
-	done := make(chan struct{})
-	go func() { tr.run(ctx); close(done) }()
-
-	select {
-	case <-kicked:
-	case <-time.After(2 * time.Second):
-		t.Fatal("onConnect did not fire on a successful SSE connect within 2s")
+	if tr.base != "https://station.example" || tr.token != jwtWardenOne {
+		t.Errorf("addressing = (%q, ...), want the configured station and its credential", tr.base)
 	}
-	cancel()
-	<-done
+	if tr.backoffStart != time.Second || tr.backoffCap != time.Minute || tr.idleReadTimeout != 45*time.Second {
+		t.Errorf("pacing = (%s, %s, %s), want (1s, 1m0s, 45s)", tr.backoffStart, tr.backoffCap, tr.idleReadTimeout)
+	}
+	if tr.client == nil || tr.client.Timeout != 0 {
+		t.Errorf("an SSE downlink must carry no overall deadline, got %v", tr.client)
+	}
+	if tr.sleep == nil || tr.deps.Spawn == nil || tr.deps.Stop == nil || tr.deps.Report == nil {
+		t.Error("newCommandTransport left the dispatch or backoff seams unwired")
+	}
+	if tr.onConnect != nil {
+		t.Error("the self-update kick is wired by main.go, so this constructor must leave it nil")
+	}
+	tr.logf("hello %s", "there")
+	if !reflect.DeepEqual(log, []string{"hello there"}) {
+		t.Errorf("log = %#v, want [hello there]", log)
+	}
 }

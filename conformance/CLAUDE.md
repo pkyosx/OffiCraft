@@ -26,14 +26,14 @@
 
 - MCP JSON-RPC 的 parse/invalid request/unknown method/invalid params、notification、initialize、tools/list、tools/call、loopback Authorization 都以黑箱驗；`tools/list` 逐元素含順序等於凍結 catalog。`isError` 對應 HTTP status≥400，structuredContent 只在 JSON object 時存在。
 - catalog hash 從 manifest 的非排除 route 以 `METHOD path` 排序、換行、SHA-256 前 16 hex 黑箱重算，對 `/api/version` 與 `/version` 一致。`MCPExclude` 不得以 token 或 caller 旁路。
-- SSE client 用 stream/queue；每個等待先用 HTTP write 觸發事件，不空等 heartbeat。closed topic 集合每次由 `spec/sse.md` 的契約段 fail-loud 解析，再與 trigger 表對質；parser 找不到 heading 或解析零 topic 必須拒跑，不能 fallback 解析更寬的文本。directed bands 不屬 `Publish` closed set，交由各自測試。
+- SSE client 用 stream/queue；每個等待先用 HTTP write 觸發事件，不空等 heartbeat。closed topic 集合每次由產生物 `spec/sse-topics.json`（`bin/gen-sse-topics` 由 `hub.go` 的 `sseTopics` 產生）fail-loud 讀入，再與 trigger 表對質；檔案讀不到、形狀不對或 topics 為空必須拒跑，不能 fallback。不要回頭解析 `spec/sse.md`——那份表是手寫文件，不是權威。directed bands 不屬 `Publish` closed set，交由各自測試。
 - SSE 驗 headers、connected、frame envelope/seq/epoch、delete payload、嚴格發佈序、所有 closed topics、dual-SSE takeover 與 stop gate。對可回顯的 topic 要綁本次 write 的值，不能只驗「有某個舊 frame」；先 drain backlog 的 barrier 要等到靜默，不可用固定 sleep。
 - lifecycle 驗 claim envelope、JWT/TTL、mint floor、boot fold 的 seed bytes/順序、空 block 跳過、overlay-wins、unknown role 與 uninstall intent。黑箱做不到的重啟、heartbeat timing、multi-owner 等要列 `DEGRADED` 和理由，不得 silent skip 或宣稱未測。
 
 ## 5. reply cards 與 tasks
 
 - reply card 狀態機：開卡同時建立 chat link、只有 answer 能關 waiting、一次性 answer、re-answer 只對已回答卡；kind/select_mode/options（含每選項 ai_pick 與其數量上限）/summary 先驗；答覆側的索引清單先正規化（去重＋升冪）再驗範圍與單選卡的數量。pane 的 waiting/answered 排序、badge 與 SSE 回 agent 都是 wire。
-- list 預設是輕量摘要：title/summary、status、decision digest、answer preview、attachment count；body/options/chat message id 需走 full card。`?view=full` 必須是同一 pane 的完整列，未知 view 400；`view` 不向 agent 的 tools/list 宣傳，client 不得假設第三種 shape。
+- list 只有一種 shape，就是輕量摘要：title/summary、status、decision digest、answer preview、attachment count；body/options/chat message id 一律走單張 full card（`get_reply_card`）。`?view=full` 這個投影已經移除（owner 2026-09-07），200 只有一種形狀，client 不得假設第二種 shape。
 - expire 是 answer 以外的終態出口；answered/expired 的再次操作、answer/PUT on expired 必須拒絕，expired delta 與 pane/count 需一致。現行 route floor 與 handler caller rule 以 manifest/source 為準：作者可處理自己的卡，owner/admin 不因此能改已回答卡；不要把舊 owner-only 文字抄回來。
 - task lifecycle 驗 dedupe、required inputs、plan/step/gate/card binding、合法 transition、waiting_owner／waiting_external 原因、deps、task message、closeout、manual CRUD 與終態防呼。答卡只解除 hold，不替 agent 推進工作進度；replan 要保留已答卡節點為 superseded，並正確計 progress。
 - `get_my_task` 已退役，不能在 tools/list、HTTP 或 seed 留殘影；以 `get_task`／`report_waking` 的陽性對照確認不是整個 self surface 消失。task routes 的數量以 manifest set coverage 讀回，不在文件或測試手抄。

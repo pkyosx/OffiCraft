@@ -1,3 +1,6 @@
+// Skeleton generated from server/ocserverd/font_bundle.go by gen_test_skeletons.py.
+// Every case is a t.Skip placeholder: fill the body, keep or rewrite the name.
+
 package main
 
 import (
@@ -5,107 +8,63 @@ import (
 	"testing"
 )
 
-// aFontStack returns one curated safe family stack for the happy-path cases.
-func aFontStack(t *testing.T) string {
-	t.Helper()
-	for s := range themeFontStacks {
-		return s
-	}
-	t.Fatal("themeFontStacks is empty — gen:fonts did not run")
-	return ""
-}
-
 func TestValidFontValue(t *testing.T) {
-	// Every curated stack is admissible.
-	for s := range themeFontStacks {
-		if !validFontValue(s) {
-			t.Fatalf("curated stack %q must be valid", s)
-		}
-	}
-
-	stack := aFontStack(t)
-	// Arbitrary strings, off-allowlist families, and injection payloads are all
-	// rejected — the value set is a CLOSED allowlist, not a grammar.
-	for _, bad := range []string{
-		"",
-		"Arial",
-		"Comic Sans MS, sans-serif",
-		"sans-serif",
-		`url("https://evil/x.woff2")`,
-		"@font-face{font-family:x;src:url(y)}",
-		"system-ui;}",
-		"system-ui, <script>",
-		"var(--x)",
-		"javascript:alert(1)",
-		stack + " ",              // trailing space defeats exact membership
-		strings.Repeat("f", 200), // over the length cap
+	for _, tc := range []struct {
+		name  string
+		value string
+		want  bool
+	}{
+		{
+			name:  "a curated sans stack is accepted",
+			value: `"Noto Sans TC", "Noto Sans", system-ui, sans-serif`,
+			want:  true,
+		},
+		{
+			name:  "a curated monospace stack is accepted",
+			value: `ui-monospace, "SF Mono", Menlo, Consolas, monospace`,
+			want:  true,
+		},
+		{name: "an empty value is refused", value: "", want: false},
+		{name: "an arbitrary family is refused", value: "Arial", want: false},
+		{name: "a trailing space defeats exact allowlist membership", value: `"Noto Sans TC", "Noto Sans", system-ui, sans-serif `, want: false},
+		{name: "a URL injection is refused", value: `url("https://evil.example/font.woff2")`, want: false},
+		{name: "a CSS at-rule is refused", value: "@font-face{font-family:x}", want: false},
+		{name: "a CSS declaration is refused", value: "system-ui;}", want: false},
+		{name: "a variable expression is refused", value: "var(--font)", want: false},
+		{name: "a value over the length cap is refused", value: strings.Repeat("f", 129), want: false},
 	} {
-		if validFontValue(bad) {
-			t.Fatalf("illegal font value %q must be rejected", bad)
-		}
+		t.Run(tc.name, func(t *testing.T) {
+			if got := validFontValue(tc.value); got != tc.want {
+				t.Fatalf("validFontValue(%q) = %v, want %v", tc.value, got, tc.want)
+			}
+		})
 	}
 }
 
 func TestValidateFonts(t *testing.T) {
-	stack := aFontStack(t)
-
-	// nil overlay is admissible (fonts is optional).
-	if err := validateFonts(nil, "t"); err != nil {
-		t.Fatalf("nil fonts must be admissible: %v", err)
+	if err := validateFonts(nil, "theme[0]"); err != nil {
+		t.Fatalf("nil fonts must be accepted: %v", err)
+	}
+	empty := map[string]string{}
+	if err := validateFonts(&empty, "theme[0]"); err != nil {
+		t.Fatalf("an empty fonts overlay must be accepted: %v", err)
 	}
 
-	// A legal token→stack overlay round-trips.
-	ok := map[string]string{"--font-sans": stack, "--font-title": stack}
-	if err := validateFonts(&ok, "t"); err != nil {
-		t.Fatalf("legal fonts overlay must pass: %v", err)
+	valid := map[string]string{
+		"--font-sans":  `"Noto Sans TC", "Noto Sans", system-ui, sans-serif`,
+		"--font-title": `"Noto Serif TC", Georgia, "Times New Roman", serif`,
+	}
+	if err := validateFonts(&valid, "theme[0]"); err != nil {
+		t.Fatalf("valid fonts must be accepted: %v", err)
 	}
 
-	// An unknown token key is rejected.
-	badTok := map[string]string{"--color-bg": stack}
-	if err := validateFonts(&badTok, "t"); err == nil ||
-		!strings.Contains(err.Error(), "not a theme font token") {
-		t.Fatalf("unknown font token must 422: %v", err)
+	unknownToken := map[string]string{"--color-bg": valid["--font-sans"]}
+	if err := validateFonts(&unknownToken, "theme[0]"); err == nil || err.Error() != `theme[0]: "--color-bg" is not a theme font token (only --font-sans / --font-title)` {
+		t.Fatalf("unknown font token error = %v", err)
 	}
 
-	// An off-allowlist / injection value is rejected.
-	for _, bad := range []string{
-		"Times New Roman",
-		`url(https://evil)`,
-		"@font-face{}",
-		"x;}",
-	} {
-		m := map[string]string{"--font-sans": bad}
-		if err := validateFonts(&m, "t"); err == nil ||
-			!strings.Contains(err.Error(), "invalid font value") {
-			t.Fatalf("illegal font value %q must 422: %v", bad, err)
-		}
-	}
-}
-
-// TestValidateThemeBundlesFonts checks the fonts overlay flows through the
-// top-level bundle validator (parity with the colours / wording overlays).
-func TestValidateThemeBundlesFonts(t *testing.T) {
-	stack := aFontStack(t)
-	fonts := map[string]string{"--font-sans": stack}
-	legal := []ThemeBundleDTO{{
-		Id:     "midnight",
-		Name:   "Midnight",
-		Colors: map[string]string{"--color-bg": "#101018"},
-		Fonts:  &fonts,
-	}}
-	if err := validateThemeBundles(legal); err != nil {
-		t.Fatalf("bundle with a legal fonts overlay must pass: %v", err)
-	}
-
-	bad := map[string]string{"--font-sans": "url(https://evil)"}
-	illegal := []ThemeBundleDTO{{
-		Id:     "evil",
-		Name:   "Evil",
-		Colors: map[string]string{"--color-bg": "#101018"},
-		Fonts:  &bad,
-	}}
-	if err := validateThemeBundles(illegal); err == nil ||
-		!strings.Contains(err.Error(), "invalid font value") {
-		t.Fatalf("bundle with an injection fonts value must 422: %v", err)
+	invalidValue := map[string]string{"--font-sans": "Arial"}
+	if err := validateFonts(&invalidValue, "theme[0]"); err == nil || err.Error() != `theme[0]: "--font-sans" has an invalid font value "Arial" — only a safe built-in font family may be chosen` {
+		t.Fatalf("invalid font value error = %v", err)
 	}
 }

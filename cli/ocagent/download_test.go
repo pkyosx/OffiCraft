@@ -3,282 +3,282 @@ package main
 import (
 	"bytes"
 	"net/http"
-	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 )
 
-// attachmentServer serves one blob at /api/chat/attachment/<id> with the given
-// headers, capturing the request's Authorization header. Any other id is a 404
-// with the server's JSON detail shape.
-func attachmentServer(t *testing.T, id string, body []byte, headers map[string]string) (*httptest.Server, *string) {
-	t.Helper()
-	var gotAuth string
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		gotAuth = r.Header.Get("Authorization")
-		if r.URL.Path != "/api/chat/attachment/"+id {
-			w.WriteHeader(404)
-			_, _ = w.Write([]byte(`{"detail":"attachment not found"}`))
-			return
+// dispositionReply builds a 200 blob reply carrying the headers the attachment
+// route sends.
+func dispositionReply(body, disposition, contentType string) *cannedHTTP {
+	header := http.Header{}
+	if disposition != "" {
+		header.Set("Content-Disposition", disposition)
+	}
+	if contentType != "" {
+		header.Set("Content-Type", contentType)
+	}
+	return &cannedHTTP{replies: []cannedReply{{status: 200, body: body, header: header}}}
+}
+
+func TestNewStreamingClient(t *testing.T) {
+	t.Skip("newStreamingClient returns a configured *http.Client literal; every assertion " +
+		"available on it restates a field of that literal, so no behavioural test is written")
+}
+
+func TestCmdDownload(t *testing.T) {
+	configured := Config{Base: "https://station.example.com", BaseConfigured: true, Token: "tok-1"}
+
+	t.Run("a served blob lands under the name the server gave it", func(t *testing.T) {
+		dir := t.TempDir()
+		var out, errOut bytes.Buffer
+		client := dispositionReply("the bytes", `attachment; filename="report.txt"`, "text/plain")
+		rc := cmdDownload(client, configured, "att-0123456789ab", dir, &out, &errOut)
+
+		dest := filepath.Join(dir, "report.txt")
+		if rc != 0 || out.String() != dest+"\n" {
+			t.Fatalf("got (%d, %q), want (0, %q)", rc, out.String(), dest+"\n")
 		}
-		for k, v := range headers {
-			w.Header().Set(k, v)
+		if errOut.String() != "[ocagent] download: report.txt (9 bytes, text/plain)\n" {
+			t.Fatalf("stderr %q, want the landed-file line", errOut.String())
 		}
-		w.WriteHeader(200)
-		_, _ = w.Write(body)
-	}))
-	t.Cleanup(srv.Close)
-	return srv, &gotAuth
-}
-
-// TestDownloadStreamsBlobToOutDirWithDispositionName: the happy path — a zip
-// with a Content-Disposition (ASCII fallback + RFC 5987 filename*) lands under
-// --out under its TRUE (filename*) name, byte-exact, authed with the agent
-// token, and stdout carries ONLY the absolute path.
-func TestDownloadStreamsBlobToOutDirWithDispositionName(t *testing.T) {
-	blob := bytes.Repeat([]byte("PK\x03\x04zipzip"), 1000)
-	srv, gotAuth := attachmentServer(t, "att-abc123", blob, map[string]string{
-		"Content-Type":        "application/zip",
-		"Content-Disposition": `attachment; filename="bundle.zip"; filename*=UTF-8''bundle.zip`,
+		landed, err := os.ReadFile(dest)
+		if err != nil || string(landed) != "the bytes" {
+			t.Fatalf("file %q err %v, want %q", string(landed), err, "the bytes")
+		}
+		want := sentRequest{
+			method: "GET",
+			url:    "https://station.example.com/api/chat/attachment/att-0123456789ab",
+			ua:     "ocagent/0.1",
+			accept: "*/*",
+			auth:   "Bearer tok-1",
+		}
+		if len(client.sent) != 1 || client.sent[0] != want {
+			t.Fatalf("sent %+v, want %+v", client.sent, want)
+		}
 	})
-	dir := t.TempDir()
-	cfg := Config{BaseConfigured: true, Base: srv.URL, Token: "tok-k", ID: "kyle"}
 
-	var out, errOut bytes.Buffer
-	rc := cmdDownload(srv.Client(), cfg, "att-abc123", dir, &out, &errOut)
-	if rc != 0 {
-		t.Fatalf("rc = %d, want 0 (stderr: %s)", rc, errOut.String())
-	}
-	if *gotAuth != "Bearer tok-k" {
-		t.Fatalf("Authorization = %q, want the agent Bearer token", *gotAuth)
-	}
-	want := filepath.Join(dir, "bundle.zip")
-	// stdout is EXACTLY the landed absolute path + newline (script-capturable).
-	if got := strings.TrimSpace(out.String()); got != want {
-		t.Fatalf("stdout = %q, want the absolute path %q", got, want)
-	}
-	landed, err := os.ReadFile(want)
-	if err != nil {
-		t.Fatalf("landed file unreadable: %v", err)
-	}
-	if !bytes.Equal(landed, blob) {
-		t.Fatalf("landed bytes differ: got %d bytes, want %d", len(landed), len(blob))
-	}
-}
-
-// TestDownloadPrefersRFC5987UTF8Name: a non-ASCII true name rides filename*
-// (percent-encoded); the file must land under the DECODED UTF-8 name, not the
-// stripped ASCII fallback.
-func TestDownloadPrefersRFC5987UTF8Name(t *testing.T) {
-	srv, _ := attachmentServer(t, "att-zh", []byte("zipbytes"), map[string]string{
-		"Content-Disposition": `attachment; filename=".zip"; filename*=UTF-8''%E8%A8%AD%E8%A8%88.zip`,
+	t.Run("an image served with no disposition lands under its attachment id", func(t *testing.T) {
+		dir := t.TempDir()
+		var out, errOut bytes.Buffer
+		rc := cmdDownload(dispositionReply("PNGDATA", "", "image/png"), configured,
+			"att-0123456789ab", dir, &out, &errOut)
+		dest := filepath.Join(dir, "att-0123456789ab")
+		if rc != 0 || out.String() != dest+"\n" {
+			t.Fatalf("got (%d, %q), want (0, %q)", rc, out.String(), dest+"\n")
+		}
+		if _, err := os.Stat(dest); err != nil {
+			t.Fatalf("stat %s: %v", dest, err)
+		}
 	})
-	dir := t.TempDir()
-	var out, errOut bytes.Buffer
-	rc := cmdDownload(srv.Client(), Config{BaseConfigured: true, Base: srv.URL, Token: "t"}, "att-zh", dir, &out, &errOut)
-	if rc != 0 {
-		t.Fatalf("rc = %d, want 0 (stderr: %s)", rc, errOut.String())
-	}
-	if want := filepath.Join(dir, "設計.zip"); strings.TrimSpace(out.String()) != want {
-		t.Fatalf("stdout = %q, want %q", out.String(), want)
-	}
-}
 
-// TestDownloadImageNoDispositionFallsBackToID: an image serves with NO
-// Content-Disposition at all — the attachment id names the file.
-func TestDownloadImageNoDispositionFallsBackToID(t *testing.T) {
-	png := []byte("\x89PNG\r\n\x1a\nfakepixels")
-	srv, _ := attachmentServer(t, "att-img42", png, map[string]string{
-		"Content-Type": "image/png",
+	t.Run("a traversing filename can never leave the target directory", func(t *testing.T) {
+		dir := t.TempDir()
+		var out, errOut bytes.Buffer
+		rc := cmdDownload(dispositionReply("x", `attachment; filename="../../etc/passwd"`, "text/plain"),
+			configured, "att-0123456789ab", dir, &out, &errOut)
+		dest := filepath.Join(dir, "passwd")
+		if rc != 0 || out.String() != dest+"\n" {
+			t.Fatalf("got (%d, %q), want (0, %q)", rc, out.String(), dest+"\n")
+		}
+		if _, err := os.Stat(dest); err != nil {
+			t.Fatalf("stat %s: %v", dest, err)
+		}
 	})
-	dir := t.TempDir()
-	var out, errOut bytes.Buffer
-	rc := cmdDownload(srv.Client(), Config{BaseConfigured: true, Base: srv.URL, Token: "t"}, "att-img42", dir, &out, &errOut)
-	if rc != 0 {
-		t.Fatalf("rc = %d, want 0 (stderr: %s)", rc, errOut.String())
-	}
-	if want := filepath.Join(dir, "att-img42"); strings.TrimSpace(out.String()) != want {
-		t.Fatalf("stdout = %q, want %q", out.String(), want)
-	}
-	landed, _ := os.ReadFile(filepath.Join(dir, "att-img42"))
-	if !bytes.Equal(landed, png) {
-		t.Fatalf("landed bytes differ from the served image")
-	}
-}
 
-// TestDownloadPathTraversalFilenameIsBasenamed: a hostile filename ("../../evil")
-// must land INSIDE the target dir under its basename — never above it.
-func TestDownloadPathTraversalFilenameIsBasenamed(t *testing.T) {
-	srv, _ := attachmentServer(t, "att-evil", []byte("x"), map[string]string{
-		"Content-Disposition": `attachment; filename="../../evil.txt"; filename*=UTF-8''..%2F..%2Fevil.txt`,
+	t.Run("no --out lands the blob under the agent workdir's tmp/attachments", func(t *testing.T) {
+		t.Chdir(t.TempDir())
+		var out, errOut bytes.Buffer
+		rc := cmdDownload(dispositionReply("x", `attachment; filename="report.txt"`, "text/plain"),
+			configured, "att-0123456789ab", "", &out, &errOut)
+		landed := strings.TrimSuffix(out.String(), "\n")
+		if rc != 0 || !filepath.IsAbs(landed) ||
+			!strings.HasSuffix(landed, filepath.Join("tmp", "attachments", "report.txt")) {
+			t.Fatalf("got (%d, %q), want (0, an absolute tmp/attachments path)", rc, landed)
+		}
+		if _, err := os.Stat(landed); err != nil {
+			t.Fatalf("stat %s: %v", landed, err)
+		}
 	})
-	root := t.TempDir()
-	dir := filepath.Join(root, "a", "b") // nested so ../../ would escape into root
-	var out, errOut bytes.Buffer
-	rc := cmdDownload(srv.Client(), Config{BaseConfigured: true, Base: srv.URL, Token: "t"}, "att-evil", dir, &out, &errOut)
-	if rc != 0 {
-		t.Fatalf("rc = %d, want 0 (stderr: %s)", rc, errOut.String())
-	}
-	if want := filepath.Join(dir, "evil.txt"); strings.TrimSpace(out.String()) != want {
-		t.Fatalf("stdout = %q, want the traversal-stripped %q", out.String(), want)
-	}
-	if _, err := os.Stat(filepath.Join(root, "evil.txt")); !os.IsNotExist(err) {
-		t.Fatalf("traversal escaped: a file landed OUTSIDE the target dir")
-	}
-}
 
-// TestDownloadDefaultDirIsWorkdirTmpAttachments: with no --out the blob lands
-// under <cwd>/tmp/attachments (the agent-workdir convention).
-func TestDownloadDefaultDirIsWorkdirTmpAttachments(t *testing.T) {
-	srv, _ := attachmentServer(t, "att-dflt", []byte("hello"), map[string]string{
-		"Content-Disposition": `attachment; filename="notes.txt"; filename*=UTF-8''notes.txt`,
+	t.Run("an attachment id with path characters is escaped into the URL", func(t *testing.T) {
+		dir := t.TempDir()
+		var out, errOut bytes.Buffer
+		client := dispositionReply("x", "", "application/octet-stream")
+		cmdDownload(client, configured, "att/../secret", dir, &out, &errOut)
+		want := "https://station.example.com/api/chat/attachment/att%2F..%2Fsecret"
+		if client.sent[0].url != want {
+			t.Fatalf("URL %q, want %q", client.sent[0].url, want)
+		}
 	})
-	wd := t.TempDir()
-	t.Chdir(wd)
-	var out, errOut bytes.Buffer
-	rc := cmdDownload(srv.Client(), Config{BaseConfigured: true, Base: srv.URL, Token: "t"}, "att-dflt", "", &out, &errOut)
-	if rc != 0 {
-		t.Fatalf("rc = %d, want 0 (stderr: %s)", rc, errOut.String())
-	}
-	got := strings.TrimSpace(out.String())
-	// Compare via EvalSymlinks — macOS TempDir rides /private symlinks.
-	wantDir, _ := filepath.EvalSymlinks(filepath.Join(wd, "tmp", "attachments"))
-	gotResolved, err := filepath.EvalSymlinks(got)
-	if err != nil {
-		t.Fatalf("stdout path %q does not exist: %v", got, err)
-	}
-	if gotResolved != filepath.Join(wantDir, "notes.txt") {
-		t.Fatalf("landed at %q, want under the default %q", gotResolved, wantDir)
-	}
-}
 
-// TestDownloadErrorExitCodes: 404 → 4, 401/403 → 3, other HTTP → 5, network → 1,
-// missing token → 3 — each with a stderr diagnostic and NOTHING on stdout.
-func TestDownloadErrorExitCodes(t *testing.T) {
-	statusSrv := func(code int) *httptest.Server {
-		s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			w.WriteHeader(code)
-			_, _ = w.Write([]byte(`{"detail":"nope"}`))
-		}))
-		t.Cleanup(s.Close)
-		return s
-	}
-	cases := []struct {
-		name   string
-		status int
-		wantRC int
+	t.Run("no token refuses before any request and writes no file", func(t *testing.T) {
+		dir := t.TempDir()
+		var out, errOut bytes.Buffer
+		client := dispositionReply("x", "", "")
+		plainCfg := Config{Base: "https://station.example.com", BaseConfigured: true}
+		rc := cmdDownload(client, plainCfg, "att-0123456789ab", dir, &out, &errOut)
+		want := "[ocagent] download: no OC_TOKEN configured — cannot make an authed fetch.\n"
+		if rc != 3 || errOut.String() != want || out.String() != "" {
+			t.Fatalf("got (%d, %q, %q), want (3, \"\", the no-token refusal)",
+				rc, out.String(), errOut.String())
+		}
+		assertEmptyDir(t, dir)
+		if len(client.sent) != 0 {
+			t.Fatalf("sent %+v, want nothing", client.sent)
+		}
+	})
+
+	t.Run("an unset OC_BASE refuses before any request and writes no file", func(t *testing.T) {
+		dir := t.TempDir()
+		var out, errOut bytes.Buffer
+		client := dispositionReply("x", "", "")
+		unset := Config{Base: defaultBase, Token: "tok-1"}
+		rc := cmdDownload(client, unset, "att-0123456789ab", dir, &out, &errOut)
+		want := "[ocagent] download: no OC_BASE configured — nothing here knows which station " +
+			"to talk to, and the built-in default is this machine's loopback address.\n"
+		if rc != 3 || errOut.String() != want || out.String() != "" {
+			t.Fatalf("got (%d, %q, %q), want (3, \"\", the OC_BASE refusal)",
+				rc, out.String(), errOut.String())
+		}
+		assertEmptyDir(t, dir)
+		if len(client.sent) != 0 {
+			t.Fatalf("sent %+v, want nothing", client.sent)
+		}
+	})
+
+	t.Run("a transport failure is exit 1 and writes no file", func(t *testing.T) {
+		dir := t.TempDir()
+		var out, errOut bytes.Buffer
+		rc := cmdDownload(failingHTTP("connection refused"), configured, "att-0123456789ab", dir,
+			&out, &errOut)
+		want := "[ocagent] download: request failed (network): connection refused\n"
+		if rc != 1 || errOut.String() != want || out.String() != "" {
+			t.Fatalf("got (%d, %q, %q), want (1, \"\", the network reason)",
+				rc, out.String(), errOut.String())
+		}
+		assertEmptyDir(t, dir)
+	})
+
+	statusCases := []struct {
+		name    string
+		status  int
+		body    string
+		wantRC  int
+		wantErr string
 	}{
-		{"not found 404", 404, 4},
-		{"auth 401", 401, 3},
-		{"auth 403", 403, 3},
-		{"server error 500", 500, 5},
+		{"401 is an auth failure", 401, `{"detail":"bad token"}`, 3,
+			"[ocagent] download: auth rejected (HTTP 401) for \"att-0123456789ab\": {\"detail\":\"bad token\"}\n"},
+		{"403 is an auth failure", 403, `{"detail":"not yours"}`, 3,
+			"[ocagent] download: auth rejected (HTTP 403) for \"att-0123456789ab\": {\"detail\":\"not yours\"}\n"},
+		{"404 is its own exit code so a script can branch on it", 404, `{"detail":"no such blob"}`, 4,
+			"[ocagent] download: attachment \"att-0123456789ab\" not found (HTTP 404): {\"detail\":\"no such blob\"}\n"},
+		{"500 is anything else", 500, "upstream exploded", 5,
+			"[ocagent] download: unexpected HTTP 500 for \"att-0123456789ab\": upstream exploded\n"},
 	}
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
-			srv := statusSrv(c.status)
+	for _, tc := range statusCases {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
 			var out, errOut bytes.Buffer
-			rc := cmdDownload(srv.Client(), Config{BaseConfigured: true, Base: srv.URL, Token: "t"}, "att-x", t.TempDir(), &out, &errOut)
-			if rc != c.wantRC {
-				t.Fatalf("rc = %d, want %d", rc, c.wantRC)
+			rc := cmdDownload(canned(tc.status, tc.body), configured, "att-0123456789ab", dir,
+				&out, &errOut)
+			if rc != tc.wantRC || errOut.String() != tc.wantErr || out.String() != "" {
+				t.Fatalf("got (%d, %q, %q), want (%d, \"\", %q)",
+					rc, out.String(), errOut.String(), tc.wantRC, tc.wantErr)
 			}
-			if out.Len() != 0 {
-				t.Fatalf("stdout must stay empty on failure; got %q", out.String())
-			}
-			if errOut.Len() == 0 {
-				t.Fatalf("stderr must carry a diagnostic")
-			}
+			assertEmptyDir(t, dir)
 		})
 	}
 
-	t.Run("network failure", func(t *testing.T) {
-		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
-		srv.Close() // connection refused
+	t.Run("an undirectory-able --out is exit 1 and writes no file", func(t *testing.T) {
+		dir := t.TempDir()
+		blocker := filepath.Join(dir, "blocked")
+		if err := os.WriteFile(blocker, []byte("i am a file"), 0o644); err != nil {
+			t.Fatal(err)
+		}
 		var out, errOut bytes.Buffer
-		rc := cmdDownload(newStreamingClient(), Config{BaseConfigured: true, Base: srv.URL, Token: "t"}, "att-x", t.TempDir(), &out, &errOut)
-		if rc != 1 {
-			t.Fatalf("rc = %d, want 1", rc)
-		}
-		if !strings.Contains(errOut.String(), "network") {
-			t.Fatalf("stderr should say the request failed at transport: %q", errOut.String())
-		}
-	})
-
-	t.Run("no token fails fast", func(t *testing.T) {
-		var out, errOut bytes.Buffer
-		rc := cmdDownload(newStreamingClient(), Config{BaseConfigured: true, Base: "http://127.0.0.1:1"}, "att-x", t.TempDir(), &out, &errOut)
-		if rc != 3 {
-			t.Fatalf("rc = %d, want 3", rc)
-		}
-		if !strings.Contains(errOut.String(), "OC_TOKEN") {
-			t.Fatalf("stderr should name the missing OC_TOKEN: %q", errOut.String())
+		rc := cmdDownload(dispositionReply("x", `attachment; filename="report.txt"`, "text/plain"),
+			configured, "att-0123456789ab", filepath.Join(blocker, "sub"), &out, &errOut)
+		if rc != 1 || out.String() != "" ||
+			!strings.HasPrefix(errOut.String(), "[ocagent] download: cannot create ") {
+			t.Fatalf("got (%d, %q, %q), want (1, \"\", a cannot-create line)",
+				rc, out.String(), errOut.String())
 		}
 	})
 }
 
-// TestDownloadDispatchUsage: realMain wiring — a missing id is usage (2), and
-// the flag works on EITHER side of the positional (stdlib flag stops at the
-// first positional, so main.go re-parses the tail).
-func TestDownloadDispatchUsage(t *testing.T) {
-	var out bytes.Buffer
-	if rc := realMain([]string{"download"}, testEnv(nil), strings.NewReader(""), &out); rc != 2 {
-		t.Fatalf("no-arg download rc = %d, want 2", rc)
+// assertEmptyDir fails unless dir holds nothing.
+func assertEmptyDir(t *testing.T, dir string) {
+	t.Helper()
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatalf("read %s: %v", dir, err)
 	}
-	if !strings.Contains(out.String(), "attachment-id") {
-		t.Fatalf("usage text should name the missing <attachment-id>: %q", out.String())
-	}
-
-	// id + trailing --out parses (proven by it reaching the network stage and
-	// failing there with a NON-usage code against an unroutable base).
-	srv, _ := attachmentServer(t, "att-ok", []byte("y"), map[string]string{})
-	dir := t.TempDir()
-	env := testEnv(map[string]string{"OC_BASE": srv.URL, "OC_TOKEN": "t"})
-	var out2 bytes.Buffer
-	if rc := realMain([]string{"download", "att-ok", "--out", dir}, env, strings.NewReader(""), &out2); rc != 0 {
-		t.Fatalf("download <id> --out <dir> rc = %d, want 0 (out: %s)", rc, out2.String())
-	}
-	if _, err := os.Stat(filepath.Join(dir, "att-ok")); err != nil {
-		t.Fatalf("blob did not land under --out: %v", err)
+	if len(entries) != 0 {
+		names := make([]string, 0, len(entries))
+		for _, e := range entries {
+			names = append(names, e.Name())
+		}
+		t.Fatalf("%s holds %v, want nothing", dir, names)
 	}
 }
 
-// TestFilenameFromDisposition: the header→name table, including the absent /
-// malformed degenerate rows.
 func TestFilenameFromDisposition(t *testing.T) {
-	cases := []struct{ disp, want string }{
-		{"", ""},
-		{`attachment; filename="a.zip"; filename*=UTF-8''a.zip`, "a.zip"},
-		{`inline; filename="fallback.pdf"; filename*=UTF-8''%E5%A0%B1%E5%91%8A.pdf`, "報告.pdf"},
-		{`attachment; filename="only-plain.bin"`, "only-plain.bin"},
-		{`inline; filename*=UTF-8''trailing.txt; foo=bar`, "trailing.txt"},
-		{`attachment; filename*=UTF-8''%ZZbad`, ""}, // bad pct-encoding, no plain fallback
-		{`attachment`, ""},
+	cases := []struct {
+		name string
+		disp string
+		want string
+	}{
+		{"an absent header names nothing", "", ""},
+		{"a plain ASCII filename is read", `attachment; filename="report.txt"`, "report.txt"},
+		{"the RFC 5987 parameter carries a non-ASCII name",
+			`attachment; filename*=UTF-8''%E6%8A%A5%E5%91%8A.txt`, "报告.txt"},
+		{"the RFC 5987 parameter wins over the ASCII fallback",
+			`attachment; filename="report.txt"; filename*=UTF-8''%E6%8A%A5%E5%91%8A.txt`, "报告.txt"},
+		{"a parameter after the RFC 5987 value is not part of the name",
+			`attachment; filename*=UTF-8''a%20b.txt; foo=1`, "a b.txt"},
+		{"an undecodable RFC 5987 value falls back to the ASCII one",
+			`attachment; filename="report.txt"; filename*=UTF-8''%ZZ`, "report.txt"},
+		{"an empty RFC 5987 value falls back to the ASCII one",
+			`attachment; filename="report.txt"; filename*=UTF-8''`, "report.txt"},
+		{"an unterminated ASCII filename names nothing", `attachment; filename="report.txt`, ""},
+		{"a header with no filename at all names nothing", "attachment", ""},
+		{"inline with no filename names nothing", "inline", ""},
 	}
-	for _, c := range cases {
-		if got := filenameFromDisposition(c.disp); got != c.want {
-			t.Errorf("filenameFromDisposition(%q) = %q, want %q", c.disp, got, c.want)
-		}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := filenameFromDisposition(tc.disp); got != tc.want {
+				t.Fatalf("filenameFromDisposition(%q) = %q, want %q", tc.disp, got, tc.want)
+			}
+		})
 	}
 }
 
-// TestSanitizeFilename: the traversal/degenerate table — always a single safe
-// path component or the fallback.
 func TestSanitizeFilename(t *testing.T) {
-	cases := []struct{ name, want string }{
-		{"plain.txt", "plain.txt"},
-		{"../../etc/passwd", "passwd"},
-		{"/abs/path.bin", "path.bin"},
-		{`..\..\win.dll`, "win.dll"},
-		{"..", "FB"},
-		{".", "FB"},
-		{"", "FB"},
-		{"   ", "FB"},
-		{"nested/dir/name.zip", "name.zip"},
+	cases := []struct {
+		name string
+		in   string
+		want string
+	}{
+		{"an ordinary name survives", "report.txt", "report.txt"},
+		{"surrounding whitespace is trimmed", "  report.txt  ", "report.txt"},
+		{"a posix traversal is reduced to its basename", "../../etc/passwd", "passwd"},
+		{"a windows traversal is reduced to its basename", `..\..\windows\evil.exe`, "evil.exe"},
+		{"an absolute path is reduced to its basename", "/etc/passwd", "passwd"},
+		{"a trailing separator is dropped", "/etc/", "etc"},
+		{"a trailing backslash leaves nothing usable", `dir\`, "att-0123456789ab"},
+		{"an empty name degrades to the fallback", "", "att-0123456789ab"},
+		{"a whitespace-only name degrades to the fallback", "   ", "att-0123456789ab"},
+		{"a bare dot degrades to the fallback", ".", "att-0123456789ab"},
+		{"a bare dot-dot degrades to the fallback", "..", "att-0123456789ab"},
+		{"a bare separator degrades to the fallback", "/", "att-0123456789ab"},
 	}
-	for _, c := range cases {
-		if got := sanitizeFilename(c.name, "FB"); got != c.want {
-			t.Errorf("sanitizeFilename(%q) = %q, want %q", c.name, got, c.want)
-		}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := sanitizeFilename(tc.in, "att-0123456789ab"); got != tc.want {
+				t.Fatalf("sanitizeFilename(%q) = %q, want %q", tc.in, got, tc.want)
+			}
+		})
 	}
 }

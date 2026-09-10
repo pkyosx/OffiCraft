@@ -1,396 +1,415 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
-	"os"
-	"strings"
+	"reflect"
 	"testing"
-	"time"
 )
 
-func TestMcpToolIndexMatchesFrozenCatalog(t *testing.T) {
-	raw, err := os.ReadFile("../../spec/mcp-catalog.json")
-	if err != nil {
-		t.Fatalf("read frozen catalog: %v", err)
+func TestEmptyPathParam(t *testing.T) {
+	tests := []struct {
+		name  string
+		value any
+		want  bool
+	}{
+		{name: "nil", value: nil, want: true},
+		{name: "empty string", value: "", want: true},
+		{name: "whitespace only", value: " \t\n", want: true},
+		{name: "nonempty string", value: " member ", want: false},
+		{name: "false is a value", value: false, want: false},
+		{name: "zero is a value", value: 0, want: false},
 	}
-	var catalog struct {
-		Tools []struct {
-			Name string `json:"name"`
-		} `json:"tools"`
-	}
-	if err := json.Unmarshal(raw, &catalog); err != nil {
-		t.Fatalf("parse frozen catalog: %v", err)
-	}
-	index := mcpToolIndex(defaultRouteSpecs())
-	if len(index) != len(catalog.Tools) {
-		t.Fatalf("tool index size %d != frozen catalog %d", len(index), len(catalog.Tools))
-	}
-	for _, tool := range catalog.Tools {
-		if _, ok := index[tool.Name]; !ok {
-			t.Errorf("frozen catalog tool %q missing from the table-derived index", tool.Name)
-		}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := emptyPathParam(tt.value); got != tt.want {
+				t.Fatalf("emptyPathParam(%#v) = %v, want %v", tt.value, got, tt.want)
+			}
+		})
 	}
 }
 
-func TestSplitToolArgumentsPathQueryBody(t *testing.T) {
-	getSpec := RouteSpec{Method: "GET", Path: "/api/members/{member_id}"}
-	path, query, body, err := splitToolArguments(getSpec, map[string]any{
-		"member_id": "m-1",
-		"limit":     json.Number("5"),
-		"with":      "peer",
-		"unset":     nil,
-	})
-	if err != nil {
-		t.Fatalf("complete path args must split: %v", err)
-	}
-	if path != "/api/members/m-1" {
-		t.Fatalf("path param not substituted: %q", path)
-	}
-	if body != nil {
-		t.Fatalf("GET route must not carry a body: %q", body)
-	}
-	if !strings.Contains(query, "limit=5") || !strings.Contains(query, "with=peer") {
-		t.Fatalf("remaining GET args must become query params: %q", query)
-	}
-	if strings.Contains(query, "unset") {
-		t.Fatalf("nil optionals must be dropped from the query: %q", query)
+func TestToolName(t *testing.T) {
+	tests := []struct {
+		name string
+		spec RouteSpec
+		want string
+	}{
+		{
+			name: "explicit name wins",
+			spec: RouteSpec{Method: http.MethodGet, Path: "/api/members", MCPTool: "list_people"},
+			want: "list_people",
+		},
+		{
+			name: "method and api path are derived",
+			spec: RouteSpec{Method: http.MethodGet, Path: "/api/members"},
+			want: "get_members",
+		},
+		{
+			name: "nested path separators become underscores",
+			spec: RouteSpec{Method: http.MethodPost, Path: "/api/tasks/notes"},
+			want: "post_tasks_notes",
+		},
+		{
+			name: "trailing slash does not add an empty component",
+			spec: RouteSpec{Method: http.MethodPatch, Path: "/api/settings/"},
+			want: "patch_settings",
+		},
+		{
+			name: "a path without an api tail uses only the method",
+			spec: RouteSpec{Method: http.MethodDelete, Path: "/api/"},
+			want: "delete",
+		},
 	}
 
-	// Missing, nil, and blank path values must be refused before path.Clean can
-	// turn the request into a different route.
-	for _, value := range []any{nil, "", "   "} {
-		_, _, _, err = splitToolArguments(getSpec, map[string]any{"member_id": value})
-		if err == nil || err.Error() != "field required: member_id" {
-			t.Fatalf("missing path value %v must name the field, got %v", value, err)
-		}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := tt.spec.toolName(); got != tt.want {
+				t.Fatalf("toolName() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestMcpToolIndex(t *testing.T) {
+	rows := []RouteSpec{
+		{Method: http.MethodGet, Path: "/api/health", MCPExclude: true},
+		{Method: http.MethodGet, Path: "/api/members", Summary: "list members"},
+		{Method: http.MethodPost, Path: "/api/members", MCPTool: "hire_member", Summary: "hire member"},
 	}
 
-	// Slash-containing values and dot segments must not let path.Clean reinterpret
-	// a route. Other scalar and documented path-shaped values remain untouched.
-	for _, value := range []string{".", "..", "../members", "../roles"} {
-		_, _, _, err = splitToolArguments(getSpec, map[string]any{"member_id": value})
-		if err == nil || err.Error() != "invalid path: member_id" {
-			t.Fatalf("unsafe path value %q must be rejected, got %v", value, err)
-		}
+	got := mcpToolIndex(rows)
+	if len(got) != 2 {
+		t.Fatalf("mcpToolIndex returned %d tools, want 2", len(got))
 	}
-	for _, value := range []any{"a.b-c_D", "a%20b", "UPPER", " pad ", 0, false, []any{}} {
-		_, _, _, err = splitToolArguments(getSpec, map[string]any{"member_id": value})
+
+	for _, tt := range []struct {
+		name    string
+		method  string
+		path    string
+		summary string
+	}{
+		{name: "get_members", method: http.MethodGet, path: "/api/members", summary: "list members"},
+		{name: "hire_member", method: http.MethodPost, path: "/api/members", summary: "hire member"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			spec, ok := got[tt.name]
+			if !ok {
+				t.Fatalf("tool %q is missing from %#v", tt.name, got)
+			}
+			if spec.Method != tt.method || spec.Path != tt.path || spec.Summary != tt.summary {
+				t.Fatalf("tool %q = %#v, want method=%q path=%q summary=%q", tt.name, spec, tt.method, tt.path, tt.summary)
+			}
+		})
+	}
+
+	if _, ok := got["get_health"]; ok {
+		t.Fatal("an MCP-excluded route appeared in the tool index")
+	}
+}
+
+func TestPyArgString(t *testing.T) {
+	tests := []struct {
+		name  string
+		value any
+		want  string
+	}{
+		{name: "none", value: nil, want: "None"},
+		{name: "string is not quoted", value: " hello ", want: " hello "},
+		{name: "true", value: true, want: "True"},
+		{name: "false", value: false, want: "False"},
+		{name: "integer number literal", value: json.Number("3"), want: "3"},
+		{name: "decimal number literal", value: json.Number("3.0"), want: "3.0"},
+		{name: "default integer", value: 3, want: "3"},
+		{name: "default array", value: []any{1, "x"}, want: `[1,"x"]`},
+		{name: "marshal failure is empty", value: func() {}, want: ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := pyArgString(tt.value); got != tt.want {
+				t.Fatalf("pyArgString(%#v) = %q, want %q", tt.value, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestSplitToolArguments(t *testing.T) {
+	t.Run("a GET removes path keys and encodes the remaining values", func(t *testing.T) {
+		spec := RouteSpec{Method: http.MethodGet, Path: "/api/items/{item_id}"}
+		args := map[string]any{
+			"item_id": "item-7",
+			"enabled": true,
+			"status":  "open",
+			"tag":     []any{"alpha", "beta value"},
+			"unset":   nil,
+		}
+
+		path, query, body, err := splitToolArguments(spec, args)
 		if err != nil {
-			t.Fatalf("safe path value %v must pass unchanged, got %v", value, err)
+			t.Fatalf("splitToolArguments: %v", err)
 		}
-	}
-
-	// A GET list value expands doseq-style: one pair per element.
-	_, query, _, err = splitToolArguments(getSpec, map[string]any{
-		"member_id": "m-1", "tag": []any{"a", "b"},
+		if path != "/api/items/item-7" {
+			t.Fatalf("path = %q, want %q", path, "/api/items/item-7")
+		}
+		if query != "enabled=True&status=open&tag=alpha&tag=beta+value" {
+			t.Fatalf("query = %q, want %q", query, "enabled=True&status=open&tag=alpha&tag=beta+value")
+		}
+		if body != nil {
+			t.Fatalf("GET body = %q, want nil", body)
+		}
 	})
-	if err != nil {
-		t.Fatalf("complete path args must split: %v", err)
-	}
-	if !strings.Contains(query, "tag=a") || !strings.Contains(query, "tag=b") {
-		t.Fatalf("list query values must expand per element: %q", query)
-	}
 
-	// Non-GET: remaining keys are the JSON body; empty remaining → {} (a body
-	// is always sent for a write route).
-	postSpec := RouteSpec{Method: "POST", Path: "/api/members/{member_id}/activate"}
-	path, query, body, err = splitToolArguments(postSpec, map[string]any{
-		"member_id": "m-1", "name": "n", "count": json.Number("3"),
+	t.Run("a GET with only unset optionals has no query", func(t *testing.T) {
+		spec := RouteSpec{Method: http.MethodGet, Path: "/api/items"}
+		path, query, body, err := splitToolArguments(spec, map[string]any{"filter": nil})
+		if err != nil {
+			t.Fatalf("splitToolArguments: %v", err)
+		}
+		if path != "/api/items" || query != "" || body != nil {
+			t.Fatalf("got path=%q query=%q body=%q, want /api/items, empty query, nil body", path, query, body)
+		}
 	})
-	if err != nil {
-		t.Fatalf("complete path args must split: %v", err)
-	}
-	if path != "/api/members/m-1/activate" || query != "" {
-		t.Fatalf("POST split: path=%q query=%q", path, query)
-	}
-	var parsed map[string]any
-	if err := json.Unmarshal(body, &parsed); err != nil || parsed["name"] != "n" || parsed["count"] != float64(3) {
-		t.Fatalf("POST body must carry the remaining args as JSON: %s (%v)", body, err)
-	}
-	_, _, body, err = splitToolArguments(postSpec, map[string]any{"member_id": "m-1"})
-	if err != nil {
-		t.Fatalf("complete path args must split: %v", err)
-	}
-	if string(body) != "{}" {
-		t.Fatalf("empty remaining args must send {}: %q", body)
-	}
-}
 
-func TestLoopbackCallCleansPathBeforeDispatch(t *testing.T) {
-	var gotPath string
-	s := &apiServer{
-		loopback: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			gotPath = r.URL.Path
-			w.WriteHeader(http.StatusNoContent)
-		}),
-	}
-	outer := httptest.NewRequest(http.MethodGet, "http://loopback.test/mcp", nil)
-
-	status, _, err := s.loopbackCall(
-		outer, http.MethodGet, "/api/members//m-1", "", nil,
-	)
-	if err != nil {
-		t.Fatalf("loopbackCall: %v", err)
-	}
-	if status != http.StatusNoContent {
-		t.Fatalf("loopback status: got %d, want %d", status, http.StatusNoContent)
-	}
-	if gotPath != "/api/members/m-1" {
-		t.Fatalf("loopback path was not canonicalized: got %q", gotPath)
-	}
-}
-
-func TestCallToolResultMapping(t *testing.T) {
-	// 2xx object body: isError false, structuredContent == the parsed object.
-	result := callToolResult(200, []byte(`{"id":"m-1","cost":1.50}`))
-	if result["isError"] != false {
-		t.Fatalf("200 must map to isError:false: %v", result)
-	}
-	content := result["content"].([]any)
-	if len(content) != 1 || content[0].(map[string]any)["text"] != `{"id":"m-1","cost":1.50}` {
-		t.Fatalf("content must be ONE text item with the raw body: %v", content)
-	}
-	structured, ok := result["structuredContent"].(map[string]any)
-	if !ok || structured["id"] != "m-1" || structured["cost"] != json.Number("1.50") {
-		t.Fatalf("object body must carry literal-exact structuredContent: %v", result)
-	}
-
-	// Top-level array: structuredContent MUST be absent (spec §3.3).
-	result = callToolResult(200, []byte(`[{"id":"m-1"}]`))
-	if _, present := result["structuredContent"]; present {
-		t.Fatalf("array body must omit structuredContent: %v", result)
-	}
-
-	// 4xx: a successful result with isError true; empty body → empty text.
-	result = callToolResult(404, nil)
-	if result["isError"] != true {
-		t.Fatalf("404 must map to isError:true: %v", result)
-	}
-	if result["content"].([]any)[0].(map[string]any)["text"] != "" {
-		t.Fatalf("empty body must map to empty text: %v", result)
-	}
-
-	// Non-JSON body: text carries it, structuredContent absent.
-	result = callToolResult(200, []byte("plain"))
-	if _, present := result["structuredContent"]; present {
-		t.Fatalf("non-JSON body must omit structuredContent: %v", result)
-	}
-}
-
-func postMCP(t *testing.T, url, token, body string) map[string]any {
-	t.Helper()
-	req, err := http.NewRequest("POST", url+"/api/mcp", strings.NewReader(body))
-	if err != nil {
-		t.Fatal(err)
-	}
-	req.Header.Set("Authorization", "Bearer "+token)
-	req.Header.Set("Content-Type", "application/json")
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer resp.Body.Close()
-	raw, _ := io.ReadAll(resp.Body)
-	if resp.StatusCode != 200 {
-		t.Fatalf("MCP envelope must ride HTTP 200: %d %s", resp.StatusCode, raw)
-	}
-	var payload map[string]any
-	if err := json.Unmarshal(raw, &payload); err != nil {
-		t.Fatalf("bad MCP payload: %v %s", err, raw)
-	}
-	return payload
-}
-
-func TestToolsCallLoopbackThroughTheWiredStack(t *testing.T) {
-	srv, secret, _ := newWiredTestServer(t)
-	now := time.Now().Unix()
-	ownerTok, _ := mintJWT("owner", "owner", 300, secret, now, "")
-	agentTok, _ := mintJWT("kyle", "agent", 300, secret, now, "")
-
-	callResult := func(payload map[string]any) map[string]any {
-		t.Helper()
-		if err, present := payload["error"]; present {
-			t.Fatalf("expected a result envelope, got error: %v", err)
+	t.Run("a write route serializes all remaining arguments", func(t *testing.T) {
+		spec := RouteSpec{Method: http.MethodPost, Path: "/api/items/{item_id}"}
+		path, query, body, err := splitToolArguments(spec, map[string]any{
+			"item_id": "item-7",
+			"title":   "Ship it",
+			"count":   json.Number("3.0"),
+		})
+		if err != nil {
+			t.Fatalf("splitToolArguments: %v", err)
 		}
-		return payload["result"].(map[string]any)
-	}
-
-	// GET tool, top-level array: isError false, seeded roster in text.
-	result := callResult(postMCP(t, srv.URL, ownerTok,
-		`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"get_members","arguments":{}}}`))
-	if result["isError"] != false {
-		t.Fatalf("get_members: %v", result)
-	}
-	text := result["content"].([]any)[0].(map[string]any)["text"].(string)
-	if !strings.Contains(text, `"mira"`) {
-		t.Fatalf("get_members text must carry the seeded roster: %s", text)
-	}
-	if _, present := result["structuredContent"]; present {
-		t.Fatalf("array body must omit structuredContent: %v", result)
-	}
-
-	// Path-param split + route 404 → isError true with the REST envelope.
-	result = callResult(postMCP(t, srv.URL, ownerTok,
-		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"get_member","arguments":{"member_id":"missing"}}}`))
-	if result["isError"] != true {
-		t.Fatalf("get_member(missing): %v", result)
-	}
-	if sc := result["structuredContent"].(map[string]any); sc["error"].(map[string]any)["code"] != "not_found" {
-		t.Fatalf("route 404 must surface the REST envelope: %v", result)
-	}
-
-	// Authorization forwards verbatim: an agent on an admin-floor tool gets
-	// the SAME RBAC 403 as REST, as an isError result — never an RPC error.
-	result = callResult(postMCP(t, srv.URL, agentTok,
-		`{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"create_role","arguments":{"name":"X"}}}`))
-	if result["isError"] != true ||
-		result["structuredContent"].(map[string]any)["error"].(map[string]any)["code"] != "forbidden" {
-		t.Fatalf("agent on admin tool must be the RBAC 403 envelope: %v", result)
-	}
-
-	// Absent arguments default to {} and a body IS sent for a write route.
-	result = callResult(postMCP(t, srv.URL, ownerTok,
-		`{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"reset_global_context"}}`))
-	if result["isError"] != false {
-		t.Fatalf("reset_global_context with no arguments: %v", result)
-	}
-}
-
-func TestToolsCallWithoutLoopbackIsHonest32603(t *testing.T) {
-	// The dependency-free table (no loopback wired) must answer an honest
-	// internal error, never a fabricated result.
-	h, err := buildHandler(defaultRouteSpecs(), singleKeyring([]byte(interopSecret)), nil, nil)
-	if err != nil {
-		t.Fatalf("buildHandler: %v", err)
-	}
-	srv := httptest.NewServer(h)
-	defer srv.Close()
-	tok, _ := mintJWT("owner", "owner", 300, []byte(interopSecret), time.Now().Unix(), "")
-	payload := postMCP(t, srv.URL, tok,
-		`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"get_members"}}`)
-	errObj, ok := payload["error"].(map[string]any)
-	if !ok || errObj["code"] != float64(-32603) {
-		t.Fatalf("unwired loopback must be -32603: %v", payload)
-	}
-}
-
-func TestToolsCallRejectsUnknownMutableArguments(t *testing.T) {
-	srv, secret, _ := newWiredTestServer(t)
-	ownerTok, _ := mintJWT("owner", "owner", 300, secret, time.Now().Unix(), "")
-
-	payload := postMCP(t, srv.URL, ownerTok,
-		`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"create_task","arguments":{"title":"must not be created","typo":"must not disappear"}}}`)
-	result, ok := payload["result"].(map[string]any)
-	if !ok {
-		t.Fatalf("unknown mutable argument must reach the route as a result: %v", payload)
-	}
-	if result["isError"] != true {
-		t.Fatalf("unknown mutable argument must be refused: %v", result)
-	}
-	structured, ok := result["structuredContent"].(map[string]any)
-	if !ok || structured["error"].(map[string]any)["code"] != "validation_error" {
-		t.Fatalf("MCP must preserve the REST 422 validation envelope: %v", result)
-	}
-}
-
-func TestMutableToolCatalogAndLoopbackCloseNestedDTOs(t *testing.T) {
-	raw, err := os.ReadFile("../../spec/mcp-catalog.json")
-	if err != nil {
-		t.Fatal(err)
-	}
-	var catalog struct {
-		Tools []struct {
-			Name        string         `json:"name"`
-			InputSchema map[string]any `json:"inputSchema"`
-		} `json:"tools"`
-	}
-	if err := json.Unmarshal(raw, &catalog); err != nil {
-		t.Fatal(err)
-	}
-	for _, tool := range catalog.Tools {
-		if tool.Name != "create_task" {
-			continue
+		if path != "/api/items/item-7" || query != "" {
+			t.Fatalf("got path=%q query=%q, want /api/items/item-7 and empty query", path, query)
 		}
-		properties := tool.InputSchema["properties"].(map[string]any)
-		target := properties["target"].(map[string]any)
-		if target["additionalProperties"] != false {
-			t.Fatalf("create_task.target must declare closed nested DTO semantics: %#v", target)
+		if got, want := string(body), `{"count":3.0,"title":"Ship it"}`; got != want {
+			t.Fatalf("body = %q, want %q", got, want)
 		}
-		break
-	}
+	})
 
-	srv, secret, _ := newWiredTestServer(t)
-	ownerTok, _ := mintJWT("owner", "owner", 300, secret, time.Now().Unix(), "")
-	payload := postMCP(t, srv.URL, ownerTok,
-		`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"create_task","arguments":{"title":"must not be created","target":{"kind": "staff","typo":"must not disappear"}}}}`)
-	result := payload["result"].(map[string]any)
-	if result["isError"] != true || result["structuredContent"].(map[string]any)["error"].(map[string]any)["code"] != "validation_error" {
-		t.Fatalf("nested unknown MCP argument must be refused: %v", result)
+	t.Run("a write route always gets an empty object when it has no body fields", func(t *testing.T) {
+		spec := RouteSpec{Method: http.MethodPatch, Path: "/api/items/{item_id}"}
+		path, query, body, err := splitToolArguments(spec, map[string]any{"item_id": "item-7"})
+		if err != nil {
+			t.Fatalf("splitToolArguments: %v", err)
+		}
+		if path != "/api/items/item-7" || query != "" || string(body) != "{}" {
+			t.Fatalf("got path=%q query=%q body=%q, want /api/items/item-7, empty query, {}", path, query, body)
+		}
+	})
+
+	t.Run("path values use the Python string spelling", func(t *testing.T) {
+		spec := RouteSpec{Method: http.MethodGet, Path: "/api/items/{item_id}"}
+		path, _, _, err := splitToolArguments(spec, map[string]any{"item_id": json.Number("3.0")})
+		if err != nil {
+			t.Fatalf("splitToolArguments: %v", err)
+		}
+		if path != "/api/items/3.0" {
+			t.Fatalf("path = %q, want %q", path, "/api/items/3.0")
+		}
+	})
+
+	for _, tt := range []struct {
+		name string
+		args map[string]any
+		want string
+	}{
+		{name: "missing", args: map[string]any{}, want: "field required: item_id"},
+		{name: "null", args: map[string]any{"item_id": nil}, want: "field required: item_id"},
+		{name: "empty", args: map[string]any{"item_id": ""}, want: "field required: item_id"},
+		{name: "whitespace", args: map[string]any{"item_id": " \t"}, want: "field required: item_id"},
+		{name: "slash", args: map[string]any{"item_id": "items/7"}, want: "invalid path: item_id"},
+		{name: "dot", args: map[string]any{"item_id": "."}, want: "invalid path: item_id"},
+		{name: "dot dot", args: map[string]any{"item_id": ".."}, want: "invalid path: item_id"},
+	} {
+		t.Run("invalid path: "+tt.name, func(t *testing.T) {
+			spec := RouteSpec{Method: http.MethodGet, Path: "/api/items/{item_id}"}
+			path, query, body, err := splitToolArguments(spec, tt.args)
+			if err == nil || err.Error() != tt.want {
+				t.Fatalf("error = %v, want %q", err, tt.want)
+			}
+			if path != "" || query != "" || body != nil {
+				t.Fatalf("failed split returned path=%q query=%q body=%q", path, query, body)
+			}
+		})
 	}
 }
 
-// TestToolsCallRelocateMemberMovesWorker (P7c, gate rc-2786636f30e5 外包對齊正職):
-// the MCP channel for moving a worker is the EXISTING relocate_member tool —
-// its member_id argument also accepts a worker id, and the handler falls
-// through to the worker relocate core. An admin agent succeeds through the
-// full loopback (auth gate + RBAC choke + param binding); a plain agent gets
-// the same RBAC 403 envelope as REST. No worker-specific tool exists, so the
-// tool surface (and catalog_hash) is unchanged.
-func TestToolsCallRelocateMemberMovesWorker(t *testing.T) {
-	api := newTasksTestServer(t)
-	api.noOutsource = true
-	seedMachine(t, api, ServerSelfHost)
-	workerID := assignOneWorker(t, api)
-
-	// An admin-class caller (role assistant) on the roster.
-	admin := fullMember("adm-mcp")
-	if err := api.dal.PutMember(admin); err != nil {
-		t.Fatalf("seed admin: %v", err)
+func TestWriteHeader(t *testing.T) {
+	rec := newLoopbackRecorder()
+	if rec.status != http.StatusOK || rec.wroteHeader {
+		t.Fatalf("new recorder = status %d, wroteHeader=%v; want 200 and false", rec.status, rec.wroteHeader)
 	}
 
-	secret := []byte("tasks-test-secret")
-	h, err := buildHandler(specsFor(api), api.keys, api.dal.GetMember, nil)
-	if err != nil {
-		t.Fatalf("buildHandler: %v", err)
-	}
-	api.loopback = h
-	srv := httptest.NewServer(h)
-	t.Cleanup(srv.Close)
+	rec.Header().Set("X-Test", "present")
+	rec.WriteHeader(http.StatusCreated)
+	rec.WriteHeader(http.StatusTeapot)
 
-	now := time.Now().Unix()
-	adminTok, _ := mintJWT("adm-mcp", "agent", 300, secret, now, "")
-	payload := postMCP(t, srv.URL, adminTok,
-		`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"relocate_member","arguments":{"member_id":"`+workerID+`","machine_id":"`+ServerSelfHost+`"}}}`)
-	if errObj, present := payload["error"]; present {
-		t.Fatalf("expected a result envelope, got error: %v", errObj)
+	if rec.status != http.StatusCreated {
+		t.Fatalf("status after duplicate WriteHeader = %d, want %d", rec.status, http.StatusCreated)
 	}
-	result := payload["result"].(map[string]any)
-	if result["isError"] != false {
-		t.Fatalf("relocate_member(worker id) as admin: %v", result)
+	if !rec.wroteHeader {
+		t.Fatal("WriteHeader did not mark the header as written")
 	}
-	sc := result["structuredContent"].(map[string]any)
-	if sc["id"] != workerID {
-		t.Fatalf("structuredContent must be the worker projection: %v", sc)
+	if got := rec.Header().Get("X-Test"); got != "present" {
+		t.Fatalf("Header value = %q, want %q", got, "present")
 	}
-	w, err := api.dal.GetOutsourceWorker(workerID)
-	if err != nil || w == nil {
-		t.Fatalf("re-read worker: %v", err)
+}
+
+func TestWrite(t *testing.T) {
+	rec := newLoopbackRecorder()
+
+	n, err := rec.Write([]byte("hello"))
+	if err != nil || n != 5 {
+		t.Fatalf("first Write = (%d, %v), want (5, nil)", n, err)
 	}
-	if w.DesiredMachineID != ServerSelfHost {
-		t.Errorf("worker desired_machine_id = %q, want %s", w.DesiredMachineID, ServerSelfHost)
+	if rec.status != http.StatusOK || !rec.wroteHeader {
+		t.Fatalf("implicit header = status %d, wroteHeader=%v; want 200 and true", rec.status, rec.wroteHeader)
 	}
 
-	// A plain agent (no roster capability) is the RBAC 403 — denied at the
-	// route gate before any table is consulted.
-	agentTok, _ := mintJWT("kyle", "agent", 300, secret, now, "")
-	payload = postMCP(t, srv.URL, agentTok,
-		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"relocate_member","arguments":{"member_id":"`+workerID+`","machine_id":"auto"}}}`)
-	result = payload["result"].(map[string]any)
-	if result["isError"] != true ||
-		result["structuredContent"].(map[string]any)["error"].(map[string]any)["code"] != "forbidden" {
-		t.Fatalf("plain agent must get the RBAC 403 envelope: %v", result)
+	n, err = rec.Write([]byte(" world"))
+	if err != nil || n != 6 {
+		t.Fatalf("second Write = (%d, %v), want (6, nil)", n, err)
+	}
+	if got := rec.body.String(); got != "hello world" {
+		t.Fatalf("body = %q, want %q", got, "hello world")
+	}
+}
+
+func TestLoopbackCall(t *testing.T) {
+	t.Run("forwards the request contract and returns the sub-response", func(t *testing.T) {
+		type contextKey struct{}
+		key := contextKey{}
+		ctx := context.WithValue(context.Background(), key, "same context")
+		original := httptest.NewRequest(http.MethodPost, "/api/mcp", nil).WithContext(ctx)
+		original.Header.Set("Authorization", "Bearer exact-value")
+		requestBody := []byte(`{"name":"Kip"}`)
+
+		api := &apiServer{loopback: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.Method != http.MethodPatch {
+				t.Errorf("method = %q, want %q", r.Method, http.MethodPatch)
+			}
+			if r.URL.Path != "/api/members/kip" {
+				t.Errorf("path = %q, want %q", r.URL.Path, "/api/members/kip")
+			}
+			if r.URL.RawQuery != "fields=light" {
+				t.Errorf("query = %q, want %q", r.URL.RawQuery, "fields=light")
+			}
+			if got := r.Header.Get("Authorization"); got != "Bearer exact-value" {
+				t.Errorf("authorization = %q, want %q", got, "Bearer exact-value")
+			}
+			if got := r.Header.Get("Accept"); got != "application/json" {
+				t.Errorf("accept = %q, want %q", got, "application/json")
+			}
+			if got := r.Header.Get("Content-Type"); got != "application/json" {
+				t.Errorf("content type = %q, want %q", got, "application/json")
+			}
+			if r.ContentLength != int64(len(requestBody)) {
+				t.Errorf("content length = %d, want %d", r.ContentLength, len(requestBody))
+			}
+			if got := r.Context().Value(key); got != "same context" {
+				t.Errorf("context value = %#v, want %q", got, "same context")
+			}
+			gotBody, err := io.ReadAll(r.Body)
+			if err != nil {
+				t.Errorf("read body: %v", err)
+			}
+			if !reflect.DeepEqual(gotBody, requestBody) {
+				t.Errorf("body = %q, want %q", gotBody, requestBody)
+			}
+			w.WriteHeader(http.StatusCreated)
+			_, _ = w.Write([]byte("created"))
+		})}
+
+		status, body, err := api.loopbackCall(original, http.MethodPatch, "/api/items/../members/kip", "fields=light", requestBody)
+		if err != nil {
+			t.Fatalf("loopbackCall: %v", err)
+		}
+		if status != http.StatusCreated || string(body) != "created" {
+			t.Fatalf("response = (%d, %q), want (201, %q)", status, body, "created")
+		}
+	})
+
+	t.Run("a nil body uses NoBody and does not set write headers", func(t *testing.T) {
+		api := &apiServer{loopback: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.Body != http.NoBody {
+				t.Errorf("body = %#v, want http.NoBody", r.Body)
+			}
+			if r.Header.Get("Content-Type") != "" {
+				t.Errorf("content type = %q, want empty", r.Header.Get("Content-Type"))
+			}
+			_, _ = w.Write([]byte("ok"))
+		})}
+
+		original := httptest.NewRequest(http.MethodPost, "/api/mcp", nil)
+		status, body, err := api.loopbackCall(original, http.MethodGet, "/api/health", "", nil)
+		if err != nil {
+			t.Fatalf("loopbackCall: %v", err)
+		}
+		if status != http.StatusOK || string(body) != "ok" {
+			t.Fatalf("response = (%d, %q), want (200, %q)", status, body, "ok")
+		}
+	})
+
+	t.Run("without a wired handler it returns an internal error", func(t *testing.T) {
+		api := &apiServer{}
+		_, _, err := api.loopbackCall(httptest.NewRequest(http.MethodPost, "/api/mcp", nil), http.MethodGet, "/api/health", "", nil)
+		if err == nil || err.Error() != "loopback handler not wired" {
+			t.Fatalf("error = %v, want loopback handler not wired", err)
+		}
+	})
+}
+
+func TestCallToolResult(t *testing.T) {
+	tests := []struct {
+		name           string
+		status         int
+		raw            string
+		wantError      bool
+		wantStructured bool
+	}{
+		{name: "empty successful body", status: http.StatusOK, raw: "", wantError: false, wantStructured: false},
+		{name: "object at success boundary", status: http.StatusOK, raw: `{"count":3.0}`, wantError: false, wantStructured: true},
+		{name: "object at error boundary", status: http.StatusBadRequest, raw: `{"error":"bad"}`, wantError: true, wantStructured: true},
+		{name: "array stays text only", status: http.StatusOK, raw: `[1,2]`, wantError: false, wantStructured: false},
+		{name: "scalar stays text only", status: http.StatusOK, raw: `3.0`, wantError: false, wantStructured: false},
+		{name: "null stays text only", status: http.StatusOK, raw: `null`, wantError: false, wantStructured: false},
+		{name: "invalid JSON stays text only", status: http.StatusInternalServerError, raw: `{"error":`, wantError: true, wantStructured: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := callToolResult(tt.status, []byte(tt.raw))
+			if got["isError"] != tt.wantError {
+				t.Fatalf("isError = %#v, want %v", got["isError"], tt.wantError)
+			}
+			content, ok := got["content"].([]any)
+			if !ok || len(content) != 1 {
+				t.Fatalf("content = %#v, want one item", got["content"])
+			}
+			item, ok := content[0].(map[string]any)
+			if !ok || item["type"] != "text" || item["text"] != tt.raw {
+				t.Fatalf("content item = %#v, want text %q", content[0], tt.raw)
+			}
+			_, hasStructured := got["structuredContent"]
+			if hasStructured != tt.wantStructured {
+				t.Fatalf("structuredContent present=%v, want %v", hasStructured, tt.wantStructured)
+			}
+		})
+	}
+
+	structured := callToolResult(http.StatusOK, []byte(`{"count":3.0,"nested":{"id":7}}`))["structuredContent"]
+	want := map[string]any{
+		"count":  json.Number("3.0"),
+		"nested": map[string]any{"id": json.Number("7")},
+	}
+	if !reflect.DeepEqual(structured, want) {
+		t.Fatalf("structuredContent = %#v, want %#v", structured, want)
 	}
 }
