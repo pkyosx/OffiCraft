@@ -209,7 +209,11 @@ func TestNormalizeCodexEffort(t *testing.T) {
 }
 
 func TestCodexPersonaInstruction(t *testing.T) {
-	const head = "Read /w/PERSONA.md completely before acting. It is your OffiCraft identity and " +
+	const head = "Read /w/PERSONA.md completely before acting: ONE read of the WHOLE file, first " +
+		"line to last. Do NOT read it with shell commands (cat/head/tail/sed) and do NOT read it " +
+		"in chunks — the file is tens of thousands of characters, shell output is silently " +
+		"truncated to the first few KB with no error of any kind, and the 開機程序 (boot sequence) " +
+		"section is at the very END of the file. It is your OffiCraft identity and " +
 		"operating context. Never use request_user_input for normal questions; create an OffiCraft " +
 		"reply card instead. "
 
