@@ -509,6 +509,41 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* ── 等我回覆頁的折疊列：一行 ────────────────────────────────────────────────
+ * Tighter than the chat stub because this is a LIST the owner scans, not one
+ * card inside a message. The title reads at full strength and claims the free
+ * space (nothing claimed it before, which is why the row huddled on the left
+ * with the right ~70% empty); the stamps ride at the end as one pill. */
+.reply-card__collapsed-row--tight {
+  gap: 10px;
+  padding: 7px 12px;
+}
+.reply-card__collapsed-row--tight .reply-card__collapsed-summary,
+.reply-card__collapsed-spacer {
+  flex: 1;
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--color-text-strong);
+}
+.reply-card__stamp-pill {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 2px 9px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--color-overlay) 6%, transparent);
+  font-size: 11.5px;
+  color: var(--color-text-muted);
+  white-space: nowrap;
+}
+/* Open: the row is no longer a title, it is the rule the card hangs under. */
+.reply-card__collapsed-row--open {
+  padding: 5px 12px 6px;
+  border-bottom: 1px solid
+    color-mix(in srgb, var(--color-overlay) 7%, transparent);
+  margin-bottom: 2px;
+}
 .reply-card__past {
   display: flex;
   flex-direction: column;

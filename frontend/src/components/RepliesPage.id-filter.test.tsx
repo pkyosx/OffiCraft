@@ -188,7 +188,7 @@ describe("請示 ID 篩選（常駐欄位版，T-118）", () => {
       mkCard({ id: "rc-bbb", summary: "第二張", createdTs: now - 26 * 60 })
     );
 
-    const { findAllByTestId, queryAllByText } = renderPage();
+    const { findAllByTestId, queryByText } = renderPage();
     expect(await findAllByTestId("waiting-card")).toHaveLength(2);
     // The leading card opens itself and is READ, like any opened card. That
     // read is not what this spec measures — the six keystrokes below are — so
@@ -211,11 +211,14 @@ describe("請示 ID 篩選（常駐欄位版，T-118）", () => {
       "six keystrokes must cost zero requests"
     ).not.toHaveBeenCalled();
     expect(await findAllByTestId("waiting-card")).toHaveLength(2);
+    // 🔴 SINGULAR AGAIN. This went plural in e3770291 because the collapsed row
+    // repeated the ask's title above the open question — the duplicate owner
+    // called out (T-170). A plural lookup here would sign off on it coming back.
     expect(
-      queryAllByText("第一張").length,
+      queryByText("第一張"),
       "typing alone must not narrow the list"
-    ).toBeGreaterThan(0);
-    expect(queryAllByText("第二張").length).toBeGreaterThan(0);
+    ).toBeTruthy();
+    expect(queryByText("第二張")).toBeTruthy();
   });
 
   it("Enter applies the typed id, and asks the server for it exactly once", async () => {

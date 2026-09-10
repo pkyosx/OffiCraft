@@ -782,13 +782,20 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
   /** The collapsed line — what a row draws with NO read at all: the caret, the
    * ask's title, and the stamp its status carries. Copied from ChatReplyCard's
    * stub (T-48) on purpose; the stamp is this pane's own, and it is free
-   * because the light row carries the timestamps. */
+   * because the light row carries the timestamps.
+   *
+   * ONE LINE, and the same line in both states: caret, the ask's title, and the
+   * stamps as one right-hugging pill. Open, the title steps aside for the card
+   * body (which renders the same sentence) and what is left is a thin rule the
+   * card hangs under — the way back to closed, not a second title. */
   function renderCollapsedRow(row: ReplyCardRow, stamps: ReactNode) {
     const open = expandedIds.has(row.id);
     return (
       <button
         type="button"
-        className="reply-card__collapsed-row"
+        className={`reply-card__collapsed-row reply-card__collapsed-row--tight${
+          open ? " reply-card__collapsed-row--open" : ""
+        }`}
         aria-expanded={open}
         onClick={() => toggleCard(row.id)}
         data-testid="reply-card-toggle"
@@ -798,7 +805,11 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
           size={12}
           className={`reply-card__caret${open ? " reply-card__caret--open" : ""}`}
         />
-        <span className="reply-card__collapsed-summary">{row.summary}</span>
+        {open ? (
+          <span className="reply-card__collapsed-spacer" />
+        ) : (
+          <span className="reply-card__collapsed-summary">{row.summary}</span>
+        )}
         {stamps}
       </button>
     );
@@ -836,7 +847,11 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
           // Two stamps, one column: the ABSOLUTE opened-at (date always
           // included — Seth 2026-07-13: reply-card times are absolute, no
           // relative-only display) above the existing ticking waited counter.
-          <span className="reply-card__stamps">
+          // ONE right-hugging pill rather than a two-line column. The
+          // ABSOLUTE opened-at stays (Seth 2026-07-13: reply-card times are
+          // absolute, no relative-only display) with the ticking waited counter
+          // beside it.
+          <span className="reply-card__stamp-pill">
             <span className="reply-card__opened-at" data-testid="opened-at">
               {msg.replyOpenedAt(formatAbsolute(row.createdTs, nowTs))}
             </span>
@@ -898,7 +913,7 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
           // Absolute date+time (7/13 09:05) — the bare hh:mm was ambiguous
           // the moment a card aged past midnight.
           ts !== null ? (
-            <span className="reply-card__answered-at">
+            <span className="reply-card__stamp-pill reply-card__answered-at">
               {expired
                 ? msg.replyExpiredAt(formatAbsolute(ts, nowTs))
                 : msg.replyAnsweredAt(formatAbsolute(ts, nowTs))}
