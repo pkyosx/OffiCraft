@@ -1338,15 +1338,17 @@ func TestWrite(t *testing.T) {
 		},
 		{
 			name: "the temp cannot be written", mode: 0o600,
-			fail:      map[string]error{"write " + tmp + " 600": errors.New("no space left on device")},
-			wantErr:   "write temp tokfile " + tmp + ": no space left on device",
-			wantCalls: []string{"mkdir /w 700", "write " + tmp + " 600"},
+			fail:        map[string]error{"write " + tmp + " 600": errors.New("no space left on device")},
+			wantErr:     "write temp tokfile " + tmp + ": no space left on device",
+			wantCalls:   []string{"mkdir /w 700", "write " + tmp + " 600"},
+			wantRemoved: []string{tmp},
 		},
 		{
 			name: "the temp cannot be chmodded", mode: 0o600,
-			fail:      map[string]error{"chmod " + tmp + " 600": errors.New("operation not permitted")},
-			wantErr:   "chmod temp tokfile " + tmp + ": operation not permitted",
-			wantCalls: []string{"mkdir /w 700", "write " + tmp + " 600", "chmod " + tmp + " 600"},
+			fail:        map[string]error{"chmod " + tmp + " 600": errors.New("operation not permitted")},
+			wantErr:     "chmod temp tokfile " + tmp + ": operation not permitted",
+			wantCalls:   []string{"mkdir /w 700", "write " + tmp + " 600", "chmod " + tmp + " 600"},
+			wantRemoved: []string{tmp},
 		},
 		{
 			name: "the temp cannot be stat'd", mode: 0o600,

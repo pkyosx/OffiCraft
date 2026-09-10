@@ -1881,8 +1881,8 @@ func TestMcpCatalogTools(t *testing.T) {
 		if err != nil {
 			t.Fatalf("mcpCatalogTools: %v", err)
 		}
-		if len(tools) != 127 {
-			t.Fatalf("want the frozen catalog's 127 descriptors, got %d", len(tools))
+		if len(tools) != 131 {
+			t.Fatalf("want the frozen catalog's 131 descriptors, got %d", len(tools))
 		}
 		names := []string{}
 		seen := map[string]bool{}
@@ -1907,7 +1907,7 @@ func TestMcpCatalogTools(t *testing.T) {
 			seen[name] = true
 			names = append(names, name)
 		}
-		if names[0] != "get_version" || names[len(names)-1] != "replace_task_artifact" {
+		if names[0] != "get_version" || names[len(names)-1] != "bump_lore_entry" {
 			t.Fatalf("the catalog order moved: first %q, last %q", names[0], names[len(names)-1])
 		}
 		apiWantValue(t, "get_version", tools[0], map[string]any{
@@ -1946,12 +1946,12 @@ func TestMcpCatalogTools(t *testing.T) {
 		}
 		result, _ := data["result"].(map[string]any)
 		tools, ok := result["tools"].([]any)
-		if !ok || len(tools) != 127 {
-			t.Fatalf("want the embedded catalog's 127 descriptors, got %#v", result["tools"])
+		if !ok || len(tools) != 131 {
+			t.Fatalf("want the embedded catalog's 131 descriptors, got %#v", result["tools"])
 		}
 		first, _ := tools[0].(map[string]any)
 		last, _ := tools[len(tools)-1].(map[string]any)
-		if first["name"] != "get_version" || last["name"] != "replace_task_artifact" {
+		if first["name"] != "get_version" || last["name"] != "bump_lore_entry" {
 			t.Fatalf("the catalog order moved: first %#v, last %#v", first["name"], last["name"])
 		}
 	})
@@ -2120,8 +2120,8 @@ func TestHandleMcpApiMcpPost(t *testing.T) {
 			t.Fatalf("tools/list result must carry tools and nothing else, got %v", result)
 		}
 		tools, _ := result["tools"].([]any)
-		if len(tools) != 127 {
-			t.Fatalf("want the frozen catalog's 127 descriptors, got %d", len(tools))
+		if len(tools) != 131 {
+			t.Fatalf("want the frozen catalog's 131 descriptors, got %d", len(tools))
 		}
 		listed := map[string]any{}
 		for _, raw := range tools {

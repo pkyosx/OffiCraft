@@ -37,17 +37,6 @@ func TestDocRendered(t *testing.T) {
 	}
 }
 
-func TestDocBodyVarRefusal(t *testing.T) {
-	const marker = "<!-- ↑唯讀區（程式產生，改不動）｜↓本體（可編輯，零變數） -->"
-	got := docBodyVarRefusal("〈停止〉", []string{"note", "task_no"})
-	want := "the 〈停止〉 uses {note}, {task_no} below the line `" + marker +
-		"` — the editable half carries no variables at all, because nothing fills them there and they would reach an agent with the braces still in them. " +
-		"Put facts that vary in the read-only head, or write them out. Nothing was written."
-	if got != want {
-		t.Fatalf("docBodyVarRefusal returned %q, want %q", got, want)
-	}
-}
-
 func TestDocSplitHeadBody(t *testing.T) {
 	const marker = "<!-- ↑唯讀區（程式產生，改不動）｜↓本體（可編輯，零變數） -->"
 

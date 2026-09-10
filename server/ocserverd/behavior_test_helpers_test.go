@@ -3,10 +3,12 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -14,6 +16,256 @@ import (
 	"time"
 	"unicode/utf8"
 )
+
+const bootSequenceH1 = "# 啟動步驟（Boot Sequence"
+
+// resumeCtxServer seeds the named roster used by resume-context behavior tests.
+func resumeCtxServer(t *testing.T) *apiServer {
+	t.Helper()
+	api := newTasksTestServer(t)
+	for id, name := range map[string]string{
+		"m-exec":  "阿執",
+		"m-peer":  "小佩",
+		"m-loud":  "大聲",
+		"m-quiet": "安靜",
+	} {
+		if err := api.dal.PutMember(Member{
+			ID: id, Name: name, Kind: "staff", RosterStatus: RosterStatusActive,
+		}); err != nil {
+			t.Fatalf("seed member %s: %v", id, err)
+		}
+	}
+	return api
+}
+
+func setWorkerModelBody(t *testing.T, api *apiServer, workerID string, body map[string]any) {
+	t.Helper()
+	rec := postWorker(t, api, workerID, "model", body,
+		api.HandleSetOutsourceWorkerModelApiOutsourceWorkersIdModelPost)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("set model: %d %s", rec.Code, rec.Body.String())
+	}
+}
+
+func workerBody(t *testing.T, rec *httptest.ResponseRecorder) map[string]any {
+	t.Helper()
+	if rec.Code != http.StatusOK {
+		t.Fatalf("want 200, got %d %s", rec.Code, rec.Body.String())
+	}
+	var body map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	return body
+}
+
+var (
+	rfc3339Instant = regexp.MustCompile(`\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})`)
+	timeShapeASCII = regexp.MustCompile(`(?i)\b\d+(\.\d+)?\s*(ms|msec|msecs|millisecond|milliseconds|s|sec|secs|second|seconds|m|min|mins|minute|minutes|h|hr|hrs|hour|hours|d|day|days)\b`)
+	timeShapeCJK   = regexp.MustCompile(`[0-9０-９〇零一二三四五六七八九十兩两半幾几百千]+\s*(秒鐘|秒钟|秒|分鐘|分鍾|分钟|分|鐘|鍾|钟|小時|小时|時|时|刻鐘|刻钟|天)`)
+	timeShapeClock = regexp.MustCompile(`\b\d{1,3}:\d{2}(:\d{2})?\b`)
+	// Go's time.Duration.String() shape, such as 1m14s or 1h30m0s.
+	timeShapeGoDuration = regexp.MustCompile(`(?i)\b\d+(\.\d+)?(ns|us|ms|s|m|h)(\d+(\.\d+)?(ns|us|ms|s|m|h))+\b`)
+	deadlineWords       = regexp.MustCompile(`(?i)deadline|截止|死線|死线`)
+)
+
+func composedSentence(notice string) string {
+	if i := strings.Index(notice, "\n"); i >= 0 {
+		return notice[:i]
+	}
+	return notice
+}
+
+func quotesTimeOfAnyShape(notice string) (string, bool) {
+	sentence := rfc3339Instant.ReplaceAllString(composedSentence(notice), "<instant>")
+	for _, re := range []*regexp.Regexp{timeShapeASCII, timeShapeCJK, timeShapeClock, timeShapeGoDuration} {
+		if m := re.FindString(sentence); m != "" {
+			return m, true
+		}
+	}
+	return "", false
+}
+
+func quotesADeadline(notice string) (string, bool) {
+	if m := deadlineWords.FindString(composedSentence(notice)); m != "" {
+		return m, true
+	}
+	return "", false
+}
+
+func assertQuotesNoTime(t *testing.T, arm, notice string) {
+	t.Helper()
+	if frag, yes := quotesADeadline(notice); yes {
+		t.Fatalf("%s named a deadline (%q) nobody will honour:\n%s", arm, frag, notice)
+	}
+	if frag, yes := quotesTimeOfAnyShape(notice); yes {
+		t.Fatalf("%s started a countdown nobody is counting (%q) — a span goes "+
+			"stale on every replay and breaks the client's verbatim de-dupe:\n%s",
+			arm, frag, notice)
+	}
+}
+
+// parseSSEFrame splits one "id: N\ndata: {...}\n\n" wire text into the id
+// line and the decoded JSON envelope.
+func parseSSEFrame(t *testing.T, raw []byte) (string, map[string]any) {
+	t.Helper()
+	text := string(raw)
+	if !strings.HasSuffix(text, "\n\n") {
+		t.Fatalf("frame must end with a blank line: %q", text)
+	}
+	lines := strings.Split(strings.TrimSuffix(text, "\n\n"), "\n")
+	if len(lines) != 2 || !strings.HasPrefix(lines[0], "id: ") || !strings.HasPrefix(lines[1], "data: ") {
+		t.Fatalf("frame shape: %q", text)
+	}
+	var envelope map[string]any
+	if err := json.Unmarshal([]byte(strings.TrimPrefix(lines[1], "data: ")), &envelope); err != nil {
+		t.Fatalf("frame data is not JSON: %v", err)
+	}
+	return strings.TrimPrefix(lines[0], "id: "), envelope
+}
+
+// drainListener empties a listener's queue and returns how many frames it held.
+func drainListener(l *hubListener) int {
+	n := 0
+	for l.pop() != nil {
+		n++
+	}
+	return n
+}
+
+func obsOf(id, desired string, online bool) memberObservation {
+	return memberObservation{MemberID: id, Desired: desired, Online: online}
+}
+
+// failAfterWrites is a ResponseWriter+Flusher whose Write succeeds `ok` times
+// and fails forever after.
+type failAfterWrites struct {
+	mu     sync.Mutex
+	ok     int
+	n      int
+	hdr    http.Header
+	frames [][]byte
+}
+
+func newFailAfterWrites(ok int) *failAfterWrites {
+	return &failAfterWrites{ok: ok, hdr: http.Header{}}
+}
+
+func (c *failAfterWrites) Header() http.Header { return c.hdr }
+func (c *failAfterWrites) WriteHeader(int)     {}
+func (c *failAfterWrites) Flush()              {}
+
+func (c *failAfterWrites) Write(p []byte) (int, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.n++
+	if c.n > c.ok {
+		return 0, errors.New("connection reset by peer")
+	}
+	frame := make([]byte, len(p))
+	copy(frame, p)
+	c.frames = append(c.frames, frame)
+	return len(p), nil
+}
+
+func (c *failAfterWrites) written() [][]byte {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	out := make([][]byte, len(c.frames))
+	copy(out, c.frames)
+	return out
+}
+
+// getTaskView reads the full task view. Artifact rows are intentionally not
+// part of this response; callers that need rows use the artifact read face.
+func getTaskView(t *testing.T, api *apiServer, taskID string) taskDTO {
+	t.Helper()
+	rec := httptest.NewRecorder()
+	api.HandleGetTaskApiTasksTaskIdGet(rec,
+		taskReq(t, "GET", "/api/tasks/"+taskID, nil, "owner", "owner"), taskID)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("get task: %d %s", rec.Code, rec.Body.String())
+	}
+	return decodeBody[taskDTO](t, rec)
+}
+
+// createdCardView follows the create receipt through the same read face used
+// by the cockpit; create_reply_card deliberately returns only a receipt.
+func createdCardView(t *testing.T, api *apiServer, rec *httptest.ResponseRecorder) replyCardDTO {
+	t.Helper()
+	receipt := decodeBody[replyCardCreateReceiptDTO](t, rec)
+	if receipt.ID == "" {
+		t.Fatalf("create receipt carried no card id: %s", rec.Body.String())
+	}
+	fresh := getReplyCardRaw(t, api, receipt.ID)
+	if fresh.Code != http.StatusOK {
+		t.Fatalf("get_reply_card %s: %d %s", receipt.ID, fresh.Code, fresh.Body.String())
+	}
+	return decodeBody[replyCardDTO](t, fresh)
+}
+
+// getReplyCardRaw fetches a card through the single-card endpoint.
+func getReplyCardRaw(t *testing.T, api *apiServer, cardID string) *httptest.ResponseRecorder {
+	t.Helper()
+	rec := httptest.NewRecorder()
+	api.HandleGetReplyCardApiReplyCardsCardIdGet(rec,
+		taskReq(t, "GET", "/api/reply-cards/"+cardID, nil, "owner", "owner"), cardID)
+	return rec
+}
+
+// errorMessageOf reads the unified error envelope's message so refusal tests
+// assert the reason as well as the status code.
+func errorMessageOf(t *testing.T, rec *httptest.ResponseRecorder) string {
+	t.Helper()
+	var body struct {
+		Error struct {
+			Code    string `json:"code"`
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("error envelope: %v (%s)", err, rec.Body.String())
+	}
+	return body.Error.Message
+}
+
+// strandLegacyOrphanCard recreates the pre-fix row shape that can still exist
+// in a live database, so legacy-card guards remain executable.
+func strandLegacyOrphanCard(t *testing.T, api *apiServer, cardID string) ReplyCard {
+	t.Helper()
+	c, err := api.dal.GetReplyCard(cardID)
+	if err != nil || c == nil {
+		t.Fatalf("card: %v %v", c, err)
+	}
+	c.Status = replyCardStatusWaiting
+	c.ExpiredTS = 0
+	if err := api.dal.PutReplyCard(*c); err != nil {
+		t.Fatalf("strand card: %v", err)
+	}
+	return *c
+}
+
+// createTaskAs posts create_task as the supplied principal and scope.
+func createTaskAs(t *testing.T, api *apiServer, body map[string]any, sub, scope string) *httptest.ResponseRecorder {
+	t.Helper()
+	rec := httptest.NewRecorder()
+	api.HandleCreateTaskApiTasksPost(rec, taskReq(t, "POST", "/api/tasks", body, sub, scope))
+	return rec
+}
+
+// mintDiffLink calls the mint route and returns the server-relative URL.
+func mintDiffLink(t *testing.T, base, token, query string) string {
+	t.Helper()
+	status, body := doRaw(t, "GET", base+"/api/diff/share-link?"+query, token, "", nil)
+	if status != 200 {
+		t.Fatalf("mint failed: %d %s", status, body)
+	}
+	var minted DiffShareLinkDTO
+	if err := json.Unmarshal([]byte(body), &minted); err != nil {
+		t.Fatalf("mint answered unparseable JSON: %v (%s)", err, body)
+	}
+	return minted.Url
+}
 
 // interopSecret is the stable signing key used by the mainline wired fixtures.
 // Keep it in the behavior-fixture layer: the canonical JWT tests do not need a

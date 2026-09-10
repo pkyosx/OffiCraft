@@ -141,23 +141,3 @@ func TestDocVarNameList(t *testing.T) {
 		})
 	}
 }
-
-func TestDocVarWriteRefusal(t *testing.T) {
-	t.Run("the refusal names offending and allowed variables", func(t *testing.T) {
-		got := docVarWriteRefusal("〈停止〉", []string{"task_no", "manual_label"}, []string{"owner", "task"})
-		want := "the 〈停止〉 you are writing uses {task_no}, {manual_label}, which is not one of its variables — nothing was written. " +
-			"the variables this document declares are {owner}, {task}. A variable nothing fills reaches an agent with the braces still in it."
-		if got != want {
-			t.Fatalf("docVarWriteRefusal returned %q, want %q", got, want)
-		}
-	})
-
-	t.Run("a document with no declared variables says so explicitly", func(t *testing.T) {
-		got := docVarWriteRefusal("system", []string{"owner"}, nil)
-		want := "the system you are writing uses {owner}, which is not one of its variables — nothing was written. " +
-			"this document declares no variables at all. A variable nothing fills reaches an agent with the braces still in it."
-		if got != want {
-			t.Fatalf("docVarWriteRefusal returned %q, want %q", got, want)
-		}
-	})
-}

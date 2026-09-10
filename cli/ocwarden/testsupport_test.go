@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -11,6 +12,57 @@ import (
 	"strings"
 	"testing"
 )
+
+// jwtWith builds an unsigned token carrying the given claims. The signature is
+// deliberately nonsense: these code paths must never verify the token.
+func jwtWith(t *testing.T, claims map[string]any) string {
+	t.Helper()
+	body, err := json.Marshal(claims)
+	if err != nil {
+		t.Fatalf("marshal claims: %v", err)
+	}
+	return "aGVhZGVy." + base64.RawURLEncoding.EncodeToString(body) + ".not-a-signature"
+}
+
+// stubOps keeps self-update tests on the real filesystem path while making the
+// executable probe programmable.
+type stubOps struct {
+	osUpdaterOps
+	probeErr error
+	probed   *[]string
+}
+
+func (s stubOps) probe(bin string) error {
+	if s.probed != nil {
+		*s.probed = append(*s.probed, bin)
+	}
+	return s.probeErr
+}
+
+type getResult struct {
+	status int
+	body   []byte
+	err    error
+}
+
+// recordingGetter serves canned responses and records fetched paths for tests
+// that assert a failed verification suppresses the binary download.
+func recordingGetter(m map[string]getResult, calls *[]string) getter {
+	return func(path string) (int, []byte, error) {
+		if calls != nil {
+			*calls = append(*calls, path)
+		}
+		r, ok := m[path]
+		if !ok {
+			return 404, nil, nil
+		}
+		return r.status, r.body, r.err
+	}
+}
+
+func versionBody(sha string) []byte {
+	return []byte(`{"version":"0.0.0","git_sha":"` + sha + `","update_available":false,"latest_version":null}`)
+}
 
 // fakeRunner is the shell seam: an argv key → canned stdout, and os.ErrNotExist
 // for anything the fixture does not stage.
