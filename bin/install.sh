@@ -1225,9 +1225,12 @@ fi
 # whoever notices.
 serve_cmd() {
   if [[ -n "$CFG_ABS" ]]; then
-    printf 'OC_CONFIG=%s %s/ocserverd serve' "$CFG_ABS" "$BIN_DIR"
+    # %q, not %s: this string is printed FOR THE OPERATOR TO PASTE, and a path
+    # with a space in it produces a command that silently runs something else.
+    # %q leaves an ordinary path byte-identical, so the common case is unchanged.
+    printf 'OC_CONFIG=%q %q/ocserverd serve' "$CFG_ABS" "$BIN_DIR"
   else
-    printf '%s/ocserverd serve' "$BIN_DIR"
+    printf '%q/ocserverd serve' "$BIN_DIR"
   fi
 }
 

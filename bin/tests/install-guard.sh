@@ -928,6 +928,57 @@ else
   bad "config inheritance: the port gate never probed 7799 — it checked a port the inherited config does not name"
 fi
 
+# 10l. THE INHERITED CONFIG MUST REACH THE OPERATOR HINT TOO (T-164, found by the
+# T-166 review).
+#
+# WHY THIS CASE EXISTS, AND WHY THE SOURCE-TEXT GUARD ABOVE COULD NOT SEE IT.
+# The first version of the fix froze the start command into a variable computed
+# right after $CFG_ABS was resolved — but the block just above REASSIGNS
+# $CFG_ABS when it inherits the running job's config, and every hint site is
+# further down. One execution then wrote the correct OC_CONFIG into the plist
+# and printed a BARE `ocserverd serve` to the operator: the plist right, the
+# advice wrong, which is the exact drift the refactor existed to make
+# impossible. 10k stayed green throughout, because what was stale was the VALUE,
+# not the wording — a source-text check cannot see a stale value, and reading it
+# as coverage of this is how the bug survived review-by-author.
+#
+# SHIM_BOOTSTRAP_REGISTERS=0 is what reaches a hint at all: the hints live on
+# failure paths, and this is the cheapest failure to provoke.
+reset_fixture preinstalled
+printf '[server]\nport = 7799\n' > "$INHERIT_CFG"
+cat > "$FAKEHOME/$PLIST_REL" <<PL
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>com.officraft.serve</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>$FAKEHOME/.officraft/bin/ocserverd</string>
+    <string>serve</string>
+  </array>
+  <key>EnvironmentVariables</key>
+  <dict><key>OC_CONFIG</key><string>$INHERIT_CFG</string></dict>
+  <key>RunAtLoad</key><true/>
+</dict>
+</plist>
+PL
+SHIM_BOOTSTRAP_REGISTERS=0 run_install loaded --force
+# Positive control FIRST: without the inheritance actually happening, the
+# assertion below would be asserting about a run that never took this path.
+case "$OUT" in
+  *"carrying over the existing service's config: $INHERIT_CFG"*)
+    ok "inherited-config hint: the run really took the inheritance path" ;;
+  *)
+    bad "inherited-config hint: the run never inherited anything — this case proves nothing ($OUT)" ;;
+esac
+case "$OUT" in
+  *"OC_CONFIG=$INHERIT_CFG"*)
+    ok "inherited-config hint: the start command handed to the operator carries the INHERITED config" ;;
+  *)
+    bad "inherited-config hint: the operator was handed a start command WITHOUT the inherited config — running it would land the daemon on the convention defaults while the plist points elsewhere ($OUT)" ;;
+esac
+
 # ── 11. the SAME defect on the other plutil reader (T-4358) ─────────────────
 # plist_env got the rc-decides treatment in T-5831; plist_program was left on
 # `2>/dev/null || true`, which on macOS 15 captures plutil's error TEXT and hands
