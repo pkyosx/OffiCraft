@@ -185,8 +185,10 @@ func verdictOf(t *testing.T, command string) bool {
 // lists ARE the stated boundary of this guard, and prose is the one part of this
 // file nothing mechanical was checking: three separate review rounds each found a
 // sentence in it that the code contradicted, and each time CI was green. Every
-// line of both lists now has a case here, so editing one without the other is red
-// in whichever direction the edit went.
+// line of both lists is meant to have a case here. Where a case exists, editing
+// the list without the code (or the other way round) is red. The pairing itself
+// is hand-kept: nothing reads those lists, so a list line added without a case
+// here is green and unpinned. See that file's EVIDENCE LEVELS section.
 //
 // Both halves of the assertion are OURS — the header we wrote and the guard we
 // wrote. What the HARNESS does with an allowed command is deliberately NOT
@@ -195,24 +197,26 @@ func verdictOf(t *testing.T, command string) bool {
 
 func TestGuardBash_EveryShapeTheHeaderCallsCoveredIsRefused(t *testing.T) {
 	for name, command := range map[string]string{
-		"start of string":            `rm -rf $D/x`,
-		"after a pipe":               `ls | rm -f "$D"/x`,
-		"after a semicolon":          `cd /tmp; rm -rf $D`,
-		"after &&":                   `cd /tmp && rm -rf $D`,
-		"after a background &":       `sleep 1 & rm -rf $D`,
-		"after a newline":            "cd /tmp\nrm -rf $D",
-		"after an open paren":        `(rm -rf $D)`,
-		"keyword do":                 `for f in a b; do rm -f $D/$f; done`,
-		"keyword then":               `if [ -d x ]; then rm -rf $D; fi`,
-		"keyword else":               `if [ -f x ]; then ls; else rm -rf $D; fi`,
-		"keyword elif":               `if [ -f x ]; then ls; elif rm -rf $D; then ls; fi`,
-		"keyword brace":              `{ rm -rf $D; }`,
-		"keyword at start of string": `do rm -rf $D`,
-		"behind sudo":                `sudo rm -rf $D`,
-		"sudo behind a keyword":      `for f in a; do sudo rm -rf $D/$f; done`,
-		"rmdir rather than rm":       `rmdir "$D"/empty`,
-		"command substitution":       `rm -rf $(cat p.txt)`,
-		"backtick substitution":      "rm -rf `cat p.txt`",
+		"start of string":                     `rm -rf $D/x`,
+		"after a pipe":                        `ls | rm -f "$D"/x`,
+		"after a semicolon":                   `cd /tmp; rm -rf $D`,
+		"after &&":                            `cd /tmp && rm -rf $D`,
+		"after a background &":                `sleep 1 & rm -rf $D`,
+		"after a newline":                     "cd /tmp\nrm -rf $D",
+		"after an open paren":                 `(rm -rf $D)`,
+		"keyword do":                          `for f in a b; do rm -f $D/$f; done`,
+		"keyword then":                        `if [ -d x ]; then rm -rf $D; fi`,
+		"keyword else":                        `if [ -f x ]; then ls; else rm -rf $D; fi`,
+		"keyword elif":                        `if [ -f x ]; then ls; elif rm -rf $D; then ls; fi`,
+		"keyword brace":                       `{ rm -rf $D; }`,
+		"keyword at start of string":          `do rm -rf $D`,
+		"behind sudo":                         `sudo rm -rf $D`,
+		"sudo behind a keyword":               `for f in a; do sudo rm -rf $D/$f; done`,
+		"rmdir rather than rm":                `rmdir "$D"/empty`,
+		"command substitution":                `rm -rf $(cat p.txt)`,
+		"backtick substitution":               "rm -rf `cat p.txt`",
+		"quoted variable as the whole target": `rm -rf "$D"`,
+		"assignment then removal":             `D=/abs/p && rm -f "$D"/*.json`,
 
 		// Reasons, not spellings. These two are refused INCIDENTALLY — they carry
 		// a $, which is the only thing the rule looks at. Their literal twins

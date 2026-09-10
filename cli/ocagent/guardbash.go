@@ -38,13 +38,26 @@ package main
 // confused in this very header before — see COVERAGE OF A REASON below — so keep
 // the two lists that follow strictly about spelling.
 //
-// Every line of both lists has a matching case in guardbash_test.go
+// Every line of both lists is MEANT to have a matching case in guardbash_test.go
 // (TestGuardBash_EveryShapeTheHeaderCallsCoveredIsRefused and
-// ...EveryShapeTheHeaderCallsNotCoveredIsAllowed). Those cases pin the GUARD'S
-// BEHAVIOUR, so the code can no longer drift away from these lists without going
-// red — three seeded mutants confirm they move. What they cannot check is this
-// prose: nothing parses comments, and a test that did would be defeated by the
-// first equivalent rewording while still looking green.
+// ...EveryShapeTheHeaderCallsNotCoveredIsAllowed). For the shapes those cases do
+// name, the guard's BEHAVIOUR is pinned and can no longer drift without going
+// red — three seeded mutants confirm they move.
+//
+// 🔴 BUT THAT ONE-TO-ONE CORRESPONDENCE IS KEPT BY HAND AND NOTHING WATCHES IT.
+// One test does read this file — TestPinnedTestNamesInCommentsStillExist scans it
+// for cited test names and goes red when one stops existing — but nothing reads
+// the LISTS. Measured 2026-09-10: a bogus extra line in the COVERED list with no
+// case behind it left the whole package green. So these lists are exactly as
+// complete as the last person to edit them was careful, and anyone adding a shape
+// here MUST add its case in the same edit or they have put an unpinned claim back
+// into this header — the defect the two tests exist to remove. A checker that
+// walks the lists and asserts a case per line would close it; it is a KNOWN,
+// UNPAID DEBT, not something another layer does.
+//
+// What no test can check in either direction is this prose: nothing parses
+// comments, and a test that did would be defeated by the first equivalent
+// rewording while still looking green.
 //
 // 🔴 SO IF THIS TEXT AND THOSE TABLES EVER DISAGREE, THE TABLES ARE RIGHT AND
 // THIS TEXT IS THE BUG. Change both in the same edit. Three separate review
@@ -61,6 +74,7 @@ package main
 //	  rm -rf $D/x            ls | rm -f "$D"/x     cd /tmp && rm -rf $D
 //	  rmdir "$D"/empty       rm -rf $(cat p.txt)   sudo rm -rf $D
 //	  for f in a b; do rm -f $D/$f; done           if [ -d x ]; then rm -rf $D; fi
+//	  rm -rf "$D"            D=/abs/p && rm -f "$D"/*.json
 //
 //	Incidentally this also refuses rm -rf $HOME and rm -rf "$PWD" — see COVERAGE
 //	OF A REASON. They are here because they carry a $, not because anything in
@@ -73,7 +87,8 @@ package main
 //	     echo "$D" | xargs rm -rf
 //	     /bin/rm -rf $D    \rm -rf $D    command rm -rf $D
 //	     env rm -rf $D     exec rm -rf $D    TMPDIR=x rm -rf $D
-//	2. a token in front of the command word that is not in the keyword group
+//	2. a token in front of the command word that is not in the keyword group and
+//	   is not sudo either — sudo is special-cased and its line is in COVERED above
 //	     if rm -rf $D/x; then echo gone; fi    until rm -rf $D/x; do sleep 1; done
 //	     while rm -rf $D/x; do sleep 1; done   ! rm -rf $D/x
 //	     time rm -rf $D/x    nohup rm -rf $D/x    {rm -rf $D;}
@@ -112,7 +127,17 @@ package main
 // Every allow/deny stated above is MEASURED, in Go, by the two tests named above.
 // Every statement about what the HARNESS does — its six reasons, what its circuit
 // breaker scans, when it prompts — is READ OUT OF THE 2.1.267 bundle and has NOT
-// been measured end to end. Do not promote one to the other.
+// been measured end to end, EXCEPT the three places that say so inline, which are
+// observations on a real member and not bundle reading:
+//
+//	the stall this guard exists to prevent — a member frozen on the prompt during
+//	its own shutdown cleanup, 2026-09-10, in THE PROBLEM IT SOLVES at the top;
+//	D=/abs/path && rm -f "$D"/*.json resolving and running with no prompt
+//	("measured on a member, 2026-09-10"), in DELIBERATELY WIDER below;
+//	the "possibly-empty variable path" reason, marked "measured stalling a member"
+//	in the six-reason table above removalWithAnExpandedTarget.
+//
+// Do not promote anything else to measured, and do not demote those three.
 //
 // DELIBERATELY WIDER THAN THE HARNESS CHECK, WHERE IT REACHES AT ALL. Inside the
 // covered spelling it over-refuses on purpose: per the bundle the harness only
