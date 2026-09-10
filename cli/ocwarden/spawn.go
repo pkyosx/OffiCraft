@@ -262,8 +262,7 @@ func buildAppendSystemPrompt(agentID, role, personaFile string) string {
 		"不要帶 offset/limit,不要只讀開頭,也不准用 cat/head/tail/sed 或任何終端機指令讀它:"+
 		"這個檔有數萬字元,終端機輸出只有開頭一小段會進到你的 context,"+
 		"其餘會被靜默丟棄而且不會有任何錯誤訊息,而「開機程序」在整份檔案的最後面。"+
-		"整份讀完後,照裡面「開機程序」段逐步執行(做事/治理走 officraft MCP 工具,聽事件走 "+
-		"ocagent listen)。用繁體中文回。",
+		"整份讀完後,照裡面「開機程序」段逐步執行。",
 		agentID, role, personaFile)
 	return prompt
 }
