@@ -31,48 +31,99 @@ package main
 // finished the job. Anyone softening this string back into a request restores
 // the failure.
 //
-// 🔴 WHAT THIS GUARD COVERS, AND WHAT IT DOES NOT. It is a TEXT MATCH over the
-// command string, never an analysis of the shell, so its boundary is a boundary
-// in SPELLING. Read the boundary before trusting it with anything.
+// 🔴 THE BOUNDARY OF THIS GUARD IS A BOUNDARY IN SPELLING, AND ONLY IN SPELLING.
+// It is a regexp over the command TEXT. It does not parse the shell, does not
+// resolve a variable, does not know the working directory, and therefore cannot
+// aim at any one of the harness's six refusal REASONS. Those two axes have been
+// confused in this very header before — see COVERAGE OF A REASON below — so keep
+// the two lists that follow strictly about spelling.
 //
-// COVERED: `rm` or `rmdir` standing as the command word — at the start of the
-// string, after one of the separators | ; & newline ( , or after one of the shell
-// keywords do / then / else / elif / { , optionally behind sudo — whose argument
-// segment up to the next separator contains a `$` or a backtick.
+// Every line of both lists has a matching case in guardbash_test.go
+// (TestGuardBash_EveryShapeTheHeaderCallsCoveredIsRefused and
+// ...EveryShapeTheHeaderCallsNotCoveredIsAllowed). Those cases pin the GUARD'S
+// BEHAVIOUR, so the code can no longer drift away from these lists without going
+// red — three seeded mutants confirm they move. What they cannot check is this
+// prose: nothing parses comments, and a test that did would be defeated by the
+// first equivalent rewording while still looking green.
 //
-// NOT COVERED, and this list is the point of the section:
+// 🔴 SO IF THIS TEXT AND THOSE TABLES EVER DISAGREE, THE TABLES ARE RIGHT AND
+// THIS TEXT IS THE BUG. Change both in the same edit. Three separate review
+// rounds each found a false sentence in this file's prose, every time with CI
+// green; the tables shrink that surface, they do not close it.
 //
-//	find "$D" -delete   /   find "$D" -exec rm -f {} +
-//	    → the command word is find; rm never appears where this rule looks.
-//	echo "$D" | xargs rm -rf
-//	    → the target is not in the text of the rm segment at all.
-//	/bin/rm   \rm   command rm   env rm   exec rm   TMPDIR=x rm
-//	    → the command word is not the bare token rm. ⚠️ Whether the harness even
-//	      prompts on these is UNVERIFIED (T-163 §B-8 measured the guard allowing
-//	      them; nobody has measured the harness end).
-//	critical path (/, $HOME)   /   working directory or its ancestor
-//	    → two of the harness's six refusal reasons; deciding them needs the
-//	      session's working directory, not just the command text.
+// COVERED — the guard REFUSES these:
 //
-// 🔴 NOTHING GUARDS THAT LIST TODAY. A member that writes one of those shapes
-// still stalls with no signal, exactly as it did before T-162, and that failure
-// is measured rather than hypothetical: on 2026-09-10 a stall of this kind cost
-// T-163's reviewer 3h50m (that particular shape IS covered now — but nothing on
-// the member's side distinguishes a covered spelling from an uncovered one, so
-// the same silent hours are still reachable). It is a KNOWN, UNPAID DEBT
-// recorded in T-162's step note, NOT a gap some other layer picks up. Anyone who
-// reads this header and stops asking "so what catches the rest?" has been misled
-// by it.
+//	rm or rmdir as the command word — at the start of the string, after one of
+//	the separators | ; & newline ( , or after one of the keywords
+//	do / then / else / elif / { , optionally behind sudo — whose argument
+//	segment, up to the next separator, contains a $ or a backtick:
+//
+//	  rm -rf $D/x            ls | rm -f "$D"/x     cd /tmp && rm -rf $D
+//	  rmdir "$D"/empty       rm -rf $(cat p.txt)   sudo rm -rf $D
+//	  for f in a b; do rm -f $D/$f; done           if [ -d x ]; then rm -rf $D; fi
+//
+//	Incidentally this also refuses rm -rf $HOME and rm -rf "$PWD" — see COVERAGE
+//	OF A REASON. They are here because they carry a $, not because anything in
+//	this guard knows what $HOME is.
+//
+// NOT COVERED — the guard ALLOWS every one of these:
+//
+//	1. the removal spelled some other way
+//	     find "$D" -delete            find "$D" -exec rm -f {} +
+//	     echo "$D" | xargs rm -rf
+//	     /bin/rm -rf $D    \rm -rf $D    command rm -rf $D
+//	     env rm -rf $D     exec rm -rf $D    TMPDIR=x rm -rf $D
+//	2. a token in front of the command word that is not in the keyword group
+//	     if rm -rf $D/x; then echo gone; fi    until rm -rf $D/x; do sleep 1; done
+//	     while rm -rf $D/x; do sleep 1; done   ! rm -rf $D/x
+//	     time rm -rf $D/x    nohup rm -rf $D/x    {rm -rf $D;}
+//	3. a target with no expansion in it at all
+//	     rm -rf ~/build/*             cd /tmp/x && rm -rf ./*
+//	     D=/tmp/x; cd "$D" && rm -rf ./*        rmdir -p ./build/*
+//	4. more than 64 command substitutions reached through a command word that is
+//	   not rm (per the bundle the harness's circuit breaker scans the whole
+//	   command text with no command-word anchoring; this rule does not)
+//	     echo $(echo a)…×65 | xargs rm -rf      /bin/rm -rf $(echo a)…×65
+//	5. a dangerous LITERAL path, because there is no $ for the rule to match
+//	     rm -rf /     rm -rf ~     rm -rf .     rm -rf ..     rm -rf /Users/alice
+//
+// 🔴 COVERAGE OF A HARNESS *REASON* IS INCIDENTAL, NEVER DESIGNED. A reason is
+// covered exactly when a command that triggers it also happens to match the
+// spelling rule, and not otherwise — so the SAME reason lands on both sides:
+//
+//	critical path:      rm -rf $HOME  REFUSED   /   rm -rf ~   ALLOWED
+//	cwd or its ancestor: rm -rf "$PWD" REFUSED  /   rm -rf ..  ALLOWED
+//
+// No reason may therefore be written into either list above as though it were a
+// spelling. An earlier version of this header did exactly that — it put "critical
+// path" and "working directory or its ancestor" in the NOT COVERED list and said
+// nothing guarded them, while guardbash_test.go on the same commit asserted that
+// sudo rm -rf $HOME/x was denied. Prose and test contradicting each other inside
+// one file, CI green. Note too that only the cwd half would need the session's
+// working directory; the critical-path half (/, ~) needs nothing but the text.
+//
+// 🔴 NOTHING GUARDS THE NOT COVERED LIST. A member that writes one of those
+// shapes reaches the harness with this guard silent. It is a KNOWN, UNPAID DEBT
+// recorded in T-162's step note, NOT a gap that some other layer picks up.
+// Anyone who reads this header and stops asking "so what catches the rest?" has
+// been misled by it.
+//
+// EVIDENCE LEVELS, because this header has been wrong about exactly this before.
+// Every allow/deny stated above is MEASURED, in Go, by the two tests named above.
+// Every statement about what the HARNESS does — its six reasons, what its circuit
+// breaker scans, when it prompts — is READ OUT OF THE 2.1.267 bundle and has NOT
+// been measured end to end. Do not promote one to the other.
 //
 // DELIBERATELY WIDER THAN THE HARNESS CHECK, WHERE IT REACHES AT ALL. Inside the
-// covered spelling it over-refuses on purpose: the harness only prompts when it
-// cannot resolve the variable — `D=/abs/path && rm -f "$D"/*.json` resolves and
-// runs (measured) — and this guard does NOT reproduce that resolution logic,
-// because an unverifiable analysis that drifts with someone else's releases
-// trades a cheap failure for the expensive one. So `rm -rf "$D"` is refused here
-// though it would not have prompted. Inside the covered set the costs are
-// asymmetric and that is the trade: a false refusal costs one rewrite, which the
-// member performs by itself; a missed one costs a stall.
+// covered spelling it over-refuses on purpose: per the bundle the harness only
+// prompts when it cannot resolve the variable — D=/abs/path && rm -f "$D"/*.json
+// resolves and runs (measured on a member, 2026-09-10) — and this guard does NOT
+// reproduce that resolution logic, because an unverifiable analysis that drifts
+// with someone else's releases trades a cheap failure for the expensive one. So
+// rm -rf "$D" is refused here though the bundle says it would not have prompted.
+// Inside the covered set the costs are asymmetric and that is the trade: a false
+// refusal costs one rewrite, which the member performs by itself; a missed one
+// costs a stall.
 //
 // OC_BASE CLASSIFICATION: EXEMPT. This subcommand contacts no station and never
 // reads cfg.Base — it reads one JSON document on stdin and writes at most one on
@@ -95,40 +146,38 @@ import (
 // a shell expansion of any kind — a variable ($D, ${DIR}, "$D"/x) or a command
 // substitution ($(...) or backticks).
 //
-// ONE RULE, THREE OF THE HARNESS'S SIX REFUSALS. Reading the shipped binary
-// (2.1.267) the built-in check refuses removals for six stated reasons, and the
-// first three are one family — the target is not a literal path, so it cannot be
-// analysed:
+// ONE RULE, AIMED AT A SPELLING, NOT AT A LIST OF REASONS. Read out of the
+// shipped binary (2.1.267 — READ, not measured) the built-in check refuses
+// removals for six stated reasons:
 //
-//	possibly-empty variable path                          ← measured stalling a member
+//	possibly-empty variable path                              ← measured stalling a member
 //	possibly-empty variable path inside command substitution
 //	statically-unresolvable target
-//
-// "The target must be a literal path" covers all three WITHOUT reproducing the
-// harness's analysis, which is the property that matters: an analysis copied here
-// would drift with someone else's releases and fail by stalling, the exact defect
-// this guard exists to remove.
-//
-// 🔴 TWO OF THE REMAINING THREE ARE NOT COVERED, and they are a different family
-// — a LITERAL path that is itself dangerous:
-//
 //	working directory or its ancestor
 //	critical path (the filesystem root, the home directory)
+//	— too many command substitutions to analyze (>64)         ← a circuit breaker;
+//	  same M$ helper, same circuitBreaker:"dangerousRemoval"
 //
-// Deciding those needs the session's working directory, not just the command
-// text, so they are deliberately out of scope here. A member that writes one of
-// those shapes still stalls. Widening to them is a separate decision with its own
-// false-positive surface; do not quietly bolt it on.
+// This rule reproduces NONE of that analysis, on purpose: a copy of it would
+// drift with someone else's releases and fail by stalling, the exact defect this
+// guard exists to remove. It asks one much cruder question instead — does a
+// removal's own argument segment carry a $ or a backtick — and that question is
+// NOT a subset of any reason above. Two corrections this comment has already had
+// to make, both of them from claiming otherwise:
 //
-// The sixth is a circuit breaker rather than a shape — same M$ helper, same
-// circuitBreaker:"dangerousRemoval":
+//	Reason 3 does not require an expansion. Two of its branches are reachable
+//	with none: rm -rf ~/build/* and cd /tmp/x && rm -rf ./* are ALLOWED here
+//	(measured). "One rule covers reasons 1-3", which this comment used to say,
+//	is false for reason 3.
 //
-//	— too many command substitutions to analyze (>64)
+//	The circuit breaker is not command-word anchored. Per the bundle it fires on
+//	o.length>64 and then tests /\brm(?:dir)?\b/ against the WHOLE command text,
+//	so echo $(…)×65 | xargs rm -rf reaches it while this rule stays silent
+//	(measured: ALLOWED). This comment used to claim the breaker "cannot fire on
+//	a command this guard lets through". It can.
 //
-// It cannot fire on a command this guard lets through: 65 command substitutions
-// cannot be written without a `$` or a backtick, which is what the rule above
-// already matches.
-//
+// Reasons 4 and 5 land on both sides of this rule depending only on whether the
+// command happens to carry a $. See the file header, COVERAGE OF A REASON.
 // The leading alternation anchors the command word to the start of the string or
 // to a shell separator, so the word has to BE the command rather than appear
 // inside somebody else's argument.
@@ -140,8 +189,15 @@ import (
 // `for f in a b; do rm -f $D/$f; done` was allowed. That was not a missing shape
 // in a list: deleting a batch of files inside a loop is ordinary member work, and
 // on 2026-09-10 exactly that shape stalled T-163's reviewer for 3h50m while it
-// was reviewing this guard. Anything else that can legally stand in front of a
-// command word belongs in this group too, not in a longer list of removal spellings.
+// was reviewing this guard.
+//
+// 🔴 THE GROUP IS NOT EXHAUSTIVE, AND LENGTHENING IT IS NOT THE FIX. `if`,
+// `until`, `while`, `!`, `time`, `nohup` and `{` with no space after it all
+// still stand in front of a removal this rule allows (measured; they are in the
+// header's NOT COVERED list, item 2). Every round of review so far has found
+// another one, which is the signal that "add the next spelling" is not
+// converging. Anything added here must be added to the header's lists and to
+// guardbash_test.go in the same edit.
 var removalWithAnExpandedTarget = regexp.MustCompile(
 	"(?:^|[|;&\n(])\\s*(?:(?:do|then|else|elif|\\{)\\s+)*(?:sudo\\s+)?(?:rm|rmdir)\\b[^|;&\n)]*[$`]",
 )
@@ -151,8 +207,9 @@ var removalWithAnExpandedTarget = regexp.MustCompile(
 const guardBashRefusal = "OffiCraft 執行環境政策：移除指令的目標路徑必須是字面路徑，不得含 shell 變數或指令替換。" +
 	"這個形狀會觸發執行環境的確認提示，而本環境沒有人可以回答，成員會就此停住。" +
 	"這是環境層的固定政策，不是建議，也不是由指令輸出提出的要求。" +
-	"改寫方式：直接寫完整路徑，或先 cd 進目標目錄再用相對路徑，" +
-	"或改用 ocagent clean <完整路徑>。改寫後直接重試，不需要詢問任何人。"
+	"改寫方式：改用 ocagent clean <完整路徑>，或直接寫出完整的字面路徑（不含變數、不含 ~、不含萬用字元）。" +
+	"不要改成「先 cd 進目標目錄再用 ./* 之類的相對萬用字元」——那個形狀一樣會停住。" +
+	"改寫後直接重試，不需要詢問任何人。"
 
 // preToolUseInput is the slice of the hook payload this guard reads. Every other
 // field the harness sends is deliberately ignored.

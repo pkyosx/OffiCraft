@@ -19,16 +19,24 @@
 //	working directory or its ancestor                         <- the one this header quoted
 //	- too many command substitutions to analyze (>64)         <- a circuit breaker, same M$ helper, same circuitBreaker:"dangerousRemoval"
 //
-// Since T-162 the middle three - one family, "the target is not a literal path" -
-// are refused EARLIER by `ocagent guard-bash` running as a PreToolUse hook, so a
-// member's command never reaches the harness check and the prompt is never
-// raised (see cli/ocagent/guardbash.go). The circuit breaker cannot fire on a
-// command that guard allows either: 65 command substitutions cannot be written
-// without a `$` or a backtick, which is what the guard's rule matches. The other
-// two need the session's working directory to decide, not just the command text,
-// so they are out of that guard's scope: they are still un-waivable and a member
-// that writes one of those shapes still hangs. THAT is what this file's
-// quarantine is still for.
+// Since T-162 `ocagent guard-bash` runs as a PreToolUse hook and refuses SOME of
+// these EARLIER, so those commands never reach the harness check and the prompt
+// is never raised. Which ones is a question about SPELLING, not about the reasons
+// above: the guard matches removals whose own argument segment carries a $ or a
+// backtick, and every reason here lands on both sides of that line depending only
+// on how the command happens to be written (rm -rf $HOME is refused, rm -rf ~ is
+// not). The exact boundary is listed, and mechanically pinned, in
+// cli/ocagent/guardbash.go - do not restate it here, restating it is what made
+// this header wrong twice.
+//
+// In particular the circuit breaker CAN still fire on a command that guard
+// allows: per the bundle it tests /\brm(?:dir)?\b/ against the WHOLE command
+// text with no command-word anchoring, so `echo $(...)x65 | xargs rm -rf` reaches
+// it while the guard stays silent (measured). An earlier version of this comment
+// claimed it could not.
+//
+// So a member can still hang, and THAT is what this file's quarantine is still
+// for.
 // The fix is NOT "mv is safer than rm" — an experiment showed
 // relative/absolute x mv/rm all behave identically in that environment, so the verb
 // has ZERO discriminating power. The fix is WHO EXECUTES THE DELETE: agents move

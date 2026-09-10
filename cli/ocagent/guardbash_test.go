@@ -161,4 +161,170 @@ func TestGuardBash_RefusalIsAStatementAboutTheEnvironmentNotARequest(t *testing.
 	if !strings.Contains(guardBashRefusal, "ocagent clean") {
 		t.Error("the refusal no longer names a way forward")
 	}
+	// The way forward must not be a shape that stalls too. This text used to
+	// suggest "cd into the directory and use a relative path"; a member that
+	// complies writes `cd "$D" && rm -rf ./*`, which this guard allows (measured,
+	// TestGuardBash_EveryShapeTheHeaderCallsNotCoveredIsAllowed) and which the
+	// bundle says reaches the statically-unresolvable-target refusal. The guard
+	// was handing the member the stall it exists to prevent.
+	if !strings.Contains(guardBashRefusal, "一樣會停住") {
+		t.Error("the refusal no longer warns that the cd-plus-relative-glob rewrite " +
+			"stalls as well; without that warning this text sends the member into " +
+			"a shape this guard does not catch")
+	}
+}
+
+// verdictOf answers what a member would observe: true when the guard refuses.
+func verdictOf(t *testing.T, command string) bool {
+	t.Helper()
+	_, stdout := runGuardBash(t, command)
+	return strings.TrimSpace(stdout) != ""
+}
+
+// The two tests below pin guardbash.go's header. Its COVERED and NOT COVERED
+// lists ARE the stated boundary of this guard, and prose is the one part of this
+// file nothing mechanical was checking: three separate review rounds each found a
+// sentence in it that the code contradicted, and each time CI was green. Every
+// line of both lists now has a case here, so editing one without the other is red
+// in whichever direction the edit went.
+//
+// Both halves of the assertion are OURS — the header we wrote and the guard we
+// wrote. What the HARNESS does with an allowed command is deliberately NOT
+// asserted anywhere here: that was read out of the 2.1.267 bundle and never
+// measured end to end, so it lives in comments and stays there.
+
+func TestGuardBash_EveryShapeTheHeaderCallsCoveredIsRefused(t *testing.T) {
+	for name, command := range map[string]string{
+		"start of string":            `rm -rf $D/x`,
+		"after a pipe":               `ls | rm -f "$D"/x`,
+		"after a semicolon":          `cd /tmp; rm -rf $D`,
+		"after &&":                   `cd /tmp && rm -rf $D`,
+		"after a background &":       `sleep 1 & rm -rf $D`,
+		"after a newline":            "cd /tmp\nrm -rf $D",
+		"after an open paren":        `(rm -rf $D)`,
+		"keyword do":                 `for f in a b; do rm -f $D/$f; done`,
+		"keyword then":               `if [ -d x ]; then rm -rf $D; fi`,
+		"keyword else":               `if [ -f x ]; then ls; else rm -rf $D; fi`,
+		"keyword elif":               `if [ -f x ]; then ls; elif rm -rf $D; then ls; fi`,
+		"keyword brace":              `{ rm -rf $D; }`,
+		"keyword at start of string": `do rm -rf $D`,
+		"behind sudo":                `sudo rm -rf $D`,
+		"sudo behind a keyword":      `for f in a; do sudo rm -rf $D/$f; done`,
+		"rmdir rather than rm":       `rmdir "$D"/empty`,
+		"command substitution":       `rm -rf $(cat p.txt)`,
+		"backtick substitution":      "rm -rf `cat p.txt`",
+
+		// Reasons, not spellings. These two are refused INCIDENTALLY — they carry
+		// a $, which is the only thing the rule looks at. Their literal twins
+		// (rm -rf ~, rm -rf ..) are in the NOT COVERED table. An earlier header
+		// listed both of these as NOT COVERED while guardbash_test.go asserted the
+		// first was denied: same file, prose against test, CI green.
+		"critical path carrying a variable":     `rm -rf $HOME`,
+		"working directory carrying a variable": `rm -rf "$PWD"`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			if !verdictOf(t, command) {
+				t.Errorf("HEADER SAYS COVERED BUT GUARD ALLOWS: %q", command)
+			}
+		})
+	}
+}
+
+func TestGuardBash_EveryShapeTheHeaderCallsNotCoveredIsAllowed(t *testing.T) {
+	subs := strings.Repeat("$(echo a)", 65)
+	for name, command := range map[string]string{
+		// 1. the removal spelled some other way.
+		"find -delete":         `find "$D" -delete`,
+		"find -exec rm":        `find "$D" -exec rm -f {} +`,
+		"xargs rm":             `echo "$D" | xargs rm -rf`,
+		"absolute path to rm":  `/bin/rm -rf $D`,
+		"backslash-escaped rm": `\rm -rf $D`,
+		"command rm":           `command rm -rf $D`,
+		"env rm":               `env rm -rf $D`,
+		"exec rm":              `exec rm -rf $D`,
+		"assignment prefix":    `TMPDIR=x rm -rf $D`,
+
+		// 2. a token in front of the command word that is not in the keyword group.
+		// Lengthening that group is not the fix; see guardbash.go's header.
+		"keyword if":          `if rm -rf $D/x; then echo gone; fi`,
+		"keyword until":       `until rm -rf $D/x; do sleep 1; done`,
+		"keyword while":       `while rm -rf $D/x; do sleep 1; done`,
+		"negation bang":       `! rm -rf $D/x`,
+		"time prefix":         `time rm -rf $D/x`,
+		"nohup prefix":        `nohup rm -rf $D/x`,
+		"brace with no space": `{rm -rf $D;}`,
+
+		// 3. a target with no expansion in it at all. Per the bundle these reach
+		// the harness's "statically-unresolvable target" reason, which is why
+		// guardBashRefusal must not tell a member to rewrite into this shape.
+		"tilde glob":               `rm -rf ~/build/*`,
+		"cd literal then rel glob": `cd /tmp/x && rm -rf ./*`,
+		"cd via var then rel glob": `D=/tmp/x; cd "$D" && rm -rf ./*`,
+		"rmdir with a rel glob":    `rmdir -p ./build/*`,
+
+		// 4. >64 command substitutions reached through a command word that is not
+		// rm. Per the bundle the circuit breaker scans the whole command text with
+		// no command-word anchoring, so it reaches these while this rule does not.
+		"65 substitutions via xargs":   `echo ` + subs + ` | xargs rm -rf`,
+		"65 substitutions via /bin/rm": `/bin/rm -rf ` + subs,
+		"65 substitutions via find":    `find ` + subs + ` -exec rm -f {} +`,
+
+		// 5. a dangerous LITERAL path: no $, nothing for the rule to match.
+		"filesystem root":    `rm -rf /`,
+		"bare tilde":         `rm -rf ~`,
+		"working directory":  `rm -rf .`,
+		"parent directory":   `rm -rf ..`,
+		"a literal home dir": `rm -rf /Users/alice`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			if verdictOf(t, command) {
+				t.Errorf("HEADER SAYS NOT COVERED BUT GUARD REFUSES: %q", command)
+			}
+		})
+	}
+}
+
+func TestGuardBash_TheSegmentBoundaryIsWhereTheHeaderSaysItIs(t *testing.T) {
+	// The header says the $ has to be in the removal's OWN argument segment, up to
+	// the next separator. That boundary is the entire control on this guard's
+	// false-refusal surface and a re-audit mutant widened it to `.*` with all 271
+	// tests still green. These two cases are what makes that mutant red.
+	if verdictOf(t, `rm -rf /tmp/literal; echo $D`) {
+		t.Error("guard reached past the segment boundary: a $ in a LATER segment " +
+			"refused a removal whose own target is a literal path")
+	}
+	if !verdictOf(t, `rm -rf /tmp/literal$D; echo x`) {
+		t.Error("POSITIVE CONTROL FAILED: a $ inside the removal's own segment was " +
+			"not caught, so the case above proves nothing")
+	}
+}
+
+func TestGuardBash_IsReachableThroughTheCLIEntryPoint(t *testing.T) {
+	// cli/ocwarden/spawn.go writes the string "ocagent guard-bash" into every
+	// member's settings.json, and until this test nothing crossed the seam between
+	// that string and a subcommand that actually refuses: a re-audit mutant
+	// replaced this case's body in main.go with `return 0` — the guard became a
+	// permanent no-op — and all 824 tests across cli/ocagent and cli/ocwarden
+	// stayed green. Both directions are checked, so neither a hard-wired allow nor
+	// a hard-wired deny survives.
+	noEnv := func(string) string { return "" }
+
+	var denyOut bytes.Buffer
+	if code := realMain([]string{"guard-bash"}, noEnv,
+		strings.NewReader(`{"tool_input":{"command":"rm -rf $D/x"}}`), &denyOut); code != 0 {
+		t.Errorf("exit code = %d, want 0", code)
+	}
+	if got := decisionOf(t, denyOut.String()); got != "deny" {
+		t.Errorf("`ocagent guard-bash` answered %q for a stalling shape, want %q — "+
+			"the subcommand settings.json points at is not refusing anything", got, "deny")
+	}
+
+	var allowOut bytes.Buffer
+	if code := realMain([]string{"guard-bash"}, noEnv,
+		strings.NewReader(`{"tool_input":{"command":"rm -rf ./local"}}`), &allowOut); code != 0 {
+		t.Errorf("exit code = %d, want 0", code)
+	}
+	if strings.TrimSpace(allowOut.String()) != "" {
+		t.Errorf("`ocagent guard-bash` refused ordinary work: %q", allowOut.String())
+	}
 }
