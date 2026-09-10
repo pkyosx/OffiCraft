@@ -806,16 +806,28 @@ if compgen -G "$FAKEHOME/.officraft-*" >/dev/null; then bad "plain --foreground:
 # the MAIN instance's database. A behavioural case per failure path would be the
 # better test; this is the one that exists, and it is honest about being a
 # source-text check: it cannot see a hint built some other way.
-BARE_HINTS="$(grep -c 'echo "\[install\].*\$BIN_DIR/ocserverd serve' "$SCRIPT" || true)"
-check "no operator-facing hint prints a bare 'ocserverd serve' (they must derive from \$SERVE_CMD)" "0" "$BARE_HINTS"
-# Positive control for the line above: the pattern must be able to match at all,
-# otherwise a typo in it reports 0 for a file full of bare hints.
-SERVE_CMD_USES="$(grep -c 'SERVE_CMD' "$SCRIPT" || true)"
-if [[ "$SERVE_CMD_USES" -ge 4 ]]; then
-  ok "the hint sites really do go through \$SERVE_CMD ($SERVE_CMD_USES references)"
-else
-  bad "only $SERVE_CMD_USES \$SERVE_CMD references in install.sh — the check above is reading a file that does not use it"
-fi
+BARE_HINT_RE='echo "\[install\].*\$BIN_DIR/ocserverd serve'
+BARE_HINTS="$(grep -c "$BARE_HINT_RE" "$SCRIPT" || true)"
+check "no operator-facing hint prints a bare 'ocserverd serve' (they must derive from serve_cmd)" "0" "$BARE_HINTS"
+# 🔴 POSITIVE CONTROL — AND THE FIRST VERSION OF IT HAD NO DISCRIMINATING POWER.
+# It counted occurrences of the string "SERVE_CMD", which is not the pattern the
+# assertion above uses. T-166's review seeded exactly the mutant that exposes it:
+# leave one bare hint AND misspell the pattern ('ocserverd' -> 'ocserverdd'), and
+# the whole suite still reported 120 ok / 0 failed with the control green. A
+# control that asks a DIFFERENT question than the assertion cannot fail with it.
+#
+# The control now runs the SAME pattern over a fixture that is KNOWN to contain
+# the thing being banned — two lines copied verbatim from the shape install.sh
+# carried before the fix. A typo in $BARE_HINT_RE now takes this line down
+# together with the assertion, which is the only arrangement that makes a green
+# assertion mean anything.
+CONTROL_SRC="$WORK/.bare-hint-control.sh"
+cat > "$CONTROL_SRC" <<'CONTROL_EOF'
+    echo "[install]   $BIN_DIR/ocserverd serve" >&2
+    echo "[install]        Or run it in the foreground: $BIN_DIR/ocserverd serve" >&2
+CONTROL_EOF
+CONTROL_HITS="$(grep -c "$BARE_HINT_RE" "$CONTROL_SRC" || true)"
+check "positive control: the SAME pattern finds the bare hints in known-bad text" "2" "$CONTROL_HITS"
 
 # ── 10. a reinstall is not a relocation, on EVERY macOS ─────────────────────
 # The plist this suite writes has no EnvironmentVariables at all, so asking it
