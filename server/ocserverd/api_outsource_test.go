@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -40,13 +41,19 @@ func apiTestWorkerRow(t *testing.T, over map[string]any) map[string]any {
 		"last_op": "", "last_op_ok": nil, "last_op_log": "", "last_op_reason": "",
 		"last_op_at": 0, "creator_id": "owner", "delegated_by": "",
 		"refocus_since": 0, "refocus_op": "", "refocus_deadline": 0,
-		"desired_state": "",
+		"desired_state":           "",
+		"terminal_attach_command": "tmux -L officraft attach -t member-ow-abc123",
 	}
 	for k, v := range over {
 		if _, named := row[k]; !named {
 			t.Fatalf("apiTestWorkerRow: %q is not a field of this projection", k)
 		}
 		row[k] = v
+	}
+	// The server always serves this command, even for an offline worker. Keep
+	// the expected session tied to the row id when a test reads a second worker.
+	if id, ok := row["id"].(string); ok {
+		row["terminal_attach_command"] = "tmux -L officraft attach -t member-" + strings.ToLower(id)
 	}
 	return row
 }
