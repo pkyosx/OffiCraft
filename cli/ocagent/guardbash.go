@@ -1,22 +1,16 @@
 package main
 
-// guard-bash — a PreToolUse hook that refuses removal commands whose target is
-// not a literal path, so a headless member never reaches the harness's built-in
-// dangerous-removal prompt.
+// guard-bash — a PreToolUse hook.
 //
-// WHY A HOOK RATHER THAN A RULE IN THE SEEDS. That prompt ignores
-// --dangerously-skip-permissions, the flag every member is launched with, and
-// nobody is at the keyboard: the member stalls in silence and, from outside,
-// looks exactly like a crash. A PreToolUse denial lands before the tool call, so
-// the prompt is never raised rather than never answered. cli/CLAUDE.md §5 had
-// carried the rule as prose for a while; on 2026-09-10 a member stalled during
-// its own shutdown cleanup anyway. Deletable once the harness lets a headless
-// session waive that prompt.
-//
-// WHAT THIS GUARD REFUSES IS DEFINED BY guardbash_test.go, NOT BY THIS COMMENT.
-// Four review rounds in a row each found a false scope claim in this header with
-// CI green, so scope is not restated here in any form — the tables in the test
-// file are the only statement of it, and they redden when the rule moves.
+// WHY A HOOK RATHER THAN A RULE IN THE SEEDS. The harness's built-in
+// dangerous-removal prompt ignores --dangerously-skip-permissions, the flag
+// every member is launched with, and nobody is at the keyboard: the member
+// stalls in silence and, from outside, looks exactly like a crash. A
+// PreToolUse denial lands before the tool call, so the prompt is never raised
+// rather than never answered. cli/CLAUDE.md §5 had carried the rule as prose
+// for a while; on 2026-09-10 a member stalled during its own shutdown cleanup
+// anyway. Deletable once the harness lets a headless session waive that
+// prompt.
 //
 // 🔴 THE REFUSAL TEXT IS PART OF THE FUNCTION, NOT COPY. Measured on seth-m5,
 // 2026-09-10: worded as a request (「請改用 ocagent clean」) the member REFUSED to

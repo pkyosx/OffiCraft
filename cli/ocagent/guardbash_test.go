@@ -48,20 +48,19 @@ func decisionOf(t *testing.T, stdout string) string {
 		t.Errorf("refusal text diverged:\n got %q\nwant %q",
 			got.HookSpecificOutput.PermissionDecisionReason, guardBashRefusal)
 	}
+	if !strings.Contains(stdout, "<完整路徑>") {
+		t.Errorf("the decision document escaped the refusal instead of emitting it as written: %q", stdout)
+	}
 	return got.HookSpecificOutput.PermissionDecision
 }
 
-// TestGuardBash_RefusesRemovalWhoseTargetIsNotALiteralPath is one half of this
-// guard's stated scope; TestGuardBash_AllowsEverythingElse is the other. Between
-// them they are the ONLY statement of what the guard covers — guardbash.go's
-// header makes no scope claim, because four review rounds in a row each found a
-// false one there with CI green.
 func TestGuardBash_RefusesRemovalWhoseTargetIsNotALiteralPath(t *testing.T) {
 	// Every one of these stalls a headless member today. "the command that
 	// stalled T-163's reviewer" is the verbatim command that froze a member for
 	// 3h50m on 2026-09-10 while it was reviewing this very guard.
 	for name, command := range map[string]string{
 		"start of string":                     `rm -rf $D/x`,
+		"long command, removal at the end":    "echo " + strings.Repeat("x", 4096) + "; rm -rf $D/build",
 		"quoted variable with a glob":         `rm -f "$D"/*.json`,
 		"quoted variable as the whole target": `rm -rf "$D"`,
 		"bare variable":                       `rm -f $D/a.txt`,
@@ -252,11 +251,9 @@ func TestGuardBash_RefusalIsAStatementAboutTheEnvironmentNotARequest(t *testing.
 // TestGuardBash_TheRuleCannotChangeWithoutThisLineChanging pins the regexp
 // source, because the two tables above are kept BY HAND: a seeded mutant that
 // widened the keyword alternation and deleted the one allow-table line it broke,
-// in the same edit, left the whole package green. Every behavioural change to the
-// guard has to go through this literal, so it cannot be made without the author
-// landing here and being sent to the tables. It asserts nothing about scope — it
-// is a tripwire, not a claim. Deletable the day a checker derives the tables from
-// the rule instead of from someone's memory.
+// in the same edit, left the whole package green. It asserts nothing about
+// scope — it is a tripwire, not a claim. Deletable the day a checker derives
+// the tables from the rule instead of from someone's memory.
 func TestGuardBash_TheRuleCannotChangeWithoutThisLineChanging(t *testing.T) {
 	const want = "(?:^|[|;&\n(])\\s*(?:(?:do|then|else|elif|\\{)\\s+)*(?:sudo\\s+)?(?:rm|rmdir)\\b[^|;&\n)]*[$`]"
 	if got := removalWithAnExpandedTarget.String(); got != want {
@@ -276,8 +273,8 @@ func verdictOf(t *testing.T, command string) bool {
 func TestGuardBash_ADollarInALaterSegmentDoesNotRefuseALiteralRemoval(t *testing.T) {
 	// The $ has to be in the removal's OWN argument segment, up to the next
 	// separator. That boundary is the entire control on this guard's false-refusal
-	// surface, and a re-audit mutant widened it to `.*` with all 271 tests still
-	// green. These two cases are what makes that mutant red.
+	// surface, and a re-audit mutant widened it to `.*` and stayed green. These
+	// two cases are what makes that mutant red.
 	if verdictOf(t, `rm -rf /tmp/literal; echo $D`) {
 		t.Error("guard reached past the segment boundary: a $ in a LATER segment " +
 			"refused a removal whose own target is a literal path")
@@ -293,9 +290,8 @@ func TestGuardBash_IsReachableThroughTheCLIEntryPoint(t *testing.T) {
 	// member's settings.json, and until this test nothing crossed the seam between
 	// that string and a subcommand that actually refuses: a re-audit mutant
 	// replaced this case's body in main.go with `return 0` — the guard became a
-	// permanent no-op — and all 824 tests across cli/ocagent and cli/ocwarden
-	// stayed green. Both directions are checked, so neither a hard-wired allow nor
-	// a hard-wired deny survives.
+	// permanent no-op — and the suite stayed green. Both directions are checked,
+	// so neither a hard-wired allow nor a hard-wired deny survives.
 	noEnv := func(string) string { return "" }
 
 	var denyOut bytes.Buffer
