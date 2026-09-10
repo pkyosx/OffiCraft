@@ -1331,14 +1331,69 @@ if lsof -nP -iTCP:"$PORT" -sTCP:LISTEN >/dev/null 2>&1; then
 fi
 
 if [[ "$FOREGROUND" == 1 ]]; then
+  # ── the config the foreground daemon must inherit (T-164) ──────────────────
+  # THE BUG THIS CLOSES. This branch used to `exec ocserverd serve` with NOTHING
+  # in front of it. Two lines above, the plist path bakes OC_CONFIG=$CFG_ABS into
+  # the job, and the migrate above ran with OC_CONFIG=$NS_CFG as a one-shot
+  # prefix — neither is an export, so the exec inherited no config at all. The
+  # daemon then fell back through its own order ($OC_CONFIG → ./oc.toml, both
+  # empty) to the CONVENTION DEFAULTS: ~/.officraft/server/data/officraft.db and
+  # port 7755. Measured end to end on 2026-09-10 with the official v0.5.356
+  # tarball: `--namespace X --port Y --foreground` created and MIGRATED the
+  # DEFAULT database (goose 74 → 101 on a pre-existing one) and then tried to
+  # bind 7755, while the line printed just above said "open http://127.0.0.1:Y/".
+  # Nothing anywhere said the namespace had been dropped.
+  #
+  # 🔴 THE MIGRATION RAN BEFORE THE PORT CHECK. A live station already holding
+  # 7755 does NOT protect its own database from this: the daemon migrated the
+  # default DB first and only then died on the port. "The main instance is
+  # running, so it would have been stopped" is the intuition this refutes.
+  #
+  # WHY $CFG_ABS AND NOT $NS_CFG. $CFG_ABS is the SAME value the launchd path
+  # writes into the plist (resolved a few lines above): the namespace config for
+  # a namespaced run, the absolute form of $OC_CONFIG / ./oc.toml otherwise, and
+  # EMPTY when no config file backed the port probe. Reusing it keeps the two
+  # launch paths saying the same thing by construction rather than by two
+  # authors remembering to.
+  #
+  # 🔴 EMPTY MUST STAY EMPTY. A config-less `ocserverd serve` booting on the
+  # convention defaults is a DOCUMENTED, deliberate capability - oc.toml.example
+  # says "The file may be entirely ABSENT: every key has a convention default, so
+  # a bare `ocserverd serve` boots with zero setup", and server/ocserverd/config.go
+  # repeats it. Failing when nothing resolves would delete that. The fallback is
+  # only a betrayal when the caller NAMED a target, which is what the guard below
+  # covers and the only case where refusing is right.
+  #
+  # ⚠️ THE GUARD BELOW CANNOT FIRE ON TODAY'S CODE PATH, and saying so is the
+  # point. A namespaced run always reaches this line with $NS_CFG on disk: the
+  # block above writes it (or reports reusing an existing one) unconditionally
+  # when $NS is set, and `set -e` aborts if that write fails. So this is a
+  # TRIPWIRE for a future edit that stops writing $NS_CFG — not a check that
+  # fires today, and no test exercises it. What actually defends the fix is the
+  # install-guard case asserting the exec CARRIES the config; do not read this
+  # block as the thing that makes the silent fallback impossible.
+  if [[ -n "$NS" && ! -f "$NS_CFG" ]]; then
+    echo "[install] FATAL: --namespace '$NS' was given but its config $NS_CFG is missing." >&2
+    echo "[install]        Refusing to start: a config-less serve would silently use the DEFAULT" >&2
+    echo "[install]        database ($HOME/.officraft/server/data/officraft.db) and the DEFAULT port" >&2
+    echo "[install]        $DEFAULT_PORT — not the instance you named. NOTHING was started." >&2
+    exit 1
+  fi
   echo
   echo "[install] ✅ installed. Starting OffiCraft in the foreground (--foreground)…"
   echo "[install]    open  http://127.0.0.1:${PORT}/  in your browser."
   echo "[install]    (first run: the serve log below prints a one-time setup link"
   echo "[install]     with ?code=… — open it to set your owner password.)"
   echo "[install]    Ctrl-C stops the service; restart later with:"
-  echo "[install]      $BIN_DIR/ocserverd serve"
+  if [[ -n "$CFG_ABS" ]]; then
+    echo "[install]      OC_CONFIG=$CFG_ABS $BIN_DIR/ocserverd serve"
+  else
+    echo "[install]      $BIN_DIR/ocserverd serve"
+  fi
   echo
+  if [[ -n "$CFG_ABS" ]]; then
+    exec env OC_CONFIG="$CFG_ABS" "$BIN_DIR/ocserverd" serve
+  fi
   exec "$BIN_DIR/ocserverd" serve
 fi
 
