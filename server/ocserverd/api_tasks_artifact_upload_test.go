@@ -171,15 +171,17 @@ func TestHandleUploadTaskArtifactApiTasksTaskIdArtifactsUploadPost(t *testing.T)
 		dashboard.wantFrames()
 	})
 
-	t.Run("a body over 100 MB answers 400 and pins nothing", func(t *testing.T) {
+	t.Run("a declared body over 100 MB answers 400 before reading bytes and pins nothing", func(t *testing.T) {
 		api, h, _, owner := newAPITestServer(t)
 		apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"Ship it","executor_member_id":"kip"}`)
 		agent := apiTestAgentToken(t, api, "kip", "")
 		dashboard := apiTestListen(t, api, "")
 
+		body := &readCountingReader{}
 		req := httptest.NewRequest(http.MethodPost,
 			"/api/tasks/T-1/artifacts/upload?name=oversize",
-			&repeatingByteReader{remaining: int64(chatAttachmentMaxBytes) + 1})
+			body)
+		req.ContentLength = int64(chatAttachmentMaxBytes) + 1
 		req.Header.Set("Content-Type", "application/octet-stream")
 		req.Header.Set("Authorization", "Bearer "+agent)
 		rec := httptest.NewRecorder()
@@ -192,6 +194,9 @@ func TestHandleUploadTaskArtifactApiTasksTaskIdArtifactsUploadPost(t *testing.T)
 			t.Fatalf("decode response: %v", err)
 		}
 		apiWantError(t, data, "validation_error", "attachment exceeds the 100 MB size limit")
+		if body.reads != 0 {
+			t.Fatalf("oversize declared body was read %d times", body.reads)
+		}
 
 		_, pinned := apiJSON(t, h, "GET", "/api/tasks/T-1/artifacts", owner, "")
 		apiWantValue(t, "artifacts", pinned["artifacts"], []any{})
@@ -611,21 +616,11 @@ func TestHandleUploadReplaceTaskArtifactApiTasksTaskIdArtifactArtifactIdReplaceU
 	})
 }
 
-type repeatingByteReader struct {
-	remaining int64
+type readCountingReader struct {
+	reads int
 }
 
-func (r *repeatingByteReader) Read(p []byte) (int, error) {
-	if r.remaining == 0 {
-		return 0, io.EOF
-	}
-	n := len(p)
-	if int64(n) > r.remaining {
-		n = int(r.remaining)
-	}
-	for i := range p[:n] {
-		p[i] = 'x'
-	}
-	r.remaining -= int64(n)
-	return n, nil
+func (r *readCountingReader) Read([]byte) (int, error) {
+	r.reads++
+	return 0, io.EOF
 }

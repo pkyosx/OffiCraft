@@ -458,6 +458,27 @@ func TestNoteTokenKeyObservation(t *testing.T) {
 	if agentMemoized {
 		t.Fatal("a non-warden observation must not be memoized")
 	}
+
+	t.Run("a direct machine observation records the signing key and memo", func(t *testing.T) {
+		api, h, d, owner := newAPITestServer(t)
+		machineID, _ := apiTestMachineCredential(t, h, owner, "Direct observation")
+
+		api.noteTokenKeyObservation(map[string]any{"sub": machineID}, "k-legacy")
+
+		m, err := d.GetMember(machineID)
+		if err != nil {
+			t.Fatalf("GetMember: %v", err)
+		}
+		if m == nil || m.TokenKeyID != "k-legacy" {
+			t.Fatalf("machine token key = %+v, want k-legacy", m)
+		}
+		api.tokenKeyObsMu.Lock()
+		obs, memoized := api.tokenKeyObs[machineID]
+		api.tokenKeyObsMu.Unlock()
+		if !memoized || obs.keyID != "k-legacy" {
+			t.Fatalf("direct observation memo = %+v, %v; want k-legacy", obs, memoized)
+		}
+	})
 }
 
 func TestAskMachineToRenewIfStale(t *testing.T) {
