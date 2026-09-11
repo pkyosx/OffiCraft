@@ -460,15 +460,24 @@ log "admin-agent PATCH with assignee → HTTP $AF_ADMIN_CODE + persisted ✓ (fl
 pass_stage
 
 # ── A2: owner sets outsourcing on the manual ────────────────────────────────
-stage "A2. owner sets manual.assignee = outsource ($WORKER_MODEL/$WORKER_EFFORT, copies=1, machine=auto)"
+stage "A2. owner sets manual.assignee = outsource ($WORKER_MODEL/$WORKER_EFFORT, copies=1, machine=$SERVER_SELF_ID)"
 # wire §B: owner sets manual.assignee {kind:outsource, model(req), effort, copies, machine}.
+#
+# 🔴 `machine` MUST BE A REAL MACHINE ID. "auto" is not a legal value any more —
+#   validateManualAssignee rejects it with a 400 (ef068bd9: an unnamed placement
+#   could be stored and shown but never reached, so every worker of the type
+#   silently never booted). Omitting the key is legal but leaves the type with no
+#   placement, i.e. nothing to boot — which would turn A3-A8 into a wait for a
+#   worker that never comes. server-self is the one machine this isolated
+#   instance bootstraps a warden on (PHASE 3 / oc_bootstrap_warden above), so it is
+#   the placement.
 A2_BODY="$(py -c '
 import json, sys
 print(json.dumps({"assignee": {
   "kind": "outsource", "model": sys.argv[1], "effort": sys.argv[2],
-  "copies": 1, "machine": "auto",
+  "copies": 1, "machine": sys.argv[3],
 }}))
-' "$WORKER_MODEL" "$WORKER_EFFORT")"
+' "$WORKER_MODEL" "$WORKER_EFFORT" "$SERVER_SELF_ID")"
 A2_PATCH="$(api_post_logged "/api/task-manuals/$SYNTH_TYPE" "$A2_BODY" || echo '{}')"
 [[ -n "$(printf '%s' "$A2_PATCH" | json_field type_key)" ]] \
   || fail_stage "owner PATCH assignee=outsource for $SYNTH_TYPE returned no DTO — outsource set rejected"
@@ -849,8 +858,8 @@ api_post_logged "/api/task-manuals/$FORK_TYPE" "$D_CONTENT" >/dev/null \
 # execution layer must be reliable to prove the parallel_group mechanism), copies=1.
 D_ASSIGNEE="$(py -c '
 import json, sys
-print(json.dumps({"assignee": {"kind":"outsource","model":sys.argv[1],"effort":sys.argv[2],"copies":1,"machine":"auto"}}))
-' "$FORK_WORKER_MODEL" "$FORK_WORKER_EFFORT")"
+print(json.dumps({"assignee": {"kind":"outsource","model":sys.argv[1],"effort":sys.argv[2],"copies":1,"machine":sys.argv[3]}}))
+' "$FORK_WORKER_MODEL" "$FORK_WORKER_EFFORT" "$SERVER_SELF_ID")"
 api_post_logged "/api/task-manuals/$FORK_TYPE" "$D_ASSIGNEE" >/dev/null \
   || fail_stage "could not set outsource assignee on fork-join manual $FORK_TYPE"
 log "fork-join manual $FORK_TYPE created + outsourced"
