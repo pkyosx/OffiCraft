@@ -2,6 +2,7 @@ package main
 
 import (
 	"errors"
+	"os/exec"
 	"reflect"
 	"strings"
 	"testing"
@@ -20,6 +21,12 @@ type wardenRunner struct {
 	script   map[string]wardenRun
 	fallback wardenRun
 	calls    []string
+	// shellPassthrough makes an UNSCRIPTED `<shell> -c <script>` argv really run,
+	// combined output and all. Opt-in per test: a rendered shell fragment asserted
+	// as text passes just as happily when it word-splits wrong, matches the wrong
+	// pattern, or resolves no binary, so the fragments that decide the child's
+	// config home are exercised instead of read.
+	shellPassthrough bool
 }
 
 func (r *wardenRunner) Run(name string, args ...string) (string, error) {
@@ -27,6 +34,10 @@ func (r *wardenRunner) Run(name string, args ...string) (string, error) {
 	r.calls = append(r.calls, key)
 	if res, ok := r.script[key]; ok {
 		return res.out, res.err
+	}
+	if r.shellPassthrough && len(args) == 2 && args[0] == "-c" {
+		out, err := exec.Command(name, args...).CombinedOutput()
+		return string(out), err
 	}
 	return r.fallback.out, r.fallback.err
 }

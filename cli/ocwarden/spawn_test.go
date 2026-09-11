@@ -36,6 +36,8 @@ type spawnHarness struct {
 	slept     []time.Duration
 	pretrusts int
 	pretrustE error
+	verifies  [][2]string
+	verifyE   error
 	purges    int
 }
 
@@ -76,8 +78,12 @@ func (h *spawnHarness) deps() SpawnDeps {
 			}
 			return os.ErrNotExist
 		},
-		Logf:       func(format string, a ...any) { h.logs = append(h.logs, fmt.Sprintf(format, a...)) },
-		Pretrust:   func() error { h.pretrusts++; return h.pretrustE },
+		Logf:     func(format string, a ...any) { h.logs = append(h.logs, fmt.Sprintf(format, a...)) },
+		Pretrust: func() error { h.pretrusts++; return h.pretrustE },
+		VerifyPretrust: func(workdir, envRendered string) error {
+			h.verifies = append(h.verifies, [2]string{workdir, envRendered})
+			return h.verifyE
+		},
 		PurgeTrash: func() { h.purges++ },
 		Sleep:      func(d time.Duration) { h.slept = append(h.slept, d) },
 	}
@@ -378,6 +384,13 @@ func TestBuildLaunchCommandWithEnv(t *testing.T) {
 		// the string. A string assertion cannot tell a purge that works from one
 		// that word-splits wrong, matches the wrong pattern, or resolves no
 		// binary — all of which look identical in the emitted text.
+		//
+		// AND IN EVERY SHELL THAT COULD RUN IT, not just /bin/sh. tmux runs the
+		// launch line under its default-shell, which on these machines is
+		// /bin/zsh — so a suite pinned to /bin/sh measures a dialect production
+		// never uses, and claudehome.go's "verified under zsh/bash/sh/dash" line
+		// would be prose nobody re-runs. The loop is what makes that sentence a
+		// measurement.
 		workdir := t.TempDir()
 		render := filepath.Join(workdir, ".oc-env")
 		if err := os.WriteFile(render, []byte("export CLAUDE_FROM_THE_ENV_FILE=1\n"), 0o600); err != nil {
@@ -392,51 +405,11 @@ func TestBuildLaunchCommandWithEnv(t *testing.T) {
 		}
 		// Everything the line does to the environment, then a dump instead of claude.
 		script := line[:execAt] + "; /usr/bin/env"
-		cmd := exec.Command("/bin/sh", "-c", script)
-		cmd.Env = []string{
-			// PATH IS DELIBERATELY BROKEN. The owner's env file is sourced
-			// earlier on this same line and may leave PATH in any state at all
-			// (the measured reason OC_TOKEN uses an absolute /bin/cat). With a
-			// resolvable PATH this test passes just as happily against a purge
-			// written with a bare `env`, which on a real host would be a SILENT
-			// no-op and the whole defect back.
-			"PATH=/nonexistent",
-			"HOME=/Volumes/scratch/home",
-			"CLAUDE_SOMETHING_NEW=redirect-me",
-			"CLAUDE_CODE_CUSTOM_OAUTH_URL=https://example.invalid",
-			"CLAUDE_CONFIG_DIR=/Volumes/scratch/cfg",
-			"CLAUDE_WEIRD=a b c",
-			// A value carrying its own `=`: the name is everything before the
-			// FIRST one, and a shortest-suffix strip silently yields a
-			// non-identifier that the purge then skips.
-			"CLAUDE_HAS_EQUALS=a=b",
-			"CLAUDE_CODE_USE_BEDROCK=1",
-			"ANTHROPIC_API_KEY=sk-keep-me",
-		}
-		out, err := cmd.CombinedOutput()
-		if err != nil {
-			t.Fatalf("running the launch line's env prologue: %v\n%s", err, out)
-		}
-		var survivors []string
-		var home, anthropic string
-		for _, kv := range strings.Split(string(out), "\n") {
-			switch {
-			case strings.HasPrefix(kv, "CLAUDE_"):
-				survivors = append(survivors, kv)
-			case strings.HasPrefix(kv, "HOME="):
-				home = kv
-			case strings.HasPrefix(kv, "ANTHROPIC_API_KEY="):
-				anthropic = kv
+		for _, shell := range []string{"/bin/zsh", "/bin/bash", "/bin/sh", "/bin/dash"} {
+			if _, err := os.Stat(shell); err != nil {
+				continue
 			}
-		}
-		if want := []string{"CLAUDE_CODE_USE_BEDROCK=1"}; !reflect.DeepEqual(survivors, want) {
-			t.Errorf("surviving CLAUDE_* = %v, want exactly %v — anything else is a variable the child could read a config from", survivors, want)
-		}
-		if home != "HOME=/Users/wardenowner" {
-			t.Errorf("%q, want the stated HOME", home)
-		}
-		if anthropic != "ANTHROPIC_API_KEY=sk-keep-me" {
-			t.Errorf("%q, want ANTHROPIC_* untouched — purging it logs the child out and no measurement says it moves the config read", anthropic)
+			t.Run(shell, func(t *testing.T) { assertPurgedUnder(t, shell, script) })
 		}
 	})
 
@@ -450,6 +423,58 @@ func TestBuildLaunchCommandWithEnv(t *testing.T) {
 			t.Errorf("the stated HOME must be the LAST assignment in the export list:\n%s", line)
 		}
 	})
+}
+
+// assertPurgedUnder runs the launch line's env prologue under one shell and
+// checks what survived into the child's environment.
+func assertPurgedUnder(t *testing.T, shell, script string) {
+	t.Helper()
+	cmd := exec.Command(shell, "-c", script)
+	cmd.Env = []string{
+		// PATH IS DELIBERATELY BROKEN. The owner's env file is sourced
+		// earlier on this same line and may leave PATH in any state at all
+		// (the measured reason OC_TOKEN uses an absolute /bin/cat). With a
+		// resolvable PATH this test passes just as happily against a purge
+		// written with a bare `env`, which on a real host would be a SILENT
+		// no-op and the whole defect back.
+		"PATH=/nonexistent",
+		"HOME=/Volumes/scratch/home",
+		"CLAUDE_SOMETHING_NEW=redirect-me",
+		"CLAUDE_CODE_CUSTOM_OAUTH_URL=https://example.invalid",
+		"CLAUDE_CONFIG_DIR=/Volumes/scratch/cfg",
+		"CLAUDE_WEIRD=a b c",
+		// A value carrying its own `=`: the name is everything before the
+		// FIRST one, and a shortest-suffix strip silently yields a
+		// non-identifier that the purge then skips.
+		"CLAUDE_HAS_EQUALS=a=b",
+		"CLAUDE_CODE_USE_BEDROCK=1",
+		"ANTHROPIC_API_KEY=sk-keep-me",
+	}
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("running the launch line's env prologue: %v\n%s", err, out)
+	}
+	var survivors []string
+	var home, anthropic string
+	for _, kv := range strings.Split(string(out), "\n") {
+		switch {
+		case strings.HasPrefix(kv, "CLAUDE_"):
+			survivors = append(survivors, kv)
+		case strings.HasPrefix(kv, "HOME="):
+			home = kv
+		case strings.HasPrefix(kv, "ANTHROPIC_API_KEY="):
+			anthropic = kv
+		}
+	}
+	if want := []string{"CLAUDE_CODE_USE_BEDROCK=1"}; !reflect.DeepEqual(survivors, want) {
+		t.Errorf("surviving CLAUDE_* = %v, want exactly %v — anything else is a variable the child could read a config from", survivors, want)
+	}
+	if home != "HOME=/Users/wardenowner" {
+		t.Errorf("%q, want the stated HOME", home)
+	}
+	if anthropic != "ANTHROPIC_API_KEY=sk-keep-me" {
+		t.Errorf("%q, want ANTHROPIC_* untouched — purging it logs the child out and no measurement says it moves the config read", anthropic)
+	}
 }
 
 func TestTmuxNewSession(t *testing.T) {
@@ -877,19 +902,24 @@ func TestWithPerSpawn(t *testing.T) {
 		},
 	}
 
-	perPretrust, perPurge := 0, 0
+	perPretrust, perVerify, perPurge := 0, 0, 0
 	got := base.withPerSpawn(
 		func() error { perPretrust++; return errors.New("boom") },
+		func(string, string) error { perVerify++; return nil },
 		func() { perPurge++ })
 
 	if err := got.Pretrust(); err == nil || err.Error() != "boom" {
 		t.Errorf("Pretrust err = %v, want boom", err)
 	}
+	if got.VerifyPretrust == nil {
+		t.Fatal("the per-spawn verifier must be bound alongside the write it verifies")
+	}
+	_ = got.VerifyPretrust("/w/m1", "")
 	got.PurgeTrash()
 	got.Sleep(time.Second)
-	if perPretrust != 1 || perPurge != 1 || baseClock != 1 {
-		t.Errorf("perPretrust=%d perPurge=%d baseClock=%d, want 1/1/1 (the base clock is carried through)",
-			perPretrust, perPurge, baseClock)
+	if perPretrust != 1 || perVerify != 1 || perPurge != 1 || baseClock != 1 {
+		t.Errorf("perPretrust=%d perVerify=%d perPurge=%d baseClock=%d, want 1/1/1/1 (the base clock is carried through)",
+			perPretrust, perVerify, perPurge, baseClock)
 	}
 	if basePretrust != 0 || basePurge != 0 {
 		t.Errorf("the base seams were called: pretrust=%d purge=%d", basePretrust, basePurge)
@@ -933,6 +963,9 @@ func TestStart(t *testing.T) {
 		}
 		if h.pretrusts != 1 || h.purges != 1 {
 			t.Errorf("pretrusts=%d purges=%d, want 1/1", h.pretrusts, h.purges)
+		}
+		if want := [][2]string{{"/w/m1", ""}}; !reflect.DeepEqual(h.verifies, want) {
+			t.Errorf("verifies = %v, want %v", h.verifies, want)
 		}
 		wantCalls := []string{
 			"tmux -L officraft has-session -t member-m1",
@@ -984,6 +1017,12 @@ func TestStart(t *testing.T) {
 			"export GH_TOKEN=ghp_abc\nexport EDITOR=vim\n"
 		if rendered.content != want || rendered.mode != 0o600 {
 			t.Errorf(".oc-env = %q mode %04o, want %q mode 0600", rendered.content, rendered.mode, want)
+		}
+		// The pre-trust probe has to be asked under the SAME render the launch
+		// line sources. Asked without it, it measures an environment no child
+		// ever runs in and still answers yes.
+		if want := [][2]string{{"/w/m1", "/w/m1/.oc-env"}}; !reflect.DeepEqual(h.verifies, want) {
+			t.Errorf("verifies = %v, want %v", h.verifies, want)
 		}
 		wantLaunch := "tmux -L officraft new-session -d -s member-m1 -x 160 -y 50 " +
 			`cd /w/m1; [ -f /w/m1/.oc-env ] && . /w/m1/.oc-env; ` + goldenClaudePurge + `unset CLAUDE_CONFIG_DIR; ` +
@@ -1195,6 +1234,15 @@ func TestStart(t *testing.T) {
 			{"a pretrust that failed", func(h *spawnHarness, _ *SpawnDeps, _ *StartParams) {
 				h.pretrustE = errors.New("permission denied")
 			}, "pretrust_failed: marking workdir trusted in claude.json: permission denied"},
+			// Writing the flag is not the guarantee; the child reading THAT file
+			// is. A spawn that wrote one nobody reads is the exact shape four
+			// reviews kept finding, and it must cost the spawn, not a log line.
+			{"a trust flag the child would not read", func(h *spawnHarness, _ *SpawnDeps, _ *StartParams) {
+				h.verifyE = errors.New("claude reads a different file")
+			}, "pretrust_unverified: claude reads a different file"},
+			{"a warden built with no way to verify the flag", func(_ *spawnHarness, d *SpawnDeps, _ *StartParams) {
+				d.VerifyPretrust = nil
+			}, "pretrust_unverified: a trust flag was written but no verifier is wired, so nothing establishes that the spawned claude reads the file it was written to"},
 			{"a tmux that refused the session", func(h *spawnHarness, _ *SpawnDeps, _ *StartParams) {
 				h.runner.script["tmux -L officraft new-session -d -s member-m1 -x 160 -y 50 "+goldenLaunchM1] =
 					wardenRun{err: errors.New("no server running")}
@@ -1316,6 +1364,38 @@ func TestStart(t *testing.T) {
 			wardenRun{err: errors.New("can't find session")}
 		if got := (h.deps().start(startParamsM1())); got != (SpawnOutcome{OK: true, SessionID: "member-m1"}) {
 			t.Errorf("outcome = %+v, want OK with an empty pid", got)
+		}
+	})
+}
+
+func TestClaudeChildEnvPrologue(t *testing.T) {
+	t.Run("the family purge runs on every path, redirected or not", func(t *testing.T) {
+		// Mu-B, from the fourth review: wrapping the purge in "only when
+		// OC_CLAUDE_JSON did not redirect us" left the whole suite green. The
+		// redirect moves WHERE the trust file is; it says nothing about whether
+		// the owner's shell is carrying a variable that moves it again, so the
+		// two have to stay independent.
+		purge := claudeEnvPurgeFragment()
+		for _, ch := range []claudeHome{
+			{Home: "/Users/owner"},
+			{Home: "/Users/owner", ConfigDir: "/tmp/box"},
+		} {
+			got := claudeChildEnvPrologue("/w/m1", "/w/m1/.oc-env", ch)
+			if !strings.Contains(got, purge) {
+				t.Errorf("ConfigDir=%q prologue does not purge the CLAUDE_* family:\n%s", ch.ConfigDir, got)
+			}
+			if src := strings.Index(got, ". /w/m1/.oc-env"); src < 0 || src > strings.Index(got, purge) {
+				t.Errorf("ConfigDir=%q purges before sourcing the owner's env, which clears nothing:\n%s", ch.ConfigDir, got)
+			}
+		}
+	})
+
+	t.Run("only the default layout unsets CLAUDE_CONFIG_DIR", func(t *testing.T) {
+		if got := claudeChildEnvPrologue("/w/m1", "", claudeHome{Home: "/Users/owner"}); !strings.Contains(got, "unset CLAUDE_CONFIG_DIR") {
+			t.Errorf("the default layout must unset it even if the purge no-ops:\n%s", got)
+		}
+		if got := claudeChildEnvPrologue("/w/m1", "", claudeHome{Home: "/Users/owner", ConfigDir: "/tmp/box"}); strings.Contains(got, "unset CLAUDE_CONFIG_DIR") {
+			t.Errorf("a redirected layout exports it; unsetting it too is contradictory:\n%s", got)
 		}
 	})
 }

@@ -165,3 +165,48 @@ func TestResolvedClaudeHome(t *testing.T) {
 		t.Errorf("got %+v, want the resolved home", got)
 	}
 }
+
+func TestClaudeEnvAllowedNames(t *testing.T) {
+	t.Run("the whitelist is derived from the credential list, not typed out", func(t *testing.T) {
+		// Mu-C, from the fourth review: replacing the derivation with the same two
+		// literal names passed every test there was. What the derivation buys is
+		// that ADDING a credential source cannot leave the launch line stripping
+		// it back out — so the assertion has to be about a name that is not in
+		// the list today.
+		restore := claudeCredEnvKeys
+		t.Cleanup(func() { claudeCredEnvKeys = restore })
+		claudeCredEnvKeys = append(append([]string{}, restore...), "CLAUDE_CODE_USE_SOMETHING_NEW", "ANTHROPIC_SOMETHING_NEW")
+
+		got := claudeEnvAllowedNames()
+		var sawNew, sawAnthropic bool
+		for _, k := range got {
+			switch k {
+			case "CLAUDE_CODE_USE_SOMETHING_NEW":
+				sawNew = true
+			case "ANTHROPIC_SOMETHING_NEW":
+				sawAnthropic = true
+			}
+		}
+		if !sawNew {
+			t.Errorf("allowed = %v: a newly declared CLAUDE_* credential must survive the purge without anyone editing this list", got)
+		}
+		if sawAnthropic {
+			t.Errorf("allowed = %v: the purge only deletes CLAUDE_*, so letting an ANTHROPIC_* name through is meaningless noise", got)
+		}
+		if !strings.Contains(claudeEnvPurgeFragment(), "CLAUDE_CODE_USE_SOMETHING_NEW=*") {
+			t.Errorf("the rendered fragment does not carry the derived name:\n%s", claudeEnvPurgeFragment())
+		}
+	})
+
+	t.Run("an empty credential list renders a fragment that still purges", func(t *testing.T) {
+		restore := claudeCredEnvKeys
+		t.Cleanup(func() { claudeCredEnvKeys = restore })
+		claudeCredEnvKeys = nil
+		if got := claudeEnvAllowedNames(); len(got) != 0 {
+			t.Errorf("allowed = %v, want none", got)
+		}
+		if frag := claudeEnvPurgeFragment(); !strings.Contains(frag, "CLAUDE_*=*") || strings.Contains(frag, "=*) continue") {
+			t.Errorf("with nothing whitelisted the fragment must still delete the family and skip the empty allow-case:\n%s", frag)
+		}
+	})
+}
