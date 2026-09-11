@@ -190,11 +190,12 @@ describe("請示 ID 篩選（常駐欄位版，T-118）", () => {
 
     const { findAllByTestId, queryAllByText } = renderPage();
     expect(await findAllByTestId("waiting-card")).toHaveLength(2);
-    // The leading card opens itself and is READ, like any opened card. That
-    // read is not what this spec measures — the six keystrokes below are — so
-    // the counter starts after the page has settled.
-    await waitFor(() => expect(getSpy).toHaveBeenCalledWith("rc-aaa"));
-    getSpy.mockClear();
+    // 🔁 The counter used to be cleared here, because the leading card opened
+    // itself on arrival and that open was a read. owner 2026-09-11 ruled every
+    // card starts collapsed, so arrival now costs ZERO reads — asserted rather
+    // than assumed, since a silent auto-open would make the keystroke count
+    // below unreadable.
+    expect(getSpy, "arrival must read no card at all").not.toHaveBeenCalled();
 
     for (const value of ["r", "rc", "rc-", "rc-b", "rc-bb", "rc-bbb"]) {
       typeId(value);
@@ -225,8 +226,6 @@ describe("請示 ID 篩選（常駐欄位版，T-118）", () => {
     // matters is UNCHANGED and lives in the spec above — typing costs nothing;
     // this one holds the other half, that a COMMITTED id costs exactly one read.
     const getSpy = vi.spyOn(api, "getReplyCard");
-    // Explicit timestamps for the same reason as the spec above: rc-aaa has to
-    // be the newest 待回覆 card, not whichever mkCard() call caught a later ms.
     const now = Date.now() / 1000;
     __injectMockReplyCard(
       mkCard({ id: "rc-aaa", summary: "第一張", createdTs: now - 25 * 60 })
@@ -237,22 +236,26 @@ describe("請示 ID 篩選（常駐欄位版，T-118）", () => {
 
     const { findAllByTestId } = renderPage();
     expect(await findAllByTestId("waiting-card")).toHaveLength(2);
-    await waitFor(() => expect(getSpy).toHaveBeenCalledWith("rc-aaa"));
-    getSpy.mockClear();
+    expect(getSpy, "arrival must read no card at all").not.toHaveBeenCalled();
 
     applyId("rc-bbb");
 
     await waitFor(async () =>
       expect(await findAllByTestId("waiting-card")).toHaveLength(1)
     );
-    expect((await findAllByTestId("waiting-card"))[0].textContent).toContain(
-      "第二張"
-    );
-    // ONE commit = the lookup for that id, plus the ordinary open-read the pane
-    // gives the card it is now showing. Six keystrokes' worth of ids would
-    // stand right here — that is what this list is watching for.
+    const survivor = (await findAllByTestId("waiting-card"))[0];
+    expect(survivor.dataset.replyCardId).toBe("rc-bbb");
+    expect(
+      survivor.textContent,
+      "the ask's title stays readable on a collapsed row"
+    ).toContain("第二張");
+    // ONE commit = ONE read: the lookup for that id. 🔁 There used to be a
+    // second — the pane opened the card it was now showing and that open was a
+    // read — and it went with the auto-open (owner 2026-09-11「預設全部折疊」).
+    // Six keystrokes' worth of ids would stand right here; that is what this
+    // list is watching for.
     await waitFor(() =>
-      expect(getSpy.mock.calls.map(([id]) => id)).toEqual(["rc-bbb", "rc-bbb"])
+      expect(getSpy.mock.calls.map(([id]) => id)).toEqual(["rc-bbb"])
     );
   });
 
@@ -280,9 +283,12 @@ describe("請示 ID 篩選（常駐欄位版，T-118）", () => {
     await waitFor(async () =>
       expect(await findAllByTestId("waiting-card")).toHaveLength(1)
     );
-    expect((await findAllByTestId("waiting-card"))[0].textContent).toContain(
-      "第二張"
-    );
+    const survivor = (await findAllByTestId("waiting-card"))[0];
+    expect(survivor.dataset.replyCardId).toBe("rc-bbb");
+    expect(
+      survivor.textContent,
+      "the ask's title stays readable on a collapsed row"
+    ).toContain("第二張");
     expect(queryByTestId("replies-filter-cancel")).toBeNull();
   });
 

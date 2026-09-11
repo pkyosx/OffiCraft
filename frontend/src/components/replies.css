@@ -90,6 +90,16 @@
   border: 1px solid color-mix(in srgb, var(--color-overlay) 6%, transparent);
   background: var(--color-card);
 }
+/* The whole card is the open/close toggle (owner 2026-09-11「預設全部折疊」),
+   the same mechanism .task-card uses — so it carries the same cursor and the
+   same focus ring. Interactive children opt out in JS (onCardToggleClick). */
+.reply-card[role="button"] {
+  cursor: pointer;
+  outline: none;
+}
+.reply-card[role="button"]:focus-visible {
+  box-shadow: 0 0 0 2px var(--color-accent-soft);
+}
 .reply-card__head {
   display: flex;
   align-items: center;
@@ -144,21 +154,9 @@
   color: var(--color-text);
   border-color: color-mix(in srgb, var(--color-accent) 45%, transparent);
 }
-/* Waiting-card stamp column: absolute opened-at above the ticking waited
- * counter, right-aligned so both lines hug the card edge. */
-.reply-card__stamps {
-  flex: none;
-  display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  gap: 2px;
-}
-.reply-card__opened-at {
-  flex: none;
-  font-size: 11.5px;
-  color: var(--color-text-muted);
-  white-space: nowrap;
-}
+/* The waiting card's ONE stamp, at the right edge of the head after 標為過期.
+ * 🔴 No absolute 開卡 stamp beside it — owner 2026-09-11:「我不想知道絕對時間
+ * 相對時間已經夠了」. */
 .reply-card__waited {
   flex: none;
   font-size: 12.5px;

@@ -89,14 +89,25 @@ function renderPage() {
   );
 }
 
-/** Open every card the page is currently showing. The panes render COLLAPSED
- * rows (owner 2026-09-07) and a card's interior is READ when it is opened, so a
- * test that asserts on the interior has to open it first. */
+/** Open every card the 請示 page is showing. Every card starts COLLAPSED (owner
+ * 2026-09-11「預設全部折疊」) and a card's interior is READ when it is opened, so
+ * a test that asserts on the interior has to open it first. The whole card is
+ * the toggle, so the click lands on the article itself.
+ *
+ * 🔴 IT FAILS WHEN IT FINDS NOTHING. The version this replaces looped over a
+ * `querySelectorAll` and did nothing at all when the selector stopped matching —
+ * a silent pass in every caller. If the seam moves again, this line goes red
+ * instead. */
 async function openCards() {
-  for (const btn of document.querySelectorAll<HTMLElement>(
-    '[data-testid="reply-card-toggle"]'
-  )) {
-    if (btn.getAttribute("aria-expanded") === "false") fireEvent.click(btn);
+  const cards = document.querySelectorAll<HTMLElement>(
+    "[data-reply-card-id][aria-expanded]"
+  );
+  expect(
+    cards.length,
+    "openCards() found no reply card to open — the toggle seam moved"
+  ).toBeGreaterThan(0);
+  for (const el of cards) {
+    if (el.getAttribute("aria-expanded") === "false") fireEvent.click(el);
   }
   await waitFor(() =>
     expect(document.querySelectorAll('[data-testid="card-loading"]')).toHaveLength(0)
@@ -156,6 +167,22 @@ describe("RepliesPage", () => {
     expect(cards[2].querySelector('[data-testid="waited"]')?.textContent).toBe(
       "已等你 3h"
     );
+    // …in the HEAD, to the RIGHT OF 標為過期 (owner 2026-09-11). The relative
+    // wait is what he scans a collapsed row for, so it rides the same line as
+    // the actions, after the last of them.
+    const head = cards[2].querySelector(".reply-card__head")!;
+    const waited = head.querySelector('[data-testid="waited"]')!;
+    const expire = head.querySelector('[data-testid="expire-card"]')!;
+    expect(
+      expire.compareDocumentPosition(waited) &
+        Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
+    // 🔴 And NO absolute 開卡 stamp anywhere on a waiting card — owner
+    // 2026-09-11:「我不想知道絕對時間 相對時間已經夠了」.
+    for (const card of cards) {
+      expect(card.querySelector('[data-testid="opened-at"]')).toBeNull();
+      expect(card.textContent).not.toContain("開卡");
+    }
   });
 
   it("resolves an outsource asker to its 外包 代號, not the raw ow- id", async () => {
@@ -654,152 +681,94 @@ describe("RepliesPage", () => {
     expect(ref.textContent).toContain("查看任務詳情");
   });
 
-  it("opening a card reads it and shows the question; clicking again closes it", async () => {
-    // TWO cards, and the one under test is the SECOND: the leading card opens
-    // itself, so a click on it would be a close, not an open.
+  it("starts every card collapsed — head, task row and 已等你 only, no question and no options", async () => {
     const now = Date.now() / 1000;
-    __injectMockReplyCard(mkCard({ id: "rc-lead", createdTs: now - 60 }));
     __injectMockReplyCard(
-      mkCard({ id: "rc-2nd", body: "寄出後無法撤回", createdTs: now - 3600 })
+      mkCard({
+        id: "rc-lead",
+        summary: "第一個請示",
+        body: "先看這一張",
+        createdTs: now - 60,
+        task: { id: "t-1", typeKey: "sync", title: "同步設定" },
+      })
+    );
+    __injectMockReplyCard(
+      mkCard({ id: "rc-next", summary: "第二個請示", body: "再看這一張", createdTs: now - 3600 })
+    );
+
+    const { findAllByTestId } = renderPage();
+    const cards = await findAllByTestId("waiting-card");
+
+    // 🔴 NOTHING OPENS BY ITSELF (owner 2026-09-11「預設全部折疊」). The leading
+    // card used to open on arrival; that exception is gone. Waited on, not read
+    // once: an auto-open lands a commit after the first paint, so a bare read
+    // here would pass against the very behaviour this forbids.
+    await waitFor(() =>
+      expect(document.querySelectorAll('[data-testid="card-loading"]')).toHaveLength(0)
+    );
+    for (const card of cards) {
+      expect(card.getAttribute("aria-expanded")).toBe("false");
+      expect(card.querySelectorAll(".reply-option")).toHaveLength(0);
+      expect(card.querySelector(".reply-card__body")).toBeNull();
+    }
+    expect(cards[0].textContent).not.toContain("先看這一張");
+
+    // What the collapsed row DOES show is the card's own head — the same strip
+    // the open card wears (owner:「折疊起來那一列的內容不要另外設計」): who asked,
+    // their role, both header actions, the task title, and the ticking counter.
+    const head = cards[0].querySelector(".reply-card__head")!;
+    expect(head.querySelector(".reply-card__name")?.textContent).toBe("Mira");
+    expect(head.querySelector(".reply-card__role")?.textContent).toBe("特助");
+    expect(head.textContent).toContain("跳到原訊息");
+    expect(head.querySelector('[data-testid="expire-card"]')).toBeTruthy();
+    expect(head.querySelector('[data-testid="waited"]')).toBeTruthy();
+    expect(cards[0].querySelector(".reply-card__task-title")?.textContent).toBe(
+      "同步設定"
+    );
+  });
+
+  it("opening a card reads it and shows the question; clicking again closes it", async () => {
+    __injectMockReplyCard(
+      mkCard({ id: "rc-1", body: "寄出後無法撤回" })
     );
     const { findAllByTestId } = renderPage();
-    const card = (await findAllByTestId("waiting-card"))[1];
-    const toggle = card.querySelector<HTMLElement>(
-      '[data-testid="reply-card-toggle"]'
-    )!;
-    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    const [card] = await findAllByTestId("waiting-card");
+    expect(card.getAttribute("aria-expanded")).toBe("false");
 
-    fireEvent.click(toggle);
+    fireEvent.click(card);
     await waitFor(() =>
       expect(card.querySelector(".reply-card__body")?.textContent).toContain(
         "寄出後無法撤回"
       )
     );
     expect(card.querySelectorAll(".reply-option")).toHaveLength(2);
-    expect(toggle.getAttribute("aria-expanded")).toBe("true");
+    expect(card.getAttribute("aria-expanded")).toBe("true");
+    // The head did not move or double: it was there before the click and there
+    // is exactly one of it after.
+    expect(card.querySelectorAll(".reply-card__head")).toHaveLength(1);
 
-    // 🔴 The half that did not exist before: answering and 標為過期 used to be
-    // the only ways out of an opened card.
-    fireEvent.click(toggle);
+    // 🔴 The half that did not exist before T-48: answering and 標為過期 used to
+    // be the only ways out of an opened card.
+    fireEvent.click(card);
     await waitFor(() =>
       expect(card.querySelector(".reply-card__body")).toBeNull()
     );
     expect(card.querySelectorAll(".reply-option")).toHaveLength(0);
-    expect(toggle.getAttribute("aria-expanded")).toBe("false");
-    // Still the same row, still naming its ask — closing is not removing.
-    expect(card.textContent).toContain("要幫你寄出這封信嗎？");
+    expect(card.getAttribute("aria-expanded")).toBe("false");
+    // Still the same card, still naming who asked — closing is not removing.
+    expect(card.textContent).toContain("Mira");
   });
 
-  // ── 一張接一張 (owner rc-cd351785b83d [0], rc-fa7e4c9bce42 [0]) ────────────
-  // The owner sits down to a stack of asks and works through it without a click
-  // between cards: the leading one is already open when he arrives, and the next
-  // one opens itself the moment the one he dealt with leaves the pane.
-
-  const expandedOf = (card: Element) =>
-    card
-      .querySelector('[data-testid="reply-card-toggle"]')!
-      .getAttribute("aria-expanded");
-
-  it("opens the leading 待回覆 card on arrival — its question on screen, the rest still rows", async () => {
-    const now = Date.now() / 1000;
-    __injectMockReplyCard(
-      mkCard({ id: "rc-lead", summary: "第一個請示", body: "先看這一張", createdTs: now - 60 })
-    );
-    __injectMockReplyCard(
-      mkCard({ id: "rc-next", summary: "第二個請示", body: "再看這一張", createdTs: now - 3600 })
-    );
-
-    const { findAllByTestId } = renderPage();
-    const cards = await findAllByTestId("waiting-card");
-    await waitFor(() =>
-      expect(expandedOf(cards[0]), "the leading card must be open").toBe("true")
-    );
-    await waitFor(() =>
-      expect(cards[0].textContent, "its question must be on screen").toContain(
-        "先看這一張"
-      )
-    );
-    expect(cards[0].querySelectorAll(".reply-option")).toHaveLength(2);
-    // Only the leading one — the rest are the collapsed lines they always were,
-    // each still naming its ask.
-    expect(expandedOf(cards[1])).toBe("false");
-    expect(cards[1].textContent).toContain("第二個請示");
-  });
-
-  it("answering the leading card opens the next one, with its question on screen", async () => {
-    const now = Date.now() / 1000;
-    __injectMockReplyCard(
-      mkCard({ id: "rc-lead", summary: "第一個請示", body: "先看這一張", createdTs: now - 60 })
-    );
-    __injectMockReplyCard(
-      mkCard({ id: "rc-next", summary: "第二個請示", body: "再看這一張", createdTs: now - 3600 })
-    );
-
-    const { findAllByTestId } = renderPage();
-    const cards = await findAllByTestId("waiting-card");
-    await waitFor(() =>
-      expect(expandedOf(cards[0]), "the leading card must be open").toBe("true")
-    );
-    await waitFor(() =>
-      expect(cards[0].querySelectorAll(".reply-option")).toHaveLength(2)
-    );
-
-    fireEvent.click(cards[0].querySelectorAll(".reply-option")[0]);
-
-    await waitFor(async () =>
-      expect(await findAllByTestId("waiting-card")).toHaveLength(1)
-    );
-    const [remaining] = await findAllByTestId("waiting-card");
-    await waitFor(() =>
-      expect(
-        expandedOf(remaining),
-        "the next card must open by itself"
-      ).toBe("true")
-    );
-    await waitFor(() =>
-      expect(remaining.textContent, "its question must be on screen").toContain(
-        "再看這一張"
-      )
-    );
-    expect(remaining.querySelectorAll(".reply-option")).toHaveLength(2);
-  });
-
-  it("標為過期 on the leading card opens the next one too", async () => {
-    const now = Date.now() / 1000;
-    __injectMockReplyCard(
-      mkCard({ id: "rc-lead", summary: "第一個請示", body: "先看這一張", createdTs: now - 60 })
-    );
-    __injectMockReplyCard(
-      mkCard({ id: "rc-next", summary: "第二個請示", body: "再看這一張", createdTs: now - 3600 })
-    );
-
+  it("a click on a header action does its own job instead of toggling the card", async () => {
+    __injectMockReplyCard(mkCard({ id: "rc-1" }));
     const { findAllByTestId, findByTestId } = renderPage();
-    const cards = await findAllByTestId("waiting-card");
-    await waitFor(() =>
-      expect(expandedOf(cards[0]), "the leading card must be open").toBe("true")
-    );
-    await waitFor(() =>
-      expect(cards[0].querySelector('[data-testid="expire-card"]')).toBeTruthy()
-    );
+    const [card] = await findAllByTestId("waiting-card");
 
-    fireEvent.click(cards[0].querySelector('[data-testid="expire-card"]')!);
-    fireEvent.click(await findByTestId("expire-confirm-btn"));
-
-    await waitFor(async () =>
-      expect(await findAllByTestId("waiting-card")).toHaveLength(1)
-    );
-    const [remaining] = await findAllByTestId("waiting-card");
-    await waitFor(() =>
-      expect(
-        expandedOf(remaining),
-        "the next card must open by itself"
-      ).toBe("true")
-    );
-    await waitFor(() =>
-      expect(remaining.textContent, "its question must be on screen").toContain(
-        "再看這一張"
-      )
-    );
+    fireEvent.click(card.querySelector('[data-testid="expire-card"]')!);
+    // The confirm modal opened AND the card stayed shut — the interaction
+    // filter in onCardToggleClick is what keeps those two facts together.
+    expect(await findByTestId("expire-confirm")).toBeTruthy();
+    expect(card.getAttribute("aria-expanded")).toBe("false");
   });
 
   // The negative half: no task means the row says nothing about a task —

@@ -108,12 +108,25 @@ beforeEach(() => {
   window.location.hash = "";
 });
 
-// 待回覆的卡預設是收合的（owner 2026-09-07），卡片內容要點開才在畫面上。
+/** Open every card the 請示 page is showing. Every card starts COLLAPSED (owner
+ * 2026-09-11「預設全部折疊」) and a card's interior is READ when it is opened, so
+ * a test that asserts on the interior has to open it first. The whole card is
+ * the toggle, so the click lands on the article itself.
+ *
+ * 🔴 IT FAILS WHEN IT FINDS NOTHING. The version this replaces looped over a
+ * `querySelectorAll` and did nothing at all when the selector stopped matching —
+ * a silent pass in every caller. If the seam moves again, this line goes red
+ * instead. */
 async function openCards() {
-  for (const btn of document.querySelectorAll<HTMLElement>(
-    '[data-testid="reply-card-toggle"]'
-  )) {
-    if (btn.getAttribute("aria-expanded") === "false") fireEvent.click(btn);
+  const cards = document.querySelectorAll<HTMLElement>(
+    "[data-reply-card-id][aria-expanded]"
+  );
+  expect(
+    cards.length,
+    "openCards() found no reply card to open — the toggle seam moved"
+  ).toBeGreaterThan(0);
+  for (const el of cards) {
+    if (el.getAttribute("aria-expanded") === "false") fireEvent.click(el);
   }
   await waitFor(() =>
     expect(document.querySelectorAll('[data-testid="card-loading"]')).toHaveLength(0)
@@ -196,7 +209,6 @@ describe("請示卡的任務資訊 (ChatReplyCard)", () => {
     // The inline card mounts collapsed (owner 2026-09-04); the shared task row
     // is part of the open card.
     fireEvent.click(await findByTestId("chat-reply-card-expand"));
-    await openCards();
     const ref = await findByTestId("reply-task-ref");
     // Both surfaces render the one shared row, so the chip's removal has to
     // hold here too — asserted on this surface rather than assumed from it.
@@ -225,7 +237,6 @@ describe("請示卡的任務資訊 (ChatReplyCard)", () => {
       </I18nProvider>
     );
     fireEvent.click(await findByTestId("chat-reply-card-expand"));
-    await openCards();
     const ref = await findByTestId("reply-task-ref");
     const card = await findByTestId("chat-reply-card");
     const summary = card.querySelector(".reply-card__summary")!;

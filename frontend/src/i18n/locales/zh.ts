@@ -529,6 +529,8 @@ export const zh = {
     // §3.6 請示 → 任務：任務衍生的請示卡顯示精簡任務資訊（標題）＋跳轉;
     // 不露任務編號／識別鍵／類型。純聊天請示不顯示。
     viewTask: "查看任務詳情",
+    expandCard: "展開這張請示卡",
+    collapseCard: "收合這張請示卡",
   },
   office: {
     membersTitle: "辦公室成員",

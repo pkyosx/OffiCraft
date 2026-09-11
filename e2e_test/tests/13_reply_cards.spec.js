@@ -198,29 +198,25 @@ async function expandChatCard(chatCard) {
   await chatCard.getByTestId('chat-reply-card-expand').click();
 }
 
-// 請示 PAGE SURFACE ONLY. Since owner 2026-09-07 a row on the 請示 page is a
-// TITLE: the list carries summaries, and the card itself (options, composer,
-// 你選的 row) is read one card at a time when the reader opens the row. So
-// every assertion below that looks INSIDE a page card has to open it first
-// (a `#replies/card/<id>` deep link and 待回覆's leading row arrive open).
+// 請示 PAGE SURFACE ONLY. Every card on that page starts COLLAPSED (owner
+// 2026-09-11「預設全部折疊」) and is READ on expand, so anything that looks INSIDE
+// a page card — the options, the composer, the 你選的 row — has to open it first.
+// The WHOLE CARD is the toggle, so the click lands on the article itself; the
+// header's own buttons (跳到原訊息 / 標為過期) do their own job instead.
 //
-// ⚠️ 待回覆's LEADING row opens ITSELF (owner rc-cd351785b83d) and that open
-// lands one React commit after the row first paints, so "read the attribute,
-// then click if it says false" can aim a click at a row that has since opened
-// — and that click CLOSES it. The read+click is therefore retried until the
-// row is actually open, which also makes the helper safe to call on a row
-// somebody else already opened.
+// 🔴 Nothing opens by itself any more (the leading 待回覆 row used to), so this
+// is a plain open — but it is still written as a retry, because a deep-linked
+// card arrives open and a second click would SHUT it.
 async function openPageCard(pageCard) {
-  const toggle = pageCard.getByTestId('reply-card-toggle');
   await expect(async () => {
-    if ((await toggle.getAttribute('aria-expanded')) !== 'true') {
-      await toggle.click();
+    if ((await pageCard.getAttribute('aria-expanded')) !== 'true') {
+      await pageCard.click();
     }
-    await expect(toggle).toHaveAttribute('aria-expanded', 'true', {
+    await expect(pageCard).toHaveAttribute('aria-expanded', 'true', {
       timeout: 1000,
     });
   }).toPass();
-  // The open row shows a placeholder until its one-card read lands; wait for
+  // The open card shows a placeholder until its one-card read lands; wait for
   // the read rather than racing the body's first paint.
   await expect(pageCard.getByTestId('card-loading')).toHaveCount(0);
 }

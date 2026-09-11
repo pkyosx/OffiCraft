@@ -53,13 +53,25 @@ function mkCard(over: Partial<ReplyCard>): ReplyCard {
   };
 }
 
-/** Open every card the 等我回覆 page is showing — its rows are collapsed until
- * clicked and the card is read on expand (owner 2026-09-07). */
+/** Open every card the 請示 page is showing. Every card starts COLLAPSED (owner
+ * 2026-09-11「預設全部折疊」) and a card's interior is READ when it is opened, so
+ * a test that asserts on the interior has to open it first. The whole card is
+ * the toggle, so the click lands on the article itself.
+ *
+ * 🔴 IT FAILS WHEN IT FINDS NOTHING. The version this replaces looped over a
+ * `querySelectorAll` and did nothing at all when the selector stopped matching —
+ * a silent pass in every caller. If the seam moves again, this line goes red
+ * instead. */
 async function openCards() {
-  for (const btn of document.querySelectorAll<HTMLElement>(
-    '[data-testid="reply-card-toggle"]'
-  )) {
-    if (btn.getAttribute("aria-expanded") === "false") fireEvent.click(btn);
+  const cards = document.querySelectorAll<HTMLElement>(
+    "[data-reply-card-id][aria-expanded]"
+  );
+  expect(
+    cards.length,
+    "openCards() found no reply card to open — the toggle seam moved"
+  ).toBeGreaterThan(0);
+  for (const el of cards) {
+    if (el.getAttribute("aria-expanded") === "false") fireEvent.click(el);
   }
   await waitFor(() =>
     expect(document.querySelectorAll('[data-testid="card-loading"]')).toHaveLength(0)

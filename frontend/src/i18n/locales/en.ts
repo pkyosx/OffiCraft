@@ -494,6 +494,8 @@ export const en: Dict = {
     redecideHint: "Pick again, or type a new reply",
     redecidePlaceholder: "Or type a new reply…",
     viewTask: "View task details",
+    expandCard: "Expand this ask",
+    collapseCard: "Collapse this ask",
   },
   office: {
     membersTitle: "Office members",

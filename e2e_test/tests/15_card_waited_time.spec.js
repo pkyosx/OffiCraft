@@ -1,13 +1,21 @@
-// e2e_test/tests/15_card_absolute_time.spec.js
-// NOTE(joey): chat MESSAGE timestamps currently render hh:mm-only (formatTime) — this spec targets CARD absolute time (formatAbsolute on RepliesPage), matching the "卡片絕對時間" requirement. Whether chat messages should also show absolute time is a separate open question for kyle/Seth.
+// e2e_test/tests/15_card_waited_time.spec.js
+// NOTE(joey): chat MESSAGE timestamps render hh:mm-only (formatTime). The CARD absolute stamp this note was written about is gone from the 請示 card (owner 2026-09-11) and survives only on the 近期已處理 pane; whether chat messages should show absolute time is still an open question for kyle/Seth.
 //
-// C2 · reply-card absolute time — the 等我回覆 cards stamp their open time in an
-// ABSOLUTE date+time shape ("M/D HH:mm", or "YYYY/M/D HH:mm" when the year
-// differs), NOT a relative "x ago". Frontend: RepliesPage.tsx renders
-//   <span data-testid="opened-at">{t.replies.openedAt(formatAbsolute(card.createdTs, now))}</span>
-// (formatAbsolute in frontend/src/lib/dateFormat.ts; the zh dict wraps it as
-// "開卡 <time>"). This is distinct from the ticking 已等你 duration counter
-// ([data-testid="waited"]) that lives alongside it.
+// C2 · reply-card 等待時間 — a 請示 card stamps how long it has been WAITING, as
+// a relative 已等你 counter in its head, to the RIGHT of 標為過期, and it carries
+// NO absolute open-time stamp at all.
+//
+// 🔴 THIS FILE USED TO ASSERT THE OPPOSITE, AND THE FLIP IS A RULING, NOT A
+// REGRESSION. Until 2026-09-11 the card carried `[data-testid="opened-at"]` —
+// `開卡 <formatAbsolute>` — beside the ticking counter (Seth 2026-07-13:
+// reply-card times are absolute). owner saw it on a screenshot of this very head
+// and answered「我不想知道絕對時間 相對時間已經夠了」, so the node is gone from
+// RepliesPage.tsx. Do not restore it, and do not read the git history as
+// evidence that it belongs there.
+//
+// What is still absolute is the HANDLED pane's stamp (`已回覆 <time>` /
+// `已過期 <time>`) — a different pane, untouched by that ruling and out of this
+// spec's scope.
 const { test, expect } = require('@playwright/test');
 const {
   authHeaders,
@@ -62,8 +70,8 @@ function repliesTab(page) {
 // "分鐘前 / ago" string can NOT satisfy.
 const ABSOLUTE_RE = /\d{1,4}[/-]\d{1,2}.*\d{1,2}:\d{2}/;
 
-test.describe('C2 · reply cards stamp open time ABSOLUTE (formatAbsolute), not relative', () => {
-  test('a waiting 等我回覆 card shows its open time as an absolute date+time, not "x ago" or bare hh:mm', async ({
+test.describe('C2 · reply cards stamp the WAIT as a relative counter, with no absolute open time', () => {
+  test('a waiting 請示 card shows 已等你 <duration> in its head, right of 標為過期, and no absolute open time', async ({
     page,
   }) => {
     const request = page.request;
@@ -87,7 +95,7 @@ test.describe('C2 · reply cards stamp open time ABSOLUTE (formatAbsolute), not 
     });
     expect(card.status).toBe('waiting');
 
-    // ── boot the cockpit as owner and open the 等我回覆 page ──
+    // ── boot the cockpit as owner and open the 請示 page ──
     await bootAuthedSpa(page, token);
     await repliesTab(page).click();
 
@@ -96,31 +104,44 @@ test.describe('C2 · reply cards stamp open time ABSOLUTE (formatAbsolute), not 
       .filter({ hasText: summary });
     await expect(waiting, 'the opened ask must list as a waiting card').toBeVisible();
 
-    // The card's open-time stamp: absolute date+time (formatAbsolute).
-    const openedAt = waiting.getByTestId('opened-at');
-    await expect(openedAt, 'the card must carry an open-time stamp').toBeVisible();
-    const openedText = (await openedAt.innerText()).trim();
-
-    expect(
-      openedText,
-      `the card open time must be ABSOLUTE (date + HH:mm); got "${openedText}"`,
-    ).toMatch(ABSOLUTE_RE);
-    // …and it must NOT be a relative phrasing.
-    expect(
-      openedText,
-      'the card open time must NOT be a relative "x ago" string',
-    ).not.toMatch(/(前|ago|之前)/);
-
-    // The absolute open-time stamp is a SEPARATE node from the ticking 已等你
-    // duration counter — the relative counter still lives, but on its own node.
+    // The card's ONE stamp: the ticking relative counter — and it is on the
+    // COLLAPSED card, because that head is the collapsed row (owner 2026-09-11).
+    await expect(
+      waiting,
+      'a card starts collapsed — 預設全部折疊',
+    ).toHaveAttribute('aria-expanded', 'false');
     const waited = waiting.getByTestId('waited');
     await expect(
       waited,
-      'the ticking 已等你 relative counter lives on its own node',
+      'the card must carry the relative 已等你 counter',
     ).toContainText('已等你');
     expect(
       await waited.innerText(),
-      'the 已等你 counter must NOT be an absolute date+time (that is the opened-at node)',
+      'the 已等你 counter must NOT be an absolute date+time',
     ).not.toMatch(ABSOLUTE_RE);
+
+    // …and the absolute open-time stamp is GONE (owner 2026-09-11). Asserted as
+    // absence of the NODE, not of a format: a restored stamp in a different
+    // shape would still be the thing he rejected.
+    await expect(
+      waiting.getByTestId('opened-at'),
+      'the waiting card must carry NO absolute open-time stamp',
+    ).toHaveCount(0);
+
+    // Position: in the head, AFTER 標為過期 (owner:「相對時間在標為過期右方」).
+    const order = await waiting.evaluate((el) => {
+      const head = el.querySelector('.reply-card__head');
+      if (!head) return null;
+      const kids = [...head.children];
+      return {
+        expire: kids.findIndex((k) => k.dataset.testid === 'expire-card'),
+        waited: kids.findIndex((k) => k.dataset.testid === 'waited'),
+      };
+    });
+    expect(order, 'the card must draw its head even while collapsed').not.toBeNull();
+    expect(
+      order.expire >= 0 && order.waited > order.expire,
+      `已等你 must sit in the head, to the right of 標為過期 (got ${JSON.stringify(order)})`,
+    ).toBe(true);
   });
 });
