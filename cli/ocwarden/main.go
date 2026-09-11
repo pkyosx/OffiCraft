@@ -838,6 +838,15 @@ func realMain(argv []string, env func(string) string, out io.Writer) int {
 		return 1
 	}
 
+	// Same layer, same reason: OC_CLAUDE_JSON moves only where pre-trust is
+	// WRITTEN, while the claude child keeps reading $HOME/.claude.json — a
+	// divergent pair pre-trusts into a file with no reader, and nothing downstream
+	// can tell. Refuse before any transport or spawn path exists.
+	if err := claudeJSONRedirectGate(env); err != nil {
+		fmt.Fprintf(out, "[ocwarden] FATAL: %v\n", err)
+		return 1
+	}
+
 	// Resolve OC_TOKEN from the token file when unset (folds in the retired
 	// bin/warden-go launcher: OC_WARDEN_TOKFILE → token → OC_ID via jwtSub). An
 	// explicit OC_TOKEN still wins; a missing file leaves OC_TOKEN empty and the

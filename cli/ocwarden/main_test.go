@@ -863,6 +863,28 @@ func TestRealMain(t *testing.T) {
 		}
 	})
 
+	t.Run("a claude.json redirect away from HOME is refused before anything is derived", func(t *testing.T) {
+		var out bytes.Buffer
+		env := map[string]string{
+			"OC_CLAUDE_JSON": "/tmp/throwaway.json",
+			"HOME":           "/Users/eva",
+			"OC_BASE":        "http://127.0.0.1:7755",
+		}
+		rc := realMain([]string{"run", "--once"}, func(k string) string { return env[k] }, &out)
+		if rc != 1 {
+			t.Errorf("rc = %d, want 1", rc)
+		}
+		got := out.String()
+		if !strings.HasPrefix(got, "[ocwarden] FATAL: OC_CLAUDE_JSON points at a file nothing reads") {
+			t.Errorf("out = %q, want the redirect refusal", got)
+		}
+		for _, want := range []string{"/tmp/throwaway.json", "/Users/eva/.claude.json"} {
+			if !strings.Contains(got, want) {
+				t.Errorf("out = %q, want it to name %q", got, want)
+			}
+		}
+	})
+
 	t.Run("an unset station address stops the run", func(t *testing.T) {
 		var out bytes.Buffer
 		rc := realMain([]string{"run", "--once"}, func(string) string { return "" }, &out)
