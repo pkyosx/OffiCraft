@@ -440,8 +440,8 @@ func TestSystemInteractionText(t *testing.T) {
 			t.Fatalf("the boot fold and the read face disagree (%d vs %d runes)",
 				utf8.RuneCountInString(got), utf8.RuneCountInString(data["text"].(string)))
 		}
-		if n := utf8.RuneCountInString(got); n != 16816 {
-			t.Fatalf("the shipped block is %d runes, want 16816", n)
+		if n := utf8.RuneCountInString(got); n != 16958 {
+			t.Fatalf("the shipped block is %d runes, want 16958", n)
 		}
 	})
 
@@ -1443,7 +1443,7 @@ func TestHandleGetSystemInteractionApiSystemInteractionGet(t *testing.T) {
 		if status != 200 {
 			t.Fatalf("want 200, got %d (%v)", status, data)
 		}
-		apiWantValue(t, "size_chars", data["size_chars"], 16816)
+		apiWantValue(t, "size_chars", data["size_chars"], 16958)
 		apiWantValue(t, "cap_chars", data["cap_chars"], 60000)
 		apiWantValue(t, "kind", data["kind"], "system_interaction")
 		apiWantValue(t, "key", data["key"], "global")
@@ -1453,8 +1453,8 @@ func TestHandleGetSystemInteractionApiSystemInteractionGet(t *testing.T) {
 		apiWantValue(t, "has_seed", data["has_seed"], true)
 		apiWantValue(t, "schema_version", data["schema_version"], 3)
 		text, ok := data["text"].(string)
-		if !ok || utf8.RuneCountInString(text) != 16816 {
-			t.Fatalf("the shipped system-interaction text has %d runes, want 16816", utf8.RuneCountInString(text))
+		if !ok || utf8.RuneCountInString(text) != 16958 {
+			t.Fatalf("the shipped system-interaction text has %d runes, want 16958", utf8.RuneCountInString(text))
 		}
 	})
 
@@ -1608,9 +1608,9 @@ func TestHandleResetSystemInteractionApiSystemInteractionResetPost(t *testing.T)
 			"kind":       "system_interaction",
 			"key":        "global",
 			"is_default": true,
-			"size_chars": 16816,
+			"size_chars": 16958,
 			"cap_chars":  60000,
-			"sha256":     "81a155ec79497ca524a4462fb4e855a03fd111bcca32aeb25773cc637dd57247",
+			"sha256":     "32ec343db9716e3e062c7d8025bc193828b9fe96eaa63864b26a8a266421f2da",
 		})
 		dashboard.wantFrames(map[string]any{
 			"seq":   2,
@@ -1641,9 +1641,9 @@ func TestHandleResetSystemInteractionApiSystemInteractionResetPost(t *testing.T)
 			"kind":       "system_interaction",
 			"key":        "global",
 			"is_default": true,
-			"size_chars": 16816,
+			"size_chars": 16958,
 			"cap_chars":  60000,
-			"sha256":     "81a155ec79497ca524a4462fb4e855a03fd111bcca32aeb25773cc637dd57247",
+			"sha256":     "32ec343db9716e3e062c7d8025bc193828b9fe96eaa63864b26a8a266421f2da",
 		})
 		dashboard.wantFrames()
 	})
