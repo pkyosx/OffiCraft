@@ -35,18 +35,21 @@ type spawnHarness struct {
 	slept     []time.Duration
 	pretrusts int
 	pretrustE error
-	pretrustV []agentEnvPair
 	purges    int
 }
 
 func (h *spawnHarness) deps() SpawnDeps {
 	return SpawnDeps{
-		Runner:    h.runner,
-		Base:      "http://127.0.0.1:7755/",
-		Socket:    "officraft",
-		Home:      "/w",
-		ClaudeBin: "/usr/local/bin/claude",
-		RepoRoot:  "/repo",
+		Runner: h.runner,
+		Base:   "http://127.0.0.1:7755/",
+		Socket: "officraft",
+		Home:   "/w",
+		// The warden's own HOME, deliberately NOT the agents root above: the two
+		// are different things and a fixture that spelled them the same could not
+		// tell a launch line that exported the wrong one.
+		ClaudeHome: claudeHome{Home: "/Users/wardenowner"},
+		ClaudeBin:  "/usr/local/bin/claude",
+		RepoRoot:   "/repo",
 		ResolveOcAgentBin: func() (string, bool) {
 			return "/Users/eva/.officraft/warden/ocagent", true
 		},
@@ -72,12 +75,8 @@ func (h *spawnHarness) deps() SpawnDeps {
 			}
 			return os.ErrNotExist
 		},
-		Logf: func(format string, a ...any) { h.logs = append(h.logs, fmt.Sprintf(format, a...)) },
-		Pretrust: func(agentEnv []agentEnvPair) error {
-			h.pretrusts++
-			h.pretrustV = agentEnv
-			return h.pretrustE
-		},
+		Logf:       func(format string, a ...any) { h.logs = append(h.logs, fmt.Sprintf(format, a...)) },
+		Pretrust:   func() error { h.pretrusts++; return h.pretrustE },
 		PurgeTrash: func() { h.purges++ },
 		Sleep:      func(d time.Duration) { h.slept = append(h.slept, d) },
 	}
@@ -98,8 +97,9 @@ func startParamsM1() StartParams {
 	return StartParams{MemberID: "m1", PersonaContext: "you are m1", MemberToken: "jwt-m1", Role: "builder"}
 }
 
-const goldenLaunchM1 = `cd /w/m1; export OC_TOKEN="$(/bin/cat /w/m1/.oc-token)" ` +
-	`OC_BASE=http://127.0.0.1:7755 OC_SESSION=member-m1 OC_TMUX_SOCKET=officraft OC_EFFORT=medium; ` +
+const goldenLaunchM1 = `cd /w/m1; unset CLAUDE_CONFIG_DIR; export OC_TOKEN="$(/bin/cat /w/m1/.oc-token)" ` +
+	`OC_BASE=http://127.0.0.1:7755 OC_SESSION=member-m1 OC_TMUX_SOCKET=officraft OC_EFFORT=medium ` +
+	`HOME=/Users/wardenowner; ` +
 	`export PATH=/w/m1:"$PATH"; ` +
 	`exec /usr/local/bin/claude --dangerously-skip-permissions ` +
 	`--disallowedTools AskUserQuestion --mcp-config /w/m1/.mcp.json --effort medium ` +
@@ -258,65 +258,118 @@ func TestOcAgentTarget(t *testing.T) {
 }
 
 func TestBuildLaunchCommand(t *testing.T) {
-	want := `cd /w/m1; export OC_TOKEN="$(/bin/cat /w/m1/.oc-token)" ` +
-		`OC_BASE=http://127.0.0.1:7755 OC_SESSION=member-m1 OC_TMUX_SOCKET=officraft; ` +
+	want := `cd /w/m1; unset CLAUDE_CONFIG_DIR; export OC_TOKEN="$(/bin/cat /w/m1/.oc-token)" ` +
+		`OC_BASE=http://127.0.0.1:7755 OC_SESSION=member-m1 OC_TMUX_SOCKET=officraft ` +
+		`HOME=/Users/wardenowner; ` +
 		`export PATH=/w/m1:"$PATH"; ` +
 		`exec /usr/local/bin/claude --dangerously-skip-permissions --disallowedTools AskUserQuestion ` +
 		`--mcp-config /w/m1/.mcp.json --effort medium --append-system-prompt APPEND`
 	got := buildLaunchCommand("/usr/local/bin/claude", "/w/m1", "/w/m1/.mcp.json", "APPEND",
-		"/w/m1/.oc-token", "m1", "http://127.0.0.1:7755", "member-m1", "officraft", "", "", "")
+		"/w/m1/.oc-token", "m1", "http://127.0.0.1:7755", "member-m1", "officraft", "", "", "",
+		claudeHome{Home: "/Users/wardenowner"})
 	if got != want {
 		t.Errorf("launch line =\n%s\nwant\n%s", got, want)
 	}
 
-	wantFull := `cd /w/m1; export OC_TOKEN="$(/bin/cat /w/m1/.oc-token)" ` +
-		`OC_BASE=http://127.0.0.1:7755 OC_SESSION=member-m1 OC_TMUX_SOCKET=officraft; ` +
+	wantFull := `cd /w/m1; unset CLAUDE_CONFIG_DIR; export OC_TOKEN="$(/bin/cat /w/m1/.oc-token)" ` +
+		`OC_BASE=http://127.0.0.1:7755 OC_SESSION=member-m1 OC_TMUX_SOCKET=officraft ` +
+		`HOME=/Users/wardenowner; ` +
 		`export PATH=/w/m1:"$PATH"; ` +
 		`exec /usr/local/bin/claude --dangerously-skip-permissions --disallowedTools AskUserQuestion ` +
 		`--mcp-config /w/m1/.mcp.json --effort high --append-system-prompt APPEND ` +
 		`--model opus --settings /w/m1/settings.json`
 	got = buildLaunchCommand("/usr/local/bin/claude", "/w/m1", "/w/m1/.mcp.json", "APPEND",
 		"/w/m1/.oc-token", "m1", "http://127.0.0.1:7755", "member-m1", "officraft",
-		"opus", "high", "/w/m1/settings.json")
+		"opus", "high", "/w/m1/settings.json", claudeHome{Home: "/Users/wardenowner"})
 	if got != wantFull {
 		t.Errorf("launch line =\n%s\nwant\n%s", got, wantFull)
 	}
 }
 
 func TestBuildLaunchCommandWithEnv(t *testing.T) {
-	want := `cd /w/m1; [ -f /w/m1/.oc-env ] && . /w/m1/.oc-env; ` +
+	home := claudeHome{Home: "/Users/wardenowner"}
+	want := `cd /w/m1; [ -f /w/m1/.oc-env ] && . /w/m1/.oc-env; unset CLAUDE_CONFIG_DIR; ` +
 		`export OC_TOKEN="$(/bin/cat /w/m1/.oc-token)" ` +
 		`OC_BASE=http://127.0.0.1:7755 OC_SESSION=member-m1 OC_TMUX_SOCKET=officraft-lab ` +
-		`OC_AGENT_HOME=/w OC_EFFORT=medium; ` +
+		`OC_AGENT_HOME=/w OC_EFFORT=medium HOME=/Users/wardenowner; ` +
 		`export PATH=/w/m1:"$PATH"; ` +
 		`exec /usr/local/bin/claude --dangerously-skip-permissions --disallowedTools AskUserQuestion ` +
 		`--mcp-config /w/m1/.mcp.json --effort medium --append-system-prompt APPEND ` +
 		`--settings /w/m1/settings.json`
 	got := buildLaunchCommandWithEnv("/usr/local/bin/claude", "/w/m1", "/w/m1/.mcp.json", "APPEND",
 		"/w/m1/.oc-token", "m1", "http://127.0.0.1:7755", "member-m1", "officraft-lab", "", "medium",
-		"/w/m1/settings.json", [][2]string{{"OC_AGENT_HOME", "/w"}, {"OC_EFFORT", "medium"}}, "/w/m1/.oc-env")
+		"/w/m1/settings.json", [][2]string{{"OC_AGENT_HOME", "/w"}, {"OC_EFFORT", "medium"}}, "/w/m1/.oc-env", home)
 	if got != want {
 		t.Errorf("launch line =\n%s\nwant\n%s", got, want)
 	}
 
 	plain := buildLaunchCommandWithEnv("/usr/local/bin/claude", "/w/m1", "/w/m1/.mcp.json", "APPEND",
-		"/w/m1/.oc-token", "m1", "http://127.0.0.1:7755", "member-m1", "officraft", "", "", "", nil, "")
+		"/w/m1/.oc-token", "m1", "http://127.0.0.1:7755", "member-m1", "officraft", "", "", "", nil, "", home)
 	if plain != buildLaunchCommand("/usr/local/bin/claude", "/w/m1", "/w/m1/.mcp.json", "APPEND",
-		"/w/m1/.oc-token", "m1", "http://127.0.0.1:7755", "member-m1", "officraft", "", "", "") {
+		"/w/m1/.oc-token", "m1", "http://127.0.0.1:7755", "member-m1", "officraft", "", "", "", home) {
 		t.Errorf("no extra env must be byte-identical to the plain line, got\n%s", plain)
 	}
 
 	spaced := buildLaunchCommandWithEnv("/opt/my claude/claude", "/w/a b", "/w/a b/.mcp.json", "it's me",
-		"/w/a b/.oc-token", "m1", "http://127.0.0.1:7755", "member-m1", "officraft", "", "", "", nil, "/w/a b/.oc-env")
-	wantSpaced := `cd '/w/a b'; [ -f '/w/a b/.oc-env' ] && . '/w/a b/.oc-env'; ` +
+		"/w/a b/.oc-token", "m1", "http://127.0.0.1:7755", "member-m1", "officraft", "", "", "", nil, "/w/a b/.oc-env",
+		claudeHome{Home: "/Users/warden owner"})
+	wantSpaced := `cd '/w/a b'; [ -f '/w/a b/.oc-env' ] && . '/w/a b/.oc-env'; unset CLAUDE_CONFIG_DIR; ` +
 		`export OC_TOKEN="$(/bin/cat '/w/a b/.oc-token')" ` +
-		`OC_BASE=http://127.0.0.1:7755 OC_SESSION=member-m1 OC_TMUX_SOCKET=officraft; ` +
+		`OC_BASE=http://127.0.0.1:7755 OC_SESSION=member-m1 OC_TMUX_SOCKET=officraft ` +
+		`HOME='/Users/warden owner'; ` +
 		`export PATH='/w/a b':"$PATH"; ` +
 		`exec '/opt/my claude/claude' --dangerously-skip-permissions --disallowedTools AskUserQuestion ` +
 		`--mcp-config '/w/a b/.mcp.json' --effort medium --append-system-prompt 'it'"'"'s me'`
 	if spaced != wantSpaced {
 		t.Errorf("launch line =\n%s\nwant\n%s", spaced, wantSpaced)
 	}
+
+	t.Run("a redirected config home is exported instead of unset", func(t *testing.T) {
+		line := buildLaunchCommandWithEnv("/usr/local/bin/claude", "/w/m1", "/w/m1/.mcp.json", "APPEND",
+			"/w/m1/.oc-token", "m1", "http://127.0.0.1:7755", "member-m1", "officraft", "", "", "", nil, "/w/m1/.oc-env",
+			claudeHome{Home: "/Users/wardenowner", ConfigDir: "/tmp/box"})
+		if !strings.Contains(line, "CLAUDE_CONFIG_DIR=/tmp/box") {
+			t.Errorf("a stated config dir must be exported:\n%s", line)
+		}
+		if strings.Contains(line, "unset CLAUDE_CONFIG_DIR") {
+			t.Errorf("exporting it and unsetting it are exclusive:\n%s", line)
+		}
+	})
+
+	t.Run("the config-home pins come after the sourced agent env", func(t *testing.T) {
+		// The whole guarantee is positional: these exports overrule the owner's
+		// file because they run later. Emitted before the source line they are
+		// silently erased by it, and every other assertion here still passes.
+		line := buildLaunchCommandWithEnv("/usr/local/bin/claude", "/w/m1", "/w/m1/.mcp.json", "APPEND",
+			"/w/m1/.oc-token", "m1", "http://127.0.0.1:7755", "member-m1", "officraft", "", "", "", nil, "/w/m1/.oc-env",
+			claudeHome{Home: "/Users/wardenowner", ConfigDir: "/tmp/box"})
+		source := strings.Index(line, ". /w/m1/.oc-env")
+		pinHome := strings.Index(line, "HOME=/Users/wardenowner")
+		pinDir := strings.Index(line, "CLAUDE_CONFIG_DIR=/tmp/box")
+		if source < 0 || pinHome < 0 || pinDir < 0 {
+			t.Fatalf("line is missing the source or a pin:\n%s", line)
+		}
+		if source > pinHome || source > pinDir {
+			t.Errorf("source at %d must precede the pins (HOME=%d, CLAUDE_CONFIG_DIR=%d):\n%s", source, pinHome, pinDir, line)
+		}
+		unsetLine := buildLaunchCommandWithEnv("/usr/local/bin/claude", "/w/m1", "/w/m1/.mcp.json", "APPEND",
+			"/w/m1/.oc-token", "m1", "http://127.0.0.1:7755", "member-m1", "officraft", "", "", "", nil, "/w/m1/.oc-env",
+			claudeHome{Home: "/Users/wardenowner"})
+		if src, un := strings.Index(unsetLine, ". /w/m1/.oc-env"), strings.Index(unsetLine, "unset CLAUDE_CONFIG_DIR"); src < 0 || un < 0 || src > un {
+			t.Errorf("the unset must follow the source (source=%d unset=%d):\n%s", src, un, unsetLine)
+		}
+	})
+
+	t.Run("a pin cannot be overridden by an extra env pair of the same name", func(t *testing.T) {
+		line := buildLaunchCommandWithEnv("/usr/local/bin/claude", "/w/m1", "/w/m1/.mcp.json", "APPEND",
+			"/w/m1/.oc-token", "m1", "http://127.0.0.1:7755", "member-m1", "officraft", "", "", "",
+			[][2]string{{"HOME", "/Volumes/scratch/home"}}, "", claudeHome{Home: "/Users/wardenowner"})
+		early := strings.Index(line, "HOME=/Volumes/scratch/home")
+		late := strings.Index(line, "HOME=/Users/wardenowner")
+		if late < 0 || (early >= 0 && early > late) {
+			t.Errorf("the stated HOME must be the LAST assignment in the export list:\n%s", line)
+		}
+	})
 }
 
 func TestTmuxNewSession(t *testing.T) {
@@ -730,207 +783,6 @@ func TestAtomicWriteFile(t *testing.T) {
 	}
 }
 
-func TestDefaultClaudeJSONPath(t *testing.T) {
-	t.Setenv("HOME", "/Users/eva")
-	if got := defaultClaudeJSONPath(func(string) string { return "" }); got != "/Users/eva/.claude.json" {
-		t.Errorf("default = %q, want /Users/eva/.claude.json", got)
-	}
-	got := defaultClaudeJSONPath(func(k string) string {
-		if k == "OC_CLAUDE_JSON" {
-			return "/tmp/throwaway.json"
-		}
-		return ""
-	})
-	if got != "/tmp/throwaway.json" {
-		t.Errorf("OC_CLAUDE_JSON = %q, want /tmp/throwaway.json", got)
-	}
-}
-
-func TestClaudeJSONRedirectGate(t *testing.T) {
-	// NOT the machine's real home: an equal fixture makes env("HOME") and
-	// os.UserHomeDir() return the same string, and the whole point of reading HOME
-	// through env is that they differ.
-	home := "/Users/not-the-warden-owner"
-	envOf := func(claudeJSON, home string) func(string) string {
-		return func(k string) string {
-			switch k {
-			case "OC_CLAUDE_JSON":
-				return claudeJSON
-			case "HOME":
-				return home
-			}
-			return ""
-		}
-	}
-
-	t.Run("unset lets the run through", func(t *testing.T) {
-		if err := claudeJSONRedirectGate(envOf("", home)); err != nil {
-			t.Errorf("err = %v, want nil", err)
-		}
-	})
-
-	t.Run("unset lets the run through even without HOME", func(t *testing.T) {
-		if err := claudeJSONRedirectGate(envOf("", "")); err != nil {
-			t.Errorf("err = %v, want nil", err)
-		}
-	})
-
-	t.Run("the same file under any spelling lets the run through", func(t *testing.T) {
-		cwd, err := os.Getwd()
-		if err != nil {
-			t.Fatalf("getwd: %v", err)
-		}
-		spellings := []struct {
-			name       string
-			claudeJSON string
-			home       string
-		}{
-			{"literal", "/Users/not-the-warden-owner/.claude.json", home},
-			{"tilde", "~/.claude.json", home},
-			{"uncleaned", "/Users/not-the-warden-owner/x/../.claude.json", home},
-			{"trailing slash on HOME", "/Users/not-the-warden-owner/.claude.json", "/Users/not-the-warden-owner/"},
-			{"relative to the cwd", ".claude.json", cwd},
-		}
-		for _, c := range spellings {
-			if err := claudeJSONRedirectGate(envOf(c.claudeJSON, c.home)); err != nil {
-				t.Errorf("%s: err = %v, want nil", c.name, err)
-			}
-		}
-	})
-
-	t.Run("a different file is refused naming both paths", func(t *testing.T) {
-		err := claudeJSONRedirectGate(envOf("/tmp/throwaway.json", home))
-		if err == nil {
-			t.Fatal("a redirect away from $HOME/.claude.json must be refused")
-		}
-		for _, want := range []string{"/tmp/throwaway.json", "/Users/not-the-warden-owner/.claude.json"} {
-			if !strings.Contains(err.Error(), want) {
-				t.Errorf("err = %q, want it to name %q", err, want)
-			}
-		}
-	})
-
-	t.Run("another home's claude.json is refused", func(t *testing.T) {
-		err := claudeJSONRedirectGate(envOf("/Users/seth/.claude.json", home))
-		if err == nil {
-			t.Fatal("another user's claude.json must be refused")
-		}
-		if !strings.Contains(err.Error(), "/Users/seth/.claude.json") || !strings.Contains(err.Error(), "/Users/not-the-warden-owner/.claude.json") {
-			t.Errorf("err = %q, want it to name both paths", err)
-		}
-	})
-
-	t.Run("a case-differing spelling is refused", func(t *testing.T) {
-		err := claudeJSONRedirectGate(envOf("/users/NOT-THE-WARDEN-OWNER/.claude.json", home))
-		if err == nil {
-			t.Fatal("path equality is byte equality — a case-folded compare would pass a pair that is two different files on a case-sensitive filesystem")
-		}
-	})
-
-	t.Run("HOME comes from the run's own environment, not the warden process", func(t *testing.T) {
-		procHome, err := os.UserHomeDir()
-		if err != nil {
-			t.Fatalf("UserHomeDir: %v", err)
-		}
-		if procHome == home {
-			t.Fatalf("the fixture home %q is the process home, so this test cannot tell the two sources apart", home)
-		}
-		if err := claudeJSONRedirectGate(envOf(filepath.Join(home, ".claude.json"), home)); err != nil {
-			t.Errorf("err = %v, want nil — the pair matches the HOME this run carries", err)
-		}
-		if err := claudeJSONRedirectGate(envOf(filepath.Join(procHome, ".claude.json"), home)); err == nil {
-			t.Error("the warden process's own home must not satisfy a run whose HOME is elsewhere")
-		}
-	})
-
-	t.Run("an empty HOME cannot prove the pair and is refused", func(t *testing.T) {
-		err := claudeJSONRedirectGate(envOf("/tmp/throwaway.json", ""))
-		if err == nil {
-			t.Fatal("an unresolvable $HOME/.claude.json must be refused, not assumed equal")
-		}
-		if !strings.Contains(err.Error(), "/tmp/throwaway.json") || !strings.Contains(err.Error(), "HOME is empty") {
-			t.Errorf("err = %q, want the empty-HOME refusal naming the override", err)
-		}
-	})
-}
-
-func TestClaudeJSONReaderGate(t *testing.T) {
-	wardenHome := "/Users/not-the-warden-owner"
-	env := func(k string) string {
-		if k == "HOME" {
-			return wardenHome
-		}
-		return ""
-	}
-	pair := func(v string) []agentEnvPair { return []agentEnvPair{{Key: "HOME", Value: v}} }
-
-	t.Run("no HOME in the agent env judges against the warden's own", func(t *testing.T) {
-		if err := claudeJSONReaderGate(wardenHome+"/.claude.json", env, nil); err != nil {
-			t.Errorf("err = %v, want nil", err)
-		}
-		if err := claudeJSONReaderGate("/tmp/throwaway.json", env, []agentEnvPair{{Key: "EDITOR", Value: "vim"}}); err == nil {
-			t.Error("a redirect away from the reader must still be refused")
-		}
-	})
-
-	t.Run("a HOME the agent env injects moves the reader and is refused naming both paths", func(t *testing.T) {
-		err := claudeJSONReaderGate(wardenHome+"/.claude.json", env, pair("/Volumes/scratch/home"))
-		if err == nil {
-			t.Fatal("the launch line sources the render before exec claude, so an injected HOME moves the file the child reads — writing to the warden's own is writing where nothing reads")
-		}
-		for _, want := range []string{wardenHome + "/.claude.json", "/Volumes/scratch/home/.claude.json", "HOME=/Volumes/scratch/home"} {
-			if !strings.Contains(err.Error(), want) {
-				t.Errorf("err = %q, want it to name %q", err, want)
-			}
-		}
-	})
-
-	t.Run("a write target that follows the injected HOME is let through", func(t *testing.T) {
-		if err := claudeJSONReaderGate("/Volumes/scratch/home/.claude.json", env, pair("/Volumes/scratch/home")); err != nil {
-			t.Errorf("err = %v, want nil — moving the home and the write target together is the supported path", err)
-		}
-	})
-
-	t.Run("the last HOME wins, as it does in the sourced file", func(t *testing.T) {
-		pairs := []agentEnvPair{{Key: "HOME", Value: "/first"}, {Key: "HOME", Value: "/second"}}
-		if err := claudeJSONReaderGate("/second/.claude.json", env, pairs); err != nil {
-			t.Errorf("err = %v, want nil", err)
-		}
-		if err := claudeJSONReaderGate("/first/.claude.json", env, pairs); err == nil {
-			t.Error("the FIRST export is overwritten by the second when the shell sources the file")
-		}
-	})
-
-	t.Run("a case-differing spelling is refused", func(t *testing.T) {
-		if err := claudeJSONReaderGate("/VOLUMES/Scratch/home/.claude.json", env, pair("/Volumes/scratch/home")); err == nil {
-			t.Fatal("path equality is byte equality — a case-folded compare would pass two different files on a case-sensitive filesystem")
-		}
-	})
-
-	t.Run("an empty effective HOME cannot prove the pair and is refused", func(t *testing.T) {
-		err := claudeJSONReaderGate("/tmp/throwaway.json", func(string) string { return "" }, nil)
-		if err == nil {
-			t.Fatal("an unresolvable reader must be refused, not assumed equal")
-		}
-		if !strings.Contains(err.Error(), "/tmp/throwaway.json") || !strings.Contains(err.Error(), "empty HOME") {
-			t.Errorf("err = %q, want the empty-HOME refusal naming the write target", err)
-		}
-	})
-
-	t.Run("HOME comes from the run's own environment, not the warden process", func(t *testing.T) {
-		procHome, err := os.UserHomeDir()
-		if err != nil {
-			t.Fatalf("UserHomeDir: %v", err)
-		}
-		if procHome == wardenHome {
-			t.Fatalf("the fixture home %q is the process home, so this test cannot tell the two sources apart", wardenHome)
-		}
-		if err := claudeJSONReaderGate(filepath.Join(procHome, ".claude.json"), env, nil); err == nil {
-			t.Error("the warden process's own home must not satisfy a run whose HOME is elsewhere")
-		}
-	})
-}
-
 func TestWithPerSpawn(t *testing.T) {
 	baseClock := 0
 	basePretrust := 0
@@ -939,7 +791,7 @@ func TestWithPerSpawn(t *testing.T) {
 		Home:      "/w",
 		ClaudeBin: "/usr/local/bin/claude",
 		Sleep:     func(time.Duration) { baseClock++ },
-		Pretrust:  func([]agentEnvPair) error { basePretrust++; return nil },
+		Pretrust:  func() error { basePretrust++; return nil },
 		PurgeTrash: func() {
 			basePurge++
 		},
@@ -947,10 +799,10 @@ func TestWithPerSpawn(t *testing.T) {
 
 	perPretrust, perPurge := 0, 0
 	got := base.withPerSpawn(
-		func([]agentEnvPair) error { perPretrust++; return errors.New("boom") },
+		func() error { perPretrust++; return errors.New("boom") },
 		func() { perPurge++ })
 
-	if err := got.Pretrust(nil); err == nil || err.Error() != "boom" {
+	if err := got.Pretrust(); err == nil || err.Error() != "boom" {
 		t.Errorf("Pretrust err = %v, want boom", err)
 	}
 	got.PurgeTrash()
@@ -966,7 +818,7 @@ func TestWithPerSpawn(t *testing.T) {
 		t.Errorf("the rest of the deps changed: %+v", got)
 	}
 
-	_ = base.Pretrust(nil)
+	_ = base.Pretrust()
 	if basePretrust != 1 {
 		t.Error("the receiver's own seams must be left intact")
 	}
@@ -1054,10 +906,10 @@ func TestStart(t *testing.T) {
 			t.Errorf(".oc-env = %q mode %04o, want %q mode 0600", rendered.content, rendered.mode, want)
 		}
 		wantLaunch := "tmux -L officraft new-session -d -s member-m1 -x 160 -y 50 " +
-			`cd /w/m1; [ -f /w/m1/.oc-env ] && . /w/m1/.oc-env; ` +
+			`cd /w/m1; [ -f /w/m1/.oc-env ] && . /w/m1/.oc-env; unset CLAUDE_CONFIG_DIR; ` +
 			`export OC_TOKEN="$(/bin/cat /w/m1/.oc-token)" ` +
 			`OC_BASE=http://127.0.0.1:7755 OC_SESSION=member-m1 OC_TMUX_SOCKET=officraft ` +
-			`OC_AGENT_HOME=/w OC_EFFORT=high; ` +
+			`OC_AGENT_HOME=/w OC_EFFORT=high HOME=/Users/wardenowner; ` +
 			`export PATH=/w/m1:"$PATH"; ` +
 			`exec /usr/local/bin/claude --dangerously-skip-permissions --disallowedTools AskUserQuestion ` +
 			`--mcp-config /w/m1/.mcp.json --effort high ` +
@@ -1074,30 +926,65 @@ func TestStart(t *testing.T) {
 				t.Errorf("a credential value reached the log: %q", line)
 			}
 		}
-		// Pretrust decides WHICH claude.json the child reads, and a HOME in these
-		// pairs moves it — so it must be handed the same set the launch line sources.
-		wantPairs := []agentEnvPair{{Key: "GH_TOKEN", Value: "ghp_abc"}, {Key: "EDITOR", Value: "vim"}}
-		if !reflect.DeepEqual(h.pretrustV, wantPairs) {
-			t.Errorf("pretrust saw %v, want the rendered pairs %v", h.pretrustV, wantPairs)
-		}
 	})
 
-	t.Run("a failed env render hands pretrust nothing, because the launch line sources nothing", func(t *testing.T) {
+	t.Run("an agent env that moves the config home is overwritten, not obeyed", func(t *testing.T) {
 		dir := t.TempDir()
 		envFile := filepath.Join(dir, "env")
-		if err := os.WriteFile(envFile, []byte("HOME=/Volumes/scratch/home\n"), 0o600); err != nil {
+		// Both variables that decide which claude.json the child reads, set by the
+		// owner's own file — the exact pair that walked through the previous shape.
+		if err := os.WriteFile(envFile, []byte("HOME=/Volumes/scratch/home\nCLAUDE_CONFIG_DIR=/Volumes/scratch/cfg\n"), 0o600); err != nil {
 			t.Fatalf("seed env file: %v", err)
 		}
 		h := newSpawnHarness()
-		h.writeErr["/w/m1/.oc-env"] = errors.New("disk full")
 		d := h.deps()
 		d.EnvFile = envFile
 
 		if got := d.start(startParamsM1()); !got.OK {
-			t.Fatalf("outcome = %+v, want OK", got)
+			t.Fatalf("outcome = %+v, want OK — the launch line states the config home, so this spawn is safe", got)
 		}
-		if h.pretrustV != nil {
-			t.Errorf("pretrust saw %v, want nil — the render failed, so the child never reads that HOME", h.pretrustV)
+		var line string
+		for _, call := range h.runner.calls {
+			if strings.Contains(call, "new-session") {
+				line = call
+			}
+		}
+		if line == "" {
+			t.Fatal("no session was started")
+		}
+		source := strings.Index(line, ". /w/m1/.oc-env")
+		unset := strings.Index(line, "unset CLAUDE_CONFIG_DIR")
+		pin := strings.Index(line, "HOME=/Users/wardenowner")
+		if source < 0 || unset < 0 || pin < 0 {
+			t.Fatalf("launch line is missing the source or the pins:\n%s", line)
+		}
+		// ORDER, not mere presence: a pin emitted BEFORE the source is erased by
+		// the very file it exists to overrule, and the line still contains both.
+		if !(source < unset && source < pin) {
+			t.Errorf("the config-home pins must come AFTER the agent env is sourced (source=%d unset=%d pin=%d):\n%s",
+				source, unset, pin, line)
+		}
+		if strings.Contains(line, "HOME=/Volumes/scratch/home") || strings.Contains(line, "CLAUDE_CONFIG_DIR=/Volumes/scratch/cfg") {
+			t.Errorf("the owner's values must not be exported by the launch line itself:\n%s", line)
+		}
+	})
+
+	t.Run("a claude spawn with no stated config home is refused", func(t *testing.T) {
+		h := newSpawnHarness()
+		d := h.deps()
+		d.ClaudeHome = claudeHome{}
+
+		got := d.start(startParamsM1())
+		if got.OK || !strings.Contains(got.Reason, "claude_home_unresolved") {
+			t.Fatalf("outcome = %+v, want a claude_home_unresolved refusal — an unstated config home leaves the child inheriting one", got)
+		}
+		if h.pretrusts != 0 {
+			t.Errorf("pretrusts = %d, want 0 — nothing may be written into a file we cannot point the child at", h.pretrusts)
+		}
+		for _, call := range h.runner.calls {
+			if strings.Contains(call, "new-session") {
+				t.Errorf("a session was started anyway: %q", call)
+			}
 		}
 	})
 

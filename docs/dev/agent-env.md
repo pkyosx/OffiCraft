@@ -46,7 +46,8 @@ agent 不是你手動開的 shell。它由 launchd 啟動 → `tmux new-session`
 | `SHLVL` / `_` | shell 簿記,搬過去沒有意義 |
 | `OC_*` | warden 自己的身分命名空間(`OC_TOKEN` / `OC_BASE` / `OC_SESSION` …)。`.zshrc` 裡不小心 export 到不能改到 agent 的身分 |
 
-**其他全給** —— 包含全部憑證,正職與外包一致。
+**其他全給** —— 包含全部憑證,正職與外包一致。唯一的例外是 `HOME` 與
+`CLAUDE_CONFIG_DIR`:它們會被啟動列在 source 之後覆寫掉(見下面第 5 點)。
 
 ### 關掉自動繼承
 
@@ -147,6 +148,16 @@ MY_MESSAGE="有 空 格 要 用 引號"          # 單雙引號等價,會被剝�
 
 `OC_TOKEN`、`OC_BASE`、`OC_SESSION` 等是 warden 用來標定 agent 身分的,
 在這裡設會被直接忽略並記錄原因(否則這個檔就能冒充其他成員或把 agent 指向別的 server)。
+
+### 5. `HOME` 與 `CLAUDE_CONFIG_DIR` 設了也不會生效
+
+這兩個決定 claude 去讀**哪一份 `.claude.json`**，而 warden 在 spawn 前要先把 workdir 寫進那一份
+(pretrust，沒有它 claude 會彈信任對話框、吃掉開機 nudge、成員一秒內死掉)。所以啟動列在 source
+完這個檔**之後**明確 `export HOME=`、並 `unset CLAUDE_CONFIG_DIR`(或在 `OC_CLAUDE_JSON` 改指時
+改成明確 export 它)。這兩層不論哪一層設了這兩個變數，對 claude 子行程都不會生效 —— 不是被檢查出來
+拒絕，是被後面那行覆蓋掉。這條的權威是 `cli/ocwarden/claudehome.go` 與啟動列的順序斷言。
+
+（兩層的其他變數照舊全給，`OC_*` 照舊被拒絕。）
 
 ## 其他規則
 

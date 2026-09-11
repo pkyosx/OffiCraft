@@ -624,7 +624,13 @@ func buildSpawnDeps(cfg Config, env func(string) string, runner CmdRunner, socke
 		},
 		ClaudeBin: claudeBin,
 		CodexBin:  codexBin,
-		WardenBin: wardenBin,
+		// The config home the claude launch line STATES to the child, and the
+		// file pre-trust writes (claudehome.go). An error here means no claude
+		// spawn can be made safe on this host: it is logged once, and start()
+		// refuses each spawn with claude_home_unresolved rather than launching a
+		// member whose trust file nothing reads.
+		ClaudeHome: resolvedClaudeHome(env, stderrLogf),
+		WardenBin:  wardenBin,
 		// T-ba62: the spawn-time claude-login gate. Existence-only by
 		// construction (claudecreds.go) — stat, keychain METADATA, env != "".
 		// OC_CLAUDE_CRED_CHECK=0 is the documented escape hatch: this gate is
@@ -675,8 +681,10 @@ func buildCommandDeps(cfg Config, env func(string) string, runner CmdRunner) Com
 	ns, _ := namespaceFromEnv(env)
 	socket := tmuxSocketFor(ns)
 	spawnDeps := buildSpawnDeps(cfg, env, runner, socket, ns)
-	// The real ~/.claude.json pre-trust target (OC_CLAUDE_JSON can redirect it).
-	claudeJSONPath := defaultClaudeJSONPath(env)
+	// The pre-trust target is the file the launch line tells the child to read:
+	// one resolution (spawnDeps.ClaudeHome) feeds both ends, so there is no second
+	// answer here that could differ from the exported one.
+	claudeJSONPath := spawnDeps.ClaudeHome.ClaudeJSONPath()
 	return CommandDeps{
 		// Rebuild the Pretrust seam per spawn so it targets THIS member's actual
 		// launch workdir (same durable dir start() computes) — the Phase-4 real
@@ -689,17 +697,7 @@ func buildCommandDeps(cfg Config, env func(string) string, runner CmdRunner) Com
 			// itself (direct-child containment, symlink refusal) — passing the root
 			// is what lets it do the containment check at all.
 			return spawnDeps.withPerSpawn(
-				func(agentEnv []agentEnvPair) error {
-					// The child's HOME is not necessarily this warden's: the
-					// agent env render is sourced before exec claude and may set
-					// it. Judge the write target against THAT HOME, using the
-					// very pairs the launch line sources, or pre-trust lands in
-					// a file nothing reads (realMain's gate cannot see this).
-					if err := claudeJSONReaderGate(claudeJSONPath, env, agentEnv); err != nil {
-						return err
-					}
-					return pretrustWorkdir(claudeJSONPath, workdir)
-				},
+				func() error { return pretrustWorkdir(claudeJSONPath, workdir) },
 				func() { purgeTrash(spawnDeps.Home, workdir, stderrLogf) },
 			).start(p)
 		},
