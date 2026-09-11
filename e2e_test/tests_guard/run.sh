@@ -479,7 +479,7 @@ fi
 # ── 12) T-c5d4 weakness-2: webdist restore must SURFACE a failed/partial delete,
 #        not swallow it. teardown.sh used `find … -delete 2>/dev/null` with no rc
 #        check — a silent failure leaves a dirty webdist that a later `go build`
-#        bakes into the committed bin/ocserverd. oc_restore_webdist_pristine now
+#        bakes into the binary it links. oc_restore_webdist_pristine now
 #        checks find's rc AND re-asserts only .gitkeep remains, printing a loud
 #        WARN on trouble. OUTPUT+rc assertion on purpose: a fail-closed cleanup is
 #        rc-blind to a half-delete, so we assert the reason/output, not only rc.

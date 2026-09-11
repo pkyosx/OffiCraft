@@ -95,9 +95,10 @@ oc_e2e_destroy "$STATE_DIR/owner.tok" "$STATE_DIR/env" "$STATE_DIR/serve.log" "$
 echo "[teardown] dropped isolated DB + state"
 
 # 5b. restore server/ocserverd/webdist/ to pristine (.gitkeep only). The go leg
-# stages the SPA there for go:embed; the COMMITTED prebuilt bin/ocserverd must
-# always be built from a pristine webdist (server/CLAUDE.md) — leaving the
-# staged dist behind would bait a later rebuild into embedding it.
+# stages the SPA there for go:embed; leaving a staged dist behind would bait a
+# later `go build` into embedding this run's SPA into an unrelated binary. There
+# is NO committed prebuilt to protect: bin/ocserverd is gitignored and nothing in
+# this repo produces it — the only build artifact is .deploy/ocserverd (bin/build).
 WEBDIST="$REPO_ROOT/server/ocserverd/webdist"
 # best-effort (teardown runs without set -e): a failed/partial cleanup now prints
 # a loud WARN to stderr instead of being swallowed by 2>/dev/null. See
