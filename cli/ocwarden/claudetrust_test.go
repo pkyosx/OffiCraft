@@ -46,7 +46,13 @@ while IFS= read -r line; do
     names="$names $n" ;;
   esac
 done < "$cfg"
-echo "No MCP server named \"$3\". Configured servers:$names"
+# LIKE THE REAL BINARY, NOT LIKE A CONVENIENT DOUBLE: claude 2.1.268 answers this
+# question on STDERR and exits 1, always. A stand-in that answered on stdout with
+# exit 0 is what let the probe ship deadlocked in the closed position — the seam
+# it runs through drops stdout on a non-zero exit, so production read "" while the
+# suite read the answer.
+echo "No MCP server named \"$3\". Configured servers:$names" >&2
+exit 1
 `)
 }
 
@@ -328,9 +334,16 @@ func TestPretrustIsVerifiedAgainstTheFileClaudeReallyReads(t *testing.T) {
 	if err := seedTrustProbeWitness(shadow, workdir, claudeTrustProbeSeedName(workdir)); err != nil {
 		t.Fatalf("seed witness into the shadow: %v", err)
 	}
-	out, _ := runner.Run("/bin/sh", "-c", claudeTrustProbeScript(claudeBin, workdir, "", ch))
+	out, _ := runner.RunCombined("/bin/sh", "-c", claudeTrustProbeScript(claudeBin, workdir, "", ch))
 	if !strings.Contains(out, claudeTrustWitness(workdir)) {
 		t.Errorf("with the witness in the file claude reads, the answer must be yes; got: %s", out)
+	}
+	// And the reason the verifier above may not be wired to the plain seam: that
+	// same question, asked through Run, comes back with nothing in it, because
+	// claude exits 1 and answers on stderr. Every case in this test would pass on
+	// a Run-wired verifier too if the double were the generous kind.
+	if plain, err := runner.Run("/bin/sh", "-c", claudeTrustProbeScript(claudeBin, workdir, "", ch)); strings.Contains(plain, claudeTrustWitness(workdir)) {
+		t.Errorf("the stdout-on-success seam must not be able to see this answer (err %v), got: %s", err, plain)
 	}
 
 	// Remove the shadow and the whole verifier passes again — so the refusal was

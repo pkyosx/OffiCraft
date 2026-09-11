@@ -674,7 +674,7 @@ func buildSpawnDeps(cfg Config, env func(string) string, runner CmdRunner, socke
 	}
 }
 
-func buildCommandDeps(cfg Config, env func(string) string, runner CmdRunner) CommandDeps {
+func buildCommandDeps(cfg Config, env func(string) string, runner CombinedCmdRunner) CommandDeps {
 	// The instance namespace keys the tmux socket + agent home (validated at
 	// process entry — realMain refuses an invalid OC_NAMESPACE before any
 	// transport is built, so the error case here is unreachable).
@@ -822,7 +822,7 @@ func newCommandReporter(cfg Config) func(CommandResult) error {
 // client, the real dispatch deps, real time.Sleep backoff, and a stderr/out
 // logger. Constructing it does NOT connect — run(ctx) does — so this is inert
 // until main.go's gate explicitly starts it.
-func newCommandTransport(cfg Config, env func(string) string, runner CmdRunner,
+func newCommandTransport(cfg Config, env func(string) string, runner CombinedCmdRunner,
 	logf func(string, ...any)) *sseTransport {
 	return &sseTransport{
 		base:            cfg.Base,
