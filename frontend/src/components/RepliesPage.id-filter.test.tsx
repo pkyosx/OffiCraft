@@ -243,10 +243,12 @@ describe("請示 ID 篩選（常駐欄位版，T-118）", () => {
     await waitFor(async () =>
       expect(await findAllByTestId("waiting-card")).toHaveLength(1)
     );
+    const survivor = (await findAllByTestId("waiting-card"))[0];
+    expect(survivor.dataset.replyCardId).toBe("rc-bbb");
     expect(
-      (await findAllByTestId("waiting-card"))[0].dataset.replyCardId,
-      "the surviving card is named by its id — a collapsed row prints the head, not the ask's title (owner 2026-09-11)"
-    ).toBe("rc-bbb");
+      survivor.textContent,
+      "the ask's title stays readable on a collapsed row"
+    ).toContain("第二張");
     // ONE commit = ONE read: the lookup for that id. 🔁 There used to be a
     // second — the pane opened the card it was now showing and that open was a
     // read — and it went with the auto-open (owner 2026-09-11「預設全部折疊」).
@@ -281,10 +283,12 @@ describe("請示 ID 篩選（常駐欄位版，T-118）", () => {
     await waitFor(async () =>
       expect(await findAllByTestId("waiting-card")).toHaveLength(1)
     );
+    const survivor = (await findAllByTestId("waiting-card"))[0];
+    expect(survivor.dataset.replyCardId).toBe("rc-bbb");
     expect(
-      (await findAllByTestId("waiting-card"))[0].dataset.replyCardId,
-      "the surviving card is named by its id — a collapsed row prints the head, not the ask's title (owner 2026-09-11)"
-    ).toBe("rc-bbb");
+      survivor.textContent,
+      "the ask's title stays readable on a collapsed row"
+    ).toContain("第二張");
     expect(queryByTestId("replies-filter-cancel")).toBeNull();
   });
 

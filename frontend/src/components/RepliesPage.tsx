@@ -360,9 +360,9 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
   // opened, `openCards` the ONE-card reads those opens produced, `openErrors`
   // the ids whose read failed (an opened row must say so rather than sit empty).
   //
-  // NOT PERSISTED. The 待回覆 pane's leading card opens by itself (see below);
-  // everything else starts closed — the same posture as the 近期已處理 pane's
-  // own toggle, and as ChatReplyCard's stub.
+  // NOT PERSISTED. Every card starts collapsed (owner 2026-09-11
+  // 「預設全部折疊」); only a deep link opens one — the same posture as the
+  // 近期已處理 pane's own toggle, and as ChatReplyCard's stub.
   const [expandedIds, setExpandedIds] = useState<Set<string>>(() => new Set());
   const [openCards, setOpenCards] = useState<Map<string, ReplyCard>>(
     () => new Map()
@@ -405,7 +405,7 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
   function onCardToggleClick(e: React.MouseEvent<HTMLElement>, id: string) {
     const target = e.target as HTMLElement;
     const hit = target.closest(
-      "button, a, textarea, input, select, [role='button'], [role='menu'], [role='dialog']"
+      "button, a, textarea, input, select, [role='button'], [role='menu'], [role='dialog'], .reply-composer"
     );
     if (hit && hit !== e.currentTarget) return;
     const sel = window.getSelection();
@@ -633,7 +633,12 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
       try {
         msgId = (await api.getReplyCard(row.id)).chatMessageId;
       } catch (e) {
+        // Routing without the anchor is the silent half-answer this exists to
+        // avoid, so the failure stays HERE: open the row instead, which runs
+        // the ordinary one-card read and renders its error line.
         console.warn("RepliesPage: chat-anchor read failed", e);
+        setExpandedIds((prev) => new Set(prev).add(row.id));
+        return;
       }
     }
     setRoute({
