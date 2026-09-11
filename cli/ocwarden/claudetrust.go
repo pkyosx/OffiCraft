@@ -66,13 +66,27 @@ package main
 //
 //	No MCP server named "…". Configured servers: <names from the resolved config>
 //
-// MEASURED 2026-09-11, claude 2.1.268, darwin-arm64:
-//   - asked for an ABSENT name it connects to NOTHING (a seeded server whose
-//     command creates a marker file left no marker; asking for the name that
-//     EXISTS created it, so the control is not blind), and
-//   - it changes NOTHING in the config home: name, size, mtime and inode of every
-//     file and directory two levels deep were byte-identical before and after,
-//     not even a backups/ rotation.
+// MEASURED 2026-09-12, claude 2.1.268, darwin-arm64 (re-measured independently —
+// the second bullet of the first measurement was WRONG and is corrected below):
+//   - asked for an ABSENT name it connects to NOTHING: a seeded server whose
+//     command creates a marker file left no marker, while asking for the name that
+//     EXISTS created that marker, so the control is not blind; and
+//   - it never DELETES. Our projects[<workdir>] entry — the trust flag and the
+//     seeded witness — came back byte-identical from every run.
+//
+// ⚠️ IT IS NOT A NO-OP ON THE FIRST RUN. An earlier draft of this comment claimed
+// it changed nothing at all, "not even a backups/ rotation". Measured against a
+// config home claude has never initialised — which is EXACTLY the home warden
+// creates for a new member — the FIRST `mcp get` rewrites .claude.json (new inode,
+// 568 -> 1115 bytes) to add claude's own first-run defaults (firstStartTime,
+// machineID, userID, migrationVersion) and rotates one copy into backups/. Runs 2
+// and 3 against that same home then changed nothing whatsoever: size, inode and
+// mtime to the nanosecond were identical. So the one write is claude initialising
+// itself, not an edit of ours, and no run removes state.
+//
+// That last clause is the whole point of the verb change: `project purge
+// <dir> --dry-run` could not promise it, because its non-destructiveness rested on
+// a flag being honoured. This one rests on the verb having no delete to perform.
 //
 // The cost is one ~0.1s subprocess per spawn, and it works while logged OUT.
 
