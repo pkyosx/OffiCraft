@@ -236,6 +236,16 @@ describe("設定 › 任務手冊 — detail", () => {
     await findByTestId("manual-entry-definition");
     expect(queryByTestId("manual-definition-card")).toBeNull();
 
+    // 任務規劃 carries THAT CARD AND NOTHING ELSE. Asserted on the container's
+    // children rather than on one testid because the failure this pins is an
+    // ADDED card (T-186 removed 學習經驗 from here): every existing assertion
+    // stays green while a second entry sits on the owner's screen.
+    expect(
+      [...container.querySelector(".set-entries")!.children].map((el) =>
+        el.getAttribute("data-testid")
+      )
+    ).toEqual(["manual-entry-definition"]);
+
     // Click 任務定義: it PUSHES a sub-page. The hub-only 負責成員 card and the
     // entry buttons are gone (a real navigation, not an inline expand)…
     fireEvent.click(getByTestId("manual-entry-definition"));

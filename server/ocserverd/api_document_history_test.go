@@ -400,23 +400,33 @@ func TestDocumentHistoryAllowed(t *testing.T) {
 		"retired task manual kind": {
 			kind: docKindTaskManual, key: "tm-history", message: legacyTaskManualKindMsg,
 		},
+		"retired lessons kind": {
+			kind: "lessons", key: "r-design", message: legacyMemoryKindsMsg,
+		},
+		"retired task manual learnings kind": {
+			kind: "task_manual_learnings", key: "tm-history", message: legacyMemoryKindsMsg,
+		},
 	} {
 		t.Run(name, func(t *testing.T) {
-			api, _, _, _ := newAPITestServer(t)
-			req := httptest.NewRequest("GET", "/api/document-history/"+tc.kind+"/"+tc.key, nil)
-			rec := httptest.NewRecorder()
+			// Both faces, because they fail differently when a kind is put
+			// back: list would answer an empty 200 and restore would write.
+			for _, write := range []bool{false, true} {
+				api, _, _, _ := newAPITestServer(t)
+				req := httptest.NewRequest("GET", "/api/document-history/"+tc.kind+"/"+tc.key, nil)
+				rec := httptest.NewRecorder()
 
-			if api.documentHistoryAllowed(rec, req, tc.kind, tc.key, false) {
-				t.Fatal("documentHistoryAllowed allowed an invalid document address")
+				if api.documentHistoryAllowed(rec, req, tc.kind, tc.key, write) {
+					t.Fatalf("documentHistoryAllowed allowed an invalid document address (write=%v)", write)
+				}
+				if rec.Code != http.StatusBadRequest {
+					t.Fatalf("status = %d, want 400 (write=%v, %s)", rec.Code, write, rec.Body.String())
+				}
+				var body map[string]any
+				if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+					t.Fatalf("non-JSON error: %s", rec.Body.String())
+				}
+				apiWantError(t, body, "validation_error", tc.message)
 			}
-			if rec.Code != http.StatusBadRequest {
-				t.Fatalf("status = %d, want 400 (%s)", rec.Code, rec.Body.String())
-			}
-			var body map[string]any
-			if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
-				t.Fatalf("non-JSON error: %s", rec.Body.String())
-			}
-			apiWantError(t, body, "validation_error", tc.message)
 		})
 	}
 
@@ -499,6 +509,24 @@ func TestHandleListDocumentHistoryApiDocumentHistoryKindKeyGet(t *testing.T) {
 		apiWantError(t, data, "validation_error",
 			`document history kind "task_manual" was retired: use "task_manual_sop"`)
 	})
+
+	for name, kind := range map[string]string{
+		"lessons":               "lessons",
+		"task manual learnings": "task_manual_learnings",
+	} {
+		t.Run("the retired "+name+" kind answers 400 saying the documents were dropped", func(t *testing.T) {
+			_, h, _, owner := newAPITestServer(t)
+
+			status, data := apiJSON(t, h, "GET", "/api/document-history/"+kind+"/r-design", owner, "")
+			if status != 400 {
+				t.Fatalf("want 400, got %d (%v)", status, data)
+			}
+			apiWantError(t, data, "validation_error",
+				`document history kinds "lessons" and "task_manual_learnings" were retired: `+
+					`the legacy memory documents and their retained revisions were dropped `+
+					`(migration 00104), so there is nothing left to list or restore`)
+		})
+	}
 
 	t.Run("a request without a token answers 401", func(t *testing.T) {
 		_, h, _, _ := newAPITestServer(t)

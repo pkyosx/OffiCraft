@@ -15,6 +15,18 @@ var errDocumentHistoryCap = errors.New("restoring this version would violate the
 const legacyTaskManualKindMsg = "document history kind \"task_manual\" was retired: " +
 	"use \"task_manual_sop\""
 
+// The two legacy-memory kinds (T-186). Refused BY NAME rather than left to fall
+// through to "unknown kind", and the message has to say that the documents are
+// GONE: migration 00104 dropped the lessons table, task_manual.learnings and
+// every retained revision of both, so a caller who guesses these kinds is
+// asking after storage that no longer exists — and putting either name back
+// into the switch below would make list answer an empty 200 that is
+// indistinguishable from "this document has no versions yet".
+const legacyMemoryKindsMsg = "document history kinds \"lessons\" and " +
+	"\"task_manual_learnings\" were retired: the legacy memory documents and " +
+	"their retained revisions were dropped (migration 00104), so there is " +
+	"nothing left to list or restore"
+
 // historyKeyParts reports a document-history key's PRIMARY identity and whether
 // the key names a document at all.
 func historyKeyParts(kind, key string) (string, bool) {
@@ -254,6 +266,9 @@ func (s *apiServer) documentHistoryAllowed(w http.ResponseWriter, r *http.Reques
 		if write && !s.taskTitleRestoreAuthz(w, r, primary) {
 			return false
 		}
+	case "lessons", "task_manual_learnings":
+		writeError(w, http.StatusBadRequest, legacyMemoryKindsMsg)
+		return false
 	case docKindTaskManual:
 		// The legacy four-field bundle. Its rows were deleted by migration 00045
 		// (owner ruling, T-1f39), so the kind names nothing at all — an empty
