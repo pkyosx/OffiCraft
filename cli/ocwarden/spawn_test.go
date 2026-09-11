@@ -406,6 +406,10 @@ func TestBuildLaunchCommandWithEnv(t *testing.T) {
 			"CLAUDE_CODE_CUSTOM_OAUTH_URL=https://example.invalid",
 			"CLAUDE_CONFIG_DIR=/Volumes/scratch/cfg",
 			"CLAUDE_WEIRD=a b c",
+			// A value carrying its own `=`: the name is everything before the
+			// FIRST one, and a shortest-suffix strip silently yields a
+			// non-identifier that the purge then skips.
+			"CLAUDE_HAS_EQUALS=a=b",
 			"CLAUDE_CODE_USE_BEDROCK=1",
 			"ANTHROPIC_API_KEY=sk-keep-me",
 		}
