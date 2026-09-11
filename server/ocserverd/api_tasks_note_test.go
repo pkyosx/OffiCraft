@@ -164,7 +164,7 @@ func TestHandleUpdateTaskStepNoteApiTasksTaskIdStepsStepIdNotePost(t *testing.T)
 			`{"steps":[{"name":"Draft","dod":"a draft exists"}]}`)
 		stepID := apiTestOnlyStepID(t, h, owner, "T-1")
 		apiJSON(t, h, "POST", "/api/tasks/T-1/steps/"+stepID+"/note", agent, `{"note":"first pass"}`)
-		apiJSON(t, h, "POST", "/api/tasks/T-1/terminate", owner, "")
+		apiJSON(t, h, "POST", "/api/tasks/T-1/mark-terminated", owner, "")
 		dashboard := apiTestListen(t, api, "")
 
 		status, data := apiJSON(t, h, "POST", "/api/tasks/T-1/steps/"+stepID+"/note", agent,
@@ -447,7 +447,7 @@ func TestHandlePatchTaskStepNoteApiTasksTaskIdStepsStepIdNotePatchPost(t *testin
 			`{"steps":[{"name":"Draft","dod":"a draft exists"}]}`)
 		stepID := apiTestOnlyStepID(t, h, owner, "T-1")
 		apiJSON(t, h, "POST", "/api/tasks/T-1/steps/"+stepID+"/note", agent, `{"note":"halfway through"}`)
-		apiJSON(t, h, "POST", "/api/tasks/T-1/terminate", owner, "")
+		apiJSON(t, h, "POST", "/api/tasks/T-1/mark-terminated", owner, "")
 		dashboard := apiTestListen(t, api, "")
 
 		status, data := apiJSON(t, h, "POST", "/api/tasks/T-1/steps/"+stepID+"/note/patch", agent,

@@ -1885,8 +1885,8 @@ func TestMcpCatalogTools(t *testing.T) {
 		if err != nil {
 			t.Fatalf("mcpCatalogTools: %v", err)
 		}
-		if len(tools) != 131 {
-			t.Fatalf("want the frozen catalog's 131 descriptors, got %d", len(tools))
+		if len(tools) != 133 {
+			t.Fatalf("want the frozen catalog's 133 descriptors, got %d", len(tools))
 		}
 		names := []string{}
 		seen := map[string]bool{}
@@ -1950,8 +1950,8 @@ func TestMcpCatalogTools(t *testing.T) {
 		}
 		result, _ := data["result"].(map[string]any)
 		tools, ok := result["tools"].([]any)
-		if !ok || len(tools) != 131 {
-			t.Fatalf("want the embedded catalog's 131 descriptors, got %#v", result["tools"])
+		if !ok || len(tools) != 133 {
+			t.Fatalf("want the embedded catalog's 133 descriptors, got %#v", result["tools"])
 		}
 		first, _ := tools[0].(map[string]any)
 		last, _ := tools[len(tools)-1].(map[string]any)
@@ -2124,8 +2124,8 @@ func TestHandleMcpApiMcpPost(t *testing.T) {
 			t.Fatalf("tools/list result must carry tools and nothing else, got %v", result)
 		}
 		tools, _ := result["tools"].([]any)
-		if len(tools) != 131 {
-			t.Fatalf("want the frozen catalog's 131 descriptors, got %d", len(tools))
+		if len(tools) != 133 {
+			t.Fatalf("want the frozen catalog's 133 descriptors, got %d", len(tools))
 		}
 		listed := map[string]any{}
 		for _, raw := range tools {

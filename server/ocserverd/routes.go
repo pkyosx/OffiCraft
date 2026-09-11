@@ -1416,15 +1416,39 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			MCPTool: "get_task",
 		}),
 		Gated(principalAgent, routeDef{
+			// T-182. The floor is principalAgent and the real gate is
+			// callerMayMarkTaskDone — the task's OWN executor, outsource worker
+			// included (unlike mark-terminated, which subtracts it).
+			Method:  "POST",
+			Path:    "/api/tasks/{task_id}/mark-done",
+			Handler: w.HandleMarkTaskDoneApiTasksTaskIdMarkDonePost,
+			Summary: "Close this task as done — the action ``ready_for_done`` waits for. A task whose every step is reported done NO LONGER CLOSES ITSELF: it settles in ``ready_for_done`` and stays there, which is the one window in which the close-out can actually happen (pin the deliverables, finish the step notes, write the learnings back) — every one of those writes is refused once the task is terminal, and until this ticket the task went terminal in the same call that reported the last step. THIS call is what ends it. WHO: the task's OWN executor, staff member and outsource worker alike — the close-out is the executor's work, so whoever does it must be able to say it is finished. The owner and the admin assistant do not share this door; theirs is ``force_task_done``, which records that it was forced. PRECONDITION: the task must be in ``ready_for_done``. Anything else is a 409 that NAMES the status the task is actually in, because the two ways to fail here need different answers — a task still in a work state has a step nobody has reported, and a terminal one is already closed. NOBODY IS CHASED AND THERE IS NO TIMER: a task nobody closes simply stays in ``ready_for_done``. That is the deliberate price of never closing a task underneath the agent that is still packing it up; ``force_task_done`` is the way out. Answers with a bounded receipt (``artifact_count``, ``closed_ts``, ``deps``, ``description_sha256``, ``description_size_chars``, ``duplicate_of``, ``executor_id``, ``executor_kind``, ``lock``, ``progress_done``, ``progress_total``, ``status``, ``task_id``, ``title``), not the task — call ``get_task`` when you need the rest.",
+			MCPTool: "mark_task_done",
+		}),
+		Gated(principalAgent, routeDef{
 			// T-6020: opened to admin_agent (owner 2026-07-26). T-b56e (owner
 			// 2026-08-20, card rc-b896e3f641e7 option 0) opened it further, to
 			// a 正職 member acting on ITS OWN task — so the floor here is
 			// principalAgent and the real gate is callerMayTerminateTask.
+			// T-182 renamed the route and the tool (was /terminate +
+			// terminate_task); permissions and behaviour are unchanged, and the
+			// accepted set now includes ready_for_done, which is not terminal.
 			Method:  "POST",
-			Path:    "/api/tasks/{task_id}/terminate",
-			Handler: w.HandleTerminateTaskApiTasksTaskIdTerminatePost,
-			Summary: "Terminate a task — close it as terminated, the only status change that does not go through the task's own step reports. WHO: the owner, an admin agent, or the task's OWN executor when that executor is a 正職 member (T-b56e, owner 2026-08-20 card rc-b896e3f641e7). A member terminating SOMEONE ELSE's task is a flat 403. An OUTSOURCE worker is refused HERE even on its own task — the owner's ruling named 執行者 and did not reach the contractor lifecycle, so this door stays shut until one does. ⚠️ THAT IS A FACT ABOUT THIS ROUTE, NOT A SYSTEM-WIDE GUARANTEE that a worker cannot close its own task: mark_duplicate sits at the same principalAgent floor, gates on callerMayDriveTask with no such subtraction, and reaches the same closeTask — measured 2026-08-20, 200 duplicated. Shutting that door too needs its own ruling. Non-terminal only (already closed → 409). Answers with a bounded receipt (``artifact_count``, ``closed_ts``, ``deps``, ``description_sha256``, ``description_size_chars``, ``duplicate_of``, ``executor_id``, ``executor_kind``, ``lock``, ``progress_done``, ``progress_total``, ``status``, ``task_id``, ``title``), not the task — call ``get_task`` when you need the rest.",
-			MCPTool: "terminate_task",
+			Path:    "/api/tasks/{task_id}/mark-terminated",
+			Handler: w.HandleMarkTaskTerminatedApiTasksTaskIdMarkTerminatedPost,
+			Summary: "Close this task as terminated — the work is being abandoned, not finished. Terminating is the one status change that never goes through the task's own step reports, so it requires no step to be in any particular state. WHO: the owner, an admin agent, or the task's OWN executor when that executor is a 正職 member (T-b56e, owner 2026-08-20 card rc-b896e3f641e7). A member terminating SOMEONE ELSE's task is a flat 403. An OUTSOURCE worker is refused HERE even on its own task — the owner's ruling named 執行者 and did not reach the contractor lifecycle, so this door stays shut until one does. ⚠️ THAT IS A FACT ABOUT THIS ROUTE, NOT A SYSTEM-WIDE GUARANTEE that a worker cannot close its own task: ``mark_task_duplicated`` sits at the same principalAgent floor, gates on callerMayDriveTask with no such subtraction, and reaches the same close (measured 2026-08-20 against this route's predecessor: 200 duplicated). Shutting that door too needs its own ruling. ANY NON-TERMINAL STATUS IS ACCEPTED, ``ready_for_done`` INCLUDED — giving up does not require the work to be complete first. Already done, terminated or duplicated is a 409. Stamps closed_ts and releases any bound outsource worker. REPLACES ``terminate_task``, REMOVED in the same release: the old name said what you were doing to the task, this one says the status the task lands in. Answers with a bounded receipt (``artifact_count``, ``closed_ts``, ``deps``, ``description_sha256``, ``description_size_chars``, ``duplicate_of``, ``executor_id``, ``executor_kind``, ``lock``, ``progress_done``, ``progress_total``, ``status``, ``task_id``, ``title``), not the task — call ``get_task`` when you need the rest.",
+			MCPTool: "mark_task_terminated",
+		}),
+		Gated(principalAdminAgent, routeDef{
+			// T-182. The ONLY one of the four whose floor does the gating by
+			// itself: owner and admin assistant, nobody else — the task's own
+			// executor is a 403 here on purpose, because an executor that can
+			// force its own task simply has mark_task_done with no precondition.
+			Method:  "POST",
+			Path:    "/api/tasks/{task_id}/force-done",
+			Handler: w.HandleForceTaskDoneApiTasksTaskIdForceDonePost,
+			Summary: "Close this task as done OVER its own precondition — the exit for a task that is never going to be closed by the agent holding it. Two shapes reach it: one sitting in ``ready_for_done`` whose executor is gone, and one still mid-plan whose remaining steps will never be reported. WHO: the OWNER and the ADMIN ASSISTANT only. Every other principal is a 403, the task's own executor INCLUDED — an executor that can force its own task simply has ``mark_task_done`` without a precondition, and the precondition is the whole point. ``reason`` is REQUIRED and refused blank (422): a forced close is the one close nobody can reconstruct afterwards from the steps, because the steps do not agree that the work is finished. The forcing principal and the reason are recorded on the task and come back on every read as ``forced_done_by`` / ``forced_done_reason``, so a done task always says whether it got there by itself. ANY NON-TERMINAL STATUS IS ACCEPTED. Already terminal is a 409 — this forces the precondition, not the terminal wall. Answers with a bounded receipt (``artifact_count``, ``closed_ts``, ``deps``, ``description_sha256``, ``description_size_chars``, ``duplicate_of``, ``executor_id``, ``executor_kind``, ``lock``, ``progress_done``, ``progress_total``, ``status``, ``task_id``, ``title``), not the task — call ``get_task`` when you need the rest.",
+			MCPTool: "force_task_done",
 		}),
 		Gated(principalAgent, routeDef{
 			Method:  "POST",
@@ -1509,11 +1533,14 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			MCPExclude: true,
 		}),
 		Gated(principalAgent, routeDef{
+			// T-182 renamed the route and the tool (was /duplicate +
+			// mark_duplicate); same behaviour, a name that says which status the
+			// task lands in.
 			Method:  "POST",
-			Path:    "/api/tasks/{task_id}/duplicate",
-			Handler: w.HandleMarkTaskDuplicateApiTasksTaskIdDuplicatePost,
-			Summary: "Mark a not-yet-terminal task duplicated, pointing at an existing final original (executor/owner). A blank original, an original that cannot be found, a self-reference, a chained duplicate and a target that is already pointed at are all refused. Closing across executors creates a handoff_follow_up, and no dependency is added. Answers with a bounded receipt (``artifact_count``, ``closed_ts``, ``deps``, ``description_sha256``, ``description_size_chars``, ``duplicate_of``, ``executor_id``, ``executor_kind``, ``lock``, ``progress_done``, ``progress_total``, ``status``, ``task_id``, ``title``), not the task — call ``get_task`` when you need the rest.",
-			MCPTool: "mark_duplicate",
+			Path:    "/api/tasks/{task_id}/mark-duplicated",
+			Handler: w.HandleMarkTaskDuplicatedApiTasksTaskIdMarkDuplicatedPost,
+			Summary: "Close this task as duplicated, pointing at the existing FINAL original it copies. ``duplicated`` is a terminal status alongside done and terminated, reachable only through this dedicated action — task status is otherwise derived from the steps and is never agent-reported. WHO: the task's executor; the owner and the admin assistant may act on any task. ``duplicate_of`` is REQUIRED (422 when blank) and must name an EXISTING task (404) that is not this one (409 self-reference) and is not itself already ``duplicated`` (409 — point at the FINAL original, the server never chases a chain); a task already named as an original cannot itself be marked duplicated (409). ANY NON-TERMINAL STATUS IS ACCEPTED, ``ready_for_done`` INCLUDED — a task can turn out to be a copy of another one at any point, the close-out window included. Already terminal is a 409. Closing across executors creates a handoff_follow_up, and no dependency is added. REPLACES ``mark_duplicate``, REMOVED in the same release: same behaviour, a name that says which status the task lands in. Answers with a bounded receipt (``artifact_count``, ``closed_ts``, ``deps``, ``description_sha256``, ``description_size_chars``, ``duplicate_of``, ``executor_id``, ``executor_kind``, ``lock``, ``progress_done``, ``progress_total``, ``status``, ``task_id``, ``title``), not the task — call ``get_task`` when you need the rest.",
+			MCPTool: "mark_task_duplicated",
 		}),
 		Gated(principalAgent, routeDef{
 			Method:  "POST",

@@ -346,7 +346,7 @@ func TestHandleUpdateTaskApiTasksTaskIdPost(t *testing.T) {
 		_, h, _, owner := newAPITestServer(t)
 		apiJSON(t, h, "POST", "/api/tasks", owner,
 			`{"title":"Ship it","executor_member_id":"kip","description":"old scope"}`)
-		apiJSON(t, h, "POST", "/api/tasks/T-1/terminate", owner, "")
+		apiJSON(t, h, "POST", "/api/tasks/T-1/mark-terminated", owner, "")
 
 		status, data := apiJSON(t, h, "POST", "/api/tasks/T-1", owner,
 			`{"title":"Ship it (dropped)","description":"what it actually was"}`)

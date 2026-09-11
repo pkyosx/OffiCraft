@@ -1294,7 +1294,7 @@ func FoldUserContext(row *UserContext) (text string, isDefault bool) {
 // reassigning, T-160e). done/terminated/duplicated are TERMINAL. This set is
 // enforced in code alone (ValidTaskStatus) — migrations/00011 dropped the
 // DB-level status CHECK so a new state costs zero schema churn (owner-approved
-// design, T-02c9 point 4). duplicated is reached ONLY through mark_duplicate;
+// design, T-02c9 point 4). duplicated is reached ONLY through mark_task_duplicated;
 // reassigning is entered ONLY through the owner/admin reassign action (POST
 // /api/tasks/{id}/reassign) — the handover hold while the NEW executor reads
 // up; the new executor alone leaves it (reassigning → in_progress on the
@@ -1305,9 +1305,16 @@ const (
 	TaskStatusWaitingOwner    = "waiting_owner"
 	TaskStatusWaitingExternal = "waiting_external"
 	TaskStatusReassigning     = "reassigning"
-	TaskStatusDone            = "done"
-	TaskStatusTerminated      = "terminated"
-	TaskStatusDuplicated      = "duplicated"
+	// TaskStatusReadyForDone is where a task lands when every step is done and
+	// it is NOT terminal (T-182): the task is still open, its deliverables can
+	// still be pinned and its step notes can still be written, and that window
+	// is the whole point of the state — every one of those writes is refused
+	// once the task is terminal, and the close-out is exactly the work that has
+	// to happen after the last step and before the record freezes.
+	TaskStatusReadyForDone = "ready_for_done"
+	TaskStatusDone         = "done"
+	TaskStatusTerminated   = "terminated"
+	TaskStatusDuplicated   = "duplicated"
 )
 
 // The task LOCK closed set — an ORTHOGONAL dimension to status (T-9ca5). Since
@@ -1345,7 +1352,7 @@ func ValidTaskLock(l string) bool {
 //     task and nothing else happens. It has been narrowed twice, both by the
 //     owner on 2026-08-17 (T-f265): it used to MINT a task on the creator —
 //     withdrawn because that task's own first line told an ordinary member to
-//     terminate it, and terminate_task was admin-only at the time (T-b56e opened it to the executor on 2026-08-20 — the ruling below stands on its own reasoning, not on that gate) — and the durable chat
+//     terminate it, and mark_task_terminated was admin-only at the time (T-b56e opened it to the executor on 2026-08-20 — the ruling below stands on its own reasoning, not on that gate) — and the durable chat
 //     notice that replaced it was withdrawn too (card rc-e04adbc42574, option
 //     ①), on the ruling that once work is handed over it belongs to whoever
 //     holds it and the system should not report back. So this value now differs
@@ -1512,7 +1519,7 @@ func ValidTaskStatus(s string) bool {
 	// reassigning is NO LONGER a status (T-9ca5): it moved to task.lock, an
 	// orthogonal dimension.
 	case TaskStatusNotStarted, TaskStatusInProgress, TaskStatusWaitingOwner,
-		TaskStatusWaitingExternal, TaskStatusDone,
+		TaskStatusWaitingExternal, TaskStatusReadyForDone, TaskStatusDone,
 		TaskStatusTerminated, TaskStatusDuplicated:
 		return true
 	}
@@ -1545,7 +1552,31 @@ func StepIsTerminal(status string) bool {
 
 // TaskIsTerminal reports the three terminal statuses (dedupe scope + the 409
 // write guard: no agent push, no plan, no gate lands on a closed task).
+//
+// 🔴 ready_for_done IS DELIBERATELY NOT HERE (T-182), and adding it would
+// reverse the ticket. It is a state a task sits in while it is still OPEN, so
+// putting it on this list would shut every write path at once — the close-out
+// writes the state exists FOR included, and mark_task_terminated's own way in.
+// Four other things stay correct for free by leaving it out: a dependent is not
+// released early, the task stays in the default task list, it still counts in
+// the nav badge, and a task manual with a live task on it still refuses to be
+// deleted.
 func TaskIsTerminal(status string) bool {
+	return status == TaskStatusDone || status == TaskStatusTerminated ||
+		status == TaskStatusDuplicated
+}
+
+// TaskRecordFrozen reports whether a task's RECORD — its pinned deliverables
+// and its step notes — has stopped moving. It is the same three statuses as
+// TaskIsTerminal today and it is a SEPARATE predicate on purpose (T-182): the
+// four doors that freeze the record (add_task_artifact, the artifact
+// change/remove routes, the artifact upload, the step note) ask a different
+// question from "is this task closed", and ready_for_done is precisely where
+// the two answers could drift apart. Naming the question is what keeps the
+// four doors from each growing their own "…and not ready_for_done" clause,
+// which is the three-copies-one-wall drift taskFrozenDeliverablesRefusal was
+// already written to avoid.
+func TaskRecordFrozen(status string) bool {
 	return status == TaskStatusDone || status == TaskStatusTerminated ||
 		status == TaskStatusDuplicated
 }
@@ -1672,12 +1703,15 @@ func CurrentStep(steps []TaskStep) (id, name string) {
 // DeriveTaskStatus computes a task's status PURELY from its steps — the single
 // rule, zero exceptions (owner T-9ca5: "任務狀態要照實呈現，不應該有例外"). It
 // returns ONLY the five derived work states; it never returns a lock
-// (reassigning / waiting_capacity live in task.lock, orthogonal) nor an explicit
-// terminal (terminated / duplicated are owner/system decisions, not derivable
-// from steps — the caller keeps those and only applies this to non-terminal,
-// unlocked tasks). superseded steps are pure history and count on NEITHER side,
+// (reassigning / waiting_capacity live in task.lock, orthogonal) nor a TERMINAL
+// status. Since T-182 that means done as well as terminated/duplicated: all
+// three are reached only by their own action (mark_task_done /
+// mark_task_terminated / mark_task_duplicated, plus force_task_done), never by
+// derivation. A step set with every step done derives to ready_for_done, which
+// is open. superseded steps are pure history and count on NEITHER side,
 // exactly as TaskProgress. Priority (SPEC §3, owner-ordered):
-// waiting_owner > waiting_external > done > (nothing started) > in_progress.
+// waiting_owner > waiting_external > ready_for_done > (nothing started) >
+// in_progress.
 func DeriveTaskStatus(steps []TaskStep) string {
 	active := 0
 	anyWaitingOwner, anyWaitingExternal := false, false
@@ -1708,7 +1742,7 @@ func DeriveTaskStatus(steps []TaskStep) string {
 	case anyWaitingExternal:
 		return TaskStatusWaitingExternal
 	case allDone:
-		return TaskStatusDone
+		return TaskStatusReadyForDone
 	case allPending:
 		return TaskStatusNotStarted // nothing started yet
 	default:
@@ -1721,8 +1755,14 @@ func DeriveTaskStatus(steps []TaskStep) string {
 // waiting_reason) from its steps, so the cockpit never shows a status the steps
 // contradict. It mutates t in place. It leaves the two kinds of state the
 // derivation MUST NOT own untouched:
-//   - explicit terminals (terminated / duplicated) — owner/system decisions,
-//     frozen once set (done is derivable and IS recomputed).
+//   - the three TERMINAL statuses (done / terminated / duplicated) — each is an
+//     explicit action's decision, frozen once set.
+//
+// 🔴 done JOINED THAT LIST IN T-182 AND IT HAD TO. done used to be derivable,
+// so recomputing it was harmless. Now it is not: a task closed with
+// mark_task_done still has every step done, so re-deriving it would answer
+// ready_for_done and quietly REOPEN a closed task — and nothing would report an
+// error, because both values are legal statuses for that step set.
 //
 // The lock (task.lock) is orthogonal and never touched here — a reassigning task
 // keeps its honestly-derived status alongside the lock badge. The display
@@ -1730,7 +1770,7 @@ func DeriveTaskStatus(steps []TaskStep) string {
 // step is waiting_external), replacing the retired task-level waiting_reason.
 func RecomputeTaskStatus(t *Task, steps []TaskStep) {
 	switch t.Status {
-	case TaskStatusTerminated, TaskStatusDuplicated:
+	case TaskStatusDone, TaskStatusTerminated, TaskStatusDuplicated:
 		return
 	}
 	t.Status = DeriveTaskStatus(steps)

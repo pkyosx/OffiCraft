@@ -74,7 +74,7 @@ func (s *apiServer) HandleUploadTaskArtifactApiTasksTaskIdArtifactsUploadPost(
 		writeError(w, http.StatusForbidden, executorGuardRefusal)
 		return
 	}
-	if TaskIsTerminal(t.Status) {
+	if TaskRecordFrozen(t.Status) {
 		writeError(w, http.StatusConflict, taskFrozenDeliverablesRefusal(*t))
 		return
 	}

@@ -1364,7 +1364,7 @@ func TestValidArtifactKind(t *testing.T) {
 
 func TestValidTaskStatus(t *testing.T) {
 	for _, s := range []string{"not_started", "in_progress", "waiting_owner",
-		"waiting_external", "done", "terminated", "duplicated"} {
+		"waiting_external", "ready_for_done", "done", "terminated", "duplicated"} {
 		if !ValidTaskStatus(s) {
 			t.Fatalf("ValidTaskStatus(%q) = false, want true", s)
 		}
@@ -1421,6 +1421,27 @@ func TestTaskIsTerminal(t *testing.T) {
 		"waiting_external", "reassigning", "superseded"} {
 		if TaskIsTerminal(s) {
 			t.Fatalf("TaskIsTerminal(%q) = true, want false", s)
+		}
+	}
+
+	t.Run("ready_for_done is NOT terminal — the task is still open there", func(t *testing.T) {
+		if TaskIsTerminal(TaskStatusReadyForDone) {
+			t.Fatal("TaskIsTerminal(ready_for_done) = true, want false: adding it here would " +
+				"shut every write path the close-out window exists for, and mark_task_terminated's own way in")
+		}
+	})
+}
+
+func TestTaskRecordFrozen(t *testing.T) {
+	for _, s := range []string{"done", "terminated", "duplicated"} {
+		if !TaskRecordFrozen(s) {
+			t.Fatalf("TaskRecordFrozen(%q) = false, want true", s)
+		}
+	}
+	for _, s := range []string{"", "not_started", "in_progress", "waiting_owner",
+		"waiting_external", "ready_for_done", "reassigning", "superseded"} {
+		if TaskRecordFrozen(s) {
+			t.Fatalf("TaskRecordFrozen(%q) = true, want false", s)
 		}
 	}
 }
@@ -1515,7 +1536,7 @@ func TestDeriveTaskStatus(t *testing.T) {
 		}
 	})
 
-	t.Run("waiting_owner outranks waiting_external, done and in_progress alike", func(t *testing.T) {
+	t.Run("waiting_owner outranks waiting_external, ready_for_done and in_progress alike", func(t *testing.T) {
 		steps := []TaskStep{
 			{Status: StepStatusDone},
 			{Status: StepStatusWaitingExternal},
@@ -1527,7 +1548,7 @@ func TestDeriveTaskStatus(t *testing.T) {
 		}
 	})
 
-	t.Run("waiting_external outranks done and in_progress once no step waits on the owner", func(t *testing.T) {
+	t.Run("waiting_external outranks ready_for_done and in_progress once no step waits on the owner", func(t *testing.T) {
 		steps := []TaskStep{
 			{Status: StepStatusDone},
 			{Status: StepStatusInProgress},
@@ -1538,14 +1559,31 @@ func TestDeriveTaskStatus(t *testing.T) {
 		}
 	})
 
-	t.Run("all non-superseded steps done derives done", func(t *testing.T) {
+	t.Run("all non-superseded steps done derives ready_for_done, never done", func(t *testing.T) {
 		steps := []TaskStep{
 			{Status: StepStatusDone},
 			{Status: StepStatusSuperseded},
 			{Status: StepStatusDone},
 		}
-		if got := DeriveTaskStatus(steps); got != TaskStatusDone {
-			t.Fatalf("DeriveTaskStatus(all done) = %q, want %q", got, TaskStatusDone)
+		if got := DeriveTaskStatus(steps); got != TaskStatusReadyForDone {
+			t.Fatalf("DeriveTaskStatus(all done) = %q, want %q", got, TaskStatusReadyForDone)
+		}
+	})
+
+	t.Run("no step set derives any of the three terminal statuses", func(t *testing.T) {
+		for _, steps := range [][]TaskStep{
+			nil,
+			{{Status: StepStatusDone}},
+			{{Status: StepStatusDone}, {Status: StepStatusSuperseded}},
+			{{Status: StepStatusPending}},
+			{{Status: StepStatusInProgress}},
+			{{Status: StepStatusWaitingOwner}},
+			{{Status: StepStatusWaitingExternal}},
+		} {
+			if got := DeriveTaskStatus(steps); TaskIsTerminal(got) {
+				t.Fatalf("DeriveTaskStatus(%+v) = %q, a terminal status — terminals are reached "+
+					"only by their own action, never by derivation", steps, got)
+			}
 		}
 	})
 
@@ -1584,14 +1622,14 @@ func TestRecomputeTaskStatus(t *testing.T) {
 	t.Run("no waiting_external step clears the display reason", func(t *testing.T) {
 		task := Task{ID: "t-1", Status: TaskStatusWaitingExternal, WaitingReason: "waiting on the vendor"}
 		RecomputeTaskStatus(&task, []TaskStep{{Status: StepStatusDone}})
-		want := Task{ID: "t-1", Status: TaskStatusDone}
+		want := Task{ID: "t-1", Status: TaskStatusReadyForDone}
 		if !reflect.DeepEqual(task, want) {
 			t.Fatalf("RecomputeTaskStatus(no waiting step):\n got %+v\nwant %+v", task, want)
 		}
 	})
 
-	t.Run("an explicit terminal is an owner decision and is left completely untouched", func(t *testing.T) {
-		for _, status := range []string{TaskStatusTerminated, TaskStatusDuplicated} {
+	t.Run("every terminal status is an action's decision and is left completely untouched", func(t *testing.T) {
+		for _, status := range []string{TaskStatusDone, TaskStatusTerminated, TaskStatusDuplicated} {
 			task := Task{ID: "t-1", Status: status, WaitingReason: "kept"}
 			before := task
 			RecomputeTaskStatus(&task, []TaskStep{{Status: StepStatusDone}})
@@ -1601,11 +1639,25 @@ func TestRecomputeTaskStatus(t *testing.T) {
 		}
 	})
 
-	t.Run("done IS derivable, so a task that had derived done reopens when a step reopens", func(t *testing.T) {
+	t.Run("a task closed with mark_task_done is not flipped back to ready_for_done by a recompute", func(t *testing.T) {
+		// The step set of a task closed by mark_task_done is ALL DONE, which
+		// derives to ready_for_done. Without done on the early-exit list the
+		// recompute would answer ready_for_done and silently REOPEN the closed
+		// task — both values are legal statuses for that step set, so nothing
+		// downstream would report an error.
 		task := Task{ID: "t-1", Status: TaskStatusDone}
+		RecomputeTaskStatus(&task, []TaskStep{{Status: StepStatusDone}, {Status: StepStatusDone}})
+		if task.Status != TaskStatusDone {
+			t.Fatalf("RecomputeTaskStatus(done, all steps done) status = %q, want %q",
+				task.Status, TaskStatusDone)
+		}
+	})
+
+	t.Run("ready_for_done is recomputed like any other derived status when a step reopens", func(t *testing.T) {
+		task := Task{ID: "t-1", Status: TaskStatusReadyForDone}
 		RecomputeTaskStatus(&task, []TaskStep{{Status: StepStatusInProgress}})
 		if task.Status != TaskStatusInProgress {
-			t.Fatalf("RecomputeTaskStatus(done -> a live step) status = %q, want %q",
+			t.Fatalf("RecomputeTaskStatus(ready_for_done -> a live step) status = %q, want %q",
 				task.Status, TaskStatusInProgress)
 		}
 	})

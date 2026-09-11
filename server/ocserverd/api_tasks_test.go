@@ -143,7 +143,7 @@ func TestPublishTask(t *testing.T) {
 		api, h, _, owner := newAPITestServer(t)
 		apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"Ship it","executor_member_id":"kip"}`)
 		apiJSON(t, h, "POST", "/api/tasks/T-1/priority", owner, `{"priority":"high"}`)
-		apiJSON(t, h, "POST", "/api/tasks/T-1/terminate", owner, "")
+		apiJSON(t, h, "POST", "/api/tasks/T-1/mark-terminated", owner, "")
 		task, err := api.resolveTask("T-1")
 		if err != nil {
 			t.Fatalf("resolveTask: %v", err)
@@ -540,7 +540,9 @@ func TestTaskDTOOf(t *testing.T) {
 			"blocking": []any{map[string]any{
 				"id": "T-3", "task_no": "T-3", "title": "Waiter", "status": "not_started",
 			}},
-			"frozen_by": "",
+			"frozen_by":          "",
+			"forced_done_by":     "",
+			"forced_done_reason": "",
 		})
 	})
 
@@ -592,7 +594,7 @@ func TestBlockingTasksOf(t *testing.T) {
 			t.Fatalf("want %#v, got %#v", want, before)
 		}
 
-		if code, data := apiJSON(t, h, "POST", "/api/tasks/T-3/terminate", owner, ""); code != 200 {
+		if code, data := apiJSON(t, h, "POST", "/api/tasks/T-3/mark-terminated", owner, ""); code != 200 {
 			t.Fatalf("terminate: %d %v", code, data)
 		}
 		after, err := api.blockingTasksOf("T-1")
@@ -902,17 +904,19 @@ func TestWriteTask(t *testing.T) {
 				"started_ts":        0,
 				"finished_ts":       0,
 			}},
-			"detail_level":      "summary",
-			"notes_included":    false,
-			"progress_done":     0,
-			"progress_total":    1,
-			"closeout_reported": false,
-			"artifact_count":    1,
-			"handoff":           "",
-			"handoff_note":      "",
-			"handoff_task_id":   "",
-			"blocking":          []any{},
-			"frozen_by":         "",
+			"detail_level":       "summary",
+			"notes_included":     false,
+			"progress_done":      0,
+			"progress_total":     1,
+			"closeout_reported":  false,
+			"artifact_count":     1,
+			"handoff":            "",
+			"handoff_note":       "",
+			"handoff_task_id":    "",
+			"blocking":           []any{},
+			"frozen_by":          "",
+			"forced_done_by":     "",
+			"forced_done_reason": "",
 		})
 	})
 }
@@ -934,7 +938,7 @@ func TestWriteTaskWriteReceipt(t *testing.T) {
 		apiJSON(t, h, "POST", "/api/tasks/T-1/artifact", agent,
 			`{"kind":"link","name":"PR #123","url":"https://example.com/pr/123"}`)
 
-		status, data := apiJSON(t, h, "POST", "/api/tasks/T-1/terminate", owner, "")
+		status, data := apiJSON(t, h, "POST", "/api/tasks/T-1/mark-terminated", owner, "")
 		if status != 200 {
 			t.Fatalf("want 200, got %d (%v)", status, data)
 		}
@@ -961,7 +965,7 @@ func TestWriteTaskWriteReceipt(t *testing.T) {
 		apiJSON(t, h, "POST", "/api/tasks", owner,
 			`{"title":"Ship it","executor_member_id":"kip","description":"出貨已經完成"}`)
 
-		status, data := apiJSON(t, h, "POST", "/api/tasks/T-1/terminate", owner, "")
+		status, data := apiJSON(t, h, "POST", "/api/tasks/T-1/mark-terminated", owner, "")
 		if status != 200 {
 			t.Fatalf("want 200, got %d (%v)", status, data)
 		}
@@ -976,7 +980,7 @@ func TestWriteTaskWriteReceipt(t *testing.T) {
 		apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"The copy","executor_member_id":"kip"}`)
 		agent := apiTestAgentToken(t, api, "kip", "")
 
-		status, data := apiJSON(t, h, "POST", "/api/tasks/T-2/duplicate", agent, `{"duplicate_of":"T-1"}`)
+		status, data := apiJSON(t, h, "POST", "/api/tasks/T-2/mark-duplicated", agent, `{"duplicate_of":"T-1"}`)
 		if status != 200 {
 			t.Fatalf("want 200, got %d (%v)", status, data)
 		}
@@ -1117,6 +1121,7 @@ func TestWriteTaskCloseoutReceipt(t *testing.T) {
 		apiJSON(t, h, "POST", "/api/tasks/T-1/steps/"+stepID+"/status", agent, `{"status":"in_progress"}`)
 		apiJSON(t, h, "POST", "/api/tasks/T-1/steps/"+stepID+"/status", agent,
 			`{"status":"done","handoff":"none","handoff_note":"nothing follows this"}`)
+		apiMarkDone(t, h, "T-1", agent)
 
 		status, first := apiJSON(t, h, "POST", "/api/tasks/T-1/closeout", agent, "")
 		if status != 200 {
@@ -1171,7 +1176,7 @@ func TestWriteTaskStepStatusReceipt(t *testing.T) {
 		})
 	})
 
-	t.Run("the report that finishes the last step reports the closed task and the stamped closure", func(t *testing.T) {
+	t.Run("the report that finishes the last step reports ready_for_done and NO closure stamp", func(t *testing.T) {
 		api, h, _, owner := newAPITestServer(t)
 		apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"Ship it","executor_member_id":"kip"}`)
 		agent := apiTestAgentToken(t, api, "kip", "")
@@ -1198,11 +1203,19 @@ func TestWriteTaskStepStatusReceipt(t *testing.T) {
 			"step_id":        lastStep,
 			"step_status":    "done",
 			"waiting_reason": "",
-			"task_status":    "done",
-			"closed_ts":      apiAnyNumber,
+			"task_status":    "ready_for_done",
+			"closed_ts":      nil,
 			"progress_done":  2,
 			"progress_total": 2,
 		})
+
+		status, closed := apiJSON(t, h, "POST", "/api/tasks/T-1/mark-done", agent, "")
+		if status != 200 {
+			t.Fatalf("mark-done: want 200, got %d (%v)", status, closed)
+		}
+		if closed["status"] != "done" || closed["closed_ts"] == nil {
+			t.Fatalf("mark_task_done is what stamps the closure, got %v", closed)
+		}
 	})
 }
 
@@ -1929,7 +1942,7 @@ func TestDeriveAndPersistTask(t *testing.T) {
 		})
 	})
 
-	t.Run("a derivation that lands on done runs the whole close rather than only writing the status", func(t *testing.T) {
+	t.Run("a derivation that finishes the last step lands ready_for_done and closes NOTHING", func(t *testing.T) {
 		api, h, d, owner := newAPITestServer(t)
 		apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"Ship it","executor_member_id":"kip"}`)
 		if err := d.PutOutsourceWorker(OutsourceWorker{
@@ -1958,22 +1971,22 @@ func TestDeriveAndPersistTask(t *testing.T) {
 			t.Fatalf("deriveAndPersistTask: %v", err)
 		}
 
-		if task.Status != "done" || task.ClosedTS != 1750000000 {
+		if task.Status != TaskStatusReadyForDone || task.ClosedTS != 0 {
 			t.Fatalf("returned task: %#v", *task)
 		}
 		worker, err := d.GetOutsourceWorker("ow-abc123")
 		if err != nil || worker == nil {
 			t.Fatalf("GetOutsourceWorker: %v %#v", err, worker)
 		}
-		if worker.Status != "released" {
-			t.Fatalf("the close must release the bound worker, got %q", worker.Status)
+		if worker.Status != WorkerStatusAssigned {
+			t.Fatalf("the derivation must not release the bound worker, got %q", worker.Status)
 		}
 	})
 
 	t.Run("an already closed task is left exactly as it was and nothing is fanned", func(t *testing.T) {
 		api, h, _, owner := newAPITestServer(t)
 		apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"Ship it","executor_member_id":"kip"}`)
-		apiJSON(t, h, "POST", "/api/tasks/T-1/terminate", owner, "")
+		apiJSON(t, h, "POST", "/api/tasks/T-1/mark-terminated", owner, "")
 		before, err := api.resolveTask("T-1")
 		if err != nil {
 			t.Fatalf("resolveTask: %v", err)
@@ -2000,7 +2013,7 @@ func TestDeriveAndPersistTask(t *testing.T) {
 }
 
 func TestReconcileTaskStatusesOnBoot(t *testing.T) {
-	t.Run("a drifted status is realigned, an all-done plan is closed, and consistent rows are left alone", func(t *testing.T) {
+	t.Run("a drifted status is realigned, an all-done plan is left OPEN in ready_for_done, and consistent rows are left alone", func(t *testing.T) {
 		api, h, d, owner := newAPITestServer(t)
 		apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"Drifted","executor_member_id":"kip"}`)
 		apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"Finished","executor_member_id":"kip"}`)
@@ -2046,12 +2059,16 @@ func TestReconcileTaskStatusesOnBoot(t *testing.T) {
 		if realigned.Status != "in_progress" || realigned.ClosedTS != 0 {
 			t.Fatalf("drifted task: %#v", *realigned)
 		}
-		closed, err := api.resolveTask("T-2")
+		// 🔴 Boot must NOT close it. Every task whose executor is still packing
+		// up sits in exactly this shape, and a reconcile that closed them would
+		// turn each restart into a sweep that closes every ticket waiting to be
+		// closed by hand.
+		finishedTask, err := api.resolveTask("T-2")
 		if err != nil {
 			t.Fatalf("resolveTask: %v", err)
 		}
-		if closed.Status != "done" || closed.ClosedTS <= 0 {
-			t.Fatalf("finished task: %#v", *closed)
+		if finishedTask.Status != TaskStatusReadyForDone || finishedTask.ClosedTS != 0 {
+			t.Fatalf("finished task: %#v", *finishedTask)
 		}
 		consistentAfter, err := api.resolveTask("T-3")
 		if err != nil {
@@ -2100,7 +2117,7 @@ func TestReconcileTaskStatusesOnBoot(t *testing.T) {
 		agent := apiTestAgentToken(t, api, "kip", "")
 		apiJSON(t, h, "POST", "/api/tasks/T-1/plan", agent,
 			`{"steps":[{"name":"Draft","dod":"a draft exists"}]}`)
-		apiJSON(t, h, "POST", "/api/tasks/T-1/terminate", owner, "")
+		apiJSON(t, h, "POST", "/api/tasks/T-1/mark-terminated", owner, "")
 		steps, err := d.ListTaskSteps("T-1")
 		if err != nil {
 			t.Fatalf("ListTaskSteps: %v", err)
@@ -2297,7 +2314,7 @@ func TestResumeTasksFor(t *testing.T) {
 		for i := 0; i < 7; i++ {
 			apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"Ship it","executor_member_id":"kip"}`)
 		}
-		apiJSON(t, h, "POST", "/api/tasks/T-1/terminate", owner, "")
+		apiJSON(t, h, "POST", "/api/tasks/T-1/mark-terminated", owner, "")
 
 		rows, total, err := api.resumeTasksFor("kip", nil)
 		if err != nil {
@@ -2374,7 +2391,7 @@ func TestHandleListTasksApiTasksGet(t *testing.T) {
 		_, h, _, owner := newAPITestServer(t)
 		apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"Open one","executor_member_id":"kip"}`)
 		apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"Closed one","executor_member_id":"kip"}`)
-		apiJSON(t, h, "POST", "/api/tasks/T-2/terminate", owner, "")
+		apiJSON(t, h, "POST", "/api/tasks/T-2/mark-terminated", owner, "")
 
 		rec := apiRequest(t, h, "GET", "/api/tasks?status=terminated", owner, "")
 		if rec.Code != 200 {
@@ -2405,7 +2422,7 @@ func TestHandleListTasksApiTasksGet(t *testing.T) {
 		_, h, _, owner := newAPITestServer(t)
 		apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"Open one","executor_member_id":"kip"}`)
 		apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"Closed one","executor_member_id":"kip"}`)
-		apiJSON(t, h, "POST", "/api/tasks/T-2/terminate", owner, "")
+		apiJSON(t, h, "POST", "/api/tasks/T-2/mark-terminated", owner, "")
 
 		rec := apiRequest(t, h, "GET", "/api/tasks?open=true", owner, "")
 		var live []any
@@ -2422,7 +2439,7 @@ func TestHandleListTasksApiTasksGet(t *testing.T) {
 		_, h, _, owner := newAPITestServer(t)
 		apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"One","executor_member_id":"kip"}`)
 		apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"Two","executor_member_id":"kip"}`)
-		apiJSON(t, h, "POST", "/api/tasks/T-2/terminate", owner, "")
+		apiJSON(t, h, "POST", "/api/tasks/T-2/mark-terminated", owner, "")
 
 		rec := apiRequest(t, h, "GET", "/api/tasks?statuses=not_started&statuses=terminated", owner, "")
 		var both []any
@@ -2666,7 +2683,7 @@ func TestHandleTaskCountApiTasksCountGet(t *testing.T) {
 		api, h, _, owner := newAPITestServer(t)
 		apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"One","executor_member_id":"kip"}`)
 		apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"Two","executor_member_id":"kip"}`)
-		apiJSON(t, h, "POST", "/api/tasks/T-2/terminate", owner, "")
+		apiJSON(t, h, "POST", "/api/tasks/T-2/mark-terminated", owner, "")
 		dashboard := apiTestListen(t, api, "")
 
 		status, data := apiJSON(t, h, "GET", "/api/tasks/count", owner, "")
@@ -2747,6 +2764,8 @@ func TestHandleGetTaskApiTasksTaskIdGet(t *testing.T) {
 			"handoff_task_id":      "",
 			"blocking":             []any{},
 			"frozen_by":            "",
+			"forced_done_by":       "",
+			"forced_done_reason":   "",
 		})
 		dashboard.wantFrames()
 	})
@@ -2912,7 +2931,21 @@ func TestCallerMayTerminateTask(t *testing.T) {
 	})
 }
 
-func TestHandleTerminateTaskApiTasksTaskIdTerminatePost(t *testing.T) {
+func TestHandleMarkTaskTerminatedApiTasksTaskIdMarkTerminatedPost(t *testing.T) {
+	t.Run("a task waiting in ready_for_done is terminated without finishing anything first", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"Ship it","executor_member_id":"kip"}`)
+		readyForDoneTask(t, api, h, owner, "T-1", "kip")
+
+		status, data := apiJSON(t, h, "POST", "/api/tasks/T-1/mark-terminated", owner, "")
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		if data["status"] != TaskStatusTerminated {
+			t.Fatalf("want terminated, got %v", data)
+		}
+	})
+
 	t.Run("terminating an open task answers the write receipt, fans the task delta and the executor's close notice", func(t *testing.T) {
 		api, h, _, owner := newAPITestServer(t)
 		apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"Ship it","executor_member_id":"kip"}`)
@@ -2920,7 +2953,7 @@ func TestHandleTerminateTaskApiTasksTaskIdTerminatePost(t *testing.T) {
 		executor := apiTestListen(t, api, "kip")
 		bystander := apiTestListen(t, api, "mira")
 
-		status, data := apiJSON(t, h, "POST", "/api/tasks/T-1/terminate", owner, "")
+		status, data := apiJSON(t, h, "POST", "/api/tasks/T-1/mark-terminated", owner, "")
 		if status != 200 {
 			t.Fatalf("want 200, got %d (%v)", status, data)
 		}
@@ -2977,10 +3010,10 @@ func TestHandleTerminateTaskApiTasksTaskIdTerminatePost(t *testing.T) {
 	t.Run("terminating an already-closed task answers 409 naming the status it is in", func(t *testing.T) {
 		api, h, _, owner := newAPITestServer(t)
 		apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"Ship it","executor_member_id":"kip"}`)
-		apiJSON(t, h, "POST", "/api/tasks/T-1/terminate", owner, "")
+		apiJSON(t, h, "POST", "/api/tasks/T-1/mark-terminated", owner, "")
 		dashboard := apiTestListen(t, api, "")
 
-		status, data := apiJSON(t, h, "POST", "/api/tasks/T-1/terminate", owner, "")
+		status, data := apiJSON(t, h, "POST", "/api/tasks/T-1/mark-terminated", owner, "")
 		if status != 409 {
 			t.Fatalf("want 409, got %d (%v)", status, data)
 		}
@@ -2994,7 +3027,7 @@ func TestHandleTerminateTaskApiTasksTaskIdTerminatePost(t *testing.T) {
 		other := apiTestAgentToken(t, api, "kip", "")
 		dashboard := apiTestListen(t, api, "")
 
-		status, data := apiJSON(t, h, "POST", "/api/tasks/T-1/terminate", other, "")
+		status, data := apiJSON(t, h, "POST", "/api/tasks/T-1/mark-terminated", other, "")
 		if status != 403 {
 			t.Fatalf("want 403, got %d (%v)", status, data)
 		}
@@ -3007,7 +3040,7 @@ func TestHandleTerminateTaskApiTasksTaskIdTerminatePost(t *testing.T) {
 		apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"Ship it","executor_member_id":"kip"}`)
 		machine := apiTestAgentToken(t, api, "m-server-self", "")
 
-		status, data := apiJSON(t, h, "POST", "/api/tasks/T-1/terminate", machine, "")
+		status, data := apiJSON(t, h, "POST", "/api/tasks/T-1/mark-terminated", machine, "")
 		if status != 403 {
 			t.Fatalf("want 403, got %d (%v)", status, data)
 		}
@@ -3017,7 +3050,7 @@ func TestHandleTerminateTaskApiTasksTaskIdTerminatePost(t *testing.T) {
 	t.Run("an id no task carries answers 404 naming it", func(t *testing.T) {
 		_, h, _, owner := newAPITestServer(t)
 
-		status, data := apiJSON(t, h, "POST", "/api/tasks/T-999/terminate", owner, "")
+		status, data := apiJSON(t, h, "POST", "/api/tasks/T-999/mark-terminated", owner, "")
 		if status != 404 {
 			t.Fatalf("want 404, got %d (%v)", status, data)
 		}
@@ -3028,7 +3061,7 @@ func TestHandleTerminateTaskApiTasksTaskIdTerminatePost(t *testing.T) {
 		_, h, _, owner := newAPITestServer(t)
 		apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"Ship it","executor_member_id":"kip"}`)
 
-		status, data := apiJSON(t, h, "POST", "/api/tasks/T-1/terminate", "", "")
+		status, data := apiJSON(t, h, "POST", "/api/tasks/T-1/mark-terminated", "", "")
 		if status != 401 {
 			t.Fatalf("want 401, got %d (%v)", status, data)
 		}
@@ -3155,7 +3188,7 @@ func TestHandleSetTaskPriorityApiTasksTaskIdPriorityPost(t *testing.T) {
 	t.Run("a closed task answers 409 naming the status it is in", func(t *testing.T) {
 		_, h, _, owner := newAPITestServer(t)
 		apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"Ship it","executor_member_id":"kip"}`)
-		apiJSON(t, h, "POST", "/api/tasks/T-1/terminate", owner, "")
+		apiJSON(t, h, "POST", "/api/tasks/T-1/mark-terminated", owner, "")
 
 		status, data := apiJSON(t, h, "POST", "/api/tasks/T-1/priority", owner, `{"priority":"high"}`)
 		if status != 409 {
@@ -3622,7 +3655,7 @@ func TestHandleReassignTaskApiTasksTaskIdReassignPost(t *testing.T) {
 	t.Run("a closed task answers 409 naming the status it is in", func(t *testing.T) {
 		_, h, _, owner := newAPITestServer(t)
 		apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"Ship it","executor_member_id":"kip"}`)
-		apiJSON(t, h, "POST", "/api/tasks/T-1/terminate", owner, "")
+		apiJSON(t, h, "POST", "/api/tasks/T-1/mark-terminated", owner, "")
 
 		status, data := apiJSON(t, h, "POST", "/api/tasks/T-1/reassign", owner,
 			`{"target":{"kind":"staff","member_id":"mira"}}`)
@@ -4387,7 +4420,7 @@ func TestHandleSubmitTaskPlanApiTasksTaskIdPlanPost(t *testing.T) {
 		bystander.wantFrames()
 	})
 
-	t.Run("a replan of a task whose last step already closed it answers 409", func(t *testing.T) {
+	t.Run("a task in ready_for_done is still plannable, and the new step reopens it", func(t *testing.T) {
 		api, h, _, owner := newAPITestServer(t)
 		apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"Ship it","executor_member_id":"kip"}`)
 		agent := apiTestAgentToken(t, api, "kip", "")
@@ -4398,6 +4431,34 @@ func TestHandleSubmitTaskPlanApiTasksTaskIdPlanPost(t *testing.T) {
 		apiJSON(t, h, "POST", "/api/tasks/T-1/steps/"+stepID+"/status", agent, `{"status":"in_progress"}`)
 		apiJSON(t, h, "POST", "/api/tasks/T-1/steps/"+stepID+"/status", agent,
 			`{"status":"done","handoff":"none","handoff_note":"nothing follows"}`)
+		_, ready := apiJSON(t, h, "GET", "/api/tasks/T-1", owner, "")
+		if ready["status"] != "ready_for_done" {
+			t.Fatalf("setup: want ready_for_done, got %v", ready["status"])
+		}
+
+		status, data := apiJSON(t, h, "POST", "/api/tasks/T-1/plan", agent,
+			`{"steps":[{"name":"Draft","dod":"a draft exists"},{"name":"Review","dod":"a review is signed off"}]}`)
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		_, replanned := apiJSON(t, h, "GET", "/api/tasks/T-1", owner, "")
+		if replanned["status"] != "in_progress" {
+			t.Fatalf("the fresh step must re-derive the status, got %v", replanned["status"])
+		}
+	})
+
+	t.Run("a replan of a task closed with mark_task_done answers 409", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"Ship it","executor_member_id":"kip"}`)
+		agent := apiTestAgentToken(t, api, "kip", "")
+		apiJSON(t, h, "POST", "/api/tasks/T-1/plan", agent,
+			`{"steps":[{"name":"Draft","dod":"a draft exists"}]}`)
+		_, planned := apiJSON(t, h, "GET", "/api/tasks/T-1", owner, "")
+		stepID, _ := planned["steps"].([]any)[0].(map[string]any)["id"].(string)
+		apiJSON(t, h, "POST", "/api/tasks/T-1/steps/"+stepID+"/status", agent, `{"status":"in_progress"}`)
+		apiJSON(t, h, "POST", "/api/tasks/T-1/steps/"+stepID+"/status", agent,
+			`{"status":"done","handoff":"none","handoff_note":"nothing follows"}`)
+		apiMarkDone(t, h, "T-1", agent)
 
 		status, data := apiJSON(t, h, "POST", "/api/tasks/T-1/plan", agent,
 			`{"steps":[{"name":"Draft","dod":"a draft exists"},{"name":"Review","dod":"a review is signed off"}]}`)
@@ -4536,10 +4597,11 @@ func TestHandleSubmitTaskPlanApiTasksTaskIdPlanPost(t *testing.T) {
 		}
 		apiWantError(t, data, "validation_error",
 			"task 'T-1' was created by 'owner' but executed by 'kip': this plan leaves EVERY step "+
-				"done, which CLOSES the task, and a closed task can never be replanned. A plan "+
+				"done, which FINISHES the task — it lands in ready_for_done, one mark_task_done "+
+				"away from a close that can never be undone. A plan "+
 				"carries no handoff declaration, so hand the ball over first, one of two ways: "+
 				"(1) keep ONE unfinished step in this plan, then declare the handover on the "+
-				"update_step_status report that closes it (handoff='return_to_creator' | "+
+				"update_step_status report that finishes it (handoff='return_to_creator' | "+
 				"'follow_up' + handoff_task_id | 'none' + handoff_note) — this route always works, "+
 				"and the server adds the dependency edge itself; or (2) create the successor task "+
 				"(create_task) and point its blocked_by at this task (set_task_deps) — this gate "+
@@ -4614,7 +4676,7 @@ func TestHandleSubmitTaskPlanApiTasksTaskIdPlanPost(t *testing.T) {
 	t.Run("a closed task answers 409 naming the status it is in", func(t *testing.T) {
 		_, h, _, owner := newAPITestServer(t)
 		apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"Ship it","executor_member_id":"kip"}`)
-		apiJSON(t, h, "POST", "/api/tasks/T-1/terminate", owner, "")
+		apiJSON(t, h, "POST", "/api/tasks/T-1/mark-terminated", owner, "")
 
 		status, data := apiJSON(t, h, "POST", "/api/tasks/T-1/plan", owner,
 			`{"steps":[{"name":"Draft","dod":"a draft exists"}]}`)
@@ -4661,7 +4723,23 @@ func TestHandleSubmitTaskPlanApiTasksTaskIdPlanPost(t *testing.T) {
 	})
 }
 
-func TestHandleMarkTaskDuplicateApiTasksTaskIdDuplicatePost(t *testing.T) {
+func TestHandleMarkTaskDuplicatedApiTasksTaskIdMarkDuplicatedPost(t *testing.T) {
+	t.Run("a task waiting in ready_for_done can still turn out to be a copy", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"The original","executor_member_id":"kip"}`)
+		apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"The copy","executor_member_id":"kip"}`)
+		readyForDoneTask(t, api, h, owner, "T-2", "kip")
+
+		status, data := apiJSON(t, h, "POST", "/api/tasks/T-2/mark-duplicated", owner,
+			`{"duplicate_of":"T-1"}`)
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		if data["status"] != TaskStatusDuplicated || data["duplicate_of"] != "T-1" {
+			t.Fatalf("want duplicated pointing at T-1, got %v", data)
+		}
+	})
+
 	t.Run("marking a task duplicated closes it pointing at the original, fans the delta and the executor's close notice", func(t *testing.T) {
 		api, h, _, owner := newAPITestServer(t)
 		apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"The original","executor_member_id":"kip"}`)
@@ -4670,7 +4748,7 @@ func TestHandleMarkTaskDuplicateApiTasksTaskIdDuplicatePost(t *testing.T) {
 		executor := apiTestListen(t, api, "kip")
 		bystander := apiTestListen(t, api, "mira")
 
-		status, data := apiJSON(t, h, "POST", "/api/tasks/T-2/duplicate", owner, `{"duplicate_of":"T-1"}`)
+		status, data := apiJSON(t, h, "POST", "/api/tasks/T-2/mark-duplicated", owner, `{"duplicate_of":"T-1"}`)
 		if status != 200 {
 			t.Fatalf("want 200, got %d (%v)", status, data)
 		}
@@ -4729,7 +4807,7 @@ func TestHandleMarkTaskDuplicateApiTasksTaskIdDuplicatePost(t *testing.T) {
 		apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"The twin","executor_member_id":"kip"}`)
 		dashboard := apiTestListen(t, api, "")
 
-		status, data := apiJSON(t, h, "POST", "/api/tasks/T-1/duplicate", owner, `{"duplicate_of":"T-1"}`)
+		status, data := apiJSON(t, h, "POST", "/api/tasks/T-1/mark-duplicated", owner, `{"duplicate_of":"T-1"}`)
 		if status != 409 {
 			t.Fatalf("want 409, got %d (%v)", status, data)
 		}
@@ -4742,9 +4820,9 @@ func TestHandleMarkTaskDuplicateApiTasksTaskIdDuplicatePost(t *testing.T) {
 		apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"The original","executor_member_id":"kip"}`)
 		apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"The twin","executor_member_id":"kip"}`)
 		apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"The third","executor_member_id":"kip"}`)
-		apiJSON(t, h, "POST", "/api/tasks/T-2/duplicate", owner, `{"duplicate_of":"T-1"}`)
+		apiJSON(t, h, "POST", "/api/tasks/T-2/mark-duplicated", owner, `{"duplicate_of":"T-1"}`)
 
-		status, data := apiJSON(t, h, "POST", "/api/tasks/T-3/duplicate", owner, `{"duplicate_of":"T-2"}`)
+		status, data := apiJSON(t, h, "POST", "/api/tasks/T-3/mark-duplicated", owner, `{"duplicate_of":"T-2"}`)
 		if status != 409 {
 			t.Fatalf("want 409, got %d (%v)", status, data)
 		}
@@ -4757,9 +4835,9 @@ func TestHandleMarkTaskDuplicateApiTasksTaskIdDuplicatePost(t *testing.T) {
 		apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"The original","executor_member_id":"kip"}`)
 		apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"The twin","executor_member_id":"kip"}`)
 		apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"The third","executor_member_id":"kip"}`)
-		apiJSON(t, h, "POST", "/api/tasks/T-2/duplicate", owner, `{"duplicate_of":"T-1"}`)
+		apiJSON(t, h, "POST", "/api/tasks/T-2/mark-duplicated", owner, `{"duplicate_of":"T-1"}`)
 
-		status, data := apiJSON(t, h, "POST", "/api/tasks/T-1/duplicate", owner, `{"duplicate_of":"T-3"}`)
+		status, data := apiJSON(t, h, "POST", "/api/tasks/T-1/mark-duplicated", owner, `{"duplicate_of":"T-3"}`)
 		if status != 409 {
 			t.Fatalf("want 409, got %d (%v)", status, data)
 		}
@@ -4771,7 +4849,7 @@ func TestHandleMarkTaskDuplicateApiTasksTaskIdDuplicatePost(t *testing.T) {
 		_, h, _, owner := newAPITestServer(t)
 		apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"The twin","executor_member_id":"kip"}`)
 
-		status, data := apiJSON(t, h, "POST", "/api/tasks/T-1/duplicate", owner, `{"duplicate_of":"T-999"}`)
+		status, data := apiJSON(t, h, "POST", "/api/tasks/T-1/mark-duplicated", owner, `{"duplicate_of":"T-999"}`)
 		if status != 404 {
 			t.Fatalf("want 404, got %d (%v)", status, data)
 		}
@@ -4782,7 +4860,7 @@ func TestHandleMarkTaskDuplicateApiTasksTaskIdDuplicatePost(t *testing.T) {
 		_, h, _, owner := newAPITestServer(t)
 		apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"The twin","executor_member_id":"kip"}`)
 
-		status, data := apiJSON(t, h, "POST", "/api/tasks/T-1/duplicate", owner, `{"duplicate_of":"  "}`)
+		status, data := apiJSON(t, h, "POST", "/api/tasks/T-1/mark-duplicated", owner, `{"duplicate_of":"  "}`)
 		if status != 422 {
 			t.Fatalf("want 422, got %d (%v)", status, data)
 		}
@@ -4793,7 +4871,7 @@ func TestHandleMarkTaskDuplicateApiTasksTaskIdDuplicatePost(t *testing.T) {
 		_, h, _, owner := newAPITestServer(t)
 		apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"The twin","executor_member_id":"kip"}`)
 
-		status, data := apiJSON(t, h, "POST", "/api/tasks/T-1/duplicate", owner, `{}`)
+		status, data := apiJSON(t, h, "POST", "/api/tasks/T-1/mark-duplicated", owner, `{}`)
 		if status != 422 {
 			t.Fatalf("want 422, got %d (%v)", status, data)
 		}
@@ -4806,7 +4884,7 @@ func TestHandleMarkTaskDuplicateApiTasksTaskIdDuplicatePost(t *testing.T) {
 		apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"The twin","executor_member_id":"mira"}`)
 		other := apiTestAgentToken(t, api, "kip", "")
 
-		status, data := apiJSON(t, h, "POST", "/api/tasks/T-2/duplicate", other, `{"duplicate_of":"T-1"}`)
+		status, data := apiJSON(t, h, "POST", "/api/tasks/T-2/mark-duplicated", other, `{"duplicate_of":"T-1"}`)
 		if status != 403 {
 			t.Fatalf("want 403, got %d (%v)", status, data)
 		}
@@ -4817,9 +4895,9 @@ func TestHandleMarkTaskDuplicateApiTasksTaskIdDuplicatePost(t *testing.T) {
 		_, h, _, owner := newAPITestServer(t)
 		apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"The original","executor_member_id":"kip"}`)
 		apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"The twin","executor_member_id":"kip"}`)
-		apiJSON(t, h, "POST", "/api/tasks/T-2/terminate", owner, "")
+		apiJSON(t, h, "POST", "/api/tasks/T-2/mark-terminated", owner, "")
 
-		status, data := apiJSON(t, h, "POST", "/api/tasks/T-2/duplicate", owner, `{"duplicate_of":"T-1"}`)
+		status, data := apiJSON(t, h, "POST", "/api/tasks/T-2/mark-duplicated", owner, `{"duplicate_of":"T-1"}`)
 		if status != 409 {
 			t.Fatalf("want 409, got %d (%v)", status, data)
 		}
@@ -4832,7 +4910,7 @@ func TestHandleMarkTaskDuplicateApiTasksTaskIdDuplicatePost(t *testing.T) {
 		apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"The twin","executor_member_id":"kip"}`)
 		machine := apiTestAgentToken(t, api, "m-server-self", "")
 
-		status, data := apiJSON(t, h, "POST", "/api/tasks/T-2/duplicate", machine, `{"duplicate_of":"T-1"}`)
+		status, data := apiJSON(t, h, "POST", "/api/tasks/T-2/mark-duplicated", machine, `{"duplicate_of":"T-1"}`)
 		if status != 403 {
 			t.Fatalf("want 403, got %d (%v)", status, data)
 		}
@@ -4843,7 +4921,7 @@ func TestHandleMarkTaskDuplicateApiTasksTaskIdDuplicatePost(t *testing.T) {
 		_, h, _, owner := newAPITestServer(t)
 		apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"The original","executor_member_id":"kip"}`)
 
-		status, data := apiJSON(t, h, "POST", "/api/tasks/T-999/duplicate", owner, `{"duplicate_of":"T-1"}`)
+		status, data := apiJSON(t, h, "POST", "/api/tasks/T-999/mark-duplicated", owner, `{"duplicate_of":"T-1"}`)
 		if status != 404 {
 			t.Fatalf("want 404, got %d (%v)", status, data)
 		}
@@ -4855,7 +4933,7 @@ func TestHandleMarkTaskDuplicateApiTasksTaskIdDuplicatePost(t *testing.T) {
 		apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"The original","executor_member_id":"kip"}`)
 		apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"The twin","executor_member_id":"kip"}`)
 
-		status, data := apiJSON(t, h, "POST", "/api/tasks/T-2/duplicate", "", `{"duplicate_of":"T-1"}`)
+		status, data := apiJSON(t, h, "POST", "/api/tasks/T-2/mark-duplicated", "", `{"duplicate_of":"T-1"}`)
 		if status != 401 {
 			t.Fatalf("want 401, got %d (%v)", status, data)
 		}
@@ -4959,7 +5037,7 @@ func TestHandleUpdateTaskStepStatusApiTasksTaskIdStepsStepIdStatusPost(t *testin
 		dashboard.wantFrames()
 	})
 
-	t.Run("the report that finishes the last step closes the task once the ball is declared", func(t *testing.T) {
+	t.Run("the report that finishes the last step lands ready_for_done, and mark_task_done is what closes it", func(t *testing.T) {
 		api, h, _, owner := newAPITestServer(t)
 		apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"Ship it","executor_member_id":"kip"}`)
 		agent := apiTestAgentToken(t, api, "kip", "")
@@ -4982,13 +5060,13 @@ func TestHandleUpdateTaskStepStatusApiTasksTaskIdStepsStepIdStatusPost(t *testin
 			"step_id":        stepID,
 			"step_status":    "done",
 			"waiting_reason": "",
-			"task_status":    "done",
-			"closed_ts":      apiAnyNumber,
+			"task_status":    "ready_for_done",
+			"closed_ts":      nil,
 			"progress_done":  1,
 			"progress_total": 1,
 		})
 
-		taskFrame := map[string]any{
+		readyFrame := map[string]any{
 			"seq":   4,
 			"topic": "task",
 			"op":    "patch",
@@ -4997,27 +5075,47 @@ func TestHandleUpdateTaskStepStatusApiTasksTaskIdStepsStepIdStatusPost(t *testin
 				"key":     "owner::T-1",
 				"epoch":   4,
 				"deleted": false,
+				"payload": map[string]any{"id": "T-1", "priority": "mid", "status": "ready_for_done"},
+			},
+			"ts":      apiAnyNumber,
+			"trigger": "kip",
+		}
+		dashboard.wantFrames(readyFrame)
+		executor.wantFrames(readyFrame)
+		bystander.wantFrames()
+
+		apiMarkDone(t, h, "T-1", agent)
+
+		doneFrame := map[string]any{
+			"seq":   5,
+			"topic": "task",
+			"op":    "patch",
+			"data": map[string]any{
+				"entity":  "task",
+				"key":     "owner::T-1",
+				"epoch":   5,
+				"deleted": false,
 				"payload": map[string]any{"id": "T-1", "priority": "mid", "status": "done"},
 			},
 			"ts":      apiAnyNumber,
 			"trigger": "kip",
 		}
 		noticeFrame := map[string]any{
-			"seq":   5,
+			"seq":   6,
 			"topic": "chat",
 			"op":    "patch",
 			"data": map[string]any{
 				"entity":  "chat",
 				"key":     apiAnyString,
-				"epoch":   5,
+				"epoch":   6,
 				"deleted": false,
 				"payload": map[string]any{"id": apiAnyString, "from": "system", "to": "kip"},
 			},
 			"ts":      apiAnyNumber,
 			"trigger": "kip",
 		}
-		dashboard.wantFrames(taskFrame, noticeFrame)
-		executor.wantFrames(taskFrame, noticeFrame)
+		dashboard.wantFrames(doneFrame, noticeFrame)
+		executor.wantFrames(doneFrame, noticeFrame)
 		bystander.wantFrames()
 	})
 
@@ -5038,9 +5136,10 @@ func TestHandleUpdateTaskStepStatusApiTasksTaskIdStepsStepIdStatusPost(t *testin
 			t.Fatalf("want 422, got %d (%v)", status, data)
 		}
 		apiWantError(t, data, "validation_error",
-			"task 'T-1' was created by 'owner' but executed by 'kip': this report would CLOSE it, "+
-				"and a closed task can never be replanned (submit_plan turns into a permanent 409). "+
-				"Say where the ball goes, in THIS same update_step_status call, with one of: "+
+			"task 'T-1' was created by 'owner' but executed by 'kip': this report would FINISH it — "+
+				"every step done — and it is then one call (mark_task_done) from a close that can "+
+				"never be undone or replanned. Say where the ball goes, in THIS same "+
+				"update_step_status call, with one of: "+
 				"handoff='return_to_creator' (recorded on this task and nothing else — no task is "+
 				"opened and nobody is notified); handoff='follow_up' + handoff_task_id='<the "+
 				"successor task you already created>' (the server attaches this task to it as a "+
@@ -5156,7 +5255,7 @@ func TestHandleUpdateTaskStepStatusApiTasksTaskIdStepsStepIdStatusPost(t *testin
 	t.Run("a closed task answers 409 naming the status it is in", func(t *testing.T) {
 		_, h, _, owner := newAPITestServer(t)
 		apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"Ship it","executor_member_id":"kip"}`)
-		apiJSON(t, h, "POST", "/api/tasks/T-1/terminate", owner, "")
+		apiJSON(t, h, "POST", "/api/tasks/T-1/mark-terminated", owner, "")
 
 		status, data := apiJSON(t, h, "POST", "/api/tasks/T-1/steps/ts-whatever/status", owner,
 			`{"status":"in_progress"}`)
@@ -5468,7 +5567,7 @@ func TestHandleSetTaskDepsApiTasksTaskIdDepsPost(t *testing.T) {
 	t.Run("a closed task answers 409 naming the status it is in", func(t *testing.T) {
 		_, h, _, owner := newAPITestServer(t)
 		apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"Waiter","executor_member_id":"kip"}`)
-		apiJSON(t, h, "POST", "/api/tasks/T-1/terminate", owner, "")
+		apiJSON(t, h, "POST", "/api/tasks/T-1/mark-terminated", owner, "")
 
 		status, data := apiJSON(t, h, "POST", "/api/tasks/T-1/deps", owner, `{"blocked_by":[]}`)
 		if status != 409 {
@@ -5515,7 +5614,7 @@ func TestHandleReportTaskCloseoutApiTasksTaskIdCloseoutPost(t *testing.T) {
 	t.Run("the first close-out report stamps the moment, answers the receipt and fans the task delta", func(t *testing.T) {
 		api, h, _, owner := newAPITestServer(t)
 		apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"Ship it","executor_member_id":"kip"}`)
-		apiJSON(t, h, "POST", "/api/tasks/T-1/terminate", owner, "")
+		apiJSON(t, h, "POST", "/api/tasks/T-1/mark-terminated", owner, "")
 		dashboard := apiTestListen(t, api, "")
 		executor := apiTestListen(t, api, "kip")
 		bystander := apiTestListen(t, api, "mira")
@@ -5553,7 +5652,7 @@ func TestHandleReportTaskCloseoutApiTasksTaskIdCloseoutPost(t *testing.T) {
 	t.Run("a repeat report answers the original stamp again and fans nothing", func(t *testing.T) {
 		api, h, _, owner := newAPITestServer(t)
 		apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"Ship it","executor_member_id":"kip"}`)
-		apiJSON(t, h, "POST", "/api/tasks/T-1/terminate", owner, "")
+		apiJSON(t, h, "POST", "/api/tasks/T-1/mark-terminated", owner, "")
 		_, first := apiJSON(t, h, "POST", "/api/tasks/T-1/closeout", owner, "")
 		firstStamp, _ := first["closeout_ts"].(float64)
 		dashboard := apiTestListen(t, api, "")
@@ -5960,7 +6059,7 @@ func TestHandleAddTaskArtifactApiTasksTaskIdArtifactPost(t *testing.T) {
 	t.Run("a closed task answers 409 saying its deliverables are frozen", func(t *testing.T) {
 		_, h, _, owner := newAPITestServer(t)
 		apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"Ship it","executor_member_id":"kip"}`)
-		apiJSON(t, h, "POST", "/api/tasks/T-1/terminate", owner, "")
+		apiJSON(t, h, "POST", "/api/tasks/T-1/mark-terminated", owner, "")
 
 		status, data := apiJSON(t, h, "POST", "/api/tasks/T-1/artifact", owner,
 			`{"kind":"link","name":"PR #123","url":"https://example.com/pr/123"}`)
@@ -6098,7 +6197,7 @@ func TestHandleRemoveTaskArtifactApiTasksTaskIdArtifactArtifactIdDelete(t *testi
 		_, pinned := apiJSON(t, h, "POST", "/api/tasks/T-1/artifact", agent,
 			`{"kind":"link","name":"PR #123","url":"https://example.com/pr/123"}`)
 		artifactID, _ := pinned["artifact_id"].(string)
-		apiJSON(t, h, "POST", "/api/tasks/T-1/terminate", owner, "")
+		apiJSON(t, h, "POST", "/api/tasks/T-1/mark-terminated", owner, "")
 
 		status, data := apiJSON(t, h, "DELETE", "/api/tasks/T-1/artifact/"+artifactID, owner, "")
 		if status != 409 {
@@ -6182,7 +6281,7 @@ func TestArtifactOnTask(t *testing.T) {
 
 	t.Run("a caller who is neither the executor nor admin is refused before the task's state is probed", func(t *testing.T) {
 		api, h, owner, artifactID := pinned(t)
-		apiJSON(t, h, "POST", "/api/tasks/T-1/terminate", owner, "")
+		apiJSON(t, h, "POST", "/api/tasks/T-1/mark-terminated", owner, "")
 		bystander := apiTestAgentToken(t, api, "mira", "")
 		if _, err := api.dal.HardDeleteMember("mira"); err != nil {
 			t.Fatalf("HardDeleteMember: %v", err)
@@ -6197,7 +6296,7 @@ func TestArtifactOnTask(t *testing.T) {
 
 	t.Run("a closed task answers the freeze even for the owner and even for an artifact id it never carried", func(t *testing.T) {
 		_, h, owner, _ := pinned(t)
-		apiJSON(t, h, "POST", "/api/tasks/T-1/terminate", owner, "")
+		apiJSON(t, h, "POST", "/api/tasks/T-1/mark-terminated", owner, "")
 
 		status, data := apiJSON(t, h, "DELETE", "/api/tasks/T-1/artifact/ta-nosuchthing", owner, "")
 		if status != 409 {
@@ -6234,7 +6333,7 @@ func TestArtifactOnTask(t *testing.T) {
 		agent := apiTestAgentToken(t, api, "kip", "")
 		apiJSON(t, h, "POST", "/api/tasks/T-1/artifact/"+artifactID+"/replace", agent,
 			`{"url":"https://example.com/pr/124"}`)
-		apiJSON(t, h, "POST", "/api/tasks/T-1/terminate", owner, "")
+		apiJSON(t, h, "POST", "/api/tasks/T-1/mark-terminated", owner, "")
 		bystander := apiTestAgentToken(t, api, "mira", "")
 		if _, err := api.dal.HardDeleteMember("mira"); err != nil {
 			t.Fatalf("HardDeleteMember: %v", err)
@@ -6676,7 +6775,7 @@ func TestHandleReplaceTaskArtifactApiTasksTaskIdArtifactArtifactIdReplacePost(t 
 		_, pinned := apiJSON(t, h, "POST", "/api/tasks/T-1/artifact", agent,
 			`{"kind":"link","name":"PR #123","url":"https://example.com/pr/123"}`)
 		artifactID, _ := pinned["artifact_id"].(string)
-		apiJSON(t, h, "POST", "/api/tasks/T-1/terminate", owner, "")
+		apiJSON(t, h, "POST", "/api/tasks/T-1/mark-terminated", owner, "")
 
 		status, data := apiJSON(t, h, "POST", "/api/tasks/T-1/artifact/"+artifactID+"/replace", owner,
 			`{"url":"https://example.com/pr/124"}`)
@@ -6945,7 +7044,7 @@ func TestHandleListTaskArtifactHistoryApiTasksTaskIdArtifactArtifactIdHistoryGet
 		artifactID, _ := pinned["artifact_id"].(string)
 		apiJSON(t, h, "POST", "/api/tasks/T-1/artifact/"+artifactID+"/replace", agent,
 			`{"url":"https://example.com/pr/124"}`)
-		apiJSON(t, h, "POST", "/api/tasks/T-1/terminate", owner, "")
+		apiJSON(t, h, "POST", "/api/tasks/T-1/mark-terminated", owner, "")
 
 		rec := apiRequest(t, h, "GET", "/api/tasks/T-1/artifact/"+artifactID+"/history", owner, "")
 		if rec.Code != 200 {
@@ -7040,5 +7139,225 @@ func TestHandleListTaskArtifactHistoryApiTasksTaskIdArtifactArtifactIdHistoryGet
 			t.Fatalf("want 401, got %d (%v)", status, data)
 		}
 		apiWantError(t, data, "unauthorized", "missing credentials")
+	})
+}
+
+// readyForDoneTask plans one step, reports it done and hands back the executor's
+// token — the state the four close actions are all judged from.
+func readyForDoneTask(t *testing.T, api *apiServer, h http.Handler, owner, taskID, executor string) string {
+	t.Helper()
+	agent := apiTestAgentToken(t, api, executor, "")
+	apiJSON(t, h, "POST", "/api/tasks/"+taskID+"/plan", agent,
+		`{"steps":[{"name":"Draft","dod":"a draft exists"}]}`)
+	_, planned := apiJSON(t, h, "GET", "/api/tasks/"+taskID, owner, "")
+	stepID, _ := planned["steps"].([]any)[0].(map[string]any)["id"].(string)
+	apiJSON(t, h, "POST", "/api/tasks/"+taskID+"/steps/"+stepID+"/status", agent, `{"status":"in_progress"}`)
+	apiJSON(t, h, "POST", "/api/tasks/"+taskID+"/steps/"+stepID+"/status", agent,
+		`{"status":"done","handoff":"none","handoff_note":"nothing follows"}`)
+	_, view := apiJSON(t, h, "GET", "/api/tasks/"+taskID, owner, "")
+	if view["status"] != TaskStatusReadyForDone {
+		t.Fatalf("setup: want %s, got %v", TaskStatusReadyForDone, view["status"])
+	}
+	return agent
+}
+
+func TestCallerMayMarkTaskDone(t *testing.T) {
+	api, _, _, _ := newAPITestServer(t)
+	task := Task{ID: "T-1", ExecutorID: "kip", Status: TaskStatusReadyForDone}
+
+	t.Run("the task's own executor may close it", func(t *testing.T) {
+		if !api.callerMayMarkTaskDone(taskReq(t, "POST", "/x", nil, "kip", "agent"), task) {
+			t.Fatal("the executor must be able to close its own task")
+		}
+	})
+
+	t.Run("an outsource executor may close its own task, unlike at mark_task_terminated", func(t *testing.T) {
+		worker := Task{ID: "T-1", ExecutorID: "ow-1", Status: TaskStatusReadyForDone}
+		if !api.callerMayMarkTaskDone(taskReq(t, "POST", "/x", nil, "ow-1", "agent"), worker) {
+			t.Fatal("an outsource worker must be able to close the task it executes")
+		}
+	})
+
+	t.Run("the owner and an admin agent are refused — their door is force_task_done", func(t *testing.T) {
+		for _, id := range []struct{ sub, scope string }{
+			{"owner", "owner"},
+			{"m-admin", "agent"},
+		} {
+			if api.callerMayMarkTaskDone(taskReq(t, "POST", "/x", nil, id.sub, id.scope), task) {
+				t.Fatalf("%s must not reach mark_task_done: admin capability closing a task "+
+					"here is force_task_done with the reason and forced_done_by thrown away", id.sub)
+			}
+		}
+	})
+
+	t.Run("a foreign agent and an unbound task are both refused", func(t *testing.T) {
+		if api.callerMayMarkTaskDone(taskReq(t, "POST", "/x", nil, "stranger", "agent"), task) {
+			t.Fatal("a caller that is not the executor must be refused")
+		}
+		unbound := Task{ID: "T-2", ExecutorID: "", Status: TaskStatusReadyForDone}
+		if api.callerMayMarkTaskDone(taskReq(t, "POST", "/x", nil, "", "agent"), unbound) {
+			t.Fatal("a task with no executor has nobody who may close it")
+		}
+	})
+}
+
+func TestHandleMarkTaskDoneApiTasksTaskIdMarkDonePost(t *testing.T) {
+	t.Run("a task in ready_for_done is closed by its executor, stamping closed_ts", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"Ship it","executor_member_id":"kip"}`)
+		agent := readyForDoneTask(t, api, h, owner, "T-1", "kip")
+
+		status, data := apiJSON(t, h, "POST", "/api/tasks/T-1/mark-done", agent, "")
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		if data["status"] != TaskStatusDone || data["closed_ts"] == nil {
+			t.Fatalf("the receipt must report the closed task, got %v", data)
+		}
+		_, view := apiJSON(t, h, "GET", "/api/tasks/T-1", owner, "")
+		if view["status"] != TaskStatusDone {
+			t.Fatalf("the close must be durable, got %v", view["status"])
+		}
+		// Nothing forced it, so the record says so — that is what makes
+		// forced_done_by readable as evidence rather than as noise.
+		if view["forced_done_by"] != "" || view["forced_done_reason"] != "" {
+			t.Fatalf("an ordinary close must leave the forced fields empty, got %v", view)
+		}
+	})
+
+	t.Run("a task still in a work state is a 409 that names the status it is actually in", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"Ship it","executor_member_id":"kip"}`)
+		agent := apiTestAgentToken(t, api, "kip", "")
+		apiJSON(t, h, "POST", "/api/tasks/T-1/plan", agent,
+			`{"steps":[{"name":"Draft","dod":"a draft exists"}]}`)
+
+		status, data := apiJSON(t, h, "POST", "/api/tasks/T-1/mark-done", agent, "")
+		if status != 409 {
+			t.Fatalf("want 409, got %d (%v)", status, data)
+		}
+		msg, _ := data["error"].(map[string]any)["message"].(string)
+		if !strings.Contains(msg, "'not_started'") {
+			t.Fatalf("the refusal must name the status the task is in, got %q", msg)
+		}
+	})
+
+	t.Run("an already closed task is a 409 that names WHICH close happened", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"Ship it","executor_member_id":"kip"}`)
+		agent := readyForDoneTask(t, api, h, owner, "T-1", "kip")
+		apiMarkDone(t, h, "T-1", agent)
+
+		status, data := apiJSON(t, h, "POST", "/api/tasks/T-1/mark-done", agent, "")
+		if status != 409 {
+			t.Fatalf("want 409, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "conflict", "task 'T-1' is already closed (done)")
+	})
+
+	t.Run("a caller that is not the executor is a 403, the owner included", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"Ship it","executor_member_id":"kip"}`)
+		readyForDoneTask(t, api, h, owner, "T-1", "kip")
+		stranger := apiTestAgentToken(t, api, "nosy", "")
+
+		for _, tc := range []struct{ name, token string }{
+			{"a foreign agent", stranger},
+			{"the owner", owner},
+		} {
+			status, data := apiJSON(t, h, "POST", "/api/tasks/T-1/mark-done", tc.token, "")
+			if status != 403 {
+				t.Fatalf("%s: want 403, got %d (%v)", tc.name, status, data)
+			}
+		}
+	})
+}
+
+func TestHandleForceTaskDoneApiTasksTaskIdForceDonePost(t *testing.T) {
+	// forcedTask stands a task up with a plan NOBODY finished — the shape
+	// force_task_done exists for, and the one mark_task_done refuses.
+	forcedTask := func(t *testing.T, api *apiServer, h http.Handler, owner string) string {
+		t.Helper()
+		apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"Ship it","executor_member_id":"kip"}`)
+		agent := apiTestAgentToken(t, api, "kip", "")
+		apiJSON(t, h, "POST", "/api/tasks/T-1/plan", agent,
+			`{"steps":[{"name":"Draft","dod":"a draft exists"}]}`)
+		return agent
+	}
+
+	t.Run("the owner closes a task mid-plan and the forcing principal and reason are on every later read", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		forcedTask(t, api, h, owner)
+
+		status, data := apiJSON(t, h, "POST", "/api/tasks/T-1/force-done", owner,
+			`{"reason":"kip is gone and the work shipped anyway"}`)
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		if data["status"] != TaskStatusDone || data["closed_ts"] == nil {
+			t.Fatalf("the receipt must report the closed task, got %v", data)
+		}
+		_, view := apiJSON(t, h, "GET", "/api/tasks/T-1", owner, "")
+		if view["forced_done_by"] != wireOwnerID ||
+			view["forced_done_reason"] != "kip is gone and the work shipped anyway" {
+			t.Fatalf("the forced close must be readable off the task: %v", view)
+		}
+	})
+
+	t.Run("the admin assistant may force, and a plain agent and the executor may not", func(t *testing.T) {
+		api, h, d, owner := newAPITestServer(t)
+		if err := d.PutMember(Member{
+			ID: "mira", Name: "Mira", Kind: KindStaff, RoleKey: adminRoleKey,
+			RosterStatus: RosterStatusActive,
+		}); err != nil {
+			t.Fatalf("PutMember: %v", err)
+		}
+		executor := forcedTask(t, api, h, owner)
+		stranger := apiTestAgentToken(t, api, "nosy", "")
+
+		for _, tc := range []struct {
+			name  string
+			token string
+			want  int
+		}{
+			{"the task's own executor", executor, 403},
+			{"a plain agent", stranger, 403},
+			{"the admin assistant", apiTestAgentToken(t, api, "mira", ""), 200},
+		} {
+			status, data := apiJSON(t, h, "POST", "/api/tasks/T-1/force-done", tc.token,
+				`{"reason":"the executor is never coming back"}`)
+			if status != tc.want {
+				t.Fatalf("%s: want %d, got %d (%v)", tc.name, tc.want, status, data)
+			}
+		}
+	})
+
+	t.Run("a blank or missing reason is a 422 and the task stays open", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		forcedTask(t, api, h, owner)
+
+		for _, body := range []string{`{"reason":"   "}`, `{}`} {
+			status, data := apiJSON(t, h, "POST", "/api/tasks/T-1/force-done", owner, body)
+			if status != 422 {
+				t.Fatalf("body %s: want 422, got %d (%v)", body, status, data)
+			}
+		}
+		_, view := apiJSON(t, h, "GET", "/api/tasks/T-1", owner, "")
+		if view["status"] == TaskStatusDone {
+			t.Fatalf("a refused force must leave the task open, got %v", view["status"])
+		}
+	})
+
+	t.Run("an already closed task is a 409 — this forces the precondition, not the terminal wall", func(t *testing.T) {
+		_, h, _, owner := newAPITestServer(t)
+		apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"Ship it","executor_member_id":"kip"}`)
+		apiJSON(t, h, "POST", "/api/tasks/T-1/mark-terminated", owner, "")
+
+		status, data := apiJSON(t, h, "POST", "/api/tasks/T-1/force-done", owner,
+			`{"reason":"try again anyway"}`)
+		if status != 409 {
+			t.Fatalf("want 409, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "conflict", "task 'T-1' is already closed (terminated)")
 	})
 }

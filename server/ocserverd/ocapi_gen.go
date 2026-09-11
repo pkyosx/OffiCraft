@@ -3547,7 +3547,7 @@ type TaskCreateTargetDTO struct {
 	Runtime *AgentRuntime `json:"runtime,omitempty"`
 }
 
-// TaskDTO One task (M3 任務卡): a workflow with a Definition of Done, executed by a roster member or an anonymous outsource worker. “task_no“ IS the id itself, unchanged (T-5291) — there is no projection any more, so the number shown in the UI is byte-for-byte the “task_id“ you look the task up with. “status“ is DERIVED from the steps (not agent-reported): the work states not_started/in_progress/waiting_owner/waiting_external plus the terminals done/terminated/duplicated. “reassigning“ is NO LONGER a status — it is the orthogonal “lock“ field (the owner/admin handover hold, cleared by the claim action; see “POST /api/tasks/{task_id}/reassign“); “priority“ includes “frozen“ (pause-pushing — a priority, not a status). “executor_kind='outsource'“ with an empty “executor_id“ is the transient unassigned state. “closed_ts“ is null while open. “deps“ are the blocking task ids (display markers, never a status change); “progress_done“/“progress_total“ count step leaves (“superseded“ replan history counts toward neither side). “closeout_reported“ flips true once the executor reports the close-out follow-ups done (“report_task_closeout“; terminal tasks only). “creator_id“ is the verified token sub of the task's creator (a member id, an outsource worker id, or the literal "owner"); "" on rows created before the column existed. “duplicate_of“ is the id of the ORIGINAL task this one duplicates — non-empty ONLY while “status='duplicated'“ (MCP “mark_duplicate“); the graph is depth-1 by construction so the cockpit link always resolves in one hop.
+// TaskDTO One task (M3 任務卡): a workflow with a Definition of Done, executed by a roster member or an anonymous outsource worker. “task_no“ IS the id itself, unchanged (T-5291) — there is no projection any more, so the number shown in the UI is byte-for-byte the “task_id“ you look the task up with. “status“ has two halves and they are reached differently. The five DERIVED states come from the steps and are recomputed on every step write — not_started/in_progress/waiting_owner/waiting_external plus “ready_for_done“, which is where a task lands when every step is done and which is NOT terminal: the task is still open, its deliverables can still be pinned and its notes can still be written, and that window is the whole point of the state. The three TERMINAL states — done/terminated/duplicated — are never derived; each is reached only by its own action (“mark_task_done“, “mark_task_terminated“, “mark_task_duplicated“, plus “force_task_done“ for a done that skips the precondition), so a task never closes itself and nothing closes it underneath the agent still packing it up. A task in “ready_for_done“ that gains a step derives straight back to in_progress and returns when that step is done. “forced_done_by“/“forced_done_reason“ are non-empty only on a task closed with “force_task_done“ — who forced it and why. “reassigning“ is NO LONGER a status — it is the orthogonal “lock“ field (the owner/admin handover hold, cleared by the claim action; see “POST /api/tasks/{task_id}/reassign“); “priority“ includes “frozen“ (pause-pushing — a priority, not a status). “executor_kind='outsource'“ with an empty “executor_id“ is the transient unassigned state. “closed_ts“ is null while open. “deps“ are the blocking task ids (display markers, never a status change); “progress_done“/“progress_total“ count step leaves (“superseded“ replan history counts toward neither side). “closeout_reported“ flips true once the executor reports the close-out follow-ups done (“report_task_closeout“; terminal tasks only). “creator_id“ is the verified token sub of the task's creator (a member id, an outsource worker id, or the literal "owner"); "" on rows created before the column existed. “duplicate_of“ is the id of the ORIGINAL task this one duplicates — non-empty ONLY while “status='duplicated'“ (MCP “mark_task_duplicated“); the graph is depth-1 by construction so the cockpit link always resolves in one hop.
 type TaskDTO struct {
 	// ArtifactCount HOW MANY deliverables are pinned on this task — and, since T-92, ALL that a task response says about them. There is no ``artifacts`` array here any more, and no ids in it either: rows, ids and names all come from ``list_task_artifacts(task_id)``, which answers the WHOLE ticket in one call. The count is EXACT, has no ceiling and is never truncated — 0 means the task genuinely has nothing pinned — the same promise ``note_size_chars`` makes for a step's note (T-66). WHY NOT EVEN THE IDS, when they are only a few characters each: a caller holding an id is a caller about to act on that artifact, which needs the row anyway — the id alone buys a follow-up call rather than saving one. Ask for the list when you want the list.
 	ArtifactCount *int `json:"artifact_count,omitempty"`
@@ -3565,10 +3565,12 @@ type TaskDTO struct {
 	Description *string  `json:"description,omitempty"`
 
 	// DetailLevel What this response IS, said by the response itself (T-66): always ``summary``. get_task answers a SUMMARY of the task — complete in every respect EXCEPT that each step's working-note TEXT is omitted and reported only as a size (``TaskStepDTO.note_size_chars``). The counterpart read is ``get_task_step``, whose response declares ``detail_level`` = ``full`` and carries one step's note in full. The STEP LIST here is not abridged: it has no cap and no paging, so this field is a statement about note text and nothing else.
-	DetailLevel  *string `json:"detail_level,omitempty"`
-	DuplicateOf  *string `json:"duplicate_of,omitempty"`
-	ExecutorId   *string `json:"executor_id,omitempty"`
-	ExecutorKind string  `json:"executor_kind"`
+	DetailLevel      *string `json:"detail_level,omitempty"`
+	DuplicateOf      *string `json:"duplicate_of,omitempty"`
+	ExecutorId       *string `json:"executor_id,omitempty"`
+	ExecutorKind     string  `json:"executor_kind"`
+	ForcedDoneBy     *string `json:"forced_done_by,omitempty"`
+	ForcedDoneReason *string `json:"forced_done_reason,omitempty"`
 
 	// FrozenBy WHO put this task into the ``frozen`` priority (T-6020): the verified token sub of that write — ``"owner"`` for the owner's own click, else the member / outsource-worker id. ``""`` whenever the task is not frozen (and on rows written before the column existed, which are honestly unattributed); the write that moves the task off ``frozen`` clears it. Served because ``frozen`` is no longer a single-actor knob — owner, admin agent and the task's own executor may all freeze and unfreeze — so the owner must be able to tell their own 喊停 from an agent's by READING the task.
 	FrozenBy *string `json:"frozen_by,omitempty"`
@@ -3636,6 +3638,12 @@ type TaskDescriptionDTO struct {
 type TaskFieldsDTO struct {
 	Description *string `json:"description,omitempty"`
 	Title       *string `json:"title,omitempty"`
+}
+
+// TaskForceDoneDTO Force this task done (MCP “force_task_done“), over the “ready_for_done“ precondition “mark_task_done“ enforces. OWNER AND ADMIN ASSISTANT ONLY — the executor is a 403 here, because an executor that can force its own task just has “mark_task_done“ with no precondition. “reason“ is REQUIRED and a blank one is refused (422): every other close leaves the steps agreeing that the work is finished, and this one does not, so the reason is the only record of why the task ended. It is stored with the forcing principal and read back as “forced_done_by“ / “forced_done_reason“. Any non-terminal status is accepted; an already-terminal task is a 409.
+type TaskForceDoneDTO struct {
+	// Reason Why this task is being closed without its steps saying so. Required, and a blank or whitespace-only reason is refused.
+	Reason string `json:"reason"`
 }
 
 // TaskLearningsPatchDTO Anchor-addressed PATCH of a type's learnings (MCP “patch_task_learnings“ — the learnings twin of “patch_lessons“): “{edits: [{old, new}], allow_shrink?}“. The write cost scales with the CHANGE, not the doc — a whole-doc “write_task_learnings“ stops fitting in one model output as the learnings grow (30k chars observed), so this is the primary write seam and whole-doc replace stays the last resort. ATOMIC — edits apply sequentially to an in-memory copy and any failing anchor (absent or ambiguous “old“) rejects the ENTIRE batch with a flat 400 and ZERO writes. “allow_shrink“ (default false) must be set explicitly for a patch that empties the doc or shrinks it to under a tenth of its size — the r-76 wipe-guard posture.
@@ -3881,8 +3889,8 @@ type TaskManualUpdateDTO struct {
 	SopMd       *string                 `json:"sop_md,omitempty"`
 }
 
-// TaskMarkDuplicateDTO Mark a task duplicated (MCP “mark_duplicate“), pointing at the ORIGINAL it duplicates. The caller must be the task's executor (owner/admin may act on any task); “duplicated“ is a terminal status alongside done/terminated, reachable only through this dedicated action (task status is otherwise derived from the steps and is never agent-reported). “duplicate_of“ is required and must name an EXISTING task that is not this one (409 self-reference) and is not itself already “duplicated“ (409 — point at the FINAL original, the server never chases a chain); a task already pointed at as an original cannot itself be marked duplicated (409). An already-terminal task is a 409. T-74f8 交棒閘 (third door): “duplicated“ is terminal, so this closes the task; it is never refused. A duplicate's ball is on the ORIGINAL by construction, so the server records that itself — a cross-executor task marked duplicate lands “handoff='follow_up'“ with “handoff_task_id“ = “duplicate_of“. No task_dep edge is added (the original is not blocked by its duplicate).
-type TaskMarkDuplicateDTO struct {
+// TaskMarkDuplicatedDTO Mark a task duplicated (MCP “mark_task_duplicated“), pointing at the ORIGINAL it duplicates. The caller must be the task's executor (owner/admin may act on any task); “duplicated“ is a terminal status alongside done/terminated, reachable only through this dedicated action (task status is otherwise derived from the steps and is never agent-reported). “duplicate_of“ is required and must name an EXISTING task that is not this one (409 self-reference) and is not itself already “duplicated“ (409 — point at the FINAL original, the server never chases a chain); a task already pointed at as an original cannot itself be marked duplicated (409). A task in “ready_for_done“ is accepted like any other non-terminal status; an already-terminal task is a 409. T-74f8 交棒閘 (third door): “duplicated“ is terminal, so this closes the task; it is never refused. A duplicate's ball is on the ORIGINAL by construction, so the server records that itself — a cross-executor task marked duplicate lands “handoff='follow_up'“ with “handoff_task_id“ = “duplicate_of“. No task_dep edge is added (the original is not blocked by its duplicate).
+type TaskMarkDuplicatedDTO struct {
 	DuplicateOf string `json:"duplicate_of"`
 }
 
@@ -4096,12 +4104,12 @@ type TaskTitleDTO struct {
 	Title *string `json:"title,omitempty"`
 }
 
-// TaskWriteReceiptDTO Bounded receipt returned after the task WRITE verbs that used to answer with the whole ticket - update_task (and its HTTP-only title / description twins), claim_task, reassign_task, terminate_task, mark_duplicate and set_task_deps. Same posture as TaskPriorityReceiptDTO and TaskArtifactReceiptDTO: the write answers with what the write DID and with the parts the caller cannot predict, not with the task. Measured on one real ticket the old shape was 12,666 characters, of which the step rows were 5,676 and the description another 5,668, leaving 822 for everything a caller actually reads back - so the step rows are reported here as progress_done / progress_total and the artifact set as artifact_count, the same index-not-rows split T-66 made on get_task. “description_size_chars“ / “description_sha256“ replace the description ECHO for a reason that is not size alone: the three doors that actually WRITE a description (update_task and the HTTP-only description / title twins) TRIM what they store while create_task does not, so the stored text can differ from the text that was sent, and a size + hash pair answers exactly that question. On the five verbs that never touch the description - claim, reassign, terminate, duplicate, deps - the pair is simply the current state - the same anchor pair patch_lessons, patch_insight and patch_task_sop already carry. “title“ rides back in full because it is ONE LINE and it is the row the task list shows. An earlier draft of this sentence added "and it is trimmed by this same write" as if that held for all six verbs; it does not. Only update_task and the HTTP-only title twin write a title at all (api_tasks_fields.go:173 is where the trim happens); on claim, reassign, terminate, duplicate and deps the title is a stored value nobody on this call touched - which is precisely why it is worth sending, since those five are driven by task id and their caller may never have seen the ticket. GET the task itself when full detail is needed; the artifacts route serves the artifact rows. NOTE the GET on this same path is UNCHANGED and still answers TaskDTO - only the write verbs moved. TWO KINDS OF FIELD WERE DROPPED HERE AND THEY ARE NOT THE SAME. The pure metadata (named in the sentence that follows this one) has NO consumer anywhere - searched across frontend, Go, conformance, e2e and the ocagent CLI, every zero-hit backed by a positive control on the same query shape. The CONTENT fields are the opposite: conformance asserts on them, so dropping the content is NOT additive and those assertions move with this shape. THE COCKPIT, HOWEVER, DOES NOT READ THIS ONE - and the sentence that used to stand here said it did. useTasks.ts:258-303 awaits each of these six writes, DISCARDS the value and refetches; the general claim was copied onto every receipt in this package without being checked against the task hooks, which is the same failure this ticket already produced thirteen times over. The frontend prerequisite is real for the document and roster families; it is not this receipt that needs it. Owner direction, 2026-09-05: a write answers with identity, the size numbers, and what the write itself decides. The two dropped here - type_key and dedupe_key - are not writable by any of these verbs and both are known from create_task onward, so neither could ever be this write's news.
+// TaskWriteReceiptDTO Bounded receipt returned after the task WRITE verbs that used to answer with the whole ticket - update_task (and its HTTP-only title / description twins), claim_task, reassign_task, mark_task_done, mark_task_terminated, mark_task_duplicated, force_task_done and set_task_deps. Same posture as TaskPriorityReceiptDTO and TaskArtifactReceiptDTO: the write answers with what the write DID and with the parts the caller cannot predict, not with the task. Measured on one real ticket the old shape was 12,666 characters, of which the step rows were 5,676 and the description another 5,668, leaving 822 for everything a caller actually reads back - so the step rows are reported here as progress_done / progress_total and the artifact set as artifact_count, the same index-not-rows split T-66 made on get_task. “description_size_chars“ / “description_sha256“ replace the description ECHO for a reason that is not size alone: the three doors that actually WRITE a description (update_task and the HTTP-only description / title twins) TRIM what they store while create_task does not, so the stored text can differ from the text that was sent, and a size + hash pair answers exactly that question. On the five verbs that never touch the description - claim, reassign, terminate, duplicate, deps - the pair is simply the current state - the same anchor pair patch_lessons, patch_insight and patch_task_sop already carry. “title“ rides back in full because it is ONE LINE and it is the row the task list shows. An earlier draft of this sentence added "and it is trimmed by this same write" as if that held for all six verbs; it does not. Only update_task and the HTTP-only title twin write a title at all (api_tasks_fields.go:173 is where the trim happens); on claim, reassign, terminate, duplicate and deps the title is a stored value nobody on this call touched - which is precisely why it is worth sending, since those five are driven by task id and their caller may never have seen the ticket. GET the task itself when full detail is needed; the artifacts route serves the artifact rows. NOTE the GET on this same path is UNCHANGED and still answers TaskDTO - only the write verbs moved. TWO KINDS OF FIELD WERE DROPPED HERE AND THEY ARE NOT THE SAME. The pure metadata (named in the sentence that follows this one) has NO consumer anywhere - searched across frontend, Go, conformance, e2e and the ocagent CLI, every zero-hit backed by a positive control on the same query shape. The CONTENT fields are the opposite: conformance asserts on them, so dropping the content is NOT additive and those assertions move with this shape. THE COCKPIT, HOWEVER, DOES NOT READ THIS ONE - and the sentence that used to stand here said it did. useTasks.ts:258-303 awaits each of these six writes, DISCARDS the value and refetches; the general claim was copied onto every receipt in this package without being checked against the task hooks, which is the same failure this ticket already produced thirteen times over. The frontend prerequisite is real for the document and roster families; it is not this receipt that needs it. Owner direction, 2026-09-05: a write answers with identity, the size numbers, and what the write itself decides. The two dropped here - type_key and dedupe_key - are not writable by any of these verbs and both are known from create_task onward, so neither could ever be this write's news.
 type TaskWriteReceiptDTO struct {
 	// ArtifactCount How many deliverables the task carries AFTER this write - the count, never the rows, exactly as taskArtifactReceiptDTO reports it. list_task_artifacts serves the rows.
 	ArtifactCount int `json:"artifact_count"`
 
-	// ClosedTs When the task reached a terminal state, null while it is still open. Server-stamped, and it is the one field that answers "did this write actually close it" - terminate_task and mark_duplicate both aim at closure and both can decline to close, so the caller cannot infer this from having called them.
+	// ClosedTs When the task reached a terminal state, null while it is still open. Server-stamped, and it is the one field that answers "did this write actually close it" - mark_task_done, mark_task_terminated, mark_task_duplicated and force_task_done all aim at closure and all can decline to close, so the caller cannot infer this from having called them.
 	ClosedTs *float64 `json:"closed_ts"`
 
 	// Deps The blocking task ids after this write. Ids only - the ``dep_tasks`` display rows are not here, and they are not on get_task either: they are folded in by list_tasks (TaskListItemDTO).
@@ -4113,7 +4121,7 @@ type TaskWriteReceiptDTO struct {
 	// DescriptionSizeChars Size of the description AS STORED after this write, in CHARACTERS (Unicode code points) - the unit the caps are expressed in.
 	DescriptionSizeChars int `json:"description_size_chars"`
 
-	// DuplicateOf The ticket this one was folded onto, empty when it stands alone. News on mark_duplicate only in the sense that it confirms the fold landed; on the other five it is a stored value that tells a caller it just acted on a ticket somebody had already marked duplicate - which changes what it does next.
+	// DuplicateOf The ticket this one was folded onto, empty when it stands alone. News on mark_task_duplicated only in the sense that it confirms the fold landed; on the other five it is a stored value that tells a caller it just acted on a ticket somebody had already marked duplicate - which changes what it does next.
 	DuplicateOf *string `json:"duplicate_of,omitempty"`
 
 	// ExecutorId Who holds the ticket after this write. On claim_task it is the verified caller and on reassign_task it is what the caller named, but on the other four it is a stored value the caller may not know - and it is what decides whether the caller is still allowed to drive this task at all, since every task-driving write is gated on being the executor.
@@ -4137,7 +4145,7 @@ type TaskWriteReceiptDTO struct {
 	// TaskId Which ticket this write landed on - the caller's own id, kept as the address (owner's ruling leaves ids in) and because six different tools answer with this shape. ``task_no`` was on an earlier draft and has been REMOVED: domain.go:1551 defines ``TaskNo(taskID) { return taskID }``, so it was the same string twice in one answer.
 	TaskId string `json:"task_id"`
 
-	// Title The ticket's title AFTER this write. It is NEWS on five of the six verbs and an echo on one, and the split is worth stating because owner asked exactly this question about create_task on rc-bf25374aa0e8. claim_task, reassign_task, terminate_task, mark_duplicate and set_task_deps are all called with a task id and no title, so the caller may never have seen the ticket it just acted on - the title is how a person recognises which one. update_task (and the title twin) is the exception: there the caller sent it, and api_tasks_fields.go:173 TRIMS what it sent, so even there the value can differ from what was posted. ``waiting_reason`` was on an earlier draft and has been REMOVED: reassign_task and mark_duplicate stamp it empty unconditionally (api_tasks.go:1724, :2564), the other four never touch it so it is a stale read, and no caller anywhere reads it off a write.
+	// Title The ticket's title AFTER this write. It is NEWS on five of the six verbs and an echo on one, and the split is worth stating because owner asked exactly this question about create_task on rc-bf25374aa0e8. claim_task, reassign_task, mark_task_done, mark_task_terminated, mark_task_duplicated, force_task_done and set_task_deps are all called with a task id and no title, so the caller may never have seen the ticket it just acted on - the title is how a person recognises which one. update_task (and the title twin) is the exception: there the caller sent it, and api_tasks_fields.go:173 TRIMS what it sent, so even there the value can differ from what was posted. ``waiting_reason`` was on an earlier draft and has been REMOVED: reassign_task and mark_task_duplicated stamp it empty unconditionally (api_tasks.go:1724, :2564), the other four never touch it so it is a stale read, and no caller anywhere reads it off a write.
 	Title *string `json:"title,omitempty"`
 }
 
@@ -4662,8 +4670,11 @@ type HandleSetTaskDepsApiTasksTaskIdDepsPostJSONRequestBody = TaskDepsDTO
 // HandleUpdateTaskDescriptionApiTasksTaskIdDescriptionPostJSONRequestBody defines body for HandleUpdateTaskDescriptionApiTasksTaskIdDescriptionPost for application/json ContentType.
 type HandleUpdateTaskDescriptionApiTasksTaskIdDescriptionPostJSONRequestBody = TaskDescriptionDTO
 
-// HandleMarkTaskDuplicateApiTasksTaskIdDuplicatePostJSONRequestBody defines body for HandleMarkTaskDuplicateApiTasksTaskIdDuplicatePost for application/json ContentType.
-type HandleMarkTaskDuplicateApiTasksTaskIdDuplicatePostJSONRequestBody = TaskMarkDuplicateDTO
+// HandleForceTaskDoneApiTasksTaskIdForceDonePostJSONRequestBody defines body for HandleForceTaskDoneApiTasksTaskIdForceDonePost for application/json ContentType.
+type HandleForceTaskDoneApiTasksTaskIdForceDonePostJSONRequestBody = TaskForceDoneDTO
+
+// HandleMarkTaskDuplicatedApiTasksTaskIdMarkDuplicatedPostJSONRequestBody defines body for HandleMarkTaskDuplicatedApiTasksTaskIdMarkDuplicatedPost for application/json ContentType.
+type HandleMarkTaskDuplicatedApiTasksTaskIdMarkDuplicatedPostJSONRequestBody = TaskMarkDuplicatedDTO
 
 // HandlePostTaskMessageApiTasksTaskIdMessagePostJSONRequestBody defines body for HandlePostTaskMessageApiTasksTaskIdMessagePost for application/json ContentType.
 type HandlePostTaskMessageApiTasksTaskIdMessagePostJSONRequestBody = TaskMessageDTO
@@ -5212,9 +5223,18 @@ type ServerInterface interface {
 	// Correct THIS task's description — the ticket's own text (what the task IS: scope, origin, acceptance). T-e271: until this tool existed there was NO way to change a description after creation — create_task takes one only at birth, submit_plan writes steps, update_task_manual writes the TYPE's manual — so a decision to reword a card had nowhere to land. WHO: the task's own executor, or an admin/owner; anyone else is a flat 403. Creating a task grants NO standing to keep rewriting it — if you handed the task over, it is the new executor's text now. ⚠️ ONE STRUCTURAL EXCEPTION (T-52, owner 2026-09-02): while the task has NO executor AT ALL (`executor_id` empty — where a 發包票 sits between create_task and the moment the scheduler binds a worker to it), its CREATOR may correct the text here, because otherwise nobody who is awake could fix the brief the contractor reads on arrival and that window has no upper bound. It SHUTS the instant an executor is bound — from then on the creator is a flat 403 again, even though it opened the ticket. TEXT ONLY: the same window opens add_task_artifact, remove_task_artifact, replace_task_artifact, update_step_note, patch_step_note and the task_title / task_description restores, and nothing else — never freeze, terminate, reassign, claim, plan, step status, deps or closeout. `replace_task_artifact` sits in the same window as add/remove by owner ruling (card rc-09367ed77bc2, 2026-09-03, option [0]), given with these facts in front of him: replace OVERWRITES in place what someone else pinned, and remove_task_artifact deletes that artifact's every retained version together with their blobs. PARTIAL like update_task_manual: omitting `description` changes nothing (a safe no-op), while an explicit "" CLEARS it — absent and empty are different on purpose; unknown keys are refused rather than dropped. The write is wholesale within that field: the value replaces whatever was there, so send the full corrected text, not a fragment. ⚠️ Division of labour with update_step_note: the DESCRIPTION says what this task IS (stable); the step NOTE says where a step is RIGHT NOW (volatile, handover-facing) — do not put progress here. A CLOSED task (completed / terminated / duplicated) is STILL editable, on the same terms — unlike its artifact set, which freezes at close. The reason they differ: artifacts are the record of what the task PRODUCED and must stop moving, while a ticket worded wrongly is usually found to be wrong after it closed, and freezing the text would preserve a known falsehood in the permanent record. Every change that actually alters the text retains the previous one as a document version (kind `task_description`, key = the task id) — list it with list_document_history, so a correction is recoverable and the older wording is never simply gone.
 	// (POST /api/tasks/{task_id}/description)
 	HandleUpdateTaskDescriptionApiTasksTaskIdDescriptionPost(w http.ResponseWriter, r *http.Request, taskId string)
-	// Mark a not-yet-terminal task duplicated, pointing at an existing final original (executor/owner). A blank original, an original that cannot be found, a self-reference, a chained duplicate and a target that is already pointed at are all refused. Closing across executors creates a handoff_follow_up, and no dependency is added. Answers with a bounded receipt (“artifact_count“, “closed_ts“, “deps“, “description_sha256“, “description_size_chars“, “duplicate_of“, “executor_id“, “executor_kind“, “lock“, “progress_done“, “progress_total“, “status“, “task_id“, “title“), not the task — call “get_task“ when you need the rest.
-	// (POST /api/tasks/{task_id}/duplicate)
-	HandleMarkTaskDuplicateApiTasksTaskIdDuplicatePost(w http.ResponseWriter, r *http.Request, taskId string)
+	// Close this task as done OVER its own precondition — the exit for a task that is never going to be closed by the agent holding it. Two shapes reach it: one sitting in “ready_for_done“ whose executor is gone, and one still mid-plan whose remaining steps will never be reported. WHO: the OWNER and the ADMIN ASSISTANT only. Every other principal is a 403, the task's own executor INCLUDED — an executor that can force its own task simply has “mark_task_done“ without a precondition, and the precondition is the whole point. “reason“ is REQUIRED and refused blank (422): a forced close is the one close nobody can reconstruct afterwards from the steps, because the steps do not agree that the work is finished. The forcing principal and the reason are recorded on the task and come back on every read as “forced_done_by“ / “forced_done_reason“, so a done task always says whether it got there by itself. ANY NON-TERMINAL STATUS IS ACCEPTED. Already terminal is a 409 — this forces the precondition, not the terminal wall. Answers with a bounded receipt (“artifact_count“, “closed_ts“, “deps“, “description_sha256“, “description_size_chars“, “duplicate_of“, “executor_id“, “executor_kind“, “lock“, “progress_done“, “progress_total“, “status“, “task_id“, “title“), not the task — call “get_task“ when you need the rest.
+	// (POST /api/tasks/{task_id}/force-done)
+	HandleForceTaskDoneApiTasksTaskIdForceDonePost(w http.ResponseWriter, r *http.Request, taskId string)
+	// Close this task as done — the action “ready_for_done“ waits for. A task whose every step is reported done NO LONGER CLOSES ITSELF: it settles in “ready_for_done“ and stays there, which is the one window in which the close-out can actually happen (pin the deliverables, finish the step notes, write the learnings back) — every one of those writes is refused once the task is terminal, and until this ticket the task went terminal in the same call that reported the last step. THIS call is what ends it. WHO: the task's OWN executor, staff member and outsource worker alike — the close-out is the executor's work, so whoever does it must be able to say it is finished. The owner and the admin assistant do not share this door; theirs is “force_task_done“, which records that it was forced. PRECONDITION: the task must be in “ready_for_done“. Anything else is a 409 that NAMES the status the task is actually in, because the two ways to fail here need different answers — a task still in a work state has a step nobody has reported, and a terminal one is already closed. NOBODY IS CHASED AND THERE IS NO TIMER: a task nobody closes simply stays in “ready_for_done“. That is the deliberate price of never closing a task underneath the agent that is still packing it up; “force_task_done“ is the way out. Answers with a bounded receipt (“artifact_count“, “closed_ts“, “deps“, “description_sha256“, “description_size_chars“, “duplicate_of“, “executor_id“, “executor_kind“, “lock“, “progress_done“, “progress_total“, “status“, “task_id“, “title“), not the task — call “get_task“ when you need the rest.
+	// (POST /api/tasks/{task_id}/mark-done)
+	HandleMarkTaskDoneApiTasksTaskIdMarkDonePost(w http.ResponseWriter, r *http.Request, taskId string)
+	// Close this task as duplicated, pointing at the existing FINAL original it copies. “duplicated“ is a terminal status alongside done and terminated, reachable only through this dedicated action — task status is otherwise derived from the steps and is never agent-reported. WHO: the task's executor; the owner and the admin assistant may act on any task. “duplicate_of“ is REQUIRED (422 when blank) and must name an EXISTING task (404) that is not this one (409 self-reference) and is not itself already “duplicated“ (409 — point at the FINAL original, the server never chases a chain); a task already named as an original cannot itself be marked duplicated (409). ANY NON-TERMINAL STATUS IS ACCEPTED, “ready_for_done“ INCLUDED — a task can turn out to be a copy of another one at any point, the close-out window included. Already terminal is a 409. Closing across executors creates a handoff_follow_up, and no dependency is added. REPLACES “mark_duplicate“, REMOVED in the same release: same behaviour, a name that says which status the task lands in. Answers with a bounded receipt (“artifact_count“, “closed_ts“, “deps“, “description_sha256“, “description_size_chars“, “duplicate_of“, “executor_id“, “executor_kind“, “lock“, “progress_done“, “progress_total“, “status“, “task_id“, “title“), not the task — call “get_task“ when you need the rest.
+	// (POST /api/tasks/{task_id}/mark-duplicated)
+	HandleMarkTaskDuplicatedApiTasksTaskIdMarkDuplicatedPost(w http.ResponseWriter, r *http.Request, taskId string)
+	// Close this task as terminated — the work is being abandoned, not finished. Terminating is the one status change that never goes through the task's own step reports, so it requires no step to be in any particular state. WHO: the owner, an admin agent, or the task's OWN executor when that executor is a 正職 member (T-b56e, owner 2026-08-20 card rc-b896e3f641e7). A member terminating SOMEONE ELSE's task is a flat 403. An OUTSOURCE worker is refused HERE even on its own task — the owner's ruling named 執行者 and did not reach the contractor lifecycle, so this door stays shut until one does. ⚠️ THAT IS A FACT ABOUT THIS ROUTE, NOT A SYSTEM-WIDE GUARANTEE that a worker cannot close its own task: “mark_task_duplicated“ sits at the same principalAgent floor, gates on callerMayDriveTask with no such subtraction, and reaches the same close (measured 2026-08-20 against this route's predecessor: 200 duplicated). Shutting that door too needs its own ruling. ANY NON-TERMINAL STATUS IS ACCEPTED, “ready_for_done“ INCLUDED — giving up does not require the work to be complete first. Already done, terminated or duplicated is a 409. Stamps closed_ts and releases any bound outsource worker. REPLACES “terminate_task“, REMOVED in the same release: the old name said what you were doing to the task, this one says the status the task lands in. Answers with a bounded receipt (“artifact_count“, “closed_ts“, “deps“, “description_sha256“, “description_size_chars“, “duplicate_of“, “executor_id“, “executor_kind“, “lock“, “progress_done“, “progress_total“, “status“, “task_id“, “title“), not the task — call “get_task“ when you need the rest.
+	// (POST /api/tasks/{task_id}/mark-terminated)
+	HandleMarkTaskTerminatedApiTasksTaskIdMarkTerminatedPost(w http.ResponseWriter, r *http.Request, taskId string)
 	// Message the task's executor (owner/admin agent; task context auto-attached). Answers with a bounded receipt (“id“, “ts“, “to“, “attachments“), not the message — call “get_chat“ when you need the rest. “to“ is the executor the server delivered to: you did not name it (you named a task), and a later read cannot recompute it, because the executor can change between two calls.
 	// (POST /api/tasks/{task_id}/message)
 	HandlePostTaskMessageApiTasksTaskIdMessagePost(w http.ResponseWriter, r *http.Request, taskId string)
@@ -5230,7 +5250,7 @@ type ServerInterface interface {
 	// Read ONE step of one task IN FULL — the companion read to “get_task“, which answers a SUMMARY. This response declares “detail_level“ = “full“ and carries that single step's ENTIRE working note (“note“) alongside its “note_size_chars“ / “note_cap_chars“, its status, DoD, “waiting_reason“, gate flags, “parallel_group“, bound “reply_card_id“ and that card's live “reply_card_status“. It carries NOTHING about the task itself and NOTHING about any other step, and that is the point: “get_task“ tells you WHICH steps have a note (“note_size_chars“ > 0) and exactly how big it is, and this tool fetches one of them without dragging the whole ticket along. Same read floor as “get_task“ — any authenticated principal may read any task's step; there is no executor gate on a READ. 404 for an unknown task, and 404 for a step id that exists but belongs to a DIFFERENT task: a step is only ever readable through its own task, so a wrong task_id never leaks somebody else's step.
 	// (GET /api/tasks/{task_id}/steps/{step_id})
 	HandleGetTaskStepApiTasksTaskIdStepsStepIdGet(w http.ResponseWriter, r *http.Request, taskId string, stepId string)
-	// Write this step's working note: where the work stands and what comes next — the field the handover SOP means by 「把還在進行中的工作寫回 task step note」. WHAT TO WRITE — three things, then stop: (1) STATE — one sentence on where this step actually got to; (2) NEXT — one sentence on what whoever takes over does next; (3) EVIDENCE POINTERS — version ids, file and log paths, what you verified YOURSELF versus what you are taking on someone's word, and the limits of what was NOT done. Long narrative does not live here: reasoning and scope belong in the task description, reports and diffs belong on the task as artifacts. The note is the current state — not a report, not an append-only log. Writable in ANY step status (pending, in_progress, waiting_owner, waiting_external, done, superseded), unlike `waiting_reason`, which is locked to waiting_external. Wholesale write: `note` replaces whatever was there and "" clears it, so rewrite it as the work moves rather than appending; a note over the step note cap (counted in runes) is refused — that ceiling is the `task.step_note_cap_chars` setting, and every face that carries a note reports the live value as `note_cap_chars` — read it rather than assuming a number, because the setting is adjustable and this sentence is not regenerated when it moves. Same executor/admin gate as every other task-driving write (403 otherwise). ⚠️ A task auto-closes when its last step is reported done and a closed task 409s — so write the note BEFORE the report that finishes the last step, not after. The receipt carries `size_chars` / `cap_chars`, so the room left is on every write instead of only on the 400 that refuses one; `get_task` reports the same pair per step as `note_size_chars` / `note_cap_chars`, but since T-66 it no longer carries the note TEXT — read a note back with `get_task_step(task_id, step_id)`, which answers that one step in full.
+	// Write this step's working note: where the work stands and what comes next — the field the handover SOP means by 「把還在進行中的工作寫回 task step note」. WHAT TO WRITE — three things, then stop: (1) STATE — one sentence on where this step actually got to; (2) NEXT — one sentence on what whoever takes over does next; (3) EVIDENCE POINTERS — version ids, file and log paths, what you verified YOURSELF versus what you are taking on someone's word, and the limits of what was NOT done. Long narrative does not live here: reasoning and scope belong in the task description, reports and diffs belong on the task as artifacts. The note is the current state — not a report, not an append-only log. Writable in ANY step status (pending, in_progress, waiting_owner, waiting_external, done, superseded), unlike `waiting_reason`, which is locked to waiting_external. Wholesale write: `note` replaces whatever was there and "" clears it, so rewrite it as the work moves rather than appending; a note over the step note cap (counted in runes) is refused — that ceiling is the `task.step_note_cap_chars` setting, and every face that carries a note reports the live value as `note_cap_chars` — read it rather than assuming a number, because the setting is adjustable and this sentence is not regenerated when it moves. Same executor/admin gate as every other task-driving write (403 otherwise). ⚠️ Notes stay writable through “ready_for_done“ — a task whose last step is reported done no longer closes itself, and that window is where the close-out writing belongs. What still 409s is a task someone has actually closed (“mark_task_done“/“mark_task_terminated“/“mark_task_duplicated“/“force_task_done“), so write the note before that call, not after. The receipt carries `size_chars` / `cap_chars`, so the room left is on every write instead of only on the 400 that refuses one; `get_task` reports the same pair per step as `note_size_chars` / `note_cap_chars`, but since T-66 it no longer carries the note TEXT — read a note back with `get_task_step(task_id, step_id)`, which answers that one step in full.
 	// (POST /api/tasks/{task_id}/steps/{step_id}/note)
 	HandleUpdateTaskStepNoteApiTasksTaskIdStepsStepIdNotePost(w http.ResponseWriter, r *http.Request, taskId string, stepId string)
 	// Patch this step's working note by unique anchors ({edits:[{old,new}]}) — send only the part that changed, instead of re-typing the whole note. USE THIS WHENEVER YOU ARE AMENDING A NOTE THAT ALREADY HAS CONTENT. update_step_note is a wholesale replace, so if anyone else wrote to the step between your read and your write, your copy is stale and the replace silently deletes their text — and because your stale copy is usually the LONGER one, no guard fires and nothing tells you. A patch cannot do that: a non-empty old must match the current note EXACTLY ONCE (0 or >1 hits reject the WHOLE batch with a 400 that names which edit failed and which tool to re-read with, zero writes), so a concurrent write turns into a refusal you can see. Edits apply in order; an empty old appends. Wiping the note, or shrinking it below a tenth, needs allow_shrink=true — for an honest rewrite from scratch use update_step_note. Same executor/admin gate, same any-step-status generality, same closed-task 409 as update_step_note. Re-read with get_task_step after a refusal — get_task reports each step's note SIZE (note_size_chars) but since T-66 no longer carries its text. Answers with a bounded receipt (“task_id“, “step_id“, “step_status“, “applied_edits“, “size_chars“, “cap_chars“, “sha256“), not the note — call “get_task_step“ when you need the rest.
@@ -5239,9 +5259,6 @@ type ServerInterface interface {
 	// Report a step status (pending/in_progress/waiting_external/done). Entering waiting_external requires a non-blank waiting_reason (422 otherwise); the task status is derived from its steps. T-74f8 交棒閘: if this report would CLOSE the task (every step done) AND the task's creator is not its executor, the call is REFUSED with 422 unless you say where the ball goes IN THIS SAME CALL — handoff='return_to_creator' (recorded on the task and nothing else — no task is opened and nobody is notified), handoff='follow_up' + handoff_task_id=<a successor task you already created> (the server hangs this task off it as a dependency, and closing this one releases it), or handoff='none' + handoff_note=<why nothing follows>. The gate stands aside by itself when a non-terminal task already depends on this one — you never see it if the handover is already real. It refuses BEFORE writing anything, so a refused report leaves the plan fully editable: create the successor task, then re-send this same report with the declaration. This is your LAST chance — once the task closes it can never be replanned (submit_plan becomes a permanent 409).
 	// (POST /api/tasks/{task_id}/steps/{step_id}/status)
 	HandleUpdateTaskStepStatusApiTasksTaskIdStepsStepIdStatusPost(w http.ResponseWriter, r *http.Request, taskId string, stepId string)
-	// Terminate a task — close it as terminated, the only status change that does not go through the task's own step reports. WHO: the owner, an admin agent, or the task's OWN executor when that executor is a 正職 member (T-b56e, owner 2026-08-20 card rc-b896e3f641e7). A member terminating SOMEONE ELSE's task is a flat 403. An OUTSOURCE worker is refused HERE even on its own task — the owner's ruling named 執行者 and did not reach the contractor lifecycle, so this door stays shut until one does. ⚠️ THAT IS A FACT ABOUT THIS ROUTE, NOT A SYSTEM-WIDE GUARANTEE that a worker cannot close its own task: mark_duplicate sits at the same principalAgent floor, gates on callerMayDriveTask with no such subtraction, and reaches the same closeTask — measured 2026-08-20, 200 duplicated. Shutting that door too needs its own ruling. Non-terminal only (already closed → 409). Answers with a bounded receipt (“artifact_count“, “closed_ts“, “deps“, “description_sha256“, “description_size_chars“, “duplicate_of“, “executor_id“, “executor_kind“, “lock“, “progress_done“, “progress_total“, “status“, “task_id“, “title“), not the task — call “get_task“ when you need the rest.
-	// (POST /api/tasks/{task_id}/terminate)
-	HandleTerminateTaskApiTasksTaskIdTerminatePost(w http.ResponseWriter, r *http.Request, taskId string)
 	// Correct THIS task's title — the one line the task list shows. T-2ebe: until this tool existed a title could never be changed after creation, so a card whose scope was later overturned kept advertising its first wording forever — the description could correct itself, the title could not, and whoever scanned the list saw only the stale half. If you have just corrected a description because the scope moved, ask whether the title still says the same thing. WHO: the task's own executor, or an admin/owner; anyone else is a flat 403. Creating a task grants NO standing to keep rewriting it — if you handed the task over, it is the new executor's title now. ⚠️ ONE STRUCTURAL EXCEPTION (T-52, owner 2026-09-02): while the task has NO executor AT ALL (`executor_id` empty — where a 發包票 sits between create_task and the moment the scheduler binds a worker to it), its CREATOR may correct the text here, because otherwise nobody who is awake could fix the brief the contractor reads on arrival and that window has no upper bound. It SHUTS the instant an executor is bound — from then on the creator is a flat 403 again, even though it opened the ticket. TEXT ONLY: the same window opens add_task_artifact, remove_task_artifact, replace_task_artifact, update_step_note, patch_step_note and the task_title / task_description restores, and nothing else — never freeze, terminate, reassign, claim, plan, step status, deps or closeout. `replace_task_artifact` sits in the same window as add/remove by owner ruling (card rc-09367ed77bc2, 2026-09-03, option [0]), given with these facts in front of him: replace OVERWRITES in place what someone else pinned, and remove_task_artifact deletes that artifact's every retained version together with their blobs. PARTIAL like update_task_description: omitting `title` changes nothing (a safe no-op); unknown keys are refused rather than dropped. ⚠️ ONE DIFFERENCE FROM ITS DESCRIPTION TWIN: a blank title ("" or only whitespace) is REFUSED with 400, it does NOT clear the field — create_task refuses a blank title too, and a task with no title is a blank row on the list. Surrounding whitespace is trimmed. The write is wholesale within that field: send the full corrected title, not a fragment. A CLOSED task (completed / terminated / duplicated) is STILL editable, on the same terms — a ticket is usually found to be worded wrongly after it closed, and freezing the text would preserve a known falsehood; its artifact set is the opposite and freezes at close. Every change that actually alters the text retains the previous one as a document version (kind `task_title`, key = the task id) — list it with list_document_history, so a correction is recoverable.
 	// (POST /api/tasks/{task_id}/title)
 	HandleUpdateTaskTitleApiTasksTaskIdTitlePost(w http.ResponseWriter, r *http.Request, taskId string)
@@ -9601,8 +9618,8 @@ func (siw *ServerInterfaceWrapper) HandleUpdateTaskDescriptionApiTasksTaskIdDesc
 	handler.ServeHTTP(w, r)
 }
 
-// HandleMarkTaskDuplicateApiTasksTaskIdDuplicatePost operation middleware
-func (siw *ServerInterfaceWrapper) HandleMarkTaskDuplicateApiTasksTaskIdDuplicatePost(w http.ResponseWriter, r *http.Request) {
+// HandleForceTaskDoneApiTasksTaskIdForceDonePost operation middleware
+func (siw *ServerInterfaceWrapper) HandleForceTaskDoneApiTasksTaskIdForceDonePost(w http.ResponseWriter, r *http.Request) {
 
 	var err error
 	_ = err
@@ -9617,7 +9634,85 @@ func (siw *ServerInterfaceWrapper) HandleMarkTaskDuplicateApiTasksTaskIdDuplicat
 	}
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.HandleMarkTaskDuplicateApiTasksTaskIdDuplicatePost(w, r, taskId)
+		siw.Handler.HandleForceTaskDoneApiTasksTaskIdForceDonePost(w, r, taskId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// HandleMarkTaskDoneApiTasksTaskIdMarkDonePost operation middleware
+func (siw *ServerInterfaceWrapper) HandleMarkTaskDoneApiTasksTaskIdMarkDonePost(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "task_id" -------------
+	var taskId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "task_id", r.PathValue("task_id"), &taskId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "task_id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.HandleMarkTaskDoneApiTasksTaskIdMarkDonePost(w, r, taskId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// HandleMarkTaskDuplicatedApiTasksTaskIdMarkDuplicatedPost operation middleware
+func (siw *ServerInterfaceWrapper) HandleMarkTaskDuplicatedApiTasksTaskIdMarkDuplicatedPost(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "task_id" -------------
+	var taskId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "task_id", r.PathValue("task_id"), &taskId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "task_id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.HandleMarkTaskDuplicatedApiTasksTaskIdMarkDuplicatedPost(w, r, taskId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// HandleMarkTaskTerminatedApiTasksTaskIdMarkTerminatedPost operation middleware
+func (siw *ServerInterfaceWrapper) HandleMarkTaskTerminatedApiTasksTaskIdMarkTerminatedPost(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "task_id" -------------
+	var taskId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "task_id", r.PathValue("task_id"), &taskId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "task_id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.HandleMarkTaskTerminatedApiTasksTaskIdMarkTerminatedPost(w, r, taskId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -9862,32 +9957,6 @@ func (siw *ServerInterfaceWrapper) HandleUpdateTaskStepStatusApiTasksTaskIdSteps
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.HandleUpdateTaskStepStatusApiTasksTaskIdStepsStepIdStatusPost(w, r, taskId, stepId)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// HandleTerminateTaskApiTasksTaskIdTerminatePost operation middleware
-func (siw *ServerInterfaceWrapper) HandleTerminateTaskApiTasksTaskIdTerminatePost(w http.ResponseWriter, r *http.Request) {
-
-	var err error
-	_ = err
-
-	// ------------- Path parameter "task_id" -------------
-	var taskId string
-
-	err = runtime.BindStyledParameterWithOptions("simple", "task_id", r.PathValue("task_id"), &taskId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "task_id", Err: err})
-		return
-	}
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.HandleTerminateTaskApiTasksTaskIdTerminatePost(w, r, taskId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -10462,7 +10531,10 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/tasks/{task_id}/closeout", wrapper.HandleReportTaskCloseoutApiTasksTaskIdCloseoutPost)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/tasks/{task_id}/deps", wrapper.HandleSetTaskDepsApiTasksTaskIdDepsPost)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/tasks/{task_id}/description", wrapper.HandleUpdateTaskDescriptionApiTasksTaskIdDescriptionPost)
-	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/tasks/{task_id}/duplicate", wrapper.HandleMarkTaskDuplicateApiTasksTaskIdDuplicatePost)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/tasks/{task_id}/force-done", wrapper.HandleForceTaskDoneApiTasksTaskIdForceDonePost)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/tasks/{task_id}/mark-done", wrapper.HandleMarkTaskDoneApiTasksTaskIdMarkDonePost)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/tasks/{task_id}/mark-duplicated", wrapper.HandleMarkTaskDuplicatedApiTasksTaskIdMarkDuplicatedPost)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/tasks/{task_id}/mark-terminated", wrapper.HandleMarkTaskTerminatedApiTasksTaskIdMarkTerminatedPost)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/tasks/{task_id}/message", wrapper.HandlePostTaskMessageApiTasksTaskIdMessagePost)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/tasks/{task_id}/plan", wrapper.HandleSubmitTaskPlanApiTasksTaskIdPlanPost)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/tasks/{task_id}/priority", wrapper.HandleSetTaskPriorityApiTasksTaskIdPriorityPost)
@@ -10471,7 +10543,6 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/tasks/{task_id}/steps/{step_id}/note", wrapper.HandleUpdateTaskStepNoteApiTasksTaskIdStepsStepIdNotePost)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/tasks/{task_id}/steps/{step_id}/note/patch", wrapper.HandlePatchTaskStepNoteApiTasksTaskIdStepsStepIdNotePatchPost)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/tasks/{task_id}/steps/{step_id}/status", wrapper.HandleUpdateTaskStepStatusApiTasksTaskIdStepsStepIdStatusPost)
-	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/tasks/{task_id}/terminate", wrapper.HandleTerminateTaskApiTasksTaskIdTerminatePost)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/tasks/{task_id}/title", wrapper.HandleUpdateTaskTitleApiTasksTaskIdTitlePost)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/theme/fetch", wrapper.HandleFetchThemeApiThemeFetchPost)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/themes", wrapper.HandleListThemesApiThemesGet)

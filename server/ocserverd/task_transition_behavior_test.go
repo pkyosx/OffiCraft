@@ -348,10 +348,10 @@ func TestPredecessorStaysLockedOutOfEveryOtherTaskWrite(t *testing.T) {
 		// callerMayWriteHandover's comment named nine doors that must stay shut
 		// and only five of them had a case here, so widening the predicate onto
 		// terminate / closeout / artifacts / reassign was a silent change.
-		{"terminate_task", func() *httptest.ResponseRecorder {
+		{"mark_task_terminated", func() *httptest.ResponseRecorder {
 			rec := httptest.NewRecorder()
-			api.HandleTerminateTaskApiTasksTaskIdTerminatePost(rec, taskReq(t, "POST",
-				"/api/tasks/"+task.ID+"/terminate", nil, pred, "agent"), task.ID)
+			api.HandleMarkTaskTerminatedApiTasksTaskIdMarkTerminatedPost(rec, taskReq(t, "POST",
+				"/api/tasks/"+task.ID+"/mark-terminated", nil, pred, "agent"), task.ID)
 			return rec
 		}},
 		{"report_task_closeout", func() *httptest.ResponseRecorder {
@@ -537,8 +537,8 @@ func TestBlockingSkipsWaitersThatHaveAlreadyClosed(t *testing.T) {
 	t91Block(t, api, dead.ID, blocker.ID, "m-waiter")
 
 	rec := httptest.NewRecorder()
-	api.HandleTerminateTaskApiTasksTaskIdTerminatePost(rec,
-		taskReq(t, "POST", "/api/tasks/"+dead.ID+"/terminate", nil, "owner", "owner"),
+	api.HandleMarkTaskTerminatedApiTasksTaskIdMarkTerminatedPost(rec,
+		taskReq(t, "POST", "/api/tasks/"+dead.ID+"/mark-terminated", nil, "owner", "owner"),
 		dead.ID)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("terminate the waiter: %d %s", rec.Code, rec.Body.String())
@@ -652,8 +652,8 @@ func TestTaskCloseNudgeIsADurableChatRowTheExecutorReadsAtItsNextWake(t *testing
 	task := createAdHocTask(t, api, "m-exec")
 
 	rec := httptest.NewRecorder()
-	api.HandleTerminateTaskApiTasksTaskIdTerminatePost(rec, taskReq(t, "POST",
-		"/api/tasks/"+task.ID+"/terminate", nil, wireOwnerID, "owner"), task.ID)
+	api.HandleMarkTaskTerminatedApiTasksTaskIdMarkTerminatedPost(rec, taskReq(t, "POST",
+		"/api/tasks/"+task.ID+"/mark-terminated", nil, wireOwnerID, "owner"), task.ID)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("owner terminate: %d %s", rec.Code, rec.Body.String())
 	}
@@ -724,8 +724,8 @@ func TestTaskCloseNudgeNamesWhoClosedIt(t *testing.T) {
 	task := createAdHocTask(t, api, "m-exec")
 
 	rec := httptest.NewRecorder()
-	api.HandleTerminateTaskApiTasksTaskIdTerminatePost(rec, taskReq(t, "POST",
-		"/api/tasks/"+task.ID+"/terminate", nil, wireOwnerID, "owner"), task.ID)
+	api.HandleMarkTaskTerminatedApiTasksTaskIdMarkTerminatedPost(rec, taskReq(t, "POST",
+		"/api/tasks/"+task.ID+"/mark-terminated", nil, wireOwnerID, "owner"), task.ID)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("owner terminate: %d %s", rec.Code, rec.Body.String())
 	}

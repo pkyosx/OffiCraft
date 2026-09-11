@@ -236,7 +236,7 @@ func (s *apiServer) resolveStepForNoteWrite(w http.ResponseWriter, r *http.Reque
 		writeError(w, http.StatusForbidden, executorGuardRefusal)
 		return nil, nil, false
 	}
-	if TaskIsTerminal(t.Status) {
+	if TaskRecordFrozen(t.Status) {
 		writeError(w, http.StatusConflict,
 			"task '"+taskId+"' is already closed ("+t.Status+")")
 		return nil, nil, false

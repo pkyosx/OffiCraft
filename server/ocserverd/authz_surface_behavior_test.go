@@ -572,6 +572,13 @@ var authzOutsideRouteTable = map[string]string{
 		"caller-vs-resource comparison, not expressible as a route floor.",
 	"api_tasks.go :: callerMayDriveTask :: currentActor(r) == t.ExecutorID": "" +
 		"the self half of the same rule: the executor drives its own task.",
+	"api_tasks.go :: callerMayMarkTaskDone :: currentActor(r) == t.ExecutorID": "" +
+		"T-182: mark_task_done is the EXECUTOR's door and only the executor's — " +
+		"deliberately NOT callerMayDriveTask, which widens to admin capability. " +
+		"The owner and the admin assistant close a task they do not execute " +
+		"through force_task_done, which demands a reason and stamps " +
+		"forced_done_by; letting them through here would be the same close with " +
+		"nothing recorded. A caller-vs-resource comparison, not a route floor.",
 	"api_tasks.go :: callerMayEditTaskText :: currentActor(r) == t.CreatorID": "" +
 		"T-52, owner 2026-09-02 card rc-1bb6e01c4bf7. While a task has NO executor at " +
 		"all (executor_id == ''), its CREATOR counts as the executor — at the " +
@@ -585,7 +592,7 @@ var authzOutsideRouteTable = map[string]string{
 		"executor_id == '' AND NOTHING ELSE, so the door SHUTS the instant a worker " +
 		"is bound — the creator is then a flat 403 again, exactly as before. Owner " +
 		"scoped this to 改文字類 and named the doors that stay shut (freeze/priority, " +
-		"terminate, reassign, claim, mark_duplicate, plan, step status, closeout, " +
+		"terminate, reassign, claim, mark_task_duplicated, plan, step status, closeout, " +
 		"deps, linked reply cards); those keep callerMayDriveTask verbatim. Calling " +
 		"this predicate from another handler reverses that ruling rather than " +
 		"extending it.",

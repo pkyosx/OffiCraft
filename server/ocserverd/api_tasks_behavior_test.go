@@ -184,7 +184,7 @@ func TestCanAgentTaskTransitionFullTable(t *testing.T) {
 		TaskStatusDuplicated,
 	}
 	// duplicated is a terminal status but NOT on the agent status-report table:
-	// it is reached only through the dedicated mark_duplicate action, so every
+	// it is reached only through the dedicated mark_task_duplicated action, so every
 	// pair touching it must be false here (the loop asserts it against `legal`).
 	legal := map[[2]string]bool{
 		{TaskStatusNotStarted, TaskStatusInProgress}:      true,
@@ -383,7 +383,7 @@ func startFirstStep(t *testing.T, api *apiServer, taskID, executor string) {
 // driveTaskDone plans a single step and reports it in_progress→done, deriving
 // the task to done (auto-close, T-9ca5) — the standard closer for tests that
 // just need a closed task (task status is derived, never reported).
-func driveTaskDone(t *testing.T, api *apiServer, taskID, executor string) {
+func driveStepsDone(t *testing.T, api *apiServer, taskID, executor string) {
 	t.Helper()
 	view := submitPlan(t, api, taskID, executor, []map[string]any{
 		{"name": "work", "dod": "done"},
@@ -391,9 +391,18 @@ func driveTaskDone(t *testing.T, api *apiServer, taskID, executor string) {
 	stepID := view.Steps[0].ID
 	for _, status := range []string{"in_progress", "done"} {
 		if rec := reportStepStatus(t, api, taskID, stepID, executor, status, ""); rec.Code != http.StatusOK {
-			t.Fatalf("driveTaskDone %s: %d %s", status, rec.Code, rec.Body.String())
+			t.Fatalf("driveStepsDone %s: %d %s", status, rec.Code, rec.Body.String())
 		}
 	}
+}
+
+// driveTaskDone takes a task all the way to `done`. Since T-182 that is TWO
+// moves, not one: finishing the plan only derives ready_for_done, and
+// mark_task_done is what closes it.
+func driveTaskDone(t *testing.T, api *apiServer, taskID, executor string) {
+	t.Helper()
+	driveStepsDone(t, api, taskID, executor)
+	closeByMarkDone(t, api, taskID, executor, "agent")
 }
 
 // claimTask drives the takeover of a reassigning task via the claim route
@@ -840,7 +849,7 @@ func TestCreateTaskDedupesOnNonTerminalAndReopensPastTerminal(t *testing.T) {
 	}
 	// Close the first task; the same key then mints a FRESH task (H2).
 	rec := httptest.NewRecorder()
-	api.HandleTerminateTaskApiTasksTaskIdTerminatePost(rec,
+	api.HandleMarkTaskTerminatedApiTasksTaskIdMarkTerminatedPost(rec,
 		taskReq(t, "POST", "/x", nil, "owner", "owner"), first.TaskID)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("terminate: %d %s", rec.Code, rec.Body.String())
@@ -1927,7 +1936,7 @@ func TestTerminalStatesReleaseTheBoundWorker(t *testing.T) {
 	}{
 		{"terminate", func(t *testing.T, api *apiServer, taskID, _ string) {
 			rec := httptest.NewRecorder()
-			api.HandleTerminateTaskApiTasksTaskIdTerminatePost(rec,
+			api.HandleMarkTaskTerminatedApiTasksTaskIdMarkTerminatedPost(rec,
 				taskReq(t, "POST", "/x", nil, "owner", "owner"), taskID)
 			if rec.Code != http.StatusOK {
 				t.Fatalf("terminate: %d %s", rec.Code, rec.Body.String())
@@ -2067,7 +2076,7 @@ func TestTaskCloseNudgeIsAddressedToTheExecutorAlone(t *testing.T) {
 		}},
 		{"terminated", func(t *testing.T, api *apiServer, taskID string) {
 			rec := httptest.NewRecorder()
-			api.HandleTerminateTaskApiTasksTaskIdTerminatePost(rec,
+			api.HandleMarkTaskTerminatedApiTasksTaskIdMarkTerminatedPost(rec,
 				taskReq(t, "POST", "/x", nil, "owner", "owner"), taskID)
 			if rec.Code != http.StatusOK {
 				t.Fatalf("terminate: %d %s", rec.Code, rec.Body.String())
@@ -2704,14 +2713,14 @@ func TestTaskMessageBodyCarriesTaskNo(t *testing.T) {
 	}
 }
 
-// ── mark_duplicate (T-02c9) ──────────────────────────────────────────────────
+// ── mark_task_duplicated (T-02c9) ──────────────────────────────────────────────────
 
-// markDuplicate posts one mark_duplicate action with the given identity.
+// markDuplicate posts one mark_task_duplicated action with the given identity.
 func markDuplicate(t *testing.T, api *apiServer, taskID, duplicateOf, sub, scope string) *httptest.ResponseRecorder {
 	t.Helper()
 	rec := httptest.NewRecorder()
-	api.HandleMarkTaskDuplicateApiTasksTaskIdDuplicatePost(rec,
-		taskReq(t, "POST", "/api/tasks/"+taskID+"/duplicate",
+	api.HandleMarkTaskDuplicatedApiTasksTaskIdMarkDuplicatedPost(rec,
+		taskReq(t, "POST", "/api/tasks/"+taskID+"/mark-duplicated",
 			map[string]any{"duplicate_of": duplicateOf}, sub, scope),
 		taskID)
 	return rec
@@ -2748,13 +2757,13 @@ func TestMarkDuplicateClosesTaskPointsAtOriginal(t *testing.T) {
 	rec := markDuplicate(t, api, dupCreated.TaskID, original.TaskID,
 		dupRow.ExecutorID, "agent")
 	if rec.Code != http.StatusOK {
-		t.Fatalf("mark_duplicate: %d %s", rec.Code, rec.Body.String())
+		t.Fatalf("mark_task_duplicated: %d %s", rec.Code, rec.Body.String())
 	}
-	// T-91: mark_duplicate answers taskWriteReceiptDTO, not the whole taskDTO.
+	// T-91: mark_task_duplicated answers taskWriteReceiptDTO, not the whole taskDTO.
 	// The three fields this test cares about — the derived status, the fold
 	// target and the terminal stamp — are exactly what the receipt keeps, and
 	// they are on it for the reason this test states: none of them is
-	// predictable from having CALLED the verb (mark_duplicate can decline to
+	// predictable from having CALLED the verb (mark_task_duplicated can decline to
 	// close).
 	got := decodeBody[taskWriteReceiptDTO](t, rec)
 	if got.Status != TaskStatusDuplicated {
@@ -3061,8 +3070,8 @@ func TestSetTaskPriorityTerminalTaskIs409(t *testing.T) {
 	// terminated
 	terminated := createAdHocTask(t, api, "m-exec")
 	rec := httptest.NewRecorder()
-	api.HandleTerminateTaskApiTasksTaskIdTerminatePost(rec,
-		taskReq(t, "POST", "/api/tasks/"+terminated.ID+"/terminate", nil,
+	api.HandleMarkTaskTerminatedApiTasksTaskIdMarkTerminatedPost(rec,
+		taskReq(t, "POST", "/api/tasks/"+terminated.ID+"/mark-terminated", nil,
 			"owner", "owner"),
 		terminated.ID)
 	if rec.Code != http.StatusOK {
@@ -3228,5 +3237,74 @@ func TestCreateTaskRefusesATargetKindOutsideTheClosedSet(t *testing.T) {
 	if created.ExecutorKind != TaskExecutorStaff {
 		t.Fatalf("an empty target.kind must be discarded down the staff path, got executor_kind=%q",
 			created.ExecutorKind)
+	}
+}
+
+// markDone posts one mark_task_done action with the given identity. It is the
+// call that ENDS a task since T-182: a step set with every step reported done
+// only lands the task in ready_for_done, and nothing closes it until this.
+func markDone(t *testing.T, api *apiServer, taskID, sub, scope string) *httptest.ResponseRecorder {
+	t.Helper()
+	rec := httptest.NewRecorder()
+	api.HandleMarkTaskDoneApiTasksTaskIdMarkDonePost(rec,
+		taskReq(t, "POST", "/api/tasks/"+taskID+"/mark-done", nil, sub, scope), taskID)
+	return rec
+}
+
+// closeByMarkDone is markDone for the callers that only need the task closed to
+// set up what they are actually testing, and want a failure to be loud.
+func closeByMarkDone(t *testing.T, api *apiServer, taskID, sub, scope string) {
+	t.Helper()
+	if rec := markDone(t, api, taskID, sub, scope); rec.Code != http.StatusOK {
+		t.Fatalf("mark-done %s: %d %s", taskID, rec.Code, rec.Body.String())
+	}
+}
+
+// forceDone posts one force_task_done action with the given identity.
+func forceDone(t *testing.T, api *apiServer, taskID, reason, sub, scope string) *httptest.ResponseRecorder {
+	t.Helper()
+	rec := httptest.NewRecorder()
+	api.HandleForceTaskDoneApiTasksTaskIdForceDonePost(rec,
+		taskReq(t, "POST", "/api/tasks/"+taskID+"/force-done",
+			map[string]any{"reason": reason}, sub, scope), taskID)
+	return rec
+}
+
+// TestReadyForDoneKeepsTheRecordWritableAndDoneFreezesIt is the whole point of
+// T-182 measured end to end: `ready_for_done` is the window in which the
+// close-out actually happens, so every write the close-out needs must still be
+// accepted there and must stop being accepted the moment mark_task_done lands.
+// The two halves are asserted against ONE task, because the failure this guards
+// is the two answers drifting apart at one of the four doors.
+func TestReadyForDoneKeepsTheRecordWritableAndDoneFreezesIt(t *testing.T) {
+	api, h, _, owner := newAPITestServer(t)
+	apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"Ship it","executor_member_id":"kip"}`)
+	agent := readyForDoneTask(t, api, h, owner, "T-1", "kip")
+	stepID := apiTestOnlyStepID(t, h, owner, "T-1")
+
+	writes := []struct {
+		name, target, body string
+	}{
+		{"pin a deliverable", "/api/tasks/T-1/artifact",
+			`{"kind":"link","name":"PR #123","url":"https://example.com/pr/123"}`},
+		{"finish the step note", "/api/tasks/T-1/steps/" + stepID + "/note",
+			`{"note":"what actually happened"}`},
+	}
+	for _, w := range writes {
+		status, data := apiJSON(t, h, "POST", w.target, agent, w.body)
+		if status != 200 {
+			t.Fatalf("%s in ready_for_done: want 200, got %d (%v) — the close-out "+
+				"window has to admit the close-out", w.name, status, data)
+		}
+	}
+
+	apiMarkDone(t, h, "T-1", agent)
+
+	for _, w := range writes {
+		status, data := apiJSON(t, h, "POST", w.target, agent, w.body)
+		if status != 409 {
+			t.Fatalf("%s after mark_task_done: want 409, got %d (%v) — the record "+
+				"freezes when the task closes", w.name, status, data)
+		}
 	}
 }

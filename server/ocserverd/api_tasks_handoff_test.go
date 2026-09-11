@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-func TestWouldCloseTask(t *testing.T) {
+func TestWouldFinishTask(t *testing.T) {
 	for _, tc := range []struct {
 		name  string
 		steps []TaskStep
@@ -46,8 +46,8 @@ func TestWouldCloseTask(t *testing.T) {
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := wouldCloseTask(tc.steps, tc.id); got != tc.want {
-				t.Fatalf("wouldCloseTask() = %v, want %v", got, tc.want)
+			if got := wouldFinishTask(tc.steps, tc.id); got != tc.want {
+				t.Fatalf("wouldFinishTask() = %v, want %v", got, tc.want)
 			}
 		})
 	}
@@ -65,10 +65,21 @@ func TestHandoffGateReason(t *testing.T) {
 			door: handoffDoorStepReport,
 			pieces: []string{
 				"task 'T-123' was created by 'kip' but executed by 'mira'",
-				"this report would CLOSE it",
+				"this report would FINISH it",
+				"mark_task_done",
 				"handoff='return_to_creator'",
 				"handoff='follow_up'",
 				"handoff='none'",
+			},
+		},
+		{
+			name: "mark_done names the only route left, and never tells the caller to declare here",
+			door: handoffDoorMarkDone,
+			pieces: []string{
+				"task 'T-123' was created by 'kip' but executed by 'mira'",
+				"create_task",
+				"set_task_deps",
+				"force_task_done",
 			},
 		},
 		{

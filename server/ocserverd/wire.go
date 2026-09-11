@@ -2240,7 +2240,7 @@ type taskManualReceiptDTO struct {
 
 // taskWriteReceiptDTO answers the NINE task-driving writes that used to hand
 // back the whole taskDTO — update_task, the title and description twins, claim,
-// reassign, terminate, mark_duplicate and set_task_deps.
+// reassign, terminate, mark_task_duplicated and set_task_deps.
 type taskWriteReceiptDTO struct {
 	// TaskID is which ticket this write landed on — the caller's own id, kept
 	// as the address (owner's ruling leaves ids in) and because so many tools
@@ -2251,13 +2251,13 @@ type taskWriteReceiptDTO struct {
 	// Title is the ticket's title AFTER this write. It is NEWS on most of these
 	// verbs and an echo on one, and the split is worth stating because owner
 	// asked exactly this question on rc-bf25374aa0e8: claim, reassign,
-	// terminate, mark_duplicate and set_task_deps are all called with a task id
+	// terminate, mark_task_duplicated and set_task_deps are all called with a task id
 	// and no title, so the caller may never have seen the ticket it just acted
 	// on — the title is how a person recognises which one. update_task (and the
 	// title twin) is the exception: there the caller sent it, and the handler
 	// TRIMS what it sent, so even there the value can differ from what was
 	// posted. `waiting_reason` was on an earlier draft and is deliberately
-	// ABSENT: reassign and mark_duplicate stamp it empty unconditionally, the
+	// ABSENT: reassign and mark_task_duplicated stamp it empty unconditionally, the
 	// others never touch it so it is a stale read, and no caller anywhere reads
 	// it off a write.
 	Title string `json:"title"`
@@ -2286,12 +2286,12 @@ type taskWriteReceiptDTO struct {
 	Lock string `json:"lock"`
 	// ClosedTS is when the task reached a terminal state, null while it is still
 	// open. Server-stamped, and the one field that answers "did this write
-	// actually close it" — terminate and mark_duplicate both aim at closure and
+	// actually close it" — terminate and mark_task_duplicated both aim at closure and
 	// both can DECLINE to close, so the caller cannot infer this from having
 	// called them.
 	ClosedTS *float64 `json:"closed_ts"`
 	// DuplicateOf is the ticket this one was folded onto, empty when it stands
-	// alone. News on mark_duplicate only in the sense that it confirms the fold
+	// alone. News on mark_task_duplicated only in the sense that it confirms the fold
 	// landed; on the others it is a stored value telling a caller it just acted
 	// on a ticket somebody had already marked duplicate — which changes what it
 	// does next.
@@ -2722,6 +2722,13 @@ type taskDTO struct {
 	// task's executor may all freeze and unfreeze — so the owner needs to read
 	// off a frozen ticket whether the 喊停 was theirs.
 	FrozenBy string `json:"frozen_by"`
+	// ForcedDoneBy / ForcedDoneReason are non-empty ONLY on a task closed with
+	// force_task_done (T-182) — who forced it and why. They are served on every
+	// read so a `done` task always says whether it got there by itself: a forced
+	// close is the one close nobody can reconstruct from the steps afterwards,
+	// because the steps do not agree that the work is finished.
+	ForcedDoneBy     string `json:"forced_done_by"`
+	ForcedDoneReason string `json:"forced_done_reason"`
 }
 
 // taskListItemDTO is the LIGHT list projection served by GET /api/tasks (and
@@ -3297,11 +3304,13 @@ func newTaskDTO(t Task, steps []TaskStep, deps []string, cardStatus map[string]s
 		// folds the real set in; a projection built without it (the create
 		// result) honestly says "nobody is waiting", which is true of a task
 		// that was born one line ago.
-		Blocking:      []taskDepRefDTO{},
-		Handoff:       t.Handoff,
-		HandoffNote:   t.HandoffNote,
-		HandoffTaskID: t.HandoffTaskID,
-		FrozenBy:      t.FrozenBy,
+		Blocking:         []taskDepRefDTO{},
+		Handoff:          t.Handoff,
+		HandoffNote:      t.HandoffNote,
+		HandoffTaskID:    t.HandoffTaskID,
+		FrozenBy:         t.FrozenBy,
+		ForcedDoneBy:     t.ForcedDoneBy,
+		ForcedDoneReason: t.ForcedDoneReason,
 	}
 	if t.ClosedTS > 0 {
 		ts := t.ClosedTS

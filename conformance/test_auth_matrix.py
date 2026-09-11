@@ -444,13 +444,27 @@ def _matrix_task_step(ctx: Ctx) -> tuple[str, str]:
     return task_id, step_id
 
 
+def _matrix_ready_task(ctx: Ctx) -> str:
+    """A fresh task executed by agent A with every step reported done, so it
+    sits in ``ready_for_done`` — mark_task_done's precondition (T-182)."""
+    task_id, step_id = _matrix_task_step(ctx)
+    h = {"Authorization": f"Bearer {ctx.agent_a.token}"}
+    for body in ({"status": "in_progress"},
+                 {"status": "done", "handoff": "none",
+                  "handoff_note": "conf matrix: nothing follows"}):
+        r = ctx.client.post(
+            f"/api/tasks/{task_id}/steps/{step_id}/status", json=body, headers=h)
+        assert r.status_code == 200, f"scratch step report failed: {r.status_code} {r.text}"
+    return task_id
+
+
 def _matrix_closed_task(ctx: Ctx) -> str:
     """A fresh TERMINATED task executed by agent A (close-out targets are
     terminal-only; the owner's terminate closes it without touching the
     closeout stamp)."""
     task_id = _matrix_task(ctx)
     r = ctx.client.post(
-        f"/api/tasks/{task_id}/terminate",
+        f"/api/tasks/{task_id}/mark-terminated",
         headers={"Authorization": f"Bearer {ctx.owner_token}"},
     )
     assert r.status_code == 200, f"scratch terminate failed: {r.status_code} {r.text}"
@@ -1468,16 +1482,35 @@ MATRIX: dict[str, Route] = {
         requires="machine",
         path=lambda ctx, _i: f"/api/tasks/{_matrix_task(ctx)}",
     ),
-    "POST /api/tasks/{task_id}/terminate": Route(
+    "POST /api/tasks/{task_id}/mark-terminated": Route(
         # T-6020 put the floor at admin_agent; T-b56e (owner 2026-08-20, card
         # rc-b896e3f641e7) opened it to the task's OWN executor, so the floor
         # is now `agent` and the executor guard carries the refusal: agent A
         # executes this task and passes, agent B is the guard's 403. The
         # outsource-worker subtraction has no face on this matrix (it needs a
         # worker row) and is pinned in api_tasks_terminate_tb56e_test.go.
+        # T-182 renamed the route from /terminate; permissions are unchanged.
         requires="agent",
         overrides={"agent_other": 403},
-        path=lambda ctx, _i: f"/api/tasks/{_matrix_task(ctx)}/terminate",
+        path=lambda ctx, _i: f"/api/tasks/{_matrix_task(ctx)}/mark-terminated",
+    ),
+    "POST /api/tasks/{task_id}/mark-done": Route(
+        # T-182. The floor is `agent` and the gate is the EXECUTOR alone — not
+        # callerMayDriveTask, so admin capability does NOT widen it: the owner
+        # and the admin assistant are a 403 here and use force_task_done, which
+        # records that it was forced. The subject is a fresh task already in
+        # ready_for_done, because that is this route's precondition.
+        requires="agent",
+        overrides={"agent_other": 403, "admin_agent": 403, "owner": 403},
+        path=lambda ctx, _i: f"/api/tasks/{_matrix_ready_task(ctx)}/mark-done",
+    ),
+    "POST /api/tasks/{task_id}/force-done": Route(
+        # T-182: owner and admin assistant only, and the whole rule IS the route
+        # floor — every identity below admin_agent is the derived 403. `reason`
+        # is required, so the body is not optional here.
+        requires="admin_agent",
+        path=lambda ctx, _i: f"/api/tasks/{_matrix_task(ctx)}/force-done",
+        body={"reason": "conf matrix forced close"},
     ),
     "POST /api/tasks/{task_id}/priority": Route(
         # T-0786: the executor may retune their OWN task; a foreign agent is
@@ -1548,14 +1581,14 @@ MATRIX: dict[str, Route] = {
         path=lambda ctx, _i: f"/api/tasks/{_matrix_closed_task(ctx)}/title",
         body={"title": "conf matrix corrected title"},
     ),
-    "POST /api/tasks/{task_id}/duplicate": Route(
+    "POST /api/tasks/{task_id}/mark-duplicated": Route(
         # T-02c9: executor-guarded like every agent report row (agent B on
         # agent A's task → 403); admin capability (owner/admin_agent) passes.
         # Subject AND original are both FRESH scratch tasks per invocation, so
         # the at-floor 200 faces never collide on an already-terminal subject.
         requires="agent",
         overrides={"agent_other": 403},
-        path=lambda ctx, _i: f"/api/tasks/{_matrix_task(ctx)}/duplicate",
+        path=lambda ctx, _i: f"/api/tasks/{_matrix_task(ctx)}/mark-duplicated",
         body=lambda ctx, _i: {"duplicate_of": _matrix_task(ctx)},
     ),
     "POST /api/tasks/{task_id}/steps/{step_id}/status": Route(

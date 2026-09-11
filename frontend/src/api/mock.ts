@@ -4055,7 +4055,7 @@ export const mockApi: Api = {
   },
 
   async terminateTask(id: string): Promise<void> {
-    // Mirrors handle_terminate_task: the only status change that does not go
+    // Mirrors HandleMarkTaskTerminated: the only status change that does not go
     // through the task's own step reports; non-terminal only (done/terminated →
     // 409). Stamps closedTs and releases any bound outsource worker (the live
     // list drops it — the card's 外包 display honestly falls back to the bare
@@ -4068,7 +4068,7 @@ export const mockApi: Api = {
     const t = findTask(id);
     if (TERMINAL_TASK_STATUSES.has(t.status)) {
       throw mockApiError(
-        `http 409 for POST /api/tasks/${id}/terminate`,
+        `http 409 for POST /api/tasks/${id}/mark-terminated`,
         409,
         `task '${id}' is already closed`
       );

@@ -2808,20 +2808,35 @@
       "name": "get_task"
     },
     {
-      "description": "Terminate a task — close it as terminated, the only status change that does not go through the task's own step reports. WHO: the owner, an admin agent, or the task's OWN executor when that executor is a 正職 member (T-b56e, owner 2026-08-20 card rc-b896e3f641e7). A member terminating SOMEONE ELSE's task is a flat 403. An OUTSOURCE worker is refused HERE even on its own task — the owner's ruling named 執行者 and did not reach the contractor lifecycle, so this door stays shut until one does. ⚠️ THAT IS A FACT ABOUT THIS ROUTE, NOT A SYSTEM-WIDE GUARANTEE that a worker cannot close its own task: mark_duplicate sits at the same principalAgent floor, gates on callerMayDriveTask with no such subtraction, and reaches the same closeTask — measured 2026-08-20, 200 duplicated. Shutting that door too needs its own ruling. Non-terminal only (already closed → 409). Answers with a bounded receipt (``artifact_count``, ``closed_ts``, ``deps``, ``description_sha256``, ``description_size_chars``, ``duplicate_of``, ``executor_id``, ``executor_kind``, ``lock``, ``progress_done``, ``progress_total``, ``status``, ``task_id``, ``title``), not the task — call ``get_task`` when you need the rest.",
-      "inputSchema": {
-        "properties": {
-          "task_id": {
-            "type": "string"
-          }
+        "description": "Close this task as done — the action ``ready_for_done`` waits for. A task whose every step is reported done NO LONGER CLOSES ITSELF: it settles in ``ready_for_done`` and stays there, which is the one window in which the close-out can actually happen (pin the deliverables, finish the step notes, write the learnings back) — every one of those writes is refused once the task is terminal, and until this ticket the task went terminal in the same call that reported the last step. THIS call is what ends it. WHO: the task's OWN executor, staff member and outsource worker alike — the close-out is the executor's work, so whoever does it must be able to say it is finished. The owner and the admin assistant do not share this door; theirs is ``force_task_done``, which records that it was forced. PRECONDITION: the task must be in ``ready_for_done``. Anything else is a 409 that NAMES the status the task is actually in, because the two ways to fail here need different answers — a task still in a work state has a step nobody has reported, and a terminal one is already closed. NOBODY IS CHASED AND THERE IS NO TIMER: a task nobody closes simply stays in ``ready_for_done``. That is the deliberate price of never closing a task underneath the agent that is still packing it up; ``force_task_done`` is the way out. Answers with a bounded receipt (``artifact_count``, ``closed_ts``, ``deps``, ``description_sha256``, ``description_size_chars``, ``duplicate_of``, ``executor_id``, ``executor_kind``, ``lock``, ``progress_done``, ``progress_total``, ``status``, ``task_id``, ``title``), not the task — call ``get_task`` when you need the rest.",
+        "inputSchema": {
+          "properties": {
+            "task_id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "task_id"
+          ],
+          "type": "object"
         },
-        "required": [
-          "task_id"
-        ],
-        "type": "object"
+        "name": "mark_task_done"
       },
-      "name": "terminate_task"
-    },
+    {
+        "description": "Close this task as terminated — the work is being abandoned, not finished. Terminating is the one status change that never goes through the task's own step reports, so it requires no step to be in any particular state. WHO: the owner, an admin agent, or the task's OWN executor when that executor is a 正職 member (T-b56e, owner 2026-08-20 card rc-b896e3f641e7). A member terminating SOMEONE ELSE's task is a flat 403. An OUTSOURCE worker is refused HERE even on its own task — the owner's ruling named 執行者 and did not reach the contractor lifecycle, so this door stays shut until one does. ⚠️ THAT IS A FACT ABOUT THIS ROUTE, NOT A SYSTEM-WIDE GUARANTEE that a worker cannot close its own task: ``mark_task_duplicated`` sits at the same principalAgent floor, gates on callerMayDriveTask with no such subtraction, and reaches the same close (measured 2026-08-20 against this route's predecessor: 200 duplicated). Shutting that door too needs its own ruling. ANY NON-TERMINAL STATUS IS ACCEPTED, ``ready_for_done`` INCLUDED — giving up does not require the work to be complete first. Already done, terminated or duplicated is a 409. Stamps closed_ts and releases any bound outsource worker. REPLACES ``terminate_task``, REMOVED in the same release: the old name said what you were doing to the task, this one says the status the task lands in. Answers with a bounded receipt (``artifact_count``, ``closed_ts``, ``deps``, ``description_sha256``, ``description_size_chars``, ``duplicate_of``, ``executor_id``, ``executor_kind``, ``lock``, ``progress_done``, ``progress_total``, ``status``, ``task_id``, ``title``), not the task — call ``get_task`` when you need the rest.",
+        "inputSchema": {
+          "properties": {
+            "task_id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "task_id"
+          ],
+          "type": "object"
+        },
+        "name": "mark_task_terminated"
+      },
     {
       "description": "Set a task's priority (owner/admin agent any value on any task; the task's own executor any value on their task — frozen INCLUDED, and whoever may freeze may unfreeze, T-6020). The actor who sets frozen is recorded on the task as frozen_by and the field clears when the task leaves frozen. Anyone else is a flat 403. Answers with a bounded receipt (task_id, priority, frozen_by), not the whole task — use get_task when you need the rest.",
       "inputSchema": {
@@ -3038,26 +3053,26 @@
         "name": "update_task"
       },
     {
-      "description": "Mark a not-yet-terminal task duplicated, pointing at an existing final original (executor/owner). A blank original, an original that cannot be found, a self-reference, a chained duplicate and a target that is already pointed at are all refused. Closing across executors creates a handoff_follow_up, and no dependency is added. Answers with a bounded receipt (``artifact_count``, ``closed_ts``, ``deps``, ``description_sha256``, ``description_size_chars``, ``duplicate_of``, ``executor_id``, ``executor_kind``, ``lock``, ``progress_done``, ``progress_total``, ``status``, ``task_id``, ``title``), not the task — call ``get_task`` when you need the rest.",
-      "inputSchema": {
-        "properties": {
-          "duplicate_of": {
-            "title": "Duplicate Of",
-            "type": "string"
+        "description": "Close this task as duplicated, pointing at the existing FINAL original it copies. ``duplicated`` is a terminal status alongside done and terminated, reachable only through this dedicated action — task status is otherwise derived from the steps and is never agent-reported. WHO: the task's executor; the owner and the admin assistant may act on any task. ``duplicate_of`` is REQUIRED (422 when blank) and must name an EXISTING task (404) that is not this one (409 self-reference) and is not itself already ``duplicated`` (409 — point at the FINAL original, the server never chases a chain); a task already named as an original cannot itself be marked duplicated (409). ANY NON-TERMINAL STATUS IS ACCEPTED, ``ready_for_done`` INCLUDED — a task can turn out to be a copy of another one at any point, the close-out window included. Already terminal is a 409. Closing across executors creates a handoff_follow_up, and no dependency is added. REPLACES ``mark_duplicate``, REMOVED in the same release: same behaviour, a name that says which status the task lands in. Answers with a bounded receipt (``artifact_count``, ``closed_ts``, ``deps``, ``description_sha256``, ``description_size_chars``, ``duplicate_of``, ``executor_id``, ``executor_kind``, ``lock``, ``progress_done``, ``progress_total``, ``status``, ``task_id``, ``title``), not the task — call ``get_task`` when you need the rest.",
+        "inputSchema": {
+          "additionalProperties": false,
+          "properties": {
+            "duplicate_of": {
+              "title": "Duplicate Of",
+              "type": "string"
+            },
+            "task_id": {
+              "type": "string"
+            }
           },
-          "task_id": {
-            "type": "string"
-          }
+          "required": [
+            "task_id",
+            "duplicate_of"
+          ],
+          "type": "object"
         },
-        "required": [
-          "task_id",
-          "duplicate_of"
-        ],
-        "additionalProperties": false,
-        "type": "object"
+        "name": "mark_task_duplicated"
       },
-      "name": "mark_duplicate"
-    },
     {
       "description": "Report a step status (pending/in_progress/waiting_external/done). Entering waiting_external requires a non-blank waiting_reason (422 otherwise); the task status is derived from its steps. T-74f8 交棒閘: if this report would CLOSE the task (every step done) AND the task's creator is not its executor, the call is REFUSED with 422 unless you say where the ball goes IN THIS SAME CALL — handoff='return_to_creator' (recorded on the task and nothing else — no task is opened and nobody is notified), handoff='follow_up' + handoff_task_id=<a successor task you already created> (the server hangs this task off it as a dependency, and closing this one releases it), or handoff='none' + handoff_note=<why nothing follows>. The gate stands aside by itself when a non-terminal task already depends on this one — you never see it if the handover is already real. It refuses BEFORE writing anything, so a refused report leaves the plan fully editable: create the successor task, then re-send this same report with the declaration. This is your LAST chance — once the task closes it can never be replanned (submit_plan becomes a permanent 409).",
       "inputSchema": {
@@ -3115,7 +3130,7 @@
       "name": "update_step_status"
     },
     {
-      "description": "Write this step's working note: where the work stands and what comes next — the field the handover SOP means by 「把還在進行中的工作寫回 task step note」. WHAT TO WRITE — three things, then stop: (1) STATE — one sentence on where this step actually got to; (2) NEXT — one sentence on what whoever takes over does next; (3) EVIDENCE POINTERS — version ids, file and log paths, what you verified YOURSELF versus what you are taking on someone's word, and the limits of what was NOT done. Long narrative does not live here: reasoning and scope belong in the task description, reports and diffs belong on the task as artifacts. The note is the current state — not a report, not an append-only log. Writable in ANY step status (pending, in_progress, waiting_owner, waiting_external, done, superseded), unlike `waiting_reason`, which is locked to waiting_external. Wholesale write: `note` replaces whatever was there and \"\" clears it, so rewrite it as the work moves rather than appending; a note over the step note cap (counted in runes) is refused — that ceiling is the `task.step_note_cap_chars` setting, and every face that carries a note reports the live value as `note_cap_chars` — read it rather than assuming a number, because the setting is adjustable and this sentence is not regenerated when it moves. Same executor/admin gate as every other task-driving write (403 otherwise). ⚠️ A task auto-closes when its last step is reported done and a closed task 409s — so write the note BEFORE the report that finishes the last step, not after. The receipt carries `size_chars` / `cap_chars`, so the room left is on every write instead of only on the 400 that refuses one; `get_task` reports the same pair per step as `note_size_chars` / `note_cap_chars`, but since T-66 it no longer carries the note TEXT — read a note back with `get_task_step(task_id, step_id)`, which answers that one step in full.",
+      "description": "Write this step's working note: where the work stands and what comes next — the field the handover SOP means by 「把還在進行中的工作寫回 task step note」. WHAT TO WRITE — three things, then stop: (1) STATE — one sentence on where this step actually got to; (2) NEXT — one sentence on what whoever takes over does next; (3) EVIDENCE POINTERS — version ids, file and log paths, what you verified YOURSELF versus what you are taking on someone's word, and the limits of what was NOT done. Long narrative does not live here: reasoning and scope belong in the task description, reports and diffs belong on the task as artifacts. The note is the current state — not a report, not an append-only log. Writable in ANY step status (pending, in_progress, waiting_owner, waiting_external, done, superseded), unlike `waiting_reason`, which is locked to waiting_external. Wholesale write: `note` replaces whatever was there and \"\" clears it, so rewrite it as the work moves rather than appending; a note over the step note cap (counted in runes) is refused — that ceiling is the `task.step_note_cap_chars` setting, and every face that carries a note reports the live value as `note_cap_chars` — read it rather than assuming a number, because the setting is adjustable and this sentence is not regenerated when it moves. Same executor/admin gate as every other task-driving write (403 otherwise). ⚠️ Notes stay writable through ``ready_for_done`` — a task whose last step is reported done no longer closes itself, and that window is where the close-out writing belongs. What still 409s is a task someone has actually closed (``mark_task_done``/``mark_task_terminated``/``mark_task_duplicated``/``force_task_done``), so write the note before that call, not after. The receipt carries `size_chars` / `cap_chars`, so the room left is on every write instead of only on the 400 that refuses one; `get_task` reports the same pair per step as `note_size_chars` / `note_cap_chars`, but since T-66 it no longer carries the note TEXT — read a note back with `get_task_step(task_id, step_id)`, which answers that one step in full.",
       "inputSchema": {
         "properties": {
           "note": {
@@ -3207,6 +3222,27 @@
           "type": "object"
         },
         "name": "get_task_step"
+      },
+    {
+        "description": "Close this task as done OVER its own precondition — the exit for a task that is never going to be closed by the agent holding it. Two shapes reach it: one sitting in ``ready_for_done`` whose executor is gone, and one still mid-plan whose remaining steps will never be reported. WHO: the OWNER and the ADMIN ASSISTANT only. Every other principal is a 403, the task's own executor INCLUDED — an executor that can force its own task simply has ``mark_task_done`` without a precondition, and the precondition is the whole point. ``reason`` is REQUIRED and refused blank (422): a forced close is the one close nobody can reconstruct afterwards from the steps, because the steps do not agree that the work is finished. The forcing principal and the reason are recorded on the task and come back on every read as ``forced_done_by`` / ``forced_done_reason``, so a done task always says whether it got there by itself. ANY NON-TERMINAL STATUS IS ACCEPTED. Already terminal is a 409 — this forces the precondition, not the terminal wall. Answers with a bounded receipt (``artifact_count``, ``closed_ts``, ``deps``, ``description_sha256``, ``description_size_chars``, ``duplicate_of``, ``executor_id``, ``executor_kind``, ``lock``, ``progress_done``, ``progress_total``, ``status``, ``task_id``, ``title``), not the task — call ``get_task`` when you need the rest.",
+        "inputSchema": {
+          "additionalProperties": false,
+          "properties": {
+            "reason": {
+              "title": "Reason",
+              "type": "string"
+            },
+            "task_id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "task_id",
+            "reason"
+          ],
+          "type": "object"
+        },
+        "name": "force_task_done"
       },
     {
       "description": "Replace the blocking-deps list wholesale. Answers with a bounded receipt (``artifact_count``, ``closed_ts``, ``deps``, ``description_sha256``, ``description_size_chars``, ``duplicate_of``, ``executor_id``, ``executor_kind``, ``lock``, ``progress_done``, ``progress_total``, ``status``, ``task_id``, ``title``), not the task — call ``get_task`` when you need the rest.",

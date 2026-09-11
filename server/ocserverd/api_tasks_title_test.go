@@ -223,7 +223,7 @@ func TestHandleUpdateTaskTitleApiTasksTaskIdTitlePost(t *testing.T) {
 	t.Run("a closed task's title is still correctable", func(t *testing.T) {
 		_, h, _, owner := newAPITestServer(t)
 		apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"Ship it","executor_member_id":"kip"}`)
-		apiJSON(t, h, "POST", "/api/tasks/T-1/terminate", owner, "")
+		apiJSON(t, h, "POST", "/api/tasks/T-1/mark-terminated", owner, "")
 
 		status, data := apiJSON(t, h, "POST", "/api/tasks/T-1/title", owner, `{"title":"Ship it (dropped)"}`)
 		if status != 200 {
