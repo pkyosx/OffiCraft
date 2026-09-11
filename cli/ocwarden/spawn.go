@@ -948,7 +948,7 @@ type SpawnDeps struct {
 	Pretrust func() error
 	// PurgeTrash (T-684c, nil-skipped) reaps <workdir>/trash at spawn time — the
 	// scratch the PREVIOUS generation of this agent mv'd there instead of rm-ing it
-	// (the harness's un-waivable dangerous-rm prompt hangs a headless agent; see
+	// (the harness's un-waivable dangerous-rm prompt stands in front of an agent's own rm; see
 	// trash.go). Bound PER-SPAWN by the transport wiring because it needs this
 	// member's workdir, exactly like Pretrust. Purely best-effort: it never fails
 	// a spawn.
