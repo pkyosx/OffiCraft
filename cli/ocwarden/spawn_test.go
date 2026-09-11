@@ -35,6 +35,7 @@ type spawnHarness struct {
 	slept     []time.Duration
 	pretrusts int
 	pretrustE error
+	pretrustV []agentEnvPair
 	purges    int
 }
 
@@ -71,8 +72,12 @@ func (h *spawnHarness) deps() SpawnDeps {
 			}
 			return os.ErrNotExist
 		},
-		Logf:       func(format string, a ...any) { h.logs = append(h.logs, fmt.Sprintf(format, a...)) },
-		Pretrust:   func() error { h.pretrusts++; return h.pretrustE },
+		Logf: func(format string, a ...any) { h.logs = append(h.logs, fmt.Sprintf(format, a...)) },
+		Pretrust: func(agentEnv []agentEnvPair) error {
+			h.pretrusts++
+			h.pretrustV = agentEnv
+			return h.pretrustE
+		},
 		PurgeTrash: func() { h.purges++ },
 		Sleep:      func(d time.Duration) { h.slept = append(h.slept, d) },
 	}
@@ -742,7 +747,10 @@ func TestDefaultClaudeJSONPath(t *testing.T) {
 }
 
 func TestClaudeJSONRedirectGate(t *testing.T) {
-	home := "/Users/eva"
+	// NOT the machine's real home: an equal fixture makes env("HOME") and
+	// os.UserHomeDir() return the same string, and the whole point of reading HOME
+	// through env is that they differ.
+	home := "/Users/not-the-warden-owner"
 	envOf := func(claudeJSON, home string) func(string) string {
 		return func(k string) string {
 			switch k {
@@ -777,10 +785,10 @@ func TestClaudeJSONRedirectGate(t *testing.T) {
 			claudeJSON string
 			home       string
 		}{
-			{"literal", "/Users/eva/.claude.json", home},
+			{"literal", "/Users/not-the-warden-owner/.claude.json", home},
 			{"tilde", "~/.claude.json", home},
-			{"uncleaned", "/Users/eva/x/../.claude.json", home},
-			{"trailing slash on HOME", "/Users/eva/.claude.json", "/Users/eva/"},
+			{"uncleaned", "/Users/not-the-warden-owner/x/../.claude.json", home},
+			{"trailing slash on HOME", "/Users/not-the-warden-owner/.claude.json", "/Users/not-the-warden-owner/"},
 			{"relative to the cwd", ".claude.json", cwd},
 		}
 		for _, c := range spellings {
@@ -795,7 +803,7 @@ func TestClaudeJSONRedirectGate(t *testing.T) {
 		if err == nil {
 			t.Fatal("a redirect away from $HOME/.claude.json must be refused")
 		}
-		for _, want := range []string{"/tmp/throwaway.json", "/Users/eva/.claude.json"} {
+		for _, want := range []string{"/tmp/throwaway.json", "/Users/not-the-warden-owner/.claude.json"} {
 			if !strings.Contains(err.Error(), want) {
 				t.Errorf("err = %q, want it to name %q", err, want)
 			}
@@ -807,8 +815,31 @@ func TestClaudeJSONRedirectGate(t *testing.T) {
 		if err == nil {
 			t.Fatal("another user's claude.json must be refused")
 		}
-		if !strings.Contains(err.Error(), "/Users/seth/.claude.json") || !strings.Contains(err.Error(), "/Users/eva/.claude.json") {
+		if !strings.Contains(err.Error(), "/Users/seth/.claude.json") || !strings.Contains(err.Error(), "/Users/not-the-warden-owner/.claude.json") {
 			t.Errorf("err = %q, want it to name both paths", err)
+		}
+	})
+
+	t.Run("a case-differing spelling is refused", func(t *testing.T) {
+		err := claudeJSONRedirectGate(envOf("/users/NOT-THE-WARDEN-OWNER/.claude.json", home))
+		if err == nil {
+			t.Fatal("path equality is byte equality — a case-folded compare would pass a pair that is two different files on a case-sensitive filesystem")
+		}
+	})
+
+	t.Run("HOME comes from the run's own environment, not the warden process", func(t *testing.T) {
+		procHome, err := os.UserHomeDir()
+		if err != nil {
+			t.Fatalf("UserHomeDir: %v", err)
+		}
+		if procHome == home {
+			t.Fatalf("the fixture home %q is the process home, so this test cannot tell the two sources apart", home)
+		}
+		if err := claudeJSONRedirectGate(envOf(filepath.Join(home, ".claude.json"), home)); err != nil {
+			t.Errorf("err = %v, want nil — the pair matches the HOME this run carries", err)
+		}
+		if err := claudeJSONRedirectGate(envOf(filepath.Join(procHome, ".claude.json"), home)); err == nil {
+			t.Error("the warden process's own home must not satisfy a run whose HOME is elsewhere")
 		}
 	})
 
@@ -823,6 +854,83 @@ func TestClaudeJSONRedirectGate(t *testing.T) {
 	})
 }
 
+func TestClaudeJSONReaderGate(t *testing.T) {
+	wardenHome := "/Users/not-the-warden-owner"
+	env := func(k string) string {
+		if k == "HOME" {
+			return wardenHome
+		}
+		return ""
+	}
+	pair := func(v string) []agentEnvPair { return []agentEnvPair{{Key: "HOME", Value: v}} }
+
+	t.Run("no HOME in the agent env judges against the warden's own", func(t *testing.T) {
+		if err := claudeJSONReaderGate(wardenHome+"/.claude.json", env, nil); err != nil {
+			t.Errorf("err = %v, want nil", err)
+		}
+		if err := claudeJSONReaderGate("/tmp/throwaway.json", env, []agentEnvPair{{Key: "EDITOR", Value: "vim"}}); err == nil {
+			t.Error("a redirect away from the reader must still be refused")
+		}
+	})
+
+	t.Run("a HOME the agent env injects moves the reader and is refused naming both paths", func(t *testing.T) {
+		err := claudeJSONReaderGate(wardenHome+"/.claude.json", env, pair("/Volumes/scratch/home"))
+		if err == nil {
+			t.Fatal("the launch line sources the render before exec claude, so an injected HOME moves the file the child reads — writing to the warden's own is writing where nothing reads")
+		}
+		for _, want := range []string{wardenHome + "/.claude.json", "/Volumes/scratch/home/.claude.json", "HOME=/Volumes/scratch/home"} {
+			if !strings.Contains(err.Error(), want) {
+				t.Errorf("err = %q, want it to name %q", err, want)
+			}
+		}
+	})
+
+	t.Run("a write target that follows the injected HOME is let through", func(t *testing.T) {
+		if err := claudeJSONReaderGate("/Volumes/scratch/home/.claude.json", env, pair("/Volumes/scratch/home")); err != nil {
+			t.Errorf("err = %v, want nil — moving the home and the write target together is the supported path", err)
+		}
+	})
+
+	t.Run("the last HOME wins, as it does in the sourced file", func(t *testing.T) {
+		pairs := []agentEnvPair{{Key: "HOME", Value: "/first"}, {Key: "HOME", Value: "/second"}}
+		if err := claudeJSONReaderGate("/second/.claude.json", env, pairs); err != nil {
+			t.Errorf("err = %v, want nil", err)
+		}
+		if err := claudeJSONReaderGate("/first/.claude.json", env, pairs); err == nil {
+			t.Error("the FIRST export is overwritten by the second when the shell sources the file")
+		}
+	})
+
+	t.Run("a case-differing spelling is refused", func(t *testing.T) {
+		if err := claudeJSONReaderGate("/VOLUMES/Scratch/home/.claude.json", env, pair("/Volumes/scratch/home")); err == nil {
+			t.Fatal("path equality is byte equality — a case-folded compare would pass two different files on a case-sensitive filesystem")
+		}
+	})
+
+	t.Run("an empty effective HOME cannot prove the pair and is refused", func(t *testing.T) {
+		err := claudeJSONReaderGate("/tmp/throwaway.json", func(string) string { return "" }, nil)
+		if err == nil {
+			t.Fatal("an unresolvable reader must be refused, not assumed equal")
+		}
+		if !strings.Contains(err.Error(), "/tmp/throwaway.json") || !strings.Contains(err.Error(), "empty HOME") {
+			t.Errorf("err = %q, want the empty-HOME refusal naming the write target", err)
+		}
+	})
+
+	t.Run("HOME comes from the run's own environment, not the warden process", func(t *testing.T) {
+		procHome, err := os.UserHomeDir()
+		if err != nil {
+			t.Fatalf("UserHomeDir: %v", err)
+		}
+		if procHome == wardenHome {
+			t.Fatalf("the fixture home %q is the process home, so this test cannot tell the two sources apart", wardenHome)
+		}
+		if err := claudeJSONReaderGate(filepath.Join(procHome, ".claude.json"), env, nil); err == nil {
+			t.Error("the warden process's own home must not satisfy a run whose HOME is elsewhere")
+		}
+	})
+}
+
 func TestWithPerSpawn(t *testing.T) {
 	baseClock := 0
 	basePretrust := 0
@@ -831,7 +939,7 @@ func TestWithPerSpawn(t *testing.T) {
 		Home:      "/w",
 		ClaudeBin: "/usr/local/bin/claude",
 		Sleep:     func(time.Duration) { baseClock++ },
-		Pretrust:  func() error { basePretrust++; return nil },
+		Pretrust:  func([]agentEnvPair) error { basePretrust++; return nil },
 		PurgeTrash: func() {
 			basePurge++
 		},
@@ -839,10 +947,10 @@ func TestWithPerSpawn(t *testing.T) {
 
 	perPretrust, perPurge := 0, 0
 	got := base.withPerSpawn(
-		func() error { perPretrust++; return errors.New("boom") },
+		func([]agentEnvPair) error { perPretrust++; return errors.New("boom") },
 		func() { perPurge++ })
 
-	if err := got.Pretrust(); err == nil || err.Error() != "boom" {
+	if err := got.Pretrust(nil); err == nil || err.Error() != "boom" {
 		t.Errorf("Pretrust err = %v, want boom", err)
 	}
 	got.PurgeTrash()
@@ -858,7 +966,7 @@ func TestWithPerSpawn(t *testing.T) {
 		t.Errorf("the rest of the deps changed: %+v", got)
 	}
 
-	_ = base.Pretrust()
+	_ = base.Pretrust(nil)
 	if basePretrust != 1 {
 		t.Error("the receiver's own seams must be left intact")
 	}
@@ -965,6 +1073,31 @@ func TestStart(t *testing.T) {
 			if strings.Contains(line, "ghp_abc") {
 				t.Errorf("a credential value reached the log: %q", line)
 			}
+		}
+		// Pretrust decides WHICH claude.json the child reads, and a HOME in these
+		// pairs moves it — so it must be handed the same set the launch line sources.
+		wantPairs := []agentEnvPair{{Key: "GH_TOKEN", Value: "ghp_abc"}, {Key: "EDITOR", Value: "vim"}}
+		if !reflect.DeepEqual(h.pretrustV, wantPairs) {
+			t.Errorf("pretrust saw %v, want the rendered pairs %v", h.pretrustV, wantPairs)
+		}
+	})
+
+	t.Run("a failed env render hands pretrust nothing, because the launch line sources nothing", func(t *testing.T) {
+		dir := t.TempDir()
+		envFile := filepath.Join(dir, "env")
+		if err := os.WriteFile(envFile, []byte("HOME=/Volumes/scratch/home\n"), 0o600); err != nil {
+			t.Fatalf("seed env file: %v", err)
+		}
+		h := newSpawnHarness()
+		h.writeErr["/w/m1/.oc-env"] = errors.New("disk full")
+		d := h.deps()
+		d.EnvFile = envFile
+
+		if got := d.start(startParamsM1()); !got.OK {
+			t.Fatalf("outcome = %+v, want OK", got)
+		}
+		if h.pretrustV != nil {
+			t.Errorf("pretrust saw %v, want nil — the render failed, so the child never reads that HOME", h.pretrustV)
 		}
 	})
 
