@@ -3283,16 +3283,28 @@ func TestReadyForDoneKeepsTheRecordWritableAndDoneFreezesIt(t *testing.T) {
 	agent := readyForDoneTask(t, api, h, owner, "T-1", "kip")
 	stepID := apiTestOnlyStepID(t, h, owner, "T-1")
 
+	_, first := apiJSON(t, h, "POST", "/api/tasks/T-1/artifact", agent,
+		`{"kind":"link","name":"PR #122","url":"https://example.com/pr/122"}`)
+	artifactID, _ := first["artifact_id"].(string)
+
+	// One entry per door that reads TaskRecordFrozen. An entry missing here is
+	// a door whose two answers can drift apart unnoticed, which is the failure
+	// this test exists for — the unpin goes LAST because it is the one write
+	// that consumes what the others act on.
 	writes := []struct {
-		name, target, body string
+		name, method, target, body string
 	}{
-		{"pin a deliverable", "/api/tasks/T-1/artifact",
+		{"pin a deliverable", "POST", "/api/tasks/T-1/artifact",
 			`{"kind":"link","name":"PR #123","url":"https://example.com/pr/123"}`},
-		{"finish the step note", "/api/tasks/T-1/steps/" + stepID + "/note",
+		{"upload a deliverable", "POST", "/api/tasks/T-1/artifacts/upload?name=the+report", "bytes"},
+		{"finish the step note", "POST", "/api/tasks/T-1/steps/" + stepID + "/note",
 			`{"note":"what actually happened"}`},
+		{"change a pinned deliverable", "POST", "/api/tasks/T-1/artifact/" + artifactID + "/replace",
+			`{"url":"https://example.com/pr/122-v2"}`},
+		{"unpin a deliverable", "DELETE", "/api/tasks/T-1/artifact/" + artifactID, ""},
 	}
 	for _, w := range writes {
-		status, data := apiJSON(t, h, "POST", w.target, agent, w.body)
+		status, data := apiJSON(t, h, w.method, w.target, agent, w.body)
 		if status != 200 {
 			t.Fatalf("%s in ready_for_done: want 200, got %d (%v) — the close-out "+
 				"window has to admit the close-out", w.name, status, data)
@@ -3302,7 +3314,7 @@ func TestReadyForDoneKeepsTheRecordWritableAndDoneFreezesIt(t *testing.T) {
 	apiMarkDone(t, h, "T-1", agent)
 
 	for _, w := range writes {
-		status, data := apiJSON(t, h, "POST", w.target, agent, w.body)
+		status, data := apiJSON(t, h, w.method, w.target, agent, w.body)
 		if status != 409 {
 			t.Fatalf("%s after mark_task_done: want 409, got %d (%v) — the record "+
 				"freezes when the task closes", w.name, status, data)

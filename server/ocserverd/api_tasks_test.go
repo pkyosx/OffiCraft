@@ -7419,6 +7419,42 @@ func TestHandleMarkTaskDoneApiTasksTaskIdMarkDonePost(t *testing.T) {
 		apiWantError(t, data, "conflict", "task 'T-1' is already closed (done)")
 	})
 
+	t.Run("a task that reached ready_for_done with the ball undeclared is refused at the handoff gate and stays open", func(t *testing.T) {
+		api, h, d, owner := newAPITestServer(t)
+		apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"Ship it","executor_member_id":"kip"}`)
+		agent := apiTestAgentToken(t, api, "kip", "")
+		apiJSON(t, h, "POST", "/api/tasks/T-1/plan", agent,
+			`{"steps":[{"name":"Draft","dod":"a draft exists"}]}`)
+		// Reaching ready_for_done WITHOUT passing the step-report door is what
+		// leaves handoff undeclared here — boot-reconcile is the route the
+		// gate's own door list names.
+		steps, err := d.ListTaskSteps("T-1")
+		if err != nil {
+			t.Fatalf("ListTaskSteps: %v", err)
+		}
+		steps[0].Status = StepStatusDone
+		if err := d.PutTaskStep(steps[0]); err != nil {
+			t.Fatalf("PutTaskStep: %v", err)
+		}
+		if _, err := api.reconcileTaskStatusesOnBoot(); err != nil {
+			t.Fatalf("reconcileTaskStatusesOnBoot: %v", err)
+		}
+
+		status, data := apiJSON(t, h, "POST", "/api/tasks/T-1/mark-done", agent, "")
+		if status != 422 {
+			t.Fatalf("want 422, got %d (%v)", status, data)
+		}
+		msg, _ := data["error"].(map[string]any)["message"].(string)
+		if !strings.Contains(msg, "force_task_done") {
+			t.Fatalf("the refusal must name the way out of a door that carries no "+
+				"declaration field, got %q", msg)
+		}
+		_, view := apiJSON(t, h, "GET", "/api/tasks/T-1", owner, "")
+		if view["status"] != TaskStatusReadyForDone {
+			t.Fatalf("a refused close must leave the task open, got %v", view["status"])
+		}
+	})
+
 	t.Run("a caller that is not the executor is a 403, the owner included", func(t *testing.T) {
 		api, h, _, owner := newAPITestServer(t)
 		apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"Ship it","executor_member_id":"kip"}`)
