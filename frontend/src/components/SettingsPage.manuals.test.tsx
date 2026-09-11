@@ -236,13 +236,25 @@ describe("設定 › 任務手冊 — detail", () => {
     await findByTestId("manual-entry-definition");
     expect(queryByTestId("manual-definition-card")).toBeNull();
 
-    // 任務規劃 carries THAT CARD AND NOTHING ELSE. Asserted on the container's
-    // children rather than on one testid because the failure this pins is an
-    // ADDED card (T-186 removed 學習經驗 from here): every existing assertion
-    // stays green while a second entry sits on the owner's screen.
+    // The hub carries THAT ENTRY CARD AND NOTHING ELSE. The failure this pins
+    // is an ADDED card (T-186 removed 學習經驗 from here): every other
+    // assertion on this page stays green while a second entry sits on the
+    // owner's screen.
+    //
+    // Scoped to the WHOLE PAGE, not to one `.set-entries`: how many containers
+    // the entries are split across is a layout choice, so a guard reading one
+    // container is blind to a card put in a sibling one — which renders
+    // identically. The selector is the UNION of the two shapes such a card can
+    // take, because either half alone leaves a hole: `.set-entry` is the
+    // styling contract, so it catches a card carrying no testid, and the
+    // testid prefix catches one that styles itself some other way.
     expect(
-      [...container.querySelector(".set-entries")!.children].map((el) =>
-        el.getAttribute("data-testid")
+      [
+        ...container.querySelectorAll(
+          '.set-entry, [data-testid^="manual-entry-"]'
+        ),
+      ].map(
+        (el) => el.getAttribute("data-testid") ?? `untagged: ${el.textContent}`
       )
     ).toEqual(["manual-entry-definition"]);
 

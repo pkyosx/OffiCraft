@@ -17,14 +17,18 @@ const legacyTaskManualKindMsg = "document history kind \"task_manual\" was retir
 
 // The two legacy-memory kinds (T-186). Refused BY NAME rather than left to fall
 // through to "unknown kind", and the message has to say that the documents are
-// GONE: migration 00104 dropped the lessons table, task_manual.learnings and
-// every retained revision of both, so a caller who guesses these kinds is
-// asking after storage that no longer exists — and putting either name back
-// into the switch below would make list answer an empty 200 that is
-// indistinguishable from "this document has no versions yet".
+// GONE: the migration that landed with this removal dropped the lessons table,
+// task_manual.learnings and every retained revision of both, so a caller who
+// guesses these kinds is asking after storage that no longer exists — and
+// putting either name back into the switch below would make list answer an
+// empty 200 that is indistinguishable from "this document has no versions yet".
+//
+// The message names no migration NUMBER on purpose: a number is claimed, not
+// fixed, and a rebase that renumbers the migration would rot this sentence
+// without reddening anything.
 const legacyMemoryKindsMsg = "document history kinds \"lessons\" and " +
 	"\"task_manual_learnings\" were retired: the legacy memory documents and " +
-	"their retained revisions were dropped (migration 00104), so there is " +
+	"their retained revisions were dropped from the database, so there is " +
 	"nothing left to list or restore"
 
 // historyKeyParts reports a document-history key's PRIMARY identity and whether

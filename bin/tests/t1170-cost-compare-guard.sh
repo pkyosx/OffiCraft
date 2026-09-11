@@ -39,9 +39,8 @@ WORK="$(mktemp -d -t oc-t1170-guard.XXXXXX)"
 arm_json() {
   cat <<EOF
 {
-  "_caps": {"doc_cap_chars_duty": $1, "doc_cap_chars_manual_sop": 15000,
-            "doc_cap_chars_manual_learnings": 15000},
-  "_corpus_chars": {"definition_md": $2, "sop_md": 13500, "learnings": 13500,
+  "_caps": {"doc_cap_chars_duty": $1, "doc_cap_chars_manual_sop": 15000},
+  "_corpus_chars": {"definition_md": $2, "sop_md": 13500,
                     "global_context": 3001},
   "list_document_history": {"chars": $3, "chars_min": $3, "chars_max": $3, "reads": 3},
   "list_task_manuals":     {"chars": $4, "chars_min": $4, "chars_max": $4, "reads": 3},

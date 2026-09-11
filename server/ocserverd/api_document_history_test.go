@@ -524,7 +524,7 @@ func TestHandleListDocumentHistoryApiDocumentHistoryKindKeyGet(t *testing.T) {
 			apiWantError(t, data, "validation_error",
 				`document history kinds "lessons" and "task_manual_learnings" were retired: `+
 					`the legacy memory documents and their retained revisions were dropped `+
-					`(migration 00104), so there is nothing left to list or restore`)
+					`from the database, so there is nothing left to list or restore`)
 		})
 	}
 
